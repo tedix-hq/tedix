@@ -201,6 +201,21 @@ describe("plugin packager", () => {
 			),
 		).toBe(false);
 		expect(new Set(Object.keys(openai.hooks))).toEqual(EVENTS);
+		// Codex continues from a synchronous Stop hook instead; Claude never gets it.
+		const awaitDraft = handlers({ Stop: openai.hooks.Stop }).filter(
+			(handler) => handler.command === "tedix hooks await-draft",
+		);
+		expect(awaitDraft).toEqual([
+			{ type: "command", command: "tedix hooks await-draft", timeout: 100 },
+		]);
+		expect(
+			handlers(
+				decode(
+					packageFiles({ host: "claude", local: true }),
+					"hooks/hooks.json",
+				).hooks,
+			).some((handler) => handler.args?.[1] === "await-draft"),
+		).toBe(false);
 		expect(
 			Object.values<any[]>(openai.hooks).every((definitions) =>
 				definitions.every((definition) => definition.hooks.length > 0),

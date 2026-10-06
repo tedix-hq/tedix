@@ -37,6 +37,7 @@ describe("agentTurnTriageContract", () => {
 		});
 		expect(stored.drafting).toEqual({ enabled: false });
 		expect(stored.eligibility).toEqual({ minRate: 0.9, minDrafts: 50 });
+		expect(stored.autoSend).toEqual({ enabled: false, maxConsecutive: 3 });
 		const base = {
 			enabled: true,
 			model: "@cf/cloudflare/clef-flash",
@@ -60,6 +61,19 @@ describe("agentTurnTriageContract", () => {
 				drafting: { enabled: true, autoSend: true },
 			}).success,
 		).toBe(false);
+		for (const maxConsecutive of [-1, 11, 1.5])
+			expect(
+				AgentTurnTriagePolicyInputSchema.safeParse({
+					...base,
+					autoSend: { enabled: true, maxConsecutive },
+				}).success,
+			).toBe(false);
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse({
+				...base,
+				autoSend: { enabled: true, maxConsecutive: 10 },
+			}).success,
+		).toBe(true);
 	});
 
 	it("bounds reply drafts", () => {
@@ -67,10 +81,16 @@ describe("agentTurnTriageContract", () => {
 			requestId: "3f1b5d4e-8f6c-4a42-9b8e-1c2d3e4f5a6b",
 			body: "x".repeat(6_000),
 			rationale: "r".repeat(2_000),
+			reversible: true,
 		};
 		expect(ProposeAgentReplyDraftInputSchema.safeParse(draft).success).toBe(
 			true,
 		);
+		// The drafter must assert reversibility either way.
+		const { reversible: _reversible, ...unasserted } = draft;
+		expect(
+			ProposeAgentReplyDraftInputSchema.safeParse(unasserted).success,
+		).toBe(false);
 		expect(
 			ProposeAgentReplyDraftInputSchema.safeParse({
 				...draft,

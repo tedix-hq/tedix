@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -10,11 +11,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DETACHED, runAgentStatus } from "./agent-status";
 import {
+	autoDeliveryPath,
 	captureStatePath,
 	claimReply,
 	classify,
 	DETAIL_CALLABLE,
+	draftStatusPath,
 	LABEL_CALLABLE,
+	peek,
 	questionPath,
 	REQUEST_DRAFT_CALLABLE,
 	runDecisionCapture,
@@ -761,6 +765,105 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 				{ requestId: REQUEST, responseLimit: 5 },
 			]);
 		}
+	});
+
+	test("a typed reply to an auto-delivered question cites the draft as auto-sent", async () => {
+		const auto = () => autoDeliveryPath(state());
+		mkdirSync(join(config, "decision-capture"), { recursive: true });
+		const record = (requestId: string) =>
+			writeFileSync(
+				auto(),
+				JSON.stringify({ requestId, draftId: DRAFT_ID, count: 2 }),
+			);
+		await runHook("stop", { last_assistant_message: "Tidy the docs?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		record(REQUEST);
+		payloads = [];
+		await runHook(
+			"reply",
+			{ prompt: "actually skip the docs" },
+			[BINDING, AUTH, { request: CREATED }],
+			{ gateway: { [DETAIL_CALLABLE]: () => detail() } },
+		);
+		const sent = payloads.at(-1)![1];
+		expect(sent.body).toBe("actually skip the docs");
+		expect(sent.metadata).toMatchObject({
+			source: "user-reply",
+			draftId: DRAFT_ID,
+			draftOutcome: "auto-sent",
+		});
+		// A typed reply ends the run of consecutive auto replies.
+		expect(existsSync(auto())).toBe(false);
+		// Another question's auto delivery is never cited, but still reset.
+		record("88888888-8888-4888-8888-888888888888");
+		await runHook("stop", { last_assistant_message: "Tidy the docs?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		payloads = [];
+		await runHook(
+			"reply",
+			{ prompt: "ok" },
+			[BINDING, AUTH, { request: CREATED }],
+			{
+				gateway: { [DETAIL_CALLABLE]: () => detail() },
+			},
+		);
+		expect(payloads.at(-1)![1].metadata).not.toHaveProperty("draftOutcome");
+		expect(existsSync(auto())).toBe(false);
+	});
+
+	test("an auto reply re-entering as a prompt is never a user reply", () => {
+		mkdirSync(join(config, "decision-capture"), { recursive: true });
+		writeFileSync(
+			state(),
+			JSON.stringify({ requestId: REQUEST, version: 1, token: "t" }),
+		);
+		expect(
+			claimReply(
+				{
+					prompt:
+						'Tedix tedi Docs replied for the user (auto, reversible step; the user can override at any time): "yes"',
+				},
+				state(),
+			),
+		).toBeUndefined();
+		expect(existsSync(state())).toBe(true);
+	});
+
+	test("the turn end records whether a draft was queued", async () => {
+		const later = { ...TRIAGE_OK, urgency: "later", urgentLabels: [] };
+		for (const [draft, status] of [
+			[() => ({ status: "queued" }), "queued"],
+			[() => ({ status: "ineligible" }), "none"],
+		] as const) {
+			await runHook(
+				"stop",
+				{ last_assistant_message: "Ship it?" },
+				[BINDING, AUTH, CREATED],
+				{
+					gateway: {
+						[TRIAGE_CALLABLE]: () => later,
+						[REQUEST_DRAFT_CALLABLE]: draft,
+					},
+				},
+			);
+			expect(peek(draftStatusPath(state()))).toEqual({
+				requestId: REQUEST,
+				status,
+			});
+		}
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Blocked." },
+			[BINDING, AUTH, CREATED],
+			{ gateway: { [TRIAGE_CALLABLE]: () => TRIAGE_OK } },
+		);
+		expect(peek(draftStatusPath(state()))?.status).toBe("none");
 	});
 
 	test("a missing or failing detail read keeps the plain reply", async () => {

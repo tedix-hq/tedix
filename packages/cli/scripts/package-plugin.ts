@@ -22,7 +22,9 @@ import { parseArgs } from "node:util";
 export const ROOT = resolve(import.meta.dir, "../../../plugins/tedix");
 const ASSETS = ["icon.png", "icon-dark.png", "logo.png", "logo-dark.png"];
 const HOOK_COMMAND =
-	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|status)$/;
+	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|status)$/;
+/** Hooks only Codex runs; Claude Code packages omit them. */
+const CODEX_ONLY_HOOKS = new Set(["await-draft"]);
 type Host = "openai" | "claude";
 
 export interface PackageOptions {
@@ -121,18 +123,21 @@ function addFiles(
 /** The local hooks, in the host's native form; the logic lives in the Tedix CLI. */
 function localHooks(root: string, host: Host): any {
 	const hooks = readJson(root, "hooks/hooks.json");
-	if (host !== "claude")
-		// Only Claude Code can wake a session from a background hook (asyncRewake);
-		// elsewhere such a hook would hold the turn open, so it is not shipped.
-		for (const [event, definitions] of Object.entries<any[]>(hooks.hooks)) {
-			for (const definition of definitions)
-				definition.hooks = definition.hooks.filter(
-					(handler: any) => handler.asyncRewake !== true,
-				);
-			hooks.hooks[event] = definitions.filter(
-				(definition) => definition.hooks.length,
-			);
-		}
+	// Only Claude Code can wake a session from a background hook (asyncRewake);
+	// elsewhere such a hook would hold the turn open, so it is not shipped.
+	// Codex instead continues from a synchronous Stop hook (await-draft), which
+	// Claude Code does not need: await-reply delivers the same replies there.
+	const shipped = (handler: any): boolean =>
+		host === "claude"
+			? !CODEX_ONLY_HOOKS.has(HOOK_COMMAND.exec(handler.command)?.[1] ?? "")
+			: handler.asyncRewake !== true;
+	for (const [event, definitions] of Object.entries<any[]>(hooks.hooks)) {
+		for (const definition of definitions)
+			definition.hooks = definition.hooks.filter(shipped);
+		hooks.hooks[event] = definitions.filter(
+			(definition) => definition.hooks.length,
+		);
+	}
 	for (const definitions of Object.values<any[]>(hooks.hooks))
 		for (const definition of definitions)
 			for (const handler of definition.hooks) {

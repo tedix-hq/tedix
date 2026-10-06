@@ -109,7 +109,7 @@ export const agentTurnTriageContract = oc
 				path: "/reply-drafts",
 				summary: "Store a drafted reply proposal for a quiet question",
 				description:
-					"Callable only by the drafting tedi named in the question target's policy. Rechecks eligibility (open, non-urgent decision-capture question) and appends an immutable draft the user can accept, edit, or replace. Never sends anything.",
+					"Callable only by the drafting tedi named in the question target's policy. Rechecks eligibility (open, non-urgent decision-capture question) and appends an immutable draft. Returns its `delivery`: `auto` only when the policy's autoSend is enabled, `reversible` is true, and the question's agent session has fewer than autoSend.maxConsecutive auto-sent replies since the user last replied there; otherwise `review` (the user accepts, edits, or replaces it). This call itself sends nothing.",
 			})
 			.input(ProposeAgentReplyDraftInputSchema)
 			.output(ProposeAgentReplyDraftResultSchema),
@@ -120,7 +120,7 @@ export const agentTurnTriageContract = oc
 				path: "/reply-drafts/acceptance",
 				summary: "Measure the caller's reply-draft acceptance per turn type",
 				description:
-					"Counts drafts proposed for the caller's questions and how the caller answered (accepted, edited, replaced, from response metadata `draftId`/`draftOutcome`), with eligibility against the policy thresholds. Measurement only.",
+					"Counts drafts proposed for the caller's questions and how the caller answered (accepted, edited, replaced, from response metadata `draftId`/`draftOutcome`), with eligibility against the policy thresholds, plus auto-send counts (autoSent, autoFollowedUp, overridden, overrideRate). Measurement only.",
 			})
 			.input(GetAgentReplyDraftAcceptanceInputSchema)
 			.output(GetAgentReplyDraftAcceptanceResultSchema),

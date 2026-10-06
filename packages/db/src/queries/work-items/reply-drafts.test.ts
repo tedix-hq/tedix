@@ -5,6 +5,7 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { respondToWorkInteraction } from "./interactions";
 import {
+	countConsecutiveAutoReplies,
 	getLatestReplyDraft,
 	getReplyDraftAcceptance,
 	insertReplyDraft,
@@ -55,6 +56,7 @@ function question(
 		targetType = "user",
 		targetId = "user",
 		expiresAt = null as string | null,
+		createdAt = CREATED,
 	} = {},
 ) {
 	sqlite
@@ -66,11 +68,18 @@ function question(
 			kind,
 			targetType,
 			targetId,
-			CREATED,
+			createdAt,
 			expiresAt,
 			JSON.stringify(metadata),
 		);
 }
+
+const NO_AUTO = {
+	autoSent: 0,
+	autoFollowedUp: 0,
+	overridden: 0,
+	overrideRate: 0,
+};
 
 const draft = (
 	overrides: Partial<Parameters<typeof insertReplyDraft>[1]> = {},
@@ -228,6 +237,7 @@ describe("work interaction reply drafts (migrated D1 triggers)", () => {
 				replaced: 0,
 				rate: 2 / 3,
 				eligible: true,
+				...NO_AUTO,
 			},
 			{
 				turnType: "status",
@@ -238,6 +248,7 @@ describe("work interaction reply drafts (migrated D1 triggers)", () => {
 				replaced: 1,
 				rate: 0,
 				eligible: false,
+				...NO_AUTO,
 			},
 			{
 				turnType: null,
@@ -248,6 +259,7 @@ describe("work interaction reply drafts (migrated D1 triggers)", () => {
 				replaced: 0,
 				rate: 1,
 				eligible: false,
+				...NO_AUTO,
 			},
 		]);
 		expect(
@@ -268,5 +280,213 @@ describe("work interaction reply drafts (migrated D1 triggers)", () => {
 				{ minRate: 0.6, minDrafts: 3 },
 			),
 		).toEqual([]);
+	});
+
+	it("defaults delivery to review and rejects unknown deliveries", async () => {
+		const { sqlite, db } = seed();
+		question(sqlite, "q1");
+		expect(await insertReplyDraft(db, draft())).toMatchObject({
+			delivery: "review",
+		});
+		expect(
+			await insertReplyDraft(
+				db,
+				draft({
+					id: "draft-2",
+					delivery: "auto",
+					now: "2026-08-20T01:01:00.000Z",
+				}),
+			),
+		).toMatchObject({ delivery: "auto" });
+		expect(() =>
+			sqlite.exec(
+				`INSERT INTO work_interaction_reply_drafts(id,org_id,interaction_id,drafter_type,drafter_id,body,rationale,delivery,created_at) VALUES('draft-3','org','q1','tedi','drafter','b','r','send','${NOW}')`,
+			),
+		).toThrow(/CHECK constraint failed/);
+		// The insert guard survives the additive column: urgent questions still
+		// refuse an auto draft.
+		question(sqlite, "q2", {
+			metadata: { ...QUIET, triage: { ...QUIET.triage, urgency: "now" } },
+		});
+		await expect(
+			insertReplyDraft(
+				db,
+				draft({ id: "draft-4", interactionId: "q2", delivery: "auto" }),
+			),
+		).rejects.toThrow(/NOT_ELIGIBLE/);
+		expect(() =>
+			sqlite.exec(
+				"UPDATE work_interaction_reply_drafts SET delivery='auto' WHERE id='draft-1'",
+			),
+		).toThrow(/reply drafts are immutable/);
+	});
+});
+
+describe("consecutive auto replies per session", () => {
+	const SESSION = { ...QUIET, sessionId: "session-a" };
+	const at = (minute: number) =>
+		`2026-08-20T00:${String(minute).padStart(2, "0")}:00.000Z`;
+
+	async function turn(
+		sqlite: DatabaseSync,
+		db: ReturnType<typeof seed>["db"],
+		index: number,
+		{
+			delivery = "auto" as "auto" | "review" | null,
+			userReply = false,
+			metadata = SESSION as Record<string, unknown>,
+		} = {},
+	) {
+		const id = `q${index}`;
+		question(sqlite, id, { metadata, createdAt: at(index) });
+		if (delivery)
+			await insertReplyDraft(
+				db,
+				draft({ id: `d${index}`, interactionId: id, delivery, now: at(index) }),
+			);
+		if (userReply)
+			await respondToWorkInteraction(db, {
+				id: `r${index}`,
+				orgId: "org",
+				interactionId: id,
+				expectedVersion: 1,
+				responder: { type: "user", id: "user" },
+				responseKind: "answer",
+				body: "Keep going",
+				resolvesRequest: true,
+				metadata: { source: "user-reply", sessionId: "session-a" },
+				now: at(index),
+			});
+	}
+
+	const count = (db: ReturnType<typeof seed>["db"], index: number, limit = 3) =>
+		countConsecutiveAutoReplies(db, {
+			orgId: "org",
+			interactionId: `q${index}`,
+			targetUserId: "user",
+			sessionId: "session-a",
+			createdAt: at(index),
+			limit,
+		});
+
+	it("counts auto drafts back to the last user reply or review draft", async () => {
+		const { sqlite, db } = seed();
+		await turn(sqlite, db, 1, { delivery: "review" });
+		await turn(sqlite, db, 2);
+		await turn(sqlite, db, 3);
+		await turn(sqlite, db, 4);
+		await turn(sqlite, db, 5, { delivery: null });
+		expect(await count(db, 2)).toBe(0);
+		expect(await count(db, 4)).toBe(2);
+		expect(await count(db, 5, 10)).toBe(3);
+		expect(await count(db, 5, 2)).toBe(2);
+		expect(await count(db, 5, 0)).toBe(0);
+	});
+
+	it("resets after a user reply and ignores other sessions and users", async () => {
+		const { sqlite, db } = seed();
+		await turn(sqlite, db, 1);
+		await turn(sqlite, db, 2);
+		await turn(sqlite, db, 3, { userReply: true });
+		await turn(sqlite, db, 4, {
+			metadata: { ...QUIET, sessionId: "session-b" },
+		});
+		await turn(sqlite, db, 5);
+		await turn(sqlite, db, 6, { delivery: null });
+		// q3 had an auto draft but the user answered it: the walk stops there.
+		expect(await count(db, 6)).toBe(1);
+		expect(
+			await countConsecutiveAutoReplies(db, {
+				orgId: "org",
+				interactionId: "q6",
+				targetUserId: "someone-else",
+				sessionId: "session-a",
+				createdAt: at(6),
+				limit: 3,
+			}),
+		).toBe(0);
+	});
+});
+
+describe("auto-send acceptance metrics", () => {
+	const SESSION = { ...QUIET, sessionId: "session-a" };
+	const at = (minute: number) =>
+		`2026-08-20T00:${String(minute).padStart(2, "0")}:00.000Z`;
+
+	it("reports auto sends, follow-ups and overrides on the same or next question", async () => {
+		const { sqlite, db } = seed();
+		const reply = (index: number, replyClass: string | null) =>
+			respondToWorkInteraction(db, {
+				id: `r${index}`,
+				orgId: "org",
+				interactionId: `q${index}`,
+				expectedVersion: 1,
+				responder: { type: "user", id: "user" },
+				responseKind: "answer",
+				body: "Reply",
+				resolvesRequest: true,
+				metadata: {
+					source: "user-reply",
+					sessionId: "session-a",
+					...(replyClass ? { replyClass } : {}),
+				},
+				now: at(index + 1),
+			});
+		for (const index of [1, 2, 3, 4, 5, 6])
+			question(sqlite, `q${index}`, {
+				metadata: SESSION,
+				createdAt: at(index),
+			});
+		// q1 auto, user follows up on the next question (q2) with "continue".
+		await insertReplyDraft(
+			db,
+			draft({
+				id: "d1",
+				interactionId: "q1",
+				delivery: "auto",
+				turnType: "continue",
+			}),
+		);
+		await reply(2, "continue");
+		// q3 auto, user overrides on the same question with a correction.
+		await insertReplyDraft(
+			db,
+			draft({
+				id: "d3",
+				interactionId: "q3",
+				delivery: "auto",
+				turnType: "continue",
+			}),
+		);
+		await reply(3, "correction");
+		// q4 auto, no follow-up on q4 or q5 (q6 is two questions later).
+		await insertReplyDraft(
+			db,
+			draft({
+				id: "d4",
+				interactionId: "q4",
+				delivery: "auto",
+				turnType: "continue",
+			}),
+		);
+		await reply(6, "challenge");
+		// A review draft never counts as auto.
+		await insertReplyDraft(
+			db,
+			draft({ id: "d5", interactionId: "q5", turnType: "continue" }),
+		);
+		const [row] = await getReplyDraftAcceptance(
+			db,
+			{ orgId: "org", targetUserId: "user" },
+			{ minRate: 0.9, minDrafts: 50 },
+		);
+		expect(row).toMatchObject({
+			turnType: "continue",
+			drafts: 4,
+			autoSent: 3,
+			autoFollowedUp: 2,
+			overridden: 1,
+			overrideRate: 1 / 3,
+		});
 	});
 });

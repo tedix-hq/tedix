@@ -404,6 +404,7 @@ describe("policy", () => {
 			...CUSTOM,
 			drafting: { enabled: false },
 			eligibility: { minRate: 0.9, minDrafts: 50 },
+			autoSend: { enabled: false, maxConsecutive: 3 },
 			version: 2,
 		});
 

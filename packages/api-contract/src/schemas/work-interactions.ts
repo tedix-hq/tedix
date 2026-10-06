@@ -295,6 +295,11 @@ export const WorkInteractionReplyDraftSchema = z.strictObject({
 		.string()
 		.nullable()
 		.describe("The drafter's turn-type label; acceptance is measured per type"),
+	delivery: z
+		.enum(["review", "auto"])
+		.describe(
+			"`review`: waits for the user to accept, edit, or replace it; `auto`: the server judged it safe to send without review",
+		),
 });
 export type WorkInteractionReplyDraft = z.infer<
 	typeof WorkInteractionReplyDraftSchema
@@ -332,7 +337,7 @@ export const GetWorkInteractionResultSchema = z.strictObject({
 	latestDraft: WorkInteractionReplyDraftSchema.nullable()
 		.optional()
 		.describe(
-			"Newest tedi-drafted reply proposal, or null when none exists. A draft is never sent automatically: answer with respond_to_work_interaction and cite it in metadata {draftId, draftOutcome: accepted|edited|replaced, editRatio}.",
+			"Newest tedi-drafted reply proposal, or null when none exists. A `review` draft is never sent automatically: answer with respond_to_work_interaction and cite it in metadata {draftId, draftOutcome: accepted|edited|replaced, editRatio}. An `auto` draft may be sent without review.",
 		),
 	responses: z.strictObject({
 		data: z.array(WorkInteractionResponseSchema),

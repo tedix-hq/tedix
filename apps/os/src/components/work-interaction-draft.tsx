@@ -1,5 +1,6 @@
 import { useState } from "react";
 import * as z from "zod";
+import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -12,16 +13,20 @@ import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 
 /**
- * A tedi-drafted reply to an open decision-capture question. The draft is a
- * proposal only: nothing is sent until the user accepts or edits and submits
- * it here. Drafts are never accepted from the waiting chat, where they are
- * not visible.
+ * A tedi-drafted reply to an open decision-capture question. A review draft
+ * (`delivery: "review"`, or absent on older servers) is a proposal: nothing is
+ * sent until the user accepts or edits and submits it here. An auto draft
+ * (`delivery: "auto"`, chosen by the server only for reversible, non-urgent
+ * turns within the session's auto-reply budget) was already handed to the
+ * waiting agent; the question stays open so the user can override it.
  */
 const replyDraftSchema = z.object({
 	id: z.string().min(1),
 	body: z.string().trim().min(1),
 	rationale: z.string().nullable().optional(),
 	drafterId: z.string().min(1),
+	/** Any value other than "auto" is shown as a draft for review. */
+	delivery: z.string().nullable().optional(),
 });
 
 export type InteractionReplyDraft = z.output<typeof replyDraftSchema>;
@@ -111,7 +116,90 @@ export function draftAnswerMetadata(
 	};
 }
 
-export function InteractionDraftReply({
+/** True when the server already delivered this draft to the waiting agent. */
+export function isAutoDelivered(draft: InteractionReplyDraft): boolean {
+	return draft.delivery === "auto";
+}
+
+/**
+ * An auto-delivered draft: shown as sent, with no Accept. An override answers
+ * the question normally and records that the user replaced the draft.
+ */
+function AutoSentDraft({
+	draft,
+	drafterName,
+	pending,
+	onAnswer,
+}: {
+	draft: InteractionReplyDraft;
+	drafterName: string;
+	pending: boolean;
+	onAnswer: (body: string, metadata: DraftAnswerMetadata) => void;
+}) {
+	const [body, setBody] = useState("");
+	const override = body.trim();
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle className="flex flex-wrap items-center gap-2">
+					Reply from {drafterName}
+					<Badge variant="info">Sent automatically by {drafterName}</Badge>
+				</CardTitle>
+				<CardDescription>
+					The agent already received this reply because the step was reversible.
+					Override it at any time with your own answer.
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				<p className="whitespace-pre-wrap">{draft.body}</p>
+				{draft.rationale ? (
+					<Text role="label" tone="secondary">
+						Why: {draft.rationale}
+					</Text>
+				) : null}
+				<Textarea
+					aria-label="Override the automatic reply"
+					placeholder="Your answer replaces the automatic reply"
+					value={body}
+					rows={4}
+					onChange={(event) => setBody(event.target.value)}
+				/>
+				<div className="flex flex-wrap gap-2">
+					<Button
+						disabled={pending || !override}
+						onClick={() =>
+							onAnswer(override, {
+								draftId: draft.id,
+								draftOutcome: "replaced",
+								editRatio: editRatio(override, draft.body),
+								source: "os-inbox",
+							})
+						}
+					>
+						Override
+					</Button>
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+export function InteractionDraftReply(props: {
+	draft: InteractionReplyDraft;
+	drafterName: string;
+	/** The waiting agent host, from the question's capture metadata. */
+	host?: string;
+	pending: boolean;
+	onAnswer: (body: string, metadata: DraftAnswerMetadata) => void;
+}) {
+	return isAutoDelivered(props.draft) ? (
+		<AutoSentDraft {...props} />
+	) : (
+		<ReviewDraft {...props} />
+	);
+}
+
+function ReviewDraft({
 	draft,
 	drafterName,
 	host,

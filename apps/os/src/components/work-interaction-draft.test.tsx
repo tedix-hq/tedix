@@ -20,6 +20,7 @@ import {
 	draftAnswerMetadata,
 	editRatio,
 	InteractionDraftReply,
+	isAutoDelivered,
 	latestDraftOf,
 } from "./work-interaction-draft";
 import { WorkInteractionPage } from "./work-operations-pages";
@@ -121,6 +122,73 @@ describe("tedi-drafted replies", () => {
 				/>,
 			),
 		).not.toContain("Codex");
+	});
+
+	it("an auto draft shows as sent, without Accept, and an override replaces it", () => {
+		const draft = latestDraftOf({
+			latestDraft: { ...DRAFT, delivery: "auto" },
+		})!;
+		expect(isAutoDelivered(draft)).toBe(true);
+		const onAnswer = vi.fn();
+		const container = document.createElement("div");
+		root = createRoot(container);
+		act(() =>
+			root?.render(
+				<InteractionDraftReply
+					draft={draft}
+					drafterName="Docs"
+					pending={false}
+					onAnswer={onAnswer}
+				/>,
+			),
+		);
+		expect(container.textContent).toContain("Sent automatically by Docs");
+		expect(container.textContent).toContain(DRAFT.body);
+		const labels = [...container.querySelectorAll("button")].map((button) =>
+			button.textContent?.trim(),
+		);
+		expect(labels).not.toContain("Accept");
+		expect(labels).not.toContain("Edit");
+		const override = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Override",
+		)!;
+		expect(override.disabled).toBe(true);
+		const textarea = container.querySelector("textarea")!;
+		expect(textarea.value).toBe("");
+		const setter = Object.getOwnPropertyDescriptor(
+			HTMLTextAreaElement.prototype,
+			"value",
+		)!.set!;
+		act(() => {
+			setter.call(textarea, "No, leave the docs for now.");
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		click(container, "Override");
+		expect(onAnswer).toHaveBeenCalledWith(
+			"No, leave the docs for now.",
+			expect.objectContaining({
+				draftId: DRAFT.id,
+				draftOutcome: "replaced",
+				source: "os-inbox",
+			}),
+		);
+	});
+
+	it("review, absent or unknown delivery keeps Accept", () => {
+		for (const delivery of ["review", undefined, null, "later"]) {
+			const draft = latestDraftOf({ latestDraft: { ...DRAFT, delivery } })!;
+			expect(isAutoDelivered(draft)).toBe(false);
+			const html = renderToStaticMarkup(
+				<InteractionDraftReply
+					draft={draft}
+					drafterName="Docs"
+					pending={false}
+					onAnswer={() => {}}
+				/>,
+			);
+			expect(html).toContain("Accept");
+			expect(html).not.toContain("Sent automatically");
+		}
 	});
 
 	it("edit prefills the draft and submits the computed outcome", () => {
