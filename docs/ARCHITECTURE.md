@@ -58,8 +58,8 @@ runtime services behind it.
 
 ## Service Bindings
 
-All Worker-to-Worker calls use Service Bindings. Each app's `wrangler.jsonc`
-`services` block is the authoritative list.
+All Worker-to-Worker calls use Service Bindings. Each app's Worker config
+(`wrangler.jsonc` or `cloudflare.config.ts`) is the authoritative list.
 
 | Binding                    | Source → target                     | Carries                                                |
 | -------------------------- | ----------------------------------- | ------------------------------------------------------ |

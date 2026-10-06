@@ -35,9 +35,9 @@ and fixes land as ordinary commits. There are no nightly, candidate, or
 long-term-support channels.
 
 Tedix Cloud builds from product `main` plus private operational configuration:
-credentials, live account settings, and runbooks. Publication changes source
-visibility, not this deployment boundary. Product code and patches belong in
-the product repository; operations remain private.
+credentials, live account settings, and runbooks. Public source does not
+change this deployment boundary. Product code and patches belong in the
+product repository; operations remain private.
 
 ## Commits
 

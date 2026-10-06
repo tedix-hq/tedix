@@ -137,9 +137,10 @@ Never invent a callable, namespace, schema, or permission.
 
 ## Repository agents
 
-An authorized Tedix source export includes a root `AGENTS.md` with scoped
-repository rules, validation commands, and architecture invariants. Read it and
-the nearest scoped `AGENTS.md` before changing files. The public
-[coding-agent operating manual](./AGENTS.md) explains the exported layout.
+The public [tedix-hq/tedix](https://github.com/tedix-hq/tedix) repository has a
+root `AGENTS.md` with scoped repository rules, validation commands, and
+architecture invariants. Read it and the nearest scoped `AGENTS.md` before
+changing files. The [coding-agent operating manual](./AGENTS.md) is the same
+guide on this site.
 
 For a human first run, continue with [Getting started](./getting-started.md).

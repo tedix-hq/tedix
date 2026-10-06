@@ -8,7 +8,8 @@ interface Props {
 const { locale = defaultLocale } = Astro.props;
 const content = getLocaleContent(locale).footer;
 const siteName = "Tedix";
-const socialLinks: Record<string, string> = {};
+const repositoryUrl = "https://github.com/tedix-hq/tedix";
+const socialLinks: Record<string, string> = { github: repositoryUrl };
 const legalName = "Tedix GbR";
 
 // Social link SVG icon class
@@ -75,6 +76,7 @@ const svgClass = "h-5 w-5";
 				<ul class="space-y-2 text-muted-foreground text-sm">
 					<li><a href="https://blog.tedix.dev/posts/" class="transition-colors hover:text-foreground">{content.blog}</a></li>
 					<li><a href="/contact" class="transition-colors hover:text-foreground">{content.contact}</a></li>
+					<li><a href={repositoryUrl} target="_blank" rel="noopener noreferrer" class="transition-colors hover:text-foreground">{content.source}</a></li>
 				</ul>
 			</div>
 
@@ -96,6 +98,7 @@ const svgClass = "h-5 w-5";
 
 		<div class="mt-12 flex flex-col items-center justify-between border-border border-t pt-8 text-muted-foreground text-sm md:flex-row">
 			<p>&copy; {new Date().getFullYear()} {legalName}. {content.rights}</p>
+			<p><a href={`${repositoryUrl}/blob/main/LICENSE`} target="_blank" rel="noopener noreferrer" class="transition-colors hover:text-foreground">{content.license}</a></p>
 		</div>
 	</div>
 </footer>

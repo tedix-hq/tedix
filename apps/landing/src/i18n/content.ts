@@ -43,7 +43,7 @@ const englishContent = {
 		languageLabel: "Language",
 	},
 	footer: {
-		tagline: "Persistent AI workers for organizational work.",
+		tagline: "Agents you can hold accountable.",
 		product: "Product",
 		appStore: "App Store",
 		howItWorks: "How It Works",
@@ -57,6 +57,8 @@ const englishContent = {
 		privacy: "Privacy Policy",
 		cookies: "Cookie Policy",
 		cookieSettings: "Cookie Settings",
+		source: "Source on GitHub",
+		license: "Product source licensed under AGPL-3.0.",
 		rights: "All rights reserved.",
 	},
 	consent: {
@@ -88,7 +90,7 @@ const englishContent = {
 			line3: "AI workers.",
 			subtitleIntro:
 				"Start with a brief. Inspect the result. Continue the work.",
-			subtitleHighlight: "Private beta.",
+			subtitleHighlight: "Invited beta.",
 			description:
 				"Draft a meeting agenda, revise it in the same conversation, or assign tool-based work to a tedi with scoped permissions and a record of its actions.",
 			primaryCta: "Open Tedix Cloud",
@@ -99,7 +101,7 @@ const englishContent = {
 				"Inspectable runs",
 				"Built on Cloudflare",
 			],
-			betaBadge: "Private beta.",
+			betaBadge: "Invited beta.",
 		},
 		challenge: {
 			eyebrow: "The challenge",
@@ -346,18 +348,18 @@ const englishContent = {
 			demoDescription: "Join teams already operating smarter with tedix.",
 			demoCta: "Watch a demo",
 			demoUrl: "https://www.youtube.com/watch?v=RM5l4dbC_nc",
-			badge: "Invite-Only Beta",
+			badge: "Invited Beta",
 			titleLine1: "This isn’t for",
 			titleLine2: "everyone.",
 			description:
-				"Tedix Cloud is in private beta. Already invited? Sign in with your invited account. Need access? Contact the person who introduced you to Tedix; signing in alone does not create a workspace.",
+				"Tedix Cloud is in invited beta. Already invited? Sign in with your invited account. Need access? Contact the person who introduced you to Tedix; signing in alone does not create a workspace. The source is public on GitHub, and local mode runs without an invitation.",
 			signals: [
 				"Invite-only access",
 				"A workspace invitation is required",
 				"Onboarding with the Tedix team",
 			],
 			primary: "Open Tedix Cloud",
-			footnotes: ["Experimental beta", "Access arranged individually"],
+			footnotes: ["Invited beta", "Access arranged individually"],
 		},
 	},
 } as const;
@@ -387,7 +389,7 @@ const germanContent = {
 		languageLabel: "Sprache",
 	},
 	footer: {
-		tagline: "Dauerhafte KI-Worker für Ihre Organisation.",
+		tagline: "KI-Agenten, die Rechenschaft ablegen.",
 		product: "Produkt",
 		appStore: "App Store",
 		howItWorks: "So funktioniert es",
@@ -401,6 +403,8 @@ const germanContent = {
 		privacy: "Datenschutz",
 		cookies: "Cookie-Richtlinie",
 		cookieSettings: "Cookie-Einstellungen",
+		source: "Quellcode auf GitHub",
+		license: "Produktquellcode unter AGPL-3.0 lizenziert.",
 		rights: "Alle Rechte vorbehalten.",
 	},
 	consent: {
@@ -432,7 +436,7 @@ const germanContent = {
 			line3: "KI-Worker.",
 			subtitleIntro:
 				"Mit einem Briefing starten. Ergebnis prüfen. Weiterarbeiten.",
-			subtitleHighlight: "Private Beta.",
+			subtitleHighlight: "Beta auf Einladung.",
 			description:
 				"Erstellen Sie eine Besprechungsagenda, überarbeiten Sie sie im selben Gespräch oder delegieren Sie Aufgaben mit Tools an einen Tedi mit begrenzten Rechten und nachvollziehbaren Aktionen.",
 			primaryCta: "Tedix Cloud öffnen",
@@ -443,7 +447,7 @@ const germanContent = {
 				"Einsehbare Runs",
 				"Auf Cloudflare gebaut",
 			],
-			betaBadge: "Private Beta.",
+			betaBadge: "Beta auf Einladung.",
 		},
 		challenge: {
 			eyebrow: "Die Herausforderung",
@@ -691,18 +695,18 @@ const germanContent = {
 				"Schließen Sie sich Teams an, die mit Tedix bereits smarter arbeiten.",
 			demoCta: "Demo ansehen",
 			demoUrl: "https://www.youtube.com/watch?v=RM5l4dbC_nc",
-			badge: "Invite-only Beta",
+			badge: "Beta auf Einladung",
 			titleLine1: "Das ist nicht",
 			titleLine2: "für alle.",
 			description:
-				"Tedix Cloud ist in der privaten Beta. Schon eingeladen? Melden Sie sich mit Ihrem eingeladenen Konto an. Für Zugang wenden Sie sich an die Person, die Ihnen Tedix vorgestellt hat. Die Anmeldung allein erstellt keinen Workspace.",
+				"Tedix Cloud ist in einer Beta auf Einladung. Schon eingeladen? Melden Sie sich mit Ihrem eingeladenen Konto an. Für Zugang wenden Sie sich an die Person, die Ihnen Tedix vorgestellt hat. Die Anmeldung allein erstellt keinen Workspace. Der Quellcode ist öffentlich auf GitHub, und der lokale Modus läuft ohne Einladung.",
 			signals: [
 				"Zugang nur per Einladung",
 				"Einladung zum Workspace erforderlich",
 				"Onboarding mit dem Tedix-Team",
 			],
 			primary: "Tedix Cloud öffnen",
-			footnotes: ["Experimentelle Beta", "Zugang nach Vereinbarung"],
+			footnotes: ["Beta auf Einladung", "Zugang nach Vereinbarung"],
 		},
 	},
 } satisfies SiteContent;
@@ -728,7 +732,7 @@ const spanishContent = {
 		languageLabel: "Idioma",
 	},
 	footer: {
-		tagline: "Workers de IA persistentes para tu organización.",
+		tagline: "Agentes a los que puedes pedir cuentas.",
 		product: "Producto",
 		appStore: "App Store",
 		howItWorks: "Cómo funciona",
@@ -742,6 +746,8 @@ const spanishContent = {
 		privacy: "Política de privacidad",
 		cookies: "Política de cookies",
 		cookieSettings: "Configuración de cookies",
+		source: "Código fuente en GitHub",
+		license: "Código fuente del producto bajo licencia AGPL-3.0.",
 		rights: "Todos los derechos reservados.",
 	},
 	consent: {
@@ -773,7 +779,7 @@ const spanishContent = {
 			line3: "persistentes.",
 			subtitleIntro:
 				"Empieza con un encargo. Revisa el resultado. Continúa el trabajo.",
-			subtitleHighlight: "Beta privada.",
+			subtitleHighlight: "Beta por invitación.",
 			description:
 				"Crea una agenda, revísala en la misma conversación o asigna tareas con herramientas a un tedi con permisos limitados y un registro de sus acciones.",
 			primaryCta: "Abrir Tedix Cloud",
@@ -784,7 +790,7 @@ const spanishContent = {
 				"Ejecuciones consultables",
 				"Basado en Cloudflare",
 			],
-			betaBadge: "Beta privada.",
+			betaBadge: "Beta por invitación.",
 		},
 		challenge: {
 			eyebrow: "El reto",
@@ -1037,18 +1043,18 @@ const spanishContent = {
 				"Únete a los equipos que ya operan de forma más inteligente con Tedix.",
 			demoCta: "Ver demo",
 			demoUrl: "https://www.youtube.com/watch?v=RM5l4dbC_nc",
-			badge: "Beta solo por invitación",
+			badge: "Beta por invitación",
 			titleLine1: "Esto no es",
 			titleLine2: "para todos.",
 			description:
-				"Tedix Cloud está en beta privada. ¿Ya tienes invitación? Inicia sesión con la cuenta invitada. Para obtener acceso, contacta a quien te presentó Tedix; iniciar sesión no crea un espacio de trabajo.",
+				"Tedix Cloud está en beta por invitación. ¿Ya tienes invitación? Inicia sesión con la cuenta invitada. Para obtener acceso, contacta a quien te presentó Tedix; iniciar sesión no crea un espacio de trabajo. El código fuente es público en GitHub y el modo local funciona sin invitación.",
 			signals: [
 				"Acceso solo por invitación",
 				"Se requiere invitación al espacio",
 				"Incorporación con el equipo de Tedix",
 			],
 			primary: "Abrir Tedix Cloud",
-			footnotes: ["Beta experimental", "Acceso acordado individualmente"],
+			footnotes: ["Beta por invitación", "Acceso acordado individualmente"],
 		},
 	},
 } satisfies SiteContent;

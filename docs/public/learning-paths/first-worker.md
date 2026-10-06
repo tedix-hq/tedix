@@ -19,15 +19,16 @@ This tutorial gives one named digital worker, called a **tedi**, a small task.
 It uses only the facts in the prompt, so it needs no connected app, private
 document, or permission to change an outside system.
 
-This is a Tedix Cloud tutorial. Cloud access is currently invitation-only. The
-local product does not run remote tedis; use the [local path](../getting-started.md#run-tedix-locally)
-to evaluate local storage and the user interface instead.
+This is a Tedix Cloud tutorial; [Release status](../release-status.md) says who
+can use Cloud today. The local product does not run remote tedis; use the
+[local path](../getting-started.md#run-tedix-locally) to evaluate local storage
+and the user interface instead.
 
 ## Before you start
 
 You need:
 
-- an invitation to a Tedix Cloud organization;
+- membership in a Tedix Cloud organization;
 - a completed [first Cloud connection](./first-connection.md);
 - at least one active tedi in the organization; and
 - the tedi's slug, shown with the worker in Tedix OS.

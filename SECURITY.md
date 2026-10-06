@@ -38,8 +38,9 @@ does not.
 ## Supported Versions
 
 - **Tedix Cloud** is patched by the operator.
-- **`main`** receives fixes as ordinary commits. The source has no tagged
-  release yet; the CLI's versioned releases get fixes in a new CLI release.
+- **`main`** receives fixes as ordinary commits. Source prereleases such as
+  `v0.1.0-beta.1` are not patched; the CLI's versioned releases get fixes in a
+  new CLI release.
 - **Self-hosted installations** are experimental and unsupported; apply fixes
   by updating to current `main`.
 

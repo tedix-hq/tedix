@@ -280,9 +280,8 @@ coordinates. Deploy mode requires a successfully certified manifest at
 are regenerated with `bun run installation-manifest:overlay`; CI enforces drift
 with `bun run installation-manifest:overlay:check`.
 
-These generated files are sanitized public preview artifacts, not deployment or
-clean-account certification. Managed production coordinates are never published:
-the export rewrites every published `wrangler.jsonc` to a sanitized public base
-with no account, zone, or resource identifiers, and the private
-operations repository holds the authored configuration. See
-[Release status](./release-status.md).
+These generated files are sanitized examples, not deployment or clean-account
+certification. Managed production coordinates are never published: every
+checked-in `wrangler.jsonc` is an example with placeholders instead of account,
+zone, or resource identifiers, and the private operations repository holds the
+live configuration. See [Release status](./release-status.md).

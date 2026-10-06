@@ -94,8 +94,8 @@ and fails the build, naming the missing variables, when none applies:
 3. The text bindings of `cloudflare.config.ts` for the build mode (`API_URL`,
    `DESCOPE_PROJECT_ID`, `DESCOPE_BASE_URL`), the same non-secret Worker
    config `src/worker.ts` runs on. This is how a plain production
-   `bun run build` gets its values. The OSS export redacts those values, which
-   count as unset.
+   `bun run build` gets its values. The checked-in config carries the
+   `configured-via-private-overlay` placeholder, which counts as unset.
 
 `TEDIX_BUILD_DESCOPE_STYLE_ID` stays optional and env-only; empty means the
 project default.

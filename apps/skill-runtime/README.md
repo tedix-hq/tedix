@@ -315,7 +315,7 @@ bun run test:run          # bridge + workflow runtime invariant tests
 bun run type-check
 ```
 
-The exported repository does not yet include the isolated bindings and secret
+This repository does not yet include the isolated bindings and secret
 bootstrap required to run or deploy this Worker. Those scripts remain
 maintainer-only; see the
 [self-hosted boundary](../../docs/public/self-hosted-boundary.md).

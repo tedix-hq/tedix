@@ -1,9 +1,10 @@
 # Contributing to Tedix
 
-Issues, bug reports, and ideas are welcome. Maintainers write all merged
-code, which keeps licensing simple without a contributor agreement. Pull
-requests are currently disabled; proposals start as issues. You can still fork and
-modify Tedix under its licenses.
+Issues, bug reports, and ideas are welcome; questions and open-ended ideas can
+also go to [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions).
+Maintainers write all merged code, which keeps licensing simple without a
+contributor agreement. Pull requests are currently disabled; proposals start
+as issues. You can still fork and modify Tedix under its licenses.
 
 Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
