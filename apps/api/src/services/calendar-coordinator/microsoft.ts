@@ -82,11 +82,14 @@ export function microsoftNextLink(value: string, expectedPath: string): string {
 		throw new Error("Unsafe Microsoft pagination link");
 	return url.toString();
 }
-export function microsoftCalendarAdapter(token: string): CalendarAdapter {
+export function microsoftCalendarAdapter(
+	token: string,
+	authorize?: () => Promise<string>,
+): CalendarAdapter {
 	const path = (r: CalendarRoute) =>
 		`${root}/me/calendars/${encodeURIComponent(r.calendarId)}`;
 	const read = async (url: string, init?: RequestInit) =>
-		(await requestJson(token, url, {
+		(await requestJson(authorize ? await authorize() : token, url, {
 			...init,
 			headers: {
 				Prefer: 'outlook.timezone="UTC", IdType="ImmutableId"',

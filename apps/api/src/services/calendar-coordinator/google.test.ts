@@ -85,3 +85,39 @@ describe("Google calendar adapter", () => {
 		expect(fetch.mock.calls[0]![1].headers["If-Match"]).toBe('"etag"');
 	});
 });
+
+describe("fresh provider authority on pagination", () => {
+	it("stops before the next HTTP request when consent expires between pages", async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					id: route.calendarId,
+					accessRole: "owner",
+					timeZone: "UTC",
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({ items: [], nextPageToken: "page-two" }),
+			);
+		vi.stubGlobal("fetch", fetch);
+		const authorize = vi
+			.fn()
+			.mockResolvedValueOnce("fresh-one")
+			.mockResolvedValueOnce("fresh-two")
+			.mockRejectedValueOnce(new Error("delegation revoked"));
+		await expect(
+			googleCalendarAdapter("old-token", authorize).snapshot(route, {
+				start: "2026-10-01T00:00:00Z",
+				end: "2026-10-10T00:00:00Z",
+			}),
+		).rejects.toThrow("revoked");
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch.mock.calls[0]![1].headers.Authorization).toBe(
+			"Bearer fresh-one",
+		);
+		expect(fetch.mock.calls[1]![1].headers.Authorization).toBe(
+			"Bearer fresh-two",
+		);
+	});
+});

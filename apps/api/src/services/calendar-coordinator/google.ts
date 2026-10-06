@@ -65,11 +65,18 @@ export function googleBlocker(action: Action): Wire {
 		extendedProperties: { private: { tedixCoordinator: action.ownership } },
 	};
 }
-export function googleCalendarAdapter(token: string): CalendarAdapter {
+export function googleCalendarAdapter(
+	token: string,
+	authorize?: () => Promise<string>,
+): CalendarAdapter {
 	const path = (r: CalendarRoute) =>
 		`${root}/calendars/${encodeURIComponent(r.calendarId)}/events`;
 	const read = async (url: string, init?: RequestInit) =>
-		(await requestJson(token, url, init)) as Wire | null;
+		(await requestJson(
+			authorize ? await authorize() : token,
+			url,
+			init,
+		)) as Wire | null;
 	const getCalendar = async (id: string): Promise<CalendarInfo> => {
 		const raw = await read(
 			`${root}/users/me/calendarList/${encodeURIComponent(id)}`,

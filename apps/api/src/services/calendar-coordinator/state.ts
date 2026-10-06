@@ -72,7 +72,9 @@ export async function resolveCalendarRoutes(
 	config: Configuration,
 	execution = false,
 ): Promise<Map<string, CalendarAdapter>> {
-	await requireWorkspace(context, config.workspaceId);
+	const workspace = await requireWorkspace(context, config.workspaceId);
+	if (workspace.status !== "active")
+		throw new Error("Calendar workspace is archived");
 	await assertCalendarTarget(context, config);
 	const adapters = new Map<string, CalendarAdapter>();
 	for (const route of config.calendars) {
@@ -95,15 +97,10 @@ export async function resolveCalendarRoutes(
 			throw new Error(
 				"Selected workspace calendar resource is unavailable or changed",
 			);
-		// Canonical fields are a dependency of named resource integration. Never use metadata as authority.
-		const binding = resource as typeof resource & {
-			connectionInstanceId?: string | null;
-			personalOwnerUserId?: string | null;
-		};
 		if (
-			binding.connectionInstanceId !== route.connectionInstanceId ||
+			resource.connectionInstanceId !== route.connectionInstanceId ||
 			(route.connectionScope === "user" &&
-				binding.personalOwnerUserId !==
+				resource.personalOwnerUserId !==
 					(execution ? config.ownerUserId : calendarOwnerUser(context)))
 		)
 			throw new Error(
@@ -117,6 +114,7 @@ export async function resolveCalendarRoutes(
 					config.organizationId,
 					route,
 					execution,
+					config,
 				)
 			).adapter,
 		);
@@ -307,12 +305,27 @@ export async function installCalendarMonitoring(
 ): Promise<string[]> {
 	const { registerSubscription, disableSubscription } =
 		await import("../provider-events/subscriptions");
+	const resourceDelegationIds = [
+		...new Set(
+			config.calendars
+				.filter((r) => r.connectionScope === "user")
+				.map((r) => {
+					if (!r.delegationId)
+						throw new Error(
+							"Every personal calendar requires explicit read/write and subscribe consent before activation",
+						);
+					return r.delegationId;
+				}),
+		),
+	];
 	const installed: string[] = [];
 	try {
 		for (const route of config.calendars) {
-			const row = await registerSubscription(context, config.organizationId, {
+			const registration = {
 				adapter:
-					route.adapter === "google" ? "google_calendar" : "microsoft_calendar",
+					route.adapter === "google"
+						? ("google_calendar" as const)
+						: ("microsoft_calendar" as const),
 				providerId: route.providerId,
 				connectionInstanceId: route.connectionInstanceId,
 				calendarId: route.calendarId,
@@ -320,7 +333,23 @@ export async function installCalendarMonitoring(
 				skillId: config.skillId,
 				skillRevision: config.skillRevision,
 				deliveryMode: route.deliveryMode ?? "push",
-			});
+				connectionScope: route.connectionScope,
+				resourceDelegationIds,
+				personalDelegation:
+					route.connectionScope === "user"
+						? {
+								workspaceId: config.workspaceId,
+								resourceId: route.workspaceResourceId,
+								delegationId: route.delegationId!,
+								toolId: "reconcile_calendar_subscription",
+							}
+						: undefined,
+			};
+			const row = await registerSubscription(
+				context,
+				config.organizationId,
+				registration,
+			);
 			installed.push(row.id);
 			if (
 				row.status !== "active" ||

@@ -74,6 +74,7 @@ const mocks = vi.hoisted(() => ({
 	register: vi.fn(),
 	disable: vi.fn(),
 	subscription: vi.fn(),
+	delegation: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/connection-providers", () => ({
 	listConnectionProviders: mocks.providers,
@@ -94,6 +95,25 @@ vi.mock("../../services/provider-events/subscriptions", () => ({
 	disableSubscription: mocks.disable,
 	loadSubscription: mocks.subscription,
 	statusProjection: (row: unknown) => row,
+}));
+vi.mock("../../services/personal-resource-delegation-authority", () => ({
+	authorizePersonalResourceDelegation: mocks.delegation,
+	validatePersonalDelegationToken: (
+		row: { accountSubject: string; requiredScopes: string[] },
+		token: { id?: string; tokenSub?: string; scopes?: string[] },
+		approved: string[],
+		tokenId?: string,
+	) => {
+		if (
+			!tokenId ||
+			!approved.includes(tokenId) ||
+			token.tokenSub !== row.accountSubject ||
+			row.requiredScopes.some((s) => !token.scopes?.includes(s))
+		)
+			throw new Error(
+				"Delegated token metadata differs from the approved grant",
+			);
+	},
 }));
 import {
 	resolveCalendarAdapter,
@@ -239,5 +259,202 @@ describe("exact calendar accounts and installed monitoring", () => {
 				)
 			).monitoring,
 		).toBe("needs_attention");
+	});
+});
+
+describe("delegated coordinator credentials", () => {
+	const route = {
+		...base.calendars[0]!,
+		adapter: "google" as const,
+		connectionScope: "user" as const,
+		providerId: "google-calendar",
+		delegationId: id,
+	};
+	const authority = {
+		workspaceId: id,
+		tediId: id,
+		skillId: id,
+		skillRevision: 1,
+		ownerUserId: "owner",
+	};
+	function worker() {
+		return {
+			authType: "service-binding",
+			tediId: id,
+			db: {},
+			env: {},
+			headers: new Headers({
+				"X-Tedix-Mcp-Tool-Id": "reconcile_calendar_subscription",
+			}),
+		} as BaseContext;
+	}
+	function consent() {
+		mocks.delegation.mockResolvedValue({
+			ownerUserId: "owner",
+			connectionInstanceId: id,
+			approvedTokenIds: ["token"],
+			delegation: {
+				accountSubject: "verified-subject",
+				requiredScopes: [
+					"https://www.googleapis.com/auth/calendar.events",
+					"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+				],
+			},
+		});
+		mocks.personal.mockResolvedValue({
+			id: "token",
+			accessToken: "secret",
+			tokenSub: "verified-subject",
+			scopes: [
+				"https://www.googleapis.com/auth/calendar.events",
+				"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+			],
+		});
+	}
+	it("reauthorizes exact live run consent and named token metadata without owner inventory fallback", async () => {
+		consent();
+		const selected = await resolveCalendarAdapter(
+			worker(),
+			"org",
+			route,
+			true,
+			authority,
+		);
+		expect(selected.account.accountSubject).toBe("verified-subject");
+		expect(mocks.instances).not.toHaveBeenCalled();
+		expect(mocks.delegation).toHaveBeenCalledTimes(2);
+		expect(mocks.delegation.mock.calls[0]![1]).toMatchObject({
+			delegationId: id,
+			resourceId: id,
+			providerResourceId: "a",
+			operation: "read",
+			toolId: "reconcile_calendar_subscription",
+			skillRevision: 1,
+		});
+		await expect(selected.adapter.listCalendars()).rejects.toThrow(
+			"not a selected resource",
+		);
+		await expect(
+			selected.adapter.get(
+				{ ...route, key: "a", calendarId: "other" },
+				"event",
+			),
+		).rejects.toThrow("differs from the delegated resource");
+	});
+	it("rejects a token outside approved grant IDs despite matching account subject", async () => {
+		consent();
+		mocks.personal.mockResolvedValue({
+			id: "other-grant",
+			accessToken: "secret",
+			tokenSub: "verified-subject",
+			scopes: [
+				"https://www.googleapis.com/auth/calendar.events",
+				"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+			],
+		});
+		await expect(
+			resolveCalendarAdapter(worker(), "org", route, true, authority),
+		).rejects.toThrow("metadata differs");
+	});
+	it("honors consent revocation between credential lookup and provider use", async () => {
+		consent();
+		mocks.delegation
+			.mockResolvedValueOnce({
+				ownerUserId: "owner",
+				connectionInstanceId: id,
+				approvedTokenIds: ["token"],
+				delegation: {
+					accountSubject: "verified-subject",
+					requiredScopes: [
+						"https://www.googleapis.com/auth/calendar.events",
+						"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+					],
+				},
+			})
+			.mockRejectedValueOnce(new Error("grant revoked"));
+		await expect(
+			resolveCalendarAdapter(worker(), "org", route, true, authority),
+		).rejects.toThrow("revoked");
+	});
+});
+
+describe("standing monitoring binds every selected personal destination", () => {
+	it("passes all exact consent IDs on every trigger and derives no owner identity from input", async () => {
+		const second = "22222222-2222-4222-8222-222222222222";
+		const config = {
+			id: "config",
+			organizationId: "org",
+			workspaceId: id,
+			tediId: id,
+			skillId: id,
+			skillRevision: 2,
+			calendars: base.calendars.map((c, n) => ({
+				...c,
+				adapter: "google",
+				connectionScope: "user",
+				delegationId: n ? second : id,
+				workspaceResourceId: n ? second : id,
+			})),
+		} as Configuration;
+		mocks.register.mockResolvedValue({
+			id: "watch",
+			status: "active",
+			deliveryMode: "poll",
+			expiresAt: null,
+		});
+		await installCalendarMonitoring({} as BaseContext, config);
+		expect(mocks.register).toHaveBeenCalledTimes(2);
+		for (const call of mocks.register.mock.calls) {
+			expect(call[2].connectionScope).toBe("user");
+			expect(call[2].resourceDelegationIds).toEqual([id, second]);
+			expect(call[2].personalDelegation.toolId).toBe(
+				"reconcile_calendar_subscription",
+			);
+			expect(call[2]).not.toHaveProperty("personalOwnerUserId");
+		}
+		expect(mocks.register.mock.calls[1]![2].personalDelegation.resourceId).toBe(
+			second,
+		);
+	});
+	it("rejects missing personal monitoring consent before any provider subscription write", async () => {
+		await expect(
+			installCalendarMonitoring(
+				{} as BaseContext,
+				{
+					...base,
+					organizationId: "org",
+					id: "config",
+					revision: 1,
+					mode: "preview",
+					ownerUserId: "owner",
+					actions: [],
+				} as Configuration,
+			),
+		).rejects.toThrow("subscribe consent");
+		expect(mocks.register).not.toHaveBeenCalled();
+	});
+});
+
+describe("physical Google calendar alias rejection", () => {
+	it("rejects a shared physical Google calendar selected through two distinct exact account slots", () => {
+		const alias = {
+			...base,
+			calendars: [
+				base.calendars[0],
+				{
+					...base.calendars[1],
+					connectionInstanceId: "22222222-2222-4222-8222-222222222222",
+					calendarId: base.calendars[0]!.calendarId,
+				},
+			],
+		};
+		const result = ConfigureCalendarsInputSchema.safeParse(alias);
+		expect(result.success).toBe(false);
+		if (!result.success)
+			expect(
+				result.error.issues.some((i) =>
+					i.message.includes("multiple accounts"),
+				),
+			).toBe(true);
 	});
 });

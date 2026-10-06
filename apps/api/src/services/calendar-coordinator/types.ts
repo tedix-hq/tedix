@@ -63,6 +63,8 @@ export type Action = {
 	before: Interval | null;
 	after: Interval | null;
 	compensatesActionId?: string;
+	deleteReason?: "cancelled_or_free" | "moved_outside_window";
+	expectedSourceInterval?: Interval;
 };
 export type Plan = {
 	id: string;
@@ -98,6 +100,7 @@ export type Configuration = {
 };
 export type Mutation = {
 	actionId: string;
+	compensationEligible?: boolean;
 	state: "intent" | "confirmed" | "uncertain" | "conflict";
 	eventId: string;
 	revision: string | null;

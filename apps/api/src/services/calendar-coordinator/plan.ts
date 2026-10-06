@@ -70,10 +70,14 @@ export async function buildPlan(
 		destinationKey: string,
 		mirror: Mirror | undefined,
 		after: Action["after"],
+		deleteReason?: Action["deleteReason"],
+		expectedSourceInterval?: Action["expectedSourceInterval"],
 	) => {
 		const ownership =
 			mirror?.ownership ??
-			(await digest(`${ownershipSeed}:${sourceKey}:${destinationKey}`));
+			(await digest(
+				`${ownershipSeed}:${sourceKey}:${destinationKey}:${config.revision}:${sourceRevision}`,
+			));
 		const id = await digest(
 			JSON.stringify([
 				config.id,
@@ -82,6 +86,8 @@ export async function buildPlan(
 				sourceKey,
 				destinationKey,
 				mirror?.revision,
+				sourceRevision,
+				ownership,
 				after,
 			]),
 		);
@@ -96,6 +102,8 @@ export async function buildPlan(
 			destinationEventId: mirror?.eventId ?? `t${ownership.slice(0, 48)}`,
 			expectedDestinationRevision: mirror?.revision ?? null,
 			ownership,
+			deleteReason,
+			expectedSourceInterval,
 			before: mirror?.interval ?? null,
 			after,
 		});
@@ -105,6 +113,7 @@ export async function buildPlan(
 			for (const event of snapshot.events) {
 				// A marker on an unrecorded event is not proof of ownership. Preserve it and never echo it.
 				if (event.ownership) {
+					if (event.cancelled || !event.busy) continue;
 					if (
 						!ledgerOwned.has(
 							`${snapshot.route.key}:${event.id}:${event.ownership}`,
@@ -128,12 +137,13 @@ export async function buildPlan(
 						event.sourceIdentity,
 					]),
 				);
-				alive.add(sourceKey);
+
 				if (
 					Date.parse(event.interval.start) >= Date.parse(config.window.end) ||
 					Date.parse(event.interval.end) <= Date.parse(config.window.start)
 				)
 					continue;
+				alive.add(sourceKey);
 				for (const destination of config.calendars) {
 					if (destination.key === snapshot.route.key) continue;
 					const mirror = known.get(`${sourceKey}:${destination.key}`);
@@ -205,7 +215,13 @@ export async function buildPlan(
 			}
 			const original = source.events.find((e) => e.id === mirror.sourceEventId);
 			// Absence in a time-bounded view can mean a move outside the window. Explicit cancelled/free only.
-			if (!original || (original.busy && !original.cancelled)) continue;
+			const movedOutside =
+				original?.busy &&
+				!original.cancelled &&
+				(Date.parse(original.interval.end) <= Date.parse(config.window.start) ||
+					Date.parse(original.interval.start) >= Date.parse(config.window.end));
+			if (!original || (original.busy && !original.cancelled && !movedOutside))
+				continue;
 			await action(
 				"delete",
 				mirror.sourceKey,
@@ -215,6 +231,8 @@ export async function buildPlan(
 				mirror.destinationKey,
 				mirror,
 				null,
+				movedOutside ? "moved_outside_window" : "cancelled_or_free",
+				original.interval,
 			);
 		}
 	for (const a of actions)

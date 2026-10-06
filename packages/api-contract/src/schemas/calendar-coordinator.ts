@@ -80,6 +80,16 @@ export const ConfigureCalendarsInputSchema = z
 				code: "custom",
 				message: "Calendar selections must be distinct",
 			});
+		const googleCalendars = v.calendars.filter((c) => c.adapter === "google");
+		if (
+			new Set(googleCalendars.map((c) => c.calendarId)).size !==
+			googleCalendars.length
+		)
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"The same Google calendar cannot be selected through multiple accounts",
+			});
 		if (Date.parse(v.window.end) - Date.parse(v.window.start) > 90 * 86400_000)
 			ctx.addIssue({
 				code: "custom",
@@ -109,6 +119,10 @@ export const CalendarActionSchema = z.object({
 	before: CalendarIntervalSchema.nullable(),
 	after: CalendarIntervalSchema.nullable(),
 	compensatesActionId: z.string().optional(),
+	deleteReason: z
+		.enum(["cancelled_or_free", "moved_outside_window"])
+		.optional(),
+	expectedSourceInterval: CalendarIntervalSchema.optional(),
 });
 export const CalendarPlanSchema = z.object({
 	id,
@@ -125,6 +139,7 @@ export const CalendarPlanSchema = z.object({
 });
 export const CalendarMutationSchema = z.object({
 	actionId: z.string(),
+	compensationEligible: z.boolean().default(false),
 	state: z.enum(["intent", "confirmed", "uncertain", "conflict"]),
 	eventId: z.string(),
 	revision: z.string().nullable(),
