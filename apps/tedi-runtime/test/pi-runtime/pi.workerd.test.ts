@@ -47,6 +47,19 @@ describe("Production ConversationFacet on native Pi", () => {
 			effects: 0,
 		});
 	});
+	it("records the provider and model on each Pi step receipt", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.turn("identity");
+		const [step] = ((await inspect(agent)).stats.modelSteps ?? []) as Array<{
+			provider: unknown;
+			model: unknown;
+			usage: { cacheReadTokens: unknown; cacheWriteTokens: unknown };
+		}>;
+		expect(step?.provider).toEqual(expect.any(String));
+		expect(step?.model).toEqual(expect.any(String));
+		expect(step?.usage.cacheReadTokens).toEqual(expect.any(Number));
+		expect(step?.usage.cacheWriteTokens).toEqual(expect.any(Number));
+	});
 	it("honors the configured ceiling and persists a tools-off final report", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.setup("tool");

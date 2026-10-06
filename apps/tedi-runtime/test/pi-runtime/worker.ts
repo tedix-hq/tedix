@@ -274,6 +274,7 @@ export interface ConversationStats {
 	cancelled: boolean;
 	prompts: unknown[];
 	toolChoices: unknown[];
+	modelSteps?: unknown[];
 }
 const conversationStats = (): ConversationStats => ({
 	requests: 0,
@@ -349,7 +350,13 @@ export class PiConversationFixture extends ProductionConversationFacet {
 			},
 			reconcileFacetToolEffect: async (runId, toolCallId) =>
 				this.dispatch.returned(runId, toolCallId),
-			recordFacetModelStep: async () => {},
+			recordFacetModelStep: async (input) => {
+				const stats = await this.stats();
+				await this.ctx.storage.put("fixture:stats", {
+					...stats,
+					modelSteps: [...(stats.modelSteps ?? []), input.payload],
+				});
+			},
 			executeFacetTool: async (input) => {
 				if ((await this.stats()).cancelled)
 					throw new Error("fixture authority cancelled");
