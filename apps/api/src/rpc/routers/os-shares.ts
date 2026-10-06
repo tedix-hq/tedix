@@ -38,6 +38,8 @@ import { OS_SHARES_AUDIT, osAudit } from "../os-audit";
 import { resolveCreator } from "./os-workspaces-shared";
 import { resolveWorkspaceResourceAvailability } from "../../services/os-workspace-resource-availability";
 
+import { osShareReviewsRouter } from "./os-share-reviews";
+
 const osSharesOs = implement(osSharesContract).$context<BaseContext>();
 const authed = osSharesOs.use(withAuth).use(osAudit(OS_SHARES_AUDIT));
 // Share links govern read access to tenant OS outputs, so they sit on the
@@ -446,6 +448,7 @@ const sharesDelete = adminOs.shares.delete.handler(
 );
 
 export const osSharesContractRouter = osSharesOs.router({
+	reviews: osShareReviewsRouter,
 	shares: {
 		create: sharesCreate,
 		list: sharesList,

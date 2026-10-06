@@ -189,6 +189,7 @@
 		"./queries/os-workspaces/instantiate": "./src/queries/os-workspaces/instantiate.ts",
 		"./queries/os-workspaces/upgrade": "./src/queries/os-workspaces/upgrade.ts",
 		"./queries/os-approval-rules": "./src/queries/os-approval-rules.ts",
+		"./queries/os-review-batches": "./src/queries/os-review-batches.ts",
 		"./queries/os-shares": "./src/queries/os-shares.ts",
 		"./queries/os-workspaces/outputs": "./src/queries/os-workspaces/outputs.ts",
 		"./queries/os-workspaces/collaboration": "./src/queries/os-workspaces/collaboration.ts",

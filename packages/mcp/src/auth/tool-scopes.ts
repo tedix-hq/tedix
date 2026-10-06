@@ -70,6 +70,12 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"kernelRuntime/readChildRunEvidence": "mcp:tedis.read",
 	"kernelRuntime/readChildRunTree": "mcp:tedis.read",
 	"harness/listKernelTraceBundles": "mcp:tedis.read",
+	// Exact share review RPCs retain their API permission boundary under tenant aliases.
+	"osShares/reviews/create": "mcp:apps.write",
+	"osShares/reviews/get": "mcp:apps.read",
+	"osShares/reviews/listFeedback": "mcp:apps.write",
+	"osShares/reviews/saveFeedback": "mcp:apps.write",
+
 	"osWorkspaces/workspaces/list": "mcp:apps.read",
 	"osWorkspaces/workspaces/get": "mcp:apps.read",
 	"osWorkspaces/outputs/list": "mcp:apps.read",

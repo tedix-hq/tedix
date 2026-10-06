@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 
 /**
@@ -98,3 +104,57 @@ export type OsShareLinkRow = typeof osShareLinks.$inferSelect;
 export type NewOsShareLinkRow = typeof osShareLinks.$inferInsert;
 export type OsShareSessionRow = typeof osShareSessions.$inferSelect;
 export type NewOsShareSessionRow = typeof osShareSessions.$inferInsert;
+
+/** Immutable owner-reviewed projection; source provenance is retained independently. */
+export const osReviewBatches = sqliteTable(
+	"os_review_batches",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		shareLinkId: text("share_link_id")
+			.notNull()
+			.references(() => osShareLinks.id, { onDelete: "cascade" }),
+		sourceOutputId: text("source_output_id").notNull(),
+		sourceRevisionId: text("source_revision_id").notNull(),
+		title: text("title").notNull(),
+		cards: text("cards").notNull(),
+		accessEnvelope: text("access_envelope").notNull(),
+		createdById: text("created_by_id").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("os_review_batches_share_unique").on(t.shareLinkId),
+		index("os_review_batches_org_idx").on(t.organizationId),
+	],
+);
+/** Each recipient owns their feedback; concurrency is independent from research revisions. */
+export const osReviewFeedback = sqliteTable(
+	"os_review_feedback",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		batchId: text("batch_id")
+			.notNull()
+			.references(() => osReviewBatches.id, { onDelete: "cascade" }),
+		cardId: text("card_id").notNull(),
+		reviewerId: text("reviewer_id").notNull(),
+		revision: integer("revision").notNull(),
+		decision: text("decision", {
+			enum: ["needs_checking", "edit", "skip", "ready"],
+		}).notNull(),
+		editedReply: text("edited_reply").notNull(),
+		reason: text("reason").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("os_review_feedback_recipient_unique").on(
+			t.batchId,
+			t.cardId,
+			t.reviewerId,
+		),
+	],
+);
+export type OsReviewBatchRow = typeof osReviewBatches.$inferSelect;
+export type OsReviewFeedbackRow = typeof osReviewFeedback.$inferSelect;

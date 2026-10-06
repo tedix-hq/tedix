@@ -760,6 +760,10 @@
 		{
 			"name": "20261005083924_provider_execution_origin/migration.sql",
 			"sha256": "6bbd518df813f9032174195e1c2208ab966000f284f9750f813b6074e0cfbf02"
+		},
+		{
+			"name": "20261006155246_os-review-batches/migration.sql",
+			"sha256": "45af17f6be187b3793ccf2d62a7adfcefa30fb5e8bdc18bdf9372077dd4be143"
 		}
 	]
 }

@@ -498,6 +498,27 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 };
 
 export const OS_SHARES_AUDIT: OsAuditRegistry = {
+	"reviews.create": {
+		action: "os.review_batch.created",
+		resourceType: "os_review_batch",
+		resourceId: ({ output }) => nestedId(output, "batch"),
+		metadata: ({ input }) => ({
+			shareId: input.shareId,
+			sourceOutputId: input.sourceOutputId,
+			sourceRevisionId: input.sourceRevisionId,
+		}),
+	},
+	"reviews.saveFeedback": {
+		action: "os.review_feedback.saved",
+		resourceType: "os_review_batch",
+		resourceId: ({ input }) => text(input.batchId),
+		metadata: ({ input, output }) => ({
+			cardId: input.cardId,
+			revision: fields(output.feedback).revision,
+			decision: input.decision,
+		}),
+	},
+
 	// `output.token` is the one-time plaintext share credential and is
 	// deliberately NOT in metadata — an audit table is readable by every
 	// analytics:read principal.
