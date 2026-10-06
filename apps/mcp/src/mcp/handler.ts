@@ -832,7 +832,7 @@ function renderModelSummaryTemplate(
 	template: string,
 	payload: Record<string, unknown>,
 ): string {
-	return template.replace(/\{([^}]+)\}/g, (_match, expr: string) => {
+	return template.replace(/\{([^{}]+)\}/g, (_match, expr: string) => {
 		if (expr.startsWith("count:")) {
 			const value = getByPath(payload, expr.slice("count:".length));
 			return Array.isArray(value) ? String(value.length) : "0";
@@ -3974,7 +3974,7 @@ return __fn ? await __fn(args) : __mod;
 				for (const item of arr) {
 					if (item == null || typeof item !== "object") continue;
 					const value = rule.template.replace(
-						/\{([^}]+)\}/g,
+						/\{([^{}]+)\}/g,
 						(_m, path: string) => {
 							const v = getByPath(item, path);
 							return v != null ? String(v) : "";

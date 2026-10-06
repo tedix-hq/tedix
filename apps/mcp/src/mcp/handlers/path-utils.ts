@@ -9,6 +9,15 @@
  */
 
 /**
+ * Path segments that would reach `Object.prototype` (or a constructor) when
+ * written. Writers skip any path containing one, so a tool config can never
+ * pollute prototypes shared by every request in the isolate.
+ */
+function isUnsafePathKey(key: string): boolean {
+	return key === "__proto__" || key === "constructor" || key === "prototype";
+}
+
+/**
  * Extract a value from a nested object using dot-path notation.
  * e.g., getByPath({ a: { b: [1,2] } }, "a.b") => [1,2]
  *
@@ -49,7 +58,7 @@ export function redactByPath(obj: Record<string, unknown>, path: string): void {
 			for (const item of arr) visit(item, idx + 1);
 			return;
 		}
-		if (typeof node !== "object") return;
+		if (typeof node !== "object" || isUnsafePathKey(seg)) return;
 		const target = node as Record<string, unknown>;
 		if (idx === segments.length - 1) {
 			if (typeof target[seg] === "string") target[seg] = "<redacted>";
@@ -70,6 +79,7 @@ export function setByPath(
 	value: unknown,
 ): void {
 	const keys = path.split(".");
+	if (keys.some(isUnsafePathKey)) return;
 	let current: Record<string, unknown> = obj;
 	for (let i = 0; i < keys.length - 1; i++) {
 		const key = keys[i]!;

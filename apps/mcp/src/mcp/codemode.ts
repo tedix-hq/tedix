@@ -1971,7 +1971,7 @@ function humanizeWeakDescription(
 ): string {
 	const desc = (description ?? "").trim();
 	const isWeak =
-		desc.length === 0 || /^Tedix oRPC endpoint \S+\/\S+$/.test(desc);
+		desc.length === 0 || /^Tedix oRPC endpoint [^\s/]+\/\S+$/.test(desc);
 	if (!isWeak) return desc;
 	const words = toolName.split(/[_\s]+/).filter(Boolean);
 	if (words.length === 0) return desc;
