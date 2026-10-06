@@ -228,6 +228,7 @@ export const CONNECTION_PROVIDER_SEEDS: ConnectionProviderTemplate[] = [
 				"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 				"https://www.googleapis.com/auth/calendar.events.freebusy",
 				"https://www.googleapis.com/auth/calendar.events.readonly",
+				"https://www.googleapis.com/auth/calendar.events",
 			],
 			scopeGroups: [
 				{
@@ -249,6 +250,13 @@ export const CONNECTION_PROVIDER_SEEDS: ConnectionProviderTemplate[] = [
 						"https://www.googleapis.com/auth/calendar.events.freebusy",
 						"https://www.googleapis.com/auth/calendar.events.readonly",
 					],
+				},
+				{
+					id: "calendar-events-write",
+					label: "Calendar event writes",
+					description:
+						"Create, move and delete events. Google Calendar MCP requires this for create_event, update_event and delete_event.",
+					scopes: ["https://www.googleapis.com/auth/calendar.events"],
 				},
 			],
 		},
