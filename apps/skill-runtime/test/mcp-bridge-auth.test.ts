@@ -84,3 +84,47 @@ test("admitted workflow delegates only the provider scope and rejects undeclared
 	);
 	assert.equal(requests.length, 1);
 });
+
+test("typed credential miss crosses RPC and continuation pins the selected account", async () => {
+	const recovery = {
+		providerId: "notion",
+		connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+		scope: "user" as const,
+		scopes: ["read"],
+	};
+	let body: any;
+	const missingEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				body = await new Request(input, init).json();
+				return Response.json({
+					jsonrpc: "2.0",
+					id: "1",
+					result: {
+						isError: true,
+						_meta: { "tedix/connectionRecovery": recovery },
+						content: [{ type: "text", text: "missing" }],
+					},
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+	assert.deepEqual(
+		await callMcpTool(missingEnv, props, {
+			namespace: "notion_tedix",
+			method: "notion_search",
+			args: {},
+			workflow,
+			connectionBinding: recovery,
+		}),
+		{ __tedixConnectionRequired: true, recovery },
+	);
+	assert.deepEqual(body.params._meta["tedix/expectedConnection"], recovery);
+	const normal = await callMcpTool(env, props, {
+		namespace: "notion_tedix",
+		method: "notion_search",
+		args: {},
+		workflow,
+	});
+	assert.deepEqual(normal, { __tedixMcpResult: true, value: { ok: true } });
+});

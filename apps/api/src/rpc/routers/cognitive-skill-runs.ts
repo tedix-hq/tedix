@@ -5,6 +5,9 @@
  */
 
 import { ORPCError } from "@orpc/server";
+import { SkillWorkflowConnectionRecoverySchema } from "@tedix/api-contract/schemas/cognitive";
+import { getRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
+import { isMethodAllowed } from "@tedix/api-contract/utils/skill-manifest";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import type { SkillWorkflowStep } from "@tedix/api-contract/contracts/cognitive";
 import {
@@ -500,6 +503,7 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 			? await getSkillEntry(context.db, input.skillId, orgId)
 			: await getSkillEntryBySlug(context.db, orgId, input.slug!);
 		if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+		assertExpectedSkillRevision(input.expectedSkillRevision, skill.revision);
 
 		const files = (skill.files ?? null) as Record<string, string> | null;
 		const workflowSource = files?.["scripts/workflow.ts"];
@@ -1267,14 +1271,126 @@ export const skillsRunWorkflowSendEvent = authedSkills.runWorkflowSendEvent
 		);
 		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
 		requireWorkflowRunTedi(run, input.tediId);
+		let payload = input.payload ?? {};
+		if (input.type.startsWith("connection_recovery_")) {
+			if (
+				!/^connection_recovery_[0-9a-f]{24}$/.test(input.type) ||
+				!["queued", "running", "paused"].includes(run.status) ||
+				run.restartRequestedAt
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Connection recovery is stale or unavailable",
+				);
+			}
+			const epoch = run.executionEpoch ?? 0;
+			const artifact = await getRunArtifact(
+				context.db,
+				run.id,
+				`epochs/${epoch}/controls/${input.type}.json`,
+			);
+			let value: unknown = null;
+			try {
+				value = JSON.parse(artifact?.contentInline ?? "null");
+			} catch {
+				/* fail closed */
+			}
+			const pending = validateConnectionRecoveryReceipt(
+				value,
+				epoch,
+				input.type,
+			);
+			if (
+				!isMethodAllowed(
+					parseCapabilityManifest(run.skillDoc ?? ""),
+					pending.namespace,
+					pending.method,
+				)
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Pending operation is outside the run-pinned skill capability manifest",
+				);
+			}
+			const org = await getOrganizationById(context.db, orgId);
+			if (!org?.descopeTenantId)
+				throw createError(ErrorCodes.CONFLICT, "Connection tenant unavailable");
+			const { fetchNamedConnection } =
+				await import("./connections/policy-resolution");
+			const actingUser = context.descopeUserId ?? context.user?.sub;
+			if (
+				pending.recovery.scope === "user" &&
+				(!actingUser || run.createdBy !== `user:${actingUser}`)
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only the run's original personal connection owner may continue it",
+				);
+			}
+			const owner =
+				pending.recovery.scope === "user"
+					? { userId: actingUser! }
+					: { organizationId: orgId, tenantId: org.descopeTenantId };
+			const token = await fetchNamedConnection(
+				context,
+				owner,
+				pending.recovery.providerId,
+				pending.recovery.connectionInstanceId,
+				pending.recovery.scopes,
+			);
+			if (
+				!token ||
+				(Number(token.expiresAt ?? 0) > 0 &&
+					Number(token.expiresAt) <= Date.now() / 1000)
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Reconnect the exact selected account with the required scopes before continuing",
+				);
+			}
+			// Never trust connectionVerified or account selectors submitted by clients.
+			payload = { connectionVerified: true, eventType: input.type };
+		}
 		const result = await callSkillRuntime<{ ok: boolean }>(context, "/event", {
 			runId: run.id,
 			expectedExecutionEpoch: run.executionEpoch ?? 0,
 			type: input.type,
-			payload: input.payload ?? {},
+			payload,
 		});
 		return { ok: result.ok };
 	});
+
+export function assertExpectedSkillRevision(
+	expected: number | undefined,
+	actual: number,
+) {
+	if (expected !== undefined && expected !== actual) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Skill changed after trigger admission; review the current revision before running",
+		);
+	}
+}
+
+export function validateConnectionRecoveryReceipt(
+	value: unknown,
+	epoch: number,
+	eventType: string,
+) {
+	const parsed = SkillWorkflowConnectionRecoverySchema.safeParse(value);
+	if (
+		!parsed.success ||
+		parsed.data.status !== "waiting" ||
+		parsed.data.executionEpoch !== epoch ||
+		parsed.data.eventType !== eventType
+	) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Connection recovery receipt is missing, resolved, or stale",
+		);
+	}
+	return parsed.data;
+}
 
 function compactSkillRun(run: SkillRunSummaryRow) {
 	// SkillRunSummaryRow carries params/capabilityManifest for internal

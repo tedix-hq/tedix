@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	McpInputRequiredError,
+	McpConnectionRequiredError,
+	readConnectionRecovery,
 	McpToolError,
 	stripCodeModeExecutionEnvelope,
 	unwrapCallToolResult,
@@ -8,6 +10,51 @@ import {
 } from "./tool-result";
 
 const TOOL = "acme.list_widgets";
+
+const recovery = {
+	providerId: "google-calendar",
+	connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+	scope: "user" as const,
+	scopes: ["calendar"],
+};
+describe("canonical connection recovery", () => {
+	it("preserves the typed missing-account signal through both result envelopes", () => {
+		const result = {
+			isError: true,
+			_meta: { "tedix/connectionRecovery": recovery },
+			content: [{ type: "text", text: "Missing account" }],
+		};
+		expect(() => unwrapCallToolResult(result, TOOL)).toThrow(
+			McpConnectionRequiredError,
+		);
+		expect(() =>
+			unwrapJsonRpcToolResult(JSON.stringify({ result }), TOOL),
+		).toThrow(McpConnectionRequiredError);
+	});
+	it("does not interpret approval, success, or provider text as reconnect authority", () => {
+		expect(() =>
+			unwrapCallToolResult(
+				{
+					resultType: "input_required",
+					_meta: { "tedix/connectionRecovery": recovery },
+				},
+				TOOL,
+			),
+		).toThrow(McpInputRequiredError);
+		expect(() =>
+			unwrapCallToolResult(
+				{ isError: true, content: [{ type: "text", text: "AUTH_MISSING" }] },
+				TOOL,
+			),
+		).toThrow(McpToolError);
+		expect(
+			readConnectionRecovery({ ...recovery, connectionInstanceId: "default" }),
+		).toBeNull();
+		expect(
+			readConnectionRecovery({ ...recovery, scope: "organization" }),
+		).toBeNull();
+	});
+});
 
 describe("unwrapCallToolResult", () => {
 	it("passes toolResult through verbatim", () => {

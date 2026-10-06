@@ -1012,6 +1012,9 @@ async function executeWithHandler(
 				"openai/toolInvocation/invoking": `Processing ${tool.title}...`,
 				"openai/toolInvocation/invoked": textContent.substring(0, 50),
 				...structuredMetadata,
+				...(isErrorResult && result.connectionRecovery
+					? { "tedix/connectionRecovery": result.connectionRecovery }
+					: {}),
 				...(result.readObservation
 					? { [READ_OBSERVATION_META_KEY]: result.readObservation }
 					: {}),

@@ -20,6 +20,56 @@
 
 import { readInputRequiredResult } from "./protocol";
 
+export const CONNECTION_RECOVERY_META_KEY = "tedix/connectionRecovery";
+
+/** A canonical credential miss before any provider operation was attempted. */
+export interface ConnectionRecovery {
+	providerId: string;
+	connectionInstanceId: string;
+	scope: "tenant" | "user";
+	scopes: string[];
+}
+
+export function readConnectionRecovery(
+	value: unknown,
+): ConnectionRecovery | null {
+	if (!value || typeof value !== "object") return null;
+	const row = value as Record<string, unknown>;
+	if (
+		typeof row.providerId !== "string" ||
+		!row.providerId ||
+		row.providerId.length > 200 ||
+		typeof row.connectionInstanceId !== "string" ||
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+			row.connectionInstanceId,
+		) ||
+		(row.scope !== "tenant" && row.scope !== "user") ||
+		!Array.isArray(row.scopes) ||
+		row.scopes.length > 50 ||
+		!row.scopes.every(
+			(scope) =>
+				typeof scope === "string" && scope.length > 0 && scope.length <= 300,
+		)
+	)
+		return null;
+	return {
+		providerId: row.providerId,
+		connectionInstanceId: row.connectionInstanceId,
+		scope: row.scope,
+		scopes: [...row.scopes] as string[],
+	};
+}
+
+export class McpConnectionRequiredError extends Error {
+	readonly code = "MCP_CONNECTION_REQUIRED";
+	constructor(readonly recovery: ConnectionRecovery) {
+		super(
+			"MCP_CONNECTION_REQUIRED: reconnect the selected account before this operation can execute",
+		);
+		this.name = "McpConnectionRequiredError";
+	}
+}
+
 /**
  * A `resultType: "input_required"` tools/call outcome (SEP-2322 MRTR): the
  * gateway halted the call for an approval and did NOT execute it. Surfaces
@@ -92,6 +142,14 @@ export function unwrapCallToolResult(
 		? (record.content as Array<{ type?: unknown; text?: unknown }>)
 		: null;
 	if (record.isError === true) {
+		const metadata =
+			record._meta && typeof record._meta === "object"
+				? (record._meta as Record<string, unknown>)
+				: null;
+		const recovery = readConnectionRecovery(
+			metadata?.[CONNECTION_RECOVERY_META_KEY],
+		);
+		if (recovery) throw new McpConnectionRequiredError(recovery);
 		const message = content ? joinedTextContent(content) : null;
 		throw new McpToolError(message ?? "Tool call failed", record._meta);
 	}
@@ -134,7 +192,11 @@ export function unwrapJsonRpcToolResult(
 		const result = parsed.result !== undefined ? parsed.result : parsed;
 		return unwrapCallToolResult(result, toolName);
 	} catch (err) {
-		if (err instanceof McpInputRequiredError) throw err;
+		if (
+			err instanceof McpInputRequiredError ||
+			err instanceof McpConnectionRequiredError
+		)
+			throw err;
 		if (err instanceof Error && err.message.startsWith("MCP tool error")) {
 			throw err;
 		}

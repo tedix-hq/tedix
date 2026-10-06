@@ -440,6 +440,9 @@ export function RunDetailPage() {
 
 	const eventGates = partitionEventGates(inspect.data?.steps ?? []);
 	const waitingGates = eventGates.waiting;
+	const connectionGate = waitingGates.find(
+		(gate) => gate.connectionRecovery,
+	)?.connectionRecovery;
 	const [approvalIdInput, setApprovalIdInput] = useState<string | null>(null);
 	const [eventTypeInput, setEventTypeInput] = useState<string | null>(null);
 	const [eventPayloadInput, setEventPayloadInput] = useState("{}");
@@ -638,7 +641,19 @@ export function RunDetailPage() {
 						</Alert>
 					)}
 
-					{waitingGates.length > 0 && (
+					{connectionGate && (
+						<ConnectionRecoveryNotice
+							gate={connectionGate}
+							checking={sendEvent.isPending}
+							onContinue={() =>
+								sendEvent.mutate({
+									type: connectionGate.eventType,
+									payload: {},
+								})
+							}
+						/>
+					)}
+					{waitingGates.length > 0 && !connectionGate && (
 						<Card size="sm">
 							<CardHeader>
 								<CardTitle>
@@ -996,5 +1011,47 @@ export function RunDetailPage() {
 				</>
 			)}
 		</Page>
+	);
+}
+
+export function ConnectionRecoveryNotice({
+	gate,
+	checking,
+	onContinue,
+}: {
+	gate: NonNullable<SkillWorkflowStep["connectionRecovery"]>;
+	checking: boolean;
+	onContinue: () => void;
+}) {
+	return (
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle>Reconnect the selected account</CardTitle>
+				<CardDescription>
+					This operation has not run. Earlier completed steps are preserved.
+					Reconnect the same account, then check it before continuing.
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<div className="flex flex-wrap gap-2">
+					<Button
+						render={
+							<a
+								href={
+									gate.recovery.scope === "user"
+										? "/account/connections"
+										: "/admin/connections"
+								}
+							/>
+						}
+					>
+						Open connections
+					</Button>
+					<Button disabled={checking} onClick={onContinue}>
+						Check connection and continue
+					</Button>
+				</div>
+			</CardContent>
+		</Card>
 	);
 }
