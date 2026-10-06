@@ -145,6 +145,12 @@ class AgentStatusTest(unittest.TestCase):
         _, options = self.spawned[0]
         self.assertTrue(options["start_new_session"])
 
+    def test_remote_command_selects_configured_organization(self):
+        self.enable(organization="org_example")
+        self.fire("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"})
+        args = self.reports()[-1]
+        self.assertEqual(args[:6], ["tedix", "-w", "connect", "--organization", "org_example", "code"])
+
     def test_remote_command_uses_safe_json_literal(self):
         self.enable()
         self.fire("Stop", last_assistant_message='Done: `"); evil(); ("`   café </script>')

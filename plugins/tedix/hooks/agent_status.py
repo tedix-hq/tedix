@@ -19,6 +19,7 @@ from pathlib import Path
 REPORT_CALLABLE = "work.report_work_agent_session_status"
 SESSION_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$")
 PROFILE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+ORGANIZATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 STATES = {"working", "needs_you", "done", "error", "ended"}
 HARNESSES = {"claude-code", "codex"}
 TRUTHY = {"1", "true", "yes"}
@@ -67,7 +68,7 @@ def load_config() -> dict:
 
 
 def settings():
-    """Return (profile, notify) when the owner opted in, else None."""
+    """Return (profile, organization, notify) when the owner opted in, else None."""
     config = load_config()
     switch = os.environ.get("TEDIX_AGENT_STATUS", "").strip().lower()
     if switch in FALSY:
@@ -77,7 +78,11 @@ def settings():
     profile = os.environ.get("TEDIX_AGENT_STATUS_PROFILE") or config.get("profile")
     if not isinstance(profile, str) or not PROFILE.fullmatch(profile):
         profile = None
-    return profile, config.get("notify") is not False
+    # A Connect profile spans organizations; without one it reports to its default.
+    organization = os.environ.get("TEDIX_AGENT_STATUS_ORGANIZATION") or config.get("organization")
+    if not isinstance(organization, str) or not ORGANIZATION.fullmatch(organization):
+        organization = None
+    return profile, organization, config.get("notify") is not False
 
 
 def one_line(text, limit: int) -> str:
@@ -250,17 +255,18 @@ def report_source(payload: dict) -> str:
     return f"async () => await {REPORT_CALLABLE}({json.dumps(fields, ensure_ascii=True)})"
 
 
-def report(profile: str, payload: dict) -> None:
+def report(profile: str, organization, payload: dict) -> None:
     if not PROFILE.fullmatch(profile) or not shutil.which("tedix"):
         return
-    detached(["tedix", "-w", profile, "code", report_source(payload)])
+    selected = ["--organization", organization] if organization else []
+    detached(["tedix", "-w", profile, *selected, "code", report_source(payload)])
 
 
 def run(stdin=None) -> None:
     configured = settings()
     if configured is None:
         return
-    profile, notifications = configured
+    profile, organization, notifications = configured
     raw = (stdin or sys.stdin).read(INPUT_LIMIT + 1)
     if len(raw) > INPUT_LIMIT or not raw:
         return
@@ -304,7 +310,7 @@ def run(stdin=None) -> None:
         except OSError as error:
             log(f"notify failed: {type(error).__name__}")
     if profile:
-        report(profile, record)
+        report(profile, organization, record)
 
 
 def main() -> None:

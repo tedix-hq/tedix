@@ -112,12 +112,14 @@ Codex session at turn boundaries: `working`, `needs_you`, `done`, `error` or
 
 ```sh
 mkdir -p ~/.tedix
-printf '{"enabled": true, "profile": "connect"}\n' > ~/.tedix/agent-status.json
+printf '{"enabled": true, "profile": "connect", "organization": "<selected org>"}\n' > ~/.tedix/agent-status.json
 ```
 
 Restart open sessions afterwards. `profile` names the `tedix` CLI workspace
 used for the remote report; without it the hook keeps local state and
-notifications only. `"notify": false` turns off macOS notifications.
+notifications only. A Connect profile spans organizations, so set
+`organization` to the ID `tedix auth status` lists; otherwise the report goes
+to the profile's default organization. `"notify": false` turns off macOS notifications.
 `TEDIX_AGENT_STATUS=1` or `0` and `TEDIX_AGENT_STATUS_PROFILE` override the
 file for one shell.
 
