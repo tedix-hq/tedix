@@ -105,12 +105,33 @@ for (const label of AGENT_REPLY_LABELS) {
 export const DEFAULT_AGENT_TURN_TRIAGE_POLICY: AgentTurnTriagePolicy =
 	DEFAULTS.policy;
 
+/**
+ * The user who owns the policy row: the session's Tedix user id, else the
+ * verified active member behind a gateway credential (the same identity the
+ * draft tools use). A machine principal without a user identity has none.
+ */
+async function policyUserId(
+	context: BaseContext,
+	organizationId: string,
+): Promise<string | null> {
+	if (context.userId) return context.userId;
+	try {
+		const actor = await verifiedActiveWorkActor(context, organizationId);
+		return actor.type === "user" ? actor.id : null;
+	} catch {
+		return null;
+	}
+}
+
 async function readPolicyState(
 	context: BaseContext,
 	organizationId: string,
 ): Promise<AgentTurnTriagePolicyState> {
-	// A machine principal without a Tedix user identity has no stored row.
-	return readPolicyStateFor(context, context.userId ?? null, organizationId);
+	return readPolicyStateFor(
+		context,
+		await policyUserId(context, organizationId),
+		organizationId,
+	);
 }
 
 /** The stored policy of one user in one organization, or the defaults. */
@@ -239,7 +260,7 @@ const getPolicy = readOs.getPolicy.handler(async ({ context }) =>
 const updatePolicy = writeOs.updatePolicy.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
-		const userId = context.userId;
+		const userId = await policyUserId(context, organizationId);
 		if (!userId) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
