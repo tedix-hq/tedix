@@ -87,7 +87,7 @@ describe("provider installations", () => {
 			resolveActiveProviderInstallation(db, {
 				providerOrganizationId: "acme-org",
 				providerApiKeyId: "acme-key",
-				externalTenantId: "367",
+				externalTenantId: "8042",
 			}),
 		).resolves.toBeUndefined();
 		await expect(

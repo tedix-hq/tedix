@@ -30,7 +30,7 @@ import { WidgetAudiencePicker } from "./widget-audience-picker";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 const company: EmbeddedContactCompany = {
 	installationId: "11111111-1111-4111-8111-111111111111",
-	externalTenantId: "367",
+	externalTenantId: "8042",
 	name: "Initech",
 	customAttributes: {
 		city: "Monterrey",
@@ -44,7 +44,7 @@ const company: EmbeddedContactCompany = {
 const person: EmbeddedContactUser = {
 	installationId: company.installationId,
 	externalTenantId: company.externalTenantId,
-	hostUserId: "1743",
+	hostUserId: "6190",
 	name: "Jordan Rivera",
 	email: "jordan@example.com",
 	role: "garage_owner",
@@ -130,15 +130,15 @@ it("searches the server and opens an old contact with separate fields despite un
 		expect(document.body.textContent).toContain("Activity is unavailable"),
 	);
 	expect(calls.detail).toHaveBeenCalledWith(
-		{ installationId: company.installationId, hostUserId: "1743" },
+		{ installationId: company.installationId, hostUserId: "6190" },
 		expect.anything(),
 	);
 	const profile = document.querySelector('[aria-label="Profile details"]')!;
 	expect(profile.textContent).toContain("Name: Jordan Rivera");
 	expect(profile.textContent).toContain("Email: jordan@example.com");
-	expect(profile.textContent).toContain("User ID: 1743");
+	expect(profile.textContent).toContain("User ID: 6190");
 	expect(profile.textContent).toContain("Role: Garage owner");
-	expect(profile.textContent).toContain("Company ID: 367");
+	expect(profile.textContent).toContain("Company ID: 8042");
 	expect(profile.textContent).toContain("Language: es");
 	expect(profile.textContent).toContain("Trial user: No");
 	await click("Manage audience");
@@ -187,7 +187,7 @@ it("paginates canonical companies and filters people by the selected company", a
 	expect(document.body.textContent).toContain("Active: Yes");
 	await click("View people");
 	expect(document.body.textContent).toContain(
-		"Company: Initech · Company ID 367",
+		"Company: Initech · Company ID 8042",
 	);
 	await vi.waitFor(() =>
 		expect(calls.list).toHaveBeenCalledWith(
@@ -215,7 +215,7 @@ it("hydrates off-page audience selections and scopes remote name search to the i
 		<WidgetAudiencePicker
 			label="Included people"
 			installationId={company.installationId}
-			selected={["1743", "not-known"]}
+			selected={["6190", "not-known"]}
 			onChange={changed}
 		/>,
 	);
@@ -274,7 +274,7 @@ it("keeps identical host user IDs in different companies as distinct profiles", 
 		).toContain("Company ID: 999"),
 	);
 	expect(calls.detail).toHaveBeenCalledWith(
-		{ installationId: otherCompany.installationId, hostUserId: "1743" },
+		{ installationId: otherCompany.installationId, hostUserId: "6190" },
 		expect.anything(),
 	);
 });
@@ -291,13 +291,13 @@ it("keeps audience IDs when saved-name lookup fails", async () => {
 		<WidgetAudiencePicker
 			label="Excluded people"
 			installationId={company.installationId}
-			selected={["1743"]}
+			selected={["6190"]}
 			onChange={changed}
 		/>,
 	);
 	await vi.waitFor(() =>
 		expect(container.textContent).toContain("Some names are unavailable"),
 	);
-	expect(container.textContent).toContain("User 1743");
+	expect(container.textContent).toContain("User 6190");
 	expect(changed).not.toHaveBeenCalled();
 });

@@ -26,15 +26,15 @@ const ORG = "11111111-1111-4111-8111-111111111111",
 	KEY = "33333333-3333-4333-8333-333333333333";
 const company = {
 	installationId: INSTALLATION,
-	externalTenantId: "367",
+	externalTenantId: "8042",
 	companyProfile: null,
 	fallbackName: "Acme",
 };
 const user = {
 	installationId: INSTALLATION,
-	externalTenantId: "367",
-	hostUserId: "1743",
-	name: "Daniel",
+	externalTenantId: "8042",
+	hostUserId: "6190",
+	name: "Dana",
 	email: "demo@acme.example",
 	role: null,
 	customAttributes: {},
@@ -42,9 +42,9 @@ const user = {
 	lastSeenAt: "2026-09-12T00:00:00Z",
 };
 const input = {
-	externalTenantId: "367",
-	hostUserId: "1743",
-	profile: { user: { name: "Daniel", email: "demo@acme.example" } },
+	externalTenantId: "8042",
+	hostUserId: "6190",
+	profile: { user: { name: "Dana", email: "demo@acme.example" } },
 };
 function context(scopes = ["embedded:session"]): BaseContext {
 	return {
@@ -82,20 +82,20 @@ describe("embedded durable contact API", () => {
 			client().identifyEmbeddedProviderContact(input),
 		).resolves.toMatchObject({
 			installationId: INSTALLATION,
-			user: { name: "Daniel", email: "demo@acme.example" },
+			user: { name: "Dana", email: "demo@acme.example" },
 			company: { name: "Acme" },
 		});
 		expect(mocks.resolve).toHaveBeenCalledWith(expect.anything(), {
 			providerOrganizationId: ORG,
 			providerApiKeyId: KEY,
-			externalTenantId: "367",
+			externalTenantId: "8042",
 		});
 		expect(mocks.identify).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
 				providerOrganizationId: ORG,
 				installationId: INSTALLATION,
-				hostUserId: "1743",
+				hostUserId: "6190",
 			}),
 		);
 	});
@@ -167,7 +167,7 @@ describe("embedded durable contact API", () => {
 		await expect(
 			client(context(["apps:read"])).getWidgetContact({
 				installationId: INSTALLATION,
-				hostUserId: "1743",
+				hostUserId: "6190",
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 		expect(mocks.user).not.toHaveBeenCalled();
@@ -176,7 +176,7 @@ describe("embedded durable contact API", () => {
 		await expect(
 			client(context(["apps:read"])).listWidgetContacts({
 				kind: "people",
-				hostUserIds: ["1743"],
+				hostUserIds: ["6190"],
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});

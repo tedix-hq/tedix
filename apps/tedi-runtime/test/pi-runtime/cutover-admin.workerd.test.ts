@@ -5218,7 +5218,7 @@ it("bounded descriptors preserve both prior archives during authentic Raw SDK in
 			};
 		},
 	);
-	// Local timing only; no performance ceiling or inference about the original customer timeout.
+	// Local timing only; this sets no performance ceiling.
 	Object.assign(task.meta, { boundedDescriptorDiagnostics: diagnostics });
 	console.info(
 		"bounded-descriptor-prior-archive-inspection",

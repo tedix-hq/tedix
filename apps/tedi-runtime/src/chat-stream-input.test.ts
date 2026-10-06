@@ -7,7 +7,7 @@ import {
 
 // A model override or a restricted tool set cannot silently switch off memory.
 for (const modelRefOverride of [undefined, "workers-ai/test-model"]) {
-	for (const toolArgumentConstraints of [undefined, { company_id: "367" }]) {
+	for (const toolArgumentConstraints of [undefined, { company_id: "8042" }]) {
 		const input: StreamChatTurnInput = {
 			sessionKey: "test",
 			text: "hello",
@@ -43,7 +43,7 @@ try {
 		for (const modelRefOverride of [undefined, "workers-ai/test-model"]) {
 			for (const toolArgumentConstraints of [
 				undefined,
-				{ company_id: "367" },
+				{ company_id: "8042" },
 			]) {
 				const selected = resolveChatContext(
 					{
@@ -71,7 +71,7 @@ try {
 			text: "hello",
 			clientRequestId: "request",
 			modelRefOverride: "workers-ai/test-model",
-			toolArgumentConstraints: { company_id: "367" },
+			toolArgumentConstraints: { company_id: "8042" },
 		},
 		"run-ordinary",
 	);

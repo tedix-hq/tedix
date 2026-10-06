@@ -206,7 +206,7 @@ import { aigMetadataHeader } from "./llm";
 	const tools = tedixMcpAITools(stubRuntime, {
 		conversationId: "embedded-conversation",
 		runId: "embedded-run",
-		toolArgumentConstraints: { companyId: "367" },
+		toolArgumentConstraints: { companyId: "8042" },
 		toolNamespacePrefix: "acme_staging",
 		toolAllowedCallables: [
 			"acme_staging.orders_status_summary",
@@ -254,7 +254,7 @@ import { aigMetadataHeader } from "./llm";
 			name: "tedix_mcp_call_tool",
 			args: {
 				callable: "acme_staging.orders_status_summary",
-				args: { companyId: "367", statusId: 9 },
+				args: { companyId: "8042", statusId: 9 },
 			},
 		},
 		{
@@ -622,7 +622,7 @@ console.log("ai-sdk-adapter.test.ts: all assertions passed");
 	const binding = {
 		conversationId: "schema-warm-regression:session",
 		runId: "run",
-		toolArgumentConstraints: { companyId: "367" },
+		toolArgumentConstraints: { companyId: "8042" },
 		toolNamespacePrefix: "inventory",
 		toolAllowedCallables: ["inventory.get_item"],
 	};
@@ -692,7 +692,7 @@ console.log("ai-sdk-adapter.test.ts: all assertions passed");
 	const binding = {
 		conversationId: "tenant-partial:session-1",
 		runId: "embedded-run",
-		toolArgumentConstraints: { companyId: "367" },
+		toolArgumentConstraints: { companyId: "8042" },
 		toolNamespacePrefix: "acme_staging",
 		toolAllowedCallables: [
 			"acme_staging.orders_detail",
@@ -741,7 +741,7 @@ console.log("ai-sdk-adapter.test.ts: all assertions passed");
 	const binding = {
 		conversationId: "singleflight-owner:embed:first",
 		runId: "warm:first",
-		toolArgumentConstraints: { companyId: "367" },
+		toolArgumentConstraints: { companyId: "8042" },
 		toolNamespacePrefix: "inventory",
 		toolAllowedCallables: ["inventory.get_item"],
 	};
@@ -808,7 +808,7 @@ console.log("ai-sdk-adapter.test.ts: all assertions passed");
 	const binding = {
 		conversationId: "singleflight-retry:embed:first",
 		runId: "retry-run",
-		toolArgumentConstraints: { companyId: "367" },
+		toolArgumentConstraints: { companyId: "8042" },
 		toolNamespacePrefix: "inventory",
 		toolAllowedCallables: ["inventory.get_item"],
 	};

@@ -287,7 +287,7 @@ describe("asserted route callable projection", () => {
 const identity = {
 	allowedOrigin: "https://staging.acme.example",
 	hostOrganizationId: "1",
-	hostUserId: "1743",
+	hostUserId: "6190",
 	tediId: "55555555-5555-4555-8555-555555555555",
 };
 
@@ -301,7 +301,7 @@ describe("embedded actor cache key", () => {
 
 		for (const changed of [
 			{ ...identity, hostUserId: "1744" },
-			{ ...identity, hostOrganizationId: "367" },
+			{ ...identity, hostOrganizationId: "8042" },
 			{ ...identity, allowedOrigin: "https://app.acme.example" },
 			{ ...identity, tediId: "66666666-6666-4666-8666-666666666666" },
 		]) {
@@ -318,8 +318,8 @@ describe("embedded session tenant fence", () => {
 	const base = {
 		allowedOrigin: "https://staging.acme.example",
 		conversationId: "11111111-1111-4111-8111-111111111111",
-		hostOrganizationId: "367",
-		hostUserId: "1743",
+		hostOrganizationId: "8042",
+		hostUserId: "6190",
 	};
 
 	it("refuses a half-specified fence instead of silently dropping it", async () => {

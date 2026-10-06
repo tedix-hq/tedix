@@ -203,11 +203,11 @@ describe("embedded host approval principal", () => {
 			resolveApprovalPrincipal(
 				{
 					authType: "service-binding",
-					gatewayEndUserId: "1743",
+					gatewayEndUserId: "6190",
 					tediId: "tedi-1",
 				},
 				{ payload: { kind: "tool_write" } },
 			),
-		).toBe("user:1743");
+		).toBe("user:6190");
 	});
 });

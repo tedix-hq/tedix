@@ -91,17 +91,17 @@ describe("analytics query boundary", () => {
 				('installation-1', 'org-1', 'app-1', 'key-1', '1', 'org-1',
 				 'workspace-1', 'tedi-1', 'https://www.acme.example', 'companyId',
 				 'acme_staging', 'test', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z'),
-				('installation-2', 'org-2', 'app-2', 'key-2', '367', 'org-2',
+				('installation-2', 'org-2', 'app-2', 'key-2', '8042', 'org-2',
 				 'workspace-2', 'tedi-2', 'https://other.example.com', 'companyId',
 				 'acme_other', 'test', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z');
 			INSERT INTO widget_events (
 				id, organization_id, app_id, session_id, event_type, metadata, created_at
 			) VALUES
 				('session-current', 'org-1', 'app-1', 'embed:one', 'embedded_session_started',
-				 '{"installationId":"installation-1","hostUserId":"1743","hostUserLabel":"Ada","hostRole":"owner"}',
+				 '{"installationId":"installation-1","hostUserId":"6190","hostUserLabel":"Ada","hostRole":"owner"}',
 				 '2026-09-01T12:00:00.000Z'),
 				('session-other', 'org-2', 'app-2', 'embed:two', 'embedded_session_started',
-				 '{"installationId":"installation-2","hostUserId":"1743"}',
+				 '{"installationId":"installation-2","hostUserId":"6190"}',
 				 '2026-09-01T12:01:00.000Z');
 		`);
 		await expect(
@@ -116,7 +116,7 @@ describe("analytics query boundary", () => {
 				id: "session-current",
 				installationId: "installation-1",
 				externalTenantId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 			},
 		]);
 		sqlite.exec(
@@ -127,7 +127,7 @@ describe("analytics query boundary", () => {
 			from: "2026-09-01T00:00:00.000Z",
 			to: "2026-09-02T00:00:00.000Z",
 			limit: 1,
-			hostUserId: "1743",
+			hostUserId: "6190",
 		};
 		expect(
 			await listEmbeddedProviderActivity(db, {
@@ -152,7 +152,7 @@ describe("analytics query boundary", () => {
 			) VALUES
 				('review-current', 'org-1', 'app-1', 'session-1', 'attention_review',
 				 'attn_0123456789abcdef0123456789abcdef',
-				 '{"installationId":"installation-1","tediId":"tedi-1","hostOrganizationId":"1","hostUserId":"1743","origin":"https://www.acme.example"}',
+				 '{"installationId":"installation-1","tediId":"tedi-1","hostOrganizationId":"1","hostUserId":"6190","origin":"https://www.acme.example"}',
 				 '2026-08-31T04:00:00.000Z'),
 				('review-other-actor', 'org-1', 'app-1', 'session-2', 'attention_review',
 				 'attn_fedcba9876543210fedcba9876543210',
@@ -160,7 +160,7 @@ describe("analytics query boundary", () => {
 				 '2026-08-31T04:01:00.000Z'),
 				('review-other-org', 'org-2', 'app-2', 'session-3', 'attention_review',
 				 'attn_0123456789abcdef0123456789abcdef',
-				 '{"installationId":"installation-2","tediId":"tedi-2","hostOrganizationId":"367","hostUserId":"1743","origin":"https://www.acme.example"}',
+				 '{"installationId":"installation-2","tediId":"tedi-2","hostOrganizationId":"8042","hostUserId":"6190","origin":"https://www.acme.example"}',
 				 '2026-08-31T04:02:00.000Z');
 		`);
 
@@ -171,7 +171,7 @@ describe("analytics query boundary", () => {
 				installationId: "installation-1",
 				tediId: "tedi-1",
 				hostOrganizationId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 				origin: "https://www.acme.example",
 				attentionRefs: [
 					"attn_0123456789abcdef0123456789abcdef",

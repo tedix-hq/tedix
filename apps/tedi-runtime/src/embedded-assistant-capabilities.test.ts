@@ -28,14 +28,16 @@ const allowed = ["shop.list_orders", "shop.get_order"];
 				client_request_id: "req-1",
 				session_key: "embed:host:1",
 				text: "Which orders are overdue today?",
-				tool_argument_constraints: { company_id: "367" },
+				tool_argument_constraints: { company_id: "8042" },
 				tool_allowed_callables: allowed,
 				tool_namespace_prefix: "shop",
 			}),
 		}),
 	);
 	assert.deepEqual(received[0]?.toolAllowedCallables, allowed);
-	assert.deepEqual(received[0]?.toolArgumentConstraints, { company_id: "367" });
+	assert.deepEqual(received[0]?.toolArgumentConstraints, {
+		company_id: "8042",
+	});
 }
 
 // --- the turn binding, prepared tools and tool-fit advice share it ---
@@ -79,7 +81,7 @@ const allowed = ["shop.list_orders", "shop.get_order"];
 		sessionKey: "embed:host:1",
 		// Host page context follows the versioned user line and is never ranked.
 		text: `${embeddedUserText("Which orders are overdue today?")}\n\nUntrusted host page signal:\n{"apiKey":"do not send"}`,
-		toolArgumentConstraints: { company_id: "367" },
+		toolArgumentConstraints: { company_id: "8042" },
 		toolAllowedCallables: allowed,
 	});
 	assert.deepEqual(bindings[0]?.toolAllowedCallables, allowed);
