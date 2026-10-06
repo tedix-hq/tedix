@@ -1,3 +1,4 @@
+import { OsDerivedAccessEnvelopeSchema } from "../schemas/os-workspaces";
 import "@orpc/openapi/extensions/route";
 /**
  * Cognitive Stack Contract
@@ -1395,6 +1396,7 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 					.optional()
 					.describe("Skill slug — alternative to skillId"),
 				tediId: z.string().describe("Tedi that owns this run"),
+				resourceAccessEnvelope: OsDerivedAccessEnvelopeSchema.optional(),
 				params: z
 					.record(z.string(), z.unknown())
 					.optional()

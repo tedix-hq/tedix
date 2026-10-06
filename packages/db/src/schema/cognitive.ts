@@ -1,3 +1,4 @@
+import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-workspaces";
 /**
  * Cognitive Stack Schema
  * Knowledge entries, skill entries, and muscle memory for tedi cognitive architecture.
@@ -595,6 +596,10 @@ export const skillRuns = sqliteTable(
 		// Error message + stack (when failed)
 		error: text("error"),
 
+		/** Canonical source bindings admitted by API; workflow params cannot establish credential authority. */
+		resourceAccessEnvelope: text("resource_access_envelope", {
+			mode: "json",
+		}).$type<OsDerivedAccessEnvelope>(),
 		// Snapshot of declared capabilities at run time, for audit
 		capabilityManifest: text("capability_manifest", {
 			mode: "json",

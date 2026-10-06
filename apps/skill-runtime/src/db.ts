@@ -1,3 +1,4 @@
+import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-workspaces";
 /**
  * Skill + skill_runs data access.
  *
@@ -70,6 +71,7 @@ export async function createSkillRun(
 		skillRevision?: number | null;
 		skillSlug?: string | null;
 		capabilityManifest?: unknown;
+		resourceAccessEnvelope?: OsDerivedAccessEnvelope;
 		createdBy?: string | null;
 		workItemId?: string | null;
 		originTediRunId?: string | null;
@@ -83,12 +85,12 @@ export async function createSkillRun(
 				workflow_instance_id, params, status, error, started_at,
 				workflow_source, skill_doc, skill_revision, skill_slug,
 				capability_manifest, runtime_environment, created_by, work_item_id,
-				origin_tedi_run_id
+				origin_tedi_run_id, resource_access_envelope
 			) VALUES (
 				?1, ?2, ?3, ?4,
 				?5, ?6, 'failed', 'WORKFLOW_ADMISSION_PENDING: workflow create not yet observed', strftime('%Y-%m-%dT%H:%M:%fZ','now'),
 				?7, ?8, ?9, ?10,
-				?11, ?12, ?13, ?14, ?15
+				?11, ?12, ?13, ?14, ?15, ?16
 			)`,
 		)
 		.bind(
@@ -109,6 +111,9 @@ export async function createSkillRun(
 			input.createdBy ?? null,
 			input.workItemId ?? null,
 			input.originTediRunId ?? null,
+			input.resourceAccessEnvelope
+				? JSON.stringify(input.resourceAccessEnvelope)
+				: null,
 		)
 		.run();
 }
@@ -130,6 +135,7 @@ export interface SkillRunSnapshot {
 	workflowSource: string;
 	skillDoc: string;
 	capabilityManifest: unknown;
+	resourceAccessEnvelope: OsDerivedAccessEnvelope | null;
 	createdBy: string | null;
 	workItemId: string | null;
 	originTediRunId: string | null;
@@ -145,7 +151,7 @@ export async function loadSkillRunSnapshot(
 			        runtime_environment, workflow_retired_at, error,
 			        started_at,
 			        skill_slug, skill_revision,
-			        workflow_source, skill_doc, capability_manifest, created_by,
+			        workflow_source, skill_doc, capability_manifest, resource_access_envelope, created_by,
 			        work_item_id, origin_tedi_run_id
 			 FROM skill_runs WHERE id = ?1 LIMIT 1`,
 		)
@@ -165,6 +171,7 @@ export async function loadSkillRunSnapshot(
 			workflow_source: string | null;
 			skill_doc: string | null;
 			capability_manifest: string | null;
+			resource_access_envelope: string | null;
 			created_by: string | null;
 			work_item_id: string | null;
 			origin_tedi_run_id: string | null;
@@ -190,6 +197,9 @@ export async function loadSkillRunSnapshot(
 		skillDoc: row.skill_doc ?? "",
 		capabilityManifest: row.capability_manifest
 			? JSON.parse(row.capability_manifest)
+			: null,
+		resourceAccessEnvelope: row.resource_access_envelope
+			? JSON.parse(row.resource_access_envelope)
 			: null,
 		createdBy: row.created_by ?? null,
 		workItemId: row.work_item_id ?? null,

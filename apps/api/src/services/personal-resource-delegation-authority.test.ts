@@ -1,3 +1,4 @@
+import * as subscriptions from "@tedix/db/queries/provider-events";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as accounts from "@tedix/db/queries/connection-instances";
 import * as members from "@tedix/db/queries/organization-members";
@@ -11,8 +12,12 @@ import * as vault from "../rpc/routers/connections/policy-resolution";
 import type { BaseContext } from "../rpc/orpc";
 import {
 	authorizePersonalResourceDelegation,
+	resolvePersonalSubscriptionCredential,
+	validatePersonalRunSources,
+	authorizePersonalDerivedSource,
 	personalConnectionGrantFingerprint,
 	preparePersonalResourceDelegation,
+	personalDelegationSource,
 	validatePersonalDelegationToken,
 } from "./personal-resource-delegation-authority";
 const id = "10000000-0000-4000-8000-000000000001";
@@ -86,6 +91,8 @@ beforeEach(async () => {
 		providerId: "google",
 		providerResourceId: "calendar-a",
 		resourceType: "calendar",
+		personalOwnerUserId: "alice",
+		connectionInstanceId: id,
 		requiredScopes: '["read"]',
 	};
 	run = {
@@ -113,6 +120,10 @@ beforeEach(async () => {
 		grantFingerprint: await personalConnectionGrantFingerprint(["grant"]),
 		createdAt: "2026-10-01",
 		revokedAt: null,
+	};
+	run.resourceAccessEnvelope = {
+		version: 1,
+		sources: [personalDelegationSource(consent as never)],
 	};
 	vi.spyOn(accounts, "getConnectionInstance").mockImplementation(
 		async () => account as never,
@@ -283,4 +294,123 @@ describe("explicit personal-resource delegation authority", () => {
 			).rejects.toMatchObject({ code: "FORBIDDEN" });
 		},
 	);
+});
+
+describe("admitted personal source boundaries", () => {
+	it("rejects a caller source whose consent is revoked before admission", async () => {
+		const envelope = {
+			version: 1 as const,
+			sources: [personalDelegationSource(consent as never)],
+		};
+		await expect(
+			validatePersonalRunSources(context(), {
+				tediId: id,
+				skillId: id,
+				skillRevision: 1,
+				resourceAccessEnvelope: envelope,
+			}),
+		).resolves.toEqual(envelope);
+		consent.revokedAt = "2026-10-01";
+		await expect(
+			validatePersonalRunSources(context(), {
+				tediId: id,
+				skillId: id,
+				skillRevision: 1,
+				resourceAccessEnvelope: envelope,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("cannot use a consent unless this running run was admitted with its source", async () => {
+		run.resourceAccessEnvelope = { version: 1, sources: [] };
+		await expect(
+			authorizePersonalResourceDelegation(context(true), use),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("does not expose personal derived bytes to another workspace reader", async () => {
+		const reader = context();
+		reader.user = { sub: "bob" } as never;
+		expect(
+			await authorizePersonalDerivedSource(
+				reader,
+				personalDelegationSource(consent as never),
+			),
+		).toBe(false);
+		expect(
+			await authorizePersonalDerivedSource(
+				context(),
+				personalDelegationSource(consent as never),
+			),
+		).toBe(true);
+	});
+});
+describe("standing personal subscription authority", () => {
+	function setup() {
+		consent.operations = ["read", "subscribe"];
+		const row = {
+			id,
+			organizationId: id,
+			connectionScope: "user",
+			personalOwnerUserId: "alice",
+			workspaceId: id,
+			workspaceResourceId: id,
+			delegationId: id,
+			executionToolId: "list_events",
+			resourceDelegationIds: [id],
+			connectionInstanceId: id,
+			tediId: id,
+			skillId: id,
+			skillRevision: 1,
+			providerId: "google",
+			calendarId: "calendar-a",
+			status: "registering",
+		};
+		vi.spyOn(subscriptions, "getProviderEventSubscription").mockResolvedValue(
+			row as never,
+		);
+		return row;
+	}
+	it("permits a persisted owner-approved watch without a running execution and derives its source", async () => {
+		setup();
+		vi.mocked(runs.getSkillRun).mockResolvedValue(null);
+		const result = await resolvePersonalSubscriptionCredential(context(), {
+			subscriptionId: id,
+			organizationId: id,
+		});
+		expect(result.resourceAccessEnvelope.sources).toEqual([
+			personalDelegationSource(consent as never),
+		]);
+		expect(runs.getSkillRun).not.toHaveBeenCalled();
+	});
+	it("rejects ambient worker token fallback and changed persisted watch", async () => {
+		const row = setup();
+		await expect(
+			resolvePersonalSubscriptionCredential(context(true), {
+				subscriptionId: id,
+				organizationId: id,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		vi.mocked(subscriptions.getProviderEventSubscription)
+			.mockResolvedValueOnce(row as never)
+			.mockResolvedValueOnce({ ...row, status: "disabled" } as never);
+		await expect(
+			resolvePersonalSubscriptionCredential(context(), {
+				subscriptionId: id,
+				organizationId: id,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("fails before fetching credentials when any selected consent is absent", async () => {
+		const row = setup();
+		row.resourceDelegationIds.push("10000000-0000-4000-8000-000000000002");
+		vi.mocked(consents.getPersonalResourceDelegation).mockImplementation(
+			async (_db, args) => (args.id === id ? (consent as never) : null),
+		);
+		await expect(
+			resolvePersonalSubscriptionCredential(context(), {
+				subscriptionId: id,
+				organizationId: id,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(vault.fetchNamedConnection).not.toHaveBeenCalled();
+	});
 });

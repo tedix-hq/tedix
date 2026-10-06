@@ -1,3 +1,4 @@
+import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-workspaces";
 /**
  * Skill Runs Query Helpers
  * Lifecycle operations for skill workflow execution records.
@@ -62,6 +63,7 @@ export interface CreateSkillRunArgs {
 	status?: SkillRunStatus;
 	params?: Record<string, JsonValue> | null;
 	capabilityManifest?: Record<string, JsonValue> | null;
+	resourceAccessEnvelope?: OsDerivedAccessEnvelope | null;
 	createdBy?: string | null;
 	workItemId?: string | null;
 }
@@ -84,6 +86,7 @@ export async function createSkillRun(
 			status: args.status ?? "queued",
 			params: args.params ?? null,
 			capabilityManifest: args.capabilityManifest ?? null,
+			resourceAccessEnvelope: args.resourceAccessEnvelope ?? null,
 			createdBy: args.createdBy ?? null,
 			workItemId: args.workItemId ?? null,
 		})

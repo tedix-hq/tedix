@@ -1,7 +1,7 @@
+import { fetchNamedConnection } from "../rpc/routers/connections/policy-resolution";
+import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { getManagementClient } from "@tedix/auth/client";
 import {
-	fetchConnectionToken,
-	fetchConnectionTokenByScopes,
 	fetchTenantConnectionToken,
 	fetchTenantConnectionTokenByScopes,
 } from "@tedix/auth/connections";
@@ -20,6 +20,8 @@ type ResourceConnectionReference = {
 	connectionScope: "tenant" | "user";
 	requiredScopes: string[];
 	status: "active" | "removed";
+	personalOwnerUserId?: string | null;
+	connectionInstanceId?: string | null;
 };
 
 type TokenProjection = {
@@ -63,6 +65,57 @@ export async function resolveWorkspaceResourceAvailability(
 		);
 	}
 	try {
+		if (resource.connectionScope === "user") {
+			if (
+				context.authType !== "user" ||
+				context.tediId ||
+				!resource.personalOwnerUserId ||
+				resource.personalOwnerUserId !== context.user?.sub ||
+				!resource.connectionInstanceId
+			)
+				return unavailable(
+					"not_executable",
+					"This personal resource requires its exact owner or an explicitly admitted background run.",
+					checkedAt,
+				);
+			const account = await getConnectionInstance(
+				context.db,
+				{ userId: resource.personalOwnerUserId },
+				resource.connectionInstanceId,
+				resource.providerId,
+			);
+			if (!account?.tokenIds.length || !account.tokenSub)
+				return unavailable(
+					"missing_connection",
+					"The selected personal account is disconnected.",
+					checkedAt,
+				);
+			const token = await fetchNamedConnection(
+				context,
+				{ userId: resource.personalOwnerUserId },
+				resource.providerId,
+				resource.connectionInstanceId,
+				resource.requiredScopes,
+			);
+			if (
+				!token?.id ||
+				!account.tokenIds.includes(token.id) ||
+				token.tokenSub !== account.tokenSub ||
+				resource.requiredScopes.some((scope) => !token.scopes?.includes(scope))
+			)
+				return unavailable(
+					"missing_connection",
+					"The exact personal account or required scopes changed.",
+					checkedAt,
+				);
+			if (token.expiresAt && Number(token.expiresAt) <= now.getTime() / 1000)
+				return unavailable(
+					"expired_connection",
+					"The selected personal account has expired.",
+					checkedAt,
+				);
+			return { status: "available", reason: null, checkedAt };
+		}
 		const descopeTenantId = dependencies.resolveTenantId
 			? await dependencies.resolveTenantId(resource.organizationId)
 			: await getOrganizationDescopeTenantId(
@@ -77,13 +130,6 @@ export async function resolveWorkspaceResourceAvailability(
 			);
 		}
 		const userId = context.descopeUserId ?? context.user?.sub ?? null;
-		if (resource.connectionScope === "user" && !userId) {
-			return unavailable(
-				"missing_connection",
-				"The personal connection owner is unavailable.",
-				checkedAt,
-			);
-		}
 		const token = dependencies.resolveToken
 			? await dependencies.resolveToken({
 					descopeTenantId,
@@ -155,12 +201,5 @@ async function resolveCanonicalToken(
 					input.descopeTenantId,
 				);
 	}
-	return input.requiredScopes.length > 0
-		? fetchConnectionTokenByScopes(
-				client,
-				input.providerId,
-				input.userId!,
-				input.requiredScopes,
-			)
-		: fetchConnectionToken(client, input.providerId, input.userId!);
+	return null;
 }

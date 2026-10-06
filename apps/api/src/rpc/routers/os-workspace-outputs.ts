@@ -1,3 +1,4 @@
+import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
 import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
 import { implement } from "@orpc/server";
@@ -79,11 +80,21 @@ async function resolveAccessEnvelope(
 		organizationId: requireOrgId(context),
 		runId: producer.skillRunId,
 	});
-	if (!execution?.resourceAccessEnvelope) return null;
+	const run = await getSkillRun(
+		context.db,
+		producer.skillRunId,
+		requireOrgId(context),
+		context.env.ENVIRONMENT,
+	);
+
 	try {
-		const parsed = OsDerivedAccessEnvelopeSchema.safeParse(
-			JSON.parse(execution.resourceAccessEnvelope),
-		);
+		const rawEnvelope =
+			run?.resourceAccessEnvelope ??
+			(execution?.resourceAccessEnvelope
+				? JSON.parse(execution.resourceAccessEnvelope)
+				: null);
+		if (!rawEnvelope) return null;
+		const parsed = OsDerivedAccessEnvelopeSchema.safeParse(rawEnvelope);
 		return parsed.success ? JSON.stringify(parsed.data) : null;
 	} catch {
 		return null;

@@ -1,3 +1,4 @@
+import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 /**
  * @tedix/skill-runtime
  *
@@ -145,6 +146,7 @@ const RunRequestSchema = z.object({
 	workflowSource: z.string().min(1),
 	skillDoc: z.string(),
 	capabilityManifest: z.record(z.string(), z.unknown()),
+	resourceAccessEnvelope: OsDerivedAccessEnvelopeSchema.optional(),
 	createdBy: z.string().min(1).max(128).optional(),
 	workItemId: z.string().uuid().optional(),
 	originTediRunId: z.string().uuid().optional(),
@@ -391,6 +393,10 @@ async function snapshotMatchesAdmission(
 			runtimeEnvironment,
 		) &&
 		workflowAdmissionJsonEqual(snapshot.params, input.params ?? {}) &&
+		workflowAdmissionJsonEqual(
+			snapshot.resourceAccessEnvelope,
+			input.resourceAccessEnvelope ?? null,
+		) &&
 		snapshot.skillSlug === input.skillSlug &&
 		snapshot.skillRevision === (input.skillRevision ?? null) &&
 		snapshot.workflowSource === input.workflowSource &&
@@ -642,6 +648,7 @@ app.post("/run", async (c) => {
 		workflowSource,
 		skillDoc,
 		capabilityManifest,
+		resourceAccessEnvelope,
 		createdBy,
 		workItemId,
 		originTediRunId,
@@ -823,6 +830,7 @@ app.post("/run", async (c) => {
 			skillRevision: skillRevision ?? null,
 			skillSlug: skillSlug ?? null,
 			capabilityManifest: capabilityManifest ?? null,
+			resourceAccessEnvelope,
 			createdBy: createdBy ?? null,
 			workItemId: workItemId ?? null,
 			originTediRunId: originTediRunId ?? null,

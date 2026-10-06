@@ -1,3 +1,4 @@
+import { authorizePersonalDerivedSource } from "./personal-resource-delegation-authority";
 import {
 	type OsDerivedAccessEnvelope,
 	OsDerivedAccessEnvelopeSchema,
@@ -29,6 +30,11 @@ export async function authorizeDerivedOutputSources(
 	if (context.organizationId !== input.organizationId) return false;
 	try {
 		for (const source of input.accessEnvelope.sources) {
+			if (source.connectionScope === "user") {
+				if (!(await authorizePersonalDerivedSource(context, source)))
+					return false;
+				continue;
+			}
 			const resource = await getOsWorkspaceResource(context.db, {
 				organizationId: input.organizationId,
 				workspaceId: source.workspaceId,

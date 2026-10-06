@@ -98,6 +98,7 @@ export async function rebindOsWorkspaceResource(
 		connectionScope: OsWorkspaceResourceRow["connectionScope"];
 		personalOwnerUserId?: string | null;
 		connectionInstanceId?: string | null;
+		providerAccess?: { canRead: boolean; canWrite: boolean } | null;
 		requiredScopes?: string;
 		expectedUpdatedAt: string;
 		now: string;
@@ -109,6 +110,7 @@ export async function rebindOsWorkspaceResource(
 			connectionScope: params.connectionScope,
 			personalOwnerUserId: params.personalOwnerUserId ?? null,
 			connectionInstanceId: params.connectionInstanceId ?? null,
+			providerAccess: params.providerAccess ?? null,
 			...(params.requiredScopes === undefined
 				? {}
 				: { requiredScopes: params.requiredScopes }),

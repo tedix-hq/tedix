@@ -1163,7 +1163,23 @@ export interface AdapterToolConfig {
  * Enables fully config-driven MCP tools that call any API endpoint
  * without code changes. Input/output shape controlled entirely from D1.
  */
+/** Server-reviewed provider argument locations for a delegated resource operation. */
+export const PersonalResourceToolBindingSchema = z
+	.object({
+		operation: z.string().trim().min(1).max(160),
+		resourceType: z.string().trim().min(1).max(160),
+		paths: z
+			.array(z.array(z.string().min(1).max(100)).min(1).max(12))
+			.min(1)
+			.max(20),
+	})
+	.strict();
+export type PersonalResourceToolBinding = z.infer<
+	typeof PersonalResourceToolBindingSchema
+>;
+
 export interface ToolConfig {
+	personalResourceBinding?: PersonalResourceToolBinding;
 	/**
 	 * Server-owned review of this exact connected tool's read-only execution.
 	 * Required together with writeCapability: read for connections.read access.

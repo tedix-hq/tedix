@@ -1,3 +1,6 @@
+import { getSkillRun } from "@tedix/db/queries/skill-runs";
+import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { authorizePersonalResourceDelegation } from "./personal-resource-delegation-authority";
 import { getManagementClient } from "@tedix/auth/client";
 import { getAssignedAppRoles } from "@tedix/auth/fga";
 import { listAppReferenceMetadataByOrganization } from "@tedix/db/queries/apps";
@@ -95,13 +98,47 @@ export async function authorizeWorkspaceResourceRead(
 				"Tedi resource reads require a verified MCP tool execution",
 			);
 		}
-		// The Tedi may carry its owner's user id as provenance. It is not an
-		// interactive personal grant for an autonomous read.
-		if (resource.connectionScope !== "tenant") {
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"Background tedis cannot read personal Workspace resources",
+		if (resource.connectionScope === "user") {
+			const runId = context.headers.get("X-Tedix-Skill-Run-Id");
+			const run = runId
+				? await getSkillRun(
+						context.db,
+						runId,
+						organizationId,
+						context.env.ENVIRONMENT,
+					)
+				: null;
+			const envelope = OsDerivedAccessEnvelopeSchema.safeParse(
+				run?.resourceAccessEnvelope,
 			);
+			const source = envelope.success
+				? envelope.data.sources.find(
+						(source) =>
+							source.workspaceResourceId === resource.id &&
+							source.connectionScope === "user" &&
+							source.operations.includes("read"),
+					)
+				: undefined;
+			const toolId = context.headers.get("X-Tedix-Mcp-Tool-Id");
+			if (!run || !source || !toolId || !run.skillId || !run.skillRevision)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Personal resource read requires exact admitted run consent",
+				);
+			await authorizePersonalResourceDelegation(context, {
+				delegationId: source.delegationId!,
+				tediId: context.tediId,
+				skillId: run.skillId,
+				skillRevision: run.skillRevision,
+				workspaceId: resource.workspaceId,
+				resourceId: resource.id,
+				connectionInstanceId: source.connectionInstanceId!,
+				providerId: resource.providerId,
+				providerResourceId: resource.providerResourceId,
+				operation: "read",
+				toolId,
+				requiredScopes,
+			});
 		}
 		const tedi = await getTediByIdForOrganization(
 			context.db,
@@ -146,10 +183,16 @@ export async function authorizeWorkspaceResourceRead(
 			"An acting Workspace reader is required",
 		);
 	}
-	if (resource.connectionScope === "user" && context.authType !== "user") {
+	if (
+		resource.connectionScope === "user" &&
+		!context.tediId &&
+		(context.authType !== "user" ||
+			resource.personalOwnerUserId !== context.user?.sub ||
+			!resource.connectionInstanceId)
+	) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Personal Workspace resources require an interactive user",
+			"Personal Workspace resources require their exact interactive owner",
 		);
 	}
 

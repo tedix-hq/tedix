@@ -67,6 +67,7 @@ function fixture() {
 			result TEXT,
 			error TEXT,
 			capability_manifest TEXT,
+			resource_access_envelope TEXT,
 			cost_summary TEXT,
 			workflow_source TEXT,
 			skill_doc TEXT,

@@ -1,3 +1,4 @@
+import { JsonValueSchema } from "../schemas/common";
 import "@orpc/openapi/extensions/route";
 /**
  * Connections Contract for oRPC
@@ -247,6 +248,10 @@ export const connectionsContract = oc
 				z.object({
 					/** Tedi ID requesting the token */
 					tediId: z.uuid(),
+					delegatedToolUse: z
+						.object({ appId: z.uuid(), arguments: JsonValueSchema })
+						.strict()
+						.optional(),
 					connectionInstanceId: z.uuid().optional(),
 					/** Descope outbound app ID for the provider */
 					providerId: z.string().min(1),
