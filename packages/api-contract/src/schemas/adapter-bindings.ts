@@ -752,6 +752,17 @@ export function parseConfigKeyPath(configKey: string): string[] {
 	return configKey.split(".");
 }
 
+const UNSAFE_PATH_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * True for a dotted-path segment that would let a path setter reach
+ * `Object.prototype` (prototype pollution). Path setters fed by tenant-authored
+ * config or mappings must refuse such paths.
+ */
+export function isUnsafePathSegment(segment: string): boolean {
+	return UNSAFE_PATH_SEGMENTS.has(segment);
+}
+
 /**
  * Set a nested value in a config object using a config key path
  * Creates intermediate objects as needed.
@@ -771,6 +782,9 @@ export function setByPath(
 	value: unknown,
 ): void {
 	const path = parseConfigKeyPath(configKey);
+	if (path.some(isUnsafePathSegment)) {
+		throw new Error(`Unsafe config key path: ${configKey}`);
+	}
 	let current = config;
 
 	// Navigate/create nested objects

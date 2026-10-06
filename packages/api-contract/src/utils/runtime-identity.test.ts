@@ -45,6 +45,11 @@ describe("runtime identity helpers", () => {
 		expect(sanitizeRuntimeTurnKey("  spaced  id  ")).toBe("spaced_id");
 		expect(sanitizeRuntimeTurnKey("<<weird:id>>")).toBe("weird_id");
 		expect(() => sanitizeRuntimeTurnKey("<>")).toThrow("empty turnKey");
+		expect(sanitizeRuntimeTurnKey("a>b>>")).toBe("a>b");
+		const longInnerRun = `a${">".repeat(100_000)}b`;
+		const started = performance.now();
+		expect(sanitizeRuntimeTurnKey(longInnerRun)).toBe(longInnerRun);
+		expect(performance.now() - started).toBeLessThan(1_000);
 	});
 
 	it("builds and splits tedi conversation ids", () => {

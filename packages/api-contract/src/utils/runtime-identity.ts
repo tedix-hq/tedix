@@ -3,10 +3,20 @@ export const RUNTIME_CONTROL_ID_RE = /^[a-zA-Z0-9:._-]+$/;
 
 export type RuntimeRunSurface = "chat" | "mcp" | (string & {});
 
+/**
+ * Strip leading `<` and trailing `>` runs with index scans. The equivalent
+ * `/^<+|>+$/g` is quadratic on long `>` runs that do not end the string.
+ */
+function stripAngleWrappers(value: string): string {
+	let start = 0;
+	let end = value.length;
+	while (start < end && value[start] === "<") start += 1;
+	while (end > start && value[end - 1] === ">") end -= 1;
+	return value.slice(start, end);
+}
+
 export function sanitizeRuntimeTurnKey(raw: string): string {
-	const cleaned = raw
-		.trim()
-		.replace(/^<+|>+$/g, "")
+	const cleaned = stripAngleWrappers(raw.trim())
 		.replace(/:/g, "_")
 		.replace(/\s+/g, "_")
 		.trim();
