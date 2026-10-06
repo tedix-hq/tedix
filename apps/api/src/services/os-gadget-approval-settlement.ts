@@ -1,7 +1,12 @@
+import { validatePersonalRunSources } from "./personal-resource-delegation-authority";
+import type { BaseContext } from "../rpc/orpc";
 import { ExecutionCapabilitySchema } from "@tedix/api-contract/schemas/execution-evidence";
 import { parseModelRef } from "@tedix/api-contract/schemas/model-catalog";
 import {
 	type OsGadgetContextEnvelope,
+	type OsDerivedResourceAccess,
+	type OsDerivedAccessEnvelope,
+	OsDerivedAccessEnvelopeSchema,
 	type OsGadgetManifest,
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
@@ -141,6 +146,7 @@ async function dispatchGadgetSkillRun(
 		idempotencyKey: string;
 		createdBy: string;
 		contextEnvelope: OsGadgetContextEnvelope;
+		resourceAccessEnvelope?: OsDerivedAccessEnvelope;
 	},
 ): Promise<SkillRuntimeRunResponse> {
 	const { skill, workflowSource, skillDoc } = params.executable;
@@ -158,6 +164,7 @@ async function dispatchGadgetSkillRun(
 			...gadgetRunParams(params.input),
 			_tedixContext: params.contextEnvelope,
 		},
+		resourceAccessEnvelope: params.resourceAccessEnvelope,
 		workflowSource,
 		skillDoc,
 		capabilityManifest: parseCapabilityManifest(skillDoc),
@@ -245,6 +252,7 @@ export async function dispatchGovernedGadgetExecution(
 		idempotencyKey: string;
 		approval?: TediApprovalRequest;
 		contextEnvelope: OsGadgetContextEnvelope;
+		resourceAccessEnvelope?: OsDerivedAccessEnvelope;
 	},
 ): Promise<SkillRuntimeRunResponse> {
 	return dispatchGadgetSkillRun(context, {
@@ -417,21 +425,17 @@ export async function settleOsGadgetApproval(
 			.filter((resource) => resource.slot)
 			.map((resource) => [resource.slot, resource]),
 	);
-	const grantedResources: Array<{
-		workspaceResourceId: string;
-		workspaceId: string;
-		slot: string;
-		providerId: string;
-		connectionScope: "tenant";
-		requiredScopes: string[];
-		resourceType: string;
-		providerResourceId: string;
-		name: string;
-		operations: string[];
-	}> = [];
+	const grantedResources: Array<
+		OsDerivedResourceAccess & { slot: string; name: string }
+	> = [];
+	const receiptEnvelope = OsDerivedAccessEnvelopeSchema.safeParse(
+		execution.resourceAccessEnvelope
+			? JSON.parse(execution.resourceAccessEnvelope)
+			: { version: 1, sources: [] },
+	);
 	for (const grant of manifest.resourceGrants ?? []) {
 		const resource = bySlot.get(grant.slot);
-		if (!resource || resource.connectionScope === "user") {
+		if (!resource) {
 			execution = await terminalizeAwaiting(context, execution, {
 				status: "denied",
 				reason: !resource
@@ -439,6 +443,55 @@ export async function settleOsGadgetApproval(
 					: `resource slot ${grant.slot} uses a personal connection; background tedis never inherit personal grants`,
 			});
 			return { handled: true, execution, dispatched: false };
+		}
+		if (resource.connectionScope === "user") {
+			try {
+				const source = receiptEnvelope.success
+					? receiptEnvelope.data.sources.find(
+							(source) =>
+								source.workspaceResourceId === resource.id &&
+								source.connectionScope === "user",
+						)
+					: undefined;
+				if (
+					!source ||
+					source.providerId !== resource.providerId ||
+					source.providerResourceId !== resource.providerResourceId ||
+					grant.operations.some(
+						(operation) => !source.operations.includes(operation),
+					)
+				)
+					throw new Error(
+						"Original personal consent no longer matches this resource grant",
+					);
+				const trusted = {
+					db: context.db,
+					env: context.env,
+					organizationId: execution.organizationId,
+					authType: "service-binding",
+					headers: new Headers(),
+				} as BaseContext;
+				await validatePersonalRunSources(trusted, {
+					tediId,
+					skillId: executable.skill.id,
+					skillRevision: executable.skill.revision,
+					resourceAccessEnvelope: { version: 1, sources: [source] },
+				});
+				grantedResources.push({
+					...source,
+					slot: grant.slot,
+					name: resource.name,
+					operations: grant.operations,
+				});
+			} catch {
+				execution = await terminalizeAwaiting(context, execution, {
+					status: "denied",
+					reason:
+						"Original personal resource consent is revoked, changed, or unavailable",
+				});
+				return { handled: true, execution, dispatched: false };
+			}
+			continue;
 		}
 		grantedResources.push({
 			workspaceResourceId: resource.id,
@@ -549,6 +602,12 @@ export async function settleOsGadgetApproval(
 				: (JSON.parse(execution.input) as JsonValue),
 		idempotencyKey: `gadget-approval:${approval.id}:${execution.id}`,
 		createdBy: dispatchActor(context, approval),
+		resourceAccessEnvelope: {
+			version: 1,
+			sources: grantedResources.map(
+				({ slot: _slot, name: _name, ...source }) => source,
+			),
+		},
 		contextEnvelope: {
 			version: 1,
 			organizationId: execution.organizationId,
@@ -561,12 +620,20 @@ export async function settleOsGadgetApproval(
 			},
 			resources: grantedResources.map(
 				({
-					workspaceResourceId: _id,
-					workspaceId: _workspaceId,
-					connectionScope: _scope,
-					requiredScopes: _scopes,
-					...resource
-				}) => resource,
+					slot,
+					providerId,
+					resourceType,
+					providerResourceId,
+					name,
+					operations,
+				}) => ({
+					slot,
+					providerId,
+					resourceType,
+					providerResourceId,
+					name,
+					operations,
+				}),
 			),
 		},
 	});

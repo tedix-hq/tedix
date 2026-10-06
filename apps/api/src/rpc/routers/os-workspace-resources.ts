@@ -1,3 +1,9 @@
+import { fetchNamedConnection } from "./connections/policy-resolution";
+import {
+	supportedCalendarAccounts,
+	calendarOwnerUser,
+	resolveCalendarAdapter,
+} from "../../services/calendar-coordinator/credentials";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
@@ -124,6 +130,108 @@ async function personalAccountBinding(
 	};
 }
 
+async function verifiedResourceScopes(
+	context: BaseContext,
+	selection: {
+		providerId: string;
+		connectionScope: "tenant" | "user";
+		connectionInstanceId?: string;
+		resourceType: string;
+		providerResourceId: string;
+		requiredScopes: string[];
+	},
+) {
+	if (
+		selection.resourceType !== "calendar" ||
+		selection.connectionScope !== "user"
+	)
+		return { requiredScopes: selection.requiredScopes, providerAccess: null };
+	if (!selection.connectionInstanceId)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Calendar attachment requires an exact named account",
+		);
+	const orgId = requireOrgId(context);
+	const accounts = await supportedCalendarAccounts(
+		context,
+		orgId,
+		selection.connectionScope,
+	);
+	const account = accounts.find(
+		(account) =>
+			account.providerId === selection.providerId &&
+			account.connectionInstanceId === selection.connectionInstanceId,
+	);
+	if (!account)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The selected account is not a supported calendar provider",
+		);
+	const resolved = await resolveCalendarAdapter(context, orgId, {
+		...selection,
+		connectionInstanceId: selection.connectionInstanceId,
+		adapter: account.adapter,
+	});
+	const calendar = (await resolved.adapter.listCalendars()).find(
+		(calendar) => calendar.id === selection.providerResourceId,
+	);
+	if (!calendar?.canRead)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The selected calendar is not readable through this exact account",
+		);
+	const token = await fetchNamedConnection(
+		context,
+		{ userId: calendarOwnerUser(context) },
+		selection.providerId,
+		selection.connectionInstanceId,
+	);
+	const accountBinding = await getConnectionInstance(
+		context.db,
+		{ userId: calendarOwnerUser(context) },
+		selection.connectionInstanceId,
+		selection.providerId,
+	);
+	if (
+		!token?.id ||
+		!accountBinding?.tokenIds.includes(token.id) ||
+		token.tokenSub !== accountBinding.tokenSub
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Calendar account identity changed during attachment",
+		);
+	const observed = token?.scopes ?? [];
+	const requiredScopes =
+		account.adapter === "google"
+			? observed.filter((scope) =>
+					[
+						"https://www.googleapis.com/auth/calendar",
+						"https://www.googleapis.com/auth/calendar.readonly",
+						"https://www.googleapis.com/auth/calendar.events",
+						"https://www.googleapis.com/auth/calendar.events.readonly",
+						"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+					].includes(scope),
+				)
+			: observed.filter((scope) =>
+					/(^|\/)Calendars\.(Read|ReadWrite)$/i.test(scope),
+				);
+	if (!requiredScopes.length)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Calendar credential has no verified calendar scopes",
+		);
+	if (selection.requiredScopes.some((scope) => !observed.includes(scope)))
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The selected account did not grant the requested scopes",
+		);
+	return {
+		requiredScopes,
+		providerAccess: { canRead: calendar.canRead, canWrite: calendar.canWrite },
+	};
+}
+
 const list = readOs.resources.list.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const rows = await listOsWorkspaceResources(queryDb(context), {
@@ -151,6 +259,7 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 		input.selection.providerId,
 		input.selection.connectionInstanceId,
 	);
+	const verified = await verifiedResourceScopes(context, input.selection);
 	const now = new Date().toISOString();
 	try {
 		const row = await createOsWorkspaceResource(queryDb(context), {
@@ -161,7 +270,8 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 			providerId: input.selection.providerId,
 			connectionScope: input.selection.connectionScope,
 			...binding,
-			requiredScopes: JSON.stringify(input.selection.requiredScopes),
+			requiredScopes: JSON.stringify(verified.requiredScopes),
+			providerAccess: verified.providerAccess,
 			resourceType: input.selection.resourceType,
 			providerResourceId: input.selection.providerResourceId,
 			name: input.selection.name,
@@ -284,6 +394,15 @@ const rebind = authorOs.resources.rebind.handler(async ({ input, context }) => {
 		current.providerId,
 		input.connectionInstanceId,
 	);
+	const verifiedScopes = await verifiedResourceScopes(context, {
+		providerId: current.providerId,
+		resourceType: current.resourceType,
+		providerResourceId: current.providerResourceId,
+		connectionScope: input.connectionScope,
+		connectionInstanceId: input.connectionInstanceId,
+		requiredScopes:
+			input.requiredScopes ?? (JSON.parse(current.requiredScopes) as string[]),
+	});
 	const previousUpdatedAt = Date.parse(current.updatedAt);
 	const now = new Date(
 		Math.max(
@@ -299,9 +418,8 @@ const rebind = authorOs.resources.rebind.handler(async ({ input, context }) => {
 			resourceId: current.id,
 			connectionScope: input.connectionScope,
 			...binding,
-			...(input.requiredScopes === undefined
-				? {}
-				: { requiredScopes: JSON.stringify(input.requiredScopes) }),
+			requiredScopes: JSON.stringify(verifiedScopes.requiredScopes),
+			providerAccess: verifiedScopes.providerAccess,
 			expectedUpdatedAt: input.expectedUpdatedAt,
 			now,
 		});

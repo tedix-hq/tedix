@@ -1,3 +1,4 @@
+import { validatePersonalRunSources } from "../../services/personal-resource-delegation-authority";
 /**
  * oRPC Cognitive Stack Router — skill workflow execution slice.
  * Skill-run/workflow handlers and their helpers; handlers are composed into
@@ -147,6 +148,7 @@ type PublicSkillRun = Omit<
 	| "skillSlug"
 	| "restartCommandId"
 	| "originTediRunId"
+	| "resourceAccessEnvelope"
 > & {
 	engine?: Record<string, unknown> | null;
 };
@@ -526,6 +528,14 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 		const skillDoc =
 			files?.["SKILL.md"] ?? (skill.content as string | null) ?? "";
 		const capabilityManifest = parseCapabilityManifest(skillDoc);
+		const resourceAccessEnvelope = input.resourceAccessEnvelope
+			? await validatePersonalRunSources(context, {
+					tediId: input.tediId,
+					skillId: skill.id,
+					skillRevision: skill.revision,
+					resourceAccessEnvelope: input.resourceAccessEnvelope,
+				})
+			: undefined;
 
 		// Dispatch to skill-runtime via service binding.
 		// Pass the workflow source + SKILL.md + revision + slug so the
@@ -585,6 +595,7 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 				workflowSource,
 				skillDoc,
 				capabilityManifest,
+				resourceAccessEnvelope,
 			},
 		);
 

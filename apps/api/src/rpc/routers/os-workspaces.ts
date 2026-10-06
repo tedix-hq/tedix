@@ -1,7 +1,13 @@
+import { getPersonalResourceDelegation } from "@tedix/db/queries/personal-resource-delegations";
+import {
+	personalDelegationSource,
+	validatePersonalRunSources,
+} from "../../services/personal-resource-delegation-authority";
 import { ORPCError, implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	type OsBlueprintDefinition,
+	type OsDerivedResourceAccess,
 	type OsBlueprintPreflight,
 	type OsBlueprintResourceBinding,
 	type OsBlueprintUpgradeReport,
@@ -423,18 +429,12 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 		}
 	}
 	const declaredResourceGrants = manifest?.resourceGrants ?? [];
-	const grantedResources: Array<{
-		workspaceResourceId: string;
-		workspaceId: string;
-		slot: string;
-		providerId: string;
-		connectionScope: "tenant";
-		requiredScopes: string[];
-		resourceType: string;
-		providerResourceId: string;
-		name: string;
-		operations: string[];
-	}> = [];
+	const executable = manifest
+		? await resolveGadgetExecutable(context, orgId, manifest)
+		: "Gadget has no executable revision";
+	const grantedResources: Array<
+		OsDerivedResourceAccess & { slot: string; name: string }
+	> = [];
 	if (declaredResourceGrants.length > 0) {
 		const resources = await listOsWorkspaceResources(db, {
 			organizationId: orgId,
@@ -454,9 +454,54 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 				continue;
 			}
 			if (resource.connectionScope === "user") {
-				reasons.push(
-					`resource slot ${grant.slot} uses a personal connection; background tedis never inherit personal grants`,
-				);
+				try {
+					if (typeof executable === "string") throw new Error(executable);
+					const rows = await Promise.all(
+						input.resourceDelegationIds.map((id) =>
+							getPersonalResourceDelegation(context.db, {
+								organizationId: orgId,
+								id,
+							}),
+						),
+					);
+					const matching = rows.filter(
+						(row) =>
+							row?.resourceId === resource.id &&
+							row.workspaceId === resource.workspaceId &&
+							row.tediId === input.tediId &&
+							row.skillId === executable.skill.id &&
+							row.skillRevision === executable.skill.revision,
+					);
+					if (
+						matching.length !== 1 ||
+						!matching[0] ||
+						grant.operations.some(
+							(operation) => !matching[0]!.operations.includes(operation),
+						)
+					)
+						throw new Error(
+							"Select exactly one valid personal resource consent covering this Gadget grant",
+						);
+					const source = {
+						...personalDelegationSource(matching[0]),
+						operations: grant.operations,
+					};
+					await validatePersonalRunSources(context, {
+						tediId: input.tediId,
+						skillId: executable.skill.id,
+						skillRevision: executable.skill.revision,
+						resourceAccessEnvelope: { version: 1, sources: [source] },
+					});
+					grantedResources.push({
+						...source,
+						slot: grant.slot,
+						name: resource.name,
+					});
+				} catch (error) {
+					reasons.push(
+						`resource slot ${grant.slot}: ${error instanceof Error ? error.message : "personal consent denied"}`,
+					);
+				}
 				continue;
 			}
 			const availability = await resolveWorkspaceResourceAvailability(context, {
@@ -565,7 +610,6 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 		}
 	}
 
-	const executable = await resolveGadgetExecutable(context, orgId, manifest);
 	if (typeof executable === "string") {
 		return denyReceipt([executable]);
 	}
@@ -641,6 +685,9 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 		executable,
 		input: input.input,
 		idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
+		resourceAccessEnvelope: OsDerivedAccessEnvelopeSchema.parse(
+			JSON.parse(baseReceipt.resourceAccessEnvelope),
+		),
 		contextEnvelope: {
 			version: 1,
 			organizationId: orgId,
@@ -653,12 +700,20 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 			},
 			resources: grantedResources.map(
 				({
-					workspaceResourceId: _id,
-					workspaceId: _workspaceId,
-					connectionScope: _scope,
-					requiredScopes: _scopes,
-					...resource
-				}) => resource,
+					slot,
+					providerId,
+					resourceType,
+					providerResourceId,
+					name,
+					operations,
+				}) => ({
+					slot,
+					providerId,
+					resourceType,
+					providerResourceId,
+					name,
+					operations,
+				}),
 			),
 		},
 	});

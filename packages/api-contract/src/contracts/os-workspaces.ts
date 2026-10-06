@@ -727,6 +727,10 @@ export const osWorkspacesContract = oc
 							.describe(
 								"Work Item to admit with the dispatched run; recorded on the receipt lineage",
 							),
+						resourceDelegationIds: z
+							.array(z.string().uuid())
+							.max(20)
+							.default([]),
 						idempotencyKey: z
 							.string()
 							.min(1)

@@ -543,6 +543,9 @@ function credentialDelegationHeaders<TConfig>(
 		headers["X-Tedix-External-Agent-Client-Record-Id"] =
 			caller.externalAgentClientRecordId;
 	}
+	applyWorkflowExecutionHeaders(headers, caller, {
+		includeTedixProvenance: true,
+	});
 	return headers;
 }
 
@@ -2155,6 +2158,7 @@ export class ToolHandler {
 					config.auth.scopes,
 					effectiveLabel,
 					config.auth.credentialPreference,
+					params,
 				);
 				if (!credentialResult.token) {
 					return {
@@ -2932,6 +2936,7 @@ export class ToolHandler {
 					config.auth.scopes,
 					effectiveLabel,
 					config.auth.credentialPreference,
+					params,
 				);
 				if (!credentialResult.token) {
 					return {
@@ -2970,6 +2975,7 @@ export class ToolHandler {
 					config.auth.scopes,
 					effectiveLabel,
 					config.auth.credentialPreference,
+					params,
 				);
 				if (!credentialResult.token) {
 					return {
@@ -3688,6 +3694,7 @@ return __fn ? await __fn(args) : __mod;
 		authScopes?: string[],
 		label?: string,
 		preference?: CredentialPreference,
+		providerArguments?: Record<string, unknown>,
 	): Promise<CredentialFetchResult> {
 		const tediId = ctx.callerIdentity?.tediId;
 		const organizationId =
@@ -3724,6 +3731,7 @@ return __fn ? await __fn(args) : __mod;
 						authScopes,
 						label,
 						preference,
+						providerArguments,
 					);
 				}
 			}
@@ -3758,6 +3766,7 @@ return __fn ? await __fn(args) : __mod;
 			authScopes,
 			label,
 			preference,
+			providerArguments,
 		);
 	}
 
@@ -3769,6 +3778,7 @@ return __fn ? await __fn(args) : __mod;
 		authScopes?: string[],
 		label?: string,
 		preference?: CredentialPreference,
+		providerArguments?: Record<string, unknown>,
 	): Promise<CredentialFetchResult> {
 		const connectionInstanceId = selectedConnectionInstanceId(ctx);
 		const resolvedScope = scope;
@@ -3785,7 +3795,11 @@ return __fn ? await __fn(args) : __mod;
 		);
 		// Named slots bypass credential caching so reconnect/disconnect takes
 		// effect on the next call without an isolate-wide invalidation race.
-		const cached = connectionInstanceId ? null : getCachedCredential(cacheKey);
+		const backgroundRun = Boolean(ctx.callerIdentity?.skillRunId);
+		const cached =
+			connectionInstanceId || backgroundRun
+				? null
+				: getCachedCredential(cacheKey);
 		if (cached) return { token: cached };
 
 		const useServiceBinding = !!ctx.env.API_SERVICE;
@@ -3795,6 +3809,14 @@ return __fn ? await __fn(args) : __mod;
 				providerId: connectionId,
 				scope: resolvedScope,
 				...(connectionInstanceId ? { connectionInstanceId } : {}),
+				...(backgroundRun
+					? {
+							delegatedToolUse: {
+								appId: ctx.appId,
+								arguments: providerArguments ?? {},
+							},
+						}
+					: {}),
 			};
 			if (resolvedScope === "hybrid" && preference) {
 				rpcInput.preference = preference;
@@ -3858,7 +3880,7 @@ return __fn ? await __fn(args) : __mod;
 				isRecord(data) && typeof data.accessToken === "string"
 					? data.accessToken
 					: null;
-			if (accessToken && !connectionInstanceId)
+			if (accessToken && !connectionInstanceId && !backgroundRun)
 				setCachedCredential(cacheKey, accessToken);
 			return { token: accessToken };
 		} catch (error) {

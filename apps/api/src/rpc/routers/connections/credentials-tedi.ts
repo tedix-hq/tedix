@@ -1,3 +1,12 @@
+import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { constrainPersonalResourceToolArguments } from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import { getSkillRun } from "@tedix/db/queries/skill-runs";
+import { getToolByAppAndToolIdForOrganization } from "@tedix/db/queries/tools";
+import {
+	authorizePersonalResourceDelegation,
+	resolvePersonalResourceDelegatedCredential,
+} from "../../../services/personal-resource-delegation-authority";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -56,6 +65,7 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 				scope?: CredentialScope;
 				preference?: CredentialPreference;
 				userId?: string;
+				delegatedToolUse?: { appId: string; arguments: JsonValue };
 			};
 			context: BaseContext;
 		}) => {
@@ -63,6 +73,108 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 				context,
 				input.tediId,
 			);
+
+			const backgroundRunId = context.headers.get("X-Tedix-Skill-Run-Id");
+			const backgroundRun = backgroundRunId
+				? await getSkillRun(
+						context.db,
+						backgroundRunId,
+						organizationId,
+						context.env.ENVIRONMENT,
+					)
+				: null;
+			const envelope = OsDerivedAccessEnvelopeSchema.safeParse(
+				backgroundRun?.resourceAccessEnvelope,
+			);
+			const personalSources = envelope.success
+				? envelope.data.sources.filter(
+						(source) =>
+							source.connectionScope === "user" &&
+							source.providerId === input.providerId,
+					)
+				: [];
+			if (personalSources.length) {
+				const toolId = context.headers.get("X-Tedix-Mcp-Tool-Id");
+				if (
+					!input.delegatedToolUse ||
+					!toolId ||
+					context.tediId !== input.tediId ||
+					!backgroundRun?.skillRevision
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Personal credential use requires the exact admitted provider arguments",
+					);
+				const tool = await getToolByAppAndToolIdForOrganization(context.db, {
+					organizationId,
+					appId: input.delegatedToolUse.appId,
+					toolId,
+				});
+				if (!tool?.enabled)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"The provider tool is not installed and enabled in this organization",
+					);
+				let matched;
+				try {
+					matched = constrainPersonalResourceToolArguments({
+						binding: tool.config?.personalResourceBinding,
+						arguments: input.delegatedToolUse.arguments,
+						sources: personalSources,
+						providerId: input.providerId,
+						toolId,
+					});
+				} catch {
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Unknown or escaping personal-resource provider arguments",
+					);
+				}
+				const uses = matched.sources.map((source) => ({
+					delegationId: source.delegationId!,
+					tediId: input.tediId,
+					skillId: backgroundRun.skillId,
+					skillRevision: backgroundRun.skillRevision!,
+					workspaceId: source.workspaceId,
+					resourceId: source.workspaceResourceId,
+					providerId: source.providerId,
+					connectionInstanceId: source.connectionInstanceId!,
+					providerResourceId: source.providerResourceId,
+					operation: matched.operation,
+					toolId,
+					requiredScopes: input.scopes ?? source.requiredScopes,
+				}));
+				if (
+					input.connectionInstanceId &&
+					uses.some(
+						(use) => use.connectionInstanceId !== input.connectionInstanceId,
+					)
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"The requested named account differs from the admitted provider resources",
+					);
+				for (const use of uses)
+					await authorizePersonalResourceDelegation(context, use);
+				const resolved = await resolvePersonalResourceDelegatedCredential(
+					context,
+					uses[0]!,
+				);
+				for (const use of uses)
+					await authorizePersonalResourceDelegation(context, use);
+				return {
+					accessToken: resolved.accessToken,
+					scopes: resolved.delegation.requiredScopes,
+				};
+			}
+			if (
+				context.tediId &&
+				(input.scope === "user" || input.scope === "hybrid")
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Background personal credentials require an explicit admitted resource consent",
+				);
 
 			// `input.userId` selects WHOSE personal credential the chain resolves, and
 			// it arrived unvalidated from the request body: resolveTediTenantId above

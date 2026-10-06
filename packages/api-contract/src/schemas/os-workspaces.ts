@@ -120,6 +120,11 @@ export const OsWorkspaceResourceSchema = z
 		connectionScope: z.enum(["tenant", "user"]),
 		personalOwnerUserId: z.string().min(1).nullable().default(null),
 		connectionInstanceId: z.string().uuid().nullable().default(null),
+		providerAccess: z
+			.object({ canRead: z.boolean(), canWrite: z.boolean() })
+			.strict()
+			.nullable()
+			.default(null),
 		requiredScopes: z
 			.array(z.string().trim().min(1).max(300))
 			.max(50)
@@ -1199,13 +1204,31 @@ export const OsDerivedResourceAccessSchema = z
 		providerId: z.string().trim().min(1).max(160),
 		resourceType: z.string().trim().min(1).max(160),
 		providerResourceId: z.string().trim().min(1).max(1000),
-		connectionScope: z.literal("tenant"),
+		connectionScope: z.enum(["tenant", "user"]),
+		personalOwnerUserId: z.string().min(1).optional(),
+		connectionInstanceId: z.string().uuid().optional(),
+		delegationId: z.string().uuid().optional(),
+		toolIds: z.array(z.string().min(1).max(200)).max(50).optional(),
 		requiredScopes: z.array(z.string().trim().min(1).max(300)).max(50),
 		operations: z.array(z.string().trim().min(1).max(160)).max(50),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(source) =>
+			source.connectionScope !== "user" ||
+			Boolean(
+				source.personalOwnerUserId &&
+				source.connectionInstanceId &&
+				source.delegationId &&
+				source.toolIds?.length,
+			),
+		{ message: "Personal source requires exact owner, account and consent" },
+	);
 
 /** Immutable, secret-free access requirements inherited by derived bytes. */
+export type OsDerivedResourceAccess = z.infer<
+	typeof OsDerivedResourceAccessSchema
+>;
 export const OsDerivedAccessEnvelopeSchema = z
 	.object({
 		version: z.literal(1),

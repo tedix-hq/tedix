@@ -1,3 +1,5 @@
+import * as calendarAccounts from "../../services/calendar-coordinator/credentials";
+import * as namedVault from "./connections/policy-resolution";
 import { connectionInstances } from "@tedix/db/schema";
 import {
 	kernelRuntimeRuns,
@@ -370,6 +372,78 @@ describe("workspaces", () => {
 });
 
 describe("Workspace resources", () => {
+	it("verifies exact calendar existence, ACL and scopes instead of accepting caller metadata", async () => {
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({
+			name: "Calendar binding",
+		});
+		const instanceId = "00000000-0000-4000-8000-000000000003";
+		vi.spyOn(calendarAccounts, "supportedCalendarAccounts").mockResolvedValue([
+			{
+				providerId: "google-drive",
+				connectionInstanceId: instanceId,
+				adapter: "google",
+			},
+		] as never);
+		const listCalendars = vi
+			.fn()
+			.mockResolvedValue([
+				{ id: "calendar-a", canRead: true, canWrite: false },
+			]);
+		vi.spyOn(calendarAccounts, "resolveCalendarAdapter").mockResolvedValue({
+			adapter: { listCalendars },
+		} as never);
+		vi.spyOn(namedVault, "fetchNamedConnection").mockResolvedValue({
+			id: "grant",
+			tokenSub: "subject",
+			scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+			accessToken: "secret",
+		});
+		const selection = {
+			providerId: "google-drive",
+			connectionScope: "user" as const,
+			connectionInstanceId: instanceId,
+			resourceType: "calendar",
+			providerResourceId: "calendar-a",
+			name: "Calendar",
+			requiredScopes: [],
+		};
+		const result = await c.org1.resources.create({
+			workspaceId: workspace.id,
+			selection,
+		});
+		expect(result.resource.providerAccess).toEqual({
+			canRead: true,
+			canWrite: false,
+		});
+		expect(result.resource.requiredScopes).toEqual([
+			"https://www.googleapis.com/auth/calendar.readonly",
+		]);
+		await expect(
+			c.org1.resources.create({
+				workspaceId: workspace.id,
+				selection: { ...selection, providerResourceId: "not-in-account" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			c.org1.resources.create({
+				workspaceId: workspace.id,
+				selection: {
+					...selection,
+					requiredScopes: ["https://www.googleapis.com/auth/calendar.events"],
+				},
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(calendarAccounts.resolveCalendarAdapter).toHaveBeenCalledWith(
+			expect.anything(),
+			"org-1",
+			expect.objectContaining({ connectionInstanceId: instanceId }),
+		);
+		vi.mocked(namedVault.fetchNamedConnection).mockRestore();
+		vi.mocked(calendarAccounts.resolveCalendarAdapter).mockRestore();
+		vi.mocked(calendarAccounts.supportedCalendarAccounts).mockRestore();
+	});
+
 	it("binds a personal resource to its authenticated owner and refuses another user's slot", async () => {
 		const c = clients();
 		const { workspace } = await c.org1.workspaces.create({
