@@ -188,6 +188,10 @@ jobs:
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
 
+      # The tedi computer's code search runs ripgrep; its tests execute it.
+      - name: Install ripgrep
+        run: sudo apt-get install -y --no-install-recommends ripgrep
+
       - name: Test public workspaces
         run: bun run test:ci
 

@@ -35,7 +35,8 @@ Read [AGENTS.md](AGENTS.md) and the nearest scoped `AGENTS.md`, then run
 `bun run verify` for the same checks as the pre-push hook.
 
 `bun run test:ci` runs the full suite, including a Chromium browser test in
-`apps/os`. Install that browser once:
+`apps/os` and code-search tests that run [ripgrep](https://github.com/BurntSushi/ripgrep)
+(`rg` on your `PATH`). Install the browser once:
 
 ```sh
 cd apps/os && bunx playwright install --with-deps chromium
