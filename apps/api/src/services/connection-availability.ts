@@ -6,7 +6,10 @@ import {
 	fetchTenantConnectionTokenByScopes,
 } from "@tedix/auth/connections";
 import type { DbClient } from "@tedix/db/client";
-import { getConnectionProviderById } from "@tedix/db/queries/connection-providers";
+import {
+	getConnectionProviderById,
+	getConnectionProviderByDescopeAppId,
+} from "@tedix/db/queries/connection-providers";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
 
 /** Why a connection did not resolve. Only `no_token` is repairable through
@@ -36,8 +39,17 @@ export async function resolveConnectionAvailability(input: {
 	tokenScope: "tenant" | "user" | "either";
 	scopes: string[];
 }): Promise<ConnectionAvailability> {
-	const provider = await getConnectionProviderById(input.db, input.providerId);
-	const descopeAppId = provider?.descopeAppId;
+	const template = await getConnectionProviderById(input.db, input.providerId);
+	const provider =
+		template ??
+		(await getConnectionProviderByDescopeAppId(input.db, input.providerId));
+	// Template IDs address the registry; outbound IDs and registered aliases address
+	// exact vault namespaces. An alias must not silently select the primary app's grant.
+	const descopeAppId = template
+		? template.descopeAppId
+		: provider
+			? input.providerId
+			: undefined;
 	if (!provider || !descopeAppId) {
 		return {
 			connected: false,
