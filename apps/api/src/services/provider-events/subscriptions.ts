@@ -43,23 +43,48 @@ export async function loadSubscription(
 		organizationId,
 		id,
 	);
-	if (
-		!row ||
-		(row.connectionScope === "user" &&
-			!(
-				context.authType === "user" &&
-				context.user?.sub === row.personalOwnerUserId
-			) &&
-			!(
-				context.authType === "service-binding" &&
-				!context.user &&
-				!context.tediId &&
-				!context.externalAgentPrincipalId &&
-				!context.gatewayEndUserId &&
-				!context.headers.get("X-Tedix-Mcp-Tool-Id")
-			))
-	)
-		throw new Error("Calendar subscription not found");
+	if (!row) throw new Error("Calendar subscription not found");
+	if (row.connectionScope === "user") {
+		const owner =
+			context.authType === "user" &&
+			!context.tediId &&
+			context.user?.sub === row.personalOwnerUserId;
+		const internal =
+			context.authType === "service-binding" &&
+			!context.user &&
+			!context.tediId &&
+			!context.externalAgentPrincipalId &&
+			!context.gatewayEndUserId &&
+			!context.headers.get("X-Tedix-Mcp-Tool-Id");
+		if (!owner && !internal) {
+			if (
+				!row.delegationId ||
+				!row.workspaceId ||
+				!row.workspaceResourceId ||
+				!row.executionToolId ||
+				!row.connectionInstanceId
+			)
+				throw new Error("Calendar subscription not found");
+			const { authorizePersonalResourceDelegation } =
+				await import("../personal-resource-delegation-authority");
+			const grant = await authorizePersonalResourceDelegation(context, {
+				delegationId: row.delegationId,
+				tediId: row.tediId,
+				skillId: row.skillId,
+				skillRevision: row.skillRevision,
+				workspaceId: row.workspaceId,
+				resourceId: row.workspaceResourceId,
+				providerId: row.providerId,
+				connectionInstanceId: row.connectionInstanceId,
+				providerResourceId: row.calendarId,
+				operation: "subscribe",
+				toolId: row.executionToolId,
+				requiredScopes: [],
+			});
+			if (grant.ownerUserId !== row.personalOwnerUserId)
+				throw new Error("Calendar subscription not found");
+		}
+	}
 	return row;
 }
 export async function registerSubscription(
@@ -131,13 +156,15 @@ export async function registerSubscription(
 		}
 		if (row.deliveryMode === "push")
 			await renewSubscription(context, row, token!);
-		else
+		else {
+			await resolveProviderEventCredential(context, row);
 			await updateProviderEventSubscription(
 				context.db,
 				organizationId,
 				row.id,
 				{ status: "active" },
 			);
+		}
 		await queueReconciliation(context, row, `initial:${row.id}`);
 	} catch (error) {
 		await recordSubscriptionFailure(context, row, error);
@@ -208,6 +235,23 @@ export async function renewSubscription(
 		secret,
 		callback,
 	);
+	try {
+		await resolveProviderEventCredential(context, row);
+	} catch (error) {
+		const stopped = await adapterFor(row.adapter)
+			.stop(token, result.providerChannelId, result.resourceId)
+			.then(
+				() => true,
+				() => false,
+			);
+		await updateProviderEventChannel(
+			context.db,
+			row.organizationId,
+			channelId,
+			{ ...result, status: stopped ? "stopped" : "active" },
+		);
+		throw error;
+	}
 	// Disabled while provider registration was in flight: stop instead of reviving.
 	const current = await loadSubscription(context, row.organizationId, row.id);
 	if (current.status === "disabled") {
@@ -283,7 +327,9 @@ export async function disableSubscription(
 	} catch {
 		await updateProviderEventSubscription(context.db, organizationId, id, {
 			lastError:
-				"Disabled locally; provider cleanup awaits restored connection or channel expiry",
+				row.connectionScope === "user"
+					? "Disabled locally; personal provider channel cleanup is deferred to its expiry"
+					: "Disabled locally; provider cleanup awaits restored connection or channel expiry",
 		});
 	}
 	return statusProjection(await loadSubscription(context, organizationId, id));
