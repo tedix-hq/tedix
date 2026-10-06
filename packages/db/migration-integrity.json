@@ -780,6 +780,10 @@
 		{
 			"name": "20261006194922_workspace-state-provider-events/migration.sql",
 			"sha256": "e13b0953cdcd1e88b7970858e1730ccd4a1884ba218fa9cb1b28709ad4ac88ad"
+		},
+		{
+			"name": "20261006204950_personal-calendar-runtime/migration.sql",
+			"sha256": "b8cc3e38f9777f4b9a0c04af9447ff34672e29f29ecb2d6dab01a3b0c22105da"
 		}
 	]
 }
