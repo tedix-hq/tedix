@@ -7,12 +7,14 @@ export const CalendarIntervalSchema = z
 		(v) => Date.parse(v.start) < Date.parse(v.end),
 		"End must follow start",
 	);
-export const CalendarAccountSelectionSchema = z.object({
-	adapter: z.enum(["google", "microsoft"]),
-	providerId: z.string().min(1).max(200),
-	connectionScope: z.enum(["tenant", "user"]),
-	connectionInstanceId: id,
-});
+export const CalendarAccountSelectionSchema = z
+	.object({
+		adapter: z.enum(["google", "microsoft"]),
+		providerId: z.string().min(1).max(200),
+		connectionScope: z.enum(["tenant", "user"]),
+		connectionInstanceId: id,
+	})
+	.strict();
 export const CalendarRouteSchema = CalendarAccountSelectionSchema.extend({
 	key: z.string().min(1).max(100),
 	calendarId: z.string().min(1).max(1000),
