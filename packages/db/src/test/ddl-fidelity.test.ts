@@ -21,11 +21,15 @@ import { readdirSync, readFileSync } from "node:fs";
 import { is, Table } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { expect, it } from "vite-plus/test";
-// The barrel deliberately omits these two startup-heavy schemas (see
+// The barrel deliberately omits these directly owned schemas (see
 // drizzle.config.ts), so they are imported explicitly rather than missed.
 import * as graphRetrievalBenchmarks from "../schema/graph-retrieval-benchmarks";
 import * as schema from "../schema/index";
 import * as memoryEntities from "../schema/memory-entities";
+import * as gadgetState from "../schema/os-gadget-state";
+import * as providerEvents from "../schema/provider-events";
+import * as personalDelegations from "../schema/personal-resource-delegations";
+import * as calendarCoordinator from "../schema/calendar-coordinator";
 
 /** Tables a test may create that the platform schema deliberately does not own. */
 const UNOWNED_TABLES = new Set<string>();
@@ -38,6 +42,10 @@ function realColumnsByTable(): Map<string, Set<string>> {
 		...Object.values(schema),
 		...Object.values(memoryEntities),
 		...Object.values(graphRetrievalBenchmarks),
+		...Object.values(gadgetState),
+		...Object.values(providerEvents),
+		...Object.values(personalDelegations),
+		...Object.values(calendarCoordinator),
 	]) {
 		if (!is(value, Table)) continue;
 		const config = getTableConfig(value);

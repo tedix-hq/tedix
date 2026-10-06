@@ -64,6 +64,9 @@ beforeEach(() => {
 	vi.spyOn(resources, "getOsWorkspaceResource").mockResolvedValue({
 		status: "active",
 		connectionScope: "user",
+		personalOwnerUserId: "alice",
+		connectionInstanceId: id,
+		providerAccess: { canRead: true, canWrite: false },
 		providerId: "google",
 		providerResourceId: "calendar-a",
 		resourceType: "calendar",
