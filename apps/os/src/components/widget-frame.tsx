@@ -59,6 +59,7 @@ export interface WidgetFrameProps {
 	toolInput?: unknown;
 	toolResult?: unknown;
 	title?: string;
+	layout?: "content" | "fill";
 	/**
 	 * Latest widget-state snapshot (`ui/update-model-context`) from the guest.
 	 * The host acknowledges every update either way; embedders that want the
@@ -294,6 +295,7 @@ function WidgetFrameInner({
 	toolInput,
 	toolResult,
 	title,
+	layout,
 	onModelContextUpdate,
 	onFollowUp,
 }: WidgetFrameProps) {
@@ -456,6 +458,11 @@ function WidgetFrameInner({
 		<div
 			data-slot="mcp-widget-frame"
 			className="flex min-w-0 max-w-full flex-col gap-1 overflow-hidden"
+			style={
+				layout === "fill"
+					? { flex: "1 1 0px", minHeight: 0, height: "100%" }
+					: undefined
+			}
 		>
 			{title ? (
 				<Text as="span" role="label" tone="secondary" weight="medium" truncate>
@@ -467,6 +474,7 @@ function WidgetFrameInner({
 				sandbox={sandbox}
 				createBridge={createBridge}
 				hostContext={hostContext}
+				layout={layout}
 				toolInput={isRecord(toolInput) ? toolInput : undefined}
 				toolResult={sdkToolResult}
 				onError={handleRendererError}

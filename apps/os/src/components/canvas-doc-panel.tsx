@@ -527,7 +527,19 @@ export function CanvasDocPanel({
 		outputDraftIssue !== null;
 
 	return (
-		<div className="canvas-document-shell grid min-w-0 content-start gap-0">
+		<div
+			className="canvas-document-shell grid min-w-0 content-start gap-0"
+			style={
+				isGadget && gadgetWidgetTarget && effectiveGadgetView === "preview"
+					? {
+							display: "flex",
+							flexDirection: "column",
+							height: "100%",
+							minHeight: 0,
+						}
+					: undefined
+			}
+		>
 			<OutputWorkshopCommandBar className="canvas-document-header">
 				<OutputWorkshopIdentity className="canvas-document-identity">
 					{!focusMode && viewControls ? (
@@ -678,7 +690,19 @@ export function CanvasDocPanel({
 				</Alert>
 			)}
 			{session && isGadget ? (
-				<div className="grid min-w-0 gap-3">
+				<div
+					className="grid min-w-0 gap-3"
+					style={
+						gadgetWidgetTarget && effectiveGadgetView === "preview"
+							? {
+									display: "flex",
+									flexDirection: "column",
+									flex: "1 1 0px",
+									minHeight: 0,
+								}
+							: undefined
+					}
+				>
 					{gadgetWidgetTarget && gadgetViewOverride === undefined && (
 						<SegmentedControl
 							ariaLabel="Gadget view"
@@ -689,8 +713,13 @@ export function CanvasDocPanel({
 						/>
 					)}
 					{gadgetWidgetTarget && effectiveGadgetView === "preview" ? (
-						<Card data-canvas-gadget-preview size="sm" tone="raised">
-							<CardContent className="grid gap-3">
+						<Card
+							data-canvas-gadget-preview
+							size="sm"
+							tone="raised"
+							className="flex min-h-0 flex-1 flex-col"
+						>
+							<CardContent className="flex min-h-0 flex-1 flex-col gap-3">
 								<div className="flex flex-wrap items-center gap-2">
 									<Badge variant="secondary">Committed preview</Badge>
 									<Text as="span" role="label" tone="secondary">
@@ -698,6 +727,7 @@ export function CanvasDocPanel({
 									</Text>
 								</div>
 								<WidgetFrame
+									layout="fill"
 									appSlug={gadgetWidgetTarget.appSlug}
 									resourceUri={gadgetWidgetTarget.resourceUri}
 									title={title ?? "Canvas Gadget"}
