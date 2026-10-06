@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
+	configuredPrivateRulesPath,
 	parseCli,
 	PRIVATE_SCAN_RULES_PATH,
 	readPrivateScanRules,
@@ -647,6 +648,22 @@ describe("public secret scan", () => {
 			`${at}:3:customer-identity`,
 			`${at}:5:cloudflare-account-id`,
 		]);
+	});
+
+	test("finds private rules kept outside the repository", () => {
+		expect(configuredPrivateRulesPath({}, () => "")).toBeUndefined();
+		expect(
+			configuredPrivateRulesPath(
+				{},
+				() => "/ops/configuration/private-scan-rules.json",
+			),
+		).toBe("/ops/configuration/private-scan-rules.json");
+		expect(
+			configuredPrivateRulesPath(
+				{ TEDIX_PRIVATE_SCAN_RULES: "/env/rules.json" },
+				() => "/ops/configuration/private-scan-rules.json",
+			),
+		).toBe("/env/rules.json");
 	});
 
 	test("accepts commits without trailers or with both exact trailers", () => {
