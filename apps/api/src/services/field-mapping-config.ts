@@ -1,3 +1,4 @@
+import { isUnsafePathSegment } from "@tedix/api-contract/schemas/adapter-bindings";
 import * as z from "zod";
 
 /**
@@ -405,6 +406,7 @@ function setNestedField(
 	value: unknown,
 ) {
 	const parts = path.split(".");
+	if (parts.some(isUnsafePathSegment)) return;
 
 	if (parts.length === 1) {
 		const key = parts[0];

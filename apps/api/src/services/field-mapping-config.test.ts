@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vite-plus/test";
 import { autoMapFields, VERTICAL_FIELD_MAPPINGS } from "./field-mapping-config";
 
+describe("field mapping paths", () => {
+	it("refuses mapping paths that would reach Object.prototype", () => {
+		const mapped = autoMapFields(
+			{ evil: "polluted" },
+			{
+				"__proto__.pollutedByMapping": ["evil"],
+				"constructor.prototype.pollutedByMapping": ["evil"],
+			},
+		);
+		expect(({} as Record<string, unknown>).pollutedByMapping).toBeUndefined();
+		expect(Object.hasOwn(mapped, "constructor")).toBe(false);
+	});
+});
+
 describe("vertical field mappings", () => {
 	it("keeps common extraction fields in the canonical vertical engine", () => {
 		const mapped = autoMapFields({

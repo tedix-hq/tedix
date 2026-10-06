@@ -1420,9 +1420,7 @@ function readableMachineId(id: string): string | null {
 		.replace(/\bApi\b/g, "API")
 		.replace(/\bJwt\b/g, "JWT")
 		.replace(/\bMcp\b/g, "MCP")
-		.replace(/\bOauth\b/g, "OAuth")
-		.replace(/\bR2\b/g, "R2")
-		.replace(/\bD1\b/g, "D1");
+		.replace(/\bOauth\b/g, "OAuth");
 }
 
 function machinePrincipalDescriptor(

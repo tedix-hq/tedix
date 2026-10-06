@@ -381,9 +381,17 @@ function assertAuthorization(
  */
 function isMigratableUrl(url: string | null): url is string {
 	if (!url || !/^https?:\/\//i.test(url)) return false;
-	if (url.includes("imagedelivery.net")) return false;
-	const path = url.split(/[?#]/)[0] ?? url;
-	if (/\.ico$/i.test(path)) return false;
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	const host = parsed.hostname.toLowerCase();
+	if (host === "imagedelivery.net" || host.endsWith(".imagedelivery.net")) {
+		return false;
+	}
+	if (/\.ico$/i.test(parsed.pathname)) return false;
 	return true;
 }
 

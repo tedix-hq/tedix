@@ -8,6 +8,7 @@
  * @module @tedix/api/adapters/internal
  */
 
+import { isUnsafePathSegment } from "@tedix/api-contract/schemas/adapter-bindings";
 import { callRpc } from "@tedix/api-client/internal";
 import type { LayoutItemSchemaType as LayoutItem } from "@tedix/api-contract/schemas/layout";
 import type {
@@ -54,6 +55,7 @@ function setByPath(
 ): void {
 	if (!path || value === undefined || value === null) return;
 	const segments = path.split(".").filter(Boolean);
+	if (segments.some(isUnsafePathSegment)) return;
 	let current: Record<string, unknown> = obj;
 	for (let i = 0; i < segments.length - 1; i++) {
 		const segment = segments[i];

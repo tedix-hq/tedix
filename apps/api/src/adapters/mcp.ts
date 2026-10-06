@@ -7,6 +7,7 @@
  * @module @tedix/api/adapters/mcp
  */
 
+import { isUnsafePathSegment } from "@tedix/api-contract/schemas/adapter-bindings";
 import type {
 	BadgeVariant,
 	StockStatus,
@@ -111,6 +112,7 @@ function setByPath(
 	}
 
 	const segments = path.split(".").filter(Boolean);
+	if (segments.some(isUnsafePathSegment)) return;
 	let current: Record<string, unknown> = obj;
 
 	for (let i = 0; i < segments.length - 1; i++) {
