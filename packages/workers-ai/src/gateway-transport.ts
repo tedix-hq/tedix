@@ -119,6 +119,8 @@ export interface CloudflareAutoRouterRequest {
 	autoRouting: Readonly<AutoRoutingIdentity>;
 	attribution?: Record<string, string>;
 	sessionId?: string;
+	/** Routes requests sharing a prompt prefix to one instance; defaults to sessionId. */
+	affinityKey?: string;
 	turnId?: string;
 	signal?: AbortSignal;
 }
@@ -239,6 +241,10 @@ export async function openCloudflareAutoRouterResponse(
 	if (request.sessionId?.trim()) {
 		headers["cf-aig-session-id"] = request.sessionId.trim();
 	}
+	// Prefix caching only hits on the model instance that holds the cached
+	// prompt; affinity keeps requests sharing that prefix on one instance.
+	const affinity = request.affinityKey?.trim() || request.sessionId?.trim();
+	if (affinity) headers["x-session-affinity"] = affinity;
 	if (request.turnId?.trim()) headers["cf-aig-turn-id"] = request.turnId.trim();
 
 	assertProviderDispatchReady(beforeDispatch);

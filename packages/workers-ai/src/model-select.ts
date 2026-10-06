@@ -218,6 +218,8 @@ export interface CloudflareAutoRouterModelOptions {
 	gatewayId: string;
 	attribution?: Record<string, string>;
 	sessionId?: string;
+	/** Prompt-prefix cache affinity; see CloudflareAutoRouterRequest. */
+	affinityKey?: string;
 	turnId?: string;
 }
 
@@ -307,6 +309,7 @@ export function cloudflareAutoRouterModel(
 				autoRouting,
 				attribution: authorization.attribution,
 				sessionId: options.sessionId,
+				affinityKey: options.affinityKey,
 				turnId: options.turnId,
 				signal: dispatch.signal,
 			},
