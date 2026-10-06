@@ -61,7 +61,9 @@ export async function buildPlan(
 	);
 	const alive = new Set<string>();
 	const ledgerOwned = new Set(
-		mirrors.map((m) => `${m.destinationKey}:${m.eventId}:${m.ownership}`),
+		mirrors
+			.filter((m) => !m.released)
+			.map((m) => `${m.destinationKey}:${m.eventId}:${m.ownership}`),
 	);
 	const action = async (
 		kind: Action["kind"],
