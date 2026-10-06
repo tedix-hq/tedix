@@ -1,3 +1,4 @@
+import { connectionInstances } from "@tedix/db/schema";
 import {
 	kernelRuntimeRuns,
 	kernelConversationGrants,
@@ -125,6 +126,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			connectionInstances,
 			kernelRuntimeRuns,
 			kernelConversationGrants,
 			osWorkspaces,
@@ -146,6 +148,7 @@ function createEnv(): CloudflareEnv {
 		),
 	);
 	sqlite.exec(`
+		INSERT INTO connection_instances (id,owner_user_id,provider_id,label,token_ids,token_sub,created_at,updated_at) VALUES ('00000000-0000-4000-8000-000000000003','user-1','google-drive','Personal','["grant"]','subject','2026-01-01','2026-01-01'), ('00000000-0000-4000-8000-000000000004','user-1','github','Personal','["grant"]','subject','2026-01-01','2026-01-01');
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
 		INSERT INTO organizations (id, name)
 			VALUES ('org-1', 'First Org'), ('org-2', 'Second Org');
@@ -367,6 +370,45 @@ describe("workspaces", () => {
 });
 
 describe("Workspace resources", () => {
+	it("binds a personal resource to its authenticated owner and refuses another user's slot", async () => {
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({
+			name: "Exact account",
+		});
+		const selection = {
+			providerId: "google-drive",
+			connectionScope: "user" as const,
+			connectionInstanceId: "00000000-0000-4000-8000-000000000003",
+			resourceType: "file",
+			providerResourceId: "file-a",
+			name: "File",
+			metadata: {},
+		};
+		const { resource } = await c.org1.resources.create({
+			workspaceId: workspace.id,
+			selection,
+		});
+		expect(resource).toMatchObject({
+			personalOwnerUserId: "user-1",
+			connectionInstanceId: selection.connectionInstanceId,
+		});
+		const other = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext(c.env, "org-1", "other-user"),
+		});
+		await expect(
+			other.resources.create({
+				workspaceId: workspace.id,
+				selection: { ...selection, providerResourceId: "file-b" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			c.machine.resources.create({
+				workspaceId: workspace.id,
+				selection: { ...selection, providerResourceId: "file-c" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
 	it("rebinds the connection requirement while preserving exact object identity and author authority", async () => {
 		const c = clients();
 		const { workspace } = await c.org1.workspaces.create({ name: "CSF" });
@@ -375,6 +417,7 @@ describe("Workspace resources", () => {
 			selection: {
 				providerId: "google-drive",
 				connectionScope: "user",
+				connectionInstanceId: "00000000-0000-4000-8000-000000000003",
 				requiredScopes: ["drive.readonly"],
 				resourceType: "file",
 				providerResourceId: "drive-file-123",
@@ -3356,6 +3399,7 @@ describe("governed gadget dispatch", () => {
 			selection: {
 				providerId: "github",
 				connectionScope: "user",
+				connectionInstanceId: "00000000-0000-4000-8000-000000000004",
 				resourceType: "repository",
 				providerResourceId: "tedix-hq/tedix",
 				name: "tedix-hq/tedix",

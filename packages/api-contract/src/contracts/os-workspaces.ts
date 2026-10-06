@@ -505,6 +505,7 @@ export const osWorkspacesContract = oc
 						resourceId: z.string().uuid(),
 						expectedUpdatedAt: z.string(),
 						connectionScope: z.enum(["tenant", "user"]),
+						connectionInstanceId: z.string().uuid().optional(),
 						requiredScopes: z
 							.array(z.string().trim().min(1).max(300))
 							.max(50)

@@ -118,6 +118,8 @@ export const OsWorkspaceResourceSchema = z
 			),
 		providerId: z.string().trim().min(1).max(160),
 		connectionScope: z.enum(["tenant", "user"]),
+		personalOwnerUserId: z.string().min(1).nullable().default(null),
+		connectionInstanceId: z.string().uuid().nullable().default(null),
 		requiredScopes: z
 			.array(z.string().trim().min(1).max(300))
 			.max(50)
@@ -186,6 +188,7 @@ export const OsWorkspaceResourceSelectionSchema = z
 	.object({
 		providerId: z.string().trim().min(1).max(160),
 		connectionScope: z.enum(["tenant", "user"]),
+		connectionInstanceId: z.string().uuid().optional(),
 		requiredScopes: z
 			.array(z.string().trim().min(1).max(300))
 			.max(50)
@@ -197,7 +200,15 @@ export const OsWorkspaceResourceSelectionSchema = z
 			.record(OsWorkspaceResourceMetadataKeySchema, JsonValueSchema)
 			.default({}),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(value) =>
+			value.connectionScope !== "user" || Boolean(value.connectionInstanceId),
+		{
+			message: "Select the exact personal account",
+			path: ["connectionInstanceId"],
+		},
+	);
 export type OsWorkspaceResourceSelection = z.infer<
 	typeof OsWorkspaceResourceSelectionSchema
 >;

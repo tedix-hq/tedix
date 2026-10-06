@@ -1,3 +1,4 @@
+import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
@@ -88,6 +89,41 @@ async function requireResource(
 	return row;
 }
 
+async function personalAccountBinding(
+	context: BaseContext,
+	scope: "tenant" | "user",
+	providerId: string,
+	instanceId?: string,
+) {
+	if (scope === "tenant")
+		return { personalOwnerUserId: null, connectionInstanceId: null };
+	if (
+		context.authType !== "user" ||
+		!context.user?.sub ||
+		context.tediId ||
+		!instanceId
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Select your exact connected personal account",
+		);
+	const instance = await getConnectionInstance(
+		context.db,
+		{ userId: context.user.sub },
+		instanceId,
+		providerId,
+	);
+	if (!instance || !instance.tokenIds.length || !instance.tokenSub)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The exact personal account is unavailable or belongs to another owner",
+		);
+	return {
+		personalOwnerUserId: context.user.sub,
+		connectionInstanceId: instance.id,
+	};
+}
+
 const list = readOs.resources.list.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const rows = await listOsWorkspaceResources(queryDb(context), {
@@ -109,6 +145,12 @@ const list = readOs.resources.list.handler(async ({ input, context }) => {
 const create = authorOs.resources.create.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const creator = resolveCreator(context);
+	const binding = await personalAccountBinding(
+		context,
+		input.selection.connectionScope,
+		input.selection.providerId,
+		input.selection.connectionInstanceId,
+	);
 	const now = new Date().toISOString();
 	try {
 		const row = await createOsWorkspaceResource(queryDb(context), {
@@ -118,6 +160,7 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 			slot: null,
 			providerId: input.selection.providerId,
 			connectionScope: input.selection.connectionScope,
+			...binding,
 			requiredScopes: JSON.stringify(input.selection.requiredScopes),
 			resourceType: input.selection.resourceType,
 			providerResourceId: input.selection.providerResourceId,
@@ -235,6 +278,12 @@ const rebind = authorOs.resources.rebind.handler(async ({ input, context }) => {
 			"Removed resources cannot be rebound",
 		);
 	}
+	const binding = await personalAccountBinding(
+		context,
+		input.connectionScope,
+		current.providerId,
+		input.connectionInstanceId,
+	);
 	const previousUpdatedAt = Date.parse(current.updatedAt);
 	const now = new Date(
 		Math.max(
@@ -249,6 +298,7 @@ const rebind = authorOs.resources.rebind.handler(async ({ input, context }) => {
 			workspaceId: current.workspaceId,
 			resourceId: current.id,
 			connectionScope: input.connectionScope,
+			...binding,
 			...(input.requiredScopes === undefined
 				? {}
 				: { requiredScopes: JSON.stringify(input.requiredScopes) }),
