@@ -1,3 +1,4 @@
+import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
 /**
  * Outer-surface lane conformance: the
  * registered outer tool surface per lane is a decided contract, not an
@@ -35,19 +36,22 @@ describe("outer-surface lanes", () => {
 	])(
 		"compact code advertises %s app auth without widening inner scopes",
 		(authMode, securitySchemes) => {
-			const tools = compactCodeModeTools({
-				app: { slug: "connect", name: "Tedix" },
-				metadata: {
-					mcpConfig: {
-						codeMode: true,
-						authMode,
-						toolScopes: {
-							code: ["mcp:work.read"],
-							create_os_output: ["mcp:apps.write"],
+			const tools = compactCodeModeTools(
+				{
+					app: { slug: "connect", name: "Tedix" },
+					metadata: {
+						mcpConfig: {
+							codeMode: true,
+							authMode,
+							toolScopes: {
+								code: ["mcp:work.read"],
+								create_os_output: ["mcp:apps.write"],
+							},
 						},
 					},
-				},
-			} as never);
+				} as never,
+				new Headers(),
+			);
 			expect(tools[0]?._meta).toEqual({ securitySchemes });
 			expect(tools[0]?.securitySchemes).toEqual(securitySchemes);
 			expect(tools[0]?.annotations).toEqual({
@@ -76,7 +80,7 @@ describe("outer-surface lanes", () => {
 		},
 	);
 	it("stateless fast path advertises code + get_info (no ask) independent of caller identity", () => {
-		const tools = compactCodeModeTools(resolvedAppStub());
+		const tools = compactCodeModeTools(resolvedAppStub(), new Headers());
 		expect(tools.map((tool) => tool.name)).toEqual([
 			"code",
 			"get_info",
@@ -89,10 +93,13 @@ describe("outer-surface lanes", () => {
 	});
 	it("public apps do not advertise a personal account profile", () => {
 		expect(
-			compactCodeModeTools({
-				app: { name: "Public" },
-				metadata: { mcpConfig: { codeMode: true, authMode: "public" } },
-			} as never).map((t) => t.name),
+			compactCodeModeTools(
+				{
+					app: { name: "Public" },
+					metadata: { mcpConfig: { codeMode: true, authMode: "public" } },
+				} as never,
+				new Headers(),
+			).map((t) => t.name),
 		).toEqual(["code", "get_info"]);
 	});
 	it("preserves the standard account profile wire declaration without capability scope union", () => {
@@ -119,5 +126,72 @@ describe("outer-surface lanes", () => {
 				securitySchemes: [{ type: "oauth2", scopes: [] }],
 			},
 		]);
+	});
+});
+
+describe("configured compact native catalog rows", () => {
+	function app(
+		rows: unknown[],
+		scopes: Record<string, string[]> = { find_tools: ["mcp:catalog.read"] },
+	) {
+		return {
+			app: { slug: "tedix-unified", name: "Tedix" },
+			tools: rows,
+			metadata: {
+				mcpConfig: {
+					codeMode: true,
+					authMode: "authenticated",
+					toolScopes: scopes,
+				},
+			},
+		} as never;
+	}
+	const row = {
+		id: "fictional",
+		toolId: "find_tools",
+		title: "Find permitted tools",
+		description: "Stored description",
+		toolTypeId: "rpc",
+		enabled: true,
+		config: { transport: "catalog", endpoint: "catalog/search" },
+		inputSchema: CatalogueSearchInputJsonSchema,
+		outputSchema: { type: "object" },
+		annotations: { readOnlyHint: true },
+	};
+	const headers = new Headers({
+		"x-tedix-auth-type": "oauth",
+		"x-tedix-auth-scopes": "mcp:catalog.read",
+	});
+	it("uses actual configured metadata and caller capability, never aggregate hydration", () => {
+		const tools = compactCodeModeTools(app([row]), headers);
+		expect(tools.find((tool) => tool.name === "find_tools")).toMatchObject({
+			title: row.title,
+			description: row.description,
+			inputSchema: row.inputSchema,
+			outputSchema: row.outputSchema,
+			annotations: row.annotations,
+			securitySchemes: [{ type: "oauth2", scopes: ["mcp:catalog.read"] }],
+		});
+		expect(
+			compactCodeModeTools(app([row]), new Headers()).some(
+				(tool) => tool.name === "find_tools",
+			),
+		).toBe(false);
+		expect(
+			compactCodeModeTools(app([row], {}), headers).some(
+				(tool) => tool.name === "find_tools",
+			),
+		).toBe(false);
+		expect(
+			compactCodeModeTools(app([row, row]), headers).some(
+				(tool) => tool.name === "find_tools",
+			),
+		).toBe(false);
+		expect(
+			compactCodeModeTools(
+				app([{ ...row, toolId: "code" }], { code: ["mcp:catalog.read"] }),
+				headers,
+			).filter((tool) => tool.name === "code"),
+		).toHaveLength(1);
 	});
 });

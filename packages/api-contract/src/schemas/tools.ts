@@ -8,6 +8,94 @@
 import * as z from "zod";
 import { type JsonValue, JsonValueSchema } from "./common";
 
+/** Closed, server-configured discovery operations; these never evaluate code. */
+export const CatalogueTransportConfigSchema = z
+	.object({
+		transport: z.literal("catalog"),
+		endpoint: z.enum(["catalog/search", "catalog/describe"]),
+		// Aggregation provenance is supplied by the server, never tool arguments.
+		_aggregateNamespace: z.string().optional(),
+		_aggregateTediId: z.string().optional(),
+		_aggregateTediOrgId: z.string().optional(),
+		_aggregateTediRemoteName: z.string().optional(),
+		_aggregateTediSlug: z.string().optional(),
+		_sourceAppId: z.string().optional(),
+		_sourceAppSlug: z.string().optional(),
+		_sourceAppLogoUrl: z.string().nullable().optional(),
+		_sourceAuthRequired: z.boolean().optional(),
+		_sourceVisibility: z.string().optional(),
+		_multiOrgOrganizationId: z.string().optional(),
+	})
+	.strict();
+export type CatalogueTransportConfig = z.infer<
+	typeof CatalogueTransportConfigSchema
+>;
+export const CatalogueSearchInputSchema = z
+	.object({
+		query: z.string().optional(),
+		namespace: z.string().optional(),
+		limit: z.number().int().min(1).max(100).optional(),
+		offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+		includeParameters: z.boolean().optional(),
+		includeOutputSchema: z.boolean().optional(),
+	})
+	.strict();
+export const CatalogueDescribeInputSchema = z
+	.object({
+		callable: z
+			.string()
+			.regex(/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/),
+	})
+	.strict();
+export const CatalogueSearchInputJsonSchema = z.toJSONSchema(
+	CatalogueSearchInputSchema,
+);
+export const CatalogueDescribeInputJsonSchema = z.toJSONSchema(
+	CatalogueDescribeInputSchema,
+);
+/** Stored declarations must describe the closed parser exactly, independent of key order. */
+export function catalogueInputDeclarationMatches(
+	endpoint: CatalogueTransportConfig["endpoint"],
+	input: unknown,
+): boolean {
+	const expected =
+		endpoint === "catalog/search"
+			? CatalogueSearchInputJsonSchema
+			: CatalogueDescribeInputJsonSchema;
+	function equal(a: unknown, b: unknown): boolean {
+		if (a === b) return true;
+		if (!a || !b || typeof a !== "object" || typeof b !== "object")
+			return false;
+		if (Array.isArray(a) || Array.isArray(b))
+			return (
+				Array.isArray(a) &&
+				Array.isArray(b) &&
+				a.length === b.length &&
+				a.every((value, i) => equal(value, b[i]))
+			);
+		const keys = Object.keys(a);
+		return (
+			keys.length === Object.keys(b).length &&
+			keys.every(
+				(key) =>
+					Object.hasOwn(b, key) &&
+					equal(
+						(a as Record<string, unknown>)[key],
+						(b as Record<string, unknown>)[key],
+					),
+			)
+		);
+	}
+	return equal(expected, input);
+}
+
+export type CatalogueTransportCallback = (
+	config: CatalogueTransportConfig,
+	input:
+		| z.infer<typeof CatalogueSearchInputSchema>
+		| z.infer<typeof CatalogueDescribeInputSchema>,
+) => Promise<unknown>;
+
 export const EMPTY_TOOL_INPUT_SCHEMA = {
 	type: "object",
 	properties: {},
@@ -1198,8 +1286,9 @@ export interface ToolConfig {
 	 * - "external": HTTP call to {baseUrl}/{endpoint} with credential injection
 	 * - "mcp": Materialized per-tool call to an upstream MCP server
 	 * - "code": Execute stored JavaScript in a Dynamic Worker sandbox
+	 * - "catalog": Search or describe the request-local discovery catalog
 	 */
-	transport?: "rpc" | "rest" | "external" | "mcp" | "code";
+	transport?: "rpc" | "rest" | "external" | "mcp" | "code" | "catalog";
 
 	/** HTTP method for REST/external transport (default: "POST") */
 	method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";

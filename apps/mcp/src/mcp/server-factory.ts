@@ -1,3 +1,14 @@
+import {
+	MCP_CAPABILITY_SCOPES,
+	MCP_GRANULAR_CAPABILITY_SCOPES,
+} from "@tedix/api-contract/schemas/mcp-capability-scopes";
+import {
+	CatalogueTransportConfigSchema,
+	catalogueInputDeclarationMatches,
+	ToolInputJsonSchemaSchema,
+	ToolJsonSchemaSchema,
+} from "@tedix/api-contract/schemas/tools";
+import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes";
 /**
  * Stateless MCP Server Factory
  *
@@ -62,6 +73,61 @@ import {
 	createWidgetCSP,
 	getAppsSDKCompatibleHtml,
 } from "./utils/widget";
+
+/** Catalog rows need their own configured capability, never a wildcard/namespace fallback. */
+export function isConfiguredCatalogTool(
+	tool: AppTool,
+	mcpConfig: Record<string, unknown> | undefined,
+): boolean {
+	const configured = CatalogueTransportConfigSchema.safeParse(tool.config);
+	if (
+		!tool.enabled ||
+		mcpConfig?.enforcePolicies === true ||
+		!configured.success ||
+		!catalogueInputDeclarationMatches(
+			configured.data.endpoint,
+			tool.inputSchema,
+		)
+	)
+		return false;
+	if (
+		!ToolInputJsonSchemaSchema.safeParse(tool.inputSchema).success ||
+		(tool.outputSchema !== null &&
+			tool.outputSchema !== undefined &&
+			!ToolJsonSchemaSchema.safeParse(tool.outputSchema).success)
+	)
+		return false;
+	const scopes = mcpConfig?.toolScopes;
+	if (
+		!scopes ||
+		typeof scopes !== "object" ||
+		!Object.hasOwn(scopes, tool.toolId)
+	)
+		return false;
+	const own = (scopes as Record<string, unknown>)[tool.toolId];
+	if (
+		!Array.isArray(own) ||
+		!own.length ||
+		own.some(
+			(scope) =>
+				typeof scope !== "string" ||
+				(!Object.hasOwn(MCP_CAPABILITY_SCOPES, scope) &&
+					!Object.hasOwn(MCP_GRANULAR_CAPABILITY_SCOPES, scope)),
+		)
+	)
+		return false;
+	try {
+		return (
+			resolveMcpToolRequiredScopes(tool, "", {
+				...mcpConfig,
+				enforcePolicies: false,
+				toolScopes: { [tool.toolId]: own },
+			}).length > 0
+		);
+	} catch {
+		return false;
+	}
+}
 
 const log = createMcpLogger("mcp.server_factory");
 
@@ -655,7 +721,11 @@ export function buildServerContext(
 
 	const toolHandler = sharedToolHandler;
 
-	return {
+	const context: ServerContext = {
+		catalogTransport: async (config, input) => {
+			const { executeCatalogOperation } = await import("./codemode");
+			return executeCatalogOperation(context, config, input);
+		},
 		server,
 		env,
 		ctx: execCtx,
@@ -717,6 +787,7 @@ export function buildServerContext(
 				appSlug,
 			),
 	};
+	return context;
 }
 
 // =============================================================================
@@ -953,10 +1024,26 @@ export async function buildMcpServer(
 		callerIdentity,
 		requestedToolName,
 	);
+	const directCatalog =
+		skipCodeMode &&
+		cachedData.tools.some(
+			(tool) =>
+				tool.toolId === requestedToolName &&
+				isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig),
+		);
 	const directToolAllowSet =
-		skipCodeMode && requestedToolName ? new Set([requestedToolName]) : null;
+		skipCodeMode && requestedToolName && !directCatalog
+			? new Set([requestedToolName])
+			: null;
 
 	for (const tool of cachedData.tools) {
+		if (
+			tool.config?.transport === "catalog" &&
+			(!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) ||
+				cachedData.tools.filter((candidate) => candidate.toolId === tool.toolId)
+					.length !== 1)
+		)
+			continue;
 		if (allowSet && !allowSet.has(tool.toolId)) continue;
 		if (directToolAllowSet && !directToolAllowSet.has(tool.toolId)) continue;
 		const requestScopedTool = {
@@ -1002,11 +1089,12 @@ export async function buildMcpServer(
 		await registerAppPrompts(serverCtx);
 		for (const tool of serverCtx.loadedTools.values()) {
 			if (
-				(tool.meta as Record<string, unknown> | null | undefined)?.source !==
+				!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) &&
+				((tool.meta as Record<string, unknown> | null | undefined)?.source !==
 					"homeSurface" ||
-				!SESSION_NATIVE_HOME_TOOL_IDS.includes(
-					tool.toolId as (typeof SESSION_NATIVE_HOME_TOOL_IDS)[number],
-				)
+					!SESSION_NATIVE_HOME_TOOL_IDS.includes(
+						tool.toolId as (typeof SESSION_NATIVE_HOME_TOOL_IDS)[number],
+					))
 			)
 				continue;
 			try {
@@ -1033,7 +1121,10 @@ export async function buildMcpServer(
 			registerBootstrapResources(serverCtx);
 		}
 		registerResourceTemplates(serverCtx);
-		await registerAppTools(serverCtx);
+		if (directCatalog) {
+			const selected = serverCtx.loadedTools.get(requestedToolName!);
+			if (selected) await registerDynamicTool(serverCtx, selected);
+		} else await registerAppTools(serverCtx);
 		// Skill-discovery tools (`list_skills` / `read_skill` registered by
 		// registerAppSkills) collide with the cognitive D1 `list_skills`
 		// app_tools row on the tedix admin app. For service callers we

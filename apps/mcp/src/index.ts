@@ -48,7 +48,10 @@ import {
 	buildMcpAggregateCacheDataPoint,
 	type McpAggregateCacheDataPointEvent,
 } from "@tedix/api-contract/schemas/mcp-analytics";
-import type { ToolJsonSchema } from "@tedix/api-contract/schemas/tools";
+import {
+	resolveToolAnnotations,
+	type ToolJsonSchema,
+} from "@tedix/api-contract/schemas/tools";
 import { extractTediJwtClaims } from "@tedix/auth/types";
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
 import { hasScope, toolToScope } from "@tedix/mcp-shared/auth/scopes";
@@ -167,9 +170,11 @@ import {
 	buildMcpServer,
 	extractCallerIdentity,
 	getAppContext,
+	isConfiguredCatalogTool,
 } from "./mcp/server-factory";
 import {
 	isMcpToolVisibleToCaller,
+	resolveMcpToolRequiredScopes,
 	resolveMcpToolNamespace,
 } from "@tedix/mcp-shared/auth/tool-scopes";
 import { sortToolsDeterministically } from "./mcp/tools-list-order";
@@ -4261,6 +4266,7 @@ function modernDiscoverInstructions(
 // outer-surface-lanes.test.ts and docs/mcp/codemode.md.
 export function compactCodeModeTools(
 	resolvedApp: ResolvedApp,
+	requestHeaders: Headers,
 ): Array<Record<string, unknown>> {
 	const appName = resolvedApp.app.name ?? "Tedix";
 	const tools: Array<Record<string, unknown>> = [
@@ -4303,7 +4309,61 @@ export function compactCodeModeTools(
 			? [accountProfileTool]
 			: []),
 	];
-	return tools;
+	const config = resolvedApp.metadata?.mcpConfig;
+	const caller = parseMcpCallerFromHeaders(requestHeaders);
+	const overrides = config?.codeModeNamespaces as
+		| Record<string, string>
+		| undefined;
+	const rows = (resolvedApp.tools ?? []).filter((tool) =>
+		isConfiguredCatalogTool(tool, config),
+	);
+	const names = new Map<string, number>();
+	for (const tool of resolvedApp.tools ?? [])
+		names.set(tool.toolId, (names.get(tool.toolId) ?? 0) + 1);
+	const baseNames = new Set(tools.map((tool) => tool.name));
+	for (const tool of rows) {
+		if (names.get(tool.toolId) !== 1 || baseNames.has(tool.toolId)) continue;
+		if (
+			!isMcpToolVisibleToCaller(
+				tool,
+				resolveMcpToolNamespace(tool, overrides),
+				config,
+				caller,
+			)
+		)
+			continue;
+		if (
+			requestHeaders.get("x-tedix-auth-credential-mode") === "delegated-mcp" &&
+			isDelegatedWorkTool(
+				tool.toolId,
+				resolveMcpToolNamespace(tool, overrides),
+				tool.config,
+				tool.toolTypeId,
+			)
+		)
+			continue;
+		const scopes = resolveMcpToolRequiredScopes(
+			tool,
+			resolveMcpToolNamespace(tool, overrides),
+			config,
+		);
+		const securitySchemes = [{ type: "oauth2", scopes }];
+		tools.push({
+			name: tool.toolId,
+			title: tool.title,
+			description: tool.description ?? "",
+			inputSchema: tool.inputSchema,
+			...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+			annotations: resolveToolAnnotations({
+				annotations: tool.annotations,
+				writeCapability: tool.writeCapability ?? null,
+				meta: tool.meta,
+			}),
+			securitySchemes,
+			_meta: { ...(tool.meta ?? {}), securitySchemes },
+		});
+	}
+	return sortToolsDeterministically(tools);
 }
 
 async function maybeHandleCodeModeCompactMcp(
@@ -4366,11 +4426,22 @@ async function maybeHandleCodeModeCompactMcp(
 		// SEP-2549 CacheableResult on this fast path: the 60s/private default
 		// mirrors the app-resolution cache backing the compact tool list
 		// (APP_RESOLUTION_TTL_MS in resolution.ts).
+		const page = paginateSortedToolsList(
+			compactCodeModeTools(resolvedApp, request.headers),
+			isRecord(body.params) ? body.params.cursor : undefined,
+		);
+		if (!page.ok)
+			return jsonRpcEnvelopeErrorResponse(
+				envelope,
+				-32_602,
+				"Invalid params: unrecognized tools/list cursor",
+			);
 		return jsonRpcEnvelopeResponse(
 			envelope,
 			decorateModernFastPathResult(envelope, resolvedApp, {
 				resultType: "complete",
-				tools: compactCodeModeTools(resolvedApp),
+				tools: page.tools,
+				...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
 				...DEFAULT_MCP_CACHE_HINT,
 			}),
 		);

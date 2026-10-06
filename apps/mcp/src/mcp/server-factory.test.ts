@@ -1,3 +1,4 @@
+import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import {
@@ -27,6 +28,8 @@ import { MCP_RESULT_CACHE_HINT_META_KEY } from "@tedix/mcp-shared/transport";
 import {
 	buildEdgeListCacheHints,
 	buildMcpServer,
+	buildServerContext,
+	isConfiguredCatalogTool,
 	type CachedAppData,
 	extractCallerIdentity,
 	fetchWidgetHtmlForApp,
@@ -850,4 +853,258 @@ describe("buildEdgeListCacheHints — SEP-2549 list-surface hints mirror the bac
 			cacheScope: "private",
 		});
 	});
+});
+
+function catalogRow(
+	overrides: Partial<import("./server-context").AppTool> = {},
+): import("./server-context").AppTool {
+	return {
+		id: "fictional-catalog",
+		toolId: "find_tools",
+		title: "Find tools",
+		description: "Find permitted tools",
+		toolTypeId: "rpc",
+		inputSchema: CatalogueSearchInputJsonSchema,
+		outputSchema: null,
+		config: { transport: "catalog", endpoint: "catalog/search" },
+		enabled: true,
+		annotations: { readOnlyHint: true },
+		...overrides,
+	} as import("./server-context").AppTool;
+}
+describe("configured native catalog registration", () => {
+	it("requires the exact valid nonempty capability map and preserves canonical binding refusals", () => {
+		const row = catalogRow();
+		expect(
+			isConfiguredCatalogTool(
+				catalogRow({
+					config: {
+						transport: "catalog",
+						endpoint: "catalog/search",
+						_aggregateNamespace: "fictional",
+						_sourceAppSlug: "fictional",
+						_sourceAuthRequired: true,
+						_sourceVisibility: "private",
+					},
+				}),
+				{ toolScopes: { find_tools: ["mcp:catalog.read"] } },
+			),
+		).toBe(true);
+		expect(
+			isConfiguredCatalogTool(row, {
+				toolScopes: { find_tools: ["mcp:catalog.read"] },
+			}),
+		).toBe(true);
+		for (const config of [
+			{},
+			{ toolScopes: { "*": ["mcp:catalog.read"] } },
+			{ toolScopes: { catalog: ["mcp:catalog.read"] } },
+			{ toolScopes: { find_tools: [] } },
+			{ toolScopes: { find_tools: ["unknown.scope"] } },
+			{
+				enforcePolicies: true,
+				toolScopes: { find_tools: ["mcp:catalog.read"] },
+			},
+		])
+			expect(isConfiguredCatalogTool(row, config)).toBe(false);
+		expect(
+			isConfiguredCatalogTool(
+				catalogRow({ toolId: "list_mcp_authorizations" }),
+				{ toolScopes: { list_mcp_authorizations: ["mcp:settings.admin"] } },
+			),
+		).toBe(false);
+	});
+	it("keeps native catalog visible in a Code Mode session and calls it through the actual handler", async () => {
+		listByApp.mockResolvedValue({ skills: [] });
+		const cached = createCachedData();
+		cached.tools = [catalogRow()];
+		cached.metadata = {
+			mcpConfig: {
+				codeMode: true,
+				authMode: "authenticated",
+				toolScopes: { find_tools: ["mcp:catalog.read"] },
+			},
+		} as unknown as CachedAppData["metadata"];
+		const server = await buildMcpServer(
+			cached,
+			{ authType: "oauth", scopes: ["mcp:catalog.read"] },
+			createEnv(),
+			createExecutionContext(),
+		);
+		const client = await connectLegacyClient(server);
+		const listed = await client.request("tools/list");
+		expect(
+			(listed.result as { tools: { name: string }[] }).tools.map(
+				(tool) => tool.name,
+			),
+		).toContain("find_tools");
+		const called = await client.request("tools/call", {
+			name: "find_tools",
+			arguments: { query: "" },
+		});
+		expect(called.error).toBeUndefined();
+		expect((called.result as { isError?: boolean }).isError).not.toBe(true);
+	});
+});
+
+it("named catalog calls retain the caller's full discovery projection", async () => {
+	listByApp.mockResolvedValue({ skills: [] });
+	const cached = createCachedData();
+	cached.tools = [
+		catalogRow(),
+		catalogRow({
+			id: "fictional-other",
+			toolId: "get_item",
+			title: "Get item",
+			config: { transport: "rpc", endpoint: "apps/get" },
+		}),
+	];
+	cached.metadata = {
+		mcpConfig: {
+			codeMode: true,
+			authMode: "authenticated",
+			enforcePolicies: false,
+			toolScopes: {
+				find_tools: ["mcp:catalog.read"],
+				get_item: ["mcp:apps.read"],
+			},
+		},
+	} as unknown as CachedAppData["metadata"];
+	const server = await buildMcpServer(
+		cached,
+		{ authType: "service", scopes: ["mcp:catalog.read", "mcp:apps.read"] },
+		createEnv(),
+		createExecutionContext(),
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		"find_tools",
+	);
+	const client = await connectLegacyClient(server);
+	const listed = await client.request("tools/list");
+	expect(
+		(listed.result as { tools: { name: string }[] }).tools.map(
+			(tool) => tool.name,
+		),
+	).toEqual(["find_tools"]);
+	const result = await client.request("tools/call", {
+		name: "find_tools",
+		arguments: { query: "" },
+	});
+	expect(JSON.stringify(result)).toContain("get_item");
+});
+
+it("keeps interleaved factory-built caller catalogs isolated on the shared handler", async () => {
+	const { McpServer } = await import("@modelcontextprotocol/server");
+	let release!: () => void;
+	const barrier = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const rankAlpha = vi.fn(async () => {
+		await barrier;
+		return {
+			rankedIds: ["alpha.get_item"],
+			executionAttempts: [],
+			usagePersistence: "persisted" as const,
+		};
+	});
+	const rankBeta = vi.fn(async () => ({
+		rankedIds: [],
+		executionAttempts: [],
+		usagePersistence: "persisted" as const,
+	}));
+	const make = (slug: string, scopes: string[]) => {
+		getApiClient.mockReturnValueOnce({
+			skills: { listByApp, getRunArtifact },
+			cognitiveRuntime: {
+				rankDiscovery: slug === "alpha" ? rankAlpha : rankBeta,
+			},
+		} as unknown as ReturnType<typeof getApiClient>);
+		const cached = createCachedData();
+		cached.app.slug = slug;
+		cached.app.organizationId = slug;
+		cached.metadata = {
+			mcpConfig: {
+				toolScopes: {
+					[slug + "__get_item"]: ["mcp:apps.read"],
+					[slug + "__list_items"]: ["mcp:apps.read"],
+				},
+			},
+		} as CachedAppData["metadata"];
+		const context = buildServerContext(
+			new McpServer({ name: slug, version: "1" }),
+			cached,
+			{ authType: "oauth", scopes },
+			createEnv(),
+			createExecutionContext(),
+		);
+		context.loadedTools.set(
+			slug + "__get_item",
+			catalogRow({
+				toolId: slug + "__get_item",
+				config: {
+					transport: "rpc",
+					endpoint: "apps/get",
+					_aggregateNamespace: slug,
+					_aggregateTediRemoteName: "get_item",
+				},
+			}),
+		);
+		context.loadedTools.set(
+			slug + "__list_items",
+			catalogRow({
+				toolId: slug + "__list_items",
+				title: "Manage items",
+				description: "Manage items",
+				config: {
+					transport: "rpc",
+					endpoint: "apps/list",
+					_aggregateNamespace: slug,
+					_aggregateTediRemoteName: "list_items",
+				},
+			}),
+		);
+		return context;
+	};
+	const alpha = make("alpha", ["mcp:apps.read"]);
+	const beta = make("beta", ["mcp:catalog.read"]);
+	expect(alpha.toolHandler).toBe(beta.toolHandler);
+	const call = (context: typeof alpha) =>
+		context.toolHandler.execute({ query: "" }, {
+			config: { transport: "catalog", endpoint: "catalog/search" },
+			env: context.env,
+			catalogTransport: context.catalogTransport,
+		} as import("./handler").ToolExecutionContext<
+			import("@tedix/api-contract/schemas/tools").ToolConfig
+		>);
+	const [a, b, again] = await Promise.all([
+		call(alpha),
+		call(beta),
+		call(alpha),
+	]);
+	expect(JSON.stringify(a.data)).toContain("alpha.get_item");
+	expect(JSON.stringify(a.data)).not.toContain("beta.get_item");
+	expect(JSON.stringify(b.data)).toContain("beta.get_item");
+	expect(JSON.stringify(b.data)).not.toContain("alpha.get_item");
+	expect(JSON.stringify(b.data)).toContain('"authorized":false');
+	expect(JSON.stringify(a.data)).toContain('"authorized":true');
+	expect(JSON.stringify(again.data)).toContain("alpha.get_item");
+	const rankedCall = (context: typeof alpha) =>
+		context.toolHandler.execute({ query: "manage items" }, {
+			config: { transport: "catalog", endpoint: "catalog/search" },
+			env: context.env,
+			catalogTransport: context.catalogTransport,
+		} as import("./handler").ToolExecutionContext<
+			import("@tedix/api-contract/schemas/tools").ToolConfig
+		>);
+	const alphaPending = rankedCall(alpha);
+	const betaResult = await rankedCall(beta);
+	expect(JSON.stringify(betaResult.data)).not.toContain("alpha.get_item");
+	expect(rankBeta).not.toHaveBeenCalled();
+	release();
+	const alphaResult = await alphaPending;
+	expect(rankAlpha).toHaveBeenCalledOnce();
+	expect(JSON.stringify(alphaResult.data)).not.toContain("beta.get_item");
 });

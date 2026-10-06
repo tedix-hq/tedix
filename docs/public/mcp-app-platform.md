@@ -89,3 +89,29 @@ OpenAI currently supports these events in ChatGPT Work on web, desktop Work with
 Cloud selected, and dots. Local Codex desktop wake-up is not proved by this
 integration. Local context hooks remain optional and require host trust; native
 Codex Goals own continuation of executable work. See [OpenAI MCP Events](https://developers.openai.com/plugins/build/mcp-events).
+
+## Configured native catalog tools
+
+An app can configure tools with `transport: "catalog"` and the closed
+`catalog/search` or `catalog/describe` endpoint. Search accepts query, namespace,
+bounded paging, and schema inclusion options; describe accepts an exact
+`namespace.tool` callable. These operations use the same request-local discovery
+projection as Code Mode without creating a Dynamic Worker. Discovery reports
+execution authorization; it does not grant it.
+
+Each enabled row needs its own explicit capability mapping. Missing, empty,
+invalid, namespace-only or wildcard-only mappings do not expose the tool.
+The compact gateway lists the base tools plus its actually configured,
+caller-permitted catalog rows using the stored tool metadata and stable paging.
+No configured rows means the base surface stays unchanged. Aggregate-only rows
+are available after normal session construction, not through compact list
+hydration. The stateless lane still omits `ask`.
+
+Catalog operations execute synchronously in the original caller context;
+async-task replay and executable code inputs are refused. Arbitrary Code Mode
+programs still use a fresh anonymous isolated Dynamic Worker with no ambient
+network access. Native catalog calls can still use the existing discovery API
+and ranking services; no billing savings or deployment is implied by local tests.
+
+Configured catalog rows use the shared strict search or describe input declaration.
+They require capability-map mode (`enforcePolicies: false`); policy-mode rows do not expose this transport.

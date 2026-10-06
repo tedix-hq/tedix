@@ -19,6 +19,7 @@ import type {
 } from "@tedix/api-contract/schemas/app";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type {
+	CatalogueTransportCallback,
 	ToolAnnotations,
 	ToolIcon,
 	ToolInputJsonSchema,
@@ -195,6 +196,7 @@ export interface ServerContext {
 	// API & handler
 	readonly apiClient: ApiClient;
 	readonly toolHandler: ToolHandler;
+	readonly catalogTransport?: CatalogueTransportCallback;
 
 	// Caller identity (per-request, from JWT headers)
 	readonly callerIdentity: CallerIdentity | undefined;

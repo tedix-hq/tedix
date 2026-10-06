@@ -87,3 +87,47 @@ describe("named account credential routing", () => {
 		},
 	);
 });
+
+describe("request-local catalog handler", () => {
+	const context = (
+		catalogTransport?: ToolExecutionContext<ToolConfig>["catalogTransport"],
+	) =>
+		({
+			config: { transport: "catalog", endpoint: "catalog/search" },
+			catalogTransport,
+			env: {
+				LOADER: {
+					load: () => {
+						throw new Error("loader forbidden");
+					},
+					get: () => {
+						throw new Error("get forbidden");
+					},
+				},
+			},
+		}) as unknown as ToolExecutionContext<ToolConfig>;
+	it("isolates concurrent callbacks on the singleton and refuses a missing one", async () => {
+		const handler = new ToolHandler();
+		const a = vi.fn(async () => ({ org: "fictional-a", results: [] }));
+		const b = vi.fn(async () => ({ org: "fictional-b", results: [] }));
+		const [left, right] = await Promise.all([
+			handler.execute({ query: "a" }, context(a)),
+			handler.execute({ query: "b" }, context(b)),
+		]);
+		expect(left.data).toEqual({ org: "fictional-a", results: [] });
+		expect(right.data).toEqual({ org: "fictional-b", results: [] });
+		expect(a).toHaveBeenCalledOnce();
+		expect(b).toHaveBeenCalledOnce();
+		expect((await handler.execute({}, context())).status).toBe(400);
+	});
+	it("rejects malformed input/config before calling the private capability", async () => {
+		const callback = vi.fn(async () => ({}));
+		const ctx = context(callback);
+		expect(
+			(await new ToolHandler().execute({ code: "async()=>1" }, ctx)).status,
+		).toBe(400);
+		ctx.config = { ...ctx.config, endpoint: "apps/list" };
+		expect((await new ToolHandler().execute({}, ctx)).status).toBe(400);
+		expect(callback).not.toHaveBeenCalled();
+	});
+});
