@@ -472,3 +472,54 @@ describe("resolveWireAnnotations", () => {
 		).toEqual({ readOnlyHint: true, destructiveHint: false });
 	});
 });
+
+describe("configured catalog retains existing scope lanes", () => {
+	it("keeps plain rows edge-owned and aggregate rows native-gated", () => {
+		const row = plainTool({
+			toolId: "find_tools",
+			config: { transport: "catalog", endpoint: "catalog/search" },
+			annotations: { readOnlyHint: true },
+		});
+		const context = {
+			appMetadata: {
+				mcpConfig: { toolScopes: { find_tools: ["mcp:catalog.read"] } },
+			},
+			callerIdentity: { authType: "oauth", scopes: ["mcp:work.read"] },
+		} as unknown as ServerContext;
+		expect(enforceNativeToolScopeGate(context, row)).toBeNull();
+		const aggregate = {
+			...row,
+			config: { ...row.config, _aggregateNamespace: "fictional" },
+		};
+		expect(enforceNativeToolScopeGate(context, aggregate)?.isError).toBe(true);
+		Object.assign(context, {
+			callerIdentity: { authType: "oauth", scopes: ["mcp:catalog.read"] },
+		});
+		expect(enforceNativeToolScopeGate(context, aggregate)).toBeNull();
+	});
+});
+
+it("never lends catalog-read authority to reviewed writes, platform aliases or unknown RPC operations", () => {
+	for (const endpoint of [
+		"organizations/cancel",
+		"workspaceApps/create",
+		"providerEvents/list",
+		"tedis/inspectRuntimeCutover",
+		"unreviewed/unknown",
+	]) {
+		const context = {
+			appMetadata: {
+				mcpConfig: { authMode: "authenticated", enforcePolicies: false },
+			},
+			callerIdentity: { authType: "oauth", scopes: ["mcp:catalog.read"] },
+		} as unknown as ServerContext;
+		const row = plainTool({
+			toolId: "customer__inspect_endpoint",
+			config: { transport: "rpc", endpoint, _aggregateNamespace: "customer" },
+			annotations: { readOnlyHint: true },
+		});
+		expect(enforceNativeToolScopeGate(context, row)?.isError, endpoint).toBe(
+			true,
+		);
+	}
+});

@@ -5,12 +5,13 @@ import { isEphemeralSessionKey } from "@tedix/api-contract/utils/runtime-identit
  * The universal handler for all config-driven MCP tools.
  * Configured entirely from D1 — no code deploys needed.
  *
- * Supports five transports:
+ * Supports six transports:
  * - "rpc": POST to {API_URL}/rpc/{endpoint} with oRPC body format (internal)
  * - "rest": {method} to {API_URL}/v1/{endpoint} (internal)
  * - "external": {method} to {baseUrl}/{endpoint} with credential injection from Descope Token Vault
  * - "mcp": Direct stateless call to upstream MCP server via Streamable HTTP
  * - "code": Execute stored JavaScript in a Dynamic Worker sandbox (globalOutbound: null)
+ * - "catalog": Request-local, configuration-backed discovery without a sandbox
  *
  * Auth: Internal transports use service binding (API_SERVICE).
  * External + MCP transports resolve credentials from Descope Token Vault via connections.fetchTediToken.
@@ -31,7 +32,13 @@ import {
 	type DocsToolName,
 } from "@tedix/api-contract/contracts/docs-tool-scopes";
 import { buildMcpUpstreamProtocolDataPoint } from "@tedix/api-contract/schemas/mcp-analytics";
-import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
+import {
+	CatalogueTransportConfigSchema,
+	CatalogueSearchInputSchema,
+	CatalogueDescribeInputSchema,
+	type CatalogueTransportCallback,
+	type ToolConfig,
+} from "@tedix/api-contract/schemas/tools";
 import { exchangeClientCredentials } from "@tedix/mcp-shared/auth/client-credentials";
 import { isCodeModeAvailable } from "@tedix/mcp-shared/codemode";
 import {
@@ -680,6 +687,9 @@ export interface ToolExecutionContext<TConfig = unknown> {
 
 	/** Environment bindings (includes API_URL for data fetching) */
 	env: CloudflareEnv;
+
+	/** Request-local capability; never loaded from tool config or arguments. */
+	catalogTransport?: CatalogueTransportCallback;
 
 	/** Tool-specific configuration from D1 */
 	config: TConfig;
@@ -1414,6 +1424,27 @@ export class ToolHandler {
 		}
 		const endpoint = config.endpoint;
 		const transport = config.transport ?? "rpc";
+
+		if (transport === "catalog") {
+			const configured = CatalogueTransportConfigSchema.safeParse(config);
+			if (!configured.success || !ctx.catalogTransport) {
+				return {
+					status: 400,
+					data: { error: "Catalog transport unavailable or invalid" },
+				};
+			}
+			const parsed = (
+				configured.data.endpoint === "catalog/search"
+					? CatalogueSearchInputSchema
+					: CatalogueDescribeInputSchema
+			).safeParse(input);
+			if (!parsed.success)
+				return { status: 400, data: { error: "Invalid catalog arguments" } };
+			return {
+				status: 200,
+				data: await ctx.catalogTransport(configured.data, parsed.data),
+			};
+		}
 
 		// MCP transport — direct stateless call to upstream MCP server
 		if (transport === "mcp") {

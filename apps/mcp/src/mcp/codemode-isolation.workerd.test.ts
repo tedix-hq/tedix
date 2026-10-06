@@ -1,3 +1,7 @@
+import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildMcpServer } from "./server-factory";
+import type { CachedAppData } from "./server-factory";
 import { env } from "cloudflare:workers";
 import { DynamicWorkerExecutor, ToolDispatcher } from "@cloudflare/codemode";
 import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
@@ -474,4 +478,124 @@ describe("named SDK manifest request-isolation counterexamples", () => {
 			},
 		});
 	});
+});
+
+it("native catalog uses zero real Loader calls while arbitrary code remains isolated", async () => {
+	const native = (env as unknown as { LOADER: WorkerLoader }).LOADER;
+	let loads = 0;
+	let gets = 0;
+	const loader = {
+		load(...args: Parameters<WorkerLoader["load"]>) {
+			loads++;
+			return native.load(...args);
+		},
+		get(...args: Parameters<WorkerLoader["get"]>) {
+			gets++;
+			return native.get(...args);
+		},
+	} as WorkerLoader;
+	const cached = {
+		app: {
+			id: "fictional-app",
+			slug: "fictional",
+			name: "Fictional",
+			visibility: "public",
+		},
+		tools: [
+			{
+				id: "fictional-row",
+				toolId: "find_tools",
+				title: "Find tools",
+				description: "Discovery",
+				toolTypeId: "rpc",
+				enabled: true,
+				config: { transport: "catalog", endpoint: "catalog/search" },
+				inputSchema: CatalogueSearchInputJsonSchema,
+				outputSchema: null,
+				annotations: { readOnlyHint: true },
+			},
+		],
+		metadata: {
+			mcpConfig: {
+				codeMode: true,
+				authMode: "authenticated",
+				toolScopes: { find_tools: ["mcp:catalog.read"] },
+			},
+		},
+		catalogMcp: null,
+		catalogResources: [],
+		catalogResourceTemplates: [],
+		catalogPrompts: [],
+		capabilities: {},
+		expiresAt: Date.now() + 60000,
+	} as unknown as CachedAppData;
+	const server = await buildMcpServer(
+		cached,
+		{ authType: "service", scopes: ["mcp:catalog.read"] },
+		{
+			...env,
+			LOADER: loader,
+			API_URL: "https://api.fixture.test",
+			API_SERVICE: {
+				fetch: async () => Response.json({ json: { skills: [] } }),
+			},
+		} as unknown as CloudflareEnv,
+		{
+			waitUntil(p: Promise<unknown>) {
+				void p.catch(() => {});
+			},
+		} as ExecutionContext,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		"find_tools",
+	);
+	const [client, transport] = InMemoryTransport.createLinkedPair();
+	const pending = new Map<number, (message: Record<string, unknown>) => void>();
+	let id = 0;
+	client.onmessage = (message) => {
+		const value = message as unknown as Record<string, unknown>;
+		if (typeof value.id === "number") {
+			pending.get(value.id)?.(value);
+			pending.delete(value.id);
+		}
+	};
+	await server.connect(transport);
+	async function request(method: string, params: Record<string, unknown>) {
+		const next = ++id;
+		const response = new Promise<Record<string, unknown>>((resolve) =>
+			pending.set(next, resolve),
+		);
+		await client.send({ jsonrpc: "2.0", id: next, method, params } as never);
+		return response;
+	}
+	await request("initialize", {
+		protocolVersion: "2025-11-25",
+		capabilities: {},
+		clientInfo: { name: "fictional-native", version: "1" },
+	});
+	await client.send({
+		jsonrpc: "2.0",
+		method: "notifications/initialized",
+	} as never);
+	const result = await request("tools/call", {
+		name: "find_tools",
+		arguments: { query: "" },
+	});
+	expect(result.error).toBeUndefined();
+	expect((result.result as { isError?: boolean }).isError).not.toBe(true);
+	expect(loads).toBe(0);
+	expect(gets).toBe(0);
+	await server.close();
+	const executed = await new DynamicWorkerExecutor({
+		loader: withModelAuthoredCodeIsolation(loader),
+		timeout: 5000,
+		globalOutbound: null,
+	}).execute("async () => ({ ambient: typeof env, value: 42 })", []);
+	expect(executed.error).toBeUndefined();
+	expect(executed.result).toEqual({ ambient: "undefined", value: 42 });
+	expect(loads).toBe(1);
+	expect(gets).toBe(0);
 });

@@ -1,3 +1,4 @@
+import type { CatalogueTransportCallback } from "@tedix/api-contract/schemas/tools";
 import { TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
 /**
  * Code Mode for Tedix MCP
@@ -2206,6 +2207,25 @@ function resultEnvelopeKeys(meta: CatalogToolEntry): string[] | undefined {
  * Build a catalog provider — gives the LLM a searchable index of all tools
  * organized by namespace.
  */
+/** Native configured discovery shares the owning projection, without a WorkerLoader. */
+export const executeCatalogOperation: (
+	context: ServerContext,
+	...args: Parameters<CatalogueTransportCallback>
+) => ReturnType<CatalogueTransportCallback> = async (
+	context,
+	config,
+	input,
+) => {
+	const overrides = context.appMetadata?.mcpConfig?.codeModeNamespaces as
+		| Record<string, string>
+		| undefined;
+	const provider = resolveProvider(buildCatalogProvider(context, overrides));
+	const execute =
+		provider.fns[config.endpoint === "catalog/search" ? "search" : "describe"];
+	if (!execute) throw new Error("Catalog operation unavailable");
+	return execute(input);
+};
+
 export function buildCatalogProvider(
 	serverCtx: ServerContext,
 	namespaceOverrides: Record<string, string> | undefined,

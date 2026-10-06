@@ -1302,3 +1302,62 @@ describe("executeTool generic async task gate (_asyncTask + clientSupportsTasks)
 		expect(createGenericTaskMock).not.toHaveBeenCalled();
 	});
 });
+
+describe("native catalog execution capability", () => {
+	it("passes the request-local callback once without tedi enrichment", async () => {
+		const agent = makeAgent({ status: 200, data: {} });
+		const callback = vi.fn(async () => ({
+			results: [{ callable: "fictional.get_item" }],
+			meta: {},
+		}));
+		Object.assign(agent, {
+			toolHandler: new ToolHandler(),
+			catalogTransport: callback,
+			appMetadata: {
+				mcpConfig: { tediPolicy: { enabled: true, tediId: "fictional-tedi" } },
+			},
+		});
+		const row = {
+			...makeTool(),
+			config: { transport: "catalog", endpoint: "catalog/search" },
+		};
+		const result = await executeTool(
+			agent,
+			row,
+			{ query: "item" },
+			{ adapterScope: "primary", resultStrategy: "merge" },
+		);
+		expect(result.isError).not.toBe(true);
+		expect(result.structuredContent).toMatchObject({
+			results: [{ callable: "fictional.get_item" }],
+		});
+		expect(callback).toHaveBeenCalledOnce();
+	});
+	it("cannot enqueue catalog operations under an async workflow identity", async () => {
+		createGenericTaskMock.mockClear();
+		const callback = vi.fn(async () => ({}));
+		const agent = makeAgent({ status: 200, data: {} });
+		Object.assign(agent, { catalogTransport: callback });
+		await expect(
+			executeTool(
+				agent,
+				{
+					...makeTool(),
+					config: {
+						transport: "catalog",
+						endpoint: "catalog/search",
+						_asyncTask: true,
+					},
+				},
+				{},
+				{
+					adapterScope: "primary",
+					resultStrategy: "merge",
+					clientSupportsTasks: true,
+				},
+			),
+		).rejects.toThrow("Catalog transport cannot run as an async task");
+		expect(callback).not.toHaveBeenCalled();
+		expect(createGenericTaskMock).not.toHaveBeenCalled();
+	});
+});

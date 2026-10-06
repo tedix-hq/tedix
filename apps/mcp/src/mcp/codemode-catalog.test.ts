@@ -1,3 +1,4 @@
+import { executeCatalogOperation } from "./codemode";
 /**
  * Locks the contract that `discover.search` and `discover.list_namespaces`
  * preserve `annotations` and `outputSchema` per tool — independent of the
@@ -1410,4 +1411,264 @@ describe("discover.search results flat array", () => {
 		expect(shaped.namespaces).toBeUndefined();
 		expect(Object.keys(shaped).sort()).toEqual(["meta", "results"]);
 	});
+});
+
+describe("native catalog owning projection parity", () => {
+	it("matches search and describe without sandbox evaluation", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+		try {
+			const ctx = buildLargeServerCtx(12);
+			const provider = buildCatalogProvider(ctx, undefined);
+			const expected = await runSearch(provider, "thing", 3, {
+				includeParameters: true,
+			});
+			expect(
+				await executeCatalogOperation(
+					ctx,
+					{ transport: "catalog", endpoint: "catalog/search" },
+					{ query: "thing", limit: 3, includeParameters: true },
+				),
+			).toEqual(expected);
+			const tools = provider.tools as Record<
+				string,
+				{ execute: (input: unknown) => Promise<unknown> }
+			>;
+			expect(
+				await executeCatalogOperation(
+					ctx,
+					{ transport: "catalog", endpoint: "catalog/describe" },
+					{ callable: "app.do_thing_1" },
+				),
+			).toEqual(await tools.describe!.execute({ callable: "app.do_thing_1" }));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+it("preserves native projection parity for scopes, freshness, paging, aliases, skills and governed ranking", async () => {
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+	try {
+		const rankDiscovery = vi.fn(async () => ({
+			rankedIds: ["work.get_item"],
+			executionAttempts: [],
+			usagePersistence: "persisted",
+		}));
+		const ctx = {
+			app: { organizationId: "fictional-org" },
+			appMetadata: {
+				mcpConfig: {
+					toolScopes: {
+						work__get_item: ["mcp:apps.read"],
+						work__delete_item: ["mcp:apps.write"],
+					},
+				},
+			},
+			callerIdentity: { authType: "oauth", scopes: ["mcp:apps.read"] },
+			loadedTools: new Map(
+				["get_item", "delete_item"].map((name) => [
+					"work__" + name,
+					tool({
+						toolId: "work__" + name,
+						title: name,
+						description: "Manage work items",
+						schemaSyncedAt: "2025-12-31T00:00:00Z",
+						config: {
+							endpoint: "apps/get",
+							_aggregateNamespace: "work",
+							_aggregateTediRemoteName: name,
+						},
+					}),
+				]),
+			),
+			apiClient: {
+				cognitiveRuntime: { rankDiscovery },
+				skills: {
+					listByOrg: async () => ({
+						total: 1,
+						entries: [
+							{
+								id: "fictional-skill",
+								slug: "inspect-work",
+								title: "Inspect work",
+								description: "Manage work items",
+								summary: null,
+								lifecycleState: "active",
+								successCount: 1,
+							},
+						],
+					}),
+				},
+			},
+		} as unknown as ServerContext;
+		for (const input of [
+			{
+				query: "",
+				limit: 1,
+				offset: 1,
+				includeParameters: true,
+				includeOutputSchema: true,
+			},
+			{ query: "manage work items" },
+			{ namespace: "work", query: "" },
+		]) {
+			const provider = buildCatalogProvider(ctx, undefined);
+			const expected = await (
+				provider.tools as Record<
+					string,
+					{ execute(input: unknown): Promise<unknown> }
+				>
+			).search!.execute(input);
+			expect(
+				await executeCatalogOperation(
+					ctx,
+					{ transport: "catalog", endpoint: "catalog/search" },
+					input,
+				),
+			).toEqual(expected);
+		}
+		const browse = (await executeCatalogOperation(
+			ctx,
+			{ transport: "catalog", endpoint: "catalog/search" },
+			{ query: "", limit: 100 },
+		)) as CatalogSearchResult;
+		const skills = {
+			...ctx,
+			apiClient: { skills: ctx.apiClient.skills },
+		} as unknown as ServerContext;
+		const nativeSkills = (await executeCatalogOperation(
+			skills,
+			{ transport: "catalog", endpoint: "catalog/search" },
+			{ query: "inspect work" },
+		)) as CatalogSearchResult;
+		expect(nativeSkills.results.some((row) => row.kind === "skill")).toBe(true);
+		expect(nativeSkills).toEqual(
+			await runSearch(
+				buildCatalogProvider(skills, undefined),
+				"inspect work",
+				25,
+			),
+		);
+		expect(
+			browse.results.find((row) => row.callable === "work.delete_item")
+				?.authorized,
+		).toBe(false);
+		expect(browse.meta.freshness).toMatchObject({ schemaSyncedTools: 2 });
+		const aliases = {
+			loadedTools: new Map(
+				["app", "apps"].map((namespace) => [
+					namespace + "__get_item",
+					tool({
+						toolId: namespace + "__get_item",
+						schemaSource: "orpc",
+						schemaSourceRef: "apps/get",
+					}),
+				]),
+			),
+		} as unknown as ServerContext;
+		expect(
+			await executeCatalogOperation(
+				aliases,
+				{ transport: "catalog", endpoint: "catalog/search" },
+				{ query: "", namespace: "app" },
+			),
+		).toEqual(
+			await runSearch(buildCatalogProvider(aliases, undefined), "", 25, {
+				namespace: "app",
+			}),
+		);
+		expect(rankDiscovery).toHaveBeenCalled();
+		await expect(
+			executeCatalogOperation(
+				ctx,
+				{ transport: "catalog", endpoint: "catalog/search" },
+				{ namespace: "missing", query: "" },
+			),
+		).rejects.toThrow("Unknown namespace");
+		await expect(
+			(
+				buildCatalogProvider(ctx, undefined).tools as Record<
+					string,
+					{ execute(input: unknown): Promise<unknown> }
+				>
+			).search!.execute({ namespace: "missing", query: "" }),
+		).rejects.toThrow("Unknown namespace");
+		for (const callable of [
+			"work.get_item",
+			"missing.no_tool",
+			"work.no_tool",
+		]) {
+			const provider = buildCatalogProvider(ctx, undefined);
+			const expected = (
+				provider.tools as Record<
+					string,
+					{ execute(input: unknown): Promise<unknown> }
+				>
+			).describe!.execute({ callable });
+			const actual = executeCatalogOperation(
+				ctx,
+				{ transport: "catalog", endpoint: "catalog/describe" },
+				{ callable },
+			);
+			expect(await Promise.allSettled([actual])).toEqual(
+				await Promise.allSettled([expected]),
+			);
+		}
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("keeps reviewed endpoint floors and denials identical in native discovery", async () => {
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+	try {
+		for (const endpoint of [
+			"organizations/cancel",
+			"tedis/inspectRuntimeCutover",
+			"workspaceApps/list",
+			"providerEvents/list",
+			"unreviewed/unknown",
+		]) {
+			const row = tool({
+				toolId: "customer__inspect_endpoint",
+				config: {
+					transport: "rpc",
+					endpoint,
+					_aggregateNamespace: "customer",
+					_aggregateTediRemoteName: "inspect_endpoint",
+				},
+				annotations: { readOnlyHint: true },
+			});
+			for (const scopes of [
+				["mcp:catalog.read"],
+				["mcp:tedis.read"],
+				["mcp:apps.read"],
+				["platform:admin"],
+			]) {
+				const ctx = {
+					loadedTools: new Map([[row.toolId, row]]),
+					callerIdentity: { authType: "oauth", scopes },
+					appMetadata: {
+						mcpConfig: { authMode: "authenticated", enforcePolicies: false },
+					},
+				} as unknown as ServerContext;
+				expect(
+					await executeCatalogOperation(
+						ctx,
+						{ transport: "catalog", endpoint: "catalog/search" },
+						{ query: "", namespace: "customer" },
+					),
+				).toEqual(
+					await runSearch(buildCatalogProvider(ctx, undefined), "", 25, {
+						namespace: "customer",
+					}),
+				);
+			}
+		}
+	} finally {
+		vi.useRealTimers();
+	}
 });

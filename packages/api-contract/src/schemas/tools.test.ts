@@ -39,3 +39,103 @@ describe("tool skill coverage metadata", () => {
 		).toBe(false);
 	});
 });
+
+import {
+	CatalogueTransportConfigSchema,
+	CatalogueSearchInputSchema,
+	CatalogueDescribeInputSchema,
+} from "./tools";
+describe("configured native catalog inputs", () => {
+	it("accepts only the two closed operations and server provenance", () => {
+		expect(
+			CatalogueTransportConfigSchema.parse({
+				transport: "catalog",
+				endpoint: "catalog/search",
+				_aggregateNamespace: "fictional",
+			}).endpoint,
+		).toBe("catalog/search");
+		for (const extra of [
+			{ endpoint: "apps/list" },
+			{ code: "async()=>1" },
+			{ module: "evil" },
+			{ baseUrl: "https://example.test" },
+			{ _asyncTask: true },
+			{ staticParams: {} },
+		]) {
+			expect(
+				CatalogueTransportConfigSchema.safeParse({
+					transport: "catalog",
+					endpoint: "catalog/search",
+					...extra,
+				}).success,
+			).toBe(false);
+		}
+	});
+	it("bounds paging and refuses executable or unknown input", () => {
+		expect(
+			CatalogueSearchInputSchema.parse({
+				query: "tasks",
+				limit: 100,
+				offset: Number.MAX_SAFE_INTEGER,
+				includeParameters: true,
+			}),
+		).toMatchObject({ limit: 100 });
+		for (const input of [
+			{ limit: 101 },
+			{ limit: 0 },
+			{ offset: -1 },
+			{ offset: Number.MAX_SAFE_INTEGER + 1 },
+			{ query: 3 },
+			{ includeParameters: "true" },
+			{ code: "async()=>1" },
+			{ scope: "platform:admin" },
+		])
+			expect(CatalogueSearchInputSchema.safeParse(input).success).toBe(false);
+		expect(
+			CatalogueDescribeInputSchema.parse({ callable: "work.list_work_items" })
+				.callable,
+		).toBe("work.list_work_items");
+		for (const callable of [
+			"list_work_items",
+			"work.list();",
+			"https://example.test",
+			"work.a.b",
+		])
+			expect(CatalogueDescribeInputSchema.safeParse({ callable }).success).toBe(
+				false,
+			);
+	});
+});
+
+import {
+	CatalogueSearchInputJsonSchema,
+	catalogueInputDeclarationMatches,
+} from "./tools";
+it("binds configured declarations to the closed parser and ignores only key order", () => {
+	expect(
+		catalogueInputDeclarationMatches(
+			"catalog/search",
+			Object.fromEntries(
+				Object.entries(CatalogueSearchInputJsonSchema).reverse(),
+			),
+		),
+	).toBe(true);
+	expect(
+		catalogueInputDeclarationMatches("catalog/search", {
+			...CatalogueSearchInputJsonSchema,
+			additionalProperties: true,
+		}),
+	).toBe(false);
+	expect(
+		catalogueInputDeclarationMatches("catalog/search", {
+			...CatalogueSearchInputJsonSchema,
+			properties: { code: { type: "string" } },
+		}),
+	).toBe(false);
+	expect(
+		catalogueInputDeclarationMatches(
+			"catalog/describe",
+			CatalogueSearchInputJsonSchema,
+		),
+	).toBe(false);
+});

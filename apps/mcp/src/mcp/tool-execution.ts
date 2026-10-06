@@ -431,6 +431,12 @@ async function executeWithHandler(
 	// _meta marker into McpCreateTaskResult). Without client opt-in, fall through
 	// to synchronous execution (unchanged). Code Mode inner calls (executionId
 	// set) always run synchronously — the gate only applies to top-level calls.
+	if (
+		toolConfig.transport === "catalog" &&
+		(toolConfig as unknown as Record<string, unknown>)._asyncTask === true
+	) {
+		throw new Error("Catalog transport cannot run as an async task");
+	}
 	const asyncTaskRequested =
 		(toolConfig as unknown as Record<string, unknown>)._asyncTask === true &&
 		// The generic task workflow replays a service identity later and cannot
@@ -647,6 +653,7 @@ async function executeWithHandler(
 		appCapabilities: agent.appCapabilities,
 		env: agent.env,
 		config: toolConfig,
+		catalogTransport: agent.catalogTransport,
 		toolId: tool.toolId,
 		callable: `${resolveMcpToolNamespace(tool, agent.appMetadata?.mcpConfig?.codeModeNamespaces as Record<string, string> | undefined)}.${sanitizeToolName(tool.toolId.includes("__") ? tool.toolId.split("__").slice(1).join("__") : tool.toolId)}`,
 		toolInputSchema: tool.inputSchema,
@@ -669,16 +676,19 @@ async function executeWithHandler(
 		const mcpConfig = agent.appMetadata?.mcpConfig as
 			| Record<string, unknown>
 			| undefined;
-		const tediPolicy = mcpConfig?.tediPolicy as
-			| {
-					enabled?: boolean;
-					tediId?: string;
-					allowedTools?: string[];
-					blockedTools?: string[];
-					maxTokens?: number;
-					timeoutMs?: number;
-			  }
-			| undefined;
+		const tediPolicy =
+			toolConfig.transport === "catalog"
+				? undefined
+				: (mcpConfig?.tediPolicy as
+						| {
+								enabled?: boolean;
+								tediId?: string;
+								allowedTools?: string[];
+								blockedTools?: string[];
+								maxTokens?: number;
+								timeoutMs?: number;
+						  }
+						| undefined);
 
 		// When tedi enrichment is enabled, skip built-in AI generation —
 		// the tedi generates answers with domain expertise instead of generic Workers AI.
