@@ -18,6 +18,7 @@ import {
 	inboundConsentFlowFailure,
 	inboundConsentFlowError,
 	inboundConsentRecoveryUrl,
+	inboundConsentRequestedPermissions,
 	inboundConsentTenant,
 	isInvalidDescopeJwtFamily,
 	isExpiredDescopeOauthCallback,
@@ -384,4 +385,31 @@ it("bounds bulk organization selection without disabling accounts with more than
 	]);
 	expect(firstConsentOrganizationIds([])).toEqual([]);
 	expect(organizations).toHaveLength(12);
+});
+
+describe("reloaded consent requests", () => {
+	it("treats a consent screen with no requested permissions as a lost request", () => {
+		expect(inboundConsentRequestedPermissions({})).toBeNull();
+		expect(inboundConsentRequestedPermissions({ data: {} })).toBeNull();
+		expect(
+			inboundConsentRequestedPermissions({
+				data: { inboundAppApproveScopes: [] },
+			}),
+		).toBeNull();
+	});
+
+	it("keeps every requested permission, including protocol scopes", () => {
+		const scopes = inboundConsentRequestedPermissions({
+			data: {
+				inboundAppApproveScopes: [
+					{ name: "openid" },
+					{ name: "mcp:apps.read", description: "Read apps" },
+				],
+			},
+		});
+		expect(scopes?.map((scope) => scope.name).sort()).toEqual([
+			"mcp:apps.read",
+			"openid",
+		]);
+	});
 });
