@@ -61,6 +61,48 @@ function retryableFlag(error: unknown): boolean | undefined {
 	}
 }
 
+/**
+ * Code-owned and infrastructure phrases that are safe to name. Matching only
+ * reports which fixed phrases occur; the message text itself is never logged.
+ */
+const SAFE_FAILURE_PHRASES = [
+	"Legacy assistant has no model content",
+	"Unsettled legacy tool prevents Pi import",
+	"Unsupported legacy",
+	"requires reconciliation before Pi",
+	"Legacy tool part has no stable call identity",
+	"context_length_exceeded",
+	"no such column",
+	"no such table",
+	"SQLITE_ERROR",
+	"SQLITE_BUSY",
+	"D1_ERROR",
+	"Network connection lost",
+	"exceeded timeout",
+	"timed out",
+	"overloaded",
+	"storage caused object to be reset",
+	"reset because its code was updated",
+] as const;
+
+function failureMessageClass(error: unknown): string[] | undefined {
+	const texts: string[] = [];
+	let current: unknown = error;
+	for (let depth = 0; depth < 4 && current instanceof Error; depth++) {
+		try {
+			texts.push(String(current.message));
+			current = current.cause;
+		} catch {
+			break;
+		}
+	}
+	const haystack = texts.join("\n").toLowerCase();
+	const matched = SAFE_FAILURE_PHRASES.filter((phrase) =>
+		haystack.includes(phrase.toLowerCase()),
+	);
+	return matched.length ? matched : undefined;
+}
+
 /** Log only code-owned event names and bounded exception topology. */
 export function logTediRuntimeFailure(
 	event: RuntimeFailureEvent,
@@ -69,11 +111,13 @@ export function logTediRuntimeFailure(
 ): void {
 	const retryable =
 		event === "tedi.runtime.websocket_error" ? retryableFlag(error) : undefined;
+	const messageClass = failureMessageClass(error);
 	console[level]({
 		component: "tedi-runtime",
 		event,
 		...(retryable !== undefined ? { retryable } : {}),
 		exception: exceptionTopology(error),
+		...(messageClass ? { messageClass } : {}),
 	});
 }
 

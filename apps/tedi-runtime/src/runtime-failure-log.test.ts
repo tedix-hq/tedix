@@ -31,6 +31,22 @@ try {
 		},
 	]);
 
+	logTediRuntimeFailure(
+		"tedi.facet.conversation_turn_failed",
+		new Error(`${privateText}: Legacy assistant has no model content`, {
+			cause: new Error(`no such column: ${privateText}`),
+		}),
+		"error",
+	);
+	assert.deepEqual(errors.pop(), [
+		{
+			component: "tedi-runtime",
+			event: "tedi.facet.conversation_turn_failed",
+			exception: { type: "Error", cause: { type: "Error" } },
+			messageClass: ["Legacy assistant has no model content", "no such column"],
+		},
+	]);
+
 	const untrustedFlag = Object.assign(new Error(privateText), {
 		retryable: privateText,
 	});
