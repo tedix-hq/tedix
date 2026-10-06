@@ -62,6 +62,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			params TEXT,
 			result TEXT,
 			error TEXT,
+			resource_access_envelope TEXT,
 			capability_manifest TEXT,
 			cost_summary TEXT,
 			workflow_source TEXT,
