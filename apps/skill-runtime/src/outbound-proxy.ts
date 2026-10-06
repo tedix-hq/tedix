@@ -124,8 +124,7 @@ async function getGoogleAccessToken(
 		}),
 	);
 	const pem = serviceAccount.private_key
-		.replace(/-----BEGIN PRIVATE KEY-----/g, "")
-		.replace(/-----END PRIVATE KEY-----/g, "")
+		.replace(/-----(?:BEGIN|END) PRIVATE KEY-----/g, "")
 		.replace(/\s/g, "");
 	const keyBytes = Uint8Array.from(atob(pem), (character) =>
 		character.charCodeAt(0),
