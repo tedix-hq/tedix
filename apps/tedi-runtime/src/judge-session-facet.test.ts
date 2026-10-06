@@ -9,7 +9,8 @@
  * flag/scaffolding.
  */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { parse, type ParseError } from "jsonc-parser";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { facetRunnerProbe, facetWorkflowTurnProbe } from "../test/tedi-do";
@@ -25,9 +26,6 @@ const JUDGE_IDENTITY = { provider: "azure-openai", model: "judge-model" };
 
 const here = import.meta.dirname;
 const wranglerSource = readFileSync(join(here, "..", "wrangler.jsonc"), "utf8");
-const isPublicExport = !existsSync(
-	join(here, "../../..", "scripts/oss/public-files.json"),
-);
 
 // --- every blind verification turn routes to the judge facet ---
 {
@@ -157,23 +155,120 @@ assert.doesNotMatch(
 		provider: "workers-ai",
 		model: "cloudflare/auto",
 	});
+	assert.deepEqual(
+		selectJudgeModelForTurn({
+			...unpinned,
+			TEDI_JUDGE_MODEL_REF: "cloudflare/auto",
+		} as never).identity,
+		{ provider: "workers-ai", model: "cloudflare/auto" },
+	);
 }
-// Derived from the file rather than hard-coded: the count is the ASSERTION
-// ("every env pins the judge model"), not a constant. A literal silently
-// becomes wrong the moment an env is added or retired — it broke when the
-// staging env was removed, which is exactly the drift this should catch.
-const varsBlockCount = wranglerSource.match(/"vars"\s*:\s*\{/g)?.length ?? 0;
-assert.ok(
-	varsBlockCount > 0,
-	"the wrangler config must declare at least one vars block",
-);
-assert.equal(
-	wranglerSource.match(
-		isPublicExport
-			? /"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay"/g
-			: /"TEDI_JUDGE_MODEL_REF": "cloudflare\/auto"/g,
-	)?.length,
-	varsBlockCount,
-	"every wrangler env block defaults the judge to Auto Router",
-);
+// Public examples declare the private-overlay sentinel; materialization supplies
+// Auto Router. Validate every declared environment from the configuration itself.
+function judgeRefInEveryEnvironment(source: string) {
+	const errors: ParseError[] = [];
+	const config: unknown = parse(source, errors, { allowTrailingComma: true });
+	assert.equal(errors.length, 0, "Wrangler config must be valid JSONC");
+	function object(value: unknown): asserts value is Record<string, unknown> {
+		assert.ok(
+			value !== null && typeof value === "object" && !Array.isArray(value),
+		);
+		assert.equal(
+			Object.getPrototypeOf(value),
+			Object.prototype,
+			"configuration records must not inherit parsed fields",
+		);
+	}
+	object(config);
+	assert.ok(Object.hasOwn(config, "vars"));
+	object(config.vars);
+	assert.ok(Object.hasOwn(config.vars, "TEDI_JUDGE_MODEL_REF"));
+	const ref = config.vars.TEDI_JUDGE_MODEL_REF;
+	assert.ok(
+		ref === "configured-via-private-overlay" || ref === "cloudflare/auto",
+		"judge default must be the public overlay sentinel or materialized Auto Router",
+	);
+	const environments = Object.hasOwn(config, "env") ? config.env : {};
+	object(environments);
+	for (const [name, environment] of Object.entries(environments)) {
+		object(environment);
+		assert.ok(Object.hasOwn(environment, "vars"));
+		object(environment.vars);
+		assert.ok(Object.hasOwn(environment.vars, "TEDI_JUDGE_MODEL_REF"));
+		assert.equal(
+			environment.vars.TEDI_JUDGE_MODEL_REF,
+			ref,
+			`declared environment ${name} must retain the root judge default`,
+		);
+	}
+	return ref;
+}
+judgeRefInEveryEnvironment(wranglerSource);
+for (const ref of ["configured-via-private-overlay", "cloudflare/auto"]) {
+	const vars = { TEDI_JUDGE_MODEL_REF: ref };
+	const config = { vars, env: { production: { vars }, additional: { vars } } };
+	assert.equal(judgeRefInEveryEnvironment(JSON.stringify(config)), ref);
+	assert.equal(
+		judgeRefInEveryEnvironment(
+			`// "vars": { "TEDI_JUDGE_MODEL_REF": "spoof" }
+${JSON.stringify(config).slice(0, -1) + ",}"}`,
+		),
+		ref,
+	);
+	for (const invalid of [
+		{ ...config, vars: {} },
+		{ ...config, vars: null },
+		{ ...config, env: { production: {} } },
+		{ ...config, env: { production: { vars: {} } } },
+		{ ...config, env: { production: { vars: null } } },
+		{ ...config, env: [] },
+		{ ...config, env: null },
+		{ ...config, env: { production: [] } },
+		{
+			...config,
+			env: {
+				production: {
+					vars: {
+						TEDI_JUDGE_MODEL_REF:
+							ref === "cloudflare/auto"
+								? "configured-via-private-overlay"
+								: "cloudflare/auto",
+					},
+				},
+			},
+		},
+	]) {
+		assert.throws(() => judgeRefInEveryEnvironment(JSON.stringify(invalid)));
+	}
+	for (const invalidRef of ["", "workers-ai/arbitrary", 1, null]) {
+		assert.throws(() =>
+			judgeRefInEveryEnvironment(
+				JSON.stringify({
+					...config,
+					vars: { TEDI_JUDGE_MODEL_REF: invalidRef },
+				}),
+			),
+		);
+		assert.throws(() =>
+			judgeRefInEveryEnvironment(
+				JSON.stringify({
+					...config,
+					env: { production: { vars: { TEDI_JUDGE_MODEL_REF: invalidRef } } },
+				}),
+			),
+		);
+	}
+}
+// Literal JSONC is necessary: object-literal __proto__ is not an own JSON key.
+for (const spoofed of [
+	'{"__proto__":{"vars":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"}}}',
+	'{"vars":{"__proto__":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"}}}',
+	'{"vars":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"},"__proto__":{"env":{"production":{"vars":{}}}}}',
+	'{"vars":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"},"env":{"__proto__":{"production":{"vars":{}}}}}',
+	'{"vars":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"},"env":{"production":{"__proto__":{"vars":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"}}}}}',
+	'{"vars":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"},"env":{"production":{"vars":{"__proto__":{"TEDI_JUDGE_MODEL_REF":"cloudflare/auto"}}}}}',
+]) {
+	assert.throws(() => judgeRefInEveryEnvironment(spoofed));
+}
+assert.throws(() => judgeRefInEveryEnvironment('{"vars":'));
 console.log("judge-session-facet OK");
