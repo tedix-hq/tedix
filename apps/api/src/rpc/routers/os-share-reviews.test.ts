@@ -115,65 +115,55 @@ async function fixture() {
 		gadgetId = crypto.randomUUID(),
 		sourceOutputId = crypto.randomUUID(),
 		sourceRevisionId = crypto.randomUUID();
-	await db
-		.insert(osWorkspaces)
-		.values({
-			id: workspaceId,
-			organizationId: "org-1",
-			name: "Research",
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-	await db
-		.insert(osGadgets)
-		.values({
-			id: gadgetId,
-			organizationId: "org-1",
-			workspaceId,
-			name: "Review",
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+	await db.insert(osWorkspaces).values({
+		id: workspaceId,
+		organizationId: "org-1",
+		name: "Research",
+		createdByKind: "user",
+		createdById: "user-1",
+	});
+	await db.insert(osGadgets).values({
+		id: gadgetId,
+		organizationId: "org-1",
+		workspaceId,
+		name: "Review",
+		createdByKind: "user",
+		createdById: "user-1",
+	});
 	const gadgetRevisionId = crypto.randomUUID();
-	await db
-		.insert(osGadgetRevisions)
-		.values({
-			id: gadgetRevisionId,
-			organizationId: "org-1",
-			gadgetId,
-			revision: 1,
-			manifest: JSON.stringify({
-				entry: "ui://widgets/mcp-app/test/r/review.html",
-				capabilities: [],
-			}),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+	await db.insert(osGadgetRevisions).values({
+		id: gadgetRevisionId,
+		organizationId: "org-1",
+		gadgetId,
+		revision: 1,
+		manifest: JSON.stringify({
+			entry: "ui://widgets/mcp-app/test/r/review.html",
+			capabilities: [],
+		}),
+		createdByKind: "user",
+		createdById: "user-1",
+	});
 	await db.update(osGadgets).set({ currentRevisionId: gadgetRevisionId });
-	await db
-		.insert(osOutputs)
-		.values({
-			id: sourceOutputId,
-			organizationId: "org-1",
-			workspaceId,
-			kind: "document",
-			title: "Source",
-			currentRevisionId: sourceRevisionId,
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-	await db
-		.insert(osOutputRevisions)
-		.values({
-			id: sourceRevisionId,
-			organizationId: "org-1",
-			outputId: sourceOutputId,
-			revision: 1,
-			content: JSON.stringify({ kind: "document", blocks: [] }),
-			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
+	await db.insert(osOutputs).values({
+		id: sourceOutputId,
+		organizationId: "org-1",
+		workspaceId,
+		kind: "document",
+		title: "Source",
+		currentRevisionId: sourceRevisionId,
+		createdByKind: "user",
+		createdById: "user-1",
+	});
+	await db.insert(osOutputRevisions).values({
+		id: sourceRevisionId,
+		organizationId: "org-1",
+		outputId: sourceOutputId,
+		revision: 1,
+		content: JSON.stringify({ kind: "document", blocks: [] }),
+		accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+		createdByKind: "user",
+		createdById: "user-1",
+	});
 	const owner = createRouterClient(osSharesContractRouter, {
 		context: userContext(env, "org-1"),
 	});

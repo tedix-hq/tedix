@@ -254,7 +254,7 @@ export const osSharesContract = oc
 					path: "/reviews/feedback",
 					summary: "Read saved feedback for an owner-approved batch",
 				})
-				.input(z.object({ shareId: z.string().uuid() }))
+				.input(z.object({ shareId: z.string().uuid() }).strict())
 				.output(
 					z.object({
 						batch: OsReviewBatchSchema,
