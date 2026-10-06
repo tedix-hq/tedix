@@ -7,6 +7,12 @@
  * answers that Interaction with the reply, so the pair becomes one durable
  * decision record.
  *
+ * Before the question is created, the redacted turn is triaged by
+ * `work.triage_agent_turn` (bounded, silent fallback) and the result travels in
+ * the create payload as `metadata.triage`. While capture is enabled for the
+ * chat, this hook also owns the Stop turn status (`applyTriagedStop`): urgent
+ * turns notify, others do not, and `tedix hooks status` skips Stop.
+ *
  * Recording happens only after `tedix setup agents context
  * enable-decision-capture` for the bound organization. Text is redacted and
  * bounded before it leaves this machine and goes only to that organization.
@@ -24,9 +30,16 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { harnessOf } from "./agent-status";
 import { basename, join } from "node:path";
 import {
+	applyTriagedStop,
+	asciiJson,
+	harnessOf,
+	type StatusDeps,
+	type TriageResult,
+} from "./agent-status";
+import {
+	CAPTURE_EVENT_LIMIT,
 	type HookDeps,
 	type JsonObject,
 	hostEvent,
@@ -41,7 +54,18 @@ const SCHEMA = "tedix.decision-capture.v1";
 const MESSAGE_LIMIT = 6000;
 const REPLY_LIMIT = 6000;
 const EXPIRY_MS = 24 * 60 * 60 * 1000;
-const EVENT_LIMIT = 4_194_304;
+const EVENT_LIMIT = CAPTURE_EVENT_LIMIT;
+const TRIAGE_TIMEOUT_MS = 4000;
+const LABEL_TIMEOUT_MS = 3000;
+export const TRIAGE_CALLABLE = "work.triage_agent_turn";
+export const LABEL_CALLABLE = "work.label_agent_reply";
+
+/** Test seams: status side effects and gateway-call timeouts. */
+export interface CaptureOptions {
+	status?: Pick<StatusDeps, "spawn" | "platform" | "which" | "label" | "now">;
+	triageTimeoutMs?: number;
+	labelTimeoutMs?: number;
+}
 
 /** Credentials an exported agent identity would use instead of the signed-in user. */
 export const AGENT_IDENTITY_ENV = [
@@ -157,6 +181,7 @@ interface Binding extends JsonObject {
 async function bindingFor(
 	deps: HookDeps,
 	session: string,
+	onOptedIn?: () => void,
 ): Promise<Binding | undefined> {
 	const binding = await deps.read(
 		["setup", "agents", "context", "show", "--json", "--session", session],
@@ -164,6 +189,8 @@ async function bindingFor(
 	);
 	if (binding.status !== "bound" || binding.decisionCapture !== true)
 		return undefined;
+	// The same local opt-in `captureOwnsStop` reads, before any check that may fail.
+	onOptedIn?.();
 	if (binding.contextSessionId && binding.contextSessionId !== session)
 		throw new Error("resolved chat mismatch");
 	if (
@@ -228,6 +255,134 @@ async function call(
 	}
 }
 
+/**
+ * One bounded Code Mode call through `tedix code`. The source, which carries
+ * redacted turn text, goes over stdin, never into a process argument.
+ */
+async function gatewayCall(
+	deps: HookDeps,
+	binding: Binding,
+	callable: string,
+	input: JsonObject,
+	timeoutMs: number,
+): Promise<JsonObject> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			deps.read(
+				[...binding.command, "code"],
+				timeoutMs,
+				`async () => await ${callable}(${asciiJson(input)})`,
+			),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("gateway call timed out")),
+					timeoutMs,
+				);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+const finite = (value: unknown): value is number =>
+	typeof value === "number" && Number.isFinite(value);
+
+/** Validate and bound a triage result; anything unexpected is unavailable. */
+export function triageOf(value: unknown, latencyMs: number): TriageResult {
+	const unavailable: TriageResult = {
+		status: "unavailable",
+		urgency: "later",
+		labels: {},
+		urgentLabels: [],
+		model: "",
+		policyVersion: 0,
+		latencyMs,
+	};
+	if (
+		!isObject(value) ||
+		value.status !== "ok" ||
+		!["now", "later"].includes(value.urgency) ||
+		!isObject(value.labels) ||
+		!Array.isArray(value.urgentLabels) ||
+		typeof value.model !== "string" ||
+		!finite(value.policyVersion)
+	)
+		return unavailable;
+	const labels = Object.entries(value.labels).filter(
+		([key, score]) => key.length <= 100 && finite(score),
+	);
+	const urgentLabels = value.urgentLabels.filter(
+		(label: unknown): label is string =>
+			typeof label === "string" && label.length <= 100,
+	);
+	if (labels.length > 64 || urgentLabels.length > 64) return unavailable;
+	return {
+		status: "ok",
+		urgency: value.urgency,
+		labels: Object.fromEntries(labels),
+		urgentLabels,
+		model: value.model.slice(0, 200),
+		policyVersion: value.policyVersion,
+		latencyMs: finite(value.latencyMs) ? value.latencyMs : latencyMs,
+	};
+}
+
+async function triageTurn(
+	deps: HookDeps,
+	binding: Binding,
+	text: string,
+	timeoutMs: number,
+): Promise<TriageResult> {
+	const started = Date.now();
+	let value: unknown;
+	try {
+		value = await gatewayCall(
+			deps,
+			binding,
+			TRIAGE_CALLABLE,
+			{ text },
+			timeoutMs,
+		);
+	} catch {
+		// Not deployed, not granted, offline or slow: the regex classifier decides.
+	}
+	return triageOf(value, Date.now() - started);
+}
+
+/** The Clef label for a reply, or undefined on any failure. */
+async function labelReply(
+	deps: HookDeps,
+	binding: Binding,
+	turnText: string,
+	replyText: string,
+	timeoutMs: number,
+): Promise<{ label: string; p: number } | undefined> {
+	try {
+		const value = await gatewayCall(
+			deps,
+			binding,
+			LABEL_CALLABLE,
+			{ turnText, replyText },
+			timeoutMs,
+		);
+		if (
+			value.status === "ok" &&
+			typeof value.label === "string" &&
+			value.label &&
+			value.label.length <= 100 &&
+			finite(value.p) &&
+			value.p >= 0 &&
+			value.p <= 1
+		)
+			return { label: value.label, p: value.p };
+	} catch {
+		// Silent: the regex reply class still travels.
+	}
+	return undefined;
+}
+
 function requestOf(result: JsonObject): { id: string; version: number } {
 	const request = isObject(result.request) ? result.request : result;
 	if (
@@ -258,6 +413,8 @@ interface TurnState extends JsonObject {
 	token?: string;
 	pending?: string;
 	host?: string;
+	/** The question's redacted message tail, for labelling the reply. */
+	turnText?: string;
 }
 
 function writeState(path: string, value: JsonObject): void {
@@ -295,8 +452,19 @@ async function onReply(
 	binding: Binding,
 	prompt: string,
 	previous: TurnState,
+	options: CaptureOptions,
 ): Promise<void> {
 	const [text, complete] = redact(prompt, REPLY_LIMIT);
+	const clef =
+		typeof previous.turnText === "string" && previous.turnText
+			? await labelReply(
+					deps,
+					binding,
+					previous.turnText,
+					text,
+					options.labelTimeoutMs ?? LABEL_TIMEOUT_MS,
+				)
+			: undefined;
 	await call(
 		deps,
 		binding,
@@ -312,6 +480,7 @@ async function onReply(
 				host: previous.host ?? harnessOf({}, deps.env),
 				sessionId: session,
 				replyClass: classify(prompt),
+				...(clef ? { replyClassClef: clef } : {}),
 				replyComplete: complete,
 			},
 		},
@@ -328,6 +497,7 @@ async function answerEarlyReply(
 	session: string,
 	binding: Binding,
 	state: string,
+	options: CaptureOptions,
 ): Promise<void> {
 	const stored = early(state);
 	if (!existsSync(stored)) return;
@@ -338,7 +508,7 @@ async function answerEarlyReply(
 		writeState(state, current);
 		return;
 	}
-	await onReply(deps, session, binding, reply.prompt, current);
+	await onReply(deps, session, binding, reply.prompt, current, options);
 }
 
 async function onStop(
@@ -347,6 +517,8 @@ async function onStop(
 	session: string,
 	binding: Binding,
 	state: string,
+	options: CaptureOptions,
+	settle: (triage: TriageResult) => Promise<void>,
 ): Promise<void> {
 	const message = event.last_assistant_message;
 	// Automated heartbeat turns are not decisions for the user.
@@ -371,7 +543,7 @@ async function onStop(
 	if (kept && kept.token === previous!.token) {
 		// A reply whose upload failed earlier: deliver it now instead of closing.
 		try {
-			await onReply(deps, session, binding, kept.prompt, previous!);
+			await onReply(deps, session, binding, kept.prompt, previous!, options);
 		} catch {
 			// Best effort; the new turn still opens below.
 		}
@@ -385,6 +557,15 @@ async function onStop(
 	rmSync(early(state), { force: true });
 	writeState(state, { pending: token });
 	const [text, complete] = redact(message, MESSAGE_LIMIT, "tail");
+	// Triage only the redacted text, then settle the turn status before the
+	// slower create so an urgent turn notifies without waiting on it.
+	const triage = await triageTurn(
+		deps,
+		binding,
+		text,
+		options.triageTimeoutMs ?? TRIAGE_TIMEOUT_MS,
+	);
+	await settle(triage);
 	const cwd = typeof event.cwd === "string" ? event.cwd : deps.cwd;
 	const repository = basename(String(binding.root)).slice(0, 80);
 	const firstLine =
@@ -410,6 +591,7 @@ async function onStop(
 			repository,
 			branch: (deps.branch ?? gitBranch)(cwd),
 			messageComplete: complete,
+			triage,
 		},
 	};
 	if (binding.workItemId) payload.workItemId = binding.workItemId;
@@ -422,8 +604,9 @@ async function onStop(
 		version: request.version,
 		token,
 		host,
+		turnText: text,
 	});
-	await answerEarlyReply(deps, session, binding, state);
+	await answerEarlyReply(deps, session, binding, state, options);
 }
 
 /**
@@ -462,10 +645,28 @@ export function captureStatePath(
 export async function runDecisionCapture(
 	mode: "stop" | "reply",
 	deps: HookDeps,
+	options: CaptureOptions = {},
 ): Promise<void> {
+	// The status report keeps the host's own environment, as `tedix hooks status` does.
+	const hostEnv = { ...deps.env };
 	// Interactions are addressed to the signed-in user, who alone may answer them.
 	// An exported external-agent identity would create rows the user cannot resolve.
 	for (const key of AGENT_IDENTITY_ENV) delete deps.env[key];
+	let owned: JsonObject | undefined;
+	let settled = false;
+	const settle = async (triage?: TriageResult): Promise<void> => {
+		if (!owned || settled) return;
+		settled = true;
+		try {
+			await applyTriagedStop(
+				{ env: hostEnv, stdin: deps.stdin, cwd: deps.cwd, ...options.status },
+				owned,
+				triage,
+			);
+		} catch {
+			// Status is best effort, like the status hook.
+		}
+	};
 	try {
 		const { event, session } = hostEvent(deps.stdin, deps.env, EVENT_LIMIT, {
 			requireIdentity: true,
@@ -474,17 +675,25 @@ export async function runDecisionCapture(
 		const state = captureStatePath(deps.env, id);
 		const claimed = mode === "reply" ? claimReply(event, state) : undefined;
 		if (mode === "reply" && !claimed) return;
-		const binding = await bindingFor(deps, id);
+		const binding = await bindingFor(
+			deps,
+			id,
+			mode === "stop"
+				? () => {
+						owned = event;
+					}
+				: undefined,
+		);
 		if (!binding) return;
 		if (mode === "stop") {
-			await onStop(deps, event, id, binding, state);
+			await onStop(deps, event, id, binding, state, options, settle);
 		} else if (claimed === "early") {
 			// The turn end may have finished creating the question meanwhile.
-			await answerEarlyReply(deps, id, binding, state);
+			await answerEarlyReply(deps, id, binding, state, options);
 		} else {
 			const [prompt, current] = claimed!;
 			try {
-				await onReply(deps, id, binding, prompt, current);
+				await onReply(deps, id, binding, prompt, current, options);
 			} catch (error) {
 				// Keep the reply so the next turn end retries it.
 				writeState(early(state), { token: current.token, prompt });
@@ -494,5 +703,9 @@ export async function runDecisionCapture(
 		}
 	} catch {
 		// Capture is best effort and never surfaces in the session.
+	} finally {
+		// An owned Stop always gets exactly one status, from the regex classifier
+		// when triage never ran (skipped turn, failed check or failed read).
+		await settle();
 	}
 }

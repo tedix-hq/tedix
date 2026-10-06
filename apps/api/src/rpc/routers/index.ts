@@ -269,6 +269,9 @@ export const apiRouter = {
 	),
 	seo: lazyRouter(() => import("./seo").then((m) => m.seoContractRouter)),
 	aeo: lazyRouter(() => import("./aeo").then((m) => m.aeoContractRouter)),
+	agentTurnTriage: lazyRouter(() =>
+		import("./agent-turn-triage").then((m) => m.agentTurnTriageContractRouter),
+	),
 	audit: lazyRouter(() => import("./audit").then((m) => m.auditContractRouter)),
 	knowledge: lazyRouter(() =>
 		import("./cognitive").then((m) => m.knowledgeContractRouter),

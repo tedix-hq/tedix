@@ -12,6 +12,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { adapterBindingsContract } from "./adapter-bindings";
 import { aeoContract } from "./aeo";
+import { agentTurnTriageContract } from "./agent-turn-triage";
 import { analyticsContract } from "./analytics";
 import { appAdaptersContract } from "./app-adapters";
 import { appGatingContract } from "./app-gating";
@@ -268,6 +269,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 
 	// AEO (Answer Engine Optimization) live citation-rate measurement
 	aeo: aeoContract,
+	agentTurnTriage: agentTurnTriageContract,
 
 	// Audit trail (org-scoped event history)
 	audit: auditContract,

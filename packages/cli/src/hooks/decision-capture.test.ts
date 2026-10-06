@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DETACHED, runAgentStatus } from "./agent-status";
 import {
 	captureStatePath,
 	claimReply,
 	classify,
+	LABEL_CALLABLE,
 	runDecisionCapture,
+	TRIAGE_CALLABLE,
 } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
@@ -34,10 +43,16 @@ const CREATED = { id: REQUEST, version: 1 };
 
 let config: string;
 let payloads: Array<[string[], JsonObject]>;
+let gatewayCalls: Array<[string, JsonObject, string[]]>;
+let spawned: string[][];
+
+type Gateway = Record<string, (input: JsonObject) => unknown>;
 
 beforeEach(() => {
 	config = mkdtempSync(join(tmpdir(), "tedix-capture-"));
 	payloads = [];
+	gatewayCalls = [];
+	spawned = [];
 });
 afterEach(() => rmSync(config, { recursive: true, force: true }));
 
@@ -50,11 +65,16 @@ async function runHook(
 		duringCreate,
 		failRespond = false,
 		stdin,
+		gateway = {},
+		timeoutMs,
 	}: {
 		env?: Record<string, string>;
 		duringCreate?: () => void;
 		failRespond?: boolean;
 		stdin?: string;
+		/** Code Mode callables; a missing one fails like an undeployed tool. */
+		gateway?: Gateway;
+		timeoutMs?: number;
 	} = {},
 ): Promise<string[][]> {
 	const calls: string[][] = [];
@@ -64,34 +84,95 @@ async function runHook(
 		TEDIX_MCP_BEARER_TOKEN: "token",
 		...env,
 	};
-	await runDecisionCapture(mode, {
-		env: environment,
-		stdin: stdin ?? JSON.stringify({ session_id: SESSION, ...event }),
-		cwd: process.cwd(),
-		write: () => {
-			throw new Error("capture never writes to stdout");
+	await runDecisionCapture(
+		mode,
+		{
+			env: environment,
+			stdin: stdin ?? JSON.stringify({ session_id: SESSION, ...event }),
+			cwd: process.cwd(),
+			write: () => {
+				throw new Error("capture never writes to stdout");
+			},
+			branch: () => "main",
+			read: async (args, _timeout, stdinInput) => {
+				calls.push(args);
+				// Interactions are addressed to the signed-in user, never an agent identity.
+				expect(environment.TEDIX_EXTERNAL_AGENT).toBeUndefined();
+				expect(environment.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
+				if (args.at(-1) === "code") {
+					const source = stdinInput!;
+					const callable = /await ([\w.]+)\(/.exec(source)![1]!;
+					const literal = JSON.parse(
+						source.slice(
+							source.indexOf(`${callable}(`) + callable.length + 1,
+							-1,
+						),
+					);
+					gatewayCalls.push([callable, literal, args]);
+					const handler = gateway[callable];
+					if (!handler) throw new Error("Unknown tool");
+					return (await handler(literal)) as JsonObject;
+				}
+				if (failRespond && args.includes("interaction-respond"))
+					throw new Error("offline");
+				const input = args.indexOf("--input");
+				if (input >= 0)
+					payloads.push([
+						args,
+						JSON.parse(readFileSync(args[input + 1]!.slice(1), "utf8")),
+					]);
+				if (duringCreate && args.includes("interaction-create")) duringCreate();
+				if (!reads.length) throw new Error("unexpected read");
+				return structuredClone(reads.shift()) as JsonObject;
+			},
 		},
-		branch: () => "main",
-		read: async (args) => {
-			calls.push(args);
-			// Interactions are addressed to the signed-in user, never an agent identity.
-			expect(environment.TEDIX_EXTERNAL_AGENT).toBeUndefined();
-			expect(environment.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
-			if (failRespond && args.includes("interaction-respond"))
-				throw new Error("offline");
-			const input = args.indexOf("--input");
-			if (input >= 0)
-				payloads.push([
-					args,
-					JSON.parse(readFileSync(args[input + 1]!.slice(1), "utf8")),
-				]);
-			if (duringCreate && args.includes("interaction-create")) duringCreate();
-			if (!reads.length) throw new Error("unexpected read");
-			return structuredClone(reads.shift()) as JsonObject;
+		{
+			status: {
+				platform: "darwin",
+				which: (name) => `/usr/bin/${name}`,
+				spawn: (args, options) => {
+					expect(options).toEqual(DETACHED);
+					spawned.push(args);
+				},
+				label: () => "repo · main",
+			},
+			...(timeoutMs
+				? { triageTimeoutMs: timeoutMs, labelTimeoutMs: timeoutMs }
+				: {}),
 		},
-	});
+	);
 	return calls;
 }
+
+function enableStatus(): void {
+	writeFileSync(
+		join(config, "agent-status.json"),
+		JSON.stringify({ enabled: true, profile: "connect" }),
+	);
+}
+const statusState = () => {
+	const path = join(config, "agent-status", `claude-code-${SESSION}.json`);
+	return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
+};
+const notifications = () => spawned.filter((args) => args[0] === "osascript");
+const reports = () => spawned.filter((args) => args[0] === "tedix");
+const TRIAGE_OK = {
+	status: "ok",
+	urgency: "now",
+	labels: { blocker_or_failure: 0.91, risky_action: 0.12 },
+	urgentLabels: ["blocker_or_failure"],
+	model: "clef-fixture",
+	policyVersion: 3,
+	latencyMs: 42,
+};
+const UNAVAILABLE = {
+	status: "unavailable",
+	urgency: "later",
+	labels: {},
+	urgentLabels: [],
+	model: "",
+	policyVersion: 0,
+};
 
 const state = () => join(config, "decision-capture", `${SESSION}.json`);
 const verbs = () =>
@@ -329,5 +410,187 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			["add a sidebar button", "instruction"],
 		])
 			expect(classify(reply!)).toBe(label!);
+	});
+
+	test("urgent triage travels in the create payload and notifies once", async () => {
+		enableStatus();
+		const message = "## Blocked\nThe D1 migration failed; deploy is halted.";
+		const calls = await runHook(
+			"stop",
+			{ hook_event_name: "Stop", last_assistant_message: message },
+			[BINDING, AUTH, CREATED],
+			{ gateway: { [TRIAGE_CALLABLE]: () => TRIAGE_OK } },
+		);
+		const [callable, input, args] = gatewayCalls[0]!;
+		expect(callable).toBe(TRIAGE_CALLABLE);
+		expect(input).toEqual({ text: message });
+		// Turn text reaches the child over stdin, never as an argument.
+		expect(args).toEqual(["-w", "fixture", "code"]);
+		expect(calls.flat().join(" ")).not.toContain("D1 migration");
+		expect(payloads[0]![1].metadata.triage).toEqual(TRIAGE_OK);
+		expect(statusState()?.state).toBe("needs_you");
+		expect(notifications()).toHaveLength(1);
+		expect(notifications()[0]!.at(-3)).toBe(
+			"Blocker: The D1 migration failed; deploy is halted.",
+		);
+		expect(reports()).toHaveLength(1);
+		// The status hook's own Stop handler stays out of a chat capture owns.
+		await runAgentStatus({
+			env: { TEDIX_CONFIG_DIR: config },
+			stdin: JSON.stringify({
+				session_id: SESSION,
+				hook_event_name: "Stop",
+				last_assistant_message: message,
+			}),
+			cwd: process.cwd(),
+			captureOwnsStop: () => true,
+			spawn: (spawnArgs) => spawned.push(spawnArgs),
+		});
+		expect(notifications()).toHaveLength(1);
+		expect(reports()).toHaveLength(1);
+	});
+
+	test("later triage records done without a notification", async () => {
+		enableStatus();
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Pushed.\n\nWant me to also tidy the docs?" },
+			[BINDING, AUTH, CREATED],
+			{
+				gateway: {
+					[TRIAGE_CALLABLE]: () => ({
+						...TRIAGE_OK,
+						urgency: "later",
+						urgentLabels: [],
+					}),
+				},
+			},
+		);
+		expect(payloads[0]![1].metadata.triage.urgency).toBe("later");
+		expect(statusState()).toMatchObject({ state: "done", summary: "Pushed." });
+		expect(notifications()).toEqual([]);
+		expect(reports()).toHaveLength(1);
+	});
+
+	test("unavailable triage falls back to the regex classifier", async () => {
+		enableStatus();
+		await runHook("stop", { last_assistant_message: "Should I push?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		const triage = payloads[0]![1].metadata.triage;
+		expect(triage).toMatchObject(UNAVAILABLE);
+		expect(typeof triage.latencyMs).toBe("number");
+		expect(statusState()).toMatchObject({
+			state: "needs_you",
+			summary: "Should I push?",
+		});
+		expect(notifications()).toHaveLength(1);
+		// A malformed result is unavailable too.
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Pushed." },
+			[
+				BINDING,
+				AUTH,
+				{ id: "88888888-8888-4888-8888-888888888888", version: 1 },
+			],
+			{
+				gateway: {
+					[TRIAGE_CALLABLE]: () => ({ status: "ok", urgency: "soon" }),
+				},
+			},
+		);
+		expect(payloads[1]![1].metadata.triage.status).toBe("unavailable");
+		expect(statusState()?.state).toBe("done");
+	});
+
+	test("a slow triage times out and the question is still created", async () => {
+		enableStatus();
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Should I push?" },
+			[BINDING, AUTH, CREATED],
+			{
+				timeoutMs: 20,
+				gateway: { [TRIAGE_CALLABLE]: () => new Promise(() => {}) },
+			},
+		);
+		expect(payloads[0]![1].metadata.triage.status).toBe("unavailable");
+		expect(notifications()).toHaveLength(1);
+	});
+
+	test("an owned Stop still reports when capture fails before triage", async () => {
+		enableStatus();
+		await runHook("stop", { last_assistant_message: "Should I push?" }, [
+			BINDING,
+			{ ...AUTH, wouldUse: "external-agent:x" },
+		]);
+		expect(payloads).toEqual([]);
+		expect(statusState()?.state).toBe("needs_you");
+		expect(notifications()).toHaveLength(1);
+		// Without the opt-in, capture never touches the status.
+		rmSync(join(config, "agent-status"), { recursive: true, force: true });
+		await runHook("stop", { last_assistant_message: "Should I push?" }, [
+			{ ...BINDING, decisionCapture: false },
+		]);
+		expect(statusState()).toBeUndefined();
+		expect(notifications()).toHaveLength(1);
+	});
+
+	test("the reply carries the Clef label next to the regex class", async () => {
+		const message = "Deployed. Want me to clean up legacy?";
+		await runHook("stop", { last_assistant_message: message }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		await runHook(
+			"reply",
+			{ prompt: "yes, go ahead" },
+			[BINDING, AUTH, { request: CREATED }],
+			{
+				gateway: {
+					[LABEL_CALLABLE]: () => ({
+						status: "ok",
+						label: "approve",
+						p: 0.93,
+						model: "clef-fixture",
+					}),
+				},
+			},
+		);
+		expect(gatewayCalls.at(-1)!.slice(0, 2)).toEqual([
+			LABEL_CALLABLE,
+			{ turnText: message, replyText: "yes, go ahead" },
+		]);
+		const metadata = payloads.at(-1)![1].metadata;
+		expect(metadata.replyClass).toBe("approve");
+		expect(metadata.replyClassClef).toEqual({ label: "approve", p: 0.93 });
+	});
+
+	test("a missing, unavailable or slow Clef label leaves only the regex class", async () => {
+		for (const gateway of [
+			{},
+			{ [LABEL_CALLABLE]: () => ({ status: "unavailable" }) },
+			{ [LABEL_CALLABLE]: () => new Promise(() => {}) },
+		] as Gateway[]) {
+			payloads = [];
+			await runHook("stop", { last_assistant_message: "Ship it?" }, [
+				BINDING,
+				AUTH,
+				CREATED,
+			]);
+			await runHook(
+				"reply",
+				{ prompt: "ship it" },
+				[BINDING, AUTH, { request: CREATED }],
+				{ gateway, timeoutMs: 20 },
+			);
+			const metadata = payloads.at(-1)![1].metadata;
+			expect(metadata.replyClass).toBe("ship");
+			expect(metadata).not.toHaveProperty("replyClassClef");
+		}
 	});
 });

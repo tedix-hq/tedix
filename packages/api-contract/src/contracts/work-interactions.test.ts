@@ -36,6 +36,20 @@ describe("Work interactions contract", () => {
 		).toBe(false);
 	});
 
+	it("accepts an optional now/later urgency filter and rejects other values", () => {
+		expect(ListWorkInteractionInboxInputSchema.parse({})).not.toHaveProperty(
+			"urgency",
+		);
+		for (const urgency of ["now", "later"] as const)
+			expect(
+				ListWorkInteractionInboxInputSchema.parse({ urgency }),
+			).toMatchObject({ urgency });
+		expect(
+			ListWorkInteractionInboxInputSchema.safeParse({ urgency: "soon" })
+				.success,
+		).toBe(false);
+	});
+
 	it("accepts every artifact-neutral request kind", () => {
 		for (const kind of [
 			"question",

@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	applyTriagedStop,
 	classifyStop,
 	DETACHED,
 	harnessOf,
@@ -18,7 +19,9 @@ import {
 	reportSource,
 	runAgentStatus,
 	SUPERVISOR_CONTINUED_SUFFIX,
+	type TriageResult,
 	transition,
+	triagedOutcome,
 } from "./agent-status";
 import { runHooksCommand } from "./command";
 import type { JsonObject } from "./hook-io";
@@ -47,8 +50,10 @@ async function fire(
 	fields: JsonObject = {},
 	env: Record<string, string> = {},
 	stdin?: string,
+	captureOwnsStop = false,
 ): Promise<void> {
 	await runAgentStatus({
+		captureOwnsStop: () => captureOwnsStop,
 		env: { TEDIX_CONFIG_DIR: base, ...env },
 		stdin:
 			stdin ??
@@ -367,5 +372,103 @@ describe("tedix hooks status", () => {
 			else process.env.TEDIX_CONFIG_DIR = previous;
 		}
 		expect(out).toEqual([]);
+	});
+
+	test("Stop is skipped when decision capture owns it", async () => {
+		enable();
+		await fire(
+			"Stop",
+			{ last_assistant_message: "Should I push?" },
+			{},
+			undefined,
+			true,
+		);
+		expect(state()).toBeUndefined();
+		expect(spawned).toEqual([]);
+		// Only Stop moves to capture; every other event still reports here.
+		await fire("UserPromptSubmit", {}, {}, undefined, true);
+		expect(state()?.state).toBe("working");
+	});
+
+	test("triaged Stop outcomes", () => {
+		const ok = (urgency: "now" | "later", urgentLabels: string[] = []) =>
+			({
+				status: "ok",
+				urgency,
+				labels: {},
+				urgentLabels,
+				model: "m",
+				policyVersion: 1,
+				latencyMs: 1,
+			}) satisfies TriageResult;
+		const message = "## Deploy halted\n\nThe migration failed on D1.";
+		expect(triagedOutcome(message, ok("now", ["blocker_or_failure"]))).toEqual([
+			"needs_you",
+			"Blocker: The migration failed on D1.",
+		]);
+		expect(
+			triagedOutcome(message, ok("now", ["needs_login_or_consent"])),
+		).toEqual([
+			"needs_you",
+			"Needs you (login/consent): The migration failed on D1.",
+		]);
+		expect(triagedOutcome(message, ok("now", ["risky_action"]))).toEqual([
+			"needs_you",
+			"Risky (deploy/delete): The migration failed on D1.",
+		]);
+		expect(triagedOutcome("Done.\n\nShould I push?", ok("now"))).toEqual([
+			"needs_you",
+			"Needs you: Should I push?",
+		]);
+		// Later never notifies, even when the regex would have asked.
+		expect(triagedOutcome("Done.\n\nShould I push?", ok("later"))).toEqual([
+			"done",
+			"Done.",
+		]);
+		expect(triagedOutcome("Done.\n\nShould I push?", undefined)).toEqual(
+			classifyStop("Done.\n\nShould I push?"),
+		);
+		expect(
+			triagedOutcome("Should I push?", { ...ok("now"), status: "unavailable" }),
+		).toEqual(["needs_you", "Should I push?"]);
+	});
+
+	test("a triaged Stop keeps the supervisor seam and notifies once", async () => {
+		enable();
+		const deps = {
+			env: { TEDIX_CONFIG_DIR: base },
+			stdin: "",
+			cwd: process.cwd(),
+			platform: "darwin" as const,
+			which: (name: string) => `/usr/bin/${name}`,
+			spawn: (args: string[], options: typeof DETACHED) =>
+				spawned.push([args, options]),
+			label: () => "repo · main",
+		};
+		const event = {
+			session_id: SESSION,
+			hook_event_name: "Stop",
+			last_assistant_message: "Should I push?",
+		};
+		mkdirSync(join(base, "agent-status"), { recursive: true });
+		const marker = join(
+			base,
+			"agent-status",
+			`claude-code-${SESSION}${SUPERVISOR_CONTINUED_SUFFIX}`,
+		);
+		writeFileSync(marker, "");
+		await applyTriagedStop(deps, event, undefined);
+		expect(state()?.state).toBe("working");
+		expect(existsSync(marker)).toBe(false);
+		await applyTriagedStop(deps, event, undefined);
+		await applyTriagedStop(deps, event, undefined);
+		expect(state()?.state).toBe("needs_you");
+		expect(notifications()).toHaveLength(1);
+		await applyTriagedStop(
+			deps,
+			{ ...event, stop_hook_active: true },
+			undefined,
+		);
+		expect(reports()).toHaveLength(2);
 	});
 });

@@ -426,6 +426,7 @@ export async function listWorkInteractionResponses(
 		.orderBy(workInteractionResponses.respondedAt, workInteractionResponses.id)
 		.limit(Math.min(p.limit ?? 100, 500));
 }
+export type WorkInteractionUrgency = "now" | "later";
 export async function listWorkInteractionInbox(
 	db: DbQueryClient,
 	p: {
@@ -438,6 +439,12 @@ export async function listWorkInteractionInbox(
 		creatorId?: string;
 		targetType?: WorkInteractionTargetType | null;
 		targetId?: string | null;
+		/**
+		 * Triage urgency recorded at create time in `metadata.triage.urgency`.
+		 * "later" also covers every interaction without triage, so the two
+		 * values partition the inbox exactly.
+		 */
+		urgency?: WorkInteractionUrgency;
 		cursor?: { at: string; id: string };
 		limit?: number;
 		observedAt: string;
@@ -447,6 +454,7 @@ export async function listWorkInteractionInbox(
 		"open" | "resolved" | "cancelled" | "expired"
 	>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workInteractions.status} END`;
 	const limit = Math.min(p.limit ?? 50, 200);
+	const urgency = sql`COALESCE(json_extract(${workInteractions.metadata},'$.triage.urgency'),'later')`;
 	const rows = await db
 		.select({
 			request: prefixedColumns(workInteractions, "work_interaction"),
@@ -499,6 +507,11 @@ export async function listWorkInteractionInbox(
 					? eq(workInteractions.targetId, p.targetId)
 					: p.targetId === null
 						? isNull(workInteractions.targetId)
+						: undefined,
+				p.urgency === "now"
+					? sql`${urgency}='now'`
+					: p.urgency === "later"
+						? sql`${urgency}<>'now'`
 						: undefined,
 				p.cursor
 					? sql`(${workInteractions.createdAt}<${p.cursor.at} OR (${workInteractions.createdAt}=${p.cursor.at} AND ${workInteractions.id}<${p.cursor.id}))`

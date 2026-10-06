@@ -260,6 +260,19 @@ turn that ends with background work pending is not marked as waiting, and an
 unanswered turn is left open when the next one ends and expires after 24 hours;
 the agents board shows which sessions are waiting now.
 
+Before the question is created, the redacted turn is triaged by the bound
+organization (`work.triage_agent_turn`, at most 4 seconds) and the result is
+stored on the question as `metadata.triage`; the reply is likewise labelled
+(`work.label_agent_reply`, at most 3 seconds) as `metadata.replyClassClef`
+beside the coarse class. Both fall back silently when the tool is missing or
+slow. With the turn-status reporter also enabled, decision capture owns the
+`Stop` status for its chats: an urgent turn ("now") is marked needs you and
+notifies once with a short reason (blocker, login or consent, risky action);
+any other turn is marked done without a notification. `tedix hooks status`
+skips `Stop` for those chats. Both hooks start together, so neither waits for
+the other: each reads the same local opt-in for the chat. Without a triage
+result, the reporter's own question classifier decides, as before.
+
 Automatic goal continuations, tool returns and background work are not proven
 `UserPromptSubmit` events. Use explicit checkpoint reads for those. To prove
 actual delivery, use one controlled host session: ask for the supplied revision

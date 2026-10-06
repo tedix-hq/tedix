@@ -31,6 +31,12 @@ and durable answer settlement.
 - **Plugin hooks** (`src/hooks/`) — `tedix hooks <session-start|prompt-context|capture-stop|capture-reply|status>`
   runs the plugin's host lifecycle hooks from the event JSON on stdin, so the
   plugin ships no scripts. `scripts/package-plugin.ts` builds its review ZIPs.
+  With decision capture enabled, `capture-stop` triages the redacted turn
+  (`work.triage_agent_turn`, 4 s, silent fallback) into `metadata.triage` and
+  owns that chat's Stop status (`applyTriagedStop`); `status` skips Stop for
+  it, decided by the same local opt-in check (`captureOwnsStop`), so each Stop
+  notifies at most once. `capture-reply` adds `metadata.replyClassClef` from
+  `work.label_agent_reply` (3 s).
 
 - **MCP Home client** (`home-client.ts`) — `TedixHomeClient` wraps
   `@modelcontextprotocol/client`'s `StreamableHTTPClientTransport` and calls
