@@ -59,7 +59,7 @@ const bodyOf = async (requests: Request[], path: string) => {
 	const warm = await bodyOf(forwarded, "/__internal/chat/warm");
 	const turn = await bodyOf(forwarded, "/__internal/chat/stream");
 	const constraint = {
-		tool_argument_constraints: { company_id: "367" },
+		tool_argument_constraints: { company_id: "8042" },
 		tool_namespace_prefix: "shop",
 		tool_allowed_callables: bound.embeddedAssistantCallables,
 	};
@@ -99,7 +99,7 @@ for (const warmResponse of [
 {
 	const described: string[] = [];
 	const constraint = {
-		tool_argument_constraints: { company_id: "367" },
+		tool_argument_constraints: { company_id: "8042" },
 		tool_namespace_prefix: "acme_staging",
 		tool_allowed_callables: [
 			"acme_staging.orders_list",
@@ -118,7 +118,7 @@ for (const warmResponse of [
 			}));
 		},
 	};
-	const sessionKey = "embed:acme:367:1743:warm-test";
+	const sessionKey = "embed:acme:8042:6190:warm-test";
 	const probe = chatTurnProbe({
 		mcpRuntime: runtime,
 		platform: {

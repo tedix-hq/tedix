@@ -42,7 +42,7 @@ describe("resolveUntrustedContentOrigin — the three states stay distinct", () 
 	});
 
 	it("accepts a workers.dev origin (Public Suffix List isolates it)", () => {
-		const workersDev = "https://tedix-artifacts.tedix.workers.dev";
+		const workersDev = "https://tedix-artifacts.example-install.workers.dev";
 		expect(
 			resolveUntrustedContentOrigin({
 				...PROD,

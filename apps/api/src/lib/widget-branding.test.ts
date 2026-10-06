@@ -25,7 +25,7 @@ const published = {
 	// Never publishable: audience policy, funding and the tool projection.
 	analyticsEnabled: true,
 	webMcpProfile: { routes: [{ id: "orders", tools: ["acme.orders_list"] }] },
-	audience: { mode: "selected", userIds: ["1743"] },
+	audience: { mode: "selected", userIds: ["6190"] },
 };
 
 /** A stand-in for the colo cache, keyed the way the real one is: by URL. */

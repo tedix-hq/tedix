@@ -62,7 +62,7 @@ it("targets the selected customer after returning from another audience editor",
 	seed(providerCapacitySponsorshipsQueryOptions().queryKey, {
 		data: ["staging", "production"].map((installationId) => ({
 			installationId,
-			externalTenantId: "367",
+			externalTenantId: "8042",
 			policy: null,
 			readiness: { status: "disabled" },
 		})),
@@ -174,7 +174,7 @@ it("targets the selected customer after returning from another audience editor",
 	expect(container.textContent).toContain("Demo garage");
 	expect(container.textContent).toContain("https://staging.example.com");
 	expect(container.textContent).toContain("Live garage");
-	expect(container.textContent).not.toContain("Tenant 367");
+	expect(container.textContent).not.toContain("Tenant 8042");
 	expect(container.textContent).not.toContain("Route configuration");
 	await click("Customize");
 	const advanced = Array.from(container.querySelectorAll("button")).find(

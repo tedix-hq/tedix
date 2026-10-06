@@ -238,7 +238,7 @@ session and calls `identifyEmbeddedProviderContact` with `externalTenantId`,
 
 ```js
 {
-  user: { name: "Daniel", email: "daniel@example.com",
+  user: { name: "Dana", email: "dana@example.com",
           customAttributes: { language: "es" } },
   company: { name: "Example Garage", customAttributes: { plan: "business" } }
 }

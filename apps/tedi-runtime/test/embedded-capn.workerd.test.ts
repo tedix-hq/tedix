@@ -33,9 +33,9 @@ function adapter(
 		authorize: async (token) => {
 			if (token !== "signed") throw new Error("Forbidden");
 			return {
-				sessionKey: "example-widget:367:1743:conversation-a",
-				subject: "1743",
-				tenant: "example-saas:367",
+				sessionKey: "example-widget:8042:6190:conversation-a",
+				subject: "6190",
+				tenant: "example-saas:8042",
 				origin: ORIGIN,
 				expiresAt: Date.now() + 60_000,
 			};
@@ -75,7 +75,7 @@ function adapter(
 					replayName: input.replayName,
 					name: "Research",
 					slug: "research",
-					whyPresent: { type: "user", actorId: "1743", attachedAt: "now" },
+					whyPresent: { type: "user", actorId: "6190", attachedAt: "now" },
 					authority: "context_only",
 				},
 			};
@@ -106,7 +106,7 @@ function adapter(
 						uri: "r2://bucket/report",
 					},
 					state: "active",
-					whyPresent: { type: "user", actorId: "1743", attachedAt: "now" },
+					whyPresent: { type: "user", actorId: "6190", attachedAt: "now" },
 					authority: "context_only",
 				},
 			};

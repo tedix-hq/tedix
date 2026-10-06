@@ -194,7 +194,7 @@ describe("ordered approval manifest resolution", () => {
 			}),
 		);
 		mocks.executePromotion.mockResolvedValue(null);
-		const api = client({ gatewayEndUserId: "1743" });
+		const api = client({ gatewayEndUserId: "6190" });
 		const manifest = await api.getReviewManifest({
 			approvalRequestIds: [ids.promotion],
 		});
@@ -212,7 +212,7 @@ describe("ordered approval manifest resolution", () => {
 		expect(mocks.resolveApproval).toHaveBeenCalledWith(
 			expect.anything(),
 			ids.promotion,
-			expect.objectContaining({ resolvedBy: "user:1743" }),
+			expect.objectContaining({ resolvedBy: "user:6190" }),
 		);
 		expect(mocks.executePromotion).toHaveBeenCalledTimes(1);
 		expect(result.results).toEqual([
@@ -405,7 +405,7 @@ describe("ordered approval manifest resolution", () => {
 						? [edge]
 						: [];
 		});
-		const api = client({ gatewayEndUserId: "1743" });
+		const api = client({ gatewayEndUserId: "6190" });
 		const manifest = await api.getReviewManifest({
 			approvalRequestIds: [ids.dependent],
 		});
@@ -432,8 +432,8 @@ describe("ordered approval manifest resolution", () => {
 			],
 		});
 		expect(calls).toEqual([
-			`resolve:${ids.prerequisite}:rejected:user:1743`,
-			`resolve:${ids.dependent}:cancelled:user:1743`,
+			`resolve:${ids.prerequisite}:rejected:user:6190`,
+			`resolve:${ids.dependent}:cancelled:user:6190`,
 			"invalidate",
 		]);
 		expect(result.results).toEqual(

@@ -80,12 +80,12 @@ describe("gateway browser tokens", () => {
 		const token = await issueGatewayBrowserToken({
 			allowedOrigin: "https://www.acme.example",
 			expiresAt: Math.floor(Date.now() / 1000) + 60,
-			hostOrganizationId: "367",
+			hostOrganizationId: "8042",
 			hostOrganizationLabel: "Acme Workshop",
 			hostRole: "Administrador",
 			hostTenantArgument: "companyId",
 			hostTenantNamespace: "acme_staging",
-			hostUserId: "1743",
+			hostUserId: "6190",
 			hostUserLabel: "Dana Acme · demo@acme.example",
 			hostConversationContext: {
 				kind: "host_record",
@@ -111,12 +111,12 @@ describe("gateway browser tokens", () => {
 
 		expect(claims).toMatchObject({
 			allowedOrigin: "https://www.acme.example",
-			hostOrganizationId: "367",
+			hostOrganizationId: "8042",
 			hostOrganizationLabel: "Acme Workshop",
 			hostRole: "Administrador",
 			hostTenantArgument: "companyId",
 			hostTenantNamespace: "acme_staging",
-			hostUserId: "1743",
+			hostUserId: "6190",
 			hostUserLabel: "Dana Acme · demo@acme.example",
 			hostConversationContext: {
 				kind: "host_record",

@@ -55,7 +55,7 @@ import {
 const input = {
 	providerOrganizationId: "provider",
 	providerAppId: "app",
-	externalTenantId: "367",
+	externalTenantId: "8042",
 	customer: { name: "Garage", billingPlanKey: "business" as const },
 };
 const context = { db: {} } as BaseContext;
@@ -65,7 +65,7 @@ const active = {
 };
 beforeEach(async () => {
 	vi.resetAllMocks();
-	const key = await providerCustomerKey("provider", "app", "367");
+	const key = await providerCustomerKey("provider", "app", "8042");
 	mocks.org.mockResolvedValue({
 		id: "customer",
 		// The handle reads as the customer, not as a digest.
@@ -84,10 +84,10 @@ beforeEach(async () => {
 });
 describe("automatic provider customer setup", () => {
 	it("scopes stable resource keys to provider and host tenant", async () => {
-		expect(await providerCustomerKey("provider", "app", "367")).not.toBe(
-			await providerCustomerKey("other", "app", "367"),
+		expect(await providerCustomerKey("provider", "app", "8042")).not.toBe(
+			await providerCustomerKey("other", "app", "8042"),
 		);
-		expect(await providerCustomerKey("provider", "app", "367")).not.toBe(
+		expect(await providerCustomerKey("provider", "app", "8042")).not.toBe(
 			await providerCustomerKey("provider", "app", "368"),
 		);
 	});

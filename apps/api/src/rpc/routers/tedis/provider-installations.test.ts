@@ -273,7 +273,7 @@ describe("provider embedded session exchange", () => {
 		mocks.resolve.mockResolvedValue(null);
 		await expect(
 			client.getEmbeddedProviderAvailability({
-				externalTenantId: "367",
+				externalTenantId: "8042",
 				hostUserId: "42",
 			}),
 		).resolves.toEqual({ enabled: false });
@@ -454,7 +454,7 @@ describe("provider embedded session exchange", () => {
 		mocks.resolve.mockResolvedValue(undefined);
 		const client = createRouterClient(router, { context: context() });
 		await expect(
-			client.createEmbeddedProviderSession(input("367")),
+			client.createEmbeddedProviderSession(input("8042")),
 		).rejects.toThrow(/No active embedded Tedi installation/);
 		expect(mocks.issue).not.toHaveBeenCalled();
 	});
@@ -916,7 +916,7 @@ describe("automatic installation admission", () => {
 		providerOrganizationId: PROVIDER_ORG,
 		providerAppId: "88888888-8888-4888-8888-888888888888",
 		providerApiKeyId: "66666666-6666-4666-8666-666666666666",
-		externalTenantId: "367",
+		externalTenantId: "8042",
 		allowedOrigin: "https://staging.acme.example",
 		hostTenantArgument: "companyId",
 		hostTenantNamespace: "acme_staging",
@@ -959,7 +959,7 @@ describe("automatic installation admission", () => {
 				providerOrganizationId: PROVIDER_ORG,
 				providerAppId: request.providerAppId,
 				providerApiKeyId: request.providerApiKeyId,
-				externalTenantId: "367",
+				externalTenantId: "8042",
 				customerOrganizationId: CUSTOMER_ORG,
 				primaryWorkspaceId: WORKSPACE,
 				primaryTediId: TEDI,

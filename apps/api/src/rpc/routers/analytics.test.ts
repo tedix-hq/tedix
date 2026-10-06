@@ -194,7 +194,7 @@ describe("analytics router freshness", () => {
 				installationId: "33333333-3333-4333-8333-333333333333",
 				providerAppId: APP_ID,
 				hostOrganizationId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 				origin: "https://staging.acme.example",
 				sessionId: "embed:opaque",
 				eventType: "open",
@@ -222,7 +222,7 @@ describe("analytics router freshness", () => {
 					installationId: "33333333-3333-4333-8333-333333333333",
 					tediId: "55555555-5555-4555-8555-555555555555",
 					hostOrganizationId: "1",
-					hostUserId: "1743",
+					hostUserId: "6190",
 					origin: "https://staging.acme.example",
 				},
 			}),
@@ -247,8 +247,8 @@ describe("analytics router freshness", () => {
 				id: "77777777-7777-4777-8777-777777777777",
 				installationId: "33333333-3333-4333-8333-333333333333",
 				providerAppId: APP_ID,
-				hostOrganizationId: "367",
-				hostUserId: "1743",
+				hostOrganizationId: "8042",
+				hostUserId: "6190",
 				origin: "https://staging.acme.example",
 				sessionId: "embed:opaque",
 				eventType: "impression",
@@ -284,7 +284,7 @@ describe("analytics router freshness", () => {
 				installationId: "33333333-3333-4333-8333-333333333333",
 				providerAppId: APP_ID,
 				hostOrganizationId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 				origin: "https://staging.acme.example",
 				sessionId: "embed:opaque",
 				sourceGeneratedAt: "2026-08-31T04:00:00.000Z",
@@ -305,7 +305,7 @@ describe("analytics router freshness", () => {
 				organizationId: ORG_ID,
 				installationId: "33333333-3333-4333-8333-333333333333",
 				hostOrganizationId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 			}),
 		);
 		expect(mocks.trackEmbeddedAttentionOutcomes).toHaveBeenCalledWith(
@@ -316,7 +316,7 @@ describe("analytics router freshness", () => {
 					widgetKey: "attn_0123456789abcdef0123456789abcdef",
 					metadata: expect.objectContaining({
 						hostOrganizationId: "1",
-						hostUserId: "1743",
+						hostUserId: "6190",
 						sourceGeneratedAt: "2026-08-31T04:00:00.000Z",
 					}),
 				}),
@@ -1675,14 +1675,14 @@ describe("widget lifecycle telemetry", () => {
 			from: "2026-08-01T00:00:00.000Z",
 			to: "2026-09-02T00:00:00.000Z",
 			installationId,
-			hostUserId: "1743",
+			hostUserId: "6190",
 			limit: 50,
 		});
 		expect(mocks.listEmbeddedProviderActivity).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
 				installationId,
-				hostUserId: "1743",
+				hostUserId: "6190",
 				limit: 1000,
 			}),
 		);
@@ -1693,7 +1693,7 @@ describe("widget lifecycle telemetry", () => {
 				id: "event-2",
 				installationId: "33333333-3333-4333-8333-333333333333",
 				externalTenantId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 				hostUserLabel: null,
 				hostRole: null,
 				sessionId: "embed:two",
@@ -1704,7 +1704,7 @@ describe("widget lifecycle telemetry", () => {
 				id: "event-1",
 				installationId: "33333333-3333-4333-8333-333333333333",
 				externalTenantId: "1",
-				hostUserId: "1743",
+				hostUserId: "6190",
 				hostUserLabel: "Owner",
 				hostRole: "owner",
 				sessionId: "embed:one",
@@ -1723,7 +1723,7 @@ describe("widget lifecycle telemetry", () => {
 			tenants: [{ externalTenantId: "1", activeUsers: 1, sessions: 2 }],
 			users: [
 				{
-					hostUserId: "1743",
+					hostUserId: "6190",
 					hostUserLabel: "Owner",
 					hostRole: "owner",
 					sessions: 2,
@@ -1859,7 +1859,7 @@ describe("verified provider lifecycle collection", () => {
 		const input = {
 			installationId,
 			providerAppId: APP_ID,
-			externalTenantId: "367",
+			externalTenantId: "8042",
 			allowedOrigin: "https://host.example",
 			events: [
 				{

@@ -11,9 +11,9 @@ function fixture() {
 	let authorized = true;
 	const calls: Array<{ path: string; body: unknown }> = [];
 	const authority = {
-		sessionKey: "company-367-user-1743-conversation-1",
+		sessionKey: "company-8042-user-6190-conversation-1",
 		subject: "demo-user",
-		tenant: "acme:company-367",
+		tenant: "acme:company-8042",
 		origin: "https://www.acme.example",
 		expiresAt: Date.now() + 60_000,
 	};

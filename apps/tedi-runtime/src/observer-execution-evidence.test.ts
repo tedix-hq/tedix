@@ -103,7 +103,7 @@ console.log("observer execution evidence tests passed");
 
 const embeddedUser = {
 	content:
-		'Tedix embedded user message v1: "From now on, use Spanish."\n\nHost context: SECRET_SCOPE actor=owner tenant=367',
+		'Tedix embedded user message v1: "From now on, use Spanish."\n\nHost context: SECRET_SCOPE actor=owner tenant=8042',
 	ts: 1,
 	sessionKey: "embed:fixture",
 };

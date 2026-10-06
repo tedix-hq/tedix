@@ -38,7 +38,7 @@ async function fixture() {
 		providerOrganizationId: "provider",
 		providerAppId: "app",
 		providerApiKeyId: "key",
-		externalTenantId: "367",
+		externalTenantId: "8042",
 		customerOrganizationId: "customer",
 		primaryWorkspaceId: "workspace",
 		primaryTediId: "tedi",
@@ -55,7 +55,7 @@ async function fixture() {
 const base = {
 	providerOrganizationId: "provider",
 	installationId: "installed",
-	hostUserId: "1743",
+	hostUserId: "6190",
 	now: "2026-09-12T00:00:00Z",
 };
 describe("durable embedded profiles", () => {
@@ -65,7 +65,7 @@ describe("durable embedded profiles", () => {
 			await resolveProviderContactInstallation(db, {
 				providerOrganizationId: "provider",
 				providerApiKeyId: "key",
-				externalTenantId: "367",
+				externalTenantId: "8042",
 			}),
 		).toMatchObject({ status: "paused" });
 		const result = await identifyEmbeddedContact(db, {
@@ -73,7 +73,7 @@ describe("durable embedded profiles", () => {
 			hostRole: "owner",
 			profile: {
 				user: {
-					name: "Daniel",
+					name: "Dana",
 					email: "demo@acme.example",
 					customAttributes: { count: 0, active: false },
 				},
@@ -81,7 +81,7 @@ describe("durable embedded profiles", () => {
 			},
 		});
 		expect(result.user).toMatchObject({
-			name: "Daniel",
+			name: "Dana",
 			email: "demo@acme.example",
 			customAttributes: { count: 0, active: false },
 		});
@@ -131,12 +131,12 @@ describe("durable embedded profiles", () => {
 			{
 				providerOrganizationId: "other",
 				providerApiKeyId: "key",
-				externalTenantId: "367",
+				externalTenantId: "8042",
 			},
 			{
 				providerOrganizationId: "provider",
 				providerApiKeyId: "other",
-				externalTenantId: "367",
+				externalTenantId: "8042",
 			},
 		])
 			expect(
@@ -153,7 +153,7 @@ describe("durable embedded profiles", () => {
 			await getEmbeddedContactCompany(db, "other", "installed"),
 		).toBeUndefined();
 		expect(
-			await getEmbeddedContactUser(db, "other", "installed", "1743"),
+			await getEmbeddedContactUser(db, "other", "installed", "6190"),
 		).toBeUndefined();
 	});
 	it("searches persisted email and IDs with pagination beyond event windows", async () => {
@@ -235,7 +235,7 @@ describe("durable embedded profiles", () => {
 			}),
 		]);
 		expect(
-			(await getEmbeddedContactUser(db, "provider", "installed", "1743"))
+			(await getEmbeddedContactUser(db, "provider", "installed", "6190"))
 				?.customAttributes,
 		).toEqual({ a: 1, b: 2 });
 	});
@@ -255,10 +255,10 @@ describe("durable embedded profiles", () => {
 			profile: { user: { name: "Second business user" } },
 		});
 		expect(
-			(await getEmbeddedContactUser(db, "provider", "installed", "1743"))?.name,
+			(await getEmbeddedContactUser(db, "provider", "installed", "6190"))?.name,
 		).toBe("First business user");
 		expect(
-			(await getEmbeddedContactUser(db, "provider", "second", "1743"))?.name,
+			(await getEmbeddedContactUser(db, "provider", "second", "6190"))?.name,
 		).toBe("Second business user");
 		await Promise.all([
 			identifyEmbeddedContact(db, {
@@ -302,7 +302,7 @@ describe("durable embedded profiles", () => {
 			}),
 		).rejects.toThrow();
 		expect(
-			(await getEmbeddedContactUser(db, "provider", "installed", "1743"))
+			(await getEmbeddedContactUser(db, "provider", "installed", "6190"))
 				?.customAttributes,
 		).toEqual(customAttributes);
 	});

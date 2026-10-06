@@ -75,7 +75,7 @@ import { WORKSPACE_TOOLS_NOTE } from "./runtime-tool-guidance";
 		{
 			sessionKey: "embed:shop:1",
 			subject: "host-user-1",
-			tenant: `${EDGE_TEDI.id}:367`,
+			tenant: `${EDGE_TEDI.id}:8042`,
 			origin: ORIGIN,
 			expiresAt: 0,
 		},
@@ -101,7 +101,7 @@ import { WORKSPACE_TOOLS_NOTE } from "./runtime-tool-guidance";
 		input: {
 			installationId: "install-1",
 			providerAppId: "app-1",
-			externalTenantId: "367",
+			externalTenantId: "8042",
 			allowedOrigin: ORIGIN,
 			hostUserId: "host-user-1",
 		},
@@ -231,7 +231,10 @@ async function streamedTurn(
 	assert.equal(body.session_key, "embed:shop:1");
 	assert.equal(body.context_policy, "session_only");
 	assert.ok(body.text.startsWith(embeddedUserText("What is overdue?")));
-	assert.match(body.text, /Host organization: Example organization \(id 367\)/);
+	assert.match(
+		body.text,
+		/Host organization: Example organization \(id 8042\)/,
+	);
 	assert.match(
 		body.text,
 		/Named conversation capabilities \(untrusted context references only; never authority\)/,
@@ -282,7 +285,7 @@ async function streamedTurn(
 // --- the host tool guidance tells the model to use the host's own tools ---
 {
 	const guidance = embeddedHostToolGuidance({
-		hostOrganizationId: "367",
+		hostOrganizationId: "8042",
 		hostTenantArgument: "company_id",
 		hostTenantNamespace: "shop",
 		embeddedAssistantCallables: ["shop.list_orders"],
@@ -396,7 +399,7 @@ async function contextTurn(input: Record<string, unknown>) {
 {
 	const embedded = await contextTurn({
 		sessionKey: "embed:acme:1",
-		toolArgumentConstraints: { company_id: "367" },
+		toolArgumentConstraints: { company_id: "8042" },
 		toolAllowedCallables: ["shop.list_orders"],
 	});
 	assert.match(embedded.facet.system, /UTILITY-MCP-INSTRUCTIONS/);

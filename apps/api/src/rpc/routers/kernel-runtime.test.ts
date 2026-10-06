@@ -10772,7 +10772,7 @@ describe("childRunPreview structured-result envelope (Tedix OS Phase D)", () => 
 			payload: {
 				name: "exec",
 				result:
-					"Execution error: POST https://api.internal.cf.dev/v1/run timed out after 30000ms",
+					"Execution error: POST https://runtime.example/v1/run timed out after 30000ms",
 			},
 			runId: "child-run-error-only",
 			tediId: "tedi-cto",
@@ -10862,7 +10862,7 @@ describe("summarizeChildRuntimeEvents legibility fixes", () => {
 				payload: {
 					reason: "network_error",
 					message:
-						"Agent unreachable\nPOST https://agents-internal.cf.dev/v1/dispatch\n503 Service Unavailable",
+						"Agent unreachable\nPOST https://agents.example/v1/dispatch\n503 Service Unavailable",
 				},
 				runId: RUN_ID,
 				tediId: TEDI_ID,

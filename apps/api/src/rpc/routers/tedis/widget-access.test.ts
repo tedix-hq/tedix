@@ -46,8 +46,8 @@ const appId = "88888888-8888-4888-8888-888888888888";
 const row = {
 	id,
 	primaryTediId: "44444444-4444-4444-8444-444444444444",
-	customerOrganizationId: "customer-367",
-	externalTenantId: "367",
+	customerOrganizationId: "customer-8042",
+	externalTenantId: "8042",
 	allowedOrigin: "https://staging.acme.example",
 	status: "active",
 	provenance: null,
@@ -106,7 +106,7 @@ beforeEach(() => {
 describe("provider widget access", () => {
 	it("resolves business names only from provider-owned installations", async () => {
 		mocks.list.mockResolvedValue([
-			{ ...row, customerOrganizationId: "customer-367" },
+			{ ...row, customerOrganizationId: "customer-8042" },
 		]);
 		mocks.organization.mockResolvedValue({ name: "Acme" });
 		const client = createRouterClient(router, {
@@ -114,7 +114,7 @@ describe("provider widget access", () => {
 		});
 		const result = await client.listWidgetAccessConfigurations({});
 		expect(mocks.list).toHaveBeenCalledWith({}, "provider-1");
-		expect(mocks.organization).toHaveBeenCalledWith({}, "customer-367");
+		expect(mocks.organization).toHaveBeenCalledWith({}, "customer-8042");
 		expect(result.data[0]?.businessName).toBe("Acme");
 	});
 	it("requires settings authority for people and write scope for API keys", async () => {
@@ -151,7 +151,7 @@ describe("provider widget access", () => {
 		);
 		mocks.get.mockResolvedValue(undefined);
 		await expect(
-			client.previewWidgetAccess({ installationId: id, hostUserId: "1743" }),
+			client.previewWidgetAccess({ installationId: id, hostUserId: "6190" }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 	it("rejects a selection outside the customer roster before provisioning or saving", async () => {
@@ -196,9 +196,9 @@ describe("provider widget access", () => {
 		const input = {
 			installationId: id,
 			providerAppId: appId,
-			externalTenantId: "367",
+			externalTenantId: "8042",
 			allowedOrigin: row.allowedOrigin,
-			hostUserId: "1743",
+			hostUserId: "6190",
 		};
 		await expect(
 			createRouterClient(router, {
@@ -209,7 +209,7 @@ describe("provider widget access", () => {
 			...context("user", []),
 			headers: new Headers({
 				"X-Service-Binding": "true",
-				"X-Tedix-Org-Id": "customer-367",
+				"X-Tedix-Org-Id": "customer-8042",
 				"X-Tedix-Tedi-Id": "demo-worker",
 			}),
 		};
@@ -236,10 +236,10 @@ describe("provider widget access", () => {
 		expect(mocks.resolve).toHaveBeenLastCalledWith(
 			{},
 			expect.objectContaining({
-				customerOrganizationId: "customer-367",
+				customerOrganizationId: "customer-8042",
 				primaryTediId: "demo-worker",
 				installationId: id,
-				externalTenantId: "367",
+				externalTenantId: "8042",
 				allowedOrigin: row.allowedOrigin,
 			}),
 		);

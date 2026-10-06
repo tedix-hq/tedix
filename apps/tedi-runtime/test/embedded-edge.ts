@@ -76,7 +76,7 @@ export async function embeddedToken(claims: Record<string, unknown> = {}) {
 		allowedOrigin: EMBED_ORIGIN,
 		sessionKey: "embed:shop:1",
 		hostUserId: "host-user-1",
-		hostOrganizationId: "367",
+		hostOrganizationId: "8042",
 		hostOrganizationLabel: "Example organization",
 		...claims,
 	});
