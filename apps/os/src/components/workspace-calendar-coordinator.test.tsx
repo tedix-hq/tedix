@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	CalendarPreview,
+	CalendarRemovalReceipt,
 	WorkspaceCalendarCoordinator,
 	coordinatorStatusText,
 	declaredCalendarTools,
@@ -45,6 +46,31 @@ const grant = {
 	toolIds: ["list_events", "create_event"],
 } as Parameters<typeof grantCoversCalendar>[0];
 describe("calendar setup authority and status", () => {
+	it("reports confirmed Outlook releases as free private events without claiming deletion", () => {
+		const html = renderToStaticMarkup(
+			<CalendarRemovalReceipt
+				mutations={[
+					{ state: "confirmed", removalMode: "release" },
+					{ state: "uncertain", removalMode: "release" },
+					{ state: "confirmed", removalMode: "delete" },
+				]}
+			/>,
+		);
+		expect(html).toContain("Released busy time");
+		expect(html).toContain("1 Outlook blocker");
+		expect(html).toContain("private event marked as free");
+		expect(html).not.toContain("removed");
+		expect(
+			renderToStaticMarkup(
+				<CalendarRemovalReceipt
+					mutations={[
+						{ state: "uncertain", removalMode: "release" },
+						{ state: "confirmed", removalMode: "delete" },
+					]}
+				/>,
+			),
+		).toBe("");
+	});
 	it("requires a live grant for the same resource/account/worker/revision/actions/tools", () => {
 		const valid = (value = grant) =>
 			grantCoversCalendar(
