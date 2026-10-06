@@ -69,6 +69,7 @@ import { osWorkspacesContract } from "../contracts/os-workspaces";
 import { osGadgetStateContract } from "../contracts/os-gadget-state";
 import { providerEventsContract } from "../contracts/provider-events";
 import { personalResourceDelegationsContract } from "../contracts/personal-resource-delegations";
+import { calendarCoordinatorContract } from "../contracts/calendar-coordinator";
 import { modelCatalogContract } from "../contracts/model-catalog";
 import { pluginsContract } from "../contracts/plugins";
 import { projectsContract } from "../contracts/projects";
@@ -172,6 +173,7 @@ export const ROUTERS: Record<string, unknown> = {
 	osGadgetState: osGadgetStateContract,
 	providerEvents: providerEventsContract,
 	personalResourceDelegations: personalResourceDelegationsContract,
+	calendarCoordinator: calendarCoordinatorContract,
 	modelCatalog: modelCatalogContract,
 	organizationPurpose: organizationPurposeContract,
 	plugins: pluginsContract,
