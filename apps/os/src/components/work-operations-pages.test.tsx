@@ -28,6 +28,7 @@ import {
 	workItemDetailQueryOptions,
 	osQueryKeys,
 	workResourcePoolsQueryOptions,
+	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	ResourcePressureLinks,
@@ -44,6 +45,7 @@ import {
 	PageControls,
 	SchedulerTruncationWarnings,
 	useCursorPaging,
+	urgentInteractionSummary,
 } from "./work-operations-pages";
 
 type Paging = ReturnType<typeof useCursorPaging<string>>;
@@ -129,6 +131,12 @@ describe("Request scope navigation", () => {
 			nextCursor: null,
 			observedAt: "2026-10-03T15:00:00Z",
 		});
+		client.setQueryData(workUrgentInteractionsQueryOptions().queryKey, {
+			data: [],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: "2026-10-03T15:00:00Z",
+		});
 		const routeRoot = createRootRoute({ component: Outlet });
 		const route = createRoute({
 			getParentRoute: () => routeRoot,
@@ -168,6 +176,133 @@ describe("Request scope navigation", () => {
 			await router.load();
 		});
 		expect(container.textContent).toContain("Nothing assigned to you");
+	});
+});
+
+describe("Needs you now", () => {
+	const emptyPage = {
+		data: [],
+		hasMore: false,
+		nextCursor: null,
+		observedAt: "2026-10-03T15:00:00Z",
+	};
+
+	it("puts plain-language reasons into words and keeps unknown labels readable", () => {
+		expect(
+			urgentInteractionSummary({
+				schema: "tedix.decision-capture.v1",
+				host: "codex",
+				sessionId: "0f3b9c2e-1111-4222-8333-444455556666",
+				repository: "acme-app",
+				triage: {
+					urgentLabels: [
+						"blocker_or_failure",
+						"human_only_action",
+						"risky_action",
+						"new_label",
+					],
+				},
+			}),
+		).toEqual({
+			reasons: ["Blocked", "Needs you to act", "Risky action", "New label"],
+			origin: ["acme-app", "codex", "session 0f3b9c2e"],
+			sessionId: "0f3b9c2e-1111-4222-8333-444455556666",
+		});
+		expect(urgentInteractionSummary({ triage: "bad" })).toEqual({
+			reasons: [],
+			origin: [],
+			sessionId: undefined,
+		});
+	});
+
+	it("shows urgent open requests above the assigned list only in the inbox", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		});
+		client.setQueryData(workInteractionsQueryOptions().queryKey, emptyPage);
+		client.setQueryData(
+			workInteractionsQueryOptions(undefined, "outbox").queryKey,
+			emptyPage,
+		);
+		client.setQueryData(workUrgentInteractionsQueryOptions().queryKey, {
+			...emptyPage,
+			data: [
+				{
+					request: {
+						id: "9b3cbf40-9b22-46c9-8913-c9643bf9a7be",
+						orgId: "22222222-2222-4222-8222-222222222222",
+						workItemId: null,
+						caseId: null,
+						projectId: "33333333-3333-4333-8333-333333333333",
+						creatorSessionId: null,
+						state: "open",
+						requestedAt: "2026-10-03T14:00:00Z",
+						dueAt: null,
+						expiresAt: null,
+						resolvedAt: null,
+						metadata: {
+							schema: "tedix.decision-capture.v1",
+							host: "claude-code",
+							sessionId: "abcdef12-0000-4000-8000-000000000000",
+							repository: "acme-app",
+							triage: {
+								status: "ok",
+								urgency: "now",
+								urgentLabels: ["blocker_or_failure"],
+							},
+						},
+						subject: "acme-app · claude-code waiting: deploy failed",
+						kind: "question",
+						version: 1,
+						creatorType: "user",
+						creatorId: "user-1",
+						requestedFromType: "user",
+						requestedFromId: "user-1",
+						prompt: "The deploy failed.",
+					},
+					effectiveState: "open",
+					canRespond: true,
+					canCancel: false,
+					workItem: null,
+					responseCount: 0,
+				},
+			],
+		});
+		const routeRoot = createRootRoute({ component: Outlet });
+		const route = createRoute({
+			getParentRoute: () => routeRoot,
+			path: "/work/interactions",
+			validateSearch: workInteractionsSearch,
+			component: WorkInteractionsRoute,
+		});
+		const router = createRouter({
+			routeTree: routeRoot.addChildren([route]),
+			history: createMemoryHistory({ initialEntries: ["/work/interactions"] }),
+		});
+		await router.load();
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<QueryClientProvider client={client}>
+					<RouterProvider router={router} />
+				</QueryClientProvider>,
+			),
+		);
+		const text = container.textContent ?? "";
+		expect(text).toContain("Needs you now");
+		expect(text).toContain("Blocked");
+		expect(text).toContain("acme-app · claude-code · session abcdef12");
+		expect(text.indexOf("Needs you now")).toBeLessThan(
+			text.indexOf("Nothing assigned to you"),
+		);
+		await act(async () => {
+			await router.navigate({
+				to: "/work/interactions",
+				search: { view: "outbox", state: "all" },
+			});
+		});
+		expect(container.textContent).not.toContain("Needs you now");
 	});
 });
 

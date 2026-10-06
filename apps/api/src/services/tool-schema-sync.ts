@@ -698,6 +698,29 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 };
 
 /**
+ * Agent-turn urgency triage. The router key is camelCase (`agentTurnTriage`),
+ * so the bare-verb generator would emit `triage_agentTurnTriage`; these pin the
+ * verb-first snake_case ids. Triage and reply labelling are stateless model
+ * reads, so they project as `read`.
+ */
+export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"agentTurnTriage/triage": "triage_agent_turn",
+	"agentTurnTriage/labelReply": "label_agent_reply",
+	"agentTurnTriage/getPolicy": "get_agent_turn_triage_policy",
+	"agentTurnTriage/updatePolicy": "update_agent_turn_triage_policy",
+};
+
+export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
+	string,
+	"read" | "write" | "destructive"
+> = {
+	"agentTurnTriage/triage": "read",
+	"agentTurnTriage/labelReply": "read",
+	"agentTurnTriage/getPolicy": "read",
+	"agentTurnTriage/updatePolicy": "write",
+};
+
+/**
  * Stable verb-first tool ids for the role-template surface (reusable role
  * primitive). The router key is camelCase (`roleTemplates`), so the bare-verb
  * generator would emit `create_roleTemplates` — these overrides pin the
@@ -1617,6 +1640,7 @@ export function resolveEffectiveToolSchemaSyncOptions(
 					...GRAPH_GOVERNANCE_TOOL_ID_OVERRIDES,
 					...WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 					...ROLE_TEMPLATE_TOOL_ID_OVERRIDES,
+					...AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES,
 					...ORGANIZATION_PURPOSE_TOOL_ID_OVERRIDES,
 					...EARNED_DELEGATION_TOOL_ID_OVERRIDES,
 					...EXTERNAL_AGENT_TOOL_ID_OVERRIDES,
@@ -1634,6 +1658,7 @@ export function resolveEffectiveToolSchemaSyncOptions(
 					...GRAPH_GOVERNANCE_KIND_OVERRIDES,
 					...WORK_HIERARCHY_KIND_OVERRIDES,
 					...ROLE_TEMPLATE_KIND_OVERRIDES,
+					...AGENT_TURN_TRIAGE_KIND_OVERRIDES,
 					...ORGANIZATION_PURPOSE_KIND_OVERRIDES,
 					...EARNED_DELEGATION_KIND_OVERRIDES,
 					...EXTERNAL_AGENT_KIND_OVERRIDES,

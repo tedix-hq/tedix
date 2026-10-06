@@ -16,10 +16,14 @@ export const ORGANIZATION_PROBE =
 
 export type JsonObject = Record<string, any>;
 
-/** One `tedix <args>` read that must return a JSON object; throws otherwise. */
+/**
+ * One `tedix <args>` read that must return a JSON object; throws otherwise.
+ * `input` goes to the child's stdin, so text never appears in its arguments.
+ */
 export type ReadJson = (
 	args: string[],
 	timeoutMs: number,
+	input?: string,
 ) => Promise<JsonObject>;
 
 export interface HookDeps {
@@ -69,6 +73,27 @@ export function hostEvent(
 	};
 }
 
+/** Largest host event decision capture accepts. */
+export const CAPTURE_EVENT_LIMIT = 4_194_304;
+
+/**
+ * True when `tedix hooks capture-stop` owns this chat's Stop status. Both Stop
+ * hooks start together, so neither waits on a marker from the other: each
+ * evaluates this same local opt-in (decision capture enabled for the bound
+ * chat), and capture-stop claims Stop on exactly the condition below.
+ */
+export function captureOwnsStop(raw: string, env: NodeJS.ProcessEnv): boolean {
+	try {
+		const { session } = hostEvent(raw, env, CAPTURE_EVENT_LIMIT, {
+			requireIdentity: true,
+		});
+		const binding = resolveAgentContext({ sessionId: session! });
+		return binding.status === "bound" && binding.decisionCapture === true;
+	} catch {
+		return false;
+	}
+}
+
 /** ISO-8601 UTC with second precision and an explicit offset. */
 export function isoSeconds(date: Date, zulu = false): string {
 	return date.toISOString().replace(/\.\d{3}Z$/, zulu ? "Z" : "+00:00");
@@ -108,17 +133,25 @@ export function selfCommand(): [string, string[]] {
 	];
 }
 
-function spawnJson(args: string[], timeoutMs: number): Promise<JsonObject> {
+function spawnJson(
+	args: string[],
+	timeoutMs: number,
+	input?: string,
+): Promise<JsonObject> {
 	const [command, prefix] = selfCommand();
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, [...prefix, ...args], {
 			env: { ...process.env },
-			stdio: ["ignore", "pipe", "ignore"],
+			stdio: [input === undefined ? "ignore" : "pipe", "pipe", "ignore"],
 			timeout: timeoutMs,
 		});
+		if (input !== undefined) {
+			child.stdin?.on("error", () => {});
+			child.stdin?.end(input);
+		}
 		let stdout = "";
-		child.stdout.setEncoding("utf8");
-		child.stdout.on("data", (data: string) => {
+		child.stdout!.setEncoding("utf8");
+		child.stdout!.on("data", (data: string) => {
 			stdout += data;
 		});
 		child.on("error", reject);
@@ -145,7 +178,7 @@ function plain(value: unknown): JsonObject {
  * result as its `--json` command; every other read runs this CLI as a child so
  * it keeps its complete auth, profile and organization routing.
  */
-export const cliRead: ReadJson = async (args, timeoutMs) => {
+export const cliRead: ReadJson = async (args, timeoutMs, input) => {
 	if (
 		args.slice(0, 5).join(" ") === "setup agents context show --json" &&
 		(args.length === 5 || (args.length === 7 && args[5] === "--session"))
@@ -153,5 +186,5 @@ export const cliRead: ReadJson = async (args, timeoutMs) => {
 		return plain(
 			resolveAgentContext(args[6] ? { sessionId: args[6] } : undefined),
 		);
-	return spawnJson(args, timeoutMs);
+	return spawnJson(args, timeoutMs, input);
 };

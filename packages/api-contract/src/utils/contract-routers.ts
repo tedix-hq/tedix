@@ -10,6 +10,7 @@
 import { getOpenAPIMeta } from "@orpc/openapi";
 import { adapterBindingsContract } from "../contracts/adapter-bindings";
 import { aeoContract } from "../contracts/aeo";
+import { agentTurnTriageContract } from "../contracts/agent-turn-triage";
 import { analyticsContract } from "../contracts/analytics";
 import { appAdaptersContract } from "../contracts/app-adapters";
 import { appGatingContract } from "../contracts/app-gating";
@@ -177,6 +178,7 @@ export const ROUTERS: Record<string, unknown> = {
 	secrets: organizationSecretsContract,
 	seo: seoContract,
 	aeo: aeoContract,
+	agentTurnTriage: agentTurnTriageContract,
 	skills: skillsContract,
 	tediAppAssignments: tediAppAssignmentsContract,
 	tediApprovals: tediApprovalsContract,

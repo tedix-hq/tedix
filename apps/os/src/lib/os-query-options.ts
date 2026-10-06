@@ -583,6 +583,18 @@ export const workInteractionsQueryOptions = (
 	return osQuery.workInteractions.listInbox.queryOptions({ input });
 };
 
+export const WORK_URGENT_INTERACTIONS_LIMIT = 20;
+
+/** Open requests addressed to the caller that triage marked as needing them now. */
+export const workUrgentInteractionsQueryOptions = () =>
+	osQuery.workInteractions.listInbox.queryOptions({
+		input: {
+			limit: WORK_URGENT_INTERACTIONS_LIMIT,
+			states: ["open"],
+			urgency: "now",
+		},
+	});
+
 export const workInteractionDetailQueryOptions = (
 	requestId: string,
 	responseCursor?: { at: string; id: string },

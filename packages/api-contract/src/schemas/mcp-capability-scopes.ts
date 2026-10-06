@@ -192,6 +192,11 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	apply_workshop: "mcp:skills",
 	quarantine_workshop: "mcp:skills",
 	run_tedi_turn: "mcp:messaging",
+	// Agent-turn urgency triage reads and configures operator messaging.
+	triage_agent_turn: "mcp:messaging",
+	label_agent_reply: "mcp:messaging",
+	get_agent_turn_triage_policy: "mcp:messaging",
+	update_agent_turn_triage_policy: "mcp:messaging",
 	// A budget rejection may ask a human to change policy; the request itself
 	// never authorizes spend. The separate budget-policy mutation stays admin.
 	request_budget_override: "mcp:messaging",
@@ -545,6 +550,10 @@ const READ_TOOL_NAME_RE =
 const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	request_budget_override: "write",
 	set_budget_policy: "admin",
+	// "triage"/"label" match neither verb regex; both are stateless model
+	// reads that store nothing, so they sit at messaging.read.
+	triage_agent_turn: "read",
+	label_agent_reply: "read",
 	// Emdash marks editorial writes destructive to request action confirmation.
 	// That hint does not make drafting or publishing content administration;
 	// publication still passes the owned-channel authorization gate.

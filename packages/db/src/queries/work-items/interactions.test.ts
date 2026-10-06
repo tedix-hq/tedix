@@ -138,6 +138,68 @@ describe("Work interaction inbox", () => {
 		]);
 	});
 
+	it("partitions the inbox by triage urgency, treating untriaged rows as later", async () => {
+		const { sqlite, db } = fixture();
+		const setMetadata = sqlite.prepare(
+			"UPDATE work_interactions SET metadata=? WHERE id=?",
+		);
+		setMetadata.run(
+			JSON.stringify({
+				schema: "tedix.decision-capture.v1",
+				triage: {
+					status: "ok",
+					urgency: "now",
+					urgentLabels: ["blocker_or_failure"],
+				},
+			}),
+			"mine",
+		);
+		setMetadata.run(
+			JSON.stringify({ triage: { status: "ok", urgency: "later" } }),
+			"other-target",
+		);
+		setMetadata.run(
+			JSON.stringify({ triage: { status: "unavailable" } }),
+			"other-type",
+		);
+		const ids = async (
+			urgency: "now" | "later" | undefined,
+			cursor?: { at: string; id: string },
+		) =>
+			(
+				await listWorkInteractionInbox(db, {
+					orgId: "org",
+					urgency,
+					cursor,
+					observedAt: NOW,
+				})
+			).data.map((row) => row.request.id);
+
+		expect(await ids("now")).toEqual(["mine"]);
+		expect(await ids("later")).toEqual([
+			"other-target",
+			"other-type",
+			"untargeted",
+		]);
+		expect(await ids(undefined)).toHaveLength(4);
+		expect(
+			await ids("later", {
+				at: "2026-08-21T11:03:00.000Z",
+				id: "other-target",
+			}),
+		).toEqual(["other-type", "untargeted"]);
+		const page = await listWorkInteractionInbox(db, {
+			orgId: "org",
+			urgency: "later",
+			limit: 1,
+			observedAt: NOW,
+		});
+		expect(page.nextCursor).toEqual({
+			at: "2026-08-21T11:03:00.000Z",
+			id: "other-target",
+		});
+	});
+
 	it("rejects creating or responding to an untargeted interaction", async () => {
 		const { sqlite, db } = fixture();
 		await expect(

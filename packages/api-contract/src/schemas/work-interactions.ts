@@ -30,6 +30,8 @@ export const WorkInteractionTargetTypeSchema = z.enum([
 	"external_agent",
 ]);
 
+export const WorkInteractionUrgencySchema = z.enum(["now", "later"]);
+
 export const WorkInteractionCursorSchema = WorkFactoryProjectionCursorSchema;
 
 export const DelegateWorkInteractionInputSchema = z.strictObject({
@@ -329,6 +331,9 @@ export const ListWorkInteractionInboxInputSchema = z.strictObject({
 		.uuid()
 		.optional()
 		.describe("Optional project filter for a scoped interaction inbox."),
+	urgency: WorkInteractionUrgencySchema.optional().describe(
+		'Optional triage filter: "now" lists interactions triaged as needing a human now; "later" lists every other interaction, including untriaged ones. Omission includes both.',
+	),
 	cursor: WorkInteractionCursorSchema.optional().describe(
 		"Opaque inbox continuation cursor; omit to read the newest page.",
 	),

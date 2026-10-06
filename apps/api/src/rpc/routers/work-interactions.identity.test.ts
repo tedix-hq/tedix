@@ -248,6 +248,34 @@ describe("Work interaction canonical actor projections", () => {
 		});
 	});
 
+	it("filters the target inbox by triage urgency without hiding untriaged requests", async () => {
+		const { owner, target } = fixture();
+		const urgent = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Blocked on credentials",
+			prompt: "The deploy failed; rotate the token.",
+			requestedFrom: { type: "user", id: "target-id" },
+			metadata: {
+				schema: "tedix.decision-capture.v1",
+				triage: {
+					status: "ok",
+					urgency: "now",
+					urgentLabels: ["blocker_or_failure"],
+				},
+			},
+		});
+		const untriaged = await createTargetedInteraction(owner);
+		const ids = async (urgency?: "now" | "later") =>
+			(
+				await target.listInbox({ limit: 50, ...(urgency ? { urgency } : {}) })
+			).data.map((row) => row.request.id);
+
+		expect(await ids("now")).toEqual([urgent.id]);
+		expect(await ids("later")).toEqual([untriaged.id]);
+		expect(new Set(await ids())).toEqual(new Set([urgent.id, untriaged.id]));
+	});
+
 	it("returns null joined Work for project and case requests in every list", async () => {
 		const { sqlite, owner, target } = fixture();
 		const workRequest = await createTargetedInteraction(owner);

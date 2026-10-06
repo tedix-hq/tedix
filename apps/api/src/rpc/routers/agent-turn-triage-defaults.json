@@ -1,0 +1,43 @@
+{
+	"assetVersion": 1,
+	"policy": {
+		"enabled": true,
+		"model": "@cf/cloudflare/clef-flash",
+		"version": 1,
+		"questions": [
+			{
+				"id": "blocker_or_failure",
+				"instructions": "Does the agent report a blocker, a failing test or check, an error it could not resolve, or a state it could not verify?",
+				"urgentWhen": { "gte": 0.5 }
+			},
+			{
+				"id": "human_only_action",
+				"instructions": "Does the agent need the human to do something only a human can do (log in, give consent, complete MFA, provide credentials or secrets, pay, or click in a UI)?",
+				"urgentWhen": { "gte": 0.5 }
+			},
+			{
+				"id": "risky_action",
+				"instructions": "Does the agent propose a destructive or outward-facing action that is not yet done (deleting data, force-pushing, deploying, publishing, releasing, or sending messages to other people)?",
+				"urgentWhen": { "gte": 0.5 }
+			}
+		]
+	},
+	"replyLabel": {
+		"instructions": "Classify the operator's reply to an AI coding agent by its primary intent. Use the agent's last message only as context.",
+		"criteria": {
+			"continue": "just tells the agent to keep going",
+			"approve": "says yes, confirms, or accepts the proposal",
+			"ship": "tells the agent to commit, push, ship, or deploy",
+			"fan-out": "asks to parallelize, use subagents, or delegate",
+			"simplify": "demands something simpler, less, or with complexity removed",
+			"verify": "demands proof, live testing, or verification",
+			"challenge": "questions or doubts what the agent did or claimed, asks why",
+			"correction": "states the agent is wrong and gives the correct fact",
+			"plain-english": "asks for a plain-language explanation or summary",
+			"status": "asks for status, what is left, or next priorities",
+			"frustration": "expresses frustration or annoyance",
+			"question": "asks a question to understand something",
+			"instruction": "gives some other concrete instruction or new task"
+		}
+	}
+}

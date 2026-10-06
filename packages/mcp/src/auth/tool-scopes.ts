@@ -104,6 +104,11 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/listInbox": "mcp:messaging.read",
 	"workInteractions/listOutbox": "mcp:messaging.read",
 	"workInteractions/listAudit": "mcp:messaging.read",
+	// Agent-turn triage keeps the API's messaging authority through aliases.
+	"agentTurnTriage/triage": "mcp:messaging.read",
+	"agentTurnTriage/labelReply": "mcp:messaging.read",
+	"agentTurnTriage/getPolicy": "mcp:messaging.read",
+	"agentTurnTriage/updatePolicy": "mcp:messaging.write",
 	// The local agent session board is the caller's own Work status. Keep the
 	// Work authority when an organization alias hides the `work` namespace.
 	"workAgentSessions/report": "mcp:work.write",

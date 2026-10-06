@@ -23,6 +23,7 @@ import {
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
 import {
+	captureOwnsStop,
 	isObject,
 	isoSeconds,
 	type JsonObject,
@@ -71,9 +72,25 @@ export interface StatusDeps {
 	spawn?: (args: string[], options: typeof DETACHED) => void;
 	label?: (cwd: unknown) => string;
 	now?: () => Date;
+	/**
+	 * True when `tedix hooks capture-stop` owns this chat's Stop status, so this
+	 * hook leaves it alone. Defaults to the local decision-capture opt-in check.
+	 */
+	captureOwnsStop?: (stdin: string, env: NodeJS.ProcessEnv) => boolean;
 }
 
 type Outcome = [state: string, summary: string];
+
+/** Server urgency triage of one agent turn (`work.triage_agent_turn`). */
+export interface TriageResult {
+	status: "ok" | "unavailable";
+	urgency: "now" | "later";
+	labels: Record<string, number>;
+	urgentLabels: string[];
+	model: string;
+	policyVersion: number;
+	latencyMs: number;
+}
 
 function baseDir(env: NodeJS.ProcessEnv): string {
 	return env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix");
@@ -180,6 +197,13 @@ function firstMeaningfulLine(message: string): string {
 	return "";
 }
 
+function doneSummary(message: string, last: string): string {
+	return oneLine(
+		firstMeaningfulLine(message) || last || "Turn complete",
+		SUMMARY_LIMIT,
+	);
+}
+
 export function classifyStop(message: unknown): Outcome {
 	if (typeof message !== "string" || !message.trim())
 		return ["done", "Turn complete"];
@@ -187,10 +211,45 @@ export function classifyStop(message: unknown): Outcome {
 	const last = blocks.at(-1) ?? "";
 	if (last && (last.trimEnd().endsWith("?") || QUESTION.test(last)))
 		return ["needs_you", oneLine(last, SUMMARY_LIMIT)];
+	return ["done", doneSummary(message, last)];
+}
+
+/** Notification prefixes for urgent triage labels, most specific first. */
+const URGENT: Array<[RegExp, string]> = [
+	[/block|fail|error|stuck|broken/i, "Blocker"],
+	[
+		/login|consent|auth|mfa|credential|approv|permission|secret|access/i,
+		"Needs you (login/consent)",
+	],
+	[
+		/risk|deploy|delete|destruct|irreversib|prod|release|spend|payment/i,
+		"Risky (deploy/delete)",
+	],
+];
+
+/**
+ * Map a Stop to [state, summary] from server triage. Without an `ok` triage the
+ * regex classifier decides, so an unavailable triage never changes behavior.
+ */
+export function triagedOutcome(
+	message: unknown,
+	triage: TriageResult | undefined,
+): Outcome {
+	if (triage?.status !== "ok" || typeof message !== "string" || !message.trim())
+		return classifyStop(message);
+	const blocks = paragraphs(message);
+	const last = blocks.at(-1) ?? "";
+	if (triage.urgency !== "now") return ["done", doneSummary(message, last)];
+	const line = firstMeaningfulLine(message) || last || "Agent turn ended";
+	const prefix =
+		URGENT.find(([pattern]) =>
+			triage.urgentLabels.some((label) => pattern.test(label)),
+		)?.[1] ?? "Needs you";
+	const [state, summary] = classifyStop(message);
 	return [
-		"done",
+		"needs_you",
 		oneLine(
-			firstMeaningfulLine(message) || last || "Turn complete",
+			`${prefix}: ${prefix === "Needs you" && state === "needs_you" ? summary : line}`,
 			SUMMARY_LIMIT,
 		),
 	];
@@ -355,7 +414,7 @@ function consume(path: string): boolean {
 }
 
 /** A JSON literal that is pure ASCII, safe inside generated source. */
-function asciiJson(value: unknown): string {
+export function asciiJson(value: unknown): string {
 	return JSON.stringify(value).replace(
 		/[\u007f-￿]/g,
 		(character) =>
@@ -387,6 +446,7 @@ function detachedSpawner(env: NodeJS.ProcessEnv) {
 		const output = openSync(join(statusDir(env), "report.log"), "a");
 		try {
 			spawn(command, [...prefix, ...args.slice(1)], {
+				env: { ...env },
 				detached: options.detached,
 				stdio: [options.stdin, output, output],
 			}).unref();
@@ -394,6 +454,17 @@ function detachedSpawner(env: NodeJS.ProcessEnv) {
 			closeSync(output);
 		}
 	};
+}
+
+function supervisorMarker(
+	directory: string,
+	harness: string,
+	sessionKey: string,
+): string {
+	return join(
+		directory,
+		`${harness}-${sessionKey}${SUPERVISOR_CONTINUED_SUFFIX}`,
+	);
 }
 
 export async function runAgentStatus(deps: StatusDeps): Promise<void> {
@@ -406,10 +477,15 @@ export async function runAgentStatus(deps: StatusDeps): Promise<void> {
 	if (!isObject(event)) return;
 	const sessionKey = event.session_id;
 	if (typeof sessionKey !== "string" || !SESSION_KEY.test(sessionKey)) return;
+	// With decision capture on, capture-stop triages and owns Stop: one notification per Stop.
+	if (
+		event.hook_event_name === "Stop" &&
+		(deps.captureOwnsStop ?? captureOwnsStop)(raw, env)
+	)
+		return;
 	const harness = harnessOf(event, env);
 	const directory = statusDir(env);
-	const path = join(directory, `${harness}-${sessionKey}.json`);
-	const previous = readState(path);
+	const previous = readState(join(directory, `${harness}-${sessionKey}.json`));
 	if (
 		event.hook_event_name === "PostToolUse" &&
 		previous?.state !== "needs_you"
@@ -417,12 +493,49 @@ export async function runAgentStatus(deps: StatusDeps): Promise<void> {
 		return;
 	const supervisorContinued =
 		event.hook_event_name === "Stop" &&
-		consume(
-			join(directory, `${harness}-${sessionKey}${SUPERVISOR_CONTINUED_SUFFIX}`),
-		);
+		consume(supervisorMarker(directory, harness, sessionKey));
 	const outcome = transition(event, { supervisorContinued });
 	if (!outcome) return;
-	const [state, summary] = outcome;
+	recordStatus(deps, configured, event, harness, sessionKey, outcome);
+}
+
+/**
+ * The Stop status for a chat whose decision capture owns Stop: the same local
+ * state, notification and report as `runAgentStatus`, classified from server
+ * triage when it is available and from the regex classifier otherwise.
+ */
+export async function applyTriagedStop(
+	deps: StatusDeps,
+	event: JsonObject,
+	triage: TriageResult | undefined,
+): Promise<void> {
+	const configured = statusSettings(deps.env);
+	if (!configured) return;
+	const sessionKey = event.session_id;
+	if (typeof sessionKey !== "string" || !SESSION_KEY.test(sessionKey)) return;
+	const harness = harnessOf(event, deps.env);
+	const supervisorContinued = consume(
+		supervisorMarker(statusDir(deps.env), harness, sessionKey),
+	);
+	if (event.stop_hook_active) return;
+	const outcome: Outcome = supervisorContinued
+		? ["working", "Continued by supervisor"]
+		: triagedOutcome(event.last_assistant_message, triage);
+	recordStatus(deps, configured, event, harness, sessionKey, outcome);
+}
+
+function recordStatus(
+	deps: StatusDeps,
+	configured: NonNullable<ReturnType<typeof statusSettings>>,
+	event: JsonObject,
+	harness: string,
+	sessionKey: string,
+	[state, summary]: Outcome,
+): void {
+	const { env } = deps;
+	const directory = statusDir(env);
+	const path = join(directory, `${harness}-${sessionKey}.json`);
+	const previous = readState(path);
 	const previousState = previous?.state;
 	const changed =
 		!previous ||

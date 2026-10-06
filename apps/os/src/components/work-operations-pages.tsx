@@ -89,6 +89,7 @@ import {
 	osQueryKeys,
 	workResourcePoolsQueryOptions,
 	workSchedulerQueryOptions,
+	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
@@ -1417,6 +1418,106 @@ export function workInteractionsSearch(search: Record<string, unknown>): {
 	};
 }
 
+const URGENT_LABEL_TEXT: Record<string, string> = {
+	blocker_or_failure: "Blocked",
+	human_only_action: "Needs you to act",
+	risky_action: "Risky action",
+};
+
+const urgentInteractionMetadataSchema = z.object({
+	host: z.string().optional(),
+	sessionId: z.string().optional(),
+	repository: z.string().optional(),
+	triage: z.object({ urgentLabels: z.array(z.string()).optional() }).optional(),
+});
+
+/** Plain-language reasons and origin for one triaged agent-turn request. */
+export function urgentInteractionSummary(metadata: unknown) {
+	const parsed = urgentInteractionMetadataSchema.safeParse(metadata);
+	const value = parsed.success ? parsed.data : {};
+	return {
+		reasons: [...new Set(value.triage?.urgentLabels ?? [])].map(
+			(label) => URGENT_LABEL_TEXT[label] ?? sentenceCase(label),
+		),
+		origin: [
+			value.repository,
+			value.host,
+			value.sessionId ? `session ${value.sessionId.slice(0, 8)}` : undefined,
+		].filter((part): part is string => Boolean(part)),
+		sessionId: value.sessionId,
+	};
+}
+
+function NeedsYouNowSection() {
+	const query = useQuery(workUrgentInteractionsQueryOptions());
+	const rows = query.data?.data ?? [];
+	if (rows.length === 0) return null;
+	return (
+		<PageSection aria-labelledby="interaction-urgent-title">
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="interaction-urgent-title">
+						Needs you now
+					</SectionTitle>
+					<SectionDescription>
+						Open requests where an agent is blocked, needs you to act, or is
+						about to take a risky action.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
+			<Table scrollLabel="Requests that need you now">
+				<TableHeader>
+					<TableRow>
+						<TableHead>Request</TableHead>
+						<TableHead>Why</TableHead>
+						<TableHead>From</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{rows.map(({ request, workItem }) => {
+						const summary = urgentInteractionSummary(request.metadata);
+						return (
+							<TableRow key={request.id}>
+								<TableCell className="whitespace-normal">
+									<Link
+										variant="record"
+										href={`/work/interactions/${request.id}`}
+									>
+										{request.subject}
+									</Link>
+									{workItem ? (
+										<Text as="p" role="label" tone="secondary">
+											{workItem.title}
+										</Text>
+									) : null}
+								</TableCell>
+								<TableCell className="whitespace-normal">
+									<span className="flex flex-wrap gap-1">
+										{summary.reasons.length > 0 ? (
+											summary.reasons.map((reason) => (
+												<Badge key={reason} variant="error">
+													{reason}
+												</Badge>
+											))
+										) : (
+											<Badge variant="warning">Needs you</Badge>
+										)}
+									</span>
+								</TableCell>
+								<TableCell className="whitespace-normal">
+									<span title={summary.sessionId}>
+										{summary.origin.join(" · ") || "Origin not recorded"}
+									</span>
+								</TableCell>
+							</TableRow>
+						);
+					})}
+				</TableBody>
+			</Table>
+		</PageSection>
+	);
+}
+
 export function WorkInteractionsRoute() {
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
@@ -1655,6 +1756,7 @@ export function WorkInteractionsPage() {
 					</Surface>
 				</PageSection>
 			) : null}
+			{listView === "inbox" ? <NeedsYouNowSection /> : null}
 			<PageSection aria-labelledby="interaction-queue-title">
 				<SectionHeader>
 					<SectionHeading>
