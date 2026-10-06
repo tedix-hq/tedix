@@ -326,6 +326,38 @@ describe("admitted personal source boundaries", () => {
 			authorizePersonalResourceDelegation(context(true), use),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
+	it("requires the admitted worker source to cover the stored derived operations and tools", async () => {
+		consent.operations = ["read", "write"];
+		consent.toolIds = ["list_events", "write_events"];
+		const stored = {
+			...personalDelegationSource(consent as never),
+			operations: ["read"],
+			toolIds: ["list_events"],
+		};
+		run.resourceAccessEnvelope = {
+			version: 1,
+			sources: [{ ...stored, operations: ["write"] }],
+		};
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			false,
+		);
+		run.resourceAccessEnvelope = {
+			version: 1,
+			sources: [{ ...stored, toolIds: ["write_events"] }],
+		};
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			false,
+		);
+		run.resourceAccessEnvelope = { version: 1, sources: [stored] };
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			true,
+		);
+		consent.revokedAt = "2026-10-01";
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			false,
+		);
+	});
+
 	it("does not expose personal derived bytes to another workspace reader", async () => {
 		const reader = context();
 		reader.user = { sub: "bob" } as never;

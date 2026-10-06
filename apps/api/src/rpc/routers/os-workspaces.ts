@@ -1,3 +1,4 @@
+import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { getPersonalResourceDelegation } from "@tedix/db/queries/personal-resource-delegations";
 import {
 	personalDelegationSource,
@@ -1148,6 +1149,39 @@ const blueprintsPublish = publishOs.blueprints.publish.handler(
  * the CALLER's organization. Every instantiation path goes through this, so a
  * gallery import is resolved in the importing tenant — never the publisher's.
  */
+async function verifiedBlueprintResourceBindings(
+	context: BaseContext,
+	definition: OsBlueprintDefinition,
+	bindings: OsBlueprintResourceBinding[],
+) {
+	return Promise.all(
+		bindings.map(async (binding) => {
+			const verified =
+				await workspaceResources.verifyWorkspaceResourceSelection(
+					context,
+					binding.selection,
+				);
+			const requirement = definition.requirements?.resources?.find(
+				(requirement) => requirement.slot === binding.slot,
+			);
+			const provenScopes = verified.requiredScopes;
+			// Preflight's existing literal requirement check receives only provider-proven implications.
+			const implied =
+				requirement &&
+				personalResourceScopesCover(provenScopes, requirement.scopes)
+					? requirement.scopes
+					: [];
+			return {
+				...binding,
+				selection: {
+					...binding.selection,
+					requiredScopes: [...new Set([...provenScopes, ...implied])],
+				},
+			};
+		}),
+	);
+}
+
 async function resolveBlueprintPreflight(
 	context: BaseContext,
 	organizationId: string,
@@ -1168,7 +1202,11 @@ async function resolveBlueprintPreflight(
 		tediId: tediId ?? null,
 		ownerUserId:
 			context.authType === "user" ? (context.user?.sub ?? null) : null,
-		resourceBindings,
+		resourceBindings: await verifiedBlueprintResourceBindings(
+			context,
+			definition,
+			resourceBindings,
+		),
 	});
 }
 
@@ -1232,22 +1270,32 @@ async function materializeBlueprintWorkspace(
 	};
 	const gadgetRows = [];
 	const revisionRows = [];
-	const resourceRows = resourceBindings.map((binding) => ({
-		...accountability,
-		id: crypto.randomUUID(),
-		workspaceId,
-		slot: binding.slot,
-		providerId: binding.selection.providerId,
-		connectionScope: binding.selection.connectionScope,
-		requiredScopes: JSON.stringify(binding.selection.requiredScopes),
-		resourceType: binding.selection.resourceType,
-		providerResourceId: binding.selection.providerResourceId,
-		name: binding.selection.name,
-		metadata: JSON.stringify(binding.selection.metadata),
-		status: "active" as const,
-		updatedAt: now,
-		removedAt: null,
-	}));
+	const resourceRows = await Promise.all(
+		resourceBindings.map(async (binding) => {
+			const verified =
+				await workspaceResources.verifyWorkspaceResourceSelection(
+					context,
+					binding.selection,
+				);
+			return {
+				...accountability,
+				id: crypto.randomUUID(),
+				workspaceId,
+				slot: binding.slot,
+				providerId: binding.selection.providerId,
+				connectionScope: binding.selection.connectionScope,
+				...verified,
+				requiredScopes: JSON.stringify(verified.requiredScopes),
+				resourceType: binding.selection.resourceType,
+				providerResourceId: binding.selection.providerResourceId,
+				name: binding.selection.name,
+				metadata: JSON.stringify(binding.selection.metadata),
+				status: "active" as const,
+				updatedAt: now,
+				removedAt: null,
+			};
+		}),
+	);
 	for (const declared of definition.gadgets) {
 		const gadgetId = crypto.randomUUID();
 		const gadgetRevisionId = crypto.randomUUID();
@@ -1564,7 +1612,11 @@ const blueprintsInstantiateFromGallery =
 					tediId: input.tediId ?? null,
 					ownerUserId:
 						context.authType === "user" ? (context.user?.sub ?? null) : null,
-					resourceBindings: input.resourceBindings,
+					resourceBindings: await verifiedBlueprintResourceBindings(
+						context,
+						definition,
+						input.resourceBindings,
+					),
 				});
 				requireInstantiablePreflight(preflight);
 				try {

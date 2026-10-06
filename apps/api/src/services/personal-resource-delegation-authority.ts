@@ -544,7 +544,16 @@ export async function authorizePersonalDerivedSource(
 		);
 		return (
 			envelope.success &&
-			envelope.data.sources.some((bound) => samePersonalSource(bound, row))
+			envelope.data.sources.some(
+				(bound) =>
+					samePersonalSource(bound, row) &&
+					source.operations.every((operation) =>
+						bound.operations.includes(operation),
+					) &&
+					(source.toolIds ?? []).every((toolId) =>
+						bound.toolIds?.includes(toolId),
+					),
+			)
 		);
 	} catch {
 		return false;
