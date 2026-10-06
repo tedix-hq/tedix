@@ -163,6 +163,19 @@ describe("calendar apply journal and provider fences", () => {
 		);
 		expect(recreated.actions[0]!.kind).toBe("create");
 		expect(recreated.actions[0]!.ownership).not.toBe(original.ownership);
+		held.busy = true;
+		held.privateBlocker = true;
+		const externallyReactivated = await buildPlan(
+			f.config,
+			f.snapshots,
+			[released],
+			"seed",
+		);
+		expect(
+			externallyReactivated.conflicts.some((c) =>
+				c.includes("unverified blocker"),
+			),
+		).toBe(true);
 	});
 	it("writes durable intent, independently reads back, and retains confirmed work on retry", async () => {
 		const f = fixture();
