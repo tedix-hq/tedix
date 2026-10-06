@@ -145,6 +145,14 @@ assert.throws(
 		}),
 	/Unsettled legacy tool/,
 );
+assert.deepEqual(
+	legacySessionMessages({
+		id: "empty",
+		role: "assistant",
+		parts: [{ type: "step-start" }],
+	}),
+	[],
+);
 const usage = {
 	input: 0,
 	output: 0,

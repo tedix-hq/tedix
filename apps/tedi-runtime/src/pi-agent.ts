@@ -1511,7 +1511,9 @@ export function legacySessionMessages(
 			});
 		} else throw new Error(`Unsupported legacy assistant part: ${part.type}`);
 	}
-	if (!content.length) throw new Error("Legacy assistant has no model content");
+	// An empty legacy turn (e.g. only step markers from a failed reply) carries
+	// nothing for the model; failing here would lock the conversation forever.
+	if (!content.length) return [];
 	return [
 		{
 			role: "assistant",
