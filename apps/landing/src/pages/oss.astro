@@ -5,56 +5,73 @@ export const prerender = true;
 ---
 
 <BaseLayout
-	title="Tedix — Open source for AI workers"
-	description="Build recurring workflows with persistent AI workers, connected tools, and an open-source foundation. Tedix's public source release is coming soon."
+	title="Tedix is open source — agents you can hold accountable"
+	description="Tedix runs persistent AI workers with their own identity, scoped tools, budgets, approvals and a record of every run. The complete product is open source on GitHub under AGPL-3.0."
 	includeSoftwareApplicationSchema={false}
 	includeWebPageSchema={false}
 >
-	<meta slot="head" name="robots" content="noindex,nofollow" />
-
 	<div class="oss-page">
 		<header class="oss-hero">
-			<p class="eyebrow">Open-source release · Coming soon</p>
-			<h1>AI workers.<br /><span>Make them your own.</span></h1>
+			<p class="eyebrow">Open source · AGPL-3.0</p>
+			<h1>Agents you can<br /><span>hold accountable.</span></h1>
 			<p class="intro">
-				Tedix brings persistent AI workers, connected tools, and recurring
-				workflows together in one platform. We're preparing the source for you
-				to explore, adapt, and build on.
+				Tedix runs long-lived AI workers, called tedis, inside your
+				organization. Each has its own identity, scoped tools, a budget and
+				approval rules, and every run records what the worker did, why, and who
+				allowed it. The complete product is on GitHub, not a reduced community
+				edition.
 			</p>
 			<div class="actions">
-				<a class="cta cta-primary" href="https://docs.tedix.dev/">Read the docs</a>
-				<a class="cta cta-secondary" href="/contact/">Request access</a>
+				<a class="cta cta-primary" href="https://github.com/tedix-hq/tedix"
+					>View on GitHub</a
+				>
+				<a class="cta cta-secondary" href="https://docs.tedix.dev/getting-started"
+					>Get started</a
+				>
 			</div>
 		</header>
 
-		<section class="benefits" aria-label="Build with Tedix">
+		<section class="benefits" aria-label="What is in the repository">
 			<article>
 				<h2>Workers that stay with you</h2>
 				<p>
-					Give each worker its own identity, context, and skills to carry work
-					from one run to the next.
+					Each tedi keeps its identity, memory, skills and policies across runs,
+					so work carries from one run to the next.
 				</p>
 			</article>
 			<article>
-				<h2>Tools that work together</h2>
+				<h2>Tools as configuration</h2>
 				<p>
-					Connect your systems through MCP. Combine tools and workflows around
-					the work your team already does.
+					Connect your systems through MCP. Tools, widgets and policies are
+					configuration, not one handler per tool.
 				</p>
 			</article>
 			<article>
-				<h2>Work you can follow</h2>
+				<h2>Work you can check</h2>
 				<p>
-					Review progress, decisions, and results in one workspace, with
-					approvals where they matter.
+					Open any run to see the worker, the tools it used, the approval and
+					the result. Nobody approves their own request.
 				</p>
 			</article>
 		</section>
 
+		<section class="quickstart" aria-label="Run Tedix locally">
+			<h2>Run it on your machine</h2>
+			<pre><code>git clone https://github.com/tedix-hq/tedix.git && cd tedix
+bun run-local</code></pre>
+			<p>
+				Needs Git, Bun and Node.js 22+. No account, no cloud credentials and no
+				model calls by default. Tedix OS opens at localhost:3030.
+			</p>
+		</section>
+
 		<p class="availability">
-			Public source release planned under AGPL-3.0. Tedix Cloud is available by
-			invitation. Self-hosting is experimental.
-			Report security issues privately to
+			Source: public under AGPL-3.0, with some packages under Apache-2.0 or
+			MIT. Tedix Cloud: invited beta. Self-hosting: experimental. See
+			<a href="https://docs.tedix.dev/release-status">release status</a>. Ask
+			questions in
+			<a href="https://github.com/tedix-hq/tedix/discussions">GitHub Discussions</a
+			>. Report security issues privately to
 			<a href="mailto:security@tedix.dev">security@tedix.dev</a>.
 		</p>
 	</div>
@@ -168,6 +185,32 @@ export const prerender = true;
 		text-align: center;
 		font-size: 0.82rem;
 		margin-top: 32px;
+	}
+	.quickstart {
+		max-width: 720px;
+		margin: 48px auto 0;
+		text-align: center;
+	}
+	.quickstart pre {
+		background: var(--card);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 20px 24px;
+		margin: 0 0 12px;
+		overflow-x: auto;
+		text-align: left;
+		font-size: 0.9rem;
+		line-height: 1.6;
+	}
+	.quickstart p {
+		color: var(--muted-foreground);
+		font-size: 0.9rem;
+		line-height: 1.6;
+		margin: 0;
+	}
+	.availability a {
+		color: inherit;
+		text-decoration: underline;
 	}
 	@media (max-width: 720px) {
 		.oss-page {
