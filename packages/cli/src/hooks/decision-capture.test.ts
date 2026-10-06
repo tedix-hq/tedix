@@ -13,7 +13,10 @@ import {
 	captureStatePath,
 	claimReply,
 	classify,
+	DETAIL_CALLABLE,
 	LABEL_CALLABLE,
+	questionPath,
+	REQUEST_DRAFT_CALLABLE,
 	runDecisionCapture,
 	TRIAGE_CALLABLE,
 } from "./decision-capture";
@@ -100,18 +103,26 @@ async function runHook(
 				expect(environment.TEDIX_EXTERNAL_AGENT).toBeUndefined();
 				expect(environment.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
 				if (args.at(-1) === "code") {
-					const source = stdinInput!;
-					const callable = /await ([\w.]+)\(/.exec(source)![1]!;
-					const literal = JSON.parse(
-						source.slice(
-							source.indexOf(`${callable}(`) + callable.length + 1,
-							-1,
-						),
-					);
-					gatewayCalls.push([callable, literal, args]);
-					const handler = gateway[callable];
-					if (!handler) throw new Error("Unknown tool");
-					return (await handler(literal)) as JsonObject;
+					// Run the real Code Mode source against fixture namespaces.
+					const namespace = (name: string) =>
+						new Proxy(
+							{},
+							{
+								get: (_, tool) => async (input: JsonObject) => {
+									const callable = `${name}.${String(tool)}`;
+									gatewayCalls.push([callable, input, args]);
+									const handler = gateway[callable];
+									if (!handler) throw new Error("Unknown tool");
+									return handler(structuredClone(input));
+								},
+							},
+						);
+					const run = new Function(
+						"work",
+						"agent",
+						`return (${stdinInput!})();`,
+					) as (work: unknown, agent: unknown) => Promise<JsonObject>;
+					return await run(namespace("work"), namespace("agent"));
 				}
 				if (failRespond && args.includes("interaction-respond"))
 					throw new Error("offline");
@@ -137,7 +148,12 @@ async function runHook(
 				label: () => "repo · main",
 			},
 			...(timeoutMs
-				? { triageTimeoutMs: timeoutMs, labelTimeoutMs: timeoutMs }
+				? {
+						triageTimeoutMs: timeoutMs,
+						labelTimeoutMs: timeoutMs,
+						draftTimeoutMs: timeoutMs,
+						detailTimeoutMs: timeoutMs,
+					}
 				: {}),
 		},
 	);
@@ -592,5 +608,213 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			expect(metadata.replyClass).toBe("ship");
 			expect(metadata).not.toHaveProperty("replyClassClef");
 		}
+	});
+
+	test("a later question asks for a tedi draft; an urgent one does not", async () => {
+		const later = { ...TRIAGE_OK, urgency: "later", urgentLabels: [] };
+		let asked: JsonObject[] = [];
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Pushed. Tidy the docs too?" },
+			[BINDING, AUTH, CREATED],
+			{
+				gateway: {
+					[TRIAGE_CALLABLE]: () => later,
+					[REQUEST_DRAFT_CALLABLE]: (input) => {
+						asked.push(input);
+						return { status: "queued" };
+					},
+				},
+			},
+		);
+		expect(asked).toEqual([{ requestId: REQUEST }]);
+		// The draft request carries only the ID, over stdin.
+		const draftCall = gatewayCalls.find(
+			([name]) => name === REQUEST_DRAFT_CALLABLE,
+		)!;
+		expect(draftCall[2]).toEqual(["-w", "fixture", "code"]);
+		expect(
+			JSON.parse(readFileSync(questionPath(state()), "utf8")),
+		).toMatchObject({ requestId: REQUEST, host: "claude-code" });
+		asked = [];
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Blocked." },
+			[BINDING, AUTH, { request: CREATED }, CREATED],
+			{
+				gateway: {
+					[TRIAGE_CALLABLE]: () => TRIAGE_OK,
+					[REQUEST_DRAFT_CALLABLE]: (input) => {
+						asked.push(input);
+						return { status: "queued" };
+					},
+				},
+			},
+		);
+		expect(asked).toEqual([]);
+	});
+
+	test("a missing, ineligible or slow draft tool leaves the question as it was", async () => {
+		for (const gateway of [
+			{},
+			{
+				[REQUEST_DRAFT_CALLABLE]: () => ({ status: "ineligible", reason: "x" }),
+			},
+			{ [REQUEST_DRAFT_CALLABLE]: () => new Promise(() => {}) },
+		] as Gateway[]) {
+			payloads = [];
+			await runHook(
+				"stop",
+				{ last_assistant_message: "Ship it?" },
+				[BINDING, AUTH, CREATED],
+				{ gateway, timeoutMs: 20 },
+			);
+			expect(verbs()).toEqual(["interaction-create"]);
+			expect(JSON.parse(readFileSync(state(), "utf8")).requestId).toBe(REQUEST);
+		}
+	});
+
+	test("a reply typed while the question is created gets no draft request", async () => {
+		let asked = 0;
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Ship it?" },
+			[BINDING, AUTH, CREATED, { request: CREATED }],
+			{
+				duringCreate: () => {
+					expect(
+						claimReply(
+							{ prompt: "ship it" },
+							captureStatePath({ TEDIX_CONFIG_DIR: config }, SESSION),
+						),
+					).toBe("early");
+				},
+				gateway: {
+					[REQUEST_DRAFT_CALLABLE]: () => {
+						asked++;
+						return { status: "queued" };
+					},
+				},
+			},
+		);
+		expect(verbs()).toEqual(["interaction-create", "interaction-respond"]);
+		expect(asked).toBe(0);
+	});
+
+	const DRAFT_ID = "abababab-abab-4bab-8bab-abababababab";
+	const DRAFT_BODY = "Yes, tidy the docs and push.";
+	const detail = (overrides: JsonObject = {}): JsonObject => ({
+		request: {
+			id: REQUEST,
+			version: 2,
+			expiresAt: "2026-10-07T00:00:00Z",
+			prompt: "PRIVATE QUESTION TEXT",
+		},
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		latestDraft: {
+			id: DRAFT_ID,
+			body: DRAFT_BODY,
+			rationale: "Docs drift after a push.",
+			drafterId: "tedi-fixture",
+			createdAt: "2026-10-06T00:00:00Z",
+			turnType: "approve",
+		},
+		responses: { data: [], nextCursor: null, hasMore: false },
+		...overrides,
+	});
+
+	async function replyWith(prompt: string, interaction: unknown, extra = {}) {
+		await runHook("stop", { last_assistant_message: "Tidy the docs?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		payloads = [];
+		gatewayCalls = [];
+		return runHook("reply", { prompt }, [BINDING, AUTH, { request: CREATED }], {
+			gateway: {
+				[DETAIL_CALLABLE]: () =>
+					interaction instanceof Error
+						? Promise.reject(interaction)
+						: interaction,
+			},
+			...extra,
+		});
+	}
+
+	test("a reply typed in the chat never sends or cites a tedi draft", async () => {
+		// The draft is only visible in Tedix OS, so "ok" here answers the agent.
+		for (const word of ["ok", "yes", "Yes, tidy the docs and push."]) {
+			await replyWith(word, detail());
+			const [args, sent] = payloads.at(-1)!;
+			expect(args).toContain("interaction-respond");
+			expect(sent.body).toBe(word);
+			expect(sent.expectedRequestVersion).toBe(2);
+			expect(sent.metadata).not.toHaveProperty("draftId");
+			expect(sent.metadata).not.toHaveProperty("draftOutcome");
+			expect(sent.metadata).not.toHaveProperty("editRatio");
+			const [callable, input] = gatewayCalls[0]!;
+			expect([callable, input]).toEqual([
+				DETAIL_CALLABLE,
+				{ requestId: REQUEST, responseLimit: 5 },
+			]);
+		}
+	});
+
+	test("a missing or failing detail read keeps the plain reply", async () => {
+		for (const failure of [new Error("Unknown tool"), { unexpected: true }]) {
+			await replyWith("ok", failure);
+			const sent = payloads.at(-1)![1];
+			expect(sent.body).toBe("ok");
+			expect(sent.expectedRequestVersion).toBe(1);
+			expect(sent.metadata).not.toHaveProperty("draftOutcome");
+		}
+	});
+
+	test("a question already answered in Tedix OS is not answered again", async () => {
+		const resolved = detail({
+			effectiveState: "resolved",
+			responses: {
+				data: [
+					{
+						body: DRAFT_BODY,
+						resolvesRequest: true,
+						respondedByType: "user",
+						respondedById: "U-fixture-user",
+						metadata: { source: "os-inbox", draftId: DRAFT_ID },
+					},
+				],
+				nextCursor: null,
+				hasMore: false,
+			},
+		});
+		const calls = await replyWith("ok", resolved);
+		expect(payloads).toEqual([]);
+		expect(calls.some((args) => args.includes("interaction-respond"))).toBe(
+			false,
+		);
+		expect(existsSync(state())).toBe(false);
+	});
+
+	test("a respond conflict after an OS answer is settled, not retried", async () => {
+		await runHook("stop", { last_assistant_message: "Tidy the docs?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		let reads = 0;
+		await runHook("reply", { prompt: "do it" }, [BINDING, AUTH], {
+			failRespond: true,
+			gateway: {
+				[DETAIL_CALLABLE]: () =>
+					++reads === 1 ? detail() : detail({ effectiveState: "resolved" }),
+			},
+		});
+		expect(reads).toBe(2);
+		// Nothing is kept for a retry at the next turn end.
+		expect(existsSync(state())).toBe(false);
+		expect(existsSync(state().replace(/\.json$/, ".early"))).toBe(false);
 	});
 });

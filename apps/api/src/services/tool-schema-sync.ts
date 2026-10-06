@@ -701,13 +701,17 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
  * Agent-turn urgency triage. The router key is camelCase (`agentTurnTriage`),
  * so the bare-verb generator would emit `triage_agentTurnTriage`; these pin the
  * verb-first snake_case ids. Triage and reply labelling are stateless model
- * reads, so they project as `read`.
+ * reads, so they project as `read`; reply-draft request/propose append state
+ * (a queued drafting turn, an immutable draft) and project as `write`.
  */
 export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"agentTurnTriage/triage": "triage_agent_turn",
 	"agentTurnTriage/labelReply": "label_agent_reply",
 	"agentTurnTriage/getPolicy": "get_agent_turn_triage_policy",
 	"agentTurnTriage/updatePolicy": "update_agent_turn_triage_policy",
+	"agentTurnTriage/requestReplyDraft": "request_agent_reply_draft",
+	"agentTurnTriage/proposeReplyDraft": "propose_agent_reply_draft",
+	"agentTurnTriage/getReplyDraftAcceptance": "get_agent_reply_draft_acceptance",
 };
 
 export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
@@ -718,6 +722,9 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 	"agentTurnTriage/labelReply": "read",
 	"agentTurnTriage/getPolicy": "read",
 	"agentTurnTriage/updatePolicy": "write",
+	"agentTurnTriage/requestReplyDraft": "write",
+	"agentTurnTriage/proposeReplyDraft": "write",
+	"agentTurnTriage/getReplyDraftAcceptance": "read",
 };
 
 /**

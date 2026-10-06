@@ -236,7 +236,11 @@ export const RespondToWorkInteractionInputSchema = z
 				"Optional integrity digest; valid only with an artifact reference and version.",
 			),
 		resolvesRequest: z.boolean().default(true),
-		metadata: metadataSchema.default({}),
+		metadata: metadataSchema
+			.default({})
+			.describe(
+				"Bounded response metadata. An answer that started from the request's latestDraft cites it as {draftId, draftOutcome: accepted|edited|replaced, editRatio: 0..1}; draft acceptance is measured from these keys.",
+			),
 	})
 	.superRefine((value, context) => {
 		if (
@@ -271,11 +275,65 @@ export const GetWorkInteractionInputSchema = z.strictObject({
 	responseLimit: z.number().int().min(1).max(100).default(50),
 });
 
+/**
+ * A tedi-drafted reply proposal for an open, non-urgent decision-capture
+ * question. A draft never answers the question: the target user answers
+ * through `respond_to_work_interaction` and, when the answer started from a
+ * draft, cites it in response metadata as {@link WorkInteractionDraftAnswerMetadataSchema}.
+ */
+export const WorkInteractionReplyDraftSchema = z.strictObject({
+	id: z.uuid(),
+	body: z.string().min(1).max(6_000),
+	rationale: z
+		.string()
+		.min(1)
+		.max(2_000)
+		.describe("Why the drafting tedi proposed this reply"),
+	drafterId: z.string().describe("The drafting tedi's id"),
+	createdAt: z.string(),
+	turnType: z
+		.string()
+		.nullable()
+		.describe("The drafter's turn-type label; acceptance is measured per type"),
+});
+export type WorkInteractionReplyDraft = z.infer<
+	typeof WorkInteractionReplyDraftSchema
+>;
+
+/**
+ * Answer metadata convention for a response that started from a reply draft.
+ * Clients write these keys into `respond_to_work_interaction.metadata`; draft
+ * acceptance (`get_agent_reply_draft_acceptance`) is measured from them.
+ */
+export const WorkInteractionDraftAnswerMetadataSchema = z.object({
+	draftId: z.uuid().describe("The `latestDraft.id` the answer started from"),
+	draftOutcome: z
+		.enum(["accepted", "edited", "replaced"])
+		.describe(
+			"`accepted`: sent unchanged; `edited`: sent after edits; `replaced`: the draft was discarded and the user wrote their own answer",
+		),
+	editRatio: z
+		.number()
+		.min(0)
+		.max(1)
+		.describe(
+			"Normalized edit distance between draft and sent body: 0 unchanged, 1 fully rewritten",
+		),
+});
+export type WorkInteractionDraftAnswerMetadata = z.infer<
+	typeof WorkInteractionDraftAnswerMetadataSchema
+>;
+
 export const GetWorkInteractionResultSchema = z.strictObject({
 	request: WorkInteractionRequestSchema,
 	effectiveState: WorkInteractionStateSchema,
 	canRespond: z.boolean(),
 	canCancel: z.boolean(),
+	latestDraft: WorkInteractionReplyDraftSchema.nullable()
+		.optional()
+		.describe(
+			"Newest tedi-drafted reply proposal, or null when none exists. A draft is never sent automatically: answer with respond_to_work_interaction and cite it in metadata {draftId, draftOutcome: accepted|edited|replaced, editRatio}.",
+		),
 	responses: z.strictObject({
 		data: z.array(WorkInteractionResponseSchema),
 		nextCursor: WorkInteractionCursorSchema.nullable().describe(

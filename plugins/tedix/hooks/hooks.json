@@ -1,5 +1,5 @@
 {
-	"description": "Runs the installed Tedix CLI (tedix hooks). Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture; status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
+	"description": "Runs the installed Tedix CLI (tedix hooks). Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture (Claude Code also waits in the background for a Tedix OS answer; Codex packages omit that rewake hook); status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -52,6 +52,16 @@
 						"command": "tedix hooks capture-stop",
 						"timeout": 30,
 						"async": true
+					}
+				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "tedix hooks await-reply",
+						"timeout": 14460,
+						"asyncRewake": true
 					}
 				]
 			},

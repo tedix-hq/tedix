@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	AgentTurnTriagePolicyInputSchema,
+	AgentTurnTriagePolicySchema,
 	LabelAgentReplyResultSchema,
+	ProposeAgentReplyDraftInputSchema,
 	TriageAgentTurnInputSchema,
 	TriageResultSchema,
 } from "../schemas/agent-turn-triage";
@@ -14,13 +16,73 @@ const question = {
 };
 
 describe("agentTurnTriageContract", () => {
-	it("exposes exactly the four triage procedures", () => {
+	it("exposes exactly the triage and reply-draft procedures", () => {
 		expect(Object.keys(agentTurnTriageContract).sort()).toEqual([
 			"getPolicy",
+			"getReplyDraftAcceptance",
 			"labelReply",
+			"proposeReplyDraft",
+			"requestReplyDraft",
 			"triage",
 			"updatePolicy",
 		]);
+	});
+
+	it("defaults drafting off and eligibility to 90% over 50 drafts", () => {
+		const stored = AgentTurnTriagePolicySchema.parse({
+			enabled: true,
+			model: "@cf/cloudflare/clef-flash",
+			version: 3,
+			questions: [question],
+		});
+		expect(stored.drafting).toEqual({ enabled: false });
+		expect(stored.eligibility).toEqual({ minRate: 0.9, minDrafts: 50 });
+		const base = {
+			enabled: true,
+			model: "@cf/cloudflare/clef-flash",
+			questions: [question],
+		};
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse({
+				...base,
+				drafting: { enabled: true, tediId: "not-a-uuid" },
+			}).success,
+		).toBe(false);
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse({
+				...base,
+				eligibility: { minRate: 1.2, minDrafts: 50 },
+			}).success,
+		).toBe(false);
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse({
+				...base,
+				drafting: { enabled: true, autoSend: true },
+			}).success,
+		).toBe(false);
+	});
+
+	it("bounds reply drafts", () => {
+		const draft = {
+			requestId: "3f1b5d4e-8f6c-4a42-9b8e-1c2d3e4f5a6b",
+			body: "x".repeat(6_000),
+			rationale: "r".repeat(2_000),
+		};
+		expect(ProposeAgentReplyDraftInputSchema.safeParse(draft).success).toBe(
+			true,
+		);
+		expect(
+			ProposeAgentReplyDraftInputSchema.safeParse({
+				...draft,
+				body: "x".repeat(6_001),
+			}).success,
+		).toBe(false);
+		expect(
+			ProposeAgentReplyDraftInputSchema.safeParse({
+				...draft,
+				rationale: "r".repeat(2_001),
+			}).success,
+		).toBe(false);
 	});
 
 	it("bounds triage text at 20000 characters", () => {

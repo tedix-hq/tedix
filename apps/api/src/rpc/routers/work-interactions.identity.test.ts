@@ -4,6 +4,7 @@ import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
+	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
@@ -26,6 +27,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workEvents,
 			workInteractions,
 			workInteractionResponses,
+			workInteractionReplyDrafts,
 			organizationMembers,
 			tedis,
 		),
@@ -357,6 +359,48 @@ describe("Work interaction canonical actor projections", () => {
 			code: "FORBIDDEN",
 		});
 		await expect(other.listAudit({ limit: 50 })).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+
+	it("projects the newest reply draft only to authorized detail readers", async () => {
+		const { owner, target, other, sqlite } = fixture();
+		const request = await createTargetedInteraction(owner);
+		expect(await target.get({ requestId: request.id })).toMatchObject({
+			latestDraft: null,
+		});
+		const insertDraft = sqlite.prepare(
+			"INSERT INTO work_interaction_reply_drafts (id,org_id,interaction_id,drafter_type,drafter_id,body,rationale,turn_type,created_at) VALUES (?,?,?,'tedi','drafter',?,'Board priority','approval',?)",
+		);
+		insertDraft.run(
+			"00000000-0000-4000-8000-0000000000d1",
+			ORG_ID,
+			request.id,
+			"First",
+			"2026-08-21T01:00:00.000Z",
+		);
+		insertDraft.run(
+			"00000000-0000-4000-8000-0000000000d2",
+			ORG_ID,
+			request.id,
+			"Second",
+			"2026-08-21T02:00:00.000Z",
+		);
+		const latestDraft = {
+			id: "00000000-0000-4000-8000-0000000000d2",
+			body: "Second",
+			rationale: "Board priority",
+			drafterId: "drafter",
+			createdAt: "2026-08-21T02:00:00.000Z",
+			turnType: "approval",
+		};
+		expect(await target.get({ requestId: request.id })).toMatchObject({
+			latestDraft,
+		});
+		expect(await owner.get({ requestId: request.id })).toMatchObject({
+			latestDraft,
+		});
+		await expect(other.get({ requestId: request.id })).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
 	});

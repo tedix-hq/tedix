@@ -772,6 +772,10 @@
 		{
 			"name": "20261006173708_work_agent_sessions/migration.sql",
 			"sha256": "5b009b7772c277caa3b81d5d3df87c68f99666064526cb59073eb2cbad298908"
+		},
+		{
+			"name": "20261006203656_work_interaction_reply_drafts/migration.sql",
+			"sha256": "29c2bfe052da94346f8b8b38ae727cbd051569b406ab2e651809d456e60fb658"
 		}
 	]
 }

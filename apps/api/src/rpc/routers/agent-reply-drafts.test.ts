@@ -1,0 +1,429 @@
+/**
+ * Tedi-drafted replies on the agent-turn triage router: only the question's
+ * target user may request a draft, only the target's configured drafting tedi
+ * may propose one, urgent or untriaged turns are never drafted, the drafting
+ * turn is queued once per question, and acceptance is measured from cited
+ * responses.
+ */
+
+import { DatabaseSync } from "node:sqlite";
+import { createRouterClient } from "@orpc/server";
+import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/agent-turn-triage";
+import { createDbClient } from "@tedix/db/client";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { tedis } from "@tedix/db/schema/tedis";
+import { userConfigs } from "@tedix/db/schema/user-configs";
+import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
+import {
+	workInteractionReplyDrafts,
+	workInteractionResponses,
+	workInteractions,
+} from "@tedix/db/schema/work-factory";
+import { workEvents, workItems } from "@tedix/db/schema/work-items";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { describe, expect, it, vi } from "vite-plus/test";
+import type { BaseContext } from "../orpc";
+import {
+	agentTurnTriageContractRouter,
+	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
+} from "./agent-turn-triage";
+
+const ORG_ID = "00000000-0000-4000-8000-000000000001";
+const WORK_ITEM_ID = "00000000-0000-4000-8000-000000000002";
+const DRAFTER_ID = "00000000-0000-4000-8000-0000000000a1";
+const OTHER_TEDI_ID = "00000000-0000-4000-8000-0000000000a2";
+const QUIET = {
+	schema: "tedix.decision-capture.v1",
+	triage: {
+		status: "ok",
+		urgency: "later",
+		labels: { risky_action: 0.1 },
+		urgentLabels: [],
+	},
+};
+
+let nextId = 0;
+const uuid = () =>
+	`00000000-0000-4000-8000-${(++nextId).toString(16).padStart(12, "0")}`;
+
+function fixture() {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	sqlite.exec(
+		schemaDdl(
+			userConfigs,
+			workItems,
+			workEvents,
+			workInteractions,
+			workInteractionResponses,
+			workInteractionReplyDrafts,
+			workAgentSessions,
+			organizationMembers,
+			tedis,
+		),
+	);
+	sqlite
+		.prepare(
+			"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,?,?,?)",
+		)
+		.run(WORK_ITEM_ID, ORG_ID, "Ship drafts", "2026-08-21T00:00:00.000Z");
+	const insertMember = sqlite.prepare(`INSERT INTO organization_members
+		(id,organization_id,user_id,descope_user_id,email,role,status)
+		VALUES (?,?,?,?,?,?,'active')`);
+	insertMember.run(
+		"m-target",
+		ORG_ID,
+		"target-id",
+		"target-sub",
+		"t@x.test",
+		"owner",
+	);
+	insertMember.run(
+		"m-other",
+		ORG_ID,
+		"other-id",
+		"other-sub",
+		"o@x.test",
+		"admin",
+	);
+	const insertTedi = sqlite.prepare(
+		"INSERT INTO tedis (id,organization_id,name,slug,status) VALUES (?,?,?,?,'active')",
+	);
+	insertTedi.run(DRAFTER_ID, ORG_ID, "Drafter", "drafter");
+	insertTedi.run(OTHER_TEDI_ID, ORG_ID, "Other", "other");
+	sqlite
+		.prepare(
+			"INSERT INTO work_agent_sessions (id,organization_id,user_id,harness,session_key,label,state,summary,state_since,last_event_at,created_at,updated_at) VALUES ('s1',?,'target-id','claude-code','k1','api refactor','working','Migrating the billing router',?,?,'2026-08-21T00:00:00.000Z','2026-08-21T00:00:00.000Z')",
+		)
+		.run(ORG_ID, "2026-08-21T00:00:00.000Z", new Date().toISOString());
+
+	const facade = createD1Facade(sqlite);
+	const send = vi.fn(async (_body: unknown) => undefined);
+	const env = {
+		ENVIRONMENT: "test",
+		DB: facade,
+		AUTOMATION_EVENTS: { send },
+	} as unknown as CloudflareEnv;
+	const base = {
+		db: createDbClient(facade) as BaseContext["db"],
+		env,
+		headers: new Headers(),
+		organizationId: ORG_ID,
+		url: new URL("https://api.tedix.test/rpc/agentTurnTriage"),
+	};
+	const user = (userId: string, sub: string) =>
+		createRouterClient(agentTurnTriageContractRouter, {
+			context: {
+				...base,
+				authType: "user",
+				userId,
+				user: {
+					aud: "test",
+					dct: "tenant-1",
+					exp: 2,
+					iat: 1,
+					iss: "https://auth.tedix.test",
+					permissions: ["tedis:read", "tedis:update"],
+					roles: [],
+					sub,
+				},
+			} as BaseContext,
+		});
+	// The MCP edge reaches the API over a trusted service binding and forwards
+	// the calling tedi's id and resolved scopes.
+	const tedi = (tediId: string) =>
+		createRouterClient(agentTurnTriageContractRouter, {
+			context: {
+				...base,
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Mcp-Tool-Id": "work:propose_agent_reply_draft",
+					"X-Tedix-Tedi-Id": tediId,
+					"X-Tedix-Tedi-Scopes": "mcp:messaging.read mcp:messaging.write",
+				}),
+			} as BaseContext,
+		});
+
+	function question(
+		metadata: Record<string, unknown> = QUIET,
+		overrides: { status?: string; targetType?: string; targetId?: string } = {},
+	) {
+		const id = uuid();
+		sqlite
+			.prepare(
+				"INSERT INTO work_interactions (id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,version,metadata) VALUES (?,?,?,'question',?,?,?,'user','target-id',?,?,?,1,?)",
+			)
+			.run(
+				id,
+				ORG_ID,
+				WORK_ITEM_ID,
+				overrides.status ?? "open",
+				"Should I ship the migration?",
+				"Tests pass. Commit and push now?",
+				overrides.targetType ?? "user",
+				overrides.targetId ?? "target-id",
+				"2026-08-21T00:00:00.000Z",
+				JSON.stringify(metadata),
+			);
+		return id;
+	}
+
+	const target = user("target-id", "target-sub");
+	async function configure(
+		patch: Partial<AgentTurnTriagePolicyInput> = {},
+	): Promise<void> {
+		const { version: _version, ...defaults } = DEFAULT_AGENT_TURN_TRIAGE_POLICY;
+		const current = await target.getPolicy({});
+		await target.updatePolicy({
+			expectedRevision: current.revision,
+			policy: {
+				...defaults,
+				drafting: {
+					enabled: true,
+					tediId: DRAFTER_ID,
+					skillSlug: "operator-reply-style",
+				},
+				...patch,
+			},
+		});
+	}
+
+	return {
+		sqlite,
+		send,
+		target,
+		other: user("other-id", "other-sub"),
+		drafter: tedi(DRAFTER_ID),
+		otherTedi: tedi(OTHER_TEDI_ID),
+		question,
+		configure,
+	};
+}
+
+describe("requestReplyDraft", () => {
+	it("queues one idempotent drafting turn for the configured tedi", async () => {
+		const f = fixture();
+		await f.configure();
+		const requestId = f.question();
+		await expect(f.target.requestReplyDraft({ requestId })).resolves.toEqual({
+			status: "queued",
+		});
+		await f.target.requestReplyDraft({ requestId });
+		expect(f.send).toHaveBeenCalledTimes(2);
+		const [first] = f.send.mock.calls[0] as [Record<string, unknown>];
+		const [second] = f.send.mock.calls[1] as [Record<string, unknown>];
+		expect(first).toMatchObject({
+			kind: "tedi_turn",
+			organizationId: ORG_ID,
+			tediId: DRAFTER_ID,
+			idempotencyKey: `reply-draft:${requestId}`,
+			source: "reply-draft:v1",
+		});
+		expect(second.idempotencyKey).toBe(first.idempotencyKey);
+		const content = first.content as string;
+		expect(content).toContain("Should I ship the migration?");
+		expect(content).toContain("Tests pass. Commit and push now?");
+		expect(content).toContain("api refactor [working]");
+		expect(content).toContain('"operator-reply-style"');
+		expect(content).toContain(
+			`propose_agent_reply_draft once with requestId "${requestId}"`,
+		);
+		expect(content).not.toMatch(/\{\{\w+\}\}/);
+	});
+
+	it.each([
+		["urgent", { ...QUIET, triage: { ...QUIET.triage, urgency: "now" } }],
+		[
+			"urgent",
+			{ ...QUIET, triage: { ...QUIET.triage, urgentLabels: ["risky_action"] } },
+		],
+		[
+			"untriaged",
+			{ ...QUIET, triage: { ...QUIET.triage, status: "unavailable" } },
+		],
+		["untriaged", { schema: QUIET.schema }],
+		["not_decision_capture", { ...QUIET, schema: "other.v1" }],
+	])("never drafts a %s turn", async (reason, metadata) => {
+		const f = fixture();
+		await f.configure();
+		const requestId = f.question(metadata);
+		await expect(f.target.requestReplyDraft({ requestId })).resolves.toEqual({
+			status: "ineligible",
+			reason,
+		});
+		expect(f.send).not.toHaveBeenCalled();
+	});
+
+	it("reports closed questions, disabled drafting, and a missing tedi", async () => {
+		const f = fixture();
+		const resolved = f.question(QUIET, { status: "resolved" });
+		const open = f.question();
+		await expect(
+			f.target.requestReplyDraft({ requestId: open }),
+		).resolves.toEqual({ status: "ineligible", reason: "drafting_disabled" });
+		await f.configure();
+		await expect(
+			f.target.requestReplyDraft({ requestId: resolved }),
+		).resolves.toEqual({ status: "ineligible", reason: "not_open" });
+		f.sqlite.exec(
+			`UPDATE tedis SET retired_at='2026-08-21T00:00:00.000Z' WHERE id='${DRAFTER_ID}'`,
+		);
+		await expect(
+			f.target.requestReplyDraft({ requestId: open }),
+		).resolves.toEqual({ status: "ineligible", reason: "no_drafting_tedi" });
+		expect(f.send).not.toHaveBeenCalled();
+	});
+
+	it("is reserved to the question's target user", async () => {
+		const f = fixture();
+		await f.configure();
+		const requestId = f.question();
+		await expect(
+			f.other.requestReplyDraft({ requestId }),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			f.drafter.requestReplyDraft({ requestId }),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			f.target.requestReplyDraft({ requestId: uuid() }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(f.send).not.toHaveBeenCalled();
+	});
+});
+
+describe("proposeReplyDraft", () => {
+	const draft = {
+		body: "Yes, push it.",
+		rationale: "Board priority is the migration; you approve green pushes.",
+		turnType: "approval",
+	};
+
+	it("stores a draft from the configured drafting tedi", async () => {
+		const f = fixture();
+		await f.configure();
+		const requestId = f.question();
+		const { draftId } = await f.drafter.proposeReplyDraft({
+			requestId,
+			...draft,
+		});
+		expect(
+			f.sqlite
+				.prepare("SELECT * FROM work_interaction_reply_drafts WHERE id=?")
+				.get(draftId),
+		).toMatchObject({
+			interaction_id: requestId,
+			drafter_type: "tedi",
+			drafter_id: DRAFTER_ID,
+			body: draft.body,
+			turn_type: "approval",
+		});
+		// A draft is a proposal: the question stays open and unanswered.
+		expect(
+			f.sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id=?")
+				.get(requestId),
+		).toMatchObject({ status: "open" });
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it("rejects every other principal", async () => {
+		const f = fixture();
+		await f.configure();
+		const requestId = f.question();
+		for (const caller of [f.otherTedi, f.target, f.other]) {
+			await expect(
+				caller.proposeReplyDraft({ requestId, ...draft }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+		const unconfigured = fixture();
+		const id = unconfigured.question();
+		await expect(
+			unconfigured.drafter.proposeReplyDraft({ requestId: id, ...draft }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("rechecks eligibility and never drafts urgent turns", async () => {
+		const f = fixture();
+		await f.configure();
+		for (const metadata of [
+			{ ...QUIET, triage: { ...QUIET.triage, urgency: "now" } },
+			{
+				...QUIET,
+				triage: { ...QUIET.triage, urgentLabels: ["human_only_action"] },
+			},
+			{ schema: QUIET.schema },
+		]) {
+			const requestId = f.question(metadata);
+			await expect(
+				f.drafter.proposeReplyDraft({ requestId, ...draft }),
+			).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+		}
+		const resolved = f.question(QUIET, { status: "resolved" });
+		await expect(
+			f.drafter.proposeReplyDraft({ requestId: resolved, ...draft }),
+		).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_reply_drafts")
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+});
+
+describe("getReplyDraftAcceptance", () => {
+	it("measures the caller's cited outcomes against policy thresholds", async () => {
+		const f = fixture();
+		await f.configure({ eligibility: { minRate: 0.5, minDrafts: 2 } });
+		for (const outcome of ["accepted", "accepted", "edited"]) {
+			const requestId = f.question();
+			const { draftId } = await f.drafter.proposeReplyDraft({
+				requestId,
+				body: "Yes",
+				rationale: "Priority",
+				turnType: "approval",
+			});
+			f.sqlite
+				.prepare(
+					"INSERT INTO work_interaction_responses (id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at) VALUES (?,?,?,2,'fence','user','target-id','Yes','answer',1,?,?)",
+				)
+				.run(
+					uuid(),
+					ORG_ID,
+					requestId,
+					JSON.stringify({ draftId, draftOutcome: outcome, editRatio: 0 }),
+					new Date().toISOString(),
+				);
+		}
+		await expect(f.target.getReplyDraftAcceptance({})).resolves.toEqual({
+			byTurnType: [
+				{
+					turnType: "approval",
+					drafts: 3,
+					decided: 3,
+					accepted: 2,
+					edited: 1,
+					replaced: 0,
+					rate: 2 / 3,
+					eligible: true,
+				},
+			],
+			policy: { minRate: 0.5, minDrafts: 2 },
+		});
+		await expect(f.other.getReplyDraftAcceptance({})).resolves.toEqual({
+			byTurnType: [],
+			policy: { minRate: 0.9, minDrafts: 50 },
+		});
+		await expect(f.drafter.getReplyDraftAcceptance({})).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+});

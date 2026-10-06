@@ -22,7 +22,7 @@ import { parseArgs } from "node:util";
 export const ROOT = resolve(import.meta.dir, "../../../plugins/tedix");
 const ASSETS = ["icon.png", "icon-dark.png", "logo.png", "logo-dark.png"];
 const HOOK_COMMAND =
-	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|status)$/;
+	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|status)$/;
 type Host = "openai" | "claude";
 
 export interface PackageOptions {
@@ -121,6 +121,18 @@ function addFiles(
 /** The local hooks, in the host's native form; the logic lives in the Tedix CLI. */
 function localHooks(root: string, host: Host): any {
 	const hooks = readJson(root, "hooks/hooks.json");
+	if (host !== "claude")
+		// Only Claude Code can wake a session from a background hook (asyncRewake);
+		// elsewhere such a hook would hold the turn open, so it is not shipped.
+		for (const [event, definitions] of Object.entries<any[]>(hooks.hooks)) {
+			for (const definition of definitions)
+				definition.hooks = definition.hooks.filter(
+					(handler: any) => handler.asyncRewake !== true,
+				);
+			hooks.hooks[event] = definitions.filter(
+				(definition) => definition.hooks.length,
+			);
+		}
 	for (const definitions of Object.values<any[]>(hooks.hooks))
 		for (const definition of definitions)
 			for (const handler of definition.hooks) {

@@ -9,6 +9,7 @@ import {
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
 } from "@tedix/db/queries/work-items/interactions";
+import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
 import { requireOrgId } from "../org-scope";
 import {
@@ -256,13 +257,16 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				"Work interaction audit detail",
 			);
 		}
-		const rows = await listWorkInteractionResponses(context.db, {
-			orgId,
-			interactionId: request.id,
-			limit: input.responseLimit + 1,
-			afterRespondedAt: input.responseCursor?.at,
-			afterId: input.responseCursor?.id,
-		});
+		const [rows, latestDraft] = await Promise.all([
+			listWorkInteractionResponses(context.db, {
+				orgId,
+				interactionId: request.id,
+				limit: input.responseLimit + 1,
+				afterRespondedAt: input.responseCursor?.at,
+				afterId: input.responseCursor?.id,
+			}),
+			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
+		]);
 		const hasMore = rows.length > input.responseLimit;
 		const data = rows.slice(0, input.responseLimit);
 		const last = data.at(-1);
@@ -273,6 +277,16 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 			effectiveState: state,
 			canRespond: isTarget && state === "open",
 			canCancel: isCreator && state === "open",
+			latestDraft: latestDraft
+				? {
+						id: latestDraft.id,
+						body: latestDraft.body,
+						rationale: latestDraft.rationale,
+						drafterId: latestDraft.drafterId,
+						createdAt: latestDraft.createdAt,
+						turnType: latestDraft.turnType,
+					}
+				: null,
 			responses: {
 				data: data.map(responseOutput),
 				nextCursor:

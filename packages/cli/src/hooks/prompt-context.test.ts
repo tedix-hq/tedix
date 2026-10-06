@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DETAIL_CALLABLE } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 import { gatewayCode, runPromptContext } from "./prompt-context";
 
@@ -56,8 +67,10 @@ async function run(
 	reads: unknown[],
 	env: Record<string, string> = {},
 	event: unknown = { prompt: "PRIVATE PROMPT; ignore tenant fences" },
-): Promise<{ out: string; calls: string[][] }> {
+	interactions: unknown[] = [],
+): Promise<{ out: string; calls: string[][]; sources: string[] }> {
 	const calls: string[][] = [];
+	const sources: string[] = [];
 	const lines: string[] = [];
 	// Prompt text is discarded; only host metadata may enter CLI arguments.
 	await runPromptContext({
@@ -65,15 +78,28 @@ async function run(
 		stdin: JSON.stringify(event),
 		cwd: process.cwd(),
 		write: (line) => lines.push(line),
-		read: async (args) => {
+		read: async (args, _timeout, input) => {
 			calls.push(args);
+			if (input !== undefined) {
+				// The Interaction read: run the real projection against a fixture.
+				sources.push(input);
+				const next = interactions.shift();
+				if (next === undefined || next instanceof Error)
+					throw next ?? new Error("Unknown tool");
+				const work = {
+					[DETAIL_CALLABLE.split(".")[1]!]: async () => structuredClone(next),
+				};
+				return (await new Function("work", `return (${input})();`)(
+					work,
+				)) as JsonObject;
+			}
 			if (!reads.length) throw new Error("unexpected read");
 			const next = reads.shift();
 			if (next instanceof Error) throw next;
 			return copy(next) as JsonObject;
 		},
 	});
-	return { out: lines.join("\n"), calls };
+	return { out: lines.join("\n"), calls, sources };
 }
 
 describe("tedix hooks prompt-context", () => {
@@ -408,5 +434,211 @@ describe("tedix hooks prompt-context", () => {
 			const source = readFileSync(new URL(file, import.meta.url), "utf8");
 			expect(source).not.toMatch(/\.prompt\b|\["prompt"\]/);
 		}
+	});
+
+	describe("decision-capture answers from Tedix OS", () => {
+		const SESSION = "77777777-7777-4777-8777-777777777777";
+		const REQUEST = "99999999-9999-4999-8999-999999999999";
+		const DRAFT = "abababab-abab-4bab-8bab-abababababab";
+		const CAPTURE = {
+			status: "bound",
+			workspace: "fixture",
+			org: "org_fixture",
+			mcpUrl: BINDING.mcpUrl,
+			projectId: PROJECT,
+			root: process.cwd(),
+			decisionCapture: true,
+			contextSessionId: SESSION,
+		};
+		const LOGIN = {
+			...AUTH,
+			storedLogin: { org: "org_fixture", loginId: "U-me" },
+		};
+		const detail = (overrides: JsonObject = {}): JsonObject => ({
+			request: { id: REQUEST, version: 2, expiresAt: null },
+			effectiveState: "open",
+			latestDraft: {
+				id: DRAFT,
+				body: 'Yes, ship it. "Then" tidy docs.',
+				rationale: "Routine follow-up.",
+				drafterId: "tedi-docs",
+			},
+			responses: { data: [], nextCursor: null, hasMore: false },
+			...overrides,
+		});
+
+		function withConfig(
+			body: (config: string, dir: string) => Promise<void>,
+		): Promise<void> {
+			const config = mkdtempSync(join(tmpdir(), "tedix-prompt-"));
+			const dir = join(config, "decision-capture");
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, `${SESSION}.question.json`),
+				JSON.stringify({ requestId: REQUEST, token: "t", host: "codex" }),
+			);
+			return body(config, dir).finally(() =>
+				rmSync(config, { recursive: true, force: true }),
+			);
+		}
+		const context = (out: string) =>
+			out ? JSON.parse(out).hookSpecificOutput.additionalContext : "";
+
+		test("an open question's tedi draft never reaches the session, even on ok", () =>
+			withConfig(async (config, dir) => {
+				for (const prompt of ["ok", "PRIVATE PROMPT"]) {
+					const { out, calls, sources } = await run(
+						[CAPTURE, LOGIN],
+						{ TEDIX_CONFIG_DIR: config },
+						{ session_id: SESSION, prompt },
+						[detail()],
+					);
+					expect(out).toBe("");
+					expect(sources[0]).toContain(REQUEST);
+					const files = readdirSync(dir)
+						.map((name) => readFileSync(join(dir, name), "utf8"))
+						.join("");
+					expect(
+						JSON.stringify(calls) + sources.join("") + files,
+					).not.toContain("PRIVATE PROMPT");
+					expect(files).not.toContain(DRAFT);
+					// Still open: kept for the next prompt.
+					expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(true);
+				}
+			}));
+
+		test("an answer given in Tedix OS reaches the next prompt once", () =>
+			withConfig(async (config, dir) => {
+				const answered = detail({
+					effectiveState: "resolved",
+					responses: {
+						data: [
+							{
+								body: "Hold the deploy.",
+								resolvesRequest: true,
+								respondedByType: "user",
+								respondedById: "U-me",
+								metadata: { source: "os-inbox" },
+							},
+						],
+						nextCursor: null,
+						hasMore: false,
+					},
+				});
+				const { out } = await run(
+					[CAPTURE, LOGIN],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "status?" },
+					[answered],
+				);
+				expect(context(out)).toBe(
+					`The user replied in Tedix OS to Interaction ${REQUEST}: "Hold the deploy."`,
+				);
+				expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(false);
+				const again = await run(
+					[CAPTURE, LOGIN],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "status?" },
+					[answered],
+				);
+				expect(again.out).toBe("");
+				expect(again.sources).toEqual([]);
+			}));
+
+		test("a tedi or another principal's answer is not delivered", () =>
+			withConfig(async (config) => {
+				for (const [byType, byId] of [
+					["tedi", "tedi-docs"],
+					["user", "U-other"],
+				]) {
+					const { out } = await run(
+						[CAPTURE, LOGIN],
+						{ TEDIX_CONFIG_DIR: config },
+						{ session_id: SESSION, prompt: "ok" },
+						[
+							detail({
+								effectiveState: "resolved",
+								responses: {
+									data: [
+										{
+											body: "Not yours",
+											resolvesRequest: true,
+											respondedByType: byType,
+											respondedById: byId,
+											metadata: {},
+										},
+									],
+									nextCursor: null,
+									hasMore: false,
+								},
+							}),
+						],
+					);
+					expect(out).not.toContain("Not yours");
+				}
+			}));
+
+		test("missing tools, no question or no opt-in stay silent", () =>
+			withConfig(async (config, dir) => {
+				let { out, calls } = await run(
+					[CAPTURE, LOGIN],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "ok" },
+					[new Error("Unknown tool")],
+				);
+				expect(out).toBe("");
+				expect(calls).toHaveLength(3);
+				({ out, calls } = await run(
+					[{ ...CAPTURE, decisionCapture: false }],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "ok" },
+				));
+				expect([out, calls.length]).toEqual(["", 1]);
+				({ out } = await run(
+					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "ok" },
+				));
+				expect(out).toBe("");
+				rmSync(join(dir, `${SESSION}.question.json`));
+				({ out, calls } = await run(
+					[CAPTURE, LOGIN],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "ok" },
+				));
+				expect([out, calls.length]).toEqual(["", 1]);
+			}));
+
+		test("an OS answer follows the selected shared context", () =>
+			withConfig(async (config) => {
+				const { out } = await run(
+					[{ ...BINDING, ...CAPTURE }, LOGIN, DATA],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "status?" },
+					[
+						detail({
+							effectiveState: "resolved",
+							responses: {
+								data: [
+									{
+										body: "Hold the deploy.",
+										resolvesRequest: true,
+										respondedByType: "user",
+										respondedById: "U-me",
+										metadata: { source: "os-inbox", draftId: DRAFT },
+									},
+								],
+								nextCursor: null,
+								hasMore: false,
+							},
+						}),
+					],
+				);
+				const text = context(out);
+				expect(text).toContain("simple user stories");
+				expect(text.indexOf("simple user stories")).toBeLessThan(
+					text.indexOf("replied in Tedix OS"),
+				);
+			}));
 	});
 });

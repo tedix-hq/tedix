@@ -8,10 +8,14 @@
  * decision record.
  *
  * Before the question is created, the redacted turn is triaged by
- * `work.triage_agent_turn` (bounded, silent fallback) and the result travels in
+ * `agent.triage_agent_turn` (bounded, silent fallback) and the result travels in
  * the create payload as `metadata.triage`. While capture is enabled for the
  * chat, this hook also owns the Stop turn status (`applyTriagedStop`): urgent
  * turns notify, others do not, and `tedix hooks status` skips Stop.
+ *
+ * A "later" question also asks `agent.request_agent_reply_draft` for a
+ * tedi-drafted reply. Drafts are reviewed, accepted or edited only in Tedix OS,
+ * where they are visible; a reply typed in the chat never cites one.
  *
  * Recording happens only after `tedix setup agents context
  * enable-decision-capture` for the bound organization. Text is redacted and
@@ -57,14 +61,20 @@ const EXPIRY_MS = 24 * 60 * 60 * 1000;
 const EVENT_LIMIT = CAPTURE_EVENT_LIMIT;
 const TRIAGE_TIMEOUT_MS = 4000;
 const LABEL_TIMEOUT_MS = 3000;
+const DRAFT_TIMEOUT_MS = 3000;
+const DETAIL_TIMEOUT_MS = 3000;
 export const TRIAGE_CALLABLE = "agent.triage_agent_turn";
 export const LABEL_CALLABLE = "agent.label_agent_reply";
+export const REQUEST_DRAFT_CALLABLE = "agent.request_agent_reply_draft";
+export const DETAIL_CALLABLE = "work.get_work_interaction";
 
 /** Test seams: status side effects and gateway-call timeouts. */
 export interface CaptureOptions {
 	status?: Pick<StatusDeps, "spawn" | "platform" | "which" | "label" | "now">;
 	triageTimeoutMs?: number;
 	labelTimeoutMs?: number;
+	draftTimeoutMs?: number;
+	detailTimeoutMs?: number;
 }
 
 /** Credentials an exported agent identity would use instead of the signed-in user. */
@@ -173,12 +183,12 @@ function stateDir(env: NodeJS.ProcessEnv): string {
 	return path;
 }
 
-interface Binding extends JsonObject {
+export interface Binding extends JsonObject {
 	command: string[];
 	user: string;
 }
 
-async function bindingFor(
+export async function bindingFor(
 	deps: HookDeps,
 	session: string,
 	onOptedIn?: () => void,
@@ -265,15 +275,12 @@ async function gatewayCall(
 	callable: string,
 	input: JsonObject,
 	timeoutMs: number,
+	source = `async () => await ${callable}(${asciiJson(input)})`,
 ): Promise<JsonObject> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		return await Promise.race([
-			deps.read(
-				[...binding.command, "code"],
-				timeoutMs,
-				`async () => await ${callable}(${asciiJson(input)})`,
-			),
+			deps.read([...binding.command, "code"], timeoutMs, source),
 			new Promise<never>((_, reject) => {
 				timer = setTimeout(
 					() => reject(new Error("gateway call timed out")),
@@ -383,6 +390,111 @@ async function labelReply(
 	return undefined;
 }
 
+/** The parts of an Interaction decision capture needs, bounded in the gateway. */
+export interface InteractionDetail {
+	requestId: string;
+	version: number;
+	state: "open" | "resolved" | "cancelled" | "expired";
+	expiresAt: string | null;
+	resolution: {
+		body: string;
+		complete: boolean;
+		byType: string;
+		byId: string;
+		source: string | null;
+		sessionId: string | null;
+	} | null;
+}
+
+/**
+ * Code Mode source for one Interaction read. Only the validated request ID
+ * enters it; the projection keeps the result small and drops every other field.
+ */
+function interactionDetailCode(requestId: string): string {
+	if (!UUID.test(requestId)) throw new Error("invalid request ID");
+	return `async () => { const r = await ${DETAIL_CALLABLE}(${JSON.stringify({ requestId, responseLimit: 5 })}); const s = (v, n) => typeof v === 'string' ? v.slice(0, n) : null; const x = (r.responses?.data ?? []).find((e) => e.resolvesRequest) ?? null; return { requestId: r.request.id, version: r.request.version, state: r.effectiveState, expiresAt: r.request.expiresAt ?? null, resolution: x ? { body: s(x.body, ${REPLY_LIMIT}), complete: typeof x.body === 'string' && x.body.length <= ${REPLY_LIMIT}, byType: s(x.respondedByType, 50), byId: s(x.respondedById, 300), source: s(x.metadata?.source, 100), sessionId: s(x.metadata?.sessionId, 100) } : null }; }`;
+}
+
+/** Validate a projected detail; anything unexpected is undefined. */
+function detailOf(
+	value: unknown,
+	requestId: string,
+): InteractionDetail | undefined {
+	if (
+		!isObject(value) ||
+		value.requestId !== requestId ||
+		!Number.isInteger(value.version) ||
+		!["open", "resolved", "cancelled", "expired"].includes(value.state)
+	)
+		return undefined;
+	const resolved = value.resolution;
+	const resolution =
+		isObject(resolved) &&
+		typeof resolved.body === "string" &&
+		typeof resolved.byType === "string" &&
+		typeof resolved.byId === "string"
+			? {
+					body: resolved.body,
+					complete: resolved.complete === true,
+					byType: resolved.byType,
+					byId: resolved.byId,
+					source: typeof resolved.source === "string" ? resolved.source : null,
+					sessionId:
+						typeof resolved.sessionId === "string" ? resolved.sessionId : null,
+				}
+			: null;
+	return {
+		requestId,
+		version: value.version,
+		state: value.state,
+		expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : null,
+		resolution,
+	};
+}
+
+/** One bounded Interaction read, or undefined on any failure. */
+export async function interactionDetail(
+	deps: HookDeps,
+	binding: Binding,
+	requestId: string,
+	timeoutMs: number,
+): Promise<InteractionDetail | undefined> {
+	try {
+		return detailOf(
+			await gatewayCall(
+				deps,
+				binding,
+				DETAIL_CALLABLE,
+				{},
+				timeoutMs,
+				interactionDetailCode(requestId),
+			),
+			requestId,
+		);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * True when the user answered in Tedix OS (or elsewhere) rather than through
+ * this chat's own reply capture, so the answer is news to the session.
+ */
+export function answeredElsewhere(
+	detail: InteractionDetail,
+	user: string,
+	session: string,
+): boolean {
+	const resolution = detail.resolution;
+	return Boolean(
+		detail.state === "resolved" &&
+		resolution &&
+		resolution.byType === "user" &&
+		resolution.byId === user &&
+		!(resolution.source === "user-reply" && resolution.sessionId === session),
+	);
+}
+
 function requestOf(result: JsonObject): { id: string; version: number } {
 	const request = isObject(result.request) ? result.request : result;
 	if (
@@ -417,7 +529,7 @@ interface TurnState extends JsonObject {
 	turnText?: string;
 }
 
-function writeState(path: string, value: JsonObject): void {
+export function writeState(path: string, value: JsonObject): void {
 	const temporary = `${path}.${randomUUID().replaceAll("-", "")}.tmp`;
 	writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
 	renameSync(temporary, path);
@@ -446,6 +558,25 @@ function early(state: string): string {
 	return state.replace(/\.json$/, ".early");
 }
 
+/**
+ * The chat's latest open question ({requestId, token, host}), kept beside the
+ * claimable turn state so the prompt hook and the wake hook can find it
+ * without claiming it.
+ */
+export function questionPath(state: string): string {
+	return state.replace(/\.json$/, ".question.json");
+}
+
+/** Read a small local JSON object without claiming it; undefined when absent or malformed. */
+export function peek(path: string): JsonObject | undefined {
+	try {
+		const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+		return isObject(value) ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function onReply(
 	deps: HookDeps,
 	session: string,
@@ -454,6 +585,13 @@ async function onReply(
 	previous: TurnState,
 	options: CaptureOptions,
 ): Promise<void> {
+	const requestId = String(previous.requestId);
+	const timeout = options.detailTimeoutMs ?? DETAIL_TIMEOUT_MS;
+	const detail = await interactionDetail(deps, binding, requestId, timeout);
+	// Answered in Tedix OS, cancelled or expired: never answer it twice.
+	if (detail && detail.state !== "open") return;
+	// A reply typed in the chat answers as typed: a tedi draft is never seen
+	// there, so it is neither sent nor cited (drafts are accepted in Tedix OS).
 	const [text, complete] = redact(prompt, REPLY_LIMIT);
 	const clef =
 		typeof previous.turnText === "string" && previous.turnText
@@ -465,27 +603,34 @@ async function onReply(
 					options.labelTimeoutMs ?? LABEL_TIMEOUT_MS,
 				)
 			: undefined;
-	await call(
-		deps,
-		binding,
-		"interaction-respond",
-		{
-			expectedRequestVersion: previous.version,
-			responseKind: "answer",
-			body: text,
-			resolvesRequest: true,
-			metadata: {
-				schema: SCHEMA,
-				source: "user-reply",
-				host: previous.host ?? harnessOf({}, deps.env),
-				sessionId: session,
-				replyClass: classify(prompt),
-				...(clef ? { replyClassClef: clef } : {}),
-				replyComplete: complete,
+	try {
+		await call(
+			deps,
+			binding,
+			"interaction-respond",
+			{
+				expectedRequestVersion: detail?.version ?? previous.version,
+				responseKind: "answer",
+				body: text,
+				resolvesRequest: true,
+				metadata: {
+					schema: SCHEMA,
+					source: "user-reply",
+					host: previous.host ?? harnessOf({}, deps.env),
+					sessionId: session,
+					replyClass: classify(prompt),
+					...(clef ? { replyClassClef: clef } : {}),
+					replyComplete: complete,
+				},
 			},
-		},
-		previous.requestId,
-	);
+			requestId,
+		);
+	} catch (error) {
+		// A conflict because it was answered meanwhile is settled, not retried.
+		const after = await interactionDetail(deps, binding, requestId, timeout);
+		if (after && after.state !== "open") return;
+		throw error;
+	}
 }
 
 /**
@@ -555,6 +700,7 @@ async function onStop(
 	// the question is still being created is kept instead of lost.
 	const token = randomUUID().replaceAll("-", "");
 	rmSync(early(state), { force: true });
+	rmSync(questionPath(state), { force: true });
 	writeState(state, { pending: token });
 	const [text, complete] = redact(message, MESSAGE_LIMIT, "tail");
 	// Triage only the redacted text, then settle the turn status before the
@@ -606,7 +752,34 @@ async function onStop(
 		host,
 		turnText: text,
 	});
+	writeState(questionPath(state), { requestId: request.id, token, host });
 	await answerEarlyReply(deps, session, binding, state, options);
+	// Only a question still waiting on the user gets a tedi-drafted reply.
+	if (triage.urgency === "later" && peek(state)?.requestId === request.id)
+		await requestDraft(deps, binding, request.id, options);
+}
+
+/**
+ * Ask a tedi to draft a reply. The server only queues it; the draft is shown
+ * to the user, never sent. Not deployed, ineligible or slow: nothing happens.
+ */
+async function requestDraft(
+	deps: HookDeps,
+	binding: Binding,
+	requestId: string,
+	options: CaptureOptions,
+): Promise<void> {
+	try {
+		await gatewayCall(
+			deps,
+			binding,
+			REQUEST_DRAFT_CALLABLE,
+			{ requestId },
+			options.draftTimeoutMs ?? DRAFT_TIMEOUT_MS,
+		);
+	} catch {
+		// Silent: the question stands without a draft.
+	}
 }
 
 /**
