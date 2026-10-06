@@ -13,7 +13,7 @@
 		"build": "vp build",
 		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"test:run": "bun run test:unit && bun run test:workerd",
-		"test:unit": "bun test test/health.test.ts && bun test test/auth.test.ts && bun test test/control-log.test.ts && bun test test/vertex-inline-video.test.ts && bun test test/vertex-video-judge.test.ts && bun test test/vertex-product-keyframes.test.ts && bun test test/mcp-bridge-utils.test.ts && bun test test/mcp-bridge-auth.test.ts && bun test test/workflow-runtime.test.ts && bun test test/defect-triage-example.test.ts && bun test test/workflow-engine-error.test.ts && bun test test/rationale.test.ts && bun test test/evidence.test.ts && bun test test/reason.test.ts && bun test test/publish-shared.test.ts",
+		"test:unit": "bun test test/health.test.ts && bun test test/auth.test.ts && bun test test/control-log.test.ts && bun test test/vertex-inline-video.test.ts && bun test test/vertex-video-judge.test.ts && bun test test/vertex-host.test.ts && bun test test/vertex-product-keyframes.test.ts && bun test test/mcp-bridge-utils.test.ts && bun test test/mcp-bridge-auth.test.ts && bun test test/workflow-runtime.test.ts && bun test test/defect-triage-example.test.ts && bun test test/workflow-engine-error.test.ts && bun test test/rationale.test.ts && bun test test/evidence.test.ts && bun test test/reason.test.ts && bun test test/publish-shared.test.ts",
 		"test:workerd": "vp test run",
 		"type-check": "bun run types && tsc --noEmit",
 		"eval:judge": "bun eval/run-judge-eval.ts",
