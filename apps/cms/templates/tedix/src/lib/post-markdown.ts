@@ -9,8 +9,9 @@ import {
 import { getPublicSiteUrl } from "./site-url";
 
 const yamlScalar = (s: string) => {
-	if (/[:\-#@&*!|>'"%`?,[\]{}]/.test(s) || /^\s|\s$/.test(s)) {
-		return `"${s.replace(/"/g, '\\"')}"`;
+	if (/[:\-#@&*!|>'"%`?,[\]{}\\\n\r]/.test(s) || /^\s|\s$/.test(s)) {
+		// A JSON string is a valid YAML double-quoted scalar with full escaping.
+		return JSON.stringify(s);
 	}
 	return s;
 };

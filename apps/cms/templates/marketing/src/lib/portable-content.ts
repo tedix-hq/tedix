@@ -108,7 +108,7 @@ function renderSpanMarkdown(
 		} else if (markName === "em") {
 			text = `_${text}_`;
 		} else if (markName === "code") {
-			text = `\`${text.replace(/`/g, "\\`")}\``;
+			text = `\`${text.replace(/[\\`]/g, "\\$&")}\``;
 		}
 	}
 	return text;
@@ -154,7 +154,7 @@ function renderTableMarkdown(block: PortableRecord): string {
 						.map((span) => String(span.text ?? ""))
 						.join("")
 				: String(cell.text ?? cell.value ?? "");
-			return value.replace(/\|/g, "\\|").trim();
+			return value.replace(/[\\|]/g, "\\$&").trim();
 		}),
 	);
 	const width = Math.max(...values.map((row) => row.length));
