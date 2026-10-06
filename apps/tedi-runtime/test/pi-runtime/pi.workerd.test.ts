@@ -55,8 +55,9 @@ describe("Production ConversationFacet on native Pi", () => {
 			model: unknown;
 			usage: { cacheReadTokens: unknown; cacheWriteTokens: unknown };
 		}>;
-		expect(step?.provider).toEqual(expect.any(String));
-		expect(step?.model).toEqual(expect.any(String));
+		// The turn's real selection, not Pi's stable `tedix/selected` catalog entry.
+		expect(step?.provider).toBe("workers-ai");
+		expect(step?.model).toBe("@cf/test");
 		expect(step?.usage.cacheReadTokens).toEqual(expect.any(Number));
 		expect(step?.usage.cacheWriteTokens).toEqual(expect.any(Number));
 	});
