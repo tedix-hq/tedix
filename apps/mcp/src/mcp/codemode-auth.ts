@@ -77,7 +77,7 @@ export function evaluateMcpToolScopeAuthorization(
 ): McpToolScopeDecision {
 	if (
 		serverCtx.callerIdentity?.credentialMode === "delegated-mcp" &&
-		isDelegatedWorkTool(tool.toolId, namespace, tool.config)
+		isDelegatedWorkTool(tool.toolId, namespace, tool.config, tool.toolTypeId)
 	) {
 		return {
 			authorized: false,

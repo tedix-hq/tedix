@@ -31,6 +31,7 @@ describe("Interaction RPC authority through organization aliases", () => {
 	for (const [endpoint, scope] of [
 		["create", "mcp:messaging.write"],
 		["respond", "mcp:messaging.write"],
+		["delegate", "mcp:messaging.write"],
 		["cancel", "mcp:messaging.write"],
 		["get", "mcp:messaging.read"],
 		["listInbox", "mcp:messaging.read"],

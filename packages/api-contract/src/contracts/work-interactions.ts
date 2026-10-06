@@ -5,6 +5,7 @@ import { baseErrors } from "../errors";
 import {
 	CancelWorkInteractionInputSchema,
 	CreateWorkInteractionInputSchema,
+	DelegateWorkInteractionInputSchema,
 	GetWorkInteractionInputSchema,
 	GetWorkInteractionResultSchema,
 	ListWorkInteractionInboxInputSchema,
@@ -18,6 +19,14 @@ export const workInteractionsContract = oc
 	.route({ tags: ["work-interactions"], prefix: "/work-interactions" })
 	.errors(baseErrors)
 	.router({
+		delegate: oc
+			.route({
+				method: "POST",
+				path: "/{requestId}/delegate",
+				summary: "Delegate a question to a tedi",
+			})
+			.input(DelegateWorkInteractionInputSchema)
+			.output(WorkInteractionRequestSchema),
 		create: oc
 			.route({
 				method: "POST",

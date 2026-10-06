@@ -12,6 +12,7 @@ import {
 	type WorkInteractionTargetType,
 } from "../../schema/work-factory";
 import { prefixedColumns } from "../../utils/select";
+import { tedis } from "../../schema/tedis";
 import {
 	WorkControlError,
 	requireActivePrincipal,
@@ -250,6 +251,97 @@ export async function respondToWorkInteraction(
 		);
 	}
 }
+/** One explicit handoff by the human currently asked to answer, never impersonation. */
+export async function delegateWorkInteraction(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		interactionId: string;
+		expectedVersion: number;
+		actor: InteractionActor;
+		tediId: string;
+		now: string;
+	},
+) {
+	if (p.actor.type !== "user")
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Only the requested human can delegate a question",
+		);
+	await validateActor(db, p.orgId, p.actor);
+	await requireActivePrincipal(db, {
+		orgId: p.orgId,
+		type: "tedi",
+		id: p.tediId,
+	});
+	const activeTedi = (
+		await db
+			.select({ id: tedis.id })
+			.from(tedis)
+			.where(
+				and(
+					eq(tedis.organizationId, p.orgId),
+					eq(tedis.id, p.tediId),
+					eq(tedis.status, "active"),
+					isNull(tedis.retiredAt),
+				),
+			)
+			.limit(1)
+	)[0];
+	if (!activeTedi)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Question delegation requires an active tedi",
+		);
+	const request = await getWorkInteraction(db, {
+		orgId: p.orgId,
+		interactionId: p.interactionId,
+	});
+	if (
+		!request ||
+		request.targetType !== "user" ||
+		request.targetId !== p.actor.id
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Only the request target can delegate it",
+		);
+	const row = (
+		await db
+			.update(workInteractions)
+			.set({
+				targetType: "tedi",
+				targetId: p.tediId,
+				metadata: {
+					...request.metadata,
+					delegation: {
+						fromType: "user",
+						fromId: p.actor.id,
+						toTediId: p.tediId,
+						delegatedAt: p.now,
+					},
+				},
+				version: sql`${workInteractions.version}+1`,
+			})
+			.where(
+				and(
+					eq(workInteractions.orgId, p.orgId),
+					eq(workInteractions.id, p.interactionId),
+					eq(workInteractions.version, p.expectedVersion),
+					eq(workInteractions.kind, "question"),
+					eq(workInteractions.status, "open"),
+					eq(workInteractions.targetType, "user"),
+					eq(workInteractions.targetId, p.actor.id),
+					sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
+				),
+			)
+			.returning()
+	)[0];
+	if (!row)
+		throw new WorkControlError("CONFLICT", "Question is no longer delegatable");
+	return row;
+}
+
 export async function cancelWorkInteraction(
 	db: DbQueryClient,
 	p: {

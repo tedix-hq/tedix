@@ -144,6 +144,53 @@ describe("Code Mode connected Notion command authorization", () => {
 });
 
 describe("code-built tools/call authorization", () => {
+	it("requires exact messaging consent for delegated interaction reads and replies", () => {
+		for (const [name, endpoint, scope] of [
+			["get_work_interaction", "workInteractions/get", "mcp:messaging.read"],
+			[
+				"respond_work_interaction",
+				"workInteractions/respond",
+				"mcp:messaging.write",
+			],
+		] as const) {
+			const interaction = tool({
+				toolId: `tedix__${name}`,
+				config: { endpoint },
+			});
+			const granted = {
+				...ctx({}, [scope]),
+				callerIdentity: {
+					authType: "tedi",
+					credentialMode: "delegated-mcp",
+					scopes: [scope],
+				},
+			} as ServerContext;
+			expect(
+				evaluateMcpToolScopeAuthorization(granted, interaction, "work"),
+			).toMatchObject({ authorized: true });
+			expect(
+				evaluateMcpToolScopeAuthorization(
+					{
+						...granted,
+						callerIdentity: {
+							...granted.callerIdentity,
+							authType: "tedi",
+							scopes: ["mcp:work.read"],
+						},
+					},
+					interaction,
+					"work",
+				),
+			).toMatchObject({ authorized: false });
+			expect(
+				evaluateMcpToolScopeAuthorization(
+					granted,
+					tool({ ...interaction, toolTypeId: "code" }),
+					"work",
+				),
+			).toMatchObject({ authorized: false });
+		}
+	});
 	it("denies delegated Work discovery and execution even with a broad configured scope", () => {
 		const delegated = {
 			appMetadata: {

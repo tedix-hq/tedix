@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { tedis } from "@tedix/db/schema/tedis";
 import {
 	workInteractionResponses,
 	workInteractions,
@@ -26,6 +27,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workInteractions,
 			workInteractionResponses,
 			organizationMembers,
+			tedis,
 		),
 	);
 	sqlite
@@ -122,6 +124,44 @@ async function createTargetedInteraction(
 }
 
 describe("Work interaction canonical actor projections", () => {
+	it("allows only the target human to delegate the existing question", async () => {
+		const { owner, target, other, sqlite } = fixture();
+		const tediId = "00000000-0000-4000-8000-000000000003";
+		sqlite
+			.prepare(
+				"INSERT INTO tedis (id,organization_id,name,slug,status) VALUES (?,?,?,'worker','active')",
+			)
+			.run(tediId, ORG_ID, "Worker");
+		const request = await createTargetedInteraction(owner);
+		const input = {
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			tediId,
+		};
+		await expect(owner.delegate(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(other.delegate(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		const delegated = await target.delegate(input);
+		expect(delegated).toMatchObject({
+			id: request.id,
+			requestedFromType: "tedi",
+			requestedFromId: tediId,
+			version: request.version + 1,
+			metadata: { delegation: { fromId: "target-id", toTediId: tediId } },
+		});
+		await expect(
+			target.respond({
+				requestId: request.id,
+				expectedRequestVersion: delegated.version,
+				responseKind: "answer",
+				body: "A",
+				resolvesRequest: true,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
 	it("returns the saved answer when notification publication fails", async () => {
 		const { owner, target } = fixture(async () => {
 			throw new Error("binding unavailable");
