@@ -1,7 +1,7 @@
-import { ArrowRight, LockKey, ShieldCheck } from "@phosphor-icons/react";
+import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
 import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -137,46 +137,116 @@ function SharedGadgetCard({
 	);
 }
 
+// Per-tab resume capability only. The original share secret never enters storage.
+const SHARE_SESSION_KEY = "tedix.os.share.session.v1";
+function storedShareSession(): string | null {
+	try {
+		return window.sessionStorage.getItem(SHARE_SESSION_KEY);
+	} catch {
+		return null;
+	}
+}
+function storeShareSession(token: string | null): void {
+	try {
+		if (token) window.sessionStorage.setItem(SHARE_SESSION_KEY, token);
+		else window.sessionStorage.removeItem(SHARE_SESSION_KEY);
+	} catch {
+		/* Blocked storage still permits this in-memory session. */
+	}
+}
+
 export function SharedResourcePage() {
 	const [state, setState] = useState<PageState>({ status: "loading" });
+	// Reuse an in-flight redemption across StrictMode effect replay. No original
+	// link secret is retained here; only the request promise and resume capability.
+	const pendingOpening = useRef<{
+		promise: Promise<SharePayload>;
+		redeeming: boolean;
+		resumeToken: string | null;
+	} | null>(null);
 
 	useEffect(() => {
-		const params = new URLSearchParams(window.location.hash.slice(1));
-		const token = params.get("token");
-		window.history.replaceState(
-			null,
-			"",
-			window.location.pathname + window.location.search,
-		);
-		if (!token) {
-			setState({ status: "unavailable" });
-			return;
-		}
-		let alive = true;
-		let timer: number | undefined;
-		shareRequest("/api/os-shared/redeem", { token })
-			.then((payload) => {
-				if (!alive || !payload.sessionToken) return;
-				const sessionToken = payload.sessionToken;
-				setState({ status: "ready", payload, sessionToken });
-				timer = window.setInterval(() => {
-					shareRequest("/api/os-shared/session", { sessionToken }).then(
-						(next) => {
-							if (alive)
-								setState({ status: "ready", payload: next, sessionToken });
-						},
-						() => {
-							if (alive) setState({ status: "unavailable" });
-						},
-					);
-				}, 3000);
-			})
-			.catch(() => {
-				if (alive) setState({ status: "unavailable" });
-			});
+		let stopCurrent = () => {};
+		const open = () => {
+			stopCurrent();
+			setState({ status: "loading" });
+			const token = new URLSearchParams(window.location.hash.slice(1)).get(
+				"token",
+			);
+			window.history.replaceState(
+				null,
+				"",
+				window.location.pathname + window.location.search,
+			);
+			// A new link replaces any previous tab session; it never falls back on failure.
+			const pending = token ? null : pendingOpening.current;
+			const resumeToken = token
+				? null
+				: (pending?.resumeToken ?? storedShareSession());
+			if (token) storeShareSession(null);
+			if (!token && !resumeToken && !pending) {
+				setState({ status: "unavailable" });
+				return;
+			}
+			let alive = true;
+			let timer: number | undefined;
+			stopCurrent = () => {
+				alive = false;
+				if (timer !== undefined) window.clearInterval(timer);
+			};
+			const fail = () => {
+				if (!alive) return;
+				pendingOpening.current = null;
+				storeShareSession(null);
+				setState({ status: "unavailable" });
+				stopCurrent();
+			};
+			const opening = pending ?? {
+				promise: token
+					? shareRequest("/api/os-shared/redeem", { token })
+					: shareRequest("/api/os-shared/session", {
+							sessionToken: resumeToken,
+						}),
+				redeeming: Boolean(token),
+				resumeToken,
+			};
+			pendingOpening.current = opening;
+			opening.promise
+				.then((payload) => {
+					if (!alive) return;
+					const sessionToken = opening.redeeming
+						? payload.sessionToken
+						: opening.resumeToken;
+					pendingOpening.current = null;
+					if (!sessionToken) {
+						fail();
+						return;
+					}
+					// Storage is never authority: redemption/resume must succeed on the server.
+					storeShareSession(sessionToken);
+					setState({ status: "ready", payload, sessionToken });
+					timer = window.setInterval(() => {
+						shareRequest("/api/os-shared/session", { sessionToken }).then(
+							(next) => {
+								if (alive)
+									setState({ status: "ready", payload: next, sessionToken });
+							},
+							fail,
+						);
+					}, 3000);
+				})
+				.catch(fail);
+		};
+		const onHashChange = () => {
+			// Removing a redeemed fragment is not a request to reopen the previous share.
+			if (new URLSearchParams(window.location.hash.slice(1)).has("token"))
+				open();
+		};
+		window.addEventListener("hashchange", onHashChange);
+		open();
 		return () => {
-			alive = false;
-			if (timer !== undefined) window.clearInterval(timer);
+			stopCurrent();
+			window.removeEventListener("hashchange", onHashChange);
 		};
 	}, []);
 
@@ -231,7 +301,7 @@ export function SharedResourcePage() {
 						tone="secondary"
 						className="m-0 uppercase tracking-wider"
 					>
-						Tedix OS governed share
+						Shared resource
 					</Text>
 					<Text as="h1" role="title" className="m-0 truncate">
 						{title}
@@ -251,16 +321,14 @@ export function SharedResourcePage() {
 					<AlertDescription>{payload.share.policyReason}</AlertDescription>
 				</Alert>
 			)}
-			<Alert variant="info">
-				<LockKey size={16} />
-				<AlertTitle>
-					Your identity, connections, and billing remain yours
-				</AlertTitle>
-				<AlertDescription>
-					Widgets run through your own authenticated Tedix session. The owner's
-					provider credentials and private memory are never shared.
-				</AlertDescription>
-			</Alert>
+			<details className="text-sm text-kumo-subtle">
+				<summary className="cursor-pointer">About access</summary>
+				<p>
+					This share uses your own signed-in Tedix account. It does not transfer
+					the owner's connections, credentials or private memory. Tedix checks
+					access when you open it and while it remains open.
+				</p>
+			</details>
 			{payload.share.effectiveRole === "build" && resource.openPath && (
 				<div>
 					<Button onClick={() => window.location.assign(resource.openPath!)}>

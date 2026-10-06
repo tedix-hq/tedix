@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import {
 	afterEach,
@@ -70,13 +70,21 @@ function payload(role: "use" | "build") {
 
 const cleanups: Array<() => void> = [];
 
-async function renderPage() {
-	window.history.replaceState(null, "", `/shared#token=${TOKEN}`);
+async function renderPage(url = `/shared#token=${TOKEN}`, strict = false) {
+	window.history.replaceState(null, "", url);
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
 	await act(async () => {
-		root.render(<SharedResourcePage />);
+		root.render(
+			strict ? (
+				<StrictMode>
+					<SharedResourcePage />
+				</StrictMode>
+			) : (
+				<SharedResourcePage />
+			),
+		);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 	cleanups.push(() => {
@@ -88,12 +96,14 @@ async function renderPage() {
 
 beforeEach(() => {
 	vi.useRealTimers();
+	window.sessionStorage.clear();
 	vi.stubGlobal("fetch", vi.fn());
 });
 
 afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 });
 
 describe("SharedResourcePage", () => {
@@ -103,6 +113,10 @@ describe("SharedResourcePage", () => {
 		);
 		const container = await renderPage();
 		expect(window.location.hash).toBe("");
+		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
+			SESSION,
+		);
+		expect(Object.values(window.sessionStorage).join()).not.toContain(TOKEN);
 		expect(fetch).toHaveBeenCalledWith(
 			"/api/os-shared/redeem",
 			expect.objectContaining({ body: JSON.stringify({ token: TOKEN }) }),
@@ -142,8 +156,141 @@ describe("SharedResourcePage", () => {
 			await vi.advanceTimersByTimeAsync(3000);
 		});
 		expect(container.textContent).toContain("no longer available");
+		expect(
+			window.sessionStorage.getItem("tedix.os.share.session.v1"),
+		).toBeNull();
+		expect(container.querySelector("[data-widget]")).toBeNull();
 		act(() => root.unmount());
 		container.remove();
 		vi.useRealTimers();
+	});
+	it("resumes after reload through a server-validated session without the original link secret", async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response(JSON.stringify(payload("use")), { status: 200 }),
+		);
+		await renderPage();
+		while (cleanups.length) cleanups.pop()?.();
+		const next = payload("use");
+		delete (next as { sessionToken?: string }).sessionToken;
+		vi.mocked(fetch)
+			.mockClear()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify(next), { status: 200 }),
+			);
+		const container = await renderPage("/shared");
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/os-shared/session",
+			expect.objectContaining({
+				body: JSON.stringify({ sessionToken: SESSION }),
+			}),
+		);
+		expect(container.textContent).toContain("Launch dashboard");
+		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
+			SESSION,
+		);
+	});
+	it("clears invalid stored sessions and renders no widget or old batch", async () => {
+		window.sessionStorage.setItem("tedix.os.share.session.v1", SESSION);
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response("revoked", { status: 404 }),
+		);
+		const container = await renderPage("/shared");
+		expect(container.textContent).toContain("no longer available");
+		expect(
+			window.sessionStorage.getItem("tedix.os.share.session.v1"),
+		).toBeNull();
+		expect(container.querySelector("[data-widget]")).toBeNull();
+	});
+	it("does not resume an old share when a newly supplied link fails", async () => {
+		window.sessionStorage.setItem("tedix.os.share.session.v1", SESSION);
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response("expired", { status: 404 }),
+		);
+		const container = await renderPage();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/os-shared/redeem",
+			expect.anything(),
+		);
+		expect(container.querySelector("[data-widget]")).toBeNull();
+		expect(
+			window.sessionStorage.getItem("tedix.os.share.session.v1"),
+		).toBeNull();
+	});
+	it("opens a freshly redeemed share when per-tab storage is blocked", async () => {
+		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+			throw new Error("blocked");
+		});
+		vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+			throw new Error("blocked");
+		});
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response(JSON.stringify(payload("use")), { status: 200 }),
+		);
+		const container = await renderPage();
+		expect(container.textContent).toContain("Launch dashboard");
+		expect(container.querySelector("[data-widget]")).not.toBeNull();
+		expect(window.location.hash).toBe("");
+	});
+	it("redeems a different share fragment in the same tab without showing the old gadget", async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response(JSON.stringify(payload("use")), { status: 200 }),
+		);
+		const container = await renderPage();
+		const next = payload("use");
+		next.resource.gadget.name = "Second review";
+		next.sessionToken = "c".repeat(43);
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response(JSON.stringify(next), { status: 200 }),
+		);
+		await act(async () => {
+			window.history.replaceState(null, "", `/shared#token=${"d".repeat(43)}`);
+			window.dispatchEvent(new HashChangeEvent("hashchange"));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(container.textContent).toContain("Second review");
+		expect(container.textContent).not.toContain("Launch dashboard");
+		expect(window.location.hash).toBe("");
+		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
+			next.sessionToken,
+		);
+	});
+	it("ignores a late response from the old share after a new fragment is opened", async () => {
+		let resolveOld: (response: Response) => void = () => {};
+		vi.mocked(fetch).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveOld = resolve;
+				}),
+		);
+		const container = await renderPage();
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response("revoked", { status: 404 }),
+		);
+		await act(async () => {
+			window.history.replaceState(null, "", `/shared#token=${"d".repeat(43)}`);
+			window.dispatchEvent(new HashChangeEvent("hashchange"));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			resolveOld(new Response(JSON.stringify(payload("use")), { status: 200 }));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(container.textContent).toContain("no longer available");
+		expect(container.querySelector("[data-widget]")).toBeNull();
+		expect(
+			window.sessionStorage.getItem("tedix.os.share.session.v1"),
+		).toBeNull();
+	});
+	it("survives StrictMode effect replay without retaining the original link secret", async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response(JSON.stringify(payload("use")), { status: 200 }),
+		);
+		const container = await renderPage(`/shared#token=${TOKEN}`, true);
+		expect(container.textContent).toContain("Launch dashboard");
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
+			SESSION,
+		);
+		expect(window.location.hash).toBe("");
 	});
 });
