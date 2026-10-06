@@ -243,6 +243,7 @@ describe("requestReplyDraft", () => {
 			organizationId: ORG_ID,
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
+			conversationId: `reply-draft:${requestId}`,
 			source: "reply-draft:v2",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);

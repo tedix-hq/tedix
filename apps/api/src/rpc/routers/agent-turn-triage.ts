@@ -511,6 +511,9 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 			// One drafting turn per question: the consumer's dispatch ledger makes
 			// redelivery and repeat requests no-ops.
 			idempotencyKey: `reply-draft:${request.id}`,
+			// A fresh conversation per question: a draft never queues behind, or
+			// inherits the state of, the tedi's long-lived main conversation.
+			conversationId: `reply-draft:${request.id}`,
 			source: `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`,
 		});
 		await queue.send(event);
