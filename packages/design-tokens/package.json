@@ -1,0 +1,28 @@
+{
+	"name": "@tedix/design-tokens",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Shared design tokens and CSS bridges for Tedix OS and widgets.",
+	"license": "MIT",
+	"type": "module",
+	"sideEffects": [
+		"**/*.css"
+	],
+	"exports": {
+		"./kumo.css": "./src/kumo.css",
+		"./widget": "./src/widget.ts",
+		"./widget.css": "./src/widget.css"
+	},
+	"scripts": {
+		"clean": "true",
+		"lint": "vp lint .",
+		"test": "bun test",
+		"test:run": "bun test",
+		"test:ci": "bun run test:run",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

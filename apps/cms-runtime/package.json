@@ -1,0 +1,43 @@
+{
+	"name": "@tedix/cms-runtime",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Cloudflare Worker that serves multi-tenant CMS sites and marketing domains with Dynamic Workers.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app cms-runtime",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"test": "bun run test:run",
+		"test:run": "bun install --frozen-lockfile --cwd ../cms/templates/tedix && vp test run && bun scripts/check-agent-discovery.ts && bun scripts/check-cache-key.ts && bun scripts/check-tenant-emdash-encryption.ts && bun scripts/check-edge-cache-headers.ts && bun scripts/check-tenant-ai-search.ts && bun scripts/check-tenant-egress.ts && bun scripts/check-tenant-internal-auth.ts && bun scripts/check-webmcp.ts",
+		"types": "cf workers types --mode production",
+		"type-check": "bun install --frozen-lockfile --cwd ../cms/templates/tedix && bun run types && tsc --noEmit"
+	},
+	"dependencies": {
+		"@emdash-cms/cloudflare": "catalog:",
+		"@orpc/client": "catalog:",
+		"@tedix/api-client": "workspace:*",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/auth": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"@tedix/provisioning": "workspace:*",
+		"@tedix/ssrf-guard": "workspace:*",
+		"@tedix/tenant-directory": "workspace:*",
+		"@tedix/webmcp-core": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"emdash": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"cf": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

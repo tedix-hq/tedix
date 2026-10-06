@@ -1,0 +1,45 @@
+{
+	"name": "@tedix/docs",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Docs control plane: builds, publishes, and indexes public and organization-protected documentation sites.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app docs",
+		"types": "cf workers types --mode production",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"search:scorecard": "bun scripts/search-scorecard.ts",
+		"test:nimbus-image": "bash scripts/check-nimbus-image.sh",
+		"test:rendered-headings": "bun scripts/check-rendered-headings.ts",
+		"type-check": "bun run types && tsc --noEmit"
+	},
+	"dependencies": {
+		"@cloudflare/sandbox": "catalog:",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/auth": "workspace:*",
+		"@tedix/container-runtime": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"@tedix/mcp-shared": "workspace:*",
+		"@tedix/ssrf-guard": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"hono": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"cf": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

@@ -1,0 +1,11 @@
+---
+import { env as workerEnv } from "cloudflare:workers";
+
+const locale = Astro.params.locale;
+const slug = Astro.params.slug;
+const defaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE ?? "en";
+if (!locale || locale === defaultLocale || !["en", "de", "es", "fr", "it", "pt", "nl"].includes(locale) || !slug) {
+	return Astro.rewrite("/404");
+}
+return Astro.rewrite(`/category/${encodeURIComponent(slug)}/${Astro.url.search}`);
+---

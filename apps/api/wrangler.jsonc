@@ -1,0 +1,808 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "public-installation-api",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-14",
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"limits": {
+		"cpu_ms": 300000,
+		"subrequests": 100000,
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1,
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.05,
+		},
+	},
+	"dev": {
+		"inspector_port": 19230,
+		"port": 8787,
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"GIT_SHA": "configured-via-private-overlay",
+		"TEDIX_FLEET_AUTHORITY_MODE": "configured-via-private-overlay",
+		"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
+		"WORK_ATTEMPT_ARTIFACTS_ENABLED": "configured-via-private-overlay",
+		"TEDIX_STRIPE_MODE": "configured-via-private-overlay",
+		"API_URL": "configured-via-private-overlay",
+		"UNTRUSTED_CONTENT_ORIGIN": "configured-via-private-overlay",
+		"MCP_UI_URL": "configured-via-private-overlay",
+		"MCP_URL": "configured-via-private-overlay",
+		"TEDI_DEV_BASE_URL": "configured-via-private-overlay",
+		"OS_URL": "configured-via-private-overlay",
+		"STRIPE_BILLING_PORTAL_CONFIGURATION_ID": "configured-via-private-overlay",
+		"STRIPE_TEST_BILLING_PORTAL_CONFIGURATION_ID": "configured-via-private-overlay",
+		"DATAFORSEO_MANAGED_ENABLED": "configured-via-private-overlay",
+		"ANALYTICS_ENGINE_DATASET": "configured-via-private-overlay",
+		"WIDGET_ANALYTICS_DATASET": "configured-via-private-overlay",
+		"COST_ALERT_EMAIL": "configured-via-private-overlay",
+		"HEALTH_ALERT_EMAIL": "configured-via-private-overlay",
+		"HEALTH_ALERT_WEBHOOK": "configured-via-private-overlay",
+		"CODEMODE_ANALYTICS_DATASET": "configured-via-private-overlay",
+		"R2_SQL_WAREHOUSE": "configured-via-private-overlay",
+		"R2_SQL_TABLE": "configured-via-private-overlay",
+		"AZURE_OPENAI_STT_DEPLOYMENT": "configured-via-private-overlay",
+		"AZURE_OPENAI_STT_API_VERSION": "configured-via-private-overlay",
+		"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+		"AZURE_OPENAI_TTS_DEPLOYMENT": "configured-via-private-overlay",
+		"AZURE_OPENAI_TTS_VOICE": "configured-via-private-overlay",
+		"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+		"KERNEL_EXECUTE": "configured-via-private-overlay",
+		"KERNEL_ANSWER_DELTA_PERSIST": "configured-via-private-overlay",
+		"EARNED_DELEGATION_ENFORCEMENT": "configured-via-private-overlay",
+		"KERNEL_INBOX_WAKE_DELAY_MS": "configured-via-private-overlay",
+		"KERNEL_MAX_PLAN_OWNERS": "configured-via-private-overlay",
+		"KERNEL_MAX_DELEGATIONS": "configured-via-private-overlay",
+		"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+		"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+		"AI_GATEWAY_BINDING_PROVIDERS": "configured-via-private-overlay",
+		"AI_GATEWAY_AUTO_ALLOWED_PROVIDERS": "configured-via-private-overlay",
+		"AI_GATEWAY_AUTO_ALLOWED_IMAGE_MODELS": "configured-via-private-overlay",
+		"AI_GATEWAY_AUTO_ALLOWED_MODELS": "configured-via-private-overlay",
+		"KERNEL_WORKERS_AI_MODEL": "configured-via-private-overlay",
+		"KERNEL_MODEL_REF": "configured-via-private-overlay",
+		"CF_ACCOUNT_HASH": "configured-via-private-overlay",
+		"CF_CMS_SAAS_ZONE_ID": "configured-via-private-overlay",
+		"CF_CMS_SAAS_TARGET_DOMAIN": "configured-via-private-overlay",
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "public-installation-database",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"remote": false,
+		},
+	],
+	"agent_memory": [
+		{
+			"binding": "AGENT_MEMORY",
+			"namespace": "public-installation-namespace",
+		},
+	],
+	"artifacts": [
+		{
+			"binding": "ARTIFACTS",
+			"namespace": "public-installation-namespace",
+			"remote": false,
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "R2_BUCKET",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+		{
+			"binding": "TEDI_R2_BUCKET",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+		{
+			"binding": "CONTENT_CMS_BUCKET",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+		{
+			"binding": "SKILL_ARTIFACTS",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+	],
+	"ai": {
+		"binding": "AI",
+		"remote": false,
+	},
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA",
+	},
+	"browser": {
+		"binding": "BROWSER",
+		"remote": false,
+	},
+	"send_email": [
+		{
+			"name": "EMAIL",
+			"remote": false,
+		},
+	],
+	"ai_search_namespaces": [
+		{
+			"binding": "AI_SEARCH",
+			"namespace": "public-installation-namespace",
+		},
+		{
+			"binding": "CONTENT_AI_SEARCH",
+			"namespace": "public-installation-namespace",
+		},
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "KERNEL",
+				"class_name": "KernelDOv4",
+			},
+			{
+				"name": "KERNEL_VOICE",
+				"class_name": "KernelVoiceDO",
+			},
+			{
+				"name": "KERNEL_VOICE_INPUT",
+				"class_name": "KernelVoiceInputDO",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["McpHealthCheckAgent"],
+		},
+		{
+			"tag": "v2",
+			"renamed_classes": [
+				{
+					"from": "McpHealthCheckAgent",
+					"to": "McpScanAgent",
+				},
+			],
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["McpHub"],
+		},
+		{
+			"tag": "v4",
+			"deleted_classes": ["McpScanAgent"],
+		},
+		{
+			"tag": "v5",
+			"deleted_classes": ["McpHub"],
+		},
+		{
+			"tag": "v6",
+			"new_sqlite_classes": ["TenantKernelDO"],
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": ["KernelVoiceDO"],
+		},
+		{
+			"tag": "v8",
+			"renamed_classes": [
+				{
+					"from": "TenantKernelDO",
+					"to": "KernelDO",
+				},
+			],
+		},
+		{
+			"tag": "v9",
+			"renamed_classes": [
+				{
+					"from": "KernelDO",
+					"to": "KernelDOv2",
+				},
+			],
+		},
+		{
+			"tag": "v10",
+			"renamed_classes": [
+				{
+					"from": "KernelDOv2",
+					"to": "KernelDOv3",
+				},
+			],
+		},
+		{
+			"tag": "v11",
+			"renamed_classes": [
+				{
+					"from": "KernelDOv3",
+					"to": "KernelDOv4",
+				},
+			],
+		},
+		{
+			"tag": "v12",
+			"new_sqlite_classes": ["KernelVoiceInputDO"],
+		},
+	],
+	"ratelimits": [
+		{
+			"name": "API_RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 1000,
+				"period": 60,
+			},
+		},
+	],
+	"workflows": [
+		{
+			"binding": "CMS_DEPROVISION_WORKFLOW",
+			"name": "public-installation-workflow-base-0",
+			"class_name": "CmsDeprovisionWorkflow",
+		},
+		{
+			"binding": "EXTRACTION_WORKFLOW",
+			"name": "public-installation-workflow-base-1",
+			"class_name": "ExtractionWorkflow",
+		},
+		{
+			"binding": "IMPORT_WORKFLOW",
+			"name": "public-installation-workflow-base-2",
+			"class_name": "ImportWorkflow",
+		},
+		{
+			"binding": "CONTENT_SYNC_WORKFLOW",
+			"name": "public-installation-workflow-base-3",
+			"class_name": "ContentSyncWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "CONTENT_INGESTION_WORKFLOW",
+			"name": "public-installation-workflow-base-4",
+			"class_name": "ContentIngestionWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "CATALOG_SYNC_WORKFLOW",
+			"name": "public-installation-workflow-base-5",
+			"class_name": "CatalogSyncWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "CATALOG_INTEGRITY_WORKFLOW",
+			"name": "public-installation-workflow-base-6",
+			"class_name": "CatalogIntegrityWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "CATALOG_DRIFT_WORKFLOW",
+			"name": "public-installation-workflow-base-7",
+			"class_name": "CatalogDriftWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "CATALOG_ENRICHMENT_WORKFLOW",
+			"name": "public-installation-workflow-base-8",
+			"class_name": "CatalogEnrichmentWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "MCP_SCAN_WORKFLOW",
+			"name": "public-installation-workflow-base-9",
+			"class_name": "McpScanWorkflow",
+		},
+		{
+			"binding": "TOOL_TEST_WORKFLOW",
+			"name": "public-installation-workflow-base-10",
+			"class_name": "McpToolTestWorkflow",
+		},
+		{
+			"binding": "MEMORY_REFLECTION_WORKFLOW",
+			"name": "public-installation-workflow-base-11",
+			"class_name": "MemoryReflectionWorkflow",
+		},
+		{
+			"binding": "GRAPH_PROJECTION_DRAIN_WORKFLOW",
+			"name": "public-installation-workflow-base-12",
+			"class_name": "GraphProjectionDrainWorkflow",
+			"limits": {
+				"steps": 25000,
+			},
+		},
+		{
+			"binding": "GRAPH_GDS_REFRESH_WORKFLOW",
+			"name": "public-installation-workflow-base-13",
+			"class_name": "GraphGdsRefreshWorkflow",
+		},
+		{
+			"binding": "APPROVAL_WORKFLOW",
+			"name": "public-installation-workflow-base-14",
+			"class_name": "ApprovalWorkflow",
+		},
+		{
+			"binding": "KERNEL_GOAL_LOOP_WORKFLOW",
+			"name": "public-installation-workflow-base-15",
+			"class_name": "KernelGoalLoopWorkflow",
+		},
+		{
+			"binding": "MCP_EVAL_WORKFLOW",
+			"name": "public-installation-workflow-base-16",
+			"class_name": "McpEvalWorkflow",
+		},
+		{
+			"binding": "TOOL_SCHEMA_SYNC_WORKFLOW",
+			"name": "public-installation-workflow-base-17",
+			"class_name": "ToolSchemaSyncWorkflow",
+		},
+		{
+			"binding": "OPENAPI_SYNC_WORKFLOW",
+			"name": "public-installation-workflow-base-18",
+			"class_name": "OpenApiSyncWorkflow",
+		},
+		{
+			"binding": "TEDI_MCP_ACCESS_HEALTH_WORKFLOW",
+			"name": "public-installation-workflow-base-19",
+			"class_name": "TediMcpAccessHealthWorkflow",
+		},
+	],
+	"triggers": {
+		"crons": [
+			"*/2 * * * *",
+			"*/15 * * * *",
+			"0 * * * *",
+			"0 2 * * *",
+			"0 3 * * *",
+			"0 4 * * *",
+			"0 6 * * *",
+			"0 7 * * *",
+			"0 */6 * * *",
+		],
+	},
+	"queues": {
+		"producers": [
+			{
+				"binding": "AUTOMATION_EVENTS",
+				"queue": "public-installation-queue-base-0",
+			},
+		],
+	},
+	"analytics_engine_datasets": [
+		{
+			"binding": "WIDGET_ANALYTICS",
+			"dataset": "public_installation_dataset",
+		},
+	],
+	"services": [
+		{
+			"binding": "TEDI_SERVICE",
+			"service": "public-installation-tedi",
+			"entrypoint": "InternalEntrypoint",
+		},
+		{
+			"binding": "MCP_SERVICE",
+			"service": "public-installation-mcp",
+			"entrypoint": "InternalEntrypoint",
+		},
+		{
+			"binding": "SKILL_RUNTIME",
+			"service": "public-installation-skill-runtime",
+			"entrypoint": "InternalEntrypoint",
+		},
+		{
+			"binding": "CMS",
+			"service": "public-installation-cms",
+		},
+		{
+			"binding": "DOCS",
+			"service": "public-installation-docs",
+		},
+	],
+	"secrets": {
+		"required": [
+			"SECRETS_MASTER_KEY",
+			"DESCOPE_PROJECT_ID",
+			"DESCOPE_MANAGEMENT_KEY",
+			"DESCOPE_BASE_URL",
+			"CF_ACCOUNT_ID",
+			"CF_ANALYTICS_TOKEN",
+			"CF_OBSERVABILITY_TOKEN",
+			"CF_IMAGES_TOKEN",
+			"CF_CMS_HOSTNAMES_TOKEN",
+			"DATAFORSEO_API_KEY",
+			"FIRECRAWL_API_KEY",
+			"FIRECRAWL_WEBHOOK_SECRET",
+			"STRIPE_SECRET_KEY",
+			"STRIPE_TEST_SECRET_KEY",
+			"STRIPE_WEBHOOK_SECRET",
+			"STRIPE_TEST_WEBHOOK_SECRET",
+			"GEMINI_API_KEY",
+			"GRAPH_DB_PASSWORD",
+			"GOOGLE_SERVICE_ACCOUNT_KEY",
+			"PLATFORM_SERVICE_TOKEN",
+			"CF_WORKERS_AI_TOKEN",
+			"CF_AI_GATEWAY_TOKEN",
+		],
+	},
+	"env": {
+		"production": {
+			"secrets": {
+				"required": [
+					"SECRETS_MASTER_KEY",
+					"DESCOPE_PROJECT_ID",
+					"DESCOPE_MANAGEMENT_KEY",
+					"DESCOPE_BASE_URL",
+					"CF_ACCOUNT_ID",
+					"CF_ANALYTICS_TOKEN",
+					"CF_OBSERVABILITY_TOKEN",
+					"CF_IMAGES_TOKEN",
+					"CF_CMS_HOSTNAMES_TOKEN",
+					"DATAFORSEO_API_KEY",
+					"FIRECRAWL_API_KEY",
+					"FIRECRAWL_WEBHOOK_SECRET",
+					"STRIPE_SECRET_KEY",
+					"STRIPE_TEST_SECRET_KEY",
+					"STRIPE_WEBHOOK_SECRET",
+					"STRIPE_TEST_WEBHOOK_SECRET",
+					"GEMINI_API_KEY",
+					"GRAPH_DB_PASSWORD",
+					"GOOGLE_SERVICE_ACCOUNT_KEY",
+					"PLATFORM_SERVICE_TOKEN",
+					"CF_WORKERS_AI_TOKEN",
+					"CF_AI_GATEWAY_TOKEN",
+				],
+			},
+			"vars": {
+				"ENVIRONMENT": "production",
+				"GIT_SHA": "configured-via-private-overlay",
+				"CF_CMS_SAAS_ZONE_ID": "configured-via-private-overlay",
+				"CF_CMS_SAAS_TARGET_DOMAIN": "configured-via-private-overlay",
+				"TEDIX_FLEET_AUTHORITY_MODE": "configured-via-private-overlay",
+				"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
+				"TEDIX_STRIPE_MODE": "configured-via-private-overlay",
+				"ASSETS_URL": "configured-via-private-overlay",
+				"API_URL": "configured-via-private-overlay",
+				"UNTRUSTED_CONTENT_ORIGIN": "configured-via-private-overlay",
+				"MCP_UI_URL": "configured-via-private-overlay",
+				"MCP_URL": "configured-via-private-overlay",
+				"OS_URL": "configured-via-private-overlay",
+				"STRIPE_BILLING_PORTAL_CONFIGURATION_ID": "configured-via-private-overlay",
+				"STRIPE_TEST_BILLING_PORTAL_CONFIGURATION_ID": "configured-via-private-overlay",
+				"DATAFORSEO_MANAGED_ENABLED": "configured-via-private-overlay",
+				"TEDI_DEV_BASE_URL": "configured-via-private-overlay",
+				"ANALYTICS_ENGINE_DATASET": "configured-via-private-overlay",
+				"WIDGET_ANALYTICS_DATASET": "configured-via-private-overlay",
+				"COST_ALERT_EMAIL": "configured-via-private-overlay",
+				"HEALTH_ALERT_EMAIL": "configured-via-private-overlay",
+				"HEALTH_ALERT_WEBHOOK": "configured-via-private-overlay",
+				"CODEMODE_ANALYTICS_DATASET": "configured-via-private-overlay",
+				"R2_SQL_WAREHOUSE": "configured-via-private-overlay",
+				"R2_SQL_TABLE": "configured-via-private-overlay",
+				"AZURE_OPENAI_STT_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OPENAI_STT_API_VERSION": "configured-via-private-overlay",
+				"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+				"AZURE_OPENAI_TTS_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OPENAI_TTS_VOICE": "configured-via-private-overlay",
+				"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+				"KERNEL_EXECUTE": "configured-via-private-overlay",
+				"KERNEL_ANSWER_DELTA_PERSIST": "configured-via-private-overlay",
+				"EARNED_DELEGATION_ENFORCEMENT": "configured-via-private-overlay",
+				"KERNEL_INBOX_WAKE_DELAY_MS": "configured-via-private-overlay",
+				"KERNEL_MAX_PLAN_OWNERS": "configured-via-private-overlay",
+				"KERNEL_MAX_DELEGATIONS": "configured-via-private-overlay",
+				"WORK_ATTEMPT_ARTIFACTS_ENABLED": "configured-via-private-overlay",
+				"WORKSTATION_AUTO_DISPATCH_ENABLED": "configured-via-private-overlay",
+				"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_BINDING_PROVIDERS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_PROVIDERS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_IMAGE_MODELS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_MODELS": "configured-via-private-overlay",
+				"KERNEL_WORKERS_AI_MODEL": "configured-via-private-overlay",
+				"KERNEL_MODEL_REF": "configured-via-private-overlay",
+				"CF_ACCOUNT_HASH": "configured-via-private-overlay",
+				"GRAPH_DB_URI": "configured-via-private-overlay",
+				"GRAPH_DB_USER": "configured-via-private-overlay",
+			},
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "public-installation-database",
+					"database_id": "00000000-0000-0000-0000-000000000000",
+					"remote": false,
+				},
+			],
+			"agent_memory": [
+				{
+					"binding": "AGENT_MEMORY",
+					"namespace": "public-installation-namespace",
+				},
+			],
+			"artifacts": [
+				{
+					"binding": "ARTIFACTS",
+					"namespace": "public-installation-namespace",
+					"remote": false,
+				},
+			],
+			"r2_buckets": [
+				{
+					"binding": "R2_BUCKET",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+				{
+					"binding": "TEDI_R2_BUCKET",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+				{
+					"binding": "CONTENT_CMS_BUCKET",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+				{
+					"binding": "SKILL_ARTIFACTS",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+			],
+			"ai": {
+				"binding": "AI",
+				"remote": false,
+			},
+			"version_metadata": {
+				"binding": "CF_VERSION_METADATA",
+			},
+			"ai_search_namespaces": [
+				{
+					"binding": "AI_SEARCH",
+					"namespace": "public-installation-namespace",
+				},
+				{
+					"binding": "CONTENT_AI_SEARCH",
+					"namespace": "public-installation-namespace",
+				},
+			],
+			"browser": {
+				"binding": "BROWSER",
+				"remote": false,
+			},
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "KERNEL",
+						"class_name": "KernelDOv4",
+					},
+					{
+						"name": "KERNEL_VOICE",
+						"class_name": "KernelVoiceDO",
+					},
+					{
+						"name": "KERNEL_VOICE_INPUT",
+						"class_name": "KernelVoiceInputDO",
+					},
+				],
+			},
+			"ratelimits": [
+				{
+					"name": "API_RATE_LIMITER",
+					"namespace_id": "1001",
+					"simple": {
+						"limit": 1000,
+						"period": 60,
+					},
+				},
+			],
+			"workflows": [
+				{
+					"binding": "CMS_DEPROVISION_WORKFLOW",
+					"name": "public-installation-workflow-env-production-0",
+					"class_name": "CmsDeprovisionWorkflow",
+				},
+				{
+					"binding": "EXTRACTION_WORKFLOW",
+					"name": "public-installation-workflow-env-production-1",
+					"class_name": "ExtractionWorkflow",
+				},
+				{
+					"binding": "IMPORT_WORKFLOW",
+					"name": "public-installation-workflow-env-production-2",
+					"class_name": "ImportWorkflow",
+				},
+				{
+					"binding": "CONTENT_SYNC_WORKFLOW",
+					"name": "public-installation-workflow-env-production-3",
+					"class_name": "ContentSyncWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "CONTENT_INGESTION_WORKFLOW",
+					"name": "public-installation-workflow-env-production-4",
+					"class_name": "ContentIngestionWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "CATALOG_SYNC_WORKFLOW",
+					"name": "public-installation-workflow-env-production-5",
+					"class_name": "CatalogSyncWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "CATALOG_INTEGRITY_WORKFLOW",
+					"name": "public-installation-workflow-env-production-6",
+					"class_name": "CatalogIntegrityWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "CATALOG_DRIFT_WORKFLOW",
+					"name": "public-installation-workflow-env-production-7",
+					"class_name": "CatalogDriftWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "CATALOG_ENRICHMENT_WORKFLOW",
+					"name": "public-installation-workflow-env-production-8",
+					"class_name": "CatalogEnrichmentWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "MCP_SCAN_WORKFLOW",
+					"name": "public-installation-workflow-env-production-9",
+					"class_name": "McpScanWorkflow",
+				},
+				{
+					"binding": "TOOL_TEST_WORKFLOW",
+					"name": "public-installation-workflow-env-production-10",
+					"class_name": "McpToolTestWorkflow",
+				},
+				{
+					"binding": "MEMORY_REFLECTION_WORKFLOW",
+					"name": "public-installation-workflow-env-production-11",
+					"class_name": "MemoryReflectionWorkflow",
+				},
+				{
+					"binding": "GRAPH_PROJECTION_DRAIN_WORKFLOW",
+					"name": "public-installation-workflow-env-production-12",
+					"class_name": "GraphProjectionDrainWorkflow",
+					"limits": {
+						"steps": 25000,
+					},
+				},
+				{
+					"binding": "GRAPH_GDS_REFRESH_WORKFLOW",
+					"name": "public-installation-workflow-env-production-13",
+					"class_name": "GraphGdsRefreshWorkflow",
+				},
+				{
+					"binding": "APPROVAL_WORKFLOW",
+					"name": "public-installation-workflow-env-production-14",
+					"class_name": "ApprovalWorkflow",
+				},
+				{
+					"binding": "KERNEL_GOAL_LOOP_WORKFLOW",
+					"name": "public-installation-workflow-env-production-15",
+					"class_name": "KernelGoalLoopWorkflow",
+				},
+				{
+					"binding": "MCP_EVAL_WORKFLOW",
+					"name": "public-installation-workflow-env-production-16",
+					"class_name": "McpEvalWorkflow",
+				},
+				{
+					"binding": "TOOL_SCHEMA_SYNC_WORKFLOW",
+					"name": "public-installation-workflow-env-production-17",
+					"class_name": "ToolSchemaSyncWorkflow",
+				},
+				{
+					"binding": "OPENAPI_SYNC_WORKFLOW",
+					"name": "public-installation-workflow-env-production-18",
+					"class_name": "OpenApiSyncWorkflow",
+				},
+				{
+					"binding": "TEDI_MCP_ACCESS_HEALTH_WORKFLOW",
+					"name": "public-installation-workflow-env-production-19",
+					"class_name": "TediMcpAccessHealthWorkflow",
+				},
+			],
+			"triggers": {
+				"crons": [
+					"*/2 * * * *",
+					"*/15 * * * *",
+					"0 * * * *",
+					"0 2 * * *",
+					"0 3 * * *",
+					"0 4 * * *",
+					"0 6 * * *",
+					"0 7 * * *",
+					"0 */6 * * *",
+				],
+			},
+			"queues": {
+				"producers": [
+					{
+						"binding": "AUTOMATION_EVENTS",
+						"queue": "public-installation-queue-env-production-0",
+					},
+				],
+				"consumers": [
+					{
+						"queue": "public-installation-queue-env-production-0",
+						"max_batch_size": 10,
+						"max_batch_timeout": 5,
+						"max_retries": 3,
+						"dead_letter_queue": "tedix-automation-events-dlq",
+					},
+				],
+			},
+			"analytics_engine_datasets": [
+				{
+					"binding": "WIDGET_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+			],
+			"services": [
+				{
+					"binding": "TEDI_SERVICE",
+					"service": "public-installation-tedi",
+					"entrypoint": "InternalEntrypoint",
+				},
+				{
+					"binding": "MCP_SERVICE",
+					"service": "public-installation-mcp",
+					"entrypoint": "InternalEntrypoint",
+				},
+				{
+					"binding": "SKILL_RUNTIME",
+					"service": "public-installation-skill-runtime",
+					"entrypoint": "InternalEntrypoint",
+				},
+				{
+					"binding": "CMS",
+					"service": "public-installation-cms",
+				},
+				{
+					"binding": "DOCS",
+					"service": "public-installation-docs",
+				},
+			],
+			"send_email": [
+				{
+					"name": "EMAIL",
+				},
+			],
+		},
+	},
+}

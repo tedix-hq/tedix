@@ -1,0 +1,334 @@
+---
+// Navbar.astro — Pure Astro replacement for navbar.tsx
+// All interactivity handled via <script> tag (no React, no useState/useEffect)
+import { buttonVariants } from "@/components/ui/button";
+import {
+	defaultLocale,
+	getLocaleContent,
+	localizeHomePath,
+	supportedLocaleCodes,
+	supportedLocales,
+	switchLocalePath,
+	type Locale,
+} from "../i18n/content";
+
+interface Props {
+	locale?: Locale;
+}
+
+const { locale = defaultLocale } = Astro.props;
+const content = getLocaleContent(locale).nav;
+const NAV_LINKS = [
+  { href: localizeHomePath(locale, "what-a-tedi-does"), label: content.product },
+  { href: localizeHomePath(locale, "use-cases"), label: content.useCases },
+  { href: "/apps/", label: content.apps },
+  { href: "https://blog.tedix.dev/", label: content.blog },
+];
+
+import { PRODUCT_AUTH_URL } from "../lib/product-urls";
+const languageLinks = supportedLocaleCodes.map((code) => ({
+	code,
+	label: supportedLocales[code],
+	href: switchLocalePath(Astro.url.pathname, code),
+	isCurrent: code === locale,
+}));
+const currentLanguageLabel = supportedLocales[locale];
+
+// Shared SVG attributes
+const svgAttrs = {
+  xmlns: "http://www.w3.org/2000/svg",
+  width: "20",
+  height: "20",
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  "stroke-width": "2",
+  "stroke-linecap": "round",
+  "stroke-linejoin": "round",
+};
+
+const ghostSm = buttonVariants({ variant: "ghost", size: "sm" });
+const ghostIcon = buttonVariants({
+  variant: "ghost",
+  size: "sm",
+  className: "size-9 p-0",
+});
+const defaultSm = buttonVariants({ size: "sm" });
+---
+
+<div
+  class="fixed top-6 right-0 left-0 z-50 flex justify-center px-4"
+  data-nav-container
+>
+  <nav
+    data-navbar
+    data-scrolled="false"
+    class="relative flex w-full max-w-4xl items-center justify-between rounded-full border border-border bg-background/80 px-3 py-3 shadow-md backdrop-blur-xl transition-all duration-300 ease-in-out sm:px-5 lg:px-6 [&[data-scrolled='true']]:max-w-[1280px] [&[data-scrolled='true']]:border-primary/20 [&[data-scrolled='true']]:shadow-lg"
+  >
+    {/* Logo */}
+    <a href={localizeHomePath(locale)} class="group flex items-center gap-2">
+      <img src="/images/tedi-astronaut-waving.png" alt="Tedix" class="h-8 w-8 object-contain" />
+      <span class="font-bold font-display text-lg tracking-tight sm:text-xl">Tedix</span>
+    </a>
+
+    {/* Desktop nav links */}
+    <div class="hidden items-center gap-1 lg:flex">
+      {NAV_LINKS.map((link) => (
+        <a href={link.href} class={`${ghostSm} rounded-full`}>
+          {link.label}
+        </a>
+      ))}
+    </div>
+
+    {/* Actions */}
+    <div class="flex items-center gap-2">
+      <details class="group relative hidden lg:block" data-language-menu>
+        <summary
+          class={`${ghostSm} cursor-pointer list-none rounded-full border border-border/70 bg-background/60 px-3 [&::-webkit-details-marker]:hidden`}
+          aria-label={content.languageLabel}
+          title={currentLanguageLabel}
+        >
+          <span>{locale.toUpperCase()}</span>
+          <svg {...svgAttrs} class="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </summary>
+        <div class="absolute right-0 top-full mt-2 min-w-36 rounded-2xl border border-border bg-background/95 p-1.5 shadow-xl backdrop-blur-xl">
+          {languageLinks.map((link) => (
+            <a
+              href={link.href}
+              class={`flex items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${link.isCurrent ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              aria-current={link.isCurrent ? "page" : undefined}
+              title={link.label}
+            >
+              <span>{link.label}</span>
+              <span class="text-[10px] uppercase opacity-70">{link.code}</span>
+            </a>
+          ))}
+        </div>
+      </details>
+      {/* Theme toggle — desktop only. Mobile version lives inside the menu. */}
+      <button
+        data-theme-toggle
+        class={`${ghostIcon} max-lg:!hidden lg:inline-flex`}
+        aria-label={content.toggleTheme}
+      >
+        {/* Sun icon — visible in dark mode */}
+        <svg {...svgAttrs} class="hidden dark:block h-5 w-5">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2" />
+          <path d="M12 20v2" />
+          <path d="m4.93 4.93 1.41 1.41" />
+          <path d="m17.66 17.66 1.41 1.41" />
+          <path d="M2 12h2" />
+          <path d="M20 12h2" />
+          <path d="m6.34 17.66-1.41 1.41" />
+          <path d="m19.07 4.93-1.41 1.41" />
+        </svg>
+        {/* Moon icon — visible in light mode */}
+        <svg {...svgAttrs} class="block dark:hidden h-5 w-5">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+      </button>
+
+      {/* Login */}
+      <a
+        href={PRODUCT_AUTH_URL}
+        class={`${ghostSm} max-lg:!hidden rounded-full lg:inline-flex`}
+      >
+        {content.login}
+      </a>
+
+      {/* Request Access */}
+      <a
+        href={PRODUCT_AUTH_URL}
+        class={`${defaultSm} inline-flex rounded-full px-3 shadow-sm hover:opacity-90 sm:px-4`}
+      >
+        {content.requestAccess}
+      </a>
+
+      {/* Hamburger button — mobile only */}
+      <button
+        data-menu-btn
+        class={`${ghostIcon} lg:hidden`}
+        aria-label={content.openMenu}
+        aria-expanded="false"
+      >
+        <div class="relative h-5 w-5">
+          {/* Menu icon */}
+          <svg
+            {...svgAttrs}
+            class="absolute inset-0 h-5 w-5 transition-all duration-200"
+            data-icon="menu"
+          >
+            <line x1="4" x2="20" y1="12" y2="12" />
+            <line x1="4" x2="20" y1="6" y2="6" />
+            <line x1="4" x2="20" y1="18" y2="18" />
+          </svg>
+          {/* X icon */}
+          <svg
+            {...svgAttrs}
+            class="absolute inset-0 h-5 w-5 transition-all duration-200 -rotate-90 scale-0 opacity-0"
+            data-icon="close"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </div>
+      </button>
+    </div>
+  </nav>
+
+  {/* Mobile Menu Dropdown */}
+  <div
+    data-mobile-menu
+    data-open="false"
+    class="absolute top-full right-4 mt-2 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-border bg-background/95 shadow-xl backdrop-blur-xl transition-all duration-300 ease-in-out lg:hidden [&[data-open='false']]:max-h-0 [&[data-open='false']]:opacity-0 [&[data-open='false']]:-translate-y-2 [&[data-open='false']]:pointer-events-none [&[data-open='true']]:max-h-[560px] [&[data-open='true']]:opacity-100 [&[data-open='true']]:translate-y-0"
+  >
+    <div class="flex flex-col gap-1 p-4">
+      {NAV_LINKS.map((link) => (
+        <a
+          href={link.href}
+          class="rounded-xl px-4 py-3 font-medium text-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:bg-amber-400/10 dark:hover:text-amber-400"
+        >
+          {link.label}
+        </a>
+      ))}
+      <hr class="my-2 border-border" />
+      <button
+        type="button"
+        data-theme-toggle
+        class="flex items-center justify-between rounded-xl bg-muted/60 px-4 py-3 font-semibold text-foreground transition-colors hover:bg-muted"
+      >
+        <span>{content.toggleTheme}</span>
+        <span class="inline-flex size-9 items-center justify-center rounded-full border border-border bg-background/70">
+          <svg {...svgAttrs} class="hidden dark:block h-5 w-5" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2" />
+            <path d="M12 20v2" />
+            <path d="m4.93 4.93 1.41 1.41" />
+            <path d="m17.66 17.66 1.41 1.41" />
+            <path d="M2 12h2" />
+            <path d="M20 12h2" />
+            <path d="m6.34 17.66-1.41 1.41" />
+            <path d="m19.07 4.93-1.41 1.41" />
+          </svg>
+          <svg {...svgAttrs} class="block dark:hidden h-5 w-5" aria-hidden="true">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+          </svg>
+        </span>
+      </button>
+      <hr class="my-2 border-border" />
+      <details class="group px-1 py-1" data-language-menu>
+        <summary
+          class="flex cursor-pointer list-none items-center justify-between rounded-xl bg-muted/60 px-4 py-3 font-semibold text-foreground transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden"
+          aria-label={content.languageLabel}
+        >
+          <span>{content.languageLabel}</span>
+          <span class="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            {locale.toUpperCase()}
+            <svg {...svgAttrs} class="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+        </summary>
+        <div class="mt-2 grid gap-1 rounded-xl border border-border bg-background/80 p-1.5">
+          {languageLinks.map((link) => (
+            <a
+              href={link.href}
+              class={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${link.isCurrent ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              aria-current={link.isCurrent ? "page" : undefined}
+              title={link.label}
+            >
+              <span>{link.label}</span>
+              <span class="text-[10px] uppercase opacity-70">{link.code}</span>
+            </a>
+          ))}
+        </div>
+      </details>
+      <hr class="my-2 border-border" />
+      <a
+        href={PRODUCT_AUTH_URL}
+        class="rounded-xl px-4 py-3 font-medium text-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:bg-amber-400/10 dark:hover:text-amber-400"
+      >
+        {content.login}
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Navbar interactivity — uses astro:page-load for View Transitions compatibility
+  function initNavbar() {
+    const nav = document.querySelector('[data-navbar]') as HTMLElement;
+    const menuBtn = document.querySelector('[data-menu-btn]') as HTMLElement;
+    const mobileMenu = document.querySelector('[data-mobile-menu]') as HTMLElement;
+    const navContainer = document.querySelector('[data-nav-container]') as HTMLElement;
+    if (!nav || !menuBtn || !mobileMenu) return;
+
+    const resetIcons = () => {
+      const menuIcon = menuBtn.querySelector('[data-icon="menu"]') as SVGElement;
+      const closeIcon = menuBtn.querySelector('[data-icon="close"]') as SVGElement;
+      if (!menuIcon || !closeIcon) return;
+      menuIcon.classList.remove('rotate-90', 'scale-0', 'opacity-0');
+      menuIcon.classList.add('rotate-0', 'scale-100', 'opacity-100');
+      closeIcon.classList.remove('rotate-0', 'scale-100', 'opacity-100');
+      closeIcon.classList.add('-rotate-90', 'scale-0', 'opacity-0');
+    };
+
+    const closeMenu = () => {
+      mobileMenu.dataset.open = 'false';
+      menuBtn.setAttribute('aria-expanded', 'false');
+      document.body.style.overflow = '';
+      resetIcons();
+    };
+
+    // Scroll detection
+    window.addEventListener('scroll', () => {
+      nav.dataset.scrolled = String(window.scrollY > 20);
+    }, { passive: true });
+
+    // Mobile menu toggle
+    menuBtn.addEventListener('click', () => {
+      const isOpen = mobileMenu.dataset.open === 'true';
+      if (isOpen) {
+        closeMenu();
+      } else {
+        mobileMenu.dataset.open = 'true';
+        menuBtn.setAttribute('aria-expanded', 'true');
+        document.body.style.overflow = 'hidden';
+        const menuIcon = menuBtn.querySelector('[data-icon="menu"]') as SVGElement;
+        const closeIcon = menuBtn.querySelector('[data-icon="close"]') as SVGElement;
+        if (menuIcon && closeIcon) {
+          menuIcon.classList.add('rotate-90', 'scale-0', 'opacity-0');
+          menuIcon.classList.remove('rotate-0', 'scale-100', 'opacity-100');
+          closeIcon.classList.add('rotate-0', 'scale-100', 'opacity-100');
+          closeIcon.classList.remove('-rotate-90', 'scale-0', 'opacity-0');
+        }
+      }
+    });
+
+    // Close on outside click
+    document.addEventListener('mousedown', (e) => {
+      if (mobileMenu.dataset.open === 'true' && navContainer && !navContainer.contains(e.target as Node)) {
+        closeMenu();
+      }
+    });
+
+    // Close on link click
+    mobileMenu.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', closeMenu);
+    });
+
+    // Theme toggle
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      });
+    });
+  }
+
+  // Run on initial load AND after View Transition navigation
+  document.addEventListener('astro:page-load', initNavbar);
+</script>

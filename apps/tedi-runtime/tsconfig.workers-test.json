@@ -1,0 +1,24 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		// Production facet types are checked against generated Env. The Vitest
+		// runtime still uses exclusively isolated, scripted fixture bindings.
+		"types": [
+			"node",
+			"@cloudflare/workers-types",
+			"@cloudflare/vitest-plugin/types"
+		]
+	},
+	"include": [
+		"test/**/*.ts",
+		"vitest.workers.config.ts",
+		"worker-configuration.d.ts"
+	],
+	// Plain-bun harnesses: typechecked through the src tests that import them.
+	"exclude": [
+		"test/tedi-do.ts",
+		"test/tedi-edge.ts",
+		"test/facet.ts",
+		"test/embedded-edge.ts"
+	]
+}

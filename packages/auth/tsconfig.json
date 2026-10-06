@@ -1,0 +1,10 @@
+{
+	"extends": "@tedix/tsconfig/base.json",
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"types": ["@cloudflare/workers-types", "bun-types"]
+	},
+	"include": ["src/**/*", "scripts/**/*"],
+	"exclude": ["node_modules"]
+}

@@ -1,0 +1,170 @@
+---
+/**
+ * Newsletter — minimal email signup block backed by the
+ * `emdash-newsletter` plugin (POST /_emdash/api/plugins/emdash-newsletter/subscribe).
+ *
+ * Brand-aware via the same Tailwind CSS variables (`--color-brand-*`) as
+ * native Forms. No GDPR consent checkbox — the double-opt-in flow
+ * (confirmation email) is the legally relevant consent step.
+ *
+ * @example
+ *   <Newsletter
+ *     title="Subscribe to the newsletter"
+ *     subtitle="Get a digest each time we publish."
+ *     buttonLabel="Subscribe"
+ *   />
+ */
+
+interface Props {
+	title?: string;
+	subtitle?: string;
+	buttonLabel?: string;
+	successMessage?: string;
+	endpoint?: string;
+}
+
+const {
+	title,
+	subtitle,
+	buttonLabel = "Subscribe",
+	successMessage = "Check your inbox to confirm your subscription.",
+	endpoint = "/_emdash/api/plugins/emdash-newsletter/subscribe",
+} = Astro.props;
+
+const formId = `newsletter-${Math.random().toString(36).slice(2, 9)}`;
+const source = Astro.url.pathname;
+---
+
+<section class="my-12 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-8 md:p-10 shadow-sm">
+	{title && (
+		<h2 class="font-display text-2xl md:text-3xl font-semibold mb-3 text-gray-900 dark:text-gray-50">{title}</h2>
+	)}
+	{subtitle && (
+		<p class="text-gray-600 dark:text-gray-400 mb-6">{subtitle}</p>
+	)}
+
+	<form
+		id={formId}
+		data-endpoint={endpoint}
+		data-source={source}
+		data-success={successMessage}
+		class="space-y-4"
+		novalidate
+	>
+		<div>
+			<label for={`${formId}-email`} class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+			<input
+				id={`${formId}-email`}
+				name="email"
+				type="email"
+				required
+				autocomplete="email"
+				class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
+			/>
+		</div>
+
+		{/* Honeypot — bots fill this; real users never see it. */}
+		<input
+			type="text"
+			name="company_url"
+			tabindex="-1"
+			autocomplete="off"
+			aria-hidden="true"
+			style="position:absolute;left:-10000px;width:1px;height:1px;opacity:0;"
+		/>
+
+		<button
+			type="submit"
+			class="inline-flex items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+		>
+			<span data-label>{buttonLabel}</span>
+			<span data-spinner class="hidden ml-2">…</span>
+		</button>
+
+		<p class="text-xs text-gray-500 dark:text-gray-400">
+			We'll send a confirmation email — click the link inside to finish subscribing. Unsubscribe any time.
+		</p>
+
+		<div data-error class="hidden text-sm text-red-600 dark:text-red-400" role="alert"></div>
+		<div data-success-msg class="hidden text-sm text-green-700 dark:text-green-400" role="status"></div>
+	</form>
+</section>
+
+<script is:inline define:vars={{ formId }}>
+	(() => {
+		const form = document.getElementById(formId);
+		if (!form || !(form instanceof HTMLFormElement)) return;
+
+		const endpoint = form.dataset.endpoint || "/_emdash/api/plugins/emdash-newsletter/subscribe";
+		const source = form.dataset.source || "";
+		const successMessage = form.dataset.success || "Thanks!";
+		const errorEl = form.querySelector("[data-error]");
+		const successEl = form.querySelector("[data-success-msg]");
+		const labelEl = form.querySelector("[data-label]");
+		const spinnerEl = form.querySelector("[data-spinner]");
+		const button = form.querySelector('button[type="submit"]');
+
+		const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+		function showError(msg) {
+			if (errorEl) {
+				errorEl.textContent = msg;
+				errorEl.classList.remove("hidden");
+			}
+			if (successEl) successEl.classList.add("hidden");
+		}
+		function showSuccess(msg) {
+			if (successEl) {
+				successEl.textContent = msg;
+				successEl.classList.remove("hidden");
+			}
+			if (errorEl) errorEl.classList.add("hidden");
+		}
+
+		form.addEventListener("submit", async (ev) => {
+			ev.preventDefault();
+			if (errorEl) errorEl.classList.add("hidden");
+			if (successEl) successEl.classList.add("hidden");
+
+			const data = new FormData(form);
+			if (data.get("company_url")) {
+				showSuccess(successMessage);
+				form.reset();
+				return;
+			}
+			const email = String(data.get("email") || "").trim();
+			if (!EMAIL_RE.test(email)) {
+				showError("Please enter a valid email address.");
+				return;
+			}
+
+			button?.setAttribute("disabled", "true");
+			spinnerEl?.classList.remove("hidden");
+			labelEl?.classList.add("opacity-60");
+			try {
+				const res = await fetch(endpoint, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ email, source }),
+				});
+				if (!res.ok) {
+					showError(`Submission failed (${res.status}). Please try again.`);
+					return;
+				}
+				const json = await res.json().catch(() => ({ ok: true }));
+				if (json && json.ok === false) {
+					showError(json.error || "Submission failed. Please try again.");
+					return;
+				}
+				showSuccess(successMessage);
+				form.reset();
+			} catch (err) {
+				showError("Network error. Please try again.");
+			} finally {
+				button?.removeAttribute("disabled");
+				spinnerEl?.classList.add("hidden");
+				labelEl?.classList.remove("opacity-60");
+			}
+		});
+	})();
+</script>

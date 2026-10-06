@@ -1,0 +1,1 @@
+CREATE TRIGGER IF NOT EXISTS require_org_id_for_attributed_calls BEFORE INSERT ON tedi_call_costs WHEN NEW.session_type IN ('tedi', 'tedi_observer', 'kernel') AND NEW.org_id IS NULL BEGIN SELECT RAISE(ABORT, 'tedi_call_costs: org_id is required when session_type is tedi/tedi_observer/kernel'); END;

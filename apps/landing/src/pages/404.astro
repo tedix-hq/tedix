@@ -1,0 +1,33 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="Page Not Found | Tedix">
+	<section class="container mx-auto px-4 py-32 text-center">
+		<div class="mx-auto max-w-lg">
+			<div class="mb-8 inline-flex h-24 w-24 items-center justify-center rounded-full bg-muted">
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+				</svg>
+			</div>
+			<h1 class="mb-4 font-bold font-display text-4xl md:text-5xl">Page Not Found</h1>
+			<p class="mb-10 text-lg text-muted-foreground">
+				The page you're looking for doesn't exist or has been moved.
+			</p>
+			<div class="flex flex-wrap justify-center gap-4">
+				<a
+					href="/"
+					class="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-600 to-orange-600 px-8 py-3 font-medium text-white shadow-lg hover:from-amber-700 hover:to-orange-700 transition-all"
+				>
+					Go Home
+				</a>
+				<a
+					href="/apps/"
+					class="inline-flex items-center gap-2 rounded-full border border-border px-8 py-3 font-medium hover:bg-muted transition-colors"
+				>
+					Browse Apps
+				</a>
+			</div>
+		</div>
+	</section>
+</BaseLayout>

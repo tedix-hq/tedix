@@ -1,0 +1,73 @@
+---
+import type { HubPage } from "../lib/docs-hubs";
+
+interface Props {
+  pages: HubPage[];
+  filter: "topic" | "type";
+  empty: string;
+}
+
+const { pages, filter, empty } = Astro.props;
+const values = [...new Set(pages.map((page) => filter === "topic" ? page.topic : page.type).filter((value): value is string => Boolean(value)))].sort();
+const typeLabel = (value?: string) => value?.replace(/-/g, " ") ?? "Page";
+---
+
+<section data-catalog class="mt-10" aria-label="Catalog">
+  <div class="mb-6 flex flex-wrap gap-3">
+    <label class="flex min-w-60 flex-1 flex-col gap-1 text-xs font-medium text-muted-foreground">
+      Search pages
+      <input data-catalog-search type="search" placeholder="Search titles and summaries" class="h-10 rounded-md border border-border-strong bg-card px-3 text-sm text-foreground outline-none focus:border-primary" />
+    </label>
+    {values.length > 1 && (
+      <label class="flex min-w-48 flex-col gap-1 text-xs font-medium text-muted-foreground">
+        {filter === "topic" ? "Topic" : "Resource type"}
+        <select data-catalog-filter class="h-10 rounded-md border border-border-strong bg-card px-3 text-sm text-foreground outline-none focus:border-primary">
+          <option value="">All {filter === "topic" ? "topics" : "types"}</option>
+          {values.map((value) => <option value={value}>{filter === "type" ? typeLabel(value) : value}</option>)}
+        </select>
+      </label>
+    )}
+  </div>
+  <p data-catalog-count class="mb-4 text-sm text-muted-foreground" aria-live="polite">{pages.length} {pages.length === 1 ? "page" : "pages"}</p>
+  {pages.length ? (
+    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {pages.map((page) => (
+        <a href={page.href} data-catalog-card data-filter-value={filter === "topic" ? page.topic : page.type ?? ""} data-search-text={`${page.title} ${page.description} ${page.topic} ${typeLabel(page.type)}`.toLowerCase()} class="td-home-card flex min-h-44 flex-col p-5 no-underline">
+          <span class="text-xs font-semibold uppercase tracking-wider text-primary">{filter === "topic" ? page.topic : typeLabel(page.type)}</span>
+          <strong class="mt-4 text-base font-semibold text-foreground">{page.title}</strong>
+          {page.description && <span class="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{page.description}</span>}
+          <span aria-hidden="true" class="mt-auto pt-4 text-sm text-primary">Explore →</span>
+        </a>
+      ))}
+    </div>
+  ) : <p class="td-home-card p-6 text-sm text-muted-foreground">{empty}</p>}
+  {pages.length > 0 && <p data-catalog-no-match hidden class="td-home-card p-6 text-sm text-muted-foreground">No pages match those filters.</p>}
+</section>
+
+<script>
+  import { mount } from "@cloudflare/nimbus-docs/client";
+  mount("[data-catalog]", (root) => {
+    if (!(root instanceof HTMLElement)) return () => {};
+    const search = root.querySelector<HTMLInputElement>("[data-catalog-search]");
+    const select = root.querySelector<HTMLSelectElement>("[data-catalog-filter]");
+    const cards = [...root.querySelectorAll<HTMLElement>("[data-catalog-card]")];
+    const count = root.querySelector<HTMLElement>("[data-catalog-count]");
+    const noMatch = root.querySelector<HTMLElement>("[data-catalog-no-match]");
+    const update = () => {
+      const query = search?.value.trim().toLocaleLowerCase() ?? "";
+      const value = select?.value ?? "";
+      let shown = 0;
+      for (const card of cards) {
+        const visible = (!query || (card.dataset.searchText ?? "").includes(query)) && (!value || card.dataset.filterValue === value);
+        card.hidden = !visible;
+        if (visible) shown++;
+      }
+      if (count) count.textContent = `${shown} ${shown === 1 ? "page" : "pages"}`;
+      if (noMatch) noMatch.hidden = shown !== 0;
+    };
+    const controller = new AbortController();
+    search?.addEventListener("input", update, { signal: controller.signal });
+    select?.addEventListener("change", update, { signal: controller.signal });
+    return () => controller.abort();
+  });
+</script>

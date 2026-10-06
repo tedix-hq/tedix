@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"tedix": {
+			"type": "http",
+			"url": "https://connect.mcp.tedix.dev/mcp"
+		}
+	}
+}

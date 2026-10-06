@@ -1,0 +1,464 @@
+---
+import { getMenu, getSiteSettings } from "emdash";
+import type { Menu, MenuItem } from "emdash";
+import { EmDashHead, EmDashBodyStart, EmDashBodyEnd } from "emdash/ui";
+import { createPublicPageContext } from "emdash/page";
+import { Font } from "astro:assets";
+import { env as workerEnv } from "cloudflare:workers";
+import { t, toOgLocale } from "../i18n/strings";
+import { collectionIndexHref } from "../lib/content-url";
+import {
+	resolvePlatformBranding,
+	safeBrandingHttpUrl,
+} from "../lib/platform-branding";
+import "../styles/globals.css";
+import "../styles/theme.css";
+import ThemeInit from "../components/ThemeInit.astro";
+import ThemeControls from "../components/ThemeControls.astro";
+
+interface AlternateLocale {
+	locale: string;
+	href: string;
+}
+
+interface BylineSummary {
+	displayName?: string | null;
+	bio?: string | null;
+	websiteUrl?: string | null;
+	avatarMediaId?: string | null;
+	avatarStorageKey?: string | null;
+	avatarAlt?: string | null;
+	jobTitle?: string | null;
+	sameAs?: string[] | null;
+	customFields?: Record<string, unknown> | null;
+}
+
+interface Term {
+	label: string;
+	slug: string;
+}
+
+interface Props {
+	title: string;
+	description?: string | null;
+	image?: string | null;
+	canonical?: string | null;
+	type?: "website" | "article";
+	publishedTime?: string | null;
+	modifiedTime?: string | null;
+	author?: string | null;
+	content?: { collection: string; id: string; slug?: string | null };
+	markdownHref?: string | null;
+	/** Locale alternates for hreflang. Pass when a post/page has translations. */
+	alternates?: AlternateLocale[];
+	/**
+	 * Article enrichment props are kept on the prop surface for callers that
+	 * already collect them, but Base.astro does not render them directly.
+	 * EmdashHead owns standard SEO output; the `tedix-seo-aeo` plugin adds
+	 * only Tedix-specific discovery enrichments such as Organization,
+	 * BreadcrumbList, Person, article section/tag, and content-signal.
+	 */
+	bylines?: Array<{ byline?: BylineSummary | null }> | null;
+	categories?: Term[] | null;
+	tags?: Term[] | null;
+	robots?: string | null;
+	/** Custom full-page themes can use their own font without preloading the starter fonts. */
+	usePlatformFonts?: boolean;
+}
+
+const {
+	title, description, image,
+	canonical,
+	type = "website",
+	publishedTime, modifiedTime, author, content, markdownHref, alternates,
+	bylines: _bylines, categories: _categories, tags: _tags,
+	robots,
+	usePlatformFonts = true,
+} = Astro.props;
+
+const settings = await getSiteSettings();
+const org = Astro.locals.org;
+const settingsRecord = (settings as Record<string, unknown> | undefined) ?? {};
+const siteTitle = settings?.title ?? org.siteTitle;
+const fullTitle = title.includes(siteTitle) ? title : `${title} — ${siteTitle}`;
+
+// A rewritten page sees the internal route in Astro.url/currentLocale. Keep
+// locale, navigation, and page context tied to the original public request.
+const originalPath = Astro.originPathname ?? Astro.url.pathname;
+const publicPathPrefixRaw = (workerEnv as Record<string, string | undefined>).PUBLIC_PATH_PREFIX ?? "";
+const publicPathPrefix = publicPathPrefixRaw.trim().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const localePath = publicPathPrefix && originalPath.startsWith(`${publicPathPrefix}/`)
+	? originalPath.slice(publicPathPrefix.length)
+	: originalPath;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(localePath)?.[1];
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const resolvedLocale =
+	pathLocale ??
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0
+		? settingsLanguage
+		: undefined) ??
+	envDefaultLocale;
+if (!resolvedLocale) {
+	console.warn(
+		"[Base.astro] No locale resolved (currentLocale/settings.language/DEFAULT_LOCALE all empty); defaulting to 'en'.",
+	);
+}
+const locale = resolvedLocale ?? "en";
+const lang = locale;
+const ogLocale = toOgLocale(locale);
+const orgDefaultLocale = envDefaultLocale ?? "en";
+
+const isLoggedIn = !!Astro.locals.user;
+const currentPath = originalPath;
+const currentPathKey = currentPath.replace(/\/+$/, "") || "/";
+const defaultPostsHref = await collectionIndexHref("posts", {
+	locale,
+	defaultLocale: orgDefaultLocale,
+});
+const defaultPostsPath = (() => {
+	try {
+		return new URL(defaultPostsHref, Astro.url.origin).pathname;
+	} catch {
+		return defaultPostsHref.startsWith("/") ? defaultPostsHref : "/posts/";
+	}
+})();
+const defaultPostsPathKey = defaultPostsPath.replace(/\/+$/, "") || "/";
+const isPostsPage =
+	content?.collection === "posts" ||
+	currentPathKey === defaultPostsPathKey ||
+	currentPathKey.startsWith(`${defaultPostsPathKey}/`);
+const isTedixSite = siteTitle.trim().toLowerCase() === "tedix";
+const readMenu = async (name: string): Promise<Menu | null> => {
+	try {
+		return await getMenu(name, { locale });
+	} catch (error) {
+		console.warn(`[Base.astro] Unable to read "${name}" menu: ${error instanceof Error ? error.message : String(error)}`);
+		return null;
+	}
+};
+const [primaryMenu, footerMenu] = await Promise.all([
+	readMenu("primary"),
+	readMenu("footer"),
+]);
+const {
+	platformBranding,
+	platformImages,
+	googleFontsHref,
+	themeMode,
+	allowThemeSwitch,
+	htmlClass,
+	brandCss,
+} = resolvePlatformBranding(
+	workerEnv as Record<string, string | undefined>,
+);
+const settingsLogo = settingsRecord.logo;
+const configuredLogoUrl =
+	typeof settingsLogo === "string"
+		? settingsLogo
+		: typeof settingsLogo === "object" && settingsLogo !== null && "url" in settingsLogo
+			? String((settingsLogo as { url?: unknown }).url ?? "")
+			: "";
+const platformLogoUrl =
+	typeof platformBranding.logo === "string"
+		? platformBranding.logo
+		: typeof platformImages.logo === "string"
+			? platformImages.logo
+			: "";
+const brandLogoUrl = configuredLogoUrl || platformLogoUrl || (isTedixSite ? "https://tedix.dev/images/tedi-astronaut-waving.png" : "");
+const brandLogoSrc = brandLogoUrl.includes("/_emdash/api/media/file/")
+	? `${brandLogoUrl}${brandLogoUrl.includes("?") ? "&" : "?"}v=20260514-logo`
+	: brandLogoUrl;
+const brandHomeHref =
+	safeBrandingHttpUrl(platformBranding.homepageUrl) ??
+	safeBrandingHttpUrl(platformBranding.homeUrl) ??
+	(isTedixSite ? "https://tedix.dev/" : "/");
+const brandDescription = description ?? (isTedixSite
+	? "Autonomous digital workers, MCP apps, and AI-native operations from Tedix."
+	: null);
+const landingNavLinks = [
+	{ href: "https://tedix.dev/#what-a-tedi-does", label: "Product" },
+	{ href: "https://tedix.dev/#use-cases", label: "Use Cases" },
+	{ href: "https://tedix.dev/apps/", label: "Apps" },
+];
+const appAuthUrl = "https://os.tedix.dev/";
+const defaultHomeHref = locale === orgDefaultLocale ? "/" : `/${locale}/`;
+const defaultNavItems: MenuItem[] = [
+	{ id: "home", label: t("home", locale), url: defaultHomeHref, children: [] },
+	{ id: "articles", label: t("articles", locale), url: defaultPostsHref, children: [] },
+];
+const navItems = primaryMenu?.items.length ? primaryMenu.items : defaultNavItems;
+const footerItems = footerMenu?.items ?? [];
+const pathFromHref = (href: string) => {
+	try {
+		const url = new URL(href, Astro.url.origin);
+		return url.origin === Astro.url.origin ? url.pathname : null;
+	} catch {
+		return href.startsWith("/") ? href : null;
+	}
+};
+const isActiveNavItem = (item: MenuItem) => {
+	const path = pathFromHref(item.url);
+	if (!path) return false;
+	const pathKey = path.replace(/\/+$/, "") || "/";
+	if (pathKey === "/") return currentPathKey === "/" || currentPathKey === `/${locale}`;
+	return currentPathKey === pathKey || currentPathKey.startsWith(`${pathKey}/`);
+};
+const linkTarget = (item: MenuItem) => (item.target === "_blank" ? "_blank" : undefined);
+const linkRel = (item: MenuItem) => (linkTarget(item) ? "noopener noreferrer" : undefined);
+
+// Canonical URL resolution order:
+//   1. settings.url — native per-org Emdash setting synced from platform
+//      routing metadata and editable through cms_*.settings_update.
+//   2. env.PUBLIC_SITE_URL — injected per-isolate by cms-runtime from
+//      apps.metadata.publicSiteUrl. Same source the native Emdash sitemap
+//      and locked Tedix discovery routes use, so all emitted URLs stay
+//      consistent across the discovery surface.
+//   3. Astro.url.toString() — falls back to the request origin when neither
+//      override is set (e.g. local dev, orgs without publicSiteUrl).
+const canonicalOverride = (settings as Record<string, unknown>)?.url as string | undefined;
+const envPublicSiteUrl = (workerEnv as Record<string, string | undefined>).PUBLIC_SITE_URL;
+const isTedixLandingCanonical =
+	(workerEnv as Record<string, string | undefined>).ORG_SLUG === "tedix-landing" &&
+	envPublicSiteUrl &&
+	new URL(envPublicSiteUrl).hostname === "tedix.dev";
+const canonicalPathFromRequest =
+	publicPathPrefix && publicPathPrefix !== "/" && currentPath === "/"
+		? `${publicPathPrefix}/`
+		: currentPath;
+const withTedixTrailingSlash = (value: string): string => {
+	if (!isTedixLandingCanonical) return value;
+	let url: URL;
+	try {
+		url = new URL(value, envPublicSiteUrl);
+	} catch {
+		return value;
+	}
+	if (url.hostname !== "tedix.dev") return value;
+	const lastSegment = url.pathname.split("/").pop() ?? "";
+	if (!url.pathname.endsWith("/") && !lastSegment.includes(".")) {
+		url.pathname += "/";
+	}
+	return url.toString();
+};
+const canonicalPath = isTedixLandingCanonical
+	? new URL(withTedixTrailingSlash(canonicalPathFromRequest), envPublicSiteUrl).pathname
+	: canonicalPathFromRequest;
+const canonicalBase = canonicalOverride ?? envPublicSiteUrl;
+// String-concat canonical so route helpers control path emission exactly.
+// Collection path segments come from native Emdash urlPattern.
+const canonicalUrl = canonicalBase
+	? `${canonicalBase.replace(/\/+$/, "")}${canonicalPath === "/" ? "" : canonicalPath}`
+	: new URL(canonicalPath, Astro.url.origin).toString();
+const pageCanonicalUrl = withTedixTrailingSlash(canonical ?? canonicalUrl);
+
+// siteUrl drives Emdash core's WebSite JSON-LD `url` field. Keep this as the
+// public origin/base URL; collection paths are owned by urlPattern.
+const siteUrlForCtx = canonicalBase?.replace(/\/+$/, "");
+const publicDiscoveryPrefix =
+	publicPathPrefix && publicPathPrefix !== "/" ? publicPathPrefix : "";
+const rssHref = siteUrlForCtx ? `${siteUrlForCtx}${publicDiscoveryPrefix}/rss.xml` : "/rss.xml";
+
+const pageCtx = createPublicPageContext({
+	Astro,
+	kind: content ? "content" : "custom",
+	pageType: type,
+	title: fullTitle,
+	pageTitle: title,
+	description: brandDescription,
+	image,
+	content,
+	canonical: pageCanonicalUrl,
+	siteUrl: siteUrlForCtx,
+	seo: { ogImage: image, robots: robots ?? "index, follow, max-image-preview:large" },
+	articleMeta: { publishedTime, modifiedTime, author },
+	siteName: siteTitle,
+});
+Object.assign(pageCtx, {
+	locale,
+	url: pageCanonicalUrl,
+	path: canonicalPath,
+	canonical: pageCanonicalUrl,
+	bylines: _bylines ?? [],
+	categories: _categories ?? [],
+	tags: _tags ?? [],
+});
+
+const showPoweredBy = (settings as Record<string, unknown> | undefined)?.powered_by_attribution === true;
+---
+
+<!doctype html>
+<html lang={lang} class={htmlClass}>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		{usePlatformFonts && <Font cssVariable="--font-sans" preload />}
+		{usePlatformFonts && <Font cssVariable="--font-display" preload />}
+		{googleFontsHref && (
+			<>
+				<link rel="preconnect" href="https://fonts.googleapis.com" />
+				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+				<link rel="stylesheet" href={googleFontsHref} />
+			</>
+		)}
+		{brandCss && <style is:inline set:html={`:root{${brandCss}}`} />}
+		<link rel="stylesheet" href="/_tedix/theme.css" data-tedix-hot-theme />
+		<title>{fullTitle}</title>
+		<EmDashHead page={pageCtx} />
+
+		<!-- og:locale — derived from Astro.currentLocale; EmDashHead contribution set is locale-agnostic -->
+		<meta property="og:locale" content={ogLocale} />
+
+		<!-- hreflang alternates — only emitted when the page has translations.
+		     Locale-aware, request-derived; intentionally inline (the
+		     `tedix-seo-aeo` plugin sees PublicPageContext, not Astro.props,
+		     so it cannot derive alternates from `translations` on its own). -->
+		{alternates && alternates.map((alt) => (
+			<link rel="alternate" hreflang={alt.locale} href={alt.href} />
+		))}
+		{alternates && alternates.length > 0 && (
+			<link rel="alternate" hreflang="x-default" href={alternates[0].href} />
+		)}
+
+		<!-- Markdown mirror for AI agents (post pages only) -->
+		{type === "article" && markdownHref && (
+			<link rel="alternate" type="text/markdown" href={markdownHref} />
+		)}
+
+		<!-- RSS autodiscovery -->
+		<link rel="alternate" type="application/rss+xml" title={`${siteTitle} — RSS`} href={rssHref} />
+		<slot name="head" />
+
+		<!--
+		  Tedix-specific discovery metadata (Organization JSON-LD,
+		  BreadcrumbList, Person JSON-LD, Twitter site/creator, article
+		  section/tag, and content-signal) is emitted by the `tedix-seo-aeo`
+		  Emdash plugin via `page:metadata`. Standard SEO output stays native
+		  in EmDashHead.
+		  See `src/plugins/tedix-seo-aeo/index.ts`.
+		-->
+
+		<ThemeInit mode={themeMode} />
+
+	</head>
+	<body class="min-h-screen flex flex-col antialiased bg-[--color-bg] text-[--color-text]">
+		<EmDashBodyStart page={pageCtx} />
+
+		<header class="sticky top-0 z-50 border-b border-gray-200/60 bg-[--color-bg]/90 backdrop-blur-xl dark:border-gray-800/60">
+			<nav class="max-w-6xl mx-auto px-4 lg:px-6 h-16 flex items-center justify-between">
+				<a href={brandHomeHref} aria-label={siteTitle} class="flex items-center gap-2.5 font-display text-xl font-bold hover:text-brand-600 transition-colors">
+					{brandLogoUrl ? (
+						<img src={brandLogoSrc} alt="" class="h-8 w-auto max-w-36 shrink-0 object-contain" loading="eager" />
+					) : (
+						<span class="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xs font-bold">
+							{siteTitle.charAt(0)}
+						</span>
+					)}
+				</a>
+				<div class="flex items-center gap-1 text-sm">
+					{isTedixSite && landingNavLinks.map((link) => (
+						<a href={link.href} class="hidden md:inline-flex px-3 py-1.5 rounded-lg transition-colors hover:text-brand-600 hover:bg-gray-100 dark:hover:bg-gray-900">
+							{link.label}
+						</a>
+					))}
+					{navItems.map((item) => (
+						<a
+							href={item.url}
+							target={linkTarget(item)}
+							rel={linkRel(item)}
+							title={item.titleAttr ?? undefined}
+							aria-current={isActiveNavItem(item) ? "page" : undefined}
+							class={`px-3 py-1.5 rounded-lg transition-colors ${isActiveNavItem(item) || (!primaryMenu?.items.length && item.id === "articles" && isPostsPage) ? "text-brand-600 font-medium" : "hover:text-brand-600 hover:bg-gray-100 dark:hover:bg-gray-900"}`}
+						>
+							{item.label}
+						</a>
+					))}
+					{alternates && alternates.length > 0 && alternates.find((a) => a.locale !== locale) && (
+						<a
+							href={alternates.find((a) => a.locale !== locale)!.href}
+							class="px-3 py-1.5 rounded-lg text-xs uppercase tracking-wider hover:text-brand-600 hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+							aria-label={t("switchLanguage", locale)}
+							title={t("switchLanguage", locale)}
+						>
+							{(alternates.find((a) => a.locale !== locale)!.locale).toUpperCase()}
+						</a>
+					)}
+					{allowThemeSwitch && (
+						<button id="theme-toggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors" aria-label="Toggle theme">
+							<!-- sun: shown in dark mode -->
+							<svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+							<!-- moon: shown in light mode -->
+							<svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+						</button>
+					)}
+					{isLoggedIn && (
+						<a href="/_emdash/admin/" class="ml-2 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors">
+							Admin
+						</a>
+					)}
+					{isTedixSite && !isLoggedIn && (
+						<a href={appAuthUrl} class="hidden sm:inline-flex ml-2 px-3 py-1.5 text-sm font-semibold text-white bg-brand-600 rounded-full hover:bg-brand-700 transition-colors">
+							Request Access
+						</a>
+					)}
+				</div>
+			</nav>
+		</header>
+
+		<main class="flex-grow">
+			<slot />
+		</main>
+
+		<footer class="mt-24 border-t border-[--color-border]">
+			<div class="max-w-6xl mx-auto px-4 lg:px-6 py-12">
+				<div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+					<div>
+						<div class="flex items-center gap-2 font-display text-lg font-semibold mb-2">
+							{brandLogoUrl ? (
+								<img src={brandLogoSrc} alt="" class="h-7 w-auto max-w-32 shrink-0 object-contain" loading="lazy" />
+							) : (
+								<span class="w-6 h-6 rounded-md bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xs font-bold">
+									{siteTitle.charAt(0)}
+								</span>
+							)}
+							<span>{siteTitle}</span>
+						</div>
+						<p class="text-sm text-gray-500">© {new Date().getFullYear()} {siteTitle}. {t("rightsReserved", locale)}.</p>
+					</div>
+					<div class={`flex flex-col ${footerItems.length > 0 ? "items-start md:items-end" : "items-end"} gap-3`}>
+						{footerItems.length > 0 && (
+							<nav
+								aria-label={footerMenu?.label ?? "Footer"}
+								class="flex flex-wrap justify-start md:justify-end gap-x-4 gap-y-2 text-sm text-gray-500 dark:text-gray-400"
+							>
+								{footerItems.map((item) => (
+									<a
+										href={item.url}
+										target={linkTarget(item)}
+										rel={linkRel(item)}
+										title={item.titleAttr ?? undefined}
+										class="hover:text-brand-600 transition-colors"
+									>
+										{item.label}
+									</a>
+								))}
+							</nav>
+						)}
+						{allowThemeSwitch && (
+							<ThemeControls mode={themeMode} />
+						)}
+						{showPoweredBy && (
+							<p class="text-xs text-gray-400">
+								Powered by <a href="https://emdashcms.com" class="text-brand-600 hover:underline">Emdash</a>
+							</p>
+						)}
+					</div>
+				</div>
+			</div>
+		</footer>
+
+		<EmDashBodyEnd page={pageCtx} />
+
+	</body>
+</html>

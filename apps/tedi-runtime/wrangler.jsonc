@@ -1,0 +1,518 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "public-installation-tedi-runtime",
+	"main": "src/index.ts",
+	"minify": true,
+	"keep_names": true,
+	"compatibility_date": "2026-05-14",
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"placement": {
+		"mode": "smart",
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1,
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.25,
+		},
+	},
+	"dev": {
+		"port": 3014,
+		"inspector_port": 19242,
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"GIT_SHA": "configured-via-private-overlay",
+		"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
+		"CF_ACCOUNT_ID": "configured-via-private-overlay",
+		"API_URL": "configured-via-private-overlay",
+		"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+		"AZURE_OPENAI_API_VERSION": "configured-via-private-overlay",
+		"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+		"AZURE_OBSERVER_DEPLOYMENT": "configured-via-private-overlay",
+		"AZURE_OPENAI_STT_DEPLOYMENT": "configured-via-private-overlay",
+		"AZURE_OPENAI_STT_API_VERSION": "configured-via-private-overlay",
+		"AZURE_OPENAI_TTS_DEPLOYMENT": "configured-via-private-overlay",
+		"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+		"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+		"AI_GATEWAY_BINDING_PROVIDERS": "configured-via-private-overlay",
+		"AI_GATEWAY_AUTO_ALLOWED_PROVIDERS": "configured-via-private-overlay",
+		"AI_GATEWAY_AUTO_ALLOWED_IMAGE_MODELS": "configured-via-private-overlay",
+		"AI_GATEWAY_AUTO_ALLOWED_MODELS": "configured-via-private-overlay",
+		"TEDI_MAX_AI_REQUEST_BYTES": "configured-via-private-overlay",
+		"TEDI_AI_REQUEST_TIMEOUT_MS": "configured-via-private-overlay",
+		"TEDI_WORKERS_AI_MODEL": "configured-via-private-overlay",
+		"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay",
+		"PI_CUTOVER_PARENT_IDS": "configured-via-private-overlay",
+		"PI_CUTOVER_KNOWN_PARENT_IDS": "configured-via-private-overlay",
+	},
+	"ai": {
+		"binding": "AI",
+		"remote": false,
+	},
+	"browser": {
+		"binding": "BROWSER",
+		"remote": false,
+	},
+	"agent_memory": [
+		{
+			"binding": "AGENT_MEMORY",
+			"namespace": "public-installation-namespace",
+			"remote": false,
+		},
+	],
+	"secrets": {
+		"required": [
+			"SECRETS_MASTER_KEY",
+			"DESCOPE_PROJECT_ID",
+			"DESCOPE_BASE_URL",
+			"EMAIL_SECRET",
+			"CF_WORKERS_AI_TOKEN",
+			"CF_AI_GATEWAY_TOKEN",
+		],
+	},
+	"send_email": [
+		{
+			"name": "EMAIL",
+		},
+	],
+	"worker_loaders": [
+		{
+			"binding": "LOADER",
+		},
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "AgentTediDO",
+				"name": "TEDI_AGENT",
+			},
+			{
+				"class_name": "TediComputerWorkspaceDO",
+				"name": "TEDI_COMPUTER_WORKSPACE",
+			},
+			{
+				"class_name": "VoiceCallDO",
+				"name": "VOICE_CALL",
+			},
+			{
+				"class_name": "VoiceInputDO",
+				"name": "VOICE_INPUT",
+			},
+		],
+	},
+	"workflows": [
+		{
+			"name": "public-installation-workflow-base-0",
+			"binding": "CHAT_TURN_WORKFLOW",
+			"class_name": "ChatTurnWorkflow",
+		},
+	],
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["IsolateTediDO"],
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["VoiceCallDO"],
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["VoiceInputDO"],
+		},
+		{
+			"tag": "v4",
+			"renamed_classes": [
+				{
+					"from": "IsolateTediDO",
+					"to": "AgentTediDO",
+				},
+			],
+		},
+		{
+			"tag": "v6-computer-workspaces",
+			"new_sqlite_classes": ["TediComputerWorkspaceDO"],
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "TEDI_STORAGE",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+	],
+	"artifacts": [
+		{
+			"binding": "ARTIFACTS",
+			"namespace": "public-installation-namespace",
+			"remote": false,
+		},
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "public-installation-database",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"remote": false,
+		},
+	],
+	"services": [
+		{
+			"binding": "API_SERVICE",
+			"service": "public-installation-api",
+			"entrypoint": "InternalEntrypoint",
+		},
+		{
+			"binding": "TEDI_SERVICE",
+			"service": "public-installation-tedi",
+			"entrypoint": "InternalEntrypoint",
+		},
+	],
+	"analytics_engine_datasets": [
+		{
+			"binding": "RUNTIME_ANALYTICS",
+			"dataset": "public_installation_dataset",
+		},
+	],
+	"env": {
+		"development": {
+			"workers_dev": false,
+			"vars": {
+				"ENVIRONMENT": "development",
+				"GIT_SHA": "configured-via-private-overlay",
+				"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
+				"CF_ACCOUNT_ID": "configured-via-private-overlay",
+				"API_URL": "configured-via-private-overlay",
+				"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+				"AZURE_OPENAI_API_VERSION": "configured-via-private-overlay",
+				"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OBSERVER_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OPENAI_STT_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OPENAI_STT_API_VERSION": "configured-via-private-overlay",
+				"AZURE_OPENAI_TTS_DEPLOYMENT": "configured-via-private-overlay",
+				"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_BINDING_PROVIDERS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_PROVIDERS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_IMAGE_MODELS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_MODELS": "configured-via-private-overlay",
+				"TEDI_MAX_AI_REQUEST_BYTES": "configured-via-private-overlay",
+				"TEDI_AI_REQUEST_TIMEOUT_MS": "configured-via-private-overlay",
+				"TEDI_WORKERS_AI_MODEL": "configured-via-private-overlay",
+				"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay",
+				"PI_CUTOVER_PARENT_IDS": "configured-via-private-overlay",
+				"PI_CUTOVER_KNOWN_PARENT_IDS": "configured-via-private-overlay",
+			},
+			"ai": {
+				"binding": "AI",
+				"remote": false,
+			},
+			"browser": {
+				"binding": "BROWSER",
+				"remote": false,
+			},
+			"agent_memory": [
+				{
+					"binding": "AGENT_MEMORY",
+					"namespace": "public-installation-namespace",
+					"remote": false,
+				},
+			],
+			"secrets": {
+				"required": [
+					"SECRETS_MASTER_KEY",
+					"DESCOPE_PROJECT_ID",
+					"DESCOPE_BASE_URL",
+					"EMAIL_SECRET",
+					"CF_WORKERS_AI_TOKEN",
+					"CF_AI_GATEWAY_TOKEN",
+				],
+			},
+			"send_email": [
+				{
+					"name": "EMAIL",
+				},
+			],
+			"worker_loaders": [
+				{
+					"binding": "LOADER",
+				},
+			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"class_name": "AgentTediDO",
+						"name": "TEDI_AGENT",
+					},
+					{
+						"class_name": "TediComputerWorkspaceDO",
+						"name": "TEDI_COMPUTER_WORKSPACE",
+					},
+					{
+						"class_name": "VoiceCallDO",
+						"name": "VOICE_CALL",
+					},
+					{
+						"class_name": "VoiceInputDO",
+						"name": "VOICE_INPUT",
+					},
+				],
+			},
+			"workflows": [
+				{
+					"name": "public-installation-workflow-env-development-0",
+					"binding": "CHAT_TURN_WORKFLOW",
+					"class_name": "ChatTurnWorkflow",
+				},
+			],
+			"migrations": [
+				{
+					"tag": "v1",
+					"new_sqlite_classes": ["IsolateTediDO"],
+				},
+				{
+					"tag": "v2",
+					"new_sqlite_classes": ["VoiceCallDO"],
+				},
+				{
+					"tag": "v3",
+					"new_sqlite_classes": ["VoiceInputDO"],
+				},
+				{
+					"tag": "v4",
+					"renamed_classes": [
+						{
+							"from": "IsolateTediDO",
+							"to": "AgentTediDO",
+						},
+					],
+				},
+				{
+					"tag": "v6-computer-workspaces",
+					"new_sqlite_classes": ["TediComputerWorkspaceDO"],
+				},
+			],
+			"r2_buckets": [
+				{
+					"binding": "TEDI_STORAGE",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+			],
+			"artifacts": [
+				{
+					"binding": "ARTIFACTS",
+					"namespace": "public-installation-namespace",
+					"remote": false,
+				},
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "public-installation-database",
+					"database_id": "00000000-0000-0000-0000-000000000000",
+					"remote": false,
+				},
+			],
+			"services": [
+				{
+					"binding": "API_SERVICE",
+					"service": "public-installation-api",
+					"entrypoint": "InternalEntrypoint",
+				},
+				{
+					"binding": "TEDI_SERVICE",
+					"service": "public-installation-tedi",
+					"entrypoint": "InternalEntrypoint",
+				},
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "RUNTIME_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+			],
+		},
+		"production": {
+			"workers_dev": false,
+			"k2": [
+				{
+					"binding": "RUNTIME_DERIVED_EVENTS",
+					"stream": "00000000000000000000000000000000",
+				},
+			],
+			"vars": {
+				"ENVIRONMENT": "production",
+				"GIT_SHA": "configured-via-private-overlay",
+				"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
+				"CF_ACCOUNT_ID": "configured-via-private-overlay",
+				"R2_SQL_WAREHOUSE": "configured-via-private-overlay",
+				"API_URL": "configured-via-private-overlay",
+				"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+				"AZURE_OPENAI_API_VERSION": "configured-via-private-overlay",
+				"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OBSERVER_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OPENAI_STT_DEPLOYMENT": "configured-via-private-overlay",
+				"AZURE_OPENAI_STT_API_VERSION": "configured-via-private-overlay",
+				"AZURE_OPENAI_TTS_DEPLOYMENT": "configured-via-private-overlay",
+				"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_BINDING_PROVIDERS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_PROVIDERS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_IMAGE_MODELS": "configured-via-private-overlay",
+				"AI_GATEWAY_AUTO_ALLOWED_MODELS": "configured-via-private-overlay",
+				"TEDI_MAX_AI_REQUEST_BYTES": "configured-via-private-overlay",
+				"TEDI_AI_REQUEST_TIMEOUT_MS": "configured-via-private-overlay",
+				"TEDI_WORKERS_AI_MODEL": "configured-via-private-overlay",
+				"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay",
+				"PI_CUTOVER_PARENT_IDS": "configured-via-private-overlay",
+				"PI_CUTOVER_KNOWN_PARENT_IDS": "configured-via-private-overlay",
+			},
+			"ai": {
+				"binding": "AI",
+				"remote": false,
+			},
+			"browser": {
+				"binding": "BROWSER",
+				"remote": false,
+			},
+			"agent_memory": [
+				{
+					"binding": "AGENT_MEMORY",
+					"namespace": "public-installation-namespace",
+					"remote": false,
+				},
+			],
+			"secrets": {
+				"required": [
+					"SECRETS_MASTER_KEY",
+					"DESCOPE_PROJECT_ID",
+					"DESCOPE_BASE_URL",
+					"EMAIL_SECRET",
+					"CF_WORKERS_AI_TOKEN",
+					"CF_AI_GATEWAY_TOKEN",
+				],
+			},
+			"send_email": [
+				{
+					"name": "EMAIL",
+				},
+			],
+			"worker_loaders": [
+				{
+					"binding": "LOADER",
+				},
+			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"class_name": "AgentTediDO",
+						"name": "TEDI_AGENT",
+					},
+					{
+						"class_name": "TediComputerWorkspaceDO",
+						"name": "TEDI_COMPUTER_WORKSPACE",
+					},
+					{
+						"class_name": "VoiceCallDO",
+						"name": "VOICE_CALL",
+					},
+					{
+						"class_name": "VoiceInputDO",
+						"name": "VOICE_INPUT",
+					},
+				],
+			},
+			"workflows": [
+				{
+					"name": "public-installation-workflow-env-production-0",
+					"binding": "CHAT_TURN_WORKFLOW",
+					"class_name": "ChatTurnWorkflow",
+				},
+			],
+			"migrations": [
+				{
+					"tag": "v1",
+					"new_sqlite_classes": ["IsolateTediDO"],
+				},
+				{
+					"tag": "v2",
+					"new_sqlite_classes": ["VoiceCallDO"],
+				},
+				{
+					"tag": "v3",
+					"new_sqlite_classes": ["VoiceInputDO"],
+				},
+				{
+					"tag": "v3b-tedi-runtime-sandbox-preexisting",
+					"new_sqlite_classes": ["TediRuntimeSandbox"],
+				},
+				{
+					"tag": "v4-delete-tedi-runtime-sandbox",
+					"deleted_classes": ["TediRuntimeSandbox"],
+				},
+				{
+					"tag": "v5",
+					"renamed_classes": [
+						{
+							"from": "IsolateTediDO",
+							"to": "AgentTediDO",
+						},
+					],
+				},
+				{
+					"tag": "v6-computer-workspaces",
+					"new_sqlite_classes": ["TediComputerWorkspaceDO"],
+				},
+			],
+			"r2_buckets": [
+				{
+					"binding": "TEDI_STORAGE",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+			],
+			"artifacts": [
+				{
+					"binding": "ARTIFACTS",
+					"namespace": "public-installation-namespace",
+					"remote": false,
+				},
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "public-installation-database",
+					"database_id": "00000000-0000-0000-0000-000000000000",
+					"remote": false,
+				},
+			],
+			"services": [
+				{
+					"binding": "API_SERVICE",
+					"service": "public-installation-api",
+					"entrypoint": "InternalEntrypoint",
+				},
+				{
+					"binding": "TEDI_SERVICE",
+					"service": "public-installation-tedi",
+					"entrypoint": "InternalEntrypoint",
+				},
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "RUNTIME_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+			],
+		},
+	},
+}

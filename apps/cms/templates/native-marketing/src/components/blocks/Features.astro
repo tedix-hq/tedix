@@ -1,0 +1,101 @@
+---
+import { Icon } from "astro-iconset/components";
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env";
+
+type FeaturesBlock = Extract<PageContentBlock, { _type: "marketing_features" }>;
+type Props = BlockComponentProps<FeaturesBlock>;
+
+const { value } = Astro.props;
+const { anchor_id, headline, subheadline, features } = value;
+
+const iconMap: Record<string, string> = {
+	zap: "ph:lightning",
+	shield: "ph:shield-check",
+	users: "ph:users-three",
+	chart: "ph:chart-bar",
+	code: "ph:code",
+	globe: "ph:globe",
+	heart: "ph:heart",
+	star: "ph:star",
+	check: "ph:check-circle",
+	lock: "ph:lock",
+	clock: "ph:clock",
+	cloud: "ph:cloud",
+};
+---
+
+<section class="features section" id={anchor_id || undefined}>
+	<div class="container">
+		{(headline || subheadline) && (
+			<header class="section-header">
+				{headline && <h2 class="section-headline">{headline}</h2>}
+				{subheadline && <p class="section-subheadline">{subheadline}</p>}
+			</header>
+		)}
+		<div class="features-grid">
+			{features.map((feature) => (
+				<div class="feature-card">
+					<div class="icon-tile feature-icon">
+						<Icon name={iconMap[feature.icon] || "ph:sparkle"} aria-hidden="true" />
+					</div>
+					<h3 class="feature-title">{feature.title}</h3>
+					<p class="feature-description">{feature.description}</p>
+				</div>
+			))}
+		</div>
+	</div>
+</section>
+
+<style>
+	.features-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: var(--spacing-xl);
+	}
+
+	.feature-card {
+		padding: var(--spacing-xl);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		transition:
+			transform var(--transition-base),
+			box-shadow var(--transition-base),
+			border-color var(--transition-base);
+	}
+
+	.feature-card:hover {
+		transform: translateY(-4px);
+		box-shadow: var(--shadow-lg);
+		border-color: var(--color-brand-soft);
+	}
+
+	.feature-icon {
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.feature-title {
+		font-size: var(--font-size-lg);
+		font-weight: var(--font-weight-heading);
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.feature-description {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		line-height: var(--leading-normal);
+	}
+
+	@media (max-width: 900px) {
+		.features-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 600px) {
+		.features-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>

@@ -1,0 +1,5 @@
+# Expected-failure baseline for the Tedix stateless MCP transport
+# (`@modelcontextprotocol/conformance` 0.2.0-alpha.10,
+# --spec-version 2026-07-28). Keep the explicit empty list so a future
+# regression cannot be hidden by an absent baseline file.
+server: []

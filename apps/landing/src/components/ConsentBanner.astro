@@ -1,0 +1,234 @@
+---
+import { defaultLocale, getLocaleContent, type Locale } from "../i18n/content";
+
+interface Props {
+	locale?: Locale;
+	variant?: "default" | "compact";
+}
+
+const { locale = defaultLocale, variant = "default" } = Astro.props;
+const content = getLocaleContent(locale).consent;
+const isCompact = variant === "compact";
+const bannerClass = isCompact
+	? "fixed right-3 bottom-3 left-3 z-50 hidden sm:left-auto sm:w-[min(24rem,calc(100vw-1.5rem))]"
+	: "fixed inset-x-0 bottom-0 z-50 hidden px-4 pb-4 sm:px-6";
+const cardClass = isCompact
+	? "rounded-md border border-border/70 bg-background/95 p-3 shadow-lg backdrop-blur"
+	: "mx-auto flex max-w-5xl flex-col gap-4 rounded-md border border-border bg-background p-4 shadow-2xl sm:flex-row sm:items-center sm:justify-between";
+const compactLabels: Record<Locale, { accept: string; reject: string }> = {
+	en: { accept: "Accept", reject: "Reject" },
+	de: { accept: "Akzeptieren", reject: "Ablehnen" },
+	es: { accept: "Aceptar", reject: "Rechazar" },
+};
+const compactLabel = compactLabels[locale] ?? compactLabels.en;
+---
+
+<aside
+	id="consent-banner"
+	class={bannerClass}
+	role="complementary"
+	aria-label={content.ariaLabel}
+	data-consent-banner
+	data-catalog-consent={isCompact ? "compact" : undefined}
+	data-crawler-ignore
+	data-nosnippet
+>
+	<div class={cardClass}>
+		<div class={isCompact ? "space-y-2" : "max-w-3xl space-y-1"}>
+			<h2 class={isCompact ? "font-semibold text-sm" : "font-semibold text-base"}>{content.title}</h2>
+			{isCompact ? (
+				<a href="/cookies" class="inline-flex text-muted-foreground text-xs underline underline-offset-4 hover:text-foreground">
+					{content.policy}
+				</a>
+			) : (
+				<p class="text-muted-foreground text-sm">
+					{content.description}
+					<a href="/cookies" class="font-medium text-foreground underline underline-offset-4">{content.policy}</a>
+				</p>
+			)}
+		</div>
+		<div class={isCompact ? "mt-3 grid grid-cols-3 gap-2" : "flex flex-col gap-2 sm:flex-row sm:items-center"}>
+			<button
+				type="button"
+				class={isCompact ? "inline-flex h-9 min-w-0 items-center justify-center truncate rounded-md border border-border px-2 font-medium text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : "inline-flex h-10 items-center justify-center rounded-md border border-border px-4 font-medium text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"}
+				aria-label={isCompact ? content.reject : undefined}
+				data-consent-action="reject"
+			>
+				{isCompact ? compactLabel.reject : content.reject}
+			</button>
+			<button
+				type="button"
+				class={isCompact ? "inline-flex h-9 items-center justify-center rounded-md border border-border px-2 font-medium text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : "inline-flex h-10 items-center justify-center rounded-md border border-border px-4 font-medium text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"}
+				data-consent-action="manage"
+			>
+				{content.manage}
+			</button>
+			<button
+				type="button"
+				class={isCompact ? "inline-flex h-9 min-w-0 items-center justify-center truncate rounded-md bg-primary px-2 font-medium text-primary-foreground text-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : "inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"}
+				aria-label={isCompact ? content.accept : undefined}
+				data-consent-action="accept"
+			>
+				{isCompact ? compactLabel.accept : content.accept}
+			</button>
+		</div>
+	</div>
+</aside>
+
+<div id="consent-dialog" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="consent-dialog-title" data-consent-dialog data-nosnippet>
+	<div class="absolute inset-0 bg-black/40" data-consent-action="close"></div>
+	<div class="relative mx-auto mt-24 w-[calc(100%-2rem)] max-w-lg rounded-md border border-border bg-background p-5 shadow-2xl">
+		<div class="space-y-2">
+			<h2 id="consent-dialog-title" class="font-semibold text-lg">{content.dialogTitle}</h2>
+			<p class="text-muted-foreground text-sm">
+				{content.dialogDescription}
+			</p>
+		</div>
+
+		<div class="mt-5 space-y-4">
+			<label class="flex gap-3 rounded-md border border-border p-3">
+				<input type="checkbox" checked disabled class="mt-1 h-4 w-4 rounded border-border" />
+				<span>
+					<span class="block font-medium text-sm">{content.necessary}</span>
+					<span class="block text-muted-foreground text-sm">{content.necessaryDescription}</span>
+				</span>
+			</label>
+			<label class="flex gap-3 rounded-md border border-border p-3">
+				<input id="consent-analytics" type="checkbox" class="mt-1 h-4 w-4 rounded border-border" />
+				<span>
+					<span class="block font-medium text-sm">{content.analytics}</span>
+					<span class="block text-muted-foreground text-sm">{content.analyticsDescription}</span>
+				</span>
+			</label>
+		</div>
+
+		<div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+			<button
+				type="button"
+				class="inline-flex h-10 items-center justify-center rounded-md border border-border px-4 font-medium text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				data-consent-action="close"
+			>
+				{content.cancel}
+			</button>
+			<button
+				type="button"
+				class="inline-flex h-10 items-center justify-center rounded-md border border-border px-4 font-medium text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				data-consent-action="save-necessary"
+			>
+				{content.saveNecessary}
+			</button>
+			<button
+				type="button"
+				class="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				data-consent-action="save"
+			>
+				{content.save}
+			</button>
+		</div>
+	</div>
+</div>
+
+<script is:inline>
+	(() => {
+		const CONSENT_KEY = "tedix.cookieConsent.v1";
+		const CONSENT_VERSION = 1;
+		const banner = document.querySelector("[data-consent-banner]");
+		const dialog = document.querySelector("[data-consent-dialog]");
+		const analyticsInput = document.getElementById("consent-analytics");
+		let previousFocus = null;
+
+		const readConsent = () => {
+			try {
+				const value = window.localStorage.getItem(CONSENT_KEY);
+				if (!value) return null;
+				const parsed = JSON.parse(value);
+				if (parsed?.version !== CONSENT_VERSION) return null;
+				return parsed;
+			} catch {
+				return null;
+			}
+		};
+
+		const publishConsent = (consent) => {
+			window.dispatchEvent(new CustomEvent("tedix:consentchange", { detail: consent }));
+		};
+
+		const persistConsent = ({ analytics }) => {
+			const consent = {
+				version: CONSENT_VERSION,
+				necessary: true,
+				analytics: Boolean(analytics),
+				updatedAt: new Date().toISOString(),
+			};
+
+			try {
+				window.localStorage.setItem(CONSENT_KEY, JSON.stringify(consent));
+			} catch {
+				// If storage is unavailable, keep the choice for this page only.
+			}
+
+			banner?.classList.add("hidden");
+			closeDialog();
+			publishConsent(consent);
+		};
+
+		function openDialog() {
+			const current = readConsent();
+			if (analyticsInput instanceof HTMLInputElement) {
+				analyticsInput.checked = Boolean(current?.analytics);
+			}
+			previousFocus = document.activeElement;
+			dialog?.classList.remove("hidden");
+			document.documentElement.dataset.consentDialog = "open";
+			analyticsInput?.focus();
+		}
+
+		function closeDialog() {
+			dialog?.classList.add("hidden");
+			delete document.documentElement.dataset.consentDialog;
+			if (previousFocus instanceof HTMLElement) previousFocus.focus();
+		}
+
+		const saved = readConsent();
+		if (saved) {
+			publishConsent(saved);
+		} else {
+			banner?.classList.remove("hidden");
+		}
+
+		document.addEventListener("click", (event) => {
+			const trigger = event.target instanceof Element ? event.target.closest("[data-consent-action], [data-consent-settings]") : null;
+			if (!(trigger instanceof HTMLElement)) return;
+
+			if (trigger.hasAttribute("data-consent-settings")) {
+				openDialog();
+				return;
+			}
+
+			switch (trigger.dataset.consentAction) {
+				case "accept":
+					persistConsent({ analytics: true });
+					break;
+				case "reject":
+				case "save-necessary":
+					persistConsent({ analytics: false });
+					break;
+				case "manage":
+					openDialog();
+					break;
+				case "save":
+					persistConsent({ analytics: analyticsInput instanceof HTMLInputElement && analyticsInput.checked });
+					break;
+				case "close":
+					closeDialog();
+					break;
+			}
+		});
+
+		document.addEventListener("keydown", (event) => {
+			if (event.key === "Escape" && !dialog?.classList.contains("hidden")) {
+				closeDialog();
+			}
+		});
+	})();
+</script>

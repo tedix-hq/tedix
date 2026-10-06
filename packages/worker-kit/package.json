@@ -1,0 +1,35 @@
+{
+	"name": "@tedix/worker-kit",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Small direct-import primitives shared by Tedix Cloudflare Workers.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./cors": "./src/cors.ts",
+		"./crypto": "./src/crypto.ts",
+		"./error-message": "./src/error-message.ts",
+		"./errors": "./src/errors.ts",
+		"./logger": "./src/logger.ts",
+		"./request-auth": "./src/request-auth.ts",
+		"./sleep": "./src/sleep.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"hono": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	},
+	"peerDependencies": {
+		"hono": "^4.0.0"
+	}
+}

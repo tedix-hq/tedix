@@ -1,0 +1,48 @@
+---
+/** Contact fields and response copy are configured in native Forms (slug contact). */
+import { getSiteSettings } from "emdash";
+import BaseMarketing from "../layouts/BaseMarketing.astro";
+import LeadCaptureForm from "../components/LeadCaptureForm.astro";
+
+const settings = await getSiteSettings();
+const siteTitle = settings?.title ?? "Marketing";
+
+---
+
+<BaseMarketing title="Kontakt" description={`Get in touch with ${siteTitle}.`}>
+	<section class="mk-contact">
+		<div class="mk-contact__intro">
+			<h1>Kontakt</h1>
+			<p>
+				Sie haben eine Frage oder möchten mehr erfahren? Schreiben Sie uns —
+				wir melden uns zeitnah.
+			</p>
+		</div>
+		<LeadCaptureForm
+			formId="contact"
+			title="Schreiben Sie uns"
+			subtitle="Wir freuen uns auf Ihre Nachricht."
+		/>
+	</section>
+</BaseMarketing>
+
+<style>
+	.mk-contact {
+		max-width: 760px;
+		width: 90%;
+		margin: 0 auto;
+		padding: 64px 0;
+	}
+	.mk-contact__intro h1 {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		font-size: clamp(1.8rem, 4vw, 2.6rem);
+		margin: 0 0 0.75rem;
+	}
+	.mk-contact__intro p {
+		color: var(--color-text-secondary);
+		font-size: 1.1rem;
+		line-height: 1.7;
+		margin: 0 0 1rem;
+	}
+</style>

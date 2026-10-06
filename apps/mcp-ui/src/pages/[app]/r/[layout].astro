@@ -1,0 +1,105 @@
+---
+/**
+ * Generic Widget Renderer Route
+ *
+ * Renders any json-render spec by layout ID.
+ * URL pattern: /{app}/r/{layoutId}
+ *
+ * The layout spec is embedded at SSR time via X-Tedix-Layout-Spec header
+ * from the MCP server. Tool output data arrives at runtime via MCP Apps.
+ *
+ * Flow:
+ * 1. Tedi configures tool with widgetKey="render" and layoutSpec in config
+ * 2. MCP agent registers tool + resource, passes spec via header when fetching HTML
+ * 3. This route embeds the spec in a <script> tag for client hydration
+ * 4. TedixRenderer reads spec + MCP Apps tool output and renders
+ *
+ * This is the sole widget rendering route — all widget tools use /r/{layoutId}.
+ */
+
+import { env } from 'cloudflare:workers';
+import AppThemeLayout from "../../../layouts/AppThemeLayout.astro";
+import { getAppDataFromRequest, isValidAppSlug } from "../../../lib/app-theme";
+import {
+	escapeJsonForHtml,
+	logWidgetSpecIssues,
+	parseWidgetSpecHeader,
+	parseWidgetSpecParam,
+} from "../../../lib/widget-spec";
+import GeneratedMcpAppRenderer from "../../../components/GeneratedMcpAppRenderer";
+import { TedixRenderer } from "../../../json-render/TedixRenderer";
+
+// Get route params
+const { app: appSlug, layout: layoutId } = Astro.params;
+
+// Validate app slug
+if (!appSlug || !isValidAppSlug(appSlug)) {
+	return new Response("Not Found", { status: 404 });
+}
+
+// Get environment
+const apiUrl = env.API_URL ?? import.meta.env.API_URL;
+
+// Get app theme data
+const appData = await getAppDataFromRequest(Astro.request, appSlug, apiUrl);
+
+// The spec can come from:
+// 1. X-Tedix-Layout-Spec header (from MCP server, carries tool config layoutSpec)
+// 2. Query param ?spec=<base64> (for testing/development)
+const specHeader = Astro.request.headers.get("X-Tedix-Layout-Spec");
+const specParam = Astro.url.searchParams.get("spec");
+
+const specResult = specHeader
+	? parseWidgetSpecHeader(specHeader)
+	: parseWidgetSpecParam(specParam);
+logWidgetSpecIssues("r/layout", specResult.issues);
+const spec = specResult.spec;
+
+// Placeholder spec shown while waiting for MCP Apps data or if no spec provided
+const placeholderSpec = {
+	root: "placeholder",
+	elements: {
+		placeholder: {
+			type: "Text",
+			props: { text: "Loading widget...", variant: "muted" },
+			children: [],
+		},
+	},
+};
+
+// Serialize spec for embedding in page (read by TedixRenderer on client).
+// Escape `<` so generated strings cannot terminate the JSON script tag.
+const embeddedSpec = spec ? escapeJsonForHtml(spec) : null;
+const generatedMcpApp = layoutId === "generated-app";
+---
+
+<AppThemeLayout appData={appData} title={`${layoutId ?? "Widget"} | ${appData?.name ?? appSlug}`}>
+	{/* Embed the layout spec for client-side hydration */}
+	{embeddedSpec && (
+		<script
+			id="tedix-layout-spec"
+			type="application/json"
+			set:html={embeddedSpec}
+		/>
+	)}
+
+	{generatedMcpApp ? (
+		<GeneratedMcpAppRenderer client:only="react" />
+	) : (
+		<main class="p-4">
+			<TedixRenderer
+				client:only="react"
+				spec={spec ?? placeholderSpec}
+			>
+				<div slot="fallback" class="p-4 space-y-4">
+					<div class="h-8 bg-muted rounded-lg animate-pulse w-1/3"></div>
+					<div class="grid grid-cols-2 gap-4">
+						<div class="h-24 bg-muted rounded-lg animate-pulse"></div>
+						<div class="h-24 bg-muted rounded-lg animate-pulse"></div>
+					</div>
+					<div class="h-48 bg-muted rounded-lg animate-pulse"></div>
+				</div>
+			</TedixRenderer>
+		</main>
+	)}
+</AppThemeLayout>

@@ -1,0 +1,117 @@
+---
+/**
+ * Widget Preview Route
+ *
+ * Renders a json-render spec in isolation for preview purposes.
+ * URL pattern: /{app}/r/preview?spec=<base64>&data=<base64>
+ *
+ * Unlike [layout].astro, this route:
+ * - Does not read X-Tedix-Layout-Spec headers (preview uses query params only)
+ * - Does not depend on MCP Apps (data passed directly via query param)
+ * - Accepts both spec and data as separate base64-encoded query params
+ *
+ * Query params:
+ * - spec: base64-encoded JSON spec (required for rendering)
+ * - data: base64-encoded JSON data (optional, merged into spec.state)
+ *
+ * Flow:
+ * 1. OS or a tool sends a preview URL with base64-encoded spec + data
+ * 2. This route decodes and parses both params
+ * 3. If data is provided, merges it into spec.state
+ * 4. TedixRenderer renders the spec client-side with data props
+ */
+
+import { env } from 'cloudflare:workers';
+import AppThemeLayout from "../../../layouts/AppThemeLayout.astro";
+import { getAppDataFromRequest, isValidAppSlug } from "../../../lib/app-theme";
+import { PreviewRenderer } from "../../../components/PreviewRenderer";
+import {
+	escapeJsonForHtml,
+	logWidgetSpecIssues,
+	mergeWidgetDataIntoSpec,
+	parseWidgetDataParam,
+	parseWidgetSpecParam,
+} from "../../../lib/widget-spec";
+
+// Get route params
+const { app: appSlug } = Astro.params;
+
+// Validate app slug
+if (!appSlug || !isValidAppSlug(appSlug)) {
+	return new Response("Not Found", { status: 404 });
+}
+
+// Get environment
+const apiUrl = env.API_URL ?? import.meta.env.API_URL;
+
+// Get app theme data
+const appData = await getAppDataFromRequest(Astro.request, appSlug, apiUrl);
+
+const specParam = Astro.url.searchParams.get("spec");
+const dataParam = Astro.url.searchParams.get("data");
+const specResult = parseWidgetSpecParam(specParam);
+const dataResult = parseWidgetDataParam(dataParam);
+logWidgetSpecIssues("r/preview", [
+	...specResult.issues,
+	...dataResult.issues,
+]);
+
+const data = dataResult.data;
+const spec = mergeWidgetDataIntoSpec(specResult.spec, data);
+
+// Serialize spec for embedding in page (read by PreviewRenderer on client via readEmbeddedSpec)
+// Escape < as \u003c to prevent XSS via </script> injection in set:html
+const embeddedSpec = spec ? escapeJsonForHtml(spec) : null;
+---
+
+<AppThemeLayout appData={appData} title={`Preview | ${appData?.name ?? appSlug}`}>
+	{/* Embed the layout spec for client-side hydration */}
+	{embeddedSpec && (
+		<script
+			id="tedix-layout-spec"
+			type="application/json"
+			set:html={embeddedSpec}
+		/>
+	)}
+
+	<main class="p-4">
+		{spec ? (
+			<PreviewRenderer
+				client:only="react"
+				spec={spec}
+				data={data ?? undefined}
+			>
+				<div slot="fallback" class="p-4 space-y-4">
+					<div class="h-8 bg-muted rounded-lg animate-pulse w-1/3"></div>
+					<div class="grid grid-cols-2 gap-4">
+						<div class="h-24 bg-muted rounded-lg animate-pulse"></div>
+						<div class="h-24 bg-muted rounded-lg animate-pulse"></div>
+					</div>
+					<div class="h-48 bg-muted rounded-lg animate-pulse"></div>
+				</div>
+			</PreviewRenderer>
+		) : (
+			<div class="no-spec" data-render-complete="true">
+				<p>No spec provided. Pass a base64-encoded JSON spec via the <code>spec</code> query parameter.</p>
+			</div>
+		)}
+	</main>
+</AppThemeLayout>
+
+<style>
+	.no-spec {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 200px;
+		color: var(--color-muted-foreground, #6b7280);
+		font-size: 0.875rem;
+	}
+
+	.no-spec code {
+		background: var(--color-muted, #f3f4f6);
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		font-size: 0.8125rem;
+	}
+</style>

@@ -1,0 +1,52 @@
+{
+	"name": "@tedix/landing",
+	"version": "0.1.0",
+	"private": true,
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .wrangler dist .astro",
+		"clear-port": "../../scripts/clear-port.sh --app landing",
+		"dev": "bun run clear-port && astro dev --force --port 3003",
+		"build": "astro build",
+		"preview": "astro preview",
+		"test": "bun run test:run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"deploy:production": "CLOUDFLARE_ENV=production astro build && wrangler deploy --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"upload:production": "CLOUDFLARE_ENV=production astro build && wrangler versions upload --env production --var GIT_SHA:${GITHUB_SHA:-unknown} --message \"$WRANGLER_VERSION_MESSAGE\" --tag \"$WRANGLER_VERSION_TAG\" --strict",
+		"types": "bun ../../scripts/generate-worker-types.ts landing",
+		"types:check": "bun ../../scripts/generate-worker-types.ts --check landing",
+		"type-check": "LANDING_INSPECTOR_PORT=0 astro sync && tsc --noEmit"
+	},
+	"dependencies": {
+		"@astrojs/cloudflare": "^14.3.3",
+		"@astrojs/react": "^7.0.0",
+		"@cloudflare/kumo": "2.14.0",
+		"@tanstack/react-query": "^5.104.1",
+		"@tanstack/react-table": "^9.2.6",
+		"@tedix/api-client": "workspace:*",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/design-tokens": "workspace:*",
+		"@tedix/widget-ui": "workspace:*",
+		"astro": "^7.3.5",
+		"clsx": "^2.1.1",
+		"lucide-react": "^1.52.0",
+		"motion": "^14.0.0",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"tailwind-merge": "^3.7.0"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@tailwindcss/vite": "4.3.3",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"tailwindcss": "^4.3.3",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `skill_runs` ADD `origin_tedi_run_id` text;

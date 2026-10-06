@@ -1,0 +1,765 @@
+{
+	"version": 1,
+	"migrations": [
+		{
+			"name": "20260722173753_baseline/migration.sql",
+			"sha256": "4957815d1631271acba5515bbeb6d9b0dc411f11a0adb684d2718788484c0f01"
+		},
+		{
+			"name": "20260722181943_work_item_inbox/migration.sql",
+			"sha256": "259c205382c3ba9f568bf5d7d2a45425c41ce5b069f3f0236ec1fa03b49eed43"
+		},
+		{
+			"name": "20260724175117_skill_run_admission_dedup/migration.sql",
+			"sha256": "bf32a6fa198f624a35151e8e1491338ded1317e02c4c2ddb6af7c4e7e94fd640"
+		},
+		{
+			"name": "20260725044657_fresh_monster_badoon/migration.sql",
+			"sha256": "480903d8aa338a25a1b240a09f4c7cc0132b7a550a98a889c23a6df764bfd276"
+		},
+		{
+			"name": "20260725045314_curvy_sentinel/migration.sql",
+			"sha256": "e1c2e3c363f4683fccd94614ecc0e67b0a14cd60868621650fa3f6f03fe1ed9b"
+		},
+		{
+			"name": "20260727021917_runtime_event_retention_index/migration.sql",
+			"sha256": "6a7ef99a4f357e05823c80e595ea6973af07669096b547afe4ad4ccd8f7f3091"
+		},
+		{
+			"name": "20260727030243_drop_dead_telemetry_tables/migration.sql",
+			"sha256": "069a6743946ce5c671ba0e7aa050c2b2f3007b956cc1c1428443ba784b521e7b"
+		},
+		{
+			"name": "20260727034647_graph_projection_control_plane/migration.sql",
+			"sha256": "2eec5a05dc4792da663632a0c42a068898606901a6f44b98227a8135b8ce5ec4"
+		},
+		{
+			"name": "20260727060440_graph_cognition_governance/migration.sql",
+			"sha256": "6545589a97c76c12b710e27b57ff1ed63b25d27ce5f23f973228c554b2e87259"
+		},
+		{
+			"name": "20260727195937_billing_credits_metering/migration.sql",
+			"sha256": "f0417a4fe5ede0345d19465a46b9fa5f411f5a0dacef45eb2007d113ff84943e"
+		},
+		{
+			"name": "20260727200039_billing_provider_reconciliation/migration.sql",
+			"sha256": "d348f844a3373a2bb737aa2c5e02156f740920510977084dffe685d30b8cf05d"
+		},
+		{
+			"name": "20260727200116_billing_reservation_attribution/migration.sql",
+			"sha256": "1abf3cee53a5a1a62621ab344e3aeeeb6624b768918d71591192046929aaf528"
+		},
+		{
+			"name": "20260727201952_billing_reservation_plan_version/migration.sql",
+			"sha256": "99ed57f753c52e6240c4539b77fc9ad779b19fd6f4d03a55ba3329cf17baac03"
+		},
+		{
+			"name": "20260727205838_billing_overview_tool_projection/migration.sql",
+			"sha256": "2eee6bb559fdecec3d1daabed018f175fb6be57d9f8f754902b8b3e120452982"
+		},
+		{
+			"name": "20260727212854_telemetry_retention_indexes/migration.sql",
+			"sha256": "cf135f4038cb770b866191567350dad473ec70a4dbfb82e553a2ce19c9fe43d0"
+		},
+		{
+			"name": "20260727214601_stripe_catalog_v2/migration.sql",
+			"sha256": "7899a946478d775fe59f59e412b36ca159ffd82bdf2085e26976664a9527400d"
+		},
+		{
+			"name": "20260728002915_ops_alert_state/migration.sql",
+			"sha256": "f4bcc7f9f11d486a77463ad201b98b433df997987c497c5f8d4b2927888139be"
+		},
+		{
+			"name": "20260728032339_connection_provider_issuer_pinning/migration.sql",
+			"sha256": "9789cfb42f98831834903e2016eb55db5dfdc12d8bf84d4180c3b67a82b8ba20"
+		},
+		{
+			"name": "20260728125845_billing_settlement_durability/migration.sql",
+			"sha256": "6cf0daad4b5512927e1023023478e0f7fd7b0e97381d1f2ee98e931ac8994004"
+		},
+		{
+			"name": "20260728205024_worthless_skreet/migration.sql",
+			"sha256": "a9e4526b98ac45a7f51b6d8b1a675f1a88fb5eb0e98582b550256e62c0243dcd"
+		},
+		{
+			"name": "20260729013001_work_item_commit_certifications/migration.sql",
+			"sha256": "c13c56c38d28a98e046d3a0f6bc59f3b12eac6de21e4fceb88e2260db913b395"
+		},
+		{
+			"name": "20260729183041_docs_sites/migration.sql",
+			"sha256": "00e0bfeed4cf9775ad6a51d65890d6419802640546f49886b73545ebdcae92d9"
+		},
+		{
+			"name": "20260730015158_docs-governance-authoring/migration.sql",
+			"sha256": "4a91579fe96b71fae74f5be1a1c7f7db860fedd8990ec31628ac161c389196c5"
+		},
+		{
+			"name": "20260730020216_managed_seo_credits/migration.sql",
+			"sha256": "87ff1adbdd6ded185bafbaa818ef94a9a700ff62461e146529395109548d3f20"
+		},
+		{
+			"name": "20260730174512_kernel_hot_path_indexes/migration.sql",
+			"sha256": "eaa1b93b021bd9a77852ea7d4843de83a18fd57041b269cce377afafe10cb07e"
+		},
+		{
+			"name": "20260730183800_drop_prefix_redundant_indexes/migration.sql",
+			"sha256": "b007a5370f97c0545d40a1a92a11e2d927007995a4d63ae7e93f6c056f35abdd"
+		},
+		{
+			"name": "20260801005651_stripe_catalog_v3/migration.sql",
+			"sha256": "a28ebddfd1f9bbbe1d2d2ed295697e0cb12da743d2d56aceb3750eb51e94fd02"
+		},
+		{
+			"name": "20260802042204_allow_billing_credit_cascade_delete/migration.sql",
+			"sha256": "d8784d3d43eeef8173ac13ed3562c3713289e587d6524a1c6ef79cbfc9064a49"
+		},
+		{
+			"name": "20260802165727_d1_native_ledger_cutover/migration.sql",
+			"sha256": "dd226d8b7e894c1497f198d313382f5f241f0c84a9455bcd4bd0db082c77c773"
+		},
+		{
+			"name": "20260802180112_soft_scalphunter/migration.sql",
+			"sha256": "20534293d504e5e6b05c43038c97728c3c8dbd7d8ae59df17ee19a74d6fcb791"
+		},
+		{
+			"name": "20260803213204_foamy_living_mummy/migration.sql",
+			"sha256": "cf94a1ad99c026dfc8b7408a208b091edef52e1966b1112dc745f5ee1b0373e8"
+		},
+		{
+			"name": "20260803230533_dizzy_namor/migration.sql",
+			"sha256": "0528166ea37c88857f46dc6a847640b0847777d8e6d76520ab98c8f8cfb59b65"
+		},
+		{
+			"name": "20260803234739_work_item_source_owner_index_partition/migration.sql",
+			"sha256": "c1d942553a13e99f7b409453d8011a260f7e9b6b5b9bb00578e501014afe3930"
+		},
+		{
+			"name": "20260804222408_system_default_control_plane_seed/migration.sql",
+			"sha256": "a32386bfc42258d9d8e30fe37f3de938c4be6ec27d3100eee092c788eca0bcc9"
+		},
+		{
+			"name": "20260806162907_brainy_marauders/migration.sql",
+			"sha256": "c7929de29d75e66b8d2242ac80bdaf8a2c82aacbf891fa943ef1b2f924526b2f"
+		},
+		{
+			"name": "20260806221429_os_instance_single_running_deployment/migration.sql",
+			"sha256": "5377c744c1498a581816afd13da9ddf3930f3271a61d9d8c1c908f0f5fd34ce9"
+		},
+		{
+			"name": "20260808205556_content_ai_search_documents/migration.sql",
+			"sha256": "5c446cac20751c23c64814b31b3bd63b3cbdb8109edb9eb403c10f317d16f50c"
+		},
+		{
+			"name": "20260808212257_canonical_principal_identities/migration.sql",
+			"sha256": "8edf7dfed5199038a83586e2b1d32c49cda35e96f4a7b5bdebbd5f268e7735af"
+		},
+		{
+			"name": "20260809014204_docs_site_access_mode/migration.sql",
+			"sha256": "fa84f99507f2f77dad85ac41fcfe3d2a13127b489cf9b4a695638c62a291a591"
+		},
+		{
+			"name": "20260809015117_platform_cron_executions/migration.sql",
+			"sha256": "adc7311a10ba9202762ce65f8bab4746cb69d57522f13f91820ba9345a31f5b9"
+		},
+		{
+			"name": "20260809052816_orphan_run_lookup_index/migration.sql",
+			"sha256": "03fc993a6d1650ada1545a01fbc2799c87c3fe149ee7af6906c5383901ca9df3"
+		},
+		{
+			"name": "20260809212425_docs-site-source-auth-mode/migration.sql",
+			"sha256": "c488e77a65dcf24fe83582bae3cd64780896cb27be894f9113bd3f247fa976bc"
+		},
+		{
+			"name": "20260812045243_os-instance-control-origin/migration.sql",
+			"sha256": "5da1d7a5363baaad7e20ebf2d520ef88ed8f5d9a1b41eec2446952565046e44c"
+		},
+		{
+			"name": "20260812132126_os-gatekeeper-descope-identity/migration.sql",
+			"sha256": "a40056ec3d7ea17927b74abf00fdf32d342a0f00389e176bac0112576bc8ce53"
+		},
+		{
+			"name": "20260812132751_unique-os-gatekeeper-descope-application/migration.sql",
+			"sha256": "5a494ebec330b73fff47358906cd089a13b696cfc156493ce2f850096e83f411"
+		},
+		{
+			"name": "20260812151147_os-output-mutation-lineage/migration.sql",
+			"sha256": "a92e9fd228c8f65db0db8bc071e0808488351a4445fa5489e6fbd4f969222002"
+		},
+		{
+			"name": "20260812162800_os-workflow-interactions/migration.sql",
+			"sha256": "ef925fea9edb38d4a20f562b1bea4412762d40e83407c70e6236508944c12606"
+		},
+		{
+			"name": "20260812183851_immutable-os-releases/migration.sql",
+			"sha256": "4d4fc81e6c5ffef4c450d0c839013828f3f7e1616d6fa7ab95821ef0971c6a59"
+		},
+		{
+			"name": "20260812192205_os-fleet-runner-settlement/migration.sql",
+			"sha256": "6b1dd4b1650cb6f574242bc8c616c3c286f7de52e96e498e1625a42065555069"
+		},
+		{
+			"name": "20260812192230_os-fleet-runner-unsettled-index/migration.sql",
+			"sha256": "8e4123eefa4bdfef3aa0420f16469f0cc2c01c3e1ba183be230558b501c4bcac"
+		},
+		{
+			"name": "20260812204300_external-agent-mcp-issuance-lease/migration.sql",
+			"sha256": "b4a803b105f6c8a26b210b0e886ca8ccfa5277f9f86ff22dd2d6930b1c1bfb17"
+		},
+		{
+			"name": "20260813144625_os-workspaces/migration.sql",
+			"sha256": "307891b1d2bdd9ae30e831e434377ebd90219dd03780843a61eff59f6ed8efed"
+		},
+		{
+			"name": "20260813161808_gadget-executions/migration.sql",
+			"sha256": "bb7c829a28ecd114d81da4c7935a9c53d521efefca56004d434c6051f6e907a2"
+		},
+		{
+			"name": "20260813174128_blueprint-instantiation-provenance/migration.sql",
+			"sha256": "555a51962df8d2578a95664394a07ef8cc328dde8fb8d0ef2d9b7724ba0c8d7b"
+		},
+		{
+			"name": "20260813175424_os-outputs/migration.sql",
+			"sha256": "cae6baa01a973332b57d96aa858cfb74f7b2dfebb49b3dbd53bf3085b5f0b240"
+		},
+		{
+			"name": "20260815022003_drop-os-bridge-tables/migration.sql",
+			"sha256": "253c857dd4ba6aa4c49a23457caadb1e8db0c82cb361bc6bc72a71d31e727bb8"
+		},
+		{
+			"name": "20260815173315_os-mining-round/migration.sql",
+			"sha256": "efb2db2d94d2de4c92c942253eb52e6d6c98f16d55f855b6efd175d7633a1b6f"
+		},
+		{
+			"name": "20260816014254_governed-gadget-execution/migration.sql",
+			"sha256": "e5973899c53830d7c0474d567964e49fa0df771c1831249cec04a3095d3e9fda"
+		},
+		{
+			"name": "20260817051750_tedi-retirement/migration.sql",
+			"sha256": "e207c86804e451bf4e17defbc90f8bc02cb7b6d4b441671009f8a163bdf4803f"
+		},
+		{
+			"name": "20260817143501_blueprint-pinned-requirements/migration.sql",
+			"sha256": "8e6140c16e057244495a8463946e06d2a67cc96479a289878580a539dce757ae"
+		},
+		{
+			"name": "20260817155754_os-collaboration-proposals/migration.sql",
+			"sha256": "f98378a55cc6759f4c773bd8a7ea52f367fa2be1bf6a47bc27c8081564fe57ba"
+		},
+		{
+			"name": "20260817161441_blueprint-portability/migration.sql",
+			"sha256": "ca494a1972ba57a004b22e14b512d0756981bbcbeca0a21b5301c950e3c42a0c"
+		},
+		{
+			"name": "20260817183808_user-config-revision/migration.sql",
+			"sha256": "465ed4f6389a0e637a67884e51cb83ed2971122ba7eabd5d745c9448dcbb5dd1"
+		},
+		{
+			"name": "20260817203746_classy_invaders/migration.sql",
+			"sha256": "8670de6ef0615215405e6992f20ff019c9ba651229706c7feb29db79e17bd541"
+		},
+		{
+			"name": "20260817213023_immutable_control_plane_revisions/migration.sql",
+			"sha256": "fa36834b1f0345207fbe1b34cebd6e95fe7b90d77f2db48c1dd9c0ecb7f902f4"
+		},
+		{
+			"name": "20260817213046_backfill_control_plane_revision_provenance/migration.sql",
+			"sha256": "f0e4cb0a37116c02aa232ce027c35dfa56fe090a9fe1b3e5f3e1c266bda149b7"
+		},
+		{
+			"name": "20260818185148_app_tools_write_capability/migration.sql",
+			"sha256": "74b8d6e4947b944024f4b5391ec1e31a12d53a768cc11d51930b448f267d40c7"
+		},
+		{
+			"name": "20260818185154_backfill_app_tools_write_capability/migration.sql",
+			"sha256": "574e9bdd8247f3851fe59821a4eb336c138187901c7b63dc929e98df00f47297"
+		},
+		{
+			"name": "20260819235005_internal_metered_enterprise_v4/migration.sql",
+			"sha256": "c69482525bb1f31af6b7e2161904b73a3a097a8d101013e7babae43de989b584"
+		},
+		{
+			"name": "20260820034412_rename-organization-os-feature/migration.sql",
+			"sha256": "47fc83ccd3a3f847ccc3ccee11417a3353d89b368e27605e5d57785fa70d9dcc"
+		},
+		{
+			"name": "20260820173533_app-tool-operational-risk-policy/migration.sql",
+			"sha256": "b23c194081570b28155cc4ff7bea64daa02953e9963d584677bfef2920db214c"
+		},
+		{
+			"name": "20260820193613_workspace-resources/migration.sql",
+			"sha256": "c4e7a142094911f35b1ed5fa60664b1dbc73ffec1f66dd1a0f4f93d8e7990678"
+		},
+		{
+			"name": "20260820202422_workspace-resource-slots/migration.sql",
+			"sha256": "8d726468a4cf4e1323098c82fa2f316253ea33ca2f7943288c2bd0383c75405d"
+		},
+		{
+			"name": "20260820220001_artifact_neutral_work_factory/migration.sql",
+			"sha256": "4f6932f309788ccbdee61bbaf07d7a6080013ffb54721d420870ad19e729813c"
+		},
+		{
+			"name": "20260820220002_artifact_neutral_work_factory_snapshot/migration.sql",
+			"sha256": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd"
+		},
+		{
+			"name": "20260820220003_immutable_external_attempt_fence/migration.sql",
+			"sha256": "bb8116ad58a8b827efb76022b2a8ccc3c7611c3cc1ea78496ff511a1fcabd55d"
+		},
+		{
+			"name": "20260820220004_canonical_work_item_attempt_attribution/migration.sql",
+			"sha256": "f12a36e3121ae1c3a36395e78e38e9536c6f097758bd47cdbf91386e263cf883"
+		},
+		{
+			"name": "20260820220005_factory_rebase_schema_sync/migration.sql",
+			"sha256": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd"
+		},
+		{
+			"name": "20260820220006_factory_workspace_snapshot_sync/migration.sql",
+			"sha256": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd"
+		},
+		{
+			"name": "20260820220007_drop_work_item_lease_sweep_cursor/migration.sql",
+			"sha256": "57a71df1dc3dd8819792109312ecd72f1617a8a5e4c4d266cb247ad0b2e40d26"
+		},
+		{
+			"name": "20260820222324_canonical_work_acceptance_booleans/migration.sql",
+			"sha256": "f10210925a3ecc0e419b4775409ee04338715e49e02d02b9031aa19d1f082d1b"
+		},
+		{
+			"name": "20260821015311_work_factory_control_plane/migration.sql",
+			"sha256": "6b834873a25f56efc3e393a3a79e73c025cb4584b99c8330aa88a3a9d731c377"
+		},
+		{
+			"name": "20260821020357_work_factory_control_plane_hardening/migration.sql",
+			"sha256": "fccf9eb4a1972ec1f99b1091a8571eb2d1c6531ea02bdf509fc33e37ae300e5e"
+		},
+		{
+			"name": "20260821020828_work_factory_external_session_fences/migration.sql",
+			"sha256": "1c4de2d41c7cb89f78c70729b49764ae21303e1e7760399d0294b54c402b97b5"
+		},
+		{
+			"name": "20260821043502_canonical_work_attempt_ids/migration.sql",
+			"sha256": "227b48a76879fc72afc902cf20584ef485549adc89e38fbf3af9ed292da55e5a"
+		},
+		{
+			"name": "20260821190843_workspace_conversation_context/migration.sql",
+			"sha256": "e827fb90e83b2e451a5aa1e3651527ae539ee260d8cdd30043761f3b2c02afa0"
+		},
+		{
+			"name": "20260821222444_work_admission_fact_caps/migration.sql",
+			"sha256": "d4d6d4ebd180ff586f9a03cff115db4d15359561cd1c33217fd9546bd87af739"
+		},
+		{
+			"name": "20260822040255_kernel-conversation-archive/migration.sql",
+			"sha256": "48ca59c85195e9b2bc8f0e3cdd17fd0bf5a39275588986316c8931e3a987563a"
+		},
+		{
+			"name": "20260822170419_require_skill_run_runtime_environment/migration.sql",
+			"sha256": "289e2039854c5075a312dfc4c104f3d4aeb3955f8189c1fc9f2e617c7d3bb741"
+		},
+		{
+			"name": "20260822192027_work_evidence_reviewer_inbox/migration.sql",
+			"sha256": "861cc0e14f6f2e0aa6f42adbee612e65992d195dba3d7e6d9a1c1de0fa5a3a9f"
+		},
+		{
+			"name": "20260822200417_require_tool_types_and_backfill_user_identities/migration.sql",
+			"sha256": "03ec4891abf94d952338290788e2c3fcd6e21c037a9ab2920b8e6c3a1c80499c"
+		},
+		{
+			"name": "20260822224615_inference_capacity_topups/migration.sql",
+			"sha256": "95367e50d35855e1a125ddfaefc26ec722f53b4e28495df191c21feba1e1a92e"
+		},
+		{
+			"name": "20260823180013_repair_evidence_review_redrive_event_ids/migration.sql",
+			"sha256": "e160038faa0a9b630a89d69bcdcd94cf04b02f5ccbac05e3eff03504a74b07e2"
+		},
+		{
+			"name": "20260823202111_consolidate_billing_policy_allocations/migration.sql",
+			"sha256": "20d1f295d25ebb7696d21bb535405b14326f459edc69f964e2f1e52631814c1c"
+		},
+		{
+			"name": "20260823205514_normalize_catalog_store_listings/migration.sql",
+			"sha256": "95501e7f64348684cbed6857b93bded48c6004072d85903abba1e14e1f36c7e3"
+		},
+		{
+			"name": "20260823221640_canonical_billing_provider_identity/migration.sql",
+			"sha256": "49b90f5ae7ae2232d8b8487297fb5f4a9ff67b3788e78eab7fe18fb77f41e872"
+		},
+		{
+			"name": "20260823225807_internal_tedix_enterprise_billing_mode/migration.sql",
+			"sha256": "063c4e5d036092ddd4d54870679439520da6c154338eb780d3ed98ae0bb610aa"
+		},
+		{
+			"name": "20260824072751_external-agent-workload-replay/migration.sql",
+			"sha256": "b9b565f42f34eef5b88232f8943cd02cd1ad8b53100fae2c976fc269d7113e68"
+		},
+		{
+			"name": "20260825021956_billing_capacity_compensations/migration.sql",
+			"sha256": "4c58f761965a821c727e3b70a695cbf0b18a1f7d96e96d834789e7d73b544969"
+		},
+		{
+			"name": "20260825174735_declare_tedi_call_costs_org_id_trigger/migration.sql",
+			"sha256": "f97cf1c172bf6c0ed3aa467a51d67388b227c69ce81cecba866fdb7517210100"
+		},
+		{
+			"name": "20260825193413_os_output_producer_lineage/migration.sql",
+			"sha256": "d7fab889d8546ffef77f30e5bed1bc5dbaa95fa8e606ff2311f30474cff91db6"
+		},
+		{
+			"name": "20260825203303_work_evidence_verifications/migration.sql",
+			"sha256": "f8969183f2c7927213039649a22d1ef1442ef6473f5538d62f6abd39e989877d"
+		},
+		{
+			"name": "20260829045248_normalize_home_plan_route_kind/migration.sql",
+			"sha256": "b1b4c9b3624ba9719175b245ab6d141180fbe6d3c6817437831af5e3bdb4c14e"
+		},
+		{
+			"name": "20260829081541_remove_kernel_conversation_sentinels/migration.sql",
+			"sha256": "45ef57cd0e6c6dfdc1332e1c60bbb6ddd3ee9e02a5e96a61902557b3768fc5ff"
+		},
+		{
+			"name": "20260829085510_require_skill_pace_layer/migration.sql",
+			"sha256": "19419bd913c968158f98a344e11dce0beeaa9022f1f864c3dd79785f61bff99a"
+		},
+		{
+			"name": "20260829090818_require_home_plan_dependencies/migration.sql",
+			"sha256": "742e18af56965c8c855fed207751370aacd23ffc37a8f55c004ac33d1c277497"
+		},
+		{
+			"name": "20260829091858_require_structured_child_run_stop_metadata/migration.sql",
+			"sha256": "a96b055f7124caa6c589b658d4b6b7bd0d23257deb6ffd6149c937769ff90c27"
+		},
+		{
+			"name": "20260829095225_normalize_kernel_route_metadata/migration.sql",
+			"sha256": "3b1d17fc0ba6b6ca981be76b65cbbb76f8dbba00483276aaa46615bc13175fd6"
+		},
+		{
+			"name": "20260829095812_backfill_delegation_failure_envelopes/migration.sql",
+			"sha256": "636d50328fc21767420aff14a251e9413698d4424cec1a6773096d2d8d93f1be"
+		},
+		{
+			"name": "20260829100448_remove_legacy_delegation_failure_keys/migration.sql",
+			"sha256": "3006056bbdd8443eea7bf2a4209135b3a48279a9d602d82a045098a75bd5aecf"
+		},
+		{
+			"name": "20260829101654_normalize_home_plan_metadata/migration.sql",
+			"sha256": "b5f4ac4ff7b8b373a1b3a791c6315f258a0d3d58e3cd99150b077b13df04d6ed"
+		},
+		{
+			"name": "20260830155912_agent_memory_template_cleanup/migration.sql",
+			"sha256": "79c658d1fd769b74b0b472d999cda1f6e47fe0a4e876f9d271bbd5fdd63198da"
+		},
+		{
+			"name": "20260830161915_correct_agent_memory_template_target/migration.sql",
+			"sha256": "42571c3970ff92287722143a294400f5cc58e298bed06f9a8ac15f8f80cfeaba"
+		},
+		{
+			"name": "20260830184509_provider-embedded-installations/migration.sql",
+			"sha256": "1c62a011a498fd458f5cb837610e055406fbbb9cdd482e0ea217e4bdcb2d058e"
+		},
+		{
+			"name": "20260830211251_cms-sites-cutover/migration.sql",
+			"sha256": "cdfe75381421bd12c37577d58e09e0b05e67309c1504d8aca0ec957adfd3ae07"
+		},
+		{
+			"name": "20260830211402_migrate-cms-sites-data/migration.sql",
+			"sha256": "59eaf365b7e3066bbdfd3c32db28fef38813aa75c4ad7673641a8977b3e2f394"
+		},
+		{
+			"name": "20260830212838_remove-app-template-slug/migration.sql",
+			"sha256": "6c07fadaf39d57b7094ad7e6852ec222b79ccb77d563ee10a3bc27b84e17b125"
+		},
+		{
+			"name": "20260831001413_site_reconciliation/migration.sql",
+			"sha256": "667f6be94d2a0ad3cfb1d2390c7a5a01a011ae48ecf05d24af40f928ab71db65"
+		},
+		{
+			"name": "20260902010856_mcp-task-user-scope/migration.sql",
+			"sha256": "b3feee9dbadd11723928295769babf73fd22491fe0292aab04643d5254168937"
+		},
+		{
+			"name": "20260902190200_add-inference-capacity-pack-options/migration.sql",
+			"sha256": "da0385523416e466d057321f6f87ab52e70bb775ad79687ae2268a0f67682e0d"
+		},
+		{
+			"name": "20260902204017_allow-multiple-store-listings-per-app/migration.sql",
+			"sha256": "0926c810f4eefb03079b1fce34d115aeaa03193575fdee74c8ac31e783689d8d"
+		},
+		{
+			"name": "20260903044239_tedi-provisional-outcomes/migration.sql",
+			"sha256": "f9c66ae6e5ed5718ca69b4d56de9297e70ada303097a7a009dbbdbdddb88e3d0"
+		},
+		{
+			"name": "20260903045330_os-derived-access-envelopes/migration.sql",
+			"sha256": "7292e2d063d4d8587611f3b5c71f7b411486b437040afe0b6556bd7e72c07f5b"
+		},
+		{
+			"name": "20260903051409_wandering_kid_colt/migration.sql",
+			"sha256": "0b09837bd519b8f15836f8f859d04f5f0dfb91706c2958031212550a60efb53f"
+		},
+		{
+			"name": "20260903051423_conversation-capability-context/migration.sql",
+			"sha256": "bc387252dd7e3e5a6b6982c7c5899ee83f0fe891e2b0e8f5fbda6ccc82c683ac"
+		},
+		{
+			"name": "20260903141614_approval-simulation-ledgers/migration.sql",
+			"sha256": "1338e8b7a134b4d4f9886fdcea7cddcc97cc541ab9065469f67dac45caafb313"
+		},
+		{
+			"name": "20260903151329_conversation-artifact-pins/migration.sql",
+			"sha256": "3605b88761585189393ed6889b8978816da71862c15df6c05d7831e9b9d900b2"
+		},
+		{
+			"name": "20260912173518_embedded-contact-profiles/migration.sql",
+			"sha256": "e589c48160724936d7a3ef683b28c99a54663505ffacd50af5f8a0d7d1f541e8"
+		},
+		{
+			"name": "20260917040911_scrub_legacy_runtime_seed_field/migration.sql",
+			"sha256": "2ebb2a930964ef3d4bf28c4613af76f595b65f0c5efec155a8534b8146d454ec"
+		},
+		{
+			"name": "20260917210905_workstation_lease_body_instance/migration.sql",
+			"sha256": "9dde5332c1ec2987de9c0c81725cf6e4831dbbee838578a505ff49a9a010cef6"
+		},
+		{
+			"name": "20260918143310_sad_morph/migration.sql",
+			"sha256": "f421367f2bbfe3a41af4da1d77e6afe66497d1013b5ac05884e0ed78e6370205"
+		},
+		{
+			"name": "20260920021251_retire_unused_commerce_storage/migration.sql",
+			"sha256": "f44a777c9cca25ed6c3e3997b8c58cbb8ddde2034de348620dd6da1364f49397"
+		},
+		{
+			"name": "20260920063814_governed_provider_model_rates/migration.sql",
+			"sha256": "d0ada0c8cb37e1f208ecff57ae56232e56c53c12ab970588e29b512b894843bc"
+		},
+		{
+			"name": "20260920072429_provider_execution_cost_provenance/migration.sql",
+			"sha256": "e61468bb64e89ed6368d1c343ef8bc8efdce10e6d905fcf4e3d96f19a7282c7e"
+		},
+		{
+			"name": "20260920221605_retire_workspace_edit_tracking/migration.sql",
+			"sha256": "e257ab2ffd01787a93a657e024ee0a590255ffba70445d5553a4898445640597"
+		},
+		{
+			"name": "20260920223247_retire_auth_test_mailbox/migration.sql",
+			"sha256": "7041ab907dd28d9a4a72c91aaefa0fdc4f090097e0db8d705a30e57ecb87c61e"
+		},
+		{
+			"name": "20260921144820_workspace-project-links/migration.sql",
+			"sha256": "6c91844b761842b47c0308f5ebc7b0621be5e2185e67fedec95ea76a67609c0d"
+		},
+		{
+			"name": "20260921153849_wet_mongu/migration.sql",
+			"sha256": "c0f4f758f1d4799b136891089fcb2f59e78436e690fa8c28a94b608856b28235"
+		},
+		{
+			"name": "20260921195702_cms_bundle_source_revision/migration.sql",
+			"sha256": "5abbab04b7edab6a39e3b58778e8ca87af13d81e7107f5e50abe1e72fd5613f5"
+		},
+		{
+			"name": "20260922130950_attest_os_collaboration_sources/migration.sql",
+			"sha256": "bf4b2da14f0c3565179b546cb6f6bb2944c2149ab2370088f0540c3ebdc8ffeb"
+		},
+		{
+			"name": "20260922134622_kernel-tool-results/migration.sql",
+			"sha256": "a89ee334842629e173e54ad2cca7ac6ea3224913b151554b0a6e184c944189e9"
+		},
+		{
+			"name": "20260922145456_striped_colonel_america/migration.sql",
+			"sha256": "031f6f017b5f5b85492991bec681b7b74a62bc03046e9d2334b715229ddfee41"
+		},
+		{
+			"name": "20260922180644_tedi-artifact-provenance/migration.sql",
+			"sha256": "2402aa0131ddbecef12ddb9d5faac72323e40f2eef89c9263e426df6e1e628d2"
+		},
+		{
+			"name": "20260922185847_tenant-behavioral-evals/migration.sql",
+			"sha256": "9f2d3f7e04a41faee924ce60f59d4531ace0b74c362f404096e882f5f7382f3c"
+		},
+		{
+			"name": "20260922190904_tenant-behavioral-evals-cas/migration.sql",
+			"sha256": "8bf0d2eaccb0ed754a2b10195d12921e967b7ce30756027b3609653cc2f71b3f"
+		},
+		{
+			"name": "20260922192237_tenant-behavioral-evals-fks/migration.sql",
+			"sha256": "9f23991734e4d42f34e673cef4ce7d27cee62c8e019e1416d1776e4b33d70f45"
+		},
+		{
+			"name": "20260922202823_kernel-event-causality/migration.sql",
+			"sha256": "1f467a0fbe22ccf401f9084fbf3d86e9d03074ecbb17bfdf543fb17bba870dd2"
+		},
+		{
+			"name": "20260923094659_jev_provider_execution/migration.sql",
+			"sha256": "4ddd2b6e011db1d0f7a097eea02ef269352fa382d5fbb849fbb611b07e7efccf"
+		},
+		{
+			"name": "20260923101601_artifact_contribution_receipts/migration.sql",
+			"sha256": "d5b676ec36f38dc745c88224c7fc99ddc576b76f1e8590393672040c259ae960"
+		},
+		{
+			"name": "20260923111358_artifact_redacted_release/migration.sql",
+			"sha256": "38436f5cc7a0ba23b14d3fdd16e855763d16e343b39b6a95baa3403b3d4e41ee"
+		},
+		{
+			"name": "20260923204220_mcp_prompt_metadata/migration.sql",
+			"sha256": "9889ba8147e11d6a573c77dc5559cabde54e19a5116b273d0333c7ebe6784175"
+		},
+		{
+			"name": "20260923212124_mcp_skills_inventory/migration.sql",
+			"sha256": "c2613d1b6e66f435959c6b62b3ab12143f14649898bdf988bce8f4958167a955"
+		},
+		{
+			"name": "20260924111953_remove_legacy_tedi_channels/migration.sql",
+			"sha256": "39cf00fc365796b108fb61a7831011b391c31c08688f910e456b17e931b3dcef"
+		},
+		{
+			"name": "20260924122530_skill-run-origin-tedi-run/migration.sql",
+			"sha256": "81d9e92840900f5a7867285e2201442c47e3a0b9aa9475b821f45ced1a3d7737"
+		},
+		{
+			"name": "20260924125425_skill-run-effect-observations/migration.sql",
+			"sha256": "58d84e97ccfdc32fdf3a18362d7d3d30aac1ad33eef5f9a95622cde4e667d812"
+		},
+		{
+			"name": "20260924203615_jev_call_duration/migration.sql",
+			"sha256": "0f8d666217bf59be7cff875401ed4e8a1611e48739a770a6c8f16d83b24fd52c"
+		},
+		{
+			"name": "20260925094434_user-profile-revision/migration.sql",
+			"sha256": "add7892585bbbc2e226fe6e0eecb24c3555f98890e2c249c0f3a2d75a26f9907"
+		},
+		{
+			"name": "20260925111319_cms-deprovision-operations/migration.sql",
+			"sha256": "c55cf8670f32b4388e227e1a9e298aaeecbadae442038c03bb11378bdb910715"
+		},
+		{
+			"name": "20260925143416_tenant-eval-outcomes/migration.sql",
+			"sha256": "3af0b41470815fe471d14eee96f98b591ed2fa7e74e379e01a944065bfab8f18"
+		},
+		{
+			"name": "20260925150721_tenant-eval-provenance/migration.sql",
+			"sha256": "90c3e040ec20c771f06f08de06320da57dacd6dea56693e070ae5a79d7a715bc"
+		},
+		{
+			"name": "20260925152039_tenant-eval-case-attempts/migration.sql",
+			"sha256": "4cf94c93f1896a1f72024014d074a78585ebac435514c4d40dca65a29e4bcc7a"
+		},
+		{
+			"name": "20260925183225_jev_review_packet_reads_after_live_ledger/migration.sql",
+			"sha256": "621e0d0fe6a1d52d5c214bddc0f47fbf7cac767258d338d4f7907c7f8d9058ca"
+		},
+		{
+			"name": "20260925184909_jev_review_result_receipts_after_live_ledger/migration.sql",
+			"sha256": "ba816eaab70283f519b6b84462f12b3f098181aac6dfc7f29801bf2f47c4aca2"
+		},
+		{
+			"name": "20260925230847_jev_extraction_source_capture/migration.sql",
+			"sha256": "34709b0f5a432e3b461157bd029d715ec6aef22299a3e03957a5f77dc7b5b4ce"
+		},
+		{
+			"name": "20260925233134_jev_extraction_claim_attestation/migration.sql",
+			"sha256": "d966194fd9d909080cbede620aedf719018b8102888d0243ba41555a0d8fca6e"
+		},
+		{
+			"name": "20260926105935_drop_jev_review_pipeline/migration.sql",
+			"sha256": "6966b37e94a386e92304cdaa5727831ad9dc96d944a3ab79f7754d55a141feac"
+		},
+		{
+			"name": "20260926135119_drop_xai_flywheel_snapshots/migration.sql",
+			"sha256": "3e9cf946478b89153d9078873d94dfdf8431da3a7b7e5633cfa75ae59912510f"
+		},
+		{
+			"name": "20260926145712_cms-legacy-d1-optional/migration.sql",
+			"sha256": "1adbe2b8da3764ae2da2849789e72b79384ff125389c605018f846588a736370"
+		},
+		{
+			"name": "20260926192628_retire-cms-tenant-d1-ids/migration.sql",
+			"sha256": "fbd845c81054c73dd5a6026fedf6e45e180c90582155015eb0f435907b6d8ee9"
+		},
+		{
+			"name": "20260926193742_provider-model-context-rates/migration.sql",
+			"sha256": "6929cc6c159bf4aaeeab8d0da9da560f3079d261070f6684870fd2e79e1e05a0"
+		},
+		{
+			"name": "20260926205640_cms-domain-claims/migration.sql",
+			"sha256": "270279d992bc5cb6f58c68a9b43c9c0893c92095fa34d43d0a99572fa4c01ddb"
+		},
+		{
+			"name": "20260927123751_release_locks/migration.sql",
+			"sha256": "2eeff71b486849d31f04b78519a315c0556ba66030e4701d389837cdc93f1e8c"
+		},
+		{
+			"name": "20260927151931_payment-policy-guardrails/migration.sql",
+			"sha256": "55d90655fadfb09fa90e26c83700c143e45519007001d35eed163135659f70c1"
+		},
+		{
+			"name": "20260927212900_mcp-consent-selections/migration.sql",
+			"sha256": "8bec1591d76624c74ee05f0a5428cdf4bace7e65e8a4b4cf1e1198ffed62bd9a"
+		},
+		{
+			"name": "20260928120200_cms-www-alias-claims/migration.sql",
+			"sha256": "5296341ef8766af2ff2a82d98e89837f0b291064d5e44ebeac02f823a8632c83"
+		},
+		{
+			"name": "20260928161629_drop-stripe-id-columns/migration.sql",
+			"sha256": "d142c1f44386e83287d209e3a3b076162b93ee64e36ed1af62a792d4429186e0"
+		},
+		{
+			"name": "20260929033607_cms-restore-fences/migration.sql",
+			"sha256": "e314337aaa35d7a9623e508f2f57013daf0035a0c9577a30c4b84044c24ca247"
+		},
+		{
+			"name": "20260929092305_cms_restore_epoch/migration.sql",
+			"sha256": "f85bf4192092765967ced0468f3ac1f107758215e6f3b6bf4b87dc8eb2a3a2e3"
+		},
+		{
+			"name": "20260929133758_cms-capture-cron-pause/migration.sql",
+			"sha256": "6ef20594a465b08062a422c29b26bf01813b22bbfaafe649bf8954f3544efa7c"
+		},
+		{
+			"name": "20261001120709_trust_catalog_installer_default_policy/migration.sql",
+			"sha256": "9d5ab1d7c59a2060e03c60d2ccc47f52e1e97bc4edd825a3755ed33060b0a60d"
+		},
+		{
+			"name": "20261001195207_skill-catalog-folders/migration.sql",
+			"sha256": "06a10c3cd06c428f1f40ad00712f224b78a709a79f677887518c972070a16711"
+		},
+		{
+			"name": "20261001200510_harness-eval-trial-report/migration.sql",
+			"sha256": "216183f1a147e5cae4aadf3bdcbc0c4d239235365ebfa048c673cb64d7bb5037"
+		},
+		{
+			"name": "20261001201323_promote_auto_router_defaults/migration.sql",
+			"sha256": "8404660c6026386bf139156c8257b2dc225ee7b68aa719fe97309b978f861c58"
+		},
+		{
+			"name": "20261002153135_personal_connection_instances/migration.sql",
+			"sha256": "d565cce0ff16730ba41e7ca7e7947516935912badd714d081d9260674ac266db"
+		},
+		{
+			"name": "20261003143639_open-provider-rate-intervals/migration.sql",
+			"sha256": "4cf8f2f38d501150dc77877fef4da0d5af6c05bb5b2b299749c61c2a948352d4"
+		},
+		{
+			"name": "20261003145505_organization_connection_accounts/migration.sql",
+			"sha256": "0e37ccf7b520de82e289ee63820de72d67ccae34df9e671c4907abeb65e04e44"
+		},
+		{
+			"name": "20261004092342_remove-provider-rate-expiry/migration.sql",
+			"sha256": "cd1a4d6697b542b7f53492b25ae34455bb30b90d10a64681b469eef8d18da098"
+		},
+		{
+			"name": "20261004185952_mcp_consent_pending_activation/migration.sql",
+			"sha256": "75312107565d633857226876b97020288b52f337335c33607e2b744090748104"
+		},
+		{
+			"name": "20261005024504_historical_exposure/migration.sql",
+			"sha256": "86399f14f50f1cae8e2fd1fbe1f057492dfd91d1430b140a81b8fb7862fea6fb"
+		},
+		{
+			"name": "20261005083924_provider_execution_origin/migration.sql",
+			"sha256": "6bbd518df813f9032174195e1c2208ab966000f284f9750f813b6074e0cfbf02"
+		}
+	]
+}

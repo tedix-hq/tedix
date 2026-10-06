@@ -1,0 +1,13 @@
+{
+	"extends": "@tedix/tsconfig/cloudflare.json",
+	"compilerOptions": { "types": ["node"], "noEmit": true },
+	"include": ["src/**/*.ts", "src/**/*.mjs", ".cloudflare/types/index.d.ts"],
+	"exclude": [
+		"node_modules",
+		"public",
+		"src/**/runtime-*.ts",
+		"src/loader-harness.ts",
+		"src/loader*.test.ts",
+		"src/confirm.test.ts"
+	]
+}

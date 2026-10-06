@@ -1,0 +1,36 @@
+{
+	"name": "@tedix/mcp-client-core",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Runtime-neutral MCP client capabilities: discovery, credentials, Code Mode, and result handling.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./client-manager": "./src/client-manager.ts",
+		"./elicitation-resolver": "./src/elicitation-resolver.ts",
+		"./runtime": "./src/runtime.ts",
+		"./tool-liveness": "./src/tool-liveness.ts",
+		"./types": "./src/types.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"type-check": "tsc --noEmit",
+		"test": "vp test run",
+		"test:run": "vp test run"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/client": "catalog:",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/mcp-shared": "workspace:*",
+		"@tedix/ssrf-guard": "workspace:*",
+		"yaml": "^2.9.1"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

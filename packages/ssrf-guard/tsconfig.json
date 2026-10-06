@@ -1,0 +1,9 @@
+{
+	"extends": "@tedix/tsconfig/base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": []
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["node_modules", "src/**/*.test.ts"]
+}

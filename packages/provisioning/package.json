@@ -1,0 +1,22 @@
+{
+	"name": "@tedix/provisioning",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Client library for the tedi runtime Worker admin API.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./cms": "./src/cms.ts"
+	},
+	"scripts": {
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@tedix/worker-kit": "workspace:*"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

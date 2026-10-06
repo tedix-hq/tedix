@@ -1,0 +1,2 @@
+ALTER TABLE `billing_usage_reservations` ADD `plan_version_id` text NOT NULL REFERENCES billing_plan_versions(id);--> statement-breakpoint
+CREATE INDEX `idx_billing_reservation_plan` ON `billing_usage_reservations` (`plan_version_id`);

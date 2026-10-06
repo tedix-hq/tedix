@@ -1,0 +1,2043 @@
+---
+/**
+ * App Catalog Detail Page
+ * Displays full details for a single app from the App Catalog
+ * URL: /apps/[slug] (SEO-friendly URLs)
+ */
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { getCatalogClient } from "../../lib/api";
+import ToolsTable from "../../components/catalog/ToolsTable.tsx";
+import type { CatalogAppDetail, CatalogAppListItem } from "@tedix/api-contract/schemas/catalog";
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Empty } from "@/components/ui/empty";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_GRADIENTS, DEFAULT_GRADIENT, DEVELOPER_TYPE_LABELS, CONNECTOR_TYPE_LABELS, CONNECTOR_TYPE_LABELS_FRIENDLY, HEALTH_STATUS_CONFIG, HEALTH_STATUS_LABELS_FRIENDLY, REGION_LABELS, AUTH_TYPE_LABELS, CAPABILITY_LABELS } from "../../lib/catalog-constants";
+
+const { slug } = Astro.params;
+
+if (!slug) {
+	return new Response("App slug required", { status: 400 });
+}
+
+import { env } from 'cloudflare:workers';
+
+// Fetch app details from the API using RPC client
+let app: CatalogAppDetail | null = null;
+let error: string | null = null;
+let notFound = false;
+let relatedApps: CatalogAppListItem[] = [];
+
+// /apps/* carries ~96% of this property's indexed pages and ~83% of its organic
+// clicks, so cold TTFB here is the SEO-critical number. Two API calls run on the
+// render path and the second one CANNOT be parallelised — it needs the category
+// from the first. So bound it instead: related apps are decorative, and a slow
+// catalog query must never be the reason a ranking page is slow to crawl.
+const RELATED_APPS_BUDGET_MS = 500;
+
+const spans: string[] = [];
+async function timed<T>(name: string, fn: () => Promise<T>): Promise<T> {
+	const started = Date.now();
+	try {
+		return await fn();
+	} finally {
+		spans.push(`${name};dur=${Date.now() - started}`);
+	}
+}
+
+try {
+	const client = getCatalogClient(env);
+	app = await timed("app_get", () => client.catalog.getBySlug({ slug }));
+	if (!app) {
+		notFound = true;
+	} else if (app.category) {
+		// Fetch related apps (same category). Non-critical: on timeout or error
+		// the page renders without the related rail rather than making the
+		// visitor — or Googlebot — wait for it.
+		const currentApp = app;
+		try {
+			const related = await timed("app_related", () =>
+				Promise.race([
+					client.catalog.list({ category: currentApp.category!, limit: 6, offset: 0 }),
+					new Promise<null>((resolve) =>
+						setTimeout(() => resolve(null), RELATED_APPS_BUDGET_MS),
+					),
+				]),
+			);
+			if (related) {
+				relatedApps = related.apps
+					.filter((a) => a.id !== currentApp.id)
+					.slice(0, 4);
+			} else {
+				spans.push("app_related_timeout;dur=1");
+			}
+		} catch { /* non-critical */ }
+	}
+} catch (e) {
+	console.error("[Apps] Failed to fetch app from API:", e);
+	error = "Failed to load app details. Please try again later.";
+}
+
+// Surface the render-path breakdown so a regression on the highest-traffic
+// surface is attributable without a deploy.
+if (spans.length > 0) {
+	Astro.response.headers.append("Server-Timing", spans.join(", "));
+}
+
+if (!app && !notFound && !error) {
+	notFound = true;
+}
+
+// Helper functions
+function getChatGptUrl(app: CatalogAppDetail): string | null {
+	// Only return a ChatGPT URL if the app actually has a ChatGPT store listing
+	const chatgptListing = app.storeListings?.find(l => l.source === "chatgpt");
+	if (!chatgptListing) return null;
+	if (chatgptListing.storeUrl) return chatgptListing.storeUrl;
+	// Fallback: construct from slug + sourceAppId
+	const nameSlug = app.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+	if (chatgptListing.sourceAppId) {
+		return `https://chatgpt.com/apps/${nameSlug}/${chatgptListing.sourceAppId}`;
+	}
+	return null;
+}
+
+function resolveLogoUrl(logoUrl: string | null): string | null {
+	if (!logoUrl) return null;
+	const trimmed = logoUrl.trim();
+	return /^https?:\/\//i.test(trimmed) && trimmed.includes("/app_catalog/") ? trimmed : null;
+}
+
+function cleanPublicText(value: string | null | undefined): string {
+	return (value ?? "")
+		.replace(/\\r\\n/g, "\n")
+		.replace(/\\n/g, "\n")
+		.replace(/\\r/g, "\n")
+		.replace(/\\t/g, " ")
+		.replace(/\r\n?/g, "\n")
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
+function formatMcpServerVersion(version: string | null | undefined): string {
+	const trimmed = version?.trim();
+	if (!trimmed) return "";
+	return /^v\d/i.test(trimmed) ? trimmed : `v${trimmed}`;
+}
+
+function formatDate(dateString: string | null): string {
+	if (!dateString) return "Unknown";
+	try {
+		return new Date(dateString).toLocaleDateString("en-US", {
+			year: "numeric",
+			month: "long",
+			day: "numeric",
+		});
+	} catch {
+		return "Unknown";
+	}
+}
+
+// Constants imported from ../../lib/catalog-constants
+
+function formatRelativeTime(dateString: string | null): string {
+	if (!dateString) return "Never";
+	try {
+		const date = new Date(dateString);
+		const now = new Date();
+		const diffMs = now.getTime() - date.getTime();
+		const diffMins = Math.floor(diffMs / 60000);
+		const diffHours = Math.floor(diffMs / 3600000);
+		const diffDays = Math.floor(diffMs / 86400000);
+
+		if (diffMins < 1) return "Just now";
+		if (diffMins < 60) return `${diffMins}m ago`;
+		if (diffHours < 24) return `${diffHours}h ago`;
+		if (diffDays < 7) return `${diffDays}d ago`;
+		return formatDate(dateString);
+	} catch {
+		return "Unknown";
+	}
+}
+
+function formatLatency(ms: number | null): string {
+	if (ms === null) return "N/A";
+	if (ms < 1000) return `${ms}ms`;
+	return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function sourceLabel(source: string): string {
+	const labels: Record<string, string> = {
+		chatgpt: "ChatGPT app store",
+		claude: "Claude connector directory",
+		gemini: "Gemini",
+		copilot: "Microsoft Copilot",
+		official: "Official MCP registry",
+		manual: "Tedix catalog",
+	};
+	return labels[source] ?? source.replace(/[_-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatCapabilityList(app: CatalogAppDetail): string[] {
+	return [
+		app.hasWrites ? CAPABILITY_LABELS.hasWrites.label : null,
+		app.hasInteractive ? CAPABILITY_LABELS.hasInteractive.label : null,
+		app.hasFileSearch ? CAPABILITY_LABELS.hasFileSearch.label : null,
+		app.hasDeepResearch ? CAPABILITY_LABELS.hasDeepResearch.label : null,
+		app.hasSync ? CAPABILITY_LABELS.hasSync.label : null,
+	].filter((item): item is string => Boolean(item));
+}
+
+function formatActionIntent(tool: NonNullable<CatalogAppDetail["tools"]>[number]): string {
+	const annotations = tool.annotations;
+	if (annotations?.destructiveHint) return "High-impact write action";
+	if (annotations?.readOnlyHint) return "Read-only action";
+	if (annotations?.idempotentHint) return "Repeatable action";
+	if (annotations?.openWorldHint) return "External-world action";
+	return "App action";
+}
+
+function formatFreshness(dateString: string | null): string {
+	if (!dateString) return "No timestamp available";
+	const relative = formatRelativeTime(dateString);
+	const absolute = formatDate(dateString);
+	return relative === absolute ? absolute : `${relative} (${absolute})`;
+}
+
+// Get health status config with fallback
+const healthConfig = app?.healthStatus ? HEALTH_STATUS_CONFIG[app.healthStatus] || HEALTH_STATUS_CONFIG.unknown : null;
+const isMcpHealthy =
+	app?.healthStatus === "healthy" || app?.healthStatus === "degraded";
+const isMcpAuthRequired = app?.healthStatus === "requires_auth";
+const isMcpDegraded = app?.healthStatus === "degraded";
+const mcpResourceTemplateCount = app?.resourceTemplates?.length ?? 0;
+const mcpResourceDisplayCount =
+	(app?.mcpResourceCount ?? 0) + mcpResourceTemplateCount;
+const mcpCountsEmpty = Boolean(
+	(app?.mcpToolCount ?? 0) === 0 &&
+		(app?.mcpResourceCount ?? 0) === 0 &&
+		(app?.mcpPromptCount ?? 0) === 0 &&
+		mcpResourceTemplateCount === 0,
+);
+const hasMcpDeclaredInventory = Boolean(
+	app?.connectorType === "MCP" && !isMcpHealthy && !mcpCountsEmpty,
+);
+const showMcpCounts = Boolean(app?.connectorType === "MCP" && (isMcpHealthy || hasMcpDeclaredInventory));
+const hasHealthCheck = Boolean(app?.healthLastCheckedAt);
+const storeSources = Array.from(
+	new Set(app?.storeListings?.map((listing) => listing.source).filter(Boolean) ?? []),
+);
+const claudeListing = app?.storeListings?.find(l => l.source === "claude");
+
+// Get gradient for logo fallback (deterministic by name when no category)
+function getGradientForApp(name: string, category: string | null): string {
+	const nameGradients = [
+		"from-blue-500 to-indigo-600",
+		"from-violet-500 to-purple-600",
+		"from-emerald-400 to-teal-600",
+		"from-orange-400 to-amber-600",
+		"from-pink-400 to-rose-600",
+		"from-cyan-400 to-blue-600",
+		"from-red-400 to-pink-600",
+		"from-indigo-400 to-blue-600",
+		"from-rose-400 to-red-500",
+		"from-amber-400 to-orange-600",
+		"from-fuchsia-400 to-purple-600",
+		"from-lime-400 to-green-600",
+	];
+	if (category && CATEGORY_GRADIENTS[category]) {
+		return CATEGORY_GRADIENTS[category];
+	}
+	let hash = 0;
+	for (let i = 0; i < name.length; i++) {
+		hash = (hash * 31 + name.charCodeAt(i)) | 0;
+	}
+	return nameGradients[Math.abs(hash) % nameGradients.length];
+}
+const headerGradient = app ? getGradientForApp(app.name, app.category) : DEFAULT_GRADIENT;
+const discoverability = app?.discoverability ?? null;
+const discoverabilityScore = discoverability?.score ?? 0;
+const discoverabilityColorClass =
+	discoverabilityScore >= 85
+		? "text-green-600 dark:text-green-400"
+		: discoverabilityScore >= 70
+			? "text-emerald-600 dark:text-emerald-400"
+			: discoverabilityScore >= 50
+				? "text-yellow-600 dark:text-yellow-400"
+				: "text-red-600 dark:text-red-400";
+const discoverabilityTrackClass =
+	discoverabilityScore >= 85
+		? "bg-green-500"
+		: discoverabilityScore >= 70
+			? "bg-emerald-500"
+			: discoverabilityScore >= 50
+				? "bg-yellow-500"
+				: "bg-red-500";
+
+// Handle 404 case - provide fallback values for metadata
+const chatGptUrl = app ? getChatGptUrl(app) : null;
+const logoUrl = app ? resolveLogoUrl(app.logoUrl) : null;
+const screenshots: string[] = app?.screenshots || [];
+const appDescription = cleanPublicText(app?.description);
+const appSeoDescription = cleanPublicText(app?.seoDescription);
+const appEnrichedDescription = cleanPublicText(app?.enrichedDescription);
+const appModelDescription = cleanPublicText(app?.modelDescription);
+
+// Parse regions from storeListings
+const regions: string[] = app?.storeListings
+	? [...new Set(app.storeListings.flatMap(l => l.regions || []))]
+	: [];
+
+// SEO metadata - optimized for searches like "Kleinanzeigen chatgpt app"
+// Use different title/description for 404 state
+const primaryCategoryLabel = app?.category ? CATEGORY_LABELS[app.category] || app.category : null;
+const categoryLabel = primaryCategoryLabel ?? "";
+const pageTitle = app
+	? `${app.name} — AI App | Tedix Directory`
+	: notFound
+		? `App Not Found | Tedix Directory`
+		: `App Directory Unavailable | Tedix`;
+const pageDescription = app
+	? appSeoDescription
+		? appSeoDescription
+		: appDescription
+			? `${appDescription.slice(0, 150)}${appDescription.length > 150 ? "..." : ""}`
+			: `Explore ${app.name} AI app. ${categoryLabel ? `Category: ${categoryLabel}. ` : ""}${app.developer ? `Built by ${app.developer}.` : ""} View features, capabilities, and how to use this app.`
+	: notFound
+		? `The app "${slug}" could not be found. Browse our directory of AI apps to find what you're looking for.`
+		: "The Tedix app directory is temporarily unavailable.";
+
+// Canonical URL for SEO - NEW: /apps/ instead of /marketplace/
+const canonicalUrl = new URL(`/apps/${app?.slug || slug}/`, Astro.site || "https://tedix.dev");
+const agentDiscoveryCategory = primaryCategoryLabel ?? "AI application";
+const agentDiscoveryWorkflowContext = primaryCategoryLabel
+	? primaryCategoryLabel.toLowerCase()
+	: "general AI app";
+const agentDiscoveryCategorySignal = app?.category
+	? `${app.name} is categorized as ${primaryCategoryLabel}.`
+	: `${app?.name ?? "This app"} has no primary catalog category yet; Tedix treats this as a routing gap for browse and recommendation surfaces.`;
+const agentDiscoveryConnector = app?.connectorType
+	? CONNECTOR_TYPE_LABELS_FRIENDLY[app.connectorType] || CONNECTOR_TYPE_LABELS[app.connectorType] || app.connectorType
+	: "AI app";
+const agentDiscoveryCapabilities = app ? [
+	app.hasWrites ? "write or update records when authorized" : null,
+	app.hasInteractive ? "support interactive workflows" : null,
+	app.hasFileSearch ? "search files or knowledge sources" : null,
+	app.hasDeepResearch ? "support research-style tasks" : null,
+	app.hasSync ? "sync data between systems" : null,
+].filter((item): item is string => Boolean(item)) : [];
+const agentDiscoverySignals = app ? [
+	agentDiscoveryCategorySignal,
+	app.developer ? `Developer: ${app.developer}.` : null,
+	`Connector type: ${agentDiscoveryConnector}.`,
+	app.healthStatus ? `Current connector status: ${HEALTH_STATUS_LABELS_FRIENDLY[app.healthStatus] || app.healthStatus}.` : null,
+	storeSources.length > 0 ? `Observed distribution channels: ${storeSources.join(", ")}.` : null,
+	regions.length > 0 ? `Available regions: ${regions.map(region => REGION_LABELS[region] || region).join(", ")}.` : null,
+	agentDiscoveryCapabilities.length > 0 ? `Declared capabilities: ${agentDiscoveryCapabilities.join(", ")}.` : null,
+].filter((item): item is string => Boolean(item)) : [];
+const agentDiscoveryUseCases = app ? [
+	`Use this page to understand whether ${app.name} is relevant for ${agentDiscoveryWorkflowContext} workflows in AI assistants.`,
+	app.connectorType === "MCP"
+		? `For MCP discovery, this listing helps crawlers connect ${app.name} to tool, resource, prompt, and server-health signals instead of treating it as a generic directory entry.`
+		: `For AI app discovery, this listing gives crawlers a stable canonical page with category, publisher, availability, and capability context.`,
+	`The canonical Tedix directory URL is ${canonicalUrl.href}.`,
+] : [];
+const capabilityLabels = app ? formatCapabilityList(app) : [];
+const authSummary = app
+	? app.authTypes && app.authTypes.length > 0
+		? app.authTypes.map(t => AUTH_TYPE_LABELS[t] || t).join(", ")
+		: app.storeListings?.some((listing) => listing.authRequired)
+			? "Authentication required by at least one source listing"
+			: "Open Access"
+	: "";
+const sourceProfile = app ? [
+	app.toolSource ? `${sourceLabel(app.toolSource)} tool source` : null,
+	storeSources.length > 0 ? `Store sources: ${storeSources.map(sourceLabel).join(", ")}` : null,
+	app.distributionChannel ? `Distribution: ${app.distributionChannel.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}` : null,
+	app.installability.installable
+		? "Tenant install: prepared"
+		: `Tenant install: ${app.installability.reason}`,
+].filter((item): item is string => Boolean(item)) : [];
+const sourceListingsProfile = app?.storeListings
+	?.slice(0, 6)
+	.map((listing) => ({
+		label: sourceLabel(listing.source),
+		url: listing.storeUrl,
+		auth: listing.authRequired ? "Auth required" : "Auth not flagged",
+		reviewStatus: listing.reviewStatus,
+		regions: listing.regions?.map(region => REGION_LABELS[region] || region).join(", "),
+		lastSynced: listing.lastSyncedAt,
+	})) ?? [];
+const verificationProfile = app ? [
+	{ label: "Catalog synced", value: formatFreshness(app.lastSyncedAt) },
+	app.healthLastCheckedAt ? { label: "Connector checked", value: formatFreshness(app.healthLastCheckedAt) } : null,
+	app.mcpLastScannedAt ? { label: "MCP scanned", value: formatFreshness(app.mcpLastScannedAt) } : null,
+	app.enrichedAt ? { label: "Website enriched", value: formatFreshness(app.enrichedAt) } : null,
+	app.updatedAt ? { label: "Directory updated", value: formatFreshness(app.updatedAt) } : null,
+].filter((item): item is { label: string; value: string } => Boolean(item)) : [];
+const actionProfile = app?.tools
+	?.filter((tool) => !tool.removedAt)
+	.slice(0, 8)
+	.map((tool) => ({
+		name: tool.title || tool.toolName,
+		technicalName: tool.toolName,
+		description: cleanPublicText(tool.description),
+		intent: formatActionIntent(tool),
+		lastSeenAt: tool.lastSeenAt,
+		lastTestedAt: tool.lastTestedAt,
+		successRate: tool.testSuccessRate,
+	})) ?? [];
+const hiddenActionCount = Math.max(0, (app?.tools?.filter((tool) => !tool.removedAt).length ?? 0) - actionProfile.length);
+const relatedProfile = relatedApps.map((related) => ({
+	name: related.name,
+	url: new URL(`/apps/${related.slug || related.id}/`, Astro.site || "https://tedix.dev").toString(),
+	category: related.category ? CATEGORY_LABELS[related.category] || related.category : null,
+	description: cleanPublicText(related.description),
+}));
+const publisherSignalCards = app
+	? [
+			{
+				label: "Visitor takeaway",
+				value: discoverability ? `${discoverabilityScore}/100` : "Pending",
+				body: discoverability
+					? `${discoverability.label} AI-discovery coverage across description, prompts, keywords, visuals, tool metadata, health, and freshness.`
+					: "Tedix is still computing the public discovery profile for this app.",
+			},
+			{
+				label: "Routing category",
+				value: app.category ? CATEGORY_LABELS[app.category] || app.category : "Needs category",
+				body: app.category
+					? "This app has a primary category, so visitors can browse and compare it in the right directory context."
+					: "This listing is missing a primary category, which weakens browse placement and AI recommendation routing.",
+			},
+			{
+				label: "Connector evidence",
+				value:
+					app.connectorType === "MCP"
+						? isMcpHealthy
+							? "Reachable"
+							: hasMcpDeclaredInventory
+								? "Auth required"
+								: "Not verified"
+						: "Catalog listing",
+				body:
+					app.connectorType === "MCP"
+						? isMcpHealthy
+							? "Tedix can reach this MCP endpoint and can show live capability evidence when tools are discovered."
+							: hasMcpDeclaredInventory
+								? "Tedix found publisher-declared MCP capabilities, but live tool calls still require OAuth."
+								: "Tedix cannot currently verify live MCP tools from the endpoint, so visitors should treat capabilities as unconfirmed."
+						: "This listing is useful for discovery, but it is not a live MCP endpoint verification.",
+			},
+			{
+				label: "Directory freshness",
+				value: app.lastSyncedAt ? formatRelativeTime(app.lastSyncedAt) : "Unknown",
+				body: app.lastSyncedAt
+					? `Catalog metadata was refreshed ${formatFreshness(app.lastSyncedAt)}.`
+					: "No catalog refresh timestamp is available yet.",
+			},
+		]
+	: [];
+
+// OG Image - use logo or default
+const ogImage = logoUrl || new URL("/og-image.svg", Astro.site || "https://tedix.dev").href;
+
+// CDN edge caching. Freshness is unchanged at 5 minutes — what widens is the
+// stale-while-revalidate window, from 10 minutes to 24 hours.
+//
+// Why: a cache MISS here costs 2-4s, because it is usually the first request
+// into a fresh apps/api isolate and pays that Worker's module init (15.8 MB
+// bundle). Googlebot crawling 2,657 app URLs hits a miss on nearly every one.
+// Inside the SWR window the edge answers instantly from the stale copy and
+// revalidates in the background, so a page crawled at least once a day
+// effectively never blocks on the cold path.
+//
+// This does not make content staler in practice: s-maxage still expires after
+// 5 minutes and the background revalidate still runs on the next request. SWR
+// only governs whether the edge may answer while that happens instead of
+// blocking. Cloudflare honours stale-while-revalidate on all plans.
+//
+// 404s keep the short window so a newly listed app appears quickly.
+Astro.response.headers.set(
+	"Cache-Control",
+	notFound
+		? "public, s-maxage=60, stale-while-revalidate=120"
+		: "public, s-maxage=300, stale-while-revalidate=86400"
+);
+if (notFound) {
+	Astro.response.status = 404;
+} else if (error && !app) {
+	Astro.response.status = 503;
+}
+
+const organizationId = "https://tedix.dev/#organization";
+const webSiteId = "https://tedix.dev/#website";
+const webPageId = `${canonicalUrl.href}#webpage`;
+const softwareApplicationId = `${canonicalUrl.href}#softwareapplication`;
+const sameAsUrls = app?.storeListings
+	?.map((listing) => listing.storeUrl)
+	.filter((url): url is string => Boolean(url))
+	.slice(0, 12) ?? [];
+const toolActionStructuredData = actionProfile.map((tool, index) => ({
+	"@type": "Action",
+	"@id": `${canonicalUrl.href}#action-${index + 1}`,
+	name: tool.name,
+	description: tool.description || `${tool.intent} exposed by ${app?.name}.`,
+	instrument: {
+		"@type": "SoftwareSourceCode",
+		name: tool.technicalName,
+	},
+	actionStatus: "https://schema.org/PotentialActionStatus",
+	additionalProperty: [
+		{ "@type": "PropertyValue", name: "Action intent", value: tool.intent },
+		tool.lastSeenAt ? { "@type": "PropertyValue", name: "Last seen", value: tool.lastSeenAt } : null,
+		tool.lastTestedAt ? { "@type": "PropertyValue", name: "Last tested", value: tool.lastTestedAt } : null,
+		tool.successRate !== null ? { "@type": "PropertyValue", name: "Test success rate", value: String(tool.successRate) } : null,
+	].filter(Boolean),
+}));
+const sourceStructuredData = sourceListingsProfile.map((listing, index) => ({
+	"@type": "WebPage",
+	"@id": `${canonicalUrl.href}#source-${index + 1}`,
+	name: `${app?.name} on ${listing.label}`,
+	url: listing.url || canonicalUrl.href,
+	isPartOf: { "@id": webSiteId },
+	about: { "@id": softwareApplicationId },
+	additionalProperty: [
+		{ "@type": "PropertyValue", name: "Source", value: listing.label },
+		{ "@type": "PropertyValue", name: "Auth", value: listing.auth },
+		listing.reviewStatus ? { "@type": "PropertyValue", name: "Review status", value: listing.reviewStatus } : null,
+		listing.regions ? { "@type": "PropertyValue", name: "Regions", value: listing.regions } : null,
+		listing.lastSynced ? { "@type": "PropertyValue", name: "Last synced", value: listing.lastSynced } : null,
+	].filter(Boolean),
+}));
+const relatedStructuredData = relatedProfile.length > 0 ? {
+	"@type": "ItemList",
+	"@id": `${canonicalUrl.href}#related-apps`,
+	name: `Apps related to ${app?.name}`,
+	itemListElement: relatedProfile.map((related, index) => ({
+		"@type": "ListItem",
+		position: index + 1,
+		url: related.url,
+		name: related.name,
+		description: related.description || undefined,
+	})),
+} : null;
+
+// JSON-LD Structured Data for SoftwareApplication (only for valid apps)
+const structuredData = app ? {
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "SoftwareApplication",
+			"@id": softwareApplicationId,
+			name: app.name,
+			description: appDescription || pageDescription,
+			applicationCategory: categoryLabel || "AI Application",
+			operatingSystem: "Any",
+			url: canonicalUrl.href,
+			mainEntityOfPage: { "@id": webPageId },
+			isPartOf: { "@id": "https://tedix.dev/apps/#itemlist" },
+			provider: { "@id": organizationId },
+			publisher: { "@id": organizationId },
+			author: app.developer ? {
+				"@type": "Organization",
+				name: app.developer,
+			} : undefined,
+			softwareVersion: app.mcpServerVersion || undefined,
+			dateModified: app.updatedAt || app.lastSyncedAt,
+			datePublished: app.sourceCreatedAt || app.createdAt || undefined,
+			image: logoUrl || undefined,
+			sameAs: sameAsUrls.length > 0 ? sameAsUrls : undefined,
+			featureList: capabilityLabels.length > 0 ? capabilityLabels : undefined,
+			applicationSubCategory: app.connectorType || undefined,
+			softwareRequirements: authSummary,
+			potentialAction: toolActionStructuredData.length > 0 ? toolActionStructuredData.map((action) => ({ "@id": action["@id"] })) : undefined,
+			subjectOf: [
+				sourceStructuredData.length > 0 ? { "@id": `${canonicalUrl.href}#sources` } : null,
+				relatedStructuredData ? { "@id": `${canonicalUrl.href}#related-apps` } : null,
+			].filter(Boolean),
+			offers: {
+				"@type": "Offer",
+				price: "0",
+				priceCurrency: "USD",
+				availability: "https://schema.org/InStock",
+			},
+			availableLanguage: regions.length > 0 ? regions.map(r => ({ "@type": "Language", name: r })) : undefined,
+			keywords: [
+				app.name,
+				categoryLabel,
+				agentDiscoveryConnector,
+				...storeSources,
+			].filter(Boolean).join(", "),
+			additionalProperty: [
+				{ "@type": "PropertyValue", name: "Authentication", value: authSummary },
+				app.toolSource ? { "@type": "PropertyValue", name: "Tool source", value: sourceLabel(app.toolSource) } : null,
+				app.healthStatus ? { "@type": "PropertyValue", name: "Connector health", value: HEALTH_STATUS_LABELS_FRIENDLY[app.healthStatus] || app.healthStatus } : null,
+				app.lastSyncedAt ? { "@type": "PropertyValue", name: "Last catalog sync", value: app.lastSyncedAt } : null,
+				app.healthLastCheckedAt ? { "@type": "PropertyValue", name: "Last health check", value: app.healthLastCheckedAt } : null,
+				app.mcpLastScannedAt ? { "@type": "PropertyValue", name: "Last MCP scan", value: app.mcpLastScannedAt } : null,
+				{ "@type": "PropertyValue", name: "MCP tool count", value: String(app.mcpToolCount ?? app.tools?.length ?? 0) },
+			].filter(Boolean),
+		},
+		{
+			"@type": "WebPage",
+			"@id": webPageId,
+			url: canonicalUrl.href,
+			name: pageTitle,
+			description: pageDescription,
+			isPartOf: { "@id": webSiteId },
+			publisher: { "@id": organizationId },
+			about: { "@id": softwareApplicationId },
+			mainEntity: { "@id": softwareApplicationId },
+			breadcrumb: { "@id": `${canonicalUrl.href}#breadcrumbs` },
+			mentions: relatedProfile.map((related) => ({
+				"@type": "SoftwareApplication",
+				name: related.name,
+				url: related.url,
+				applicationCategory: related.category || undefined,
+			})),
+		},
+		sourceStructuredData.length > 0 ? {
+			"@type": "ItemList",
+			"@id": `${canonicalUrl.href}#sources`,
+			name: `${app.name} listing sources`,
+			itemListElement: sourceStructuredData.map((source, index) => ({
+				"@type": "ListItem",
+				position: index + 1,
+				item: { "@id": source["@id"] },
+			})),
+		} : null,
+		...sourceStructuredData,
+		toolActionStructuredData.length > 0 ? {
+			"@type": "ItemList",
+			"@id": `${canonicalUrl.href}#actions`,
+			name: `${app.name} MCP tools and actions`,
+			numberOfItems: app.tools?.filter((tool) => !tool.removedAt).length ?? toolActionStructuredData.length,
+			itemListElement: toolActionStructuredData.map((action, index) => ({
+				"@type": "ListItem",
+				position: index + 1,
+				item: { "@id": action["@id"] },
+			})),
+		} : null,
+		...toolActionStructuredData,
+		relatedStructuredData,
+		{
+			"@type": "BreadcrumbList",
+			"@id": `${canonicalUrl.href}#breadcrumbs`,
+			itemListElement: [
+				{
+					"@type": "ListItem",
+					position: 1,
+					name: "Tedix",
+					item: "https://tedix.dev/",
+				},
+				{
+					"@type": "ListItem",
+					position: 2,
+					name: "AI App Directory",
+					item: "https://tedix.dev/apps/",
+				},
+				{
+					"@type": "ListItem",
+					position: 3,
+					name: app.name,
+					item: canonicalUrl.href,
+				},
+			],
+		},
+	].filter(Boolean),
+} : null;
+
+// Clean up undefined values from structured data
+const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structuredData)) : null;
+---
+
+<BaseLayout
+	title={pageTitle}
+	description={pageDescription}
+	image={ogImage}
+	consentBannerVariant="compact"
+	includeSoftwareApplicationSchema={false}
+	includeWebPageSchema={false}
+>
+	{notFound && <meta name="robots" content="noindex, follow" slot="head" />}
+
+	<!-- JSON-LD Structured Data (only for valid apps) -->
+	{cleanStructuredData && (
+		<script type="application/ld+json" set:html={JSON.stringify(cleanStructuredData)} slot="head" />
+	)}
+	<div class="container mx-auto px-4 pt-24 pb-12 md:pt-28 md:pb-16">
+		<!-- Back Navigation -->
+		<nav class="mb-6">
+			<a
+				href="/apps/"
+				class="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors group text-sm"
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					class="h-4 w-4 transition-transform group-hover:-translate-x-1"
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+				</svg>
+				<span>Back to Apps</span>
+			</a>
+		</nav>
+
+		<!-- Error State -->
+		{error && (
+			<Empty
+				className="py-12"
+				title="App details unavailable"
+				description={error}
+			/>
+		)}
+
+		<!-- 404 Not Found State -->
+		{notFound && !error && (
+			<div class="max-w-2xl mx-auto text-center py-16">
+				<Empty
+					title="App not found"
+					description={`We couldn't find an app called “${slug}”. It may have been removed, renamed, or never existed.`}
+				/>
+
+				<!-- Search Box -->
+				<div class="max-w-md mx-auto mb-8">
+					<form action="/apps" method="get" class="flex gap-2">
+						<div class="relative flex-1">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<circle cx="11" cy="11" r="8" />
+								<path d="m21 21-4.3-4.3" />
+							</svg>
+							<Input
+								type="search"
+								name="q"
+								aria-label="Search apps"
+								placeholder="Search for apps..."
+								className="h-12 pl-10"
+							/>
+						</div>
+						<button
+							type="submit"
+							class={buttonVariants({ size: "lg" })}
+						>
+							Search
+						</button>
+					</form>
+				</div>
+
+				<!-- Actions -->
+				<div class="flex flex-wrap justify-center gap-4">
+					<a
+						href="/apps/"
+						class={buttonVariants({ variant: "secondary", size: "lg" })}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+						</svg>
+						Browse All Apps
+					</a>
+					<a
+						href="/apps/?category=PRODUCTIVITY"
+						class={buttonVariants({ variant: "outline", size: "lg" })}
+					>
+						Popular: Productivity
+					</a>
+					<a
+						href="/apps/?category=DEVELOPER_TOOLS"
+						class={buttonVariants({ variant: "outline", size: "lg" })}
+					>
+						Developer Tools
+					</a>
+				</div>
+			</div>
+		)}
+
+		{!error && !notFound && app && (
+			<div class="max-w-5xl mx-auto">
+
+				<!-- ============================================================ -->
+				<!-- ZONE 1: App Overview (consumer-friendly)                     -->
+				<!-- ============================================================ -->
+
+				<!-- Hero Banner -->
+				<div class="relative -mx-4 md:-mx-0 mb-10 overflow-hidden rounded-none md:rounded-2xl">
+					<!-- Gradient background -->
+					<div class={`absolute inset-0 bg-gradient-to-br ${headerGradient} opacity-15 dark:opacity-10`}></div>
+					<div class="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent"></div>
+					<header class="relative z-[1] flex flex-col md:flex-row gap-6 items-start p-6 md:p-10 pt-8 md:pt-12">
+						<!-- Logo -->
+						<div class={`relative flex-shrink-0 w-20 h-20 md:w-24 md:h-24 rounded-2xl flex items-center justify-center overflow-hidden shadow-xl ring-2 ring-white/10 ${logoUrl ? 'bg-card' : `bg-gradient-to-br ${headerGradient}`}`}>
+							{logoUrl ? (
+								<img
+									src={logoUrl}
+									alt={`${app.name} logo`}
+									class="w-full h-full object-cover"
+								/>
+							) : (
+								<span class="text-3xl md:text-4xl font-bold text-white drop-shadow-sm">
+									{app.name.charAt(0).toUpperCase()}
+								</span>
+							)}
+						</div>
+
+						<!-- Title & Meta -->
+						<div class="flex-1 min-w-0">
+						<div class="flex flex-wrap items-center gap-2 mb-2">
+							{app.category && (
+								<Badge variant="outline" className={CATEGORY_COLORS[app.category] || "bg-muted text-muted-foreground border-border"}>
+									{CATEGORY_LABELS[app.category] || app.category}
+								</Badge>
+							)}
+							{!app.category && (
+								<Badge variant="warning">
+									Category needed
+								</Badge>
+							)}
+							{/* Additional categories from enrichment (excluding primary) */}
+							{app.categories && app.categories.filter(c => c !== app.category).map((cat) => (
+								<a
+									href={`/apps?category=${encodeURIComponent(cat)}`}
+									class={badgeVariants({
+										variant: "outline",
+										className: `transition-opacity hover:opacity-80 ${CATEGORY_COLORS[cat] || "bg-muted text-muted-foreground border-border"}`,
+									})}
+								>
+									{CATEGORY_LABELS[cat] || cat}
+								</a>
+							))}
+							{/* AI App badge */}
+							<Badge variant="secondary" className="gap-1">
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+									<polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+									<line x1="12" y1="22.08" x2="12" y2="12"></line>
+								</svg>
+								AI App
+							</Badge>
+							{/* Health Status Badge (friendly labels) */}
+							{healthConfig && app.connectorType === "MCP" && (
+								<Badge variant="outline" className={`gap-1.5 ${healthConfig.bgColor} ${healthConfig.color} ${healthConfig.borderColor}`}>
+									{healthConfig.icon === "check-circle" && (
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+											<polyline points="22 4 12 14.01 9 11.01"></polyline>
+										</svg>
+									)}
+									{healthConfig.icon === "alert-triangle" && (
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+											<line x1="12" y1="9" x2="12" y2="13"></line>
+											<line x1="12" y1="17" x2="12.01" y2="17"></line>
+										</svg>
+									)}
+									{healthConfig.icon === "x-circle" && (
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="10"></circle>
+											<line x1="15" y1="9" x2="9" y2="15"></line>
+											<line x1="9" y1="9" x2="15" y2="15"></line>
+										</svg>
+									)}
+									{healthConfig.icon === "lock" && (
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+											<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+										</svg>
+									)}
+									{(healthConfig.icon === "minus-circle" || healthConfig.icon === "help-circle") && (
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="10"></circle>
+											<line x1="8" y1="12" x2="16" y2="12"></line>
+										</svg>
+									)}
+									<span>{HEALTH_STATUS_LABELS_FRIENDLY[app.healthStatus ?? "unknown"] || healthConfig.label}</span>
+									{app.healthUptimePercent !== null && (app.healthStatus === "healthy" || app.healthStatus === "degraded") && (
+										<span class="opacity-75">· {app.healthUptimePercent.toFixed(0)}% uptime</span>
+									)}
+								</Badge>
+							)}
+						</div>
+
+						<h1 class="text-3xl md:text-4xl lg:text-5xl font-bold font-display mb-3">
+							{app.name}
+						</h1>
+
+						{app.developer && (
+							<p class="text-lg text-muted-foreground mb-4">
+								by <span class="font-medium text-foreground">{app.developer}</span>
+								{app.developerType && (
+									<span class="ml-2 text-sm">
+										({DEVELOPER_TYPE_LABELS[app.developerType] || app.developerType})
+									</span>
+								)}
+							</p>
+						)}
+
+						<!-- Region Badges -->
+						{regions.length > 0 && (
+							<div class="flex flex-wrap items-center gap-2 mb-4">
+								<span class="text-sm text-muted-foreground">Available in:</span>
+								{regions.map((region) => (
+									<Badge variant="outline">
+										{REGION_LABELS[region] || region}
+									</Badge>
+								))}
+							</div>
+						)}
+
+						<!-- Platform Store Badges -->
+						{storeSources.length > 0 && (
+							<div class="flex flex-wrap items-center gap-2 mb-4">
+								<span class="text-sm text-muted-foreground">Available on:</span>
+								{storeSources.includes("chatgpt") && (
+									<Badge variant="success" className="gap-1.5">
+										<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
+										ChatGPT
+									</Badge>
+								)}
+								{storeSources.includes("claude") && (
+									<Badge variant="warning" className="gap-1.5">
+										<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.397-2.506a.273.273 0 0 0 .023-.464L4.538 9.877a.793.793 0 0 1-.332-.651V4.994a.793.793 0 0 1 1.16-.702l4.59 2.446a.273.273 0 0 0 .37-.113l2.197-4.272a.793.793 0 0 1 1.41 0l2.195 4.272a.273.273 0 0 0 .37.113l4.592-2.446a.793.793 0 0 1 1.16.702v4.232a.793.793 0 0 1-.332.651l-4.59 3.108a.273.273 0 0 0 .022.464l4.398 2.506a.793.793 0 0 1 .409.694v4.232a.793.793 0 0 1-1.16.702l-7.22-3.85a.273.273 0 0 0-.258 0l-7.22 3.85a.793.793 0 0 1-1.16-.702v-4.232a.793.793 0 0 1 .408-.694z"/></svg>
+										Claude Connector
+									</Badge>
+								)}
+								{storeSources.includes("official") && (
+									<Badge variant="info" className="gap-1.5">
+										<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+										Official
+									</Badge>
+								)}
+							</div>
+						)}
+
+						<!-- CTA Buttons -->
+						{(chatGptUrl || claudeListing?.storeUrl || app.mcpEndpointUrl || app.baseUrl) && (
+						<div class="flex flex-wrap gap-3">
+							{chatGptUrl && (
+								<a
+									href={chatGptUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class={buttonVariants({ size: "lg" })}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+										<polyline points="15 3 21 3 21 9"></polyline>
+										<line x1="10" y1="14" x2="21" y2="3"></line>
+									</svg>
+									Open in ChatGPT
+								</a>
+							)}
+							{claudeListing?.storeUrl && (
+								<a
+									href={claudeListing.storeUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class={buttonVariants({ variant: "outline", size: "lg", className: "border-amber-600/30 text-amber-700 hover:bg-amber-600/10 dark:text-amber-300" })}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+										<polyline points="15 3 21 3 21 9"></polyline>
+										<line x1="10" y1="14" x2="21" y2="3"></line>
+									</svg>
+									View Claude connector
+								</a>
+							)}
+							{!chatGptUrl && !claudeListing?.storeUrl && app.mcpEndpointUrl && (
+								<a
+									href={app.mcpEndpointUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class={buttonVariants({ size: "lg" })}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+										<polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+										<line x1="12" y1="22.08" x2="12" y2="12"></line>
+									</svg>
+									Connect
+								</a>
+							)}
+							{app.baseUrl && (
+								<a
+									href={app.baseUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class={buttonVariants({ variant: "outline", size: "lg" })}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"></circle>
+										<line x1="2" y1="12" x2="22" y2="12"></line>
+										<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+									</svg>
+									Visit Website
+								</a>
+							)}
+						</div>
+						)}
+					</div>
+				</header>
+				</div>
+
+				{publisherSignalCards.length > 0 && (
+					<section class="mb-8 grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label={`${app.name} catalog trust summary`}>
+						{publisherSignalCards.map((signal) => (
+							<Card className="p-4">
+								<p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{signal.label}</p>
+								<p class="mt-2 font-bold font-display text-2xl text-foreground">{signal.value}</p>
+								<p class="mt-2 text-muted-foreground text-sm leading-relaxed">{signal.body}</p>
+							</Card>
+						))}
+					</section>
+				)}
+
+				<!-- Zone 1 Content Grid -->
+				<div class="grid gap-8 lg:grid-cols-3">
+					<!-- Left Column: Main Content (2 cols) -->
+					<div class="lg:col-span-2 space-y-8">
+						<!-- Description -->
+						{appDescription && (
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+										<polyline points="14 2 14 8 20 8"></polyline>
+										<line x1="16" y1="13" x2="8" y2="13"></line>
+										<line x1="16" y1="17" x2="8" y2="17"></line>
+										<polyline points="10 9 9 9 8 9"></polyline>
+									</svg>
+									Description
+								</h2>
+								<p class="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+									{appDescription}
+								</p>
+							</section>
+							</Card>
+						)}
+
+						<!-- Example Prompts -->
+						{app.examplePrompts && app.examplePrompts.length > 0 && (
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+									</svg>
+									Try These Prompts
+								</h2>
+								<div class="grid gap-3 sm:grid-cols-2">
+									{app.examplePrompts.slice(0, 6).map((prompt) => (
+										<div class="group/prompt relative flex items-start gap-3 p-4 rounded-lg bg-muted/40 border border-border/30 hover:border-primary/30 hover:bg-muted/60 transition-all cursor-default">
+											<div class="flex-shrink-0 mt-0.5">
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+													<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+												</svg>
+											</div>
+											<p class="text-sm text-foreground/80 leading-relaxed">
+												{prompt.cleanPrompt}
+											</p>
+										</div>
+									))}
+								</div>
+							</section>
+							</Card>
+						)}
+
+						<!-- Enriched Description (from website scrape) -->
+						{appEnrichedDescription && appEnrichedDescription !== appDescription && (
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"></circle>
+										<line x1="2" y1="12" x2="22" y2="12"></line>
+										<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+									</svg>
+									About This App
+								</h2>
+								<p class="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+									{appEnrichedDescription}
+								</p>
+								{app.enrichedAt && (
+									<p class="text-xs text-muted-foreground/60 mt-3">
+										Last updated: {formatDate(app.enrichedAt)}
+									</p>
+								)}
+							</section>
+							</Card>
+						)}
+
+						<!-- Website Screenshot -->
+						{app.screenshotUrl && !app.screenshotUrl.startsWith('data:') && (
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+										<circle cx="8.5" cy="8.5" r="1.5"></circle>
+										<polyline points="21 15 16 10 5 21"></polyline>
+									</svg>
+									Website Preview
+								</h2>
+								<a
+									href={app.website || '#'}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/50 transition-colors"
+								>
+									<img
+										src={app.screenshotUrl}
+										alt={`Screenshot of ${app.name} website`}
+										class="w-full h-auto"
+										loading="lazy"
+									/>
+								</a>
+							</section>
+							</Card>
+						)}
+
+						<!-- App Screenshots (from store) -->
+						{screenshots.length > 0 && (
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+										<circle cx="8.5" cy="8.5" r="1.5"></circle>
+										<polyline points="21 15 16 10 5 21"></polyline>
+									</svg>
+									App Screenshots
+								</h2>
+								<div class="grid gap-3 sm:grid-cols-2">
+									{screenshots.slice(0, 6).map((url) => (
+										<a
+											href={url}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/50 transition-colors"
+										>
+											<img
+												src={url}
+												alt={`${app?.name || "App"} screenshot`}
+												class="w-full h-auto"
+												loading="lazy"
+											/>
+										</a>
+									))}
+								</div>
+							</section>
+							</Card>
+						)}
+
+						<!-- Capabilities (humanized labels) -->
+						<Card className="rounded-2xl">
+						<section class="p-6">
+							<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+								</svg>
+								Capabilities
+							</h2>
+							<div class="flex flex-wrap gap-3">
+								{app.hasWrites && (
+									<div class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M12 20h9"></path>
+											<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+										</svg>
+										<span class="font-medium">{CAPABILITY_LABELS.hasWrites.label}</span>
+									</div>
+								)}
+								{app.hasInteractive && (
+									<div class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<rect x="3" y="3" width="18" height="18" rx="2"></rect>
+											<path d="m9 12 2 2 4-4"></path>
+										</svg>
+										<span class="font-medium">{CAPABILITY_LABELS.hasInteractive.label}</span>
+									</div>
+								)}
+								{app.hasFileSearch && (
+									<div class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path>
+											<path d="M14 2v4a2 2 0 0 0 2 2h4"></path>
+											<circle cx="11.5" cy="14.5" r="2.5"></circle>
+											<path d="M13.3 16.3 15 18"></path>
+										</svg>
+										<span class="font-medium">{CAPABILITY_LABELS.hasFileSearch.label}</span>
+									</div>
+								)}
+								{app.hasDeepResearch && (
+									<div class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="11" cy="11" r="8"></circle>
+											<path d="m21 21-4.3-4.3"></path>
+											<path d="M11 8v6"></path>
+											<path d="M8 11h6"></path>
+										</svg>
+										<span class="font-medium">{CAPABILITY_LABELS.hasDeepResearch.label}</span>
+									</div>
+								)}
+								{app.hasSync && (
+									<div class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+											<path d="M3 3v5h5"></path>
+											<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+											<path d="M16 16h5v5"></path>
+										</svg>
+										<span class="font-medium">{CAPABILITY_LABELS.hasSync.label}</span>
+									</div>
+								)}
+								{!app.hasWrites && !app.hasInteractive && !app.hasFileSearch && !app.hasDeepResearch && !app.hasSync && (
+									<p class="text-muted-foreground text-sm">No special capabilities listed</p>
+								)}
+							</div>
+							</section>
+							</Card>
+
+							<!-- AI Agent Discovery Context -->
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M12 3v18"></path>
+										<path d="M3 12h18"></path>
+										<path d="m7 7 10 10"></path>
+										<path d="m17 7-10 10"></path>
+									</svg>
+									AI Agent Discovery
+								</h2>
+								<div class="space-y-4 text-muted-foreground leading-relaxed">
+									<p>
+										{app.name} is indexed by Tedix as a structured {agentDiscoveryCategory.toLowerCase()} listing for AI assistants, search crawlers, and users comparing agent-ready apps.
+									</p>
+									<ul class="grid gap-2 sm:grid-cols-2">
+										{agentDiscoverySignals.map((signal) => (
+											<li class="rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm">
+												{signal}
+											</li>
+										))}
+									</ul>
+									<div class="space-y-2 text-sm">
+										{agentDiscoveryUseCases.map((item) => (
+											<p>{item}</p>
+										))}
+									</div>
+								</div>
+							</section>
+							</Card>
+
+							<!-- Crawlable App Profile -->
+							<Card className="rounded-2xl">
+							<section class="p-6">
+								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M9 11H5a2 2 0 0 0-2 2v7h6v-9Z"></path>
+										<path d="M21 11h-4a2 2 0 0 0-2 2v7h6v-9Z"></path>
+										<path d="M15 3H9a2 2 0 0 0-2 2v15h10V5a2 2 0 0 0-2-2Z"></path>
+									</svg>
+									Crawlable Profile
+								</h2>
+								<div class="space-y-5 text-sm text-muted-foreground">
+									<div>
+										<h3 class="font-medium text-foreground mb-2">Source and availability</h3>
+										<p>
+											Tedix identifies {app.name} from {sourceProfile.length > 0 ? sourceProfile.join("; ") : "catalog metadata"}.
+											{regions.length > 0 && ` Availability is reported for ${regions.map(region => REGION_LABELS[region] || region).join(", ")}.`}
+										</p>
+										{sourceListingsProfile.length > 0 && (
+											<ul class="mt-3 grid gap-2 sm:grid-cols-2">
+												{sourceListingsProfile.map((listing) => (
+													<li class="rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
+														<a href={listing.url || canonicalUrl.href} class="font-medium text-foreground hover:text-primary">
+															{listing.label}
+														</a>
+														<span class="block text-xs">
+															{listing.auth}
+															{listing.reviewStatus && ` · ${listing.reviewStatus}`}
+															{listing.regions && ` · ${listing.regions}`}
+														</span>
+													</li>
+												))}
+											</ul>
+										)}
+									</div>
+
+									<div>
+										<h3 class="font-medium text-foreground mb-2">Auth, tools, and actions</h3>
+										<p>
+											Authentication: {authSummary}. {capabilityLabels.length > 0
+												? `${app.name} is flagged for ${capabilityLabels.join(", ")}.`
+												: "No special capability flags are currently listed."}
+											{app.connectorType === "MCP" && ` Current MCP inventory reports ${app.mcpToolCount ?? app.tools?.length ?? 0} tools, ${app.mcpResourceCount ?? 0} resources, and ${app.mcpPromptCount ?? 0} prompts.`}
+										</p>
+										{actionProfile.length > 0 && (
+											<ul class="mt-3 space-y-2">
+												{actionProfile.map((tool) => (
+													<li class="rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
+														<span class="font-medium text-foreground">{tool.name}</span>
+														<span class="text-xs"> · {tool.intent}</span>
+														{tool.description && <p class="mt-1">{cleanPublicText(tool.description)}</p>}
+													</li>
+												))}
+											</ul>
+										)}
+										{hiddenActionCount > 0 && (
+											<p class="mt-2 text-xs">Plus {hiddenActionCount} additional actions in the full tool inventory.</p>
+										)}
+									</div>
+
+									<div>
+										<h3 class="font-medium text-foreground mb-2">Verification freshness</h3>
+										<ul class="grid gap-2 sm:grid-cols-2">
+											{verificationProfile.map((item) => (
+												<li class="rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
+													<span class="block text-xs uppercase tracking-wide text-muted-foreground/80">{item.label}</span>
+													<span class="font-medium text-foreground">{item.value}</span>
+												</li>
+											))}
+										</ul>
+									</div>
+
+									{relatedProfile.length > 0 && (
+										<div>
+											<h3 class="font-medium text-foreground mb-2">Alternatives and related apps</h3>
+											<p>
+												Comparable apps in {app.category ? CATEGORY_LABELS[app.category] || app.category : "the same catalog area"} include {relatedProfile.map((related) => related.name).join(", ")}.
+											</p>
+										</div>
+									)}
+								</div>
+							</section>
+							</Card>
+						</div>
+
+					<!-- Right Column: Links Sidebar (1 col) -->
+					<div class="space-y-6 lg:sticky lg:top-24 self-start">
+						<!-- Links -->
+			<Card className="p-5">
+							<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Links</h3>
+							<div class="space-y-2 text-sm">
+								{chatGptUrl && (
+									<a
+										href={chatGptUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										class={buttonVariants({ variant: "ghost", size: "sm", className: "w-full justify-between px-3" })}
+									>
+										<span class="text-muted-foreground">ChatGPT app store</span>
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-auto text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+									</a>
+								)}
+								{claudeListing?.storeUrl && (
+									<a
+										href={claudeListing.storeUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										class={buttonVariants({ variant: "ghost", size: "sm", className: "w-full justify-between px-3" })}
+									>
+										<span class="text-muted-foreground">Claude connector directory</span>
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-auto text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+									</a>
+								)}
+								{app.website && (
+									<a
+										href={app.website}
+										target="_blank"
+										rel="noopener noreferrer"
+										class={buttonVariants({ variant: "ghost", size: "sm", className: "w-full justify-between px-3" })}
+									>
+										<span class="text-muted-foreground">Website</span>
+										<span class="font-medium">Visit</span>
+									</a>
+								)}
+								{app.privacyPolicy && (
+									<a
+										href={app.privacyPolicy}
+										target="_blank"
+										rel="noopener noreferrer"
+										class={buttonVariants({ variant: "ghost", size: "sm", className: "w-full justify-between px-3" })}
+									>
+										<span class="text-muted-foreground">Privacy Policy</span>
+										<span class="font-medium">View</span>
+									</a>
+								)}
+								{app.termsOfService && (
+									<a
+										href={app.termsOfService}
+										target="_blank"
+										rel="noopener noreferrer"
+										class={buttonVariants({ variant: "ghost", size: "sm", className: "w-full justify-between px-3" })}
+									>
+										<span class="text-muted-foreground">Terms of Service</span>
+										<span class="font-medium">View</span>
+									</a>
+								)}
+								{!chatGptUrl && !claudeListing?.storeUrl && !app.website && !app.privacyPolicy && !app.termsOfService && (
+									<p class="text-xs text-muted-foreground">No public links available.</p>
+								)}
+							</div>
+			</Card>
+
+						<!-- Social Links (from enrichment) -->
+						{app.socialLinks && app.socialLinks.length > 0 && (
+							<Card className="p-5">
+								<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Social</h3>
+								<div class="flex flex-wrap gap-2">
+									{[...new Set(app.socialLinks)].map((link) => {
+										const isTwitter = link.includes('twitter.com') || link.includes('x.com');
+										const isLinkedIn = link.includes('linkedin.com');
+									const isGitHub = link.includes('github.com');
+									const isDiscord = link.includes('discord');
+									const isYouTube = link.includes('youtube.com');
+									const socialLabel = isTwitter
+										? "X"
+										: isLinkedIn
+											? "LinkedIn"
+											: isGitHub
+												? "GitHub"
+												: isDiscord
+													? "Discord"
+													: isYouTube
+														? "YouTube"
+														: "External profile";
+
+										return (
+											<a
+												href={link}
+											target="_blank"
+											rel="noopener noreferrer"
+											class={buttonVariants({ variant: "ghost", size: "sm", className: "p-0" })}
+											aria-label={`${socialLabel} for ${app.name}`}
+											title={link}
+											>
+												{isTwitter && (
+													<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+														<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+													</svg>
+												)}
+												{isLinkedIn && (
+													<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+														<path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+													</svg>
+												)}
+												{isGitHub && (
+													<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+														<path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+													</svg>
+												)}
+												{isDiscord && (
+													<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+														<path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/>
+													</svg>
+												)}
+												{isYouTube && (
+													<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+														<path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+													</svg>
+												)}
+												{!isTwitter && !isLinkedIn && !isGitHub && !isDiscord && !isYouTube && (
+													<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+														<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+														<polyline points="15 3 21 3 21 9"></polyline>
+														<line x1="10" y1="14" x2="21" y2="3"></line>
+													</svg>
+												)}
+											</a>
+										);
+									})}
+								</div>
+							</Card>
+						)}
+					</div>
+				</div>
+
+				<!-- ============================================================ -->
+				<!-- ZONE 2: Publisher Intelligence                               -->
+				<!-- ============================================================ -->
+
+				<div id="publisher-intelligence" class="mt-16 scroll-mt-28 pt-12 border-t border-border/50">
+					<div>
+					<div class="max-w-4xl mx-auto mb-8">
+						<h2 class="text-2xl font-bold font-display flex items-center gap-3">
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M3 3v18h18"></path>
+								<path d="m19 9-5 5-4-4-3 3"></path>
+							</svg>
+							Publisher Intelligence
+						</h2>
+						<p class="text-muted-foreground mt-2">
+							Public trust signals for visitors and practical recommendations for publishers. Use this section to understand what Tedix can verify today and what would make the app easier for AI agents to find.
+						</p>
+					</div>
+					</div>
+
+					{publisherSignalCards.length > 0 && (
+						<div>
+						<div class="mb-8 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+							{publisherSignalCards.map((signal) => (
+								<Card className="p-4">
+									<p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{signal.label}</p>
+									<p class="mt-2 font-bold font-display text-2xl text-foreground">{signal.value}</p>
+									<p class="mt-2 text-muted-foreground text-sm leading-relaxed">{signal.body}</p>
+								</Card>
+							))}
+						</div>
+						</div>
+					)}
+
+					<div class="grid gap-8 lg:grid-cols-3">
+						<!-- Left Column: Server Status + Keywords + Model Context (2 cols) -->
+						<div class="min-w-0 lg:col-span-2 space-y-8">
+
+							<!-- Server Status (MCP apps only) -->
+							{app.connectorType === "MCP" && (
+								<Card className="p-6">
+									<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+											<line x1="8" y1="21" x2="16" y2="21"></line>
+											<line x1="12" y1="17" x2="12" y2="21"></line>
+										</svg>
+										Server Status
+										{app.mcpServerName && (
+											<span class="text-base font-normal text-muted-foreground ml-2">
+												{app.mcpServerName}{app.mcpServerVersion && ` ${formatMcpServerVersion(app.mcpServerVersion)}`}
+											</span>
+										)}
+									</h2>
+
+									{/* Server Stats Grid */}
+									{!isMcpHealthy ? (
+										<div class="mb-4 grid gap-3 sm:grid-cols-3">
+											<div class={`rounded-lg border p-3 ${isMcpAuthRequired ? "border-amber-500/25 bg-amber-500/10" : "border-red-500/20 bg-red-500/5"}`}>
+												<p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Live tools</p>
+												<p class={`mt-1 font-semibold ${isMcpAuthRequired ? "text-amber-700 dark:text-amber-300" : "text-red-600 dark:text-red-400"}`}>
+													{isMcpAuthRequired ? "OAuth required" : "Unavailable"}
+												</p>
+												<p class="mt-1 text-muted-foreground text-xs">
+													{isMcpAuthRequired
+														? "Tool execution requires user authorization."
+														: "No verified tool inventory while the endpoint is failing."}
+												</p>
+											</div>
+											<div class="rounded-lg border border-border/50 bg-muted/40 p-3">
+												<p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+													{hasMcpDeclaredInventory ? "Declared tools" : "Resources"}
+												</p>
+												<p class="mt-1 font-semibold text-foreground">
+													{hasMcpDeclaredInventory ? (app.mcpToolCount ?? 0) : "Not verified"}
+												</p>
+												<p class="mt-1 text-muted-foreground text-xs">
+													{hasMcpDeclaredInventory
+														? "Published in the server manifest."
+														: "Resource discovery resumes after health checks recover."}
+												</p>
+											</div>
+											<div class="rounded-lg border border-border/50 bg-muted/40 p-3">
+												<p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+													{hasMcpDeclaredInventory ? "Live verification" : "Prompts"}
+												</p>
+												<p class="mt-1 font-semibold text-foreground">
+													{hasMcpDeclaredInventory ? "Pending auth" : "Not verified"}
+												</p>
+												<p class="mt-1 text-muted-foreground text-xs">
+													{hasMcpDeclaredInventory
+														? "Tedix still needs endpoint access to execute MCP discovery."
+														: "Prompt inventory is not shown until the MCP scan succeeds."}
+												</p>
+											</div>
+										</div>
+									) : (
+										<div class="grid grid-cols-3 gap-3 sm:gap-4 mb-4">
+											<div class="text-center p-3 rounded-lg bg-muted/50">
+												<div class="text-2xl font-bold text-primary">
+													{showMcpCounts && !mcpCountsEmpty
+														? (app.mcpToolCount ?? 0).toLocaleString()
+														: hasHealthCheck && mcpCountsEmpty
+															? 0
+															: "---"}
+												</div>
+												<div class="text-xs text-muted-foreground">
+													{showMcpCounts && !mcpCountsEmpty
+														? "Tools"
+														: hasHealthCheck && mcpCountsEmpty
+															? "No tools reported"
+															: "Not scanned"}
+												</div>
+											</div>
+											<div class="text-center p-3 rounded-lg bg-muted/50">
+												<div class="text-2xl font-bold text-primary">
+													{showMcpCounts && !mcpCountsEmpty
+														? mcpResourceDisplayCount.toLocaleString()
+														: hasHealthCheck && mcpCountsEmpty
+															? 0
+															: "---"}
+												</div>
+												<div class="text-xs text-muted-foreground">
+													{showMcpCounts && !mcpCountsEmpty
+														? "Resources"
+														: hasHealthCheck && mcpCountsEmpty
+															? "No resources"
+															: "Not scanned"}
+												</div>
+											</div>
+											<div class="text-center p-3 rounded-lg bg-muted/50">
+												<div class="text-2xl font-bold text-primary">
+													{showMcpCounts && !mcpCountsEmpty
+														? (app.mcpPromptCount ?? 0).toLocaleString()
+														: hasHealthCheck && mcpCountsEmpty
+															? 0
+															: "---"}
+												</div>
+												<div class="text-xs text-muted-foreground">
+													{showMcpCounts && !mcpCountsEmpty
+														? "Prompts"
+														: hasHealthCheck && mcpCountsEmpty
+															? "No prompts"
+															: "Not scanned"}
+												</div>
+											</div>
+										</div>
+									)}
+
+									{app.connectorType === "MCP" && !isMcpHealthy && (
+										<p class={`mb-4 rounded-lg border p-3 text-sm leading-relaxed ${isMcpAuthRequired ? "border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200" : "border-red-500/20 bg-red-500/5 text-red-700 dark:text-red-300"}`}>
+											{isMcpAuthRequired
+												? "This endpoint is reachable but requires OAuth before Tedix can execute live MCP discovery. Public manifest metadata is shown when available; live tool calls still require user authorization."
+												: hasMcpDeclaredInventory
+													? "Tedix cannot execute live MCP discovery against this endpoint yet. Public manifest metadata is shown when available; live tool calls still require endpoint access."
+												: "Tedix cannot currently verify this MCP endpoint. The listing metadata is still useful, but visitors should not assume live tools are available until health checks recover."}
+										</p>
+									)}
+
+									{app.connectorType === "MCP" && isMcpHealthy && !hasHealthCheck && (
+										<p class="text-xs text-muted-foreground mb-4">
+											Tool discovery hasn&apos;t run yet for this server.
+										</p>
+									)}
+
+									{app.connectorType === "MCP" && isMcpHealthy && hasHealthCheck && mcpCountsEmpty && (
+										<p class={`mb-4 rounded-lg border p-3 text-sm leading-relaxed ${isMcpDegraded ? "border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200" : "border-border/50 bg-muted/40 text-muted-foreground"}`}>
+											{isMcpDegraded
+												? (app.healthErrorMessage ?? "The endpoint is reachable, but the last scan found no listable MCP tools, resources, templates, or prompts.")
+												: "The endpoint is reachable, but the last scan found no listable MCP tools, resources, templates, or prompts."}
+										</p>
+									)}
+
+									{app.connectorType === "MCP" && isMcpDegraded && hasHealthCheck && !mcpCountsEmpty && app.healthErrorMessage && (
+										<p class="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-relaxed text-amber-800 dark:text-amber-200">
+											{app.healthErrorMessage}
+										</p>
+									)}
+
+									{/* Endpoint URL */}
+									{app.baseUrl && (
+										<div class="mb-4">
+											<label class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 block">Endpoint</label>
+											<div class="flex items-center gap-2 p-3 rounded-lg bg-muted font-mono text-sm break-all">
+												<code class="flex-1" id="mcp-url">{app.baseUrl}</code>
+											<button
+												type="button"
+												class={buttonVariants({ variant: "ghost", size: "xs", className: "flex-shrink-0" })}
+													id="copy-mcp-url"
+													title="Copy URL"
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+														<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+														<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+													</svg>
+													<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 check-icon hidden text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+														<polyline points="20 6 9 17 4 12"></polyline>
+													</svg>
+												</button>
+											</div>
+										</div>
+									)}
+
+									{/* Last Health Check */}
+									{app.healthLastCheckedAt && (
+										<p class="text-xs text-muted-foreground mb-4">
+											Last checked: {formatRelativeTime(app.healthLastCheckedAt)}
+										</p>
+									)}
+
+									{/* MCP Instructions (if available) */}
+									{app.mcpInstructions && (
+										<div class="mt-4 p-3 rounded-lg bg-muted/50 border border-border/50">
+											<h4 class="text-sm font-medium mb-2 flex items-center gap-2">
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+													<circle cx="12" cy="12" r="10"></circle>
+													<path d="M12 16v-4"></path>
+													<path d="M12 8h.01"></path>
+												</svg>
+												Server Instructions
+											</h4>
+											<p class="text-sm text-muted-foreground whitespace-pre-wrap">{app.mcpInstructions}</p>
+										</div>
+									)}
+
+									{/* Technical Details (Expandable) */}
+									{(app.healthConnectTimeMs !== null || app.healthErrorMessage) && (
+									<details class="group mt-4">
+										<summary
+											class={buttonVariants({
+												variant: "ghost",
+												size: "sm",
+												className: "w-fit cursor-pointer list-none gap-2 text-muted-foreground",
+											})}
+										>
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+													<polyline points="9 18 15 12 9 6"></polyline>
+												</svg>
+												Technical Details
+											</summary>
+											<div class="mt-3 p-4 rounded-lg bg-muted/30 border border-border/30 space-y-3">
+												{/* Connection Latency */}
+												{app.healthConnectTimeMs !== null && (
+													<div class="flex justify-between text-sm">
+														<span class="text-muted-foreground">Connection Latency</span>
+														<span class="font-mono">{formatLatency(app.healthConnectTimeMs)}</span>
+													</div>
+												)}
+
+												{/* Uptime */}
+												{app.healthUptimePercent !== null && (
+													<div class="flex justify-between text-sm">
+														<span class="text-muted-foreground">30-Day Uptime</span>
+														<span class={`font-medium ${app.healthUptimePercent >= 99 ? "text-green-600 dark:text-green-400" : app.healthUptimePercent >= 95 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}`}>
+															{app.healthUptimePercent.toFixed(1)}%
+														</span>
+													</div>
+												)}
+
+												{/* Error Message */}
+												{app.healthErrorMessage && (
+													<div class="pt-2 border-t border-border/30">
+														<span class="text-xs font-medium text-red-600 dark:text-red-400 uppercase tracking-wide">Error</span>
+														<p class="text-sm text-muted-foreground mt-1 font-mono break-all">{app.healthErrorMessage}</p>
+													</div>
+												)}
+											</div>
+									</details>
+								)}
+								</Card>
+							)}
+
+							<!-- MCP Tools Table -->
+							{app.connectorType === "MCP" && app.tools && app.tools.length > 0 && (
+								<ToolsTable client:idle tools={app.tools} />
+							)}
+
+							<!-- Keywords -->
+							{((app.keywordsForDiscovery && app.keywordsForDiscovery.length > 0) || (app.keywordsForTriggering && app.keywordsForTriggering.length > 0)) && (
+								<Card className="p-6">
+									<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<line x1="4" y1="9" x2="20" y2="9"></line>
+											<line x1="4" y1="15" x2="20" y2="15"></line>
+											<line x1="10" y1="3" x2="8" y2="21"></line>
+											<line x1="16" y1="3" x2="14" y2="21"></line>
+										</svg>
+										Keywords
+									</h2>
+
+									{app.keywordsForTriggering && app.keywordsForTriggering.length > 0 && (
+										<div class="mb-4">
+											<h3 class="text-sm font-medium text-muted-foreground mb-2">Trigger Keywords (@mentions)</h3>
+											<div class="flex flex-wrap gap-2">
+												{app.keywordsForTriggering.map((keyword) => (
+													<code class="px-3 py-1 rounded-full text-sm font-mono bg-primary/10 text-primary">
+														{keyword}
+													</code>
+												))}
+											</div>
+										</div>
+									)}
+
+									{app.keywordsForDiscovery && app.keywordsForDiscovery.length > 0 && (
+										<div>
+											<h3 class="text-sm font-medium text-muted-foreground mb-2">Discovery Keywords</h3>
+											<div class="flex flex-wrap gap-2">
+												{app.keywordsForDiscovery.map((keyword) => (
+											<Badge variant="secondary">
+												{keyword}
+											</Badge>
+												))}
+											</div>
+										</div>
+									)}
+								</Card>
+							)}
+
+							<!-- Model Description -->
+							{appModelDescription && appModelDescription !== appDescription && (
+								<Card className="p-6">
+									<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="10"></circle>
+											<path d="M12 16v-4"></path>
+											<path d="M12 8h.01"></path>
+										</svg>
+										Model Context
+									</h2>
+									<p class="text-muted-foreground leading-relaxed whitespace-pre-wrap text-sm">
+										{appModelDescription}
+									</p>
+								</Card>
+							)}
+						</div>
+
+						<!-- Right Column: Discoverability + Tips + Technical Details (1 col) -->
+						<div class="space-y-6 lg:sticky lg:top-24 self-start">
+
+							<!-- Discoverability Score -->
+							{discoverability && (
+								<Card className="p-5">
+									<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Discoverability Score</h3>
+									<div class="mb-4 space-y-3">
+										<div class="flex items-baseline justify-between gap-4">
+											<p class={`text-lg font-bold ${discoverabilityColorClass}`}>{discoverability.label}</p>
+											<p class="font-semibold tabular-nums">{discoverabilityScore} / 100</p>
+										</div>
+										<Progress value={discoverabilityScore} aria-label={`${app.name} discoverability score: ${discoverabilityScore} of 100`} />
+										<p class="text-xs text-muted-foreground">How easily AI agents can find this app from its current catalog metadata.</p>
+									</div>
+									<ul class="space-y-2">
+										{discoverability.criteria.map((c) => {
+											const meetsThreshold = c.score / c.max >= 0.65;
+											return (
+												<li class="flex items-center justify-between gap-3 text-sm">
+													<div class="flex items-center gap-2 min-w-0">
+														{meetsThreshold ? (
+															<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+																<polyline points="22 4 12 14.01 9 11.01"></polyline>
+															</svg>
+														) : (
+															<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground/40 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<circle cx="12" cy="12" r="10"></circle>
+															</svg>
+														)}
+														<span class={meetsThreshold ? "text-foreground" : "text-muted-foreground"}>{c.label}</span>
+													</div>
+													<span class="text-xs text-muted-foreground tabular-nums">{c.score}/{c.max}</span>
+												</li>
+											);
+										})}
+									</ul>
+								</Card>
+							)}
+
+							<!-- How to Improve -->
+							{discoverability && discoverability.tips.length > 0 && (
+								<Card className="p-5">
+									<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide flex items-center gap-2">
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+										</svg>
+										How to Improve
+									</h3>
+									<div class="space-y-2">
+										{discoverability.tips.map((t) => (
+											<div class={`border-l-2 ${t.priority === "high" ? "border-l-red-500" : t.priority === "medium" ? "border-l-yellow-500" : "border-l-blue-500"} pl-3 py-1`}>
+												<p class="text-xs text-muted-foreground leading-relaxed">{t.tip}</p>
+											</div>
+										))}
+									</div>
+									<a href="https://blog.tedix.dev/posts/chatgpt-app-discoverability-guide/" class="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-3">
+										Read the full discoverability guide &rarr;
+									</a>
+								</Card>
+							)}
+
+							<!-- Technical Details (collapsed App Snapshot + Details + Auth) -->
+							<Card className="p-5">
+								<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Technical Details</h3>
+								<dl class="space-y-3 text-sm">
+									{app.status && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Status</dt>
+											<dd class={`font-medium ${app.status === "ENABLED" ? "text-green-600 dark:text-green-400" : app.status === "DISABLED" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+												{app.status ?? "Unknown"}
+											</dd>
+										</div>
+									)}
+									{app.connectorType && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Type</dt>
+											<dd class="font-medium">{CONNECTOR_TYPE_LABELS_FRIENDLY[app.connectorType] || CONNECTOR_TYPE_LABELS[app.connectorType] || app.connectorType}</dd>
+										</div>
+									)}
+									<div class="flex items-center justify-between gap-3">
+										<dt class="text-muted-foreground">Auth</dt>
+										<dd class="font-medium">
+											{app.authTypes && app.authTypes.length > 0
+												? app.authTypes.map(t => AUTH_TYPE_LABELS[t] || t).join(", ")
+												: "Open Access"}
+										</dd>
+									</div>
+									{storeSources.length > 0 && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Listed on</dt>
+											<dd class="flex flex-wrap gap-1.5">
+												{storeSources.includes("chatgpt") && (
+											<Badge variant="success">ChatGPT</Badge>
+												)}
+												{storeSources.includes("claude") && (
+											<Badge variant="warning">Claude Connector</Badge>
+												)}
+												{storeSources.includes("official") && (
+											<Badge variant="info">Official</Badge>
+												)}
+											</dd>
+										</div>
+									)}
+									{(app.sourceCreatedAt || app.createdAt) && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Added</dt>
+											<dd class="font-medium">{formatDate(app.sourceCreatedAt || app.createdAt)}</dd>
+										</div>
+									)}
+									{app.lastSyncedAt && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Last synced</dt>
+											<dd class="font-medium">{formatRelativeTime(app.lastSyncedAt)}</dd>
+										</div>
+									)}
+									{app.healthLastCheckedAt && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Last checked</dt>
+											<dd class="font-medium">{formatRelativeTime(app.healthLastCheckedAt)}</dd>
+										</div>
+									)}
+									{app.mcpServerVersion && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Version</dt>
+											<dd class="font-medium">{app.mcpServerVersion}</dd>
+										</div>
+									)}
+									{app.distributionChannel && (
+										<div class="flex items-center justify-between gap-3">
+											<dt class="text-muted-foreground">Distribution</dt>
+											<dd class="font-medium text-right">{app.distributionChannel.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}</dd>
+										</div>
+									)}
+								</dl>
+							</Card>
+						</div>
+					</div>
+				</div>
+
+				<!-- Related Apps -->
+				{relatedApps.length > 0 && (
+					<section class="mt-12">
+						<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<rect x="3" y="3" width="7" height="7"></rect>
+								<rect x="14" y="3" width="7" height="7"></rect>
+								<rect x="3" y="14" width="7" height="7"></rect>
+								<rect x="14" y="14" width="7" height="7"></rect>
+							</svg>
+							Related Apps
+							{app.category && (
+								<span class="text-sm font-normal text-muted-foreground">
+									in {CATEGORY_LABELS[app.category] || app.category}
+								</span>
+							)}
+						</h2>
+						<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+							{relatedApps.map((related, idx) => {
+								const relLogo = resolveLogoUrl(related.logoUrl);
+								const relHealth = related.healthStatus ? HEALTH_STATUS_CONFIG[related.healthStatus] : null;
+								return (
+									<Card className="rounded-xl">
+									<a href={`/apps/${related.slug || related.id}/`} class="group block p-4">
+										<div class="flex items-center gap-3 mb-2">
+											<div class="w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden bg-muted flex items-center justify-center">
+												{relLogo ? (
+													<img src={relLogo} alt="" class="w-full h-full object-cover" loading="lazy" />
+												) : (
+													<span class="text-xs font-bold text-muted-foreground">{related.name.charAt(0)}</span>
+												)}
+											</div>
+											<div class="min-w-0">
+												<div class="flex items-center gap-1.5">
+													<span class="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{related.name}</span>
+													{relHealth && related.connectorType === "MCP" && (
+														<span class={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${relHealth.dotColor}`}></span>
+													)}
+												</div>
+												{related.developer && (
+													<span class="text-xs text-muted-foreground truncate block">{related.developer}</span>
+												)}
+											</div>
+										</div>
+										{cleanPublicText(related.description) && (
+											<p class="text-xs text-muted-foreground line-clamp-2">{cleanPublicText(related.description)}</p>
+										)}
+									</a>
+									</Card>
+								);
+							})}
+						</div>
+					</section>
+				)}
+
+				<!-- Attribution -->
+				<footer class="mt-12 pt-8 border-t border-border/50 text-center text-sm text-muted-foreground">
+					<p>
+						All app names, logos, and trademarks belong to their respective owners.
+					</p>
+				</footer>
+			</div>
+		)}
+	</div>
+
+	<!-- Copy Button Script -->
+	<script>
+		const copyBtn = document.getElementById('copy-mcp-url');
+		const mcpUrl = document.getElementById('mcp-url');
+
+		if (copyBtn && mcpUrl) {
+			copyBtn.addEventListener('click', async () => {
+				const textToCopy = mcpUrl.textContent;
+				if (textToCopy) {
+					try {
+						await navigator.clipboard.writeText(textToCopy);
+						// Toggle icons for visual feedback
+						const copyIcon = copyBtn.querySelector('.copy-icon');
+						const checkIcon = copyBtn.querySelector('.check-icon');
+						if (copyIcon && checkIcon) {
+							copyIcon.classList.add('hidden');
+							checkIcon.classList.remove('hidden');
+							setTimeout(() => {
+								copyIcon.classList.remove('hidden');
+								checkIcon.classList.add('hidden');
+							}, 2000);
+						}
+					} catch (err) {
+						console.error('Failed to copy:', err);
+					}
+				}
+			});
+		}
+	</script>
+
+</BaseLayout>

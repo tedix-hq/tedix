@@ -1,0 +1,23 @@
+---
+import { Block } from "emdash/ui";
+import type { ComponentProps } from "astro/types";
+
+type Props = ComponentProps<typeof Block> & {
+	headingIds: { ids: string[]; idsByKey: Map<string, string>; nextIndex: number };
+};
+const { headingIds, ...blockProps } = Astro.props;
+function text(value: unknown): string {
+	if (!value || typeof value !== "object") return "";
+	const node = value as { text?: unknown; children?: unknown };
+	if (typeof node.text === "string") return node.text;
+	return Array.isArray(node.children) ? node.children.map(text).join("") : "";
+}
+const { node } = blockProps;
+let id: string | undefined;
+if ((node.style === "h2" || node.style === "h3") && text(node).trim()) {
+	const sequenceId = headingIds.ids[headingIds.nextIndex++];
+	id = headingIds.idsByKey.get(node._key) ?? sequenceId;
+}
+---
+
+<Block {...blockProps} {id}><slot /></Block>

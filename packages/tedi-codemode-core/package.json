@@ -1,0 +1,47 @@
+{
+	"name": "@tedix/tedi-codemode-core",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Per-tedi MCP Code Mode wrapper that exposes an inner tool surface as one stateless code tool.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./bounded-result": "./src/bounded-result.ts",
+		"./register-codemode-tools": "./src/register-codemode-tools.ts",
+		"./failure-budget": "./src/failure-budget.ts",
+		"./run-stateless-code": "./src/run-stateless-code.ts",
+		"./model-authored-code-loader": "./src/model-authored-code-loader.ts",
+		"./types": "./src/types.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/mcp-shared": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/codemode": "catalog:",
+		"@cloudflare/workers-types": "catalog:",
+		"@modelcontextprotocol/client": "catalog:",
+		"@modelcontextprotocol/server": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:",
+		"zod": "catalog:"
+	},
+	"peerDependencies": {
+		"@cloudflare/codemode": "^0.5.2",
+		"@modelcontextprotocol/client": "^2.0.0",
+		"@modelcontextprotocol/server": "^2.0.0",
+		"zod": "^4.4.3"
+	}
+}

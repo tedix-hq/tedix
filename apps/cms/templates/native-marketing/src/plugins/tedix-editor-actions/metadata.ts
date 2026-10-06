@@ -1,0 +1,1 @@
+../../../../tedix/src/plugins/tedix-editor-actions/metadata.ts

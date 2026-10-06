@@ -1,0 +1,56 @@
+---
+import type { EditProxy } from "emdash";
+import CroppedImage from "./CroppedImage.astro";
+
+interface Props {
+	title: string;
+	edit?: EditProxy;
+	excerpt?: string | null;
+	featuredImage?: unknown;
+	href: string;
+	date?: Date;
+	category?: { slug: string; label: string } | null;
+	readingTime?: number | null;
+	variant?: "default" | "compact" | "featured";
+}
+
+const { title, edit, excerpt, featuredImage, href, date, category, readingTime, variant = "default" } = Astro.props;
+
+function formatDate(d: Date) {
+	return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+const isCompact = variant === "compact";
+const isFeatured = variant === "featured";
+---
+
+<article {...edit} class={`group card-lift ${isFeatured ? "md:col-span-2" : ""}`}>
+	<a href={href} class="block">
+		{featuredImage && (
+			<div {...edit?.featured_image} class={`overflow-hidden rounded-xl mb-4 ${isFeatured ? "aspect-[16/9]" : "aspect-[16/10]"}`}>
+				<CroppedImage
+					image={featuredImage}
+					class="transition-transform duration-500 group-hover:scale-[1.03]"
+				/>
+			</div>
+		)}
+		<div class="space-y-2.5">
+			{category && (
+				<div class="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-brand-600 dark:text-blue-400">
+					<span>{category.label}</span>
+				</div>
+			)}
+			<h3 {...edit?.title} class={`font-display font-semibold leading-tight tracking-tight group-hover:text-brand-600 transition-colors ${isFeatured ? "text-3xl md:text-4xl" : isCompact ? "text-base" : "text-xl"}`}>
+				{title}
+			</h3>
+			{excerpt && !isCompact && (
+				<p {...edit?.excerpt} class={`text-gray-600 dark:text-gray-400 line-clamp-3 ${isFeatured ? "text-lg" : "text-base"}`}>{excerpt}</p>
+			)}
+			<div class="flex items-center gap-2 text-xs text-gray-500 pt-1">
+				{date && <time>{formatDate(date)}</time>}
+				{date && readingTime && <span class="w-1 h-1 rounded-full bg-gray-400" />}
+				{readingTime && <span>{readingTime} min read</span>}
+			</div>
+		</div>
+	</a>
+</article>

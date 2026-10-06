@@ -1,0 +1,30 @@
+{
+	"name": "@tedix/artifact-gateway",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Public, cookie-isolated Worker that serves agent-authored artifacts as plain bytes.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app artifact-gateway",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"test": "bun run test:run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"types": "cf workers types --mode production",
+		"type-check": "bun run types && tsc --noEmit"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"cf": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

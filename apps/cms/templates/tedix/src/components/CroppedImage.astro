@@ -1,0 +1,16 @@
+---
+import { Image } from "emdash/ui";
+
+interface Props {
+	image: unknown;
+	alt?: string;
+	class?: string;
+	priority?: boolean;
+	sizes?: string;
+}
+
+const { image, alt, class: className = "", priority = false, sizes } = Astro.props;
+const cropStyle = "display:block;width:100%;height:100%;max-width:none;aspect-ratio:auto;object-fit:cover;";
+---
+
+<Image image={image} alt={alt} priority={priority} {...(sizes ? { sizes } : {})} class={className} style={cropStyle} />

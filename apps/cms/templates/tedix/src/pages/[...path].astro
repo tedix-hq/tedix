@@ -1,0 +1,94 @@
+---
+import { decodeSlug, getEmDashEntry, getSeoMeta, getSiteSettings, resolveEmDashPath } from "emdash";
+import type { ComponentProps } from "astro/types";
+import { env as workerEnv } from "cloudflare:workers";
+import Base from "../layouts/Base.astro";
+import NativePage from "../components/NativePage.astro";
+import PostPage from "./posts/[slug].astro";
+import { collectionIndexPath } from "../lib/content-url";
+
+function normalisePathKey(path: string): string {
+	const pathname = (path.split("?")[0] || "/").replace(/\/{2,}/g, "/");
+	const withLeadingSlash = pathname.startsWith("/") ? pathname : `/${pathname}`;
+	return withLeadingSlash === "/" ? "/" : withLeadingSlash.replace(/\/+$/, "");
+}
+
+const settings = await getSiteSettings();
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const publicPath = Astro.originPathname ?? Astro.url.pathname;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(publicPath)?.[1];
+const locale =
+	pathLocale ??
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0 ? settingsLanguage : undefined) ??
+	envDefaultLocale ??
+	"en";
+const orgDefaultLocale = envDefaultLocale ?? "en";
+const requestedPath = normalisePathKey(publicPath);
+const postsIndexPath = normalisePathKey(
+	await collectionIndexPath("posts", {
+		locale,
+		defaultLocale: orgDefaultLocale,
+	}),
+);
+
+if (requestedPath === postsIndexPath) {
+	const search = Astro.url.searchParams.toString();
+	return Astro.rewrite(`/internal/posts-index${search ? `?${search}` : ""}`);
+}
+
+// Collection URL patterns include the public mount path (for example
+// /blog/{slug}); only a leading locale is outside the native pattern.
+const collectionPath = pathLocale ? requestedPath.slice(pathLocale.length + 1) || "/" : requestedPath;
+const lookupPaths = Array.from(
+	new Set([
+		collectionPath,
+		collectionPath.replace(/\/+$/, "") || "/",
+		`${collectionPath.replace(/\/+$/, "")}/`,
+	]),
+);
+const resolved = (
+	await Promise.all(lookupPaths.map((path) => resolveEmDashPath(path)))
+).find((candidate) => candidate?.collection === "posts" || candidate?.collection === "pages");
+// The default Emdash seed has no pages urlPattern. Its native link builder
+// therefore emits /pages/{slug}; resolveEmDashPath only sees patterned collections.
+const defaultPageSlug = /^\/pages\/([^/]+)$/.exec(collectionPath)?.[1];
+const decodedPageSlug = decodeSlug(defaultPageSlug);
+const slug = resolved?.params.slug ?? resolved?.entry.id ?? decodedPageSlug;
+if (!slug) return Astro.redirect("/404");
+const isPost = resolved?.collection === "posts";
+
+const { entry: page, cacheHint } = isPost
+	? { entry: null, cacheHint: null }
+	: await getEmDashEntry("pages", slug, { locale });
+if (!isPost && !page) return Astro.redirect("/404");
+if (cacheHint) { try { Astro.cache.set(cacheHint); } catch {} }
+
+const data = (page?.data ?? {}) as Record<string, unknown>;
+type NativeBlocks = NonNullable<ComponentProps<typeof NativePage>["value"]>;
+const blocks = Array.isArray(data.content) ? data.content as NativeBlocks : [];
+const publicBase = (workerEnv as Record<string, string | undefined>).PUBLIC_SITE_URL?.replace(/\/+$/, "") ?? Astro.url.origin;
+const seo = page ? getSeoMeta(page, {
+	siteTitle: settings?.title ?? "Site",
+	siteUrl: publicBase,
+	path: requestedPath,
+}) : null;
+const title = typeof data.title === "string" ? data.title : slug;
+const description = seo?.description ?? (typeof data.meta_description === "string" ? data.meta_description : null);
+---
+
+{isPost ? <PostPage resolvedSlug={slug} resolvedLocale={locale} /> : (
+<Base
+	title={seo?.ogTitle ?? title}
+	description={description}
+	image={seo?.ogImage}
+	canonical={seo?.canonical}
+	content={{ collection: "pages", id: page?.data.id as string, slug }}
+	robots={seo?.robots}
+>
+	<main {...page?.edit}>
+		{blocks.length > 0 ? <div {...page?.edit.content} style="display: contents"><NativePage value={blocks} /></div> : <h1 {...page?.edit.title} class="mx-auto max-w-6xl px-4 py-16 font-display text-4xl font-bold lg:px-6">{title}</h1>}
+	</main>
+</Base>
+)}

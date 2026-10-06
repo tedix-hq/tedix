@@ -1,0 +1,112 @@
+---
+/**
+ * marketing.features — value-prop card grid. Harvested from a production marketing
+ * homepage "Ihre Vorteile" cards and the official marketing features block.
+ *
+ * Items come from a native repeater: { title, body, href }.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems, asString } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_features" }>>;
+const { value: node } = Astro.props;
+
+const heading = asString(node.heading);
+const intro = asString(node.intro);
+const items = asItems(node.items).map((row) => ({
+	title: asString(row.title),
+	body: asString(row.body),
+	href: asString(row.href),
+}));
+---
+
+{items.length > 0 && (
+	<section class="mk-features">
+		<div class="mk-wrap">
+			{heading && <h2 class="mk-features__heading">{heading}</h2>}
+			{intro && <p class="mk-features__intro">{intro}</p>}
+			<div class="mk-features__grid">
+				{items.map((item) => {
+					const inner = (
+						<>
+							{item.title && <h3>{item.title}</h3>}
+							{item.body && <p>{item.body}</p>}
+							{item.href && <span class="mk-features__more">Mehr erfahren →</span>}
+						</>
+					);
+					return item.href ? (
+						<a class="mk-feature" href={item.href}>
+							{inner}
+						</a>
+					) : (
+						<div class="mk-feature">{inner}</div>
+					);
+				})}
+			</div>
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-wrap {
+		max-width: 1200px;
+		width: 90%;
+		margin: 0 auto;
+	}
+	.mk-features {
+		padding: 80px 0;
+	}
+	.mk-features__heading {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		font-size: clamp(1.6rem, 3vw, 2.2rem);
+		margin: 0 0 0.75rem;
+	}
+	.mk-features__intro {
+		color: var(--color-text-secondary);
+		font-size: 1.05rem;
+		margin: 0 0 2rem;
+		max-width: 760px;
+	}
+	.mk-features__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 24px;
+	}
+	.mk-feature {
+		display: block;
+		background: var(--color-surface);
+		border-radius: 8px;
+		padding: 28px 24px;
+		text-decoration: none;
+		border-top: 3px solid var(--color-brand-500);
+		transition: transform 0.18s, box-shadow 0.18s;
+	}
+	a.mk-feature:hover {
+		transform: translateY(-4px);
+		box-shadow: var(--shadow-brand);
+	}
+	.mk-feature h3 {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		font-size: 1.2rem;
+		margin: 0 0 0.6rem;
+	}
+	.mk-feature p {
+		color: var(--color-text-secondary);
+		line-height: 1.6;
+		font-size: 0.97rem;
+		margin: 0 0 1rem;
+	}
+	.mk-features__more {
+		color: var(--color-brand-500);
+		font-weight: 600;
+		font-size: 0.92rem;
+	}
+	@media (max-width: 560px) {
+		.mk-features__grid {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>

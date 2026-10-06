@@ -1,0 +1,1 @@
+../../tedix/src/worker.ts

@@ -1,0 +1,5 @@
+DROP INDEX IF EXISTS `uniq_work_item_source_owner_external`;--> statement-breakpoint
+CREATE UNIQUE INDEX `uniq_work_item_source_owner_external_both` ON `work_item_sources` (`org_id`,`provider`,`external_id`,`project_id`,`work_item_id`) WHERE "work_item_sources"."project_id" IS NOT NULL AND "work_item_sources"."work_item_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `uniq_work_item_source_owner_external_project` ON `work_item_sources` (`org_id`,`provider`,`external_id`,`project_id`) WHERE "work_item_sources"."project_id" IS NOT NULL AND "work_item_sources"."work_item_id" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `uniq_work_item_source_owner_external_work_item` ON `work_item_sources` (`org_id`,`provider`,`external_id`,`work_item_id`) WHERE "work_item_sources"."project_id" IS NULL AND "work_item_sources"."work_item_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `uniq_work_item_source_owner_external_orphan` ON `work_item_sources` (`org_id`,`provider`,`external_id`) WHERE "work_item_sources"."project_id" IS NULL AND "work_item_sources"."work_item_id" IS NULL;

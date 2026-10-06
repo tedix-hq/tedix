@@ -1,0 +1,1 @@
+ALTER TABLE `work_item_corroborations` ADD `stance` text DEFAULT 'corroborates' NOT NULL;

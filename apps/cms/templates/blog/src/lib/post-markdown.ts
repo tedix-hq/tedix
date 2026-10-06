@@ -1,0 +1,1 @@
+../../../tedix/src/lib/post-markdown.ts

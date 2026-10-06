@@ -1,0 +1,246 @@
+---
+import { getEmDashCollection, getEmDashEntry, getSiteSettings, search } from "emdash";
+import { env as workerEnv } from "cloudflare:workers";
+import Base from "../layouts/Base.astro";
+import PostCard from "./PostCard.astro";
+import { collectionIndexHref, contentHref } from "../lib/content-url";
+import { t } from "../i18n/strings";
+import { blogPageHref, blogPagination } from "../lib/blog-pagination";
+
+const requestedPage = Number(Astro.url.searchParams.get("page") ?? "1");
+const searchQuery = Astro.url.searchParams.get("q")?.trim() ?? "";
+const PAGINATION_WINDOW = 2;
+const settings = await getSiteSettings();
+const { page, pageSize: POSTS_PER_PAGE, offset: pageStart, searchLimit } = blogPagination(requestedPage, settings?.postsPerPage);
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const originalPath = Astro.originPathname ?? Astro.url.pathname;
+const publicPathPrefixRaw = (workerEnv as Record<string, string | undefined>).PUBLIC_PATH_PREFIX ?? "";
+const publicPathPrefix = publicPathPrefixRaw.trim().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const localePath = publicPathPrefix && originalPath.startsWith(`${publicPathPrefix}/`)
+	? originalPath.slice(publicPathPrefix.length)
+	: originalPath;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(localePath)?.[1];
+const locale =
+	pathLocale ??
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0 ? settingsLanguage : undefined) ??
+	envDefaultLocale ??
+	"en";
+
+const postsResult = searchQuery
+	? await (async () => {
+			const result = await search(searchQuery, {
+				collections: ["posts"],
+				limit: searchLimit,
+				locale,
+				status: "published",
+			});
+			const hydrated = await Promise.all(
+				result.items.map((item) => getEmDashEntry("posts", item.id, { locale })),
+			);
+			return {
+				entries: hydrated.flatMap((item) => (item.entry ? [item.entry] : [])),
+				cacheHint: undefined,
+				hasMore: undefined,
+			};
+		})()
+	: await getEmDashCollection("posts", {
+			orderBy: { published_at: "desc" },
+			limit: POSTS_PER_PAGE,
+			offset: pageStart,
+			locale,
+			status: "published",
+		});
+if (postsResult.cacheHint) {
+	try {
+		Astro.cache.set(postsResult.cacheHint);
+	} catch {}
+}
+const posts = postsResult.entries;
+
+const visiblePosts = searchQuery ? posts.slice(pageStart, pageStart + POSTS_PER_PAGE) : posts;
+const hasNextPage = searchQuery ? posts.length > pageStart + POSTS_PER_PAGE : postsResult.hasMore === true;
+const hasPrevPage = page > 1;
+const siteTagline = settings?.tagline ?? t("allArticles", locale);
+
+const orgDefaultLocale = envDefaultLocale ?? "en";
+const localePrefix = locale === orgDefaultLocale ? "" : `/${locale}`;
+const postsIndexHref = await collectionIndexHref("posts", {
+	locale,
+	defaultLocale: orgDefaultLocale,
+});
+const postLinks = new Map(
+	await Promise.all(
+		visiblePosts.map(async (post) => [
+			post.data.id,
+			await contentHref("posts", post.data.slug ?? post.id, {
+				locale,
+				defaultLocale: orgDefaultLocale,
+			}),
+		]),
+	),
+);
+function postHref(post: (typeof visiblePosts)[number]) {
+	return postLinks.get(post.data.id) ?? postsIndexHref;
+}
+function pageHref(targetPage: number) {
+	return blogPageHref(postsIndexHref, targetPage, searchQuery);
+}
+const pageNumbers = Array.from(
+	{ length: page + (hasNextPage ? 1 : 0) - Math.max(1, page - PAGINATION_WINDOW) + 1 },
+	(_, index) => Math.max(1, page - PAGINATION_WINDOW) + index,
+);
+function primaryTerm(post: (typeof visiblePosts)[number], taxonomy: "category" | "tag") {
+	const terms = (post.data as { terms?: Record<string, Array<{ slug: string; label: string }>> }).terms?.[taxonomy];
+	return Array.isArray(terms) ? terms[0] : null;
+}
+const featuredPost = page === 1 && !searchQuery ? visiblePosts[0] : null;
+const gridPosts = featuredPost ? visiblePosts.slice(1) : visiblePosts;
+const topicTerms = Array.from(
+	new Map(
+		visiblePosts
+			.map((post) => primaryTerm(post, "category"))
+			.filter((term): term is { slug: string; label: string } => Boolean(term))
+			.map((term) => [term.slug, term]),
+	).values(),
+).slice(0, 6);
+---
+
+<Base
+	title={t("allArticles", locale)}
+	description={siteTagline}
+	canonical={postsIndexHref}
+>
+	<div class="border-b border-gray-200 dark:border-gray-800 bg-gradient-to-b from-brand-50/70 via-transparent to-transparent dark:from-brand-700/10">
+		<div class="max-w-6xl mx-auto px-4 lg:px-6 py-16">
+			<h1 class="font-display text-4xl md:text-5xl font-bold tracking-tight">{t("allArticles", locale)}</h1>
+			<p class="text-lg text-gray-600 dark:text-gray-400 mt-3 max-w-2xl">{siteTagline}</p>
+			{topicTerms.length > 0 && (
+				<div class="flex flex-wrap gap-2 mt-8">
+					{topicTerms.map((term) => (
+						<a href={`${localePrefix}/category/${term.slug}/`} class="tag-chip">{term.label}</a>
+					))}
+				</div>
+			)}
+		</div>
+	</div>
+
+	<div class="max-w-6xl mx-auto px-4 lg:px-6 py-16">
+		<form action={postsIndexHref} method="get" role="search" class="mb-12">
+			<div class="flex flex-col sm:flex-row gap-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-3 shadow-sm">
+				<label for="post-search" class="sr-only">{t("searchArticles", locale)}</label>
+				<input
+					id="post-search"
+					name="q"
+					type="search"
+					value={searchQuery}
+					placeholder={t("searchArticlesPlaceholder", locale)}
+					class="min-h-11 flex-1 rounded-lg border border-transparent bg-gray-50 dark:bg-gray-900 px-4 text-sm text-gray-900 dark:text-gray-100 outline-none transition-colors placeholder:text-gray-500 focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/20 dark:focus:bg-gray-950"
+				/>
+				<div class="flex gap-2">
+					<button type="submit" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-brand-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-gray-950">
+						{t("search", locale)}
+					</button>
+					{searchQuery && (
+						<a href={postsIndexHref} class="inline-flex min-h-11 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 px-4 text-sm font-semibold transition-colors hover:border-brand-500 hover:text-brand-600">
+							{t("clearSearch", locale)}
+						</a>
+					)}
+				</div>
+			</div>
+			{searchQuery && (
+				<p class="mt-3 text-sm text-gray-500">
+					{t("searchResultsFor", locale)} <span class="font-medium text-gray-700 dark:text-gray-300">"{searchQuery}"</span>
+				</p>
+			)}
+		</form>
+
+		{visiblePosts.length === 0 ? (
+			<div>
+				<p class="text-gray-500">{t("noPostsFound", locale)}</p>
+				{hasPrevPage && <a href={pageHref(1)} class="inline-block mt-4 text-brand-600 underline">{t("page", locale)} 1</a>}
+			</div>
+		) : (
+			<>
+				{featuredPost && (
+					<section class="mb-16 pb-16 border-b border-gray-200 dark:border-gray-800">
+						<div class="grid lg:grid-cols-12 gap-8 items-center">
+							<div class="lg:col-span-7">
+								<PostCard
+									edit={featuredPost.edit}
+									title={featuredPost.data.title ?? "Untitled"}
+									excerpt={featuredPost.data.excerpt}
+									featuredImage={featuredPost.data.featured_image}
+									href={postHref(featuredPost)}
+									date={featuredPost.data.publishedAt ?? undefined}
+									category={primaryTerm(featuredPost, "category")}
+									readingTime={featuredPost.data.reading_time}
+									variant="featured"
+								/>
+							</div>
+							<div class="lg:col-span-4 lg:col-start-9 space-y-4">
+								<h2 class="text-xs font-semibold uppercase tracking-widest text-gray-500">{t("featured", locale)}</h2>
+								<p class="text-sm leading-7 text-gray-600 dark:text-gray-400">{siteTagline}</p>
+								{primaryTerm(featuredPost, "category") && (
+									<a href={`${localePrefix}/category/${primaryTerm(featuredPost, "category")!.slug}/`} class="tag-chip">
+										{primaryTerm(featuredPost, "category")!.label}
+									</a>
+								)}
+								<a href={postHref(featuredPost)} class="inline-flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors">
+									{t("readMore", locale)}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+								</a>
+							</div>
+						</div>
+					</section>
+				)}
+
+				<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
+					{gridPosts.map((post) => (
+						<PostCard
+							edit={post.edit}
+							title={post.data.title ?? "Untitled"}
+							excerpt={post.data.excerpt}
+							featuredImage={post.data.featured_image}
+							href={postHref(post)}
+							date={post.data.publishedAt ?? undefined}
+							category={primaryTerm(post, "category")}
+							readingTime={post.data.reading_time}
+						/>
+					))}
+				</div>
+
+				{(hasPrevPage || hasNextPage) && (
+					<nav class="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mt-16 pt-8 border-t border-gray-200 dark:border-gray-800" aria-label={t("pagination", locale)}>
+						{hasPrevPage ? (
+							<a href={pageHref(page - 1)} class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-800 hover:border-brand-500 hover:text-brand-600 transition-colors">
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+								{t("previous", locale)}
+							</a>
+						) : <span />}
+						<div class="flex items-center justify-center gap-1">
+							{pageNumbers.map((targetPage) => (
+								targetPage === page ? (
+									<span class="inline-flex h-10 min-w-10 items-center justify-center rounded-lg bg-brand-600 px-3 text-sm font-semibold text-white" aria-current="page">
+										{targetPage}
+									</span>
+								) : (
+									<a href={pageHref(targetPage)} class="inline-flex h-10 min-w-10 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 px-3 text-sm font-semibold hover:border-brand-500 hover:text-brand-600 transition-colors" aria-label={`${t("page", locale)} ${targetPage}`}>
+										{targetPage}
+									</a>
+								)
+							))}
+						</div>
+						{hasNextPage ? (
+							<a href={pageHref(page + 1)} class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-800 hover:border-brand-500 hover:text-brand-600 transition-colors">
+								{t("next", locale)}
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+							</a>
+						) : <span />}
+					</nav>
+				)}
+			</>
+		)}
+	</div>
+</Base>

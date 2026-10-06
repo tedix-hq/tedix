@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `os_instance_gatekeepers_descope_application_unique` ON `os_instance_gatekeepers` (`descope_application_id`);

@@ -1,0 +1,47 @@
+{
+	"name": "@tedix/skill-runtime",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Runs executable skills, automations, and one-off flows in per-run sandboxed Workers on a durable engine.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app skill-runtime",
+		"types": "cf workers types --mode production",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"test:run": "bun run test:unit && bun run test:workerd",
+		"test:unit": "bun test test/health.test.ts && bun test test/auth.test.ts && bun test test/control-log.test.ts && bun test test/vertex-inline-video.test.ts && bun test test/vertex-video-judge.test.ts && bun test test/vertex-product-keyframes.test.ts && bun test test/mcp-bridge-utils.test.ts && bun test test/mcp-bridge-auth.test.ts && bun test test/workflow-runtime.test.ts && bun test test/defect-triage-example.test.ts && bun test test/workflow-engine-error.test.ts && bun test test/rationale.test.ts && bun test test/evidence.test.ts && bun test test/reason.test.ts && bun test test/publish-shared.test.ts",
+		"test:workerd": "vp test run",
+		"type-check": "bun run types && tsc --noEmit",
+		"eval:judge": "bun eval/run-judge-eval.ts",
+		"eval:judge:vote": "bun eval/run-judge-vote-eval.ts",
+		"eval:judge:workersai": "bun eval/run-judge-workersai-eval.ts",
+		"eval:publish-skill": "bun eval/publish-calibration-skill.ts"
+	},
+	"dependencies": {
+		"@cloudflare/dynamic-workflows": "^0.1.1",
+		"@noble/hashes": "2.4.0",
+		"@tedix/api-client": "workspace:*",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"@tedix/mcp-shared": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"es-module-lexer": "^3.0.3",
+		"hono": "catalog:",
+		"sucrase": "^3.35.1",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"cf": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

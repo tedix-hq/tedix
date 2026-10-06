@@ -1,0 +1,15 @@
+---
+import { config } from "virtual:nimbus/config";
+import CatalogGrid from "../components/CatalogGrid.astro";
+import HubLayout from "../layouts/HubLayout.astro";
+import { getHubPages } from "../lib/docs-hubs";
+
+const pages = (await getHubPages()).filter((page) => page.type !== "release-note");
+---
+
+<HubLayout title="Docs directory" description={`Browse every area of ${config.title}.`}>
+  <p class="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-primary">Explore</p>
+  <h1 class="max-w-3xl text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">Docs directory</h1>
+  <p class="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">Find a guide by topic, or search the full list of pages in this documentation site.</p>
+  <CatalogGrid pages={pages} filter="topic" empty="This site has no listed documentation pages yet." />
+</HubLayout>

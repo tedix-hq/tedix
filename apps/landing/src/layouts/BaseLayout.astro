@@ -1,0 +1,264 @@
+---
+import "../styles/globals.css";
+import { Font } from "astro:assets";
+import { ClientRouter } from "astro:transitions";
+import Navbar from "../components/Navbar.astro";
+import Footer from "../components/Footer.astro";
+import ConsentBanner from "../components/ConsentBanner.astro";
+import { getGaMeasurementId } from "../lib/analytics-config";
+import {
+	defaultLocale,
+	getHomeAlternateLinks,
+	getLocaleContent,
+	getOgLocale,
+	isLocalizedHomePath,
+	type Locale,
+} from "../i18n/content";
+
+interface Props {
+	title: string;
+	description?: string;
+	image?: string;
+	showConsentBanner?: boolean;
+	consentBannerVariant?: "default" | "compact";
+	showNavigation?: boolean;
+	showFooter?: boolean;
+	locale?: Locale;
+	includeSoftwareApplicationSchema?: boolean;
+	includeWebPageSchema?: boolean;
+}
+
+const {
+	title,
+	image = "/og-image.png",
+	showConsentBanner = true,
+	consentBannerVariant = "default",
+	showNavigation = true,
+	showFooter = true,
+	locale = defaultLocale,
+	includeSoftwareApplicationSchema = true,
+	includeWebPageSchema = true,
+} = Astro.props;
+
+const layoutContent = getLocaleContent(locale);
+const description = Astro.props.description ?? layoutContent.meta.description;
+const siteDescription = layoutContent.meta.description;
+
+// Generate canonical URL for current page
+function canonicalPathname(pathname: string): string {
+	if (pathname === "/" || pathname.endsWith("/")) return pathname;
+	const lastSegment = pathname.split("/").pop() ?? "";
+	return lastSegment.includes(".") ? pathname : `${pathname}/`;
+}
+
+const canonicalURL = new URL(canonicalPathname(Astro.url.pathname), Astro.site);
+
+import { env } from 'cloudflare:workers';
+
+const siteName = "Tedix";
+const siteUrl = "https://tedix.dev";
+const logoUrl = "/images/tedi-astronaut-waving.png";
+const canonicalUrlString = canonicalURL.toString();
+const imageUrl = new URL(image, Astro.site).toString();
+const organizationId = `${siteUrl}/#organization`;
+const webSiteId = `${siteUrl}/#website`;
+const googleVerification = undefined;
+const twitterHandle = "@tedix_ai";
+const sameAs: string[] = [
+	"https://x.com/tedix_ai",
+	"https://www.linkedin.com/company/tedix-ai",
+	"https://github.com/tedix-hq",
+];
+const ogLocale = getOgLocale(locale);
+const alternateLinks = isLocalizedHomePath(Astro.url.pathname) ? getHomeAlternateLinks(Astro.site) : [];
+const deploymentEnv = env.ENVIRONMENT;
+// GA4 loads only in production, only with a configured measurement id, and —
+// after analytics consent (the ConsentBanner persists
+// tedix.cookieConsent.v1 and emits tedix:consentchange).
+const gaMeasurementId = getGaMeasurementId(env.GA_MEASUREMENT_ID);
+const shouldLoadGa = deploymentEnv === "production" && Boolean(gaMeasurementId);
+---
+
+<!doctype html>
+<html lang={locale}>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="description" content={description} />
+		<link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+		<link rel="canonical" href={canonicalUrlString} />
+		<link rel="service-desc" type="application/vnd.oai.openapi+json;version=3.1" href="https://api.tedix.dev/openapi.json" title="Tedix OpenAPI 3.1" />
+		{alternateLinks.map((link) => <link rel="alternate" hreflang={link.hreflang} href={link.href} />)}
+		<link rel="sitemap" href="/sitemap-index.xml" />
+		<meta name="generator" content={Astro.generator} />
+
+		<!-- Fonts (via Astro experimental Fonts API) -->
+		<Font cssVariable="--font-raleway" preload />
+		<Font cssVariable="--font-comfortaa" preload />
+
+		<!-- Open Graph -->
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:type" content="website" />
+		<meta property="og:url" content={canonicalURL} />
+		<meta property="og:site_name" content={siteName} />
+		<meta property="og:locale" content={ogLocale} />
+		<meta property="og:image" content={imageUrl} />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content={title} />
+
+		<!-- Twitter -->
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+		{twitterHandle && <meta name="twitter:creator" content={twitterHandle} />}
+		<meta name="twitter:image" content={imageUrl} />
+
+		<!-- Content Signals — declare AI usage permissions (web4agents.org framework) -->
+		<meta name="content-signal" content="ai-train=no, search=yes, ai-input=yes" />
+
+		{googleVerification && (
+			Array.isArray(googleVerification)
+				? googleVerification.map((v: string) => <meta name="google-site-verification" content={v} />)
+				: <meta name="google-site-verification" content={googleVerification} />
+		)}
+
+		<!-- Named slot for page-specific head content -->
+		<slot name="head" />
+
+		<!-- JSON-LD: Organization + WebSite (config-driven from D1 app metadata) -->
+			<script type="application/ld+json" set:html={JSON.stringify({
+				"@context": "https://schema.org",
+				"@type": "Organization",
+				"@id": organizationId,
+				name: siteName,
+				url: siteUrl,
+				logo: {
+					"@type": "ImageObject",
+					url: logoUrl.startsWith("http") ? logoUrl : `${siteUrl}${logoUrl}`,
+				},
+				description: siteDescription,
+				...(sameAs.length > 0 ? { sameAs } : {}),
+			})} />
+			<script type="application/ld+json" set:html={JSON.stringify({
+				"@context": "https://schema.org",
+				"@type": "WebSite",
+				"@id": webSiteId,
+				name: siteName,
+				url: siteUrl,
+				description: siteDescription,
+				publisher: { "@id": organizationId },
+				potentialAction: {
+					"@type": "SearchAction",
+					target: { "@type": "EntryPoint", urlTemplate: `${siteUrl}/apps?q={search_term_string}` },
+					"query-input": "required name=search_term_string",
+				},
+			})} />
+			{includeSoftwareApplicationSchema && (
+				<script type="application/ld+json" set:html={JSON.stringify({
+					"@context": "https://schema.org",
+					"@type": "SoftwareApplication",
+					name: siteName,
+					url: siteUrl,
+					description: siteDescription,
+					applicationCategory: "BusinessApplication",
+					operatingSystem: "Web",
+					publisher: { "@id": organizationId },
+					provider: { "@id": organizationId },
+				})} />
+			)}
+		{includeWebPageSchema && (
+			<script type="application/ld+json" set:html={JSON.stringify({
+				"@context": "https://schema.org",
+				"@type": "WebPage",
+				"@id": `${canonicalUrlString}#webpage`,
+				url: canonicalUrlString,
+				name: title,
+				description,
+				isPartOf: { "@id": webSiteId },
+				about: { "@id": organizationId },
+				primaryImageOfPage: {
+					"@type": "ImageObject",
+					url: imageUrl,
+				},
+			})} />
+		)}
+
+		<title>{title}</title>
+
+		<!-- View Transitions for smooth page navigation -->
+		<ClientRouter />
+
+		{shouldLoadGa && (
+			<script is:inline define:vars={{ gaMeasurementId }}>
+				(() => {
+					const CONSENT_KEY = "tedix.cookieConsent.v1";
+					let loaded = false;
+					const loadGa = () => {
+						if (loaded || document.getElementById("ga-gtag")) return;
+						loaded = true;
+						window.dataLayer = window.dataLayer || [];
+						window.gtag = function gtag() {
+							window.dataLayer.push(arguments);
+						};
+						window.gtag("js", new Date());
+						window.gtag("config", gaMeasurementId, { anonymize_ip: true });
+						const script = document.createElement("script");
+						script.id = "ga-gtag";
+						script.async = true;
+						script.src =
+							"https://www.googletagmanager.com/gtag/js?id=" +
+							encodeURIComponent(gaMeasurementId);
+						document.head.appendChild(script);
+					};
+					const hasConsent = () => {
+						try {
+							const parsed = JSON.parse(
+								window.localStorage.getItem(CONSENT_KEY) || "null",
+							);
+							return Boolean(parsed && parsed.analytics);
+						} catch {
+							return false;
+						}
+					};
+					if (hasConsent()) loadGa();
+					window.addEventListener("tedix:consentchange", (event) => {
+						if (event.detail && event.detail.analytics) loadGa();
+					});
+				})();
+			</script>
+		)}
+
+		<!-- Theme Script (runs before render to prevent flash) -->
+		<script is:inline>
+			const getTheme = () => {
+				if (typeof localStorage !== "undefined" && localStorage.getItem("theme")) {
+					return localStorage.getItem("theme");
+				}
+				if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+					return "dark";
+				}
+				return "light";
+			};
+			const theme = getTheme();
+			if (theme === "dark") {
+				document.documentElement.classList.add("dark");
+			}
+		</script>
+	</head>
+	<body class="font-sans antialiased min-h-screen flex flex-col">
+		<a
+			href="#main-content"
+			class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-4 focus:left-4 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+		>
+			{layoutContent.layout.skipToContent}
+		</a>
+		{showNavigation && <Navbar locale={locale} />}
+		<main id="main-content" class="flex-grow" role="main">
+			<slot />
+		</main>
+		{showFooter && <Footer locale={locale} />}
+		{showConsentBanner && <ConsentBanner locale={locale} variant={consentBannerVariant} />}
+	</body>
+</html>

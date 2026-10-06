@@ -1,0 +1,25 @@
+{
+	"name": "@tedix/ssrf-guard",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Server-side request forgery protection for outbound URLs.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

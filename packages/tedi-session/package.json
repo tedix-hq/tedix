@@ -1,0 +1,27 @@
+{
+	"name": "@tedix/tedi-session",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Per-conversation session contract shared by tedi runtimes.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		"./session-harness": "./src/session-harness.ts",
+		"./session-repo": "./src/session-repo.ts"
+	},
+	"scripts": {
+		"clean": "rm -rf node_modules",
+		"type-check": "tsc --noEmit",
+		"test": "bun run test:run",
+		"test:run": "bun run src/session-harness.test.ts && bun run src/session-repo.test.ts",
+		"test:ci": "bun run test:run"
+	},
+	"dependencies": {
+		"@tedix/context-core": "workspace:*"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}

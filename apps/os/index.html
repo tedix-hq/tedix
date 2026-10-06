@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en" data-theme="tedix">
+	<head>
+		<meta charset="UTF-8" />
+		<!--
+			`viewport-fit=cover` is required, not cosmetic: without it every
+			`env(safe-area-inset-*)` resolves to 0 and the notch/home-indicator
+			padding in styles.css is silently inert. `interactive-widget=resizes-content`
+			asks Chromium to shrink the layout viewport for the software keyboard;
+			iOS ignores it, which is what `installViewportMetrics()` is for.
+		-->
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+		/>
+		<meta name="robots" content="noindex, nofollow, noarchive" />
+		<meta
+			name="description"
+			content="Tedix OS — the governed workspace for durable digital workers"
+		/>
+		<title>Tedix OS</title>
+		<link rel="icon" href="/favicon.ico" sizes="32x32" />
+		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<!-- Pre-paint theme init: mirrors src/lib/theme.ts (storage key + attribute contract). -->
+		<script>
+			(function () {
+				try {
+					var d = document.documentElement;
+					var t = localStorage.getItem("tedix-os-theme");
+					var m =
+						t === "light" || t === "dark"
+							? t
+							: matchMedia("(prefers-color-scheme:dark)").matches
+								? "dark"
+								: "light";
+					d.dataset.theme = "tedix";
+					d.dataset.mode = m;
+					d.classList.toggle("dark", m === "dark");
+					var raw = localStorage.getItem("tedix-os-organization-theme");
+					if (raw) {
+						var cached = JSON.parse(raw);
+						var values = cached && cached.version === 1 && cached[m];
+						var allowed = [
+							"--background",
+							"--foreground",
+							"--background-lighter",
+							"--background-base",
+							"--card",
+							"--card-foreground",
+							"--popover",
+							"--popover-foreground",
+							"--primary",
+							"--primary-foreground",
+							"--secondary",
+							"--secondary-foreground",
+							"--muted",
+							"--muted-foreground",
+							"--accent",
+							"--accent-foreground",
+							"--border",
+							"--input",
+							"--ring",
+							"--font-sans",
+							"--font-mono",
+						];
+						if (values) {
+							allowed.forEach(function (property) {
+								if (typeof values[property] === "string")
+									d.style.setProperty(property, values[property]);
+							});
+							d.dataset.tenantTheme = "custom";
+						}
+					}
+				} catch (e) {}
+			})();
+		</script>
+		<!--
+			Document-scoped, not React-scoped: the visual-viewport listener outlives
+			every route and must not be torn down and re-installed by StrictMode's
+			double-invoked effects. `styles.css` ships the pre-JS defaults, so the
+			shell is correctly sized before this runs.
+		-->
+		<script type="module">
+			import { installViewportMetrics } from "/src/lib/viewport-metrics.ts";
+			installViewportMetrics();
+		</script>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
+</html>

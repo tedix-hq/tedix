@@ -1,0 +1,313 @@
+---
+import { getEmDashEntry, decodeSlug, getSeoMeta, getSiteSettings } from "emdash";
+import { Image, WidgetArea } from "emdash/ui";
+import { env as workerEnv } from "cloudflare:workers";
+import Base from "../../layouts/Base.astro";
+import AuthorByline from "../../components/AuthorByline.astro";
+import PostCard from "../../components/PostCard.astro";
+import EditorialPortableText from "../../components/EditorialPortableText.astro";
+import { t } from "../../i18n/strings";
+import { collectionIndexHref, contentHref, contentMarkdownHref, contentPath } from "../../lib/content-url";
+import { getPortableToc, resolveMediaUrl, type MediaLike } from "../../lib/portable-content";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.redirect("/404");
+
+const settings = await getSiteSettings();
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const originalPath = Astro.originPathname ?? Astro.url.pathname;
+const publicPathPrefixRaw = (workerEnv as Record<string, string | undefined>).PUBLIC_PATH_PREFIX ?? "";
+const publicPathPrefix = publicPathPrefixRaw.trim().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const localePath = publicPathPrefix && originalPath.startsWith(`${publicPathPrefix}/`)
+	? originalPath.slice(publicPathPrefix.length)
+	: originalPath;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(localePath)?.[1];
+const locale =
+	pathLocale ??
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0 ? settingsLanguage : undefined) ??
+	envDefaultLocale ??
+	"en";
+
+// Public base URL used for hreflang alternates so link headers point to the
+// public domain, not cms.tedix.dev. Collection path segments come from native
+// Emdash urlPattern, not from a path-prefixed site URL.
+const envPublicSiteUrl = (workerEnv as Record<string, string | undefined>).PUBLIC_SITE_URL;
+const publicBase = envPublicSiteUrl?.replace(/\/+$/, "") ?? Astro.url.origin;
+
+// With prefixDefaultLocale: false, the org's primary language lives at root.
+// Compare against orgDefaultLocale so a German-default org (defaultLocale=de) gets empty prefix
+// for German and /en/ only for English — not the other way around.
+const orgDefaultLocale = envDefaultLocale ?? "en";
+const localePrefix = locale === orgDefaultLocale ? "" : `/${locale}`;
+
+const { entry: post, cacheHint } = await getEmDashEntry("posts", slug, {
+	locale,
+	references: { related_posts: { limit: 3 } },
+});
+if (!post) return Astro.redirect("/404");
+if (cacheHint) { try { Astro.cache.set(cacheHint); } catch {} }
+
+const siteTitle = settings?.title ?? "Blog";
+const featured = (post.data as Record<string, unknown>).featured_image as MediaLike;
+const featuredOgImage = resolveMediaUrl(featured, publicBase);
+const canonicalPath = await contentPath("posts", slug, {
+	locale,
+	defaultLocale: orgDefaultLocale,
+});
+const postsIndexHref = await collectionIndexHref("posts", {
+	locale,
+	defaultLocale: orgDefaultLocale,
+});
+const seo = getSeoMeta(post, {
+	siteTitle,
+	siteUrl: publicBase,
+	titleSeparator: " — ",
+	path: canonicalPath,
+	defaultOgImage: featuredOgImage ?? undefined,
+});
+const ogImage = seo.ogImage ?? featuredOgImage;
+
+const bylines = post.data.bylines ?? [];
+const primaryByline = bylines[0]?.byline ?? null;
+
+function buildLocalePath(loc: string, postSlug: string): Promise<string> {
+	return contentHref("posts", postSlug, { locale: loc, defaultLocale: orgDefaultLocale });
+}
+let alternates: Array<{ locale: string; href: string }> | undefined;
+const translationsField = (post.data as Record<string, unknown>).translations;
+if (Array.isArray(translationsField)) {
+	alternates = await Promise.all(
+		(translationsField as Array<{ locale: string; slug?: string }>).map(async (tr) => ({
+			locale: tr.locale,
+			href: await buildLocalePath(tr.locale, tr.slug ?? slug),
+		})),
+	);
+}
+
+const tags = post.data.terms?.tag ?? [];
+const categories = post.data.terms?.category ?? [];
+const primaryCategory = categories[0];
+const relatedPosts = (post.references?.related_posts?.entries ?? []).filter(
+	(related) => related.data.id !== post.data.id,
+);
+const relatedPostLinks = new Map(
+	await Promise.all(
+		relatedPosts.map(async (related) => [
+			related.data.id,
+			await contentHref("posts", related.data.slug ?? related.id, {
+				locale,
+				defaultLocale: orgDefaultLocale,
+			}),
+		]),
+	),
+);
+
+const dateLocaleTag = locale.includes("-") ? locale : `${locale}-${locale.toUpperCase()}`;
+function formatDate(d: Date | null | undefined) {
+	if (!d) return null;
+	return d.toLocaleDateString(dateLocaleTag, { year: "numeric", month: "long", day: "numeric" });
+}
+
+const blocks = Array.isArray(post.data.content) ? post.data.content : [];
+const toc = getPortableToc(blocks);
+const fallbackCanonicalForActions = await contentHref("posts", slug, {
+	locale,
+	defaultLocale: orgDefaultLocale,
+});
+const canonicalForActions = seo.canonical ?? fallbackCanonicalForActions;
+const shareUrl = encodeURIComponent(canonicalForActions);
+const shareTitle = encodeURIComponent(post.data.title ?? "Article");
+const aiPrompt = encodeURIComponent(`Summarize this article and extract the main takeaways: ${canonicalForActions}`);
+const markdownHref = await contentMarkdownHref("posts", slug, { locale, defaultLocale: orgDefaultLocale });
+---
+
+<Base
+	title={seo.ogTitle}
+	description={seo.description}
+	image={ogImage}
+	canonical={seo.canonical}
+	type="article"
+	publishedTime={post.data.publishedAt?.toISOString()}
+	modifiedTime={post.data.updatedAt?.toISOString()}
+	author={bylines[0]?.byline?.displayName}
+	content={{ collection: "posts", id: post.data.id, slug }}
+	markdownHref={markdownHref}
+	alternates={alternates}
+	bylines={bylines}
+	categories={categories}
+	tags={tags}
+	robots={seo.robots}
+>
+	<article {...post.edit}>
+		<header class="border-b border-gray-200 dark:border-gray-800">
+			<div class="max-w-3xl mx-auto px-4 lg:px-6 py-16 md:py-20">
+				<nav class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-8" aria-label="Breadcrumb">
+					<a href={postsIndexHref} class="hover:text-brand-600 transition-colors">{t("articles", locale)}</a>
+					<span aria-hidden="true">/</span>
+					<span class="line-clamp-1 text-gray-700 dark:text-gray-300">{post.data.title}</span>
+				</nav>
+				{primaryCategory && (
+					<div class="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-brand-600 dark:text-blue-400 mb-6">
+						<a href={`${localePrefix}/category/${primaryCategory.slug}/`} class="hover:underline">{primaryCategory.label}</a>
+					</div>
+				)}
+				<h1 {...post.edit.title} class="font-display text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight mb-6">
+					{post.data.title}
+				</h1>
+				{post.data.excerpt && (
+					<p {...post.edit.excerpt} class="text-xl md:text-2xl text-gray-600 dark:text-gray-400 leading-relaxed mb-8 font-light">
+						{post.data.excerpt}
+					</p>
+				)}
+				<div class="flex flex-wrap items-center gap-4 text-sm text-gray-500">
+					{primaryByline && (
+						<AuthorByline byline={primaryByline} />
+					)}
+					{post.data.publishedAt && (
+						<>
+							<span class="w-1 h-1 rounded-full bg-gray-400" />
+							<time>{formatDate(post.data.publishedAt)}</time>
+						</>
+					)}
+					{post.data.reading_time && (
+						<>
+							<span class="w-1 h-1 rounded-full bg-gray-400" />
+							<span>{post.data.reading_time} {t("minRead", locale)}</span>
+						</>
+					)}
+					{post.data.updatedAt && post.data.publishedAt && post.data.updatedAt > post.data.publishedAt && (
+						<>
+							<span class="w-1 h-1 rounded-full bg-gray-400" />
+							<span>{t("updated", locale)} {formatDate(post.data.updatedAt)}</span>
+						</>
+					)}
+				</div>
+			</div>
+		</header>
+
+		{post.data.featured_image && (
+			<div class="max-w-5xl mx-auto px-4 lg:px-6 -mt-px">
+				<div {...post.edit.featured_image} class="overflow-hidden rounded-2xl my-12 shadow-2xl">
+					<Image image={post.data.featured_image} priority sizes="(min-width: 1024px) 976px, calc(100vw - 32px)" class="w-full h-auto" />
+				</div>
+			</div>
+		)}
+
+		<div class="max-w-6xl mx-auto px-4 lg:px-6 py-12">
+			<div class="lg:grid lg:grid-cols-12 lg:gap-12">
+				<div class="lg:col-span-9">
+					<div class="lg:hidden mb-10 space-y-5">
+						{toc.length > 0 && (
+							<details class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-4 py-3">
+								<summary class="cursor-pointer list-none text-xs font-semibold uppercase tracking-widest text-gray-500">{t("onThisPage", locale)}</summary>
+								<ul class="mt-4 space-y-2 text-sm">
+									{toc.map((item) => (
+										<li>
+											<a
+												href={`#${item.id}`}
+												class={`block text-gray-600 dark:text-gray-400 hover:text-brand-600 transition-colors ${item.depth === 3 ? "pl-3 text-xs" : ""}`}
+											>
+												{item.text}
+											</a>
+										</li>
+									))}
+								</ul>
+							</details>
+						)}
+
+						<div class="grid grid-cols-2 gap-2 text-sm">
+							<a href={`https://chatgpt.com/?q=${aiPrompt}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">ChatGPT</a>
+							<a href={`https://www.perplexity.ai/search/new?q=${aiPrompt}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">Perplexity</a>
+							<a href={markdownHref} class="sidebar-action">Markdown</a>
+							<a href={`https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">LinkedIn</a>
+						</div>
+					</div>
+
+					<div class="prose-editorial dark:text-gray-200">
+						<EditorialPortableText value={blocks} faqHeading={t("faqHeading", locale)} />
+					</div>
+
+					{tags.length > 0 && (
+						<div class="mt-12 pt-8 border-t border-gray-200 dark:border-gray-800">
+							<h3 class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-4">{t("taggedWith", locale)}</h3>
+							<div class="flex flex-wrap gap-2">
+								{tags.map((tag) => (
+									<a href={`${localePrefix}/tag/${tag.slug}/`} class="tag-chip">{tag.label}</a>
+								))}
+							</div>
+						</div>
+					)}
+
+					{primaryByline && (
+						<AuthorByline byline={primaryByline} variant="full" />
+					)}
+				</div>
+
+				<aside class="hidden lg:block lg:col-span-3">
+					<div class="sticky top-24 space-y-8">
+						{toc.length > 0 && (
+							<div>
+								<h2 class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-4">{t("onThisPage", locale)}</h2>
+								<ul class="space-y-2 text-sm">
+									{toc.map((item) => (
+										<li>
+											<a
+												href={`#${item.id}`}
+												class={`block text-gray-600 dark:text-gray-400 hover:text-brand-600 transition-colors line-clamp-2 ${item.depth === 3 ? "pl-3 text-xs" : ""}`}
+											>
+												{item.text}
+											</a>
+										</li>
+									))}
+								</ul>
+							</div>
+						)}
+
+						<div class="border-t border-gray-200 dark:border-gray-800 pt-6">
+							<h2 class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-4">{t("aiReaders", locale)}</h2>
+							<div class="flex flex-col gap-2 text-sm">
+								<a href={`https://chatgpt.com/?q=${aiPrompt}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">ChatGPT</a>
+								<a href={`https://claude.ai/new?q=${aiPrompt}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">Claude</a>
+								<a href={`https://www.perplexity.ai/search/new?q=${aiPrompt}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">Perplexity</a>
+								<a href={markdownHref} class="sidebar-action">Markdown</a>
+							</div>
+						</div>
+
+						<div class="border-t border-gray-200 dark:border-gray-800 pt-6">
+							<h2 class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-4">{t("share", locale)}</h2>
+							<div class="flex flex-col gap-2 text-sm">
+								<a href={`https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">LinkedIn</a>
+								<a href={`https://twitter.com/intent/tweet?url=${shareUrl}&text=${shareTitle}`} target="_blank" rel="noopener noreferrer" class="sidebar-action">X</a>
+							</div>
+						</div>
+
+						<WidgetArea name="sidebar" />
+					</div>
+				</aside>
+			</div>
+		</div>
+
+		{relatedPosts.length > 0 && (
+			<section class="border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/30">
+				<div class="max-w-6xl mx-auto px-4 lg:px-6 py-16">
+					<h2 class="font-display text-2xl md:text-3xl font-semibold mb-10">{t("relatedPosts", locale)}</h2>
+					<div class="grid md:grid-cols-3 gap-10">
+						{relatedPosts.map((related) => (
+							<PostCard
+								edit={related.edit}
+								title={related.data.title ?? "Untitled"}
+								excerpt={related.data.excerpt}
+								featuredImage={related.data.featured_image}
+								href={relatedPostLinks.get(related.data.id) ?? postsIndexHref}
+								date={related.data.publishedAt ?? undefined}
+								readingTime={related.data.reading_time}
+							/>
+						))}
+					</div>
+				</div>
+			</section>
+		)}
+	</article>
+</Base>

@@ -1,0 +1,5 @@
+{
+	"extends": "@tedix/tsconfig/node.json",
+	"include": ["src/**/*", "dist/**/*"],
+	"exclude": ["node_modules"]
+}

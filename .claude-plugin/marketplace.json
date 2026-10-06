@@ -1,0 +1,14 @@
+{
+	"name": "tedix",
+	"description": "Tedix skills and connected work for Claude Code",
+	"owner": {
+		"name": "Tedix"
+	},
+	"plugins": [
+		{
+			"name": "tedix",
+			"source": "./plugins/tedix",
+			"description": "Connect to Tedix, resume governed Work, and create Workspace Outputs"
+		}
+	]
+}

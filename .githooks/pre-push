@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# The repository's pre-push gate: validation runs here, before the push.
+#
+# Installed by `bun run hooks:install` (also wired to `prepare`, so `bun install`
+# sets it up). Git feeds "<localRef> <localSha> <remoteRef> <remoteSha>" lines on
+# stdin, one per ref being pushed.
+#
+# Each executable in .githooks/pre-push.d/ runs first with "<remoteSha>
+# <localSha>" for every pushed ref, then the repo gates run scoped to the
+# pushed range (scripts/ci/preflight-gates.mjs). Without bun the hook does
+# nothing: it must never make the repo unpushable. `git push --no-verify`
+# bypasses it.
+set -uo pipefail
+
+command -v bun >/dev/null 2>&1 || exit 0
+
+root="$(git rev-parse --show-toplevel)"
+# Git exports its location to hooks (GIT_DIR, GIT_INDEX_FILE, ...). Every
+# child that spawns git -- test fixtures included -- would inherit it, ignore
+# its own cwd, and write into THIS repository: that is how fixture identities
+# ("Fixture", "Test") reached main. Drop it once here; cwd decides from now on.
+cd "$root" || exit 1
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_COMMON_DIR \
+	GIT_DIR GIT_INDEX_FILE GIT_NAMESPACE GIT_OBJECT_DIRECTORY GIT_PREFIX \
+	GIT_WORK_TREE
+
+status=0
+preflight_ranges=()
+while read -r _localRef localSha _remoteRef remoteSha; do
+	# All-zero local sha = branch deletion; nothing to validate.
+	case "$localSha" in
+		''|*[!0-9a-f]*) continue ;;
+		0000000000000000000000000000000000000000) continue ;;
+	esac
+	for check in "$root"/.githooks/pre-push.d/*; do
+		[[ -x "$check" ]] || continue
+		if ! "$check" "$remoteSha" "$localSha"; then
+			status=1
+		fi
+	done
+	# Give the gates the exact range Git is about to receive. Falling back to
+	# @{upstream} after a rebase can include unrelated commits and run DB gates
+	# for a widget-only push.
+	preflight_ranges+=("--base" "$remoteSha" "--head" "$localSha")
+done
+
+if ((${#preflight_ranges[@]})) && ! bun "$root/scripts/ci/preflight-gates.mjs" "${preflight_ranges[@]}"; then
+	status=1
+elif ((${#preflight_ranges[@]} == 0)) && ! bun "$root/scripts/ci/preflight-gates.mjs"; then
+	status=1
+fi
+
+exit "$status"

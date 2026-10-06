@@ -1,0 +1,28 @@
+{
+	"name": "@tedix/webmcp-core",
+	"version": "0.1.0",
+	"private": true,
+	"description": "WebMCP primitives for exposing browser-side tools to agents.",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		"./model-context": "./src/model-context.ts",
+		"./registry": "./src/registry.ts",
+		"./bridge-script": "./src/bridge-script.ts",
+		"./portable-profile": "./src/portable-profile.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"lint": "vp lint .",
+		"test": "bun run test:run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

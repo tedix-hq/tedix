@@ -1,0 +1,1 @@
+../../../../tedix/src/pages/api/ai-search.ts

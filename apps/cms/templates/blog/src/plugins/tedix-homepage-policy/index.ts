@@ -1,0 +1,1 @@
+../../../../tedix/src/plugins/tedix-homepage-policy/index.ts

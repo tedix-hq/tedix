@@ -1,0 +1,14 @@
+---
+export const prerender = true;
+import BaseLayout from "../layouts/BaseLayout.astro";
+import HomePage from "../components/HomePage.astro";
+import { defaultLocale, getLocaleContent } from "../i18n/content";
+
+const locale = defaultLocale;
+const content = getLocaleContent(locale);
+
+---
+
+<BaseLayout title={content.meta.title} description={content.meta.description} locale={locale}>
+	<HomePage content={content.home} locale={locale} />
+</BaseLayout>

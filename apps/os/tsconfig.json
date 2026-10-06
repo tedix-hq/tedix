@@ -1,0 +1,16 @@
+{
+	"extends": "@tedix/tsconfig/base.json",
+	"compilerOptions": {
+		"target": "es2024",
+		"lib": ["dom", "esnext"],
+		"jsxImportSource": "react",
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo.json",
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	},
+	"include": ["src/**/*", "dev/**/*", "vite.config.ts"],
+	"exclude": ["dist", "node_modules"]
+}

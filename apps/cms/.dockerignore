@@ -1,0 +1,12 @@
+node_modules
+.wrangler
+.turbo
+dist
+template/node_modules
+template/.astro
+template/dist
+templates/*/node_modules
+templates/*/.astro
+templates/*/.wrangler
+templates/*/.turbo
+templates/*/dist

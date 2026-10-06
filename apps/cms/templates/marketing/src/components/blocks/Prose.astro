@@ -1,0 +1,10 @@
+---
+import { PortableText, type BlockComponentProps } from "emdash/ui";
+import FaqBlock from "../FaqBlock.astro";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_prose" }>>;
+const { value } = Astro.props;
+---
+
+{value.body && <article class="iw-prose"><PortableText value={value.body} components={{ type: { "marketing.faq": FaqBlock, faq: FaqBlock } }} /></article>}

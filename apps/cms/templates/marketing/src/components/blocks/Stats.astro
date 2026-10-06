@@ -1,0 +1,78 @@
+---
+/**
+ * marketing.stats — gradient stat band. Harvested from a production marketing homepage
+ * stats band and the official marketing stats block.
+ *
+ * Items come from a native repeater: { value, label }.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems, asString } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_stats" }>>;
+const { value: node } = Astro.props;
+
+const heading = asString(node.heading);
+const items = asItems(node.items).map((row) => ({
+	value: asString(row.value),
+	label: asString(row.label),
+}));
+---
+
+{items.length > 0 && (
+	<section class="mk-stats">
+		<div class="mk-stats__wrap">
+			{heading && <h2 class="mk-stats__heading">{heading}</h2>}
+			<div class="mk-stats__grid">
+				{items.map((stat) => (
+					<div class="mk-stat">
+						{stat.value && <div class="mk-stat__num">{stat.value}</div>}
+						{stat.label && <div class="mk-stat__label">{stat.label}</div>}
+					</div>
+				))}
+			</div>
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-stats {
+		background: var(--color-brand-600);
+		background-image: var(--gradient-brand);
+		padding: 54px 0;
+	}
+	.mk-stats__wrap {
+		max-width: 1200px;
+		width: 90%;
+		margin: 0 auto;
+	}
+	.mk-stats__heading {
+		font-family: var(--font-display);
+		color: var(--color-on-brand);
+		text-align: center;
+		font-size: clamp(1.4rem, 2.6vw, 2rem);
+		margin: 0 0 2rem;
+	}
+	.mk-stats__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+		gap: 24px;
+		text-align: center;
+	}
+	.mk-stat__num {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 2.4rem;
+		color: var(--color-on-brand);
+	}
+	.mk-stat__label {
+		color: var(--color-on-brand-muted);
+		font-size: 0.95rem;
+		margin-top: 6px;
+	}
+	@media (max-width: 560px) {
+		.mk-stats__grid {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>

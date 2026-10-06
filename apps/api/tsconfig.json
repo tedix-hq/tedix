@@ -1,0 +1,10 @@
+{
+	"extends": "@tedix/tsconfig/cloudflare.json",
+	"compilerOptions": {
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	},
+	"include": ["src/**/*.ts", "worker-configuration.d.ts"],
+	"exclude": ["node_modules", "src/**/*.test.ts", "src/**/__tests__/**"]
+}

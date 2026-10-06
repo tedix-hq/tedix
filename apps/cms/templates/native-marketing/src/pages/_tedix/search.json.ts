@@ -1,0 +1,1 @@
+../../../../tedix/src/pages/_tedix/search.json.ts

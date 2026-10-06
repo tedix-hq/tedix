@@ -1,0 +1,1 @@
+-- Intentionally empty; the trigger changes are in the next migration.

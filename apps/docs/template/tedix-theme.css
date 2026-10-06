@@ -1,0 +1,122 @@
+/* Nimbus is shared by every tenant build; keep these visual tokens neutral to
+ * site identity while giving Tedix Docs its own accent and readable surfaces. */
+html:root {
+	--nb-background: oklch(0.99 0.002 255);
+	--nb-card: oklch(1 0 0);
+	--nb-muted: oklch(0.975 0.004 255);
+	--nb-accent: oklch(0.96 0.012 255);
+	--nb-primary: oklch(0.48 0.17 259);
+	--nb-primary-foreground: #fff;
+	--nb-primary-hover: oklch(0.42 0.17 259);
+	--nb-link: var(--nb-primary);
+	--nb-border: oklch(0.92 0.004 255);
+	--nb-border-strong: oklch(0.86 0.008 255);
+	--nb-content-max: 46rem;
+	--nb-h1-size: 2.25rem;
+	--nb-h1-weight: 600;
+	--nb-h1-tracking: -0.035em;
+}
+
+html[data-mode="dark"] {
+	--nb-background: oklch(0.19 0.007 255);
+	--nb-card: oklch(0.17 0.006 255);
+	--nb-muted: oklch(0.245 0.008 255);
+	--nb-muted-foreground: oklch(0.72 0.008 255);
+	--nb-accent: oklch(0.265 0.013 255);
+	--nb-primary: oklch(0.74 0.12 255);
+	--nb-primary-foreground: oklch(0.16 0.01 255);
+	--nb-primary-hover: oklch(0.79 0.1 255);
+	--nb-border: oklch(0.3 0.01 255);
+	--nb-border-strong: oklch(0.39 0.012 255);
+}
+
+.td-docs-mark {
+	display: grid;
+	width: 1.5rem;
+	height: 1.5rem;
+	place-items: center;
+	border-radius: 0.35rem;
+	background: var(--nb-primary);
+	color: var(--nb-primary-foreground);
+	font-size: 0.8rem;
+	font-weight: 800;
+	line-height: 1;
+}
+
+.td-home-card {
+	border: 1px solid var(--nb-border);
+	border-radius: 0.7rem;
+	background: var(--nb-card);
+	transition:
+		border-color 150ms ease,
+		transform 150ms ease;
+}
+
+.td-home-card:hover,
+.td-home-card:focus-visible {
+	border-color: var(--nb-primary);
+	transform: translateY(-2px);
+}
+
+.td-start-card {
+	position: relative;
+	display: grid;
+	min-height: 11rem;
+	align-content: start;
+	gap: 0.5rem;
+	padding: 1.5rem;
+	padding-right: 3.5rem;
+	border: 1px solid var(--nb-border-strong);
+	border-radius: 0.85rem;
+	background: linear-gradient(145deg, var(--nb-card), var(--nb-muted));
+	color: var(--nb-foreground);
+	transition:
+		border-color 150ms ease,
+		transform 150ms ease;
+}
+
+.td-start-card:hover,
+.td-start-card:focus-visible {
+	border-color: var(--nb-primary);
+	transform: translateY(-2px);
+}
+
+.td-start-card strong {
+	font-size: 1.125rem;
+	line-height: 1.35;
+}
+
+.td-start-card > span:not(.td-start-card__eyebrow, .td-start-card__arrow) {
+	max-width: 28rem;
+	color: var(--nb-muted-foreground);
+	font-size: 0.875rem;
+	line-height: 1.55;
+}
+
+.td-start-card__eyebrow {
+	color: var(--nb-primary);
+	font-size: 0.6875rem;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+.td-start-card__arrow {
+	position: absolute;
+	right: 1.5rem;
+	bottom: 1.5rem;
+	color: var(--nb-primary);
+	font-size: 1.25rem;
+	transition: transform 150ms ease;
+}
+
+.td-start-card:hover .td-start-card__arrow,
+.td-start-card:focus-visible .td-start-card__arrow {
+	transform: translateX(0.2rem);
+}
+
+@media (min-width: 1536px) {
+	html:root {
+		--nb-content-max: 52rem;
+	}
+}

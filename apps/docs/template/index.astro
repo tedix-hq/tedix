@@ -1,0 +1,202 @@
+---
+import { config } from "virtual:nimbus/config";
+import { getSidebar } from "@cloudflare/nimbus-docs";
+import type { SidebarItem } from "@cloudflare/nimbus-docs/types";
+import { getEntry } from "astro:content";
+import { Sidebar, SidebarFilter } from "@/components/ui/sidebar";
+import Header from "../components/Header.astro";
+import HubLinks from "../components/HubLinks.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { getHubPages, getUpdates } from "../lib/docs-hubs";
+import { taskLedSidebar } from "../lib/docs-navigation";
+import { getProvenanceLastUpdated } from "../lib/docs-provenance";
+
+const entryPath = process.env.TEDIX_DOCS_ENTRY_PATH === "/readme" ? "/readme" : "/index";
+const entry = await getEntry("docs", entryPath.slice(1));
+const lastUpdated = entry?.data.lastUpdated ?? (entry ? await getProvenanceLastUpdated(entry) : undefined);
+const siteSlug = process.env.TEDIX_DOCS_SITE_SLUG ?? "";
+const rawSidebar = await getSidebar("/", { collection: "docs" });
+type NavItem = SidebarItem;
+function links(items: NavItem[]): { label: string; href: string }[] {
+  return items.flatMap((item) => {
+    if (item.type === "group") return links(item.children);
+    if (item.type === "link" && item.href !== "/") return [{ label: item.label, href: item.href }];
+    return [];
+  });
+}
+
+function routeKey(href: string): string {
+  return href.replace(/\/+$/, "").toLowerCase() || "/";
+}
+
+const sidebar = taskLedSidebar(rawSidebar, siteSlug, entryPath);
+const pages = links(rawSidebar).filter((link, index, all) => all.findIndex((other) => other.href === link.href) === index);
+const gettingStarted = pages.find((page) => routeKey(page.href) === "/getting-started");
+const startHref = gettingStarted?.href ?? entryPath;
+const preferredTasks = ["/learning-paths/first-connection", "/learning-paths/first-worker", "/troubleshooting"];
+const firstSteps = preferredTasks.flatMap((path) => pages.find((page) => routeKey(page.href) === path) ?? []).slice(0, 3);
+const fallbackSteps = firstSteps.length > 0 ? firstSteps : pages.filter((page) => routeKey(page.href) !== routeKey(entryPath)).slice(0, 3);
+const explore = pages.filter((page) => routeKey(page.href) !== routeKey(entryPath) && !fallbackSteps.some((step) => step.href === page.href)).slice(0, 9);
+const updates = getUpdates(await getHubPages()).slice(0, 3);
+const dateLabel = new Intl.DateTimeFormat("en", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+---
+
+<BaseLayout
+  title={config.title}
+  description={config.description}
+  lastUpdated={lastUpdated}
+  head={lastUpdated ? [{ tag: "meta", attrs: { property: "article:modified_time", content: lastUpdated.toISOString() } }] : []}
+>
+  <div class="flex min-h-screen flex-col">
+    <Header showSidebar />
+    <div class="flex flex-1">
+      <div class="hidden w-(--nb-sidebar-width) shrink-0 border-r border-border lg:block">
+        <aside data-nb-desktop-sidebar class="sticky top-14 flex h-[calc(100vh-3.5rem)] flex-col overflow-y-auto">
+          <nav aria-label="Documentation" class="flex-1 px-4 pb-12 pt-5">
+            <SidebarFilter />
+            <p class="mb-2 mt-6 px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Browse documentation</p>
+            <Sidebar items={sidebar} persist />
+          </nav>
+        </aside>
+      </div>
+
+      <main id="main-content" class="min-w-0 flex-1">
+        <div class="mx-auto max-w-[80rem] px-5 py-12 sm:px-8 sm:py-16 lg:px-12">
+          <section class="border-b border-border pb-12 sm:pb-16" aria-labelledby="home-title">
+            <p class="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-primary">Documentation</p>
+            <h1 id="home-title" class="max-w-4xl text-balance text-[clamp(2.5rem,5vw,4.25rem)] font-semibold leading-[1.08] tracking-[-0.045em] text-foreground">{config.title}</h1>
+            <p class="mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">{config.description}</p>
+            <div class="mt-8 flex flex-wrap items-center gap-3">
+              <a href={startHref} class="inline-flex min-h-10 items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground no-underline transition-colors hover:opacity-85">Get started <span aria-hidden="true" class="ml-2">↗</span></a>
+              <a href="#browse" class="inline-flex min-h-10 items-center rounded-full border border-border-strong bg-card px-5 text-sm font-semibold text-foreground no-underline transition-colors hover:bg-accent">Browse guides</a>
+            </div>
+          </section>
+
+          {gettingStarted && (
+            <section class="py-12 sm:py-14" aria-labelledby="start-path-heading">
+              <p class="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-primary">Choose your setup</p>
+              <h2 id="start-path-heading" class="mb-3 text-2xl font-semibold tracking-tight text-foreground">Start with Cloud or run Tedix locally</h2>
+              <p class="mb-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">Both paths use the same product model. Choose the setup that matches what you can access today.</p>
+              <div class="grid gap-3 md:grid-cols-2">
+                <a href={`${gettingStarted.href}#use-tedix-cloud`} class="td-start-card no-underline">
+                  <span class="td-start-card__eyebrow">Invited beta</span>
+                  <strong>Use Tedix Cloud</strong>
+                  <span>Sign in, run a first task, and inspect its result.</span>
+                  <span aria-hidden="true" class="td-start-card__arrow">→</span>
+                </a>
+                <a href={`${gettingStarted.href}#run-tedix-locally`} class="td-start-card no-underline">
+                  <span class="td-start-card__eyebrow">From source</span>
+                  <strong>Run Tedix locally</strong>
+                  <span>Start on your machine without a Tedix Cloud account.</span>
+                  <span aria-hidden="true" class="td-start-card__arrow">→</span>
+                </a>
+              </div>
+            </section>
+          )}
+
+          <section class="border-t border-border py-12 sm:py-14" aria-labelledby="hubs-heading">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-primary">Find your way</p>
+            <h2 id="hubs-heading" class="mb-6 text-2xl font-semibold tracking-tight text-foreground">Explore more</h2>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <a href="/directory/" class="td-home-card p-5 no-underline"><strong class="text-base text-foreground">Docs directory</strong><p class="mt-2 text-sm text-muted-foreground">Browse every topic and page.</p></a>
+              <a href="/resources/" class="td-home-card p-5 no-underline"><strong class="text-base text-foreground">Resources</strong><p class="mt-2 text-sm text-muted-foreground">Find guides, tutorials, references, and learning paths.</p></a>
+              <a href="/updates/" class="td-home-card p-5 no-underline"><strong class="text-base text-foreground">What's new</strong><p class="mt-2 text-sm text-muted-foreground">Read dated updates and subscribe with RSS.</p></a>
+              <a href="/agent-setup/" class="td-home-card p-5 no-underline"><strong class="text-base text-foreground">Agent setup</strong><p class="mt-2 text-sm text-muted-foreground">Give an AI agent the right sources and a copyable prompt.</p></a>
+            </div>
+          </section>
+
+          {updates.length > 0 && (
+            <section class="border-t border-border py-12 sm:py-14" aria-labelledby="updates-heading">
+              <div class="mb-6 flex flex-wrap items-end justify-between gap-3"><div><p class="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-primary">Latest</p><h2 id="updates-heading" class="text-2xl font-semibold tracking-tight text-foreground">What's new</h2></div><a href="/updates/" class="text-sm font-medium text-primary">View all updates →</a></div>
+              <div class="grid gap-3 md:grid-cols-3">
+                {updates.map((page) => <a href={page.href} class="td-home-card flex flex-col p-5 no-underline"><time datetime={page.date!.toISOString().slice(0, 10)} class="text-xs font-medium text-primary">{dateLabel.format(page.date)}</time><strong class="mt-3 text-base text-foreground">{page.title}</strong><span class="mt-2 text-sm text-muted-foreground">{page.description}</span></a>)}
+              </div>
+            </section>
+          )}
+
+          {fallbackSteps.length > 0 && (
+            <section class="py-12 sm:py-14" aria-labelledby="first-steps-heading">
+              <p class="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-primary">Common tasks</p>
+              <h2 id="first-steps-heading" class="mb-6 text-2xl font-semibold tracking-tight text-foreground">What do you want to do?</h2>
+              <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {fallbackSteps.map((page, index) => (
+                  <a href={page.href} class="td-home-card flex min-h-36 flex-col justify-between p-5 no-underline">
+                    <span class="text-xs font-medium tabular-nums text-muted-foreground">0{index + 1}</span>
+                    <span class="flex items-end justify-between gap-4 text-base font-semibold text-foreground"><span>{page.label}</span><span aria-hidden="true" class="text-primary">↗</span></span>
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section id="browse" class="border-t border-border py-12 sm:py-14" aria-labelledby="browse-heading">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-primary">Explore</p>
+            <h2 id="browse-heading" class="mb-6 text-2xl font-semibold tracking-tight text-foreground">Browse the documentation</h2>
+            {explore.length > 0 ? (
+              <div class="grid gap-x-10 sm:grid-cols-2">
+                {explore.map((page) => (
+                  <a href={page.href} class="group flex items-center justify-between gap-4 border-b border-border py-4 text-sm font-medium text-foreground no-underline hover:text-primary">
+                    <span>{page.label}</span><span aria-hidden="true" class="text-muted-foreground transition-transform group-hover:translate-x-1">→</span>
+                  </a>
+                ))}
+              </div>
+            ) : <p class="text-sm text-muted-foreground">Use the sidebar or search to explore this site.</p>}
+          </section>
+
+          <section class="td-home-card mb-12 p-6 sm:p-8" aria-labelledby="agent-heading">
+            <div class="grid gap-6 md:grid-cols-[1fr_auto] md:items-center">
+              <div>
+                <p class="mb-2 text-xs font-semibold uppercase tracking-[0.13em] text-primary">For AI agents</p>
+                <h2 id="agent-heading" class="text-xl font-semibold tracking-tight text-foreground">Give an agent the right docs</h2>
+                <p class="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">Use the machine-readable index to find current pages and their Markdown sources.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <a href="/agent-setup/" class="inline-flex min-h-10 items-center rounded-md border border-border-strong px-4 text-sm font-medium text-foreground no-underline hover:bg-accent">Agent setup</a>
+                <button data-copy-docs-index type="button" class="inline-flex min-h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-85">Copy index URL</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <dialog data-mobile-sidebar data-state="closed" class="group fixed inset-0 m-0 h-full max-h-full w-full max-w-full border-0 bg-transparent p-0 data-[state=closing]:bg-black/40 data-[state=open]:bg-black/40" aria-label="Site navigation">
+    <div data-mobile-sidebar-panel class="h-full w-(--nb-sidebar-width) max-w-[85vw] -translate-x-full overflow-y-auto border-r border-border bg-card transition-transform duration-250 ease-out group-data-[state=open]:translate-x-0 motion-reduce:transition-none">
+      <div class="sticky top-0 z-[1] flex items-center justify-between border-b border-border bg-card px-4 py-3"><span class="text-sm font-semibold text-foreground">Navigation</span><button data-close-sidebar aria-label="Close sidebar" class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">✕</button></div>
+      <nav aria-label="Documentation" class="px-4 pb-8 pt-5"><HubLinks /><SidebarFilter /><Sidebar items={sidebar} /></nav>
+    </div>
+  </dialog>
+
+  <script>
+    import { mount, lockScroll, unlockScroll } from "@cloudflare/nimbus-docs/client";
+    import { copyTextWithFallback } from "../lib/clipboard";
+    mount("[data-mobile-sidebar]", (root) => {
+      const menu = document.querySelector<HTMLElement>("[data-menu-btn]");
+      if (!(root instanceof HTMLDialogElement) || !menu) return () => {};
+      const dialog = root;
+      const controller = new AbortController();
+      const { signal } = controller;
+      let closeTimer: ReturnType<typeof setTimeout> | undefined;
+      const close = () => { if (!dialog.open || dialog.dataset.state === "closing") return; dialog.dataset.state = "closing"; closeTimer = setTimeout(() => dialog.close(), 250); };
+      menu.addEventListener("click", () => { if (dialog.open) return; dialog.showModal(); lockScroll(); requestAnimationFrame(() => { dialog.dataset.state = "open"; }); dialog.querySelector<HTMLElement>("[data-close-sidebar]")?.focus(); }, { signal });
+      dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); }, { signal });
+      dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); }, { signal });
+      dialog.querySelector("[data-close-sidebar]")?.addEventListener("click", close, { signal });
+      dialog.addEventListener("close", () => { dialog.dataset.state = "closed"; unlockScroll(); menu.focus(); }, { signal });
+      return () => { controller.abort(); if (closeTimer) clearTimeout(closeTimer); if (dialog.open) unlockScroll(); };
+    });
+    mount("[data-copy-docs-index]", (root) => {
+      if (!(root instanceof HTMLButtonElement)) return () => {};
+      const button = root;
+      const controller = new AbortController();
+      button.addEventListener("click", async () => {
+        button.textContent = "Copying…";
+        const copied = await copyTextWithFallback(new URL("/llms.txt", location.href).href);
+        button.textContent = copied ? "Copied" : "Copy failed";
+        setTimeout(() => { button.textContent = "Copy index URL"; }, 2000);
+      }, { signal: controller.signal });
+      return () => controller.abort();
+    });
+  </script>
+</BaseLayout>

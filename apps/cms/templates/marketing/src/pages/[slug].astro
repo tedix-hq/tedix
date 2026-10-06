@@ -1,0 +1,85 @@
+---
+/** Marketing page route backed by native, versioned Emdash blocks. */
+import { decodeSlug, getEmDashEntry, getSeoMeta } from "emdash";
+import { env as workerEnv } from "cloudflare:workers";
+import type { PageContentBlock } from "../../emdash-env.d.ts";
+import MarketingBlocks from "../components/MarketingBlocks.astro";
+import BaseMarketing from "../layouts/BaseMarketing.astro";
+
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>)
+	.DEFAULT_LOCALE;
+const requestedSlug = Astro.params.slug;
+const isLocaleHome = Boolean(
+	requestedSlug &&
+	requestedSlug !== (envDefaultLocale ?? "en") &&
+	["en", "de", "es", "fr", "it", "pt", "nl"].includes(requestedSlug),
+);
+const slug = isLocaleHome ? "home" : decodeSlug(requestedSlug);
+const originalPath = Astro.originPathname ?? Astro.url.pathname;
+const publicPathPrefix = ((workerEnv as Record<string, string | undefined>).PUBLIC_PATH_PREFIX ?? "")
+	.trim().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const localePath = publicPathPrefix && originalPath.startsWith(`${publicPathPrefix}/`)
+	? originalPath.slice(publicPathPrefix.length)
+	: originalPath;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(
+	localePath,
+)?.[1];
+const locale = pathLocale ?? Astro.currentLocale ?? envDefaultLocale ?? "en";
+
+const { entry: page, cacheHint } = await getEmDashEntry("pages", slug, {
+	locale,
+});
+if (!page) return Astro.redirect("/404");
+if (cacheHint) {
+	try {
+		Astro.cache.set(cacheHint);
+	} catch {}
+}
+
+const data = page.data;
+const blocks: PageContentBlock[] = Array.isArray(data.content)
+	? data.content
+	: [];
+if (blocks.length === 0) return Astro.redirect("/404");
+
+const hero = blocks.find((block) => block._type === "marketing_hero");
+const nativeImage = hero?._version === 2 ? hero.image : undefined;
+const storageKey = nativeImage?.meta?.storageKey;
+const image = nativeImage
+	? nativeImage.src ||
+		((nativeImage.provider ?? "local") === "local"
+			? typeof storageKey === "string" && storageKey
+				? Astro.locals.emdash?.getPublicMediaUrl?.(storageKey) ??
+					`/_emdash/api/media/file/${encodeURIComponent(storageKey)}`
+				: nativeImage.id
+					? `/_emdash/api/media/file/${encodeURIComponent(nativeImage.id)}`
+					: undefined
+			: undefined)
+	: hero?._version === 1
+		? hero.image_url ?? undefined
+		: undefined;
+const seo = getSeoMeta(page, {
+	siteUrl: Astro.url.origin,
+	path: originalPath,
+	defaultTitle: typeof data.title === "string" ? data.title : slug,
+	defaultDescription:
+		typeof data.meta_description === "string"
+			? data.meta_description
+			: undefined,
+	defaultOgImage: image,
+});
+---
+
+<BaseMarketing
+	title={seo.title}
+	description={seo.description}
+	image={seo.ogImage}
+	content={{ collection: "pages", id: page.data.id, slug }}
+	heroBleed={true}
+>
+	<div {...page.edit} style="display: contents">
+		<div {...page.edit.content} style="display: contents">
+			<MarketingBlocks value={blocks} />
+		</div>
+	</div>
+</BaseMarketing>

@@ -1,0 +1,2 @@
+CREATE INDEX `idx_kernel_runtime_events_created` ON `kernel_runtime_events` (`created_at`);--> statement-breakpoint
+CREATE INDEX `idx_tedi_runtime_events_created` ON `tedi_runtime_events` (`created_at`);

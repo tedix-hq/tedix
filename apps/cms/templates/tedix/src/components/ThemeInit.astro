@@ -1,0 +1,6 @@
+---
+import { themeInitializationScript, type ThemeMode } from "../lib/theme-preference";
+interface Props { mode?: ThemeMode }
+const { mode = "system" } = Astro.props;
+---
+<script is:inline set:html={themeInitializationScript(mode)} />

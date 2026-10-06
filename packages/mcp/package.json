@@ -1,0 +1,73 @@
+{
+	"name": "@tedix/mcp-shared",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Shared MCP server primitives: auth, scopes, transport, and protocol helpers.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./auth": "./src/auth/middleware.ts",
+		"./auth/client-credentials": "./src/auth/client-credentials.ts",
+		"./auth/durable-code-delegation": "./src/auth/durable-code-delegation.ts",
+		"./auth/principal": "./src/auth/principal.ts",
+		"./auth/consent-scopes": "./src/auth/consent-scopes.ts",
+		"./auth/scopes": "./src/auth/scopes.ts",
+		"./auth/tool-scopes": "./src/auth/tool-scopes.ts",
+		"./auth/types": "./src/auth/types.ts",
+		"./bounded-list": "./src/bounded-list.ts",
+		"./codemode": "./src/codemode.ts",
+		"./compact-types": "./src/compact-types.ts",
+		"./elicitation-fill": "./src/elicitation-fill.ts",
+		"./mcp-param-headers": "./src/mcp-param-headers.ts",
+		"./namespace-governance": "./src/namespace-governance.ts",
+		"./payment": "./src/payment.ts",
+		"./protocol": "./src/protocol.ts",
+		"./read-observation-receipt": "./src/read-observation-receipt.ts",
+		"./resources": "./src/resources/registration.ts",
+		"./result-identity": "./src/result-identity.ts",
+		"./schema-normalization": "./src/schema-normalization.ts",
+		"./server": "./src/server.ts",
+		"./skills": "./src/skills.ts",
+		"./task-polling": "./src/task-polling.ts",
+		"./tasks": "./src/tasks.ts",
+		"./tool-result": "./src/tool-result.ts",
+		"./trace-context": "./src/observability/trace-context.ts",
+		"./observability/slo": "./src/observability/slo.ts",
+		"./transport": "./src/transport.ts",
+		"./well-known": "./src/well-known/protected-resource.ts",
+		"./well-known/oauth": "./src/well-known/oauth.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"type-check": "tsc --noEmit",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:conformance": "bun conformance/run.ts",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/core": "catalog:",
+		"@modelcontextprotocol/server": "catalog:",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/ssrf-guard": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/codemode": "catalog:",
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"@types/node": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	},
+	"peerDependencies": {
+		"@cloudflare/codemode": "^0.5.2"
+	},
+	"peerDependenciesMeta": {
+		"@cloudflare/codemode": {
+			"optional": true
+		}
+	}
+}

@@ -1,0 +1,728 @@
+{
+	"tedix_hero": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"headline": {
+			"type": "string"
+		},
+		"subheadline": {
+			"type": "text"
+		},
+		"highlight": {
+			"type": "string"
+		},
+		"body": {
+			"type": "text"
+		},
+		"primary_cta_label": {
+			"type": "string"
+		},
+		"primary_cta_url": {
+			"type": "url"
+		},
+		"secondary_cta_label": {
+			"type": "string"
+		},
+		"secondary_cta_url": {
+			"type": "url"
+		},
+		"image": {
+			"type": "image"
+		},
+		"signals": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"maxItems": 12
+		}
+	},
+	"tedix_challenge": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"heading": {
+			"type": "string"
+		},
+		"intro": {
+			"type": "text"
+		},
+		"closing_lead": {
+			"type": "string"
+		},
+		"closing_emphasis": {
+			"type": "text"
+		},
+		"cards": {
+			"type": "repeater",
+			"fields": {
+				"badge": "string",
+				"body": "text",
+				"heading": "string",
+				"image_alt": "string",
+				"image_dark": "image",
+				"image_light": "image"
+			},
+			"requiredRowFields": [
+				"badge",
+				"body",
+				"heading",
+				"image_alt",
+				"image_dark",
+				"image_light"
+			],
+			"minItems": 3,
+			"maxItems": 3
+		}
+	},
+	"tedix_use_cases": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"heading": {
+			"type": "string"
+		},
+		"intro": {
+			"type": "text"
+		},
+		"testimonial_label": {
+			"type": "string"
+		}
+	},
+	"tedix_integrations": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"heading": {
+			"type": "string"
+		},
+		"body": {
+			"type": "text"
+		},
+		"workflow_aria_label": {
+			"type": "text"
+		},
+		"workflow_layer_label": {
+			"type": "string"
+		},
+		"workflow_mobile_team_label": {
+			"type": "string"
+		},
+		"workflow_mobile_systems_label": {
+			"type": "string"
+		},
+		"workflow_brand_label": {
+			"type": "string"
+		},
+		"workflow_astronaut_url": {
+			"type": "url"
+		},
+		"workflow_layer_asset": {
+			"type": "url"
+		},
+		"departments": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"maxItems": 6
+		},
+		"systems": {
+			"type": "repeater",
+			"fields": {
+				"source_label": "string",
+				"target_label": "string"
+			},
+			"requiredRowFields": ["source_label", "target_label"],
+			"maxItems": 6
+		},
+		"capabilities": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"maxItems": 5
+		},
+		"logos": {
+			"type": "repeater",
+			"fields": {
+				"asset": "url",
+				"name": "string"
+			},
+			"requiredRowFields": ["asset", "name"],
+			"maxItems": 10
+		}
+	},
+	"tedix_trust": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"heading": {
+			"type": "string"
+		},
+		"intro": {
+			"type": "text",
+			"optional": true
+		},
+		"cards": {
+			"type": "repeater",
+			"fields": {
+				"body": "text",
+				"title": "string"
+			},
+			"requiredRowFields": ["body", "title"],
+			"minItems": 5,
+			"maxItems": 5
+		}
+	},
+	"tedix_timeline": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"heading_line1": {
+			"type": "string"
+		},
+		"heading_line2": {
+			"type": "string"
+		},
+		"automation_title": {
+			"type": "string"
+		},
+		"active_label": {
+			"type": "string"
+		},
+		"intelligence_title": {
+			"type": "string"
+		},
+		"steps": {
+			"type": "repeater",
+			"fields": {
+				"accent": "select",
+				"copy1": "text",
+				"copy2": "text",
+				"kicker": "string",
+				"number": "string",
+				"title": "string"
+			},
+			"requiredRowFields": [
+				"accent",
+				"copy1",
+				"copy2",
+				"kicker",
+				"number",
+				"title"
+			],
+			"minItems": 4,
+			"maxItems": 4
+		},
+		"automation_rows": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"maxItems": 5
+		},
+		"intelligence_rows": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"minItems": 4,
+			"maxItems": 4
+		},
+		"badges": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"minItems": 4,
+			"maxItems": 4
+		}
+	},
+	"tedix_economics": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"heading": {
+			"type": "string"
+		},
+		"heading_accent": {
+			"type": "string"
+		},
+		"intro": {
+			"type": "text"
+		},
+		"cards": {
+			"type": "repeater",
+			"fields": {
+				"body": "text",
+				"title": "string"
+			},
+			"requiredRowFields": ["body", "title"],
+			"minItems": 4,
+			"maxItems": 4
+		}
+	},
+	"tedix_stats": {
+		"heading": {
+			"type": "string",
+			"optional": true
+		},
+		"items": {
+			"type": "repeater",
+			"fields": {
+				"label": "string",
+				"value": "string"
+			},
+			"requiredRowFields": ["label", "value"],
+			"maxItems": 4
+		},
+		"aria_label": {
+			"type": "string"
+		}
+	},
+	"tedix_programs": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"items": {
+			"type": "repeater",
+			"fields": {
+				"detail": "string",
+				"logo2_alt": "string",
+				"logo2_media": "url",
+				"logo2_url": "url",
+				"logo3_alt": "string",
+				"logo3_media": "url",
+				"logo3_url": "url",
+				"logo_alt": "string",
+				"logo_asset": "url",
+				"logo_media": "url",
+				"logo_url": "url",
+				"name": "string",
+				"url": "string",
+				"logo2_title": "string",
+				"logo3_title": "string"
+			},
+			"requiredRowFields": ["detail", "name"],
+			"minItems": 5,
+			"maxItems": 5
+		}
+	},
+	"tedix_blog": {
+		"eyebrow": {
+			"type": "string"
+		},
+		"headline": {
+			"type": "string"
+		},
+		"body": {
+			"type": "text"
+		},
+		"cta_label": {
+			"type": "string"
+		},
+		"cta_url": {
+			"type": "url"
+		}
+	},
+	"tedix_final": {
+		"demo_headline": {
+			"type": "string"
+		},
+		"demo_body": {
+			"type": "text"
+		},
+		"demo_cta_label": {
+			"type": "string"
+		},
+		"demo_cta_url": {
+			"type": "url"
+		},
+		"invite_badge": {
+			"type": "string"
+		},
+		"invite_headline": {
+			"type": "string"
+		},
+		"invite_headline_break": {
+			"type": "string"
+		},
+		"invite_body": {
+			"type": "text"
+		},
+		"invite_cta_label": {
+			"type": "string"
+		},
+		"invite_cta_url": {
+			"type": "url"
+		},
+		"image": {
+			"type": "image"
+		},
+		"signals": {
+			"type": "repeater",
+			"fields": {
+				"title": "string"
+			},
+			"requiredRowFields": ["title"],
+			"minItems": 3,
+			"maxItems": 3
+		},
+		"footnotes": {
+			"type": "repeater",
+			"fields": {
+				"title": "string"
+			},
+			"requiredRowFields": ["title"],
+			"maxItems": 2
+		}
+	},
+	"tedix_commerce_demo": {
+		"chrome_app": {
+			"type": "string"
+		},
+		"chrome_model": {
+			"type": "string"
+		},
+		"prompt": {
+			"type": "text"
+		},
+		"provider_initial": {
+			"type": "string"
+		},
+		"provider_name": {
+			"type": "string"
+		},
+		"results_suffix": {
+			"type": "string"
+		},
+		"selected_suffix": {
+			"type": "string"
+		},
+		"compare_now": {
+			"type": "string"
+		},
+		"clear": {
+			"type": "string"
+		},
+		"back_to_results": {
+			"type": "string"
+		},
+		"comparison_prefix": {
+			"type": "string"
+		},
+		"comparison_suffix": {
+			"type": "string"
+		},
+		"input_placeholder": {
+			"type": "string"
+		},
+		"details_label": {
+			"type": "string"
+		},
+		"close_label": {
+			"type": "string"
+		},
+		"select_label": {
+			"type": "string"
+		},
+		"deselect_label": {
+			"type": "string"
+		},
+		"slide_label": {
+			"type": "string"
+		},
+		"item_label": {
+			"type": "string"
+		},
+		"prev_label": {
+			"type": "string"
+		},
+		"next_label": {
+			"type": "string"
+		},
+		"price_label": {
+			"type": "string"
+		},
+		"best_price_label": {
+			"type": "string"
+		},
+		"savings_label": {
+			"type": "string"
+		},
+		"seller_label": {
+			"type": "string"
+		},
+		"rating_label": {
+			"type": "string"
+		},
+		"shipping_label": {
+			"type": "string"
+		},
+		"delivery_label": {
+			"type": "string"
+		},
+		"stock_label": {
+			"type": "string"
+		},
+		"offers_label": {
+			"type": "string"
+		},
+		"free_shipping_label": {
+			"type": "string"
+		},
+		"in_stock_label": {
+			"type": "string"
+		},
+		"brand_label": {
+			"type": "string"
+		},
+		"reviews_label": {
+			"type": "string"
+		},
+		"days_label": {
+			"type": "string"
+		},
+		"merchant_singular": {
+			"type": "string"
+		},
+		"merchant_plural": {
+			"type": "string"
+		},
+		"empty_selection": {
+			"type": "string"
+		},
+		"products": {
+			"type": "repeater",
+			"fields": {
+				"title": "string",
+				"subtitle": "string",
+				"image": "image",
+				"rating": "number",
+				"reviews": "integer",
+				"seller": "string",
+				"shipping_days": "integer",
+				"amount": "number",
+				"offer_count": "integer",
+				"price": "string",
+				"offers": "string"
+			},
+			"requiredRowFields": [
+				"title",
+				"subtitle",
+				"image",
+				"rating",
+				"reviews",
+				"seller",
+				"shipping_days",
+				"amount",
+				"offer_count",
+				"price",
+				"offers"
+			],
+			"minItems": 4,
+			"maxItems": 4
+		},
+		"slide_of_label": {
+			"type": "string"
+		},
+		"currency_symbol": {
+			"type": "string"
+		},
+		"currency_number_locale": {
+			"type": "string"
+		},
+		"review_number_locale": {
+			"type": "string"
+		}
+	},
+	"tedix_dashboard_demo": {
+		"heading_line1": {
+			"type": "string"
+		},
+		"heading_line2": {
+			"type": "string"
+		},
+		"cta_label": {
+			"type": "string"
+		},
+		"cta_url": {
+			"type": "url"
+		},
+		"browser_url": {
+			"type": "string"
+		},
+		"avatar_image": {
+			"type": "image"
+		},
+		"series_7": {
+			"type": "repeater",
+			"fields": {
+				"day": "string",
+				"runs": "integer",
+				"saved": "integer",
+				"errors": "integer"
+			},
+			"requiredRowFields": ["day", "runs", "saved", "errors"],
+			"minItems": 7,
+			"maxItems": 7
+		},
+		"series_14": {
+			"type": "repeater",
+			"fields": {
+				"day": "string",
+				"runs": "integer",
+				"saved": "integer",
+				"errors": "integer"
+			},
+			"requiredRowFields": ["day", "runs", "saved", "errors"],
+			"minItems": 14,
+			"maxItems": 14
+		},
+		"series_30": {
+			"type": "repeater",
+			"fields": {
+				"day": "string",
+				"runs": "integer",
+				"saved": "integer",
+				"errors": "integer"
+			},
+			"requiredRowFields": ["day", "runs", "saved", "errors"],
+			"minItems": 30,
+			"maxItems": 30
+		},
+		"workflows": {
+			"type": "repeater",
+			"fields": {
+				"id": "string",
+				"name": "string",
+				"status": "select",
+				"runs": "integer",
+				"success": "number",
+				"avg": "string",
+				"owner": "string",
+				"tag": "string"
+			},
+			"requiredRowFields": [
+				"id",
+				"name",
+				"status",
+				"runs",
+				"success",
+				"avg",
+				"owner",
+				"tag"
+			],
+			"minItems": 8,
+			"maxItems": 8
+		},
+		"automations": {
+			"type": "repeater",
+			"fields": {
+				"id": "string",
+				"name": "string",
+				"tools": "string",
+				"runs": "string",
+				"saved": "string"
+			},
+			"requiredRowFields": ["id", "name", "tools", "runs", "saved"],
+			"minItems": 6,
+			"maxItems": 6
+		},
+		"knowledge_docs": {
+			"type": "repeater",
+			"fields": {
+				"id": "string",
+				"folder": "string",
+				"name": "string",
+				"updated": "string",
+				"body": "text"
+			},
+			"requiredRowFields": ["id", "folder", "name", "updated", "body"],
+			"minItems": 6,
+			"maxItems": 6
+		},
+		"integrations": {
+			"type": "repeater",
+			"fields": {
+				"name": "string",
+				"category": "string",
+				"color": "string",
+				"letter": "string",
+				"logo_asset": "url",
+				"logo_alt": "string",
+				"status": "select"
+			},
+			"requiredRowFields": [
+				"name",
+				"category",
+				"color",
+				"letter",
+				"logo_asset",
+				"logo_alt",
+				"status"
+			],
+			"minItems": 11,
+			"maxItems": 11
+		},
+		"run_log": {
+			"type": "repeater",
+			"fields": {
+				"time": "string",
+				"workflow": "string",
+				"status": "select",
+				"latency": "string"
+			},
+			"requiredRowFields": ["time", "workflow", "status", "latency"],
+			"minItems": 8,
+			"maxItems": 8
+		},
+		"nav": {
+			"type": "repeater",
+			"fields": {
+				"id": "select",
+				"label": "string"
+			},
+			"requiredRowFields": ["id", "label"],
+			"minItems": 7,
+			"maxItems": 7
+		},
+		"bullets": {
+			"type": "repeater",
+			"fields": {
+				"label": "string"
+			},
+			"requiredRowFields": ["label"],
+			"minItems": 5,
+			"maxItems": 5
+		},
+		"observability_points": {
+			"type": "repeater",
+			"fields": {
+				"p50": "number",
+				"p95": "number",
+				"success_rate": "number"
+			},
+			"requiredRowFields": ["p50", "p95", "success_rate"],
+			"minItems": 14,
+			"maxItems": 14
+		},
+		"copy": {
+			"type": "repeater",
+			"fields": {
+				"key": "string",
+				"value": "text"
+			},
+			"requiredRowFields": ["key", "value"],
+			"maxItems": 160
+		}
+	}
+}

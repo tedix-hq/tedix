@@ -1,0 +1,18 @@
+{
+	"extends": "@tedix/tsconfig/base.json",
+	"compilerOptions": {
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"target": "ESNext",
+		"types": ["node"],
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"allowJs": true,
+		"checkJs": false
+	},
+	"include": [
+		"src/**/runtime-*.ts",
+		"src/loader-harness.ts",
+		"src/loader*.test.ts",
+		"src/confirm.test.ts"
+	]
+}

@@ -1,0 +1,68 @@
+---
+import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
+
+const actionClass =
+  "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-transparent px-2 py-1 text-muted-foreground no-underline transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2";
+---
+
+<div
+  data-agent-page-handoff
+  class="not-prose flex flex-wrap items-center gap-y-1 text-[0.8125rem]"
+>
+  <a href="/agent-setup/#copy-and-start" class={actionClass}>
+    <Icon name="ph:robot" class="h-3.5 w-3.5" />
+    Agent setup
+  </a>
+  <button
+    type="button"
+    data-copy-agent-page
+    class={actionClass}
+    aria-label="Copy a page prompt for an agent"
+  >
+    <Icon name="ph:copy" class="h-3.5 w-3.5" data-agent-copy-icon is:inline />
+    <Icon name="ph:check" class="hidden h-3.5 w-3.5 text-success" data-agent-check-icon is:inline />
+    <span data-agent-copy-label aria-live="polite">Copy agent prompt</span>
+  </button>
+</div>
+
+<script>
+  import { mount } from "@cloudflare/nimbus-docs/client";
+  import { copyTextWithFallback } from "../lib/clipboard";
+  import { currentPageMarkdownUrl, pageAgentPrompt } from "../lib/agent-page-handoff";
+
+  mount("[data-agent-page-handoff]", (root) => {
+    if (!(root instanceof HTMLElement)) return () => {};
+    const button = root.querySelector<HTMLButtonElement>("[data-copy-agent-page]");
+    const label = root.querySelector<HTMLElement>("[data-agent-copy-label]");
+    const copyIcon = root.querySelector<SVGElement>("[data-agent-copy-icon]");
+    const checkIcon = root.querySelector<SVGElement>("[data-agent-check-icon]");
+    if (!button || !label) return () => {};
+
+    const controller = new AbortController();
+    let resetTimer: number | undefined;
+
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      label.textContent = "Copying…";
+      const markdownUrl = currentPageMarkdownUrl(window.location.href);
+      const copied = await copyTextWithFallback(pageAgentPrompt(markdownUrl));
+      label.textContent = copied ? "Copied" : "Copy failed";
+      if (copied) {
+        copyIcon?.classList.add("hidden");
+        checkIcon?.classList.remove("hidden");
+      }
+      if (resetTimer) window.clearTimeout(resetTimer);
+      resetTimer = window.setTimeout(() => {
+        copyIcon?.classList.remove("hidden");
+        checkIcon?.classList.add("hidden");
+        label.textContent = "Copy agent prompt";
+        button.disabled = false;
+      }, 2000);
+    }, { signal: controller.signal });
+
+    return () => {
+      controller.abort();
+      if (resetTimer) window.clearTimeout(resetTimer);
+    };
+  });
+</script>

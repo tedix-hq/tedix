@@ -1,0 +1,13 @@
+{
+	"name": "tedix",
+	"version": "1.0.1",
+	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
+	"author": {
+		"name": "Tedix",
+		"url": "https://tedix.dev"
+	},
+	"homepage": "https://docs.tedix.dev",
+	"repository": "https://github.com/tedix-hq/tedix",
+	"license": "AGPL-3.0-only",
+	"keywords": ["tedix", "digital-workers", "work-items", "workspace-outputs"]
+}

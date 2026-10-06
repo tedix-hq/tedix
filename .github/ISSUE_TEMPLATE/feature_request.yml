@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose an improvement or idea
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem and the change you have in mind; a patch sketch in
+        the text is welcome. Maintainers re-author accepted ideas (see
+        CONTRIBUTING.md). Opening an issue is not acceptance or a promise of
+        implementation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

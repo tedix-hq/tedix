@@ -1,0 +1,684 @@
+---
+import { getMenuWithCacheHint, getSiteSettingsWithCacheHint } from "emdash";
+import { EmDashBodyEnd, EmDashBodyStart, EmDashHead } from "emdash/ui";
+import { createPublicPageContext } from "emdash/page";
+import { Font } from "astro:assets";
+import "../styles/tokens.css";
+import "../styles/theme.css";
+
+interface Props {
+	title?: string;
+	pageTitle?: string | null;
+	description?: string | null;
+	image?: string | null;
+	canonical?: string | null;
+	robots?: string | null;
+	content?: { collection: string; id: string; slug?: string | null };
+}
+
+const { title, pageTitle, description, image, canonical, robots, content } = Astro.props;
+const [settingsResult, menuResult, footerProductResult, footerCompanyResult, footerSupportResult] =
+	await Promise.all([
+		getSiteSettingsWithCacheHint(),
+		getMenuWithCacheHint("primary"),
+		getMenuWithCacheHint("footer_product"),
+		getMenuWithCacheHint("footer_company"),
+		getMenuWithCacheHint("footer_support"),
+	]);
+
+if (Astro.cache?.enabled) {
+	for (const result of [
+		settingsResult,
+		menuResult,
+		footerProductResult,
+		footerCompanyResult,
+		footerSupportResult,
+	]) {
+		Astro.cache.set(result.cacheHint);
+	}
+}
+
+const settings = settingsResult.data;
+const siteTitle = settings?.title || "Acme";
+const fullTitle = title ? (title.includes(siteTitle) ? title : `${title} — ${siteTitle}`) : siteTitle;
+const siteDescription =
+	settings?.tagline || "Build products people actually want";
+const siteLogo = settings.logo?.url ? settings.logo : null;
+const menu = menuResult.data;
+const footerProduct = footerProductResult.data;
+const footerCompany = footerCompanyResult.data;
+const footerSupport = footerSupportResult.data;
+
+const footerColumns = [
+	{ heading: "Product", menu: footerProduct },
+	{ heading: "Company", menu: footerCompany },
+	{ heading: "Support", menu: footerSupport },
+].filter((col) => col.menu && col.menu.items.length > 0);
+
+const pageCtx = createPublicPageContext({
+	Astro,
+	kind: content ? "content" : "custom",
+	pageType: "website",
+	title: fullTitle,
+	pageTitle: pageTitle ?? title ?? siteTitle,
+	description: description || siteDescription,
+	canonical: canonical ?? `${Astro.url.origin}${Astro.url.pathname}`,
+	image,
+	content,
+	seo: { ogImage: image, robots },
+	siteName: siteTitle,
+});
+
+const isLoggedIn = !!Astro.locals.user;
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>{fullTitle}</title>
+		<EmDashHead page={pageCtx} />
+		<Font cssVariable="--font-body" preload />
+		<script is:inline>
+			// Apply an explicit theme choice immediately to prevent flash.
+			// With no cookie, color-scheme: light dark follows the OS.
+			(function () {
+				var c = document.cookie;
+				var i = c.indexOf("theme=");
+				var theme = i >= 0 ? c.slice(i + 6).split(";")[0] : null;
+				if (theme === "dark" || theme === "light") {
+					document.documentElement.classList.add(theme);
+				}
+			})();
+		</script>
+	</head>
+	<body>
+		<EmDashBodyStart page={pageCtx} />
+		<header class="site-header">
+			<nav class="nav">
+				<a href="/" class="site-logo">
+					{siteLogo
+						? <img
+							src={siteLogo.url}
+							alt={siteLogo.alt || siteTitle}
+							width={siteLogo.width}
+							height={siteLogo.height}
+							class="site-logo-img"
+						/>
+						: siteTitle
+					}
+				</a>
+				<div class="nav-links">
+					{
+						menu?.items.map((item) => (
+							<a
+								href={item.url}
+								target={item.target}
+								rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
+							>
+								{item.label}
+							</a>
+						))
+					}
+				</div>
+				<div class="nav-actions">
+					{isLoggedIn && <a href="/_emdash/admin" class="nav-admin">Admin</a>}
+					<a href="/contact" class="btn btn-primary nav-cta">Get Started</a>
+				</div>
+			</nav>
+		</header>
+
+		<main>
+			<slot />
+		</main>
+
+		<footer class="site-footer">
+			<div class="footer-content">
+				<div class="footer-brand">
+					<span class="footer-logo">
+						{siteLogo
+								? <img
+									src={siteLogo.url}
+									alt={siteLogo.alt || siteTitle}
+									width={siteLogo.width}
+									height={siteLogo.height}
+									class="footer-logo-img"
+								/>
+							: siteTitle
+						}
+					</span>
+					<p class="footer-tagline">
+						{settings?.tagline || "Build something amazing"}
+					</p>
+				</div>
+				<div class="footer-links">
+					{
+						footerColumns.map((col) => (
+							<div class="footer-col">
+								<h4>{col.heading}</h4>
+								{col.menu!.items.map((item) => (
+									<a
+										href={item.url}
+										target={item.target}
+										rel={item.target ? "noopener noreferrer" : undefined}>
+										{item.label}
+									</a>
+								))}
+							</div>
+						))
+					}
+				</div>
+			</div>
+			<div class="footer-bottom">
+				<p>
+					&copy; {new Date().getFullYear()}
+					{siteTitle}. All rights reserved.
+				</p>
+				<div class="theme-switcher">
+					<button
+						type="button"
+						class="theme-btn"
+						data-theme="light"
+						aria-pressed="false"
+						aria-label="Light mode">Light</button
+					>
+					<button
+						type="button"
+						class="theme-btn"
+						data-theme="dark"
+						aria-pressed="false"
+						aria-label="Dark mode">Dark</button
+					>
+					<button
+						type="button"
+						class="theme-btn"
+						data-theme="system"
+						aria-pressed="false"
+						aria-label="System theme">System</button
+					>
+				</div>
+				<p class="footer-powered">
+					Powered by <a href="https://emdashcms.com">EmDash</a>
+				</p>
+			</div>
+		</footer>
+
+		<EmDashBodyEnd page={pageCtx} />
+
+		<script>
+			// Theme switcher
+			const THEME_REGEX = /theme=([^;]+)/;
+			const themeBtns =
+				document.querySelectorAll<HTMLButtonElement>(".theme-btn");
+			const root = document.documentElement;
+
+			function setTheme(theme: string) {
+				const secure = location.protocol === "https:" ? "; Secure" : "";
+				if (theme === "system") {
+					document.cookie = `theme=; path=/; max-age=0; SameSite=Lax${secure}`;
+					root.classList.remove("light", "dark");
+				} else {
+					document.cookie = `theme=${theme}; path=/; max-age=31536000; SameSite=Lax${secure}`;
+					root.classList.remove("light", "dark");
+					root.classList.add(theme);
+				}
+				updateActiveBtn(theme);
+			}
+
+			function updateActiveBtn(theme: string) {
+				themeBtns.forEach((btn) => {
+					const active = btn.dataset.theme === theme;
+					btn.classList.toggle("active", active);
+					btn.setAttribute("aria-pressed", String(active));
+				});
+			}
+
+			function getStoredTheme(): string {
+				const match = document.cookie.match(THEME_REGEX);
+				return match ? match[1] : "system";
+			}
+
+			// Initialize - apply stored theme on load
+			const storedTheme = getStoredTheme();
+			setTheme(storedTheme);
+
+			themeBtns.forEach((btn) => {
+				btn.addEventListener("click", () => {
+					setTheme(btn.dataset.theme || "system");
+				});
+			});
+		</script>
+
+		<style is:global>
+			/*
+			 * Establish layer order: "base" has lower priority than unlayered
+			 * styles, so theme.css overrides always win regardless of source
+			 * order in the bundled CSS.
+			 */
+			@layer base;
+
+			@layer base {
+				*,
+				*::before,
+				*::after {
+					box-sizing: border-box;
+					margin: 0;
+					padding: 0;
+				}
+
+				/*
+				 * Design tokens live in src/styles/tokens.css. Colors are
+				 * defined with light-dark(); these rules pin the scheme when
+				 * the footer switcher sets an explicit choice. With no class,
+				 * color-scheme: light dark follows the OS preference. The
+				 * @supports guard keeps the toggle from forcing dark UA form
+				 * controls on browsers stuck on the plain-light fallback.
+				 */
+				@supports (color: light-dark(#000, #fff)) {
+					:root.light {
+						color-scheme: light;
+					}
+
+					:root.dark {
+						color-scheme: dark;
+					}
+				}
+
+				html {
+					scroll-behavior: smooth;
+				}
+
+				@media (prefers-reduced-motion: reduce) {
+					html {
+						scroll-behavior: auto;
+					}
+
+					*,
+					*::before,
+					*::after {
+						scroll-behavior: auto !important;
+						transition-duration: 0.01ms !important;
+					}
+				}
+
+				body {
+					font-family: var(--font-body);
+					font-size: var(--font-size-base);
+					line-height: var(--leading-normal);
+					color: var(--color-text);
+					background: var(--color-bg);
+					-webkit-font-smoothing: antialiased;
+					min-height: 100vh;
+				}
+
+				a:where(:not([class*="emdash"]):not([class*="ec-"])) {
+					color: currentColor;
+					text-decoration: none;
+				}
+
+					/* Bare links in authored content need a visible style; component
+					   links restyle themselves via classes. */
+				p a:not([class]),
+				li a:not([class]) {
+					color: var(--color-brand);
+					text-decoration: underline;
+					text-underline-offset: 2px;
+				}
+
+				img {
+					max-width: 100%;
+					height: auto;
+					display: block;
+				}
+
+				h1,
+				h2,
+				h3,
+				h4,
+				h5,
+				h6 {
+					font-family: var(--font-heading);
+					font-weight: var(--font-weight-heading);
+					line-height: var(--leading-snug);
+					letter-spacing: var(--tracking-snug);
+				}
+
+				h1 {
+					font-size: var(--font-size-5xl);
+				}
+				h2 {
+					font-size: var(--font-size-3xl);
+				}
+				h3 {
+					font-size: var(--font-size-2xl);
+				}
+				h4 {
+					font-size: var(--font-size-xl);
+				}
+
+				/* Utility classes */
+				.container {
+					max-width: var(--wide-width);
+					margin: 0 auto;
+					padding: 0 var(--spacing-lg);
+				}
+
+				.section {
+					padding: var(--spacing-5xl) 0;
+				}
+
+				.section-header {
+					text-align: center;
+					max-width: var(--max-width);
+					margin: 0 auto var(--spacing-4xl);
+				}
+
+				.section-headline {
+					font-size: var(--font-size-3xl);
+					font-weight: var(--font-weight-display);
+				}
+
+				.section-subheadline {
+					margin-top: var(--spacing-md);
+					font-size: var(--font-size-lg);
+					color: var(--color-muted);
+				}
+
+				.icon-tile {
+					width: 48px;
+					height: 48px;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					flex-shrink: 0;
+					font-size: 1.5rem;
+					color: var(--color-on-brand);
+					background: var(--gradient-brand);
+					border-radius: var(--radius);
+				}
+
+				.btn {
+					display: inline-flex;
+					align-items: center;
+					justify-content: center;
+					gap: var(--spacing-sm);
+					padding: var(--spacing-sm) var(--spacing-lg);
+					font-family: inherit;
+					font-size: var(--font-size-sm);
+					font-weight: 600;
+					border-radius: var(--radius);
+					cursor: pointer;
+					transition:
+						background var(--transition-fast),
+						transform var(--transition-fast),
+						box-shadow var(--transition-fast);
+				}
+
+				.btn:hover {
+					transform: translateY(-1px);
+				}
+
+				.btn:active {
+					transform: translateY(0);
+				}
+
+				.btn-primary {
+					color: var(--color-on-brand);
+					background: var(--gradient-brand-strong);
+					border: none;
+					transition:
+						background 0.3s ease,
+						box-shadow 0.3s ease,
+						transform var(--transition-fast);
+				}
+
+				.btn-primary:hover {
+					background: var(--gradient-brand);
+					box-shadow: var(--shadow-lg);
+				}
+
+				.btn-secondary {
+					color: var(--color-text);
+					background: transparent;
+					border: 1px solid var(--color-border);
+				}
+
+				.btn-secondary:hover {
+					background: var(--color-surface);
+					border-color: var(--color-muted);
+				}
+
+				.btn-lg {
+					padding: var(--spacing-md) var(--spacing-xl);
+					font-size: var(--font-size-base);
+				}
+			}
+		</style>
+
+		<style>
+			.site-header {
+				position: sticky;
+				top: 0;
+				z-index: 100;
+				background: var(--color-bg);
+				border-bottom: 1px solid var(--color-border);
+			}
+
+			.nav {
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-md) var(--spacing-lg);
+				display: flex;
+				flex-wrap: nowrap;
+				align-items: center;
+				gap: var(--spacing-lg);
+			}
+
+			.site-logo {
+				font-size: var(--font-size-xl);
+				font-weight: var(--font-weight-display);
+				letter-spacing: var(--tracking-tight);
+				background: var(--gradient-brand);
+				-webkit-background-clip: text;
+				-webkit-text-fill-color: transparent;
+				background-clip: text;
+			}
+
+			.site-logo-img {
+				height: 48px;
+				width: auto;
+				display: block;
+				margin: -8px 0;
+			}
+
+			.nav-links {
+				display: flex;
+				flex-wrap: wrap;
+				gap: var(--spacing-lg);
+				margin-left: auto;
+			}
+
+			.nav-links a {
+				font-size: var(--font-size-sm);
+				font-weight: 500;
+				color: var(--color-muted);
+				transition: color var(--transition-fast);
+			}
+
+			.nav-links a:hover {
+				color: var(--color-text);
+			}
+
+			.nav-actions {
+				display: flex;
+				align-items: center;
+				gap: var(--spacing-lg);
+			}
+
+			.nav-admin {
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+				opacity: 0.5;
+			}
+
+			/* Compact variant of .btn.btn-primary for the header */
+			.nav-cta {
+				padding: var(--spacing-sm) var(--spacing-md);
+				border-radius: var(--radius-sm);
+			}
+
+			main {
+				min-height: calc(100vh - 200px);
+			}
+
+			.site-footer {
+				background: var(--color-surface);
+				border-top: 1px solid var(--color-border);
+			}
+
+			.footer-content {
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-4xl) var(--spacing-lg) var(--spacing-2xl);
+				display: grid;
+				grid-template-columns: 1fr 2fr;
+				gap: var(--spacing-4xl);
+			}
+
+			.footer-logo {
+				font-size: var(--font-size-xl);
+				font-weight: var(--font-weight-display);
+				letter-spacing: var(--tracking-tight);
+			}
+
+			.footer-logo-img {
+				height: 24px;
+				width: auto;
+			}
+
+			.footer-tagline {
+				margin-top: var(--spacing-sm);
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+			}
+
+			.footer-links {
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
+				gap: var(--spacing-xl);
+			}
+
+			.footer-col h4 {
+				font-size: var(--font-size-sm);
+				font-weight: 600;
+				margin-bottom: var(--spacing-md);
+			}
+
+			.footer-col a {
+				display: block;
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+				padding: var(--spacing-xs) 0;
+				transition: color var(--transition-fast);
+			}
+
+			.footer-col a:hover {
+				color: var(--color-text);
+			}
+
+			.footer-bottom {
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-lg);
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+				border-top: 1px solid var(--color-border);
+			}
+
+			.footer-powered a {
+				color: var(--color-text);
+			}
+
+			.theme-switcher {
+				display: flex;
+				gap: var(--spacing-xs);
+			}
+
+			.theme-btn {
+				background: transparent;
+				border: 1px solid var(--color-border);
+				color: var(--color-muted);
+				font-family: var(--font-body);
+				font-size: var(--font-size-sm);
+				padding: var(--spacing-xs) var(--spacing-sm);
+				border-radius: var(--radius-sm);
+				cursor: pointer;
+				transition: all var(--transition-fast);
+			}
+
+			.theme-btn:hover {
+				color: var(--color-text);
+				border-color: var(--color-text);
+			}
+
+			.theme-btn.active {
+				background: var(--color-bg);
+				color: var(--color-text);
+				border-color: var(--color-brand);
+			}
+
+			@media (max-width: 768px) {
+				.footer-content {
+					grid-template-columns: 1fr;
+					gap: var(--spacing-2xl);
+				}
+
+				.footer-links {
+					grid-template-columns: repeat(2, 1fr);
+				}
+
+				.footer-bottom {
+					flex-direction: column;
+					gap: var(--spacing-md);
+					text-align: center;
+				}
+
+				.theme-switcher {
+					order: -1;
+				}
+
+				h1 {
+					font-size: var(--font-size-4xl);
+				}
+				h2 {
+					font-size: var(--font-size-2xl);
+				}
+			}
+
+			@media (max-width: 540px) {
+				.nav {
+					flex-wrap: wrap;
+					row-gap: var(--spacing-md);
+					justify-content: space-between;
+				}
+
+				.nav-links {
+					order: 3;
+					width: 100%;
+					justify-content: flex-end;
+					margin-left: 0;
+				}
+			}
+
+			@media (max-width: 480px) {
+				.footer-links {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+	</body>
+</html>

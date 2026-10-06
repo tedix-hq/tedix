@@ -1,0 +1,310 @@
+---
+import { ArrowRight, Bot, BrainCircuit, Building2, Code2, Megaphone, UsersRound } from "lucide-react";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+export const prerender = true;
+
+const profileLinks = [
+	{ label: "LinkedIn", href: "https://www.linkedin.com/in/aaron-koivunen/", icon: UsersRound },
+	{ label: "GitHub", href: "https://github.com/koikar", icon: Code2 },
+	{ label: "Speaker Profile", href: "https://sessionize.com/aaron-koivunen/", icon: Megaphone },
+];
+
+const sections = [
+	{
+		title: "AI And Thought Leadership",
+		icon: BrainCircuit,
+		items: [
+			{
+				title: "Skills over MCP",
+				description: "Aaron's core technical thesis: connecting AI to tools is easy, but teaching AI how a company works requires durable skills, memory and operating patterns.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_mcp-skillsovermcp-autonomousai-ugcPost-7464349595914072066-AleT",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQFhfbsWEnbsZQ/feedshare-shrink_800/B4DZ5ayZzBJUAk-/0/1779639623705?e=2147483647&v=beta&t=imuPeFAoMAJRqkQPLiTWF-0m4Emg_VviQgV0LcXaClI",
+			},
+			{
+				title: "MediaMarktSaturn x Masumi hackathon",
+				description: "Field notes from testing AI commerce and MCP assumptions with corporate operators, hackathon builders and enterprise stakeholders.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_mcp-mediamarkt-hackathon-activity-7406958861426937857-mcAw",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQE5garVSH2otQ/feedshare-shrink_800/B56ZskWT_zJoAg-/0/1765841392838?e=2147483647&v=beta&t=9FaI3ZdzxlaT0yZW290CzRXSnbdYA3nY6KgOYihMKgk",
+			},
+			{
+				title: "Agentic product protocol",
+				description: "Technical reflection after MCPconference and ContainerDays on agentic products, ChatGPT Apps and the MCP builder ecosystem.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_agenticproductprotocol-ugcPost-7429452781746503680-9mrg",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQHlPQ5FCFLwPg/feedshare-shrink_800/B4DZxq37tMGUAg-/0/1771319574647?e=2147483647&v=beta&t=N-BquEwK86gibu1_lcrBPx1QAAdlJhO-AM4XKaeyotY",
+			},
+			{
+				title: "From idea to production: MCP is no longer theoretical",
+				description: "Adriana's implementation recap connecting Tedix, MCP, production readiness and the shift from AI demos to working systems.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_from-idea-to-production-mcp-is-no-longer-activity-7420019676790992896-nftx",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQGRGx5drSECrQ/feedshare-shrink_1280/B4DZvk0lEpG8Ak-/0/1769070547601?e=2147483647&v=beta&t=F95jf2vY3Z3kCeGMHgEvRdgKpEwxD2cUPa8prXVDZNg",
+			},
+			{
+				title: "Corporate innovation and startup collaboration",
+				description: "Lessons from corporate innovation work with MediaMarktSaturn, Masumi and Tedix around AI commerce and real enterprise constraints.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_corporateinnovation-startupcollaboration-activity-7403697415842816000-5rAj",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQFZInlA01vOUg/feedshare-image-high-res/B4DZr6aK76JEAo-/0/1765137765121?e=2147483647&v=beta&t=INHJN8qIPmcntV5BmBFUlTUlk2GxdkIQDT-JfhsNTBM",
+			},
+			{
+				title: "hubraum: AI workers that compound knowledge",
+				description: "External ecosystem validation describing Tedix as AI workers that get more useful over time as company knowledge compounds.",
+				href: "https://www.linkedin.com/posts/startups-ai-berlin-share-7447568362018377729-_L9a/",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQGJ96uWo1GCGA/feedshare-shrink_800/B4DZ1sT9UpHUAc-/0/1775638665791?e=2147483647&v=beta&t=cgOdEFMwOkI2kOYfRM00gjKmLtZLZRYSwN-iPtThYNw",
+			},
+			{
+				title: "Agentic AI, MCP and autonomous systems",
+				description: "Thought leadership on AI that acts: memory, autonomous tool/API calls, reasoning over outcomes, adjustment loops and explainable decisions.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_agenticai-mcp-aiengineering-ugcPost-7439274919558955008-pB2P",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQH65uA3Ga5_dA/feedshare-shrink_800/B4DZz2dH7BIkAk-/0/1773661356290?e=2147483647&v=beta&t=Hh4_3eaJOST5W3yMi2reUpyFhZNo-mw8iYhHrQL6Y4s",
+			},
+			{
+				title: "Tedix Skills over MCP slides",
+				description: "Public talk slides explaining Skills over MCP, progressive discovery, skill workflows and live tedi demos.",
+				href: "https://tedix.dev/skills-over-mcp/",
+				thumbnail: "/images/linktree/ai-context-series.svg",
+			},
+			{
+				title: "Devpost software portfolio",
+				description: "Builder profile and hackathon/software portfolio for Aaron's technical work.",
+				href: "https://devpost.com/koikar",
+			},
+		],
+	},
+	{
+		title: "Public Speaking",
+		icon: Megaphone,
+		items: [
+			{
+				title: "MCP recap by Adriana — N26 Berlin",
+				description: "Adriana's recap of Aaron's Berlin MCP talk, connecting N26, Alpic and Tedix around secure, reliable AI implementation.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_mcp-activity-7466054924943048704-ipch",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQGKHhOz0qbwUA/feedshare-image-high-res/B4DZ5zBYD9GYAY-/0/1780046201385?e=2147483647&v=beta&t=aZ10JMIZ3k_vsGT9kXV4HD57aq48y13PN8-DwkuQIZQ",
+			},
+			{
+				title: "MCP Connect Berlin with N26 & Alpic",
+				description: "Event page for the Berlin MCP meetup hosted with N26 and Alpic, featuring Aaron's Skills over MCP perspective.",
+				href: "https://luma.com/o5gpj57z?tk=2tBEle",
+				thumbnail: "https://og.luma.com/cdn-cgi/image/format=auto,fit=cover,dpr=1,anim=false,background=white,quality=75,width=800,height=420/event?calendar_avatar=https%3A%2F%2Fimages.lumacdn.com%2Fcalendars%2Ft1%2F478e4cfb-8af1-4ff8-a30f-b9ee52933560.png&calendar_name=Alpic&color0=%23051413&color1=%23feffff&color2=%23028378&host_avatar=https%3A%2F%2Fimages.lumacdn.com%2Favatars%2F1d%2F81639479-9d17-44a3-a2e2-9eb57818e9a2.png&host_name=Alpic&img=https%3A%2F%2Fimages.lumacdn.com%2Fevent-covers%2Fs2%2F39548f27-b371-4994-9ffa-fd41718f91a2.png&name=MCP%20Connect%20Berlin%20with%20N26%20%26%20Alpic&palette_neutral=%23051413%3A73.75%2C%23feffff%3A4.62&palette_vibrant=%23028378%3A1.21",
+			},
+			{
+				title: "MCP Conference London 2027",
+				description: "Conference page for the global Model Context Protocol developer summit and future London edition.",
+				href: "https://www.mcp-conference.com/london-2027",
+				thumbnail: "https://storage.googleapis.com/gpt-engineer-file-uploads/FcIff9hv4XgLI44w2ImDaDCfxtA3/social-images/social-1769185757141-LINKEDIN BANNER (60).png",
+			},
+			{
+				title: "AI Lowlands — Speakers",
+				description: "Speaker page for AI Lowlands, where Aaron presented how MCP turns conversation into action.",
+				href: "https://ailowlands.com/speakers/",
+				thumbnail: "https://ailowlands.com/media/5llegexr/logo_temp3.png",
+			},
+			{
+				title: "AI Context Series — Past editions",
+				description: "Enterprise AI event series focused on deploying agentic AI, MCP, multi-agent orchestration and governance at scale.",
+				href: "https://www.aicontextseries.com/",
+				thumbnail: "/images/linktree/ai-context-series.svg",
+			},
+			{
+				title: "MCP London 2026 (Luma)",
+				description: "Luma event page for MCPconference London + ContainerDays London, focused on MCP builders and production agentic systems.",
+				href: "https://luma.com/mcplondon2026?tk=B4uiO6",
+				thumbnail: "https://og.luma.com/cdn-cgi/image/format=auto,fit=cover,dpr=1,anim=false,background=white,quality=75,width=800,height=420/event?calendar_avatar=https%3A%2F%2Fcdn.lu.ma%2Favatars-default%2Fcommunity_avatar_8.png&color0=%235326a8&color1=%23fefeff&color2=%23c6b6e2&color3=%238565c1&host_avatar=https%3A%2F%2Fimages.lumacdn.com%2Favatars%2F08%2Fc0666745-a8cd-4106-bcec-a5e19d563d62.jpg&host_name=Dockland%20Media%20Group&img=https%3A%2F%2Fimages.lumacdn.com%2Fevent-covers%2Fk4%2F48fd6ea0-1746-413e-9771-375d5fc7051d.png&name=MCPconference%20London%20%2B%20ContainerDays%20London&palette_neutral=%23fefdfd%3A10.2&palette_vibrant=%235326a7%3A87.57",
+			},
+			{
+				title: "LinkedIn post — N26 MCP meetup",
+				description: "N26 ecosystem post featuring the Berlin MCP meetup with Alpic and Tedix on how agentic AI is maturing.",
+				href: "https://www.linkedin.com/feed/update/urn:li:ugcPost:7465680082196590593/",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQEfewOGGti_7A/feedshare-shrink_800/B4DZ5tsc0kKIAc-/0/1779956829837?e=2147483647&v=beta&t=OmIRrpAhbiTWZA0oVAknGc4GFysItZxdQ8q4BLVa3Bc",
+			},
+			{
+				title: "Agentic AI / MCP / AI engineering",
+				description: "Aaron's post on AI that acts: memory, tools, protocol-level integration, reasoning loops and explainability.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_agenticai-mcp-aiengineering-ugcPost-7439274919558955008-pB2P",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQH65uA3Ga5_dA/feedshare-shrink_800/B4DZz2dH7BIkAk-/0/1773661356290?e=2147483647&v=beta&t=Hh4_3eaJOST5W3yMi2reUpyFhZNo-mw8iYhHrQL6Y4s",
+			},
+			{
+				title: "MCP / ChatGPT apps / AI apps — AI Lowlands",
+				description: "Adriana's recap of Aaron's AI Lowlands session explaining MCP as the hands of AI for apps, commerce and action.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_mcp-chatgptapps-aiapps-activity-7401885419547852801-6H97",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQG540x4uA_gfw/feedshare-image-high-res/B56ZrhEqHALAAo-/0/1764712698505?e=2147483647&v=beta&t=64CAR9ZFo29NAKcMHh8mVGvi_RZUQgKs0UgGCT4NfNc",
+			},
+			{
+				title: "Berlin AI Show & Tell",
+				description: "Community announcement for Berlin AI Show & Tell, listing Aaron's MCP talk alongside Microsoft, Neo4j and AI ecosystem speakers.",
+				href: "https://www.linkedin.com/posts/alexabaran_berlin-aishowandtell-globalaicommunity-activity-7383596131324227584-U5pH",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4E22AQG6H0A3a5biGw/feedshare-shrink_800/B4EZnfNjZHK0Ak-/0/1760386496810?e=2147483647&v=beta&t=Db9HpGexg1wdczpgrkMSvYkNaIbQ6tTIJbMIwzmlrkQ",
+			},
+			{
+				title: "Startups & AI Berlin — hubraum welcome",
+				description: "hubraum's welcome post for Adriana and Aaron, positioning Tedix as AI workers that compound knowledge over time.",
+				href: "https://www.linkedin.com/posts/startups-ai-berlin-share-7447568362018377729-_L9a/",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQGJ96uWo1GCGA/feedshare-shrink_800/B4DZ1sT9UpHUAc-/0/1775638665791?e=2147483647&v=beta&t=cgOdEFMwOkI2kOYfRM00gjKmLtZLZRYSwN-iPtThYNw",
+			},
+			{
+				title: "Sessionize speaker profile",
+				description: "Aaron's public speaker profile as Tedix co-founder and CTO building AI workers that operate, learn and create apps.",
+				href: "https://sessionize.com/aaron-koivunen/",
+				thumbnail: "https://sessionize.com/image/9dd0-400o400o2-VMyhwFnJULGUdSwx4dw5iY.jpg",
+			},
+		],
+	},
+	{
+		title: "Community Development And Ecosystem",
+		icon: UsersRound,
+		items: [
+			{
+				title: "N26 MCP meetup",
+				description: "External ecosystem proof from N26: MCP meetup in Berlin with Alpic and Tedix, focused on how agentic AI is maturing.",
+				href: "https://www.linkedin.com/feed/update/urn:li:ugcPost:7465680082196590593/",
+			},
+			{
+				title: "Global AI Community Berlin",
+				description: "Community event proof connecting Aaron's work with Microsoft, Neo4j, Masumi, AI Alliance and the Berlin AI ecosystem.",
+				href: "https://www.linkedin.com/posts/alexabaran_berlin-aishowandtell-globalaicommunity-activity-7383596131324227584-U5pH",
+			},
+			{
+				title: "Trust, compliance and Europe",
+				description: "External post mentioning Adriana on stage and Aaron's talk as a highlight in a European AI trust and compliance context.",
+				href: "https://www.linkedin.com/posts/selim-nowicki_trust-compliance-europe-ugcPost-7389422054380580864-0a4J",
+			},
+			{
+				title: "AI Context / MCPconference community",
+				description: "MCP community event proof, showing Tedix in the wider European MCP ecosystem.",
+				href: "https://www.linkedin.com/posts/aicontext_mcpconference-mcpconference-community-activity-7379442908820611072-erJ9",
+			},
+		],
+	},
+	{
+		title: "Entrepreneurial And Corporate Innovation",
+		icon: Building2,
+		items: [
+			{
+				title: "hubraum: Tedix gets better and cheaper with use",
+				description: "External validation from hubraum describing Tedix as AI workers that compound knowledge over time and shift companies from renting intelligence to owning it.",
+				href: "https://www.linkedin.com/posts/startups-ai-berlin-share-7447568362018377729-_L9a/",
+				thumbnailLabel: "hubraum",
+			},
+			{
+				title: "MediaMarktSaturn x Masumi hackathon",
+				description: "Corporate innovation evidence: Tedix tested assumptions and learned from operators around AI commerce and enterprise workflows.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_corporateinnovation-startupcollaboration-activity-7403697415842816000-5rAj",
+				thumbnailLabel: "MediaMarktSaturn",
+			},
+			{
+				title: "Customer never visits your website again",
+				description: "A commerce thesis from Agentiq World / Chatbot Summit Berlin: e-commerce is being redefined as AI interfaces become storefronts.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_what-happens-when-your-customer-never-visits-activity-7442884325781446656-8b3-",
+				thumbnailLabel: "AI Commerce",
+			},
+			{
+				title: "YLAI profile: Aaron Koivunen",
+				description: "International entrepreneurial ecosystem evidence through the Young Leaders of the Americas Initiative profile for Aaron Koivunen.",
+				href: "https://www.ytili.org/koivunen",
+				thumbnailLabel: "YLAI",
+			},
+			{
+				title: "Devpost builder profile: Aaron Koivunen",
+				description: "Hackathon and builder track record, including public projects and technical experimentation relevant to Tedix's applied AI work.",
+				href: "https://devpost.com/koikar",
+				thumbnailLabel: "Devpost",
+			},
+		],
+	},
+	{
+		title: "Talks And Technical Media",
+		icon: Bot,
+		items: [
+			{
+				title: "AI: how to use it and optimize processes",
+				description: "YouTube talk featuring Aaron on practical AI usage and process optimization.",
+				href: "https://www.youtube.com/watch?v=oLeWPdJWmHk",
+			},
+			{
+				title: "GitHub profile",
+				description: "Aaron's builder profile as co-founder and CTO at Tedix.",
+				href: "https://github.com/koikar",
+			},
+			{
+				title: "Agentic product protocol",
+				description: "Public technical reflection after MCPconference and ContainerDays on ChatGPT Apps and the MCP builder ecosystem.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_agenticproductprotocol-ugcPost-7429452781746503680-9mrg",
+			},
+			{
+				title: "AI Show & Tell",
+				description: "Community talk proof around AI demos and the practical limits of AI systems.",
+				href: "https://www.linkedin.com/posts/aaron-koivunen_aishowandtell-aishowandtell-ugcPost-7388274198403772416-74iu",
+			},
+		],
+	},
+];
+
+const sectionOrder = [
+	"Public Speaking",
+	"AI And Thought Leadership",
+	"Entrepreneurial And Corporate Innovation",
+	"Community Development And Ecosystem",
+	"Talks And Technical Media",
+];
+
+const orderedSections = [...sections].sort(
+	(a, b) => sectionOrder.indexOf(a.title) - sectionOrder.indexOf(b.title),
+);
+---
+
+<BaseLayout title="Aaron Koivunen | Tedix" description="Curated founder profile links for Aaron Koivunen." showConsentBanner={false} showFooter={false} includeSoftwareApplicationSchema={false}>
+	<main class="min-h-screen bg-[linear-gradient(180deg,rgba(245,240,255,0.95)_0%,rgba(255,255,255,1)_42%,rgba(255,248,244,0.92)_100%)] px-4 pt-32 pb-14 dark:bg-[linear-gradient(180deg,#090015_0%,#0d0617_52%,#120817_100%)] sm:px-6 lg:px-8">
+		<section class="mx-auto max-w-3xl text-center">
+			<img src="/images/founders/aaron-koivunen.jpeg" alt="Aaron Koivunen" class="mx-auto h-28 w-28 rounded-[2rem] border border-white/80 object-cover shadow-[0_22px_60px_rgba(124,58,237,0.22)] dark:border-white/10" />
+			<p class="mt-7 text-sm font-semibold uppercase tracking-[0.24em] text-violet-600 dark:text-violet-300">Founder Profile</p>
+			<h1 class="mt-3 font-display text-4xl font-bold tracking-tight text-foreground dark:text-white/95">Aaron Koivunen</h1>
+			<p class="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground dark:text-white/62">
+				Founder evidence for EuroLabs reviewers: AI worker architecture, MCP implementation, public speaking, builder credibility and European AI ecosystem leadership.
+			</p>
+			<div class="mt-8 grid gap-3 sm:grid-cols-3">
+				{profileLinks.map((link) => {
+					const Icon = link.icon;
+					return (
+						<a href={link.href} target="_blank" rel="noreferrer" class="group flex items-center justify-between rounded-2xl border border-border/80 bg-white/82 px-5 py-4 text-left font-semibold text-foreground shadow-[0_14px_45px_rgba(15,23,42,0.07)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-violet-400/45 dark:border-white/10 dark:bg-white/[0.045] dark:text-white/92">
+							<span class="inline-flex items-center gap-3"><Icon className="h-5 w-5 text-violet-600 dark:text-violet-300" />{link.label}</span>
+							<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+						</a>
+					);
+				})}
+			</div>
+		</section>
+
+		<div class="mx-auto mt-12 grid max-w-6xl gap-6">
+			{orderedSections.map((section) => {
+				const Icon = section.icon;
+				return (
+					<section class="rounded-[2rem] border border-border/80 bg-white/82 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+						<div class="mb-5 flex items-center gap-3">
+							<h2 class="inline-flex max-w-full items-center gap-3 rounded-full border border-orange-300/80 bg-orange-50/70 px-5 py-3 text-left text-sm font-bold uppercase tracking-[0.18em] text-orange-700 shadow-[0_12px_34px_rgba(251,146,60,0.14)] dark:border-orange-300/35 dark:bg-orange-400/10 dark:text-orange-200 sm:tracking-[0.22em]">
+								<Icon className="h-5 w-5 shrink-0" />
+								<span class="min-w-0 leading-snug">{section.title}</span>
+							</h2>
+						</div>
+						<div class="grid gap-4 md:grid-cols-2">
+							{section.items.map((item) => (
+								<a href={item.href} target="_blank" rel="noreferrer" class="group flex items-start gap-4 rounded-2xl border border-border/75 bg-background/72 p-4 transition-all hover:-translate-y-0.5 hover:border-violet-400/45 dark:border-white/10 dark:bg-white/[0.035]">
+									{item.thumbnail ? (
+										<img src={item.thumbnail} alt="" loading="lazy" referrerpolicy="no-referrer" class="h-20 w-20 shrink-0 rounded-xl border border-border/70 object-cover shadow-sm transition-transform group-hover:scale-[1.02] dark:border-white/10 sm:h-24 sm:w-24" />
+									) : item.thumbnailLabel ? (
+										<div class="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-violet-200/80 bg-gradient-to-br from-violet-50 via-fuchsia-50 to-orange-50 px-3 text-center shadow-sm dark:border-white/10 dark:from-violet-500/15 dark:via-fuchsia-500/10 dark:to-orange-500/10 sm:h-24 sm:w-24">
+											<span class="font-display text-[0.72rem] font-bold leading-tight text-violet-700 dark:text-violet-100">{item.thumbnailLabel}</span>
+										</div>
+									) : null}
+									<div class="min-w-0 flex-1">
+										<h3 class="font-display text-lg font-bold text-foreground dark:text-white/95">{item.title}</h3>
+										<p class="mt-2 text-sm leading-relaxed text-muted-foreground dark:text-white/60">{item.description}</p>
+										<span class="mt-4 inline-flex items-center text-sm font-semibold text-violet-600 dark:text-violet-300">Open link <ArrowRight className="ml-1 h-4 w-4 transition-transform group-hover:translate-x-0.5" /></span>
+									</div>
+								</a>
+							))}
+						</div>
+					</section>
+				);
+			})}
+		</div>
+	</main>
+</BaseLayout>

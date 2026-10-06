@@ -1,0 +1,209 @@
+diff --git a/dist/agent-routing-0DR0Tk2v.d.ts b/dist/agent-routing-0DR0Tk2v.d.ts
+index 98424289e6f56a167df44e4bee32c6cf8ac9db41..47f70d8aaacb2f6086d92a0c9c0222388239a903 100644
+--- a/dist/agent-routing-0DR0Tk2v.d.ts
++++ b/dist/agent-routing-0DR0Tk2v.d.ts
+@@ -5084,6 +5084,11 @@ declare class Agent<
+     target: LifecycleRouteAddress | undefined,
+     envelope: LifecycleRouteEnvelope
+   ): Promise<unknown>;
++  /** Root policy gate runs before facet initialization and alarm dispatch. */
++  protected onBeforeFacetLifecycleAlarm(context: { action: "set" | "get" | "delete" | "wake"; ownerPath: Array<{ className: string; name: string }>; identityName: string; time?: number }): Promise<void>;
++  _cf_syncFacetLifecycleAlarm(ownerPath: Array<{ className: string; name: string }>, identityName: string, time: number | null): Promise<void>;
++  _cf_getFacetLifecycleAlarm(ownerPath: Array<{ className: string; name: string }>, identityName: string): Promise<number | null>;
++  _cf_runFacetLifecycleAlarm(ownerPath: Array<{ className: string; name: string }>, identityName: string): Promise<void>;
+   private _rootAlarmOwner;
+   /**
+    * Clean root-owned bookkeeping for a sub-tree of facets. This
+diff --git a/dist/lifecycle-CFu6OV03.js b/dist/lifecycle-CFu6OV03.js
+index 5139f1ab16f05c97f693becbb9c374ea2ae001bb..3fa389333c176e76a4a43e2de6c975c8afb7b138 100644
+--- a/dist/lifecycle-CFu6OV03.js
++++ b/dist/lifecycle-CFu6OV03.js
+@@ -564,7 +564,7 @@ async function _driveDueJobs() {
+ 	const due = _classPrivateFieldGet2(_options, this).queue.due(nowMs);
+ 	if (due.length === 0) return;
+ 	_assertClassBrand(_JobDriver_brand, this, _warnBacklog).call(this, due);
+-	if (!_classPrivateFieldGet2(_options, this).disabled()) await _classPrivateFieldGet2(_options, this).storage.setAlarm(nowMs + DEADMAN_ALARM_DELAY_MS);
++	if (!_classPrivateFieldGet2(_options, this).disabled()) await _classPrivateFieldGet2(_options, this).setAlarm(nowMs + DEADMAN_ALARM_DELAY_MS);
+ 	for (const stale of due) {
+ 		if (_classPrivateFieldGet2(_options, this).disabled()) return;
+ 		const row = _classPrivateFieldGet2(_options, this).queue.dueRow(stale.id, nowMs);
+@@ -804,6 +804,9 @@ function decodeProps(header) {
+ 	return JSON.parse(new TextDecoder().decode(bytes));
+ }
+ const lifecycleEventSinks = /* @__PURE__ */ new WeakMap();
++const lifecycleAlarmTransports = new WeakMap();
++function setLifecycleAlarmTransport(lifecycle, transport) { lifecycleAlarmTransports.set(lifecycle, transport); }
++function alarmStorage(lifecycle, storage) { return lifecycleAlarmTransports.get(lifecycle) ?? storage; }
+ const lifecycleRouteTransports = /* @__PURE__ */ new WeakMap();
+ const lifecycleHostInvokers = /* @__PURE__ */ new WeakMap();
+ /** Lifecycles whose startup the current async context is running inside. */
+@@ -893,6 +896,7 @@ var Lifecycle = class Lifecycle {
+ 		_classPrivateFieldSet2(_jobDriver, this, new JobDriver({
+ 			queue: _classPrivateFieldGet2(_jobQueue, this),
+ 			storage: _classPrivateFieldGet2(_ctx, this).storage,
++            setAlarm: time => alarmStorage(this, _classPrivateFieldGet2(_ctx, this).storage).setAlarm(time),
+ 			disabled: () => _classPrivateFieldGet2(_alarmsDisabled, this),
+ 			resolveDispatch: (owner) => _assertClassBrand(_Lifecycle_brand, this, _resolveJobDispatch).call(this, owner),
+ 			maxMemoryLimitStrikes: () => options?.maxAlarmMemoryLimitStrikes,
+@@ -1120,8 +1124,8 @@ var Lifecycle = class Lifecycle {
+ 		const next = _classPrivateFieldGet2(_alarmRearmQueue, this).catch(() => {}).then(async () => {
+ 			if (_classPrivateFieldGet2(_alarmsDisabled, this)) return;
+ 			const alarm = _classPrivateFieldGet2(_jobQueue, this).nextAlarmTime(Date.now());
+-			if (alarm === null) await _classPrivateFieldGet2(_ctx, this).storage.deleteAlarm();
+-			else await _classPrivateFieldGet2(_ctx, this).storage.setAlarm(alarm);
++			if (alarm === null) await alarmStorage(this, _classPrivateFieldGet2(_ctx, this).storage).deleteAlarm();
++			else await alarmStorage(this, _classPrivateFieldGet2(_ctx, this).storage).setAlarm(alarm);
+ 		});
+ 		_classPrivateFieldSet2(_alarmRearmQueue, this, next);
+ 		await next;
+@@ -1144,7 +1148,7 @@ var Lifecycle = class Lifecycle {
+ 	async disableAlarms() {
+ 		_classPrivateFieldSet2(_alarmsDisabled, this, true);
+ 		await _classPrivateFieldGet2(_alarmRearmQueue, this).catch(() => {});
+-		await _classPrivateFieldGet2(_ctx, this).storage.deleteAlarm();
++		await alarmStorage(this, _classPrivateFieldGet2(_ctx, this).storage).deleteAlarm();
+ 	}
+ 	/**
+ 	* Run one alarm invocation. The job driver owns the event loop — deadman
+@@ -1338,6 +1342,6 @@ async function _resolveJobDispatch(owner) {
+ 	};
+ }
+ //#endregion
+-export { abortWithoutAlarmRetry as a, setLifecycleRouteTransport as i, setLifecycleEventSink as n, setLifecycleHostInvoker as r, Lifecycle as t };
++export { setLifecycleAlarmTransport as s, abortWithoutAlarmRetry as a, setLifecycleRouteTransport as i, setLifecycleEventSink as n, setLifecycleHostInvoker as r, Lifecycle as t };
+ 
+ //# sourceMappingURL=lifecycle-CFu6OV03.js.map
+\ No newline at end of file
+diff --git a/dist/src-BZeu-SCD.js b/dist/src-BZeu-SCD.js
+index 84c6dbf137d77c4ee2b974e78b522dafe3f730b5..2efa901dfdc90dc2da64c9027e5f25ee62d7909c 100644
+--- a/dist/src-BZeu-SCD.js
++++ b/dist/src-BZeu-SCD.js
+@@ -13,7 +13,7 @@ import { n as withInvocationScope, r as writeSpanAttributes, t as tracer } from
+ import { parseSubAgentPath } from "./sub-routing.js";
+ import { a as getConnectionFlag, c as isConnectionReadonly, d as setConnectionProtocolEnabled, f as setConnectionReadonly, i as ensureConnectionWrapped, l as registerInternalConnectionKeys, o as getConnectionRawState, s as isConnectionProtocolEnabled, t as WebSockets, u as setConnectionFlag } from "./websockets-Ci-LZFHH.js";
+ import { t as LifecycleCapability } from "./capability-B4WbF81e.js";
+-import { a as abortWithoutAlarmRetry, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-CFu6OV03.js";
++import { a as abortWithoutAlarmRetry, s as setLifecycleAlarmTransport, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-CFu6OV03.js";
+ import { isErrorRetryable, tryN, validateRetryOptions } from "./retries.js";
+ import { SqlError } from "./sql-error.js";
+ import { a as ensureMcpServerTable, d as DisposableStore, i as normalizeServerId, l as RPC_DO_PREFIX, o as MCPConnectionState, t as MCPClientManager } from "./client-fyQrLGkD.js";
+@@ -380,6 +380,37 @@ var DynamicAgentsInternal = class extends LifecycleCapability {
+ 			execRawSql: (sql) => void host.ctx.storage.sql.exec(sql)
+ 		});
+ 	}
++ alarmId(ownerPath) { return `cf-agents:facet-lifecycle:${agentPathKey(ownerPath)}`; }
++ async validateAlarmPath(ownerPath, identityName) {
++  const host = _classPrivateFieldGet2(_host, this);
++  if (!Array.isArray(ownerPath) || ownerPath.length < 2 || !isValidParentPath(ownerPath) || typeof identityName !== "string" || !identityName) throw new Error("Invalid facet Lifecycle alarm identity");
++  const self = host.selfPath;
++  if (!host._isSameAgentPathPrefix(self, ownerPath) || self.length >= ownerPath.length) throw new Error("Facet Lifecycle alarm path is not a registered descendant");
++  const next = ownerPath[self.length];
++  const row = this.registry.row(next.className, next.name);
++  if (!row) throw new Error("Facet Lifecycle alarm target is not registered");
++  const childIdentity = row.identity_version === "path-v2" ? row.identity_name : next.name;
++  if (typeof childIdentity !== "string" || !childIdentity) throw new Error("Facet Lifecycle registered identity is missing");
++  const root = ownerPath[0], rootNs = host.ctx.exports[root.className], childClass = host.ctx.exports[next.className];
++  if (!rootNs || !childClass) throw new Error("Facet Lifecycle alarm export is missing");
++  if (self.length + 1 === ownerPath.length && childIdentity !== identityName) throw new Error("Facet Lifecycle alarm physical identity mismatch");
++  const stub = host.ctx.facets.get(`${next.className}\0${next.name}`, () => ({ class: childClass, id: rootNs.idFromName(childIdentity) }));
++  if (self.length + 1 < ownerPath.length) await stub._cf_validateFacetLifecycleAlarm(ownerPath, identityName);
++  return stub;
++ }
++ async syncAlarm(ownerPath, identityName, time) {
++  await this.validateAlarmPath(ownerPath, identityName);
++  const id = this.alarmId(ownerPath);
++  if (time === null) { await this.lifecycle.jobs.cancel(id); return; }
++  if (!Number.isFinite(time) || time < 0) throw new Error("Invalid facet Lifecycle alarm time");
++  await this.lifecycle.jobs.push({ id, fn: "facet-lifecycle-alarm", time, payload: { ownerPath, identityName }, retry: { maxAttempts: 1 } });
++ }
++ async onJob({ job }) {
++  if (job.fn !== "facet-lifecycle-alarm") throw new Error("Unknown DynamicAgents Lifecycle job");
++  await _classPrivateFieldGet2(_host, this)._cf_runFacetLifecycleAlarm(job.payload.ownerPath, job.payload.identityName);
++ }
++ onJobError() { return { rescheduleAt: Date.now() + 30000 }; }
++
+ 	runRowsForPrefix(ownerPath) {
+ 		return _classPrivateFieldGet2(_host, this).sql`
+       SELECT owner_path, owner_path_key, run_id, created_at
+@@ -462,6 +493,10 @@ var DynamicAgentsInternal = class extends LifecycleCapability {
+ 			await _classPrivateFieldGet2(_host, this).tasks.__DO_NOT_USE_WILL_BREAK__cleanupRoutePrefix(prefix);
+ 			await _classPrivateFieldGet2(_host, this)._queue.__DO_NOT_USE_WILL_BREAK__cleanupRoutePrefix(prefix);
+ 		}
++  for (const job of this.lifecycle.jobs.list()) {
++   if (job.fn === "facet-lifecycle-alarm" && _classPrivateFieldGet2(_host, this)._isSameAgentPathPrefix(ownerPath, job.payload.ownerPath)) await this.lifecycle.jobs.cancel(job.id);
++  }
++
+ 		this.deleteRunRowsForPrefix(ownerPath);
+ 		await _classPrivateFieldGet2(_host, this)._syncHostJobs();
+ 	}
+@@ -1883,6 +1918,24 @@ var Agent = class Agent extends DurableObject {
+ 		this.observability = genericObservability;
+ 		this.maxConcurrentAgentTools = Infinity;
+ 		const routeHost = this;
++  setLifecycleAlarmTransport(this.lifecycle, {
++   setAlarm: async time => {
++    await this._cf_restoreFacetAlarmContext();
++    if (!this._isFacet) return this.ctx.storage.setAlarm(time);
++    return (await this._rootAlarmOwner())._cf_syncFacetLifecycleAlarm(this.selfPath, this.ctx.id.name, Number(time));
++   },
++   getAlarm: async () => {
++    await this._cf_restoreFacetAlarmContext();
++    if (!this._isFacet) return this.ctx.storage.getAlarm();
++    return (await this._rootAlarmOwner())._cf_getFacetLifecycleAlarm(this.selfPath, this.ctx.id.name);
++   },
++   deleteAlarm: async () => {
++    await this._cf_restoreFacetAlarmContext();
++    if (!this._isFacet) return this.ctx.storage.deleteAlarm();
++    return (await this._rootAlarmOwner())._cf_syncFacetLifecycleAlarm(this.selfPath, this.ctx.id.name, null);
++   }
++  });
++
+ 		setLifecycleRouteTransport(this.lifecycle, {
+ 			get source() {
+ 				return routeHost._lifecycleRouteAddress();
+@@ -2658,6 +2711,45 @@ var Agent = class Agent extends DurableObject {
+ 		await this.__unsafe_ensureInitialized();
+ 		return this._dynamicAgents.routeLifecycle(target, envelope);
+ 	}
++ async _cf_restoreFacetAlarmContext() {
++  const stored = await this.ctx.storage.get("cf_agents_is_facet");
++  if (stored === true) this._isFacet = true;
++  if (!this._isFacet) return;
++  const [name, path] = await Promise.all([this.ctx.storage.get("cf_agents_facet_name"), this.ctx.storage.get("cf_agents_parent_path")]);
++  if (typeof name !== "string" || !name || !isValidParentPath(path) || path.length === 0 || typeof this.ctx.id.name !== "string") throw new Error("Facet Lifecycle durable identity is incomplete");
++  this._facetName = name; this._parentPath = path;
++ }
++ async onBeforeFacetLifecycleAlarm(_context) {}
++ async _cf_validateFacetLifecycleAlarm(ownerPath, identityName) {
++  await this._cf_restoreFacetAlarmContext();
++  return void await this._dynamicAgents.validateAlarmPath(ownerPath, identityName);
++ }
++ async _cf_syncFacetLifecycleAlarm(ownerPath, identityName, time) {
++  await this.onBeforeFacetLifecycleAlarm({ action: time === null ? "delete" : "set", ownerPath, identityName, ...(time === null ? {} : { time }) });
++  await this._cf_restoreFacetAlarmContext();
++  if (this._isFacet) throw new Error("Facet Lifecycle mirror must be owned by the root");
++  await this._dynamicAgents.syncAlarm(ownerPath, identityName, time);
++ }
++ async _cf_getFacetLifecycleAlarm(ownerPath, identityName) {
++  await this.onBeforeFacetLifecycleAlarm({ action: "get", ownerPath, identityName });
++  await this._cf_restoreFacetAlarmContext();
++  if (this._isFacet) throw new Error("Facet Lifecycle mirror must be read from the root");
++  await this._dynamicAgents.validateAlarmPath(ownerPath, identityName);
++  return this._dynamicAgents.lifecycle.jobs.get(this._dynamicAgents.alarmId(ownerPath))?.time ?? null;
++ }
++ async _cf_runFacetLifecycleAlarm(ownerPath, identityName) {
++  await this.onBeforeFacetLifecycleAlarm({ action: "wake", ownerPath, identityName });
++  await this._cf_restoreFacetAlarmContext();
++  if (JSON.stringify(this.selfPath) === JSON.stringify(ownerPath)) {
++   if (!this._isFacet || this.ctx.id.name !== identityName) throw new Error("Facet Lifecycle wake identity mismatch");
++   await this.__unsafe_ensureInitialized();
++   await this.lifecycle.alarm();
++   return;
++  }
++  const child = await this._dynamicAgents.validateAlarmPath(ownerPath, identityName);
++  await child._cf_runFacetLifecycleAlarm(ownerPath, identityName);
++ }
++
+ 	_rootAlarmOwner() {
+ 		return this._dynamicAgents.rootAlarmOwner();
+ 	}

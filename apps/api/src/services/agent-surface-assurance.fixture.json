@@ -1,0 +1,67 @@
+{
+	"gadgets": [],
+	"requirements": null,
+	"factory": {
+		"version": 1,
+		"key": "agent-surface-assurance",
+		"purpose": "Verify that a real caller reaches the first correct authorized result through the declared agent surface.",
+		"beneficiary": "Developers and digital workers using Tedix gateways and browser tools",
+		"exclusions": [
+			"No permission escalation to make a test pass",
+			"No production fixture mutation without exact approval"
+		],
+		"stewardRole": "Instance-bound accountable program steward",
+		"intake": {
+			"triggers": ["manual", "schedule", "source_change"],
+			"sourcePolicy": "Versioned scenario identifiers, contract revisions, deployed SHA and sanitized receipts; no credentials.",
+			"maxSourceRefs": 20
+		},
+		"limits": {
+			"maxAttemptsPerCycle": 2,
+			"budgetMicrosPerCycle": 5000000
+		},
+		"templates": [
+			{
+				"key": "deliverable",
+				"title": "Certify agent-surface scenario",
+				"workKind": "browser",
+				"riskLevel": "medium",
+				"outcome": "deliverable",
+				"procedure": "Bind this instance to exactly one program and surface: Gateway UX or WebMCP. Use held-out scenarios and isolated permitted fixtures. Record discovery, exact callable schema, authorization, cancellation, canonical result and partial failures. Measure tokens and turns to first correct call. A source test is not browser-host or deployed proof; record surface and deployed SHA. Never combine the two programs' ownership or expand scopes to pass.",
+				"requiredCapabilities": [],
+				"requiredAuthorities": [],
+				"acceptanceContract": {
+					"version": 1,
+					"doneLooksLike": "A source-grounded proposal/report satisfies the instance's bounded scenario. No publication or business outcome is implied."
+				}
+			},
+			{
+				"key": "no_work",
+				"title": "Review no-work finding",
+				"workKind": "stewardship",
+				"riskLevel": "low",
+				"outcome": "no_work",
+				"procedure": "Record the exact inputs and scan coverage, exclusions, duplicates, and why no deliverable is warranted. Missing sources, authorization failures, or truncated discovery are blocked/partial, never no-work. Do not advance accepted/published cursors from scan success alone.",
+				"requiredCapabilities": [],
+				"requiredAuthorities": [],
+				"acceptanceContract": {
+					"version": 1,
+					"doneLooksLike": "The settlement records complete bounded source coverage and a justified no-work result, not a hidden failure."
+				}
+			}
+		],
+		"maintenance": {
+			"successMetric": "Scenario pass rate and tokens/turns to first correct call, separated by surface and revision.",
+			"upgradePolicy": "explicit_pinned_revision",
+			"certificationScenarios": [
+				"normal",
+				"no_work",
+				"duplicate",
+				"interruption",
+				"rejection",
+				"approval_blocked",
+				"second_instance"
+			]
+		}
+	}
+}

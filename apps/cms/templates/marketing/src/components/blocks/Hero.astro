@@ -1,0 +1,87 @@
+---
+/**
+ * marketing.hero — full-bleed headline section with up to two CTAs and an
+ * optional background image. Harvested from a production marketing homepage hero and the
+ * official marketing-template hero block.
+ *
+ * Reads the generated native block shape; retained versions keep their own media fields.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asString } from "./value-utils";
+import { Image } from "emdash/ui";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_hero" }>>;
+const { value: node } = Astro.props;
+
+const headline = asString(node.headline);
+const subheadline = asString(node.subheadline);
+const primaryLabel = asString(node.primary_cta_label);
+const primaryUrl = asString(node.primary_cta_url);
+const secondaryLabel = asString(node.secondary_cta_label);
+const secondaryUrl = asString(node.secondary_cta_url);
+const imageUrl = node._version === 1 ? asString(node.image_url) : undefined;
+const image = node._version === 2 ? node.image : undefined;
+
+const heroStyle = imageUrl
+	? `background-image:var(--gradient-brand-overlay), url('${imageUrl}')`
+	: undefined;
+---
+
+{headline && (
+	<section class="iw-hero" style={heroStyle}>
+		{image && <div class="iw-hero__media" aria-hidden="true"><Image image={image} alt="" priority /></div>}
+		{image && <div class="iw-hero__overlay" aria-hidden="true" />}
+		<div class="iw-hero__inner">
+			<h1 class="iw-hero__title">{headline}</h1>
+			{subheadline && <p class="iw-hero__sub">{subheadline}</p>}
+			{(primaryLabel || secondaryLabel) && (
+				<div class="iw-hero__ctas">
+					{primaryLabel && primaryUrl && (
+						<a class="iw-btn" href={primaryUrl}>
+							{primaryLabel}
+						</a>
+					)}
+					{secondaryLabel && secondaryUrl && (
+						<a class="iw-btn iw-btn--ghost" href={secondaryUrl}>
+							{secondaryLabel}
+						</a>
+					)}
+				</div>
+			)}
+		</div>
+	</section>
+)}
+
+<style>
+	:global(.iw-hero__media),
+	:global(.iw-hero__overlay) {
+		position: absolute;
+		inset: 0;
+	}
+	.iw-hero__media :global(img) {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	:global(.iw-hero__overlay) {
+		background: var(--gradient-brand-overlay);
+	}
+	:global(.iw-hero__inner) {
+		position: relative;
+		z-index: 1;
+	}
+	.iw-hero__ctas {
+		display: flex;
+		gap: 12px;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+	.iw-btn--ghost {
+		background: transparent;
+		border: 2px solid var(--color-on-brand);
+	}
+	.iw-btn--ghost:hover {
+		background: var(--color-on-brand-surface);
+	}
+</style>

@@ -1,0 +1,8 @@
+{
+	"extends": "@tedix/tsconfig/cloudflare.json",
+	"compilerOptions": {
+		"types": ["@cloudflare/workers-types", "node"]
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["node_modules"]
+}

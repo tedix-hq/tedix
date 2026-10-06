@@ -1,0 +1,1 @@
+ALTER TABLE `os_collaboration_proposals` ADD `source_attestation_version` integer;

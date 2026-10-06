@@ -1,0 +1,67 @@
+---
+/** Native Forms owns fields, validation, submission storage and notifications. */
+import { Form } from "@emdash-cms/plugin-forms/ui";
+import "@emdash-cms/plugin-forms/styles";
+interface Props {
+ formId?: string;
+ title?: string;
+ subtitle?: string;
+}
+const { formId = "contact", title, subtitle } = Astro.props;
+const attribution: Record<string, string> = { source: Astro.url.pathname };
+for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"]) {
+ const value = Astro.url.searchParams.get(key);
+ if (value) attribution[key] = value.slice(0, 200);
+}
+---
+<section class="native-lead-form my-12 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-8 md:p-10 shadow-sm" data-native-lead-attribution={JSON.stringify(attribution)}>
+ {title && <h2 class="font-display text-2xl md:text-3xl font-semibold mb-3 text-gray-900 dark:text-gray-50">{title}</h2>}
+ {subtitle && <p class="text-gray-600 dark:text-gray-400 mb-6">{subtitle}</p>}
+ <Form id={formId} />
+</section>
+<script>
+ for (const wrapper of document.querySelectorAll<HTMLElement>("[data-native-lead-attribution]")) {
+  const form = wrapper.querySelector<HTMLFormElement>("form[data-ec-form]");
+  if (!form) continue;
+  const values = JSON.parse(wrapper.dataset.nativeLeadAttribution ?? "{}") as Record<string, string>;
+  const populate = () => {
+   for (const input of form.querySelectorAll<HTMLInputElement>('input[type="hidden"]')) {
+    if (Object.hasOwn(values, input.name)) input.value = values[input.name];
+   }
+  };
+  populate();
+  form.addEventListener("submit", populate, { capture: true });
+ }
+</script>
+<style>
+ .native-lead-form :global(.ec-form) {
+  --ec-form-field-radius: 0.5rem;
+  --ec-form-field-border: 1px solid var(--color-border, #d1d5db);
+  --ec-form-field-bg: var(--color-bg-subtle, light-dark(#fff, #111827));
+  --ec-form-field-padding: 0.5rem 0.75rem;
+  --ec-form-submit-bg: var(--color-brand-600, #7c3aed);
+  --ec-form-submit-radius: 0.5rem;
+  --ec-form-submit-padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  color: var(--color-text, inherit);
+ }
+ .native-lead-form :global(.ec-form-label) { font-weight: 500; }
+ .native-lead-form :global(.ec-form-submit) { align-self: flex-start; font-weight: 600; }
+ .native-lead-form :global(.ec-form-checkbox-label) { font-size: 0.75rem; }
+
+ .native-lead-form :global(.ec-form-required) { display: none; }
+ .native-lead-form :global(.ec-form-input[type="checkbox"]) {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: var(--color-brand-600);
+ }
+ .native-lead-form :global(.ec-form-checkbox-label) {
+  align-items: flex-start;
+  color: var(--color-text-secondary);
+ }
+ .native-lead-form :global(.ec-form-input:focus) {
+  outline-color: var(--color-brand-500);
+ }
+</style>

@@ -1,0 +1,2 @@
+export const WIDGET_SDK_VERSION = "1.5.0";
+export const WIDGET_MINIMUM_BOOTSTRAP_VERSION = "1.1.0";

@@ -1,0 +1,97 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"ignoreBinaries": ["tedix", "tsc", "vp", "wrangler"],
+	"ignoreDependencies": ["cloudflare"],
+	"tags": ["-internal"],
+	"workspaces": {
+		".": {
+			"entry": ["scripts/**/*.{ts,mjs}!"],
+			"project": ["scripts/**/*.{ts,mjs}!"]
+		},
+		"apps/*": {
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"src/**/*.mjs!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx,mjs}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			]
+		},
+		"apps/api": {
+			"entry": [
+				"src/worker-app.ts!",
+				"src/workflows/*.ts!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			],
+			"project": ["src/**/*.ts!", "scripts/**/*.{ts,mjs,js}!", "eval/**/*.ts!"],
+			"ignoreFiles": ["src/rpc/public-rest-operations.ts"]
+		},
+		"apps/cms-runtime": {
+			"entry": ["src/emdash-virtual-stubs.ts!", "scripts/**/*.{ts,mjs,js}!"],
+			"project": ["src/**/*.{ts,tsx}!", "scripts/**/*.{ts,mjs,js}!"]
+		},
+		"apps/mcp-ui": {
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"src/pages/**/*.astro!",
+				"src/layouts/**/*.astro!",
+				"scripts/**/*.{ts,mjs,js}!"
+			],
+			"project": ["src/**/*.{ts,tsx,astro}!", "scripts/**/*.{ts,mjs,js}!"]
+		},
+		"apps/os": {
+			"project": ["src/**/*.{ts,tsx}!"],
+			"ignoreDependencies": ["@tedix/design-tokens", "tailwindcss"]
+		},
+		"apps/tedi-runtime": {
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			],
+			"ignoreDependencies": ["@chat-adapter/telegram"]
+		},
+		"packages/*": {
+			"entry": [
+				"src/index.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"conformance/**/*.{ts,mjs,js}!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"conformance/**/*.{ts,mjs,js}!"
+			]
+		},
+		"packages/api-contract": {
+			"entry": ["src/contracts/*.ts!"],
+			"project": ["src/**/*.ts!"]
+		},
+		"packages/installation-manifest": {
+			"entry": ["src/*-cli.ts!"],
+			"project": ["src/**/*.ts!"]
+		},
+		"packages/cli": {
+			"entry": [
+				"src/index.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"conformance/**/*.{ts,mjs,js}!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"conformance/**/*.{ts,mjs,js}!"
+			]
+		}
+	}
+}

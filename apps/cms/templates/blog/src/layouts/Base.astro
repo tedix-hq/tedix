@@ -1,0 +1,914 @@
+---
+import { getMenuWithCacheHint, getSiteSettingsWithCacheHint } from "emdash";
+import {
+	WidgetArea,
+	EmDashHead,
+	EmDashBodyStart,
+	EmDashBodyEnd,
+} from "emdash/ui";
+import { createPublicPageContext } from "emdash/page";
+import LiveSearch from "emdash/ui/search";
+import { Font } from "astro:assets";
+import { resolveBlogSiteIdentity } from "../utils/site-identity";
+import "../styles/tokens.css";
+import "../styles/theme.css";
+
+interface Props {
+	title: string;
+	pageTitle?: string | null;
+	description?: string | null;
+	image?: string | null;
+	canonical?: string | null;
+	robots?: string | null;
+	type?: "website" | "article";
+	publishedTime?: string | null;
+	modifiedTime?: string | null;
+	author?: string | null;
+	/** Pass content reference for plugin page contributions on content pages */
+	content?: { collection: string; id: string; slug?: string | null };
+}
+
+const {
+	title,
+	pageTitle,
+	description,
+	image,
+	canonical,
+	robots,
+	type = "website",
+	publishedTime,
+	modifiedTime,
+	author,
+	content,
+} = Astro.props;
+const [settingsResult, menuResult] = await Promise.all([
+	getSiteSettingsWithCacheHint(),
+	getMenuWithCacheHint("primary"),
+]);
+if (Astro.cache?.enabled) {
+	Astro.cache.set(settingsResult.cacheHint);
+	Astro.cache.set(menuResult.cacheHint);
+}
+
+const { siteTitle, siteTagline, siteLogo } = resolveBlogSiteIdentity(
+	settingsResult.data,
+);
+const titleIncludesSiteName =
+	title === siteTitle ||
+	title.endsWith(` | ${siteTitle}`) ||
+	title.endsWith(` — ${siteTitle}`);
+const fullTitle = titleIncludesSiteName ? title : `${title} — ${siteTitle}`;
+
+const menu = menuResult.data;
+
+// Build public page context for plugin contributions
+// SEO data is passed here and rendered securely by EmDashHead
+const pageCtx = createPublicPageContext({
+	Astro,
+	kind: content ? "content" : "custom",
+	pageType: type,
+	title: fullTitle,
+	pageTitle: pageTitle ?? title,
+	description,
+	canonical,
+	image,
+	content,
+	seo: { ogImage: image, robots },
+	articleMeta: { publishedTime, modifiedTime, author },
+	siteName: siteTitle,
+});
+
+// Check if user is logged in (for showing admin link)
+const isLoggedIn = !!Astro.locals.user;
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<Font cssVariable="--font-body" preload />
+		<Font cssVariable="--font-mono" />
+		<title>{fullTitle}</title>
+		<EmDashHead page={pageCtx} />
+		<link
+			rel="alternate"
+			type="application/rss+xml"
+			title={`${siteTitle} RSS Feed`}
+			href="/rss.xml"
+		/>
+		<script is:inline>
+			// Apply an explicit theme choice immediately to prevent flash.
+			// With no cookie, color-scheme: light dark follows the OS.
+			(function () {
+				var row = document.cookie.split("; ").find(function (item) {
+					return item.startsWith("theme=");
+				});
+				var theme = row ? row.slice(6) : null;
+				if (theme === "dark" || theme === "light") {
+					document.documentElement.classList.add(theme);
+				}
+			})();
+		</script>
+	</head>
+	<body>
+		<EmDashBodyStart page={pageCtx} />
+		<header class="site-header">
+			<nav class="nav">
+				<a href="/" class="site-title">
+					{
+						siteLogo ? (
+							<img
+								src={siteLogo.url}
+								alt={siteLogo.alt || siteTitle}
+								class="site-logo-img"
+							/>
+						) : (
+							siteTitle
+						)
+					}
+				</a>
+				<div class="nav-right">
+					<LiveSearch
+						placeholder="Search..."
+						class="site-search"
+						inputClass="site-search-input"
+						resultsClass="site-search-results"
+						resultClass="site-search-result"
+						collections={["posts", "pages"]}
+					/>
+					<div class="nav-links">
+						{
+							menu?.items.map((item) => (
+								<a
+									href={item.url}
+									target={item.target}
+									rel={
+										item.target === "_blank" ? "noopener noreferrer" : undefined
+									}
+								>
+									{item.label}
+								</a>
+							))
+						}
+					</div>
+				</div>
+				{
+					isLoggedIn && (
+						<a href="/_emdash/admin" class="nav-admin">
+							Admin
+						</a>
+					)
+				}
+			</nav>
+		</header>
+
+		<main>
+			<slot />
+		</main>
+
+		<footer class="site-footer">
+			<div class="footer-inner">
+				<div class="footer-grid">
+					<div class="footer-brand">
+						<a href="/" class="footer-logo">
+							{
+								siteLogo ? (
+									<img
+										src={siteLogo.url}
+										alt={siteLogo.alt || siteTitle}
+										class="footer-logo-img"
+									/>
+								) : (
+									siteTitle
+								)
+							}
+						</a>
+						<p class="footer-tagline">{siteTagline}</p>
+					</div>
+					<div class="footer-nav">
+						<h2 class="footer-heading">Navigate</h2>
+						<ul class="footer-links">
+							{
+								menu?.items.map((item) => (
+									<li>
+										<a
+											href={item.url}
+											target={item.target}
+											rel={
+												item.target === "_blank"
+													? "noopener noreferrer"
+													: undefined
+											}
+										>
+											{item.label}
+										</a>
+									</li>
+								))
+							}
+						</ul>
+					</div>
+					<div class="footer-nav">
+						<h2 class="footer-heading">Connect</h2>
+						<ul class="footer-links">
+							<li><a href="/rss.xml">RSS Feed</a></li>
+						</ul>
+					</div>
+					<div class="footer-widgets-section">
+						<WidgetArea name="footer" />
+					</div>
+				</div>
+				<div class="footer-bottom">
+					<p class="footer-copyright">
+						Powered by <a href="https://emdashcms.com">EmDash</a>
+					</p>
+					<div class="theme-switcher">
+						<button
+							type="button"
+							class="theme-btn"
+							data-theme="light"
+							aria-label="Light mode"
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								><circle cx="12" cy="12" r="5"></circle><line
+									x1="12"
+									y1="1"
+									x2="12"
+									y2="3"></line><line x1="12" y1="21" x2="12" y2="23"
+								></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"
+								></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"
+								></line><line x1="1" y1="12" x2="3" y2="12"></line><line
+									x1="21"
+									y1="12"
+									x2="23"
+									y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"
+								></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"
+								></line></svg
+							>
+						</button>
+						<button
+							type="button"
+							class="theme-btn"
+							data-theme="dark"
+							aria-label="Dark mode"
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+								></path></svg
+							>
+						</button>
+						<button
+							type="button"
+							class="theme-btn"
+							data-theme="system"
+							aria-label="System theme"
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								><rect x="2" y="3" width="20" height="14" rx="2" ry="2"
+								></rect><line x1="8" y1="21" x2="16" y2="21"></line><line
+									x1="12"
+									y1="17"
+									x2="12"
+									y2="21"></line></svg
+							>
+						</button>
+					</div>
+				</div>
+			</div>
+		</footer>
+
+		<script>
+			// Theme switcher
+			const themeBtns =
+				document.querySelectorAll<HTMLButtonElement>(".theme-btn");
+			const root = document.documentElement;
+
+			function setCookie(
+				name: string,
+				value: string,
+				maxAge: number = 31536000,
+			) {
+				const secure = location.protocol === "https:" ? "; Secure" : "";
+				if (value === "") {
+					document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax${secure}`;
+				} else {
+					document.cookie = `${name}=${value}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`;
+				}
+			}
+
+			function setTheme(theme: string) {
+				if (theme === "system") {
+					setCookie("theme", "");
+					root.classList.remove("light", "dark");
+				} else {
+					setCookie("theme", theme);
+					root.classList.remove("light", "dark");
+					root.classList.add(theme);
+				}
+				updateActiveBtn(theme);
+			}
+
+			function updateActiveBtn(theme: string) {
+				themeBtns.forEach((btn) => {
+					const active = btn.dataset.theme === theme;
+					btn.classList.toggle("active", active);
+					btn.setAttribute("aria-pressed", String(active));
+				});
+			}
+
+			function getStoredTheme(): string {
+				const row = document.cookie
+					.split("; ")
+					.find((item) => item.startsWith("theme="));
+				return row?.slice(6) || "system";
+			}
+
+			// Initialize
+			const storedTheme = getStoredTheme();
+			setTheme(storedTheme);
+
+			themeBtns.forEach((btn) => {
+				btn.addEventListener("click", () => {
+					setTheme(btn.dataset.theme || "system");
+				});
+			});
+		</script>
+
+		<style is:global>
+			/*
+			 * Establish layer order: "base" has lower priority than unlayered
+			 * styles, so theme.css overrides always win regardless of source
+			 * order in the bundled CSS.
+			 */
+			@layer base;
+
+			@layer base {
+				*:where(:not([class*="emdash"]):not([class*="ec-"])),
+				*:where(:not([class*="emdash"]):not([class*="ec-"]))::before,
+				*:where(:not([class*="emdash"]):not([class*="ec-"]))::after {
+					box-sizing: border-box;
+				}
+
+				body,
+				h1,
+				h2,
+				h3,
+				h4,
+				h5,
+				h6,
+				p,
+				ul,
+				ol,
+				figure,
+				blockquote,
+				dl,
+				dd {
+					margin: 0;
+				}
+
+				ul,
+				ol {
+					padding: 0;
+				}
+
+				/*
+				 * Design tokens live in src/styles/tokens.css. Colors are
+				 * defined with light-dark(); these rules pin the scheme when
+				 * the footer switcher sets an explicit choice. With no class,
+				 * color-scheme: light dark follows the OS preference. The
+				 * @supports guard keeps the toggle from forcing dark UA form
+				 * controls on browsers stuck on the plain-light fallback.
+				 */
+				@supports (color: light-dark(#000, #fff)) {
+					:root.light {
+						color-scheme: light;
+					}
+
+					:root.dark {
+						color-scheme: dark;
+					}
+				}
+
+				html {
+					scroll-behavior: smooth;
+				}
+
+				body {
+					font-family: var(--font-body);
+					font-size: var(--font-size-base);
+					line-height: var(--leading-relaxed);
+					color: var(--color-text);
+					background: var(--color-bg);
+					-webkit-font-smoothing: antialiased;
+					-moz-osx-font-smoothing: grayscale;
+					min-height: 100vh;
+				}
+
+				a:where(:not([class*="emdash"]):not([class*="ec-"])) {
+					color: var(--color-brand);
+					text-decoration: none;
+					transition: color var(--transition-fast);
+				}
+
+				a:where(:not([class*="emdash"]):not([class*="ec-"])):hover {
+					color: var(--color-brand-hover);
+				}
+
+				img {
+					max-width: 100%;
+					height: auto;
+					display: block;
+				}
+
+				h1,
+				h2,
+				h3,
+				h4,
+				h5,
+				h6 {
+					font-family: var(--font-heading);
+					line-height: var(--leading-tight);
+					font-weight: var(--font-weight-heading);
+					letter-spacing: var(--tracking-snug);
+				}
+
+				h1 {
+					font-weight: var(--font-weight-display);
+					letter-spacing: var(--tracking-tight);
+				}
+
+				::selection {
+					background: var(--color-brand);
+					color: var(--color-on-brand);
+				}
+			}
+		</style>
+
+		<style>
+			.site-header {
+				position: sticky;
+				top: 0;
+				z-index: 100;
+				background: color-mix(in srgb, var(--color-bg) 65%, transparent);
+				backdrop-filter: blur(12px);
+				-webkit-backdrop-filter: blur(12px);
+				border-bottom: 1px solid var(--color-border-subtle);
+			}
+
+			.nav {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-4) var(--spacing-6);
+				height: var(--nav-height);
+			}
+
+			.site-title {
+				font-size: var(--font-size-lg);
+				font-weight: 600;
+				color: var(--color-text);
+				text-decoration: none;
+				letter-spacing: var(--tracking-snug);
+			}
+
+			.site-title:hover {
+				color: var(--color-brand);
+			}
+
+			.site-logo-img {
+				height: 48px;
+				width: auto;
+				display: block;
+				margin: -8px 0;
+			}
+
+			.nav-right {
+				display: flex;
+				align-items: center;
+				gap: var(--spacing-6);
+				margin-inline-start: auto;
+			}
+
+			.nav-links {
+				display: flex;
+				gap: var(--spacing-5);
+				font-size: var(--font-size-sm);
+			}
+
+			.nav-links a {
+				text-decoration: none;
+				color: var(--color-text);
+				transition: color var(--transition-fast);
+			}
+
+			.nav-links a:hover {
+				color: var(--color-brand);
+			}
+
+			.nav-admin {
+				font-size: var(--font-size-sm);
+				color: var(--color-text-secondary);
+				text-decoration: none;
+				transition: color var(--transition-fast);
+			}
+
+			.nav-admin:hover {
+				color: var(--color-text);
+			}
+
+			/* Search styling */
+			.site-search {
+				position: relative;
+				width: var(--search-input-width);
+				--emdash-search-border-focus: var(--color-brand);
+			}
+
+			:global(.site-search-input) {
+				width: var(--search-input-width);
+				padding: var(--spacing-2) var(--spacing-3);
+				font-family: var(--font-body);
+				font-size: var(--font-size-sm);
+				border: 1px solid var(--color-border);
+				border-radius: var(--radius);
+				background: var(--color-bg);
+				color: var(--color-text);
+				transition:
+					border-color var(--transition-fast),
+					box-shadow var(--transition-fast);
+			}
+
+			:global(.site-search-input)::placeholder {
+				color: var(--color-muted);
+			}
+
+			:global(.site-search-input):focus,
+			:global(.site-search-input):focus-visible {
+				outline: none;
+				border-color: var(--color-brand) !important;
+				box-shadow: 0 0 0 3px var(--color-brand-ring);
+			}
+
+			:global(.site-search-results) {
+				position: absolute;
+				top: 100%;
+				left: 0;
+				right: 0;
+				margin-top: var(--spacing-2);
+				background: var(--color-bg);
+				border: 1px solid var(--color-border);
+				border-radius: var(--radius-lg);
+				box-shadow: var(--shadow-lg);
+				max-height: 400px;
+				overflow-y: auto;
+				z-index: 1000;
+			}
+
+			:global(.site-search-results .emdash-live-search-loading),
+			:global(.site-search-results .emdash-live-search-no-results) {
+				padding: var(--spacing-4);
+				text-align: center;
+				color: var(--color-muted);
+				font-size: var(--font-size-sm);
+			}
+
+			:global(.site-search-result) {
+				display: block;
+				padding: var(--spacing-3) var(--spacing-4);
+				text-decoration: none;
+				color: var(--color-text);
+				border-bottom: 1px solid var(--color-border-subtle);
+				transition: background var(--transition-fast);
+			}
+
+			:global(.site-search-result):last-child {
+				border-bottom: none;
+			}
+
+			:global(.site-search-result):hover,
+			:global(.site-search-result):focus,
+			:global(.site-search-result.focused) {
+				background: var(--color-surface);
+				outline: none;
+			}
+
+			:global(.site-search-result .emdash-live-search-result-title) {
+				display: block;
+				font-weight: 500;
+				font-size: var(--font-size-sm);
+			}
+
+			:global(.site-search-result .emdash-live-search-result-collection) {
+				display: block;
+				font-size: var(--font-size-xs);
+				color: var(--color-muted);
+				text-transform: uppercase;
+				letter-spacing: var(--tracking-wide);
+				margin-top: 2px;
+			}
+
+			:global(.site-search-result .emdash-live-search-result-snippet) {
+				display: block;
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+				margin-top: var(--spacing-1);
+				line-height: var(--leading-snug);
+			}
+
+			:global(.site-search-result .emdash-live-search-result-snippet mark) {
+				font-weight: 600;
+				color: var(--color-text);
+			}
+
+			main {
+				min-height: calc(100vh - var(--nav-height) - 300px);
+			}
+
+			/* Footer */
+			.site-footer {
+				background: var(--color-bg-subtle);
+				border-top: 1px solid var(--color-border-subtle);
+			}
+
+			.footer-inner {
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-16) var(--spacing-6) var(--spacing-8);
+			}
+
+			.footer-grid {
+				display: grid;
+				grid-template-columns: 2fr 1fr 1fr 1fr;
+				gap: var(--spacing-12);
+				margin-bottom: var(--spacing-12);
+			}
+
+			.footer-brand {
+				max-width: 280px;
+			}
+
+			.footer-logo {
+				font-size: var(--font-size-lg);
+				font-weight: 600;
+				color: var(--color-text);
+				text-decoration: none;
+				letter-spacing: var(--tracking-snug);
+			}
+
+			.footer-logo-img {
+				height: 24px;
+				width: auto;
+			}
+
+			.footer-tagline {
+				margin-top: var(--spacing-3);
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+				line-height: var(--leading-relaxed);
+			}
+
+			.footer-nav {
+				min-width: 0;
+			}
+
+			.footer-heading {
+				font-size: var(--font-size-xs);
+				font-weight: 500;
+				text-transform: uppercase;
+				letter-spacing: var(--tracking-wider);
+				color: var(--color-muted);
+				margin-bottom: var(--spacing-4);
+			}
+
+			.footer-links {
+				list-style: none;
+			}
+
+			.footer-links li {
+				margin-bottom: var(--spacing-2);
+			}
+
+			.footer-links a {
+				color: var(--color-text-secondary);
+				text-decoration: none;
+				font-size: var(--font-size-sm);
+				transition: color var(--transition-fast);
+			}
+
+			.footer-links a:hover {
+				color: var(--color-text);
+			}
+
+			.footer-widgets-section :global(.widget-area) {
+				display: block;
+			}
+
+			.footer-widgets-section :global(.widget) {
+				color: var(--color-text-secondary);
+			}
+
+			.footer-widgets-section :global(.widget__title) {
+				font-size: var(--font-size-xs);
+				font-weight: 500;
+				text-transform: uppercase;
+				letter-spacing: var(--tracking-wider);
+				color: var(--color-muted);
+				margin-bottom: var(--spacing-4);
+			}
+
+			.footer-widgets-section :global(.widget__content) {
+				color: var(--color-text-secondary);
+				font-size: var(--font-size-sm);
+				line-height: var(--leading-relaxed);
+			}
+
+			.footer-bottom {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding-top: var(--spacing-6);
+				border-top: 1px solid var(--color-border);
+			}
+
+			.footer-copyright {
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+			}
+
+			.footer-copyright a {
+				color: var(--color-text-secondary);
+			}
+
+			/* Theme switcher */
+			.theme-switcher {
+				display: flex;
+				gap: var(--spacing-1);
+				padding: var(--spacing-1);
+				background: var(--color-surface);
+				border-radius: var(--radius);
+			}
+
+			.theme-btn {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				width: 32px;
+				height: 28px;
+				background: transparent;
+				border: none;
+				color: var(--color-muted);
+				border-radius: var(--radius);
+				cursor: pointer;
+				transition: all var(--transition-fast);
+			}
+
+			.theme-btn:hover {
+				color: var(--color-text-secondary);
+			}
+
+			.theme-btn.active {
+				background: var(--color-bg);
+				color: var(--color-text);
+				box-shadow: var(--shadow-sm);
+			}
+
+			.theme-btn svg {
+				width: 16px;
+				height: 16px;
+			}
+
+			@media (max-width: 900px) {
+				.footer-grid {
+					grid-template-columns: 1fr 1fr;
+					gap: var(--spacing-8);
+				}
+
+				.footer-brand {
+					grid-column: span 2;
+					max-width: none;
+				}
+			}
+
+			@media (max-width: 640px) {
+				.site-header {
+					position: relative;
+					border-bottom: none;
+				}
+
+				.nav {
+					display: grid;
+					grid-template-columns: minmax(0, 1fr) auto;
+					align-items: center;
+					height: auto;
+					column-gap: var(--spacing-3);
+					row-gap: var(--spacing-2);
+					padding: var(--spacing-3) var(--spacing-4);
+				}
+
+				.site-title {
+					grid-column: 1;
+					grid-row: 1;
+					font-size: var(--font-size-base);
+					min-width: 0;
+				}
+
+				.nav-right {
+					grid-column: 1 / -1;
+					grid-row: 2;
+					display: grid;
+					row-gap: var(--spacing-2);
+				}
+
+				.site-search {
+					grid-column: 1;
+					width: 100%;
+					max-width: none;
+				}
+
+				:global(.site-search-input) {
+					width: 100% !important;
+					padding: var(--spacing-1) var(--spacing-2) !important;
+					font-size: var(--font-size-sm) !important;
+				}
+
+				.nav-links {
+					grid-column: 1;
+					display: flex;
+					column-gap: var(--spacing-3);
+					row-gap: var(--spacing-1);
+					flex-wrap: wrap;
+					justify-content: flex-start;
+				}
+
+				.nav-admin {
+					grid-column: 2;
+					grid-row: 1;
+					justify-self: end;
+					font-size: var(--font-size-xs);
+					margin-inline-start: 0;
+					white-space: nowrap;
+				}
+
+				.footer-grid {
+					grid-template-columns: 1fr;
+				}
+
+				.footer-brand {
+					grid-column: span 1;
+				}
+
+				.footer-bottom {
+					flex-direction: column;
+					gap: var(--spacing-4);
+					text-align: center;
+				}
+
+				.footer-controls {
+					flex-wrap: wrap;
+					justify-content: center;
+				}
+			}
+		</style>
+
+		<script>
+			// ⌘K / Ctrl+K to focus search
+			document.addEventListener("keydown", (e) => {
+				if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+					e.preventDefault();
+					const searchInput = document.querySelector(
+						".site-search-input",
+					) as HTMLInputElement;
+					if (searchInput) {
+						searchInput.focus();
+					}
+				}
+			});
+		</script>
+		<EmDashBodyEnd page={pageCtx} />
+	</body>
+</html>

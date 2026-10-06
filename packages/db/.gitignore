@@ -1,0 +1,6 @@
+# App-specific ignores (root .gitignore covers most patterns)
+
+# Drizzle snapshots and Wrangler migrations are checked in release artifacts.
+
+# Studio
+.studio/

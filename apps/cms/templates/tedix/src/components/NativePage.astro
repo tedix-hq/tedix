@@ -1,0 +1,44 @@
+---
+import { Blocks, defineBlockComponents } from "emdash/ui";
+import NativePageBlock from "./NativePageBlock.astro";
+
+type NativeType =
+	| "marketing_prose"
+	| "marketing_hero"
+	| "marketing_logo_strip"
+	| "marketing_features"
+	| "marketing_stats"
+	| "marketing_cta"
+	| "marketing_text_with_image"
+	| "marketing_testimonials"
+	| "marketing_pricing"
+	| "marketing_faq";
+
+type NativeBlock = {
+	[Type in NativeType]: Record<string, unknown> & {
+		_type: Type;
+		_version: number;
+		_key: string;
+	};
+}[NativeType];
+
+interface Props {
+	value?: NativeBlock[] | null;
+}
+
+const { value } = Astro.props;
+const components = defineBlockComponents<NativeBlock>({
+	marketing_prose: NativePageBlock,
+	marketing_hero: NativePageBlock,
+	marketing_logo_strip: NativePageBlock,
+	marketing_features: NativePageBlock,
+	marketing_stats: NativePageBlock,
+	marketing_cta: NativePageBlock,
+	marketing_text_with_image: NativePageBlock,
+	marketing_testimonials: NativePageBlock,
+	marketing_pricing: NativePageBlock,
+	marketing_faq: NativePageBlock,
+});
+---
+
+<Blocks {value} {components} />

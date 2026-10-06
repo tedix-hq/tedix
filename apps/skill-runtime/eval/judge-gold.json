@@ -1,0 +1,170 @@
+[
+	{
+		"id": "g2",
+		"source": "production_derived",
+		"claim": "As of June 22, the Aerocool Split Mini is frequently sold out in online retail due to",
+		"passage": "Shoppers looking for the Aerocool Split Mini have had little luck this week. As of June 22, the unit is frequently sold out in online retail because demand is so high. Where it is still listed, marketplace sellers ask between 750 and 800 Euro. The Kaufhalle chain had advertised the unit in its weekly flyer. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage states the exact product is often sold out due to high demand",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g3",
+		"source": "production_derived",
+		"claim": "The Split Mini is a stripped-down variant priced 300 EUR below the regular",
+		"passage": "Portable air conditioners pull warm air in through gaps around doors and windows. They also release extra heat through their exhaust hose. Fixed split systems avoid this problem but need costly installation by certified technicians. Landlords rarely allow fixed units in rented flats, which is why hybrid designs such as the Split Mini have become popular. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "extrapolatory",
+		"why": "passage describes the product category; never states the 300 EUR price gap",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g8",
+		"source": "production_derived",
+		"claim": "The first heat wave of the year is gripping Valdria, creating demand for air conditionin",
+		"passage": "It is hot again across Valdria as the first heat wave of the year takes hold. As temperatures climb, interest in air conditioners rises too, and many models are already sold out. We scanned the market and show where affordable portable units are still available. Every device in this list was in stock at the time of writing. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage: heat wave grips Valdria AND interest in ACs rises, many sold out",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g10",
+		"source": "production_derived",
+		"claim": "By June 26, panic buying during the ongoing heat w",
+		"passage": "The ongoing heat has triggered a rush on electronics stores across the region. By June 26, shop staff reported that panic buying had left almost no fans or portable air conditioners on the shelves. One store manager said a delivery of forty units sold out within an hour. Retailers expect new stock only in the second half of July. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage: ongoing heat causes a rush on electronics stores; almost none left",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g11",
+		"source": "production_derived",
+		"claim": "The historic heat wave in late June and early July",
+		"passage": "Record-breaking temperatures pushed residents of the capital into the shade last week. Manufacturers say the historic heat wave in late June and early July is the worst on record and is driving unprecedented demand for air conditioning. Factories have added extra shifts to keep up with orders. Analysts expect the surge to lift quarterly revenue for the largest producers. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage verbatim: worst-ever heat wave driving unprecedented AC demand",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g13",
+		"source": "production_derived",
+		"claim": "A new heat dome was predicted to persist over southwest",
+		"passage": "Forecasters expect tropical nights and daytime highs above 35C this weekend. The national weather service says a new heat dome will persist over the southwest of the country, with temperatures between 30 and 35 degrees. The north will stay cooler, with highs in the mid-twenties. Wildfire risk remains elevated in the dry southern valleys. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage states the heat dome persisting over the southwest at 30-35C",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g16",
+		"source": "production_derived",
+		"claim": "Kaufhalle advertised the Aerocool Split Mini at a promotional price of 599 EUR, cr",
+		"passage": "The Aerocool Split Mini was supposed to be available at Kaufhalle last week for around 599 Euro. Kaufhalle advertised it at that promotional price, but demand was so high that availability was severely limited. Many interested buyers came away empty-handed. The chain has not said when it will be restocked. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage states the Kaufhalle ~599 EUR offer and that demand is high",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g17",
+		"source": "production_derived",
+		"claim": "The product was supposed to be available at Kaufhalle last week (mid-June) at 5",
+		"passage": "Updated June 22. The Aerocool Split Mini was supposed to be available at Kaufhalle last week, in mid-June, for around 599 Euro. In practice, buying one has proved much harder. Demand is high, availability is limited and many buyers missed out. We list alternatives below. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage states the product was to be at Kaufhalle last week at ~599 EUR",
+		"judgeSaidOnOverspecifiedClaim": "extrapolatory"
+	},
+	{
+		"id": "g18",
+		"source": "production_derived",
+		"claim": "In late June, Valdria experienced an unprecedented",
+		"passage": "Conditions that began to develop during May's heatwave continued into June. Globally, June was the second-warmest in the reanalysis record, 0.56C above the thirty-year average for the month. The average temperature over the continent's land area was the second-highest on record for June. The western coastal region was the most affected by the heat. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "extrapolatory",
+		"why": "passage is about the continent/global June; does not state Valdria",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g19",
+		"source": "production_derived",
+		"claim": "As of July 3, Marktwerk was selling the unit at 1,997 Euro (122% markup over",
+		"passage": "The Aerocool Split Mini is back in the Kaufhalle online shop at 699 Euro. That is 100 Euro more than the flyer price from June. Kaufhalle limits orders to one unit per customer. Delivery is quoted at two to three weeks. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "extrapolatory",
+		"why": "passage covers the Kaufhalle 699 EUR price; no Marktwerk 1,997 EUR markup",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g20",
+		"source": "production_derived",
+		"claim": "On July 2, Elektrohaus raised prices to 2,499 Euro (150% markup), i",
+		"passage": "The Aerocool Split Mini is back in the Kaufhalle online shop at 699 Euro. That is 100 Euro more than the flyer price from June. Kaufhalle limits orders to one unit per customer. Delivery is quoted at two to three weeks. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "extrapolatory",
+		"why": "same passage; no Elektrohaus 2,499 EUR price",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g22",
+		"source": "production_derived",
+		"claim": "Extreme temperature forecasts up to 40°C for the weekend of June 23-28 drove u",
+		"passage": "Where can you still buy an Aerocool Split Mini? Only a few days after the heatwave began, the unit was sold out across the country. Retailers report that customers bought every portable cooler they could find. Some shops have started waiting lists. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage: product sold out across the country days after the heatwave began",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g24",
+		"source": "production_derived",
+		"claim": "The historic nature of the June heatwave in Valdria",
+		"passage": "On 28 June, Valdria's all-time temperature record was broken for the third consecutive day, with 41.7C measured near the eastern border. The previous national record had stood for more than twenty years. Several weather stations recorded their highest readings since measurements began. Authorities issued the highest heat warning level for six provinces. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage: all-time high broken 3 days running, 41.7C — historic, in Valdria",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g26",
+		"source": "production_derived",
+		"claim": "The rapid growth in AC ownership from 13% to 19% in just",
+		"passage": "The idea of buying an air conditioner had been on her mind since a record-breaking summer four years ago. She finally bought a portable cooling unit the following year. This, she says, is how she survived the next two summers. Her neighbours have since asked to borrow it on the hottest nights. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "extrapolatory",
+		"why": "passage is a personal anecdote; no 13%->19% ownership statistic",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g27",
+		"source": "production_derived",
+		"claim": "The 129 GWh increase in daily electricity consumption du",
+		"passage": "Daily electricity consumption in Valdria rose from 1,267 GWh on 11 June to 1,396 GWh on 25 June. A neighbouring country recorded an even larger increase over the same period. Although the increases varied between countries, the overall pattern was clear. Hotter weather translated into higher electricity consumption. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage: 1,267 GWh -> 1,396 GWh = exactly the 129 GWh increase claimed",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "g29",
+		"source": "production_derived",
+		"claim": "High demand has created constant stock shortages, allowing retailers to charge",
+		"passage": "July 10. The Aerocool Split Mini remains one of the most sought-after appliances of the summer. High demand has created constant stock shortages, and retailers are charging well above the list price where they have units at all. Buyers who wait for a restock may pay less. Readers can find the full product table further down this page. Prices were checked by the editorial team on the morning of publication. Some links on this page are affiliate links; the price for buyers does not change. The editorial team tests cooling devices in a standard 20 square metre room. Noise levels were measured at one metre from the unit on its highest setting. Energy figures come from the manufacturers' own data sheets. Delivery times vary by region and may change without notice. Our comparison is updated whenever a retailer changes its listing. Comments on this article are moderated before they appear",
+		"goldLabel": "attributable",
+		"why": "passage states high demand causing shortages and price premiums",
+		"judgeSaidOnOverspecifiedClaim": "entailment_unavailable"
+	},
+	{
+		"id": "c1",
+		"source": "control",
+		"claim": "The heatwave drove the 41% jump in Cooling Tower 3000 sales.",
+		"passage": "# Why the Cooling Tower 3000 is selling out\n\nDemand for the Cooling Tower 3000 surged this week as the heatwave drove shoppers to buy portable cooling. The retailer attributes the 41% jump in volume directly to the record temperatures across Southern Europe.",
+		"goldLabel": "attributable",
+		"why": "the passage asserts the causal link explicitly"
+	},
+	{
+		"id": "c2",
+		"source": "control",
+		"claim": "The heatwave drove the 41% jump in Cooling Tower 3000 sales.",
+		"passage": "# Fan sales weekly\n\nRetail data for week 28 shows the Cooling Tower 3000 climbing to #2 in the category. Unit volume rose 41% week over week.\n\n## Elsewhere in the news\n\nMeteorologists confirmed last week was the hottest on record in Southern Europe, with a heatwave affecting Spain and Italy.",
+		"goldLabel": "extrapolatory",
+		"why": "THE case this system exists for: page reports the rise, separately mentions the heatwave, never links them"
+	},
+	{
+		"id": "c3",
+		"source": "control",
+		"claim": "The heatwave drove the 41% jump in Cooling Tower 3000 sales.",
+		"passage": "# Cooling Tower 3000: the numbers don't add up\n\nDespite the heatwave, Cooling Tower 3000 volume FELL 12% week over week. The retailer says the heat had no measurable effect on sales of this model.",
+		"goldLabel": "contradictory",
+		"why": "the passage asserts the opposite of the claim"
+	}
+]

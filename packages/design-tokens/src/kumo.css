@@ -1,0 +1,529 @@
+/*
+ * Shared product typography for Kumo-backed Tedix applications. Explicit
+ * semantic sizes keep product copy stable when Kumo or Tailwind changes its
+ * defaults.
+ */
+@theme {
+	--font-sans:
+		"FT Kunst Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+		"Helvetica Neue", sans-serif;
+	--font-mono: "Apercu Mono Pro", "SF Mono", Menlo, Monaco, Consolas, monospace;
+	--text-tedix-caption: 0.6875rem;
+	--text-tedix-caption--line-height: 1rem;
+	--text-tedix-label: 0.75rem;
+	--text-tedix-label--line-height: 1rem;
+	--text-tedix-control: 0.8125rem;
+	--text-tedix-control--line-height: 1.125rem;
+	--text-tedix-body: 0.875rem;
+	--text-tedix-body--line-height: 1.25rem;
+	--text-tedix-section: 1rem;
+	--text-tedix-section--line-height: 1.375rem;
+	--text-tedix-dialog: 1.125rem;
+	--text-tedix-dialog--line-height: 1.5rem;
+	/*
+	 * Page-title and metric roles extend the scale above `dialog`.
+	 */
+	--text-tedix-title: 1.25rem;
+	--text-tedix-title--line-height: 1.75rem;
+	--text-tedix-title-sm: 1.5rem;
+	--text-tedix-title-sm--line-height: 2rem;
+	--text-tedix-metric: 1.5rem;
+	--text-tedix-metric--line-height: 2rem;
+	/* Controls answer immediately; overlays may take one beat. */
+	--ease-tedix-standard: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease-tedix-enter: cubic-bezier(0.23, 1, 0.32, 1);
+	--duration-tedix-fast: 100ms;
+	--duration-tedix-standard: 150ms;
+	--duration-tedix-structural: 200ms;
+	/* Elevation is semantic, not a decorative card treatment. */
+	--shadow-tedix-raised: 0 1px 2px var(--color-kumo-shadow-drop);
+	--shadow-tedix-floating:
+		0 4px 12px var(--color-kumo-shadow-drop),
+		0 1px 2px var(--color-kumo-shadow-edge);
+	--shadow-tedix-overlay:
+		0 14px 32px var(--color-kumo-shadow-drop),
+		0 4px 12px var(--color-kumo-shadow-edge);
+	--shadow-tedix-drawer: 16px 0 40px var(--color-kumo-shadow-drop);
+	--shadow-tedix-drawer-left: -16px 0 40px var(--color-kumo-shadow-drop);
+}
+
+/*
+ * Native form controls inherit the browser reset after Kumo's package
+ * utilities. These unambiguous role classes keep the semantic type scale from
+ * being confused with `text-*` color utilities by tailwind-merge, and the
+ * important declarations win only the native-control font reset.
+ */
+.type-tedix-caption {
+	font-size: var(--text-tedix-caption) !important;
+	line-height: var(--text-tedix-caption--line-height) !important;
+}
+
+.type-tedix-label {
+	font-size: var(--text-tedix-label) !important;
+	line-height: var(--text-tedix-label--line-height) !important;
+}
+
+.type-tedix-control {
+	font-size: var(--text-tedix-control) !important;
+	line-height: var(--text-tedix-control--line-height) !important;
+}
+
+.type-tedix-body {
+	font-size: var(--text-tedix-body) !important;
+	line-height: var(--text-tedix-body--line-height) !important;
+}
+
+.type-tedix-section {
+	font-size: var(--text-tedix-section) !important;
+	line-height: var(--text-tedix-section--line-height) !important;
+}
+
+.type-tedix-dialog {
+	font-size: var(--text-tedix-dialog) !important;
+	line-height: var(--text-tedix-dialog--line-height) !important;
+}
+
+/*
+ * A page title steps up at the small breakpoint. The responsive step belongs to
+ * the role rather than to each caller.
+ */
+.type-tedix-title {
+	font-size: var(--text-tedix-title) !important;
+	line-height: var(--text-tedix-title--line-height) !important;
+}
+
+@media (min-width: 40rem) {
+	.type-tedix-title {
+		font-size: var(--text-tedix-title-sm) !important;
+		line-height: var(--text-tedix-title-sm--line-height) !important;
+	}
+}
+
+/*
+ * The number in a stat tile. Shares `title`'s small-breakpoint value today but
+ * is a separate role because it answers a different question — a metric is read
+ * as data, a title as position — and the two are free to diverge.
+ */
+.type-tedix-metric {
+	font-size: var(--text-tedix-metric) !important;
+	line-height: var(--text-tedix-metric--line-height) !important;
+}
+
+/*
+ * Stacking contract. Every surface that leaves the document flow declares its
+ * layer from this ladder instead of a literal — an uncommented `z-[1100]` is a
+ * number nobody can safely change later.
+ *
+ * Two rungs are anchors Tedix does not own: Kumo's Sidebar is hardcoded to
+ * `z-40`, and its toast stack to `calc(1000 - var(--toast-index))`. The
+ * immersive layer is derived from the toast anchor so the one surface that must
+ * cover a toast cannot drift below it.
+ *
+ * WHERE the layer goes matters as much as its value. Base UI positions an
+ * anchored popup with `transform: translate(...)` on the POSITIONER (and adds
+ * `will-change: transform` above 1.5x DPR), so the positioner is a stacking
+ * context and a z-index on the popup inside it can only order siblings within
+ * that popup. Put the layer on the portal's positioner, never on the popup.
+ *
+ * In-flow sticky chrome — a table header, a scroller toolbar — is deliberately
+ * absent from this ladder. It competes only inside its own scroller's stacking
+ * context, so a small local `z-10` is correct there.
+ *
+ * CURRENT WIRING (keep honest as adapters adopt rungs):
+ *   overlay   — Sheet backdrop + popup only. Dialog carries no z-index yet.
+ *   dropdown  — Select positioner only. Popover and dropdown-menu carry none.
+ *   tooltip   — Tooltip positioner.
+ *   toast     — read-only mirror of Kumo's anchor; nothing in Tedix applies it.
+ *   immersive — reserved, no consumer yet.
+ */
+:root,
+[data-theme="tedix"] {
+	--tedix-layer-overlay: 100;
+	--tedix-layer-dropdown: 200;
+	--tedix-layer-tooltip: 300;
+	--tedix-layer-toast: 1000;
+	--tedix-layer-immersive: calc(var(--tedix-layer-toast) + 100);
+}
+
+/*
+ * Tedix owns the product palette. Kumo owns component behavior and consumes
+ * these semantic projections instead of its default palette.
+ *
+ * Accent discipline (reference design language): the brand accent is reserved
+ * for *intent* — links, focus, active nav, selection, and the primary action.
+ * Kumo's shared brand token and Tedix's emphasis-action token therefore resolve
+ * from the same tenant-owned accent instead of creating a second action hue.
+ *
+ * Kumo registers its defaults through Tailwind's unlayered @theme output.
+ * Keep these projections unlayered too so the Tedix theme wins the cascade.
+ */
+:root,
+[data-theme="tedix"] {
+	/* Mix status hues toward the current foreground for readable light/dark text. */
+	--tedix-status-info: color-mix(
+		in oklch,
+		var(--accent-bluetron) 75%,
+		var(--foreground)
+	);
+	--tedix-status-success: color-mix(
+		in oklch,
+		var(--accent-forest) 60%,
+		var(--foreground)
+	);
+	--tedix-status-danger: color-mix(
+		in oklch,
+		var(--destructive) 80%,
+		var(--foreground)
+	);
+	--tedix-status-warning: color-mix(
+		in oklch,
+		var(--accent-honey) 55%,
+		var(--foreground)
+	);
+	/*
+	 * Organization themes validate accent against background at 4.5:1 and derive
+	 * --primary-foreground from that same background. The Button adapter pairs
+	 * these two tokens, so tenant accent remains visible without assuming that a
+	 * forced-white label will contrast with every valid light or dark palette.
+	 */
+	--tedix-action-primary: var(--primary);
+	--tedix-action-danger: color-mix(
+		in oklch,
+		var(--destructive) 70%,
+		light-dark(var(--foreground), var(--background))
+	);
+	/*
+	 * Document outputs intentionally retain a paper canvas in either shell
+	 * mode. Derive its fixed polarity from Tedix theme tokens so editor and
+	 * preview stay readable without raw white/slate utilities. Inline author
+	 * colors still win over these inherited defaults.
+	 */
+	/*
+	 * Documents and sheets share one paper token. It is deliberately not a
+	 * light-dark() pair: the sheet
+	 * page renders inside `color-scheme: light`, where light-dark() would take
+	 * the light branch -- var(--card), which is #0f0f0f in a dark shell -- and
+	 * turn the sheet black.
+	 */
+	--tedix-paper: #ffffff;
+	--tedix-document-paper: light-dark(var(--card), var(--tedix-paper));
+	--tedix-document-ink: light-dark(var(--foreground), var(--background));
+	--tedix-document-link: color-mix(
+		in oklch,
+		var(--primary) 65%,
+		var(--tedix-document-ink)
+	);
+	--tedix-document-rule: color-mix(
+		in srgb,
+		var(--tedix-document-ink) 18%,
+		transparent
+	);
+	--tedix-document-code-bg: var(--tedix-document-ink);
+	--tedix-document-code-fg: var(--tedix-document-paper);
+	/*
+	 * The desk the page sits on. A fixed-polarity page presented as a card reads
+	 * as a component; presented as a page on a recessed desk it reads as a
+	 * document, which is what it is -- the editor surface is the PDF surface
+	 * (`apps/api/src/lib/os-output-html.ts` renders exports on white with the
+	 * author's stored colours). Both modes step the desk away from the shell
+	 * background so there is a visible ladder -- shell, desk, page -- rather
+	 * than a white rectangle floating on nothing. In dark mode that step has to
+	 * go lighter, not darker: the shell is already near-black, so a darker desk
+	 * is invisible.
+	 */
+	--tedix-desk: light-dark(
+		color-mix(in oklch, var(--background) 93%, var(--foreground)),
+		color-mix(in oklch, var(--background) 88%, var(--foreground))
+	);
+	/*
+	 * Artifact-specific depth, which `docs/product/design.md` reserves for
+	 * document paper, slide canvases, and media frames. `--shadow-tedix-raised`
+	 * is a 1px component lift and is too slight to lift a page off a desk.
+	 */
+	--tedix-document-page-shadow:
+		0 1px 3px color-mix(in srgb, #000000 26%, transparent),
+		0 8px 24px color-mix(in srgb, #000000 14%, transparent);
+	/* Spreadsheet outputs keep an office-style light grid in either shell mode. */
+	--tedix-sheet-paper: var(--tedix-paper);
+	--tedix-sheet-ink: #202124;
+	--tedix-sheet-header: #f8f9fa;
+	--tedix-sheet-rule: #dadce0;
+	--tedix-sheet-muted: #5f6368;
+	--tedix-presentation-stage: light-dark(var(--foreground), var(--background));
+	--tedix-presentation-stage-text: light-dark(
+		var(--background),
+		var(--foreground)
+	);
+	--text-color-kumo-default: var(--foreground);
+	--text-color-kumo-inverse: var(--background);
+	/* Push `strong` one contrast step past `default` so headings read above body copy. */
+	--text-color-kumo-strong: color-mix(
+		in oklch,
+		var(--foreground) 88%,
+		light-dark(#000000, #ffffff)
+	);
+	--text-color-kumo-subtle: var(--muted-foreground);
+	/* Opaque disabled step so it reads the same on every surface. */
+	--text-color-kumo-inactive: color-mix(
+		in oklch,
+		var(--muted-foreground) 55%,
+		var(--background)
+	);
+	/* Placeholder sits one step below subtle so it never reads as real content. */
+	--text-color-kumo-placeholder: color-mix(
+		in oklch,
+		var(--muted-foreground) 70%,
+		var(--background)
+	);
+	--text-color-kumo-brand: var(--primary);
+	--text-color-kumo-link: var(--primary);
+	--text-color-kumo-info: var(--tedix-status-info);
+	--text-color-kumo-success: var(--tedix-status-success);
+	--text-color-kumo-danger: var(--tedix-status-danger);
+	--text-color-kumo-warning: var(--tedix-status-warning);
+	--text-color-kumo-badge-orange-subtle: var(--accent-honey);
+	--text-color-kumo-badge-teal-subtle: var(--accent-forest);
+	--text-color-kumo-badge-neutral-subtle: var(--secondary-foreground);
+	--text-color-kumo-badge-inverted: var(--background);
+
+	--color-kumo-canvas: var(--background);
+	--color-kumo-elevated: var(--background-lighter);
+	--color-kumo-recessed: var(--background-base);
+	--color-kumo-base: var(--card);
+	--color-kumo-tint: var(--accent);
+	--color-kumo-contrast: var(--foreground);
+	--color-kumo-overlay: var(--popover);
+	/*
+	 * Controls sit on their own surface step, never on the raw canvas — an input
+	 * painted canvas-on-canvas has no
+	 * visible affordance left once the border is a hairline.
+	 */
+	--color-kumo-control: var(--secondary);
+	--color-kumo-interact: var(--input);
+	/*
+	 * Keep tint, fill, and fill-hover as distinct information-density steps.
+	 * Both app palettes provide foreground/background; deriving the solid fill
+	 * roles here prevents a local theme from accidentally aliasing all three.
+	 */
+	--color-kumo-fill: light-dark(
+		color-mix(in oklch, var(--foreground) 9%, var(--background)),
+		color-mix(in oklch, var(--foreground) 19%, var(--background))
+	);
+	/*
+	 * Hover moves away from the resting fill in both modes: up the
+	 * ladder in dark, back toward the canvas in light. Do not "correct" the
+	 * light direction — a darker light-mode hover reads as a pressed state.
+	 */
+	--color-kumo-fill-hover: light-dark(
+		color-mix(in oklch, var(--foreground) 3%, var(--background)),
+		color-mix(in oklch, var(--foreground) 31%, var(--background))
+	);
+	/* Keep shared Kumo focus/selection intent violet. Button fills are adapter-owned. */
+	--color-kumo-brand: var(--primary);
+	--color-kumo-brand-hover: color-mix(
+		in oklch,
+		var(--primary) 84%,
+		var(--foreground)
+	);
+	/* One step past the hairline; light mode needs a much smaller step. */
+	--color-kumo-line: light-dark(
+		color-mix(in oklch, var(--border) 98%, var(--foreground)),
+		color-mix(in oklch, var(--border) 90%, var(--foreground))
+	);
+	--color-kumo-hairline: var(--border);
+	--color-kumo-focus: var(--ring);
+	/*
+	 * Alpha fades mix in srgb, never oklch: `transparent` is transparent black,
+	 * and mixing toward it in a polar space drags hue/lightness (engine-
+	 * dependent hue resolution — Chrome drifts warm). srgb premultiplied mixing
+	 * keeps the exact hue and only scales alpha.
+	 */
+	/*
+	 * A drop shadow is occlusion, so it darkens in BOTH modes; only the top
+	 * edge highlight flips. Deriving either from `--foreground` inverts the drop
+	 * in dark mode into a white glow, which makes elevated surfaces read flat.
+	 *
+	 * Dark mode uses a black 30% drop with a white 10% edge; light mode uses a
+	 * black 8% drop and 12% edge. These are not tenant-derived: occlusion depends
+	 * on the light source rather than the palette.
+	 */
+	--color-kumo-shadow-edge: light-dark(
+		color-mix(in srgb, #000000 12%, transparent),
+		color-mix(in srgb, #ffffff 10%, transparent)
+	);
+	--color-kumo-shadow-drop: light-dark(
+		color-mix(in srgb, #000000 8%, transparent),
+		color-mix(in srgb, #000000 30%, transparent)
+	);
+	/*
+	 * Tooltip/popover arrows. Kumo paints the arrow's fill from the surface and
+	 * separates it from the page with exactly one of these two roles per mode:
+	 * light gets a translucent dark *edge* and no stroke, dark gets an opaque
+	 * stroke and no edge. Mirror that swap instead of tinting both, or a dark
+	 * arrow picks up a second outline.
+	 */
+	--color-kumo-arrow-edge: light-dark(
+		color-mix(in srgb, var(--foreground) 10%, transparent),
+		transparent
+	);
+	--color-kumo-arrow-stroke: light-dark(transparent, var(--color-kumo-line));
+
+	--color-kumo-info: var(--tedix-status-info);
+	--color-kumo-info-tint: color-mix(
+		in srgb,
+		var(--accent-bluetron) 12%,
+		transparent
+	);
+	--color-kumo-warning: var(--tedix-status-warning);
+	--color-kumo-warning-tint: color-mix(
+		in srgb,
+		var(--accent-honey) 14%,
+		transparent
+	);
+	--color-kumo-danger: var(--destructive);
+	--color-kumo-danger-tint: color-mix(
+		in srgb,
+		var(--destructive) 12%,
+		transparent
+	);
+	--color-kumo-success: var(--tedix-status-success);
+	--color-kumo-success-tint: color-mix(
+		in srgb,
+		var(--accent-forest) 12%,
+		transparent
+	);
+	--color-kumo-banner-info: var(--color-kumo-info-tint);
+	--color-kumo-banner-warning: var(--color-kumo-warning-tint);
+
+	--color-kumo-badge-red: var(--destructive);
+	--color-kumo-badge-green: var(--accent-forest);
+	--color-kumo-badge-orange: var(--accent-honey);
+	--color-kumo-badge-purple: var(--accent-amethyst);
+	--color-kumo-badge-teal: color-mix(
+		in oklch,
+		var(--accent-forest) 72%,
+		var(--accent-bluetron)
+	);
+	--color-kumo-badge-blue: var(--accent-bluetron);
+	--color-kumo-badge-neutral: var(--muted-foreground);
+	--color-kumo-badge-inverted: var(--foreground);
+
+	/*
+	 * Categorical hues for work surfaces. Status is a category, not a severity,
+	 * so it needs more than the four semantic hues — but still resolves through
+	 * the tenant palette across light/dark.
+	 */
+	--tedix-hue-neutral: var(--color-kumo-badge-neutral);
+	--tedix-hue-blue: var(--color-kumo-badge-blue);
+	--tedix-hue-amber: var(--color-kumo-badge-orange);
+	--tedix-hue-violet: var(--color-kumo-badge-purple);
+	--tedix-hue-teal: var(--color-kumo-badge-teal);
+	--tedix-hue-green: var(--color-kumo-badge-green);
+	--tedix-hue-red: var(--color-kumo-badge-red);
+}
+
+/*
+ * `-tint` and `-fg` are derived in a second block so they can reference the
+ * base hues declared above.
+ */
+:root,
+[data-theme="tedix"] {
+	--tedix-hue-neutral-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-neutral) 12%,
+		transparent
+	);
+	--tedix-hue-neutral-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-neutral) 70%,
+		var(--foreground)
+	);
+	--tedix-hue-blue-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-blue) 12%,
+		transparent
+	);
+	--tedix-hue-blue-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-blue) 70%,
+		var(--foreground)
+	);
+	--tedix-hue-amber-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-amber) 14%,
+		transparent
+	);
+	--tedix-hue-amber-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-amber) 70%,
+		var(--foreground)
+	);
+	--tedix-hue-violet-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-violet) 12%,
+		transparent
+	);
+	--tedix-hue-violet-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-violet) 70%,
+		var(--foreground)
+	);
+	--tedix-hue-teal-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-teal) 12%,
+		transparent
+	);
+	--tedix-hue-teal-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-teal) 70%,
+		var(--foreground)
+	);
+	--tedix-hue-green-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-green) 12%,
+		transparent
+	);
+	--tedix-hue-green-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-green) 70%,
+		var(--foreground)
+	);
+	--tedix-hue-red-tint: color-mix(
+		in srgb,
+		var(--tedix-hue-red) 12%,
+		transparent
+	);
+	--tedix-hue-red-fg: color-mix(
+		in oklch,
+		var(--tedix-hue-red) 70%,
+		var(--foreground)
+	);
+}
+
+:root,
+[data-mode="light"] {
+	color-scheme: light;
+}
+
+.dark,
+[data-mode="dark"] {
+	color-scheme: dark;
+}
+
+/*
+ * Kumo declares the shiki line-highlight fill on `.kumo-shiki` itself, so an
+ * inherited `:root` projection can never reach it — a directly declared value
+ * always beats an inherited one. Match Kumo's own two selectors and win on
+ * source order (`@cloudflare/kumo/styles` imports before this sheet) so a
+ * highlighted code line uses the tenant tint instead of a hardcoded
+ * black/white alpha. It stays translucent because it paints over the code
+ * block's own background.
+ */
+.kumo-shiki,
+[data-mode="dark"] .kumo-shiki {
+	--kumo-code-highlight-bg: color-mix(
+		in srgb,
+		var(--color-kumo-tint) 60%,
+		transparent
+	);
+}

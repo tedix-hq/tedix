@@ -1,0 +1,109 @@
+---
+/**
+ * marketing.faq — accordion of question/answer pairs. Mirrors the official
+ * marketing FAQ block. Items come from a native repeater:
+ * { question, answer }. Native <details>/<summary> — no client JS needed.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems, asString } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_faq" }>>;
+const { value: node } = Astro.props;
+
+const headline = asString(node.headline);
+const items = asItems(node.items)
+	.map((row) => ({
+		question: asString(row.question),
+		answer: asString(row.answer),
+	}))
+	.filter((item) => item.question);
+---
+
+{items.length > 0 && (
+	<section class="mk-faq">
+		<div class="mk-wrap mk-faq__wrap">
+			{headline && <h2 class="mk-faq__heading">{headline}</h2>}
+			<div class="mk-faq__list">
+				{items.map((item) => (
+					<details class="mk-faq__item" name="marketing-faq">
+						<summary class="mk-faq__question">
+							<span>{item.question}</span>
+							<svg
+								class="mk-faq__icon"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path d="M6 9l6 6 6-6" />
+							</svg>
+						</summary>
+						{item.answer && <div class="mk-faq__answer">{item.answer}</div>}
+					</details>
+				))}
+			</div>
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-faq {
+		padding: var(--spacing-4xl, 80px) 0;
+	}
+	.mk-faq__wrap {
+		max-width: 760px;
+	}
+	.mk-faq__heading {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		text-align: center;
+		font-size: clamp(1.6rem, 3vw, 2.2rem);
+		margin: 0 0 var(--spacing-2xl, 2.5rem);
+	}
+	.mk-faq__list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-md, 1rem);
+	}
+	.mk-faq__item {
+		background: var(--color-bg-subtle);
+		border-radius: var(--radius, 10px);
+		overflow: hidden;
+	}
+	.mk-faq__item[open] {
+		background: var(--color-surface);
+		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+	}
+	.mk-faq__question {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--spacing-md, 1rem);
+		padding: var(--spacing-lg, 1.25rem);
+		font-size: var(--font-size-base, 1rem);
+		font-weight: 600;
+		color: var(--color-text);
+		cursor: pointer;
+		list-style: none;
+	}
+	.mk-faq__question::-webkit-details-marker {
+		display: none;
+	}
+	.mk-faq__icon {
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+		color: var(--color-brand-500);
+		transition: transform 0.2s ease;
+	}
+	.mk-faq__item[open] .mk-faq__icon {
+		transform: rotate(180deg);
+	}
+	.mk-faq__answer {
+		padding: 0 var(--spacing-lg, 1.25rem) var(--spacing-lg, 1.25rem);
+		font-size: var(--font-size-sm, 0.95rem);
+		line-height: var(--leading-relaxed, 1.7);
+		color: var(--color-text-secondary);
+	}
+</style>

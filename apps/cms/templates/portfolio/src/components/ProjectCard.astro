@@ -1,0 +1,198 @@
+---
+import type { EditProxy, MediaValue } from "emdash";
+import { Image } from "emdash/ui";
+
+interface Props {
+	title: string;
+	summary?: string;
+	featuredImage: MediaValue;
+	href: string;
+	client?: string;
+	year?: string;
+	tags?: string[];
+	edit?: EditProxy;
+}
+
+const { title, summary, featuredImage, href, client, year, tags, edit } =
+	Astro.props;
+const allTags = tags || [];
+---
+
+<article class="project-card">
+	<a href={href} class="card-link">
+		<div class="card-image" {...edit?.featured_image}>
+			<Image image={featuredImage} />
+			<div class="card-overlay">
+				<span class="card-view">View Project</span>
+			</div>
+		</div>
+		<div class="card-content">
+			<h2 class="card-title" {...edit?.title}>{title}</h2>
+			<div class="card-meta">
+				{
+					client && (
+						<span class="card-client" {...edit?.client}>
+							{client}
+						</span>
+					)
+				}
+				{client && year && <span class="card-separator">·</span>}
+				{
+					year && (
+						<span class="card-year" {...edit?.year}>
+							{year}
+						</span>
+					)
+				}
+			</div>
+			{
+				summary && (
+					<p class="card-summary" {...edit?.summary}>
+						{summary}
+					</p>
+				)
+			}
+			{
+				allTags.length > 0 && (
+					<div class="card-categories">
+						{allTags.map((tag) => (
+							<span class="card-category">{tag}</span>
+						))}
+					</div>
+				)
+			}
+		</div>
+	</a>
+</article>
+
+<style>
+	.project-card {
+		position: relative;
+	}
+
+	.card-link {
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-lg);
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.card-image {
+		position: relative;
+		overflow: hidden;
+		border-radius: var(--radius);
+	}
+
+	.card-image img {
+		width: 100%;
+		height: auto;
+		aspect-ratio: 4 / 3;
+		object-fit: cover;
+		transition: transform var(--transition-slow);
+	}
+
+	.card-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0, 0, 0, 0);
+		transition: background var(--transition-base);
+	}
+
+	/* Over-image chip: white regardless of theme */
+	.card-view {
+		font-family: var(--font-heading);
+		font-size: var(--font-size-sm);
+		color: white;
+		padding: var(--spacing-sm) var(--spacing-md);
+		border: 1px solid white;
+		border-radius: var(--radius);
+		opacity: 0;
+		transform: translateY(10px);
+		transition:
+			opacity var(--transition-base),
+			transform var(--transition-base);
+	}
+
+	.project-card:hover .card-image img {
+		transform: scale(1.03);
+	}
+
+	.card-link:focus-visible .card-image img {
+		transform: scale(1.03);
+	}
+
+	.project-card:hover .card-overlay {
+		background: rgba(0, 0, 0, 0.4);
+	}
+
+	.card-link:focus-visible .card-overlay {
+		background: rgba(0, 0, 0, 0.4);
+	}
+
+	.project-card:hover .card-view {
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	.card-link:focus-visible .card-view {
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	.card-content {
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-xs);
+	}
+
+	.card-title {
+		font-family: var(--font-heading);
+		font-size: var(--font-size-xl);
+		font-weight: var(--font-weight-heading);
+		transition: color var(--transition-fast);
+	}
+
+	.project-card:hover .card-title {
+		color: var(--color-brand);
+	}
+
+	.card-meta {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.card-separator {
+		margin: 0 var(--spacing-xs);
+	}
+
+	.card-summary {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		line-height: var(--leading-normal);
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.card-categories {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-sm);
+		margin-top: var(--spacing-sm);
+	}
+
+	.card-category {
+		font-size: var(--font-size-xs);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+		color: var(--color-muted);
+		padding: var(--spacing-xs) var(--spacing-sm);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+	}
+</style>

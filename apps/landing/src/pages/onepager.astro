@@ -1,0 +1,802 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { IntegrationWorkflow } from "../components/landing/IntegrationWorkflow.tsx";
+import { PatternComparisonTable } from "../components/landing/PatternComparisonTable";
+
+export const prerender = true;
+---
+
+<BaseLayout
+  title="Tedix — Enterprise One Pager"
+  description="AI digital workers with connected tools, scoped access, budgets, and a record of their work."
+  showNavigation={true}
+  showFooter={false}
+  showConsentBanner={true}
+>
+  <!-- PAGE TAG -->
+  <div class="op-tag-wrapper">
+    <span class="op-page-tag">One Pager</span>
+  </div>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="section-label">THE CHALLENGE</div>
+    <h1>Every enterprise wants AI.<br /><em>Almost none get there.</em></h1>
+    <p class="hero-sub">The ambition is real. The path is the problem. Tedix closes the gap.</p>
+  </section>
+
+  <!-- PAIN POINTS -->
+  <div class="pain-header">
+    <div class="section-label">THE PAIN POINTS</div>
+    <p class="pain-sub">Why AI adoption stalls inside most organizations</p>
+  </div>
+
+  <div class="problem-grid">
+    <div class="problem-card c1">
+      <div class="problem-tag tag-purple">⏱ Complexity</div>
+      <h3>Months to deploy AI</h3>
+      <p>By the time IT scopes it, legal reviews it, and development delivers it — the window has closed.</p>
+    </div>
+    <div class="problem-card c2">
+      <div class="problem-tag tag-orange">🔍 No ROI</div>
+      <h3>No clear use case</h3>
+      <p>Teams want AI, but cannot see which workflow will create measurable value first.</p>
+    </div>
+    <div class="problem-card c3">
+      <div class="problem-tag tag-pink">⚠️ Risks</div>
+      <h3>AI experimentation fear</h3>
+      <p>Touching existing systems, exposing data, or breaking what already works makes teams delay pilots.</p>
+    </div>
+    <div class="problem-card c4">
+      <div class="problem-tag tag-red">🗄 Silos</div>
+      <h3>Chaotic information</h3>
+      <p>Data lives in 15 different tools. Nobody has the full picture. Decisions take weeks instead of hours.</p>
+    </div>
+  </div>
+
+  <!-- SOLUTION -->
+  <section class="what-section">
+    <div class="what-inner">
+      <div class="section-label" style="display:block;text-align:center;color:rgba(168,85,247,0.9);">THE SOLUTION</div>
+      <h2>Persistent AI workers<br /><em>for scoped organizational work.</em></h2>
+
+      <p class="what-body">
+        Tedix is in private beta. Start with a short brief, inspect the result, and continue
+        the work in the same conversation. Integrations depend on provider access,
+        configuration, permissions, and validation.
+      </p>
+
+      <div class="solution-highlight">
+        ✦ Choose one useful task first. Validate its output before expanding access or
+        automating consequential work.
+      </div>
+
+      <p class="what-body">
+        Tedix breaks siloed information and processes so your teams can find, with AI,
+        which processes can be automated immediately, which tasks can be delegated,
+        and which workflows can extract more value from daily operations.
+      </p>
+
+      <div class="solution-highlight">
+        ✦ Think of Tedix as your governed agentic workforce: specialized in your company,
+        finding and executing the tasks and workflows you always wanted to do, but never had time to do.
+      </div>
+
+      <div class="stats-row">
+        <div class="stat"><div class="stat-num">476</div><div class="stat-label">Tools built</div></div>
+        <div class="stat"><div class="stat-num">14</div><div class="stat-label">Live apps</div></div>
+        <div class="stat"><div class="stat-num">5</div><div class="stat-label">AI platforms</div></div>
+        <div class="stat"><div class="stat-num">Start small</div><div class="stat-label">One workflow</div></div>
+      </div>
+      <div class="trust-pills">
+        <div class="trust-pill">Made in Germany</div>
+        <div class="trust-pill">Scoped access</div>
+        <div class="trust-pill">Run records</div>
+        <div class="trust-pill">Auditable by design</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- USE CASES -->
+  <section class="cases-section">
+    <div class="section-header">
+      <div class="section-label">USE CASES</div>
+      <h2>What this looks like in practice</h2>
+      <p>Real organizations. Real constraints. Real results.</p>
+    </div>
+
+    <div class="cases-list">
+      <!-- Klarna -->
+      <div class="case-card">
+        <div class="case-body">
+          <div class="case-top">
+            <span class="case-company">Klarna</span>
+            <span class="case-dot"></span>
+            <span class="case-category">Agentic Commerce</span>
+          </div>
+          <h3>New protocol. 100M+ products. Live in days.</h3>
+          <p class="case-headline">→ Validate a new standard. Reach a global audience. Before competitors do.</p>
+          <p>Klarna launched the Agentic Products Protocol (APP) — a new standard for AI-powered commerce — and needed production validation fast. Tedix built a fully functional ChatGPT storefront connected to over 100 million products from 800,000 merchants. What was projected to take weeks was live in days.</p>
+          <blockquote class="case-quote">
+            &quot;Tedix impressed us by implementing our Agentic Products Protocol within days and bringing it to life in the ChatGPT ecosystem.&quot;
+            <cite>— Martin D. Andersen, Head of Agentic Commerce, Klarna</cite>
+          </blockquote>
+          <div class="case-client">
+            <img src="/images/testimonials/martin-andersen.jpg" alt="Martin D. Andersen" class="client-avatar" loading="lazy" />
+            <div class="client-copy">
+              <strong>Martin D. Andersen</strong>
+              <span>Head of Agentic Commerce (AI), Klarna</span>
+            </div>
+            <img src="/images/logos/klarna.svg" alt="Klarna" class="client-logo" loading="lazy" />
+          </div>
+          <div class="case-outcome">Klarna adopted Tedix as an official partner.</div>
+          <div class="case-tags">
+            <span class="case-tag">Protocol validation</span>
+            <span class="case-tag">Agentic commerce</span>
+            <span class="case-tag">Go-to-market acceleration</span>
+          </div>
+        </div>
+        <div class="case-side">
+          <div class="case-metric">
+            <div class="metric-before">From</div><div class="metric-after">Weeks</div><div class="metric-label">estimated</div>
+            <div class="metric-arrow">↓</div>
+            <div class="metric-before">To</div><div class="metric-after">Days</div><div class="metric-label">delivered</div>
+          </div>
+          <a class="case-visual" href="/#use-case-klarna" aria-label="Open the Klarna use case on the home page">
+            <img src="/images/onepager/klarna-chat-results.png" alt="Klarna AI commerce storefront preview" loading="lazy" />
+          </a>
+        </div>
+      </div>
+
+      <!-- MiMexTrade -->
+      <div class="case-card">
+        <div class="case-body">
+          <div class="case-top">
+            <span class="case-company">MiMexTrade · Mexican Embassy</span>
+            <span class="case-dot"></span>
+            <span class="case-category">Public Sector</span>
+          </div>
+          <h3>Estimated: 1 year. Delivered: days.</h3>
+          <p class="case-headline">→ A year-long project, delivered in days, for the Mexican Embassy in Germany.</p>
+          <p>The Mexican Embassy in Germany needed a working platform to secure government funding — a marketplace connecting Mexican migrant women entrepreneurs with buyers across Germany. Development estimate: over one year. Tedix built it from scratch — design, development, deployment — in days, ready for government presentation.</p>
+          <blockquote class="case-quote">
+            &quot;Tedix brought MiMexTrade to life in a matter of days. What we thought would take over a year was deployed and ready. Now we're securing the budget to scale it across all of Germany.&quot;
+            <cite>— SRE, Mexican Embassy in Germany</cite>
+          </blockquote>
+          <div class="case-outcome">Platform live. Budget conversation underway for national rollout.</div>
+          <div class="case-tags">
+            <span class="case-tag">Public sector</span>
+            <span class="case-tag">Rapid MVP</span>
+            <span class="case-tag">Social impact</span>
+          </div>
+        </div>
+        <div class="case-side">
+          <div class="case-metric">
+            <div class="metric-before">From</div><div class="metric-after">365 days</div><div class="metric-label">estimated</div>
+            <div class="metric-arrow">↓</div>
+            <div class="metric-before">To</div><div class="metric-after">Days</div><div class="metric-label">delivered</div>
+          </div>
+          <a class="case-visual" href="/#use-case-mimextrade" aria-label="Open the MiMexTrade use case on the home page">
+            <img src="/images/mimextrade.png" alt="MiMexTrade marketplace built by Tedix" loading="lazy" />
+          </a>
+        </div>
+      </div>
+
+      <!-- Digital Twins -->
+      <div class="case-card">
+        <div class="case-body">
+          <div class="case-top">
+            <span class="case-company">Transferring Knowledge</span>
+            <span class="case-dot"></span>
+            <span class="case-category">AI Digital Twins</span>
+          </div>
+          <h3>Your organization's expertise — always on.</h3>
+          <p class="case-headline">→ What if your best people were available 24/7?</p>
+          <p>Every organization runs on the knowledge of people. When they're unavailable, decisions slow, onboarding stalls, and institutional knowledge walks out the door. Tedix deployed AI Assistants as digital twins of their real team — trained on the knowledge, processes, and context of each role. The result: an always-on version of your team's expertise, available to answer questions, or provide the necessary skill to another teammate who needs assistance from an unavailable person, handling everything from easy, mundane requests to complex ones without depending on calendar availability.</p>
+          <div class="case-outcome">Institutional knowledge preserved, scaled, and deployed from day one.</div>
+          <div class="case-tags">
+            <span class="case-tag">Knowledge management</span>
+            <span class="case-tag">Onboarding</span>
+            <span class="case-tag">Organizational memory</span>
+          </div>
+        </div>
+        <div class="case-side">
+          <div class="case-metric">
+            <div class="metric-before">From</div><div class="metric-after">Locked</div><div class="metric-label">in people's heads</div>
+            <div class="metric-arrow">↓</div>
+            <div class="metric-before">To</div><div class="metric-after">Scaled</div><div class="metric-label">across the org</div>
+          </div>
+          <a class="case-visual" href="/#use-cases" aria-label="Open the use cases section on the home page">
+            <img src="/images/hero-brain-light.jpg" alt="AI knowledge layer representing digital twin expertise" loading="lazy" />
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENTERPRISE TRUST -->
+  <section class="enterprise-section">
+    <div class="section-header compact">
+      <div class="section-label">ENTERPRISE TRUST</div>
+      <h2>Built for AI adoption inside real companies.</h2>
+      <p>Give a worker connected tools, scoped access, and a budget. Review its runs and results, and require approval where your policy calls for it.</p>
+    </div>
+    <div class="enterprise-grid">
+      <div class="enterprise-card">
+        <span class="enterprise-icon">01</span>
+        <h3>Grounded decisions</h3>
+        <p>Workers can use connected documents and tools as sources. Inspect the sources and results in the run record; a completed run does not guarantee a correct answer.</p>
+      </div>
+      <div class="enterprise-card">
+        <span class="enterprise-icon">02</span>
+        <h3>Corporate data safety</h3>
+        <p>Tedis operate as a secure layer over existing systems, without requiring data migration for POCs. They only access approved tools, APIs, files, and systems, with organization-scoped memory, permissioning, audit trails, and optional human approval for higher-risk actions.</p>
+      </div>
+      <div class="enterprise-card">
+        <span class="enterprise-icon">03</span>
+        <h3>Explainable by design</h3>
+        <p>Review a worker’s tool calls, recorded rationale, approvals, and outputs. Confirm important results against the source or the system where the action happened.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- USP -->
+  <section class="usp-section">
+    <div class="usp-copy">
+      <div class="section-label">WHY TEDIX</div>
+      <h2>Not another AI tool. A governed AI workforce.</h2>
+      <p>Chatbots answer questions. Workflow tools automate predefined flows. Agent frameworks still require engineering teams. Tedix combines persistent memory, MCP-based system integration, autonomous execution, skills, governance, and explainability into one AI workforce layer.</p>
+    </div>
+    <div class="usp-points">
+      <div class="usp-point">
+        <strong>Start with one task</strong>
+        <span>Connect a source, run a worker, and review the result.</span>
+      </div>
+      <div class="usp-point">
+        <strong>Works with existing systems</strong>
+        <span>No rip-and-replace, no migration required to start.</span>
+      </div>
+      <div class="usp-point">
+        <strong>Compounds over time</strong>
+        <span>Tedis retain business context and reusable procedures. Compare results across repeated tasks to measure improvement.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- PATTERN TABLE -->
+  <section class="table-section">
+    <div class="section-header" style="text-align:center;margin-bottom:2rem;">
+      <div class="section-label">THE PATTERN</div>
+      <h2>Selected project examples</h2>
+    </div>
+    <PatternComparisonTable />
+  </section>
+
+  <!-- TECHNOLOGY -->
+  <section class="technology-section relative overflow-hidden pt-8 pb-16 md:pt-10 md:pb-20 dark:bg-[#0c0a09]" id="technology">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mb-10 text-center">
+        <p class="mb-4 font-medium text-violet-600 text-sm uppercase tracking-[0.2em] dark:text-violet-400">THE TECHNOLOGY</p>
+        <h2 class="mb-4 font-bold font-display text-3xl leading-tight tracking-tight md:text-4xl lg:text-5xl gradient-shift-text">
+          All your systems connected in one brain
+        </h2>
+        <p class="mx-auto max-w-xl text-muted-foreground text-lg leading-relaxed">
+          Your Tedi plugs into the tools you already use, identifies the valuable integration points, and turns scattered systems into one operational intelligence layer.
+        </p>
+      </div>
+      <IntegrationWorkflow client:visible />
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <div class="cta-inner">
+      <h2>Start where you are.</h2>
+      <p>You don't need to replace your systems. You need one working use case — proven, fast, with real results.</p>
+      <a class="cta-btn" href="https://tedix.dev">Request Access →</a>
+      <div class="cta-trust">
+        <span>Private beta</span><span>Scoped permissions</span><span>Inspectable runs</span>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --op-purple:       #7C3AED;
+    --op-purple-light: #A855F7;
+    --op-purple-pale:  #EDE9FE;
+    --op-orange:       #F97316;
+    --op-pink:         #EC4899;
+    --op-red:          #EF4444;
+    --op-bg:           #F5F3FF;
+    --op-text:         #0F0A1E;
+    --op-muted:        #6B7280;
+    --op-shadow:       0 4px 24px rgba(124,58,237,0.08);
+    --op-radius:       22px;
+    --op-pill:         9999px;
+    --op-page-width:   1080px;
+    --op-page-pad:     18px;
+    --op-display-font: var(--font-comfortaa), var(--font-display), ui-rounded, system-ui, sans-serif;
+  }
+
+  /* ── Page background ── */
+  :global(body):has(.op-page-tag) {
+    background: var(--op-bg);
+  }
+
+  /* ── Shared ── */
+  .section-label {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--op-purple);
+    margin-bottom: 1rem;
+  }
+
+  /* ── Page tag ── */
+  .op-tag-wrapper {
+    max-width: var(--op-page-width);
+    margin: 122px auto 0;
+    padding: 0 var(--op-page-pad);
+  }
+  .op-page-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 13px;
+    background: #FEF2F2;
+    color: var(--op-red);
+    border-radius: var(--op-pill);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* ── Hero ── */
+  .hero { max-width: var(--op-page-width); margin: 48px auto 0; padding: 0 var(--op-page-pad); text-align: center; }
+  .hero h1 {
+    font-family: var(--op-display-font);
+    font-size: clamp(40px, 6vw, 68px); font-weight: 900;
+    line-height: 1.1; letter-spacing: 0;
+    color: var(--op-text); margin-bottom: 20px;
+  }
+  .hero h1 em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--op-purple) 0%, var(--op-purple-light) 60%, var(--op-orange) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .hero-sub { font-size: 18px; color: var(--op-muted); max-width: 580px; margin: 0 auto 40px; font-weight: 500; }
+
+  /* ── Pain points ── */
+  .pain-header { max-width: var(--op-page-width); margin: 56px auto 0; padding: 0 var(--op-page-pad); text-align: center; }
+  .pain-sub { font-size: 16px; color: var(--op-muted); margin-top: 4px; font-weight: 500; }
+
+  /* ── Problem grid ── */
+  .problem-grid {
+    max-width: var(--op-page-width); margin: 24px auto 0; padding: 0 var(--op-page-pad);
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+  }
+  @media (max-width: 640px) { .problem-grid { grid-template-columns: 1fr; } }
+  .problem-card {
+    background: #fff; border-radius: var(--op-radius);
+    padding: 28px; box-shadow: var(--op-shadow);
+    border-top: 3px solid transparent;
+  }
+  .problem-card.c1 { border-top-color: var(--op-purple); }
+  .problem-card.c2 { border-top-color: var(--op-orange); }
+  .problem-card.c3 { border-top-color: var(--op-pink); }
+  .problem-card.c4 { border-top-color: var(--op-red); }
+  .problem-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: var(--op-pill);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .tag-purple { background: var(--op-purple-pale); color: var(--op-purple); }
+  .tag-orange { background: #FFF7ED; color: var(--op-orange); }
+  .tag-pink   { background: #FDF2F8; color: var(--op-pink); }
+  .tag-red    { background: #FEF2F2; color: var(--op-red); }
+  .problem-card h3 { font-family: var(--op-display-font); font-size: 20px; font-weight: 800; margin-bottom: 8px; color: var(--op-text); }
+  .problem-card p  { font-size: 14px; color: var(--op-muted); line-height: 1.6; }
+
+  /* ── Solution section ── */
+  .what-section { max-width: var(--op-page-width); margin: 80px auto 0; padding: 0 var(--op-page-pad); }
+  .what-inner {
+    background: linear-gradient(135deg, #1a0533 0%, #2d1060 50%, #1a0533 100%);
+    border-radius: 30px; padding: 56px 52px;
+    position: relative; overflow: hidden;
+  }
+  .what-inner::before {
+    content: ''; position: absolute; top: -80px; right: -80px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(168,85,247,0.3) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .what-inner::after {
+    content: ''; position: absolute; bottom: -60px; left: -60px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(249,115,22,0.2) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .what-inner h2 {
+    font-family: var(--op-display-font);
+    font-size: clamp(28px, 5vw, 56px); font-weight: 900; color: #fff;
+    line-height: 1.1; letter-spacing: 0;
+    margin-bottom: 24px; text-align: center;
+    position: relative; z-index: 1;
+  }
+  .what-inner h2 em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--op-purple-light), var(--op-orange));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .what-body {
+    color: rgba(255,255,255,0.88);
+    font-size: 15px;
+    font-weight: 700;
+    max-width: 600px; margin: 0 auto 20px; line-height: 1.7;
+    position: relative; z-index: 1; text-align: center;
+  }
+  .solution-highlight {
+    max-width: 600px; margin: 0 auto 24px;
+    padding: 14px 22px;
+    background: rgba(168,85,247,0.15);
+    border: 1px solid rgba(168,85,247,0.35);
+    border-radius: 12px;
+    font-size: 15px; font-weight: 400;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.55;
+    text-align: center;
+    position: relative; z-index: 1;
+    letter-spacing: 0.01em;
+  }
+  .stats-row {
+    display: flex; gap: 32px; flex-wrap: wrap;
+    margin-top: 8px; margin-bottom: 36px; justify-content: center;
+    position: relative; z-index: 1;
+  }
+  .stat-num {
+    font-size: 32px; font-weight: 900;
+    background: linear-gradient(135deg, #fff 0%, var(--op-purple-light) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .stat-label { font-size: 13px; color: rgba(255,255,255,0.55); font-weight: 500; }
+  .trust-pills { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; position: relative; z-index: 1; }
+  .trust-pill {
+    background: rgba(255,255,255,0.13);
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: var(--op-pill);
+    padding: 8px 18px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.9);
+    font-weight: 750;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.14);
+  }
+
+  /* ── Use cases ── */
+  .cases-section { max-width: var(--op-page-width); margin: 80px auto 0; padding: 0 var(--op-page-pad); }
+  .section-header { text-align: center; margin-bottom: 48px; }
+  .section-header h2 { color: var(--op-text); font-family: var(--op-display-font); font-size: clamp(28px, 4vw, 44px); font-weight: 900; letter-spacing: 0; margin-bottom: 12px; }
+  .section-header p { font-size: 16px; color: var(--op-muted); max-width: 520px; margin: 0 auto; }
+  .cases-list { display: flex; flex-direction: column; gap: 20px; }
+
+  .case-card {
+    background: #fff; border-radius: var(--op-radius);
+    padding: 36px 40px; box-shadow: var(--op-shadow);
+    display: grid; grid-template-columns: minmax(0, 1fr) 190px;
+    gap: 24px; align-items: start;
+    position: relative; overflow: hidden;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .case-card:hover { box-shadow: 0 8px 40px rgba(124,58,237,0.14); transform: translateY(-2px); }
+  .case-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, var(--op-purple) 0%, var(--op-purple-light) 100%);
+    border-radius: 4px 0 0 4px;
+  }
+  .case-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .case-company { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--op-purple); }
+  .case-dot { width: 4px; height: 4px; background: var(--op-muted); border-radius: 50%; }
+  .case-category { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--op-muted); }
+  .case-card h3 { font-family: var(--op-display-font); font-size: 22px; font-weight: 800; line-height: 1.25; margin-bottom: 6px; color: var(--op-text); }
+  .case-headline { font-size: 14px; font-weight: 600; color: var(--op-purple); margin-bottom: 14px; }
+  .case-card p { font-size: 15px; color: var(--op-muted); line-height: 1.65; margin-bottom: 16px; }
+  .case-quote {
+    background: var(--op-purple-pale); border-left: 3px solid var(--op-purple);
+    border-radius: 0 12px 12px 0; padding: 14px 18px;
+    font-size: 14px; color: #4C1D95; font-style: italic; line-height: 1.6; margin-bottom: 16px;
+  }
+  .case-quote cite { display: block; font-style: normal; font-weight: 700; font-size: 12px; color: var(--op-purple); margin-top: 6px; }
+  .case-client {
+    display: flex; align-items: center; gap: 12px;
+    margin: 0 0 16px;
+    padding: 12px;
+    border: 1px solid rgba(124,58,237,0.08);
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(237,233,254,0.58));
+  }
+  .client-avatar {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 8px 20px rgba(76,29,149,0.14);
+    flex: 0 0 auto;
+  }
+  .client-copy { display: flex; flex-direction: column; min-width: 0; }
+  .client-copy strong { color: var(--op-text); font-size: 14px; line-height: 1.2; }
+  .client-copy span { color: var(--op-muted); font-size: 12px; line-height: 1.35; }
+  .client-logo {
+    margin-left: auto;
+    max-width: 78px;
+    max-height: 28px;
+    object-fit: contain;
+    flex: 0 0 auto;
+  }
+  .case-outcome { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--op-text); }
+  .case-outcome::before { content: '✦'; color: var(--op-purple); font-size: 10px; }
+  .case-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+  .case-tag { background: #F3F4F6; color: var(--op-muted); border-radius: var(--op-pill); padding: 4px 12px; font-size: 12px; font-weight: 600; }
+  .case-metric {
+    background: linear-gradient(135deg, var(--op-purple) 0%, var(--op-purple-light) 100%);
+    border-radius: 18px; padding: 20px 22px; text-align: center; min-width: 130px; flex-shrink: 0;
+  }
+  .case-side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .case-visual {
+    position: relative;
+    display: block;
+    width: 178px;
+    height: 178px;
+    margin: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 8px solid #fff;
+    background: var(--op-purple-pale);
+    box-shadow: 0 18px 46px rgba(76,29,149,0.16);
+    cursor: pointer;
+    outline: none;
+    text-decoration: none;
+    transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+  }
+  .case-visual::after {
+    content: '';
+    position: absolute;
+    inset: 10px;
+    border-radius: inherit;
+    background: radial-gradient(circle at 35% 28%, rgba(255,255,255,0.52), transparent 36%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+  .case-visual img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.06);
+    transition: transform 0.38s ease, filter 0.28s ease;
+  }
+  .case-visual:hover,
+  .case-visual:focus-visible {
+    transform: translateY(-5px) scale(1.035);
+    border-color: #F5F3FF;
+    box-shadow: 0 24px 58px rgba(124,58,237,0.24), 0 0 0 7px rgba(168,85,247,0.08);
+  }
+  .case-visual:hover::after,
+  .case-visual:focus-visible::after {
+    opacity: 1;
+  }
+  .case-visual:hover img,
+  .case-visual:focus-visible img {
+    transform: scale(1.12);
+    filter: saturate(1.08) contrast(1.03);
+  }
+  .metric-before { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .metric-after { font-size: 20px; font-weight: 900; color: #fff; line-height: 1.2; margin-bottom: 6px; }
+  .metric-label { font-size: 11px; color: rgba(255,255,255,0.65); font-weight: 500; }
+  .metric-arrow { color: rgba(255,255,255,0.4); font-size: 18px; margin: 6px 0; }
+
+  /* ── Enterprise trust ── */
+  .enterprise-section {
+    max-width: var(--op-page-width);
+    margin: 76px auto 0;
+    padding: 0 var(--op-page-pad);
+  }
+  .section-header.compact {
+    margin-bottom: 26px;
+  }
+  .section-header.compact p {
+    max-width: 720px;
+  }
+  .enterprise-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .enterprise-card {
+    background: rgba(255,255,255,0.84);
+    border: 1px solid rgba(124,58,237,0.1);
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 16px 44px rgba(76,29,149,0.08);
+  }
+  .enterprise-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(236,72,153,0.1));
+    color: var(--op-purple);
+    font-size: 12px;
+    font-weight: 900;
+    margin-bottom: 18px;
+  }
+  .enterprise-card h3 {
+    color: var(--op-text);
+    font-family: var(--op-display-font);
+    font-size: 18px;
+    font-weight: 850;
+    margin-bottom: 10px;
+  }
+  .enterprise-card p {
+    color: var(--op-muted);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  /* ── USP ── */
+  .usp-section {
+    max-width: var(--op-page-width);
+    margin: 56px auto 0;
+    padding: 36px var(--op-page-pad) 0;
+    border-top: 1px solid rgba(124,58,237,0.14);
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 36px;
+    align-items: center;
+  }
+  .usp-copy h2 {
+    color: var(--op-text);
+    font-family: var(--op-display-font);
+    font-size: clamp(26px, 4vw, 42px);
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1.12;
+    margin-bottom: 14px;
+  }
+  .usp-copy p {
+    color: var(--op-muted);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .usp-points {
+    display: grid;
+    gap: 12px;
+  }
+  .usp-point {
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(124,58,237,0.11);
+  }
+  .usp-point:first-child {
+    padding-top: 4px;
+  }
+  .usp-point strong {
+    color: var(--op-purple);
+    font-size: 13px;
+    font-weight: 850;
+  }
+  .usp-point span {
+    color: var(--op-text);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  /* ── Comparison table ── */
+  .table-section { max-width: var(--op-page-width); margin: 80px auto 0; padding: 0 var(--op-page-pad); }
+
+  /* ── Technology ── */
+  .technology-section {
+    margin: 88px 0 0;
+    padding-right: 0;
+    padding-left: 0;
+    overflow: hidden;
+  }
+  .technology-section h2 { text-shadow: none; }
+
+  /* ── CTA ── */
+  .cta-section { max-width: var(--op-page-width); margin: 80px auto 60px; padding: 0 var(--op-page-pad); text-align: center; }
+  .cta-inner {
+    background: linear-gradient(135deg, var(--op-purple) 0%, #6D28D9 40%, var(--op-purple-light) 100%);
+    border-radius: 30px; padding: 64px 40px; position: relative; overflow: hidden;
+  }
+  .cta-inner::before {
+    content: ''; position: absolute; top: -100px; right: -100px;
+    width: 350px; height: 350px;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+    border-radius: 50%;
+  }
+  .cta-inner h2 { font-family: var(--op-display-font); font-size: clamp(26px, 4vw, 40px); font-weight: 900; color: #fff; margin-bottom: 16px; position: relative; z-index: 1; }
+  .cta-inner p { color: rgba(255,255,255,0.75); font-size: 16px; max-width: 480px; margin: 0 auto 36px; position: relative; z-index: 1; }
+  .cta-btn {
+    display: inline-block; background: #fff; color: var(--op-purple);
+    border-radius: var(--op-pill); padding: 14px 36px;
+    font-weight: 800; font-size: 16px; text-decoration: none;
+    position: relative; z-index: 1;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  }
+  .cta-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .cta-trust { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 28px; position: relative; z-index: 1; }
+  .cta-trust span { font-size: 13px; color: rgba(255,255,255,0.6); font-weight: 600; }
+  .cta-trust span::before { content: '· '; }
+  .cta-trust span:first-child::before { content: ''; }
+
+  @media (max-width: 760px) {
+    :root { --op-page-pad: 16px; }
+    .op-tag-wrapper { margin-top: 98px; }
+    .what-inner {
+      padding: 42px 24px;
+    }
+    .case-card {
+      grid-template-columns: 1fr;
+      padding: 30px 26px;
+    }
+    .case-side {
+      align-items: flex-start;
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .case-metric {
+      min-width: 124px;
+    }
+    .case-visual {
+      width: 136px;
+      height: 136px;
+      border-width: 6px;
+    }
+    .client-logo {
+      max-width: 66px;
+    }
+    .enterprise-section {
+      margin-top: 58px;
+    }
+    .enterprise-grid {
+      grid-template-columns: 1fr;
+    }
+    .enterprise-card {
+      padding: 22px;
+    }
+    .usp-section {
+      margin-top: 44px;
+      padding-top: 30px;
+      grid-template-columns: 1fr;
+      align-items: start;
+      gap: 22px;
+    }
+    .usp-point {
+      grid-template-columns: 1fr;
+      gap: 6px;
+      padding: 12px 0;
+    }
+    .trust-pills {
+      gap: 9px;
+    }
+    .trust-pill {
+      padding: 7px 14px;
+      font-size: 12px;
+    }
+  }
+</style>

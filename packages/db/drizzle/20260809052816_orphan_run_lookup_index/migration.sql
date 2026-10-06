@@ -1,0 +1,1 @@
+CREATE INDEX `idx_tedi_runtime_events_run_kind_created` ON `tedi_runtime_events` (`tedi_id`,`run_id`,`kind`,`created_at`);

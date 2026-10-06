@@ -1,0 +1,779 @@
+@import "tailwindcss";
+
+/*
+ * ─── DARK MODE ───────────────────────────────────────────────────────────────
+ * Tailwind v4 defaults dark: to @media (prefers-color-scheme: dark).
+ * We use class-based toggling (.dark on <html>) so all three modes work:
+ *   Light   → no class        → Tailwind light utilities apply
+ *   Dark    → .dark class     → dark: utilities activate via selector below
+ *   System  → JS adds .dark when OS is dark, removes when OS is light
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * ─── LAYER ORDER ─────────────────────────────────────────────────────────────
+ * Declaring @layer base here (before any @layer base { } block) establishes
+ * that "base" has lower priority than unlayered CSS. This means theme.css
+ * overrides (which are unlayered :root { } declarations) always win over the
+ * default light/dark vars defined below — regardless of specificity or source
+ * order. Without this, .dark { } (specificity 0,1,0) would beat theme.css
+ * :root { } (specificity 0,0,1) in dark mode, silently ignoring brand colors.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+@layer base;
+
+/*
+ * ─── BRAND IDENTITY ──────────────────────────────────────────────────────────
+ * These are the per-org swap targets. Override any of these in theme.css
+ * (create it next to globals.css) to retheme without touching component code.
+ *
+ *   --font-display     Rounded Tedix display typeface (currently Comfortaa)
+ *   --color-brand-*    Full brand scale — 50 tint through 700 dark
+ *   --color-bg         Page background (light/dark aware)
+ *   --color-text       Body text (light/dark aware)
+ *   --color-muted      Secondary text
+ *   --color-border     Dividers and outlines
+ *   --color-surface    Elevated surfaces (cards, sidebars)
+ *
+ * Everything else (layout, spacing, typography scale) stays constant.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/*
+ * Semantic tiers are declared once here with `light-dark()`, following the
+ * upstream emdash template convention (emdash/templates/<name>/src/styles/tokens.css).
+ * They used to be triplicated — a light `:root`, a `@media (prefers-color-scheme:
+ * dark)` block, and a `:root.dark` block — which is three places to keep in sync
+ * for every token. `color-scheme` below drives which half `light-dark()` picks, so
+ * the explicit `.light`/`.dark` toggle still works.
+ *
+ * They live in `@theme` (not `@theme inline`) so Tailwind emits real utilities
+ * — `bg-bg`, `text-text`, `border-border` — that resolve through
+ * `var(--color-*)`. Verified by compiling this file's own tailwindcss@4.3.3:
+ * plain `@theme` emits `.bg-bg{background-color:var(--color-bg)}` plus a `:root`
+ * var, so an unlayered override (theme.css, or the PLATFORM_BRANDING `:root`
+ * block) still wins. `@theme inline` would have inlined the VALUE and baked the
+ * literal, silently killing per-org branding — it is the wrong tool here.
+ *
+ * Declaring them in `@layer base` instead would also break the binding: base
+ * outranks Tailwind's `theme` layer, so the base copy would shadow the theme
+ * copy and no utility would ever see an override.
+ *
+ * Browser floor: `light-dark()` is Baseline 2024 (Chrome 123, Safari 17.5,
+ * Firefox 120). Upstream ships it unguarded and so do we — a `@supports`
+ * fallback would reintroduce a fourth declaration site, which is the duplication
+ * this change removes. Tailwind also dedupes inside `@theme`, so a two-line
+ * progressive-enhancement fallback is not expressible here anyway.
+ */
+@theme {
+	--font-display: var(--font-display), ui-rounded, system-ui, sans-serif;
+	--font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+	--color-brand-50: #f5f3ff;
+	--color-brand-500: #9061ff;
+	--color-brand-600: #7c3aed;
+	--color-brand-700: #6d28d9;
+	--color-bg: light-dark(#ffffff, #09090b);
+	--color-text: light-dark(#0f172a, #f4f4f5);
+	--color-text-secondary: light-dark(#475569, #a1a1aa);
+	--color-muted: light-dark(#64748b, #71717a);
+	--color-border: light-dark(rgb(226 232 240), rgb(39 39 42));
+	--color-surface: light-dark(rgb(248 250 252), rgb(24 24 27));
+	--color-bg-subtle: light-dark(rgb(241 245 249), rgb(9 9 11));
+}
+
+/*
+ * `light-dark()` resolves against `color-scheme`, so this is what makes the
+ * class toggle work: `.light`/`.dark` on <html> pin the scheme, and the bare
+ * `:root` honours the OS preference. It also fixes UA-rendered chrome
+ * (scrollbars, form controls) to match, which the old media-query approach
+ * left alone.
+ */
+:root {
+	color-scheme: light dark;
+}
+:root.light {
+	color-scheme: light;
+}
+:root.dark {
+	color-scheme: dark;
+}
+
+@layer base {
+	:root {
+		--reading-width: 68ch;
+		--max-content: 1200px;
+
+		/* Semantic color tiers live in the @theme block above, declared once with
+		   light-dark(). Only the emdash-prefixed vendor tokens stay here — they
+		   are consumed directly by CSS rules and need no Tailwind utility. */
+		--emdash-pullquote-border: light-dark(
+			var(--color-brand-500),
+			rgb(96 165 250)
+		);
+		--emdash-pullquote-color: light-dark(#0f172a, #f4f4f5);
+		--emdash-pullquote-citation-color: light-dark(#64748b, #a1a1aa);
+		--emdash-caption-color: light-dark(#64748b, #a1a1aa);
+	}
+}
+
+/*
+ * Dark mode vars are intentionally UNLAYERED (not inside @layer base).
+ *
+ * Why: @layer base has lower cascade priority than unlayered CSS (that's
+ * what @layer base; at the top establishes — so theme.css overrides work).
+ * If dark mode vars lived inside @layer base they could lose to Tailwind's
+ * own unlayered utility output. Unlayered rules win over all named layers.
+ *
+ * Specificity keeps per-org theme.css overrides working:
+ *   :root.dark  →  0,1,1  (wins over theme.css :root at 0,0,1 in dark mode)
+ *   :root       →  0,0,1  (theme.css :root wins over @layer base :root in light mode)
+ * Brand colors set in theme.css :root {} carry into dark mode automatically
+ * because we don't override --color-brand-* here.
+ */
+
+/* System dark mode — CSS-only, no JS required.
+   :not(.light) prevents override when user explicitly chose Light. */
+
+html {
+	scroll-behavior: smooth;
+}
+
+body {
+	background-color: var(--color-bg);
+	color: var(--color-text);
+	font-family: var(--font-sans);
+	font-feature-settings: "ss01", "cv11";
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+}
+
+.font-display {
+	font-family: var(--font-display);
+	font-feature-settings: normal;
+	letter-spacing: 0;
+}
+
+.prose-editorial {
+	font-size: 1.125rem;
+	line-height: 1.75;
+}
+.prose-editorial h2 {
+	font-family: var(--font-display);
+	font-size: 2rem;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	margin-top: 3rem;
+	margin-bottom: 1rem;
+	line-height: 1.2;
+}
+.prose-editorial h3 {
+	font-family: var(--font-display);
+	font-size: 1.5rem;
+	font-weight: 600;
+	letter-spacing: -0.015em;
+	margin-top: 2.5rem;
+	margin-bottom: 0.75rem;
+}
+.prose-editorial p {
+	margin-bottom: 1.5rem;
+}
+.prose-editorial a {
+	color: var(--color-brand-600);
+	text-decoration: underline;
+	text-decoration-color: rgb(59 130 246 / 0.3);
+	text-underline-offset: 3px;
+	transition: text-decoration-color 0.15s;
+}
+.prose-editorial a:hover {
+	text-decoration-color: var(--color-brand-600);
+}
+.prose-editorial strong {
+	font-weight: 600;
+	color: rgb(15 23 42);
+}
+.dark .prose-editorial strong {
+	color: rgb(241 245 249);
+}
+.prose-editorial blockquote {
+	border-left: 3px solid var(--color-brand-500);
+	padding: 0.5rem 0 0.5rem 1.5rem;
+	margin: 2rem 0;
+	font-family: var(--font-display);
+	font-size: 1.25rem;
+	line-height: 1.5;
+	font-style: normal;
+	color: rgb(51 65 85);
+}
+.dark .prose-editorial blockquote {
+	color: rgb(203 213 225);
+}
+.prose-editorial ul,
+.prose-editorial ol {
+	margin: 1.5rem 0;
+	padding-left: 1.5rem;
+}
+.prose-editorial ul li {
+	list-style: disc;
+	margin-bottom: 0.5rem;
+}
+.prose-editorial ol li {
+	list-style: decimal;
+	margin-bottom: 0.5rem;
+}
+.prose-editorial code {
+	background: rgb(241 245 249);
+	padding: 0.125rem 0.375rem;
+	border-radius: 0.25rem;
+	font-size: 0.9em;
+	font-family: ui-monospace, monospace;
+}
+.dark .prose-editorial code {
+	background: rgb(30 41 59);
+}
+.prose-editorial pre {
+	background: rgb(15 23 42);
+	color: rgb(241 245 249);
+	padding: 1.25rem;
+	border-radius: 0.75rem;
+	overflow-x: auto;
+	margin: 2rem 0;
+	font-size: 0.875rem;
+	line-height: 1.6;
+}
+.prose-editorial pre code {
+	background: transparent;
+	padding: 0;
+}
+.prose-editorial img {
+	border-radius: 0.75rem;
+	margin: 2rem 0;
+}
+
+.prose-editorial h2,
+.prose-editorial h3 {
+	scroll-margin-top: 6rem;
+}
+
+/*
+ * Emdash PortableText block theming
+ * ---------------------------------
+ * Emdash's bundled `<Table>`, `<Code>`, `<Pullquote>`, `<Image>` and
+ * `<HtmlBlock>` components ship with `<style>` blocks that read
+ * theme-able CSS custom properties (with light-mode defaults baked in
+ * as fallbacks):
+ *   --color-border, --color-surface, --color-bg-subtle, --color-muted,
+ *   --emdash-pullquote-border, --emdash-pullquote-color,
+ *   --emdash-pullquote-citation-color, --emdash-caption-color
+ *
+ * We define light values on :root and dark overrides on .dark so the
+ * bundled rules pick them up automatically. We then layer additional
+ * editorial polish on top of the unscoped `.emdash-*` class hooks
+ * (zebra rows with proper dark contrast, sticky header, mobile
+ * overflow scrim, code block copy affordance, html block accordions,
+ * image rounding/captions).
+ *
+ * Notes:
+ * - Emdash component styles are Astro-scoped. Class hooks are
+ *   unscoped (Emdash emits literal `class="emdash-table"`), so global
+ *   selectors here apply alongside the scoped defaults.
+ * - Use `:where(...)` to keep specificity at 0,1,0 so authors can
+ *   override per-page without escalating selectors.
+ * - All colors source from Tailwind theme tokens or `slate` values
+ *   matching the rest of the editorial layout.
+ */
+
+/* Tables — editorial layout with zebra rows + sticky header on long
+   tables. Wrapper gets a soft border + scroll affordance. */
+:where(.emdash-table-wrapper) {
+	margin: 2rem 0;
+	overflow-x: auto;
+	border: 1px solid var(--color-border);
+	border-radius: 0.75rem;
+	background: var(--color-surface);
+	-webkit-overflow-scrolling: touch;
+}
+:where(.emdash-table) {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.95rem;
+	line-height: 1.55;
+}
+:where(.emdash-table) th,
+:where(.emdash-table) td {
+	border: 0;
+	border-bottom: 1px solid var(--color-border);
+	padding: 0.75rem 1rem;
+	text-align: left;
+	vertical-align: top;
+	color: rgb(15 23 42);
+}
+.dark :where(.emdash-table) th,
+.dark :where(.emdash-table) td {
+	color: rgb(226 232 240);
+}
+:where(.emdash-table) thead th {
+	background: var(--color-bg-subtle);
+	font-weight: 600;
+	font-size: 0.8rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: rgb(51 65 85);
+	position: sticky;
+	top: 0;
+	border-bottom: 2px solid var(--color-border);
+}
+.dark :where(.emdash-table) thead th {
+	color: rgb(203 213 225);
+}
+:where(.emdash-table) tbody tr:nth-child(even) {
+	background: var(--color-bg-subtle);
+}
+:where(.emdash-table) tbody tr:last-child td {
+	border-bottom: 0;
+}
+:where(.emdash-table) tbody tr:hover {
+	background: rgb(59 130 246 / 0.06);
+}
+.dark :where(.emdash-table) tbody tr:hover {
+	background: rgb(59 130 246 / 0.1);
+}
+:where(.emdash-table) a {
+	color: var(--color-brand-600);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.dark :where(.emdash-table) a {
+	color: rgb(147 197 253);
+}
+
+/* Code blocks — Emdash already ships a dark default; we soften it,
+   add a clear filename chip, mono font matching the rest of the
+   theme, and a brand accent on the language tag. */
+:where(.emdash-code) {
+	margin: 2rem 0;
+	border-radius: 0.75rem;
+	overflow: hidden;
+	border: 1px solid rgb(30 41 59);
+	box-shadow: 0 1px 0 0 rgb(15 23 42 / 0.04);
+}
+:where(.emdash-code-filename) {
+	font-size: 0.75rem;
+	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	background: rgb(15 23 42);
+	color: rgb(148 163 184);
+	padding: 0.5rem 1rem;
+	border-bottom: 1px solid rgb(30 41 59);
+	border-radius: 0;
+	letter-spacing: 0.02em;
+}
+:where(.emdash-code) pre {
+	margin: 0;
+	padding: 1.25rem 1.5rem;
+	background: rgb(2 6 23);
+	border-radius: 0;
+	overflow-x: auto;
+	font-size: 0.875rem;
+	line-height: 1.65;
+}
+:where(.emdash-code) code {
+	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	color: rgb(226 232 240);
+	background: transparent;
+	padding: 0;
+}
+
+/* Pullquote — center-aligned, brand-coloured rules. Defaults are now
+   driven by the custom properties above (dark mode aware). */
+:where(.emdash-pullquote) {
+	font-family: var(--font-display);
+}
+
+/* Rich-text alignment emitted by Emdash 0.23 Portable Text blocks. */
+:where(.has-text-align-center) {
+	text-align: center;
+}
+:where(.has-text-align-right) {
+	text-align: right;
+}
+:where(.has-text-align-justify) {
+	text-align: justify;
+}
+
+/* Image — Emdash already wraps in <figure class="emdash-image">.
+   Round it, soften the caption, and cap width to the reading column. */
+:where(.emdash-image) img {
+	border-radius: 0.75rem;
+	box-shadow: 0 10px 30px -15px rgb(0 0 0 / 0.2);
+}
+.dark :where(.emdash-image) img {
+	box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.5);
+}
+:where(.emdash-image) figcaption {
+	font-size: 0.85rem;
+	font-style: italic;
+	color: var(--emdash-caption-color);
+	margin-top: 0.75rem;
+	text-align: center;
+}
+:where(.emdash-image--align-left),
+:where(.emdash-image--align-right) {
+	width: fit-content;
+	max-width: 50%;
+}
+:where(.emdash-image--align-left) {
+	float: left;
+	margin: 0 1.5rem 1rem 0;
+}
+:where(.emdash-image--align-right) {
+	float: right;
+	margin: 0 0 1rem 1.5rem;
+}
+:where(.emdash-image--align-center) {
+	width: fit-content;
+	margin-inline: auto;
+}
+:where(.emdash-image--align-wide),
+:where(.emdash-image--align-full) {
+	width: 100%;
+}
+@media (max-width: 640px) {
+	:where(.emdash-image--align-left),
+	:where(.emdash-image--align-right) {
+		float: none;
+		width: 100%;
+		max-width: 100%;
+		margin-inline: 0;
+	}
+}
+
+/* HTML block — used for raw blocks that didn't convert cleanly to
+   Portable Text, including <details>/<summary> accordions. Style them
+   to match the FaqSection look so embedded FAQs feel native. */
+:where(.emdash-html-block) {
+	margin: 1.5rem 0;
+}
+:where(.emdash-html-block) details {
+	border: 1px solid var(--color-border);
+	border-radius: 0.75rem;
+	background: var(--color-surface);
+	padding: 1rem 1.25rem;
+	margin: 0.75rem 0;
+	transition: box-shadow 0.15s ease;
+}
+:where(.emdash-html-block) details[open] {
+	box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04);
+}
+:where(.emdash-html-block) summary {
+	cursor: pointer;
+	font-weight: 600;
+	color: rgb(15 23 42);
+	list-style: none;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+.dark :where(.emdash-html-block) summary {
+	color: rgb(241 245 249);
+}
+:where(.emdash-html-block) summary::-webkit-details-marker {
+	display: none;
+}
+:where(.emdash-html-block) summary::after {
+	content: "+";
+	font-size: 1.25rem;
+	line-height: 1;
+	color: var(--color-muted);
+	transition: transform 0.15s ease;
+}
+:where(.emdash-html-block) details[open] summary::after {
+	content: "−";
+}
+:where(.emdash-html-block) details > *:not(summary) {
+	margin-top: 0.75rem;
+	color: rgb(51 65 85);
+	line-height: 1.7;
+}
+.dark :where(.emdash-html-block) details > *:not(summary) {
+	color: rgb(203 213 225);
+}
+:where(.emdash-html-block) table {
+	/* HTML-block tables — fall back to the same editorial look as
+	   PortableText tables. */
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1rem 0;
+	font-size: 0.95rem;
+}
+:where(.emdash-html-block) table th,
+:where(.emdash-html-block) table td {
+	border: 1px solid var(--color-border);
+	padding: 0.6rem 0.85rem;
+	text-align: left;
+}
+:where(.emdash-html-block) table thead th {
+	background: var(--color-bg-subtle);
+	font-weight: 600;
+}
+:where(.emdash-html-block) table tbody tr:nth-child(even) {
+	background: var(--color-bg-subtle);
+}
+
+:where(.emdash-callout) {
+	margin: 2rem 0;
+	border: 1px solid var(--color-border);
+	border-left: 4px solid var(--color-brand-500);
+	border-radius: 0.75rem;
+	background: var(--color-surface);
+	padding: 1rem 1.25rem;
+	color: rgb(51 65 85);
+	line-height: 1.7;
+}
+.dark :where(.emdash-callout) {
+	color: rgb(203 213 225);
+}
+
+:where(.emdash-faq) {
+	margin-top: 4rem;
+	padding-top: 3rem;
+	border-top: 1px solid var(--color-border);
+}
+.prose-editorial :where(.emdash-faq) h2 {
+	font-family: var(--font-display);
+	font-size: 1.875rem;
+	font-weight: 600;
+	line-height: 1.2;
+	margin: 0 0 2rem;
+}
+:where(.emdash-faq-items) {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+:where(.emdash-faq-item) {
+	border: 1px solid var(--color-border);
+	border-radius: 0.75rem;
+	background: var(--color-bg);
+	padding: 1rem 1.25rem;
+}
+:where(.emdash-faq-item) summary {
+	cursor: pointer;
+	font-weight: 600;
+	color: rgb(17 24 39);
+	list-style: none;
+}
+.dark :where(.emdash-faq-item) summary {
+	color: rgb(243 244 246);
+}
+:where(.emdash-faq-item) summary::-webkit-details-marker {
+	display: none;
+}
+:where(.emdash-faq-item) div {
+	margin-top: 0.75rem;
+	white-space: pre-line;
+	color: rgb(75 85 99);
+	line-height: 1.7;
+}
+.dark :where(.emdash-faq-item) div {
+	color: rgb(156 163 175);
+}
+
+.card-lift {
+	transition:
+		transform 0.2s ease,
+		box-shadow 0.2s ease;
+}
+.card-lift:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 20px 40px -20px rgb(0 0 0 / 0.15);
+}
+
+.glass-header {
+	backdrop-filter: saturate(180%) blur(12px);
+	-webkit-backdrop-filter: saturate(180%) blur(12px);
+	background: rgb(255 255 255 / 0.85);
+}
+.dark .glass-header {
+	background: rgb(10 10 10 / 0.85);
+}
+
+.tag-chip {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.25rem 0.75rem;
+	font-size: 0.75rem;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: var(--color-brand-700);
+	background: var(--color-brand-50);
+	border-radius: 9999px;
+	transition: all 0.15s;
+}
+.tag-chip:hover {
+	background: var(--color-brand-500);
+	color: white;
+}
+.dark .tag-chip {
+	color: rgb(147 197 253);
+	background: rgb(30 58 138 / 0.3);
+}
+.dark .tag-chip:hover {
+	background: var(--color-brand-500);
+	color: white;
+}
+
+.sidebar-action {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	border: 1px solid var(--color-border);
+	border-radius: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	color: rgb(75 85 99);
+	background: var(--color-bg);
+	transition:
+		border-color 0.15s ease,
+		color 0.15s ease,
+		background 0.15s ease;
+}
+.sidebar-action:hover {
+	border-color: var(--color-brand-500);
+	color: var(--color-brand-600);
+	background: var(--color-surface);
+}
+.dark .sidebar-action {
+	color: rgb(156 163 175);
+}
+.dark .sidebar-action:hover {
+	color: rgb(147 197 253);
+}
+
+/*
+ * Emdash Comments + CommentForm theming
+ * --------------------------------------
+ * ec-* CSS custom properties default to sensible light values; dark
+ * overrides are added below so the bundled component styles pick them up.
+ */
+.ec-comments {
+	--ec-comment-gap: 1.75rem;
+	--ec-comment-indent: 1.5rem;
+	--ec-comment-border: 1px solid rgb(229 231 235);
+}
+.dark .ec-comments {
+	--ec-comment-border: 1px solid rgb(55 65 81);
+}
+.ec-comments-heading {
+	font-family: var(--font-display);
+	font-size: 1.25rem;
+	font-weight: 600;
+	letter-spacing: -0.015em;
+	margin-bottom: 1.5rem;
+}
+.ec-comment-author {
+	color: rgb(17 24 39);
+}
+.dark .ec-comment-author {
+	color: rgb(243 244 246);
+}
+.ec-comment-date {
+	color: rgb(107 114 128);
+}
+.ec-comment-body {
+	color: rgb(55 65 81);
+	font-size: 0.9375rem;
+	line-height: 1.7;
+}
+.dark .ec-comment-body {
+	color: rgb(209 213 219);
+}
+
+/* CommentForm — matches the site's input styling */
+.ec-comment-form {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+.ec-comment-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: rgb(55 65 81);
+}
+.dark .ec-comment-form label {
+	color: rgb(209 213 219);
+}
+.ec-comment-form input,
+.ec-comment-form textarea {
+	padding: 0.625rem 0.875rem;
+	border: 1px solid rgb(209 213 219);
+	border-radius: 0.5rem;
+	font-family: var(--font-sans);
+	font-size: 0.9375rem;
+	background: white;
+	color: rgb(17 24 39);
+	transition: border-color 0.15s;
+}
+.dark .ec-comment-form input,
+.dark .ec-comment-form textarea {
+	background: rgb(17 24 39);
+	border-color: rgb(55 65 81);
+	color: rgb(243 244 246);
+}
+.ec-comment-form input:focus,
+.ec-comment-form textarea:focus {
+	outline: none;
+	border-color: var(--color-brand-500);
+	box-shadow: 0 0 0 3px rgb(59 130 246 / 0.15);
+}
+.ec-comment-form textarea {
+	min-height: 120px;
+	resize: vertical;
+}
+.ec-comment-form button[type="submit"] {
+	align-self: flex-start;
+	padding: 0.625rem 1.25rem;
+	background: var(--color-brand-600);
+	color: white;
+	font-weight: 600;
+	font-size: 0.875rem;
+	border: none;
+	border-radius: 0.5rem;
+	cursor: pointer;
+	transition: background 0.15s;
+}
+.ec-comment-form button[type="submit"]:hover {
+	background: var(--color-brand-700);
+}
+
+/*
+ * Emdash WidgetArea — sidebar widget blocks
+ */
+.widget-area {
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+}
+.widget-area .widget {
+	padding-bottom: 1.5rem;
+	border-bottom: 1px solid rgb(229 231 235);
+}
+.dark .widget-area .widget {
+	border-bottom-color: rgb(55 65 81);
+}
+.widget-area .widget:last-child {
+	border-bottom: none;
+	padding-bottom: 0;
+}
+.widget-title {
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: rgb(107 114 128);
+	margin-bottom: 0.75rem;
+}

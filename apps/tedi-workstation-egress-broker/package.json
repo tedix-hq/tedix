@@ -1,0 +1,39 @@
+{
+	"name": "@tedix/tedi-workstation-egress-broker",
+	"version": "0.1.0",
+	"private": true,
+	"description": "SSRF-guarded egress proxy for tedi workstation containers.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app tedi-workstation-egress-broker",
+		"types": "cf workers types --mode production",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"preview": "vp preview",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"github-app:incident": "bun scripts/github-app-incident.ts",
+		"test": "bun run test:run",
+		"test:run": "bun run test:workerd",
+		"test:workerd": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "bun run types && tsc --noEmit"
+	},
+	"dependencies": {
+		"@tedix/api-client": "workspace:*",
+		"@tedix/ssrf-guard": "workspace:*",
+		"@tedix/worker-kit": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"cf": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

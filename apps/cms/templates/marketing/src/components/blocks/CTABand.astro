@@ -1,0 +1,85 @@
+---
+/**
+ * marketing.cta — closing call-to-action band over a brand background, with
+ * an optional background image. Harvested from a production marketing homepage CTA band
+ * and the official marketing CTA block. CTA fields are flattened.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asString } from "./value-utils";
+import { Image } from "emdash/ui";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_cta" }>>;
+const { value: node } = Astro.props;
+
+const headline = asString(node.headline);
+const body = asString(node.body);
+const ctaLabel = asString(node.cta_label);
+const ctaUrl = asString(node.cta_url);
+const imageUrl = node._version === 1 ? asString(node.image_url) : undefined;
+const image = node._version === 2 ? node.image : undefined;
+
+const bandStyle = imageUrl
+	? `background-image:var(--gradient-brand-overlay), url('${imageUrl}')`
+	: undefined;
+---
+
+{headline && (
+	<section class="mk-cta" style={bandStyle}>
+		{image && <div class="mk-cta__media" aria-hidden="true"><Image image={image} alt="" /></div>}
+		{image && <div class="mk-cta__overlay" aria-hidden="true" />}
+		<div class="mk-cta__inner">
+			<h2>{headline}</h2>
+			{body && <p>{body}</p>}
+			{ctaLabel && ctaUrl && (
+				<a class="iw-btn" href={ctaUrl}>
+					{ctaLabel}
+				</a>
+			)}
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-cta {
+		position: relative;
+		background-color: var(--color-brand-600);
+		background-image: var(--gradient-brand);
+		background-size: cover;
+		background-position: center;
+		padding: 90px 0;
+		text-align: center;
+		color: var(--color-on-brand);
+	}
+	.mk-cta__inner {
+		position: relative;
+		z-index: 1;
+		max-width: 760px;
+		width: 90%;
+		margin: 0 auto;
+	}
+	.mk-cta__media,
+	.mk-cta__overlay {
+		position: absolute;
+		inset: 0;
+	}
+	.mk-cta__media :global(img) {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	.mk-cta__overlay {
+		background: var(--gradient-brand-overlay);
+	}
+	.mk-cta__inner h2 {
+		font-family: var(--font-display);
+		font-size: clamp(1.7rem, 3.5vw, 2.6rem);
+		color: var(--color-on-brand);
+		margin: 0 0 0.8rem;
+	}
+	.mk-cta__inner p {
+		color: var(--color-on-brand);
+		font-size: 1.15rem;
+		margin: 0 0 1.5rem;
+	}
+</style>

@@ -1,0 +1,62 @@
+/*
+ * theme.css — per-org visual customization
+ *
+ * This is the only file you need to edit to retheme the site.
+ * All defaults are listed below as comments. Uncomment and change
+ * any value to override it.
+ *
+ * globals.css puts its defaults inside @layer base, so declarations
+ * here (unlayered) always take priority — no specificity tricks needed.
+ *
+ * Brand colors work in both light and dark mode automatically — just set
+ * them once in :root { }. To customize background/text colors separately
+ * for dark mode, add a :root.dark { } block below.
+ *
+ * ─── Brand colors (light + dark) ─────────────────────────────────────────────
+ * --color-brand-50:  #f5f3ff;   Light tint background (hero wash, badges)
+ * --color-brand-500: #9061ff;   Accent (borders, icons, inline links)
+ * --color-brand-600: #7c3aed;   Primary interactive (buttons, CTAs, active nav)
+ * --color-brand-700: #6d28d9;   Pressed/hover variant for primary interactive
+ *
+ * Platform branding can also supply these color aliases:
+ * colors.tint / colors.primaryTint for --color-brand-50, and
+ * colors.primaryHover / colors.primaryDark / colors.interactiveHover
+ * for --color-brand-700. If a tenant's secondary color is a very light
+ * surface tint, the locked layout treats it as --color-brand-50 instead
+ * of using it as a button hover color.
+ *
+ * ─── Typography ──────────────────────────────────────────────────────────────
+ * --font-display: var(--font-display), ui-rounded, system-ui, sans-serif;
+ *
+ * ─── Page colors (light mode) ────────────────────────────────────────────────
+ * --color-bg:           #ffffff;   Page background
+ * --color-text:         #0f172a;   Body text
+ * --color-text-secondary: #475569; Secondary / caption text
+ * --color-muted:        #64748b;   Placeholder, metadata text
+ * --color-border:       rgb(226 232 240);  Dividers and outlines
+ * --color-surface:      rgb(248 250 252);  Cards, sidebars, code backgrounds
+ * --color-bg-subtle:    rgb(241 245 249);  Table stripes, hover backgrounds
+ */
+
+:root {
+	/* Uncomment to override: */
+	/* --color-brand-50:  #f0fdf4; */
+	/* --color-brand-500: #22c55e; */
+	/* --color-brand-600: #16a34a; */
+	/* --color-brand-700: #15803d; */
+	/* --font-display: "Playfair Display", Georgia, serif; */
+}
+
+/*
+ * Dark mode overrides: use :root.dark { } with higher specificity (0,1,1) than
+ * the :root { } block above (0,0,1). This overrides the defaults from globals.css.
+ *
+ * Example — custom dark background:
+ * :root.dark {
+ *   --color-bg: #0a0a12;
+ *   --color-surface: #0f0f1a;
+ * }
+ *
+ * Brand colors set in :root { } above carry into dark mode automatically.
+ * Only override here if you need dark-specific palette values.
+ */

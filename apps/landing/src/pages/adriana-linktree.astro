@@ -1,0 +1,258 @@
+---
+import { ArrowRight, BriefcaseBusiness, Code2, Landmark, Megaphone, Sparkles, UsersRound } from "lucide-react";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+export const prerender = true;
+
+const profileLinks = [
+	{ label: "LinkedIn", href: "https://www.linkedin.com/in/adriana-carmona-beltran/", icon: UsersRound },
+	{ label: "GitHub", href: "https://github.com/Adiitamiin", icon: Code2 },
+	{ label: "Tedix Core Pages", href: "/linktree/", icon: Sparkles },
+];
+
+const sections = [
+	{
+		title: "AI And Thought Leadership",
+		icon: Sparkles,
+		items: [
+			{
+				title: "MCP from experimentation to implementation",
+				description: "Adriana frames Tedix, N26, W3Hub and Alpic around the same enterprise challenge: moving AI from experiments into secure, reliable real-world implementation.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_mcp-activity-7466054924943048704-ipch",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQGKHhOz0qbwUA/feedshare-image-high-res/B4DZ5zBYD9GYAY-/0/1780046201385?e=2147483647&v=beta&t=aZ10JMIZ3k_vsGT9kXV4HD57aq48y13PN8-DwkuQIZQ",
+			},
+			{
+				title: "When customers never visit your website again",
+				description: "A commerce thesis from Agentiq World / Chatbot Summit Berlin: AI interfaces are becoming storefronts, not just assistants.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_what-happens-when-your-customer-never-visits-activity-7442884325781446656-8b3-",
+				thumbnail: "https://dms.licdn.com/playlist/vid/v2/D4D05AQHj1vLlTd2GzA/thumbnail-with-play-button-overlay-high/B4DZ0mr1ZsKUDY-/0/1774470530216?e=2147483647&v=beta&t=wkUdFlc1VHCNSVql7U3MUaCd8CijsQgHhy4YJTv3G0s",
+			},
+			{
+				title: "AI in marketing and content",
+				description: "Adriana explains that serious AI content work is not mass generation, but deciding which story deserves to exist using company data, search signals, trends and user behavior.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_the-promise-of-ai-in-marketing-and-content-activity-7462034520784121856-mSeW",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQF2k7RtRSZiPQ/feedshare-shrink_800/B4DZ437aVEKcAc-/0/1779054782916?e=2147483647&v=beta&t=CJsMd-DwUJzbKBhMjQljf2hXwVG3ndZqcb4rQYHMIUM",
+			},
+			{
+				title: "AI systems architecture, not only prompting",
+				description: "A founder thesis on why agentic AI needs repeatability, real-environment operation, memory, failure handling and system architecture beyond prompting.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_%F0%9D%90%84%F0%9D%90%AF%F0%9D%90%9E%F0%9D%90%AB%F0%9D%90%B2%F0%9D%90%A8%F0%9D%90%A7%F0%9D%90%9E-%F0%9D%90%A2%F0%9D%90%AC-%F0%9D%90%AD%F0%9D%90%9A%F0%9D%90%A5%F0%9D%90%A4%F0%9D%90%A2%F0%9D%90%A7%F0%9D%90%A0-%F0%9D%90%9A%F0%9D%90%9B-activity-7457371700888969216-yg8x",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4E22AQGbSkSJkNlYWw/feedshare-shrink_1280/B4EZ33oCoyIoAQ-/0/1777975962477?e=2147483647&v=beta&t=JrU5byE10iWHuc-LcszTqiITa2fpgnkpKEZVYmyv0Aw",
+			},
+			{
+				title: "International Women's Day and AI leadership",
+				description: "A reflection on women shaping AI, leadership traits without gender labels, and the importance of who sits at the table as AI reshapes industries.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_internationalwomen-internationalwomensday-activity-7436663315969351680-H4HT",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQHH9aZkpu8URA/feedshare-shrink_800/B56ZzO6hdMJgAc-/0/1772997974252?e=2147483647&v=beta&t=nT3Yj7ivuOls3dARS_2FlGZ563GZianh4bLV9sEAI7k",
+			},
+			{
+				title: "AI commerce and the next storefront",
+				description: "A market thesis on AI becoming the next storefront, where brands must be ready to appear inside conversations and not only on websites.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_aicommerce-blockchain-futureofretail-activity-7397590238296068096-QAuH",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQFShMSjMJVZQQ/feedshare-image-high-res/B56ZqmFGtQHAAs-/0/1763722950938?e=2147483647&v=beta&t=4Pfcl5mdmpH_bj9KHFC3OE7hJC4RH_w_wLkxGBCqKnk",
+			},
+			{
+				title: "The hard part of building in the AI era",
+				description: "A founder reflection on AI hype, customer discovery, real usage, stakeholder alignment and building a company beyond buzzwords.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_lets-talk-about-the-hard-part-of-building-activity-7396447419208609792-HEn3",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQGezAyAtXXnuQ/feedshare-image-high-res/B56ZqV1vL3H8Ao-/0/1763450484108?e=2147483647&v=beta&t=NezFex2mIKVmxwBiOmaQFdH27IfHfOjisa3WsEsGQm8",
+			},
+			{
+				title: "AI Show & Tell and public learning",
+				description: "A week of prototypes, hackathons and panel preparation distilled into a public reflection on how fast the agentic AI era is arriving.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_aishowandtell-agenticai-publiclearning-activity-7384830543810572288-NQvP",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQHnDReQyYUOkg/feedshare-shrink_1280/B56ZnuynISI0As-/0/1760647871600?e=2147483647&v=beta&t=Ag8BrtIQYYm8Hhf71pIvoHGGfwklMrRj4unFZktAaMo",
+			},
+			{
+				title: "Women in Tech and female founders",
+				description: "Panel recap on women-led strategies, inclusive global companies and how diverse perspectives strengthen leadership and business building.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_womenintech-femalefounder-activity-7380871213633630208-25ho",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQE0ujWvpiBGeA/feedshare-image-high-res/B56Zm4fQixJoAo-/0/1759736826782?e=2147483647&v=beta&t=ZOCOUjTmHmdyWQXbGme_qfWc0ts5tv3vPiTjwgqp56k",
+			},
+			{
+				title: "Women-led strategies for inclusive companies",
+				description: "A second LinkedIn entry for the same leadership conversation, preserving the complete evidence trail for the event and discussion.",
+				href: "https://www.linkedin.com/posts/adriana-carmona-beltran_womenintech-femalefounder-ugcPost-7380871209929887744-VFZ8/",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQE0ujWvpiBGeA/feedshare-image-high-res/B56Zm4fQixJoAo-/0/1759736826782?e=2147483647&v=beta&t=ZOCOUjTmHmdyWQXbGme_qfWc0ts5tv3vPiTjwgqp56k",
+			},
+		],
+	},
+	{
+		title: "Featured And Past Entrepreneurial Experiences",
+		icon: BriefcaseBusiness,
+		items: [
+			{
+				title: "APEX Ventures: the next frontier in cybersecurity",
+				description: "Featured in APEX Ventures' Stage Two ecosystem coverage on AI-powered threats, governance, quantum computing, confidential computing and cybersecurity strategy.",
+				href: "https://apexventures.substack.com/p/the-next-frontier-in-cybersecurity?triedRedirect=true",
+				thumbnailLabel: "APEX Ventures",
+			},
+			{
+				title: "hubraum: Tedix gets better and cheaper with use",
+				description: "External ecosystem validation from hubraum on Tedix's thesis: AI workers that compound knowledge over time and help companies own intelligence instead of renting it.",
+				href: "https://www.linkedin.com/posts/startups-ai-berlin-share-7447568362018377729-_L9a/",
+				thumbnailLabel: "hubraum",
+			},
+			{
+				title: "Mujer Automotriz",
+				description: "Community and media initiative for women in the automotive industry, connecting leadership, inclusion, business education and industry transformation.",
+				href: "https://mujerautomotriz.com/",
+				thumbnailLabel: "Mujer Automotriz",
+			},
+		],
+	},
+	{
+		title: "Public Speaking",
+		icon: Megaphone,
+		style: "tag",
+		items: [
+			{
+				title: "hubraum and APEX Stage Two side event",
+				description: "European startup ecosystem event connected to venture builders, operators, investors and emerging technology conversations.",
+				href: "https://forms.hubraum.com/stage-two-side-event-2025",
+				thumbnail: "https://forms.hubraum.com/hubfs/Stage_2_Side_Event_with_Apex_VC.jpg",
+			},
+			{
+				title: "Cybersecurity / AI governance / quantum computing",
+				description: "Stage Two panel recap on AI-powered threats, confidential computing, financial crime and governance at the frontier of security.",
+				href: "https://www.linkedin.com/posts/cybersecurity-aigovernance-quantumcomputing-share-7391268551028006912-WRy9/",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4E22AQFE9XEjewB98g/feedshare-shrink_800/B4EZpMPk_OIIAk-/0/1762215744637?e=2147483647&v=beta&t=-Uw9173sAT7oWS5p0z7NbEOC1DCh5Ri1mRcX8BqW2nY",
+			},
+			{
+				title: "Trust / compliance (Europe)",
+				description: "Enterprise AI adoption perspective around safe implementation, systems architecture and trustworthy operations in regulated environments.",
+				href: "https://www.linkedin.com/posts/selim-nowicki_trust-compliance-europe-ugcPost-7389422054380580864-0a4J",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4E22AQFNlKjPrR7w1g/feedshare-shrink_800/B4EZoyAL1TJgAg-/0/1761775504381?e=2147483647&v=beta&t=C8hdCTcLq6N_dkK31DP1UEc6ry-OiVwcBnT0yN_TU7U",
+			},
+			{
+				title: "Berlin AI Show & Tell",
+				description: "Berlin event format for AI builders, founders and technical communities to share demos, lessons and practical progress.",
+				href: "https://www.linkedin.com/posts/alexabaran_berlin-aishowandtell-globalaicommunity-activity-7383596131324227584-U5pH",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4E22AQG6H0A3a5biGw/feedshare-shrink_800/B4EZnfNjZHK0Ak-/0/1760386496810?e=2147483647&v=beta&t=Db9HpGexg1wdczpgrkMSvYkNaIbQ6tTIJbMIwzmlrkQ",
+			},
+			{
+				title: "The New Face of Leadership - Quotients",
+				description: "Public leadership discussion on AI, new ways of thinking and the capabilities leaders need as technology reshapes organizations.",
+				href: "https://quotients.com/visibility-quotient/events/the-new-face-of-leadership-redefining-thinking-in-the-age-of-ai/",
+				thumbnail: "https://quotients.com/wp-content/uploads/2025/12/OI-Session-1024x576.jpg",
+			},
+			{
+				title: "Leadership / Women in Tech",
+				description: "Community leadership around women-led strategies, inclusive business and stronger representation in technology ecosystems.",
+				href: "https://www.linkedin.com/posts/angeleymullins_leadership-womenintech-tech-ugcPost-7379742534157271040-tFd1",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4D22AQFl9-G-dekBSg/feedshare-shrink_1280/B4DZmocubxJcAs-/0/1759467727469?e=2147483647&v=beta&t=41FM7zj2ye-ITX_5bn3nAs1iCMs5qA6AEyyJ90HK7us",
+			},
+			{
+				title: "Leadership / technology",
+				description: "Interview and public-facing leadership work connecting technology, team trust and operational change in traditional industries.",
+				href: "https://www.linkedin.com/posts/openinnovator_becausesheleads-leadership-technology-activity-7436821379800342528-vTS-",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQEk11iizClR6A/feedshare-shrink_800/B56ZzTlowFHsAg-/0/1773076385535?e=2147483647&v=beta&t=PcH1h6aKkqBMuNCsMzcQ0wtgQSwTZTcLI-934jsNo8k",
+			},
+			{
+				title: "Global AI community / AI Show & Tell",
+				description: "Public learning and ecosystem contribution through AI prototypes, hackathons and the Global AI community network.",
+				href: "https://www.linkedin.com/posts/mplogas_globalaicommunity-aishowandtell-activity-7381237853030227968-TE0_",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D4E22AQEdJaau0CvVWQ/feedshare-shrink_800/B4EZm9stjmKgAg-/0/1759824239656?e=2147483647&v=beta&t=QcWHyexAPzKZSas2sHk793VvSK9FarMFSIEMsnGSCxw",
+			},
+			{
+				title: "International Women's Day / Women in Tech",
+				description: "Embassy-supported ecosystem collaboration highlighting women in technology, AI leadership and international community building.",
+				href: "https://www.linkedin.com/posts/olivercontla_internationalwomensday-ai-womenintech-ugcPost-7435712841585762304-jYbQ",
+				thumbnail: "https://media.licdn.com/dms/image/v2/D5622AQGApJWLEC3xhA/feedshare-shrink_800/B56ZzD1bJhG4As-/0/1772812088368?e=2147483647&v=beta&t=DST12UOdIr01WB82JIPpnuM1GOz_HG__BY-htW6znRo",
+			},
+			{
+				title: "Innovation / technology / leadership",
+				description: "Corporate innovation evidence from AI commerce and enterprise workflow experiments with partners and operators.",
+				href: "https://www.linkedin.com/posts/openinnovator_innovation-technology-leadership-ugcPost-7406648081644945408-cbSD",
+				thumbnail: "https://dms.licdn.com/playlist/vid/v2/D5605AQHQ1BR-4u4zXg/thumbnail-with-play-button-overlay-high/B56ZsmzWybHYDM-/0/1765882563609?e=2147483647&v=beta&t=XNyFNAvcGrqofugtnL_Y_LsyyP0BnvcGf3dFHfXG1Oc",
+			},
+			{
+				title: "Mujer Automotriz leadership summit",
+				description: "Public speaking and community initiative focused on leadership, technology adoption and women in the automotive industry.",
+				href: "https://www.youtube.com/watch?v=ooScm-v-DCc",
+				thumbnail: "https://img.youtube.com/vi/ooScm-v-DCc/hqdefault.jpg",
+			},
+		],
+	},
+	{
+		title: "Government And International Recognition",
+		icon: Landmark,
+		items: [
+			{
+				title: "Mujer Automotriz",
+				description: "Automotive women initiative connected to leadership, community building and industry inclusion.",
+				href: "https://mujerautomotriz.com/",
+			},
+		],
+	},
+];
+
+const sectionOrder = [
+	"Public Speaking",
+	"Featured And Past Entrepreneurial Experiences",
+	"AI And Thought Leadership",
+	"Government And International Recognition",
+];
+
+const orderedSections = [...sections].sort(
+	(a, b) => sectionOrder.indexOf(a.title) - sectionOrder.indexOf(b.title),
+);
+---
+
+<BaseLayout title="Adriana Carmona Beltran | Tedix" description="Curated founder profile links for Adriana Carmona Beltran." showConsentBanner={false} showFooter={false} includeSoftwareApplicationSchema={false}>
+	<main class="min-h-screen bg-[linear-gradient(180deg,rgba(245,240,255,0.95)_0%,rgba(255,255,255,1)_42%,rgba(255,248,244,0.92)_100%)] px-4 pt-32 pb-14 dark:bg-[linear-gradient(180deg,#090015_0%,#0d0617_52%,#120817_100%)] sm:px-6 lg:px-8">
+		<section class="mx-auto max-w-3xl text-center">
+			<img src="/images/founders/adriana-carmona-beltran.jpeg" alt="Adriana Carmona Beltran" class="mx-auto h-28 w-28 rounded-[2rem] border border-white/80 object-cover shadow-[0_22px_60px_rgba(124,58,237,0.22)] dark:border-white/10" />
+			<p class="mt-7 text-sm font-semibold uppercase tracking-[0.24em] text-violet-600 dark:text-violet-300">Founder Profile</p>
+			<h1 class="mt-3 font-display text-4xl font-bold tracking-tight text-foreground dark:text-white/95">Adriana Carmona Beltran</h1>
+			<p class="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground dark:text-white/62">
+				Founder evidence for EuroLabs reviewers: AI adoption, product strategy, public leadership, community building and prior vertical SaaS entrepreneurship.
+			</p>
+			<div class="mt-8 grid gap-3 sm:grid-cols-3">
+				{profileLinks.map((link) => {
+					const Icon = link.icon;
+					return (
+						<a href={link.href} target={link.href.startsWith("http") ? "_blank" : undefined} rel={link.href.startsWith("http") ? "noreferrer" : undefined} class="group flex items-center justify-between rounded-2xl border border-border/80 bg-white/82 px-5 py-4 text-left font-semibold text-foreground shadow-[0_14px_45px_rgba(15,23,42,0.07)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-violet-400/45 dark:border-white/10 dark:bg-white/[0.045] dark:text-white/92">
+							<span class="inline-flex items-center gap-3"><Icon className="h-5 w-5 text-violet-600 dark:text-violet-300" />{link.label}</span>
+							<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+						</a>
+					);
+				})}
+			</div>
+		</section>
+
+		<div class="mx-auto mt-12 grid max-w-6xl gap-6">
+			{orderedSections.map((section) => {
+				const Icon = section.icon;
+				return (
+					<section class="rounded-[2rem] border border-border/80 bg-white/82 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+						<div class="mb-5 flex items-center gap-3">
+							<h2 class="inline-flex max-w-full items-center gap-3 rounded-full border border-orange-300/80 bg-orange-50/70 px-5 py-3 text-left text-sm font-bold uppercase tracking-[0.18em] text-orange-700 shadow-[0_12px_34px_rgba(251,146,60,0.14)] dark:border-orange-300/35 dark:bg-orange-400/10 dark:text-orange-200 sm:tracking-[0.22em]">
+								<Icon className="h-5 w-5 shrink-0" />
+								<span class="min-w-0 leading-snug">{section.title}</span>
+							</h2>
+						</div>
+						<div class="grid gap-4 md:grid-cols-2">
+							{section.items.map((item) => (
+								<a href={item.href} target="_blank" rel="noreferrer" class="group flex items-start gap-4 rounded-2xl border border-border/75 bg-background/72 p-4 transition-all hover:-translate-y-0.5 hover:border-violet-400/45 dark:border-white/10 dark:bg-white/[0.035]">
+									{item.thumbnail ? (
+										<img src={item.thumbnail} alt="" loading="lazy" referrerpolicy="no-referrer" class="h-20 w-20 shrink-0 rounded-xl border border-border/70 object-cover shadow-sm transition-transform group-hover:scale-[1.02] dark:border-white/10 sm:h-24 sm:w-24" />
+									) : item.thumbnailLabel ? (
+										<div class="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-violet-200/80 bg-gradient-to-br from-violet-50 via-fuchsia-50 to-orange-50 px-3 text-center shadow-sm dark:border-white/10 dark:from-violet-500/15 dark:via-fuchsia-500/10 dark:to-orange-500/10 sm:h-24 sm:w-24">
+											<span class="font-display text-[0.72rem] font-bold leading-tight text-violet-700 dark:text-violet-100">{item.thumbnailLabel}</span>
+										</div>
+									) : null}
+									<div class="min-w-0 flex-1">
+										<h3 class="font-display text-lg font-bold text-foreground dark:text-white/95">{item.title}</h3>
+										<p class="mt-2 text-sm leading-relaxed text-muted-foreground dark:text-white/60">{item.description}</p>
+										<span class="mt-4 inline-flex items-center text-sm font-semibold text-violet-600 dark:text-violet-300">Open link <ArrowRight className="ml-1 h-4 w-4 transition-transform group-hover:translate-x-0.5" /></span>
+									</div>
+								</a>
+							))}
+						</div>
+					</section>
+				);
+			})}
+		</div>
+	</main>
+</BaseLayout>

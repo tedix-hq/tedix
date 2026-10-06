@@ -1,0 +1,20 @@
+{
+	"name": "tedix-repo",
+	"interface": {
+		"displayName": "Tedix"
+	},
+	"plugins": [
+		{
+			"name": "tedix",
+			"source": {
+				"source": "local",
+				"path": "./plugins/tedix"
+			},
+			"policy": {
+				"installation": "AVAILABLE",
+				"authentication": "ON_INSTALL"
+			},
+			"category": "Productivity"
+		}
+	]
+}

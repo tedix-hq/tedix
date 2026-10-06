@@ -1,0 +1,2725 @@
+@import "./kumo-tedix.css";
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Touch targets are a POINTER-capability question, not a viewport-width one.
+ * `min-h-11 sm:min-h-0` collapses to a 24–28px target on any touch device
+ * wider than 640px (a tablet in landscape, a touch laptop, a kiosk). Use
+ * `coarse:` for anything that exists to keep a hit target thumb-sized, and
+ * keep `sm:`/`md:` for real layout changes.
+ */
+@custom-variant coarse (@media (pointer: coarse));
+
+/*
+ * Tedix OS palette — neutral surfaces, hairline borders, and semantic
+ * interactive intent. Product identity stays in Tedix
+ * typography, language, and governed tenant theming rather than a colored cast
+ * across every dark surface.
+ * Kumo consumes these through the projections in kumo-tedix.css.
+ */
+:root {
+	--radius: 0.5rem;
+	/*
+	 * Visual-viewport geometry. These are the DEFAULTS; `installViewportMetrics()`
+	 * (src/lib/viewport-metrics.ts, installed from index.html) overwrites them on
+	 * <html> whenever the visible rectangle moves. `dvh` is the largest viewport
+	 * unit and never shrinks for a software keyboard, so any shell that must keep
+	 * its bottom chrome — the chat composer above all — reachable sizes itself
+	 * from `--viewport-tedix-height`, not from `100dvh`.
+	 */
+	--viewport-tedix-height: 100dvh;
+	--viewport-tedix-top: 0px;
+	--viewport-tedix-bottom: 0px;
+	/*
+ * Light surface ladder: the shell tones recede below the canvas
+	 * (canvas > elevated > recessed) while real surfaces lift to white.
+	 */
+	--background: #fbfbfb;
+	--foreground: #171717;
+	--background-lighter: #f8f8f8;
+	--background-base: #f3f3f3;
+	--card: #ffffff;
+	--card-foreground: #171717;
+	--popover: #fbfbfb;
+	--popover-foreground: #171717;
+	--primary: #7c3aed;
+	--primary-foreground: #ffffff;
+	--secondary: #ffffff;
+	--secondary-foreground: #404040;
+	--muted: #f5f5f5;
+	--muted-foreground: #737373;
+	/* Hover and selection reserve one neutral step for state. */
+	--accent: #f5f5f5;
+	--accent-foreground: #171717;
+	--destructive: #b42318;
+	--border: #e9e9e9;
+	--input: #d4d4d4;
+	--ring: #7c3aed;
+	--accent-forest: #12815c;
+	--accent-honey: #9a6a05;
+	--accent-amethyst: #9061ff;
+	--accent-bluetron: #2a6dfb;
+}
+
+.dark {
+	/*
+	 * Dark surface ladder:
+	 * canvas 0.10 / elevated 0.12 / recessed 0.15 / base 0.17 / control 0.205 /
+	 * tint 0.269 / line 0.32 / interact 0.371 in OKLCH lightness. Surfaces lift
+	 * away from the canvas; nothing else carries elevation.
+	 */
+	--background: #030303;
+	--foreground: #f5f5f5;
+	--background-lighter: #060606;
+	--background-base: #0b0b0b;
+	--card: #0f0f0f;
+	--card-foreground: #f5f5f5;
+	--popover: #262626;
+	--popover-foreground: #f5f5f5;
+	--primary: #a68bff;
+	--primary-foreground: #030303;
+	--secondary: #171717;
+	--secondary-foreground: #e5e5e5;
+	--muted: #262626;
+	--muted-foreground: #a1a1a1;
+	--accent: #262626;
+	--accent-foreground: #f5f5f5;
+	--destructive: oklch(0.66 0.19 25);
+	--border: #262626;
+	--input: #404040;
+	--ring: #a68bff;
+	--accent-forest: #42c366;
+	--accent-honey: #ecb730;
+	--accent-amethyst: #a68bff;
+	--accent-bluetron: #6d9bff;
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-background-lighter: var(--background-lighter);
+	--color-background-base: var(--background-base);
+	--color-ring: var(--ring);
+	--color-input: var(--input);
+	--color-border: var(--border);
+	--color-destructive: var(--destructive);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+	--color-accent-forest: var(--accent-forest);
+	--color-accent-honey: var(--accent-honey);
+	--color-accent-amethyst: var(--accent-amethyst);
+	--color-accent-bluetron: var(--accent-bluetron);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--radius-2xl: calc(var(--radius) + 8px);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+}
+
+:root {
+	font-family: var(--font-sans);
+	font-synthesis: none;
+	/* Shared tracking for shell and product copy. */
+	letter-spacing: -0.01em;
+	text-rendering: optimizeLegibility;
+}
+
+html,
+body,
+#root {
+	min-height: 100%;
+	margin: 0;
+}
+
+button,
+input {
+	font: inherit;
+}
+
+button,
+a {
+	-webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * App shell chrome — persistent left rail + thin, mostly-empty top bar.
+ * ------------------------------------------------------------------------- */
+
+/*
+ * The left rail, its collapse persistence, the mobile sheet + backdrop, the
+ * icon-only collapsed rows and their tooltips all live in Kumo's `Sidebar`
+ * (see `components/kumo/sidebar.tsx`). What remains here is only the chrome
+ * Kumo has no home for: the brand mark (shared with the Canvas workspace
+ * header) and the shared ghost icon action.
+ */
+
+.brand-mark {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	flex: 0 0 24px;
+	border-radius: 6px;
+	background: var(--primary);
+	color: var(--primary-foreground);
+	font-size: var(--text-tedix-control);
+	font-weight: 700;
+	line-height: var(--text-tedix-control--line-height);
+}
+
+.ghost-icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+	transition:
+		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
+		color var(--duration-tedix-standard) var(--ease-tedix-standard);
+}
+
+.ghost-icon-button:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+
+.ghost-icon-button:active {
+	transform: translateY(0.5px) scale(0.99);
+}
+
+.ghost-icon-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+/*
+ * Not-yet-wired controls stay in the tab order with `aria-disabled` so their
+ * `title` hint remains reachable by assistive tech (native `disabled` hides it).
+ */
+.ghost-icon-button[aria-disabled="true"] {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.ghost-icon-button[aria-disabled="true"]:hover {
+	background: transparent;
+	color: var(--muted-foreground);
+}
+
+/*
+ * The shell column owns the visible height, so the composer at its bottom edge
+ * stays above the software keyboard instead of under it. The right/bottom
+ * insets are the landscape notch and the home indicator; the left inset belongs
+ * to the sidebar, which is the element actually flush with that edge.
+ */
+.os-main {
+	display: flex;
+	height: var(--viewport-tedix-height);
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+	padding-right: env(safe-area-inset-right, 0px);
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.topbar {
+	position: relative;
+	z-index: 10;
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 12px;
+	height: 56px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--border);
+	/*
+	 * Solid, not alpha-blurred. `color-mix(in oklch, X, transparent)` is a
+	 * projection trap: transparent is transparent *black* and its powerless hue
+	 * resolves engine-dependently (Chrome drags toward hue 0 — warm/maroon), so
+	 * the chrome drifted off the violet body in dark mode. The bar was 92%
+	 * opaque anyway; a solid canvas keeps chrome and body in one hue family.
+	 */
+	background: var(--background);
+}
+
+@media (min-width: 640px) {
+	.topbar {
+		padding-inline: 24px;
+	}
+}
+
+@media (min-width: 1024px) {
+	.topbar {
+		padding-inline: 40px;
+	}
+}
+
+.topbar-context {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-body);
+	line-height: var(--text-tedix-body--line-height);
+}
+
+.topbar-context span,
+.topbar-context strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.topbar-context strong {
+	color: var(--foreground);
+	font-weight: 500;
+}
+
+.topbar-search {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 30px;
+	padding: 0 8px;
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	background: var(--background-lighter);
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-control) !important;
+	line-height: var(--text-tedix-control--line-height) !important;
+	cursor: pointer;
+	transition:
+		border-color var(--duration-tedix-standard) var(--ease-tedix-standard),
+		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
+		color var(--duration-tedix-standard) var(--ease-tedix-standard);
+}
+
+.topbar-search kbd {
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+}
+
+.topbar-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-left: auto;
+}
+
+.topbar-actions .transport-status {
+	margin-left: 0;
+}
+
+.topbar-search:hover {
+	border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
+	background: var(--accent);
+	color: var(--foreground);
+}
+
+.governed-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	margin-left: 2px;
+	color: var(--tedix-hue-green-fg);
+	font-size: var(--text-tedix-label);
+	font-weight: 500;
+	line-height: var(--text-tedix-label--line-height);
+}
+
+.governed-status > span {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	box-shadow: 0 0 0 3px var(--tedix-hue-green-tint);
+}
+
+/*
+ * Transport / reconnect indicator. Shares the governed chip's geometry so the
+ * topbar reads as one cluster; only the hue carries the state, driven by
+ * data-status rather than a class per state.
+ */
+.transport-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	margin-left: auto;
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-label);
+	font-weight: 500;
+	line-height: var(--text-tedix-label--line-height);
+	white-space: nowrap;
+}
+
+.transport-status > span {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.transport-status[data-status="open"] {
+	color: var(--tedix-hue-green-fg);
+}
+
+.transport-status[data-status="open"] > span {
+	box-shadow: 0 0 0 3px var(--tedix-hue-green-tint);
+}
+
+.transport-status[data-status="connecting"] {
+	color: var(--tedix-hue-blue-fg);
+}
+
+.transport-status[data-status="connecting"] > span {
+	box-shadow: 0 0 0 3px var(--tedix-hue-blue-tint);
+}
+
+.transport-status[data-status="reconnecting"] {
+	color: var(--tedix-hue-amber-fg);
+}
+
+.transport-status[data-status="reconnecting"] > span {
+	box-shadow: 0 0 0 3px var(--tedix-hue-amber-tint);
+}
+
+.route-content {
+	min-height: 0;
+	flex: 1 1 auto;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+ * Page anatomy — flat canvas, eyebrow sections, row-based lists.
+ * ------------------------------------------------------------------------- */
+
+/* These three library routes use a tighter gap between route copy and controls. */
+.workspaces-surface,
+.outputs-surface,
+.blueprints-surface {
+	gap: 16px;
+}
+
+.blueprint-explore-heading,
+.blueprint-detail-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding-inline: 12px;
+}
+
+.blueprint-gallery-card {
+	min-width: 0;
+	transition: border-color var(--duration-tedix-standard)
+		var(--ease-tedix-standard);
+}
+
+.blueprint-gallery-card:hover,
+.blueprint-gallery-card:focus-within {
+	border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+
+.blueprint-gallery-preview {
+	position: relative;
+	display: grid;
+	min-height: 156px;
+	place-items: center;
+	overflow: hidden;
+	border-bottom: 1px solid var(--border);
+	background:
+		radial-gradient(
+			circle at 74% 24%,
+			color-mix(in srgb, var(--primary) 26%, transparent),
+			transparent 34%
+		),
+		linear-gradient(
+			145deg,
+			var(--background-lighter),
+			color-mix(in srgb, var(--primary) 10%, var(--background))
+		);
+}
+
+.blueprint-gallery-preview::before,
+.blueprint-gallery-preview::after {
+	position: absolute;
+	width: 112px;
+	height: 112px;
+	border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+	border-radius: 28px;
+	content: "";
+	transform: rotate(28deg);
+}
+
+.blueprint-gallery-preview::before {
+	top: -52px;
+	right: -30px;
+}
+
+.blueprint-gallery-preview::after {
+	bottom: -68px;
+	left: -24px;
+}
+
+.blueprint-gallery-preview-mark {
+	position: absolute;
+	top: 14px;
+	left: 14px;
+	display: grid;
+	width: 30px;
+	height: 30px;
+	place-items: center;
+	border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--background) 88%, transparent);
+	color: var(--foreground);
+	box-shadow: var(--shadow-tedix-floating);
+}
+
+.blueprint-gallery-preview-window {
+	position: relative;
+	z-index: 1;
+	display: grid;
+	width: min(72%, 224px);
+	gap: 8px;
+	padding: 15px;
+	border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--card) 92%, transparent);
+	box-shadow: var(--shadow-tedix-overlay);
+	transform: rotate(-2deg);
+}
+
+.blueprint-gallery-preview-title,
+.blueprint-gallery-preview-line {
+	display: block;
+	height: 5px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+
+.blueprint-gallery-preview-title {
+	width: 48%;
+	height: 7px;
+	background: color-mix(in srgb, var(--primary) 65%, var(--foreground));
+}
+
+.blueprint-gallery-preview-line {
+	width: 82%;
+}
+
+.blueprint-gallery-preview-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 6px;
+	margin-top: 2px;
+}
+
+.blueprint-gallery-preview-grid span {
+	height: 32px;
+	border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--primary) 8%, var(--background));
+}
+
+.blueprint-detail-view {
+	max-width: 1040px;
+}
+
+@media (max-width: 639px) {
+	.blueprint-explore-heading,
+	.blueprint-detail-heading {
+		flex-direction: column;
+	}
+}
+
+@media (max-width: 639px) {
+	/* Two-column phone cards match the reference gallery. Keep Tedix's governed
+	 * Share action as a touch-sized preview overlay while the overflow action
+	 * remains in the compact metadata footer. */
+	.output-grid-card .output-card-actions {
+		display: contents;
+	}
+
+	.output-grid-card .output-card-actions > .relative {
+		position: absolute;
+		top: 8px;
+		right: 8px;
+		z-index: 2;
+	}
+
+	.output-grid-card .output-card-actions > .relative > [data-slot="button"] {
+		inline-size: 44px;
+		padding-inline: 0;
+		background: color-mix(in srgb, var(--card) 88%, transparent);
+		box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+		font-size: 0;
+	}
+}
+
+.eyebrow {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 0 0 8px;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.9px;
+	text-transform: uppercase;
+}
+
+/*
+ * MCP Apps may report an intrinsic width larger than the chat column. AppFrame
+ * applies that value directly to its iframe, so the host remains the final
+ * layout authority. Inline-size containment prevents transcript expansion;
+ * max-width preserves smaller requested sizes without stretching them.
+ */
+[data-slot="mcp-app-widget"] {
+	contain: inline-size;
+}
+
+[data-slot="mcp-app-widget"] [data-slot="mcp-widget-frame"] iframe {
+	display: block;
+	box-sizing: border-box;
+	min-width: 0;
+	max-width: 100%;
+	max-height: min(70vh, 40rem);
+}
+
+.canvas-workbench {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	border: 0;
+	border-radius: 0;
+	background: var(--card);
+	box-shadow: none;
+}
+
+.canvas-surface {
+	min-height: 0;
+	gap: 0;
+	padding: 0;
+}
+
+.canvas-workspace-header {
+	height: 56px;
+	min-height: 56px;
+	flex: none;
+	flex-direction: row;
+	align-items: center;
+	gap: 12px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--border);
+}
+
+.canvas-workspace-identity {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+}
+
+.canvas-workspace-back {
+	flex: none;
+	color: var(--muted-foreground);
+}
+
+.canvas-workspace-mark {
+	width: 22px;
+	height: 22px;
+	flex-basis: 22px;
+	font-size: 12px;
+}
+
+.canvas-workspace-separator {
+	color: var(--muted-foreground);
+	font-size: 14px;
+}
+
+.canvas-workspace-title {
+	min-width: 0;
+}
+
+.canvas-workspace-title h1 {
+	overflow: hidden;
+	margin: 0;
+	font-size: 14px;
+	font-weight: 500;
+	letter-spacing: -0.25px;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.canvas-workspace-actions {
+	margin-left: auto;
+}
+
+/* The workspace workbench replaces the whole shell, so it owns the same
+   keyboard-aware height and bottom inset `.os-main` does. */
+.canvas-route-shell {
+	display: flex;
+	width: 100%;
+	height: var(--viewport-tedix-height);
+	min-height: 0;
+	overflow: hidden;
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.canvas-resource-rail {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	overflow: auto;
+	padding: 24px;
+	background: var(--background-lighter);
+}
+
+.canvas-resource-library {
+	display: grid;
+	width: min(100%, 72rem);
+	margin-inline: auto;
+	gap: 24px;
+}
+
+.canvas-resource-library-header {
+	display: flex;
+	min-width: 0;
+	align-items: end;
+	justify-content: space-between;
+	gap: 24px;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--border);
+}
+
+.canvas-resource-library-header h2,
+.canvas-resource-library-header p,
+.canvas-resource-group-label {
+	margin: 0;
+}
+
+.canvas-resource-library-header h2 {
+	color: var(--text-color-kumo-strong);
+	font-size: 20px;
+	font-weight: 600;
+	line-height: 28px;
+}
+
+.canvas-resource-library-header p {
+	max-width: 34rem;
+	color: var(--text-color-kumo-subtle);
+	font-size: 13px;
+	line-height: 20px;
+}
+
+.canvas-resource-search {
+	position: relative;
+	display: flex;
+	width: min(100%, 20rem);
+	flex: none;
+	align-items: center;
+}
+
+.canvas-resource-search > svg {
+	position: absolute;
+	left: 10px;
+	z-index: 1;
+	color: var(--text-color-kumo-subtle);
+}
+
+.canvas-resource-search input {
+	padding-left: 32px;
+}
+
+.canvas-resource-library-sections {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+
+.canvas-resource-section {
+	display: grid;
+	min-width: 0;
+	align-content: start;
+	gap: 10px;
+	padding: 16px;
+	border: 1px solid var(--border);
+	/* Bounded surface, so it carries the card tier (--radius-xl, 12px), not
+	 * the --radius control token. See docs/product/design.md ("Radii"). */
+	border-radius: var(--radius-xl);
+	background: var(--background);
+}
+
+.canvas-resource-outputs {
+	grid-column: 1 / -1;
+}
+
+.canvas-resource-group-label {
+	padding-top: 4px;
+	color: var(--text-color-kumo-subtle);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.canvas-resource-state-filter {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding-bottom: 2px;
+}
+
+.canvas-resource-state-filter button {
+	gap: 6px;
+}
+
+.canvas-chat-pane {
+	display: flex;
+	min-height: 0;
+	min-width: 300px;
+	max-width: 480px;
+	flex: none;
+	flex-direction: column;
+	background: var(--background);
+}
+
+/*
+ * Chat-first layout of a workspace with no document yet (`simpleMode` in
+ * canvas-page.tsx): the thread takes the whole workbench, reads at a
+ * comfortable measure, and the stage is collapsed rather than showing an
+ * empty "Pick a document" state for a project that has nothing to pick.
+ */
+.canvas-chat-pane[data-simple-mode="true"] {
+	min-width: 0;
+	max-width: none;
+}
+
+.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-thread > *,
+.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-conversations > *,
+.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-list-composer > * {
+	width: 100%;
+	max-width: 920px;
+	margin-inline: auto;
+}
+
+/*
+ * Motion is reserved for the LATER reveal of the stage — never the first
+ * paint. `data-canvas-transition` arms on the first document or the first
+ * manual pane change and drops while a pointer resize is tracking the cursor.
+ */
+.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+	transition:
+		width 200ms ease-out,
+		opacity 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+	.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+		transition: none;
+	}
+}
+
+.canvas-stage[data-simple-mode="true"] {
+	min-width: 0;
+	pointer-events: none;
+}
+
+.canvas-chat-header {
+	display: flex;
+	height: 48px;
+	min-height: 48px;
+	box-sizing: border-box;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.canvas-chat-header strong,
+.canvas-chat-header p {
+	display: block;
+	margin: 0;
+}
+
+/*
+ * Product copy, so it goes through the semantic scale. The subtitle sat at
+ * 10px, below the 11px caption tier and off the scale entirely — a raw CSS
+ * literal, so the `type-literal` lint (which scans Tailwind `text-[Npx]`
+ * utilities) never saw it.
+ */
+.canvas-chat-header strong {
+	font-size: var(--text-tedix-label);
+	line-height: var(--text-tedix-label--line-height);
+}
+
+.canvas-chat-header p {
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+}
+
+.canvas-chat-thread {
+	min-height: 0;
+	flex: 1 1 auto;
+	padding: 16px;
+}
+
+.chat-starter-prompts {
+	max-width: 32rem;
+}
+
+.chat-composer {
+	flex: none;
+	/*
+	 * The composer sizes itself by ITS width, not the viewport's: it lives in
+	 * a 300–480px workspace pane on a wide desktop, where a viewport media
+	 * query would still think there is room for the keyboard hint.
+	 */
+	container-type: inline-size;
+	container-name: chat-composer;
+}
+
+/*
+ * One row that can never overlap: the context chip and the hint give way
+ * (truncate, then hide) and the mic / model / send group keeps its width.
+ */
+.chat-composer-context {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.chat-composer-chip,
+.chat-composer-hint {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+.chat-composer-submit {
+	flex: 0 0 auto;
+}
+
+@container chat-composer (max-width: 520px) {
+	.chat-composer-hint {
+		display: none;
+	}
+}
+
+.chat-voice-wave {
+	display: flex;
+	width: min(100%, 420px);
+	height: 34px;
+	flex: 1 1 420px;
+	min-width: 0;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+}
+
+.chat-voice-wave > i {
+	display: block;
+	width: 3px;
+	height: 4px;
+	flex: 0 1 3px;
+	border-radius: 999px;
+	background: currentColor;
+	opacity: 0.78;
+	transition:
+		height 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 160ms ease-out;
+}
+
+/*
+ * The always-live composer starts a conversation by sending. The conversation
+ * list scrolls; the composer stays fixed beneath it.
+ */
+.canvas-chat-list-composer {
+	flex: none;
+	padding: 12px 16px 16px;
+}
+
+.canvas-chat-conversations {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 16px;
+}
+
+.canvas-chat-conversations [aria-label="Conversations"] > :first-child {
+	background: var(--background);
+}
+
+.canvas-chat-thread [data-slot="conversation-transcript"] {
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.canvas-chat-resizer {
+	position: relative;
+	width: 1px;
+	flex: none;
+	cursor: col-resize;
+	background: var(--border);
+	touch-action: none;
+}
+
+.canvas-chat-resizer::after {
+	position: absolute;
+	top: 0;
+	right: -6px;
+	bottom: 0;
+	left: -6px;
+	content: "";
+}
+
+.canvas-chat-resizer:hover,
+.canvas-chat-resizer:focus-visible,
+.canvas-surface[data-resizing-chat] .canvas-chat-resizer {
+	background: var(--tedix-action-primary);
+	outline: none;
+}
+
+.canvas-surface[data-resizing-chat] {
+	user-select: none;
+}
+
+.canvas-stage {
+	display: flex;
+	min-height: 0;
+	min-width: 0;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--background);
+}
+
+.canvas-stage-content {
+	min-height: 0;
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	padding: 8px;
+}
+
+.canvas-stage-content[data-has-workpiece] {
+	padding: 0;
+}
+
+.canvas-secondary-view {
+	display: grid;
+	width: 100%;
+	max-width: 1024px;
+	margin-inline: auto;
+	gap: 24px;
+	padding: 20px 16px 32px;
+}
+
+@media (min-width: 640px) {
+	.canvas-secondary-view {
+		padding: 24px 40px 40px;
+	}
+}
+
+.canvas-workpiece-bar {
+	display: flex;
+	height: 48px;
+	min-width: 0;
+	min-height: 48px;
+	box-sizing: border-box;
+	align-items: center;
+	gap: 12px;
+	padding-inline: 16px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.canvas-chat-toggle {
+	flex: none;
+}
+
+.canvas-workpiece-tabs {
+	display: flex;
+	min-width: 0;
+	min-height: 48px;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 4px;
+	overflow-x: auto;
+	padding: 3px 0;
+	border-bottom: 0;
+	background: transparent;
+	scrollbar-width: thin;
+}
+
+.canvas-workpiece-mode-switcher {
+	min-height: 32px;
+	flex: none;
+	width: auto;
+	margin: 4px 8px;
+}
+
+.canvas-workpiece-mode-switcher > * {
+	flex: 1 1 0;
+	justify-content: center;
+}
+
+.canvas-workpiece-tab {
+	display: flex;
+	min-width: 148px;
+	max-width: 240px;
+	align-items: center;
+	flex: none;
+	border-radius: var(--radius-md);
+	background: transparent;
+}
+
+.canvas-workpiece-tab[data-selected] {
+	background: var(--color-kumo-tint);
+}
+
+.canvas-document-header {
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.canvas-document-identity {
+	min-width: 9rem;
+	flex: 1 1 18rem;
+}
+
+.canvas-document-title {
+	min-width: 0;
+	max-width: 32rem;
+}
+
+.canvas-document-status,
+.canvas-document-actions {
+	flex: none;
+}
+
+.canvas-document-footer {
+	margin-top: 4px;
+}
+
+.output-workshop-command-bar {
+	display: flex;
+	min-width: 0;
+	min-height: 40px;
+	max-width: 100%;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	overscroll-behavior-inline: contain;
+	scrollbar-width: thin;
+}
+
+.output-workshop-identity,
+.output-workshop-status,
+.output-workshop-actions {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+}
+
+.output-workshop-identity {
+	flex: 1 1 18rem;
+}
+
+.output-workshop-status,
+.output-workshop-actions {
+	flex: none;
+}
+
+.output-workshop-actions {
+	margin-left: auto;
+}
+
+.output-detail-workshop {
+	gap: 0;
+	padding: 0;
+}
+
+.output-detail-workshop > .output-workshop-command-bar {
+	flex: none;
+	padding: 4px 12px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.output-detail-workshop .output-workshop-identity h1 {
+	min-width: 8rem;
+	max-width: 32rem;
+	margin: 0;
+	overflow: hidden;
+	color: var(--foreground);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.output-detail-workshop-feedback {
+	flex: none;
+	padding: 8px 12px 0;
+}
+
+.output-workshop-stage {
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	padding: 8px;
+}
+
+.output-detail-workshop[data-output-kind="sheet"] .output-workshop-stage,
+.output-detail-workshop[data-output-kind="presentation"]
+	.output-workshop-stage {
+	overflow: hidden;
+}
+
+.output-workshop-stage > [data-editor] {
+	min-width: 0;
+	min-height: 100%;
+}
+
+.output-detail-workshop[data-output-kind="sheet"]
+	.output-workshop-stage
+	> .sheet-editor {
+	height: 100%;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.output-detail-workshop[data-output-kind="sheet"] .sheet-editor-grid {
+	min-height: 0;
+	max-height: none;
+}
+
+.output-detail-workshop[data-output-kind="presentation"]
+	.output-workshop-stage
+	> .slides-editor {
+	height: 100%;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.output-detail-workshop[data-output-kind="presentation"] .slides-editor-layout {
+	height: 100%;
+	min-height: 0;
+}
+
+/* Inside the workshop the stage is height-driven by the layout's 1fr track, so
+   the standalone min-height must not force the deck past a short viewport. */
+.output-detail-workshop[data-output-kind="presentation"] .slides-editor-stage {
+	min-height: 0;
+}
+
+.output-workshop-footer {
+	display: flex;
+	min-width: 0;
+	min-height: 48px;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	overflow-x: auto;
+	padding: 6px 12px;
+	border-top: 1px solid var(--border);
+	background: var(--background-lighter);
+	overscroll-behavior-inline: contain;
+	scrollbar-width: thin;
+}
+
+.output-detail-revision-note {
+	min-width: 11rem;
+	max-width: 24rem;
+	flex: 1 1 20rem;
+}
+
+@media (max-width: 639px) {
+	.output-workshop-command-bar {
+		display: grid;
+		grid-template-areas:
+			"identity actions"
+			"status status";
+		grid-template-columns: minmax(0, 1fr) max-content;
+		align-content: center;
+		column-gap: 8px;
+		row-gap: 4px;
+		overflow-x: clip;
+	}
+
+	.output-workshop-identity {
+		grid-area: identity;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.output-workshop-status {
+		grid-area: status;
+		max-width: 100%;
+		overflow-x: auto;
+		overscroll-behavior-inline: contain;
+		scrollbar-width: none;
+	}
+
+	.output-workshop-actions {
+		grid-area: actions;
+		margin-left: 0;
+	}
+
+	.output-detail-workshop .output-workshop-identity h1 {
+		min-width: 0;
+	}
+
+	.output-detail-workshop .output-workshop-identity [data-slot="badge"],
+	.canvas-document-identity [data-slot="badge"] {
+		display: none;
+	}
+
+	.output-detail-revision-note,
+	.output-workshop-footer > input {
+		min-width: 0;
+		max-width: none;
+	}
+}
+
+.canvas-document-header > span,
+.canvas-document-header [data-kumo-component="Badge"] {
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.output-editor-toolbar {
+	min-height: 48px;
+	max-width: 100%;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	padding: 8px 16px;
+	border-radius: 0;
+	overscroll-behavior-inline: contain;
+	scrollbar-width: thin;
+}
+
+.output-editor-toolbar > * {
+	flex: none;
+}
+
+.output-editor-toolbar > [data-kumo-component="Toolbar"] {
+	gap: 8px;
+}
+
+@media (min-width: 640px) {
+	/*
+	 * Square icon targets only. The paragraph-style and font-family Selects are
+	 * also direct `button` children of the Toolbar, so an unscoped rule crushed
+	 * them to 28x28 and hid their labels, leaving two bare carets in the row.
+	 */
+	/*
+	 * Descendant, not direct child: Kumo wraps a DISABLED toolbar button in a
+	 * tooltip <span>, which dropped it out of a `>` selector and left disabled
+	 * icons at the 26px Kumo default beside 28px enabled ones in all three
+	 * editors. The `data-toolbar-control` attribute is what keeps a Select
+	 * trigger out of this rule, so the child combinator was never the guard.
+	 */
+	.output-editor-toolbar
+		[data-kumo-component="Toolbar"]
+		button[data-toolbar-control="icon"] {
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+	}
+}
+
+/*
+ * A page on a desk, not a card in an app. The desk is the recessed ground the
+ * page floats above; it carries the vertical air that used to be missing
+ * between the toolbar and the top of the document.
+ */
+.document-editor-desk {
+	min-width: 0;
+	padding: 16px;
+	background: var(--tedix-desk);
+}
+
+@media (min-width: 640px) {
+	.document-editor-desk {
+		padding: 24px;
+	}
+}
+
+.document-editor-paper {
+	min-height: min(52rem, calc(100dvh - 12rem));
+}
+
+/*
+ * Page chrome, shared by the editing surface and the committed-revision
+ * preview so reading and editing a document are the same object. Square
+ * corners and a page shadow: paper has edges, not a border radius.
+ */
+.document-page {
+	border-radius: 0;
+	box-shadow: var(--tedix-document-page-shadow);
+}
+
+/*
+ * Document prose measure. The paper keeps its 72rem maximum (see
+ * docs/product/design.md) so desktop Canvas does not become a narrow card, but
+ * the text inside it holds a readable column instead of running the full paper
+ * width. 48rem matches the preview column (a 52rem paper less its 2 x 2.5rem
+ * padding), so editing and reading do not reflow against each other.
+ */
+.document-editor-paper .document-prose {
+	margin-inline: auto;
+	max-width: 48rem;
+}
+
+/*
+ * Block rhythm. TipTap ships no block spacing of its own, so headings sat
+ * flush against the paragraph above them and every block ran together at one
+ * line height.
+ */
+.document-prose [data-resize-wrapper] {
+	max-width: 100%;
+}
+.document-prose img {
+	max-width: 100%;
+	height: auto;
+}
+.document-prose [data-resize-handle="bottom-right"] {
+	width: 14px;
+	height: 14px;
+	border: 2px solid var(--tedix-document-paper);
+	background: var(--tedix-document-link);
+	border-radius: 3px;
+	cursor: nwse-resize;
+}
+
+.document-prose > * + * {
+	margin-block-start: 0.85em;
+}
+
+.document-prose > :is(h1, h2, h3) + * {
+	margin-block-start: 0.5em;
+}
+
+.document-prose > * + :is(h1, h2, h3) {
+	margin-block-start: 1.25em;
+}
+
+.document-prose > :first-child {
+	margin-block-start: 0;
+}
+
+.document-prose :is(ul, ol) > li + li {
+	margin-block-start: 0.3em;
+}
+
+/*
+ * The sheet's fixed-light polarity is declared on the page -- formula bar, grid
+ * and tabs together -- and NOT on the `.sheet-editor` root or its toolbar.
+ *
+ * Two reasons it has to be exactly this element. `color-scheme: light` changes
+ * how every `light-dark()` token resolves for descendants, so a root-level
+ * scope silently forced `--tedix-desk` onto its light branch and the
+ * desk vanished in a dark shell. And scoping the individual rows instead left
+ * the desk as a dark band sandwiched between a light formula bar and a light
+ * grid, which reads as a rendering bug. The toolbar is app chrome and follows
+ * the shell like the document toolbar; everything below it is the artifact.
+ */
+/*
+ * The sheet page, in both lanes. `.sheet-editor-page` is the editable stack
+ * (formula bar, grid, tabs); `.sheet-read-page` is the committed revision. They
+ * share `.sheet-page` because reading a sheet and editing one should not look
+ * like two different products -- the read view used to be a shell-themed
+ * `rounded-xl` card while the editor was a square white page on a desk.
+ *
+ * The fixed-light scope lives here and nowhere above it: `--tedix-desk` is a
+ * light-dark() token, so a desk nested inside a `color-scheme: light` ancestor
+ * would resolve to its light branch and the recess would vanish in a dark
+ * shell.
+ */
+.sheet-page {
+	min-width: 0;
+	min-height: 0;
+	/* Page chrome, matching `.document-page`: square corners and the artifact
+	 * page shadow, so the sheet reads as one object lifted off the desk rather
+	 * than a stack of cards. */
+	border-radius: 0;
+	background: var(--tedix-sheet-paper);
+	box-shadow: var(--tedix-document-page-shadow);
+	color: var(--tedix-sheet-ink);
+	color-scheme: light;
+	--color-kumo-base: var(--tedix-sheet-paper);
+	--color-kumo-canvas: var(--tedix-sheet-paper);
+	--color-kumo-control: var(--tedix-sheet-paper);
+	--color-kumo-elevated: var(--tedix-sheet-header);
+	--color-kumo-interact: var(--tedix-sheet-rule);
+	--color-kumo-line: var(--tedix-sheet-rule);
+	--color-kumo-hairline: var(--tedix-sheet-rule);
+	--color-kumo-tint: var(--tedix-sheet-header);
+	--text-color-kumo-default: var(--tedix-sheet-ink);
+	--text-color-kumo-strong: var(--tedix-sheet-ink);
+	--text-color-kumo-subtle: var(--tedix-sheet-muted);
+}
+
+.sheet-editor-page {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+/* The committed sheet sits on the same desk the editor uses. */
+.sheet-read-desk {
+	min-width: 0;
+	padding: 16px;
+	background: var(--tedix-desk);
+}
+
+@media (min-width: 640px) {
+	.sheet-read-desk {
+		padding: 24px;
+	}
+}
+
+.sheet-read-page {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	max-height: 64vh;
+}
+
+.sheet-read-grid {
+	min-height: 0;
+	overflow: auto;
+}
+
+.sheet-read-tabs {
+	padding: 4px 6px;
+	border-top: 1px solid var(--tedix-sheet-rule);
+}
+
+/*
+ * A sheet on a desk, the same grammar `.document-editor-desk` gives a document
+ * page: recessed ground, page-scale air, then the artifact. The grid used to be
+ * a bare slab butted straight against the toolbar with no framing at all. The
+ * desk reuses `--tedix-desk` deliberately -- one desk tone across
+ * output editors is the point; a sheet-specific value would only restate it.
+ */
+.sheet-editor-desk {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+	min-width: 0;
+	min-height: 0;
+	padding: 12px;
+	background: var(--tedix-desk);
+}
+
+@media (min-width: 640px) {
+	.sheet-editor-desk {
+		padding: 20px 24px;
+	}
+}
+
+.sheet-editor-formula,
+.sheet-editor-tabs {
+	padding: 4px 6px;
+	border-right: 1px solid var(--tedix-sheet-rule);
+	border-bottom: 1px solid var(--tedix-sheet-rule);
+	border-left: 1px solid var(--tedix-sheet-rule);
+	background: var(--tedix-sheet-paper);
+}
+
+.sheet-editor-formula {
+	min-height: 40px;
+	border-top: 1px solid var(--tedix-sheet-rule);
+	border-radius: 0;
+}
+
+.sheet-editor-grid {
+	min-height: 0;
+	border-top: 0;
+	border-radius: 0;
+}
+
+.sheet-editor-column-button {
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.sheet-editor-tabs {
+	min-height: 40px;
+	border-radius: 0;
+}
+
+.slides-editor-layout {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+}
+
+/* Stacked (narrow) layout: the open side pane keeps its intrinsic size and the
+   stage absorbs the rest, so the 16:9 slide is never squeezed out of the box. */
+.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector]) {
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails]) {
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.slides-editor-thumbnails[hidden],
+.slides-editor-inspector[hidden] {
+	display: none;
+}
+
+/*
+ * Fixed-light neutral sidebars keep slide artwork visually dominant. The rail
+ * and inspector share the stage's neutral family without radius or shadow.
+ *
+ * As with `.sheet-editor-page`, restating only `--foreground`, `--background`,
+ * and `--border` is insufficient: custom-property references resolve where
+ * they are declared. `--text-color-kumo-default: var(--foreground)` declared
+ * on `:root` is inherited as an already-computed color; redefining
+ * `--foreground` on a descendant cannot re-resolve it. Restate the
+ * `--color-kumo-*` and `--text-color-kumo-*` leaves directly so controls remain
+ * readable in a dark shell.
+ *
+ * The controls in these sidebars resolve these Kumo color utilities from the
+ * package (`@cloudflare/kumo/dist/chunks/{button,input}*.js`):
+ *   Button secondary -> bg-kumo-base, text-kumo-default, hover:bg-kumo-tint,
+ *                       ring-kumo-line          (the ACTIVE slide chip)
+ *   Button outline   -> bg-transparent, text-kumo-default, ring-kumo-line,
+ *                       hover:text-kumo-strong  (the INACTIVE slide chips)
+ *   Button ghost     -> text-kumo-default, hover:bg-kumo-tint
+ *                                               (reorder/duplicate/delete)
+ *   Button destructive -> text-kumo-danger, ring-kumo-danger
+ *   Input / Textarea -> bg-kumo-control, text-kumo-default, ring-kumo-line,
+ *                       focus:ring-kumo-focus, placeholder, scrollbar
+ *                       [scrollbar-color: var(--color-kumo-line)]
+ *   This file's own markup -> text-kumo-subtle (every label and caption),
+ *                       ring-kumo-focus, bg-kumo-focus.
+ * The remaining leaves (canvas/elevated/recessed/interact/fill/hairline/
+ * overlay/contrast/brand/shadow) are restated too, so a control added here
+ * later cannot fall back through a root-baked dark value.
+ *
+ * `color-scheme: light` still matters, but only for what the ENGINE paints:
+ * the colour-input swatches, number-field spinners and scrollbars.
+ *
+ * The shell palette is restated as well, below the leaves. That is not
+ * derivation -- it is for the declarations that genuinely do re-resolve per
+ * element, above all the base-layer `* { border-color: var(--border) }`.
+ *
+ * Tone: the sidebars sit a half step BELOW the stage (0.94 against the stage's
+ * 0.96) rather than above it. Recessed chrome, lighter stage, white canvas is
+ * a ladder that ends at the artifact, which is the whole point of the rule --
+ * and it gives the white controls (search field, selected slide chip) a real
+ * step to stand on. All values are fixed light neutrals on the stage's hue;
+ * nothing here may reference a shell token, or the dark shell leaks back in.
+ */
+.slides-editor-chrome {
+	color-scheme: light;
+
+	/* Surfaces */
+	--color-kumo-canvas: oklch(0.94 0.003 95);
+	--color-kumo-elevated: oklch(0.96 0.003 95);
+	--color-kumo-recessed: oklch(0.92 0.003 95);
+	--color-kumo-base: #ffffff;
+	--color-kumo-control: #ffffff;
+	--color-kumo-overlay: #ffffff;
+	--color-kumo-tint: oklch(0.9 0.003 95);
+	--color-kumo-fill: oklch(0.9 0.003 95);
+	--color-kumo-fill-hover: oklch(0.93 0.003 95);
+	--color-kumo-contrast: #171717;
+
+	/* Lines */
+	--color-kumo-line: oklch(0.84 0.004 95);
+	--color-kumo-hairline: oklch(0.88 0.003 95);
+	--color-kumo-interact: oklch(0.82 0.004 95);
+
+	/* Intent */
+	--color-kumo-focus: #7c3aed;
+	--color-kumo-brand: #7c3aed;
+	--color-kumo-brand-hover: #6d28d9;
+	--color-kumo-danger: #b42318;
+	--color-kumo-danger-tint: color-mix(in srgb, #b42318 12%, transparent);
+	--color-kumo-shadow-edge: color-mix(in srgb, #171717 12%, transparent);
+	--color-kumo-shadow-drop: color-mix(in srgb, #171717 8%, transparent);
+
+	/* Text */
+	--text-color-kumo-default: #171717;
+	--text-color-kumo-strong: #0a0a0a;
+	--text-color-kumo-subtle: #5f6368;
+	--text-color-kumo-inverse: #ffffff;
+	--text-color-kumo-inactive: #9aa0a6;
+	--text-color-kumo-placeholder: #80868b;
+	--text-color-kumo-brand: #7c3aed;
+	--text-color-kumo-link: #7c3aed;
+	--text-color-kumo-danger: #b42318;
+
+	/* Shell palette, for the declarations that DO re-resolve per element. */
+	--background: oklch(0.94 0.003 95);
+	--foreground: #171717;
+	--background-lighter: oklch(0.96 0.003 95);
+	--background-base: oklch(0.92 0.003 95);
+	--card: #ffffff;
+	--card-foreground: #171717;
+	--popover: #ffffff;
+	--popover-foreground: #171717;
+	--primary: #7c3aed;
+	--primary-foreground: #ffffff;
+	--secondary: #ffffff;
+	--secondary-foreground: #404040;
+	--muted: oklch(0.92 0.003 95);
+	--muted-foreground: #5f6368;
+	--accent: oklch(0.9 0.003 95);
+	--accent-foreground: #171717;
+	--destructive: #b42318;
+	--border: oklch(0.84 0.004 95);
+	--input: oklch(0.82 0.004 95);
+	--ring: #7c3aed;
+	--accent-forest: #12815c;
+	--accent-honey: #9a6a05;
+	--accent-amethyst: #9061ff;
+	--accent-bluetron: #2a6dfb;
+
+	/* Chrome, not a card: square, unshadowed, separated by a hairline only. */
+	border: 1px solid oklch(0.84 0.004 95);
+	border-radius: 0;
+	background: oklch(0.94 0.003 95);
+	box-shadow: none;
+	color: #171717;
+}
+
+/*
+ * Selected slide. `Button variant="secondary"` paints `bg-kumo-base` (white),
+ * which on the 0.94 rail is a real but slight step. The rail is a list of
+ * pictures, so selection has to survive being read at a glance beside twenty
+ * thumbnails: give the current item the focus hue as a ring rather than a
+ * heavier fill. A filled chip would have to go dark to read as selected, and a
+ * black chip on light chrome is the idiom this whole rule is undoing.
+ */
+.slides-editor-thumbnails [aria-current] {
+	--color-kumo-line: #7c3aed;
+
+	background: #ffffff;
+}
+
+/* The rail's list is the flexible row, so the rail scrolls internally instead
+   of growing without bound and starving the stage. */
+.slides-editor-thumbnails {
+	min-height: 0;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.slides-editor-thumbnails > ol {
+	max-height: 100%;
+}
+
+/* Narrow/stacked: the rail sits above the stage, so cap it. */
+.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector])
+	.slides-editor-thumbnails {
+	max-height: 35vh;
+}
+
+/*
+ * The square stage stays fixed-light neutral in either shell theme, as defined
+ * in docs/product/design.md. The slide canvas keeps its own rounded geometry.
+ */
+.slides-editor-stage {
+	min-height: 24rem;
+	border-radius: 0;
+	border: 1px solid oklch(0.82 0.003 95);
+	background: oklch(0.96 0.003 95);
+	color-scheme: light;
+	container-type: size;
+}
+
+.slides-present-stage {
+	display: grid;
+	min-width: 0;
+	min-height: 0;
+	place-content: center;
+	container-type: size;
+}
+
+/* The rounded slide canvas separates white content from its pale stage without
+ * a border, outline, or shadow. Documents and sheets retain square paper edges.
+ *
+ * Fit-to-stage: the slide stays exactly 16:9 and is bounded by BOTH axes of its
+ * stage. Width is the smaller of the stage's width and the width a 16:9 box may
+ * have at the stage's height, so whichever axis binds first letterboxes the
+ * other. Never clipped, never overflowing. `aspect-video w-full` was
+ * width-driven only and overflowed the stage vertically.
+ */
+.slides-editor-canvas {
+	border-radius: 6px;
+	width: min(100cqw, 100cqh * 16 / 9);
+	max-width: 100%;
+	aspect-ratio: 16 / 9;
+}
+
+@container (min-width: 52rem) {
+	.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector]) {
+		grid-template-columns: 11rem minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr);
+	}
+
+	.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector])
+		.slides-editor-thumbnails {
+		max-height: none;
+	}
+
+	.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails]) {
+		grid-template-columns: minmax(0, 1fr) 14rem;
+		grid-template-rows: minmax(0, 1fr);
+	}
+}
+
+/* --- Deck READ view (`/outputs/{id}` before Edit) -------------------------
+ * Owned by output-content.tsx's DeckView only; the `.slides-editor-*` rules
+ * above belong to the editor.
+ *
+ * The committed revision gets the same fit-to-stage rule the editor canvas
+ * earned: the stage is a size container, and the slide is the smaller of the
+ * stage's width and the width a 16:9 box may have at the stage's height, so
+ * whichever axis binds first letterboxes the other. Never clipped, never
+ * overflowing. `aspect-video w-full` was width-driven only.
+ *
+ * The `height` below is LOAD-BEARING, and a `min-height` cannot replace it.
+ * Chrome resolves `cqh` to 0 inside a `container-type: size` element whose
+ * block size is INDEFINITE — an auto-height box clamped only by `min-height`
+ * renders at that min-height but reports `100cqh` as 0, so `min()` collapses
+ * and the canvas lays out 0x0 with every absolutely positioned slide element
+ * inside it invisible. Measured in Chrome: stage 628x384, cqw 602, cqh 0,
+ * canvas 0x0. The editor's stage escapes this only because
+ * `.slides-editor-layout` hands it a definite track height (measured 759px,
+ * with `min-height: 0`), which is why the identical rule works there. This
+ * stage is a plain block in the read view's document flow and has no such
+ * track, so it must state its own height.
+ *
+ * The stage keeps the deliberate fixed-light neutral documented above for
+ * `.slides-editor-stage` (design.md: the Slides stage stays a fixed-light
+ * neutral in either shell theme) — a deck read view is not dark.
+ *
+ * Radius is not set here: the read canvas keeps its own `rounded-md` utility.
+ */
+/*
+ * Slide rail thumbnails, in BOTH rails. The canvas is an inline-size container
+ * so the shared `ReadOnlyElement` -- which sizes type in `cqw` against a 1200px
+ * reference -- scales into it untouched. Without the container the type would
+ * resolve against whichever ancestor is one instead, and render at the main
+ * canvas's scale.
+ */
+/* Layout only: the Kumo Button variant owns selection, hover and focus, exactly
+ * as it does in the editor rail. */
+.deck-read-thumb {
+	height: auto;
+}
+
+.slide-thumb-canvas,
+.deck-read-thumb-canvas {
+	container-type: inline-size;
+	/* Every child is absolutely positioned, so without an explicit width this
+	 * shrink-fits to zero inside a flex button -- and a zero-width container
+	 * makes `cqw` resolve against an ancestor instead, rendering thumbnail type
+	 * at the main canvas's scale. */
+	width: 100%;
+	position: relative;
+	display: block;
+	overflow: hidden;
+	aspect-ratio: 16 / 9;
+	border-radius: 4px;
+	background: #ffffff;
+}
+
+.deck-read-thumb-name {
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--text-color-kumo-subtle);
+}
+
+.deck-read-stage {
+	display: grid;
+	min-width: 0;
+	height: clamp(18rem, 52vh, 44rem);
+	place-content: center;
+	padding: 12px;
+	border: 1px solid oklch(0.82 0.003 95);
+	border-radius: 0;
+	background: oklch(0.96 0.003 95);
+	color-scheme: light;
+	container-type: size;
+}
+
+.deck-read-canvas {
+	width: min(100cqw, 100cqh * 16 / 9);
+	max-width: 100%;
+	aspect-ratio: 16 / 9;
+}
+
+.canvas-pane-switcher {
+	display: flex;
+	width: 100%;
+	min-height: 40px;
+	flex: none;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--border);
+	border-radius: 0;
+	background: var(--background-lighter);
+}
+
+.canvas-pane-switcher > * {
+	flex: 0 1 9rem;
+	justify-content: center;
+}
+
+.canvas-mobile-pane-switcher {
+	display: none;
+}
+
+.canvas-mobile-resources-button {
+	display: none;
+}
+
+/* Resources is a full library pane, not a third column competing with Chat and
+ * the active workpiece. Selecting an item returns to the chat + workpiece split;
+ * the persistent pane switch restores the library without discarding the draft. */
+@media (min-width: 960px) {
+	.canvas-surface[data-resource-rail-open="false"] .canvas-resource-rail {
+		display: none;
+	}
+
+	.canvas-surface[data-resource-rail-open="true"] .canvas-chat-pane,
+	.canvas-surface[data-resource-rail-open="true"] .canvas-chat-resizer,
+	.canvas-surface[data-resource-rail-open="true"] .canvas-stage {
+		display: none;
+	}
+
+	.canvas-surface[data-resource-rail-open="false"]
+		.canvas-mobile-resources-button {
+		display: inline-flex;
+	}
+}
+
+.canvas-presence-trigger {
+	position: relative;
+	display: inline-flex;
+	cursor: pointer;
+	align-items: center;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--card) 80%, transparent);
+	padding: 2px;
+	transition:
+		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
+		transform var(--duration-tedix-standard) var(--ease-tedix-standard);
+}
+
+.canvas-presence-trigger:hover,
+.canvas-presence-trigger:focus-visible {
+	background: var(--background-lighter);
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+.canvas-presence-trigger:active {
+	transform: scale(0.97);
+}
+
+.canvas-presence-stack {
+	display: flex;
+	padding-right: 1px;
+}
+
+.canvas-presence-stack > * + * {
+	margin-left: -7px;
+}
+
+.canvas-presence-avatar,
+.canvas-presence-overflow {
+	display: grid;
+	height: 28px;
+	width: 28px;
+	flex: none;
+	place-items: center;
+	border: 2px solid var(--card);
+	border-radius: 999px;
+	color: white;
+	font-weight: 650;
+	font-size: 10px;
+	line-height: 1;
+}
+
+.canvas-presence-avatar-small,
+.canvas-presence-overflow {
+	height: 26px;
+	width: 26px;
+}
+
+.canvas-presence-overflow {
+	background: var(--background-lighter);
+	color: var(--foreground);
+}
+
+.canvas-presence-online {
+	position: absolute;
+	right: -1px;
+	bottom: -1px;
+	height: 10px;
+	width: 10px;
+	border: 2px solid var(--card);
+	border-radius: 999px;
+	background: var(--color-kumo-success);
+}
+
+.canvas-presence-pop {
+	display: inline-flex;
+	animation: canvas-presence-pop-in var(--duration-tedix-structural)
+		var(--ease-tedix-enter);
+}
+
+@keyframes canvas-presence-pop-in {
+	from {
+		opacity: 0;
+		transform: scale(0.75);
+	}
+}
+
+.canvas-surface[data-canvas-focus] {
+	gap: 0;
+}
+
+.canvas-surface[data-canvas-focus] > [data-slot="page-header"],
+.canvas-surface[data-canvas-focus] .canvas-resource-rail,
+.canvas-surface[data-canvas-focus] .canvas-chat-pane,
+.canvas-surface[data-canvas-focus] .canvas-chat-resizer,
+.canvas-surface[data-canvas-focus] > .canvas-pane-switcher {
+	display: none;
+}
+
+.canvas-surface[data-canvas-focus] .canvas-workbench {
+	min-height: 0;
+	flex: 1 1 auto;
+	/* Focus-mode workbench is a bounded surface, not a control. */
+	border-radius: var(--radius-xl);
+}
+
+@media (max-width: 959px) {
+	.canvas-mobile-pane-switcher {
+		display: flex;
+		width: 100%;
+	}
+
+	.canvas-desktop-pane-switcher {
+		display: none;
+	}
+
+	.canvas-mobile-pane-switcher > * {
+		flex: 1 1 0;
+		justify-content: center;
+	}
+
+	.canvas-mobile-resources-button {
+		display: inline-flex;
+	}
+
+	.canvas-workbench {
+		display: block;
+	}
+
+	.canvas-resource-rail {
+		width: 100%;
+		height: 100%;
+		border-right: 0;
+	}
+
+	.canvas-chat-pane {
+		width: 100% !important;
+		height: 100%;
+		min-width: 0;
+		max-width: none;
+	}
+
+	.canvas-chat-resizer {
+		display: none;
+	}
+
+	.canvas-stage {
+		height: 100%;
+	}
+
+	.canvas-stage-content {
+		padding: 12px;
+	}
+
+	.canvas-stage-content > *,
+	.canvas-stage-content [data-editor] {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.canvas-surface[data-mobile-pane="resources"] .canvas-chat-pane,
+	.canvas-surface[data-mobile-pane="resources"] .canvas-stage,
+	.canvas-surface[data-mobile-pane="chat"] .canvas-resource-rail,
+	.canvas-surface[data-mobile-pane="chat"] .canvas-stage,
+	.canvas-surface[data-mobile-pane="workpiece"] .canvas-resource-rail,
+	.canvas-surface[data-mobile-pane="workpiece"] .canvas-chat-pane {
+		display: none;
+	}
+}
+
+@media (max-width: 719px) {
+	.canvas-resource-rail {
+		padding: 16px;
+	}
+
+	.canvas-resource-library-header {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.canvas-resource-search {
+		width: 100%;
+	}
+
+	.canvas-resource-library-sections {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.canvas-resource-outputs {
+		grid-row: auto;
+	}
+}
+
+@media (max-width: 639px) {
+	.canvas-workspace-header {
+		padding-inline: 10px;
+	}
+
+	.canvas-workspace-actions [data-slot="badge"],
+	.canvas-workspace-actions .transport-status {
+		display: none;
+	}
+
+	.canvas-workpiece-bar {
+		height: 48px;
+		align-items: stretch;
+		flex-direction: row;
+		overflow-x: auto;
+	}
+
+	.canvas-workpiece-mode-switcher {
+		width: max-content;
+		min-width: max-content;
+		margin: 4px 8px;
+	}
+
+	.canvas-workpiece-tabs {
+		min-width: 9rem;
+	}
+
+	.chat-composer-actions {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+	}
+
+	.chat-composer-context {
+		overflow: hidden;
+	}
+
+	.chat-composer-hint {
+		display: none;
+	}
+
+	.chat-composer-submit {
+		max-width: min(12rem, 48vw);
+	}
+
+	.chat-starter-prompts {
+		margin-top: 16px;
+	}
+}
+
+/* Full-viewport interstitial shell for the account surfaces (launcher,
+   onboarding). App-owned layout: the panel inside it is a Kumo `Surface`. */
+.org-launcher {
+	display: grid;
+	min-height: var(--viewport-tedix-height);
+	align-items: start;
+	justify-items: center;
+	padding: clamp(24px, 5vw, 56px) 20px;
+	background: var(--background-lighter);
+}
+
+/* Full-viewport interstitial (session restore, sign-in warmup, route load).
+   Owns its own height so centering never depends on an ancestor's layout. */
+.centered-state {
+	display: grid;
+	min-height: var(--viewport-tedix-height);
+	place-content: center;
+	justify-items: center;
+	gap: 12px;
+	padding: 24px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	text-align: center;
+}
+
+.brand-logo {
+	object-fit: contain;
+}
+
+/* Loading placeholders inside the centered interstitial. The Kumo `.skeleton`
+   base is only a faint sweep over a transparent bar, so on the near-black
+   interstitial the placeholders read as broken rather than loading. Lift a
+   static, theme-adaptive fill under the sweep so the bars are clearly present
+   without pulsing on their own — motion stays functional-feedback only. */
+.centered-state-skeleton {
+	width: min(280px, 80vw);
+}
+
+.centered-state .skeleton {
+	background-color: color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.centered-state .brand-mark,
+.centered-state .brand-logo {
+	width: 40px;
+	height: 40px;
+	flex-basis: 40px;
+	border-radius: 10px;
+	font-size: 19px;
+	/* No pulse: motion is functional feedback only, and a 1.6s infinite
+	 * scale/fade on a static brand mark is drifting ornament — 8x the largest
+	 * contract duration. The centered state's own copy carries the status. */
+}
+
+.product-login-page {
+	display: grid;
+	min-height: var(--viewport-tedix-height);
+	place-items: center;
+	padding: 24px;
+	background: var(--background);
+}
+
+.product-login-panel {
+	display: grid;
+	width: min(100%, 420px);
+	gap: 14px;
+}
+
+.product-login-panel > form {
+	width: 100%;
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	/* The login panel is a card by another name; route it through the shared
+	 * bounded-surface tier instead of restating the arithmetic. */
+	border-radius: var(--radius-xl);
+	background: var(--background-lighter);
+}
+
+.identity-login-options,
+.identity-email-form,
+.identity-provider-list {
+	display: grid;
+	gap: 12px;
+}
+
+.identity-login-options {
+	margin-top: 8px;
+}
+
+.identity-method-divider {
+	display: grid;
+	grid-template-columns: 1fr auto 1fr;
+	align-items: center;
+	gap: 10px;
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-caption);
+}
+
+.identity-method-divider::before,
+.identity-method-divider::after {
+	content: "";
+	height: 1px;
+	background: var(--border);
+}
+
+.identity-provider-button {
+	justify-content: flex-start;
+	padding-inline: 14px;
+}
+
+.identity-provider-button svg {
+	flex: 0 0 auto;
+}
+
+.identity-otp-heading {
+	display: grid;
+	justify-items: center;
+	gap: 8px;
+	color: var(--muted-foreground);
+	text-align: center;
+}
+
+.identity-otp-heading p {
+	margin: 0;
+}
+
+.identity-otp-actions {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.product-login-panel .identity-legal-copy {
+	margin: 2px 0 0;
+	font-size: var(--text-tedix-caption);
+	text-align: center;
+}
+
+.identity-legal-copy a {
+	color: var(--foreground);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.product-login-panel .identity-flow-error {
+	margin: 0;
+	color: var(--destructive);
+	text-align: center;
+}
+
+.product-login-panel descope-wc {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+}
+
+.product-login-panel .brand-mark,
+.product-login-panel .brand-logo,
+.product-login-panel .brand-lockup {
+	margin-bottom: 8px;
+}
+
+.brand-lockup {
+	display: inline-flex;
+	width: fit-content;
+	align-items: center;
+	gap: 10px;
+}
+
+.brand-lockup .brand-logo {
+	margin: 0;
+}
+
+.brand-wordmark {
+	color: var(--foreground);
+	font-family: "Comfortaa Variable", ui-rounded, sans-serif;
+	font-size: 36px;
+	font-variation-settings: "wght" 400;
+	font-weight: 400;
+	letter-spacing: -1.8px;
+	line-height: 1;
+}
+
+.product-login-panel h1,
+.product-login-panel p {
+	margin: 0;
+}
+
+.product-login-panel h1 {
+	color: var(--foreground);
+	font-size: 24px;
+	font-weight: 600;
+	letter-spacing: -0.45px;
+	line-height: 32px;
+}
+
+.product-login-panel p {
+	margin-bottom: 8px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 1.55;
+}
+
+/* Full-viewport interstitial shell for the inbound-app consent transaction.
+   App-owned layout; the consent panel itself is a Kumo `Card`. */
+.consent-page {
+	display: grid;
+	min-height: var(--viewport-tedix-height);
+	place-items: center;
+	padding: 24px;
+	background: var(--background);
+}
+
+@media (max-width: 560px) {
+	.consent-page {
+		padding: 12px;
+	}
+}
+
+/* Standalone "authorize the Tedix CLI" page (os.tedix.dev/cli/login). A
+   focused, chrome-free auth surface — no OS nav — centered on the viewport. */
+.cli-authorize {
+	/* This route renders below the session boundary, whose root can be narrower
+	   than the browser viewport. Anchor the dedicated authorization surface to
+	   the viewport so its card centers in the window, not that ancestor. */
+	position: fixed;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	background: var(--background);
+}
+
+/*
+ * The shell's plain-CSS ghost affordance follows the same two-part contract as
+ * the Kumo adapters: a deterministic 44px floor on narrow product layouts and
+ * the same floor on coarse pointers at any width. Desktop geometry stays 28px.
+ */
+@media (max-width: 639px) {
+	.ghost-icon-button {
+		min-width: 44px;
+		min-height: 44px;
+	}
+}
+
+@media (pointer: coarse) {
+	.ghost-icon-button {
+		min-width: 44px;
+		min-height: 44px;
+	}
+
+	/*
+	 * 16px is the iOS Safari focus-zoom threshold: focus a field rendered below
+	 * it and the page zooms in — and never zooms back out, leaving the shell
+	 * panned and horizontally scrollable. The whole Tedix control scale (11–14px)
+	 * sits under that line, so every text field on the product would trip it.
+	 *
+	 * This is a deliberate, documented exception to the 13/14px control contract
+	 * in docs/product/design.md, scoped exactly the way the touch-target floor is:
+	 * by POINTER CAPABILITY, so no fine-pointer surface changes. Checkbox, radio,
+	 * range, and color inputs are excluded — they render no text and some size
+	 * their box from the font.
+	 *
+	 * `!important` and the `:root` prefix are load-bearing rather than lazy:
+	 * `.type-tedix-*` in @tedix/design-tokens already declares `!important` to win
+	 * the native-control font reset, so only a higher-specificity important
+	 * declaration can floor it.
+	 */
+	:root
+		:is(
+			select,
+			textarea,
+			input:not(
+				[type="checkbox"],
+				[type="radio"],
+				[type="range"],
+				[type="color"]
+			)
+		) {
+		font-size: 16px !important;
+	}
+}
+
+/*
+ * Dialogs are bottom sheets on phones and short windows.
+ *
+ * Kumo pins its popup to the viewport centre (`fixed top-1/2 left-1/2` plus a
+ * translate pair); these overrides re-anchor it to the keyboard-safe bottom edge
+ * and reuse the `side="bottom"` geometry the Sheet adapter already ships —
+ * full-bleed between the safe areas, square bottom corners. The class is applied
+ * by the `DialogContent` adapter itself, so this is a default every dialog gets
+ * rather than one call sites have to remember.
+ *
+ * `!important` and the `body` prefix are load-bearing: Kumo's positioning ships as
+ * ordinary Tailwind utilities, which an unlayered important declaration outranks
+ * outright. They apply only inside this query — desktop is untouched. A call site
+ * that needs a different small-viewport shape must therefore reach for Tailwind's
+ * own `!` modifier (an important utility, which does win here), not a plain class.
+ *
+ * The enter/exit stays Kumo's scale+opacity rather than the Sheet's slide: Kumo
+ * sets `transition-property` as an INLINE style, which no class can override.
+ */
+@media (max-width: 767px), (max-height: 520px) {
+	body .os-dialog-sheet {
+		top: auto !important;
+		right: env(safe-area-inset-right, 0px) !important;
+		bottom: calc(
+			var(--viewport-tedix-bottom) + env(safe-area-inset-bottom, 0px)
+		) !important;
+		left: env(safe-area-inset-left, 0px) !important;
+		width: auto !important;
+		max-width: none !important;
+		max-height: calc(
+			var(--viewport-tedix-height) - 0.5rem - env(safe-area-inset-top, 0px)
+		) !important;
+		border-bottom-right-radius: 0 !important;
+		border-bottom-left-radius: 0 !important;
+		/*
+		 * Kumo centres with Tailwind's `translate` PROPERTY (`-translate-x-1/2`
+		 * compiles to `translate: var(--tw-translate-x) …`), so cancelling it is
+		 * the whole re-anchoring. Do not add a neighbouring `transform: none`:
+		 * Lightning CSS folds the two into one `transform` declaration and drops
+		 * the `translate` override entirely, which cancels nothing — they are
+		 * independent properties, set here and in Kumo's rule respectively.
+		 */
+		translate: 0 0 !important;
+	}
+}
+
+@media (max-width: 820px) {
+	.topbar-context span:first-child,
+	.topbar-context svg {
+		display: none;
+	}
+
+	.transport-status {
+		margin-left: auto;
+	}
+
+	.governed-status {
+		display: none;
+	}
+
+	.canvas-workbench {
+		min-height: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.canvas-presence-pop {
+		animation: none;
+	}
+
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/*
+ * Durable presentation preferences (`user_configs` → `applyOsPreferences`).
+ *
+ * Each attribute below is written on <html> ONLY when the operator chose a
+ * value other than "system"; the media queries above stay in charge otherwise.
+ * Every attribute here has rules — nothing is stamped on the document that no
+ * stylesheet consumes.
+ */
+
+/* Compact density: tighten the page shell's own rhythm (Kumo `Page` /
+ * `PageSection` slots), never component internals — one preference must not
+ * shrink a control's hit target. The `~` rules mirror Tailwind's own
+ * `space-y-*` shape and outrank it on specificity. */
+:root[data-density="compact"] [data-slot="page"] {
+	padding-block: 0.75rem;
+}
+
+:root[data-density="compact"]
+	[data-slot="page"]
+	> :not([hidden])
+	~ :not([hidden]) {
+	margin-block-start: 0.75rem;
+}
+
+:root[data-density="compact"]
+	[data-slot="page-section"]
+	> :not([hidden])
+	~ :not([hidden]) {
+	margin-block-start: 0.375rem;
+}
+
+:root[data-density="compact"] [data-slot="page-header"] {
+	padding-bottom: 0.75rem;
+}
+
+/* Explicit reduced motion — the same suppression the `prefers-reduced-motion`
+ * query applies, made available to an operator whose OS setting says otherwise. */
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+	scroll-behavior: auto !important;
+	transition-duration: 0.01ms !important;
+}
+
+/* Explicit full motion opts back OUT of the media query above, which is the
+ * only reason "full" is distinct from "system". */
+@media (prefers-reduced-motion: reduce) {
+	:root[data-motion="full"] *,
+	:root[data-motion="full"] *::before,
+	:root[data-motion="full"] *::after {
+		animation-duration: revert !important;
+		animation-iteration-count: revert !important;
+		scroll-behavior: auto;
+		transition-duration: revert;
+	}
+}
+
+/*
+ * High contrast for the UNTENANTED path only. The four roles below are all in
+ * `THEME_PROPERTIES`, so a published organization appearance profile writes
+ * them as inline styles and this block loses outright — `organization-theme.ts`
+ * therefore takes `data-contrast` as a compiler input and derives the same
+ * ladder from the tenant palette. Keep the two paths agreeing: these strengths
+ * are `HIGH_CONTRAST_FLOOR` there.
+ *
+ * Deriving from the mode's own `--foreground`/`--background` is what makes one
+ * block correct in both modes. The previous fixed warm near-blacks landed on
+ * the `#030303` dark canvas and REDUCED contrast, and the intended dark
+ * override was written `:root[data-contrast="high"] .dark` — a descendant
+ * selector that can never match, because `.dark` is set on <html> itself.
+ */
+:root[data-contrast="high"] {
+	--border: color-mix(in oklch, var(--foreground) 34%, var(--background));
+	--input: color-mix(in oklch, var(--foreground) 45%, var(--background));
+	--muted-foreground: color-mix(
+		in oklch,
+		var(--foreground) 78%,
+		var(--background)
+	);
+	--secondary-foreground: var(--foreground);
+}
+
+/* Keep command bars aligned with the stage; inset the content in every mode. */
+.canvas-document-shell {
+	padding: 16px;
+	gap: 16px;
+}
+.canvas-document-shell > .canvas-document-header {
+	margin: -16px -16px 0;
+}
+.canvas-code-workbench {
+	display: grid;
+	grid-template-columns: 200px minmax(0, 1fr);
+	min-height: 480px;
+	height: clamp(480px, 65vh, 900px);
+	overflow: hidden;
+}
+.canvas-code-files {
+	min-width: 0;
+	padding: 12px;
+	border-right: 1px solid var(--border);
+}
+.canvas-code-file {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+}
+.canvas-code-file-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+}
+.canvas-code-file > :last-child {
+	min-height: 0;
+	flex: 1;
+}
+.canvas-account-connections > summary {
+	cursor: pointer;
+	padding-block: 12px;
+	color: var(--text-color-kumo-subtle);
+}
+@media (max-width: 639px) {
+	.canvas-code-workbench {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	.canvas-code-files {
+		border-right: 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.canvas-code-files p {
+		display: none;
+	}
+}
+
+/* Keep resource identity in the tab strip; normal save state stays quiet. */
+.canvas-workpiece-tab[data-selected] {
+	max-width: 360px;
+}
+.canvas-saved-status {
+	background: transparent !important;
+	color: var(--color-kumo-subtle) !important;
+}
+.canvas-document-identity:has(.canvas-workpiece-mode-switcher) {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.canvas-document-identity .canvas-workpiece-mode-switcher {
+	margin: 0;
+}
+
+.canvas-surface[data-canvas-focus] .canvas-workpiece-bar {
+	display: none;
+}
+@media (min-width: 960px) {
+	.canvas-surface[data-chat-collapsed] .canvas-chat-pane,
+	.canvas-surface[data-chat-collapsed] .canvas-chat-resizer {
+		display: none;
+	}
+}
+@media (max-width: 959px) {
+	.canvas-chat-toggle {
+		display: none;
+	}
+}
