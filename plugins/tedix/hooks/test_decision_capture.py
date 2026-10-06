@@ -24,16 +24,20 @@ class DecisionCaptureTest(unittest.TestCase):
         self.addCleanup(self.config.cleanup)
         self.payloads = []
 
-    def run_hook(self, mode, event, reads, env=None):
+    def run_hook(self, mode, event, reads, env=None, during_create=None, fail_respond=False):
         responses = iter(reads)
 
         def fake_run(args, **kwargs):
             if args[0] == "git":
                 return subprocess.CompletedProcess(args, 0, "main\n", "")
             self.assertNotIn("TEDIX_EXTERNAL_AGENT", kwargs["env"])
+            if fail_respond and "interaction-respond" in args:
+                return subprocess.CompletedProcess(args, 1, "", "offline")
             if "--input" in args:
                 with open(args[args.index("--input") + 1][1:]) as file:
                     self.payloads.append((args, json.load(file)))
+            if during_create and "interaction-create" in args:
+                during_create()
             return subprocess.CompletedProcess(args, 0, json.dumps(next(responses)), "")
 
         environment = {"TEDIX_CONFIG_DIR": self.config.name, "TEDIX_EXTERNAL_AGENT": "agent", "CLAUDE_PLUGIN_ROOT": "/plugin"} | (env or {})
@@ -104,9 +108,36 @@ class DecisionCaptureTest(unittest.TestCase):
         verbs = [next(verb for verb in ("interaction-create", "interaction-respond") if verb in args) for args, _ in self.payloads]
         self.assertEqual(verbs, ["interaction-create", "interaction-respond", "interaction-create"])
         self.assertEqual(self.payloads[1][1]["metadata"]["source"], "superseded")
+        # Not the user's words: never recorded as an answer.
+        self.assertEqual(self.payloads[1][1]["responseKind"], "coordination_update")
+        self.assertTrue(self.payloads[1][1]["body"].startswith("Closed automatically"))
         self.assertNotIn("replyClass", self.payloads[1][1]["metadata"])
         with open(self.state()) as file:
             self.assertEqual(json.load(file)["requestId"], second["id"])
+
+    def test_a_reply_typed_while_the_question_is_created_is_kept(self):
+        state = hook.Path(self.state())
+
+        def user_replies_now():
+            self.assertEqual(hook.claim_reply({"prompt": "yes"}, state), "early")
+
+        self.run_hook("stop", {"last_assistant_message": "Ship it?"}, [BINDING, AUTH, CREATED, {"request": CREATED}], during_create=user_replies_now)
+        verbs = [next(verb for verb in ("interaction-create", "interaction-respond") if verb in args) for args, _ in self.payloads]
+        self.assertEqual(verbs, ["interaction-create", "interaction-respond"])
+        self.assertEqual(self.payloads[1][1]["body"], "yes")
+        self.assertEqual(self.payloads[1][1]["responseKind"], "answer")
+        self.assertEqual(self.payloads[1][1]["metadata"]["source"], "user-reply")
+        self.assertFalse(os.path.exists(self.state()))
+
+    def test_a_reply_that_fails_to_send_is_retried_at_the_next_turn_end(self):
+        self.run_hook("stop", {"last_assistant_message": "first"}, [BINDING, AUTH, CREATED])
+        self.run_hook("reply", {"prompt": "make it happen"}, [BINDING, AUTH], fail_respond=True)
+        self.assertTrue(os.path.exists(self.state()))
+        second = {"id": "88888888-8888-4888-8888-888888888888", "version": 1}
+        self.run_hook("stop", {"last_assistant_message": "second"}, [BINDING, AUTH, {"request": CREATED}, second])
+        retried = self.payloads[-2][1]
+        self.assertEqual(retried["body"], "make it happen")
+        self.assertEqual(retried["metadata"]["source"], "user-reply")
 
     def test_codex_identity_and_failures_stay_silent(self):
         self.run_hook("stop", {"last_assistant_message": "done"}, [BINDING, AUTH, CREATED], env={"CODEX_THREAD_ID": SESSION})

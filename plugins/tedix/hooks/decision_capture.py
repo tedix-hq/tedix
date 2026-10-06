@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -182,22 +183,33 @@ def on_stop(event, session, binding, state):
     if event.get("background_tasks"):
         # The session will resume on its own; it is not waiting on the user yet.
         return
-    previous = json.loads(state.read_text()) if state.exists() else None
-    if previous:
+    previous = claim(state)
+    kept = claim(early(state)) if previous and previous.get("requestId") else None
+    if kept and kept.get("token") == previous.get("token"):
+        # A reply whose upload failed earlier: deliver it now instead of closing.
+        try:
+            on_reply(session, binding, kept["prompt"], previous)
+        except (ValueError, OSError, subprocess.TimeoutExpired):
+            pass
+    elif previous and previous.get("requestId"):
         # The agent continued without a reply (for example after background work).
-        # Cancelling needs interactive destructive approval, so close the earlier
-        # turn with a marked machine note; learning reads only user-reply rows.
+        # Close the earlier turn as an automatic coordination update, never as an
+        # answer: it is not the user's words and must not wake answer listeners.
         try:
             call(binding, "interaction-respond", {
                 "expectedRequestVersion": previous["version"],
-                "responseKind": "answer",
-                "body": "Superseded: the agent continued before a reply.",
+                "responseKind": "coordination_update",
+                "body": "Closed automatically: the agent continued before a reply.",
                 "resolvesRequest": True,
                 "metadata": {"schema": SCHEMA, "source": "superseded", "host": host_name(), "sessionId": session},
             }, previous["requestId"])
         except (ValueError, OSError, subprocess.TimeoutExpired):
             pass
-        state.unlink(missing_ok=True)
+    # Mark the turn as waiting before any network call, so a reply typed while
+    # the question is still being created is kept instead of lost.
+    token = uuid.uuid4().hex
+    early(state).unlink(missing_ok=True)
+    write_state(state, {"pending": token})
     text, complete = redact(message, MESSAGE_LIMIT, keep="tail")
     cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else os.getcwd()
     repository = Path(binding["root"]).name[:80]
@@ -226,27 +238,66 @@ def on_stop(event, session, binding, state):
     else:
         payload["projectId"] = binding["projectId"]
     request = request_of(call(binding, "interaction-create", payload))
-    state.write_text(json.dumps({"requestId": request["id"], "version": request["version"]}))
-    os.chmod(state, 0o600)
+    write_state(state, {"requestId": request["id"], "version": request["version"], "token": token})
+    answer_early_reply(session, binding, state)
 
 
-def claim_reply(event, state):
-    # Claim the open turn before any network call, so a fast next Stop cannot
-    # cancel the request this reply is about to answer.
-    prompt = event.get("prompt")
-    if not isinstance(prompt, str) or not prompt.strip() or SYSTEM_PROMPT.match(prompt):
-        return None
-    claimed = state.with_suffix(".reply")
+def write_state(path, value):
+    handle, name = tempfile.mkstemp(prefix=path.name, suffix=".tmp", dir=path.parent)
+    with os.fdopen(handle, "w") as file:
+        json.dump(value, file)
+    os.replace(name, path)
+
+
+def claim(path):
+    # Atomic rename: exactly one hook process owns whatever the file held.
+    claimed = path.with_suffix(f".{uuid.uuid4().hex}.claimed")
     try:
-        os.replace(state, claimed)
+        os.replace(path, claimed)
     except FileNotFoundError:
         return None
     try:
-        return prompt, json.loads(claimed.read_text())
+        return json.loads(claimed.read_text())
+    except (ValueError, OSError):
+        return None
     finally:
         claimed.unlink(missing_ok=True)
 
 
+def early(state):
+    return state.with_suffix(".early")
+
+
+def answer_early_reply(session, binding, state):
+    # A reply that arrived while this turn's question was being created waits in
+    # the early file. Whoever claims the finished question answers it, once.
+    stored = early(state)
+    if not stored.exists():
+        return
+    current = claim(state)
+    if not current:
+        return
+    reply = claim(stored)
+    if not reply or reply.get("token") != current.get("token"):
+        write_state(state, current)
+        return
+    on_reply(session, binding, reply["prompt"], current)
+
+
+def claim_reply(event, state):
+    # Claim the open turn before any network call, so a fast next Stop cannot
+    # close the request this reply is about to answer.
+    prompt = event.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip() or SYSTEM_PROMPT.match(prompt):
+        return None
+    current = claim(state)
+    if not current:
+        return None
+    if current.get("pending"):
+        # The question is still being created: keep the reply for the turn end.
+        write_state(early(state), {"token": current["pending"], "prompt": prompt})
+        return "early"
+    return prompt, current
 def on_reply(session, binding, prompt, previous):
     text, complete = redact(prompt, REPLY_LIMIT)
     call(binding, "interaction-respond", {
@@ -273,8 +324,18 @@ def main():
             return
         if mode == "stop":
             on_stop(event, session, binding, state)
+        elif claimed == "early":
+            # The turn end may have finished creating the question meanwhile.
+            answer_early_reply(session, binding, state)
         else:
-            on_reply(session, binding, *claimed)
+            prompt, current = claimed
+            try:
+                on_reply(session, binding, prompt, current)
+            except (ValueError, OSError, subprocess.TimeoutExpired):
+                # Keep the reply so the next turn end retries it.
+                write_state(early(state), {"token": current.get("token"), "prompt": prompt})
+                write_state(state, current)
+                raise
     except (ValueError, KeyError, TypeError, AttributeError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return
 
