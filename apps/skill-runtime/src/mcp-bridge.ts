@@ -25,6 +25,9 @@ import { extractMcpTaskId } from "@tedix/mcp-shared/tasks";
 import { logSkillRuntimeWarning } from "./control-log";
 import {
 	McpInputRequiredError,
+	McpConnectionRequiredError,
+	type ConnectionRecovery,
+	readConnectionRecovery,
 	stripCodeModeExecutionEnvelope,
 	unwrapJsonRpcToolResult,
 } from "@tedix/mcp-shared/tool-result";
@@ -101,6 +104,7 @@ export interface McpCallRequest {
 	 * tenant code never supplies an idempotency key directly.
 	 */
 	workflow: WorkflowMcpCallContext;
+	connectionBinding?: ConnectionRecovery;
 }
 
 export class CapabilityNotDeclaredError extends Error {
@@ -206,7 +210,34 @@ export async function callMcpTool(
 	props: McpBridgeProps,
 	request: McpCallRequest,
 ): Promise<unknown> {
+	try {
+		return {
+			__tedixMcpResult: true,
+			value: await executeMcpTool(env, props, request),
+		};
+	} catch (error) {
+		if (error instanceof McpConnectionRequiredError) {
+			// This tagged outcome crosses RPC as data; arbitrary Error properties
+			// do not reliably survive the native Workflow/RPC error boundary.
+			return { __tedixConnectionRequired: true, recovery: error.recovery };
+		}
+		throw error;
+	}
+}
+
+async function executeMcpTool(
+	env: McpBridgeEnv,
+	props: McpBridgeProps,
+	request: McpCallRequest,
+): Promise<unknown> {
 	const { namespace, method, args, workflow } = request;
+	const connectionBinding = request.connectionBinding
+		? readConnectionRecovery(request.connectionBinding)
+		: null;
+	if (request.connectionBinding && !connectionBinding)
+		throw new Error(
+			"MCP_CONNECTION_RECOVERY_INVALID: invalid connection binding",
+		);
 	if (!isWorkflowMcpCallContext(workflow)) {
 		throw new Error(
 			"WORKFLOW_CALL_CONTEXT_INVALID: env.MCP calls require a valid durable step context",
@@ -273,6 +304,11 @@ export async function callMcpTool(
 		},
 		props.workItemId,
 	);
+	if (connectionBinding)
+		params._meta = {
+			...params._meta,
+			"tedix/expectedConnection": connectionBinding,
+		};
 	const expected = props.manifest.expectedAnnotations;
 	if (
 		expected &&

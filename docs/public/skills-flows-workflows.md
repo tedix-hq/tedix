@@ -34,6 +34,24 @@ There is no separate workflow-builder object. Author a reusable executable
 skill, schedule it as an automation, use a flow for one-off work, or change a
 static platform definition in Tedix source.
 
+### Reconnect a selected account during a run
+
+A missing credential for an explicitly selected account can hold a run. Each
+reconnect wait lasts up to 24 hours, with at most three checks per operation.
+Run detail offers **Open connections** and **Check connection
+and continue**. The server verifies the same account and required scopes before
+waking the pending operation; it never substitutes another account. Earlier
+completed steps remain complete. A wait is shown as running with a waiting gate,
+not as a native engine pause.
+
+Recovery is limited to a step whose first and only MCP operation failed before
+execution, with no direct network calls already started. Put independent
+provider operations in separate `step.do` callbacks. Approval requirements,
+policy denials, lookup outages, unselected default accounts, and steps with
+already-started effects do not become reconnect waits. A connection change or
+revocation still takes effect at the next credential lookup. Recovery does not
+grant background access to personal accounts.
+
 ## Run a one-off flow
 
 Create `plan.ts`. The leading `/* tedix */` block is the skill manifest and

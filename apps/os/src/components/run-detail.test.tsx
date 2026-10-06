@@ -9,6 +9,7 @@ import { formatDurationMs } from "@/lib/time";
 import { RunStatusChip } from "./activity-runs";
 import {
 	extractApprovalId,
+	ConnectionRecoveryNotice,
 	extractWaitEventType,
 	formatBytes,
 	RunArtifactRow,
@@ -18,6 +19,48 @@ import {
 	RunRationaleRow,
 	RunStepRow,
 } from "./run-detail";
+
+describe("connection recovery notice", () => {
+	it("routes to the correct owner settings and exposes plain-English continuation", () => {
+		const gate = {
+			schemaVersion: 1 as const,
+			status: "waiting" as const,
+			eventType: "connection_recovery_" + "a".repeat(24),
+			executionEpoch: 2,
+			stepName: "book",
+			logicalCount: 1,
+			namespace: "calendar",
+			method: "create_event",
+			requestDigest: "b".repeat(64),
+			recovery: {
+				providerId: "calendar",
+				connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+				scope: "user" as const,
+				scopes: ["calendar"],
+			},
+		};
+		const html = renderToStaticMarkup(
+			<ConnectionRecoveryNotice
+				gate={gate}
+				checking={false}
+				onContinue={() => {}}
+			/>,
+		);
+		expect(html).toContain('href="/account/connections"');
+		expect(html).toContain("This operation has not run");
+		expect(html).toContain("Check connection and continue");
+		expect(html).not.toContain(gate.recovery.connectionInstanceId);
+		const tenant = renderToStaticMarkup(
+			<ConnectionRecoveryNotice
+				gate={{ ...gate, recovery: { ...gate.recovery, scope: "tenant" } }}
+				checking={true}
+				onContinue={() => {}}
+			/>,
+		);
+		expect(tenant).toContain('href="/admin/connections"');
+		expect(tenant).toContain("disabled");
+	});
+});
 
 describe("RunDetailSectionHeader", () => {
 	it("uses the canonical Kumo section hierarchy with an optional count", () => {

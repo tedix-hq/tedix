@@ -249,6 +249,7 @@ export const WORKFLOW_FETCH_GATE_FACTORY_SOURCE = `function createWorkflowFetchG
     if (!active || active.enabled !== true || !active.pendingOperations || typeof active.pendingOperations.add !== "function" || (active.phase !== "run" && active.phase !== "rollback")) {
       return rejectOperation(createBlockedError());
     }
+    active.directNetworkStarted = true;
     return trackOperation(active, createOperation(async () => {
       const requestArgs = prepareRequestArgs(args);
       const response = await platformFetch(...requestArgs);
@@ -1029,7 +1030,7 @@ export function skillRuntimeStubKey(
 
 // Bump when DISPATCH_SHIM source changes so cached isolates from a previous
 // deploy don't shadow updated routing logic.
-export const DISPATCH_SHIM_VERSION = "v45-provider-confirmation";
+export const DISPATCH_SHIM_VERSION = "v46-pinned-connection-recovery";
 
 export const MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE = `
 function workflowMcpCompletionFailure(result) {
@@ -1075,7 +1076,7 @@ function workflowMcpProviderConfirmation(result) {
 // are hashed separately; this covers the TypeScript bridge implementations
 // that cannot be introspected from a deployed Worker at runtime.
 export const WORKFLOW_BRIDGE_COMPATIBILITY_VERSION =
-	"v4-os-output-work-item-lineage";
+	"v5-canonical-connection-outcomes";
 
 function createMcpBridgeProps(
 	input: LoadSkillRuntimeInput,
@@ -1478,7 +1479,7 @@ function permanentBridgeError(error) {
 }
 
 function normalizeBridgeError(error) {
-  if (!permanentBridgeError(error)) return error;
+  if (error instanceof NonRetryableError || !permanentBridgeError(error)) return error;
   const message = error && error.message ? workflowString(error.message) : workflowString(error);
   return new NonRetryableError(message, error && error.name ? workflowString(error.name) : "McpPermanentError");
 }
@@ -1514,6 +1515,13 @@ function buildMcpProxy(env, runContext) {
                 phase: active.phase,
                 ordinal,
               };
+              const requestJson = stringifyWorkflowJson(args == null ? {} : args);
+              const requestArgs = parseWorkflowJson(requestJson);
+              const requestDigest = await digestWorkflowHex(requestJson);
+              if (active.continuationBinding && (ordinal !== 1 || namespace !== active.continuationBinding.namespace ||
+                  method !== active.continuationBinding.method || requestDigest !== active.continuationBinding.requestDigest)) {
+                throw new NonRetryableError("MCP_CONNECTION_RECOVERY_CALL_CHANGED: the pending operation changed");
+              }
               const identity = await buildCallIdentity(
                 runContext.runId,
                 runContext.executionEpoch,
@@ -1522,7 +1530,7 @@ function buildMcpProxy(env, runContext) {
                 workflow,
               );
               const path = "epochs/" + runContext.executionEpoch + "/steps/"
-                + active.stepPathSegment + "/" + active.stepCount
+                + active.stepPathSegment + "/" + (active.nativeStepCount || active.stepCount)
                 + "/attempts/" + active.attempt + "/calls/" + active.phase + "/" + ordinal + ".json";
               const startedAt = workflowIsoNow();
               const started = {
@@ -1548,17 +1556,32 @@ function buildMcpProxy(env, runContext) {
                 // rationale, dashboard "What the AI was asked") read this back.
                 request: active.sensitiveEvidence
                   ? redactedMcpEvidence()
-                  : boundedEvidenceValue(args == null ? {} : args),
+                  : boundedEvidenceValue(requestArgs),
               };
               await persistArtifact(env, { path, value: started, outcome: "pending", attempt: active.attempt });
               const t0 = workflowNowMs();
               try {
-                const result = await observeRpcCall(bridge.call({
+                const bridgeResult = await observeRpcCall(bridge.call({
                   namespace,
                   method,
-                  args: args == null ? {} : args,
+                  args: requestArgs,
                   workflow,
+                  ...(active.continuationBinding ? { connectionBinding: active.continuationBinding.recovery } : {}),
                 }), namespace + "." + method);
+                if (bridgeResult && bridgeResult.__tedixConnectionRequired === true) {
+                  const recovery = bridgeResult.recovery;
+                  if (!recovery || typeof recovery.connectionInstanceId !== "string" ||
+                    !/^[0-9a-f-]{36}$/i.test(recovery.connectionInstanceId) ||
+                    (recovery.scope !== "tenant" && recovery.scope !== "user")) {
+                    throw new NonRetryableError("MCP_CONNECTION_RECOVERY_INVALID: invalid pinned credential outcome");
+                  }
+                  const error = new NonRetryableError("MCP_CONNECTION_REQUIRED: reconnect the selected account");
+                  if (active.phase === "run" && ordinal === 1 && active.nextOrdinal === 2 && !active.directNetworkStarted) {
+                    active.connectionRequired = { error, recovery, namespace, method, requestDigest };
+                  }
+                  throw error;
+                }
+                const result = bridgeResult && bridgeResult.__tedixMcpResult === true ? bridgeResult.value : bridgeResult;
                 const reportedFailure = workflowMcpCompletionFailure(result);
                 if (reportedFailure) {
                   const message = "MCP_TOOL_REPORTED_FAILURE: " + namespace + "." + method
@@ -1601,7 +1624,7 @@ function buildMcpProxy(env, runContext) {
                     error: active.sensitiveEvidence
                       ? redactedErrorSnapshot()
                       : errorSnapshot(error),
-                    retryable: !permanentBridgeError(error),
+                    retryable: !(error instanceof NonRetryableError) && !permanentBridgeError(error),
                   },
                   outcome: "failure",
                   attempt: active.attempt,
@@ -1755,6 +1778,15 @@ function persistArtifactOnce(env, payload) {
   );
 }
 
+// Reconnect admission reads this receipt; unlike display evidence it must be
+// durably stored before a native wait or continuation can begin.
+async function persistConnectionControl(env, payload) {
+  if (!env.__ARTIFACT_BRIDGE__ || typeof env.__ARTIFACT_BRIDGE__.record !== "function") {
+    throw new NonRetryableError("MCP_CONNECTION_RECOVERY_STORE_UNAVAILABLE: cannot preserve pending operation");
+  }
+  await observeRpcCall(env.__ARTIFACT_BRIDGE__.record(payload), "connection.control");
+}
+
 // G — Rationale emission. Same best-effort semantics. Honors the manifest's
 // capabilities.rationale.mode flag (off | important | all, default important).
 // Important = dispatch + waitForEvent gates + step.do failures. "all" is
@@ -1836,7 +1868,12 @@ function wrapStep(step, env, timeline, runContext) {
     }
     let lastFailure = null;
     let lastSuccess = null;
+    let logicalCount = null;
+    let recoveryRound = 0;
+    let continuationBinding = null;
+    let activeContext = null;
     const callback = async (ctx) => {
+      logicalCount = logicalCount || ctx.step.count;
       const stepId = await buildStepId(
         runContext.runId,
         runContext.executionEpoch,
@@ -1878,9 +1915,11 @@ function wrapStep(step, env, timeline, runContext) {
         persistArtifact(env, { path: "timeline.json", value: timeline.snapshot() }),
       ]);
       try {
-        const activeContext = {
+        activeContext = {
           stepName: ctx.step.name,
-          stepCount: ctx.step.count,
+          stepCount: logicalCount,
+          nativeStepCount: ctx.step.count,
+          continuationBinding,
           attempt: ctx.attempt,
           phase: "run",
           stepPathSegment: encodedStepName,
@@ -1889,7 +1928,11 @@ function wrapStep(step, env, timeline, runContext) {
           pendingOperations: createWorkflowOperationSet(),
           enabled: true,
         };
-        const value = await runWithWorkflowCallContext(activeContext, () => fn(ctx));
+        const logicalContext = { ...ctx, step: { ...ctx.step, count: logicalCount } };
+        const value = await runWithWorkflowCallContext(activeContext, () => fn(logicalContext));
+        if (value && value.__tedixPendingConnection) {
+          throw new NonRetryableError("WORKFLOW_RESERVED_RESULT: reserved connection recovery output");
+        }
         const durationMs = workflowNowMs() - t0;
         const output = sensitiveOutput
           ? { redacted: true, reason: "workflow_step_sensitive_output" }
@@ -1928,6 +1971,18 @@ function wrapStep(step, env, timeline, runContext) {
         ]);
         return value;
       } catch (error) {
+        if (activeContext && activeContext.connectionRequired &&
+            error === activeContext.connectionRequired.error &&
+            activeContext.nextOrdinal === 2 && !activeContext.directNetworkStarted) {
+          return {
+            __tedixPendingConnection: true,
+            recovery: activeContext.connectionRequired.recovery,
+            namespace: activeContext.connectionRequired.namespace,
+            method: activeContext.connectionRequired.method,
+            requestDigest: activeContext.connectionRequired.requestDigest,
+            logicalCount,
+          };
+        }
         const durationMs = workflowNowMs() - t0;
 		const failure = sensitiveOutput
 			? redactedErrorSnapshot()
@@ -1968,6 +2023,8 @@ function wrapStep(step, env, timeline, runContext) {
       wrappedRollback = {
         ...rollbackOptions,
         rollback: async (rollbackContext) => {
+          // A pending credential step never executed a provider operation.
+          if (rollbackContext.output && rollbackContext.output.__tedixPendingConnection === true) return;
           const ctx = rollbackContext.ctx;
           const stepId = await buildStepId(
             runContext.runId,
@@ -2087,14 +2144,37 @@ function wrapStep(step, env, timeline, runContext) {
 
     try {
       let value;
-      if (hasConfig) {
-        value = wrappedRollback
-          ? await step.do(name, config, callback, wrappedRollback)
-          : await step.do(name, config, callback);
-      } else {
-        value = wrappedRollback
-          ? await step.do(name, callback, wrappedRollback)
-          : await step.do(name, callback);
+      while (true) {
+        if (hasConfig) {
+          value = wrappedRollback
+            ? await step.do(name, config, callback, wrappedRollback)
+            : await step.do(name, config, callback);
+        } else {
+          value = wrappedRollback
+            ? await step.do(name, callback, wrappedRollback)
+            : await step.do(name, callback);
+        }
+        if (!value || value.__tedixPendingConnection !== true) break;
+        logicalCount = value.logicalCount;
+        continuationBinding = { namespace: value.namespace, method: value.method, requestDigest: value.requestDigest, recovery: value.recovery };
+        if (++recoveryRound > 3) throw new NonRetryableError("MCP_CONNECTION_RECOVERY_LIMIT: reconnect attempts exhausted");
+        const digest = await digestWorkflowHex(frameWorkflowIdentity([runContext.runId, runContext.executionEpoch, name, logicalCount, recoveryRound]));
+        const eventType = "connection_recovery_" + sliceWorkflowString(digest, 0, 24);
+        const recoveryPath = "epochs/" + runContext.executionEpoch + "/controls/" + eventType + ".json";
+        const pending = {
+          schemaVersion: 1, status: "waiting", eventType,
+          executionEpoch: runContext.executionEpoch,
+          stepName: name, logicalCount,
+          namespace: value.namespace, method: value.method,
+          requestDigest: value.requestDigest,
+          recovery: value.recovery,
+        };
+        await persistConnectionControl(env, { path: recoveryPath, value: pending, outcome: "pending" });
+        const answer = await wrapped.waitForEvent("Reconnect " + name + " " + recoveryRound, { type: eventType, timeout: "24 hours", connectionRecovery: pending });
+        if (!answer || !answer.payload || answer.payload.connectionVerified !== true || answer.payload.eventType !== eventType) {
+          throw new NonRetryableError("MCP_CONNECTION_RECOVERY_UNVERIFIED: connection continuation was not verified");
+        }
+        await persistConnectionControl(env, { path: recoveryPath, value: { ...pending, status: "resolved" }, outcome: "success" });
       }
       const sensitiveOutput = lastSuccess
         ? lastSuccess.sensitiveOutput
@@ -2250,6 +2330,7 @@ function wrapStep(step, env, timeline, runContext) {
       eventType,
       timeout: opts && opts.timeout,
       waitingAt: workflowIsoNow(),
+      ...(opts.connectionRecovery ? { connectionRecovery: opts.connectionRecovery } : {}),
     };
     timeline.push({ kind: "step.waitForEvent", name, count, type: eventType, status: "waiting" });
     await allWorkflowPromises([
@@ -2268,7 +2349,7 @@ function wrapStep(step, env, timeline, runContext) {
     });
     let result;
     try {
-      result = await step.waitForEvent(name, opts);
+      result = await step.waitForEvent(name, { type: opts.type, ...(opts.timeout ? { timeout: opts.timeout } : {}) });
     } catch (error) {
       await persistArtifact(env, {
         path,

@@ -43,6 +43,7 @@ interface FakeRpcResult {
 	data: Record<string, unknown>;
 	tokensUsed?: number;
 	providerConfirmation?: string;
+	connectionRecovery?: import("@tedix/mcp-shared/tool-result").ConnectionRecovery;
 	osGadgetTask?: {
 		taskId: string;
 		status: "working";
@@ -101,6 +102,47 @@ function makeTool(): AppTool {
 		updatedAt: null,
 	};
 }
+
+it("emits reconnect control only for the canonical unexecuted credential outcome", async () => {
+	const options = {
+		adapterScope: "primary" as const,
+		resultStrategy: "merge" as const,
+	};
+	const connectionRecovery = {
+		providerId: "calendar",
+		connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+		scope: "user" as const,
+		scopes: ["calendar"],
+	};
+	const missing = await executeTool(
+		makeAgent({
+			status: 401,
+			data: { error: "Missing credential" },
+			connectionRecovery,
+		}),
+		makeTool(),
+		{},
+		options,
+	);
+	expect(missing.isError).toBe(true);
+	expect(missing._meta?.["tedix/connectionRecovery"]).toEqual(
+		connectionRecovery,
+	);
+	const success = await executeTool(
+		makeAgent({ status: 200, data: { ok: true }, connectionRecovery }),
+		makeTool(),
+		{},
+		options,
+	);
+	expect(success._meta?.["tedix/connectionRecovery"]).toBeUndefined();
+	const arbitrary = await executeTool(
+		makeAgent({ status: 403, data: { error: "denied", connectionRecovery } }),
+		makeTool(),
+		{},
+		options,
+	);
+	expect(arbitrary._meta?.["tedix/connectionRecovery"]).toBeUndefined();
+});
 
 function makeGmailSendTool(): AppTool {
 	return {

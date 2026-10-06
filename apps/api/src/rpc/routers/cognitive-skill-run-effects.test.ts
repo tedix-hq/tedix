@@ -10,6 +10,21 @@ const mocks = vi.hoisted(() => ({
 	record: vi.fn(),
 	list: vi.fn(),
 	assess: vi.fn(),
+	getRunArtifact: vi.fn(),
+	fetchNamedConnection: vi.fn(),
+	callSkillRuntime: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/skill-run-artifacts", async (load) => ({
+	...(await load<typeof import("@tedix/db/queries/skill-run-artifacts")>()),
+	getRunArtifact: mocks.getRunArtifact,
+}));
+vi.mock("./connections/policy-resolution", async (load) => ({
+	...(await load<typeof import("./connections/policy-resolution")>()),
+	fetchNamedConnection: mocks.fetchNamedConnection,
+}));
+vi.mock("../../services/skill-runtime-client", async (load) => ({
+	...(await load<typeof import("../../services/skill-runtime-client")>()),
+	callSkillRuntime: mocks.callSkillRuntime,
 }));
 vi.mock("@tedix/db/queries/skill-runs", async (load) => ({
 	...(await load<typeof import("@tedix/db/queries/skill-runs")>()),
@@ -36,6 +51,51 @@ vi.mock("../../services/jev-skill-utility", () => ({
 }));
 
 import { skillsContractRouter } from "./cognitive";
+import {
+	assertExpectedSkillRevision,
+	validateConnectionRecoveryReceipt,
+} from "./cognitive-skill-runs";
+
+describe("workflow continuation admission", () => {
+	it("rejects a stale trigger revision while preserving ordinary interactive admission", () => {
+		expect(() => assertExpectedSkillRevision(4, 5)).toThrow("Skill changed");
+		expect(() => assertExpectedSkillRevision(5, 5)).not.toThrow();
+		expect(() => assertExpectedSkillRevision(undefined, 5)).not.toThrow();
+	});
+	it("rejects resolved or previous-epoch reconnect events", () => {
+		const eventType = "connection_recovery_" + "a".repeat(24);
+		const receipt = {
+			schemaVersion: 1,
+			status: "waiting",
+			eventType,
+			executionEpoch: 2,
+			stepName: "book",
+			logicalCount: 1,
+			namespace: "calendar",
+			method: "create_event",
+			requestDigest: "b".repeat(64),
+			recovery: {
+				providerId: "calendar",
+				connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+				scope: "user",
+				scopes: ["calendar"],
+			},
+		};
+		expect(validateConnectionRecoveryReceipt(receipt, 2, eventType)).toEqual(
+			receipt,
+		);
+		expect(() =>
+			validateConnectionRecoveryReceipt(receipt, 3, eventType),
+		).toThrow("stale");
+		expect(() =>
+			validateConnectionRecoveryReceipt(
+				{ ...receipt, status: "resolved" },
+				2,
+				eventType,
+			),
+		).toThrow("resolved");
+	});
+});
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -79,6 +139,105 @@ const client = (authType?: BaseContext["authType"], orgId?: string) =>
 	createRouterClient(skillsContractRouter, {
 		context: context(authType, orgId),
 	});
+
+describe("reconnect events verify canonical credential ownership", () => {
+	const type = "connection_recovery_" + "a".repeat(24);
+	const recovery = {
+		providerId: "calendar",
+		connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+		scope: "user",
+		scopes: ["calendar"],
+	};
+	const receipt = {
+		schemaVersion: 1,
+		status: "waiting",
+		eventType: type,
+		executionEpoch: 2,
+		stepName: "book",
+		logicalCount: 1,
+		namespace: "calendar",
+		method: "create_event",
+		requestDigest: "b".repeat(64),
+		recovery,
+	};
+	beforeEach(() => {
+		mocks.getSkillRun.mockResolvedValue({
+			id: RUN,
+			organizationId: ORG,
+			tediId: TEDI,
+			status: "running",
+			executionEpoch: 2,
+			createdBy: "user:user-1",
+			skillDoc:
+				"---\ncapabilities:\n  mcp:\n    calendar: [create_event]\n---\n# Calendar",
+		});
+		mocks.getRunArtifact.mockResolvedValue({
+			contentInline: JSON.stringify(receipt),
+		});
+		mocks.getOrganizationById.mockResolvedValue({
+			id: ORG,
+			descopeTenantId: "tenant-1",
+		});
+		mocks.fetchNamedConnection.mockResolvedValue({
+			accessToken: "opaque",
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+		});
+		mocks.callSkillRuntime.mockResolvedValue({ ok: true });
+	});
+	it("rechecks the pinned account and overwrites client verification claims", async () => {
+		await client().runWorkflowSendEvent({
+			runId: RUN,
+			type,
+			payload: { connectionVerified: true, account: "another" },
+		});
+		expect(mocks.fetchNamedConnection).toHaveBeenCalledWith(
+			expect.anything(),
+			{ userId: "user-1" },
+			"calendar",
+			recovery.connectionInstanceId,
+			["calendar"],
+		);
+		expect(mocks.callSkillRuntime).toHaveBeenCalledWith(
+			expect.anything(),
+			"/event",
+			{
+				runId: RUN,
+				expectedExecutionEpoch: 2,
+				type,
+				payload: { connectionVerified: true, eventType: type },
+			},
+		);
+	});
+	it("rejects a different personal owner without fetching or delivering credentials", async () => {
+		mocks.getSkillRun.mockResolvedValue({
+			...(await mocks.getSkillRun()),
+			createdBy: "user:someone-else",
+		});
+		await expect(
+			client().runWorkflowSendEvent({
+				runId: RUN,
+				type,
+				payload: { connectionVerified: true },
+			}),
+		).rejects.toThrow("original personal connection owner");
+		expect(mocks.fetchNamedConnection).not.toHaveBeenCalled();
+		expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+	});
+	it("does not send a reconnect event for missing or expired credentials", async () => {
+		mocks.fetchNamedConnection.mockResolvedValue(null);
+		await expect(
+			client().runWorkflowSendEvent({ runId: RUN, type }),
+		).rejects.toThrow("Reconnect the exact");
+		mocks.fetchNamedConnection.mockResolvedValue({
+			accessToken: "opaque",
+			expiresAt: 1,
+		});
+		await expect(
+			client().runWorkflowSendEvent({ runId: RUN, type }),
+		).rejects.toThrow("Reconnect the exact");
+		expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+	});
+});
 const write = {
 	runId: RUN,
 	observedState: "confirmed" as const,

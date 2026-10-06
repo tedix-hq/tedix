@@ -368,6 +368,28 @@ export const SkillScheduleSchema = z.object({
 export type SkillSchedule = z.infer<typeof SkillScheduleSchema>;
 
 /** Agent-readable projection of one durable Cloudflare Workflow step record. */
+export const SkillWorkflowConnectionRecoverySchema = z
+	.object({
+		schemaVersion: z.literal(1),
+		status: z.enum(["waiting", "resolved"]),
+		eventType: z.string().regex(/^connection_recovery_[0-9a-f]{24}$/),
+		executionEpoch: z.number().int().min(0),
+		stepName: z.string().min(1),
+		logicalCount: z.number().int().min(1),
+		namespace: z.string().min(1),
+		method: z.string().min(1),
+		requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
+		recovery: z
+			.object({
+				providerId: z.string().min(1).max(200),
+				connectionInstanceId: z.uuid(),
+				scope: z.enum(["tenant", "user"]),
+				scopes: z.array(z.string().min(1).max(300)).max(50),
+			})
+			.strict(),
+	})
+	.strict();
+
 export const SkillWorkflowStepSchema = z.object({
 	path: z.string(),
 	name: z.string(),
@@ -410,6 +432,7 @@ export const SkillWorkflowStepSchema = z.object({
 	idempotencyKey: z.string().nullable().optional(),
 	idempotencyRequested: z.boolean().nullable().optional(),
 	providerConfirmation: z.string().nullable().optional(),
+	connectionRecovery: SkillWorkflowConnectionRecoverySchema.optional(),
 });
 export type SkillWorkflowStep = z.infer<typeof SkillWorkflowStepSchema>;
 

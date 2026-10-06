@@ -41,6 +41,8 @@ import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { Hono } from "hono";
 import * as z from "zod";
+import { createDbClient } from "@tedix/db/client";
+import { requirePendingConnectionRecovery } from "./workflow-connection-recovery";
 import { ArtifactBridge } from "./artifacts";
 import { isAuthenticated } from "./auth";
 import {
@@ -2418,6 +2420,14 @@ app.post("/event", async (c) => {
 	if (!run.instanceId) return c.json({ error: "no_instance" }, 409);
 
 	try {
+		if (parsed.data.type.startsWith("connection_recovery_")) {
+			await requirePendingConnectionRecovery(createDbClient(c.env.DB), {
+				runId: run.runId,
+				executionEpoch: run.executionEpoch,
+				type: parsed.data.type,
+				payload: parsed.data.payload,
+			});
+		}
 		const handle = await c.env.WORKFLOWS.get(run.instanceId);
 		await handle.sendEvent({
 			type: parsed.data.type,

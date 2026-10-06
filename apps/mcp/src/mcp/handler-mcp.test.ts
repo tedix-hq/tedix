@@ -112,6 +112,39 @@ function mcpCtx(
 }
 
 describe("ToolHandler MCP transport", () => {
+	it("rejects a changed reconnect binding before credential lookup or provider execution", async () => {
+		const ctx = mcpCtx({
+			transport: "mcp",
+			mcpServerUrl: "https://provider.example/mcp",
+			mcpToolName: "create_event",
+			auth: {
+				type: "connection",
+				connectionId: "calendar",
+				credentialScope: "tenant",
+				scopes: ["calendar"],
+			},
+		});
+		ctx.requestMeta = {
+			"tedix/expectedConnection": {
+				providerId: "calendar",
+				connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+				scope: "tenant",
+				scopes: ["calendar"],
+			},
+		};
+		const result = await new ToolHandler().execute({}, ctx);
+		expect(result.status).toBe(409);
+		expect(result.data).toMatchObject({
+			error: expect.stringContaining("changed while awaiting reconnect"),
+		});
+		expect(result.connectionRecovery).toBeUndefined();
+		expect(ctx.env.API_SERVICE!.fetch).not.toHaveBeenCalled();
+		expect(ctx.env.TEDI_SERVICE!.fetch).not.toHaveBeenCalled();
+		ctx.config.auth = undefined;
+		const removed = await new ToolHandler().execute({}, ctx);
+		expect(removed.status).toBe(409);
+		expect(ctx.env.API_SERVICE!.fetch).not.toHaveBeenCalled();
+	});
 	it("emits a bounded upstream protocol metric without endpoint data", () => {
 		const writeDataPoint = vi.fn();
 		emitUpstreamProtocolMetric(

@@ -37,6 +37,43 @@ function artifact(
 }
 
 describe("skill workflow inspection", () => {
+	it("retains canonical reconnect metadata on a waiting gate without arbitrary provider fields", () => {
+		const connectionRecovery = {
+			schemaVersion: 1,
+			status: "waiting",
+			eventType: "connection_recovery_" + "a".repeat(24),
+			executionEpoch: 2,
+			stepName: "book",
+			logicalCount: 1,
+			namespace: "calendar",
+			method: "create_event",
+			requestDigest: "b".repeat(64),
+			recovery: {
+				providerId: "calendar",
+				connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+				scope: "user",
+				scopes: ["calendar"],
+			},
+		};
+		const parsed = parseSkillWorkflowRecords([
+			artifact(
+				"epochs/2/steps/x:Reconnect/1/waitForEvent.json",
+				{ status: "waiting", connectionRecovery },
+				{ outcome: "pending" },
+			),
+		]);
+		expect(parsed.steps[0]?.connectionRecovery).toEqual(connectionRecovery);
+		expect(SkillWorkflowStepSchema.safeParse(parsed.steps[0]).success).toBe(
+			true,
+		);
+		const invalid = parseSkillWorkflowRecords([
+			artifact("epochs/2/steps/x:Reconnect/1/waitForEvent.json", {
+				status: "waiting",
+				connectionRecovery: { ...connectionRecovery, accessToken: "untrusted" },
+			}),
+		]);
+		expect(invalid.steps[0]?.connectionRecovery).toBeUndefined();
+	});
 	it("parses current nested call and rollback evidence while retaining flat attempts", () => {
 		const parsed = parseSkillWorkflowRecords([
 			artifact("epochs/2/steps/x:research%20offers/1/attempts/1.json", {

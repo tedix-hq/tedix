@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import "./workflow-connection-recovery.test";
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
 import trajectoryMining from "../examples/trajectory-mining/scripts/workflow";
@@ -690,7 +691,7 @@ assert.equal(
 );
 assert.equal(
 	WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
-	"v4-os-output-work-item-lineage",
+	"v5-canonical-connection-outcomes",
 );
 const bunLock = await Bun.file(
 	new URL("../../../bun.lock", import.meta.url),

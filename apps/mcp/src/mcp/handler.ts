@@ -43,7 +43,11 @@ import {
 	readInputRequiredResult,
 } from "@tedix/mcp-shared/protocol";
 import { outboundTraceMeta } from "@tedix/mcp-shared/trace-context";
-import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
+import {
+	unwrapCallToolResult,
+	type ConnectionRecovery,
+	readConnectionRecovery,
+} from "@tedix/mcp-shared/tool-result";
 import {
 	READ_OBSERVATION_META_KEY,
 	parseDocsFileObservationReceipt,
@@ -439,6 +443,23 @@ interface CredentialFetchResult {
 	detail?: string;
 }
 
+/** Only an exact account lookup that proved absence can offer continuation. */
+export function buildCredentialRecovery(
+	result: CredentialFetchResult,
+	selection: {
+		providerId: string;
+		connectionInstanceId?: string;
+		scope?: string;
+		scopes?: string[];
+	},
+): ConnectionRecovery | undefined {
+	if (result.status !== 404 || result.token) return undefined;
+	return (
+		readConnectionRecovery({ ...selection, scopes: selection.scopes ?? [] }) ??
+		undefined
+	);
+}
+
 /**
  * The generic "not connected" message is only accurate for a real 404 (no
  * credential on file) or the absence of a status entirely (e.g. missing
@@ -757,6 +778,8 @@ export interface RpcToolResult {
 	osGadgetTask?: OsGadgetTaskMarker;
 	/** Trusted first-party observation accepted at the Docs service-binding boundary. */
 	readObservation?: DocsFileObservationReceipt;
+	/** Host-generated only; a pinned credential lookup failed before execution. */
+	connectionRecovery?: ConnectionRecovery;
 }
 
 async function verifiedDocsReadObservation(input: {
@@ -1364,6 +1387,28 @@ export class ToolHandler {
 		ctx: ToolExecutionContext<ToolConfig>,
 	): Promise<RpcToolResult> {
 		const config = ctx.config;
+		const expectedRaw = ctx.requestMeta?.["tedix/expectedConnection"];
+		if (expectedRaw !== undefined) {
+			const expected = readConnectionRecovery(expectedRaw);
+			const auth = config.auth;
+			if (
+				!expected ||
+				auth?.type !== "connection" ||
+				expected.providerId !== auth.connectionId ||
+				expected.connectionInstanceId !== selectedConnectionInstanceId(ctx) ||
+				expected.scope !== (auth.credentialScope ?? auth.scope ?? "tenant") ||
+				JSON.stringify([...expected.scopes].sort()) !==
+					JSON.stringify([...(auth.scopes ?? [])].sort())
+			) {
+				return {
+					status: 409,
+					data: {
+						error:
+							"Selected account or scopes changed while awaiting reconnect; start a new reviewed run",
+					},
+				};
+			}
+		}
 		const endpoint = config.endpoint;
 		const transport = config.transport ?? "rpc";
 
@@ -2115,6 +2160,13 @@ export class ToolHandler {
 					return {
 						data: { error: buildCredentialErrorMessage(credentialResult) },
 						status: 401,
+						connectionRecovery: buildCredentialRecovery(credentialResult, {
+							providerId: config.auth.connectionId,
+							connectionInstanceId: selectedConnectionInstanceId(ctx),
+							scope:
+								config.auth.credentialScope ?? config.auth.scope ?? "tenant",
+							scopes: config.auth.scopes,
+						}),
 					};
 				}
 
@@ -2885,6 +2937,13 @@ export class ToolHandler {
 					return {
 						data: { error: buildCredentialErrorMessage(credentialResult) },
 						status: 401,
+						connectionRecovery: buildCredentialRecovery(credentialResult, {
+							providerId: config.auth.connectionId,
+							connectionInstanceId: selectedConnectionInstanceId(ctx),
+							scope:
+								config.auth.credentialScope ?? config.auth.scope ?? "tenant",
+							scopes: config.auth.scopes,
+						}),
 					};
 				}
 				const finalToken =
@@ -2916,6 +2975,13 @@ export class ToolHandler {
 					return {
 						data: { error: buildCredentialErrorMessage(credentialResult) },
 						status: 401,
+						connectionRecovery: buildCredentialRecovery(credentialResult, {
+							providerId: config.auth.connectionId,
+							connectionInstanceId: selectedConnectionInstanceId(ctx),
+							scope:
+								config.auth.credentialScope ?? config.auth.scope ?? "tenant",
+							scopes: config.auth.scopes,
+						}),
 					};
 				}
 

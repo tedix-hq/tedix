@@ -1,3 +1,4 @@
+import { SkillWorkflowConnectionRecoverySchema } from "@tedix/api-contract/schemas/cognitive";
 import type {
 	SkillRunCostSummary,
 	SkillWorkflowArtifactSummary,
@@ -364,6 +365,15 @@ export function parseSkillWorkflowRecords(
 			),
 			outputArtifactPath: recordValue(parsedData, ["outputArtifactPath"]),
 			error: recordUnknown(parsedData, ["error"]),
+			...(SkillWorkflowConnectionRecoverySchema.safeParse(
+				recordUnknown(parsedData, ["connectionRecovery"]),
+			).success
+				? {
+						connectionRecovery: SkillWorkflowConnectionRecoverySchema.parse(
+							recordUnknown(parsedData, ["connectionRecovery"]),
+						),
+					}
+				: {}),
 			provenance: "step_artifact" as const,
 			mimeType: artifact.mimeType,
 			sizeBytes: artifact.sizeBytes,
