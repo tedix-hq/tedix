@@ -2,6 +2,7 @@ import { COMMANDS, interactiveSlashCommands } from "./commands";
 import { agentContextUsage } from "./agent-context";
 import { HUMAN_CONNECT_CONSENT_SCOPES } from "@tedix/mcp-shared/auth/consent-scopes";
 import { flowUsage } from "./flow";
+import { hooksUsage } from "./hooks/command";
 import { skillUsage } from "./skill";
 import { localInstallationUsage } from "./local-installation";
 import { CLI_VERSION } from "./shared";
@@ -65,6 +66,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "write",
 		output: ["human"],
 		help: localInstallationUsage,
+	},
+	{
+		name: "hooks",
+		argHint: "<session-start|prompt-context|capture-stop|capture-reply|status>",
+		surface: "mixed",
+		summary: "Run a Tedix plugin hook for Claude Code or Codex",
+		mutability: "mixed",
+		output: ["json"],
+		help: () => hooksUsage,
 	},
 	{
 		name: "chat",

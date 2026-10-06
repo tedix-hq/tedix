@@ -49,17 +49,18 @@ and legal attestations remain explicit publisher decisions.
 The existing SessionStart hook supports startup, resume, clear and compaction;
 the UserPromptSubmit hook restores selected document revision and recent Work
 comments. Both are opt-in, read-only and separate from execution authority.
-The opt-in turn-status reporter (`agent_status.py`) writes local state and,
+The opt-in turn-status reporter (`tedix hooks status`) writes local state and,
 with a configured CLI profile, a bounded status report; it grants no authority.
-Trust them through the local host before use. Web installation cannot deploy
-these scripts; the default cloud artifact excludes them. The local artifact
+Every hook runs `tedix hooks <name>` in the installed Tedix CLI; the plugin
+ships no scripts. Trust them through the local host before use. Web installation
+cannot supply the CLI; the default cloud artifact excludes the hooks. The local artifact
 includes them under the same canonical plugin identity. OpenAI supports trusted
 local hooks; this artifact split reflects execution environments.
 
-Run the existing offline regressions from the repository root:
+Run the offline hook and packager regressions from the repository root:
 
 ```sh
-python3 -m unittest discover -s plugins/tedix/hooks -p 'test_*.py'
+bun run --cwd packages/cli test:run src/hooks scripts/package-plugin.test.ts
 ```
 
 Those tests check local hook behavior, not public native connectivity or the

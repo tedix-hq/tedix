@@ -38,7 +38,7 @@ For bundled skills, build the online plugin and upload the ZIP using the host's
 plugin installation interface:
 
 ```sh
-python3 plugins/tedix/package.py --host claude /tmp/tedix-claude-online.zip
+bun packages/cli/scripts/package-plugin.ts --host claude /tmp/tedix-claude-online.zip
 ```
 
 This package contains the native Claude manifest, remote MCP connection and the
@@ -53,11 +53,13 @@ Cowork availability depend on the host's current plan and organization policy.
 Build the hybrid package for Claude Code or a Cowork execution environment:
 
 ```sh
-python3 plugins/tedix/package.py --host claude --local /tmp/tedix-claude-hybrid.zip
+bun packages/cli/scripts/package-plugin.ts --host claude --local /tmp/tedix-claude-hybrid.zip
 ```
 
 It adds the existing opt-in `SessionStart` and `UserPromptSubmit` context hooks.
-They require Python and an installed Tedix CLI in the execution environment.
+They need only an installed Tedix CLI in the execution environment: each hook
+runs `tedix hooks <name>`. Without the CLI the host reports a non-blocking hook
+error and the session continues without Tedix context.
 Configure the matching CLI profile and chat selection separately; changing the
 MCP endpoint does not change the hooks' CLI binding. Review hooks in the host.
 If the CLI or selection is unavailable, the hooks do not claim fresh context.
@@ -71,7 +73,7 @@ separate MCP and CLI authentication, and hook setup.
 For a local Tedix gateway, use the URL shown in Tedix OS's **Gateways** view:
 
 ```sh
-python3 plugins/tedix/package.py --host claude --local \
+bun packages/cli/scripts/package-plugin.ts --host claude --local \
   --mcp-url http://local-tedix-unified.localhost:3000/mcp \
   --mcp-bearer-env TEDIX_MCP_BEARER_TOKEN /tmp/tedix-claude-local.zip
 ```

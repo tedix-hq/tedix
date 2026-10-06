@@ -177,6 +177,12 @@ async function main() {
 		);
 		return;
 	}
+	// Agent-host hooks write one JSON line to stdout and must stay silent otherwise.
+	if (localCommand === "hooks") {
+		const { runHooksCommand } = await import("./hooks/command");
+		process.exitCode = await runHooksCommand(process.argv.slice(3));
+		return;
+	}
 	// P4 BONUS: reset terminal modes on startup and on exit so a crash never
 	// leaves the parent shell with mouse-tracking / bracketed-paste / alt-screen
 	// escape garbage. Only write to stdout if it's a real TTY.
@@ -218,7 +224,7 @@ async function main() {
 		console.log(commandMap());
 		return;
 	}
-	if (command === "setup" || command === "dev") {
+	if (command === "setup" || command === "dev" || command === "hooks") {
 		throw new Error(
 			`Put local options after the command: tedix ${command} --help. Workspace and gateway options do not apply to local installations.`,
 		);

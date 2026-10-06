@@ -1,6 +1,6 @@
 Tedix 1.1.0 — opt-in turn-status reporter for local sessions.
 
-The local artifact adds `hooks/agent_status.py`, a hook that records one status
+The local artifact adds `tedix hooks status`, a hook that records one status
 line per Claude Code or Codex session at turn boundaries: working, needs you,
 done, error or ended. It is off until the owner creates
 `~/.tedix/agent-status.json` with `"enabled": true` or sets
@@ -9,6 +9,8 @@ session starts needing its owner or fails. With a named CLI profile it reports
 the change through a detached `tedix code` call. It never prints, prompts,
 blocks a turn or uploads a transcript; only a 160-character summary, the repo
 and branch label, the host session ID and the state leave the machine.
+Every local hook now runs in the installed Tedix CLI (`tedix hooks <name>`);
+the plugin ships only `hooks/hooks.json` and no scripts.
 
 Tedix 1.0.0 — first public release candidate.
 

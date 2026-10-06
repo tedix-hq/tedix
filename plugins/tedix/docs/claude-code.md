@@ -106,7 +106,7 @@ turns between invocations.
 
 ## Opt-in turn status
 
-`hooks/agent_status.py` reports one status line per local Claude Code or
+`tedix hooks status` reports one status line per local Claude Code or
 Codex session at turn boundaries: `working`, `needs_you`, `done`, `error` or
 `ended`. It is off until you opt in:
 
