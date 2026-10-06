@@ -81,3 +81,56 @@ describe("withModelAuthoredCodeIsolation", () => {
 		expect(captured?.compatibilityFlags).toContain(MODEL_AUTHORED_CODE_FLAG);
 	});
 });
+
+describe("test-only named manifest identity before cached callbacks", () => {
+	test("refuses changed code and security fields even when cached get skips getCode", () => {
+		let callbacks = 0,
+			gets = 0;
+		const original = {
+			...baseCode,
+			globalOutbound: null,
+			limits: { cpuMs: 50 },
+		};
+		const identity = JSON.stringify(original);
+		const native = {
+			load: () => ({}) as WorkerStub,
+			get: (
+				_name: string | null,
+				_getCode: () =>
+					| WorkerLoaderWorkerCode
+					| Promise<WorkerLoaderWorkerCode>,
+			) => {
+				gets++;
+				return {} as WorkerStub;
+			},
+		} satisfies WorkerLoader;
+		const fixed = (code: WorkerLoaderWorkerCode) => {
+			if (JSON.stringify(code) !== identity)
+				throw new Error("named manifest changed");
+			return withModelAuthoredCodeIsolation(native).get(
+				"fictional-same-name",
+				() => {
+					callbacks++;
+					return code;
+				},
+			);
+		};
+		fixed(original);
+		fixed(original);
+		for (const changed of [
+			{
+				...original,
+				modules: { "index.js": "export default { changed: true }" },
+			},
+			{ ...original, compatibilityDate: "2026-07-01" },
+			{ ...original, mainModule: "other.js" },
+			{ ...original, compatibilityFlags: [] },
+			{ ...original, globalOutbound: undefined },
+			{ ...original, env: { EXTRA: "fictional" } },
+			{ ...original, limits: { cpuMs: 51 } },
+		])
+			expect(() => fixed(changed)).toThrow("named manifest changed");
+		expect(gets).toBe(2);
+		expect(callbacks).toBe(0);
+	});
+});
