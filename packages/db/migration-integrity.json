@@ -776,6 +776,10 @@
 		{
 			"name": "20261006203656_work_interaction_reply_drafts/migration.sql",
 			"sha256": "29c2bfe052da94346f8b8b38ae727cbd051569b406ab2e651809d456e60fb658"
+		},
+		{
+			"name": "20261006194922_workspace-state-provider-events/migration.sql",
+			"sha256": "e13b0953cdcd1e88b7970858e1730ccd4a1884ba218fa9cb1b28709ad4ac88ad"
 		}
 	]
 }
