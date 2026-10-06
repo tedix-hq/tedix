@@ -46,14 +46,20 @@ export const CostComputeWindowSchema = z.enum(["24h", "7d", "30d"]);
 export type CostComputeWindow = z.infer<typeof CostComputeWindowSchema>;
 
 /**
- * Budget, copied verbatim from the canonical balance snapshot.
+ * Budget, projected from the canonical balance snapshot.
  *
- * `remainingIncludedTokens` carries the snapshot's `-1` sentinel for an
- * unlimited plan rather than being flattened to a number the reader would
- * mistake for an exhausted allowance. `configured: false` means no billing
+ * `remainingIncludedTokens` keeps the included-allowance snapshot, including
+ * its negative sentinel. `unlimitedTokenUsage` additionally identifies a
+ * zero included allowance with permitted, zero-priced overage. `configured: false` means no billing
  * account exists — which is NOT "0 remaining", it is "no budget is known".
  */
 export const CostBudgetSchema = z.object({
+	unlimitedTokenUsage: z
+		.boolean()
+		.nullable()
+		.describe(
+			"Customer token allowance semantics from the current plan; null means no configured budget. This is not runtime admission or unlimited compute.",
+		),
 	configured: z.boolean(),
 	// NO `.min(0)`. `getBillingBalanceSnapshot` passes the plan's
 	// `included_monthly_tokens` through verbatim, and a NEGATIVE value is that
@@ -84,7 +90,9 @@ export const CostBudgetSchema = z.object({
 		.number()
 		.int()
 		.nullable()
-		.describe("-1 means the plan is unlimited; null means no budget is known"),
+		.describe(
+			"Remaining included allowance; -1 is the negative allowance sentinel. Customer usage semantics are carried separately; null means no budget is known",
+		),
 	// `availableCreditMicros` and `hardSpendLimitMicros` are DELIBERATELY absent.
 	// They are billing-plane values (`billing.getOverview`, rendered only in the
 	// OS admin billing surface), nothing on this surface renders them, and putting them here

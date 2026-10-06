@@ -154,22 +154,19 @@ export function credentialLabel(
 	}
 }
 
-/**
- * Budget remaining, as text. Three genuinely different answers, and none of
- * them is "0": an unlimited plan carries the snapshot's `-1` sentinel, an
- * unconfigured account carries null, and only a real number is a number.
- */
+/** Customer allowance and included balance are distinct from runtime admission. */
 export function remainingTokensLabel(
 	budget: Pick<
 		ComputePosture["budget"],
-		"configured" | "remainingIncludedTokens"
+		"configured" | "remainingIncludedTokens" | "unlimitedTokenUsage"
 	>,
 ): string {
-	if (!budget.configured || budget.remainingIncludedTokens === null) {
+	if (!budget.configured || budget.unlimitedTokenUsage === null) {
 		return "No budget known";
 	}
-	if (budget.remainingIncludedTokens < 0) return "Unlimited";
-	return `${formatCount(budget.remainingIncludedTokens)} tokens left`;
+	if (budget.unlimitedTokenUsage) return "Unlimited";
+	if (budget.remainingIncludedTokens === null) return "No budget known";
+	return `${formatCount(budget.remainingIncludedTokens)} included tokens left`;
 }
 
 /**
@@ -180,10 +177,10 @@ export function remainingTokensLabel(
 export function consumedShare(
 	budget: Pick<
 		ComputePosture["budget"],
-		"includedTokens" | "usedTokens" | "configured"
+		"includedTokens" | "usedTokens" | "configured" | "unlimitedTokenUsage"
 	>,
 ): number | null {
-	if (!budget.configured) return null;
+	if (!budget.configured || budget.unlimitedTokenUsage !== false) return null;
 	if (budget.includedTokens === null || budget.usedTokens === null) return null;
 	if (budget.includedTokens <= 0) return null;
 	return Math.min(1, budget.usedTokens / budget.includedTokens);
@@ -388,6 +385,14 @@ export function BudgetCard({
 					{remainingTokensLabel(posture.budget)}
 				</Badge>
 			</div>
+			{posture.budget.configured &&
+				posture.budget.unlimitedTokenUsage === false &&
+				posture.budget.allowOverage === true && (
+					<Text role="label" tone="secondary" className="m-0">
+						Your plan permits additional token usage. Other usage limits still
+						apply.
+					</Text>
+				)}
 			{blocked && (
 				<Text role="label" tone="error" className="m-0">
 					Runtime inference is not admitted for this workspace right now.

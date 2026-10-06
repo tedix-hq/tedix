@@ -603,6 +603,7 @@ describe("osCompute.posture — budget", () => {
 		seedOrganization(ORG);
 		const result = await client(ORG).posture({ window: "7d" });
 		expect(result.budget.configured).toBe(false);
+		expect(result.budget.unlimitedTokenUsage).toBeNull();
 		expect(result.budget.remainingIncludedTokens).toBeNull();
 		expect(result.budget.usedTokens).toBeNull();
 		expect(result.budget.detail).toContain("not a zero balance");
@@ -614,7 +615,67 @@ describe("osCompute.posture — budget", () => {
 		const result = await client(ORG).posture({ window: "7d" });
 		expect(result.budget.configured).toBe(true);
 		expect(result.budget.includedTokens).toBe(1_000_000);
+		expect(result.budget.unlimitedTokenUsage).toBe(false);
 		expect(result.budget.usedTokens).toBe(400_000);
 		expect(result.budget.remainingIncludedTokens).toBe(600_000);
+	});
+});
+
+describe("osCompute current-plan customer allowance", () => {
+	it.each([
+		[-1, 0, 100, true],
+		[0, 1, 0, true],
+		[0, 1, 100, false],
+		[0, 0, 0, false],
+		[1000000, 1, 0, false],
+	])(
+		"included=%s allowed=%s price=%s unlimited=%s",
+		async (included, allowed, price, expected) => {
+			seedOrganization(ORG);
+			seedPlanAndAccount(ORG);
+			sqlite
+				.prepare(
+					"UPDATE billing_plan_versions SET included_monthly_tokens=?,allow_overage=?,overage_unit_price_micros=? WHERE id='plan-1'",
+				)
+				.run(included, allowed, price);
+			const result = await client(ORG).posture({ window: "7d" });
+			expect(result.budget.unlimitedTokenUsage).toBe(expected);
+			expect(result.budget.includedTokens).toBe(included);
+			expect(result.budget.remainingIncludedTokens).toBe(
+				included! < 0 ? -1 : Math.max(included! - 400000, 0),
+			);
+			expect(result.budget).not.toHaveProperty("overageUnitPriceMicros");
+			expect(result.budget).not.toHaveProperty("availableCreditMicros");
+			expect(result.budget).not.toHaveProperty("hardSpendLimitMicros");
+			seedOrganization("other-org");
+			const other = await client("other-org").posture({ window: "7d" });
+			expect(other.budget.unlimitedTokenUsage).toBeNull();
+		},
+	);
+});
+
+it("keeps different configured tenant plan semantics isolated", async () => {
+	seedOrganization(ORG);
+	seedPlanAndAccount(ORG);
+	seedOrganization("finite-org");
+	seedPlanAndAccount("finite-org");
+	sqlite.exec(
+		"INSERT INTO billing_plan_versions (id,plan_key,version,status,name,included_monthly_tokens,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at) VALUES ('finite-plan','growth',2,'active','Finite',1000000,5,3,25,100000,200,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
+	);
+	sqlite.exec(
+		"UPDATE billing_accounts SET plan_version_id='finite-plan' WHERE organization_id='finite-org'",
+	);
+	sqlite.exec(
+		"UPDATE billing_plan_versions SET included_monthly_tokens=0,allow_overage=1,overage_unit_price_micros=0 WHERE id='plan-1'",
+	);
+	expect(
+		(await client(ORG).posture({ window: "7d" })).budget.unlimitedTokenUsage,
+	).toBe(true);
+	expect(
+		(await client("finite-org").posture({ window: "7d" })).budget,
+	).toMatchObject({
+		unlimitedTokenUsage: false,
+		includedTokens: 1000000,
+		remainingIncludedTokens: 600000,
 	});
 });

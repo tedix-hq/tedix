@@ -48,6 +48,7 @@ function posture(overrides: Record<string, unknown> = {}) {
 			usedTokens: 4_120_000,
 			reservedTokens: 60_000,
 			remainingIncludedTokens: 15_820_000,
+			unlimitedTokenUsage: false,
 			allowOverage: false,
 			entitlementActive: true,
 			detail: "Copied from the canonical billing balance snapshot.",
@@ -104,6 +105,7 @@ describe("ComputePostureSchema accepts what the producers emit", () => {
 					...posture().budget,
 					includedTokens: -1,
 					remainingIncludedTokens: -1,
+					unlimitedTokenUsage: true,
 				},
 			}),
 		);
@@ -120,6 +122,7 @@ describe("ComputePostureSchema accepts what the producers emit", () => {
 					usedTokens: null,
 					reservedTokens: null,
 					remainingIncludedTokens: null,
+					unlimitedTokenUsage: null,
 					allowOverage: null,
 					entitlementActive: null,
 					detail: "No billing account is configured.",
@@ -150,4 +153,28 @@ describe("ComputePostureSchema accepts what the producers emit", () => {
 		);
 		expect(parsed.routing.selectedBy).toBeNull();
 	});
+});
+
+describe("explicit token usage semantic", () => {
+	it("requires the semantic without an optional legacy fallback", () => {
+		const value = posture();
+		const { unlimitedTokenUsage: _discarded, ...budget } = value.budget;
+		expect(() => ComputePostureSchema.parse({ ...value, budget })).toThrow();
+	});
+	it.each([true, false, null])(
+		"preserves semantic %s independently of zero included allowance",
+		(unlimitedTokenUsage) => {
+			const value = posture();
+			value.budget = {
+				...value.budget,
+				unlimitedTokenUsage,
+				includedTokens: unlimitedTokenUsage === null ? null : 0,
+				remainingIncludedTokens: unlimitedTokenUsage === null ? null : 0,
+				configured: unlimitedTokenUsage !== null,
+			};
+			expect(ComputePostureSchema.parse(value).budget.unlimitedTokenUsage).toBe(
+				unlimitedTokenUsage,
+			);
+		},
+	);
 });

@@ -2108,3 +2108,36 @@ it("automatic customer billing activation is fenced and preserves period and usa
 	expect(account.status).toBe("suspended");
 	expect(account.entitlementVersion).toBe(2);
 });
+
+describe("canonical token allowance semantics", () => {
+	it.each([
+		[-1, 0, 100, true],
+		[0, 1, 0, true],
+		[0, 1, 100, false],
+		[0, 0, 0, false],
+		[1000, 1, 0, false],
+	])(
+		"included=%s permitted=%s price=%s unlimited=%s",
+		async (included, allowed, price, unlimited) => {
+			const { db, sqlite, now } = setup();
+			sqlite
+				.prepare(
+					"UPDATE billing_plan_versions SET included_monthly_tokens=?,allow_overage=?,overage_unit_price_micros=? WHERE id='growth-v1'",
+				)
+				.run(included, allowed, price);
+			const before = sqlite.prepare("SELECT total_changes() AS n").get()!.n;
+			const snapshot = await getBillingBalanceSnapshot(db, "org-1", now);
+			expect(snapshot).toMatchObject({
+				includedTokens: included,
+				allowOverage: Boolean(allowed),
+				unlimitedTokenUsage: unlimited,
+				remainingIncludedTokens: included! < 0 ? -1 : included,
+			});
+			expect(sqlite.prepare("SELECT total_changes() AS n").get()!.n).toBe(
+				before,
+			);
+			expect(await getBillingBalanceSnapshot(db, "other-org", now)).toBeNull();
+			sqlite.close();
+		},
+	);
+});
