@@ -12,7 +12,10 @@ import {
 } from "./credential-store";
 import {
 	beginSdkOAuthLogin,
+	canPromptForConsent,
 	isTedixHostedMcpUrl,
+	minimalScopeProfileFor,
+	OAuthConsentRequiredError,
 	prepareTedixCliAuthorization,
 	TEDIX_OAUTH_CLIENT_ID,
 	TEDIX_OAUTH_CLIENT_URI,
@@ -1868,4 +1871,78 @@ test("scopesBeyondGrant reads the response and both token claim shapes", () => {
 	]);
 	expect(scopesBeyondGrant("a", { responseScope: "a d" })).toEqual(["d"]);
 	expect(scopesBeyondGrant(undefined, { responseScope: "x" })).toEqual([]);
+});
+
+describe("non-interactive scope challenges", () => {
+	test("fail fast with the login command and never open a browser", async () => {
+		let opened = false;
+		let captured = false;
+		const provider = new WorkspaceOAuthProvider({
+			workspace: "ci",
+			mcpUrl: MCP_URL,
+			tenant: "org_acme",
+			loadStored: false,
+			consentPrompt: false,
+			openAuthorization: () => {
+				opened = true;
+			},
+			captureCallback: async () => {
+				captured = true;
+				return new URLSearchParams({ code: "code" });
+			},
+		});
+
+		const failure = await provider
+			.authorizeScopeChallenge("mcp:apps.read mcp:apps.write")
+			.then(
+				() => null,
+				(error: unknown) => error,
+			);
+
+		expect(failure).toBeInstanceOf(OAuthConsentRequiredError);
+		const error = failure as OAuthConsentRequiredError;
+		expect(error.code).toBe("insufficient_scope");
+		expect(error.requiredScopes).toEqual(["mcp:apps.read", "mcp:apps.write"]);
+		expect(error.loginCommand).toBe(
+			`tedix login --workspace ci --url ${MCP_URL} --org org_acme --scope-profile member`,
+		);
+		expect(error.message).toContain(error.loginCommand);
+		expect(opened).toBe(false);
+		expect(captured).toBe(false);
+	});
+
+	test("guards a direct SDK redirect too", async () => {
+		const provider = new WorkspaceOAuthProvider({
+			mcpUrl: TEDIX_CONNECT_MCP_URL,
+			loadStored: false,
+			consentPrompt: false,
+			openAuthorization: () => {
+				throw new Error("browser must not open");
+			},
+		});
+		const url = new URL("https://auth.example.test/authorize");
+		url.searchParams.set("scope", "mcp:apps.read");
+		await expect(provider.redirectToAuthorization(url)).rejects.toBeInstanceOf(
+			OAuthConsentRequiredError,
+		);
+	});
+
+	test("maps required scopes to the narrowest login profile", () => {
+		expect(minimalScopeProfileFor(["mcp:apps.read"])).toBe("read");
+		expect(minimalScopeProfileFor(["mcp:apps.read", "mcp:apps.write"])).toBe(
+			"member",
+		);
+		expect(minimalScopeProfileFor(["mcp:apps.admin"])).toBe("admin");
+		expect(minimalScopeProfileFor(["platform:admin"])).toBe("platform-admin");
+		expect(minimalScopeProfileFor([])).toBeUndefined();
+	});
+
+	test("consent prompting needs both TTYs and no CI", () => {
+		expect(canPromptForConsent({}, { stdin: true, stdout: true })).toBe(true);
+		expect(canPromptForConsent({}, { stdin: true, stdout: false })).toBe(false);
+		expect(canPromptForConsent({}, { stdin: false, stdout: true })).toBe(false);
+		expect(
+			canPromptForConsent({ CI: "true" }, { stdin: true, stdout: true }),
+		).toBe(false);
+	});
 });
