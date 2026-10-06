@@ -778,12 +778,8 @@
 			"sha256": "29c2bfe052da94346f8b8b38ae727cbd051569b406ab2e651809d456e60fb658"
 		},
 		{
-			"name": "20261006194922_workspace-state-provider-events/migration.sql",
-			"sha256": "e13b0953cdcd1e88b7970858e1730ccd4a1884ba218fa9cb1b28709ad4ac88ad"
-		},
-		{
-			"name": "20261006204950_personal-calendar-runtime/migration.sql",
-			"sha256": "b8cc3e38f9777f4b9a0c04af9447ff34672e29f29ecb2d6dab01a3b0c22105da"
+			"name": "20261006211603_workspace_capabilities/migration.sql",
+			"sha256": "be568be24baf542457cab4a275b6547fd4de6baa15de901cddc375755b16e01f"
 		}
 	]
 }

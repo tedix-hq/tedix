@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "78234a85-12d8-42af-ad08-4d1e11fac71c",
+  "id": "f1c62097-0a6d-4181-909b-55cca572a949",
   "prevIds": [
-    "b691d8de-3189-48fe-b4ed-5badf7703230"
+    "50566e71-c0cd-477e-bdcc-20431d54df24"
   ],
   "ddl": [
     {
@@ -532,6 +532,10 @@
     },
     {
       "name": "work_cases",
+      "entityType": "tables"
+    },
+    {
+      "name": "work_interaction_reply_drafts",
       "entityType": "tables"
     },
     {
@@ -19867,6 +19871,96 @@
       "name": "version",
       "entityType": "columns",
       "table": "work_cases"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "org_id",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "interaction_id",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "drafter_type",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "drafter_id",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "body",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "rationale",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "turn_type",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "work_interaction_reply_drafts"
     },
     {
       "type": "text",
@@ -43531,6 +43625,38 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
+      "name": "fk_work_interaction_reply_drafts_org_id_organizations_id_fk",
+      "entityType": "fks",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "columns": [
+        "org_id",
+        "interaction_id"
+      ],
+      "tableTo": "work_interactions",
+      "columnsTo": [
+        "org_id",
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": true,
+      "name": "fk_work_interaction_reply_draft_request",
+      "entityType": "fks",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "columns": [
+        "org_id"
+      ],
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
       "name": "fk_work_interaction_responses_org_id_organizations_id_fk",
       "entityType": "fks",
       "table": "work_interaction_responses"
@@ -48686,6 +48812,15 @@
       "nameExplicit": false,
       "name": "work_cases_pk",
       "table": "work_cases",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "work_interaction_reply_drafts_pk",
+      "table": "work_interaction_reply_drafts",
       "entityType": "pks"
     },
     {
@@ -55878,6 +56013,28 @@
       "name": "idx_work_cases_project",
       "entityType": "indexes",
       "table": "work_cases"
+    },
+    {
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false
+        },
+        {
+          "value": "interaction_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_work_interaction_reply_drafts_request",
+      "entityType": "indexes",
+      "table": "work_interaction_reply_drafts"
     },
     {
       "columns": [
@@ -63861,6 +64018,24 @@
       "name": "chk_work_case_owner",
       "entityType": "checks",
       "table": "work_cases"
+    },
+    {
+      "value": "length(\"body\") BETWEEN 1 AND 6000",
+      "name": "chk_work_interaction_reply_draft_body",
+      "entityType": "checks",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "value": "length(\"rationale\") BETWEEN 1 AND 2000",
+      "name": "chk_work_interaction_reply_draft_rationale",
+      "entityType": "checks",
+      "table": "work_interaction_reply_drafts"
+    },
+    {
+      "value": "\"turn_type\" IS NULL OR length(\"turn_type\") BETWEEN 1 AND 64",
+      "name": "chk_work_interaction_reply_draft_turn_type",
+      "entityType": "checks",
+      "table": "work_interaction_reply_drafts"
     },
     {
       "value": "\"work_item_id\" IS NOT NULL OR \"case_id\" IS NOT NULL OR \"project_id\" IS NOT NULL",
