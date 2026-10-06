@@ -67,7 +67,7 @@ beforeEach(() => {
 		organizationId: "org-a",
 		adapter: "google_calendar",
 		providerId: "google",
-		connectionInstanceId: null,
+		connectionInstanceId: id,
 		calendarId: "selected",
 		tediId: id,
 		skillId: id,
@@ -169,6 +169,7 @@ describe("standing subscription lifecycle", () => {
 			registerSubscription(context, "org-a", {
 				adapter: "google_calendar",
 				providerId: "google",
+				connectionInstanceId: id,
 				calendarId: "selected",
 				tediId: id,
 				skillId: id,
@@ -182,6 +183,7 @@ describe("standing subscription lifecycle", () => {
 		const result = await registerSubscription(context, "org-a", {
 			adapter: "google_calendar",
 			providerId: "google",
+			connectionInstanceId: id,
 			calendarId: "selected",
 			tediId: id,
 			skillId: id,
@@ -248,6 +250,7 @@ describe("durable dispatch authority and retries", () => {
 			registerSubscription(context, "org-a", {
 				adapter: "google_calendar",
 				providerId: "google",
+				connectionInstanceId: id,
 				calendarId: "selected",
 				tediId: id,
 				skillId: id,

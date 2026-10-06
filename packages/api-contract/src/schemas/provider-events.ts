@@ -7,7 +7,7 @@ export const ProviderEventRegisterSchema = z
 	.object({
 		adapter: ProviderEventAdapterSchema,
 		providerId: z.string().min(1).max(200),
-		connectionInstanceId: z.uuid().optional(),
+		connectionInstanceId: z.uuid(),
 		calendarId: z.string().min(1).max(1024),
 		tediId: z.uuid(),
 		skillId: z.uuid(),

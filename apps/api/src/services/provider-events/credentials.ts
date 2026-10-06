@@ -1,8 +1,4 @@
-import { getManagementClient } from "@tedix/auth/client";
-import {
-	fetchNamedTenantConnectionToken,
-	fetchTenantConnectionTokenByScopes,
-} from "@tedix/auth/connections";
+import { fetchNamedTenantConnectionToken } from "@tedix/auth/connections";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -30,6 +26,8 @@ export async function assertProviderEventTarget(
 	]);
 	if (
 		!tedi ||
+		tedi.status !== "active" ||
+		tedi.runtimeState === "archived" ||
 		!skill ||
 		skill.tediId !== subscription.tediId ||
 		!["active", "proven", "crystallized"].includes(
@@ -63,31 +61,27 @@ export async function resolveProviderEventCredential(
 		subscription.adapter === "google_calendar"
 			? ["https://www.googleapis.com/auth/calendar.readonly"]
 			: ["Calendars.Read"];
-	let token;
-	if (subscription.connectionInstanceId) {
-		const instance = await getConnectionInstance(
-			context.db,
-			{ organizationId: subscription.organizationId },
-			subscription.connectionInstanceId,
-			subscription.providerId,
+	if (!subscription.connectionInstanceId)
+		throw new Error(
+			"Exact named organization account required; default account fallback is disabled",
 		);
-		if (!instance || !instance.tokenIds.length)
-			throw new Error(
-				"Connected organization-owned account required; personal delegation is not enabled",
-			);
-		token = await fetchNamedTenantConnectionToken(context.env, {
-			appId: subscription.providerId,
-			tenantId,
-			externalIdentifier: `tedix_${instance.id}`,
-			scopes,
-		});
-	} else
-		token = await fetchTenantConnectionTokenByScopes(
-			getManagementClient(context.env),
-			subscription.providerId,
-			tenantId,
-			scopes,
+	const instance = await getConnectionInstance(
+		context.db,
+		{ organizationId: subscription.organizationId },
+		subscription.connectionInstanceId,
+		subscription.providerId,
+	);
+	if (!instance || !instance.tokenIds.length)
+		throw new Error(
+			"Connected organization-owned account required; personal delegation is not enabled",
 		);
+	const token = await fetchNamedTenantConnectionToken(context.env, {
+		appId: subscription.providerId,
+		tenantId,
+		externalIdentifier: `tedix_${instance.id}`,
+		scopes,
+	});
+
 	if (
 		!token?.accessToken ||
 		(token.expiresAt && token.expiresAt <= Date.now() / 1000)
