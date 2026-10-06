@@ -66,6 +66,7 @@ const INBOUND_CONSENT_BROKER_GUARD_PREFIX =
 type InboundConsentFlowFailure =
 	| "expired-callback"
 	| "invalid-session"
+	| "lost-request"
 	| "unknown";
 
 type ConsentRecoveryStorage = Pick<Storage, "getItem" | "setItem">;
@@ -299,6 +300,19 @@ function scopeRecord(value: unknown): Record<string, unknown> | null {
 function requestedScopes(context: Record<string, unknown>): unknown {
 	const data = scopeRecord(context.data);
 	return data?.inboundAppApproveScopes;
+}
+
+/**
+ * The permissions a consent screen asks for, or null when the request lost
+ * them. A reloaded consent page resumes the Descope flow without
+ * `inboundAppApproveScopes`; rendering that as a zero-permission approval
+ * would let a user "approve" a request they never saw.
+ */
+export function inboundConsentRequestedPermissions(
+	context: Record<string, unknown>,
+): ReturnType<typeof normalizeConsentPermissions> | null {
+	const scopes = normalizeConsentPermissions(requestedScopes(context));
+	return scopes.length > 0 ? scopes : null;
 }
 
 /** Bulk consent selection follows the displayed order and the organization cap. */
@@ -1172,12 +1186,13 @@ function InboundConsentFlow() {
 				setCustomScreen(null);
 				return false;
 			}
-			setCustomScreen({
-				kind: "consent",
-				context,
-				next,
-				scopes: normalizeConsentPermissions(requestedScopes(context)),
-			});
+			const scopes = inboundConsentRequestedPermissions(context);
+			if (!scopes) {
+				setCustomScreen(null);
+				setFlowError("lost-request");
+				return true;
+			}
+			setCustomScreen({ kind: "consent", context, next, scopes });
 			return true;
 		},
 		[flowId],
@@ -1206,16 +1221,22 @@ function InboundConsentFlow() {
 						? "Sign in again to authorize"
 						: flowError === "expired-callback"
 							? "Authorization request expired"
-							: "Authorization could not continue"
+							: flowError === "lost-request"
+								? "Restart this authorization"
+								: "Authorization could not continue"
 				}
 				description={
-					flowError === "invalid-session"
-						? "Your sign-in session is no longer valid. Authorization could not finish; consent may already have been recorded. Sign in again to resume this request."
-						: flowError === "expired-callback"
-							? recoveryUrl.current
-								? "This one-time sign-in callback was already used or expired. Return to the application that requested access to check the result before retrying the preserved authorization request."
-								: "This one-time sign-in callback was already used or expired. Return to the application that requested access to check the result. If login did not complete, start a new login."
-							: "Authorization could not finish. Consent may already have been recorded. Return to the application that requested access to check the result before retrying."
+					flowError === "lost-request"
+						? recoveryUrl.current
+							? "This page was reloaded or reopened, so the requested permissions are no longer available. Nothing was approved. Retry to load the original request again."
+							: "This page was reloaded or reopened, so the requested permissions are no longer available. Nothing was approved. Start the connection again from the application that requested access."
+						: flowError === "invalid-session"
+							? "Your sign-in session is no longer valid. Authorization could not finish; consent may already have been recorded. Sign in again to resume this request."
+							: flowError === "expired-callback"
+								? recoveryUrl.current
+									? "This one-time sign-in callback was already used or expired. Return to the application that requested access to check the result before retrying the preserved authorization request."
+									: "This one-time sign-in callback was already used or expired. Return to the application that requested access to check the result. If login did not complete, start a new login."
+								: "Authorization could not finish. Consent may already have been recorded. Return to the application that requested access to check the result before retrying."
 				}
 			>
 				<Button disabled={recovering} onClick={() => void recoverSession()}>
