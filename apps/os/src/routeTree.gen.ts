@@ -60,6 +60,7 @@ import { Route as SessionTenantTeamTediIdRouteImport } from './routes/_session/_
 import { Route as SessionTenantTeamNewRouteImport } from './routes/_session/_tenant/team_.new'
 import { Route as SessionTenantWorkIndexRouteImport } from './routes/_session/_tenant/work.index'
 import { Route as SessionTenantWorkAdmissionRouteImport } from './routes/_session/_tenant/work.admission'
+import { Route as SessionTenantWorkAgentsRouteImport } from './routes/_session/_tenant/work.agents'
 import { Route as SessionTenantWorkApprovalsRouteImport } from './routes/_session/_tenant/work.approvals'
 import { Route as SessionTenantWorkAttemptsRouteImport } from './routes/_session/_tenant/work.attempts'
 import { Route as SessionTenantWorkCapacityRouteImport } from './routes/_session/_tenant/work.capacity'
@@ -362,6 +363,11 @@ const SessionTenantWorkAdmissionRoute =
     path: '/admission',
     getParentRoute: () => SessionTenantWorkRoute,
   } as any)
+const SessionTenantWorkAgentsRoute = SessionTenantWorkAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => SessionTenantWorkRoute,
+} as any)
 const SessionTenantWorkApprovalsRoute =
   SessionTenantWorkApprovalsRouteImport.update({
     id: '/approvals',
@@ -609,6 +615,7 @@ export interface FileRoutesByFullPath {
   '/team/$tediId': typeof SessionTenantTeamTediIdRouteWithChildren
   '/team/new': typeof SessionTenantTeamNewRoute
   '/work/admission': typeof SessionTenantWorkAdmissionRoute
+  '/work/agents': typeof SessionTenantWorkAgentsRoute
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
   '/work/attempts': typeof SessionTenantWorkAttemptsRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
@@ -685,6 +692,7 @@ export interface FileRoutesByTo {
   '/outputs/$outputId': typeof SessionTenantOutputsOutputIdRoute
   '/team/new': typeof SessionTenantTeamNewRoute
   '/work/admission': typeof SessionTenantWorkAdmissionRoute
+  '/work/agents': typeof SessionTenantWorkAgentsRoute
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
   '/work/attempts': typeof SessionTenantWorkAttemptsRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
@@ -773,6 +781,7 @@ export interface FileRoutesById {
   '/_session/_tenant/team_/$tediId': typeof SessionTenantTeamTediIdRouteWithChildren
   '/_session/_tenant/team_/new': typeof SessionTenantTeamNewRoute
   '/_session/_tenant/work/admission': typeof SessionTenantWorkAdmissionRoute
+  '/_session/_tenant/work/agents': typeof SessionTenantWorkAgentsRoute
   '/_session/_tenant/work/approvals': typeof SessionTenantWorkApprovalsRoute
   '/_session/_tenant/work/attempts': typeof SessionTenantWorkAttemptsRoute
   '/_session/_tenant/work/capacity': typeof SessionTenantWorkCapacityRoute
@@ -857,6 +866,7 @@ export interface FileRouteTypes {
     | '/team/$tediId'
     | '/team/new'
     | '/work/admission'
+    | '/work/agents'
     | '/work/approvals'
     | '/work/attempts'
     | '/work/capacity'
@@ -933,6 +943,7 @@ export interface FileRouteTypes {
     | '/outputs/$outputId'
     | '/team/new'
     | '/work/admission'
+    | '/work/agents'
     | '/work/approvals'
     | '/work/attempts'
     | '/work/capacity'
@@ -1020,6 +1031,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/team_/$tediId'
     | '/_session/_tenant/team_/new'
     | '/_session/_tenant/work/admission'
+    | '/_session/_tenant/work/agents'
     | '/_session/_tenant/work/approvals'
     | '/_session/_tenant/work/attempts'
     | '/_session/_tenant/work/capacity'
@@ -1424,6 +1436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkAdmissionRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
+    '/_session/_tenant/work/agents': {
+      id: '/_session/_tenant/work/agents'
+      path: '/agents'
+      fullPath: '/work/agents'
+      preLoaderRoute: typeof SessionTenantWorkAgentsRouteImport
+      parentRoute: typeof SessionTenantWorkRoute
+    }
     '/_session/_tenant/work/approvals': {
       id: '/_session/_tenant/work/approvals'
       path: '/approvals'
@@ -1794,6 +1813,7 @@ const SessionTenantWorkInteractionsRouteWithChildren =
 
 interface SessionTenantWorkRouteChildren {
   SessionTenantWorkAdmissionRoute: typeof SessionTenantWorkAdmissionRoute
+  SessionTenantWorkAgentsRoute: typeof SessionTenantWorkAgentsRoute
   SessionTenantWorkApprovalsRoute: typeof SessionTenantWorkApprovalsRoute
   SessionTenantWorkAttemptsRoute: typeof SessionTenantWorkAttemptsRoute
   SessionTenantWorkCapacityRoute: typeof SessionTenantWorkCapacityRoute
@@ -1813,6 +1833,7 @@ interface SessionTenantWorkRouteChildren {
 
 const SessionTenantWorkRouteChildren: SessionTenantWorkRouteChildren = {
   SessionTenantWorkAdmissionRoute: SessionTenantWorkAdmissionRoute,
+  SessionTenantWorkAgentsRoute: SessionTenantWorkAgentsRoute,
   SessionTenantWorkApprovalsRoute: SessionTenantWorkApprovalsRoute,
   SessionTenantWorkAttemptsRoute: SessionTenantWorkAttemptsRoute,
   SessionTenantWorkCapacityRoute: SessionTenantWorkCapacityRoute,

@@ -1,6 +1,6 @@
 # Use Tedix in ChatGPT Work and Codex
 
-The first public release remains **1.0.0** while preparing review. Its portable
+The current release is **1.1.0**. Its portable
 package has one canonical `tedix` identity and a remote HTTPS MCP endpoint.
 The default cloud artifact omits local scripts and registered `.app.json`
 references. The local artifact adds opt-in hooks under the same plugin identity.
@@ -266,6 +266,17 @@ without tool reads, revise the document through an authorized Tedix action, then
 submit another prompt and verify the model receives the new revision without
 repeating its contents. CLI readback and hook trust alone are not this proof.
 Implementation: `hooks/user_prompt_submit.py`.
+
+### Report turn status
+
+The local artifact also carries the opt-in turn-status reporter described in
+the [Claude Code guide](./claude-code.md#opt-in-turn-status). Enable it with
+`~/.tedix/agent-status.json` containing `{"enabled": true, "profile":
+"connect"}`, restart Codex, and trust the changed hooks in `/hooks`. Codex
+delivers `UserPromptSubmit`, `PermissionRequest`, `PostToolUse`, `Stop` and
+`SessionEnd`; it has no `Notification` or `StopFailure` event, so Codex
+failures surface only when the next turn starts. The Stop hook prints nothing,
+which Codex accepts.
 
 If a skill is missing, check that the plugin is enabled and start a new chat.
 If `codex mcp list` says `Not logged in`, complete the owner OAuth flow before

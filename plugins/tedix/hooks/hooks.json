@@ -1,5 +1,5 @@
 {
-	"description": "Optional Tedix session preflight and opt-in decision capture. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture.",
+	"description": "Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture; status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -32,6 +32,16 @@
 						"async": true
 					}
 				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
+					}
+				]
 			}
 		],
 		"Stop": [
@@ -42,6 +52,76 @@
 						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/decision_capture.py\" stop",
 						"timeout": 30,
 						"async": true
+					}
+				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"StopFailure": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PermissionRequest": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"Notification": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"async": true,
+						"timeout": 10
 					}
 				]
 			}

@@ -104,6 +104,34 @@ or before closing a local Claude Code session. It reports current authority,
 evidence, and next action from bounded CLI and repo reads. It does not monitor
 turns between invocations.
 
+## Opt-in turn status
+
+`hooks/agent_status.py` reports one status line per local Claude Code or
+Codex session at turn boundaries: `working`, `needs_you`, `done`, `error` or
+`ended`. It is off until you opt in:
+
+```sh
+mkdir -p ~/.tedix
+printf '{"enabled": true, "profile": "connect"}\n' > ~/.tedix/agent-status.json
+```
+
+Restart open sessions afterwards. `profile` names the `tedix` CLI workspace
+used for the remote report; without it the hook keeps local state and
+notifications only. `"notify": false` turns off macOS notifications.
+`TEDIX_AGENT_STATUS=1` or `0` and `TEDIX_AGENT_STATUS_PROFILE` override the
+file for one shell.
+
+A notification appears only when a session starts needing you (a permission
+prompt, a question in its last message) or fails. Local state lives in
+`~/.tedix/agent-status/`, with failures logged to `report.log` there. The
+remote report runs as a detached `tedix code` call and sends only the host,
+session ID, state, a 160-character summary and the repo/branch label. The hook
+never prints, prompts or waits for the network.
+
+Review the new hook entries in `/hooks` after updating the plugin.
+
+## Troubleshoot
+
 If a skill is missing, check `claude plugin list`, open `/plugin` to inspect
 the installed components or errors, then run `/reload-plugins`. If `/mcp`
 shows an authentication prompt, complete it in the browser. If an older Claude

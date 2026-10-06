@@ -95,6 +95,10 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/listInbox": "mcp:messaging.read",
 	"workInteractions/listOutbox": "mcp:messaging.read",
 	"workInteractions/listAudit": "mcp:messaging.read",
+	// The local agent session board is the caller's own Work status. Keep the
+	// Work authority when an organization alias hides the `work` namespace.
+	"workAgentSessions/report": "mcp:work.write",
+	"workAgentSessions/list": "mcp:work.read",
 	"mcpHealth/run": "mcp:observe.write",
 	"mcpEval/run": "platform:admin",
 	// Recovery for a wedged or quarantined Agent-runtime tedi. The API also

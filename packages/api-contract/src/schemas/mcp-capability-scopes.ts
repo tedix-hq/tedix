@@ -151,6 +151,9 @@ const DOCS_SCOPES_BY_TOOL = new Map(Object.entries(DOCS_TOOL_SCOPES));
 const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// The canonical approval inbox uses a plural name outside WORK_TOOL_RE.
 	list_work_approvals: "mcp:work",
+	// The local agent session board names its own resource, outside WORK_TOOL_RE.
+	report_work_agent_session_status: "mcp:work",
+	list_work_agent_sessions: "mcp:work",
 	// Verb-first catalog operator tools miss the `catalog_` prefix rule. The API
 	// keeps requireCatalogOperatorAccess on every catalog mutation; this gate
 	// only names the capability family so the tools stop failing closed.
@@ -565,6 +568,8 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	revise_os_blueprint: "write",
 	// Requesting admission does not grant it; the designated approver decides.
 	propose_work_approval: "write",
+	// `status` would otherwise classify this upsert as a read.
+	report_work_agent_session_status: "write",
 	get_work_admission_specification: "read",
 	replace_work_admission_specification: "admin",
 	run_tedi_turn: "write",

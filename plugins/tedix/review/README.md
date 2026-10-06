@@ -1,4 +1,4 @@
-# Tedix 1.0.0 review materials
+# Tedix review materials
 
 `cases.json` is the source for the public manifest's
 `extensions.com.openai.review.test_cases`: exactly five positive and three
@@ -6,7 +6,7 @@ negative cases. `release-notes.md` supplies `publication.release_notes`.
 The package builder imports these two sources; this directory itself is not
 part of the public ZIP. Cases are expected behaviors, **not passing results**.
 
-Keep the first release at **1.0.0** until submission. Uploading a corrected
+The current release is **1.1.0**. Uploading a corrected
 candidate does not imply review approval or publication. Imported test cases
 are managed by the package and become read-only in the dashboard.
 
@@ -49,6 +49,8 @@ and legal attestations remain explicit publisher decisions.
 The existing SessionStart hook supports startup, resume, clear and compaction;
 the UserPromptSubmit hook restores selected document revision and recent Work
 comments. Both are opt-in, read-only and separate from execution authority.
+The opt-in turn-status reporter (`agent_status.py`) writes local state and,
+with a configured CLI profile, a bounded status report; it grants no authority.
 Trust them through the local host before use. Web installation cannot deploy
 these scripts; the default cloud artifact excludes them. The local artifact
 includes them under the same canonical plugin identity. OpenAI supports trusted

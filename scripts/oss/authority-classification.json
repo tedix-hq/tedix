@@ -584,6 +584,13 @@
 		{
 			"kind": "api-namespace",
 			"sourcePath": "packages/api-contract/src/contracts/api.ts",
+			"identifier": "workAgentSessions",
+			"category": "tenant-product",
+			"rationale": "The local agent session board is a tenant member's own Work status, scoped to that user inside the organization."
+		},
+		{
+			"kind": "api-namespace",
+			"sourcePath": "packages/api-contract/src/contracts/api.ts",
 			"identifier": "workApprovals",
 			"category": "tenant-product",
 			"rationale": "Work approval decisions are tenant-owned coordination governance."
@@ -2351,6 +2358,13 @@
 			"identifier": "work_interaction_responses",
 			"category": "tenant-product",
 			"rationale": "Interaction responses are tenant work evidence."
+		},
+		{
+			"kind": "table",
+			"sourcePath": "packages/db/src/schema/work-agent-sessions.ts",
+			"identifier": "work_agent_sessions",
+			"category": "tenant-product",
+			"rationale": "Local agent session status is a tenant member's own Work state."
 		},
 		{
 			"kind": "table",

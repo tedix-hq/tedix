@@ -176,6 +176,11 @@ export const apiRouter = {
 	workApprovals: lazyRouter(() =>
 		import("./work-approvals").then((m) => m.workApprovalsContractRouter),
 	),
+	workAgentSessions: lazyRouter(() =>
+		import("./work-agent-sessions").then(
+			(m) => m.workAgentSessionsContractRouter,
+		),
+	),
 	workInteractions: lazyRouter(() =>
 		import("./work-interactions").then((m) => m.workInteractionsContractRouter),
 	),

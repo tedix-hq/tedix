@@ -3425,11 +3425,136 @@ const LOCAL_CATALOG = (
 		}) satisfies CatalogAppDetail,
 );
 
+// --- Local agent session board (/work/agents) ---
+
+type LocalAgentSessionState =
+	| "needs_you"
+	| "error"
+	| "done"
+	| "working"
+	| "idle"
+	| "ended";
+
+/** One session per board state, aged relative to the request so times read live. */
+const LOCAL_AGENT_SESSIONS: readonly {
+	n: number;
+	harness: "claude-code" | "codex";
+	label: string;
+	state: Exclude<LocalAgentSessionState, "idle">;
+	effectiveState: LocalAgentSessionState;
+	summary: string;
+	minutesAgo: number;
+}[] = [
+	{
+		n: 1,
+		harness: "claude-code",
+		label: "tedix · agent-status",
+		state: "needs_you",
+		effectiveState: "needs_you",
+		summary:
+			"Waiting for approval to run the D1 migration against the local database before continuing with the board.",
+		minutesAgo: 3,
+	},
+	{
+		n: 2,
+		harness: "codex",
+		label: "karbook · invoices",
+		state: "needs_you",
+		effectiveState: "needs_you",
+		summary: "Asked which tax regime applies to the imported supplier.",
+		minutesAgo: 12,
+	},
+	{
+		n: 3,
+		harness: "claude-code",
+		label: "tedix · runtime-retry",
+		state: "error",
+		effectiveState: "error",
+		summary: "Type-check failed in apps/tedi-runtime after the retry refactor.",
+		minutesAgo: 7,
+	},
+	{
+		n: 4,
+		harness: "codex",
+		label: "landing · hero-copy",
+		state: "done",
+		effectiveState: "done",
+		summary: "Rewrote the hero copy and pushed to main.",
+		minutesAgo: 18,
+	},
+	{
+		n: 5,
+		harness: "claude-code",
+		label: "tedix · mcp-scopes",
+		state: "working",
+		effectiveState: "working",
+		summary: "Running the MCP conformance suite.",
+		minutesAgo: 1,
+	},
+	{
+		n: 6,
+		harness: "codex",
+		label: "tedix · docs-public",
+		state: "working",
+		effectiveState: "working",
+		summary: "Updating release-status for the new board.",
+		minutesAgo: 4,
+	},
+	{
+		n: 7,
+		harness: "claude-code",
+		label: "cms · theme-parity",
+		state: "done",
+		effectiveState: "idle",
+		summary: "Finished the theme token audit.",
+		minutesAgo: 190,
+	},
+	{
+		n: 8,
+		harness: "codex",
+		label: "tedix · old-spike",
+		state: "ended",
+		effectiveState: "ended",
+		summary: "Session closed.",
+		minutesAgo: 600,
+	},
+];
+
+function localAgentSessions(includeEnded: boolean | undefined) {
+	const at = (minutesAgo: number) =>
+		new Date(Date.now() - minutesAgo * 60_000).toISOString();
+	const sessions = LOCAL_AGENT_SESSIONS.filter(
+		(row) => includeEnded || row.effectiveState !== "ended",
+	).map((row) => ({
+		id: fid("a6", row.n),
+		harness: row.harness,
+		sessionKey: `local-session-${row.n}`,
+		label: row.label,
+		state: row.state,
+		effectiveState: row.effectiveState,
+		summary: row.summary,
+		stateSince: at(row.minutesAgo),
+		lastEventAt: at(row.minutesAgo),
+	}));
+	const counts: Record<LocalAgentSessionState, number> = {
+		needs_you: 0,
+		error: 0,
+		done: 0,
+		working: 0,
+		idle: 0,
+		ended: 0,
+	};
+	for (const row of sessions) counts[row.effectiveState] += 1;
+	return { sessions, counts };
+}
+
 // ---------------------------------------------------------------------------
 // Per-procedure handlers
 // ---------------------------------------------------------------------------
 
 const handlers: Record<string, (input: never) => unknown> = {
+	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
+		localAgentSessions(input?.includeEnded),
 	"catalog/list": (input: ListCatalogAppsInput) => {
 		const rows = LOCAL_CATALOG.filter(
 			(app) =>

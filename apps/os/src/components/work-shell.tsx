@@ -35,12 +35,14 @@ export const WORK_SECTIONS = [
 	["Capacity", "/work/capacity"],
 	["Attention", "/work/control"],
 	["Recovery", "/work/recovery"],
+	["Agents", "/work/agents"],
 ] as const;
 
 export const PRIMARY_WORK_SECTIONS = [
 	WORK_SECTIONS[0],
 	WORK_SECTIONS[1],
 	WORK_SECTIONS[10],
+	WORK_SECTIONS[12],
 	WORK_SECTIONS[6],
 	WORK_SECTIONS[7],
 ] as const;
