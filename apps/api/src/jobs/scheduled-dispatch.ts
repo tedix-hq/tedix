@@ -78,6 +78,16 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 	// so they never join the first-request eval floor.
 	try {
 		if (cron === "*/2 * * * *") {
+			const { maintainProviderEvents } = await import("./provider-events");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"provider-event-maintenance",
+				() => maintainProviderEvents(env),
+			);
+		}
+
+		if (cron === "*/2 * * * *") {
 			const {
 				dispatchGraphProjectionDrains,
 				redriveGraphGdsMaintenance,

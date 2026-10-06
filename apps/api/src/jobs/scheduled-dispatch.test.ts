@@ -17,10 +17,14 @@ import classification from "../../../../scripts/oss/authority-classification.jso
 import { scheduled } from "./scheduled-dispatch";
 
 const catchup = vi.hoisted(() => ({
+	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
 	ingest: vi.fn(),
 	billing: vi.fn(),
 	paths: [] as string[],
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
+}));
+vi.mock("./provider-events", () => ({
+	maintainProviderEvents: catchup.providerEvents,
 }));
 vi.mock("./gateway-cost-ingestion", () => ({
 	CATCHUP_PAGES_PER_RUN: 10,
@@ -291,4 +295,31 @@ it("treats CAS contention as a successful catch-up receipt", async () => {
 		id: "gateway-cost-catchup",
 		status: "success",
 	});
+});
+
+it("maintains provider notifications without fleet authority and isolates failures", async () => {
+	catchup.paths.length = 0;
+	catchup.outcomes.length = 0;
+	catchup.providerEvents
+		.mockReset()
+		.mockRejectedValueOnce(new Error("provider failure"));
+	await scheduled(
+		{
+			cron: "*/2 * * * *",
+			scheduledTime: Date.UTC(2026, 0, 1),
+			noRetry: () => {},
+		},
+		{ TEDIX_FLEET_AUTHORITY_MODE: "disabled" } as CloudflareEnv,
+		{
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+			props: {},
+		} as unknown as ExecutionContext,
+	);
+	expect(catchup.providerEvents).toHaveBeenCalledOnce();
+	expect(catchup.outcomes).toContainEqual({
+		id: "provider-event-maintenance",
+		status: "failure",
+	});
+	expect(catchup.paths).toContain("work-attempt-lease-sweep");
 });

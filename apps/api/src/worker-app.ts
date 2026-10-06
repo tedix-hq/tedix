@@ -1720,6 +1720,16 @@ app.get("/artifacts/:tediId/:artifactId", handleSessionArtifact);
  * implementation graphs (audit + billing queries, stripe-billing helpers,
  * fleet-authority) must not be evaluated on every isolate's first request.
  */
+app.post("/webhooks/provider-events/:adapter/:channelId", async (c) => {
+	const { handleProviderEventWebhook } =
+		await import("./webhooks/provider-events");
+	return handleProviderEventWebhook(
+		c,
+		c.req.param("adapter"),
+		c.req.param("channelId"),
+	);
+});
+
 app.post("/webhooks/firecrawl", async (c) => {
 	const { handleFirecrawlWebhook } = await import("./webhooks/firecrawl");
 	return handleFirecrawlWebhook(c);
