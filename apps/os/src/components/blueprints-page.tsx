@@ -1,4 +1,9 @@
 import {
+	CalendarResourcePicker,
+	calendarResourceSelection,
+} from "./calendar-resource-picker";
+import type { OsWorkspaceResourceSelection } from "@tedix/api-contract/schemas/os-workspaces";
+import {
 	ArrowLeft,
 	CaretRight,
 	DownloadSimple,
@@ -62,7 +67,6 @@ import { Input } from "@/components/kumo/input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
-import { Textarea } from "@/components/kumo/textarea";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
 import {
@@ -752,6 +756,12 @@ function InstantiateForm({
 	successNote?: string;
 }) {
 	const [success, setSuccess] = useState<InstantiateSuccess | null>(null);
+	const [calendarSelections, setCalendarSelections] = useState<
+		Record<
+			string,
+			OsWorkspaceResourceSelection & { connectionInstanceId: string }
+		>
+	>({});
 	const defaultValues = useMemo(
 		() => ({
 			workspaceName: "",
@@ -772,7 +782,7 @@ function InstantiateForm({
 	);
 	const bindings = (resourceRequirements ?? []).map((requirement) => ({
 		slot: requirement.slot,
-		selection: {
+		selection: calendarSelections[requirement.slot] ?? {
 			providerId: requirement.providerId,
 			connectionScope:
 				requirement.tokenScope === "user"
@@ -827,7 +837,7 @@ function InstantiateForm({
 			const submittedBindings = (resourceRequirements ?? []).map(
 				(requirement) => ({
 					slot: requirement.slot,
-					selection: {
+					selection: calendarSelections[requirement.slot] ?? {
 						providerId: requirement.providerId,
 						connectionScope:
 							requirement.tokenScope === "user"
@@ -853,6 +863,7 @@ function InstantiateForm({
 				gadgetCount: result.gadgets.length,
 			});
 			form.reset();
+			setCalendarSelections({});
 		},
 	});
 
@@ -911,26 +922,49 @@ function InstantiateForm({
 							{requirement.providerId} · {requirement.resourceType}
 						</Badge>
 					</div>
-					{(["providerResourceId", "name"] as const).map((key) => (
-						<FormField
-							key={key}
-							form={form}
-							name={`resourceSelections.${requirement.slot}.${key}`}
-							label={
-								key === "providerResourceId"
-									? "Provider resource ID"
-									: "Display name"
+					{calendarSelections[requirement.slot] && (
+						<Text as="p">
+							Selected: {calendarSelections[requirement.slot]!.name}
+						</Text>
+					)}
+					{requirement.resourceType === "calendar" ? (
+						<CalendarResourcePicker
+							providerId={requirement.providerId}
+							tokenScope={requirement.tokenScope}
+							onSelect={(choice) =>
+								setCalendarSelections((current) => ({
+									...current,
+									[requirement.slot]: {
+										...calendarResourceSelection(choice),
+										requiredScopes: requirement.scopes,
+									},
+								}))
 							}
-						>
-							{(field, meta) => (
-								<FormInput
-									field={field}
-									{...meta}
-									aria-label={`${requirement.label} ${key === "providerResourceId" ? "provider resource ID" : "display name"}`}
-								/>
-							)}
-						</FormField>
-					))}
+						/>
+					) : (
+						<>
+							{(["providerResourceId", "name"] as const).map((key) => (
+								<FormField
+									key={key}
+									form={form}
+									name={`resourceSelections.${requirement.slot}.${key}`}
+									label={
+										key === "providerResourceId"
+											? "Provider resource ID"
+											: "Display name"
+									}
+								>
+									{(field, meta) => (
+										<FormInput
+											field={field}
+											{...meta}
+											aria-label={`${requirement.label} ${key === "providerResourceId" ? "provider resource ID" : "display name"}`}
+										/>
+									)}
+								</FormField>
+							))}
+						</>
+					)}
 				</Surface>
 			))}
 			<div className="flex flex-wrap items-center gap-2">

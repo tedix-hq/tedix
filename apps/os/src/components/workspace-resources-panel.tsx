@@ -1,3 +1,8 @@
+import {
+	CalendarResourcePicker,
+	calendarResourceSelection,
+} from "./calendar-resource-picker";
+import { WorkspaceCalendarCoordinator } from "./workspace-calendar-coordinator";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
 import { useState } from "react";
@@ -30,6 +35,7 @@ import { SectionEyebrow } from "@/components/section-eyebrow";
 import { osApi, osChatMutationApi } from "@/lib/api";
 import {
 	projectListQueryOptions,
+	osQuery,
 	tediRosterQueryOptions,
 	userConnectionsQueryOptions,
 	workspaceResourcesQueryOptions,
@@ -143,6 +149,11 @@ export function WorkspaceResourcesPanel({
 	const queryClient = useQueryClient();
 	const query = useQuery(workspaceResourcesQueryOptions(workspaceId));
 	const connectionsQuery = useQuery(userConnectionsQueryOptions());
+	const personalAccounts = useQuery(
+		osQuery.connections.getConnectionsOverview.queryOptions({
+			input: { scope: "personal", status: "all", q: "", limit: 100, offset: 0 },
+		}),
+	);
 	const projectLinksQuery = useQuery(
 		workspaceWorkProjectsQueryOptions(workspaceId),
 	);
@@ -151,6 +162,7 @@ export function WorkspaceResourcesPanel({
 		tediRosterQueryOptions(100, { status: "active" }),
 	);
 	const [open, setOpen] = useState(false);
+	const [calendarOpen, setCalendarOpen] = useState(false);
 	const [customType, setCustomType] = useState(false);
 	const [repositoryAction, setRepositoryAction] =
 		useState<OsWorkspaceResource | null>(null);
@@ -160,10 +172,33 @@ export function WorkspaceResourcesPanel({
 	const [task, setTask] = useState("");
 	const [outcome, setOutcome] = useState("");
 	const resources = query.data?.items ?? [];
-	const connections =
-		connectionsQuery.data?.data.filter(
-			(connection) => connection.status === "connected",
-		) ?? [];
+	const connections = (connectionsQuery.data?.data ?? [])
+		.filter((connection) => connection.status === "connected")
+		.flatMap((connection) => {
+			const instances =
+				connection.tokenScope === "user"
+					? (personalAccounts.data?.rows ?? []).filter(
+							(row) =>
+								row.provider.appId === connection.appId &&
+								row.scope === "user" &&
+								row.accountState === "present" &&
+								row.connectionInstanceId,
+						)
+					: [];
+			return instances.length
+				? instances.map((row) => ({
+						...connection,
+						connectionInstanceId: row.connectionInstanceId,
+						instanceLabel: row.instanceLabel,
+					}))
+				: [
+						{
+							...connection,
+							connectionInstanceId: undefined,
+							instanceLabel: undefined,
+						},
+					];
+		});
 	const linkedProjectIds = new Set(
 		projectLinksQuery.data?.items.map((link) => link.projectId) ?? [],
 	);
@@ -192,18 +227,38 @@ export function WorkspaceResourcesPanel({
 		queryClient.invalidateQueries({
 			queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
 		});
+	const attachCalendar = useMutation({
+		mutationFn: (choice: Parameters<typeof calendarResourceSelection>[0]) =>
+			osApi.osWorkspaces.resources.create({
+				workspaceId,
+				selection: calendarResourceSelection(choice),
+			}),
+		onSuccess: async () => {
+			await refresh();
+			setCalendarOpen(false);
+		},
+	});
 	const create = useMutation({
 		mutationFn: (value: z.output<typeof resourceReferenceSchema>) => {
 			const selectedConnection = connections.find(
 				(connection) =>
-					`${connection.appId}:${connection.tokenScope}` === value.providerKey,
+					`${connection.appId}:${connection.tokenScope}:${connection.connectionInstanceId ?? ""}` ===
+					value.providerKey,
 			);
 			if (!selectedConnection) throw new Error("Choose a connected app.");
+			if (
+				selectedConnection.tokenScope === "user" &&
+				!selectedConnection.connectionInstanceId
+			)
+				throw new Error(
+					"The exact personal account could not be verified. Check Connections first.",
+				);
 			return osApi.osWorkspaces.resources.create({
 				workspaceId,
 				selection: {
 					providerId: selectedConnection.appId,
 					connectionScope: selectedConnection.tokenScope,
+					connectionInstanceId: selectedConnection.connectionInstanceId,
 					resourceType: value.resourceType,
 					providerResourceId: value.providerResourceId,
 					name: value.name,
@@ -249,6 +304,7 @@ export function WorkspaceResourcesPanel({
 			resourceId: string;
 			expectedUpdatedAt: string;
 			connectionScope: "tenant" | "user";
+			connectionInstanceId?: string;
 		}) => osApi.osWorkspaces.resources.rebind({ workspaceId, ...input }),
 		onSuccess: refresh,
 	});
@@ -299,10 +355,21 @@ export function WorkspaceResourcesPanel({
 					title="Attached resources"
 					count={query.data ? resources.length : undefined}
 				/>
+				<Button
+					size="sm"
+					variant="outline"
+					onClick={() => setCalendarOpen(true)}
+				>
+					Choose calendar
+				</Button>
 				<Button size="sm" variant="outline" onClick={() => setOpen(true)}>
 					Attach resource
 				</Button>
 			</div>
+			{resources.some(
+				(resource) =>
+					resource.status === "active" && resource.resourceType === "calendar",
+			) && <WorkspaceCalendarCoordinator workspaceId={workspaceId} />}
 			{query.isPending ? (
 				<Text as="p" role="body" tone="secondary" className="m-0">
 					Loading resources…
@@ -405,21 +472,29 @@ export function WorkspaceResourcesPanel({
 									)
 									.map((connection) => (
 										<Button
-											key={connection.tokenScope}
+											key={`${connection.tokenScope}:${connection.connectionInstanceId ?? ""}`}
 											size="sm"
 											variant="outline"
-											disabled={rebind.isPending}
+											disabled={
+												rebind.isPending ||
+												(connection.tokenScope === "user" &&
+													!connection.connectionInstanceId)
+											}
 											onClick={() =>
 												rebind.mutate({
 													resourceId: resource.id,
 													expectedUpdatedAt: resource.updatedAt,
 													connectionScope: connection.tokenScope,
+													connectionInstanceId: connection.connectionInstanceId,
 												})
 											}
 										>
 											Use{" "}
 											{connection.tokenScope === "tenant" ? "shared" : "your"}{" "}
 											connection
+											{connection.instanceLabel
+												? ` · ${connection.instanceLabel}`
+												: ""}
 										</Button>
 									))}
 								<Button
@@ -557,6 +632,25 @@ export function WorkspaceResourcesPanel({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			<Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
+				<DialogContent size="base">
+					<DialogHeader>
+						<DialogTitle>Choose a calendar</DialogTitle>
+						<DialogDescription>
+							Select an account and a calendar it can actually read.
+						</DialogDescription>
+					</DialogHeader>
+					<CalendarResourcePicker
+						disabled={attachCalendar.isPending}
+						onSelect={(choice) => attachCalendar.mutate(choice)}
+					/>
+					{attachCalendar.isError && (
+						<Text as="p" tone="error">
+							{attachCalendar.error.message}
+						</Text>
+					)}
+				</DialogContent>
+			</Dialog>
 			<Dialog open={open} onOpenChange={setOpen}>
 				<DialogContent size="base">
 					<DialogHeader>
@@ -580,19 +674,20 @@ export function WorkspaceResourcesPanel({
 									{...meta}
 									placeholder="Choose a connected app"
 									items={connections.map((connection) => ({
-										value: `${connection.appId}:${connection.tokenScope}`,
-										label: `${connection.providerName} · ${connection.tokenScope === "tenant" ? "Shared account" : "Your account"}`,
+										value: `${connection.appId}:${connection.tokenScope}:${connection.connectionInstanceId ?? ""}`,
+										label: `${connection.providerName} · ${connection.instanceLabel ?? (connection.tokenScope === "tenant" ? "Shared account" : "Your account")}`,
 									}))}
 								>
 									{connections.map((connection) => (
 										<SelectItem
-											key={`${connection.appId}:${connection.tokenScope}`}
-											value={`${connection.appId}:${connection.tokenScope}`}
+											key={`${connection.appId}:${connection.tokenScope}:${connection.connectionInstanceId ?? ""}`}
+											value={`${connection.appId}:${connection.tokenScope}:${connection.connectionInstanceId ?? ""}`}
 										>
 											{connection.providerName} ·{" "}
-											{connection.tokenScope === "tenant"
-												? "Shared account"
-												: "Your account"}
+											{connection.instanceLabel ??
+												(connection.tokenScope === "tenant"
+													? "Shared account"
+													: "Your account")}
 										</SelectItem>
 									))}
 								</FormSelect>
