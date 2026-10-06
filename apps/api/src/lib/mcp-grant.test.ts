@@ -52,6 +52,30 @@ vi.mock("@tedix/db/queries/organizations", () => ({
 }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
 	getMemberByUserId: mocks.getMemberByUserId,
+	// The batched production query, expressed through the per-row mocks so
+	// every organization and member case covers both lookups.
+	getMembershipsByDescopeTenants: async (
+		db: unknown,
+		tenantIds: string[],
+		userId: string,
+	) => {
+		const rows = [];
+		for (const descopeTenantId of tenantIds) {
+			const organization = await mocks.getOrganizationByDescopeId(
+				db,
+				descopeTenantId,
+			);
+			if (!organization) continue;
+			const member = await mocks.getMemberByUserId(db, organization.id, userId);
+			if (member)
+				rows.push({
+					organizationId: organization.id,
+					descopeTenantId,
+					status: member.status,
+				});
+		}
+		return rows;
+	},
 	getOrganizationAggregatorGateways: mocks.getOrganizationAggregatorGateways,
 }));
 vi.mock("@tedix/auth/client", () => ({

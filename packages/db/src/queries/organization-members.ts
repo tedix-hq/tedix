@@ -16,6 +16,7 @@ import type {
 	OrganizationMember,
 } from "../schema/organization-members";
 import { organizationMembers } from "../schema/organization-members";
+import { organizations } from "../schema/organizations";
 import { tedis } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
@@ -53,6 +54,60 @@ export async function getMemberByUserId(
 	return db.query.organizationMembers.findFirst({
 		where: { organizationId, descopeUserId },
 	});
+}
+
+/**
+ * One statement for a user's memberships in a bounded set of Descope tenants:
+ * non-retired organizations joined to that user's member rows. Callers decide
+ * which statuses grant access. Replaces a per-tenant org-then-member lookup on
+ * the live MCP grant path.
+ */
+export async function getMembershipsByDescopeTenants(
+	db: DbClient,
+	descopeTenantIds: string[],
+	descopeUserId: string,
+): Promise<
+	Array<{
+		organizationId: string;
+		descopeTenantId: string;
+		status: OrganizationMember["status"];
+	}>
+> {
+	const tenantIds = [...new Set(descopeTenantIds)];
+	if (tenantIds.length === 0) return [];
+	const rows: Array<{
+		organizationId: string;
+		descopeTenantId: string | null;
+		status: OrganizationMember["status"];
+	}> = [];
+	// D1 caps bound parameters at 100 per statement.
+	for (const chunk of chunkForBoundParams(tenantIds, 50)) {
+		rows.push(
+			...(await db
+				.select({
+					organizationId: organizations.id,
+					descopeTenantId: organizations.descopeTenantId,
+					status: organizationMembers.status,
+				})
+				.from(organizations)
+				.innerJoin(
+					organizationMembers,
+					and(
+						eq(organizationMembers.organizationId, organizations.id),
+						eq(organizationMembers.descopeUserId, descopeUserId),
+					),
+				)
+				.where(
+					and(
+						inArray(organizations.descopeTenantId, chunk),
+						sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
+					),
+				)),
+		);
+	}
+	return rows.flatMap(({ descopeTenantId, ...row }) =>
+		descopeTenantId ? [{ ...row, descopeTenantId }] : [],
+	);
 }
 
 /** Resolve membership by the stable Tedix user id, independent of provider. */
