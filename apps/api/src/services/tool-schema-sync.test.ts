@@ -2102,3 +2102,52 @@ it("projects background subscription controls and persistent state with explicit
 		);
 	}
 });
+
+describe("calendar and personal consent projections", () => {
+	it("projects the callback tool as a destructive, pinned reconciliation operation", async () => {
+		const { db, inserts } = makeDb([]);
+		await runToolSchemaSync(db, {
+			mode: "projection",
+			apply: true,
+			endpoints: ["calendarCoordinator/reconcileSubscription"],
+		});
+		const tool = inserts.find(
+			(t) => t.toolId === "reconcile_calendar_subscription",
+		);
+		expect(tool?.config).toMatchObject({
+			endpoint: "calendarCoordinator/reconcileSubscription",
+		});
+		expect(tool?.inputSchema).toMatchObject({
+			required: expect.arrayContaining([
+				"subscriptionId",
+				"expectedSkillRevision",
+			]),
+		});
+		expect(OS_KIND_OVERRIDES["calendarCoordinator/reconcileSubscription"]).toBe(
+			"destructive",
+		);
+	});
+	it("keeps consent and external mutations distinct from inventory and persisted previews", () => {
+		for (const endpoint of [
+			"personalResourceDelegations/create",
+			"personalResourceDelegations/revoke",
+			"calendarCoordinator/activate",
+			"calendarCoordinator/apply",
+			"calendarCoordinator/compensate",
+		])
+			expect(OS_KIND_OVERRIDES[endpoint]).toBe("destructive");
+		for (const endpoint of [
+			"calendarCoordinator/supportedAccounts",
+			"calendarCoordinator/listCalendars",
+			"calendarCoordinator/status",
+			"personalResourceDelegations/list",
+		])
+			expect(OS_KIND_OVERRIDES[endpoint]).toBe("read");
+		for (const endpoint of [
+			"calendarCoordinator/preview",
+			"calendarCoordinator/previewCompensation",
+			"calendarCoordinator/recover",
+		])
+			expect(OS_KIND_OVERRIDES[endpoint]).toBe("write");
+	});
+});
