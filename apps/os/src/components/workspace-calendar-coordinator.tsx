@@ -181,7 +181,7 @@ export function CalendarPreview({
 									? "Add Busy blocker"
 									: action.kind === "update"
 										? "Update owned blocker"
-										: "Remove owned blocker"}{" "}
+										: "Clear owned busy time"}{" "}
 								· {name(action.destinationKey)}
 							</Text>
 							<Text as="p" tone="secondary">
@@ -193,6 +193,27 @@ export function CalendarPreview({
 				</ul>
 			</CardContent>
 		</Card>
+	);
+}
+export function CalendarRemovalReceipt({
+	mutations,
+}: {
+	mutations: readonly {
+		state: string;
+		removalMode?: "delete" | "release";
+	}[];
+}) {
+	const released = mutations.filter(
+		(mutation) =>
+			mutation.state === "confirmed" && mutation.removalMode === "release",
+	).length;
+	if (released === 0) return null;
+	return (
+		<Text as="p" tone="secondary">
+			Released busy time · {released} Outlook{" "}
+			{released === 1 ? "blocker" : "blockers"}. Outlook keeps the private event
+			marked as free, so it no longer blocks booking.
+		</Text>
 	);
 }
 export function coordinatorStatusText(
@@ -1143,6 +1164,9 @@ export function WorkspaceCalendarCoordinator({
 				)}
 				{status.data?.lastReceipt && (
 					<div className="grid gap-2">
+						<CalendarRemovalReceipt
+							mutations={status.data.lastReceipt.mutations}
+						/>
 						{status.data.lastReceipt.mutations.some(
 							(mutation) =>
 								mutation.state === "uncertain" || mutation.state === "intent",
