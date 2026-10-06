@@ -10,7 +10,7 @@ import {
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { authorizeDocsRequest, requestedOrg } from "./auth";
+import { authorizeDocsRequest, DocsAuthError, requestedOrg } from "./auth";
 import { serveDocsPreview, withDocsPreviewRobotsPolicy } from "./preview";
 import { authorizePreviewAccess, previewAccessOrg } from "./preview-access";
 import { buildDocsMcpServer } from "./tools";
@@ -53,6 +53,11 @@ app.get("/health", (context) =>
 	}),
 );
 
+/** Only deliberate refusals reach the caller; internal failures stay generic. */
+function publicAuthError(error: unknown): string {
+	return error instanceof DocsAuthError ? error.message : "Unauthorized";
+}
+
 async function handleMcp(context: {
 	req: { raw: Request; header(name: string): string | undefined };
 	env: AppEnv["Bindings"];
@@ -82,7 +87,7 @@ async function handleMcp(context: {
 	} catch (error) {
 		return new Response(
 			JSON.stringify({
-				error: error instanceof Error ? error.message : String(error),
+				error: publicAuthError(error),
 			}),
 			{
 				status: 401,
@@ -149,7 +154,7 @@ async function handlePreview(context: {
 		return withDocsPreviewRobotsPolicy(
 			new Response(
 				JSON.stringify({
-					error: error instanceof Error ? error.message : String(error),
+					error: publicAuthError(error),
 				}),
 				{ status: 401, headers: { "Content-Type": "application/json" } },
 			),

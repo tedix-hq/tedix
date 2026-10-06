@@ -1,6 +1,10 @@
 import { validateToken } from "@tedix/auth/jwt";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { authorizeDocsRequest, delegatedDocsScope } from "./auth";
+import {
+	authorizeDocsRequest,
+	DocsAuthError,
+	delegatedDocsScope,
+} from "./auth";
 import type { AppBindings } from "./types";
 
 vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
@@ -196,6 +200,22 @@ describe("authorizeDocsRequest service delegation", () => {
 			"requires a delegated Docs scope",
 		);
 		expect(validateToken).not.toHaveBeenCalled();
+	});
+
+	it("marks deliberate refusals as public auth errors but not token failures", async () => {
+		await expect(authorizeDocsRequest(serviceRequest(), env)).rejects.toThrow(
+			DocsAuthError,
+		);
+		vi.mocked(validateToken).mockRejectedValueOnce(
+			new Error("internal detail"),
+		);
+		const failure = await authorizeDocsRequest(
+			new Request("https://docs.internal/mcp?org=tedix", {
+				headers: { Authorization: "Bearer user-token" },
+			}),
+			env,
+		).catch((error: unknown) => error);
+		expect(failure).not.toBeInstanceOf(DocsAuthError);
 	});
 
 	it("does not honor a delegated scope on a direct user request", async () => {

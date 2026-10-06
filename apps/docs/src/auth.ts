@@ -14,6 +14,11 @@ export interface DocsAuthorization {
 	actor: DocsActor;
 }
 
+/** An authorization refusal whose message is safe to return to the caller. */
+export class DocsAuthError extends Error {
+	override name = "DocsAuthError";
+}
+
 export type DelegatedDocsScope =
 	| "mcp:content.read"
 	| "mcp:content.write"
@@ -31,7 +36,7 @@ export function delegatedDocsScope(
 	const raw = request.headers.get("X-Tedix-Delegated-Scope")?.trim();
 	if (!raw) return null;
 	if (!DELEGATED_DOCS_SCOPES.has(raw as DelegatedDocsScope)) {
-		throw new Error("Invalid delegated Docs scope");
+		throw new DocsAuthError("Invalid delegated Docs scope");
 	}
 	return raw as DelegatedDocsScope;
 }
@@ -143,9 +148,9 @@ export async function authorizeDocsRequest(
 	env: AppBindings,
 ): Promise<DocsAuthorization> {
 	const orgSlug = requestedOrg(request);
-	if (!orgSlug) throw new Error("Missing org; pass ?org=slug");
+	if (!orgSlug) throw new DocsAuthError("Missing org; pass ?org=slug");
 	const token = extractBearerToken(request.headers.get("Authorization"));
-	if (!token) throw new Error("Missing authorization");
+	if (!token) throw new DocsAuthError("Missing authorization");
 
 	if (
 		env.PLATFORM_SERVICE_TOKEN &&
@@ -175,7 +180,7 @@ export async function authorizeDocsRequest(
 				trustedForwardedActor(request) ??
 				(forwardedPayload ? actorFromPayload(forwardedPayload) : null);
 			if (!actor) {
-				throw new Error(
+				throw new DocsAuthError(
 					"Delegated Docs scope requires forwarded authorization or trusted actor headers",
 				);
 			}
@@ -186,7 +191,9 @@ export async function authorizeDocsRequest(
 				actor,
 			};
 		}
-		throw new Error("Platform service token requires a delegated Docs scope");
+		throw new DocsAuthError(
+			"Platform service token requires a delegated Docs scope",
+		);
 	}
 
 	const payload = await validateToken(token, {
@@ -196,7 +203,7 @@ export async function authorizeDocsRequest(
 	});
 	const isAdmin = platformAdmin(payload);
 	if (!isAdmin && !(await userHasTenant(env, payload, orgSlug))) {
-		throw new Error(`Organization access denied for org "${orgSlug}"`);
+		throw new DocsAuthError(`Organization access denied for org "${orgSlug}"`);
 	}
 	return {
 		orgSlug,
