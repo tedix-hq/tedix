@@ -266,6 +266,7 @@ export async function createCalendarApplyStore(
 				return;
 			}
 			const mirror: Mirror = {
+				released: action.kind === "delete" && event.releasedBlocker === true,
 				id,
 				sourceKey: action.sourceKey,
 				sourceRouteKey: action.sourceRouteKey,

@@ -199,7 +199,8 @@ export async function resolveCalendarAdapter(
 		};
 		const adapter: CalendarAdapter = {
 			kind: selection.adapter,
-			conditionalWrites: selection.adapter === "google",
+			conditionalWrites: true,
+			removalMode: selection.adapter === "microsoft" ? "release" : "delete",
 			listCalendars: async () => {
 				throw new Error(
 					"Background calendar inventory is not a selected resource operation",

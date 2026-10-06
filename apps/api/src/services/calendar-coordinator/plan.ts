@@ -55,7 +55,9 @@ export async function buildPlan(
 	}
 	const actions: Action[] = [];
 	const known = new Map(
-		mirrors.map((m) => [`${m.sourceKey}:${m.destinationKey}`, m]),
+		mirrors
+			.filter((m) => !m.released)
+			.map((m) => [`${m.sourceKey}:${m.destinationKey}`, m]),
 	);
 	const alive = new Set<string>();
 	const ledgerOwned = new Set(
@@ -76,7 +78,7 @@ export async function buildPlan(
 		const ownership =
 			mirror?.ownership ??
 			(await digest(
-				`${ownershipSeed}:${sourceKey}:${destinationKey}:${config.revision}:${sourceRevision}`,
+				`${ownershipSeed}:${sourceKey}:${destinationKey}:${config.revision}:${sourceRevision}:${mirrors.find((m) => m.released && m.sourceKey === sourceKey && m.destinationKey === destinationKey)?.revision ?? ""}`,
 			));
 		const id = await digest(
 			JSON.stringify([
@@ -192,6 +194,7 @@ export async function buildPlan(
 			}
 	if (complete)
 		for (const mirror of mirrors) {
+			if (mirror.released) continue;
 			if (alive.has(mirror.sourceKey)) continue;
 			// Delete only when its entire original occurrence is inside the covered interval.
 			if (

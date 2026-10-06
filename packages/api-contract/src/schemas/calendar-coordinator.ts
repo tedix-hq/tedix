@@ -138,6 +138,7 @@ export const CalendarPlanSchema = z.object({
 	snapshotFingerprints: z.record(z.string(), z.string()),
 });
 export const CalendarMutationSchema = z.object({
+	removalMode: z.enum(["delete", "release"]).optional(),
 	actionId: z.string(),
 	compensationEligible: z.boolean().default(false),
 	state: z.enum(["intent", "confirmed", "uncertain", "conflict"]),
