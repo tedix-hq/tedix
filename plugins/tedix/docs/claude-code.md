@@ -104,8 +104,18 @@ enabled, Claude Code also runs `tedix hooks await-reply` as a background
 `asyncRewake` `Stop` hook. When you answer the waiting question in Tedix OS,
 including by accepting a tedi-drafted reply there, it wakes the session with
 your answer; a reply typed in the chat, expiry or four hours end the wait.
-Tedi-drafted replies are reviewed, accepted or edited only in Tedix OS; they
-never reach the chat until you answer there.
+
+A tedi-drafted reply is either for review or sent automatically; the
+organization decides per draft. Review drafts are accepted or edited only in
+Tedix OS and never reach the chat until you answer there. An automatic reply
+wakes the session the same way, as `Tedix <tedi> replied for the user (auto,
+reversible step; the user can override at any time): "<reply>"`, with the reply
+quoted and framed as untrusted drafted content that stands in for your answer.
+The [guardrails](./chatgpt-codex.md#automatic-replies-and-their-guardrails)
+are the same for Claude Code and Codex: reversible steps only, never an
+urgent turn, at most 3 automatic replies in a row, and you can override at
+any time. The turn-status reporter records the session as working, so an
+automatic reply sends no needs-you notification.
 
 Invoke `/tedix:tedix-guardian-session` at the start, at a material checkpoint,
 or before closing a local Claude Code session. It reports current authority,

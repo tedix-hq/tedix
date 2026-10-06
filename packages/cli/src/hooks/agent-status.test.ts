@@ -11,11 +11,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	AUTO_CONTINUED_SUFFIX,
 	applyTriagedStop,
 	classifyStop,
 	DETACHED,
 	harnessOf,
 	REPORT_CALLABLE,
+	recordAutoContinued,
 	reportSource,
 	runAgentStatus,
 	SUPERVISOR_CONTINUED_SUFFIX,
@@ -470,5 +472,58 @@ describe("tedix hooks status", () => {
 			undefined,
 		);
 		expect(reports()).toHaveLength(2);
+	});
+
+	test("an auto reply marks working now and the continued Stop is still classified", async () => {
+		enable();
+		const deps = {
+			env: { TEDIX_CONFIG_DIR: base },
+			stdin: "",
+			cwd: process.cwd(),
+			platform: "darwin" as const,
+			which: (name: string) => `/usr/bin/${name}`,
+			spawn: (args: string[], options: typeof DETACHED) =>
+				spawned.push([args, options]),
+			label: () => "repo · main",
+		};
+		const event = {
+			session_id: SESSION,
+			turn_id: "turn-1",
+			hook_event_name: "Stop",
+			last_assistant_message: "Tests pass. Should I push?",
+		};
+		recordAutoContinued(deps, event);
+		expect(state("codex")).toMatchObject({
+			state: "working",
+			summary: "Continued by Tedix auto reply",
+		});
+		expect(notifications()).toHaveLength(0);
+		const marker = join(
+			base,
+			"agent-status",
+			`codex-${SESSION}${AUTO_CONTINUED_SUFFIX}`,
+		);
+		expect(existsSync(marker)).toBe(true);
+		// Codex flags the Stop after a continuation; it still settles the status.
+		const urgent: TriageResult = {
+			status: "ok",
+			urgency: "now",
+			labels: {},
+			urgentLabels: ["blocker"],
+			model: "m",
+			policyVersion: 1,
+			latencyMs: 1,
+		};
+		await applyTriagedStop(deps, { ...event, stop_hook_active: true }, urgent);
+		expect(state("codex")?.state).toBe("needs_you");
+		expect(notifications()).toHaveLength(1);
+		expect(existsSync(marker)).toBe(false);
+		// Without the marker a flagged Stop is skipped, as before.
+		await applyTriagedStop(
+			deps,
+			{ ...event, stop_hook_active: true, last_assistant_message: "Done." },
+			undefined,
+		);
+		expect(state("codex")?.state).toBe("needs_you");
 	});
 });

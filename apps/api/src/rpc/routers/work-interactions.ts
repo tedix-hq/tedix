@@ -285,6 +285,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 						drafterId: latestDraft.drafterId,
 						createdAt: latestDraft.createdAt,
 						turnType: latestDraft.turnType,
+						delivery: latestDraft.delivery,
 					}
 				: null,
 			responses: {

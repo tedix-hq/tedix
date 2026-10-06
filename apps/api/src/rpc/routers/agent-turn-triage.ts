@@ -17,16 +17,20 @@
  * `getReplyDraftAcceptance`): the target user of a quiet (`later`, no urgent
  * labels) decision-capture question may ask the policy's drafting tedi for a
  * reply proposal. The request queues one `tedi_turn` automation event per
- * question; the tedi stores its proposal with `proposeReplyDraft`. Nothing is
- * ever sent for the user: they accept, edit, or replace the draft and cite it
- * in their response metadata, which is what acceptance is measured from. The
- * drafting prompt is the versioned `replyDraft` block of the defaults asset.
+ * question; the tedi stores its proposal with `proposeReplyDraft`, and the
+ * server decides its delivery once ({@link decideReplyDraftDelivery}):
+ * `review` drafts wait for the user to accept, edit, or replace them (cited in
+ * response metadata, which is what acceptance is measured from); `auto`
+ * drafts may be sent without review under the policy's `autoSend` guardrails.
+ * The drafting prompt is the versioned `replyDraft` block of the defaults
+ * asset.
  */
 
 import { ORPCError, implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
 	AGENT_REPLY_LABELS,
+	type AgentReplyDraftDelivery,
 	type AgentReplyDraftIneligibleReason,
 	type AgentReplyLabel,
 	type AgentTurnTriagePolicy,
@@ -44,6 +48,7 @@ import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { listWorkAgentSessions } from "@tedix/db/queries/work-agent-sessions";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
+	countConsecutiveAutoReplies,
 	getReplyDraftAcceptance,
 	insertReplyDraft,
 } from "@tedix/db/queries/work-items/reply-drafts";
@@ -422,6 +427,40 @@ async function requireInteraction(
 	return request;
 }
 
+/**
+ * Delivery of a proposed draft. `auto` only when every guardrail holds:
+ * policy `autoSend.enabled`, the drafter asserted `reversible`, the question
+ * is quiet (checked by the caller and the DB insert guard), it carries a
+ * `metadata.sessionId`, and fewer than `autoSend.maxConsecutive` of that
+ * session's earlier questions were auto-answered since the user last replied
+ * there. Anything else is `review`.
+ */
+export async function decideReplyDraftDelivery(
+	context: Pick<BaseContext, "db">,
+	params: {
+		policy: AgentTurnTriagePolicy;
+		reversible: boolean;
+		request: InteractionRow;
+		targetUserId: string;
+	},
+): Promise<AgentReplyDraftDelivery> {
+	const { autoSend } = params.policy;
+	if (!autoSend.enabled || params.reversible !== true) return "review";
+	if (autoSend.maxConsecutive <= 0) return "review";
+	const metadata = params.request.metadata as Record<string, unknown>;
+	const sessionId = metadata.sessionId;
+	if (typeof sessionId !== "string" || sessionId.length === 0) return "review";
+	const consecutive = await countConsecutiveAutoReplies(context.db, {
+		orgId: params.request.orgId,
+		interactionId: params.request.id,
+		targetUserId: params.targetUserId,
+		sessionId,
+		createdAt: params.request.createdAt,
+		limit: autoSend.maxConsecutive,
+	});
+	return consecutive < autoSend.maxConsecutive ? "auto" : "review";
+}
+
 const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
@@ -511,6 +550,12 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 				`Question cannot be drafted: ${reason}`,
 			);
 		}
+		const delivery = await decideReplyDraftDelivery(context, {
+			policy,
+			reversible: input.reversible,
+			request,
+			targetUserId,
+		});
 		try {
 			const draft = await insertReplyDraft(context.db, {
 				id: crypto.randomUUID(),
@@ -520,9 +565,10 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 				body: input.body,
 				rationale: input.rationale,
 				turnType: input.turnType ?? null,
+				delivery,
 				now,
 			});
-			return { draftId: draft.id };
+			return { draftId: draft.id, delivery: draft.delivery };
 		} catch (error) {
 			rethrowWorkControlError(error, { invalidPrincipal: "forbidden" });
 		}

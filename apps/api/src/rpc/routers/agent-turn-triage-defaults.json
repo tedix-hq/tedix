@@ -1,5 +1,5 @@
 {
-	"assetVersion": 2,
+	"assetVersion": 3,
 	"policy": {
 		"enabled": true,
 		"model": "@cf/cloudflare/clef-flash",
@@ -33,6 +33,10 @@
 		"eligibility": {
 			"minRate": 0.9,
 			"minDrafts": 50
+		},
+		"autoSend": {
+			"enabled": false,
+			"maxConsecutive": 3
 		}
 	},
 	"replyLabel": {
@@ -54,9 +58,9 @@
 		}
 	},
 	"replyDraft": {
-		"promptVersion": 1,
+		"promptVersion": 2,
 		"lines": [
-			"You are drafting a reply proposal for a human operator. You never answer for them: your draft is stored with propose_agent_reply_draft and the operator accepts, edits, or replaces it. Do not respond to the Work Interaction, delegate it, message anyone, or take any other action.",
+			"You are drafting a reply for a human operator to their coding agent. Store it with propose_agent_reply_draft; the server decides whether it waits for the operator's review or is sent as is. Do not respond to the Work Interaction, delegate it, message anyone, or take any other action.",
 			"",
 			"Question (Work Interaction {{requestId}}, triaged as not urgent):",
 			"Subject: {{subject}}",
@@ -76,9 +80,12 @@
 			"- Read the operator's preferences Output when the skill or your memory names one (get_os_output), and follow its reply style.",
 			"- Use the peer sessions above to avoid contradicting parallel work.",
 			"",
-			"Draft the reply exactly as the operator would type it: short, plain English, decisive on reversible choices. If the agent asks for something only a human can do (login, consent, MFA, credentials, payment), or for a destructive or outward-facing action, do not draft; stop.",
+			"Write the reply exactly as the operator would type it: one concrete next step, short, plain English, decisive. When the agent recommended a next step that is reversible and fits the board's priorities, tell it to continue with that step; otherwise name the one step that does. Do not ask the agent questions back or add options.",
+			"If the agent asks for something only a human can do (login, consent, MFA, credentials, payment), do not draft; stop.",
 			"",
-			"Then call propose_agent_reply_draft once with requestId \"{{requestId}}\", body (the reply, at most 6000 characters), rationale (at most 2000 characters: the priorities, preferences, or sessions you relied on), and turnType (one of: {{turnTypeChoices}})."
+			"Set reversible honestly. reversible is true only when the step your reply leads to can be undone: no deploy, publish, or release; no deleting data; no force-push; no messages to other people; no payments or credentials. Committing and pushing reviewed code to main counts as reversible. When unsure, set false: the reply then waits for the operator's review.",
+			"",
+			"Then call propose_agent_reply_draft once with requestId \"{{requestId}}\", body (the reply, at most 6000 characters), rationale (at most 2000 characters: the priorities, preferences, or sessions you relied on, and why the step is or is not reversible), turnType (one of: {{turnTypeChoices}}), and reversible (true or false)."
 		]
 	}
 }

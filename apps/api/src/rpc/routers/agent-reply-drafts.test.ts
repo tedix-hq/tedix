@@ -2,8 +2,8 @@
  * Tedi-drafted replies on the agent-turn triage router: only the question's
  * target user may request a draft, only the target's configured drafting tedi
  * may propose one, urgent or untriaged turns are never drafted, the drafting
- * turn is queued once per question, and acceptance is measured from cited
- * responses.
+ * turn is queued once per question, delivery is `auto` only inside the
+ * autoSend guardrails, and acceptance is measured from cited responses.
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -147,7 +147,12 @@ function fixture() {
 
 	function question(
 		metadata: Record<string, unknown> = QUIET,
-		overrides: { status?: string; targetType?: string; targetId?: string } = {},
+		overrides: {
+			status?: string;
+			targetType?: string;
+			targetId?: string;
+			createdAt?: string;
+		} = {},
 	) {
 		const id = uuid();
 		sqlite
@@ -163,7 +168,7 @@ function fixture() {
 				"Tests pass. Commit and push now?",
 				overrides.targetType ?? "user",
 				overrides.targetId ?? "target-id",
-				"2026-08-21T00:00:00.000Z",
+				overrides.createdAt ?? "2026-08-21T00:00:00.000Z",
 				JSON.stringify(metadata),
 			);
 		return id;
@@ -238,7 +243,7 @@ describe("requestReplyDraft", () => {
 			organizationId: ORG_ID,
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
-			source: "reply-draft:v1",
+			source: "reply-draft:v2",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);
 		const content = first.content as string;
@@ -321,16 +326,19 @@ describe("proposeReplyDraft", () => {
 		body: "Yes, push it.",
 		rationale: "Board priority is the migration; you approve green pushes.",
 		turnType: "approval",
+		reversible: true,
 	};
 
 	it("stores a draft from the configured drafting tedi", async () => {
 		const f = fixture();
 		await f.configure();
 		const requestId = f.question();
-		const { draftId } = await f.drafter.proposeReplyDraft({
+		const { draftId, delivery } = await f.drafter.proposeReplyDraft({
 			requestId,
 			...draft,
 		});
+		// autoSend is off by default: the draft waits for review.
+		expect(delivery).toBe("review");
 		expect(
 			f.sqlite
 				.prepare("SELECT * FROM work_interaction_reply_drafts WHERE id=?")
@@ -341,6 +349,7 @@ describe("proposeReplyDraft", () => {
 			drafter_id: DRAFTER_ID,
 			body: draft.body,
 			turn_type: "approval",
+			delivery: "review",
 		});
 		// A draft is a proposal: the question stays open and unanswered.
 		expect(
@@ -424,6 +433,146 @@ describe("policy owner through the MCP gateway", () => {
 	});
 });
 
+describe("proposeReplyDraft delivery", () => {
+	const SESSION = { ...QUIET, sessionId: "session-a" };
+	const AUTO_SEND = { autoSend: { enabled: true, maxConsecutive: 3 } };
+	const draft = {
+		body: "Continue with the migration you recommended.",
+		rationale: "Board priority; the step is a reviewed push to main.",
+		turnType: "continue",
+		reversible: true,
+	};
+	const at = (minute: number) =>
+		`2026-08-21T00:${String(minute).padStart(2, "0")}:00.000Z`;
+
+	/** One agent turn of session-a: a quiet question plus a proposed draft. */
+	async function turn(
+		f: ReturnType<typeof fixture>,
+		minute: number,
+		overrides: Partial<typeof draft> = {},
+		metadata: Record<string, unknown> = SESSION,
+	) {
+		const requestId = f.question(metadata, { createdAt: at(minute) });
+		const { delivery } = await f.drafter.proposeReplyDraft({
+			requestId,
+			...draft,
+			...overrides,
+		});
+		return { requestId, delivery };
+	}
+
+	function userReply(
+		f: ReturnType<typeof fixture>,
+		requestId: string,
+		replyClass: string,
+	) {
+		f.sqlite
+			.prepare(
+				"INSERT INTO work_interaction_responses (id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at) VALUES (?,?,?,2,'fence','user','target-id','Reply','answer',1,?,?)",
+			)
+			.run(
+				uuid(),
+				ORG_ID,
+				requestId,
+				JSON.stringify({
+					source: "user-reply",
+					sessionId: "session-a",
+					replyClass,
+				}),
+				new Date().toISOString(),
+			);
+	}
+
+	it("stays review while the policy is off", async () => {
+		const f = fixture();
+		await f.configure();
+		expect((await turn(f, 1)).delivery).toBe("review");
+	});
+
+	it("stays review when the drafter does not assert reversibility", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		expect((await turn(f, 1, { reversible: false })).delivery).toBe("review");
+		expect((await turn(f, 2)).delivery).toBe("auto");
+	});
+
+	it("stays review without a session id or with a zero budget", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		expect((await turn(f, 1, {}, QUIET)).delivery).toBe("review");
+		await f.configure({ autoSend: { enabled: true, maxConsecutive: 0 } });
+		expect((await turn(f, 2)).delivery).toBe("review");
+	});
+
+	it("exhausts the budget at maxConsecutive and resets after a user reply", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		const deliveries = [];
+		for (const minute of [1, 2, 3, 4])
+			deliveries.push((await turn(f, minute)).delivery);
+		expect(deliveries).toEqual(["auto", "auto", "auto", "review"]);
+		// Another session of the same user has its own budget.
+		expect(
+			(await turn(f, 5, {}, { ...QUIET, sessionId: "session-b" })).delivery,
+		).toBe("auto");
+		// The user answers the review turn themselves: the budget resets.
+		const answered = await turn(f, 6, { reversible: false });
+		expect(answered.delivery).toBe("review");
+		userReply(f, answered.requestId, "instruction");
+		expect((await turn(f, 7)).delivery).toBe("auto");
+	});
+
+	it("never auto-sends an urgent turn", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		for (const metadata of [
+			{ ...SESSION, triage: { ...QUIET.triage, urgency: "now" } },
+			{
+				...SESSION,
+				triage: { ...QUIET.triage, urgentLabels: ["risky_action"] },
+			},
+		]) {
+			const requestId = f.question(metadata, { createdAt: at(1) });
+			await expect(
+				f.drafter.proposeReplyDraft({ requestId, ...draft }),
+			).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+		}
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_reply_drafts")
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it("reports auto sends and overrides in acceptance", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		const first = await turn(f, 1);
+		const second = await turn(f, 2);
+		userReply(f, second.requestId, "continue");
+		const third = await turn(f, 3);
+		userReply(f, third.requestId, "correction");
+		expect([first.delivery, second.delivery, third.delivery]).toEqual([
+			"auto",
+			"auto",
+			"auto",
+		]);
+		const { byTurnType } = await f.target.getReplyDraftAcceptance({});
+		// first: followed up on the next question (second) with "continue";
+		// second: same; third: overridden by a correction on itself.
+		expect(byTurnType).toEqual([
+			expect.objectContaining({
+				turnType: "continue",
+				drafts: 3,
+				autoSent: 3,
+				autoFollowedUp: 3,
+				overridden: 1,
+				overrideRate: 1 / 3,
+			}),
+		]);
+	});
+});
+
 describe("getReplyDraftAcceptance", () => {
 	it("measures the caller's cited outcomes against policy thresholds", async () => {
 		const f = fixture();
@@ -435,6 +584,7 @@ describe("getReplyDraftAcceptance", () => {
 				body: "Yes",
 				rationale: "Priority",
 				turnType: "approval",
+				reversible: true,
 			});
 			f.sqlite
 				.prepare(
@@ -459,6 +609,10 @@ describe("getReplyDraftAcceptance", () => {
 					replaced: 0,
 					rate: 2 / 3,
 					eligible: true,
+					autoSent: 0,
+					autoFollowedUp: 0,
+					overridden: 0,
+					overrideRate: 0,
 				},
 			],
 			policy: { minRate: 0.5, minDrafts: 2 },

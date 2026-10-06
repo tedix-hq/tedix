@@ -14,8 +14,12 @@
  * turns notify, others do not, and `tedix hooks status` skips Stop.
  *
  * A "later" question also asks `agent.request_agent_reply_draft` for a
- * tedi-drafted reply. Drafts are reviewed, accepted or edited only in Tedix OS,
- * where they are visible; a reply typed in the chat never cites one.
+ * tedi-drafted reply. The server marks each draft `delivery: "review"` (shown
+ * in Tedix OS for the user to accept or edit) or `"auto"` (reversible,
+ * non-urgent and within the session's auto-reply budget). An auto draft is
+ * handed to the waiting agent by `await-reply` (Claude Code) or `await-draft`
+ * (Codex); the question itself stays open for the user, and the user's
+ * eventual chat reply to it cites the draft as `draftOutcome: "auto-sent"`.
  *
  * Recording happens only after `tedix setup agents context
  * enable-decision-capture` for the bound organization. Text is redacted and
@@ -107,7 +111,7 @@ const SECRETS: Array<[RegExp, string]> = [
 
 /** Host re-entries that arrive through the prompt hook but were not typed by the user. */
 const SYSTEM_PROMPT =
-	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context)/;
+	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context|Tedix [^\n]{1,120}? replied for the user \(auto,)/;
 
 /** Coarse first-pass labels mined from historic replies; the learning pass re-reads the full pair. */
 const CLASSES: Array<[string, RegExp]> = [
@@ -404,6 +408,15 @@ export interface InteractionDetail {
 		source: string | null;
 		sessionId: string | null;
 	} | null;
+	/** The request's newest tedi draft; `delivery` is absent on older servers. */
+	draft: {
+		id: string;
+		body: string;
+		complete: boolean;
+		drafterId: string;
+		drafterName: string | null;
+		delivery: "review" | "auto" | null;
+	} | null;
 }
 
 /**
@@ -412,7 +425,7 @@ export interface InteractionDetail {
  */
 function interactionDetailCode(requestId: string): string {
 	if (!UUID.test(requestId)) throw new Error("invalid request ID");
-	return `async () => { const r = await ${DETAIL_CALLABLE}(${JSON.stringify({ requestId, responseLimit: 5 })}); const s = (v, n) => typeof v === 'string' ? v.slice(0, n) : null; const x = (r.responses?.data ?? []).find((e) => e.resolvesRequest) ?? null; return { requestId: r.request.id, version: r.request.version, state: r.effectiveState, expiresAt: r.request.expiresAt ?? null, resolution: x ? { body: s(x.body, ${REPLY_LIMIT}), complete: typeof x.body === 'string' && x.body.length <= ${REPLY_LIMIT}, byType: s(x.respondedByType, 50), byId: s(x.respondedById, 300), source: s(x.metadata?.source, 100), sessionId: s(x.metadata?.sessionId, 100) } : null }; }`;
+	return `async () => { const r = await ${DETAIL_CALLABLE}(${JSON.stringify({ requestId, responseLimit: 5 })}); const s = (v, n) => typeof v === 'string' ? v.slice(0, n) : null; const x = (r.responses?.data ?? []).find((e) => e.resolvesRequest) ?? null; const d = r.latestDraft ?? null; return { requestId: r.request.id, version: r.request.version, state: r.effectiveState, expiresAt: r.request.expiresAt ?? null, resolution: x ? { body: s(x.body, ${REPLY_LIMIT}), complete: typeof x.body === 'string' && x.body.length <= ${REPLY_LIMIT}, byType: s(x.respondedByType, 50), byId: s(x.respondedById, 300), source: s(x.metadata?.source, 100), sessionId: s(x.metadata?.sessionId, 100) } : null, draft: d && typeof d === 'object' ? { id: s(d.id, 100), body: s(d.body, ${REPLY_LIMIT}), complete: typeof d.body === 'string' && d.body.length <= ${REPLY_LIMIT}, drafterId: s(d.drafterId, 300), drafterName: s(d.drafterName, 100), delivery: s(d.delivery, 20) } : null }; }`;
 }
 
 /** Validate a projected detail; anything unexpected is undefined. */
@@ -443,12 +456,37 @@ function detailOf(
 						typeof resolved.sessionId === "string" ? resolved.sessionId : null,
 				}
 			: null;
+	const drafted = value.draft;
+	const draft =
+		isObject(drafted) &&
+		typeof drafted.id === "string" &&
+		UUID.test(drafted.id) &&
+		typeof drafted.body === "string" &&
+		drafted.body.trim() &&
+		typeof drafted.drafterId === "string" &&
+		drafted.drafterId
+			? {
+					id: drafted.id,
+					body: drafted.body,
+					complete: drafted.complete === true,
+					drafterId: drafted.drafterId,
+					drafterName:
+						typeof drafted.drafterName === "string" && drafted.drafterName
+							? drafted.drafterName
+							: null,
+					delivery:
+						drafted.delivery === "auto" || drafted.delivery === "review"
+							? (drafted.delivery as "auto" | "review")
+							: null,
+				}
+			: null;
 	return {
 		requestId,
 		version: value.version,
 		state: value.state,
 		expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : null,
 		resolution,
+		draft,
 	};
 }
 
@@ -567,6 +605,23 @@ export function questionPath(state: string): string {
 	return state.replace(/\.json$/, ".question.json");
 }
 
+/**
+ * Whether this chat's newest question had a tedi draft queued:
+ * {requestId, status: "queued" | "none"}. Codex's `await-draft` waits on it.
+ */
+export function draftStatusPath(state: string): string {
+	return state.replace(/\.json$/, ".draft.json");
+}
+
+/**
+ * The last question whose auto-delivered draft was handed to the agent, by ID
+ * only: {requestId, draftId, count}. `count` is the consecutive auto
+ * deliveries since the user last typed a reply; a typed reply clears it.
+ */
+export function autoDeliveryPath(state: string): string {
+	return state.replace(/\.json$/, ".auto.json");
+}
+
 /** Read a small local JSON object without claiming it; undefined when absent or malformed. */
 export function peek(path: string): JsonObject | undefined {
 	try {
@@ -584,14 +639,21 @@ async function onReply(
 	prompt: string,
 	previous: TurnState,
 	options: CaptureOptions,
+	autoSent?: JsonObject,
 ): Promise<void> {
 	const requestId = String(previous.requestId);
 	const timeout = options.detailTimeoutMs ?? DETAIL_TIMEOUT_MS;
 	const detail = await interactionDetail(deps, binding, requestId, timeout);
 	// Answered in Tedix OS, cancelled or expired: never answer it twice.
 	if (detail && detail.state !== "open") return;
-	// A reply typed in the chat answers as typed: a tedi draft is never seen
-	// there, so it is neither sent nor cited (drafts are accepted in Tedix OS).
+	// A reply typed in the chat answers as typed. It cites a draft only when
+	// that draft was auto-delivered to this agent for this same question.
+	const cited =
+		autoSent?.requestId === requestId &&
+		typeof autoSent.draftId === "string" &&
+		UUID.test(autoSent.draftId)
+			? { draftId: autoSent.draftId, draftOutcome: "auto-sent" }
+			: {};
 	const [text, complete] = redact(prompt, REPLY_LIMIT);
 	const clef =
 		typeof previous.turnText === "string" && previous.turnText
@@ -621,6 +683,7 @@ async function onReply(
 					replyClass: classify(prompt),
 					...(clef ? { replyClassClef: clef } : {}),
 					replyComplete: complete,
+					...cited,
 				},
 			},
 			requestId,
@@ -701,6 +764,7 @@ async function onStop(
 	const token = randomUUID().replaceAll("-", "");
 	rmSync(early(state), { force: true });
 	rmSync(questionPath(state), { force: true });
+	rmSync(draftStatusPath(state), { force: true });
 	writeState(state, { pending: token });
 	const [text, complete] = redact(message, MESSAGE_LIMIT, "tail");
 	// Triage only the redacted text, then settle the turn status before the
@@ -755,31 +819,47 @@ async function onStop(
 	writeState(questionPath(state), { requestId: request.id, token, host });
 	await answerEarlyReply(deps, session, binding, state, options);
 	// Only a question still waiting on the user gets a tedi-drafted reply.
-	if (triage.urgency === "later" && peek(state)?.requestId === request.id)
-		await requestDraft(deps, binding, request.id, options);
+	const queued =
+		triage.urgency === "later" &&
+		peek(state)?.requestId === request.id &&
+		(await requestDraft(deps, binding, request.id, options));
+	writeState(draftStatusPath(state), {
+		requestId: request.id,
+		status: queued ? "queued" : "none",
+	});
 }
 
 /**
- * Ask a tedi to draft a reply. The server only queues it; the draft is shown
- * to the user, never sent. Not deployed, ineligible or slow: nothing happens.
+ * Ask a tedi to draft a reply; true when one was queued. The server decides
+ * whether the draft is reviewed in Tedix OS or auto-delivered to the agent.
+ * Not deployed, ineligible or slow: nothing happens.
  */
 async function requestDraft(
 	deps: HookDeps,
 	binding: Binding,
 	requestId: string,
 	options: CaptureOptions,
-): Promise<void> {
+): Promise<boolean> {
 	try {
-		await gatewayCall(
+		const result = await gatewayCall(
 			deps,
 			binding,
 			REQUEST_DRAFT_CALLABLE,
 			{ requestId },
 			options.draftTimeoutMs ?? DRAFT_TIMEOUT_MS,
 		);
+		return result.status === "queued";
 	} catch {
 		// Silent: the question stands without a draft.
+		return false;
 	}
+}
+
+/** True for a prompt the user typed, not a host re-entry or a Tedix auto reply. */
+function typedPrompt(prompt: unknown): prompt is string {
+	return (
+		typeof prompt === "string" && !!prompt.trim() && !SYSTEM_PROMPT.test(prompt)
+	);
 }
 
 /**
@@ -792,12 +872,7 @@ export function claimReply(
 	state: string,
 ): "early" | [string, TurnState] | undefined {
 	const prompt = event.prompt;
-	if (
-		typeof prompt !== "string" ||
-		!prompt.trim() ||
-		SYSTEM_PROMPT.test(prompt)
-	)
-		return undefined;
+	if (!typedPrompt(prompt)) return undefined;
 	const current = claim(state);
 	if (!current) return undefined;
 	if (current.pending) {
@@ -846,6 +921,11 @@ export async function runDecisionCapture(
 		});
 		const id = session!;
 		const state = captureStatePath(deps.env, id);
+		// A typed reply ends the run of consecutive auto replies.
+		const autoSent =
+			mode === "reply" && typedPrompt(event.prompt)
+				? claim(autoDeliveryPath(state))
+				: undefined;
 		const claimed = mode === "reply" ? claimReply(event, state) : undefined;
 		if (mode === "reply" && !claimed) return;
 		const binding = await bindingFor(
@@ -866,11 +946,12 @@ export async function runDecisionCapture(
 		} else {
 			const [prompt, current] = claimed!;
 			try {
-				await onReply(deps, id, binding, prompt, current, options);
+				await onReply(deps, id, binding, prompt, current, options, autoSent);
 			} catch (error) {
 				// Keep the reply so the next turn end retries it.
 				writeState(early(state), { token: current.token, prompt });
 				writeState(state, current);
+				if (autoSent) writeState(autoDeliveryPath(state), autoSent);
 				throw error;
 			}
 		}

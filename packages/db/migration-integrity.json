@@ -780,6 +780,10 @@
 		{
 			"name": "20261006211603_workspace_capabilities/migration.sql",
 			"sha256": "be568be24baf542457cab4a275b6547fd4de6baa15de901cddc375755b16e01f"
+		},
+		{
+			"name": "20261006213854_reply_draft_delivery/migration.sql",
+			"sha256": "8ec4f8a25fdd23c9567e16e0cb394c9d9311c5b4f43f3e5779c219eca506ff21"
 		}
 	]
 }

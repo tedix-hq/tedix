@@ -663,6 +663,15 @@ export const workInteractionReplyDrafts = sqliteTable(
 		body: text("body").notNull(),
 		rationale: text("rationale").notNull(),
 		turnType: text("turn_type"),
+		/**
+		 * `review`: the human accepts, edits, or replaces the draft in Tedix OS.
+		 * `auto`: the server judged it safe to send without review (policy
+		 * autoSend on, drafter asserted a reversible next step, the session's
+		 * consecutive auto budget not exhausted). Decided once at insert.
+		 */
+		delivery: text("delivery", { enum: ["review", "auto"] as const })
+			.notNull()
+			.default("review"),
 		createdAt: text("created_at").notNull(),
 	},
 	(table) => [
@@ -687,6 +696,10 @@ export const workInteractionReplyDrafts = sqliteTable(
 		check(
 			"chk_work_interaction_reply_draft_turn_type",
 			sql`${table.turnType} IS NULL OR length(${table.turnType}) BETWEEN 1 AND 64`,
+		),
+		check(
+			"chk_work_interaction_reply_draft_delivery",
+			sql`${table.delivery} IN ('review','auto')`,
 		),
 	],
 );

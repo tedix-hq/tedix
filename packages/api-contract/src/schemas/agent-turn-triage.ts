@@ -51,8 +51,8 @@ export type AgentTurnTriageQuestion = z.infer<
 
 /**
  * Tedi-drafted replies to quiet (`later`) decision-capture questions. Drafts
- * are proposals the human accepts, edits, or replaces; nothing is ever sent
- * automatically. Disabled unless a drafting tedi is named.
+ * are proposals the human accepts, edits, or replaces unless `autoSend`
+ * delivers a reversible one. Disabled unless a drafting tedi is named.
  */
 export const AgentReplyDraftingPolicySchema = z.strictObject({
 	enabled: z
@@ -79,8 +79,33 @@ export type AgentReplyDraftingPolicy = z.infer<
 >;
 
 /**
- * When a turn type has earned trust. Measurement only: eligibility never
- * enables sending a draft without the human.
+ * Auto-send guardrails. A drafted reply is delivered `auto` (sent without the
+ * human's review) only when this is enabled, the drafting tedi asserted the
+ * proposed next step is reversible, the question is quiet (triage `ok`,
+ * `later`, no urgent labels) and fewer than `maxConsecutive` earlier questions
+ * of the same agent session were auto-answered since the user last replied
+ * there themselves. Otherwise the draft waits for review. Off by default.
+ */
+export const AgentReplyAutoSendPolicySchema = z.strictObject({
+	enabled: z
+		.boolean()
+		.describe("When false, every draft is delivered `review`"),
+	maxConsecutive: z
+		.number()
+		.int()
+		.min(0)
+		.max(10)
+		.describe(
+			"Per agent session: at most this many auto-sent replies in a row before the user must reply themselves; 0 never auto-sends",
+		),
+});
+export type AgentReplyAutoSendPolicy = z.infer<
+	typeof AgentReplyAutoSendPolicySchema
+>;
+
+/**
+ * When a turn type has earned trust. Measurement only: eligibility does not
+ * change delivery, which `autoSend` governs.
  */
 export const AgentReplyDraftEligibilitySchema = z.strictObject({
 	minRate: z
@@ -104,6 +129,10 @@ export const DEFAULT_AGENT_REPLY_DRAFTING: AgentReplyDraftingPolicy = {
 };
 export const DEFAULT_AGENT_REPLY_DRAFT_ELIGIBILITY: AgentReplyDraftEligibility =
 	{ minRate: 0.9, minDrafts: 50 };
+export const DEFAULT_AGENT_REPLY_AUTO_SEND: AgentReplyAutoSendPolicy = {
+	enabled: false,
+	maxConsecutive: 3,
+};
 
 const policyFields = {
 	enabled: z
@@ -132,6 +161,11 @@ const policyFields = {
 	eligibility: AgentReplyDraftEligibilitySchema.default(
 		DEFAULT_AGENT_REPLY_DRAFT_ELIGIBILITY,
 	).describe("Acceptance thresholds reported per turn type"),
+	autoSend: AgentReplyAutoSendPolicySchema.default(
+		DEFAULT_AGENT_REPLY_AUTO_SEND,
+	).describe(
+		"Guardrails for sending a reversible draft without review; off by default",
+	),
 };
 
 export const AgentTurnTriagePolicySchema = z.strictObject({
@@ -320,10 +354,26 @@ export const ProposeAgentReplyDraftInputSchema = z.strictObject({
 		.describe(
 			"Turn-type label, preferably from the policy's turnTypeChoices; acceptance is measured per type",
 		),
+	reversible: z
+		.boolean()
+		.describe(
+			"Your assertion that the next step this reply leads to is reversible: no deploy, publish or release, no deleting data, no force-push, no messages to other people, no payments or credentials. Committing and pushing reviewed code to main counts as reversible. Only `true` lets the reply be sent without review.",
+		),
 });
+
+export const AGENT_REPLY_DRAFT_DELIVERIES = ["review", "auto"] as const;
+export const AgentReplyDraftDeliverySchema = z
+	.enum(AGENT_REPLY_DRAFT_DELIVERIES)
+	.describe(
+		"`review`: the user accepts, edits, or replaces it in Tedix OS; `auto`: it may be sent without review (policy autoSend on, reversible, quiet question, session budget not exhausted)",
+	);
+export type AgentReplyDraftDelivery = z.infer<
+	typeof AgentReplyDraftDeliverySchema
+>;
 
 export const ProposeAgentReplyDraftResultSchema = z.object({
 	draftId: z.uuid(),
+	delivery: AgentReplyDraftDeliverySchema,
 });
 
 export const GetAgentReplyDraftAcceptanceInputSchema = z.strictObject({
@@ -354,8 +404,28 @@ export const AgentReplyDraftAcceptanceRowSchema = z.object({
 	eligible: z
 		.boolean()
 		.describe(
-			"decided ≥ minDrafts and rate ≥ minRate. Measurement only; nothing is sent automatically",
+			"decided ≥ minDrafts and rate ≥ minRate. Measurement only; delivery is governed by policy autoSend",
 		),
+	autoSent: z.number().int().min(0).describe("Drafts delivered `auto`"),
+	autoFollowedUp: z
+		.number()
+		.int()
+		.min(0)
+		.describe(
+			"Auto drafts with a user follow-up: the earliest answer by the user with metadata.source `user-reply` on the draft's question or on the same session's next decision-capture question",
+		),
+	overridden: z
+		.number()
+		.int()
+		.min(0)
+		.describe(
+			"Auto drafts whose follow-up replyClass is missing or not one of continue, approve, ship, fan-out (the user redirected the agent)",
+		),
+	overrideRate: z
+		.number()
+		.min(0)
+		.max(1)
+		.describe("overridden / autoSent; 0 when nothing was auto-sent"),
 });
 
 export const GetAgentReplyDraftAcceptanceResultSchema = z.object({

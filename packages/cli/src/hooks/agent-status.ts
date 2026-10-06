@@ -58,6 +58,14 @@ const RULE = /^[-*_=|: ]+$/;
  */
 export const SUPERVISOR_CONTINUED_SUFFIX = ".supervisor-continued";
 
+/**
+ * Written when a Tedix auto reply continues a session (`recordAutoContinued`).
+ * The Stop that ends the continued turn consumes it and is classified even
+ * though the host reports `stop_hook_active` (Codex does after a Stop hook
+ * continues the turn), so the session does not stay `working`.
+ */
+export const AUTO_CONTINUED_SUFFIX = ".auto-continued";
+
 /** Options for detached children: a new process group with no stdin. */
 export const DETACHED = { detached: true, stdin: "ignore" } as const;
 
@@ -517,11 +525,43 @@ export async function applyTriagedStop(
 	const supervisorContinued = consume(
 		supervisorMarker(statusDir(deps.env), harness, sessionKey),
 	);
-	if (event.stop_hook_active) return;
+	const autoContinued = consume(
+		join(
+			statusDir(deps.env),
+			`${harness}-${sessionKey}${AUTO_CONTINUED_SUFFIX}`,
+		),
+	);
+	if (event.stop_hook_active && !autoContinued) return;
 	const outcome: Outcome = supervisorContinued
 		? ["working", "Continued by supervisor"]
 		: triagedOutcome(event.last_assistant_message, triage);
 	recordStatus(deps, configured, event, harness, sessionKey, outcome);
+}
+
+/**
+ * Record the session as working now because a Tedix auto reply continued it
+ * after its Stop was already recorded. Unlike the supervisor marker, which the
+ * next Stop consumes, this leaves the next Stop to be classified normally, so
+ * an urgent turn after an auto reply still notifies. `working` never notifies.
+ */
+export function recordAutoContinued(deps: StatusDeps, event: JsonObject): void {
+	const configured = statusSettings(deps.env);
+	if (!configured) return;
+	const sessionKey = event.session_id;
+	if (typeof sessionKey !== "string" || !SESSION_KEY.test(sessionKey)) return;
+	const harness = harnessOf(event, deps.env);
+	recordStatus(deps, configured, event, harness, sessionKey, [
+		"working",
+		"Continued by Tedix auto reply",
+	]);
+	writeFileSync(
+		join(
+			statusDir(deps.env),
+			`${harness}-${sessionKey}${AUTO_CONTINUED_SUFFIX}`,
+		),
+		"",
+		{ mode: 0o600 },
+	);
 }
 
 function recordStatus(

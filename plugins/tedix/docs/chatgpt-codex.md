@@ -277,20 +277,77 @@ result, the reporter's own question classifier decides, as before.
 
 For a question triaged "later", the `Stop` handler also asks the organization
 for a tedi-drafted reply (`agent.request_agent_reply_draft`, at most 3 seconds,
-silent when missing). A draft is never sent on its own and never reaches the
-chat directly. Review it in the Tedix OS inbox, where it appears with its
-rationale, and accept it or edit it there; that answer records which draft it
-started from as `{draftId, draftOutcome, editRatio}`: `accepted` (unchanged),
-`edited` (normalized edit distance at most 0.3) or `replaced`. A reply typed in
-the chat answers the agent as typed and never counts toward a draft.
+silent when missing). The organization marks each draft for review or for
+automatic delivery (below). A review draft never reaches the chat directly.
+Review it in the Tedix OS inbox, where it appears with its rationale, and
+accept it or edit it there; that answer records which draft it started from as
+`{draftId, draftOutcome, editRatio}`: `accepted` (unchanged), `edited`
+(normalized edit distance at most 0.3) or `replaced`. A reply typed in the chat
+answers the agent as typed and cites no review draft.
 
 When you answer the question in Tedix OS, Claude Code is woken in the background
 by `tedix hooks await-reply` (an `asyncRewake` `Stop` hook that polls the
 question with 5 to 60 second backoff for at most four hours) and receives your
-answer. Codex has no background wake, so the local Codex artifact omits that
-hook; Codex receives the OS answer with your next prompt, through the prompt
-hook, which looks the question up by ID only. A question already answered in
+answer or an automatic reply (below). Codex has no background wake, so the local Codex
+artifact omits that hook; Codex receives the OS answer with your next prompt,
+through the prompt hook, which looks the question up by ID only. A question already answered in
 Tedix OS is never answered again by the chat reply.
+
+#### Automatic replies and their guardrails
+
+The organization, not the local hook, decides whether a draft is sent
+automatically (`latestDraft.delivery: "auto"`). It does so only when all of
+these hold:
+
+- the step is reversible;
+- the turn was not triaged urgent ("now"); urgent turns are never answered
+  automatically;
+- the session has had fewer than 3 automatic replies in a row. The hooks keep
+  the same limit of 3 locally, and a reply you type resets it.
+
+An automatic reply reaches the agent as `Tedix <tedi> replied for the user
+(auto, reversible step; the user can override at any time): "<reply>"`. The
+reply is a quoted JSON string, framed as untrusted drafted content that stands
+in for your answer, not as instructions. The question itself stays open: no
+hook answers in your name. In Tedix OS the reply shows "Sent automatically by
+<tedi>" with no Accept button; write an override there at any time and it
+answers the question normally, recorded as `draftOutcome: "replaced"`. If you
+instead reply in the chat to a question that received an automatic reply, that
+answer records `{draftId, draftOutcome: "auto-sent"}`. The local record of an
+automatic delivery holds only the question and draft IDs. A server without
+automatic delivery, or a draft with no `delivery`, is treated as a review
+draft. The turn-status reporter records an automatically continued session as
+working, so no needs-you notification is sent; the turn that follows is
+classified normally.
+
+Claude Code receives an automatic reply through `tedix hooks await-reply`.
+Codex receives it through `tedix hooks await-draft`, a synchronous Codex-only
+`Stop` hook. Codex documents that a `Stop` hook returning
+`{"decision": "block", "reason": "..."}` "tells Codex to continue and
+automatically creates a new continuation prompt that acts as a new user
+prompt, using your reason as that prompt text"
+([Codex hooks](https://learn.chatgpt.com/docs/hooks)). `await-draft` waits up
+to 90 seconds, polling every 3 seconds, for the question this turn opens. It
+prints that continuation only for an automatic draft. It returns at once with
+no output when no draft was queued, the draft is for review, or the question
+was answered. The local Codex artifact registers it; Claude Code artifacts omit
+it. If your Codex hooks live in `~/.codex/hooks.json` instead of the plugin,
+add this beside the `tedix hooks capture-stop` entry under `"Stop"`:
+
+```json
+{
+	"hooks": [
+		{
+			"type": "command",
+			"command": "tedix hooks await-draft",
+			"timeout": 100
+		}
+	]
+}
+```
+
+Then restart Codex and trust the changed hook in `/hooks`. Without it, Codex
+gets no automatic replies; the question stays open in Tedix OS.
 
 Automatic goal continuations, tool returns and background work are not proven
 `UserPromptSubmit` events. Use explicit checkpoint reads for those. To prove
@@ -308,8 +365,9 @@ the [Claude Code guide](./claude-code.md#opt-in-turn-status). Enable it with
 "connect", "organization": "<selected org>"}`, restart Codex, and trust the changed hooks in `/hooks`. Codex
 delivers `UserPromptSubmit`, `PermissionRequest`, `PostToolUse`, `Stop` and
 `SessionEnd`; it has no `Notification` or `StopFailure` event, so Codex
-failures surface only when the next turn starts. The Stop hook prints nothing,
-which Codex accepts.
+failures surface only when the next turn starts. The status `Stop` hook prints
+nothing, which Codex accepts; only `await-draft` prints, and only its
+continuation JSON.
 
 If a skill is missing, check that the plugin is enabled and start a new chat.
 If `codex mcp list` says `Not logged in`, complete the owner OAuth flow before

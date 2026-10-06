@@ -393,6 +393,7 @@ describe("Work interaction canonical actor projections", () => {
 			drafterId: "drafter",
 			createdAt: "2026-08-21T02:00:00.000Z",
 			turnType: "approval",
+			delivery: "review",
 		};
 		expect(await target.get({ requestId: request.id })).toMatchObject({
 			latestDraft,
