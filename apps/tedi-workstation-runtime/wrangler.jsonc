@@ -1,0 +1,163 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "public-installation-tedi-workstation-runtime",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-14",
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"placement": {
+		"mode": "smart",
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1,
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.01,
+		},
+	},
+	"dev": {
+		"port": 3017,
+		"inspector_port": 19245,
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"GIT_SHA": "configured-via-private-overlay",
+		"CF_ACCOUNT_ID": "configured-via-private-overlay",
+		"DO_NOT_TRACK": "configured-via-private-overlay",
+	},
+	"services": [
+		{
+			"binding": "API_SERVICE",
+			"service": "public-installation-api",
+			"entrypoint": "InternalEntrypoint",
+		},
+		{
+			"binding": "WORKSTATION_EGRESS_PROXY",
+			"service": "public-installation-tedi-workstation-egress-broker",
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "BACKUP_BUCKET",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+	],
+	"analytics_engine_datasets": [
+		{
+			"binding": "RUNTIME_ANALYTICS",
+			"dataset": "public_installation_dataset",
+		},
+	],
+	"containers": [
+		{
+			"class_name": "TediWorkstationRuntimeSandbox",
+			"scheduling_policy": "durable_object",
+			"images": {
+				"workstation": {
+					"dockerfile": "./Dockerfile",
+				},
+			},
+		},
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "TediWorkstationRuntimeSandbox",
+				"name": "TediWorkstationRuntimeSandbox",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"new_sqlite_classes": ["TediWorkstationSandbox"],
+			"tag": "v1",
+		},
+		{
+			"renamed_classes": [
+				{
+					"from": "TediWorkstationSandbox",
+					"to": "TediWorkstationRuntimeSandbox",
+				},
+			],
+			"tag": "v2-tedi-workstation-runtime-sandbox",
+		},
+	],
+	"env": {
+		"production": {
+			"name": "public-installation-tedi-workstation-runtime",
+			"workers_dev": false,
+			"vars": {
+				"ENVIRONMENT": "production",
+				"GIT_SHA": "configured-via-private-overlay",
+				"CF_ACCOUNT_ID": "configured-via-private-overlay",
+				"DO_NOT_TRACK": "configured-via-private-overlay",
+			},
+			"services": [
+				{
+					"binding": "API_SERVICE",
+					"service": "public-installation-api",
+					"entrypoint": "InternalEntrypoint",
+				},
+				{
+					"binding": "WORKSTATION_EGRESS_PROXY",
+					"service": "public-installation-tedi-workstation-egress-broker",
+				},
+			],
+			"r2_buckets": [
+				{
+					"binding": "BACKUP_BUCKET",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "RUNTIME_ANALYTICS",
+					"dataset": "public_installation_dataset",
+				},
+			],
+			"containers": [
+				{
+					"name": "public-installation-container-env-production-0",
+					"class_name": "TediWorkstationRuntimeSandbox",
+					"scheduling_policy": "durable_object",
+					"images": {
+						"workstation": {
+							"dockerfile": "./Dockerfile",
+						},
+					},
+				},
+			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"class_name": "TediWorkstationRuntimeSandbox",
+						"name": "TediWorkstationRuntimeSandbox",
+					},
+				],
+			},
+			"migrations": [
+				{
+					"tag": "v1",
+					"new_sqlite_classes": ["TediWorkstationSandbox"],
+				},
+				{
+					"tag": "v2-tedi-workstation-runtime-sandbox",
+					"renamed_classes": [
+						{
+							"from": "TediWorkstationSandbox",
+							"to": "TediWorkstationRuntimeSandbox",
+						},
+					],
+				},
+			],
+		},
+	},
+}

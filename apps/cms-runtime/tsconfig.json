@@ -1,0 +1,11 @@
+{
+	"extends": "@tedix/tsconfig/base.json",
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"lib": ["ESNext"],
+		"noEmit": true,
+		"allowImportingTsExtensions": true
+	},
+	"include": ["src", ".cloudflare/types/index.d.ts"]
+}

@@ -1,0 +1,46 @@
+{
+	"name": "@tedix/tedi",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Edge Worker for tedi traffic: routing, authentication, MCP, admin APIs, and proxying to the Agent runtime.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist",
+		"clear-port": "../../scripts/clear-port.sh --app tedi",
+		"types": "cf workers types --mode production",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build": "vp build",
+		"preview": "vp preview",
+		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"tail": "bunx wrangler tail",
+		"type-check": "bun run types && tsc --noEmit",
+		"test": "bun run test:run",
+		"test:run": "bun run test:unit && bun run test:workerd",
+		"test:unit": "vp test run",
+		"test:workerd": "vp test run --config vitest.workerd.config.ts",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test"
+	},
+	"dependencies": {
+		"@cloudflare/sandbox": "catalog:",
+		"@tedix/api-client": "workspace:*",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/auth": "workspace:*",
+		"@tedix/container-runtime": "workspace:*",
+		"@tedix/context-core": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"hono": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"cf": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

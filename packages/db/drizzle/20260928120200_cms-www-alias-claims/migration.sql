@@ -1,0 +1,1 @@
+ALTER TABLE `cms_domain_claims` ADD `kind` text DEFAULT 'primary' NOT NULL;

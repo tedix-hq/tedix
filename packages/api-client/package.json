@@ -1,0 +1,31 @@
+{
+	"name": "@tedix/api-client",
+	"version": "0.0.1",
+	"private": true,
+	"description": "oRPC client construction for browsers, the CLI, and Workers calling the Tedix API.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./client": "./src/client.ts",
+		"./internal": "./src/internal.ts",
+		"./adapters": "./src/adapters.ts"
+	},
+	"scripts": {
+		"clean": "rm -rf node_modules",
+		"test:run": "vp test run",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@orpc/client": "catalog:",
+		"@orpc/contract": "catalog:",
+		"@tedix/api-contract": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@orpc/server": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

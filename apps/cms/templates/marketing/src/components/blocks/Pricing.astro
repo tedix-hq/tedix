@@ -1,0 +1,180 @@
+---
+/**
+ * marketing.pricing — plan comparison cards. Mirrors the official marketing
+ * pricing block. Plans come from a native repeater;
+ * `features` retains its stored newline-separated representation.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asItems, asString } from "./value-utils";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_pricing" }>>;
+const { value: node } = Astro.props;
+
+const headline = asString(node.headline);
+const plans: Array<{
+	name?: string;
+	price?: string;
+	period?: string;
+	description?: string;
+	features: string[];
+	ctaLabel?: string;
+	ctaUrl?: string;
+	highlighted: boolean;
+}> = asItems(node.plans).map((row) => {
+	const raw = row;
+	return {
+		name: asString(raw.name),
+		price: asString(raw.price),
+		period: asString(raw.period),
+		description: asString(raw.description),
+		features: (raw.features ?? "")
+			.split("\n")
+			.map((s) => s.trim())
+			.filter(Boolean),
+		ctaLabel: asString(raw.cta_label),
+		ctaUrl: asString(raw.cta_url),
+		highlighted: raw.highlighted === true,
+	};
+});
+---
+
+{plans.length > 0 && (
+	<section class="mk-pricing">
+		<div class="mk-wrap">
+			{headline && <h2 class="mk-pricing__heading">{headline}</h2>}
+			<div class="mk-pricing__grid">
+				{plans.map((plan) => (
+					<div class:list={["mk-plan", { "mk-plan--highlighted": plan.highlighted }]}>
+						{plan.highlighted && <div class="mk-plan__badge">Most popular</div>}
+						<div class="mk-plan__header">
+							{plan.name && <h3 class="mk-plan__name">{plan.name}</h3>}
+							<div class="mk-plan__price">
+								{plan.price && <span class="mk-plan__amount">{plan.price}</span>}
+								{plan.period && <span class="mk-plan__period">{plan.period}</span>}
+							</div>
+							{plan.description && <p class="mk-plan__description">{plan.description}</p>}
+						</div>
+						{plan.features.length > 0 && (
+							<ul class="mk-plan__features">
+								{plan.features.map((feature) => (
+									<li>{feature}</li>
+								))}
+							</ul>
+						)}
+						{plan.ctaLabel && plan.ctaUrl && (
+							<a class="iw-btn mk-plan__cta" href={plan.ctaUrl}>
+								{plan.ctaLabel}
+							</a>
+						)}
+					</div>
+				))}
+			</div>
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-pricing {
+		padding: var(--spacing-4xl, 80px) 0;
+	}
+	.mk-pricing__heading {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		text-align: center;
+		font-size: clamp(1.6rem, 3vw, 2.2rem);
+		margin: 0 0 var(--spacing-2xl, 2.5rem);
+	}
+	.mk-pricing__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+		gap: var(--spacing-xl, 24px);
+		align-items: start;
+	}
+	.mk-plan {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-lg, 1.25rem);
+		padding: var(--spacing-xl, 28px) var(--spacing-lg, 24px);
+		background: var(--color-bg-subtle);
+		border-radius: var(--radius, 10px);
+		border-top: 3px solid transparent;
+	}
+	.mk-plan--highlighted {
+		background: var(--color-surface);
+		border-top-color: var(--color-brand-500);
+		box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1));
+	}
+	.mk-plan__badge {
+		position: absolute;
+		top: 0;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		padding: var(--spacing-xs, 4px) var(--spacing-md, 12px);
+		font-size: var(--font-size-xs, 0.75rem);
+		font-weight: 600;
+		color: var(--color-on-brand);
+		background: var(--color-brand-500);
+		border-radius: var(--radius-full, 9999px);
+	}
+	.mk-plan__header {
+		text-align: center;
+		padding-bottom: var(--spacing-lg, 1.25rem);
+		border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+	}
+	.mk-plan__name {
+		font-family: var(--font-display);
+		font-size: var(--font-size-lg, 1.1rem);
+		color: var(--color-brand-600);
+		margin: 0 0 var(--spacing-sm, 0.5rem);
+	}
+	.mk-plan__price {
+		display: flex;
+		align-items: baseline;
+		justify-content: center;
+		gap: var(--spacing-xs, 4px);
+	}
+	.mk-plan__amount {
+		font-family: var(--font-display);
+		font-size: var(--font-size-3xl, 2rem);
+		font-weight: 800;
+		color: var(--color-text);
+	}
+	.mk-plan__period {
+		font-size: var(--font-size-sm, 0.9rem);
+		color: var(--color-muted);
+	}
+	.mk-plan__description {
+		font-size: var(--font-size-sm, 0.9rem);
+		color: var(--color-text-secondary);
+		margin: var(--spacing-sm, 0.5rem) 0 0;
+	}
+	.mk-plan__features {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-sm, 0.5rem);
+		font-size: var(--font-size-sm, 0.92rem);
+		color: var(--color-text);
+	}
+	.mk-plan__features li {
+		padding-left: 1.4em;
+		position: relative;
+	}
+	.mk-plan__features li::before {
+		content: "✓";
+		position: absolute;
+		left: 0;
+		color: var(--color-brand-500);
+		font-weight: 700;
+	}
+	.mk-plan__cta {
+		width: 100%;
+		text-align: center;
+		justify-content: center;
+	}
+</style>

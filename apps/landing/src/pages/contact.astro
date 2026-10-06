@@ -1,0 +1,115 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+export const prerender = true;
+---
+
+<BaseLayout title="Contact — Tedix" description="Bring Tedix one recurring operating process. We will help you decide whether it needs a workflow, an agent system, or a durable digital worker.">
+	<div class="min-h-[70vh] px-4 pt-32 pb-20">
+		<div class="mx-auto max-w-3xl">
+			<div class="mb-10 text-center">
+			<h1 class="mb-6 font-bold font-display text-4xl tracking-tight md:text-5xl">
+				Bring us one recurring process
+			</h1>
+			<p class="text-lg text-muted-foreground leading-relaxed">
+				Tell us about one recurring process that crosses systems, needs context, or still depends on repeated human follow-up. We will help you choose the right operating model — even when the answer is not Tedix.
+			</p>
+			</div>
+
+			<Card className="py-0"><CardContent className="p-6 md:p-8">
+			<form id="demand-intake">
+				<div class="grid gap-6 md:grid-cols-2">
+					<Input required name="email" type="email" autoComplete="email" label="Work email" />
+					<Input required name="currentOwner" label="Who owns it today?" placeholder="e.g. Operations lead" />
+				</div>
+				<Textarea className="mt-6" required name="process" rows={4} label="What recurring process should work better?" placeholder="What happens, how often, and where does human follow-up become the bottleneck?" />
+				<Input className="mt-6" required name="systems" label="Which systems are involved?" placeholder="e.g. Email, CRM, spreadsheets, ERP" />
+				<Textarea className="mt-6" name="context" rows={3} required={false} label="Anything else we should understand?" />
+				<label class="sr-only" aria-hidden="true">
+					Website
+					<input name="website" tabindex="-1" autocomplete="off" />
+				</label>
+				<div class="mt-6 flex flex-wrap items-center gap-x-1 text-sm">
+					<Checkbox required name="consent" label="Tedix may contact me about this process." />
+					<a href="/privacy/" class="underline underline-offset-4">Privacy policy</a>
+				</div>
+
+				<div class="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+					<button type="submit" class={buttonVariants({ size: "lg" })}>
+						Share the process
+					</button>
+					<p id="form-status" class="text-muted-foreground text-sm" role="status" aria-live="polite">
+						We typically respond within 24 hours.
+					</p>
+				</div>
+			</form>
+			</CardContent></Card>
+			<noscript>
+				<p class="mt-6 text-center text-muted-foreground text-sm">JavaScript is required for the structured form. You can also email <a class="underline" href="mailto:hello@tedix.dev">hello@tedix.dev</a>.</p>
+			</noscript>
+		</div>
+	</div>
+</BaseLayout>
+
+<script>
+	const form = document.querySelector<HTMLFormElement>("#demand-intake");
+	const status = document.querySelector<HTMLElement>("#form-status");
+	const button = form?.querySelector<HTMLButtonElement>("button[type=submit]");
+	const params = new URLSearchParams(window.location.search);
+
+	form?.addEventListener("submit", async (event) => {
+		event.preventDefault();
+		if (!status || !button) return;
+		button.disabled = true;
+		status.textContent = "Saving your process…";
+		const data = new FormData(form);
+		const payload = {
+			email: data.get("email"),
+			process: data.get("process"),
+			currentOwner: data.get("currentOwner"),
+			systems: data.get("systems"),
+			context: data.get("context"),
+			website: data.get("website"),
+			consent: data.get("consent") === "on",
+			pageUrl: window.location.href,
+			referrer: document.referrer || undefined,
+			utmSource: params.get("utm_source") || undefined,
+			utmMedium: params.get("utm_medium") || undefined,
+			utmCampaign: params.get("utm_campaign") || undefined,
+			utmContent: params.get("utm_content") || undefined,
+			utmTerm: params.get("utm_term") || undefined,
+		};
+		try {
+			const response = await fetch("/api/contact", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			});
+			const result = await response.json() as {
+				success?: boolean;
+				receiptId?: string;
+				error?: string;
+			};
+			if (!response.ok || !result.success) {
+				throw new Error(result.error || "Submission failed.");
+			}
+			form.reset();
+			status.textContent = `Received. Reference ${result.receiptId?.slice(0, 8) ?? "saved"}. We will follow up within 24 hours.`;
+			window.gtag?.("event", "generate_lead", {
+				event_category: "qualified_demand",
+				campaign: params.get("utm_campaign") || "direct",
+			});
+		} catch (error) {
+			status.textContent = error instanceof Error
+				? error.message
+				: "We could not save this. Email hello@tedix.dev instead.";
+		} finally {
+			button.disabled = false;
+		}
+	});
+</script>

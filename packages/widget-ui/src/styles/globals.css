@@ -1,0 +1,1148 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@tedix/design-tokens/widget.css";
+
+/* Include all widget-ui component classes */
+@source "../components/**/*.{ts,tsx}";
+@source "../layouts/**/*.{ts,tsx}";
+@source not "../components/**/*.stories.{ts,tsx}";
+@source not "../layouts/**/*.stories.{ts,tsx}";
+
+/* Enhanced dark mode variant for better nested component support */
+@custom-variant dark (&:is(.dark *));
+
+/* =============================================
+   OPENAI-BASED THEME FOR SHADCN/TAILWIND
+
+   This theme maps OpenAI Apps SDK UI design tokens
+   to shadcn's semantic CSS variables.
+
+   Source: @openai/apps-sdk-ui/src/styles/
+   - variables-primitive.css (gray scale, colors)
+   - variables-semantic.css (semantic mappings)
+   - variables-components.css (component tokens)
+   ============================================= */
+
+:root {
+	/* =============================================
+	     TYPOGRAPHY (OpenAI)
+	     ============================================= */
+	--font-sans:
+		ui-sans-serif, -apple-system, system-ui, "Segoe UI", "Noto Sans",
+		"Helvetica", "Arial", "Apple Color Emoji", "Segoe UI Emoji",
+		"Segoe UI Symbol", sans-serif;
+	--font-mono:
+		ui-monospace, "SFMono-Regular", "SF Mono", "Menlo", "Monaco", "Consolas",
+		"Liberation Mono", "DejaVu Sans Mono", "Courier New", monospace;
+
+	/* =============================================
+     COLORS - LIGHT MODE (OKLCH Format)
+
+     Mapped from OpenAI's gray scale + semantic colors:
+     - --gray-0: #ffffff (light) / #0d0d0d (dark)
+     - --gray-1000: #0d0d0d (light) / #ffffff (dark)
+     - Primary buttons: dark/black (OpenAI style)
+     - Ring/focus: blue (#0285ff)
+     ============================================= */
+
+	/* Gray Scale (21 steps) - OKLCH for perceptual uniformity */
+	--gray-0: oklch(1 0 0);
+	/* #ffffff */
+	--gray-25: oklch(0.99 0 0);
+	/* #fcfcfc */
+	--gray-50: oklch(0.98 0 0);
+	/* #f9f9f9 */
+	--gray-75: oklch(0.96 0 0);
+	/* #f3f3f3 */
+	--gray-100: oklch(0.94 0 0);
+	/* #ebebeb */
+	--gray-150: oklch(0.91 0 0);
+	/* #e0e0e0 */
+	--gray-200: oklch(0.87 0 0);
+	/* #d4d4d4 */
+	--gray-250: oklch(0.83 0 0);
+	/* #c7c7c7 */
+	--gray-300: oklch(0.78 0 0);
+	/* #b8b8b8 */
+	--gray-350: oklch(0.73 0 0);
+	/* #a8a8a8 */
+	--gray-400: oklch(0.68 0 0);
+	/* #999999 */
+	--gray-450: oklch(0.62 0 0);
+	/* #888888 */
+	--gray-500: oklch(0.55 0 0);
+	/* #737373 */
+	--gray-550: oklch(0.5 0 0);
+	/* #666666 */
+	--gray-600: oklch(0.45 0 0);
+	/* #5a5a5a */
+	--gray-650: oklch(0.4 0 0);
+	/* #4d4d4d */
+	--gray-700: oklch(0.35 0 0);
+	/* #404040 */
+	--gray-750: oklch(0.29 0 0);
+	/* #333333 */
+	--gray-800: oklch(0.24 0 0);
+	/* #262626 */
+	--gray-850: oklch(0.19 0 0);
+	/* #1a1a1a */
+	--gray-900: oklch(0.15 0 0);
+	/* #141414 */
+	--gray-950: oklch(0.11 0 0);
+	/* #0d0d0d */
+	--gray-1000: oklch(0.05 0 0);
+	/* #050505 */
+
+	/* Alpha Transparency System */
+	--alpha-02: oklch(0.145 0 0 / 2%);
+	--alpha-04: oklch(0.145 0 0 / 4%);
+	--alpha-05: oklch(0.145 0 0 / 5%);
+	--alpha-06: oklch(0.145 0 0 / 6%);
+	--alpha-08: oklch(0.145 0 0 / 8%);
+	--alpha-10: oklch(0.145 0 0 / 10%);
+	--alpha-12: oklch(0.145 0 0 / 12%);
+	--alpha-15: oklch(0.145 0 0 / 15%);
+	--alpha-16: oklch(0.145 0 0 / 16%);
+	--alpha-20: oklch(0.145 0 0 / 20%);
+	--alpha-25: oklch(0.145 0 0 / 25%);
+	--alpha-30: oklch(0.145 0 0 / 30%);
+	--alpha-40: oklch(0.145 0 0 / 40%);
+	--alpha-50: oklch(0.145 0 0 / 50%);
+	--alpha-60: oklch(0.145 0 0 / 60%);
+	--alpha-70: oklch(0.145 0 0 / 70%);
+
+	/* Surface colors - OpenAI uses multiple surface levels */
+	--background: oklch(1 0 0);
+	/* #ffffff - --gray-0 (--color-surface) */
+	--foreground: oklch(0.145 0 0);
+	/* #0d0d0d - --gray-1000 */
+
+	/* OpenAI surface hierarchy */
+	--surface: oklch(1 0 0);
+	/* #ffffff - --gray-0 */
+	--surface-secondary: oklch(0.98 0 0);
+	/* #f9f9f9 - --gray-50 */
+	--surface-tertiary: oklch(0.96 0 0);
+	/* #f3f3f3 - --gray-75 */
+	--surface-elevated: oklch(1 0 0);
+	/* #ffffff - --gray-0 (same in light) */
+
+	--card: oklch(1 0 0);
+	/* #ffffff - --gray-0 */
+	--card-foreground: oklch(0.145 0 0);
+	/* #0d0d0d */
+
+	--popover: oklch(1 0 0);
+	/* #ffffff */
+	--popover-foreground: oklch(0.145 0 0);
+	/* #0d0d0d */
+
+	/* Primary - OpenAI uses dark/black for primary buttons */
+	--primary: oklch(0.205 0 0);
+	/* #181818 - --gray-900 */
+	--primary-foreground: oklch(0.985 0 0);
+	/* #ededed - light text on dark bg */
+
+	/* Secondary - soft gray background */
+	--secondary: oklch(0.935 0 0);
+	/* #ededed - --gray-100 */
+	--secondary-foreground: oklch(0.205 0 0);
+	/* #181818 */
+
+	/* Muted - subtle backgrounds */
+	--muted: oklch(0.96 0 0);
+	/* #f3f3f3 - --gray-75 */
+	--muted-foreground: oklch(0.45 0 0);
+	/* #5d5d5d - --gray-500 */
+
+	/* Accent - same as secondary in OpenAI */
+	--accent: oklch(0.935 0 0);
+	/* #ededed */
+	--accent-foreground: oklch(0.205 0 0);
+	/* #181818 */
+
+	/* Semantic colors from OpenAI palette */
+	--destructive: oklch(0.55 0.22 25);
+	/* #e02e2a - --red-500 */
+	--destructive-foreground: oklch(1 0 0);
+	/* white */
+
+	--success: oklch(0.5 0.16 145);
+	/* #008635 - --green-600 */
+	--success-foreground: oklch(1 0 0);
+	/* white */
+	--success-400: oklch(0.62 0.18 145);
+	/* lighter green for dark mode */
+	--success-600: oklch(0.5 0.16 145);
+	/* same as --success */
+
+	--warning: oklch(0.6 0.18 45);
+	/* #e25507 - --orange-500 */
+	--warning-foreground: oklch(1 0 0);
+	/* white */
+	--warning-400: oklch(0.72 0.16 45);
+	/* lighter orange for dark mode */
+	--warning-600: oklch(0.6 0.18 45);
+	/* same as --warning */
+
+	/*
+	 * Brand injection (lib/theme.ts) emits --link when a tenant sets
+	 * BrandingProfile.linkColor, but this file never declared it and no
+	 * --color-link binding existed — so a tenant's link color was validated,
+	 * converted to oklch, emitted, and then consumed by nothing. Defaults to
+	 * --primary, which is what link-coloured text fell back to in practice.
+	 */
+	--link: var(--primary);
+
+	--info: oklch(0.6 0.2 255);
+	/* #0285ff - --blue-400 */
+	--info-foreground: oklch(1 0 0);
+	/* white */
+	--info-400: oklch(0.7 0.18 255);
+	/* lighter blue for dark mode */
+	--info-600: oklch(0.6 0.2 255);
+	/* same as --info */
+
+	/* Discovery (purple) - OpenAI specific */
+	--discovery: oklch(0.55 0.22 300);
+	/* #924ff7 - --purple-400 */
+	--discovery-foreground: oklch(1 0 0);
+	/* white */
+
+	/* Caution (yellow) - OpenAI specific
+       Note: OpenAI uses --yellow-600 (#ba8e00) for solid caution with white text,
+       but --yellow-400 (#ffc300) for general caution color with dark text */
+	--caution: oklch(0.75 0.15 85);
+	/* #ffc300 - --yellow-400 */
+	--caution-foreground: oklch(0.205 0 0);
+	/* dark text for soft/ghost variants */
+	--caution-solid: oklch(0.62 0.14 85);
+	/* #ba8e00 - --yellow-600 for solid */
+	--caution-solid-foreground: oklch(1 0 0);
+	/* white text for solid */
+
+	/* Borders and inputs - OpenAI uses alpha-based borders */
+	--border: oklch(0.145 0 0 / 10%);
+	/* --alpha-10 (foreground 10%) */
+	--border-subtle: oklch(0.145 0 0 / 5%);
+	/* --alpha-05 */
+	--border-strong: oklch(0.145 0 0 / 15%);
+	/* --alpha-15 */
+	--input: oklch(0.145 0 0 / 16%);
+	/* --alpha-16 (outline border) */
+	--ring: oklch(0.58 0.22 255);
+	/* #0169cc - --blue-500 focus ring */
+
+	/* Chart Colors */
+	--chart-1: oklch(0.6 0.2 255);
+	/* blue */
+	--chart-2: oklch(0.5 0.16 145);
+	/* green */
+	--chart-3: oklch(0.55 0.22 300);
+	/* purple */
+	--chart-4: oklch(0.6 0.18 45);
+	/* orange */
+	--chart-5: oklch(0.55 0.22 25);
+	/* red */
+
+	/* =============================================
+     SHADOWS / ELEVATION (OpenAI)
+     Light mode uses subtle shadows
+     ============================================= */
+	--shadow-hairline: 0 0 0 1px oklch(0 0 0 / 8%);
+	--shadow-100: 0 1px 2px -1px oklch(0 0 0 / 8%);
+	--shadow-200: 0 2px 4px -1px oklch(0 0 0 / 8%);
+	--shadow-300: 0 4px 8px -2px oklch(0 0 0 / 10%);
+	--shadow-400: 0 8px 16px -4px oklch(0 0 0 / 12%);
+
+	/* Tailwind shadow aliases */
+	--shadow-sm: var(--shadow-100);
+	--shadow: var(--shadow-200);
+	--shadow-md: var(--shadow-300);
+	--shadow-lg: var(--shadow-400);
+	--shadow-xl: 0 12px 24px -6px oklch(0 0 0 / 14%);
+	--shadow-2xl: 0 16px 32px -8px oklch(0 0 0 / 16%);
+
+	/* =============================================
+     CONTROL SIZES (OpenAI)
+     Used for buttons, inputs, badges
+     ============================================= */
+	--control-size-3xs: 1.375rem;
+	/* 22px */
+	--control-size-2xs: 1.5rem;
+	/* 24px */
+	--control-size-xs: 1.625rem;
+	/* 26px */
+	--control-size-sm: 1.75rem;
+	/* 28px */
+	--control-size-md: 2rem;
+	/* 32px - OpenAI default */
+	--control-size-lg: 2.25rem;
+	/* 36px */
+	--control-size-xl: 2.5rem;
+	/* 40px */
+	--control-size-2xl: 2.75rem;
+	/* 44px */
+	--control-size-3xl: 3rem;
+	/* 48px */
+
+	/* Control gutters (padding) */
+	--control-gutter-2xs: 0.375rem;
+	/* 6px */
+	--control-gutter-xs: 0.5rem;
+	/* 8px */
+	--control-gutter-sm: 0.625rem;
+	/* 10px */
+	--control-gutter-md: 0.75rem;
+	/* 12px */
+	--control-gutter-lg: 0.875rem;
+	/* 14px */
+	--control-gutter-xl: 1rem;
+	/* 16px */
+	--control-gutter-pill-scaling: 1.33;
+
+	/* Control icon sizes */
+	--control-icon-size-xs: 0.875rem;
+	/* 14px */
+	--control-icon-size-sm: 1rem;
+	/* 16px */
+	--control-icon-size-md: 1.125rem;
+	/* 18px */
+	--control-icon-size-lg: 1.25rem;
+	/* 20px */
+	--control-icon-size-xl: 1.375rem;
+	/* 22px */
+	--control-icon-size-2xl: 1.5rem;
+	/* 24px */
+
+	/* =============================================
+     MOTION (OpenAI)
+     ============================================= */
+	--transition-duration-basic: 150ms;
+	--transition-ease-basic: ease;
+	--cubic-enter: cubic-bezier(0.19, 1, 0.22, 1);
+	--cubic-exit: cubic-bezier(0.8, 0, 0.4, 1);
+	--cubic-exit-snappy: cubic-bezier(0.65, 0, 0.4, 1);
+	/* less inertia delay */
+	--cubic-move: cubic-bezier(0.65, 0, 0.35, 1);
+
+	/* =============================================
+     COMPONENT TOKENS
+     ============================================= */
+	/* Alert */
+	--alert-border-radius: var(--radius-xl);
+	--alert-padding: 0.75rem;
+
+	/* Avatar */
+	--avatar-radius: var(--radius-full);
+	--avatar-size-sm: 1.5rem;
+	--avatar-size-md: 2rem;
+	--avatar-size-lg: 2.5rem;
+
+	/* Badge */
+	--badge-gutter-sm: 0.375rem;
+	--badge-gutter-md: 0.5rem;
+	--badge-gutter-lg: 0.625rem;
+
+	/* Button */
+	--button-min-width: 5.5rem;
+	--button-gap-sm: 0.1875rem;
+	--button-gap-md: 0.25rem;
+	--button-gap-lg: 0.375rem;
+
+	/* Input */
+	--input-gap-xs: 0.25rem;
+	--input-gap-sm: 0.375rem;
+	--input-gap-md: 0.5rem;
+
+	/* Card */
+	--card-padding-sm: 0.75rem;
+	--card-padding-md: 1rem;
+	--card-padding-lg: 1.5rem;
+
+	/* =============================================
+     SIDEBAR (shadcn optional)
+     ============================================= */
+	--sidebar: oklch(0.98 0 0);
+	--sidebar-foreground: oklch(0.145 0 0);
+	--sidebar-primary: oklch(0.205 0 0);
+	--sidebar-primary-foreground: oklch(0.985 0 0);
+	--sidebar-accent: oklch(0.935 0 0);
+	--sidebar-accent-foreground: oklch(0.205 0 0);
+	--sidebar-border: oklch(0.935 0 0);
+	--sidebar-ring: oklch(0.58 0.22 255);
+}
+
+.dark {
+	/* =============================================
+     COLORS - DARK MODE (OKLCH Format)
+
+     OpenAI dark mode inverts the gray scale:
+     - --gray-0 becomes #0d0d0d
+     - --gray-1000 becomes #ffffff
+     ============================================= */
+
+	/* Surface colors - OpenAI dark mode uses elevated grays */
+	--background: oklch(0.22 0 0);
+	/* #212121 - --gray-200 (dark) */
+	--foreground: oklch(0.985 0 0);
+	/* #ffffff - --gray-1000 (dark) */
+
+	/* OpenAI surface hierarchy - darker in dark mode */
+	--surface: oklch(0.22 0 0);
+	/* #212121 - --gray-200 */
+	--surface-secondary: oklch(0.18 0 0);
+	/* #181818 - --gray-100 */
+	--surface-tertiary: oklch(0.145 0 0);
+	/* #131313 - --gray-50 */
+	--surface-elevated: oklch(0.28 0 0);
+	/* #303030 - --gray-300 (elevated) */
+
+	--card: oklch(0.28 0 0);
+	/* #303030 - --gray-300 (dark) - elevated */
+	--card-foreground: oklch(0.985 0 0);
+
+	--popover: oklch(0.28 0 0);
+	/* #303030 - elevated surface */
+	--popover-foreground: oklch(0.985 0 0);
+
+	/* Primary - OpenAI uses light/white for primary in dark mode */
+	--primary: oklch(0.935 0 0);
+	/* #ededed - --gray-950 (dark) */
+	--primary-foreground: oklch(0.205 0 0);
+	/* dark text on light bg */
+
+	/* Secondary */
+	--secondary: oklch(0.28 0 0);
+	/* #303030 */
+	--secondary-foreground: oklch(0.985 0 0);
+
+	/* Muted */
+	--muted: oklch(0.32 0 0);
+	/* #414141 - --gray-400 (dark) */
+	--muted-foreground: oklch(0.65 0 0);
+	/* #9f9f9f - --gray-650 (dark) */
+
+	/* Accent */
+	--accent: oklch(0.32 0 0);
+	--accent-foreground: oklch(0.985 0 0);
+
+	/* Semantic colors - slightly adjusted for dark mode */
+	--destructive: oklch(0.65 0.2 22);
+	/* #ff8583 - --red-200 (brighter) */
+	--destructive-foreground: oklch(0 0 0);
+
+	--success: oklch(0.7 0.18 145);
+	/* #40c977 - --green-300 (brighter) */
+	--success-foreground: oklch(0 0 0);
+
+	--warning: oklch(0.72 0.16 55);
+	/* #ff9e6c - --orange-200 (brighter) */
+	--warning-foreground: oklch(0 0 0);
+
+	/* Brand injection emits --link from BrandingProfile.linkColor. */
+	--link: var(--primary);
+
+	--info: oklch(0.65 0.18 255);
+	/* #66b5ff - --blue-200 (brighter) */
+	--info-foreground: oklch(0.985 0 0);
+
+	--discovery: oklch(0.65 0.2 300);
+	/* #ad7bf9 - --purple-300 */
+	--discovery-foreground: oklch(0 0 0);
+
+	--caution: oklch(0.82 0.12 85);
+	/* #ffd240 - --yellow-300 */
+	--caution-foreground: oklch(0.205 0 0);
+	--caution-solid: oklch(0.65 0.14 85);
+	/* #ba8e00 - --yellow-600 for solid */
+	--caution-solid-foreground: oklch(1 0 0);
+	/* white text for solid */
+
+	/* Borders - use alpha for dark mode (OpenAI pattern) */
+	--border: oklch(1 0 0 / 12%);
+	/* white 12% alpha */
+	--border-subtle: oklch(1 0 0 / 6%);
+	--border-strong: oklch(1 0 0 / 20%);
+	--input: oklch(1 0 0 / 15%);
+	--ring: oklch(0.6 0.2 255);
+	/* --blue-400 */
+
+	/* Dark mode alpha (inverted base) */
+	--alpha-02: oklch(1 0 0 / 2%);
+	--alpha-04: oklch(1 0 0 / 4%);
+	--alpha-05: oklch(1 0 0 / 5%);
+	--alpha-06: oklch(1 0 0 / 6%);
+	--alpha-08: oklch(1 0 0 / 8%);
+	--alpha-10: oklch(1 0 0 / 10%);
+	--alpha-12: oklch(1 0 0 / 12%);
+	--alpha-15: oklch(1 0 0 / 15%);
+	--alpha-16: oklch(1 0 0 / 16%);
+	--alpha-20: oklch(1 0 0 / 20%);
+	--alpha-25: oklch(1 0 0 / 25%);
+	--alpha-30: oklch(1 0 0 / 30%);
+	--alpha-40: oklch(1 0 0 / 40%);
+	--alpha-50: oklch(1 0 0 / 50%);
+	--alpha-60: oklch(1 0 0 / 60%);
+	--alpha-70: oklch(1 0 0 / 70%);
+
+	/* Chart Colors - Dark */
+	--chart-1: oklch(0.65 0.18 255);
+	--chart-2: oklch(0.7 0.18 145);
+	--chart-3: oklch(0.65 0.2 300);
+	--chart-4: oklch(0.72 0.16 55);
+	--chart-5: oklch(0.65 0.2 22);
+
+	/* =============================================
+     SHADOWS - DARK MODE (stronger)
+     ============================================= */
+	--shadow-hairline: 0 0 0 1px oklch(1 0 0 / 10%);
+	--shadow-100: 0 1px 2px -1px oklch(0 0 0 / 20%);
+	--shadow-200: 0 2px 4px -1px oklch(0 0 0 / 20%);
+	--shadow-300: 0 4px 8px -2px oklch(0 0 0 / 36%);
+	--shadow-400: 0 8px 16px -4px oklch(0 0 0 / 30%);
+	--shadow-xl: 0 12px 24px -6px oklch(0 0 0 / 35%);
+	--shadow-2xl: 0 16px 32px -8px oklch(0 0 0 / 40%);
+
+	/* Sidebar - Dark */
+	--sidebar: oklch(0.22 0 0);
+	--sidebar-foreground: oklch(0.985 0 0);
+	--sidebar-primary: oklch(0.65 0.18 255);
+	--sidebar-primary-foreground: oklch(0.985 0 0);
+	--sidebar-accent: oklch(0.28 0 0);
+	--sidebar-accent-foreground: oklch(0.985 0 0);
+	--sidebar-border: oklch(1 0 0 / 10%);
+	--sidebar-ring: oklch(0.45 0 0);
+}
+
+/* =============================================
+   TAILWIND V4 THEME INTEGRATION
+   Maps CSS variables to Tailwind utilities
+   ============================================= */
+@theme inline {
+	/* Custom spacing for widget layouts (Apps SDK inline height) */
+	--spacing-150: 600px;
+
+	/* Colors */
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+
+	/* OpenAI Surface hierarchy */
+	--color-surface: var(--surface);
+	--color-surface-secondary: var(--surface-secondary);
+	--color-surface-tertiary: var(--surface-tertiary);
+	--color-surface-elevated: var(--surface-elevated);
+
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-success: var(--success);
+	--color-success-foreground: var(--success-foreground);
+	--color-success-400: var(--success-400);
+	--color-success-600: var(--success-600);
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-warning-400: var(--warning-400);
+	--color-warning-600: var(--warning-600);
+	--color-info: var(--info);
+	--color-link: var(--link);
+	--color-info-foreground: var(--info-foreground);
+	--color-info-400: var(--info-400);
+	--color-info-600: var(--info-600);
+	--color-discovery: var(--discovery);
+	--color-discovery-foreground: var(--discovery-foreground);
+	--color-caution: var(--caution);
+	--color-caution-foreground: var(--caution-foreground);
+	--color-caution-solid: var(--caution-solid);
+	--color-caution-solid-foreground: var(--caution-solid-foreground);
+	--color-border: var(--border);
+	--color-border-subtle: var(--border-subtle);
+	--color-border-strong: var(--border-strong);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+}
+
+/* =============================================
+   BASE LAYER
+   ============================================= */
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+
+	body {
+		@apply bg-background text-foreground font-sans;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+
+	/* Aesthetic scrollbar defaults (OpenAI) */
+	* {
+		scrollbar-color: oklch(0 0 0 / 30%) transparent;
+		scrollbar-width: thin;
+	}
+
+	.dark * {
+		scrollbar-color: oklch(1 0 0 / 30%) transparent;
+	}
+
+	/* Use semibold as default bold (OpenAI) */
+	b,
+	strong {
+		font-weight: var(--font-weight-semibold);
+	}
+}
+
+/* =============================================
+   TAILWINDCSS-ANIMATE COMPATIBLE ANIMATIONS
+   Required for shadcn components (Popover, Dialog, etc.)
+
+   These keyframes and utilities replicate tailwindcss-animate
+   plugin functionality for Tailwind v4.
+   ============================================= */
+
+/* Animation keyframes */
+@keyframes enter {
+	from {
+		opacity: var(--tw-enter-opacity, 1);
+		transform: translate3d(
+				var(--tw-enter-translate-x, 0),
+				var(--tw-enter-translate-y, 0),
+				0
+			)
+			scale3d(
+				var(--tw-enter-scale, 1),
+				var(--tw-enter-scale, 1),
+				var(--tw-enter-scale, 1)
+			)
+			rotate(var(--tw-enter-rotate, 0));
+	}
+}
+
+/* Shake animation (apps-sdk-ui pattern) */
+@keyframes shake {
+	0% {
+		transform: translateX(0);
+	}
+	20%,
+	60% {
+		transform: translateX(-5px);
+	}
+	40%,
+	80% {
+		transform: translateX(5px);
+	}
+	100% {
+		transform: translateX(0);
+	}
+}
+
+.animate-shake {
+	animation: shake 0.4s ease;
+}
+
+@keyframes exit {
+	to {
+		opacity: var(--tw-exit-opacity, 1);
+		transform: translate3d(
+				var(--tw-exit-translate-x, 0),
+				var(--tw-exit-translate-y, 0),
+				0
+			)
+			scale3d(
+				var(--tw-exit-scale, 1),
+				var(--tw-exit-scale, 1),
+				var(--tw-exit-scale, 1)
+			)
+			rotate(var(--tw-exit-rotate, 0));
+	}
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: -200% 0;
+	}
+
+	100% {
+		background-position: 200% 0;
+	}
+}
+
+@keyframes progress-indeterminate {
+	0% {
+		transform: translateX(-100%);
+	}
+	100% {
+		transform: translateX(400%);
+	}
+}
+
+/* =============================================
+   SKELETON WAVE ANIMATION
+   Superior wave animation using pseudo-element
+   with GPU-accelerated transform and color-mix
+   ============================================= */
+@keyframes skeleton-wave {
+	0% {
+		transform: translateX(calc(-100% * var(--skeleton-direction, 1)));
+	}
+	100% {
+		transform: translateX(calc(100% * var(--skeleton-direction, 1)));
+	}
+}
+
+.skeleton--animated::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	transform: translateX(calc(-100% * var(--skeleton-direction, 1)));
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		color-mix(in srgb, currentColor 15%, transparent) 50%,
+		transparent 100%
+	);
+	animation: skeleton-wave var(--skeleton-duration, 1.6s) linear 0.5s infinite;
+	will-change: transform;
+}
+
+/* Animation base classes */
+.animate-in {
+	animation-name: enter;
+	animation-duration: 150ms;
+	--tw-enter-opacity: initial;
+	--tw-enter-scale: initial;
+	--tw-enter-rotate: initial;
+	--tw-enter-translate-x: initial;
+	--tw-enter-translate-y: initial;
+}
+
+.animate-out {
+	animation-name: exit;
+	animation-duration: 150ms;
+	--tw-exit-opacity: initial;
+	--tw-exit-scale: initial;
+	--tw-exit-rotate: initial;
+	--tw-exit-translate-x: initial;
+	--tw-exit-translate-y: initial;
+}
+
+.animate-progress-indeterminate {
+	animation: progress-indeterminate 1.5s ease-in-out infinite;
+	width: 40%;
+}
+
+/* Fade animations */
+.fade-in {
+	--tw-enter-opacity: 0;
+}
+
+.fade-in-0 {
+	--tw-enter-opacity: 0;
+}
+
+.fade-in-5 {
+	--tw-enter-opacity: 0.05;
+}
+
+.fade-in-10 {
+	--tw-enter-opacity: 0.1;
+}
+
+.fade-in-20 {
+	--tw-enter-opacity: 0.2;
+}
+
+.fade-in-50 {
+	--tw-enter-opacity: 0.5;
+}
+
+.fade-in-100 {
+	--tw-enter-opacity: 1;
+}
+
+.fade-out {
+	--tw-exit-opacity: 0;
+}
+
+.fade-out-0 {
+	--tw-exit-opacity: 0;
+}
+
+.fade-out-5 {
+	--tw-exit-opacity: 0.05;
+}
+
+.fade-out-10 {
+	--tw-exit-opacity: 0.1;
+}
+
+.fade-out-20 {
+	--tw-exit-opacity: 0.2;
+}
+
+.fade-out-50 {
+	--tw-exit-opacity: 0.5;
+}
+
+.fade-out-100 {
+	--tw-exit-opacity: 1;
+}
+
+/* Zoom animations */
+.zoom-in {
+	--tw-enter-scale: 0;
+}
+
+.zoom-in-0 {
+	--tw-enter-scale: 0;
+}
+
+.zoom-in-50 {
+	--tw-enter-scale: 0.5;
+}
+
+.zoom-in-75 {
+	--tw-enter-scale: 0.75;
+}
+
+.zoom-in-90 {
+	--tw-enter-scale: 0.9;
+}
+
+.zoom-in-95 {
+	--tw-enter-scale: 0.95;
+}
+
+.zoom-in-100 {
+	--tw-enter-scale: 1;
+}
+
+.zoom-out {
+	--tw-exit-scale: 0;
+}
+
+.zoom-out-0 {
+	--tw-exit-scale: 0;
+}
+
+.zoom-out-50 {
+	--tw-exit-scale: 0.5;
+}
+
+.zoom-out-75 {
+	--tw-exit-scale: 0.75;
+}
+
+.zoom-out-90 {
+	--tw-exit-scale: 0.9;
+}
+
+.zoom-out-95 {
+	--tw-exit-scale: 0.95;
+}
+
+.zoom-out-100 {
+	--tw-exit-scale: 1;
+}
+
+/* Spin animation */
+.spin-in {
+	--tw-enter-rotate: -180deg;
+}
+
+.spin-in-0 {
+	--tw-enter-rotate: 0deg;
+}
+
+.spin-in-90 {
+	--tw-enter-rotate: -90deg;
+}
+
+.spin-in-180 {
+	--tw-enter-rotate: -180deg;
+}
+
+.spin-out {
+	--tw-exit-rotate: 180deg;
+}
+
+.spin-out-0 {
+	--tw-exit-rotate: 0deg;
+}
+
+.spin-out-90 {
+	--tw-exit-rotate: 90deg;
+}
+
+.spin-out-180 {
+	--tw-exit-rotate: 180deg;
+}
+
+/* Slide animations - from */
+.slide-in-from-top {
+	--tw-enter-translate-y: -100%;
+}
+
+.slide-in-from-top-0 {
+	--tw-enter-translate-y: 0;
+}
+
+.slide-in-from-top-1 {
+	--tw-enter-translate-y: -0.25rem;
+}
+
+.slide-in-from-top-2 {
+	--tw-enter-translate-y: -0.5rem;
+}
+
+.slide-in-from-top-4 {
+	--tw-enter-translate-y: -1rem;
+}
+
+.slide-in-from-top-8 {
+	--tw-enter-translate-y: -2rem;
+}
+
+.slide-in-from-top-full {
+	--tw-enter-translate-y: -100%;
+}
+
+.slide-in-from-bottom {
+	--tw-enter-translate-y: 100%;
+}
+
+.slide-in-from-bottom-0 {
+	--tw-enter-translate-y: 0;
+}
+
+.slide-in-from-bottom-1 {
+	--tw-enter-translate-y: 0.25rem;
+}
+
+.slide-in-from-bottom-2 {
+	--tw-enter-translate-y: 0.5rem;
+}
+
+.slide-in-from-bottom-4 {
+	--tw-enter-translate-y: 1rem;
+}
+
+.slide-in-from-bottom-8 {
+	--tw-enter-translate-y: 2rem;
+}
+
+.slide-in-from-bottom-full {
+	--tw-enter-translate-y: 100%;
+}
+
+.slide-in-from-left {
+	--tw-enter-translate-x: -100%;
+}
+
+.slide-in-from-left-0 {
+	--tw-enter-translate-x: 0;
+}
+
+.slide-in-from-left-1 {
+	--tw-enter-translate-x: -0.25rem;
+}
+
+.slide-in-from-left-2 {
+	--tw-enter-translate-x: -0.5rem;
+}
+
+.slide-in-from-left-4 {
+	--tw-enter-translate-x: -1rem;
+}
+
+.slide-in-from-left-8 {
+	--tw-enter-translate-x: -2rem;
+}
+
+.slide-in-from-left-full {
+	--tw-enter-translate-x: -100%;
+}
+
+.slide-in-from-right {
+	--tw-enter-translate-x: 100%;
+}
+
+.slide-in-from-right-0 {
+	--tw-enter-translate-x: 0;
+}
+
+.slide-in-from-right-1 {
+	--tw-enter-translate-x: 0.25rem;
+}
+
+.slide-in-from-right-2 {
+	--tw-enter-translate-x: 0.5rem;
+}
+
+.slide-in-from-right-4 {
+	--tw-enter-translate-x: 1rem;
+}
+
+.slide-in-from-right-8 {
+	--tw-enter-translate-x: 2rem;
+}
+
+.slide-in-from-right-full {
+	--tw-enter-translate-x: 100%;
+}
+
+/* Slide animations - to */
+.slide-out-to-top {
+	--tw-exit-translate-y: -100%;
+}
+
+.slide-out-to-top-0 {
+	--tw-exit-translate-y: 0;
+}
+
+.slide-out-to-top-1 {
+	--tw-exit-translate-y: -0.25rem;
+}
+
+.slide-out-to-top-2 {
+	--tw-exit-translate-y: -0.5rem;
+}
+
+.slide-out-to-top-4 {
+	--tw-exit-translate-y: -1rem;
+}
+
+.slide-out-to-top-8 {
+	--tw-exit-translate-y: -2rem;
+}
+
+.slide-out-to-top-full {
+	--tw-exit-translate-y: -100%;
+}
+
+.slide-out-to-bottom {
+	--tw-exit-translate-y: 100%;
+}
+
+.slide-out-to-bottom-0 {
+	--tw-exit-translate-y: 0;
+}
+
+.slide-out-to-bottom-1 {
+	--tw-exit-translate-y: 0.25rem;
+}
+
+.slide-out-to-bottom-2 {
+	--tw-exit-translate-y: 0.5rem;
+}
+
+.slide-out-to-bottom-4 {
+	--tw-exit-translate-y: 1rem;
+}
+
+.slide-out-to-bottom-8 {
+	--tw-exit-translate-y: 2rem;
+}
+
+.slide-out-to-bottom-full {
+	--tw-exit-translate-y: 100%;
+}
+
+.slide-out-to-left {
+	--tw-exit-translate-x: -100%;
+}
+
+.slide-out-to-left-0 {
+	--tw-exit-translate-x: 0;
+}
+
+.slide-out-to-left-1 {
+	--tw-exit-translate-x: -0.25rem;
+}
+
+.slide-out-to-left-2 {
+	--tw-exit-translate-x: -0.5rem;
+}
+
+.slide-out-to-left-4 {
+	--tw-exit-translate-x: -1rem;
+}
+
+.slide-out-to-left-8 {
+	--tw-exit-translate-x: -2rem;
+}
+
+.slide-out-to-left-full {
+	--tw-exit-translate-x: -100%;
+}
+
+.slide-out-to-right {
+	--tw-exit-translate-x: 100%;
+}
+
+.slide-out-to-right-0 {
+	--tw-exit-translate-x: 0;
+}
+
+.slide-out-to-right-1 {
+	--tw-exit-translate-x: 0.25rem;
+}
+
+.slide-out-to-right-2 {
+	--tw-exit-translate-x: 0.5rem;
+}
+
+.slide-out-to-right-4 {
+	--tw-exit-translate-x: 1rem;
+}
+
+.slide-out-to-right-8 {
+	--tw-exit-translate-x: 2rem;
+}
+
+.slide-out-to-right-full {
+	--tw-exit-translate-x: 100%;
+}
+
+/* =============================================
+   ACCESSIBILITY: REDUCED MOTION SUPPORT
+
+   Respects user's motion preference (WCAG 2.3.3).
+   This is a legal accessibility requirement in many jurisdictions.
+
+   Users who have enabled "Reduce motion" in their OS settings
+   will see minimal/no animations.
+   ============================================= */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms;
+		animation-iteration-count: 1;
+		transition-duration: 0.01ms;
+		scroll-behavior: auto;
+	}
+
+	/* Skeleton animations should also respect this */
+	.skeleton--animated::after {
+		animation: none;
+	}
+}

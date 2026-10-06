@@ -1,0 +1,226 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"main": "src/index.ts",
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"limits": {
+		"cpu_ms": 300000,
+		"subrequests": 100000
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.05
+		}
+	},
+	"dev": {
+		"inspector_port": 19230,
+		"port": 8787
+	},
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA"
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["McpHealthCheckAgent"]
+		},
+		{
+			"tag": "v2",
+			"renamed_classes": [
+				{
+					"from": "McpHealthCheckAgent",
+					"to": "McpScanAgent"
+				}
+			]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["McpHub"]
+		},
+		{
+			"tag": "v4",
+			"deleted_classes": ["McpScanAgent"]
+		},
+		{
+			"tag": "v5",
+			"deleted_classes": ["McpHub"]
+		},
+		{
+			"tag": "v6",
+			"new_sqlite_classes": ["TenantKernelDO"]
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": ["KernelVoiceDO"]
+		},
+		{
+			"tag": "v8",
+			"renamed_classes": [
+				{
+					"from": "TenantKernelDO",
+					"to": "KernelDO"
+				}
+			]
+		},
+		{
+			"tag": "v9",
+			"renamed_classes": [
+				{
+					"from": "KernelDO",
+					"to": "KernelDOv2"
+				}
+			]
+		},
+		{
+			"tag": "v10",
+			"renamed_classes": [
+				{
+					"from": "KernelDOv2",
+					"to": "KernelDOv3"
+				}
+			]
+		},
+		{
+			"tag": "v11",
+			"renamed_classes": [
+				{
+					"from": "KernelDOv3",
+					"to": "KernelDOv4"
+				}
+			]
+		},
+		{
+			"tag": "v12",
+			"new_sqlite_classes": ["KernelVoiceInputDO"]
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "API_RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 1000,
+				"period": 60
+			}
+		}
+	],
+	"triggers": {
+		"crons": [
+			"*/2 * * * *",
+			"*/15 * * * *",
+			"0 * * * *",
+			"0 2 * * *",
+			"0 3 * * *",
+			"0 4 * * *",
+			"0 6 * * *",
+			"0 7 * * *",
+			"0 */6 * * *"
+		]
+	},
+	"account_id": "example-cloudflare-account",
+	"name": "acme-control-api",
+	"compatibility_date": "2026-07-22",
+	"routes": [
+		{
+			"custom_domain": true,
+			"pattern": "api.workers.example.invalid",
+			"zone_name": "workers.example.invalid"
+		}
+	],
+	"workers_dev": false,
+	"vars": {
+		"API_URL": "https://api.workers.example.invalid",
+		"ENVIRONMENT": "development",
+		"MCP_UI_URL": "https://widget.workers.example.invalid",
+		"MCP_URL": "https://mcp.workers.example.invalid",
+		"OS_URL": "https://os.workers.example.invalid",
+		"TEDI_DEV_BASE_URL": "https://tedi.workers.example.invalid",
+		"TEDIX_BILLING_SETTLEMENT_MODE": "disabled",
+		"TEDIX_FLEET_AUTHORITY_MODE": "disabled",
+		"TEDIX_RUNTIME_ENTITLEMENT_GRANTS": "[{\"key\":\"browser-runtime\",\"status\":\"active\",\"source\":\"operator\"}]"
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"assets": {
+		"binding": "ASSETS",
+		"directory": "./dist/client",
+		"run_worker_first": true
+	},
+	"browser": {
+		"binding": "BROWSER"
+	},
+	"containers": [
+		{
+			"class_name": "WorkstationContainer",
+			"image": "registry.example.invalid/acme/workstation:0.1.0",
+			"name": "acme-workstation"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "example-d1-database",
+			"database_name": "acme-developer"
+		}
+	],
+	"hyperdrive": [
+		{
+			"binding": "GRAPH_DB",
+			"id": "example-hyperdrive-configuration"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "CACHE",
+			"id": "example-kv-namespace"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "ARTIFACTS",
+			"bucket_name": "acme-developer-artifacts"
+		}
+	],
+	"services": [
+		{
+			"binding": "RUNTIME",
+			"service": "acme-runtime-production"
+		}
+	],
+	"vectorize": [
+		{
+			"binding": "VECTOR",
+			"index_name": "acme-memory"
+		}
+	],
+	"workflows": [
+		{
+			"binding": "INSTALLER",
+			"class_name": "InstallWorkflow",
+			"name": "acme-install"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "AGENT",
+				"class_name": "AgentState"
+			}
+		]
+	},
+	"queues": {
+		"producers": [
+			{
+				"binding": "EVENTS",
+				"queue": "acme-events"
+			}
+		]
+	}
+}

@@ -1,0 +1,28 @@
+{
+	"//": "scripts/ is not a workspace, so the recursive type-check never visits it; `type-check:scripts` checks the files listed here. Add a file once it type-checks clean; much of scripts/ still does not.",
+	"extends": "@tedix/tsconfig/node.json",
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"allowJs": true,
+		"checkJs": false,
+		"incremental": true,
+		"noEmit": true,
+		"types": ["node", "bun-types"]
+	},
+	"include": [
+		"dev/**/*.ts",
+		"dev-local.ts",
+		"generate-worker-types.ts",
+		"lint-contracts.ts",
+		"descope/**/*.ts",
+		"lint-loader-sandbox.ts",
+		"lint-kumo.ts",
+		"lint-worker-route-authz.ts",
+		"lint-os.ts",
+		"lint-vite-plus-imports.ts",
+		"oxc-ast.ts",
+		"oss/secret-scan.ts",
+		"mcp/sync-tool-schemas.ts"
+	],
+	"exclude": ["node_modules"]
+}

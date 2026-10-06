@@ -1,0 +1,1 @@
+../../../tedix/src/i18n/strings.ts

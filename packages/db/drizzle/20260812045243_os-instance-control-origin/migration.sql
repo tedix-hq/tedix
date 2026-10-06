@@ -1,0 +1,1 @@
+ALTER TABLE `os_instances` ADD `control_base_url` text;

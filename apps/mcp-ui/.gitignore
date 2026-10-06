@@ -1,0 +1,2 @@
+# App-specific ignores (root .gitignore covers most patterns)
+public/embed.js

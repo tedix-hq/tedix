@@ -1,0 +1,41 @@
+{
+	"name": "@tedix/widget",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Framework-neutral, white-label embedded tedi widget for customer applications.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .cloudflare .wrangler dist public/embed.js public/loader.js public/v1",
+		"clear-port": "../../scripts/clear-port.sh --app widget",
+		"dev": "bun run build:assets && bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
+		"build:assets": "bun build src/embed/embed.mjs --outfile public/embed.js --target browser --format iife --banner '/* oxlint-disable -- generated bundle; lint src/embed/embed.mjs and imported packages */' && bun build src/embed/confirm.mjs --outfile public/confirm.js --target browser --format esm --banner '/* oxlint-disable -- deferred portable-write confirmation */' && bun build src/loader.mjs --outfile public/loader.js --target browser --format iife --banner '/* oxlint-disable -- generated bundle; lint src/loader.mjs */' && vp fmt public/embed.js public/confirm.js public/loader.js && bun scripts/version-embed.ts",
+		"build": "bun run build:assets && vp build",
+		"preview": "vp preview",
+		"deploy:production": "bun run types && bun run build:assets && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"types": "cf workers types --mode production",
+		"test": "bun run test:run",
+		"test:run": "vp test run",
+		"test:watch": "vp test",
+		"test:ci": "bun run test:run",
+		"type-check": "bun run types && tsc --noEmit && tsc --noEmit -p tsconfig.dom-test.json"
+	},
+	"dependencies": {
+		"@tedix/chat-transport": "workspace:*",
+		"@tedix/design-tokens": "workspace:*",
+		"@tedix/mcp-shared": "workspace:*",
+		"@tedix/webmcp-core": "workspace:*",
+		"@tedix/widget-i18n": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"cf": "catalog:",
+		"happy-dom": "^20.14.5",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}

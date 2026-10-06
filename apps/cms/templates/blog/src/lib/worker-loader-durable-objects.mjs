@@ -1,0 +1,1 @@
+../../../tedix/src/lib/worker-loader-durable-objects.mjs

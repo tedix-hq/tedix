@@ -1,0 +1,38 @@
+{
+	"name": "@tedix/workers-ai",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The one Workers AI provider: AI Gateway transport, language-model adapter, and circuit breaker.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		"./gateway-transport": "./src/gateway-transport.ts",
+		"./jev": "./src/jev.ts",
+		"./transport": "./src/transport.ts",
+		"./model": "./src/model.ts",
+		"./model-select": "./src/model-select.ts",
+		"./breaker": "./src/breaker.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@tedix/api-contract": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"ai": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	},
+	"peerDependencies": {
+		"ai": "^7"
+	}
+}

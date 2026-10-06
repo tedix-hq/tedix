@@ -1,0 +1,4 @@
+**/worker-configuration.d.ts linguist-generated=true
+**/template-snapshot.ts linguist-generated=true
+packages/db/drizzle/*/snapshot.json linguist-generated=true -diff
+*.patch whitespace=-space-before-tab,-blank-at-eol

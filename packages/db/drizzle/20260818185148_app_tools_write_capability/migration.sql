@@ -1,0 +1,1 @@
+ALTER TABLE `app_tools` ADD `write_capability` text;

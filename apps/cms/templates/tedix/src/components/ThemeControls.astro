@@ -1,0 +1,13 @@
+---
+import { themeControlsScript, type ThemeMode } from "../lib/theme-preference";
+interface Props { mode?: ThemeMode; class?: string }
+const { mode = "system", class: className = "theme-switcher flex gap-1" } = Astro.props;
+---
+{mode === "system" && <>
+ <div class={className} role="group" aria-label="Color theme">
+  <button type="button" class="theme-btn px-2.5 py-1 text-xs rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-brand-500 hover:text-brand-600 transition-all" data-theme-choice="light" aria-label="Light mode">Light</button>
+  <button type="button" class="theme-btn px-2.5 py-1 text-xs rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-brand-500 hover:text-brand-600 transition-all" data-theme-choice="dark" aria-label="Dark mode">Dark</button>
+  <button type="button" class="theme-btn px-2.5 py-1 text-xs rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-brand-500 hover:text-brand-600 transition-all" data-theme-choice="system" aria-label="System theme">System</button>
+ </div>
+ <script is:inline set:html={themeControlsScript} />
+</>}

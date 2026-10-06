@@ -1,0 +1,18 @@
+---
+import TedixPayConsole from "../components/tedixpay/TedixPayConsole.tsx";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const pageTitle = "TedixPay - Economic MCP Payments";
+const pageDescription =
+	"TedixPay Mission Control for x402 payment-gated MCP tools, budget checks, receipts, rationale, and economic memory.";
+---
+
+<BaseLayout
+	title={pageTitle}
+	description={pageDescription}
+	showConsentBanner={false}
+	showNavigation={false}
+	showFooter={false}
+>
+	<TedixPayConsole client:only="react" />
+</BaseLayout>

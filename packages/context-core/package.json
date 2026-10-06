@@ -1,0 +1,48 @@
+{
+	"name": "@tedix/context-core",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Runtime-neutral cognition primitives: observation extraction, reflection, compiled memory, and compaction.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./compaction-boundary": "./src/compaction-boundary.ts",
+		"./compiler": "./src/compiler.ts",
+		"./context-catalog": "./src/context-catalog.ts",
+		"./context-overflow": "./src/context-overflow.ts",
+		"./crystallizer": "./src/crystallizer.ts",
+		"./harness-version": "./src/harness-version.ts",
+		"./mission-text": "./src/mission-text.ts",
+		"./observer": "./src/observer.ts",
+		"./prompt-composition": "./src/prompt-composition.ts",
+		"./prompts": "./src/prompts.ts",
+		"./provider-error": "./src/provider-error.ts",
+		"./reflector": "./src/reflector.ts",
+		"./skill-adjacency": "./src/skill-adjacency.ts",
+		"./skill-retrieval": "./src/skill-retrieval.ts",
+		"./tedi-workspace": "./src/tedi-workspace.ts",
+		"./text-utils": "./src/text-utils.ts",
+		"./tokens": "./src/tokens.ts",
+		"./trace-safety": "./src/trace-safety.ts",
+		"./types": "./src/types.ts",
+		"./work-provenance": "./src/work-provenance.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"mustache": "^4.2.0"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/mustache": "^4.2.6",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

@@ -1,0 +1,27 @@
+---
+import { getSiteSettings } from "emdash";
+import { env as workerEnv } from "cloudflare:workers";
+import Base from "../layouts/Base.astro";
+import { t } from "../i18n/strings";
+
+const settings = await getSiteSettings();
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const locale =
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0 ? settingsLanguage : undefined) ??
+	envDefaultLocale ??
+	"en";
+---
+
+<Base title={t("notFound", locale)}>
+	<div class="max-w-2xl mx-auto px-4 py-32 text-center">
+		<div class="font-display text-9xl font-bold text-brand-500/20">404</div>
+		<h1 class="font-display text-4xl font-bold mt-6 mb-4">{t("pageNotFoundTitle", locale)}</h1>
+		<p class="text-lg text-gray-600 dark:text-gray-400 mb-8">{t("pageNotFoundDescription", locale)}</p>
+		<a href="/" class="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+			{t("backHome", locale)}
+		</a>
+	</div>
+</Base>

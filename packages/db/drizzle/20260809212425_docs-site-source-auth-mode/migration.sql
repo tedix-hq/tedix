@@ -1,0 +1,1 @@
+ALTER TABLE `docs_sites` ADD `source_auth_mode` text DEFAULT 'public' NOT NULL;

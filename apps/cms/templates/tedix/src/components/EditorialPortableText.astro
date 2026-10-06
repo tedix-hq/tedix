@@ -1,0 +1,29 @@
+---
+import { PortableText } from "emdash/ui";
+import type { PortableTextBlock } from "emdash";
+import { createComponent, renderComponent } from "astro/runtime/server/index.js";
+import { getPortableToc } from "../lib/portable-content";
+import EditorialTextBlock from "./EditorialTextBlock.astro";
+import FaqBlock from "./FaqBlock.astro";
+
+interface Props { value: PortableTextBlock[]; faqHeading?: string; }
+const { value, faqHeading = "FAQ" } = Astro.props;
+const ids = getPortableToc(value).map((heading) => heading.id);
+const idsByKey = new Map<string, string>();
+let headingIndex = 0;
+for (const block of value) {
+	if (block._type === "block" && (block.style === "h2" || block.style === "h3") && getPortableToc([block]).length > 0) {
+		const id = ids[headingIndex++];
+		if (id && block._key) idsByKey.set(block._key, id);
+	}
+}
+// Native read-only PortableText clones nodes before list/quote grouping. Keep
+// anchor state scoped to this body, without adding keys or changing CMS values.
+const headingIds = { ids, idsByKey, nextIndex: 0 };
+const ScopedEditorialTextBlock = createComponent((result, props, slots) =>
+	renderComponent(result, "EditorialTextBlock", EditorialTextBlock, { ...props, headingIds }, slots),
+);
+(Astro.locals as Record<string, unknown>).tedixArticleFaqHeading = faqHeading;
+---
+
+<PortableText {value} components={{ block: ScopedEditorialTextBlock, type: { "marketing.faq": FaqBlock, faq: FaqBlock } }} />

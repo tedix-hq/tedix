@@ -1,0 +1,2 @@
+export const WORKSTATION_RUNTIME_EVENT_SHAPE_VERSION =
+	"2026-06-28-run-context-v3";

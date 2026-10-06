@@ -1,0 +1,35 @@
+CREATE TABLE `os_collaboration_proposals` (
+	`id` text PRIMARY KEY,
+	`organization_id` text NOT NULL,
+	`workspace_id` text NOT NULL,
+	`document_type` text NOT NULL,
+	`document_id` text NOT NULL,
+	`base_revision_id` text NOT NULL,
+	`base_revision` integer NOT NULL,
+	`status` text DEFAULT 'open' NOT NULL,
+	`source_kind` text NOT NULL,
+	`source_id` text NOT NULL,
+	`content` text NOT NULL,
+	`sequence` integer DEFAULT 0 NOT NULL,
+	`created_by_kind` text NOT NULL,
+	`created_by_id` text NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	`decision_rationale` text,
+	`decision_evidence_refs` text DEFAULT '[]' NOT NULL,
+	`decided_by_kind` text,
+	`decided_by_id` text,
+	`decided_at` text,
+	`merge_rationale` text,
+	`merge_evidence_refs` text DEFAULT '[]' NOT NULL,
+	`merged_by_kind` text,
+	`merged_by_id` text,
+	`merged_at` text,
+	`result_revision_id` text,
+	`result_revision` integer,
+	CONSTRAINT `fk_os_collaboration_proposals_organization_id_organizations_id_fk` FOREIGN KEY (`organization_id`) REFERENCES `organizations`(`id`) ON DELETE CASCADE,
+	CONSTRAINT `fk_os_collaboration_proposals_workspace_id_os_workspaces_id_fk` FOREIGN KEY (`workspace_id`) REFERENCES `os_workspaces`(`id`) ON DELETE CASCADE
+);
+--> statement-breakpoint
+CREATE INDEX `os_collaboration_proposals_document_idx` ON `os_collaboration_proposals` (`organization_id`,`workspace_id`,`document_type`,`document_id`,`updated_at`);--> statement-breakpoint
+CREATE INDEX `os_collaboration_proposals_source_idx` ON `os_collaboration_proposals` (`organization_id`,`source_kind`,`source_id`);

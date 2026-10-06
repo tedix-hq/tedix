@@ -1,0 +1,68 @@
+---
+/**
+ * Preview Page — Standalone widget renderer for screenshot/validation.
+ *
+ * Accepts spec + data via:
+ *   - Query params: ?spec=<base64>&data=<base64>
+ *   - POST body: { spec: {...}, data: {...} }
+ *
+ * No MCP Apps. No WidgetWrapper. Pure render for puppeteer screenshots.
+ */
+
+import "../styles/globals.css";
+import { PreviewRenderer } from "../components/PreviewRenderer";
+import {
+	logWidgetSpecIssues,
+	mergeWidgetDataIntoSpec,
+	parseWidgetDataParam,
+	parseWidgetPreviewBody,
+	parseWidgetSpecParam,
+} from "../lib/widget-spec";
+
+const specParam = Astro.url.searchParams.get("spec");
+const dataParam = Astro.url.searchParams.get("data");
+
+let specResult = parseWidgetSpecParam(specParam);
+let dataResult = parseWidgetDataParam(dataParam);
+
+// If no query params, try POST body
+if (!specResult.spec && Astro.request.method === "POST") {
+	const bodyResult = await parseWidgetPreviewBody(Astro.request);
+	specResult = { spec: bodyResult.spec, issues: bodyResult.issues };
+	dataResult = { data: bodyResult.data, issues: [] };
+}
+
+logWidgetSpecIssues("preview", [...specResult.issues, ...dataResult.issues]);
+const data = dataResult.data;
+const spec = mergeWidgetDataIntoSpec(specResult.spec, data);
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Widget Preview</title>
+		<style>
+			body {
+				margin: 0;
+				padding: 0;
+				background: hsl(var(--background, 0 0% 100%));
+				color: hsl(var(--foreground, 0 0% 3.9%));
+			}
+		</style>
+	</head>
+	<body>
+		{spec ? (
+			<PreviewRenderer
+				client:only="react"
+				spec={spec}
+				data={data ?? undefined}
+			/>
+		) : (
+			<div data-render-complete="true" style="padding: 1rem; color: red;">
+				No spec provided. Pass ?spec=&lt;base64&gt; or POST { spec, data }.
+			</div>
+		)}
+	</body>
+</html>

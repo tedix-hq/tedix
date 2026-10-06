@@ -1,0 +1,21 @@
+---
+interface Props {
+	node: { headline?: string; items?: Array<{ question?: string; answer?: string }> };
+	index?: number;
+}
+const { node, index = 0 } = Astro.props;
+const items = (Array.isArray(node.items) ? node.items : []).flatMap((item) => {
+	const question = typeof item?.question === "string" ? item.question.trim() : "";
+	const answer = typeof item?.answer === "string" ? item.answer.trim() : "";
+	return question && answer ? [{ question, answer }] : [];
+});
+const headline = typeof node.headline === "string" ? node.headline.trim() : "";
+const articleHeading = (Astro.locals as Record<string, unknown>).tedixArticleFaqHeading;
+const fallbackHeading = typeof articleHeading === "string" ? articleHeading : "FAQ";
+const headingId = `faq-heading-${index}`;
+---
+
+{items.length > 0 && <section class="emdash-faq" aria-labelledby={headingId}>
+	<h2 id={headingId}>{headline || fallbackHeading}</h2>
+	<div class="emdash-faq-items">{items.map((item) => <details class="emdash-faq-item"><summary>{item.question}</summary><div>{item.answer}</div></details>)}</div>
+</section>}

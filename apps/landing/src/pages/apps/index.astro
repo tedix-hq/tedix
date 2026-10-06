@@ -1,0 +1,365 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import CatalogTable from "../../components/catalog/CatalogTable.tsx";
+import { getCatalogClient } from "../../lib/api";
+import type { CatalogAppListItem } from "@tedix/api-contract/schemas/catalog";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty } from "@/components/ui/empty";
+import { Input } from "@/components/ui/input";
+import {
+	formatCatalogCategory,
+	normalizeCatalogCategory,
+} from "@tedix/api-contract/utils/catalog-categories";
+
+import { env } from 'cloudflare:workers';
+
+// Get Cloudflare runtime env for API client
+const client = getCatalogClient(env);
+
+// Query params for server-side filtering/pagination
+const searchParams = Astro.url.searchParams;
+const search = searchParams.get("q") || searchParams.get("search") || "";
+const category = normalizeCatalogCategory(searchParams.get("category"));
+const connectorType = searchParams.get("type") || null; // Show all app types
+const healthStatus = searchParams.get("health") || searchParams.get("healthStatus") || null;
+const source = searchParams.get("source") || null;
+const sortBy = searchParams.get("sortBy") || (search ? "relevance" : "sourceCreatedAt");
+const sortDir = searchParams.get("sortDir") || "desc";
+const limit = Math.min(Math.max(Number(searchParams.get("limit") || 24), 1), 200);
+const page = Math.max(Number(searchParams.get("page") || 1), 1);
+const offset = (page - 1) * limit;
+
+const sortByValues = new Set(["name", "sourceCreatedAt", "updatedAt", "lastSyncedAt", "relevance"]);
+const sortDirValues = new Set(["asc", "desc"]);
+const connectorTypeValues = new Set(["MCP", "SERVICE", "FIRST_PARTY_ECOSYSTEM", "NATIVE"]);
+const healthStatusValues = new Set([
+	"healthy",
+	"degraded",
+	"unhealthy",
+	"requires_auth",
+	"blocked",
+	"unsupported",
+	"unknown",
+]);
+const sourceValues = new Set(["chatgpt", "claude", "gemini", "copilot", "official", "tedix", "tedi", "community", "manual"]);
+const safeSortBy = sortByValues.has(sortBy) ? sortBy : search ? "relevance" : "sourceCreatedAt";
+const safeSortDir = sortDirValues.has(sortDir) ? sortDir : "desc";
+const safeConnectorType = connectorType && connectorTypeValues.has(connectorType) ? connectorType : undefined;
+// Open on confirmed connections. `health=all` is an explicit opt-in to the
+// directory's unverified and offline long tail.
+const safeHealthStatus = healthStatus === "all"
+	? undefined
+	: healthStatus && healthStatusValues.has(healthStatus)
+		? healthStatus
+		: "healthy";
+const safeSource = source && sourceValues.has(source) ? source : undefined;
+
+// Fetch catalog data from the API
+let apps: CatalogAppListItem[] = [];
+let pagination = { limit, offset, hasMore: false };
+let total = 0;
+let categories: { name: string; count: number }[] = [];
+let error: string | null = null;
+
+// SSR-only: current-page catalog links used to keep /apps/ useful for
+// crawlers and JS-disabled clients without crawling the entire catalog on
+// every request. The full index remains available through sitemap-apps.xml.
+type AllAppsEntry = { slug: string; name: string; category: string | null };
+let allApps: AllAppsEntry[] = [];
+
+try {
+	const [appsResult, categoriesResult] = await Promise.allSettled([
+		client.catalog.list({
+			search: search || undefined,
+			category: category || undefined,
+			connectorType: safeConnectorType as "MCP" | "SERVICE" | "FIRST_PARTY_ECOSYSTEM" | "NATIVE" | undefined,
+			healthStatus: safeHealthStatus as "healthy" | "degraded" | "unhealthy" | "requires_auth" | "blocked" | "unsupported" | "unknown" | undefined,
+			source: safeSource as "chatgpt" | "claude" | "gemini" | "copilot" | "official" | "tedix" | "tedi" | "community" | "manual" | undefined,
+			sortBy: safeSortBy as "name" | "sourceCreatedAt" | "updatedAt" | "lastSyncedAt" | "relevance",
+			sortDir: safeSortDir as "asc" | "desc",
+			limit,
+			offset,
+			}),
+		client.catalog.getCategories({}),
+	]);
+
+	if (appsResult.status === "fulfilled") {
+		// Filter out FIRST_PARTY_ECOSYSTEM
+		apps = appsResult.value.apps.filter((a) => a.connectorType !== "FIRST_PARTY_ECOSYSTEM");
+		pagination = appsResult.value.pagination;
+		total = appsResult.value.total;
+		allApps = apps
+			.filter((a) => a.slug)
+			.map((a) => ({ slug: a.slug!, name: a.name, category: a.category }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	} else {
+		throw appsResult.reason;
+	}
+
+	if (categoriesResult.status === "fulfilled") {
+		categories = categoriesResult.value.filter((c) => c?.name).sort((a, b) => b.count - a.count);
+	}
+} catch (e) {
+	console.error("[Apps] Failed to fetch apps from API:", e);
+	error = "Catalog updating. The public directory is refreshing its app index and metadata.";
+}
+
+function fmtCategory(c: string | null): string {
+	return formatCatalogCategory(c);
+}
+
+function cleanPublicText(value: string | null | undefined): string {
+	return (value ?? "")
+		.replace(/\\r\\n/g, "\n")
+		.replace(/\\n/g, "\n")
+		.replace(/\\r/g, "\n")
+		.replace(/\\t/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function publicLogoUrl(value: string | null | undefined): string | null {
+	if (!value) return null;
+	const trimmed = value.trim();
+	return /^https?:\/\//i.test(trimmed) && trimmed.includes("/app_catalog/") ? trimmed : null;
+}
+
+const directoryUrl = new URL("/apps/", Astro.site || "https://tedix.dev").toString();
+const organizationId = "https://tedix.dev/#organization";
+const webSiteId = "https://tedix.dev/#website";
+const itemListId = `${directoryUrl}#itemlist`;
+const indexedAppsLabel =
+	total > 0 ? `${total.toLocaleString()}+` : allApps.length > 0 ? allApps.length.toLocaleString() : null;
+const categoryCountLabel = categories.length > 0 ? categories.length.toLocaleString() : null;
+const showCatalogStats = !error && (indexedAppsLabel || categoryCountLabel);
+const collectionStructuredData = {
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "CollectionPage",
+			"@id": `${directoryUrl}#webpage`,
+			url: directoryUrl,
+			name: "Tedix AI App Directory",
+			description:
+				"Catalog of AI apps, ChatGPT apps, Claude connectors, and MCP-connected tools indexed by Tedix for AI discovery.",
+			isPartOf: { "@id": webSiteId },
+			publisher: { "@id": organizationId },
+			about: [
+				{ "@type": "Thing", name: "AI app discovery" },
+				{ "@type": "Thing", name: "Model Context Protocol" },
+				{ "@type": "Thing", name: "ChatGPT apps" },
+				{ "@type": "Thing", name: "Claude connectors" },
+			],
+			mainEntity: { "@id": itemListId },
+		},
+		{
+			"@type": "ItemList",
+			"@id": itemListId,
+			name: "Tedix AI App Directory",
+			numberOfItems: allApps.length,
+			itemListOrder: "https://schema.org/ItemListOrderAscending",
+			itemListElement: allApps.slice(0, 200).map((app, index) => ({
+				"@type": "ListItem",
+				position: index + 1,
+				url: new URL(`/apps/${app.slug}/`, Astro.site || "https://tedix.dev").toString(),
+				name: app.name,
+			})),
+		},
+	],
+};
+
+// CDN edge caching
+// Same reasoning as the app detail pages: freshness stays at 5 minutes, the
+// stale-while-revalidate window widens so a cache miss never blocks on the
+// cold apps/api path. The index is paginated and re-crawled often.
+Astro.response.headers.set(
+	"Cache-Control",
+	"public, s-maxage=300, stale-while-revalidate=86400",
+);
+---
+
+<BaseLayout
+	title="AI App Directory — Browse AI Apps & Integrations"
+	description="Browse ChatGPT apps, Claude connectors, official MCP servers, and agent-ready integrations."
+	consentBannerVariant="compact"
+	includeWebPageSchema={false}
+>
+	<script type="application/ld+json" set:html={JSON.stringify(collectionStructuredData)} slot="head" />
+
+	<!-- HERO SECTION -->
+	<section class="relative overflow-hidden border-b border-border/40 bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted)/0.4)_100%)] px-4 pt-20 pb-7 sm:pt-24 sm:pb-10 md:pt-32 md:pb-16">
+		<div class="container mx-auto max-w-6xl">
+			<div class="max-w-3xl">
+				<Badge variant="success" className="mb-3 gap-2 sm:mb-4">
+					<span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+					Public AI app directory
+				</Badge>
+				<h1 class="font-bold font-display text-3xl leading-[1.08] tracking-tight text-foreground sm:text-5xl md:text-6xl">
+					Browse AI apps, MCP servers, and agent-ready integrations
+				</h1>
+				<p class="mt-3 max-w-2xl text-base leading-relaxed text-muted-foreground sm:mt-5 sm:text-lg md:text-xl">
+					Find tools that connect ChatGPT apps, Claude connectors, Gemini, Copilot, and MCP-compatible agents to real services, APIs, and workflows.
+				</p>
+			</div>
+
+			{showCatalogStats ? (
+				<div class="mt-5 grid gap-2 sm:mt-8 sm:grid-cols-3 sm:gap-3 lg:max-w-3xl">
+					{indexedAppsLabel && (
+						<Card size="sm"><CardContent>
+							<div class="font-bold font-display text-xl text-foreground sm:text-2xl">{indexedAppsLabel}</div>
+							<div class="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">Indexed apps</div>
+						</CardContent></Card>
+					)}
+					{categoryCountLabel && (
+						<Card size="sm"><CardContent>
+							<div class="font-bold font-display text-xl text-foreground sm:text-2xl">{categoryCountLabel}</div>
+							<div class="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">Browseable categories</div>
+						</CardContent></Card>
+					)}
+					<Card size="sm"><CardContent>
+						<div class="font-bold font-display text-xl text-foreground sm:text-2xl">MCP</div>
+						<div class="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">Agent connection metadata</div>
+					</CardContent></Card>
+				</div>
+			) : (
+				<Card size="sm" className="mt-5 max-w-xl sm:mt-8">
+					<CardContent>
+						<p class="font-medium text-foreground">Catalog updating</p>
+						<p class="mt-1 text-muted-foreground text-sm">
+							The public directory is refreshing its app index and metadata.
+						</p>
+					</CardContent>
+				</Card>
+			)}
+
+			<div class="mt-5 flex flex-wrap items-center gap-3 text-sm sm:mt-6">
+				<a href="/apps/insights/" class={buttonVariants({ variant: "outline" })}>
+					View ecosystem insights
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+				</a>
+			</div>
+		</div>
+	</section>
+
+	<!-- ═══════════════════════════════════════════
+	     CATALOG TABLE
+	     ═══════════════════════════════════════════ -->
+	<section id="catalog" class="mx-auto px-4 py-12 max-w-[1400px]">
+		<!-- Error State -->
+		{error && (
+			<Empty
+				className="py-16"
+				title="Catalog updating"
+				description="The public directory is refreshing its app index and metadata."
+			/>
+		)}
+
+		{!error && (
+			<CatalogTable
+				client:only="react"
+				apps={apps}
+				categories={categories}
+				initialPagination={pagination}
+				initialTotal={total}
+				initialQuery={{
+					search,
+					category,
+					connectorType,
+					healthStatus: healthStatus === "all" ? "all" : safeHealthStatus,
+					source: safeSource ?? null,
+					sortBy: safeSortBy,
+					sortDir: safeSortDir,
+					limit,
+					page,
+				}}
+			>
+				<div slot="fallback" class="space-y-5">
+					<form action="/apps/" method="get" class="mx-auto flex max-w-2xl gap-2">
+						<label class="sr-only" for="apps-search-fallback">Search AI apps</label>
+						<Input
+							id="apps-search-fallback"
+							name="q"
+							type="search"
+							value={search}
+							placeholder="Search AI apps, MCP servers, or integrations"
+							className="h-12 flex-1 text-base"
+						/>
+						<button type="submit" class={buttonVariants()}>Search</button>
+					</form>
+
+					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+						{apps.map((app) => {
+							const logo = publicLogoUrl(app.logoUrl);
+							const description = cleanPublicText(app.description);
+							return (
+								<Card size="sm" className="min-h-40 p-0 transition-colors hover:border-kumo-brand motion-reduce:transition-none">
+								<a href={`/apps/${app.slug || app.id}/`} class="group flex h-full flex-col p-4">
+									<div class="flex items-start gap-3">
+										<div class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted font-bold text-foreground">
+											{logo ? (
+												<img src={logo} alt="" loading="lazy" class="h-full w-full object-cover" />
+											) : (
+												app.name.charAt(0).toUpperCase()
+											)}
+										</div>
+										<div class="min-w-0">
+											<h2 class="truncate font-semibold text-foreground group-hover:underline">{app.name}</h2>
+											{app.developer && <p class="mt-0.5 truncate text-muted-foreground text-sm">{app.developer}</p>}
+										</div>
+									</div>
+									{description && <p class="mt-3 line-clamp-3 text-muted-foreground text-sm">{description}</p>}
+									<div class="mt-auto pt-4 text-muted-foreground text-xs">
+										{app.category ? fmtCategory(app.category) : "AI integration"}
+									</div>
+								</a>
+								</Card>
+							);
+						})}
+					</div>
+				</div>
+			</CatalogTable>
+		)}
+	</section>
+
+	<!-- ═══════════════════════════════════════════
+	     SSR APP INDEX — current result links rendered server-side for crawlers
+	     and JS-disabled clients. Full crawlable coverage lives in sitemap-apps.xml.
+	     ═══════════════════════════════════════════ -->
+	{allApps.length > 0 && (
+		<section class="border-t border-border/40 bg-muted/20 px-4 py-16">
+			<div class="container mx-auto max-w-6xl">
+				<header class="mb-8 text-center">
+					<h2 class="font-bold font-display text-2xl tracking-tight md:text-3xl">
+						Browse indexed apps
+					</h2>
+					<p class="mt-2 text-muted-foreground text-sm">
+						Current server-rendered directory results.
+					</p>
+				</header>
+
+				<ul class="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+					{allApps.map((a) => (
+						<li>
+							<a
+								href={`/apps/${a.slug}/`}
+								class="group flex items-baseline justify-between gap-2 rounded-md py-1 text-sm hover:text-amber-600 dark:hover:text-amber-400"
+								title={a.name}
+							>
+								<span class="truncate font-medium text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400">
+									{a.name}
+								</span>
+								{a.category && (
+									<span class="shrink-0 text-muted-foreground text-xs">
+										{fmtCategory(a.category)}
+									</span>
+								)}
+							</a>
+						</li>
+					))}
+				</ul>
+			</div>
+		</section>
+	)}
+</BaseLayout>

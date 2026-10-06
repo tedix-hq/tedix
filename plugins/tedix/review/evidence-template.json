@@ -1,0 +1,28 @@
+{
+	"version": "1.0.0",
+	"packageSha256": null,
+	"testedAt": null,
+	"host": null,
+	"pluginId": "plugin_asdk_app_6ac0edddee588191be833ebae259c435",
+	"identityEvidence": null,
+	"consentBoundaryEvidence": null,
+	"positive": [
+		{ "case": 1, "status": "not_run", "evidence": null },
+		{ "case": 2, "status": "not_run", "evidence": null },
+		{ "case": 3, "status": "not_run", "evidence": null },
+		{ "case": 4, "status": "not_run", "evidence": null },
+		{ "case": 5, "status": "not_run", "evidence": null }
+	],
+	"negative": [
+		{ "case": 1, "status": "not_run", "evidence": null },
+		{ "case": 2, "status": "not_run", "evidence": null },
+		{ "case": 3, "status": "not_run", "evidence": null }
+	],
+	"walkthrough": {
+		"status": "not_recorded",
+		"url": null,
+		"accessCheckedAt": null
+	},
+	"nativeScan": { "status": "not_run", "evidence": null },
+	"blocker": "Await successful native reviewer connection and bounded validation; owner CLI access is not reviewer proof."
+}

@@ -1,0 +1,58 @@
+{
+	"schemaVersion": 1,
+	"comment": "Per-procedure withFleetAuthority expectations for every api-namespace classified fleet-commercial in scripts/oss/authority-classification.json. Enforced exactly (both directions) by fleet-authority-coverage.test.ts. guard=namespace: every procedure must carry the guard except the listed deliberate tenant-product exceptions (fail-closed default for new procedures). guard=procedures: only the listed procedures are commercial and must carry the guard; the rest of the namespace is tenant product (used where the namespace is tenant-first). Tenant exceptions: tenant runtime entitlements and budget controls are not commercial merely because Stripe or provider projections exist beside them.",
+	"namespaces": {
+		"billing": {
+			"guard": "namespace",
+			"tenantExceptions": ["restoreDailyCapacity", "setServiceCreditControls"]
+		},
+		"catalog": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"mcpEval": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"mcpHealth": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"mcpPayments": {
+			"guard": "namespace",
+			"tenantExceptions": [
+				"disablePolicy",
+				"getEffectivePolicy",
+				"listAccounts",
+				"listPolicies",
+				"listReservations",
+				"registerAccount",
+				"setBudgetPolicy"
+			]
+		},
+		"templates": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"tenantMembership": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"toolSchemaSync": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"waitlist": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"widgetTest": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		},
+		"widgetTestRuns": {
+			"guard": "namespace",
+			"tenantExceptions": []
+		}
+	}
+}

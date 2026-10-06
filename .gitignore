@@ -1,0 +1,37 @@
+# Dependencies and package-manager artifacts
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Build and test output
+.astro/
+.cache/
+.cloudflare/
+.output/
+.wrangler/
+apps/*/wrangler.local.generated.json
+packages/*/wrangler.local.generated.json
+build/
+coverage/
+dist/
+out/
+storybook-static/
+*.log
+*.tsbuildinfo
+
+# Local environment and credentials
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+*.key
+*.p12
+*.pem
+
+# Editor and operating-system state
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,29 @@
+{
+	"name": "@tedix/widget-i18n",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Translations for the embedded tedi widget.",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": "./src/catalog.ts",
+		"./catalogs": "./src/catalogs.ts",
+		"./en.json": "./src/en.json",
+		"./es.json": "./src/es.json",
+		"./de.json": "./src/de.json"
+	},
+	"scripts": {
+		"clean": "true",
+		"lint": "vp lint .",
+		"test": "bun run test:run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

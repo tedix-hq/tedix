@@ -1,0 +1,11 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"display": "Cloudflare Workers",
+	"extends": "./base.json",
+	"compilerOptions": {
+		"lib": ["ESNext"],
+		"target": "ESNext",
+		"noEmit": true,
+		"allowImportingTsExtensions": true
+	}
+}

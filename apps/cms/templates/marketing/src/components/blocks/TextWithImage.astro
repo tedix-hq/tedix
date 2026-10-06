@@ -1,0 +1,89 @@
+---
+/**
+ * marketing.textWithImage — two-column prose + image section with a
+ * configurable image side. Mirrors the official marketing text-with-image
+ * block. Version 2 uses a native Emdash media value.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asString } from "./value-utils";
+import { Image } from "emdash/ui";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_text_with_image" }>>;
+const { value: node } = Astro.props;
+
+const heading = asString(node.heading);
+const body = asString(node.body);
+const imageUrl = node._version === 1 ? asString(node.image_url) : undefined;
+const image = node._version === 2 ? node.image : undefined;
+const ctaLabel = asString(node.cta_label);
+const ctaUrl = asString(node.cta_url);
+const imageSide = node.image_side === "left" ? "left" : "right";
+---
+
+{(heading || body) && (
+	<section class="mk-twi">
+		<div class:list={["mk-twi__grid", { "mk-twi__grid--reverse": imageSide === "left" }]}>
+			<div class="mk-twi__text">
+				{heading && <h2>{heading}</h2>}
+				{body && <p>{body}</p>}
+				{ctaLabel && ctaUrl && (
+					<a class="iw-btn" href={ctaUrl}>
+						{ctaLabel}
+					</a>
+				)}
+			</div>
+			{(image || imageUrl) && (
+				<div class="mk-twi__media">
+					{image ? <Image image={image} /> : <img src={imageUrl} alt={heading ?? ""} loading="lazy" />}
+				</div>
+			)}
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-twi {
+		padding: 72px 0;
+	}
+	.mk-twi__grid {
+		max-width: 1200px;
+		width: 90%;
+		margin: 0 auto;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 48px;
+		align-items: center;
+	}
+	.mk-twi__grid--reverse .mk-twi__media {
+		order: -1;
+	}
+	.mk-twi__text h2 {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		font-size: clamp(1.5rem, 3vw, 2.1rem);
+		margin: 0 0 1rem;
+		line-height: 1.2;
+	}
+	.mk-twi__text p {
+		color: var(--color-text-secondary);
+		font-size: 1.05rem;
+		line-height: 1.7;
+		margin: 0 0 1.25rem;
+	}
+	.mk-twi__media :global(img) {
+		width: 100%;
+		height: auto;
+		border-radius: 10px;
+		display: block;
+	}
+	@media (max-width: 760px) {
+		.mk-twi__grid {
+			grid-template-columns: 1fr;
+			gap: 28px;
+		}
+		.mk-twi__grid--reverse .mk-twi__media {
+			order: 0;
+		}
+	}
+</style>

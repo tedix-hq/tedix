@@ -1,0 +1,35 @@
+---
+import { config } from "virtual:nimbus/config";
+import HubLayout from "../layouts/HubLayout.astro";
+import { getHubPages, getUpdates } from "../lib/docs-hubs";
+
+const updates = getUpdates(await getHubPages());
+const dateLabel = new Intl.DateTimeFormat("en", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+---
+
+<HubLayout title="What's new" description={`Dated updates to ${config.title}.`}>
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-primary">Updates</p>
+      <h1 class="text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">What's new</h1>
+      <p class="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">Verified, dated changes published by this documentation site.</p>
+    </div>
+    <a href="/updates/rss.xml" class="inline-flex min-h-10 items-center rounded-md border border-border-strong px-4 text-sm font-medium text-foreground no-underline hover:bg-accent">Subscribe with RSS ↗</a>
+  </div>
+  {updates.length ? (
+    <ol class="mt-12 space-y-3">
+      {updates.map((page) => (
+        <li>
+          <a href={page.href} class="td-home-card group flex flex-col gap-3 p-6 no-underline sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <time datetime={page.date!.toISOString().slice(0, 10)} class="text-xs font-medium uppercase tracking-wider text-primary">{dateLabel.format(page.date)}</time>
+              <h2 class="mt-2 text-xl font-semibold text-foreground group-hover:text-primary">{page.title}</h2>
+              {page.description && <p class="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{page.description}</p>}
+            </div>
+            <span aria-hidden="true" class="text-primary">↗</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  ) : <p class="td-home-card mt-12 p-6 text-sm text-muted-foreground">No dated updates have been published for this site yet.</p>}
+</HubLayout>

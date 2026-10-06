@@ -1,0 +1,61 @@
+---
+import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
+import { config } from "virtual:nimbus/config";
+import { Button } from "./ui/button";
+import { LinkButton } from "./ui/link-button";
+import { SearchTrigger } from "./ui/search";
+import { ThemeToggle } from "./ui/theme-toggle";
+import "../styles/tedix-theme.css";
+
+interface Props {
+  collection?: string;
+  entryId?: string;
+  showSidebar?: boolean;
+}
+
+const { showSidebar = true } = Astro.props;
+const brandTitle = config.title.replace(/\s+(?:documentation|docs)$/i, "") || config.title;
+const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
+const navLinks = [
+  { label: "Directory", href: "/directory/" },
+  { label: "Resources", href: "/resources/" },
+  { label: "Updates", href: "/updates/" },
+  { label: "For agents", href: "/agent-setup/" },
+];
+---
+
+<header class="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur-lg">
+  <div class="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
+    <div class="flex min-w-0 items-center gap-3">
+      <a href="/" aria-label={`${config.title} home`} class="group flex shrink-0 items-center gap-2 no-underline">
+        <span class="td-docs-mark" aria-hidden="true">T</span>
+        <span class="max-w-44 truncate text-sm font-semibold tracking-tight text-foreground transition-colors group-hover:text-primary sm:max-w-56">{brandTitle}</span>
+        <span class="hidden rounded border border-border-strong px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground sm:inline">Docs</span>
+      </a>
+
+      <nav aria-label="Explore documentation" class="ml-3 hidden h-6 min-w-0 items-center gap-1 overflow-x-auto border-l border-border pl-4 [scrollbar-width:none] md:flex [&::-webkit-scrollbar]:hidden">
+          {navLinks.map((link) => {
+            const active = currentSlug === link.href.replace(/\/$/, "");
+            return (
+              <a href={link.href} aria-current={active ? "page" : undefined} class:list={["shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[0.8125rem] font-medium no-underline transition-colors", active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"]}>
+                {link.label}
+              </a>
+            );
+          })}
+      </nav>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-2">
+      {config.search !== false && <SearchTrigger />}
+      {config.github && (
+        <LinkButton href={config.github} variant="minimal" shape="square" size="sm" aria-label="View source on GitHub" target="_blank" rel="noopener" class="hidden text-muted-foreground sm:inline-flex">
+          <Icon name="ph:github-logo" class="h-4 w-4" />
+        </LinkButton>
+      )}
+      <ThemeToggle />
+      {showSidebar && (
+        <Button variant="ghost" shape="square" size="sm" icon="ph:list" aria-label="Open navigation" data-menu-btn class="text-muted-foreground lg:hidden" />
+      )}
+    </div>
+  </div>
+</header>

@@ -1,0 +1,17 @@
+---
+export const prerender = true;
+import HomePage from "../../components/HomePage.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { getLocaleContent, supportedLocaleCodes, type Locale } from "../../i18n/content";
+
+export function getStaticPaths() {
+	return supportedLocaleCodes.map((locale) => ({ params: { locale } }));
+}
+
+const locale = Astro.params.locale as Locale;
+const content = getLocaleContent(locale);
+---
+
+<BaseLayout title={content.meta.title} description={content.meta.description} locale={locale}>
+	<HomePage content={content.home} locale={locale} />
+</BaseLayout>

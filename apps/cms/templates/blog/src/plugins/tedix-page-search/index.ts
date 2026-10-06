@@ -1,0 +1,1 @@
+../../../../tedix/src/plugins/tedix-page-search/index.ts

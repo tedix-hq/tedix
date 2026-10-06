@@ -1,0 +1,7 @@
+---
+import { PRODUCT_AUTH_URL } from "../lib/product-urls";
+
+export const prerender = false;
+
+return Astro.redirect(PRODUCT_AUTH_URL, 308);
+---

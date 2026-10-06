@@ -1,0 +1,1 @@
+../../../tedix/src/lib/blog-pagination.ts

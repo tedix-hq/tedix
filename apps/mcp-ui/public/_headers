@@ -1,0 +1,30 @@
+# =============================================================================
+# CRITICAL: DO NOT DELETE THIS FILE
+# =============================================================================
+#
+# This file configures CORS headers for static assets served by Cloudflare CDN.
+#
+# WHY IT'S NEEDED:
+# Apps SDK renders widgets in a sandboxed iframe at:
+#   *.web-sandbox.oaiusercontent.com
+#
+# Static assets (JS, CSS, fonts) are served directly by Cloudflare's CDN,
+# bypassing our Worker code entirely. Without this file, the CDN serves
+# assets without CORS headers, causing browsers to block cross-origin requests.
+#
+# WHAT HAPPENS IF DELETED:
+# - Production widget gets stuck on skeleton loader
+# - Browser console shows: "Access to script blocked by CORS policy"
+# - Error: "No 'Access-Control-Allow-Origin' header is present"
+#
+# The Worker's middleware DOES NOT help here because static assets never hit
+# the Worker - they're served directly by the CDN.
+#
+# Reference: https://developers.cloudflare.com/workers/static-assets/headers/
+# =============================================================================
+
+/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, POST, OPTIONS
+  Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With
+  Access-Control-Max-Age: 86400

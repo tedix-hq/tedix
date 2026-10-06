@@ -1,0 +1,115 @@
+---
+/**
+ * marketing.testimonials — customer quote cards. Mirrors the official
+ * marketing testimonials block. Version 2 uses a native Emdash avatar in the repeater.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asString } from "./value-utils";
+import { Image } from "emdash/ui";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_testimonials" }>>;
+const { value: node } = Astro.props;
+
+const headline = asString(node.headline);
+const items = (node.items ?? []).map((row) => ({
+	quote: asString(row.quote), author: asString(row.author), role: asString(row.role), company: asString(row.company),
+	avatar: typeof row.avatar === "string" ? asString(row.avatar) : row.avatar ?? undefined,
+}));
+
+---
+
+{items.length > 0 && (
+	<section class="mk-testimonials">
+		<div class="mk-wrap">
+			{headline && <h2 class="mk-testimonials__heading">{headline}</h2>}
+			<div class="mk-testimonials__grid">
+				{items.map((item) => item.quote && (
+					<div class="mk-testimonial">
+						<blockquote class="mk-testimonial__quote">"{item.quote}"</blockquote>
+						<div class="mk-testimonial__author">
+							{typeof item.avatar === "string" && (
+								<img
+									class="mk-testimonial__avatar"
+									src={item.avatar}
+									alt={item.author ?? ""}
+									loading="lazy"
+								/>
+							)}
+							{item.avatar && typeof item.avatar !== "string" && <Image image={item.avatar} alt={item.avatar.alt ?? item.author ?? ""} class="mk-testimonial__avatar" />}
+							<div class="mk-testimonial__info">
+								{item.author && <span class="mk-testimonial__name">{item.author}</span>}
+								{(item.role || item.company) && (
+									<span class="mk-testimonial__role">
+										{item.role}
+										{item.role && item.company && " · "}
+										{item.company}
+									</span>
+								)}
+							</div>
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-testimonials {
+		padding: var(--spacing-4xl, 80px) 0;
+		background: var(--color-bg-subtle);
+	}
+	.mk-testimonials__heading {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		text-align: center;
+		font-size: clamp(1.6rem, 3vw, 2.2rem);
+		margin: 0 0 var(--spacing-2xl, 2.5rem);
+	}
+	.mk-testimonials__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: var(--spacing-xl, 24px);
+	}
+	.mk-testimonial {
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-lg, 1.5rem);
+		padding: var(--spacing-xl, 28px) var(--spacing-lg, 24px);
+		background: var(--color-surface);
+		border-radius: var(--radius, 10px);
+		box-shadow: var(--shadow, 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1));
+	}
+	.mk-testimonial__quote {
+		margin: 0;
+		flex: 1;
+		font-size: var(--font-size-lg, 1.05rem);
+		line-height: var(--leading-relaxed, 1.7);
+		color: var(--color-text);
+	}
+	.mk-testimonial__author {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-md, 12px);
+	}
+	:global(.mk-testimonial__avatar) {
+		width: 44px;
+		height: 44px;
+		border-radius: var(--radius-full, 9999px);
+		object-fit: cover;
+	}
+	.mk-testimonial__info {
+		display: flex;
+		flex-direction: column;
+	}
+	.mk-testimonial__name {
+		font-weight: 600;
+		font-size: var(--font-size-sm, 0.92rem);
+		color: var(--color-brand-600);
+	}
+	.mk-testimonial__role {
+		font-size: var(--font-size-xs, 0.82rem);
+		color: var(--color-muted);
+	}
+</style>

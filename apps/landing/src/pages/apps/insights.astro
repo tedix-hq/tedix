@@ -1,0 +1,452 @@
+---
+import { env } from "cloudflare:workers";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { CatalogBreakdownChart } from "../../components/catalog/CatalogBreakdownChart";
+import { getCatalogClient } from "../../lib/api";
+import type { CatalogAppListItem } from "@tedix/api-contract/schemas/catalog";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+	formatCatalogCategory,
+	mergeCatalogCategoryCounts,
+} from "@tedix/api-contract/utils/catalog-categories";
+
+type CategoryCount = { name: string; count: number };
+type SourceCount = { source: string; count: number };
+
+const client = getCatalogClient(env);
+
+let stats: {
+	total: number;
+	mcp: number;
+	withInteractive: number;
+	withWrites: number;
+	lastSyncedAt: string | null;
+	syncSource: string | null;
+	sourceBreakdown?: SourceCount[];
+} | null = null;
+let healthSummary: {
+	total: number;
+	healthy: number;
+	degraded: number;
+	unhealthy: number;
+	requiresAuth: number;
+	unsupported: number;
+	unknown: number;
+} | null = null;
+let categories: CategoryCount[] = [];
+let notableApps: CatalogAppListItem[] = [];
+let error: string | null = null;
+
+try {
+	const [statsResult, healthResult, categoriesResult, appsResult] =
+		await Promise.allSettled([
+			client.catalog.getStats({}),
+			client.catalog.getHealthSummary({}),
+			client.catalog.getCategories({}),
+			client.catalog.list({
+				sortBy: "sourceCreatedAt",
+				sortDir: "desc",
+				limit: 12,
+				offset: 0,
+			}),
+		]);
+
+	if (statsResult.status === "fulfilled") stats = statsResult.value;
+	if (healthResult.status === "fulfilled") healthSummary = healthResult.value;
+	if (categoriesResult.status === "fulfilled") {
+		categories = normalizeCategories(categoriesResult.value);
+	}
+	if (appsResult.status === "fulfilled") {
+		notableApps = appsResult.value.apps
+			.filter((app) => app.connectorType !== "FIRST_PARTY_ECOSYSTEM")
+			.slice(0, 9);
+	}
+} catch (e) {
+	console.error("[Insights] Failed to fetch public insights:", e);
+	error = "The ecosystem snapshot is temporarily unavailable.";
+}
+
+Astro.response.headers.set(
+	"Cache-Control",
+	"public, s-maxage=600, stale-while-revalidate=1200",
+);
+
+const pageTitle = "AI App Ecosystem Insights";
+const pageDescription =
+	"Live public research on AI app ecosystem patterns, category growth, agent capabilities, and MCP availability.";
+const canonicalUrl = new URL("/apps/insights/", Astro.site).toString();
+const totalApps = stats?.total ?? 0;
+const aiPoweredApps = stats?.mcp ?? 0;
+const interactiveApps = stats?.withInteractive ?? 0;
+const appsWithActions = stats?.withWrites ?? 0;
+const loginRequired = healthSummary?.requiresAuth ?? 0;
+const categoryCount = categories.length;
+const topCategories = categories.slice(0, 8);
+const platformBreakdown = normalizeSources(stats?.sourceBreakdown ?? []);
+const lastUpdated = stats?.lastSyncedAt
+	? new Date(stats.lastSyncedAt)
+	: null;
+const lastUpdatedLabel = lastUpdated
+	? lastUpdated.toLocaleString("en-US", {
+			dateStyle: "long",
+			timeStyle: "short",
+		})
+	: "Refresh in progress";
+const chartAsOfLabel = lastUpdated
+	? `As of ${lastUpdated.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+	: "Refreshing";
+const platformChartRows = platformBreakdown.map((item) => ({
+	label: sourceLabel(item.source),
+	value: item.count.toLocaleString(),
+	percent: totalApps > 0 ? Math.round((item.count / totalApps) * 100) : 0,
+}));
+const categoryChartRows = topCategories.map((category) => ({
+	label: formatCategory(category.name),
+	value: category.count.toLocaleString(),
+	percent: totalApps > 0 ? Math.round((category.count / totalApps) * 100) : 0,
+}));
+
+const platformNarrative = buildPlatformNarrative(platformBreakdown);
+const categoryNarrative = buildCategoryNarrative(topCategories);
+const capabilityNarrative = buildCapabilityNarrative({
+	totalApps,
+	aiPoweredApps,
+	interactiveApps,
+	appsWithActions,
+	loginRequired,
+});
+const metrics = [
+	{ value: totalApps.toLocaleString(), label: "Apps tracked" },
+	{ value: aiPoweredApps.toLocaleString(), label: "AI-powered apps" },
+	{ value: categoryCount.toLocaleString(), label: "Categories" },
+	{ value: interactiveApps.toLocaleString(), label: "Interactive apps" },
+	{ value: appsWithActions.toLocaleString(), label: "Apps with actions" },
+];
+const insightCards = [
+	{ title: "Platform Mix", body: platformNarrative },
+	{ title: "Category Momentum", body: categoryNarrative },
+	{ title: "Agent Readiness", body: capabilityNarrative },
+];
+
+function publicLogoUrl(value: string | null | undefined): string | null {
+	if (!value) return null;
+	const trimmed = value.trim();
+	return /^https?:\/\//i.test(trimmed) && trimmed.includes("/app_catalog/") ? trimmed : null;
+}
+
+const capabilityCards = [
+	{
+		value: interactiveApps.toLocaleString(),
+		label: "Interactive apps",
+		body: "Apps that support an ongoing conversational experience instead of only returning static information.",
+	},
+	{
+		value: appsWithActions.toLocaleString(),
+		label: "Apps with actions",
+		body: "Apps that can create, update, send, book, purchase, or otherwise change state when connected.",
+	},
+	{
+		value: loginRequired.toLocaleString(),
+		label: "Login required",
+		body: "Apps that need OAuth or an API key before an AI assistant can access private data or execute tools.",
+	},
+];
+
+const datasetSchema = {
+	"@context": "https://schema.org",
+	"@type": "Dataset",
+	name: "Tedix AI App Ecosystem Index",
+	description: pageDescription,
+	url: canonicalUrl,
+	creator: { "@id": "https://tedix.dev/#organization" },
+	publisher: { "@id": "https://tedix.dev/#organization" },
+	dateModified: lastUpdated?.toISOString(),
+	measurementTechnique:
+		"Recurring public catalog analysis, connector checks, and ecosystem metadata refreshes.",
+	variableMeasured: [
+		"AI apps tracked",
+		"Platform source",
+		"App category",
+		"Interactive capability",
+		"Write/action capability",
+		"Authentication requirement",
+	],
+};
+
+const itemListSchema = {
+	"@context": "https://schema.org",
+	"@type": "ItemList",
+	name: "Top AI app ecosystem categories",
+	itemListElement: topCategories.map((category, index) => ({
+		"@type": "ListItem",
+		position: index + 1,
+		name: formatCategory(category.name),
+		description: `${category.count} indexed apps`,
+	})),
+};
+
+const faqSchema = {
+	"@context": "https://schema.org",
+	"@type": "FAQPage",
+	mainEntity: [
+		{
+			"@type": "Question",
+			name: "What does the Tedix AI App Ecosystem Index track?",
+			acceptedAnswer: {
+				"@type": "Answer",
+				text: "Tedix tracks public AI app ecosystem patterns so people and AI systems can understand what apps are available, which categories are growing, and what capabilities apps expose.",
+			},
+		},
+		{
+			"@type": "Question",
+			name: "How often is the ecosystem data updated?",
+			acceptedAnswer: {
+				"@type": "Answer",
+				text: "The public snapshot is refreshed regularly from upstream sources and cached for fast crawling. Each page shows the latest available update time.",
+			},
+		},
+		{
+			"@type": "Question",
+			name: "Why do some AI apps require login?",
+			acceptedAnswer: {
+				"@type": "Answer",
+				text: "Many AI apps connect to private data or let an assistant take actions. Those apps require OAuth or API-key authorization before an AI agent can use them safely.",
+			},
+		},
+	],
+};
+
+function normalizeCategories(input: CategoryCount[]): CategoryCount[] {
+	return mergeCatalogCategoryCounts(input);
+}
+
+function formatCategory(value: string | null): string {
+	return formatCatalogCategory(value);
+}
+
+function normalizeSources(sources: SourceCount[]): SourceCount[] {
+	return sources
+		.filter((item) => item.count > 0)
+		.map((item) => ({
+			source: item.source,
+			count: item.count,
+		}))
+		.sort((a, b) => b.count - a.count);
+}
+
+function sourceLabel(source: string): string {
+	const labels: Record<string, string> = {
+		chatgpt: "ChatGPT apps",
+		claude: "Claude connectors",
+		official: "Official MCP servers",
+		tedix: "Tedix apps",
+		tenant: "Tenant-published apps",
+		manual: "Curated entries",
+	};
+	return labels[source] ?? source;
+}
+
+function buildPlatformNarrative(sources: SourceCount[]): string {
+	const [first, second] = sources;
+	if (!first) return "The index is being refreshed from public AI app sources.";
+	if (!second) {
+		return `${sourceLabel(first.source)} currently make up the largest visible source in the index.`;
+	}
+	return `${sourceLabel(first.source)} are the largest indexed source today, followed by ${sourceLabel(second.source)}.`;
+}
+
+function buildCategoryNarrative(items: CategoryCount[]): string {
+	if (items.length === 0) return "Category coverage is being refreshed.";
+	return `${formatCategory(items[0].name)} is the largest category, with ${items
+		.slice(1, 4)
+		.map((item) => formatCategory(item.name))
+		.join(", ")} also showing strong ecosystem activity.`;
+}
+
+function buildCapabilityNarrative(input: {
+	totalApps: number;
+	aiPoweredApps: number;
+	interactiveApps: number;
+	appsWithActions: number;
+	loginRequired: number;
+}): string {
+	if (input.totalApps === 0) return "Capability data is being refreshed.";
+	const actionPct = Math.round((input.appsWithActions / input.totalApps) * 100);
+	const loginPct = Math.round((input.loginRequired / input.totalApps) * 100);
+	return `${input.aiPoweredApps.toLocaleString()} indexed apps expose AI-facing capabilities. ${input.interactiveApps.toLocaleString()} support interactive experiences, ${actionPct}% can take data-changing actions, and about ${loginPct}% require login before use.`;
+}
+---
+
+<BaseLayout
+	title={pageTitle}
+	description={pageDescription}
+	consentBannerVariant="compact"
+	includeSoftwareApplicationSchema={false}
+>
+	<script slot="head" type="application/ld+json" set:html={JSON.stringify(datasetSchema)} />
+	<script slot="head" type="application/ld+json" set:html={JSON.stringify(itemListSchema)} />
+	<script slot="head" type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+
+	<section class="border-border/40 border-b bg-background pt-28 pb-14 md:pt-36 md:pb-18">
+		<div class="container mx-auto max-w-6xl px-4">
+			<a
+				href="/apps/"
+				class="mb-8 inline-flex items-center gap-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground"
+			>
+				<span aria-hidden="true">←</span>
+				Browse the app directory
+			</a>
+
+			<div class="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+				<div>
+					<p class="mb-4 font-semibold text-amber-600 text-sm uppercase tracking-wide dark:text-amber-400">
+						Live AI app market intelligence
+					</p>
+					<h1 class="font-bold font-display text-4xl tracking-tight md:text-6xl">
+						AI App Ecosystem Insights
+					</h1>
+					<p class="mt-5 max-w-2xl text-lg text-muted-foreground leading-relaxed md:text-xl">
+						A public snapshot of how AI apps, MCP servers, and agent-ready tools are spreading across ChatGPT apps, Claude connectors, official MCP servers, and Tedix app ecosystems.
+					</p>
+					<p class="mt-5 text-muted-foreground text-sm">
+						Last updated: <time datetime={lastUpdated?.toISOString()}>{lastUpdatedLabel}</time>
+					</p>
+				</div>
+
+				<Card>
+					<CardHeader><CardTitle>What this page is for</CardTitle></CardHeader>
+					<CardContent className="text-muted-foreground text-sm leading-relaxed">
+						This page is designed as a public, machine-readable source for ecosystem discovery. It favors plain-language observations, source context, and stable HTML over internal pipeline telemetry.
+					</CardContent>
+				</Card>
+			</div>
+		</div>
+	</section>
+
+	{error && (
+		<section class="container mx-auto max-w-5xl px-4 py-16">
+			<div class="rounded-2xl border border-destructive/20 bg-destructive/5 p-6 text-destructive">
+				{error}
+			</div>
+		</section>
+	)}
+
+	{!error && (
+		<>
+			<section class="border-border/40 border-b bg-muted/20 py-8">
+				<div class="container mx-auto grid max-w-6xl grid-cols-2 gap-4 px-4 md:grid-cols-5">
+					{metrics.map((metric) => (
+						<Card size="sm"><CardContent>
+							<p class="font-bold font-display text-2xl tabular-nums md:text-3xl">{metric.value}</p>
+							<p class="mt-1 text-muted-foreground text-sm">{metric.label}</p>
+						</CardContent></Card>
+					))}
+				</div>
+			</section>
+
+			<section class="container mx-auto max-w-6xl px-4 py-14 md:py-18">
+				<div class="grid gap-5 md:grid-cols-3">
+					{insightCards.map((card) => (
+						<Card>
+							<CardHeader><CardTitle>{card.title}</CardTitle></CardHeader>
+							<CardContent className="text-muted-foreground leading-relaxed">{card.body}</CardContent>
+						</Card>
+					))}
+				</div>
+			</section>
+
+			<section class="border-border/40 border-y bg-muted/20 py-14 md:py-18">
+				<div class="container mx-auto max-w-6xl px-4">
+					<div class="grid gap-6 lg:grid-cols-2">
+						<CatalogBreakdownChart
+							title="Where AI apps are appearing"
+							description="Compare discovery channels to decide where app publishers should prioritize distribution. Shares use the latest indexed catalog snapshot."
+							asOfLabel={chartAsOfLabel}
+							rows={platformChartRows}
+							emptyDescription="Platform distribution will appear after the next catalog source refresh."
+						/>
+						<CatalogBreakdownChart
+							title="Top app categories"
+							description="Compare category concentration to see where builders are investing and where the catalog has room to grow."
+							asOfLabel={chartAsOfLabel}
+							rows={categoryChartRows}
+							emptyDescription="Category concentration will appear after the next catalog metadata refresh."
+						/>
+					</div>
+				</div>
+			</section>
+
+			<section class="border-border/40 border-y bg-muted/20 py-14 md:py-18">
+				<div class="container mx-auto max-w-6xl px-4">
+					<div class="mb-8 max-w-2xl">
+						<h2 class="font-bold font-display text-3xl tracking-tight">What agents can do with these apps</h2>
+						<p class="mt-3 text-muted-foreground leading-relaxed">
+							Discovery is only the first layer. The important question is whether an AI system can inspect data, continue a conversation, or safely perform an action after authorization.
+						</p>
+					</div>
+
+					<div class="grid gap-4 md:grid-cols-3">
+						{capabilityCards.map((card) => (
+							<Card><CardContent>
+								<p class="font-bold font-display text-3xl tabular-nums">{card.value}</p>
+								<h3 class="mt-2 font-semibold">{card.label}</h3>
+								<p class="mt-2 text-muted-foreground text-sm leading-relaxed">{card.body}</p>
+							</CardContent></Card>
+						))}
+					</div>
+				</div>
+			</section>
+
+			{notableApps.length > 0 && (
+				<section class="container mx-auto max-w-6xl px-4 py-14 md:py-18">
+					<div class="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+						<div class="max-w-2xl">
+							<h2 class="font-bold font-display text-3xl tracking-tight">Recently indexed apps</h2>
+							<p class="mt-3 text-muted-foreground leading-relaxed">
+								A small sample of new or recently refreshed apps from the public catalog.
+							</p>
+						</div>
+						<a href="/apps/" class={buttonVariants({ variant: "outline", size: "sm" })}>
+							Explore all apps →
+						</a>
+					</div>
+
+					<ul class="grid gap-4 md:grid-cols-3">
+						{notableApps.map((app) => {
+							const logo = publicLogoUrl(app.logoUrl);
+							return (
+								<li>
+									<Card size="sm" className="h-full p-0 transition-colors hover:border-kumo-brand motion-reduce:transition-none">
+									<a href={`/apps/${app.slug}/`} class="block h-full p-4">
+										<div class="flex items-start gap-3">
+											<div class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-muted">
+												{logo ? (
+													<img src={logo} alt={`${app.name} logo`} class="h-full w-full object-contain p-1.5" loading="lazy" />
+												) : (
+													<span class="font-bold text-muted-foreground">{app.name.charAt(0)}</span>
+												)}
+											</div>
+											<div class="min-w-0">
+												<h3 class="truncate font-semibold">{app.name}</h3>
+												<p class="text-muted-foreground text-sm">{app.developer ?? sourceLabel(app.source ?? "manual")}</p>
+											</div>
+										</div>
+										<p class="mt-3 line-clamp-3 text-muted-foreground text-sm leading-relaxed">
+											{app.description ?? "AI app listed in the Tedix ecosystem index."}
+										</p>
+										<p class="mt-4 text-muted-foreground text-xs">
+											{formatCategory(app.category)} · {sourceLabel(app.source ?? "manual")}
+										</p>
+									</a>
+									</Card>
+								</li>
+							);
+						})}
+					</ul>
+				</section>
+			)}
+
+		</>
+	)}
+</BaseLayout>

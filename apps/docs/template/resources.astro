@@ -1,0 +1,16 @@
+---
+import { config } from "virtual:nimbus/config";
+import CatalogGrid from "../components/CatalogGrid.astro";
+import HubLayout from "../layouts/HubLayout.astro";
+import { getHubPages } from "../lib/docs-hubs";
+
+const pages = (await getHubPages()).filter((page) => page.type !== "release-note");
+---
+
+<HubLayout title="Resources" description={`Guides, tutorials, troubleshooting, references, learning paths, and videos in ${config.title}.`}>
+  <p class="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-primary">Learn</p>
+  <h1 class="max-w-3xl text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">Resources</h1>
+  <p class="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">Explore this site's articles, guides, tutorials, troubleshooting, references, learning paths, and videos. Only available formats appear in the filter.</p>
+  <CatalogGrid pages={pages} filter="type" empty="No resources have been published for this site yet. Browse the full directory instead." />
+  {pages.length === 0 && <a href="/directory/" class="mt-5 inline-flex text-sm font-medium text-primary">Browse the directory →</a>}
+</HubLayout>

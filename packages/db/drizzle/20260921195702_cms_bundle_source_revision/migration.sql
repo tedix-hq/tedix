@@ -1,0 +1,1 @@
+ALTER TABLE `tenant_bundles` ADD `source_revision` text;

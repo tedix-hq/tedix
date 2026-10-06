@@ -1,0 +1,67 @@
+name: Verify and build Tedix CLI from public source
+
+# Managed publication belongs to the guarded private operations publisher.
+# This workflow needs no Cloudflare credentials or live installation values.
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'tedix-hq/tedix' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+          no-cache: true
+      - run: bun install --frozen-lockfile
+      - name: Validate release version
+        run: |
+          VERSION=$(bun -e 'console.log(require("./packages/cli/package.json").version)')
+          test "${GITHUB_REF_NAME}" = "cli-v${VERSION}"
+      - run: bun run --cwd packages/cli test:run
+      - run: bun run --cwd packages/cli type-check
+      - run: bun run --cwd packages/cli test:protocol
+      - run: bun run --cwd packages/cli test:standalone
+      - run: bun run --cwd packages/cli test:installer
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        target:
+          - bun-darwin-arm64
+          - bun-darwin-x64
+          - bun-linux-arm64
+          - bun-linux-x64
+          - bun-windows-x64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+          no-cache: true
+      - run: bun install --frozen-lockfile
+      - name: Validate release version
+        run: |
+          VERSION=$(bun -e 'console.log(require("./packages/cli/package.json").version)')
+          test "${GITHUB_REF_NAME}" = "cli-v${VERSION}"
+      - run: bun run --cwd packages/cli build:standalone ${{ matrix.target }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tedix-${{ matrix.target }}
+          path: packages/cli/dist/tedix-*

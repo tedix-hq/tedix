@@ -1,0 +1,1 @@
+ALTER TABLE `user_configs` ADD `revision` integer DEFAULT 0 NOT NULL;

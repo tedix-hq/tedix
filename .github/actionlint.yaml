@@ -1,0 +1,6 @@
+paths:
+  .github/workflows/*.yml:
+    ignore:
+      # GitHub Actions added concurrency.queue in May 2026; actionlint v1.7.12
+      # still validates against the older concurrency schema.
+      - 'unexpected key "queue" for "concurrency" section'

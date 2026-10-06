@@ -1,0 +1,62 @@
+---
+import { getSidebar } from "@cloudflare/nimbus-docs";
+import { Sidebar, SidebarFilter } from "@/components/ui/sidebar";
+import Header from "../components/Header.astro";
+import HubLinks from "../components/HubLinks.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const sidebar = await getSidebar("/", { collection: "docs" });
+---
+
+<BaseLayout title={title} description={description}>
+  <div class="flex min-h-screen flex-col">
+    <Header showSidebar />
+    <div class="flex flex-1">
+      <div class="hidden w-(--nb-sidebar-width) shrink-0 border-r border-border lg:block">
+        <aside data-nb-desktop-sidebar class="sticky top-14 flex h-[calc(100vh-3.5rem)] flex-col overflow-y-auto">
+          <nav aria-label="Documentation" class="flex-1 px-4 pb-12 pt-5">
+            <SidebarFilter />
+            <p class="mb-2 mt-6 px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Browse documentation</p>
+            <Sidebar items={sidebar} persist />
+          </nav>
+        </aside>
+      </div>
+      <main id="main-content" class="min-w-0 flex-1">
+        <div class="mx-auto max-w-[80rem] px-5 py-12 sm:px-8 sm:py-16 lg:px-12">
+          <slot />
+        </div>
+      </main>
+    </div>
+  </div>
+  <dialog data-mobile-sidebar data-state="closed" class="group fixed inset-0 m-0 h-full max-h-full w-full max-w-full border-0 bg-transparent p-0 data-[state=closing]:bg-black/40 data-[state=open]:bg-black/40" aria-label="Site navigation">
+    <div data-mobile-sidebar-panel class="h-full w-(--nb-sidebar-width) max-w-[85vw] -translate-x-full overflow-y-auto border-r border-border bg-card transition-transform duration-250 ease-out group-data-[state=open]:translate-x-0 motion-reduce:transition-none">
+      <div class="sticky top-0 z-[1] flex items-center justify-between border-b border-border bg-card px-4 py-3"><span class="text-sm font-semibold text-foreground">Navigation</span><button data-close-sidebar aria-label="Close sidebar" class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">✕</button></div>
+      <nav aria-label="Documentation" class="px-4 pb-8 pt-5"><HubLinks /><SidebarFilter /><Sidebar items={sidebar} /></nav>
+    </div>
+  </dialog>
+
+  <script>
+    import { mount, lockScroll, unlockScroll } from "@cloudflare/nimbus-docs/client";
+    mount("[data-mobile-sidebar]", (root) => {
+      const menu = document.querySelector<HTMLElement>("[data-menu-btn]");
+      if (!(root instanceof HTMLDialogElement) || !menu) return () => {};
+      const dialog = root;
+      const controller = new AbortController();
+      const { signal } = controller;
+      let closeTimer: ReturnType<typeof setTimeout> | undefined;
+      const close = () => { if (!dialog.open || dialog.dataset.state === "closing") return; dialog.dataset.state = "closing"; closeTimer = setTimeout(() => dialog.close(), 250); };
+      menu.addEventListener("click", () => { if (dialog.open) return; dialog.showModal(); lockScroll(); requestAnimationFrame(() => { dialog.dataset.state = "open"; }); dialog.querySelector<HTMLElement>("[data-close-sidebar]")?.focus(); }, { signal });
+      dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); }, { signal });
+      dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); }, { signal });
+      dialog.querySelector("[data-close-sidebar]")?.addEventListener("click", close, { signal });
+      dialog.addEventListener("close", () => { dialog.dataset.state = "closed"; unlockScroll(); menu.focus(); }, { signal });
+      return () => { controller.abort(); if (closeTimer) clearTimeout(closeTimer); if (dialog.open) unlockScroll(); };
+    });
+  </script>
+</BaseLayout>

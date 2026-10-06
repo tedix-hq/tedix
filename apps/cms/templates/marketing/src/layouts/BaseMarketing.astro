@@ -1,0 +1,550 @@
+---
+/**
+ * BaseMarketing — marketing chrome for the marketing template.
+ *
+ * Generalized from a proven tenant migration layout: keeps the sticky
+ * mega-menu header + gradient footer, reuses EmDashHead/EmDashBodyStart/
+ * EmDashBodyEnd so all native + tedix-seo-aeo SEO is preserved, but is
+ * brand-neutral: the site title comes from getSiteSettings(), and the primary
+ * navigation is data-driven via getMenu("primary") with a sensible hardcoded
+ * fallback so a brand-new tenant still renders a usable header. The footer
+ * reads its own native menu and falls back to the primary navigation when a
+ * new tenant has no footer menu yet.
+ *
+ * Page-content styles (.iw-hero / .iw-prose / .iw-btn …) stay `is:global`:
+ * they target the [slug].astro hero and the set:html Portable Text body that
+ * scoped styles cannot reach.
+ */
+import { getMenu, getSiteSettings } from "emdash";
+import type { Menu, MenuItem } from "emdash";
+import { EmDashHead, EmDashBodyStart, EmDashBodyEnd } from "emdash/ui";
+import { createPublicPageContext } from "emdash/page";
+import { Font } from "astro:assets";
+import { env as workerEnv } from "cloudflare:workers";
+import { resolvePlatformBranding } from "../lib/platform-branding";
+import "../styles/globals.css";
+import "../styles/tokens.css";
+import "../styles/theme.css";
+
+interface Props {
+	title: string;
+	description?: string | null;
+	image?: string | null;
+	content?: { collection: string; id: string; slug?: string | null };
+	heroBleed?: boolean;
+}
+const { title, description, image, content, heroBleed = false } = Astro.props;
+
+const settings = await getSiteSettings();
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>)
+	.DEFAULT_LOCALE;
+const originalPath = Astro.originPathname ?? Astro.url.pathname;
+const publicPathPrefix = ((workerEnv as Record<string, string | undefined>).PUBLIC_PATH_PREFIX ?? "")
+	.trim().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const localePath = publicPathPrefix && originalPath.startsWith(`${publicPathPrefix}/`)
+	? originalPath.slice(publicPathPrefix.length)
+	: originalPath;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(localePath)?.[1];
+const locale = pathLocale ?? Astro.currentLocale ?? envDefaultLocale ?? "en";
+const siteTitle = settings?.title ?? "Marketing";
+const fullTitle = title.includes(siteTitle) ? title : `${title} — ${siteTitle}`;
+const canonical = new URL(originalPath, Astro.url.origin).toString();
+const {
+	googleFontsHref,
+	themeMode,
+	allowThemeSwitch,
+	htmlClass,
+	brandCss,
+} = resolvePlatformBranding(
+	workerEnv as Record<string, string | undefined>,
+);
+
+const pageCtx = createPublicPageContext({
+	Astro,
+	kind: content ? "content" : "custom",
+	pageType: "website",
+	title: fullTitle,
+	pageTitle: title,
+	description,
+	image,
+	content,
+	canonical,
+	siteUrl: Astro.url.origin,
+	seo: { ogImage: image, robots: "index, follow, max-image-preview:large" },
+	siteName: siteTitle,
+});
+Object.assign(pageCtx, { locale, path: originalPath });
+
+// Unified internal nav-item shape: { label, href, children? }. Native menu
+// items use `url`; the hardcoded fallback uses `href`. Normalize to one shape.
+interface NavItem {
+	label: string;
+	href: string;
+	target?: string;
+	children?: NavItem[];
+}
+
+const FALLBACK_NAV: NavItem[] = [
+	{ label: "Home", href: "/" },
+	{ label: "Blog", href: "/posts/" },
+	{ label: "Kontakt", href: "/kontakt" },
+];
+
+function fromMenuItem(item: MenuItem): NavItem {
+	return {
+		label: item.label,
+		href: item.url,
+		target: item.target,
+		children:
+			item.children && item.children.length > 0
+				? item.children.map(fromMenuItem)
+				: undefined,
+	};
+}
+
+async function readMenu(name: string): Promise<Menu | null> {
+	try {
+		return await getMenu(name, { locale });
+	} catch (error) {
+		console.warn(
+			`[BaseMarketing] Unable to read "${name}" menu: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
+		return null;
+	}
+}
+
+const [primaryMenu, footerMenu] = await Promise.all([
+	readMenu("primary"),
+	readMenu("footer"),
+]);
+
+const nav: NavItem[] =
+	primaryMenu?.items && primaryMenu.items.length > 0
+		? primaryMenu.items.map(fromMenuItem)
+		: FALLBACK_NAV;
+const footerNav: NavItem[] = footerMenu?.items?.length
+	? footerMenu.items.map(fromMenuItem)
+	: nav;
+
+const ctaItem = nav.find((item) => /kontakt|contact/i.test(item.label));
+const year = new Date().getFullYear();
+---
+
+<!doctype html>
+<html lang={locale} class={htmlClass}>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<Font cssVariable="--font-sans" preload />
+		<Font cssVariable="--font-display" preload />
+		{googleFontsHref && (
+			<>
+				<link rel="preconnect" href="https://fonts.googleapis.com" />
+				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+				<link rel="stylesheet" href={googleFontsHref} />
+			</>
+		)}
+		{brandCss && <style is:inline set:html={`:root{${brandCss}}`} />}
+		<title>{fullTitle}</title>
+		<EmDashHead page={pageCtx} />
+		<link rel="stylesheet" href="/_tedix/theme.css" data-tedix-hot-theme />
+		<slot name="head" />
+		{allowThemeSwitch ? (
+			<script is:inline>
+				(function () {
+					var c = document.cookie;
+					var i = c.indexOf("theme=");
+					var theme = i >= 0 ? c.slice(i + 6).split(";")[0] : null;
+					if (theme === "dark" || theme === "light") {
+						document.documentElement.classList.add(theme);
+					} else if (!theme || theme === "system") {
+						if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+							document.documentElement.classList.add("dark");
+						}
+					}
+				})();
+			</script>
+		) : (
+			<script is:inline set:html={`document.documentElement.classList.add("${themeMode}");`} />
+		)}
+	</head>
+	<body class:list={["iw-body", { "iw-body--bleed": heroBleed }]}>
+		<EmDashBodyStart page={pageCtx} />
+
+		<header class="iw-header">
+			<div class="iw-header__inner">
+				<a class="iw-logo" href="/">{siteTitle}</a>
+				<nav class="iw-nav" aria-label="Primary">
+					<ul class="iw-nav__list">
+						{
+							nav.map((item) => (
+								<li class:list={["iw-nav__item", { "has-children": item.children }]}>
+									<a
+										class="iw-nav__link"
+										href={item.href}
+										target={item.target === "_blank" ? "_blank" : undefined}
+										rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
+									>
+										{item.label}
+									</a>
+									{item.children && (
+										<ul class="iw-submenu">
+											{item.children.map((c) => (
+												<li>
+													<a href={c.href}>{c.label}</a>
+												</li>
+											))}
+										</ul>
+									)}
+								</li>
+							))
+						}
+					</ul>
+				</nav>
+				<a class="iw-header__cta" href={ctaItem?.href ?? "/kontakt"}>
+					{ctaItem?.label ?? "Kontakt"}
+				</a>
+			</div>
+		</header>
+
+		<main class="iw-main">
+			<slot />
+		</main>
+
+		<footer class="iw-footer">
+			<div class="iw-footer__grid">
+				<div class="iw-footer__col">
+					<div class="iw-footer__logo">{siteTitle}</div>
+					{settings?.tagline && (
+						<p class="iw-footer__blurb">{settings.tagline}</p>
+					)}
+				</div>
+				<div class="iw-footer__col">
+					<h4>Navigation</h4>
+					<nav aria-label={footerMenu?.label ?? "Footer"}>
+						<ul class="iw-footer__menu">
+							{footerNav.map((item) => (
+								<li>
+									<a
+										href={item.href}
+										target={item.target === "_blank" ? "_blank" : undefined}
+										rel={item.target === "_blank" ? "noopener noreferrer" : undefined}
+									>{item.label}</a>
+									{item.children && (
+										<ul class="iw-footer__submenu">
+											{item.children.map((child) => (
+												<li>
+													<a
+														href={child.href}
+														target={child.target === "_blank" ? "_blank" : undefined}
+														rel={child.target === "_blank" ? "noopener noreferrer" : undefined}
+													>{child.label}</a>
+												</li>
+											))}
+										</ul>
+									)}
+								</li>
+							))}
+						</ul>
+					</nav>
+				</div>
+			</div>
+			<div class="iw-footer__legal">
+				<span>© {year} {siteTitle}</span>
+			</div>
+		</footer>
+
+		<EmDashBodyEnd page={pageCtx} />
+	</body>
+</html>
+
+<style>
+	/* Page color and body type come from the token layer, not literals: a shared
+	   template must not pin one tenant's palette or typeface. */
+	.iw-body {
+		margin: 0;
+		font-family: var(--font-sans);
+		color: var(--color-text);
+		background: var(--color-bg);
+	}
+
+	/* ── Header / mega-menu ───────────────────────────────── */
+	.iw-header {
+		position: sticky;
+		top: 0;
+		z-index: 999;
+		background: var(--color-bg);
+		box-shadow: 0 8px 30px -12px rgba(0, 0, 0, 0.18);
+	}
+	.iw-header__inner {
+		max-width: 1400px;
+		width: 94%;
+		margin: 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 24px;
+		padding: 14px 0;
+	}
+	.iw-logo {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 1.7rem;
+		color: var(--color-brand-600);
+		text-decoration: none;
+		letter-spacing: -0.5px;
+	}
+	.iw-nav__list {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.iw-nav__item {
+		position: relative;
+	}
+	.iw-nav__link {
+		display: block;
+		padding: 10px 12px;
+		color: var(--color-brand-600);
+		font-weight: 600;
+		font-size: 0.95rem;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+	.iw-nav__item:hover > .iw-nav__link {
+		color: var(--color-brand-500);
+	}
+	.iw-submenu {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		min-width: 250px;
+		background: var(--color-surface);
+		box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.2);
+		border-top: 3px solid var(--color-brand-500);
+		list-style: none;
+		margin: 0;
+		padding: 8px 0;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(6px);
+		transition: all 0.18s ease;
+	}
+	.iw-nav__item.has-children:hover > .iw-submenu {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(0);
+	}
+	.iw-submenu a {
+		display: block;
+		padding: 9px 20px;
+		color: var(--color-brand-600);
+		font-size: 0.92rem;
+		text-decoration: none;
+	}
+	.iw-submenu a:hover {
+		background: var(--color-brand-50);
+		color: var(--color-brand-500);
+	}
+	.iw-header__cta {
+		flex-shrink: 0;
+		background: var(--color-brand-500);
+		color: var(--color-on-brand);
+		font-weight: 600;
+		padding: 0.6rem 1.2rem;
+		border-radius: 4px;
+		text-decoration: none;
+		font-size: 0.92rem;
+	}
+	.iw-header__cta:hover {
+		background: var(--color-brand-700);
+	}
+
+	/* ── Footer ───────────────────────────────────────────── */
+	.iw-footer {
+		background: var(--color-brand-600);
+		background-image: var(--gradient-brand);
+		color: var(--color-on-brand);
+		padding: 70px 0 28px;
+	}
+	.iw-footer__grid {
+		max-width: 1300px;
+		width: 90%;
+		margin: 0 auto;
+		display: grid;
+		grid-template-columns: 2fr 1fr;
+		gap: 40px;
+	}
+	.iw-footer__logo {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 1.5rem;
+		color: var(--color-on-brand);
+		margin-bottom: 14px;
+	}
+	.iw-footer__blurb {
+		color: var(--color-on-brand-muted);
+		line-height: 1.6;
+		max-width: 420px;
+	}
+	.iw-footer__col h4 {
+		font-family: var(--font-display);
+		font-size: 1.05rem;
+		margin: 0 0 12px;
+		color: var(--color-on-brand);
+	}
+	.iw-footer__col p,
+	.iw-footer__menu,
+	.iw-footer__submenu {
+		line-height: 1.7;
+		color: var(--color-on-brand-muted);
+		margin: 0;
+	}
+	.iw-footer__menu,
+	.iw-footer__submenu {
+		list-style: none;
+		padding: 0;
+	}
+	.iw-footer__menu > li + li {
+		margin-top: 0.25rem;
+	}
+	.iw-footer__submenu {
+		padding-left: 1rem;
+	}
+	.iw-footer a {
+		color: var(--color-on-brand);
+		text-decoration: none;
+	}
+	.iw-footer a:hover {
+		color: var(--color-brand-500);
+	}
+	.iw-footer__legal {
+		max-width: 1300px;
+		width: 90%;
+		margin: 40px auto 0;
+		padding-top: 20px;
+		border-top: 1px solid var(--color-on-brand-border);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 0.88rem;
+		color: var(--color-on-brand-muted);
+	}
+
+	@media (max-width: 980px) {
+		.iw-nav {
+			display: none;
+		}
+		.iw-footer__grid {
+			grid-template-columns: 1fr;
+		}
+	}
+	@media (max-width: 640px) {
+		.iw-footer__legal {
+			flex-direction: column;
+			gap: 10px;
+		}
+	}
+</style>
+
+<!-- Page-content styles must be global: they target the [slug].astro hero +
+     the set:html Portable Text body, which scoped styles cannot reach. -->
+<style is:global>
+	/*
+	 * No brand palette here. This block used to pin one tenant's colors
+	 * (#eaf2f8/#f39100/#00487e/#003a66 plus "Exo 2") in an unlayered `:root`,
+	 * which outranks the `@layer base` defaults — so every tenant on this shared
+	 * template inherited that tenant's brand unless PLATFORM_BRANDING injection
+	 * happened to overwrite all four vars later in source order.
+	 *
+	 * Defaults now come from the `@theme` block in styles/globals.css and tenant
+	 * values come from injection, which is the branding contract. Per-org
+	 * overrides belong in theme.css.
+	 */
+	.iw-hero {
+		position: relative;
+		min-height: 540px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background-color: var(--color-brand-600);
+		background-size: cover;
+		background-position: center;
+		color: var(--color-on-brand);
+		text-align: center;
+		padding: 140px 20px;
+	}
+	.iw-hero__inner {
+		max-width: 1100px;
+		margin: 0 auto;
+	}
+	.iw-hero__title {
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: clamp(2rem, 5vw, 3.5rem);
+		line-height: 1.1;
+		color: var(--color-on-brand);
+		margin: 0;
+	}
+	.iw-hero__sub {
+		font-size: 1.25rem;
+		line-height: 1.5;
+		margin: 1.25rem auto 0;
+		max-width: 760px;
+		color: var(--color-on-brand);
+	}
+	.iw-btn {
+		display: inline-block;
+		margin-top: 1.75rem;
+		background: var(--color-brand-500);
+		color: var(--color-on-brand);
+		font-weight: 600;
+		padding: 0.85rem 1.9rem;
+		border-radius: 4px;
+		text-decoration: none;
+		transition: background 0.2s;
+	}
+	.iw-btn:hover {
+		background: var(--color-brand-700);
+	}
+	.iw-prose {
+		max-width: 860px;
+		margin: 64px auto;
+		padding: 0 20px;
+		font-size: 1.075rem;
+		line-height: 1.7;
+		color: var(--color-text-secondary);
+	}
+	.iw-prose h2,
+	.iw-prose h3 {
+		font-family: var(--font-display);
+		color: var(--color-brand-600);
+		margin: 2.25rem 0 0.75rem;
+		line-height: 1.2;
+	}
+	.iw-prose h2 {
+		font-size: 1.9rem;
+	}
+	.iw-prose h3 {
+		font-size: 1.4rem;
+	}
+	.iw-prose p {
+		margin: 0 0 1.1rem;
+	}
+	.iw-prose ul {
+		margin: 0 0 1.1rem;
+		padding-left: 1.4rem;
+	}
+	.iw-prose li {
+		margin: 0.3rem 0;
+	}
+	.iw-prose a {
+		color: var(--color-brand-600);
+		text-decoration: underline;
+	}
+</style>

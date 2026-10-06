@@ -1,0 +1,31 @@
+name: Run Actionlint
+description: Download, verify, and run the repository-pinned Actionlint release
+
+runs:
+  using: composite
+  steps:
+    - name: Install and run checksum-pinned Actionlint
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        readonly version="1.7.12"
+        readonly archive_name="actionlint_${version}_linux_amd64.tar.gz"
+        readonly archive_sha256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        readonly release_url="https://github.com/rhysd/actionlint/releases/download/v${version}/${archive_name}"
+
+        install_dir="$(mktemp -d "${RUNNER_TEMP}/actionlint.XXXXXX")"
+        trap 'rm -rf "$install_dir"' EXIT
+        archive_path="${install_dir}/${archive_name}"
+
+        curl --fail --silent --show-error --location \
+          --retry 3 --retry-all-errors --retry-delay 2 \
+          --connect-timeout 10 --max-time 60 \
+          "$release_url" --output "$archive_path"
+
+        printf '%s  %s\n' "$archive_sha256" "$archive_path" \
+          | sha256sum --check --strict -
+        tar --extract --gzip --file "$archive_path" \
+          --directory "$install_dir" actionlint
+
+        "$install_dir/actionlint" -color=false

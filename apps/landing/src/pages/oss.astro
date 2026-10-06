@@ -1,0 +1,187 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+export const prerender = true;
+---
+
+<BaseLayout
+	title="Tedix — Open source for AI workers"
+	description="Build recurring workflows with persistent AI workers, connected tools, and an open-source foundation. Tedix's public source release is coming soon."
+	includeSoftwareApplicationSchema={false}
+	includeWebPageSchema={false}
+>
+	<meta slot="head" name="robots" content="noindex,nofollow" />
+
+	<div class="oss-page">
+		<header class="oss-hero">
+			<p class="eyebrow">Open-source release · Coming soon</p>
+			<h1>AI workers.<br /><span>Make them your own.</span></h1>
+			<p class="intro">
+				Tedix brings persistent AI workers, connected tools, and recurring
+				workflows together in one platform. We're preparing the source for you
+				to explore, adapt, and build on.
+			</p>
+			<div class="actions">
+				<a class="cta cta-primary" href="https://docs.tedix.dev/">Read the docs</a>
+				<a class="cta cta-secondary" href="/contact/">Request access</a>
+			</div>
+		</header>
+
+		<section class="benefits" aria-label="Build with Tedix">
+			<article>
+				<h2>Workers that stay with you</h2>
+				<p>
+					Give each worker its own identity, context, and skills to carry work
+					from one run to the next.
+				</p>
+			</article>
+			<article>
+				<h2>Tools that work together</h2>
+				<p>
+					Connect your systems through MCP. Combine tools and workflows around
+					the work your team already does.
+				</p>
+			</article>
+			<article>
+				<h2>Work you can follow</h2>
+				<p>
+					Review progress, decisions, and results in one workspace, with
+					approvals where they matter.
+				</p>
+			</article>
+		</section>
+
+		<p class="availability">
+			Public source release planned under AGPL-3.0. Tedix Cloud is available by
+			invitation. Self-hosting is experimental.
+			Report security issues privately to
+			<a href="mailto:security@tedix.dev">security@tedix.dev</a>.
+		</p>
+	</div>
+</BaseLayout>
+
+<style>
+	.oss-page {
+		background:
+			radial-gradient(
+				ellipse at 50% 0,
+				color-mix(in oklab, var(--primary) 8%, transparent),
+				transparent 65%
+			),
+			var(--background);
+		color: var(--foreground);
+		padding: 144px 24px 72px;
+	}
+	.oss-hero,
+	.benefits,
+	.availability {
+		max-width: 1080px;
+		margin-inline: auto;
+	}
+	.oss-hero {
+		text-align: center;
+		margin-bottom: 64px;
+	}
+	.eyebrow {
+		color: var(--primary);
+		font-size: 0.85rem;
+		font-weight: 600;
+		margin: 0 0 24px;
+	}
+	h1 {
+		font-size: clamp(2.5rem, 6vw, 4.6rem);
+		font-weight: 700;
+		letter-spacing: -0.045em;
+		line-height: 1.08;
+		margin: 0 0 24px;
+	}
+	h1 span {
+		color: var(--primary);
+	}
+	.intro {
+		color: var(--muted-foreground);
+		font-size: clamp(1rem, 2vw, 1.18rem);
+		line-height: 1.7;
+		max-width: 58ch;
+		margin: 0 auto 32px;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 12px;
+	}
+	.cta {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 48px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 12px 24px;
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.cta-primary {
+		background: var(--primary);
+		border-color: var(--primary);
+		color: var(--primary-foreground);
+	}
+	.cta-secondary {
+		background: var(--background);
+		color: var(--foreground);
+	}
+	.cta:hover {
+		filter: brightness(0.95);
+	}
+	.cta:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 4px;
+	}
+	.benefits {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 20px;
+	}
+	.benefits article {
+		background: var(--card);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 28px;
+	}
+	h2 {
+		font-size: 1.1rem;
+		font-weight: 600;
+		line-height: 1.4;
+		margin: 0 0 12px;
+	}
+	.benefits p,
+	.availability {
+		color: var(--muted-foreground);
+		font-size: 0.94rem;
+		line-height: 1.7;
+	}
+	.benefits p {
+		margin: 0;
+	}
+	.availability {
+		text-align: center;
+		font-size: 0.82rem;
+		margin-top: 32px;
+	}
+	@media (max-width: 720px) {
+		.oss-page {
+			padding: 120px 20px 48px;
+		}
+		.oss-hero {
+			margin-bottom: 40px;
+		}
+		.benefits {
+			grid-template-columns: 1fr;
+			gap: 12px;
+		}
+		.benefits article {
+			padding: 24px;
+		}
+	}
+</style>

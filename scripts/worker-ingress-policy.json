@@ -1,0 +1,121 @@
+[
+	{
+		"app": "apps/api",
+		"kind": "application-authenticated",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Public API origin; procedures and custom routes enforce their own authentication or carry reviewed public annotations."
+	},
+	{
+		"app": "apps/artifact-gateway",
+		"kind": "application-authenticated",
+		"workersDev": true,
+		"previewUrls": false,
+		"reason": "Stable cookie-isolated workers.dev byte origin; the API verifies signed artifact/media capabilities before serving content, and version preview URLs are disabled."
+	},
+	{
+		"app": "apps/cms",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "CMS control-plane origin; MCP and job routes validate user or internal service credentials."
+	},
+	{
+		"app": "apps/cms-runtime",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Tenant CMS runtime mixes public sites with broker-authenticated administration and derived per-tenant internal credentials."
+	},
+	{
+		"app": "apps/docs",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Docs control-plane origin; MCP and preview handlers verify product credentials or scoped preview access."
+	},
+	{
+		"app": "apps/docs-runtime",
+		"kind": "application-authenticated",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Docs runtime intentionally serves public sites and broker-protected organization sites from one edge."
+	},
+	{
+		"app": "apps/mcp",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Public MCP edge; OAuth discovery is public and MCP dispatch enforces principal, scope, tenant, and policy."
+	},
+	{
+		"app": "apps/os",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Public product edge; session broker, API proxy, collaboration, and widget bridges re-derive authorization."
+	},
+	{
+		"app": "apps/session-broker",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Custom-domain authentication flow; signed intents and host-only cookies establish product sessions."
+	},
+	{
+		"app": "apps/skill-runtime",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Custom-domain runtime; routes require trusted internal authentication except the annotated liveness probe."
+	},
+	{
+		"app": "apps/tedi",
+		"kind": "application-authenticated",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Public tedi edge authenticates product traffic while admin and workstation routes require service bindings."
+	},
+	{
+		"app": "apps/tedi-runtime",
+		"kind": "service-binding-only",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Agent runtime is reached through the tedi edge and internal service bindings, never direct HTTP ingress."
+	},
+	{
+		"app": "apps/tedi-workstation-egress-broker",
+		"kind": "service-binding-only",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Outbound policy broker accepts requests only through the workstation runtime service binding."
+	},
+	{
+		"app": "apps/tedi-workstation-runtime",
+		"kind": "service-binding-only",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Workstation runtime is an internal API/tedi service target with no public HTTP contract."
+	},
+	{
+		"app": "apps/landing",
+		"kind": "public",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Public marketing, discovery, and health surface with no tenant authority."
+	},
+	{
+		"app": "apps/mcp-ui",
+		"kind": "public",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Public MCP Apps resource documents and sandbox assets; authoritative operations remain on authenticated MCP and API surfaces."
+	},
+	{
+		"app": "apps/widget",
+		"kind": "public",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Public versioned white-label widget assets; signed sessions remain same-origin on each customer host."
+	}
+]

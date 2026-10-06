@@ -1,0 +1,9 @@
+{
+	"extends": "@tedix/tsconfig/base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": ["@cloudflare/workers-types", "node"]
+	},
+	"include": ["src/**/*"],
+	"exclude": ["node_modules"]
+}

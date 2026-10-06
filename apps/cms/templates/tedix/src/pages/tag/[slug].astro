@@ -1,0 +1,120 @@
+---
+import { getEmDashCollection, getSiteSettings, getTerm, decodeSlug } from "emdash";
+import { env as workerEnv } from "cloudflare:workers";
+import Base from "../../layouts/Base.astro";
+import PostCard from "../../components/PostCard.astro";
+import { collectionIndexHref, contentHref } from "../../lib/content-url";
+import { t } from "../../i18n/strings";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.redirect("/404");
+const requestedPage = Number(Astro.url.searchParams.get("page") ?? "1");
+const POSTS_PER_PAGE = 12;
+const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 &&
+	Number.isSafeInteger((requestedPage - 1) * POSTS_PER_PAGE) ? requestedPage : 1;
+
+const settings = await getSiteSettings();
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const originalPath = Astro.originPathname ?? Astro.url.pathname;
+const publicPathPrefixRaw = (workerEnv as Record<string, string | undefined>).PUBLIC_PATH_PREFIX ?? "";
+const publicPathPrefix = publicPathPrefixRaw.trim().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const localePath = publicPathPrefix && originalPath.startsWith(`${publicPathPrefix}/`)
+	? originalPath.slice(publicPathPrefix.length)
+	: originalPath;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(localePath)?.[1];
+const locale =
+	pathLocale ??
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0 ? settingsLanguage : undefined) ??
+	envDefaultLocale ??
+	"en";
+
+const orgDefaultLocale = envDefaultLocale ?? "en";
+const postsIndexHref = await collectionIndexHref("posts", {
+	locale,
+	defaultLocale: orgDefaultLocale,
+});
+
+const term = await getTerm("tag", slug, { locale, includeCounts: false });
+if (!term) return Astro.redirect("/404");
+
+const { entries: posts, hasMore, cacheHint } = await getEmDashCollection("posts", {
+	orderBy: { published_at: "desc" },
+	where: { tag: slug },
+	limit: POSTS_PER_PAGE,
+	offset: (page - 1) * POSTS_PER_PAGE,
+	locale,
+	status: "published",
+});
+if (cacheHint) { try { Astro.cache.set(cacheHint); } catch {} }
+if (page > 1 && posts.length === 0) return Astro.redirect("/404");
+
+const robots = posts.length === 0 ? "noindex, follow" : null;
+function pageHref(targetPage: number) {
+	const url = new URL(originalPath, Astro.url.origin);
+	if (targetPage > 1) url.searchParams.set("page", String(targetPage));
+	return url.toString();
+}
+const canonicalOverride = (settings as Record<string, unknown>)?.url as string | undefined;
+const canonicalBase = canonicalOverride ??
+	(workerEnv as Record<string, string | undefined>).PUBLIC_SITE_URL;
+const canonicalPath = publicPathPrefix && publicPathPrefix !== "/" && originalPath === "/"
+	? `${publicPathPrefix}/`
+	: originalPath;
+const canonicalUrl = canonicalBase
+	? `${canonicalBase.replace(/\/+$/, "")}${canonicalPath === "/" ? "" : canonicalPath}`
+	: new URL(canonicalPath, Astro.url.origin).toString();
+const pageCanonicalUrl = page > 1 ? `${canonicalUrl}?page=${page}` : undefined;
+const postLinks = new Map(
+	await Promise.all(
+		posts.map(async (post) => [
+			post.data.id,
+			await contentHref("posts", post.data.slug ?? post.id, {
+				locale,
+				defaultLocale: orgDefaultLocale,
+			}),
+		]),
+	),
+);
+function postHref(post: (typeof posts)[number]) {
+	return postLinks.get(post.data.id) ?? postsIndexHref;
+}
+---
+
+<Base title={`#${term.label}`} description={`${t("tag", locale)}: ${term.label}`} robots={robots} canonical={pageCanonicalUrl}>
+	<div class="border-b border-gray-200 dark:border-gray-800">
+		<div class="max-w-6xl mx-auto px-4 lg:px-6 py-16 md:py-20">
+			<div class="text-xs font-medium uppercase tracking-widest text-brand-600 dark:text-blue-400 mb-3">{t("tag", locale)}</div>
+			<h1 class="font-display text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight">#{term.label}</h1>
+		</div>
+	</div>
+
+	<div class="max-w-6xl mx-auto px-4 lg:px-6 py-16">
+		{posts.length === 0 ? (
+			<p class="text-gray-500">{t("noPostsWithTag", locale)}</p>
+		) : (
+			<>
+				<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
+					{posts.map((post) => (
+						<PostCard
+							edit={post.edit}
+							title={post.data.title ?? "Untitled"}
+							excerpt={post.data.excerpt}
+							featuredImage={post.data.featured_image}
+							href={postHref(post)}
+							date={post.data.publishedAt ?? undefined}
+							readingTime={post.data.reading_time}
+						/>
+					))}
+				</div>
+				{(page > 1 || hasMore) && (
+					<nav class="flex justify-between mt-16 pt-8 border-t border-gray-200 dark:border-gray-800" aria-label={t("pagination", locale)}>
+						{page > 1 ? <a href={pageHref(page - 1)}>{t("previous", locale)}</a> : <span />}
+						{hasMore && <a href={pageHref(page + 1)}>{t("next", locale)}</a>}
+					</nav>
+				)}
+			</>
+		)}
+	</div>
+</Base>

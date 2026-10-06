@@ -1,0 +1,1 @@
+../../../../tedix/src/plugins/tedix-tedi-bridge/index.ts

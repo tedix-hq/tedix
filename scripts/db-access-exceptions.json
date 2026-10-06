@@ -1,0 +1,118 @@
+{
+	"drizzleOutsideDb": {
+		"apps/mcp/src/mcp/generic-task-store.ts": {
+			"storagePlane": "edge-enforcement-d1",
+			"disposition": "approved",
+			"owner": "apps/mcp:mcp-tasks-edge-ledger",
+			"binding": "createDbClient(input.db)",
+			"reason": "The stateless MCP edge must persist and serve the documented mcp_tasks protocol ledger within the request that enforces task lifecycle semantics, including org-scoped routing snapshots for os-gadget task handles."
+		},
+		"apps/mcp/src/workflows/generic-tasks-workflow.ts": {
+			"storagePlane": "edge-enforcement-d1",
+			"disposition": "approved",
+			"owner": "apps/mcp:mcp-tasks-workflow-ledger",
+			"binding": "createDbClient(this.env.DB)",
+			"reason": "The generic task Workflow owns retry-safe terminal transitions in the documented mcp_tasks edge-enforcement ledger around its durable dispatch steps."
+		}
+	},
+	"directD1": {
+		"apps/cms/src/agent/storage.ts": {
+			"storagePlane": "provisioning-control-plane",
+			"disposition": "approved",
+			"owner": "apps/cms:cms-control-plane-storage",
+			"binding": "D1Database db",
+			"reason": "This centralized CMS storage owner coordinates platform app metadata with tenant_bundles lifecycle reads and atomic rollback writes for provisioning and deploy workflows."
+		},
+		"apps/skill-runtime/src/db.ts": {
+			"storagePlane": "runtime-enforcement-d1",
+			"disposition": "approved",
+			"owner": "apps/skill-runtime:canonical-lifecycle-store",
+			"binding": "D1Database db",
+			"reason": "This Worker-local storage owner centralizes skill_runs lifecycle transitions, sealed artifact reads and writes, admission deduplication, runtime pins, and trusted evidence lookups."
+		},
+		"apps/skill-runtime/src/workflow-approval.ts": {
+			"storagePlane": "runtime-enforcement-d1",
+			"disposition": "approved",
+			"owner": "apps/skill-runtime:workflow-approval-fence",
+			"binding": "D1Database input.db",
+			"reason": "The runtime reserves and settles approval receipts in skill_run_artifacts before emitting Cloudflare Workflow events, preventing duplicate human decisions on retry."
+		},
+		"apps/skill-runtime/src/workflow-restart.ts": {
+			"storagePlane": "runtime-enforcement-d1",
+			"disposition": "approved",
+			"owner": "apps/skill-runtime:workflow-restart-fence",
+			"binding": "D1Database db",
+			"reason": "The runtime owns restart receipts, epoch barriers, and terminal outcome fences across skill_runs and sealed skill_run_artifacts so replay remains idempotent."
+		},
+		"packages/db/src/client.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:d1-session-factory",
+			"binding": "D1Database d1.withSession",
+			"reason": "The canonical client factory opens D1 sessions and binds Drizzle to them so request-scoped reads preserve sequential consistency and bookmark propagation."
+		},
+		"packages/db/src/queries/billing-service-credits.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:service-credit-settlement",
+			"binding": "DbClient.$client D1Database",
+			"reason": "Service-credit admission and settlement require native D1 batches for atomic reservation, immutable debit, provider receipt, and compare-and-set transitions without BEGIN."
+		},
+		"packages/db/src/queries/billing/settlement.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:billing-usage-settlement",
+			"binding": "DbClient.$client D1Executor",
+			"reason": "Canonical customer-usage settlement uses five parameterized native statements inside one D1 batch to atomically advance the usage period, insert the immutable charge and credit journal, settle the reservation, and enqueue Stripe metering output without BEGIN."
+		},
+		"packages/db/src/queries/catalog/maintenance-reports.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:catalog-maintenance-reports",
+			"binding": "D1Database d1",
+			"reason": "Catalog maintenance owns aggregate quality, leakage, duplicate, stale-source, and drift reports whose dynamic cross-table SQL shapes are not expressible cleanly as Drizzle builders."
+		},
+		"packages/db/src/queries/graph-projection.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:graph-projection-canonical-store",
+			"binding": "DbClient.$client D1Database",
+			"reason": "Graph projection uses one affected-row readiness compare-and-set with a canonical outbox exclusion and one heterogeneous native D1 batch that hydrates entity-kind-specific canonical rows without reading Neo4j."
+		},
+		"packages/db/src/queries/growth-snapshots.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:growth-snapshot-aggregator",
+			"binding": "D1Database d1",
+			"reason": "The weekly growth collector performs bounded bulk aggregates across all active tedis in three queries, avoiding per-tedi round trips before snapshot insertion."
+		},
+		"packages/db/src/queries/memory-audit.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:memory-audit-query",
+			"binding": "BrainAuditDeps.db D1 executor",
+			"reason": "The canonical memory audit composes parameterized tenant-scoped filters, grouped counts, and ordering dynamically, then executes through a deliberately narrow D1 reader."
+		},
+		"packages/db/src/queries/runtime-body-generations.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:runtime-body-generation-cas",
+			"binding": "D1Executor db",
+			"reason": "Runtime body generation updates select between tedis and workstation_leases and use affected-row compare-and-set semantics that require parameterized native D1 statements."
+		},
+		"packages/db/src/queries/tedi-runtime-bootstrap.ts": {
+			"storagePlane": "platform-d1",
+			"disposition": "approved",
+			"owner": "packages/db:tedi-runtime-bootstrap-facade",
+			"binding": "RuntimeD1 db",
+			"reason": "This narrow typed facade is the sole platform-SQL owner for the certified tedi runtime, avoiding a second peer-specialized Drizzle instance in that Worker."
+		},
+		"packages/provisioning/src/cms.ts": {
+			"storagePlane": "provisioning-control-plane",
+			"disposition": "approved",
+			"owner": "packages/provisioning:cms-fleet-lifecycle",
+			"binding": "CmsBundlesBindings.platformDb",
+			"reason": "The environment-neutral CMS bundle owner coordinates R2 publication with atomic platform tenant_bundles activation and rollback, and deletes bundle records during resource teardown."
+		}
+	}
+}

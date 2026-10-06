@@ -1,0 +1,52 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "public-installation-mcp-ui",
+	"main": "@astrojs/cloudflare/entrypoints/server",
+	"compatibility_date": "2026-05-14",
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"cache": {
+		"enabled": false,
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1,
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.01,
+		},
+	},
+	"dev": {
+		"inspector_port": 19231,
+		"port": 3001,
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"GIT_SHA": "configured-via-private-overlay",
+		"API_URL": "configured-via-private-overlay",
+		"PUBLIC_API_URL": "configured-via-private-overlay",
+		"MCP_URL": "configured-via-private-overlay",
+		"MCP_UI_URL": "configured-via-private-overlay",
+	},
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+	},
+	"env": {
+		"production": {
+			"workers_dev": true,
+			"preview_urls": true,
+			"vars": {
+				"ENVIRONMENT": "production",
+				"GIT_SHA": "configured-via-private-overlay",
+				"API_URL": "configured-via-private-overlay",
+				"PUBLIC_API_URL": "configured-via-private-overlay",
+				"MCP_URL": "configured-via-private-overlay",
+				"MCP_UI_URL": "configured-via-private-overlay",
+			},
+		},
+	},
+}

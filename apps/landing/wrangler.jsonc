@@ -1,0 +1,90 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "public-installation-landing",
+	"main": "@astrojs/cloudflare/entrypoints/server",
+	"compatibility_date": "2026-05-14",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"cache": {
+		"enabled": true,
+	},
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1,
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.01,
+		},
+	},
+	"dev": {
+		"inspector_port": 19233,
+		"port": 3003,
+	},
+	"vars": {
+		"GIT_SHA": "configured-via-private-overlay",
+		"ENVIRONMENT": "development",
+		"CLI_DOWNLOAD_HOST": "configured-via-private-overlay",
+		"API_URL": "configured-via-private-overlay",
+		"TEDIX_MARKETING_ORG_ID": "configured-via-private-overlay",
+		"TEDIX_CMO_TEDI_ID": "configured-via-private-overlay",
+		"TEDIX_DEMAND_OBJECTIVE_ID": "configured-via-private-overlay",
+		"TEDIX_DEMAND_PROJECT_ID": "configured-via-private-overlay",
+		"TEDIX_DEMAND_INTAKE_PARENT_ID": "configured-via-private-overlay",
+		"GA_MEASUREMENT_ID": "configured-via-private-overlay",
+	},
+	"r2_buckets": [
+		{
+			"binding": "CLI_RELEASES",
+			"bucket_name": "public-installation-bucket",
+		},
+	],
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+	},
+	"services": [
+		{
+			"binding": "API_SERVICE",
+			"service": "public-installation-api",
+			"entrypoint": "InternalEntrypoint",
+		},
+	],
+	"env": {
+		"production": {
+			"kv_namespaces": [
+				{
+					"binding": "SESSION",
+					"id": "00000000000000000000000000000000",
+				},
+			],
+			"vars": {
+				"GIT_SHA": "configured-via-private-overlay",
+				"ENVIRONMENT": "production",
+				"CLI_DOWNLOAD_HOST": "configured-via-private-overlay",
+				"API_URL": "configured-via-private-overlay",
+				"TEDIX_MARKETING_ORG_ID": "configured-via-private-overlay",
+				"TEDIX_CMO_TEDI_ID": "configured-via-private-overlay",
+				"TEDIX_DEMAND_OBJECTIVE_ID": "configured-via-private-overlay",
+				"TEDIX_DEMAND_PROJECT_ID": "configured-via-private-overlay",
+				"TEDIX_DEMAND_INTAKE_PARENT_ID": "configured-via-private-overlay",
+				"GA_MEASUREMENT_ID": "configured-via-private-overlay",
+			},
+			"services": [
+				{
+					"binding": "API_SERVICE",
+					"service": "public-installation-api",
+					"entrypoint": "InternalEntrypoint",
+				},
+			],
+			"r2_buckets": [
+				{
+					"binding": "CLI_RELEASES",
+					"bucket_name": "public-installation-bucket",
+					"remote": false,
+				},
+			],
+		},
+	},
+}

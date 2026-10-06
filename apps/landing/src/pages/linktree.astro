@@ -1,0 +1,344 @@
+---
+import {
+	ArrowRight,
+	ArrowUpRight,
+	BarChart3,
+	Bot,
+	Brain,
+	Building2,
+	FileText,
+	GitBranch,
+	Network,
+	PlayCircle,
+	ReceiptText,
+	ShieldCheck,
+	ShoppingBag,
+	Sparkles,
+	UsersRound,
+} from "lucide-react";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+export const prerender = true;
+
+const pageTitle = "Linktree";
+const pageDescription =
+	"Tedix resources, demos, prototype evidence, product pages, and founder profiles.";
+import { PRODUCT_AUTH_URL } from "../lib/product-urls";
+
+const platformArtifacts = [
+	{
+		title: "Tedi Runtime",
+		description:
+			"Long-lived AI workers with the Agent runtime, persistent identity, sessions, files, channels, jobs, browser actions, backups, and restore-on-wake.",
+		icon: Bot,
+	},
+	{
+		title: "MCP App Platform",
+		description:
+			"Multi-tenant, config-driven MCP apps where tools, widgets, auth, schemas, and app surfaces are loaded from D1 without per-app deployments.",
+		icon: Network,
+	},
+	{
+		title: "Memory and Brain Layer",
+		description:
+			"Working memory, D1/Agent Memory platform memory, and Neo4j context graph for facts, confidence, usage feedback, relationships, and precedents.",
+		icon: Brain,
+	},
+	{
+		title: "Rationale and Mission Control",
+		description:
+			"Rationale records link objectives, evidence, confidence, actions, outcomes, and feedback into an explainability timeline for human oversight.",
+		icon: ShieldCheck,
+	},
+	{
+		title: "Skills and Muscle Memory",
+		description:
+			"D1-backed skills, MCP-served SKILL.md resources, executable workflows, usage tracking, and crystallized repeated procedures.",
+		icon: GitBranch,
+	},
+	{
+		title: "Governed Work",
+		description:
+			"Purpose-linked Work Items, atomic claims, approvals, evidence, and independently reviewable outcomes for durable autonomous execution.",
+		icon: ShieldCheck,
+	},
+	{
+		title: "Usage and Cost Ledger",
+		description:
+			"Immutable runtime usage and model-cost rows, cost drilldowns, billing categories, and MCP tools for usage and cost inspection.",
+		icon: ReceiptText,
+	},
+	{
+		title: "Pilots and Demonstrations",
+		description:
+			"Working demonstrations and pilots including Klarna AI Commerce, legacy-to-new systems integration, and digital worker execution flows.",
+		icon: BarChart3,
+	},
+];
+
+const resourcePages = [
+	{
+		title: "Tedix One Pager",
+		label: "Company overview",
+		description:
+			"The concise overview of Tedix, the problem we solve, customer use cases, platform positioning, and traction.",
+		href: "/onepager/",
+		accent: "from-violet-500 to-fuchsia-500",
+		icon: FileText,
+		related: [
+			{
+				label: "Klarna agentic commerce demo",
+				href: "https://www.loom.com/share/48d1981f7b604129a03f74528218d5a1",
+			},
+			{
+				label: "Digital workers execution demo",
+				href: "https://youtu.be/qvm9jLH6uu8",
+			},
+		],
+	},
+	{
+		title: "Private Intelligence Labs: for European Industry",
+		label: "EuroLabs research",
+		description:
+			"The EuroLabs page for Tedix's European research direction: private intelligence, self-distilling AI workers, explainability, and industry AI sovereignty.",
+		href: "/EuroLabs/",
+		accent: "from-emerald-500 via-violet-500 to-fuchsia-500",
+		icon: Brain,
+		related: [],
+	},
+];
+
+const demos = [
+	{
+		title: "Agentic Commerce with Klarna",
+		description:
+			"A practical commerce use case showing Tedix connecting products into AI chat interfaces.",
+		href: "https://www.loom.com/share/48d1981f7b604129a03f74528218d5a1",
+		meta: "Loom demo",
+		icon: ShoppingBag,
+		tone: "orange",
+	},
+	{
+		title: "AI Assistants as Digital Twins",
+		description:
+			"How AI assistants become part of the organization and work with company context.",
+		href: "https://youtu.be/RM5l4dbC_nc",
+		meta: "YouTube demo",
+		icon: Bot,
+		tone: "blue",
+	},
+	{
+		title: "Training and Operating Robots with the Tedix Ecosystem",
+		description:
+			"A robotics demo from the Reflexos project showing how Tedix can coordinate training, operations, and execution loops.",
+		href: "https://www.loom.com/share/6894a22403d249aa96142fda33c88a7f",
+		meta: "Loom demo",
+		icon: Network,
+		tone: "violet",
+	},
+	{
+		title: "Digital Workers: Execution and Training",
+		description:
+			"A demo of digital worker task execution, learning, and training in real operational flows.",
+		href: "https://youtu.be/qvm9jLH6uu8",
+		meta: "YouTube demo",
+		icon: Building2,
+		tone: "emerald",
+	},
+];
+
+const founders = [
+	{
+		name: "Adriana Carmona Beltran",
+		role: "Founder",
+		href: "https://www.linkedin.com/in/adriana-carmona-beltran/",
+		linktreeHref: "/adriana-linktree/",
+		image: "/images/founders/adriana-carmona-beltran.jpeg",
+	},
+	{
+		name: "Aaron Koivunen",
+		role: "Founder",
+		href: "https://www.linkedin.com/in/aaron-koivunen/",
+		linktreeHref: "/aaron-linktree/",
+		image: "/images/founders/aaron-koivunen.jpeg",
+	},
+];
+
+const toneClasses = {
+	violet: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-400/25 dark:bg-violet-500/10 dark:text-violet-200",
+	orange: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-400/25 dark:bg-orange-500/10 dark:text-orange-200",
+	blue: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/25 dark:bg-blue-500/10 dark:text-blue-200",
+	emerald: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-500/10 dark:text-emerald-200",
+};
+---
+
+<BaseLayout
+	title={pageTitle}
+	description={pageDescription}
+	showConsentBanner={false}
+	showFooter={false}
+	includeSoftwareApplicationSchema={false}
+>
+	<div class="min-h-screen overflow-hidden bg-[linear-gradient(180deg,rgba(245,240,255,0.95)_0%,rgba(255,255,255,1)_34%,rgba(255,248,244,0.92)_100%)] px-4 pt-32 pb-14 dark:bg-[linear-gradient(180deg,#090015_0%,#0d0617_48%,#120817_100%)] sm:px-6 lg:px-8">
+		<div class="pointer-events-none fixed inset-0 -z-10 opacity-[0.05] dark:opacity-[0.08]" style="background-image: linear-gradient(rgba(139,92,246,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(249,115,22,0.55) 1px, transparent 1px); background-size: 52px 52px;"></div>
+
+		<section class="mx-auto max-w-4xl text-center">
+			<div class="inline-flex items-center gap-2 rounded-full border border-violet-200/80 bg-white/80 px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm backdrop-blur-xl dark:border-violet-400/25 dark:bg-white/[0.06] dark:text-violet-200">
+				<Sparkles className="h-4 w-4" />
+				Resources
+			</div>
+			<h1 class="mt-7 bg-gradient-to-r from-violet-700 via-fuchsia-500 to-orange-500 bg-clip-text font-bold font-display text-5xl leading-[1.02] tracking-tight text-transparent sm:text-6xl lg:text-7xl dark:from-violet-300 dark:via-fuchsia-300 dark:to-orange-300">
+				Linktree
+			</h1>
+			<p class="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg dark:text-white/65">
+				Tedix resources, demos, product pages, prototype evidence, and founder profiles for reviewers.
+			</p>
+		</section>
+
+		<section class="mx-auto mt-12 max-w-4xl">
+			<div class="mb-5">
+				<p class="text-sm font-semibold uppercase tracking-[0.24em] text-orange-600 dark:text-orange-300">Watch</p>
+				<h2 class="mt-2 font-display text-3xl font-bold text-foreground dark:text-white/95">Video demos</h2>
+			</div>
+			<div class="grid gap-4">
+				{demos.map((demo) => {
+					const Icon = demo.icon;
+					return (
+						<a href={demo.href} target="_blank" rel="noreferrer" class="group flex min-h-[170px] flex-col justify-between rounded-3xl border border-border/80 bg-white/80 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_16px_60px_rgba(0,0,0,0.32)]">
+							<div class="flex items-start justify-between gap-4">
+								<span class={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] ${toneClasses[demo.tone]}`}>
+									<Icon className="h-3.5 w-3.5" />
+									{demo.meta}
+								</span>
+								<span class="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-orange-500 text-white shadow-lg shadow-fuchsia-500/25 transition-all group-hover:scale-105 group-hover:shadow-fuchsia-500/35">
+									<PlayCircle className="h-6 w-6" />
+								</span>
+							</div>
+							<div>
+								<h3 class="font-display text-xl font-bold text-foreground dark:text-white/95">{demo.title}</h3>
+								<p class="mt-2 text-sm leading-relaxed text-muted-foreground dark:text-white/58">{demo.description}</p>
+							</div>
+						</a>
+					);
+				})}
+			</div>
+		</section>
+
+		<section id="resources" class="mx-auto mt-12 max-w-4xl scroll-mt-28">
+			<div class="mb-5 flex items-end justify-between gap-4">
+				<div>
+					<p class="text-sm font-semibold uppercase tracking-[0.24em] text-violet-600 dark:text-violet-300">Explore more</p>
+					<h2 class="mt-2 font-display text-3xl font-bold text-foreground dark:text-white/95">Core sections</h2>
+				</div>
+			</div>
+
+			<div class="grid gap-5">
+				{resourcePages.map((resource) => {
+					const Icon = resource.icon;
+					return (
+						<article class="group relative overflow-hidden rounded-3xl border border-border/80 bg-white/82 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-1 dark:border-white/10 dark:bg-white/[0.045] dark:shadow-[0_18px_70px_rgba(0,0,0,0.36)]">
+							<div class={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${resource.accent}`}></div>
+							<div>
+								<span class="inline-flex items-center gap-2 rounded-full border border-border bg-background/75 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground dark:border-white/10 dark:bg-white/[0.04]">
+									<Icon className="h-3.5 w-3.5" />
+									{resource.label}
+								</span>
+								<h3 class="mt-5 font-display text-2xl font-bold text-foreground dark:text-white/95">{resource.title}</h3>
+								<p class="mt-3 text-sm leading-relaxed text-muted-foreground dark:text-white/60">{resource.description}</p>
+							</div>
+							<a href={resource.href} class="mt-6 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-orange-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition-all hover:scale-[1.01] hover:shadow-violet-500/30">
+								Open page
+								<ArrowRight className="ml-2 h-4 w-4" />
+							</a>
+							<div class="mt-4 flex flex-wrap gap-2">
+								{resource.related.map((item) => (
+									<a href={item.href} target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 rounded-full border border-border bg-white/70 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/[0.04] dark:text-white/60 dark:hover:text-fuchsia-200">
+										<PlayCircle className="h-3.5 w-3.5" />
+										{item.label}
+									</a>
+								))}
+							</div>
+						</article>
+					);
+				})}
+			</div>
+		</section>
+
+		<section class="mx-auto mt-12 max-w-6xl">
+			<div class="relative overflow-hidden rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_80px_rgba(76,29,149,0.13)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045] dark:shadow-[0_28px_100px_rgba(0,0,0,0.45)] sm:p-8">
+				<div class="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/70 to-transparent"></div>
+				<div class="mx-auto max-w-3xl text-center">
+					<div class="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-200 bg-violet-50/80 shadow-sm dark:border-violet-400/25 dark:bg-violet-500/10">
+						<img src="/images/tedi-astronaut-waving.png" alt="Tedix astronaut" class="h-12 w-12 object-contain" />
+					</div>
+					<p class="text-sm font-semibold uppercase tracking-[0.22em] text-violet-600 dark:text-violet-200">Working prototype</p>
+					<h2 class="mt-3 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl dark:text-white/95">
+						Private Intelligence OS
+					</h2>
+					<p class="mt-4 text-sm leading-relaxed text-muted-foreground sm:text-base dark:text-white/62">
+						Tedix has a working multi-tenant prototype platform: a production-oriented monorepo with Cloudflare Workers, D1, R2, Agent Memory, Neo4j, Descope, MCP servers, dashboard, widgets, and tedi runtimes.
+					</p>
+					<a href={PRODUCT_AUTH_URL} class="mt-6 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all hover:scale-[1.01] hover:shadow-violet-500/35">
+						Request Access
+						<ArrowRight className="ml-2 h-4 w-4" />
+					</a>
+				</div>
+				<div class="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+					{platformArtifacts.map((artifact) => {
+						const Icon = artifact.icon;
+						return (
+							<article class="rounded-2xl border border-border/80 bg-background/70 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.035]">
+								<div class="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 via-fuchsia-500 to-orange-500 text-white shadow-lg shadow-violet-500/15">
+									<Icon className="h-5 w-5" />
+								</div>
+								<h3 class="font-display text-base font-bold text-foreground dark:text-white/95">{artifact.title}</h3>
+								<p class="mt-2 text-sm leading-relaxed text-muted-foreground dark:text-white/58">{artifact.description}</p>
+							</article>
+						);
+					})}
+				</div>
+			</div>
+		</section>
+
+		<section class="mx-auto mt-12 max-w-4xl">
+			<div class="grid gap-5">
+				<div>
+					<p class="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">Founders</p>
+					<h2 class="mt-2 font-display text-3xl font-bold text-foreground dark:text-white/95">LinkedIn profiles</h2>
+					<p class="mt-3 text-sm leading-relaxed text-muted-foreground dark:text-white/60">
+						Direct founder profiles for the grant application background and team review.
+					</p>
+				</div>
+				<div class="grid gap-5 md:grid-cols-2">
+					{founders.map((founder) => (
+						<article class="group rounded-3xl border border-border/80 bg-white/80 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-blue-400/45 dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_16px_60px_rgba(0,0,0,0.32)]">
+							<div class="flex items-center gap-4">
+								<img src={founder.image} alt={founder.name} class="h-16 w-16 rounded-2xl border border-white/70 object-cover shadow-lg shadow-violet-500/15 dark:border-white/10" loading="lazy" />
+								<div class="min-w-0">
+									<h3 class="font-display text-lg font-bold text-foreground dark:text-white/95">{founder.name}</h3>
+									<p class="text-sm text-muted-foreground dark:text-white/55">{founder.role}</p>
+								</div>
+							</div>
+							<div class="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
+								<a href={founder.href} target="_blank" rel="noreferrer" class="flex items-center justify-between rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:border-blue-400/45 hover:text-blue-600 dark:border-white/10 dark:bg-white/[0.035] dark:text-white/90 dark:hover:text-blue-200">
+									<span class="inline-flex items-center gap-2">
+										<UsersRound className="h-4 w-4" />
+										LinkedIn
+									</span>
+									<ArrowUpRight className="h-4 w-4" />
+								</a>
+								<a href={founder.linktreeHref} class="flex items-center justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition-all hover:scale-[1.01] hover:shadow-violet-500/30">
+									<span class="inline-flex items-center gap-2">
+										<Sparkles className="h-4 w-4" />
+										Linktree
+									</span>
+									<ArrowRight className="h-4 w-4" />
+								</a>
+							</div>
+						</article>
+					))}
+				</div>
+			</div>
+		</section>
+	</div>
+</BaseLayout>

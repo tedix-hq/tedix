@@ -1,0 +1,99 @@
+---
+/**
+ * ComparisonTable — B2B comparison block (vs-competitor / tier features).
+ *
+ * Renders a schema.org/Table with semantic <thead>/<tbody>. The
+ * `highlightColumn` index emphasizes "your" column with a brand tint.
+ * Boolean values render as ✓/✗ icons; strings render verbatim.
+ *
+ * Portable Text usage:
+ *   This component is also wired into PortableText via the `comparisonTable`
+ *   block type. Authors drop a JSON block of shape:
+ *     { _type: "comparisonTable", caption, columns, rows, highlightColumn }
+ *   See `PortableTextRenderer.astro` for the registration that maps this block
+ *   to <ComparisonTable />.
+ *
+ * @example
+ *   <ComparisonTable
+ *     caption="Tedix vs other agent platforms"
+ *     columns={["Tedix", "CrewAI", "LangGraph"]}
+ *     highlightColumn={0}
+ *     rows={[
+ *       { feature: "Long-lived memory", values: [true, false, false] },
+ *       { feature: "Auto skill build", values: [true, false, false] },
+ *       { feature: "Pricing", values: ["$29/mo", "OSS", "OSS"] },
+ *     ]}
+ *   />
+ */
+
+export interface ComparisonRow {
+	feature: string;
+	description?: string;
+	values: Array<string | boolean>;
+}
+
+interface Props {
+	caption?: string;
+	columns: string[];
+	rows: ComparisonRow[];
+	highlightColumn?: number;
+}
+
+const { caption, columns, rows, highlightColumn } = Astro.props;
+
+function isHighlight(idx: number): boolean {
+	return typeof highlightColumn === "number" && highlightColumn === idx;
+}
+---
+
+<figure class="my-10 not-prose" itemscope itemtype="https://schema.org/Table">
+	{caption && (
+		<figcaption class="mb-4 text-sm font-medium text-gray-600 dark:text-gray-400" itemprop="about">
+			{caption}
+		</figcaption>
+	)}
+	<div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
+		<table class="w-full border-collapse text-sm">
+			<thead class="bg-gray-50 dark:bg-gray-900/40">
+				<tr>
+					<th scope="col" class="px-4 py-3 text-left font-semibold text-gray-900 dark:text-gray-100">Feature</th>
+					{columns.map((col, idx) => (
+						<th
+							scope="col"
+							class={`px-4 py-3 text-left font-semibold ${isHighlight(idx) ? "bg-brand-50 text-brand-700 dark:bg-blue-950/40 dark:text-blue-200" : "text-gray-900 dark:text-gray-100"}`}
+						>
+							{col}
+						</th>
+					))}
+				</tr>
+			</thead>
+			<tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+				{rows.map((row) => (
+					<tr>
+						<th scope="row" class="px-4 py-3 text-left align-top font-medium text-gray-900 dark:text-gray-100">
+							<div>{row.feature}</div>
+							{row.description && (
+								<div class="mt-1 text-xs font-normal text-gray-500 dark:text-gray-400">{row.description}</div>
+							)}
+						</th>
+						{row.values.map((val, idx) => (
+							<td
+								class={`px-4 py-3 align-top ${isHighlight(idx) ? "bg-brand-50/40 dark:bg-blue-950/20" : ""}`}
+							>
+								{typeof val === "boolean" ? (
+									val ? (
+										<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" aria-label="Yes">✓</span>
+									) : (
+										<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500" aria-label="No">✗</span>
+									)
+								) : (
+									<span class="text-gray-700 dark:text-gray-300">{val}</span>
+								)}
+							</td>
+						))}
+					</tr>
+				))}
+			</tbody>
+		</table>
+	</div>
+</figure>

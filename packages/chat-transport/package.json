@@ -1,0 +1,38 @@
+{
+	"name": "@tedix/chat-transport",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Cap'n Web session and embedded-chat transport primitives shared by Tedix OS and host products.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		"./canonical-projection": "./src/canonical-projection.ts",
+		"./session-hub": "./src/session-hub.ts",
+		"./resume-watermark": "./src/resume-watermark.ts",
+		"./embedded-contract": "./src/embedded-contract.ts",
+		"./embedded-capability": "./src/embedded-capability.ts",
+		"./embedded-mount": "./src/embedded-mount.ts",
+		"./embedded-client": "./src/embedded-client.ts",
+		"./voice-composer": "./src/voice-composer.ts",
+		"./runtime-frames": "./src/runtime-frames.ts",
+		"./markdown": "./src/markdown.ts",
+		"./transcript-reducer": "./src/transcript-reducer.ts",
+		"./client-turn-milestones": "./src/client-turn-milestones.ts",
+		"./composer-semantics": "./src/composer-semantics.ts"
+	},
+	"scripts": {
+		"type-check": "tsc --noEmit",
+		"test:run": "vp test run"
+	},
+	"dependencies": {
+		"@cloudflare/voice": "catalog:",
+		"capnweb": "^0.12.0"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"happy-dom": "^20.14.5",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

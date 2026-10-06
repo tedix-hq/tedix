@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS `store_listings_app_source_unique`;

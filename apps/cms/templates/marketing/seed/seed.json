@@ -1,0 +1,926 @@
+{
+	"version": "1",
+	"meta": {
+		"name": "Marketing",
+		"description": "Marketing landing pages composed from native versioned Emdash blocks, plus a blog."
+	},
+	"settings": {
+		"title": "Marketing",
+		"tagline": "A marketing site you compose in the CMS."
+	},
+	"blockTypes": [
+		{
+			"slug": "marketing_prose",
+			"label": "Prose",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "portableText",
+							"required": true
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_hero",
+			"label": "Hero",
+			"category": "Marketing",
+			"currentVersion": 2,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "subheadline",
+							"label": "Subheadline",
+							"type": "text"
+						},
+						{
+							"slug": "primary_cta_label",
+							"label": "Primary CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "primary_cta_url",
+							"label": "Primary CTA URL",
+							"type": "string"
+						},
+						{
+							"slug": "secondary_cta_label",
+							"label": "Secondary CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "secondary_cta_url",
+							"label": "Secondary CTA URL",
+							"type": "string"
+						},
+						{
+							"slug": "image_url",
+							"label": "Background image URL",
+							"type": "string"
+						}
+					]
+				},
+				{
+					"version": 2,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string",
+							"required": true
+						},
+						{
+							"slug": "subheadline",
+							"label": "Subheadline",
+							"type": "text"
+						},
+						{
+							"slug": "primary_cta_label",
+							"label": "Primary CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "primary_cta_url",
+							"label": "Primary CTA URL",
+							"type": "string"
+						},
+						{
+							"slug": "secondary_cta_label",
+							"label": "Secondary CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "secondary_cta_url",
+							"label": "Secondary CTA URL",
+							"type": "string"
+						},
+						{
+							"slug": "image",
+							"label": "Background image",
+							"type": "image"
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_logo_strip",
+			"label": "Logo Strip",
+			"category": "Marketing",
+			"currentVersion": 2,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "eyebrow",
+							"label": "Eyebrow",
+							"type": "string"
+						},
+						{
+							"slug": "items",
+							"label": "Logos",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "url",
+										"label": "Image URL",
+										"type": "string"
+									},
+									{
+										"slug": "alt",
+										"label": "Alt text",
+										"type": "string"
+									},
+									{
+										"slug": "href",
+										"label": "Link URL",
+										"type": "string"
+									}
+								],
+								"maxItems": 20
+							}
+						}
+					]
+				},
+				{
+					"version": 2,
+					"fields": [
+						{
+							"slug": "eyebrow",
+							"label": "Eyebrow",
+							"type": "string"
+						},
+						{
+							"slug": "items",
+							"label": "Logos",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "image",
+										"label": "Logo image",
+										"type": "image"
+									},
+									{
+										"slug": "href",
+										"label": "Link URL",
+										"type": "string"
+									}
+								],
+								"maxItems": 20
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_features",
+			"label": "Features",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "heading",
+							"label": "Heading",
+							"type": "string"
+						},
+						{
+							"slug": "intro",
+							"label": "Intro",
+							"type": "text"
+						},
+						{
+							"slug": "items",
+							"label": "Features",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "title",
+										"label": "Title",
+										"type": "string"
+									},
+									{
+										"slug": "body",
+										"label": "Body",
+										"type": "text"
+									},
+									{
+										"slug": "href",
+										"label": "Link URL",
+										"type": "string"
+									}
+								],
+								"maxItems": 12
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_stats",
+			"label": "Stats",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "heading",
+							"label": "Heading",
+							"type": "string"
+						},
+						{
+							"slug": "items",
+							"label": "Stats",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "value",
+										"label": "Value",
+										"type": "string"
+									},
+									{
+										"slug": "label",
+										"label": "Label",
+										"type": "string"
+									}
+								],
+								"maxItems": 8
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_cta",
+			"label": "CTA Band",
+			"category": "Marketing",
+			"currentVersion": 2,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "text"
+						},
+						{
+							"slug": "cta_label",
+							"label": "CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "cta_url",
+							"label": "CTA URL",
+							"type": "string"
+						},
+						{
+							"slug": "image_url",
+							"label": "Background image URL",
+							"type": "string"
+						}
+					]
+				},
+				{
+					"version": 2,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "text"
+						},
+						{
+							"slug": "cta_label",
+							"label": "CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "cta_url",
+							"label": "CTA URL",
+							"type": "string"
+						},
+						{
+							"slug": "image",
+							"label": "Background image",
+							"type": "image"
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_text_with_image",
+			"label": "Text + Image",
+			"category": "Marketing",
+			"currentVersion": 2,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "heading",
+							"label": "Heading",
+							"type": "string"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "text"
+						},
+						{
+							"slug": "image_url",
+							"label": "Image URL",
+							"type": "string"
+						},
+						{
+							"slug": "image_side",
+							"label": "Image side",
+							"type": "select",
+							"validation": {
+								"options": ["left", "right"]
+							}
+						},
+						{
+							"slug": "cta_label",
+							"label": "CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "cta_url",
+							"label": "CTA URL",
+							"type": "string"
+						}
+					]
+				},
+				{
+					"version": 2,
+					"fields": [
+						{
+							"slug": "heading",
+							"label": "Heading",
+							"type": "string"
+						},
+						{
+							"slug": "body",
+							"label": "Body",
+							"type": "text"
+						},
+						{
+							"slug": "image",
+							"label": "Image",
+							"type": "image"
+						},
+						{
+							"slug": "image_side",
+							"label": "Image side",
+							"type": "select",
+							"validation": {
+								"options": ["left", "right"]
+							}
+						},
+						{
+							"slug": "cta_label",
+							"label": "CTA label",
+							"type": "string"
+						},
+						{
+							"slug": "cta_url",
+							"label": "CTA URL",
+							"type": "string"
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_testimonials",
+			"label": "Testimonials",
+			"category": "Marketing",
+			"currentVersion": 2,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "items",
+							"label": "Testimonials",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "quote",
+										"label": "Quote",
+										"type": "text"
+									},
+									{
+										"slug": "author",
+										"label": "Author",
+										"type": "string"
+									},
+									{
+										"slug": "role",
+										"label": "Role",
+										"type": "string"
+									},
+									{
+										"slug": "company",
+										"label": "Company",
+										"type": "string"
+									},
+									{
+										"slug": "avatar",
+										"label": "Avatar URL",
+										"type": "string"
+									}
+								],
+								"maxItems": 12
+							}
+						}
+					]
+				},
+				{
+					"version": 2,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "items",
+							"label": "Testimonials",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "quote",
+										"label": "Quote",
+										"type": "text"
+									},
+									{
+										"slug": "author",
+										"label": "Author",
+										"type": "string"
+									},
+									{
+										"slug": "role",
+										"label": "Role",
+										"type": "string"
+									},
+									{
+										"slug": "company",
+										"label": "Company",
+										"type": "string"
+									},
+									{
+										"slug": "avatar",
+										"label": "Avatar",
+										"type": "image"
+									}
+								],
+								"maxItems": 12
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_pricing",
+			"label": "Pricing",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "plans",
+							"label": "Plans",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "name",
+										"label": "Name",
+										"type": "string"
+									},
+									{
+										"slug": "price",
+										"label": "Price",
+										"type": "string"
+									},
+									{
+										"slug": "period",
+										"label": "Period",
+										"type": "string"
+									},
+									{
+										"slug": "description",
+										"label": "Description",
+										"type": "text"
+									},
+									{
+										"slug": "features",
+										"label": "Features, one per line",
+										"type": "text"
+									},
+									{
+										"slug": "cta_label",
+										"label": "CTA label",
+										"type": "string"
+									},
+									{
+										"slug": "cta_url",
+										"label": "CTA URL",
+										"type": "string"
+									},
+									{
+										"slug": "highlighted",
+										"label": "Highlight",
+										"type": "boolean"
+									}
+								],
+								"maxItems": 6
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"slug": "marketing_faq",
+			"label": "FAQ",
+			"category": "Marketing",
+			"currentVersion": 1,
+			"versions": [
+				{
+					"version": 1,
+					"fields": [
+						{
+							"slug": "headline",
+							"label": "Headline",
+							"type": "string"
+						},
+						{
+							"slug": "items",
+							"label": "Questions",
+							"type": "repeater",
+							"validation": {
+								"subFields": [
+									{
+										"slug": "question",
+										"label": "Question",
+										"type": "string"
+									},
+									{
+										"slug": "answer",
+										"label": "Answer",
+										"type": "text"
+									}
+								],
+								"maxItems": 30
+							}
+						}
+					]
+				}
+			]
+		}
+	],
+	"collections": [
+		{
+			"slug": "posts",
+			"label": "Posts",
+			"labelSingular": "Post",
+			"sortOrder": 20,
+			"supports": ["drafts", "revisions", "search", "seo"],
+			"fields": [
+				{
+					"slug": "title",
+					"label": "Title",
+					"type": "string",
+					"required": true,
+					"searchable": true
+				},
+				{
+					"slug": "featured_image",
+					"label": "Featured Image",
+					"type": "image"
+				},
+				{
+					"slug": "content",
+					"label": "Content",
+					"type": "portableText",
+					"searchable": true
+				},
+				{
+					"slug": "excerpt",
+					"label": "Excerpt",
+					"type": "text"
+				},
+				{
+					"slug": "related_posts",
+					"label": "Related posts",
+					"type": "reference",
+					"validation": {
+						"relation": "related_posts",
+						"relationSide": "parent"
+					}
+				}
+			]
+		},
+		{
+			"slug": "pages",
+			"label": "Pages",
+			"labelSingular": "Page",
+			"sortOrder": 10,
+			"description": "Marketing landing pages composed from ordered, versioned blocks.",
+			"supports": ["drafts", "revisions", "search", "seo"],
+			"admin": {
+				"listColumns": ["title"]
+			},
+			"fields": [
+				{
+					"slug": "title",
+					"label": "Title",
+					"type": "string",
+					"required": true,
+					"searchable": true
+				},
+				{
+					"slug": "meta_description",
+					"label": "Meta description",
+					"type": "text"
+				},
+				{
+					"slug": "content",
+					"label": "Page blocks",
+					"type": "blocks",
+					"validation": {
+						"allowedTypes": [
+							"marketing_prose",
+							"marketing_hero",
+							"marketing_logo_strip",
+							"marketing_features",
+							"marketing_stats",
+							"marketing_cta",
+							"marketing_text_with_image",
+							"marketing_testimonials",
+							"marketing_pricing",
+							"marketing_faq"
+						],
+						"maxItems": 30
+					}
+				}
+			]
+		}
+	],
+	"relations": [
+		{
+			"slug": "related_posts",
+			"parentCollection": "posts",
+			"childCollection": "posts",
+			"parentLabel": "Posts",
+			"parentLabelSingular": "Post",
+			"childLabel": "Related posts",
+			"childLabelSingular": "Related post",
+			"maxChildrenPerParent": 3
+		}
+	],
+	"taxonomies": [
+		{
+			"name": "category",
+			"label": "Categories",
+			"labelSingular": "Category",
+			"hierarchical": true,
+			"collections": ["posts"]
+		},
+		{
+			"name": "tag",
+			"label": "Tags",
+			"labelSingular": "Tag",
+			"hierarchical": false,
+			"collections": ["posts"]
+		}
+	],
+	"menus": [
+		{
+			"name": "primary",
+			"label": "Primary",
+			"items": [
+				{
+					"type": "custom",
+					"label": "Home",
+					"url": "/"
+				},
+				{
+					"type": "custom",
+					"label": "Solutions",
+					"url": "/solutions"
+				},
+				{
+					"type": "custom",
+					"label": "Blog",
+					"url": "/posts/"
+				},
+				{
+					"type": "custom",
+					"label": "Kontakt",
+					"url": "/kontakt"
+				}
+			]
+		}
+	],
+	"content": {
+		"pages": [
+			{
+				"id": "page-home",
+				"slug": "home",
+				"status": "draft",
+				"data": {
+					"title": "Example: Welcome",
+					"meta_description": "A marketing site you compose in the CMS — hero, features, stats, and CTA blocks.",
+					"content": [
+						{
+							"_type": "marketing_hero",
+							"_version": 2,
+							"_key": "home-hero",
+							"headline": "Example home page",
+							"subheadline": "Sample template content. Replace it with your own reviewed copy before publishing.",
+							"primary_cta_label": "Get in touch",
+							"primary_cta_url": "/kontakt",
+							"secondary_cta_label": "Read the blog",
+							"secondary_cta_url": "/posts/"
+						},
+						{
+							"_type": "marketing_logo_strip",
+							"_version": 2,
+							"_key": "home-logos",
+							"eyebrow": "Add approved customer logos here",
+							"items": []
+						},
+						{
+							"_type": "marketing_features",
+							"_version": 1,
+							"_key": "home-features",
+							"heading": "Why teams choose us",
+							"intro": "Example editable content blocks.",
+							"items": [
+								{
+									"title": "Presentation",
+									"body": "Compose your page using the template blocks.",
+									"href": "/solutions"
+								},
+								{
+									"title": "Editable",
+									"body": "Marketing blocks your team composes directly in the CMS.",
+									"href": "/solutions"
+								},
+								{
+									"title": "Discoverable",
+									"body": "SEO and AEO emission handled for you on every page.",
+									"href": "/solutions"
+								}
+							]
+						},
+						{
+							"_type": "marketing_cta",
+							"_version": 2,
+							"_key": "home-cta",
+							"headline": "Ready to get started?",
+							"body": "Tell us what you want to build and we'll help you ship it.",
+							"cta_label": "Get in touch",
+							"cta_url": "/kontakt"
+						}
+					]
+				}
+			},
+			{
+				"id": "page-solutions",
+				"slug": "solutions",
+				"status": "draft",
+				"data": {
+					"title": "Example: Solutions that scale with you",
+					"meta_description": "Explore what we offer — fast, editable, discoverable marketing pages.",
+					"content": [
+						{
+							"_type": "marketing_text_with_image",
+							"_version": 2,
+							"_key": "sol-twi-1",
+							"heading": "Compose pages, not code",
+							"body": "Editors assemble landing pages from hero, features, stats, logo-strip, text-with-image and CTA blocks — no deploy required.",
+							"image_side": "right",
+							"cta_label": "See the blocks",
+							"cta_url": "/posts/"
+						},
+						{
+							"_type": "marketing_features",
+							"_version": 1,
+							"_key": "sol-features",
+							"heading": "What's included",
+							"items": [
+								{
+									"title": "Hero",
+									"body": "Big headline section with up to two CTAs."
+								},
+								{
+									"title": "Features",
+									"body": "A responsive grid of value-prop cards."
+								},
+								{
+									"title": "Stats",
+									"body": "A gradient band of headline figures."
+								},
+								{
+									"title": "CTA band",
+									"body": "A closing call-to-action over your brand colors."
+								}
+							]
+						},
+						{
+							"_type": "marketing_cta",
+							"_version": 2,
+							"_key": "sol-cta",
+							"headline": "Want a tailored walkthrough?",
+							"body": "We'll show you how to compose your first landing page.",
+							"cta_label": "Book a call",
+							"cta_url": "/kontakt"
+						}
+					]
+				}
+			}
+		],
+		"posts": [
+			{
+				"id": "post-hello",
+				"slug": "hello-world",
+				"status": "draft",
+				"data": {
+					"title": "Example: Hello, world",
+					"excerpt": "The first post on your new marketing site.",
+					"content": [
+						{
+							"_type": "block",
+							"_key": "hw-p1",
+							"style": "normal",
+							"children": [
+								{
+									"_type": "span",
+									"_key": "hw-s1",
+									"text": "Welcome to your new marketing site. This blog lives at /posts/, alongside the marketing landing pages composed from editable blocks."
+								}
+							]
+						}
+					]
+				}
+			}
+		]
+	}
+}

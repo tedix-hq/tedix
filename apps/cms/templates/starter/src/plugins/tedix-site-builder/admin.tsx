@@ -1,0 +1,1 @@
+../../../../tedix/src/plugins/tedix-site-builder/admin.tsx

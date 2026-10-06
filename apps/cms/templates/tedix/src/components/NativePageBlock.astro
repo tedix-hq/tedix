@@ -1,0 +1,128 @@
+---
+import { Image, PortableText } from "emdash/ui";
+import FaqBlock from "./FaqBlock.astro";
+import type { ImageValue } from "emdash";
+
+interface Props {
+	value: Record<string, unknown> & {
+		_type: string;
+		_version: number;
+		_key: string;
+	};
+}
+
+const { value } = Astro.props;
+const str = (raw: unknown): string => typeof raw === "string" ? raw : "";
+const rows = (raw: unknown): Record<string, unknown>[] =>
+	Array.isArray(raw)
+		? raw.filter((item): item is Record<string, unknown> =>
+			item !== null && typeof item === "object" && !Array.isArray(item))
+		: [];
+const safeHref = (raw: unknown): string | undefined => {
+	const href = str(raw).trim();
+	if (href.startsWith("/") && !href.startsWith("//")) return href;
+	if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
+	return undefined;
+};
+const safeImage = (raw: unknown): string | undefined => {
+	const href = safeHref(raw);
+	return href && (/^https?:/i.test(href) || href.startsWith("/")) ? href : undefined;
+};
+const nativeImage = (raw: unknown): ImageValue | undefined =>
+	raw && typeof raw === "object" && !Array.isArray(raw) && "id" in raw
+		? raw as ImageValue
+		: undefined;
+const items = rows(value.items);
+const plans = rows(value.plans);
+const imageUrl = value._version === 1 ? safeImage(value.image_url) : undefined;
+const image = value._version === 2 ? nativeImage(value.image) : undefined;
+const cta = safeHref(value.cta_url);
+const prose = value._type === "marketing_prose" && Array.isArray(value.body) ? value.body : [];
+---
+
+{value._type === "marketing_prose" && prose.length > 0 && (
+	<section class="prose-editorial mx-auto max-w-3xl px-4 py-12"><PortableText value={prose} components={{ type: { "marketing.faq": FaqBlock, faq: FaqBlock } }} /></section>
+)}
+
+{value._type === "marketing_hero" && (
+	<section class="border-b border-gray-200 dark:border-gray-800">
+		<div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:items-center lg:px-6">
+			<div>
+				<h1 class="font-display text-4xl font-bold leading-tight md:text-6xl">{str(value.headline)}</h1>
+				{str(value.subheadline) && <p class="mt-6 text-lg text-gray-600 dark:text-gray-300">{str(value.subheadline)}</p>}
+				<div class="mt-8 flex flex-wrap gap-3">
+					{safeHref(value.primary_cta_url) && str(value.primary_cta_label) && <a class="rounded-lg bg-brand-600 px-5 py-3 font-semibold text-white" href={safeHref(value.primary_cta_url)}>{str(value.primary_cta_label)}</a>}
+					{safeHref(value.secondary_cta_url) && str(value.secondary_cta_label) && <a class="rounded-lg border border-gray-300 px-5 py-3 font-semibold dark:border-gray-700" href={safeHref(value.secondary_cta_url)}>{str(value.secondary_cta_label)}</a>}
+				</div>
+			</div>
+			{image ? <Image image={image} priority class="w-full rounded-2xl object-cover" /> : imageUrl && <img src={imageUrl} alt="" loading="eager" class="w-full rounded-2xl object-cover" />}
+		</div>
+	</section>
+)}
+
+{value._type === "marketing_logo_strip" && items.length > 0 && (
+	<section class="mx-auto max-w-6xl px-4 py-12 lg:px-6">
+		{str(value.eyebrow) && <h2 class="mb-6 text-sm font-semibold uppercase tracking-widest text-gray-500">{str(value.eyebrow)}</h2>}
+		<div class="flex flex-wrap items-center gap-8">
+			{items.map((item) => (value._version === 2 ? nativeImage(item.image) : safeImage(item.url)) && (
+				safeHref(item.href)
+					? <a href={safeHref(item.href)}>{value._version === 2 ? <Image image={nativeImage(item.image)} class="max-h-12 max-w-36 object-contain" /> : <img src={safeImage(item.url)} alt={str(item.alt)} loading="lazy" class="max-h-12 max-w-36 object-contain" />}</a>
+					: value._version === 2 ? <Image image={nativeImage(item.image)} class="max-h-12 max-w-36 object-contain" /> : <img src={safeImage(item.url)} alt={str(item.alt)} loading="lazy" class="max-h-12 max-w-36 object-contain" />
+			))}
+		</div>
+	</section>
+)}
+
+{value._type === "marketing_features" && items.length > 0 && (
+	<section class="mx-auto max-w-6xl px-4 py-16 lg:px-6">
+		{str(value.heading) && <h2 class="font-display text-3xl font-semibold">{str(value.heading)}</h2>}
+		{str(value.intro) && <p class="mt-3 max-w-3xl text-gray-600 dark:text-gray-300">{str(value.intro)}</p>}
+		<div class="mt-8 grid gap-6 md:grid-cols-3">
+			{items.map((item) => safeHref(item.href)
+				? <a href={safeHref(item.href)} class="rounded-xl border border-gray-200 p-6 dark:border-gray-800"><h3 class="text-xl font-semibold">{str(item.title)}</h3><p class="mt-3">{str(item.body)}</p></a>
+				: <div class="rounded-xl border border-gray-200 p-6 dark:border-gray-800"><h3 class="text-xl font-semibold">{str(item.title)}</h3><p class="mt-3">{str(item.body)}</p></div>)}
+		</div>
+	</section>
+)}
+
+{value._type === "marketing_stats" && items.length > 0 && (
+	<section class="bg-gray-50 dark:bg-gray-900"><div class="mx-auto max-w-6xl px-4 py-14 lg:px-6">
+		{str(value.heading) && <h2 class="mb-8 font-display text-3xl font-semibold">{str(value.heading)}</h2>}
+		<div class="grid gap-8 sm:grid-cols-3">{items.map((item) => <div><strong class="block text-4xl text-brand-600">{str(item.value)}</strong><span>{str(item.label)}</span></div>)}</div>
+	</div></section>
+)}
+
+{value._type === "marketing_cta" && (
+	<section class="bg-brand-600 text-white"><div class="mx-auto grid max-w-6xl gap-8 px-4 py-16 md:grid-cols-2 md:items-center lg:px-6">
+		<div><h2 class="font-display text-3xl font-semibold">{str(value.headline)}</h2>{str(value.body) && <p class="mt-4">{str(value.body)}</p>}{cta && str(value.cta_label) && <a href={cta} class="mt-6 inline-block rounded-lg bg-white px-5 py-3 font-semibold text-brand-700">{str(value.cta_label)}</a>}</div>
+			{image ? <Image image={image} class="w-full rounded-xl object-cover" /> : imageUrl && <img src={imageUrl} alt="" loading="lazy" class="w-full rounded-xl object-cover" />}
+	</div></section>
+)}
+
+{value._type === "marketing_text_with_image" && (
+	<section class="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:items-center lg:px-6">
+		<div class={str(value.image_side) === "left" ? "md:order-2" : ""}><h2 class="font-display text-3xl font-semibold">{str(value.heading)}</h2>{str(value.body) && <p class="mt-4 text-gray-600 dark:text-gray-300">{str(value.body)}</p>}{cta && str(value.cta_label) && <a href={cta} class="mt-5 inline-block font-semibold text-brand-600">{str(value.cta_label)} →</a>}</div>
+		{image ? <Image image={image} class={str(value.image_side) === "left" ? "w-full rounded-xl object-cover md:order-1" : "w-full rounded-xl object-cover"} /> : imageUrl && <img src={imageUrl} alt="" loading="lazy" class={str(value.image_side) === "left" ? "w-full rounded-xl object-cover md:order-1" : "w-full rounded-xl object-cover"} />}
+	</section>
+)}
+
+{value._type === "marketing_testimonials" && items.length > 0 && (
+	<section class="bg-gray-50 dark:bg-gray-900"><div class="mx-auto max-w-6xl px-4 py-16 lg:px-6">
+		{str(value.headline) && <h2 class="font-display text-3xl font-semibold">{str(value.headline)}</h2>}
+			<div class="mt-8 grid gap-6 md:grid-cols-3">{items.map((item) => <blockquote class="rounded-xl bg-white p-6 dark:bg-gray-800"><p>“{str(item.quote)}”</p><footer class="mt-5 flex items-center gap-3">{value._version === 2 ? nativeImage(item.avatar) && <Image image={nativeImage(item.avatar)} class="h-10 w-10 rounded-full object-cover" /> : safeImage(item.avatar) && <img src={safeImage(item.avatar)} alt="" loading="lazy" class="h-10 w-10 rounded-full object-cover" />}<span><strong class="block">{str(item.author)}</strong><span class="text-sm">{[str(item.role), str(item.company)].filter(Boolean).join(", ")}</span></span></footer></blockquote>)}</div>
+	</div></section>
+)}
+
+{value._type === "marketing_pricing" && plans.length > 0 && (
+	<section class="mx-auto max-w-6xl px-4 py-16 lg:px-6">
+		{str(value.headline) && <h2 class="font-display text-3xl font-semibold">{str(value.headline)}</h2>}
+		<div class="mt-8 grid gap-6 md:grid-cols-3">{plans.map((plan) => <div class="rounded-xl border border-gray-200 p-6 dark:border-gray-800"><h3 class="text-xl font-semibold">{str(plan.name)}</h3><p class="mt-5 text-3xl font-bold">{str(plan.price)}<span class="text-base font-normal">{str(plan.period)}</span></p><p class="mt-3">{str(plan.description)}</p>{str(plan.features) && <ul class="mt-5 list-disc pl-5">{str(plan.features).split(/\r?\n/).filter(Boolean).map((feature) => <li>{feature}</li>)}</ul>}{safeHref(plan.cta_url) && str(plan.cta_label) && <a href={safeHref(plan.cta_url)} class="mt-6 inline-block rounded-lg bg-brand-600 px-5 py-3 font-semibold text-white">{str(plan.cta_label)}</a>}</div>)}</div>
+	</section>
+)}
+
+{value._type === "marketing_faq" && items.length > 0 && (
+	<section class="mx-auto max-w-3xl px-4 py-16">
+		{str(value.headline) && <h2 class="mb-8 font-display text-3xl font-semibold">{str(value.headline)}</h2>}
+		<div class="space-y-3">{items.map((item) => <details class="rounded-lg border border-gray-200 p-5 dark:border-gray-800"><summary class="cursor-pointer font-semibold">{str(item.question)}</summary><p class="mt-3">{str(item.answer)}</p></details>)}</div>
+	</section>
+)}

@@ -1,0 +1,27 @@
+/**
+ * Astro Widget App Styles
+ *
+ * This file imports the widget-ui globals which includes:
+ * - Tailwind CSS v4
+ * - shadcn/ui theme
+ * - OpenAI-based design tokens
+ * - Custom animations
+ *
+ * The @tedix/widget-ui/globals.css contains all the necessary CSS:
+ * - Tailwind v4 imports (@import "tailwindcss")
+ * - shadcn theme variables
+ * - Animation utilities
+ */
+
+@import "@tedix/widget-ui/globals.css";
+
+/* Tedix brand fonts — loaded via Astro Fonts API in AppThemeLayout.
+   Overrides the OpenAI system stack from widget-ui for the widget app only. */
+:root {
+	--font-sans:
+		var(--font-raleway), ui-sans-serif, -apple-system, system-ui, "Segoe UI",
+		"Noto Sans", "Helvetica", "Arial", sans-serif;
+	--font-display:
+		var(--font-comfortaa), var(--font-raleway), ui-rounded, system-ui,
+		sans-serif;
+}

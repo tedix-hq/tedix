@@ -1,0 +1,46 @@
+---
+/**
+ * App Theme Layout for Astro
+ *
+ * Equivalent to rwsdk AppThemeLayout:
+ * 1. Receives app data as props (fetched in page component)
+ * 2. Generates CSS variables from branding
+ * 3. Injects CSS at SSR time (no FOUC)
+ */
+
+// Import globals CSS (Tailwind v4 + widget-ui theme)
+import "../styles/globals.css";
+
+import { Font } from "astro:assets";
+import { generateAppCss, type AppData } from "../lib/app-theme";
+
+interface Props {
+	appData: AppData | null;
+	title?: string;
+}
+
+const { appData, title = "Tedix Widget" } = Astro.props;
+
+// Generate CSS at SSR time
+const appCss = generateAppCss(appData);
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>{title}</title>
+		<link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+
+		{/* Tedix brand fonts (via Astro experimental Fonts API) */}
+		<Font cssVariable="--font-raleway" preload />
+		<Font cssVariable="--font-comfortaa" preload />
+
+		{/* Inject app branding CSS at SSR time - no FOUC */}
+		{appCss && <style set:html={appCss} data-app-theme />}
+	</head>
+	<body class="bg-background text-foreground font-sans antialiased">
+		<slot />
+	</body>
+</html>

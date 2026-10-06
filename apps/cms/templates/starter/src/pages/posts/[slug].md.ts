@@ -1,0 +1,1 @@
+../../../../tedix/src/pages/posts/[slug].md.ts

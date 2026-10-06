@@ -1,0 +1,41 @@
+{
+	"name": "public-installation-tedix",
+	"main": "./src/worker.ts",
+	"compatibility_date": "2026-05-14",
+	"compatibility_flags": ["nodejs_compat"],
+	"triggers": {
+		"crons": ["* * * * *"],
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"ORG_SLUG": "configured-via-private-overlay",
+		"SITE_TITLE": "configured-via-private-overlay",
+		"DESCOPE_BASE_URL": "configured-via-private-overlay",
+		"DESCOPE_PROJECT_ID": "configured-via-private-overlay",
+		"DESCOPE_TENANT_ID": "configured-via-private-overlay",
+	},
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "DB_DO",
+				"class_name": "EmDashDB",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["EmDashDB"],
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "public-installation-bucket",
+		},
+	],
+}

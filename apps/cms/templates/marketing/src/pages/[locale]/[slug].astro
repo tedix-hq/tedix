@@ -1,0 +1,23 @@
+---
+import { resolveEmDashPath } from "emdash";
+import { env as workerEnv } from "cloudflare:workers";
+
+const locale = Astro.params.locale;
+const slug = Astro.params.slug;
+const defaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE ?? "en";
+if (locale && locale !== defaultLocale && ["en", "de", "es", "fr", "it", "pt", "nl"].includes(locale) && slug) {
+	return Astro.rewrite(`/${encodeURIComponent(slug)}${Astro.url.search}`);
+}
+if (!locale || !slug) return Astro.rewrite("/404");
+
+// This two-segment route wins over the native collection catchall. If the
+// first segment is not a locale, dispatch published collection posts through
+// the same internal detail route as the catchall.
+const requestedPath = Astro.originPathname ?? Astro.url.pathname;
+const collectionPath = requestedPath.replace(/\/+$/, "") || "/";
+const resolved = await resolveEmDashPath(collectionPath);
+if (resolved?.collection !== "posts") return Astro.rewrite("/404");
+
+const postSlug = resolved.params.slug ?? resolved.entry.id;
+return Astro.rewrite(`/posts/${encodeURIComponent(postSlug)}/${Astro.url.search}`);
+---

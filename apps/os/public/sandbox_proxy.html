@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="robots" content="noindex" />
+		<title>Tedix OS widget sandbox</title>
+		<style>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				width: 100%;
+				height: 100%;
+				background: transparent;
+			}
+			iframe {
+				display: block;
+				width: 100%;
+				height: 100%;
+				border: 0;
+				background: transparent;
+			}
+		</style>
+	</head>
+	<body>
+		<script>
+			/**
+			 * Tedix OS sandbox proxy — the middle layer of the MCP Apps
+			 * double-iframe model (docs/mcp/apps.md, "Sandbox Proxy"):
+			 *
+			 *   host SPA -> THIS page (proxy iframe) -> guest widget iframe
+			 *
+			 * This document is a static asset served from the Tedix OS origin and
+			 * embedded by the OS SPA on that SAME origin. The parent is therefore
+			 * always same-origin, which lets the injection handshake be strict:
+			 * control messages are accepted only when `event.source` is the parent
+			 * window AND `event.origin` equals `location.origin`. (document.referrer
+			 * is deliberately not used — it is unreliable and spoof-adjacent.)
+			 *
+			 * The guest iframe is created with sandbox="allow-scripts allow-forms"
+			 * and NO allow-same-origin, so the injected widget HTML runs with an
+			 * opaque origin: it cannot read Tedix OS cookies, storage, or DOM even
+			 * though this proxy document itself was fetched from the OS origin.
+			 *
+			 * Wire contract (verified against ext-apps v2 AppBridge):
+			 * - on load, the proxy posts the JSON-RPC notification
+			 *   `ui/notifications/sandbox-proxy-ready` to the parent;
+			 * - the host encodes its validated permission grant in this proxy URL;
+			 * - the parent answers with `ui/notifications/sandbox-resource-ready`
+			 *   carrying `{ html, csp?, sandbox? }`; the proxy injects the HTML into
+			 *   the guest via srcdoc (re-sends replace the guest);
+			 * - every other JSON-RPC message is relayed verbatim: parent -> guest
+			 *   and guest -> parent. The mcp-ui / ext-apps AppBridge protocol
+			 *   (ui/initialize, tools/call, size-changed, ...) rides this relay.
+			 */
+			(() => {
+				"use strict";
+
+				var HOST_ORIGIN = location.origin;
+				var PROXY_READY = "ui/notifications/sandbox-proxy-ready";
+				var RESOURCE_READY = "ui/notifications/sandbox-resource-ready";
+				var PERMISSION_FEATURES = {
+					camera: "camera",
+					microphone: "microphone",
+					geolocation: "geolocation",
+					clipboardWrite: "clipboard-write",
+				};
+
+				/** Guest sandbox is fixed. Message-level `sandbox` overrides are
+				 * deliberately ignored so `allow-same-origin` can never be granted. */
+				var GUEST_SANDBOX = "allow-scripts allow-forms";
+
+				var guestFrame = null;
+				var guestLoaded = false;
+				/** parent -> guest messages queued until the guest document loads. */
+				var pendingForGuest = [];
+
+				function requestedPermissions() {
+					var raw = new URLSearchParams(location.search).get("permissions");
+					if (!raw) return {};
+					try {
+						var parsed = JSON.parse(raw);
+						if (
+							!parsed ||
+							typeof parsed !== "object" ||
+							Array.isArray(parsed)
+						) {
+							return {};
+						}
+						var granted = {};
+						var keys = Object.keys(parsed);
+						for (var i = 0; i < keys.length; i += 1) {
+							var key = keys[i];
+							var value = parsed[key];
+							if (
+								!Object.prototype.hasOwnProperty.call(
+									PERMISSION_FEATURES,
+									key,
+								) ||
+								!value ||
+								typeof value !== "object" ||
+								Array.isArray(value) ||
+								Object.keys(value).length > 0
+							) {
+								return {};
+							}
+							granted[key] = {};
+						}
+						return granted;
+					} catch (_error) {
+						return {};
+					}
+				}
+
+				function buildAllowAttribute(permissions) {
+					return Object.keys(permissions)
+						.map(function (key) {
+							return PERMISSION_FEATURES[key];
+						})
+						.join("; ");
+				}
+
+				/** CSP source tokens ride into a <meta> content attribute; refuse
+				 * anything that could terminate the directive or the attribute. */
+				function sanitizeSources(list) {
+					if (!Array.isArray(list)) return [];
+					return list.filter(function (origin) {
+						return (
+							typeof origin === "string" && /^[A-Za-z0-9*.:/_-]+$/.test(origin)
+						);
+					});
+				}
+
+				/**
+				 * Build a CSP policy string from the MCP Apps resource CSP shape
+				 * (camelCase domain buckets — connectDomains, resourceDomains,
+				 * frameDomains, baseUriDomains; docs/mcp/apps.md "CSP"). A plain
+				 * string is used as-is. Empty buckets take the spec's secure
+				 * defaults: no network, no nested frames.
+				 */
+				function buildCspContent(csp) {
+					if (typeof csp === "string") return csp;
+					if (!csp || typeof csp !== "object") return null;
+					var connect = sanitizeSources(csp.connectDomains).join(" ");
+					var resource = sanitizeSources(csp.resourceDomains).join(" ");
+					var frame = sanitizeSources(csp.frameDomains).join(" ");
+					var base = sanitizeSources(csp.baseUriDomains).join(" ");
+					var withResource = function (inline) {
+						return resource ? inline + " " + resource : inline;
+					};
+					return [
+						"default-src 'none'",
+						"script-src " + withResource("'unsafe-inline' 'unsafe-eval'"),
+						"style-src " + withResource("'unsafe-inline'"),
+						"img-src " + withResource("data: blob:"),
+						"font-src " + withResource("data:"),
+						"media-src " + withResource("data: blob:"),
+						"connect-src " + (connect || "'none'"),
+						"frame-src " + (frame || "'none'"),
+						"base-uri " + (base || "'self'"),
+					].join("; ");
+				}
+
+				/** Escape a value for use inside a double-quoted HTML attribute. */
+				function escapeAttribute(value) {
+					return value
+						.replace(/&/g, "&amp;")
+						.replace(/"/g, "&quot;")
+						.replace(/</g, "&lt;")
+						.replace(/>/g, "&gt;");
+				}
+
+				/**
+				 * String-insert a CSP <meta> before the injected document's own
+				 * content: after an explicit <head> when present, otherwise
+				 * prepended (the HTML parser hoists leading metadata into the
+				 * implied head before any guest markup runs).
+				 */
+				function withCspMeta(html, cspContent) {
+					if (!cspContent) return html;
+					var meta =
+						'<meta http-equiv="Content-Security-Policy" content="' +
+						escapeAttribute(cspContent) +
+						'">';
+					var headMatch = /<head[^>]*>/i.exec(html);
+					if (headMatch) {
+						var end = headMatch.index + headMatch[0].length;
+						return html.slice(0, end) + meta + html.slice(end);
+					}
+					return meta + html;
+				}
+
+				function injectResource(params) {
+					if (!params || typeof params.html !== "string") return;
+					if (guestFrame) {
+						guestFrame.remove();
+						guestFrame = null;
+					}
+					guestLoaded = false;
+					pendingForGuest = [];
+					var frame = document.createElement("iframe");
+					frame.setAttribute("sandbox", GUEST_SANDBOX);
+					var permissions = requestedPermissions();
+					var allow = buildAllowAttribute(permissions);
+					if (allow) frame.setAttribute("allow", allow);
+					frame.setAttribute("title", "MCP app");
+					frame.addEventListener("load", function () {
+						guestLoaded = true;
+						var queued = pendingForGuest;
+						pendingForGuest = [];
+						for (var i = 0; i < queued.length; i += 1) {
+							forwardToGuest(queued[i]);
+						}
+					});
+					frame.srcdoc = withCspMeta(params.html, buildCspContent(params.csp));
+					guestFrame = frame;
+					document.body.appendChild(frame);
+				}
+
+				function forwardToGuest(data) {
+					if (!guestFrame || !guestFrame.contentWindow) return;
+					// The guest runs with an opaque origin, so "*" is the only
+					// deliverable target; its sandbox already scopes who is listening.
+					guestFrame.contentWindow.postMessage(data, "*");
+				}
+
+				window.addEventListener("message", function (event) {
+					var data = event.data;
+					if (!data || typeof data !== "object") return;
+
+					var fromParent =
+						event.source === window.parent && event.origin === HOST_ORIGIN;
+					var fromGuest =
+						guestFrame !== null &&
+						guestFrame.contentWindow !== null &&
+						event.source === guestFrame.contentWindow;
+
+					if (fromParent) {
+						// Injection handshake is consumed here, never relayed.
+						if (data.method === RESOURCE_READY) {
+							injectResource(data.params);
+							return;
+						}
+						if (guestLoaded) {
+							forwardToGuest(data);
+						} else {
+							pendingForGuest.push(data);
+						}
+						return;
+					}
+
+					if (fromGuest) {
+						// A guest must not be able to spoof the proxy handshake.
+						if (data.method === PROXY_READY || data.method === RESOURCE_READY) {
+							return;
+						}
+						window.parent.postMessage(data, HOST_ORIGIN);
+					}
+				});
+
+				window.parent.postMessage(
+					{ jsonrpc: "2.0", method: PROXY_READY, params: {} },
+					HOST_ORIGIN,
+				);
+			})();
+		</script>
+	</body>
+</html>

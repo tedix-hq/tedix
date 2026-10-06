@@ -1,0 +1,10 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"display": "Node.js",
+	"extends": "./base.json",
+	"compilerOptions": {
+		"lib": ["es2022"],
+		"noEmit": true,
+		"types": ["node"]
+	}
+}

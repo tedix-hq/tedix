@@ -1,0 +1,1 @@
+../../../tedix/src/pages/rss.xml.ts

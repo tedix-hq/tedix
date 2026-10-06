@@ -1,0 +1,1 @@
+ALTER TABLE `tedi_call_costs` ADD `call_duration_ms` real;

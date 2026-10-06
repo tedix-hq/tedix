@@ -1,0 +1,43 @@
+{
+	"name": "@tedix/cli",
+	"version": "0.1.0-beta.116",
+	"private": true,
+	"description": "The tedix command: a small program installed on your machine for working with Tedix.",
+	"license": "AGPL-3.0-only",
+	"bin": {
+		"tedix": "./src/index.ts"
+	},
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf node_modules",
+		"type-check": "tsc --noEmit",
+		"test": "bun test",
+		"test:run": "bun test --max-concurrency=1",
+		"test:ci": "bun run test:run",
+		"test:protocol": "bun test --max-concurrency=1 src/protocol-certification.test.ts",
+		"certify:protocol:live": "bun scripts/certify-protocol-live.ts",
+		"build:standalone": "bun scripts/build-standalone.ts",
+		"test:standalone": "bun scripts/test-standalone.ts",
+		"test:installer": "bun scripts/test-installer.ts",
+		"test:tui": "bun test src/interactive-ink.test.ts src/ink-render.test.tsx src/message-queue.test.ts src/question-prompt.test.ts src/live-panel.test.ts src/activity.test.ts src/composer-editor.test.ts src/composer-input.test.ts src/composer-viewport.test.ts src/tui-accessibility.test.tsx src/tui-interaction.test.ts src/banner.test.ts"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/client": "catalog:",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/auth": "workspace:*",
+		"@tedix/mcp-shared": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"chalk": "^6.0.1",
+		"ink": "^8.0.0",
+		"react": "catalog:",
+		"react-devtools-core": "^8.0.0"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"@types/react": "^19.3.0",
+		"bun-types": "^1.4.2",
+		"ink-testing-library": "4.0.0",
+		"typescript": "catalog:"
+	}
+}

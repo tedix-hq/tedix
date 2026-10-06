@@ -1,0 +1,1245 @@
+---
+import { Image } from "astro:assets";
+import challengeComplexity from "../../public/images/challenges/complexity.png";
+import challengeRisks from "../../public/images/challenges/risks.png";
+import challengeSilos from "../../public/images/challenges/silos.png";
+import integrationLayer from "../../public/images/ai-integration-layer.png";
+import geoTedix from "../../public/images/geo-tedix.png";
+import soloFounder from "../../public/images/solo-founder.png";
+import mimextrade from "../../public/images/mimextrade.png";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { BorderBeam } from "./magicui/BorderBeam.tsx";
+import { Particles } from "./magicui/Particles.tsx";
+import { BlurFade } from "./magicui/BlurFade.tsx";
+import { AnimatedGradientText } from "./magicui/AnimatedGradientText.tsx";
+import { Marquee } from "./magicui/Marquee.tsx";
+import { NumberTicker } from "./magicui/NumberTicker.tsx";
+import { ShimmerButton } from "./magicui/ShimmerButton.tsx";
+import { TextAnimate } from "./magicui/TextAnimate.tsx";
+import { HeroBrain } from "./landing/HeroBrain.tsx";
+import { OperationalTimeline } from "./landing/OperationalTimeline.tsx";
+import { PlatformBeams } from "./landing/PlatformBeams.tsx";
+import { ChatGPTDemo } from "./landing/ChatGPTDemo.tsx";
+import { IntegrationWorkflow } from "./landing/IntegrationWorkflow.tsx";
+import { TediDashboardShowcase } from "./landing/TediDashboardShowcase.tsx";
+import { SystemIntegrationDemo, ContentDemo, SoloFounderDemo, RapidDeployDemo } from "./landing/UseCaseDemos.tsx";
+import type { HomeContent, Locale } from "../i18n/content";
+
+interface Props {
+	content: HomeContent;
+	locale: Locale;
+}
+
+const { content: t, locale } = Astro.props;
+const illustrationLabel = locale === "de"
+	? "Illustration — keine Kundenaussage oder Leistungsmessung."
+	: locale === "es"
+		? "Ilustración — no es un testimonio ni una medición de resultados."
+		: "Illustration — not a customer testimonial or measured result.";
+
+import { PRODUCT_AUTH_URL } from "../lib/product-urls";
+const heroLinks = t.hero as typeof t.hero & {
+	primaryHref?: string;
+	secondaryHref?: string;
+};
+const primaryHeroHref = heroLinks.primaryHref ?? PRODUCT_AUTH_URL;
+const secondaryHeroHref = heroLinks.secondaryHref ?? "#how-it-works";
+const useCasesConfig = t.useCases as typeof t.useCases & {
+	visualMode?: "eurolabs";
+};
+const isEuroLabsResearch = useCasesConfig.visualMode === "eurolabs";
+---
+
+<div class="relative flex min-h-screen flex-col">
+  <!-- ═══════════════════════════════════════════
+       SECTION 1 — HERO (Dark Neural Theme)
+       ═══════════════════════════════════════════ -->
+  <section class="relative overflow-hidden bg-gradient-to-b from-violet-50 via-background to-background pt-28 pb-24 md:pt-32 md:pb-32 lg:min-h-[90vh] lg:pt-36 lg:pb-40 dark:from-[#080016] dark:via-[#080016] dark:to-[#0a0012]">
+    <!-- Deep gradient backdrop (dark only) -->
+    <div class="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-violet-100/50 via-transparent to-transparent dark:from-[#0c0020] dark:via-[#080016] dark:to-[#0a0012]"></div>
+    <!-- Subtle grid pattern -->
+    <div class="pointer-events-none absolute inset-0 -z-10 opacity-[0.04] dark:opacity-[0.06]" style="background-image: linear-gradient(rgba(139,92,246,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(139,92,246,0.5) 1px, transparent 1px); background-size: 48px 48px;"></div>
+    <!-- Ambient violet particles -->
+    <Particles client:only="react" quantity={50} color="#a78bfa" size={0.5} staticity={40} ease={60} className="pointer-events-none absolute inset-0 -z-[5]" />
+    <!-- Horizontal scan line -->
+    <div class="pointer-events-none absolute inset-x-0 top-0 z-[1] h-px bg-gradient-to-r from-transparent via-violet-500/20 to-transparent dark:via-violet-500/40" style="animation: scanLine 8s ease-in-out infinite;"></div>
+
+    <!-- Brain visual — scoped to the same centered frame as the hero copy -->
+    <div class="hero-composition-frame pointer-events-none absolute inset-y-0 left-1/2 z-10 hidden -translate-x-1/2 lg:block">
+      <HeroBrain client:only="react" className="overflow-visible" />
+    </div>
+
+    <div class="hero-composition-frame relative z-20 mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="pointer-events-none relative -mx-4 mb-6 h-[228px] overflow-hidden sm:mx-0 sm:h-[280px] lg:hidden">
+        <HeroBrain client:only="react" variant="mobile" className="overflow-hidden" />
+      </div>
+      <div class="max-w-xl lg:max-w-2xl">
+        <BlurFade client:only="react" delay={0.3} direction="up">
+          <h1 class="mb-8 font-bold font-display text-4xl leading-[1.08] tracking-tight sm:text-5xl md:text-6xl lg:text-[4.5rem]">
+            <span class="text-foreground dark:text-white/95">{t.hero.line1}</span>
+            <br />
+            <span class="text-foreground dark:text-white/95">{t.hero.line2}</span>
+            <br />
+            <span class="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-orange-500 bg-clip-text text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-orange-400">{t.hero.line3}</span>
+          </h1>
+        </BlurFade>
+
+        <BlurFade client:only="react" delay={0.45} direction="up">
+          <p class="mb-5 max-w-lg font-semibold text-xl leading-snug text-foreground md:text-2xl dark:text-white/90">
+            {t.hero.subtitleIntro}{" "}
+            <span class="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-orange-500 bg-clip-text text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-orange-400">
+              {t.hero.subtitleHighlight}
+            </span>
+          </p>
+          <p class="mb-12 max-w-lg text-base leading-relaxed text-muted-foreground dark:text-white/60">
+            {t.hero.description}
+          </p>
+        </BlurFade>
+
+        <BlurFade client:only="react" delay={0.6} direction="up">
+          <div class="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
+            <div class="cta-pulse-ring w-full sm:w-fit">
+              <a href={primaryHeroHref} class="block w-full sm:w-auto">
+                <ShimmerButton client:only="react" shimmerColor="#c084fc" shimmerSize="0.08em" background="linear-gradient(135deg, #7c3aed, #c026d3, #ea580c)" borderRadius="9999px" className="w-full px-6 py-3 text-base font-semibold shadow-lg shadow-violet-500/25 sm:w-auto sm:px-8">
+                  {t.hero.primaryCta}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </ShimmerButton>
+              </a>
+            </div>
+            <a href={secondaryHeroHref} class="inline-flex items-center justify-center rounded-full border border-border bg-background/60 px-8 py-3 text-base font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-muted dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10">
+              {t.hero.secondaryCta}
+            </a>
+          </div>
+        </BlurFade>
+
+        <!-- Trust signals -->
+        <BlurFade client:only="react" delay={0.75} direction="up">
+          <div class="mt-12 flex flex-wrap items-center gap-x-7 gap-y-3">
+            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-400"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>{t.hero.trustSignals[0]}</span>
+            </div>
+            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-fuchsia-400"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z"/><path d="m3 9 2.45-4.9A2 2 0 0 1 7.24 3h9.52a2 2 0 0 1 1.8 1.1L21 9"/><path d="M12 3v6"/></svg>
+              <span>{t.hero.trustSignals[1]}</span>
+            </div>
+            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-orange-400"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <span>{t.hero.trustSignals[2]}</span>
+            </div>
+            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
+              <span class="text-base">&#127465;&#127466;</span>
+              <span>{t.hero.trustSignals[3]}</span>
+            </div>
+          </div>
+        </BlurFade>
+      </div>
+    </div>
+
+    <!-- Invite-Only badge — bottom right -->
+    <div class="hero-composition-frame pointer-events-none absolute inset-y-0 left-1/2 z-30 hidden -translate-x-1/2 lg:block">
+      <div class="absolute right-[8%] bottom-[12%]">
+        <BlurFade client:only="react" delay={1} direction="up">
+          <div class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-fuchsia-500/15 px-4 py-1.5 shadow-[0_0_20px_rgba(217,70,239,0.25)] backdrop-blur-sm">
+            <span class="relative flex h-2 w-2">
+              <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-fuchsia-400 opacity-75"></span>
+              <span class="relative inline-flex h-2 w-2 rounded-full bg-fuchsia-400"></span>
+            </span>
+            <span class="text-xs font-semibold text-fuchsia-600 tracking-wide dark:text-fuchsia-300">{t.hero.betaBadge}</span>
+          </div>
+        </BlurFade>
+      </div>
+    </div>
+
+    <!-- Bottom gradient fade to next section -->
+    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background to-transparent dark:from-background"></div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 2 — THE CHALLENGE
+       ═══════════════════════════════════════════ -->
+  <section class="relative pt-4 pb-8 md:pt-5 md:pb-10" id="what-a-tedi-does">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto">
+        <div class="mb-7 text-center">
+          <p class="mb-4 font-medium text-violet-600 text-sm uppercase tracking-[0.2em] dark:text-violet-400">{t.challenge.eyebrow}</p>
+          <h2 class="mb-5 font-bold font-display text-3xl leading-tight tracking-tight md:text-4xl lg:text-5xl">
+            {t.challenge.title}
+          </h2>
+          <p class="mx-auto max-w-2xl text-muted-foreground text-lg leading-relaxed">
+            {t.challenge.description}
+          </p>
+        </div>
+
+        <div class="grid gap-5 md:grid-cols-3 md:gap-6">
+          <!-- COMPLEXITY pair: challenge box, then corresponding image below -->
+          <div class="flex flex-col gap-5 md:gap-6">
+            <Card className="group relative min-h-[270px] overflow-hidden border-violet-200/60 bg-white p-7 transition-transform duration-300 hover:-translate-y-1 dark:border-violet-800/30 dark:bg-violet-950/20 motion-reduce:transform-none motion-reduce:transition-none">
+              <div class="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-violet-600 to-violet-400"></div>
+              <div class="mb-5 flex items-center gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <span class="challenge-badge inline-flex items-center rounded-md bg-violet-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-violet-500/40">{t.challenge.cards[0].badge}</span>
+              </div>
+              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-violet-700 dark:group-hover:text-violet-300 md:text-2xl">{t.challenge.cards[0].title}</h3>
+              <p class="text-muted-foreground text-sm leading-relaxed">{t.challenge.cards[0].description}</p>
+            </Card>
+            <figure class="challenge-visual group relative min-h-[270px] overflow-hidden rounded-2xl border border-violet-200/60 bg-white shadow-sm dark:border-violet-800/30 dark:bg-violet-950/20">
+              <img src="/images/challenges/complexity-light.jpg" alt={t.challenge.cards[0].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
+              <Image src={challengeComplexity} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.challenge.cards[0].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
+            </figure>
+          </div>
+
+          <!-- RISKS pair: corresponding image first, then challenge box below -->
+          <div class="flex flex-col gap-5 md:flex-col-reverse md:gap-6">
+            <Card className="group relative min-h-[270px] overflow-hidden border-rose-200/60 bg-white p-7 transition-transform duration-300 hover:-translate-y-1 dark:border-rose-800/30 dark:bg-rose-950/20 motion-reduce:transform-none motion-reduce:transition-none">
+              <div class="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-rose-600 to-rose-400"></div>
+              <div class="mb-5 flex items-center gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                </div>
+                <span class="challenge-badge inline-flex items-center rounded-md bg-rose-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-rose-500/40">{t.challenge.cards[1].badge}</span>
+              </div>
+              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-rose-700 dark:group-hover:text-rose-300 md:text-2xl">{t.challenge.cards[1].title}</h3>
+              <p class="text-muted-foreground text-sm leading-relaxed">{t.challenge.cards[1].description}</p>
+            </Card>
+            <figure class="challenge-visual group relative min-h-[270px] overflow-hidden rounded-2xl border border-rose-200/60 bg-white shadow-sm dark:border-rose-800/30 dark:bg-rose-950/20">
+              <img src="/images/challenges/risks-light.jpg" alt={t.challenge.cards[1].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
+              <Image src={challengeRisks} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.challenge.cards[1].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
+            </figure>
+          </div>
+
+          <!-- SILOS pair: challenge box, then corresponding image below -->
+          <div class="flex flex-col gap-5 md:gap-6">
+            <Card className="group relative min-h-[270px] overflow-hidden border-fuchsia-200/60 bg-white p-7 transition-transform duration-300 hover:-translate-y-1 dark:border-fuchsia-800/30 dark:bg-fuchsia-950/20 motion-reduce:transform-none motion-reduce:transition-none">
+              <div class="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-fuchsia-600 to-fuchsia-400"></div>
+              <div class="mb-5 flex items-center gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-900/40 dark:text-fuchsia-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+                </div>
+                <span class="challenge-badge inline-flex items-center rounded-md bg-fuchsia-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-fuchsia-500/40">{t.challenge.cards[2].badge}</span>
+              </div>
+              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-fuchsia-700 dark:group-hover:text-fuchsia-300 md:text-2xl">{t.challenge.cards[2].title}</h3>
+              <p class="text-muted-foreground text-sm leading-relaxed">{t.challenge.cards[2].description}</p>
+            </Card>
+            <figure class="challenge-visual group relative min-h-[270px] overflow-hidden rounded-2xl border border-fuchsia-200/60 bg-white shadow-sm dark:border-fuchsia-800/30 dark:bg-fuchsia-950/20">
+              <img src="/images/challenges/silos-light.jpg" alt={t.challenge.cards[2].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
+              <Image src={challengeSilos} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.challenge.cards[2].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
+            </figure>
+          </div>
+        </div>
+
+        <div class="mt-14 text-center">
+          <p class="mx-auto max-w-xl font-bold font-display text-xl tracking-tight md:text-2xl">
+            {t.challenge.closingPrefix}{" "}
+            <br class="hidden sm:block" />
+            <AnimatedGradientText client:idle speed="3s" colorFrom="#7c3aed" colorTo="#ea580c" className="font-bold font-display text-2xl md:text-3xl">
+              {t.challenge.closingAccent}
+            </AnimatedGradientText>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 3 — PROVEN RESULTS (Use Cases) — Dark section
+       ═══════════════════════════════════════════ -->
+  <section class="relative overflow-hidden bg-muted/40 pt-12 pb-24 md:pt-16 md:pb-32 dark:bg-[#0c0a09]" id="use-cases">
+    <div class="pointer-events-none absolute inset-0 opacity-[0.02] dark:opacity-[0.03]" style="background-image: linear-gradient(rgba(251,191,36,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(251,191,36,0.5) 1px, transparent 1px); background-size: 60px 60px;"></div>
+    <div class="pointer-events-none absolute top-0 right-1/4 h-[400px] w-[400px] -translate-y-1/2 rounded-full bg-amber-500/5 blur-[120px] dark:bg-amber-500/8"></div>
+
+    <div class="landing-section-frame relative z-10 mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto">
+        <div class="mb-16 text-center">
+          <p class="mb-4 font-medium text-orange-500 text-sm uppercase tracking-[0.2em] dark:text-orange-400">{t.useCases.eyebrow}</p>
+          <h2 class="mb-4 font-bold font-display text-4xl leading-tight tracking-tight md:text-5xl lg:text-6xl">
+            {t.useCases.titlePrefix}{" "}
+            <span class="bg-gradient-to-r from-orange-500 to-fuchsia-500 bg-clip-text text-transparent">{t.useCases.titleAccent}</span>
+          </h2>
+          <p class="mx-auto max-w-2xl text-muted-foreground text-lg leading-relaxed dark:text-white/50">
+            {t.useCases.description}
+          </p>
+        </div>
+
+        <!-- ── USE CASE 1: Agentic Commerce (Klarna) ── -->
+        <div class="mb-20 scroll-mt-28" id="use-case-klarna">
+          <div class="grid items-start gap-10 lg:grid-cols-2">
+            <!-- Left: Interactive ChatGPT Demo with real ComparisonLayout widget -->
+            {isEuroLabsResearch ? (
+              <div class="eurolabs-research-visual">
+                <div class="eurolabs-console-header">
+                  <span class="dot rose"></span><span class="dot amber"></span><span class="dot green"></span>
+                  <span class="console-url">os.tedix.dev / tedi-cto</span>
+                </div>
+                <div class="eurolabs-cto-card">
+                  <div class="cto-profile">
+                    <img src="/images/eurolabs/aaron-twin.png" alt="Digital twin profile for the Tedi CTO" loading="lazy" />
+                    <div>
+                      <strong>Tedi CTO</strong>
+                      <span>Runtime running · company brain active</span>
+                    </div>
+                  </div>
+                  <div class="cto-status">
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Knowledge</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v15A2.5 2.5 0 0 0 9.5 22"/><path d="M14.5 2A2.5 2.5 0 0 1 17 4.5v15a2.5 2.5 0 0 1-2.5 2.5"/><path d="M7 8h10"/><path d="M7 16h10"/></svg>Brain</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.74V17h8v-2.26A7 7 0 0 0 12 2z"/></svg>Decisions</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6c0-1.66 4.03-3 9-3s9 1.34 9 3-4.03 3-9 3-9-1.34-9-3z"/><path d="M3 6v12c0 1.66 4.03 3 9 3s9-1.34 9-3V6"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>Memory</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 7.5A9 9 0 1 1 12 3z"/></svg>Dreams</span>
+                  </div>
+                </div>
+                <div class="eurolabs-metrics-grid" data-count-scope>
+                  <div><span>Accumulated facts</span><strong data-countup="522">0</strong></div>
+                  <div><span>Confidence</span><strong data-countup="85" data-suffix="%">0%</strong></div>
+                  <div><span>Skills developed</span><strong data-countup="50">0</strong></div>
+                </div>
+                <div class="eurolabs-panel fact-lifecycle">
+                  <div class="panel-title">Fact lifecycle</div>
+                  <div class="lifecycle-bar"><span class="probation"></span><span class="active"></span><span class="gold"></span></div>
+                  <div class="lifecycle-legend">
+                    <span><i class="blue"></i> Active · moderate confidence <b>9%</b></span>
+                    <span><i class="violet"></i> Active · high confidence <b>36%</b></span>
+                    <span><i class="green"></i> Gold · high use + high confidence <b>55%</b></span>
+                  </div>
+                </div>
+                <div class="eurolabs-panel confidence-bars">
+                  <div class="panel-title">Confidence attribution</div>
+                  <div><span>Evidence from docs</span><b data-fill="78" style="--target: 78%"></b><em>78%</em></div>
+                  <div><span>Approved tool history</span><b data-fill="64" style="--target: 64%"></b><em>64%</em></div>
+                  <div><span>Prior decisions</span><b data-fill="48" style="--target: 48%"></b><em>48%</em></div>
+                </div>
+              </div>
+            ) : (
+              <ChatGPTDemo client:only="react" />
+            )}
+
+            <!-- Right: Content -->
+            <div>
+              <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-orange-500/20 px-3 py-1 text-xs font-semibold text-orange-500 dark:text-orange-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                {t.useCases.items[0].badge}
+              </div>
+              <h3 class="mb-4 font-bold font-display text-2xl leading-tight md:text-3xl">
+                {t.useCases.items[0].title}
+              </h3>
+              <p class="mb-6 text-foreground/70 text-base leading-relaxed dark:text-white/70">
+                {t.useCases.items[0].description}
+              </p>
+
+              <!-- Testimonial -->
+              <div class="rounded-xl border border-border/50 bg-card/50 p-5 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <p class="mb-2 text-xs font-semibold text-orange-500 uppercase tracking-wider dark:text-orange-400">{t.useCases.testimonialLabel}</p>
+                <blockquote class="mb-4 text-sm leading-relaxed text-muted-foreground italic dark:text-white/60">
+                  “{t.useCases.items[0].quote}”
+                </blockquote>
+                {isEuroLabsResearch ? (
+                  <div class="flex items-center gap-3">
+                    <span class="text-sm font-medium text-muted-foreground dark:text-white/40">{t.useCases.items[0].attribution}</span>
+                  </div>
+                ) : (
+                  <div class="flex items-center gap-3">
+                    <img src="/images/testimonials/martin-andersen.jpg" alt="Martin D. Andersen" class="h-9 w-9 rounded-full object-cover" loading="lazy" />
+                    <div>
+                      <div class="font-semibold text-foreground text-sm dark:text-white/80">Martin D. Andersen</div>
+                      <div class="text-muted-foreground text-xs dark:text-white/40">{t.useCases.items[0].attribution}</div>
+                    </div>
+                    <img src="/images/logos/klarna.svg" alt="Klarna" class="ml-auto h-6 w-auto" loading="lazy" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <!-- FOMO bar — brands selling in AI chats -->
+          {!isEuroLabsResearch && <div class="mt-10 rounded-2xl border border-border/50 bg-card/30 px-8 py-8 dark:border-white/[0.06] dark:bg-white/[0.02]">
+            <p class="mb-6 text-xs font-semibold text-orange-500 uppercase tracking-wider dark:text-orange-400">{t.useCases.brandsLabel}</p>
+            <div class="relative mb-8">
+              <Marquee client:idle pauseOnHover className="[--duration:35s] [--gap:3rem]">
+                {[
+                  { src: "/images/apps/klarna.svg", alt: "Klarna" },
+                  { src: "/images/apps/instacart.svg", alt: "Instacart" },
+                  { src: "/images/apps/stripe.svg", alt: "Stripe" },
+                  { src: "/images/apps/walmart.svg", alt: "Walmart" },
+                  { src: "/images/apps/canva.svg", alt: "Canva" },
+                  { src: "/images/apps/expedia.svg", alt: "Expedia" },
+                  { src: "/images/apps/photoshop.svg", alt: "Photoshop" },
+                  { src: "/images/apps/shopify.svg", alt: "Shopify" },
+                ].map((logo) => (
+                  <div key={logo.alt} class="flex shrink-0 flex-col items-center gap-1.5">
+                    <div class="flex h-10 w-10 items-center justify-center">
+                      <img src={logo.src} alt={logo.alt} class="max-h-8 max-w-[32px] object-contain opacity-60 grayscale transition-all hover:opacity-100 hover:grayscale-0 dark:invert" loading="lazy" />
+                    </div>
+                    <span class="text-[10px] font-medium text-muted-foreground/60">{logo.alt}</span>
+                  </div>
+                ))}
+              </Marquee>
+              <div class="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-muted/40 to-transparent dark:from-[#0c0a09]"></div>
+              <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-muted/40 to-transparent dark:from-[#0c0a09]"></div>
+            </div>
+            <div class="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+              <span class="font-bold font-display text-lg text-foreground/70 dark:text-white/70">{t.useCases.whereCompany}</span>
+              <a href={PRODUCT_AUTH_URL} class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-orange-500 to-fuchsia-500 px-5 py-2 text-sm font-bold text-white transition-all hover:from-orange-400 hover:to-fuchsia-400">
+                {t.useCases.getYourTedi}
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </a>
+            </div>
+          </div>}
+        </div>
+
+        <!-- ── USE CASE 2: System Integration — widget left, content right ── -->
+        <div class="mb-20 scroll-mt-28" id="use-case-integration">
+          <div class="grid items-start gap-10 lg:grid-cols-2">
+            {isEuroLabsResearch ? (
+              <div class="eurolabs-research-visual graph-visual">
+                <div class="eurolabs-console-header">
+                  <span class="dot rose"></span><span class="dot amber"></span><span class="dot green"></span>
+                  <span class="console-url">knowledge graph / rationale trace</span>
+                </div>
+                <div class="graph-toolbar">
+                  <span>134 nodes</span><span>668 edges</span><span>rationale_map</span>
+                </div>
+                <svg class="knowledge-map" viewBox="0 0 620 360" role="img" aria-label="Interactive knowledge graph showing connected facts, rationales, policies, and outcomes">
+                  <defs>
+                    <filter id="eurolabs-glow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+                  </defs>
+                  <g class="graph-links">
+                    <path d="M120 180 C210 80 305 88 390 158" />
+                    <path d="M120 180 C205 240 300 250 410 210" />
+                    <path d="M245 112 C280 166 320 188 410 210" />
+                    <path d="M390 158 C450 120 505 130 548 180" />
+                    <path d="M410 210 C470 248 520 236 548 180" />
+                    <path d="M245 112 C220 198 260 252 310 286" />
+                    <path d="M310 286 C365 278 392 248 410 210" />
+                    <path d="M72 255 C145 230 175 205 120 180" />
+                    <path d="M62 96 C110 122 125 142 120 180" />
+                    <path d="M62 96 C140 58 196 66 245 112" />
+                    <path d="M184 292 C214 250 258 235 310 286" />
+                    <path d="M184 292 C158 238 130 216 72 255" />
+                    <path d="M500 72 C476 118 444 144 390 158" />
+                    <path d="M500 72 C560 96 580 136 548 180" />
+                    <path d="M525 286 C480 282 435 252 410 210" />
+                    <path d="M525 286 C568 248 580 216 548 180" />
+                    <path d="M310 286 C344 226 356 184 390 158" />
+                    <path d="M120 180 C158 162 196 140 245 112" />
+                  </g>
+                  <g class="graph-nodes">
+                    <g class="graph-node" data-depth="1.1" transform="translate(120 180)"><circle class="node violet" r="42" /><text>Objective</text></g>
+                    <g class="graph-node" data-depth="1.4" transform="translate(245 112)"><circle class="node blue" r="38" /><text>Evidence</text></g>
+                    <g class="graph-node" data-depth="0.9" transform="translate(390 158)"><circle class="node green" r="40" /><text>Policy</text></g>
+                    <g class="graph-node" data-depth="1.2" transform="translate(410 210)"><circle class="node orange" r="45" /><text>Decision</text></g>
+                    <g class="graph-node" data-depth="1.7" transform="translate(548 180)"><circle class="node blue" r="36" /><text>Tool call</text></g>
+                    <g class="graph-node" data-depth="1.3" transform="translate(310 286)"><circle class="node violet" r="34" /><text>Outcome</text></g>
+                    <g class="graph-node" data-depth="1.5" transform="translate(72 255)"><circle class="node green" r="31" /><text>Feedback</text></g>
+                    <g class="graph-node" data-depth="1.9" transform="translate(62 96)"><circle class="node blue" r="29" /><text>Docs</text></g>
+                    <g class="graph-node" data-depth="1.6" transform="translate(184 292)"><circle class="node green" r="32" /><text>Memory</text></g>
+                    <g class="graph-node" data-depth="1.8" transform="translate(500 72)"><circle class="node orange" r="31" /><text>Approval</text></g>
+                    <g class="graph-node" data-depth="1.4" transform="translate(525 286)"><circle class="node blue" r="33" /><text>Audit</text></g>
+                  </g>
+                </svg>
+                <div class="graph-caption">Objectives, evidence, approvals, tool calls, and outcomes remain connected instead of disappearing into a black box.</div>
+              </div>
+            ) : (
+              <Image src={integrationLayer} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 588px, (min-width: 1024px) calc((100vw - 136px) / 2), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.useCases.items[1].alt} class="w-full rounded-2xl shadow-xl object-contain" loading="lazy" />
+            )}
+            <div>
+              <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-3 py-1 text-xs font-semibold text-blue-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                {t.useCases.items[1].badge}
+              </div>
+              <h3 class="mb-4 font-bold font-display text-2xl leading-tight md:text-3xl">
+                {t.useCases.items[1].title}
+              </h3>
+              <p class="mb-6 text-foreground/70 text-base leading-relaxed dark:text-white/70">
+                {t.useCases.items[1].description}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── USE CASE 3: GEO & Content — content left, widget right ── -->
+        <div class="mb-20 scroll-mt-28" id="use-case-geo">
+          <div class="grid items-start gap-10 lg:grid-cols-2">
+            <div>
+              <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-fuchsia-500/20 px-3 py-1 text-xs font-semibold text-fuchsia-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
+                {t.useCases.items[2].badge}
+              </div>
+              <h3 class="mb-4 font-bold font-display text-2xl leading-tight md:text-3xl">{t.useCases.items[2].title}</h3>
+              <p class="mb-6 text-foreground/70 text-base leading-relaxed dark:text-white/70">
+                {t.useCases.items[2].description}
+              </p>
+              <div class="rounded-xl border border-border/50 bg-card/50 p-5 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <p class="mb-2 text-xs font-semibold text-fuchsia-400 uppercase tracking-wider">{t.useCases.testimonialLabel}</p>
+                <blockquote class="mb-4 text-sm leading-relaxed text-muted-foreground italic dark:text-white/60">
+                  “{t.useCases.items[2].quote}”
+                </blockquote>
+                <span class="text-sm font-medium text-muted-foreground dark:text-white/40">{t.useCases.items[2].attribution}</span>
+              </div>
+            </div>
+            {isEuroLabsResearch ? (
+              <div class="eurolabs-research-visual router-visual">
+                <div class="eurolabs-console-header">
+                  <span class="dot rose"></span><span class="dot amber"></span><span class="dot green"></span>
+                  <span class="console-url">reasoning router / system 1 + system 2</span>
+                </div>
+                <div class="router-decision">
+                  <div>
+                    <span class="label">Objective</span>
+                    <strong>Answer compliance question for procurement</strong>
+                  </div>
+                  <div class="decision-pill">Route selected: memory + approved tools</div>
+                </div>
+                <div class="router-lanes">
+                  <div class="router-lane active">
+                    <span>System 1</span>
+                    <strong>Private memory kernel</strong>
+                    <p>Known policy, prior decisions, approved documents, low novelty.</p>
+                    <div class="lane-meter"><b data-fill="84" style="--target: 84%"></b><em>84%</em></div>
+                  </div>
+                  <div class="router-lane">
+                    <span>System 2</span>
+                    <strong>Frontier reasoning</strong>
+                    <p>Reserved for novel, ambiguous, or high-risk work needing deeper reasoning.</p>
+                    <div class="lane-meter"><b data-fill="24" style="--target: 24%"></b><em>24%</em></div>
+                  </div>
+                </div>
+                <div class="routing-steps">
+                  <span>Retrieve memories</span>
+                  <span>Check permissions</span>
+                  <span>Use MCP tools</span>
+                  <span>Record rationale</span>
+                </div>
+              </div>
+            ) : (
+              <Image src={geoTedix} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 588px, (min-width: 1024px) calc((100vw - 136px) / 2), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.useCases.items[2].alt} class="w-full rounded-2xl shadow-xl object-contain" loading="lazy" />
+            )}
+          </div>
+        </div>
+
+        <!-- ── USE CASE 4: Solo Founder — widget left, content right ── -->
+        <div class="mb-20 scroll-mt-28" id="use-case-solo-founder">
+          <div class="grid items-start gap-10 lg:grid-cols-2">
+            {isEuroLabsResearch ? (
+              <div class="eurolabs-research-visual ledger-visual">
+                <div class="eurolabs-console-header">
+                  <span class="dot rose"></span><span class="dot amber"></span><span class="dot green"></span>
+                  <span class="console-url">agent payables ledger / live roi</span>
+                </div>
+                <div class="ledger-cards">
+                  <div><span>$</span><strong>Cost</strong><p>Tools, APIs, models, and compute.</p></div>
+                  <div><span>↗</span><strong>Value</strong><p>Work completed, revenue impact, and saved time.</p></div>
+                  <div><span>✓</span><strong>Control</strong><p>Caps, approval gates, and replacement triggers.</p></div>
+                </div>
+                <div class="ledger-table">
+                  <div class="ledger-row head"><span>Agent</span><span>Service</span><span>Amount</span><span>ROI</span></div>
+                  <div class="ledger-row"><strong>Research Tedi</strong><span>Vector search</span><b data-countup="18.4" data-prefix="$" data-decimals="2">$0.00</b><em>4.2x</em></div>
+                  <div class="ledger-row"><strong>Engineering Tedi</strong><span>Deploy audit</span><b data-countup="42" data-prefix="$" data-decimals="2">$0.00</b><em>approval</em></div>
+                  <div class="ledger-row"><strong>Sales Tedi</strong><span>Lead MCP</span><b data-countup="6.2" data-prefix="$" data-decimals="2">$0.00</b><em>6.1x</em></div>
+                  <div class="ledger-row"><strong>Finance Tedi</strong><span>FX data</span><b data-countup="3.8" data-prefix="$" data-decimals="2">$0.00</b><em>governed</em></div>
+                </div>
+              </div>
+            ) : (
+              <figure>
+                <Image src={soloFounder} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 588px, (min-width: 1024px) calc((100vw - 136px) / 2), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.useCases.items[3].alt} class="w-full rounded-2xl shadow-xl object-contain" loading="lazy" />
+                <figcaption class="mt-3 text-sm text-muted-foreground">{illustrationLabel}</figcaption>
+              </figure>
+            )}
+            <div>
+              <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-orange-500/20 px-3 py-1 text-xs font-semibold text-orange-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                {t.useCases.items[3].badge}
+              </div>
+              <h3 class="mb-4 font-bold font-display text-2xl leading-tight md:text-3xl">{t.useCases.items[3].title}</h3>
+              <p class="mb-6 text-foreground/70 text-base leading-relaxed dark:text-white/70">
+                {t.useCases.items[3].description}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── USE CASE 5: Rapid Deployment — content left, widget right ── -->
+        <div class="scroll-mt-28" id="use-case-mimextrade">
+          <div class="grid items-start gap-10 lg:grid-cols-2">
+            <div>
+              <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                {t.useCases.items[4].badge}
+              </div>
+              <h3 class="mb-4 font-bold font-display text-2xl leading-tight md:text-3xl">{t.useCases.items[4].title}</h3>
+              <p class="mb-6 text-foreground/70 text-base leading-relaxed dark:text-white/70">
+                {t.useCases.items[4].description}
+              </p>
+              <div class="rounded-xl border border-border/50 bg-card/50 p-5 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <p class="mb-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">{t.useCases.testimonialLabel}</p>
+                <blockquote class="mb-4 text-sm leading-relaxed text-muted-foreground italic dark:text-white/60">
+                  “{t.useCases.items[4].quote}”
+                </blockquote>
+                <span class="text-sm font-medium text-muted-foreground dark:text-white/40">{t.useCases.items[4].attribution}</span>
+              </div>
+            </div>
+            {isEuroLabsResearch ? (
+              <div class="eurolabs-research-visual compliance-visual">
+                <div class="eurolabs-console-header">
+                  <span class="dot rose"></span><span class="dot amber"></span><span class="dot green"></span>
+                  <span class="console-url">governance console / regulated sectors</span>
+                </div>
+                <div class="permit-grid">
+                  <div class="permit-card approved"><span>Permit</span><strong>Scoped tools</strong><p>Only approved systems and APIs are callable.</p></div>
+                  <div class="permit-card approved"><span>Guardrail</span><strong>Approval required</strong><p>High-risk actions pause before execution.</p></div>
+                  <div class="permit-card"><span>Audit</span><strong>Rationale record</strong><p>Objective, evidence, confidence, action, outcome.</p></div>
+                  <div class="permit-card"><span>Data</span><strong>Scoped memory</strong><p>Organization-scoped memory and traceable access.</p></div>
+                </div>
+                <div class="compliance-flow">
+                  <span>Request</span><b></b><span>Policy</span><b></b><span>Permit</span><b></b><span>Action</span><b></b><span>Audit</span>
+                </div>
+                <div class="risk-console">
+                  <div><span>Risk level</span><strong>Low</strong></div>
+                  <div><span>Permission scope</span><strong>Approved</strong></div>
+                  <div><span>Retention</span><strong>Company-owned</strong></div>
+                </div>
+              </div>
+            ) : (
+              <Image src={mimextrade} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 588px, (min-width: 1024px) calc((100vw - 136px) / 2), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.useCases.items[4].alt} class="w-full rounded-2xl shadow-xl object-contain" loading="lazy" />
+            )}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 4 — INTEGRATIONS (Workflow)
+       ═══════════════════════════════════════════ -->
+  <section class="relative overflow-hidden pt-8 pb-16 md:pt-10 md:pb-20" id="integrations">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto">
+        <div class="mb-10 text-center">
+          <p class="mb-4 font-medium text-violet-600 text-sm uppercase tracking-[0.2em] dark:text-violet-400">{t.integrations.eyebrow}</p>
+          <h2 class="mb-4 font-bold font-display text-3xl leading-tight tracking-tight md:text-4xl lg:text-5xl gradient-shift-text">
+            {t.integrations.title}
+          </h2>
+          <p class="mx-auto max-w-xl text-muted-foreground text-lg leading-relaxed">
+            {t.integrations.description}
+          </p>
+        </div>
+        <IntegrationWorkflow client:only="react" />
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION — TRUST & SECURITY (Light, clean)
+       ═══════════════════════════════════════════ -->
+  <section class="relative pt-10 pb-20 md:pt-14 md:pb-28" id="why-tedix">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto">
+        <div class="mb-14 text-center">
+          <p class="mb-4 font-medium text-amber-600 text-sm uppercase tracking-[0.2em] dark:text-amber-400">{t.trust.eyebrow}</p>
+          <h2 class="font-bold font-display text-3xl leading-tight tracking-tight md:text-4xl lg:text-5xl">
+            {t.trust.title}
+          </h2>
+        </div>
+
+        <!-- Row 1: GDPR | Every decision | You own the intelligence -->
+        <div class="mb-8 grid gap-8 md:grid-cols-3">
+          <!-- GDPR -->
+          <div class="text-center">
+            <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100/80 dark:bg-amber-900/30">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-amber-600 dark:text-amber-400"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg">{t.trust.cards[0].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed">
+              {t.trust.cards[0].description}
+            </p>
+          </div>
+
+          <!-- Auditable -->
+          <div class="text-center">
+            <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100/80 dark:bg-violet-900/30">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-600 dark:text-violet-400"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg">{t.trust.cards[1].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed">
+              {t.trust.cards[1].description}
+            </p>
+          </div>
+
+          <!-- Ownership -->
+          <div class="text-center">
+            <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-fuchsia-100/80 dark:bg-fuchsia-900/30">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-fuchsia-600 dark:text-fuchsia-400"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z"/><path d="m3 9 2.45-4.9A2 2 0 0 1 7.24 3h9.52a2 2 0 0 1 1.8 1.1L21 9"/><path d="M12 3v6"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg">{t.trust.cards[2].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed">
+              {t.trust.cards[2].description}
+            </p>
+          </div>
+        </div>
+
+        <!-- Row 2: Corporate Safe | Zero Integration Complexity -->
+        <div class="mx-auto grid max-w-2xl gap-8 md:grid-cols-2">
+          <!-- Corporate Safe -->
+          <div class="text-center">
+            <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100/80 dark:bg-blue-900/30">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600 dark:text-blue-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg">{t.trust.cards[3].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed">
+              {t.trust.cards[3].description}
+            </p>
+          </div>
+
+          <!-- Zero Integration Complexity -->
+          <div class="text-center">
+            <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100/80 dark:bg-emerald-900/30">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-600 dark:text-emerald-400"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/><path d="m15 5 3 3"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg">{t.trust.cards[4].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed">
+              {t.trust.cards[4].description}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section removed — integrations marquee is now after use cases -->
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 5 — HOW IT WORKS (Operational Timeline)
+       ═══════════════════════════════════════════ -->
+  <section class="relative scroll-mt-28 overflow-hidden bg-background py-14 md:py-20 dark:bg-[#0c0a09]" id="how-it-works">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="relative overflow-hidden rounded-[2rem] border border-violet-100/80 bg-gradient-to-b from-white via-violet-50/35 to-white shadow-[0_24px_80px_rgba(76,29,149,0.08)] dark:border-white/10 dark:from-[#12081f] dark:via-[#100718] dark:to-[#0c0a09]">
+        <OperationalTimeline client:only="react" content={t.timeline} />
+        <div class="px-6 pb-16 md:px-10 md:pb-20">
+          <TediDashboardShowcase client:only="react" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 4b — WHY IT GETS CHEAPER (DARK cont.)
+       ═══════════════════════════════════════════ -->
+  <section class="relative overflow-hidden bg-muted/40 pt-10 pb-20 md:pt-14 md:pb-28 dark:bg-[#0c0a09]">
+    <div class="landing-section-frame relative z-10 mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto">
+        <div class="mb-14 text-center">
+          <p class="mb-4 font-medium text-emerald-400 text-sm uppercase tracking-[0.2em]">{t.economics.eyebrow}</p>
+          <h2 class="mb-4 font-bold font-display text-3xl leading-tight tracking-tight md:text-4xl lg:text-5xl">
+            {t.economics.titlePrefix}{" "}
+            <span class="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">{t.economics.titleAccent}</span>
+          </h2>
+          <p class="mx-auto max-w-xl text-muted-foreground text-lg leading-relaxed dark:text-white/50">
+            {t.economics.description}
+          </p>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4 md:gap-5">
+          <!-- Compiled Patterns -->
+          <Card className="group relative overflow-hidden bg-card/50 p-6 backdrop-blur-sm transition-colors duration-500 hover:border-emerald-500/20 dark:border-white/[0.06] dark:bg-white/[0.03] dark:hover:bg-white/[0.05] motion-reduce:transition-none">
+            <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="m10 13-2 2 2 2"/><path d="m14 17 2-2-2-2"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg text-foreground dark:text-white">{t.economics.cards[0].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed dark:text-white/40">
+              {t.economics.cards[0].description}
+            </p>
+          </Card>
+
+          <!-- Muscle Memory -->
+          <Card className="group relative overflow-hidden bg-card/50 p-6 backdrop-blur-sm transition-colors duration-500 hover:border-teal-500/20 dark:border-white/[0.06] dark:bg-white/[0.03] dark:hover:bg-white/[0.05] motion-reduce:transition-none">
+            <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-teal-500/20">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-teal-400"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg text-foreground dark:text-white">{t.economics.cards[1].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed dark:text-white/40">
+              {t.economics.cards[1].description}
+            </p>
+          </Card>
+
+          <!-- Calibrated Retrieval -->
+          <Card className="group relative overflow-hidden bg-card/50 p-6 backdrop-blur-sm transition-colors duration-500 hover:border-cyan-500/20 dark:border-white/[0.06] dark:bg-white/[0.03] dark:hover:bg-white/[0.05] motion-reduce:transition-none">
+            <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/20">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-cyan-400"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg text-foreground dark:text-white">{t.economics.cards[2].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed dark:text-white/40">
+              {t.economics.cards[2].description}
+            </p>
+          </Card>
+
+          <!-- Auditable Intelligence -->
+          <Card className="group relative overflow-hidden bg-card/50 p-6 backdrop-blur-sm transition-colors duration-500 hover:border-amber-500/20 dark:border-white/[0.06] dark:bg-white/[0.03] dark:hover:bg-white/[0.05] motion-reduce:transition-none">
+            <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-amber-400"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+            <h3 class="mb-2 font-bold font-display text-lg text-foreground dark:text-white">{t.economics.cards[3].title}</h3>
+            <p class="text-muted-foreground text-sm leading-relaxed dark:text-white/40">
+              {t.economics.cards[3].description}
+            </p>
+          </Card>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 7 — STATS BAR
+       ═══════════════════════════════════════════ -->
+  <section class="border-border/30 border-y bg-muted/20 pt-8 pb-16 dark:bg-muted/5">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-12 md:gap-20">
+        <div class="text-center">
+          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
+            <NumberTicker client:only="react" value={476} className="text-foreground" />
+          </div>
+          <p class="mt-1 text-muted-foreground text-sm">{t.stats[0]}</p>
+        </div>
+        <div class="text-center">
+          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
+            <NumberTicker client:only="react" value={14} className="text-foreground" />
+          </div>
+          <p class="mt-1 text-muted-foreground text-sm">{t.stats[1]}</p>
+        </div>
+        <div class="text-center">
+          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
+            <NumberTicker client:only="react" value={278} className="text-foreground" />
+          </div>
+          <p class="mt-1 text-muted-foreground text-sm">{t.stats[2]}</p>
+        </div>
+        <div class="text-center">
+          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
+            <NumberTicker client:only="react" value={5} className="text-foreground" />
+          </div>
+          <p class="mt-1 text-muted-foreground text-sm">{t.stats[3]}</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 8 — BACKED BY (Social Proof)
+       ═══════════════════════════════════════════ -->
+  <section class="pt-8 pb-16 md:pt-10 md:pb-20 dark:bg-muted/5">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-6xl">
+        <p class="mb-8 text-center font-medium text-muted-foreground/60 text-xs uppercase tracking-[0.2em]">{t.backedBy.eyebrow}</p>
+        <div class="flex flex-wrap items-center justify-center gap-x-10 gap-y-8">
+          <!-- BMWK -->
+          <a href="https://www.bundeswirtschaftsministerium.de/Navigation/EN/Home/home.html" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
+            <img src="/images/backed/bmwk.svg" alt="BMWK" class="h-10 w-auto object-contain dark:brightness-150 dark:opacity-80" loading="lazy" />
+            <span class="font-bold font-display text-sm text-foreground/80">BMWK</span>
+            <span class="text-[10px] text-muted-foreground">{t.backedBy.bmwk}</span>
+          </a>
+          <!-- AI NATION -->
+          <a href="https://www.ai-nation.de/" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
+            <img src="/images/backed/ai-nation.svg" alt="AI Nation" class="h-10 w-auto object-contain dark:brightness-0 dark:invert dark:opacity-90" loading="lazy" />
+            <span class="font-bold font-display text-sm text-foreground/80">AI NATION</span>
+            <span class="text-[10px] text-muted-foreground">{t.backedBy.aiNation}</span>
+          </a>
+          <!-- Munich Ecosystem -->
+          <a href="https://www.munich-ecosystem.de/" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
+            <img src="/images/backed/munich-ecosystem.svg" alt="Munich Innovation Ecosystem" class="h-10 w-auto object-contain dark:brightness-150 dark:opacity-80" loading="lazy" />
+            <span class="font-bold font-display text-sm text-foreground/80">Munich Innovation Ecosystem</span>
+            <span class="text-[10px] text-muted-foreground">{t.backedBy.munich}</span>
+          </a>
+          <!-- Reaktor Berlin -->
+          <a href="https://reaktor.berlin/" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
+            <img src="/images/backed/reaktor-berlin.svg" alt="Reaktor Berlin" class="h-10 w-auto object-contain dark:brightness-0 dark:invert dark:opacity-90" loading="lazy" />
+            <span class="font-bold font-display text-sm text-foreground/80">Reaktor Berlin</span>
+            <span class="text-[10px] text-muted-foreground">{t.backedBy.reaktor}</span>
+          </a>
+          <!-- YLAI + YTILI — U.S. State Dept. -->
+          <div class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
+            <div class="flex items-center gap-3">
+              <a href="https://www.state.gov/" target="_blank" rel="noopener" title="U.S. Department of State">
+                <img src="/images/backed/state-dept-seal.svg" alt="U.S. Department of State" class="h-10 w-10 object-contain dark:brightness-150 dark:opacity-80" loading="lazy" />
+              </a>
+              <span class="text-2xl leading-none select-none">🇺🇸</span>
+              <a href="https://ylai.state.gov/" target="_blank" rel="noopener" title="Young Leaders of the Americas Initiative">
+                <img src="/images/ylai-logo.png" alt="YLAI" class="h-9 w-auto object-contain max-w-[140px] dark:opacity-90" loading="lazy" />
+              </a>
+              <a href="https://www.ytili.org/" target="_blank" rel="noopener" title="Young Transatlantic Innovation Leaders Initiative">
+                <img src="/images/backed/ytili-logo.png" alt="YTILI" class="h-10 w-auto object-contain max-w-[90px] dark:brightness-150 dark:opacity-80" loading="lazy" />
+              </a>
+            </div>
+            <span class="font-bold font-display text-sm text-foreground/80">YLAI &amp; YTILI</span>
+            <span class="text-[10px] text-muted-foreground">{t.backedBy.state}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 8b — BLOG CTA
+       Direct link to blog.tedix.dev — signals subdomain ownership to AI crawlers
+       ═══════════════════════════════════════════ -->
+  <section class="relative overflow-hidden border-border/50 border-t bg-amber-50/80 pt-12 pb-24 md:pt-18 md:pb-36 dark:bg-background" id="insights">
+    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-6xl">
+        <div class="mb-12 text-center">
+          <div class="mb-6 inline-flex items-center gap-2 rounded-full border border-amber-200/60 bg-white/60 px-5 py-2 font-medium text-amber-700 text-sm backdrop-blur-sm dark:border-amber-800/40 dark:bg-white/5 dark:text-amber-200">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg>
+            {t.blog.eyebrow}
+          </div>
+          <h2 class="mb-6 font-bold font-display text-4xl leading-tight tracking-tight md:text-5xl">
+            {t.blog.title}
+          </h2>
+          <p class="mx-auto mb-10 max-w-xl text-amber-900/60 text-lg leading-relaxed dark:text-muted-foreground">
+            {t.blog.description}
+          </p>
+          <a
+            href="https://blog.tedix.dev/"
+            class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/60 px-6 py-3 font-semibold text-amber-700 backdrop-blur-sm transition-all hover:bg-white/80 hover:shadow-md dark:border-amber-800/40 dark:bg-white/5 dark:text-amber-300 dark:hover:bg-white/10"
+          >
+            {t.blog.cta}
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {isEuroLabsResearch && (
+    <section class="eurolabs-prototype-section relative overflow-hidden bg-background pt-12 pb-20 md:pt-16 md:pb-28" id="private-intelligence-os">
+      <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="eurolabs-prototype mx-auto max-w-6xl">
+          <div class="mx-auto max-w-3xl text-center">
+            <div class="prototype-icon mx-auto mb-5">
+              <img src="/images/tedi-astronaut-waving.png" alt="Tedix astronaut" loading="lazy" />
+            </div>
+            <p class="text-sm font-semibold uppercase tracking-[0.22em] text-violet-600 dark:text-violet-200">Working prototype</p>
+            <h2 class="mt-3 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl dark:text-white/95">
+              Private Intelligence OS
+            </h2>
+            <p class="mt-4 text-sm leading-relaxed text-muted-foreground sm:text-base dark:text-white/62">
+              Tedix has a working multi-tenant prototype platform: a production-oriented monorepo with Cloudflare Workers, D1, R2, Agent Memory, Neo4j, Descope, MCP servers, dashboard, widgets, and tedi runtimes.
+            </p>
+            <a href={PRODUCT_AUTH_URL} class="mt-6 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all hover:scale-[1.01] hover:shadow-violet-500/35">
+              Request Access
+              <svg xmlns="http://www.w3.org/2000/svg" class="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </a>
+          </div>
+          <div class="prototype-grid mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["Tedi Runtime", "Long-lived AI workers with the Agent runtime, persistent identity, sessions, files, channels, jobs, browser actions, backups, and restore-on-wake."],
+              ["MCP App Platform", "Multi-tenant, config-driven MCP apps where tools, widgets, auth, schemas, and app surfaces are loaded from D1 without per-app deployments."],
+              ["Memory and Brain Layer", "Working memory, D1/Agent Memory platform memory, and Neo4j context graph for facts, confidence, usage feedback, relationships, and precedents."],
+              ["Rationale and Mission Control", "Rationale records link objectives, evidence, confidence, actions, outcomes, and feedback into an explainability timeline for human oversight."],
+              ["Skills and Muscle Memory", "D1-backed skills, MCP-served SKILL.md resources, executable workflows, usage tracking, and crystallized repeated procedures."],
+              ["Governed Work", "Purpose-linked Work Items, atomic claims, approvals, evidence, and independently reviewable outcomes for durable autonomous execution."],
+              ["Usage and Cost Ledger", "Immutable runtime usage and model-cost rows, cost drilldowns, billing categories, and MCP tools for usage and cost inspection."],
+              ["Pilots and Demonstrations", "Working demonstrations and pilots including AI commerce, legacy-to-new systems integration, and digital worker execution flows."],
+            ].map(([title, description], index) => (
+              <article class="prototype-card">
+                <div class="prototype-card-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    {index === 0 && <><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></>}
+                    {index === 1 && <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>}
+                    {index === 2 && <><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v15A2.5 2.5 0 0 0 9.5 22"/><path d="M14.5 2A2.5 2.5 0 0 1 17 4.5v15a2.5 2.5 0 0 1-2.5 2.5"/><path d="M7 8h10"/><path d="M7 16h10"/></>}
+                    {index === 3 && <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-5"/></>}
+                    {index === 4 && <><path d="M6 3v12"/><path d="M18 9v12"/><path d="M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/><path d="M18 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/><path d="M9 18h6"/><path d="M9 6h6"/></>}
+                    {index === 5 && <><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6"/></>}
+                    {index === 6 && <><path d="M4 4h16v16H4z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h4"/></>}
+                    {index === 7 && <><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M18 7h1v1"/></>}
+                  </svg>
+                </div>
+                <h3>{title}</h3>
+                <p>{description}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 9 — CTA (DARK)
+       ═══════════════════════════════════════════ -->
+  <section class="relative overflow-hidden bg-[#080016] py-16 text-white md:py-24" id="cta">
+    <!-- Large centered glow -->
+    <div class="pointer-events-none absolute top-1/2 left-1/2 h-[800px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-500/20 blur-[200px]"></div>
+    <div class="pointer-events-none absolute top-1/2 left-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-fuchsia-500/15 blur-[100px]"></div>
+    <div class="pointer-events-none absolute inset-0 opacity-[0.04]" style="background-image: linear-gradient(rgba(139,92,246,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(139,92,246,0.5) 1px, transparent 1px); background-size: 48px 48px;"></div>
+
+    <div class="landing-section-frame relative z-10 mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="cta-flow-stage mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch">
+        <span class="cta-flow-bridge cta-flow-bridge-forward" aria-hidden="true"></span>
+        <span class="cta-flow-bridge cta-flow-bridge-return" aria-hidden="true"></span>
+        <div class="cta-flow-card cta-flow-card-primary relative flex min-h-[420px] overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#170b5f] via-violet-700 to-fuchsia-300 p-7 shadow-[0_34px_110px_rgba(124,58,237,0.36),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-40px_80px_rgba(20,0,70,0.22)] md:p-10">
+          <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(255,255,255,0.22),transparent_28%),radial-gradient(circle_at_85%_25%,rgba(255,255,255,0.24),transparent_34%)]"></div>
+          <div class="pointer-events-none absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-pink-200/40 to-transparent"></div>
+          <div class="relative z-10 flex max-w-md flex-col justify-start pt-3 md:max-w-[54%] md:pt-4 xl:max-w-md">
+            <h2 class="mb-4 font-display text-3xl font-bold leading-tight tracking-tight text-white md:text-4xl lg:text-5xl">
+              {t.cta.demoTitle}
+            </h2>
+            <p class="mb-8 max-w-sm text-base font-medium leading-relaxed text-white/72 md:text-lg">
+              {t.cta.demoDescription}
+            </p>
+            <div class="cta-pulse-ring w-fit">
+              <a
+                href={t.cta.demoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="cta-demo-button inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-3 font-bold text-slate-950 shadow-[0_14px_34px_rgba(0,0,0,0.18)] transition-transform hover:-translate-y-0.5 hover:bg-white/92"
+              >
+                <span class="relative z-10">{t.cta.demoCta}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="relative z-10"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </a>
+            </div>
+          </div>
+          <img src="/images/tedi-astronaut-waving.png" alt="" class="pointer-events-none absolute right-3 bottom-0 z-0 hidden h-[56%] max-h-[300px] object-contain opacity-90 drop-shadow-[0_28px_45px_rgba(15,0,55,0.45)] md:block lg:right-8 lg:h-[68%] xl:h-[72%]" loading="lazy" />
+        </div>
+
+        <div class="cta-flow-card cta-flow-card-secondary relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045] p-7 shadow-[0_34px_100px_rgba(76,29,149,0.28),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-50px_90px_rgba(0,0,0,0.22)] backdrop-blur md:p-10">
+          <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(217,70,239,0.16),transparent_38%)]"></div>
+          <div class="relative mx-auto flex h-full max-w-xl flex-col justify-center text-left lg:text-center">
+            <div class="mb-7 inline-flex w-fit items-center gap-2 rounded-full border border-fuchsia-400/30 bg-fuchsia-500/15 px-5 py-2 shadow-[0_0_30px_rgba(217,70,239,0.2)] backdrop-blur-sm lg:mx-auto">
+              <span class="relative flex h-2 w-2">
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-fuchsia-400 opacity-75"></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-fuchsia-400"></span>
+              </span>
+              <span class="text-sm font-semibold text-fuchsia-300 tracking-wide">{t.cta.badge}</span>
+            </div>
+
+            <h2 class="mb-6 font-bold font-display text-4xl leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
+              {t.cta.titleLine1}<br />{t.cta.titleLine2}
+            </h2>
+
+            <p class="mb-8 max-w-xl text-muted-foreground text-base leading-relaxed dark:text-white/50 md:text-lg">
+              {t.cta.description}
+            </p>
+
+            <div class="mb-8 flex flex-wrap gap-x-5 gap-y-3 text-white/42 text-sm lg:justify-center">
+              <span class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-400"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                {t.cta.signals[0]}
+              </span>
+              <span class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-fuchsia-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                {t.cta.signals[1]}
+              </span>
+              <span class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-orange-400"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                {t.cta.signals[2]}
+              </span>
+            </div>
+
+            <div class="cta-pulse-ring w-fit lg:mx-auto">
+              <a href={PRODUCT_AUTH_URL}>
+                <ShimmerButton client:idle shimmerColor="#e879f9" shimmerSize="0.1em" background="linear-gradient(135deg, #7c3aed, #c026d3, #ea580c)" borderRadius="9999px" className="px-9 py-4 text-base font-bold shadow-[0_0_40px_rgba(192,38,211,0.3)] md:px-10 md:text-lg">
+                  {t.cta.primary}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2 h-5 w-5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </ShimmerButton>
+              </a>
+            </div>
+
+            <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-white/35 text-sm lg:justify-center">
+              {t.cta.footnotes.map((note) => <span>&#10003; {note}</span>)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<style is:global>
+.hero-composition-frame {
+  width: min(calc(100vw - 32px), 1500px);
+}
+
+.landing-section-frame {
+  width: min(calc(100vw - 32px), 1280px);
+}
+
+.cta-flow-stage {
+  position: relative;
+}
+.cta-flow-card {
+  isolation: isolate;
+}
+.cta-flow-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 30;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 235deg,
+    rgba(255,255,255,0.12) 258deg,
+    rgba(255,255,255,0.9) 275deg,
+    rgba(232,121,249,0.92) 292deg,
+    rgba(124,58,237,0.86) 315deg,
+    transparent 340deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transform: rotate(-55deg);
+  animation: ctaCardLightPrimary 6.2s linear infinite;
+}
+.cta-flow-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.18), transparent 34%),
+    radial-gradient(circle at 15% 8%, rgba(255,255,255,0.22), transparent 24%),
+    radial-gradient(circle at 70% 110%, rgba(0,0,0,0.28), transparent 42%);
+  mix-blend-mode: screen;
+}
+.cta-flow-card-secondary::before {
+  transform: rotate(128deg);
+  animation-name: ctaCardLightSecondary;
+}
+.cta-flow-bridge {
+  position: absolute;
+  z-index: 35;
+  display: none;
+  height: 1px;
+  width: clamp(110px, 10vw, 165px);
+  pointer-events: none;
+  border-radius: 9999px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.86), rgba(232,121,249,0.92), rgba(124,58,237,0.78), transparent);
+  box-shadow: 0 0 22px rgba(232,121,249,0.48), 0 0 42px rgba(124,58,237,0.3);
+  transform-origin: center;
+}
+.cta-flow-bridge-forward {
+  top: 75%;
+  left: calc(51.2% - 56px);
+  transform: rotate(-36deg) translateX(-18px);
+  animation: ctaBridgeForward 6.2s linear infinite;
+}
+.cta-flow-bridge-return {
+  top: 74%;
+  left: calc(51.1% - 54px);
+  transform: rotate(144deg) translateX(18px);
+  animation: ctaBridgeReturn 6.2s linear infinite;
+}
+@media (min-width: 1024px) {
+  .cta-flow-bridge {
+    display: block;
+  }
+}
+.cta-demo-button {
+  position: relative;
+  overflow: hidden;
+}
+.cta-demo-button::before {
+  content: "";
+  position: absolute;
+  inset: -45%;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 35%, rgba(255,255,255,0.9) 50%, transparent 65%);
+  transform: translateX(-130%) rotate(12deg);
+  animation: demoButtonShimmer 3s ease-in-out infinite;
+}
+
+@keyframes ctaCardLightPrimary {
+  0%   { opacity: 0.92; transform: rotate(-58deg); }
+  36%  { opacity: 0.98; transform: rotate(136deg); }
+  45%  { opacity: 0.36; transform: rotate(164deg); }
+  54%  { opacity: 0.1; transform: rotate(194deg); }
+  86%  { opacity: 0.1; transform: rotate(308deg); }
+  94%  { opacity: 0.62; transform: rotate(334deg); }
+  100% { opacity: 0.92; transform: rotate(302deg); }
+}
+@keyframes ctaCardLightSecondary {
+  0%   { opacity: 0.1; transform: rotate(118deg); }
+  37%  { opacity: 0.1; transform: rotate(132deg); }
+  45%  { opacity: 0.58; transform: rotate(154deg); }
+  54%  { opacity: 0.94; transform: rotate(186deg); }
+  86%  { opacity: 0.98; transform: rotate(322deg); }
+  95%  { opacity: 0.3; transform: rotate(352deg); }
+  100% { opacity: 0.1; transform: rotate(376deg); }
+}
+@keyframes ctaBridgeForward {
+  0%, 35% { opacity: 0; transform: rotate(-36deg) translateX(-36px); }
+  42%     { opacity: 0.92; }
+  54%     { opacity: 0; transform: rotate(-36deg) translateX(46px); }
+  100%    { opacity: 0; transform: rotate(-36deg) translateX(46px); }
+}
+@keyframes ctaBridgeReturn {
+  0%, 83% { opacity: 0; transform: rotate(144deg) translateX(36px); }
+  91%     { opacity: 0.78; }
+  100%    { opacity: 0; transform: rotate(144deg) translateX(-46px); }
+}
+@keyframes demoButtonShimmer {
+  0%   { transform: translateX(-130%) rotate(12deg); opacity: 0; }
+  18%  { opacity: 0.7; }
+  52%  { transform: translateX(130%) rotate(12deg); opacity: 0; }
+  100% { transform: translateX(130%) rotate(12deg); opacity: 0; }
+}
+
+@keyframes challengeTitleIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.challenge-title {
+  animation: challengeTitleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.challenge-title:nth-of-type(2) { animation-delay: 0.1s; }
+.challenge-title:nth-of-type(3) { animation-delay: 0.2s; }
+
+@keyframes badgePop {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.challenge-badge {
+  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes ctaGlowPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(139,92,246,0.55), 0 0 0 0 rgba(217,70,239,0.35); }
+  65%  { box-shadow: 0 0 0 16px rgba(139,92,246,0), 0 0 0 28px rgba(217,70,239,0); }
+  100% { box-shadow: 0 0 0 0 rgba(139,92,246,0), 0 0 0 0 rgba(217,70,239,0); }
+}
+.cta-pulse-ring {
+  border-radius: 9999px;
+  display: inline-flex;
+  animation: ctaGlowPulse 2.4s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cta-flow-card::before,
+  .cta-flow-bridge,
+  .cta-demo-button::before,
+  .cta-pulse-ring {
+    animation: none;
+  }
+}
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.gradient-shift-text {
+  background: linear-gradient(90deg, #f97316, #ec4899, #a855f7, #ec4899, #f97316);
+  background-size: 300% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 5s ease infinite;
+}
+</style>

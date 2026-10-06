@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question or share an idea
+    url: https://github.com/tedix-hq/tedix/discussions
+    about: Questions, ideas, and show-and-tell go to GitHub Discussions.
+  - name: Report a security vulnerability
+    url: https://github.com/tedix-hq/tedix/security/advisories/new
+    about: Report privately here or email security@tedix.dev, never in a public issue (see SECURITY.md).

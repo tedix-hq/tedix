@@ -1,0 +1,1 @@
+ALTER TABLE `kernel_conversations` ADD `origin` text;

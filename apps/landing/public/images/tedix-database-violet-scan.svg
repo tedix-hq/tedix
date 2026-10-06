@@ -1,0 +1,207 @@
+<svg viewBox="0 0 520 520" width="520" height="520" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Tedix database</title>
+  <defs>
+    <!-- Per-layer gradients (4 layers) -->
+    <linearGradient id="lyr0-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#f0abfc"/>
+      <stop offset="55%"  stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="lyr0-left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="lyr0-right" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#581c87"/>
+      <stop offset="100%" stop-color="#0c0a25"/>
+    </linearGradient>
+
+    <linearGradient id="lyr1-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#f0abfc"/>
+      <stop offset="55%"  stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="lyr1-left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="lyr1-right" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#581c87"/>
+      <stop offset="100%" stop-color="#0c0a25"/>
+    </linearGradient>
+
+    <linearGradient id="lyr2-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#f0abfc"/>
+      <stop offset="55%"  stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="lyr2-left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="lyr2-right" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#581c87"/>
+      <stop offset="100%" stop-color="#0c0a25"/>
+    </linearGradient>
+
+    <linearGradient id="lyr3-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#f0abfc"/>
+      <stop offset="55%"  stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="lyr3-left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="lyr3-right" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#581c87"/>
+      <stop offset="100%" stop-color="#0c0a25"/>
+    </linearGradient>
+
+    <!-- Scan stripe gradient -->
+    <linearGradient id="scan-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="white" stop-opacity="0"/>
+      <stop offset="50%"  stop-color="white" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Glow halo -->
+    <radialGradient id="glow-bg" cx="0.5" cy="0.55" r="0.55">
+      <stop offset="0%"   stop-color="#a855f7" stop-opacity="0.55"/>
+      <stop offset="45%"  stop-color="#a855f7" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Clip paths for scan effect (top face of each layer) -->
+    <!-- Layer 0: cy=296 → top=(260,231) right=(390,296) bottom=(260,361) left=(130,296) -->
+    <clipPath id="clip-top-0">
+      <polygon points="260,231 390,296 260,361 130,296"/>
+    </clipPath>
+    <!-- Layer 1: cy=240 → top=(260,175) right=(390,240) bottom=(260,305) left=(130,240) -->
+    <clipPath id="clip-top-1">
+      <polygon points="260,175 390,240 260,305 130,240"/>
+    </clipPath>
+    <!-- Layer 2: cy=184 → top=(260,119) right=(390,184) bottom=(260,249) left=(130,184) -->
+    <clipPath id="clip-top-2">
+      <polygon points="260,119 390,184 260,249 130,184"/>
+    </clipPath>
+    <!-- Layer 3: cy=128 → top=(260,63) right=(390,128) bottom=(260,193) left=(130,128) -->
+    <clipPath id="clip-top-3">
+      <polygon points="260,63 390,128 260,193 130,128"/>
+    </clipPath>
+
+    <filter id="softblur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+
+  <!-- Glow halo -->
+  <rect x="40" y="60" width="440" height="420" fill="url(#glow-bg)"/>
+
+  <!-- Floor shadow: baseY=296, cy=296+65+30=391 -->
+  <ellipse class="floor-shadow" cx="260" cy="391" rx="160" ry="18"
+           fill="#000" opacity="0.28" filter="url(#softblur)"/>
+
+  <!-- Layer 0 — bottom (cy=296) -->
+  <g class="layer">
+    <polygon points="390,296 260,361 260,385 390,320"
+             fill="url(#lyr0-right)" stroke="url(#lyr0-right)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="130,296 260,361 260,385 130,320"
+             fill="url(#lyr0-left)" stroke="url(#lyr0-left)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="260,231 390,296 260,361 130,296"
+             fill="url(#lyr0-top)" stroke="url(#lyr0-top)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polyline points="130,296 260,231 390,296"
+              fill="none" stroke="#c084fc" stroke-opacity="0.55"
+              stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    <g clip-path="url(#clip-top-0)">
+      <polygon class="scan-stripe scan-0" points="260,231 390,296 260,361 130,296"
+               fill="url(#scan-grad)" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Layer 1 (cy=240) -->
+  <g class="layer">
+    <polygon points="390,240 260,305 260,329 390,264"
+             fill="url(#lyr1-right)" stroke="url(#lyr1-right)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="130,240 260,305 260,329 130,264"
+             fill="url(#lyr1-left)" stroke="url(#lyr1-left)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="260,175 390,240 260,305 130,240"
+             fill="url(#lyr1-top)" stroke="url(#lyr1-top)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polyline points="130,240 260,175 390,240"
+              fill="none" stroke="#c084fc" stroke-opacity="0.55"
+              stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    <g clip-path="url(#clip-top-1)">
+      <polygon class="scan-stripe scan-1" points="260,175 390,240 260,305 130,240"
+               fill="url(#scan-grad)" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Layer 2 (cy=184) -->
+  <g class="layer">
+    <polygon points="390,184 260,249 260,273 390,208"
+             fill="url(#lyr2-right)" stroke="url(#lyr2-right)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="130,184 260,249 260,273 130,208"
+             fill="url(#lyr2-left)" stroke="url(#lyr2-left)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="260,119 390,184 260,249 130,184"
+             fill="url(#lyr2-top)" stroke="url(#lyr2-top)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polyline points="130,184 260,119 390,184"
+              fill="none" stroke="#c084fc" stroke-opacity="0.55"
+              stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    <g clip-path="url(#clip-top-2)">
+      <polygon class="scan-stripe scan-2" points="260,119 390,184 260,249 130,184"
+               fill="url(#scan-grad)" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Layer 3 — top (cy=128) -->
+  <g class="layer">
+    <polygon points="390,128 260,193 260,217 390,152"
+             fill="url(#lyr3-right)" stroke="url(#lyr3-right)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="130,128 260,193 260,217 130,152"
+             fill="url(#lyr3-left)" stroke="url(#lyr3-left)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polygon points="260,63 390,128 260,193 130,128"
+             fill="url(#lyr3-top)" stroke="url(#lyr3-top)"
+             stroke-width="14" stroke-linejoin="round"/>
+    <polyline points="130,128 260,63 390,128"
+              fill="none" stroke="#c084fc" stroke-opacity="0.55"
+              stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    <g clip-path="url(#clip-top-3)">
+      <polygon class="scan-stripe scan-3" points="260,63 390,128 260,193 130,128"
+               fill="url(#scan-grad)" opacity="0.9"/>
+    </g>
+  </g>
+
+  <style>
+    .scan-stripe { transform-box: fill-box; transform-origin: center; }
+    .floor-shadow { transform-box: fill-box; transform-origin: center; }
+    @keyframes scan-x {
+      0%   { transform: translateX(-260px); opacity: 0; }
+      15%  { opacity: 1; }
+      85%  { opacity: 1; }
+      100% { transform: translateX(260px);  opacity: 0; }
+    }
+    @keyframes shadow-pulse {
+      0%, 100% { opacity: 0.28; }
+      50%       { opacity: 0.18; }
+    }
+    .floor-shadow { animation: shadow-pulse 2.40s ease-in-out infinite; }
+    .scan-0 { animation: scan-x 2.40s ease-in-out infinite; animation-delay: 0.00s; }
+    .scan-1 { animation: scan-x 2.40s ease-in-out infinite; animation-delay: 0.40s; }
+    .scan-2 { animation: scan-x 2.40s ease-in-out infinite; animation-delay: 0.80s; }
+    .scan-3 { animation: scan-x 2.40s ease-in-out infinite; animation-delay: 1.20s; }
+    @media (prefers-reduced-motion: reduce) {
+      .scan-stripe, .floor-shadow { animation: none !important; }
+    }
+  </style>
+</svg>

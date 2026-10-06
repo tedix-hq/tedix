@@ -1,0 +1,38 @@
+---
+/**
+ * Item Detail Modal Page
+ *
+ * Dedicated widget page for rendering item details in a host modal.
+ * Used by inline widgets via requestModal({ template: "ui://...item-detail.html" }).
+ *
+ * Data flow:
+ * 1. Inline widget saves item to widgetState._detailItem (via json-render state store)
+ * 2. Inline widget calls window.openai.requestModal({ template: this page's resource URI })
+ * 3. Host opens this page as a modal iframe
+ * 4. ItemDetailWidget reads _detailItem from shared widgetState and renders it
+ *
+ * This avoids the BrowserRouter detection error that occurs when requestModal
+ * is called without a template on Astro MPA widgets.
+ */
+
+import { env } from 'cloudflare:workers';
+import AppThemeLayout from "../../../layouts/AppThemeLayout.astro";
+import { getAppDataFromRequest, isValidAppSlug } from "../../../lib/app-theme";
+import { ItemDetailWidget } from "../../../json-render/components/ItemDetailWidget";
+
+const { app: appSlug } = Astro.params;
+
+if (!appSlug || !isValidAppSlug(appSlug)) {
+	return new Response("Not Found", { status: 404 });
+}
+
+const apiUrl = env.API_URL ?? import.meta.env.API_URL;
+const appData = await getAppDataFromRequest(Astro.request, appSlug, apiUrl);
+---
+
+<AppThemeLayout appData={appData} title={`Item Detail | ${appData?.name ?? appSlug}`}>
+	<main class="p-4">
+		<ItemDetailWidget client:only="react" />
+	</main>
+</AppThemeLayout>
+

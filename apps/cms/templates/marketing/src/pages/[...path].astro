@@ -1,0 +1,54 @@
+---
+import { getSiteSettings, resolveEmDashPath } from "emdash";
+import { env as workerEnv } from "cloudflare:workers";
+import { collectionIndexPath } from "../lib/content-url";
+
+function normalisePathKey(path: string): string {
+	const pathname = (path.split("?")[0] || "/").replace(/\/{2,}/g, "/");
+	const withLeadingSlash = pathname.startsWith("/") ? pathname : `/${pathname}`;
+	return withLeadingSlash === "/" ? "/" : withLeadingSlash.replace(/\/+$/, "");
+}
+
+const settings = await getSiteSettings();
+const settingsLanguage = (settings as Record<string, unknown> | undefined)?.language;
+const envDefaultLocale = (workerEnv as Record<string, string | undefined>).DEFAULT_LOCALE;
+const publicPath = Astro.originPathname ?? Astro.url.pathname;
+const pathLocale = /^\/(en|de|es|fr|it|pt|nl)(?:\/|$)/.exec(publicPath)?.[1];
+const locale =
+	pathLocale ??
+	Astro.currentLocale ??
+	(typeof settingsLanguage === "string" && settingsLanguage.length > 0 ? settingsLanguage : undefined) ??
+	envDefaultLocale ??
+	"en";
+const orgDefaultLocale = envDefaultLocale ?? "en";
+const requestedPath = normalisePathKey(publicPath);
+const postsIndexPath = normalisePathKey(
+	await collectionIndexPath("posts", {
+		locale,
+		defaultLocale: orgDefaultLocale,
+	}),
+);
+
+if (requestedPath === postsIndexPath) {
+	const search = Astro.url.searchParams.toString();
+	return Astro.rewrite(`/internal/posts-index${search ? `?${search}` : ""}`);
+}
+
+// Collection URL patterns include the public mount path (for example
+// /blog/{slug}); only a leading locale is outside the native pattern.
+const collectionPath = pathLocale ? requestedPath.slice(pathLocale.length + 1) || "/" : requestedPath;
+const lookupPaths = Array.from(
+	new Set([
+		collectionPath,
+		collectionPath.replace(/\/+$/, "") || "/",
+		`${collectionPath.replace(/\/+$/, "")}/`,
+	]),
+);
+const resolved = (
+	await Promise.all(lookupPaths.map((path) => resolveEmDashPath(path)))
+).find((candidate) => candidate?.collection === "posts");
+if (resolved?.collection !== "posts") return Astro.redirect("/404");
+
+const slug = resolved.params.slug ?? resolved.entry.id;
+return Astro.rewrite(`/posts/${encodeURIComponent(slug)}/`);
+---

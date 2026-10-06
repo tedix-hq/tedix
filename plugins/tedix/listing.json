@@ -1,0 +1,23 @@
+{
+	"displayName": "Tedix",
+	"shortDescription": "Continue work across chats",
+	"longDescription": "Find Work Items, review their status and evidence, and read Workspace Outputs in the Tedix organizations you connect. With the matching permissions and organization policy, ask a tedi for help and save requested results. Installation and read access do not grant execution authority.",
+	"defaultPrompt": [
+		"Find the Work Item for my current task.",
+		"Summarize the status and evidence for a Work Item.",
+		"Read the latest output in my Tedix workspace."
+	],
+	"developerName": "Tedix",
+	"category": "Productivity",
+	"capabilities": ["Read", "Write"],
+	"brandColor": "#7C3AED",
+	"brandColorDark": "#A78BFA",
+	"composerIcon": "./assets/icon.png",
+	"composerIconDark": "./assets/icon-dark.png",
+	"logo": "./assets/logo.png",
+	"logoDark": "./assets/logo-dark.png",
+	"websiteURL": "https://tedix.dev",
+	"supportURL": "https://tedix.dev/contact/",
+	"privacyPolicyURL": "https://tedix.dev/privacy/",
+	"termsOfServiceURL": "https://tedix.dev/terms/"
+}

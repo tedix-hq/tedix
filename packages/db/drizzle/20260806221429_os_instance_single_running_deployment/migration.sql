@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `os_instance_deployments_instance_running_unique` ON `os_instance_deployments` (`instance_id`) WHERE "os_instance_deployments"."status" = 'running';

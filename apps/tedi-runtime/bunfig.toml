@@ -1,0 +1,4 @@
+# Preload a virtual `cloudflare:workers` module for plain-bun unit tests
+# (see test-preload-cloudflare-workers.ts). Vitest/wrangler paths are
+# unaffected — this file only applies to `bun run` within this app.
+preload = ["./test-preload-cloudflare-workers.ts"]

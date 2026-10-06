@@ -1,0 +1,37 @@
+{
+	"name": "@tedix/tedi-workstation-runtime",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Cloudflare Sandbox adapter that gives a tedi an operating-system workstation with processes and a filesystem.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .wrangler",
+		"clear-port": "../../scripts/clear-port.sh --app tedi-workstation-runtime",
+		"types": "bun ../../scripts/generate-worker-types.ts tedi-workstation-runtime",
+		"types:check": "bun ../../scripts/generate-worker-types.ts --check tedi-workstation-runtime",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- wrangler dev",
+		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"test": "bun run test:run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@cloudflare/sandbox": "catalog:",
+		"@tedix/api-client": "workspace:*",
+		"@tedix/container-runtime": "workspace:*",
+		"@tedix/ssrf-guard": "workspace:*",
+		"@tedix/worker-kit": "workspace:*"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:",
+		"wrangler": "catalog:"
+	}
+}

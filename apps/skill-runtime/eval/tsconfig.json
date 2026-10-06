@@ -1,0 +1,19 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"typeRoots": ["../../api/node_modules/@types"],
+		"types": ["node"]
+	},
+	"include": [
+		"judge-gold-types.ts",
+		"judge-eval-shared.ts",
+		"publish-calibration-skill.ts",
+		"publish-drill-skill.ts",
+		"publish-shared.ts",
+		"run-judge-eval.ts",
+		"run-judge-vote-eval.ts",
+		"run-judge-workersai-eval.ts"
+	]
+}

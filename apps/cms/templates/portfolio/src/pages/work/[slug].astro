@@ -1,0 +1,346 @@
+---
+import {
+	decodeSlug,
+	getEmDashCollection,
+	getEmDashEntry,
+	getSeoMeta,
+} from "emdash";
+import { Image, PortableText } from "emdash/ui";
+import Base from "../../layouts/Base.astro";
+import ProjectCard from "../../components/ProjectCard.astro";
+
+const slug = decodeSlug(Astro.params.slug);
+
+if (!slug) {
+	return Astro.rewrite("/404");
+}
+
+const {
+	entry: project,
+	error,
+	cacheHint: projectCacheHint,
+} = await getEmDashEntry("projects", slug);
+
+if (error) return new Response("Could not load the project", { status: 500 });
+if (!project) {
+	return Astro.rewrite("/404");
+}
+
+// Related projects: order by date in the DB and request a small lookahead
+// so we can drop the current entry without re-querying. Avoids loading
+// every project just to slice off two.
+const relatedResult = await getEmDashCollection("projects", {
+	orderBy: { published_at: "desc" },
+	limit: 3,
+});
+if (relatedResult.error) {
+	return new Response("Could not load related projects", { status: 500 });
+}
+const { entries: relatedProjects, cacheHint: relatedCacheHint } = relatedResult;
+const otherProjects = relatedProjects
+	.filter((p) => p.id !== project.id)
+	.slice(0, 2);
+if (Astro.cache?.enabled) {
+	Astro.cache.set(projectCacheHint);
+	Astro.cache.set(relatedCacheHint);
+}
+
+const gallery = project.data.gallery;
+
+function safeExternalUrl(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	try {
+		const url = new URL(value);
+		return url.protocol === "https:" || url.protocol === "http:"
+			? url.href
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+const projectUrl = safeExternalUrl(project.data.url);
+const seo = getSeoMeta(project, {
+	siteUrl: Astro.url.origin,
+	path: `/work/${slug}`,
+	defaultDescription: project.data.summary,
+	defaultOgImage: project.data.featured_image?.src,
+});
+---
+
+<Base
+	title={seo.title}
+	pageTitle={seo.ogTitle}
+	description={seo.description}
+	image={seo.ogImage}
+	canonical={seo.canonical}
+	robots={seo.robots}
+	type="article"
+	content={{ collection: "projects", id: project.data.id, slug }}
+>
+	<article class="project">
+		<header class="project-header">
+			<div class="project-meta">
+				{
+					project.data.client && (
+						<span class="project-client" {...project.edit.client}>
+							{project.data.client}
+						</span>
+					)
+				}
+				{
+					project.data.client && project.data.year && (
+						<span class="meta-separator">·</span>
+					)
+				}
+				{
+					project.data.year && (
+						<span class="project-year" {...project.edit.year}>
+							{project.data.year}
+						</span>
+					)
+				}
+			</div>
+			<h1 class="project-title" {...project.edit.title}>
+				{project.data.title}
+			</h1>
+			{
+				project.data.summary && (
+					<p class="project-summary" {...project.edit.summary}>
+						{project.data.summary}
+					</p>
+				)
+			}
+			{
+				projectUrl && (
+					<a
+						href={projectUrl}
+						class="project-link"
+						target="_blank"
+						rel="noopener noreferrer"
+						{...project.edit.url}
+					>
+						View Live Project →
+					</a>
+				)
+			}
+		</header>
+
+		{
+			project.data.featured_image && (
+				<div class="featured-image" {...project.edit.featured_image}>
+					<Image image={project.data.featured_image} />
+				</div>
+			)
+		}
+
+		<div class="project-content" {...project.edit.content}>
+			<PortableText value={project.data.content} />
+		</div>
+
+		{
+			gallery && gallery.length > 0 && (
+				<div class="project-gallery" {...project.edit.gallery}>
+					{gallery.map((item) => (
+						<figure class="gallery-item">
+							<Image image={item.image} />
+							{item.caption && <figcaption>{item.caption}</figcaption>}
+						</figure>
+					))}
+				</div>
+			)
+		}
+	</article>
+
+	{
+		otherProjects.length > 0 && (
+			<section class="more-projects">
+				<div class="more-inner">
+					<h2 class="more-title">More Work</h2>
+					<div class="more-grid">
+						{otherProjects.map((p) => (
+							<ProjectCard
+								title={p.data.title}
+								summary={p.data.summary}
+								featuredImage={p.data.featured_image}
+								href={`/work/${p.id}`}
+								client={p.data.client}
+								year={p.data.year}
+								edit={p.edit}
+							/>
+						))}
+					</div>
+				</div>
+			</section>
+		)
+	}
+</Base>
+
+<style>
+	.project {
+		max-width: var(--max-width);
+		margin: 0 auto;
+		padding: 0 var(--spacing-lg) var(--spacing-4xl);
+	}
+
+	.project-header {
+		margin-bottom: var(--spacing-2xl);
+	}
+
+	.project-meta {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+		margin-bottom: var(--spacing-sm);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+	}
+
+	.meta-separator {
+		margin: 0 var(--spacing-sm);
+	}
+
+	.project-title {
+		font-family: var(--font-heading);
+		font-size: var(--font-size-4xl);
+		font-weight: var(--font-weight-display);
+		line-height: var(--leading-tight);
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.project-summary {
+		font-size: var(--font-size-lg);
+		color: var(--color-muted);
+		line-height: var(--leading-normal);
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.project-link {
+		display: inline-block;
+		font-size: var(--font-size-sm);
+		color: var(--color-brand);
+		text-decoration: none;
+		transition: color var(--transition-fast);
+	}
+
+	.project-link:hover {
+		color: var(--color-text);
+	}
+
+	.featured-image {
+		margin-bottom: var(--spacing-3xl);
+	}
+
+	.featured-image img {
+		width: 100%;
+		height: auto;
+		border-radius: var(--radius);
+	}
+
+	.project-content {
+		font-size: var(--font-size-base);
+		line-height: var(--leading-relaxed);
+	}
+
+	.project-content :global(p) {
+		margin-bottom: 1.5em;
+	}
+
+	.project-content :global(h2) {
+		font-family: var(--font-heading);
+		font-size: var(--font-size-2xl);
+		font-weight: var(--font-weight-heading);
+		margin-top: 2.5em;
+		margin-bottom: 0.75em;
+	}
+
+	.project-content :global(h3) {
+		font-family: var(--font-heading);
+		font-size: var(--font-size-xl);
+		font-weight: var(--font-weight-heading);
+		margin-top: 2em;
+		margin-bottom: 0.5em;
+	}
+
+	.project-content :global(blockquote) {
+		margin: 2em 0;
+		padding-inline-start: var(--spacing-xl);
+		border-inline-start: 2px solid var(--color-brand);
+		color: var(--color-muted);
+		font-family: var(--font-heading);
+		font-style: italic;
+		font-size: var(--font-size-lg);
+	}
+
+	.project-content :global(ul),
+	.project-content :global(ol) {
+		margin-bottom: 1.5em;
+		padding-inline-start: 1.25em;
+	}
+
+	.project-content :global(li) {
+		margin-bottom: 0.5em;
+	}
+
+	.project-content :global(img) {
+		margin: 2em 0;
+		border-radius: var(--radius);
+	}
+
+	.project-gallery {
+		margin-top: var(--spacing-3xl);
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: var(--spacing-lg);
+	}
+
+	.gallery-item img {
+		width: 100%;
+		height: auto;
+		border-radius: var(--radius);
+	}
+
+	.gallery-item figcaption {
+		margin-top: var(--spacing-sm);
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.more-projects {
+		background: var(--color-surface);
+		padding: var(--spacing-4xl) 0;
+		margin-top: var(--spacing-2xl);
+	}
+
+	.more-inner {
+		max-width: var(--wide-width);
+		margin: 0 auto;
+		padding: 0 var(--spacing-lg);
+	}
+
+	.more-title {
+		font-family: var(--font-heading);
+		font-size: var(--font-size-2xl);
+		font-weight: var(--font-weight-heading);
+		margin-bottom: var(--spacing-2xl);
+	}
+
+	.more-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: var(--spacing-2xl);
+	}
+
+	@media (max-width: 768px) {
+		.project-title {
+			font-size: var(--font-size-3xl);
+		}
+
+		.project-gallery {
+			grid-template-columns: 1fr;
+		}
+
+		.more-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>

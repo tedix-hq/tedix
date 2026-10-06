@@ -1,0 +1,125 @@
+---
+/**
+ * PricingBlock — tier card grid with schema.org/Offer JSON-LD.
+ *
+ * Featured tier gets brand-tinted ring + scale. Each tier emits an Offer
+ * JSON-LD entry so search engines + AI agents can index pricing.
+ *
+ * Price field accepts free-form strings ("$29", "Free", "Custom"). The
+ * JSON-LD will only emit a numeric `price` when the string parses cleanly;
+ * otherwise it skips the price/priceCurrency fields and keeps the Offer
+ * record for the tier name.
+ *
+ * @example
+ *   <PricingBlock
+ *     currency="USD"
+ *     tiers={[
+ *       { name: "Free", price: "$0", interval: "month", description: "Try it",
+ *         features: ["1 tedi", "Community support"], cta: { label: "Start", href: "/signup" } },
+ *       { name: "Pro", price: "$29", interval: "month", featured: true,
+ *         features: ["Unlimited tedis", "Priority support"],
+ *         cta: { label: "Upgrade", href: "/pricing" } },
+ *     ]}
+ *   />
+ */
+
+interface Tier {
+	name: string;
+	price: string;
+	interval?: "month" | "year" | "one-time";
+	description?: string;
+	features: string[];
+	cta: { label: string; href: string };
+	featured?: boolean;
+}
+
+interface Props {
+	tiers: Tier[];
+	currency?: string;
+}
+
+const { tiers, currency = "USD" } = Astro.props;
+
+function parsePrice(p: string): string | null {
+	const m = p.match(/-?\d+(?:\.\d+)?/);
+	return m ? m[0] : null;
+}
+
+const offers = tiers.map((tier) => {
+	const numeric = parsePrice(tier.price);
+	const offer: Record<string, unknown> = {
+		"@type": "Offer",
+		name: tier.name,
+		description: tier.description,
+		availability: "https://schema.org/InStock",
+		url: tier.cta.href,
+	};
+	if (numeric !== null) {
+		offer.price = numeric;
+		offer.priceCurrency = currency;
+	}
+	return offer;
+});
+
+const offerCatalog = {
+	"@context": "https://schema.org",
+	"@type": "OfferCatalog",
+	name: "Pricing",
+	itemListElement: offers,
+};
+
+function intervalLabel(t: Tier): string | null {
+	if (!t.interval) return null;
+	if (t.interval === "one-time") return "one-time";
+	return `/${t.interval}`;
+}
+---
+
+<section class="my-16">
+	<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+		{tiers.map((tier) => (
+			<div
+				class={`relative rounded-2xl border p-8 flex flex-col ${
+					tier.featured
+						? "border-brand-500 ring-2 ring-brand-500/30 bg-white dark:bg-gray-950 shadow-xl lg:scale-[1.02]"
+						: "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950"
+				}`}
+			>
+				{tier.featured && (
+					<div class="absolute -top-3 left-8 inline-flex items-center px-3 py-1 text-xs font-semibold uppercase tracking-wider rounded-full bg-brand-600 text-white">
+						Most popular
+					</div>
+				)}
+				<h3 class="font-display text-xl font-semibold text-gray-900 dark:text-gray-50">{tier.name}</h3>
+				{tier.description && (
+					<p class="mt-2 text-sm text-gray-600 dark:text-gray-400">{tier.description}</p>
+				)}
+				<div class="mt-6 flex items-baseline gap-1">
+					<span class="font-display text-4xl font-bold text-gray-900 dark:text-gray-50">{tier.price}</span>
+					{intervalLabel(tier) && (
+						<span class="text-sm text-gray-500 dark:text-gray-400">{intervalLabel(tier)}</span>
+					)}
+				</div>
+				<ul class="mt-6 space-y-3 flex-1">
+					{tier.features.map((feature) => (
+						<li class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+							<span class="mt-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-brand-50 text-brand-700 dark:bg-blue-950/40 dark:text-blue-300 text-[10px] font-bold flex-shrink-0">✓</span>
+							<span>{feature}</span>
+						</li>
+					))}
+				</ul>
+				<a
+					href={tier.cta.href}
+					class={`mt-8 inline-flex items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors ${
+						tier.featured
+							? "bg-brand-600 text-white hover:bg-brand-700"
+							: "border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-900"
+					}`}
+				>
+					{tier.cta.label}
+				</a>
+			</div>
+		))}
+	</div>
+	<script type="application/ld+json" is:inline set:html={JSON.stringify(offerCatalog)} />
+</section>

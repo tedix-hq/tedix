@@ -1,0 +1,1 @@
+../../tedix/src/env.d.ts

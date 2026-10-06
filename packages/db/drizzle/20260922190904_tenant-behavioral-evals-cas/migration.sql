@@ -1,0 +1,2 @@
+ALTER TABLE `tenant_behavioral_eval_definitions` ADD `latest_revision` integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE `tenant_behavioral_eval_runs` ADD `version` integer DEFAULT 0 NOT NULL;

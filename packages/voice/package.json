@@ -1,0 +1,29 @@
+{
+	"name": "@tedix/voice",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Worker-side voice: live-call runtime helpers, speech-to-text and text-to-speech.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		"./runtime": "./src/runtime.ts",
+		"./stt": "./src/stt.ts",
+		"./tts": "./src/tts.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "bun run test:run",
+		"test:run": "for f in src/*.test.ts; do bun run \"$f\" || exit 1; done",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@cloudflare/voice": "catalog:",
+		"@tedix/workers-ai": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}

@@ -1,0 +1,506 @@
+---
+import { getMenuWithCacheHint, getSiteSettingsWithCacheHint } from "emdash";
+import { EmDashBodyEnd, EmDashBodyStart, EmDashHead } from "emdash/ui";
+import { createPublicPageContext } from "emdash/page";
+import { Font } from "astro:assets";
+import "../styles/tokens.css";
+import "../styles/theme.css";
+
+interface Props {
+	title?: string;
+	pageTitle?: string | null;
+	description?: string | null;
+	image?: string | null;
+	canonical?: string | null;
+	robots?: string | null;
+	type?: "website" | "article";
+	content?: { collection: string; id: string; slug?: string | null };
+}
+
+const {
+	title,
+	pageTitle,
+	description,
+	image,
+	canonical,
+	robots,
+	type = "website",
+	content,
+} = Astro.props;
+const [settingsResult, menuResult] = await Promise.all([
+	getSiteSettingsWithCacheHint(),
+	getMenuWithCacheHint("primary"),
+]);
+const settings = settingsResult.data;
+const menu = menuResult.data;
+if (Astro.cache?.enabled) {
+	Astro.cache.set(settingsResult.cacheHint);
+	Astro.cache.set(menuResult.cacheHint);
+}
+
+const siteTitle = settings?.title || "Studio";
+const separator = settings?.seo?.titleSeparator || " — ";
+const fullTitle = !title
+	? siteTitle
+	: title === siteTitle ||
+		  title.endsWith(` — ${siteTitle}`) ||
+		  title.endsWith(` | ${siteTitle}`)
+		? title
+		: `${title}${separator}${siteTitle}`;
+const siteDescription = settings?.tagline || "Design & Development";
+const siteLogo = settings?.logo?.url ? settings.logo : null;
+const canonicalUrl =
+	canonical ?? new URL(Astro.url.pathname, Astro.url.origin).href;
+
+const pageCtx = createPublicPageContext({
+	Astro,
+	kind: content ? "content" : "custom",
+	pageType: type,
+	title: fullTitle,
+	pageTitle: pageTitle ?? title ?? siteTitle,
+	description: description || siteDescription,
+	canonical: canonicalUrl,
+	image,
+	content,
+	seo: { ogImage: image, robots },
+	siteName: siteTitle,
+});
+
+const isLoggedIn = Boolean(Astro.locals.user);
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>{fullTitle}</title>
+		<EmDashHead page={pageCtx} />
+		<Font cssVariable="--font-heading" preload />
+		<link
+			rel="alternate"
+			type="application/rss+xml"
+			title={`${siteTitle} RSS Feed`}
+			href="/rss.xml"
+		/>
+		<script is:inline>
+			// Apply an explicit theme choice immediately to prevent flash.
+			// With no cookie, color-scheme: light dark follows the OS.
+			(function () {
+				var c = document.cookie;
+				var i = c.indexOf("theme=");
+				var theme = i >= 0 ? c.slice(i + 6).split(";")[0] : null;
+				if (theme === "dark" || theme === "light") {
+					document.documentElement.classList.add(theme);
+				}
+			})();
+		</script>
+	</head>
+	<body>
+		<EmDashBodyStart page={pageCtx} />
+		<header class="site-header">
+			<nav class="nav">
+				<a href="/" class="site-title">
+					{
+						siteLogo ? (
+							<img
+								src={siteLogo.url}
+								alt={siteLogo.alt || siteTitle}
+								class="site-logo-img"
+							/>
+						) : (
+							siteTitle
+						)
+					}
+				</a>
+				<div class="nav-links">
+					{
+						menu?.items.map((item) => (
+							<a
+								href={item.url}
+								target={item.target}
+								rel={
+									item.target === "_blank" ? "noopener noreferrer" : undefined
+								}
+							>
+								{item.label}
+							</a>
+						))
+					}
+					{
+						isLoggedIn && (
+							<a href="/_emdash/admin" class="nav-admin">
+								Admin
+							</a>
+						)
+					}
+				</div>
+			</nav>
+		</header>
+
+		<main>
+			<slot />
+		</main>
+
+		<footer class="site-footer">
+			<div class="footer-content">
+				<div class="footer-brand">
+					<span class="footer-logo">
+						{
+							siteLogo ? (
+								<img
+									src={siteLogo.url}
+									alt={siteLogo.alt || siteTitle}
+									class="footer-logo-img"
+								/>
+							) : (
+								siteTitle
+							)
+						}
+					</span>
+					<p class="footer-tagline">
+						{settings?.tagline || "Design & Development"}
+					</p>
+				</div>
+				<div class="footer-right">
+					<div class="theme-switcher">
+						<button
+							type="button"
+							class="theme-btn"
+							data-theme="light"
+							aria-pressed="false"
+							aria-label="Light mode">Light</button
+						>
+						<button
+							type="button"
+							class="theme-btn"
+							data-theme="dark"
+							aria-pressed="false"
+							aria-label="Dark mode">Dark</button
+						>
+						<button
+							type="button"
+							class="theme-btn"
+							data-theme="system"
+							aria-pressed="false"
+							aria-label="System theme">System</button
+						>
+					</div>
+					<p class="footer-powered">
+						Powered by <a href="https://emdashcms.com">EmDash</a>
+					</p>
+				</div>
+			</div>
+		</footer>
+		<EmDashBodyEnd page={pageCtx} />
+
+		<script>
+			// Theme switcher
+			const THEME_REGEX = /theme=([^;]+)/;
+			const themeBtns =
+				document.querySelectorAll<HTMLButtonElement>(".theme-btn");
+			const root = document.documentElement;
+
+			function setTheme(theme: string) {
+				if (theme !== "light" && theme !== "dark" && theme !== "system") {
+					theme = "system";
+				}
+				const secure = location.protocol === "https:" ? "; Secure" : "";
+				if (theme === "system") {
+					document.cookie = `theme=; path=/; max-age=0; SameSite=Lax${secure}`;
+					root.classList.remove("light", "dark");
+				} else {
+					document.cookie = `theme=${theme}; path=/; max-age=31536000; SameSite=Lax${secure}`;
+					root.classList.remove("light", "dark");
+					root.classList.add(theme);
+				}
+				updateActiveBtn(theme);
+			}
+
+			function updateActiveBtn(theme: string) {
+				themeBtns.forEach((btn) => {
+					const active = btn.dataset.theme === theme;
+					btn.classList.toggle("active", active);
+					btn.setAttribute("aria-pressed", String(active));
+				});
+			}
+
+			function getStoredTheme(): string {
+				const match = document.cookie.match(THEME_REGEX);
+				return match ? match[1] : "system";
+			}
+
+			// Initialize - apply stored theme on load
+			const storedTheme = getStoredTheme();
+			setTheme(storedTheme);
+
+			themeBtns.forEach((btn) => {
+				btn.addEventListener("click", () => {
+					setTheme(btn.dataset.theme || "system");
+				});
+			});
+		</script>
+
+		<style is:global>
+			/*
+			 * Establish layer order: "base" has lower priority than unlayered
+			 * styles, so theme.css overrides always win regardless of source
+			 * order in the bundled CSS.
+			 */
+			@layer base;
+
+			@layer base {
+				*,
+				*::before,
+				*::after {
+					box-sizing: border-box;
+					margin: 0;
+					padding: 0;
+				}
+
+				/*
+				 * Design tokens live in src/styles/tokens.css. Colors are
+				 * defined with light-dark(); these rules pin the scheme when
+				 * the footer switcher sets an explicit choice. With no class,
+				 * color-scheme: light dark follows the OS preference. The
+				 * @supports guard keeps the toggle from forcing dark UA form
+				 * controls on browsers stuck on the plain-light fallback.
+				 */
+				@supports (color: light-dark(#000, #fff)) {
+					:root.light {
+						color-scheme: light;
+					}
+
+					:root.dark {
+						color-scheme: dark;
+					}
+				}
+
+				html {
+					scroll-behavior: smooth;
+				}
+
+				body {
+					font-family: var(--font-body);
+					font-size: var(--font-size-base);
+					line-height: var(--leading-normal);
+					color: var(--color-text);
+					background: var(--color-bg);
+					-webkit-font-smoothing: antialiased;
+					min-height: 100vh;
+				}
+
+				a {
+					color: currentColor;
+				}
+
+				img {
+					max-width: 100%;
+					height: auto;
+					display: block;
+				}
+
+				h1,
+				h2,
+				h3,
+				h4 {
+					font-family: var(--font-heading);
+					font-weight: var(--font-weight-heading);
+					line-height: var(--leading-snug);
+				}
+
+				h1 {
+					font-size: var(--font-size-4xl);
+				}
+
+				h2 {
+					font-size: var(--font-size-2xl);
+				}
+
+				h3 {
+					font-size: var(--font-size-xl);
+				}
+			}
+		</style>
+
+		<style>
+			.site-header {
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-xl) var(--spacing-lg);
+			}
+
+			.nav {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+			}
+
+			.site-title {
+				font-family: var(--font-heading);
+				font-size: var(--font-size-lg);
+				font-weight: 600;
+				text-decoration: none;
+				letter-spacing: var(--tracking-tight);
+			}
+
+			.site-logo-img {
+				height: 48px;
+				width: auto;
+				display: block;
+				margin: -8px 0;
+			}
+
+			.nav-links {
+				display: flex;
+				gap: var(--spacing-xl);
+				font-size: var(--font-size-sm);
+			}
+
+			.nav-links a {
+				text-decoration: none;
+				color: var(--color-muted);
+				transition: color var(--transition-fast);
+			}
+
+			.nav-links a:hover {
+				color: var(--color-text);
+			}
+
+			.nav-links a:empty {
+				display: none;
+			}
+
+			.nav-admin {
+				opacity: 0.5;
+			}
+
+			main {
+				min-height: calc(100vh - 200px);
+			}
+
+			.site-footer {
+				max-width: var(--wide-width);
+				margin: 0 auto;
+				padding: var(--spacing-3xl) var(--spacing-lg);
+				border-top: 1px solid var(--color-border);
+			}
+
+			.footer-content {
+				display: flex;
+				justify-content: space-between;
+				align-items: flex-start;
+			}
+
+			.footer-logo {
+				font-family: var(--font-heading);
+				font-size: var(--font-size-lg);
+				font-weight: 600;
+			}
+
+			.footer-logo-img {
+				height: 24px;
+				width: auto;
+			}
+
+			.footer-tagline {
+				font-family: var(--font-heading);
+				font-style: italic;
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+				margin-top: var(--spacing-xs);
+			}
+
+			.footer-right {
+				display: flex;
+				flex-direction: column;
+				align-items: flex-end;
+				gap: var(--spacing-md);
+			}
+
+			.theme-switcher {
+				display: flex;
+				gap: var(--spacing-xs);
+			}
+
+			.theme-btn {
+				background: transparent;
+				border: 1px solid var(--color-border);
+				color: var(--color-muted);
+				font-family: var(--font-body);
+				font-size: var(--font-size-sm);
+				padding: var(--spacing-xs) var(--spacing-sm);
+				border-radius: var(--radius);
+				cursor: pointer;
+				transition: all var(--transition-fast);
+			}
+
+			.theme-btn:hover {
+				color: var(--color-text);
+				border-color: var(--color-text);
+			}
+
+			.theme-btn.active {
+				background: var(--color-surface);
+				color: var(--color-text);
+				border-color: var(--color-brand);
+			}
+
+			.footer-powered {
+				font-size: var(--font-size-sm);
+				color: var(--color-muted);
+			}
+
+			.footer-powered a {
+				color: var(--color-text);
+				text-decoration: none;
+			}
+
+			.footer-powered a:hover {
+				text-decoration: underline;
+			}
+
+			@media (max-width: 640px) {
+				.nav {
+					flex-direction: column;
+					gap: var(--spacing-md);
+					align-items: center;
+				}
+
+				.nav-links {
+					flex-wrap: wrap;
+					justify-content: center;
+				}
+
+				.footer-content {
+					flex-direction: column;
+					gap: var(--spacing-xl);
+					align-items: center;
+					text-align: center;
+				}
+
+				.footer-right {
+					align-items: center;
+				}
+
+				h1 {
+					font-size: var(--font-size-3xl);
+				}
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				html {
+					scroll-behavior: auto;
+				}
+
+				*,
+				*::before,
+				*::after {
+					animation-duration: 0.01ms !important;
+					animation-iteration-count: 1 !important;
+					transition-duration: 0.01ms !important;
+				}
+			}
+		</style>
+	</body>
+</html>

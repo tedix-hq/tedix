@@ -1,0 +1,41 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+export const prerender = true;
+---
+
+<BaseLayout title="Cookie Policy - Tedix" description="Information about how we use cookies.">
+	<div class="container mx-auto px-4 py-20 md:py-28 max-w-4xl">
+		<h1 class="text-4xl font-bold mb-8">Cookie Policy</h1>
+
+		<div class="prose dark:prose-invert max-w-none space-y-6">
+			<section>
+				<h2 class="text-2xl font-semibold mb-4">1. What are Cookies?</h2>
+				<p>
+					Cookies are small text files that are stored on your device when you visit a website. They help the website function properly and provide information to the site owners.
+				</p>
+			</section>
+
+			<section>
+				<h2 class="text-2xl font-semibold mb-4">2. How We Use Cookies</h2>
+				<ul class="list-disc pl-5 space-y-2">
+					<li><strong>Essential storage:</strong> Necessary for the website to function and remember site preferences such as theme and cookie settings.</li>
+					<li><strong>Analytics:</strong> Optional measurement that helps us understand how visitors interact with our website. Analytics only runs after you allow it.</li>
+				</ul>
+			</section>
+
+			<section>
+				<h2 class="text-2xl font-semibold mb-4">3. Managing Cookies</h2>
+				<p>
+					You can control and/or delete cookies as you wish. You can delete all cookies that are already on your computer and you can set most browsers to prevent them from being placed. If you do this, however, you may have to manually adjust some preferences every time you visit a site and some services and functionalities may not work.
+				</p>
+				<p class="mt-4">
+					You can also update your Tedix cookie preferences here:
+					<button type="button" class="font-medium text-blue-600 underline underline-offset-4 hover:text-blue-700" data-consent-settings>
+						open cookie settings
+					</button>.
+				</p>
+			</section>
+		</div>
+	</div>
+</BaseLayout>

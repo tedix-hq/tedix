@@ -1,0 +1,272 @@
+{
+	"schemaVersion": 1,
+	"approvalStatus": "ratified",
+	"authority": {
+		"productSource": "public-main",
+		"managedBuildInput": "public-commit-plus-private-configuration",
+		"privateOpsAllowsPersistentProductPatches": false,
+		"privateOpsAllowed": [
+			"credentials-and-secret-values",
+			"customer-data-and-customer-specific-memory",
+			"incident-material-and-abuse-intelligence",
+			"live-fleet-configuration-and-promotion-authority",
+			"operational-evidence-and-private-runbooks",
+			"finance-and-company-planning"
+		],
+		"privateOpsForbidden": [
+			"product-source",
+			"persistent-product-patches",
+			"tenant-schema-or-migrations",
+			"public-contract-implementations",
+			"undisclosed-managed-product-fork"
+		],
+		"securityEmbargo": {
+			"maximumDays": 30,
+			"requiresAuditedIssue": true,
+			"requiresNamedOwner": true,
+			"requiresExpiry": true,
+			"requiresPublicBackportOrDisclosure": true
+		}
+	},
+	"defaults": {
+		"decision": "private",
+		"licenseClass": "agpl-product"
+	},
+	"overrides": [
+		{
+			"path": "apps/api",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/artifact-gateway",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/cms",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/cms-runtime",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/cms/templates/starter",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "apps/cms/templates/blog",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "apps/cms/templates/portfolio",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "apps/cms/templates/native-marketing",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "apps/cms/templates/marketing",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "apps/cms/templates/tedix",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "apps/docs",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/docs-runtime",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/landing",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/mcp",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/mcp-ui",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/os",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/session-broker",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/skill-runtime",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/tedi",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/tedi-runtime",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/tedi-workstation-egress-broker",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/tedi-workstation-runtime",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/widget",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/api-client",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/api-contract",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/auth",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/chat-transport",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/cli",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/container-runtime",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/context-core",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/db",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/design-tokens",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "packages/installation-manifest",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/mcp",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/mcp-client-core",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/provisioning",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/ssrf-guard",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/tedi-codemode-core",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/tedi-session",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/tenant-directory",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/tsconfig",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "packages/voice",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/webmcp-core",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "packages/widget-i18n",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "packages/widget-ui",
+			"decision": "public-ecosystem",
+			"licenseClass": "mit-ecosystem"
+		},
+		{
+			"path": "packages/worker-kit",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/workers-ai",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		}
+	]
+}

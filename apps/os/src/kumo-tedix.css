@@ -1,0 +1,9 @@
+/*
+ * Kumo's Tailwind source must load before the application Tailwind import.
+ * Product typography and semantic theme projection live in the shared Tedix
+ * design-token package so the OS shell and portable product surfaces cannot
+ * drift independently.
+ */
+@import "@cloudflare/kumo/styles/tailwind";
+@import "@tedix/design-tokens/kumo.css";
+@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";

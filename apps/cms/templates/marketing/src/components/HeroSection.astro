@@ -1,0 +1,111 @@
+---
+/**
+ * HeroSection — marketing-page hero block.
+ *
+ * Two layouts:
+ *   - centered (default): single-column stack, title centered. Good for
+ *     campaign pages and product launches.
+ *   - split: 2-col title+image grid on lg+. Good for product hero or
+ *     screenshot/illustration hero.
+ *
+ * Tokens: uses --color-brand-* (CSS-first Tailwind v4) and the editorial
+ * font stack (font-display). Dark-mode aware via `dark:` prefixes.
+ *
+ * @example
+ *   <HeroSection
+ *     eyebrow="New"
+ *     title="Autonomous digital workers"
+ *     subtitle="Tedis build their own skills, ship their own apps, learn over time."
+ *     primaryCta={{ label: "Start free", href: "/signup" }}
+ *     secondaryCta={{ label: "Read docs", href: "/docs" }}
+ *     variant="split"
+ *     image={{ src: "/hero.png", alt: "Tedi dashboard" }}
+ *   />
+ */
+
+interface CtaProps {
+	label: string;
+	href: string;
+}
+
+interface ImageProps {
+	src: string;
+	alt: string;
+}
+
+interface Props {
+	eyebrow?: string;
+	title: string;
+	subtitle?: string;
+	primaryCta?: CtaProps;
+	secondaryCta?: CtaProps;
+	image?: ImageProps | null;
+	variant?: "centered" | "split";
+}
+
+const {
+	eyebrow,
+	title,
+	subtitle,
+	primaryCta,
+	secondaryCta,
+	image,
+	variant = "centered",
+} = Astro.props;
+
+const isSplit = variant === "split" && image;
+---
+
+<section class="relative overflow-hidden border-b border-gray-200 dark:border-gray-800">
+	<div class={`max-w-6xl mx-auto px-4 lg:px-6 py-20 md:py-28 ${isSplit ? "lg:grid lg:grid-cols-2 lg:gap-16 lg:items-center" : ""}`}>
+		<div class={isSplit ? "" : "max-w-3xl mx-auto text-center"}>
+			{eyebrow && (
+				<div class="inline-flex items-center gap-2 px-3 py-1 mb-6 text-xs font-medium uppercase tracking-widest rounded-full bg-brand-50 text-brand-700 dark:bg-blue-950/40 dark:text-blue-300">
+					{eyebrow}
+				</div>
+			)}
+			<h1 class="font-display text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight mb-6 text-gray-900 dark:text-gray-50">
+				{title}
+			</h1>
+			{subtitle && (
+				<p class={`text-lg md:text-xl text-gray-600 dark:text-gray-400 leading-relaxed mb-8 font-light ${isSplit ? "" : "max-w-2xl mx-auto"}`}>
+					{subtitle}
+				</p>
+			)}
+			{(primaryCta || secondaryCta) && (
+				<div class={`flex flex-wrap gap-3 ${isSplit ? "" : "justify-center"}`}>
+					{primaryCta && (
+						<a
+							href={primaryCta.href}
+							class="inline-flex items-center justify-center rounded-lg px-6 py-3 text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors shadow-sm"
+						>
+							{primaryCta.label}
+						</a>
+					)}
+					{secondaryCta && (
+						<a
+							href={secondaryCta.href}
+							class="inline-flex items-center justify-center rounded-lg px-6 py-3 text-sm font-semibold border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
+						>
+							{secondaryCta.label}
+						</a>
+					)}
+				</div>
+			)}
+		</div>
+		{isSplit && image && (
+			<div class="mt-12 lg:mt-0">
+				<div class="overflow-hidden rounded-2xl shadow-2xl ring-1 ring-gray-200 dark:ring-gray-800">
+					<img src={image.src} alt={image.alt} class="w-full h-auto" loading="eager" />
+				</div>
+			</div>
+		)}
+		{!isSplit && image && (
+			<div class="mt-16 max-w-4xl mx-auto">
+				<div class="overflow-hidden rounded-2xl shadow-2xl ring-1 ring-gray-200 dark:ring-gray-800">
+					<img src={image.src} alt={image.alt} class="w-full h-auto" loading="eager" />
+				</div>
+			</div>
+		)}
+	</div>
+</section>

@@ -1,0 +1,37 @@
+# Prerendered public pages retain the discovery headers used by SSR middleware.
+# Hashed /_landing assets receive immutable caching from the Astro adapter.
+/
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/en
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/en/
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/de
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/de/
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/es
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/es/
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/EuroLabs
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+/EuroLabs/
+  Link: <https://tedix.dev/.well-known/agent-card.json>; rel="service-desc"; type="application/a2a+json", <https://api.tedix.dev/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json;version=3.1", <https://api.tedix.dev/docs>; rel="service-doc"; type="text/html"
+  Content-Signal: search=yes, ai-input=yes, ai-train=no

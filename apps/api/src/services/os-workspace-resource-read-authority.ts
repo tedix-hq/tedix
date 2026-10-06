@@ -1,0 +1,157 @@
+import { getManagementClient } from "@tedix/auth/client";
+import { getAssignedAppRoles } from "@tedix/auth/fga";
+import { listAppReferenceMetadataByOrganization } from "@tedix/db/queries/apps";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
+import { requireOrgId } from "../rpc/org-scope";
+import {
+	type BaseContext,
+	createError,
+	ErrorCodes,
+	hasConnectionCredentialResolutionAuthority,
+} from "../rpc/orpc";
+
+function appConnectionProviderId(metadata: unknown): string | null {
+	if (typeof metadata !== "object" || metadata === null) return null;
+	const mcpConfig = (metadata as { mcpConfig?: unknown }).mcpConfig;
+	if (typeof mcpConfig !== "object" || mcpConfig === null) return null;
+	const providerId = (mcpConfig as { connectionProviderId?: unknown })
+		.connectionProviderId;
+	return typeof providerId === "string" ? providerId : null;
+}
+
+/**
+ * Authorize one read of one provider object attached to an active Workspace.
+ * An app connection or MCP tool grant is insufficient on its own: the exact
+ * Workspace reference and the acting Tedi's app assignment are both checked
+ * immediately before the caller resolves a provider credential.
+ */
+export async function authorizeWorkspaceResourceRead(
+	context: BaseContext,
+	input: {
+		workspaceId: string;
+		resourceId: string;
+		expectedProviderId: string;
+		expectedResourceType: string;
+	},
+): Promise<{ resource: OsWorkspaceResourceRow; requiredScopes: string[] }> {
+	const organizationId = requireOrgId(context);
+	const db = createDbQueryClient(context.env.DB);
+	const workspace = await getOsWorkspace(db, {
+		organizationId,
+		workspaceId: input.workspaceId,
+	});
+	if (!workspace || workspace.status !== "active") {
+		throw createError(ErrorCodes.NOT_FOUND, "Active Workspace not found");
+	}
+	const resource = await getOsWorkspaceResource(db, {
+		organizationId,
+		workspaceId: input.workspaceId,
+		resourceId: input.resourceId,
+	});
+	if (
+		!resource ||
+		resource.status !== "active" ||
+		resource.providerId !== input.expectedProviderId ||
+		resource.resourceType !== input.expectedResourceType ||
+		!resource.providerResourceId.trim()
+	) {
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"Active Workspace resource not found",
+		);
+	}
+
+	let requiredScopes: unknown;
+	try {
+		requiredScopes = JSON.parse(resource.requiredScopes);
+	} catch {
+		// Persisted declaration drift must not produce a less-scoped token lookup.
+	}
+	if (
+		!Array.isArray(requiredScopes) ||
+		requiredScopes.length > 50 ||
+		!requiredScopes.every(
+			(scope): scope is string =>
+				typeof scope === "string" &&
+				scope.trim() === scope &&
+				scope.length > 0 &&
+				scope.length <= 300,
+		)
+	) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Workspace resource scope declaration is invalid",
+		);
+	}
+
+	if (context.tediId) {
+		if (!hasConnectionCredentialResolutionAuthority(context)) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Tedi resource reads require a verified MCP tool execution",
+			);
+		}
+		// The Tedi may carry its owner's user id as provenance. It is not an
+		// interactive personal grant for an autonomous read.
+		if (resource.connectionScope !== "tenant") {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Background tedis cannot read personal Workspace resources",
+			);
+		}
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			context.tediId,
+			organizationId,
+		);
+		if (!tedi?.descopeUserId || tedi.retiredAt) {
+			throw createError(ErrorCodes.FORBIDDEN, "Tedi identity is not active");
+		}
+		const apps = await listAppReferenceMetadataByOrganization(
+			context.db,
+			organizationId,
+		);
+		const matchingAppIds = apps
+			.filter(
+				(app) => appConnectionProviderId(app.metadata) === resource.providerId,
+			)
+			.map((app) => app.id);
+		if (matchingAppIds.length === 0) {
+			throw createError(ErrorCodes.FORBIDDEN, "Provider app is not installed");
+		}
+		const roles = await getAssignedAppRoles(
+			getManagementClient(context.env),
+			tedi.descopeUserId,
+			matchingAppIds,
+		);
+		if (
+			!matchingAppIds.some(
+				(appId) => roles[appId] === "operator" || roles[appId] === "observer",
+			)
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Tedi has no current provider app read assignment",
+			);
+		}
+	} else if (context.authType !== "user" || !context.user?.sub) {
+		// A bare service binding, API key, or machine principal has no acting
+		// Workspace reader here. Its app-level access cannot fill that gap.
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"An acting Workspace reader is required",
+		);
+	}
+	if (resource.connectionScope === "user" && context.authType !== "user") {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Personal Workspace resources require an interactive user",
+		);
+	}
+
+	return { resource, requiredScopes };
+}

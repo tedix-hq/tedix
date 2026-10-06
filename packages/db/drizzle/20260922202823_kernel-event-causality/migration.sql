@@ -1,0 +1,1 @@
+ALTER TABLE `kernel_runtime_events` ADD `cause_event_id` text;

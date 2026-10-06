@@ -1,0 +1,223 @@
+diff --git a/dist/db/d1.mjs b/dist/db/d1.mjs
+index 75038a3..7046333 100644
+--- a/dist/db/d1.mjs
++++ b/dist/db/d1.mjs
+@@ -499,7 +499,9 @@ async function executeCollectionDeletionGuard(config, input) {
+ 	assertCollectionDeletionInput(input);
+ 	const binding = getBinding(config);
+ 	if (!binding) throw new EmDashConfigurationError(`D1 binding "${config.binding}" not found in environment.`, "BINDING_NOT_FOUND");
+-	return input.action === "fence" ? executeFenceBatch(binding, input) : executeDropBatch(binding, input);
++	if (input.action === "fence") return executeFenceBatch(binding, input);
++	if (input.action === "registry") return executeRegistryBatch(binding, input);
++	return executeDropBatch(binding, input);
+ }
+ async function executeFenceBatch(binding, input) {
+ 	const tableName = `ec_${input.collectionSlug}`;
+@@ -559,6 +561,36 @@ async function executeFenceBatch(binding, input) {
+ 	const diagnosticRow = observed?.results[0];
+ 	return diagnosticRow && "outcome" in diagnosticRow && diagnosticRow.outcome === "has_content" ? { outcome: "has_content" } : { outcome: "stale" };
+ }
++async function executeRegistryBatch(binding, input) {
++	const [checkpoint] = await binding.batch([
++		binding.prepare(`
++				UPDATE _emdash_media_usage_collection_deletions
++				SET phase = 'table',
++					updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++				WHERE collection_id = ?
++					AND collection_slug = ?
++					AND state = 'leased'
++					AND phase = 'registry'
++					AND lease_token = ?
++					AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++				RETURNING collection_id
++			`).bind(input.collectionId, input.collectionSlug, input.leaseToken),
++		binding.prepare(`
++				DELETE FROM _emdash_collections
++				WHERE id = ?
++					AND slug = ?
++					AND EXISTS (
++						SELECT 1 FROM _emdash_media_usage_collection_deletions
++						WHERE collection_id = ?
++							AND collection_slug = ?
++							AND state = 'leased'
++							AND phase = 'table'
++							AND lease_token = ?
++					)
++			`).bind(input.collectionId, input.collectionSlug, input.collectionId, input.collectionSlug, input.leaseToken)
++	]);
++	return checkpoint?.results.length === 1 ? { outcome: "registry_deleted" } : { outcome: "stale" };
++}
+ async function executeDropBatch(binding, input) {
+ 	const contentTable = `ec_${input.collectionSlug}`;
+ 	const ftsTable = `_emdash_fts_${input.collectionSlug}`;
+diff --git a/dist/db/do-sql.mjs b/dist/db/do-sql.mjs
+index ba2bdea..100e619 100644
+--- a/dist/db/do-sql.mjs
++++ b/dist/db/do-sql.mjs
+@@ -469,7 +469,7 @@ var EmDashDB = class extends DurableObject {
+ 		if (this.#isReplica) return this.#primaryStub.executeCollectionDeletionGuard(input);
+ 		assertCollectionDeletionInput(input);
+ 		return this.ctx.storage.transactionSync(() => {
+-			const phase = input.action === "fence" ? "fence" : "table";
++			const phase = input.action === "drop" ? "table" : input.action;
+ 			if (this.ctx.storage.sql.exec(`SELECT collection_id
+ 				 FROM _emdash_media_usage_collection_deletions
+ 				 WHERE collection_id = ?
+@@ -497,6 +497,23 @@ var EmDashDB = class extends DurableObject {
+ 					   )`, input.collectionSlug, input.collectionId, input.collectionId, input.collectionSlug);
+ 				return this.#changes() === 1 ? { outcome: "fenced" } : { outcome: "stale" };
+ 			}
++
++			if (input.action === "registry") {
++				const checkpoint = this.ctx.storage.sql.exec(`UPDATE _emdash_media_usage_collection_deletions
++				 SET phase = 'table',
++				     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++				 WHERE collection_id = ?
++				   AND collection_slug = ?
++				   AND state = 'leased'
++				   AND phase = 'registry'
++				   AND lease_token = ?
++				   AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++				 RETURNING collection_id`, input.collectionId, input.collectionSlug, input.leaseToken);
++				if (checkpoint.toArray().length !== 1) return { outcome: "stale" };
++				this.ctx.storage.sql.exec("DELETE FROM _emdash_collections WHERE id = ? AND slug = ?", input.collectionId, input.collectionSlug);
++				return { outcome: "registry_deleted" };
++			}
++
+ 			const ftsTable = `_emdash_fts_${input.collectionSlug}`;
+ 			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_insert"`);
+ 			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_update"`);
+diff --git a/package.json b/package.json
+index 9ca5e7d..f18e673 100644
+--- a/package.json
++++ b/package.json
+@@ -104,7 +104,7 @@
+   },
+   "peerDependencies": {
+     "@astrojs/cloudflare": ">=12.0.0",
+-    "@cloudflare/kumo": "2.6.0",
++    "@cloudflare/kumo": "^2.6.0",
+     "@cloudflare/workers-types": ">=4.0.0",
+     "@phosphor-icons/react": "^2.1.10",
+     "astro": ">=6.0.0",
+@@ -168,4 +168,4 @@
+     "check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm --ignore-rules=no-resolution",
+     "typecheck": "tsgo --noEmit"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/db/d1.ts b/src/db/d1.ts
+index 47be6ed..f7a6539 100644
+--- a/src/db/d1.ts
++++ b/src/db/d1.ts
+@@ -204,9 +204,9 @@ export async function executeCollectionDeletionGuard(
+ 			"BINDING_NOT_FOUND",
+ 		);
+ 	}
+-	return input.action === "fence"
+-		? executeFenceBatch(binding, input)
+-		: executeDropBatch(binding, input);
++	if (input.action === "fence") return executeFenceBatch(binding, input);
++	if (input.action === "registry") return executeRegistryBatch(binding, input);
++	return executeDropBatch(binding, input);
+ }
+ 
+ async function executeFenceBatch(
+@@ -299,6 +299,50 @@ async function executeFenceBatch(
+ 		: { outcome: "stale" };
+ }
+ 
++async function executeRegistryBatch(
++	binding: D1Database,
++	input: Extract<CollectionDeletionGuardInput, { action: "registry" }>,
++): Promise<CollectionDeletionGuardResult> {
++	const [checkpoint] = await binding.batch([
++		binding
++			.prepare(`
++				UPDATE _emdash_media_usage_collection_deletions
++				SET phase = 'table',
++					updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++				WHERE collection_id = ?
++					AND collection_slug = ?
++					AND state = 'leased'
++					AND phase = 'registry'
++					AND lease_token = ?
++					AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++				RETURNING collection_id
++			`)
++			.bind(input.collectionId, input.collectionSlug, input.leaseToken),
++		binding
++			.prepare(`
++				DELETE FROM _emdash_collections
++				WHERE id = ?
++					AND slug = ?
++					AND EXISTS (
++						SELECT 1 FROM _emdash_media_usage_collection_deletions
++						WHERE collection_id = ?
++							AND collection_slug = ?
++							AND state = 'leased'
++							AND phase = 'table'
++							AND lease_token = ?
++					)
++			`)
++			.bind(
++				input.collectionId,
++				input.collectionSlug,
++				input.collectionId,
++				input.collectionSlug,
++				input.leaseToken,
++			),
++	]);
++	return checkpoint?.results.length === 1 ? { outcome: "registry_deleted" } : { outcome: "stale" };
++}
++
+ async function executeDropBatch(
+ 	binding: D1Database,
+ 	input: Extract<CollectionDeletionGuardInput, { action: "drop" }>,
+diff --git a/src/db/do-sql-class.ts b/src/db/do-sql-class.ts
+index b074d3c..17d1253 100644
+--- a/src/db/do-sql-class.ts
++++ b/src/db/do-sql-class.ts
+@@ -209,7 +209,7 @@ export class EmDashDB extends DurableObject {
+ 		}
+ 		assertCollectionDeletionInput(input);
+ 		return this.ctx.storage.transactionSync(() => {
+-			const phase = input.action === "fence" ? "fence" : "table";
++			const phase = input.action === "drop" ? "table" : input.action;
+ 			const guard = this.ctx.storage.sql.exec(
+ 				`SELECT collection_id
+ 				 FROM _emdash_media_usage_collection_deletions
+@@ -255,6 +255,32 @@ export class EmDashDB extends DurableObject {
+ 				return this.#changes() === 1 ? { outcome: "fenced" } : { outcome: "stale" };
+ 			}
+ 
++
++			if (input.action === "registry") {
++				const checkpoint = this.ctx.storage.sql.exec(
++					`UPDATE _emdash_media_usage_collection_deletions
++					 SET phase = 'table',
++					     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++					 WHERE collection_id = ?
++					   AND collection_slug = ?
++					   AND state = 'leased'
++					   AND phase = 'registry'
++					   AND lease_token = ?
++					   AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++					 RETURNING collection_id`,
++					input.collectionId,
++					input.collectionSlug,
++					input.leaseToken,
++				);
++				if (checkpoint.toArray().length !== 1) return { outcome: "stale" };
++				this.ctx.storage.sql.exec(
++					"DELETE FROM _emdash_collections WHERE id = ? AND slug = ?",
++					input.collectionId,
++					input.collectionSlug,
++				);
++				return { outcome: "registry_deleted" };
++			}
++
+ 			const ftsTable = `_emdash_fts_${input.collectionSlug}`;
+ 			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_insert"`);
+ 			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_update"`);

@@ -1,0 +1,32 @@
+{
+	"description": "Optional read-only Tedix session preflight. Enable it with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1.",
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "^(startup|resume|clear|compact|fork)$",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\"",
+						"timeout": 15,
+						"additionalContextLimit": 600,
+						"statusMessage": "Checking opt-in Tedix context"
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py\"",
+						"timeout": 15,
+						"additionalContextLimit": 6500,
+						"statusMessage": "Reading selected Tedix decisions and Work updates"
+					}
+				]
+			}
+		]
+	}
+}

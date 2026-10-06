@@ -1,0 +1,90 @@
+---
+/**
+ * marketing.logoStrip — eyebrow line + a row of partner / customer logos.
+ * Version 2 uses native Emdash images in the repeater.
+ *
+ * Version 1 retains { url, alt, href } for existing published pages.
+ */
+import type { BlockComponentProps } from "emdash/ui";
+import type { PageContentBlock } from "../../../emdash-env.d.ts";
+import { asString } from "./value-utils";
+import { Image } from "emdash/ui";
+
+type Props = BlockComponentProps<Extract<PageContentBlock, { _type: "marketing_logo_strip" }>>;
+const { value: node } = Astro.props;
+
+const eyebrow = asString(node.eyebrow);
+const items = node._version === 2
+	? (node.items ?? []).map((row) => ({ image: row.image ?? undefined, url: undefined, alt: undefined, href: asString(row.href) })).filter((item) => item.image)
+	: (node.items ?? []).map((row) => ({ image: undefined, url: asString(row.url), alt: asString(row.alt), href: asString(row.href) })).filter((item) => item.url);
+
+---
+
+{items.length > 0 && (
+	<section class="mk-logos">
+		<div class="mk-logos__wrap">
+			{eyebrow && <p class="mk-logos__eyebrow">{eyebrow}</p>}
+			<div class="mk-logos__row">
+				{items.map((logo) => {
+					const img = logo.image ? (
+						<Image image={logo.image} class="mk-logo" />
+					) : (
+						<img
+							class="mk-logo"
+							src={logo.url}
+							alt={logo.alt ?? ""}
+							loading="lazy"
+						/>
+					);
+					return logo.href ? (
+						<a href={logo.href} class="mk-logo__link">
+							{img}
+						</a>
+					) : (
+						img
+					);
+				})}
+			</div>
+		</div>
+	</section>
+)}
+
+<style>
+	.mk-logos {
+		padding: 48px 0;
+		background: var(--color-brand-50);
+	}
+	.mk-logos__wrap {
+		max-width: 1200px;
+		width: 90%;
+		margin: 0 auto;
+		text-align: center;
+	}
+	.mk-logos__eyebrow {
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--color-brand-600);
+		margin: 0 0 1.5rem;
+	}
+	.mk-logos__row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: 40px;
+	}
+	:global(.mk-logo) {
+		max-height: 46px;
+		width: auto;
+		filter: grayscale(1);
+		opacity: 0.7;
+		transition: filter 0.18s, opacity 0.18s;
+	}
+	.mk-logo__link:hover :global(.mk-logo),
+	:global(.mk-logo:hover) {
+		filter: grayscale(0);
+		opacity: 1;
+	}
+</style>

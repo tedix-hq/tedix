@@ -1,0 +1,1221 @@
+---
+export const prerender = true;
+import BaseLayout from "../layouts/BaseLayout.astro";
+import HomePage from "../components/HomePage.astro";
+import { defaultLocale, getLocaleContent } from "../i18n/content";
+import { PRODUCT_AUTH_URL } from "../lib/product-urls";
+
+const locale = defaultLocale;
+const content = getLocaleContent(locale);
+const euroLabsHome = {
+	...content.home,
+	hero: {
+		...content.home.hero,
+		line1: "Private Intelligence",
+		line2: "Labs:",
+		line3: "for European Industry.",
+		subtitleIntro: "A research lab for company-owned AI workforces.",
+		subtitleHighlight: "Built in Europe.",
+		description:
+			"Tedix EuroLabs researches how long-lived workers can learn from work, explain decisions, preserve company-owned intelligence, and reduce inference costs over time.",
+		primaryCta: "Demos & Core Pages",
+		primaryHref: "https://tedix.dev/linktree/",
+		secondaryCta: "Join the next frontier",
+		secondaryHref: PRODUCT_AUTH_URL,
+		trustSignals: ["Human oversight", "Run records", "Company-owned intelligence", "Made in Germany"],
+		betaBadge: "Applied Research Lab — European Industry",
+	},
+	challenge: {
+		...content.home.challenge,
+		eyebrow: "Industry AI Challenges",
+		title: "The next AI advantage is private intelligence",
+		description:
+			"Europe does not need to copy the largest model race. It can lead in trusted, organization-specific AI systems that compound knowledge inside companies.",
+		cards: [
+			{
+				badge: "Fragmented",
+				title: "Company intelligence is scattered",
+				description:
+					"Decisions, operating patterns, workflows, rationale, and expertise are spread across people, SaaS tools, documents, tickets, and meetings.",
+				alt: "Fragmented company knowledge across disconnected systems",
+			},
+			{
+				badge: "Opaque",
+				title: "Autonomous AI is hard to trust",
+				description:
+					"Enterprises cannot deploy black-box agents into sensitive workflows without evidence trails, approvals, auditability, and clear human oversight.",
+				alt: "Enterprise risk and trust barriers for autonomous AI",
+			},
+			{
+				badge: "Expensive",
+				title: "Frontier inference does not compound",
+				description:
+					"Most AI tools restart from scratch, repeatedly spending tokens on context and reasoning that mature AI workers should learn to reuse.",
+				alt: "Repeated AI inference costs that do not improve over time",
+			},
+		],
+		closingPrefix: "The opportunity is not another chatbot.",
+		closingAccent: "It is an operating system for company-owned intelligence.",
+	},
+	useCases: {
+		...content.home.useCases,
+		visualMode: "eurolabs",
+		eyebrow: "Research program",
+		titlePrefix: "Private Intelligence.",
+		titleAccent: "Applied research.",
+		description:
+			"EuroLabs turns Tedix pilots and platform infrastructure into an applied research program for explainable, self-improving AI workforces.",
+		testimonialLabel: "Research thesis",
+		brandsLabel: "Industry contexts where private intelligence compounds",
+		whereCompany: "Where should Europe lead next?",
+		getYourTedi: "Join EuroLabs",
+		items: [
+			{
+				badge: "Agent OS",
+				title: "Long-lived AI workers, not stateless chats",
+				description:
+					"A Tedi has identity, runtime, memory, tools, skills, and governance. It can receive objectives, operate across company systems, evaluate outcomes, and preserve what it learns as a durable company asset.",
+				quote:
+					"The next frontier is an operating layer where companies own AI workers that compound proprietary intelligence rather than renting intelligence session by session.",
+				attribution: "Tedix EuroLabs",
+				alt: "Operating system layer for private AI workers",
+			},
+			{
+				badge: "Explainability",
+				title: "Rationale timelines for autonomous work",
+				description:
+					"EuroLabs studies how objectives, evidence, confidence, tool choices, actions, outcomes, approvals, and feedback can become an auditable decision chain for enterprise AI workers.",
+				quote:
+					"Explainability is not only a trust feature. For AI workers, it becomes the training substrate for correction, evaluation, and improvement.",
+				attribution: "Tedix XAI thesis",
+				alt: "Explainable AI rationale timeline",
+			},
+			{
+				badge: "Self-distillation",
+				title: "From frontier reasoning to private kernels",
+				description:
+					"Early workers rely on frontier models. Mature workers should distill repeated orchestration into smaller personalized models, adapters, directives, and skills for lower cost and higher reliability.",
+				quote:
+					"Foundation models become energy providers. The durable advantage is the private cognitive infrastructure each organization owns and compounds.",
+				attribution: "Private Intelligence thesis",
+				alt: "Self-distilling AI workforce architecture",
+			},
+			{
+				badge: "Economic cognition",
+				title: "AI workers that reason about cost and value",
+				description:
+					"By exposing model calls, tools, and actions as economic decisions, a Tedi can learn when to use memory, skills, smaller models, paid tools, frontier reasoning, or human approval.",
+				quote:
+					"The more a company uses its AI workforce, the more it should learn which intelligence is worth spending for and which can be reused.",
+				attribution: "Tedix x402 research track",
+				alt: "Economic cognition for autonomous agents",
+			},
+			{
+				badge: "European industry",
+				title: "Trusted AI adoption for regulated sectors",
+				description:
+					"EuroLabs focuses on European companies that need productivity gains without giving up sovereignty, auditability, compliance, or ownership of their accumulated intelligence.",
+				quote:
+					"The winners will be the organizations that can compound their own intelligence while keeping humans, governance, and data ownership in control.",
+				attribution: "Tedix EuroLabs",
+				alt: "European industrial AI adoption",
+			},
+		],
+	},
+	integrations: {
+		...content.home.integrations,
+		eyebrow: "Architecture",
+		title: "A company brain across systems",
+		description:
+			"EuroLabs connects memory, rationale, skills, MCP tools, approvals, and model routing into one private intelligence layer.",
+	},
+	trust: {
+		...content.home.trust,
+		eyebrow: "European added value",
+		title: "Sovereign, explainable, auditable AI workforces.",
+		cards: [
+			{
+				title: "Human oversight",
+				description:
+					"Transparency, human oversight, approval gates, scoped tools, and audit trails are native to the worker lifecycle.",
+			},
+			{
+				title: "Every decision traceable",
+				description:
+					"Important actions can connect back to objective, evidence, confidence, tool choice, outcome, and feedback.",
+			},
+			{
+				title: "Company-owned cognition",
+				description:
+					"Memory, rationale, skills, and operating patterns become part of the organization’s own cognitive infrastructure.",
+			},
+			{
+				title: "Model-independent",
+				description:
+					"Companies can route across models while preserving the durable intelligence layer above any single provider.",
+			},
+			{
+				title: "Production-oriented research",
+				description:
+					"The lab is grounded in working Tedix infrastructure, pilots, MCP tooling, and enterprise deployment constraints.",
+			},
+		],
+	},
+	timeline: {
+		...content.home.timeline,
+		eyebrow: "Research path",
+		titleLine1: "From worker traces",
+		titleLine2: "to private intelligence.",
+		automationTitle: "Worker signals",
+		intelligenceTitle: "Private Intelligence",
+		steps: [
+			{
+				number: "1",
+				kicker: "Stage 1",
+				title: "Capture work as intelligence traces",
+				copy: [
+					"Tedis record objectives, tool use, memory retrieval, rationale, confidence, approvals, outcomes, and feedback.",
+					"These traces turn everyday operational work into a structured substrate for learning and evaluation.",
+				],
+				accent: "violet",
+			},
+			{
+				number: "2",
+				kicker: "Stage 2",
+				title: "Evaluate trajectories, not only answers",
+				copy: [
+					"EuroLabs measures whether the path taken by an AI worker was reliable, explainable, policy-compliant, and economically justified.",
+					"Human feedback and business outcomes calibrate which memories, skills, and rationales become reusable.",
+				],
+				accent: "blue",
+			},
+			{
+				number: "3",
+				kicker: "Stage 3",
+				title: "Distill routine work",
+				copy: [
+					"Repeated successful work can become skills, directives, adapters, or smaller private kernels for routine orchestration.",
+					"Frontier models remain the System 2 layer for novel, ambiguous, or high-risk reasoning.",
+				],
+				accent: "fuchsia",
+			},
+			{
+				number: "4",
+				kicker: "Long term",
+				title: "Compound company-owned intelligence",
+				copy: [
+					"The organization keeps the learned cognitive state: memory, skills, rationales, corrections, and operating patterns.",
+					"AI adoption shifts from isolated experiments to a governed workforce layer that improves with use.",
+				],
+				accent: "pink",
+			},
+		],
+		automationRows: ["Objectives", "Tool traces", "Rationales", "Approvals", "Outcomes"],
+		intelligenceRows: ["Memory improved", "Skills crystallized", "Costs reduced", "Trust increased"],
+		badges: ["Explainable traces", "Trajectory evaluation", "Self-distillation", "European governance"],
+	},
+	economics: {
+		...content.home.economics,
+		eyebrow: "Unit economics",
+		titlePrefix: "Research goal:",
+		titleAccent: "lower costs through reuse",
+		description:
+			"The research goal is a new curve: repeated company-specific work shifts from frontier inference into memory, skills, directives, and smaller kernels.",
+		cards: [
+			{
+				title: "Memory reuse",
+				description:
+					"Reliable facts and patterns are retrieved instead of repeatedly reconstructed from long prompts.",
+			},
+			{
+				title: "Skill crystallization",
+				description:
+					"Successful repeated procedures become reusable capabilities with lower latency and fewer tokens.",
+			},
+			{
+				title: "System 1 kernels",
+				description:
+					"Routine orchestration can move into smaller private models or adapters once enough traces exist.",
+			},
+			{
+				title: "Economic cognition",
+				description:
+					"Workers learn to balance cost, risk, latency, policy friction, and expected value before acting.",
+			},
+		],
+	},
+	stats: ["worker signals", "research tracks", "architecture layers", "European thesis"],
+	blog: {
+		...content.home.blog,
+		eyebrow: "Research notes",
+		title: "Building the operating system for private intelligence",
+		description:
+			"Follow the ideas behind Tedix EuroLabs: AI workers, explainability, MCP, self-distillation, economic cognition, and European AI sovereignty.",
+		cta: "Read the research notes",
+	},
+	cta: {
+		...content.home.cta,
+		demoTitle: "Want to explore Private Intelligence with Tedix?",
+		demoDescription:
+			"We are building EuroLabs with industry partners, researchers, and companies ready to deploy explainable AI workers in production.",
+		demoCta: "Watch the Tedix demo",
+		badge: "Tedix EuroLabs",
+		titleLine1: "Europe can lead",
+		titleLine2: "the AI workforce layer.",
+		description:
+			"Join us in building company-owned cognitive infrastructure: explainable, governed, self-improving AI workers for European industry.",
+		signals: ["Applied research", "Industry pilots", "Explainable autonomy"],
+		primary: "Request EuroLabs Access",
+	},
+};
+
+const title = "Private Intelligence Labs for European Industry | Tedix";
+const description =
+	"Tedix EuroLabs researches Private Intelligence: self-distilling AI workforces that help European companies compound organization-owned knowledge, explain decisions, and reduce frontier-model dependency over time.";
+---
+
+<BaseLayout title={title} description={description} locale={locale}>
+	<script is:inline slot="head">
+		(() => {
+			if (window.location.hash) return;
+
+			const scrollToHero = () => window.scrollTo(0, 0);
+
+			if ("scrollRestoration" in window.history) {
+				window.history.scrollRestoration = "manual";
+			}
+
+			window.addEventListener("pageshow", scrollToHero, { once: true });
+			document.addEventListener("astro:after-swap", scrollToHero);
+			document.addEventListener("astro:page-load", scrollToHero);
+		})();
+	</script>
+	<div class="eurolabs-page">
+		<HomePage content={euroLabsHome} locale={locale} />
+	</div>
+</BaseLayout>
+
+<script is:inline>
+	(() => {
+		const root = document.querySelector(".eurolabs-page");
+		if (!root) return;
+
+		const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+		const formatValue = (value, decimals, prefix, suffix) =>
+			`${prefix}${value.toLocaleString("en-US", {
+				maximumFractionDigits: decimals,
+				minimumFractionDigits: decimals,
+			})}${suffix}`;
+
+		const animateNumber = (el) => {
+			if (el.dataset.counted === "true") return;
+			el.dataset.counted = "true";
+
+			const target = Number(el.dataset.countup || "0");
+			const decimals = Number(el.dataset.decimals || "0");
+			const prefix = el.dataset.prefix || "";
+			const suffix = el.dataset.suffix || "";
+
+			if (prefersReducedMotion) {
+				el.textContent = formatValue(target, decimals, prefix, suffix);
+				return;
+			}
+
+			const duration = 1150;
+			const start = performance.now();
+			const tick = (now) => {
+				const progress = Math.min(1, (now - start) / duration);
+				const eased = 1 - Math.pow(1 - progress, 3);
+				el.textContent = formatValue(target * eased, decimals, prefix, suffix);
+				if (progress < 1) requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		};
+
+		const panels = root.querySelectorAll(".eurolabs-research-visual, .eurolabs-prototype");
+		const reveal = (panel) => {
+			panel.classList.add("is-visible");
+			panel.querySelectorAll("[data-countup]").forEach(animateNumber);
+		};
+
+		if ("IntersectionObserver" in window) {
+			const observer = new IntersectionObserver(
+				(entries) => {
+					entries.forEach((entry) => {
+						if (entry.isIntersecting) {
+							reveal(entry.target);
+							observer.unobserve(entry.target);
+						}
+					});
+				},
+				{ threshold: 0.22, rootMargin: "0px 0px -8% 0px" },
+			);
+			panels.forEach((panel) => observer.observe(panel));
+		} else {
+			panels.forEach(reveal);
+		}
+
+		root.querySelectorAll(".graph-visual").forEach((panel) => {
+			const nodes = Array.from(panel.querySelectorAll(".graph-node"));
+			if (!nodes.length || prefersReducedMotion) return;
+
+			panel.addEventListener("pointermove", (event) => {
+				const rect = panel.getBoundingClientRect();
+				const x = (event.clientX - rect.left) / rect.width - 0.5;
+				const y = (event.clientY - rect.top) / rect.height - 0.5;
+
+				nodes.forEach((node, index) => {
+					const depth = Number(node.dataset.depth || "1");
+					const phase = index % 2 === 0 ? 1 : -1;
+					node.style.setProperty("--mx", `${(x * 18 * depth + phase * 2).toFixed(2)}px`);
+					node.style.setProperty("--my", `${(y * 18 * depth - phase * 1.5).toFixed(2)}px`);
+				});
+			});
+
+			panel.addEventListener("pointerleave", () => {
+				nodes.forEach((node) => {
+					node.style.setProperty("--mx", "0px");
+					node.style.setProperty("--my", "0px");
+				});
+			});
+		});
+	})();
+</script>
+
+<style is:global>
+	.eurolabs-page section:first-of-type h1 {
+		font-size: clamp(3.05rem, 4.65vw, 3.95rem) !important;
+		line-height: 1.06;
+		max-width: 780px;
+	}
+
+	.eurolabs-page section:first-of-type h1 > span:first-child {
+		white-space: nowrap;
+	}
+
+	.eurolabs-page .challenge-visual {
+		display: none;
+	}
+
+	.eurolabs-page .eurolabs-research-visual {
+		position: relative;
+		overflow: hidden;
+		min-height: 430px;
+		border-radius: 28px;
+		border: 1px solid rgba(168, 132, 252, 0.2);
+		background:
+			radial-gradient(circle at 20% 10%, rgba(168, 85, 247, 0.32), transparent 34%),
+			radial-gradient(circle at 92% 18%, rgba(34, 211, 238, 0.12), transparent 28%),
+			linear-gradient(145deg, #0b0a1a 0%, #14112c 50%, #0a0718 100%);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.08),
+			0 34px 80px -42px rgba(82, 42, 178, 0.85),
+			0 18px 46px -38px rgba(0, 0, 0, 0.9);
+		color: #f7f0ff;
+		padding: 18px;
+		isolation: isolate;
+		transition: transform 520ms ease, box-shadow 520ms ease, border-color 520ms ease;
+	}
+
+	.eurolabs-page .eurolabs-research-visual.is-visible {
+		border-color: rgba(192, 132, 252, 0.36);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.1),
+			0 40px 90px -42px rgba(124, 58, 237, 0.9),
+			0 20px 54px -40px rgba(0, 0, 0, 0.92);
+	}
+
+	.eurolabs-page .eurolabs-research-visual::before {
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		background-image:
+			linear-gradient(rgba(168, 132, 252, 0.08) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(168, 132, 252, 0.08) 1px, transparent 1px);
+		background-size: 38px 38px;
+		content: "";
+		mask-image: linear-gradient(to bottom, black, transparent 90%);
+	}
+
+	.eurolabs-page .eurolabs-research-visual::after {
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.07) 42%, transparent 56%);
+		content: "";
+		transform: translateX(-70%);
+		animation: eurolabs-panel-sheen 7.5s ease-in-out infinite;
+	}
+
+	.eurolabs-page .eurolabs-console-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		padding-bottom: 14px;
+	}
+
+	.eurolabs-page .eurolabs-console-header .dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 999px;
+	}
+
+	.eurolabs-page .eurolabs-console-header .rose {
+		background: #fb7185;
+	}
+
+	.eurolabs-page .eurolabs-console-header .amber {
+		background: #fbbf24;
+	}
+
+	.eurolabs-page .eurolabs-console-header .green {
+		background: #34d399;
+	}
+
+	.eurolabs-page .console-url {
+		margin-left: auto;
+		border: 1px solid rgba(168, 132, 252, 0.18);
+		border-radius: 10px;
+		background: rgba(255, 255, 255, 0.05);
+		padding: 6px 12px;
+		color: rgba(247, 240, 255, 0.58);
+		font-family: "JetBrains Mono", monospace;
+		font-size: 11px;
+	}
+
+	.eurolabs-page .eurolabs-cto-card {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 16px;
+		margin-bottom: 16px;
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 18px;
+		background: rgba(255, 255, 255, 0.04);
+		padding: 16px;
+	}
+
+	.eurolabs-page .cto-profile {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.eurolabs-page .cto-profile img {
+		width: 68px;
+		height: 68px;
+		border-radius: 18px;
+		background: rgba(255, 255, 255, 0.08);
+		object-fit: cover;
+		object-position: center 28%;
+		padding: 0;
+		filter: drop-shadow(0 14px 22px rgba(168, 85, 247, 0.32));
+		animation: eurolabs-slow-pulse 4.4s ease-in-out infinite;
+	}
+
+	.eurolabs-page .cto-profile strong,
+	.eurolabs-page .router-decision strong,
+	.eurolabs-page .ledger-cards strong,
+	.eurolabs-page .permit-card strong {
+		display: block;
+		font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+		font-size: 18px;
+		line-height: 1.15;
+	}
+
+	.eurolabs-page .cto-profile span,
+	.eurolabs-page .eurolabs-metrics-grid span,
+	.eurolabs-page .panel-title,
+	.eurolabs-page .graph-toolbar,
+	.eurolabs-page .router-decision .label,
+	.eurolabs-page .ledger-cards p,
+	.eurolabs-page .permit-card p,
+	.eurolabs-page .risk-console span {
+		color: rgba(247, 240, 255, 0.55);
+		font-size: 12px;
+	}
+
+	.eurolabs-page .cto-status {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.eurolabs-page .cto-status span,
+	.eurolabs-page .routing-steps span,
+	.eurolabs-page .decision-pill {
+		border: 1px solid rgba(168, 132, 252, 0.2);
+		border-radius: 999px;
+		background: rgba(168, 85, 247, 0.24);
+		padding: 6px 10px;
+		color: rgba(247, 240, 255, 0.92);
+		font-size: 11px;
+		font-weight: 700;
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 18px -14px rgba(168, 85, 247, 0.75);
+	}
+
+	.eurolabs-page .cto-status span {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.eurolabs-page .cto-status svg {
+		width: 14px;
+		height: 14px;
+		stroke: currentColor;
+	}
+
+	.eurolabs-page .eurolabs-metrics-grid {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 10px;
+		margin-bottom: 12px;
+	}
+
+	.eurolabs-page .eurolabs-metrics-grid div,
+	.eurolabs-page .eurolabs-panel,
+	.eurolabs-page .router-lane,
+	.eurolabs-page .ledger-cards div,
+	.eurolabs-page .permit-card,
+	.eurolabs-page .risk-console div {
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 16px;
+		background: rgba(8, 10, 24, 0.68);
+		padding: 14px;
+	}
+
+	.eurolabs-page .eurolabs-metrics-grid strong {
+		display: block;
+		margin-top: 6px;
+		color: #f7f0ff;
+		font-family: "JetBrains Mono", monospace;
+		font-size: 23px;
+	}
+
+	.eurolabs-page .eurolabs-panel {
+		margin-top: 12px;
+	}
+
+	.eurolabs-page .panel-title {
+		margin-bottom: 12px;
+		font-weight: 800;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+
+	.eurolabs-page .lifecycle-bar {
+		display: flex;
+		overflow: hidden;
+		height: 13px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.08);
+	}
+
+	.eurolabs-page .lifecycle-bar span {
+		display: block;
+		transform: scaleX(0);
+		transform-origin: left;
+		transition: transform 1200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.eurolabs-page .eurolabs-research-visual.is-visible .lifecycle-bar span {
+		transform: scaleX(1);
+	}
+
+	.eurolabs-page .lifecycle-bar span:nth-child(2) {
+		transition-delay: 160ms;
+	}
+
+	.eurolabs-page .lifecycle-bar span:nth-child(3) {
+		transition-delay: 310ms;
+	}
+
+	.eurolabs-page .lifecycle-bar .probation {
+		width: 16%;
+		background: #22d3ee;
+	}
+
+	.eurolabs-page .lifecycle-bar .active {
+		width: 36%;
+		background: #3b82f6;
+	}
+
+	.eurolabs-page .lifecycle-bar .gold {
+		width: 48%;
+		background: #10b981;
+	}
+
+	.eurolabs-page .lifecycle-legend {
+		display: grid;
+		gap: 8px;
+		margin-top: 12px;
+		color: rgba(247, 240, 255, 0.62);
+		font-size: 11px;
+	}
+
+	.eurolabs-page .lifecycle-legend span {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.eurolabs-page .lifecycle-legend b {
+		margin-left: auto;
+		color: rgba(247, 240, 255, 0.9);
+		font-family: "JetBrains Mono", monospace;
+		font-size: 10px;
+	}
+
+	.eurolabs-page .lifecycle-legend i {
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		margin-right: 7px;
+		border-radius: 999px;
+	}
+
+	.eurolabs-page .lifecycle-legend .blue {
+		background: #22d3ee;
+	}
+
+	.eurolabs-page .lifecycle-legend .violet {
+		background: #3b82f6;
+	}
+
+	.eurolabs-page .lifecycle-legend .green {
+		background: #10b981;
+	}
+
+	.eurolabs-page .confidence-bars div {
+		display: grid;
+		grid-template-columns: 132px 1fr 38px;
+		align-items: center;
+		gap: 10px;
+		margin-top: 9px;
+		color: rgba(247, 240, 255, 0.62);
+		font-size: 11px;
+	}
+
+	.eurolabs-page .confidence-bars b,
+	.eurolabs-page .lane-meter b {
+		display: block;
+		height: 8px;
+		border-radius: 999px;
+		background: linear-gradient(90deg, #22d3ee, #8b5cf6, #f472b6);
+		box-shadow: 0 0 18px rgba(168, 85, 247, 0.38);
+		width: var(--target, 0%);
+		transform: scaleX(0);
+		transform-origin: left;
+		transition: transform 1100ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.eurolabs-page .confidence-bars em,
+	.eurolabs-page .lane-meter em {
+		color: rgba(247, 240, 255, 0.8);
+		font-family: "JetBrains Mono", monospace;
+		font-size: 10px;
+		font-style: normal;
+		text-align: right;
+	}
+
+	.eurolabs-page .eurolabs-research-visual.is-visible .confidence-bars b,
+	.eurolabs-page .eurolabs-research-visual.is-visible .lane-meter b {
+		transform: scaleX(1);
+	}
+
+	.eurolabs-page .graph-toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-bottom: 14px;
+	}
+
+	.eurolabs-page .graph-toolbar span {
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.06);
+		padding: 6px 10px;
+	}
+
+	.eurolabs-page .knowledge-map {
+		width: 100%;
+		height: auto;
+		min-height: 300px;
+		border-radius: 18px;
+		background: rgba(13, 18, 35, 0.82);
+	}
+
+	.eurolabs-page .graph-links path {
+		fill: none;
+		stroke: rgba(168, 132, 252, 0.28);
+		stroke-dasharray: 7 10;
+		stroke-width: 2;
+		animation: eurolabs-dash 6s linear infinite;
+	}
+
+	.eurolabs-page .graph-nodes g {
+		filter: url("#eurolabs-glow");
+		transform-box: fill-box;
+		transform-origin: center;
+		translate: var(--mx, 0px) var(--my, 0px);
+		transition: translate 420ms cubic-bezier(0.2, 0.8, 0.2, 1), scale 260ms ease;
+	}
+
+	.eurolabs-page .graph-nodes g:hover {
+		scale: 1.08;
+	}
+
+	.eurolabs-page .graph-nodes text {
+		fill: white;
+		font-size: 12px;
+		font-weight: 800;
+		text-anchor: middle;
+		transform: translateY(4px);
+	}
+
+	.eurolabs-page .node.violet {
+		fill: #7c3aed;
+	}
+
+	.eurolabs-page .node.blue {
+		fill: #3b82f6;
+	}
+
+	.eurolabs-page .node.green {
+		fill: #10b981;
+	}
+
+	.eurolabs-page .node.orange {
+		fill: #f97316;
+	}
+
+	.eurolabs-page .graph-caption {
+		margin-top: 12px;
+		color: rgba(247, 240, 255, 0.62);
+		font-size: 12px;
+		line-height: 1.5;
+	}
+
+	.eurolabs-page .router-decision {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: 16px;
+		border-radius: 18px;
+		background: rgba(255, 255, 255, 0.05);
+		padding: 16px;
+	}
+
+	.eurolabs-page .router-lanes {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 12px;
+	}
+
+	.eurolabs-page .router-lane.active {
+		border-color: rgba(52, 211, 153, 0.32);
+		background: rgba(6, 78, 59, 0.22);
+	}
+
+	.eurolabs-page .router-lane span,
+	.eurolabs-page .permit-card span {
+		color: #c084fc;
+		font-size: 11px;
+		font-weight: 900;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+
+	.eurolabs-page .router-lane p {
+		min-height: 60px;
+		margin: 10px 0 14px;
+		color: rgba(247, 240, 255, 0.58);
+		font-size: 12px;
+		line-height: 1.5;
+	}
+
+	.eurolabs-page .lane-meter {
+		display: grid;
+		grid-template-columns: 1fr 36px;
+		align-items: center;
+		gap: 8px;
+		height: 8px;
+		border-radius: 999px;
+	}
+
+	.eurolabs-page .lane-meter::before {
+		grid-column: 1;
+		grid-row: 1;
+		height: 8px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.08);
+		content: "";
+	}
+
+	.eurolabs-page .lane-meter b {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	.eurolabs-page .lane-meter em {
+		grid-column: 2;
+		grid-row: 1;
+	}
+
+	.eurolabs-page .routing-steps {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 8px;
+		margin-top: 16px;
+	}
+
+	.eurolabs-page .ledger-cards,
+	.eurolabs-page .permit-grid,
+	.eurolabs-page .risk-console {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 12px;
+	}
+
+	.eurolabs-page .ledger-cards div span {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		height: 34px;
+		margin-bottom: 12px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.08);
+		color: #f0abfc;
+	}
+
+	.eurolabs-page .ledger-table {
+		overflow: hidden;
+		margin-top: 16px;
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 18px;
+	}
+
+	.eurolabs-page .ledger-row {
+		display: grid;
+		grid-template-columns: 1.1fr 1.3fr 0.7fr 0.7fr;
+		gap: 12px;
+		border-top: 1px solid rgba(255, 255, 255, 0.07);
+		padding: 13px 14px;
+		color: rgba(247, 240, 255, 0.72);
+		font-size: 12px;
+		transition: background 220ms ease, transform 220ms ease;
+	}
+
+	.eurolabs-page .ledger-row:not(.head):hover {
+		background: rgba(168, 85, 247, 0.1);
+		transform: translateX(4px);
+	}
+
+	.eurolabs-page .ledger-row.head {
+		border-top: 0;
+		color: rgba(247, 240, 255, 0.42);
+		font-weight: 900;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+
+	.eurolabs-page .ledger-row em {
+		border-radius: 999px;
+		background: rgba(16, 185, 129, 0.14);
+		padding: 3px 7px;
+		color: #34d399;
+		font-style: normal;
+		text-align: center;
+	}
+
+	.eurolabs-page .permit-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.eurolabs-page .permit-card {
+		transition: transform 240ms ease, border-color 240ms ease, background 240ms ease;
+	}
+
+	.eurolabs-page .permit-card:hover {
+		transform: translateY(-4px);
+		border-color: rgba(168, 85, 247, 0.4);
+		background: rgba(168, 85, 247, 0.12);
+	}
+
+	.eurolabs-page .permit-card.approved {
+		border-color: rgba(52, 211, 153, 0.24);
+	}
+
+	.eurolabs-page .compliance-flow {
+		display: grid;
+		grid-template-columns: auto 1fr auto 1fr auto 1fr auto 1fr auto;
+		align-items: center;
+		gap: 8px;
+		margin: 18px 0;
+		color: rgba(247, 240, 255, 0.72);
+		font-size: 12px;
+		font-weight: 800;
+	}
+
+	.eurolabs-page .compliance-flow b {
+		display: block;
+		height: 2px;
+		border-radius: 999px;
+		background: linear-gradient(90deg, #8b5cf6, #22d3ee);
+		animation: eurolabs-flow 2.8s ease-in-out infinite;
+	}
+
+	.eurolabs-page .risk-console strong {
+		display: block;
+		margin-top: 6px;
+		color: #34d399;
+	}
+
+	.eurolabs-page .eurolabs-prototype {
+		position: relative;
+		overflow: hidden;
+		border: 1px solid rgba(168, 132, 252, 0.18);
+		border-radius: 32px;
+		background: rgba(255, 255, 255, 0.82);
+		padding: 32px;
+		box-shadow: 0 26px 90px rgba(76, 29, 149, 0.13);
+		backdrop-filter: blur(18px);
+	}
+
+	.dark .eurolabs-page .eurolabs-prototype {
+		border-color: rgba(255, 255, 255, 0.1);
+		background: rgba(255, 255, 255, 0.045);
+		box-shadow: 0 28px 100px rgba(0, 0, 0, 0.45);
+	}
+
+	.eurolabs-page .eurolabs-prototype::before {
+		position: absolute;
+		inset-inline: 32px;
+		top: 0;
+		height: 1px;
+		background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.7), transparent);
+		content: "";
+	}
+
+	.eurolabs-page .prototype-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 64px;
+		height: 64px;
+		border: 1px solid rgba(168, 85, 247, 0.24);
+		border-radius: 18px;
+		background: rgba(168, 85, 247, 0.08);
+		box-shadow: 0 12px 34px rgba(168, 85, 247, 0.16);
+	}
+
+	.eurolabs-page .prototype-icon img {
+		width: 48px;
+		height: 48px;
+		object-fit: contain;
+	}
+
+	.eurolabs-page .prototype-card {
+		border: 1px solid rgba(15, 23, 42, 0.1);
+		border-radius: 18px;
+		background: rgba(255, 255, 255, 0.72);
+		padding: 18px;
+		box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+		transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+	}
+
+	.dark .eurolabs-page .prototype-card {
+		border-color: rgba(255, 255, 255, 0.1);
+		background: rgba(255, 255, 255, 0.035);
+	}
+
+	.eurolabs-page .prototype-card:hover {
+		transform: translateY(-4px);
+		border-color: rgba(168, 85, 247, 0.35);
+		box-shadow: 0 18px 46px rgba(124, 58, 237, 0.12);
+	}
+
+	.eurolabs-page .prototype-card-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		margin-bottom: 14px;
+		border-radius: 14px;
+		background: linear-gradient(135deg, #7c3aed, #c026d3, #f97316);
+		color: white;
+		box-shadow: 0 12px 24px rgba(168, 85, 247, 0.18);
+	}
+
+	.eurolabs-page .prototype-card-icon svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	.eurolabs-page .prototype-card h3 {
+		color: hsl(var(--foreground));
+		font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+		font-size: 16px;
+		font-weight: 800;
+	}
+
+	.dark .eurolabs-page .prototype-card h3 {
+		color: rgba(255, 255, 255, 0.95);
+	}
+
+	.eurolabs-page .prototype-card p {
+		margin-top: 8px;
+		color: hsl(var(--muted-foreground));
+		font-size: 14px;
+		line-height: 1.58;
+	}
+
+	.dark .eurolabs-page .prototype-card p {
+		color: rgba(255, 255, 255, 0.58);
+	}
+
+	@keyframes eurolabs-panel-sheen {
+		0%,
+		58% {
+			transform: translateX(-76%);
+			opacity: 0;
+		}
+		70% {
+			opacity: 0.8;
+		}
+		100% {
+			transform: translateX(78%);
+			opacity: 0;
+		}
+	}
+
+	@keyframes eurolabs-slow-pulse {
+		0%,
+		100% {
+			transform: scale(1);
+		}
+		50% {
+			transform: scale(1.045);
+		}
+	}
+
+	@keyframes eurolabs-dash {
+		to {
+			stroke-dashoffset: -68;
+		}
+	}
+
+	@keyframes eurolabs-flow {
+		0%,
+		100% {
+			opacity: 0.35;
+			transform: scaleX(0.72);
+		}
+		50% {
+			opacity: 1;
+			transform: scaleX(1);
+		}
+	}
+
+	.eurolabs-page > div > section:nth-of-type(1) {
+		order: 1;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(2) {
+		order: 2;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(3) {
+		order: 9;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(4) {
+		order: 3;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(5) {
+		order: 4;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(6) {
+		order: 5;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(7) {
+		order: 6;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(8) {
+		order: 7;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(9) {
+		order: 8;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(10) {
+		order: 10;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(11) {
+		order: 11;
+	}
+
+	.eurolabs-page > div > section:nth-of-type(12) {
+		order: 12;
+	}
+
+	@media (max-width: 767px) {
+		.eurolabs-page section:first-of-type h1 {
+			font-size: clamp(2.05rem, 9.6vw, 3rem) !important;
+		}
+
+		.eurolabs-page .eurolabs-research-visual {
+			min-height: 0;
+			border-radius: 22px;
+			padding: 14px;
+		}
+
+		.eurolabs-page .console-url {
+			display: none;
+		}
+
+		.eurolabs-page .eurolabs-metrics-grid,
+		.eurolabs-page .router-lanes,
+		.eurolabs-page .routing-steps,
+		.eurolabs-page .ledger-cards,
+		.eurolabs-page .permit-grid,
+		.eurolabs-page .risk-console {
+			grid-template-columns: 1fr;
+		}
+
+		.eurolabs-page .confidence-bars div {
+			grid-template-columns: 1fr;
+		}
+
+		.eurolabs-page .ledger-row {
+			grid-template-columns: 1fr;
+			gap: 5px;
+		}
+
+		.eurolabs-page .ledger-row.head {
+			display: none;
+		}
+
+		.eurolabs-page .compliance-flow {
+			grid-template-columns: 1fr;
+			justify-items: start;
+		}
+
+		.eurolabs-page .compliance-flow b {
+			width: 2px;
+			height: 16px;
+			transform-origin: top;
+		}
+	}
+</style>

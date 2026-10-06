@@ -1,0 +1,41 @@
+{
+	"name": "@tedix/installation-manifest",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Secret-free, versioned installation declarations for Cloudflare-native Tedix deployments.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./developer-example": "./src/developer-example.ts",
+		"./identity-readiness": "./src/identity-readiness.ts",
+		"./lifecycle": "./src/lifecycle.ts",
+		"./preflight": "./src/preflight.ts",
+		"./profiles": "./src/profiles.ts",
+		"./provision": "./src/provision.ts",
+		"./schema": "./src/schema.ts",
+		"./wrangler-overlay": "./src/wrangler-overlay.ts"
+	},
+	"scripts": {
+		"check": "bun run type-check && bun run test:run",
+		"clean": "true",
+		"identity:preflight": "bun src/identity-readiness-cli.ts",
+		"overlay": "bun src/wrangler-overlay-cli.ts",
+		"preflight": "bun src/preflight-cli.ts",
+		"provision": "bun src/provision-cli.ts",
+		"test": "bun test",
+		"test:ci": "bun run test:run",
+		"test:run": "bun test",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@cloudflare/config": "catalog:",
+		"jsonc-parser": "3.3.1",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"wrangler": "catalog:"
+	}
+}
