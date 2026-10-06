@@ -1366,6 +1366,12 @@ async function verifyCutoverCustody(
 	return JSON.stringify({ canonical, owner });
 }
 
+function isBoundedCustodyRead(command: string | undefined) {
+	return (
+		command === "inspect_session_rehydration" ||
+		command === "inspect_custody_coverage"
+	);
+}
 function isNativePreservationCommand(command: string) {
 	return (
 		command === "inspect_native_preservation" ||
@@ -1377,7 +1383,8 @@ function isNativePreservationCommand(command: string) {
 		command === "inspect_session_preservation" ||
 		command === "capture_session_preservation" ||
 		command === "audit_session_preservation" ||
-		command === "inspect_session_rehydration"
+		command === "inspect_session_rehydration" ||
+		command === "inspect_custody_coverage"
 	);
 }
 /** New preservation custody retains absent/null local owners as UNKNOWN; no activation claim. */
@@ -1522,7 +1529,94 @@ async function runNativePreservation(
 	const q = body.query,
 		owner = body.custody;
 	const qualificationDeadline =
-		q.command === "inspect_session_rehydration" ? operationDeadline : null;
+		q.command === "inspect_session_rehydration" ||
+		q.command === "inspect_custody_coverage"
+			? operationDeadline
+			: null;
+
+	if (q.command === "inspect_custody_coverage") {
+		if (!owner) throw Error("Custody coverage unavailable");
+		const guard = () => {
+			recheck();
+			if (performance.now() >= operationDeadline)
+				throw Error("Custody coverage unavailable");
+		};
+		const checked = <T>(p: Promise<T>) =>
+			initialCutoverRead(p, operationDeadline).finally(guard);
+		const { prepareCustodyCoverage } = await checked(
+			import("./custody-coverage-inventory"),
+		);
+		const { TediRuntimeCustodyCoverageResponseSchema } = await checked(
+			import("@tedix/api-contract/schemas/tedi"),
+		);
+		const path = q.targetPath ?? [],
+			hop = path.at(-1);
+		let canonical: string | undefined;
+		const operation = prepareCustodyCoverage({
+			storage: ctx.storage,
+			namespace: env.TEDI_AGENT,
+			masterKey: env.SECRETS_MASTER_KEY,
+			identity: {
+				rootPhysicalId: q.objectId,
+				targetPhysicalId: ctx.id.toString(),
+				organizationId: owner.orgId,
+				tediId: owner.tediId,
+				operationId: q.operationId,
+				namespaceClass: hop?.className ?? "AgentTediDO",
+				targetName: hop ? (hop.identityName ?? hop.name) : owner.objectName,
+				targetPath: path,
+				generation: q.expectedGeneration,
+				receiver: "raw-cutover-v1",
+			},
+			deadline: operationDeadline,
+			recheck: guard,
+			continuation: q.continuation,
+			coverageHash: q.coverageHash,
+			verifyCanonical: async () => {
+				const value = await checked(
+					verifyCutoverCustody(env, env.TEDI_AGENT, body, guard, ctx.storage),
+				);
+				if (canonical !== undefined && canonical !== value)
+					throw Error("Custody coverage unavailable");
+				canonical = value;
+			},
+		});
+		const publication = () => {
+			operation.assertContinuity();
+			guard();
+		};
+		try {
+			let result;
+			try {
+				result = await operation.result;
+			} finally {
+				publication();
+			}
+			operation.assertReady();
+			const value = TediRuntimeCustodyCoverageResponseSchema.parse({
+				ok: true,
+				id: q.objectId,
+				targetObjectId: ctx.id.toString(),
+				command: q.command,
+				operationId: q.operationId,
+				generation: q.expectedGeneration,
+				state: readStoredRuntimeAdmission(ctx.storage, ctx.id.toString())!
+					.state,
+				receiver: "raw-cutover-v1",
+				...result,
+			});
+			publication();
+			return {
+				value,
+				[SDK_PUBLICATION]: () => {
+					publication();
+					operation.assertReady();
+				},
+			};
+		} catch (original) {
+			throw { original, [SDK_FAILURE]: publication };
+		}
+	}
 
 	if (
 		q.command === "inspect_sdk_preservation" ||
@@ -2034,7 +2128,7 @@ export async function operateStoredCutover(input: {
 	const operationDeadline = performance.now() + 30_000;
 	let publication: () => void = () => {
 		if (
-			parsedBody?.query.command === "inspect_session_rehydration" &&
+			isBoundedCustodyRead(parsedBody?.query.command) &&
 			performance.now() >= operationDeadline
 		)
 			throw new Error("Session qualification deadline expired");
@@ -2119,9 +2213,7 @@ export async function operateStoredCutover(input: {
 							0,
 							operationDeadline,
 						),
-						body.query.command === "inspect_session_rehydration"
-							? retain
-							: undefined,
+						isBoundedCustodyRead(body.query.command) ? retain : undefined,
 					),
 				);
 			}
@@ -2146,9 +2238,7 @@ export async function operateStoredCutover(input: {
 							recheck,
 							operationDeadline,
 						),
-						body.query.command === "inspect_session_rehydration"
-							? retain
-							: undefined,
+						isBoundedCustodyRead(body.query.command) ? retain : undefined,
 					),
 				);
 			}
@@ -2280,9 +2370,7 @@ export async function operateStoredCutover(input: {
 		} catch (cause) {
 			const error = sdkFailureAtPublication(
 				cause,
-				parsedBody?.query.command === "inspect_session_rehydration"
-					? retain
-					: undefined,
+				isBoundedCustodyRead(parsedBody?.query.command) ? retain : undefined,
 			);
 			return Response.json(
 				{
@@ -2301,10 +2389,9 @@ export async function operateStoredCutover(input: {
 	});
 	let result: Response;
 	try {
-		result =
-			parsedBody?.query.command === "inspect_session_rehydration"
-				? await initialCutoverRead(pending, operationDeadline)
-				: await pending;
+		result = isBoundedCustodyRead(parsedBody?.query.command)
+			? await initialCutoverRead(pending, operationDeadline)
+			: await pending;
 	} catch (error) {
 		let refusal = error;
 		try {
@@ -2351,6 +2438,7 @@ async function runStoredCutover(
 		q.command === "capture_session_preservation" ||
 		q.command === "audit_session_preservation" ||
 		q.command === "inspect_session_rehydration" ||
+		q.command === "inspect_custody_coverage" ||
 		q.command === "exclude_writers" ||
 		q.command === "inspect_capture_size" ||
 		q.command === "inspect_historical_custody" ||
@@ -3443,7 +3531,7 @@ export async function passiveRegisteredCutover(
 	} catch {
 		return { status: 409, body: "Registered quarantine unavailable" };
 	}
-	qualifying = body.query.command === "inspect_session_rehydration";
+	qualifying = isBoundedCustodyRead(body.query.command);
 	const pending = ctx.blockConcurrencyWhile(async () => {
 		try {
 			publication();
@@ -3461,9 +3549,7 @@ export async function passiveRegisteredCutover(
 							index,
 							operationDeadline,
 						),
-						body.query.command === "inspect_session_rehydration"
-							? retain
-							: undefined,
+						isBoundedCustodyRead(body.query.command) ? retain : undefined,
 					),
 				),
 			};
@@ -3511,6 +3597,7 @@ async function registeredStoredCutover(
 			q.command !== "capture_session_preservation" &&
 			q.command !== "audit_session_preservation" &&
 			q.command !== "inspect_session_rehydration" &&
+			q.command !== "inspect_custody_coverage" &&
 			q.command !== "inspect_historical_custody" &&
 			q.command !== "capture_historical_custody" &&
 			q.command !== "audit_historical_custody") ||
@@ -3629,7 +3716,9 @@ async function registeredStoredCutover(
 		const hop = path[index]!;
 		if (hop.parentGeneration !== (current?.generation ?? 0))
 			throw new Error("Registered quarantine unavailable");
-		const qualifying = q.command === "inspect_session_rehydration";
+		const qualifying =
+			q.command === "inspect_session_rehydration" ||
+			q.command === "inspect_custody_coverage";
 		const originalRegistry = qualifying
 			? JSON.stringify(
 					registeredInspectionTargets(
@@ -3776,6 +3865,21 @@ async function registeredStoredCutover(
 				recheckRegistry();
 				const parsed =
 					TediRuntimeCutoverOperationResponseSchema.parse(response);
+				if (q.command === "inspect_custody_coverage") {
+					if (
+						parsed.command !== q.command ||
+						parsed.id !== q.objectId ||
+						parsed.targetObjectId !== path.at(-1)!.objectId ||
+						parsed.operationId !== q.operationId ||
+						parsed.generation !== q.expectedGeneration ||
+						(q.coverageHash !== undefined &&
+							parsed.coverageHash !== q.coverageHash)
+					)
+						throw Error("Custody coverage unavailable");
+					continuity();
+					return { value: parsed, [SDK_PUBLICATION]: continuity };
+				}
+
 				if (
 					q.command === "inspect_native_preservation" ||
 					q.command === "capture_native_preservation" ||
@@ -3843,7 +3947,8 @@ async function registeredStoredCutover(
 		q.command === "inspect_session_preservation" ||
 		q.command === "capture_session_preservation" ||
 		q.command === "audit_session_preservation" ||
-		q.command === "inspect_session_rehydration"
+		q.command === "inspect_session_rehydration" ||
+		q.command === "inspect_custody_coverage"
 	)
 		return runNativePreservation(ctx, env, body, recheck, operationDeadline);
 	if (q.command !== "quarantine") {

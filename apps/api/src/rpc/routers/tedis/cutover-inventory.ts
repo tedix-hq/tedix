@@ -322,6 +322,28 @@ export function cutoverOperationFromAdminFetch(
 		);
 	const value = parsed.data;
 	if (
+		input.command === "inspect_custody_coverage" ||
+		value.command === "inspect_custody_coverage"
+	) {
+		if (
+			input.command !== "inspect_custody_coverage" ||
+			value.command !== input.command ||
+			value.id !== input.objectId ||
+			value.targetObjectId !==
+				(input.targetPath?.at(-1)?.objectId ?? input.objectId) ||
+			value.operationId !== input.operationId ||
+			value.generation !== input.expectedGeneration ||
+			(input.coverageHash !== undefined &&
+				value.coverageHash !== input.coverageHash)
+		)
+			throw createError(
+				ErrorCodes.BAD_GATEWAY,
+				"Runtime custody metadata returned an unexpected payload",
+			);
+		return value;
+	}
+
+	if (
 		input.command === "inspect_native_preservation" ||
 		input.command === "capture_native_preservation" ||
 		input.command === "audit_native_preservation" ||
@@ -571,6 +593,7 @@ export const operateRuntimeCutoverProcedure =
 					input.command === "capture_session_preservation" ||
 					input.command === "audit_session_preservation" ||
 					input.command === "inspect_session_rehydration" ||
+					input.command === "inspect_custody_coverage" ||
 					input.command === "inspect_historical_custody" ||
 					input.command === "capture_historical_custody" ||
 					input.command === "audit_historical_custody")
