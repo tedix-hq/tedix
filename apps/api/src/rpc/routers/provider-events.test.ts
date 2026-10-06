@@ -65,7 +65,11 @@ const subscription = {
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.list.mockResolvedValue([]);
-	mocks.tedi.mockResolvedValue({ id });
+	mocks.tedi.mockResolvedValue({
+		id,
+		status: "active",
+		runtimeState: "standby",
+	});
 	mocks.skill.mockResolvedValue({
 		id,
 		tediId: id,
@@ -167,4 +171,36 @@ describe("standing provider credential authority", () => {
 			resolveProviderEventCredential(context(), subscription),
 		).rejects.toThrow("missing");
 	});
+});
+
+it("rejects an unpinned legacy/default account without reading any default credential", async () => {
+	await expect(
+		resolveProviderEventCredential(context(), {
+			...subscription,
+			connectionInstanceId: null,
+		}),
+	).rejects.toThrow("default account fallback is disabled");
+	expect(mocks.namedToken).not.toHaveBeenCalled();
+	expect(mocks.defaultToken).not.toHaveBeenCalled();
+});
+it.each(["paused", "error", "provisioning", null])(
+	"denies non-active tedi status %s",
+	async (status) => {
+		mocks.tedi.mockResolvedValue({ id, status, runtimeState: "active" });
+		await expect(
+			resolveProviderEventCredential(context(), subscription),
+		).rejects.toThrow("Active organization-owned");
+		expect(mocks.namedToken).not.toHaveBeenCalled();
+	},
+);
+it("denies archived runtime regardless of active deployment status", async () => {
+	mocks.tedi.mockResolvedValue({
+		id,
+		status: "active",
+		runtimeState: "archived",
+	});
+	await expect(
+		resolveProviderEventCredential(context(), subscription),
+	).rejects.toThrow("Active organization-owned");
+	expect(mocks.namedToken).not.toHaveBeenCalled();
 });

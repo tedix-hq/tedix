@@ -56,7 +56,7 @@ export async function registerSubscription(
 		...input,
 		id: crypto.randomUUID(),
 		organizationId,
-		connectionInstanceId: input.connectionInstanceId ?? null,
+		connectionInstanceId: input.connectionInstanceId,
 		status: "registering",
 		expiresAt: null,
 		lastNotificationAt: null,
