@@ -5,6 +5,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	cancelSkillRun,
+	createSkillRun,
 	getSkillRun,
 	listLatestSkillRunsForSkills,
 	listSkillRunSnapshotsForSkill,
@@ -764,4 +765,43 @@ describe("skill run revocation retirement compare-and-set", () => {
 			).toBe(false);
 		}
 	});
+});
+
+it("preserves an admitted personal source envelope through canonical D1 query reads", async () => {
+	const { db } = fixture();
+	const id = "10000000-0000-4000-8000-000000000001";
+	const envelope = {
+		version: 1 as const,
+		sources: [
+			{
+				workspaceResourceId: id,
+				workspaceId: id,
+				providerId: "google",
+				resourceType: "calendar",
+				providerResourceId: "calendar-a",
+				connectionScope: "user" as const,
+				personalOwnerUserId: "owner",
+				connectionInstanceId: id,
+				delegationId: id,
+				requiredScopes: ["read"],
+				operations: ["read"],
+				toolIds: ["list_events"],
+			},
+		],
+	};
+	const created = await createSkillRun(db, {
+		id,
+		organizationId: "org-1",
+		skillId: id,
+		tediId: id,
+		workflowInstanceId: id,
+		runtimeEnvironment: "production",
+		params: { _tedixContext: { fake: true } },
+		resourceAccessEnvelope: envelope,
+	});
+	expect(created.resourceAccessEnvelope).toEqual(envelope);
+	expect(
+		(await getSkillRun(db, id, "org-1", "production"))?.resourceAccessEnvelope,
+	).toEqual(envelope);
+	expect(await getSkillRun(db, id, "other-org", "production")).toBeUndefined();
 });

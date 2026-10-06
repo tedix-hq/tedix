@@ -31,7 +31,10 @@ import {
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import { resolveWorkspaceResourceAvailability } from "../../services/os-workspace-resource-availability";
-import { authorizeWorkspaceResourceRead } from "../../services/os-workspace-resource-read-authority";
+import {
+	authorizeWorkspaceResourceRead,
+	resolveWorkspacePersonalReadCredential,
+} from "../../services/os-workspace-resource-read-authority";
 import { readWorkspaceDrivePdf } from "../../services/os-workspace-drive-pdf-read";
 import { prepareWorkspaceRepositoryWork } from "../../services/os-workspace-repository-work";
 import {
@@ -313,13 +316,26 @@ const readPdf = readOs.resources.readPdf.handler(async ({ input, context }) => {
 		},
 	);
 	return {
-		pdf: await readWorkspaceDrivePdf(context, {
-			resource,
-			requiredScopes,
-			pageStart: input.pageStart,
-			pageLimit: input.pageLimit,
-			charOffset: input.charOffset,
-		}),
+		pdf: await readWorkspaceDrivePdf(
+			context,
+			{
+				resource,
+				requiredScopes,
+				pageStart: input.pageStart,
+				pageLimit: input.pageLimit,
+				charOffset: input.charOffset,
+			},
+			resource.connectionScope === "user"
+				? {
+						resolveToken: () =>
+							resolveWorkspacePersonalReadCredential(
+								context,
+								resource,
+								requiredScopes,
+							),
+					}
+				: {},
+		),
 	};
 });
 

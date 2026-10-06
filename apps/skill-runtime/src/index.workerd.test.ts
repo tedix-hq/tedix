@@ -168,3 +168,55 @@ describe("skill production Loader isolation", () => {
 		).toThrow(/import|cloudflare:workers/i);
 	});
 });
+
+import {
+	createSkillRun as persistAdmittedRun,
+	loadSkillRunSnapshot,
+} from "./db";
+it("persists source consent independently of caller params in a real D1 run snapshot", async () => {
+	const db = (env as unknown as { DB: D1Database }).DB;
+	await db.exec(
+		`CREATE TABLE IF NOT EXISTS skill_runs(id TEXT PRIMARY KEY,skill_id TEXT,tedi_id TEXT,organization_id TEXT,workflow_instance_id TEXT,params TEXT,status TEXT,error TEXT,started_at TEXT,workflow_source TEXT,skill_doc TEXT,skill_revision INTEGER,skill_slug TEXT,capability_manifest TEXT,runtime_environment TEXT,created_by TEXT,work_item_id TEXT,origin_tedi_run_id TEXT,resource_access_envelope TEXT,execution_epoch INTEGER DEFAULT 0,workflow_retired_at TEXT)`,
+	);
+	const id = crypto.randomUUID();
+	const envelope = {
+		version: 1 as const,
+		sources: [
+			{
+				workspaceResourceId: id,
+				workspaceId: id,
+				providerId: "google",
+				resourceType: "calendar",
+				providerResourceId: "calendar-a",
+				connectionScope: "user" as const,
+				personalOwnerUserId: "owner",
+				connectionInstanceId: id,
+				delegationId: id,
+				requiredScopes: ["read"],
+				operations: ["read"],
+				toolIds: ["list_events"],
+			},
+		],
+	};
+	await persistAdmittedRun(db, {
+		runId: id,
+		skillId: id,
+		tediId: id,
+		orgId: id,
+		workflowInstanceId: id,
+		params: {
+			_tedixContext: { resourceAccessEnvelope: { version: 1, sources: [] } },
+		},
+		workflowSource: "export default {}",
+		skillDoc: "Pinned skill",
+		skillRevision: 1,
+		skillSlug: "calendar",
+		runtimeEnvironment: "development",
+		resourceAccessEnvelope: envelope,
+	});
+	const snapshot = await loadSkillRunSnapshot(db, id);
+	expect(snapshot?.resourceAccessEnvelope).toEqual(envelope);
+	expect(snapshot?.params).toEqual({
+		_tedixContext: { resourceAccessEnvelope: { version: 1, sources: [] } },
+	});
+});
