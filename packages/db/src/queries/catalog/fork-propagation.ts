@@ -46,11 +46,23 @@ export interface PropagateToolsResultItem {
 	reason?: string;
 }
 
+const UNSAFE_PATH_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Split a caller-supplied dot-notation path, refusing prototype-reaching
+ * segments so preserved config can never read from or write to a prototype.
+ */
+function safePathParts(path: string): string[] | null {
+	const parts = path.split(".");
+	return parts.some((part) => UNSAFE_PATH_SEGMENTS.has(part)) ? null : parts;
+}
+
 /**
  * Helper to get a nested value from an object by dot-notation path.
  */
 function getNestedValue(obj: unknown, path: string): unknown {
-	const parts = path.split(".");
+	const parts = safePathParts(path);
+	if (!parts) return undefined;
 	let current: unknown = obj;
 	for (let i = 0; i < parts.length; i++) {
 		if (current == null || typeof current !== "object") return undefined;
@@ -68,7 +80,8 @@ function setNestedValue(
 	path: string,
 	value: unknown,
 ): void {
-	const parts = path.split(".");
+	const parts = safePathParts(path);
+	if (!parts) return;
 	let current: Record<string, unknown> = obj;
 	for (let i = 0; i < parts.length - 1; i++) {
 		const part = parts[i] as string;
