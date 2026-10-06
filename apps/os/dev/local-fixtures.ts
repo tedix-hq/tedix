@@ -3458,7 +3458,7 @@ const LOCAL_AGENT_SESSIONS: readonly {
 	{
 		n: 2,
 		harness: "codex",
-		label: "karbook · invoices",
+		label: "acme-books · invoices",
 		state: "needs_you",
 		effectiveState: "needs_you",
 		summary: "Asked which tax regime applies to the imported supplier.",
