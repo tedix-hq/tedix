@@ -204,3 +204,46 @@ describe("complete calendar preview", () => {
 		).toBe(25 * 3600_000);
 	});
 });
+
+describe("rolling owner-approved horizon", () => {
+	it("advances on calendar-local midnight and keeps one local day through DST", async () => {
+		const { effectiveCalendarConfiguration, approvedRollingDays } =
+			await import("./types");
+		const rolling = {
+			...config,
+			windowMode: "rolling" as const,
+			rollingDays: 1,
+			timeZone: "Europe/Berlin",
+		};
+		const spring = effectiveCalendarConfiguration(
+			rolling,
+			new Date("2026-03-29T09:00:00Z"),
+		);
+		expect(spring.window.start).toBe("2026-03-28T23:00:00.000Z");
+		expect(spring.window.end).toBe("2026-03-29T22:00:00.000Z");
+		expect(
+			Date.parse(spring.window.end) - Date.parse(spring.window.start),
+		).toBe(23 * 3600_000);
+		const autumn = effectiveCalendarConfiguration(
+			rolling,
+			new Date("2026-10-25T09:00:00Z"),
+		);
+		expect(
+			Date.parse(autumn.window.end) - Date.parse(autumn.window.start),
+		).toBe(25 * 3600_000);
+		expect(approvedRollingDays(spring.window, "Europe/Berlin")).toBe(1);
+		expect(approvedRollingDays(autumn.window, "Europe/Berlin")).toBe(1);
+	});
+	it("preserves an explicitly fixed window and rejects unapproved oversized horizons", async () => {
+		const { effectiveCalendarConfiguration } = await import("./types");
+		expect(
+			effectiveCalendarConfiguration(
+				{ ...config, windowMode: "fixed" },
+				new Date("2027-01-01T00:00:00Z"),
+			).window,
+		).toEqual(config.window);
+		expect(() =>
+			effectiveCalendarConfiguration({ ...config, rollingDays: 91 }),
+		).toThrow("approved rolling horizon");
+	});
+});

@@ -55,6 +55,12 @@ describe("Microsoft calendar adapter", () => {
 		).toThrow("Unsafe");
 		expect(
 			microsoftNextLink(
+				"https://graph.microsoft.com/v1.0/me/calendarview?$skip=2",
+				"/v1.0/me/calendarView",
+			),
+		).toContain("calendarview");
+		expect(
+			microsoftNextLink(
 				"https://graph.microsoft.com/v1.0/me/calendarView?$skip=2",
 				"/v1.0/me/calendarView",
 			),

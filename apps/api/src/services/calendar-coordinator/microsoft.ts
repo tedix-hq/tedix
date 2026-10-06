@@ -68,7 +68,14 @@ export function microsoftNextLink(value: string, expectedPath: string): string {
 	const url = new URL(value);
 	if (
 		url.origin !== "https://graph.microsoft.com" ||
-		url.pathname !== expectedPath ||
+		decodeURIComponent(url.pathname).replace(
+			/\/calendarview$/i,
+			"/calendarView",
+		) !==
+			decodeURIComponent(expectedPath).replace(
+				/\/calendarview$/i,
+				"/calendarView",
+			) ||
 		url.username ||
 		url.password
 	)

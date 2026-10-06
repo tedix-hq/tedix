@@ -58,11 +58,15 @@ export const calendarCoordinatorContractRouter = {
 		const ownerUserId = calendarOwnerUser(context);
 		await requireWorkspace(context, input.workspaceId);
 		new Intl.DateTimeFormat("en", { timeZone: input.timeZone });
+		const { approvedRollingDays } =
+			await import("../../services/calendar-coordinator/types");
 		const configuration = CalendarConfigurationSchema.parse({
 			...input,
 			id: input.id ?? crypto.randomUUID(),
 			organizationId,
 			ownerUserId,
+			rollingDays:
+				input.rollingDays ?? approvedRollingDays(input.window, input.timeZone),
 			revision: input.expectedRevision + 1,
 			mode: "preview",
 			actions: [],

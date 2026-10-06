@@ -37,6 +37,8 @@ export const CalendarConfigurationSchema = z.object({
 	revision: z.number().int().positive(),
 	mode: z.enum(["preview", "active"]),
 	timeZone: z.string(),
+	windowMode: z.enum(["rolling", "fixed"]).default("rolling"),
+	rollingDays: z.number().int().min(1).max(90).default(14),
 	window: CalendarIntervalSchema,
 	tediId: id,
 	skillId: id,
@@ -54,6 +56,8 @@ export const ConfigureCalendarsInputSchema = z
 		skillId: id,
 		skillRevision: z.number().int().positive(),
 		timeZone: z.string().min(1).max(100),
+		windowMode: z.enum(["rolling", "fixed"]).default("rolling"),
+		rollingDays: z.number().int().min(1).max(90).optional(),
 		window: CalendarIntervalSchema,
 		calendars: z.array(CalendarRouteSchema).min(2).max(20),
 	})
