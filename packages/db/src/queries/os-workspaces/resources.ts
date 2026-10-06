@@ -96,6 +96,8 @@ export async function rebindOsWorkspaceResource(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceIdentity & {
 		connectionScope: OsWorkspaceResourceRow["connectionScope"];
+		personalOwnerUserId?: string | null;
+		connectionInstanceId?: string | null;
 		requiredScopes?: string;
 		expectedUpdatedAt: string;
 		now: string;
@@ -105,6 +107,8 @@ export async function rebindOsWorkspaceResource(
 		.update(osWorkspaceResources)
 		.set({
 			connectionScope: params.connectionScope,
+			personalOwnerUserId: params.personalOwnerUserId ?? null,
+			connectionInstanceId: params.connectionInstanceId ?? null,
 			...(params.requiredScopes === undefined
 				? {}
 				: { requiredScopes: params.requiredScopes }),

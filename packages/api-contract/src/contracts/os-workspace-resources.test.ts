@@ -36,6 +36,29 @@ describe("Workspace resource contracts", () => {
 		).toMatchObject(selection);
 	});
 
+	it("requires a canonical named account for personal selection and rejects injected owner identity", () => {
+		expect(
+			OsWorkspaceResourceSelectionSchema.safeParse({
+				...selection,
+				connectionScope: "user",
+			}).success,
+		).toBe(false);
+		const personal = {
+			...selection,
+			connectionScope: "user",
+			connectionInstanceId: "00000000-0000-4000-8000-000000000003",
+		};
+		expect(OsWorkspaceResourceSelectionSchema.parse(personal)).toEqual(
+			personal,
+		);
+		expect(
+			OsWorkspaceResourceSelectionSchema.safeParse({
+				...personal,
+				personalOwnerUserId: "other",
+			}).success,
+		).toBe(false);
+	});
+
 	it.each([
 		"accessToken",
 		"client_secret",

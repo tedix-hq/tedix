@@ -21,6 +21,10 @@ function fixture() {
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 	`);
 	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources));
+	// schemaDdl deliberately omits expression indexes; exercise the production identity index on real SQLite.
+	sqlite.exec(
+		"CREATE UNIQUE INDEX os_workspace_resources_provider_object_unique ON os_workspace_resources(workspace_id,provider_id,connection_scope,coalesce(personal_owner_user_id, ''),coalesce(connection_instance_id, ''),resource_type,provider_resource_id)",
+	);
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	return { db };
 }
@@ -77,6 +81,46 @@ describe("OS Workspace resources", () => {
 		await expect(
 			createOsWorkspaceResource(db, { ...resource, id: "resource-2" }),
 		).rejects.toThrow();
+	});
+
+	it("isolates identical provider IDs by exact personal account and clears the binding on tenant rebind", async () => {
+		const { db, resource } = await seed();
+		const personal = {
+			...resource,
+			id: "personal-a",
+			connectionScope: "user" as const,
+			personalOwnerUserId: "owner",
+			connectionInstanceId: "account-a",
+		};
+		await createOsWorkspaceResource(db, personal);
+		await createOsWorkspaceResource(db, {
+			...personal,
+			id: "personal-b",
+			connectionInstanceId: "account-b",
+		});
+		await expect(
+			createOsWorkspaceResource(db, { ...personal, id: "personal-duplicate" }),
+		).rejects.toThrow();
+		await expect(
+			rebindOsWorkspaceResource(db, {
+				organizationId: "org-1",
+				workspaceId: "ws-1",
+				resourceId: "personal-a",
+				connectionScope: "tenant",
+				expectedUpdatedAt: resource.updatedAt,
+				now: "2026-08-20T02:00:00.000Z",
+			}),
+		).rejects.toThrow();
+		// The matching tenant object already exists, so rebind cannot erase account identity by colliding with it.
+		expect(
+			(
+				await getOsWorkspaceResource(db, {
+					organizationId: "org-1",
+					workspaceId: "ws-1",
+					resourceId: "personal-a",
+				})
+			)?.connectionInstanceId,
+		).toBe("account-a");
 	});
 
 	it("uses optimistic concurrency for rename and removal", async () => {

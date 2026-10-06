@@ -160,6 +160,9 @@ export const osWorkspaceResources = sqliteTable(
 		connectionScope: text("connection_scope", {
 			enum: ["tenant", "user"],
 		}).notNull(),
+		/** Exact owner/account selected for a personal resource; legacy unbound rows cannot delegate. */
+		personalOwnerUserId: text("personal_owner_user_id"),
+		connectionInstanceId: text("connection_instance_id"),
 		/** JSON string: scopes the canonical connection must grant at use time. */
 		requiredScopes: text("required_scopes").notNull().default("[]"),
 		resourceType: text("resource_type").notNull(),
@@ -189,6 +192,8 @@ export const osWorkspaceResources = sqliteTable(
 			table.workspaceId,
 			table.providerId,
 			table.connectionScope,
+			sql`coalesce(${table.personalOwnerUserId}, '')`,
+			sql`coalesce(${table.connectionInstanceId}, '')`,
 			table.resourceType,
 			table.providerResourceId,
 		),
