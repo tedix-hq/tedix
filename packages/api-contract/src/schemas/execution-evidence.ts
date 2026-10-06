@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { asRecord } from "../utils/is-record";
+import { TediSchema } from "./tedi";
 
 export const ExecutionCapabilitySchema = z.enum([
 	"repository_read",
@@ -167,7 +168,13 @@ function inferStatus(
 	record: Record<string, unknown> | null,
 ): CompletionEvidenceStatus {
 	if (!record) return "succeeded";
-	const status = stringValue(record, "status")?.toLowerCase();
+	// The exact typed lookup reports the entity's lifecycle, not operation
+	// completion. Keep all other signals on the original record authoritative.
+	const entityLookup =
+		operation === "get_tedi" && TediSchema.safeParse(record).success;
+	const status = entityLookup
+		? null
+		: stringValue(record, "status")?.toLowerCase();
 	const state = stringValue(record, "state")?.toLowerCase();
 	if (
 		record.canceled === true ||

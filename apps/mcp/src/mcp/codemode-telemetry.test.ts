@@ -6,6 +6,7 @@ import {
 	it,
 	vi,
 } from "vite-plus/test";
+import { TediSchema } from "@tedix/api-contract/schemas/tedi";
 import { enteredSpans } from "../../test/stubs/cloudflare-workers";
 
 const executorBudgets = vi.hoisted(() => [] as number[]);
@@ -123,6 +124,24 @@ vi.mock("@cloudflare/codemode", () => {
 					]);
 					return { result, logs: [] };
 				}
+				if (code.includes("repeated_tedi_lookup")) {
+					const getter = providers.find((entry) => entry.name === "tedis")?.fns
+						.get_tedi;
+					if (!getter) throw new Error("tedis.get_tedi missing");
+					const result = [];
+					for (let i = 0; i < 3; i++) {
+						const raw = await getter({
+							tediId: "11111111-1111-4111-8111-111111111111",
+						});
+						const value = raw as Record<string, unknown>;
+						result.push({
+							id: value.id,
+							status: value.status,
+							completionEvidence: value.completionEvidence,
+						});
+					}
+					return { result, logs: [] };
+				}
 				if (code.includes("repeated_soft_fail")) {
 					const provider = providers.find((entry) => entry.name === "test");
 					const tool = provider?.fns.soft_fail;
@@ -180,6 +199,33 @@ vi.mock("./tool-execution", () => ({
 import { registerCodeModeTools } from "./codemode";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
+
+const tediRecord = {
+	id: "11111111-1111-4111-8111-111111111111",
+	organizationId: "22222222-2222-4222-8222-222222222222",
+	ownerUserId: null,
+	scope: "organization" as const,
+	name: "Fixture worker",
+	slug: "fixture-worker",
+	displayName: null,
+	externalRef: null,
+	tags: null,
+	personality: null,
+	avatar: null,
+	timezone: null,
+	language: null,
+	installedSkills: null,
+	installedPlugins: null,
+	status: "active" as const,
+	billingState: null,
+	workerName: null,
+	r2BucketName: null,
+	runtimeStatus: "unknown" as const,
+	lastSeenAt: null,
+	lastSyncAt: null,
+	createdAt: null,
+	updatedAt: null,
+};
 
 function tool(overrides: Partial<AppTool> = {}): AppTool {
 	return {
@@ -563,6 +609,92 @@ describe("Code Mode tail telemetry", () => {
 
 		expect(response.structuredContent?.result).toMatchObject({ rows: [1, 2] });
 	});
+
+	it.each([
+		["active", {}, "succeeded", 3, [0, 0, 0]],
+		["provisioning", {}, "succeeded", 3, [0, 0, 0]],
+		["active", { error: "explicit failure" }, "failed", 2, [1, 2, 2]],
+		["active", { id: "invalid" }, "partial", 2, [1, 2, 2]],
+		["active", { running: true }, "pending", 3, [0, 0, 0]],
+	] as const)(
+		"accounts repeated typed lookup %s %j honestly",
+		async (status, flags, expected, dispatches, attempts) => {
+			const record = { ...tediRecord, status, ...flags };
+			if (!("id" in flags))
+				expect(TediSchema.safeParse(record).success).toBe(true);
+			executeToolMock.mockResolvedValue({
+				content: [{ type: "text", text: JSON.stringify(record) }],
+				structuredContent: record,
+				_meta: {},
+				isError: false,
+			});
+			const getter = tool({
+				toolId: "tedis__get_tedi",
+				title: "Get fixture worker",
+				annotations: { readOnlyHint: true },
+				config: { endpoint: "tedis/get" },
+			});
+			const ctx = makeServerCtx(new Map([[getter.toolId, getter]]));
+			ctx.callerIdentity!.scopes = ["mcp:tedis.read"];
+			const registered = new Map<string, (args: unknown) => Promise<unknown>>();
+			await registerCodeModeTools(
+				{
+					registerTool: (
+						name: string,
+						_config: unknown,
+						handler: (args: unknown) => Promise<unknown>,
+					) => registered.set(name, handler),
+				} as never,
+				ctx,
+			);
+			const response = (await registered.get("code")!({
+				code: "async () => repeated_tedi_lookup()",
+			})) as {
+				structuredContent: {
+					result: Array<{
+						id?: string;
+						status?: string;
+						completionEvidence: {
+							status: string;
+							providerConfirmation: string;
+							retry: { attempts: number; blocked: boolean };
+						};
+					}>;
+					completionEvidence: { status: string; unsupportedClaims: string[] };
+				};
+			};
+			expect(executeToolMock).toHaveBeenCalledTimes(dispatches);
+			const rows = response.structuredContent.result;
+			expect(rows).toHaveLength(3);
+			expect(rows.map((row) => row.completionEvidence.retry.attempts)).toEqual(
+				attempts,
+			);
+			expect(
+				rows.slice(0, dispatches).map((row) => row.completionEvidence.status),
+			).toEqual(Array(dispatches).fill(expected));
+			expect(rows[0]?.status).toBe(status);
+			if (dispatches === 3) {
+				expect(rows.every((row) => !row.completionEvidence.retry.blocked)).toBe(
+					true,
+				);
+				expect(
+					rows.every(
+						(row) => row.completionEvidence.providerConfirmation === "unknown",
+					),
+				).toBe(true);
+			} else expect(rows[2]?.completionEvidence.retry.blocked).toBe(true);
+			expect(response.structuredContent.completionEvidence.status).toBe(
+				expected === "succeeded"
+					? "succeeded"
+					: expected === "pending" || expected === "partial"
+						? "partial"
+						: "failed",
+			);
+			expect(
+				response.structuredContent.completionEvidence.unsupportedClaims,
+			).toContain("the delegated task's goal was achieved");
+		},
+	);
 
 	it("blocks the third identical failed call within one execution", async () => {
 		const registered = new Map<string, (args: unknown) => Promise<unknown>>();
