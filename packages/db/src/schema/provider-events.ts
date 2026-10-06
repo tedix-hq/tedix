@@ -10,6 +10,18 @@ export const providerEventSubscriptions = sqliteTable(
 		providerId: text("provider_id").notNull(),
 		connectionInstanceId: text("connection_instance_id"),
 		calendarId: text("calendar_id").notNull(),
+		connectionScope: text("connection_scope", { enum: ["tenant", "user"] })
+			.notNull()
+			.default("tenant"),
+		personalOwnerUserId: text("personal_owner_user_id"),
+		workspaceId: text("workspace_id"),
+		workspaceResourceId: text("workspace_resource_id"),
+		delegationId: text("delegation_id"),
+		executionToolId: text("execution_tool_id"),
+		resourceDelegationIds: text("resource_delegation_ids", { mode: "json" })
+			.$type<string[]>()
+			.notNull()
+			.default([]),
 		tediId: text("tedi_id").notNull(),
 		skillId: text("skill_id").notNull(),
 		skillRevision: integer("skill_revision").notNull(),

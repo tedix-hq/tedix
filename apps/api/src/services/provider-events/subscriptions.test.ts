@@ -57,7 +57,7 @@ import {
 	queueReconciliation,
 	reconciliationEvent,
 } from "./subscriptions";
-const id = "747fa260-ef68-4156-a8b0-f70375997f9a";
+const id = "11111111-1111-4111-8111-111111111111";
 const context = { db: {}, env: { API_URL: "https://api.test" } } as BaseContext;
 let row: Subscription;
 beforeEach(() => {
@@ -69,6 +69,13 @@ beforeEach(() => {
 		providerId: "google",
 		connectionInstanceId: id,
 		calendarId: "selected",
+		connectionScope: "tenant",
+		personalOwnerUserId: null,
+		workspaceId: null,
+		workspaceResourceId: null,
+		delegationId: null,
+		executionToolId: null,
+		resourceDelegationIds: [],
 		tediId: id,
 		skillId: id,
 		skillRevision: 3,
@@ -171,6 +178,8 @@ describe("standing subscription lifecycle", () => {
 				providerId: "google",
 				connectionInstanceId: id,
 				calendarId: "selected",
+				connectionScope: "tenant",
+				resourceDelegationIds: [],
 				tediId: id,
 				skillId: id,
 				skillRevision: 3,
@@ -185,6 +194,8 @@ describe("standing subscription lifecycle", () => {
 			providerId: "google",
 			connectionInstanceId: id,
 			calendarId: "selected",
+			connectionScope: "tenant",
+			resourceDelegationIds: [],
 			tediId: id,
 			skillId: id,
 			skillRevision: 3,
@@ -252,6 +263,8 @@ describe("durable dispatch authority and retries", () => {
 				providerId: "google",
 				connectionInstanceId: id,
 				calendarId: "selected",
+				connectionScope: "tenant",
+				resourceDelegationIds: [],
 				tediId: id,
 				skillId: id,
 				skillRevision: 3,

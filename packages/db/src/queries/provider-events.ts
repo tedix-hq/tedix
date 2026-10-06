@@ -250,10 +250,12 @@ export async function pruneProviderEvents(
 		.limit(50);
 	const removedChannels = await db
 		.delete(channels)
+		// bound-params: SQL subquery limit50 selects identifiers without a host parameter list.
 		.where(inArray(channels.id, channelIds))
 		.returning({ id: channels.id });
 	const removedDeliveries = await db
 		.delete(deliveries)
+		// bound-params: SQL subquery limit50 selects identifiers without a host parameter list.
 		.where(inArray(deliveries.id, deliveryIds))
 		.returning({ id: deliveries.id });
 	return {
