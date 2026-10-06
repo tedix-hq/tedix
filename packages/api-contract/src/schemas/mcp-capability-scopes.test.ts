@@ -11,6 +11,34 @@ import {
 } from "./mcp-capability-scopes";
 
 describe("MCP capability scope mapping", () => {
+	it("maps the exact plural approval inbox without widening Work names", () => {
+		for (const prefix of ["", "work__", "tedix_unified__"]) {
+			const name = `${prefix}list_work_approvals`;
+			expect(toolToCapabilityScope(name)).toBe("mcp:work");
+			expect(toolToGranularCapabilityScope(name)).toBe("mcp:work.read");
+			expect(toolToGranularCapabilityScope(name, { readOnlyHint: false })).toBe(
+				"mcp:work.write",
+			);
+			expect(
+				toolToGranularCapabilityScope(name, { destructiveHint: true }),
+			).toBe("mcp:work.admin");
+			for (const unknown of [
+				"list_work_approvals_unreviewed",
+				"get_work_approvals",
+			]) {
+				expect(() => toolToCapabilityScope(`${prefix}${unknown}`)).toThrow(
+					/Missing MCP capability mapping/,
+				);
+			}
+			expect(
+				toolToGranularCapabilityScope(`${prefix}propose_work_approval`),
+			).toBe("mcp:work.write");
+			expect(
+				toolToGranularCapabilityScope(`${prefix}decide_work_approval`),
+			).toBe("mcp:work.admin");
+		}
+	});
+
 	it("maps the canonical tedi getter without weakening metadata tiers", () => {
 		for (const prefix of [
 			"",

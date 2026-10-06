@@ -104,6 +104,38 @@ function resolve(rawName: string): string[] {
 }
 
 describe("work board scope resolution", () => {
+	it("requires the existing Work read grant for the exact approval inbox", () => {
+		expect(resolve("list_work_approvals")).toEqual(["mcp:work.read"]);
+		for (const prefix of ["", "tedix__", "tedix_unified__"]) {
+			const tool = {
+				toolId: `${prefix}list_work_approvals`,
+				authRequired: true,
+				annotations: { readOnlyHint: true },
+			};
+			for (const namespace of ["work", "tedix_unified", "unknown"]) {
+				expect(
+					resolveMcpToolRequiredScopes(tool, namespace, tenantAggregateConfig),
+				).toEqual(["mcp:work.read"]);
+				for (const [scope, allowed] of [
+					["mcp:work.read", true],
+					["mcp:settings.admin", false],
+					["mcp:messaging.read", false],
+					["platform:admin", false],
+				] as const) {
+					expect(
+						isMcpToolVisibleToCaller(tool, namespace, tenantAggregateConfig, {
+							authType: "oauth",
+							scopes: [scope],
+						}),
+					).toBe(allowed);
+				}
+			}
+		}
+		expect(() => resolve("list_work_approvals_unreviewed")).toThrow(
+			/Missing MCP capability mapping/,
+		);
+	});
+
 	it("exposes admission tools only through their canonical Work tier", () => {
 		for (const namespace of ["work", "tedix_unified", "unknown"]) {
 			for (const prefix of ["", "tedix__", "tedix_unified__"]) {

@@ -149,6 +149,8 @@ export type McpGranularCapabilityScopeName =
 const DOCS_SCOPES_BY_TOOL = new Map(Object.entries(DOCS_TOOL_SCOPES));
 
 const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
+	// The canonical approval inbox uses a plural name outside WORK_TOOL_RE.
+	list_work_approvals: "mcp:work",
 	run_tedi_turn: "mcp:messaging",
 	// A budget rejection may ask a human to change policy; the request itself
 	// never authorizes spend. The separate budget-policy mutation stays admin.
