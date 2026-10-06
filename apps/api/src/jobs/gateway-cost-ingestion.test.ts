@@ -1,3 +1,4 @@
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { DatabaseSync } from "node:sqlite";
 import { encodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import { createDbClient } from "@tedix/db/client";
@@ -12,6 +13,7 @@ import {
 	ingestGatewayLogCosts,
 	mapRowToCallCost,
 	matchesGatewayExecution,
+	matchesAuthenticatedGatewayExecution,
 } from "./gateway-cost-ingestion";
 
 const insertCallCosts = vi.hoisted(() => vi.fn());
@@ -1166,4 +1168,231 @@ describe("provider cost presence and pricing basis", () => {
 			estimatedCostUsd: null,
 		});
 	});
+});
+
+describe("modern native Auto log correlation", () => {
+	it("authenticates exact persisted pool and native /run while preserving failed-usage quarantine", async () => {
+		const policy = {
+			kind: "auto_router_v1" as const,
+			routing: {
+				version: 1 as const,
+				modality: "text" as const,
+				mode: "restricted" as const,
+				allowedProviders: ["workers-ai"],
+				allowedModels: ["@cf/example/model"],
+			},
+			finite: null,
+		};
+		const auto = {
+			...execution,
+			provider: "workers-ai" as const,
+			requestModel: "cloudflare/auto",
+			apiKind: "workers-ai-chat" as const,
+			providerResource: null,
+			providerOrigin: null,
+			deployment: null,
+			policy,
+			policyHash: await sha256Hex(JSON.stringify(policy)),
+		};
+		const native = {
+			...validLog(),
+			provider: "workers-ai",
+			model: "@cf/example/model",
+			path: "/run",
+			request_type: "run",
+			authentication: true,
+		};
+		expect(
+			await matchesAuthenticatedGatewayExecution(
+				native,
+				"example-gateway",
+				"account-1",
+				auto,
+			),
+		).toBe(true);
+		for (const patch of [
+			{ path: "/run?x=1" },
+			{ path: "/compat/chat/completions" },
+			{ request_type: "chat" },
+			{ authentication: false },
+			{ model: "openai/example/model" },
+			{ model: "@cf/example/other" },
+			{ model: "@cf/example/model\n" },
+			{ provider: "azure-openai" },
+			{ metadata: { ...native.metadata, orgId: "other" } },
+		])
+			expect(
+				await matchesAuthenticatedGatewayExecution(
+					{ ...native, ...patch },
+					"example-gateway",
+					"account-1",
+					auto,
+				),
+			).toBe(false);
+		for (const patch of [
+			{ policy: null, policyHash: null },
+			{ policyHash: "a".repeat(64) },
+			{
+				policy: {
+					...policy,
+					routing: { ...policy.routing, allowedModels: ["@cf/example/other"] },
+				},
+			},
+		])
+			expect(
+				await matchesAuthenticatedGatewayExecution(
+					native,
+					"example-gateway",
+					"account-1",
+					{ ...auto, ...patch } as never,
+				),
+			).toBe(false);
+		expect(
+			await matchesAuthenticatedGatewayExecution(
+				{ ...native, success: false },
+				"example-gateway",
+				"account-1",
+				auto,
+			),
+		).toBe(true);
+		expect(
+			mapRowToCallCost(
+				{ ...native, success: false, cost: 4 },
+				"example-gateway",
+			),
+		).toMatchObject({
+			estimatedCostUsd: null,
+			dataQuality: "quarantined_failed",
+		});
+	});
+});
+
+it("modern Auto retains unrestricted/one-axis policies and every original correlation guard", async () => {
+	const native = {
+		...validLog(),
+		provider: "workers-ai",
+		model: "@cf/example/model",
+		path: "/run",
+		request_type: "run",
+		authentication: true,
+		cost: 4,
+	};
+	for (const restriction of [
+		{
+			mode: "unrestricted" as const,
+			allowedProviders: null,
+			allowedModels: null,
+		},
+		{
+			mode: "restricted" as const,
+			allowedProviders: ["workers-ai"],
+			allowedModels: null,
+		},
+		{
+			mode: "restricted" as const,
+			allowedProviders: null,
+			allowedModels: [native.model],
+		},
+	]) {
+		const policy = {
+			kind: "auto_router_v1" as const,
+			routing: {
+				version: 1 as const,
+				modality: "text" as const,
+				...restriction,
+			},
+			finite: null,
+		};
+		const auto = {
+			...execution,
+			provider: "workers-ai" as const,
+			requestModel: "cloudflare/auto",
+			apiKind: "workers-ai-chat" as const,
+			providerResource: null,
+			providerOrigin: null,
+			deployment: null,
+			policy,
+			policyHash: await sha256Hex(JSON.stringify(policy)),
+		};
+		expect(
+			await matchesAuthenticatedGatewayExecution(
+				native,
+				"example-gateway",
+				"account-1",
+				auto,
+			),
+		).toBe(true);
+		expect(
+			await matchesAuthenticatedGatewayExecution(
+				native,
+				"other",
+				"account-1",
+				auto,
+			),
+		).toBe(false);
+		expect(
+			await matchesAuthenticatedGatewayExecution(
+				native,
+				"example-gateway",
+				"other",
+				auto,
+			),
+		).toBe(false);
+		for (const created_at of [
+			"2026-09-19T23:59:59Z",
+			"2026-09-20T00:10:01Z",
+			"invalid",
+		])
+			expect(
+				await matchesAuthenticatedGatewayExecution(
+					{ ...native, created_at },
+					"example-gateway",
+					"account-1",
+					auto,
+				),
+			).toBe(false);
+		for (const patch of [
+			{ executionId: "other" },
+			{ billingReservationId: "other" },
+			{ runId: "other" },
+			{ workItemId: "other" },
+		]) {
+			const attribution = encodeAiGatewayAttribution({
+				executionId: execution.id,
+				billingReservationId: execution.billingReservationId,
+				runId: execution.runId,
+				workItemId: execution.workItemId,
+				...patch,
+			});
+			expect(
+				await matchesAuthenticatedGatewayExecution(
+					{ ...native, metadata: { ...native.metadata, attribution } },
+					"example-gateway",
+					"account-1",
+					auto,
+				),
+			).toBe(false);
+		}
+		expect(
+			await matchesAuthenticatedGatewayExecution(
+				{ ...native, metadata: { ...native.metadata, tediId: "other" } },
+				"example-gateway",
+				"account-1",
+				auto,
+			),
+		).toBe(false);
+		expect(
+			mapRowToCallCost(native, "example-gateway", {
+				execution: auto,
+				costUsd: 4,
+				rateVersionId: null,
+				reason: null,
+			}),
+		).toMatchObject({
+			estimatedCostUsd: 4,
+			costBasis: "gateway_reported",
+			executionId: execution.id,
+			billingReservationId: execution.billingReservationId,
+		});
+	}
 });

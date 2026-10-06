@@ -62,27 +62,34 @@ export const RuntimeEntitlementUsageSourceSchema = z.enum([
 	"gadget",
 ]);
 
-export const AuthorizeRuntimeInferenceInputSchema = z.strictObject({
-	originToken: z.string().min(1).max(16_384),
-	organizationId: z.string().min(1),
-	tediId: z.string().min(1).nullable().optional(),
-	settlementMode: BillingSettlementModeSchema,
-	source: RuntimeEntitlementUsageSourceSchema,
-	execution: ProviderExecutionIdentitySchema,
-	workItemId: z
-		.string()
-		.max(300)
-		.nullable()
-		.describe(
-			"Null when the actual execution is not associated with a Work Item.",
-		),
-	estimatedInputTokens: z.number().int().min(0).max(10_000_000),
-	estimatedOutputTokens: z.number().int().min(0).max(2_000_000),
-	runId: z.string().max(300).nullable().optional(),
-	traceId: z.string().max(300).nullable().optional(),
-	idempotencyKey: z.string().min(8).max(300),
-	metadata: z.record(z.string(), JsonValueSchema).optional(),
-});
+export const AuthorizeRuntimeInferenceInputSchema = z
+	.strictObject({
+		originToken: z.string().min(1).max(16_384),
+		organizationId: z.string().min(1),
+		tediId: z.string().min(1).nullable().optional(),
+		settlementMode: BillingSettlementModeSchema,
+		source: RuntimeEntitlementUsageSourceSchema,
+		execution: ProviderExecutionIdentitySchema,
+		workItemId: z
+			.string()
+			.max(300)
+			.nullable()
+			.describe(
+				"Null when the actual execution is not associated with a Work Item.",
+			),
+		estimatedInputTokens: z.number().int().min(0).max(10_000_000),
+		estimatedOutputTokens: z.number().int().min(0).max(2_000_000),
+		runId: z.string().max(300).nullable().optional(),
+		traceId: z.string().max(300).nullable().optional(),
+		idempotencyKey: z.string().min(8).max(300),
+		metadata: z.record(z.string(), JsonValueSchema).optional(),
+	})
+	.refine(
+		(r) =>
+			r.execution.requestModel !== "cloudflare/auto" ||
+			r.execution.autoRouting !== undefined,
+		{ message: "New Auto inference requires routing evidence" },
+	);
 export type AuthorizeRuntimeInferenceInput = z.infer<
 	typeof AuthorizeRuntimeInferenceInputSchema
 >;

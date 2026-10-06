@@ -912,3 +912,47 @@ describe("Auto Router request cancellation before authorization", () => {
 		},
 	);
 });
+
+it("freezes the admitted candidate pool before authorization mutates deployment config", async () => {
+	const env = {
+		AI_GATEWAY_ACCOUNT_ID: "account",
+		CF_AI_GATEWAY_TOKEN: "token",
+		AI_GATEWAY_AUTO_ALLOWED_PROVIDERS: "workers-ai",
+		AI_GATEWAY_AUTO_ALLOWED_MODELS: "@cf/example/model",
+	};
+	const send = vi.fn(
+		async () =>
+			new Response(
+				JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+			),
+	);
+	vi.stubGlobal("fetch", send);
+	try {
+		const model = cloudflareAutoRouterModel(
+			{
+				env,
+				authorize: async ({ execution, attribution }) => {
+					expect(execution.autoRouting?.allowedModels).toEqual([
+						"@cf/example/model",
+					]);
+					expect(Object.isFrozen(execution.autoRouting?.allowedModels)).toBe(
+						true,
+					);
+					env.AI_GATEWAY_AUTO_ALLOWED_PROVIDERS = "azure-openai";
+					env.AI_GATEWAY_AUTO_ALLOWED_MODELS = "other";
+					return { attribution };
+				},
+			},
+			{ gatewayId: "gateway" },
+		);
+		await model.doGenerate({
+			prompt: [{ role: "user", content: [{ type: "text", text: "work" }] }],
+		} as never);
+		expect((send.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
+			"cf-aig-allowed-providers": "workers-ai",
+			"cf-aig-allowed-models": "@cf/example/model",
+		});
+	} finally {
+		vi.unstubAllGlobals();
+	}
+});

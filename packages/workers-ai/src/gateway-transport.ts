@@ -1,3 +1,7 @@
+import {
+	AutoRoutingIdentitySchema,
+	type AutoRoutingIdentity,
+} from "@tedix/api-contract/schemas/provider-execution";
 /**
  * AI Gateway transport resolution.
  *
@@ -111,6 +115,8 @@ export interface AiGatewayTransport {
 
 export interface CloudflareAutoRouterRequest {
 	body: string;
+	/** Original admitted deployment capture, supplied by the owning model adapter. */
+	autoRouting: Readonly<AutoRoutingIdentity>;
 	attribution?: Record<string, string>;
 	sessionId?: string;
 	turnId?: string;
@@ -164,6 +170,40 @@ export function cloudflareAutoRouterCandidateHeaders(
 	return headers;
 }
 
+export function captureCloudflareAutoRouting(
+	env: AiGatewayTransportEnv,
+	messages: unknown,
+): Readonly<AutoRoutingIdentity> {
+	const headers = cloudflareAutoRouterCandidateHeaders(env, messages);
+	const modality =
+		Array.isArray(messages) &&
+		messages.some(
+			(m) =>
+				Array.isArray(m?.content) &&
+				m.content.some(
+					(p: { type?: unknown } | null) => p?.type === "image_url",
+				),
+		)
+			? "image"
+			: "text";
+	const allowedProviders =
+		headers["cf-aig-allowed-providers"]?.split(",") ?? null;
+	const allowedModels = headers["cf-aig-allowed-models"]?.split(",") ?? null;
+	const routing = AutoRoutingIdentitySchema.parse({
+		version: 1,
+		modality,
+		mode:
+			allowedProviders === null && allowedModels === null
+				? "unrestricted"
+				: "restricted",
+		allowedProviders,
+		allowedModels,
+	});
+	Object.freeze(routing.allowedProviders);
+	Object.freeze(routing.allowedModels);
+	return Object.freeze(routing);
+}
+
 /**
  * Call Auto Router through its documented authenticated `compat` endpoint.
  * The binding provider path is intentionally not guessed here: Cloudflare's
@@ -188,13 +228,11 @@ export async function openCloudflareAutoRouterResponse(
 		"Content-Type": "application/json",
 		"cf-aig-authorization": `Bearer ${token}`,
 	};
-	Object.assign(
-		headers,
-		cloudflareAutoRouterCandidateHeaders(
-			env,
-			JSON.parse(request.body).messages,
-		),
-	);
+	const routing = AutoRoutingIdentitySchema.parse(request.autoRouting);
+	if (routing.allowedProviders !== null)
+		headers["cf-aig-allowed-providers"] = routing.allowedProviders.join(",");
+	if (routing.allowedModels !== null)
+		headers["cf-aig-allowed-models"] = routing.allowedModels.join(",");
 	if (request.attribution && Object.keys(request.attribution).length > 0) {
 		headers["cf-aig-metadata"] = JSON.stringify(request.attribution);
 	}

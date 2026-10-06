@@ -259,6 +259,13 @@ function fixtureOriginGuard(orgId = "org", recheck: () => void = () => {}) {
 							token: originToken,
 						});
 						assert.equal(origin.kind, "accepted_native");
+						assert.deepEqual(request.execution.autoRouting, {
+							version: 1,
+							modality: "text",
+							mode: "restricted",
+							allowedProviders: ["workers-ai"],
+							allowedModels: ["@cf/example/model"],
+						});
 						assert.ok(!JSON.stringify(envelope).includes("original input"));
 						return Response.json({
 							json: {
@@ -278,7 +285,18 @@ function fixtureOriginGuard(orgId = "org", recheck: () => void = () => {}) {
 						workItemId: "work",
 					}),
 				},
-				execution,
+				execution: {
+					...execution,
+					requestModel: "cloudflare/auto",
+					transportKind: "gateway-https",
+					autoRouting: {
+						version: 1,
+						modality: "text",
+						mode: "restricted",
+						allowedProviders: ["workers-ai"],
+						allowedModels: ["@cf/example/model"],
+					},
+				},
 				body,
 				beforeDispatch: guard,
 			},
@@ -289,6 +307,8 @@ function fixtureOriginGuard(orgId = "org", recheck: () => void = () => {}) {
 		);
 		assert.ok(Object.isFrozen(authorized.receipt));
 		assert.ok(Object.isFrozen(authorized.execution));
+		assert.ok(Object.isFrozen(authorized.execution.autoRouting));
+		assert.ok(Object.isFrozen(authorized.execution.autoRouting?.allowedModels));
 		// Post-admission expiry: final real transport must enforce this receipt's narrower API window.
 		Date.now = () => time + 1_001;
 		const transport = azureGatewayFetch(

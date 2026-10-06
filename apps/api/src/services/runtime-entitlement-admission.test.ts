@@ -1,3 +1,4 @@
+import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-execution";
 import {
 	afterEach,
 	beforeEach,
@@ -191,7 +192,10 @@ import { createDbClient } from "@tedix/db/client";
 import * as tables from "@tedix/db/schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { signRuntimeInferenceOrigin } from "@tedix/auth/runtime-inference-origin";
+import {
+	signRuntimeInferenceOrigin,
+	verifyRuntimeInferenceOrigin,
+} from "@tedix/auth/runtime-inference-origin";
 import { reserveBillingUsage } from "@tedix/db/queries/billing/reservations";
 const zeroOrigin = () => ({
 	kind: "unselected_native" as const,
@@ -258,8 +262,8 @@ async function nativeFixture(mode: "managed" | "external" | "disabled") {
 			tediId: input.request.tediId,
 			runId: input.request.runId,
 			source: "kernel",
-			provider: execution.provider,
-			model: execution.requestModel,
+			provider: input.execution.provider,
+			model: input.execution.requestModel,
 			estimatedInputTokens: 10,
 			estimatedOutputTokens: 20,
 			idempotencyKey: "attempt-key",
@@ -869,4 +873,358 @@ it("distinguishes an actual original guarded replay read from the reservation ba
 			.get(),
 	).toEqual({ n: 1 });
 	expect(JSON.stringify(log.mock.calls)).not.toContain("private");
+});
+
+describe("deployment-owned kernel Auto routing", () => {
+	const routing = {
+		version: 1 as const,
+		modality: "text" as const,
+		mode: "restricted" as const,
+		allowedProviders: ["workers-ai"],
+		allowedModels: null,
+	};
+	const auto = {
+		...execution,
+		provider: "workers-ai" as const,
+		requestModel: "cloudflare/auto",
+		apiKind: "workers-ai-chat" as const,
+		providerResource: null,
+		providerOrigin: null,
+		deployment: null,
+		autoRouting: routing,
+	};
+	it.each(["managed", "external", "disabled"] as const)(
+		"persists original null-origin Auto policy in %s",
+		async (mode) => {
+			const result = await authorizeRuntimeInference({
+				plane: "organization_kernel",
+				db: {} as never,
+				env: {
+					TEDIX_BILLING_SETTLEMENT_MODE: mode,
+					AI_GATEWAY_AUTO_ALLOWED_PROVIDERS: " workers-ai ",
+				},
+				request: { ...request(mode), execution: auto },
+				nowMs: now,
+			});
+			expect(result.allowed).toBe(true);
+			const saved = mocks.find.mock.results.at(-1);
+			expect(saved).toBeDefined();
+			const admission =
+				mode === "managed"
+					? mocks.budget.mock.calls[0]![0].execution
+					: mocks.insert.mock.calls[0]![1];
+			expect(admission).toMatchObject({
+				origin: null,
+				originHash: null,
+				policy: { kind: "auto_router_v1", routing, finite: null },
+				policyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+			});
+		},
+	);
+	it("refuses missing or mismatched routing before database or budget effects", async () => {
+		for (const routed of [
+			undefined,
+			{ ...routing, allowedProviders: ["azure-openai"] },
+			{ ...routing, allowedProviders: null, mode: "unrestricted" as const },
+		]) {
+			await expect(
+				authorizeRuntimeInference({
+					plane: "organization_kernel",
+					db: {} as never,
+					env: {
+						TEDIX_BILLING_SETTLEMENT_MODE: "external",
+						AI_GATEWAY_AUTO_ALLOWED_PROVIDERS: "workers-ai",
+					},
+					request: {
+						...request("external"),
+						execution: { ...auto, autoRouting: routed },
+					},
+					nowMs: now,
+				}),
+			).rejects.toThrow();
+		}
+		expect(mocks.find).not.toHaveBeenCalled();
+		expect(mocks.budget).not.toHaveBeenCalled();
+	});
+});
+
+it.each(["managed", "external", "disabled"] as const)(
+	"signed native Auto preserves original guarded D1 admission in %s",
+	async (mode) => {
+		const f = await nativeFixture(mode);
+		const routing = {
+			version: 1 as const,
+			modality: "text" as const,
+			mode: "restricted" as const,
+			allowedProviders: null,
+			allowedModels: ["@cf/example/model"],
+		};
+		const projection = {
+			...f.input.request,
+			execution: {
+				...execution,
+				provider: "workers-ai" as const,
+				requestModel: "cloudflare/auto",
+				apiKind: "workers-ai-chat" as const,
+				providerResource: null,
+				providerOrigin: null,
+				deployment: null,
+				autoRouting: routing,
+			},
+		};
+		const { originToken: _old, ...signed } = projection;
+		const token = await signRuntimeInferenceOrigin({
+			secret: "secret",
+			request: signed,
+			origin: zeroOrigin(),
+		});
+		const input = {
+			...f.input,
+			env: {
+				...f.input.env,
+				AI_GATEWAY_AUTO_ALLOWED_MODELS: "@cf/example/model",
+			},
+			request: { ...signed, originToken: token },
+		};
+		try {
+			const result = await authorizeRuntimeInference(input);
+			expect(result.allowed).toBe(true);
+			const original = await f.owner.findProviderExecutionAdmission(
+				f.db,
+				"org",
+				"attempt-key",
+			);
+			expect(original).toMatchObject({
+				policy: { kind: "auto_router_v1", routing, finite: null },
+				origin: { kind: "unselected_native" },
+				policyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+			});
+			expect((await authorizeRuntimeInference(input)).executionId).toBe(
+				result.executionId,
+			);
+			const changed = {
+				...signed,
+				execution: {
+					...signed.execution,
+					autoRouting: { ...routing, allowedModels: ["@cf/example/other"] },
+				},
+			};
+			const changedToken = await signRuntimeInferenceOrigin({
+				secret: "secret",
+				request: changed,
+				origin: zeroOrigin(),
+			});
+			await expect(
+				authorizeRuntimeInference({
+					...input,
+					env: {
+						...input.env,
+						AI_GATEWAY_AUTO_ALLOWED_MODELS: "@cf/example/other",
+					},
+					request: { ...changed, originToken: changedToken },
+				}),
+			).rejects.toThrow(/provenance|identity/);
+			expect(
+				await f.owner.findProviderExecutionAdmission(
+					f.db,
+					"org",
+					"attempt-key",
+				),
+			).toEqual(original);
+		} finally {
+			f.sqlite.close();
+		}
+	},
+);
+
+it("captures finite authorization before real crypto awaits and preserves Auto finite enforcement", async () => {
+	const f = await finiteFixture("external");
+	const { originToken, ...projection } = f.input.request;
+	const origin = await verifyRuntimeInferenceOrigin({
+		secret: "secret",
+		request: projection,
+		token: originToken,
+	});
+	const routing = {
+		version: 1 as const,
+		modality: "text" as const,
+		mode: "unrestricted" as const,
+		allowedProviders: null,
+		allowedModels: null,
+	};
+	const identity = {
+		...projection.execution,
+		provider: "workers-ai" as const,
+		requestModel: "cloudflare/auto",
+		apiKind: "workers-ai-chat" as const,
+		providerResource: null,
+		providerOrigin: null,
+		deployment: null,
+		autoRouting: routing,
+	};
+	const at = new Date().toISOString();
+	const candidate = {
+		...identity,
+		id: crypto.randomUUID(),
+		organizationId: projection.organizationId,
+		tediId: projection.tediId,
+		source: projection.source,
+		runId: projection.runId,
+		workItemId: projection.workItemId,
+		idempotencyKey: projection.idempotencyKey,
+		settlementMode: "external" as const,
+		billingReservationId: null,
+		deploymentScope: providerDeploymentScope(identity),
+		authorizedAt: at,
+		sendBefore: new Date(Date.parse(at) + 1000).toISOString(),
+	};
+	try {
+		const originalId = f.grant.id;
+		const pending = f.owner.prepareProviderExecutionAdmission(
+			f.db,
+			candidate,
+			origin,
+			f.grant,
+		);
+		f.grant.id = "00000000-0000-4000-8000-000000000099";
+		f.grant.input.expiresAt = "2000-01-01T00:00:00.000Z";
+		const prepared = await pending;
+		expect(prepared.execution.policy).toMatchObject({
+			kind: "auto_router_v1",
+			finite: { authorizationId: originalId },
+			routing,
+		});
+		await f.owner.buildProviderExecutionInsertStatement(
+			f.db,
+			prepared.execution,
+			prepared.guard,
+		);
+		expect(
+			await f.owner.findProviderExecutionAdmission(
+				f.db,
+				candidate.organizationId,
+				candidate.idempotencyKey,
+				prepared.guard,
+			),
+		).not.toBeNull();
+		f.sqlite.exec("UPDATE organization_members SET status='inactive'");
+		expect(
+			await f.owner.findProviderExecutionAdmission(
+				f.db,
+				candidate.organizationId,
+				candidate.idempotencyKey,
+				prepared.guard,
+			),
+		).toBeNull();
+	} finally {
+		f.sqlite.close();
+	}
+});
+
+it.each(["managed", "external", "disabled"] as const)(
+	"actual kernel Auto %s retry retains NULL origin and original IDs/window",
+	async (mode) => {
+		const f = await nativeFixture(mode);
+		const { originToken: _token, ...projection } = f.input.request;
+		const identity = {
+			...projection.execution,
+			provider: "workers-ai" as const,
+			requestModel: "cloudflare/auto",
+			apiKind: "workers-ai-chat" as const,
+			providerResource: null,
+			providerOrigin: null,
+			deployment: null,
+			autoRouting: {
+				version: 1 as const,
+				modality: "text" as const,
+				mode: "unrestricted" as const,
+				allowedProviders: null,
+				allowedModels: null,
+			},
+		};
+		const input = {
+			...f.input,
+			plane: "organization_kernel" as const,
+			request: { ...projection, execution: identity },
+		};
+		try {
+			const first = await authorizeRuntimeInference(input);
+			expect(first.allowed).toBe(true);
+			expect(await authorizeRuntimeInference(input)).toEqual(first);
+			const saved = await f.owner.findProviderExecutionAdmission(
+				f.db,
+				"org",
+				"attempt-key",
+			);
+			expect(saved).toMatchObject({
+				origin: null,
+				originHash: null,
+				policy: { kind: "auto_router_v1", finite: null },
+			});
+			f.sqlite.exec(
+				"UPDATE provider_execution_attempts SET origin_hash='" +
+					"a".repeat(64) +
+					"'",
+			);
+			await expect(authorizeRuntimeInference(input)).rejects.toThrow(
+				/provenance/,
+			);
+		} finally {
+			f.sqlite.close();
+		}
+	},
+);
+
+it("validates the original image pool and captures request before the first database await", async () => {
+	const routing = {
+		version: 1 as const,
+		modality: "image" as const,
+		mode: "restricted" as const,
+		allowedProviders: null,
+		allowedModels: ["@cf/example/vision"],
+	};
+	const supplied = {
+		...request("external"),
+		execution: {
+			...execution,
+			provider: "workers-ai" as const,
+			requestModel: "cloudflare/auto",
+			apiKind: "workers-ai-chat" as const,
+			providerResource: null,
+			providerOrigin: null,
+			deployment: null,
+			autoRouting: routing,
+		},
+	};
+	mocks.find.mockImplementationOnce(async () => {
+		supplied.execution.autoRouting.allowedModels[0] = "@cf/example/changed";
+		return null;
+	});
+	const result = await authorizeRuntimeInference({
+		plane: "organization_kernel",
+		db: {} as never,
+		env: {
+			TEDIX_BILLING_SETTLEMENT_MODE: "external",
+			AI_GATEWAY_AUTO_ALLOWED_MODELS: "@cf/example/text",
+			AI_GATEWAY_AUTO_ALLOWED_IMAGE_MODELS: "@cf/example/vision",
+		},
+		request: supplied,
+		nowMs: now,
+	});
+	expect(result.allowed).toBe(true);
+	expect(mocks.insert.mock.calls[0]![1].policy.routing.allowedModels).toEqual([
+		"@cf/example/vision",
+	]);
+	await expect(
+		authorizeRuntimeInference({
+			plane: "organization_kernel",
+			db: {} as never,
+			env: {
+				TEDIX_BILLING_SETTLEMENT_MODE: "external",
+				AI_GATEWAY_AUTO_ALLOWED_MODELS: "@cf/example/changed",
+			},
+			request: supplied,
+			nowMs: now,
+		}),
+	).rejects.toThrow(/image candidate pool/);
 });

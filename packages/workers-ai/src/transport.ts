@@ -66,7 +66,7 @@ export interface WorkersAiAuthorizeInput {
 	/** Original request cancellation; authorizers must check after their own awaits. */
 	signal?: AbortSignal;
 	/** Exact provider route, shared with typed Jev calls so admission stays canonical. */
-	execution: ProviderExecutionIdentity;
+	execution: Readonly<ProviderExecutionIdentity>;
 	/** The resolved Workers AI model id. */
 	model: string;
 	/** Exact serialized inference payload for sizing. */
