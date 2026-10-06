@@ -58,9 +58,19 @@ export async function priceProviderUsage(
 	usage: ProviderTokenUsage,
 ) {
 	if (
+		[
+			usage.inputTokens,
+			usage.outputTokens,
+			usage.cacheReadTokens,
+			usage.cacheWriteTokens,
+		].some(
+			(value) =>
+				typeof value !== "number" || !Number.isSafeInteger(value) || value < 0,
+		) ||
 		usage.inputTokens === null ||
-		!Number.isSafeInteger(usage.inputTokens) ||
-		usage.inputTokens < 0
+		usage.cacheReadTokens === null ||
+		usage.cacheWriteTokens === null ||
+		usage.cacheReadTokens > usage.inputTokens - usage.cacheWriteTokens
 	)
 		return {
 			costUsd: null,

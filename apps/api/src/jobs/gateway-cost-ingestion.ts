@@ -101,10 +101,25 @@ export interface AiGatewayLogRow {
 	usage_metadata?: {
 		input_tokens?: number;
 		output_tokens?: number;
-		input_cached_tokens?: number;
+		input_cached_tokens?: number | null;
+		input_cache_creation_tokens?: number | null;
 		total_tokens?: number;
 	} | null;
 	metadata?: Record<string, unknown> | null;
+}
+
+/** Unknown counters stay unknown for pricing; ledger zero placeholders are held. */
+function normalizeGatewayTokenUsage(row: AiGatewayLogRow) {
+	const count = (value: number | null | undefined): number | null =>
+		typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+			? value
+			: null;
+	return {
+		inputTokens: count(row.usage_metadata?.input_tokens ?? row.tokens_in),
+		outputTokens: count(row.usage_metadata?.output_tokens ?? row.tokens_out),
+		cacheReadTokens: count(row.usage_metadata?.input_cached_tokens),
+		cacheWriteTokens: count(row.usage_metadata?.input_cache_creation_tokens),
+	};
 }
 
 interface AiGatewayLogsResponse {
@@ -300,9 +315,11 @@ export function mapRowToCallCost(
 				: "unattributed";
 
 	const isWorkersAi = row.provider === "workers-ai";
-	const inputTokens = row.usage_metadata?.input_tokens ?? row.tokens_in ?? 0;
-	const outputTokens = row.usage_metadata?.output_tokens ?? row.tokens_out ?? 0;
-	const cacheReadTokens = row.usage_metadata?.input_cached_tokens ?? 0;
+	const usage = normalizeGatewayTokenUsage(row);
+	const inputTokens = usage.inputTokens ?? 0;
+	const outputTokens = usage.outputTokens ?? 0;
+	const cacheReadTokens = usage.cacheReadTokens ?? 0;
+	const cacheWriteTokens = usage.cacheWriteTokens ?? 0;
 	const totalTokens =
 		row.usage_metadata?.total_tokens ?? inputTokens + outputTokens;
 
@@ -358,7 +375,7 @@ export function mapRowToCallCost(
 		inputTokens,
 		outputTokens,
 		cacheReadTokens,
-		cacheWriteTokens: 0,
+		cacheWriteTokens,
 		totalTokens,
 		estimatedCostUsd,
 		executionId: execution?.id ?? null,
@@ -591,12 +608,7 @@ async function ingestGateway(
 							deploymentScope: execution.deploymentScope,
 							occurredAt: row.created_at,
 						},
-						{
-							inputTokens: row.usage_metadata?.input_tokens ?? row.tokens_in,
-							outputTokens: row.usage_metadata?.output_tokens ?? row.tokens_out,
-							cacheReadTokens: row.usage_metadata?.input_cached_tokens ?? 0,
-							cacheWriteTokens: 0,
-						},
+						normalizeGatewayTokenUsage(row),
 					)
 				: {
 						costUsd: null,

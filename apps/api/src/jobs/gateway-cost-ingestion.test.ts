@@ -22,6 +22,27 @@ vi.mock("@tedix/db/queries/tedi-usage", () => ({
 	insertCallCosts,
 	getExistingGatewayLogIds,
 }));
+const cacheExecutions = vi.hoisted(() =>
+	vi.fn(() => Promise.resolve([] as unknown[])),
+);
+const cacheRates = vi.hoisted(() =>
+	vi.fn(() => Promise.resolve([] as unknown[])),
+);
+vi.mock("@tedix/db/queries/provider-executions", () => ({
+	getProviderExecutionsByIds: cacheExecutions,
+}));
+vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
+	findProviderModelRates: cacheRates,
+}));
+vi.mock("@tedix/db/queries/platform-job-storage", async (original) => ({
+	...(await original<
+		typeof import("@tedix/db/queries/platform-job-storage")
+	>()),
+	loadKnownGatewayAttributionIds: async () => ({
+		organizationIds: ["org-1"],
+		tediIds: ["tedi-1"],
+	}),
+}));
 // The post-ingest settlement pass is billing-metering's concern (covered in
 // billing-metering.test.ts); stub it so cursor tests exercise ingestion alone.
 vi.mock("./billing-metering", () => ({
@@ -1395,4 +1416,124 @@ it("modern Auto retains unrestricted/one-axis policies and every original correl
 			billingReservationId: execution.billingReservationId,
 		});
 	}
+});
+
+describe("normalized LIST cache creation through ingestion", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		cacheExecutions.mockReset().mockResolvedValue([]);
+		cacheRates.mockReset().mockResolvedValue([]);
+	});
+	const ingestionEnv = {
+		CF_ACCOUNT_ID: "account-1",
+		AI_GATEWAY_LLM_ID: "example-gateway",
+		CF_AI_GATEWAY_TOKEN: "fictional",
+		TEDIX_FLEET_AUTHORITY_MODE: "co-located",
+		DB: {} as D1Database,
+		TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+	};
+	it.each([
+		["azure-responses", 4, false],
+		["azure-chat", 4, false],
+		["azure-responses", 0, false],
+		["azure-chat", 0, true],
+	] as const)(
+		"prices and stores identical inclusive partitions for %s (creation=%s cached=%s) without detail fetch",
+		async (apiKind, creation, cached) => {
+			const log = validLog();
+			log.path =
+				apiKind === "azure-responses"
+					? log.path
+					: "tedix-resource/custom-terra/chat/completions";
+			log.usage_metadata = {
+				input_tokens: 10,
+				output_tokens: 2,
+				input_cached_tokens: 3,
+				input_cache_creation_tokens: creation,
+				total_tokens: 12,
+			};
+			log.cost = 99;
+			log.cached = cached;
+			cacheExecutions.mockResolvedValue([{ ...execution, apiKind }]);
+			cacheRates.mockResolvedValue([
+				{
+					id: "fictional-rate",
+					inputMicrousdPerMillion: 1000000,
+					outputMicrousdPerMillion: 2000000,
+					cacheReadMicrousdPerMillion: 100000,
+					cacheWriteMicrousdPerMillion: 500000,
+				},
+			]);
+			insertCallCosts.mockImplementation((_db, rows) => Promise.resolve(rows));
+			stubGatewayLogs([log]);
+			const state: CursorDbState = {
+				upserts: [],
+				cursor: { lastLogCreatedAt: "2026-09-20T00:00:00.000Z", lastLogId: "" },
+			};
+			const results = await ingestGatewayLogCosts(
+				cursorDb(state),
+				ingestionEnv,
+			);
+			expect(results[0]?.ingested).toBe(1);
+			expect(insertCallCosts).toHaveBeenLastCalledWith(expect.anything(), [
+				expect.objectContaining({
+					inputTokens: 10,
+					outputTokens: 2,
+					cacheReadTokens: 3,
+					cacheWriteTokens: creation,
+					totalTokens: 12,
+					estimatedCostUsd: cached ? 0 : creation === 0 ? 0.000012 : 0.00001,
+					rawReportedCostUsd: 99,
+					rateVersionId: "fictional-rate",
+					costReason: null,
+					dataQuality: "ok",
+				}),
+			]);
+			expect(cacheRates).toHaveBeenLastCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					inputTokens: 10,
+					modelId: execution.requestModel,
+					deploymentScope: execution.deploymentScope,
+				}),
+			);
+			expect(state.upserts).toHaveLength(1);
+			expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+		},
+	);
+	it.each([
+		{ input_cache_creation_tokens: undefined, input_cached_tokens: 0 },
+		{ input_cache_creation_tokens: null, input_cached_tokens: 0 },
+		{ input_cache_creation_tokens: -1, input_cached_tokens: 0 },
+		{ input_cache_creation_tokens: 0.5, input_cached_tokens: 0 },
+		{
+			input_cache_creation_tokens: Number.MAX_SAFE_INTEGER + 1,
+			input_cached_tokens: 0,
+		},
+		{ input_cache_creation_tokens: 0, input_cached_tokens: undefined },
+		{ input_cache_creation_tokens: 0, input_cached_tokens: null },
+		{ input_cache_creation_tokens: 60, input_cached_tokens: 50 },
+	])(
+		"holds unknown, invalid or overlapping partitions %j before rate lookup",
+		async (counters) => {
+			const log = validLog();
+			log.usage_metadata = counters;
+			cacheExecutions.mockResolvedValue([execution]);
+			cacheRates.mockClear();
+			insertCallCosts.mockImplementation((_db, rows) => Promise.resolve(rows));
+			stubGatewayLogs([log]);
+			await ingestGatewayLogCosts(cursorDb({ upserts: [] }), ingestionEnv);
+			expect(cacheRates).not.toHaveBeenCalled();
+			expect(insertCallCosts).toHaveBeenLastCalledWith(expect.anything(), [
+				expect.objectContaining({
+					cacheWriteTokens:
+						counters.input_cache_creation_tokens === 60 ? 60 : 0,
+					estimatedCostUsd: null,
+					rateVersionId: null,
+					costReason: "invalid_usage",
+					dataQuality: "quarantined_no_pricing",
+				}),
+			]);
+		},
+	);
 });

@@ -13,6 +13,7 @@ vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
 }));
 import {
 	priceKernelUsage,
+	priceProviderUsage,
 	resolveProviderModelRate,
 } from "./provider-model-pricing";
 const input = {
@@ -238,4 +239,73 @@ it("represents a proven operation with no admitted sends as no_usage", async () 
 		},
 	});
 	expect(findRates).not.toHaveBeenCalled();
+});
+
+describe("inclusive cache partitions before rate lookup", () => {
+	it.each([
+		null,
+		undefined,
+		-1,
+		0.5,
+		NaN,
+		Infinity,
+		Number.MAX_SAFE_INTEGER + 1,
+	])("rejects invalid counter %s before lookup", async (invalid) => {
+		for (const key of [
+			"inputTokens",
+			"outputTokens",
+			"cacheReadTokens",
+			"cacheWriteTokens",
+		] as const) {
+			findRates.mockClear();
+			const usage = {
+				inputTokens: 10,
+				outputTokens: 2,
+				cacheReadTokens: 3,
+				cacheWriteTokens: 4,
+				[key]: invalid,
+			};
+			expect(await priceProviderUsage(env, input, usage as never)).toEqual({
+				costUsd: null,
+				costMicros: null,
+				rateVersionId: null,
+				reason: "invalid_usage",
+			});
+			expect(findRates).not.toHaveBeenCalled();
+		}
+	});
+	it("rejects overlapping input partitions before lookup", async () => {
+		findRates.mockClear();
+		expect(
+			await priceProviderUsage(env, input, {
+				inputTokens: 10,
+				outputTokens: 2,
+				cacheReadTokens: 6,
+				cacheWriteTokens: 5,
+			}),
+		).toMatchObject({ reason: "invalid_usage", rateVersionId: null });
+		expect(findRates).not.toHaveBeenCalled();
+	});
+	it.each([0, 4])(
+		"prices explicit creation %s within inclusive input",
+		async (cacheWriteTokens) => {
+			findRates.mockResolvedValue([rates]);
+			expect(
+				await priceProviderUsage(env, input, {
+					inputTokens: 10,
+					outputTokens: 2,
+					cacheReadTokens: 3,
+					cacheWriteTokens,
+				}),
+			).toMatchObject({
+				costMicros: cacheWriteTokens === 0 ? 12n : 10n,
+				rateVersionId: "rate",
+				reason: null,
+			});
+			expect(findRates).toHaveBeenLastCalledWith(tenant, {
+				...input,
+				inputTokens: 10,
+			});
+		},
+	);
 });
