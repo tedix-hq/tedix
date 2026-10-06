@@ -301,6 +301,40 @@ export async function verifyHumanMcpGrant(
 	env: CloudflareEnv,
 	input: VerifyHumanMcpGrantInput,
 ): Promise<HumanMcpGrantDecision> {
+	// Content-free stage timing: fixed names, durations and counts only. Spans
+	// carry the same values but are not queryable from Workers logs, and this
+	// check runs on every Connect request.
+	const started = Date.now();
+	const stages: Record<string, number> = {};
+	let last = started;
+	const mark = (stage: string) => {
+		const now = Date.now();
+		stages[`${stage}_ms`] = now - last;
+		last = now;
+	};
+	let decision: HumanMcpGrantDecision | undefined;
+	try {
+		decision = await verifyHumanMcpGrantStages(db, env, input, mark);
+		return decision;
+	} finally {
+		console.log(
+			JSON.stringify({
+				_tr: "mcp_grant_timing",
+				total_ms: Date.now() - started,
+				...stages,
+				organizations: input.selectedTenantIds.length,
+				outcome: decision?.allowed ? "allowed" : (decision?.reason ?? "error"),
+			}),
+		);
+	}
+}
+
+async function verifyHumanMcpGrantStages(
+	db: DbClient,
+	env: CloudflareEnv,
+	input: VerifyHumanMcpGrantInput,
+	mark: (stage: string) => void,
+): Promise<HumanMcpGrantDecision> {
 	if (!env.DESCOPE_MANAGEMENT_KEY) return deny("provider_unavailable");
 	const resource = await getMcpConsentResource(db, {
 		mcpServerId: input.mcpServerId,
@@ -313,6 +347,7 @@ export async function verifyHumanMcpGrant(
 				input.selectedTenantIds[0] !== resource.descopeTenantId))
 	)
 		return deny("membership_missing");
+	mark("resource");
 
 	let liveTenants: Set<string>;
 	let appId: string;
@@ -373,6 +408,7 @@ export async function verifyHumanMcpGrant(
 					}
 				},
 			);
+		mark("provider");
 		if (scopeResult.status === "rejected") return deny("provider_unavailable");
 		const supported = scopeResult.value;
 		if (!supported || input.tokenScopes.some((scope) => !supported.has(scope)))
@@ -456,6 +492,7 @@ export async function verifyHumanMcpGrant(
 		return deny("provider_unavailable");
 	}
 
+	mark("selection");
 	if (!input.selectedTenantIds.every((id) => liveTenants.has(id))) {
 		return deny("membership_missing");
 	}
@@ -496,6 +533,7 @@ export async function verifyHumanMcpGrant(
 	} catch {
 		return deny("provider_unavailable");
 	}
+	mark("membership");
 	if (organizations.some((org) => !org.gatewaySlug)) {
 		return deny("membership_missing");
 	}
@@ -518,6 +556,7 @@ export async function verifyHumanMcpGrant(
 	} catch {
 		return deny("provider_unavailable");
 	}
+	mark("finalize");
 	return { allowed: true, reason: "active", organizations };
 }
 
