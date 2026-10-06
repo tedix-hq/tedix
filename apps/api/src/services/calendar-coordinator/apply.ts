@@ -2,6 +2,7 @@ import { snapshotFingerprint } from "./plan";
 import {
 	digest,
 	owned,
+	removalConfirmed,
 	sameInterval,
 	type Action,
 	type CalendarAdapter,
@@ -91,11 +92,15 @@ export async function applyPlan(
 				throw new Error(
 					"Provider blocker readback differs from the private owned intent",
 				);
-			if (action.kind === "delete" && event)
+			if (action.kind === "delete" && !removalConfirmed(adapter, event, action))
 				throw new Error("Provider deletion was not confirmed");
 			mutation = {
 				...mutation,
 				state: "confirmed",
+				removalMode:
+					action.kind === "delete"
+						? (adapter.removalMode ?? "delete")
+						: undefined,
 				compensationEligible:
 					action.kind !== "delete" && adapter.conditionalWrites,
 				eventId: event?.id ?? action.destinationEventId,
@@ -260,14 +265,16 @@ export async function compensateBlocker(
 	await guard();
 	const reverse = {
 		...action,
+		before: current.interval,
 		destinationEventId: confirmed.eventId,
 		expectedDestinationRevision: confirmed.revision,
 	};
 	if (action.kind === "create") {
 		await adapter.remove(route, reverse);
-		if (await adapter.get(route, confirmed.eventId))
+		const released = await adapter.get(route, confirmed.eventId);
+		if (!removalConfirmed(adapter, released, reverse))
 			throw new Error("Compensation delete readback failed");
-		return null;
+		return released;
 	}
 	if (!action.before) throw new Error("Compensation lacks prior interval");
 	await adapter.update(route, { ...reverse, after: action.before });
@@ -443,7 +450,7 @@ export async function applyCompensation(
 			const current = await adapter.get(route, action.destinationEventId);
 			if (
 				action.kind === "delete"
-					? current !== null
+					? !removalConfirmed(adapter, current, action)
 					: !current ||
 						!owned(current, action.ownership) ||
 						!action.after ||
@@ -455,6 +462,10 @@ export async function applyCompensation(
 			mutation = {
 				...mutation,
 				state: "confirmed",
+				removalMode:
+					action.kind === "delete"
+						? (adapter.removalMode ?? "delete")
+						: undefined,
 				revision: current?.revision ?? null,
 				error: null,
 			};
@@ -533,7 +544,7 @@ export async function recoverPlan(
 			const current = matches[0] ?? null;
 			if (
 				action.kind === "delete"
-					? current !== null
+					? !removalConfirmed(adapter, current, action)
 					: matches.length !== 1 ||
 						!current ||
 						!owned(current, action.ownership) ||
@@ -548,6 +559,10 @@ export async function recoverPlan(
 			mutation = {
 				...mutation,
 				state: "confirmed",
+				removalMode:
+					action.kind === "delete"
+						? (adapter.removalMode ?? "delete")
+						: undefined,
 				compensationEligible:
 					plan.purpose === "reconcile" &&
 					action.kind !== "delete" &&

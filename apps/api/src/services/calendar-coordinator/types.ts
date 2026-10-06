@@ -30,6 +30,7 @@ export type CalendarEvent = {
 	cancelled: boolean;
 	ownership: string | null;
 	privateBlocker: boolean;
+	releasedBlocker?: boolean;
 };
 export type Snapshot = {
 	route: CalendarRoute;
@@ -39,6 +40,7 @@ export type Snapshot = {
 	errors: string[];
 };
 export type Mirror = {
+	released?: boolean;
 	id: string;
 	sourceKey: string;
 	sourceRouteKey: string;
@@ -99,6 +101,7 @@ export type Configuration = {
 	actions: Action["kind"][];
 };
 export type Mutation = {
+	removalMode?: "delete" | "release";
 	actionId: string;
 	compensationEligible?: boolean;
 	state: "intent" | "confirmed" | "uncertain" | "conflict";
@@ -112,6 +115,7 @@ export type Receipt = {
 	mutations: Mutation[];
 };
 export interface CalendarAdapter {
+	readonly removalMode?: "delete" | "release";
 	readonly kind: AdapterKind;
 	readonly conditionalWrites: boolean;
 	listCalendars(): Promise<CalendarInfo[]>;
@@ -154,6 +158,23 @@ export function owned(event: CalendarEvent, marker: string): boolean {
 		!event.cancelled &&
 		event.privateBlocker
 	);
+}
+/** A free interval alone is not proof that our private hold was released. */
+export function removalConfirmed(
+	adapter: CalendarAdapter,
+	event: CalendarEvent | null,
+	action: Action,
+): boolean {
+	return adapter.removalMode === "release"
+		? !!event &&
+				event.ownership === action.ownership &&
+				event.releasedBlocker === true &&
+				!event.busy &&
+				!event.cancelled &&
+				!!action.before &&
+				sameInterval(event.interval, action.before) &&
+				event.revision !== action.expectedDestinationRevision
+		: event === null;
 }
 /** No arbitrary next-link origin may receive the account's bearer token. */
 export async function requestJson(

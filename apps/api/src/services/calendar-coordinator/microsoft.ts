@@ -44,6 +44,11 @@ export function microsoftEvent(raw: Wire): CalendarEvent {
 			raw.showAs === "busy" &&
 			raw.isReminderOn === false &&
 			!raw.attendees?.length,
+		releasedBlocker:
+			raw.sensitivity === "private" &&
+			raw.showAs === "free" &&
+			raw.isReminderOn === false &&
+			!raw.attendees?.length,
 		ownership:
 			raw.singleValueExtendedProperties?.find((p: Wire) => p.id === markerId)
 				?.value ?? null,
@@ -103,7 +108,7 @@ export function microsoftCalendarAdapter(
 		canRead: true,
 		canWrite: r.canEdit === true,
 		ownerEmail: r.owner?.address ?? null,
-		conditionalWrites: false,
+		conditionalWrites: true,
 	});
 	const snapshot = async (r: CalendarRoute, w: Interval): Promise<Snapshot> => {
 		const rawCalendar = await read(path(r));
@@ -143,7 +148,8 @@ export function microsoftCalendarAdapter(
 	};
 	return {
 		kind: "microsoft",
-		conditionalWrites: false,
+		conditionalWrites: true,
+		removalMode: "release",
 		async listCalendars() {
 			const result: CalendarInfo[] = [];
 			let next: string | undefined = `${root}/me/calendars?$top=100`;
@@ -180,14 +186,40 @@ export function microsoftCalendarAdapter(
 			if (!raw) throw new Error("Create returned no event");
 			return microsoftEvent(raw);
 		},
-		async update() {
-			throw new Error(
-				"Microsoft conditional event updates have not been verified; activation is denied",
+		async update(r, a) {
+			if (!a.expectedDestinationRevision)
+				throw new Error("Conditional event revision is required");
+			const { transactionId: _transactionId, ...body } = microsoftBlocker(a);
+			const raw = await read(
+				`${path(r)}/events/${encodeURIComponent(a.destinationEventId)}`,
+				{
+					method: "PATCH",
+					headers: { "If-Match": a.expectedDestinationRevision },
+					body: JSON.stringify(body),
+				},
 			);
+			if (!raw) throw new Error("Conditional update returned no event");
+			return microsoftEvent(raw);
 		},
-		async remove() {
-			throw new Error(
-				"Microsoft conditional event deletes have not been verified; activation is denied",
+		async remove(r, a) {
+			if (!a.expectedDestinationRevision)
+				throw new Error("Conditional event revision is required");
+			// Graph DELETE ignores If-Match (verified live); release only our unchanged private hold by PATCH.
+			await read(
+				`${path(r)}/events/${encodeURIComponent(a.destinationEventId)}`,
+				{
+					method: "PATCH",
+					headers: { "If-Match": a.expectedDestinationRevision },
+					body: JSON.stringify({
+						showAs: "free",
+						sensitivity: "private",
+						isReminderOn: false,
+						attendees: [],
+						singleValueExtendedProperties: [
+							{ id: markerId, value: a.ownership },
+						],
+					}),
+				},
 			);
 		},
 	};

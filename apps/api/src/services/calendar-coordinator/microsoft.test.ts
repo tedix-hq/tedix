@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vite-plus/test";
+import { describe, it, expect, vi } from "vite-plus/test";
 import {
 	microsoftBlocker,
 	microsoftCalendarAdapter,
 	microsoftEvent,
 	microsoftNextLink,
 } from "./microsoft";
-import type { Action } from "./types";
+import { removalConfirmed, type Action } from "./types";
 const action: Action = {
 	id: "a",
 	kind: "create",
@@ -30,15 +30,73 @@ describe("Microsoft calendar adapter", () => {
 		expect(b.attendees).toEqual([]);
 		expect(b.body.content).toBe("");
 	});
-	it("fails closed on risky conditional writes until real provider support is verified", async () => {
-		const adapter = microsoftCalendarAdapter("token");
-		expect(adapter.conditionalWrites).toBe(false);
-		await expect(adapter.update({} as any, action)).rejects.toThrow(
-			"not been verified",
-		);
-		await expect(adapter.remove({} as any, action)).rejects.toThrow(
-			"not been verified",
-		);
+	it("uses conditional PATCH for update and private free release, never physical DELETE", async () => {
+		const raw = {
+			id: "id",
+			"@odata.etag": "next",
+			start: { dateTime: "2026-10-03T10:00:00Z", timeZone: "UTC" },
+			end: { dateTime: "2026-10-03T11:00:00Z", timeZone: "UTC" },
+		};
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(JSON.stringify(raw)));
+		try {
+			const adapter = microsoftCalendarAdapter("token");
+			const change = {
+				...action,
+				expectedDestinationRevision: "old",
+				before: action.after,
+			};
+			await adapter.update({ calendarId: "calendar" } as any, change);
+			fetcher.mockResolvedValue(new Response(JSON.stringify(raw)));
+			await adapter.remove({ calendarId: "calendar" } as any, change);
+			for (const call of fetcher.mock.calls) {
+				expect(call[1]?.method).toBe("PATCH");
+				expect(new Headers(call[1]?.headers).get("If-Match")).toBe("old");
+			}
+			const body = JSON.parse(fetcher.mock.calls[1]![1]!.body as string);
+			expect(body).toMatchObject({
+				showAs: "free",
+				sensitivity: "private",
+				isReminderOn: false,
+				attendees: [],
+			});
+			expect(body.singleValueExtendedProperties[0].value).toBe("marker");
+			const released = microsoftEvent({ ...raw, ...body });
+			expect(removalConfirmed(adapter, released, change)).toBe(true);
+			expect(
+				removalConfirmed(adapter, { ...released, revision: "old" }, change),
+			).toBe(false);
+			expect(
+				removalConfirmed(adapter, { ...released, ownership: "other" }, change),
+			).toBe(false);
+			expect(
+				removalConfirmed(
+					adapter,
+					{ ...released, releasedBlocker: false },
+					change,
+				),
+			).toBe(false);
+			expect(removalConfirmed(adapter, null, change)).toBe(false);
+		} finally {
+			fetcher.mockRestore();
+		}
+	});
+	it("propagates a stale conditional PATCH conflict without an unconditional retry", async () => {
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response("conflict", { status: 412 }));
+		try {
+			await expect(
+				microsoftCalendarAdapter("token").remove(
+					{ calendarId: "calendar" } as any,
+					{ ...action, expectedDestinationRevision: "stale" },
+				),
+			).rejects.toThrow();
+			expect(fetcher).toHaveBeenCalledTimes(1);
+		} finally {
+			fetcher.mockRestore();
+		}
 	});
 	it("rejects bearer exfiltration nextLinks and changed calendar paths", () => {
 		expect(() =>

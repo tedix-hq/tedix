@@ -113,6 +113,57 @@ function fixture() {
 	};
 }
 describe("calendar apply journal and provider fences", () => {
+	it("confirms a conditional logical release, retains its tombstone, and never treats it as a new busy source", async () => {
+		const f = fixture();
+		const first = await buildPlan(f.config, f.snapshots, [], "seed");
+		await applyPlan(f.config, first, f.adapters, f.store);
+		const original = first.actions[0]!;
+		const held = f.events.get("b")![0]!;
+		const mirror = {
+			id: "mirror",
+			sourceKey: original.sourceKey,
+			sourceRouteKey: "a",
+			sourceEventId: f.event.id,
+			destinationKey: "b",
+			eventId: held.id,
+			revision: held.revision,
+			ownership: held.ownership!,
+			interval: held.interval,
+		};
+		f.event.cancelled = true;
+		const releaseAdapter = {
+			...f.adapter,
+			kind: "microsoft" as const,
+			removalMode: "release" as const,
+			remove: vi.fn(async () => {
+				held.busy = false;
+				held.privateBlocker = false;
+				held.releasedBlocker = true;
+				held.revision = "released-revision";
+				throw new Error("response lost after conditional release");
+			}),
+		};
+		f.adapters.set("b", releaseAdapter);
+		const plan = await buildPlan(f.config, f.snapshots, [mirror], "seed");
+		const receipt = await applyPlan(f.config, plan, f.adapters, f.store);
+		expect(receipt.outcome).toBe("confirmed");
+		expect(receipt.mutations[0]!.removalMode).toBe("release");
+		expect(f.store.mirror).toHaveBeenLastCalledWith(plan.actions[0], held);
+		const released = { ...mirror, released: true, revision: held.revision };
+		const noEcho = await buildPlan(f.config, f.snapshots, [released], "seed");
+		expect(noEcho.actions).toEqual([]);
+		await applyPlan(f.config, plan, f.adapters, f.store);
+		expect(releaseAdapter.remove).toHaveBeenCalledTimes(1);
+		f.event.cancelled = false;
+		const recreated = await buildPlan(
+			f.config,
+			f.snapshots,
+			[released],
+			"seed",
+		);
+		expect(recreated.actions[0]!.kind).toBe("create");
+		expect(recreated.actions[0]!.ownership).not.toBe(original.ownership);
+	});
 	it("writes durable intent, independently reads back, and retains confirmed work on retry", async () => {
 		const f = fixture();
 		const p = await buildPlan(f.config, f.snapshots, [], "seed");
