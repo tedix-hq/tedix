@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { readFile } from "node:fs/promises";
+import { validateWorkflowSource } from "@tedix/db/queries/cognitive/skill-validation";
+import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import workflow from "./workflow";
 const SUBSCRIPTION = "11111111-1111-4111-8111-111111111111";
 function harness(
@@ -18,6 +21,30 @@ function harness(
 	};
 }
 describe("calendar coordinator provider workflow", () => {
+	it("admits the actual formatted asset through canonical write-time source validation", async () => {
+		const [source, content] = await Promise.all([
+			readFile(new URL("./workflow.ts", import.meta.url), "utf8"),
+			readFile(new URL("../SKILL.md", import.meta.url), "utf8"),
+		]);
+		expect(
+			validateWorkflowSource(
+				source,
+				"scripts/workflow.ts",
+				parseCapabilityManifest(content),
+			),
+		).toEqual([]);
+		const invalid = source.replace(
+			"async run(event: CallbackEvent, step: Step, env: Environment)",
+			"async run(event: CallbackEvent, step: Step, env: Environment,)",
+		);
+		expect(
+			validateWorkflowSource(
+				invalid,
+				"scripts/workflow.ts",
+				parseCapabilityManifest(content),
+			).map((issue) => issue.code),
+		).toContain("WORKFLOW_RUN_SIGNATURE_INVALID");
+	});
 	it("calls the exact persisted subscription once and returns only a bounded summary", async () => {
 		const h = harness();
 		const result = await workflow.run(

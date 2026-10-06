@@ -1,4 +1,9 @@
 /** A provider callback selects persisted authority; parameters never grant it. */
+type CallbackEvent = {
+	payload?: {
+		providerEvent?: { subscriptionId?: unknown; skillRevision?: unknown };
+	};
+};
 type Receipt = {
 	outcome: "confirmed" | "partial" | "conflict";
 	mutations: { state: "intent" | "confirmed" | "uncertain" | "conflict" }[];
@@ -23,15 +28,7 @@ type Environment = {
 const UUID =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export default {
-	async run(
-		event: {
-			payload?: {
-				providerEvent?: { subscriptionId?: unknown; skillRevision?: unknown };
-			};
-		},
-		step: Step,
-		env: Environment,
-	) {
+	async run(event: CallbackEvent, step: Step, env: Environment) {
 		const trigger = event.payload?.providerEvent;
 		if (
 			typeof trigger?.subscriptionId !== "string" ||
