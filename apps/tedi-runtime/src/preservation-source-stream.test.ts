@@ -147,3 +147,113 @@ assert.throws(
 console.log(
 	"Composite scalar boundaries, payload yield ordering and provider refusal PASS",
 );
+
+// Future wide schemas cross every bounded descriptor group without exposing payloads.
+const wideNames = [
+	"id",
+	"kind",
+	"bytes",
+	"value",
+	"k0",
+	"b0",
+	"v0",
+	'quote"col',
+	"unicode🌒",
+	...Array.from({ length: 28 }, (_, i) => `c${i + 9}`),
+];
+const quoted = (s: string) => '"' + s.replaceAll('"', '""') + '"';
+db.exec(
+	`CREATE TABLE wide(${wideNames.map((n, i) => `${quoted(n)}${i === 0 ? " INTEGER PRIMARY KEY" : ""}`).join(",")})`,
+);
+for (let row = 1; row <= 3; row++) {
+	const values = wideNames.map((_, i) =>
+		i === 0
+			? row
+			: i % 5 === 0
+				? null
+				: i % 5 === 1
+					? row + 0.25
+					: i % 5 === 2
+						? new Uint8Array([0, 255, row])
+						: i % 5 === 3
+							? `private\0🌒${row}:${i}`
+							: row * 100 + i,
+	);
+	db.query(
+		`INSERT INTO wide VALUES(${wideNames.map(() => "?").join(",")})`,
+	).run(...values);
+}
+db.exec("UPDATE wide SET c21=9223372036854775807,c26=-9223372036854775808");
+let descriptorCalls = 0,
+	payloadCalls = 0;
+const observedStorage = {
+	sql: {
+		exec(q: string, ...args: SqlStorageValue[]) {
+			const result = storage.sql.exec(q, ...args);
+			if (q.startsWith("SELECT typeof(")) {
+				descriptorCalls++;
+				assert.ok(args.length === 1); // Original row locator bindings are not repeated per column.
+				const rows = [...result];
+				assert.ok(Object.keys(rows[0]!).length <= 24);
+				assert.ok(Object.keys(rows[0]!).every((k) => /^[kbv][0-7]$/.test(k)));
+				return { [Symbol.iterator]: () => rows[Symbol.iterator]() };
+			}
+			if (q.startsWith("SELECT substr")) payloadCalls++;
+			return result;
+		},
+	},
+} as Pick<DurableObjectStorage, "sql">;
+const wideFrames = Buffer.concat([
+	...streamSqlTable(observedStorage, "wide", refuse),
+]);
+assert.equal(descriptorCalls, 3 * Math.ceil(wideNames.length / 8));
+assert.equal(payloadCalls, 42);
+assert.equal(
+	createHash("sha256").update(wideFrames).digest("hex"),
+	"e2803f2f37e589dfeac4f9fc59ee7b742b1f06812820628ddc3ae8c0d63fbf2c",
+);
+for (const failure of [
+	"kind",
+	"integer",
+	"length",
+	"duplicate",
+	"provider",
+	"chunk",
+]) {
+	const broken = {
+		sql: {
+			exec(q: string, ...args: SqlStorageValue[]) {
+				if (q.startsWith("SELECT typeof(")) {
+					if (failure === "provider")
+						throw Error("descriptor provider refusal");
+					const rows = [...storage.sql.exec(q, ...args)] as Record<
+						string,
+						SqlStorageValue
+					>[];
+					if (failure === "kind") rows[0]!.k0 = "unsupported";
+					if (failure === "integer") rows[0]!.v0 = "rounded-not-integer";
+					if (failure === "length") {
+						rows[0]!.k0 = "blob";
+						rows[0]!.b0 = -1;
+					}
+					if (failure === "duplicate") rows.push(rows[0]!);
+					return { [Symbol.iterator]: () => rows[Symbol.iterator]() };
+				}
+				if (failure === "chunk" && q.startsWith("SELECT substr"))
+					return {
+						[Symbol.iterator]: () =>
+							[{ chunk: new Uint8Array().buffer }][Symbol.iterator](),
+					};
+				return storage.sql.exec(q, ...args);
+			},
+		},
+	} as Pick<DurableObjectStorage, "sql">;
+	assert.throws(
+		() => [...streamSqlTable(broken, "wide", refuse)],
+		Error,
+		failure,
+	);
+}
+console.log(
+	"Bounded wide scalar batches retain predecessor bytes/order and reject corrupt descriptors PASS",
+);

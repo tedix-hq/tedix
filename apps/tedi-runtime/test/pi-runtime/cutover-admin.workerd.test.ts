@@ -4983,3 +4983,245 @@ it("qualifier forwarding retains parent registry after successful and rejected g
 		},
 	);
 });
+
+it("bounded descriptors preserve both prior archives during authentic Raw SDK inspection", async ({
+	task,
+}) => {
+	const local = env as unknown as Cloudflare.Env,
+		namespace = ns().PI_CUTOVER_EARLY;
+	const name = "descriptor-priors-" + crypto.randomUUID(),
+		tediId = crypto.randomUUID(),
+		orgId = crypto.randomUUID();
+	await local.DB.exec(
+		"CREATE TABLE IF NOT EXISTS tedis(id TEXT PRIMARY KEY,organization_id TEXT,slug TEXT,isolate_agent_id TEXT,runtime_kind TEXT,status TEXT)",
+	);
+	await local.DB.prepare("INSERT INTO tedis VALUES(?,?,?,?,?,?)")
+		.bind(tediId, orgId, name, name, "agent", "active")
+		.run();
+	const diagnostics = await runInDurableObject(
+		namespace.get(namespace.idFromName(name)),
+		async (_instance, ctx) => {
+			const { NativeStatePreservation } =
+				await import("../../src/native-state-preservation");
+			const { SessionStatePreservation } =
+				await import("../../src/session-state-preservation");
+			const { RuntimeAdmissionDO } =
+				await import("../../src/runtime-admission-do");
+			const { operateStoredCutover } =
+				await import("../../src/pi-cutover-admin");
+			const id = ctx.id.toString(),
+				key = Buffer.alloc(32, 7).toString("base64");
+			ctx.storage.kv.put("__ps_name", name);
+			ctx.storage.sql.exec(
+				"CREATE TABLE cf_agents_state(id TEXT PRIMARY KEY,state TEXT)",
+			);
+			ctx.storage.sql.exec(
+				"INSERT INTO cf_agents_state VALUES('cf_state_row_id',?)",
+				JSON.stringify({ tediId, orgId }),
+			);
+			new RuntimeAdmissionDO(ctx.storage, {
+				objectId: id,
+				tediId,
+				orgId,
+			}).gate.initialize({
+				operationId: "original-hold",
+				state: "quarantined",
+				reason: "fixture",
+			});
+			// Literal current SDK job schema; no callback, job runner or SDK initialization is invoked.
+			ctx.storage.sql.exec(
+				"CREATE TABLE cf_agents_jobs(id TEXT PRIMARY KEY NOT NULL,capability TEXT NOT NULL,fn TEXT NOT NULL,time INTEGER NOT NULL,payload TEXT,retry_options TEXT,singleflight INTEGER NOT NULL DEFAULT 0,hung_timeout_seconds INTEGER,exclusive INTEGER NOT NULL DEFAULT 0,recovery_loop INTEGER NOT NULL DEFAULT 0,running INTEGER NOT NULL DEFAULT 0,execution_started_at INTEGER,created_at INTEGER NOT NULL DEFAULT (unixepoch())) WITHOUT ROWID",
+			);
+			ctx.storage.sql.exec(
+				"CREATE TABLE session_entries(id TEXT PRIMARY KEY,content TEXT)",
+			);
+			for (let i = 0; i < 256; i++) {
+				ctx.storage.sql.exec(
+					"INSERT INTO cf_agents_jobs(id,capability,fn,time,payload,retry_options,running) VALUES(?,?,?,?,?,?,?)",
+					`job-${String(i).padStart(4, "0")}`,
+					"retained",
+					"never-dispatch",
+					i,
+					JSON.stringify({ original: i, private: "x".repeat(128) }),
+					JSON.stringify({ maxAttempts: 3 }),
+					i % 2,
+				);
+				ctx.storage.sql.exec(
+					"INSERT INTO session_entries VALUES(?,?)",
+					`turn-${i}`,
+					`PRIVATE_ORIGINAL_${i}`,
+				);
+			}
+			for (let i = 0; i < 32; i++)
+				ctx.storage.kv.put(`original-${i}`, {
+					value: i,
+					bytes: new Uint8Array([0, 255, i]),
+				});
+			const identity = {
+				rootId: id,
+				objectId: id,
+				tediId,
+				orgId,
+				objectName: name,
+				physicalName: name,
+				className: "AgentTediDO",
+				targetPath: [],
+				generation: 1,
+			};
+			const native = new NativeStatePreservation(
+				ctx.storage,
+				{
+					...identity,
+					kind: "native-preservation-capture-v1",
+					operationId: "native-original",
+				},
+				() => {},
+				async () => {},
+			);
+			const np = await native.inspect(key);
+			await native.capture(key, np.archiveId, np.proof);
+			const session = new SessionStatePreservation(
+				ctx.storage,
+				{
+					...identity,
+					kind: "session-preservation-capture-v1",
+					operationId: "session-original",
+				},
+				() => {},
+				async () => {},
+			);
+			const sp = await session.inspect(key);
+			await session.capture(key, sp.archiveId, sp.proof);
+			const priorBytes = () =>
+				JSON.stringify(
+					[
+						"native_preservation_snapshot",
+						"native_preservation_parts",
+						"session_preservation_snapshot",
+						"session_preservation_parts",
+					].map((t) => [
+						t,
+						[...ctx.storage.sql.exec(`SELECT * FROM ${t}`)].map((r) =>
+							Object.fromEntries(
+								Object.entries(r).map(([k, v]) => [
+									k,
+									v instanceof ArrayBuffer ? [...new Uint8Array(v)] : v,
+								]),
+							),
+						),
+					]),
+				);
+			const before = priorBytes(),
+				kvBefore = [...ctx.storage.kv.list()];
+			const runtimeEnv = {
+				...local,
+				TEDI_AGENT: namespace,
+				PI_CUTOVER_KNOWN_PARENT_IDS: JSON.stringify([id]),
+				SECRETS_MASTER_KEY: key,
+			} as unknown as Cloudflare.Env;
+			const request = () =>
+				new Request(CUTOVER_URL, {
+					method: "POST",
+					headers: { "X-Tedix-Admin-Token": key },
+					body: JSON.stringify({
+						command: "inspect_sdk_preservation",
+						objectId: id,
+						operationId: "sdk-original",
+						expectedGeneration: 1,
+						custody: { tediId, orgId, objectName: name },
+					}),
+				});
+			const started = performance.now();
+			const response = await operateStoredCutover({
+				ctx,
+				env: runtimeEnv,
+				receiver: "raw-cutover-v1",
+				request: request(),
+			});
+			const inspectMs = performance.now() - started;
+			expect(response?.status).toBe(200);
+			const result = (await response!.json()) as {
+				archive: {
+					metadata: {
+						sourceBytes: number;
+						recordCount: number;
+						kvEntries: number;
+						tables: { table: string; rows: number }[];
+					};
+					priorArchives: { native: string; session: string };
+				};
+			};
+			expect(result.archive.priorArchives).toEqual({
+				historical: "absent",
+				native: "present",
+				session: "present",
+			});
+			expect(
+				result.archive.metadata.tables.find(
+					(t) => t.table === "cf_agents_jobs",
+				)!.rows,
+			).toBe(256);
+			expect(result.archive.metadata.kvEntries).toBe(kvBefore.length);
+			expect(priorBytes()).toBe(before);
+			expect([...ctx.storage.kv.list()]).toEqual(kvBefore);
+			expect([
+				...ctx.storage.sql.exec(
+					"SELECT name FROM sqlite_master WHERE name LIKE 'sdk_work_preservation_%'",
+				),
+			]).toEqual([]);
+			const ownEncrypt = Object.getOwnPropertyDescriptor(
+					crypto.subtle,
+					"encrypt",
+				),
+				encrypt = crypto.subtle.encrypt;
+			let changed = false;
+			Object.defineProperty(crypto.subtle, "encrypt", {
+				configurable: true,
+				value: async (...args: Parameters<typeof encrypt>) => {
+					const result = await Reflect.apply(encrypt, crypto.subtle, args);
+					queueMicrotask(() => {
+						changed = true;
+						ctx.storage.sql.exec(
+							"UPDATE cf_agents_jobs SET payload='CHANGED' WHERE id='job-0000'",
+						);
+					});
+					return result;
+				},
+			});
+			try {
+				expect(
+					(
+						await operateStoredCutover({
+							ctx,
+							env: runtimeEnv,
+							receiver: "raw-cutover-v1",
+							request: request(),
+						})
+					)?.status,
+				).toBe(409);
+				expect(changed).toBe(true);
+				expect(priorBytes()).toBe(before);
+			} finally {
+				if (ownEncrypt)
+					Object.defineProperty(crypto.subtle, "encrypt", ownEncrypt);
+				else Reflect.deleteProperty(crypto.subtle, "encrypt");
+			}
+			return {
+				inspectMs,
+				jobRows: 256,
+				parentRows: 256,
+				sourceBytes: result.archive.metadata.sourceBytes,
+				framingRecords: result.archive.metadata.recordCount,
+				kvEntries: result.archive.metadata.kvEntries,
+				priorNativePresent: true,
+				priorSessionPresent: true,
+			};
+		},
+	);
+	// Local timing only; no performance ceiling or inference about the original customer timeout.
+	Object.assign(task.meta, { boundedDescriptorDiagnostics: diagnostics });
+	console.info(
+		"bounded-descriptor-prior-archive-inspection",
+		JSON.stringify(diagnostics),
+	);
+}, 60_000);

@@ -3,7 +3,8 @@ import { compareCutoverWorkflowIds } from "@tedix/api-contract/schemas/tedi";
 export type PreservationSqlStorage = Pick<DurableObjectStorage, "sql">;
 type Column = { name: string; pk: number; hidden: number };
 const CELL_BYTES = 65_536,
-	LOCATOR_BYTES = 8_192;
+	LOCATOR_BYTES = 8_192,
+	DESCRIPTOR_COLUMNS = 8;
 const count = z.number().int().nonnegative().safe();
 const quote = (s: string) => '"' + s.replaceAll('"', '""') + '"';
 export function presentSqlTable(
@@ -168,60 +169,78 @@ export function* streamSqlTable(
 	for (const column of columns)
 		yield sourceDescriptor(["column", table, column], refuse);
 	const loc = locators(storage, table, columns, refuse);
+	// Only scalar descriptors are grouped: no source TEXT/BLOB payload is selected.
+	// A wide future schema still uses at most 24 uniquely named output fields.
+	const groups = [];
+	for (let at = 0; at < columns.length; at += DESCRIPTOR_COLUMNS) {
+		const batch = columns.slice(at, at + DESCRIPTOR_COLUMNS);
+		const select = batch.flatMap((c, i) => {
+			const name = quote(c.name);
+			return [
+				`typeof(${name}) AS k${i}`,
+				`CASE WHEN typeof(${name}) IN ('text','blob') THEN length(CAST(${name} AS BLOB)) ELSE NULL END AS b${i}`,
+				`CASE WHEN typeof(${name})='integer' THEN CAST(${name} AS TEXT) WHEN typeof(${name})='real' THEN ${name} ELSE NULL END AS v${i}`,
+			];
+		});
+		groups.push({ batch, select: select.join(",") });
+	}
 	let ordinal = 0;
 	for (const row of loc.cursor) {
 		const { where, args } = loc.resolve(row);
 		yield sourceDescriptor(["row", table, ordinal++], refuse);
-		for (const c of columns) {
-			const name = quote(c.name),
-				from = `FROM ${quote(table)} WHERE ${where}`;
-			const size = readOne<{
-				kind: string;
-				bytes: number | null;
-				value: string | number | null;
-			}>(
+		for (const { batch, select } of groups) {
+			const descriptors = readOne(
 				storage,
-				`SELECT typeof(${name}) AS kind,CASE WHEN typeof(${name}) IN ('text','blob') THEN length(CAST(${name} AS BLOB)) ELSE NULL END AS bytes,CASE WHEN typeof(${name})='integer' THEN CAST(${name} AS TEXT) WHEN typeof(${name})='real' THEN ${name} ELSE NULL END AS value ${from}`,
+				`SELECT ${select} FROM ${quote(table)} WHERE ${where}`,
 				...args,
 			);
-			if (size.kind === "null") {
-				yield sourceDescriptor(["cell", c.name, "null", 0], refuse);
-				continue;
-			}
-			if (size.kind === "integer") {
-				const value = size.value;
-				if (typeof value !== "string" || !/^-?(0|[1-9][0-9]*)$/.test(value))
-					return refuse();
-				yield sourceDescriptor(["cell", c.name, "integer", value], refuse);
-				continue;
-			}
-			if (size.kind === "real") {
-				const value = size.value;
-				if (typeof value !== "number" || !Number.isFinite(value))
-					return refuse();
-				const bytes = Buffer.alloc(8);
-				bytes.writeDoubleBE(value);
-				yield sourceDescriptor(["cell", c.name, "real", 8], refuse);
-				yield bytes;
+			for (const [i, c] of batch.entries()) {
+				const name = quote(c.name),
+					from = `FROM ${quote(table)} WHERE ${where}`;
+				const size = {
+					kind: descriptors[`k${i}`],
+					bytes: descriptors[`b${i}`],
+					value: descriptors[`v${i}`],
+				};
+				if (size.kind === "null") {
+					yield sourceDescriptor(["cell", c.name, "null", 0], refuse);
+					continue;
+				}
+				if (size.kind === "integer") {
+					const value = size.value;
+					if (typeof value !== "string" || !/^-?(0|[1-9][0-9]*)$/.test(value))
+						return refuse();
+					yield sourceDescriptor(["cell", c.name, "integer", value], refuse);
+					continue;
+				}
+				if (size.kind === "real") {
+					const value = size.value;
+					if (typeof value !== "number" || !Number.isFinite(value))
+						return refuse();
+					const bytes = Buffer.alloc(8);
+					bytes.writeDoubleBE(value);
+					yield sourceDescriptor(["cell", c.name, "real", 8], refuse);
+					yield bytes;
+					yield Buffer.from("\n");
+					continue;
+				}
+				if (size.kind !== "text" && size.kind !== "blob") return refuse();
+				const length = count.parse(size.bytes);
+				yield sourceDescriptor(["cell", c.name, size.kind, length], refuse);
+				for (let offset = 1; offset <= length; offset += CELL_BYTES) {
+					const result = readOne<{ chunk: ArrayBuffer }>(
+						storage,
+						`SELECT substr(CAST(${name} AS BLOB),?,${CELL_BYTES}) AS chunk ${from}`,
+						offset,
+						...args,
+					);
+					const bytes = asBytes(result.chunk, refuse);
+					if (bytes.byteLength !== Math.min(CELL_BYTES, length - offset + 1))
+						return refuse();
+					yield bytes;
+				}
 				yield Buffer.from("\n");
-				continue;
 			}
-			if (size.kind !== "text" && size.kind !== "blob") return refuse();
-			const length = count.parse(size.bytes);
-			yield sourceDescriptor(["cell", c.name, size.kind, length], refuse);
-			for (let offset = 1; offset <= length; offset += CELL_BYTES) {
-				const result = readOne<{ chunk: ArrayBuffer }>(
-					storage,
-					`SELECT substr(CAST(${name} AS BLOB),?,${CELL_BYTES}) AS chunk ${from}`,
-					offset,
-					...args,
-				);
-				const bytes = asBytes(result.chunk, refuse);
-				if (bytes.byteLength !== Math.min(CELL_BYTES, length - offset + 1))
-					return refuse();
-				yield bytes;
-			}
-			yield Buffer.from("\n");
 		}
 	}
 }
