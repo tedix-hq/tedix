@@ -620,6 +620,11 @@ function CardDetail({
 }) {
 	const busy = draft.save === "saving";
 	const dirty = isDirty(draft, saved);
+	const upToDate = !dirty && saved.revision > 0;
+	const justSaved = draft.save === "saved" && !dirty;
+	const savedAt = saved.updatedAt ? new Date(saved.updatedAt) : null;
+	const savedTime = savedAt ? savedAt.toLocaleTimeString() : "just now";
+	const savedDate = savedAt ? savedAt.toLocaleString() : "earlier";
 	const replyChanged = draft.reply !== card.draft;
 	return (
 		<article
@@ -631,7 +636,7 @@ function CardDetail({
 			onKeyDown={(event) => {
 				if ((event.metaKey || event.ctrlKey) && event.key === "s") {
 					event.preventDefault();
-					if (!busy) onSave();
+					if (!busy && !upToDate) onSave();
 				}
 			}}
 		>
@@ -861,20 +866,38 @@ function CardDetail({
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<span
 						role="status"
-						className="min-w-0 flex-1 text-sm text-kumo-subtle"
+						className={cn(
+							"flex min-w-0 flex-1 items-center gap-1.5 text-sm",
+							justSaved
+								? "font-medium text-kumo-success"
+								: dirty
+									? "text-kumo-warning"
+									: "text-kumo-subtle",
+						)}
 					>
+						{justSaved && <CheckCircle aria-hidden size={16} weight="fill" />}
 						{busy
 							? "Saving…"
-							: draft.save === "saved" && !dirty
-								? "Feedback saved. Nothing was posted."
+							: justSaved
+								? `Feedback saved at ${savedTime}. Nothing was posted.`
 								: dirty
 									? "Unsaved changes"
 									: saved.revision > 0
-										? `Last saved${saved.updatedAt ? ` ${new Date(saved.updatedAt).toLocaleString()}` : ""}.`
+										? `Last saved ${savedDate}.`
 										: "Not reviewed yet."}
 					</span>
-					<Button disabled={busy} onClick={onSave}>
-						{busy ? "Saving…" : "Save feedback"}
+					{/* With nothing new to save, the button says so instead of
+					    silently saving the same feedback again. */}
+					<Button disabled={busy || upToDate} onClick={onSave}>
+						{busy ? (
+							"Saving…"
+						) : upToDate ? (
+							<>
+								<CheckCircle aria-hidden size={14} weight="fill" /> Saved
+							</>
+						) : (
+							"Save feedback"
+						)}
 					</Button>
 				</div>
 			</footer>
