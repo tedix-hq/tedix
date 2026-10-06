@@ -42,7 +42,6 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
-	skillCatalogQueryOptions,
 	skillDetailQueryOptions,
 	tediRosterQueryOptions,
 	workspaceResourcesQueryOptions,
@@ -60,6 +59,44 @@ const actionLabels = {
 };
 export function declaredCalendarTools(source: string): string[] {
 	return Object.values(parseCapabilityManifest(source).mcp).flat();
+}
+export function calendarSkillReady(
+	skill:
+		| {
+				tediId?: string | null;
+				lifecycleState?: string | null;
+				files?: Record<string, string | undefined> | null;
+				content: string;
+		  }
+		| null
+		| undefined,
+	workerId: string,
+) {
+	return Boolean(
+		workerId &&
+		skill?.tediId === workerId &&
+		["active", "proven", "crystallized"].includes(skill.lifecycleState ?? "") &&
+		skill.files?.["scripts/workflow.ts"] &&
+		declaredCalendarTools(skill.files?.["SKILL.md"] ?? skill.content).includes(
+			"reconcile_calendar_subscription",
+		),
+	);
+}
+export function compensationCandidates(
+	mutations: readonly {
+		actionId: string;
+		state: string;
+		compensationEligible?: boolean;
+	}[],
+): string[] {
+	return mutations
+		.filter(
+			(mutation) =>
+				mutation.state === "confirmed" &&
+				mutation.compensationEligible === true,
+		)
+		.slice(0, 20)
+		.map((mutation) => mutation.actionId);
 }
 export function grantCoversCalendar(
 	grant: Grant,
@@ -195,7 +232,6 @@ export function WorkspaceCalendarCoordinator({
 		retry: false,
 	});
 	const tedis = useQuery(tediRosterQueryOptions(100, { status: "active" }));
-	const skills = useQuery(skillCatalogQueryOptions(100));
 	const grants = useQuery({
 		...osQuery.personalResourceDelegations.list.queryOptions({
 			input: { limit: 100 },
@@ -207,6 +243,12 @@ export function WorkspaceCalendarCoordinator({
 	);
 	const [resourceIds, setResourceIds] = useState<string[]>([]);
 	const [workerId, setWorkerId] = useState("");
+	const skills = useQuery({
+		...osQuery.skills.listByOrg.queryOptions({
+			input: { tediId: workerId, limit: 100, summary: false },
+		}),
+		enabled: Boolean(workerId),
+	});
 	const [skillId, setSkillId] = useState("");
 	const [reviewedRevision, setReviewedRevision] = useState<number | null>(null);
 	const [actions, setActions] = useState<Array<(typeof ACTIONS)[number]>>([
@@ -313,7 +355,20 @@ export function WorkspaceCalendarCoordinator({
 	const tools = skill
 		? declaredCalendarTools(skill.files?.["SKILL.md"] ?? skill.content)
 		: [];
-	const executable = Boolean(skill?.files?.["scripts/workflow.ts"]);
+	const workerReady = (tedis.data?.data ?? []).some(
+		(worker) =>
+			worker.id === workerId &&
+			worker.status === "active" &&
+			worker.runtimeState !== "archived" &&
+			!worker.retiredAt,
+	);
+	const executable = workerReady && calendarSkillReady(skill, workerId);
+	const eligibleSkills = (skills.data?.entries ?? []).filter((entry) =>
+		calendarSkillReady(entry, workerId),
+	);
+	const undoIds = compensationCandidates(
+		status.data?.lastReceipt?.mutations ?? [],
+	);
 	const revisionValid = Boolean(skill && reviewedRevision === skill.revision);
 	const owned = selected.filter(
 		(resource) => resource.connectionScope === "user",
@@ -332,6 +387,7 @@ export function WorkspaceCalendarCoordinator({
 				),
 		);
 	const accessGranted =
+		executable &&
 		revisionValid &&
 		owned.every((resource) =>
 			(grants.data ?? []).some((grant) =>
@@ -382,6 +438,7 @@ export function WorkspaceCalendarCoordinator({
 				!acknowledged ||
 				!bound ||
 				!revisionValid ||
+				!executable ||
 				!tools.length ||
 				!actions.length
 			)
@@ -599,10 +656,7 @@ export function WorkspaceCalendarCoordinator({
 				id: configuration.id,
 				expectedRevision: configuration.revision,
 				planId: receipt.planId,
-				actionIds: receipt.mutations
-					.filter((mutation) => mutation.state === "confirmed")
-					.slice(0, 20)
-					.map((mutation) => mutation.actionId),
+				actionIds: compensationCandidates(receipt.mutations),
 			});
 		},
 		onSuccess: (result) => {
@@ -801,6 +855,8 @@ export function WorkspaceCalendarCoordinator({
 					onValueChange={(value) => {
 						change();
 						setWorkerId(value ?? "");
+						setSkillId("");
+						setReviewedRevision(null);
 					}}
 					disabled={busy}
 				>
@@ -809,7 +865,12 @@ export function WorkspaceCalendarCoordinator({
 					</SelectTrigger>
 					<SelectContent>
 						{(tedis.data?.data ?? [])
-							.filter((worker) => worker.status === "active")
+							.filter(
+								(worker) =>
+									worker.status === "active" &&
+									worker.runtimeState !== "archived" &&
+									!worker.retiredAt,
+							)
 							.map((worker) => (
 								<SelectItem key={worker.id} value={worker.id}>
 									{worker.displayName ?? worker.name}
@@ -830,13 +891,26 @@ export function WorkspaceCalendarCoordinator({
 						<SelectValue placeholder="Choose the calendar skill" />
 					</SelectTrigger>
 					<SelectContent>
-						{(skills.data?.entries ?? []).map((entry) => (
+						{eligibleSkills.map((entry) => (
 							<SelectItem key={entry.id} value={entry.id}>
 								{entry.title}
 							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
+				{skills.isError && (
+					<Text as="p" tone="error">
+						This worker's skills could not be checked. Activation is
+						unavailable.
+					</Text>
+				)}
+				{workerId && skills.isSuccess && !eligibleSkills.length && (
+					<Text as="p" tone="error">
+						This worker has no eligible calendar skill. Install an active
+						executable calendar reconciliation skill for this worker before
+						enabling calendar blocking.
+					</Text>
+				)}
 				{skill && (
 					<>
 						<a href={`/skills/${skill.id}`}>
@@ -848,6 +922,7 @@ export function WorkspaceCalendarCoordinator({
 						<Button
 							type="button"
 							variant="outline"
+							disabled={!executable}
 							onClick={() => {
 								change();
 								setReviewedRevision(skill.revision);
@@ -857,8 +932,9 @@ export function WorkspaceCalendarCoordinator({
 						</Button>
 						{!executable && (
 							<Text as="p" tone="error">
-								This skill has instructions but no executable workflow.
-								Activation is unavailable.
+								This skill must belong to the selected worker, be active, proven
+								or crystallized, and include an executable calendar
+								reconciliation workflow. Activation is unavailable.
 							</Text>
 						)}
 					</>
@@ -922,6 +998,7 @@ export function WorkspaceCalendarCoordinator({
 							!acknowledged ||
 							!bound ||
 							!revisionValid ||
+							!executable ||
 							!workerId ||
 							!tools.length ||
 							!actions.length ||
@@ -1085,14 +1162,13 @@ export function WorkspaceCalendarCoordinator({
 								</Button>
 							</>
 						)}
-						{status.data.lastReceipt.mutations.some(
-							(mutation) => mutation.state === "confirmed",
-						) && (
+						{undoIds.length > 0 && (
 							<>
 								<Text as="p" tone="secondary">
-									Undo reviews up to 20 confirmed changes from the latest
-									result. It pauses monitoring and restores only owned blockers
-									that still match that result.
+									Undo reviews up to 20 eligible confirmed changes from the
+									latest result. It pauses monitoring and restores only owned
+									blockers that still match that result. Deleted blockers and
+									changes without safe provider support cannot be undone here.
 								</Text>
 								<Button
 									type="button"
