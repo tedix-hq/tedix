@@ -376,6 +376,18 @@ describe("delegated coordinator credentials", () => {
 			resolveCalendarAdapter(worker(), "org", route, true, authority),
 		).rejects.toThrow("revoked");
 	});
+	it("revalidates returned token against account grants changed during lookup", async () => {
+		consent();
+		const first = await mocks.delegation();
+		mocks.delegation.mockClear();
+		mocks.delegation.mockResolvedValueOnce(first).mockResolvedValueOnce({
+			...first,
+			approvedTokenIds: ["replacement-token"],
+		});
+		await expect(
+			resolveCalendarAdapter(worker(), "org", route, true, authority),
+		).rejects.toThrow("metadata differs");
+	});
 });
 
 describe("standing monitoring binds every selected personal destination", () => {

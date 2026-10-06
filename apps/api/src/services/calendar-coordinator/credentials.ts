@@ -159,7 +159,17 @@ export async function resolveCalendarAdapter(
 				grant.approvedTokenIds,
 				token.id,
 			);
-			await authorizePersonalResourceDelegation(context, use);
+			const current = await authorizePersonalResourceDelegation(context, use);
+			if (current.ownerUserId !== authority.ownerUserId)
+				throw new Error(
+					"Personal delegation owner changed during credential lookup",
+				);
+			validatePersonalDelegationToken(
+				current.delegation,
+				token,
+				current.approvedTokenIds,
+				token.id,
+			);
 			return token;
 		};
 		const initial = await fresh("read");
