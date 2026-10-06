@@ -3,6 +3,7 @@ import { workInteractionsContract } from "@tedix/api-contract/contracts/work-int
 import {
 	cancelWorkInteraction,
 	createWorkInteraction,
+	delegateWorkInteraction,
 	getWorkInteraction,
 	listWorkInteractionInbox,
 	listWorkInteractionResponses,
@@ -195,6 +196,27 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 	}
 });
 
+const delegateProcedure = writeOs.delegate.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		try {
+			return requestOutput(
+				await delegateWorkInteraction(context.db, {
+					orgId,
+					interactionId: input.requestId,
+					expectedVersion: input.expectedRequestVersion,
+					actor,
+					tediId: input.tediId,
+					now: new Date().toISOString(),
+				}),
+			);
+		} catch (error) {
+			rethrowInteractionError(error);
+		}
+	},
+);
+
 const cancelProcedure = writeOs.cancel.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
@@ -367,6 +389,7 @@ const listAuditProcedure = readOs.listAudit.handler(
 export const workInteractionsContractRouter = interactionsOs.router({
 	create: createProcedure,
 	respond: respondProcedure,
+	delegate: delegateProcedure,
 	cancel: cancelProcedure,
 	get: getProcedure,
 	listInbox: listInboxProcedure,

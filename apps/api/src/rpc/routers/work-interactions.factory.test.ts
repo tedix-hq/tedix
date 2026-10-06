@@ -6,6 +6,7 @@ describe("Work interactions router", () => {
 		expect(Object.keys(workInteractionsContractRouter)).toEqual([
 			"create",
 			"respond",
+			"delegate",
 			"cancel",
 			"get",
 			"listInbox",

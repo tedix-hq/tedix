@@ -338,6 +338,7 @@ export function mcpToolsListResultTransform(
 							tool.toolId,
 							resolveMcpToolNamespace(tool, namespaceOverrides),
 							tool.config,
+							tool.toolTypeId,
 						)) &&
 					isMcpToolVisibleToCaller(
 						tool,
@@ -2493,7 +2494,14 @@ export async function enforceMcpAccess(params: {
 							| undefined,
 					)
 				: (requested.split("__")[0] ?? "");
-			if (isDelegatedWorkTool(requested, namespace, tool?.config)) {
+			if (
+				isDelegatedWorkTool(
+					requested,
+					namespace,
+					tool?.config,
+					tool?.toolTypeId,
+				)
+			) {
 				return {
 					response: new Response(
 						JSON.stringify({ error: "delegated_work_tool_denied" }),

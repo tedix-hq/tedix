@@ -32,6 +32,12 @@ export const WorkInteractionTargetTypeSchema = z.enum([
 
 export const WorkInteractionCursorSchema = WorkFactoryProjectionCursorSchema;
 
+export const DelegateWorkInteractionInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedRequestVersion: z.number().int().positive(),
+	tediId: z.uuid(),
+});
+
 const metadataSchema = BoundedJsonObjectSchema;
 
 export const WorkInteractionRequestSchema = z.strictObject({

@@ -120,6 +120,7 @@ export function isDelegatedWorkTool(
 	toolId: string,
 	namespace: string,
 	config?: Record<string, unknown> | null,
+	toolTypeId?: string | null,
 ): boolean {
 	const name = toolId.toLowerCase();
 	const ns = namespace.toLowerCase();
@@ -132,6 +133,27 @@ export function isDelegatedWorkTool(
 			? endpoint.trim().replace(/^\/+/, "").split(/[?#]/, 1)[0]?.toLowerCase()
 			: null;
 	const route = normalizedEndpoint?.split("/", 1)[0] ?? null;
+	// Interaction reads and replies are messaging, with an exact target fence
+	// enforced in the API/database. This never grants Work lifecycle writes or
+	// the human-only question delegation operation to a supervised child.
+	if (
+		toolTypeId === "rpc" &&
+		((normalizedEndpoint === "workinteractions/get" &&
+			rawName === "get_work_interaction") ||
+			(normalizedEndpoint === "workinteractions/respond" &&
+				rawName === "respond_work_interaction"))
+	) {
+		const aggregateNamespace = config?._aggregateNamespace;
+		const aggregateRemoteName = config?._aggregateTediRemoteName;
+		if (
+			aggregateNamespace === undefined &&
+			aggregateRemoteName === undefined &&
+			ns === "work"
+		)
+			return false;
+		if (aggregateNamespace === namespace && aggregateRemoteName === rawName)
+			return false;
+	}
 	// These exact generated reads are safe for a supervised child whose token
 	// carries mcp:work.read. Match the endpoint and canonical name together so a
 	// mutation alias cannot become readable through misleading D1 annotations.

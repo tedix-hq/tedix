@@ -18,6 +18,34 @@ const input = {
 };
 
 describe("delegated MCP token", () => {
+	it("permits exact messaging replies while retaining the human handoff and Work mutation fences", () => {
+		for (const [name, endpoint] of [
+			["get_work_interaction", "workInteractions/get"],
+			["respond_work_interaction", "workInteractions/respond"],
+		]) {
+			expect(
+				isDelegatedWorkTool(`tedix__${name}`, "work", { endpoint }, "rpc"),
+			).toBe(false);
+			expect(
+				isDelegatedWorkTool(`tedix__${name}`, "work", { endpoint }, "code"),
+			).toBe(true);
+			expect(
+				isDelegatedWorkTool(`tedix__${name}`, "work", {
+					endpoint: "workItems/complete",
+				}),
+			).toBe(true);
+		}
+		expect(
+			isDelegatedWorkTool("delegate_work_interaction", "work", {
+				endpoint: "workInteractions/delegate",
+			}),
+		).toBe(true);
+		expect(
+			isDelegatedWorkTool("complete_work_item", "work", {
+				endpoint: "workItems/complete",
+			}),
+		).toBe(true);
+	});
 	it("binds the audience, run, work, tedi and organization", async () => {
 		const { token, expiresAt } = await issueDelegatedMcpToken(input);
 		expect(expiresAt).toBe(input.now + 180);

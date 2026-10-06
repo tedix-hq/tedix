@@ -83,6 +83,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// aliases. Their Work-prefixed names do not change the owning capability.
 	"workInteractions/create": "mcp:messaging.write",
 	"workInteractions/respond": "mcp:messaging.write",
+	"workInteractions/delegate": "mcp:messaging.write",
 	"workInteractions/cancel": "mcp:messaging.write",
 	"workInteractions/get": "mcp:messaging.read",
 	"workInteractions/listInbox": "mcp:messaging.read",
