@@ -11,6 +11,7 @@ import { getManagementClient } from "@tedix/auth/client";
 import type { DbClient } from "@tedix/db/client";
 import {
 	getMemberByUserId,
+	getMembershipsByDescopeTenants,
 	getOrganizationAggregatorGateways,
 } from "@tedix/db/queries/organization-members";
 import { getOrganizationByDescopeId } from "@tedix/db/queries/organizations";
@@ -499,26 +500,22 @@ async function verifyHumanMcpGrantStages(
 
 	let organizations: SelectedMcpOrganization[];
 	try {
-		const rows = await Promise.all(
-			input.selectedTenantIds.map(async (descopeTenantId) => {
-				const organization = await getOrganizationByDescopeId(
-					db,
-					descopeTenantId,
-				);
-				if (!organization) return null;
-				const member = await getMemberByUserId(
-					db,
-					organization.id,
-					input.descopeUserId,
-				);
-				if (member?.status !== "active") return null;
-				return { organizationId: organization.id, descopeTenantId };
-			}),
+		const memberships = await getMembershipsByDescopeTenants(
+			db,
+			input.selectedTenantIds,
+			input.descopeUserId,
 		);
-		if (rows.some((row) => !row)) return deny("membership_missing");
-		const activeRows = rows.filter((row): row is NonNullable<typeof row> =>
-			Boolean(row),
-		);
+		const activeRows: Array<{
+			organizationId: string;
+			descopeTenantId: string;
+		}> = [];
+		for (const descopeTenantId of input.selectedTenantIds) {
+			const row = memberships.find(
+				(membership) => membership.descopeTenantId === descopeTenantId,
+			);
+			if (row?.status !== "active") return deny("membership_missing");
+			activeRows.push({ organizationId: row.organizationId, descopeTenantId });
+		}
 		const gateways = await getOrganizationAggregatorGateways(
 			db,
 			activeRows.map((row) => row.organizationId),
