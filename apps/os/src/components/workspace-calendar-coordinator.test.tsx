@@ -7,6 +7,8 @@ import {
 	coordinatorStatusText,
 	declaredCalendarTools,
 	grantCoversCalendar,
+	calendarSkillReady,
+	compensationCandidates,
 	type BoundCalendarResource,
 } from "./workspace-calendar-coordinator";
 import {
@@ -90,6 +92,63 @@ describe("calendar setup authority and status", () => {
 			),
 		).toEqual(["list_events", "create_event"]);
 	});
+	it("admits only the selected worker's eligible executable reconciliation skill", () => {
+		const skill = {
+			tediId: "worker",
+			lifecycleState: "active",
+			content: "",
+			files: {
+				"scripts/workflow.ts": "export default async()=>{}",
+				"SKILL.md":
+					"---\ncapabilities:\n  mcp:\n    calendar_coordinator: [reconcile_calendar_subscription]\n---\n",
+			},
+		};
+		expect(calendarSkillReady(skill, "worker")).toBe(true);
+		for (const lifecycleState of ["proven", "crystallized"])
+			expect(calendarSkillReady({ ...skill, lifecycleState }, "worker")).toBe(
+				true,
+			);
+		for (const changed of [
+			{ tediId: "other" },
+			{ tediId: null },
+			{ lifecycleState: "draft" },
+			{ lifecycleState: "archived" },
+			{ files: { "SKILL.md": skill.files["SKILL.md"] } },
+			{
+				files: {
+					"scripts/workflow.ts": "workflow",
+					"SKILL.md": "---\nmcp:\n  calendar:\n    - list_events\n---\n",
+				},
+			},
+		])
+			expect(calendarSkillReady({ ...skill, ...changed }, "worker")).toBe(
+				false,
+			);
+	});
+	it("offers undo only for server-confirmed eligible mutations and caps its batch", () => {
+		const eligible = {
+			actionId: "safe",
+			state: "confirmed",
+			compensationEligible: true,
+		};
+		expect(
+			compensationCandidates([
+				eligible,
+				{ ...eligible, actionId: "deleted", compensationEligible: false },
+				{ actionId: "legacy", state: "confirmed" },
+				{ ...eligible, actionId: "unknown", state: "uncertain" },
+			]),
+		).toEqual(["safe"]);
+		expect(
+			compensationCandidates(
+				Array.from({ length: 25 }, (_, i) => ({
+					...eligible,
+					actionId: String(i),
+				})),
+			),
+		).toHaveLength(20);
+	});
+
 	it("renders a private blocker preview without source event IDs or payload JSON", () => {
 		const plan = {
 			id: "plan",
