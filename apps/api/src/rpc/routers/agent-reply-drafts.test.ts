@@ -189,10 +189,30 @@ function fixture() {
 		});
 	}
 
+	// A gateway credential carries the member's sub but no resolved userId.
+	const gatewayUser = (sub: string) =>
+		createRouterClient(agentTurnTriageContractRouter, {
+			context: {
+				...base,
+				authType: "user",
+				user: {
+					aud: "test",
+					dct: "tenant-1",
+					exp: 2,
+					iat: 1,
+					iss: "https://auth.tedix.test",
+					permissions: ["tedis:read", "tedis:update"],
+					roles: [],
+					sub,
+				},
+			} as BaseContext,
+		});
+
 	return {
 		sqlite,
 		send,
 		target,
+		gatewayTarget: gatewayUser("target-sub"),
 		other: user("other-id", "other-sub"),
 		drafter: tedi(DRAFTER_ID),
 		otherTedi: tedi(OTHER_TEDI_ID),
@@ -376,6 +396,31 @@ describe("proposeReplyDraft", () => {
 				.prepare("SELECT count(*) AS n FROM work_interaction_reply_drafts")
 				.get(),
 		).toMatchObject({ n: 0 });
+	});
+});
+
+describe("policy owner through the MCP gateway", () => {
+	it("resolves the verified member when the credential carries no userId", async () => {
+		const f = fixture();
+		const { version: _version, ...defaults } = DEFAULT_AGENT_TURN_TRIAGE_POLICY;
+		const current = await f.gatewayTarget.getPolicy({});
+		await f.gatewayTarget.updatePolicy({
+			expectedRevision: current.revision,
+			policy: { ...defaults, drafting: { enabled: true, tediId: DRAFTER_ID } },
+		});
+		// The same row the session user and the draft tools read.
+		const viaSession = await f.target.getPolicy({});
+		expect(viaSession.source).not.toBe("default");
+		expect(viaSession.policy.drafting).toMatchObject({
+			enabled: true,
+			tediId: DRAFTER_ID,
+		});
+		const requestId = f.question();
+		await expect(
+			f.gatewayTarget.requestReplyDraft({ requestId }),
+		).resolves.toMatchObject({
+			status: "queued",
+		});
 	});
 });
 
