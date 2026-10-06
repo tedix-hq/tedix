@@ -615,6 +615,10 @@ export class ConversationFacet extends PiAgent<
 							runId: receipt.runId,
 							sessionKey: receipt.sessionKey ?? "",
 							payload: shapeStepTelemetry({
+								model: {
+									provider: message.provider,
+									modelId: message.responseModel ?? message.model,
+								},
 								stepNumber: receipt.ordinal,
 								finishReason: message.stopReason,
 								text: message.content
@@ -626,6 +630,17 @@ export class ConversationFacet extends PiAgent<
 											inputTokens: usage.inputTokens,
 											outputTokens: usage.outputTokens,
 											totalTokens: usage.totalTokens,
+											inputTokenDetails: {
+												cacheReadTokens: message.usage.cacheRead,
+												cacheWriteTokens: message.usage.cacheWrite,
+											},
+											...(typeof message.usage.reasoning === "number"
+												? {
+														outputTokenDetails: {
+															reasoningTokens: message.usage.reasoning,
+														},
+													}
+												: {}),
 										}
 									: undefined,
 								toolCalls: message.content
