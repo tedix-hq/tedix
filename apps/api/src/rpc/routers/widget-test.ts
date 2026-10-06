@@ -885,10 +885,8 @@ export const runWidgetTestProcedure = authed.run
 		const consoleErrors: string[] = [];
 
 		try {
-			const dataJson = JSON.stringify(data)
-				.replace(/\\/g, "\\\\")
-				.replace(/'/g, "\\'");
-			const escapedPreviewUrl = previewUrl.replace(/'/g, "\\'");
+			const dataLiteral = pythonString(JSON.stringify(data));
+			const previewUrlLiteral = pythonString(previewUrl);
 			const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
 			const ext = format === "jpeg" ? "jpg" : "png";
 
@@ -899,7 +897,7 @@ export const runWidgetTestProcedure = authed.run
 				...browserQaObserverSetupCode(),
 				``,
 				`await page.set_viewport_size({"width": ${viewport.width}, "height": ${viewport.height}})`,
-				`await page.goto('${escapedPreviewUrl}', wait_until="networkidle")`,
+				`await page.goto(${previewUrlLiteral}, wait_until="networkidle")`,
 				``,
 				`# Wait for PreviewRenderer store`,
 				`store_ready = True`,
@@ -911,7 +909,7 @@ export const runWidgetTestProcedure = authed.run
 				``,
 				`# Inject real data into the store`,
 				`if store_ready:`,
-				`    data = json.loads('${dataJson}')`,
+				`    data = json.loads(${dataLiteral})`,
 				`    await page.evaluate("""(data) => {`,
 				`        const store = window.__TEDIX_STORE__;`,
 				`        if (store) {`,
@@ -1093,22 +1091,36 @@ export const runWidgetTestProcedure = authed.run
 // =============================================================================
 
 /**
+ * Encode a string as a Python string literal. A JSON string literal is a valid
+ * Python literal (same escapes for quotes, backslashes, and control
+ * characters), so caller-supplied text can never close the literal or inject
+ * statements. Never splice the result into an f-string: braces would be
+ * evaluated there. Bind it to a variable and reference that instead.
+ */
+export function pythonString(value: string): string {
+	return JSON.stringify(value);
+}
+
+/**
  * Build Playwright Python code for a single interaction step.
  * Each step runs in the Firecrawl sandbox with `page` already available.
  *
  * IMPORTANT: Firecrawl Browser Sandbox only captures output via Python's
  * `print()` → `stdout`. Node's `console.log()` is silently dropped.
  * All code therefore uses Python (language: "python").
+ *
+ * Every caller-supplied string goes through `pythonString`; numbers come from
+ * the contract's numeric schemas.
  */
-function buildStepCode(step: InteractionStep): string {
+export function buildStepCode(step: InteractionStep): string {
 	switch (step.action) {
 		case "click": {
 			if (step.text) {
 				const idx = step.index ?? 0;
-				const escaped = step.text.replace(/"/g, '\\"');
 				return [
-					`els = await page.locator("button, a, [role=button]", has_text="${escaped}").all()`,
-					`if len(els) == 0: raise Exception("No element with text: ${escaped}")`,
+					`step_text = ${pythonString(step.text)}`,
+					`els = await page.locator("button, a, [role=button]", has_text=step_text).all()`,
+					`if len(els) == 0: raise Exception("No element with text: " + step_text)`,
 					`await els[${idx}].click()`,
 					`await page.wait_for_timeout(500)`,
 					`print("OK")`,
@@ -1116,10 +1128,10 @@ function buildStepCode(step: InteractionStep): string {
 			}
 			if (step.selector) {
 				const idx = step.index ?? 0;
-				const escaped = step.selector.replace(/"/g, '\\"');
 				return [
-					`els = await page.locator("${escaped}").all()`,
-					`if len(els) == 0: raise Exception("No element matching: ${escaped}")`,
+					`step_selector = ${pythonString(step.selector)}`,
+					`els = await page.locator(step_selector).all()`,
+					`if len(els) == 0: raise Exception("No element matching: " + step_selector)`,
 					`await els[${idx}].click()`,
 					`await page.wait_for_timeout(500)`,
 					`print("OK")`,
@@ -1127,23 +1139,17 @@ function buildStepCode(step: InteractionStep): string {
 			}
 			throw new Error("click step needs selector or text");
 		}
-		case "type": {
-			const sel = step.selector.replace(/"/g, '\\"');
-			const txt = step.text.replace(/"/g, '\\"');
-			return `await page.locator("${sel}").fill("${txt}")\nprint("OK")`;
-		}
-		case "press": {
-			const key = step.key.replace(/"/g, '\\"');
+		case "type":
+			return `await page.locator(${pythonString(step.selector)}).fill(${pythonString(step.text)})\nprint("OK")`;
+		case "press":
 			// Use page.press("body", key) — page.keyboard.press() can timeout in Firecrawl sandbox
-			return `await page.press("body", "${key}")\nprint("OK")`;
-		}
+			return `await page.press("body", ${pythonString(step.key)})\nprint("OK")`;
 		case "wait":
 			return `await page.wait_for_timeout(${step.ms ?? 1000})\nprint("OK")`;
 		case "waitFor": {
-			const sel = step.selector.replace(/"/g, '\\"');
 			const state = step.state ?? "visible";
 			const timeout = step.timeout ?? 5000;
-			return `await page.locator("${sel}").wait_for(state="${state}", timeout=${timeout})\nprint("OK")`;
+			return `await page.locator(${pythonString(step.selector)}).wait_for(state=${pythonString(state)}, timeout=${timeout})\nprint("OK")`;
 		}
 		case "screenshot": {
 			const fullPage = step.fullPage ?? true;
@@ -1161,33 +1167,32 @@ function buildStepCode(step: InteractionStep): string {
 		}
 		case "assert": {
 			const lines: string[] = [];
+			if (step.selector) {
+				lines.push(`sel = ${pythonString(step.selector)}`);
+			}
 			if (step.selector && step.visible === true) {
-				const sel = step.selector.replace(/"/g, '\\"');
 				lines.push(
-					`vis = await page.locator("${sel}").is_visible()`,
-					`if not vis: raise Exception("Expected visible: ${sel}")`,
+					`vis = await page.locator(sel).is_visible()`,
+					`if not vis: raise Exception("Expected visible: " + sel)`,
 				);
 			}
 			if (step.selector && step.visible === false) {
-				const sel = step.selector.replace(/"/g, '\\"');
 				lines.push(
-					`vis = await page.locator("${sel}").is_visible()`,
-					`if vis: raise Exception("Expected hidden: ${sel}")`,
+					`vis = await page.locator(sel).is_visible()`,
+					`if vis: raise Exception("Expected hidden: " + sel)`,
 				);
 			}
 			if (step.selector && step.text) {
-				const sel = step.selector.replace(/"/g, '\\"');
-				const txt = step.text.replace(/"/g, '\\"');
 				lines.push(
-					`txt = await page.locator("${sel}").text_content()`,
-					`if txt is None or "${txt}" not in txt: raise Exception(f"Expected text '${txt}' in ${sel}, got: {(txt or '')[:100]}")`,
+					`expected_text = ${pythonString(step.text)}`,
+					`txt = await page.locator(sel).text_content()`,
+					`if txt is None or expected_text not in txt: raise Exception(f"Expected text '{expected_text}' in {sel}, got: {(txt or '')[:100]}")`,
 				);
 			}
 			if (step.selector && step.count !== undefined) {
-				const sel = step.selector.replace(/"/g, '\\"');
 				lines.push(
-					`cnt = await page.locator("${sel}").count()`,
-					`if cnt != ${step.count}: raise Exception(f"Expected ${step.count} elements for ${sel}, got: {cnt}")`,
+					`cnt = await page.locator(sel).count()`,
+					`if cnt != ${step.count}: raise Exception(f"Expected ${step.count} elements for {sel}, got: {cnt}")`,
 				);
 			}
 			lines.push(`print("OK")`);
@@ -1195,8 +1200,7 @@ function buildStepCode(step: InteractionStep): string {
 		}
 		case "scroll": {
 			if (step.selector) {
-				const sel = step.selector.replace(/"/g, '\\"');
-				return `await page.locator("${sel}").evaluate("(el, args) => el.scrollBy(args.x, args.y)", {"x": ${step.x ?? 0}, "y": ${step.y ?? 300}})\nprint("OK")`;
+				return `await page.locator(${pythonString(step.selector)}).evaluate("(el, args) => el.scrollBy(args.x, args.y)", {"x": ${step.x ?? 0}, "y": ${step.y ?? 300}})\nprint("OK")`;
 			}
 			return `await page.evaluate("(args) => window.scrollBy(args.x, args.y)", {"x": ${step.x ?? 0}, "y": ${step.y ?? 300}})\nprint("OK")`;
 		}
@@ -1311,17 +1315,15 @@ export const runInteractiveWidgetTestProcedure = authed.runInteractive
 
 		try {
 			// 5. Navigate and inject data (Python — only language with stdout capture in Firecrawl)
-			const dataJson = JSON.stringify(data)
-				.replace(/\\/g, "\\\\")
-				.replace(/'/g, "\\'");
-			const escapedPreviewUrl = previewUrl.replace(/'/g, "\\'");
+			const dataLiteral = pythonString(JSON.stringify(data));
+			const previewUrlLiteral = pythonString(previewUrl);
 			const setupCode = [
 				`import json`,
 				``,
 				...browserQaObserverSetupCode(),
 				``,
 				`await page.set_viewport_size({"width": ${viewport.width}, "height": ${viewport.height}})`,
-				`await page.goto('${escapedPreviewUrl}', wait_until="networkidle")`,
+				`await page.goto(${previewUrlLiteral}, wait_until="networkidle")`,
 				``,
 				`# Wait for PreviewRenderer store`,
 				`try:`,
@@ -1330,7 +1332,7 @@ export const runInteractiveWidgetTestProcedure = authed.runInteractive
 				`    print("WARN:store_timeout")`,
 				``,
 				`# Inject data`,
-				`data = json.loads('${dataJson}')`,
+				`data = json.loads(${dataLiteral})`,
 				`await page.evaluate("""(data) => {`,
 				`    const store = window.__TEDIX_STORE__;`,
 				`    if (store) {`,
