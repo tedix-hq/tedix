@@ -18,6 +18,7 @@ import {
 	renderSecretScan,
 	scanCommits,
 	scanTrackedFiles,
+	trailerFindings,
 } from "./secret-scan";
 import { detachedGitEnv } from "./git-env";
 
@@ -645,6 +646,68 @@ describe("public secret scan", () => {
 			`${at}:2:customer-identity`,
 			`${at}:3:customer-identity`,
 			`${at}:5:cloudflare-account-id`,
+		]);
+	});
+
+	test("accepts commits without trailers or with both exact trailers", () => {
+		const item = "33708ba5-b62d-4cd8-8d44-e0353e47b412";
+		const session = "codex:01a105c7-a9ae-7440-9449-a37e588b09a6";
+		expect(
+			trailerFindings("fix: a change\n\nCo-Authored-By: A <a@x.dev>"),
+		).toEqual([]);
+		expect(
+			trailerFindings(
+				`fix: a change\n\nBody text.\n\nWork-Item: ${item}\nAgent-Session: ${session}\nCo-Authored-By: A <a@x.dev>\n`,
+			),
+		).toEqual([]);
+	});
+
+	test("rejects malformed, split, partial or duplicated trailers", () => {
+		const item = "33708ba5-b62d-4cd8-8d44-e0353e47b412";
+		const id = "01a105c7-a9ae-7440-9449-a37e588b09a6";
+		// Session without a harness prefix.
+		expect(
+			trailerFindings(`fix: a\n\nWork-Item: ${item}\nAgent-Session: ${id}`),
+		).toEqual([4]);
+		// Descriptive suffix after the session uuid.
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: ${item}\nAgent-Session: codex:${id}-review-20261005`,
+			),
+		).toEqual([4]);
+		// A blank line splits the block, so Git sees only the last paragraph.
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: ${item}\n\nAgent-Session: codex:${id}`,
+			),
+		).toEqual([3]);
+		// One trailer without the other.
+		expect(trailerFindings(`fix: a\n\nWork-Item: ${item}`)).toEqual([3]);
+		// Not a uuid, and a repeated session.
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: TEDIX-12\nAgent-Session: codex:${id}\nAgent-Session: codex:${id}`,
+			),
+		).toEqual([3, 5]);
+	});
+
+	test("reports malformed trailers in the pushed range as commit findings", () => {
+		const privateRulesPath = placeholderRules();
+		const root = fixture({ "src/index.ts": "export {};\n" });
+		const base = commitFixture(root, "Ada Codex|ada@acme.dev", "chore: base");
+		setOriginMain(root, base);
+		const head = commitFixture(
+			root,
+			"Ada Codex|ada@acme.dev",
+			"fix: a\n\nWork-Item: 33708ba5-b62d-4cd8-8d44-e0353e47b412",
+		);
+		expect(scanCommits(root, [{ base, head }], { privateRulesPath })).toEqual([
+			{
+				kind: "commit",
+				path: `commit ${head.slice(0, 12)}`,
+				rule: "commit-trailer",
+				line: 5,
+			},
 		]);
 	});
 

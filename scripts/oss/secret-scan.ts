@@ -533,6 +533,44 @@ export interface PushRange {
 	head: string;
 }
 
+const TRAILER_LINE = /^(Work-Item|Agent-Session):\s*(.*)$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HARNESS_SESSION =
+	/^[a-z][a-z0-9-]*:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Maintainer trailers are optional, but public history keeps them forever, so
+ * a commit that carries one carries both, in the final trailer block, with
+ * exact ids: `Work-Item: <uuid>` and `Agent-Session: <harness>:<uuid>`.
+ * Returns 1-based message line numbers (the caller offsets them past the
+ * author and committer lines).
+ */
+export function trailerFindings(message: string): number[] {
+	const lines = message.replace(/\n+$/, "").split("\n");
+	let lastBlockStart = 0;
+	for (const [index, line] of lines.entries()) {
+		if (line.trim() === "") lastBlockStart = index + 1;
+	}
+	const found = new Map<string, number[]>();
+	const bad: number[] = [];
+	for (const [index, line] of lines.entries()) {
+		const match = TRAILER_LINE.exec(line);
+		if (!match) continue;
+		const key = (match[1] ?? "").toLowerCase();
+		const value = (match[2] ?? "").trim();
+		found.set(key, [...(found.get(key) ?? []), index + 1]);
+		const valid =
+			key === "work-item" ? UUID.test(value) : HARNESS_SESSION.test(value);
+		if (!valid || index < lastBlockStart) bad.push(index + 1);
+	}
+	for (const [key, at] of found) {
+		if (at.length > 1) bad.push(...at.slice(1));
+		const other = key === "work-item" ? "agent-session" : "work-item";
+		if (!found.has(other)) bad.push(...at);
+	}
+	return [...new Set(bad)].sort((a, b) => a - b);
+}
+
 /**
  * Scan what a push publishes besides file bytes: each commit's message and
  * its author and committer identity. Public `main` carries both forever, so a
@@ -579,6 +617,14 @@ export function scanCommits(
 			const [sha = "", ...lines] = record.split("\n");
 			if (seen.has(sha)) continue;
 			seen.add(sha);
+			for (const line of trailerFindings(lines.slice(2).join("\n"))) {
+				findings.push({
+					kind: "commit",
+					path: `commit ${sha.slice(0, 12)}`,
+					rule: "commit-trailer",
+					line: line + 2,
+				});
+			}
 			for (const [index, line] of lines.entries()) {
 				for (const rule of rules) {
 					if (lineHasFinding(line, rule)) {
