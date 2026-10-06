@@ -5225,3 +5225,355 @@ it("bounded descriptors preserve both prior archives during authentic Raw SDK in
 		JSON.stringify(diagnostics),
 	);
 }, 60_000);
+
+it("custody coverage Raw root inventories metadata without KV values and refuses final-yield mutation", async () => {
+	const local = env as unknown as Cloudflare.Env,
+		namespace = ns().PI_CUTOVER_EARLY,
+		name = "coverage-" + crypto.randomUUID(),
+		tediId = crypto.randomUUID(),
+		orgId = crypto.randomUUID();
+	await local.DB.exec(
+		"CREATE TABLE IF NOT EXISTS tedis(id TEXT PRIMARY KEY,organization_id TEXT,slug TEXT,isolate_agent_id TEXT,runtime_kind TEXT,status TEXT)",
+	);
+	await local.DB.prepare("INSERT INTO tedis VALUES(?,?,?,?,?,?)")
+		.bind(tediId, orgId, name, name, "agent", "active")
+		.run();
+	await runInDurableObject(
+		namespace.get(namespace.idFromName(name)),
+		async (_instance, ctx) => {
+			const { operateStoredCutover } =
+					await import("../../src/pi-cutover-admin"),
+				{ RuntimeAdmissionDO } = await import("../../src/runtime-admission-do"),
+				{ TediRuntimeCustodyCoverageResponseSchema } =
+					await import("@tedix/api-contract/schemas/tedi");
+			const key = Buffer.alloc(32, 7).toString("base64"),
+				id = ctx.id.toString();
+			ctx.storage.kv.put("__ps_name", name);
+			new RuntimeAdmissionDO(ctx.storage, {
+				objectId: id,
+				tediId,
+				orgId,
+			}).gate.initialize({
+				operationId: "hold",
+				state: "quarantined",
+				reason: "fixture",
+			});
+			ctx.storage.sql.exec(
+				"CREATE TABLE session_entries(id TEXT PRIMARY KEY,content TEXT)",
+			);
+			ctx.storage.sql.exec(
+				"INSERT INTO session_entries VALUES('one','PRIVATE_CONTENT')",
+			);
+			ctx.storage.sql.exec(
+				"CREATE TABLE cf_agents_sub_agents(class TEXT,name TEXT,identity_version TEXT,identity_name TEXT)",
+			);
+			ctx.storage.sql.exec(
+				"INSERT INTO cf_agents_sub_agents VALUES(?,?,?,?)",
+				"ConversationFacet",
+				"registered",
+				"path-v2",
+				"fictional-child",
+			);
+			for (let i = 0; i < 202; i++)
+				ctx.storage.sql.exec(
+					`CREATE VIEW coverage_view_${i} AS SELECT 1 AS number`,
+				);
+			const runtimeEnv = {
+				...local,
+				TEDI_AGENT: namespace,
+				PI_CUTOVER_KNOWN_PARENT_IDS: JSON.stringify([id]),
+				SECRETS_MASTER_KEY: key,
+			} as unknown as Cloudflare.Env;
+			const invoke = (extra: Record<string, unknown> = {}) =>
+				operateStoredCutover({
+					ctx,
+					env: runtimeEnv,
+					receiver: "raw-cutover-v1",
+					request: new Request(CUTOVER_URL, {
+						method: "POST",
+						headers: { "X-Tedix-Admin-Token": key },
+						body: JSON.stringify({
+							command: "inspect_custody_coverage",
+							objectId: id,
+							operationId: "coverage",
+							expectedGeneration: 1,
+							custody: { tediId, orgId, objectName: name },
+							...extra,
+						}),
+					}),
+				});
+			const before = ctx.storage.sql
+					.exec("SELECT name,sql FROM sqlite_master ORDER BY name")
+					.toArray(),
+				oldList = ctx.storage.kv.list;
+			let lists = 0;
+			ctx.storage.kv.list = (() => {
+				lists++;
+				throw Error("Unexpected KV list");
+			}) as typeof oldList;
+			try {
+				const { prepareCustodyCoverage } =
+					await import("../../src/custody-coverage-inventory");
+				await prepareCustodyCoverage({
+					storage: ctx.storage,
+					namespace,
+					masterKey: key,
+					deadline: performance.now() + 30000,
+					recheck: () => {},
+					verifyCanonical: async () => {},
+					identity: {
+						rootPhysicalId: id,
+						targetPhysicalId: id,
+						organizationId: orgId,
+						tediId,
+						operationId: "direct",
+						namespaceClass: "AgentTediDO",
+						targetName: name,
+						targetPath: [],
+						generation: 1,
+						receiver: "raw-cutover-v1",
+					},
+				}).result;
+				const first = await invoke();
+				expect(first.status).toBe(200);
+				const page = TediRuntimeCustodyCoverageResponseSchema.parse(
+					await first.json(),
+				);
+				expect(page.items).toHaveLength(200);
+				expect(page.continuation).not.toBeNull();
+				expect(page.kv.complete).toBe(false);
+				expect(page.wholePreservationReady).toBe(false);
+				expect(
+					page.items.some(
+						(x) =>
+							x.domain === "sql" &&
+							x.name === "_cf_KV" &&
+							x.shape === "provider_private" &&
+							x.classification === "unsupported" &&
+							x.columnsHash === null,
+					),
+				).toBe(true);
+				expect(JSON.stringify(page)).not.toContain("PRIVATE_CONTENT");
+				const next = await invoke({
+					coverageHash: page.coverageHash,
+					continuation: page.continuation,
+				});
+				expect(next.status).toBe(200);
+				const last = TediRuntimeCustodyCoverageResponseSchema.parse(
+					await next.json(),
+				);
+				expect(last.offset).toBe(200);
+				expect(last.expiresAt).toBe(page.expiresAt);
+				expect(last.metadataEnumerationComplete).toBe(true);
+				expect(
+					last.items.some(
+						(x) => x.domain === "registry" && x.localOwner === "UNKNOWN",
+					),
+				).toBe(true);
+				expect(
+					ctx.storage.sql
+						.exec("SELECT name,sql FROM sqlite_master ORDER BY name")
+						.toArray(),
+				).toEqual(before);
+				expect(lists).toBe(0);
+				const originalParse = TediRuntimeCustodyCoverageResponseSchema.parse;
+				let changed = false,
+					readsAfterMutation = 0;
+				const exec = ctx.storage.sql.exec;
+				ctx.storage.sql.exec = ((sql: string, ...args: SqlStorageValue[]) => {
+					if (changed && sql.includes("sqlite_master")) readsAfterMutation++;
+					return exec.call(ctx.storage.sql, sql, ...args);
+				}) as typeof exec;
+				TediRuntimeCustodyCoverageResponseSchema.parse = ((
+					...args: Parameters<typeof originalParse>
+				) => {
+					const result = originalParse(...args);
+					queueMicrotask(() => {
+						if (!changed) {
+							changed = true;
+							exec.call(ctx.storage.sql, "DROP VIEW coverage_view_0");
+						}
+					});
+					return result;
+				}) as typeof originalParse;
+				try {
+					expect((await invoke()).status).toBe(409);
+					expect(readsAfterMutation).toBeGreaterThan(0);
+				} finally {
+					TediRuntimeCustodyCoverageResponseSchema.parse = originalParse;
+					ctx.storage.sql.exec = exec;
+				}
+
+				// The rejection must also recapture after its queued publisher yield.
+				let rejectedMutation = false,
+					rejectedReads = 0;
+				const rejectExec = ctx.storage.sql.exec;
+				ctx.storage.sql.exec = ((sql: string, ...args: SqlStorageValue[]) => {
+					if (rejectedMutation && sql.includes("sqlite_master"))
+						rejectedReads++;
+					return rejectExec.call(ctx.storage.sql, sql, ...args);
+				}) as typeof rejectExec;
+				TediRuntimeCustodyCoverageResponseSchema.parse = ((
+					...args: Parameters<typeof originalParse>
+				) => {
+					originalParse(...args);
+					queueMicrotask(() => {
+						rejectedMutation = true;
+						rejectExec.call(
+							ctx.storage.sql,
+							"CREATE VIEW rejected_publisher AS SELECT 2 AS number",
+						);
+					});
+					throw Error("PRIVATE_REJECTION");
+				}) as typeof originalParse;
+				try {
+					expect((await invoke()).status).toBe(409);
+					expect(rejectedReads).toBeGreaterThan(0);
+				} finally {
+					TediRuntimeCustodyCoverageResponseSchema.parse = originalParse;
+					ctx.storage.sql.exec = rejectExec;
+				}
+			} finally {
+				ctx.storage.kv.list = oldList;
+			}
+			expect((await invoke({ expectedGeneration: 2 })).status).toBe(409);
+		},
+	);
+}, 60_000);
+
+it("custody coverage registered Raw leaf validates native name and exact path without adoption", async () => {
+	const local = env as unknown as Cloudflare.Env,
+		namespace = ns().PI_CUTOVER_EARLY,
+		rootName = "coverage-root-" + crypto.randomUUID(),
+		leafName = "coverage-leaf-" + crypto.randomUUID(),
+		tediId = crypto.randomUUID(),
+		orgId = crypto.randomUUID(),
+		rootId = namespace.idFromName(rootName).toString();
+	await local.DB.exec(
+		"CREATE TABLE IF NOT EXISTS tedis(id TEXT PRIMARY KEY,organization_id TEXT,slug TEXT,isolate_agent_id TEXT,runtime_kind TEXT,status TEXT)",
+	);
+	await local.DB.prepare("INSERT INTO tedis VALUES(?,?,?,?,?,?)")
+		.bind(tediId, orgId, rootName, rootName, "agent", "active")
+		.run();
+	await runInDurableObject(
+		namespace.get(namespace.idFromName(leafName)),
+		async (_instance, ctx) => {
+			const { passiveRegisteredCutover } =
+					await import("../../src/pi-cutover-admin"),
+				{ RuntimeAdmissionDO } = await import("../../src/runtime-admission-do");
+			const key = Buffer.alloc(32, 7).toString("base64"),
+				id = ctx.id.toString(),
+				parentPath = [{ className: "AgentTediDO", name: rootName }];
+			ctx.storage.kv.put("__ps_name", leafName);
+			ctx.storage.kv.put("cf_agents_is_facet", true);
+			ctx.storage.kv.put("cf_agents_facet_name", "registered");
+			ctx.storage.kv.put("cf_agents_parent_path", parentPath);
+			new RuntimeAdmissionDO(ctx.storage, {
+				objectId: id,
+				tediId: null,
+				orgId: null,
+			}).gate.initialize({
+				operationId: "hold",
+				state: "quarantined",
+				reason: "fixture",
+			});
+			ctx.storage.sql.exec(
+				"CREATE TABLE session_entries(id TEXT PRIMARY KEY,content TEXT)",
+			);
+			ctx.storage.sql.exec(
+				"INSERT INTO session_entries VALUES('one','PRIVATE_LEAF')",
+			);
+			const path = [
+				{
+					className: "ConversationFacet",
+					name: "registered",
+					identityVersion: "path-v2",
+					identityName: leafName,
+					objectId: id,
+					registryHash: "a".repeat(64),
+					parentGeneration: 1,
+				},
+			];
+			// Real native receiver/storage/ID; the parent envelope is synthetic, not a cross-object attestation.
+			const custody = {
+				rootId,
+				tediId,
+				orgId,
+				objectName: rootName,
+				parentPath,
+				current: {
+					className: "ConversationFacet",
+					name: "registered",
+					identityName: leafName,
+					objectId: id,
+				},
+			};
+			const runtimeEnv = {
+				...local,
+				TEDI_AGENT: namespace,
+				PI_CUTOVER_KNOWN_PARENT_IDS: JSON.stringify([rootId]),
+				SECRETS_MASTER_KEY: key,
+			} as unknown as Cloudflare.Env;
+			const invoke = () =>
+				passiveRegisteredCutover(ctx, runtimeEnv, {
+					token: key,
+					index: 1,
+					custody: JSON.stringify(custody),
+					body: JSON.stringify({
+						command: "inspect_custody_coverage",
+						objectId: rootId,
+						operationId: "coverage-leaf",
+						expectedGeneration: 1,
+						custody: { tediId, orgId, objectName: rootName },
+						targetPath: path,
+					}),
+				});
+			const r = await invoke();
+			expect(r.status).toBe(200);
+			const value = JSON.parse(r.body);
+			expect(value.targetObjectId).toBe(id);
+			expect(value.adoptionReady).toBe(false);
+			expect(value.kv.enumeration).toBe("not_queried");
+			expect(r.body).not.toContain("PRIVATE_LEAF");
+
+			const { TediRuntimeCustodyCoverageResponseSchema } =
+				await import("@tedix/api-contract/schemas/tedi");
+			const parse = TediRuntimeCustodyCoverageResponseSchema.parse,
+				get = ctx.storage.kv.get;
+			let changed = false,
+				parentReads = 0;
+			ctx.storage.kv.get = ((key: string) => {
+				if (changed && key === "cf_agents_parent_path") parentReads++;
+				return get.call(ctx.storage.kv, key);
+			}) as typeof get;
+			TediRuntimeCustodyCoverageResponseSchema.parse = ((
+				...args: Parameters<typeof parse>
+			) => {
+				parse(...args);
+				queueMicrotask(() => {
+					changed = true;
+					ctx.storage.kv.put("cf_agents_parent_path", [
+						{ className: "AgentTediDO", name: "queued-contradiction" },
+					]);
+				});
+				throw Error("PRIVATE_LEAF_REJECTION");
+			}) as typeof parse;
+			try {
+				expect((await invoke()).status).toBe(409);
+				expect(parentReads).toBeGreaterThan(0);
+			} finally {
+				TediRuntimeCustodyCoverageResponseSchema.parse = parse;
+				ctx.storage.kv.get = get;
+				ctx.storage.kv.put("cf_agents_parent_path", parentPath);
+			}
+			ctx.storage.kv.put("cf_agents_parent_path", [
+				{ className: "AgentTediDO", name: "contradiction" },
+			]);
+			expect((await invoke()).status).toBe(409);
+			expect(
+				ctx.storage.sql.exec("SELECT content FROM session_entries").one()
+					.content,
+			).toBe("PRIVATE_LEAF");
+		},
+	);
+});
