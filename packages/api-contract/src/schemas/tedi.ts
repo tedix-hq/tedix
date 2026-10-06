@@ -1632,6 +1632,17 @@ const HistoricalCustodyCommon = {
 	targetPath: z.array(CutoverInspectionHopSchema).min(1).max(16).optional(),
 	expectedGeneration: z.number().int().positive().safe(),
 };
+const CustodyCoverageCommand = z
+	.strictObject({
+		...HistoricalCustodyCommon,
+		command: z.literal("inspect_custody_coverage"),
+		continuation: z.string().min(1).max(131_072).optional(),
+		coverageHash: CutoverMetadataHashSchema.optional(),
+	})
+	.refine(
+		(v) => (v.continuation === undefined) === (v.coverageHash === undefined),
+		"Continuation requires original coverage hash",
+	);
 const NativePreservationCommands = [
 	z.strictObject({
 		...HistoricalCustodyCommon,
@@ -1691,6 +1702,7 @@ const SdkPreservationCommands = [
 const CutoverOperationCommandsSchema = z
 	.discriminatedUnion("command", [
 		CaptureSizeCommandSchema,
+		CustodyCoverageCommand,
 		...NativePreservationCommands,
 		...SdkPreservationCommands,
 		...SessionPreservationCommands,
@@ -1803,6 +1815,7 @@ const CutoverOperationCommandsSchema = z
 				value.command === "capture_session_preservation" ||
 				value.command === "audit_session_preservation" ||
 				value.command === "inspect_session_rehydration" ||
+				value.command === "inspect_custody_coverage" ||
 				value.command === "inspect_historical_custody" ||
 				value.command === "capture_historical_custody" ||
 				value.command === "audit_historical_custody") &&
@@ -1831,6 +1844,7 @@ export const TediRuntimeCutoverOperationQuerySchema = z
 			"capture_session_preservation",
 			"audit_session_preservation",
 			"inspect_session_rehydration",
+			"inspect_custody_coverage",
 			"inspect_capture_size",
 			"inspect_historical_custody",
 			"capture_historical_custody",
@@ -1847,6 +1861,7 @@ export const TediRuntimeCutoverOperationQuerySchema = z
 		]),
 		custodyTediId: z.string().uuid().optional(),
 		continuation: z.string().min(1).optional(),
+		coverageHash: CutoverMetadataHashSchema.optional(),
 		archiveId: z.string().uuid().optional(),
 		proof: z.string().min(1).max(131_072).optional(),
 		expectedGeneration: z.number().int().nonnegative().safe(),
@@ -2425,7 +2440,125 @@ export const TediRuntimeSdkPreservationResponseSchema = z.discriminatedUnion(
 	],
 );
 
+/** Coverage declarations describe metadata, never authenticated content preservation. */
+export const CustodyCoverageSqlItemSchema = z.strictObject({
+	domain: z.literal("sql"),
+	name: z.string().min(1).max(65_536),
+	type: z.enum(["table", "index", "trigger", "view"]),
+	tableName: z.string().min(1).max(65_536),
+	ddlHash: CutoverMetadataHashSchema.nullable(),
+	columnsHash: CutoverMetadataHashSchema.nullable(),
+	shape: z.enum([
+		"ordinary",
+		"view",
+		"virtual",
+		"shadow",
+		"generated",
+		"case_collision",
+		"provider_private",
+	]),
+	classification: z.enum(["declared", "uncovered", "unsupported"]),
+	memberships: z
+		.array(
+			z.enum(["native23", "session8", "sdk43", "historical", "prior_archive"]),
+		)
+		.max(5),
+	archiveAuthenticated: z.literal(false),
+});
+export const CustodyCoverageRegistryItemSchema = z
+	.strictObject({
+		domain: z.literal("registry"),
+		className: CutoverInspectionHopSchema.shape.className,
+		name: CutoverInspectionHopSchema.shape.name,
+		identityVersion: CutoverInspectionHopSchema.shape.identityVersion,
+		identityName: CutoverInspectionHopSchema.shape.identityName,
+		objectId: TediRuntimeCutoverObjectIdSchema,
+		parentGeneration: CutoverInspectionHopSchema.shape.parentGeneration,
+		registryMetadataHash: CutoverMetadataHashSchema,
+		routingCustody: z.literal("not_queried"),
+		disposition: z.literal("registered_not_visited"),
+		childGeneration: z.null(),
+		localOwner: z.literal("UNKNOWN"),
+	})
+	.refine(
+		(v) =>
+			v.identityVersion === "path-v2"
+				? v.identityName !== null
+				: v.identityName === null,
+		{ message: "Inconsistent descriptive identity" },
+	);
+export const TediRuntimeCustodyCoverageResponseSchema = z
+	.strictObject({
+		...NativePreservationResponseCommon,
+		command: z.literal("inspect_custody_coverage"),
+		version: z.literal("custody-coverage-metadata-v1"),
+		coverageHash: CutoverMetadataHashSchema,
+		sqlMetadataHash: CutoverMetadataHashSchema,
+		registryHash: CutoverMetadataHashSchema,
+		issuedAt: z.number().int().nonnegative().safe(),
+		expiresAt: z.number().int().nonnegative().safe(),
+		sqlObjects: CutoverMetadataCountSchema,
+		registeredTargets: CutoverMetadataCountSchema,
+		offset: CutoverMetadataCountSchema,
+		items: z
+			.array(
+				z.union([
+					CustodyCoverageSqlItemSchema,
+					CustodyCoverageRegistryItemSchema,
+				]),
+			)
+			.max(200),
+		continuation: z.string().min(1).max(131_072).nullable(),
+		metadataEnumerationComplete: z.boolean(),
+		kv: z.strictObject({
+			status: z.literal("unsupported_metadata_only_enumeration_unavailable"),
+			enumeration: z.literal("not_queried"),
+			complete: z.literal(false),
+			keyCount: z.null(),
+			keyIdentityHash: z.null(),
+			valueCoverage: z.literal("not_queried"),
+			payloadAuthenticity: z.literal("not_queried"),
+		}),
+		alarm: z.literal("UNKNOWN"),
+		remoteEffects: z.literal("not_queried"),
+		writerExclusionAck: z.literal("UNKNOWN"),
+		wholeContentPreserved: z.literal(false),
+		wholePreservationReady: z.literal(false),
+		adoptionReady: z.literal(false),
+		executionEligible: z.literal(false),
+		financialClearance: z.literal(false),
+	})
+	.superRefine((v, ctx) => {
+		const total = v.sqlObjects + v.registeredTargets,
+			end = v.offset + v.items.length;
+		if (
+			!Number.isSafeInteger(total) ||
+			!Number.isSafeInteger(end) ||
+			v.expiresAt - v.issuedAt !== 300000 ||
+			end > total ||
+			v.offset > total ||
+			v.items.length !== Math.min(200, total - v.offset) ||
+			v.metadataEnumerationComplete !== (end === total) ||
+			(v.continuation === null) !== v.metadataEnumerationComplete ||
+			v.items.some(
+				(r, i) =>
+					r.domain !== (v.offset + i < v.sqlObjects ? "sql" : "registry") ||
+					(r.domain === "registry" &&
+						(r.registryMetadataHash !== v.registryHash ||
+							r.parentGeneration !== v.generation)),
+			)
+		)
+			ctx.addIssue({
+				code: "custom",
+				message: "Incoherent custody metadata page",
+			});
+	});
+export type TediRuntimeCustodyCoverageResponse = z.infer<
+	typeof TediRuntimeCustodyCoverageResponseSchema
+>;
+
 export const TediRuntimeCutoverOperationResponseSchema = z.union([
+	TediRuntimeCustodyCoverageResponseSchema,
 	TediRuntimeSessionRehydrationResponseSchema,
 	TediRuntimeSessionPreservationResponseSchema,
 	TediRuntimeSdkPreservationResponseSchema,

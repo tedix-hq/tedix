@@ -1081,3 +1081,25 @@ for (const command of [
 		mock.restore();
 	}
 }
+
+const coverageCommand = {
+	command: "inspect_custody_coverage",
+	objectId,
+	operationId: "metadata-only",
+	expectedGeneration: 1,
+	custody,
+};
+assert.equal(
+	(await parseCutoverOperation(coverageCommand)).query.command,
+	"inspect_custody_coverage",
+);
+for (const change of [
+	{ expectedGeneration: 0 },
+	{ continuation: "opaque" },
+	{ coverageHash: hash },
+	{ archiveId: "00000000-0000-4000-8000-000000000001" },
+])
+	await assert.rejects(
+		parseCutoverOperation({ ...coverageCommand, ...change }),
+	);
+console.log("Custody coverage exact passive command boundary PASS");
