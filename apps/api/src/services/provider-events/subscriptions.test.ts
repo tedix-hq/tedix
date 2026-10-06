@@ -409,3 +409,15 @@ it("stops the newly created channel when consent changes during provider registr
 		expect.objectContaining({ status: "active" }),
 	);
 });
+
+it("queues a capability-verified personal callback without requiring the provider to be the account owner", async () => {
+	row = { ...row, connectionScope: "user", personalOwnerUserId: "owner" };
+	expect(
+		await queueReconciliation(context, row, "google:verified-channel:1"),
+	).toBe(true);
+	expect(mocks.authorize).not.toHaveBeenCalled();
+	row = { ...row, status: "disabled" };
+	expect(
+		await queueReconciliation(context, row, "google:verified-channel:2"),
+	).toBe(false);
+});
