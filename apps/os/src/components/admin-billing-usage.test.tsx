@@ -18,6 +18,19 @@ const org = "fictional-organization";
 function overview(): BillingOverview {
 	return BillingOverviewSchema.parse({
 		stripeEnvironment: "test",
+		workstationCostCoverage: {
+			periodStart: "2026-09-01T00:00:00.000Z",
+			periodEnd: "2026-10-01T00:00:00.000Z",
+			observedAt: "2026-09-20T00:00:00.000Z",
+			unit: "compute_seconds",
+			basis: "recorded_lease_end_wall_clock",
+			status: "partial",
+			knownAttributedCostMicros: 2000000,
+			total: { rowCount: 3, leaseSeconds: 300 },
+			reconciled: { rowCount: 1, leaseSeconds: 100 },
+			pending: { rowCount: 1, leaseSeconds: 100 },
+			unproven: { rowCount: 1, leaseSeconds: 100 },
+		},
 		snapshot: {
 			status: "active",
 			billingMode: "stripe",
@@ -130,12 +143,23 @@ function render(
 		error?: boolean;
 		subscription?: boolean;
 		unlimited?: boolean;
+		workstationUnknown?: boolean;
 	} = {},
 ) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	const bill = overview();
+	if (opts.workstationUnknown)
+		bill.workstationCostCoverage = {
+			...bill.workstationCostCoverage,
+			status: "partial",
+			knownAttributedCostMicros: null,
+			total: { rowCount: 1, leaseSeconds: 100 },
+			reconciled: { rowCount: 0, leaseSeconds: 0 },
+			pending: { rowCount: 1, leaseSeconds: 100 },
+			unproven: { rowCount: 0, leaseSeconds: 0 },
+		};
 	if (opts.unlimited) {
 		bill.snapshot.includedTokens = 0;
 		bill.snapshot.allowOverage = true;
@@ -246,4 +270,28 @@ it("does not describe unlimited-plan settled tokens as paid overage", () => {
 	);
 	expect(html).not.toContain("80,000 metered overage tokens");
 	expect(html).toContain("Metered usage charges");
+});
+
+it("shows separate reconciled workstation subtotal and recorded coverage", () => {
+	const html = render(usage());
+	expect(html).toContain("Reconciled workstation cost");
+	expect(html).toContain(">$2<");
+	expect(html).toContain("1 pending rows");
+	expect(html).toContain("1 unproven rows");
+	expect(html).toContain("Wall-clock lease duration is a proxy");
+	expect(html).toContain(
+		"does not establish an invoice or total infrastructure spend",
+	);
+	expect(html).toContain("Pending stored zero does not mean free");
+});
+it("unknown workstation subtotal is never displayed as free zero", () => {
+	const html = render(usage(), { workstationUnknown: true });
+	expect(html).toContain(">Unknown<");
+	expect(html).toContain("1 pending rows");
+	expect(render(usage(), { pending: true })).not.toContain(
+		"Reconciled workstation cost",
+	);
+	expect(render(usage(), { error: true })).not.toContain(
+		"Reconciled workstation cost",
+	);
 });
