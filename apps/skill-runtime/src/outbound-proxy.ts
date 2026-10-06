@@ -60,6 +60,7 @@ import {
 	veoBackgroundRequest,
 } from "./vertex-product-keyframes";
 import type { SkillRuntimeEnv } from "./env";
+import { isVertexHost, isVertexRegionalHost } from "./vertex-host";
 
 /** Platform credentials handed to the proxy via `ctx.props` (loader-side). */
 export interface OutboundProxyProps {
@@ -921,7 +922,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 			const operationUrl = new URL(
 				`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(model)}:generateContent`,
 			);
-			if (!operationUrl.hostname.endsWith("-aiplatform.googleapis.com")) {
+			if (!isVertexRegionalHost(operationUrl.hostname)) {
 				return Response.json(
 					{ error: "configured Vertex endpoint required" },
 					{ status: 503 },
@@ -1004,7 +1005,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 			const operationUrl = new URL(
 				`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(input.model)}:fetchPredictOperation`,
 			);
-			if (!operationUrl.hostname.endsWith("-aiplatform.googleapis.com")) {
+			if (!isVertexRegionalHost(operationUrl.hostname)) {
 				return Response.json(
 					{ error: "configured Vertex endpoint required" },
 					{ status: 503 },
@@ -1156,10 +1157,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 		//  - AI Studio (`generativelanguage.googleapis.com`) — separate prepay
 		//    pool; kept for completeness.
 		// Inject the platform key as `x-goog-api-key` unless the tenant set one.
-		const isVertex =
-			host === "aiplatform.googleapis.com" ||
-			host.endsWith("-aiplatform.googleapis.com") ||
-			host.endsWith(".aiplatform.googleapis.com");
+		const isVertex = isVertexHost(host);
 		const isAiStudio = hostMatches(host, "generativelanguage.googleapis.com");
 		if (isVertex || isAiStudio) {
 			const headers = new Headers(request.headers);
