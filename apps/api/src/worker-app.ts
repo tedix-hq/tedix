@@ -1720,6 +1720,7 @@ app.get("/artifacts/:tediId/:artifactId", handleSessionArtifact);
  * implementation graphs (audit + billing queries, stripe-billing helpers,
  * fleet-authority) must not be evaluated on every isolate's first request.
  */
+// authz: public Provider callbacks verify per-channel hashed capabilities, provider resource identity and active subscriptions in the lazy handler.
 app.post("/webhooks/provider-events/:adapter/:channelId", async (c) => {
 	const { handleProviderEventWebhook } =
 		await import("./webhooks/provider-events");
