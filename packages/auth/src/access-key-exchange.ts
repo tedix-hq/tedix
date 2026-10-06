@@ -4,11 +4,13 @@
  * Access keys are long-lived secrets. Runtime callers exchange them for short
  * session JWTs and cache only the JWT until it is close to expiry.
  *
- * Uses raw `fetch` (its own AbortController) against `/v1/auth/accesskey/exchange`.
- * The SDK's `accessKey` module also covers this endpoint; this path stays raw
- * for its self-contained caching/timeout loop.
+ * Calls `/v1/auth/accesskey/exchange` through `descopeFetch` for its bounded
+ * per-attempt timeout, with retries disabled so a failed exchange surfaces
+ * once to the caller. The SDK's `accessKey` module also covers this endpoint;
+ * this path stays outside it for its self-contained caching loop.
  */
 
+import { descopeFetch } from "./descope-fetch";
 import { DESCOPE_DEFAULT_BASE_URL } from "./types";
 
 export interface DescopeAccessKeyExchangeConfig {
@@ -64,28 +66,23 @@ export class DescopeAccessKeyExchange {
 	private async exchange(): Promise<string> {
 		const baseUrl = this.config.descopeBaseUrl || DEFAULT_BASE_URL;
 		const url = `${baseUrl}/v1/auth/accesskey/exchange`;
-		const fetchImpl = this.config.fetch ?? fetch;
-		const controller = new AbortController();
-		const timeout = setTimeout(
-			() => controller.abort(),
-			this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-		);
-
-		let response: Response;
-		try {
-			response = await fetchImpl(url, {
+		const response = await descopeFetch(
+			url,
+			{
 				method: "POST",
-				signal: controller.signal,
 				headers: {
 					"Content-Type": "application/json",
 					"Accept-Encoding": "identity",
 					Authorization: `Bearer ${this.config.descopeProjectId}:${this.config.descopeAccessKey}`,
 				},
 				body: JSON.stringify({ loginOptions: {} }),
-			});
-		} finally {
-			clearTimeout(timeout);
-		}
+			},
+			{
+				timeoutMs: this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+				retries: 0,
+				fetch: this.config.fetch,
+			},
+		);
 
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");

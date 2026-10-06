@@ -628,6 +628,45 @@ describe("public Worker isolation", () => {
 		expect(replay.status).toBe(410);
 	});
 
+	it.each([
+		["a network failure", () => Promise.reject(new TypeError("network down"))],
+		[
+			"a provider 503",
+			() => Promise.resolve(new Response("unavailable", { status: 503 })),
+		],
+	])(
+		"redirects %s to provider_unavailable without replaying the connect",
+		async (_label, outcome) => {
+			const intentId = crypto.randomUUID().replaceAll("-", "").padEnd(43, "u");
+			await env.SESSION_INTENTS.getByName(intentId).initialize(
+				brokerIntent(intentId, {
+					operation: "outbound_connect",
+					outboundAppId: "acme-api-staging-oauth",
+					redirectPath: "/oauth/callback",
+					tenantId: null,
+				}),
+			);
+			const fetchMock = vi.fn(outcome);
+			vi.stubGlobal("fetch", fetchMock);
+
+			const response = await SELF.fetch(
+				`https://auth.tedix.dev/tedix/session/authorize?intent=${intentId}`,
+				{
+					headers: {
+						Cookie: "DSR=refresh-outbound",
+						"Sec-Fetch-Dest": "document",
+					},
+					redirect: "manual",
+				},
+			);
+			expect(response.status).toBe(302);
+			expect(response.headers.get("Location")).toBe(
+				"https://tedix.os.tedix.dev/oauth/callback?connectError=provider_unavailable",
+			);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		},
+	);
+
 	it("rejects another central user's cookie before initiating a named account grant", async () => {
 		const intentId = crypto.randomUUID().replaceAll("-", "").padEnd(43, "n");
 		await env.SESSION_INTENTS.getByName(intentId).initialize(

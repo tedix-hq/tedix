@@ -17,6 +17,7 @@ import {
 	type SessionBrokerIntent,
 	type SessionBrokerSurface,
 } from "@tedix/auth/session-broker";
+import { descopeFetch } from "@tedix/auth/descope-fetch";
 import { validateToken } from "@tedix/auth/jwt";
 import {
 	DESCOPE_REFRESH_COOKIE,
@@ -905,7 +906,9 @@ async function startOutboundConnect(
 		return outboundFailureRedirect(intent, "account_mismatch");
 	const callback = new URL(OUTBOUND_CALLBACK_PATH, request.url);
 	callback.searchParams.set("intent", intent.intentId);
-	const response = await fetch(
+	// Starting a provider flow is not idempotent: descopeFetch bounds each
+	// attempt and retries only Descope's pre-execution 429.
+	const response = await descopeFetch(
 		"https://api.descope.com/v1/outbound/oauth/connect",
 		{
 			method: "POST",
@@ -929,7 +932,9 @@ async function startOutboundConnect(
 				},
 			}),
 		},
-	);
+		{ idempotent: false },
+	).catch(() => null);
+	if (!response) return outboundFailureRedirect(intent);
 	const body = (await response.json().catch(() => null)) as {
 		url?: unknown;
 	} | null;

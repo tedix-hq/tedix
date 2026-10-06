@@ -54,6 +54,40 @@ describe("DescopeAccessKeyExchange", () => {
 		);
 	});
 
+	it("aborts a stalled exchange at its timeout without retrying", async () => {
+		const fetchMock = vi.fn(
+			(_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () =>
+						reject(new DOMException("aborted", "AbortError")),
+					);
+				}),
+		);
+		const auth = new DescopeAccessKeyExchange({
+			descopeAccessKey: "ak_test",
+			descopeProjectId: "P123",
+			timeoutMs: 5,
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		await expect(auth.getToken()).rejects.toThrow("aborted");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("surfaces a provider 503 once instead of replaying the exchange", async () => {
+		const fetchMock = vi.fn(
+			async () => new Response("unavailable", { status: 503 }),
+		);
+		const auth = new DescopeAccessKeyExchange({
+			descopeAccessKey: "ak_test",
+			descopeProjectId: "P123",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		await expect(auth.getToken()).rejects.toThrow("(503)");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("parses JWT exp defensively", () => {
 		const exp = 1_800_000_000;
 		expect(parseJwtExp(fakeJwt(exp))).toBe(exp);
