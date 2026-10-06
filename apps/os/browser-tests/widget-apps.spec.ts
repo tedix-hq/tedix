@@ -96,6 +96,25 @@ async function run() {
 		const proxyFrame = await (await proxy.elementHandle())?.contentFrame();
 		if (!proxyFrame) throw new Error("Sandbox proxy frame did not load.");
 		const guest = proxy.contentFrame().locator('iframe[title="MCP app"]');
+		const inlineBox = await proxy.boundingBox();
+		if (!inlineBox || inlineBox.height < 590)
+			throw new Error(`Inline frame collapsed: ${JSON.stringify(inlineBox)}`);
+		const frameIdentity = await proxy.elementHandle();
+		await page.getByRole("button", { name: "Expand widget" }).click();
+		const fullscreenBox = await proxy.boundingBox();
+		if (
+			!fullscreenBox ||
+			fullscreenBox.height < page.viewportSize()!.height - 60
+		)
+			throw new Error(
+				`Fullscreen frame did not fill viewport: ${JSON.stringify(fullscreenBox)}`,
+			);
+		await page.getByRole("button", { name: "Exit fullscreen" }).click();
+		if (!(await frameIdentity!.evaluate((frame) => frame.isConnected)))
+			throw new Error("Fullscreen toggle replaced the iframe.");
+		const restoredBox = await proxy.boundingBox();
+		if (!restoredBox || Math.abs(restoredBox.height - inlineBox.height) > 1)
+			throw new Error("Inline height was not restored after fullscreen.");
 		const outerSandbox = await proxy.getAttribute("sandbox");
 		const innerSandbox = await guest.getAttribute("sandbox");
 		if (outerSandbox !== "allow-scripts allow-forms") {
@@ -271,6 +290,44 @@ async function run() {
 		if (bridgeCloses !== 1)
 			throw new Error(`Expected one host bridge close, got ${bridgeCloses}.`);
 		await context.close();
+		const fillPage = await browser.newPage();
+		await fillPage.addInitScript((guestBundle) => {
+			(
+				window as Window & { __MCP_APP_GUEST_BUNDLE__: string }
+			).__MCP_APP_GUEST_BUNDLE__ = guestBundle;
+		}, bundle);
+		await fillPage.goto(`${origin}/browser-tests/widget-apps.html?layout=fill`);
+		await expectEvent(fillPage, "connected");
+		for (const viewport of [
+			{ width: 1100, height: 900 },
+			{ width: 480, height: 620 },
+		]) {
+			await fillPage.setViewportSize(viewport);
+			const box = await fillPage
+				.locator('iframe[title="Interactive widget"]')
+				.boundingBox();
+			if (
+				!box ||
+				box.height < viewport.height - 125 ||
+				box.height > viewport.height - 64 ||
+				box.width > viewport.width
+			)
+				throw new Error(
+					`Review frame does not fit available pane: ${JSON.stringify({ viewport, box })}`,
+				);
+		}
+		const fillGuest = fillPage
+			.frames()
+			.find((frame) => frame.url() === "about:srcdoc")!;
+		await fillGuest.evaluate(() => {
+			document.body.style.height = "1400px";
+			window.scrollTo(0, 800);
+		});
+		if (!(await fillGuest.evaluate(() => window.scrollY > 0)))
+			throw new Error("Bounded guest content cannot scroll.");
+		await fillGuest.getByRole("button", { name: "Call host tool" }).click();
+		await expectEvent(fillPage, "outboundResult");
+		await fillPage.close();
 		console.log(
 			"PASS: real MCP Apps v2 browser handshake, data, tool call, permissions, source/origin checks, and sandbox attributes.",
 		);

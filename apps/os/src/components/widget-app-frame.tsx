@@ -16,6 +16,8 @@ export interface WidgetAppFrameProps {
 	sandbox: { url: URL; permissions: string; csp?: McpUiResourceCsp };
 	createBridge: (context: McpUiHostContext) => AppBridge;
 	hostContext: McpUiHostContext;
+	/** Fill a bounded review pane; transcript widgets keep their content height. */
+	layout?: "content" | "fill";
 	toolInput?: Record<string, unknown>;
 	toolResult?: Parameters<AppBridge["sendToolResult"]>[0];
 	onError: (error: Error) => void;
@@ -48,6 +50,16 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 	const latest = useRef(props);
 	latest.current = props;
 	const activeBridge = useRef<AppBridge | null>(null);
+	const iframeRef = useRef<HTMLIFrameElement | null>(null);
+	const contentHeight = useRef(600);
+	const resizeFrame = useCallback(() => {
+		const iframe = iframeRef.current;
+		if (!iframe) return;
+		const fill =
+			modeRef.current === "fullscreen" || latest.current.layout === "fill";
+		iframe.style.height = fill ? "100%" : `${contentHeight.current}px`;
+		iframe.style.flex = fill ? "1 1 0px" : "0 0 auto";
+	}, []);
 	const [readyBridge, setReadyBridge] = useState<AppBridge | null>(null);
 	const { createBridge, sandbox } = props;
 	useEffect(() => {
@@ -61,10 +73,12 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 		});
 		activeBridge.current = bridge;
 		const iframe = document.createElement("iframe");
+		iframeRef.current = iframe;
 		iframe.title = "Interactive widget";
 		iframe.setAttribute("sandbox", sandbox.permissions);
 		iframe.style.cssText =
-			"width:100%;height:600px;flex:1;min-height:0;border:0;background:transparent";
+			"width:100%;min-height:0;border:0;background:transparent";
+		resizeFrame();
 		let alive = true;
 		let injected = false;
 		setReadyBridge(null);
@@ -99,8 +113,10 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 				height !== undefined &&
 				Number.isFinite(height) &&
 				height > 0
-			)
-				iframe.style.height = `${height}px`;
+			) {
+				contentHeight.current = height;
+				resizeFrame();
+			}
 		};
 		bridge.addEventListener("sandboxready", onSandboxReady);
 		bridge.addEventListener("initialized", onInitialized);
@@ -126,13 +142,15 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 			bridge.removeEventListener("sizechange", onSizeChange);
 			iframe.removeEventListener("error", fail);
 			iframe.remove();
+			if (iframeRef.current === iframe) iframeRef.current = null;
 			void bridge
 				.close()
 				.catch((error: unknown) =>
 					console.error("Widget bridge close failed:", error),
 				);
 		};
-	}, [createBridge, sandbox, props.html, changeMode]);
+	}, [createBridge, sandbox, props.html, changeMode, resizeFrame]);
+	useEffect(resizeFrame, [displayMode, props.layout, resizeFrame]);
 	useEffect(() => {
 		if (readyBridge && readyBridge === activeBridge.current)
 			readyBridge.setHostContext({
@@ -172,7 +190,15 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 				border: 0,
 				width: displayMode === "fullscreen" ? "100dvw" : "100%",
 				maxWidth: "none",
-				height: displayMode === "fullscreen" ? "100dvh" : "auto",
+				height:
+					displayMode === "fullscreen"
+						? "100dvh"
+						: props.layout === "fill"
+							? "100%"
+							: "auto",
+				minHeight: 0,
+				flex: props.layout === "fill" ? "1 1 0px" : "0 0 auto",
+				overflow: "hidden",
 				maxHeight: "none",
 				display: "flex",
 				flexDirection: "column",
@@ -190,7 +216,16 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 					{displayMode === "fullscreen" ? "Exit fullscreen" : "Expand widget"}
 				</Button>
 			</div>
-			<div ref={container} className="flex min-h-0 min-w-0 flex-1 flex-col" />
+			<div
+				ref={container}
+				className="flex min-h-0 min-w-0 flex-col"
+				style={{
+					flex:
+						displayMode === "fullscreen" || props.layout === "fill"
+							? "1 1 0px"
+							: "0 0 auto",
+				}}
+			/>
 		</dialog>
 	);
 }

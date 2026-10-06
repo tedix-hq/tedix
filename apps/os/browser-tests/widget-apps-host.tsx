@@ -22,7 +22,12 @@ const events: Array<{ event: string; value: unknown }> = [];
 window.__MCP_APP_CALLS__ = calls;
 window.__MCP_APP_EVENTS__ = events;
 window.__MCP_APP_BRIDGE_CLOSES__ = 0;
-const root = createRoot(document.querySelector("#root")!);
+const rootElement = document.querySelector<HTMLElement>("#root")!;
+const fill = new URLSearchParams(location.search).get("layout") === "fill";
+if (fill)
+	rootElement.style.cssText =
+		"display:flex;flex-direction:column;height:calc(100dvh - 64px);min-height:0";
+const root = createRoot(rootElement);
 window.__MCP_APP_UNMOUNT__ = () => root.unmount();
 root.render(
 	<WidgetAppFrame
@@ -68,6 +73,7 @@ root.render(
 			return bridge;
 		}}
 		hostContext={{ theme: "dark", locale: "en-US" }}
+		layout={fill ? "fill" : "content"}
 		toolInput={{ value: "host input" }}
 		toolResult={{
 			content: [{ type: "text", text: "host result" }],
