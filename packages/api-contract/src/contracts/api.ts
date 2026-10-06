@@ -39,6 +39,7 @@ import { osSharesContract } from "./os-shares";
 import { osWorkspacesContract } from "./os-workspaces";
 import { osGadgetStateContract } from "./os-gadget-state";
 import { providerEventsContract } from "./provider-events";
+import { personalResourceDelegationsContract } from "./personal-resource-delegations";
 import { modelCatalogContract } from "./model-catalog";
 import { earnedDelegationContract } from "./earned-delegation";
 import { externalAgentIdentityContract } from "./external-agent-identity";
@@ -255,6 +256,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	osWorkspaces: osWorkspacesContract,
 	osGadgetState: osGadgetStateContract,
 	providerEvents: providerEventsContract,
+	personalResourceDelegations: personalResourceDelegationsContract,
 
 	// Tedix OS: share links, approval rules, and runtime entitlement
 	osShares: osSharesContract,

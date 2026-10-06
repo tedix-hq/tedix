@@ -255,6 +255,11 @@ export const apiRouter = {
 	osGadgetState: lazyRouter(() =>
 		import("./os-gadget-state").then((m) => m.osGadgetStateContractRouter),
 	),
+	personalResourceDelegations: lazyRouter(() =>
+		import("./personal-resource-delegations").then(
+			(m) => m.personalResourceDelegationsRouter,
+		),
+	),
 	providerEvents: lazyRouter(() =>
 		import("./provider-events").then((m) => m.providerEventsContractRouter),
 	),
