@@ -13,6 +13,7 @@ import {
 } from "@/components/kumo/card";
 import { CodeBlock } from "@/components/kumo/code";
 import { Text } from "@/components/kumo/text";
+import { SharedReviewBatch } from "./shared-review-batch";
 import { WidgetFrame } from "@/components/widget-frame";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
 
@@ -271,15 +272,33 @@ export function SharedResourcePage() {
 					</Text>
 				</div>
 			)}
-			<section className="grid gap-4">
-				{gadgets.map((gadget) => (
-					<SharedGadgetCard
-						key={gadget.id}
-						gadget={gadget}
-						role={payload.share.effectiveRole}
-					/>
-				))}
-			</section>
+			{resource.type === "gadget" && payload.share.effectiveRole === "use" ? (
+				<SharedReviewBatch
+					shareId={payload.share.id}
+					sessionToken={state.sessionToken}
+					fallback={
+						<section className="grid gap-4">
+							{gadgets.map((gadget) => (
+								<SharedGadgetCard
+									key={gadget.id}
+									gadget={gadget}
+									role={payload.share.effectiveRole}
+								/>
+							))}
+						</section>
+					}
+				/>
+			) : (
+				<section className="grid gap-4">
+					{gadgets.map((gadget) => (
+						<SharedGadgetCard
+							key={gadget.id}
+							gadget={gadget}
+							role={payload.share.effectiveRole}
+						/>
+					))}
+				</section>
+			)}
 		</main>
 	);
 }

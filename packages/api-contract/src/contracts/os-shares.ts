@@ -83,6 +83,63 @@ export type OsShareRole = z.infer<typeof OsShareRoleSchema>;
 export type OsShareRevisionMode = z.infer<typeof OsShareRevisionModeSchema>;
 export type OsShareLink = z.infer<typeof OsShareLinkSchema>;
 
+export const OsReviewCardSchema = z.object({
+	id: z.string().trim().min(1).max(100),
+	title: z.string().trim().min(1).max(240),
+	url: z
+		.string()
+		.url()
+		.refine(
+			(value) => new URL(value).protocol === "https:",
+			"Use an HTTPS evidence link",
+		),
+	relevance: z.string().max(4000),
+	draft: z.string().max(8000),
+	evidence: z
+		.array(
+			z.object({
+				label: z.string().min(1).max(100),
+				url: z
+					.string()
+					.url()
+					.refine(
+						(value) => new URL(value).protocol === "https:",
+						"Use HTTPS evidence links",
+					),
+			}),
+		)
+		.max(20)
+		.default([]),
+	effort: z.enum(["low", "medium", "high"]),
+	checks: z.array(z.string().max(1000)).max(20),
+});
+export const OsReviewFeedbackSchema = z.object({
+	cardId: z.string(),
+	reviewerId: z.string(),
+	revision: z.number().int().positive(),
+	decision: z.enum(["needs_checking", "edit", "skip", "ready"]),
+	editedReply: z.string().max(8000),
+	reason: z.string().max(4000),
+	updatedAt: z.string(),
+});
+export const OsReviewBatchSchema = z.object({
+	id: z.string().uuid(),
+	shareId: z.string().uuid(),
+	title: z.string(),
+	sourceOutputId: z.string().uuid(),
+	sourceRevisionId: z.string().uuid(),
+	createdById: z.string(),
+	createdAt: z.string(),
+	cards: z.array(OsReviewCardSchema),
+});
+export type OsReviewCard = z.infer<typeof OsReviewCardSchema>;
+export type OsReviewBatch = z.infer<typeof OsReviewBatchSchema>;
+export type OsReviewFeedback = z.infer<typeof OsReviewFeedbackSchema>;
+const reviewSessionInput = z.object({
+	shareId: z.string().uuid(),
+	sessionToken: z.string().min(20).max(128),
+});
+
 const createShareInput = z
 	.object({
 		resourceType: OsShareResourceTypeSchema.describe(
@@ -163,6 +220,78 @@ export const osSharesContract = oc
 	.route({ tags: ["os-shares"], prefix: "/os-shares" })
 	.errors(baseErrors)
 	.router({
+		reviews: oc.router({
+			create: oc
+				.route({
+					method: "POST",
+					path: "/reviews",
+					summary: "Approve an immutable review batch",
+				})
+				.input(
+					z
+						.object({
+							shareId: z.string().uuid(),
+							sourceOutputId: z.string().uuid(),
+							sourceRevisionId: z.string().uuid(),
+							title: z.string().trim().min(1).max(240),
+							cards: z.array(OsReviewCardSchema).min(1).max(50),
+						})
+						.superRefine((v, c) => {
+							if (
+								new Set(v.cards.map((card) => card.id)).size !== v.cards.length
+							)
+								c.addIssue({
+									code: "custom",
+									path: ["cards"],
+									message: "Card ids must be unique",
+								});
+						}),
+				)
+				.output(z.object({ batch: OsReviewBatchSchema })),
+			listFeedback: oc
+				.route({
+					method: "GET",
+					path: "/reviews/feedback",
+					summary: "Read saved feedback for an owner-approved batch",
+				})
+				.input(z.object({ shareId: z.string().uuid() }))
+				.output(
+					z.object({
+						batch: OsReviewBatchSchema,
+						feedback: z.array(OsReviewFeedbackSchema),
+					}),
+				),
+			get: oc
+				.route({
+					method: "GET",
+					path: "/reviews",
+					summary: "Read a shared review batch",
+				})
+				.input(reviewSessionInput)
+				.output(
+					z.object({
+						batch: OsReviewBatchSchema.nullable(),
+						feedback: z.array(OsReviewFeedbackSchema),
+					}),
+				),
+			saveFeedback: oc
+				.route({
+					method: "POST",
+					path: "/reviews/feedback",
+					summary: "Save your review feedback",
+				})
+				.input(
+					reviewSessionInput.extend({
+						batchId: z.string().uuid(),
+						cardId: z.string().min(1).max(100),
+						expectedRevision: z.number().int().nonnegative(),
+						decision: OsReviewFeedbackSchema.shape.decision,
+						editedReply: z.string().max(8000),
+						reason: z.string().max(4000),
+					}),
+				)
+				.output(z.object({ feedback: OsReviewFeedbackSchema })),
+		}),
 		shares: oc.router({
 			create: oc
 				.route({

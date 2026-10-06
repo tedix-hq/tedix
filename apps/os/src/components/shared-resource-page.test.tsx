@@ -9,6 +9,12 @@ import {
 	vi,
 } from "vite-plus/test";
 
+vi.mock("@/lib/api", () => ({
+	osApi: {
+		osShares: { reviews: { get: async () => ({ batch: null, feedback: [] }) } },
+	},
+}));
+
 vi.mock("@/components/widget-frame", () => ({
 	WidgetFrame: (props: {
 		appSlug: string;

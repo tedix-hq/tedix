@@ -1,3 +1,5 @@
+import { ReviewFeedbackSummary } from "./review-feedback-summary";
+import { CreateReviewBatch } from "./create-review-batch";
 import { Copy, LinkSimple, Prohibit } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -116,6 +118,9 @@ export function ShareRow(props: {
 				>
 					<Prohibit size={14} /> Revoke
 				</Button>
+			)}
+			{props.share.resourceType === "gadget" && props.share.role === "use" && (
+				<ReviewFeedbackSummary shareId={props.share.id} />
 			)}
 		</li>
 	);
@@ -312,6 +317,15 @@ export function ShareControls(props: ShareControlsProps) {
 						onDismiss={() => createShare.reset()}
 					/>
 				)}
+				{createShare.data &&
+					resourceType === "gadget" &&
+					createShare.data.share.role === "use" && (
+						<CreateReviewBatch
+							shareId={createShare.data.share.id}
+							gadgetId={resourceId}
+						/>
+					)}
+
 				{shares.isPending && (
 					<Text role="label" tone="secondary" className="m-0">
 						Loading links…
