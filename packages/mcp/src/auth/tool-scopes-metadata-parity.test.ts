@@ -389,6 +389,7 @@ describe("required-scope parity between the API field and the edge", () => {
 	it.each([
 		["mcpHealth/run", "run_mcp_protocol_probe", false, "mcp:observe.write"],
 		["mcpEval/run", "run_mcp_eval", false, "platform:admin"],
+		["tedis/rebind", "rebind_tedi", false, "platform:admin"],
 		["mcpPayments/disablePolicy", "disable_policy", false, "platform:admin"],
 		[
 			"mcpPayments/getEffectivePolicy",
