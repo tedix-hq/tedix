@@ -87,4 +87,24 @@ describe("catalog operator scope resolution", () => {
 			resolve("list_catalog_apps_unreviewed", "catalog/list"),
 		).toThrow(/Missing MCP capability mapping/);
 	});
+
+	it("maps verb-first skills-router tools to their reviewed tiers", () => {
+		for (const [name, endpoint, annotations, scope] of [
+			["get_skills", "skills/get", { readOnlyHint: true }, "mcp:skills.read"],
+			["usage_skills", "skills/usage", {}, "mcp:skills.read"],
+			["improve_skills", "skills/improve", {}, "mcp:skills.write"],
+			["move_skills", "skills/move", {}, "mcp:skills.write"],
+			["apply_workshop", "skills/applyWorkshop", {}, "mcp:skills.write"],
+			["promote_skills", "skills/promote", {}, "mcp:skills.admin"],
+			[
+				"quarantine_workshop",
+				"skills/quarantineWorkshop",
+				{},
+				"mcp:skills.admin",
+			],
+			["merge_catalog_apps", "catalog/mergeApps", {}, "mcp:catalog.admin"],
+		] as const) {
+			expect(resolve(name, endpoint, annotations)).toEqual([scope]);
+		}
+	});
 });
