@@ -266,12 +266,37 @@ describe("callCloudflareAutoRouter", () => {
 			const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
 			expect(init.headers).toMatchObject({
 				"cf-aig-session-id": "session-1",
+				"x-session-affinity": "session-1",
 				"cf-aig-turn-id": "turn-1",
 			});
 			expect(init.headers).not.toHaveProperty("cf-aig-allowed-providers");
 			expect(init.headers).not.toHaveProperty("cf-aig-allowed-models");
 			expect(result.routedModel).toBe("openai/gpt-5.6-luna");
 			expect(result.routingDecisionId).toBe("decision-1");
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("pins prompt-prefix affinity to the shared cache key across sessions", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			await callCloudflareAutoRouter(HTTPS_ENV, "gw", {
+				body: JSON.stringify({ model: "cloudflare/auto", messages: [] }),
+				sessionId: "session-1",
+				affinityKey: "tedi-prefix-key",
+			});
+			const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+			expect(init.headers).toMatchObject({
+				"cf-aig-session-id": "session-1",
+				"x-session-affinity": "tedi-prefix-key",
+			});
 		} finally {
 			vi.unstubAllGlobals();
 		}

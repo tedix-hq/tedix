@@ -377,6 +377,7 @@ export class ConversationFacet extends PiAgent<
 			undefined,
 			this.state.adaptiveRouting,
 			this.facetBeforeDispatch(),
+			this.state.promptCacheKey,
 		);
 		return {
 			model: selected.model as TedixSdkModel,

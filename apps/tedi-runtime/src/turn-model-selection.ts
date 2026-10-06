@@ -56,6 +56,7 @@ export function selectChatModelForTurn(
 	onRequest?: (request: ModelRequestTelemetry) => void,
 	adaptiveRouting?: AdaptiveRoutingContext | null,
 	beforeDispatch?: ProviderBeforeDispatch,
+	promptCacheKey?: string | null,
 ) {
 	const deployment = selectAzureDeployment(env, modelOverride);
 	const overrideRef =
@@ -92,6 +93,7 @@ export function selectChatModelForTurn(
 					...(metadata?.sessionKeyHash
 						? { sessionId: metadata.sessionKeyHash }
 						: {}),
+					...(promptCacheKey ? { affinityKey: promptCacheKey } : {}),
 				},
 			)
 		: useWorkersAI
