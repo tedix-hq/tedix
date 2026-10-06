@@ -24,6 +24,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { harnessOf } from "./agent-status";
 import { basename, join } from "node:path";
 import {
 	type HookDeps,
@@ -72,7 +73,7 @@ const SECRETS: Array<[RegExp, string]> = [
 
 /** Host re-entries that arrive through the prompt hook but were not typed by the user. */
 const SYSTEM_PROMPT =
-	/^\s*(?:<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context)/;
+	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context)/;
 
 /** Coarse first-pass labels mined from historic replies; the learning pass re-reads the full pair. */
 const CLASSES: Array<[string, RegExp]> = [
@@ -137,10 +138,6 @@ export function redact(
 	if (text.length <= limit) return [text, true];
 	if (keep === "tail") return [`…${text.slice(-(limit - 1))}`, false];
 	return [`${text.slice(0, limit - 1)}…`, false];
-}
-
-function hostName(env: NodeJS.ProcessEnv): string {
-	return env.CODEX_SESSION_ID || env.CODEX_THREAD_ID ? "codex" : "claude-code";
 }
 
 function stateDir(env: NodeJS.ProcessEnv): string {
@@ -260,6 +257,7 @@ interface TurnState extends JsonObject {
 	version?: number;
 	token?: string;
 	pending?: string;
+	host?: string;
 }
 
 function writeState(path: string, value: JsonObject): void {
@@ -311,7 +309,7 @@ async function onReply(
 			metadata: {
 				schema: SCHEMA,
 				source: "user-reply",
-				host: hostName(deps.env),
+				host: previous.host ?? harnessOf({}, deps.env),
 				sessionId: session,
 				replyClass: classify(prompt),
 				replyComplete: complete,
@@ -351,7 +349,13 @@ async function onStop(
 	state: string,
 ): Promise<void> {
 	const message = event.last_assistant_message;
-	if (typeof message !== "string" || !message.trim()) return;
+	// Automated heartbeat turns are not decisions for the user.
+	if (
+		typeof message !== "string" ||
+		!message.trim() ||
+		/^\s*<heartbeat/.test(message)
+	)
+		return;
 	// A pending background turn will resume on its own; it is not waiting on the user yet.
 	const background = event.background_tasks;
 	if (
@@ -360,7 +364,8 @@ async function onStop(
 		!(isObject(background) && !Object.keys(background).length)
 	)
 		return;
-	const host = hostName(deps.env);
+	// Codex hooks configured globally carry no Codex environment; its turn_id does.
+	const host = harnessOf(event, deps.env);
 	const previous = claim(state);
 	const kept = previous?.requestId ? claim(early(state)) : undefined;
 	if (kept && kept.token === previous!.token) {
@@ -412,7 +417,12 @@ async function onStop(
 	const request = requestOf(
 		await call(deps, binding, "interaction-create", payload),
 	);
-	writeState(state, { requestId: request.id, version: request.version, token });
+	writeState(state, {
+		requestId: request.id,
+		version: request.version,
+		token,
+		host,
+	});
 	await answerEarlyReply(deps, session, binding, state);
 }
 
