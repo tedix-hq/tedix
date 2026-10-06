@@ -18,7 +18,10 @@
  *   never zero and would train the recipient to filter the sender.
  */
 
-import type { getRecentProviderPricingHealth } from "@tedix/db/queries/billing/health";
+import type {
+	getRecentProviderAttributionHealth,
+	getRecentProviderPricingHealth,
+} from "@tedix/db/queries/billing/health";
 import type { DbClient } from "@tedix/db/client";
 import type { listGraphProjectionConsumerHealth } from "@tedix/db/queries/graph-projection";
 import type {
@@ -713,6 +716,34 @@ export interface HealthDigestRunResult {
  * HEALTH_ALERT_EMAIL is set, but the structured `platform.health.digest` log
  * fires every run regardless.
  */
+const ATTRIBUTION_CONDITION_KEYS = [
+	"provider-attribution-unproven",
+	"expired-reservation-observed-unsettled",
+] as const;
+
+export function providerAttributionHealthConditions(
+	health: Awaited<ReturnType<typeof getRecentProviderAttributionHealth>>,
+): HealthCondition[] {
+	const conditions: HealthCondition[] = [];
+	const coverage = health.unattributedRows + health.relationshipUnprovenRows;
+	if (coverage > 0)
+		conditions.push({
+			key: ATTRIBUTION_CONDITION_KEYS[0],
+			severity: "P2",
+			bucketRank: coverage >= 100 ? 3 : coverage >= 10 ? 2 : 1,
+			detail: `Recent Gateway token observations: ${health.unattributedRows} rows (${health.unattributedTokens} observed tokens) have unproven organization ownership; ${health.relationshipUnprovenRows} rows have unproven receipt relationships. These facets may overlap; account observations are not tenant liability or historical repair.`,
+		});
+	const pending = health.expiredObservedRows - health.expiredSettledRows;
+	if (pending > 0)
+		conditions.push({
+			key: ATTRIBUTION_CONDITION_KEYS[1],
+			severity: "P2",
+			bucketRank: pending >= 100 ? 3 : pending >= 10 ? 2 : 1,
+			detail: `Recent positive successful token observations linked to expired reservations: ${health.expiredObservedRows} rows across ${health.expiredReservations} reservations; ${health.expiredSettledRows} have matching settlement receipts, ${health.expiredHeldRows} are held, ${health.expiredUnresolvedRows} unresolved, remainder has unproven receipt relationships. Expiry is not non-consumption; valid late charges take precedence over historical holds. This is observed coverage, not unpaid customer charges.`,
+		});
+	return conditions;
+}
+
 export async function runPlatformHealthDigest(
 	env: CloudflareEnv,
 	opts: { scheduledTimeMs: number },
@@ -744,6 +775,24 @@ export async function runPlatformHealthDigest(
 			error,
 		);
 	}
+	let attributionQuerySucceeded = false;
+	try {
+		const { getRecentProviderAttributionHealth } =
+			await import("@tedix/db/queries/billing/health");
+		const coverage = await getRecentProviderAttributionHealth(db, {
+			sinceInclusive: new Date(nowMs - 24 * 60 * 60 * 1000).toISOString(),
+			untilExclusive: nowIso,
+		});
+		conditions.push(...providerAttributionHealthConditions(coverage));
+		attributionQuerySucceeded = true;
+	} catch (error) {
+		console.error(
+			"[health-digest] provider attribution evidence query failed:",
+			error,
+		);
+	}
+	const attributionKey = (key: string) =>
+		ATTRIBUTION_CONDITION_KEYS.some((candidate) => candidate === key);
 	const ownedStates = filterHealthDigestOwnedAlertStates(
 		await listOpenAlertStates(db),
 	);
@@ -752,11 +801,16 @@ export async function runPlatformHealthDigest(
 		: ownedStates.filter(
 				(state) => state.conditionKey === PRICING_CONDITION_KEY,
 			);
+	const unverifiedAttributionStates = attributionQuerySucceeded
+		? []
+		: ownedStates.filter((state) => attributionKey(state.conditionKey));
 	const result = reconcileHealthConditions(
 		conditions,
 		ownedStates.filter(
 			(state) =>
-				pricingQuerySucceeded || state.conditionKey !== PRICING_CONDITION_KEY,
+				(pricingQuerySucceeded ||
+					state.conditionKey !== PRICING_CONDITION_KEY) &&
+				(attributionQuerySucceeded || !attributionKey(state.conditionKey)),
 		),
 		nowIso,
 	);
@@ -773,6 +827,17 @@ export async function runPlatformHealthDigest(
 			},
 		});
 	}
+
+	for (const state of unverifiedAttributionStates)
+		result.ongoing.push({
+			state,
+			condition: {
+				key: state.conditionKey,
+				severity: state.severity as HealthSeverity,
+				bucketRank: Number(state.metricBucket ?? "0"),
+				detail: `Provider attribution evidence source unavailable; still unresolved (current status unknown): ${state.detail}`,
+			},
+		});
 
 	// Persist state (open upserts + resolutions) before emailing.
 	for (const row of result.writes) {

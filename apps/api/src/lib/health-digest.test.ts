@@ -405,6 +405,7 @@ it("includes stalled consumers in the live health collector even when unrelated 
 vi.mock("@tedix/db/queries/billing/health", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/billing/health")>()),
 	getRecentProviderPricingHealth: vi.fn(),
+	getRecentProviderAttributionHealth: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/ops-alert-state", () => ({
 	listOpenAlertStates: vi.fn(),
@@ -418,6 +419,7 @@ import * as fleet from "./fleet-authority";
 import * as egress from "./ops-alert-egress";
 import {
 	providerPricingHealthConditions,
+	providerAttributionHealthConditions,
 	runPlatformHealthDigest,
 } from "./health-digest";
 
@@ -527,6 +529,9 @@ describe("recent pricing evidence digest lifecycle", () => {
 				emailed: false,
 				webhookPosted: false,
 			});
+			vi.mocked(
+				pricingQueries.getRecentProviderAttributionHealth,
+			).mockResolvedValue(attributionHealth());
 			const query = vi.mocked(pricingQueries.getRecentProviderPricingHealth);
 			if (failure)
 				query.mockRejectedValueOnce(new Error("pricing query unavailable"));
@@ -576,6 +581,140 @@ describe("recent pricing evidence digest lifecycle", () => {
 				database.mockRestore();
 				warn.mockRestore();
 				error.mockRestore();
+				log.mockRestore();
+			}
+		},
+	);
+});
+
+function attributionHealth(): Awaited<
+	ReturnType<typeof pricingQueries.getRecentProviderAttributionHealth>
+> {
+	return {
+		totalRows: 0,
+		totalTokens: 0,
+		unattributedRows: 0,
+		unattributedTokens: 0,
+		expiredObservedRows: 0,
+		expiredReservations: 0,
+		expiredUnresolvedRows: 0,
+		expiredHeldRows: 0,
+		expiredSettledRows: 0,
+		relationshipUnprovenRows: 0,
+		historicalHoldRows: 0,
+		conflictingReceiptRows: 0,
+		omittedGroupCount: 0,
+		groups: [],
+	};
+}
+describe("attribution coverage digest", () => {
+	it("keeps unknown ownership separate from historical holds and unpaid charges", () => {
+		expect(providerAttributionHealthConditions(attributionHealth())).toEqual(
+			[],
+		);
+		const h = {
+			...attributionHealth(),
+			unattributedRows: 2,
+			unattributedTokens: 24,
+			relationshipUnprovenRows: 1,
+			expiredObservedRows: 3,
+			expiredReservations: 1,
+			expiredSettledRows: 1,
+			expiredHeldRows: 1,
+			expiredUnresolvedRows: 1,
+			historicalHoldRows: 1,
+		};
+		const conditions = providerAttributionHealthConditions(h);
+		expect(conditions.map((c) => c.key)).toEqual([
+			"provider-attribution-unproven",
+			"expired-reservation-observed-unsettled",
+		]);
+		expect(conditions[0]!.detail).toContain("facets may overlap");
+		expect(conditions[1]!.detail).toContain("not unpaid customer charges");
+		expect(
+			providerAttributionHealthConditions({
+				...attributionHealth(),
+				expiredObservedRows: 1,
+				expiredReservations: 1,
+				expiredSettledRows: 1,
+				historicalHoldRows: 1,
+			}),
+		).toEqual([]);
+	});
+	it.each([true, false])(
+		"retains both prior attribution keys UNKNOWN on query failure=%s without resolving other owners",
+		async (failure) => {
+			const db = {} as DbClient;
+			const availability = vi
+				.spyOn(fleet, "assertFleetAuthorityAvailable")
+				.mockImplementation(() => {});
+			const database = vi
+				.spyOn(fleet, "resolveFleetAuthorityDb")
+				.mockReturnValue(db);
+			const error = vi.spyOn(console, "error").mockImplementation(() => {});
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
+			vi.mocked(
+				projectionQueries.listGraphProjectionConsumerHealth,
+			).mockResolvedValue([]);
+			const keys = [
+				"provider-attribution-unproven",
+				"expired-reservation-observed-unsettled",
+			];
+			vi.mocked(alertQueries.listOpenAlertStates).mockResolvedValue([
+				...keys.map((conditionKey) => openState({ conditionKey })),
+				openState({ conditionKey: "billing-settlement-dark" }),
+				openState({ conditionKey: "cloudflare-credential-drift:api:gateway" }),
+			]);
+			vi.mocked(alertQueries.recordAlertState).mockClear();
+			vi.mocked(alertQueries.markAlertsResolved).mockClear();
+			vi.mocked(egress.sendOpsAlert)
+				.mockClear()
+				.mockResolvedValue({ emailed: false, webhookPosted: false });
+			vi.mocked(
+				pricingQueries.getRecentProviderPricingHealth,
+			).mockResolvedValue(pricingHealth(0));
+			const query = vi.mocked(
+				pricingQueries.getRecentProviderAttributionHealth,
+			);
+			if (failure)
+				query.mockRejectedValueOnce(
+					new Error("Invalid provider attribution health source tokens"),
+				);
+			else query.mockResolvedValueOnce(attributionHealth());
+			try {
+				await runPlatformHealthDigest({} as CloudflareEnv, {
+					scheduledTimeMs: Date.parse(NOW),
+				});
+				expect(query).toHaveBeenLastCalledWith(db, {
+					sinceInclusive: "2026-07-26T08:00:00.000Z",
+					untilExclusive: NOW,
+				});
+				const resolved = vi
+					.mocked(alertQueries.markAlertsResolved)
+					.mock.calls.flatMap((args) => args[1]);
+				for (const key of keys) expect(resolved.includes(key)).toBe(!failure);
+				expect(resolved).toContain("billing-settlement-dark");
+				expect(resolved).not.toContain(
+					"cloudflare-credential-drift:api:gateway",
+				);
+				expect(
+					vi
+						.mocked(alertQueries.recordAlertState)
+						.mock.calls.some((args) => keys.includes(args[1].conditionKey)),
+				).toBe(false);
+				if (failure) {
+					const sent = vi.mocked(egress.sendOpsAlert).mock.calls.at(-1)![1];
+					expect(sent.text).toContain(
+						"source unavailable; still unresolved (current status unknown)",
+					);
+					expect(sent.subject).not.toContain("nominal");
+				}
+			} finally {
+				availability.mockRestore();
+				database.mockRestore();
+				error.mockRestore();
+				warn.mockRestore();
 				log.mockRestore();
 			}
 		},

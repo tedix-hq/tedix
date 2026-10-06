@@ -341,3 +341,125 @@ export async function getRecentProviderPricingHealth(
 		),
 	};
 }
+
+/** Platform-only token observations: ownership, pricing and receipt coverage are separate. */
+export async function getRecentProviderAttributionHealth(
+	db: DbClient,
+	window: { sinceInclusive: string; untilExclusive: string },
+) {
+	const sinceMs = Date.parse(window.sinceInclusive);
+	const untilMs = Date.parse(window.untilExclusive);
+	if (
+		!Number.isFinite(sinceMs) ||
+		!Number.isFinite(untilMs) ||
+		sinceMs >= untilMs
+	)
+		throw new Error("Invalid provider attribution health window");
+	const sinceInclusive = new Date(sinceMs).toISOString();
+	const untilExclusive = new Date(untilMs).toISOString();
+	const rows = await db.all<{
+		provider: string | null;
+		ownership: string | null;
+		pricing: string | null;
+		disposition: string | null;
+		rowCount: number | null;
+		tokens: number | null;
+		totalRows: number;
+		totalTokens: number;
+		unattributedRows: number;
+		unattributedTokens: number;
+		expiredObservedRows: number;
+		expiredReservations: number;
+		expiredUnresolvedRows: number;
+		expiredHeldRows: number;
+		expiredSettledRows: number;
+		relationshipUnprovenRows: number;
+		historicalHoldRows: number;
+		conflictingReceiptRows: number;
+		totalGroups: number;
+		invalidTokenRows: number;
+	}>(sql`
+ WITH observations AS (
+  SELECT call.*,
+   CASE WHEN call.org_id IS NULL THEN 'unproven' ELSE 'attributed' END AS ownership,
+   CASE WHEN call.data_quality = 'ok' AND call.cost_basis <> 'unknown' AND call.estimated_cost_usd >= 0 THEN 'priced' ELSE 'incomplete' END AS pricing,
+   EXISTS (SELECT 1 FROM billing_usage_reservations r WHERE r.id = call.billing_reservation_id AND r.organization_id = call.org_id) AS reservation_match,
+   EXISTS (SELECT 1 FROM billing_usage_reservations r WHERE r.id = call.billing_reservation_id AND r.organization_id = call.org_id AND r.status = 'expired') AS expired_match,
+   EXISTS (SELECT 1 FROM billing_usage_charges c WHERE c.gateway_log_id = call.gateway_log_id AND c.reservation_id = call.billing_reservation_id AND c.organization_id = call.org_id) AS charge_match,
+   EXISTS (SELECT 1 FROM billing_usage_charges c WHERE c.gateway_log_id = call.gateway_log_id AND (c.reservation_id IS NOT call.billing_reservation_id OR c.organization_id IS NOT call.org_id)) AS charge_conflict,
+   EXISTS (SELECT 1 FROM billing_usage_quarantines q WHERE q.gateway_log_id = call.gateway_log_id AND q.organization_id = call.org_id AND q.source_snapshot_at = call.snapshot_at) AS hold_match,
+   EXISTS (SELECT 1 FROM billing_usage_quarantines q WHERE q.gateway_log_id = call.gateway_log_id AND (q.organization_id IS NOT call.org_id OR q.organization_id IS NULL OR q.source_snapshot_at IS NOT call.snapshot_at)) AS hold_conflict
+  FROM tedi_call_costs call
+  WHERE call.snapshot_at >= ${sinceInclusive} AND call.snapshot_at < ${untilExclusive}
+   AND call.provider IN ('azure-openai','workers-ai')
+   AND (call.source = 'ai-gateway-log' OR call.source LIKE 'ai-gateway-log:%')
+   AND call.usage_kind IS NULL
+   AND call.source NOT IN ('ai-gateway-log:voice-stt','ai-gateway-log:voice-tts')
+ ), classified AS (
+  SELECT *, CASE WHEN expired_match AND success = 1 AND total_tokens > 0 THEN 1 ELSE 0 END AS expired_observed,
+   CASE
+    WHEN charge_match THEN 'settled'
+    WHEN (billing_reservation_id IS NOT NULL AND NOT reservation_match) OR charge_conflict OR hold_conflict THEN 'relationship_unproven'
+    WHEN hold_match THEN 'held'
+    ELSE 'unresolved'
+   END AS disposition
+  FROM observations
+ ), grouped AS (
+  SELECT provider, ownership, pricing, disposition, COUNT(*) AS row_count, COALESCE(SUM(total_tokens),0) AS tokens
+  FROM classified GROUP BY provider, ownership, pricing, disposition
+ ), totals AS (
+  SELECT COALESCE(SUM(typeof(total_tokens) <> 'integer' OR total_tokens < 0 OR total_tokens > 9007199254740991),0) AS invalidTokenRows, COUNT(*) AS totalRows, COALESCE(SUM(total_tokens),0) AS totalTokens,
+   COALESCE(SUM(ownership = 'unproven'),0) AS unattributedRows,
+   COALESCE(SUM(CASE WHEN ownership = 'unproven' THEN total_tokens ELSE 0 END),0) AS unattributedTokens,
+   COALESCE(SUM(expired_observed),0) AS expiredObservedRows,
+   COUNT(DISTINCT CASE WHEN expired_observed THEN billing_reservation_id END) AS expiredReservations,
+   COALESCE(SUM(expired_observed AND disposition = 'unresolved'),0) AS expiredUnresolvedRows,
+   COALESCE(SUM(expired_observed AND disposition = 'held'),0) AS expiredHeldRows,
+   COALESCE(SUM(expired_observed AND disposition = 'settled'),0) AS expiredSettledRows,
+   COALESCE(SUM(disposition = 'relationship_unproven'),0) AS relationshipUnprovenRows,
+   COALESCE(SUM(charge_match AND hold_match),0) AS historicalHoldRows,
+   COALESCE(SUM(charge_conflict OR hold_conflict),0) AS conflictingReceiptRows
+  FROM classified
+ ) SELECT totals.*, grouped.provider, grouped.ownership, grouped.pricing, grouped.disposition,
+  grouped.row_count AS rowCount, grouped.tokens,
+  (SELECT COUNT(*) FROM grouped) AS totalGroups
+ FROM totals LEFT JOIN grouped ON 1=1
+ ORDER BY grouped.row_count DESC, grouped.provider, grouped.ownership, grouped.pricing, grouped.disposition LIMIT 10
+ `);
+	const row = rows[0]!;
+	if (row.invalidTokenRows !== 0)
+		throw new Error("Invalid provider attribution health source tokens");
+	const count = (value: number) => {
+		if (!Number.isSafeInteger(value) || value < 0)
+			throw new Error("Invalid provider attribution health aggregate");
+		return value;
+	};
+	return {
+		totalRows: count(row.totalRows),
+		totalTokens: count(row.totalTokens),
+		unattributedRows: count(row.unattributedRows),
+		unattributedTokens: count(row.unattributedTokens),
+		expiredObservedRows: count(row.expiredObservedRows),
+		expiredReservations: count(row.expiredReservations),
+		expiredUnresolvedRows: count(row.expiredUnresolvedRows),
+		expiredHeldRows: count(row.expiredHeldRows),
+		expiredSettledRows: count(row.expiredSettledRows),
+		relationshipUnprovenRows: count(row.relationshipUnprovenRows),
+		historicalHoldRows: count(row.historicalHoldRows),
+		conflictingReceiptRows: count(row.conflictingReceiptRows),
+		omittedGroupCount: Math.max(
+			0,
+			count(row.totalGroups) - rows.filter((r) => r.ownership !== null).length,
+		),
+		groups: rows
+			.filter((r) => r.ownership !== null)
+			.map((r) => ({
+				provider: r.provider!,
+				ownership: r.ownership!,
+				pricing: r.pricing!,
+				disposition: r.disposition!,
+				rowCount: count(r.rowCount!),
+				tokens: count(r.tokens!),
+			})),
+	};
+}
