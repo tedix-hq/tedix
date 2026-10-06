@@ -5407,7 +5407,10 @@ export async function registerCodeModeTools(
 		| undefined;
 
 	const executor = new DynamicWorkerExecutor({
-		loader: withModelAuthoredCodeIsolation(loader),
+		loader: withModelAuthoredCodeIsolation(loader, {
+			surface: "gateway_model_code",
+			reason: "gateway_model_authored_invocation",
+		}),
 		timeout,
 		globalOutbound: null,
 		modules,

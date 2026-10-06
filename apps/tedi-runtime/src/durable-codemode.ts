@@ -292,7 +292,10 @@ export async function createTediDurableCodemode(input: {
 		maxExecutions: MAX_EXECUTIONS,
 		connectors: [workspaceConnector, mcpConnector],
 		executor: new DynamicWorkerExecutor({
-			loader: withModelAuthoredCodeIsolation(input.loader),
+			loader: withModelAuthoredCodeIsolation(input.loader, {
+				surface: "tedi_durable_code",
+				reason: "tedi_durable_authored_invocation",
+			}),
 			timeout: TEDI_DURABLE_CODE_EXECUTION_TIMEOUT_MS,
 			globalOutbound: null,
 		}),
