@@ -13,6 +13,17 @@ const env = {
 } as unknown as CloudflareEnv;
 
 describe("platform cron health", () => {
+	it("keeps provider notification maintenance available in self-hosted installations", () => {
+		expect(
+			PLATFORM_CRON_DEFINITIONS.find(
+				(definition) => definition.id === "provider-event-maintenance",
+			),
+		).toEqual({
+			id: "provider-event-maintenance",
+			cron: "*/2 * * * *",
+			intervalMinutes: 2,
+		});
+	});
 	it("defines every dispatcher id exactly once", () => {
 		const defined = PLATFORM_CRON_DEFINITIONS.map(
 			(definition) => definition.id,

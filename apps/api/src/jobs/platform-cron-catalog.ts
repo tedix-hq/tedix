@@ -10,6 +10,7 @@ export type PlatformCronFreshnessState =
 	| "disabled";
 
 export const PLATFORM_CRON_IDS = [
+	"provider-event-maintenance",
 	"graph-projection-drain",
 	"graph-gds-redrive",
 	"skill-schedule-dispatch",
@@ -48,6 +49,7 @@ interface PlatformCronDefinition {
 }
 
 const everyTwoMinuteIds = [
+	"provider-event-maintenance",
 	"graph-projection-drain",
 	"graph-gds-redrive",
 	"skill-schedule-dispatch",

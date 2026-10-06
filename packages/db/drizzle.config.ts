@@ -30,6 +30,8 @@ export default defineConfig({
 		"./src/schema/index.ts",
 		"./src/schema/graph-retrieval-benchmarks.ts",
 		"./src/schema/memory-entities.ts",
+		"./src/schema/os-gadget-state.ts",
+		"./src/schema/provider-events.ts",
 	],
 	out: "./drizzle",
 	dialect: "sqlite",

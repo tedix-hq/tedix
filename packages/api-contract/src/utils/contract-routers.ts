@@ -66,6 +66,8 @@ import { osApprovalRulesContract } from "../contracts/os-approval-rules";
 import { osComputeContract } from "../contracts/os-compute";
 import { osSharesContract } from "../contracts/os-shares";
 import { osWorkspacesContract } from "../contracts/os-workspaces";
+import { osGadgetStateContract } from "../contracts/os-gadget-state";
+import { providerEventsContract } from "../contracts/provider-events";
 import { modelCatalogContract } from "../contracts/model-catalog";
 import { pluginsContract } from "../contracts/plugins";
 import { projectsContract } from "../contracts/projects";
@@ -166,6 +168,8 @@ export const ROUTERS: Record<string, unknown> = {
 	osCompute: osComputeContract,
 	osShares: osSharesContract,
 	osWorkspaces: osWorkspacesContract,
+	osGadgetState: osGadgetStateContract,
+	providerEvents: providerEventsContract,
 	modelCatalog: modelCatalogContract,
 	organizationPurpose: organizationPurposeContract,
 	plugins: pluginsContract,

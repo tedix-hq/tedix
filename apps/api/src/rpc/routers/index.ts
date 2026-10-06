@@ -252,6 +252,12 @@ export const apiRouter = {
 	osShares: lazyRouter(() =>
 		import("./os-shares").then((m) => m.osSharesContractRouter),
 	),
+	osGadgetState: lazyRouter(() =>
+		import("./os-gadget-state").then((m) => m.osGadgetStateContractRouter),
+	),
+	providerEvents: lazyRouter(() =>
+		import("./provider-events").then((m) => m.providerEventsContractRouter),
+	),
 	osWorkspaces: lazyRouter(() =>
 		import("./os-workspaces").then((m) => m.osWorkspacesContractRouter),
 	),
