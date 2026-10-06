@@ -57,8 +57,8 @@ const EXPIRY_MS = 24 * 60 * 60 * 1000;
 const EVENT_LIMIT = CAPTURE_EVENT_LIMIT;
 const TRIAGE_TIMEOUT_MS = 4000;
 const LABEL_TIMEOUT_MS = 3000;
-export const TRIAGE_CALLABLE = "work.triage_agent_turn";
-export const LABEL_CALLABLE = "work.label_agent_reply";
+export const TRIAGE_CALLABLE = "agent.triage_agent_turn";
+export const LABEL_CALLABLE = "agent.label_agent_reply";
 
 /** Test seams: status side effects and gateway-call timeouts. */
 export interface CaptureOptions {
