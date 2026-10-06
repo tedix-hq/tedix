@@ -195,10 +195,14 @@ async function executeJsonResourceTool(
 }
 
 function safeResourceId(prefix: string, value: string): string {
-	return `${prefix}-${value}`
-		.replace(/[^a-zA-Z0-9_-]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 120);
+	const id = `${prefix}-${value}`.replace(/[^a-zA-Z0-9_-]+/g, "-");
+	// Trim edge hyphens with index scans: `/-+$/` is quadratic on long hyphen
+	// runs, and catalog resource URIs come from remote MCP servers.
+	let start = 0;
+	let end = id.length;
+	while (start < end && id[start] === "-") start++;
+	while (end > start && id[end - 1] === "-") end--;
+	return id.slice(start, end).slice(0, 120);
 }
 
 /** Catalog storage is intentionally lossless; only expose spec-valid audience
