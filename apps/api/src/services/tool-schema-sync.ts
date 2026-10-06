@@ -142,6 +142,16 @@ export const SITE_KIND_OVERRIDES: Record<
  * outright.
  */
 export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"osGadgetState/get": "get_os_gadget_state",
+	"osGadgetState/list": "list_os_gadget_state",
+	"osGadgetState/put": "put_os_gadget_state",
+	"osGadgetState/delete": "delete_os_gadget_state",
+	"providerEvents/register": "register_provider_event_subscription",
+	"providerEvents/list": "list_provider_event_subscriptions",
+	"providerEvents/get": "get_provider_event_subscription",
+	"providerEvents/disable": "disable_provider_event_subscription",
+	"providerEvents/reconcile": "reconcile_provider_event_subscription",
+
 	"osShares/shares/create": "create_os_share_link",
 	"osShares/shares/list": "list_os_share_links",
 	"osShares/shares/previewRevoke": "preview_os_share_revocation",
@@ -224,6 +234,16 @@ export const OS_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"osGadgetState/get": "read",
+	"osGadgetState/list": "read",
+	"osGadgetState/put": "write",
+	"osGadgetState/delete": "destructive",
+	"providerEvents/register": "destructive",
+	"providerEvents/list": "read",
+	"providerEvents/get": "read",
+	"providerEvents/disable": "destructive",
+	"providerEvents/reconcile": "destructive",
+
 	"osShares/shares/create": "write",
 	"osShares/shares/list": "read",
 	"osShares/shares/previewRevoke": "read",
