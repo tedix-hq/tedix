@@ -8,7 +8,11 @@ import { zodToStructuredOutputJsonSchema } from "@tedix/api-contract/utils/tool-
 import type { DbClient } from "@tedix/db/client";
 import type { AppTool } from "@tedix/db/schema";
 import { describe, expect, it } from "vite-plus/test";
-import { runToolSchemaSync } from "./tool-schema-sync";
+import {
+	runToolSchemaSync,
+	OS_TOOL_ID_OVERRIDES,
+	OS_KIND_OVERRIDES,
+} from "./tool-schema-sync";
 
 const TEST_ADMIN_APP_ID = "5eed0020-0000-4000-8000-000000000020";
 
@@ -2064,4 +2068,37 @@ describe("durable worker projection transport budget", () => {
 		});
 		expect(inserts[0]?.config?.timeout).toBeUndefined();
 	});
+});
+
+it("projects background subscription controls and persistent state with explicit effects", async () => {
+	const endpoints = [
+		"osGadgetState/get",
+		"osGadgetState/put",
+		"osGadgetState/delete",
+		"providerEvents/register",
+		"providerEvents/list",
+		"providerEvents/disable",
+		"providerEvents/reconcile",
+	];
+	const { db, inserts } = makeDb([]);
+	const result = await runToolSchemaSync(db, {
+		mode: "projection",
+		apply: true,
+		endpoints,
+	});
+	expect(result.failed).toBe(0);
+	expect(inserts).toHaveLength(endpoints.length);
+	for (const endpoint of endpoints) {
+		const tool = inserts.find(
+			(row) => row.toolId === OS_TOOL_ID_OVERRIDES[endpoint],
+		);
+		expect(tool).toBeDefined();
+		expect(tool?.config).toMatchObject({ transport: "rpc", endpoint });
+		expect(tool?.annotations?.readOnlyHint).toBe(
+			OS_KIND_OVERRIDES[endpoint] === "read",
+		);
+		expect(tool?.annotations?.destructiveHint).toBe(
+			OS_KIND_OVERRIDES[endpoint] === "destructive",
+		);
+	}
 });
