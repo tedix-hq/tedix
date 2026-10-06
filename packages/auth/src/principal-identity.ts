@@ -1,5 +1,6 @@
 import type { JWTPayload } from "./types";
 import { DESCOPE_DEFAULT_BASE_URL } from "./types";
+import { trimTrailingSlashes } from "./utils.ts";
 
 export interface ExternalPrincipalIdentity {
 	provider: string;
@@ -19,7 +20,7 @@ export interface VerifiedCloudflareAccessContext {
 }
 
 export function normalizeIdentityIssuer(issuer: string): string {
-	const normalized = issuer.trim().replace(/\/+$/, "");
+	const normalized = trimTrailingSlashes(issuer.trim());
 	if (!normalized) throw new Error("Identity issuer is required");
 	return normalized;
 }

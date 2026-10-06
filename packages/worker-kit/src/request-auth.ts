@@ -147,7 +147,8 @@ export function extractBearerToken(
 	header: string | null | undefined,
 ): string | null {
 	if (!header) return null;
-	const match = /^Bearer\s+(.+)$/i.exec(header);
+	// `\s+` then `\S` gives one unambiguous split, keeping the match linear.
+	const match = /^Bearer\s+(\S.*)$/i.exec(header);
 	return match?.[1]?.trim() || null;
 }
 

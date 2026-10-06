@@ -26,6 +26,7 @@ import { descopeFetch, descopeManagementFetch } from "./descope-fetch.ts";
 import { normalizeIssuerForComparison } from "./oauth-iss.ts";
 import { TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID } from "./oauth-client-registration.ts";
 import { DESCOPE_DEFAULT_BASE_URL } from "./types.ts";
+import { trimTrailingSlashes } from "./utils.ts";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { sleep } from "@tedix/worker-kit/sleep";
 
@@ -561,9 +562,8 @@ function descopeManagementUrl(
 	env: DescopeConnectionManagementEnv,
 	path: string,
 ): string {
-	const baseUrl = (env.DESCOPE_BASE_URL || DESCOPE_DEFAULT_BASE_URL).replace(
-		/\/+$/,
-		"",
+	const baseUrl = trimTrailingSlashes(
+		env.DESCOPE_BASE_URL || DESCOPE_DEFAULT_BASE_URL,
 	);
 	return `${baseUrl}${path}`;
 }
@@ -794,7 +794,7 @@ async function fetchJsonFromCandidates(
 
 function protectedResourceMetadataCandidates(resourceUrl: string): string[] {
 	const parsed = new URL(resourceUrl);
-	const path = parsed.pathname.replace(/\/+$/, "");
+	const path = trimTrailingSlashes(parsed.pathname);
 	const candidates = [
 		`${parsed.origin}/.well-known/oauth-protected-resource${path && path !== "/" ? path : ""}`,
 		`${parsed.origin}/.well-known/oauth-protected-resource`,
@@ -808,7 +808,7 @@ function protectedResourceMetadataCandidates(resourceUrl: string): string[] {
 
 function authorizationServerMetadataCandidates(issuerUrl: string): string[] {
 	const parsed = new URL(issuerUrl);
-	const path = parsed.pathname.replace(/\/+$/, "");
+	const path = trimTrailingSlashes(parsed.pathname);
 	const candidates = [
 		`${parsed.origin}/.well-known/oauth-authorization-server${path && path !== "/" ? path : ""}`,
 		`${parsed.origin}/.well-known/oauth-authorization-server`,

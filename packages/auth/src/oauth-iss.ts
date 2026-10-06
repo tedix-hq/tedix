@@ -26,6 +26,8 @@
  * separate normalization contract and must not weaken this response check.
  */
 
+import { trimTrailingSlashes } from "./utils.ts";
+
 export type AuthorizationResponseIssRejection = "iss_mismatch" | "iss_missing";
 
 /**
@@ -144,7 +146,7 @@ export type AuthorizationResponseIssAccepted =
  * requires simple string comparison without trailing-slash normalization.
  */
 export function normalizeIssuerForComparison(value: string): string {
-	return value.replace(/\/+$/, "");
+	return trimTrailingSlashes(value);
 }
 
 /**

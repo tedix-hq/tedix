@@ -148,6 +148,13 @@ describe("extractBearerToken", () => {
 		expect(extractBearerToken(null)).toBeNull();
 		expect(extractBearerToken("Bearer   ")).toBeNull();
 	});
+
+	it("stays linear on long whitespace runs that cannot match", () => {
+		const hostile = `bearer ${" ".repeat(100_000)}\n`;
+		const started = performance.now();
+		expect(extractBearerToken(hostile)).toBeNull();
+		expect(performance.now() - started).toBeLessThan(200);
+	});
 });
 
 describe("WebSocket bearer subprotocols", () => {

@@ -203,3 +203,20 @@ describe("assertPinnedIssuerMatches — phase 1a issuer-pin drift", () => {
 		).toThrowError(IssuerPinDriftError);
 	});
 });
+
+describe("normalizeIssuerForComparison — linear trailing-slash trim", () => {
+	it("strips every trailing slash and nothing else", () => {
+		expect(normalizeIssuerForComparison(`${ISSUER}///`)).toBe(ISSUER);
+		expect(normalizeIssuerForComparison(`${ISSUER}/a//b`)).toBe(
+			`${ISSUER}/a//b`,
+		);
+		expect(normalizeIssuerForComparison("///")).toBe("");
+	});
+
+	it("stays fast on a long run of interior slashes from remote metadata", () => {
+		const hostile = `${ISSUER}${"/".repeat(200_000)}x`;
+		const started = performance.now();
+		expect(normalizeIssuerForComparison(hostile)).toBe(hostile);
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+});
