@@ -1527,7 +1527,7 @@ describe("resolveAihM2mClientScopeContext", () => {
 		expect(result?.scopes).toEqual(["mcp:memory"]);
 	});
 
-	it("leaves baked scopes intact when the live profile cannot be resolved", async () => {
+	it("drops baked scopes when the live profile cannot be resolved", async () => {
 		const env = envWithClients([
 			{
 				id: "client-record-null",
@@ -1543,13 +1543,13 @@ describe("resolveAihM2mClientScopeContext", () => {
 			{ sub: "client-record-null", client_id: "client-null" },
 			"server-null",
 			{
-				// Transient profile-lookup failure — must not strip a legitimate tedi.
-				resolveTediProfileScopes: async () => null,
+				// Unresolved live profile — registration scopes must not survive it.
+				resolveTediProfileScopes: async () => [],
 			},
 		);
 
-		expect(result?.scopes).toEqual(["mcp:memory", "platform:admin"]);
-		expect(result?.tediProfileScopes).toBeUndefined();
+		expect(result?.scopes).toEqual([]);
+		expect(result?.tediProfileScopes).toEqual([]);
 	});
 
 	it("applies the intersection at request time even when the client lookup is cache-served", async () => {

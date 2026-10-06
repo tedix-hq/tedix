@@ -528,14 +528,11 @@ export interface ResolveAihM2mClientScopeOptions {
 	 * context's `scopes` are intersected with these so a stale-broad registered
 	 * client credential can never exceed the tedi's live profile (defense in
 	 * depth against a capability downgrade that has not yet propagated to the
-	 * Descope client registration). Returning `null`/`undefined` means the live
-	 * profile could not be resolved this request — the baked client scopes are
-	 * left unchanged so a transient profile-lookup failure does not silently
-	 * strip a legitimate tedi (the enforcement path applies its own fallback).
+	 * Descope client registration). A tedi whose live profile did not resolve
+	 * must yield `[]`: registration scopes never stand in for missing D1
+	 * authority, and the caller answers that request with a failure response.
 	 */
-	resolveTediProfileScopes?: (
-		tediId: string,
-	) => Promise<readonly string[] | null | undefined>;
+	resolveTediProfileScopes?: (tediId: string) => Promise<readonly string[]>;
 }
 
 /**
@@ -664,10 +661,6 @@ async function boundTediClientScopesToLiveProfile(
 		return value;
 	}
 	const profileScopes = await options.resolveTediProfileScopes(value.tediId);
-	if (!profileScopes) {
-		// Live profile unavailable this request — leave baked scopes intact.
-		return value;
-	}
 	return {
 		...value,
 		scopes: intersectScopes(value.scopes, profileScopes),

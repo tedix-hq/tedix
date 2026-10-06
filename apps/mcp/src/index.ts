@@ -51,11 +51,7 @@ import {
 import type { ToolJsonSchema } from "@tedix/api-contract/schemas/tools";
 import { extractTediJwtClaims } from "@tedix/auth/types";
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
-import {
-	hasScope,
-	resolveTediScopes,
-	toolToScope,
-} from "@tedix/mcp-shared/auth/scopes";
+import { hasScope, toolToScope } from "@tedix/mcp-shared/auth/scopes";
 import {
 	MCP_MODERN_PROTOCOL_VERSION,
 	MCP_OAUTH_CLIENT_CREDENTIALS_EXTENSION,
@@ -132,6 +128,11 @@ import {
 	withStepBudget,
 } from "./lib/step-budget";
 import { jwtTenantMatchesApp } from "./lib/tenant-match";
+import {
+	resolveTediProfileAuth,
+	tediProfileFailureResponse,
+	type TediProfileAuth,
+} from "./tedi-profile-auth";
 import {
 	aggregateAppNamespaceCandidates,
 	aggregateTediNamespace,
@@ -214,42 +215,6 @@ export { McpSubscriptionDurableObject } from "./subscriptions";
 // =============================================================================
 // policy-based scope extraction
 // =============================================================================
-
-/**
- * Resolve a tedi's capability scopes + real org id from D1, keyed on its
- * `mcp_capability_profile`. D1 defines the tedi's current capability ceiling;
- * an AIH M2M client registered for one
- * server may narrow it further. A profile downgrade must take effect even
- * when the client registration has not been refreshed. Falls back to
- * `standard` scopes (via resolveTediScopes(null)) on any lookup failure.
- */
-async function resolveTediProfileAuth(
-	env: CloudflareEnv,
-	tediId: string,
-): Promise<{ scopes: string[]; orgId: string | null }> {
-	let capabilityProfile: string | null = null;
-	let orgId: string | null = null;
-	try {
-		const apiService = env.API_SERVICE;
-		if (apiService) {
-			// This is a cross-org identity projection keyed by the globally unique
-			// tedi id. Service-binding auth requires an explicit organization header;
-			// without it `tedis.get` rejects the read and the catch below silently
-			// downgrades every tedi to the standard capability profile. Use the same
-			// narrow `system` scope as the aggregate runtime-metadata projection.
-			const client = getTediProfileApiClient(apiService);
-			const tedi = await client.tedis.get({ tediId });
-			capabilityProfile =
-				typeof tedi.mcpCapabilityProfile === "string"
-					? tedi.mcpCapabilityProfile
-					: null;
-			orgId = tedi.organizationId ?? null;
-		}
-	} catch {
-		// Profile lookup failed — fall back to standard scopes below.
-	}
-	return { scopes: [...resolveTediScopes(capabilityProfile)], orgId };
-}
 
 /**
  * Extract required scopes for a single tools/call request using Descope policy
@@ -5062,6 +5027,9 @@ const worker = {
 						env,
 						authResult.claims.tediId,
 					);
+					if (liveTedi.status !== "active") {
+						return tediProfileFailureResponse(liveTedi, "delegated-mcp");
+					}
 					if (liveTedi.orgId !== authResult.claims.organizationId) {
 						return new Response(
 							JSON.stringify({ error: "delegated_tenant_mismatch" }),
@@ -5174,9 +5142,7 @@ const worker = {
 					const jwtPayload = authResult.payload as Record<string, unknown>;
 					const mcpServerId = earlyResolvedApp?.metadata?.mcpConfig
 						?.descopeResourceId as string | undefined;
-					let aihM2mTediProfileAuth: Awaited<
-						ReturnType<typeof resolveTediProfileAuth>
-					> | null = null;
+					let aihM2mTediProfileAuth: TediProfileAuth | null = null;
 					const aihM2mClient = mcpServerId
 						? await resolveAihM2mClientScopeContext(
 								env,
@@ -5195,7 +5161,11 @@ const worker = {
 											env,
 											tediId,
 										);
-										return aihM2mTediProfileAuth.scopes;
+										// A tedi without live authority gets no scopes; the
+										// request is answered with its failure response below.
+										return aihM2mTediProfileAuth.status === "active"
+											? aihM2mTediProfileAuth.scopes
+											: [];
 									},
 								},
 							)
@@ -5268,6 +5238,12 @@ const worker = {
 							env,
 							tediClaims.tediId,
 						);
+						if (directTediAuth.status !== "active") {
+							return tediProfileFailureResponse(
+								directTediAuth,
+								"direct-tedi-jwt",
+							);
+						}
 						// Override Descope tenant ID (e.g. "org_tedix") with real D1 org
 						// UUID. Without this, tedi-originated calls query the wrong org.
 						if (directTediAuth.orgId) {
@@ -5348,13 +5324,13 @@ const worker = {
 							tag.startsWith("tedi:"),
 						);
 						const m2mTediId = tediTag ? tediTag.slice(5) : null;
-						let liveM2mTediAuth: Awaited<
-							ReturnType<typeof resolveTediProfileAuth>
-						> | null = null;
 						if (!aihM2mClient.externalAgent && m2mTediId) {
-							liveM2mTediAuth =
+							const liveM2mTediAuth =
 								aihM2mTediProfileAuth ??
 								(await resolveTediProfileAuth(env, m2mTediId));
+							if (liveM2mTediAuth.status !== "active") {
+								return tediProfileFailureResponse(liveM2mTediAuth, "aih-m2m");
+							}
 							const organizationId = resolveAihM2mTediOrganizationId({
 								liveOrganizationId: liveM2mTediAuth.orgId,
 								servedAppOrganizationId: earlyResolvedApp?.app.organizationId,
