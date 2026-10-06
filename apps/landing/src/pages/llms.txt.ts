@@ -6,11 +6,27 @@ export const GET: APIRoute = () => {
 	lines.push("# Tedix");
 	lines.push("");
 	lines.push(
-		"> Tedix is a platform for autonomous digital workers (tedis) that build AI-powered apps, create content, and operate infrastructure end-to-end.",
+		"> Agents you can hold accountable. Tedix runs persistent AI workers (tedis) with identity, scoped tools, budgets, approvals and a record of every run, on Cloudflare.",
 	);
 	lines.push("");
 	lines.push(
-		"Tedix enables businesses to deploy AI-native experiences across ChatGPT, Claude, and other AI platforms. Each customer gets a tedi — an autonomous AI worker that learns the business, generates AEO-optimized content, and operates MCP apps.",
+		"Tedix Cloud is in invited beta. The Tedix CLI is in public beta. The source is public on GitHub under AGPL-3.0-only (some packages are Apache-2.0 or MIT); local mode runs from a checkout without an invitation. Self-hosting is experimental and unsupported.",
+	);
+	lines.push("");
+
+	lines.push("## Source and status");
+	lines.push("");
+	lines.push(
+		"- [Source on GitHub](https://github.com/tedix-hq/tedix): Product source; issues and Discussions welcome, pull requests are disabled",
+	);
+	lines.push(
+		"- [Documentation](https://docs.tedix.dev/): Getting started, release status and the self-hosted boundary",
+	);
+	lines.push(
+		"- CLI install: `curl -fsSL https://downloads.tedix.dev/install.sh | sh`",
+	);
+	lines.push(
+		"- Local mode: `git clone https://github.com/tedix-hq/tedix.git && cd tedix && bun run-local`",
 	);
 	lines.push("");
 
@@ -26,7 +42,7 @@ export const GET: APIRoute = () => {
 	lines.push("## Platform");
 	lines.push("");
 	lines.push(
-		"- [Tedix Homepage](https://tedix.dev): AI That Learns Your Business",
+		"- [Tedix Homepage](https://tedix.dev): Persistent AI workers for your organization",
 	);
 	lines.push(
 		"- [AI App Directory](https://tedix.dev/apps): Browse AI apps across ChatGPT, Claude, and more",

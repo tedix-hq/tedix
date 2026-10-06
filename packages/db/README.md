@@ -136,9 +136,7 @@ commutative branches and reporting a conflicting fork with its fork point. A
 missing snapshot makes the next generated migration record the wrong parent and
 silently disables that detection. They are cheap to keep — about 0.5 MB packed
 in git, because near-identical JSON deltas well — and `.gitattributes` marks
-them generated so they stay out of diffs and reviews. A public export ships only
-the newest snapshot, which is all `generate` needs; `db:migrate:check` accepts
-that in the public tree.
+them generated so they stay out of diffs and reviews.
 
 A few intermediate snapshots are labeled reconstructions of SQL-replay states
 rather than original generated files. Their IDs link the neighbouring

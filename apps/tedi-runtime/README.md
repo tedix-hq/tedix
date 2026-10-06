@@ -119,7 +119,7 @@ bun run test:run           # runs every src/*.test.ts standalone (not `bun test`
 bun run type-check
 ```
 
-The exported repository does not yet include the isolated bindings and secret
+This repository does not yet include the isolated bindings and secret
 bootstrap required to run or deploy this Worker. The `dev` and deploy scripts
 are maintainer-only until the public installation path described in the
 [self-hosted boundary](../../docs/public/self-hosted-boundary.md) is complete.

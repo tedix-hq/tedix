@@ -85,8 +85,8 @@ need Docker. Three rules fail without an error at review time:
 - Every live Worker secret is a `bindings.secret()`. `cf deploy` deletes any
   secret the config does not declare.
 
-The exported repository does not yet provide an isolated local data-plane
-profile for this Worker. Do not run its `dev` script from a public checkout;
+This repository does not yet provide an isolated local data-plane profile for
+this Worker. Do not run its `dev` script from a source checkout;
 use the source-only checks above and the
 [self-hosted boundary](../../docs/public/self-hosted-boundary.md).
 

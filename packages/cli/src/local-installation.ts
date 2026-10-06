@@ -197,7 +197,7 @@ export async function runLocalInstallation(
 				"Git is required to download Tedix. Install Git, then rerun tedix setup.",
 			);
 		console.log(
-			"Local setup uses the official Tedix source release. GitHub access is required while the repository is private.",
+			"Local setup downloads the public Tedix source release from GitHub (github.com/tedix-hq/tedix).",
 		);
 		root = await acquireLocalSource({
 			version: CLI_VERSION,

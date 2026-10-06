@@ -20,14 +20,16 @@ organization. You finish with a saved CLI profile and a successful read-only
 call to that organization's live MCP gateway. It does not run a worker, call a
 model, or change organization data.
 
-Tedix Cloud is currently an invitation-only beta. To evaluate the local product
-without a Cloud account, follow [Getting started locally](../getting-started.md).
+[Release status](../release-status.md) says who can use Tedix Cloud today. To
+evaluate the local product without a Cloud account, follow [Getting started
+locally](../getting-started.md).
 
 ## Before you start
 
 You need:
 
-- membership in an invited Tedix Cloud organization;
+- Tedix Cloud beta access: membership in an organization, or approval to
+  create your own;
 - a browser in which you can sign in and approve the requested access; and
 - a computer supported by the [Tedix CLI](../cli.md#supported-platforms).
 

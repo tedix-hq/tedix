@@ -146,7 +146,8 @@ Owners: `apps/mcp/src/external-agent-session.ts`,
 `WORKER_INGRESS_POLICY` in `scripts/lint-worker-route-authz.ts` classifies every
 Worker as public, app-authenticated, Cloudflare Access-protected, or
 service-binding-only and pins `workers_dev` / `preview_urls`;
-`lint:worker-authz --strict` compares it with every `apps/*/wrangler.jsonc`.
+the gate (`--strict` in `lint:repo`) compares it with every app's
+`wrangler.jsonc` or `cloudflare.config.ts`.
 Route-bearing Workers need a verified guard or an inline `authz: public` reason
 per route. `scripts/lint-authz.ts` flags by-id lookups that never bind the
 caller's organization.
