@@ -8,7 +8,7 @@ import {
 } from "@tedix/db/queries/connection-instances";
 import { listConnectionProviders } from "@tedix/db/queries/connection-providers";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
-import type { BaseContext } from "../../rpc/orpc";
+import { createError, ErrorCodes, type BaseContext } from "../../rpc/orpc";
 import { googleCalendarAdapter } from "./google";
 import { microsoftCalendarAdapter } from "./microsoft";
 import type {
@@ -254,7 +254,10 @@ export async function resolveCalendarAdapter(
 		selection.providerId,
 	);
 	if (!instance?.tokenIds.length || !instance.tokenSub)
-		throw new Error("Account identity has not been verified");
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"This calendar account needs identity verification before its calendars can be read. Open Connections to verify this account.",
+		);
 	const externalIdentifier = `tedix_${instance.id}`;
 	const token =
 		selection.connectionScope === "user"

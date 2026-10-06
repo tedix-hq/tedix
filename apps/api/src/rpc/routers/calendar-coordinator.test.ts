@@ -1,4 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from "vite-plus/test";
+import { createRouterClient } from "@orpc/server";
+import { calendarCoordinatorContractRouter } from "./calendar-coordinator";
 import { ConfigureCalendarsInputSchema } from "@tedix/api-contract/schemas/calendar-coordinator";
 import { calendarOwnerUser } from "../../services/calendar-coordinator/credentials";
 import type { BaseContext } from "../orpc";
@@ -224,6 +226,103 @@ describe("exact calendar accounts and installed monitoring", () => {
 			accountSubject: "verified-subject",
 		});
 		expect(rows[0]).not.toHaveProperty("accessToken");
+	});
+	it("returns an actionable conflict for an unverified account before vault or provider reads", async () => {
+		mocks.instance.mockResolvedValue({
+			id,
+			tokenIds: ["token"],
+			tokenSub: null,
+		});
+		const providerRead = vi.spyOn(globalThis, "fetch");
+		try {
+			const client = createRouterClient(calendarCoordinatorContractRouter, {
+				context: {
+					authType: "user",
+					user: { sub: "owner", permissions: ["os:read"] },
+					organizationId: id,
+					headers: new Headers(),
+					env: {},
+					db: {},
+				} as BaseContext,
+			});
+			await expect(
+				client.listCalendars({
+					adapter: "google",
+					providerId: "google-calendar",
+					connectionScope: "user",
+					connectionInstanceId: id,
+				}),
+			).rejects.toMatchObject({
+				code: "CONFLICT",
+				message:
+					"This calendar account needs identity verification before its calendars can be read. Open Connections to verify this account.",
+			});
+			expect(mocks.instance).toHaveBeenCalledWith(
+				{},
+				{ userId: "owner" },
+				id,
+				"google-calendar",
+			);
+			expect(mocks.personal).not.toHaveBeenCalled();
+			expect(mocks.tenant).not.toHaveBeenCalled();
+			expect(providerRead).not.toHaveBeenCalled();
+		} finally {
+			providerRead.mockRestore();
+		}
+	});
+	it("keeps unavailable slots and changed subjects closed through the calendar router", async () => {
+		const client = createRouterClient(calendarCoordinatorContractRouter, {
+			context: {
+				authType: "user",
+				user: { sub: "owner", permissions: ["os:read"] },
+				organizationId: id,
+				headers: new Headers(),
+				env: {},
+				db: {},
+			} as BaseContext,
+		});
+		const selection = {
+			adapter: "google" as const,
+			providerId: "google-calendar",
+			connectionScope: "user" as const,
+			connectionInstanceId: id,
+		};
+		const providerRead = vi.spyOn(globalThis, "fetch");
+		try {
+			mocks.instances.mockResolvedValue([]);
+			await expect(client.listCalendars(selection)).rejects.toThrow(
+				"Calendar account is unavailable",
+			);
+			expect(mocks.personal).not.toHaveBeenCalled();
+			mocks.instances.mockResolvedValue([
+				{
+					id,
+					providerId: "google-calendar",
+					label: "Adriana",
+					tokenIds: ["token"],
+					tokenSub: "verified-subject",
+				},
+			]);
+			mocks.personal.mockResolvedValue({
+				id: "token",
+				accessToken: "opaque",
+				tokenSub: "other-subject",
+			});
+			await expect(client.listCalendars(selection)).rejects.toThrow(
+				"Named calendar credential identity changed",
+			);
+			expect(mocks.personal).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({
+					userId: "owner",
+					externalIdentifier: `tedix_${id}`,
+				}),
+			);
+			expect(mocks.tenant).not.toHaveBeenCalled();
+			expect(providerRead).not.toHaveBeenCalled();
+		} finally {
+			providerRead.mockRestore();
+		}
 	});
 	it("uses only the exact owner slot and rejects changed credential identity", async () => {
 		const ctx = {
