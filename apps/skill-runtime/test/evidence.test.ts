@@ -1083,7 +1083,7 @@ assert.ok(
 	),
 );
 // A shim change must select a fresh Loader id, or cached isolates shadow it.
-assert.equal(DISPATCH_SHIM_VERSION, "v45-provider-confirmation");
+assert.equal(DISPATCH_SHIM_VERSION, "v46-pinned-connection-recovery");
 
 // --- research cache: pure path scoping + freshness --------------------------
 {
