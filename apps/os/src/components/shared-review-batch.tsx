@@ -1,4 +1,20 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+	ArrowLeft,
+	ArrowRight,
+	ArrowSquareOut,
+	CheckCircle,
+	Circle,
+	PencilSimple,
+} from "@phosphor-icons/react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type KeyboardEvent,
+	type ReactNode,
+} from "react";
 import type {
 	OsReviewBatch,
 	OsReviewFeedback,
@@ -6,14 +22,100 @@ import type {
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
-import { Textarea } from "@/components/kumo/textarea";
 import { Input } from "@/components/kumo/input";
+import { Progress } from "@/components/kumo/progress";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { Textarea } from "@/components/kumo/textarea";
+import { cn } from "@/lib/utils";
+
+type Card = OsReviewBatch["cards"][number];
+type Decision = OsReviewFeedback["decision"];
+type Saved = {
+	decision: Decision;
+	reply: string;
+	reason: string;
+	revision: number;
+	updatedAt: string | null;
+};
+type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
+type Draft = Saved & { save: SaveState };
+
+// Plain-language reviewer choices. The stored values stay the contract enum;
+// "ready" is a review opinion and never means anything was posted.
+const DECISIONS = [
+	{ value: "needs_checking", label: "Not sure yet" },
+	{ value: "edit", label: "Use with changes" },
+	{ value: "ready", label: "Looks good" },
+	{ value: "skip", label: "Skip" },
+] as const satisfies readonly { value: Decision; label: string }[];
+const DECISION_LABEL = Object.fromEntries(
+	DECISIONS.map((d) => [d.value, d.label]),
+) as Record<Decision, string>;
+
+type Filter = "all" | "open" | "done";
+
+/**
+ * A card's rationale may open with a short verdict sentence ("Skip. …").
+ * Showing it as its own badge keeps the recommendation visibly separate from
+ * effort; the stored rationale is left untouched.
+ */
+export function splitRecommendation(relevance: string): {
+	recommendation: string | null;
+	rationale: string;
+} {
+	const match = /^\s*([A-Za-z][A-Za-z -]{1,30}?)\.\s+/.exec(relevance);
+	if (!match || match[1]!.trim().split(/\s+/).length > 3)
+		return { recommendation: null, rationale: relevance };
+	return {
+		recommendation: match[1]!.trim(),
+		rationale: relevance.slice(match[0].length),
+	};
+}
+
+function recommendationVariant(label: string) {
+	const value = label.toLowerCase();
+	if (/\b(skip|avoid|reject)/.test(value)) return "error" as const;
+	if (/deprioriti|later|low priority/.test(value)) return "warning" as const;
+	if (/check|unclear|verify/.test(value)) return "info" as const;
+	return "success" as const;
+}
+
+const EFFORT_VARIANT = {
+	low: "success",
+	medium: "warning",
+	high: "error",
+} as const;
+
+function savedFrom(card: Card, feedback: OsReviewFeedback | undefined): Saved {
+	return {
+		decision: feedback?.decision ?? "needs_checking",
+		reply: feedback?.editedReply ?? card.draft,
+		reason: feedback?.reason ?? "",
+		revision: feedback?.revision ?? 0,
+		updatedAt: feedback?.updatedAt ?? null,
+	};
+}
+
+function isDirty(draft: Draft, saved: Saved) {
+	return (
+		draft.decision !== saved.decision ||
+		draft.reply !== saved.reply ||
+		draft.reason !== saved.reason
+	);
+}
+
+/** Reviewed means a saved decision other than "not sure yet". */
+function isReviewed(saved: Saved) {
+	return saved.revision > 0 && saved.decision !== "needs_checking";
+}
+
+function isConflict(error: unknown) {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		(error as { code?: unknown }).code === "CONFLICT"
+	);
+}
 
 export function SharedReviewBatch({
 	shareId,
@@ -62,203 +164,720 @@ export function SharedReviewBatch({
 	if (!data) return <p role="status">Opening review…</p>;
 	if (!data.batch) return fallback;
 	return (
-		<section className="grid gap-4">
-			<header>
-				<h2 className="m-0 text-xl font-semibold">{data.batch.title}</h2>
-				<p className="text-kumo-subtle">
-					A saved batch for your review. Your feedback is saved separately; it
-					does not publish a reply or change the research.
-				</p>
-				<Badge variant="secondary">{data.batch.cards.length} cards</Badge>
-				<p className="text-sm text-kumo-subtle">
-					Batch saved {new Date(data.batch.createdAt).toLocaleString()}. This is
-					when the batch was saved, not when its sources were last checked.
-				</p>
-			</header>
-			{data.batch.cards.map((card) => (
-				<ReviewCard
-					key={`${data.batch!.id}:${card.id}`}
-					card={card}
-					initial={data.feedback.find((f) => f.cardId === card.id)}
-					batch={data.batch!}
-					shareId={shareId}
-					sessionToken={sessionToken}
-				/>
-			))}
-		</section>
+		<ReviewApp
+			// A new batch never inherits another batch's local edits.
+			key={data.batch.id}
+			batch={data.batch}
+			feedback={data.feedback}
+			shareId={shareId}
+			sessionToken={sessionToken}
+		/>
 	);
 }
-function ReviewCard({
-	card,
-	initial,
+
+function ReviewApp({
 	batch,
+	feedback,
 	shareId,
 	sessionToken,
 }: {
-	card: OsReviewBatch["cards"][number];
-	initial: OsReviewFeedback | undefined;
 	batch: OsReviewBatch;
+	feedback: OsReviewFeedback[];
 	shareId: string;
 	sessionToken: string;
 }) {
-	const [decision, setDecision] = useState<OsReviewFeedback["decision"]>(
-		initial?.decision ?? "needs_checking",
+	const [saved, setSaved] = useState<Record<string, Saved>>(() =>
+		Object.fromEntries(
+			batch.cards.map((card) => [
+				card.id,
+				savedFrom(
+					card,
+					feedback.find((f) => f.cardId === card.id),
+				),
+			]),
+		),
 	);
-	const [reply, setReply] = useState(initial?.editedReply ?? card.draft);
-	const [reason, setReason] = useState(initial?.reason ?? "");
-	const [revision, setRevision] = useState(initial?.revision ?? 0);
-	const [status, setStatus] = useState("");
-	const [busy, setBusy] = useState(false);
-	async function save() {
-		setBusy(true);
-		setStatus("");
-		try {
-			const { osApi } = await import("@/lib/api");
-			const result = await osApi.osShares.reviews.saveFeedback({
-				shareId,
-				sessionToken,
-				batchId: batch.id,
-				cardId: card.id,
-				expectedRevision: revision,
-				decision,
-				editedReply: reply,
-				reason,
-			});
-			setRevision(result.feedback.revision);
-			setStatus("Feedback saved. Nothing was posted.");
-		} catch {
-			setStatus(
-				"Could not save. Feedback may have changed or sharing ended. Copy your edits and reload before trying again.",
-			);
-		} finally {
-			setBusy(false);
-		}
+	const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
+		Object.fromEntries(
+			Object.entries(saved).map(([id, value]) => [
+				id,
+				{ ...value, save: "idle" },
+			]),
+		),
+	);
+	const [selectedId, setSelectedId] = useState(batch.cards[0]?.id ?? "");
+	// Mobile shows the list or one card; desktop always shows both.
+	const [mobileDetail, setMobileDetail] = useState(false);
+	const [filter, setFilter] = useState<Filter>("all");
+	const [recommendationFilter, setRecommendationFilter] = useState("any");
+
+	const recommendations = useMemo(
+		() =>
+			Object.fromEntries(
+				batch.cards.map((card) => [
+					card.id,
+					splitRecommendation(card.relevance),
+				]),
+			),
+		[batch.cards],
+	);
+	const recommendationOptions = useMemo(() => {
+		const labels = [
+			...new Set(
+				batch.cards
+					.map((card) => recommendations[card.id]?.recommendation)
+					.filter((label): label is string => Boolean(label)),
+			),
+		];
+		return labels.length > 1
+			? [
+					{ value: "any", label: "Any" },
+					...labels.map((label) => ({ value: label, label })),
+				]
+			: [];
+	}, [batch.cards, recommendations]);
+
+	const reviewedCount = batch.cards.filter((card) =>
+		isReviewed(saved[card.id]!),
+	).length;
+	const unsavedCount = batch.cards.filter((card) =>
+		isDirty(drafts[card.id]!, saved[card.id]!),
+	).length;
+
+	const visible = batch.cards.filter((card) => {
+		const done = isReviewed(saved[card.id]!);
+		if (filter === "open" && done) return false;
+		if (filter === "done" && !done) return false;
+		if (
+			recommendationFilter !== "any" &&
+			recommendations[card.id]?.recommendation !== recommendationFilter
+		)
+			return false;
+		return true;
+	});
+	const selected =
+		batch.cards.find((card) => card.id === selectedId) ?? batch.cards[0];
+
+	// Warn before leaving with edits that were never saved.
+	useEffect(() => {
+		if (unsavedCount === 0) return;
+		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+		window.addEventListener("beforeunload", warn);
+		return () => window.removeEventListener("beforeunload", warn);
+	}, [unsavedCount]);
+
+	const update = useCallback(
+		(cardId: string, patch: Partial<Saved>) =>
+			setDrafts((current) => ({
+				...current,
+				[cardId]: { ...current[cardId]!, ...patch, save: "idle" },
+			})),
+		[],
+	);
+
+	const save = useCallback(
+		async (card: Card) => {
+			const draft = drafts[card.id]!;
+			if (draft.save === "saving") return;
+			setDrafts((current) => ({
+				...current,
+				[card.id]: { ...current[card.id]!, save: "saving" },
+			}));
+			try {
+				const { osApi } = await import("@/lib/api");
+				const result = await osApi.osShares.reviews.saveFeedback({
+					shareId,
+					sessionToken,
+					batchId: batch.id,
+					cardId: card.id,
+					expectedRevision: draft.revision,
+					decision: draft.decision,
+					editedReply: draft.reply,
+					reason: draft.reason,
+				});
+				const next: Saved = {
+					decision: draft.decision,
+					reply: draft.reply,
+					reason: draft.reason,
+					revision: result.feedback.revision,
+					updatedAt: result.feedback.updatedAt ?? new Date().toISOString(),
+				};
+				setSaved((current) => ({ ...current, [card.id]: next }));
+				setDrafts((current) => ({
+					...current,
+					[card.id]: {
+						...current[card.id]!,
+						revision: next.revision,
+						updatedAt: next.updatedAt,
+						save: "saved",
+					},
+				}));
+			} catch (error) {
+				setDrafts((current) => ({
+					...current,
+					[card.id]: {
+						...current[card.id]!,
+						save: isConflict(error) ? "conflict" : "error",
+					},
+				}));
+			}
+		},
+		[batch.id, drafts, sessionToken, shareId],
+	);
+
+	// After a conflict, load the latest saved feedback but keep the reviewer's
+	// text: saving again is a deliberate choice to replace the newer version.
+	const reloadLatest = useCallback(
+		async (card: Card) => {
+			try {
+				const { osApi } = await import("@/lib/api");
+				const latest = await osApi.osShares.reviews.get({
+					shareId,
+					sessionToken,
+				});
+				if (!latest.batch || latest.batch.id !== batch.id) throw new Error();
+				const next = savedFrom(
+					card,
+					latest.feedback.find((f) => f.cardId === card.id),
+				);
+				setSaved((current) => ({ ...current, [card.id]: next }));
+				setDrafts((current) => ({
+					...current,
+					[card.id]: {
+						...current[card.id]!,
+						revision: next.revision,
+						updatedAt: next.updatedAt,
+						save: "idle",
+					},
+				}));
+			} catch {
+				setDrafts((current) => ({
+					...current,
+					[card.id]: { ...current[card.id]!, save: "error" },
+				}));
+			}
+		},
+		[batch.id, sessionToken, shareId],
+	);
+
+	const listRef = useRef<HTMLUListElement>(null);
+	function focusCard(cardId: string) {
+		listRef.current
+			?.querySelector<HTMLButtonElement>(
+				`[data-card-id="${CSS.escape(cardId)}"]`,
+			)
+			?.focus();
 	}
+	function choose(cardId: string) {
+		setSelectedId(cardId);
+		setMobileDetail(true);
+		// Small screens scroll the page; start the opened card at its top.
+		if (!window.matchMedia?.("(min-width: 64rem)").matches)
+			requestAnimationFrame(() =>
+				listRef.current
+					?.closest("section")
+					?.querySelector("article")
+					?.scrollIntoView({ block: "start" }),
+			);
+	}
+	function onListKey(event: KeyboardEvent<HTMLUListElement>) {
+		const index = visible.findIndex((card) => card.id === selected?.id);
+		const target =
+			event.key === "ArrowDown"
+				? visible[Math.min(visible.length - 1, index + 1)]
+				: event.key === "ArrowUp"
+					? visible[Math.max(0, index - 1)]
+					: event.key === "Home"
+						? visible[0]
+						: event.key === "End"
+							? visible[visible.length - 1]
+							: undefined;
+		if (!target) return;
+		event.preventDefault();
+		setSelectedId(target.id);
+		focusCard(target.id);
+	}
+
+	const position = selected
+		? batch.cards.findIndex((card) => card.id === selected.id)
+		: -1;
+	const total = batch.cards.length;
+
 	return (
-		<Card>
-			<CardHeader>
-				<div className="flex flex-wrap items-center justify-between gap-2">
-					<CardTitle>{card.title}</CardTitle>
-					<Badge
-						variant={
-							card.effort === "low"
-								? "success"
-								: card.effort === "medium"
-									? "warning"
-									: "destructive"
-						}
+		<section
+			aria-label="Review"
+			className="flex flex-1 flex-col gap-3 lg:min-h-0"
+		>
+			<header className="grid shrink-0 gap-2 rounded-xl border border-kumo-line bg-kumo-elevated p-3 sm:p-4">
+				<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+					<div className="min-w-0">
+						<h2 className="m-0 text-base font-semibold text-kumo-strong sm:text-lg">
+							{batch.title}
+						</h2>
+						<p className="m-0 text-sm text-kumo-subtle max-sm:text-xs">
+							Your feedback is saved for the team under your name. Nothing is
+							posted to Reddit and the research stays unchanged.
+						</p>
+					</div>
+					<p
+						className="m-0 shrink-0 text-sm font-medium text-kumo-default"
+						aria-live="polite"
 					>
-						{card.effort} effort
-					</Badge>
+						{reviewedCount} of {total} reviewed
+						{unsavedCount > 0 && (
+							<span className="text-kumo-warning">
+								{" "}
+								· {unsavedCount} unsaved
+							</span>
+						)}
+					</p>
 				</div>
-			</CardHeader>
-			<CardContent className="grid gap-4">
-				<a
-					className="text-kumo-brand underline"
-					href={card.url}
-					target="_blank"
-					rel="noopener noreferrer"
+				<Progress
+					value={total === 0 ? 0 : Math.round((reviewedCount / total) * 100)}
+					aria-label={`${reviewedCount} of ${total} reviewed`}
+				/>
+			</header>
+
+			<div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
+				<nav
+					aria-label="Suggestions"
+					className={cn(
+						"flex-col gap-2 rounded-xl border border-kumo-line bg-kumo-base p-2 lg:min-h-0",
+						mobileDetail ? "hidden lg:flex" : "flex",
+					)}
 				>
-					Open original conversation ↗
-				</a>
-				<p className="m-0 whitespace-pre-wrap">{card.relevance}</p>
-				{card.evidence.length > 0 && (
-					<details>
-						<summary>Evidence and sources</summary>
-						<ul>
-							{card.evidence.map((source, index) => (
-								<li key={index}>
-									<a
-										className="text-kumo-brand underline"
-										href={source.url}
-										target="_blank"
-										rel="noopener noreferrer"
+					<div className="grid shrink-0 gap-2 px-1 pt-1">
+						<SegmentedControl<Filter>
+							ariaLabel="Show"
+							compact
+							value={filter}
+							onValueChange={setFilter}
+							options={[
+								{ value: "all", label: `All ${total}` },
+								{ value: "open", label: `To review ${total - reviewedCount}` },
+								{ value: "done", label: `Reviewed ${reviewedCount}` },
+							]}
+						/>
+						{recommendationOptions.length > 0 && (
+							<div className="grid min-w-0 gap-1">
+								<span className="text-xs text-kumo-subtle">Suggested</span>
+								<SegmentedControl<string>
+									ariaLabel="Filter by suggestion"
+									className="w-full flex-wrap"
+									compact
+									value={recommendationFilter}
+									onValueChange={setRecommendationFilter}
+									options={recommendationOptions}
+								/>
+							</div>
+						)}
+					</div>
+					<ul
+						ref={listRef}
+						className="m-0 grid list-none content-start gap-1 p-0 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain"
+						onKeyDown={onListKey}
+					>
+						{visible.map((card) => {
+							const rec = recommendations[card.id]!;
+							const draft = drafts[card.id]!;
+							const cardSaved = saved[card.id]!;
+							const dirty = isDirty(draft, cardSaved);
+							const active = card.id === selected?.id;
+							return (
+								<li key={card.id}>
+									<Button
+										variant="ghost"
+										multiline
+										data-card-id={card.id}
+										aria-current={active ? "true" : undefined}
+										tabIndex={active ? 0 : -1}
+										onClick={() => choose(card.id)}
+										className={cn(
+											"grid h-auto w-full justify-stretch gap-1.5 border px-3 py-2.5 text-left font-normal",
+											active
+												? "border-kumo-brand bg-kumo-tint"
+												: "border-transparent",
+										)}
 									>
-										{source.label} ↗
-									</a>
+										<span className="flex items-start gap-2">
+											<StatusIcon saved={cardSaved} dirty={dirty} />
+											<span className="min-w-0 flex-1 text-sm font-medium text-kumo-default">
+												{card.title}
+											</span>
+										</span>
+										<span className="flex flex-wrap gap-1 pl-6">
+											{rec.recommendation && (
+												<Badge
+													variant={recommendationVariant(rec.recommendation)}
+												>
+													{rec.recommendation}
+												</Badge>
+											)}
+											<Badge variant={EFFORT_VARIANT[card.effort]}>
+												{card.effort} effort
+											</Badge>
+										</span>
+										<span className="pl-6 text-xs text-kumo-subtle">
+											{dirty
+												? "Unsaved changes"
+												: cardSaved.revision > 0
+													? `Saved · ${DECISION_LABEL[cardSaved.decision]}`
+													: "Not reviewed yet"}
+										</span>
+									</Button>
 								</li>
-							))}
-						</ul>
-					</details>
+							);
+						})}
+						{visible.length === 0 && (
+							<li className="p-3 text-sm text-kumo-subtle">
+								Nothing matches this filter.
+							</li>
+						)}
+					</ul>
+				</nav>
+
+				{selected && (
+					<CardDetail
+						key={selected.id}
+						className={mobileDetail ? "flex" : "hidden lg:flex"}
+						card={selected}
+						recommendation={recommendations[selected.id]!}
+						draft={drafts[selected.id]!}
+						saved={saved[selected.id]!}
+						position={position}
+						total={total}
+						onBack={() => {
+							setMobileDetail(false);
+							requestAnimationFrame(() => focusCard(selected.id));
+						}}
+						onStep={(delta) => {
+							const next = batch.cards[position + delta];
+							if (next) setSelectedId(next.id);
+						}}
+						onChange={(patch) => update(selected.id, patch)}
+						onSave={() => void save(selected)}
+						onReload={() => void reloadLatest(selected)}
+					/>
 				)}
+			</div>
+		</section>
+	);
+}
+
+function StatusIcon({ saved, dirty }: { saved: Saved; dirty: boolean }) {
+	if (dirty)
+		return (
+			<PencilSimple
+				aria-hidden
+				size={16}
+				className="mt-0.5 shrink-0 text-kumo-warning"
+			/>
+		);
+	if (isReviewed(saved))
+		return (
+			<CheckCircle
+				aria-hidden
+				size={16}
+				weight="fill"
+				className="mt-0.5 shrink-0 text-kumo-success"
+			/>
+		);
+	return (
+		<Circle
+			aria-hidden
+			size={16}
+			className="mt-0.5 shrink-0 text-kumo-subtle"
+		/>
+	);
+}
+
+function CardDetail({
+	card,
+	recommendation,
+	draft,
+	saved,
+	position,
+	total,
+	className,
+	onBack,
+	onStep,
+	onChange,
+	onSave,
+	onReload,
+}: {
+	card: Card;
+	recommendation: { recommendation: string | null; rationale: string };
+	draft: Draft;
+	saved: Saved;
+	position: number;
+	total: number;
+	className: string;
+	onBack: () => void;
+	onStep: (delta: number) => void;
+	onChange: (patch: Partial<Saved>) => void;
+	onSave: () => void;
+	onReload: () => void;
+}) {
+	const busy = draft.save === "saving";
+	const dirty = isDirty(draft, saved);
+	const replyChanged = draft.reply !== card.draft;
+	return (
+		<article
+			aria-labelledby={`review-card-${card.id}`}
+			className={cn(
+				"flex-col rounded-xl border border-kumo-line bg-kumo-base lg:min-h-0 lg:overflow-hidden",
+				className,
+			)}
+			onKeyDown={(event) => {
+				if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+					event.preventDefault();
+					if (!busy) onSave();
+				}
+			}}
+		>
+			<div className="flex shrink-0 items-center justify-between gap-2 border-b border-kumo-line px-3 py-2">
+				<Button
+					variant="ghost"
+					size="sm"
+					className="lg:hidden"
+					onClick={onBack}
+				>
+					<ArrowLeft size={14} aria-hidden /> All suggestions
+				</Button>
+				<span className="text-xs text-kumo-subtle max-lg:hidden">
+					Suggestion {position + 1} of {total}
+				</span>
+				<span className="flex items-center gap-1">
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label="Previous suggestion"
+						disabled={position <= 0}
+						onClick={() => onStep(-1)}
+					>
+						<ArrowLeft size={14} aria-hidden />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label="Next suggestion"
+						disabled={position >= total - 1}
+						onClick={() => onStep(1)}
+					>
+						<ArrowRight size={14} aria-hidden />
+					</Button>
+				</span>
+			</div>
+
+			<div className="grid flex-1 content-start gap-5 p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
+				<header className="grid gap-2">
+					<h3
+						id={`review-card-${card.id}`}
+						className="m-0 text-lg font-semibold text-kumo-strong"
+					>
+						{card.title}
+					</h3>
+					<div className="flex flex-wrap items-center gap-1.5">
+						{recommendation.recommendation && (
+							<Badge
+								variant={recommendationVariant(recommendation.recommendation)}
+							>
+								Suggested: {recommendation.recommendation}
+							</Badge>
+						)}
+						<Badge variant={EFFORT_VARIANT[card.effort]}>
+							{card.effort} effort
+						</Badge>
+						<Badge variant="secondary">
+							{saved.revision > 0
+								? `Your decision: ${DECISION_LABEL[saved.decision]}`
+								: "Not reviewed yet"}
+						</Badge>
+					</div>
+					<a
+						className="inline-flex w-fit items-center gap-1 text-sm font-medium text-kumo-link underline-offset-2 hover:underline"
+						href={card.url}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						Open original conversation
+						<ArrowSquareOut size={14} aria-hidden />
+					</a>
+				</header>
+
+				{recommendation.rationale && (
+					<section className="grid gap-1">
+						<h4 className="m-0 text-sm font-semibold text-kumo-default">
+							Why this suggestion
+						</h4>
+						<p className="m-0 whitespace-pre-wrap text-sm leading-relaxed text-kumo-default">
+							{recommendation.rationale}
+						</p>
+						<p className="m-0 text-xs text-kumo-subtle">
+							Effort says how much work a reply takes. It does not mean the
+							thread is suitable to reply to.
+						</p>
+					</section>
+				)}
+
 				{card.checks.length > 0 && (
-					<details>
-						<summary>What still needs checking</summary>
-						<ul>
+					<section className="grid gap-1 rounded-lg bg-kumo-warning-tint p-3">
+						<h4 className="m-0 text-sm font-semibold text-kumo-warning">
+							Still to check
+						</h4>
+						<ul className="m-0 grid list-disc gap-1 pl-5 text-sm text-kumo-default">
 							{card.checks.map((check, index) => (
 								<li key={index}>{check}</li>
 							))}
 						</ul>
-					</details>
+					</section>
 				)}
-				<details>
-					<summary>Original draft</summary>
-					<p className="whitespace-pre-wrap">{card.draft}</p>
-				</details>
-				<fieldset className="flex flex-wrap gap-2">
-					<legend className="mb-2 font-medium">Your decision</legend>
-					{(
-						[
-							["needs_checking", "Needs checking"],
-							["edit", "Edit"],
-							["skip", "Skip"],
-							["ready", "Ready"],
-						] as const
-					).map(([value, label]) => (
-						<Button
-							key={value}
-							variant={decision === value ? "default" : "secondary"}
-							size="sm"
-							aria-pressed={decision === value}
-							disabled={busy}
-							onClick={() => {
-								setDecision(value);
-								setStatus("Unsaved changes");
-							}}
+
+				{card.evidence.length > 0 && (
+					<section className="grid gap-1">
+						<h4 className="m-0 text-sm font-semibold text-kumo-default">
+							Sources
+						</h4>
+						<ul className="m-0 flex flex-wrap gap-2 p-0">
+							{card.evidence.map((source, index) => (
+								<li key={index} className="list-none">
+									<a
+										className="inline-flex items-center gap-1 rounded-md border border-kumo-line px-2 py-1 text-sm text-kumo-link hover:bg-kumo-tint"
+										href={source.url}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										{source.label}
+										<ArrowSquareOut size={12} aria-hidden />
+									</a>
+								</li>
+							))}
+						</ul>
+					</section>
+				)}
+
+				<section className="grid gap-2">
+					<div className="flex flex-wrap items-baseline justify-between gap-2">
+						<label
+							htmlFor={`reply-${card.id}`}
+							className="text-sm font-semibold text-kumo-default"
 						>
-							{label}
-						</Button>
-					))}
-				</fieldset>
-				<label className="grid gap-2">
-					Reply to review
+							Suggested reply
+						</label>
+						{replyChanged && (
+							<Button
+								variant="ghost"
+								size="xs"
+								disabled={busy}
+								onClick={() => onChange({ reply: card.draft })}
+							>
+								Restore original draft
+							</Button>
+						)}
+					</div>
 					<Textarea
+						id={`reply-${card.id}`}
 						aria-label={`Reply for ${card.title}`}
-						rows={5}
-						value={reply}
+						rows={6}
+						value={draft.reply}
 						maxLength={8000}
 						disabled={busy}
-						onChange={(e) => {
-							setReply(e.target.value);
-							setStatus("Unsaved changes");
-						}}
+						placeholder="No draft yet. Write a reply here if one would help."
+						onChange={(e) => onChange({ reply: e.target.value })}
 					/>
-				</label>
-				<label className="grid gap-2">
-					Reason or feedback
+				</section>
+
+				<fieldset className="m-0 grid gap-2 border-0 p-0">
+					<legend className="mb-1 p-0 text-sm font-semibold text-kumo-default">
+						Your decision
+					</legend>
+					<div className="flex flex-wrap gap-2">
+						{DECISIONS.map(({ value, label }) => (
+							<Button
+								key={value}
+								aria-pressed={draft.decision === value}
+								variant={draft.decision === value ? "default" : "outline"}
+								size="sm"
+								disabled={busy}
+								onClick={() => onChange({ decision: value })}
+							>
+								{label}
+							</Button>
+						))}
+					</div>
+					<p className="m-0 text-xs text-kumo-subtle">
+						“Looks good” records your opinion only. It does not post anything or
+						start any research.
+					</p>
+				</fieldset>
+
+				<div className="grid gap-2">
+					<label
+						htmlFor={`reason-${card.id}`}
+						className="text-sm font-semibold text-kumo-default"
+					>
+						Feedback{" "}
+						<span className="font-normal text-kumo-subtle">(optional)</span>
+					</label>
 					<Input
+						id={`reason-${card.id}`}
 						aria-label={`Feedback for ${card.title}`}
-						value={reason}
+						value={draft.reason}
 						maxLength={4000}
 						disabled={busy}
-						onChange={(e) => {
-							setReason(e.target.value);
-							setStatus("Unsaved changes");
-						}}
+						placeholder="One sentence: why, or what to change"
+						onChange={(e) => onChange({ reason: e.target.value })}
 					/>
-				</label>
-				<div className="flex flex-wrap items-center gap-3">
-					<Button disabled={busy} onClick={() => void save()}>
+				</div>
+			</div>
+
+			<footer className="sticky bottom-0 grid shrink-0 gap-2 rounded-b-xl border-t border-kumo-line bg-kumo-elevated px-4 py-3 lg:static">
+				{draft.save === "conflict" && (
+					<Alert variant="warning">
+						<AlertTitle>Someone saved a newer version</AlertTitle>
+						<AlertDescription>
+							Your text is still here. Load the latest version, then save again
+							if you want to replace it.
+							<Button
+								className="mt-2"
+								variant="secondary"
+								size="sm"
+								onClick={onReload}
+							>
+								Load latest version
+							</Button>
+						</AlertDescription>
+					</Alert>
+				)}
+				{draft.save === "error" && (
+					<Alert variant="destructive">
+						<AlertTitle>Could not save</AlertTitle>
+						<AlertDescription>
+							Sharing may have ended or your connection dropped. Copy your text
+							before leaving this page, then try again.
+						</AlertDescription>
+					</Alert>
+				)}
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<span
+						role="status"
+						className="min-w-0 flex-1 text-sm text-kumo-subtle"
+					>
+						{busy
+							? "Saving…"
+							: draft.save === "saved" && !dirty
+								? "Feedback saved. Nothing was posted."
+								: dirty
+									? "Unsaved changes"
+									: saved.revision > 0
+										? `Last saved${saved.updatedAt ? ` ${new Date(saved.updatedAt).toLocaleString()}` : ""}.`
+										: "Not reviewed yet."}
+					</span>
+					<Button disabled={busy} onClick={onSave}>
 						{busy ? "Saving…" : "Save feedback"}
 					</Button>
-					<span role="status" className="text-kumo-subtle text-sm">
-						{status ||
-							(initial
-								? "Your previous feedback is loaded."
-								: "Not reviewed yet.")}
-					</span>
 				</div>
-			</CardContent>
-		</Card>
+			</footer>
+		</article>
 	);
 }

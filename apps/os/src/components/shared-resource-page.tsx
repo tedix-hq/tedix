@@ -137,6 +137,12 @@ function SharedGadgetCard({
 	);
 }
 
+const ROLE_LABEL: Record<OsShareRole, string> = {
+	viewer: "Can view",
+	use: "Can use",
+	build: "Can edit",
+};
+
 // Per-tab resume capability only. The original share secret never enters storage.
 const SHARE_SESSION_KEY = "tedix.os.share.session.v1";
 function storedShareSession(): string | null {
@@ -288,49 +294,66 @@ export function SharedResourcePage() {
 					},
 				]
 			: resource.gadgets;
+	const gadgetCards = (
+		<section className="grid gap-4">
+			{gadgets.map((gadget) => (
+				<SharedGadgetCard
+					key={gadget.id}
+					gadget={gadget}
+					role={payload.share.effectiveRole}
+				/>
+			))}
+		</section>
+	);
 	return (
-		<main className="mx-auto grid min-h-screen w-full max-w-6xl content-start gap-5 p-4 sm:p-8">
-			<header className="flex flex-wrap items-center gap-3 border-kumo-line border-b pb-4">
-				<span className="grid size-9 place-items-center rounded-lg bg-kumo-brand text-white">
+		// Desktop is a full-height app whose panes scroll on their own; on small
+		// screens the page scrolls normally.
+		<main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden">
+			<header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
+				<span
+					aria-hidden
+					className="grid size-8 shrink-0 place-items-center rounded-lg bg-kumo-brand font-semibold text-white"
+				>
 					T
 				</span>
-				<section className="min-w-0 flex-1">
-					<Text
-						as="p"
-						role="label"
-						tone="secondary"
-						className="m-0 uppercase tracking-wider"
-					>
-						Shared resource
-					</Text>
+				<section className="min-w-[12rem] flex-1">
 					<Text as="h1" role="title" className="m-0 truncate">
 						{title}
 					</Text>
+					<Text as="p" role="label" tone="secondary" className="m-0">
+						Shared with you · opened with your own Tedix sign-in
+					</Text>
 				</section>
 				<Badge variant="success">
-					<ShieldCheck size={13} /> {payload.share.effectiveRole}
+					<ShieldCheck size={13} /> {ROLE_LABEL[payload.share.effectiveRole]}
 				</Badge>
-				<Badge variant="secondary">{payload.share.revisionMode}</Badge>
+				<Badge variant="secondary">
+					{payload.share.revisionMode === "pinned"
+						? "Fixed version"
+						: "Latest version"}
+				</Badge>
+				<details className="relative text-sm text-kumo-subtle">
+					<summary className="cursor-pointer select-none">About access</summary>
+					<p className="absolute right-0 z-10 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-kumo-line bg-kumo-elevated p-3 text-kumo-default shadow-lg">
+						This share uses your own signed-in Tedix account. It does not
+						transfer the owner's connections, credentials or private memory.
+						Tedix checks access when you open it and while it remains open.
+					</p>
+				</details>
 			</header>
 			{payload.share.note && (
-				<p className="m-0 text-kumo-subtle">{payload.share.note}</p>
+				<p className="m-0 shrink-0 text-sm text-kumo-subtle">
+					{payload.share.note}
+				</p>
 			)}
 			{payload.share.policyReason && (
-				<Alert variant="warning">
+				<Alert variant="warning" className="shrink-0">
 					<AlertTitle>Access narrowed by policy</AlertTitle>
 					<AlertDescription>{payload.share.policyReason}</AlertDescription>
 				</Alert>
 			)}
-			<details className="text-sm text-kumo-subtle">
-				<summary className="cursor-pointer">About access</summary>
-				<p>
-					This share uses your own signed-in Tedix account. It does not transfer
-					the owner's connections, credentials or private memory. Tedix checks
-					access when you open it and while it remains open.
-				</p>
-			</details>
 			{payload.share.effectiveRole === "build" && resource.openPath && (
-				<div>
+				<div className="shrink-0">
 					<Button onClick={() => window.location.assign(resource.openPath!)}>
 						Open authenticated Canvas <ArrowRight size={14} />
 					</Button>
@@ -341,31 +364,17 @@ export function SharedResourcePage() {
 				</div>
 			)}
 			{resource.type === "gadget" && payload.share.effectiveRole === "use" ? (
-				<SharedReviewBatch
-					shareId={payload.share.id}
-					sessionToken={state.sessionToken}
-					fallback={
-						<section className="grid gap-4">
-							{gadgets.map((gadget) => (
-								<SharedGadgetCard
-									key={gadget.id}
-									gadget={gadget}
-									role={payload.share.effectiveRole}
-								/>
-							))}
-						</section>
-					}
-				/>
+				<div className="flex flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
+					<SharedReviewBatch
+						shareId={payload.share.id}
+						sessionToken={state.sessionToken}
+						fallback={gadgetCards}
+					/>
+				</div>
 			) : (
-				<section className="grid gap-4">
-					{gadgets.map((gadget) => (
-						<SharedGadgetCard
-							key={gadget.id}
-							gadget={gadget}
-							role={payload.share.effectiveRole}
-						/>
-					))}
-				</section>
+				<div className="flex-1 lg:min-h-0 lg:overflow-y-auto">
+					{gadgetCards}
+				</div>
 			)}
 		</main>
 	);
