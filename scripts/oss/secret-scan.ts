@@ -67,6 +67,29 @@ export const PRIVATE_SCAN_RULES_PATH = resolve(
 	"private-scan-rules.json",
 );
 
+/**
+ * A maintainer checkout points at the private rules kept outside this
+ * repository: `TEDIX_PRIVATE_SCAN_RULES`, else the local, uncommitted
+ * `git config tedix.privateScanRules <path>`. Configured rules are required,
+ * so a moved or missing file fails the scan instead of silently passing.
+ */
+export function configuredPrivateRulesPath(
+	environment: NodeJS.ProcessEnv = process.env,
+	gitConfig: () => string = () =>
+		spawnSync("git", ["config", "--get", "tedix.privateScanRules"], {
+			cwd: import.meta.dirname,
+			encoding: "utf8",
+		}).stdout?.trim() ?? "",
+): string | undefined {
+	const configured =
+		environment.TEDIX_PRIVATE_SCAN_RULES?.trim() || gitConfig();
+	return configured ? resolve(configured) : undefined;
+}
+
+const CONFIGURED_PRIVATE_RULES_PATH = configuredPrivateRulesPath();
+const DEFAULT_PRIVATE_RULES_PATH =
+	CONFIGURED_PRIVATE_RULES_PATH ?? PRIVATE_SCAN_RULES_PATH;
+
 interface PrivateScanRule {
 	rule: string;
 	pattern: string;
@@ -76,7 +99,7 @@ interface PrivateScanRule {
 }
 
 export function readPrivateScanRules(
-	path = PRIVATE_SCAN_RULES_PATH,
+	path = DEFAULT_PRIVATE_RULES_PATH,
 ): PrivateScanRule[] {
 	if (!existsSync(path)) return [];
 	const file: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -88,7 +111,7 @@ export function readPrivateScanRules(
 
 /** Fail closed when a private-source scan was expected to load its overlay. */
 export function requirePrivateScanRules(
-	path = PRIVATE_SCAN_RULES_PATH,
+	path = DEFAULT_PRIVATE_RULES_PATH,
 ): PrivateScanRule[] {
 	const rules = readPrivateScanRules(path);
 	if (rules.length === 0) {
@@ -265,7 +288,7 @@ const GENERIC_CONTENT_RULES: ReadonlyArray<ContentRule> = [
 
 /** The generic rules plus the private overlay, when this checkout has one. */
 export function contentRules(
-	privateRulesPath = PRIVATE_SCAN_RULES_PATH,
+	privateRulesPath = DEFAULT_PRIVATE_RULES_PATH,
 ): ContentRule[] {
 	return [
 		...GENERIC_CONTENT_RULES,
@@ -739,7 +762,8 @@ if (import.meta.main) {
 		requirePrivateRules: privateRulesRequired,
 		paths,
 	} = parseCli(args);
-	if (privateRulesRequired) requirePrivateScanRules();
+	if (privateRulesRequired || CONFIGURED_PRIVATE_RULES_PATH)
+		requirePrivateScanRules();
 	let scope = paths;
 	let note = "";
 	// In the public repository every tracked file is already published.
