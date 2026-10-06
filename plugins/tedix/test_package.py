@@ -26,9 +26,16 @@ class PackageTest(unittest.TestCase):
         local = package.package_files(local=True)
         self.assertEqual(set(local) - set(cloud), {
             ".mcp.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json",
-            "hooks/hooks.json", "hooks/session_start.py", "hooks/user_prompt_submit.py", "hooks/decision_capture.py"})
+            "hooks/hooks.json", "hooks/session_start.py", "hooks/user_prompt_submit.py", "hooks/decision_capture.py",
+            "hooks/agent_status.py"})
         hooks = json.loads(local["hooks/hooks.json"])["hooks"]
-        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop"})
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PermissionRequest",
+                                      "Notification", "PostToolUse", "SessionEnd"})
+        # The status reporter observes every turn boundary but always runs in the background.
+        status = [handler for definitions in hooks.values() for definition in definitions
+                  for handler in definition["hooks"] if "agent_status.py" in handler["command"]]
+        self.assertEqual(len(status), 7)
+        self.assertTrue(all(handler["async"] for handler in status))
         # Recording handlers run in the background and cannot block or steer the session.
         capture = [handler for definitions in hooks.values() for definition in definitions
                    for handler in definition["hooks"] if "decision_capture.py" in handler["command"]]
@@ -66,7 +73,8 @@ class PackageTest(unittest.TestCase):
         self.assertNotIn("hooks", manifest)
         self.assertNotIn("mcpServers", manifest)
         hooks = json.loads(files["hooks/hooks.json"])["hooks"]
-        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop"})
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PermissionRequest",
+                                      "Notification", "PostToolUse", "SessionEnd"})
         for definitions in hooks.values():
             for definition in definitions:
                 for handler in definition["hooks"]:
@@ -77,6 +85,8 @@ class PackageTest(unittest.TestCase):
                                      ["reply"] if "decision_capture" in handler["args"][0] else [])
         self.assertEqual(files["hooks/session_start.py"],
                          (package.ROOT / "hooks/session_start.py").read_bytes())
+        self.assertEqual(files["hooks/agent_status.py"],
+                         (package.ROOT / "hooks/agent_status.py").read_bytes())
 
     def test_explicit_local_endpoint_and_remote_validation(self):
         for url in ("http://localhost:8787/mcp", "http://127.0.0.1:8787/mcp", "http://[::1]:8787/mcp", "http://local-tedix-unified.localhost:3000/mcp"):

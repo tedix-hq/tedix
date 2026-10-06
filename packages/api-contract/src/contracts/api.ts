@@ -92,6 +92,7 @@ import { widgetTestContract } from "./widget-test";
 import { widgetTestRunsContract } from "./widget-test-runs";
 import { workItemsContract } from "./work-items";
 import { workApprovalsContract } from "./work-approvals";
+import { workAgentSessionsContract } from "./work-agent-sessions";
 import { workInteractionsContract } from "./work-interactions";
 import { workFleetContract } from "./work-fleet";
 import { workSchedulerContract } from "./work-scheduler";
@@ -287,6 +288,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	// Provider-neutral issue/work coordination
 	workItems: workItemsContract,
 	workApprovals: workApprovalsContract,
+	workAgentSessions: workAgentSessionsContract,
 	workInteractions: workInteractionsContract,
 	workFleet: workFleetContract,
 	workScheduler: workSchedulerContract,

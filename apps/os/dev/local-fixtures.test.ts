@@ -237,6 +237,7 @@ const CALLS: Record<string, unknown> = {
 	"knowledge/list": { limit: 100 },
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
+	"workAgentSessions/list": {},
 	"projects/list": { limit: 100 },
 	"workItems/listRelations": { limit: 500 },
 	"workItems/getOrgGraphHealth": { limit: 20 },

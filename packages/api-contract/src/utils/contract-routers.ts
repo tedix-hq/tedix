@@ -96,6 +96,7 @@ import { widgetTestContract } from "../contracts/widget-test";
 import { widgetTestRunsContract } from "../contracts/widget-test-runs";
 import { workItemsContract } from "../contracts/work-items";
 import { workApprovalsContract } from "../contracts/work-approvals";
+import { workAgentSessionsContract } from "../contracts/work-agent-sessions";
 import { workInteractionsContract } from "../contracts/work-interactions";
 import { workFleetContract } from "../contracts/work-fleet";
 import { workSchedulerContract } from "../contracts/work-scheduler";
@@ -195,6 +196,7 @@ export const ROUTERS: Record<string, unknown> = {
 	widgetTestRuns: widgetTestRunsContract,
 	workItems: workItemsContract,
 	workApprovals: workApprovalsContract,
+	workAgentSessions: workAgentSessionsContract,
 	workInteractions: workInteractionsContract,
 	workFleet: workFleetContract,
 	workScheduler: workSchedulerContract,

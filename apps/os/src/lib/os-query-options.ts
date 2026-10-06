@@ -598,6 +598,16 @@ export const workInteractionDetailQueryOptions = (
 export const workFleetQueryOptions = () =>
 	osQuery.workFleet.getControlTower.queryOptions({ input: {} });
 
+/** Polled every 10s: the board is a glance surface for live local sessions. */
+export const WORK_AGENT_SESSIONS_REFETCH_MS = 10_000;
+
+export const workAgentSessionsQueryOptions = () =>
+	osQuery.workAgentSessions.list.queryOptions({
+		input: {},
+		refetchInterval: WORK_AGENT_SESSIONS_REFETCH_MS,
+		refetchOnWindowFocus: true,
+	});
+
 export const workSchedulerQueryOptions = () =>
 	osQuery.workScheduler.listReady.queryOptions({
 		input: { limit: 50, candidateLimit: 200 },

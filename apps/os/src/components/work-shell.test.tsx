@@ -31,6 +31,7 @@ describe("Work shell navigation", () => {
 			"Queue",
 			"Portfolio",
 			"Attention",
+			"Agents",
 			"Attempts",
 			"Approvals",
 		]);
@@ -52,6 +53,13 @@ describe("Work shell navigation", () => {
 		expect(workSectionForPathname("/work/control")).toEqual([
 			"Attention",
 			"/work/control",
+		]);
+	});
+
+	it("resolves the agent board to its primary section", () => {
+		expect(workSectionForPathname("/work/agents")).toEqual([
+			"Agents",
+			"/work/agents",
 		]);
 	});
 

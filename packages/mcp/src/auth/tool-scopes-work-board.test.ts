@@ -104,6 +104,46 @@ function resolve(rawName: string): string[] {
 	);
 }
 
+describe("Local agent session board authority", () => {
+	for (const [endpoint, toolName, scope] of [
+		["report", "report_work_agent_session_status", "mcp:work.write"],
+		["list", "list_work_agent_sessions", "mcp:work.read"],
+	] as const) {
+		it(`requires ${scope} for ${toolName} by endpoint and by name`, () => {
+			const rpcTool = {
+				toolId: `example__${toolName}`,
+				toolTypeId: "rpc",
+				authRequired: true,
+				config: { endpoint: `workAgentSessions/${endpoint}` },
+			};
+			for (const namespace of ["work", "example_org"]) {
+				expect(
+					resolveMcpToolRequiredScopes(
+						rpcTool,
+						namespace,
+						tenantAggregateConfig,
+					),
+				).toEqual([scope]);
+				for (const granted of [
+					"mcp:work.read",
+					"mcp:work.write",
+					"mcp:messaging.write",
+				]) {
+					expect(
+						isMcpToolVisibleToCaller(
+							rpcTool,
+							namespace,
+							tenantAggregateConfig,
+							{ authType: "oauth", scopes: [granted] },
+						),
+					).toBe(granted === scope);
+				}
+			}
+			expect(resolve(toolName)).toEqual([scope]);
+		});
+	}
+});
+
 describe("work board scope resolution", () => {
 	it("requires the existing Work read grant for the exact approval inbox", () => {
 		expect(resolve("list_work_approvals")).toEqual(["mcp:work.read"]);

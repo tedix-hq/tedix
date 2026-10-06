@@ -768,6 +768,10 @@
 		{
 			"name": "20261006164430_allow_question_delegation/migration.sql",
 			"sha256": "b06ead49e8a57c27262f1cef6b212b369151a81dbe70c495d00f68a4e1d683d3"
+		},
+		{
+			"name": "20261006173708_work_agent_sessions/migration.sql",
+			"sha256": "5b009b7772c277caa3b81d5d3df87c68f99666064526cb59073eb2cbad298908"
 		}
 	]
 }

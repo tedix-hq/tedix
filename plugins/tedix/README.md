@@ -10,15 +10,15 @@ format from the same skills; `--local` adds opt-in context hooks. An explicit
 Build a reproducible review ZIP from this source with Python's standard library:
 
 ```sh
-python3 plugins/tedix/package.py /tmp/tedix-public-1.0.0.zip
-python3 plugins/tedix/package.py --local /tmp/tedix-local-1.0.0.zip
+python3 plugins/tedix/package.py /tmp/tedix-public-1.1.0.zip
+python3 plugins/tedix/package.py --local /tmp/tedix-local-1.1.0.zip
 ```
 
 For the default OpenAI artifact, root `plugin.json` owns the canonical `tedix` identity. The builder imports
 `review/cases.json` and `review/release-notes.md` as review expectations, not
-recorded passes. Versions remain 1.0.0 until submission. The default cloud
+recorded passes. The current version is 1.1.0. The default cloud
 artifact contains the manifest, portable MCP connection, skills and assets.
-`--local` adds the existing opt-in hooks and host compatibility files to the
+`--local` adds the opt-in hooks and host compatibility files to the
 same plugin identity. Neither artifact contains app registrations or credentials.
 Building a ZIP does not install, submit or publish it.
 
@@ -148,6 +148,10 @@ and lease expiry, which still must be verified before a write. Without a CLI, ex
 agent to use native tools; no live authentication or Work facts are read. Command
 hooks cannot invoke the agent's native MCP tool session through the documented
 host interface, and ordinary Chat does not run those local scripts.
+
+The opt-in turn-status reporter is described in the
+[Claude Code guide](docs/claude-code.md#opt-in-turn-status). It is silent
+until `~/.tedix/agent-status.json` enables it.
 
 Invoke `tedix-guardian-session` for an explicit start, checkpoint, or close
 review. It reads current CLI and repo evidence and reports state, evidence,
