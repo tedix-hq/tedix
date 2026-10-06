@@ -151,6 +151,27 @@ const DOCS_SCOPES_BY_TOOL = new Map(Object.entries(DOCS_TOOL_SCOPES));
 const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// The canonical approval inbox uses a plural name outside WORK_TOOL_RE.
 	list_work_approvals: "mcp:work",
+	// Verb-first catalog operator tools miss the `catalog_` prefix rule. The API
+	// keeps requireCatalogOperatorAccess on every catalog mutation; this gate
+	// only names the capability family so the tools stop failing closed.
+	list_catalog_apps: "mcp:catalog",
+	get_catalog_app: "mcp:catalog",
+	get_catalog_categories: "mcp:catalog",
+	get_catalog_stats: "mcp:catalog",
+	get_catalog_health_summary: "mcp:catalog",
+	get_catalog_sync_logs: "mcp:catalog",
+	get_recent_catalog_changes: "mcp:catalog",
+	check_catalog_integrity: "mcp:catalog",
+	trigger_catalog_sync: "mcp:catalog",
+	trigger_catalog_scan: "mcp:catalog",
+	trigger_catalog_enrich: "mcp:catalog",
+	run_catalog_test: "mcp:catalog",
+	create_catalog_app: "mcp:catalog",
+	update_catalog_app: "mcp:catalog",
+	update_catalog_store_listing: "mcp:catalog",
+	delete_catalog_app: "mcp:catalog",
+	// Installing creates an org app; the API authorizes it as an Apps create.
+	install_catalog_app: "mcp:apps",
 	run_tedi_turn: "mcp:messaging",
 	// A budget rejection may ask a human to change policy; the request itself
 	// never authorizes spend. The separate budget-policy mutation stays admin.
