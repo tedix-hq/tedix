@@ -4,6 +4,7 @@ import {
 	type NativeRootProof,
 } from "./runtime-inference-origin";
 import { HistoricalExecutionGuard } from "./historical-execution-guard";
+import { logTediRuntimeFailure } from "./runtime-failure-log";
 import type { FiberContext, StartFiberOptions, StartFiberResult } from "agents";
 import type { ConfiguredConversationTurn } from "./conversation-facet";
 import { workflowImageUri } from "./workflow-image-handoff";
@@ -998,8 +999,16 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 			}
 		}
 		for await (const message of this.legacySessions.session().history()) {
-			const model = await this.appProjection.legacy(message);
-			// Empty legacy turns project to nothing; skipping them loses no context.
+			// Legacy history is passive context. A row that cannot be projected
+			// (empty, interrupted or unsupported) is skipped and counted, never
+			// allowed to make the whole conversation unusable.
+			let model: Awaited<ReturnType<typeof this.appProjection.legacy>>;
+			try {
+				model = await this.appProjection.legacy(message);
+			} catch (error) {
+				logTediRuntimeFailure("tedi.pi.legacy_message_skipped", error);
+				continue;
+			}
 			if (!model?.length) continue;
 			const admitted = await conversation.submit(
 				{

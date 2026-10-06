@@ -33,6 +33,7 @@ type RuntimeFailureEvent =
 	| "tedi.facet.judge_turn_failed"
 	| "tedi.facet.synthesis_turn_failed"
 	| "tedi.facet.conversation_turn_failed"
+	| "tedi.pi.legacy_message_skipped"
 	| "tedi.facet.sse_turn_failed"
 	| "tedi.facet.proxied_tool_failed"
 	| "tedi.workstation.repo_clone_failed"
