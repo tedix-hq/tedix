@@ -49,6 +49,62 @@ export type AgentTurnTriageQuestion = z.infer<
 	typeof AgentTurnTriageQuestionSchema
 >;
 
+/**
+ * Tedi-drafted replies to quiet (`later`) decision-capture questions. Drafts
+ * are proposals the human accepts, edits, or replaces; nothing is ever sent
+ * automatically. Disabled unless a drafting tedi is named.
+ */
+export const AgentReplyDraftingPolicySchema = z.strictObject({
+	enabled: z
+		.boolean()
+		.describe("When false, request_agent_reply_draft answers `ineligible`"),
+	tediId: z
+		.uuid()
+		.optional()
+		.describe(
+			"The active tedi that drafts replies; the only principal allowed to call propose_agent_reply_draft",
+		),
+	skillSlug: z
+		.string()
+		.trim()
+		.min(1)
+		.max(128)
+		.optional()
+		.describe(
+			"Optional skill the drafting tedi loads before drafting (for example the operator's reply-style skill)",
+		),
+});
+export type AgentReplyDraftingPolicy = z.infer<
+	typeof AgentReplyDraftingPolicySchema
+>;
+
+/**
+ * When a turn type has earned trust. Measurement only: eligibility never
+ * enables sending a draft without the human.
+ */
+export const AgentReplyDraftEligibilitySchema = z.strictObject({
+	minRate: z
+		.number()
+		.min(0)
+		.max(1)
+		.describe("Minimum accepted / decided ratio for a turn type"),
+	minDrafts: z
+		.number()
+		.int()
+		.min(1)
+		.max(100_000)
+		.describe("Minimum decided drafts before a turn type can be eligible"),
+});
+export type AgentReplyDraftEligibility = z.infer<
+	typeof AgentReplyDraftEligibilitySchema
+>;
+
+export const DEFAULT_AGENT_REPLY_DRAFTING: AgentReplyDraftingPolicy = {
+	enabled: false,
+};
+export const DEFAULT_AGENT_REPLY_DRAFT_ELIGIBILITY: AgentReplyDraftEligibility =
+	{ minRate: 0.9, minDrafts: 50 };
+
 const policyFields = {
 	enabled: z
 		.boolean()
@@ -70,6 +126,12 @@ const policyFields = {
 		.max(64)
 		.optional()
 		.describe("Optional turn-type vocabulary for classifying agent turns"),
+	drafting: AgentReplyDraftingPolicySchema.default(
+		DEFAULT_AGENT_REPLY_DRAFTING,
+	).describe("Tedi-drafted replies to quiet questions; off by default"),
+	eligibility: AgentReplyDraftEligibilitySchema.default(
+		DEFAULT_AGENT_REPLY_DRAFT_ELIGIBILITY,
+	).describe("Acceptance thresholds reported per turn type"),
 };
 
 export const AgentTurnTriagePolicySchema = z.strictObject({
@@ -194,3 +256,109 @@ export const LabelAgentReplyResultSchema = z.object({
 	model: z.string(),
 });
 export type LabelAgentReplyResult = z.infer<typeof LabelAgentReplyResultSchema>;
+
+export const RequestAgentReplyDraftInputSchema = z.strictObject({
+	requestId: z
+		.uuid()
+		.describe(
+			"The open decision-capture question (Work Interaction) to draft a reply for",
+		),
+});
+
+export const AGENT_REPLY_DRAFT_INELIGIBLE_REASONS = [
+	"not_open",
+	"not_question",
+	"not_decision_capture",
+	"untriaged",
+	"urgent",
+	"drafting_disabled",
+	"no_drafting_tedi",
+] as const;
+export const AgentReplyDraftIneligibleReasonSchema = z.enum(
+	AGENT_REPLY_DRAFT_INELIGIBLE_REASONS,
+);
+export type AgentReplyDraftIneligibleReason = z.infer<
+	typeof AgentReplyDraftIneligibleReasonSchema
+>;
+
+export const RequestAgentReplyDraftResultSchema = z.object({
+	status: z
+		.enum(["queued", "ineligible"])
+		.describe(
+			"`queued`: a drafting turn was queued (redelivery and repeat requests are no-ops); `ineligible`: nothing was queued",
+		),
+	reason: AgentReplyDraftIneligibleReasonSchema.optional().describe(
+		"Why the question cannot be drafted; present only when ineligible",
+	),
+});
+export type RequestAgentReplyDraftResult = z.infer<
+	typeof RequestAgentReplyDraftResultSchema
+>;
+
+export const ProposeAgentReplyDraftInputSchema = z.strictObject({
+	requestId: z.uuid().describe("The question being drafted for"),
+	body: z
+		.string()
+		.trim()
+		.min(1)
+		.max(6_000)
+		.describe("The proposed reply, written as the user would send it"),
+	rationale: z
+		.string()
+		.trim()
+		.min(1)
+		.max(2_000)
+		.describe(
+			"Short evidence for the draft: priorities, preferences, or sessions it relies on",
+		),
+	turnType: z
+		.string()
+		.trim()
+		.min(1)
+		.max(64)
+		.optional()
+		.describe(
+			"Turn-type label, preferably from the policy's turnTypeChoices; acceptance is measured per type",
+		),
+});
+
+export const ProposeAgentReplyDraftResultSchema = z.object({
+	draftId: z.uuid(),
+});
+
+export const GetAgentReplyDraftAcceptanceInputSchema = z.strictObject({
+	since: z.iso
+		.datetime()
+		.optional()
+		.describe("Only count drafts created at or after this time"),
+});
+
+export const AgentReplyDraftAcceptanceRowSchema = z.object({
+	turnType: z.string().nullable(),
+	drafts: z.number().int().min(0).describe("Drafts proposed"),
+	decided: z
+		.number()
+		.int()
+		.min(0)
+		.describe(
+			"Drafts the user answered with and cited (accepted + edited + replaced)",
+		),
+	accepted: z.number().int().min(0),
+	edited: z.number().int().min(0),
+	replaced: z.number().int().min(0),
+	rate: z
+		.number()
+		.min(0)
+		.max(1)
+		.describe("accepted / decided; 0 when none decided"),
+	eligible: z
+		.boolean()
+		.describe(
+			"decided ≥ minDrafts and rate ≥ minRate. Measurement only; nothing is sent automatically",
+		),
+});
+
+export const GetAgentReplyDraftAcceptanceResultSchema = z.object({
+	byTurnType: z.array(AgentReplyDraftAcceptanceRowSchema),
+	policy: AgentReplyDraftEligibilitySchema,
+});

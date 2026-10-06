@@ -1,7 +1,22 @@
 /**
  * Read-only context before a submitted prompt. Uses host metadata only; never
  * sends or stores prompt text.
+ *
+ * With decision capture enabled, it also checks the chat's open question by ID:
+ * when the user already answered it in Tedix OS, it hands that answer to the
+ * session. This is how Codex, which has no background rewake, receives OS
+ * answers. Tedi-drafted replies never reach the session from here; they are
+ * reviewed and accepted only in Tedix OS.
  */
+import {
+	answeredElsewhere,
+	type Binding,
+	captureStatePath,
+	claim,
+	interactionDetail,
+	peek,
+	questionPath,
+} from "./decision-capture";
 import {
 	type HookDeps,
 	type JsonObject,
@@ -33,6 +48,33 @@ function utf8Prefix(text: string, bytes: number): string {
 	let end = Math.min(bytes, encoded.length);
 	while (end > 0 && (encoded[end]! & 0xc0) === 0x80) end--;
 	return encoded.subarray(0, end).toString("utf8");
+}
+
+/** Lines about the chat's open decision-capture question, or none. Never throws. */
+async function captureContext(
+	deps: HookDeps,
+	binding: Binding,
+	session: string,
+): Promise<string[]> {
+	try {
+		const state = captureStatePath(deps.env, session);
+		const question = peek(questionPath(state));
+		const requestId = String(question?.requestId ?? "");
+		if (!UUID.test(requestId)) return [];
+		const detail = await interactionDetail(deps, binding, requestId, 5000);
+		if (!detail || detail.state === "open") return [];
+		// Settled: this prompt consumes the question either way.
+		if (peek(questionPath(state))?.requestId === requestId)
+			claim(questionPath(state));
+		const resolution = detail.resolution;
+		if (answeredElsewhere(detail, binding.user, session))
+			return [
+				`The user replied in Tedix OS to Interaction ${requestId}: ${JSON.stringify(resolution!.body)}${resolution!.complete ? "" : " (truncated; read the full answer before relying on omitted detail)"}`,
+			];
+		return [];
+	} catch {
+		return [];
+	}
 }
 
 export function boundedContext(message: string): string {
@@ -189,6 +231,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		)
 	)
 		return;
+	let targeted = true;
 	try {
 		// Only the chat identity is retained; the prompt text is discarded here.
 		const { session } = hostEvent(deps.stdin, env, EVENT_LIMIT);
@@ -199,12 +242,16 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			throw new Error("resolved chat mismatch");
 		if (binding.status === "unbound") return;
 		if (binding.status !== "bound") throw new Error("invalid binding");
-		if (
-			!binding.contextOutputId &&
-			!binding.workItemId &&
-			!binding.preferencesOutputId
-		)
-			return;
+		targeted =
+			Boolean(binding.contextOutputId) ||
+			Boolean(binding.workItemId) ||
+			Boolean(binding.preferencesOutputId);
+		// Decision capture adds a read only while this chat has a question on file.
+		const capture =
+			binding.decisionCapture === true &&
+			Boolean(session) &&
+			peek(questionPath(captureStatePath(env, session!))) !== undefined;
+		if (!targeted && !capture) return;
 		if (
 			!PROFILE.test(String(binding.workspace ?? "")) ||
 			!UUID.test(String(binding.projectId ?? ""))
@@ -268,9 +315,29 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		} else if (source !== "stored-login") {
 			throw new Error("explicit credential cannot be correlated safely");
 		}
+		const login = auth.storedLogin?.loginId;
+		const captured =
+			capture && source === "stored-login" && typeof login === "string" && login
+				? await captureContext(
+						deps,
+						{ ...binding, command, user: login },
+						session!,
+					)
+				: [];
+		if (!targeted) {
+			if (captured.length) send(captured.join("\n"));
+			return;
+		}
 		const data = await read([...command, "code", gatewayCode(binding)], 8000);
-		send(render(binding, data, (deps.now ?? (() => new Date()))()));
+		send(
+			[
+				render(binding, data, (deps.now ?? (() => new Date()))()),
+				...captured,
+			].join("\n"),
+		);
 	} catch {
+		// Without selected shared context there is nothing to report as missing.
+		if (!targeted) return;
 		send(
 			"Tedix shared context unavailable: no current shared decision or Work update was read. Do not reuse an older briefing as current; verify through the CLI before relying on it. No execution authority changed.",
 		);

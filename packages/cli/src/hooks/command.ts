@@ -1,5 +1,6 @@
 /** `tedix hooks <name>`: agent-host lifecycle hooks that read the host event on stdin. */
 import { runAgentStatus, STATUS_EVENT_LIMIT, statusLog } from "./agent-status";
+import { runAwaitReply } from "./await-reply";
 import { runDecisionCapture } from "./decision-capture";
 import { cliRead, type HookDeps, readBoundedStdin } from "./hook-io";
 import { runPromptContext } from "./prompt-context";
@@ -11,9 +12,11 @@ export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix pl
   tedix hooks prompt-context  UserPromptSubmit: selected shared decisions and Work updates
   tedix hooks capture-stop    Stop: open a decision-capture Interaction (opt-in)
   tedix hooks capture-reply   UserPromptSubmit: answer it with the user's reply (opt-in)
+  tedix hooks await-reply     Stop (Claude Code asyncRewake): wake on a Tedix OS answer (opt-in)
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
 
-Each reads one host event JSON object on stdin and exits 0. Read hooks never
+Each reads one host event JSON object on stdin and exits 0; await-reply exits 2
+with the answer on stderr when the user answers in Tedix OS. Read hooks never
 send or store prompt text. Capture runs only after
 tedix setup agents context enable-decision-capture. Status reporting runs
 only with ~/.tedix/agent-status.json {"enabled": true} or TEDIX_AGENT_STATUS=1.`;
@@ -23,6 +26,7 @@ const EVENT_LIMITS: Record<string, number> = {
 	"prompt-context": 1_048_576,
 	"capture-stop": 4_194_304,
 	"capture-reply": 4_194_304,
+	"await-reply": 4_194_304,
 	status: STATUS_EVENT_LIMIT,
 };
 
@@ -61,6 +65,15 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 				process.env,
 				`agent status failed: ${(error as Error).name}: ${String((error as Error).message).slice(0, 200)}`,
 			);
+		}
+		return 0;
+	}
+	if (name === "await-reply") {
+		// asyncRewake: exit 2 wakes the session and shows stderr to the agent.
+		const result = await runAwaitReply(deps);
+		if (result.code === 2 && result.message) {
+			console.error(result.message);
+			return 2;
 		}
 		return 0;
 	}

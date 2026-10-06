@@ -5,8 +5,14 @@ import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
 	AgentTurnTriagePolicyStateSchema,
+	GetAgentReplyDraftAcceptanceInputSchema,
+	GetAgentReplyDraftAcceptanceResultSchema,
 	LabelAgentReplyInputSchema,
 	LabelAgentReplyResultSchema,
+	ProposeAgentReplyDraftInputSchema,
+	ProposeAgentReplyDraftResultSchema,
+	RequestAgentReplyDraftInputSchema,
+	RequestAgentReplyDraftResultSchema,
 	TriageAgentTurnInputSchema,
 	TriageResultSchema,
 	UpdateAgentTurnTriagePolicyInputSchema,
@@ -15,7 +21,9 @@ import {
 /**
  * Urgency triage of agent turns (MCP: `triage_agent_turn`,
  * `label_agent_reply`, `get_agent_turn_triage_policy`,
- * `update_agent_turn_triage_policy`).
+ * `update_agent_turn_triage_policy`) and tedi-drafted replies to quiet
+ * decision-capture questions (MCP: `request_agent_reply_draft`,
+ * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`).
  *
  * Triage and reply labelling are stateless model reads: nothing about the
  * submitted text is stored. A model failure or timeout is reported as
@@ -83,6 +91,39 @@ export const agentTurnTriageContract = oc
 			.errors(policyConflictErrors)
 			.input(UpdateAgentTurnTriagePolicyInputSchema)
 			.output(AgentTurnTriagePolicyStateSchema),
+
+		requestReplyDraft: oc
+			.route({
+				method: "POST",
+				path: "/reply-drafts/request",
+				summary: "Ask the drafting tedi to draft a reply to a quiet question",
+				description:
+					"Only the question's target user may ask. The question must be open, a `tedix.decision-capture.v1` question triaged `later` with no urgent labels, and the caller's policy must enable drafting with an active tedi. Queues one drafting turn per question (idempotent); never answers the question. Otherwise returns `status: \"ineligible\"` with a reason.",
+			})
+			.input(RequestAgentReplyDraftInputSchema)
+			.output(RequestAgentReplyDraftResultSchema),
+
+		proposeReplyDraft: oc
+			.route({
+				method: "POST",
+				path: "/reply-drafts",
+				summary: "Store a drafted reply proposal for a quiet question",
+				description:
+					"Callable only by the drafting tedi named in the question target's policy. Rechecks eligibility (open, non-urgent decision-capture question) and appends an immutable draft the user can accept, edit, or replace. Never sends anything.",
+			})
+			.input(ProposeAgentReplyDraftInputSchema)
+			.output(ProposeAgentReplyDraftResultSchema),
+
+		getReplyDraftAcceptance: oc
+			.route({
+				method: "GET",
+				path: "/reply-drafts/acceptance",
+				summary: "Measure the caller's reply-draft acceptance per turn type",
+				description:
+					"Counts drafts proposed for the caller's questions and how the caller answered (accepted, edited, replaced, from response metadata `draftId`/`draftOutcome`), with eligibility against the policy thresholds. Measurement only.",
+			})
+			.input(GetAgentReplyDraftAcceptanceInputSchema)
+			.output(GetAgentReplyDraftAcceptanceResultSchema),
 	});
 
 export type AgentTurnTriageContract = typeof agentTurnTriageContract;

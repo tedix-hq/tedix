@@ -261,9 +261,9 @@ unanswered turn is left open when the next one ends and expires after 24 hours;
 the agents board shows which sessions are waiting now.
 
 Before the question is created, the redacted turn is triaged by the bound
-organization (`work.triage_agent_turn`, at most 4 seconds) and the result is
+organization (`agent.triage_agent_turn`, at most 4 seconds) and the result is
 stored on the question as `metadata.triage`; the reply is likewise labelled
-(`work.label_agent_reply`, at most 3 seconds) as `metadata.replyClassClef`
+(`agent.label_agent_reply`, at most 3 seconds) as `metadata.replyClassClef`
 beside the coarse class. Both fall back silently when the tool is missing or
 slow. With the turn-status reporter also enabled, decision capture owns the
 `Stop` status for its chats: an urgent turn ("now") is marked needs you and
@@ -272,6 +272,25 @@ any other turn is marked done without a notification. `tedix hooks status`
 skips `Stop` for those chats. Both hooks start together, so neither waits for
 the other: each reads the same local opt-in for the chat. Without a triage
 result, the reporter's own question classifier decides, as before.
+
+#### Drafted replies and answers from Tedix OS
+
+For a question triaged "later", the `Stop` handler also asks the organization
+for a tedi-drafted reply (`agent.request_agent_reply_draft`, at most 3 seconds,
+silent when missing). A draft is never sent on its own and never reaches the
+chat directly. Review it in the Tedix OS inbox, where it appears with its
+rationale, and accept it or edit it there; that answer records which draft it
+started from as `{draftId, draftOutcome, editRatio}`: `accepted` (unchanged),
+`edited` (normalized edit distance at most 0.3) or `replaced`. A reply typed in
+the chat answers the agent as typed and never counts toward a draft.
+
+When you answer the question in Tedix OS, Claude Code is woken in the background
+by `tedix hooks await-reply` (an `asyncRewake` `Stop` hook that polls the
+question with 5 to 60 second backoff for at most four hours) and receives your
+answer. Codex has no background wake, so the local Codex artifact omits that
+hook; Codex receives the OS answer with your next prompt, through the prompt
+hook, which looks the question up by ID only. A question already answered in
+Tedix OS is never answered again by the chat reply.
 
 Automatic goal continuations, tool returns and background work are not proven
 `UserPromptSubmit` events. Use explicit checkpoint reads for those. To prove

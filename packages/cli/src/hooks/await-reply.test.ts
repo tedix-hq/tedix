@@ -1,0 +1,288 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	AWAIT_MAX_DELAY_MS,
+	type AwaitResult,
+	nextDelay,
+	runAwaitReply,
+} from "./await-reply";
+import { DETAIL_CALLABLE, questionPath } from "./decision-capture";
+import type { JsonObject } from "./hook-io";
+
+/** Checks for the Claude Code rewake: only the user's own OS answer wakes the session. */
+const SESSION = "77777777-7777-4777-8777-777777777777";
+const PROJECT = "66666666-6666-4666-8666-666666666666";
+const REQUEST = "99999999-9999-4999-8999-999999999999";
+const USER = "U-fixture-user";
+const BINDING = {
+	status: "bound",
+	workspace: "fixture",
+	org: "org_fixture",
+	mcpUrl: "https://fixture.example.invalid/mcp",
+	projectId: PROJECT,
+	root: process.cwd(),
+	decisionCapture: true,
+};
+const AUTH = {
+	wouldUse: "stored-login",
+	workspace: "fixture",
+	mcpUrl: BINDING.mcpUrl,
+	storedLogin: { loginId: USER },
+};
+
+let config: string;
+beforeEach(() => {
+	config = mkdtempSync(join(tmpdir(), "tedix-await-"));
+	mkdirSync(join(config, "decision-capture"), { recursive: true });
+});
+afterEach(() => rmSync(config, { recursive: true, force: true }));
+
+const state = () => join(config, "decision-capture", `${SESSION}.json`);
+const open = (token = "t1") =>
+	writeFileSync(
+		state(),
+		JSON.stringify({
+			requestId: REQUEST,
+			version: 1,
+			token,
+			host: "claude-code",
+		}),
+	);
+
+const interaction = (overrides: JsonObject = {}, response?: JsonObject) => ({
+	request: { id: REQUEST, version: 2, expiresAt: null },
+	effectiveState: response ? "resolved" : "open",
+	latestDraft: null,
+	responses: {
+		data: response ? [{ resolvesRequest: true, ...response }] : [],
+		nextCursor: null,
+		hasMore: false,
+	},
+	...overrides,
+});
+
+async function run(
+	details: Array<unknown | Error>,
+	{
+		event = { session_id: SESSION },
+		env = {},
+		onSleep,
+		reads = [BINDING, AUTH],
+	}: {
+		event?: JsonObject;
+		env?: Record<string, string>;
+		onSleep?: (count: number) => void;
+		reads?: unknown[];
+	} = {},
+): Promise<{ result: AwaitResult; sleeps: number[]; detailReads: number }> {
+	let now = 0;
+	const sleeps: number[] = [];
+	let detailReads = 0;
+	const queue = [...reads];
+	const result = await runAwaitReply(
+		{
+			env: { TEDIX_CONFIG_DIR: config, ...env },
+			stdin: JSON.stringify(event),
+			cwd: process.cwd(),
+			write: () => {
+				throw new Error("await-reply never writes to stdout");
+			},
+			read: async (args, _timeout, input) => {
+				if (args.at(-1) === "code") {
+					detailReads++;
+					const next = details.shift();
+					if (next === undefined || next instanceof Error)
+						throw next ?? new Error("Unknown tool");
+					const work = {
+						[DETAIL_CALLABLE.split(".")[1]!]: async (value: JsonObject) => {
+							expect(value).toEqual({ requestId: REQUEST, responseLimit: 5 });
+							return structuredClone(next);
+						},
+					};
+					return (await new Function("work", `return (${input!})();`)(
+						work,
+					)) as JsonObject;
+				}
+				if (!queue.length) throw new Error("unexpected read");
+				return structuredClone(queue.shift()) as JsonObject;
+			},
+		},
+		{
+			clock: () => now,
+			sleep: async (ms) => {
+				sleeps.push(ms);
+				now += ms;
+				onSleep?.(sleeps.length);
+			},
+			questionWaitMs: 5000,
+		},
+	);
+	return { result, sleeps, detailReads };
+}
+
+describe("tedix hooks await-reply", () => {
+	test("backoff runs 5s doubling to 60s", () => {
+		const delays: number[] = [];
+		let delay: number | undefined;
+		for (let i = 0; i < 7; i++) delays.push((delay = nextDelay(delay)));
+		expect(delays).toEqual([5000, 10000, 20000, 40000, 60000, 60000, 60000]);
+		expect(AWAIT_MAX_DELAY_MS).toBe(60000);
+	});
+
+	test("the user's own OS answer wakes the session once", async () => {
+		const { result, sleeps } = await run(
+			[
+				interaction(),
+				interaction(
+					{},
+					{
+						body: "Ship it after the docs.",
+						respondedByType: "user",
+						respondedById: USER,
+						metadata: { source: "os-inbox" },
+					},
+				),
+			],
+			{ onSleep: (count) => count === 1 && open() },
+		);
+		expect(result.code).toBe(2);
+		expect(result.message).toBe(
+			'The user replied in Tedix OS: "Ship it after the docs."',
+		);
+		// Waited for the question, then 5s and 10s polls.
+		expect(sleeps.slice(-2)).toEqual([5000, 10000]);
+		// The question is claimed so the next prompt neither answers nor repeats it.
+		expect(existsSync(state())).toBe(false);
+	});
+
+	test("a reply typed in the chat ends the wait without a read", async () => {
+		const { result, detailReads } = await run([], {
+			onSleep: (count) => {
+				if (count === 1) open();
+				if (count === 2) rmSync(state());
+			},
+		});
+		expect(result).toEqual({ code: 0 });
+		expect(detailReads).toBe(0);
+	});
+
+	test("an older unanswered question is not mistaken for this turn's", async () => {
+		open("old");
+		const { result, detailReads } = await run([]);
+		expect(result).toEqual({ code: 0 });
+		expect(detailReads).toBe(0);
+	});
+
+	test("a tedi, another user, this chat's reply, cancel or expiry never wake it", async () => {
+		for (const detail of [
+			interaction(
+				{},
+				{
+					body: "draft-like",
+					respondedByType: "tedi",
+					respondedById: "tedi-1",
+					metadata: {},
+				},
+			),
+			interaction(
+				{},
+				{
+					body: "x",
+					respondedByType: "user",
+					respondedById: "U-other",
+					metadata: { source: "os-inbox" },
+				},
+			),
+			interaction(
+				{},
+				{
+					body: "x",
+					respondedByType: "user",
+					respondedById: USER,
+					metadata: { source: "user-reply", sessionId: SESSION },
+				},
+			),
+			interaction({ effectiveState: "cancelled" }),
+			interaction({
+				request: { id: REQUEST, version: 2, expiresAt: "2000-01-01T00:00:00Z" },
+			}),
+		]) {
+			rmSync(state(), { force: true });
+			const { result } = await run([detail], {
+				onSleep: (count) => count === 1 && open(),
+			});
+			expect(result).toEqual({ code: 0 });
+		}
+	});
+
+	test("an unpublished detail tool stops polling silently", async () => {
+		const { result, detailReads } = await run(
+			Array.from({ length: 10 }, () => new Error("Unknown tool")),
+			{ onSleep: (count) => count === 1 && open() },
+		);
+		expect(result).toEqual({ code: 0 });
+		expect(detailReads).toBe(6);
+	});
+
+	test("the four-hour cap ends an open wait", async () => {
+		const { result, sleeps } = await run(
+			Array.from({ length: 400 }, () => interaction()),
+			{ onSleep: (count) => count === 1 && open() },
+		);
+		expect(result).toEqual({ code: 0 });
+		const total = sleeps.reduce((sum, ms) => sum + ms, 0);
+		expect(total).toBeLessThanOrEqual(4 * 60 * 60 * 1000);
+		expect(total).toBeGreaterThan(4 * 60 * 60 * 1000 - 61_000);
+	});
+
+	test("Codex, no opt-in and a bad event exit without reads", async () => {
+		open();
+		for (const options of [
+			{ env: { CODEX_THREAD_ID: SESSION } },
+			{ event: { session_id: SESSION, turn_id: "turn-1" } },
+			{ event: { session_id: "bad" } },
+			{ reads: [{ ...BINDING, decisionCapture: false }] },
+		]) {
+			const { result, detailReads } = await run([], options);
+			expect(result).toEqual({ code: 0 });
+			expect(detailReads).toBe(0);
+		}
+		expect(existsSync(state())).toBe(true);
+	});
+
+	test("an OS answer also clears the prompt hook's question", async () => {
+		const answered = interaction(
+			{},
+			{
+				body: "Done in OS",
+				respondedByType: "user",
+				respondedById: USER,
+				metadata: { source: "os-inbox" },
+			},
+		);
+		const { result } = await run([answered], {
+			onSleep: (count) => {
+				if (count !== 1) return;
+				open();
+				writeFileSync(
+					questionPath(state()),
+					JSON.stringify({
+						requestId: REQUEST,
+						token: "t1",
+						host: "claude-code",
+					}),
+				);
+			},
+		});
+		expect(result.code).toBe(2);
+		expect(existsSync(questionPath(state()))).toBe(false);
+	});
+});

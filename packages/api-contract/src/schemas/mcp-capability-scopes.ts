@@ -197,6 +197,10 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	label_agent_reply: "mcp:messaging",
 	get_agent_turn_triage_policy: "mcp:messaging",
 	update_agent_turn_triage_policy: "mcp:messaging",
+	// Reply drafting proposes answers to the operator's own questions.
+	request_agent_reply_draft: "mcp:messaging",
+	propose_agent_reply_draft: "mcp:messaging",
+	get_agent_reply_draft_acceptance: "mcp:messaging",
 	// A budget rejection may ask a human to change policy; the request itself
 	// never authorizes spend. The separate budget-policy mutation stays admin.
 	request_budget_override: "mcp:messaging",
@@ -554,6 +558,10 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	// reads that store nothing, so they sit at messaging.read.
 	triage_agent_turn: "read",
 	label_agent_reply: "read",
+	// "request"/"propose" match no verb regex. Both write (queue a drafting
+	// turn / append a draft) but never answer for the user.
+	request_agent_reply_draft: "write",
+	propose_agent_reply_draft: "write",
 	// Emdash marks editorial writes destructive to request action confirmation.
 	// That hint does not make drafting or publishing content administration;
 	// publication still passes the owned-channel authorization gate.

@@ -99,6 +99,14 @@ Work updates only from the selected CLI binding. It supplies fresh factual
 context on a submitted prompt, including supported autonomous turns. It does
 not store or upload the prompt. Invalid or conflicting context stays unavailable.
 
+With [decision capture](./chatgpt-codex.md#record-decisions-with-explicit-opt-in)
+enabled, Claude Code also runs `tedix hooks await-reply` as a background
+`asyncRewake` `Stop` hook. When you answer the waiting question in Tedix OS,
+including by accepting a tedi-drafted reply there, it wakes the session with
+your answer; a reply typed in the chat, expiry or four hours end the wait.
+Tedi-drafted replies are reviewed, accepted or edited only in Tedix OS; they
+never reach the chat until you answer there.
+
 Invoke `/tedix:tedix-guardian-session` at the start, at a material checkpoint,
 or before closing a local Claude Code session. It reports current authority,
 evidence, and next action from bounded CLI and repo reads. It does not monitor

@@ -174,13 +174,38 @@ describe("plugin packager", () => {
 					if (event === "SessionStart")
 						expect(handler.args).toEqual(["hooks", "session-start"]);
 					if (event === "Stop")
-						expect(["capture-stop", "status"]).toContain(handler.args[1]);
+						expect(["capture-stop", "await-reply", "status"]).toContain(
+							handler.args[1],
+						);
 					if (!["Stop", "UserPromptSubmit", "SessionStart"].includes(event))
 						expect(handler.args).toEqual(["hooks", "status"]);
 				}
 		expect(
 			[...files.keys()].filter((name) => name.startsWith("hooks/")),
 		).toEqual(["hooks/hooks.json"]);
+	});
+
+	test("only Claude Code gets the background rewake hook", () => {
+		const claude = handlers(
+			decode(packageFiles({ host: "claude", local: true }), "hooks/hooks.json")
+				.hooks,
+		).filter((handler) => handler.args?.[1] === "await-reply");
+		expect(claude).toHaveLength(1);
+		expect(claude[0]!.asyncRewake).toBe(true);
+		// Codex cannot be woken; a synchronous four-hour Stop would hold its turn.
+		const openai = decode(packageFiles({ local: true }), "hooks/hooks.json");
+		expect(
+			handlers(openai.hooks).some(
+				(handler) =>
+					handler.asyncRewake || handler.command.includes("await-reply"),
+			),
+		).toBe(false);
+		expect(new Set(Object.keys(openai.hooks))).toEqual(EVENTS);
+		expect(
+			Object.values<any[]>(openai.hooks).every((definitions) =>
+				definitions.every((definition) => definition.hooks.length > 0),
+			),
+		).toBe(true);
 	});
 
 	test("explicit local endpoint and remote validation", () => {

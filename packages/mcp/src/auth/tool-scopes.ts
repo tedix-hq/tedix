@@ -109,6 +109,9 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"agentTurnTriage/labelReply": "mcp:messaging.read",
 	"agentTurnTriage/getPolicy": "mcp:messaging.read",
 	"agentTurnTriage/updatePolicy": "mcp:messaging.write",
+	"agentTurnTriage/requestReplyDraft": "mcp:messaging.write",
+	"agentTurnTriage/proposeReplyDraft": "mcp:messaging.write",
+	"agentTurnTriage/getReplyDraftAcceptance": "mcp:messaging.read",
 	// The local agent session board is the caller's own Work status. Keep the
 	// Work authority when an organization alias hides the `work` namespace.
 	"workAgentSessions/report": "mcp:work.write",

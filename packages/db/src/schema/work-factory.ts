@@ -642,6 +642,55 @@ export const workInteractionResponses = sqliteTable(
 	],
 );
 
+/**
+ * Append-only tedi-drafted replies to a human's open decision-capture
+ * question. A draft is a proposal only: it never answers the question. The
+ * human answers through `work_interaction_responses`, citing the draft in
+ * response `metadata.draftId` (with `draftOutcome` and `editRatio`) so draft
+ * acceptance can be measured per turn type. Insert, no-update and no-delete
+ * guards live in migration triggers.
+ */
+export const workInteractionReplyDrafts = sqliteTable(
+	"work_interaction_reply_drafts",
+	{
+		id: text("id").primaryKey(),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		interactionId: text("interaction_id").notNull(),
+		drafterType: text("drafter_type", { enum: ["tedi"] as const }).notNull(),
+		drafterId: text("drafter_id").notNull(),
+		body: text("body").notNull(),
+		rationale: text("rationale").notNull(),
+		turnType: text("turn_type"),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		foreignKey({
+			name: "fk_work_interaction_reply_draft_request",
+			columns: [table.orgId, table.interactionId],
+			foreignColumns: [workInteractions.orgId, workInteractions.id],
+		}).onDelete("restrict"),
+		index("idx_work_interaction_reply_drafts_request").on(
+			table.orgId,
+			table.interactionId,
+			table.createdAt,
+		),
+		check(
+			"chk_work_interaction_reply_draft_body",
+			sql`length(${table.body}) BETWEEN 1 AND 6000`,
+		),
+		check(
+			"chk_work_interaction_reply_draft_rationale",
+			sql`length(${table.rationale}) BETWEEN 1 AND 2000`,
+		),
+		check(
+			"chk_work_interaction_reply_draft_turn_type",
+			sql`${table.turnType} IS NULL OR length(${table.turnType}) BETWEEN 1 AND 64`,
+		),
+	],
+);
+
 export const workResourcePools = sqliteTable(
 	"work_resource_pools",
 	{
@@ -916,6 +965,8 @@ export type WorkApprovalDecision = typeof workApprovalDecisions.$inferSelect;
 export type WorkInteraction = typeof workInteractions.$inferSelect;
 export type WorkInteractionResponse =
 	typeof workInteractionResponses.$inferSelect;
+export type WorkInteractionReplyDraft =
+	typeof workInteractionReplyDrafts.$inferSelect;
 export type WorkResourcePool = typeof workResourcePools.$inferSelect;
 export type WorkResourceRequirement =
 	typeof workResourceRequirements.$inferSelect;

@@ -12,20 +12,41 @@
  * per-user-per-tenant shape and revision CAS as `user-settings.ts`) wins, and a
  * missing or unparseable row falls back to the versioned default asset
  * `agent-turn-triage-defaults.json`.
+ *
+ * Reply drafting (`requestReplyDraft`, `proposeReplyDraft`,
+ * `getReplyDraftAcceptance`): the target user of a quiet (`later`, no urgent
+ * labels) decision-capture question may ask the policy's drafting tedi for a
+ * reply proposal. The request queues one `tedi_turn` automation event per
+ * question; the tedi stores its proposal with `proposeReplyDraft`. Nothing is
+ * ever sent for the user: they accept, edit, or replace the draft and cite it
+ * in their response metadata, which is what acceptance is measured from. The
+ * drafting prompt is the versioned `replyDraft` block of the defaults asset.
  */
 
 import { ORPCError, implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
 	AGENT_REPLY_LABELS,
+	type AgentReplyDraftIneligibleReason,
 	type AgentReplyLabel,
 	type AgentTurnTriagePolicy,
 	type AgentTurnTriagePolicyState,
 	AgentTurnTriagePolicySchema,
 	type TriageResult,
 } from "@tedix/api-contract/schemas/agent-turn-triage";
+import {
+	type AutomationEvent,
+	AutomationEventSchema,
+} from "@tedix/api-contract/schemas/automation-events";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
+import { listWorkAgentSessions } from "@tedix/db/queries/work-agent-sessions";
+import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
+import {
+	getReplyDraftAcceptance,
+	insertReplyDraft,
+} from "@tedix/db/queries/work-items/reply-drafts";
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { requireOrgId } from "../org-scope";
@@ -38,12 +59,23 @@ import {
 	withAuthorization,
 } from "../orpc";
 import defaultsAsset from "./agent-turn-triage-defaults.json";
+import { verifiedActiveWorkActor } from "./work-items-principal";
+import { rethrowWorkControlError } from "./work-items/policy-helpers";
 
 const os = implement(agentTurnTriageContract).$context<BaseContext>();
 const readOs = os.use(withAuth).use(AUTHZ.messagingRead);
 const writeOs = os
 	.use(withAuth)
 	.use(withAuthorization("tedis:update", "mcp:messaging.write"));
+const draftWriteOs = os.use(withAuth).use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Reply drafts are bound to one question: only its target user may request one and only the target's configured drafting tedi may propose one; handlers revalidate the active actor and the DB insert guard rechecks question, org, and tedi",
+		},
+		"mcp:messaging.write",
+	),
+);
 
 export const AGENT_TURN_TRIAGE_NAMESPACE = "work.turn-triage";
 
@@ -53,6 +85,10 @@ const DefaultsAssetSchema = z.object({
 	replyLabel: z.object({
 		instructions: z.string().min(1),
 		criteria: z.record(z.enum(AGENT_REPLY_LABELS), z.string().min(1)),
+	}),
+	replyDraft: z.object({
+		promptVersion: z.number().int().min(1),
+		lines: z.array(z.string()).min(1),
 	}),
 });
 
@@ -74,9 +110,18 @@ async function readPolicyState(
 	organizationId: string,
 ): Promise<AgentTurnTriagePolicyState> {
 	// A machine principal without a Tedix user identity has no stored row.
-	const row = context.userId
+	return readPolicyStateFor(context, context.userId ?? null, organizationId);
+}
+
+/** The stored policy of one user in one organization, or the defaults. */
+async function readPolicyStateFor(
+	context: BaseContext,
+	userId: string | null,
+	organizationId: string,
+): Promise<AgentTurnTriagePolicyState> {
+	const row = userId
 		? await getUserConfig(context.db, {
-				userId: context.userId,
+				userId,
 				namespace: AGENT_TURN_TRIAGE_NAMESPACE,
 				key: organizationId,
 			})
@@ -232,9 +277,263 @@ const updatePolicy = writeOs.updatePolicy.handler(
 	},
 );
 
+export const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
+export const REPLY_DRAFT_PROMPT_VERSION = DEFAULTS.replyDraft.promptVersion;
+const REPLY_DRAFT_SOURCE = "reply-draft";
+const PROMPT_TEXT_LIMIT = 8_000;
+const PEER_SESSION_LIMIT = 10;
+
+type InteractionRow = NonNullable<
+	Awaited<ReturnType<typeof getWorkInteraction>>
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Why a question cannot be drafted, from the question alone. Mirrors the
+ * migration's insert guard: a draft is only ever proposed for an open,
+ * user-targeted decision-capture question whose triage succeeded as `later`
+ * with no urgent labels. Untriaged or unavailable triage is never drafted.
+ */
+export function replyDraftQuestionIneligibility(
+	row: InteractionRow,
+	observedAt: string,
+): AgentReplyDraftIneligibleReason | null {
+	if (
+		row.status !== "open" ||
+		(row.expiresAt !== null && row.expiresAt <= observedAt)
+	)
+		return "not_open";
+	if (row.kind !== "question" || row.targetType !== "user")
+		return "not_question";
+	const metadata = row.metadata as Record<string, unknown>;
+	if (metadata.schema !== DECISION_CAPTURE_SCHEMA)
+		return "not_decision_capture";
+	const triage = metadata.triage;
+	if (!isRecord(triage) || triage.status !== "ok") return "untriaged";
+	if (triage.urgency !== "later") return "urgent";
+	if (
+		triage.urgentLabels !== undefined &&
+		(!Array.isArray(triage.urgentLabels) || triage.urgentLabels.length > 0)
+	)
+		return "urgent";
+	return null;
+}
+
+async function activeDraftingTediId(
+	context: BaseContext,
+	policy: AgentTurnTriagePolicy,
+	organizationId: string,
+): Promise<string | null> {
+	const tediId = policy.drafting.tediId;
+	if (!tediId) return null;
+	const tedi = await getTediByIdForOrganization(
+		context.db,
+		tediId,
+		organizationId,
+	);
+	return tedi && tedi.status === "active" && tedi.retiredAt === null
+		? tedi.id
+		: null;
+}
+
+function oneLine(value: string, limit: number): string {
+	const flat = value.replace(/\s+/g, " ").trim();
+	return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
+}
+
+/** Render the versioned drafting prompt from the defaults asset. */
+export function renderReplyDraftPrompt(params: {
+	request: Pick<InteractionRow, "id" | "subject" | "prompt" | "workItemId">;
+	sessions: ReadonlyArray<{ label: string; state: string; summary: string }>;
+	skillSlug?: string;
+	turnTypeChoices?: readonly string[];
+}): string {
+	const prompt =
+		params.request.prompt.length > PROMPT_TEXT_LIMIT
+			? `${params.request.prompt.slice(0, PROMPT_TEXT_LIMIT)}\n[truncated]`
+			: params.request.prompt;
+	const sessions =
+		params.sessions.length > 0
+			? params.sessions
+					.slice(0, PEER_SESSION_LIMIT)
+					.map(
+						(session) =>
+							`- ${oneLine(session.label || "(unlabelled)", 80)} [${session.state}]: ${oneLine(session.summary, 240)}`,
+					)
+					.join("\n")
+			: "- none reported";
+	const values: Record<string, string> = {
+		requestId: params.request.id,
+		subject: oneLine(params.request.subject, 300),
+		workItemId: params.request.workItemId ?? "none",
+		prompt,
+		sessions,
+		skillStep: params.skillSlug
+			? `- Load the skill "${params.skillSlug}" (get_skill) and follow it.`
+			: "- No drafting skill is configured; rely on the steps below.",
+		turnTypeChoices: params.turnTypeChoices?.length
+			? params.turnTypeChoices.join(", ")
+			: "a short label you choose, such as approval, continue, status, correction",
+	};
+	return DEFAULTS.replyDraft.lines
+		.map((line) =>
+			line.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
+				key in values ? (values[key] as string) : match,
+			),
+		)
+		.join("\n");
+}
+
+async function requireInteraction(
+	context: BaseContext,
+	orgId: string,
+	requestId: string,
+): Promise<InteractionRow> {
+	const request = await getWorkInteraction(context.db, {
+		orgId,
+		interactionId: requestId,
+	});
+	if (!request)
+		throw createError(ErrorCodes.NOT_FOUND, "Work interaction not found");
+	return request;
+}
+
+const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		const request = await requireInteraction(context, orgId, input.requestId);
+		if (
+			actor.type !== "user" ||
+			request.targetType !== "user" ||
+			request.targetId !== actor.id
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the question's target user may request a reply draft",
+			);
+		}
+		const observedAt = new Date().toISOString();
+		const questionReason = replyDraftQuestionIneligibility(request, observedAt);
+		if (questionReason) return { status: "ineligible", reason: questionReason };
+		const { policy } = await readPolicyStateFor(context, actor.id, orgId);
+		if (!policy.drafting.enabled)
+			return { status: "ineligible", reason: "drafting_disabled" };
+		const tediId = await activeDraftingTediId(context, policy, orgId);
+		if (!tediId) return { status: "ineligible", reason: "no_drafting_tedi" };
+
+		const queue = context.env.AUTOMATION_EVENTS;
+		if (!queue) {
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Automation queue binding is not configured",
+			);
+		}
+		const sessions = await listWorkAgentSessions(context.db, {
+			organizationId: orgId,
+			userId: actor.id,
+			includeEnded: false,
+			now: observedAt,
+		});
+		const event: AutomationEvent = AutomationEventSchema.parse({
+			kind: "tedi_turn",
+			organizationId: orgId,
+			tediId,
+			content: renderReplyDraftPrompt({
+				request,
+				sessions,
+				skillSlug: policy.drafting.skillSlug,
+				turnTypeChoices: policy.turnTypeChoices,
+			}),
+			// One drafting turn per question: the consumer's dispatch ledger makes
+			// redelivery and repeat requests no-ops.
+			idempotencyKey: `reply-draft:${request.id}`,
+			source: `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`,
+		});
+		await queue.send(event);
+		return { status: "queued" };
+	},
+);
+
+const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		if (actor.type !== "tedi") {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the configured drafting tedi may propose a reply draft",
+			);
+		}
+		const request = await requireInteraction(context, orgId, input.requestId);
+		const targetUserId =
+			request.targetType === "user" ? request.targetId : null;
+		const { policy } = await readPolicyStateFor(context, targetUserId, orgId);
+		if (
+			!targetUserId ||
+			!policy.drafting.enabled ||
+			policy.drafting.tediId !== actor.id
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the configured drafting tedi may propose a reply draft",
+			);
+		}
+		const now = new Date().toISOString();
+		const reason = replyDraftQuestionIneligibility(request, now);
+		if (reason) {
+			throw createError(
+				ErrorCodes.UNPROCESSABLE_CONTENT,
+				`Question cannot be drafted: ${reason}`,
+			);
+		}
+		try {
+			const draft = await insertReplyDraft(context.db, {
+				id: crypto.randomUUID(),
+				orgId,
+				interactionId: request.id,
+				drafterId: actor.id,
+				body: input.body,
+				rationale: input.rationale,
+				turnType: input.turnType ?? null,
+				now,
+			});
+			return { draftId: draft.id };
+		} catch (error) {
+			rethrowWorkControlError(error, { invalidPrincipal: "forbidden" });
+		}
+	},
+);
+
+const getReplyDraftAcceptanceProcedure = readOs.getReplyDraftAcceptance.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		if (actor.type !== "user") {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Reply-draft acceptance belongs to a Tedix user identity",
+			);
+		}
+		const { policy } = await readPolicyStateFor(context, actor.id, orgId);
+		const byTurnType = await getReplyDraftAcceptance(
+			context.db,
+			{ orgId, targetUserId: actor.id, since: input.since },
+			policy.eligibility,
+		);
+		return { byTurnType, policy: policy.eligibility };
+	},
+);
+
 export const agentTurnTriageContractRouter = os.router({
 	triage,
 	labelReply,
 	getPolicy,
 	updatePolicy,
+	requestReplyDraft,
+	proposeReplyDraft,
+	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
 });

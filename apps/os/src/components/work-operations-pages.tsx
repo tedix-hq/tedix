@@ -9,6 +9,10 @@ import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
+import {
+	InteractionDraftReply,
+	latestDraftOf,
+} from "@/components/work-interaction-draft";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -1928,7 +1932,12 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 		]);
 	};
 	const respond = useMutation({
-		mutationFn: (value: z.output<typeof interactionResponseSchema>) => {
+		mutationFn: (
+			value: z.output<typeof interactionResponseSchema> & {
+				/** Cites the tedi draft an answer started from. */
+				metadata?: Record<string, string | number>;
+			},
+		) => {
 			if (!query.data) throw new Error("Interaction is not loaded");
 			return osApi.workInteractions.respond({
 				requestId,
@@ -1936,7 +1945,7 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 				responseKind: value.responseKind,
 				body: value.body,
 				resolvesRequest: value.resolvesRequest,
-				metadata: {},
+				metadata: value.metadata ?? {},
 			});
 		},
 		onSuccess: async () => {
@@ -1985,6 +1994,10 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 		);
 	const { request, effectiveState, responses } = query.data;
 	const isQuestion = request.kind === "question";
+	const draft =
+		isQuestion && effectiveState === "open" && query.data.canRespond
+			? latestDraftOf(query.data)
+			: null;
 	const parsedAction =
 		request.kind === "input"
 			? externalActionSchema.safeParse(request.metadata?.externalAction)
@@ -2165,68 +2178,96 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 									{externalAction.label}
 								</Button>
 							) : query.data.canRespond ? (
-								<form
-									className="grid gap-3"
-									onSubmit={(event) => {
-										event.preventDefault();
-										void responseForm.handleSubmit();
-									}}
-								>
-									<FormField
-										form={responseForm}
-										name="body"
-										label={isQuestion ? "Your answer" : "Response"}
+								<>
+									{draft ? (
+										<InteractionDraftReply
+											draft={draft}
+											drafterName={namedWorkPrincipal(
+												"tedi",
+												draft.drafterId,
+												names,
+											)}
+											host={
+												typeof request.metadata?.host === "string"
+													? request.metadata.host
+													: request.metadata?.agentHarness === "codex"
+														? "codex"
+														: undefined
+											}
+											pending={respond.isPending}
+											onAnswer={(body, metadata) =>
+												respond.mutate({
+													responseKind: "answer",
+													body,
+													resolvesRequest: true,
+													metadata,
+												})
+											}
+										/>
+									) : null}
+									<form
+										className="grid gap-3"
+										onSubmit={(event) => {
+											event.preventDefault();
+											void responseForm.handleSubmit();
+										}}
 									>
-										{(field, meta) => (
-											<FormTextarea
-												field={field}
-												{...meta}
-												placeholder={
-													isQuestion
-														? "Type your answer…"
-														: "Type your response…"
-												}
-											/>
+										<FormField
+											form={responseForm}
+											name="body"
+											label={isQuestion ? "Your answer" : "Response"}
+										>
+											{(field, meta) => (
+												<FormTextarea
+													field={field}
+													{...meta}
+													placeholder={
+														isQuestion
+															? "Type your answer…"
+															: "Type your response…"
+													}
+												/>
+											)}
+										</FormField>
+										{isQuestion ? (
+											<Collapsible>
+												<CollapsibleTrigger
+													render={<Button variant="ghost" className="w-fit" />}
+												>
+													More options
+												</CollapsibleTrigger>
+												<CollapsibleContent className="grid gap-3">
+													{responseOptions}
+												</CollapsibleContent>
+											</Collapsible>
+										) : (
+											responseOptions
 										)}
-									</FormField>
-									{isQuestion ? (
-										<Collapsible>
-											<CollapsibleTrigger
-												render={<Button variant="ghost" className="w-fit" />}
-											>
-												More options
-											</CollapsibleTrigger>
-											<CollapsibleContent className="grid gap-3">
-												{responseOptions}
-											</CollapsibleContent>
-										</Collapsible>
-									) : (
-										responseOptions
-									)}
-									<responseForm.Subscribe
-										selector={(state) => [
-											state.values.resolvesRequest,
-											state.canSubmit,
-										]}
-									>
-										{([resolvesRequest, canSubmit]) => (
-											<Button
-												type="submit"
-												disabled={!canSubmit || respond.isPending}
-											>
-												{respond.isPending
-													? "Sending…"
-													: isQuestion
-														? originChatTitle
-															? `Send to ${originChatTitle}`
-															: "Send reply"
-														: resolvesRequest
-															? "Respond and resolve"
-															: "Respond"}
-											</Button>
-										)}
-									</responseForm.Subscribe>
-								</form>
+										<responseForm.Subscribe
+											selector={(state) => [
+												state.values.resolvesRequest,
+												state.canSubmit,
+											]}
+										>
+											{([resolvesRequest, canSubmit]) => (
+												<Button
+													type="submit"
+													disabled={!canSubmit || respond.isPending}
+												>
+													{respond.isPending
+														? "Sending…"
+														: isQuestion
+															? originChatTitle
+																? `Send to ${originChatTitle}`
+																: "Send reply"
+															: resolvesRequest
+																? "Respond and resolve"
+																: "Respond"}
+												</Button>
+											)}
+										</responseForm.Subscribe>
+									</form>
+								</>
 							) : null}
 							<div className="flex flex-wrap gap-2">
 								{query.data.canCancel && !isQuestion ? (
