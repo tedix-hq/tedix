@@ -1049,9 +1049,20 @@ export function assertLegacyThinkTasksSettled(
 		"cf_agents_fibers",
 		"SELECT fiber_id AS id FROM cf_agents_fibers WHERE (name = 'think:messenger-reply' OR name = '__cf_internal_chat_turn' OR name GLOB '__cf_internal_chat_turn:*') AND status NOT IN ('completed','aborted','error') LIMIT 1",
 	);
+	// The SDK adds `completed_at` inside super(), so a table from an older SDK
+	// lacks it here; that schema deleted finished runs, so every row is open.
+	const runsTrackCompletion =
+		tables.has("cf_agents_runs") &&
+		[
+			...storage.sql.exec<{ name: string }>(
+				"SELECT name FROM pragma_table_info('cf_agents_runs') WHERE name='completed_at'",
+			),
+		].length !== 0;
 	pending(
 		"cf_agents_runs",
-		"SELECT id FROM cf_agents_runs WHERE (name = 'think:messenger-reply' OR name = '__cf_internal_chat_turn' OR name GLOB '__cf_internal_chat_turn:*') AND completed_at IS NULL LIMIT 1",
+		"SELECT id FROM cf_agents_runs WHERE (name = 'think:messenger-reply' OR name = '__cf_internal_chat_turn' OR name GLOB '__cf_internal_chat_turn:*')" +
+			(runsTrackCompletion ? " AND completed_at IS NULL" : "") +
+			" LIMIT 1",
 	);
 	pending(
 		"cf_agents_task_runs",

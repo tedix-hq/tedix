@@ -762,6 +762,24 @@ test("pre-super gate preserves old pending chat/messenger SQL receipts before SD
 		f.db.close();
 	}
 });
+test("legacy gate reads a cf_agents_runs table that predates completed_at", async () => {
+	const db = new Database(":memory:");
+	db.exec("CREATE TABLE cf_agents_runs(id TEXT,name TEXT)");
+	const storage = {
+		sql: { exec: (query: string) => db.query(query).all() },
+	} as any;
+	assertLegacyThinkTasksSettled(storage);
+	db.exec("INSERT INTO cf_agents_runs VALUES('run-1','workstation:provision')");
+	assertLegacyThinkTasksSettled(storage);
+	db.exec(
+		"INSERT INTO cf_agents_runs VALUES('run-2','__cf_internal_chat_turn:request-2')",
+	);
+	assert.throws(
+		() => assertLegacyThinkTasksSettled(storage),
+		/reconciliation before Pi activation: cf_agents_runs:run-2/,
+	);
+	db.close();
+});
 test("legacy gate permits terminal receipts and unrelated workstation work without mutations", async () => {
 	const f = legacySqlFixture();
 	f.db.exec(
