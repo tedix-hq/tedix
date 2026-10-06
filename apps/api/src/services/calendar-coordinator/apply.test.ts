@@ -224,6 +224,7 @@ describe("observable compensation and recovery", () => {
 		});
 		const plan = await buildPlan(f.config, f.snapshots, [], "seed");
 		const receipt = await applyPlan(f.config, plan, f.adapters, f.store);
+		expect(receipt.mutations[0]!.compensationEligible).toBe(true);
 		const undo = await previewCompensation(
 			f.config,
 			plan,
@@ -318,5 +319,80 @@ describe("snapshot ledger coverage", () => {
 			f.config.calendars[1],
 			"old-blocker",
 		);
+	});
+});
+
+describe("reschedule across the approved horizon", () => {
+	it("conditionally clears a stale in-window owned hold after exact source move proof, then uses a fresh create generation if it returns", async () => {
+		const f = fixture();
+		f.adapter.remove = vi.fn(async (r, a) => {
+			f.events.set(
+				r.key,
+				f.events.get(r.key)!.filter((e) => e.id !== a.destinationEventId),
+			);
+		});
+		const first = await buildPlan(f.config, f.snapshots, [], "seed");
+		const confirmed = await applyPlan(f.config, first, f.adapters, f.store);
+		const a = first.actions[0]!;
+		const mirror = {
+			id: "mirror",
+			sourceKey: a.sourceKey,
+			sourceRouteKey: "a",
+			sourceEventId: f.event.id,
+			destinationKey: "b",
+			eventId: a.destinationEventId,
+			revision: confirmed.mutations[0]!.revision!,
+			ownership: a.ownership,
+			interval: f.event.interval,
+		};
+		f.events.set("a", [
+			{
+				...f.event,
+				revision: "source-moved-outside",
+				interval: {
+					start: "2026-11-03T10:00:00Z",
+					end: "2026-11-03T11:00:00Z",
+				},
+			},
+		]);
+		const movedSnapshots = await Promise.all(
+			f.config.calendars.map((r) => f.adapter.snapshot(r, f.config.window)),
+		);
+		const removal = await buildPlan(f.config, movedSnapshots, [mirror], "seed");
+		expect(removal.actions).toHaveLength(1);
+		expect(removal.actions[0]!.deleteReason).toBe("moved_outside_window");
+		expect(
+			(await applyPlan(f.config, removal, f.adapters, f.store)).outcome,
+		).toBe("confirmed");
+		expect(f.events.get("a")![0]!.interval.start).toContain("2026-11-03");
+		expect(f.events.get("b")).toEqual([]);
+		f.events.set("a", [{ ...f.event, revision: "source-returned" }]);
+		f.events.set("b", [
+			{
+				...f.event,
+				id: mirror.eventId,
+				revision: "deleted",
+				ownership: mirror.ownership,
+				cancelled: true,
+				privateBlocker: true,
+			},
+		]);
+		const returned = await buildPlan(
+			f.config,
+			await Promise.all(
+				f.config.calendars.map((r) => f.adapter.snapshot(r, f.config.window)),
+			),
+			[],
+			"seed",
+		);
+		expect(returned.conflicts).toEqual([]);
+		expect(returned.actions[0]!.destinationEventId).not.toBe(
+			a.destinationEventId,
+		);
+		expect(returned.actions[0]!.id).not.toBe(a.id);
+		expect(
+			(await applyPlan(f.config, returned, f.adapters, f.store)).outcome,
+		).toBe("confirmed");
+		expect(f.adapter.create).toHaveBeenCalledTimes(2);
 	});
 });

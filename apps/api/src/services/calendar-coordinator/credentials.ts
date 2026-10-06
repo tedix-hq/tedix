@@ -11,13 +11,21 @@ import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations"
 import type { BaseContext } from "../../rpc/orpc";
 import { googleCalendarAdapter } from "./google";
 import { microsoftCalendarAdapter } from "./microsoft";
-import type { AdapterKind, CalendarRoute } from "./types";
-type Selection = Pick<
+import type {
+	AdapterKind,
 	CalendarRoute,
-	"adapter" | "providerId" | "connectionScope" | "connectionInstanceId"
->;
+	CalendarAdapter,
+	Configuration,
+} from "./types";
+type Selection = Partial<
+	Pick<CalendarRoute, "workspaceResourceId" | "delegationId" | "calendarId">
+> &
+	Pick<
+		CalendarRoute,
+		"adapter" | "providerId" | "connectionScope" | "connectionInstanceId"
+	>;
 export function calendarOwnerUser(context: BaseContext): string {
-	if (context.authType !== "user" || !context.user?.sub)
+	if (context.authType !== "user" || context.tediId || !context.user?.sub)
 		throw new Error(
 			"Interactive calendar operation requires the signed-in account owner",
 		);
@@ -69,11 +77,144 @@ export async function resolveCalendarAdapter(
 	organizationId: string,
 	selection: Selection,
 	execution = false,
+	authority?: Pick<
+		Configuration,
+		"workspaceId" | "tediId" | "skillId" | "skillRevision" | "ownerUserId"
+	>,
 ) {
-	if (execution && selection.connectionScope === "user")
-		throw new Error(
-			"Personal calendar background execution requires an explicit revocable delegation",
+	if (
+		execution &&
+		selection.connectionScope === "user" &&
+		context.authType !== "user"
+	) {
+		if (
+			!authority ||
+			!selection.delegationId ||
+			!selection.workspaceResourceId ||
+			!selection.calendarId
+		)
+			throw new Error(
+				"Personal calendar background execution requires an explicit revocable delegation",
+			);
+		const {
+			authorizePersonalResourceDelegation,
+			validatePersonalDelegationToken,
+		} = await import("../personal-resource-delegation-authority");
+		const toolId = context.headers.get("X-Tedix-Mcp-Tool-Id");
+		if (!toolId)
+			throw new Error(
+				"Personal calendar execution requires trusted workflow tool provenance",
+			);
+		const providers = await listConnectionProviders(context.db);
+		const definition = providers.find(
+			(p) =>
+				p.descopeAppId === selection.providerId ||
+				p.descopeAppAliases?.includes(selection.providerId),
 		);
+		if (
+			definition?.id !==
+			(selection.adapter === "google"
+				? "google-calendar"
+				: "microsoft-graph-calendar-tedix")
+		)
+			throw new Error("Calendar adapter differs from the canonical provider");
+		const requiredScopes =
+			selection.adapter === "google"
+				? [
+						"https://www.googleapis.com/auth/calendar.events",
+						"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+					]
+				: ["Calendars.ReadWrite"];
+		const fresh = async (operation: string) => {
+			const use = {
+				delegationId: selection.delegationId!,
+				tediId: authority.tediId,
+				skillId: authority.skillId,
+				skillRevision: authority.skillRevision,
+				workspaceId: authority.workspaceId,
+				resourceId: selection.workspaceResourceId!,
+				providerId: selection.providerId,
+				connectionInstanceId: selection.connectionInstanceId,
+				operation,
+				toolId,
+				providerResourceId: selection.calendarId!,
+				requiredScopes,
+			};
+			const grant = await authorizePersonalResourceDelegation(context, use);
+			if (grant.ownerUserId !== authority.ownerUserId)
+				throw new Error(
+					"Personal delegation owner differs from the configuration owner",
+				);
+			const token = await fetchPersonalConnectionToken(context.env, {
+				appId: selection.providerId,
+				userId: grant.ownerUserId,
+				externalIdentifier: `tedix_${grant.connectionInstanceId}`,
+				scopes: grant.delegation.requiredScopes,
+			});
+			if (!token)
+				throw new Error("Exact delegated calendar credential is unavailable");
+			validatePersonalDelegationToken(
+				grant.delegation,
+				token,
+				grant.approvedTokenIds,
+				token.id,
+			);
+			await authorizePersonalResourceDelegation(context, use);
+			return token;
+		};
+		const initial = await fresh("read");
+		const adapterFor = async (operation: string) => {
+			const token = await fresh(operation);
+			const authorize = async () => (await fresh(operation)).accessToken;
+			return selection.adapter === "google"
+				? googleCalendarAdapter(token.accessToken, authorize)
+				: microsoftCalendarAdapter(token.accessToken, authorize);
+		};
+		const assertRoute = (r: CalendarRoute) => {
+			if (
+				r.providerId !== selection.providerId ||
+				r.connectionInstanceId !== selection.connectionInstanceId ||
+				r.calendarId !== selection.calendarId ||
+				r.workspaceResourceId !== selection.workspaceResourceId ||
+				r.connectionScope !== "user" ||
+				r.adapter !== selection.adapter
+			)
+				throw new Error(
+					"Calendar operation differs from the delegated resource",
+				);
+		};
+		const useAdapter = async (operation: string, r: CalendarRoute) => {
+			assertRoute(r);
+			return adapterFor(operation);
+		};
+		const adapter: CalendarAdapter = {
+			kind: selection.adapter,
+			conditionalWrites: selection.adapter === "google",
+			listCalendars: async () => {
+				throw new Error(
+					"Background calendar inventory is not a selected resource operation",
+				);
+			},
+			snapshot: async (r, w) => (await useAdapter("read", r)).snapshot(r, w),
+			get: async (r, id) => (await useAdapter("read", r)).get(r, id),
+			findOwned: async (r, m, w) =>
+				(await useAdapter("read", r)).findOwned(r, m, w),
+			create: async (r, a) => (await useAdapter("create", r)).create(r, a),
+			update: async (r, a) => (await useAdapter("update", r)).update(r, a),
+			remove: async (r, a) => (await useAdapter("delete", r)).remove(r, a),
+		};
+		return {
+			account: {
+				adapter: selection.adapter,
+				providerId: selection.providerId,
+				connectionScope: selection.connectionScope,
+				connectionInstanceId: selection.connectionInstanceId,
+				instanceLabel: "",
+				accountSubject: initial.tokenSub ?? null,
+			},
+			adapter,
+		};
+	}
 	if (!selection.connectionInstanceId)
 		throw new Error("Exact named account is required");
 	const accounts = await supportedCalendarAccounts(

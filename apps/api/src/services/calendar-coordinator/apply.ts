@@ -96,6 +96,8 @@ export async function applyPlan(
 			mutation = {
 				...mutation,
 				state: "confirmed",
+				compensationEligible:
+					action.kind !== "delete" && adapter.conditionalWrites,
 				eventId: event?.id ?? action.destinationEventId,
 				revision: event?.revision ?? null,
 				error: null,
@@ -154,8 +156,18 @@ export async function applyPlan(
 						!sameInterval(source.interval, action.after)))
 			)
 				throw new Error("Source occurrence changed before apply");
-			if (action.kind === "delete" && source?.busy && !source.cancelled)
-				throw new Error("Original source still blocks time");
+			if (action.kind === "delete" && source?.busy && !source.cancelled) {
+				if (
+					action.deleteReason !== "moved_outside_window" ||
+					!action.expectedSourceInterval ||
+					!sameInterval(source.interval, action.expectedSourceInterval) ||
+					(Date.parse(source.interval.start) < Date.parse(plan.window.end) &&
+						Date.parse(source.interval.end) > Date.parse(plan.window.start))
+				)
+					throw new Error(
+						"Original source still blocks time inside the reviewed window",
+					);
+			}
 			const current = await adapter.get(route, action.destinationEventId);
 			if (action.kind === "create" && current) {
 				if (
@@ -536,6 +548,10 @@ export async function recoverPlan(
 			mutation = {
 				...mutation,
 				state: "confirmed",
+				compensationEligible:
+					plan.purpose === "reconcile" &&
+					action.kind !== "delete" &&
+					adapter.conditionalWrites,
 				eventId: current?.id ?? previous.eventId,
 				revision: current?.revision ?? null,
 				error: null,
