@@ -6,6 +6,10 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./schema/provider-events": "./src/schema/provider-events.ts",
+		"./queries/provider-events": "./src/queries/provider-events.ts",
+		"./schema/os-gadget-state": "./src/schema/os-gadget-state.ts",
+		"./queries/os-workspaces/gadget-state": "./src/queries/os-workspaces/gadget-state.ts",
 		"./client": "./src/client.ts",
 		"./query-client": "./src/query-client.ts",
 		"./schema": "./src/schema/index.ts",
