@@ -2670,6 +2670,99 @@ describe("blueprint dependency preflight", () => {
 		]);
 	});
 
+	it("materializes only canonical personal calendar bindings and checks them again at install", async () => {
+		mocks.getSkillEntryBySlug.mockResolvedValue(SKILL);
+		mocks.resolveConnectionAvailability.mockResolvedValue({
+			connected: true,
+			cause: "connected",
+			reason: "connected",
+		});
+		const instanceId = "00000000-0000-4000-8000-000000000003";
+		const root = "https://www.googleapis.com/auth/calendar";
+		vi.spyOn(calendarAccounts, "supportedCalendarAccounts").mockResolvedValue([
+			{
+				providerId: "google-drive",
+				connectionInstanceId: instanceId,
+				adapter: "google",
+			},
+		] as never);
+		const listCalendars = vi
+			.fn()
+			.mockResolvedValue([{ id: "calendar-a", canRead: true, canWrite: true }]);
+		vi.spyOn(calendarAccounts, "resolveCalendarAdapter").mockResolvedValue({
+			adapter: { listCalendars },
+		} as never);
+		vi.spyOn(namedVault, "fetchNamedConnection").mockResolvedValue({
+			id: "grant",
+			tokenSub: "subject",
+			scopes: [root],
+			accessToken: "secret",
+		});
+		const blueprintId = await publishPinned(
+			requirements({
+				resources: [
+					{
+						slot: "calendar",
+						providerId: "google-drive",
+						tokenScope: "user",
+						scopes: [`${root}.events`, `${root}.calendarlist.readonly`],
+						resourceType: "calendar",
+						label: "Calendar",
+					},
+				],
+			}),
+			"Personal Calendar Pod",
+		);
+		const resourceBindings = [
+			{
+				slot: "calendar",
+				selection: {
+					providerId: "google-drive",
+					connectionScope: "user" as const,
+					connectionInstanceId: instanceId,
+					resourceType: "calendar",
+					providerResourceId: "calendar-a",
+					name: "Calendar",
+					requiredScopes: [],
+					metadata: {},
+				},
+			},
+		];
+		const result = await c.org1.blueprints.instantiate({
+			blueprintId,
+			workspaceName: "Personal calendar workspace",
+			resourceBindings,
+		});
+		expect(result.resources[0]).toMatchObject({
+			personalOwnerUserId: "user-1",
+			connectionInstanceId: instanceId,
+			providerAccess: { canRead: true, canWrite: true },
+			requiredScopes: [root],
+		});
+		const listed = await c.org1.resources.list({
+			workspaceId: result.workspace.id,
+		});
+		expect(listed.items[0]).toMatchObject({
+			personalOwnerUserId: "user-1",
+			connectionInstanceId: instanceId,
+			providerAccess: { canRead: true, canWrite: true },
+		});
+		listCalendars.mockResolvedValue([]);
+		await expect(
+			c.org1.blueprints.preflight({ blueprintId, resourceBindings }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			c.org1.blueprints.instantiate({
+				blueprintId,
+				workspaceName: "Invalid",
+				resourceBindings,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		vi.mocked(namedVault.fetchNamedConnection).mockRestore();
+		vi.mocked(calendarAccounts.resolveCalendarAdapter).mockRestore();
+		vi.mocked(calendarAccounts.supportedCalendarAccounts).mockRestore();
+	});
+
 	it("records the resolution as workspace provenance and refuses a blocked pin atomically", async () => {
 		mocks.getSkillEntryBySlug.mockResolvedValue(SKILL);
 		const blueprintId = await publishPinned(requirements());

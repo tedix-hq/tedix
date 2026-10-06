@@ -1,3 +1,4 @@
+import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { fetchNamedConnection } from "./connections/policy-resolution";
 import {
 	supportedCalendarAccounts,
@@ -9,6 +10,7 @@ import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	type OsWorkspaceResource,
+	type OsWorkspaceResourceSelection,
 	OsWorkspaceResourceSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
@@ -224,7 +226,7 @@ async function verifiedResourceScopes(
 			ErrorCodes.FORBIDDEN,
 			"Calendar credential has no verified calendar scopes",
 		);
-	if (selection.requiredScopes.some((scope) => !observed.includes(scope)))
+	if (!personalResourceScopesCover(observed, selection.requiredScopes))
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"The selected account did not grant the requested scopes",
@@ -233,6 +235,21 @@ async function verifiedResourceScopes(
 		requiredScopes,
 		providerAccess: { canRead: calendar.canRead, canWrite: calendar.canWrite },
 	};
+}
+
+/** Shared attachment admission for direct resources and Blueprint installation. */
+export async function verifyWorkspaceResourceSelection(
+	context: BaseContext,
+	selection: OsWorkspaceResourceSelection,
+) {
+	const binding = await personalAccountBinding(
+		context,
+		selection.connectionScope,
+		selection.providerId,
+		selection.connectionInstanceId,
+	);
+	const verified = await verifiedResourceScopes(context, selection);
+	return { ...binding, ...verified };
 }
 
 const list = readOs.resources.list.handler(async ({ input, context }) => {
