@@ -79,6 +79,8 @@ export interface BillingBalanceSnapshot {
 	usedTokens: number;
 	reservedTokens: number;
 	remainingIncludedTokens: number;
+	/** Customer token allowance semantics; does not bypass admission limits. */
+	unlimitedTokenUsage: boolean;
 	creditBalanceMicros: number;
 	reservedChargeMicros: number;
 	availableCreditMicros: number;
@@ -105,6 +107,10 @@ export async function getBillingBalanceSnapshot(
 			account.period_start AS periodStart,
 			account.period_end AS periodEnd,
 			plan.included_monthly_tokens AS includedTokens,
+   (plan.included_monthly_tokens < 0 OR (
+    plan.included_monthly_tokens = 0 AND plan.allow_overage = 1
+    AND plan.overage_unit_price_micros = 0
+   )) AS unlimitedTokenUsage,
 			COALESCE(period.used_input_tokens + period.used_output_tokens, 0) AS usedTokens,
 			COALESCE((
 				SELECT SUM(
@@ -196,6 +202,7 @@ export async function getBillingBalanceSnapshot(
 		usedTokens: Number(row.usedTokens),
 		reservedTokens: Number(row.reservedTokens),
 		remainingIncludedTokens: Number(row.remainingIncludedTokens),
+		unlimitedTokenUsage: Boolean(row.unlimitedTokenUsage),
 		creditBalanceMicros: Number(row.creditBalanceMicros),
 		reservedChargeMicros: Number(row.reservedChargeMicros),
 		availableCreditMicros: Number(row.availableCreditMicros),

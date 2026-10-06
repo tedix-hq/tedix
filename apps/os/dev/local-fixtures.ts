@@ -3963,6 +3963,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				usedTokens: 4_120_000,
 				reservedTokens: 60_000,
 				remainingIncludedTokens: 15_820_000,
+				unlimitedTokenUsage: false,
 				allowOverage: false,
 				entitlementActive: true,
 				detail:

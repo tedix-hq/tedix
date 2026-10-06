@@ -293,6 +293,7 @@ const posture = os.posture
 			budget: balance
 				? {
 						configured: true,
+						unlimitedTokenUsage: balance.unlimitedTokenUsage,
 						includedTokens: balance.includedTokens,
 						usedTokens: balance.usedTokens,
 						reservedTokens: balance.reservedTokens,
@@ -307,6 +308,7 @@ const posture = os.posture
 					}
 				: {
 						configured: false,
+						unlimitedTokenUsage: null,
 						includedTokens: null,
 						usedTokens: null,
 						reservedTokens: null,

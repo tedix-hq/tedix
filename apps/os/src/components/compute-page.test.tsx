@@ -79,6 +79,7 @@ function posture(overrides: Partial<ComputePosture> = {}): ComputePosture {
 			usedTokens: 400_000,
 			reservedTokens: 1_000,
 			remainingIncludedTokens: 599_000,
+			unlimitedTokenUsage: false,
 			allowOverage: false,
 			entitlementActive: true,
 			detail: "Copied from the canonical billing balance snapshot.",
@@ -145,13 +146,18 @@ describe("remainingTokensLabel / consumedShare", () => {
 			remainingTokensLabel({
 				configured: false,
 				remainingIncludedTokens: null,
+				unlimitedTokenUsage: null,
 			}),
 		).toBe("No budget known");
 	});
 
 	it("renders the unlimited sentinel as unlimited, not as a negative balance", () => {
 		expect(
-			remainingTokensLabel({ configured: true, remainingIncludedTokens: -1 }),
+			remainingTokensLabel({
+				configured: true,
+				remainingIncludedTokens: -1,
+				unlimitedTokenUsage: true,
+			}),
 		).toBe("Unlimited");
 	});
 
@@ -160,6 +166,7 @@ describe("remainingTokensLabel / consumedShare", () => {
 			consumedShare({
 				configured: false,
 				includedTokens: null,
+				unlimitedTokenUsage: null,
 				usedTokens: null,
 			}),
 		).toBeNull();
@@ -167,6 +174,7 @@ describe("remainingTokensLabel / consumedShare", () => {
 			consumedShare({
 				configured: true,
 				includedTokens: -1,
+				unlimitedTokenUsage: true,
 				usedTokens: 100,
 			}),
 		).toBeNull();
@@ -367,6 +375,7 @@ describe("BudgetCard", () => {
 						usedTokens: null,
 						reservedTokens: null,
 						remainingIncludedTokens: null,
+						unlimitedTokenUsage: null,
 						allowOverage: null,
 						entitlementActive: null,
 						detail: "No billing account is configured.",
@@ -559,4 +568,74 @@ it("does not turn an all-held ledger into complete spend", () => {
 	expect(html).toContain("0 priced rows");
 	expect(html).toContain("40 held tokens");
 	expect(html).not.toContain("Recorded held amount");
+});
+
+describe("rendered explicit customer token allowance", () => {
+	it.each([-1, 0])(
+		"renders allowance %s as Unlimited and preserves consumed/reserved observations",
+		(includedTokens) => {
+			const budget = {
+				...posture().budget,
+				includedTokens,
+				remainingIncludedTokens: includedTokens,
+				unlimitedTokenUsage: true,
+				allowOverage: true,
+			};
+			const html = renderToStaticMarkup(
+				<BudgetCard posture={posture({ budget })} />,
+			);
+			expect(html).toContain("Unlimited");
+			expect(html).not.toContain("included tokens left");
+			expect(html).not.toContain("% of allowance");
+			expect(html).toContain("tokens consumed");
+			expect(html).toContain("reserved in flight");
+			expect(consumedShare(budget)).toBeNull();
+		},
+	);
+	it.each([false, true])(
+		"finite zero with permitted overage=%s never becomes Unlimited",
+		(allowOverage) => {
+			const budget = {
+				...posture().budget,
+				includedTokens: 0,
+				remainingIncludedTokens: 0,
+				unlimitedTokenUsage: false,
+				allowOverage,
+			};
+			const html = renderToStaticMarkup(
+				<BudgetCard posture={posture({ budget })} />,
+			);
+			expect(html).toContain("0 included tokens left");
+			expect(html).not.toContain("Unlimited");
+			expect(html.includes("Your plan permits additional token usage")).toBe(
+				allowOverage,
+			);
+			expect(consumedShare(budget)).toBeNull();
+		},
+	);
+	it("keeps finite allowance percentages, unknown semantic and runtime blocking distinct", () => {
+		expect(remainingTokensLabel(posture().budget)).toBe(
+			"599,000 included tokens left",
+		);
+		expect(consumedShare(posture().budget)).toBe(0.4);
+		expect(
+			remainingTokensLabel({ ...posture().budget, unlimitedTokenUsage: null }),
+		).toBe("No budget known");
+		const html = renderToStaticMarkup(
+			<BudgetCard
+				posture={posture({
+					budget: {
+						...posture().budget,
+						includedTokens: 0,
+						remainingIncludedTokens: 0,
+						unlimitedTokenUsage: true,
+						entitlementActive: false,
+					},
+				})}
+			/>,
+		);
+		expect(html).toContain("Unlimited");
+		expect(html).toContain("Runtime inference is not admitted");
+		expect(html).not.toContain("% of allowance");
+	});
 });
