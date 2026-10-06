@@ -3394,7 +3394,10 @@ export class ToolHandler {
 		const timeout = config.timeout ?? 30_000;
 
 		const executor = new DynamicWorkerExecutor({
-			loader: withModelAuthoredCodeIsolation(loader),
+			loader: withModelAuthoredCodeIsolation(loader, {
+				surface: "stored_tool_code",
+				reason: "stored_tool_authored_invocation",
+			}),
 			timeout,
 			globalOutbound: null, // Network-isolated sandbox
 		});

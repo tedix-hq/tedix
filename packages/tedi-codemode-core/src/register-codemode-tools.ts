@@ -169,9 +169,12 @@ export async function registerCodeModeTools(
 	}
 
 	const executor = new DynamicWorkerExecutor({
-		loader: withModelAuthoredCodeIsolation(loader),
-		// Match @cloudflare/codemode 0.4.2's default. Callers can still pass a
-		// stricter timeoutMs for tenant/tool-specific policy.
+		loader: withModelAuthoredCodeIsolation(loader, {
+			surface: "tedi_stateless_mcp_code",
+			reason: "tedi_stateless_authored_invocation",
+		}),
+		// Keep the existing 60-second default; callers may select a stricter
+		// timeoutMs for tenant/tool-specific policy.
 		timeout: timeoutMs ?? 60_000,
 		globalOutbound: null,
 	});

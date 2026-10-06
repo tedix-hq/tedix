@@ -10,12 +10,28 @@ import { TediSchema } from "@tedix/api-contract/schemas/tedi";
 import { enteredSpans } from "../../test/stubs/cloudflare-workers";
 
 const executorBudgets = vi.hoisted(() => [] as number[]);
-vi.mock("@cloudflare/codemode", () => {
+vi.mock("@cloudflare/codemode", async () => {
+	const actual = await vi.importActual<typeof import("@cloudflare/codemode")>(
+		"@cloudflare/codemode",
+	);
 	const sanitizeToolName = (name: string) =>
 		name.replace(/[^a-zA-Z0-9_]/g, "_");
 	return {
+		...actual,
+		createCodemodeRuntime: (options: {
+			executor: import("@cloudflare/codemode").DynamicWorkerExecutor;
+		}) => ({
+			execute: () =>
+				options.executor.execute("async () => native_loader_fixture", []),
+		}),
 		DynamicWorkerExecutor: class DynamicWorkerExecutor {
-			constructor(options: { timeout: number }) {
+			constructor(
+				private options: {
+					timeout: number;
+					loader: WorkerLoader;
+					globalOutbound: null;
+				},
+			) {
 				executorBudgets.push(options.timeout);
 			}
 			async execute(
@@ -28,6 +44,11 @@ vi.mock("@cloudflare/codemode", () => {
 					>;
 				}>,
 			) {
+				if (code.includes("native_loader_fixture"))
+					return new actual.DynamicWorkerExecutor(this.options).execute(
+						code,
+						providers as unknown as import("@cloudflare/codemode").ResolvedProvider[],
+					);
 				if (code.includes("scope_denial")) {
 					if (code.includes("prior_builtin")) {
 						try {
@@ -196,7 +217,12 @@ vi.mock("./tool-execution", () => ({
 	executeTool: vi.fn(),
 }));
 
-import { registerCodeModeTools } from "./codemode";
+import { executeCatalogOperation, registerCodeModeTools } from "./codemode";
+import { ToolHandler, type ToolExecutionContext } from "./handler";
+import { registerCodeModeTools as registerStateless } from "@tedix/tedi-codemode-core/register-codemode-tools";
+
+import { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
 
@@ -1003,4 +1029,171 @@ describe("Code Mode native executor budget", () => {
 			expect(executorBudgets).toEqual([pin ?? 330000]);
 		},
 	);
+});
+
+// These cases traverse production constructor wiring; the special mock branch
+// delegates execution to the real pinned SDK and an owned fake native Loader.
+describe("production loader host wiring", () => {
+	afterEach(() => vi.restoreAllMocks());
+	const fixtureLoader = () => {
+		const load = vi.fn(
+			() =>
+				({
+					getEntrypoint: () => ({
+						evaluate: async () => ({ result: 1, logs: [] }),
+					}),
+				}) as unknown as WorkerStub,
+		);
+		return { load, get: vi.fn() } as WorkerLoader & {
+			load: ReturnType<typeof vi.fn>;
+		};
+	};
+	const loaderEvents = (spy: ReturnType<typeof vi.spyOn>) =>
+		spy.mock.calls.flatMap(([s]: unknown[]) => {
+			if (
+				typeof s !== "string" ||
+				!s.startsWith('{"event":"tedix.dynamic_worker.loader_call"')
+			)
+				return [];
+			return [JSON.parse(s)];
+		});
+	const assertPair = (
+		spy: ReturnType<typeof vi.spyOn>,
+		surface: string,
+		reason: string,
+	) => {
+		expect(loaderEvents(spy)).toEqual(
+			["attempted", "returned"].map((phase) => ({
+				event: "tedix.dynamic_worker.loader_call",
+				version: 1,
+				surface,
+				reason,
+				method: "load",
+				identity: "anonymous",
+				phase,
+			})),
+		);
+	};
+	it("gateway production constructor uses actual decorated SDK load", async () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const loader = fixtureLoader();
+		const ctx = makeServerCtx();
+		ctx.env.LOADER = loader;
+		const callbacks = new Map<string, (args: unknown) => Promise<unknown>>();
+		await registerCodeModeTools(
+			{
+				registerTool: (
+					n: string,
+					_c: unknown,
+					h: (args: unknown) => Promise<unknown>,
+				) => callbacks.set(n, h),
+			} as never,
+			ctx,
+		);
+		await callbacks.get("code")!({ code: "async () => native_loader_fixture" });
+		expect(loader.load).toHaveBeenCalledTimes(1);
+		assertPair(spy, "gateway_model_code", "gateway_model_authored_invocation");
+	});
+	it("stored transport constructor uses actual decorated SDK load", async () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const loader = fixtureLoader();
+		const ctx = makeServerCtx();
+		ctx.env.LOADER = loader;
+		const config = {
+			transport: "code" as const,
+			endpoint: "fixture/run",
+			codeModule: "() => 'native_loader_fixture'",
+		};
+		const result = await new ToolHandler().execute({}, {
+			...ctx,
+			app: { slug: "fixture", organizationId: "fictional-org" },
+			env: ctx.env,
+			config,
+			toolId: "run_fixture",
+			executionId: "fictional",
+			requestId: "fictional",
+		} as unknown as ToolExecutionContext<typeof config>);
+		expect(result.status).toBe(200);
+		expect(loader.load).toHaveBeenCalledTimes(1);
+		assertPair(spy, "stored_tool_code", "stored_tool_authored_invocation");
+	});
+	it("stateless tedi registration constructor uses actual decorated SDK load", async () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const loader = fixtureLoader();
+		const inner = new McpServer({ name: "fictional", version: "1" });
+		inner.registerTool(
+			"get_fixture",
+			{ inputSchema: z.object({}) },
+			async () => ({ content: [{ type: "text", text: "1" }] }),
+		);
+		const callbacks = new Map<string, (args: unknown) => Promise<unknown>>();
+		expect(
+			await registerStateless(
+				{
+					registerTool: (
+						n: string,
+						_c: unknown,
+						h: (args: unknown) => Promise<unknown>,
+					) => callbacks.set(n, h),
+				} as never,
+				inner,
+				{ loader, tediId: "fictional" },
+			),
+		).toBe(true);
+		await callbacks.get("code")!({ code: "async () => native_loader_fixture" });
+		await inner.close();
+		expect(loader.load).toHaveBeenCalledTimes(1);
+		assertPair(
+			spy,
+			"tedi_stateless_mcp_code",
+			"tedi_stateless_authored_invocation",
+		);
+	});
+	it("durable tedi constructor passes its decorated loader to runtime", async () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const loader = fixtureLoader();
+		// Runtime-only import keeps this Node fixture out of the MCP source type
+		// graph. Runtime source is checked separately in its owning workspace.
+		const { createTediDurableCodemode } = await vi.importActual<{
+			createTediDurableCodemode: (
+				input: Record<string, unknown>,
+			) => Promise<{ execute: (input: { code: string }) => Promise<unknown> }>;
+		}>("../../../tedi-runtime/src/durable-codemode");
+		const runtime = await createTediDurableCodemode({
+			ctx: {} as DurableObjectState,
+			env: {} as Cloudflare.Env,
+			loader,
+			name: "fictional",
+			mcpRuntime: {} as never,
+			workspace: {} as never,
+		});
+		await runtime.execute({ code: "async () => native_loader_fixture" });
+		expect(loader.load).toHaveBeenCalledTimes(1);
+		assertPair(spy, "tedi_durable_code", "tedi_durable_authored_invocation");
+	});
+	it("configured native catalog handler and owning callback make no loader calls or events", async () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const loader = fixtureLoader();
+		const ctx = makeServerCtx();
+		ctx.env.LOADER = loader;
+		const config = {
+			transport: "catalog" as const,
+			endpoint: "catalog/search" as const,
+		};
+		const result = await new ToolHandler().execute({ query: "soft" }, {
+			...ctx,
+			config,
+			toolId: "search_catalog",
+			catalogTransport: (
+				...args: Parameters<
+					import("@tedix/api-contract/schemas/tools").CatalogueTransportCallback
+				>
+			) => executeCatalogOperation(ctx, ...args),
+		} as unknown as ToolExecutionContext<typeof config>);
+		expect(result.status).toBe(200);
+		expect(result.data).toHaveProperty("results");
+		expect(loader.load).not.toHaveBeenCalled();
+		expect(loader.get).not.toHaveBeenCalled();
+		expect(loaderEvents(spy)).toEqual([]);
+	});
 });
