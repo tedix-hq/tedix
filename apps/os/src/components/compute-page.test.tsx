@@ -257,7 +257,7 @@ describe("LedgerCard", () => {
 			/>,
 		);
 		expect(html).toContain("$1.25");
-		expect(html).toContain("not part of the amount above");
+		expect(html).toContain("held outside the model-spend amount above");
 	});
 });
 
@@ -496,4 +496,67 @@ describe("compute posture summaries support both composition levels", () => {
 			expect(windowControl!.textContent).toContain(option.label);
 		expect(doc.querySelector(".lg\\:grid-cols-2")).toBeNull();
 	});
+});
+
+describe("model ledger coverage", () => {
+	it("shows held zero and tokens without pricing them into spend", () => {
+		const value = posture();
+		value.spend.rowCount = 12;
+		value.spend.quarantinedRowCount = 2;
+		value.spend.quarantinedTokens = 40;
+		value.spend.quarantinedCostUsd = 0;
+		value.spend.quarantinedKnownSubtotalUsd = 0;
+		value.spend.unpricedRowCount = 2;
+		value.spend.unpricedTokens = 40;
+		value.spend.costCompleteness = "partial";
+		value.spend.costUsd = null;
+		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
+		expect(html).toContain("Model-cost ledger");
+		expect(html).toContain("excludes total infrastructure spend");
+		expect(html).toContain("40 held tokens");
+		expect(html).toContain("Recorded held amount $0");
+		expect(html).toContain("$1.25");
+	});
+	it("retains a known held subtotal when the held total is unknown", () => {
+		const value = posture();
+		value.spend.rowCount = 12;
+		value.spend.quarantinedRowCount = 2;
+		value.spend.quarantinedTokens = 40;
+		value.spend.quarantinedCostUsd = null;
+		value.spend.quarantinedKnownSubtotalUsd = 0.4;
+		value.spend.unpricedRowCount = 2;
+		value.spend.unpricedTokens = 40;
+		value.spend.costCompleteness = "partial";
+		value.spend.costUsd = null;
+		const html = renderToStaticMarkup(<LedgerCard posture={value} />);
+		expect(html).toContain("Held total unknown; known subtotal $0.40");
+		expect(html).toContain("40 held tokens");
+		expect(html).toContain("2 unpriced rows");
+		expect(html).toContain("40 unpriced tokens");
+		expect(html).not.toContain("Recorded held amount");
+	});
+});
+
+it("does not turn an all-held ledger into complete spend", () => {
+	const value = posture();
+	value.spend = {
+		rowCount: 2,
+		totalTokens: 0,
+		costUsd: null,
+		knownSubtotalUsd: 0,
+		pricedRowCount: 0,
+		unpricedRowCount: 2,
+		unpricedTokens: 40,
+		costCompleteness: "unknown",
+		quarantinedCostUsd: null,
+		quarantinedKnownSubtotalUsd: 0,
+		quarantinedTokens: 40,
+		quarantinedRowCount: 2,
+		provenanceFloor: null,
+	};
+	const html = renderToStaticMarkup(<LedgerCard posture={value} />);
+	expect(html).toContain("Held total unknown");
+	expect(html).toContain("0 priced rows");
+	expect(html).toContain("40 held tokens");
+	expect(html).not.toContain("Recorded held amount");
 });

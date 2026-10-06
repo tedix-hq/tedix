@@ -228,7 +228,7 @@ export function LedgerCard({
 		<ComputeSummary embedded={embedded}>
 			<div className="flex flex-wrap items-center gap-2">
 				<Text as="strong" role="body" weight="medium" tone="strong">
-					Cost ledger
+					Model-cost ledger
 				</Text>
 				<Badge variant={TONE_VARIANTS[tone]} data-tone={tone}>
 					{freshnessLabel(posture.freshness.state)}
@@ -254,16 +254,21 @@ export function LedgerCard({
 					{formatCount(posture.freshness.rowsLast30d)} in 30d
 				</Text>
 			)}
+			<Text as="span" role="label" tone="secondary">
+				Organization-attributed model costs · excludes total infrastructure
+				spend. {formatCount(posture.spend.pricedRowCount)} priced rows ·{" "}
+				{formatCount(posture.spend.unpricedRowCount)} unpriced rows ·{" "}
+				{formatCount(posture.spend.unpricedTokens)} unpriced tokens.
+			</Text>
 			{posture.spend.quarantinedRowCount > 0 && (
 				<Text as="span" role="label" tone="secondary">
 					{formatCount(posture.spend.quarantinedRowCount)} row
-					{posture.spend.quarantinedRowCount === 1 ? " is" : "s are"}{" "}
-					quarantined and not part of the amount above,{" "}
+					{posture.spend.quarantinedRowCount === 1 ? " is" : "s are"} held
+					outside the model-spend amount above ·{" "}
+					{formatCount(posture.spend.quarantinedTokens)} held tokens.{" "}
 					{posture.spend.quarantinedCostUsd !== null
-						? `holding ${formatUsd(posture.spend.quarantinedCostUsd)}.`
-						: posture.spend.quarantinedTokens > 0
-							? `holding ${formatCount(posture.spend.quarantinedTokens)} tokens of unknown value.`
-							: "and their value is unknown."}
+						? `Recorded held amount ${formatUsd(posture.spend.quarantinedCostUsd)}.`
+						: `Held total unknown; known subtotal ${formatUsd(posture.spend.quarantinedKnownSubtotalUsd)}.`}
 				</Text>
 			)}
 		</ComputeSummary>
