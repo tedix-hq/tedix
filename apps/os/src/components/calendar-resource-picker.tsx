@@ -125,6 +125,10 @@ export function CalendarResourcePicker({
 				Connected account
 			</Text>
 			<Select
+				items={available.map((row) => ({
+					value: row.connectionInstanceId,
+					label: calendarAccountLabel(row),
+				}))}
 				value={accountId}
 				onValueChange={(value) => setAccountId(value ?? "")}
 				disabled={disabled || accounts.isPending}
