@@ -339,8 +339,14 @@ export async function queueReconciliation(
 	row: Subscription,
 	key: string,
 ) {
-	const current = await loadSubscription(context, row.organizationId, row.id);
-	if (current.status === "disabled") return false;
+	// Ingress callers have already verified the provider channel capability or owner authority.
+	// Read status without projecting personal account metadata to the anonymous provider.
+	const current = await getProviderEventSubscription(
+		context.db,
+		row.organizationId,
+		row.id,
+	);
+	if (!current || current.status === "disabled") return false;
 	const id = await callbackTokenHash(`${row.organizationId}:${row.id}:${key}`);
 	const inserted = await addProviderEventDelivery(context.db, {
 		id,

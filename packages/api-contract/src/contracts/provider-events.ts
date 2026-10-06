@@ -8,13 +8,13 @@ import {
 	ProviderEventStatusSchema,
 } from "../schemas/provider-events";
 export const providerEventsContract = oc
-	.route({ tags: ["providerEvents"], prefix: "/provider-events" })
+	.route({ tags: ["provider-events"], prefix: "/provider-events" })
 	.errors(baseErrors)
 	.router({
 		register: oc
 			.route({
 				method: "POST",
-				path: "/",
+				path: "/subscriptions",
 				summary: "Register provider calendar notifications or explicit polling",
 			})
 			.input(ProviderEventRegisterSchema)
@@ -22,7 +22,7 @@ export const providerEventsContract = oc
 		list: oc
 			.route({
 				method: "GET",
-				path: "/",
+				path: "/subscriptions",
 				summary: "List calendar event subscriptions",
 			})
 			.input(z.object({}).strict())
