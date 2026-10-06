@@ -41,7 +41,7 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 }));
 import { providerEventsContractRouter } from "./provider-events";
 import { resolveProviderEventCredential } from "../../services/provider-events/credentials";
-const id = "747fa260-ef68-4156-a8b0-f70375997f9a";
+const id = "11111111-1111-4111-8111-111111111111";
 function context(scopes = ["integrations:manage"]): BaseContext {
 	return {
 		authType: "apikey",

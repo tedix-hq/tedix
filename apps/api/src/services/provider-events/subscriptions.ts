@@ -52,8 +52,41 @@ export async function registerSubscription(
 	input: ProviderEventRegister,
 ) {
 	const now = new Date().toISOString();
+	const personal = input.connectionScope === "user";
+	if (
+		personal &&
+		(!input.personalDelegation ||
+			context.authType !== "user" ||
+			!context.user?.sub ||
+			context.tediId)
+	)
+		throw new Error(
+			"Personal subscription installation requires its authenticated account owner and exact consent",
+		);
+	if (
+		!personal &&
+		(input.personalDelegation || input.resourceDelegationIds?.length)
+	)
+		throw new Error(
+			"Personal consent cannot be attached to an organization subscription",
+		);
+	const { personalDelegation, resourceDelegationIds, ...registration } = input;
 	const row: Subscription = {
-		...input,
+		...registration,
+		connectionScope: personal ? "user" : "tenant",
+		personalOwnerUserId: personal ? context.user!.sub! : null,
+		workspaceId: personalDelegation?.workspaceId ?? null,
+		workspaceResourceId: personalDelegation?.resourceId ?? null,
+		delegationId: personalDelegation?.delegationId ?? null,
+		executionToolId: personalDelegation?.toolId ?? null,
+		resourceDelegationIds: personal
+			? [
+					...new Set([
+						personalDelegation!.delegationId,
+						...(resourceDelegationIds ?? []),
+					]),
+				]
+			: [],
 		id: crypto.randomUUID(),
 		organizationId,
 		connectionInstanceId: input.connectionInstanceId,
@@ -67,13 +100,21 @@ export async function registerSubscription(
 		createdAt: now,
 		updatedAt: now,
 	};
-	// Validate existing vault ownership before persisting a standing automation.
-	const token = await resolveProviderEventCredential(context, row);
-	await adapterFor(row.adapter).validateCalendar(token, row);
+	// A personal standing lease is validated from its exact persisted pending record.
+	// Pending rows do not admit provider callbacks or execution until validation succeeds.
+	let token: string;
+	if (!personal) {
+		token = await resolveProviderEventCredential(context, row);
+		await adapterFor(row.adapter).validateCalendar(token, row);
+	}
 	await createProviderEventSubscription(context.db, row);
 	try {
+		if (personal) {
+			token = await resolveProviderEventCredential(context, row);
+			await adapterFor(row.adapter).validateCalendar(token, row);
+		}
 		if (row.deliveryMode === "push")
-			await renewSubscription(context, row, token);
+			await renewSubscription(context, row, token!);
 		else
 			await updateProviderEventSubscription(
 				context.db,
