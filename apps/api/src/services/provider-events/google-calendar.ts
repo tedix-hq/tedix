@@ -7,7 +7,7 @@ export function googleCalendarAdapter(
 		async validateCalendar(token, subscription) {
 			const result = await requireProviderResponse(
 				await request(
-					`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(subscription.calendarId)}`,
+					`https://www.googleapis.com/calendar/v3/users/me/calendarList/${encodeURIComponent(subscription.calendarId)}`,
 					{
 						headers: { Authorization: `Bearer ${token}` },
 						signal: AbortSignal.timeout(15_000),

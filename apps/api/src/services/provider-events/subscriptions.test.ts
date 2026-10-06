@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	stop: vi.fn(),
 	emit: vi.fn(),
 	standing: vi.fn(),
+	authorize: vi.fn(),
 	run: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/provider-events", () => ({
@@ -44,6 +45,7 @@ vi.mock("./google-calendar", () => ({
 }));
 vi.mock("../personal-resource-delegation-authority", () => ({
 	resolvePersonalSubscriptionCredential: mocks.standing,
+	authorizePersonalResourceDelegation: mocks.authorize,
 }));
 vi.mock("../../rpc/routers/cognitive-skill-runs", () => ({
 	skillsRunWorkflow: {},
@@ -67,6 +69,7 @@ import {
 	dispatchProviderEventDeliveries,
 	queueReconciliation,
 	reconciliationEvent,
+	loadSubscription,
 } from "./subscriptions";
 const id = "11111111-1111-4111-8111-111111111111";
 const context = { db: {}, env: { API_URL: "https://api.test" } } as BaseContext;
@@ -110,6 +113,7 @@ beforeEach(() => {
 		row = value;
 	});
 	mocks.credential.mockResolvedValue("vault-token");
+	mocks.stop.mockResolvedValue(undefined);
 	mocks.register.mockImplementation(async (_token, _row, channelId) => ({
 		providerChannelId: channelId,
 		resourceId: "google-resource",
@@ -354,4 +358,54 @@ describe("personal notification dispatch", () => {
 		expect(mocks.run).not.toHaveBeenCalled();
 		expect(mocks.emit).not.toHaveBeenCalled();
 	});
+});
+
+it("allows only the exact admitted worker to read a personal subscription", async () => {
+	row = {
+		...row,
+		connectionScope: "user",
+		personalOwnerUserId: "owner",
+		workspaceId: id,
+		workspaceResourceId: id,
+		delegationId: id,
+		executionToolId: "reconcile_calendar_subscription",
+		resourceDelegationIds: [id],
+	};
+	const worker = {
+		...context,
+		authType: "service-binding",
+		tediId: id,
+		organizationId: "org-a",
+		headers: new Headers({
+			"X-Tedix-Mcp-Tool-Id": "reconcile_calendar_subscription",
+		}),
+	} as BaseContext;
+	mocks.authorize.mockResolvedValue({ ownerUserId: "owner" });
+	expect((await loadSubscription(worker, "org-a", id)).id).toBe(id);
+	expect(mocks.authorize).toHaveBeenCalledWith(
+		worker,
+		expect.objectContaining({
+			delegationId: id,
+			operation: "subscribe",
+			toolId: "reconcile_calendar_subscription",
+			providerResourceId: "selected",
+		}),
+	);
+	mocks.authorize.mockRejectedValue(new Error("No admitted run"));
+	await expect(loadSubscription(worker, "org-a", id)).rejects.toThrow(
+		"No admitted run",
+	);
+});
+it("stops the newly created channel when consent changes during provider registration", async () => {
+	mocks.credential.mockRejectedValue(new Error("Consent revoked"));
+	await expect(renewSubscription(context, row, "prior-token")).rejects.toThrow(
+		"Consent revoked",
+	);
+	expect(mocks.stop).toHaveBeenCalled();
+	expect(mocks.update).not.toHaveBeenCalledWith(
+		expect.anything(),
+		expect.anything(),
+		expect.anything(),
+		expect.objectContaining({ status: "active" }),
+	);
 });

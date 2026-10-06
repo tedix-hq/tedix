@@ -63,8 +63,8 @@ it("validates selected calendar before standing monitoring", async () => {
 	await googleCalendarAdapter(request).validateCalendar("vault", {
 		calendarId: "a@example.com",
 	} as Subscription);
-	expect(request.mock.calls[0][0]).toContain(
-		encodeURIComponent("a@example.com"),
+	expect(request.mock.calls[0][0]).toBe(
+		"https://www.googleapis.com/calendar/v3/users/me/calendarList/a%40example.com",
 	);
 	request.mockResolvedValue(Response.json({ id: "another-calendar" }));
 	await expect(
