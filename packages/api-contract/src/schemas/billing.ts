@@ -305,7 +305,59 @@ export type SetBillingServiceCreditControlsResponse = z.infer<
 	typeof SetBillingServiceCreditControlsResponseSchema
 >;
 
-export const BillingOverviewSchema = z.object({
+const WorkstationCoverageGroupSchema = z
+	.object({
+		rowCount: z.number().int().nonnegative().safe(),
+		leaseSeconds: z.number().int().nonnegative().safe(),
+	})
+	.strict();
+
+/** Recorded lease-end observations, never an invoice or complete compute bill. */
+export const WorkstationCostCoverageSchema = z
+	.object({
+		periodStart: z.iso.datetime(),
+		periodEnd: z.iso.datetime(),
+		observedAt: z.iso.datetime(),
+		unit: z.literal("compute_seconds"),
+		basis: z.literal("recorded_lease_end_wall_clock"),
+		status: z.enum(["none", "partial", "recorded_rows_reconciled"]),
+		knownAttributedCostMicros: z.number().int().nonnegative().safe().nullable(),
+		total: WorkstationCoverageGroupSchema,
+		reconciled: WorkstationCoverageGroupSchema,
+		pending: WorkstationCoverageGroupSchema,
+		unproven: WorkstationCoverageGroupSchema,
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		const groups = [value.reconciled, value.pending, value.unproven];
+		const rows = groups.reduce((n, group) => n + group.rowCount, 0);
+		const seconds = groups.reduce((n, group) => n + group.leaseSeconds, 0);
+		const status =
+			value.total.rowCount === 0
+				? "none"
+				: value.reconciled.rowCount === value.total.rowCount
+					? "recorded_rows_reconciled"
+					: "partial";
+		if (
+			Date.parse(value.periodStart) >= Date.parse(value.periodEnd) ||
+			rows !== value.total.rowCount ||
+			seconds !== value.total.leaseSeconds ||
+			!Number.isSafeInteger(rows) ||
+			!Number.isSafeInteger(seconds) ||
+			value.status !== status ||
+			(value.reconciled.rowCount === 0) !==
+				(value.knownAttributedCostMicros === null) ||
+			groups.some((group) => group.rowCount === 0 && group.leaseSeconds !== 0)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				message: "Inconsistent recorded workstation cost coverage",
+			});
+		}
+	});
+
+const BillingOverviewFieldsSchema = z.object({
+	workstationCostCoverage: WorkstationCostCoverageSchema,
 	stripeEnvironment: StripeEnvironmentSchema,
 	snapshot: BillingBalanceSnapshotSchema,
 	plan: z.object({
@@ -459,6 +511,21 @@ export const BillingOverviewSchema = z.object({
 		seo: BillingServiceCreditSnapshotSchema.nullable(),
 	}),
 });
+export const BillingOverviewSchema = BillingOverviewFieldsSchema.superRefine(
+	(value, ctx) => {
+		if (
+			Date.parse(value.workstationCostCoverage.periodStart) !==
+				Date.parse(value.snapshot.periodStart) ||
+			Date.parse(value.workstationCostCoverage.periodEnd) !==
+				Date.parse(value.snapshot.periodEnd)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["workstationCostCoverage"],
+				message: "Workstation coverage must use the canonical billing period",
+			});
+	},
+);
 export type BillingOverview = z.infer<typeof BillingOverviewSchema>;
 
 // Records only: these facts do not settle UNKNOWN liability or authorize execution.

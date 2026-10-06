@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
 	BillingOverviewSchema,
+	WorkstationCostCoverageSchema,
 	CreateInferenceCapacityCheckoutInputSchema,
 	InferenceCapacityPackSchema,
 	RecordVoiceProviderUsageInputSchema,
@@ -117,6 +118,19 @@ describe("daily inference capacity schemas", () => {
 	test("projects one UTC budget day without conflating per-tedi policy", () => {
 		const result = BillingOverviewSchema.safeParse({
 			stripeEnvironment: "test",
+			workstationCostCoverage: {
+				periodStart: "2026-08-01T00:00:00.000Z",
+				periodEnd: "2026-09-01T00:00:00.000Z",
+				observedAt: "2026-09-20T00:00:00.000Z",
+				unit: "compute_seconds",
+				basis: "recorded_lease_end_wall_clock",
+				status: "partial",
+				knownAttributedCostMicros: 2000000,
+				total: { rowCount: 3, leaseSeconds: 300 },
+				reconciled: { rowCount: 1, leaseSeconds: 100 },
+				pending: { rowCount: 1, leaseSeconds: 100 },
+				unproven: { rowCount: 1, leaseSeconds: 100 },
+			},
 			snapshot: {
 				status: "active",
 				billingMode: "stripe",
@@ -175,6 +189,22 @@ describe("daily inference capacity schemas", () => {
 			serviceCredits: { seo: null },
 		});
 		expect(result.success).toBe(true);
+		if (result.success) {
+			const { workstationCostCoverage: _coverage, ...withoutCoverage } =
+				result.data;
+			expect(BillingOverviewSchema.safeParse(withoutCoverage).success).toBe(
+				false,
+			);
+			expect(
+				BillingOverviewSchema.safeParse({
+					...result.data,
+					workstationCostCoverage: {
+						...result.data.workstationCostCoverage,
+						periodStart: "2026-07-01T00:00:00.000Z",
+					},
+				}).success,
+			).toBe(false);
+		}
 	});
 });
 
@@ -425,4 +455,50 @@ describe("explicit finite authorization schemas", () => {
 		).toBe(false);
 		expect(S.safeParse({ ...revoke, kind: "revocation" }).success).toBe(false);
 	});
+});
+
+describe("recorded workstation cost coverage", () => {
+	const valid = {
+		periodStart: "2026-09-01T00:00:00.000Z",
+		periodEnd: "2026-10-01T00:00:00.000Z",
+		observedAt: "2026-09-20T00:00:00.000Z",
+		unit: "compute_seconds",
+		basis: "recorded_lease_end_wall_clock",
+		status: "partial",
+		knownAttributedCostMicros: 2000000,
+		total: { rowCount: 3, leaseSeconds: 300 },
+		reconciled: { rowCount: 1, leaseSeconds: 100 },
+		pending: { rowCount: 1, leaseSeconds: 100 },
+		unproven: { rowCount: 1, leaseSeconds: 100 },
+	};
+	test("keeps pending/unproven outside the known subtotal", () => {
+		expect(WorkstationCostCoverageSchema.parse(valid)).toEqual(valid);
+	});
+	test("accepts evidenced zero, not pending zero", () => {
+		expect(
+			WorkstationCostCoverageSchema.safeParse({
+				...valid,
+				knownAttributedCostMicros: 0,
+			}).success,
+		).toBe(true);
+		expect(
+			WorkstationCostCoverageSchema.safeParse({
+				...valid,
+				knownAttributedCostMicros: null,
+			}).success,
+		).toBe(false);
+	});
+	for (const patch of [
+		{ total: { rowCount: 4, leaseSeconds: 300 } },
+		{ status: "recorded_rows_reconciled" },
+		{ knownAttributedCostMicros: -1 },
+		{ knownAttributedCostMicros: Number.MAX_SAFE_INTEGER + 1 },
+		{ periodEnd: valid.periodStart },
+		{ unit: "seconds" },
+	])
+		test(`refuses inconsistent coverage ${JSON.stringify(patch)}`, () => {
+			expect(
+				WorkstationCostCoverageSchema.safeParse({ ...valid, ...patch }).success,
+			).toBe(false);
+		});
 });

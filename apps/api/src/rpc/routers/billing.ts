@@ -1,3 +1,4 @@
+import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-usage";
 /**
  * Billing Router
  * Stripe Checkout, Customer Portal, and canonical billing overview
@@ -608,6 +609,14 @@ const getOverviewContract = os.getOverview
 				message: "Billing account is not configured",
 			});
 		}
+		const workstationCostCoverage = await getWorkstationCostCoverage(
+			context.db,
+			{
+				organizationId,
+				periodStart: snapshot.periodStart,
+				periodEnd: snapshot.periodEnd,
+			},
+		);
 		const period = await getBillingUsagePeriod(
 			context.db,
 			organizationId,
@@ -692,6 +701,7 @@ const getOverviewContract = os.getOverview
 		nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
 		return {
 			stripeEnvironment,
+			workstationCostCoverage,
 			snapshot: {
 				status: snapshot.status,
 				billingMode: snapshot.billingMode,

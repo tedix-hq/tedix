@@ -308,6 +308,63 @@ export function BillingUsageOverview({
 					description={`${formatTokens(usageQuery.data.totals.pricedRowCount)} priced rows · ${formatTokens(usageQuery.data.totals.unpricedRowCount)} unpriced rows`}
 				/>
 			</MetricGrid>
+			<Card tone="raised">
+				<CardHeader>
+					<CardTitle>Reconciled workstation cost</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-2">
+					<Text role="metric">
+						{overview.workstationCostCoverage.knownAttributedCostMicros === null
+							? "Unknown"
+							: formatCost(
+									overview.workstationCostCoverage.knownAttributedCostMicros /
+										1_000_000,
+								)}
+					</Text>
+					<Text tone="secondary">
+						Allocated share of recorded provider cost · separate from model cost
+						and customer charges.
+					</Text>
+					<Text>
+						{overview.workstationCostCoverage.reconciled.rowCount} reconciled
+						rows ·{" "}
+						{overview.workstationCostCoverage.reconciled.leaseSeconds.toLocaleString()}{" "}
+						lease seconds
+					</Text>
+					<Text>
+						{overview.workstationCostCoverage.pending.rowCount} pending rows ·{" "}
+						{overview.workstationCostCoverage.pending.leaseSeconds.toLocaleString()}{" "}
+						lease seconds
+					</Text>
+					<Text>
+						{overview.workstationCostCoverage.unproven.rowCount} unproven rows ·{" "}
+						{overview.workstationCostCoverage.unproven.leaseSeconds.toLocaleString()}{" "}
+						lease seconds
+					</Text>
+					<Text tone="secondary">
+						Lease-end observations in this billing period. Wall-clock lease
+						duration is a proxy, not active container time. Pending stored zero
+						does not mean free.
+					</Text>
+					<Text tone="secondary">
+						{overview.workstationCostCoverage.status === "none"
+							? "No recorded workstation usage."
+							: overview.workstationCostCoverage.status ===
+								  "recorded_rows_reconciled"
+								? "All recorded rows reconciled."
+								: "Recorded rows partially reconciled."}{" "}
+						Coverage excludes unrecorded leases and does not establish an
+						invoice or total infrastructure spend.
+					</Text>
+					<Text role="label" tone="secondary">
+						Observed{" "}
+						{new Date(
+							overview.workstationCostCoverage.observedAt,
+						).toISOString()}
+					</Text>
+				</CardContent>
+			</Card>
+
 			<Suspense
 				fallback={
 					<div className="grid gap-4 lg:grid-cols-2">

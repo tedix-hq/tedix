@@ -4401,6 +4401,19 @@ const handlers: Record<string, (input: never) => unknown> = {
 	}),
 	"billing/getOverview": () => ({
 		stripeEnvironment: "test" as const,
+		workstationCostCoverage: {
+			periodStart: T1,
+			periodEnd: new Date(Date.parse(T1) + 30 * 86_400_000).toISOString(),
+			observedAt: T1,
+			unit: "compute_seconds",
+			basis: "recorded_lease_end_wall_clock",
+			status: "partial",
+			knownAttributedCostMicros: 2000000,
+			total: { rowCount: 3, leaseSeconds: 300 },
+			reconciled: { rowCount: 1, leaseSeconds: 100 },
+			pending: { rowCount: 1, leaseSeconds: 100 },
+			unproven: { rowCount: 1, leaseSeconds: 100 },
+		} as const,
 		snapshot: {
 			status: "active" as const,
 			billingMode: "trial" as const,

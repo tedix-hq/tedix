@@ -343,3 +343,138 @@ export async function applyWorkstationComputeCostAllocation(
 	}
 	return updated;
 }
+
+export interface WorkstationCostCoverageResult {
+	periodStart: string;
+	periodEnd: string;
+	observedAt: string;
+	unit: "compute_seconds";
+	basis: "recorded_lease_end_wall_clock";
+	status: "none" | "partial" | "recorded_rows_reconciled";
+	knownAttributedCostMicros: number | null;
+	total: { rowCount: number; leaseSeconds: number };
+	reconciled: { rowCount: number; leaseSeconds: number };
+	pending: { rowCount: number; leaseSeconds: number };
+	unproven: { rowCount: number; leaseSeconds: number };
+}
+
+/** SQLite date parsing alone accepts non-ISO strings. Keep stored allocation
+ * evidence closed to explicit timestamp syntax before comparing instants. */
+function allocationTimestamp(column: "allocation_start" | "allocation_end") {
+	const v = sql.raw(column);
+	return sql`(${v} GLOB '????-??-??T??:??:??*'
+ AND (substr(${v},1,4) || substr(${v},6,2) || substr(${v},9,2) || substr(${v},12,2) || substr(${v},15,2) || substr(${v},18,2)) NOT GLOB '*[^0-9]*'
+ AND date(substr(${v},1,10), '+0 days') = substr(${v},1,10)
+ AND CAST(substr(${v},12,2) AS INTEGER) BETWEEN 0 AND 23
+ AND CAST(substr(${v},15,2) AS INTEGER) BETWEEN 0 AND 59
+ AND CAST(substr(${v},18,2) AS INTEGER) BETWEEN 0 AND 59
+ AND (CASE WHEN substr(${v},-1) = 'Z' THEN
+ (length(${v}) = 20 OR (length(${v}) > 21 AND substr(${v},20,1) = '.' AND substr(${v},21,length(${v})-21) NOT GLOB '*[^0-9]*'))
+ ELSE (substr(${v},-6,1) IN ('+','-') AND substr(${v},-3,1) = ':'
+ AND (substr(${v},-5,2) || substr(${v},-2,2)) NOT GLOB '*[^0-9]*'
+ AND CAST(substr(${v},-5,2) AS INTEGER) BETWEEN 0 AND 23
+ AND CAST(substr(${v},-2,2) AS INTEGER) BETWEEN 0 AND 59
+ AND (length(${v}) = 25 OR (length(${v}) > 26 AND substr(${v},20,1) = '.' AND substr(${v},21,length(${v})-26) NOT GLOB '*[^0-9]*'))) END))`;
+}
+
+/** One scoped aggregate: no allocation, price reconstruction or financial writes.
+ * Lease-end timestamps select the window; seconds are a wall-clock proxy.
+ * Evidence establishes stored allocation consistency, not invoice verification.
+ */
+export async function getWorkstationCostCoverage(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		periodStart: string;
+		periodEnd: string;
+	},
+): Promise<WorkstationCostCoverageResult> {
+	const start = Date.parse(input.periodStart),
+		end = Date.parse(input.periodEnd);
+	if (
+		!input.organizationId.trim() ||
+		!Number.isFinite(start) ||
+		!Number.isFinite(end) ||
+		start >= end
+	)
+		throw new Error("Invalid workstation coverage window or organization");
+	const periodStart = new Date(start).toISOString(),
+		periodEnd = new Date(end).toISOString();
+	const rows = await db.all(sql`
+ WITH scoped AS (
+ SELECT quantity, provider_cost_micros AS cost, provider_cost_quality AS quality, occurred_at AS occurred,
+ CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata) = 'object' THEN metadata ELSE '{}' END ELSE '{}' END AS evidence
+ FROM billing_provider_usage WHERE organization_id = ${input.organizationId}
+ AND occurred_at >= ${periodStart} AND occurred_at < ${periodEnd}
+ AND usage_kind = 'workstation_compute' AND provider = 'cloudflare' AND unit = 'compute_seconds'
+ ), fields AS (
+ SELECT *, json_extract(evidence, '$.allocation.chargePeriod') AS charge_period,
+ json_extract(evidence, '$.allocation.chargeTotalMicros') AS charge_total,
+ json_extract(evidence, '$.allocation.shareBasisPoints') AS share,
+ CASE WHEN typeof(quantity) = 'integer' AND quantity BETWEEN 0 AND 9007199254740991
+ AND typeof(cost) = 'integer' AND cost BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END AS numeric_ok
+ FROM scoped
+ ), periods AS (
+ SELECT *, substr(charge_period, 1, instr(charge_period, '..') - 1) AS allocation_start,
+ substr(charge_period, instr(charge_period, '..') + 2) AS allocation_end FROM fields
+ ), classified AS (
+ SELECT *, CASE WHEN quality = 'provider_reconciled'
+ AND json_type(evidence, '$.pricingStatus') = 'text' AND json_extract(evidence, '$.pricingStatus') = 'allocated'
+ AND json_type(evidence, '$.allocation') = 'object'
+ AND json_extract(evidence, '$.allocation.basis') = 'workstation_lease_wall_clock_share'
+ AND json_type(evidence, '$.allocation.chargeSourceRef') = 'text' AND length(trim(json_extract(evidence, '$.allocation.chargeSourceRef'), char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0
+ AND json_type(evidence, '$.allocation.chargePeriod') = 'text' AND instr(charge_period, '..') > 0 AND instr(allocation_end, '..') = 0
+ AND ${allocationTimestamp("allocation_start")} AND ${allocationTimestamp("allocation_end")}
+ AND julianday(allocation_start) < julianday(allocation_end)
+ AND julianday(occurred) >= julianday(allocation_start) AND julianday(occurred) < julianday(allocation_end)
+ AND json_type(evidence, '$.allocation.chargeTotalMicros') = 'integer' AND charge_total BETWEEN 0 AND 9007199254740991 AND cost <= charge_total
+ AND json_type(evidence, '$.allocation.shareBasisPoints') = 'integer' AND share BETWEEN 0 AND 10000
+ THEN 'reconciled' WHEN quality = 'estimated' THEN 'pending' ELSE 'unproven' END AS category
+ FROM periods
+ )
+ SELECT COUNT(*) AS total_rows,
+ COALESCE(SUM(CASE WHEN numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS total_seconds,
+ COALESCE(SUM(CASE WHEN numeric_ok = 0 THEN 1 ELSE 0 END), 0) AS invalid_rows,
+ COALESCE(SUM(CASE WHEN category = 'reconciled' THEN 1 ELSE 0 END), 0) AS reconciled_rows,
+ COALESCE(SUM(CASE WHEN category = 'reconciled' AND numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS reconciled_seconds,
+ COALESCE(SUM(CASE WHEN category = 'reconciled' AND numeric_ok = 1 THEN cost ELSE 0 END), 0) AS reconciled_cost,
+ COALESCE(SUM(CASE WHEN category = 'pending' THEN 1 ELSE 0 END), 0) AS pending_rows,
+ COALESCE(SUM(CASE WHEN category = 'pending' AND numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS pending_seconds,
+ COALESCE(SUM(CASE WHEN category = 'unproven' THEN 1 ELSE 0 END), 0) AS unproven_rows,
+ COALESCE(SUM(CASE WHEN category = 'unproven' AND numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS unproven_seconds
+ FROM classified`);
+	const row = rows[0] as Record<string, unknown> | undefined;
+	if (
+		!row ||
+		Object.values(row).some(
+			(value) =>
+				typeof value !== "number" || !Number.isSafeInteger(value) || value < 0,
+		) ||
+		row.invalid_rows !== 0
+	)
+		throw new Error("Unsafe workstation usage numeric evidence");
+	const n = (key: string) => row[key] as number;
+	const group = (prefix: string) => ({
+		rowCount: n(`${prefix}_rows`),
+		leaseSeconds: n(`${prefix}_seconds`),
+	});
+	return {
+		periodStart,
+		periodEnd,
+		observedAt: new Date().toISOString(),
+		unit: "compute_seconds",
+		basis: "recorded_lease_end_wall_clock",
+		status:
+			n("total_rows") === 0
+				? "none"
+				: n("total_rows") === n("reconciled_rows")
+					? "recorded_rows_reconciled"
+					: "partial",
+		knownAttributedCostMicros:
+			n("reconciled_rows") === 0 ? null : n("reconciled_cost"),
+		total: group("total"),
+		reconciled: group("reconciled"),
+		pending: group("pending"),
+		unproven: group("unproven"),
+	};
+}
