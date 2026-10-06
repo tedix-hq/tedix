@@ -128,9 +128,7 @@ describe("focused review app", () => {
 			editedReply: "Second draft",
 			reason: "",
 		});
-		expect(container.textContent).toContain(
-			"Feedback saved. Nothing was posted.",
-		);
+		expect(container.textContent).toContain("Nothing was posted.");
 		expect(container.textContent).toContain("1 of 2 reviewed");
 		expect(queueItem("Hostile thread").textContent).toContain("Saved · Skip");
 	});
@@ -165,10 +163,10 @@ describe("focused review app", () => {
 			resolveSave({ feedback: { revision: 1 } });
 			await tick();
 		});
-		expect(container.textContent).toContain("Feedback saved.");
+		expect(container.textContent).toContain("Feedback saved at");
 		await click(button("Skip", "article"));
 		expect(container.textContent).toContain("Unsaved changes");
-		expect(container.textContent).not.toContain("Feedback saved.");
+		expect(container.textContent).not.toContain("Feedback saved at");
 	});
 
 	it("keeps the reviewer's text on a conflict and saves against the latest revision", async () => {
@@ -216,9 +214,7 @@ describe("focused review app", () => {
 				editedReply: "My edited reply",
 			}),
 		);
-		expect(container.textContent).toContain(
-			"Feedback saved. Nothing was posted.",
-		);
+		expect(container.textContent).toContain("Nothing was posted.");
 	});
 
 	it("filters the queue and moves selection with the arrow keys", async () => {
@@ -263,6 +259,42 @@ describe("focused review app", () => {
 		expect(container.querySelector("article h3")?.textContent).toBe(
 			"Hostile thread",
 		);
+	});
+
+	it("shows a visible saved state instead of re-saving unchanged feedback", async () => {
+		api.get.mockResolvedValue({
+			batch,
+			feedback: [
+				{
+					cardId: "card",
+					reviewerId: "me",
+					decision: "needs_checking",
+					editedReply: "Original draft",
+					reason: "Operator test",
+					revision: 2,
+					updatedAt: "2026-10-06T13:00:00Z",
+				},
+			],
+		});
+		api.saveFeedback.mockResolvedValue({
+			feedback: { revision: 3, updatedAt: "2026-10-06T14:00:00Z" },
+		});
+		const { container, button, buttons, click } = await render();
+		const saveButton = () =>
+			buttons().find((b) =>
+				/^(Save feedback|Saved|Saving…)$/.test(b.textContent!.trim()),
+			);
+		expect(saveButton()?.textContent?.trim()).toBe("Saved");
+		expect(saveButton()?.disabled).toBe(true);
+		await click(button("Looks good", "article"));
+		expect(saveButton()?.textContent?.trim()).toBe("Save feedback");
+		expect(saveButton()?.disabled).toBe(false);
+		await click(saveButton());
+		expect(api.saveFeedback).toHaveBeenCalledWith(
+			expect.objectContaining({ expectedRevision: 2, decision: "ready" }),
+		);
+		expect(saveButton()?.textContent?.trim()).toBe("Saved");
+		expect(container.textContent).toContain("Feedback saved at");
 	});
 
 	it("does not fall back to arbitrary widget tools on access failure", async () => {
