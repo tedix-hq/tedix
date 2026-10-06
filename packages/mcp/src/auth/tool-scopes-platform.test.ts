@@ -5,6 +5,38 @@ import {
 } from "./tool-scopes";
 
 describe("platform control-plane tool scopes", () => {
+	it.each(["preview", "check", "run"])(
+		"keeps catalog schema %s behind explicit platform authority",
+		(operation) => {
+			const tool = {
+				toolId: "operator__schema_sync",
+				toolTypeId: "rpc",
+				config: { endpoint: `toolSchemaSync/${operation}` },
+				authRequired: true,
+			};
+			expect(resolveMcpToolRequiredScopes(tool, "operator", undefined)).toEqual(
+				["platform:admin"],
+			);
+			expect(
+				isMcpToolVisibleToCaller(tool, "operator", undefined, {
+					authType: "oauth",
+					scopes: ["platform:admin"],
+				}),
+			).toBe(true);
+			for (const scope of [
+				"mcp:apps.read",
+				"mcp:apps.write",
+				"mcp:apps.admin",
+			]) {
+				expect(
+					isMcpToolVisibleToCaller(tool, "operator", undefined, {
+						authType: "oauth",
+						scopes: [scope],
+					}),
+				).toBe(false);
+			}
+		},
+	);
 	it("lets OS authors revise workspace resources without app administration", () => {
 		for (const name of [
 			"revise_os_output",

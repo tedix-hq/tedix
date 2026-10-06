@@ -97,6 +97,11 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/listAudit": "mcp:messaging.read",
 	"mcpHealth/run": "mcp:observe.write",
 	"mcpEval/run": "platform:admin",
+	// Contract projection can change the fleet tool catalog, including internal
+	// procedures. Keep its operator route platform-only through org aliases.
+	"toolSchemaSync/preview": "platform:admin",
+	"toolSchemaSync/check": "platform:admin",
+	"toolSchemaSync/run": "platform:admin",
 	// The API's billing guards cannot substitute for the MCP edge gate when
 	// invoked through its service binding. Mutating account/policy authority
 	// therefore remains platform-only until a dedicated payment grant exists.
