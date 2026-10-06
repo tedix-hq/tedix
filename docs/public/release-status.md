@@ -4,7 +4,7 @@ sidebar:
 title: "Release status"
 topic: "Reference"
 resource_type: reference
-description: "What is available today: the private source preview, invited Cloud beta, CLI, and experimental self-hosting."
+description: "What is available today: public source, invited Cloud beta, CLI, and experimental self-hosting."
 summary: "The single place that states Tedix availability and release policy"
 read_when:
   - Checking what Tedix offers today
@@ -20,20 +20,19 @@ instead of repeating it.
 
 ## Available today
 
-| Surface      | Status             | What it means                                                                                                          |
-| ------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Source       | Private preview    | Available to invited testers. The public product repository has not launched; anonymous GitHub access is unavailable.  |
-| Local mode   | Preview            | From a preview checkout, `bun run-local` starts OS, onboarding, API/MCP and isolated persistence without model calls.  |
-| Tedix CLI    | Public beta        | Checksum-verified downloads from [`downloads.tedix.dev`](https://downloads.tedix.dev/latest.json).                     |
-| Tedix Cloud  | Invited Cloud beta | The managed service. Access is by invitation; an approved user can create their own organization.                      |
-| Self-hosting | Experimental       | Deployment tooling exists; current `main` is not certified for a fresh account and has no upgrade or backup guarantee. |
+| Surface      | Status             | What it means                                                                                                                |
+| ------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Source       | Public             | [tedix-hq/tedix](https://github.com/tedix-hq/tedix) on GitHub. `main` is the source line; anyone can clone, read and run it. |
+| Local mode   | Preview            | From a checkout, `bun run-local` starts OS, onboarding, API/MCP and isolated persistence without model calls.                |
+| Tedix CLI    | Public beta        | Checksum-verified downloads from [`downloads.tedix.dev`](https://downloads.tedix.dev/latest.json).                           |
+| Tedix Cloud  | Invited Cloud beta | The managed service. Access is by invitation; an approved user can create their own organization.                            |
+| Self-hosting | Experimental       | Deployment tooling exists; current `main` is not certified for a fresh account and has no upgrade or backup guarantee.       |
 
 ## Releases
 
-The CLI ships versioned `cli-v*` releases. Public source publication is still
-pending. Product `main` is the source line and fixes land as ordinary commits.
-There are no nightly, candidate, or long-term-support
-channels.
+The CLI ships versioned `cli-v*` releases. Product `main` is the source line
+and fixes land as ordinary commits. There are no nightly, candidate, or
+long-term-support channels.
 
 Tedix Cloud builds from product `main` plus private operational configuration:
 credentials, live account settings, and runbooks. Publication changes source

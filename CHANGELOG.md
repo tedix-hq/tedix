@@ -4,7 +4,7 @@ Human release notes for the Tedix source repository. Each tagged release also
 carries machine-generated notes built from its conventional commits
 (`bun run release:notes`). The standalone CLI has its own `cli-v*` releases.
 
-## v0.1.0-beta.1 (unreleased)
+## v0.1.0-beta.1 (6 October 2026)
 
 The first public source release of Tedix, a system for running AI workers you
 can hold accountable. A **tedi** is a durable worker. It has its own identity
