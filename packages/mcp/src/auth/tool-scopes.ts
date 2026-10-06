@@ -97,6 +97,10 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/listAudit": "mcp:messaging.read",
 	"mcpHealth/run": "mcp:observe.write",
 	"mcpEval/run": "platform:admin",
+	// Recovery for a wedged or quarantined Agent-runtime tedi. The API also
+	// requires platform authority; the exact endpoint keeps aliases from
+	// borrowing any broader tedi grant.
+	"tedis/rebind": "platform:admin",
 	// Contract projection can change the fleet tool catalog, including internal
 	// procedures. Keep its operator route platform-only through org aliases.
 	"toolSchemaSync/preview": "platform:admin",
