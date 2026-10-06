@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
 	validate: vi.fn(),
 	stop: vi.fn(),
 	emit: vi.fn(),
+	standing: vi.fn(),
+	run: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/provider-events", () => ({
 	createProviderEventSubscription: mocks.create,
@@ -40,14 +42,23 @@ vi.mock("./google-calendar", () => ({
 		validateCalendar: mocks.validate,
 	}),
 }));
+vi.mock("../personal-resource-delegation-authority", () => ({
+	resolvePersonalSubscriptionCredential: mocks.standing,
+}));
+vi.mock("../../rpc/routers/cognitive-skill-runs", () => ({
+	skillsRunWorkflow: {},
+}));
 vi.mock("../../rpc/routers/cognitive-runtime", () => ({
 	cognitiveRuntimeContractRouter: {},
 }));
 vi.mock("../../rpc/routers/kernel/runtime-shared", () => ({
-	buildInternalServiceBindingContext: () => ({}),
+	buildInternalServiceBindingContext: (base: unknown) => base,
 }));
 vi.mock("@orpc/server", () => ({
-	createRouterClient: () => ({ emitAutomationEvent: mocks.emit }),
+	createRouterClient: () => ({
+		emitAutomationEvent: mocks.emit,
+		runWorkflow: mocks.run,
+	}),
 }));
 import {
 	registerSubscription,
@@ -297,5 +308,50 @@ describe("durable dispatch authority and retries", () => {
 		row.status = "disabled";
 		expect(await queueReconciliation(context, row, "event")).toBe(false);
 		expect(mocks.delivery).not.toHaveBeenCalled();
+	});
+});
+
+describe("personal notification dispatch", () => {
+	it("passes fresh standing consent envelope into the durable pinned run", async () => {
+		row = {
+			...row,
+			connectionScope: "user",
+			personalOwnerUserId: "owner",
+			workspaceId: id,
+			workspaceResourceId: id,
+			delegationId: id,
+			executionToolId: "reconcile_calendar_subscription",
+			resourceDelegationIds: [id],
+		};
+		const internal = {
+			...context,
+			authType: "service-binding",
+			headers: new Headers(),
+			organizationId: "org-a",
+		} as BaseContext;
+		const envelope = { version: 1, sources: [{ type: "test" }] };
+		mocks.standing.mockResolvedValue({ resourceAccessEnvelope: envelope });
+		expect(await dispatchProviderEventDeliveries(internal)).toBe(1);
+		expect(mocks.run).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedSkillRevision: 3,
+				resourceAccessEnvelope: envelope,
+				idempotencyKey: expect.stringContaining("provider-event:"),
+			}),
+		);
+		expect(mocks.emit).not.toHaveBeenCalled();
+	});
+	it("never starts a run after consent revocation", async () => {
+		row = { ...row, connectionScope: "user", personalOwnerUserId: "owner" };
+		const internal = {
+			...context,
+			authType: "service-binding",
+			headers: new Headers(),
+			organizationId: "org-a",
+		} as BaseContext;
+		mocks.standing.mockRejectedValue(new Error("Consent revoked"));
+		expect(await dispatchProviderEventDeliveries(internal)).toBe(0);
+		expect(mocks.run).not.toHaveBeenCalled();
+		expect(mocks.emit).not.toHaveBeenCalled();
 	});
 });

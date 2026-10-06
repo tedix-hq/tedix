@@ -40,27 +40,24 @@ export async function assertProviderEventTarget(
 }
 export async function resolveProviderEventCredential(
 	context: BaseContext,
-	subscription: Pick<
-		Subscription,
-		| "organizationId"
-		| "providerId"
-		| "connectionInstanceId"
-		| "adapter"
-		| "tediId"
-		| "skillId"
-		| "skillRevision"
-	>,
+	subscription: Subscription,
 ) {
 	await assertProviderEventTarget(context, subscription);
+	if (subscription.connectionScope === "user") {
+		const { resolvePersonalSubscriptionCredential } =
+			await import("../personal-resource-delegation-authority");
+		return (
+			await resolvePersonalSubscriptionCredential(context, {
+				subscriptionId: subscription.id,
+				organizationId: subscription.organizationId,
+			})
+		).accessToken;
+	}
 	const tenantId = await getOrganizationDescopeTenantId(
 		context.db,
 		subscription.organizationId,
 	);
 	if (!tenantId) throw new Error("Organization connection tenant unavailable");
-	const scopes =
-		subscription.adapter === "google_calendar"
-			? ["https://www.googleapis.com/auth/calendar.readonly"]
-			: ["Calendars.Read"];
 	if (!subscription.connectionInstanceId)
 		throw new Error(
 			"Exact named organization account required; default account fallback is disabled",
@@ -71,7 +68,7 @@ export async function resolveProviderEventCredential(
 		subscription.connectionInstanceId,
 		subscription.providerId,
 	);
-	if (!instance || !instance.tokenIds.length)
+	if (!instance || !instance.tokenIds.length || !instance.tokenSub)
 		throw new Error(
 			"Connected organization-owned account required; personal delegation is not enabled",
 		);
@@ -79,15 +76,42 @@ export async function resolveProviderEventCredential(
 		appId: subscription.providerId,
 		tenantId,
 		externalIdentifier: `tedix_${instance.id}`,
-		scopes,
 	});
 
 	if (
 		!token?.accessToken ||
+		!token.id ||
+		!instance.tokenIds.includes(token.id) ||
+		token.tokenSub !== instance.tokenSub ||
 		(token.expiresAt && token.expiresAt <= Date.now() / 1000)
 	)
 		throw new Error(
 			"Calendar connection is missing, expired or lacks required scope",
 		);
+	const scopes = token.scopes ?? [];
+	const canRead =
+		subscription.adapter === "google_calendar"
+			? scopes.some((s) =>
+					[
+						"https://www.googleapis.com/auth/calendar",
+						"https://www.googleapis.com/auth/calendar.readonly",
+						"https://www.googleapis.com/auth/calendar.events",
+						"https://www.googleapis.com/auth/calendar.events.readonly",
+					].includes(s),
+				)
+			: scopes.some((s) => /(^|\/)Calendars\.(Read|ReadWrite)$/i.test(s));
+	if (!canRead)
+		throw new Error("Calendar connection lacks event read permission");
+	const current = await getConnectionInstance(
+		context.db,
+		{ organizationId: subscription.organizationId },
+		subscription.connectionInstanceId,
+		subscription.providerId,
+	);
+	if (
+		!current?.tokenIds.includes(token.id) ||
+		current.tokenSub !== token.tokenSub
+	)
+		throw new Error("Calendar connection changed during credential lookup");
 	return token.accessToken;
 }
