@@ -79,6 +79,8 @@ describe("WorkspaceResourcesPanel", () => {
 					slot: "customer_repo",
 					providerId: "github",
 					connectionScope: "tenant",
+					personalOwnerUserId: null,
+					connectionInstanceId: null,
 					requiredScopes: ["repo:read"],
 					resourceType: "repository",
 					providerResourceId: "tedix-hq/tedix",
@@ -105,6 +107,8 @@ describe("WorkspaceResourcesPanel", () => {
 			</QueryClientProvider>,
 		);
 		expect(html).toContain("Attached resources");
+		expect(html).toContain("Choose calendar");
+		expect(html).not.toContain("Calendar blocking");
 		expect(html).toContain("Tedix repository");
 		expect(html).toContain("GitHub · Repository · Shared account");
 		expect(html).not.toContain("MCP gateway");
@@ -118,6 +122,49 @@ describe("WorkspaceResourcesPanel", () => {
 		expect(html).not.toContain("Start repository work");
 	});
 
+	it("shows calendar setup after a calendar has been attached", () => {
+		const client = new QueryClient();
+		client.setQueryData(workspaceResourcesQueryOptions(WORKSPACE_ID).queryKey, {
+			items: [
+				{
+					id: "22222222-2222-4222-8222-222222222222",
+					workspaceId: WORKSPACE_ID,
+					providerId: "google_calendar",
+					connectionScope: "user",
+					resourceType: "calendar",
+					providerResourceId: "primary",
+					name: "Agency meetings",
+					metadata: {},
+					status: "active",
+					requiredScopes: [],
+					availability: {
+						status: "available",
+						reason: null,
+						checkedAt: "2026-10-06T00:00:00Z",
+					},
+					organizationId: "org-1",
+					slot: null,
+					personalOwnerUserId: "owner",
+					connectionInstanceId: "33333333-3333-4333-8333-333333333333",
+					createdByKind: "user",
+					createdById: "owner",
+					createdAt: "2026-10-06T00:00:00Z",
+					updatedAt: "2026-10-06T00:00:00Z",
+					removedAt: null,
+				},
+			],
+			truncated: false,
+		});
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<WorkspaceResourcesPanel workspaceId={WORKSPACE_ID} />
+			</QueryClientProvider>,
+		);
+		expect(html).toContain("Calendar blocking");
+		expect(html).toContain("Choose the calendar skill");
+		expect(html).toContain("Enable blocker changes");
+	});
+
 	it("offers governed work only for an immutable GitHub repository reference", () => {
 		const client = new QueryClient();
 		client.setQueryData(workspaceResourcesQueryOptions(WORKSPACE_ID).queryKey, {
@@ -129,6 +176,8 @@ describe("WorkspaceResourcesPanel", () => {
 					slot: "customer_repo",
 					providerId: "github",
 					connectionScope: "tenant",
+					personalOwnerUserId: null,
+					connectionInstanceId: null,
 					requiredScopes: ["contents:write"],
 					resourceType: "repository",
 					providerResourceId: "12345",
@@ -174,6 +223,8 @@ describe("WorkspaceResourcesPanel", () => {
 					slot: null,
 					providerId: "acme_official_tedix",
 					connectionScope: "tenant",
+					personalOwnerUserId: null,
+					connectionInstanceId: null,
 					requiredScopes: [],
 					resourceType: "product_listing",
 					providerResourceId: "product-1",
@@ -217,6 +268,7 @@ describe("WorkspaceResourcesPanel", () => {
 		expect(html).toContain('data-tier="well"');
 		expect(html).not.toContain('data-tier="panel"');
 		expect(html).not.toContain("bg-kumo-tint px-3 py-2");
-		expect(html).not.toContain("rounded-xl");
+		const resourceRow = html.slice(html.indexOf("<ul"));
+		expect(resourceRow).not.toContain("rounded-xl");
 	});
 });

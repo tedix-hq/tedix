@@ -40,6 +40,47 @@ vi.mock("@/lib/api", () => ({
 	osApi: { osWorkspaces: { blueprints: blueprintsApi } },
 }));
 
+vi.mock("./calendar-resource-picker", async (original) => {
+	const actual = await original<typeof import("./calendar-resource-picker")>();
+	return {
+		...actual,
+		CalendarResourcePicker: ({
+			onSelect,
+		}: {
+			onSelect: (
+				choice: import("./calendar-resource-picker").CalendarChoice,
+			) => void;
+		}) => (
+			<button
+				type="button"
+				onClick={() =>
+					onSelect({
+						account: {
+							adapter: "google",
+							providerId: "google_calendar",
+							connectionScope: "user",
+							connectionInstanceId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+							instanceLabel: "Adriana",
+							accountSubject: "adriana@example.com",
+						},
+						calendar: {
+							id: "adriana-calendar",
+							name: "Adriana meetings",
+							timeZone: "Europe/Berlin",
+							canRead: true,
+							canWrite: true,
+							ownerEmail: "adriana@example.com",
+							conditionalWrites: true,
+						},
+					})
+				}
+			>
+				Choose Adriana meetings
+			</button>
+		),
+	};
+});
+
 import {
 	BlueprintRow,
 	BlueprintsEmpty,
@@ -1040,6 +1081,60 @@ describe("instantiate", () => {
 		);
 		setFieldValue(fieldByLabel(container, "Workspace name"), "Ops room");
 		expect(findButton(container, "Instantiate workspace").disabled).toBe(true);
+	});
+
+	it("passes the discovered named account unchanged through preflight and instantiation", async () => {
+		mockPublishedBlueprint();
+		blueprintsApi.get.mockResolvedValue({
+			blueprint: blueprintFixture({ status: "published" }),
+			currentRevision: revisionFixture({
+				definition: {
+					...baseDefinition,
+					requirements: {
+						...baseDefinition.requirements!,
+						resources: [
+							{
+								slot: "agency_calendar",
+								providerId: "google_calendar",
+								tokenScope: "user",
+								scopes: ["calendar.events"],
+								resourceType: "calendar",
+								label: "Agency calendar",
+							},
+						],
+					},
+				},
+			}),
+		});
+		const container = renderPage();
+		await flush();
+		click(findButton(container, "Reporting workspace"));
+		await flush();
+		expect(container.textContent).not.toContain("Provider resource ID");
+		click(findButton(container, "Choose Adriana meetings"));
+		await flush();
+		const selection = expect.objectContaining({
+			providerId: "google_calendar",
+			connectionScope: "user",
+			connectionInstanceId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+			providerResourceId: "adriana-calendar",
+			name: "Adriana meetings",
+			requiredScopes: ["calendar.events"],
+		});
+		expect(blueprintsApi.preflight).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				resourceBindings: [{ slot: "agency_calendar", selection }],
+			}),
+			expect.anything(),
+		);
+		setFieldValue(fieldByLabel(container, "Workspace name"), "Agency room");
+		click(findButton(container, "Instantiate workspace"));
+		await flush();
+		expect(blueprintsApi.instantiate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				resourceBindings: [{ slot: "agency_calendar", selection }],
+			}),
+		);
 	});
 
 	it("surfaces a taken workspace name inline", async () => {
