@@ -1,3 +1,4 @@
+import type { OrgUsageOutput } from "@tedix/api-contract/contracts/org-usage";
 import * as echarts from "echarts";
 import { useMemo } from "react";
 import {
@@ -25,20 +26,18 @@ import { Text } from "@/components/kumo/text";
 import { useTheme } from "@/hooks/use-theme";
 import { formatCurrencyAmount } from "@/lib/billing-price";
 
-type DailyUsage = {
-	date: string;
-	estimatedCostUsd: number | null;
-	totalTokens: number;
-};
+type DailyUsage = OrgUsageOutput["daily"][number];
+type TediUsage = OrgUsageOutput["tediBreakdown"][number];
 
-type TediUsage = {
-	tediId: string;
-	tediName: string;
-	tediSlug: string;
-	estimatedCostUsd: number | null;
-	totalTokens: number;
-	cacheHitRate: number | null;
-};
+function coverageCells(row: DailyUsage | TediUsage): string[] {
+	return [
+		row.costCompleteness,
+		formatCost(row.knownSubtotalUsd),
+		formatTokens(row.pricedRowCount),
+		formatTokens(row.unpricedRowCount),
+		formatTokens(row.unpricedTokens),
+	];
+}
 
 function formatCost(value: number | null): string {
 	if (value === null) return "Cost incomplete";
@@ -117,7 +116,7 @@ function DailyCostChart({
 		return {
 			aria: {
 				enabled: true,
-				description: `Daily estimated provider cost for the billing period ${periodLabel}`,
+				description: `Daily estimated model cost for the billing period ${periodLabel}`,
 			},
 			animationDuration: 180,
 			grid: { left: 12, right: 16, top: 16, bottom: 24, containLabel: true },
@@ -135,7 +134,7 @@ function DailyCostChart({
 			},
 			series: [
 				{
-					name: "Estimated provider cost",
+					name: "Estimated model cost",
 					type: "line",
 					smooth: true,
 					symbol: "none",
@@ -150,12 +149,16 @@ function DailyCostChart({
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>Provider cost trend</CardTitle>
+				<CardTitle>Model cost trend</CardTitle>
 				<CardDescription>
-					Daily estimated provider cost · {periodLabel}
+					Daily estimated model cost · {periodLabel}
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
+				<Text role="label" tone="secondary">
+					Known subtotals show available pricing evidence, not payable amounts.
+					Incomplete totals remain gaps.
+				</Text>
 				<Chart
 					echarts={echarts}
 					options={options}
@@ -164,11 +167,21 @@ function DailyCostChart({
 				/>
 				<ChartDataTable
 					label="Daily estimated cost"
-					headers={["Date", "Estimated cost", "Tokens"]}
+					headers={[
+						"Date",
+						"Estimated model cost",
+						"Observed tokens",
+						"Pricing coverage",
+						"Known subtotal",
+						"Priced rows",
+						"Unpriced rows",
+						"Unpriced tokens",
+					]}
 					rows={daily.map((day) => [
 						day.date,
 						formatCost(day.estimatedCostUsd),
 						formatTokens(day.totalTokens),
+						...coverageCells(day),
 					])}
 				/>
 			</CardContent>
@@ -203,7 +216,7 @@ function TediCostChart({
 		return {
 			aria: {
 				enabled: true,
-				description: `Top tedis by estimated provider cost for the billing period ${periodLabel}`,
+				description: `Top tedis by estimated model cost for the billing period ${periodLabel}`,
 			},
 			animationDuration: 180,
 			grid: { left: 12, right: 20, top: 8, bottom: 20, containLabel: true },
@@ -229,7 +242,7 @@ function TediCostChart({
 			},
 			series: [
 				{
-					name: "Estimated provider cost",
+					name: "Estimated model cost",
 					type: "bar",
 					barMaxWidth: 20,
 					itemStyle: { color: cost, borderRadius: [0, 4, 4, 0] },
@@ -242,12 +255,16 @@ function TediCostChart({
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>Provider cost by tedi</CardTitle>
+				<CardTitle>Model cost by tedi</CardTitle>
 				<CardDescription>
-					Estimated provider cost by tedi · {periodLabel}
+					Estimated model cost by tedi · {periodLabel}
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
+				<Text role="label" tone="secondary">
+					Known subtotals show available pricing evidence, not payable amounts.
+					Incomplete totals remain gaps.
+				</Text>
 				<Chart
 					echarts={echarts}
 					options={options}
@@ -256,7 +273,17 @@ function TediCostChart({
 				/>
 				<ChartDataTable
 					label="Cost concentration by tedi"
-					headers={["Tedi", "Estimated cost", "Tokens", "Cache hit rate"]}
+					headers={[
+						"Tedi",
+						"Estimated model cost",
+						"Observed tokens",
+						"Cache hit rate",
+						"Pricing coverage",
+						"Known subtotal",
+						"Priced rows",
+						"Unpriced rows",
+						"Unpriced tokens",
+					]}
 					rows={sortedTedis.map((tedi) => [
 						`${tedi.tediName} (@${tedi.tediSlug})`,
 						formatCost(tedi.estimatedCostUsd),
@@ -264,6 +291,7 @@ function TediCostChart({
 						tedi.cacheHitRate == null
 							? "Not available"
 							: `${(tedi.cacheHitRate * 100).toFixed(0)}%`,
+						...coverageCells(tedi),
 					])}
 				/>
 			</CardContent>
@@ -302,7 +330,7 @@ export function BillingUsageCharts({
 			) : (
 				<Card>
 					<CardHeader>
-						<CardTitle>Provider cost trend</CardTitle>
+						<CardTitle>Model cost trend</CardTitle>
 					</CardHeader>
 					<CardContent>
 						<Empty
@@ -318,7 +346,7 @@ export function BillingUsageCharts({
 			) : (
 				<Card>
 					<CardHeader>
-						<CardTitle>Provider cost by tedi</CardTitle>
+						<CardTitle>Model cost by tedi</CardTitle>
 					</CardHeader>
 					<CardContent>
 						<Empty

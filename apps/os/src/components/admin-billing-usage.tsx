@@ -193,7 +193,7 @@ export function BillingUsageOverview({
 						<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
 							<div>
 								<Text role="label" tone="secondary">
-									Tokens used this billing period
+									Settled billing tokens
 								</Text>
 								<Text
 									as="span"
@@ -249,11 +249,15 @@ export function BillingUsageOverview({
 				>
 					<MetricItem
 						emphasis="metric"
-						label="Customer charges"
+						label="Metered usage charges"
 						value={formatCost(
 							(overview.period?.customerChargeMicros ?? 0) / 1_000_000,
 						)}
-						description={`Estimated this period · ${formatTokens(overview.period?.meteredOverageTokens ?? 0)} metered overage tokens`}
+						description={
+							isUnlimited
+								? "Estimated usage this period · unlimited token allowance"
+								: `Estimated usage this period · ${formatTokens(overview.period?.meteredOverageTokens ?? 0)} metered overage tokens`
+						}
 					/>
 					<MetricItem
 						emphasis="metric"
@@ -267,19 +271,43 @@ export function BillingUsageOverview({
 					/>
 					<MetricItem
 						emphasis="metric"
-						label="Provider cost"
+						label="Settled model cost"
 						value={formatCost(
 							(overview.period?.providerCostMicros ?? 0) / 1_000_000,
 						)}
-						description="Tedix operational spend—not a customer charge"
+						description="Recorded model cost for settled usage · not a customer charge or total infrastructure spend"
 					/>
 				</MetricGrid>
 			</div>
 			<Text role="label" tone="secondary">
-				Charges, credits, limits, and period totals come from the canonical
-				Tedix billing overview. Usage trends use the same billing-period window
-				for this organization.
+				Settled tokens count billing input and output. Metered usage charges
+				exclude the subscription price and are not an invoice. Usage trends
+				below include organization-attributed observations, including cache and
+				records that may be held; they can differ from settled billing totals.
 			</Text>
+			{overview.stripeEnvironment === "test" && (
+				<Text role="label" tone="secondary">
+					Stripe test mode · payment documents use test data; recorded usage and
+					model costs are not simulated.
+				</Text>
+			)}
+			<MetricGrid appearance="bounded" columns={3}>
+				<MetricItem
+					label="Observed model tokens"
+					value={formatTokens(usageQuery.data.totals.totalTokens)}
+					description="Organization-attributed ledger observations this period"
+				/>
+				<MetricItem
+					label="Known model-cost subtotal"
+					value={formatCost(usageQuery.data.totals.knownSubtotalUsd)}
+					description={`${sentenceCase(usageQuery.data.totals.costCompleteness)} pricing coverage · not a payable amount`}
+				/>
+				<MetricItem
+					label="Unpriced observed tokens"
+					value={formatTokens(usageQuery.data.totals.unpricedTokens)}
+					description={`${formatTokens(usageQuery.data.totals.pricedRowCount)} priced rows · ${formatTokens(usageQuery.data.totals.unpricedRowCount)} unpriced rows`}
+				/>
+			</MetricGrid>
 			<Suspense
 				fallback={
 					<div className="grid gap-4 lg:grid-cols-2">
