@@ -4,6 +4,9 @@
 
 **Agents you can hold accountable.**
 
+[Website](https://tedix.dev) · [Docs](https://docs.tedix.dev) ·
+[Discussions](https://github.com/tedix-hq/tedix/discussions)
+
 Tedix runs long-lived AI workers, called **tedis**, inside your organization.
 Each tedi has its own identity, scoped tools, a budget, and approval rules, and
 Tedix keeps a record of every run: what the worker did, why, and who allowed it.
@@ -17,7 +20,9 @@ run locally.
 
 ![A supplier folder in a Tedix OS workspace](docs/public/assets/tedix-os-supplier-review.png)
 
-Tedix runs on Cloudflare Workers, Durable Objects, Workflows, D1, and R2.
+Tedix runs on Cloudflare Workers, Durable Objects, Workflows, D1, and R2. This
+repository is the whole product and the source Tedix Cloud is built from;
+`main` is the source line. Tedix is in beta:
 [Release status](docs/public/release-status.md) lists what is available today.
 
 ## Try Tedix Cloud
