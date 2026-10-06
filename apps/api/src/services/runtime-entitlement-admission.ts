@@ -1,9 +1,13 @@
+import {
+	captureCloudflareAutoRouting,
+	type AiGatewayTransportEnv,
+} from "@tedix/workers-ai/gateway-transport";
 import type {
 	AuthorizeRuntimeInferenceInput,
 	AuthorizeRuntimeInferenceResponse,
 } from "@tedix/api-contract/schemas/runtime-entitlements";
 import {
-	ProviderExecutionIdentitySchema,
+	freezeProviderExecutionIdentity,
 	providerDeploymentScope,
 } from "@tedix/api-contract/schemas/provider-execution";
 import { FiniteExecutionAuthorizationSchema } from "@tedix/api-contract/schemas/billing";
@@ -18,6 +22,7 @@ import {
 	buildProviderExecutionInsertStatement,
 	findProviderExecutionAdmission,
 	prepareProviderExecutionAdmission,
+	prepareKernelAutoRoutingAdmission,
 } from "@tedix/db/queries/provider-executions";
 import type { NewProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
@@ -32,7 +37,10 @@ export async function authorizeRuntimeInference(
 		db: DbClient;
 		env:
 			| CloudflareEnv
-			| { TEDIX_BILLING_SETTLEMENT_MODE?: string; SECRETS_MASTER_KEY?: string };
+			| ({
+					TEDIX_BILLING_SETTLEMENT_MODE?: string;
+					SECRETS_MASTER_KEY?: string;
+			  } & AiGatewayTransportEnv);
 	} & (
 		| { plane: "remote_runtime"; request: AuthorizeRuntimeInferenceInput }
 		| {
@@ -62,9 +70,22 @@ export async function authorizeRuntimeInference(
 			throw new Error("Inference requires a server-owned caller plane");
 		context.plane = input.plane;
 		phase = "validate_execution";
-		const identity = ProviderExecutionIdentitySchema.parse(
-			input.request.execution,
-		);
+		input = {
+			...input,
+			request: structuredClone(input.request),
+		} as typeof input;
+		const identity = freezeProviderExecutionIdentity(input.request.execution);
+		if (identity.requestModel === "cloudflare/auto") {
+			if (!identity.autoRouting)
+				throw Error("Auto inference requires routing evidence");
+			const messages =
+				identity.autoRouting.modality === "image"
+					? [{ content: [{ type: "image_url" }] }]
+					: [];
+			const configured = captureCloudflareAutoRouting(input.env, messages);
+			if (JSON.stringify(identity.autoRouting) !== JSON.stringify(configured))
+				throw Error("Deployment Auto routing mismatch");
+		}
 		phase = "resolve_settlement_mode";
 		const mode = resolveBillingSettlementMode(input.env);
 		context.settlementMode = mode;
@@ -163,7 +184,9 @@ export async function authorizeRuntimeInference(
 					origin,
 					authorization,
 				)
-			: null;
+			: identity.requestModel === "cloudflare/auto"
+				? await prepareKernelAutoRoutingAdmission(candidate)
+				: null;
 		const execution = prepared?.execution ?? candidate;
 		if (existing) {
 			phase = "validate_replay_identity";

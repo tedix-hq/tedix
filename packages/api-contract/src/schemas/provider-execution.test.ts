@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	azureExecutionIdentity,
+	AutoRoutingIdentitySchema,
+	freezeProviderExecutionIdentity,
+	readProviderExecutionIdentity,
 	ProviderExecutionIdentitySchema,
 	providerDeploymentScope,
 } from "./provider-execution";
@@ -283,5 +286,82 @@ it("finite policy fixes a bounded original window without authority labels", () 
 	).toBe(false);
 	expect(
 		ProviderExecutionPolicySchema.safeParse({ ...p, allow: true }).success,
+	).toBe(false);
+});
+
+const routing = {
+	version: 1 as const,
+	modality: "text" as const,
+	mode: "restricted" as const,
+	allowedProviders: ["workers-ai"],
+	allowedModels: null,
+};
+const auto = {
+	provider: "workers-ai",
+	requestModel: "cloudflare/auto",
+	transportKind: "gateway-https",
+	apiKind: "workers-ai-chat",
+	gatewayAccountId: "account",
+	gatewayId: "gateway",
+	providerOrigin: null,
+	providerResource: null,
+	deployment: null,
+	autoRouting: routing,
+};
+it("captures immutable ordered partial-axis Auto identity and reconstructs modern policy", () => {
+	const frozen = freezeProviderExecutionIdentity(auto);
+	routing.allowedProviders.push("azure-openai");
+	expect(frozen.autoRouting?.allowedProviders).toEqual(["workers-ai"]);
+	routing.allowedProviders.pop();
+	expect(Object.isFrozen(frozen.autoRouting?.allowedProviders)).toBe(true);
+	expect(
+		readProviderExecutionIdentity({ ...frozen, policy: null }).autoRouting,
+	).toEqual(routing);
+	expect(
+		readProviderExecutionIdentity({
+			...frozen,
+			policy: { kind: "auto_router_v1", routing, finite: null },
+			policyHash: "a".repeat(64),
+		}).autoRouting,
+	).toEqual(routing);
+	expect(() =>
+		readProviderExecutionIdentity({
+			...frozen,
+			policy: { kind: "auto_router_v1", routing, finite: null },
+			policyHash: null,
+		}),
+	).toThrow();
+});
+it("refuses contradictory or noncanonical Auto snapshots and fixed routing metadata", () => {
+	for (const change of [
+		{ mode: "unrestricted" },
+		{ allowedProviders: [] },
+		{ allowedProviders: [" workers-ai"] },
+		{ allowedProviders: ["workers-ai\n"] },
+		{ modality: "image" },
+		{ allowedModels: ["*"] },
+	])
+		expect(
+			AutoRoutingIdentitySchema.safeParse({ ...routing, ...change }).success,
+		).toBe(false);
+	expect(
+		AutoRoutingIdentitySchema.safeParse({
+			...routing,
+			mode: "unrestricted",
+			allowedProviders: null,
+		}).success,
+	).toBe(true);
+	expect(
+		AutoRoutingIdentitySchema.safeParse({
+			...routing,
+			allowedProviders: null,
+			allowedModels: ["@cf/example/model"],
+		}).success,
+	).toBe(true);
+	expect(
+		ProviderExecutionIdentitySchema.safeParse({
+			...auto,
+			requestModel: "@cf/example/model",
+		}).success,
 	).toBe(false);
 });

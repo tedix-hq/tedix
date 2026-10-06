@@ -56,3 +56,33 @@ describe("remote native inference contract", () => {
 		).toBe(false);
 	});
 });
+
+it("requires modern Auto routing on new signed admission and keeps fixed requests", () => {
+	const auto = {
+		...request,
+		originToken: "assertion",
+		execution: {
+			...request.execution,
+			requestModel: "cloudflare/auto",
+			transportKind: "gateway-https",
+		},
+	};
+	expect(AuthorizeRuntimeInferenceInputSchema.safeParse(auto).success).toBe(
+		false,
+	);
+	expect(
+		AuthorizeRuntimeInferenceInputSchema.safeParse({
+			...auto,
+			execution: {
+				...auto.execution,
+				autoRouting: {
+					version: 1,
+					modality: "text",
+					mode: "unrestricted",
+					allowedProviders: null,
+					allowedModels: null,
+				},
+			},
+		}).success,
+	).toBe(true);
+});

@@ -11,7 +11,10 @@ import {
 	requestInferenceOriginGuard,
 	admittedInferenceDispatchGuard,
 } from "./runtime-inference-origin";
-import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
+import {
+	freezeProviderExecutionIdentity,
+	type ProviderExecutionIdentity,
+} from "@tedix/api-contract/schemas/provider-execution";
 import { AuthorizeRuntimeInferenceResponseSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
@@ -253,7 +256,7 @@ export async function authorizeInferenceEntitlement(
 	input = {
 		...input,
 		metadata: structuredClone(input.metadata),
-		execution: structuredClone(input.execution),
+		execution: freezeProviderExecutionIdentity(input.execution),
 	};
 	const organizationId = input.metadata?.orgId;
 	if (!organizationId) {
@@ -383,7 +386,7 @@ export async function authorizeInferenceEntitlement(
 		attribution: Object.freeze(
 			applyAuthorizedInferenceAttribution(input.metadata, decision),
 		),
-		execution: Object.freeze(structuredClone(input.execution)),
+		execution: freezeProviderExecutionIdentity(input.execution),
 		receipt: Object.freeze(structuredClone(decision)),
 		beforeDispatch,
 	});

@@ -1,10 +1,14 @@
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	ProviderExecutionOriginSchema,
-	ProviderExecutionPolicySchema,
+	FiniteProviderExecutionPolicySchema,
+	AutoRouterExecutionPolicySchema,
 	type ProviderExecutionOrigin,
 } from "@tedix/api-contract/schemas/provider-execution";
-import type { FiniteExecutionAuthorization } from "@tedix/api-contract/schemas/billing";
+import {
+	FiniteExecutionAuthorizationSchema,
+	type FiniteExecutionAuthorization,
+} from "@tedix/api-contract/schemas/billing";
 import { nativeExecutionEligibilityPredicate } from "./billing/historical-exposure";
 import { and, eq, inArray, sql, SQL, Param } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
@@ -24,6 +28,8 @@ export function buildProviderExecutionInsertStatement(
 	guard?: ProviderExecutionAdmissionGuard,
 ) {
 	const identity = readProviderExecutionIdentity(input);
+	if (identity.requestModel === "cloudflare/auto" && !guard)
+		throw Error("Auto execution requires prepared routing guard");
 	if (input.deploymentScope !== providerDeploymentScope(identity))
 		throw new Error("Execution scope mismatch");
 	const capturedPredicate = providerExecutionGuardPredicate(input, guard);
@@ -88,7 +94,10 @@ export function assertProviderExecutionMatches(
 		)
 			throw new Error("Execution provenance conflict");
 	if (
-		expected.origin &&
+		(expected.origin ||
+			(expected.policy &&
+				"kind" in expected.policy &&
+				expected.policy.kind === "auto_router_v1")) &&
 		(row.id !== expected.id ||
 			row.billingReservationId !== expected.billingReservationId ||
 			row.authorizedAt !== expected.authorizedAt ||
@@ -133,6 +142,11 @@ export async function prepareProviderExecutionAdmission(
 	origin: ProviderExecutionOrigin,
 	authorization: FiniteExecutionAuthorization | null = null,
 ) {
+	input = structuredClone(input);
+	authorization =
+		authorization === null
+			? null
+			: FiniteExecutionAuthorizationSchema.parse(authorization);
 	origin = ProviderExecutionOriginSchema.parse(origin);
 	if (
 		input.organizationId !== origin.root.owner.orgId ||
@@ -141,8 +155,8 @@ export async function prepareProviderExecutionAdmission(
 			input.runId !== origin.root.accepted.runId)
 	)
 		throw new Error("Execution asserted owner conflict");
-	const policy = authorization
-		? ProviderExecutionPolicySchema.parse({
+	const finite = authorization
+		? FiniteProviderExecutionPolicySchema.parse({
 				authorizationId: authorization.id,
 				authorizationRequestHash: authorization.requestHash,
 				revision: authorization.revision,
@@ -151,6 +165,15 @@ export async function prepareProviderExecutionAdmission(
 				sendBefore: input.sendBefore,
 			})
 		: null;
+	const identity = readProviderExecutionIdentity(input);
+	const policy =
+		identity.requestModel === "cloudflare/auto"
+			? AutoRouterExecutionPolicySchema.parse({
+					kind: "auto_router_v1",
+					routing: identity.autoRouting,
+					finite,
+				})
+			: finite;
 	const execution = {
 		...input,
 		origin,
@@ -176,6 +199,46 @@ export async function prepareProviderExecutionAdmission(
 		execution: snapshot,
 		pin: JSON.stringify(snapshot),
 		predicate: compactAdmissionPredicate(predicate),
+	});
+	return { execution, guard };
+}
+/** Server service validates the deployment routing before this private kernel-only preparation. */
+export async function prepareKernelAutoRoutingAdmission(
+	input: NewProviderExecutionAttemptRow,
+) {
+	input = structuredClone(input);
+	const identity = readProviderExecutionIdentity(input);
+	if (
+		identity.requestModel !== "cloudflare/auto" ||
+		!identity.autoRouting ||
+		input.origin != null ||
+		input.originHash != null ||
+		input.policy != null ||
+		input.policyHash != null
+	)
+		throw Error(
+			"Kernel Auto routing preparation requires original unguarded kernel tuple",
+		);
+	const policy = AutoRouterExecutionPolicySchema.parse({
+		kind: "auto_router_v1",
+		routing: identity.autoRouting,
+		finite: null,
+	});
+	const execution = {
+		...input,
+		origin: null,
+		originHash: null,
+		policy,
+		policyHash: await sha256Hex(JSON.stringify(policy)),
+	};
+	const guard: ProviderExecutionAdmissionGuard = Object.freeze({
+		kind: "provider_execution_admission",
+	});
+	const snapshot = structuredClone(execution);
+	guards.set(guard, {
+		execution: snapshot,
+		pin: JSON.stringify(snapshot),
+		predicate: compactAdmissionPredicate(sql`1=1`),
 	});
 	return { execution, guard };
 }
@@ -218,8 +281,12 @@ export function providerExecutionRetryPredicate(
 		sql`work_item_id IS ${e.workItemId ?? null}`,
 		sql`trace_id IS ${e.traceId ?? null}`,
 		sql`settlement_mode=${e.settlementMode}`,
-		sql`origin_hash=${e.originHash}`,
-		sql`json(origin)=json(${JSON.stringify(e.origin)})`,
+		e.originHash == null
+			? sql`origin_hash IS NULL`
+			: sql`origin_hash=${e.originHash}`,
+		e.origin == null
+			? sql`origin IS NULL`
+			: sql`json(origin)=json(${JSON.stringify(e.origin)})`,
 		sql`policy_hash IS ${e.policyHash ?? null}`,
 		sql`policy IS ${e.policy ? JSON.stringify(e.policy) : null}`,
 		sql`authorized_at=${e.authorizedAt}`,

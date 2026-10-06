@@ -7,10 +7,10 @@ import {
 	type AdaptiveRoutingContext,
 	parseModelRef,
 } from "@tedix/api-contract/schemas/model-catalog";
-import { ProviderExecutionIdentitySchema } from "@tedix/api-contract/schemas/provider-execution";
+import { freezeProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 import type { LanguageModel } from "ai";
 import {
-	cloudflareAutoRouterCandidateHeaders,
+	captureCloudflareAutoRouting,
 	openCloudflareAutoRouterResponse,
 } from "./gateway-transport";
 import { autoRouterSdkStream } from "./auto-router-stream";
@@ -272,9 +272,10 @@ export function cloudflareAutoRouterModel(
 			body.stream_options = { include_usage: true };
 		}
 		const serialized = JSON.stringify(body);
-		cloudflareAutoRouterCandidateHeaders(client.env, body.messages);
-		const execution = ProviderExecutionIdentitySchema.parse({
+		const autoRouting = captureCloudflareAutoRouting(client.env, body.messages);
+		const execution = freezeProviderExecutionIdentity({
 			provider: "workers-ai",
+			autoRouting,
 			requestModel: CLOUDFLARE_AUTO_MODEL_REF,
 			gatewayAccountId: client.env.AI_GATEWAY_ACCOUNT_ID,
 			gatewayId: options.gatewayId,
@@ -303,6 +304,7 @@ export function cloudflareAutoRouterModel(
 			options.gatewayId,
 			{
 				body: serialized,
+				autoRouting,
 				attribution: authorization.attribution,
 				sessionId: options.sessionId,
 				turnId: options.turnId,

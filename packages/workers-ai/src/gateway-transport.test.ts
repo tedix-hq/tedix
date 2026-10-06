@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	AI_GATEWAY_BINDING_AUTH,
-	callCloudflareAutoRouter,
-	openCloudflareAutoRouterResponse,
-	cloudflareAutoRouterCandidateHeaders,
+	callCloudflareAutoRouter as sendCapturedAuto,
+	openCloudflareAutoRouterResponse as openCapturedAuto,
+	captureCloudflareAutoRouting,
 	type AiGatewayTransportEnv,
+	type CloudflareAutoRouterRequest,
+	cloudflareAutoRouterCandidateHeaders,
 	resolveAiGatewayTransport,
 } from "./gateway-transport";
 
@@ -12,6 +14,45 @@ function fakeBinding(fetchImpl = vi.fn()): Ai {
 	return { fetch: fetchImpl } as unknown as Ai;
 }
 
+// Each caller captures its deployment policy before entering the wire helper.
+async function callCloudflareAutoRouter(
+	env: AiGatewayTransportEnv,
+	gateway: string,
+	request: Omit<CloudflareAutoRouterRequest, "autoRouting">,
+	guard?: () => void,
+) {
+	return sendCapturedAuto(
+		env,
+		gateway,
+		{
+			...request,
+			autoRouting: captureCloudflareAutoRouting(
+				env,
+				JSON.parse(request.body).messages ?? [],
+			),
+		},
+		guard,
+	);
+}
+async function openCloudflareAutoRouterResponse(
+	env: AiGatewayTransportEnv,
+	gateway: string,
+	request: Omit<CloudflareAutoRouterRequest, "autoRouting">,
+	guard?: () => void,
+) {
+	return openCapturedAuto(
+		env,
+		gateway,
+		{
+			...request,
+			autoRouting: captureCloudflareAutoRouting(
+				env,
+				JSON.parse(request.body).messages ?? [],
+			),
+		},
+		guard,
+	);
+}
 const HTTPS_ENV: AiGatewayTransportEnv = {
 	AI_GATEWAY_ACCOUNT_ID: "acct123",
 	CF_AI_GATEWAY_TOKEN: "aig-token",
@@ -439,4 +480,17 @@ it("preserves the original HTTPS fetch reference for an unguarded client", () =>
 	const transport = resolveAiGatewayTransport(HTTPS_ENV, "gw", "azure-openai")!;
 	expect(transport.kind).toBe("https");
 	expect(transport.fetch).toBe(globalThis.fetch);
+});
+
+it("refuses omitted original snapshot even when current deployment would allow Auto", async () => {
+	const send = vi.fn();
+	vi.stubGlobal("fetch", send);
+	try {
+		await expect(
+			openCapturedAuto(HTTPS_ENV, "gw", { body: '{"messages":[]}' } as never),
+		).rejects.toThrow();
+		expect(send).not.toHaveBeenCalled();
+	} finally {
+		vi.unstubAllGlobals();
+	}
 });

@@ -21,6 +21,11 @@
  */
 
 import { decodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
+import {
+	AutoRouterExecutionPolicySchema,
+	readProviderExecutionIdentity,
+} from "@tedix/api-contract/schemas/provider-execution";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { DbClient } from "@tedix/db/client";
 import {
 	getGatewayLogIngestionCursor,
@@ -82,6 +87,8 @@ interface GatewayCostIngestionEnv extends FleetAuthorityEnv {
 
 export interface AiGatewayLogRow {
 	path?: string;
+	request_type?: string;
+	authentication?: boolean;
 	id: string;
 	created_at: string;
 	provider: string;
@@ -567,12 +574,12 @@ async function ingestGateway(
 				row.metadata?.attribution,
 			)?.executionId;
 			const candidate = id ? (executionMap.get(id) ?? null) : null;
-			const execution = matchesGatewayExecution(
+			const execution = (await matchesAuthenticatedGatewayExecution(
 				row,
 				gatewayId,
 				env.CF_ACCOUNT_ID,
 				candidate,
-			)
+			))
 				? candidate
 				: null;
 			const priced = execution
@@ -830,4 +837,59 @@ export function matchesGatewayExecution(
 		(row.model === execution.requestModel ||
 			row.model === `openai/${execution.requestModel}`)
 	);
+}
+
+/** Modern native Auto attribution authenticates its original persisted routing policy.
+ * Fixed paths retain their original exact matcher and pricing behavior.
+ */
+export async function matchesAuthenticatedGatewayExecution(
+	row: AiGatewayLogRow,
+	gatewayId: string,
+	accountId: string,
+	execution: ProviderExecutionAttemptRow | null,
+): Promise<boolean> {
+	if (execution?.requestModel !== "cloudflare/auto")
+		return matchesGatewayExecution(row, gatewayId, accountId, execution);
+	try {
+		execution = structuredClone(execution);
+		row = structuredClone(row);
+		readProviderExecutionIdentity(execution);
+		const policy = AutoRouterExecutionPolicySchema.parse(execution.policy);
+		if (
+			(await sha256Hex(JSON.stringify(policy))) !== execution.policyHash ||
+			execution.provider !== "workers-ai" ||
+			execution.transportKind !== "gateway-https" ||
+			execution.apiKind !== "workers-ai-chat" ||
+			row.path !== "/run" ||
+			row.request_type !== "run" ||
+			row.authentication !== true ||
+			row.model !== row.model.trim() ||
+			!Number.isFinite(Date.parse(execution.authorizedAt)) ||
+			!Number.isFinite(Date.parse(execution.sendBefore)) ||
+			Date.parse(execution.sendBefore) <= Date.parse(execution.authorizedAt) ||
+			!/^@cf\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(row.model)
+		)
+			return false;
+		if (
+			(policy.routing.allowedProviders !== null &&
+				!policy.routing.allowedProviders.includes(row.provider)) ||
+			(policy.routing.allowedModels !== null &&
+				!policy.routing.allowedModels.includes(row.model))
+		)
+			return false;
+		if (
+			policy.finite &&
+			(policy.finite.authorizedAt !== execution.authorizedAt ||
+				policy.finite.sendBefore !== execution.sendBefore)
+		)
+			return false;
+		// Reuse every original account/gateway/time/packed-origin predicate; only the
+		// requested Auto selector differs from the concrete native selected model.
+		return matchesGatewayExecution(row, gatewayId, accountId, {
+			...execution,
+			requestModel: row.model,
+		});
+	} catch {
+		return false;
+	}
 }

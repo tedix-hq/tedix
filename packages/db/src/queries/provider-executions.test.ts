@@ -21,6 +21,7 @@ import {
 	buildProviderExecutionInsertStatement,
 	findProviderExecutionAdmission,
 	prepareProviderExecutionAdmission,
+	prepareKernelAutoRoutingAdmission,
 } from "./provider-executions";
 import { reserveBillingUsage } from "./billing/reservations";
 const now = "2026-09-20T07:00:00.000Z";
@@ -1065,3 +1066,105 @@ print(len(fixture['queries']))
 		).toEqual({ n: 0 });
 	},
 );
+
+describe("private kernel Auto original admission", () => {
+	const auto = () => ({
+		...receipt(),
+		provider: "workers-ai" as const,
+		requestModel: "cloudflare/auto",
+		apiKind: "workers-ai-chat" as const,
+		providerResource: null,
+		providerOrigin: null,
+		deployment: null,
+		autoRouting: {
+			version: 1 as const,
+			modality: "text" as const,
+			mode: "unrestricted" as const,
+			allowedProviders: null,
+			allowedModels: null,
+		},
+	});
+	it("requires private routing guard and immutable original null-origin tuple", async () => {
+		const { db, sqlite } = await setup();
+		const prepared = await prepareKernelAutoRoutingAdmission({
+			...auto(),
+			deploymentScope: providerDeploymentScope(auto()),
+		});
+		await buildProviderExecutionInsertStatement(
+			db,
+			prepared.execution,
+			prepared.guard,
+		);
+		const stored = await findProviderExecutionAdmission(
+			db,
+			"org",
+			"attempt-key",
+		);
+		expect(stored).not.toBeNull();
+		assertProviderExecutionMatches(stored!, prepared.execution);
+		for (const patch of [
+			{ id: "other" },
+			{ billingReservationId: "other" },
+			{ authorizedAt: "2026-09-20T07:01:00.000Z" },
+			{ sendBefore: "2026-09-20T07:11:00.000Z" },
+			{ originHash: "a".repeat(64) },
+			{ policyHash: "a".repeat(64) },
+		])
+			expect(() =>
+				assertProviderExecutionMatches(
+					{ ...stored!, ...patch },
+					prepared.execution,
+				),
+			).toThrow();
+		expect(() =>
+			buildProviderExecutionInsertStatement(db, prepared.execution),
+		).toThrow(/prepared.*guard/);
+		sqlite.close();
+	});
+	it("actual SQL retry matches only original NULL provenance and window", async () => {
+		const { db, sqlite } = await setup();
+		const prepared = await prepareKernelAutoRoutingAdmission({
+			...auto(),
+			deploymentScope: providerDeploymentScope(auto()),
+		});
+		await buildProviderExecutionInsertStatement(
+			db,
+			prepared.execution,
+			prepared.guard,
+		);
+		expect(
+			await findProviderExecutionAdmission(
+				db,
+				"org",
+				"attempt-key",
+				prepared.guard,
+			),
+		).not.toBeNull();
+		for (const [column, value] of [
+			["id", "changed"],
+			["send_before", "2099-01-01T00:00:00Z"],
+			["origin_hash", "a".repeat(64)],
+			["origin", "{}"],
+			["policy_hash", "a".repeat(64)],
+		]) {
+			const old = sqlite
+				.prepare(`SELECT ${column} AS value FROM provider_execution_attempts`)
+				.get()!.value;
+			sqlite
+				.prepare(`UPDATE provider_execution_attempts SET ${column}=?`)
+				.run(value);
+			expect(
+				await findProviderExecutionAdmission(
+					db,
+					"org",
+					"attempt-key",
+					prepared.guard,
+				),
+			).toBeNull();
+			sqlite
+				.prepare(`UPDATE provider_execution_attempts SET ${column}=?`)
+				.run(old);
+		}
+		sqlite.close();
+	});
+});

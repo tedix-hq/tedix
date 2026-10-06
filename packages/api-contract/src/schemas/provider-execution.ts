@@ -1,10 +1,48 @@
 import * as z from "zod";
 
 const identifier = z.string().min(1).max(300);
+/** Exact deployment-owned native Auto Router candidate header representation. */
+const autoEntry = z
+	.string()
+	.regex(/^[a-zA-Z0-9@][a-zA-Z0-9@/_.:-]*$/)
+	.refine((value) => value === value.trim());
+export const AutoRoutingIdentitySchema = z
+	.strictObject({
+		version: z.literal(1),
+		modality: z.enum(["text", "image"]),
+		mode: z.enum(["unrestricted", "restricted"]),
+		allowedProviders: z.array(autoEntry).min(1).nullable(),
+		allowedModels: z.array(autoEntry).min(1).nullable(),
+	})
+	.superRefine((r, ctx) => {
+		if (
+			(r.mode === "unrestricted") !==
+				(r.allowedProviders === null && r.allowedModels === null) ||
+			(r.modality === "image" && r.allowedModels === null)
+		)
+			ctx.addIssue({
+				code: "custom",
+				message: "Inconsistent Auto routing restrictions",
+			});
+	});
+export type AutoRoutingIdentity = z.infer<typeof AutoRoutingIdentitySchema>;
+/** Parse, clone and freeze every nested routing member before any admission await. */
+export function freezeProviderExecutionIdentity(
+	value: unknown,
+): Readonly<ProviderExecutionIdentity> {
+	const identity = ProviderExecutionIdentitySchema.parse(value);
+	if (identity.autoRouting) {
+		Object.freeze(identity.autoRouting.allowedProviders);
+		Object.freeze(identity.autoRouting.allowedModels);
+		Object.freeze(identity.autoRouting);
+	}
+	return Object.freeze(identity);
+}
 export const ProviderExecutionIdentitySchema = z
 	.strictObject({
 		provider: z.enum(["azure-openai", "workers-ai", "typesafe"]),
 		requestModel: identifier,
+		autoRouting: AutoRoutingIdentitySchema.optional(),
 		gatewayAccountId: identifier
 			.nullable()
 			.describe(
@@ -44,6 +82,18 @@ export const ProviderExecutionIdentitySchema = z
 			),
 	})
 	.superRefine((value, ctx) => {
+		if (
+			value.autoRouting &&
+			!(
+				value.provider === "workers-ai" &&
+				value.requestModel === "cloudflare/auto" &&
+				value.transportKind === "gateway-https"
+			)
+		)
+			ctx.addIssue({
+				code: "custom",
+				message: "Auto routing belongs only to native Auto identity",
+			});
 		if (
 			value.transportKind !== "direct-https" &&
 			(!value.gatewayAccountId || !value.gatewayId)
@@ -214,7 +264,7 @@ export function readProviderExecutionIdentity(
 				| "gatewayAccountId"
 				| "gatewayId"
 			>
-		>,
+		> & { policy?: unknown; policyHash?: string | null },
 ): ProviderExecutionIdentity {
 	const {
 		provider,
@@ -227,9 +277,26 @@ export function readProviderExecutionIdentity(
 		providerOrigin,
 		deployment,
 	} = value;
+	if (
+		value.requestModel === "cloudflare/auto" &&
+		value.policy == null &&
+		!value.autoRouting
+	)
+		throw Error("Auto identity requires original routing evidence");
+	const persisted =
+		value.requestModel === "cloudflare/auto" && value.policy != null
+			? AutoRouterExecutionPolicySchema.parse(value.policy)
+			: null;
+	if (persisted && !/^[a-f0-9]{64}$/.test(value.policyHash ?? ""))
+		throw Error("Auto routing requires persisted policy hash");
 	return ProviderExecutionIdentitySchema.parse({
 		provider,
 		requestModel,
+		...(persisted
+			? { autoRouting: persisted.routing }
+			: value.autoRouting
+				? { autoRouting: value.autoRouting }
+				: {}),
 		gatewayAccountId: gatewayAccountId ?? null,
 		gatewayId: gatewayId ?? null,
 		transportKind,
@@ -357,7 +424,7 @@ export type ProviderExecutionOrigin = z.infer<
 >;
 
 /** Immutable finite selection and its original window; no renewal on a retry. */
-export const ProviderExecutionPolicySchema = z
+export const FiniteProviderExecutionPolicySchema = z
 	.strictObject({
 		authorizationId: z.uuid(),
 		authorizationRequestHash: originHash,
@@ -369,6 +436,15 @@ export const ProviderExecutionPolicySchema = z
 	.refine((p) => Date.parse(p.sendBefore) > Date.parse(p.authorizedAt), {
 		message: "Invalid original send window",
 	});
+export const AutoRouterExecutionPolicySchema = z.strictObject({
+	kind: z.literal("auto_router_v1"),
+	routing: AutoRoutingIdentitySchema,
+	finite: FiniteProviderExecutionPolicySchema.nullable(),
+});
+export const ProviderExecutionPolicySchema = z.union([
+	FiniteProviderExecutionPolicySchema,
+	AutoRouterExecutionPolicySchema,
+]);
 export type ProviderExecutionPolicy = z.infer<
 	typeof ProviderExecutionPolicySchema
 >;
