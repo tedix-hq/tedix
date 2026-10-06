@@ -79,10 +79,15 @@ describe("reviewed RPC endpoint scopes", () => {
 			["mcp:apps.read", false],
 		] as const) {
 			expect(
-				isMcpToolVisibleToCaller(tool, "tedix_unified", {}, {
-					authType: "oauth",
-					scopes: [scope],
-				}),
+				isMcpToolVisibleToCaller(
+					tool,
+					"tedix_unified",
+					{},
+					{
+						authType: "oauth",
+						scopes: [scope],
+					},
+				),
 			).toBe(allowed);
 		}
 	});
