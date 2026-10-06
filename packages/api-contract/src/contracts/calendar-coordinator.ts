@@ -18,7 +18,7 @@ export const calendarCoordinatorContract = oc
 	.router({
 		supportedAccounts: oc
 			.route({ method: "GET", path: "/accounts" })
-			.input(z.object({ scope: z.enum(["tenant", "user"]) }))
+			.input(z.object({ scope: z.enum(["tenant", "user"]) }).strict())
 			.output(
 				z.array(
 					CalendarAccountSelectionSchema.extend({
@@ -40,11 +40,11 @@ export const calendarCoordinatorContract = oc
 				}),
 			),
 		list: oc
-			.route({ method: "GET", path: "/" })
-			.input(z.object({ workspaceId: z.string().uuid() }))
+			.route({ method: "GET", path: "/configurations" })
+			.input(z.object({ workspaceId: z.string().uuid() }).strict())
 			.output(z.array(CalendarConfigurationSchema)),
 		configure: oc
-			.route({ method: "POST", path: "/" })
+			.route({ method: "POST", path: "/configurations" })
 			.input(ConfigureCalendarsInputSchema)
 			.output(CalendarConfigurationSchema),
 		activate: oc
