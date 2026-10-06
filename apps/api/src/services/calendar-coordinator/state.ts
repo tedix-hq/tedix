@@ -4,6 +4,7 @@ import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resource
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { requireTediRequestIdentity } from "../../rpc/org-scope";
+import { effectiveCalendarConfiguration } from "./types";
 import type { BaseContext } from "../../rpc/orpc";
 import { requireWorkspace } from "../../rpc/routers/os-workspaces-shared";
 import { calendarOwnerUser, resolveCalendarAdapter } from "./credentials";
@@ -148,9 +149,10 @@ export async function previewCalendarConfig(
 		config,
 		context.authType !== "user",
 	);
+	const effective = effectiveCalendarConfiguration(config);
 	const plan = await buildPlan(
-		config,
-		await collectSnapshots(config, adapters, mirrors),
+		effective,
+		await collectSnapshots(effective, adapters, mirrors),
 		mirrors,
 		ownershipSeed,
 	);
@@ -412,7 +414,9 @@ export async function reconcileCalendarSubscription(
 		throw new Error(
 			"Subscription is not bound to an active calendar coordinator",
 		);
-	const config = JSON.parse(row.configuration) as Configuration;
+	const config = effectiveCalendarConfiguration(
+		JSON.parse(row.configuration) as Configuration,
+	);
 	requireTediRequestIdentity(context, config.tediId);
 	if (config.skillRevision !== expectedSkillRevision)
 		throw new Error(

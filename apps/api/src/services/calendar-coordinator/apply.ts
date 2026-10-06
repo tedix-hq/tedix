@@ -274,11 +274,24 @@ export async function collectSnapshots(
 	mirrors: Mirror[],
 ): Promise<Snapshot[]> {
 	const snapshots: Snapshot[] = [];
-	for (const route of config.calendars) {
+	for (const route of config.calendars)
+		snapshots.push(
+			await adapters.get(route.key)!.snapshot(route, config.window),
+		);
+	const covered = mirrors.filter(
+		(m) =>
+			(Date.parse(m.interval.start) < Date.parse(config.window.end) &&
+				Date.parse(m.interval.end) > Date.parse(config.window.start)) ||
+			snapshots.some(
+				(s) =>
+					s.route.key === m.sourceRouteKey &&
+					s.events.some((e) => e.id === m.sourceEventId),
+			),
+	);
+	for (const snapshot of snapshots) {
+		const route = snapshot.route;
 		const adapter = adapters.get(route.key)!;
-		const snapshot = await adapter.snapshot(route, config.window);
-		// A missing time-bounded source might have moved. Exact read distinguishes cancellation/free from absence.
-		for (const mirror of mirrors.filter(
+		for (const mirror of covered.filter(
 			(m) => m.sourceRouteKey === route.key,
 		)) {
 			if (snapshot.events.some((e) => e.id === mirror.sourceEventId)) continue;
@@ -296,14 +309,13 @@ export async function collectSnapshots(
 					privateBlocker: false,
 				});
 		}
-		for (const mirror of mirrors.filter(
+		for (const mirror of covered.filter(
 			(m) => m.destinationKey === route.key,
 		)) {
 			if (snapshot.events.some((e) => e.id === mirror.eventId)) continue;
 			const exact = await adapter.get(route, mirror.eventId);
 			if (exact) snapshot.events.push(exact);
 		}
-		snapshots.push(snapshot);
 	}
 	return snapshots;
 }

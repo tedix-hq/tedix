@@ -268,3 +268,55 @@ describe("observable compensation and recovery", () => {
 		expect(f.adapter.create).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("snapshot ledger coverage", () => {
+	it("preserves historical blockers without exact-reading every old event", async () => {
+		const { collectSnapshots } = await import("./apply");
+		const f = fixture();
+		const mirrors = [
+			{
+				id: "old",
+				sourceKey: "old",
+				sourceRouteKey: "a",
+				sourceEventId: "old-source",
+				destinationKey: "b",
+				eventId: "old-blocker",
+				revision: "old",
+				ownership: "owned",
+				interval: {
+					start: "2026-09-01T10:00:00Z",
+					end: "2026-09-01T11:00:00Z",
+				},
+			},
+		];
+		await collectSnapshots(f.config, f.adapters, mirrors);
+		expect(f.adapter.get).not.toHaveBeenCalled();
+		const plan = await buildPlan(f.config, f.snapshots, mirrors, "seed");
+		expect(plan.actions.every((a) => a.kind !== "delete")).toBe(true);
+	});
+	it("reads a ledger blocker outside the window when its stable source occurrence moved into current coverage", async () => {
+		const { collectSnapshots } = await import("./apply");
+		const f = fixture();
+		const mirrors = [
+			{
+				id: "moved",
+				sourceKey: "s",
+				sourceRouteKey: "a",
+				sourceEventId: f.event.id,
+				destinationKey: "b",
+				eventId: "old-blocker",
+				revision: "old",
+				ownership: "owned",
+				interval: {
+					start: "2026-09-01T10:00:00Z",
+					end: "2026-09-01T11:00:00Z",
+				},
+			},
+		];
+		await collectSnapshots(f.config, f.adapters, mirrors);
+		expect(f.adapter.get).toHaveBeenCalledWith(
+			f.config.calendars[1],
+			"old-blocker",
+		);
+	});
+});

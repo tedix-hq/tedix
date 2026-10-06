@@ -85,6 +85,8 @@ export type Configuration = {
 	ownerUserId: string;
 	revision: number;
 	mode: "preview" | "active";
+	windowMode?: "rolling" | "fixed";
+	rollingDays?: number;
 	timeZone: string;
 	window: Interval;
 	tediId: string;
@@ -198,4 +200,54 @@ export function localMidnight(date: string, timeZone: string): string {
 		candidate += target - local;
 	}
 	throw new Error("All-day boundary cannot be resolved in calendar time zone");
+}
+function dateInZone(value: Date, timeZone: string): string {
+	const parts = Object.fromEntries(
+		new Intl.DateTimeFormat("en-CA", {
+			timeZone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+		})
+			.formatToParts(value)
+			.map((p) => [p.type, p.value]),
+	);
+	return `${parts.year}-${parts.month}-${parts.day}`;
+}
+/** Calendar days, rather than elapsed 24h chunks, preserve the approved horizon across DST. */
+export function approvedRollingDays(
+	window: Interval,
+	timeZone: string,
+): number {
+	const days =
+		(Date.parse(`${dateInZone(new Date(window.end), timeZone)}T00:00:00Z`) -
+			Date.parse(`${dateInZone(new Date(window.start), timeZone)}T00:00:00Z`)) /
+		86400_000;
+	const result = Math.max(1, days);
+	if (!Number.isInteger(result) || result > 90)
+		throw new Error(
+			"Rolling calendar horizon must be between 1 and 90 local days",
+		);
+	return result;
+}
+export function effectiveCalendarConfiguration(
+	config: Configuration,
+	now = new Date(),
+): Configuration {
+	if (config.windowMode === "fixed") return config;
+	const days =
+		config.rollingDays ?? approvedRollingDays(config.window, config.timeZone);
+	if (!Number.isInteger(days) || days < 1 || days > 90)
+		throw new Error("Invalid approved rolling horizon");
+	const today = dateInZone(now, config.timeZone);
+	const end = new Date(Date.parse(`${today}T00:00:00Z`) + days * 86400_000)
+		.toISOString()
+		.slice(0, 10);
+	return {
+		...config,
+		window: {
+			start: localMidnight(today, config.timeZone),
+			end: localMidnight(end, config.timeZone),
+		},
+	};
 }
