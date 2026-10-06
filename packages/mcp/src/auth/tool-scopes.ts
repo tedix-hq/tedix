@@ -4,6 +4,7 @@ import {
 	toolToAccessLevel,
 	toolToCapabilityScope,
 } from "@tedix/api-contract/schemas/mcp-capability-scopes";
+import { REVIEWED_RPC_ENDPOINT_SCOPES } from "./reviewed-rpc-endpoint-scopes";
 import { hasScope, toolToScope } from "./scopes";
 import type {
 	ToolAnnotations,
@@ -53,6 +54,14 @@ const RESOURCE_BOUND_DURABLE_CODE_TOOLS: Record<
 // endpoints are the retained tenant/operator tools; internal credential and
 // service-only procedures are excluded from the admin MCP projection instead.
 const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
+	// Reviewed platform-only endpoints (service-binding-only, platform guards,
+	// credential minting) tighten every namespace. Their tenant-tier siblings
+	// apply only as the last fallback in resolveNamespaceFallbackScope.
+	...Object.fromEntries(
+		Object.entries(REVIEWED_RPC_ENDPOINT_SCOPES).filter(
+			([, scope]) => scope === "platform:admin",
+		),
+	),
 	// Organization aliases hide the ordinary `apps` namespace. Retain the
 	// tenant Apps read boundary for this exact RPC without granting an alias
 	// authority over unknown tools or unrelated provider inventories.
@@ -105,6 +114,8 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// requires platform authority; the exact endpoint keeps aliases from
 	// borrowing any broader tedi grant.
 	"tedis/rebind": "platform:admin",
+	// Read-only cutover inventory; temporary, removed with the cutover tooling.
+	"tedis/inspectRuntimeCutover": "platform:admin",
 	// Contract projection can change the fleet tool catalog, including internal
 	// procedures. Keep its operator route platform-only through org aliases.
 	"toolSchemaSync/preview": "platform:admin",
@@ -817,6 +828,12 @@ function resolveNamespaceFallbackScope(
 		// namespace that could not be mapped.
 		throw new Error(`Missing MCP capability mapping for tool: ${tool.toolId}`);
 	}
+	// A reviewed endpoint resolves only where nothing above did, so it never
+	// changes a namespace that already maps (e.g. Home's messaging aliases).
+	const reviewedScope = rpcEndpoint
+		? REVIEWED_RPC_ENDPOINT_SCOPES[rpcEndpoint]
+		: undefined;
+	if (reviewedScope) return resolveCapabilityFamilyScope(reviewedScope, tool);
 	return resolveCapabilityFamilyScope(toolToCapabilityScope(rawName), tool);
 }
 
