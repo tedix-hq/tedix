@@ -60,11 +60,35 @@ export function normalizeEmailSubject(value: string): string {
 	return subject.toLowerCase() || "(no subject)";
 }
 
+/**
+ * Remove every `<tag ...>...</tag ...>` block in one linear pass, leaving an
+ * unclosed block for the generic tag strip. Sender-controlled HTML must not
+ * reach a lazy `<tag[\s\S]*?</tag>` regex, which rescans the remainder once
+ * per unclosed opener.
+ */
+function stripHtmlElementBlocks(value: string, tag: string): string {
+	const lower = value.toLowerCase();
+	const open = `<${tag}`;
+	const close = `</${tag}`;
+	let output = "";
+	let position = 0;
+	for (;;) {
+		const start = lower.indexOf(open, position);
+		if (start === -1) return output + value.slice(position);
+		const end = lower.indexOf(close, start + open.length);
+		const endTag = end === -1 ? -1 : lower.indexOf(">", end + close.length);
+		if (endTag === -1) return output + value.slice(position);
+		output += `${value.slice(position, start)} `;
+		position = endTag + 1;
+	}
+}
+
 export function buildEmailPreview(value: string | null | undefined): string {
-	return (value ?? "")
-		.replace(/<style[\s\S]*?<\/style>/gi, " ")
-		.replace(/<script[\s\S]*?<\/script>/gi, " ")
-		.replace(/<[^>]+>/g, " ")
+	return stripHtmlElementBlocks(
+		stripHtmlElementBlocks(value ?? "", "style"),
+		"script",
+	)
+		.replace(/<[^<>]+>/g, " ")
 		.replace(/\s+/g, " ")
 		.trim()
 		.slice(0, 500);

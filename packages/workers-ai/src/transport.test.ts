@@ -576,6 +576,26 @@ describe("recoverInlineToolCallTokens", () => {
 		]);
 		expect(recovered.text).toBe("");
 	});
+
+	it("skips a malformed opener and recovers the next call", () => {
+		const recovered = recoverInlineToolCallTokens(
+			result(
+				'a <|tool_call_begin|>bad name<|tool_call_begin|>ok:0<|tool_call_argument_begin|>{"n":1}<|tool_call_end|> b',
+			),
+		);
+		expect(recovered.text).toBe("a <|tool_call_begin|>bad name b");
+		expect(recovered.toolCalls.map((tc) => tc.name)).toEqual(["ok"]);
+	});
+
+	it("handles many unterminated openers in linear time", () => {
+		const text = "<|tool_call_begin|>-<|tool_call_argument_begin|>a".repeat(
+			20_000,
+		);
+		const started = performance.now();
+		const recovered = recoverInlineToolCallTokens(result(text));
+		expect(performance.now() - started).toBeLessThan(1_000);
+		expect(recovered.toolCalls).toEqual([]);
+	});
 });
 
 // ── bare-JSON tool-call recovery (the union; tedi's copy was ahead) ──────────
@@ -633,6 +653,13 @@ describe("recoverBareJsonToolCallText", () => {
 				result('```json\n{"tool": "list_skills", "args": {}}\n```'),
 			).toolCalls.map((tc) => tc.name),
 		).toEqual(["list_skills"]);
+	});
+
+	it("scans a long whitespace-padded fence in linear time", () => {
+		const started = performance.now();
+		const passthrough = result(`\`\`\`${" ".repeat(50_000)}x`);
+		expect(recoverBareJsonToolCallText(passthrough)).toBe(passthrough);
+		expect(performance.now() - started).toBeLessThan(1_000);
 	});
 
 	it("strips a truncated attempted call to empty text", () => {

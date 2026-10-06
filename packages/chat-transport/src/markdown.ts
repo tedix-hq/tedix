@@ -139,12 +139,13 @@ function renderInlineText(
 }
 
 function decodeEscapedHref(value: string): string {
+	// `&amp;` is decoded last so `&amp;quot;` stays the literal text `&quot;`.
 	return value
-		.replaceAll("&amp;", "&")
 		.replaceAll("&quot;", '"')
 		.replaceAll("&#39;", "'")
 		.replaceAll("&lt;", "<")
-		.replaceAll("&gt;", ">");
+		.replaceAll("&gt;", ">")
+		.replaceAll("&amp;", "&");
 }
 
 /**

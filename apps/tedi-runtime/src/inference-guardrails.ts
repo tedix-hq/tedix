@@ -32,6 +32,24 @@ function compactSource(value: string): string {
 		.slice(0, MAX_GATEWAY_SOURCE_CHARS);
 }
 
+/**
+ * The non-empty `:`-separated segments after the first whole `cron` segment
+ * that is followed only by non-empty segments — what
+ * `/(?:^|:)cron:([^:]+(?::[^:]+)*)$/i` captured, without its quadratic rescan
+ * of caller-supplied session keys.
+ */
+function cronSessionSuffix(key: string): string | null {
+	const parts = key.split(":");
+	let lastEmpty = -1;
+	for (const [index, part] of parts.entries()) if (!part) lastEmpty = index;
+	for (let index = lastEmpty + 1; index < parts.length - 1; index += 1) {
+		if (parts[index]?.toLowerCase() === "cron") {
+			return parts.slice(index + 1).join(":");
+		}
+	}
+	return null;
+}
+
 /** Server-derived AI Gateway trigger label. Never accepts a caller-provided tag. */
 export function inferenceSource(
 	sessionKey: string | null | undefined,
@@ -46,9 +64,9 @@ export function inferenceSource(
 ): string {
 	const key = sessionKey?.trim() ?? "";
 	if (/ci-smoke|agentic-evidence|__test:|__throwaway:/i.test(key)) return "ci";
-	const cron = key.match(/(?:^|:)cron:([^:]+(?::[^:]+)*)$/i);
+	const cron = cronSessionSuffix(key);
 	if (surface === "cron" || cron) {
-		return compactSource(`cron:${cron?.[1] ?? "unknown"}`);
+		return compactSource(`cron:${cron ?? "unknown"}`);
 	}
 	if (/telegram:/i.test(key)) return "telegram";
 	if (/home/i.test(key)) return "home";

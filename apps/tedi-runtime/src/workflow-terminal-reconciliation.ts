@@ -89,7 +89,13 @@ export function turnFailureNoticeText(error: string): string {
 	const reason = error.replace(/\s+/g, " ").trim();
 	const clipped =
 		reason.length > 300 ? `${reason.slice(0, 297).trimEnd()}...` : reason;
-	if (/inference budget|budget exhausted|daily.*budget/i.test(reason)) {
+	const lower = reason.toLowerCase();
+	const daily = lower.indexOf("daily");
+	if (
+		lower.includes("inference budget") ||
+		lower.includes("budget exhausted") ||
+		(daily !== -1 && lower.includes("budget", daily + 5))
+	) {
 		return `This turn stopped before replying: the daily inference budget is exhausted. It will run again once the budget window resets. (${clipped})`;
 	}
 	return `This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: ${clipped || "unknown error"}`;

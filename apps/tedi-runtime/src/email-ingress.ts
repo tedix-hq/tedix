@@ -199,10 +199,11 @@ function splitAddressHeader(value: string): string[] {
 }
 
 function decodeHtmlEntities(value: string): string {
+	// `&amp;` is decoded last so `&amp;#61;` stays the literal text `&#61;`.
 	return value
-		.replaceAll("&amp;", "&")
 		.replace(/&#x3d;/gi, "=")
-		.replace(/&#61;/g, "=");
+		.replace(/&#61;/g, "=")
+		.replaceAll("&amp;", "&");
 }
 
 function hasQuotedPrintableTransferEncoding(value: string): boolean {
@@ -352,13 +353,37 @@ function decodePartBytes(
 	return new TextEncoder().encode(body);
 }
 
+/**
+ * Remove every `<tag ...>...</tag ...>` block in one linear pass, leaving an
+ * unclosed block for the generic tag strip. Sender-controlled HTML must not
+ * reach a lazy `<tag[\s\S]*?</tag>` regex, which rescans the remainder once
+ * per unclosed opener.
+ */
+function stripHtmlElementBlocks(value: string, tag: string): string {
+	const lower = value.toLowerCase();
+	const open = `<${tag}`;
+	const close = `</${tag}`;
+	let output = "";
+	let position = 0;
+	for (;;) {
+		const start = lower.indexOf(open, position);
+		if (start === -1) return output + value.slice(position);
+		const end = lower.indexOf(close, start + open.length);
+		const endTag = end === -1 ? -1 : lower.indexOf(">", end + close.length);
+		if (endTag === -1) return output + value.slice(position);
+		output += `${value.slice(position, start)} `;
+		position = endTag + 1;
+	}
+}
+
 function htmlToText(value: string): string {
-	return value
-		.replace(/<style[\s\S]*?<\/style>/gi, " ")
-		.replace(/<script[\s\S]*?<\/script>/gi, " ")
+	return stripHtmlElementBlocks(
+		stripHtmlElementBlocks(value, "style"),
+		"script",
+	)
 		.replace(/<br\s*\/?>/gi, "\n")
 		.replace(/<\/p>/gi, " ")
-		.replace(/<[^>]+>/g, " ")
+		.replace(/<[^<>]+>/g, " ")
 		.replace(/\u00a0/g, " ")
 		.replace(/[ \t]+/g, " ")
 		.replace(/\n\s+/g, "\n")
@@ -445,14 +470,22 @@ function optionalNumber(value: number): number | undefined {
 	return Number.isFinite(value) ? value : undefined;
 }
 
+function trimHyphens(value: string): string {
+	let start = 0;
+	let end = value.length;
+	while (start < end && value[start] === "-") start += 1;
+	while (end > start && value[end - 1] === "-") end -= 1;
+	return value.slice(start, end);
+}
+
 function safeObjectSegment(value: string): string {
 	return (
-		value
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9._-]+/g, "-")
-			.replace(/^-+|-+$/g, "")
-			.slice(0, 100) || "item"
+		trimHyphens(
+			value
+				.trim()
+				.toLowerCase()
+				.replace(/[^a-z0-9._-]+/g, "-"),
+		).slice(0, 100) || "item"
 	);
 }
 

@@ -23,7 +23,11 @@ export interface StatelessCodeModeRunResult {
 }
 
 function stripTrailingSemicolons(code: string): string {
-	return code.trim().replace(/;+\s*$/, "");
+	// Linear scan: a `/;+\s*$/` regex rescans each `;` run on hostile input.
+	const trimmed = code.trim();
+	let end = trimmed.length;
+	while (end > 0 && trimmed[end - 1] === ";") end -= 1;
+	return trimmed.slice(0, end);
 }
 
 /**
