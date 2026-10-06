@@ -29,6 +29,10 @@ import {
 	listWorkBudgetEnvelopes,
 	updateWorkBudgetEnvelope,
 } from "./budgets";
+import {
+	delegateWorkInteraction,
+	respondToWorkInteraction,
+} from "./interactions";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
 import { listWorkMilestoneViews, updateWorkMilestone } from "./milestones";
 
@@ -473,6 +477,115 @@ describe("migrated Work factory raw-D1 invariants", () => {
 				db.exec("DELETE FROM work_project_health_judgments WHERE id='health'"),
 			/immutable/,
 		);
+	});
+
+	it("delegates and resolves a human question through the complete migration chain", async () => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		sqlite.exec(
+			"INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('worker','org','Worker','worker','active')",
+		);
+		sqlite.exec(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata) VALUES('request','org','work','question','Question','Answer?','system','tedix','user','user','2026-08-20T00:00:00.000Z','{\"source\":\"test\"}')",
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const delegated = await delegateWorkInteraction(db, {
+			orgId: "org",
+			interactionId: "request",
+			expectedVersion: 1,
+			actor: { type: "user", id: "user" },
+			tediId: "worker",
+			now: "2026-08-20T01:00:00.000Z",
+		});
+		expect(delegated).toMatchObject({
+			id: "request",
+			targetType: "tedi",
+			targetId: "worker",
+			version: 2,
+			metadata: {
+				source: "test",
+				delegation: { fromId: "user", toTediId: "worker" },
+			},
+		});
+		const response = await respondToWorkInteraction(db, {
+			id: "reply",
+			orgId: "org",
+			interactionId: "request",
+			expectedVersion: 2,
+			responder: { type: "tedi", id: "worker" },
+			responseKind: "answer",
+			body: "A",
+			resolvesRequest: true,
+			now: "2026-08-20T01:01:00.000Z",
+		});
+		expect(response).toMatchObject({
+			responderType: "tedi",
+			responderId: "worker",
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT status,version FROM work_interactions WHERE id='request'",
+				)
+				.get(),
+		).toMatchObject({ status: "resolved", version: 3 });
+	});
+
+	it.each([
+		"missing audit",
+		"wrong human",
+		"wrong tedi",
+		"changed content",
+		"stale version",
+		"expired",
+		"inactive tedi",
+		"foreign tedi",
+		"changed source",
+	])("rejects forged migrated question delegation: %s", (invalid) => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		if (invalid === "foreign tedi")
+			sqlite.exec(
+				"INSERT INTO organizations(id,name,slug) VALUES('foreign','Foreign','foreign')",
+			);
+		sqlite
+			.prepare(
+				"INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('worker',?,'Worker','worker','active')",
+			)
+			.run(invalid === "foreign tedi" ? "foreign" : "org");
+		sqlite.exec(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,expires_at,metadata) VALUES('request','org','work','question','Question','Answer?','system','tedix','user','user','2026-08-20T00:00:00.000Z','2026-08-20T02:00:00.000Z','{}')",
+		);
+		const audit = {
+			delegation: {
+				fromType: "user",
+				fromId: invalid === "wrong human" ? "other" : "user",
+				toTediId: invalid === "wrong tedi" ? "other" : "worker",
+				delegatedAt:
+					invalid === "expired"
+						? "2026-08-20T03:00:00.000Z"
+						: "2026-08-20T01:00:00.000Z",
+			},
+		};
+		if (invalid === "inactive tedi")
+			sqlite.exec("UPDATE tedis SET status='paused' WHERE id='worker'");
+		const metadata =
+			invalid === "missing audit"
+				? {}
+				: invalid === "changed source"
+					? { ...audit, source: "forged" }
+					: audit;
+		expect(() =>
+			sqlite
+				.prepare(
+					"UPDATE work_interactions SET target_type='tedi',target_id='worker',metadata=?,version=?,subject=? WHERE id='request'",
+				)
+				.run(
+					JSON.stringify(metadata),
+					invalid === "stale version" ? 1 : 2,
+					invalid === "changed content" ? "Forged" : "Question",
+				),
+		).toThrow(/delegation|immutable/);
 	});
 
 	it("fences same-version interaction responders and makes responses immutable", () => {

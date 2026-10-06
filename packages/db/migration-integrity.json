@@ -764,6 +764,10 @@
 		{
 			"name": "20261006155246_os-review-batches/migration.sql",
 			"sha256": "45af17f6be187b3793ccf2d62a7adfcefa30fb5e8bdc18bdf9372077dd4be143"
+		},
+		{
+			"name": "20261006164430_allow_question_delegation/migration.sql",
+			"sha256": "b06ead49e8a57c27262f1cef6b212b369151a81dbe70c495d00f68a4e1d683d3"
 		}
 	]
 }
