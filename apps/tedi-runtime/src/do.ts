@@ -15985,12 +15985,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			if (request.method !== "GET")
 				return new Response("Method Not Allowed", { status: 405 });
 			await this.ensureIdentity(hints);
-			const mcpRuntime = await this.getMcpRuntime(true);
-			const credentialBoundCallables =
-				(await mcpRuntime?.discoverCredentialBoundReviewCallables()) ?? [];
 			return Response.json({
 				ok: true,
-				credentialBoundCallables,
 				nativeTools: Object.keys(this.getTools(OPERATOR_COMPUTER_SCOPE)),
 			});
 		}

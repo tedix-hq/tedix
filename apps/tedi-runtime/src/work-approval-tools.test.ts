@@ -99,31 +99,111 @@ await assert.rejects(
 	/Tedi platform identity is unavailable/,
 );
 
-// The approval preflight reports the actual native registry, which includes
-// the identity-bound approval tools.
-{
+await assert.rejects(
+	(unavailable.decide_work_approval as typeof decide).execute(
+		{
+			proposalId: "5eed0010-0000-4000-8000-000000000010",
+			expectedProposalVersion: 1,
+			decision: "approved",
+			rationale: "Synthetic identity must refuse",
+		},
+		{},
+	),
+	/Tedi platform identity is unavailable/,
+);
+
+// The approval preflight reports the actual native registry after identity,
+// without depending on credential-bound MCP review discovery.
+for (const discovery of ["throw", "pending"] as const) {
+	let identityCalls = 0;
+	let mcpCalls = 0;
+	let discoveryCalls = 0;
+	let platformCalls = 0;
 	const agent = tediDo({
 		env: {},
-		state: { tediId: "tedi-1" },
-		async ensureIdentity() {},
+		state: { tediId: "fictional-reviewer" },
+		async ensureIdentity() {
+			identityCalls++;
+		},
 		async getMcpRuntime() {
-			return null;
+			mcpCalls++;
+			if (discovery === "throw")
+				throw new Error("Unused MCP runtime unavailable");
+			return {
+				discoverCredentialBoundReviewCallables() {
+					discoveryCalls++;
+					return new Promise<string[]>(() => {});
+				},
+			};
 		},
 		async getPlatformClient() {
+			platformCalls++;
 			return null;
 		},
 		...nativeToolMarkers(),
 	});
+	const actualGetTools = agent.getTools;
+	agent.getTools = function (scope: unknown) {
+		assert.equal(identityCalls, 1);
+		return actualGetTools.call(this, scope);
+	};
 	const response = await agent.onRequest(
 		new Request("https://do.internal/__internal/review-capabilities"),
 	);
-	const body = (await response.json()) as { nativeTools: string[] };
+	const body = (await response.json()) as {
+		ok: boolean;
+		nativeTools: string[];
+	};
+	assert.equal(response.status, 200);
+	assert.equal(body.ok, true);
 	assert.deepEqual(
 		body.nativeTools,
 		Object.keys(agent.getTools(OPERATOR_COMPUTER_SCOPE)),
 	);
 	assert.ok(body.nativeTools.includes("list_work_approval_inbox"));
 	assert.ok(body.nativeTools.includes("decide_work_approval"));
+	assert.equal(mcpCalls, 0);
+	assert.equal(discoveryCalls, 0);
+	assert.equal(platformCalls, 0);
+	assert.equal(Object.hasOwn(body, "credentialBoundCallables"), false);
+}
+
+// Method and identity failures cannot publish a registry or execute tools.
+{
+	let identityCalls = 0,
+		registryCalls = 0,
+		mcpCalls = 0;
+	const identityFailure = new Error("Synthetic identity refusal");
+	const agent = tediDo({
+		env: {},
+		state: { tediId: "fictional-reviewer" },
+		async ensureIdentity() {
+			identityCalls++;
+			throw identityFailure;
+		},
+		getTools() {
+			registryCalls++;
+			throw new Error("Registry must not be reached");
+		},
+		async getMcpRuntime() {
+			mcpCalls++;
+			throw new Error("MCP must not be reached");
+		},
+	});
+	const post = await agent.onRequest(
+		new Request("https://do.internal/__internal/review-capabilities", {
+			method: "POST",
+		}),
+	);
+	assert.equal(post.status, 405);
+	assert.deepEqual([identityCalls, registryCalls, mcpCalls], [0, 0, 0]);
+	await assert.rejects(
+		agent.onRequest(
+			new Request("https://do.internal/__internal/review-capabilities"),
+		),
+		(error) => error === identityFailure,
+	);
+	assert.deepEqual([identityCalls, registryCalls, mcpCalls], [1, 0, 0]);
 }
 
 // Home owns a delegated run's Work lifecycle below the model: a supervised
@@ -154,7 +234,7 @@ await assert.rejects(
 	}
 }
 
-// Native tool reservation/execution/approval correlation is exercised against
-// the real Pi tool task in test/pi/native-facet.workerd.test.ts.
+// These prototype/collaborator assertions are unit evidence, not native
+// persistence or Cloud execution proof.
 
 console.log("work-approval-tools.test.ts: native AITL tool wiring passed");
