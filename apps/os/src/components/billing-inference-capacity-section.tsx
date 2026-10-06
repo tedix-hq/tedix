@@ -96,13 +96,9 @@ export function BillingInferenceCapacitySection() {
 	const capacity = overviewQuery.data.inferenceCapacity;
 	// The backend is the authority on whether this account uses monthly metering;
 	// provider-sponsored customers retain their daily grant controls.
-	const monthlyMetered =
-		"monthlyMetered" in capacity && capacity.monthlyMetered === true;
+	const monthlyMetered = capacity.monthlyMetered;
 	const blockingReason: string | null = capacity.blockingReason;
-	// Keep the daily controls available if an older API revision still reports a
-	// daily block during rollout. The API is deployed before this OS change.
-	const showDailyCapacity =
-		!monthlyMetered || blockingReason === "inference_capacity_exhausted";
+	const showDailyCapacity = !monthlyMetered;
 	const packs = capacity.packs;
 	const allocations = capacity.allocations;
 	const overflow = capacity.tediOverflow.filter(
@@ -134,7 +130,7 @@ export function BillingInferenceCapacitySection() {
 						{showDailyCapacity
 							? "The tokens and provider spend available for your organization today."
 							: capacity.available
-								? "Your active plan allows monthly usage with overage; charges appear in the billing summary above."
+								? "Monthly inference is available. See the billing summary above for usage and charges."
 								: "Inference is blocked; review the reason below."}
 					</SectionDescription>
 				</SectionHeading>
