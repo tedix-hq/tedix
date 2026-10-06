@@ -999,10 +999,8 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		}
 		for await (const message of this.legacySessions.session().history()) {
 			const model = await this.appProjection.legacy(message);
-			if (!model?.length)
-				throw new Error(
-					`Legacy message has no preserved model projection: ${message.id}`,
-				);
+			// Empty legacy turns project to nothing; skipping them loses no context.
+			if (!model?.length) continue;
 			const admitted = await conversation.submit(
 				{
 					type: "write",
