@@ -378,6 +378,9 @@ const seedState = (): LocalState => ({
 	workspaceResources: [
 		{
 			id: WORKSPACE_RESOURCE_REPO,
+			personalOwnerUserId: null,
+			connectionInstanceId: null,
+			providerAccess: null,
 			organizationId: ORG_ID,
 			workspaceId: WORKSPACE_REVENUE,
 			slot: null,
