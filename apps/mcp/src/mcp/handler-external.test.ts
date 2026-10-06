@@ -1244,3 +1244,88 @@ describe("external embedded delegation dispatch", () => {
 		}
 	});
 });
+
+describe("background named credential provenance", () => {
+	it("forwards actual calendar arguments and live epoch on every lookup instead of using cached credentials", async () => {
+		const requests: Request[] = [];
+		const apiFetch = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				requests.push(
+					input instanceof Request ? input : new Request(input, init),
+				);
+				return requests.length === 1
+					? Response.json({ json: { accessToken: "first", scopes: ["read"] } })
+					: Response.json(
+							{ json: { code: "FORBIDDEN", message: "revoked" } },
+							{ status: 403 },
+						);
+			},
+		);
+		const context = {
+			...ctx({}),
+			toolId: "list_events",
+			appId: "10000000-0000-4000-8000-000000000001",
+			env: {
+				API_URL: "https://api",
+				API_SERVICE: { fetch: apiFetch },
+				ENVIRONMENT: "test",
+			},
+			callerIdentity: {
+				authType: "service",
+				tediId: "worker",
+				organizationId: "org",
+				scopes: ["connections.read"],
+				skillRunId: "run",
+				workflowExecutionEpoch: 3,
+			},
+		} as unknown as ToolExecutionContext<ToolConfig>;
+		const handler = new ToolHandler() as unknown as {
+			fetchTediConnectionToken(
+				context: ToolExecutionContext<ToolConfig>,
+				tedi: string,
+				provider: string,
+				scope: string,
+				scopes?: string[],
+				label?: string,
+				preference?: string,
+				args?: Record<string, unknown>,
+			): Promise<{ token: string | null; status?: number }>;
+		};
+		expect(
+			await handler.fetchTediConnectionToken(
+				context,
+				"worker",
+				"google",
+				"user",
+				["read"],
+				undefined,
+				undefined,
+				{ calendarId: "calendar-a" },
+			),
+		).toMatchObject({ token: "first" });
+		expect(
+			await handler.fetchTediConnectionToken(
+				context,
+				"worker",
+				"google",
+				"user",
+				["read"],
+				undefined,
+				undefined,
+				{ calendarId: "calendar-a" },
+			),
+		).toMatchObject({ token: null, status: 403 });
+		expect(apiFetch).toHaveBeenCalledTimes(2);
+		expect(requests[0]!.headers.get("X-Tedix-Skill-Run-Id")).toBe("run");
+		expect(requests[0]!.headers.get("X-Tedix-Workflow-Execution-Epoch")).toBe(
+			"3",
+		);
+		const body = (await requests[0]!.json()) as {
+			json: { delegatedToolUse: unknown };
+		};
+		expect(body.json.delegatedToolUse).toEqual({
+			appId: context.appId,
+			arguments: { calendarId: "calendar-a" },
+		});
+	});
+});

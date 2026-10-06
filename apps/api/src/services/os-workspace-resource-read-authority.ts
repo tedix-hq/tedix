@@ -1,6 +1,12 @@
+import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
+import { fetchNamedConnection } from "../rpc/routers/connections/policy-resolution";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
-import { authorizePersonalResourceDelegation } from "./personal-resource-delegation-authority";
+import {
+	authorizePersonalResourceDelegation,
+	resolvePersonalResourceDelegatedCredential,
+} from "./personal-resource-delegation-authority";
 import { getManagementClient } from "@tedix/auth/client";
 import { getAssignedAppRoles } from "@tedix/auth/fga";
 import { listAppReferenceMetadataByOrganization } from "@tedix/db/queries/apps";
@@ -197,4 +203,101 @@ export async function authorizeWorkspaceResourceRead(
 	}
 
 	return { resource, requiredScopes };
+}
+
+/** Resolve the exact slot already authorized above; owner provenance never selects a default account. */
+export async function resolveWorkspacePersonalReadCredential(
+	context: BaseContext,
+	resource: OsWorkspaceResourceRow,
+	requiredScopes: string[],
+): Promise<string | null> {
+	if (
+		resource.connectionScope !== "user" ||
+		!resource.connectionInstanceId ||
+		!resource.personalOwnerUserId
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Exact personal resource account is required",
+		);
+	if (context.tediId) {
+		const runId = context.headers.get("X-Tedix-Skill-Run-Id");
+		const run = runId
+			? await getSkillRun(
+					context.db,
+					runId,
+					resource.organizationId,
+					context.env.ENVIRONMENT,
+				)
+			: null;
+		const parsed = OsDerivedAccessEnvelopeSchema.safeParse(
+			run?.resourceAccessEnvelope,
+		);
+		const source = parsed.success
+			? parsed.data.sources.find(
+					(source) =>
+						source.workspaceResourceId === resource.id &&
+						source.connectionScope === "user",
+				)
+			: undefined;
+		const toolId = context.headers.get("X-Tedix-Mcp-Tool-Id");
+		if (!run?.skillRevision || !source || !toolId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"No admitted personal resource read exists",
+			);
+		const resolved = await resolvePersonalResourceDelegatedCredential(context, {
+			delegationId: source.delegationId!,
+			tediId: context.tediId,
+			skillId: run.skillId,
+			skillRevision: run.skillRevision,
+			workspaceId: resource.workspaceId,
+			resourceId: resource.id,
+			connectionInstanceId: resource.connectionInstanceId,
+			providerId: resource.providerId,
+			providerResourceId: resource.providerResourceId,
+			operation: "read",
+			toolId,
+			requiredScopes,
+		});
+		return resolved.accessToken;
+	}
+	if (
+		context.authType !== "user" ||
+		context.user?.sub !== resource.personalOwnerUserId
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Personal resource reads require their exact owner",
+		);
+	const account = await getConnectionInstance(
+		context.db,
+		{ userId: resource.personalOwnerUserId },
+		resource.connectionInstanceId,
+		resource.providerId,
+	);
+	if (!account?.tokenIds.length || !account.tokenSub)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Selected personal account is disconnected",
+		);
+	const token = await fetchNamedConnection(
+		context,
+		{ userId: resource.personalOwnerUserId },
+		resource.providerId,
+		resource.connectionInstanceId,
+		requiredScopes,
+	);
+	if (
+		!token?.id ||
+		!account.tokenIds.includes(token.id) ||
+		token.tokenSub !== account.tokenSub ||
+		!personalResourceScopesCover(token.scopes ?? [], requiredScopes) ||
+		(token.expiresAt && Number(token.expiresAt) <= Date.now() / 1000)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Selected personal account credential changed or expired",
+		);
+	return token.accessToken;
 }
