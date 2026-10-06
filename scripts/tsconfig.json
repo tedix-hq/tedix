@@ -11,6 +11,8 @@
 	},
 	"include": [
 		"dev/**/*.ts",
+		"skills/install-calendar-coordinator.ts",
+		"../apps/skill-runtime/examples/calendar-coordinator/scripts/workflow.ts",
 		"dev-local.ts",
 		"generate-worker-types.ts",
 		"lint-contracts.ts",
