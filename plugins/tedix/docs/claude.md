@@ -62,6 +62,9 @@ Configure the matching CLI profile and chat selection separately; changing the
 MCP endpoint does not change the hooks' CLI binding. Review hooks in the host.
 If the CLI or selection is unavailable, the hooks do not claim fresh context.
 They never upload prompt text, record the conversation or grant authority.
+The separate decision-capture hook records turn endings and replies only after
+the explicit opt-in described in the [Codex guide](./chatgpt-codex.md#record-decisions-with-explicit-opt-in);
+it behaves the same in Claude Code.
 The [Claude Code guide](./claude-code.md) covers marketplace installation,
 separate MCP and CLI authentication, and hook setup.
 

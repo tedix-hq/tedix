@@ -9,7 +9,8 @@ Use the installed `tedix` CLI to give the operator a short, evidence-backed view
 of this session's authority, work, and next risk. This skill runs when invoked;
 the SessionStart hook may supply context, but it does not monitor the session.
 Do not record prompts, tool calls, or transcripts, or create a Work Item merely
-because the skill was invoked.
+because the skill was invoked. Opt-in decision capture is a separate hook the
+operator enables; this skill neither enables it nor reads it as approval.
 
 ## Start
 

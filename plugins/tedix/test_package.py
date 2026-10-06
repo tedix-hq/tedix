@@ -26,8 +26,14 @@ class PackageTest(unittest.TestCase):
         local = package.package_files(local=True)
         self.assertEqual(set(local) - set(cloud), {
             ".mcp.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json",
-            "hooks/hooks.json", "hooks/session_start.py", "hooks/user_prompt_submit.py"})
-        self.assertNotIn("Stop", json.loads(local["hooks/hooks.json"])["hooks"])
+            "hooks/hooks.json", "hooks/session_start.py", "hooks/user_prompt_submit.py", "hooks/decision_capture.py"})
+        hooks = json.loads(local["hooks/hooks.json"])["hooks"]
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop"})
+        # Recording handlers run in the background and cannot block or steer the session.
+        capture = [handler for definitions in hooks.values() for definition in definitions
+                   for handler in definition["hooks"] if "decision_capture.py" in handler["command"]]
+        self.assertEqual(len(capture), 2)
+        self.assertTrue(all(handler["async"] for handler in capture))
         self.assertEqual(json.loads(local[".codex-plugin/plugin.json"])["name"], "tedix")
 
     def test_reproducible_and_does_not_overwrite(self):
@@ -60,14 +66,15 @@ class PackageTest(unittest.TestCase):
         self.assertNotIn("hooks", manifest)
         self.assertNotIn("mcpServers", manifest)
         hooks = json.loads(files["hooks/hooks.json"])["hooks"]
-        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit"})
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop"})
         for definitions in hooks.values():
             for definition in definitions:
                 for handler in definition["hooks"]:
                     self.assertNotIn("additionalContextLimit", handler)
                     self.assertEqual(handler["command"], "python3")
-                    self.assertEqual(len(handler["args"]), 1)
                     self.assertTrue(handler["args"][0].startswith("${CLAUDE_PLUGIN_ROOT}/hooks/"))
+                    self.assertEqual(handler["args"][1:], ["stop"] if definition is hooks["Stop"][0] else
+                                     ["reply"] if "decision_capture" in handler["args"][0] else [])
         self.assertEqual(files["hooks/session_start.py"],
                          (package.ROOT / "hooks/session_start.py").read_bytes())
 

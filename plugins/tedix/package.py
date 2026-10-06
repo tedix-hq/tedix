@@ -61,13 +61,13 @@ def package_files(root: Path = ROOT, *, local: bool = False, host: str = "openai
                 for definition in definitions:
                     for handler in definition["hooks"]:
                         handler.pop("additionalContextLimit", None)
-                        command = re.fullmatch(r'python3 "\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(session_start|user_prompt_submit)\.py"', handler["command"])
-                        if command is None:
+                        command = re.fullmatch(r'python3 "\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(session_start|user_prompt_submit|decision_capture)\.py"(?: (stop|reply))?', handler["command"])
+                        if command is None or (command.group(1) == "decision_capture") != (command.group(2) is not None):
                             raise ValueError("Unsupported hook command; review the Claude adapter before packaging")
                         handler["command"] = "python3"
-                        handler["args"] = ["${CLAUDE_PLUGIN_ROOT}/hooks/" + command.group(1) + ".py"]
+                        handler["args"] = ["${CLAUDE_PLUGIN_ROOT}/hooks/" + command.group(1) + ".py", *([command.group(2)] if command.group(2) else [])]
             files["hooks/hooks.json"] = (json.dumps(hooks, ensure_ascii=False, indent="\t") + "\n").encode()
-            paths += [root / "hooks/session_start.py", root / "hooks/user_prompt_submit.py"]
+            paths += [root / "hooks/session_start.py", root / "hooks/user_prompt_submit.py", root / "hooks/decision_capture.py"]
         for path in sorted(paths):
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
                 raise ValueError(f"Package source must be a regular in-tree file: {path}")
@@ -86,10 +86,11 @@ def package_files(root: Path = ROOT, *, local: bool = False, host: str = "openai
     if local:
         extension["publication"]["release_notes"] = extension["publication"]["release_notes"].replace(
             "It contains no local lifecycle hooks, credentials or\ncopied tokens.",
-            "This local artifact includes opt-in read-only hooks and contains no credentials or copied tokens.")
+            "This local artifact includes opt-in context hooks and opt-in decision capture, and contains no credentials or copied tokens.")
         files["plugin.json"] = (json.dumps(manifest, ensure_ascii=False, indent="\t") + "\n").encode()
         paths += [root / ".mcp.json", root / ".claude-plugin/plugin.json"]
-        paths += [root / "hooks/hooks.json", root / "hooks/session_start.py", root / "hooks/user_prompt_submit.py"]
+        paths += [root / "hooks/hooks.json", root / "hooks/session_start.py", root / "hooks/user_prompt_submit.py",
+                  root / "hooks/decision_capture.py"]
         # The portable extension is authoritative. Mirror its complete overlay,
         # rather than rely on an older compatibility manifest being merged.
         compatibility = {key: copy.deepcopy(value) for key, value in manifest.items() if key not in ("$schema", "extensions")}

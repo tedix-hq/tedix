@@ -1,5 +1,5 @@
 {
-	"description": "Optional read-only Tedix session preflight. Enable it with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1.",
+	"description": "Optional Tedix session preflight and opt-in decision capture. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -24,6 +24,24 @@
 						"timeout": 15,
 						"additionalContextLimit": 6500,
 						"statusMessage": "Reading selected Tedix decisions and Work updates"
+					},
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/decision_capture.py\" reply",
+						"timeout": 30,
+						"async": true
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/decision_capture.py\" stop",
+						"timeout": 30,
+						"async": true
 					}
 				]
 			}

@@ -125,6 +125,50 @@ describe("local agent context", () => {
 		).toBeUndefined();
 	});
 
+	test("decision capture is an explicit per-organization opt-in that other organizations do not inherit", () => {
+		const { opts } = fixture();
+		bind(opts);
+		expect(resolveAgentContext(opts).decisionCapture).toBeUndefined();
+		changeAgentContext("enable-decision-capture", {}, opts);
+		changeAgentContext("enable-decision-capture", {}, opts);
+		expect(resolveAgentContext(opts).decisionCapture).toBe(true);
+		const chat = { ...opts, sessionId: "00000000-0000-4000-8000-000000000001" };
+		changeAgentContext(
+			"connect",
+			{
+				workspace: "tedix",
+				projectId: "10000000-0000-4000-8000-000000000001",
+			},
+			chat,
+		);
+		expect(resolveAgentContext(chat).decisionCapture).toBe(true);
+		writeWorkspaceCredentials(
+			"customer",
+			{
+				loginId: "operator",
+				org: "org_customer",
+				mcpUrl: "https://customer.example.invalid/mcp",
+			},
+			opts,
+		);
+		const customer = {
+			...opts,
+			sessionId: "30000000-0000-4000-8000-000000000001",
+		};
+		changeAgentContext(
+			"connect",
+			{ workspace: "customer", projectId: PROJECT },
+			customer,
+		);
+		expect(resolveAgentContext(customer).decisionCapture).toBeUndefined();
+		changeAgentContext("disable-decision-capture", {}, chat);
+		expect(resolveAgentContext(chat).decisionCapture).toBeUndefined();
+		const configPath = join(opts.configDir, "agent-contexts.json");
+		expect(
+			JSON.parse(readFileSync(configPath, "utf8")).decisionCapture,
+		).toEqual([]);
+	});
+
 	test("unconfigured directories stay unbound and binding pins explicit profile/project", () => {
 		const { opts } = fixture();
 		expect(resolveAgentContext(opts)).toEqual({ status: "unbound" });
