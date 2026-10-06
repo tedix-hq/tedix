@@ -7,25 +7,26 @@ For Claude chat, Cowork and Claude Code, see the
 format from the same skills; `--local` adds opt-in context hooks. An explicit
 `--mcp-url` selects a self-hosted or local gateway without changing CLI bindings.
 
-Build a reproducible review ZIP from this source with Python's standard library:
+Build a reproducible review ZIP from this source with Bun:
 
 ```sh
-python3 plugins/tedix/package.py /tmp/tedix-public-1.1.0.zip
-python3 plugins/tedix/package.py --local /tmp/tedix-local-1.1.0.zip
+bun packages/cli/scripts/package-plugin.ts /tmp/tedix-public-1.1.0.zip
+bun packages/cli/scripts/package-plugin.ts --local /tmp/tedix-local-1.1.0.zip
 ```
 
 For the default OpenAI artifact, root `plugin.json` owns the canonical `tedix` identity. The builder imports
 `review/cases.json` and `review/release-notes.md` as review expectations, not
 recorded passes. The current version is 1.1.0. The default cloud
 artifact contains the manifest, portable MCP connection, skills and assets.
-`--local` adds the opt-in hooks and host compatibility files to the
-same plugin identity. Neither artifact contains app registrations or credentials.
+`--local` adds the opt-in `hooks/hooks.json` and host compatibility files to
+the same plugin identity. The hooks contain no scripts: each runs
+`tedix hooks <name>` in the installed Tedix CLI, which is their only requirement. Neither artifact contains app registrations or credentials.
 Building a ZIP does not install, submit or publish it.
 
 OpenAI supports MCP, skills and trusted local hooks in one plugin. Omitting
 hooks from the cloud artifact is a Tedix execution-environment choice, not an
-OpenAI prohibition: a web installation cannot deploy local Python scripts or
-supply the separately authenticated Tedix CLI. Review changed hook definitions
+OpenAI prohibition: a web installation cannot supply the separately installed
+and authenticated Tedix CLI that runs the hooks. Review changed hook definitions
 in the local host before enabling them. No second plugin is needed; the only
 recorder is the opt-in decision-capture hook described in the Codex guide.
 
@@ -134,7 +135,7 @@ the owner OAuth flow. In ChatGPT Work,
 enable the local marketplace in the desktop app and start a new Work chat with
 the plugin enabled. Register or authorize the bundled remote Tedix MCP
 connection through the host's OAuth flow; the plugin contains only the gateway
-URL, never a bearer token. A web installation cannot deploy local hook scripts.
+URL, never a bearer token. A web installation cannot install the Tedix CLI the local hooks run.
 
 The optional `SessionStart` hook is installed at `hooks/hooks.json`. Review and
 trust it in the host's hook browser before use. It stays silent unless a repository binding or
@@ -144,10 +145,11 @@ Item summary. It reads auth and board context through the installed `tedix`
 CLI at startup, resume, clear, and compaction, so the context is restored after
 a host context reset. It does not log turns, start Attempts, or change Work
 state. With `TEDIX_WORK_ITEM_ID`, it also shows the latest bounded Attempt state
-and lease expiry, which still must be verified before a write. Without a CLI, explicit preflight opt-in emits only a workflow hint for the
-agent to use native tools; no live authentication or Work facts are read. Command
-hooks cannot invoke the agent's native MCP tool session through the documented
-host interface, and ordinary Chat does not run those local scripts.
+and lease expiry, which still must be verified before a write. Every hook runs
+`tedix hooks <name>`; without the CLI the host reports a non-blocking hook error
+and no live authentication or Work facts are read. Command hooks cannot invoke
+the agent's native MCP tool session through the documented host interface, and
+ordinary Chat does not run local hooks.
 
 The opt-in turn-status reporter is described in the
 [Claude Code guide](docs/claude-code.md#opt-in-turn-status). It is silent

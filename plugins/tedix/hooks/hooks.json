@@ -1,5 +1,5 @@
 {
-	"description": "Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture; status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
+	"description": "Runs the installed Tedix CLI (tedix hooks). Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture; status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -7,7 +7,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\"",
+						"command": "tedix hooks session-start",
 						"timeout": 15,
 						"additionalContextLimit": 600,
 						"statusMessage": "Checking opt-in Tedix context"
@@ -20,14 +20,14 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py\"",
+						"command": "tedix hooks prompt-context",
 						"timeout": 15,
 						"additionalContextLimit": 6500,
 						"statusMessage": "Reading selected Tedix decisions and Work updates"
 					},
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/decision_capture.py\" reply",
+						"command": "tedix hooks capture-reply",
 						"timeout": 30,
 						"async": true
 					}
@@ -37,7 +37,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -49,7 +49,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/decision_capture.py\" stop",
+						"command": "tedix hooks capture-stop",
 						"timeout": 30,
 						"async": true
 					}
@@ -59,7 +59,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -71,7 +71,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -83,7 +83,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -95,7 +95,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -107,7 +107,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -119,7 +119,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_status.py\"",
+						"command": "tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}

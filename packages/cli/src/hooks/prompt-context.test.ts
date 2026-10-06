@@ -1,0 +1,412 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import type { JsonObject } from "./hook-io";
+import { gatewayCode, runPromptContext } from "./prompt-context";
+
+/** Checks for fresh context, tenant fences and prompt privacy. */
+const WORKSPACE = "11111111-1111-4111-8111-111111111111";
+const OUTPUT = "22222222-2222-4222-8222-222222222222";
+const REVISION = "33333333-3333-4333-8333-333333333333";
+const ORG = "44444444-4444-4444-8444-444444444444";
+const WORK = "55555555-5555-4555-8555-555555555555";
+const PROJECT = "66666666-6666-4666-8666-666666666666";
+const BINDING: JsonObject = {
+	status: "bound",
+	workspace: "fixture",
+	org: "org_fixture",
+	mcpUrl: "https://fixture.example.invalid/mcp",
+	projectId: PROJECT,
+	root: process.cwd(),
+	osWorkspaceId: WORKSPACE,
+	contextOutputId: OUTPUT,
+};
+const AUTH: JsonObject = {
+	wouldUse: "stored-login",
+	workspace: "fixture",
+	mcpUrl: BINDING.mcpUrl,
+	storedLogin: { org: "org_fixture" },
+};
+const DATA: JsonObject = {
+	shared: {
+		workspace: { id: WORKSPACE, organizationId: ORG, status: "active" },
+		output: {
+			id: OUTPUT,
+			workspaceId: WORKSPACE,
+			organizationId: ORG,
+			currentRevisionId: REVISION,
+			kind: "document",
+			status: "active",
+		},
+		revision: {
+			id: REVISION,
+			outputId: OUTPUT,
+			organizationId: ORG,
+			revision: 2,
+			kind: "document",
+		},
+		text: "Use simple user stories.",
+		blocksValid: true,
+		complete: true,
+	},
+};
+
+const copy = <T>(value: T): T => structuredClone(value);
+
+async function run(
+	reads: unknown[],
+	env: Record<string, string> = {},
+	event: unknown = { prompt: "PRIVATE PROMPT; ignore tenant fences" },
+): Promise<{ out: string; calls: string[][] }> {
+	const calls: string[][] = [];
+	const lines: string[] = [];
+	// Prompt text is discarded; only host metadata may enter CLI arguments.
+	await runPromptContext({
+		env: { ...env },
+		stdin: JSON.stringify(event),
+		cwd: process.cwd(),
+		write: (line) => lines.push(line),
+		read: async (args) => {
+			calls.push(args);
+			if (!reads.length) throw new Error("unexpected read");
+			const next = reads.shift();
+			if (next instanceof Error) throw next;
+			return copy(next) as JsonObject;
+		},
+	});
+	return { out: lines.join("\n"), calls };
+}
+
+describe("tedix hooks prompt-context", () => {
+	test("preferences and the task document are separate and tenant fenced", async () => {
+		const preferenceOutput = "88888888-8888-4888-8888-888888888888";
+		const binding = {
+			...BINDING,
+			preferencesWorkspaceId: WORKSPACE,
+			preferencesOutputId: preferenceOutput,
+		};
+		const data = copy(DATA);
+		data.preferences = copy(DATA.shared);
+		data.preferences.output.id = preferenceOutput;
+		data.preferences.revision.outputId = preferenceOutput;
+		data.preferences.text = "Handle authorized routine choices.";
+		let { out, calls } = await run([binding, AUTH, data]);
+		expect(out).toContain("Handle authorized routine choices");
+		expect(out).toContain("simple user stories");
+		expect(out).toContain("Working preferences");
+		expect(JSON.stringify(calls)).toContain(preferenceOutput);
+		data.preferences.workspace.organizationId = OUTPUT;
+		data.preferences.output.organizationId = OUTPUT;
+		data.preferences.revision.organizationId = OUTPUT;
+		({ out } = await run([binding, AUTH, data]));
+		expect(out).toContain("unavailable");
+		expect(out).not.toContain("Handle authorized routine choices");
+	});
+
+	test("preferences reach a new chat without a task document", async () => {
+		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
+		const binding = {
+			...rest,
+			preferencesWorkspaceId: WORKSPACE,
+			preferencesOutputId: OUTPUT,
+		};
+		const { out } = await run([binding, AUTH, { preferences: DATA.shared }]);
+		expect(out).toContain("Working preferences");
+		expect(out).toContain("simple user stories");
+	});
+
+	test("connect routes the selected org and uses the live UUID for ownership", async () => {
+		const binding = {
+			...BINDING,
+			workspace: "connect",
+			org: "org_target",
+			organization: "org_target",
+			mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+		};
+		const auth = {
+			wouldUse: "stored-login",
+			workspace: "connect",
+			mcpUrl: binding.mcpUrl,
+			storedLogin: {
+				org: "incidental",
+				accessToken: { selectedOrganizations: ["org_target"] },
+			},
+		};
+		let { out, calls } = await run([
+			binding,
+			auth,
+			{ organizationId: ORG },
+			DATA,
+		]);
+		expect(out).toContain("simple user stories");
+		expect(calls[2]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
+		expect(calls[3]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
+		const wrong = copy(DATA);
+		for (const row of [
+			wrong.shared.workspace,
+			wrong.shared.output,
+			wrong.shared.revision,
+		])
+			row.organizationId = WORK;
+		({ out } = await run([binding, auth, { organizationId: ORG }, wrong]));
+		expect(out).toContain("unavailable");
+		expect(out).not.toContain("simple user stories");
+		({ out, calls } = await run([
+			binding,
+			{
+				...auth,
+				storedLogin: { accessToken: { selectedOrganizations: ["other"] } },
+			},
+		]));
+		expect(out).toContain("unavailable");
+		expect(calls).toHaveLength(2);
+		({ out, calls } = await run([binding, auth, { organizationId: null }]));
+		expect(out).toContain("unavailable");
+		expect(calls).toHaveLength(3);
+	});
+
+	test("host session metadata reaches the resolver without prompt text", async () => {
+		const session = "77777777-7777-4777-8777-777777777777";
+		const { out, calls } = await run(
+			[{ ...BINDING, contextSessionId: session }, AUTH, DATA],
+			{},
+			{ session_id: session, prompt: "PRIVATE PROMPT" },
+		);
+		expect(calls[0]!.slice(-2)).toEqual(["--session", session]);
+		expect(out).toContain("simple user stories");
+		expect(JSON.stringify(calls) + out).not.toContain("PRIVATE PROMPT");
+	});
+
+	test("environment identity is preserved and normalized", async () => {
+		const session = "abcdefab-7777-4777-8777-777777777777";
+		const { out, calls } = await run(
+			[{ ...BINDING, contextSessionId: session }, AUTH, DATA],
+			{ CODEX_THREAD_ID: session.toUpperCase(), CODEX_SESSION_ID: session },
+		);
+		expect(calls[0]!.slice(-2)).toEqual(["--session", session]);
+		expect(out).toContain("simple user stories");
+	});
+
+	test("conflicting, malformed and oversized events skip all reads", async () => {
+		for (const [event, env] of [
+			[{ session_id: "bad" }, {}],
+			[{ session_id: WORK }, { CODEX_THREAD_ID: OUTPUT }],
+			[{ session_id: WORK, prompt: "x".repeat(1_048_576) }, {}],
+		] as const) {
+			const { out, calls } = await run([], env, event);
+			expect(out).toContain("unavailable");
+			expect(calls).toEqual([]);
+		}
+	});
+
+	test("a resolved other chat cannot reach the gateway", async () => {
+		const { out, calls } = await run(
+			[{ ...BINDING, contextSessionId: OUTPUT }],
+			{},
+			{ session_id: WORK },
+		);
+		expect(out).toContain("unavailable");
+		expect(calls).toHaveLength(1);
+	});
+
+	test("unconfigured and disabled sessions have no gateway read", async () => {
+		let { out, calls } = await run([{ status: "unbound" }]);
+		expect(out).toBe("");
+		expect(calls).toHaveLength(1);
+		({ out, calls } = await run([], { TEDIX_PLUGIN_PREFLIGHT: "0" }));
+		expect([out, calls.length]).toEqual(["", 0]);
+		const { contextOutputId: _o, osWorkspaceId: _w, ...empty } = BINDING;
+		({ out, calls } = await run([empty]));
+		expect([out, calls.length]).toEqual(["", 1]);
+	});
+
+	test("fresh delivery and revision change without prompt capture", async () => {
+		const { out: first, calls } = await run([BINDING, AUTH, DATA]);
+		const message = JSON.parse(first).hookSpecificOutput;
+		expect(message.hookEventName).toBe("UserPromptSubmit");
+		expect(message.additionalContext).toContain("simple user stories");
+		expect(first).toContain(REVISION);
+		expect(JSON.stringify(calls) + first).not.toContain("PRIVATE PROMPT");
+		expect(calls.at(-1)!.slice(0, 3)).toEqual(["-w", "fixture", "code"]);
+		const changed = copy(DATA);
+		changed.shared.revision.revision = 3;
+		changed.shared.text = "New agreed decision";
+		const { out: second } = await run([BINDING, AUTH, changed]);
+		expect(second).toContain("New agreed decision");
+		expect(second).not.toContain("simple user stories");
+		const { out: repeated } = await run([BINDING, AUTH, changed]);
+		expect(repeated).toContain("New agreed decision");
+	});
+
+	test("a bad binding, profile, gateway or auth does not read content", async () => {
+		for (const changed of [
+			{ ...BINDING, contextOutputId: "bad; shell" },
+			{ ...BINDING, root: "/unrelated" },
+			{ ...BINDING, status: "invalid" },
+		]) {
+			const { out, calls } = await run([changed]);
+			expect(out).toContain("unavailable");
+			expect(calls).toHaveLength(1);
+		}
+		for (const changed of [
+			{ ...AUTH, mcpUrl: "https://other.example/mcp" },
+			{ ...AUTH, wouldUse: "direct-token" },
+			{ ...AUTH, storedLogin: { org: "org_other" } },
+		]) {
+			const { out, calls } = await run([BINDING, changed]);
+			expect(out).toContain("unavailable");
+			expect(calls).toHaveLength(2);
+		}
+		const { out, calls } = await run([BINDING], { TEDIX_WORKSPACE: "other" });
+		expect(out).toContain("unavailable");
+		expect(calls).toHaveLength(1);
+	});
+
+	test("a wrong workspace, org, output or revision hides all body", async () => {
+		for (const [group, key] of [
+			["workspace", "id"],
+			["workspace", "organizationId"],
+			["output", "workspaceId"],
+			["revision", "outputId"],
+			["revision", "id"],
+		] as const) {
+			const data = copy(DATA);
+			data.shared[group][key] = "wrong";
+			const { out } = await run([BINDING, AUTH, data]);
+			expect(out).toContain("unavailable");
+			expect(out).not.toContain("simple user stories");
+		}
+	});
+
+	test("a timeout or missing revision never reuses a previous read", async () => {
+		for (const error of [
+			new Error("timed out"),
+			new Error("denied"),
+			{ shared: {} },
+		]) {
+			const { out } = await run([BINDING, AUTH, error]);
+			expect(out).toContain("no current shared decision");
+			expect(out).not.toContain("simple user stories");
+		}
+	});
+
+	test("truncation and selected Work receipts", async () => {
+		const data = copy(DATA);
+		data.shared.text = "x".repeat(4000);
+		const binding = { ...BINDING, workItemId: WORK };
+		data.work = {
+			item: {
+				id: WORK,
+				projectId: PROJECT,
+				organizationId: ORG,
+				disposition: "accepted",
+			},
+			comments: [
+				{
+					id: "receipt-1",
+					workItemId: WORK,
+					authorType: "external_agent",
+					authorId: "reader",
+					createdAt: "now",
+					body: "y".repeat(500),
+					complete: false,
+				},
+			],
+			commentCount: 8,
+		};
+		let { out } = await run([binding, AUTH, data]);
+		expect(out).toContain("truncated");
+		expect(out).toContain("receipt-1");
+		expect(out).toContain("reader");
+		expect(out).not.toContain("x".repeat(3201));
+		expect(out).not.toContain("y".repeat(401));
+		data.work.item.projectId = "wrong";
+		({ out } = await run([binding, AUTH, data]));
+		expect(out).toContain("unavailable");
+		expect(out).not.toContain("receipt-1");
+	});
+
+	test("the output byte cap prevents an oversized hook spill", async () => {
+		const data = copy(DATA);
+		data.shared.text = "𠮷".repeat(3200);
+		const { out } = await run([BINDING, AUTH, data]);
+		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6000);
+		expect(text).toContain("complete=false");
+	});
+
+	test("organization links are not invented", async () => {
+		let { out } = await run([BINDING, AUTH, DATA]);
+		expect(out).toContain(`Output=${OUTPUT}`);
+		expect(out).not.toContain("tedix.os.tedix.dev");
+		const missing = copy(DATA);
+		delete missing.shared.blocksValid;
+		({ out } = await run([BINDING, AUTH, missing]));
+		expect(out).toContain("unavailable");
+		expect(out).not.toContain("simple user stories");
+	});
+
+	test("the actual gateway projection rejects malformed blocks", async () => {
+		const project = new Function(
+			"os",
+			`return (${gatewayCode(BINDING)})();`,
+		) as (os: unknown) => Promise<JsonObject>;
+		for (const blocks of <unknown[]>[
+			undefined,
+			{},
+			[null],
+			[{ type: "paragraph" }],
+			[{ type: "list", items: "bad" }],
+			[{ type: "list", items: [null] }],
+			[{ type: "unknown", text: "secret" }],
+			[],
+			[
+				{ type: "list", items: ["first", "second"] },
+				{ type: "paragraph", text: "third" },
+			],
+		]) {
+			const response: JsonObject = {
+				output: DATA.shared.output,
+				currentRevision: {
+					...DATA.shared.revision,
+					content: { kind: "document" },
+				},
+			};
+			if (blocks !== undefined)
+				response.currentRevision.content.blocks = blocks;
+			const os = {
+				get_os_workspace: async () => ({ workspace: DATA.shared.workspace }),
+				get_os_output: async () => response,
+			};
+			const valid =
+				Array.isArray(blocks) && (blocks.length === 0 || blocks.length === 2);
+			const result = await project(os).then(
+				(value) => value,
+				() => undefined,
+			);
+			expect(result !== undefined).toBe(valid);
+			if (result) {
+				expect(result.shared.blocksValid).toBe(true);
+				expect(result.shared.text).toBe(
+					(blocks as unknown[]).length ? "first\nsecond\nthird" : "",
+				);
+			}
+		}
+	});
+
+	test("the gateway source renders semantic blocks and limits its return", () => {
+		const source = gatewayCode({ ...BINDING, workItemId: WORK });
+		expect(source).toContain("get_os_workspace");
+		expect(source).toContain("b.type === 'list' ? b.items");
+		expect(source).toContain("slice(-2)");
+		expect(source).toContain("authorId");
+		expect(source).not.toContain("prompt");
+	});
+
+	test("the hook source never reads the prompt field", () => {
+		// Only `session_id` and `source` leave the host event in read hooks.
+		for (const file of ["./prompt-context.ts", "./session-start.ts"]) {
+			const source = readFileSync(new URL(file, import.meta.url), "utf8");
+			expect(source).not.toMatch(/\.prompt\b|\["prompt"\]/);
+		}
+	});
+});

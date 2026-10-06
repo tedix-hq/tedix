@@ -2,10 +2,11 @@
 
 The current release is **1.1.0**. Its portable
 package has one canonical `tedix` identity and a remote HTTPS MCP endpoint.
-The default cloud artifact omits local scripts and registered `.app.json`
-references. The local artifact adds opt-in hooks under the same plugin identity.
+The default cloud artifact omits local hooks and registered `.app.json`
+references. The local artifact adds opt-in hooks under the same plugin identity;
+each hook runs `tedix hooks <name>` and needs only the installed Tedix CLI.
 OpenAI allows a plugin to combine MCP, skills and trusted local hooks; a web
-installation cannot supply the local script execution environment.
+installation cannot supply the local CLI.
 
 The Tedix plugin packages shared skills, a remote Tedix Connect MCP
 server, and an optional local session preflight. Installation makes these
@@ -36,10 +37,10 @@ through the host's connection management and Tedix consent flow when a requested
 operation needs them. A grant change does not repair a missing tool mapping.
 
 Skills and remote tools supply the core workflow. Local hooks add repository
-context recovery; they run command scripts and cannot directly call model-native
-plugin tools or borrow host OAuth credentials. A CLI-free opted-in hook gives
-only routing guidance. Keep the CLI when local automation or repo policy requires
-it. Ordinary Chat does not execute local hooks.
+context recovery; they run the installed Tedix CLI and cannot directly call
+model-native plugin tools or borrow host OAuth credentials. Without the CLI the
+host reports a non-blocking hook error and no Tedix context is added. Keep the
+CLI when local automation or repo policy requires it. Ordinary Chat does not execute local hooks.
 
 ## Install from the Tedix marketplace
 
@@ -178,7 +179,7 @@ exact hook in Codex's `/hooks` browser before enabling it. Set
 through the installed `tedix` CLI at startup, resume, clear, and compaction;
 with a Work Item id it also reports the newest bounded Attempt state and lease
 expiry. It does not log turns or change Work state. A web plugin installation
-cannot deploy the local script.
+cannot install the local CLI the hook runs.
 
 When launching an interactive Codex CLI session with this preflight enabled,
 use `codex --no-daemon`. On Codex CLI v0.159.3, a normal TUI launch reported no
@@ -256,8 +257,8 @@ Text is redacted for common secret shapes and bounded to 6,000 characters before
 it leaves the machine, and is sent only to the bound organization as the signed-in
 user. Host re-entries such as task notifications are not treated as replies. A
 turn that ends with background work pending is not marked as waiting, and an
-unanswered turn is closed as superseded when the next one ends. Unanswered Interactions
-expire after seven days.
+unanswered turn is left open when the next one ends and expires after 24 hours;
+the agents board shows which sessions are waiting now.
 
 Automatic goal continuations, tool returns and background work are not proven
 `UserPromptSubmit` events. Use explicit checkpoint reads for those. To prove
@@ -265,7 +266,7 @@ actual delivery, use one controlled host session: ask for the supplied revision
 without tool reads, revise the document through an authorized Tedix action, then
 submit another prompt and verify the model receives the new revision without
 repeating its contents. CLI readback and hook trust alone are not this proof.
-Implementation: `hooks/user_prompt_submit.py`.
+Implementation: `tedix hooks prompt-context` in the Tedix CLI.
 
 ### Report turn status
 

@@ -75,7 +75,8 @@ Codex and Claude Code, shows the exact marketplace and plugin commands, asks
 before installing, and checks that each host reports the Tedix plugin. Use
 `--codex` or `--claude` to target one host; `--dry-run` previews without
 installing. The Tedix plugin carries its skills,
-remote MCP connection, and optional read-only session hook. The marketplace
+remote MCP connection, and optional local hooks. Each hook runs
+`tedix hooks <name>` in this CLI, so the hooks need no other runtime. The marketplace
 and plugin source ship in the Tedix repository; fetching them requires Git.
 
 Run `tedix setup agents --status` to see plugin and marketplace state and the

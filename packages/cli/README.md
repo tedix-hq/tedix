@@ -26,8 +26,11 @@ and durable answer settlement.
   preview and confirmation. `--status` reports readiness without mistaking an
   enabled plugin for login or a successful read; `--update` previews and refreshes
   through each host manager while preserving existing local marketplace sources.
-  Skills and the optional hook come with the plugin; each host retains its own
+  Skills and the optional hooks come with the plugin; each host retains its own
   OAuth and hook trust steps.
+- **Plugin hooks** (`src/hooks/`) — `tedix hooks <session-start|prompt-context|capture-stop|capture-reply|status>`
+  runs the plugin's host lifecycle hooks from the event JSON on stdin, so the
+  plugin ships no scripts. `scripts/package-plugin.ts` builds its review ZIPs.
 
 - **MCP Home client** (`home-client.ts`) — `TedixHomeClient` wraps
   `@modelcontextprotocol/client`'s `StreamableHTTPClientTransport` and calls
