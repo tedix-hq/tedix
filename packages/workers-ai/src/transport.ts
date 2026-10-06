@@ -478,8 +478,49 @@ async function callViaBinding(
 	};
 }
 
-const TOOL_CALL_TOKEN_RE =
-	/<\|tool_call_begin\|>\s*([\w.:-]+)\s*<\|tool_call_argument_begin\|>([\s\S]*?)<\|tool_call_end\|>/g;
+const TOOL_CALL_BEGIN = "<|tool_call_begin|>";
+const TOOL_CALL_ARGUMENT_BEGIN = "<|tool_call_argument_begin|>";
+const TOOL_CALL_END = "<|tool_call_end|>";
+const TOOL_CALL_NAME_RE = /\s*([\w.:-]+)\s*/y;
+
+/**
+ * Replace each `BEGIN name ARGUMENT_BEGIN args END` span, as the regex
+ * `BEGIN\s*([\w.:-]+)\s*ARGUMENT_BEGIN([\s\S]*?)END` would, in linear time.
+ * A lazy-body regex rescans the remainder once per unterminated BEGIN token.
+ */
+function replaceInlineToolCallTokens(
+	text: string,
+	replace: (rawName: string, rawArgs: string) => string,
+): string {
+	let output = "";
+	let position = 0;
+	let searchFrom = 0;
+	// Cached next END position; it only moves forward.
+	let endAt = -1;
+	for (;;) {
+		const begin = text.indexOf(TOOL_CALL_BEGIN, searchFrom);
+		if (begin === -1) break;
+		TOOL_CALL_NAME_RE.lastIndex = begin + TOOL_CALL_BEGIN.length;
+		const name = TOOL_CALL_NAME_RE.exec(text);
+		if (
+			!name?.[1] ||
+			!text.startsWith(TOOL_CALL_ARGUMENT_BEGIN, TOOL_CALL_NAME_RE.lastIndex)
+		) {
+			searchFrom = begin + 1;
+			continue;
+		}
+		const argsStart =
+			TOOL_CALL_NAME_RE.lastIndex + TOOL_CALL_ARGUMENT_BEGIN.length;
+		if (endAt < argsStart) endAt = text.indexOf(TOOL_CALL_END, argsStart);
+		if (endAt === -1) break;
+		output +=
+			text.slice(position, begin) +
+			replace(name[1], text.slice(argsStart, endAt));
+		position = endAt + TOOL_CALL_END.length;
+		searchFrom = position;
+	}
+	return output + text.slice(position);
+}
 
 /**
  * Fallback for models that emit their native chat-template tool-call tokens
@@ -496,17 +537,16 @@ export function recoverInlineToolCallTokens(
 		return result;
 	}
 	const recovered: WorkersAiTransportToolCall[] = [];
-	const text = result.text
-		.replace(TOOL_CALL_TOKEN_RE, (_match, rawName: string, rawArgs: string) => {
-			// `functions.list_skills:0` → `list_skills`
-			const name = rawName.replace(/^functions\./, "").replace(/:\d+$/, "");
-			recovered.push({
-				id: `call_${result.toolCalls.length + recovered.length}_${name || "tool"}`,
-				name,
-				arguments: toArgsObject(rawArgs.trim()),
-			});
-			return "";
-		})
+	const text = replaceInlineToolCallTokens(result.text, (rawName, rawArgs) => {
+		// `functions.list_skills:0` → `list_skills`
+		const name = rawName.replace(/^functions\./, "").replace(/:\d+$/, "");
+		recovered.push({
+			id: `call_${result.toolCalls.length + recovered.length}_${name || "tool"}`,
+			name,
+			arguments: toArgsObject(rawArgs.trim()),
+		});
+		return "";
+	})
 		.replace(/<\|tool_calls_section_(?:begin|end)\|>/g, "")
 		.trim();
 	return {
@@ -529,8 +569,14 @@ const BARE_JSON_TOOL_CALL_RE =
 
 /** Strip a ```json …``` / ``` …``` fence so fenced bare calls also recover. */
 function stripCodeFence(text: string): string {
-	const m = /^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/.exec(text);
-	return m?.[1] ? m[1].trim() : text;
+	// String scan instead of a lazy-body regex, which is quadratic on long
+	// whitespace runs in model output.
+	if (!text.startsWith("```")) return text;
+	const end = text.trimEnd();
+	if (end.length < 6 || !end.endsWith("```")) return text;
+	let body = end.slice(3, -3);
+	if (body.startsWith("json")) body = body.slice(4);
+	return body.trim() || text;
 }
 
 /**

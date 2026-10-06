@@ -122,6 +122,21 @@ describe("email header parsing", () => {
 		).toBe("Hello CEO. Reply soon.");
 	});
 
+	it("strips script and style blocks, including spaced end tags, in linear time", () => {
+		const html = (body: string) =>
+			parseInboundEmail(
+				["Content-Type: text/html; charset=utf-8", "", body].join("\r\n"),
+			).text;
+		expect(
+			html(
+				"<p>Hi</p><script>alert(1)</script ><style>.x{}</STYLE><p>there</p>",
+			),
+		).toBe("Hi there");
+		const started = performance.now();
+		html(`${"<style".repeat(20_000)}${"<".repeat(20_000)}`);
+		expect(performance.now() - started).toBeLessThan(1_000);
+	});
+
 	it("keeps attachments out of the readable body and preserves metadata and bytes", () => {
 		const parsed = parseInboundEmail(
 			[

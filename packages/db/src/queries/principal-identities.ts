@@ -32,11 +32,17 @@ export class PrincipalIdentityConflictError extends Error {
 	}
 }
 
+function trimTrailingSlashes(value: string): string {
+	let end = value.length;
+	while (end > 0 && value[end - 1] === "/") end -= 1;
+	return value.slice(0, end);
+}
+
 function normalizeExternalIdentity(
 	identity: ExternalIdentity,
 ): ExternalIdentity {
 	const provider = identity.provider.trim().toLowerCase();
-	const issuer = identity.issuer.trim().replace(/\/+$/, "");
+	const issuer = trimTrailingSlashes(identity.issuer.trim());
 	const subject = identity.subject.trim();
 	if (!provider || !issuer || !subject) {
 		throw new Error(

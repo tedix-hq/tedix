@@ -233,6 +233,12 @@ describe("emphasis never rewrites a generated link", () => {
 		expect(render("[i](https://h/src/__init__.py)")).not.toContain("<strong>");
 	});
 
+	it("decodes an escaped href exactly once", () => {
+		expect(render("[q](https://h/?a=&quot;b)")).toContain(
+			'href="https://h/?a=&amp;quot;b"',
+		);
+	});
+
 	/**
 	 * `target="_blank"` also holds an underscore, so before the fix emphasis
 	 * opened on the first anchor's target and closed on the second anchor's

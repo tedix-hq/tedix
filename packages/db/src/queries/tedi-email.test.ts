@@ -19,6 +19,17 @@ describe("tedi email helpers", () => {
 				"<style>.x{}</style><p>Hello <strong>Tedi</strong></p>",
 			),
 		).toBe("Hello Tedi");
+		expect(
+			buildEmailPreview(
+				"<p>Hi</p><script>alert(1)</script ><STYLE>.x{}</style><p>there</p>",
+			),
+		).toBe("Hi there");
+	});
+
+	it("builds previews from hostile unclosed markup in linear time", () => {
+		const started = performance.now();
+		buildEmailPreview(`${"<style".repeat(20_000)}${"<".repeat(20_000)}`);
+		expect(performance.now() - started).toBeLessThan(1_000);
 	});
 
 	it("normalizes named recipients while preserving display names", () => {
