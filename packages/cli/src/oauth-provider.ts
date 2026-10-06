@@ -7,6 +7,7 @@ import {
 import { TEDI_MCP_SCOPES } from "@tedix/mcp-shared/auth/scopes";
 import {
 	isValidSelectedOrganizations,
+	scopesBeyondGrant,
 	validatedLoginTenant,
 } from "./oauth-tenant";
 import { CLI_VERSION } from "./shared";
@@ -308,6 +309,9 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 					throw new Error("OAuth authorization did not complete");
 			}
 			const credential = this.credential();
+			const tokenClaims = decodeJwtPayload(
+				credential.oauthTokens?.access_token ?? "",
+			);
 			const tenant = validatedLoginTenant({
 				isTedixHosted: isTedixHostedMcpUrl(this.#options.mcpUrl),
 				multiOrganizationResource: isMultiOrganizationMcpUrl(
@@ -315,10 +319,16 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 				),
 				expectedResource: this.#options.mcpUrl,
 				expectedTenant: this.#options.tenant ?? this.#credential?.org,
-				tokenClaims: decodeJwtPayload(
-					credential.oauthTokens?.access_token ?? "",
-				),
+				tokenClaims,
 			});
+			if (
+				scopesBeyondGrant(credential.oauthTokens?.scope, { tokenClaims })
+					.length > 0
+			) {
+				throw new Error(
+					"Tedix OAuth issued an access token broader than its granted scopes. Credentials were not saved.",
+				);
+			}
 			if (tenant) credential.org = tenant;
 			if (commit) await commit(credential);
 			else if (this.#options.persist && this.#options.workspace) {
@@ -842,28 +852,47 @@ export async function refreshStoredSession(
 			fetchFn: boundedFetch,
 		});
 		const renewedScope = renewed.scope?.trim() || grantedScope;
-		if (grantedScope && renewedScope) {
-			const allowed = new Set(grantedScope.split(/\s+/).filter(Boolean));
-			const expansion = renewedScope
-				.split(/\s+/)
-				.filter((scope) => scope && !allowed.has(scope));
-			if (expansion.length > 0) {
-				console.error(
-					"[tedix] Stored session renewal returned broader scopes than the saved grant. " +
-						"Credentials were not updated; run `tedix login` to review access again.",
-				);
-				return finish("scope-expanded");
-			}
-		}
+		const renewedClaims = decodeJwtPayload(renewed.access_token);
 		if (
-			isMultiOrganizationMcpUrl(resource ?? expectedCredential?.mcpUrl ?? "")
+			scopesBeyondGrant(grantedScope, {
+				responseScope: renewedScope,
+				tokenClaims: renewedClaims,
+			}).length > 0
 		) {
+			console.error(
+				"[tedix] Stored session renewal returned broader scopes than the saved grant. " +
+					"Credentials were not updated; run `tedix login` to review access again.",
+			);
+			return finish("scope-expanded");
+		}
+		// Renewal must satisfy the same resource, token-type and tenant checks as
+		// login, or a refreshed token for another resource or tenant would be
+		// stored under this workspace's label.
+		const stored = expectedCredential ?? provider.credential();
+		const renewalResource = resource ?? stored.mcpUrl;
+		try {
+			const tenant = validatedLoginTenant({
+				isTedixHosted: isTedixHostedMcpUrl(renewalResource ?? ""),
+				multiOrganizationResource: isMultiOrganizationMcpUrl(
+					renewalResource ?? "",
+				),
+				expectedResource: renewalResource,
+				expectedTenant: stored.org,
+				tokenClaims: renewedClaims,
+			});
+			if (stored.org && tenant && tenant !== stored.org)
+				throw new Error("tenant changed");
+		} catch {
+			console.error(
+				"[tedix] Stored session renewal returned a token for a different resource or organization. Credentials were not updated; run `tedix login` to review access again.",
+			);
+			return finish("failed");
+		}
+		if (isMultiOrganizationMcpUrl(renewalResource ?? "")) {
 			const before = decodeJwtPayload(
 				tokens?.access_token ?? "",
 			)?.tedixSelectedOrganizations;
-			const after = decodeJwtPayload(
-				renewed.access_token,
-			)?.tedixSelectedOrganizations;
+			const after = renewedClaims?.tedixSelectedOrganizations;
 			// Organization order has no authorization meaning; unique membership does.
 			if (
 				!isValidSelectedOrganizations(before) ||

@@ -1,5 +1,5 @@
 import * as credentialLocks from "./credential-lock";
-import { describe, expect, test, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { auth } from "@modelcontextprotocol/client";
 import { TedixHomeClient } from "./home-client";
 import { mkdtempSync } from "node:fs";
@@ -29,7 +29,7 @@ import {
 	SESSION_REFRESH_TIMEOUT_MS,
 } from "./oauth-provider";
 import { TEDIX_CLI_OAUTH_REDIRECT_URI } from "@tedix/auth/oauth-client-registration";
-import { validatedLoginTenant } from "./oauth-tenant";
+import { scopesBeyondGrant, validatedLoginTenant } from "./oauth-tenant";
 import {
 	HUMAN_CONNECT_CONSENT_SCOPES,
 	selectConsentPreset,
@@ -1007,11 +1007,15 @@ describe("proactive session refresh", () => {
 
 	test("renews from the refresh token and persists the new access token", async () => {
 		let refreshRequestScope = "";
+		const freshToken = jwt({
+			dct: "org_acme",
+			scope: "mcp:apps.read mcp:apps.write",
+		});
 		const provider = new WorkspaceOAuthProvider({
 			mcpUrl: MCP_URL,
 			credential: {
 				loginId: "user-1",
-
+				org: "org_acme",
 				accessTokenExpiresAtSeconds: NOW - 1,
 
 				oauthTokens: {
@@ -1046,7 +1050,7 @@ describe("proactive session refresh", () => {
 				new URLSearchParams(init?.body as URLSearchParams).get("scope") ?? "";
 			return new Response(
 				JSON.stringify({
-					access_token: "fresh-access-token",
+					access_token: freshToken,
 					scope: "mcp:apps.read mcp:apps.write",
 					token_type: "Bearer",
 					expires_in: 600,
@@ -1061,7 +1065,7 @@ describe("proactive session refresh", () => {
 
 		expect(outcome).toBe("refreshed");
 		expect(refreshRequestScope).toBe("mcp:apps.read mcp:apps.write");
-		expect(provider.tokens()?.access_token).toBe("fresh-access-token");
+		expect(provider.tokens()?.access_token).toBe(freshToken);
 		expect(provider.tokens()?.scope).toBe("mcp:apps.read mcp:apps.write");
 		// A server that does not rotate the refresh token must not strand the next
 		// renewal.
@@ -1189,6 +1193,12 @@ describe("proactive session refresh", () => {
 		"validates selected organization membership on renewal: $name",
 		async ({ before, after, expected }) => {
 			const oldToken = jwt({ tedixSelectedOrganizations: before });
+			const renewedToken = jwt({
+				aud: TEDIX_CONNECT_MCP_URL,
+				token_type: "access_token",
+				dci: "client-1",
+				tedixSelectedOrganizations: after,
+			});
 			const provider = new WorkspaceOAuthProvider({
 				mcpUrl: TEDIX_CONNECT_MCP_URL,
 				credential: {
@@ -1218,9 +1228,7 @@ describe("proactive session refresh", () => {
 					});
 				}
 				return Response.json({
-					access_token: jwt({
-						tedixSelectedOrganizations: after,
-					}),
+					access_token: renewedToken,
 					refresh_token: "rotated",
 					scope: "mcp:apps.read",
 					token_type: "Bearer",
@@ -1230,9 +1238,7 @@ describe("proactive session refresh", () => {
 			>["fetchFn"];
 			expect(await refreshStoredSession(provider, { fetchFn })).toBe(expected);
 			expect(provider.tokens()?.access_token).toBe(
-				expected === "refreshed"
-					? jwt({ tedixSelectedOrganizations: after })
-					: oldToken,
+				expected === "refreshed" ? renewedToken : oldToken,
 			);
 			expect(provider.tokens()?.refresh_token).toBe(
 				expected === "refreshed" ? "rotated" : "refresh-token",
@@ -1711,4 +1717,155 @@ describe("canonical token deadlines", () => {
 		});
 		expect(calls).toBe(0);
 	});
+});
+
+describe("renewal applies login grant invariants", () => {
+	const renew = async (input: {
+		mcpUrl: string;
+		org?: string;
+		oldClaims: object;
+		renewedClaims: object;
+		renewedScope?: string;
+	}) => {
+		const oldToken = jwt(input.oldClaims);
+		const stored = {
+			loginId: "user-1",
+			mcpUrl: input.mcpUrl,
+			...(input.org ? { org: input.org } : {}),
+			accessTokenExpiresAtSeconds: Math.floor(Date.now() / 1000) - 1,
+			oauthTokens: {
+				access_token: oldToken,
+				refresh_token: "refresh-token",
+				scope: "mcp:apps.read",
+				token_type: "Bearer",
+			},
+			oauthClientInformation: { client_id: "client-1" },
+			oauthDiscoveryState: {
+				authorizationServerUrl: "https://auth.example.test",
+			},
+		};
+		// Renew through a real workspace so the locked re-read supplies the stored
+		// organization, exactly as `refreshSession()` does.
+		writeWorkspaceCredentials("renewal", stored);
+		const provider = new WorkspaceOAuthProvider({
+			mcpUrl: input.mcpUrl,
+			credential: stored,
+		});
+		provider.saveResourceUrl(input.mcpUrl);
+		const fetchFn = (async (request: string | URL | Request) => {
+			const url = String(request instanceof Request ? request.url : request);
+			if (url.includes("/.well-known/")) {
+				return Response.json({
+					issuer: "https://auth.example.test",
+					token_endpoint: "https://auth.example.test/token",
+					response_types_supported: ["code"],
+				});
+			}
+			return Response.json({
+				access_token: jwt(input.renewedClaims),
+				refresh_token: "rotated",
+				scope: input.renewedScope ?? "mcp:apps.read",
+				token_type: "Bearer",
+			});
+		}) as unknown as NonNullable<
+			Parameters<typeof refreshStoredSession>[1]
+		>["fetchFn"];
+		const outcome = await refreshStoredSession(provider, {
+			fetchFn,
+			workspace: "renewal",
+		});
+		return {
+			outcome,
+			provider,
+			oldToken,
+			saved: readWorkspaceCredentials("renewal"),
+		};
+	};
+	let previousConfigDir: string | undefined;
+	beforeEach(() => {
+		previousConfigDir = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = mkdtempSync(
+			join(tmpdir(), "tedix-renewal-"),
+		);
+	});
+	afterEach(() => {
+		if (previousConfigDir === undefined) delete process.env.TEDIX_CONFIG_DIR;
+		else process.env.TEDIX_CONFIG_DIR = previousConfigDir;
+	});
+	const connectClaims = {
+		aud: TEDIX_CONNECT_MCP_URL,
+		token_type: "access_token",
+		dci: "client-1",
+		tedixSelectedOrganizations: ["org_tedix"],
+	};
+
+	test("rejects a renewed token for a different resource", async () => {
+		const { outcome, provider, oldToken } = await renew({
+			mcpUrl: TEDIX_CONNECT_MCP_URL,
+			oldClaims: connectClaims,
+			renewedClaims: { ...connectClaims, aud: "https://other.example/mcp" },
+		});
+		expect(outcome).toBe("failed");
+		expect(provider.tokens()?.access_token).toBe(oldToken);
+		expect(provider.tokens()?.refresh_token).toBe("refresh-token");
+	});
+
+	test("rejects a renewed token that is not an access token", async () => {
+		const { outcome } = await renew({
+			mcpUrl: TEDIX_CONNECT_MCP_URL,
+			oldClaims: connectClaims,
+			renewedClaims: { ...connectClaims, token_type: "id_token" },
+		});
+		expect(outcome).toBe("failed");
+	});
+
+	test("rejects a renewed token for another organization", async () => {
+		const { outcome, oldToken, saved } = await renew({
+			mcpUrl: MCP_URL,
+			org: "org_acme",
+			oldClaims: { dct: "org_acme" },
+			renewedClaims: { dct: "org_other" },
+		});
+		expect(outcome).toBe("failed");
+		expect(saved?.oauthTokens?.access_token).toBe(oldToken);
+		expect(saved?.org).toBe("org_acme");
+	});
+
+	test("rejects a renewed JWT whose own scope is wider than the response", async () => {
+		const { outcome, provider, oldToken } = await renew({
+			mcpUrl: MCP_URL,
+			org: "org_acme",
+			oldClaims: { dct: "org_acme" },
+			renewedClaims: { dct: "org_acme", scope: "mcp:apps.read platform:admin" },
+		});
+		expect(outcome).toBe("scope-expanded");
+		expect(provider.tokens()?.access_token).toBe(oldToken);
+	});
+
+	test("accepts an equivalent renewed token", async () => {
+		const { outcome } = await renew({
+			mcpUrl: MCP_URL,
+			org: "org_acme",
+			oldClaims: { dct: "org_acme" },
+			renewedClaims: { dct: "org_acme", scope: "mcp:apps.read" },
+		});
+		expect(outcome).toBe("refreshed");
+	});
+});
+
+test("scopesBeyondGrant reads the response and both token claim shapes", () => {
+	expect(
+		scopesBeyondGrant("a b", {
+			responseScope: "a",
+			tokenClaims: { scope: "a b" },
+		}),
+	).toEqual([]);
+	expect(
+		scopesBeyondGrant("a", { tokenClaims: { scope: "a platform:admin" } }),
+	).toEqual(["platform:admin"]);
+	expect(scopesBeyondGrant("a", { tokenClaims: { scp: ["a", "c"] } })).toEqual([
+		"c",
+	]);
+	expect(scopesBeyondGrant("a", { responseScope: "a d" })).toEqual(["d"]);
+	expect(scopesBeyondGrant(undefined, { responseScope: "x" })).toEqual([]);
 });

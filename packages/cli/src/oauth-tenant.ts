@@ -15,6 +15,35 @@ export function isValidSelectedOrganizations(
 	);
 }
 
+function scopeSet(value: unknown): string[] | null {
+	if (typeof value === "string") return value.split(/\s+/).filter(Boolean);
+	if (Array.isArray(value) && value.every((scope) => typeof scope === "string"))
+		return value;
+	return null;
+}
+
+/**
+ * Scopes issued beyond `granted`, read from both the token response and the
+ * access token's own `scope`/`scp` claim. A token whose embedded authority is
+ * wider than its labelled grant must not be stored under the narrower label.
+ */
+export function scopesBeyondGrant(
+	granted: string | undefined,
+	issued: {
+		responseScope?: string;
+		tokenClaims?: Record<string, unknown> | null;
+	},
+): string[] {
+	const allowed = scopeSet(granted);
+	if (!allowed?.length) return [];
+	const allowedSet = new Set(allowed);
+	const candidates = [
+		...(scopeSet(issued.responseScope) ?? []),
+		...(scopeSet(issued.tokenClaims?.scope ?? issued.tokenClaims?.scp) ?? []),
+	];
+	return [...new Set(candidates.filter((scope) => !allowedSet.has(scope)))];
+}
+
 /**
  * Resolve the only tenant that may be persisted after OAuth. Tedix resources
  * require an active `dct` and exact agreement with the preselected tenant.
