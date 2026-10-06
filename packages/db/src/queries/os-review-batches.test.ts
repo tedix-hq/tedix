@@ -30,37 +30,31 @@ async function fixture() {
 		),
 	);
 	const db = createDbQueryClient(createD1Facade(sqlite));
-	await db
-		.insert(osGadgets)
-		.values({
-			id: "gadget",
-			organizationId: "org",
-			workspaceId: "workspace",
-			name: "Review",
-			createdByKind: "user",
-			createdById: "owner",
-			status: "active",
-		});
-	await db
-		.insert(osShareLinks)
-		.values({
-			id: "share",
-			organizationId: "org",
-			resourceType: "gadget",
-			resourceId: "gadget",
-			tokenHash: "linkhash",
-			role: "use",
-			createdByKind: "user",
-			createdById: "owner",
-		});
-	await db
-		.insert(osShareSessions)
-		.values({
-			id: "session",
-			shareLinkId: "share",
-			sessionTokenHash: "sessionhash",
-			expiresAt: "2026-10-07T12:00:00.000Z",
-		});
+	await db.insert(osGadgets).values({
+		id: "gadget",
+		organizationId: "org",
+		workspaceId: "workspace",
+		name: "Review",
+		createdByKind: "user",
+		createdById: "owner",
+		status: "active",
+	});
+	await db.insert(osShareLinks).values({
+		id: "share",
+		organizationId: "org",
+		resourceType: "gadget",
+		resourceId: "gadget",
+		tokenHash: "linkhash",
+		role: "use",
+		createdByKind: "user",
+		createdById: "owner",
+	});
+	await db.insert(osShareSessions).values({
+		id: "session",
+		shareLinkId: "share",
+		sessionTokenHash: "sessionhash",
+		expiresAt: "2026-10-07T12:00:00.000Z",
+	});
 	const batch = {
 		id: "batch",
 		organizationId: "org",
