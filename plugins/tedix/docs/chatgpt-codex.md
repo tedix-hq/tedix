@@ -272,7 +272,7 @@ Implementation: `hooks/user_prompt_submit.py`.
 The local artifact also carries the opt-in turn-status reporter described in
 the [Claude Code guide](./claude-code.md#opt-in-turn-status). Enable it with
 `~/.tedix/agent-status.json` containing `{"enabled": true, "profile":
-"connect"}`, restart Codex, and trust the changed hooks in `/hooks`. Codex
+"connect", "organization": "<selected org>"}`, restart Codex, and trust the changed hooks in `/hooks`. Codex
 delivers `UserPromptSubmit`, `PermissionRequest`, `PostToolUse`, `Stop` and
 `SessionEnd`; it has no `Notification` or `StopFailure` event, so Codex
 failures surface only when the next turn starts. The Stop hook prints nothing,

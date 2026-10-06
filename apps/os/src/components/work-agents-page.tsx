@@ -165,7 +165,11 @@ export function WorkAgentsBoard({
 					<EmptyTitle>No agent sessions reporting</EmptyTitle>
 					<EmptyDescription>
 						Create <code>~/.tedix/agent-status.json</code> with{" "}
-						<code>{'{"enabled": true, "profile": "<your CLI profile>"}'}</code>{" "}
+						<code>
+							{
+								'{"enabled": true, "profile": "<CLI profile>", "organization": "<org>"}'
+							}
+						</code>{" "}
 						and restart your Claude Code or Codex sessions.
 					</EmptyDescription>
 				</EmptyHeader>
