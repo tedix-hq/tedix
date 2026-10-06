@@ -615,10 +615,18 @@ export class ConversationFacet extends PiAgent<
 							runId: receipt.runId,
 							sessionKey: receipt.sessionKey ?? "",
 							payload: shapeStepTelemetry({
-								model: {
-									provider: message.provider,
-									modelId: message.responseModel ?? message.model,
-								},
+								// Pi only sees the stable `tedix/selected` catalog entry; the
+								// turn's actual choice is the resolved selection.
+								model: this.selected
+									? {
+											provider: this.selected.identity.provider,
+											modelId:
+												message.responseModel ?? this.selected.identity.model,
+										}
+									: {
+											provider: message.provider,
+											modelId: message.responseModel ?? message.model,
+										},
 								stepNumber: receipt.ordinal,
 								finishReason: message.stopReason,
 								text: message.content
