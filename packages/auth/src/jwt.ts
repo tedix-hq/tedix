@@ -13,6 +13,7 @@ import {
 	type ValidateOptions,
 } from "@tedix/auth/types";
 import * as jose from "jose";
+import { trimTrailingSlashes } from "./utils.ts";
 
 // =============================================================================
 // SDK VALIDATION CLIENT CACHE
@@ -23,7 +24,8 @@ type DescopeValidationClient = ReturnType<typeof DescopeSdkFactory>;
 const validationClients = new Map<string, DescopeValidationClient>();
 
 export function normalizeDescopeBaseUrl(baseUrl?: string): string | undefined {
-	const normalized = baseUrl?.trim().replace(/\/+$/, "");
+	const normalized =
+		baseUrl === undefined ? undefined : trimTrailingSlashes(baseUrl.trim());
 	if (!normalized) return undefined;
 	return normalized.replace(/\/v1\/apps$/, "");
 }

@@ -1,4 +1,5 @@
 import { descopeFetch } from "./descope-fetch.ts";
+import { trimTrailingSlashes } from "./utils.ts";
 
 export const DESCOPE_SESSION_COOKIE = "DS";
 export const DESCOPE_REFRESH_COOKIE = "DSR";
@@ -178,7 +179,7 @@ async function logDescopeSessionRejection(
 export async function selectDescopeTenantSession(
 	params: SelectDescopeTenantSessionParams,
 ): Promise<SelectedDescopeTenantSession | null> {
-	const url = `${params.baseUrl.replace(/\/+$/, "")}/v1/auth/tenant/select`;
+	const url = `${trimTrailingSlashes(params.baseUrl)}/v1/auth/tenant/select`;
 	try {
 		const response = await descopeFetch(
 			url,
@@ -223,7 +224,7 @@ export async function selectDescopeTenantSession(
 export async function resumeDescopeSession(
 	params: DescopeRefreshSessionParams,
 ): Promise<SelectedDescopeTenantSession | null> {
-	const url = `${params.baseUrl.replace(/\/+$/, "")}/v1/auth/refresh`;
+	const url = `${trimTrailingSlashes(params.baseUrl)}/v1/auth/refresh`;
 	try {
 		const response = await descopeFetch(
 			url,
@@ -266,7 +267,7 @@ export async function resumeDescopeSession(
 export async function logoutDescopeSession(
 	params: DescopeRefreshSessionParams,
 ): Promise<DescopeLogoutOutcome> {
-	const url = `${params.baseUrl.replace(/\/+$/, "")}/v1/auth/logout`;
+	const url = `${trimTrailingSlashes(params.baseUrl)}/v1/auth/logout`;
 	try {
 		const response = await descopeFetch(
 			url,

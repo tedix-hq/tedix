@@ -87,3 +87,18 @@ export function base64UrlDecode(value: string): Uint8Array | null {
 		return null;
 	}
 }
+
+// =============================================================================
+// TRAILING SLASHES
+// =============================================================================
+
+/**
+ * Remove every trailing `/`. Linear-time replacement for
+ * `value.replace(/\/+$/, "")`, which backtracks quadratically on long runs of
+ * slashes that do not end the string (issuers and URLs can be remote input).
+ */
+export function trimTrailingSlashes(value: string): string {
+	let end = value.length;
+	while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+	return end === value.length ? value : value.slice(0, end);
+}

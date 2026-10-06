@@ -270,6 +270,11 @@ export function createMcpAuthMiddleware(
 // HELPERS
 // =============================================================================
 
+/** RFC 9110 §5.6.4 quoted-string content: escape backslash and DQUOTE. */
+function quotedStringContent(value: string): string {
+	return value.replace(/[\\"]/g, "\\$&");
+}
+
 /**
  * Build a WWW-Authenticate header value per RFC 9728.
  * Points to the OAuth Protected Resource metadata endpoint.
@@ -289,11 +294,11 @@ export function buildWwwAuthenticate(
 		value += `, error="${error}"`;
 	}
 	if (errorDescription) {
-		value += `, error_description="${errorDescription.replace(/"/g, '\\"')}"`;
+		value += `, error_description="${quotedStringContent(errorDescription)}"`;
 	}
 	const scopeValue = Array.isArray(scopes) ? scopes.join(" ") : scopes;
 	if (scopeValue) {
-		value += `, scope="${scopeValue.replace(/"/g, '\\"')}"`;
+		value += `, scope="${quotedStringContent(scopeValue)}"`;
 	}
 	return value;
 }
