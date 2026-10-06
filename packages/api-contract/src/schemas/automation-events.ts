@@ -17,6 +17,7 @@ export const AutomationEventSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("skill_workflow"),
 		organizationId: z.string().uuid(),
 		tediId: z.string().uuid(),
+		expectedSkillRevision: z.number().int().positive().optional(),
 		/** Skill UUID — provide either skillId or slug. */
 		skillId: z.string().optional(),
 		slug: z.string().optional(),

@@ -1378,6 +1378,14 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 					.describe(
 						"Canonical Work Item admitted with the flow and propagated automatically to every workflow MCP call and artifact receipt.",
 					),
+				expectedSkillRevision: z
+					.number()
+					.int()
+					.positive()
+					.optional()
+					.describe(
+						"Reject dispatch when the selected skill revision differs from the reviewed revision",
+					),
 				skillId: z
 					.string()
 					.optional()

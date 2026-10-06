@@ -12,6 +12,19 @@ const TEDI = "5eed0024-0000-4000-8000-000000000024";
 const env = {} as CloudflareEnv;
 
 describe("handleAutomationEventMessage", () => {
+	it("preserves the reviewed revision separately from untrusted workflow parameters", () => {
+		const input = buildAutomationSkillWorkflowInput({
+			kind: "skill_workflow",
+			organizationId: ORG,
+			tediId: TEDI,
+			skillId: "skill",
+			expectedSkillRevision: 7,
+			params: { expectedSkillRevision: 99 },
+			idempotencyKey: "revision:7",
+		});
+		expect(input.expectedSkillRevision).toBe(7);
+		expect(input.params.expectedSkillRevision).toBe(99);
+	});
 	it("maps queue idempotency to both admission and tenant deliverable context", () => {
 		expect(
 			buildAutomationSkillWorkflowInput({

@@ -47,6 +47,9 @@ export function buildAutomationSkillWorkflowInput(
 ) {
 	return {
 		skillId: event.skillId,
+		...(event.expectedSkillRevision === undefined
+			? {}
+			: { expectedSkillRevision: event.expectedSkillRevision }),
 		slug: event.slug,
 		tediId: event.tediId,
 		// Top-level admission identity: runtime derives a deterministic opaque
