@@ -43,7 +43,23 @@ export async function loadSubscription(
 		organizationId,
 		id,
 	);
-	if (!row) throw new Error("Calendar subscription not found");
+	if (
+		!row ||
+		(row.connectionScope === "user" &&
+			!(
+				context.authType === "user" &&
+				context.user?.sub === row.personalOwnerUserId
+			) &&
+			!(
+				context.authType === "service-binding" &&
+				!context.user &&
+				!context.tediId &&
+				!context.externalAgentPrincipalId &&
+				!context.gatewayEndUserId &&
+				!context.headers.get("X-Tedix-Mcp-Tool-Id")
+			))
+	)
+		throw new Error("Calendar subscription not found");
 	return row;
 }
 export async function registerSubscription(
@@ -363,9 +379,13 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 			continue;
 		}
 		try {
-			await resolveProviderEventCredential(context, row);
-			const current = await loadSubscription(
+			const dispatchContext = buildInternalServiceBindingContext(
 				context,
+				row.organizationId,
+			);
+			await resolveProviderEventCredential(dispatchContext, row);
+			const current = await loadSubscription(
+				dispatchContext,
 				row.organizationId,
 				row.id,
 			);
@@ -379,17 +399,38 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 				);
 				continue;
 			}
-			const { cognitiveRuntimeContractRouter } =
-				await import("../../rpc/routers/cognitive-runtime");
-			const client = createRouterClient(cognitiveRuntimeContractRouter, {
-				context: buildInternalServiceBindingContext(
-					context,
-					row.organizationId,
-				),
-			});
-			await client.emitAutomationEvent({
-				event: reconciliationEvent(row, delivery.id),
-			});
+			if (row.connectionScope === "user") {
+				const { resolvePersonalSubscriptionCredential } =
+					await import("../personal-resource-delegation-authority");
+				const authorization = await resolvePersonalSubscriptionCredential(
+					dispatchContext,
+					{ subscriptionId: row.id, organizationId: row.organizationId },
+				);
+				const { skillsRunWorkflow } =
+					await import("../../rpc/routers/cognitive-skill-runs");
+				const client = createRouterClient(
+					{ runWorkflow: skillsRunWorkflow },
+					{ context: dispatchContext },
+				);
+				const event = reconciliationEvent(row, delivery.id);
+				await client.runWorkflow({
+					tediId: row.tediId,
+					skillId: row.skillId,
+					expectedSkillRevision: row.skillRevision,
+					idempotencyKey: event.idempotencyKey,
+					params: event.params,
+					resourceAccessEnvelope: authorization.resourceAccessEnvelope,
+				});
+			} else {
+				const { cognitiveRuntimeContractRouter } =
+					await import("../../rpc/routers/cognitive-runtime");
+				const client = createRouterClient(cognitiveRuntimeContractRouter, {
+					context: dispatchContext,
+				});
+				await client.emitAutomationEvent({
+					event: reconciliationEvent(row, delivery.id),
+				});
+			}
 			await settleProviderEventDelivery(
 				context.db,
 				delivery.id,

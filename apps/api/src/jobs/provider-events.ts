@@ -1,3 +1,4 @@
+import { buildInternalServiceBindingContext } from "../rpc/routers/kernel/runtime-shared";
 import { createContext } from "../rpc/orpc";
 import {
 	pruneProviderEvents,
@@ -37,17 +38,21 @@ export async function maintainProviderEvents(
 		)
 			continue;
 		try {
-			const token = await resolveProviderEventCredential(context, row);
+			const internal = buildInternalServiceBindingContext(
+				context,
+				row.organizationId,
+			);
+			const token = await resolveProviderEventCredential(internal, row);
 			if (
 				row.deliveryMode === "push" &&
 				(!row.expiresAt ||
 					Date.parse(row.expiresAt) < Date.now() + RENEW_BEFORE_MS)
 			) {
-				await renewSubscription(context, row, token);
+				await renewSubscription(internal, row, token);
 				renewed++;
 			}
 			if (
-				await queueReconciliation(context, row, `poll:${row.nextReconcileAt}`)
+				await queueReconciliation(internal, row, `poll:${row.nextReconcileAt}`)
 			)
 				reconciled++;
 			await updateProviderEventSubscription(

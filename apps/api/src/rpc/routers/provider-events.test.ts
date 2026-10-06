@@ -82,9 +82,13 @@ beforeEach(() => {
 		id,
 		organizationId: "org-a",
 		tokenIds: ["vault-record"],
+		tokenSub: "account-a",
 	});
 	mocks.namedToken.mockResolvedValue({
 		accessToken: "private-access",
+		id: "vault-record",
+		tokenSub: "account-a",
+		scopes: ["https://www.googleapis.com/auth/calendar.events"],
 		expiresAt: Date.now() / 1000 + 60,
 	});
 });
@@ -128,7 +132,6 @@ describe("standing provider credential authority", () => {
 			appId: "google",
 			tenantId: "tenant-a",
 			externalIdentifier: `tedix_${id}`,
-			scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
 		});
 		expect(mocks.defaultToken).not.toHaveBeenCalled();
 	});
@@ -203,4 +206,43 @@ it("denies archived runtime regardless of active deployment status", async () =>
 		resolveProviderEventCredential(context(), subscription),
 	).rejects.toThrow("Active organization-owned");
 	expect(mocks.namedToken).not.toHaveBeenCalled();
+});
+
+it("rejects returned credentials for a different named account", async () => {
+	mocks.namedToken.mockResolvedValue({
+		accessToken: "secret",
+		id: "other",
+		tokenSub: "account-a",
+		scopes: ["https://www.googleapis.com/auth/calendar.events"],
+	});
+	await expect(
+		resolveProviderEventCredential(context(), subscription),
+	).rejects.toThrow("missing");
+});
+it("rejects an account rotation during vault lookup", async () => {
+	mocks.instance
+		.mockResolvedValueOnce({
+			id,
+			tokenIds: ["vault-record"],
+			tokenSub: "account-a",
+		})
+		.mockResolvedValueOnce({
+			id,
+			tokenIds: ["new-record"],
+			tokenSub: "account-a",
+		});
+	await expect(
+		resolveProviderEventCredential(context(), subscription),
+	).rejects.toThrow("changed");
+});
+it("rejects tokens without event read permission", async () => {
+	mocks.namedToken.mockResolvedValue({
+		accessToken: "secret",
+		id: "vault-record",
+		tokenSub: "account-a",
+		scopes: ["openid"],
+	});
+	await expect(
+		resolveProviderEventCredential(context(), subscription),
+	).rejects.toThrow("read permission");
 });
