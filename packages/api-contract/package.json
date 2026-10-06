@@ -207,7 +207,11 @@
 		"./schemas/provider-model-pricing": "./src/schemas/provider-model-pricing.ts",
 		"./schemas/provider-execution": "./src/schemas/provider-execution.ts",
 		"./schemas/cms-editor-proposals": "./src/schemas/cms-editor-proposals.ts",
-		"./schemas/cms-template": "./src/schemas/cms-template.ts"
+		"./schemas/cms-template": "./src/schemas/cms-template.ts",
+		"./contracts/personal-resource-delegations": "./src/contracts/personal-resource-delegations.ts",
+		"./schemas/personal-resource-delegations": "./src/schemas/personal-resource-delegations.ts",
+		"./contracts/calendar-coordinator": "./src/contracts/calendar-coordinator.ts",
+		"./schemas/calendar-coordinator": "./src/schemas/calendar-coordinator.ts"
 	},
 	"scripts": {
 		"clean": "true",

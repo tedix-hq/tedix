@@ -341,7 +341,11 @@
 		"./queries/billing/historical-exposure": "./src/queries/billing/historical-exposure.ts",
 		"./queries/billing/provider-model-rates": "./src/queries/billing/provider-model-rates.ts",
 		"./queries/provider-executions": "./src/queries/provider-executions.ts",
-		"./schema/provider-executions": "./src/schema/provider-executions.ts"
+		"./schema/provider-executions": "./src/schema/provider-executions.ts",
+		"./schema/personal-resource-delegations": "./src/schema/personal-resource-delegations.ts",
+		"./queries/personal-resource-delegations": "./src/queries/personal-resource-delegations.ts",
+		"./schema/calendar-coordinator": "./src/schema/calendar-coordinator.ts",
+		"./queries/calendar-coordinator": "./src/queries/calendar-coordinator.ts"
 	},
 	"scripts": {
 		"clean": "true",
