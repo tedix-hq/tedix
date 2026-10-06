@@ -12,7 +12,8 @@ describe("docs runtime Worker boundary", () => {
 
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({
-			deployedSha: "unknown",
+			// Builds stamp GIT_SHA, else GITHUB_SHA (set on Actions), else "unknown".
+			deployedSha: expect.stringMatching(/^(?:unknown|[0-9a-f]{40})$/),
 			service: "docs-runtime",
 			status: "ok",
 		});

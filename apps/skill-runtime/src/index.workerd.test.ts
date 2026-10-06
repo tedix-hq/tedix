@@ -16,7 +16,8 @@ describe("skill runtime Worker boundary", () => {
 			ok: true,
 			service: "skill-runtime",
 			env: "development",
-			deployedSha: "unknown",
+			// Builds stamp GIT_SHA, else GITHUB_SHA (set on Actions), else "unknown".
+			deployedSha: expect.stringMatching(/^(?:unknown|[0-9a-f]{40})$/),
 		});
 	});
 
