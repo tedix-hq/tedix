@@ -18,6 +18,7 @@ import {
 import { extractJwtScopes, type JWTPayload } from "@tedix/auth/types";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
+	canPromptForConsent,
 	isTedixHostedMcpUrl,
 	issuedOAuthScopes,
 	TEDIX_OAUTH_CLIENT_ID,
@@ -123,6 +124,9 @@ export async function resolveStoredLoginAuth(
 		tenant: cred.org,
 		persist: true,
 		credential: cred,
+		// Stored-login commands are not `tedix login`: without a person at a
+		// terminal, a scope challenge fails fast with the login command to run.
+		consentPrompt: canPromptForConsent(),
 		...(isTedixHostedMcpUrl(mcpUrl)
 			? { staticClientId: expectedClientId }
 			: {}),

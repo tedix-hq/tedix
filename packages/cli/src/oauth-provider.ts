@@ -191,9 +191,9 @@ export function openBrowser(url: string): void {
 		} else {
 			result = spawnSync("xdg-open", [url], { stdio: "ignore" });
 		}
-		if (result.status !== 0) console.log(`Open this URL to log in:\n${url}`);
+		if (result.status !== 0) console.error(`Open this URL to log in:\n${url}`);
 	} catch {
-		console.log(`Open this URL to log in:\n${url}`);
+		console.error(`Open this URL to log in:\n${url}`);
 	}
 }
 
@@ -203,6 +203,51 @@ function expiry(
 ): number | undefined {
 	const exp = token ? decodeJwtPayload(token)?.exp : undefined;
 	return typeof exp === "number" && Number.isFinite(exp) ? exp : fallback;
+}
+
+/** Whether a person can complete a browser consent for this process. */
+export function canPromptForConsent(
+	env: Record<string, string | undefined> = process.env,
+	tty: { stdin?: boolean; stdout?: boolean } = {
+		stdin: process.stdin.isTTY,
+		stdout: process.stdout.isTTY,
+	},
+): boolean {
+	return Boolean(tty.stdin && tty.stdout) && !env.CI;
+}
+
+/** The narrowest login profile whose consent can grant every required scope. */
+export function minimalScopeProfileFor(
+	required: readonly string[],
+): InteractiveOAuthScopeProfile | undefined {
+	if (required.length === 0) return undefined;
+	for (const profile of INTERACTIVE_OAUTH_SCOPE_PROFILES) {
+		try {
+			const granted = new Set(
+				selectInteractiveOAuthScope(required, profile).split(" "),
+			);
+			if (required.every((scope) => granted.has(scope))) return profile;
+		} catch {
+			// This profile grants none of the required scopes.
+		}
+	}
+	return undefined;
+}
+
+/** A command needs consent that a non-interactive process cannot collect. */
+export class OAuthConsentRequiredError extends Error {
+	readonly code = "insufficient_scope";
+	constructor(
+		readonly requiredScopes: string[],
+		readonly loginCommand: string,
+	) {
+		super(
+			`This command needs additional Tedix access${
+				requiredScopes.length ? ` (${requiredScopes.join(" ")})` : ""
+			}. Non-interactive runs do not open a browser. Run \`${loginCommand}\` in a terminal, then retry.`,
+		);
+		this.name = "OAuthConsentRequiredError";
+	}
 }
 
 export interface WorkspaceOAuthProviderOptions {
@@ -219,6 +264,12 @@ export interface WorkspaceOAuthProviderOptions {
 	port?: number;
 	credential?: WorkspaceCredential;
 	loadStored?: boolean;
+	/**
+	 * False when nobody can complete a browser consent (no TTY, CI). Ordinary
+	 * commands then fail fast with the exact login command instead of opening a
+	 * browser and waiting for a callback. `tedix login` leaves it unset.
+	 */
+	consentPrompt?: boolean;
 	openAuthorization?: (url: string) => void;
 	captureCallback?: (
 		authorizationUrl: URL,
@@ -264,6 +315,12 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 		options: Parameters<typeof auth>[1],
 		commit?: (credential: WorkspaceCredential) => void | Promise<void>,
 	): Promise<void> {
+		if (this.#options.consentPrompt === false) {
+			throw new OAuthConsentRequiredError(
+				options.scope?.split(/\s+/).filter(Boolean) ?? [],
+				this.#loginCommand(options.scope),
+			);
+		}
 		this.#interactive = true;
 		try {
 			// A transport challenge must never fall back to the SDK's all-scopes default.
@@ -352,6 +409,25 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 		} finally {
 			this.#interactive = false;
 		}
+	}
+
+	#loginCommand(requiredScope: string | undefined): string {
+		const parts = ["tedix login"];
+		if (this.#options.workspace)
+			parts.push(`--workspace ${this.#options.workspace}`);
+		if (
+			!isMultiOrganizationMcpUrl(this.#options.mcpUrl) &&
+			this.#options.tenant
+		)
+			parts.push(
+				`--url ${this.#options.mcpUrl}`,
+				`--org ${this.#options.tenant}`,
+			);
+		const profile = minimalScopeProfileFor(
+			requiredScope?.split(/\s+/).filter(Boolean) ?? [],
+		);
+		if (profile && profile !== "read") parts.push(`--scope-profile ${profile}`);
+		return parts.join(" ");
 	}
 
 	async authorizeScopeChallenge(requiredScope: string): Promise<void> {
@@ -509,6 +585,14 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 	};
 
 	async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+		// Backstop for any SDK path that reaches the browser directly.
+		if (this.#options.consentPrompt === false) {
+			const scope = authorizationUrl.searchParams.get("scope") ?? undefined;
+			throw new OAuthConsentRequiredError(
+				scope?.split(/\s+/).filter(Boolean) ?? [],
+				this.#loginCommand(scope),
+			);
+		}
 		// Tedix Cloud's own tenant key; an own-account installation never matches this branch.
 		if (this.#options.tenant) {
 			authorizationUrl.searchParams.set(
