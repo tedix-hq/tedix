@@ -291,3 +291,144 @@ it("qualifier v2 requires complete rows and truthful independent overflow witnes
 			}).success,
 		).toBe(false);
 });
+
+it("custody coverage is strict metadata-only with positive original custody", async () => {
+	const {
+		TediRuntimeCutoverOperationQuerySchema,
+		TediRuntimeCustodyCoverageResponseSchema,
+	} = await import("./tedi");
+	const id = "a".repeat(64),
+		h = "b".repeat(64),
+		tedi = "00000000-0000-4000-8000-000000000001";
+	const query = {
+		routeTediId: tedi,
+		custodyTediId: tedi,
+		objectId: id,
+		operationId: "fixture",
+		expectedGeneration: 1,
+		command: "inspect_custody_coverage",
+	};
+	expect(TediRuntimeCutoverOperationQuerySchema.safeParse(query).success).toBe(
+		true,
+	);
+	for (const change of [
+		{ expectedGeneration: 0 },
+		{ continuation: "opaque" },
+		{ coverageHash: h },
+		{ archiveId: tedi },
+		{ proof: "x" },
+		{ command: "inspect_whole_custody" },
+	])
+		expect(
+			TediRuntimeCutoverOperationQuerySchema.safeParse({ ...query, ...change })
+				.success,
+		).toBe(false);
+	expect(
+		TediRuntimeCutoverOperationQuerySchema.safeParse({
+			...query,
+			coverageHash: h,
+			continuation: "opaque",
+		}).success,
+	).toBe(true);
+	const valid = {
+		ok: true,
+		id,
+		targetObjectId: id,
+		operationId: "fixture",
+		generation: 1,
+		state: "quarantined",
+		receiver: "raw-cutover-v1",
+		command: "inspect_custody_coverage",
+		version: "custody-coverage-metadata-v1",
+		coverageHash: h,
+		sqlMetadataHash: h,
+		registryHash: h,
+		issuedAt: 1,
+		expiresAt: 300001,
+		sqlObjects: 0,
+		registeredTargets: 0,
+		offset: 0,
+		items: [],
+		continuation: null,
+		metadataEnumerationComplete: true,
+		kv: {
+			status: "unsupported_metadata_only_enumeration_unavailable",
+			enumeration: "not_queried",
+			complete: false,
+			keyCount: null,
+			keyIdentityHash: null,
+			valueCoverage: "not_queried",
+			payloadAuthenticity: "not_queried",
+		},
+		alarm: "UNKNOWN",
+		remoteEffects: "not_queried",
+		writerExclusionAck: "UNKNOWN",
+		wholeContentPreserved: false,
+		wholePreservationReady: false,
+		adoptionReady: false,
+		executionEligible: false,
+		financialClearance: false,
+	};
+	expect(
+		TediRuntimeCustodyCoverageResponseSchema.safeParse(valid).success,
+	).toBe(true);
+	const registry = {
+		domain: "registry",
+		className: "ConversationFacet",
+		name: "fictional",
+		identityVersion: "path-v2",
+		identityName: "fictional-native",
+		objectId: id,
+		parentGeneration: 1,
+		registryMetadataHash: h,
+		routingCustody: "not_queried",
+		disposition: "registered_not_visited",
+		childGeneration: null,
+		localOwner: "UNKNOWN",
+	};
+	const registryPage = { ...valid, registeredTargets: 1, items: [registry] };
+	expect(
+		TediRuntimeCustodyCoverageResponseSchema.safeParse(registryPage).success,
+	).toBe(true);
+	for (const change of [
+		{ registryHash: h },
+		{ registryMetadataHash: "c".repeat(64) },
+		{ routingCustody: "observed" },
+		{ localOwner: "observed" },
+	])
+		expect(
+			TediRuntimeCustodyCoverageResponseSchema.safeParse({
+				...registryPage,
+				items: [{ ...registry, ...change }],
+			}).success,
+		).toBe(false);
+
+	for (const field of [
+		"wholeContentPreserved",
+		"wholePreservationReady",
+		"adoptionReady",
+		"executionEligible",
+		"financialClearance",
+	])
+		expect(
+			TediRuntimeCustodyCoverageResponseSchema.safeParse({
+				...valid,
+				[field]: true,
+			}).success,
+		).toBe(false);
+	for (const change of [
+		{ writerExclusionAck: "observed" },
+		{ kv: { ...valid.kv, keyCount: 0 } },
+		{ sqlObjects: 1 },
+		{ expiresAt: 300002 },
+		{ state: "active" },
+		{ metadataEnumerationComplete: false },
+		{ DDL: "PRIVATE" },
+	])
+		expect(
+			TediRuntimeCustodyCoverageResponseSchema.safeParse({
+				...valid,
+				...change,
+			}).success,
+		).toBe(false);
+});

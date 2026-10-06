@@ -2731,3 +2731,95 @@ it("new SDK preservation commands require exact strict response and reject old r
 		).toThrow();
 	}
 });
+
+it("custody coverage authenticates exact identity and keeps incomplete domains explicit", async () => {
+	const { cutoverOperationFromAdminFetch } =
+		await import("./cutover-inventory");
+	const q = TediRuntimeCutoverOperationQuerySchema.parse({
+		command: "inspect_custody_coverage",
+		routeTediId: ROUTE_TEDI,
+		custodyTediId: ROUTE_TEDI,
+		objectId: OBJECT,
+		operationId: "coverage",
+		expectedGeneration: 1,
+	});
+	const value = {
+		ok: true,
+		id: OBJECT,
+		targetObjectId: OBJECT,
+		operationId: "coverage",
+		generation: 1,
+		state: "quarantined",
+		receiver: "raw-cutover-v1",
+		command: "inspect_custody_coverage",
+		version: "custody-coverage-metadata-v1",
+		coverageHash: HASH,
+		sqlMetadataHash: HASH,
+		registryHash: HASH,
+		issuedAt: 1,
+		expiresAt: 300001,
+		sqlObjects: 0,
+		registeredTargets: 0,
+		offset: 0,
+		items: [],
+		continuation: null,
+		metadataEnumerationComplete: true,
+		kv: {
+			status: "unsupported_metadata_only_enumeration_unavailable",
+			enumeration: "not_queried",
+			complete: false,
+			keyCount: null,
+			keyIdentityHash: null,
+			valueCoverage: "not_queried",
+			payloadAuthenticity: "not_queried",
+		},
+		alarm: "UNKNOWN",
+		remoteEffects: "not_queried",
+		writerExclusionAck: "UNKNOWN",
+		wholeContentPreserved: false,
+		wholePreservationReady: false,
+		adoptionReady: false,
+		executionEligible: false,
+		financialClearance: false,
+	};
+	expect(
+		cutoverOperationFromAdminFetch({ ok: true, status: 200, json: value }, q),
+	).toEqual(value);
+	for (const change of [
+		{ id: "f".repeat(64) },
+		{ targetObjectId: "f".repeat(64) },
+		{ operationId: "different" },
+		{ generation: 2 },
+		{ wholePreservationReady: true },
+		{ writerExclusionAck: "observed" },
+		{ kv: { ...value.kv, complete: true } },
+	])
+		expect(() =>
+			cutoverOperationFromAdminFetch(
+				{ ok: true, status: 200, json: { ...value, ...change } },
+				q,
+			),
+		).toThrow();
+	expect(() =>
+		cutoverOperationFromAdminFetch({ error: "PRIVATE_TRANSPORT" }, q),
+	).toThrow();
+	getTediById.mockResolvedValue({
+		id: ROUTE_TEDI,
+		organizationId: "00000000-0000-4000-8000-000000000002",
+		isolateAgentId: "original",
+		slug: "original",
+	});
+	transport.mockResolvedValue(Response.json(value));
+	expect(await client().operateRuntimeCutover(q)).toEqual(value);
+	const [, options] = transport.mock.calls[0]!;
+	const body = JSON.parse(options!.body as string);
+	expect(body.custody.objectName).toBe("original");
+	expect(body.command).toBe(q.command);
+	expect(body.routeTediId).toBeUndefined();
+	expect(options?.headers).toMatchObject({ "X-Service-Binding": "true" });
+	await expect(
+		client(
+			context({ env: { SECRETS_MASTER_KEY: MASTER } as BaseContext["env"] }),
+		).operateRuntimeCutover(q),
+	).rejects.toThrow();
+});
