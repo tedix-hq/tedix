@@ -282,6 +282,39 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(payloads).toHaveLength(1);
 	});
 
+	test("globally configured Codex hooks are labelled codex from the event, and the reply keeps it", async () => {
+		await runHook(
+			"stop",
+			{ last_assistant_message: "done", turn_id: "turn-1" },
+			[BINDING, AUTH, CREATED],
+		);
+		expect(payloads[0]![1].subject).toContain("codex waiting");
+		await runHook("reply", { prompt: "continue" }, [
+			BINDING,
+			AUTH,
+			{ request: CREATED },
+		]);
+		expect(payloads[1]![1].metadata.host).toBe("codex");
+	});
+
+	test("automated heartbeat turns are neither questions nor replies", async () => {
+		await runHook(
+			"stop",
+			{ last_assistant_message: "<heartbeat>tick</heartbeat>" },
+			[],
+		);
+		expect(payloads).toEqual([]);
+		await runHook("stop", { last_assistant_message: "Ship it?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		expect(
+			await runHook("reply", { prompt: "<heartbeat>tick</heartbeat>" }, []),
+		).toEqual([]);
+		expect(existsSync(state())).toBe(true);
+	});
+
 	test("mined reply classes", () => {
 		for (const [reply, label] of [
 			["continue", "continue"],
