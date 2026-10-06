@@ -79,14 +79,17 @@ export interface JWTPayload {
 	permissions?: string[];
 	/** Client ID - Present in M2M/access key tokens */
 	client_id?: string;
-	/** Issued at timestamp */
-	iat: number;
+	/** Issued at timestamp, when the issuer emitted one. Never synthesized. */
+	iat?: number;
 	/** Expiration timestamp */
 	exp: number;
 	/** Issuer (Descope issuer URL) */
 	iss: string;
-	/** Audience (project ID) */
-	aud: string | string[];
+	/**
+	 * Audience exactly as issued. Absent when the token carries none; never
+	 * defaulted, so a missing claim cannot read as a project or resource audience.
+	 */
+	aud?: string | string[];
 	/** Descope Current Tenant — active tenant selected at login */
 	dct?: string;
 	/**

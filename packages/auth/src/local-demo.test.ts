@@ -87,6 +87,7 @@ describe("local demo identity", () => {
 		const payload = createLocalDemoUserPayload(1_000_000);
 		expect(payload.email).toBe("owner@localhost.invalid");
 		expect(payload.dct).toBe("personal_local-demo-owner");
-		expect(payload.exp - payload.iat).toBe(86_400);
+		expect(payload.iat).toBe(1_000);
+		expect(payload.exp).toBe(1_000 + 86_400);
 	});
 });

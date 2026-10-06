@@ -9,7 +9,6 @@
 import type DescopeSdkFactory from "@descope/node-sdk";
 import {
 	type AudienceAuditEvent,
-	DESCOPE_DEFAULT_BASE_URL,
 	type JWTPayload,
 	type ValidateOptions,
 } from "@tedix/auth/types";
@@ -103,13 +102,13 @@ function mapTokenError(error: unknown, prefix = "Token"): never {
 // PAYLOAD NORMALIZATION
 // =============================================================================
 
-function normalizePayload(
-	raw: Record<string, unknown>,
-	fallbackIssuer: string,
-	fallbackAudience: string,
-): JWTPayload {
-	const now = Math.floor(Date.now() / 1000);
-
+/**
+ * Shape the SDK-verified claims without inventing any. `exp` and `iss` are
+ * required (the Descope SDK already rejects a missing or foreign issuer and
+ * rewrites it to the project ID); `iat` and `aud` pass through only when the
+ * issuer emitted them, so a default can never stand in for issued authority.
+ */
+function normalizePayload(raw: Record<string, unknown>): JWTPayload {
 	const exp = typeof raw.exp === "number" ? raw.exp : undefined;
 	if (!exp) {
 		throw new TokenValidationError(
@@ -117,7 +116,14 @@ function normalizePayload(
 			"CLAIM_VALIDATION_FAILED",
 		);
 	}
+	if (typeof raw.iss !== "string" || !raw.iss) {
+		throw new TokenValidationError(
+			"Token is missing required iss claim",
+			"CLAIM_VALIDATION_FAILED",
+		);
+	}
 
+	const aud = audienceClaim(raw.aud);
 	return {
 		...raw,
 		sub: typeof raw.sub === "string" ? raw.sub : undefined,
@@ -130,11 +136,19 @@ function normalizePayload(
 				: typeof raw.azp === "string"
 					? raw.azp
 					: undefined,
-		iat: typeof raw.iat === "number" ? raw.iat : now,
+		iat: typeof raw.iat === "number" ? raw.iat : undefined,
 		exp,
-		iss: typeof raw.iss === "string" ? raw.iss : fallbackIssuer,
-		aud: (raw.aud as string | string[]) ?? fallbackAudience,
+		iss: raw.iss,
+		aud,
 	};
+}
+
+/** RFC 7519 `aud`: a string or an array of strings; anything else is absent. */
+function audienceClaim(raw: unknown): string | string[] | undefined {
+	if (typeof raw === "string") return raw;
+	if (Array.isArray(raw) && raw.every((value) => typeof value === "string"))
+		return raw;
+	return undefined;
 }
 
 // =============================================================================
@@ -193,8 +207,6 @@ export async function validateToken(
 		);
 
 	const primaryAudience = audience || projectId;
-	const descopeBase =
-		normalizeDescopeBaseUrl(baseUrl) || DESCOPE_DEFAULT_BASE_URL;
 
 	try {
 		const client = await getValidationClient(projectId, baseUrl);
@@ -215,13 +227,7 @@ export async function validateToken(
 			token,
 			audiences ? { audience: audiences } : undefined,
 		);
-		const expectedIssuer = `${descopeBase}/${projectId}`;
-
-		const result = normalizePayload(
-			authInfo.token as Record<string, unknown>,
-			expectedIssuer,
-			primaryAudience,
-		);
+		const result = normalizePayload(authInfo.token as Record<string, unknown>);
 
 		if (
 			!options.allowTediJwt &&
