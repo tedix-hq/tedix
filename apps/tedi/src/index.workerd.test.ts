@@ -14,7 +14,8 @@ describe("tedi edge Worker boundary", () => {
 			status: "ok",
 			service: "tedi",
 			env: "development",
-			deployedSha: "unknown",
+			// Builds stamp GIT_SHA, else GITHUB_SHA (set on Actions), else "unknown".
+			deployedSha: expect.stringMatching(/^(?:unknown|[0-9a-f]{40})$/),
 			// The test mode binds no other Worker.
 			runtimeDeployedSha: "unbound",
 		});
