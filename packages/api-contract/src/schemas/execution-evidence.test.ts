@@ -1,3 +1,4 @@
+import { TediSchema } from "./tedi";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	buildCodeModeExecutionReceipt,
@@ -7,7 +8,163 @@ import {
 	withCompletionEvidence,
 } from "./execution-evidence";
 
+const tediRecord = {
+	id: "11111111-1111-4111-8111-111111111111",
+	organizationId: "22222222-2222-4222-8222-222222222222",
+	ownerUserId: null,
+	scope: "organization" as const,
+	name: "Fixture worker",
+	slug: "fixture-worker",
+	displayName: null,
+	externalRef: null,
+	tags: null,
+	personality: null,
+	avatar: null,
+	timezone: null,
+	language: null,
+	installedSkills: null,
+	installedPlugins: null,
+	status: "active" as const,
+	billingState: null,
+	workerName: null,
+	r2BucketName: null,
+	runtimeStatus: "unknown" as const,
+	lastSeenAt: null,
+	lastSyncAt: null,
+	createdAt: null,
+	updatedAt: null,
+};
+
 describe("execution evidence", () => {
+	it.each(["active", "paused", "error", "provisioning", null] as const)(
+		"separates a typed getter's entity lifecycle %s from lookup completion",
+		(status) => {
+			const result = { ...tediRecord, status };
+			expect(TediSchema.safeParse(result).success).toBe(true);
+			const evidence = buildCompletionEvidence({
+				operation: "get_tedi",
+				result,
+				retryKey: "lookup",
+			});
+			expect(evidence.status).toBe("succeeded");
+			expect(evidence.supportedClaims).toEqual([
+				"get_tedi returned successfully",
+			]);
+			expect(evidence.retry.retryable).toBe(false);
+			expect(evidence.providerConfirmation).toBe("unknown");
+			expect(result.status).toBe(status);
+		},
+	);
+
+	it.each([
+		[{ ok: false }, "failed"],
+		[{ success: false }, "failed"],
+		[{ isError: true }, "failed"],
+		[{ error: "explicit failure" }, "failed"],
+		[{ timedOut: true }, "failed"],
+		[{ canceled: true }, "canceled"],
+		[{ partial: true }, "partial"],
+		[{ running: true }, "pending"],
+		[{ terminal: false }, "pending"],
+		[{ terminal: true }, "failed"],
+		[{ exitCode: 1 }, "failed"],
+		[{ state: "failed" }, "failed"],
+		[{ state: "queued" }, "pending"],
+		[{ state: "canceled" }, "canceled"],
+		[{ state: "partial" }, "partial"],
+		[{ state: "waiting_for_vendor" }, "partial"],
+	])("retains original typed getter completion signals %j", (flags, status) => {
+		const result = { ...tediRecord, ...flags };
+		expect(TediSchema.safeParse(result).success).toBe(true);
+		expect(
+			buildCompletionEvidence({
+				operation: "get_tedi",
+				result,
+				retryKey: "lookup",
+			}).status,
+		).toBe(status);
+	});
+
+	it.each([
+		{ ...tediRecord, id: "invalid" },
+		{ ...tediRecord, organizationId: undefined },
+		{ ...tediRecord, name: undefined },
+		{ ...tediRecord, status: "waiting_for_vendor" },
+		{ id: tediRecord.id, status: "active" },
+	])("does not qualify an incomplete or malformed lookup %j", (result) => {
+		expect(TediSchema.safeParse(result).success).toBe(false);
+		expect(
+			buildCompletionEvidence({
+				operation: "get_tedi",
+				result,
+				retryKey: "lookup",
+			}).status,
+		).toBe("partial");
+	});
+
+	it.each([
+		"update_tedi",
+		"get_tedi_unreviewed",
+		"tedis.get_tedi",
+		"provider_operation",
+	])("does not apply lookup semantics to %s", (operation) => {
+		for (const [status, expected] of [
+			["active", "partial"],
+			["error", "failed"],
+			["provisioning", "pending"],
+		] as const) {
+			expect(
+				buildCompletionEvidence({
+					operation,
+					result: { ...tediRecord, status },
+					retryKey: "other",
+				}).status,
+			).toBe(expected);
+		}
+	});
+
+	it("does not trust nested lookup evidence or confirmation", () => {
+		const result = {
+			...tediRecord,
+			providerConfirmation: "forged",
+			completionEvidence: {
+				status: "failed",
+				providerConfirmation: "forged",
+				supportedClaims: ["the worker is healthy"],
+				evidenceRefs: ["unverified-reference"],
+				artifactRefs: ["unverified-artifact"],
+			},
+		};
+		const evidence = buildCompletionEvidence({
+			operation: "get_tedi",
+			result,
+			retryKey: "lookup",
+		});
+		expect(evidence.status).toBe("succeeded");
+		expect(evidence.providerConfirmation).toBe("unknown");
+		expect(evidence.supportedClaims).toEqual([
+			"get_tedi returned successfully",
+		]);
+		expect(evidence.evidenceRefs).toEqual([
+			"unverified-artifact",
+			"unverified-reference",
+		]);
+		expect(
+			buildCompletionEvidence({
+				operation: "get_tedi",
+				result: { ...result, partial: true },
+				retryKey: "lookup",
+			}).status,
+		).toBe("partial");
+		const wrapped = withCompletionEvidence("get_tedi", result);
+		expect(wrapped.status).toBe("active");
+		expect(wrapped.completionEvidence).toMatchObject({
+			status: "succeeded",
+			providerConfirmation: "unknown",
+			supportedClaims: ["get_tedi returned successfully"],
+		});
+	});
+
 	it("accepts the typed capability lattice and rejects removed surfaces", () => {
 		expect(
 			ExecutionRequirementSchema.parse({
