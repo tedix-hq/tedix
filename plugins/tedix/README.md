@@ -26,7 +26,8 @@ OpenAI supports MCP, skills and trusted local hooks in one plugin. Omitting
 hooks from the cloud artifact is a Tedix execution-environment choice, not an
 OpenAI prohibition: a web installation cannot deploy local Python scripts or
 supply the separately authenticated Tedix CLI. Review changed hook definitions
-in the local host before enabling them. No recorder or second plugin is needed.
+in the local host before enabling them. No second plugin is needed; the only
+recorder is the opt-in decision-capture hook described in the Codex guide.
 
 Portable `mcp.json` uses the Agent Plugins `streamable-http` schema. The legacy
 `.mcp.json` retains the approved Connect permission catalog for existing hosts;

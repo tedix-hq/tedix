@@ -200,6 +200,7 @@ selected CLI profile and any named Work Item, compares current evidence with
 the session outcome, and reports the next action. The startup hook supplies optional lifecycle context. For selected shared
 context, the separate prompt hook described below reads current facts before
 submitted user prompts; neither hook records transcripts or writes updates.
+Recording is a third, separate hook that stays off until you opt in.
 
 ### Receive shared decisions before a user prompt
 
@@ -233,6 +234,30 @@ authority or deliver a full transcript. Document text is bounded to 3,200
 characters; each comment to 400; the whole briefing to 6,000 UTF-8 bytes.
 Truncation is explicit. It checks every submitted user prompt rather than
 caching a successful read that may never have reached the model.
+
+### Record decisions with explicit opt-in
+
+Decision capture lets Tedix learn how you steer agents. When an agent finishes a
+turn, the `Stop` hook opens an Interaction addressed to you in the bound
+project's inbox (or on the selected Work Item) with the turn's final message.
+When you reply, the `UserPromptSubmit` capture handler answers that Interaction
+with your reply and a coarse reply class. The pair is one durable decision
+record; open Interactions are the sessions waiting on you.
+
+```sh
+tedix setup agents context enable-decision-capture
+tedix setup agents context disable-decision-capture
+```
+
+The opt-in applies to every bound repository of the current profile and
+organization, in Codex and Claude Code alike. Both handlers run in the
+background, never block or steer the session, and stay silent on any failure.
+Text is redacted for common secret shapes and bounded to 6,000 characters before
+it leaves the machine, and is sent only to the bound organization as the signed-in
+user. Host re-entries such as task notifications are not treated as replies. A
+turn that ends with background work pending is not marked as waiting, and an
+unanswered turn is closed as superseded when the next one ends. Unanswered Interactions
+expire after seven days.
 
 Automatic goal continuations, tool returns and background work are not proven
 `UserPromptSubmit` events. Use explicit checkpoint reads for those. To prove

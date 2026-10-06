@@ -174,4 +174,6 @@ Skill or hook activation alone does not authorize unsolicited Work creation,
 Attempt changes, approvals, publication, prompt/transcript recording or periodic
 watches. This boundary does not block the required bookkeeping and admission
 for an explicitly authorized task described above. Keep broad Tedix recording
-off unless separately designed and authorized.
+off unless separately designed and authorized. The only designed recording is
+decision capture, which the operator enables per organization with
+`tedix setup agents context enable-decision-capture`; never enable it for them.

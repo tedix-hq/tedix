@@ -71,6 +71,11 @@ interface Store {
 	version: 1;
 	repositories: Binding[];
 	preferences?: PreferenceSelection[];
+	/** Explicit per-organization opt-in for recording turn ends and replies. */
+	decisionCapture?: Omit<
+		PreferenceSelection,
+		"osWorkspaceId" | "contextOutputId"
+	>[];
 }
 interface Repo {
 	root: string;
@@ -98,6 +103,7 @@ export interface AgentContextResult {
 	preferencesOutputId?: string;
 	osWorkspaceId?: string;
 	contextOutputId?: string;
+	decisionCapture?: boolean;
 	message?: string;
 }
 
@@ -375,6 +381,12 @@ export function resolveAgentContext(
 				"Invalid preference selection; reconnect preferences explicitly",
 			);
 		const preference = preferences[0];
+		const capture = (store.decisionCapture ?? []).some(
+			(row) =>
+				row.workspace === active.workspace &&
+				row.org === active.org &&
+				row.mcpUrl === active.mcpUrl,
+		);
 		const output = active.outputs?.find((row) => row.root === repo.root);
 		if (
 			output &&
@@ -400,6 +412,7 @@ export function resolveAgentContext(
 					}
 				: {}),
 			...selectedWork(active, repo),
+			...(capture ? { decisionCapture: true } : {}),
 			...(scoped.sessionId
 				? {
 						contextSessionId: scoped.sessionId,
@@ -436,7 +449,9 @@ export function changeAgentContext(
 		| "connect-output"
 		| "disconnect-output"
 		| "connect-preferences"
-		| "disconnect-preferences",
+		| "disconnect-preferences"
+		| "enable-decision-capture"
+		| "disable-decision-capture",
 	input: {
 		workspace?: string;
 		organization?: string;
@@ -561,6 +576,26 @@ export function changeAgentContext(
 			store.repositories = store.repositories.filter(
 				(row) => row.commonDir !== repo.commonDir,
 			);
+		} else if (
+			action === "enable-decision-capture" ||
+			action === "disable-decision-capture"
+		) {
+			if (!binding)
+				throw new Error("This repository is not bound; use context bind first");
+			const active = chatBinding(binding, repo, options).binding;
+			checkedBinding(active, repo, options);
+			store.decisionCapture = (store.decisionCapture ?? []).filter(
+				(row) =>
+					row.workspace !== active.workspace ||
+					row.org !== active.org ||
+					row.mcpUrl !== active.mcpUrl,
+			);
+			if (action === "enable-decision-capture")
+				store.decisionCapture.push({
+					workspace: active.workspace,
+					org: active.org,
+					mcpUrl: active.mcpUrl,
+				});
 		} else if (
 			action === "connect-preferences" ||
 			action === "disconnect-preferences"
@@ -739,6 +774,8 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context connect-output --os-workspace <UUID> --output <UUID>
   tedix setup agents context connect-preferences --os-workspace <UUID> --output <UUID>
   tedix setup agents context disconnect-preferences
+  tedix setup agents context enable-decision-capture
+  tedix setup agents context disable-decision-capture
   tedix setup agents context disconnect-output
   tedix setup agents context show [--json]
   tedix setup agents context unbind
@@ -757,8 +794,12 @@ other checkouts use an explicit selection scoped to the current branch.
 connect-output selects a read-only shared document for this checkout and branch,
 without changing Work selection or sibling worktrees. Its ownership is verified
 by the prompt hook at read time; local selection alone verifies no live access.
+enable-decision-capture opts this profile and organization into recording each
+finished agent turn and the reply that follows as an Interaction addressed to you
+in its project inbox. It is the only context setting that sends conversation text;
+disable-decision-capture stops it for every bound repository of that organization.
 unbind revokes the local opt-in for all worktrees of this repository.
-These commands do not grant execution authority or change Tedix records.
+These commands do not grant execution authority; only decision capture changes Tedix records.
 `;
 
 export function runAgentContext(
@@ -782,6 +823,8 @@ export function runAgentContext(
 			"disconnect-output",
 			"connect-preferences",
 			"disconnect-preferences",
+			"enable-decision-capture",
+			"disable-decision-capture",
 		].includes(action!)
 	)
 		throw new Error("Unknown context action; use setup agents context --help");
@@ -842,7 +885,9 @@ export function runAgentContext(
 						| "connect-output"
 						| "disconnect-output"
 						| "connect-preferences"
-						| "disconnect-preferences",
+						| "disconnect-preferences"
+						| "enable-decision-capture"
+						| "disable-decision-capture",
 					values,
 					opts,
 				);
