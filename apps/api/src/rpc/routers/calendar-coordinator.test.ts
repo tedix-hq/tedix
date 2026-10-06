@@ -75,6 +75,27 @@ const mocks = vi.hoisted(() => ({
 	disable: vi.fn(),
 	subscription: vi.fn(),
 	delegation: vi.fn(),
+	resource: vi.fn(),
+}));
+vi.mock("@tedix/db/query-client", () => ({
+	createDbQueryClient: () => ({}),
+}));
+vi.mock("@tedix/db/queries/os-workspaces/resources", () => ({
+	getOsWorkspaceResource: mocks.resource,
+}));
+vi.mock("@tedix/db/queries/tedis", () => ({
+	getTediByIdForOrganization: async () => ({ status: "active" }),
+}));
+vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
+	getSkillEntry: async () => ({
+		tediId: id,
+		revision: 1,
+		lifecycleState: "active",
+		files: { "scripts/workflow.ts": "export default {}" },
+	}),
+}));
+vi.mock("./os-workspaces-shared", () => ({
+	requireWorkspace: async () => ({ status: "active" }),
 }));
 vi.mock("@tedix/db/queries/connection-providers", () => ({
 	listConnectionProviders: mocks.providers,
@@ -122,6 +143,7 @@ import {
 import {
 	installCalendarMonitoring,
 	calendarMonitoringStatus,
+	resolveCalendarRoutes,
 } from "../../services/calendar-coordinator/state";
 import type { Configuration } from "../../services/calendar-coordinator/types";
 beforeEach(() => {
@@ -152,6 +174,43 @@ beforeEach(() => {
 });
 
 describe("exact calendar accounts and installed monitoring", () => {
+	it("rejects unknown or read-only canonical calendar ACLs before credential resolution", async () => {
+		const route = base.calendars[0]!;
+		for (const providerAccess of [
+			null,
+			{ canRead: false, canWrite: true },
+			{ canRead: true, canWrite: false },
+		]) {
+			mocks.resource.mockResolvedValue({
+				status: "active",
+				resourceType: "calendar",
+				providerId: route.providerId,
+				providerResourceId: route.calendarId,
+				connectionScope: "user",
+				personalOwnerUserId: "owner",
+				connectionInstanceId: id,
+				providerAccess,
+				metadata: { canWrite: true },
+			});
+			await expect(
+				resolveCalendarRoutes(
+					{
+						authType: "user",
+						user: { sub: "owner" },
+						env: {},
+						db: {},
+					} as BaseContext,
+					{
+						...base,
+						organizationId: "org",
+						calendars: [route],
+					} as unknown as Configuration,
+				),
+			).rejects.toThrow("verified provider read and blocker-write access");
+		}
+		expect(mocks.personal).not.toHaveBeenCalled();
+		expect(mocks.instances).not.toHaveBeenCalled();
+	});
 	it("classifies from canonical provider inventory and keeps editable label separate from verified subject", async () => {
 		const ctx = {
 			authType: "user",

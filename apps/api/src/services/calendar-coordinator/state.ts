@@ -106,6 +106,13 @@ export async function resolveCalendarRoutes(
 			throw new Error(
 				"Workspace resource lacks the exact canonical account/owner binding",
 			);
+		if (
+			resource.providerAccess?.canRead !== true ||
+			resource.providerAccess?.canWrite !== true
+		)
+			throw new Error(
+				"Every selected calendar requires verified provider read and blocker-write access; reattach calendars whose access is unknown or changed",
+			);
 		adapters.set(
 			route.key,
 			(
