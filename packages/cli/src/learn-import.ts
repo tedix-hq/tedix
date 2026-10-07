@@ -560,7 +560,10 @@ function samples(plan: ImportPlan, count: number): AgentSessionDecision[] {
 }
 
 const CALL_TIMEOUT_MS = 120_000;
-const MAX_MINE_PASSES = 30;
+const MAX_MINE_PASSES = 8;
+/** A mining pass outlives the gateway wait and keeps running server-side; give
+ * it time to finish before asking again, so passes do not overlap. */
+const MINE_TIMEOUT_PAUSE_MS = 60_000;
 const IMPORT_ATTEMPTS = 3;
 /** Pause before a retry; the gateway rate-limits bursts of writes. */
 const RETRY_PAUSE_MS = 5_000;
@@ -697,7 +700,7 @@ export async function runLearnCommand(
 					// itself keeps writing, so ask again to continue it.
 					mining.timedOut++;
 					note(error);
-					await pause(RETRY_PAUSE_MS);
+					await pause(MINE_TIMEOUT_PAUSE_MS);
 					continue;
 				}
 				mining.passes++;
