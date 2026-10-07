@@ -1,3 +1,4 @@
+import { issueCustodyInspectionScope } from "../../context";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { cutoverInventoryFromAdminFetch } from "./cutover-inventory";
 import { agentAdminFetch } from "./crud";
@@ -259,5 +260,74 @@ describe("source-owned admin transport failure provenance", () => {
 		expect(() => cutoverInventoryFromAdminFetch(result, objectId)).toThrow(
 			`${generic} (runtime status 403)`,
 		);
+	});
+});
+
+describe("original selected custody transport scope", () => {
+	it.each(["fetch", "body"])(
+		"bounds abort-ignoring pending %s and initiates owned cancellation",
+		async (stage) => {
+			vi.useFakeTimers();
+			const caller = new AbortController();
+			const scope = issueCustodyInspectionScope(caller.signal);
+			let cancelCalls = 0;
+			let resolveFetch!: (value: Response) => void;
+			let ownedSignal: AbortSignal | undefined;
+			const response = new Response(
+				new ReadableStream<Uint8Array>({
+					cancel() {
+						cancelCalls++;
+						return new Promise<void>(() => {});
+					},
+				}),
+			);
+			const fetcher = vi.fn<typeof fetch>((_url, init) => {
+				ownedSignal = init?.signal as AbortSignal;
+				return stage === "fetch"
+					? new Promise<Response>((r) => {
+							resolveFetch = r;
+						})
+					: Promise.resolve(response);
+			});
+			const p = agentAdminFetch(
+				adminContext(fetcher),
+				{ slug: "fixture" },
+				"/__admin/pi-state-cutover",
+				{
+					method: "POST",
+					requireServiceBinding: true,
+					timeoutMs: 30_000,
+					body: { command: "inspect_custody_coverage" },
+					custodyInspectionScope: scope,
+				},
+			);
+			const checked = expect(p).resolves.toMatchObject({ failure: "timeout" });
+			await vi.advanceTimersByTimeAsync(30_000);
+			await checked;
+			expect(ownedSignal?.aborted).toBe(true);
+			if (stage === "body") expect(cancelCalls).toBe(1);
+			else {
+				resolveFetch(response);
+				await Promise.resolve();
+			}
+			expect(() => scope.guard()).toThrow();
+		},
+	);
+	it("requires a real context-issued scope before selected service dispatch", async () => {
+		const fetcher = vi.fn<typeof fetch>();
+		await expect(
+			agentAdminFetch(
+				adminContext(fetcher),
+				{ slug: "fixture" },
+				"/__admin/pi-state-cutover",
+				{
+					method: "POST",
+					requireServiceBinding: true,
+					timeoutMs: 30_000,
+					body: { command: "inspect_custody_coverage" },
+				},
+			),
+		).rejects.toThrow("scope unavailable");
+		expect(fetcher).not.toHaveBeenCalled();
 	});
 });

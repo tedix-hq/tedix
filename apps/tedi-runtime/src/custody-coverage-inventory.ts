@@ -97,6 +97,7 @@ export function prepareCustodyCoverage(input: {
 	namespace: Pick<DurableObjectNamespace, "idFromName">;
 	masterKey: string;
 	deadline: number;
+	signal?: AbortSignal;
 	recheck: () => void;
 	verifyCanonical: () => Promise<void>;
 	continuation?: string;
@@ -138,7 +139,11 @@ export function prepareCustodyCoverage(input: {
 	const guard = () => {
 		try {
 			input.recheck();
-			if (performance.now() >= input.deadline || Date.now() >= expiresAt)
+			if (
+				input.signal?.aborted ||
+				performance.now() >= input.deadline ||
+				Date.now() >= expiresAt
+			)
 				refusal();
 		} catch (e) {
 			if (!failed) {
@@ -152,11 +157,14 @@ export function prepareCustodyCoverage(input: {
 		const observed = Promise.resolve(p);
 		void observed.catch(() => {});
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		let abort: (() => void) | undefined;
 		try {
 			continuity();
 			return await Promise.race([
 				observed,
 				new Promise<never>((_, reject) => {
+					abort = () => reject(Error("Custody coverage unavailable"));
+					input.signal?.addEventListener("abort", abort, { once: true });
 					timer = setTimeout(
 						() => reject(Error("Custody coverage unavailable")),
 						Math.max(
@@ -171,6 +179,7 @@ export function prepareCustodyCoverage(input: {
 			]);
 		} finally {
 			if (timer !== undefined) clearTimeout(timer);
+			if (abort) input.signal?.removeEventListener("abort", abort);
 			continuity();
 		}
 	};

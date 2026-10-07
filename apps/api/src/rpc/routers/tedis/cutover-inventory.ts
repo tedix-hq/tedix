@@ -1,3 +1,4 @@
+import { requireCustodyInspectionScope } from "../../context";
 /** Temporary finite raw-object inventory, removed after persisted-state cutover. */
 import {
 	TediRuntimeCutoverInventoryResponseSchema,
@@ -565,10 +566,20 @@ export const operateRuntimeCutoverProcedure =
 		.use(AUTHZ.platformAdmin)
 		.handler(async ({ input, context }) => {
 			assertPlatformAdminOrServiceBinding(context);
-			const routeTedi = await requireTediAccess(context, input.routeTediId);
+			const scope =
+				input.command === "inspect_custody_coverage"
+					? requireCustodyInspectionScope(context)
+					: null;
+			const checked = <T>(read: () => PromiseLike<T>) =>
+				scope ? scope.checked(read) : Promise.resolve(read());
+			const routeTedi = await checked(() =>
+				requireTediAccess(context, input.routeTediId),
+			);
 			const custodyTedi =
 				"custodyTediId" in input && input.custodyTediId !== undefined
-					? await requireTediAccess(context, input.custodyTediId)
+					? await checked(() =>
+							requireTediAccess(context, input.custodyTediId!),
+						)
 					: null;
 			if (
 				custodyTedi &&
@@ -597,12 +608,14 @@ export const operateRuntimeCutoverProcedure =
 					input.command === "inspect_historical_custody" ||
 					input.command === "capture_historical_custody" ||
 					input.command === "audit_historical_custody")
-					? await retainedHistoricalCustodyName(context.env.DB, {
-							tediId: custodyTedi.id,
-							orgId: custodyTedi.organizationId!,
-							objectId: input.objectId,
-							currentName: custodyTedi.isolateAgentId!,
-						})
+					? await checked(() =>
+							retainedHistoricalCustodyName(context.env.DB, {
+								tediId: custodyTedi.id,
+								orgId: custodyTedi.organizationId!,
+								objectId: input.objectId,
+								currentName: custodyTedi.isolateAgentId!,
+							}),
+						)
 					: custodyTedi?.isolateAgentId;
 			const {
 				routeTediId: _route,
@@ -611,14 +624,12 @@ export const operateRuntimeCutoverProcedure =
 			} = input as TediRuntimeCutoverOperationQuery & {
 				custodyTediId?: string;
 			};
-			const result = await agentAdminFetch(
-				context,
-				routeTedi,
-				"/__admin/pi-state-cutover",
-				{
+			const result = await checked(() =>
+				agentAdminFetch(context, routeTedi, "/__admin/pi-state-cutover", {
 					method: "POST",
 					requireServiceBinding: true,
 					timeoutMs: 30_000,
+					custodyInspectionScope: scope ?? undefined,
 					body: {
 						...operation,
 						custody: custodyTedi
@@ -629,7 +640,10 @@ export const operateRuntimeCutoverProcedure =
 								}
 							: null,
 					},
-				},
+				}),
 			);
-			return cutoverOperationFromAdminFetch(result, input);
+			scope?.guard();
+			const value = cutoverOperationFromAdminFetch(result, input);
+			scope?.guard();
+			return value;
 		});

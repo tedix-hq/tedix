@@ -31,6 +31,96 @@ import {
 	D1_BOOKMARK_HEADER,
 } from "@tedix/db/client";
 
+/** Private request-local cap; its presence is not authentication or authority. */
+export const CUSTODY_INSPECTION_SCOPE = Symbol("custody-inspection-scope");
+export interface CustodyInspectionScope {
+	readonly epochDeadline: number;
+	readonly signal: AbortSignal;
+	guard(): void;
+	refuse(): never;
+	checked<T>(read: () => PromiseLike<T>): Promise<T>;
+}
+export function issueCustodyInspectionScope(
+	signal: AbortSignal,
+): CustodyInspectionScope {
+	const epochDeadline = Date.now() + 30_000;
+	const monotonicDeadline = performance.now() + 30_000;
+	const controller = new AbortController();
+	let failure: unknown;
+	let failed = false;
+	const refuse = () => {
+		if (!failed) {
+			failed = true;
+			failure = new Error("Custody inspection unavailable");
+		}
+		if (!controller.signal.aborted) controller.abort(failure);
+		throw failure;
+	};
+	const guard = () => {
+		if (
+			failed ||
+			signal.aborted ||
+			performance.now() >= monotonicDeadline ||
+			Date.now() >= epochDeadline
+		)
+			refuse();
+	};
+	const checked = async <T>(read: () => PromiseLike<T>): Promise<T> => {
+		guard();
+		const observed = Promise.resolve(read());
+		void observed.catch(() => {});
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let onAbort: (() => void) | undefined;
+		try {
+			guard();
+			return await Promise.race([
+				observed,
+				new Promise<never>((_, reject) => {
+					const stop = () => {
+						try {
+							refuse();
+						} catch (e) {
+							reject(e);
+						}
+					};
+					onAbort = stop;
+					signal.addEventListener("abort", stop, { once: true });
+					timer = setTimeout(
+						stop,
+						Math.max(
+							0,
+							Math.min(
+								monotonicDeadline - performance.now(),
+								epochDeadline - Date.now(),
+							),
+						),
+					);
+					if (signal.aborted) stop();
+				}),
+			]);
+		} finally {
+			if (timer !== undefined) clearTimeout(timer);
+			if (onAbort) signal.removeEventListener("abort", onAbort);
+			guard();
+		}
+	};
+	return Object.freeze({
+		epochDeadline,
+		signal: controller.signal,
+		guard,
+		checked,
+		refuse,
+	});
+}
+export function requireCustodyInspectionScope(
+	context: BaseContext,
+): CustodyInspectionScope {
+	const scope = context[CUSTODY_INSPECTION_SCOPE];
+	if (!scope) throw new Error("Custody inspection request scope unavailable");
+	scope.guard();
+	return scope;
+}
+
 /** Canonical request-auth discriminator after edge authentication succeeds. */
 export type ApiAuthType =
 	| "user"
@@ -44,6 +134,7 @@ export type ApiAuthType =
  * Includes Cloudflare bindings and request metadata
  */
 export interface BaseContext {
+	readonly [CUSTODY_INSPECTION_SCOPE]?: CustodyInspectionScope;
 	/** Cloudflare Worker environment bindings */
 	env: CloudflareEnv;
 	/** Database client (created lazily) */
@@ -163,6 +254,7 @@ export function createContext(
 	env: CloudflareEnv,
 	waitUntil?: (promise: Promise<unknown>) => void,
 ): BaseContext {
+	const inspectionScope = issueCustodyInspectionScope(request.signal);
 	// One D1 session for the whole request, resumed from the caller's bookmark
 	// when it sent one. Within a session D1 guarantees read-your-own-writes and
 	// monotonic reads, so a procedure that writes and then reads is correct even
@@ -200,6 +292,7 @@ export function createContext(
 		"first-primary",
 	);
 	return {
+		[CUSTODY_INSPECTION_SCOPE]: inspectionScope,
 		env,
 		db: session.db,
 		dbBookmark: session.getBookmark,
