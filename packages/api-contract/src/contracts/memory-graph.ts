@@ -23,6 +23,7 @@ import {
 	MemoryHealthSchema,
 	MemoryReviewStatusSchema,
 	MemoryScopeSchema,
+	MemorySourceEvidenceSchema,
 	MemoryUsePolicySchema,
 	PrioritySchema,
 	RelationTypeSchema,
@@ -459,6 +460,9 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 				usePolicy: MemoryUsePolicySchema.optional(),
 				reviewStatus: MemoryReviewStatusSchema.optional(),
 				metadata: z.record(z.string(), z.unknown()).optional(),
+				sourceEvidence: MemorySourceEvidenceSchema.optional().describe(
+					"Request-only turn evidence for the memory-quality judgment; never stored",
+				),
 				// Optional: link to existing facts
 				relatedTo: z
 					.array(

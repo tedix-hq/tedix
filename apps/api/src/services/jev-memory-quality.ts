@@ -1,3 +1,4 @@
+import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type { JevAnswer, JevQuestion } from "@tedix/workers-ai/jev";
 import type { JevJudgmentInput } from "./jev-judgment";
 import type { MemoryJudgmentRoute } from "./jev-memory-policy";
@@ -7,18 +8,50 @@ export interface MemoryQualityEvidence {
 	/** Already authorized source excerpt, not a generated rationale or a source URL. */
 	evidence: string;
 }
+
+/**
+ * The Observer writes facts from the user turn, the assistant reply and the
+ * tool receipts, so support is judged against that same material. Labeled
+ * sections keep a user instruction distinguishable from the worker's report.
+ */
+export function formatMemorySourceEvidence(
+	bundle: MemorySourceEvidence,
+): string {
+	const sections: string[] = [];
+	const userTurn = bundle.userTurn.trim();
+	if (userTurn) sections.push(`## User turn\n${userTurn}`);
+	const reply = bundle.assistantReply?.trim();
+	if (reply)
+		sections.push(
+			`## Assistant reply (the worker's report of this turn, including what its tools returned)\n${reply}`,
+		);
+	if (bundle.toolReceipts?.length)
+		sections.push(
+			`## Tool receipts (recorded by the runtime)\n${bundle.toolReceipts
+				.map((receipt) => `- ${receipt.tool}: ${receipt.outcome}`)
+				.join("\n")}`,
+		);
+	return sections.join("\n\n");
+}
+
 /** Raw source text is request-only; never copy it into canonical fact metadata. */
 export function extractMemoryQualityEvidence(
 	metadata: Record<string, unknown> | null | undefined,
+	sourceEvidence?: MemorySourceEvidence,
 ): { evidence: string; metadata: Record<string, unknown> | null } {
-	if (!metadata) return { evidence: "", metadata: null };
+	const bundled = sourceEvidence
+		? formatMemorySourceEvidence(sourceEvidence)
+		: "";
+	if (!metadata) return { evidence: bundled, metadata: null };
 	const {
-		sourceEvidence,
+		// Runtimes that predate the bundle send only the user turn here.
+		sourceEvidence: legacyUserTurn,
 		memoryQuality: _untrustedVerdict,
 		...persistent
 	} = metadata;
 	return {
-		evidence: typeof sourceEvidence === "string" ? sourceEvidence : "",
+		evidence:
+			bundled || (typeof legacyUserTurn === "string" ? legacyUserTurn : ""),
 		metadata: persistent,
 	};
 }
