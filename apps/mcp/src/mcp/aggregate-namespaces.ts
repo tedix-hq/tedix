@@ -46,6 +46,37 @@ export function aggregateAppNamespaceCandidates(
 	return withAliases;
 }
 
+/**
+ * Code Mode namespace for one app inside a Connect organization mount.
+ *
+ * A Connect selection mounts each organization's unified gateway as one entry
+ * (`acme-unified`). Its apps keep their own identity under that mount —
+ * `acme_unified_resend_2`, `acme_unified_cms` — so two apps with the same
+ * tool name stay callable instead of colliding in one flat namespace. A trailing
+ * `_<org>` on the app's own prefix (`cms_acme`) is dropped as redundant.
+ */
+export function organizationAppNamespace(
+	mountPrefix: string,
+	app: AggregateNamespaceEntry,
+): string {
+	const mount = mountPrefix.replace(/[^a-zA-Z0-9_]/g, "_");
+	const org = mount.replace(/_unified$/, "");
+	const own = (app.prefix ?? app.slug).replace(/[^a-zA-Z0-9_]/g, "_");
+	const trimmed = own.endsWith(`_${org}`)
+		? own.slice(0, -(org.length + 1))
+		: own;
+	return `${mount}_${trimmed || own}`;
+}
+
+/** Whether `namespace` is served by the Connect organization mount `mountPrefix`. */
+export function isOrganizationMountNamespace(
+	mountPrefix: string,
+	namespace: string,
+): boolean {
+	const mount = mountPrefix.replace(/[^a-zA-Z0-9_]/g, "_");
+	return namespace === mount || namespace.startsWith(`${mount}_`);
+}
+
 /** Namespace an aggregate tedi entry mounts under (defaults to its slug). */
 export function aggregateTediNamespace(
 	entry: Pick<AggregateTediEntry, "namespace" | "slug">,

@@ -274,6 +274,61 @@ describe("aggregate entry resolution is batched", () => {
 		}
 	});
 
+	it("gives each app of a Connect organization mount its own namespace", async () => {
+		installFixtures([
+			{
+				slug: "acme-unified",
+				mcpConfig: {
+					aggregateApps: [
+						{ slug: "resend-2-acme", prefix: "resend_2_acme" },
+						{ slug: "crm-acme" },
+					],
+				},
+				tools: [tool("list_all_mine")],
+			},
+			{ slug: "resend-2-acme", tools: [tool("list-contacts")] },
+			{ slug: "crm-acme", tools: [tool("list_contacts")] },
+		]);
+		const surface = await aggregateAndPrefixTools(
+			[
+				{
+					slug: "acme-unified",
+					prefix: "acme-unified",
+					organizationId: "org-acme",
+					organizationMount: true,
+				},
+			],
+			createEnv(),
+			new Set(),
+			undefined,
+			"connect",
+			undefined,
+			false,
+		);
+		expect(
+			surface.tools.map((entry) => [
+				entry.toolId,
+				entry.config?._aggregateNamespace,
+				entry.config?._aggregateLegacyNamespace,
+				entry.config?._multiOrgOrganizationId,
+			]),
+		).toEqual([
+			["acme-unified__list_all_mine", "acme-unified", undefined, "org-acme"],
+			[
+				"acme_unified_resend_2__list-contacts",
+				"acme_unified_resend_2",
+				"acme-unified",
+				"org-acme",
+			],
+			[
+				"acme_unified_crm__list_contacts",
+				"acme_unified_crm",
+				"acme-unified",
+				"org-acme",
+			],
+		]);
+	});
+
 	it("keeps a selected gateway's native and nested tools under one organization", async () => {
 		installFixtures([
 			{

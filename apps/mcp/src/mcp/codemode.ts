@@ -2240,6 +2240,17 @@ export function buildCatalogProvider(
 ): ToolProvider {
 	const catalog: Record<string, Record<string, CatalogToolEntry>> = {};
 	const catalogBuiltAt = new Date().toISOString();
+	// A quarantined collision is withheld from every owner; say so where callers
+	// look, instead of only in a log line.
+	const quarantinedByNamespace = new Map<string, string[]>();
+	for (const ownerKey of collisionKeys) {
+		const dot = ownerKey.indexOf(".");
+		const ns = ownerKey.slice(0, dot);
+		quarantinedByNamespace.set(ns, [
+			...(quarantinedByNamespace.get(ns) ?? []),
+			ownerKey.slice(dot + 1),
+		]);
+	}
 	const preferredTediNamespace = callerTediNamespace(
 		serverCtx,
 		namespaceOverrides,
@@ -2640,19 +2651,28 @@ export function buildCatalogProvider(
 			},
 			list_namespaces: {
 				description:
-					"List available namespaces as an object keyed by namespace, with tool counts as values. Canonical namespaces only: peer aliases (see governance.aliases) still resolve for calls and namespace-filtered search but are not enumerated as separate entries. Use Object.keys/Object.entries to filter it. Pass { includeTools: true } only for debugging; use discover.search() to find tools.",
+					"List available namespaces as an object keyed by namespace, with tool counts as values. Canonical namespaces only: peer aliases (see governance.aliases) still resolve for calls and namespace-filtered search but are not enumerated as separate entries. quarantinedTools names tools withheld because two installed apps project the same name into that namespace. Use Object.keys/Object.entries to filter it. Pass { includeTools: true } only for debugging; use discover.search() to find tools.",
 				execute: async (input: unknown) => {
 					const includeTools =
 						recordFrom(input)?.includeTools === true ||
 						recordFrom(input)?.includeToolNames === true;
+					const listed = [
+						...canonicalNamespaces,
+						...[...quarantinedByNamespace.keys()].filter(
+							(ns) => !canonicalNamespaces.includes(ns),
+						),
+					];
 					return Object.fromEntries(
-						canonicalNamespaces.map((ns) => [
+						listed.map((ns) => [
 							ns,
 							{
 								tools: Object.keys(catalog[ns] ?? {}).length,
 								governance: namespaceGovernanceFor(ns),
 								...(includeTools
 									? { toolNames: Object.keys(catalog[ns] ?? {}) }
+									: {}),
+								...(quarantinedByNamespace.has(ns)
+									? { quarantinedTools: quarantinedByNamespace.get(ns) }
 									: {}),
 							},
 						]),
@@ -2667,7 +2687,7 @@ export function buildCatalogProvider(
 			"  /** List all namespaces as an object keyed by namespace, with counts as values. Use Object.keys/Object.entries to filter it. Tool names are omitted unless includeTools is true; prefer search for normal discovery. */",
 			"  /** Fetch ONE tool's full definition (parameters, outputSchema, annotations, schemaFreshness) by exact callable. The cheap second step after a compact search — prefer this over includeParameters on a broad search. Throws a current-catalog recovery diagnostic for an unknown callable. */",
 			"  function describe(input: string | { callable: string }): Promise<{ callable: string; namespace: string; tool: string; name: string; displayName: string; description: string; resultEnvelopeKeys?: string[]; parameters?: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }; native?: { name: string; toolRowId: string; endpoint: string; eligible: boolean; authorized: boolean; schemaFreshness: { source: string | null; sourceRef: string | null; sourceHash: string | null; syncedAt: string | null } }; schemaFreshness?: { dialect?: string; source?: string; sourceRef?: string; sourceHash?: string; syncedAt?: string; toolUpdatedAt?: string } }>;",
-			'  function list_namespaces(input?: { includeTools?: boolean }): Promise<Record<string, { tools: number; toolNames?: string[]; governance: { owner: string; class: "discovery" | "host" | "platform" | "tenant_app" | "virtual_tedi"; aliases: readonly string[]; requiredScopes: readonly string[]; visibility: "internal" | "tenant"; freshness: "build" | "request" | "d1_config"; collisionPolicy: "reserved_wins" | "reject_duplicate" } }>>;',
+			'  function list_namespaces(input?: { includeTools?: boolean }): Promise<Record<string, { tools: number; toolNames?: string[]; quarantinedTools?: string[]; governance: { owner: string; class: "discovery" | "host" | "platform" | "tenant_app" | "virtual_tedi"; aliases: readonly string[]; requiredScopes: readonly string[]; visibility: "internal" | "tenant"; freshness: "build" | "request" | "d1_config"; collisionPolicy: "reserved_wins" | "reject_duplicate" } }>>;',
 			"}",
 		].join("\n"),
 	};
@@ -5339,6 +5359,79 @@ export function enrichUnmountedNamespaceError(
 // =============================================================================
 
 /**
+ * Execution-only aliases for tools that moved out of a flat namespace.
+ *
+ * Connect once served every app of an organization as `<org>_unified.<tool>`;
+ * each app now has its own namespace. Code written against the flat name keeps
+ * working when exactly one moved tool answers to it and the flat namespace has
+ * no tool of its own by that name. Aliases are callable but never enumerated,
+ * so discovery only teaches the current names.
+ */
+function legacyNamespaceAliases(
+	serverCtx: ServerContext,
+	namespaceOverrides: Record<string, string> | undefined,
+	namespaceGroups: Map<string, NamespaceGroup>,
+	collisionKeys: ReadonlySet<string>,
+): Map<string, Record<string, NamespaceGroup["fns"][string]>> {
+	const candidates = new Map<
+		string,
+		Map<string, Array<NamespaceGroup["fns"][string]>>
+	>();
+	for (const [toolId, tool] of serverCtx.loadedTools) {
+		const legacy = tool.config?._aggregateLegacyNamespace;
+		if (typeof legacy !== "string") continue;
+		const { namespace, safeName, ownerKey } = projectedToolIdentity(
+			toolId,
+			tool,
+			namespaceOverrides,
+		);
+		const legacyNamespace = legacy.replace(/[^a-zA-Z0-9_]/g, "_");
+		const fn = namespaceGroups.get(namespace)?.fns[safeName];
+		if (!fn || collisionKeys.has(ownerKey) || legacyNamespace === namespace)
+			continue;
+		const names = candidates.get(legacyNamespace) ?? new Map();
+		names.set(safeName, [...(names.get(safeName) ?? []), fn]);
+		candidates.set(legacyNamespace, names);
+	}
+	const aliases = new Map<
+		string,
+		Record<string, NamespaceGroup["fns"][string]>
+	>();
+	for (const [legacyNamespace, names] of candidates) {
+		const own = namespaceGroups.get(legacyNamespace)?.fns ?? {};
+		const fns: Record<string, NamespaceGroup["fns"][string]> = {};
+		for (const [name, owners] of names) {
+			if (owners.length === 1 && !Object.hasOwn(own, name)) {
+				fns[name] = owners[0]!;
+			}
+		}
+		if (Object.keys(fns).length > 0) aliases.set(legacyNamespace, fns);
+	}
+	return aliases;
+}
+
+function withLegacyNamespaceAliases(
+	providers: ResolvedProvider[],
+	aliases: Map<string, Record<string, NamespaceGroup["fns"][string]>>,
+): ResolvedProvider[] {
+	const merged = providers.map((provider) => {
+		const extra = aliases.get(provider.name);
+		return extra
+			? {
+					...provider,
+					fns: { ...(extra as ResolvedProvider["fns"]), ...provider.fns },
+				}
+			: provider;
+	});
+	for (const [name, fns] of aliases) {
+		if (!providers.some((provider) => provider.name === name)) {
+			merged.push({ name, fns: fns as ResolvedProvider["fns"] });
+		}
+	}
+	return merged;
+}
+
+/**
  * Convert namespace groups into resolved providers for the executor.
  */
 function buildProviders(
@@ -5513,7 +5606,15 @@ export async function registerCodeModeTools(
 	);
 
 	// Build tool providers per namespace
-	const toolProviders = buildProviders(namespaceGroups);
+	const toolProviders = withLegacyNamespaceAliases(
+		buildProviders(namespaceGroups),
+		legacyNamespaceAliases(
+			serverCtx,
+			namespaceOverrides,
+			namespaceGroups,
+			collisionKeys,
+		),
+	);
 
 	// Potential namespaces from aggregate config vs bindings actually mounted.
 	// The difference supports discovery guidance, but does not identify why a
