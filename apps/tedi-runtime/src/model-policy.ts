@@ -28,6 +28,13 @@
  * sets `chatModelRef` onto a different observer model. Backward compatibility
  * is the acceptance criterion, so the observer only moves when an operator sets
  * `observerModelRef` explicitly.
+ *
+ * `cloudflare/auto` is NOT an explicit observer choice. The default policy and
+ * the D1 backfill both carry it, and the Auto Router cannot answer the
+ * observer's JSON-mode call inside the post-turn bridge budget (every call
+ * timed out, so no facts were written). The observer surface therefore treats
+ * `cloudflare/auto` (and a missing policy) as unset → `AZURE_OBSERVER_DEPLOYMENT`.
+ * Chat and cron are unaffected.
  */
 
 import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
@@ -53,7 +60,10 @@ export interface TediModelPolicy {
 	chatModelRef: string | null;
 	/** Scheduled (cron / trusted-scheduler) turns. Falls back to chat. */
 	cronModelRef: string | null;
-	/** Post-turn observer + reflector. Falls back to the observer env default. */
+	/**
+	 * Post-turn observer + reflector. Falls back to the observer env default;
+	 * `cloudflare/auto` here also resolves to that env default.
+	 */
 	observerModelRef: string | null;
 }
 
@@ -100,13 +110,16 @@ export function resolveSurfaceModelRef(
 	policy: TediModelPolicy | null | undefined,
 	surface: ModelPolicySurface,
 ): string | null {
+	if (surface === "observer") {
+		// Observer-only by design, and never the Auto Router — see the module
+		// docblock. `null` selects the observer's env default deployment.
+		const ref = policy?.observerModelRef ?? null;
+		return ref === CLOUDFLARE_AUTO_MODEL_REF ? null : ref;
+	}
 	if (!policy) return CLOUDFLARE_AUTO_MODEL_REF;
 	switch (surface) {
 		case "cron":
 			return policy.cronModelRef ?? policy.chatModelRef;
-		case "observer":
-			// Observer-only by design — see the module docblock.
-			return policy.observerModelRef;
 		default:
 			return policy.chatModelRef;
 	}

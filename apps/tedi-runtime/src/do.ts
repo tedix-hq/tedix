@@ -11928,7 +11928,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			);
 
 			telemetry.observer.configuredModel =
-				observerModelRef ?? observerDeployment ?? null;
+				observerModelRef ??
+				observerDeployment ??
+				this.env.AZURE_OBSERVER_DEPLOYMENT;
 			telemetry.observer.inputChars = observerInput.length;
 			const observerStarted = performance.now();
 			let raw: string | undefined;
