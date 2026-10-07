@@ -295,14 +295,6 @@
 			},
 		},
 		{
-			"binding": "CATALOG_ENRICHMENT_WORKFLOW",
-			"name": "public-installation-workflow-base-8",
-			"class_name": "CatalogEnrichmentWorkflow",
-			"limits": {
-				"steps": 25000,
-			},
-		},
-		{
 			"binding": "MCP_SCAN_WORKFLOW",
 			"name": "public-installation-workflow-base-9",
 			"class_name": "McpScanWorkflow",
@@ -654,14 +646,6 @@
 					"binding": "CATALOG_DRIFT_WORKFLOW",
 					"name": "public-installation-workflow-env-production-7",
 					"class_name": "CatalogDriftWorkflow",
-					"limits": {
-						"steps": 25000,
-					},
-				},
-				{
-					"binding": "CATALOG_ENRICHMENT_WORKFLOW",
-					"name": "public-installation-workflow-env-production-8",
-					"class_name": "CatalogEnrichmentWorkflow",
 					"limits": {
 						"steps": 25000,
 					},

@@ -677,7 +677,7 @@
 			"sourcePath": "apps/api/wrangler.jsonc",
 			"identifier": "0 4 * * *",
 			"category": "fleet-commercial",
-			"rationale": "This mixed memory tick also performs global catalog enrichment and is conservatively fleet authority."
+			"rationale": "This memory reflection tick dispatches only on fleet installations and is conservatively fleet authority."
 		},
 		{
 			"kind": "cron",
@@ -2603,13 +2603,6 @@
 			"identifier": "CATALOG_DRIFT_WORKFLOW:CatalogDriftWorkflow",
 			"category": "fleet-commercial",
 			"rationale": "Global upstream drift detection is fleet catalog curation."
-		},
-		{
-			"kind": "workflow",
-			"sourcePath": "apps/api/wrangler.jsonc",
-			"identifier": "CATALOG_ENRICHMENT_WORKFLOW:CatalogEnrichmentWorkflow",
-			"category": "fleet-commercial",
-			"rationale": "Global catalog enrichment is platform curation authority."
 		},
 		{
 			"kind": "workflow",

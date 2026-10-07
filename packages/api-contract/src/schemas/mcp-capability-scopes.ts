@@ -167,7 +167,6 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	check_catalog_integrity: "mcp:catalog",
 	trigger_catalog_sync: "mcp:catalog",
 	trigger_catalog_scan: "mcp:catalog",
-	trigger_catalog_enrich: "mcp:catalog",
 	run_catalog_test: "mcp:catalog",
 	create_catalog_app: "mcp:catalog",
 	update_catalog_app: "mcp:catalog",

@@ -1,5 +1,4 @@
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
-import { getAppsNeedingEnrichment } from "@tedix/db/queries/catalog/enrichment";
 import {
 	getCatalogAppById,
 	getCatalogAppBySlug,
@@ -205,94 +204,6 @@ export const triggerScanCatalog = fleetCatalogOs.triggerScan
 				appsQueued: 0,
 				workflowInstanceId: undefined,
 				message: `Failed to start MCP scan workflow: ${error instanceof Error ? error.message : "Unknown error"}`,
-			};
-		}
-	});
-
-/**
- * Trigger enrichment workflow
- * POST /catalog/enrich
- */
-
-/**
- * Trigger enrichment workflow
- * POST /catalog/enrich
- */
-export const triggerEnrichCatalog = fleetCatalogOs.triggerEnrich
-	.use(AUTHZ.catalogWrite)
-	.handler(async ({ input, context }) => {
-		requireCatalogOperatorAccess(context);
-		const { db, env } = context;
-		const { limit, appIds, forceBranding, mode, drainAll, maxChainDepth } =
-			input;
-
-		// If specific app IDs provided, use those; otherwise get apps needing enrichment
-		let appsToEnrich: {
-			id: string;
-		}[] = [];
-		if (appIds && appIds.length > 0) {
-			appsToEnrich = appIds.map((id: string) => ({
-				id,
-			}));
-		} else {
-			const apps = await getAppsNeedingEnrichment(db, limit, 168, {
-				forceBranding,
-				mode,
-			});
-			appsToEnrich = apps.map((app) => ({
-				id: app.id,
-			}));
-		}
-		if (appsToEnrich.length === 0) {
-			return {
-				success: true,
-				appsQueued: 0,
-				workflowInstanceId: undefined,
-				message: "No apps need enrichment at this time",
-			};
-		}
-
-		// Trigger the Cloudflare Workflow
-		try {
-			const workflow = env.CATALOG_ENRICHMENT_WORKFLOW;
-			if (!workflow) {
-				console.warn(
-					"[Catalog] CATALOG_ENRICHMENT_WORKFLOW binding not available",
-				);
-				return {
-					success: true,
-					appsQueued: appsToEnrich.length,
-					workflowInstanceId: undefined,
-					message: `${appsToEnrich.length} apps need enrichment but workflow binding not available`,
-				};
-			}
-			const instance = await workflow.create({
-				params: {
-					limit,
-					appIds: appsToEnrich.map((app) => app.id),
-					drainAll,
-					chainDepth: 0,
-					maxChainDepth,
-					forceBranding,
-					mode,
-				},
-			});
-			console.log(
-				`[Catalog] Enrichment workflow started: ${instance.id} for ${appsToEnrich.length} apps`,
-			);
-			return {
-				success: true,
-				appsQueued: appsToEnrich.length,
-				workflowInstanceId: instance.id,
-				message: `Enrichment workflow started for ${appsToEnrich.length} apps`,
-			};
-		} catch (error) {
-			console.error("[Catalog] Failed to start enrichment workflow:", error);
-			return {
-				success: false,
-				appsQueued: 0,
-				workflowInstanceId: undefined,
-				message: `Failed to start enrichment workflow: ${error instanceof Error ? error.message : "Unknown error"}`,
 			};
 		}
 	});

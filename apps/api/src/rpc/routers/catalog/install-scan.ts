@@ -1517,7 +1517,6 @@ export /**
 async function runClaudeRegistrySync(
 	db: Parameters<typeof createAppCatalogSyncLog>[0],
 	env: CloudflareEnv,
-	enableEnrichment: boolean,
 ): Promise<{
 	success: boolean;
 	serverCount: number;
@@ -1566,7 +1565,6 @@ async function runClaudeRegistrySync(
 		startedAt: new Date().toISOString(),
 		status: "running",
 		details: {
-			enableEnrichment,
 			r2Path: "catalog/claude/",
 			trigger: "sync-claude-registry",
 			serverCount,
@@ -1586,7 +1584,6 @@ async function runClaudeRegistrySync(
 			params: {
 				syncType: "r2" as const,
 				r2Path: "catalog/claude/",
-				enableEnrichment,
 				syncLogId: syncLog.id,
 			},
 		});

@@ -77,9 +77,6 @@ vi.mock("@tedix/db/queries/catalog/drift-reports", () => ({
 	deleteOldDriftReports: vi.fn().mockResolvedValue(0),
 }));
 vi.mock("@tedix/db/queries/catalog/scheduled-maintenance", () => ({
-	getCatalogEnrichmentHealth: vi
-		.fn()
-		.mockResolvedValue({ needsEnrichment: 0, totalMcp: 0 }),
 	getStaleUnhealthyAppCount: vi.fn().mockResolvedValue(0),
 	autoDisableDeadMcpCatalogApps: vi.fn().mockResolvedValue({ disabled: 0 }),
 	autoHideUnhealthyCatalogApps: vi.fn().mockResolvedValue(0),

@@ -872,8 +872,6 @@ export const TriggerSyncInputSchema = z.object({
 	r2Path: z.string().optional(),
 	/** For upload mode: raw JSON data */
 	data: z.record(z.string(), JsonValueSchema).optional(),
-	/** Whether to run Firecrawl enrichment on new apps */
-	enableEnrichment: z.boolean().default(false),
 });
 export type TriggerSyncInput = z.infer<typeof TriggerSyncInputSchema>;
 
@@ -891,9 +889,7 @@ export type TriggerSyncOutput = z.infer<typeof TriggerSyncOutputSchema>;
 // Claude Registry Sync Input/Output
 // ============================================================
 
-export const SyncClaudeRegistryInputSchema = z.object({
-	enableEnrichment: z.boolean().default(true),
-});
+export const SyncClaudeRegistryInputSchema = z.object({});
 export type SyncClaudeRegistryInput = z.infer<
 	typeof SyncClaudeRegistryInputSchema
 >;
@@ -927,37 +923,6 @@ export const TriggerScanOutputSchema = z.object({
 	message: z.string(),
 });
 export type TriggerScanOutput = z.infer<typeof TriggerScanOutputSchema>;
-
-// ============================================================
-// Enrichment Workflow Input/Output
-// ============================================================
-
-export const TriggerEnrichInputSchema = z.object({
-	/** Maximum number of apps to enrich (default 20) */
-	limit: z.coerce.number().min(1).max(100).default(20),
-	/** Optional specific app IDs to enrich (overrides limit) */
-	appIds: z.array(z.string()).optional(),
-	/** Re-enrich apps that have R2 PNG/JPG logos with proper Firecrawl branding SVG logos */
-	forceBranding: z.boolean().optional(),
-	/**
-	 * Full enrichment scrapes ChatGPT/store pages and screenshots. Logo repair
-	 * only uses website branding data and is the safe cron/default maintenance mode.
-	 */
-	mode: z.enum(["full", "logo-repair"]).default("logo-repair"),
-	/** Continue queueing batches until no work remains. Use sparingly. */
-	drainAll: z.boolean().default(false),
-	/** Maximum chained workflow runs when drainAll is enabled. */
-	maxChainDepth: z.coerce.number().min(0).max(12).default(0),
-});
-export type TriggerEnrichInput = z.infer<typeof TriggerEnrichInputSchema>;
-
-export const TriggerEnrichOutputSchema = z.object({
-	success: z.boolean(),
-	appsQueued: z.number(),
-	workflowInstanceId: z.string().optional(),
-	message: z.string(),
-});
-export type TriggerEnrichOutput = z.infer<typeof TriggerEnrichOutputSchema>;
 
 // ============================================================
 // Tool Testing Input/Output

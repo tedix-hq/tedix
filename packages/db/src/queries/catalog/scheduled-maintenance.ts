@@ -14,24 +14,6 @@ import type { Database } from "./tool-source-policy";
 // =============================================================================
 
 /**
- * Get enrichment health stats: how many discoverable MCP apps need enrichment vs total.
- * Used by the scheduled retention cron for monitoring.
- */
-export async function getCatalogEnrichmentHealth(
-	db: Database,
-): Promise<{ needsEnrichment: number; totalMcp: number }> {
-	const row = await db
-		.select({
-			needsEnrichment: sql<number>`COALESCE(SUM(CASE WHEN json_extract(${appCatalog.richContent}, '$.enrichedAt') IS NULL AND ${appCatalog.connectorType} = 'MCP' AND ${appCatalog.isDiscoverable} = 1 THEN 1 ELSE 0 END), 0)`,
-			totalMcp: sql<number>`COALESCE(SUM(CASE WHEN ${appCatalog.connectorType} = 'MCP' AND ${appCatalog.isDiscoverable} = 1 THEN 1 ELSE 0 END), 0)`,
-		})
-		.from(appCatalog)
-		.then((rows) => rows[0]);
-
-	return row ?? { needsEnrichment: 0, totalMcp: 0 };
-}
-
-/**
  * Count discoverable apps that have been unhealthy for more than the given number of days.
  * Uses the raw `health_checked_at` D1 column (not in Drizzle schema).
  * Used by the scheduled cron to detect stale unhealthy apps.
@@ -240,25 +222,4 @@ export async function listEnabledCatalogAppsForVectorSync(
 		.orderBy(asc(appCatalog.id))
 		.limit(options.limit)
 		.offset(options.offset);
-}
-
-/**
- * Update enrichment provenance metadata in the rawData JSON blob.
- * Merges `$.enrichmentMeta` into the existing rawData using `json_set()`.
- */
-export async function updateCatalogAppRawEnrichmentMeta(
-	db: Database,
-	catalogAppId: string,
-	enrichmentMeta: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.update(appCatalog)
-		.set({
-			rawData: sql`json_set(
-				coalesce(${appCatalog.rawData}, '{}'),
-				'$.enrichmentMeta',
-				json(${JSON.stringify(enrichmentMeta)})
-			)`,
-		})
-		.where(eq(appCatalog.id, catalogAppId));
 }

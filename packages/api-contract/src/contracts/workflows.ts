@@ -44,7 +44,6 @@ export const WorkflowTypeSchema = z.enum([
 	"catalog_sync",
 	"catalog_integrity",
 	"catalog_drift",
-	"catalog_enrichment",
 	"mcp_scan",
 	"tool_test",
 	"tedi_mcp_access_health",

@@ -1,6 +1,5 @@
 import { categoryEnum, type Category } from "@tedix/db/schema/catalog";
 import type { JevQuestion, JevResult } from "@tedix/workers-ai/jev";
-import { executeJevJudgment } from "./jev-judgment";
 
 const categoryQuestions = {
 	category: {
@@ -17,7 +16,7 @@ const categoryQuestions = {
 	},
 } satisfies Record<string, JevQuestion>;
 
-/** Pure request recipe, shared by both enrichment sources and evaluation. */
+/** Pure catalog category request recipe used by the Jev evaluation suite. */
 export function catalogCategoryRequest(app: {
 	name: string;
 	description?: string | null;
@@ -36,24 +35,4 @@ export function selectedCatalogCategory(
 	if (!answer || answer.type !== "choice" || answer.choice === "NONE")
 		return null;
 	return categoryEnum.find((category) => category === answer.choice) ?? null;
-}
-
-/** Jev is the default classifier after authoritative store/sync categories. */
-export async function classifyCatalogCategory(
-	options: Pick<
-		Parameters<typeof executeJevJudgment>[0],
-		"db" | "env" | "context"
-	>,
-	app: { name: string; description?: string | null },
-): Promise<Category | null> {
-	const request = catalogCategoryRequest(app);
-	if (!request) return null;
-	const result = await executeJevJudgment({
-		...options,
-		...request,
-		source: "catalog:category",
-		billingSource: "system",
-		sessionType: "unattributed",
-	});
-	return selectedCatalogCategory(result);
 }

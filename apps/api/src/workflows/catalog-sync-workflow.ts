@@ -85,8 +85,6 @@ const CATALOG_VECTOR_PAGE_SIZE = 100;
 export interface CatalogSyncWorkflowParams {
 	/** Sync mode */
 	syncType: SyncType;
-	/** Trigger enrichment workflow after sync */
-	enableEnrichment?: boolean;
 	searchOnly?: boolean;
 	/** R2 path to JSON file or folder (for r2 mode) */
 	r2Path?: string;
@@ -1391,48 +1389,6 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			console.log(
 				`[App Catalog Sync] Sync complete: ${totalInserted} inserted, ${totalUpdated} updated, ${totalAppsDisabled} disabled, ${totalFailed} failed`,
 			);
-
-			// Step 7: Optionally trigger enrichment workflow after successful sync
-			if (
-				!searchOnly &&
-				event.payload.enableEnrichment &&
-				totalAppsDiscovered > 0
-			) {
-				await step.do(
-					"trigger-enrichment",
-					{ retries: { limit: 1, delay: "2 seconds" }, timeout: "30 seconds" },
-					async () => {
-						try {
-							const enrichWorkflow = this.env.CATALOG_ENRICHMENT_WORKFLOW;
-							if (enrichWorkflow) {
-								const instance = await enrichWorkflow.create({
-									params: {
-										limit: 10,
-										drainAll: false,
-										chainDepth: 0,
-										maxChainDepth: 0,
-										mode: "logo-repair",
-									},
-								});
-								console.log(
-									`[App Catalog Sync] Enrichment workflow triggered: ${instance.id}`,
-								);
-								return { triggered: true, workflowId: instance.id };
-							}
-							console.warn(
-								"[App Catalog Sync] CATALOG_ENRICHMENT_WORKFLOW binding not available",
-							);
-							return { triggered: false };
-						} catch (error) {
-							console.error(
-								"[App Catalog Sync] Failed to trigger enrichment:",
-								error,
-							);
-							return { triggered: false, error: String(error) };
-						}
-					},
-				);
-			}
 
 			return {
 				success,

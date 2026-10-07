@@ -61,8 +61,6 @@ import {
 	SyncClaudeRegistryInputSchema,
 	SyncClaudeRegistryOutputSchema,
 	ToolTestStatsSchema,
-	TriggerEnrichInputSchema,
-	TriggerEnrichOutputSchema,
 	TriggerScanInputSchema,
 	TriggerScanOutputSchema,
 	TriggerSyncInputSchema,
@@ -304,22 +302,6 @@ export const catalogContract = oc
 					connectionTemplate: z.string(),
 				}),
 			),
-
-		/**
-		 * Trigger enrichment workflow
-		 * POST /catalog/enrich
-		 */
-		triggerEnrich: oc
-			.route({
-				method: "POST",
-				path: "/enrich",
-				summary: "Trigger enrichment workflow",
-				description:
-					"Start a Cloudflare Workflow to enrich apps with Firecrawl (screenshots, social links, descriptions).",
-				tags: ["service", "internal"],
-			})
-			.input(TriggerEnrichInputSchema)
-			.output(TriggerEnrichOutputSchema),
 
 		// ============================================================
 		// Install from Catalog
