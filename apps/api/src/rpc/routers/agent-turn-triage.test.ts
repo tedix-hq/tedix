@@ -402,7 +402,7 @@ describe("policy", () => {
 		expect(rows[0]?.key).toBe(ORG_1);
 		expect(JSON.parse(rows[0]?.value ?? "null")).toEqual({
 			...CUSTOM,
-			drafting: { enabled: false },
+			drafting: { enabled: false, examples: { enabled: true, count: 5 } },
 			eligibility: { minRate: 0.9, minDrafts: 50 },
 			autoSend: { enabled: false, maxConsecutive: 3 },
 			version: 2,

@@ -50,6 +50,30 @@ export type AgentTurnTriageQuestion = z.infer<
 >;
 
 /**
+ * Few-shot examples in the drafting prompt: the target user's own recent
+ * answers to similar decision-capture questions (same repository first, then
+ * lexical similarity; answers that edited or replaced a draft rank higher).
+ */
+export const AgentReplyDraftExamplesPolicySchema = z.strictObject({
+	enabled: z
+		.boolean()
+		.describe(
+			"When false, the drafting prompt carries none of the user's past replies",
+		),
+	count: z
+		.number()
+		.int()
+		.min(1)
+		.max(10)
+		.describe("How many past replies the drafting prompt carries at most"),
+});
+export type AgentReplyDraftExamplesPolicy = z.infer<
+	typeof AgentReplyDraftExamplesPolicySchema
+>;
+export const DEFAULT_AGENT_REPLY_DRAFT_EXAMPLES: AgentReplyDraftExamplesPolicy =
+	{ enabled: true, count: 5 };
+
+/**
  * Tedi-drafted replies to quiet (`later`) decision-capture questions. Drafts
  * are proposals the human accepts, edits, or replaces unless `autoSend`
  * delivers a reversible one. Disabled unless a drafting tedi is named.
@@ -73,6 +97,11 @@ export const AgentReplyDraftingPolicySchema = z.strictObject({
 		.describe(
 			"Optional skill the drafting tedi loads before drafting (for example the operator's reply-style skill)",
 		),
+	examples: AgentReplyDraftExamplesPolicySchema.default(
+		DEFAULT_AGENT_REPLY_DRAFT_EXAMPLES,
+	).describe(
+		"The user's own past replies to similar agent turns, shown to the drafting tedi as examples; on by default",
+	),
 });
 export type AgentReplyDraftingPolicy = z.infer<
 	typeof AgentReplyDraftingPolicySchema
@@ -126,6 +155,7 @@ export type AgentReplyDraftEligibility = z.infer<
 
 export const DEFAULT_AGENT_REPLY_DRAFTING: AgentReplyDraftingPolicy = {
 	enabled: false,
+	examples: DEFAULT_AGENT_REPLY_DRAFT_EXAMPLES,
 };
 export const DEFAULT_AGENT_REPLY_DRAFT_ELIGIBILITY: AgentReplyDraftEligibility =
 	{ minRate: 0.9, minDrafts: 50 };
@@ -182,7 +212,8 @@ export type AgentTurnTriagePolicy = z.infer<typeof AgentTurnTriagePolicySchema>;
 
 /** The writable part of a policy; `version` is assigned by the server. */
 export const AgentTurnTriagePolicyInputSchema = z.strictObject(policyFields);
-export type AgentTurnTriagePolicyInput = z.infer<
+/** Input shape: defaulted fields may be omitted. */
+export type AgentTurnTriagePolicyInput = z.input<
 	typeof AgentTurnTriagePolicyInputSchema
 >;
 

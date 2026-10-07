@@ -54,6 +54,7 @@ import {
 } from "@tedix/db/queries/work-items/reply-drafts";
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
+import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -379,6 +380,8 @@ export function renderReplyDraftPrompt(params: {
 	sessions: ReadonlyArray<{ label: string; state: string; summary: string }>;
 	skillSlug?: string;
 	turnTypeChoices?: readonly string[];
+	/** The user's past replies block; placed at `{{examples}}`, else after the sessions. */
+	examples?: string;
 }): string {
 	const prompt =
 		params.request.prompt.length > PROMPT_TEXT_LIMIT
@@ -408,13 +411,49 @@ export function renderReplyDraftPrompt(params: {
 			? params.turnTypeChoices.join(", ")
 			: "a short label you choose, such as approval, continue, status, correction",
 	};
-	return DEFAULTS.replyDraft.lines
-		.map((line) =>
-			line.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
-				key in values ? (values[key] as string) : match,
-			),
-		)
+	const examples = params.examples ?? "";
+	const lines = DEFAULTS.replyDraft.lines;
+	const placed = lines.some((line) => line.includes("{{examples}}"));
+	const anchor = placed
+		? -1
+		: lines.findIndex((line) => line.includes("{{sessions}}"));
+	return lines
+		.flatMap((line, index) => {
+			const rendered = line.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
+				key === "examples"
+					? examples
+					: key in values
+						? (values[key] as string)
+						: match,
+			);
+			return index === anchor && examples
+				? [rendered, "", examples]
+				: [rendered];
+		})
+		.concat(anchor === -1 && !placed && examples ? ["", examples] : [])
 		.join("\n");
+}
+
+/** The examples block for a drafting prompt; a read failure drafts without it. */
+async function replyDraftExamples(
+	context: BaseContext,
+	policy: AgentTurnTriagePolicy,
+	params: { orgId: string; targetUserId: string; request: InteractionRow },
+): Promise<string> {
+	const { examples } = policy.drafting;
+	if (!examples.enabled) return "";
+	try {
+		return await buildReplyDraftExamplesBlock(context.db, {
+			...params,
+			count: examples.count,
+		});
+	} catch (error) {
+		console.warn("reply-draft examples unavailable", {
+			requestId: params.request.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return "";
+	}
 }
 
 async function requireInteraction(
@@ -496,12 +535,19 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				"Automation queue binding is not configured",
 			);
 		}
-		const sessions = await listWorkAgentSessions(context.db, {
-			organizationId: orgId,
-			userId: actor.id,
-			includeEnded: false,
-			now: observedAt,
-		});
+		const [sessions, examples] = await Promise.all([
+			listWorkAgentSessions(context.db, {
+				organizationId: orgId,
+				userId: actor.id,
+				includeEnded: false,
+				now: observedAt,
+			}),
+			replyDraftExamples(context, policy, {
+				orgId,
+				targetUserId: actor.id,
+				request,
+			}),
+		]);
 		const event: AutomationEvent = AutomationEventSchema.parse({
 			kind: "tedi_turn",
 			organizationId: orgId,
@@ -511,6 +557,7 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				sessions,
 				skillSlug: policy.drafting.skillSlug,
 				turnTypeChoices: policy.turnTypeChoices,
+				examples,
 			}),
 			// One drafting turn per question: the consumer's dispatch ledger makes
 			// redelivery and repeat requests no-ops.
