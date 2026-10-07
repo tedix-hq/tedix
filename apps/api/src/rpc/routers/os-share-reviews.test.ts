@@ -204,6 +204,7 @@ async function fixture() {
 		reader,
 		input,
 		session: { shareId: share.id, sessionToken },
+		gadget: { workspaceId, gadgetId },
 		machine: createRouterClient(osSharesContractRouter, {
 			context: apiKeyContext(env, "org-1"),
 		}),
@@ -274,6 +275,93 @@ describe("bounded share reviews", () => {
 		await expect(
 			h.reader.reviews.listFeedback({ shareId: h.input.shareId }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("workspace members review the same bound batch and share one feedback record with the link", async () => {
+		const h = await fixture();
+		expect(await h.reader.reviews.getForGadget(h.gadget)).toEqual({
+			batch: null,
+			feedback: [],
+		});
+		const { batch } = await h.owner.reviews.create(h.input);
+		const bound = await h.reader.reviews.getForGadget(h.gadget);
+		expect(bound.batch?.id).toBe(batch.id);
+		const fields = {
+			batchId: batch.id,
+			cardId: "card",
+			decision: "edit" as const,
+			editedReply: "From the workspace",
+			reason: "Timing",
+		};
+		expect(
+			await h.reader.reviews.saveGadgetFeedback({
+				...h.gadget,
+				...fields,
+				expectedRevision: 0,
+			}),
+		).toMatchObject({ feedback: { reviewerId: "reader", revision: 1 } });
+		// The shared link sees and continues the same record, under the same CAS rule.
+		const shared = await h.reader.reviews.get(h.session);
+		expect(shared.feedback).toMatchObject([
+			{ editedReply: "From the workspace", revision: 1 },
+		]);
+		await expect(
+			h.reader.reviews.saveFeedback({
+				...h.session,
+				...fields,
+				expectedRevision: 0,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await h.reader.reviews.saveFeedback({
+			...h.session,
+			...fields,
+			decision: "ready",
+			expectedRevision: 1,
+		});
+		expect(
+			(await h.reader.reviews.getForGadget(h.gadget)).feedback,
+		).toMatchObject([{ decision: "ready", revision: 2 }]);
+		expect(
+			(await h.owner.reviews.listFeedback({ shareId: h.input.shareId }))
+				.feedback,
+		).toHaveLength(1);
+		// Unknown cards, other workspaces, other tenants and machines are refused.
+		await expect(
+			h.reader.reviews.saveGadgetFeedback({
+				...h.gadget,
+				...fields,
+				cardId: "missing",
+				expectedRevision: 0,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			h.reader.reviews.getForGadget({
+				...h.gadget,
+				workspaceId: crypto.randomUUID(),
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const foreign = createRouterClient(osSharesContractRouter, {
+			context: userContext(h.env, "org-2"),
+		});
+		await expect(foreign.reviews.getForGadget(h.gadget)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		await expect(
+			h.machine.reviews.getForGadget(h.gadget),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		// Revoking the link closes the review in the workspace too.
+		await h.owner.shares.revoke({ shareId: h.input.shareId });
+		expect((await h.reader.reviews.getForGadget(h.gadget)).batch).toBeNull();
+		await expect(
+			h.reader.reviews.saveGadgetFeedback({
+				...h.gadget,
+				...fields,
+				expectedRevision: 2,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const [source] = await h.db.select().from(osOutputRevisions);
+		expect(source.content).toBe(
+			JSON.stringify({ kind: "document", blocks: [] }),
+		);
 	});
 	it("fails closed on missing/malformed source provenance and never widens an existing batch", async () => {
 		const h = await fixture();

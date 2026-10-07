@@ -7,8 +7,10 @@ import {
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	createOsReviewBatch,
+	getActiveOsReviewBatchForGadget,
 	getOsReviewBatch,
 	listOsReviewFeedback,
+	type OsReviewFeedbackAccess,
 	saveOsReviewFeedback,
 } from "@tedix/db/queries/os-review-batches";
 import {
@@ -17,7 +19,10 @@ import {
 } from "@tedix/db/queries/os-shares";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
 import { getOsOutputRevision } from "@tedix/db/queries/os-workspaces/outputs";
-import type { OsReviewBatchRow } from "@tedix/db/schema/os-shares";
+import type {
+	OsReviewBatchRow,
+	OsReviewFeedbackRow,
+} from "@tedix/db/schema/os-shares";
 import { hashOsShareToken } from "../../lib/os-share-redemption";
 import {
 	authorizeDerivedOutputSources,
@@ -201,26 +206,116 @@ const listFeedback = author.reviews.listFeedback.handler(
 		};
 	},
 );
+type FeedbackFields = {
+	batchId: string;
+	cardId: string;
+	expectedRevision: number;
+	decision: OsReviewFeedbackRow["decision"];
+	editedReply: string;
+	reason: string;
+};
+/** One write path for both entry points: same record, fences and conflict rule. */
+async function writeFeedback(
+	state: {
+		db: ReturnType<typeof createDbQueryClient>;
+		organizationId: string;
+		reviewerId: string;
+		batch: OsReviewBatchRow | undefined;
+	},
+	access: OsReviewFeedbackAccess,
+	input: FeedbackFields,
+) {
+	if (!state.batch || state.batch.id !== input.batchId) unavailable();
+	const batch = batchWire(state.batch);
+	if (!batch.cards.some((card) => card.id === input.cardId)) unavailable();
+	const feedback = await saveOsReviewFeedback(state.db, {
+		organizationId: state.organizationId,
+		access,
+		batchId: input.batchId,
+		cardId: input.cardId,
+		reviewerId: state.reviewerId,
+		expectedRevision: input.expectedRevision,
+		decision: input.decision,
+		editedReply: input.editedReply,
+		reason: input.reason,
+		now: new Date().toISOString(),
+	});
+	if (!feedback)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Feedback changed or sharing ended. Reload before saving.",
+		);
+	return { feedback: OsReviewFeedbackSchema.parse(feedback) };
+}
 const saveFeedback = read.reviews.saveFeedback.handler(
 	async ({ context, input }) => {
 		const state = await recipient(context, input);
-		if (!state.batch || state.batch.id !== input.batchId) unavailable();
-		const batch = batchWire(state.batch);
-		if (!batch.cards.some((card) => card.id === input.cardId)) unavailable();
-		const feedback = await saveOsReviewFeedback(state.db, {
-			...input,
-			organizationId: state.organizationId,
-			shareId: state.link.id,
-			sessionHash: state.sessionHash,
-			reviewerId: state.reviewerId,
-			now: new Date().toISOString(),
-		});
-		if (!feedback)
-			throw createError(
-				ErrorCodes.CONFLICT,
-				"Feedback changed or sharing ended. Reload before saving.",
-			);
-		return { feedback: OsReviewFeedbackSchema.parse(feedback) };
+		return writeFeedback(
+			state,
+			{
+				kind: "share",
+				shareId: state.link.id,
+				sessionHash: state.sessionHash,
+			},
+			input,
+		);
 	},
 );
-export const osShareReviewsRouter = { create, get, listFeedback, saveFeedback };
+/** A workspace member reviewing the batch bound to a gadget they can open. */
+async function workspaceReviewer(
+	context: BaseContext,
+	input: { workspaceId: string; gadgetId: string },
+) {
+	const reviewerId = human(context);
+	const organizationId = requireOrgId(context);
+	const gadget = await requireGadget(
+		context,
+		input.workspaceId,
+		input.gadgetId,
+	);
+	if (gadget.status !== "active") unavailable();
+	const db = createDbQueryClient(context.env.DB);
+	const batch = await getActiveOsReviewBatchForGadget(db, {
+		organizationId,
+		gadgetId: gadget.id,
+		now: new Date().toISOString(),
+	});
+	if (batch) await sourceAllowed(context, organizationId, batch.accessEnvelope);
+	return { db, organizationId, reviewerId, gadget, batch };
+}
+const getForGadget = read.reviews.getForGadget.handler(
+	async ({ context, input }) => {
+		const state = await workspaceReviewer(context, input);
+		return {
+			batch: state.batch ? batchWire(state.batch) : null,
+			feedback: state.batch
+				? (
+						await listOsReviewFeedback(
+							state.db,
+							state.organizationId,
+							state.batch.id,
+							state.reviewerId,
+						)
+					).map((row) => OsReviewFeedbackSchema.parse(row))
+				: [],
+		};
+	},
+);
+const saveGadgetFeedback = read.reviews.saveGadgetFeedback.handler(
+	async ({ context, input }) => {
+		const state = await workspaceReviewer(context, input);
+		return writeFeedback(
+			state,
+			{ kind: "workspace", gadgetId: state.gadget.id },
+			input,
+		);
+	},
+);
+export const osShareReviewsRouter = {
+	create,
+	get,
+	listFeedback,
+	saveFeedback,
+	getForGadget,
+	saveGadgetFeedback,
+};

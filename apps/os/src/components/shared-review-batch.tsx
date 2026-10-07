@@ -117,6 +117,92 @@ function isConflict(error: unknown) {
 	);
 }
 
+type ReviewData = {
+	batch: OsReviewBatch | null;
+	feedback: OsReviewFeedback[];
+};
+type FeedbackInput = {
+	batchId: string;
+	cardId: string;
+	expectedRevision: number;
+	decision: Decision;
+	editedReply: string;
+	reason: string;
+};
+/**
+ * Where one review is read from and saved to. A share recipient and a
+ * workspace member reach the same batch and the same per-reviewer feedback
+ * record through different authorized entry points; the UI is identical.
+ */
+export type ReviewSource = {
+	key: string;
+	load: () => Promise<ReviewData>;
+	save: (input: FeedbackInput) => Promise<{ feedback: OsReviewFeedback }>;
+};
+
+function shareReviewSource(
+	shareId: string,
+	sessionToken: string,
+): ReviewSource {
+	return {
+		key: `share:${shareId}:${sessionToken}`,
+		load: async () =>
+			(await import("@/lib/api")).osApi.osShares.reviews.get({
+				shareId,
+				sessionToken,
+			}),
+		save: async (input) =>
+			(await import("@/lib/api")).osApi.osShares.reviews.saveFeedback({
+				shareId,
+				sessionToken,
+				...input,
+			}),
+	};
+}
+
+function workspaceReviewSource(
+	workspaceId: string,
+	gadgetId: string,
+): ReviewSource {
+	return {
+		key: `workspace:${workspaceId}:${gadgetId}`,
+		load: async () =>
+			(await import("@/lib/api")).osApi.osShares.reviews.getForGadget({
+				workspaceId,
+				gadgetId,
+			}),
+		save: async (input) =>
+			(await import("@/lib/api")).osApi.osShares.reviews.saveGadgetFeedback({
+				workspaceId,
+				gadgetId,
+				...input,
+			}),
+	};
+}
+
+function useReviewData(source: ReviewSource) {
+	const [data, setData] = useState<ReviewData | null>(null);
+	const [failed, setFailed] = useState(false);
+	const { key, load } = source;
+	useEffect(() => {
+		setData(null);
+		setFailed(false);
+		let alive = true;
+		load().then(
+			(value) => {
+				if (alive) setData(value);
+			},
+			() => {
+				if (alive) setFailed(true);
+			},
+		);
+		return () => {
+			alive = false;
+		};
+	}, [key, load]);
+	return { data, failed };
+}
+
 export function SharedReviewBatch({
 	shareId,
 	sessionToken,
@@ -126,39 +212,18 @@ export function SharedReviewBatch({
 	sessionToken: string;
 	fallback: ReactNode;
 }) {
-	const [data, setData] = useState<{
-		batch: OsReviewBatch | null;
-		feedback: OsReviewFeedback[];
-	} | null>(null);
-	const [error, setError] = useState("");
-	useEffect(() => {
-		setData(null);
-		setError("");
-		let alive = true;
-		import("@/lib/api")
-			.then(({ osApi }) =>
-				osApi.osShares.reviews.get({ shareId, sessionToken }),
-			)
-			.then(
-				(value) => {
-					if (alive) setData(value);
-				},
-				() => {
-					if (alive)
-						setError(
-							"This review cannot be opened. Check your access or ask for a new link.",
-						);
-				},
-			);
-		return () => {
-			alive = false;
-		};
-	}, [shareId, sessionToken]);
-	if (error)
+	const source = useMemo(
+		() => shareReviewSource(shareId, sessionToken),
+		[shareId, sessionToken],
+	);
+	const { data, failed } = useReviewData(source);
+	if (failed)
 		return (
 			<Alert variant="warning">
 				<AlertTitle>Review unavailable</AlertTitle>
-				<AlertDescription>{error}</AlertDescription>
+				<AlertDescription>
+					This review cannot be opened. Check your access or ask for a new link.
+				</AlertDescription>
 			</Alert>
 		);
 	if (!data) return <p role="status">Opening review…</p>;
@@ -169,22 +234,69 @@ export function SharedReviewBatch({
 			key={data.batch.id}
 			batch={data.batch}
 			feedback={data.feedback}
-			shareId={shareId}
-			sessionToken={sessionToken}
+			source={source}
 		/>
+	);
+}
+
+type WorkspaceView = "review" | "gadget";
+
+/**
+ * The workspace entry point to the same review. When the gadget's active
+ * review link binds a batch, members review it here with the shared UI; the
+ * gadget's own app stays one click away. Without a bound batch, or when the
+ * review cannot be read, the gadget renders exactly as before.
+ */
+export function WorkspaceGadgetReview({
+	workspaceId,
+	gadgetId,
+	gadget,
+}: {
+	workspaceId: string;
+	gadgetId: string;
+	gadget: ReactNode;
+}) {
+	const source = useMemo(
+		() => workspaceReviewSource(workspaceId, gadgetId),
+		[workspaceId, gadgetId],
+	);
+	const { data } = useReviewData(source);
+	const [view, setView] = useState<WorkspaceView>("review");
+	if (!data?.batch) return gadget;
+	return (
+		<div className="flex min-h-0 flex-1 flex-col gap-3">
+			<SegmentedControl<WorkspaceView>
+				ariaLabel="App view"
+				compact
+				value={view}
+				onValueChange={setView}
+				options={[
+					{ value: "review", label: "Review" },
+					{ value: "gadget", label: "Full gadget" },
+				]}
+			/>
+			{view === "review" ? (
+				<ReviewApp
+					key={data.batch.id}
+					batch={data.batch}
+					feedback={data.feedback}
+					source={source}
+				/>
+			) : (
+				gadget
+			)}
+		</div>
 	);
 }
 
 function ReviewApp({
 	batch,
 	feedback,
-	shareId,
-	sessionToken,
+	source,
 }: {
 	batch: OsReviewBatch;
 	feedback: OsReviewFeedback[];
-	shareId: string;
-	sessionToken: string;
+	source: ReviewSource;
 }) {
 	const [saved, setSaved] = useState<Record<string, Saved>>(() =>
 		Object.fromEntries(
@@ -284,10 +396,7 @@ function ReviewApp({
 				[card.id]: { ...current[card.id]!, save: "saving" },
 			}));
 			try {
-				const { osApi } = await import("@/lib/api");
-				const result = await osApi.osShares.reviews.saveFeedback({
-					shareId,
-					sessionToken,
+				const result = await source.save({
 					batchId: batch.id,
 					cardId: card.id,
 					expectedRevision: draft.revision,
@@ -322,7 +431,7 @@ function ReviewApp({
 				}));
 			}
 		},
-		[batch.id, drafts, sessionToken, shareId],
+		[batch.id, drafts, source],
 	);
 
 	// After a conflict, load the latest saved feedback but keep the reviewer's
@@ -330,11 +439,7 @@ function ReviewApp({
 	const reloadLatest = useCallback(
 		async (card: Card) => {
 			try {
-				const { osApi } = await import("@/lib/api");
-				const latest = await osApi.osShares.reviews.get({
-					shareId,
-					sessionToken,
-				});
+				const latest = await source.load();
 				if (!latest.batch || latest.batch.id !== batch.id) throw new Error();
 				const next = savedFrom(
 					card,
@@ -357,7 +462,7 @@ function ReviewApp({
 				}));
 			}
 		},
-		[batch.id, sessionToken, shareId],
+		[batch.id, source],
 	);
 
 	const listRef = useRef<HTMLUListElement>(null);
@@ -416,7 +521,7 @@ function ReviewApp({
 						</h2>
 						<p className="m-0 text-sm text-kumo-subtle max-sm:text-xs">
 							Your feedback is saved for the team under your name. Nothing is
-							posted to Reddit and the research stays unchanged.
+							posted anywhere and the source research stays unchanged.
 						</p>
 					</div>
 					<p

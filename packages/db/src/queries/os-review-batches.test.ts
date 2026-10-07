@@ -12,9 +12,11 @@ import {
 import { osGadgets } from "../schema/os-workspaces";
 import {
 	createOsReviewBatch,
+	getActiveOsReviewBatchForGadget,
 	getOsReviewBatch,
 	listOsReviewFeedback,
 	saveOsReviewFeedback,
+	type OsReviewFeedbackAccess,
 } from "./os-review-batches";
 const now = "2026-10-06T12:00:00.000Z";
 async function fixture() {
@@ -69,8 +71,11 @@ async function fixture() {
 	};
 	const params = {
 		organizationId: "org",
-		shareId: "share",
-		sessionHash: "sessionhash",
+		access: {
+			kind: "share" as const,
+			shareId: "share",
+			sessionHash: "sessionhash",
+		} as OsReviewFeedbackAccess,
 		batchId: "batch",
 		cardId: "card",
 		reviewerId: "reviewer",
@@ -167,14 +172,61 @@ describe("bounded review persistence", () => {
 		await createOsReviewBatch(db, batch, now);
 		for (const patch of [
 			{ organizationId: "other" },
-			{ sessionHash: "foreign" },
-			{ shareId: "foreign" },
+			{
+				access: {
+					kind: "share" as const,
+					shareId: "share",
+					sessionHash: "foreign",
+				},
+			},
+			{
+				access: {
+					kind: "share" as const,
+					shareId: "foreign",
+					sessionHash: "sessionhash",
+				},
+			},
+			{ access: { kind: "workspace" as const, gadgetId: "foreign" } },
 			{ cardId: "missing" },
 			{ batchId: "foreign" },
 		])
 			expect(
 				await saveOsReviewFeedback(db, { ...params, ...patch }),
 			).toBeUndefined();
+	});
+	it("binds the gadget's newest batch behind an active link and lets its workspace write the same record", async () => {
+		const { db, sqlite, batch, params } = await fixture();
+		const lookup = { organizationId: "org", gadgetId: "gadget", now };
+		expect(await getActiveOsReviewBatchForGadget(db, lookup)).toBeUndefined();
+		await createOsReviewBatch(db, batch, now);
+		expect((await getActiveOsReviewBatchForGadget(db, lookup))?.id).toBe(
+			"batch",
+		);
+		expect(
+			await getActiveOsReviewBatchForGadget(db, {
+				...lookup,
+				organizationId: "other",
+			}),
+		).toBeUndefined();
+		const workspace = {
+			...params,
+			access: { kind: "workspace" as const, gadgetId: "gadget" },
+		};
+		expect(await saveOsReviewFeedback(db, workspace)).toMatchObject({
+			revision: 1,
+		});
+		// The share session continues the same per-reviewer record.
+		expect(
+			await saveOsReviewFeedback(db, { ...params, expectedRevision: 1 }),
+		).toMatchObject({ revision: 2 });
+		expect(await listOsReviewFeedback(db, "org", "batch")).toHaveLength(1);
+		sqlite.exec(
+			"UPDATE os_share_links SET revoked_at='2026-10-06T11:00:00.000Z'",
+		);
+		expect(await getActiveOsReviewBatchForGadget(db, lookup)).toBeUndefined();
+		expect(
+			await saveOsReviewFeedback(db, { ...workspace, expectedRevision: 2 }),
+		).toBeUndefined();
 	});
 	it("refuses batch approval after revocation, expiry or from another owner", async () => {
 		for (const mutation of [
