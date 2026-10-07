@@ -89,6 +89,12 @@ import {
 	createTurnLearningTelemetry,
 	type LearningTelemetry,
 } from "./learning-telemetry";
+import {
+	LEARNING_BRIDGE_TIMEOUT_MS,
+	learningPassStatus,
+	learningStageDeadline,
+	runLearningStage,
+} from "./learning-stages";
 import { cleanupComputerWorkflow } from "./computer-workflow-cleanup";
 import {
 	persistWorkflowImages,
@@ -11883,18 +11889,22 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		payload: BridgeTurnInput,
 		signal: AbortSignal,
 		telemetry: LearningTelemetry,
+		deadlineAt: number,
 	): Promise<void> {
 		try {
 			signal.throwIfAborted();
 			await this.ensureIdentity();
-			const nativePlatform = (await this.getPlatformClient())?.forRequest({
-				signal,
-				traceId: payload.traceId ?? payload.runId,
-			});
+			const platformClient = await this.getPlatformClient();
 			const platform =
-				nativePlatform &&
-				this.admittedEffectPort(nativePlatform, `${payload.runId}:memory`);
-			if (!platform) {
+				platformClient &&
+				this.admittedEffectPort(
+					platformClient.forRequest({
+						signal,
+						traceId: payload.traceId ?? payload.runId,
+					}),
+					`${payload.runId}:memory`,
+				);
+			if (!platformClient || !platform) {
 				if (this.runtimeAdmission())
 					throw new Error("Original memory platform is unavailable");
 				telemetry.finish("skipped", "no_platform_client");
@@ -11903,6 +11913,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				);
 				return;
 			}
+			// Each optional stage gets a client bound to its own abort signal.
+			const platformFor = (stageSignal: AbortSignal) =>
+				this.admittedEffectPort(
+					platformClient.forRequest({
+						signal: stageSignal,
+						traceId: payload.traceId ?? payload.runId,
+					}),
+					`${payload.runId}:memory`,
+				);
 			signal.throwIfAborted();
 
 			// Observer surface: `observerModelRef` when the profile sets one, else
@@ -12042,244 +12061,198 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			telemetry.reflector.outputObservations = bridgeObservationsSet.length;
 
 			signal.throwIfAborted();
-			const bridged = await bridgeObservations({
-				observations: bridgeObservationsSet,
-				minPriority: "medium",
-				platform,
-				dedup: this.getDedupStore(),
-				currentTask: parsed.currentTasks?.[0],
-				userSourceEvidence: observerUserTurn(observerUser).content,
-				onMetrics: (metrics) => {
-					telemetry.bridge = metrics;
-				},
-			});
+			// Essential path: the canonical fact write runs first, under the
+			// pass's own signal, before any optional projection starts.
+			const bridgeStarted = performance.now();
+			let bridgeStatus: "completed" | "failed" = "failed";
+			let bridged: number;
+			try {
+				bridged = await bridgeObservations({
+					observations: bridgeObservationsSet,
+					minPriority: "medium",
+					platform,
+					dedup: this.getDedupStore(),
+					currentTask: parsed.currentTasks?.[0],
+					userSourceEvidence: observerUserTurn(observerUser).content,
+					onMetrics: (metrics) => {
+						telemetry.bridge = metrics;
+					},
+				});
+				bridgeStatus = "completed";
+			} finally {
+				telemetry.stages.bridge = {
+					status: bridgeStatus,
+					durationMs: Math.round(performance.now() - bridgeStarted),
+					budgetMs: Math.max(0, Math.round(deadlineAt - bridgeStarted)),
+				};
+			}
 			console.log(
 				`[isolate-brain-bridge] observerModel=${observerDeployment} observed=${parsed.observations.length} bridgeInput=${bridgeObservationsSet.length} bridged=${bridged} tedi=${this.state.slug}`,
 			);
 
-			// Rationale bridging uses the full observer set even when fact writes
-			// dedupe, and invalidates counter-evidenced compiled directives.
-			// Rationale + artifact ids produced THIS turn, collected so the per-run
-			// TraceBundle can reference them (the bundle previously emitted empty
-			// `rationaleRecordIds` / `artifactIds` arrays).
-			let rationaleRecordIds: string[] = [];
-			let artifactId: string | null = null;
-			try {
-				signal.throwIfAborted();
-				const rationaleResult = await runRationaleBridge({
-					newObservations: rationaleObservations,
-					platform,
-					stateStore: this.getRationaleStore(),
-					// Enables directive invalidation: a failure observation drops
-					// ALWAYS directives in the same category (their counter-evidence).
-					directives: this.getDirectiveStore(),
-					correlation: {
-						traceId: payload.runId,
-						// WS1 execution links: the bridge attaches the turn's runId +
-						// tool-call refs to every record it creates, and uses the runId
-						// as the span-checkable proof for success completions. Without
-						// these the platform hard-rejects the write.
-						runId: payload.runId,
-						...(payload.toolCallRefs?.length
-							? { toolCallRefs: payload.toolCallRefs }
-							: {}),
-						...(payload.workItemId ? { workItemId: payload.workItemId } : {}),
-						sourceSessionId: payload.user.sessionKey || DEFAULT_SESSION_KEY,
-					},
-				});
-				rationaleRecordIds = rationaleResult.recordIds;
-			} catch (rationaleErr) {
-				if (this.runtimeAdmission()) throw rationaleErr;
-				signal.throwIfAborted();
-				console.error(
-					"[isolate-rationale-bridge] turn bridge failed:",
-					rationaleErr,
-				);
-				// Fail-soft — never break chat. Brain facts already landed above.
-			}
-			// The rationale bridge may have invalidated directives in the store
-			// (failure observation → drop in-category ALWAYS directives). Drop the
-			// in-memory cache so `beforeTurn` reloads the reduced set next turn,
-			// rather than re-injecting an invalidated directive until the 4h alarm.
-			this.directivesLoaded = false;
-
-			// Crystallizer: detect recurring procedural patterns across the
-			// Observer output and promote them to draft/improved muscle-memory
-			// skills (runtime parity). The
-			// pattern-detection logic is pure (`@tedix/context-core/crystallizer`);
-			// `src/brain/` wires it to `platform.findSkills/recordSkill/
-			// improveSkill`; DO SQLite (`DoCrystallizationStateStore`) backs the
-			// per-pattern dedup so a cluster is crystallized once and re-versioned
-			// only after it grows by another full threshold. Fail-soft +
-			// idempotent: candidates are detected against the persisted state.
-			try {
-				signal.throwIfAborted();
-				const crystalStore = this.getCrystallizationStore();
-				// Accumulate this turn's procedural observations, then crystallize
-				// against the rolling buffer so patterns recurring ACROSS turns
-				// reach CRYSTALLIZATION_THRESHOLD (a single isolate turn rarely
-				// carries 3+ same-pattern procedural observations).
-				crystalStore.bufferObservations(
-					parsed.observations,
-					payload.assistant.ts,
-				);
-				const crystallized = await runCrystallization({
-					observations: crystalStore.loadBufferedObservations(),
-					platform,
-					stateStore: crystalStore,
-				});
-				if (crystallized > 0) {
-					console.log(
-						`[isolate-crystallizer] crystallized=${crystallized} tedi=${this.state.slug}`,
+			// Optional projections run after the essential fact write, each under
+			// its own budget and signal (`runLearningStage`), so one slow stage
+			// records `timed_out` in `telemetry.stages` instead of burning the
+			// pass's 25s cap. Rationale, crystallizer, task promotion and the
+			// turn-summary artifact are independent and run in parallel; the trace
+			// bundle needs their ids and runs after them.
+			const stageContext = {
+				signal,
+				deadlineAt,
+				strict: Boolean(this.runtimeAdmission()),
+				telemetry,
+			};
+			const [rationaleResult, , , artifactId] = await Promise.all([
+				// Rationale bridging uses the full observer set even when fact writes
+				// dedupe, and invalidates counter-evidenced compiled directives.
+				runLearningStage(stageContext, "rationale", (stageSignal) =>
+					runRationaleBridge({
+						newObservations: rationaleObservations,
+						platform: platformFor(stageSignal),
+						stateStore: this.getRationaleStore(),
+						// Enables directive invalidation: a failure observation drops
+						// ALWAYS directives in the same category (their counter-evidence).
+						directives: this.getDirectiveStore(),
+						correlation: {
+							traceId: payload.runId,
+							// WS1 execution links: the bridge attaches the turn's runId +
+							// tool-call refs to every record it creates, and uses the runId
+							// as the span-checkable proof for success completions. Without
+							// these the platform hard-rejects the write.
+							runId: payload.runId,
+							...(payload.toolCallRefs?.length
+								? { toolCallRefs: payload.toolCallRefs }
+								: {}),
+							...(payload.workItemId ? { workItemId: payload.workItemId } : {}),
+							sourceSessionId: payload.user.sessionKey || DEFAULT_SESSION_KEY,
+						},
+					}),
+				),
+				// Crystallizer: buffer this turn's procedural observations, then
+				// detect patterns recurring ACROSS turns against the rolling buffer
+				// and promote them to draft/improved muscle-memory skills. DO SQLite
+				// backs the per-pattern dedup, so it is idempotent.
+				runLearningStage(stageContext, "crystallizer", async (stageSignal) => {
+					const crystalStore = this.getCrystallizationStore();
+					crystalStore.bufferObservations(
+						parsed.observations,
+						payload.assistant.ts,
 					);
-				}
-			} catch (crystallizeErr) {
-				if (this.runtimeAdmission()) throw crystallizeErr;
-				signal.throwIfAborted();
-				console.error(
-					"[isolate-crystallizer] crystallization failed:",
-					crystallizeErr,
-				);
-				// Fail-soft — never break chat.
-			}
-
-			// Promote confirmed task intents through the canonical Work Items API.
-			// The local store keeps promotion idempotent; provider sync is separate.
-			try {
-				signal.throwIfAborted();
-				if (parsed.taskIntents && parsed.taskIntents.length > 0) {
-					const promotion = await promoteWorkItems({
-						taskIntents: parsed.taskIntents,
-						platform,
-						store: this.getWorkItemPromotionStore(),
-						sessionKey: payload.user.sessionKey || DEFAULT_SESSION_KEY,
+					const crystallized = await runCrystallization({
+						observations: crystalStore.loadBufferedObservations(),
+						platform: platformFor(stageSignal),
+						stateStore: crystalStore,
 					});
-					if (promotion.detected > 0) {
+					if (crystallized > 0) {
 						console.log(
-							`[isolate-task-bridge] detected=${promotion.detected} ` +
-								`candidates=${promotion.externalCandidates} ` +
-								`promoted=${promotion.promoted} tedi=${this.state.slug}`,
+							`[isolate-crystallizer] crystallized=${crystallized} tedi=${this.state.slug}`,
 						);
 					}
-				}
-			} catch (taskErr) {
-				if (this.runtimeAdmission()) throw taskErr;
-				signal.throwIfAborted();
-				console.error(
-					"[isolate-task-bridge] work-item promotion failed:",
-					taskErr,
-				);
-				// Fail-soft — never break chat.
-			}
-
-			// Turn-summary artifact: persist the Observer's structured output
-			// (observations + currentTasks + suggestedResponse) as a durable
-			// TediArtifact linked to the synthetic conversation/run pair. Runs
-			// inside the same callback as the brain/rationale bridges so we
-			// reuse the parsed Observer output — no second LLM pass.
-			//
-			// Conversation/run IDs bind to the turn's STABLE runId (passed in on the
-			// queue payload, derived from the inbound client id), so the turn-summary
-			// artifact correlates with the ledger events for the SAME run instead of
-			// a wall-clock-derived id that drifts on redelivery/resume.
-			try {
-				// Slug-prefix the conversation id to match every other isolate
-				// emitter (ledger mirror at onLedgerMirror, message reads in
-				// readMessagesForSession). Previously the bare sessionKey was
-				// used, so turn-summary `artifact.created` events landed under
-				// `agent:main:main` while messages landed under
-				// `echo:agent:main:main` — splitting one conversation across two
-				// ids in the cognitive-runtime store.
-				signal.throwIfAborted();
-				const conversationId = buildTediConversationId({
-					tediRef: this.state.slug || this.state.tediId,
-					sessionKey: payload.user.sessionKey,
-				});
-				const runId = payload.runId;
-				const turnId = sanitizeTurnKey(runId);
-				artifactId = await recordTurnSummaryArtifact({
-					signal,
-					platform,
-					bucket:
-						this.env.TEDI_STORAGE &&
-						this.admittedEffectPort(
-							this.env.TEDI_STORAGE,
-							`${payload.runId}:memory`,
-						),
-					tediId: this.state.tediId,
-					conversationId,
-					runId,
-					turnId,
-					observerSummary: {
-						observations: parsed.observations,
-						currentTasks: parsed.currentTasks,
-						suggestedResponse: parsed.suggestedResponse,
-					},
-					userText: payload.user.content,
-					assistantText: payload.assistant.content,
-				});
-			} catch (artifactErr) {
-				if (this.runtimeAdmission()) throw artifactErr;
-				signal.throwIfAborted();
-				console.warn(
-					"[isolate.artifact] turn_summary record failed (outer):",
-					artifactErr,
-				);
-				// Fail-soft — never break chat.
-			}
+				}),
+				// Promote confirmed task intents through the canonical Work Items API.
+				// The local store keeps promotion idempotent; provider sync is separate.
+				parsed.taskIntents && parsed.taskIntents.length > 0
+					? runLearningStage(
+							stageContext,
+							"task_promotion",
+							async (stageSignal) => {
+								const promotion = await promoteWorkItems({
+									taskIntents: parsed.taskIntents ?? [],
+									platform: platformFor(stageSignal),
+									store: this.getWorkItemPromotionStore(),
+									sessionKey: payload.user.sessionKey || DEFAULT_SESSION_KEY,
+								});
+								if (promotion.detected > 0) {
+									console.log(
+										`[isolate-task-bridge] detected=${promotion.detected} ` +
+											`candidates=${promotion.externalCandidates} ` +
+											`promoted=${promotion.promoted} tedi=${this.state.slug}`,
+									);
+								}
+							},
+						)
+					: undefined,
+				// Turn-summary artifact: persist the Observer's structured output as
+				// a durable TediArtifact bound to the turn's STABLE runId, under the
+				// slug-prefixed conversation id every other isolate emitter uses.
+				runLearningStage(stageContext, "artifact", (stageSignal) =>
+					recordTurnSummaryArtifact({
+						signal: stageSignal,
+						platform: platformFor(stageSignal),
+						bucket:
+							this.env.TEDI_STORAGE &&
+							this.admittedEffectPort(
+								this.env.TEDI_STORAGE,
+								`${payload.runId}:memory`,
+							),
+						tediId: this.state.tediId,
+						conversationId: buildTediConversationId({
+							tediRef: this.state.slug || this.state.tediId,
+							sessionKey: payload.user.sessionKey,
+						}),
+						runId: payload.runId,
+						turnId: sanitizeTurnKey(payload.runId),
+						observerSummary: {
+							observations: parsed.observations,
+							currentTasks: parsed.currentTasks,
+							suggestedResponse: parsed.suggestedResponse,
+						},
+						userText: payload.user.content,
+						assistantText: payload.assistant.content,
+					}),
+				),
+			]);
+			// The rationale bridge may have invalidated directives in the store.
+			// Drop the in-memory cache so `beforeTurn` reloads the reduced set.
+			this.directivesLoaded = false;
 
 			// Persist this run's rationale + artifact ids, then (re-)emit the
-			// per-run TraceBundle so it references them. The bundle also emits from
-			// `onLedgerMirror`, but that step may run BEFORE this one (separate
-			// queue jobs, independent retries) and would otherwise write empty id
-			// arrays — `recordTraceBundle` merges arrays so this emission completes
-			// the bundle regardless of order. Best-effort + fail-soft.
-			try {
-				// Pre-built stable runId — the SAME id the companion `onLedgerMirror`
-				// step writes the 4-event chain under, so `traceBundleId`/`runEventIds`
-				// line up with the ledger events.
-				signal.throwIfAborted();
-				const traceRunId = payload.runId;
-				const collectedArtifactIds = artifactId ? [artifactId] : [];
-				this.recordPendingTraceIds(
-					traceRunId,
-					rationaleRecordIds,
-					collectedArtifactIds,
-				);
-
-				// Score the just-closed turn against the active harness version FIRST
-				// (Slice B), so this version accumulates a real meanScore from EVERY
-				// production episode — not only the ones that attach rationale/artifact
-				// evidence. STRICT fail-soft + idempotent (deterministic eval ids); the
-				// returned id links the SAME run's trace bundle to its score.
-				const evalResultId =
-					(await this.scoreTurn({
-						platform,
-						tediId: this.state.tediId,
-						orgId: this.state.orgId || undefined,
-						runId: traceRunId,
-						assistantText: payload.assistant.content,
-						// Bridge success path: the turn produced an assistant reply and
-						// was not interrupted — a successful, recovered episode.
-						outcome: "success",
-						unrecoveredError: false,
-					})) ?? undefined;
-
-				signal.throwIfAborted();
-				// Only worth a bundle write if there is something new to attach.
-				if (rationaleRecordIds.length > 0 || collectedArtifactIds.length > 0) {
+			// per-run TraceBundle so it references them. `onLedgerMirror` may emit
+			// first with empty arrays; `recordTraceBundle` merges, so this emission
+			// completes the bundle regardless of order.
+			const traceRunId = payload.runId;
+			const rationaleRecordIds = rationaleResult?.recordIds ?? [];
+			const collectedArtifactIds = artifactId ? [artifactId] : [];
+			this.recordPendingTraceIds(
+				traceRunId,
+				rationaleRecordIds,
+				collectedArtifactIds,
+			);
+			await runLearningStage(
+				stageContext,
+				"trace_bundle",
+				async (stageSignal) => {
+					const stagePlatform = platformFor(stageSignal);
+					// Score the just-closed turn against the active harness version
+					// FIRST (Slice B), so every production episode feeds meanScore;
+					// the returned id links this run's trace bundle to its score.
+					const evalResultId =
+						(await this.scoreTurn({
+							platform: stagePlatform,
+							tediId: this.state.tediId,
+							orgId: this.state.orgId || undefined,
+							runId: traceRunId,
+							assistantText: payload.assistant.content,
+							outcome: "success",
+							unrecoveredError: false,
+						})) ?? undefined;
+					stageSignal.throwIfAborted();
+					if (
+						rationaleRecordIds.length === 0 &&
+						collectedArtifactIds.length === 0
+					)
+						return;
 					const conversationId = buildTediConversationId({
 						tediRef: this.state.slug || this.state.tediId,
 						sessionKey: payload.sessionKey || payload.user.sessionKey,
 					});
-					// Read-only check: did the ledger mirror already emit the
-					// conversation.created event for this conversation? Match its
-					// eventIds without mutating the seen-set (the mirror owns that).
+					// Read-only: match the ledger mirror's conversation.created
+					// without mutating the seen-set (the mirror owns that).
 					const emitConversationCreated = !(
 						this.state.ledgerConversationsSeen ?? []
 					).includes(conversationId);
 					await this.emitTraceBundleForRun({
-						platform,
+						platform: stagePlatform,
 						tediId: this.state.tediId,
 						orgId: this.state.orgId || undefined,
 						conversationId,
@@ -12291,24 +12264,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 						startedAt: new Date(payload.user.ts).toISOString(),
 						endedAt: new Date(payload.assistant.ts).toISOString(),
 						emitConversationCreated,
-						// Bridge path supplies the raw evidence → redacted bundle + bundleUri.
 						evidence: {
 							userText: payload.user.content,
 							assistantText: payload.assistant.content,
 						},
-						// Link the bundle to the score this run earned (Slice B).
 						evalResultId,
 					});
-				}
-			} catch (bundleErr) {
-				if (this.runtimeAdmission()) throw bundleErr;
-				signal.throwIfAborted();
-				console.warn(
-					"[isolate.harness] post-bridge trace-bundle emission failed:",
-					bundleErr,
-				);
-				// Fail-soft — never break chat.
-			}
+				},
+			);
 			signal.throwIfAborted();
 		} catch (err) {
 			if (this.runtimeAdmission()) throw err;
@@ -13481,11 +13444,17 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			await admission.assertAcceptedTurn({ runId: memoryRunId });
 		}
 		const controller = new AbortController();
+		const deadlineAt = learningStageDeadline(performance.now());
 		const timer = setTimeout(() => {
 			controller.abort(new Error("onBridgeTurn timed out (25s)"));
-		}, 25_000);
+		}, LEARNING_BRIDGE_TIMEOUT_MS);
 		try {
-			await this.runBridgeTurnInner(payload, controller.signal, telemetry);
+			await this.runBridgeTurnInner(
+				payload,
+				controller.signal,
+				telemetry,
+				deadlineAt,
+			);
 			if (admission) {
 				controller.signal.throwIfAborted();
 				await admission.assertAcceptedTurn({ runId: memoryRunId });
@@ -13506,9 +13475,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		} finally {
 			clearTimeout(timer);
 			telemetry.finish(
-				controller.signal.aborted || telemetry.observer.status === "failed"
-					? "failed"
-					: "completed",
+				learningPassStatus({
+					aborted: controller.signal.aborted,
+					observerStatus: telemetry.observer.status,
+				}),
 			);
 		}
 	}
