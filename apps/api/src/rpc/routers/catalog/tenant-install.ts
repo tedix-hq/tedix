@@ -10,7 +10,10 @@ import {
 	getCatalogScanBacklogSummary,
 } from "@tedix/db/queries/catalog/health-metrics";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
+import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
+import { getAppById } from "@tedix/db/queries/app-records";
 import { installFromCatalog } from "@tedix/db/queries/catalog/install";
+import { InstallTenantMcpAppInputSchema } from "@tedix/api-contract/schemas/catalog";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import { requireCatalogOperatorAccess } from "../catalog-operator-access";
 import {
@@ -340,6 +343,42 @@ export const installFromCatalogProcedure = fleetCatalogOs.installFromCatalog
 				`Catalog app "${catalogApp.name}" is not installable: ${installability.reason}`,
 			);
 		}
+		// An installed app is only usable once it is in the org's unified
+		// gateway, so attach it there whenever the org has one.
+		const gateway = (
+			await getOrganizationAggregatorGateways(db, [context.organizationId])
+		).get(context.organizationId);
+		if (gateway) {
+			const installed = await installTenantMcpAppFromCatalog(
+				context,
+				InstallTenantMcpAppInputSchema.parse({
+					catalogAppId,
+					targetAggregatorSlug: gateway.slug,
+					slug,
+					name,
+					description,
+					visibility,
+					connectionProviderId,
+					connectionScope,
+					connectionScopes,
+					dryRun: false,
+				}),
+			);
+			const proxyApp = installed.proxyApp.id
+				? await getAppById(db, installed.proxyApp.id)
+				: null;
+			if (!proxyApp) {
+				throw new Error("Failed to create app from catalog entry");
+			}
+			console.log(
+				`[Catalog] ${installed.summary} (catalog ${installed.catalogApp.id})`,
+			);
+			return {
+				app: installedAppSummary(proxyApp),
+				catalogAppId: installed.catalogApp.id,
+				catalogAppName: installed.catalogApp.name,
+			};
+		}
 		const result = await installFromCatalog(db, {
 			catalogAppId,
 			organizationId: context.organizationId,
@@ -359,22 +398,28 @@ export const installFromCatalogProcedure = fleetCatalogOs.installFromCatalog
 			`[Catalog] Installed proxy app ${app.id} (${app.slug}) from catalog ${result.catalogAppId} via base app ${result.sourceAppSlug} (${result.sourceAppId})`,
 		);
 		return {
-			app: {
-				id: app.id,
-				organizationId: app.organizationId,
-				name: app.name,
-				slug: app.slug,
-				description: app.description ?? null,
-				logoUrl: app.logoUrl ?? null,
-				visibility: app.visibility ?? null,
-				discoveryStatus: app.discoveryStatus ?? null,
-				createdAt: app.createdAt ?? null,
-				updatedAt: app.updatedAt ?? null,
-			},
+			app: installedAppSummary(app),
 			catalogAppId: result.catalogAppId,
 			catalogAppName: result.catalogAppName,
 		};
 	});
+
+function installedAppSummary(
+	app: NonNullable<Awaited<ReturnType<typeof getAppById>>>,
+) {
+	return {
+		id: app.id,
+		organizationId: app.organizationId,
+		name: app.name,
+		slug: app.slug,
+		description: app.description ?? null,
+		logoUrl: app.logoUrl ?? null,
+		visibility: app.visibility ?? null,
+		discoveryStatus: app.discoveryStatus ?? null,
+		createdAt: app.createdAt ?? null,
+		updatedAt: app.updatedAt ?? null,
+	};
+}
 
 export const installTenantMcpAppProcedure = tenantCatalogOs.installTenantMcpApp
 	.use(withAuthorization(["apps:create", "apps:update"], "apps:write"))
