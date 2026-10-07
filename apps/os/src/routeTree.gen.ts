@@ -93,8 +93,6 @@ import { Route as SessionTenantWorkInteractionsRequestIdRouteImport } from './ro
 import { Route as SessionTenantWorkItemsWorkItemIdRouteImport } from './routes/_session/_tenant/work.items.$workItemId'
 import { Route as SessionTenantWorkProjectsProjectIdRouteImport } from './routes/_session/_tenant/work.projects.$projectId'
 import { Route as SessionTenantWorkRunsRunIdRouteImport } from './routes/_session/_tenant/work.runs.$runId'
-import { Route as SessionTenantAppsAppIdEvalsIndexRouteImport } from './routes/_session/_tenant/apps_.$appId.evals.index'
-import { Route as SessionTenantAppsAppIdEvalsEvalIdRouteImport } from './routes/_session/_tenant/apps_.$appId.evals.$evalId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -558,18 +556,6 @@ const SessionTenantWorkRunsRunIdRoute =
     path: '/runs/$runId',
     getParentRoute: () => SessionTenantWorkRoute,
   } as any)
-const SessionTenantAppsAppIdEvalsIndexRoute =
-  SessionTenantAppsAppIdEvalsIndexRouteImport.update({
-    id: '/evals/',
-    path: '/evals/',
-    getParentRoute: () => SessionTenantAppsAppIdRoute,
-  } as any)
-const SessionTenantAppsAppIdEvalsEvalIdRoute =
-  SessionTenantAppsAppIdEvalsEvalIdRouteImport.update({
-    id: '/evals/$evalId',
-    path: '/evals/$evalId',
-    getParentRoute: () => SessionTenantAppsAppIdRoute,
-  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof SessionTenantIndexRoute
@@ -651,8 +637,6 @@ export interface FileRoutesByFullPath {
   '/apps/$appId/': typeof SessionTenantAppsAppIdIndexRoute
   '/skills/$skillId/': typeof SessionTenantSkillsSkillIdIndexRoute
   '/team/$tediId/': typeof SessionTenantTeamTediIdIndexRoute
-  '/apps/$appId/evals/$evalId': typeof SessionTenantAppsAppIdEvalsEvalIdRoute
-  '/apps/$appId/evals/': typeof SessionTenantAppsAppIdEvalsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SessionTenantIndexRoute
@@ -728,8 +712,6 @@ export interface FileRoutesByTo {
   '/apps/$appId': typeof SessionTenantAppsAppIdIndexRoute
   '/skills/$skillId': typeof SessionTenantSkillsSkillIdIndexRoute
   '/team/$tediId': typeof SessionTenantTeamTediIdIndexRoute
-  '/apps/$appId/evals/$evalId': typeof SessionTenantAppsAppIdEvalsEvalIdRoute
-  '/apps/$appId/evals': typeof SessionTenantAppsAppIdEvalsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -817,8 +799,6 @@ export interface FileRoutesById {
   '/_session/_tenant/apps_/$appId/': typeof SessionTenantAppsAppIdIndexRoute
   '/_session/_tenant/skills/$skillId/': typeof SessionTenantSkillsSkillIdIndexRoute
   '/_session/_tenant/team_/$tediId/': typeof SessionTenantTeamTediIdIndexRoute
-  '/_session/_tenant/apps_/$appId/evals/$evalId': typeof SessionTenantAppsAppIdEvalsEvalIdRoute
-  '/_session/_tenant/apps_/$appId/evals/': typeof SessionTenantAppsAppIdEvalsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -902,8 +882,6 @@ export interface FileRouteTypes {
     | '/apps/$appId/'
     | '/skills/$skillId/'
     | '/team/$tediId/'
-    | '/apps/$appId/evals/$evalId'
-    | '/apps/$appId/evals/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -979,8 +957,6 @@ export interface FileRouteTypes {
     | '/apps/$appId'
     | '/skills/$skillId'
     | '/team/$tediId'
-    | '/apps/$appId/evals/$evalId'
-    | '/apps/$appId/evals'
   id:
     | '__root__'
     | '/_auth'
@@ -1067,8 +1043,6 @@ export interface FileRouteTypes {
     | '/_session/_tenant/apps_/$appId/'
     | '/_session/_tenant/skills/$skillId/'
     | '/_session/_tenant/team_/$tediId/'
-    | '/_session/_tenant/apps_/$appId/evals/$evalId'
-    | '/_session/_tenant/apps_/$appId/evals/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1667,20 +1641,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkRunsRunIdRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
-    '/_session/_tenant/apps_/$appId/evals/': {
-      id: '/_session/_tenant/apps_/$appId/evals/'
-      path: '/evals'
-      fullPath: '/apps/$appId/evals/'
-      preLoaderRoute: typeof SessionTenantAppsAppIdEvalsIndexRouteImport
-      parentRoute: typeof SessionTenantAppsAppIdRoute
-    }
-    '/_session/_tenant/apps_/$appId/evals/$evalId': {
-      id: '/_session/_tenant/apps_/$appId/evals/$evalId'
-      path: '/evals/$evalId'
-      fullPath: '/apps/$appId/evals/$evalId'
-      preLoaderRoute: typeof SessionTenantAppsAppIdEvalsEvalIdRouteImport
-      parentRoute: typeof SessionTenantAppsAppIdRoute
-    }
   }
 }
 
@@ -1862,8 +1822,6 @@ interface SessionTenantAppsAppIdRouteChildren {
   SessionTenantAppsAppIdSettingsRoute: typeof SessionTenantAppsAppIdSettingsRoute
   SessionTenantAppsAppIdToolsRoute: typeof SessionTenantAppsAppIdToolsRoute
   SessionTenantAppsAppIdIndexRoute: typeof SessionTenantAppsAppIdIndexRoute
-  SessionTenantAppsAppIdEvalsEvalIdRoute: typeof SessionTenantAppsAppIdEvalsEvalIdRoute
-  SessionTenantAppsAppIdEvalsIndexRoute: typeof SessionTenantAppsAppIdEvalsIndexRoute
 }
 
 const SessionTenantAppsAppIdRouteChildren: SessionTenantAppsAppIdRouteChildren =
@@ -1873,10 +1831,6 @@ const SessionTenantAppsAppIdRouteChildren: SessionTenantAppsAppIdRouteChildren =
     SessionTenantAppsAppIdSettingsRoute: SessionTenantAppsAppIdSettingsRoute,
     SessionTenantAppsAppIdToolsRoute: SessionTenantAppsAppIdToolsRoute,
     SessionTenantAppsAppIdIndexRoute: SessionTenantAppsAppIdIndexRoute,
-    SessionTenantAppsAppIdEvalsEvalIdRoute:
-      SessionTenantAppsAppIdEvalsEvalIdRoute,
-    SessionTenantAppsAppIdEvalsIndexRoute:
-      SessionTenantAppsAppIdEvalsIndexRoute,
   }
 
 const SessionTenantAppsAppIdRouteWithChildren =

@@ -46,8 +46,8 @@ export interface RateLimiter {
  * @example
  * ```ts
  * const { allowed, remaining } = await checkRateLimit(
- *   env.FIRECRAWL_RATE_LIMITER,
- *   `firecrawl:${appId}`
+ *   env.MCP_HIGH_RISK_RATE_LIMITER,
+ *   `high-risk:${appId}`
  * );
  * if (!allowed) {
  *   return { error: "Rate limit exceeded" };

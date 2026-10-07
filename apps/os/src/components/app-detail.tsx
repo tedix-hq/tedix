@@ -523,11 +523,7 @@ function OverviewStat({
 	label: string;
 	value: string;
 	sub?: string;
-	to:
-		| "/apps/$appId/tools"
-		| "/apps/$appId/content"
-		| "/apps/$appId/analytics"
-		| "/apps/$appId/evals";
+	to: "/apps/$appId/tools" | "/apps/$appId/content" | "/apps/$appId/analytics";
 	appId: string;
 }) {
 	return (

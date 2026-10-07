@@ -4,7 +4,7 @@
  *
  * Supports:
  * - Per-app rate limiting for MCP endpoints
- * - Per-operation rate limiting for expensive APIs (Firecrawl, AI Search)
+ * - Per-operation rate limiting for expensive APIs (AI Search)
  * - Configurable key strategies (app, IP, API key)
  */
 

@@ -46,10 +46,6 @@ const expectedPaths = [
 	"/apps/$appId",
 	"/apps/$appId/analytics",
 	"/apps/$appId/content",
-	// The evals list is the index child of a pathless evals segment, so its
-	// generated fullPath keeps the trailing slash.
-	"/apps/$appId/evals/",
-	"/apps/$appId/evals/$evalId",
 	"/apps/$appId/settings",
 	"/apps/$appId/tools",
 	"/explore/apps",

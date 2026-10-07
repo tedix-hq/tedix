@@ -91,14 +91,12 @@ the app and `/r/{layoutId}` against the request's D1 tool catalog and forwards
 `app_tools.config.layoutSpec` to the widget Worker in `X-Tedix-Layout-Spec`.
 Nothing is persisted by this lookup.
 
-| Path                    | Entry point                                                      | Persistence                         | Use                                                             |
-| ----------------------- | ---------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------- |
-| One-turn visual         | `ui.create_view()`                                               | none                                | Table, chart, comparison, timeline, stats, or summary           |
-| Health sweep            | `ui.create_health_sweep()`                                       | none                                | Compact multi-provider status                                   |
-| Validated custom layout | `ui.get_catalog()` → `ui.validate_layout()` → `ui.create_view()` | none                                | Model builds a json-render spec against exact component schemas |
-| Free-form MCP App       | `ui.create_mcp_app()`                                            | none                                | Bounded HTML/CSS in a nested, script-free sandbox               |
-| Draft artifact          | generated-widget artifact tools                                  | D1 + R2 QA records                  | Reopenable, auditable generated layout                          |
-| Published artifact      | QA plus publication tools                                        | D1 artifact row + resource metadata | Reusable visual promoted by an operator                         |
+| Path                    | Entry point                                                      | Persistence | Use                                                             |
+| ----------------------- | ---------------------------------------------------------------- | ----------- | --------------------------------------------------------------- |
+| One-turn visual         | `ui.create_view()`                                               | none        | Table, chart, comparison, timeline, stats, or summary           |
+| Health sweep            | `ui.create_health_sweep()`                                       | none        | Compact multi-provider status                                   |
+| Validated custom layout | `ui.get_catalog()` → `ui.validate_layout()` → `ui.create_view()` | none        | Model builds a json-render spec against exact component schemas |
+| Free-form MCP App       | `ui.create_mcp_app()`                                            | none        | Bounded HTML/CSS in a nested, script-free sandbox               |
 
 The free-form URI is `ui://widgets/mcp-app/{appSlug}/r/generated-app.html`. Its
 body is a fixed host; the model's HTML/CSS arrives as bounded tool-result data
@@ -252,7 +250,6 @@ follow-up calls.
 | Resource serving           | `apps/mcp-ui/src/pages/[app]/r/[layout].astro`                                                            |
 | Renderers                  | `apps/mcp-ui/src/json-render/TedixRenderer.tsx`, `apps/mcp-ui/src/components/GeneratedMcpAppRenderer.tsx` |
 | Tedix OS host bridge       | `apps/os/src/components/widget-frame.tsx`, `apps/os/src/widgets/proxy.ts`                                 |
-| Generated widget artifacts | `apps/api/src/rpc/routers/generated-widget-artifacts.ts`                                                  |
 
 ## Related
 

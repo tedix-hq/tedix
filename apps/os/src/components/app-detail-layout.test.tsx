@@ -61,7 +61,6 @@ describe("app detail routed tabs", () => {
 			"Analytics",
 			"Content",
 			"Tools",
-			"Evals",
 			"Settings",
 		]);
 		for (const tab of tabs) {
@@ -92,7 +91,6 @@ describe("app detail routed tabs", () => {
 			"content",
 		);
 		expect(resolveAppDetailTab(`/apps/${appId}/tools`, appId)).toBe("tools");
-		expect(resolveAppDetailTab(`/apps/${appId}/evals`, appId)).toBe("evals");
 		expect(resolveAppDetailTab(`/apps/${appId}/settings`, appId)).toBe(
 			"settings",
 		);

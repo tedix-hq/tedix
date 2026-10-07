@@ -33,8 +33,6 @@ import {
 	appToolsListQueryOptions,
 	contentSourcesQueryOptions,
 	tediAppAssignmentsByAppQueryOptions,
-	widgetTestRunDetailQueryOptions,
-	widgetTestRunsQueryOptions,
 	auditSearchQueryOptions,
 	EXPIRING_API_KEYS_WINDOW_DAYS,
 	expiringApiKeysQueryOptions,
@@ -892,33 +890,4 @@ export async function prefetchAppSettingsRoute(
 		queryClient.ensureQueryData(tediAppAssignmentsByAppQueryOptions(appId)),
 		queryClient.ensureQueryData(tediRosterQueryOptions(TEDI_ROSTER_LIMIT)),
 	]);
-}
-
-export async function prefetchAppEvalsRoute(
-	queryClient: QueryClient,
-	appId: string,
-) {
-	// The eval-runs list keys on the app SLUG, which only the app detail read
-	// knows — chain through it, catch-tolerant end to end.
-	await queryClient
-		.ensureQueryData(appDetailQueryOptions(appId))
-		.then((detail) =>
-			detail?.app
-				? queryClient.ensureQueryData(
-						widgetTestRunsQueryOptions(detail.app.slug),
-					)
-				: undefined,
-		)
-		.catch(() => undefined);
-}
-
-export async function prefetchAppEvalDetailRoute(
-	queryClient: QueryClient,
-	evalId: string,
-) {
-	const validatedEvalId = requireUuidRouteParam(evalId);
-	await queryClient.ensureQueryData(
-		widgetTestRunDetailQueryOptions(validatedEvalId),
-	);
-	return { evalId: validatedEvalId };
 }

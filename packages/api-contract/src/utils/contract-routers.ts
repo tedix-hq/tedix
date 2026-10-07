@@ -37,7 +37,6 @@ import { docsContract } from "../contracts/docs";
 import { earnedDelegationContract } from "../contracts/earned-delegation";
 import { externalAgentIdentityContract } from "../contracts/external-agent-identity";
 import { flywheelHealthContract } from "../contracts/flywheel-health";
-import { generatedWidgetArtifactsContract } from "../contracts/generated-widget-artifacts";
 import { governanceContract } from "../contracts/governance";
 import { graphRetrievalBenchmarksContract } from "../contracts/graph-retrieval-benchmarks";
 import { growthSnapshotsContract } from "../contracts/growth-snapshots";
@@ -97,8 +96,6 @@ import { userSettingsContract } from "../contracts/user-settings";
 import { userProfileContract } from "../contracts/user-profile";
 import { voiceContract } from "../contracts/voice";
 import { waitlistContract } from "../contracts/waitlist";
-import { widgetTestContract } from "../contracts/widget-test";
-import { widgetTestRunsContract } from "../contracts/widget-test-runs";
 import { workItemsContract } from "../contracts/work-items";
 import { workApprovalsContract } from "../contracts/work-approvals";
 import { workAgentSessionsContract } from "../contracts/work-agent-sessions";
@@ -140,7 +137,6 @@ export const ROUTERS: Record<string, unknown> = {
 	directory: directoryContract,
 	docs: docsContract,
 	flywheelHealth: flywheelHealthContract,
-	generatedWidgetArtifacts: generatedWidgetArtifactsContract,
 	graphRetrievalBenchmarks: graphRetrievalBenchmarksContract,
 	governance: governanceContract,
 	growthSnapshots: growthSnapshotsContract,
@@ -202,8 +198,6 @@ export const ROUTERS: Record<string, unknown> = {
 	userProfile: userProfileContract,
 	waitlist: waitlistContract,
 	voice: voiceContract,
-	widgetTest: widgetTestContract,
-	widgetTestRuns: widgetTestRunsContract,
 	workItems: workItemsContract,
 	workApprovals: workApprovalsContract,
 	workAgentSessions: workAgentSessionsContract,

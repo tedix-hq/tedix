@@ -514,14 +514,14 @@ describe("oRPC tool projection sync", () => {
 				endpoints: [
 					"tediAppAssignments/validateMcpAccessBatch",
 					"mcpHealth/run",
-					"widgetTest/run",
+					"mcpEval/run",
 				],
 				includeInternal: true,
 			}).map((endpoint) => `${endpoint.router}/${endpoint.procPath}`),
 		).toEqual([
+			"mcpEval/run",
 			"mcpHealth/run",
 			"tediAppAssignments/validateMcpAccessBatch",
-			"widgetTest/run",
 		]);
 	});
 

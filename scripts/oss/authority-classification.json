@@ -171,13 +171,6 @@
 		{
 			"kind": "api-namespace",
 			"sourcePath": "packages/api-contract/src/contracts/api.ts",
-			"identifier": "generatedWidgetArtifacts",
-			"category": "tenant-product",
-			"rationale": "Generated widget artifacts are tenant app authoring output."
-		},
-		{
-			"kind": "api-namespace",
-			"sourcePath": "packages/api-contract/src/contracts/api.ts",
 			"identifier": "governance",
 			"category": "tenant-product",
 			"rationale": "Basic tenant governance must remain in the public product."
@@ -566,20 +559,6 @@
 			"identifier": "waitlist",
 			"category": "fleet-commercial",
 			"rationale": "Cross-user waitlist administration is installation/fleet commercial admission authority."
-		},
-		{
-			"kind": "api-namespace",
-			"sourcePath": "packages/api-contract/src/contracts/api.ts",
-			"identifier": "widgetTest",
-			"category": "fleet-commercial",
-			"rationale": "Operator widget certification participates in platform catalog quality and promotion."
-		},
-		{
-			"kind": "api-namespace",
-			"sourcePath": "packages/api-contract/src/contracts/api.ts",
-			"identifier": "widgetTestRuns",
-			"category": "fleet-commercial",
-			"rationale": "Persisted operator widget certification evidence supports platform catalog curation."
 		},
 		{
 			"kind": "api-namespace",

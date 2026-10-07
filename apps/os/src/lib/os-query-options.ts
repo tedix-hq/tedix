@@ -927,7 +927,6 @@ export const appDetailQueryOptions = (appId: string) =>
  */
 /** Rows per server-owned page in the tools collection. */
 export const APP_TOOLS_PAGE_SIZE = 25;
-export const APP_EVAL_RUNS_LIMIT = 50;
 export const APP_ANALYTICS_TOOL_LIMIT = 50;
 export const APP_RECENT_EXECUTIONS_LIMIT = 20;
 export const APP_RECENT_ACTIVITY_LIMIT = 50;
@@ -1055,15 +1054,6 @@ export const toolCallPayloadsQueryOptions = (
 		input: { executionId, toolName, limit: APP_TOOL_CALL_PAYLOADS_LIMIT },
 	});
 
-/** Widget eval runs list keys on the app SLUG — the contract's input shape. */
-export const widgetTestRunsQueryOptions = (appSlug: string) =>
-	osQuery.widgetTestRuns.list.queryOptions({
-		input: { appSlug, limit: APP_EVAL_RUNS_LIMIT },
-	});
-
-export const widgetTestRunDetailQueryOptions = (id: string) =>
-	osQuery.widgetTestRuns.get.queryOptions({ input: { id } });
-
 /** `appGating.installedEligibility` declares no `.input()`. */
 export const installedAppEligibilityQueryOptions = () =>
 	osQuery.appGating.installedEligibility.queryOptions({});
@@ -1126,7 +1116,6 @@ export const osQueryKeys = {
 	appSecrets: () => osQuery.appSecrets.key({ type: "query" }),
 	appTediAssignments: () => osQuery.tediAppAssignments.key({ type: "query" }),
 	appTools: () => osQuery.appTools.key({ type: "query" }),
-	appWidgetTestRuns: () => osQuery.widgetTestRuns.key({ type: "query" }),
 	approvalRules: () => osQuery.osApprovalRules.key({ type: "query" }),
 	/** The canonical read changed by subscription and capacity checkouts. */
 	billingOverview: () => osQuery.billing.getOverview.key({ type: "query" }),

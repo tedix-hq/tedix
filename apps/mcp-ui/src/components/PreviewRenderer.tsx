@@ -181,14 +181,6 @@ export function PreviewRenderer({
 		prevStateRef.current = initialState;
 	}, [initialState, stateStore]);
 
-	// Expose store on window for Puppeteer-based widget tests (page.evaluate injection)
-	useEffect(() => {
-		(window as any).__TEDIX_STORE__ = stateStore;
-		return () => {
-			delete (window as any).__TEDIX_STORE__;
-		};
-	}, [stateStore]);
-
 	const actionHandlers = useMemo(
 		() => buildTedixActionHandlers(stateStore),
 		[stateStore],
