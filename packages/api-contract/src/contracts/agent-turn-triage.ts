@@ -98,7 +98,7 @@ export const agentTurnTriageContract = oc
 				path: "/reply-drafts/request",
 				summary: "Ask the drafting tedi to draft a reply to a quiet question",
 				description:
-					"Only the question's target user may ask. The question must be open, a `tedix.decision-capture.v1` question triaged `later` with no urgent labels, and the caller's policy must enable drafting with an active tedi. Queues one drafting turn per question (idempotent); never answers the question. Otherwise returns `status: \"ineligible\"` with a reason.",
+					"Only the question's target user may ask. The question must be open, a `tedix.decision-capture.v1` question triaged `later` with no urgent labels, and the caller's policy must enable drafting with an active tedi. Starts one drafting turn per question; a repeat request is a no-op while that turn is in flight (2 minutes) or once a draft exists, and otherwise starts a new attempt, at most 3 in all (then `attempts_exhausted`). Never answers the question. Otherwise returns `status: \"ineligible\"` with a reason.",
 			})
 			.input(RequestAgentReplyDraftInputSchema)
 			.output(RequestAgentReplyDraftResultSchema),
