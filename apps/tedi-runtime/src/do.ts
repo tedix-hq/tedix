@@ -3,8 +3,6 @@ import {
 	inferenceOriginHash,
 	type NativeRootProof,
 } from "./runtime-inference-origin";
-import { HistoricalExecutionGuard } from "./historical-execution-guard";
-import type { FiberContext, StartFiberOptions, StartFiberResult } from "agents";
 // MAP — AgentTediDO owns transport, governance, tools and maintenance; Pi ConversationFacet owns cognition.
 // The parent DO is a tool authority and ledger: it owns identity/governance,
 // budgets, dedup, workstation tool assembly and durable ledger writes.
@@ -34,11 +32,8 @@ import type { FiberContext, StartFiberOptions, StartFiberResult } from "agents";
 // New surface goes in a sibling module, never a new inline `tool({...})`
 // here; no big-bang split — see apps/tedi-runtime/AGENTS.md.
 import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
-import {
-	operateStoredCutover,
-	isSelectedCutoverParent,
-} from "./pi-cutover-admin";
-import { RawCutoverDO } from "./pi-cutover-maintenance-do";
+import { operateStoredCutover } from "./pi-cutover-admin";
+import { InertRuntimeDO, requiresInertReceiver } from "./inert-runtime-do";
 import {
 	RuntimeAdmissionDO,
 	readStoredRuntimeAdmission,
@@ -1436,47 +1431,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		run: (task, operation) => this.runMaintenanceEffects(task, operation),
 	});
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
-		const admission = readStoredRuntimeAdmission(
-			ctx.storage,
-			ctx.id.toString(),
-		);
-		if (admission && admission.state !== "active")
-			return new RawCutoverDO(ctx, env) as unknown as AgentTediDO;
-		if (isSelectedCutoverParent(ctx.id.toString(), env.PI_CUTOVER_PARENT_IDS))
-			return new RawCutoverDO(ctx, env) as unknown as AgentTediDO;
-		const historical = new HistoricalExecutionGuard(
-			ctx.storage,
-			ctx.id.toString(),
-		);
-		if (historical.requiresRawStartup())
-			return new RawCutoverDO(ctx, env) as unknown as AgentTediDO;
+		// A non-admitted or sealed object never runs Agent or Pi code.
+		if (requiresInertReceiver(ctx.storage, ctx.id.toString()))
+			return new InertRuntimeDO(ctx, env) as unknown as AgentTediDO;
 		assertLegacyThinkTasksSettled(ctx.storage);
-		super(ctx, historical.environment(env));
-	}
-	private historicalExecution(): HistoricalExecutionGuard {
-		return new HistoricalExecutionGuard(
-			this.ctx.storage,
-			this.ctx.id.toString(),
-		);
-	}
-	override async startFiber(
-		name: string,
-		fn: (ctx: FiberContext) => Promise<void>,
-		options?: StartFiberOptions,
-	): Promise<StartFiberResult> {
-		const guard = this.historicalExecution();
-		guard.startFiber(options?.fiberId, options?.idempotencyKey);
-		return super.startFiber(
-			name,
-			guard.fiber(fn, options?.idempotencyKey),
-			options,
-		);
-	}
-	override runFiber<T>(
-		name: string,
-		fn: (ctx: FiberContext) => Promise<T>,
-	): Promise<T> {
-		return super.runFiber(name, this.historicalExecution().fiber(fn));
+		super(ctx, env);
 	}
 	override async onStart(): Promise<void> {
 		await assertLegacyThinkReceiptsSettled(this.ctx.storage);
@@ -2696,7 +2655,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					this.ctx.storage.kv.get(`wfcancel:${cancellationRunId}`))
 			)
 				throw new Error("Observer operation canceled before dispatch");
-			this.historicalExecution().assertRun(admittedRunId);
 		};
 		const root: NativeRootProof = {
 			owner: { ...owner, objectId: this.ctx.id.toString() },
@@ -7365,7 +7323,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		);
 		const admission = this.runtimeAdmission();
 		if (admission) await admission.assertAcceptedTurn({ runId: runId! });
-		this.historicalExecution().assertRun(runId);
 	}
 
 	/** The finite rollout installs durable custody explicitly; absence never initializes it. */

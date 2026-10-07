@@ -3,9 +3,7 @@ import {
 	inferenceOriginHash,
 	type NativeRootProof,
 } from "./runtime-inference-origin";
-import { HistoricalExecutionGuard } from "./historical-execution-guard";
 import { logTediRuntimeFailure } from "./runtime-failure-log";
-import type { FiberContext, StartFiberOptions, StartFiberResult } from "agents";
 import type { ConfiguredConversationTurn } from "./conversation-facet";
 import { workflowImageUri } from "./workflow-image-handoff";
 import { finalReportInstruction } from "./facet-turn-stop";
@@ -14,7 +12,7 @@ import {
 	readStoredRuntimeAdmission,
 	type FacetAdmissionCustody,
 } from "./runtime-admission-do";
-import { RawCutoverDO } from "./pi-cutover-maintenance-do";
+import { InertRuntimeDO, requiresInertReceiver } from "./inert-runtime-do";
 import type { AdmissionOwner } from "./runtime-admission";
 export type FacetAdmissionResponse =
 	| { enabled: false; root?: NativeRootProof; custody?: FacetAdmissionCustody }
@@ -144,49 +142,15 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 	readonly session = new PiApplicationSession(this);
 
 	constructor(ctx: DurableObjectState, env: Env) {
-		const admission = readStoredRuntimeAdmission(
-			ctx.storage,
-			ctx.id.toString(),
-		);
-		if (admission && admission.state !== "active")
-			return new RawCutoverDO(ctx, env) as unknown as PiAgent<Env, State>;
-		const historical = new HistoricalExecutionGuard(
-			ctx.storage,
-			ctx.id.toString(),
-		);
-		if (historical.requiresRawStartup())
-			return new RawCutoverDO(ctx, env) as unknown as PiAgent<Env, State>;
+		// A non-admitted or sealed object never runs Agent or Pi code.
+		if (requiresInertReceiver(ctx.storage, ctx.id.toString()))
+			return new InertRuntimeDO(ctx, env) as unknown as PiAgent<Env, State>;
 		assertLegacyThinkTasksSettled(ctx.storage);
-		super(ctx, historical.environment(env));
+		super(ctx, env);
 		// Legacy storage goes first. PiHarness's onStart supplies durable wake/recovery.
 		this.lifecycle.use(this.legacySessions).use(this.piHarness);
 	}
 
-	private historicalExecution(): HistoricalExecutionGuard {
-		return new HistoricalExecutionGuard(
-			this.ctx.storage,
-			this.ctx.id.toString(),
-		);
-	}
-	override async startFiber(
-		name: string,
-		fn: (ctx: FiberContext) => Promise<void>,
-		options?: StartFiberOptions,
-	): Promise<StartFiberResult> {
-		const guard = this.historicalExecution();
-		guard.startFiber(options?.fiberId, options?.idempotencyKey);
-		return super.startFiber(
-			name,
-			guard.fiber(fn, options?.idempotencyKey),
-			options,
-		);
-	}
-	override runFiber<T>(
-		name: string,
-		fn: (ctx: FiberContext) => Promise<T>,
-	): Promise<T> {
-		return super.runFiber(name, this.historicalExecution().fiber(fn));
-	}
 	protected override async onBeforeFacetLifecycleAlarm(context: {
 		action: "set" | "get" | "delete" | "wake";
 		ownerPath: Array<{ className: string; name: string }>;
@@ -503,10 +467,6 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 					expected: accepted,
 				});
 			}
-			const guard = this.historicalExecution();
-			guard.assertRun(accepted?.runId);
-			if (journal?.runId && journal.runId !== accepted?.runId)
-				guard.assertRun(journal.runId);
 		};
 		const root = this.inferenceRoot;
 		// Test/non-parent hosts without original root evidence remain uncaptured, not fabricated.
