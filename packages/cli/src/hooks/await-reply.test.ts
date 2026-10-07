@@ -374,10 +374,11 @@ describe("tedix hooks await-reply", () => {
 		expect(total).toBeGreaterThan(4 * 60 * 60 * 1000 - 61_000);
 	});
 
-	test("Codex, no opt-in and a bad event exit without reads", async () => {
+	test("Codex, an unattended run, no opt-in and a bad event exit without reads", async () => {
 		open();
 		for (const options of [
-			{ env: { CODEX_THREAD_ID: SESSION } },
+			{ env: { CODEX_THREAD_ID: SESSION } as Record<string, string> },
+			{ env: { CLAUDE_CODE_SESSION_ATTENDED: "0" } },
 			{ event: { session_id: SESSION, turn_id: "turn-1" } },
 			{ event: { session_id: "bad" } },
 			{ reads: [{ ...BINDING, decisionCapture: false }] },
