@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { explicitPromptCacheConfig, promptCacheKey } from "./prompt-cache";
+import {
+	cacheOrderedSystemPrompt,
+	explicitPromptCacheConfig,
+	promptCacheKey,
+} from "./prompt-cache";
 
 const identity = {
 	orgId: "org-secret",
@@ -64,3 +68,12 @@ for (const override of [
 		null,
 	);
 }
+
+// Per-turn blocks never split the turn-invariant prefix.
+const persona = "You are northwind, a fictional worker.";
+const contract = "Use Code Mode.";
+const first = cacheOrderedSystemPrompt([persona, contract, ""], ["recall: a"]);
+const second = cacheOrderedSystemPrompt([persona, contract, ""], ["recall: b"]);
+assert.equal(first, `${persona}\n\n${contract}\n\nrecall: a`);
+assert.ok(second.startsWith(`${persona}\n\n${contract}\n\n`));
+assert.equal(cacheOrderedSystemPrompt([persona], ["", ""]), persona);

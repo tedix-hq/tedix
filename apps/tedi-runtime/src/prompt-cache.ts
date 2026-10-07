@@ -32,6 +32,20 @@ export async function promptCacheKey(
 	return digest;
 }
 
+/**
+ * Join a turn's system prompt with every turn-invariant block ahead of every
+ * per-turn block. Prefix caches (Workers AI, Azure) reuse only the bytes before
+ * the first difference, so per-turn context such as memory recall, matched
+ * directives and retrieved skills must follow the persona and the runtime
+ * contract, never sit between them.
+ */
+export function cacheOrderedSystemPrompt(
+	stable: readonly string[],
+	perTurn: readonly string[],
+): string {
+	return [...stable, ...perTurn].filter(Boolean).join("\n\n");
+}
+
 export interface ExplicitPromptCacheConfig {
 	instructions: SystemModelMessage[];
 	providerOptions: {
