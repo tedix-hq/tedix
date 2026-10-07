@@ -11,7 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject } from "./hook-io";
-import { gatewayCode, runPromptContext } from "./prompt-context";
+import {
+	branchTopics,
+	gatewayCode,
+	repoSlug,
+	runPromptContext,
+} from "./prompt-context";
 
 /** Checks for fresh context, tenant fences and prompt privacy. */
 const WORKSPACE = "11111111-1111-4111-8111-111111111111";
@@ -59,6 +64,19 @@ const DATA: JsonObject = {
 		complete: true,
 	},
 };
+
+const lessonsData = (
+	lessons: Array<{ shortId: string; text: string }> = [],
+	organizationId = ORG,
+): JsonObject => ({
+	lessons: {
+		organizationId,
+		matched: lessons.length,
+		truncated: false,
+		lessons,
+	},
+});
+const NO_LESSONS = lessonsData();
 
 const copy = <T>(value: T): T => structuredClone(value);
 
@@ -137,101 +155,121 @@ describe("tedix hooks prompt-context", () => {
 		expect(out).toContain("simple user stories");
 	});
 
-	test("team lessons are read next to preferences and fenced the same way", async () => {
-		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
+	test("approved team lessons come from Tedix memory for this repo, host and branch", async () => {
 		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
 		const binding = {
 			...rest,
 			preferencesWorkspaceId: WORKSPACE,
 			preferencesOutputId: OUTPUT,
-			lessonsWorkspaceId: WORKSPACE,
-			lessonsOutputId: lessonsOutput,
+			origin: "https://x-token:secret@github.com/Tedix-HQ/tedix.git",
+			branch: "codex/ops-overlay-binding-4faadb1d",
 		};
-		const data: JsonObject = { preferences: copy(DATA.shared) };
-		data.lessons = copy(DATA.shared);
-		data.lessons.output.id = lessonsOutput;
-		data.lessons.revision.outputId = lessonsOutput;
-		data.lessons.text = "Edit the ops overlay with any binding change.";
-		let { out, calls } = await run([binding, AUTH, data]);
-		expect(out).toContain("Working preferences");
-		expect(out).toContain("Team lessons");
-		expect(out).toContain("ops overlay");
-		expect(out.indexOf("Working preferences")).toBeLessThan(
-			out.indexOf("Team lessons"),
+		const data: JsonObject = {
+			preferences: copy(DATA.shared),
+			...lessonsData([
+				{
+					shortId: "abcd1234",
+					text: "Avoid changing a binding without the ops overlay edit.",
+				},
+				{ shortId: "ef567890", text: "Pushes race on main." },
+			]),
+		};
+		let { out, calls } = await run(
+			[binding, AUTH, data],
+			{},
+			{
+				session_id: "77777777-7777-4777-8777-777777777777",
+				prompt: "PRIVATE PROMPT",
+			},
+		);
+		let text = JSON.parse(out).hookSpecificOutput.additionalContext;
+		expect(text).toContain("Working preferences");
+		expect(text).toContain("Team lessons: 2 of 2 approved");
+		expect(text).toContain("[abcd1234] Avoid changing a binding");
+		expect(text).toContain("[ef567890] Pushes race on main.");
+		expect(text.indexOf("Working preferences")).toBeLessThan(
+			text.indexOf("Team lessons"),
 		);
 		const source = calls.at(-1)!.at(-1)!;
-		expect(source).toContain(lessonsOutput);
+		expect(source).toContain("agent.get_agent_session_lessons");
+		expect(source).toContain('"harness":"claude-code"');
+		expect(source).toContain('"repo":"github.com/tedix-hq/tedix"');
+		expect(source).toContain('"topics":["ops","overlay","binding"]');
+		// Credentials in the origin URL and prompt text never leave the machine.
+		expect(source).not.toContain("secret");
 		expect(source).not.toContain("prompt");
-		// A lessons document from another organization hides every body.
-		data.lessons.workspace.organizationId = OUTPUT;
-		data.lessons.output.organizationId = OUTPUT;
-		data.lessons.revision.organizationId = OUTPUT;
-		({ out } = await run([binding, AUTH, data]));
-		expect(out).toContain("unavailable");
-		expect(out).not.toContain("ops overlay");
-		expect(out).not.toContain("simple user stories");
-		// A stale revision is rejected, not shown.
-		data.lessons = copy(DATA.shared);
-		data.lessons.output.id = lessonsOutput;
-		data.lessons.revision.outputId = lessonsOutput;
-		data.lessons.output.currentRevisionId = WORK;
-		({ out } = await run([binding, AUTH, data]));
-		expect(out).toContain("unavailable");
-		// Half a selection never reaches the gateway.
-		({ out, calls } = await run([
-			{ ...binding, lessonsWorkspaceId: undefined },
+		expect(JSON.stringify(calls)).not.toContain("PRIVATE PROMPT");
+		// Codex is recognized from its turn metadata.
+		({ calls } = await run(
+			[binding, AUTH, data],
+			{},
+			{
+				session_id: "77777777-7777-4777-8777-777777777777",
+				turn_id: "turn-1",
+			},
+		));
+		expect(calls.at(-1)!.at(-1)!).toContain('"harness":"codex"');
+		// Lessons from another organization hide every body.
+		({ out } = await run([
+			binding,
 			AUTH,
-			data,
+			{ ...data, ...lessonsData([], OUTPUT) },
 		]));
-		expect(out).toContain("unavailable");
-		expect(calls).toHaveLength(1);
+		text = JSON.parse(out).hookSpecificOutput.additionalContext;
+		expect(text).toContain("unavailable");
+		expect(text).not.toContain("simple user stories");
+		// A malformed lesson is rejected, not shown.
+		({ out } = await run([
+			binding,
+			AUTH,
+			{
+				...data,
+				...lessonsData([{ shortId: "bad id!", text: "x" }]),
+			},
+		]));
+		expect(out).toContain("Tedix shared context unavailable");
 	});
 
-	test("a forbidden lessons document leaves preferences injected", async () => {
-		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
+	test("an unreadable lessons call leaves preferences injected", async () => {
 		const binding = {
 			...BINDING,
 			preferencesWorkspaceId: WORKSPACE,
 			preferencesOutputId: OUTPUT,
-			lessonsWorkspaceId: WORKSPACE,
-			lessonsOutputId: lessonsOutput,
 		};
-		// The gateway source itself catches the per-document failure.
+		// The gateway source itself catches the per-source failure.
 		const project = new Function(
 			"os",
 			"work",
-			`return (${gatewayCode(binding)})();`,
-		) as (os: unknown, work: unknown) => Promise<JsonObject>;
+			"agent",
+			`return (${gatewayCode(binding, { harness: "claude-code", topics: [] })})();`,
+		) as (os: unknown, work: unknown, agent: unknown) => Promise<JsonObject>;
 		const data = await project(
 			{
 				get_os_workspace: async () => ({ workspace: DATA.shared.workspace }),
-				get_os_output: async ({ outputId }: { outputId: string }) => {
-					if (outputId === lessonsOutput)
-						throw new Error("FORBIDDEN: Output source access is unavailable");
-					return {
-						output: DATA.shared.output,
-						currentRevision: {
-							...DATA.shared.revision,
-							content: {
-								kind: "document",
-								blocks: [
-									{ type: "paragraph", text: "Use simple user stories." },
-								],
-							},
+				get_os_output: async () => ({
+					output: DATA.shared.output,
+					currentRevision: {
+						...DATA.shared.revision,
+						content: {
+							kind: "document",
+							blocks: [{ type: "paragraph", text: "Use simple user stories." }],
 						},
-					};
-				},
+					},
+				}),
 			},
 			{},
+			{
+				get_agent_session_lessons: async () => {
+					throw new Error("FORBIDDEN: Missing MCP capability mapping");
+				},
+			},
 		);
 		expect(data.lessons).toEqual({ unavailable: true });
 		const { out } = await run([binding, AUTH, data]);
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
 		expect(text).toContain("Working preferences: Output=");
 		expect(text).toContain("simple user stories");
-		expect(text).toContain(
-			`Team lessons unavailable: Output=${lessonsOutput} could not be read this turn.`,
-		);
+		expect(text).toContain("Team lessons unavailable:");
 		expect(text).not.toContain("FORBIDDEN");
 		expect(text).not.toContain("Tedix shared context unavailable");
 		// A forbidden Work read is named the same way.
@@ -242,7 +280,7 @@ describe("tedix hooks prompt-context", () => {
 		]);
 		expect(withWork.out).toContain(`Selected Work=${WORK} unavailable`);
 		expect(withWork.out).toContain("simple user stories");
-		// Every selected source unreadable keeps the single unavailable message.
+		// Every source unreadable keeps the single unavailable message.
 		const none = await run([
 			{ ...binding, workItemId: WORK },
 			AUTH,
@@ -255,21 +293,46 @@ describe("tedix hooks prompt-context", () => {
 		]);
 		expect(none.out).toContain("Tedix shared context unavailable");
 		expect(none.out).not.toContain("Working preferences");
+		// A gateway that returns lessons projects only id and text.
+		const projected = await project(
+			{},
+			{},
+			{
+				get_agent_session_lessons: async (input: JsonObject) => {
+					expect(input).toEqual({ harness: "claude-code", budgetBytes: 2800 });
+					return {
+						organizationId: ORG,
+						matched: 1,
+						truncated: false,
+						lessons: [
+							{
+								id: "full-id",
+								shortId: "abcd1234",
+								kind: "prefer",
+								text: "t",
+								repos: ["r"],
+							},
+						],
+					};
+				},
+			},
+		);
+		expect(projected.lessons).toEqual({
+			organizationId: ORG,
+			matched: 1,
+			truncated: false,
+			lessons: [{ shortId: "abcd1234", text: "t" }],
+		});
 	});
 
-	test("lessons alone make a chat targeted and stay under the byte cap", async () => {
-		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
+	test("lessons alone reach a chat with no selection and stay under the byte cap", async () => {
 		const binding = {
 			...BINDING,
 			preferencesWorkspaceId: WORKSPACE,
 			preferencesOutputId: OUTPUT,
-			lessonsWorkspaceId: WORKSPACE,
-			lessonsOutputId: lessonsOutput,
 		};
-		const big = (text: string, id = OUTPUT) => {
+		const big = (text: string) => {
 			const doc = copy(DATA.shared);
-			doc.output.id = id;
-			doc.revision.outputId = id;
 			doc.text = text.repeat(3200);
 			return doc;
 		};
@@ -279,25 +342,43 @@ describe("tedix hooks prompt-context", () => {
 			{
 				shared: big("s"),
 				preferences: big("p"),
-				lessons: big("l", lessonsOutput),
+				...lessonsData(
+					Array.from({ length: 5 }, (_, n) => ({
+						shortId: `0000000${n}`,
+						text: "l".repeat(560),
+					})),
+				),
 			},
 		]);
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
 		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(9600);
 		expect(text).toContain("complete=false");
 		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
-		const lessonsOnly = {
-			...rest,
-			lessonsWorkspaceId: WORKSPACE,
-			lessonsOutputId: OUTPUT,
-		};
 		const { out: only } = await run([
-			lessonsOnly,
+			rest,
 			AUTH,
-			{ lessons: DATA.shared },
+			lessonsData([{ shortId: "abcd1234", text: "Small commits." }]),
 		]);
-		expect(only).toContain("Team lessons");
+		expect(only).toContain("[abcd1234] Small commits.");
 		expect(only).not.toContain("Working preferences");
+		// No approved lesson and nothing selected: nothing is injected.
+		const { out: quiet, calls } = await run([rest, AUTH, NO_LESSONS]);
+		expect([quiet, calls.length]).toEqual(["", 3]);
+	});
+
+	test("repo slugs drop credentials and branch topics drop ids", () => {
+		expect(repoSlug("git@github.com:tedix-hq/tedix.git")).toBe(
+			"github.com/tedix-hq/tedix",
+		);
+		expect(repoSlug("https://user:pw@GitHub.com/tedix-hq/tedix/")).toBe(
+			"github.com/tedix-hq/tedix",
+		);
+		expect(repoSlug("not a url")).toBeUndefined();
+		expect(repoSlug(undefined)).toBeUndefined();
+		expect(branchTopics("codex/work-42229a0e-7e54f207-deploy-gate")).toEqual([
+			"deploy",
+			"gate",
+		]);
 	});
 
 	test("connect routes the selected org and uses the live UUID for ownership", async () => {
@@ -400,9 +481,10 @@ describe("tedix hooks prompt-context", () => {
 		expect(calls).toHaveLength(1);
 		({ out, calls } = await run([], { TEDIX_PLUGIN_PREFLIGHT: "0" }));
 		expect([out, calls.length]).toEqual(["", 0]);
+		// A bound chat always asks for lessons; with none, nothing is injected.
 		const { contextOutputId: _o, osWorkspaceId: _w, ...empty } = BINDING;
-		({ out, calls } = await run([empty]));
-		expect([out, calls.length]).toEqual(["", 1]);
+		({ out, calls } = await run([empty, AUTH, NO_LESSONS]));
+		expect([out, calls.length]).toEqual(["", 3]);
 	});
 
 	test("fresh delivery and revision change without prompt capture", async () => {
@@ -690,7 +772,7 @@ describe("tedix hooks prompt-context", () => {
 			withConfig(async (config, dir) => {
 				for (const prompt of ["ok", "PRIVATE PROMPT"]) {
 					const { out, calls, sources } = await run(
-						[CAPTURE, LOGIN],
+						[CAPTURE, LOGIN, NO_LESSONS],
 						{ TEDIX_CONFIG_DIR: config },
 						{ session_id: SESSION, prompt },
 						[detail()],
@@ -734,7 +816,7 @@ describe("tedix hooks prompt-context", () => {
 					},
 				});
 				const { out } = await run(
-					[CAPTURE, LOGIN],
+					[CAPTURE, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "status?" },
 					[answered],
@@ -744,7 +826,7 @@ describe("tedix hooks prompt-context", () => {
 				);
 				expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(false);
 				const again = await run(
-					[CAPTURE, LOGIN],
+					[CAPTURE, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "status?" },
 					[answered],
@@ -760,7 +842,7 @@ describe("tedix hooks prompt-context", () => {
 					["user", "U-other"],
 				]) {
 					const { out } = await run(
-						[CAPTURE, LOGIN],
+						[CAPTURE, LOGIN, NO_LESSONS],
 						{ TEDIX_CONFIG_DIR: config },
 						{ session_id: SESSION, prompt: "ok" },
 						[
@@ -789,38 +871,38 @@ describe("tedix hooks prompt-context", () => {
 		test("missing tools, no question or no opt-in stay silent", () =>
 			withConfig(async (config, dir) => {
 				let { out, calls } = await run(
-					[CAPTURE, LOGIN],
+					[CAPTURE, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 					[new Error("Unknown tool")],
 				);
 				expect(out).toBe("");
-				expect(calls).toHaveLength(3);
+				expect(calls).toHaveLength(4);
 				({ out, calls } = await run(
-					[{ ...CAPTURE, decisionCapture: false }],
+					[{ ...CAPTURE, decisionCapture: false }, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect([out, calls.length]).toEqual(["", 1]);
+				expect([out, calls.length]).toEqual(["", 3]);
 				({ out } = await run(
 					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect(out).toBe("");
+				expect(out).toContain("Tedix shared context unavailable");
 				rmSync(join(dir, `${SESSION}.question.json`));
 				({ out, calls } = await run(
-					[CAPTURE, LOGIN],
+					[CAPTURE, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect([out, calls.length]).toEqual(["", 1]);
+				expect([out, calls.length]).toEqual(["", 3]);
 			}));
 
 		test("an OS answer follows the selected shared context", () =>
 			withConfig(async (config) => {
 				const { out } = await run(
-					[{ ...BINDING, ...CAPTURE }, LOGIN, DATA],
+					[{ ...BINDING, ...CAPTURE }, LOGIN, { ...DATA, ...NO_LESSONS }],
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "status?" },
 					[

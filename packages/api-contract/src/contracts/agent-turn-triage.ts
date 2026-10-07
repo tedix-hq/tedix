@@ -4,6 +4,10 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	GetAgentSessionLessonsInputSchema,
+	GetAgentSessionLessonsResultSchema,
+} from "../schemas/agent-session-lessons";
+import {
 	AgentTurnTriagePolicyStateSchema,
 	GetAgentReplyDraftAcceptanceInputSchema,
 	GetAgentReplyDraftAcceptanceResultSchema,
@@ -23,7 +27,9 @@ import {
  * `label_agent_reply`, `get_agent_turn_triage_policy`,
  * `update_agent_turn_triage_policy`) and tedi-drafted replies to quiet
  * decision-capture questions (MCP: `request_agent_reply_draft`,
- * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`).
+ * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`), and the
+ * approved team lessons a local agent session receives
+ * (MCP: `get_agent_session_lessons`).
  *
  * Triage and reply labelling are stateless model reads: nothing about the
  * submitted text is stored. A model failure or timeout is reported as
@@ -124,6 +130,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(GetAgentReplyDraftAcceptanceInputSchema)
 			.output(GetAgentReplyDraftAcceptanceResultSchema),
+
+		getSessionLessons: oc
+			.route({
+				method: "POST",
+				path: "/session-lessons",
+				summary: "Get approved team lessons for a local agent session",
+				description:
+					"Returns the credential-resolved organization's approved lessons (facts under `learning-feed:` topic keys that a person confirmed, org-wide; probation, pending, archived and superseded facts never appear) whose `metadata.learningFeed.scope` repo and harness match the session (`general` matches any), most relevant first, trimmed to `budgetBytes`. Read-only.",
+			})
+			.input(GetAgentSessionLessonsInputSchema)
+			.output(GetAgentSessionLessonsResultSchema),
 	});
 
 export type AgentTurnTriageContract = typeof agentTurnTriageContract;

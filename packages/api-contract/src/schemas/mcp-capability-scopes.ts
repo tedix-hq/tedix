@@ -207,6 +207,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	request_agent_reply_draft: "mcp:messaging",
 	propose_agent_reply_draft: "mcp:messaging",
 	get_agent_reply_draft_acceptance: "mcp:messaging",
+	// Approved team lessons a local agent session reads before each prompt.
+	get_agent_session_lessons: "mcp:messaging",
 	// A budget rejection may ask a human to change policy; the request itself
 	// never authorizes spend. The separate budget-policy mutation stays admin.
 	request_budget_override: "mcp:messaging",

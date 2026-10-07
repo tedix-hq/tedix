@@ -105,6 +105,7 @@
 		"./generated/layout-catalog-prompt": "./src/generated/layout-catalog-prompt.ts",
 		"./schemas/adapter-bindings": "./src/schemas/adapter-bindings.ts",
 		"./schemas/adapters": "./src/schemas/adapters.ts",
+		"./schemas/agent-session-lessons": "./src/schemas/agent-session-lessons.ts",
 		"./schemas/agent-turn-triage": "./src/schemas/agent-turn-triage.ts",
 		"./schemas/ai-gateway-attribution": "./src/schemas/ai-gateway-attribution.ts",
 		"./schemas/analytics": "./src/schemas/analytics.ts",
