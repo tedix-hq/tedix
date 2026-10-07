@@ -442,7 +442,7 @@ describe("runLearnCommand", () => {
 		});
 		rmSync(home, { recursive: true, force: true });
 		expect(code).toBe(0);
-		expect(pauses).toEqual([5000, 5000]);
+		expect(pauses).toEqual([5000, 60000]);
 		expect(JSON.parse(lines.at(-1)!).results["acme/org_acme"]).toMatchObject({
 			recorded: 1,
 			failedBatches: 0,
