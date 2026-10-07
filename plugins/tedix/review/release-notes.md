@@ -1,32 +1,17 @@
-Tedix 1.1.0 — opt-in turn-status reporter for local sessions.
+Tedix 0.1.0 — first public preview of the Tedix plugin.
 
-The local artifact adds `tedix hooks status`, a hook that records one status
-line per Claude Code or Codex session at turn boundaries: working, needs you,
-done, error or ended. It is off until the owner creates
-`~/.tedix/agent-status.json` with `"enabled": true` or sets
-`TEDIX_AGENT_STATUS=1`. It raises a local macOS notification only when a
-session starts needing its owner or fails. With a named CLI profile it reports
-the change through a detached `tedix code` call. It never prints, prompts,
-blocks a turn or uploads a transcript; only a 160-character summary, the repo
-and branch label, the host session ID and the state leave the machine.
-Every local hook now runs in the installed Tedix CLI (`tedix hooks <name>`);
-the plugin ships only `hooks/hooks.json` and no scripts.
-
-Tedix 1.0.0 — first public release candidate.
-
-Connect ChatGPT and Codex to authorized Tedix organizations through the shared
-Tedix gateway. Bundled skills guide connection checks, scoped Work reads,
-governed task handoff and Workspace Output workflows. Each operation remains
-subject to the actual account grant and organization policy; installing a skill
-does not enable writes or grant execution authority.
+Connect ChatGPT, Codex and Claude Code to an authorized Tedix organization
+through the shared Tedix gateway. Bundled skills guide connection checks,
+scoped Work reads, governed task handoff, tedi delegation and Workspace Output
+workflows. Each operation remains subject to the account's actual grants and
+organization policy; installing a skill does not enable writes or grant
+execution authority.
 
 The public package uses one canonical Tedix identity, onboarding guidance and
 light/dark brand assets. It contains no local lifecycle hooks, credentials or
-copied tokens. The local artifact adds opt-in context hooks and an opt-in
-decision-capture hook under the same plugin identity.
-OpenAI supports combined MCP, skills and trusted hooks; local script execution
-and CLI authentication remain host prerequisites, not cloud installation effects.
+copied tokens. Local lifecycle hooks are a separate local install: they run in
+the installed Tedix CLI (`tedix hooks <name>`) and are opt-in.
 
-This initial candidate remains version 1.0.0 until submission. These release
-notes describe the package, not a claim that public review, publication or the
-reviewer validation has completed.
+Tedix Cloud is an invited beta; using the plugin requires an account in an
+organization you have been invited to. Version numbers stay below 1.0 while
+the plugin and its gateway contract may still change.
