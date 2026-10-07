@@ -65,6 +65,7 @@ import {
 	parsePushRanges,
 	selectPushRangeFiles,
 } from "./push-range-selection.mjs";
+import { workerConfigShapeWarning } from "./worker-config-shape.mjs";
 
 const repoRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 	cwd: process.cwd(),
@@ -509,6 +510,20 @@ if (workflowsTouched && has("actionlint") && !has("shellcheck")) {
 	warnings.push(
 		"actionlint ran WITHOUT shellcheck, so no `run:` block was shell-linted — brew install shellcheck",
 	);
+}
+
+// A product Worker config whose bindings, vars or secrets change shape needs
+// the matching production overlay edit in tedix-cloud-ops, which this checkout
+// cannot see. Warn, never block: the ops repository is the other half.
+if (!fileArguments?.length) {
+	const fallbackBase = pushRanges.length ? null : defaultPushBase(repoRoot);
+	const shapeRanges = pushRanges.length
+		? pushRanges
+		: fallbackBase
+			? [{ base: fallbackBase, head: "HEAD" }]
+			: [];
+	const shapeWarning = workerConfigShapeWarning(repoRoot, files, shapeRanges);
+	if (shapeWarning) warnings.push(shapeWarning);
 }
 
 function writeLog(gate, output) {
