@@ -516,6 +516,25 @@ vi.mock("@cloudflare/codemode", () => {
 					});
 					return { result, logs: [] };
 				}
+				if (code.includes("connect_organization_probe")) {
+					const names = (ns: string) =>
+						Object.keys(byName.get(ns)?.fns ?? {}).sort();
+					const listed = (await byName
+						.get("discover")
+						?.fns.list_namespaces?.({ includeTools: true })) as Record<
+						string,
+						{ toolNames?: string[] }
+					>;
+					return {
+						result: {
+							resend: listed.acme_unified_resend_2?.toolNames,
+							crm: listed.acme_unified_crm?.toolNames,
+							legacyListed: "acme_unified" in listed,
+							legacyCallable: names("acme_unified"),
+						},
+						logs: [],
+					};
+				}
 				if (code.includes("discover.search")) {
 					const discover = byName.get("discover");
 					const search = discover?.fns.search;
@@ -2520,7 +2539,11 @@ describe("Code Mode payment-gated tools", () => {
 		};
 
 		expect(response.status).toBe(200);
-		expect(body.result.structuredContent.result.nosana).toBeUndefined();
+		expect(body.result.structuredContent.result.nosana).toMatchObject({
+			tools: 0,
+			toolNames: [],
+			quarantinedTools: ["get_deployments"],
+		});
 		expect(body.result.structuredContent.result.payments?.toolNames).toEqual([
 			"premium_research_brief",
 		]);
@@ -2530,6 +2553,74 @@ describe("Code Mode payment-gated tools", () => {
 			),
 		);
 		warn.mockRestore();
+	});
+
+	it("keeps same-named tools from two apps of one Connect organization callable", async () => {
+		const apiService = createApiService();
+		const env = createEnv(apiService);
+		const ctx = createExecutionContext();
+		const cachedData = createCachedData();
+		const sourceTool = cachedData.tools.find(
+			(tool) => tool.toolId === "nosana__get_deployments",
+		);
+		if (!sourceTool) throw new Error("source test tool missing");
+		const organizationTool = (
+			id: string,
+			namespace: string,
+			toolId: string,
+		) => ({
+			...sourceTool,
+			id,
+			toolId: `${namespace}__${toolId}`,
+			config: {
+				...(sourceTool.config as Record<string, unknown>),
+				_aggregateNamespace: namespace,
+				_aggregateLegacyNamespace: "acme-unified",
+			},
+		});
+		cachedData.tools = [
+			...cachedData.tools,
+			organizationTool(
+				"6a0f6f1e-1d4c-4c1e-9d55-0d1f3c1a7a01",
+				"acme_unified_resend_2",
+				"list-contacts",
+			),
+			organizationTool(
+				"6a0f6f1e-1d4c-4c1e-9d55-0d1f3c1a7a02",
+				"acme_unified_crm",
+				"list_contacts",
+			),
+			organizationTool(
+				"6a0f6f1e-1d4c-4c1e-9d55-0d1f3c1a7a03",
+				"acme_unified_resend_2",
+				"list-domains",
+			),
+		];
+
+		const response = await postRpcWithData(env, ctx, cachedData, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "code",
+				arguments: {
+					code: "async () => connect_organization_probe()",
+				},
+			},
+		});
+		const body = (await response.json()) as {
+			result: { structuredContent: { result: Record<string, unknown> } };
+		};
+
+		expect(response.status).toBe(200);
+		expect(body.result.structuredContent.result).toEqual({
+			resend: ["list_contacts", "list_domains"],
+			crm: ["list_contacts"],
+			// The flat name is an execution alias only: unique names resolve,
+			// names two apps share stay unambiguous by not resolving at all.
+			legacyListed: false,
+			legacyCallable: ["list_domains"],
+		});
 	});
 
 	it("rebuilds the code tool description from the per-request tool catalog", async () => {

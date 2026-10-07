@@ -144,6 +144,8 @@ import {
 import {
 	aggregateAppNamespaceCandidates,
 	aggregateTediNamespace,
+	isOrganizationMountNamespace,
+	organizationAppNamespace,
 } from "./mcp/aggregate-namespaces";
 import {
 	buildAggregateTaskHandlers,
@@ -535,6 +537,10 @@ type AggregateAppEntry = {
 	connectionInstanceId?: string;
 	/** Present only on a server-verified multi-organization selection. */
 	organizationId?: string;
+	/** The selected organization's own gateway, mounted by a Connect selection. */
+	organizationMount?: boolean;
+	/** Flat namespace these tools answered to before per-app namespaces. */
+	legacyNamespace?: string;
 	connectionLabel?: string;
 	connectionProviderId?: string;
 	connectionScope?: "tenant" | "user" | "hybrid";
@@ -2127,7 +2133,14 @@ async function aggregateAndPrefixToolsUncached(
 					toolIds: sub.toolIds,
 					endpointPrefixes: sub.endpointPrefixes,
 					readOnly: entry.readOnly === true || sub.readOnly === true,
-					prefix,
+					// Apps inside a Connect organization mount keep their own
+					// namespace; deeper nesting still groups under its parent.
+					prefix: entry.organizationMount
+						? organizationAppNamespace(prefix, sub)
+						: prefix,
+					legacyNamespace: entry.organizationMount
+						? prefix
+						: entry.legacyNamespace,
 					connectionLabel:
 						entry.connectionLabel ??
 						sub.connectionLabel ??
@@ -2238,6 +2251,9 @@ async function aggregateAndPrefixToolsUncached(
 							// several tenant content proxies all use `content/*`
 							// endpoints).
 							...(entry.prefix ? { _aggregateNamespace: entry.prefix } : {}),
+							...(entry.legacyNamespace
+								? { _aggregateLegacyNamespace: entry.legacyNamespace }
+								: {}),
 							...(effectiveLabel !== undefined
 								? { _aggregateConnectionLabel: effectiveLabel }
 								: {}),
@@ -2974,6 +2990,7 @@ export async function handleMcpRequest(
 				slug: organization.gatewaySlug,
 				prefix: organization.gatewaySlug,
 				organizationId: organization.organizationId,
+				organizationMount: true,
 			}))
 		: ((cachedData?.metadata?.mcpConfig?.aggregateApps as
 				| AggregateAppEntry[]
@@ -4159,6 +4176,14 @@ export function filterAggregateAppsForCodeNamespaces(
 			if (namespaces.has(candidate)) {
 				matchedNamespaces.add(candidate);
 				matched = true;
+			}
+		}
+		if (entry.organizationMount) {
+			for (const ns of namespaces) {
+				if (isOrganizationMountNamespace(entry.prefix ?? entry.slug, ns)) {
+					matchedNamespaces.add(ns);
+					matched = true;
+				}
 			}
 		}
 		if (matched) return true;

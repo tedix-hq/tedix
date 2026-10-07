@@ -12,6 +12,8 @@ import {
 	aggregateAppNamespaceCandidates,
 	aggregateTediNamespace,
 	configuredAggregateNamespaces,
+	isOrganizationMountNamespace,
+	organizationAppNamespace,
 } from "./aggregate-namespaces";
 
 describe("aggregateAppNamespaceCandidates", () => {
@@ -104,5 +106,43 @@ describe("configuredAggregateNamespaces", () => {
 		});
 		expect(namespaces.has("good")).toBe(true);
 		expect(namespaces.size).toBe(1);
+	});
+});
+
+describe("organizationAppNamespace", () => {
+	it("nests each app under its Connect organization mount", () => {
+		expect(
+			organizationAppNamespace("acme-unified", {
+				slug: "resend-2-acme",
+				prefix: "resend_2_acme",
+			}),
+		).toBe("acme_unified_resend_2");
+		expect(organizationAppNamespace("acme-unified", { slug: "cms-acme" })).toBe(
+			"acme_unified_cms",
+		);
+		expect(
+			organizationAppNamespace("tedix-unified", { slug: "notion-tedix" }),
+		).toBe("tedix_unified_notion");
+	});
+
+	it("keeps an app named exactly like its organization", () => {
+		expect(organizationAppNamespace("acme-unified", { slug: "acme" })).toBe(
+			"acme_unified_acme",
+		);
+	});
+});
+
+describe("isOrganizationMountNamespace", () => {
+	it("matches the mount and its app namespaces only", () => {
+		expect(isOrganizationMountNamespace("acme-unified", "acme_unified")).toBe(
+			true,
+		);
+		expect(
+			isOrganizationMountNamespace("acme-unified", "acme_unified_resend_2"),
+		).toBe(true);
+		expect(
+			isOrganizationMountNamespace("tedix-unified", "tedix_demo_unified_cms"),
+		).toBe(false);
+		expect(isOrganizationMountNamespace("acme-unified", "acme")).toBe(false);
 	});
 });
