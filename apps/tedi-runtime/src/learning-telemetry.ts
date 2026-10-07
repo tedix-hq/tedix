@@ -51,6 +51,26 @@ interface ReflectorMetrics {
 	outputObservations: number | null;
 }
 
+/**
+ * Post-observer stages. `bridge` is the essential fact write; the rest are
+ * optional projections that each run under their own budget, so one slow stage
+ * records `timed_out` without failing the whole learning pass.
+ */
+export type LearningStageName =
+	| "bridge"
+	| "rationale"
+	| "crystallizer"
+	| "task_promotion"
+	| "artifact"
+	| "trace_bundle";
+
+export interface LearningStageMetrics {
+	status: "completed" | "failed" | "timed_out" | "skipped";
+	durationMs: number;
+	/** The wall-clock budget the stage was given (its cap or what remained). */
+	budgetMs: number;
+}
+
 export interface LearningTelemetryEvent extends LearningAttribution {
 	event: "tedi.learning";
 	status: "completed" | "failed" | "skipped";
@@ -60,6 +80,8 @@ export interface LearningTelemetryEvent extends LearningAttribution {
 	reflector: ReflectorMetrics;
 	/** Successful canonical writes, NOT projection success or useful recall. */
 	bridge: BridgeMetrics | null;
+	/** Per-stage timing after the observer; absent stages never started. */
+	stages: Partial<Record<LearningStageName, LearningStageMetrics>>;
 }
 
 /** One content-free event per bridge attempt; null means a stage did not report. */
@@ -89,6 +111,7 @@ export function createLearningTelemetry(
 			outputObservations: null,
 		} as ReflectorMetrics,
 		bridge: null as BridgeMetrics | null,
+		stages: {} as Partial<Record<LearningStageName, LearningStageMetrics>>,
 		finish(
 			status: LearningTelemetryEvent["status"],
 			skipReason: LearningSkipReason | null = null,
@@ -109,6 +132,12 @@ export function createLearningTelemetry(
 				observer: { ...tracker.observer },
 				reflector: { ...tracker.reflector },
 				bridge: tracker.bridge ? { ...tracker.bridge } : null,
+				stages: Object.fromEntries(
+					Object.entries(tracker.stages).map(([name, stage]) => [
+						name,
+						{ ...stage },
+					]),
+				),
 			});
 		},
 	};
