@@ -250,11 +250,6 @@
 			"class_name": "CmsDeprovisionWorkflow",
 		},
 		{
-			"binding": "EXTRACTION_WORKFLOW",
-			"name": "public-installation-workflow-base-1",
-			"class_name": "ExtractionWorkflow",
-		},
-		{
 			"binding": "IMPORT_WORKFLOW",
 			"name": "public-installation-workflow-base-2",
 			"class_name": "ImportWorkflow",
@@ -431,7 +426,6 @@
 			"CF_CMS_HOSTNAMES_TOKEN",
 			"DATAFORSEO_API_KEY",
 			"FIRECRAWL_API_KEY",
-			"FIRECRAWL_WEBHOOK_SECRET",
 			"STRIPE_SECRET_KEY",
 			"STRIPE_TEST_SECRET_KEY",
 			"STRIPE_WEBHOOK_SECRET",
@@ -459,7 +453,6 @@
 					"CF_CMS_HOSTNAMES_TOKEN",
 					"DATAFORSEO_API_KEY",
 					"FIRECRAWL_API_KEY",
-					"FIRECRAWL_WEBHOOK_SECRET",
 					"STRIPE_SECRET_KEY",
 					"STRIPE_TEST_SECRET_KEY",
 					"STRIPE_WEBHOOK_SECRET",
@@ -619,11 +612,6 @@
 					"binding": "CMS_DEPROVISION_WORKFLOW",
 					"name": "public-installation-workflow-env-production-0",
 					"class_name": "CmsDeprovisionWorkflow",
-				},
-				{
-					"binding": "EXTRACTION_WORKFLOW",
-					"name": "public-installation-workflow-env-production-1",
-					"class_name": "ExtractionWorkflow",
 				},
 				{
 					"binding": "IMPORT_WORKFLOW",

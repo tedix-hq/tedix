@@ -6,9 +6,8 @@ import "@orpc/openapi/extensions/route";
 
 import { oc } from "@orpc/contract";
 import * as z from "zod";
-import { VerticalSchema } from "../schemas/app";
 import { SkillLifecycleStateSchema } from "../schemas/cognitive";
-import { AppIdParamSchema, JsonValueSchema } from "../schemas/common";
+import { JsonValueSchema } from "../schemas/common";
 
 // =============================================================================
 // LOCAL SCHEMAS
@@ -35,39 +34,9 @@ export const WorkflowStatusSchema = z.enum([
 export type WorkflowStatus = z.infer<typeof WorkflowStatusSchema>;
 
 /**
- * Start extraction body (without appId, which comes from path)
- */
-const StartExtractionBodySchema = z.object({
-	siteName: z
-		.string()
-		.min(1)
-		.describe(
-			'Site name for autonomous search (e.g., "mobile.de Germany", "AutoScout24 Germany")',
-		),
-	query: z
-		.string()
-		.max(500)
-		.optional()
-		.describe("Search query to expand the prompt"),
-	vertical: VerticalSchema.optional(),
-	limit: z.number().min(5).max(100).optional(),
-});
-
-/**
- * Workflow response schema
- */
-const WorkflowResponseSchema = z.object({
-	id: z.string(),
-	appId: z.uuid(),
-	vertical: VerticalSchema,
-	status: WorkflowStatusSchema,
-});
-
-/**
  * Workflow type discriminator
  */
 export const WorkflowTypeSchema = z.enum([
-	"extraction",
 	"import",
 	"mcp_eval",
 	"tool_schema_sync",
@@ -505,31 +474,11 @@ const WorkflowRunsOutputSchema = z.object({
  * Tagged as 'internal' since these are background operations
  *
  * Endpoints:
- * - POST /apps/{appId}/workflows/extraction - Start extraction workflow
  * - GET /workflows/{workflowId}/status - Get workflow status
  */
 export const workflowsContract = oc
 	.route({ tags: ["workflows", "internal"] })
 	.router({
-		/**
-		 * POST /apps/{appId}/workflows/extraction - Start extraction workflow
-		 */
-		startExtraction: oc
-			.route({
-				method: "POST",
-				path: "/apps/{appId}/workflows/extraction",
-				summary: "Start extraction workflow",
-				description:
-					"Start a Cloudflare Workflow to extract items for an app using prompt-only mode",
-			})
-			.input(AppIdParamSchema.extend(StartExtractionBodySchema.shape))
-			.output(
-				z.object({
-					data: WorkflowResponseSchema,
-					message: z.string(),
-				}),
-			),
-
 		/**
 		 * GET /workflows/{workflowId}/status - Get workflow status
 		 */

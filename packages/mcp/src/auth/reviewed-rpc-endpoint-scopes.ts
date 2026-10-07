@@ -741,5 +741,4 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"workItems/upsertProjection": "mcp:work.write",
 	"workScheduler/listReady": "mcp:work.read",
 	"workScheduler/planClusters": "mcp:work.read",
-	"workflows/startExtraction": "mcp:observe.write",
 };

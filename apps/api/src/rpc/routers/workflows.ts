@@ -6,7 +6,6 @@
  * Contracts are imported from @tedix/api-contract package.
  *
  * Contract-based endpoints:
- *   POST /apps/{appId}/workflows/extraction - Start extraction workflow
  *   GET  /workflows/{workflowId}/status     - Get workflow status
  */
 
@@ -21,12 +20,6 @@ import {
 	type WorkflowType,
 	workflowsContract,
 } from "@tedix/api-contract/contracts/workflows";
-import type { Vertical } from "@tedix/api-contract/schemas/app";
-import {
-	getAppById,
-	getAppMetadataJson,
-	updateApp,
-} from "@tedix/db/queries/app-records";
 import { listExecutableSkillWorkflowsForOrg } from "@tedix/db/queries/cognitive/skill-inventory";
 import {
 	listLatestSkillRunsForSkills,
@@ -90,63 +83,6 @@ function mapWorkflowStatus(status: string): WorkflowStatus {
 // SHARED HANDLER LOGIC
 // =============================================================================
 
-/**
- * Core logic for starting extraction workflow
- */
-async function handleStartExtraction(
-	appId: string,
-	siteName: string,
-	query: string | undefined,
-	vertical: Vertical | undefined,
-	limit: number | undefined,
-	context: BaseContext,
-) {
-	const { db, env } = context;
-
-	// Fetch app from database
-	const app = await getAppById(db, appId);
-
-	if (!app) {
-		throw createError(ErrorCodes.NOT_FOUND, "App not found");
-	}
-
-	// Use provided vertical, or fall back to app's vertical from metadata
-	const appMetadata = getAppMetadataJson(app);
-	const canonicalVertical = (vertical ||
-		appMetadata?.vertical ||
-		"ecommerce") as Vertical;
-
-	// Start the Cloudflare Workflow (prompt-only mode - no URL)
-	const instance = await env.EXTRACTION_WORKFLOW.create({
-		params: {
-			appId,
-			siteName,
-			query, // Optional search query to expand the prompt
-			vertical: canonicalVertical,
-			limit,
-		},
-	});
-
-	// Update app metadata with workflow ID
-	await updateApp(db, appId, {
-		discoveryStatus: "scraping",
-		metadata: {
-			...appMetadata,
-			itemExtraction: {
-				workflowInstanceId: instance.id,
-				workflowStartedAt: new Date().toISOString(),
-			},
-		},
-	});
-
-	return {
-		id: instance.id,
-		appId,
-		vertical: canonicalVertical,
-		status: "queued" as const,
-	};
-}
-
 type WorkflowStatusBinding = {
 	get(id: string): Promise<{
 		status(): Promise<{ status: string; output?: unknown }>;
@@ -196,14 +132,6 @@ function staticWorkflowDefinition(input: {
 /** One canonical inventory drives both definition discovery and status lookup. */
 export const STATIC_WORKFLOW_DEFINITIONS: readonly StaticWorkflowDefinition[] =
 	[
-		staticWorkflowDefinition({
-			workflowType: "extraction",
-			title: "Extraction",
-			description: "Firecrawl extraction and webhook completion flows.",
-			binding: "EXTRACTION_WORKFLOW",
-			entrypoint: "ExtractionWorkflow",
-			triggers: ["api"],
-		}),
 		staticWorkflowDefinition({
 			workflowType: "import",
 			title: "Import",
@@ -754,45 +682,6 @@ async function handleListDefinitionHealth(
 // =============================================================================
 
 /**
- * Contract-based startExtraction procedure implementation
- * Uses workflowsContract.startExtraction schema enforcement
- *
- * ⚠️ PROMPT-ONLY MODE (Standard)
- * - No URL provided to agent
- * - Agent searches for siteName and navigates naturally
- * - Bypasses anti-bot protection
- *
- * Config loaded from D1:
- * - prompt: What to extract
- * - siteSearchInstructions: How to navigate
- * - schema: Structured output format
- *
- * @param appId - UUID of the app to extract for (from path)
- * @param siteName - Site to search for (e.g., "mobile.de Germany")
- * @param query - Optional search query to expand the prompt (e.g., "BMW X3 under €40k")
- * @param vertical - Optional vertical override (defaults to app's vertical)
- * @param limit - Max items to extract (5-100, default from config)
- */
-export const startExtractionContract = authedWorkflowsOs.startExtraction
-	.use(AUTHZ.appsWrite)
-	.handler(async ({ input, context }) => {
-		const { appId, siteName, query, vertical, limit } = input;
-		const workflow = await handleStartExtraction(
-			appId,
-			siteName,
-			query,
-			vertical,
-			limit,
-			context,
-		);
-
-		return {
-			data: workflow,
-			message: "Extraction workflow started",
-		};
-	});
-
-/**
  * Contract-based getStatus procedure implementation
  * Uses workflowsContract.getStatus schema enforcement
  */
@@ -850,7 +739,6 @@ export const listRunsContract = authedWorkflowsOs.listRuns
  * This enforces that all procedures match the contract
  */
 export const workflowsContractRouter = authedWorkflowsOs.router({
-	startExtraction: startExtractionContract,
 	getStatus: getStatusContract,
 	listDefinitions: listDefinitionsContract,
 	listDefinitionHealth: listDefinitionHealthContract,

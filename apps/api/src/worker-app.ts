@@ -1711,11 +1711,7 @@ app.get("/artifacts/:tediId/:artifactId", handleSessionArtifact);
 // =============================================================================
 
 /**
- * Firecrawl webhook endpoint
- * Receives agent events and wakes Cloudflare Workflows
- * No auth required - secured via HMAC signature verification
- *
- * All three webhook handlers below are LAZY, like the kernel/media/artifact
+ * Webhook handlers below are LAZY, like the kernel/media/artifact
  * routes above: they only fire on inbound provider callbacks, so their
  * implementation graphs (audit + billing queries, stripe-billing helpers,
  * fleet-authority) must not be evaluated on every isolate's first request.
@@ -1729,11 +1725,6 @@ app.post("/webhooks/provider-events/:adapter/:channelId", async (c) => {
 		c.req.param("adapter"),
 		c.req.param("channelId"),
 	);
-});
-
-app.post("/webhooks/firecrawl", async (c) => {
-	const { handleFirecrawlWebhook } = await import("./webhooks/firecrawl");
-	return handleFirecrawlWebhook(c);
 });
 
 /**

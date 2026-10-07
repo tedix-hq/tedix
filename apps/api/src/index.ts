@@ -196,12 +196,6 @@ export class CmsDeprovisionWorkflow extends LazyWorkflow {
 		return m.CmsDeprovisionWorkflow as unknown as WorkflowImplClass;
 	}
 }
-export class ExtractionWorkflow extends LazyWorkflow {
-	protected async loadImpl(): Promise<WorkflowImplClass> {
-		const m = await import("./workflows/extraction-workflow");
-		return m.ExtractionWorkflow as unknown as WorkflowImplClass;
-	}
-}
 export class GraphProjectionDrainWorkflow extends LazyWorkflow {
 	protected async loadImpl(): Promise<WorkflowImplClass> {
 		const m = await import("./workflows/graph-projection-drain-workflow");
