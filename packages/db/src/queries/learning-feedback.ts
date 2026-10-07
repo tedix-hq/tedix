@@ -6,6 +6,7 @@ import {
 	gte,
 	inArray,
 	isNotNull,
+	lt,
 	lte,
 	max,
 	ne,
@@ -339,6 +340,38 @@ export async function listLearningInteractionsForIssueKey(
 				// bound-params: callers pass a fixed list of producer surfaces
 				inArray(learningInteractionEvents.surface, input.surfaces),
 				ownedBy(input.ownerUserId),
+			),
+		)
+		.orderBy(desc(learningInteractionEvents.occurredAt))
+		.limit(input.limit);
+}
+
+/**
+ * Newest events whose issue key starts with `issuePrefix` (a range on
+ * `idx_learning_event_issue`), on the given producer surfaces. Reflection-only.
+ */
+export async function listLearningInteractionsForIssuePrefix(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		issuePrefix: string;
+		surfaces: string[];
+		limit: number;
+	},
+): Promise<LearningInteractionEventRow[]> {
+	if (input.surfaces.length === 0 || !input.issuePrefix) return [];
+	const last = input.issuePrefix.charCodeAt(input.issuePrefix.length - 1);
+	const end = input.issuePrefix.slice(0, -1) + String.fromCharCode(last + 1);
+	return db
+		.select()
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				gte(learningInteractionEvents.issueKey, input.issuePrefix),
+				lt(learningInteractionEvents.issueKey, end),
+				// bound-params: callers pass a fixed list of producer surfaces
+				inArray(learningInteractionEvents.surface, input.surfaces),
 			),
 		)
 		.orderBy(desc(learningInteractionEvents.occurredAt))

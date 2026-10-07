@@ -95,6 +95,9 @@ export const MineAgentSessionLessonsResultSchema = z.object({
 	proposalsCreated: z.number().int().nonnegative(),
 	/** True when a per-run cap stopped the run early; run it again. */
 	budgetHit: z.boolean(),
+	/** The run outlasted the reply window and continues in the background; the
+	 * counts are what it had done by then. Ask again later for more. */
+	inProgress: z.boolean().optional(),
 });
 export type MineAgentSessionLessonsResult = z.infer<
 	typeof MineAgentSessionLessonsResultSchema

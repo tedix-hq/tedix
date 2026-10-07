@@ -961,14 +961,38 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 			await import("../../services/learning-feed-miner");
 		const { modelLessonDistiller } =
 			await import("../../services/lesson-distiller");
-		const result = await mineLearningFeed(context.db, {
+		const run = mineLearningFeed(context.db, {
 			orgId: organizationId,
 			route: clefLessonRouter(context.env),
 			distill: modelLessonDistiller(context.env),
 		});
-		return { organizationId, ...result };
+		// Code Mode stops waiting after 15 s; a large run keeps going in the
+		// background and the caller is told so instead of seeing a timeout.
+		if (!context.waitUntil) return { organizationId, ...(await run) };
+		context.waitUntil(run.catch(() => undefined));
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const finished = await Promise.race([
+			run,
+			new Promise<null>((resolve) => {
+				timer = setTimeout(() => resolve(null), MINE_REPLY_WINDOW_MS);
+			}),
+		]).finally(() => clearTimeout(timer));
+		if (finished) return { organizationId, ...finished };
+		return {
+			organizationId,
+			decisionEventsScanned: 0,
+			factsWritten: 0,
+			factsSuperseded: 0,
+			factsRoutedToTedi: 0,
+			factsArchived: 0,
+			mistakeEventsRecorded: 0,
+			proposalsCreated: 0,
+			budgetHit: false,
+			inProgress: true,
+		};
 	},
 );
+const MINE_REPLY_WINDOW_MS = 10_000;
 
 const importWriteOs = os.use(withAuth).use(
 	withAuthorization(

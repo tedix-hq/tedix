@@ -54,7 +54,7 @@ import type { Tedi } from "@tedix/db/schema/tedis";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import {
 	listLearningImprovementProposals,
-	listLearningInteractionsForIssueKey,
+	listLearningInteractionsForIssuePrefix,
 	listLearningInteractionsForReflection,
 	listLearningIssueKeysForReflection,
 	proposeLearningImprovement,
@@ -118,13 +118,13 @@ const DECISION_SURFACES = [
 	AGENT_SESSION_IMPORT_LEARNING_SURFACE,
 ];
 /**
- * Historic imports may span years, so they are walked one scope (issue key)
- * at a time, most recently active first, instead of by the 30-day window.
- * Already-learned scopes are skipped cheaply, so a large backlog drains over
- * nightly runs within MAX_FACTS_PER_RUN.
+ * Historic imports may span years, so they are walked one repository at a
+ * time (its newest events), instead of by the 30-day window. Already-learned
+ * repositories are skipped cheaply, so a large backlog drains over runs
+ * within MAX_FACTS_PER_RUN.
  */
-const HISTORIC_SCOPES_PER_RUN = 100;
-const HISTORIC_EVENTS_PER_SCOPE = 40;
+const HISTORIC_SCOPES_PER_RUN = 500;
+const HISTORIC_EVENTS_PER_REPO = 1000;
 const OPEN_PROPOSAL_STATUSES = new Set([
 	"proposed",
 	"evaluating",
@@ -227,6 +227,15 @@ function groupKey(event: LearningInteractionEventRow): string {
 
 function scopeOf(event: LearningInteractionEventRow): LearningFeedScope {
 	const scope = rec(rec(event.metadata).scope);
+	// An imported session's topic is only its reply type (continue, question,
+	// ...), and a person works the same way in either host: learn one lesson
+	// per subject, the repository, so a rule is stated once.
+	if (event.surface === AGENT_SESSION_IMPORT_LEARNING_SURFACE)
+		return {
+			repo: learningScopeSlug(text(scope.repo)),
+			harness: "general",
+			topic: "general",
+		};
 	return {
 		repo: learningScopeSlug(text(scope.repo)),
 		harness: learningScopeSlug(text(scope.harness)),
@@ -531,9 +540,18 @@ async function writeDecisionLessons(
 		// Quotes become durable rules when a distiller is given. A distiller
 		// that finds nothing lasting retires the miner's earlier lesson here.
 		const rules = distill
-			? await distill({ content: quoted.content, scope: quoted.scope }).catch(
-					() => null,
-				)
+			? await distill({
+					content: quoted.content,
+					scope: quoted.scope,
+					replies: topicEvents
+						.filter((event) => !covered.has(event.id))
+						.map((event) => ({
+							text: text(rec(event.metadata).answer),
+							session: event.threadId,
+							occurredAt: event.occurredAt,
+							kind: text(rec(rec(event.metadata).scope).topic),
+						})),
+				}).catch(() => null)
 			: null;
 		if (rules && rules.length === 0) {
 			for (const old of replaced)
@@ -823,17 +841,21 @@ async function mineHistoricImports(
 		surface: AGENT_SESSION_IMPORT_LEARNING_SURFACE,
 		limit: HISTORIC_SCOPES_PER_RUN,
 	});
-	for (const issueKey of issueKeys) {
+	// Imports are learned per repository (see scopeOf): `decision:<repo>:...`.
+	const repos = [
+		...new Set(issueKeys.map((key) => key.split(":")[1]).filter(Boolean)),
+	] as string[];
+	for (const repo of repos) {
 		if (result.factsWritten >= MAX_FACTS_PER_RUN) {
 			result.budgetHit = true;
 			return;
 		}
 		const events = (
-			await listLearningInteractionsForIssueKey(db, {
+			await listLearningInteractionsForIssuePrefix(db, {
 				organizationId: orgId,
-				issueKey,
-				surfaces: DECISION_SURFACES,
-				limit: HISTORIC_EVENTS_PER_SCOPE,
+				issuePrefix: `decision:${repo}:`,
+				surfaces: [AGENT_SESSION_IMPORT_LEARNING_SURFACE],
+				limit: HISTORIC_EVENTS_PER_REPO,
 			})
 		).filter((event) => event.organizationId === orgId);
 		result.decisionEventsScanned += events.length;

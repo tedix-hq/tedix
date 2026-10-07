@@ -9,7 +9,7 @@ vi.mock("@tedix/db/queries/learning-feedback", async (importActual) => {
 		summarizeRecurringLearningIssues: actual.summarizeRecurringLearningIssues,
 		listLearningInteractionsForReflection: vi.fn(),
 		listLearningIssueKeysForReflection: vi.fn(async () => []),
-		listLearningInteractionsForIssueKey: vi.fn(async () => []),
+		listLearningInteractionsForIssuePrefix: vi.fn(async () => []),
 		recordLearningInteraction: vi.fn(),
 		proposeLearningImprovement: vi.fn(),
 		listLearningImprovementProposals: vi.fn(),
@@ -46,7 +46,7 @@ vi.mock("@tedix/db/queries/work-items/activity", () => ({
 
 import {
 	listLearningImprovementProposals,
-	listLearningInteractionsForIssueKey,
+	listLearningInteractionsForIssuePrefix,
 	listLearningInteractionsForReflection,
 	listLearningIssueKeysForReflection,
 	proposeLearningImprovement,
@@ -125,7 +125,7 @@ beforeEach(() => {
 	vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([]);
-	vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([]);
+	vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([]);
 	vi.mocked(listLearningImprovementProposals).mockResolvedValue([]);
 	vi.mocked(listWorkActivity).mockResolvedValue({
 		events: [],
@@ -309,12 +309,13 @@ describe("historic session imports", () => {
 			occurredAt,
 		});
 
-	it("walks imported scopes outside the 30-day window, one scope at a time", async () => {
+	it("learns imports per repository, outside the 30-day window", async () => {
 		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
 		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
 			"decision:acme:claude-code:deploy",
+			"decision:acme:codex:question",
 		]);
-		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
 			imported("h1", "2025-01-01T10:00:00.000Z"),
 			imported("h2", "2025-02-01T10:00:00.000Z"),
 		]);
@@ -323,13 +324,19 @@ describe("historic session imports", () => {
 			now: new Date("2026-10-07T12:00:00.000Z"),
 		});
 		expect(result.factsWritten).toBe(1);
-		expect(listLearningInteractionsForIssueKey).toHaveBeenCalledWith(db, {
+		expect(listLearningInteractionsForIssuePrefix).toHaveBeenCalledTimes(1);
+		expect(listLearningInteractionsForIssuePrefix).toHaveBeenCalledWith(db, {
 			organizationId: "org-1",
-			issueKey: "decision:acme:claude-code:deploy",
-			surfaces: ["decision_capture", "agent_session_import"],
-			limit: 40,
+			issuePrefix: "decision:acme:",
+			surfaces: ["agent_session_import"],
+			limit: 1000,
 		});
-		expect(vi.mocked(createFact).mock.calls[0]![1].metadata).toMatchObject({
+		const fact = vi.mocked(createFact).mock.calls[0]![1];
+		// One subject lesson per repository: the reply type and host drop out.
+		expect(fact.topicKey).toBe(
+			"learning-feed:decision:acme:general:general:user:user-1",
+		);
+		expect(fact.metadata).toMatchObject({
 			learningFeed: { evidenceEventIds: ["h2", "h1"] },
 		});
 	});
@@ -339,19 +346,25 @@ describe("historic session imports", () => {
 		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
 			"decision:acme:claude-code:deploy",
 		]);
-		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
 			imported("h1", "2025-01-01T10:00:00.000Z"),
 			imported("h2", "2025-02-01T10:00:00.000Z"),
 		]);
 		const distill = vi.fn(async () => ["Never deploy on Fridays."]);
 		await mineLearningFeed(db, { orgId: "org-1", distill });
 		expect(vi.mocked(distill).mock.calls[0]![0]).toMatchObject({
-			scope: { repo: "acme", harness: "claude-code", topic: "deploy" },
+			scope: { repo: "acme", harness: "general", topic: "general" },
+			replies: [
+				{
+					text: "Never deploy on Fridays; wait for Monday morning.",
+					session: null,
+					kind: "deploy",
+				},
+				expect.anything(),
+			],
 		});
 		const fact = vi.mocked(createFact).mock.calls[0]![1];
-		expect(fact.content).toBe(
-			"Lessons from user decisions in acme (claude-code, deploy):\n- Never deploy on Fridays.",
-		);
+		expect(fact.content).toMatch(/\n- Never deploy on Fridays\.$/);
 		expect(fact.metadata).toMatchObject({
 			learningFeed: { distilled: DISTILL_VERSION },
 		});
@@ -362,7 +375,7 @@ describe("historic session imports", () => {
 		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
 			"decision:acme:claude-code:deploy",
 		]);
-		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
 			imported("h1", "2025-01-01T10:00:00.000Z"),
 			imported("h2", "2025-02-01T10:00:00.000Z"),
 		]);
@@ -399,7 +412,7 @@ describe("historic session imports", () => {
 		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
 			"decision:acme:claude-code:deploy",
 		]);
-		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
 			imported("h1", "2025-01-01T10:00:00.000Z"),
 			imported("h2", "2025-02-01T10:00:00.000Z"),
 			imported("h3", "2025-03-01T10:00:00.000Z"),

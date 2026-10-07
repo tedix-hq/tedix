@@ -1,24 +1,39 @@
 /**
- * Distill a learning-feed lesson's quoted decisions into durable rules.
+ * Distill a person's replies in one learning-feed scope into durable rules.
  *
- * The miner groups a person's replies to their agents by scope and quotes
- * them. Quotes of one-off requests do not change how a later session
- * behaves; a rule such as "Call them tedis, not agents" or "Commit straight
- * to main; never open pull requests" does. This asks a text model for at
- * most three such rules, or none when the replies carry no lasting
- * preference, decision or recurring correction. A failure returns null and
- * the miner keeps the quoted lesson.
+ * Quotes of past replies rarely change how a later session behaves; a rule
+ * the person keeps restating does. The model sees the scope's replies
+ * numbered newest first and must cite, for every rule, the replies that state
+ * it. A rule survives only when its cited replies come from at least two
+ * sessions, or one cited reply states it as standing ("always", "never",
+ * "from now on"), and the cited replies share its words. One-off task
+ * instructions, meta/test prompts, names and money never become rules. When
+ * replies conflict the newest wins. A failure returns null and the miner
+ * keeps the quoted lesson.
  */
 
 const DISTILL_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const DISTILL_TIMEOUT_MS = 8_000;
-const MAX_RULES = 3;
-const RULE_CHARS = 220;
+const DISTILL_TIMEOUT_MS = 25_000;
+const MAX_RULES = 6;
+const MAX_REPLIES = 120;
+const REPLY_CHARS = 280;
+const RULE_CHARS = 160;
+
+export interface DistillReply {
+	text: string;
+	/** Session (thread) the reply came from. */
+	session: string | null;
+	/** Coarse reply class, when known (prioritizes telling replies). */
+	kind?: string;
+	occurredAt: string;
+}
 
 export interface DistillInput {
 	/** The quoted lesson the miner built (header line, then `- ` lines). */
 	content: string;
 	scope: { repo: string; harness: string; topic: string };
+	/** The scope's replies; the quoted lesson is used when absent. */
+	replies?: DistillReply[];
 }
 
 /** Rules to deliver; `[]` when nothing lasting was found; null on failure. */
@@ -28,18 +43,71 @@ export type LessonDistiller = (input: DistillInput) => Promise<string[] | null>;
  * Bumped when the prompt or filter changes, so lessons distilled by an
  * earlier version are rewritten once.
  */
-export const DISTILL_VERSION = 3;
+export const DISTILL_VERSION = 4;
+
+/** Test and harness prompts about Tedix itself teach nothing about the person. */
+const META_REPLY =
+	/\b(without (?:using )?tools|report only|reply (?:only )?with|respond only|say only|tedix context received|this is a test|test message)\b/i;
+const STANDING =
+	/\b(always|never|from now on|every time|in general|by default|we (?:do not|don't|dont)|stop (?:doing|asking|using)|do not ever|going forward)\b/i;
+const MONEY =
+	/(?:[€$£]\s?\d|\d[\d.,]*\s?(?:€|eur|usd|dollars?|euros?)\b|\b(?:invoice|payment|salary|bank|iban|tax)\b)/i;
+
+/**
+ * Reply kinds (the importer's coarse reply class) that most often state a
+ * preference; the rest fill what room is left.
+ */
+const TELLING_KINDS = new Set([
+	"correction",
+	"frustration",
+	"challenge",
+	"plain-english",
+	"simplify",
+	"verify",
+	"ship",
+	"fan-out",
+	"instruction",
+]);
+
+/** Replies worth distilling, newest first, without meta prompts. */
+export function distillReplies(replies: DistillReply[]): DistillReply[] {
+	const usable = replies.filter(
+		(reply) => reply.text.trim() && !META_REPLY.test(reply.text),
+	);
+	const telling = usable.filter(
+		(reply) => !reply.kind || TELLING_KINDS.has(reply.kind),
+	);
+	const rest = usable.filter(
+		(reply) => reply.kind && !TELLING_KINDS.has(reply.kind),
+	);
+	const byNewest = (a: DistillReply, b: DistillReply) =>
+		b.occurredAt.localeCompare(a.occurredAt);
+	return [...telling.sort(byNewest), ...rest.sort(byNewest)]
+		.slice(0, MAX_REPLIES)
+		.sort(byNewest)
+		.map((reply) => ({
+			...reply,
+			text: reply.text.replace(/\s+/g, " ").trim().slice(0, REPLY_CHARS),
+		}));
+}
 
 export function distillPrompt(input: DistillInput): string {
+	const replies = distillReplies(input.replies ?? []);
+	const body = replies.length
+		? replies.map((reply, index) => `[${index + 1}] ${reply.text}`).join("\n")
+		: input.content;
 	// No example rules: a model copies examples into answers they do not fit.
 	return [
-		"Below are replies a person gave to their AI coding or work agent, each with what the agent had just said.",
-		"Write at most 3 durable rules that agent should follow in every future session, in short imperative plain English.",
-		"Only write a rule for a lasting preference, standing decision, naming convention or correction that one of the replies below states in its own words. Each rule must restate what a reply says; never add a rule the replies do not state.",
-		"A rule needs at least two replies that say it, unless one reply states it as standing (always, never, from now on, we do not). Do not write rules for one-off task requests, a single tool or setting used once, questions, approvals or status checks. Do not include names of other people, emails, or secrets.",
-		"If there is no lasting rule, answer exactly NONE. Otherwise output one rule per line, each starting with '- '.",
+		"Below are replies a person gave to their AI coding or work agent, numbered newest first.",
+		`Write at most ${MAX_RULES} durable rules the agent should follow in every future session, in short imperative plain English.`,
+		"A rule must be a general working preference, standing decision, naming convention or recurring correction that the replies state. It must hold beyond the task at hand.",
+		"Never write a rule for a one-off task instruction (a specific setting, value, connector, file, person, ID or command to use once), a question, an approval or a status check.",
+		"When replies conflict, keep only what the newest reply says.",
+		"Do not mention people's names, emails, money, amounts or secrets.",
+		"After each rule, cite the numbers of the replies that state it, like: - Keep answers short. [2, 9]",
+		"If there is no such rule, answer exactly NONE.",
 		"",
-		input.content,
+		body,
 	].join("\n");
 }
 
@@ -57,8 +125,8 @@ function words(text: string): string[] {
 }
 
 /**
- * A rule survives only when the quoted replies share at least two of its
- * content words (one for a one-word rule), so an invented rule is dropped.
+ * A rule survives only when the given text shares at least two of its content
+ * words (one for a one-word rule), so an invented rule is dropped.
  */
 export function supportedRules(rules: string[], quoted: string): string[] {
 	const source = new Set(words(quoted));
@@ -73,8 +141,13 @@ export function supportedRules(rules: string[], quoted: string): string[] {
 	});
 }
 
-/** Parse the model's answer into rules; null when it is unusable. */
-export function parseDistilledRules(text: string): string[] | null {
+export interface CitedRule {
+	rule: string;
+	cites: number[];
+}
+
+/** Parse `- rule [1, 4]` lines; `[]` for NONE; null when unusable. */
+export function parseCitedRules(text: string): CitedRule[] | null {
 	const trimmed = text.trim();
 	if (!trimmed) return null;
 	if (/^none\.?$/i.test(trimmed)) return [];
@@ -82,14 +155,60 @@ export function parseDistilledRules(text: string): string[] | null {
 		.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => /^[-*•]\s+\S/.test(line))
-		.map((line) => line.replace(/^[-*•]\s+/, "").trim())
-		.filter((rule) => rule.length >= 8 && !/^none\b/i.test(rule))
-		.map((rule) =>
-			rule.length > RULE_CHARS ? `${rule.slice(0, RULE_CHARS - 1)}…` : rule,
-		)
-		.slice(0, MAX_RULES);
+		.map((line) => {
+			const body = line.replace(/^[-*•]\s+/, "");
+			const match = /\[([\d,\s]+)\]\s*\.?$/.exec(body);
+			const cites = match
+				? [
+						...new Set(
+							match[1]!
+								.split(",")
+								.map((n) => Number(n.trim()))
+								.filter((n) => Number.isInteger(n) && n > 0),
+						),
+					]
+				: [];
+			const rule = (match ? body.slice(0, match.index) : body)
+				.trim()
+				.replace(/\s+/g, " ");
+			return { rule, cites };
+		})
+		.filter(({ rule }) => rule.length >= 8 && !/^none\b/i.test(rule));
 	if (rules.length === 0) return /\bnone\b/i.test(trimmed) ? [] : null;
 	return rules;
+}
+
+/** Keep a rule only when its cited replies support it as lasting. */
+export function acceptedRules(
+	cited: CitedRule[],
+	replies: DistillReply[],
+): string[] {
+	const accepted: string[] = [];
+	for (const { rule, cites } of cited) {
+		if (MONEY.test(rule)) continue;
+		const sources = cites
+			.map((n) => replies[n - 1])
+			.filter((reply): reply is DistillReply => reply !== undefined);
+		if (sources.length === 0) continue;
+		const sessions = new Set(
+			sources.map((reply) => reply.session ?? reply.text),
+		);
+		const lasting =
+			sessions.size >= 2 || sources.some((reply) => STANDING.test(reply.text));
+		if (!lasting) continue;
+		if (
+			supportedRules([rule], sources.map((reply) => reply.text).join("\n"))
+				.length === 0
+		)
+			continue;
+		if (accepted.some((kept) => kept.toLowerCase() === rule.toLowerCase()))
+			continue;
+		accepted.push(
+			rule.length > RULE_CHARS ? `${rule.slice(0, RULE_CHARS - 1)}…` : rule,
+		);
+		if (accepted.length >= MAX_RULES) break;
+	}
+	return accepted;
 }
 
 type DistillEnv = Pick<CloudflareEnv, "AI"> & {
@@ -98,13 +217,15 @@ type DistillEnv = Pick<CloudflareEnv, "AI"> & {
 
 export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
 	return async (input) => {
+		const replies = distillReplies(input.replies ?? []);
+		if (replies.length === 0) return null;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			const call = env.AI.run(
 				DISTILL_MODEL as keyof AiModels,
 				{
 					messages: [{ role: "user", content: distillPrompt(input) }],
-					max_tokens: 300,
+					max_tokens: 500,
 					temperature: 0,
 				} as never,
 				env.AI_GATEWAY_LLM_ID
@@ -126,8 +247,8 @@ export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
 			if (outcome === "timeout") return null;
 			const response = (outcome as { response?: unknown } | null)?.response;
 			if (typeof response !== "string") return null;
-			const rules = parseDistilledRules(response);
-			return rules ? supportedRules(rules, input.content) : null;
+			const cited = parseCitedRules(response);
+			return cited ? acceptedRules(cited, replies) : null;
 		} catch {
 			return null;
 		} finally {

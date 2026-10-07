@@ -8,6 +8,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	listLearningInteractionsForIssueKey,
+	listLearningInteractionsForIssuePrefix,
 	listLearningIssueKeysForReflection,
 	recordLearningInteractionsBatch,
 } from "./learning-feedback";
@@ -72,6 +73,25 @@ describe("recordLearningInteractionsBatch", () => {
 		expect(events.map((e) => e.clientEventId)).toEqual([
 			"agent-session-import:3",
 		]);
+		const byRepo = await listLearningInteractionsForIssuePrefix(db, {
+			organizationId: "org-1",
+			issuePrefix: "decision:acme:",
+			surfaces: ["agent_session_import"],
+			limit: 10,
+		});
+		expect(byRepo.map((e) => e.clientEventId).sort()).toEqual([
+			"agent-session-import:1",
+			"agent-session-import:2",
+			"agent-session-import:3",
+		]);
+		expect(
+			await listLearningInteractionsForIssuePrefix(db, {
+				organizationId: "org-1",
+				issuePrefix: "decision:acm:",
+				surfaces: ["agent_session_import"],
+				limit: 10,
+			}),
+		).toEqual([]);
 		expect(
 			await listLearningInteractionsForIssueKey(db, {
 				organizationId: "org-1",
