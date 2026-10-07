@@ -226,15 +226,28 @@ describe("planLessons", () => {
 				subject: "agents",
 				sessions: ["s1", "s2"],
 			}),
+			// More git rules than the repository's standing lesson holds.
+			...Array.from({ length: 8 }, (_, n) =>
+				candidate({
+					rule: `Git habit ${n} here`,
+					sessions: ["s1", "s2"],
+					eventIds: [`g${n}`],
+				}),
+			),
 		]);
 		expect(lessons.map((l) => [l.topicKey, l.rules.length])).toEqual([
 			["learning-feed:decision:general:general:standing:user:user-1", 2],
+			["learning-feed:decision:tedix:general:standing:user:user-1", 8],
 			["learning-feed:decision:tedix:general:git:user:user-1", 1],
 		]);
 		expect(lessons[0]!.content.split("\n")[1]).toBe(
 			"- Answer short in plain English with one recommendation",
 		);
-		expect(lessons[1]!.scope).toEqual({
+		expect(lessons[1]!.content.split("\n").slice(0, 2)).toEqual([
+			"How the user works in tedix:",
+			"- Commit straight to main and never open pull requests",
+		]);
+		expect(lessons[2]!.scope).toEqual({
 			repo: "tedix",
 			harness: "general",
 			topic: "git",
@@ -334,7 +347,7 @@ describe("distillPersonalLessons", () => {
 		const facts = vi.mocked(createFact).mock.calls.map((call) => call[1]);
 		expect(facts.map((f) => f.topicKey)).toEqual([
 			"learning-feed:decision:general:general:standing:user:user-1",
-			"learning-feed:decision:tedix:general:git:user:user-1",
+			"learning-feed:decision:tedix:general:standing:user:user-1",
 		]);
 		expect(facts[0]).toMatchObject({
 			status: "active",
@@ -354,7 +367,7 @@ describe("distillPersonalLessons", () => {
 			},
 		});
 		expect(facts[1]!.content).toBe(
-			"Git and shipping in tedix:\n- Commit straight to main, never open pull requests",
+			"How the user works in tedix:\n- Commit straight to main, never open pull requests",
 		);
 		// The person's own review is never superseded.
 		expect(vi.mocked(invalidateFact).mock.calls.map((c) => c[1])).toEqual([
