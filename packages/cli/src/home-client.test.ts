@@ -1731,3 +1731,706 @@ test("immutable and shared failures get independent trace receipts", async () =>
 		await client.close();
 	}
 });
+
+describe("bounded native calls", () => {
+	const provider = {
+		tokens: () => ({ access_token: "fictional-token", token_type: "Bearer" }),
+		clientInformation: () => ({ client_id: "fictional-cli" }),
+	} as NonNullable<
+		ConstructorParameters<typeof TedixHomeClient>[0]["oauthProvider"]
+	>;
+	const response = (id: string, result: unknown) =>
+		Response.json({ jsonrpc: "2.0", id, result });
+	const options = {
+		maxResponseBytes: 4 * 1024 * 1024,
+		retryable: false,
+		timeoutMs: 1000,
+	};
+	for (const oauth of [false, true]) {
+		const make = (
+			fetcher: NonNullable<
+				ConstructorParameters<typeof TedixHomeClient>[0]["fetch"]
+			>,
+		) =>
+			new TedixHomeClient({
+				headers: {},
+				url: "https://fictional.example/mcp",
+				fetch: fetcher,
+				...(oauth ? { oauthProvider: provider } : {}),
+			});
+		test(`${oauth ? "OAuth SDK" : "raw"} refuses oversized streaming body and cancels without replay`, async () => {
+			let calls = 0,
+				cancelled = 0;
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return response(b.id, { supportedVersions: ["2026-07-28"] });
+				calls++;
+				return new Response(
+					new ReadableStream({
+						start(c) {
+							c.enqueue(new Uint8Array(4 * 1024 * 1024 + 1).fill(32));
+						},
+						cancel() {
+							cancelled++;
+						},
+					}),
+					{ headers: { "content-type": "application/json" } },
+				);
+			});
+			try {
+				await expect(
+					client.callTool("fictional_mutation", {}, options),
+				).rejects.toThrow("byte limit");
+				expect(calls).toBe(1);
+				expect(cancelled).toBe(1);
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} caller abort owns pending body and does not poison next invocation`, async () => {
+			let cancelled = 0,
+				calls = 0;
+			let begun!: () => void;
+			const started = new Promise<void>((r) => {
+				begun = r;
+			});
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return response(b.id, { supportedVersions: ["2026-07-28"] });
+				if (++calls === 1)
+					return new Response(
+						new ReadableStream({
+							start() {
+								begun();
+							},
+							pull() {
+								return new Promise(() => {});
+							},
+							cancel() {
+								cancelled++;
+							},
+						}),
+						{ headers: { "content-type": "application/json" } },
+					);
+				return response(b.id, { structuredContent: { ok: true } });
+			});
+			const abort = new AbortController();
+			try {
+				const pending = client.callTool(
+					"fictional_mutation",
+					{},
+					{ ...options, signal: abort.signal },
+				);
+				const outcome = pending.then(
+					() => {
+						throw new Error("unexpected success");
+					},
+					(error) => error,
+				);
+				await started;
+				abort.abort(new Error("withdrawn"));
+				expect((await outcome).message).toContain("withdrawn");
+				expect(cancelled).toBe(1);
+				await expect(
+					client.callTool("fictional_read", {}, options),
+				).resolves.toEqual({ ok: true });
+				expect(calls).toBe(2);
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} input continuations share one response quota`, async () => {
+			let calls = 0;
+			const lengths: number[] = [];
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				const result =
+					b.method === "server/discover"
+						? { supportedVersions: ["2026-07-28"] }
+						: ++calls === 1
+							? {
+									resultType: "input_required",
+									requestState: "signed-state",
+									inputRequests: {
+										approval: {
+											method: "elicitation/create",
+											params: {
+												mode: "form",
+												requestedSchema: { properties: { reason: {} } },
+											},
+										},
+									},
+								}
+							: { structuredContent: { padding: "x".repeat(300) } };
+				const wire = JSON.stringify({ jsonrpc: "2.0", id: b.id, result });
+				lengths.push(new TextEncoder().encode(wire).byteLength);
+				return new Response(wire, {
+					headers: { "content-type": "application/json" },
+				});
+			});
+			try {
+				await expect(
+					client.callToolWithDestructiveApproval(
+						"fictional_mutation",
+						{},
+						"fictional approval",
+						{ ...options, maxResponseBytes: 600 },
+					),
+				).rejects.toThrow("byte limit");
+				expect(calls).toBe(2);
+				expect(lengths.every((n) => n < 600)).toBe(true);
+				expect(lengths.reduce((a, b) => a + b, 0)).toBeGreaterThan(600);
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} task progress cannot renew original deadline`, async () => {
+			let starts = 0,
+				polls = 0;
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return response(b.id, {
+						supportedVersions: ["2026-07-28"],
+						capabilities: {
+							extensions: { "io.modelcontextprotocol/tasks": {} },
+						},
+					});
+				if (b.method === "tools/call") {
+					starts++;
+					return response(b.id, {
+						resultType: "task",
+						...taskBase("fictional-task"),
+						status: "working",
+					});
+				}
+				polls++;
+				return response(b.id, {
+					resultType: "complete",
+					...taskBase("fictional-task"),
+					status: "working",
+					pollIntervalMs: 1,
+				});
+			});
+			try {
+				await expect(
+					client.callTool(
+						"fictional_mutation",
+						{},
+						{ ...options, timeoutMs: 40 },
+					),
+				).rejects.toThrow("deadline");
+				expect(starts).toBe(1);
+				expect(polls).toBeGreaterThan(0);
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} refuses malformed UTF-8 before publication`, async () => {
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return response(b.id, { supportedVersions: ["2026-07-28"] });
+				return new Response(new Uint8Array([0xff]), {
+					headers: { "content-type": "application/json" },
+				});
+			});
+			try {
+				await expect(
+					client.callTool("fictional_read", {}, options),
+				).rejects.toThrow();
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} original deadline cancels ignored fetch without retry`, async () => {
+			let calls = 0;
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return response(b.id, { supportedVersions: ["2026-07-28"] });
+				calls++;
+				return await new Promise<Response>(() => {});
+			});
+			try {
+				await expect(
+					client.callTool(
+						"fictional_mutation",
+						{},
+						{ ...options, timeoutMs: 30 },
+					),
+				).rejects.toThrow("deadline");
+				expect(calls).toBe(1);
+			} finally {
+				await client.close();
+			}
+		});
+	}
+	test("aborted destructive queue never starts and retains predecessor serialization", async () => {
+		let release!: (v: unknown) => void;
+		const started: string[] = [];
+		const client = new TedixHomeClient({
+			headers: {},
+			url: "https://fictional.example/mcp",
+			connect: async () => ({
+				callTool: async ({ name }) => {
+					started.push(name);
+					if (name === "first")
+						return await new Promise((r) => {
+							release = r;
+						});
+					return { structuredContent: { ok: true } };
+				},
+				close: async () => {},
+			}),
+		});
+		try {
+			const first = client.callToolWithDestructiveApproval(
+				"first",
+				{},
+				"first reason",
+				options,
+			);
+			while (!release) await new Promise((r) => setTimeout(r, 1));
+			const abort = new AbortController();
+			const second = client.callToolWithDestructiveApproval(
+				"second",
+				{},
+				"second reason",
+				{ ...options, signal: abort.signal },
+			);
+			const outcome = second.then(
+				() => {
+					throw new Error("unexpected success");
+				},
+				(error) => error,
+			);
+			abort.abort(new Error("withdrawn"));
+			expect((await outcome).message).toContain("withdrawn");
+			const third = client.callToolWithDestructiveApproval(
+				"third",
+				{},
+				"third reason",
+				options,
+			);
+			await new Promise((r) => setTimeout(r, 5));
+			expect(started).toEqual(["first"]);
+			release({ structuredContent: { ok: true } });
+			await first;
+			await third;
+			expect(started).toEqual(["first", "third"]);
+		} finally {
+			await client.close();
+		}
+	});
+});
+
+describe("OAuth SDK request-bound SSE resumption", () => {
+	const provider = {
+		tokens: () => ({ access_token: "fictional-token", token_type: "Bearer" }),
+		clientInformation: () => ({ client_id: "fictional-cli" }),
+	} as NonNullable<
+		ConstructorParameters<typeof TedixHomeClient>[0]["oauthProvider"]
+	>;
+	for (const mode of ["oversized", "cumulative", "deadline"] as const) {
+		test(`resumed GET preserves ${mode} guard without repeating POST`, async () => {
+			let posts = 0,
+				gets = 0,
+				cancelled = 0;
+			const lengths: number[] = [];
+			const client = new TedixHomeClient({
+				headers: {},
+				url: "https://fictional.example/mcp",
+				oauthProvider: provider,
+				fetch: async (_url, init) => {
+					if (init?.method === "GET") {
+						gets++;
+						expect(new Headers(init.headers).get("last-event-id")).toBe(
+							"fictional-resume-token",
+						);
+						if (mode === "deadline")
+							return new Response(
+								new ReadableStream({
+									pull() {
+										return new Promise(() => {});
+									},
+									cancel() {
+										cancelled++;
+									},
+								}),
+								{ headers: { "content-type": "text/event-stream" } },
+							);
+						const bytes =
+							mode === "oversized"
+								? new Uint8Array(4 * 1024 * 1024 + 1).fill(32)
+								: new TextEncoder().encode(
+										`data: ${JSON.stringify({ jsonrpc: "2.0", id: "replayed", result: { structuredContent: { padding: "x".repeat(260) } } })}\n\n`,
+									);
+						lengths.push(bytes.byteLength);
+						return new Response(
+							new ReadableStream({
+								start(c) {
+									c.enqueue(bytes);
+								},
+								cancel() {
+									cancelled++;
+								},
+							}),
+							{ headers: { "content-type": "text/event-stream" } },
+						);
+					}
+					const b = JSON.parse(String(init?.body));
+					if (b.method === "server/discover") {
+						const wire = JSON.stringify({
+							jsonrpc: "2.0",
+							id: b.id,
+							result: { supportedVersions: ["2026-07-28"] },
+						});
+						lengths.push(new TextEncoder().encode(wire).byteLength);
+						return new Response(wire, {
+							headers: { "content-type": "application/json" },
+						});
+					}
+					posts++;
+					const prime =
+						"retry: 1\nid: fictional-resume-token\nevent: priming\ndata: {}\n\n";
+					lengths.push(new TextEncoder().encode(prime).byteLength);
+					return new Response(prime, {
+						headers: { "content-type": "text/event-stream" },
+					});
+				},
+			});
+			try {
+				await expect(
+					client.callTool(
+						"fictional_mutation",
+						{},
+						{
+							retryable: false,
+							maxResponseBytes: mode === "cumulative" ? 400 : 4 * 1024 * 1024,
+							timeoutMs: mode === "deadline" ? 80 : 1000,
+						},
+					),
+				).rejects.toThrow(mode === "deadline" ? "deadline" : "byte limit");
+				expect(posts).toBe(1);
+				expect(gets).toBe(1);
+				expect(cancelled).toBe(1);
+				if (mode === "cumulative") {
+					expect(lengths.every((n) => n <= 400)).toBe(true);
+					expect(lengths.reduce((a, b) => a + b, 0)).toBeGreaterThan(400);
+				}
+			} finally {
+				await client.close();
+			}
+		});
+	}
+	test("resumed response succeeds inside the same original quota", async () => {
+		let posts = 0,
+			gets = 0;
+		let requestId = "";
+		const client = new TedixHomeClient({
+			headers: {},
+			url: "https://fictional.example/mcp",
+			oauthProvider: provider,
+			fetch: async (_url, init) => {
+				if (init?.method === "GET") {
+					gets++;
+					return new Response(
+						`data: ${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { structuredContent: { ok: true } } })}\n\n`,
+						{ headers: { "content-type": "text/event-stream" } },
+					);
+				}
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: b.id,
+						result: { supportedVersions: ["2026-07-28"] },
+					});
+				requestId = b.id;
+				posts++;
+				return new Response(
+					"retry: 1\nid: fictional-positive\nevent: priming\ndata: {}\n\n",
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			},
+		});
+		try {
+			await expect(
+				client.callTool(
+					"fictional_read",
+					{},
+					{ retryable: false, maxResponseBytes: 600, timeoutMs: 1000 },
+				),
+			).resolves.toEqual({ ok: true });
+			expect(posts).toBe(1);
+			expect(gets).toBe(1);
+		} finally {
+			await client.close();
+		}
+	});
+	test("colliding resumption tokens refuse rather than select another invocation", async () => {
+		let posts = 0,
+			gets = 0;
+		const client = new TedixHomeClient({
+			headers: {},
+			url: "https://fictional.example/mcp",
+			oauthProvider: provider,
+			fetch: async (_url, init) => {
+				if (init?.method === "GET") {
+					gets++;
+					throw new Error("ambiguous GET must not fetch");
+				}
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: b.id,
+						result: { supportedVersions: ["2026-07-28"] },
+					});
+				posts++;
+				return new Response(
+					"retry: 30\nid: fictional-collision\nevent: priming\ndata: {}\n\n",
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			},
+		});
+		try {
+			const results = await Promise.allSettled([
+				client.callTool(
+					"fictional_first",
+					{},
+					{ retryable: false, maxResponseBytes: 600, timeoutMs: 1000 },
+				),
+				client.callTool(
+					"fictional_second",
+					{},
+					{ retryable: false, maxResponseBytes: 600, timeoutMs: 1000 },
+				),
+			]);
+			for (const result of results) {
+				expect(result.status).toBe("rejected");
+				if (result.status !== "rejected") throw new Error("unexpected success");
+				expect(String(result.reason)).toContain(
+					"Ambiguous native SSE resumption identity",
+				);
+			}
+			expect(posts).toBe(2);
+			expect(gets).toBe(0);
+		} finally {
+			await client.close();
+		}
+	});
+	for (const mode of ["input", "task"] as const) {
+		test(`resumed ${mode} continuation retains the original cumulative quota`, async () => {
+			let posts = 0,
+				gets = 0,
+				requestId = "",
+				cancelled = 0;
+			const lengths: number[] = [];
+			const client = new TedixHomeClient({
+				headers: {},
+				url: "https://fictional.example/mcp",
+				oauthProvider: provider,
+				fetch: async (_url, init) => {
+					if (init?.method === "GET") {
+						gets++;
+						const result =
+							mode === "task"
+								? {
+										resultType: "complete",
+										...taskBase("fictional-task"),
+										status: "completed",
+										result: { structuredContent: { padding: "x".repeat(350) } },
+									}
+								: { structuredContent: { padding: "x".repeat(350) } };
+						const bytes = new TextEncoder().encode(
+							`data: ${JSON.stringify({ jsonrpc: "2.0", id: requestId, result })}\n\n`,
+						);
+						lengths.push(bytes.byteLength);
+						return new Response(
+							new ReadableStream({
+								start(c) {
+									c.enqueue(bytes);
+								},
+								cancel() {
+									cancelled++;
+								},
+							}),
+							{ headers: { "content-type": "text/event-stream" } },
+						);
+					}
+					const b = JSON.parse(String(init?.body));
+					let result: unknown;
+					if (b.method === "server/discover")
+						result = {
+							supportedVersions: ["2026-07-28"],
+							capabilities: {
+								extensions: { "io.modelcontextprotocol/tasks": {} },
+							},
+						};
+					else if (b.method === "tools/call" && ++posts === 1)
+						result =
+							mode === "task"
+								? {
+										resultType: "task",
+										...taskBase("fictional-task"),
+										status: "working",
+									}
+								: {
+										resultType: "input_required",
+										requestState: "signed-state",
+										inputRequests: {
+											approval: {
+												method: "elicitation/create",
+												params: {
+													mode: "form",
+													requestedSchema: { properties: { reason: {} } },
+												},
+											},
+										},
+									};
+					else {
+						requestId = b.id;
+						const prime =
+							"retry: 1\nid: fictional-continuation\nevent: priming\ndata: {}\n\n";
+						lengths.push(new TextEncoder().encode(prime).byteLength);
+						return new Response(prime, {
+							headers: { "content-type": "text/event-stream" },
+						});
+					}
+					const wire = JSON.stringify({ jsonrpc: "2.0", id: b.id, result });
+					lengths.push(new TextEncoder().encode(wire).byteLength);
+					return new Response(wire, {
+						headers: { "content-type": "application/json" },
+					});
+				},
+			});
+			try {
+				await expect(
+					client.callToolWithDestructiveApproval(
+						"fictional_mutation",
+						{},
+						"fictional approval",
+						{ retryable: false, maxResponseBytes: 700, timeoutMs: 1000 },
+					),
+				).rejects.toThrow("byte limit");
+				expect(posts).toBe(mode === "input" ? 2 : 1);
+				expect(gets).toBe(1);
+				expect(cancelled).toBe(1);
+				expect(lengths.every((n) => n < 700)).toBe(true);
+				expect(lengths.reduce((a, b) => a + b, 0)).toBeGreaterThan(700);
+			} finally {
+				await client.close();
+			}
+		});
+	}
+	test("many event IDs retain only the current request token and completed owners retire", async () => {
+		let posts = 0,
+			gets = 0,
+			requestId = "",
+			latest = "";
+		const client = new TedixHomeClient({
+			headers: {},
+			url: "https://fictional.example/mcp",
+			oauthProvider: provider,
+			fetch: async (_url, init) => {
+				if (init?.method === "GET") {
+					gets++;
+					expect(new Headers(init.headers).get("last-event-id")).toBe(latest);
+					return new Response(
+						`data: ${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { structuredContent: { ok: true } } })}\n\n`,
+						{ headers: { "content-type": "text/event-stream" } },
+					);
+				}
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: b.id,
+						result: { supportedVersions: ["2026-07-28"] },
+					});
+				posts++;
+				requestId = b.id;
+				let prime = "retry: 1\n";
+				for (let i = 0; i < 128; i++) {
+					latest = `fictional-${posts}-${i}`;
+					prime += `id: ${latest}\nevent: priming\ndata: {}\n\n`;
+				}
+				return new Response(prime, {
+					headers: { "content-type": "text/event-stream" },
+				});
+			},
+		});
+		try {
+			for (let i = 0; i < 70; i++)
+				await expect(
+					client.callTool(
+						"fictional_read",
+						{},
+						{ retryable: false, maxResponseBytes: 16384, timeoutMs: 1000 },
+					),
+				).resolves.toEqual({ ok: true });
+			expect(posts).toBe(70);
+			expect(gets).toBe(70);
+		} finally {
+			await client.close();
+		}
+	});
+	test("active registration refusal does not evict a sibling owner", async () => {
+		const abort = new AbortController();
+		let posts = 0;
+		const client = new TedixHomeClient({
+			headers: {},
+			url: "https://fictional.example/mcp",
+			oauthProvider: provider,
+			fetch: async (_url, init) => {
+				if (init?.method === "GET")
+					throw new Error("retry waits past original deadline");
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: b.id,
+						result: { supportedVersions: ["2026-07-28"] },
+					});
+				posts++;
+				return new Response(
+					`retry: 60000\nid: fictional-${b.id}\nevent: priming\ndata: {}\n\n`,
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			},
+		});
+		try {
+			const pending = Array.from({ length: 65 }, () =>
+				client
+					.callTool(
+						"fictional_read",
+						{},
+						{
+							retryable: false,
+							maxResponseBytes: 600,
+							timeoutMs: 1000,
+							signal: abort.signal,
+						},
+					)
+					.then(
+						() => new Error("unexpected success"),
+						(error) => error,
+					),
+			);
+			const last = await pending[64];
+			expect(String(last)).toContain("active resumption limit");
+			expect(posts).toBe(65);
+			abort.abort(new Error("withdrawn siblings"));
+			const others = await Promise.all(pending.slice(0, 64));
+			for (const error of others)
+				expect(String(error)).toContain("withdrawn siblings");
+		} finally {
+			abort.abort();
+			await client.close();
+		}
+	});
+});

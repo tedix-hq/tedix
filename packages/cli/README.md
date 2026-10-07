@@ -130,3 +130,23 @@ gateway-native discovery examples.
 - [Workers and governance](../../docs/public/workers-and-governance.md) and the
   [MCP app platform](../../docs/public/mcp-app-platform.md) — public context
   for the kernel/Home and MCP surfaces this CLI drives.
+
+## Native Work commands
+
+`tedix work` resolves typed operations through the authenticated gateway's native
+bootstrap and configured catalog. Missing, denied, stale, ambiguous, or
+non-native catalog entries refuse the command; Work commands do not fall back to
+Code Mode. Configure the required native tools before activating this CLI.
+
+`--as` selects a read-only namespace and does not grant another actor's identity.
+The configured input schema must support every supplied filter, including
+`--mine`; unsupported filters fail rather than being dropped. Board, checkpoint,
+inbox, attempts, evidence, and events use the bounded CLI projections while
+explicit detail commands retain their full responses.
+
+Native requests share a 4 MiB response limit and the original deadline across
+input and task continuations. Cancellation stops local reads and refuses late
+results; it does not prove that a remote write stopped. Ambiguous writes are not
+replayed. Explicit user-authored `tedix code` and the decision-capture hook retain
+their separate transport purposes. Publishing source alone does not install or
+activate a CLI release, configure native tools, or prove live adoption or savings.

@@ -235,7 +235,206 @@ export interface TedixHomeClientOptions {
 	url: string;
 }
 
+/** One bounded typed call; never shared by unrelated callers or renewed by progress. */
+class NativeCallScope {
+	readonly controller = new AbortController();
+	readonly signal = this.controller.signal;
+	readonly deadlineAt: number;
+	readonly maxBytes: number;
+	#budget: { bytes: number };
+	#timer: ReturnType<typeof setTimeout>;
+	#parent: AbortSignal | undefined;
+	#parentAbort: () => void;
+	#cancellations = new Set<() => void>();
+	constructor(
+		options: McpCallOptions,
+		timeoutMs: number,
+		budget = { bytes: 0 },
+	) {
+		this.#budget = budget;
+		const duration = options.timeoutMs ?? timeoutMs;
+		const ceiling = options.maxResponseBytes!;
+		if (
+			!Number.isSafeInteger(ceiling) ||
+			ceiling < 1 ||
+			ceiling > 4 * 1024 * 1024 ||
+			!Number.isFinite(duration) ||
+			duration <= 0 ||
+			(options.deadlineAt !== undefined && !Number.isFinite(options.deadlineAt))
+		)
+			throw new Error("Invalid bounded native call options");
+		this.maxBytes = ceiling;
+		this.deadlineAt = Math.min(
+			Date.now() + duration,
+			options.deadlineAt ?? Infinity,
+		);
+		this.#parent = options.signal;
+		this.#parentAbort = () =>
+			this.abort(
+				options.signal?.reason ?? new DOMException("Aborted", "AbortError"),
+			);
+		options.signal?.addEventListener("abort", this.#parentAbort, {
+			once: true,
+		});
+		if (options.signal?.aborted) this.#parentAbort();
+		this.#timer = setTimeout(
+			() =>
+				this.abort(
+					new DOMException("Native call deadline elapsed", "TimeoutError"),
+				),
+			Math.max(0, this.deadlineAt - Date.now()),
+		);
+		try {
+			this.guard();
+		} catch (error) {
+			this.close();
+			throw error;
+		}
+	}
+	abort(reason: unknown): void {
+		if (this.signal.aborted) return;
+		this.controller.abort(reason);
+		for (const cancel of [...this.#cancellations]) cancel();
+	}
+	guard(): void {
+		if (Date.now() >= this.deadlineAt)
+			this.abort(
+				new DOMException("Native call deadline elapsed", "TimeoutError"),
+			);
+		this.signal.throwIfAborted();
+	}
+	charge(bytes: number): void {
+		this.guard();
+		if (
+			!Number.isSafeInteger(bytes) ||
+			bytes < 0 ||
+			bytes > this.maxBytes - this.#budget.bytes
+		) {
+			this.abort(
+				new Error(
+					"Native response exceeds call-local byte limit; persistence is unknown",
+				),
+			);
+			this.guard();
+		}
+		this.#budget.bytes += bytes;
+	}
+	async wait<T>(operation: Promise<T>): Promise<T> {
+		// Observe an already-started owned operation even when the guard is sticky.
+		void operation.catch(() => {});
+		this.guard();
+		let rejectAbort: () => void = () => {};
+		const aborted = new Promise<never>((_, reject) => {
+			rejectAbort = () => reject(this.signal.reason);
+			this.signal.addEventListener("abort", rejectAbort, { once: true });
+			if (this.signal.aborted) rejectAbort();
+		});
+		try {
+			const value = await Promise.race([operation, aborted]);
+			this.guard();
+			return value;
+		} finally {
+			this.signal.removeEventListener("abort", rejectAbort);
+		}
+	}
+	cancellationScope(): NativeCallScope | undefined {
+		if (Date.now() >= this.deadlineAt || this.#budget.bytes >= this.maxBytes)
+			return undefined;
+		return new NativeCallScope(
+			{
+				deadlineAt: this.deadlineAt,
+				timeoutMs: Math.max(1, this.deadlineAt - Date.now()),
+				maxResponseBytes: this.maxBytes,
+			},
+			Math.max(1, this.deadlineAt - Date.now()),
+			this.#budget,
+		);
+	}
+	async receive(fetching: Promise<Response>): Promise<Response> {
+		return this.wait(
+			fetching.then((response) => {
+				if (this.signal.aborted) {
+					void response.body?.cancel(this.signal.reason).catch(() => {});
+					this.guard();
+				}
+				return this.wrap(response);
+			}),
+		);
+	}
+	wrap(response: Response): Response {
+		this.guard();
+		if (!response.body) return response;
+		const reader = response.body.getReader();
+		const utf8 = new TextDecoder("utf-8", { fatal: true });
+		let done = false;
+		let controller: ReadableStreamDefaultController<Uint8Array>;
+		const release = () => {
+			this.#cancellations.delete(cancel);
+		};
+		const cancel = () => {
+			if (done) return;
+			done = true;
+			void reader.cancel(this.signal.reason).catch(() => {});
+			controller.error(this.signal.reason);
+			release();
+		};
+		const stream = new ReadableStream<Uint8Array>({
+			start: (c) => {
+				controller = c;
+				this.#cancellations.add(cancel);
+				if (this.signal.aborted) cancel();
+			},
+			pull: async (c) => {
+				try {
+					const chunk = await this.wait(reader.read());
+					if (done) return;
+					if (chunk.done) {
+						utf8.decode();
+						done = true;
+						release();
+						c.close();
+						return;
+					}
+					this.charge(chunk.value.byteLength);
+					utf8.decode(chunk.value, { stream: true });
+					c.enqueue(chunk.value);
+				} catch (error) {
+					if (!done) {
+						done = true;
+						void reader.cancel(error).catch(() => {});
+						release();
+						c.error(error);
+					}
+				}
+			},
+			cancel: (reason) => {
+				done = true;
+				release();
+				return reader.cancel(reason);
+			},
+		});
+		const bounded = new Response(stream, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: response.headers,
+		});
+		for (const key of ["url", "redirected", "type"] as const)
+			Object.defineProperty(bounded, key, { value: response[key] });
+		return bounded;
+	}
+	close(): void {
+		clearTimeout(this.#timer);
+		this.#parent?.removeEventListener("abort", this.#parentAbort);
+		this.abort(new DOMException("Native call finished", "AbortError"));
+	}
+}
+
 export interface McpCallOptions {
+	/** Raw bytes across every input/task response in this logical call. */
+	maxResponseBytes?: number;
+	/** Absolute caller deadline; task/input/progress cannot renew it. */
+	deadlineAt?: number;
+	timeoutMs?: number;
 	/** Set internally so one expired-session renewal never retries twice. */
 	retriedAfterSessionRefresh?: boolean;
 	/** Abort a task-backed call and request upstream tasks/cancel. */
@@ -952,6 +1151,12 @@ export class TedixHomeClient {
 	readonly #fetch: FetchLike;
 	readonly #oauthProvider: TedixHomeClientOptions["oauthProvider"];
 	readonly #transport: StreamableHTTPClientTransport | undefined;
+	readonly #nativeScopes = new Map<string, NativeCallScope>();
+	readonly #nativeResumptionTokens = new Map<string, string>();
+	readonly #nativeResumptions = new Map<
+		string,
+		Map<string, NativeCallScope | undefined>
+	>();
 	#transportStarted: Promise<void> | undefined;
 	#oauthFlow: Promise<void> | undefined;
 	#pendingTransport = new Map<
@@ -1014,7 +1219,37 @@ export class TedixHomeClient {
 							}, true);
 						},
 					},
-					fetch: this.#fetch,
+					fetch: async (url, init) => {
+						init?.signal?.throwIfAborted();
+						let scope: NativeCallScope | undefined;
+						if (typeof init?.body === "string") {
+							try {
+								scope = this.#nativeScopes.get(
+									String(JSON.parse(init.body).id),
+								);
+							} catch {}
+						}
+						if (!scope && init?.method === "GET") {
+							const token = new Headers(init.headers).get("last-event-id");
+							const candidates = token
+								? this.#nativeResumptions.get(token)
+								: undefined;
+							if (token && !candidates)
+								throw new Error("Unknown native SSE resumption identity");
+							if (candidates && candidates.size !== 1) {
+								const error = new Error(
+									"Ambiguous native SSE resumption identity",
+								);
+								for (const owner of candidates.values()) owner?.abort(error);
+								throw error;
+							}
+							scope = candidates?.values().next().value;
+						}
+						if (!scope) return this.#fetch(url, init);
+						return scope.receive(
+							this.#fetch(url, { ...init, signal: scope.signal }),
+						);
+					},
 					onInsufficientScope: "throw",
 				})
 			: undefined;
@@ -1089,6 +1324,38 @@ export class TedixHomeClient {
 		);
 	}
 
+	#releaseNativeResumption(requestId: string): void {
+		const token = this.#nativeResumptionTokens.get(requestId);
+		if (token === undefined) return;
+		this.#nativeResumptionTokens.delete(requestId);
+		const owners = this.#nativeResumptions.get(token);
+		owners?.delete(requestId);
+		if (owners?.size === 0) this.#nativeResumptions.delete(token);
+	}
+	#registerNativeResumption(
+		requestId: string,
+		token: string,
+		scope?: NativeCallScope,
+	): void {
+		// Keep only the latest SDK-issued token for each request. No live owner
+		// is evicted when the finite connection registration limit is reached.
+		if (
+			!this.#nativeResumptionTokens.has(requestId) &&
+			this.#nativeResumptionTokens.size >= 64
+		) {
+			const error = new Error("Native SSE active resumption limit exceeded");
+			scope?.abort(error);
+			throw error;
+		}
+		this.#releaseNativeResumption(requestId);
+		const owners =
+			this.#nativeResumptions.get(token) ??
+			new Map<string, NativeCallScope | undefined>();
+		owners.set(requestId, scope);
+		this.#nativeResumptions.set(token, owners);
+		this.#nativeResumptionTokens.set(requestId, token);
+	}
+
 	async #rawModernRequest(
 		method:
 			| "server/discover"
@@ -1100,7 +1367,9 @@ export class TedixHomeClient {
 			| "tasks/cancel",
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
+		scope?: NativeCallScope,
 	): Promise<unknown> {
+		scope?.guard();
 		const target = mcpRequestTargetName(method, params);
 		if (MCP_NAME_REQUIRED_METHODS.has(method) && !target) {
 			throw new Error(`${method} requires a request target`);
@@ -1128,13 +1397,21 @@ export class TedixHomeClient {
 		};
 		try {
 			if (this.#transport) {
-				return await this.#sendTransportRequest(
-					request,
-					requestHeaders,
-					signal,
-				);
+				if (scope) this.#nativeScopes.set(String(request.id), scope);
+				try {
+					return await this.#sendTransportRequest(
+						request,
+						requestHeaders,
+						signal,
+						true,
+						scope,
+					);
+				} finally {
+					this.#nativeScopes.delete(String(request.id));
+					this.#releaseNativeResumption(String(request.id));
+				}
 			}
-			const response = await this.#fetch(this.#options.url, {
+			const fetching = this.#fetch(this.#options.url, {
 				method: "POST",
 				headers: {
 					...requestHeaders,
@@ -1145,7 +1422,9 @@ export class TedixHomeClient {
 				body: JSON.stringify(request),
 				signal,
 			});
-			const text = await response.text();
+			const response = scope ? await scope.receive(fetching) : await fetching;
+			const reading = response.text();
+			const text = scope ? await scope.wait(reading) : await reading;
 			let payload: { error?: unknown; result?: unknown };
 			try {
 				payload = parseMcpResponsePayload(text, method);
@@ -1203,13 +1482,15 @@ export class TedixHomeClient {
 		headers: Record<string, string>,
 		signal?: AbortSignal,
 		allowAuthRetry = true,
+		scope?: NativeCallScope,
 	): Promise<unknown> {
 		const transport = this.#transport;
 		if (!transport || !("id" in request) || request.id === undefined) {
 			throw new Error("SDK MCP transport is not available");
 		}
 		this.#transportStarted ??= transport.start();
-		await this.#transportStarted;
+		if (scope) await scope.wait(this.#transportStarted);
+		else await this.#transportStarted;
 		const key = String(request.id);
 		signal?.throwIfAborted();
 		let onAbort = () => {};
@@ -1225,13 +1506,21 @@ export class TedixHomeClient {
 		);
 		try {
 			try {
-				await transport.send(request, {
+				const sending = transport.send(request, {
 					headers,
 					...(signal ? { requestSignal: signal } : {}),
+					onresumptiontoken: (token: string) => {
+						signal?.throwIfAborted();
+						scope?.guard();
+						this.#registerNativeResumption(String(request.id), token, scope);
+					},
 				});
+				if (scope) await scope.wait(sending);
+				else await sending;
 			} catch (error) {
 				this.#pendingTransport.delete(key);
 				if (
+					!scope &&
 					allowAuthRetry &&
 					error instanceof InsufficientScopeError &&
 					error.requiredScope &&
@@ -1246,7 +1535,7 @@ export class TedixHomeClient {
 				}
 				throw error;
 			}
-			const payload = await response;
+			const payload = scope ? await scope.wait(response) : await response;
 			if (payload.error instanceof Error) throw payload.error;
 			if (payload.error !== undefined) {
 				throw new Error(`MCP request error: ${JSON.stringify(payload.error)}`);
@@ -1260,35 +1549,35 @@ export class TedixHomeClient {
 
 	async #ensureModernProtocol(
 		signal?: AbortSignal,
+		scope?: NativeCallScope,
 	): Promise<{ supportsTasks: boolean }> {
-		if (!this.#modernDiscovery) {
-			this.#modernDiscovery = (async () => {
-				const result = await this.#rawModernRequest(
-					"server/discover",
-					{},
-					signal,
+		const discover = async () => {
+			const result = await this.#rawModernRequest(
+				"server/discover",
+				{},
+				signal,
+				scope,
+			);
+			const versions = isRecord(result) ? result.supportedVersions : undefined;
+			if (
+				!Array.isArray(versions) ||
+				!versions.includes(MCP_MODERN_PROTOCOL_VERSION)
+			) {
+				throw new Error(
+					`MCP gateway does not advertise required protocol ${MCP_MODERN_PROTOCOL_VERSION}`,
 				);
-				const versions = isRecord(result)
-					? result.supportedVersions
-					: undefined;
-				if (
-					!Array.isArray(versions) ||
-					!versions.includes(MCP_MODERN_PROTOCOL_VERSION)
-				) {
-					throw new Error(
-						`MCP gateway does not advertise required protocol ${MCP_MODERN_PROTOCOL_VERSION}`,
-					);
-				}
-				const capabilities = isRecord(result) ? result.capabilities : undefined;
-				const extensions = isRecord(capabilities)
-					? capabilities.extensions
-					: undefined;
-				return {
-					supportsTasks:
-						isRecord(extensions) && MCP_TASKS_EXTENSION in extensions,
-				};
-			})();
-		}
+			}
+			const capabilities = isRecord(result) ? result.capabilities : undefined;
+			const extensions = isRecord(capabilities)
+				? capabilities.extensions
+				: undefined;
+			return {
+				supportsTasks:
+					isRecord(extensions) && MCP_TASKS_EXTENSION in extensions,
+			};
+		};
+		if (scope) return await discover();
+		this.#modernDiscovery ??= discover();
 		try {
 			return await this.#modernDiscovery;
 		} catch (error) {
@@ -1301,8 +1590,9 @@ export class TedixHomeClient {
 		toolName: string,
 		args: Record<string, unknown>,
 		options: McpCallOptions,
+		scope?: NativeCallScope,
 	): Promise<unknown> {
-		const protocol = await this.#ensureModernProtocol(options.signal);
+		const protocol = await this.#ensureModernProtocol(options.signal, scope);
 		let params: Record<string, unknown> = {
 			name: toolName,
 			arguments: args,
@@ -1313,6 +1603,7 @@ export class TedixHomeClient {
 				"tools/call",
 				params,
 				options.signal,
+				scope,
 			);
 			if (!isRecord(result) || result.resultType !== "input_required") {
 				if (
@@ -1387,6 +1678,7 @@ export class TedixHomeClient {
 		toolName: string,
 		args: Record<string, unknown>,
 		options: McpCallOptions = {},
+		scope?: NativeCallScope,
 	): Promise<unknown> {
 		const retryable =
 			options.retryable ??
@@ -1395,7 +1687,7 @@ export class TedixHomeClient {
 		if (retryable) await this.#waitForReadCooldown(options.signal);
 		if (!this.#connectFn) {
 			try {
-				return await this.#rawModernToolCall(toolName, args, options);
+				return await this.#rawModernToolCall(toolName, args, options, scope);
 			} catch (error) {
 				if (isRateLimitError(error)) {
 					this.#recordRateLimit(error);
@@ -1403,22 +1695,31 @@ export class TedixHomeClient {
 				}
 				if (options.signal?.aborted || !retryable || !isConnectionError(error))
 					throw error;
-				return this.#rawModernToolCall(toolName, args, options);
+				return this.#rawModernToolCall(toolName, args, options, scope);
 			}
 		}
 		const call = (client: McpClientLike): Promise<unknown> =>
 			client.callTool(
 				{ name: toolName, arguments: args },
 				{
-					resetTimeoutOnProgress: true,
+					resetTimeoutOnProgress: !scope,
 					...(options.signal ? { signal: options.signal } : {}),
-					timeout: this.#options.timeoutMs,
+					timeout: scope
+						? Math.max(1, scope.deadlineAt - Date.now())
+						: this.#options.timeoutMs,
 				},
 			);
-		const client = await this.#getClient();
+		const connecting = this.#getClient();
+		const client = scope ? await scope.wait(connecting) : await connecting;
 		const generation = this.#generation;
 		try {
-			return await call(client);
+			const calling = call(client);
+			const result = scope ? await scope.wait(calling) : await calling;
+			if (scope)
+				scope.charge(
+					new TextEncoder().encode(JSON.stringify(result)).byteLength,
+				);
+			return result;
 		} catch (error) {
 			if (isRateLimitError(error)) {
 				this.#recordRateLimit(error);
@@ -1440,6 +1741,7 @@ export class TedixHomeClient {
 	async #resolveTaskResult(
 		result: unknown,
 		options: McpCallOptions,
+		scope?: NativeCallScope,
 	): Promise<unknown> {
 		if (!isRecord(result) || result.resultType !== "task") return result;
 		const created = McpCreateTaskResultSchema.safeParse(result);
@@ -1448,11 +1750,34 @@ export class TedixHomeClient {
 		}
 		const outcome = await pollMcpTask({
 			taskId: created.data.taskId,
-			request: (method, params, signal) =>
-				this.#rawModernRequest(method, params, signal),
+			request: async (method, params, signal) => {
+				if (scope && method === "tasks/cancel" && signal === undefined) {
+					// Courtesy cancellation shares the original byte quota and absolute
+					// deadline; it cannot create another operation window after expiry.
+					const cleanup = scope.cancellationScope();
+					if (!cleanup)
+						throw (
+							scope.signal.reason ??
+							new Error("Native cancellation deadline elapsed")
+						);
+					try {
+						return await this.#rawModernRequest(
+							method,
+							params,
+							cleanup.signal,
+							cleanup,
+						);
+					} finally {
+						cleanup.close();
+					}
+				}
+				return this.#rawModernRequest(method, params, signal, scope);
+			},
 			signal: options.signal,
 			strict: true,
-			timeoutMs: this.#options.timeoutMs,
+			timeoutMs: scope
+				? Math.max(1, scope.deadlineAt - Date.now())
+				: this.#options.timeoutMs,
 			resolveInput: ({ inputRequests }) =>
 				resolveCliTaskInputResponses(
 					this.#destructiveApprovalReason,
@@ -1479,18 +1804,78 @@ export class TedixHomeClient {
 		}
 	}
 
+	getTimeoutMs(): number {
+		return this.#options.timeoutMs;
+	}
+
 	async callTool<T = unknown>(
 		toolName: string,
 		args: Record<string, unknown>,
 		options: McpCallOptions = {},
 	): Promise<T> {
+		if (options.maxResponseBytes === undefined)
+			return this.#callToolScoped<T>(toolName, args, options);
+		const frozenArgs = structuredClone(args);
+		const frozenOptions = { ...options };
+		const scope = new NativeCallScope(frozenOptions, this.#options.timeoutMs);
+		try {
+			return await this.#callToolScoped<T>(
+				toolName,
+				frozenArgs,
+				{ ...frozenOptions, signal: scope.signal },
+				scope,
+			);
+		} finally {
+			scope.close();
+		}
+	}
+
+	async callToolWithDestructiveApproval<T = unknown>(
+		toolName: string,
+		args: Record<string, unknown>,
+		reason: string,
+		options: McpCallOptions,
+	): Promise<T> {
+		const frozenArgs = structuredClone(args),
+			frozenOptions = { ...options };
+		const deadlineAt = Math.min(
+			Date.now() + (options.timeoutMs ?? this.#options.timeoutMs),
+			options.deadlineAt ?? Infinity,
+		);
+		const queueScope = new NativeCallScope(
+			{ ...frozenOptions, deadlineAt },
+			this.#options.timeoutMs,
+		);
+		try {
+			return await this.#withDestructiveApproval(
+				reason,
+				() =>
+					this.callTool<T>(toolName, frozenArgs, {
+						...frozenOptions,
+						deadlineAt,
+						retryable: false,
+					}),
+				queueScope,
+			);
+		} finally {
+			queueScope.close();
+		}
+	}
+
+	async #callToolScoped<T = unknown>(
+		toolName: string,
+		args: Record<string, unknown>,
+		options: McpCallOptions,
+		scope?: NativeCallScope,
+	): Promise<T> {
 		// unwrap runs outside the retry so a tool-level isError is never retried.
 		try {
-			const result = await this.#rawCall(toolName, args, options);
-			return unwrapToolResult(
-				await this.#resolveTaskResult(result, options),
-				toolName,
-			) as T;
+			scope?.guard();
+			const result = await this.#rawCall(toolName, args, options, scope);
+			const resolving = this.#resolveTaskResult(result, options, scope);
+			const resolved = scope ? await scope.wait(resolving) : await resolving;
+			scope?.guard();
+			return unwrapToolResult(resolved, toolName) as T;
 		} catch (error) {
 			// An access token that expires mid-call is rejected by the API as an
 			// oRPC UNAUTHORIZED inside an otherwise successful tool call, NOT as a
@@ -1500,12 +1885,19 @@ export class TedixHomeClient {
 			// cannot. Exactly one retry, and only after a renewal actually
 			// succeeded, so a genuinely unauthorized caller still fails fast.
 			if (!options.retriedAfterSessionRefresh && isExpiredSessionError(error)) {
-				const outcome = await this.#oauthProvider?.refreshSession?.();
+				const renewing = this.#oauthProvider?.refreshSession?.();
+				const outcome =
+					scope && renewing ? await scope.wait(renewing) : await renewing;
 				if (outcome === "refreshed" || outcome === "not-needed") {
-					return this.callTool<T>(toolName, args, {
-						...options,
-						retriedAfterSessionRefresh: true,
-					});
+					return this.#callToolScoped<T>(
+						toolName,
+						args,
+						{
+							...options,
+							retriedAfterSessionRefresh: true,
+						},
+						scope,
+					);
 				}
 			}
 			// Some MCP edges express the 429 as a tool-level isError result rather
@@ -1925,6 +2317,7 @@ export class TedixHomeClient {
 	async #withDestructiveApproval<T>(
 		reasonInput: string,
 		call: () => Promise<T>,
+		queueScope?: NativeCallScope,
 	): Promise<T> {
 		const reason = reasonInput.trim();
 		if (!reason) throw new Error("A destructive approval reason is required");
@@ -1936,7 +2329,15 @@ export class TedixHomeClient {
 		this.#destructiveCallTail = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		await previous;
+		try {
+			if (queueScope) await queueScope.wait(previous);
+			else await previous;
+		} catch (error) {
+			// A withdrawn queued call still preserves the predecessor fence for
+			// the next caller; it never installs a reason or starts a tool call.
+			void previous.finally(() => release?.());
+			throw error;
+		}
 		this.#destructiveApprovalReason = reason;
 		try {
 			return await call();

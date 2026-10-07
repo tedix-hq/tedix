@@ -6,11 +6,9 @@
  * attempt and evidence lifecycle while wrapping the org's board MCP tools
  * behind clean verbs with human-readable output (and `--json` for machines).
  *
- * Transport: each verb builds ONE `namespace.tool(args)` Code Mode snippet and
- * runs it through the SAME gateway helper the CLI already uses for
- * `kernel.start_goal_loop` (see commands.ts `handleGoal`): `client.runCode`.
- * No new MCP transport, no second auth flow — the selected `-w <workspace>`
- * gateway and its token are reused verbatim.
+ * Transport: native calls use the selected gateway credential. Authenticated
+ * bootstrap and configured catalog descriptors determine the exact wire names;
+ * absent, denied or stale routes fail closed.
  *
  * Acting identity: writes are always bound to the authenticated credential.
  * `--as <tediSlug>` is a read-only namespace selector; it never grants that
@@ -18,20 +16,39 @@
  * work namespace, where the gateway/API derive the actor from authentication.
  *
  * Board errors: oRPC contract errors (CONFLICT, NOT_FOUND, BAD_REQUEST, …) cross
- * Code Mode as a structured RESULT value `{ defined, code, status, message }`
+ * native transport as a structured value `{ defined, code, status, message }`
  * (not a thrown exception), so `boardErrorFromValue` inspects the normalized
  * value. Claim conflicts and rejected transitions exit non-zero so agents and
  * scripts can branch.
  */
 
-import { WorkItemDispositionSchema } from "@tedix/api-contract/schemas/work-items";
-import { WorkInteractionCursorSchema } from "@tedix/api-contract/schemas/work-interactions";
+import {
+	WorkItemDispositionSchema,
+	ListWorkCliProjectionInputSchema,
+	ListWorkCliProjectionResultSchema,
+	WorkCheckpointProjectionInputSchema,
+	WorkCheckpointProjectionSchema,
+	WorkCliLedgerInputSchema,
+	WorkCliEventInputSchema,
+	ListWorkAttemptCliProjectionResultSchema,
+	ListWorkEvidenceCliProjectionResultSchema,
+	ListWorkEventCliProjectionResultSchema,
+} from "@tedix/api-contract/schemas/work-items";
+import {
+	WorkInteractionCursorSchema,
+	ListWorkInteractionCliInboxInputSchema,
+	ListWorkInteractionCliInboxResultSchema,
+} from "@tedix/api-contract/schemas/work-interactions";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolveAgentContext, type AgentContextResult } from "./agent-context";
 import { claimFiles, fileResourceKeys } from "./work-claim-files";
 import { setTimeout as sleep } from "node:timers/promises";
-import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
+import {
+	McpNativeBootstrapSchema,
+	McpNativeDescriptorSchema,
+} from "@tedix/api-contract/schemas/mcp-native-transport";
+import * as z from "zod";
 import { resolveCommitFlag } from "./local-context";
 import { cyan, dim, errorText, green, red, yellow } from "./format";
 import type { ColorMode } from "./terminal";
@@ -54,10 +71,7 @@ export const WORK_EXIT_FAIL = 2;
 const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Keep list results within the gateway's Code Mode result-truncation
-// budget: an unbounded board list serializes past the token cap and comes back
-// as a truncated JSON string instead of a parseable page. A default page keeps
-// the response bounded (override with --limit).
+// Keep default board output bounded; native projections enforce per-page limits.
 const DEFAULT_LIST_LIMIT = 20;
 
 export interface WorkOptions {
@@ -142,7 +156,12 @@ export interface WorkContext {
 	resolveContext?: () => AgentContextResult;
 	/** Clock injection for deterministic heartbeat-loop tests. */
 	heartbeatClock?: { now: () => number; wait: (ms: number) => Promise<void> };
-	client: Pick<TedixHomeClient, "runCode" | "runCodeWithDestructiveApproval">;
+	client: Pick<
+		TedixHomeClient,
+		"callTool" | "callToolWithDestructiveApproval" | "getTimeoutMs"
+	>;
+	/** Optional cancellation from the invoking host. */
+	signal?: AbortSignal;
 	color: ColorMode;
 	json: boolean;
 	workspace: string;
@@ -179,7 +198,7 @@ function isUuid(value: string): boolean {
 	return UUID_RE.test(value.trim());
 }
 
-/** Aggregate-tedi namespaces sanitize slug → `[^a-zA-Z0-9_]` = `_` in Code Mode. */
+/** Aggregate native catalog namespaces sanitize slug → `[^a-zA-Z0-9_]` = `_`. */
 function tediNamespace(slug: string): string {
 	return slug.trim().replace(/[^a-zA-Z0-9_]/g, "_");
 }
@@ -381,7 +400,7 @@ function withSession(
 }
 
 /**
- * Detect an error envelope returned (not thrown) through Code Mode.
+ * Detect an error envelope returned (not thrown) through native transport.
  *
  * Two distinct shapes reach here and BOTH must be caught, because a board list
  * that misses one renders it as an empty board — the caller then concludes there
@@ -431,42 +450,286 @@ export function boardErrorFromValue(value: unknown): BoardError | undefined {
 	};
 }
 
-/**
- * Run one Code Mode snippet on the selected gateway, normalize the envelope, and
- * split a structured contract error from a success value. A thrown snippet
- * (missing tool, sandbox error) is caught and returned as a BoardError so
- * callers have one uniform shape to branch on.
- *
- * A gateway-TRUNCATED result (the `__tedix_truncated` envelope) is also a
- * BoardError: a clipped page is
- * unparseable, and treating it as data is exactly the silent-empty-list bug
- * that broke the id resolver. Fail loudly with the fix (narrow/paginate).
- */
-async function runSource(
+/** A native command owns one deadline and a snapshot of the selected context. */
+interface NativeCommand {
+	deadlineAt: number;
+	callDeadlineAt?: number;
+	context?: z.infer<typeof McpNativeBootstrapSchema>;
+}
+const nativeCommands = new WeakMap<WorkContext, NativeCommand>();
+const WORK_RESPONSE_BYTES = 4 * 1024 * 1024;
+const CLI_PROJECTION_SCHEMAS: Record<
+	string,
+	{ input: z.ZodType; output: z.ZodType }
+> = {
+	"workItems/listCliProjection": {
+		input: ListWorkCliProjectionInputSchema,
+		output: ListWorkCliProjectionResultSchema,
+	},
+	"workItems/getCheckpointProjection": {
+		input: WorkCheckpointProjectionInputSchema,
+		output: WorkCheckpointProjectionSchema,
+	},
+	"workItems/listAttemptCliProjection": {
+		input: WorkCliLedgerInputSchema,
+		output: ListWorkAttemptCliProjectionResultSchema,
+	},
+	"workItems/listEvidenceCliProjection": {
+		input: WorkCliLedgerInputSchema,
+		output: ListWorkEvidenceCliProjectionResultSchema,
+	},
+	"workItems/listEventCliProjection": {
+		input: WorkCliEventInputSchema,
+		output: ListWorkEventCliProjectionResultSchema,
+	},
+	"workInteractions/listCliInboxProjection": {
+		input: ListWorkInteractionCliInboxInputSchema,
+		output: ListWorkInteractionCliInboxResultSchema,
+	},
+};
+const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
+	list_work_item_cli_rows: "workItems/listCliProjection",
+	corroborate_work_items: "workItems/corroborate",
+	accept_work_item: "workItems/accept",
+	add_comment: "workItems/addComment",
+	add_project_milestone_dependency: "projects/addMilestoneDependency",
+	add_work_case_dependency: "workItems/addCaseDependency",
+	attach_project_milestone_work_item: "projects/attachMilestoneWorkItem",
+	attach_work_case_item: "workItems/attachCaseWorkItem",
+	authorize_owned_channel: "workItems/authorizeOwnedChannel",
+	cancel_work_interaction: "workInteractions/cancel",
+	cancel_work_items: "workItems/cancel",
+	complete_work_item: "workItems/complete",
+	create_project_milestone: "projects/createMilestone",
+	create_work_case: "workItems/createCase",
+	create_work_interaction: "workInteractions/create",
+	create_work_items: "workItems/create",
+	decide_work_approval: "workApprovals/decide",
+	get_work_admission_specification: "workItems/getAdmissionSpecification",
+	get_work_case: "workItems/getCase",
+	get_work_fleet_control_tower: "workFleet/getControlTower",
+	get_work_interaction: "workInteractions/get",
+	get_work_item_checkpoint: "workItems/getCheckpointProjection",
+	get_work_item_readiness: "workItems/getReadiness",
+	get_work_items_by_id: "workItems/getById",
+	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
+	list_project_health_judgments: "projects/listHealthJudgments",
+	list_project_milestones: "projects/listMilestones",
+	list_ready_work: "workScheduler/listReady",
+	list_work_approval_audit: "workApprovals/listAudit",
+	list_work_approvals: "workApprovals/listInbox",
+	list_work_attempt_cli_rows: "workItems/listAttemptCliProjection",
+	list_work_budget_envelopes: "workItems/listBudgetEnvelopes",
+	list_work_cases: "workItems/listCases",
+	list_work_event_cli_rows: "workItems/listEventCliProjection",
+	list_work_evidence_cli_rows: "workItems/listEvidenceCliProjection",
+	list_work_interaction_audit: "workInteractions/listAudit",
+	list_work_interaction_cli_rows: "workInteractions/listCliInboxProjection",
+	list_work_interaction_outbox: "workInteractions/listOutbox",
+	list_work_item_attempts: "workItems/listAttempts",
+	list_work_item_events: "workItems/listEvents",
+	list_work_item_evidence: "workItems/listEvidence",
+	list_work_items: "workItems/list",
+	list_work_resource_pools: "workItems/listResourcePools",
+	plan_work_execution_clusters: "workScheduler/planClusters",
+	propose_work_approval: "workApprovals/propose",
+	put_work_budget_envelope: "workItems/putBudgetEnvelope",
+	put_work_resource_pool: "workItems/putResourcePool",
+	record_project_health_judgment: "projects/recordHealthJudgment",
+	replace_work_admission_specification:
+		"workItems/replaceAdmissionSpecification",
+	respond_work_interaction: "workInteractions/respond",
+	revoke_owned_channel: "workItems/revokeOwnedChannel",
+	settle_work_item_attempt: "workItems/settleAttempt",
+	start_work_item_attempt: "workItems/startAttempt",
+	submit_work_item_evidence: "workItems/submitEvidence",
+	update_project_milestone: "projects/updateMilestone",
+	update_work_case: "workItems/updateCase",
+};
+
+function nativeOptions(ctx: WorkContext) {
+	const state = nativeCommands.get(ctx);
+	if (!state) throw new Error("Work native command context is missing");
+	ctx.signal?.throwIfAborted();
+	if (Date.now() >= (state.callDeadlineAt ?? state.deadlineAt))
+		throw new Error("Work native command deadline exceeded");
+	return {
+		retryable: false,
+		deadlineAt: state.callDeadlineAt ?? state.deadlineAt,
+		maxResponseBytes: WORK_RESPONSE_BYTES,
+		...(ctx.signal ? { signal: ctx.signal } : {}),
+	};
+}
+
+function usableDescriptor(value: unknown) {
+	const descriptor = McpNativeDescriptorSchema.parse(value);
+	const freshness = descriptor.schemaFreshness;
+	if (
+		!descriptor.eligible ||
+		!descriptor.authorized ||
+		!freshness.source ||
+		!freshness.sourceRef ||
+		!freshness.sourceHash ||
+		!freshness.syncedAt ||
+		!Number.isFinite(Date.parse(freshness.syncedAt))
+	)
+		throw new Error(
+			"Work native descriptor is denied, ineligible or has no current schema provenance",
+		);
+	return descriptor;
+}
+
+async function nativeBootstrap(ctx: WorkContext) {
+	const state = nativeCommands.get(ctx)!;
+	if (state.context) return state.context;
+	if (!ctx.mcpUrl)
+		throw new Error("Work native transport requires the selected gateway");
+	const info = await ctx.client.callTool("get_info", {}, nativeOptions(ctx));
+	if (!isRecord(info)) throw new Error("Malformed native gateway bootstrap");
+	const bootstrap = McpNativeBootstrapSchema.parse({
+		nativeContext: info.nativeContext,
+		nativeCatalog: info.nativeCatalog,
+	});
+	if (
+		!bootstrap.nativeContext ||
+		bootstrap.nativeCatalog.status !== "usable" ||
+		(ctx.organizationId !== undefined &&
+			bootstrap.nativeContext.organizationId !== ctx.organizationId)
+	)
+		throw new Error(
+			"Work native gateway organization or catalog mismatch; configure authorized native routes for this credential. No Code Mode fallback is available.",
+		);
+	if (
+		usableDescriptor(bootstrap.nativeCatalog.search).endpoint !==
+			"catalog/search" ||
+		usableDescriptor(bootstrap.nativeCatalog.describe).endpoint !==
+			"catalog/describe"
+	)
+		throw new Error("Native catalog endpoint mismatch");
+	state.context = bootstrap;
+	return bootstrap;
+}
+
+/** Validate the returned configured JSON schema before retaining or publishing data. */
+function validateNativeSchema(schema: unknown, value: unknown): void {
+	if (!isRecord(schema)) throw new Error("Native Work schema is absent");
+	// Zod's converter rejects unsupported schemas instead of silently ignoring them.
+	const validator = z.fromJSONSchema(schema);
+	const result = validator.safeParse(value);
+	if (!result.success)
+		throw new Error(
+			`Native Work schema validation failed: ${result.error.message}`,
+		);
+}
+
+/** Resolve an exact configured callable; the catalog's native name is the wire identity. */
+async function boardCall(
 	ctx: WorkContext,
-	source: string,
+	callable: string,
+	args: Record<string, unknown>,
 	destructiveApprovalReason?: string,
 ): Promise<BoardResult> {
+	const input = JSON.parse(JSON.stringify(args)) as Record<string, unknown>;
+	const state = nativeCommands.get(ctx)!;
+	state.callDeadlineAt = Math.min(
+		state.deadlineAt,
+		Date.now() + ctx.client.getTimeoutMs(),
+	);
 	try {
-		const raw = destructiveApprovalReason
-			? await ctx.client.runCodeWithDestructiveApproval(
-					source,
+		const expectedEndpoint =
+			WORK_NATIVE_ENDPOINTS[callable.slice(callable.indexOf(".") + 1)];
+		if (!expectedEndpoint) throw new Error("Unknown typed Work endpoint");
+		const projectionSchema = CLI_PROJECTION_SCHEMAS[expectedEndpoint];
+		projectionSchema?.input.parse(input);
+		const bootstrap = await nativeBootstrap(ctx);
+		const search = usableDescriptor(bootstrap.nativeCatalog.search);
+		const describe = usableDescriptor(bootstrap.nativeCatalog.describe);
+		const dot = callable.indexOf(".");
+		const result = await ctx.client.callTool(
+			search.name,
+			{
+				query: callable.slice(dot + 1),
+				namespace: callable.slice(0, dot),
+				limit: 100,
+			},
+			nativeOptions(ctx),
+		);
+		if (!isRecord(result) || !Array.isArray(result.results))
+			throw new Error("Malformed native Work catalog search");
+		const matches = result.results.filter(
+			(row: unknown) => isRecord(row) && row.callable === callable,
+		);
+		if (matches.length !== 1)
+			throw new Error(
+				`Native Work callable ${callable} is absent or ambiguous`,
+			);
+		const row = matches[0];
+		if (!isRecord(row) || row.aliasOf || row.authorized !== true)
+			throw new Error("Native Work callable is an alias or unauthorized");
+		const selected = usableDescriptor(row.native);
+		if (!expectedEndpoint || selected.endpoint !== expectedEndpoint)
+			throw new Error("Native Work endpoint mismatch");
+		const detail = await ctx.client.callTool(
+			describe.name,
+			{ callable },
+			nativeOptions(ctx),
+		);
+		if (
+			!isRecord(detail) ||
+			detail.callable !== callable ||
+			detail.aliasOf ||
+			detail.authorized !== true
+		)
+			throw new Error("Native Work catalog description mismatch");
+		const descriptor = usableDescriptor(detail.native);
+		if (JSON.stringify(selected) !== JSON.stringify(descriptor))
+			throw new Error("Native Work descriptor changed during resolution");
+		if (
+			!isRecord(detail.schemaFreshness) ||
+			detail.schemaFreshness.source !== descriptor.schemaFreshness.source ||
+			detail.schemaFreshness.sourceHash !==
+				descriptor.schemaFreshness.sourceHash ||
+			detail.schemaFreshness.sourceRef !==
+				descriptor.schemaFreshness.sourceRef ||
+			detail.schemaFreshness.syncedAt !== descriptor.schemaFreshness.syncedAt
+		)
+			throw new Error("Native Work described schema provenance mismatch");
+		if (
+			typeof detail.schemaFreshness.toolUpdatedAt === "string" &&
+			(!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
+				Date.parse(detail.schemaFreshness.toolUpdatedAt) >
+					Date.parse(descriptor.schemaFreshness.syncedAt!))
+		)
+			throw new Error(
+				"Native Work schema is stale relative to the configured tool",
+			);
+		validateNativeSchema(detail.parameters, input);
+		// Prove the output schema is supported before invoking a mutation.
+		if (!isRecord(detail.outputSchema))
+			throw new Error("Native Work output schema is absent");
+		z.fromJSONSchema(detail.outputSchema);
+		const value = destructiveApprovalReason
+			? await ctx.client.callToolWithDestructiveApproval(
+					descriptor.name,
+					input,
 					destructiveApprovalReason,
+					nativeOptions(ctx),
 				)
-			: await ctx.client.runCode(source);
-		const normalized = normalizeCodeResult(raw);
-		if (normalized.truncated) {
+			: await ctx.client.callTool(descriptor.name, input, nativeOptions(ctx));
+		if (isRecord(value) && value.__tedix_truncated === true)
 			return {
-				value: normalized.value,
+				value: undefined,
 				error: {
 					code: "RESULT_TRUNCATED",
-					message: truncationErrorMessage(normalized),
+					message: "Native Work response is incomplete; narrow or paginate",
 				},
 			};
-		}
-		const { value } = normalized;
 		const error = boardErrorFromValue(value);
-		return error ? { value, error } : { value };
+		if (error) return { value, error };
+		nativeOptions(ctx);
+		validateNativeSchema(detail.outputSchema, value);
+		projectionSchema?.output.parse(value);
+		return { value };
 	} catch (error) {
 		return {
 			value: undefined,
@@ -486,71 +749,17 @@ async function runSource(
 	}
 }
 
-/** Build and run one `callable(args)` Code Mode snippet. */
-async function boardCall(
-	ctx: WorkContext,
-	callable: string,
-	args: Record<string, unknown>,
-	destructiveApprovalReason?: string,
-): Promise<BoardResult> {
-	return runSource(
-		ctx,
-		`async () => await ${callable}(${JSON.stringify(args)})`,
-		destructiveApprovalReason,
-	);
-}
-
-/**
- * Compact per-row projection applied INSIDE the sandbox for `list`/`next` scans.
- * A full board row carries long `description`/`metadata`/`provenance` fields, so
- * a 20-row page of full rows serializes past the Code Mode result-truncation cap
- * and returns as a truncated (unparseable) string. Projecting to the display
- * fields keeps every page bounded and parseable regardless of row size.
- *
- * Anything the renderer shows must be listed here: a field dropped by this
- * projection never reaches the CLI (a missing `activeAttempt` renders every
- * HOLDER cell as "—"). The projection is pinned by its own test.
- *
- * It is narrowed to the two fields the holder label reads rather than the whole
- * attempt — the full object is seven fields of timestamps and ids per held row,
- * and this projection governs page size against the Code Mode char budget.
- * `work attempts <id>` remains the place to read an attempt in full.
- */
-export const LIST_ROW_PROJECTION =
-	"(w) => ({ id: w.id, workKind: w.workKind, disposition: w.disposition, riskLevel: w.riskLevel, priority: w.priority, title: w.title, projectId: w.projectId, createdAt: w.createdAt, activeAttempt: w.activeAttempt ? { agentSession: w.activeAttempt.agentSession, executorId: w.activeAttempt.executorId } : null })";
-
-/**
- * Rows per gateway round trip.
- *
- * Two independent ceilings sit above this and they disagree, which is why the
- * number is small. The board schema allows `limit: 100`, but a 100-row projected
- * page serializes past the Code Mode result cap and comes back truncated. So the schema's maximum is
- * not a usable page size — this is. `listBoard` pages at this size and stitches,
- * so callers may ask for any total without knowing either ceiling.
- */
+/** Rows per native bounded board page. */
 const LIST_PAGE_SIZE = 50;
 
 /** Backstop so a huge `--limit` cannot fan out into unbounded round trips. */
 const LIST_MAX_PAGES = 40;
 
-/**
- * Run a board list call, projecting rows to compact fields server-side. The
- * projection runs INSIDE the sandbox, so it also governs how large the page
- * serializes back through Code Mode and keeps every page under the gateway's
- * result-truncation budget: the gateway clips past 6,000 tokens of the
- * indented serialization, which is about 18,000 compact JSON characters for
- * these row shapes.
- *
- * A requested limit above {@link LIST_PAGE_SIZE} is fetched as several offset
- * pages and stitched. Before this, asking for more than the transport could
- * carry returned a truncation error, and asking for more than the schema allowed
- * rendered as an empty board.
- */
+/** Stitch bounded native board pages without publishing partial results. */
 async function listBoard(
 	ctx: WorkContext,
 	callable: string,
 	args: Record<string, unknown>,
-	projection: string = LIST_ROW_PROJECTION,
 ): Promise<BoardResult> {
 	const requested =
 		typeof args.limit === "number" && Number.isFinite(args.limit)
@@ -575,7 +784,7 @@ async function listBoard(
 			limit: Math.min(LIST_PAGE_SIZE, remaining),
 			...(pageOffset > 0 ? { offset: pageOffset } : {}),
 		};
-		const result = await listBoardPage(ctx, callable, pageArgs, projection);
+		const result = await listBoardPage(ctx, callable, pageArgs);
 		if (result.error) {
 			// Partial pages are not a usable board view; surface the failure.
 			return result;
@@ -608,30 +817,41 @@ async function listBoardPage(
 	ctx: WorkContext,
 	callable: string,
 	args: Record<string, unknown>,
-	projection: string,
 ): Promise<BoardResult> {
-	// Both error envelopes must be returned VERBATIM so `boardErrorFromValue`
-	// can classify them. Projecting an error value instead yields `data: []`,
-	// which renders as "No work items." — a rejected call that looks like an
-	// empty board. `{ ok: false }` is the gateway's input-validation shape.
-	const source = `async () => {
-	const r = await ${callable}(${JSON.stringify(args)});
-	if (r && typeof r === "object" && r.ok === false) return r;
-	if (r && typeof r === "object" && typeof r.code === "string" && (r.defined === true || (typeof r.status === "number" && r.status >= 400))) return r;
-	const pick = ${projection};
-	const rows = Array.isArray(r && r.data) ? r.data : Array.isArray(r) ? r : [];
-	return { data: rows.map(pick), pagination: r && r.pagination };
-}`;
-	return runSource(ctx, source);
+	const namespace = ctx.work.as
+		? tediNamespace(ctx.work.as)
+		: callable.slice(0, callable.indexOf("."));
+	const view =
+		typeof args.idPrefix === "string" || typeof args.titleContains === "string"
+			? "resolve"
+			: "board";
+	const call = await boardCall(ctx, `${namespace}.list_work_item_cli_rows`, {
+		...args,
+		view,
+	});
+	if (call.error) return call;
+	if (
+		!isRecord(call.value) ||
+		call.value.view !== view ||
+		!Array.isArray(call.value.data) ||
+		call.value.data.length > 50 ||
+		!isRecord(call.value.pagination) ||
+		typeof call.value.pagination.total !== "number" ||
+		typeof call.value.pagination.hasMore !== "boolean"
+	)
+		return {
+			value: undefined,
+			error: { message: "Malformed native Work board projection" },
+		};
+	return call;
 }
 
 /** List board rows through the canonical work namespace. */
 async function listWorkItems(
 	ctx: WorkContext,
 	args: Record<string, unknown>,
-	projection: string = LIST_ROW_PROJECTION,
 ): Promise<BoardResult> {
-	return listBoard(ctx, "work.list_work_items", args, projection);
+	return listBoard(ctx, "work.list_work_items", args);
 }
 
 /** Read a work item through the canonical work namespace. */
@@ -682,22 +902,11 @@ function truncate(text: string, max: number): string {
 }
 
 function itemsFromList(value: unknown): Record<string, unknown>[] {
-	// Truncated pages are rejected upstream in `runSource` (RESULT_TRUNCATED),
-	// so this defensive string-parse only covers a benign stringified page;
-	// an unparseable leftover no longer silently masks gateway truncation.
-	let parsed = value;
-	if (typeof parsed === "string") {
-		try {
-			parsed = JSON.parse(parsed);
-		} catch {
-			return [];
-		}
-	}
 	const rows =
-		isRecord(parsed) && Array.isArray(parsed.data)
-			? parsed.data
-			: Array.isArray(parsed)
-				? parsed
+		isRecord(value) && Array.isArray(value.data)
+			? value.data
+			: Array.isArray(value)
+				? value
 				: [];
 	return rows.filter(isRecord);
 }
@@ -1554,9 +1763,7 @@ async function workConfirm(ctx: WorkContext, id: string): Promise<number> {
 			"work confirm cannot impersonate a tedi UUID; use its slug namespace or the tedi credential",
 		);
 	}
-	const callable = ctx.work.as
-		? `${tediNamespace(ctx.work.as)}.work_item_corroborate`
-		: "work.corroborate_work_items";
+	const callable = mutationCallable(ctx.work.as, "work.corroborate_work_items");
 	const call = await boardCall(ctx, callable, {
 		id,
 		evidenceRef: evidence,
@@ -1923,7 +2130,7 @@ function renderContextBrief(
  * concise terminal renderer shows, as data. The raw board payload carries the
  * full description, metadata, provenance, and every comment — materially more
  * than the renderer shows for identical information. Agents wanting the raw row can call
- * `work.get_work_items_by_id` through Code Mode directly.
+ * `work.get_work_items_by_id` through native transport directly.
  */
 export function contextBriefJson(value: Record<string, unknown>): unknown {
 	const item = isRecord(value.workItem) ? value.workItem : {};
@@ -2099,16 +2306,7 @@ async function workHandoff(
 
 // ─── Ledger reads (evidence / attempts / events) ─────────────────────────────
 
-/**
- * Rows per ledger page.
- *
- * The board contract allows `limit: 100`, but an evidence row carries a URI up
- * to 2 000 characters, so a full page can serialize past the Code Mode
- * result-truncation budget (about 18,000 compact characters) and come
- * back as an unparseable string. A bounded default keeps the common read one
- * clean round trip; `--limit` raises it and a too-large page fails LOUDLY with
- * the RESULT_TRUNCATED fix rather than rendering an empty ledger.
- */
+/** Bounded cursor ledgers use the exact native CLI projections. */
 const LEDGER_DEFAULT_LIMIT = 25;
 const LEDGER_MAX_LIMIT = 100;
 
@@ -2119,50 +2317,30 @@ function ledgerLimit(requested: number | undefined): number {
 	return Math.min(LEDGER_MAX_LIMIT, Math.max(1, Math.trunc(requested)));
 }
 
-/**
- * Read ONE bounded page of a Work Item ledger.
- *
- * These are cursor/sequence ledgers, not the offset-paged board list, so they
- * do not go through {@link listBoard}: `listEvidence`/`listAttempts` return
- * `{ data, nextCursor }` and `listEvents` returns `{ events, nextSequence }`,
- * and none of them accept `offset`. The row-key and continuation-key differences
- * are the only things that vary, so they are parameters rather than three
- * copies of the snippet.
- *
- * Like {@link listBoardPage}, both gateway error envelopes are returned VERBATIM
- * so `boardErrorFromValue` can classify them — projecting an error value instead
- * would yield `data: []`, i.e. a rejected call that renders as an empty ledger.
- */
+/** Read one compact native ledger and preserve its canonical continuation. */
 async function listLedgerPage(
 	ctx: WorkContext,
 	callable: string,
 	args: Record<string, unknown>,
-	projection: string,
 	rowsKey: string,
 	nextKey: string,
 ): Promise<BoardResult> {
-	const source = `async () => {
-	const r = await ${callable}(${JSON.stringify(args)});
-	if (r && typeof r === "object" && r.ok === false) return r;
-	if (r && typeof r === "object" && typeof r.code === "string" && (r.defined === true || (typeof r.status === "number" && r.status >= 400))) return r;
-	const pick = ${projection};
-	const rows = Array.isArray(r && r[${JSON.stringify(rowsKey)}]) ? r[${JSON.stringify(rowsKey)}] : Array.isArray(r) ? r : [];
-	return { data: rows.map(pick), next: (r && r[${JSON.stringify(nextKey)}]) ?? null };
-}`;
-	return runSource(ctx, source);
+	const tools: Record<string, string> = {
+		"work.list_work_item_attempts": "work.list_work_attempt_cli_rows",
+		"work.list_work_item_evidence": "work.list_work_evidence_cli_rows",
+		"work.list_work_item_events": "work.list_work_event_cli_rows",
+	};
+	const call = await boardCall(ctx, tools[callable]!, args);
+	if (call.error) return call;
+	if (!isRecord(call.value) || !Array.isArray(call.value[rowsKey]))
+		return {
+			value: undefined,
+			error: { message: "Malformed native Work ledger projection" },
+		};
+	return {
+		value: { data: call.value[rowsKey], next: call.value[nextKey] ?? null },
+	};
 }
-
-/** Display projection for `work evidence`, applied INSIDE the sandbox. */
-const EVIDENCE_ROW_PROJECTION =
-	"(e) => ({ id: e.id, claimKey: e.claimKey, kind: e.kind, disposition: e.disposition, uri: e.uri, label: e.label, attemptId: e.attemptId, submittedByType: e.submittedByType, submittedById: e.submittedById, submittedAt: e.submittedAt, reviewedByType: e.reviewedByType, reviewedById: e.reviewedById, reviewedAt: e.reviewedAt, reviewReason: e.reviewReason })";
-
-/** Display projection for `work attempts`. */
-const ATTEMPT_ROW_PROJECTION =
-	"(a) => ({ id: a.id, attemptNumber: a.attemptNumber, runtimeState: a.runtimeState, outcome: a.outcome, executorType: a.executorType, executorId: a.executorId, externalSessionKey: a.externalSessionKey, startedAt: a.startedAt, heartbeatAt: a.heartbeatAt, expiresAt: a.expiresAt, finishedAt: a.finishedAt, summary: a.summary })";
-
-/** Display projection for `work events`. */
-const EVENT_ROW_PROJECTION =
-	"(e) => ({ sequence: e.sequence, id: e.id, eventType: e.eventType, actorType: e.actorType, actorId: e.actorId, attemptId: e.attemptId, occurredAt: e.occurredAt })";
 
 const EVIDENCE_DISPOSITIONS = [
 	"pending",
@@ -2347,7 +2525,6 @@ async function workEvidence(ctx: WorkContext, id: string): Promise<number> {
 		ctx,
 		"work.list_work_item_evidence",
 		{ id: resolvedId, limit: ledgerLimit(ctx.work.limit) },
-		EVIDENCE_ROW_PROJECTION,
 		"data",
 		"nextCursor",
 	);
@@ -2376,7 +2553,6 @@ async function workAttempts(ctx: WorkContext, id: string): Promise<number> {
 		ctx,
 		"work.list_work_item_attempts",
 		{ id: resolvedId, limit: ledgerLimit(ctx.work.limit) },
-		ATTEMPT_ROW_PROJECTION,
 		"data",
 		"nextCursor",
 	);
@@ -2402,7 +2578,6 @@ async function workEvents(ctx: WorkContext, id: string): Promise<number> {
 		ctx,
 		"work.list_work_item_events",
 		{ id: resolvedId, limit: ledgerLimit(ctx.work.limit) },
-		EVENT_ROW_PROJECTION,
 		"events",
 		"nextSequence",
 	);
@@ -2595,9 +2770,9 @@ const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		pathField: "proposalId",
 	},
 	"interaction-list": {
-		tool: "list_work_interactions",
+		tool: "list_work_interaction_cli_rows",
 		write: false,
-		defaultInput: (ctx) => ({ limit: ctx.work.limit ?? 50 }),
+		defaultInput: (ctx) => ({ limit: Math.min(5, ctx.work.limit ?? 5) }),
 	},
 	"interaction-audit-list": {
 		tool: "list_work_interaction_audit",
@@ -2800,43 +2975,13 @@ async function workCheckpoint(
 		throw new Error(
 			"work checkpoint cannot correlate the effective gateway and organization with this chat; use its connected profile",
 		);
-	const runtimeCall = await runSource(
-		ctx,
-		"async () => { const r = await codemode.__runtime(); return {mode:r.mode,surface:r.surface,organizationId:r.organizationId,actor:{authType:r.actor?.authType}}; }",
-	);
-	if (runtimeCall.error)
-		return fail(ctx, runtimeCall.error, runtimeCall.error.message);
-	const runtime = runtimeCall.value;
-	if (
-		!isRecord(runtime) ||
-		runtime.mode !== "stateless" ||
-		runtime.surface !== "mcp-gateway" ||
-		typeof runtime.organizationId !== "string" ||
-		!isUuid(runtime.organizationId) ||
-		!isRecord(runtime.actor) ||
-		typeof runtime.actor.authType !== "string" ||
-		runtime.actor.authType === "anonymous" ||
-		(ctx.organizationId !== undefined &&
-			ctx.organizationId !== runtime.organizationId)
-	)
-		throw new Error(
-			"work checkpoint cannot verify the current authenticated gateway organization",
-		);
-	const itemCall = await runSource(
-		ctx,
-		`async () => {
- const r = await work.get_work_items_by_id(${JSON.stringify({ id: binding.workItemId })});
- if (r && typeof r === 'object' && (r.ok === false || typeof r.code === 'string')) return r;
- if (!r || !r.workItem) throw new Error('Malformed checkpoint Work');
- const w = r.workItem;
- return {workItem:{id:w.id,projectId:w.projectId,orgId:w.orgId,disposition:w.disposition}};
-}`,
-	);
+	const bootstrap = await nativeBootstrap(ctx);
+	const runtime = bootstrap.nativeContext!;
+	const itemCall = await boardCall(ctx, "work.get_work_item_checkpoint", {
+		id: binding.workItemId,
+	});
 	if (itemCall.error) return fail(ctx, itemCall.error, itemCall.error.message);
-	const item =
-		isRecord(itemCall.value) && isRecord(itemCall.value.workItem)
-			? itemCall.value.workItem
-			: undefined;
+	const item = isRecord(itemCall.value) ? itemCall.value : undefined;
 	if (
 		!item ||
 		item.id !== binding.workItemId ||
@@ -2846,16 +2991,11 @@ async function workCheckpoint(
 		throw new Error(
 			"work checkpoint selected Work identity, project or organization mismatch",
 		);
-	// Project within Code Mode so long prompts cannot overflow the gateway envelope.
 	const input = { workItemId: binding.workItemId, states: ["open"], limit: 5 };
-	const inboxCall = await runSource(
+	const inboxCall = await boardCall(
 		ctx,
-		`async () => {
- const r = await work.list_work_interactions(${JSON.stringify(input)});
- if (r && typeof r === 'object' && (r.ok === false || typeof r.code === 'string')) return r;
- if (!r || !Array.isArray(r.data)) throw new Error('Malformed checkpoint inbox');
- return {...r, data:r.data.map(row => ({...row, request: {...row.request, prompt: typeof row.request?.prompt === 'string' ? row.request.prompt.slice(0,800) : null, promptComplete: typeof row.request?.prompt === 'string' && row.request.prompt.length<=800, metadata:undefined}}))};
-}`,
+		"work.list_work_interaction_cli_rows",
+		input,
 	);
 	if (inboxCall.error)
 		return fail(ctx, inboxCall.error, inboxCall.error.message);
@@ -3019,6 +3159,21 @@ export function nearestWorkVerbs(input: string, max = 3): string[] {
  * (flags are already parsed into `ctx.work`). Returns a process exit code.
  */
 export async function runWork(args: string, ctx: WorkContext): Promise<number> {
+	ctx = {
+		...ctx,
+		work: JSON.parse(JSON.stringify(ctx.work)) as WorkOptions,
+		client: {
+			callTool: ctx.client.callTool.bind(ctx.client),
+			callToolWithDestructiveApproval:
+				ctx.client.callToolWithDestructiveApproval.bind(ctx.client),
+			getTimeoutMs: ctx.client.getTimeoutMs.bind(ctx.client),
+		},
+	};
+	nativeCommands.set(ctx, {
+		deadlineAt:
+			Date.now() +
+			Math.max(ctx.client.getTimeoutMs(), (ctx.work.watch ?? 0) * 1000),
+	});
 	const [verb, rest] = firstToken(args ?? "");
 	if (!verb || verb === "help") {
 		console.log(workUsage());

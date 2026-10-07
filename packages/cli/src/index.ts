@@ -867,7 +867,9 @@ async function main() {
 			);
 		});
 	};
+	const commandAbort = new AbortController();
 	const onSignal = () => {
+		commandAbort.abort(new DOMException("Command interrupted", "AbortError"));
 		void teardown().finally(() => process.exit(130));
 	};
 	process.once("SIGINT", onSignal);
@@ -1053,9 +1055,8 @@ async function main() {
 			return;
 		}
 		if (command === "work") {
-			// Board verbs for coding agents — thin wrappers over the org's
-			// work_items MCP tools, reached through the same Code Mode gateway
-			// path as `tedix code`/`goal`. Flags are already parsed into options.
+			// Typed Work calls use the authenticated gateway's configured native
+			// catalog. The selected organization headers are already attached.
 			process.exitCode = await runWork(options.prompt?.trim() ?? "", {
 				client,
 				color,
@@ -1063,6 +1064,7 @@ async function main() {
 				workspace: workspaceName,
 				authSource: auth.source,
 				mcpUrl: options.url,
+				signal: commandAbort.signal,
 				attemptStore: organizationScopedAttemptStore(
 					createFileWorkAttemptStore(),
 					organizationContext.workspace,
