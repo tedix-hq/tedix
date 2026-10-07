@@ -152,7 +152,9 @@ describe("credential store", () => {
 		expect(reads).toBeGreaterThan(0);
 		expect(listWorkspaces({ configDir: dir })).toHaveLength(121);
 		expect(getCurrentWorkspace({ configDir: dir })).toBe("selected");
-	});
+		// Four processes making 90 locked writes each can exceed the default 5s
+		// on a two-core hosted runner.
+	}, 30_000);
 
 	test("canonical grant wins over stale alias extras and mutations retain only canonical state", () => {
 		const dir = configDir();
