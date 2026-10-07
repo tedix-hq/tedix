@@ -428,9 +428,19 @@ it("routes a selected organization through its own caller context and rejects ot
 	} finally {
 		vi.unstubAllGlobals();
 	}
+	// An app inside the selected organization's mount keeps its own namespace.
+	await expect(
+		executeTool(
+			agent,
+			{ ...tool, toolId: "sample_reports__fetch_report" },
+			{},
+			{ adapterScope: "primary", resultStrategy: "merge" },
+		),
+	).resolves.not.toHaveProperty("isError", true);
 	for (const denied of [
 		{ ...tool, config: { ...tool.config, _multiOrgOrganizationId: "other" } },
 		{ ...tool, toolId: "tedix__fetch_report" },
+		{ ...tool, toolId: "samplex__fetch_report" },
 		{
 			...tool,
 			toolId: "unscoped",

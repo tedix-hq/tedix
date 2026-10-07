@@ -1,6 +1,7 @@
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
+import { isOrganizationMountNamespace } from "./aggregate-namespaces";
 import { contentFreeMcpException, createMcpLogger } from "../log";
 /**
  * Tool Execution Module
@@ -205,7 +206,15 @@ export async function executeTool(
 			const target = (toolConfig as Record<string, unknown> | null)
 				?._multiOrgOrganizationId;
 			const selected = verified.find((org) => org.organizationId === target);
-			if (!selected || !tool.toolId.startsWith(`${selected.gatewaySlug}__`)) {
+			const toolNamespace = tool.toolId.split("__", 1)[0] ?? "";
+			if (
+				!selected ||
+				!tool.toolId.includes("__") ||
+				!isOrganizationMountNamespace(
+					selected.gatewaySlug,
+					toolNamespace.replace(/[^a-zA-Z0-9_]/g, "_"),
+				)
+			) {
 				throw new Error("Tool is outside the selected organizations");
 			}
 			agent = {
