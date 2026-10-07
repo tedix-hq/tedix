@@ -194,6 +194,7 @@
 		"./utils/execution-requirement": "./src/utils/execution-requirement.ts",
 		"./utils/fact-evidence": "./src/utils/fact-evidence.ts",
 		"./utils/is-record": "./src/utils/is-record.ts",
+		"./utils/markdown-plain-text": "./src/utils/markdown-plain-text.ts",
 		"./utils/governed-learning": "./src/utils/governed-learning.ts",
 		"./utils/procedure-schemas": "./src/utils/procedure-schemas.ts",
 		"./utils/runtime-events": "./src/utils/runtime-events.ts",

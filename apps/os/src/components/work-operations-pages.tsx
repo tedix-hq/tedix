@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@tanstack/react-form";
 import { useEffect, useState, type ReactNode } from "react";
 import * as z from "zod";
+import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { WorkAttentionSummary } from "@/components/work-attention-summary";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
 import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
@@ -192,7 +194,7 @@ function Header({
 	action,
 }: {
 	title: string;
-	description: string;
+	description: ReactNode;
 	action?: ReactNode;
 }) {
 	useDocumentTitle(`${title} · Work`);
@@ -1435,14 +1437,81 @@ const urgentInteractionMetadataSchema = z.object({
 	triage: z.object({ urgentLabels: z.array(z.string()).optional() }).optional(),
 });
 
+/** Triage labels in plain words, deduplicated; unknown labels stay readable. */
+function urgentReasons(labels: readonly string[] | undefined) {
+	return [...new Set(labels ?? [])].map(
+		(label) => URGENT_LABEL_TEXT[label] ?? sentenceCase(label),
+	);
+}
+
+const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
+const DECISION_CAPTURE_HOSTS: Record<string, string> = {
+	"claude-code": "Claude Code",
+	codex: "Codex",
+};
+
+const decisionCaptureMetadataSchema = z.object({
+	schema: z.literal(DECISION_CAPTURE_SCHEMA),
+	host: z.string().optional(),
+	sessionId: z.string().optional(),
+	repository: z.string().optional(),
+	branch: z.string().nullish(),
+	triage: z
+		.object({
+			urgency: z.string().optional(),
+			urgentLabels: z.array(z.string()).optional(),
+		})
+		.optional()
+		.catch(undefined),
+});
+
+/**
+ * Where a decision-capture question came from and why it waits, or null for
+ * any other Interaction. The question is the agent's own turn-end message in
+ * the user's local session, not a message from another person.
+ */
+export function decisionCaptureSummary(metadata: unknown) {
+	const parsed = decisionCaptureMetadataSchema.safeParse(metadata);
+	if (!parsed.success) return null;
+	const value = parsed.data;
+	const host = value.host
+		? (DECISION_CAPTURE_HOSTS[value.host] ?? value.host)
+		: "agent";
+	const urgency =
+		value.triage?.urgency === "now" || value.triage?.urgency === "later"
+			? value.triage.urgency
+			: null;
+	return {
+		source: `your ${host} session`,
+		origin: [`From your ${host} session`, value.repository, value.branch]
+			.filter((part): part is string => Boolean(part))
+			.join(" · "),
+		sessionId: value.sessionId,
+		shortSessionId: value.sessionId?.slice(0, 8),
+		urgency,
+		reasons: urgency === "now" ? urgentReasons(value.triage?.urgentLabels) : [],
+	};
+}
+
+/**
+ * The subject as plain text. Decision-capture subjects come from the agent's
+ * Markdown; rows written before the CLI stripped it still carry the markers.
+ */
+export function interactionSubject(request: {
+	subject: string;
+	metadata?: unknown;
+}) {
+	if (!decisionCaptureMetadataSchema.safeParse(request.metadata).success)
+		return request.subject;
+	return markdownLineToPlainText(request.subject) || request.subject;
+}
+
 /** Plain-language reasons and origin for one triaged agent-turn request. */
 export function urgentInteractionSummary(metadata: unknown) {
 	const parsed = urgentInteractionMetadataSchema.safeParse(metadata);
 	const value = parsed.success ? parsed.data : {};
 	return {
-		reasons: [...new Set(value.triage?.urgentLabels ?? [])].map(
-			(label) => URGENT_LABEL_TEXT[label] ?? sentenceCase(label),
-		),
+		reasons: urgentReasons(value.triage?.urgentLabels),
 		origin: [
 			value.repository,
 			value.host,
@@ -1452,10 +1521,130 @@ export function urgentInteractionSummary(metadata: unknown) {
 	};
 }
 
+/**
+ * Each turn end of a captured agent session opens a new question, so one busy
+ * session floods the inbox. Within the loaded page, an open decision-capture
+ * question shows only as the newest of its session, at that row's position;
+ * the older open ones from the same session travel with it as `earlier`
+ * (newest first). Every other row passes through unchanged and alone.
+ */
+export function groupSessionQuestions<
+	T extends {
+		request: { id: string; requestedAt: string; metadata?: unknown };
+		effectiveState: string;
+	},
+>(rows: readonly T[]): Array<{ row: T; earlier: T[] }> {
+	const sessionOf = (row: T) =>
+		row.effectiveState === "open"
+			? decisionCaptureSummary(row.request.metadata)?.sessionId
+			: undefined;
+	const sessions = new Map<string, T[]>();
+	for (const row of rows) {
+		const session = sessionOf(row);
+		if (session) sessions.set(session, [...(sessions.get(session) ?? []), row]);
+	}
+	for (const members of sessions.values())
+		members.sort((a, b) =>
+			b.request.requestedAt.localeCompare(a.request.requestedAt),
+		);
+	return rows.flatMap((row) => {
+		const session = sessionOf(row);
+		if (!session) return [{ row, earlier: [] }];
+		const [newest, ...earlier] = sessions.get(session) ?? [row];
+		return newest === row ? [{ row, earlier }] : [];
+	});
+}
+
+/** The quiet toggle under a session's newest question. */
+function EarlierTurnsToggle({
+	count,
+	expanded,
+	onToggle,
+}: {
+	count: number;
+	expanded: boolean;
+	onToggle: () => void;
+}) {
+	if (count === 0) return null;
+	const label = `${count} earlier ${count === 1 ? "turn" : "turns"}`;
+	return (
+		<Button
+			variant="ghost"
+			size="xs"
+			className="w-fit"
+			aria-expanded={expanded}
+			onClick={onToggle}
+		>
+			{expanded ? `Hide ${label}` : label}
+		</Button>
+	);
+}
+
+/** Which sessions' earlier turns are expanded, by request id of the newest. */
+function useExpandedGroups() {
+	const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+	return {
+		isExpanded: (id: string) => expanded.has(id),
+		toggle: (id: string) =>
+			setExpanded((current) => {
+				const next = new Set(current);
+				if (!next.delete(id)) next.add(id);
+				return next;
+			}),
+	};
+}
+
 function NeedsYouNowSection() {
 	const query = useQuery(workUrgentInteractionsQueryOptions());
+	const groups = useExpandedGroups();
 	const rows = query.data?.data ?? [];
 	if (rows.length === 0) return null;
+	type UrgentRow = (typeof rows)[number];
+	const renderRow = (
+		{ request, workItem }: UrgentRow,
+		earlier?: UrgentRow[],
+	) => {
+		const summary = urgentInteractionSummary(request.metadata);
+		return (
+			<TableRow key={request.id}>
+				<TableCell className="whitespace-normal">
+					<Link variant="record" href={`/work/interactions/${request.id}`}>
+						{interactionSubject(request)}
+					</Link>
+					{workItem ? (
+						<Text as="p" role="label" tone="secondary">
+							{workItem.title}
+						</Text>
+					) : null}
+					{earlier ? (
+						<EarlierTurnsToggle
+							count={earlier.length}
+							expanded={groups.isExpanded(request.id)}
+							onToggle={() => groups.toggle(request.id)}
+						/>
+					) : null}
+				</TableCell>
+				<TableCell className="whitespace-normal">
+					<span className="flex flex-wrap gap-1">
+						{summary.reasons.length > 0 ? (
+							summary.reasons.map((reason) => (
+								<Badge key={reason} variant="error">
+									{reason}
+								</Badge>
+							))
+						) : (
+							<Badge variant="warning">Needs you</Badge>
+						)}
+					</span>
+				</TableCell>
+				<TableCell className="whitespace-normal">
+					<span title={summary.sessionId}>
+						{summary.origin.join(" · ") || "Origin not recorded"}
+					</span>
+				</TableCell>
+			</TableRow>
+		);
+	};
 	return (
 		<PageSection aria-labelledby="interaction-urgent-title">
 			<SectionHeader>
@@ -1478,44 +1667,12 @@ function NeedsYouNowSection() {
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{rows.map(({ request, workItem }) => {
-						const summary = urgentInteractionSummary(request.metadata);
-						return (
-							<TableRow key={request.id}>
-								<TableCell className="whitespace-normal">
-									<Link
-										variant="record"
-										href={`/work/interactions/${request.id}`}
-									>
-										{request.subject}
-									</Link>
-									{workItem ? (
-										<Text as="p" role="label" tone="secondary">
-											{workItem.title}
-										</Text>
-									) : null}
-								</TableCell>
-								<TableCell className="whitespace-normal">
-									<span className="flex flex-wrap gap-1">
-										{summary.reasons.length > 0 ? (
-											summary.reasons.map((reason) => (
-												<Badge key={reason} variant="error">
-													{reason}
-												</Badge>
-											))
-										) : (
-											<Badge variant="warning">Needs you</Badge>
-										)}
-									</span>
-								</TableCell>
-								<TableCell className="whitespace-normal">
-									<span title={summary.sessionId}>
-										{summary.origin.join(" · ") || "Origin not recorded"}
-									</span>
-								</TableCell>
-							</TableRow>
-						);
-					})}
+					{groupSessionQuestions(rows).flatMap(({ row, earlier }) => [
+						renderRow(row, earlier),
+						...(groups.isExpanded(row.request.id)
+							? earlier.map((older) => renderRow(older))
+							: []),
+					])}
 				</TableBody>
 			</Table>
 		</PageSection>
@@ -1551,6 +1708,7 @@ export function WorkInteractionsPage() {
 		});
 	};
 	const [interactionFormOpen, setInteractionFormOpen] = useState(false);
+	const groups = useExpandedGroups();
 	const interactionOptions = workInteractionsQueryOptions(
 		paging.cursor,
 		listView,
@@ -1613,6 +1771,53 @@ export function WorkInteractionsPage() {
 	});
 	const kind = useStore(form.store, (state) => state.values.kind);
 	const visibleRows = query.data?.data ?? [];
+	const renderInteractionRow = (
+		{
+			request,
+			effectiveState,
+			workItem,
+			responseCount,
+		}: (typeof visibleRows)[number],
+		earlier?: (typeof visibleRows)[number][],
+	) => (
+		<TableRow key={request.id}>
+			<TableCell className="whitespace-normal">
+				<Link variant="record" href={`/work/interactions/${request.id}`}>
+					{interactionSubject(request)}
+				</Link>
+				{earlier ? (
+					<EarlierTurnsToggle
+						count={earlier.length}
+						expanded={groups.isExpanded(request.id)}
+						onToggle={() => groups.toggle(request.id)}
+					/>
+				) : null}
+				<Text as="p" role="label" tone="secondary">
+					{workItem?.title ??
+						request.workItemId ??
+						request.caseId ??
+						request.projectId ??
+						"Context unavailable"}{" "}
+					· {sentenceCase(request.kind)}
+				</Text>
+			</TableCell>
+			<TableCell>
+				<Badge variant={effectiveState === "open" ? "warning" : "outline"}>
+					{sentenceCase(effectiveState)}
+				</Badge>
+			</TableCell>
+			<TableCell>
+				<span title={`${request.requestedFromType}:${request.requestedFromId}`}>
+					{namedWorkPrincipal(
+						request.requestedFromType,
+						request.requestedFromId,
+						names,
+					)}
+				</span>
+			</TableCell>
+			<TableCell>{responseCount}</TableCell>
+		</TableRow>
+	);
 	const activeView =
 		listView === "inbox"
 			? {
@@ -1804,49 +2009,15 @@ export function WorkInteractionsPage() {
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{visibleRows.map(
-								({ request, effectiveState, workItem, responseCount }) => (
-									<TableRow key={request.id}>
-										<TableCell className="whitespace-normal">
-											<Link
-												variant="record"
-												href={`/work/interactions/${request.id}`}
-											>
-												{request.subject}
-											</Link>
-											<Text as="p" role="label" tone="secondary">
-												{workItem?.title ??
-													request.workItemId ??
-													request.caseId ??
-													request.projectId ??
-													"Context unavailable"}{" "}
-												· {sentenceCase(request.kind)}
-											</Text>
-										</TableCell>
-										<TableCell>
-											<Badge
-												variant={
-													effectiveState === "open" ? "warning" : "outline"
-												}
-											>
-												{sentenceCase(effectiveState)}
-											</Badge>
-										</TableCell>
-										<TableCell>
-											<span
-												title={`${request.requestedFromType}:${request.requestedFromId}`}
-											>
-												{namedWorkPrincipal(
-													request.requestedFromType,
-													request.requestedFromId,
-													names,
-												)}
-											</span>
-										</TableCell>
-										<TableCell>{responseCount}</TableCell>
-									</TableRow>
-								),
-							)}
+							{(listView === "inbox"
+								? groupSessionQuestions(visibleRows)
+								: visibleRows.map((row) => ({ row, earlier: [] }))
+							).flatMap(({ row, earlier }) => [
+								renderInteractionRow(row, earlier),
+								...(groups.isExpanded(row.request.id)
+									? earlier.map((older) => renderInteractionRow(older))
+									: []),
+							])}
 						</TableBody>
 					</Table>
 				)}
@@ -2007,7 +2178,9 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 		typeof request.metadata?.originChatTitle === "string"
 			? request.metadata.originChatTitle.trim().slice(0, 120)
 			: "";
+	const decisionCapture = decisionCaptureSummary(request.metadata);
 	const questionSource =
+		decisionCapture?.source ||
 		originChatTitle ||
 		(typeof request.metadata?.originChatId === "string" &&
 		request.metadata?.agentHarness === "codex"
@@ -2052,13 +2225,25 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 				All interactions
 			</PageBack>
 			<Header
-				title={request.subject}
+				title={interactionSubject(request)}
 				description={
-					externalAction
-						? `Action from ${questionSource}`
-						: isQuestion
-							? `Question from ${questionSource}`
-							: `${sentenceCase(request.kind)} · version ${request.version}`
+					externalAction ? (
+						`Action from ${questionSource}`
+					) : decisionCapture ? (
+						<span
+							title={
+								decisionCapture.shortSessionId
+									? `Session ${decisionCapture.shortSessionId}`
+									: undefined
+							}
+						>
+							{decisionCapture.origin}
+						</span>
+					) : isQuestion ? (
+						`Question from ${questionSource}`
+					) : (
+						`${sentenceCase(request.kind)} · version ${request.version}`
+					)
 				}
 			/>
 			<Card>
@@ -2116,7 +2301,28 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 				<CardContent className="grid gap-2">
 					{isQuestion ? (
 						<>
-							<p className="whitespace-pre-wrap">{request.prompt}</p>
+							{decisionCapture?.urgency === "now" ? (
+								<span className="flex flex-wrap gap-1">
+									{decisionCapture.reasons.length > 0 ? (
+										decisionCapture.reasons.map((reason) => (
+											<Badge key={reason} variant="error">
+												{reason}
+											</Badge>
+										))
+									) : (
+										<Badge variant="warning">Needs you</Badge>
+									)}
+								</span>
+							) : decisionCapture?.urgency === "later" ? (
+								<Text as="p" role="label" tone="secondary">
+									Can wait
+								</Text>
+							) : null}
+							{decisionCapture ? (
+								<ChatMarkdown content={request.prompt} />
+							) : (
+								<p className="whitespace-pre-wrap">{request.prompt}</p>
+							)}
 							<Collapsible>
 								<CollapsibleTrigger
 									render={<Button variant="ghost" className="w-fit" />}

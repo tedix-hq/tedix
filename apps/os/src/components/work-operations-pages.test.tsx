@@ -46,7 +46,11 @@ import {
 	SchedulerTruncationWarnings,
 	useCursorPaging,
 	urgentInteractionSummary,
+	decisionCaptureSummary,
+	interactionSubject,
+	groupSessionQuestions,
 } from "./work-operations-pages";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 
 type Paging = ReturnType<typeof useCursorPaging<string>>;
 let paging: Paging | undefined;
@@ -251,7 +255,7 @@ describe("Needs you now", () => {
 								urgentLabels: ["blocker_or_failure"],
 							},
 						},
-						subject: "acme-app · claude-code waiting: deploy failed",
+						subject: "acme-app · claude-code waiting: **deploy failed**",
 						kind: "question",
 						version: 1,
 						creatorType: "user",
@@ -291,6 +295,8 @@ describe("Needs you now", () => {
 		);
 		const text = container.textContent ?? "";
 		expect(text).toContain("Needs you now");
+		expect(text).toContain("claude-code waiting: deploy failed");
+		expect(text).not.toContain("**");
 		expect(text).toContain("Blocked");
 		expect(text).toContain("acme-app · claude-code · session abcdef12");
 		expect(text.indexOf("Needs you now")).toBeLessThan(
@@ -303,6 +309,321 @@ describe("Needs you now", () => {
 			});
 		});
 		expect(container.textContent).not.toContain("Needs you now");
+	});
+});
+
+describe("Decision-capture questions", () => {
+	const requestId = "9b3cbf40-9b22-46c9-8913-c9643bf9a7be";
+	const orgId = "22222222-2222-4222-8222-222222222222";
+	const decisionMetadata = (triage: {
+		urgency: string;
+		urgentLabels: string[];
+	}) => ({
+		schema: "tedix.decision-capture.v1",
+		host: "claude-code",
+		sessionId: "abcdef12-0000-4000-8000-000000000000",
+		repository: "acme-app",
+		branch: "main",
+		triage: { status: "ok", labels: {}, ...triage },
+	});
+
+	async function renderDetail(metadata: Record<string, JsonValue>) {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		});
+		client.setQueryData(workInteractionDetailQueryOptions(requestId).queryKey, {
+			request: {
+				id: requestId,
+				orgId,
+				workItemId: null,
+				caseId: null,
+				projectId: null,
+				creatorSessionId: null,
+				state: "open",
+				requestedAt: "2026-10-03T14:00:00Z",
+				dueAt: null,
+				expiresAt: null,
+				resolvedAt: null,
+				metadata,
+				subject:
+					"acme-app · claude-code waiting: It's deployed.** The live API runs commit `fc6b8f9`",
+				kind: "question",
+				version: 1,
+				creatorType: "user",
+				creatorId: "user-1",
+				requestedFromType: "user",
+				requestedFromId: "user-1",
+				prompt:
+					"**It's deployed.** The live API runs commit `fc6b8f9`.\n\n- one\n- two\n\n<b>raw</b>",
+			},
+			effectiveState: "open",
+			canRespond: false,
+			canCancel: false,
+			responses: { data: [], hasMore: false, nextCursor: null },
+		});
+		client.setQueryData<unknown>(tediRosterQueryOptions(100).queryKey, {
+			data: [],
+		});
+		client.setQueryData<unknown>(
+			membersListQueryOptions({ organizationId: orgId, limit: 100, offset: 0 })
+				.queryKey,
+			{ data: [{ userId: "user-1", name: "Fixture Person" }] },
+		);
+		client.setQueryData<unknown>(
+			workExternalPrincipalsQueryOptions(orgId).queryKey,
+			[],
+		);
+		const routeRoot = createRootRoute({ component: Outlet });
+		const detail = createRoute({
+			getParentRoute: () => routeRoot,
+			path: "/work/interactions/$requestId",
+			component: () => <WorkInteractionPage requestId={requestId} />,
+		});
+		const router = createRouter({
+			routeTree: routeRoot.addChildren([detail]),
+			history: createMemoryHistory({
+				initialEntries: [`/work/interactions/${requestId}`],
+			}),
+		});
+		await router.load();
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<QueryClientProvider client={client}>
+					<RouterProvider router={router} />
+				</QueryClientProvider>,
+			),
+		);
+		return container;
+	}
+
+	it("summarizes origin and urgency only for decision-capture rows", () => {
+		expect(
+			decisionCaptureSummary(
+				decisionMetadata({
+					urgency: "now",
+					urgentLabels: ["human_only_action", "risky_action"],
+				}),
+			),
+		).toEqual({
+			source: "your Claude Code session",
+			origin: "From your Claude Code session · acme-app · main",
+			sessionId: "abcdef12-0000-4000-8000-000000000000",
+			shortSessionId: "abcdef12",
+			urgency: "now",
+			reasons: ["Needs you to act", "Risky action"],
+		});
+		expect(
+			decisionCaptureSummary({
+				schema: "tedix.decision-capture.v1",
+				host: "codex",
+				triage: { urgency: "later", urgentLabels: ["risky_action"] },
+			}),
+		).toMatchObject({
+			origin: "From your Codex session",
+			urgency: "later",
+			reasons: [],
+		});
+		expect(decisionCaptureSummary({ originChatTitle: "x" })).toBeNull();
+		expect(
+			interactionSubject({ subject: "**Keep** `as is`", metadata: {} }),
+		).toBe("**Keep** `as is`");
+		expect(
+			interactionSubject({
+				subject: "acme-app · codex waiting: **Done** `fc6b8f9`",
+				metadata: { schema: "tedix.decision-capture.v1" },
+			}),
+		).toBe("acme-app · codex waiting: Done fc6b8f9");
+	});
+
+	it("renders an urgent question as plain title, Markdown body and plain-word reasons", async () => {
+		const container = await renderDetail(
+			decisionMetadata({
+				urgency: "now",
+				urgentLabels: ["blocker_or_failure"],
+			}),
+		);
+		const text = container.textContent ?? "";
+		expect(container.querySelector("h1")?.textContent).toBe(
+			"acme-app · claude-code waiting: It's deployed. The live API runs commit fc6b8f9",
+		);
+		expect(text).toContain("From your Claude Code session · acme-app · main");
+		expect(
+			container.querySelector('[title="Session abcdef12"]'),
+		).not.toBeNull();
+		expect(text).not.toContain("Question from");
+		expect(text).toContain("Blocked");
+		expect(text).not.toContain("Can wait");
+		expect(container.querySelector(".chat-markdown strong")?.textContent).toBe(
+			"It's deployed.",
+		);
+		expect(container.querySelectorAll(".chat-markdown li")).toHaveLength(2);
+		expect(container.querySelector(".chat-markdown b")).toBeNull();
+		expect(text).not.toContain("**");
+	});
+
+	it("marks a later question as able to wait", async () => {
+		const container = await renderDetail(
+			decisionMetadata({ urgency: "later", urgentLabels: [] }),
+		);
+		expect(container.textContent).toContain("Can wait");
+		expect(container.textContent).not.toContain("Blocked");
+	});
+
+	it("keeps the existing source label and plain prompt for other questions", async () => {
+		const container = await renderDetail({});
+		const text = container.textContent ?? "";
+		expect(text).toContain("Question from");
+		expect(text).toContain("**It's deployed.**");
+		expect(container.querySelector(".chat-markdown")).toBeNull();
+	});
+});
+
+describe("Session question grouping", () => {
+	const capture = (sessionId: string) => ({
+		schema: "tedix.decision-capture.v1",
+		host: "codex",
+		sessionId,
+		repository: "acme-app",
+		triage: { status: "ok", urgency: "later", urgentLabels: [] },
+	});
+	const row = (
+		id: string,
+		requestedAt: string,
+		metadata: Record<string, JsonValue>,
+		effectiveState = "open",
+	) => ({
+		request: {
+			id,
+			orgId: "22222222-2222-4222-8222-222222222222",
+			workItemId: null,
+			caseId: null,
+			projectId: "33333333-3333-4333-8333-333333333333",
+			creatorSessionId: null,
+			state: effectiveState,
+			requestedAt,
+			dueAt: null,
+			expiresAt: null,
+			resolvedAt: null,
+			metadata,
+			subject: `codex waiting: turn ${id}`,
+			kind: "question",
+			version: 1,
+			creatorType: "user",
+			creatorId: "user-1",
+			requestedFromType: "user",
+			requestedFromId: "user-1",
+			prompt: `Turn ${id}`,
+		},
+		effectiveState,
+		canRespond: true,
+		canCancel: false,
+		workItem: null,
+		responseCount: 0,
+	});
+
+	it("keeps only the newest open question per session, at its position", () => {
+		const rows = [
+			row("other", "2026-10-03T14:05:00Z", {}),
+			row("a-old", "2026-10-03T14:01:00Z", capture("session-a")),
+			row("b-only", "2026-10-03T14:04:00Z", capture("session-b")),
+			row("a-new", "2026-10-03T14:03:00Z", capture("session-a")),
+			row("a-mid", "2026-10-03T14:02:00Z", capture("session-a")),
+			row("a-done", "2026-10-03T14:06:00Z", capture("session-a"), "resolved"),
+		];
+		expect(
+			groupSessionQuestions(rows).map(({ row, earlier }) => [
+				row.request.id,
+				earlier.map((older) => older.request.id),
+			]),
+		).toEqual([
+			["other", []],
+			["b-only", []],
+			["a-new", ["a-mid", "a-old"]],
+			["a-done", []],
+		]);
+	});
+
+	it("collapses a session's earlier turns in the inbox behind a disclosure", async () => {
+		const page = {
+			data: [
+				row(
+					"33333333-0000-4000-8000-000000000003",
+					"2026-10-03T14:03:00Z",
+					capture("session-a"),
+				),
+				row(
+					"33333333-0000-4000-8000-000000000002",
+					"2026-10-03T14:02:00Z",
+					capture("session-a"),
+				),
+				row(
+					"33333333-0000-4000-8000-000000000001",
+					"2026-10-03T14:01:00Z",
+					capture("session-a"),
+				),
+				row("33333333-0000-4000-8000-000000000004", "2026-10-03T14:00:00Z", {}),
+			],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: "2026-10-03T15:00:00Z",
+		};
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		});
+		client.setQueryData<unknown>(workInteractionsQueryOptions().queryKey, page);
+		for (const empty of [
+			workUrgentInteractionsQueryOptions().queryKey,
+			workInteractionsQueryOptions(undefined, "outbox").queryKey,
+		])
+			client.setQueryData<unknown>(empty, { ...page, data: [] });
+		const orgId = "22222222-2222-4222-8222-222222222222";
+		client.setQueryData<unknown>(tediRosterQueryOptions(100).queryKey, {
+			data: [],
+		});
+		client.setQueryData<unknown>(
+			membersListQueryOptions({ organizationId: orgId, limit: 100, offset: 0 })
+				.queryKey,
+			{ data: [] },
+		);
+		client.setQueryData<unknown>(
+			workExternalPrincipalsQueryOptions(orgId).queryKey,
+			[],
+		);
+		const routeRoot = createRootRoute({ component: Outlet });
+		const route = createRoute({
+			getParentRoute: () => routeRoot,
+			path: "/work/interactions",
+			validateSearch: workInteractionsSearch,
+			component: WorkInteractionsRoute,
+		});
+		const router = createRouter({
+			routeTree: routeRoot.addChildren([route]),
+			history: createMemoryHistory({ initialEntries: ["/work/interactions"] }),
+		});
+		await router.load();
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<QueryClientProvider client={client}>
+					<RouterProvider router={router} />
+				</QueryClientProvider>,
+			),
+		);
+		const links = () =>
+			[...container.querySelectorAll('a[href^="/work/interactions/"]')].map(
+				(link) => link.getAttribute("href")?.slice(-1),
+			);
+		expect(links()).toEqual(["3", "4"]);
+		const toggle = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "2 earlier turns",
+		);
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => toggle?.click());
+		expect(links()).toEqual(["3", "2", "1", "4"]);
+		expect(toggle?.textContent).toBe("Hide 2 earlier turns");
 	});
 });
 
