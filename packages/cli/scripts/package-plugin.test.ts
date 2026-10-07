@@ -206,7 +206,7 @@ describe("plugin packager", () => {
 			(handler) => handler.command === "tedix hooks await-draft",
 		);
 		expect(awaitDraft).toEqual([
-			{ type: "command", command: "tedix hooks await-draft", timeout: 100 },
+			{ type: "command", command: "tedix hooks await-draft", timeout: 320 },
 		]);
 		expect(
 			handlers(

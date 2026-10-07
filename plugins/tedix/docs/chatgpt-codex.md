@@ -327,7 +327,7 @@ Codex receives it through `tedix hooks await-draft`, a synchronous Codex-only
 automatically creates a new continuation prompt that acts as a new user
 prompt, using your reason as that prompt text"
 ([Codex hooks](https://learn.chatgpt.com/docs/hooks)). `await-draft` waits up
-to 90 seconds, polling every 3 seconds, for the question this turn opens. It
+to 5 minutes, polling every 5 seconds, for the question this turn opens. It
 prints that continuation only for an automatic draft. It returns at once with
 no output when no draft was queued, the draft is for review, or the question
 was answered. The local Codex artifact registers it; Claude Code artifacts omit
@@ -340,7 +340,7 @@ add this beside the `tedix hooks capture-stop` entry under `"Stop"`:
 		{
 			"type": "command",
 			"command": "tedix hooks await-draft",
-			"timeout": 100
+			"timeout": 320
 		}
 	]
 }
