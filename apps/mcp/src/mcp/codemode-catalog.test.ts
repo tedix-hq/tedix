@@ -1672,3 +1672,73 @@ it("keeps reviewed endpoint floors and denials identical in native discovery", a
 		vi.useRealTimers();
 	}
 });
+
+it("search and describe keep literal native identity and independent eligibility/authorization", async () => {
+	const row = tool({
+		toolId: "work__list_items",
+		config: {
+			transport: "rpc",
+			endpoint: "workItems/list",
+			nativeDirect: true,
+			_aggregateNamespace: "work",
+			_aggregateTediRemoteName: "list_items",
+		},
+		schemaSource: "orpc",
+		schemaSourceRef: "workItems/list",
+		schemaSourceHash: "literal-hash",
+		schemaSyncedAt: "2026-10-07T00:00:00Z",
+	});
+	const ctx = {
+		appSlug: "gateway",
+		loadedTools: new Map([[row.toolId, row]]),
+		callerIdentity: { authType: "oauth", scopes: ["mcp:work.read"] },
+		appMetadata: {
+			mcpConfig: { toolScopes: { [row.toolId]: ["mcp:work.read"] } },
+		},
+	} as unknown as ServerContext;
+	const provider = buildCatalogProvider(ctx, undefined);
+	const found = await runSearch(provider, "list_items", 100);
+	const entry = found.results.find(
+		(x) => (x.native as { name: string })?.name === row.toolId,
+	)!;
+	expect(entry.native).toMatchObject({
+		name: row.toolId,
+		toolRowId: row.id,
+		endpoint: "workItems/list",
+		eligible: true,
+		authorized: true,
+		schemaFreshness: {
+			sourceRef: "workItems/list",
+			sourceHash: "literal-hash",
+		},
+	});
+	const describe = (
+		provider.tools as Record<
+			string,
+			{ execute: (x: unknown) => Promise<unknown> }
+		>
+	).describe!;
+	expect(await describe.execute({ callable: entry.callable })).toMatchObject({
+		native: entry.native,
+	});
+	ctx.callerIdentity!.scopes = [];
+	const denied = await runSearch(
+		buildCatalogProvider(ctx, undefined),
+		"list_items",
+		100,
+	);
+	expect(
+		denied.results.find(
+			(x) => (x.native as { name: string })?.name === row.toolId,
+		),
+	).toMatchObject({
+		authorized: false,
+		native: { eligible: true, authorized: false },
+	});
+	ctx.callerIdentity!.forceCodeMode = true;
+	expect(
+		(
+			await runSearch(buildCatalogProvider(ctx, undefined), "list_items", 100)
+		).results.find((x) => (x.native as { name: string })?.name === row.toolId),
+	).toMatchObject({ native: { eligible: false, authorized: false } });
+});

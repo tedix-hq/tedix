@@ -1,14 +1,3 @@
-import {
-	MCP_CAPABILITY_SCOPES,
-	MCP_GRANULAR_CAPABILITY_SCOPES,
-} from "@tedix/api-contract/schemas/mcp-capability-scopes";
-import {
-	CatalogueTransportConfigSchema,
-	catalogueInputDeclarationMatches,
-	ToolInputJsonSchemaSchema,
-	ToolJsonSchemaSchema,
-} from "@tedix/api-contract/schemas/tools";
-import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes";
 /**
  * Stateless MCP Server Factory
  *
@@ -67,6 +56,10 @@ import {
 } from "./tool-registration";
 import type { McpApp, OpenAiWidgetCSP } from "./types";
 import { registerAccountProfile } from "./registration/account-profile";
+import {
+	registerGetInfoTool,
+	isConfiguredCatalogTool,
+} from "./registration/bootstrap";
 import { buildCallerTelemetryFields, trackMcpEvent } from "./utils/analytics";
 import {
 	buildWidgetThemePayload,
@@ -75,59 +68,6 @@ import {
 } from "./utils/widget";
 
 /** Catalog rows need their own configured capability, never a wildcard/namespace fallback. */
-export function isConfiguredCatalogTool(
-	tool: AppTool,
-	mcpConfig: Record<string, unknown> | undefined,
-): boolean {
-	const configured = CatalogueTransportConfigSchema.safeParse(tool.config);
-	if (
-		!tool.enabled ||
-		mcpConfig?.enforcePolicies === true ||
-		!configured.success ||
-		!catalogueInputDeclarationMatches(
-			configured.data.endpoint,
-			tool.inputSchema,
-		)
-	)
-		return false;
-	if (
-		!ToolInputJsonSchemaSchema.safeParse(tool.inputSchema).success ||
-		(tool.outputSchema !== null &&
-			tool.outputSchema !== undefined &&
-			!ToolJsonSchemaSchema.safeParse(tool.outputSchema).success)
-	)
-		return false;
-	const scopes = mcpConfig?.toolScopes;
-	if (
-		!scopes ||
-		typeof scopes !== "object" ||
-		!Object.hasOwn(scopes, tool.toolId)
-	)
-		return false;
-	const own = (scopes as Record<string, unknown>)[tool.toolId];
-	if (
-		!Array.isArray(own) ||
-		!own.length ||
-		own.some(
-			(scope) =>
-				typeof scope !== "string" ||
-				(!Object.hasOwn(MCP_CAPABILITY_SCOPES, scope) &&
-					!Object.hasOwn(MCP_GRANULAR_CAPABILITY_SCOPES, scope)),
-		)
-	)
-		return false;
-	try {
-		return (
-			resolveMcpToolRequiredScopes(tool, "", {
-				...mcpConfig,
-				enforcePolicies: false,
-				toolScopes: { [tool.toolId]: own },
-			}).length > 0
-		);
-	} catch {
-		return false;
-	}
-}
 
 const log = createMcpLogger("mcp.server_factory");
 
@@ -1023,6 +963,7 @@ export async function buildMcpServer(
 	const skipCodeMode = shouldBypassCodeModeForCaller(
 		callerIdentity,
 		requestedToolName,
+		cachedData.tools,
 	);
 	const directCatalog =
 		skipCodeMode &&
@@ -1037,6 +978,13 @@ export async function buildMcpServer(
 			: null;
 
 	for (const tool of cachedData.tools) {
+		// An opted-in name must identify exactly one hydrated owner before Map insertion.
+		if (
+			tool.config?.nativeDirect === true &&
+			cachedData.tools.filter((candidate) => candidate.toolId === tool.toolId)
+				.length !== 1
+		)
+			continue;
 		if (
 			tool.config?.transport === "catalog" &&
 			(!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) ||
@@ -1045,7 +993,6 @@ export async function buildMcpServer(
 		)
 			continue;
 		if (allowSet && !allowSet.has(tool.toolId)) continue;
-		if (directToolAllowSet && !directToolAllowSet.has(tool.toolId)) continue;
 		const requestScopedTool = {
 			...tool,
 			config:
@@ -1080,6 +1027,7 @@ export async function buildMcpServer(
 
 	if (codeModeActive) {
 		registerAccountProfile(serverCtx);
+		registerGetInfoTool(serverCtx, cachedData.tools);
 		// Code Mode is the compact agent surface: `code` for discovery/execution and
 		// `ask` for durable Home delegation. Resources and prompts remain protocol
 		// capabilities; implementation helpers do not become top-level tools.
@@ -1117,11 +1065,14 @@ export async function buildMcpServer(
 		//     app_tools rows of the same name on the tedix admin app.
 		// The service caller already knows exactly which D1 tool it wants.
 		if (!skipCodeMode) {
-			registerBootstrapTools(serverCtx);
+			registerBootstrapTools(serverCtx, cachedData.tools);
 			registerBootstrapResources(serverCtx);
 		}
 		registerResourceTemplates(serverCtx);
 		if (directCatalog) {
+			const selected = serverCtx.loadedTools.get(requestedToolName!);
+			if (selected) await registerDynamicTool(serverCtx, selected);
+		} else if (directToolAllowSet) {
 			const selected = serverCtx.loadedTools.get(requestedToolName!);
 			if (selected) await registerDynamicTool(serverCtx, selected);
 		} else await registerAppTools(serverCtx);

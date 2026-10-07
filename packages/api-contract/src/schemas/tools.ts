@@ -13,6 +13,7 @@ export const CatalogueTransportConfigSchema = z
 	.object({
 		transport: z.literal("catalog"),
 		endpoint: z.enum(["catalog/search", "catalog/describe"]),
+		nativeDirect: z.literal(true).optional(),
 		// Aggregation provenance is supplied by the server, never tool arguments.
 		_aggregateNamespace: z.string().optional(),
 		_aggregateTediId: z.string().optional(),
@@ -1267,6 +1268,8 @@ export type PersonalResourceToolBinding = z.infer<
 >;
 
 export interface ToolConfig {
+	/** Server-owned transport opt-in; never grants execution scopes. */
+	nativeDirect?: true;
 	personalResourceBinding?: PersonalResourceToolBinding;
 	/**
 	 * Server-owned review of this exact connected tool's read-only execution.

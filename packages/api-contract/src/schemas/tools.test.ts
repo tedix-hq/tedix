@@ -139,3 +139,21 @@ it("binds configured declarations to the closed parser and ignores only key orde
 		),
 	).toBe(false);
 });
+
+it("nativeDirect is a literal server opt-in, never a string or false compatibility flag", () => {
+	for (const value of [false, "true", 1, null])
+		expect(
+			CatalogueTransportConfigSchema.safeParse({
+				transport: "catalog",
+				endpoint: "catalog/search",
+				nativeDirect: value,
+			}).success,
+		).toBe(false);
+	expect(
+		CatalogueTransportConfigSchema.parse({
+			transport: "catalog",
+			endpoint: "catalog/search",
+			nativeDirect: true,
+		}).nativeDirect,
+	).toBe(true);
+});

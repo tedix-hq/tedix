@@ -10,7 +10,7 @@ import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tool
  *   caller. Deliberately no `ask` — it creates a durable Home turn and needs an authenticated org
  *   context the stateless lane does not resolve.
  * - Session Code Mode lane: `code` plus the home-surface tools named by
- *   SESSION_NATIVE_HOME_TOOL_IDS (exactly `ask`), plus authenticated profile bootstrap.
+ *   SESSION_NATIVE_HOME_TOOL_IDS (exactly `ask`), plus get_info and authenticated profile bootstrap.
  */
 
 import { describe, expect, it } from "vite-plus/test";
@@ -194,4 +194,38 @@ describe("configured compact native catalog rows", () => {
 			).filter((tool) => tool.name === "code"),
 		).toHaveLength(1);
 	});
+});
+
+it("native opt-in remains server configuration and does not borrow caller scopes in compact listing", () => {
+	const tools = compactCodeModeTools(
+		{
+			app: { slug: "tedix-unified", name: "Tedix" },
+			tools: [
+				{
+					id: "configured",
+					toolId: "read_work",
+					enabled: true,
+					toolTypeId: "rpc",
+					config: {
+						transport: "rpc",
+						endpoint: "workItems/list",
+						nativeDirect: true,
+					},
+					inputSchema: { type: "object", properties: {} },
+					title: "Read Work",
+				},
+			],
+			metadata: {
+				mcpConfig: {
+					codeMode: true,
+					toolScopes: { read_work: ["mcp:work.read"] },
+				},
+			},
+		} as never,
+		new Headers({
+			"x-tedix-auth-type": "oauth",
+			"x-tedix-auth-scopes": "mcp:catalog.read",
+		}),
+	);
+	expect(tools.map((row) => row.name)).not.toContain("read_work");
 });

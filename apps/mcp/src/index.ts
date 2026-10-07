@@ -1,3 +1,8 @@
+import { createMcpServer } from "@tedix/mcp-shared/server";
+import {
+	buildBootstrapInfo,
+	isConfiguredCatalogTool,
+} from "./mcp/registration/bootstrap";
 /**
  * Tedix MCP Worker
  * Customer-facing stateless MCP server for Apps SDK integration
@@ -168,9 +173,9 @@ import {
 import {
 	buildEdgeListCacheHints,
 	buildMcpServer,
+	buildServerContext,
 	extractCallerIdentity,
 	getAppContext,
-	isConfiguredCatalogTool,
 } from "./mcp/server-factory";
 import {
 	isMcpToolVisibleToCaller,
@@ -3127,6 +3132,52 @@ export async function handleMcpRequest(
 	// connectionLabel: header takes precedence, then mcpConfig fallback for
 	// forked D1 tools that inherit app-level connection routing.
 	const connectionLabel = headerConnectionLabel ?? mcpConnectionLabel;
+	if (requestedToolName === "get_info") {
+		const envelope = await readJsonRpcEnvelope(request);
+		if (envelope && "tooLarge" in envelope)
+			return requestBodyTooLargeResponse();
+		if (!envelope) return new Response("Invalid MCP request", { status: 400 });
+		const modernError = validateModernFastPathRequest(request, envelope);
+		if (modernError) return modernError;
+		const bootstrapServer = createMcpServer({
+			name: cachedData.app.name,
+			version: cachedData.metadata?.mcpConfig?.serverVersion ?? "1.0.0",
+		});
+		const bootstrapContext = buildServerContext(
+			bootstrapServer,
+			cachedData,
+			callerIdentity,
+			env,
+			ctx,
+			connectionLabel,
+			traceId,
+			tracestate,
+			upstreamAppId,
+			bearerToken,
+			inboundTraceMeta,
+			requestedCodeModeNamespaces,
+		);
+		for (const tool of cachedData.tools)
+			bootstrapContext.loadedTools.set(tool.toolId, tool);
+		const info = {
+			...buildBootstrapInfo(bootstrapContext, cachedData.tools),
+			toolCount: 1,
+			fastPath: "bootstrap",
+		};
+		return jsonRpcEnvelopeResponse(
+			envelope,
+			decorateModernFastPathResult(envelope, resolvedApp, {
+				resultType: "complete",
+				content: [
+					{
+						type: "text",
+						text: `${info.name} MCP Server v${info.serverVersion}`,
+					},
+				],
+				structuredContent: info,
+			}),
+		);
+	}
 	const server = await buildMcpServer(
 		cachedData,
 		callerIdentity,
@@ -4196,39 +4247,9 @@ async function maybeHandleBootstrapFastMcp(
 			}),
 		);
 	}
-	if (params.name !== "get_info") return null;
-
-	const mcpConfig = resolvedApp.metadata?.mcpConfig;
-	const serverVersion = mcpConfig?.serverVersion ?? "1.0.0";
-	const appName = resolvedApp.app.name ?? "Unknown App";
-	const info = {
-		name: appName,
-		slug: resolvedApp.app.slug,
-		description: resolvedApp.app.description ?? null,
-		domain: resolvedApp.app.domain ?? null,
-		logoUrl: resolvedApp.app.logoUrl ?? null,
-		serverVersion,
-		toolCount: 1,
-		capabilities: mcpConfig?.capabilities ?? {},
-		fastPath: "bootstrap",
-	};
-	const text = [
-		`${info.name} MCP Server v${info.serverVersion}`,
-		info.description ? `\n${info.description}` : "",
-		"\nTools: 1",
-		info.domain ? `Domain: ${info.domain}` : "",
-	]
-		.filter(Boolean)
-		.join("\n");
-
-	return jsonRpcEnvelopeResponse(
-		envelope,
-		decorateModernFastPathResult(envelope, resolvedApp, {
-			resultType: "complete",
-			content: [{ type: "text", text }],
-			structuredContent: info,
-		}),
-	);
+	// get_info needs the same full authenticated registry as session bootstrap.
+	// Its no-loader response is built after selected-org routing and hydration.
+	return null;
 }
 
 function compactCodeModeToolDescription(resolvedApp: ResolvedApp): string {

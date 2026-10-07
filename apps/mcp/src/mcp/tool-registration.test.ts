@@ -523,3 +523,39 @@ it("never lends catalog-read authority to reviewed writes, platform aliases or u
 		);
 	}
 });
+
+it("nativeDirect cannot bypass the owning delegated Work or missing-scope decision", () => {
+	const row = plainTool({
+		toolId: "read_work",
+		toolTypeId: "rpc",
+		config: {
+			transport: "rpc",
+			endpoint: "workItems/list",
+			nativeDirect: true,
+			_aggregateNamespace: "work",
+		},
+	});
+	const ctx = {
+		callerIdentity: { authType: "oauth", scopes: ["mcp:catalog.read"] },
+		appMetadata: {
+			mcpConfig: { toolScopes: { read_work: ["mcp:work.read"] } },
+		},
+	} as unknown as ServerContext;
+	expect(evaluateMcpToolScopeAuthorization(ctx, row, "work")).toMatchObject({
+		authorized: false,
+		missingScopes: ["mcp:work.read"],
+	});
+	const delegated = {
+		...ctx,
+		callerIdentity: {
+			authType: "tedi" as const,
+			credentialMode: "delegated-mcp",
+			scopes: ["mcp:work.write", "mcp:work.read"],
+		},
+	};
+	expect(
+		evaluateMcpToolScopeAuthorization(delegated, row, "work"),
+	).toMatchObject({
+		authorized: false,
+	});
+});

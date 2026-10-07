@@ -65,11 +65,41 @@ export function shouldBypassCodeModeForCaller(
 		| Pick<CallerIdentity, "authType" | "credentialMode" | "forceCodeMode">
 		| undefined,
 	requestedToolName?: string,
+	configuredTools: ReadonlyArray<{
+		toolId: string;
+		enabled?: boolean | null;
+		config?: Record<string, unknown> | null;
+	}> = [],
 ): boolean {
 	if (caller?.forceCodeMode) return false;
+	if (
+		!caller ||
+		![
+			"user",
+			"m2m",
+			"tedi",
+			"service",
+			"apiKey",
+			"oauth",
+			"external_agent",
+		].includes(caller.authType)
+	)
+		return false;
 	const isProgrammaticCaller =
 		caller?.authType === "service" || caller?.credentialMode === "aih-m2m";
-	if (!isProgrammaticCaller) return false;
+	if (!isProgrammaticCaller) {
+		if (!caller || caller.authType === "anonymous" || !requestedToolName)
+			return false;
+		const matches = configuredTools.filter(
+			(tool) => tool.toolId === requestedToolName,
+		);
+		return (
+			requestedToolName !== "code" &&
+			matches.length === 1 &&
+			matches[0]?.enabled === true &&
+			matches[0]?.config?.nativeDirect === true
+		);
+	}
 
 	// Programmatic callers should only bypass the compact Code Mode surface when
 	// they are making a known direct tool call. Session init/tools/list on large
