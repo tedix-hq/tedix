@@ -50,6 +50,7 @@ import {
 	mineLearningFeed,
 } from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
+import { modelLessonDistiller } from "../services/lesson-distiller";
 import { assessDelegatedAnswerCriteriaWithJev } from "../rpc/routers/kernel/jev-goal-assessment";
 import { reconcileCanonicalMemoryProjection } from "../integrations/cloudflare/agent-memory";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
@@ -486,6 +487,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					return await mineLearningFeed(db, {
 						orgId: organizationId,
 						route: clefLessonRouter(this.env),
+						distill: modelLessonDistiller(this.env),
 					});
 				} catch (e) {
 					console.error("[LearningFeed] mine-learning-feed failed:", e);

@@ -959,9 +959,12 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 		const organizationId = requireOrgId(context);
 		const { mineLearningFeed, clefLessonRouter } =
 			await import("../../services/learning-feed-miner");
+		const { modelLessonDistiller } =
+			await import("../../services/lesson-distiller");
 		const result = await mineLearningFeed(context.db, {
 			orgId: organizationId,
 			route: clefLessonRouter(context.env),
+			distill: modelLessonDistiller(context.env),
 		});
 		return { organizationId, ...result };
 	},
