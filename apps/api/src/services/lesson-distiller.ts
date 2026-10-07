@@ -14,7 +14,7 @@
 
 const DISTILL_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const DISTILL_TIMEOUT_MS = 25_000;
-const MAX_RULES = 6;
+const MAX_RULES = 8;
 const MAX_REPLIES = 120;
 const REPLY_CHARS = 280;
 const RULE_CHARS = 160;
@@ -43,7 +43,7 @@ export type LessonDistiller = (input: DistillInput) => Promise<string[] | null>;
  * Bumped when the prompt or filter changes, so lessons distilled by an
  * earlier version are rewritten once.
  */
-export const DISTILL_VERSION = 4;
+export const DISTILL_VERSION = 5;
 
 /** Test and harness prompts about Tedix itself teach nothing about the person. */
 const META_REPLY =
@@ -70,7 +70,10 @@ const TELLING_KINDS = new Set([
 ]);
 
 /** Replies worth distilling, newest first, without meta prompts. */
-export function distillReplies(replies: DistillReply[]): DistillReply[] {
+export function distillReplies(
+	replies: DistillReply[],
+	limit = MAX_REPLIES,
+): DistillReply[] {
 	const usable = replies.filter(
 		(reply) => reply.text.trim() && !META_REPLY.test(reply.text),
 	);
@@ -83,7 +86,7 @@ export function distillReplies(replies: DistillReply[]): DistillReply[] {
 	const byNewest = (a: DistillReply, b: DistillReply) =>
 		b.occurredAt.localeCompare(a.occurredAt);
 	return [...telling.sort(byNewest), ...rest.sort(byNewest)]
-		.slice(0, MAX_REPLIES)
+		.slice(0, limit)
 		.sort(byNewest)
 		.map((reply) => ({
 			...reply,
@@ -91,8 +94,10 @@ export function distillReplies(replies: DistillReply[]): DistillReply[] {
 		}));
 }
 
-export function distillPrompt(input: DistillInput): string {
-	const replies = distillReplies(input.replies ?? []);
+export function distillPrompt(
+	input: DistillInput,
+	replies: DistillReply[] = distillReplies(input.replies ?? []),
+): string {
 	const body = replies.length
 		? replies.map((reply, index) => `[${index + 1}] ${reply.text}`).join("\n")
 		: input.content;
@@ -104,7 +109,7 @@ export function distillPrompt(input: DistillInput): string {
 		"Never write a rule for a one-off task instruction (a specific setting, value, connector, file, person, ID or command to use once), a question, an approval or a status check.",
 		"When replies conflict, keep only what the newest reply says.",
 		"Do not mention people's names, emails, money, amounts or secrets.",
-		"After each rule, cite the numbers of the replies that state it, like: - Keep answers short. [2, 9]",
+		"Start each rule with '- ' and end it with the numbers of the replies that state it in square brackets, like: - <rule> [2, 9]",
 		"If there is no such rule, answer exactly NONE.",
 		"",
 		body,
@@ -154,10 +159,12 @@ export function parseCitedRules(text: string): CitedRule[] | null {
 	const rules = trimmed
 		.split("\n")
 		.map((line) => line.trim())
-		.filter((line) => /^[-*•]\s+\S/.test(line))
+		.filter((line) => /^(?:[-*•]|\d{1,2}[.)])\s+\S/.test(line))
 		.map((line) => {
-			const body = line.replace(/^[-*•]\s+/, "");
-			const match = /\[([\d,\s]+)\]\s*\.?$/.exec(body);
+			const body = line
+				.replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, "")
+				.replace(/\*\*/g, "");
+			const match = /[[(](?:replies?:?\s*)?([\d,\s]+)[\])]\s*\.?$/i.exec(body);
 			const cites = match
 				? [
 						...new Set(
@@ -215,16 +222,48 @@ type DistillEnv = Pick<CloudflareEnv, "AI"> & {
 	AI_GATEWAY_LLM_ID?: string;
 };
 
+/** At most this many model calls per lesson, one per slice of replies. */
+const MAX_CHUNKS = 3;
+
+function ruleKey(rule: string): Set<string> {
+	return new Set(words(rule));
+}
+
+function sameRule(a: string, b: string): boolean {
+	const x = ruleKey(a);
+	const y = ruleKey(b);
+	if (x.size === 0 || y.size === 0) return a.toLowerCase() === b.toLowerCase();
+	const shared = [...x].filter((word) => y.has(word)).length;
+	return shared / new Set([...x, ...y]).size >= 0.5;
+}
+
+/** Rules from several slices, most often found first, without repeats. */
+export function mergeRules(slices: string[][]): string[] {
+	const merged: Array<{ rule: string; count: number; order: number }> = [];
+	slices.forEach((rules, slice) =>
+		rules.forEach((rule, index) => {
+			const found = merged.find((m) => sameRule(m.rule, rule));
+			if (found) found.count++;
+			else merged.push({ rule, count: 1, order: slice * 100 + index });
+		}),
+	);
+	return merged
+		.sort((a, b) => b.count - a.count || a.order - b.order)
+		.slice(0, MAX_RULES)
+		.map((m) => m.rule);
+}
+
 export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
-	return async (input) => {
-		const replies = distillReplies(input.replies ?? []);
-		if (replies.length === 0) return null;
+	const ask = async (
+		input: DistillInput,
+		replies: DistillReply[],
+	): Promise<string[] | null> => {
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			const call = env.AI.run(
 				DISTILL_MODEL as keyof AiModels,
 				{
-					messages: [{ role: "user", content: distillPrompt(input) }],
+					messages: [{ role: "user", content: distillPrompt(input, replies) }],
 					max_tokens: 500,
 					temperature: 0,
 				} as never,
@@ -254,5 +293,18 @@ export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
 		} finally {
 			clearTimeout(timer);
 		}
+	};
+	return async (input) => {
+		// Up to three slices of the scope's history, read in parallel, so a
+		// long history is learned whole instead of only its newest replies.
+		const all = distillReplies(input.replies ?? [], MAX_REPLIES * MAX_CHUNKS);
+		if (all.length === 0) return null;
+		const slices: DistillReply[][] = [];
+		for (let i = 0; i < all.length; i += MAX_REPLIES)
+			slices.push(all.slice(i, i + MAX_REPLIES));
+		const answers = await Promise.all(slices.map((slice) => ask(input, slice)));
+		const usable = answers.filter((rules): rules is string[] => rules !== null);
+		if (usable.length === 0) return null;
+		return mergeRules(usable);
 	};
 }
