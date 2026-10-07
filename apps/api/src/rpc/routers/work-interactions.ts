@@ -9,6 +9,7 @@ import {
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
 } from "@tedix/db/queries/work-items/interactions";
+import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
 import { requireOrgId } from "../org-scope";
@@ -267,6 +268,12 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 			}),
 			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
 		]);
+		const [drafter] = latestDraft
+			? await listTediDisplayNamesByIds(context.db, {
+					organizationId: orgId,
+					ids: [latestDraft.drafterId],
+				})
+			: [];
 		const hasMore = rows.length > input.responseLimit;
 		const data = rows.slice(0, input.responseLimit);
 		const last = data.at(-1);
@@ -283,6 +290,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 						body: latestDraft.body,
 						rationale: latestDraft.rationale,
 						drafterId: latestDraft.drafterId,
+						drafterName: drafter ? drafter.displayName || drafter.name : null,
 						createdAt: latestDraft.createdAt,
 						turnType: latestDraft.turnType,
 						delivery: latestDraft.delivery,

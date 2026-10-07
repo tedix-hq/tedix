@@ -44,6 +44,9 @@ import {
 
 export const AWAIT_FIRST_DELAY_MS = 5000;
 export const AWAIT_MAX_DELAY_MS = 60_000;
+/** Poll cap while a tedi reply draft is still likely to land. */
+export const AWAIT_DRAFT_WINDOW_DELAY_MS = 20_000;
+export const AWAIT_DRAFT_WINDOW_MS = 10 * 60 * 1000;
 export const AWAIT_MAX_MS = 4 * 60 * 60 * 1000;
 /** How long to wait for the turn's question to be created. */
 const QUESTION_WAIT_MS = 90_000;
@@ -70,11 +73,17 @@ export interface AwaitResult {
 
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
-/** Next poll delay: 5s, doubling, capped at 60s. */
-export function nextDelay(previous: number | undefined): number {
-	return previous === undefined
-		? AWAIT_FIRST_DELAY_MS
-		: Math.min(previous * 2, AWAIT_MAX_DELAY_MS);
+/**
+ * Next poll delay: 5s, doubling, capped at 20s during the first ten minutes
+ * (when a tedi draft usually lands) and at 60s afterwards.
+ */
+export function nextDelay(previous: number | undefined, elapsedMs = 0): number {
+	if (previous === undefined) return AWAIT_FIRST_DELAY_MS;
+	const cap =
+		elapsedMs < AWAIT_DRAFT_WINDOW_MS
+			? AWAIT_DRAFT_WINDOW_DELAY_MS
+			: AWAIT_MAX_DELAY_MS;
+	return Math.min(previous * 2, cap);
 }
 
 export async function runAwaitReply(
@@ -232,8 +241,9 @@ async function poll(
 ): Promise<AwaitResult> {
 	let delay: number | undefined;
 	let failures = 0;
+	const pollStarted = timing.clock();
 	for (;;) {
-		delay = nextDelay(delay);
+		delay = nextDelay(delay, timing.clock() - pollStarted);
 		if (timing.clock() + delay > timing.deadline) return { code: 0 };
 		await timing.sleep(delay);
 		if (!stillWaiting(state, question.token)) return { code: 0 };
