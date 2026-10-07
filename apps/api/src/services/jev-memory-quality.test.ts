@@ -8,6 +8,7 @@ import {
 	memorySourceEvidenceHash,
 	shouldEvaluateAfterTurnMemory,
 } from "./jev-memory-quality";
+import { resolveMemoryJudgmentRoute } from "./jev-memory-policy";
 import { MEMORY_QUALITY_CASES } from "../../eval/jev/memory-quality";
 const executor = vi.hoisted(() => vi.fn());
 const getOrganization = vi.hoisted(() =>
@@ -17,6 +18,12 @@ vi.mock("./jev-judgment", () => ({ executeJevJudgment: executor }));
 vi.mock("@tedix/db/queries/organizations", () => ({
 	getOrganizationById: getOrganization,
 }));
+const route = {
+	mode: "shadow" as const,
+	model: "@cf/cloudflare/clef-flash" as const,
+	transport: "cloudflare" as const,
+	timeoutMs: 2000,
+};
 function answers(supported: number, durable: number, useful: number) {
 	return {
 		supported: { type: "noul" as const, noul: supported },
@@ -110,6 +117,7 @@ describe("advisory memory quality", () => {
 				db: {} as never,
 				env: {} as never,
 				context: { organizationId: "org" },
+				route,
 			}),
 		).toBe("insufficient_evidence");
 		expect(executor).not.toHaveBeenCalled();
@@ -134,6 +142,7 @@ describe("advisory memory quality", () => {
 				db: {} as never,
 				env: {} as never,
 				context: { organizationId: "org" },
+				route,
 			}),
 		).rejects.toThrow("receipt unavailable");
 		expect(executor.mock.calls[0]![0]).toMatchObject({
@@ -141,28 +150,43 @@ describe("advisory memory quality", () => {
 			billingSource: "system",
 		});
 	});
-	it("does not dispatch against an explicit tenant denial", async () => {
+	it("routes to Clef in shadow mode unless the tenant opts in", async () => {
+		const resolve = () =>
+			resolveMemoryJudgmentRoute({} as never, "org", "memoryQuality");
+		expect(await resolve()).toEqual(route);
 		getOrganization.mockResolvedValueOnce({
 			metadata: { jev: { enabled: false } },
 		});
-		executor.mockClear();
-		expect(
-			await evaluateMemoryQuality({
-				fact: "A durable preference",
-				evidence: "Please retain this preference in future sessions.",
-				db: {} as never,
-				env: {} as never,
-				context: { organizationId: "org" },
-			}),
-		).toBe("unavailable");
-		expect(executor).not.toHaveBeenCalled();
-	});
-	it("uses the tenant's configured route and timeout", async () => {
+		expect(await resolve()).toBeNull();
 		getOrganization.mockResolvedValueOnce({
 			metadata: {
-				jev: { enabled: true, transport: "direct", timeoutMs: 1500 },
+				jev: {
+					transport: "direct",
+					timeoutMs: 1500,
+					purposes: { memoryQuality: { mode: "enforce" } },
+				},
 			},
 		});
+		// Clef exists only on Workers AI, so a tenant direct route cannot apply to it.
+		expect(await resolve()).toEqual({
+			...route,
+			mode: "enforce",
+			timeoutMs: 1500,
+		});
+		getOrganization.mockResolvedValueOnce({
+			metadata: {
+				jev: {
+					transport: "direct",
+					purposes: { memoryQuality: { model: "typesafe/jev" } },
+				},
+			},
+		});
+		expect(await resolve()).toMatchObject({
+			model: "typesafe/jev",
+			transport: "direct",
+		});
+	});
+	it("dispatches on the resolved route", async () => {
 		executor.mockResolvedValueOnce(null);
 		await evaluateMemoryQuality({
 			fact: "A durable preference",
@@ -170,9 +194,14 @@ describe("advisory memory quality", () => {
 			db: {} as never,
 			env: {} as never,
 			context: { organizationId: "org" },
+			route: { ...route, timeoutMs: 1500 },
 		});
 		expect(executor).toHaveBeenLastCalledWith(
-			expect.objectContaining({ transport: "direct", timeoutMs: 1500 }),
+			expect.objectContaining({
+				model: "@cf/cloudflare/clef-flash",
+				transport: "cloudflare",
+				timeoutMs: 1500,
+			}),
 		);
 	});
 });

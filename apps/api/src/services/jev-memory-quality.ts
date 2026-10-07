@@ -1,7 +1,6 @@
 import type { JevAnswer, JevQuestion } from "@tedix/workers-ai/jev";
-import { parseJevSettings } from "@tedix/api-contract/schemas/jev";
-import { getOrganizationById } from "@tedix/db/queries/organizations";
 import type { JevJudgmentInput } from "./jev-judgment";
+import type { MemoryJudgmentRoute } from "./jev-memory-policy";
 
 export interface MemoryQualityEvidence {
 	fact: string;
@@ -133,23 +132,17 @@ export function interpretMemoryQuality(
 	return "uncertain";
 }
 
+/** Caller resolves the tenant route first: shadow and enforce differ in where the verdict lands. */
 export async function evaluateMemoryQuality(
 	input: MemoryQualityEvidence &
 		Pick<
 			JevJudgmentInput<typeof questions>,
 			"db" | "env" | "context" | "signal" | "onExecutionAttempts"
-		>,
+		> & { route: MemoryJudgmentRoute },
 ): Promise<MemoryQualityVerdict | "unavailable" | "insufficient_evidence"> {
 	const request = buildMemoryQualityRequest(input);
 	if (!request) return "insufficient_evidence";
 	if (!input.context.organizationId) return "unavailable";
-	const organization = await getOrganizationById(
-		input.db,
-		input.context.organizationId,
-	).catch(() => null);
-	if (!organization) return "unavailable";
-	const settings = parseJevSettings(organization.metadata);
-	if (!settings.enabled) return "unavailable";
 	const { executeJevJudgment } = await import("./jev-judgment");
 	const result = await executeJevJudgment({
 		...request,
@@ -161,8 +154,9 @@ export async function evaluateMemoryQuality(
 		source: "system:memory-quality",
 		billingSource: "system",
 		sessionType: input.context.tediId ? "tedi" : "kernel",
-		transport: settings.transport,
-		timeoutMs: settings.timeoutMs,
+		model: input.route.model,
+		transport: input.route.transport,
+		timeoutMs: input.route.timeoutMs,
 	});
 	return result ? interpretMemoryQuality(result.answers) : "unavailable";
 }
