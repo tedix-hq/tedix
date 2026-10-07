@@ -184,6 +184,10 @@ describe("remainingTokensLabel / consumedShare", () => {
 describe("provenanceLegend", () => {
 	it("keeps every label in the legend, including the one nothing can produce", () => {
 		const legend = provenanceLegend([]);
+		expect(legend).toHaveLength(6);
+		expect(
+			legend.some((entry) => entry.provenance === "reviewed_provider_estimate"),
+		).toBe(true);
 		const providerReported = legend.find(
 			(entry) => entry.provenance === "provider_reported",
 		);
@@ -276,7 +280,8 @@ describe("ProvenanceCard", () => {
 		expect(html).toContain("max-sm:min-h-11");
 		expect(html).not.toContain("sm:hidden");
 		expect(html).not.toContain("hidden gap-2 sm:grid");
-		expect(html).toContain("5 sources");
+		expect(html).toContain("6 sources");
+		expect(html).toContain("reviewed provider estimate");
 	});
 
 	it("states that provider-reported is never produced here", () => {
