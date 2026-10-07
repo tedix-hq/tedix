@@ -1,6 +1,6 @@
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentPrincipal,
@@ -56,6 +56,8 @@ export async function getExternalAgentPrincipal(
 	return rows[0] ?? null;
 }
 
+/** Resolve a machine-credential-bound principal (API key or workload). An
+ * owner_user binding id is a human user id, never a machine credential. */
 export async function getExternalAgentPrincipalByCredential(
 	db: DbClient,
 	params: { organizationId: string; credentialBindingId: string },
@@ -70,6 +72,7 @@ export async function getExternalAgentPrincipalByCredential(
 					externalAgentPrincipals.credentialBindingId,
 					params.credentialBindingId,
 				),
+				ne(externalAgentPrincipals.credentialBindingType, "owner_user"),
 			),
 		)
 		.limit(1);
@@ -97,7 +100,7 @@ export async function createExternalAgentPrincipal(
 		organizationId: string;
 		key: string;
 		displayName: string;
-		credentialBindingType: "api_key" | "github_actions_oidc";
+		credentialBindingType: "api_key" | "github_actions_oidc" | "owner_user";
 		credentialBindingId: string;
 		createdByType: "user" | "api_key" | "platform";
 		createdById: string;

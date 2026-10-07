@@ -1,3 +1,7 @@
+import {
+	isSameCanonicalParty,
+	resolveCanonicalWorkParties,
+} from "@tedix/db/queries/external-agent-identity/canonical-party";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import {
 	addWorkItemCorroboration,
@@ -46,12 +50,36 @@ export const corroborateProcedure = authOs.corroborate.handler(
 		// claim was wrong" is the cheapest true signal the detection plane can
 		// receive, and refusing it would make honesty the one move the protocol
 		// forbids.
-		if (
-			input.stance === "corroborates" &&
-			activeAttempt &&
-			activeAttempt.executorType === principal.type &&
-			activeAttempt.executorId === principal.id
-		) {
+		// Compare canonical PARTIES: an owner and their owner-host agent are one
+		// party, so the owner corroborating any attempt that agent executed is
+		// self-corroboration too (active or settled).
+		const externalExecutors = [
+			...new Set(
+				attempts.data
+					.filter((attempt) => attempt.executorType === "external_agent")
+					.map((attempt) => attempt.executorId),
+			),
+		]
+			.slice(0, 49)
+			.map((id) => ({ type: "external_agent", id }));
+		const parties = await resolveCanonicalWorkParties(context.db, {
+			organizationId: workItem.orgId,
+			parties: [principal, ...externalExecutors],
+		});
+		const executorRef = (attempt: (typeof attempts.data)[number]) => ({
+			type: attempt.executorType,
+			id: attempt.executorId,
+		});
+		const selfCorroboration =
+			(activeAttempt &&
+				isSameCanonicalParty(parties, executorRef(activeAttempt), principal)) ||
+			attempts.data.some(
+				(attempt) =>
+					parties.has(`external_agent:${attempt.executorId}`) &&
+					attempt.executorType === "external_agent" &&
+					isSameCanonicalParty(parties, executorRef(attempt), principal),
+			);
+		if (input.stance === "corroborates" && selfCorroboration) {
 			throw createError(
 				ErrorCodes.CONFLICT,
 				"The active executor cannot corroborate its own Work Item; it may contradict it",

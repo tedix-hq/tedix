@@ -1,4 +1,5 @@
 import { isEphemeralSessionKey } from "@tedix/api-contract/utils/runtime-identity";
+import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/external-agent-identity";
 /**
  * Tool Handler
  *
@@ -1766,6 +1767,12 @@ export class ToolHandler {
 			const callerScopes = ctx.callerIdentity?.scopes ?? [];
 			if (callerScopes.length > 0) {
 				headers["X-Tedix-Mcp-Caller-Scopes"] = callerScopes.join(" ");
+			}
+			// Owner-host Agent-Session verified for this Code Mode execution.
+			// apps/api re-validates it against the forwarded user on every call.
+			if (ctx.callerIdentity?.ownerHostSessionId) {
+				headers[OWNER_HOST_SESSION_HEADER] =
+					ctx.callerIdentity.ownerHostSessionId;
 			}
 		}
 		if (useServiceBinding && forwardActingUser && ctx.callerIdentity?.userId) {

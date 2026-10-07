@@ -553,6 +553,52 @@ describe("ToolHandler RPC transport logging", () => {
 		expect(apiFetch).toHaveBeenCalledOnce();
 	});
 
+	it("forwards a verified owner-host session only on the forwarded human hop", async () => {
+		const sessionId = "00000000-0000-4000-8000-000000000020";
+		const seen: Headers[] = [];
+		const apiFetch = vi.fn(
+			async (input: string | URL | Request, init?: RequestInit) => {
+				seen.push(headersFromFetch(input, init));
+				return Response.json({ json: { ok: true } });
+			},
+		);
+		const env = {
+			ENVIRONMENT: "test",
+			API_URL: "https://api.example.test",
+			API_SERVICE: { fetch: apiFetch },
+		} as unknown as CloudflareEnv;
+		await new ToolHandler().execute(
+			{},
+			{
+				...ctx({ transport: "rpc", endpoint: "workItems/startAttempt" }),
+				env,
+				callerIdentity: {
+					authType: "oauth",
+					userId: "descope-owner",
+					organizationId: "org_1",
+					ownerHostSessionId: sessionId,
+				},
+				bearerToken: "user.jwt.token",
+			},
+		);
+		await new ToolHandler().execute(
+			{},
+			{
+				...ctx({ transport: "rpc", endpoint: "workItems/startAttempt" }),
+				env,
+				callerIdentity: {
+					authType: "oauth",
+					userId: "descope-owner",
+					organizationId: "org_1",
+				},
+				bearerToken: "user.jwt.token",
+			},
+		);
+		expect(seen[0]?.get("X-Tedix-Caller-Type")).toBe("mcp-edge-user");
+		expect(seen[0]?.get("X-Tedix-Auth-Owner-Host-Session-Id")).toBe(sessionId);
+		expect(seen[1]?.get("X-Tedix-Auth-Owner-Host-Session-Id")).toBeNull();
+	});
+
 	it("forwards verified external-agent identity without a tedi id", async () => {
 		const principalId = "00000000-0000-4000-8000-000000000002";
 		const sessionId = "00000000-0000-4000-8000-000000000003";

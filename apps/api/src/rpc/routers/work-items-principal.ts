@@ -5,6 +5,7 @@
  */
 
 import { resolveAuthorizedExternalAgentMcpSession } from "@tedix/db/queries/external-agent-identity/mcp-credentials";
+import { resolveOwnerHostSession } from "@tedix/db/queries/external-agent-identity/owner-host-sessions";
 import { getExternalAgentPrincipalByCredential } from "@tedix/db/queries/external-agent-identity/principals";
 import {
 	getMemberByCanonicalUserId,
@@ -43,6 +44,53 @@ export interface VerifiedExternalAgent {
 	harness: string;
 	clientRecordId: string;
 	creditEligible: boolean;
+	/**
+	 * True for an owner-host session: the identity is asserted by the
+	 * authenticated human owner's plugin host, not proven by a machine
+	 * credential. Never credit eligible; `clientRecordId` is a marker.
+	 */
+	ownerBound?: true;
+}
+
+/** Stable non-secret client marker for an owner-host session. */
+export function ownerHostClientRecordId(sessionId: string): string {
+	return `owner-host:${sessionId}`;
+}
+
+/**
+ * Resolve the calling human's own active owner-host Agent-Session. Shared by
+ * Work admission and the edge preflight so both enforce the same predicate:
+ * active session, active `owner_user` principal bound to this user's canonical
+ * id, same organization.
+ */
+export async function resolveCallerOwnerHostSession(
+	context: BaseContext,
+	orgId: string,
+	sessionId: string,
+) {
+	if (context.authType !== "user" || typeof context.user?.sub !== "string") {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Owner-host Agent-Sessions require an authenticated human user",
+		);
+	}
+	const membership = await verifiedActiveUserMembership(
+		context,
+		orgId,
+		"active owner-host",
+	);
+	const resolved = await resolveOwnerHostSession(context.db, {
+		organizationId: orgId,
+		userId: membership.userId,
+		sessionId,
+	});
+	if (!resolved) {
+		throw createError(
+			ErrorCodes.UNAUTHORIZED,
+			"Owner-host Agent-Session is not an active session of this user in this organization",
+		);
+	}
+	return resolved;
 }
 
 export async function verifiedExternalAgent(
@@ -54,7 +102,34 @@ export async function verifiedExternalAgent(
 		context.externalAgentSessionId,
 		context.externalAgentClientRecordId,
 	];
-	if (supplied.every((value) => !value)) return null;
+	if (supplied.every((value) => !value)) {
+		if (!context.ownerHostSessionId) return null;
+		// Defense in depth: withAuth already resolved this session for the
+		// forwarded user; re-check it against the Work Item's organization.
+		const { principal, session } = await resolveCallerOwnerHostSession(
+			context,
+			orgId,
+			context.ownerHostSessionId,
+		);
+		return {
+			executor: {
+				type: "external_agent",
+				id: principal.id,
+				sessionId: session.id,
+			},
+			externalSessionKey: session.externalSessionKey,
+			harness: session.harness,
+			clientRecordId: ownerHostClientRecordId(session.id),
+			creditEligible: false,
+			ownerBound: true,
+		};
+	}
+	if (context.ownerHostSessionId) {
+		throw createError(
+			ErrorCodes.UNAUTHORIZED,
+			"Conflicting external-agent and owner-host identities",
+		);
+	}
 	if (supplied.some((value) => !value)) {
 		throw createError(
 			ErrorCodes.UNAUTHORIZED,
@@ -186,7 +261,9 @@ export async function corroborationPrincipal(
 		if (!external.creditEligible) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
-				"Derived external-agent sessions cannot create corroboration credit",
+				external.ownerBound
+					? "Owner-host Agent-Sessions are owner-asserted and cannot create corroboration credit"
+					: "Derived external-agent sessions cannot create corroboration credit",
 			);
 		}
 		return {

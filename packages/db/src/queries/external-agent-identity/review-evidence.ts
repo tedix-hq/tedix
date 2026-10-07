@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { areSameWorkParty } from "./canonical-party";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentReviewEvidence,
@@ -161,6 +162,21 @@ export async function recordExternalAgentReviewEvidence(
 		);
 	}
 
+	if (
+		await areSameWorkParty(db, {
+			organizationId: input.organizationId,
+			left: {
+				type: input.reviewerPrincipalType,
+				id: input.reviewerPrincipalId,
+			},
+			right: { type: "external_agent", id: execution.subjectPrincipalId },
+		})
+	) {
+		throw new ExternalAgentIdentityError(
+			"review_conflict",
+			"A reviewer cannot review an execution by its own party (owner-host agents share their owner's party)",
+		);
+	}
 	const targetType = execution.workItemId
 		? ("work_item" as const)
 		: execution.targetType === "commit"

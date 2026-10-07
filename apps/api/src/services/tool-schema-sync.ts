@@ -60,6 +60,7 @@ const OPEN_WORLD_ENDPOINTS = new Set([
 
 const EXTERNAL_AGENT_MCP_ENDPOINTS = new Set([
 	"externalAgentIdentity/createPrincipal",
+	"externalAgentIdentity/openOwnerHostSession",
 	"externalAgentIdentity/recordKnowledgeCheckpoint",
 	"externalAgentIdentity/recordKnowledgeDisposition",
 	"externalAgentIdentity/endSession",
@@ -70,6 +71,8 @@ const EXTERNAL_AGENT_MCP_ENDPOINTS = new Set([
 
 export const EXTERNAL_AGENT_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"externalAgentIdentity/createPrincipal": "create_external_agent_principal",
+	"externalAgentIdentity/openOwnerHostSession":
+		"start_external_agent_session_for_host",
 	"externalAgentIdentity/recordKnowledgeCheckpoint":
 		"record_external_agent_knowledge_checkpoint",
 	"externalAgentIdentity/recordKnowledgeDisposition":
@@ -88,6 +91,7 @@ export const EXTERNAL_AGENT_KIND_OVERRIDES: Record<
 	"read" | "write" | "destructive"
 > = {
 	"externalAgentIdentity/createPrincipal": "write",
+	"externalAgentIdentity/openOwnerHostSession": "write",
 	"externalAgentIdentity/recordKnowledgeCheckpoint": "write",
 	"externalAgentIdentity/recordKnowledgeDisposition": "write",
 	"externalAgentIdentity/endSession": "destructive",

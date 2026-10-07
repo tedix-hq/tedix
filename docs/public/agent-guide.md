@@ -63,14 +63,24 @@ invited organization is missing, ask the inviter to confirm access.
 
 Run `tedix auth status` to check the selected workspace and granted scopes.
 That login authenticates the **owner**, not the agent. For continuing work under
-an attributable agent identity, set `TEDIX_AGENT_SESSION` to this harness
-run's unique session key (unless the harness supplies one), use
-`tedix agent start --help`, then start a named external-agent session from the
-owner's authorized workspace. On the first bootstrap, pass
-`--agent-scopes` with only the MCP capabilities the task needs; omitting it
-requests the default broad capability set. Set `TEDIX_EXTERNAL_AGENT` to the
-new principal key for subsequent CLI calls and check `tedix agent status`
-before acting. Start with a read-only tool discovery or a bounded task, then
+an attributable agent identity, use `tedix agent start --help`, then start an
+external-agent session from the owner's authorized workspace. The CLI reads the
+harness session id (`CLAUDE_CODE_SESSION_ID` or the Codex chat id); set
+`TEDIX_AGENT_SESSION` only when the harness supplies none. The first bootstrap
+names the profile's principal for the machine and user
+(`local-<user>-<machine>`) unless you pass `--agent-key`; every later Claude
+Code or Codex session on that profile gets its own Agent-Session under the same
+principal. On the first bootstrap, pass `--agent-scopes` with only the MCP
+capabilities the task needs; omitting it requests the default broad capability
+set. Set `TEDIX_EXTERNAL_AGENT` to the principal key for subsequent CLI calls
+and check `tedix agent status` before acting.
+
+A host that reaches Tedix only through the MCP plugin calls
+`start_external_agent_session_for_host` once, then passes the returned session
+id as `agentSessionId` on each `code` call that should run as that session. The
+session is bound to the signed-in owner and counts as the same party as the
+owner: it can start Work Attempts but never approves, corroborates or reviews
+its owner's work. Start with a read-only tool discovery or a bounded task, then
 inspect its result. The owner remains responsible for identity and any
 human-required consent; an agent session does not become the organization
 owner.

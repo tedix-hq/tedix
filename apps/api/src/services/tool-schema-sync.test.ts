@@ -1331,8 +1331,12 @@ describe("oRPC tool projection sync", () => {
 			"record_external_agent_knowledge_disposition",
 			"retire_abandoned_external_agent_session",
 			"revoke_external_agent_mcp_credential",
+			"start_external_agent_session_for_host",
 		]);
 		const endpoints = new Set(result.items.map((item) => item.endpoint));
+		expect(endpoints.has("externalAgentIdentity/resolveOwnerHostSession")).toBe(
+			false,
+		);
 		expect(endpoints.has("externalAgentIdentity/openSession")).toBe(false);
 		expect(
 			endpoints.has("externalAgentIdentity/authorizeWorkloadSession"),
@@ -1357,6 +1361,12 @@ describe("oRPC tool projection sync", () => {
 		expect(
 			byId.get("list_stale_external_agent_knowledge_sessions")?.annotations,
 		).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+		expect(
+			byId.get("start_external_agent_session_for_host")?.annotations,
+		).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+		expect(
+			byId.get("start_external_agent_session_for_host")?.config,
+		).toMatchObject({ endpoint: "externalAgentIdentity/openOwnerHostSession" });
 	});
 
 	it("projects generic non-code evidence as a stable write", async () => {

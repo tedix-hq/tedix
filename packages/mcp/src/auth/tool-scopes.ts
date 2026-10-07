@@ -162,6 +162,10 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 // destructive metadata still describes credential teardown, not org governance.
 const EXTERNAL_AGENT_SELF_LIFECYCLE_RPC_TOOLS: Record<string, string> = {
 	"externalAgentIdentity/endSession": "end_external_agent_session",
+	// Starts the authenticated human's own owner-host Agent-Session. The API
+	// accepts only an active human member and binds the principal to that user.
+	"externalAgentIdentity/openOwnerHostSession":
+		"start_external_agent_session_for_host",
 	"externalAgentIdentity/recordKnowledgeCheckpoint":
 		"record_external_agent_knowledge_checkpoint",
 	"externalAgentIdentity/recordKnowledgeDisposition":
@@ -393,6 +397,9 @@ const TENANT_OPERATOR_TOOL_SCOPE_OVERRIDES: Record<string, string> = {
 	// name alone is also admin-tier; only its canonical RPC binding above proves
 	// the self-service handler. Names and arbitrary namespaces cannot borrow it.
 	end_external_agent_session: "mcp:settings",
+	// Only the canonical openOwnerHostSession RPC binding is Work write; the
+	// bare name on another transport cannot borrow that authority.
+	start_external_agent_session_for_host: "mcp:settings",
 	retire_abandoned_external_agent_session: "mcp:settings",
 	revoke_external_agent_mcp_credential: "mcp:settings",
 	rotate_access_key: "mcp:tedis",

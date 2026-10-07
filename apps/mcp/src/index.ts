@@ -4607,6 +4607,12 @@ export function compactCodeModeTools(
 						description:
 							'Optional x402 payment proof for paid inner tools. Accepts an encoded facilitator payment string or an object proof and forwards it as _meta["x402/payment"].',
 					},
+					agentSessionId: {
+						type: "string",
+						format: "uuid",
+						description:
+							"Optional owner-host Agent-Session id (session.id from start_external_agent_session_for_host). When the caller is a signed-in human, Tedix calls in this run act as that Agent-Session for Work admission; an invalid id fails the call. Ignored for machine credentials.",
+					},
 				},
 				required: ["code"],
 			},

@@ -29,6 +29,11 @@ import {
 	evaluateWorkAdmissionEligibility,
 } from "./admission-approval-policy";
 import { hasActivePurposeContext } from "./purpose";
+import {
+	isSameCanonicalParty,
+	resolveCanonicalWorkParties,
+	workPartyKey,
+} from "../external-agent-identity/canonical-party";
 
 export type WorkAdmissionRejectionCode =
 	| "not_accepted"
@@ -293,6 +298,8 @@ async function evaluate(
 			workItemVersion: workApprovalProposals.workItemVersion,
 			authorityKey: workApprovalProposals.authorityKey,
 			action: workApprovalProposals.action,
+			deciderType: workApprovalDecisions.deciderType,
+			deciderId: workApprovalDecisions.deciderId,
 		})
 		.from(workApprovalProposals)
 		.innerJoin(
@@ -316,8 +323,32 @@ async function evaluate(
 			),
 		)
 		.limit(1000);
-	const missingApproval = evaluateWorkAdmissionApprovals(item, approvals)
-		.missingAuthorities[0];
+	// An owner may not approve the Work their own owner-host agent then
+	// executes: such an approval is not a second party's authorization. Only
+	// owner-host executors are filtered; other executors keep their existing
+	// admission semantics.
+	const executor = { type: p.executorType, id: p.executorId };
+	const parties =
+		p.executorType === "external_agent"
+			? await resolveCanonicalWorkParties(db, {
+					organizationId: p.orgId,
+					parties: [executor],
+				})
+			: new Map<string, string>();
+	const ownerHostExecutor = parties.has(workPartyKey(executor));
+	const independentApprovals = ownerHostExecutor
+		? approvals.filter(
+				(approval) =>
+					!isSameCanonicalParty(parties, executor, {
+						type: approval.deciderType,
+						id: approval.deciderId,
+					}),
+			)
+		: approvals;
+	const missingApproval = evaluateWorkAdmissionApprovals(
+		item,
+		independentApprovals,
+	).missingAuthorities[0];
 	if (missingApproval)
 		return {
 			...empty,

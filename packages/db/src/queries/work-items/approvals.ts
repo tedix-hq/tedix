@@ -20,6 +20,7 @@ import {
 	requiredWorkAdmissionAuthorities,
 	WORK_ADMISSION_APPROVAL_ACTION,
 } from "./admission-approval-policy";
+import { areSameWorkParty } from "../external-agent-identity/canonical-party";
 
 export interface ProposeWorkApprovalParams {
 	id: string;
@@ -124,7 +125,14 @@ export async function proposeWorkApproval(
 			id: p.approverId,
 		}),
 	]);
-	if (p.requesterType === p.approverType && p.requesterId === p.approverId)
+	// Canonical parties: an owner-host agent and its human owner are one party.
+	if (
+		await areSameWorkParty(db, {
+			organizationId: p.orgId,
+			left: { type: p.requesterType, id: p.requesterId },
+			right: { type: p.approverType, id: p.approverId },
+		})
+	)
 		throw new WorkControlError(
 			"INVALID_PRINCIPAL",
 			"Requester cannot approve its own proposal",
@@ -240,8 +248,11 @@ export async function decideWorkApproval(
 			"Decision actor is not the designated approver",
 		);
 	if (
-		proposal.requesterType === p.deciderType &&
-		proposal.requesterId === p.deciderId
+		await areSameWorkParty(db, {
+			organizationId: p.orgId,
+			left: { type: proposal.requesterType, id: proposal.requesterId },
+			right: { type: p.deciderType, id: p.deciderId },
+		})
 	)
 		throw new WorkControlError(
 			"INVALID_PRINCIPAL",
