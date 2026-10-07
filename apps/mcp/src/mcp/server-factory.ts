@@ -59,6 +59,7 @@ import { registerAccountProfile } from "./registration/account-profile";
 import {
 	registerGetInfoTool,
 	isConfiguredCatalogTool,
+	aggregateNativeTools,
 } from "./registration/bootstrap";
 import { buildCallerTelemetryFields, trackMcpEvent } from "./utils/analytics";
 import {
@@ -1026,6 +1027,11 @@ export async function buildMcpServer(
 	}
 
 	if (codeModeActive) {
+		const aggregateNative = new Set(
+			aggregateNativeTools(serverCtx, cachedData.tools).map(
+				(tool) => tool.toolId,
+			),
+		);
 		registerAccountProfile(serverCtx);
 		registerGetInfoTool(serverCtx, cachedData.tools);
 		// Code Mode is the compact agent surface: `code` for discovery/execution and
@@ -1037,6 +1043,13 @@ export async function buildMcpServer(
 		await registerAppPrompts(serverCtx);
 		for (const tool of serverCtx.loadedTools.values()) {
 			if (
+				serverCtx.appSlug === "connect" &&
+				serverCtx.appMetadata?.mcpConfig?.multiOrgConsent === true &&
+				!aggregateNative.has(tool.toolId)
+			)
+				continue;
+			if (
+				!aggregateNative.has(tool.toolId) &&
 				!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) &&
 				((tool.meta as Record<string, unknown> | null | undefined)?.source !==
 					"homeSurface" ||
@@ -1070,10 +1083,28 @@ export async function buildMcpServer(
 		}
 		registerResourceTemplates(serverCtx);
 		if (directCatalog) {
-			const selected = serverCtx.loadedTools.get(requestedToolName!);
+			let selected = serverCtx.loadedTools.get(requestedToolName!);
+			if (
+				selected &&
+				serverCtx.appSlug === "connect" &&
+				serverCtx.appMetadata?.mcpConfig?.multiOrgConsent === true &&
+				!aggregateNativeTools(serverCtx, cachedData.tools).some(
+					(row) => row.toolId === requestedToolName,
+				)
+			)
+				selected = undefined;
 			if (selected) await registerDynamicTool(serverCtx, selected);
 		} else if (directToolAllowSet) {
-			const selected = serverCtx.loadedTools.get(requestedToolName!);
+			let selected = serverCtx.loadedTools.get(requestedToolName!);
+			if (
+				selected &&
+				serverCtx.appSlug === "connect" &&
+				serverCtx.appMetadata?.mcpConfig?.multiOrgConsent === true &&
+				!aggregateNativeTools(serverCtx, cachedData.tools).some(
+					(row) => row.toolId === requestedToolName,
+				)
+			)
+				selected = undefined;
 			if (selected) await registerDynamicTool(serverCtx, selected);
 		} else await registerAppTools(serverCtx);
 		// Skill-discovery tools (`list_skills` / `read_skill` registered by

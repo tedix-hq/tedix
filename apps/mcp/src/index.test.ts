@@ -1441,3 +1441,371 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 		},
 	);
 });
+
+describe("verified aggregate Connect native ingress", () => {
+	it("hydrates two permitted mounts, lists native rows, reads Work and isolates catalogs with no Loader", async () => {
+		const auth = await import("./auth-helpers");
+		const organizations = ["alpha", "beta"].map((slug) => ({
+			organizationId: "org-" + slug,
+			descopeTenantId: "tenant-" + slug,
+			gatewaySlug: slug + "-unified",
+		}));
+		const rows = (slug: string) => [
+			{
+				id: slug + "-search",
+				toolId: "find_tools",
+				title: "Find",
+				description: "Find tools",
+				toolTypeId: "rpc",
+				enabled: true,
+				visibility: "public",
+				authRequired: false,
+				inputSchema: CatalogueSearchInputJsonSchema,
+				outputSchema: null,
+				annotations: { readOnlyHint: true },
+				config: {
+					transport: "catalog",
+					endpoint: "catalog/search",
+					nativeDirect: true,
+				},
+			},
+			{
+				id: slug + "-describe",
+				toolId: "describe_tools",
+				title: "Describe",
+				description: "Describe tool",
+				toolTypeId: "rpc",
+				enabled: true,
+				visibility: "public",
+				authRequired: false,
+				inputSchema: CatalogueDescribeInputJsonSchema,
+				outputSchema: null,
+				annotations: { readOnlyHint: true },
+				config: {
+					transport: "catalog",
+					endpoint: "catalog/describe",
+					nativeDirect: true,
+				},
+			},
+			{
+				id: slug + "-work",
+				toolId: "get_work_items_by_id",
+				title: "Work",
+				description: "Read Work",
+				toolTypeId: "rpc",
+				enabled: true,
+				visibility: "private",
+				authRequired: true,
+				inputSchema: {
+					type: "object",
+					properties: { id: { type: "string" } },
+					required: ["id"],
+				},
+				outputSchema: null,
+				annotations: { readOnlyHint: true },
+				config: {
+					transport: "rpc",
+					endpoint: "workItems/getById",
+					nativeDirect: true,
+				},
+			},
+			{
+				id: slug + "-old",
+				toolId: "unopted",
+				title: "Hidden",
+				description: "Unopted",
+				toolTypeId: "rpc",
+				enabled: true,
+				inputSchema: { type: "object", properties: {} },
+				outputSchema: null,
+				config: { transport: "rpc", endpoint: "workItems/getById" },
+			},
+		];
+		const mounted = (slug: string) => ({
+			app: {
+				id: slug + "-gateway",
+				slug: slug + "-unified",
+				name: slug,
+				organizationId: "org-" + slug,
+				metadata: {
+					mcpConfig: {
+						authMode: "authenticated",
+						codeMode: true,
+						toolScopes: {
+							find_tools: ["mcp:catalog.read"],
+							describe_tools: ["mcp:catalog.read"],
+							get_work_items_by_id: ["mcp:work.read"],
+							unopted: ["mcp:work.read"],
+						},
+					},
+				},
+			},
+			tools: rows(slug),
+			catalogResources: [],
+			catalogResourceTemplates: [],
+			catalogPrompts: [],
+		});
+		resolveGateway.mockImplementation(
+			async ({ appSlug }: { appSlug: string }) =>
+				appSlug === "connect"
+					? {
+							app: {
+								id: "aggregate-host",
+								slug: "connect",
+								name: "Connect",
+								organizationId: "host-org",
+							},
+							metadata: {
+								mcpConfig: {
+									codeMode: true,
+									multiOrgConsent: true,
+									authMode: "authenticated",
+									enforcePolicies: false,
+									descopeResourceId: "aggregate-resource",
+								},
+							},
+							tools: [],
+						}
+					: null,
+		);
+		const loads = vi.fn(() => {
+			throw new Error("Loader forbidden");
+		});
+		const effects: Request[] = [];
+		const diagnostics = vi.spyOn(console, "log");
+		let releaseAlpha!: () => void;
+		let markAlphaEntered!: () => void;
+		const alphaEntered = new Promise<void>((resolve) => {
+			markAlphaEntered = resolve;
+		});
+		const alphaRelease = new Promise<void>((resolve) => {
+			releaseAlpha = resolve;
+		});
+		const env = createEnv({
+			GIT_SHA: "aggregate-native-ingress",
+			ENVIRONMENT: "production",
+			DESCOPE_PROJECT_ID: "fixture",
+			MCP_URL: "https://mcp.tedix.dev",
+			LOADER: { load: loads, get: loads },
+			API_SERVICE: {
+				fetch: async (req: Request) => {
+					const input = (await req.clone().json()) as {
+						json: Record<string, unknown>;
+					};
+					const path = new URL(req.url).pathname;
+					if (path.endsWith("getBySlugsWithTools"))
+						return Response.json({
+							json: {
+								results: (input.json.apps as { slug: string }[]).map(
+									({ slug }) => ({
+										slug,
+										...(["alpha-unified", "beta-unified"].includes(slug)
+											? mounted(slug.replace("-unified", ""))
+											: { app: null, tools: [] }),
+									}),
+								),
+							},
+						});
+					if (path.endsWith("getBySlugWithTools"))
+						return Response.json({
+							json: ["alpha-unified", "beta-unified"].includes(
+								String(input.json.slug),
+							)
+								? mounted(String(input.json.slug).replace("-unified", ""))
+								: { app: null, tools: [] },
+						});
+					if (path.includes("workItems/getById")) {
+						effects.push(req);
+						if (input.json.id === "held-alpha") {
+							markAlphaEntered();
+							await alphaRelease;
+						}
+						return Response.json({
+							json: {
+								workItem: {
+									id: input.json.id,
+									organizationId: req.headers.get("X-Tedix-Org-Id"),
+								},
+							},
+						});
+					}
+					return Response.json({
+						json: { skills: [], descopeTenantId: "tenant-alpha" },
+					});
+				},
+			},
+		});
+		const authSpy = vi.mocked(auth.validateAuth),
+			selectionSpy = vi.mocked(auth.validateHumanMcpSelection);
+		async function call(
+			method: string,
+			name?: string,
+			args: Record<string, unknown> = {},
+			scopes = ["mcp:catalog.read", "mcp:work.read"],
+			selected = organizations,
+		) {
+			authSpy.mockResolvedValueOnce({
+				type: "oauth",
+				userId: "human",
+				organizationId: "host-org",
+				scopes,
+				payload: {
+					sub: "human",
+					dct: "tenant-alpha",
+					exp: 2000000000,
+					iss: "fixture",
+				},
+			});
+			selectionSpy.mockResolvedValueOnce({ organizations: selected });
+			return worker.fetch(
+				new Request("https://connect.mcp.tedix.dev/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json, text/event-stream",
+						Authorization: "Bearer fixture",
+						"MCP-Protocol-Version": "2026-07-28",
+						"Mcp-Method": method,
+						...(name ? { "Mcp-Name": name } : {}),
+						"x-tedix-auth-type": "service",
+						"x-tedix-auth-org-id": "forged",
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method,
+						params: {
+							...(name ? { name, arguments: args } : {}),
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientCapabilities": {},
+							},
+						},
+					}),
+				}),
+				env,
+				{ waitUntil: vi.fn() } as unknown as ExecutionContext,
+			);
+		}
+		const list = await call("tools/list");
+		const listed = (await list.json()) as {
+			result: { tools: { name: string }[] };
+		};
+		expect(list.status, JSON.stringify(listed)).toBe(200);
+		const names = listed.result.tools.map((row) => row.name);
+		expect(names).toContain("alpha-unified__get_work_items_by_id");
+		expect(names).toContain("beta-unified__get_work_items_by_id");
+		expect(names.join()).not.toContain("unopted");
+		const bootstrap = await (await call("tools/call", "get_info")).json();
+		expect(bootstrap).toMatchObject({
+			result: {
+				structuredContent: {
+					nativeContext: null,
+					nativeOrganizations: [
+						{
+							nativeContext: {
+								appId: "alpha-gateway",
+								organizationId: "org-alpha",
+							},
+						},
+						{
+							nativeContext: {
+								appId: "beta-gateway",
+								organizationId: "org-beta",
+							},
+						},
+					],
+				},
+			},
+		});
+		const results = await Promise.all(
+			["alpha", "beta"].map(async (slug) => ({
+				slug,
+				value: (await (
+					await call("tools/call", slug + "-unified__find_tools", { query: "" })
+				).json()) as { result?: { isError?: boolean } },
+			})),
+		);
+		for (const { slug, value } of results) {
+			expect(value.result?.isError, JSON.stringify(value)).not.toBe(true);
+			expect(JSON.stringify(value)).toContain(
+				slug + "_unified.get_work_items_by_id",
+			);
+			expect(JSON.stringify(value)).not.toContain(
+				(slug === "alpha" ? "beta" : "alpha") + "_unified.get_work_items_by_id",
+			);
+		}
+		for (const slug of ["alpha", "beta"]) {
+			const value = (await (
+				await call("tools/call", slug + "-unified__get_work_items_by_id", {
+					id: "work",
+					organizationId: "forged",
+				})
+			).json()) as { result?: { isError?: boolean } };
+			expect(value.result?.isError, JSON.stringify(value)).not.toBe(true);
+			expect(JSON.stringify(value)).toContain("org-" + slug);
+		}
+		expect(effects).toHaveLength(2);
+		const heldAlpha = call(
+			"tools/call",
+			"alpha-unified__get_work_items_by_id",
+			{ id: "held-alpha" },
+		);
+		await alphaEntered;
+		try {
+			const independentBeta = await call(
+				"tools/call",
+				"beta-unified__get_work_items_by_id",
+				{ id: "independent-beta" },
+			);
+			expect(await independentBeta.text()).toContain("org-beta");
+		} finally {
+			releaseAlpha();
+		}
+		expect(await (await heldAlpha).text()).toContain("org-alpha");
+		expect(effects).toHaveLength(4);
+		const scopeDenied = await call(
+			"tools/call",
+			"alpha-unified__get_work_items_by_id",
+			{ id: "denied" },
+			[],
+		);
+		expect(await scopeDenied.text()).not.toContain("org-alpha");
+		expect(effects).toHaveLength(4);
+		const insufficient = await (
+			await call("tools/list", undefined, {}, [])
+		).json();
+		expect(JSON.stringify(insufficient)).not.toContain("get_work_items_by_id");
+		expect(JSON.stringify(insufficient)).not.toContain("find_tools");
+		const revoked = await (
+			await call(
+				"tools/list",
+				undefined,
+				{},
+				["mcp:catalog.read", "mcp:work.read"],
+				organizations.slice(0, 1),
+			)
+		).json();
+		expect(JSON.stringify(revoked)).not.toContain("beta-unified__");
+		const denied = await call(
+			"tools/call",
+			"beta-unified__get_work_items_by_id",
+			{ id: "work" },
+			["mcp:catalog.read", "mcp:work.read"],
+			organizations.slice(0, 1),
+		);
+		expect(await denied.text()).not.toContain("org-beta");
+		expect(effects).toHaveLength(4);
+		expect(loads).not.toHaveBeenCalled();
+		expect(
+			diagnostics.mock.calls.filter((args) =>
+				args.some(
+					(value) =>
+						typeof value === "string" &&
+						value.includes("tedix.dynamic_worker.loader_call"),
+				),
+			),
+		).toEqual([]);
+		diagnostics.mockRestore();
+	});
+});

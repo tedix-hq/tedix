@@ -1,6 +1,8 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import {
 	buildBootstrapInfo,
+	aggregateNativeTools,
+	paginateAggregateNativeTools,
 	isConfiguredCatalogTool,
 } from "./mcp/registration/bootstrap";
 /**
@@ -394,7 +396,11 @@ export function mcpToolsListResultTransform(
 		// for plain apps); the ~700-tool aggregate pages instead of shipping one
 		// giant cold payload. This transform owns `nextCursor` for tools/list —
 		// the inner server never mints one.
-		const page = paginateSortedToolsList(
+		const page = (
+			mcpConfig?.multiOrgConsent === true
+				? paginateAggregateNativeTools
+				: paginateSortedToolsList
+		)(
 			transformed,
 			isRecord(request.params) ? request.params.cursor : undefined,
 		);
@@ -2210,7 +2216,7 @@ async function aggregateAndPrefixToolsUncached(
 			// organization's reviewed scopes to the namespaces Connect serves: the
 			// gateway's per-app keys, and each mounted app's own per-tool keys.
 			const entryToolScopes: Record<string, string[]> = {
-				...(entry.legacyNamespace
+				...(entry.legacyNamespace || entry.organizationMount
 					? mountedAppToolScopes(
 							prefix,
 							mountable.map((tool) => tool.toolId),
@@ -3274,6 +3280,58 @@ export async function handleMcpRequest(
 				structuredContent: info,
 			}),
 		);
+	}
+	if (multiOrgResource && !callerIdentity?.forceCodeMode) {
+		const envelope = await readJsonRpcEnvelope(request);
+		if (
+			envelope &&
+			!("tooLarge" in envelope) &&
+			envelope.body.method === "tools/list"
+		) {
+			const modernError = validateModernFastPathRequest(request, envelope);
+			if (modernError) return modernError;
+			const nativeContext = buildServerContext(
+				createMcpServer({ name: cachedData.app.name, version: "1.0.0" }),
+				cachedData,
+				callerIdentity,
+				env,
+				ctx,
+			);
+			const projected = new Set(
+				aggregateNativeTools(nativeContext, cachedData.tools).map(
+					(row) => row.toolId,
+				),
+			);
+			const descriptors = compactCodeModeTools(
+				{
+					...resolvedApp,
+					metadata: cachedData.metadata,
+					tools: cachedData.tools.filter((row) => projected.has(row.toolId)),
+				},
+				request.headers,
+			);
+			const page = paginateAggregateNativeTools(
+				descriptors,
+				isRecord(envelope.body.params)
+					? envelope.body.params.cursor
+					: undefined,
+			);
+			if (!page.ok)
+				return jsonRpcEnvelopeErrorResponse(
+					envelope,
+					-32602,
+					"Invalid params: unrecognized tools/list cursor",
+				);
+			return jsonRpcEnvelopeResponse(
+				envelope,
+				decorateModernFastPathResult(envelope, resolvedApp, {
+					resultType: "complete",
+					tools: page.tools,
+					...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+					...DEFAULT_MCP_CACHE_HINT,
+				}),
+			);
+		}
 	}
 	const server = await buildMcpServer(
 		cachedData,
@@ -4357,7 +4415,9 @@ async function maybeHandleBootstrapFastMcp(
 	return null;
 }
 
-function compactCodeModeToolDescription(resolvedApp: ResolvedApp): string {
+function compactCodeModeToolDescription(
+	resolvedApp: Pick<ResolvedApp, "app">,
+): string {
 	const appSlug = resolvedApp.app.slug;
 	return [
 		`Execute JavaScript against the ${appSlug} Code Mode surface.`,
@@ -4391,7 +4451,9 @@ function modernDiscoverInstructions(
 // path deliberately advertises `code` + `get_info` and not `ask` — see
 // outer-surface-lanes.test.ts and docs/mcp/codemode.md.
 export function compactCodeModeTools(
-	resolvedApp: ResolvedApp,
+	resolvedApp: Pick<ResolvedApp, "app" | "metadata"> & {
+		tools?: ReadonlyArray<import("./mcp/server-context").AppTool>;
+	},
 	requestHeaders: Headers,
 ): Array<Record<string, unknown>> {
 	const appName = resolvedApp.app.name ?? "Tedix";
@@ -4440,8 +4502,13 @@ export function compactCodeModeTools(
 	const overrides = config?.codeModeNamespaces as
 		| Record<string, string>
 		| undefined;
-	const rows = (resolvedApp.tools ?? []).filter((tool) =>
-		isConfiguredCatalogTool(tool, config),
+	const rows = (resolvedApp.tools ?? []).filter(
+		(tool) =>
+			isConfiguredCatalogTool(tool, config) ||
+			(resolvedApp.app.slug === "connect" &&
+				config?.multiOrgConsent === true &&
+				tool.config?.nativeDirect === true &&
+				tool.config?.transport === "rpc"),
 	);
 	const names = new Map<string, number>();
 	for (const tool of resolvedApp.tools ?? [])
@@ -4549,6 +4616,11 @@ async function maybeHandleCodeModeCompactMcp(
 	}
 
 	if (method === "tools/list") {
+		if (
+			resolvedApp.app.slug === "connect" &&
+			resolvedApp.metadata?.mcpConfig?.multiOrgConsent === true
+		)
+			return null;
 		// SEP-2549 CacheableResult on this fast path: the 60s/private default
 		// mirrors the app-resolution cache backing the compact tool list
 		// (APP_RESOLUTION_TTL_MS in resolution.ts).

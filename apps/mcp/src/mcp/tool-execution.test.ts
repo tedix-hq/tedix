@@ -345,8 +345,11 @@ it("routes a selected organization through its own caller context and rejects ot
 			transport: "rpc",
 			endpoint: "reports/fetch",
 			_multiOrgOrganizationId: "org-2",
+			_aggregateNamespace: "sample",
+			_sourceAppId: "sample-app",
 		},
 	};
+	Object.assign(agent, { loadedTools: new Map([[tool.toolId, tool]]) });
 	await executeTool(
 		agent,
 		tool,
@@ -1069,8 +1072,11 @@ describe("executeTool generic async task gate (_asyncTask + clientSupportsTasks)
 				endpoint: "jobs/run",
 				_asyncTask: true,
 				_multiOrgOrganizationId: "org-1",
+				_aggregateNamespace: "tedix",
+				_sourceAppId: "tedix-app",
 			},
 		};
+		Object.assign(agent, { loadedTools: new Map([[tool.toolId, tool]]) });
 		const result = await executeTool(
 			agent,
 			tool,
@@ -1370,4 +1376,103 @@ describe("native catalog execution capability", () => {
 		expect(callback).not.toHaveBeenCalled();
 		expect(createGenericTaskMock).not.toHaveBeenCalled();
 	});
+});
+
+it("rebinding a native catalog replaces the outer callback and keeps concurrent organization maps private", async () => {
+	const base = makeAgent({ status: 200, data: {} });
+	const rows = ["alpha", "beta"].flatMap((slug): AppTool[] => [
+		{
+			...makeTool(),
+			id: slug + "-catalog",
+			toolId: slug + "__find_tools",
+			config: {
+				transport: "catalog",
+				endpoint: "catalog/search",
+				nativeDirect: true,
+				_multiOrgOrganizationId: slug,
+				_aggregateNamespace: slug,
+				_sourceAppId: slug + "-gateway",
+				_sourceAppSlug: slug,
+			},
+		},
+		{
+			...makeTool(),
+			id: slug + "-work",
+			toolId: slug + "__get_work_items_by_id",
+			config: {
+				transport: "rpc",
+				endpoint: "workItems/getById",
+				nativeDirect: true,
+				_multiOrgOrganizationId: slug,
+				_aggregateNamespace: slug,
+				_sourceAppId: slug + "-gateway",
+			},
+		},
+	]);
+	const outer = vi.fn(() => {
+		throw new Error("Outer catalog must not execute");
+	});
+	const handler = new ToolHandler(),
+		execute = vi.spyOn(handler, "execute");
+	const agent = {
+		...base,
+		appSlug: "connect",
+		app: { ...base.app, slug: "connect", organizationId: undefined },
+		appMetadata: {
+			mcpConfig: {
+				multiOrgConsent: true,
+				toolScopes: Object.fromEntries(
+					rows.map((row) => [
+						row.toolId,
+						[
+							row.config?.transport === "catalog"
+								? "mcp:catalog.read"
+								: "mcp:work.read",
+						],
+					]),
+				),
+			},
+		},
+		callerIdentity: {
+			authType: "oauth",
+			userId: "human",
+			scopes: ["mcp:catalog.read", "mcp:work.read"],
+			verifiedMultiOrgOrganizations: ["alpha", "beta"].map((slug) => ({
+				organizationId: slug,
+				gatewaySlug: slug,
+				descopeTenantId: slug,
+			})),
+		},
+		toolHandler: handler,
+		catalogTransport: outer,
+		loadedTools: new Map(rows.map((row) => [row.toolId, row])),
+	} as unknown as ServerContext;
+	const [a, b] = await Promise.all(
+		[rows[0]!, rows[2]!].map((row) =>
+			executeTool(
+				agent,
+				row,
+				{ query: "" },
+				{ adapterScope: "primary", resultStrategy: "merge" },
+			),
+		),
+	);
+	if (!a || !b) throw new Error("Missing results");
+	expect(a.isError).not.toBe(true);
+	expect(b.isError).not.toBe(true);
+	expect(JSON.stringify(a.structuredContent)).toContain(
+		"alpha.get_work_items_by_id",
+	);
+	expect(JSON.stringify(a.structuredContent)).not.toContain(
+		"beta.get_work_items_by_id",
+	);
+	expect(JSON.stringify(b.structuredContent)).not.toContain(
+		"alpha.get_work_items_by_id",
+	);
+	expect(
+		execute.mock.calls.map(([, ctx]) => ctx.callerIdentity?.organizationId),
+	).toEqual(["alpha", "beta"]);
+	expect(agent.loadedTools.size).toBe(4);
+	expect(agent.callerIdentity?.organizationId).toBeUndefined();
+	expect(outer).not.toHaveBeenCalled();
 });

@@ -1742,3 +1742,70 @@ it("search and describe keep literal native identity and independent eligibility
 		).results.find((x) => (x.native as { name: string })?.name === row.toolId),
 	).toMatchObject({ native: { eligible: false, authorized: false } });
 });
+
+it("a fresh aggregate organization view retains rich original schemas and excludes another mount", async () => {
+	const { organizationNativeView } = await import("./registration/bootstrap");
+	const rows = ["alpha", "beta"].map((slug) =>
+		tool({
+			toolId: slug + "__get_work_items_by_id",
+			config: {
+				transport: "rpc",
+				endpoint: "workItems/getById",
+				nativeDirect: true,
+				_multiOrgOrganizationId: slug,
+				_aggregateNamespace: slug,
+				_sourceAppId: slug + "-gateway",
+			},
+			inputSchema: {
+				type: "object",
+				properties: {
+					id: { type: "string", description: "Exact original id" },
+				},
+				required: ["id"],
+			},
+			outputSchema: {
+				type: "object",
+				properties: {
+					workItem: {
+						type: "object",
+						properties: { version: { type: "integer" } },
+					},
+				},
+			},
+			annotations: { readOnlyHint: true, destructiveHint: false },
+			schemaSourceHash: "original-hash",
+			schemaSyncedAt: "2026-01-01T00:00:00Z",
+		}),
+	);
+	const ctx = {
+		...buildLargeServerCtx(0),
+		appSlug: "connect",
+		appMetadata: {
+			mcpConfig: { multiOrgConsent: true, authMode: "authenticated" },
+		},
+		app: { id: "host", slug: "connect" },
+		callerIdentity: {
+			authType: "oauth",
+			scopes: ["mcp:work.read"],
+			verifiedMultiOrgOrganizations: ["alpha", "beta"].map((slug) => ({
+				organizationId: slug,
+				descopeTenantId: slug,
+				gatewaySlug: slug,
+			})),
+		},
+		loadedTools: new Map(rows.map((row) => [row.toolId, row])),
+	} as unknown as ServerContext;
+	const view = organizationNativeView(ctx, rows[0]!);
+	if (!view) throw new Error("Missing view");
+	const described = await executeCatalogOperation(
+		view,
+		{ transport: "catalog", endpoint: "catalog/describe" },
+		{ callable: "alpha.get_work_items_by_id" },
+	);
+	expect(JSON.stringify(described)).toContain("Exact original id");
+	expect(JSON.stringify(described)).toContain("original-hash");
+	expect(JSON.stringify(described)).not.toContain("beta.");
+	expect(view.loadedTools.get(rows[0]!.toolId)).toBe(rows[0]);
+	expect(ctx.loadedTools.size).toBe(2);
+	expect(view.loadedTools).not.toBe(ctx.loadedTools);
+});
