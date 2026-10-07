@@ -35,6 +35,7 @@ import {
 	memorySourceEvidenceHash,
 	shouldEvaluateAfterTurnMemory,
 } from "../../../services/jev-memory-quality";
+import { resolveMemoryJudgmentRoute } from "../../../services/jev-memory-policy";
 import {
 	countFacts,
 	searchFacts,
@@ -492,14 +493,21 @@ const learn = authed.learn
 		// observer's generated fact and assistant answer cannot ground themselves.
 		// An absent/oversized excerpt performs no paid call and makes no claim of
 		// semantic support. This verdict cannot grant any memory authority.
-		const memoryQuality = shouldEvaluateAfterTurnMemory({
-			source: resolvedSource ?? null,
-			producer: inputMetadata?.producer,
-			authType: context.authType,
-			forwardedTediId: forwardedTediId ?? null,
-		})
-			? memoryQualityDisposition(
-					await evaluateMemoryQuality({
+		// Shadow (the default) judges after the insert and only records the
+		// verdict; enforce is an explicit tenant opt-in that gates the row inline.
+		const memoryQualityRoute =
+			sourceEvidence.trim() &&
+			shouldEvaluateAfterTurnMemory({
+				source: resolvedSource ?? null,
+				producer: inputMetadata?.producer,
+				authType: context.authType,
+				forwardedTediId: forwardedTediId ?? null,
+			})
+				? await resolveMemoryJudgmentRoute(context.db, orgId, "memoryQuality")
+				: null;
+		const judgeMemoryQuality = memoryQualityRoute
+			? () =>
+					evaluateMemoryQuality({
 						fact: input.content,
 						evidence: sourceEvidence,
 						db: context.db,
@@ -509,9 +517,13 @@ const learn = authed.learn
 							tediId: factTediId ?? undefined,
 							runId: episodeTraceId(context.headers) ?? undefined,
 						},
-					}),
-				)
+						route: memoryQualityRoute,
+					})
 			: null;
+		const memoryQuality =
+			judgeMemoryQuality && memoryQualityRoute?.mode === "enforce"
+				? memoryQualityDisposition(await judgeMemoryQuality())
+				: null;
 		const memoryEvidenceHash = memoryQuality
 			? await memorySourceEvidenceHash(sourceEvidence)
 			: null;
@@ -633,6 +645,27 @@ const learn = authed.learn
 			visibility,
 			accessCount: 0,
 		});
+		if (judgeMemoryQuality && memoryQualityRoute?.mode === "shadow") {
+			const shadowJudgment = judgeMemoryQuality()
+				.then((verdict) =>
+					console.info("[memory.learn] memory quality shadow verdict", {
+						orgId,
+						factId,
+						verdict,
+						wouldRestrict: memoryQualityDisposition(verdict).restrict,
+						model: memoryQualityRoute.model,
+					}),
+				)
+				.catch((error) =>
+					console.warn("[memory.learn] memory quality shadow judgment failed", {
+						orgId,
+						factId,
+						error: error instanceof Error ? error.message : String(error),
+					}),
+				);
+			if (context.waitUntil) context.waitUntil(shadowJudgment);
+			else await shadowJudgment;
+		}
 
 		// Cognitive-event bridge — put the new memory fact on the runtime
 		// spine so a decision episode can show what the tedi learned. Tedi-scoped

@@ -517,7 +517,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			? " Automatic graph linking interrupted; partial edge counts unavailable."
 			: autoLinkResult.edgesCreated > 0
 				? ` Auto-linked ${autoLinkResult.edgesCreated} edges across ${autoLinkResult.domainsScanned} domains.`
-				: "";
+				: autoLinkResult.proposals.length > 0
+					? ` Graph linking in shadow: ${autoLinkResult.proposals.length} proposed edges recorded, not applied.`
+					: "";
 		const homeNote =
 			homeDecisionFactsWritten > 0
 				? ` Mined ${homeDecisionFactsWritten} Home operator decision fact${homeDecisionFactsWritten === 1 ? "" : "s"}.`

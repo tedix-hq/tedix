@@ -6,6 +6,7 @@ import {
 } from "@tedix/db/queries/memory-graph/auto-linking";
 import { getEdgesForFacts } from "@tedix/db/queries/memory-graph/edges";
 import { executeJevJudgment } from "./jev-judgment";
+import { resolveMemoryJudgmentRoute } from "./jev-memory-policy";
 import {
 	graphRelationRequest,
 	resolveGraphRelation,
@@ -45,7 +46,10 @@ export function graphCandidatePairs(facts: AutoLinkFact[]) {
 			a.b.id.localeCompare(b.b.id),
 	);
 }
-/** Default bounded automatic linking; unavailable evidence never falls back to heuristic edges. */
+/**
+ * Default bounded automatic linking; unavailable evidence never falls back to heuristic edges.
+ * In shadow mode (the tenant default) proposals are judged and returned but no edge is written.
+ */
 export async function autoLinkFactsWithJev(
 	input: Pick<
 		Parameters<typeof executeJevJudgment>[0],
@@ -54,8 +58,21 @@ export async function autoLinkFactsWithJev(
 ) {
 	const maxEdges = Math.max(0, Math.min(50, Math.floor(input.maxEdges ?? 50)));
 	const proposals: Array<GraphRelationProposal & { context: string }> = [];
-	if (!Number.isFinite(maxEdges) || maxEdges === 0)
-		return { proposals, edgesCreated: 0, judgments: 0, domainsScanned: 0 };
+	const idle = {
+		proposals,
+		edgesCreated: 0,
+		judgments: 0,
+		domainsScanned: 0,
+		mode: "shadow" as "shadow" | "enforce",
+	};
+	if (!Number.isFinite(maxEdges) || maxEdges === 0) return idle;
+	const route = await resolveMemoryJudgmentRoute(
+		input.db,
+		input.scope.organizationId,
+		"graphLinking",
+	);
+	if (!route) return idle;
+	const dryRun = input.dryRun || route.mode === "shadow";
 	const facts = await listAutoLinkFacts(input.db, input.scope);
 	const edges = await getEdgesForFacts(
 		input.db,
@@ -103,6 +120,8 @@ export async function autoLinkFactsWithJev(
 				source: "memory:graph-link",
 				billingSource: "system",
 				sessionType: input.scope.tediId ? "tedi" : "unattributed",
+				model: route.model,
+				transport: route.transport,
 				timeoutMs: 5000,
 			});
 		} catch {
@@ -120,7 +139,7 @@ export async function autoLinkFactsWithJev(
 		if (!proposal) continue;
 		const context = `${GRAPH_RELATION_RECIPE}; support=${result.answers.sourceSupport.noul}; advisory relation, not lifecycle invalidation`;
 		proposals.push({ ...proposal, context });
-		if (!input.dryRun) {
+		if (!dryRun) {
 			const source = proposal.sourceFactId === a.id ? a : b,
 				target = proposal.targetFactId === b.id ? b : a;
 			const created = await createAutoLinkEdge(input.db, input.scope, {
@@ -136,14 +155,28 @@ export async function autoLinkFactsWithJev(
 					counts.set(id, (counts.get(id) ?? 0) + 1);
 			}
 		}
-		if (input.dryRun)
+		if (dryRun)
 			for (const id of [a.id, b.id]) counts.set(id, (counts.get(id) ?? 0) + 1);
 		existing.add(key(a.id, b.id));
 	}
+	if (route.mode === "shadow" && judgments > 0)
+		console.info("[jev-graph-link] shadow proposals not applied", {
+			organizationId: input.scope.organizationId,
+			judgments,
+			model: route.model,
+			proposals: proposals.map(
+				({ sourceFactId, targetFactId, relationType }) => ({
+					sourceFactId,
+					targetFactId,
+					relationType,
+				}),
+			),
+		});
 	return {
 		proposals,
 		edgesCreated,
 		judgments,
 		domainsScanned: new Set(facts.map((f) => f.domainId)).size,
+		mode: route.mode,
 	};
 }

@@ -4,6 +4,10 @@ const m = vi.hoisted(() => ({
 	create: vi.fn(),
 	edges: vi.fn(),
 	judge: vi.fn(),
+	org: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/organizations", () => ({
+	getOrganizationById: m.org,
 }));
 vi.mock("@tedix/db/queries/memory-graph/auto-linking", () => ({
 	listAutoLinkFacts: m.list,
@@ -47,6 +51,9 @@ beforeEach(() => {
 	m.edges.mockResolvedValue([]);
 	m.create.mockResolvedValue(true);
 	m.judge.mockResolvedValue(answer("related"));
+	m.org.mockResolvedValue({
+		metadata: { jev: { purposes: { graphLinking: { mode: "enforce" } } } },
+	});
 });
 describe("bounded API-owned automatic graph judgments", () => {
 	it("writes exact resolved direction and retains run attribution", async () => {
@@ -103,6 +110,35 @@ describe("bounded API-owned automatic graph judgments", () => {
 		expect(await autoLinkFactsWithJev({ ...args, dryRun: true })).toMatchObject(
 			{ edgesCreated: 0, judgments: 1 },
 		);
+		expect(m.create).not.toHaveBeenCalled();
+	});
+	it("shadow mode is the default: judges on Clef, records proposals, writes nothing", async () => {
+		m.org.mockResolvedValue({ metadata: {} });
+		const log = vi.spyOn(console, "info").mockImplementation(() => {});
+		const result = await autoLinkFactsWithJev(args);
+		expect(result).toMatchObject({
+			mode: "shadow",
+			edgesCreated: 0,
+			judgments: 1,
+			proposals: [expect.objectContaining({ relationType: "related_to" })],
+		});
+		expect(m.create).not.toHaveBeenCalled();
+		expect(m.judge).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "@cf/cloudflare/clef-flash",
+				transport: "cloudflare",
+			}),
+		);
+		expect(log).toHaveBeenCalledWith(
+			"[jev-graph-link] shadow proposals not applied",
+			expect.objectContaining({ judgments: 1 }),
+		);
+		log.mockRestore();
+	});
+	it("does not dispatch against an explicit tenant denial", async () => {
+		m.org.mockResolvedValue({ metadata: { jev: { enabled: false } } });
+		expect((await autoLinkFactsWithJev(args)).judgments).toBe(0);
+		expect(m.judge).not.toHaveBeenCalled();
 		expect(m.create).not.toHaveBeenCalled();
 	});
 	it("cannot propose cross-domain, cross-tenant or public/private pairs", () => {
