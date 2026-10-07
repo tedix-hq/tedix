@@ -275,7 +275,14 @@ describe("Auto Router lossless request and result handling", () => {
 					]
 						.map((x) => `data: ${JSON.stringify(x)}\n\n`)
 						.join("") + "data: [DONE]\n\n",
-					{ headers: { "Content-Type": "text/event-stream" } },
+					{
+						headers: {
+							"Content-Type": "text/event-stream",
+							"cf-aig-routed-model": "openai/gpt-5.6-luna",
+							"cf-aig-routing-reason": "quality_match",
+							"cf-aig-routing-decision-id": "decision-2",
+						},
+					},
 				);
 			return new Response(
 				JSON.stringify({
@@ -379,6 +386,17 @@ describe("Auto Router lossless request and result handling", () => {
 				type: "reasoning-delta",
 				id: "reasoning-0",
 				delta: "thinking",
+			});
+			// The streaming path carries the routing headers on its finish receipt.
+			expect(parts.find((part) => part.type === "finish")).toMatchObject({
+				providerMetadata: {
+					cloudflareAutoRouter: {
+						routedModel: "openai/gpt-5.6-luna",
+						routingReason: "quality_match",
+						routingDecisionId: "decision-2",
+						requestId: null,
+					},
+				},
 			});
 		} finally {
 			vi.unstubAllGlobals();

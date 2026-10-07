@@ -3,6 +3,7 @@ import {
 	type RuntimeInferenceOrigin,
 } from "../../src/runtime-inference-origin";
 import { assertProviderDispatchReady } from "@tedix/workers-ai/gateway-transport";
+import { CLOUDFLARE_AUTO_PROVIDER_METADATA_KEY } from "@tedix/workers-ai/model-select";
 export {
 	DurableCodeRecoveryFixture,
 	RecoveryRuntimeFixture as CodemodeRuntime,
@@ -461,6 +462,14 @@ export class PiConversationFixture extends ProductionConversationFacet {
 										cacheWrite: 0,
 									},
 									outputTokens: { total: 3, text: 3, reasoning: 0 },
+								},
+								// Auto Router routing receipt, as packages/workers-ai attaches it.
+								providerMetadata: {
+									[CLOUDFLARE_AUTO_PROVIDER_METADATA_KEY]: {
+										routedModel: "@cf/routed-test",
+										routingReason: "fixture-route",
+										routingDecisionId: "decision-1",
+									},
 								},
 							});
 							controller.close();

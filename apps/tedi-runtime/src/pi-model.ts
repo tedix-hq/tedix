@@ -60,7 +60,12 @@ export type TedixPiProviderOptions<R> = {
 	settled?(
 		receipt: R | undefined,
 		message: AssistantMessage,
-		measurement: { hasUsage: boolean; dispatched: boolean },
+		measurement: {
+			hasUsage: boolean;
+			dispatched: boolean;
+			/** The finish part's provider metadata (e.g. Auto Router routing receipts); never persisted on the message. */
+			providerMetadata?: SharedV3ProviderMetadata;
+		},
 	): Promise<void>;
 };
 
@@ -451,6 +456,7 @@ export function createTedixPiProvider<R>(
 			const inputs = new Map<string, string>();
 			let finish = false;
 			let hasUsage = false;
+			let providerMetadata: SharedV3ProviderMetadata | undefined;
 			let failure: unknown;
 			try {
 				options.signal?.throwIfAborted();
@@ -709,6 +715,7 @@ export function createTedixPiProvider<R>(
 									message.responseModel = part.modelId;
 								break;
 							case "finish": {
+								providerMetadata = part.providerMetadata;
 								message.usage = sdkToPiUsage(part.usage, model);
 								hasUsage =
 									typeof part.usage.inputTokens === "object" &&
@@ -779,7 +786,11 @@ export function createTedixPiProvider<R>(
 				}
 				if (dispatched || reserved) {
 					try {
-						await config.settled?.(receipt, message, { hasUsage, dispatched });
+						await config.settled?.(receipt, message, {
+							hasUsage,
+							dispatched,
+							...(providerMetadata ? { providerMetadata } : {}),
+						});
 					} catch (error) {
 						message.stopReason = "error";
 						message.errorMessage = `Usage settlement failed: ${error instanceof Error ? error.message : String(error)}`;
