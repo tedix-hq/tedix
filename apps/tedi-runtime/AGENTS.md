@@ -99,6 +99,12 @@ None of these announce themselves when broken.
   Mandatory budget accounting, admission and cancellation are NOT in this lane
   and stay awaited — do not move an enforcement call into the outbox to make a
   stopwatch faster.
+- **A non-admitted or sealed object never runs Agent or Pi code.** When stored
+  runtime admission is not `active`, or `historical_replay_seals` has any row,
+  the `AgentTediDO` and `PiAgent` constructors return `InertRuntimeDO`
+  (`src/inert-runtime-do.ts`: `fetch` 423, `alarm` clears itself, no RPC).
+  Keep that check before `super()` and keep the receiver free of lifecycle
+  code; runtime admission is permanent, not cutover scaffolding.
 - **`MAX_CHAT_STEPS = 40`** (`src/do.ts`) is the backstop for an explicitly
   governed step ceiling, not a default turn cap. A turn with no positive
   `maxIterationsPerTask` has no implicit Pi round ceiling and remains
