@@ -212,6 +212,7 @@ export function render(
 	let read = 0;
 	let unavailable = 0;
 	let documentOrg: string | undefined;
+	let noLessons = false;
 	for (const [source, workspaceKey, outputKey, label] of [
 		[
 			"preferences",
@@ -298,8 +299,8 @@ export function render(
 				throw new Error("unexpected lesson");
 			return `[${lesson.shortId}] ${lesson.text.slice(0, 600)}`;
 		});
-		// No approved lesson for this repository adds nothing to the context.
-		if (items.length) {
+		if (!items.length) noLessons = true;
+		else {
 			lines.push(
 				`Team lessons: ${items.length} of ${Number(lessons.matched) || items.length} approved for ${outside ? "this host, outside any repository" : "this repository and host"} (yours and your organization's; Tedix memory; [id] = fact id prefix)${lessons.truncated === true ? "; more were omitted for space" : ""}.`,
 			);
@@ -359,6 +360,10 @@ export function render(
 		);
 	}
 	if (unavailable && !read) throw new Error("no selected source was readable");
+	// Beside other context, an empty lessons read is named so it cannot pass for a
+	// hook that never asked; alone it stays silent like any empty turn.
+	if (noLessons && lines.length > 1)
+		lines.push("Team lessons: none approved for this repository and host.");
 	return lines.join("\n");
 }
 
@@ -499,7 +504,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				8000,
 			);
 			context = render(binding, data, (deps.now ?? (() => new Date()))());
-			// Only the header: nothing selected and no lesson applies.
+			// Only the header: nothing selected and no lessons source was read.
 			if (!context.includes("\n")) context = "";
 		} catch {
 			context = UNAVAILABLE;
