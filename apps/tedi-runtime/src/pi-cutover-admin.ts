@@ -1006,18 +1006,49 @@ export async function routeCutoverInventory(input: {
 		"idFromString" | "idFromName" | "get"
 	>;
 }): Promise<Response | null> {
+	input = Object.freeze({ ...input });
 	const url = new URL(input.request.url);
 	if (
 		url.pathname === "/__admin/pi-state-cutover" &&
 		input.request.method === "POST"
 	) {
-		if (
-			!(await secureEqual(
-				input.request.headers.get("X-Tedix-Admin-Token"),
-				input.masterKey,
-			))
-		)
-			return new Response("Forbidden", { status: 403 });
+		let scope: CustodyReadScope | undefined;
+		try {
+			if (input.request.headers.has(CUSTODY_DEADLINE_HEADER))
+				scope = custodyReadScope(
+					input.request.headers.get(CUSTODY_DEADLINE_HEADER),
+					input.request.signal,
+				);
+		} catch {
+			return new Response("Cutover unavailable", { status: 409 });
+		}
+		if (scope) {
+			input = Object.freeze({
+				...input,
+				namespace: Object.freeze({
+					idFromName: input.namespace.idFromName.bind(input.namespace),
+					idFromString: input.namespace.idFromString.bind(input.namespace),
+					get: input.namespace.get.bind(input.namespace),
+				}) as typeof input.namespace,
+			});
+		}
+		const checked = <T>(read: () => Promise<T>) => {
+			scope?.guard();
+			return scope ? scope.checked(read()) : read();
+		};
+		try {
+			if (
+				!(await checked(() =>
+					secureEqual(
+						input.request.headers.get("X-Tedix-Admin-Token"),
+						input.masterKey,
+					),
+				))
+			)
+				return new Response("Forbidden", { status: 403 });
+		} catch {
+			return new Response("Cutover unavailable", { status: 409 });
+		}
 		if (
 			input.request.headers.has(FACET_CUSTODY_HEADER) ||
 			input.request.headers.has(INSPECTION_CUSTODY_HEADER)
@@ -1025,27 +1056,44 @@ export async function routeCutoverInventory(input: {
 			return new Response("Invalid cutover request", { status: 400 });
 		let body: Awaited<ReturnType<typeof parseCutoverOperation>>;
 		try {
-			body = await parseCutoverOperation(await input.request.clone().json());
+			body = await checked(async () =>
+				parseCutoverOperation(
+					await checked(() => input.request.clone().json()),
+				),
+			);
 		} catch {
 			return new Response("Invalid cutover operation", { status: 400 });
 		}
+		if (body.query.command === "inspect_custody_coverage" && !scope)
+			return new Response("Cutover unavailable", { status: 409 });
 		if (!cutoverObjectIds(input.knownIds).has(body.query.objectId))
 			return new Response("Unknown stored object", { status: 404 });
 		if (!input.env) return new Response("Cutover unavailable", { status: 503 });
 		try {
-			await verifyCutoverCustody(input.env, input.namespace, body);
+			await checked(() =>
+				verifyCutoverCustody(input.env!, input.namespace, body, () =>
+					scope?.guard(),
+				),
+			);
 		} catch {
 			return new Response("Cutover canonical custody mismatch", {
 				status: 409,
 			});
 		}
 		// Anonymous quarantine is finite physical custody; it never supplies an owner name.
+		scope?.guard();
 		const id = body.custody
 			? input.namespace.idFromName(body.custody.objectName)
 			: input.namespace.idFromString(body.query.objectId);
+		scope?.guard();
 		const stub = input.namespace.get(id);
 		try {
-			return await stub.fetch(input.request);
+			const forwarded = scope
+				? new Request(input.request, { signal: scope.signal })
+				: input.request;
+			const result = await checked(() => stub.fetch(forwarded));
+			scope?.guard();
+			return result;
 		} finally {
 			(stub as typeof stub & { [Symbol.dispose]?: () => void })[
 				Symbol.dispose
@@ -1525,6 +1573,7 @@ async function runNativePreservation(
 	body: Awaited<ReturnType<typeof parseCutoverOperation>>,
 	recheck: () => void,
 	operationDeadline = performance.now() + 30_000,
+	custodyScope?: CustodyReadScope,
 ) {
 	const q = body.query,
 		owner = body.custody;
@@ -1535,14 +1584,15 @@ async function runNativePreservation(
 			: null;
 
 	if (q.command === "inspect_custody_coverage") {
-		if (!owner) throw Error("Custody coverage unavailable");
+		if (!owner || !custodyScope) throw Error("Custody coverage unavailable");
 		const guard = () => {
+			custodyScope.guard();
 			recheck();
 			if (performance.now() >= operationDeadline)
 				throw Error("Custody coverage unavailable");
 		};
 		const checked = <T>(p: Promise<T>) =>
-			initialCutoverRead(p, operationDeadline).finally(guard);
+			custodyScope.checked(p).finally(guard);
 		const { prepareCustodyCoverage } = await checked(
 			import("./custody-coverage-inventory"),
 		);
@@ -1569,6 +1619,7 @@ async function runNativePreservation(
 				receiver: "raw-cutover-v1",
 			},
 			deadline: operationDeadline,
+			signal: custodyScope.signal,
 			recheck: guard,
 			continuation: q.continuation,
 			coverageHash: q.coverageHash,
@@ -2090,6 +2141,92 @@ function captureSizeFacts(
 		},
 	};
 }
+const CUSTODY_DEADLINE_HEADER = "X-Tedix-Custody-Deadline";
+interface CustodyReadScope {
+	readonly epochDeadline: number;
+	readonly deadline: number;
+	readonly signal: AbortSignal;
+	guard(): void;
+	checked<T>(read: Promise<T>): Promise<T>;
+}
+function custodyReadScope(
+	epoch: unknown,
+	signal?: AbortSignal,
+): CustodyReadScope {
+	const now = Date.now();
+	if (typeof epoch === "string" && /^[0-9]{1,16}$/.test(epoch))
+		epoch = Number(epoch);
+	if (typeof epoch !== "number" || !Number.isSafeInteger(epoch) || epoch <= now)
+		throw Error("Custody coverage unavailable");
+	const epochDeadline = Math.min(epoch, now + 30_000);
+	const deadline = performance.now() + Math.min(30_000, epochDeadline - now);
+	const controller = new AbortController();
+	let failed = false,
+		original: unknown;
+	const refuse = () => {
+		if (!failed) {
+			failed = true;
+			original = Error("Custody coverage unavailable");
+		}
+		if (!controller.signal.aborted) controller.abort(original);
+		throw original;
+	};
+	const guard = () => {
+		if (
+			failed ||
+			signal?.aborted ||
+			Date.now() >= epochDeadline ||
+			performance.now() >= deadline
+		)
+			refuse();
+	};
+	const checked = async <T>(read: Promise<T>): Promise<T> => {
+		const observed = Promise.resolve(read);
+		void observed.catch(() => {});
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let abort: (() => void) | undefined;
+		const stop = () => {
+			try {
+				refuse();
+			} catch {}
+		};
+		signal?.addEventListener("abort", stop, { once: true });
+		try {
+			guard();
+			return await Promise.race([
+				observed,
+				new Promise<never>((_, reject) => {
+					abort = () => reject(original);
+					controller.signal.addEventListener("abort", abort, { once: true });
+					timer = setTimeout(
+						() => {
+							stop();
+						},
+						Math.max(
+							0,
+							Math.min(
+								deadline - performance.now(),
+								epochDeadline - Date.now(),
+							),
+						),
+					);
+				}),
+			]);
+		} finally {
+			if (timer !== undefined) clearTimeout(timer);
+			signal?.removeEventListener("abort", stop);
+			if (abort) controller.signal.removeEventListener("abort", abort);
+			guard();
+		}
+	};
+	return Object.freeze({
+		epochDeadline,
+		deadline,
+		signal: controller.signal,
+		guard,
+		checked,
+	});
+}
 /** Auth and request parsing share the original local transport deadline; archive execution has its own owning guards. */
 async function initialCutoverRead<T>(
 	read: Promise<T>,
@@ -2125,8 +2262,22 @@ export async function operateStoredCutover(input: {
 	receiver?: "raw-cutover-v1";
 }): Promise<Response> {
 	const { ctx, env, request } = input;
-	const operationDeadline = performance.now() + 30_000;
+	let custodyScope: CustodyReadScope | undefined;
+	try {
+		if (request.headers.has(CUSTODY_DEADLINE_HEADER))
+			custodyScope = custodyReadScope(
+				request.headers.get(CUSTODY_DEADLINE_HEADER),
+				request.signal,
+			);
+	} catch {
+		return new Response("Cutover request unavailable", { status: 409 });
+	}
+	const operationDeadline =
+		custodyScope?.deadline ?? performance.now() + 30_000;
+	const initial = <T>(p: Promise<T>, deadline: number) =>
+		custodyScope ? custodyScope.checked(p) : initialCutoverRead(p, deadline);
 	let publication: () => void = () => {
+		custodyScope?.guard();
 		if (
 			isBoundedCustodyRead(parsedBody?.query.command) &&
 			performance.now() >= operationDeadline
@@ -2134,13 +2285,16 @@ export async function operateStoredCutover(input: {
 			throw new Error("Session qualification deadline expired");
 	};
 	const retain = (guard: () => void) => {
-		publication = guard;
+		publication = () => {
+			custodyScope?.guard();
+			guard();
+		};
 	};
 	if (new URL(request.url).pathname !== CUTOVER_PATH)
 		return new Response("Not Found", { status: 404 });
 	try {
 		if (
-			!(await initialCutoverRead(
+			!(await initial(
 				secureEqual(
 					request.headers.get("X-Tedix-Admin-Token"),
 					env.SECRETS_MASTER_KEY,
@@ -2161,17 +2315,20 @@ export async function operateStoredCutover(input: {
 		if (request.method === "GET")
 			page = cutoverInventoryPageQuery(new URL(request.url).searchParams);
 		else
-			parsedBody = await initialCutoverRead(
+			parsedBody = await initial(
 				parseCutoverOperation(
-					await initialCutoverRead(request.clone().json(), operationDeadline),
+					await initial(request.clone().json(), operationDeadline),
 				),
 				operationDeadline,
 			);
 	} catch {
 		return new Response("Invalid cutover request", { status: 400 });
 	}
+	if (parsedBody?.query.command === "inspect_custody_coverage" && !custodyScope)
+		return new Response("Cutover request unavailable", { status: 409 });
 	const pending = ctx.blockConcurrencyWhile(async () => {
 		try {
+			custodyScope?.guard();
 			if (request.method === "GET")
 				return Response.json(
 					await inspectRegisteredCutover(
@@ -2212,6 +2369,7 @@ export async function operateStoredCutover(input: {
 							null,
 							0,
 							operationDeadline,
+							custodyScope,
 						),
 						isBoundedCustodyRead(body.query.command) ? retain : undefined,
 					),
@@ -2237,6 +2395,7 @@ export async function operateStoredCutover(input: {
 							body,
 							recheck,
 							operationDeadline,
+							custodyScope,
 						),
 						isBoundedCustodyRead(body.query.command) ? retain : undefined,
 					),
@@ -2390,7 +2549,9 @@ export async function operateStoredCutover(input: {
 	let result: Response;
 	try {
 		result = isBoundedCustodyRead(parsedBody?.query.command)
-			? await initialCutoverRead(pending, operationDeadline)
+			? await (custodyScope
+					? custodyScope.checked(pending)
+					: initialCutoverRead(pending, operationDeadline))
 			: await pending;
 	} catch (error) {
 		let refusal = error;
@@ -3496,24 +3657,40 @@ export interface PassiveRegisteredCutover {
 	body: string;
 	custody: string;
 	index: number;
+	custodyDeadline?: number;
 }
 export async function passiveRegisteredCutover(
 	ctx: DurableObjectState,
 	env: Cloudflare.Env,
 	input: PassiveRegisteredCutover,
 ) {
-	const operationDeadline = performance.now() + 30_000;
+	input = Object.freeze({ ...input });
+	let custodyScope: CustodyReadScope | undefined;
+	try {
+		if (input.custodyDeadline !== undefined)
+			custodyScope = custodyReadScope(input.custodyDeadline);
+	} catch {
+		return { status: 409, body: "Registered quarantine unavailable" };
+	}
+	const operationDeadline =
+		custodyScope?.deadline ?? performance.now() + 30_000;
+	const initial = <T>(p: Promise<T>, deadline: number) =>
+		custodyScope ? custodyScope.checked(p) : initialCutoverRead(p, deadline);
 	let qualifying = false;
 	let publication: () => void = () => {
+		custodyScope?.guard();
 		if (qualifying && performance.now() >= operationDeadline)
 			throw new Error("Session qualification deadline expired");
 	};
 	const retain = (guard: () => void) => {
-		publication = guard;
+		publication = () => {
+			custodyScope?.guard();
+			guard();
+		};
 	};
 	try {
 		if (
-			!(await initialCutoverRead(
+			!(await initial(
 				secureEqual(input.token, env.SECRETS_MASTER_KEY),
 				operationDeadline,
 			))
@@ -3524,7 +3701,7 @@ export async function passiveRegisteredCutover(
 	}
 	let body: Awaited<ReturnType<typeof parseCutoverOperation>>;
 	try {
-		body = await initialCutoverRead(
+		body = await initial(
 			parseCutoverOperation(JSON.parse(input.body)),
 			operationDeadline,
 		);
@@ -3532,8 +3709,11 @@ export async function passiveRegisteredCutover(
 		return { status: 409, body: "Registered quarantine unavailable" };
 	}
 	qualifying = isBoundedCustodyRead(body.query.command);
+	if (body.query.command === "inspect_custody_coverage" && !custodyScope)
+		return { status: 409, body: "Registered quarantine unavailable" };
 	const pending = ctx.blockConcurrencyWhile(async () => {
 		try {
+			custodyScope?.guard();
 			publication();
 			const custody = InspectionCustodySchema.parse(JSON.parse(input.custody));
 			const index = z.number().int().positive().max(16).parse(input.index);
@@ -3548,6 +3728,7 @@ export async function passiveRegisteredCutover(
 							custody,
 							index,
 							operationDeadline,
+							custodyScope,
 						),
 						isBoundedCustodyRead(body.query.command) ? retain : undefined,
 					),
@@ -3561,7 +3742,9 @@ export async function passiveRegisteredCutover(
 	let result: { status: number; body: string };
 	try {
 		result = qualifying
-			? await initialCutoverRead(pending, operationDeadline)
+			? await (custodyScope
+					? custodyScope.checked(pending)
+					: initialCutoverRead(pending, operationDeadline))
 			: await pending;
 	} catch {
 		try {
@@ -3583,6 +3766,7 @@ async function registeredStoredCutover(
 	forwarded: z.infer<typeof InspectionCustodySchema> | null,
 	index: number,
 	operationDeadline = performance.now() + 30_000,
+	custodyScope?: CustodyReadScope,
 ): Promise<unknown> {
 	const { query: q, custody: owner } = body;
 	if (
@@ -3709,6 +3893,7 @@ async function registeredStoredCutover(
 	};
 	const originalFacts = localFacts();
 	const recheck = () => {
+		custodyScope?.guard();
 		if (localFacts() !== originalFacts)
 			throw new Error("Registered quarantine unavailable");
 	};
@@ -3760,7 +3945,9 @@ async function registeredStoredCutover(
 		const checked = async <T>(promise: Promise<T>): Promise<T> => {
 			if (!qualifying) return promise;
 			try {
-				return await initialCutoverRead(promise, operationDeadline);
+				return await (custodyScope
+					? custodyScope.checked(promise)
+					: initialCutoverRead(promise, operationDeadline));
 			} finally {
 				continuity();
 			}
@@ -3853,6 +4040,10 @@ async function registeredStoredCutover(
 						}),
 						custody: JSON.stringify(next),
 						index: index + 1,
+						custodyDeadline:
+							q.command === "inspect_custody_coverage"
+								? custodyScope?.epochDeadline
+								: undefined,
 					}),
 				);
 				recheckRegistry();
@@ -3950,7 +4141,14 @@ async function registeredStoredCutover(
 		q.command === "inspect_session_rehydration" ||
 		q.command === "inspect_custody_coverage"
 	)
-		return runNativePreservation(ctx, env, body, recheck, operationDeadline);
+		return runNativePreservation(
+			ctx,
+			env,
+			body,
+			recheck,
+			operationDeadline,
+			custodyScope,
+		);
 	if (q.command !== "quarantine") {
 		if (!current || current.generation !== q.expectedGeneration)
 			throw new Error("Historical custody unavailable");

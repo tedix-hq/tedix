@@ -78,7 +78,11 @@ import {
 // Objects can build a request context without dragging this module's auth
 // graph (jose, @descope/node-sdk, node-fetch) into their startup-evaluated
 // import set. Re-exported so existing `from "../rpc/orpc"` sites are unaffected.
-import { type BaseContext, createContext } from "./context";
+import {
+	type BaseContext,
+	createContext,
+	requireCustodyInspectionScope,
+} from "./context";
 
 export type { BaseContext } from "./context";
 export { createContext };
@@ -325,10 +329,15 @@ async function resolveOrganizationForIdentityToken(
 	tenantId: string,
 ) {
 	return (
-		(await getOrganizationByExternalIdentity(
-			context.db,
-			descopeTenantIdentity(payload, tenantId),
-		)) ?? (await getOrganizationByDescopeId(context.db, tenantId))
+		(await authRead(context, () =>
+			getOrganizationByExternalIdentity(
+				context.db,
+				descopeTenantIdentity(payload, tenantId),
+			),
+		)) ??
+		(await authRead(context, () =>
+			getOrganizationByDescopeId(context.db, tenantId),
+		))
 	);
 }
 
@@ -337,10 +346,10 @@ async function resolveCanonicalUserId(
 	payload: { iss: string; sub?: string },
 ): Promise<string | undefined> {
 	if (!payload.sub) return undefined;
-	const mapping = await resolvePrincipalIdentity(
-		context.db,
-		descopeUserIdentity(payload),
-		{ principalType: "user" },
+	const mapping = await authRead(context, () =>
+		resolvePrincipalIdentity(context.db, descopeUserIdentity(payload), {
+			principalType: "user",
+		}),
 	);
 	return mapping?.principalId;
 }
@@ -399,8 +408,12 @@ async function resolveServiceBindingOrganizationId(
 
 	try {
 		const org = isDescopeTenantId(serviceOrgId)
-			? await getOrganizationByDescopeId(context.db, serviceOrgId)
-			: await getOrganizationById(context.db, serviceOrgId);
+			? await authRead(context, () =>
+					getOrganizationByDescopeId(context.db, serviceOrgId),
+				)
+			: await authRead(context, () =>
+					getOrganizationById(context.db, serviceOrgId),
+				);
 		return org?.id ?? serviceOrgId;
 	} catch (err) {
 		console.warn(
@@ -418,8 +431,12 @@ async function resolveForwardedMcpUserOrganization(
 	if (!serviceOrgId) return null;
 
 	const org = isDescopeTenantId(serviceOrgId)
-		? await getOrganizationByDescopeId(context.db, serviceOrgId)
-		: await getOrganizationById(context.db, serviceOrgId);
+		? await authRead(context, () =>
+				getOrganizationByDescopeId(context.db, serviceOrgId),
+			)
+		: await authRead(context, () =>
+				getOrganizationById(context.db, serviceOrgId),
+			);
 	if (!org) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
@@ -506,12 +523,16 @@ async function authenticateForwardedMcpUserJwt(
 		context.user.scopes = [...new Set([...tokenScopes, ...edgeScopes])];
 	}
 	context.authType = "user";
-	context.userId = await measureMiningPhase(context, "auth.user", () =>
-		resolveCanonicalUserId(context, payload),
+	context.userId = await authRead(context, () =>
+		measureMiningPhase(context, "auth.user", () =>
+			resolveCanonicalUserId(context, payload),
+		),
 	);
 
-	const targetOrg = await measureMiningPhase(context, "auth.organization", () =>
-		resolveForwardedMcpUserOrganization(context),
+	const targetOrg = await authRead(context, () =>
+		measureMiningPhase(context, "auth.organization", () =>
+			resolveForwardedMcpUserOrganization(context),
+		),
 	);
 	if (!targetOrg) return;
 	if (!context.user.sub) {
@@ -522,8 +543,10 @@ async function authenticateForwardedMcpUserJwt(
 	}
 
 	const userSubject = context.user.sub;
-	const member = await measureMiningPhase(context, "auth.membership", () =>
-		getMemberByUserId(context.db, targetOrg.id, userSubject),
+	const member = await authRead(context, () =>
+		measureMiningPhase(context, "auth.membership", () =>
+			getMemberByUserId(context.db, targetOrg.id, userSubject),
+		),
 	);
 	const forwardedContext = resolveForwardedMcpUserTenantContext({
 		targetOrg,
@@ -607,8 +630,43 @@ export function resolveForwardedMcpUserTenantContext({
  * about service-binding transport and forwarded identities, not about deduping
  * against a prior pass.
  */
-export const withAuth = base.middleware(async (options) => {
-	const { context, next } = options;
+const authScope = new WeakMap<
+	BaseContext,
+	import("./context").CustodyInspectionScope
+>();
+function authRead<T>(
+	context: BaseContext,
+	read: () => PromiseLike<T>,
+): Promise<T> {
+	const scope = authScope.get(context);
+	return scope ? scope.checked(read) : Promise.resolve(read());
+}
+export const withAuth = base.middleware(async (options, rawInput) => {
+	const originalContext = options.context;
+	const selected =
+		options.path.join(".") === "tedis.operateRuntimeCutover" &&
+		(
+			options.procedure["~orpc"].meta["~openapi"] as
+				| { path?: string }
+				| undefined
+		)?.path === "/{routeTediId}/runtime-cutover/operate" &&
+		typeof rawInput === "object" &&
+		rawInput !== null &&
+		"command" in rawInput &&
+		rawInput.command === "inspect_custody_coverage";
+	// The cap belongs to this invocation. A reused router context must not
+	// inherit it, and late selected auth continuations must keep their own cap.
+	const context = selected ? { ...originalContext } : originalContext;
+	const scope = selected ? requireCustodyInspectionScope(context) : null;
+	if (scope) authScope.set(context, scope);
+	const checked = <T>(read: () => PromiseLike<T>) =>
+		scope ? scope.checked(read) : Promise.resolve(read());
+	const next: typeof options.next = (...args) => {
+		scope?.guard();
+		return scope
+			? scope.checked(() => Promise.resolve(options.next(...args)))
+			: options.next(...args);
+	};
 
 	// Service binding detection: trusted Worker-to-Worker transport. When the
 	// MCP edge forwards a human caller token, authenticate and authorize as that
@@ -637,8 +695,9 @@ export const withAuth = base.middleware(async (options) => {
 				);
 			}
 			try {
-				await authenticateApiKey(context);
+				await checked(() => authenticateApiKey(context));
 			} catch (error) {
+				scope?.guard();
 				if (
 					error instanceof D1ReadTimeoutError ||
 					isTransientD1ReadError(error)
@@ -657,10 +716,13 @@ export const withAuth = base.middleware(async (options) => {
 		}
 		if (isForwardedMcpUserCall(context.headers)) {
 			try {
-				await measureMiningPhase(context, "auth.forwarded", () =>
-					authenticateForwardedMcpUserJwt(context),
+				await checked(() =>
+					measureMiningPhase(context, "auth.forwarded", () =>
+						authenticateForwardedMcpUserJwt(context),
+					),
 				);
 			} catch (error) {
+				scope?.guard();
 				if (error instanceof ORPCError) throw error;
 				// Token/permission failures above are explicit ORPCErrors. An
 				// unexpected identity lookup failure is not an invalid credential:
@@ -676,8 +738,9 @@ export const withAuth = base.middleware(async (options) => {
 
 		context.authType = "service-binding";
 		if (!context.organizationId) {
-			context.organizationId =
-				await resolveServiceBindingOrganizationId(context);
+			context.organizationId = await checked(() =>
+				resolveServiceBindingOrganizationId(context),
+			);
 		}
 		// Acting user (kernel direct reads): a forwarded user-id claim from
 		// the trusted service-binding caller (apps/mcp home tools), so downstream
@@ -776,21 +839,25 @@ export const withAuth = base.middleware(async (options) => {
 	if (!alreadyAuthenticated) {
 		// Strategy 1: Try User JWT authentication
 		try {
-			await authenticateUserJwt(context);
+			await checked(() => authenticateUserJwt(context));
 		} catch (userJwtError) {
+			scope?.guard();
 			if (isAuthInfrastructureError(userJwtError)) throw userJwtError;
 			// Strategy 2: Try M2M JWT authentication
 			try {
-				await authenticateM2MJwt(context);
+				await checked(() => authenticateM2MJwt(context));
 			} catch (m2mJwtError) {
+				scope?.guard();
 				// Strategy 3: Try Tedi V2 JWT authentication
 				try {
-					await authenticateTediJwt(context);
+					await checked(() => authenticateTediJwt(context));
 				} catch (tediJwtError) {
+					scope?.guard();
 					// Strategy 4: Try API Key authentication
 					try {
-						await authenticateApiKey(context);
+						await checked(() => authenticateApiKey(context));
 					} catch (apiKeyError) {
+						scope?.guard();
 						// All strategies failed
 						const details = {
 							userJwt:
@@ -1480,10 +1547,12 @@ async function authenticateUserJwt(
 				(context.env as CloudflareEnv & { TEDIX_LOCAL_DEMO_ENABLED?: string })
 					.TEDIX_LOCAL_DEMO_ENABLED === "true",
 		}) ??
-		(await validateToken(token, {
-			projectId: context.env.DESCOPE_PROJECT_ID,
-			baseUrl: context.env.DESCOPE_BASE_URL,
-		}));
+		(await authRead(context, () =>
+			validateToken(token, {
+				projectId: context.env.DESCOPE_PROJECT_ID,
+				baseUrl: context.env.DESCOPE_BASE_URL,
+			}),
+		));
 
 	// Verify this is a user token (not M2M)
 	if (!isUserToken(payload)) {
@@ -1508,14 +1577,18 @@ async function authenticateUserJwt(
 	context.crossTenantOverrideActive = isCrossTenantOverride;
 	if (tenantId && payload.sub) {
 		try {
-			const identity = await withTransientD1ReadRetry(
-				"auth.user_tenant_context",
-				() =>
-					resolveUserTenantIdentityContext(context.db, {
-						organizationIdentity: descopeTenantIdentity(payload, tenantId),
-						userIdentity: descopeUserIdentity(payload),
-					}),
-				{ timeoutMs: 5_000 },
+			const identity = await authRead(context, () =>
+				withTransientD1ReadRetry(
+					"auth.user_tenant_context",
+					() =>
+						authRead(context, () =>
+							resolveUserTenantIdentityContext(context.db, {
+								organizationIdentity: descopeTenantIdentity(payload, tenantId),
+								userIdentity: descopeUserIdentity(payload),
+							}),
+						),
+					{ timeoutMs: 5_000 },
+				),
 			);
 			context.userId = identity?.canonicalUserId ?? undefined;
 			if (identity) {
@@ -1553,20 +1626,19 @@ async function authenticateUserJwt(
 			);
 		}
 	} else if (payload.sub) {
-		context.userId = await resolveCanonicalUserId(context, payload);
+		context.userId = await authRead(context, () =>
+			resolveCanonicalUserId(context, payload),
+		);
 		// No tenant claim (new user before Descope tenant assignment).
 		// Fall back to D1 membership — use personal org if it exists.
 		try {
-			const personalOrg = await getPersonalOrganization(
-				context.db,
-				payload.sub,
+			const personalOrg = await authRead(context, () =>
+				getPersonalOrganization(context.db, payload.sub!),
 			);
 			if (personalOrg) {
 				context.organizationId = personalOrg.id;
-				const member = await getMemberByUserId(
-					context.db,
-					personalOrg.id,
-					payload.sub,
+				const member = await authRead(context, () =>
+					getMemberByUserId(context.db, personalOrg.id, payload.sub!),
 				);
 				if (member?.role) {
 					context.userRole = member.role;
@@ -1603,10 +1675,12 @@ async function authenticateM2MJwt(context: BaseContext): Promise<void> {
 		throw new Error("Missing M2M token");
 	}
 
-	const payload = await validateToken(token, {
-		projectId: context.env.DESCOPE_PROJECT_ID,
-		baseUrl: context.env.DESCOPE_BASE_URL,
-	});
+	const payload = await authRead(context, () =>
+		validateToken(token, {
+			projectId: context.env.DESCOPE_PROJECT_ID,
+			baseUrl: context.env.DESCOPE_BASE_URL,
+		}),
+	);
 
 	// Verify this is an M2M token (not user)
 	if (!isM2MToken(payload)) {
@@ -1649,10 +1723,8 @@ async function authenticateM2MJwt(context: BaseContext): Promise<void> {
 	}
 
 	// Resolve organization from D1 using Descope tenant ID
-	const org = await resolveOrganizationForIdentityToken(
-		context,
-		payload,
-		tenantId,
+	const org = await authRead(context, () =>
+		resolveOrganizationForIdentityToken(context, payload, tenantId),
 	);
 
 	if (!org) {
@@ -1666,10 +1738,11 @@ async function authenticateM2MJwt(context: BaseContext): Promise<void> {
 
 	// Set organization context
 	context.organizationId = org.id;
-	const serviceMapping = await resolvePrincipalIdentity(
-		context.db,
-		descopeServiceIdentity(payload),
-		{ principalType: "service", organizationId: org.id },
+	const serviceMapping = await authRead(context, () =>
+		resolvePrincipalIdentity(context.db, descopeServiceIdentity(payload), {
+			principalType: "service",
+			organizationId: org.id,
+		}),
 	);
 	if (serviceMapping) {
 		context.serviceAccount.canonicalPrincipalId = serviceMapping.principalId;
@@ -1695,11 +1768,13 @@ async function authenticateTediJwt(context: BaseContext): Promise<void> {
 		throw new Error("Missing tedi token");
 	}
 
-	const payload = await validateToken(token, {
-		projectId: context.env.DESCOPE_PROJECT_ID,
-		baseUrl: context.env.DESCOPE_BASE_URL,
-		allowTediJwt: true,
-	});
+	const payload = await authRead(context, () =>
+		validateToken(token, {
+			projectId: context.env.DESCOPE_PROJECT_ID,
+			baseUrl: context.env.DESCOPE_BASE_URL,
+			allowTediJwt: true,
+		}),
+	);
 
 	const { claims, error: claimError } = extractTediJwtClaims(payload);
 	if (!claims) {
@@ -1723,10 +1798,8 @@ async function authenticateTediJwt(context: BaseContext): Promise<void> {
 	const tenantId = getTenantId(payload);
 	if (tenantId && !context.organizationId) {
 		try {
-			const org = await resolveOrganizationForIdentityToken(
-				context,
-				payload,
-				tenantId,
+			const org = await authRead(context, () =>
+				resolveOrganizationForIdentityToken(context, payload, tenantId),
 			);
 			if (org) {
 				context.organizationId = org.id;
@@ -1766,20 +1839,25 @@ async function authenticateApiKey(context: BaseContext): Promise<void> {
 	}
 
 	// Hash the API key to look it up
-	const keyHash = await hashApiKey(apiKeyHeader);
-	let apiKey = await withTransientD1ReadRetry(
-		"auth.api_key",
-		() => getApiKeyByHash(context.db, keyHash),
-		{ timeoutMs: 5_000 },
+	const keyHash = await authRead(context, () => hashApiKey(apiKeyHeader));
+	let apiKey = await authRead(context, () =>
+		withTransientD1ReadRetry(
+			"auth.api_key",
+			() => authRead(context, () => getApiKeyByHash(context.db, keyHash)),
+			{ timeoutMs: 5_000 },
+		),
 	);
 
 	// If primary hash doesn't match, check if this is a previous (rotated) key
 	// within its grace period
 	if (!apiKey) {
-		apiKey = await withTransientD1ReadRetry(
-			"auth.previous_api_key",
-			() => getApiKeyByPreviousHash(context.db, keyHash),
-			{ timeoutMs: 5_000 },
+		apiKey = await authRead(context, () =>
+			withTransientD1ReadRetry(
+				"auth.previous_api_key",
+				() =>
+					authRead(context, () => getApiKeyByPreviousHash(context.db, keyHash)),
+				{ timeoutMs: 5_000 },
+			),
 		);
 	}
 

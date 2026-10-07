@@ -1103,3 +1103,115 @@ for (const change of [
 		parseCutoverOperation({ ...coverageCommand, ...change }),
 	);
 console.log("Custody coverage exact passive command boundary PASS");
+
+{
+	let gates = 0;
+	const ctx = {
+		blockConcurrencyWhile: () => {
+			gates++;
+			throw Error("Unexpected native gate");
+		},
+	} as unknown as DurableObjectState;
+	const environment = { SECRETS_MASTER_KEY: token } as Cloudflare.Env;
+	for (const header of [
+		undefined,
+		String(Date.now() - 1),
+		"invalid",
+		"9007199254740992",
+	]) {
+		const response = await operateStoredCutover({
+			ctx,
+			env: environment,
+			receiver: "raw-cutover-v1",
+			request: new Request("https://fixture/__admin/pi-state-cutover", {
+				method: "POST",
+				headers: {
+					"X-Tedix-Admin-Token": token,
+					...(header === undefined
+						? {}
+						: { "X-Tedix-Custody-Deadline": header }),
+				},
+				body: JSON.stringify(coverageCommand),
+			}),
+		});
+		assert.equal(response.status, 409);
+	}
+	assert.equal(gates, 0);
+	console.log(
+		"Selected custody absent/expired/malformed original caps refuse before native gate PASS",
+	);
+}
+
+{
+	let gates = 0,
+		resolve!: () => void;
+	const pending = new Promise<void>((r) => {
+		resolve = r;
+	});
+	const request = new Request("https://fixture/__admin/pi-state-cutover", {
+		method: "POST",
+		headers: {
+			"X-Tedix-Admin-Token": token,
+			"X-Tedix-Custody-Deadline": String(Date.now() + 25),
+		},
+		body: JSON.stringify(coverageCommand),
+	});
+	Object.defineProperty(request, "clone", {
+		value: () => ({ json: () => pending }),
+	});
+	const response = await operateStoredCutover({
+		ctx: {
+			blockConcurrencyWhile: () => {
+				gates++;
+				throw Error("unexpected");
+			},
+		} as unknown as DurableObjectState,
+		env: { SECRETS_MASTER_KEY: token } as Cloudflare.Env,
+		receiver: "raw-cutover-v1",
+		request,
+	});
+	assert.equal(response.status, 400);
+	assert.equal(gates, 0);
+	resolve();
+	await Promise.resolve();
+	assert.equal(gates, 0);
+	console.log(
+		"Pending native request body original cap prevents late dispatch PASS",
+	);
+}
+
+{
+	let gets = 0;
+	const request = new Request("https://fixture/__admin/pi-state-cutover", {
+		method: "POST",
+		headers: {
+			"X-Tedix-Admin-Token": token,
+			"X-Tedix-Custody-Deadline": String(Date.now() + 25),
+		},
+		body: JSON.stringify(coverageCommand),
+	});
+	Object.defineProperty(request, "clone", {
+		value: () => ({ json: () => new Promise(() => {}) }),
+	});
+	const result = await routeCutoverInventory({
+		request,
+		masterKey: token,
+		knownIds: JSON.stringify([objectId]),
+		env: {} as Cloudflare.Env,
+		namespace: {
+			...canonicalNamespace,
+			idFromString: () => {
+				throw Error("unexpected");
+			},
+			get: () => {
+				gets++;
+				throw Error("unexpected");
+			},
+		} as never,
+	});
+	assert.equal(result?.status, 400);
+	assert.equal(gets, 0);
+	console.log(
+		"Native namespace router pending body original cap prevents raw dispatch PASS",
+	);
+}

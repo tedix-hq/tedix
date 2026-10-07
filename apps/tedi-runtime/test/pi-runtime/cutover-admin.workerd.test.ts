@@ -5291,7 +5291,10 @@ it("custody coverage Raw root inventories metadata without KV values and refuses
 					receiver: "raw-cutover-v1",
 					request: new Request(CUTOVER_URL, {
 						method: "POST",
-						headers: { "X-Tedix-Admin-Token": key },
+						headers: {
+							"X-Tedix-Admin-Token": key,
+							"X-Tedix-Custody-Deadline": String(Date.now() + 30_000),
+						},
 						body: JSON.stringify({
 							command: "inspect_custody_coverage",
 							objectId: id,
@@ -5517,6 +5520,7 @@ it("custody coverage registered Raw leaf validates native name and exact path wi
 			const invoke = () =>
 				passiveRegisteredCutover(ctx, runtimeEnv, {
 					token: key,
+					custodyDeadline: Date.now() + 30_000,
 					index: 1,
 					custody: JSON.stringify(custody),
 					body: JSON.stringify({
@@ -5577,3 +5581,88 @@ it("custody coverage registered Raw leaf validates native name and exact path wi
 		},
 	);
 });
+
+it.each(["root", "registered"])(
+	"actual native %s queued gate cannot renew original custody cap or publish late success",
+	async (route) => {
+		const namespace = ns().PI_CUTOVER_EARLY;
+		const stub = namespace.get(
+			namespace.idFromName(`custody-deadline-${route}-${crypto.randomUUID()}`),
+		);
+		await runInDurableObject(stub, async (_instance, ctx) => {
+			const { operateStoredCutover, passiveRegisteredCutover } =
+				await import("../../src/pi-cutover-admin");
+			const key = "deadline-fixture";
+			const id = ctx.id.toString();
+			const before = ctx.storage.sql
+				.exec("SELECT name,sql FROM sqlite_master ORDER BY name")
+				.toArray();
+			let queued!: () => Promise<unknown>;
+			let namespaceReads = 0;
+			const gated = {
+				id: ctx.id,
+				storage: ctx.storage,
+				blockConcurrencyWhile: (callback: () => Promise<unknown>) => {
+					queued = callback;
+					return new Promise(() => {});
+				},
+			} as unknown as DurableObjectState;
+			const local = {
+				...env,
+				SECRETS_MASTER_KEY: key,
+				TEDI_AGENT: {
+					idFromName: () => {
+						namespaceReads++;
+						throw Error("Unexpected native dispatch");
+					},
+				},
+				PI_CUTOVER_KNOWN_PARENT_IDS: JSON.stringify([id]),
+			} as unknown as Cloudflare.Env;
+			const epoch = Date.now() + 100;
+			const query = {
+				command: "inspect_custody_coverage",
+				objectId: id,
+				operationId: "original-cap",
+				expectedGeneration: 1,
+				custody: {
+					tediId: "00000000-0000-4000-8000-000000000001",
+					orgId: "00000000-0000-4000-8000-000000000002",
+					objectName: "fictional",
+				},
+			};
+			const result =
+				route === "root"
+					? await operateStoredCutover({
+							ctx: gated,
+							env: local,
+							receiver: "raw-cutover-v1",
+							request: new Request(CUTOVER_URL, {
+								method: "POST",
+								headers: {
+									"X-Tedix-Admin-Token": key,
+									"X-Tedix-Custody-Deadline": String(epoch),
+								},
+								body: JSON.stringify(query),
+							}),
+						})
+					: await passiveRegisteredCutover(gated, local, {
+							token: key,
+							body: JSON.stringify(query),
+							custody: "{}",
+							index: 1,
+							custodyDeadline: epoch,
+						});
+			expect(result.status).toBe(409);
+			expect(Date.now()).toBeGreaterThanOrEqual(epoch);
+			expect(queued).toBeTypeOf("function");
+			const late = await queued();
+			expect(late).toMatchObject({ status: 409 });
+			expect(namespaceReads).toBe(0);
+			expect(
+				ctx.storage.sql
+					.exec("SELECT name,sql FROM sqlite_master ORDER BY name")
+					.toArray(),
+			).toEqual(before);
+		});
+	},
+);

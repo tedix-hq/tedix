@@ -429,6 +429,29 @@ let cases = 0;
 	}
 	cases++;
 }
+
+{
+	const f = fixture();
+	const controller = new AbortController();
+	let release!: () => void;
+	const pending = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const operation = f.run({
+		signal: controller.signal,
+		verifyCanonical: () => pending,
+	});
+	void operation.result.catch(() => {});
+	await Promise.resolve();
+	controller.abort();
+	await assert.rejects(operation.result);
+	release();
+	await Promise.resolve();
+	assert.throws(operation.assertReady);
+	assert.throws(operation.assertContinuity);
+	assert.equal(f.writes(), 0);
+	cases++;
+}
 console.log(
 	`Custody coverage owning cases ${cases} PASS; no writes/KV enumeration`,
 );

@@ -1,4 +1,8 @@
 import {
+	CUSTODY_INSPECTION_SCOPE,
+	issueCustodyInspectionScope,
+} from "../../context";
+import {
 	TediRuntimeCutoverInventoryResponseSchema,
 	CutoverQualificationTables,
 	CutoverQualificationFamilies,
@@ -133,6 +137,9 @@ const snapshot = {
 const transport = vi.fn<typeof fetch>();
 function context(overrides: Partial<BaseContext> = {}): BaseContext {
 	return {
+		[CUSTODY_INSPECTION_SCOPE]: issueCustodyInspectionScope(
+			new AbortController().signal,
+		),
 		authType: "user",
 		organizationId: "anchor-org",
 		db: {},
@@ -2822,4 +2829,62 @@ it("custody coverage authenticates exact identity and keeps incomplete domains e
 			context({ env: { SECRETS_MASTER_KEY: MASTER } as BaseContext["env"] }),
 		).operateRuntimeCutover(q),
 	).rejects.toThrow();
+});
+
+describe("selected custody access/name uses original request cap", () => {
+	it("pending access cannot dispatch later custody/name/service after original refusal", async () => {
+		vi.useFakeTimers();
+		try {
+			const ctx = context();
+			const c = client(ctx);
+			let resolve!: (row: unknown) => void;
+			getTediById.mockImplementationOnce(
+				() =>
+					new Promise((r) => {
+						resolve = r;
+					}),
+			);
+			const p = c.operateRuntimeCutover({
+				routeTediId: ROUTE_TEDI,
+				custodyTediId: ROUTE_TEDI,
+				objectId: OBJECT,
+				operationId: "bounded",
+				command: "inspect_custody_coverage",
+				expectedGeneration: 1,
+			});
+			const denied = expect(p).rejects.toThrow(
+				"Custody inspection unavailable",
+			);
+			await vi.advanceTimersByTimeAsync(30_000);
+			await denied;
+			resolve({
+				id: ROUTE_TEDI,
+				organizationId: "anchor-org",
+				slug: "transport-anchor",
+				isolateAgentId: "canonical-server-name",
+			});
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(getTediById).toHaveBeenCalledTimes(1);
+			expect(getRetainedRuntimeRoot).not.toHaveBeenCalled();
+			expect(transport).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("absence of original issued scope refuses before resource access", async () => {
+		const c = client(context({ [CUSTODY_INSPECTION_SCOPE]: undefined }));
+		await expect(
+			c.operateRuntimeCutover({
+				routeTediId: ROUTE_TEDI,
+				custodyTediId: ROUTE_TEDI,
+				objectId: OBJECT,
+				operationId: "bounded",
+				command: "inspect_custody_coverage",
+				expectedGeneration: 1,
+			}),
+		).rejects.toThrow("scope unavailable");
+		expect(getTediById).not.toHaveBeenCalled();
+		expect(transport).not.toHaveBeenCalled();
+	});
 });

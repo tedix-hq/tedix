@@ -1,3 +1,9 @@
+import {
+	CUSTODY_INSPECTION_SCOPE,
+	issueCustodyInspectionScope,
+} from "./context";
+import { implement, createRouterClient } from "@orpc/server";
+import { tedisContract } from "@tedix/api-contract/contracts/tedis";
 import { call, os } from "@orpc/server";
 import {
 	afterEach,
@@ -1392,5 +1398,145 @@ describe("skipOutputValidation", () => {
 		// The plural schema array is preserved (type inference + OpenAPI still work).
 		expect(Array.isArray(wrapped["~orpc"].outputSchemas)).toBe(true);
 		expect(wrapped["~orpc"].outputSchemas?.length).toBeGreaterThan(0);
+	});
+});
+
+describe("exact controlled custody inspection auth deadline", () => {
+	afterEach(() => vi.useRealTimers());
+	const input = {
+		routeTediId: "11111111-1111-4111-8111-111111111111",
+		custodyTediId: "11111111-1111-4111-8111-111111111111",
+		objectId: "a".repeat(64),
+		operationId: "scope",
+		command: "inspect_custody_coverage" as const,
+		expectedGeneration: 1,
+	};
+	function fixture() {
+		const handler = vi.fn();
+		let resolve!: (x: unknown) => void;
+		const pending = new Promise<unknown>((r) => {
+			resolve = r;
+		});
+		const readOrg = vi.fn(() => pending);
+		const query = {
+			from: () => query,
+			where: () => query,
+			limit: () => query,
+			get: () => pending,
+			then: pending.then.bind(pending),
+		};
+		const ctx = {
+			headers: new Headers({
+				"X-Service-Binding": "true",
+				"X-Tedix-Org-Id": "00000000-0000-4000-8000-000000000001",
+			}),
+			url: new URL("https://api.test/rpc/tedis/operateRuntimeCutover"),
+			env: { ENVIRONMENT: "production" },
+			db: {
+				select: () => query,
+				query: { organizations: { findFirst: readOrg } },
+			},
+			[CUSTODY_INSPECTION_SCOPE]: issueCustodyInspectionScope(
+				new AbortController().signal,
+			),
+		} as unknown as BaseContext;
+		const procedure = implement(tedisContract)
+			.$context<BaseContext>()
+			.use(withAuth)
+			.operateRuntimeCutover.handler(handler);
+		const unrelated = os
+			.$context<BaseContext>()
+			.use(withAuth)
+			.handler(({ context }) => ({
+				status: "unrelated-success",
+				org: context.organizationId,
+			}));
+		const client = createRouterClient(
+			{ tedis: { operateRuntimeCutover: procedure }, unrelated },
+			{ context: ctx },
+		);
+		return { ctx, handler, resolve, client, readOrg };
+	}
+	it("pending auth spends the remaining original cap and cannot dispatch schema/handler after late completion", async () => {
+		vi.useFakeTimers();
+		const f = fixture();
+		await vi.advanceTimersByTimeAsync(20_000);
+		const promise = f.client.tedis.operateRuntimeCutover(input);
+		const denied = expect(promise).rejects.toThrow(
+			"Custody inspection unavailable",
+		);
+		await vi.advanceTimersByTimeAsync(10_000);
+		await denied;
+		f.resolve([{ id: "00000000-0000-4000-8000-000000000001" }]);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(f.handler).not.toHaveBeenCalled();
+	});
+	it("a selected raw discriminator grants no authority and full schema validation still follows auth", async () => {
+		const f = fixture();
+		f.ctx.organizationId = "00000000-0000-4000-8000-000000000001";
+		await expect(
+			f.client.tedis.operateRuntimeCutover({
+				command: "inspect_custody_coverage",
+			} as never),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(f.handler).not.toHaveBeenCalled();
+	});
+	it("a refused inspection cannot leak its cap into a later unrelated call sharing the router context", async () => {
+		vi.useFakeTimers();
+		const f = fixture();
+		const inspection = f.client.tedis.operateRuntimeCutover(input);
+		const denied = expect(inspection).rejects.toThrow(
+			"Custody inspection unavailable",
+		);
+		await vi.advanceTimersByTimeAsync(30_000);
+		await denied;
+		f.resolve({ id: "00000000-0000-4000-8000-000000000002" });
+		await expect(f.client.unrelated()).resolves.toEqual({
+			status: "unrelated-success",
+			org: "00000000-0000-4000-8000-000000000002",
+		});
+		expect(f.readOrg).toHaveBeenCalledTimes(2);
+		expect(f.handler).not.toHaveBeenCalled();
+	});
+	it("concurrent unrelated auth survives inspection refusal while late inspection auth stays bounded", async () => {
+		vi.useFakeTimers();
+		const f = fixture();
+		const inspection = f.client.tedis.operateRuntimeCutover(input);
+		const denied = expect(inspection).rejects.toThrow(
+			"Custody inspection unavailable",
+		);
+		const unrelated = f.client.unrelated().then(
+			(value) => ({ value }),
+			(error) => ({ error }),
+		);
+		await vi.advanceTimersByTimeAsync(30_000);
+		await denied;
+		f.resolve({ id: "00000000-0000-4000-8000-000000000002" });
+		expect(await unrelated).toEqual({
+			value: {
+				status: "unrelated-success",
+				org: "00000000-0000-4000-8000-000000000002",
+			},
+		});
+		expect(f.readOrg).toHaveBeenCalledTimes(2);
+		await Promise.resolve();
+		expect(f.handler).not.toHaveBeenCalled();
+	});
+
+	it("real caller abort sticks before any late result", async () => {
+		const controller = new AbortController();
+		const scope = issueCustodyInspectionScope(controller.signal);
+		let resolve!: () => void;
+		const pending = new Promise<void>((r) => {
+			resolve = r;
+		});
+		const p = scope.checked(() => pending);
+		const denied = expect(p).rejects.toThrow();
+		controller.abort();
+		await denied;
+		resolve();
+		await Promise.resolve();
+		expect(() => scope.guard()).toThrow();
 	});
 });
