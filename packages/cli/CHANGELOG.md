@@ -3,6 +3,15 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.2 — 2026-10-07
+
+### Fixed
+
+- `tedix learn import-sessions` retries a rate-limited upload instead of
+  dropping it, keeps turning your decisions into lessons when a long run
+  outlasts the gateway's wait, and reports the first errors. Pasted blocks
+  are left out of your replies even when they are not closed.
+
 ## 0.6.1 — 2026-10-07
 
 ### Fixed
