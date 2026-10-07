@@ -9,7 +9,10 @@ import {
 	EVIDENCE_JUDGE_SESSION_PREFIX,
 	isBlindVerificationSession,
 	isEphemeralSessionKey,
+	isLeanContextSession,
+	isReplyDraftSession,
 	parseRuntimeRunSurface,
+	REPLY_DRAFT_SESSION_PREFIX,
 	RUNTIME_CONTROL_ID_RE,
 	resolveRuntimeSessionKey,
 	sanitizeRuntimeTurnKey,
@@ -102,6 +105,21 @@ describe("runtime identity helpers", () => {
 		expect(isBlindVerificationSession("")).toBe(false);
 		expect(isBlindVerificationSession(undefined)).toBe(false);
 		expect(isBlindVerificationSession(null)).toBe(false);
+	});
+
+	// The triage router's `reply-draft:{requestId}` conversation id reaches the
+	// runtime as `agent:main:reply-draft:{requestId}`; that turn runs lean.
+	it("detects lean reply-draft sessions", () => {
+		const key = `${REPLY_DRAFT_SESSION_PREFIX}5eed0042-0000-4000-8000-000000000001`;
+		expect(isReplyDraftSession(key)).toBe(true);
+		expect(isLeanContextSession(key)).toBe(true);
+
+		expect(isReplyDraftSession("agent:main:main")).toBe(false);
+		expect(isLeanContextSession("agent:main:main")).toBe(false);
+		expect(isReplyDraftSession("reply-draft:5eed0042")).toBe(false);
+		expect(isReplyDraftSession("agent:main:reply-drafts:x")).toBe(false);
+		expect(isReplyDraftSession(REPLY_DRAFT_SESSION_PREFIX)).toBe(false);
+		expect(isReplyDraftSession(undefined)).toBe(false);
 	});
 
 	it("canonicalizes short agent session keys with an audit predicate", () => {

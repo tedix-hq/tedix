@@ -132,10 +132,33 @@ export function isWorkflowSynthesisSession(
 }
 
 /**
+ * Session-key prefix of a REPLY-DRAFT turn: the agent-turn-triage router queues
+ * one turn per question with conversation id `reply-draft:{requestId}`, which
+ * the cognitive runtime normalizes to `agent:main:reply-draft:{requestId}`.
+ *
+ * The prompt carries the whole question and names the exact reads, and an
+ * agent is idle until the draft lands. Brain-digest recall and skill ranking
+ * added seconds before the first model call and nothing the draft used, so
+ * these turns are lean: no accumulated-context injection, no learning back.
+ */
+export const REPLY_DRAFT_SESSION_PREFIX = "agent:main:reply-draft:";
+
+/** True for a lean reply-draft turn (see the prefix doc above). */
+export function isReplyDraftSession(
+	sessionKey: string | null | undefined,
+): boolean {
+	if (!sessionKey) return false;
+	return (
+		sessionKey.startsWith(REPLY_DRAFT_SESSION_PREFIX) &&
+		sessionKey.length > REPLY_DRAFT_SESSION_PREFIX.length
+	);
+}
+
+/**
  * True for any turn that must run WITHOUT accumulated-context injection and
- * without writing back to memory — the union of blind verification (judge)
- * and lean workflow synthesis. Use THIS at context-assembly / memory-effects /
- * daily-log gates so the two lean classes cannot drift apart; keep
+ * without writing back to memory — the union of blind verification (judge),
+ * lean workflow synthesis and reply drafting. Use THIS at context-assembly /
+ * memory-effects / daily-log gates so the lean classes cannot drift apart; keep
  * {@link isBlindVerificationSession} for judge-only semantics (facet model
  * pinning, span-checked verdict handling).
  */
@@ -144,7 +167,8 @@ export function isLeanContextSession(
 ): boolean {
 	return (
 		isBlindVerificationSession(sessionKey) ||
-		isWorkflowSynthesisSession(sessionKey)
+		isWorkflowSynthesisSession(sessionKey) ||
+		isReplyDraftSession(sessionKey)
 	);
 }
 
