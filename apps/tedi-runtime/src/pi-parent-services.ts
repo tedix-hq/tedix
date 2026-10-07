@@ -477,14 +477,7 @@ import {
 } from "agents/chat-sdk";
 import type { Agent, FiberRecoveryContext, FiberRecoveryResult } from "agents";
 
-export const TelegramStateAgent = class ThinkMessengerStateAgent extends ChatSdkStateAgent {
-	async inspectStoredCutover(
-		input: import("./pi-cutover-admin").PassiveCutoverInspection,
-	) {
-		const { passiveCutoverInspection } = await import("./pi-cutover-admin");
-		return passiveCutoverInspection(this.ctx, this.env, input);
-	}
-};
+export const TelegramStateAgent = class ThinkMessengerStateAgent extends ChatSdkStateAgent {};
 
 const FIBER = "tedix:pi:telegram-reply";
 export interface TelegramTurn {

@@ -821,25 +821,6 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		});
 	}
 
-	override async fetch(request: Request): Promise<Response> {
-		if (new URL(request.url).pathname === "/__admin/pi-state-cutover") {
-			const admin = (await import("./pi-cutover-admin")) as unknown as {
-				operateStoredCutover(input: {
-					ctx: DurableObjectState;
-					env: Cloudflare.Env;
-					request: Request;
-				}): Promise<Response>;
-			};
-			if (typeof admin.operateStoredCutover !== "function")
-				throw new Error("Passive cutover operator unavailable");
-			return admin.operateStoredCutover({
-				ctx: this.ctx,
-				env: this.env,
-				request,
-			});
-		}
-		return super.fetch(request);
-	}
 	get messages(): SessionMessage[] {
 		return this.messageCache;
 	}

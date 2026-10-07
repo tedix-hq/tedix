@@ -77,8 +77,6 @@ import {
 } from "./agent-status";
 import { ChatTurnWorkflow } from "./chat-turn-workflow";
 import { AgentTediDO } from "./do";
-import { routeCutoverInventory } from "./pi-cutover-admin";
-export { RawCutoverDO } from "./pi-cutover-maintenance-do";
 export { InertRuntimeDO } from "./inert-runtime-do";
 import { canManageDurableCode } from "./durable-codemode-auth";
 import {
@@ -1541,16 +1539,6 @@ export default {
 				timestamp: new Date().toISOString(),
 			});
 		}
-
-		// authz: operator — finite stored-object inventory, authenticated before lookup.
-		const cutoverInventory = await routeCutoverInventory({
-			request,
-			env,
-			masterKey: env.SECRETS_MASTER_KEY,
-			knownIds: env.PI_CUTOVER_KNOWN_PARENT_IDS,
-			namespace: env.TEDI_AGENT,
-		});
-		if (cutoverInventory) return cutoverInventory;
 
 		// The hostname is authoritative. The `?slug=` query fallback is honored
 		// only for trusted internal service-binding forwards (neutral internal

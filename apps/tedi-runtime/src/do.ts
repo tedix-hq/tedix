@@ -32,7 +32,6 @@ import {
 // New surface goes in a sibling module, never a new inline `tool({...})`
 // here; no big-bang split — see apps/tedi-runtime/AGENTS.md.
 import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
-import { operateStoredCutover } from "./pi-cutover-admin";
 import { InertRuntimeDO, requiresInertReceiver } from "./inert-runtime-do";
 import {
 	RuntimeAdmissionDO,
@@ -17021,10 +17020,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				pending: (this.state.pendingDailyEntries ?? []).length,
 			});
 		}
-		// Warm original and cold Raw share the same authenticated, storage-only operator.
-		if (url.pathname === "/__admin/pi-state-cutover")
-			return operateStoredCutover({ ctx: this.ctx, env: this.env, request });
-
 		// Read only an already registered Pi facet; no create/submit/resume path.
 		if (url.pathname === "/__admin/pi-recovery") {
 			if (request.method !== "GET")

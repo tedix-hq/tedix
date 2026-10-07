@@ -11,12 +11,8 @@ export default defineConfig({
 			main: path.resolve(import.meta.dirname, "test/pi-runtime/worker.ts"),
 			// Imported facet classes need explicit test-wrapper inference, not DO bindings.
 			additionalExports: {
-				RawCutoverDO: "DurableObject",
 				CodemodeRuntime: "DurableObject",
-				Researcher: "DurableObject",
-				ThinkMessengerStateAgent: "DurableObject",
 				ConversationFacet: "DurableObject",
-				PiCutoverOriginalFacetFixture: "DurableObject",
 			},
 			miniflare: {
 				compatibilityDate: wranglerCompatibilityDate(
@@ -24,28 +20,19 @@ export default defineConfig({
 				),
 				compatibilityFlags: ["nodejs_compat"],
 				workerLoaders: { LOADER: {} },
-				bindings: { SECRETS_MASTER_KEY: "cutover-native-fixture-token" },
+				bindings: { SECRETS_MASTER_KEY: "pi-native-fixture-token" },
 				r2Buckets: ["TEDI_STORAGE"],
-				d1Databases: ["DB", "PRISTINE_PARENT_DB"],
+				d1Databases: ["DB"],
 				durableObjects: {
 					DURABLE_CODE_RECOVERY: {
 						className: "DurableCodeRecoveryFixture",
 						useSQLite: true,
 					},
-					TEDI_AGENT: { className: "AgentTediDO", useSQLite: true },
-					PRODUCTION_ROOT_ENTRY: {
-						className: "ProductionRootEntryProbe",
-						useSQLite: true,
-					},
 					PI_PLATFORM: { className: "PiPlatformFixture", useSQLite: true },
 					PI_STORAGE: { className: "PiStorageFixture", useSQLite: true },
 					PI_FACET_MEDIA: { className: "PiFacetMediaFixture", useSQLite: true },
-					PI_CUTOVER_PARENT: {
-						className: "PiCutoverParentFixture",
-						useSQLite: true,
-					},
-					PI_CUTOVER_EARLY: {
-						className: "PiCutoverEarlyReturnFixture",
+					PI_ADMISSION_PARENT: {
+						className: "PiAdmissionParentFixture",
 						useSQLite: true,
 					},
 					PI_TEST: { className: "PiRuntimeFixture", useSQLite: true },

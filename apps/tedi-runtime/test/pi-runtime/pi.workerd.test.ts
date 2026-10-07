@@ -416,11 +416,11 @@ describe("registered facet admission", () => {
 		getAgentByName(
 			(
 				env as unknown as {
-					PI_CUTOVER_PARENT: DurableObjectNamespace<
-						import("./worker").PiCutoverParentFixture
+					PI_ADMISSION_PARENT: DurableObjectNamespace<
+						import("./worker").PiAdmissionParentFixture
 					>;
 				}
-			).PI_CUTOVER_PARENT,
+			).PI_ADMISSION_PARENT,
 			name,
 		);
 	it("retains actual original root and selected accepted leaf custody across native turn execution", async () => {
@@ -628,7 +628,7 @@ describe("registered facet admission", () => {
 		});
 		expect(JSON.parse(await parent.admittedInspect()).stats.requests).toBe(1);
 	});
-	it("cold quarantined child returns maintenance object before Pi startup", async () => {
+	it("cold quarantined child boots the inert receiver before Pi startup", async () => {
 		const name = crypto.randomUUID();
 		let parent = await selected(name);
 		await parent.admittedTurn("quarantine-child");
