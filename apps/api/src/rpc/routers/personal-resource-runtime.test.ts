@@ -10,6 +10,8 @@ import * as runs from "@tedix/db/queries/skill-runs";
 import * as consents from "@tedix/db/queries/personal-resource-delegations";
 import * as organizations from "@tedix/db/queries/organizations";
 import * as tools from "@tedix/db/queries/tools";
+import * as providers from "@tedix/db/queries/connection-providers";
+import * as connectionAuth from "@tedix/auth/connections";
 import * as vault from "./connections/policy-resolution";
 import {
 	personalConnectionGrantFingerprint,
@@ -227,5 +229,84 @@ describe("full personal credential router", () => {
 			code: "UNAUTHORIZED",
 		});
 		expect(vault.fetchNamedConnection).not.toHaveBeenCalled();
+	});
+});
+describe("hybrid credentials in a tedi run without personal consent", () => {
+	function hybridClient() {
+		const caller = context();
+		(caller as { env: Record<string, string> }).env = {
+			ENVIRONMENT: "production",
+			DESCOPE_PROJECT_ID: "P1",
+			DESCOPE_MANAGEMENT_KEY: "K1",
+		};
+		return createRouterClient(connectionsContractRouter, { context: caller });
+	}
+	const hybridInput = {
+		tediId: id,
+		providerId: "planetscale",
+		scope: "hybrid" as const,
+		preference: "user-first" as const,
+		delegatedToolUse: { appId: id, arguments: {} },
+	};
+	beforeEach(() => {
+		run.resourceAccessEnvelope = { version: 1, sources: [] };
+		vi.mocked(tedis.getTediByIdForOrganization).mockResolvedValue({
+			id,
+			ownerUserId: "alice",
+			retiredAt: null,
+		} as never);
+		vi.spyOn(
+			providers,
+			"getConnectionProviderByDescopeAppId",
+		).mockResolvedValue({ descopeAppId: "planetscale" } as never);
+		vi.spyOn(connectionAuth, "fetchConnectionToken").mockResolvedValue({
+			accessToken: "personal",
+		} as never);
+		vi.spyOn(connectionAuth, "fetchConnectionTokenByScopes").mockResolvedValue({
+			accessToken: "personal",
+		} as never);
+	});
+	it("resolves the organization credential and never a personal one", async () => {
+		vi.spyOn(connectionAuth, "fetchTenantConnectionToken").mockResolvedValue({
+			accessToken: "tenant-token",
+		} as never);
+		await expect(
+			hybridClient().fetchTediToken(hybridInput),
+		).resolves.toMatchObject({ accessToken: "tenant-token" });
+		expect(connectionAuth.fetchTenantConnectionToken).toHaveBeenCalledWith(
+			expect.anything(),
+			"planetscale",
+			"tenant",
+		);
+		expect(connectionAuth.fetchConnectionToken).not.toHaveBeenCalled();
+		expect(connectionAuth.fetchConnectionTokenByScopes).not.toHaveBeenCalled();
+	});
+	it("names the missing organization connection instead of falling back to the owner", async () => {
+		vi.spyOn(connectionAuth, "fetchTenantConnectionToken").mockResolvedValue(
+			null as never,
+		);
+		await expect(
+			hybridClient().fetchTediToken(hybridInput),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringMatching(
+				/organization-level \(tenant\) connection/,
+			),
+		});
+		expect(connectionAuth.fetchConnectionToken).not.toHaveBeenCalled();
+		expect(connectionAuth.fetchConnectionTokenByScopes).not.toHaveBeenCalled();
+	});
+	it("still refuses a personal-scope credential without admitted consent", async () => {
+		vi.spyOn(connectionAuth, "fetchTenantConnectionToken").mockResolvedValue({
+			accessToken: "tenant-token",
+		} as never);
+		await expect(
+			hybridClient().fetchTediToken({ ...hybridInput, scope: "user" }),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringMatching(/explicit admitted resource consent/),
+		});
+		expect(connectionAuth.fetchConnectionToken).not.toHaveBeenCalled();
+		expect(connectionAuth.fetchTenantConnectionToken).not.toHaveBeenCalled();
 	});
 });

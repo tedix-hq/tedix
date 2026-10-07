@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { constrainPersonalResourceToolArguments } from "@tedix/api-contract/utils/personal-resource-tool-binding";
@@ -167,14 +168,38 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 					scopes: resolved.delegation.requiredScopes,
 				};
 			}
-			if (
-				context.tediId &&
-				(input.scope === "user" || input.scope === "hybrid")
-			)
+			if (context.tediId && input.scope === "user")
 				throw createError(
 					ErrorCodes.FORBIDDEN,
 					"Background personal credentials require an explicit admitted resource consent",
 				);
+			// A hybrid app may serve a tedi only through the organization's own
+			// connection: without an admitted personal-resource envelope (handled
+			// above) no caller- or owner-personal credential may enter a tedi run,
+			// so resolve the tenant target alone and never reach the user hops.
+			if (context.tediId && input.scope === "hybrid") {
+				try {
+					return await resolveCredentialChain(context, {
+						organizationId,
+						descopeTenantId,
+						providerId: input.providerId,
+						connectionInstanceId: input.connectionInstanceId,
+						scopes: input.scopes,
+						scope: "tenant",
+					});
+				} catch (error) {
+					if (
+						error instanceof ORPCError &&
+						error.code === ErrorCodes.NOT_FOUND &&
+						!error.message.includes("has been retired")
+					)
+						throw createError(
+							ErrorCodes.FORBIDDEN,
+							`Background use of ${input.providerId} requires an organization-level (tenant) connection; personal connections are not used without an admitted resource consent.`,
+						);
+					throw error;
+				}
+			}
 
 			// `input.userId` selects WHOSE personal credential the chain resolves, and
 			// it arrived unvalidated from the request body: resolveTediTenantId above
