@@ -50,8 +50,6 @@
 		"TEDI_AI_REQUEST_TIMEOUT_MS": "configured-via-private-overlay",
 		"TEDI_WORKERS_AI_MODEL": "configured-via-private-overlay",
 		"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay",
-		"PI_CUTOVER_PARENT_IDS": "configured-via-private-overlay",
-		"PI_CUTOVER_KNOWN_PARENT_IDS": "configured-via-private-overlay",
 	},
 	"ai": {
 		"binding": "AI",
@@ -208,8 +206,6 @@
 				"TEDI_AI_REQUEST_TIMEOUT_MS": "configured-via-private-overlay",
 				"TEDI_WORKERS_AI_MODEL": "configured-via-private-overlay",
 				"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay",
-				"PI_CUTOVER_PARENT_IDS": "configured-via-private-overlay",
-				"PI_CUTOVER_KNOWN_PARENT_IDS": "configured-via-private-overlay",
 			},
 			"ai": {
 				"binding": "AI",
@@ -373,8 +369,6 @@
 				"TEDI_AI_REQUEST_TIMEOUT_MS": "configured-via-private-overlay",
 				"TEDI_WORKERS_AI_MODEL": "configured-via-private-overlay",
 				"TEDI_JUDGE_MODEL_REF": "configured-via-private-overlay",
-				"PI_CUTOVER_PARENT_IDS": "configured-via-private-overlay",
-				"PI_CUTOVER_KNOWN_PARENT_IDS": "configured-via-private-overlay",
 			},
 			"ai": {
 				"binding": "AI",

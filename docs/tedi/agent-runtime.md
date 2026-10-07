@@ -67,8 +67,8 @@ This is a bounded discovery read window. Cached/header-hinted identity paths,
 SDK recovery before user startup, and later R2/governance awaits remain outside
 this helper. D1 and Durable Object state are not one atomic transaction. Peer
 and administrator identity resolution retains its existing slug/ID lookup.
-Local production-class tests exercise this boundary; deployed metadata and
-passive inspections do not prove a live object invoked cold discovery.
+Local production-class tests exercise this boundary; deployed metadata does
+not prove a live object invoked cold discovery.
 
 ## Facet Execution
 
@@ -239,11 +239,17 @@ not which records, and does not gate reads.
 ## Pi Storage and Recovery
 
 `src/pi-agent.ts` hosts native Pi SQLite storage and wake jobs through
-`agents/harness/pi`. Existing child DO names remain. During persisted-state cutover, the old session
-tables remain under an explicit passive importer.
+`agents/harness/pi`. Existing child DO names remain. Old Think session tables
+remain under an explicit passive importer until each conversation is imported.
 Passive import uses deterministic IDs and rejects unresolved stored submissions;
 imported user rows never start generation. Completed answers are selected by
 native submission ownership rather than recency.
+
+**Inert receiver.** An object whose stored runtime admission is not `active`,
+or that holds any `historical_replay_seals` row, never runs Agent or Pi code.
+The `AgentTediDO` and `PiAgent` constructors return `InertRuntimeDO`
+(`src/inert-runtime-do.ts`) instead: `fetch` answers 423, `alarm` clears the
+alarm, and it exposes no RPC. Its storage is left untouched.
 
 `src/pi-model.ts` reserves each actual provider dispatch through the durable
 facet accounting journal. Its existing storage namespace is retained
@@ -502,92 +508,3 @@ refusal or a byte-derived compaction ceiling. Compaction uses the configured
 context window and documented model input budgets. The separate deployment
 request-admission policy remains in effect. Provider context and request errors
 propagate without removing task, authorization, history, or tool definitions.
-
-### Retained session byte preservation
-
-The passive cutover operator also supports `inspect_session_preservation`,
-`capture_session_preservation` and `audit_session_preservation`. These verbs
-require an original positive nonactive generation and the existing canonical
-root or registered-path custody fence. A purpose-bound encrypted plan binds
-exact source bytes and prior archive state; it grants no execution authority.
-
-The distinct `session-state-archive-v1` selects `session_entries` and the seven
-retained SDK Session tables, including inactive branches, message chunks and
-attachment bytes. It streams large TEXT/BLOB cells into bounded archive parts
-and preserves INTEGER values as exact decimal text. Unsupported locators,
-schema allocations or provider query failures refuse before capture; a failed
-capture transaction rolls back. Existing historical and native archive formats,
-selectors and seals remain unchanged. A prior native archive whose original
-generation or registered path differs from the current qualified custody is
-unsupported and causes refusal; its bytes remain untouched.
-
-This selected archive does not import context, clear accounting, authorize
-funding, activate a replacement or permit source deletion. SDK jobs, schedules,
-workflows, optional FTS and older assistant tables, workstation state, remote
-artifacts and R2 objects remain outside its coverage. Missing selected tables
-are observed absence, never proof of complete customer history. Actual writer
-exclusion and operational capture require separate authorization.
-
-### Archived session semantic qualification
-
-`inspect_session_rehydration` authenticates one original Session8 archive under
-its existing nonactive custody and then validates recognized parent-local and
-SDK Session semantics. It reads no canonical D1 transcript and performs no
-SDK startup, storage write, model call, context import or selection. Its strict
-response reports `archived_selected_session8`,
-`canonicalLedgerCorrespondence: not_queried`, `adoptionReady: false` and
-`executionEligible: false`.
-
-The version 2 semantic reader bounds archived source and retained payload to
-8 MiB each, selected SQL rows to 20,000, charged semantic work to 200,000 units,
-and scanner byte passes to 64 MiB, under the original 30-second local deadline.
-The exact authenticated framing count remains an integrity check; cell and
-payload frames do not count as SQL rows. The strict budget witness separates
-unclipped selected-row totals, consumed rows, work, bytes and first exhaustion.
-A source within one limit can exhaust another; 20,000 rows do not promise a
-supported projection. Complete archive authentication remains mandatory before
-budget observations; over-budget results report `budget_unavailable` with zero
-semantic counts, preserving all archive bytes. Attachment cells are streamed
-and hashed without constructing hydrated binary/base64 output.
-Unknown schema, malformed graphs, unresolved tools or inconsistent chunks and
-attachment references cannot yield a supported projection. Supported local
-semantics establish neither current-source continuity nor complete canonical
-customer history. Missing archives and selected tables remain observed absence.
-
-Deploy the strict API before its matching runtime; the interval refuses the
-new verb on the old runtime. Restoration, full custody-graph qualification,
-writer exclusion, canonical ledger correspondence and current financial
-permission remain separately authorized work. The existing Home/kernel and
-embedded native Pi chat backends retain their current ownership.
-
-### Selected SDK work state preservation
-
-The separate `sdk-work-state-archive-v1` observer and writer preserve the fixed
-43 SDK SQL selectors and every supported native KV entry under original positive,
-nonactive Raw custody. The commands are `inspect_sdk_preservation`,
-`capture_sdk_preservation`, and `audit_sdk_preservation`. Planning is read-only;
-capture requires its original encrypted plan and archive UUID. Every awaited
-boundary rechecks source, prior archives and custody. Inspect and capture also
-enforce the original plan deadline. Long-term audit authenticates the stored
-proof without expiring it, renewing its deadline or authorizing execution.
-Transaction-internal capture refusals roll back archive writes. After commit, a
-publication refusal does not prove that the archive is absent. Request-local
-synchronous guards recheck the complete selected source and archive state after
-result awaits, including rejected results, and before local response publication.
-An absent-archive audit still validates the full supported source and prior archives.
-A later retry requires a read-only destination audit; an error alone is no proof of nonpersistence.
-
-SQL cells stream in bounded frames, including large TEXT/BLOB cells and exact
-INTEGER text. KV entries use the existing typed private codec; an unsupported
-value, schema or locator refuses the whole capture. Selected FTS virtual tables
-or their shadow tables also refuse the whole capture. No partial archive or
-truncated success is returned. Historical, native and Session8 archive formats
-and their authenticated readers retain their original bytes and selectors.
-
-Alarm state is omitted from the source, proof and archive. Responses always say
-`alarmCovered: false` and `alarmConsistency: "UNKNOWN"`; they make no atomic
-alarm, whole-object, full-graph, remote workflow, financial clearance, restoration
-or activation claim. Public metadata contains safe counts and an opaque archive
-UUID. Source bytes, SQL schema text, KV keys, credentials and raw source digests
-remain private. The 1 MB encoded KV-record bound is a refusal rule, not a proof
-that provider deserialization allocates at most that amount.
