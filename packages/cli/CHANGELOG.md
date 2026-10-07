@@ -3,6 +3,27 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.4.0 — 2026-10-07
+
+### Added
+
+- Sessions outside a bound repository, in any folder and for non-coding work,
+  now receive your lessons and can use decision capture. The organization is
+  `TEDIX_ORGANIZATION` or your profile's only organization. If several are
+  possible and none is chosen, nothing is read or recorded.
+  `setup agents context show --allow-default` shows what a folder resolves to.
+- `setup agents context enable-decision-capture --project <UUID>`, run
+  outside a repository, chooses the inbox for those sessions.
+
+### Changed
+
+- Lessons are now yours plus your organization's: one learned from your
+  decisions reaches only your sessions unless a reviewer shares it.
+
+### Fixed
+
+- Each local harness session on a shared profile gets its own Agent-Session.
+
 ## 0.3.0 — 2026-10-07
 
 ### Changed
