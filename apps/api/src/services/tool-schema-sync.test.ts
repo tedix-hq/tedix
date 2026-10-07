@@ -9,9 +9,10 @@ import {
 } from "@tedix/api-contract/utils/contract-routers";
 import { procedureOutputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToStructuredOutputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
+import * as toolJsonSchema from "@tedix/api-contract/utils/tool-json-schema";
 import type { DbClient } from "@tedix/db/client";
 import type { AppTool } from "@tedix/db/schema";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	runToolSchemaSync,
 	OS_TOOL_ID_OVERRIDES,
@@ -108,14 +109,20 @@ function makeDb(rows: AppTool[]) {
 		}),
 		update: () => ({
 			set: (patch: Partial<AppTool>) => ({
-				where: async () => {
+				where: async (where: { queryChunks: Array<{ value?: unknown }> }) => {
+					const rowId = where.queryChunks.find((chunk) =>
+						store.some((row) => row.id === chunk.value),
+					)?.value;
 					const endpoint = (patch.config as Record<string, unknown> | undefined)
 						?.endpoint;
 					const row =
 						store.find((candidate) => {
+							if (rowId !== undefined) return rowId === candidate.id;
 							if (patch.id && candidate.id === patch.id) return true;
 							const config = candidate.config as Record<string, unknown> | null;
-							return config?.endpoint === endpoint;
+							return (
+								typeof endpoint === "string" && config?.endpoint === endpoint
+							);
 						}) ?? store[updates.length];
 					updates.push({ id: row.id, patch });
 					const apply = (item: AppTool) =>
@@ -127,8 +134,209 @@ function makeDb(rows: AppTool[]) {
 		}),
 	};
 
-	return { db: db as unknown as DbClient, updates, inserts, deletes };
+	return { db: db as unknown as DbClient, updates, inserts, deletes, store };
 }
+
+describe("schema-only provenance refresh", () => {
+	async function synchronizedTool() {
+		const fixture = makeDb([
+			makeRpcTool({
+				toolId: "get_tedis_status",
+				endpoint: "tedis/getStatus",
+				config: { nativeDirect: true, responsePath: "json" },
+				authRequired: true,
+				visibility: "private",
+				annotations: { readOnlyHint: true },
+				writeCapability: "read",
+			}),
+		]);
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			toolIds: ["get_tedis_status"],
+			pruneStale: false,
+		});
+		expect(result).toMatchObject({ updated: 1, failed: 0 });
+		return fixture.store[0]!;
+	}
+
+	it("refreshes stale provenance with unchanged schemas and preserves native config and authority", async () => {
+		const row = await synchronizedTool();
+		row.schemaSyncedAt = "2026-01-01T00:00:00.000Z";
+		row.updatedAt = "2026-01-01T00:00:00.001Z";
+		const original = structuredClone(row);
+		const fixture = makeDb([row]);
+		const options = {
+			toolIds: [row.toolId],
+			pruneStale: false,
+			limit: 1,
+		};
+		const preview = await runToolSchemaSync(fixture.db, options);
+		expect(preview.items).toEqual([
+			expect.objectContaining({
+				status: "wouldUpdate",
+				changed: ["schemaSource"],
+			}),
+		]);
+		expect(fixture.updates).toHaveLength(0);
+		const result = await runToolSchemaSync(fixture.db, {
+			...options,
+			apply: true,
+		});
+		expect(result).toMatchObject({ updated: 1, inSync: 0, failed: 0 });
+		expect(fixture.updates).toHaveLength(1);
+		const patch = fixture.updates[0]!.patch;
+		expect(patch.schemaSyncedAt).toBe(patch.updatedAt);
+		expect(Number.isFinite(Date.parse(patch.schemaSyncedAt!))).toBe(true);
+		expect(patch.schemaSourceHash).toBe(original.schemaSourceHash);
+		expect(patch).not.toHaveProperty("config");
+		expect(fixture.store[0]).toEqual({
+			...original,
+			...patch,
+		});
+		expect(fixture.store[0]!.config).toEqual(original.config);
+		expect(fixture.store[0]!.visibility).toBe("private");
+		expect(fixture.store[0]!.authRequired).toBe(true);
+		expect(fixture.store[0]!.annotations).toEqual(original.annotations);
+		expect(fixture.store[0]!.writeCapability).toBe(original.writeCapability);
+		fixture.updates.length = 0;
+		expect(
+			await runToolSchemaSync(fixture.db, { ...options, apply: true }),
+		).toMatchObject({ inSync: 1, planned: 0, updated: 0 });
+		expect(fixture.updates).toHaveLength(0);
+	});
+
+	it("recomputes the contract projection hash after a config-only change", async () => {
+		const row = await synchronizedTool();
+		const beforeHash = row.schemaSourceHash;
+		row.config = { ...row.config, nativeDirect: false };
+		const fixture = makeDb([row]);
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			toolIds: [row.toolId],
+			pruneStale: false,
+		});
+		expect(result.items[0]).toMatchObject({ changed: ["schemaSource"] });
+		expect(fixture.store[0]!.schemaSourceHash).not.toBe(beforeHash);
+		expect(fixture.store[0]!.config).toEqual(row.config);
+		expect(fixture.updates[0]!.patch).not.toHaveProperty("config");
+		expect(await runToolSchemaSync(fixture.db, { apply: false })).toMatchObject(
+			{ inSync: 1, planned: 0 },
+		);
+	});
+
+	it.each([
+		["schemaDialect", null],
+		["schemaSource", null],
+		["schemaSourceRef", "work/wrongEndpoint"],
+		["schemaSourceHash", "0".repeat(64)],
+		["schemaSyncedAt", null],
+		["schemaSyncedAt", "not-a-date"],
+		["updatedAt", null],
+		["updatedAt", "not-a-date"],
+	] as const)(
+		"repairs invalid or missing %s=%s without schema/config writes",
+		async (key, value) => {
+			const row = await synchronizedTool();
+			Object.assign(row, { [key]: value });
+			const fixture = makeDb([row]);
+			const result = await runToolSchemaSync(fixture.db, {
+				apply: true,
+				toolIds: [row.toolId],
+				pruneStale: false,
+			});
+			expect(result.items[0]).toMatchObject({
+				status: "updated",
+				changed: ["schemaSource"],
+			});
+			expect(fixture.updates[0]!.patch).not.toHaveProperty("inputSchema");
+			expect(fixture.updates[0]!.patch).not.toHaveProperty("outputSchema");
+			expect(fixture.updates[0]!.patch).not.toHaveProperty("config");
+			expect(
+				await runToolSchemaSync(fixture.db, { apply: false }),
+			).toMatchObject({ inSync: 1, planned: 0 });
+		},
+	);
+
+	it("leaves a fresh unchanged row alone", async () => {
+		const row = await synchronizedTool();
+		row.updatedAt = "2025-01-01T00:00:00.000Z";
+		const fixture = makeDb([row]);
+		expect(
+			await runToolSchemaSync(fixture.db, { apply: true, pruneStale: false }),
+		).toMatchObject({ inSync: 1, updated: 0, planned: 0 });
+		expect(fixture.updates).toHaveLength(0);
+	});
+
+	it("does not certify provenance or write a partial projection when conversion fails", async () => {
+		const row = await synchronizedTool();
+		row.schemaSyncedAt = null;
+		const fixture = makeDb([row]);
+		const before = structuredClone(row);
+		const converter = vi
+			.spyOn(toolJsonSchema, "zodToStructuredOutputJsonSchema")
+			.mockImplementation(() => {
+				throw new Error("unsupported contract output");
+			});
+		try {
+			const result = await runToolSchemaSync(fixture.db, {
+				apply: true,
+				toolIds: [row.toolId],
+				pruneStale: false,
+			});
+			expect(result).toMatchObject({ updated: 0, inSync: 0, skipped: 1 });
+			expect(result.items[0]).toMatchObject({ status: "converterUnsupported" });
+			expect(fixture.updates).toHaveLength(0);
+			expect(fixture.store[0]).toEqual(before);
+		} finally {
+			converter.mockRestore();
+		}
+	});
+
+	it("honors the allowlist and limit and never prunes unknown or non-RPC rows", async () => {
+		const row = await synchronizedTool();
+		row.schemaSyncedAt = null;
+		const other = { ...row, id: "other-row", toolId: "other_tool" };
+		const unknown = makeRpcTool({
+			toolId: "unknown_tool",
+			endpoint: "missing/router",
+		});
+		const nonRpc = {
+			...row,
+			id: "non-rpc",
+			toolId: "non_rpc",
+			config: { transport: "http", nativeDirect: true },
+		} as AppTool;
+		const fixture = makeDb([row, other, unknown, nonRpc]);
+		const before = structuredClone(fixture.store);
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			toolIds: [row.toolId, unknown.toolId, nonRpc.toolId],
+			limit: 1,
+			pruneStale: false,
+		});
+		expect(result).toMatchObject({ updated: 1, deleted: 0 });
+		expect(result.items).toHaveLength(2);
+		expect(result.items[1]).toMatchObject({ status: "noContract" });
+		expect(fixture.updates.map((update) => update.id)).toEqual([row.id]);
+		expect(fixture.store.slice(1)).toEqual(before.slice(1));
+		expect(fixture.deletes).toHaveLength(0);
+		const limitedFixture = makeDb([
+			{ ...fixture.store[0]!, schemaSyncedAt: null },
+			other,
+		]);
+		const limited = await runToolSchemaSync(limitedFixture.db, {
+			apply: true,
+			toolIds: [row.toolId, other.toolId],
+			limit: 1,
+			pruneStale: false,
+		});
+		expect(limited).toMatchObject({ updated: 1, skipped: 1 });
+		expect(limited.items[1]).toMatchObject({
+			status: "skipped",
+			message: "Limit reached",
+		});
+	});
+});
 
 describe("runToolSchemaSync entity routing flags", () => {
 	it("plans config repair for tedi-scoped oRPC tools", async () => {

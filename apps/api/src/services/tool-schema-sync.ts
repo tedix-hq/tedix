@@ -1979,6 +1979,7 @@ export async function runToolSchemaSync(
 		const patch: Partial<Pick<AppTool, "inputSchema" | "outputSchema">> = {};
 		let nextInputSchema: AppTool["inputSchema"] | null = null;
 		const changed: SyncColumn[] = [];
+		let conversionFailed = false;
 
 		for (const column of columns) {
 			const zodSchema =
@@ -1992,6 +1993,7 @@ export async function runToolSchemaSync(
 						? zodToToolInputJsonSchema(zodSchema)
 						: zodToStructuredOutputJsonSchema(zodSchema);
 			} catch (error) {
+				conversionFailed = true;
 				skipped++;
 				items.push({
 					toolUuid: tool.id,
@@ -2018,6 +2020,8 @@ export async function runToolSchemaSync(
 				changed.push(column);
 			}
 		}
+		// Never certify stale provenance using a schema we could not regenerate.
+		if (conversionFailed) continue;
 
 		const currentConfig = (tool.config ?? {}) as JsonObject;
 		const nextConfig = { ...currentConfig };
@@ -2050,6 +2054,29 @@ export async function runToolSchemaSync(
 		}
 		if (stableStringify(currentConfig) !== stableStringify(nextConfig)) {
 			changed.push("config");
+		}
+
+		// Configuration-only updates (including nativeDirect) advance updatedAt.
+		// Revalidate the actual projection rather than calling an unchanged JSON
+		// schema fresh while its provenance still describes the previous config.
+		const schemaSourceHash = await sha256({
+			endpoint,
+			inputSchema: patch.inputSchema ?? tool.inputSchema,
+			outputSchema: patch.outputSchema ?? tool.outputSchema,
+			config: changed.includes("config") ? nextConfig : currentConfig,
+		});
+		const syncedAt = Date.parse(tool.schemaSyncedAt ?? "");
+		const updatedAt = Date.parse(tool.updatedAt ?? "");
+		if (
+			tool.schemaDialect !== "json-schema-2020-12" ||
+			tool.schemaSource !== "orpc" ||
+			tool.schemaSourceRef !== endpoint ||
+			tool.schemaSourceHash !== schemaSourceHash ||
+			!Number.isFinite(syncedAt) ||
+			!Number.isFinite(updatedAt) ||
+			updatedAt > syncedAt
+		) {
+			changed.push("schemaSource");
 		}
 
 		if (changed.length === 0) {
@@ -2092,12 +2119,6 @@ export async function runToolSchemaSync(
 
 		try {
 			const now = new Date().toISOString();
-			const schemaSourceHash = await sha256({
-				endpoint,
-				inputSchema: patch.inputSchema ?? tool.inputSchema,
-				outputSchema: patch.outputSchema ?? tool.outputSchema,
-				config: changed.includes("config") ? nextConfig : currentConfig,
-			});
 			await updateToolSchemaProjection(db, {
 				toolId: tool.id,
 				patch: { ...patch, schemaSourceRef: endpoint },
