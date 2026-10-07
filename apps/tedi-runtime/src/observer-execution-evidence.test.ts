@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import {
+	MEMORY_SOURCE_EVIDENCE_LIMITS,
+	MemorySourceEvidenceSchema,
+} from "@tedix/api-contract/schemas/memory-graph";
+import {
+	buildMemorySourceEvidence,
 	buildObserverInput,
 	digestObserverToolResult,
 	ensureTerminalEpisodeObservation,
@@ -130,3 +135,56 @@ const legacyEmbedded = buildObserverInput(
 	{ content: "Answer.", ts: 2 },
 );
 assert.doesNotMatch(legacyEmbedded, /SECRET_SCOPE/);
+
+const bundle = buildMemorySourceEvidence(
+	{
+		content: `Rotate the Example Co key. Bearer abcdefghijklmnop1234 ${"u".repeat(5000)} final ask`,
+		ts: 1,
+	},
+	{
+		content: `Rotated it. ${"a".repeat(6000)} Example Co now uses key v2.`,
+		ts: 2,
+	},
+	[
+		...evidence,
+		...Array.from({ length: 20 }, (_, index) => ({
+			ref: `${runId}:step:9:${index}:t`,
+			tool: `tool_${index}_${"x".repeat(80)}`,
+			outcome: "unknown" as const,
+		})),
+	],
+);
+assert.ok(bundle);
+assert.doesNotMatch(JSON.stringify(bundle), /abcdefghijklmnop1234/);
+assert.ok(
+	bundle.userTurn.length <= MEMORY_SOURCE_EVIDENCE_LIMITS.userTurnChars,
+);
+assert.ok(
+	(bundle.assistantReply ?? "").length <=
+		MEMORY_SOURCE_EVIDENCE_LIMITS.assistantReplyChars,
+);
+// Elision keeps both ends: the request's ask and the reply's conclusion.
+assert.match(bundle.userTurn, /^Rotate the Example Co key/);
+assert.match(bundle.userTurn, /final ask$/);
+assert.match(bundle.assistantReply ?? "", /now uses key v2\.$/);
+assert.equal(
+	bundle.toolReceipts?.length,
+	MEMORY_SOURCE_EVIDENCE_LIMITS.toolReceipts,
+);
+assert.deepEqual(bundle.toolReceipts?.[0], {
+	tool: "tedix_mcp_code",
+	outcome: "succeeded",
+});
+// Receipts stay content-free: no refs or result digests.
+assert.doesNotMatch(JSON.stringify(bundle), /sha256:abc|step:3/);
+assert.ok(MemorySourceEvidenceSchema.safeParse(bundle).success);
+assert.equal(
+	buildMemorySourceEvidence({ content: "  ", ts: 1 }, { content: "Hi", ts: 2 }),
+	undefined,
+);
+const embeddedBundle = buildMemorySourceEvidence(embeddedUser, {
+	content: "Understood.",
+	ts: 2,
+});
+assert.match(embeddedBundle?.userTurn ?? "", /From now on, use Spanish/);
+assert.doesNotMatch(JSON.stringify(embeddedBundle), /SECRET_SCOPE|tenant=/);

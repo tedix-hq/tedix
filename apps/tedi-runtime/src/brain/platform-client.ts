@@ -2,6 +2,7 @@ import type {
 	RankSkillsInput,
 	RankSkillsOutput,
 } from "@tedix/api-contract/schemas/jev";
+import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
 import type { ListWorkApprovalInboxResultSchema } from "@tedix/api-contract/schemas/work-approvals";
 /**
@@ -234,6 +235,8 @@ export interface MemoryLearnParams {
 	tediId?: string | null;
 	domains?: string[];
 	metadata?: Record<string, unknown>;
+	/** Request-only turn evidence for the memory-quality judgment; never stored. */
+	sourceEvidence?: MemorySourceEvidence;
 	priority?: "core" | "active" | "background";
 	visibility?: "private" | "shared" | "org";
 }
@@ -844,6 +847,9 @@ export class HttpPlatformClient implements PlatformClient {
 			...(params.usePolicy ? { usePolicy: params.usePolicy } : {}),
 			...(params.reviewStatus ? { reviewStatus: params.reviewStatus } : {}),
 			...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+			...(params.sourceEvidence
+				? { sourceEvidence: params.sourceEvidence }
+				: {}),
 			...(params.priority ? { priority: params.priority } : {}),
 			...(params.visibility ? { visibility: params.visibility } : {}),
 		});

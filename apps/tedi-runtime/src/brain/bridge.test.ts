@@ -35,8 +35,13 @@ function makeDedupStore(): DedupStore {
 }
 
 describe("bridgeObservations", () => {
-	it("forwards only supplied user-turn evidence with each observed fact", async () => {
+	it("forwards the turn evidence beside, not inside, each fact's metadata", async () => {
 		const memoryLearn = vi.fn(async () => ({}));
+		const sourceEvidence = {
+			userTurn: "Please keep deployment reports concise.",
+			assistantReply: "Noted: deployment reports stay concise.",
+			toolReceipts: [{ tool: "memory_search", outcome: "succeeded" as const }],
+		};
 		await bridgeObservations({
 			observations: [
 				observation({
@@ -47,16 +52,16 @@ describe("bridgeObservations", () => {
 			minPriority: "medium",
 			platform: { memoryLearn } as unknown as PlatformClient,
 			dedup: makeDedupStore(),
-			userSourceEvidence: "Please keep deployment reports concise.",
+			sourceEvidence,
 			logger: { log: vi.fn(), error: vi.fn() },
 		});
 		expect(memoryLearn).toHaveBeenCalledWith(
-			expect.objectContaining({
-				metadata: expect.objectContaining({
-					sourceEvidence: "Please keep deployment reports concise.",
-				}),
-			}),
+			expect.objectContaining({ sourceEvidence }),
 		);
+		const call = memoryLearn.mock.calls[0] as unknown as [
+			{ metadata: Record<string, unknown> },
+		];
+		expect(call[0].metadata).not.toHaveProperty("sourceEvidence");
 	});
 	it.each([
 		["high", ["high"]],
