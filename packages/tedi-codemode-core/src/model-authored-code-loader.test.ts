@@ -400,6 +400,8 @@ const diagnosticPairs = [
 		surface: "tedi_workspace_shell",
 		reason: "tedi_workspace_shell_invocation",
 	},
+	{ surface: "cms_tenant_runtime", reason: "cms_tenant_bundle_lookup" },
+	{ surface: "cms_tenant_plugin", reason: "cms_tenant_plugin_invocation" },
 ] as const;
 
 describe("diagnostic-only native loader boundary", () => {

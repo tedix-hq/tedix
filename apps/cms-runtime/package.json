@@ -25,6 +25,7 @@
 		"@tedix/db": "workspace:*",
 		"@tedix/provisioning": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",
+		"@tedix/tedi-codemode-core": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/webmcp-core": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",

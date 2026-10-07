@@ -36,6 +36,7 @@ import {
  */
 
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { createHash } from "node:crypto";
 
 import { EmDashDB as EmdashSqlDB } from "@emdash-cms/cloudflare/db/do-sql";
@@ -2944,7 +2945,7 @@ export function tenantPluginCanaryEnabled(
 	return !!canarySiteId && canarySiteId === siteId;
 }
 
-function getTenantEntrypoint(
+export function getTenantEntrypoint(
 	env: Env,
 	ctx: ExecutionContext,
 	args: {
@@ -2982,7 +2983,10 @@ function getTenantEntrypoint(
 			.CMS_PLUGIN_CANARY_SITE_ID,
 		org.siteId,
 	);
-	const handle = env.LOADER.get(
+	const handle = withDynamicWorkerLoaderDiagnostics(env.LOADER, {
+		surface: "cms_tenant_runtime",
+		reason: "cms_tenant_bundle_lookup",
+	}).get(
 		`${
 			loaderKey ??
 			tenantLoaderRecovery.snapshot(
