@@ -17,6 +17,8 @@ import {
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
+import { decisionCaptureLearningSignal } from "../../services/decision-learning-signal";
+import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -194,6 +196,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				respondedAt: response.respondedAt,
 			});
 		}
+		await recordDecisionLearning(context, orgId, request, response);
 		return {
 			request: requestOutput(request),
 			response: responseOutput(response),
@@ -202,6 +205,40 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 		rethrowInteractionError(error);
 	}
 });
+
+/**
+ * A decision-capture answer that has been stored feeds the learning ledger:
+ * the user's decision, and their verdict on any tedi draft it cites.
+ * Fail-soft: the answer is already durable and must not report failure here.
+ */
+async function recordDecisionLearning(
+	context: BaseContext,
+	orgId: string,
+	request: InteractionRow,
+	response: ResponseRow,
+): Promise<void> {
+	try {
+		const draft =
+			typeof response.metadata?.draftId === "string"
+				? await getLatestReplyDraft(context.db, {
+						orgId,
+						interactionId: request.id,
+					})
+				: null;
+		const signal = decisionCaptureLearningSignal({
+			organizationId: orgId,
+			request,
+			response,
+			draft,
+		});
+		if (signal) await recordObservedLearningInteraction(context, signal);
+	} catch (error) {
+		console.warn("[learning-feed] decision-capture signal skipped", {
+			interactionId: request.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
 
 const delegateProcedure = writeOs.delegate.handler(
 	async ({ input, context }) => {
