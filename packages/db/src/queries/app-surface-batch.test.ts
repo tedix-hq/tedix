@@ -6,6 +6,7 @@ import { createDbClient, type DbClient } from "../client";
 import { apps } from "../schema/apps";
 import { appToolCspDomains } from "../schema/configuration";
 import { organizations } from "../schema/organizations";
+import { providerInstallations } from "../schema/provider-installations";
 import { appTools } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
 import { getAppBySlugWithTools, getAppsBySlugsWithTools } from "./app-records";
@@ -33,7 +34,13 @@ function ddlFor(table: SQLiteTable): string {
 	return `CREATE TABLE ${name} (${defs.join(", ")});`;
 }
 
-const DDL = [appToolCspDomains, appTools, apps, organizations]
+const DDL = [
+	appToolCspDomains,
+	appTools,
+	apps,
+	organizations,
+	providerInstallations,
+]
 	.map((table) => ddlFor(table as SQLiteTable))
 	.join("\n");
 
@@ -350,6 +357,25 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 		expect(results[0]).toBeNull();
 		expect(results[1]).toBeNull();
 		expect(results[2]?.app.id).toBe(FOREIGN_ID);
+	});
+
+	it("lets a customer organization link a provider's app only under an active provider installation", async () => {
+		const fixture = ownershipDb();
+		const insert = fixture.sqlite.prepare(
+			"INSERT INTO provider_installations (id, provider_organization_id, provider_app_id, provider_api_key_id, external_tenant_id, customer_organization_id, allowed_origin, host_tenant_argument, host_tenant_namespace, status, paused_at, provisioned_by, created_at, updated_at) VALUES (?, 'org-sample', ?, 'key', 'ext', 'org-acme', 'https://acme.test', 'tenant', 'sample', ?, ?, 'test', '2026-07-31', '2026-07-31')",
+		);
+		const link = {
+			slug: "x",
+			appId: FOREIGN_ID,
+			hostOrganizationId: "org-acme",
+		};
+		insert.run("pi-paused", FOREIGN_ID, "paused", "2026-07-31");
+		expect(
+			(await getAppsBySlugsWithTools(fixture.client, [link]))[0],
+		).toBeNull();
+		insert.run("pi-active", FOREIGN_ID, "active", null);
+		const [granted] = await getAppsBySlugsWithTools(fixture.client, [link]);
+		expect(granted?.app.id).toBe(FOREIGN_ID);
 	});
 
 	it("lets a platform-organization host link any organization's app by id", async () => {

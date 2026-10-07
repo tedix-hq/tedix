@@ -19,6 +19,7 @@ import {
 } from "../schema/catalog";
 import { appToolCspDomains } from "../schema/configuration";
 import { organizations } from "../schema/organizations";
+import { providerInstallations } from "../schema/provider-installations";
 import { appTools } from "../schema/tools";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import { aggregateAppEntryMatchesSql } from "./aggregate-app-links";
@@ -517,15 +518,19 @@ function isTedixPlatformOrganization(
  * organization's shared apps — the rule `assertTenantMcpConfigAllowed` enforces
  * when a tenant writes `aggregateApps` and `previewSourceAllowed` applies to the
  * scope preview. A host in the platform organization is written only by platform
- * principals, which that write rule leaves unrestricted.
+ * principals, which that write rule leaves unrestricted. A provider
+ * organization's app also reaches a customer organization it holds an active
+ * provider installation for — the explicit cross-tenant grant.
  */
 function aggregateSourceAllowed(
 	hostOrganizationId: string,
 	sourceOrganizationId: string,
 	orgById: Map<string, AggregateOwnershipOrg>,
+	providerGrants: ReadonlySet<string>,
 ): boolean {
 	return (
 		sourceOrganizationId === hostOrganizationId ||
+		providerGrants.has(`${sourceOrganizationId}:${hostOrganizationId}`) ||
 		isTedixPlatformOrganization(orgById.get(sourceOrganizationId)) ||
 		isTedixPlatformOrganization(orgById.get(hostOrganizationId))
 	);
@@ -625,6 +630,29 @@ export async function getAppsBySlugsWithTools(
 					.where(inArray(organizations.id, chunk));
 				for (const row of rows) orgById.set(row.id, row);
 			}
+			const providerGrants = new Set<string>();
+			for (const chunk of chunked([...orgIds], APP_SURFACE_ID_CHUNK)) {
+				const rows = await db
+					.select({
+						providerOrganizationId:
+							providerInstallations.providerOrganizationId,
+						customerOrganizationId:
+							providerInstallations.customerOrganizationId,
+					})
+					.from(providerInstallations)
+					.where(
+						and(
+							eq(providerInstallations.status, "active"),
+							inArray(providerInstallations.providerOrganizationId, chunk),
+						),
+					);
+				for (const row of rows) {
+					if (!orgIds.has(row.customerOrganizationId)) continue;
+					providerGrants.add(
+						`${row.providerOrganizationId}:${row.customerOrganizationId}`,
+					);
+				}
+			}
 
 			// Positionally parallel to `requests`. An id entry without a host, or
 			// whose target the ownership rule refuses, is unresolved (`null`) —
@@ -637,6 +665,7 @@ export async function getAppsBySlugsWithTools(
 					request.hostOrganizationId,
 					target.organizationId,
 					orgById,
+					providerGrants,
 				)
 					? target
 					: null;
