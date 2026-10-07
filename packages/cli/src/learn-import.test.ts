@@ -262,6 +262,11 @@ describe("transcript extraction", () => {
 		expect(humanReply("Base directory for this skill: /x\n# Skill")).toBeNull();
 		expect(humanReply("[Request interrupted by user]")).toBeNull();
 		expect(humanReply("ok")).toBeNull();
+		expect(
+			humanReply(
+				'why does the bump command hang at the end?\n<pasted_content id="a1">\n$ bun bump\nlog line',
+			),
+		).toBe("why does the bump command hang at the end?");
 	});
 
 	it("names a bound origin the same way however it is written", () => {
@@ -406,6 +411,42 @@ describe("runLearnCommand", () => {
 		expect(JSON.parse(lines.at(-1)!).results["acme/org_acme"]).toMatchObject({
 			recorded: 1,
 			mining: { passes: 2, factsWritten: 1, done: true },
+		});
+	});
+
+	it("retries a rate-limited batch and keeps mining past a gateway timeout", async () => {
+		const home = mkdtempSync(join(tmpdir(), "tedix-learn-"));
+		const day = join(home, ".codex", "sessions", "2026", "03", "02");
+		mkdirSync(day, { recursive: true });
+		writeFileSync(
+			join(day, "rollout-x.jsonl"),
+			codexRows.map((row) => JSON.stringify(row)).join("\n"),
+		);
+		const replies = [
+			{ ok: false, error: "Tool rate limit exceeded for bounded_write." },
+			{ received: 1, recorded: 1, duplicates: 0 },
+			{ ok: false, error: "Error: Request timed out after 15000ms" },
+			{ factsWritten: 0, factsSuperseded: 0, budgetHit: false },
+		];
+		const pauses: number[] = [];
+		const lines: string[] = [];
+		const code = await runLearnCommand(["import-sessions", "--json"], {
+			home,
+			read: async () => replies.shift()!,
+			sleep: async (ms) => {
+				pauses.push(ms);
+			},
+			write: (line) => lines.push(line),
+			targets: new Map([["github.com/acme-co/acme", target]]),
+			defaultTarget: undefined,
+		});
+		rmSync(home, { recursive: true, force: true });
+		expect(code).toBe(0);
+		expect(pauses).toEqual([5000, 5000]);
+		expect(JSON.parse(lines.at(-1)!).results["acme/org_acme"]).toMatchObject({
+			recorded: 1,
+			failedBatches: 0,
+			mining: { passes: 1, timedOut: 1, done: true },
 		});
 	});
 
