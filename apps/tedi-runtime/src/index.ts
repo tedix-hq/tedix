@@ -79,6 +79,7 @@ import { ChatTurnWorkflow } from "./chat-turn-workflow";
 import { AgentTediDO } from "./do";
 import { routeCutoverInventory } from "./pi-cutover-admin";
 export { RawCutoverDO } from "./pi-cutover-maintenance-do";
+export { InertRuntimeDO } from "./inert-runtime-do";
 import { canManageDurableCode } from "./durable-codemode-auth";
 import {
 	applyDurableCodeRecoveryAuthority,
