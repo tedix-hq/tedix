@@ -160,6 +160,7 @@ export const PROVENANCE_LABEL: Readonly<Record<CostProvenance, string>> = {
 	provider_reported: "provider-reported",
 	gateway_reported: "gateway-reported",
 	pricing_table_estimate: "estimate",
+	reviewed_provider_estimate: "reviewed estimate",
 	unknown: "unknown basis",
 	quarantined: "quarantined",
 };
