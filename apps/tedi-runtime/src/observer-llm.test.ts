@@ -301,3 +301,55 @@ for (const route of [
 	}
 }
 console.log("PASS: selected adapter private wire authority");
+
+// No model ref (the observer policy's "unset", including a resolved
+// `cloudflare/auto`) runs the env default Azure deployment, never the Auto Router.
+{
+	const savedFetch = globalThis.fetch;
+	const urls: string[] = [];
+	let workersCalls = 0;
+	try {
+		globalThis.fetch = async (input: RequestInfo | URL) => {
+			urls.push(String(input instanceof Request ? input.url : input));
+			return Response.json({
+				choices: [{ message: { content: '{"observations":[]}' } }],
+			});
+		};
+		const result = await observerCompletion({
+			modelRef: null,
+			env: {
+				AZURE_OPENAI_RESOURCE: "fixture",
+				AZURE_OPENAI_API_VERSION: "test",
+				AZURE_OBSERVER_DEPLOYMENT: "fixture-observer-default",
+				AI_GATEWAY_ACCOUNT_ID: "account",
+				AI_GATEWAY_LLM_ID: "gateway",
+				CF_AI_GATEWAY_TOKEN: "token",
+				SECRETS_MASTER_KEY: "fixture-signing-secret",
+				TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+				AI: {
+					run: async () => {
+						workersCalls++;
+						return { response: "{}" };
+					},
+					fetch: async () => {
+						workersCalls++;
+						return Response.json({});
+					},
+				},
+				API_SERVICE: { fetch: async () => wireGuardAdmission() },
+			},
+			beforeDispatch: privateCapturedGuard(() => {}, "fixture"),
+			metadata: { orgId: "fixture", tediId: "fixture-tedi" },
+			messages: [{ role: "user", content: "source" }],
+		} as never);
+		assert.equal(result, '{"observations":[]}');
+		assert.equal(workersCalls, 0, "no Workers AI / Auto Router call");
+		assert.ok(
+			urls.some((url) => url.includes("fixture-observer-default")),
+			`Azure env default deployment was called: ${urls.join(", ")}`,
+		);
+	} finally {
+		globalThis.fetch = savedFetch;
+	}
+}
+console.log("PASS: unset observer model uses the Azure env default deployment");

@@ -80,7 +80,9 @@ export async function observerCompletion(
 ): Promise<string> {
 	opts.signal?.throwIfAborted();
 	try {
-		if (opts.modelRef == null || opts.modelRef === CLOUDFLARE_AUTO_MODEL_REF)
+		// No ref = the observer's env default Azure deployment (the runtime's
+		// model policy resolves `cloudflare/auto` to no ref for this surface).
+		if (opts.modelRef === CLOUDFLARE_AUTO_MODEL_REF)
 			return await observerViaAutoRouter(opts);
 		if (opts.modelRef?.startsWith("workers-ai/"))
 			return await observerViaWorkersAi(opts);
