@@ -3,6 +3,25 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.3.0 — 2026-10-07
+
+### Changed
+
+- Team lessons now come from your organization's memory instead of a
+  document. Each agent session receives only the lessons a person approved
+  that fit its repository and host, plus general ones, each with a short id.
+  Nothing needs to be connected; the organization is the one the session is
+  bound to.
+- `setup agents context connect-lessons` and `disconnect-lessons` are removed.
+  An old lessons selection is ignored.
+
+### Fixed
+
+- A chat bound to a different profile of the same organization received
+  working preferences but silently no team lessons.
+- An answer you gave in Tedix OS still reaches the session when shared
+  context cannot be read.
+
 ## 0.2.0 — 2026-10-07
 
 First release on plain semver. Changes since 0.1.0-beta.117:
