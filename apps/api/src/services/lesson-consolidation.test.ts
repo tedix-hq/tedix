@@ -130,6 +130,36 @@ describe("consolidatePersonalLessons", () => {
 		expect(invalidateFact).not.toHaveBeenCalledWith(db, "c", expect.anything());
 	});
 
+	it("retires an old per-reply-type lesson its subject lesson now covers", async () => {
+		const subject = lesson("subj", "general", ["Deploy after tests pass."]);
+		subject.topicKey =
+			"learning-feed:decision:acme:general:general:user:user-1";
+		(subject.metadata.learningFeed as Record<string, unknown>).scope = {
+			repo: "acme",
+			harness: "general",
+			topic: "general",
+		};
+		(
+			subject.metadata.learningFeed as Record<string, unknown>
+		).evidenceEventIds = ["old-e", "subj-e"];
+		const old = lesson("old", "ship", ["Commit to main."]);
+		(old.metadata.learningFeed as Record<string, unknown>).distilled = 2;
+		vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([
+			subject,
+			old,
+		] as never);
+		const result = await consolidatePersonalLessons(db, "org-1");
+		expect(invalidateFact).toHaveBeenCalledWith(
+			db,
+			"old",
+			"Folded into its subject lesson",
+		);
+		expect(result).toMatchObject({
+			topicLessonsRetired: 1,
+			standingWritten: 0,
+		});
+	});
+
 	it("leaves an unchanged standing lesson alone", async () => {
 		vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([
 			{

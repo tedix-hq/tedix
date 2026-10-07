@@ -122,15 +122,37 @@ export function planConsolidation(
 	return { standing, topics };
 }
 
-function ownedByMiner(row: CurrentLearningFeedLessonRow): boolean {
+/** Written by the miner and never reviewed by a person. */
+function minerWritten(row: CurrentLearningFeedLessonRow): boolean {
 	const meta = rec(row.metadata);
-	const feed = rec(meta.learningFeed);
 	return (
 		!rec(meta.memoryLifecycle).lastReview &&
-		row.reviewStatus === "confirmed" &&
-		feed.autoConfirmed === true &&
-		feed.distilled === DISTILL_VERSION
+		(row.reviewStatus === "pending" ||
+			(row.reviewStatus === "confirmed" &&
+				rec(meta.learningFeed).autoConfirmed === true))
 	);
+}
+
+/** ...and distilled by the current distiller, so its lines are rules. */
+function ownedByMiner(row: CurrentLearningFeedLessonRow): boolean {
+	return (
+		minerWritten(row) &&
+		row.reviewStatus === "confirmed" &&
+		rec(rec(row.metadata).learningFeed).distilled === DISTILL_VERSION
+	);
+}
+
+/** A per-repository lesson of imported sessions (harness and topic general). */
+function isSubjectLesson(row: CurrentLearningFeedLessonRow): boolean {
+	const scope = rec(rec(rec(row.metadata).learningFeed).scope);
+	return scope.harness === "general" && scope.topic === "general";
+}
+
+function evidenceOf(row: CurrentLearningFeedLessonRow): string[] {
+	const ids = rec(rec(row.metadata).learningFeed).evidenceEventIds;
+	return Array.isArray(ids)
+		? ids.filter((id): id is string => typeof id === "string")
+		: [];
 }
 
 export interface ConsolidationResult {
@@ -155,8 +177,31 @@ export async function consolidatePersonalLessons(
 		if (typeof owner !== "string" || !owner) continue;
 		byOwner.set(owner, [...(byOwner.get(owner) ?? []), row]);
 	}
-	for (const [userId, lessons] of byOwner) {
+	for (const [userId, all] of byOwner) {
 		const key = standingTopicKey(userId);
+		// A lesson whose every decision a per-repository subject lesson now
+		// covers was learned under the old per-reply-type grouping: retire it.
+		const subjectEvidence = new Set(
+			all
+				.filter((row) => isSubjectLesson(row) && ownedByMiner(row))
+				.flatMap((row) => evidenceOf(row)),
+		);
+		const lessons: CurrentLearningFeedLessonRow[] = [];
+		for (const row of all) {
+			const evidence = evidenceOf(row);
+			if (
+				row.topicKey !== key &&
+				!isSubjectLesson(row) &&
+				minerWritten(row) &&
+				evidence.length > 0 &&
+				evidence.every((id) => subjectEvidence.has(id))
+			) {
+				await invalidateFact(db, row.id, "Folded into its subject lesson");
+				result.topicLessonsRetired++;
+				continue;
+			}
+			lessons.push(row);
+		}
 		const existing = lessons.filter((row) => row.topicKey === key);
 		const topicLessons = lessons.filter(
 			(row) => row.topicKey !== key && ownedByMiner(row),

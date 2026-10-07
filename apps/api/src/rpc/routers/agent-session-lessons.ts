@@ -88,6 +88,17 @@ export function lessonScope(
 	};
 }
 
+/** Written by the miner without review (not seeded, not person-reviewed). */
+function isMinedLesson(metadata: ApprovedAgentLessonRow["metadata"]): boolean {
+	const feed = metadata?.learningFeed;
+	return (
+		!!feed &&
+		typeof feed === "object" &&
+		!Array.isArray(feed) &&
+		feed.autoConfirmed === true
+	);
+}
+
 /** The learning feed's consolidated standing lesson for one person. */
 function isStandingLesson(
 	metadata: ApprovedAgentLessonRow["metadata"],
@@ -139,12 +150,14 @@ export function selectSessionLessons(
 		).length;
 		scored.push({
 			score:
-				(repoScoped ? 4 : 0) +
-				(harnessScoped ? 2 : 0) +
+				(repoScoped ? 2 : 0) +
+				(harnessScoped ? 1 : 0) +
 				Math.min(overlap, 3) +
 				(row.priority === "core" ? 1 : 0) +
 				// A person's standing preferences apply to every session: first.
 				(isStandingLesson(row.metadata) ? 10 : 0) +
+				// A written or person-reviewed rule outranks a mined one of the same reach.
+				(isMinedLesson(row.metadata) ? 0 : 2) +
 				row.confidence,
 			lesson: {
 				id: row.id,

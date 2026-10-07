@@ -56,6 +56,9 @@ const REPLY_CHARS = AGENT_SESSION_DECISION_LIMITS.replyChars - 40;
 /** Text that reached the user turn but was not typed by the person. */
 const INJECTED =
 	/^\s*(?:<|\{|\[|>>>|# AGENTS\.md|#+ Files (?:mentioned|pasted) by the user|Base directory for this skill|This session is being continued|Caveat:|Another (?:Claude|Codex) session sent|The following is the Codex|Reviewed Codex session|The Codex agent has|Assess the exact|Planned action JSON|Some conversation entries|Continue working toward|Tedix [^\n]{1,120}? replied for the user|No response requested|Reply OK\b)/i;
+/** Test and harness prompts about the agent setup itself, not the person's work. */
+const META_PROMPT =
+	/\b(without (?:using )?tools|report only|reply (?:only )?with|respond only|say only|tedix context received)\b/i;
 const LOG_LINE =
 	/^\s*(?:at\s+\S+|\d{4}-\d{2}-\d{2}[T ]\d|\[[A-Za-z0-9:._ -]{1,40}\]|[{}[\],]|"[^"]+":|\$\s|>\s|[\w./-]+:\d+(?::\d+)?\b|(?:error|warn(?:ing)?|info|debug|trace)\b[:\]]|[│├└─┌┐┘┬┴┼|+-]{3,}|\d+\s+(?:passed|failed)|✓|✗|×)/i;
 
@@ -109,7 +112,12 @@ export function humanReply(raw: string): string | null {
 		)
 		.join("\n")
 		.trim();
-	if (!text || INJECTED.test(text) || /^\[Request interrupted/.test(text))
+	if (
+		!text ||
+		INJECTED.test(text) ||
+		META_PROMPT.test(text) ||
+		/^\[Request interrupted/.test(text)
+	)
 		return null;
 	const lines = text.split("\n").filter((line) => line.trim());
 	if (
@@ -700,6 +708,12 @@ export async function runLearnCommand(
 					// itself keeps writing, so ask again to continue it.
 					mining.timedOut++;
 					note(error);
+					await pause(MINE_TIMEOUT_PAUSE_MS);
+					continue;
+				}
+				// The run continues server-side; let it finish before asking again.
+				if (result.inProgress === true) {
+					mining.timedOut++;
 					await pause(MINE_TIMEOUT_PAUSE_MS);
 					continue;
 				}

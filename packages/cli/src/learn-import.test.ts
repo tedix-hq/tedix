@@ -263,6 +263,9 @@ describe("transcript extraction", () => {
 		expect(humanReply("[Request interrupted by user]")).toBeNull();
 		expect(humanReply("ok")).toBeNull();
 		expect(
+			humanReply("Without tools, report only the Tedix context you received."),
+		).toBeNull();
+		expect(
 			humanReply(
 				'why does the bump command hang at the end?\n<pasted_content id="a1">\n$ bun bump\nlog line',
 			),
@@ -426,6 +429,7 @@ describe("runLearnCommand", () => {
 			{ ok: false, error: "Tool rate limit exceeded for bounded_write." },
 			{ received: 1, recorded: 1, duplicates: 0 },
 			{ ok: false, error: "Error: Request timed out after 15000ms" },
+			{ inProgress: true, factsWritten: 0, budgetHit: false },
 			{ factsWritten: 0, factsSuperseded: 0, budgetHit: false },
 		];
 		const pauses: number[] = [];
@@ -442,11 +446,11 @@ describe("runLearnCommand", () => {
 		});
 		rmSync(home, { recursive: true, force: true });
 		expect(code).toBe(0);
-		expect(pauses).toEqual([5000, 60000]);
+		expect(pauses).toEqual([5000, 60000, 60000]);
 		expect(JSON.parse(lines.at(-1)!).results["acme/org_acme"]).toMatchObject({
 			recorded: 1,
 			failedBatches: 0,
-			mining: { passes: 1, timedOut: 1, done: true },
+			mining: { passes: 1, timedOut: 2, done: true },
 		});
 	});
 
