@@ -8,7 +8,6 @@ export default defineConfig({
 			main: path.resolve(import.meta.dirname, "worker.ts"),
 			additionalExports: {
 				AgentTediDO: "DurableObject",
-				RawCutoverDO: "DurableObject",
 			},
 			miniflare: {
 				compatibilityDate: wranglerCompatibilityDate(

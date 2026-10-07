@@ -209,11 +209,6 @@ export function unitRuntimeAdmission(ownerInput: {
 	};
 }
 
-/** Prototype-only unit collaborator: no native storage, custody or replay enforcement is proved. */
-export function unitHistoricalExecution() {
-	return { assertRun(_runId: string | null | undefined): void {} };
-}
-
 export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 	const probe = Object.create(AgentTediDO.prototype) as TediDoProbe;
 	const fixtureState = (fields.state ?? { tediId: "unit-only-principal" }) as {
@@ -232,7 +227,6 @@ export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 		// A unit label only; no canonical tenant or physical custody is asserted.
 		state: fixtureState,
 		runtimeAdmission: () => admission,
-		historicalExecution: () => unitHistoricalExecution(),
 		...fields,
 		ctx:
 			fields.ctx && (fields.ctx as { storage?: unknown }).storage
