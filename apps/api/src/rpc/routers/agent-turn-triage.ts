@@ -69,6 +69,8 @@ import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
+import { importAgentSessionDecisions } from "../../services/agent-session-decision-import";
+import { observedLearningActor } from "../../services/learning-interaction-recorder";
 import { requireOrgId } from "../org-scope";
 import { getSessionLessons } from "./agent-session-lessons";
 import {
@@ -965,7 +967,35 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 	},
 );
 
+const importWriteOs = os.use(withAuth).use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"A person imports only their own past session decisions: the handler requires a human identity and derives the personal learning scope from it, never from input",
+		},
+		"mcp:messaging.write",
+	),
+);
+
+/** The caller's own past local session decisions → personal learning events. */
+const importSessionDecisionsProcedure =
+	importWriteOs.importSessionDecisions.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const actor = observedLearningActor(context);
+		if (actor.actorType !== "user" || !actor.actorId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Importing session decisions requires a person's identity",
+			);
+		return importAgentSessionDecisions(context.db, {
+			organizationId,
+			userId: actor.actorId,
+			decisions: input.decisions,
+		});
+	});
+
 export const agentTurnTriageContractRouter = os.router({
+	importSessionDecisions: importSessionDecisionsProcedure,
 	triage,
 	labelReply,
 	getPolicy,
