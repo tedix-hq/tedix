@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "tedix",
-	"version": "1.4.0",
+	"version": "1.5.0",
 	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
 	"author": {
 		"name": "Tedix",
