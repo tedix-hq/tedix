@@ -953,10 +953,22 @@ const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 /**
  * Run the learning-feed miner for the caller's organization now. Writes only
  * that organization's memory, under the same bounds as nightly reflection.
+ * Each person's whole decision history is distilled by a Workflow instance
+ * started here (many model calls, one durable step each): `inProgress`.
  */
 const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 	async ({ context }) => {
 		const organizationId = requireOrgId(context);
+		let distilling = false;
+		try {
+			await context.env.MEMORY_REFLECTION_WORKFLOW.create({
+				id: `lessons-${organizationId}-${Date.now()}`,
+				params: { organizationId, scope: "lessons" as const },
+			});
+			distilling = true;
+		} catch (error) {
+			console.error("[learning-feed] lesson distillation start failed:", error);
+		}
 		const { mineLearningFeed, clefLessonRouter } =
 			await import("../../services/learning-feed-miner");
 		const { modelLessonDistiller } =
@@ -968,7 +980,12 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 		});
 		// Code Mode stops waiting after 15 s; a large run keeps going in the
 		// background and the caller is told so instead of seeing a timeout.
-		if (!context.waitUntil) return { organizationId, ...(await run) };
+		if (!context.waitUntil)
+			return {
+				organizationId,
+				...(await run),
+				...(distilling ? { inProgress: true } : {}),
+			};
 		context.waitUntil(run.catch(() => undefined));
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const finished = await Promise.race([
@@ -977,7 +994,12 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 				timer = setTimeout(() => resolve(null), MINE_REPLY_WINDOW_MS);
 			}),
 		]).finally(() => clearTimeout(timer));
-		if (finished) return { organizationId, ...finished };
+		if (finished)
+			return {
+				organizationId,
+				...finished,
+				...(distilling ? { inProgress: true } : {}),
+			};
 		return {
 			organizationId,
 			decisionEventsScanned: 0,

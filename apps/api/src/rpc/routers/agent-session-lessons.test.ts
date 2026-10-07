@@ -9,7 +9,7 @@ import { createDbClient } from "@tedix/db/client";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { normalizeRepo, selectSessionLessons } from "./agent-session-lessons";
 import { agentTurnTriageContractRouter } from "./agent-turn-triage";
@@ -150,6 +150,9 @@ describe("selectSessionLessons", () => {
 });
 
 describe("getSessionLessons procedure", () => {
+	const startWorkflow = vi.fn(async (_options: unknown) => ({
+		id: "instance-1",
+	}));
 	function context(
 		organizationId: string,
 		scopes: string[],
@@ -172,6 +175,7 @@ describe("getSessionLessons procedure", () => {
 		const env = {
 			ENVIRONMENT: "test",
 			DB: createD1Facade(sqlite),
+			MEMORY_REFLECTION_WORKFLOW: { create: startWorkflow },
 		} as unknown as CloudflareEnv;
 		return {
 			apiKey: { id: "key-1", name: "test", organizationId, scopes },
@@ -210,6 +214,7 @@ describe("getSessionLessons procedure", () => {
 	});
 
 	it("mines on demand for the caller's organization with the write scope only", async () => {
+		startWorkflow.mockClear();
 		const result = await createRouterClient(agentTurnTriageContractRouter, {
 			context: context(ORG_1, ["mcp:messaging.write"]),
 		}).mineSessionLessons({});
@@ -218,7 +223,14 @@ describe("getSessionLessons procedure", () => {
 			factsWritten: 0,
 			factsArchived: 0,
 			budgetHit: false,
+			inProgress: true,
 		});
+		// Each person's whole history is distilled by its own Workflow instance.
+		expect(startWorkflow).toHaveBeenCalledWith(
+			expect.objectContaining({
+				params: { organizationId: ORG_1, scope: "lessons" },
+			}),
+		);
 		await expect(
 			createRouterClient(agentTurnTriageContractRouter, {
 				context: context(ORG_1, ["mcp:messaging.read"]),

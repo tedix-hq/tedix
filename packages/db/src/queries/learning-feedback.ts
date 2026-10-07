@@ -1,6 +1,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	and,
+	count,
 	desc,
 	eq,
 	gte,
@@ -375,6 +376,102 @@ export async function listLearningInteractionsForIssuePrefix(
 			),
 		)
 		.orderBy(desc(learningInteractionEvents.occurredAt))
+		.limit(input.limit);
+}
+
+export interface LearningOwnerSummary {
+	ownerUserId: string;
+	events: number;
+	newestAt: string;
+}
+
+/**
+ * The people with personal-scope events on these surfaces, with how many and
+ * the newest. Reflection-only (same fence as
+ * {@link listLearningInteractionsForReflection}): a miner learns each person's
+ * whole history and skips one whose history has not changed.
+ */
+export async function listLearningOwnersForReflection(
+	db: DbClient,
+	input: { organizationId: string; surfaces: string[]; limit: number },
+): Promise<LearningOwnerSummary[]> {
+	if (input.surfaces.length === 0) return [];
+	const newestAt = max(learningInteractionEvents.occurredAt);
+	const events = count();
+	const rows = await db
+		.select({
+			ownerUserId: learningInteractionEvents.scopeId,
+			events,
+			newestAt,
+		})
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				eq(learningInteractionEvents.scopeKind, "personal"),
+				// bound-params: callers pass a fixed list of producer surfaces
+				inArray(learningInteractionEvents.surface, input.surfaces),
+			),
+		)
+		.groupBy(learningInteractionEvents.scopeId)
+		.orderBy(desc(newestAt))
+		.limit(input.limit);
+	return rows.flatMap((row) =>
+		row.ownerUserId && row.newestAt
+			? [
+					{
+						ownerUserId: row.ownerUserId,
+						events: Number(row.events),
+						newestAt: row.newestAt,
+					},
+				]
+			: [],
+	);
+}
+
+/**
+ * One page of a person's own events on these surfaces, newest first, strictly
+ * older than `before` (occurredAt, then id). Reflection-only.
+ */
+export async function listOwnerLearningInteractionsPage(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		ownerUserId: string;
+		surfaces: string[];
+		before: { occurredAt: string; id: string } | null;
+		limit: number;
+	},
+): Promise<LearningInteractionEventRow[]> {
+	if (input.surfaces.length === 0) return [];
+	return db
+		.select()
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				eq(learningInteractionEvents.scopeKind, "personal"),
+				eq(learningInteractionEvents.scopeId, input.ownerUserId),
+				// bound-params: callers pass a fixed list of producer surfaces
+				inArray(learningInteractionEvents.surface, input.surfaces),
+				input.before
+					? or(
+							lt(learningInteractionEvents.occurredAt, input.before.occurredAt),
+							and(
+								eq(
+									learningInteractionEvents.occurredAt,
+									input.before.occurredAt,
+								),
+								lt(learningInteractionEvents.id, input.before.id),
+							),
+						)
+					: undefined,
+			),
+		)
+		.orderBy(
+			desc(learningInteractionEvents.occurredAt),
+			desc(learningInteractionEvents.id),
+		)
 		.limit(input.limit);
 }
 

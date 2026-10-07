@@ -46,11 +46,11 @@ export type LessonDistiller = (input: DistillInput) => Promise<string[] | null>;
 export const DISTILL_VERSION = 5;
 
 /** Test and harness prompts about Tedix itself teach nothing about the person. */
-const META_REPLY =
+export const META_REPLY =
 	/\b(without (?:using )?tools|report only|reply (?:only )?with|respond only|say only|tedix context received|this is a test|test message)\b/i;
-const STANDING =
+export const STANDING =
 	/\b(always|never|from now on|every time|in general|by default|we (?:do not|don't|dont)|stop (?:doing|asking|using)|do not ever|going forward)\b/i;
-const MONEY =
+export const MONEY =
 	/(?:[€$£]\s?\d|\d[\d.,]*\s?(?:€|eur|usd|dollars?|euros?)\b|\b(?:invoice|payment|salary|bank|iban|tax)\b)/i;
 
 /**
@@ -122,7 +122,7 @@ const STOPWORDS = new Set(
 	),
 );
 
-function words(text: string): string[] {
+export function words(text: string): string[] {
 	return text
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
@@ -218,9 +218,49 @@ export function acceptedRules(
 	return accepted;
 }
 
-type DistillEnv = Pick<CloudflareEnv, "AI"> & {
+export type DistillEnv = Pick<CloudflareEnv, "AI"> & {
 	AI_GATEWAY_LLM_ID?: string;
 };
+
+/** One call to the distiller model; null on failure or timeout. */
+export async function runDistillModel(
+	env: DistillEnv,
+	prompt: string,
+	{
+		maxTokens = 500,
+		timeoutMs = DISTILL_TIMEOUT_MS,
+		surface = "learning-feed-distill",
+	}: { maxTokens?: number; timeoutMs?: number; surface?: string } = {},
+): Promise<string | null> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const call = env.AI.run(
+			DISTILL_MODEL as keyof AiModels,
+			{
+				messages: [{ role: "user", content: prompt }],
+				max_tokens: maxTokens,
+				temperature: 0,
+			} as never,
+			env.AI_GATEWAY_LLM_ID
+				? { gateway: { id: env.AI_GATEWAY_LLM_ID, metadata: { surface } } }
+				: undefined,
+		) as Promise<unknown>;
+		call.catch(() => undefined);
+		const outcome = await Promise.race([
+			call,
+			new Promise<"timeout">((resolve) => {
+				timer = setTimeout(() => resolve("timeout"), timeoutMs);
+			}),
+		]);
+		if (outcome === "timeout") return null;
+		const response = (outcome as { response?: unknown } | null)?.response;
+		return typeof response === "string" ? response : null;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 /** At most this many model calls per lesson, one per slice of replies. */
 const MAX_CHUNKS = 3;
@@ -258,41 +298,10 @@ export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
 		input: DistillInput,
 		replies: DistillReply[],
 	): Promise<string[] | null> => {
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		try {
-			const call = env.AI.run(
-				DISTILL_MODEL as keyof AiModels,
-				{
-					messages: [{ role: "user", content: distillPrompt(input, replies) }],
-					max_tokens: 500,
-					temperature: 0,
-				} as never,
-				env.AI_GATEWAY_LLM_ID
-					? {
-							gateway: {
-								id: env.AI_GATEWAY_LLM_ID,
-								metadata: { surface: "learning-feed-distill" },
-							},
-						}
-					: undefined,
-			) as Promise<unknown>;
-			call.catch(() => undefined);
-			const outcome = await Promise.race([
-				call,
-				new Promise<"timeout">((resolve) => {
-					timer = setTimeout(() => resolve("timeout"), DISTILL_TIMEOUT_MS);
-				}),
-			]);
-			if (outcome === "timeout") return null;
-			const response = (outcome as { response?: unknown } | null)?.response;
-			if (typeof response !== "string") return null;
-			const cited = parseCitedRules(response);
-			return cited ? acceptedRules(cited, replies) : null;
-		} catch {
-			return null;
-		} finally {
-			clearTimeout(timer);
-		}
+		const response = await runDistillModel(env, distillPrompt(input, replies));
+		if (response === null) return null;
+		const cited = parseCitedRules(response);
+		return cited ? acceptedRules(cited, replies) : null;
 	};
 	return async (input) => {
 		// Up to three slices of the scope's history, read in parallel, so a
