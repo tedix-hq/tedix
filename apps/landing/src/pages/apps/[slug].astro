@@ -90,6 +90,22 @@ if (!app && !notFound && !error) {
 	notFound = true;
 }
 
+// A numbered catalog slug ("dropbox-2") that took over the vendor's plain name
+// after a retired entry released it keeps its indexed URL by redirecting.
+const unsuffixedSlug = /^(.+)-\d+$/.exec(slug)?.[1];
+if (notFound && unsuffixedSlug) {
+	try {
+		const renamed = await getCatalogClient(env).catalog.getBySlug({
+			slug: unsuffixedSlug,
+		});
+		if (renamed?.slug === unsuffixedSlug) {
+			return Astro.redirect(`/apps/${unsuffixedSlug}/`, 301);
+		}
+	} catch {
+		/* keep the not-found page */
+	}
+}
+
 // Helper functions
 function getChatGptUrl(app: CatalogAppDetail): string | null {
 	// Only return a ChatGPT URL if the app actually has a ChatGPT store listing
