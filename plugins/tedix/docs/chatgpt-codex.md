@@ -229,10 +229,21 @@ without repeating an older briefing as current. `context disconnect-output`
 removes the document selection; the selection is scoped to this checkout,
 branch and chat and leaves Work selection and sibling chats/worktrees unchanged.
 
+Two optional organization-wide documents reach every chat of the same profile
+and organization, under the same ownership and revision checks: working
+preferences and team engineering lessons.
+
+```sh
+tedix setup agents context connect-preferences --os-workspace <workspace-UUID> --output <output-UUID>
+tedix setup agents context connect-lessons --os-workspace <workspace-UUID> --output <output-UUID>
+```
+
+`disconnect-preferences` and `disconnect-lessons` remove them.
+
 The hook reads bounded host metadata (including `session_id`), discards prompt text,
 and never uploads or saves it. It does not write updates, restore execution
 authority or deliver a full transcript. Document text is bounded to 3,200
-characters; each comment to 400; the whole briefing to 6,000 UTF-8 bytes.
+characters; each comment to 400; the whole briefing to 9,600 UTF-8 bytes.
 Truncation is explicit. It checks every submitted user prompt rather than
 caching a successful read that may never have reached the model.
 

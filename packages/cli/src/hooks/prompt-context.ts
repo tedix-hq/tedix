@@ -31,8 +31,9 @@ import {
 
 const TEXT_LIMIT = 3200;
 const COMMENT_LIMIT = 400;
-const OUTPUT_BYTES = 6000;
-const TRUNCATED_BYTES = 5600;
+// Three documents of up to TEXT_LIMIT each, under the hosts' 10,000-character context cap.
+const OUTPUT_BYTES = 9600;
+const TRUNCATED_BYTES = 9200;
 const EVENT_LIMIT = 1_048_576;
 const TARGET_KEYS = [
 	"osWorkspaceId",
@@ -40,6 +41,8 @@ const TARGET_KEYS = [
 	"workItemId",
 	"preferencesWorkspaceId",
 	"preferencesOutputId",
+	"lessonsWorkspaceId",
+	"lessonsOutputId",
 ] as const;
 
 /** Cut UTF-8 bytes on a character boundary, dropping any partial character. */
@@ -100,6 +103,7 @@ export function gatewayCode(binding: JsonObject): string {
  }
  if (t.contextOutputId) result.shared = await document(t.osWorkspaceId, t.contextOutputId);
  if (t.preferencesOutputId) result.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? result.shared : await document(t.preferencesWorkspaceId, t.preferencesOutputId);
+ if (t.lessonsOutputId) result.lessons = await document(t.lessonsWorkspaceId, t.lessonsOutputId);
  if (t.workItemId) {
   const r = await work.get_work_items_by_id({id:t.workItemId});
   const comments = r.comments ?? [];
@@ -126,6 +130,7 @@ export function render(
 			"Working preferences",
 		],
 		["shared", "osWorkspaceId", "contextOutputId", "Shared decisions"],
+		["lessons", "lessonsWorkspaceId", "lessonsOutputId", "Team lessons"],
 	] as const) {
 		if (!binding[outputKey]) continue;
 		const shared = data[source];
@@ -245,7 +250,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		targeted =
 			Boolean(binding.contextOutputId) ||
 			Boolean(binding.workItemId) ||
-			Boolean(binding.preferencesOutputId);
+			Boolean(binding.preferencesOutputId) ||
+			Boolean(binding.lessonsOutputId);
 		// Decision capture adds a read only while this chat has a question on file.
 		const capture =
 			binding.decisionCapture === true &&
@@ -275,6 +281,10 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			Boolean(binding.preferencesOutputId)
 		)
 			throw new Error("incomplete preference selection");
+		if (
+			Boolean(binding.lessonsWorkspaceId) !== Boolean(binding.lessonsOutputId)
+		)
+			throw new Error("incomplete lessons selection");
 		const command = ["-w", binding.workspace];
 		const auth = await read([...command, "auth", "status", "--json"], 3000);
 		const source = String(auth.wouldUse ?? "");

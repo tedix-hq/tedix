@@ -125,6 +125,66 @@ describe("local agent context", () => {
 		).toBeUndefined();
 	});
 
+	test("team lessons are a second organization document beside preferences", () => {
+		const { opts } = fixture();
+		bind(opts);
+		const workspaceId = "11111111-1111-4111-8111-111111111111";
+		const preferenceId = "22222222-2222-4222-8222-222222222222";
+		const lessonsId = "33333333-3333-4333-8333-333333333333";
+		expect(() =>
+			changeAgentContext(
+				"connect-lessons",
+				{ osWorkspaceId: workspaceId },
+				opts,
+			),
+		).toThrow("connect-lessons requires");
+		changeAgentContext(
+			"connect-preferences",
+			{ osWorkspaceId: workspaceId, contextOutputId: preferenceId },
+			opts,
+		);
+		changeAgentContext(
+			"connect-lessons",
+			{ osWorkspaceId: workspaceId, contextOutputId: lessonsId },
+			opts,
+		);
+		const sessionId = "00000000-0000-4000-8000-000000000001";
+		const chat = { ...opts, sessionId };
+		changeAgentContext(
+			"connect",
+			{ workspace: "tedix", projectId: PROJECT },
+			chat,
+		);
+		expect(resolveAgentContext(chat)).toMatchObject({
+			preferencesOutputId: preferenceId,
+			lessonsWorkspaceId: workspaceId,
+			lessonsOutputId: lessonsId,
+		});
+		writeWorkspaceCredentials(
+			"customer",
+			{
+				loginId: "operator",
+				org: "org_customer",
+				mcpUrl: "https://customer.example.invalid/mcp",
+			},
+			opts,
+		);
+		const customer = {
+			...opts,
+			sessionId: "30000000-0000-4000-8000-000000000001",
+		};
+		changeAgentContext(
+			"connect",
+			{ workspace: "customer", projectId: PROJECT },
+			customer,
+		);
+		expect(resolveAgentContext(customer).lessonsOutputId).toBeUndefined();
+		changeAgentContext("disconnect-lessons", {}, chat);
+		const after = resolveAgentContext(chat);
+		expect(after.lessonsOutputId).toBeUndefined();
+		expect(after.preferencesOutputId).toBe(preferenceId);
+	});
+
 	test("decision capture is an explicit per-organization opt-in that other organizations do not inherit", () => {
 		const { opts } = fixture();
 		bind(opts);
