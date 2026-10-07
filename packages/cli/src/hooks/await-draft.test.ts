@@ -165,7 +165,7 @@ describe("tedix hooks await-draft", () => {
 		}
 	});
 
-	test("no queued draft ends without a read; waiting stops at 90 seconds", async () => {
+	test("no queued draft ends without a read; waiting stops at 5 minutes", async () => {
 		const unqueued = await run([], {
 			onSleep: (count) => count === 1 && created("none"),
 		});

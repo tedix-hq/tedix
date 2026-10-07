@@ -3,7 +3,7 @@
  *
  * Codex has no background rewake, but a Stop hook that prints
  * `{"decision":"block","reason":"..."}` makes Codex continue the turn with the
- * reason as a new prompt. This hook waits up to 90 seconds for the question
+ * reason as a new prompt. This hook waits up to 5 minutes for the question
  * `capture-stop` opens for this turn and, when the server auto-delivers a tedi
  * draft for it (`latestDraft.delivery: "auto"`), prints that continuation with
  * the framed draft. It returns at once when no draft was queued, when the
@@ -29,8 +29,8 @@ import {
 } from "./decision-capture";
 import { CAPTURE_EVENT_LIMIT, type HookDeps, hostEvent } from "./hook-io";
 
-export const AWAIT_DRAFT_MAX_MS = 90_000;
-export const AWAIT_DRAFT_POLL_MS = 3000;
+export const AWAIT_DRAFT_MAX_MS = 300_000;
+export const AWAIT_DRAFT_POLL_MS = 5000;
 const DETAIL_TIMEOUT_MS = 10_000;
 const FAILURE_LIMIT = 3;
 
