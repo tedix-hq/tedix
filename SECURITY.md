@@ -21,6 +21,32 @@ When reporting a vulnerability, include:
 
 We aim to acknowledge private reports within three business days.
 
+## Trust Model
+
+Treat a way past any of these as a vulnerability:
+
+- **Organization isolation**: one organization reading or changing another's
+  data, runs, or Workspaces.
+- **A tedi's grants**: a worker acting beyond its tool scopes, budget, or
+  policy, or a protected action running without its approval, or approved by
+  its own requester.
+- **Credentials**: leaking OAuth tokens, CLI sign-ins, or stored provider
+  secrets.
+- **The MCP gateway**: calling a tool or connection without the scope it
+  requires.
+- **Worker-to-Worker trust**: reaching a Service Binding entrypoint from
+  outside, or forging the session or organization it trusts.
+
+These are not security boundaries:
+
+- what a model does within the scopes and approvals someone granted;
+- content a user deliberately shares with a worker or another person;
+- the security of the Cloudflare account behind a self-hosted installation;
+- local mode (`bun run-local`) on your own machine.
+
+[Worker permissions](docs/public/workers-and-governance.md) describes the
+grant and approval model.
+
 ## Embargo And Disclosure
 
 Security fixes may be developed under a temporary embargo before public

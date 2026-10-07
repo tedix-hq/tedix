@@ -1,6 +1,7 @@
 # Tedix
 
 [![OSS Public CI](https://github.com/tedix-hq/tedix/actions/workflows/oss-public-ci.yml/badge.svg?branch=main)](https://github.com/tedix-hq/tedix/actions/workflows/oss-public-ci.yml)
+[![Status: beta](https://img.shields.io/badge/status-beta-yellow)](docs/public/release-status.md)
 
 **Agents you can hold accountable.**
 
@@ -105,6 +106,22 @@ and vulnerabilities through [Security](SECURITY.md). See also
 
 Community: ask questions and share what you build in
 [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions).
+
+Releases: [RELEASING.md](RELEASING.md) explains what is versioned and when.
+
+Telemetry: the CLI sends no analytics, telemetry, or crash reports. See
+[Telemetry and network contact](docs/public/telemetry.md) for what Tedix Cloud
+and the opt-in plugin hooks send.
+
+## News
+
+Newest first. Each entry is a date and one or two plain sentences.
+
+- **2026-10-07**: The Tedix plugin restarted at version 0.1.0 and is now
+  versioned independently of the CLI.
+- **2026-10-06**: The source is public on GitHub, with the first source
+  prerelease,
+  [v0.1.0-beta.1](https://github.com/tedix-hq/tedix/releases/tag/v0.1.0-beta.1).
 
 ## Licensing
 

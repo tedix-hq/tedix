@@ -24,6 +24,7 @@ the same plugin identity. The hooks contain no scripts: each runs
 `tedix hooks <name>` in the installed Tedix CLI, which is their only
 requirement, and exits silently when that CLI is not installed. Neither
 artifact contains app registrations or credentials.
+The local hooks need Tedix CLI 0.2.0 or later.
 Building a ZIP does not install, submit or publish it.
 
 OpenAI supports MCP, skills and trusted local hooks in one plugin. Omitting

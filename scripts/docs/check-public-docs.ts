@@ -428,6 +428,7 @@ for (const path of [
 	"GOVERNANCE.md",
 	"LICENSES/README.md",
 	"README.md",
+	"RELEASING.md",
 	"SECURITY.md",
 	"SUPPORT.md",
 	"TRADEMARKS.md",
