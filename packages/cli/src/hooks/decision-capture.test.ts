@@ -18,9 +18,21 @@ import {
 	draftStatusPath,
 	peek,
 	questionPath,
+	repositoryName,
 	runDecisionCapture,
 } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
+
+test("the repository is named by its Git origin, not a worktree folder", () => {
+	const worktree = "/src/example/.claude/worktrees/agent-1234";
+	expect(
+		repositoryName("git@github.com:example-org/widgets.git", worktree),
+	).toBe("widgets");
+	expect(
+		repositoryName("https://github.com/example-org/widgets/", worktree),
+	).toBe("widgets");
+	expect(repositoryName(undefined, "/src/widgets")).toBe("widgets");
+});
 
 /** Checks for opt-in decision capture: pairing, redaction, opt-in and fail-silent behaviour. */
 const SESSION = "77777777-7777-4777-8777-777777777777";

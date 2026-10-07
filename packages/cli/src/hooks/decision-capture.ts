@@ -616,6 +616,15 @@ function requestOf(result: JsonObject): { id: string; version: number } {
 	return request as { id: string; version: number };
 }
 
+/** `git@host:owner/repo.git` or `https://host/owner/repo` → `repo`; else the checkout folder. */
+export function repositoryName(origin: unknown, root: unknown): string {
+	const fromOrigin =
+		typeof origin === "string"
+			? /([^/:]+?)(?:\.git)?\/*$/.exec(origin.trim())?.[1]
+			: undefined;
+	return (fromOrigin || basename(String(root))).slice(0, 80);
+}
+
 function gitBranch(cwd: string): string {
 	try {
 		return execFileSync("git", ["-C", cwd, "branch", "--show-current"], {
@@ -851,10 +860,11 @@ async function onStop(
 	await settle(triage);
 	const cwd = typeof event.cwd === "string" ? event.cwd : deps.cwd;
 	// Outside a bound repository the question names none (lessons: `general`).
+	// The Git origin names the repository; a worktree or clone folder name does not.
 	const repository =
 		binding.contextSource === "default"
 			? null
-			: basename(String(binding.root)).slice(0, 80);
+			: repositoryName(binding.origin, binding.root);
 	const firstLine =
 		message
 			.trim()
