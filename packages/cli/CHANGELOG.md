@@ -3,6 +3,17 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.5.0 — 2026-10-07
+
+### Added
+
+- `tedix learn import-sessions` teaches Tedix from your past Claude Code and
+  Codex sessions on this machine. It sends only redacted pairs of the agent's
+  last message and your reply, never a whole transcript, to the organization
+  each repository is bound to, then turns them into lessons for your later
+  sessions. `--dry-run` shows counts and samples and sends nothing; re-running
+  is safe.
+
 ## 0.4.1 — 2026-10-07
 
 ### Fixed
