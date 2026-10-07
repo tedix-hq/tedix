@@ -329,6 +329,57 @@ describe("aggregate entry resolution is batched", () => {
 		]);
 	});
 
+	it("carries an organization's reviewed scopes to its per-app namespaces", async () => {
+		installFixtures([
+			{
+				slug: "scoped-unified",
+				mcpConfig: {
+					aggregateApps: [
+						{ slug: "cms-scoped-landing", prefix: "cms_landing" },
+						{ slug: "cms-scoped-blog", prefix: "cms_blog" },
+						{ slug: "bench-scoped", prefix: "bench" },
+					],
+					toolScopes: {
+						cms_landing: ["mcp:content"],
+						cms_blog__media_delete: ["mcp:content.admin"],
+						"*": ["mcp:apps"],
+					},
+				},
+				tools: [],
+			},
+			{ slug: "cms-scoped-landing", tools: [tool("byline_list")] },
+			{ slug: "cms-scoped-blog", tools: [tool("media_delete")] },
+			{
+				slug: "bench-scoped",
+				mcpConfig: {
+					toolScopes: { calculate: ["mcp:apps.read"], "*": ["mcp:apps"] },
+				},
+				tools: [tool("calculate")],
+			},
+		]);
+		const surface = await aggregateAndPrefixTools(
+			[
+				{
+					slug: "scoped-unified",
+					prefix: "scoped-unified",
+					organizationId: "org-scoped",
+					organizationMount: true,
+				},
+			],
+			createEnv(),
+			new Set(),
+			undefined,
+			"connect",
+			undefined,
+			false,
+		);
+		expect(surface.toolScopes).toEqual({
+			scoped_unified_cms_landing: ["mcp:content"],
+			scoped_unified_cms_blog__media_delete: ["mcp:content.admin"],
+			scoped_unified_bench__calculate: ["mcp:apps.read"],
+		});
+	});
+
 	it("keeps a selected gateway's native and nested tools under one organization", async () => {
 		installFixtures([
 			{

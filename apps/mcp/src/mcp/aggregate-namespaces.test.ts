@@ -13,8 +13,11 @@ import {
 	aggregateTediNamespace,
 	configuredAggregateNamespaces,
 	isOrganizationMountNamespace,
+	mountedAppToolScopes,
 	organizationAppNamespace,
+	organizationMountToolScopes,
 } from "./aggregate-namespaces";
+import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes";
 
 describe("aggregateAppNamespaceCandidates", () => {
 	it("sanitizes the slug and prefers an explicit prefix", () => {
@@ -144,5 +147,63 @@ describe("isOrganizationMountNamespace", () => {
 			isOrganizationMountNamespace("tedix-unified", "tedix_demo_unified_cms"),
 		).toBe(false);
 		expect(isOrganizationMountNamespace("acme-unified", "acme")).toBe(false);
+	});
+});
+
+describe("organization mount tool scopes", () => {
+	const apps = [
+		{ slug: "cms-acme-landing", prefix: "cms_landing" },
+		{ slug: "cms-acme-blog", prefix: "cms_blog" },
+	];
+
+	it("re-keys the gateway's app and tool keys to Connect namespaces", () => {
+		expect(
+			organizationMountToolScopes("acme-unified", apps, {
+				cms_landing: ["mcp:content"],
+				cms_blog__media_delete: ["mcp:content.admin"],
+				other_app: ["mcp:apps"],
+				"*": ["mcp:apps"],
+				malformed: "mcp:apps",
+			}),
+		).toEqual({
+			acme_unified_cms_landing: ["mcp:content"],
+			acme_unified_cms_blog__media_delete: ["mcp:content.admin"],
+		});
+		expect(organizationMountToolScopes("acme-unified", apps, null)).toEqual({});
+	});
+
+	it("carries only an app's own per-tool keys", () => {
+		expect(
+			mountedAppToolScopes("acme_unified_bench", ["calculate", "other"], {
+				calculate: ["mcp:apps.read"],
+				"*": ["mcp:apps"],
+			}),
+		).toEqual({ acme_unified_bench__calculate: ["mcp:apps.read"] });
+	});
+
+	it("lets Connect resolve a mounted tool that otherwise fails closed", () => {
+		const tool = {
+			toolId: "acme_unified_cms_landing__byline_list",
+			authRequired: true,
+			annotations: { readOnlyHint: true },
+			config: { _aggregateNamespace: "acme_unified_cms_landing" },
+		};
+		const namespace = "acme_unified_cms_landing";
+		const options = { fallbackOnAuthenticatedAuthMode: true };
+		expect(() =>
+			resolveMcpToolRequiredScopes(tool, namespace, {}, options),
+		).toThrow(/Missing MCP capability mapping/);
+		expect(
+			resolveMcpToolRequiredScopes(
+				tool,
+				namespace,
+				{
+					toolScopes: organizationMountToolScopes("acme-unified", apps, {
+						cms_landing: ["mcp:content"],
+					}),
+				},
+				options,
+			),
+		).toEqual(["mcp:content.read"]);
 	});
 });

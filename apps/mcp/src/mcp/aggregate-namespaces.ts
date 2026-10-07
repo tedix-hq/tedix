@@ -68,6 +68,73 @@ export function organizationAppNamespace(
 	return `${mount}_${trimmed || own}`;
 }
 
+const sanitizeNamespace = (value: string) =>
+	value.replace(/[^a-zA-Z0-9_]/g, "_");
+
+function readToolScopes(value: unknown): Record<string, string[]> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const scopes: Record<string, string[]> = {};
+	for (const [key, entry] of Object.entries(value)) {
+		if (
+			Array.isArray(entry) &&
+			entry.every((scope) => typeof scope === "string")
+		) {
+			scopes[key] = entry;
+		}
+	}
+	return scopes;
+}
+
+/**
+ * Capability scopes for the apps of a Connect organization mount.
+ *
+ * The organization's gateway keys its reviewed `toolScopes` by each app's own
+ * prefix (`cms_landing`) or by `<prefix>__<tool>`. Connect serves those apps
+ * under per-app namespaces (`acme_unified_cms_landing`) and evaluates scopes
+ * against its own config, so the gateway's keys are re-keyed to the namespaces
+ * Connect actually serves. Only the selected organization's own gateway config
+ * is read; a wildcard key never crosses into Connect.
+ */
+export function organizationMountToolScopes(
+	mountPrefix: string,
+	apps: readonly AggregateNamespaceEntry[],
+	gatewayToolScopes: unknown,
+): Record<string, string[]> {
+	const scopes = readToolScopes(gatewayToolScopes);
+	const mapped: Record<string, string[]> = {};
+	for (const app of apps) {
+		const own = sanitizeNamespace(app.prefix ?? app.slug);
+		const namespace = organizationAppNamespace(mountPrefix, app);
+		for (const [key, value] of Object.entries(scopes)) {
+			const normalized = sanitizeNamespace(key);
+			if (normalized === own) mapped[namespace] = value;
+			else if (normalized.startsWith(`${own}__`)) {
+				mapped[`${namespace}${normalized.slice(own.length)}`] = value;
+			}
+		}
+	}
+	return mapped;
+}
+
+/**
+ * An app's own per-tool `toolScopes`, keyed by the tool ids Connect serves
+ * (`<namespace>__<tool>`). Wildcard and namespace keys are not carried over:
+ * they would widen past the tools the app itself declared.
+ */
+export function mountedAppToolScopes(
+	namespace: string,
+	toolIds: readonly string[],
+	appToolScopes: unknown,
+): Record<string, string[]> {
+	const scopes = readToolScopes(appToolScopes);
+	const mapped: Record<string, string[]> = {};
+	for (const toolId of toolIds) {
+		const value = scopes[toolId];
+		if (value) mapped[`${namespace}__${toolId}`] = value;
+	}
+	return mapped;
+}
+
 /** Whether `namespace` is served by the Connect organization mount `mountPrefix`. */
 export function isOrganizationMountNamespace(
 	mountPrefix: string,
