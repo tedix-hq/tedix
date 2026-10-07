@@ -1162,6 +1162,9 @@ function mergeGeneratedConfig(
 			? { method: endpoint.route.method.toUpperCase() }
 			: {}),
 	};
+	// A generated projection must retain the explicitly reviewed native opt-in.
+	// Other config remains contract-derived; truthy values do not grant access.
+	if (existingConfig.nativeDirect === true) nextConfig.nativeDirect = true;
 
 	if (
 		endpoint.router === "tedis" &&
