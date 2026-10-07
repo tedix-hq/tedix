@@ -85,6 +85,7 @@ import {
 	mergeBrainWriteMetadata,
 } from "./brain-write-quality";
 import { type ClefModelId, type ClefQuestion, runClef } from "../lib/clef";
+import type { LessonDistiller } from "./lesson-distiller";
 
 export const LEARNING_FEED_PRODUCER = "learning-feed";
 export const WORK_FIX_LEARNING_SURFACE = "work_fix";
@@ -149,6 +150,8 @@ export interface LearningFeedFactMetadata {
 	autoConfirmed?: true;
 	signalCounts: Record<string, number>;
 	lastEventAt: string;
+	/** The content is model-distilled rules, not quotes. */
+	distilled?: boolean;
 }
 
 export interface LessonRouting {
@@ -454,6 +457,7 @@ async function writeDecisionLessons(
 	events: LearningInteractionEventRow[],
 	result: LearningFeedResult,
 	route: LessonRouter | undefined,
+	distill?: LessonDistiller,
 ): Promise<void> {
 	const byTopic = new Map<string, LearningInteractionEventRow[]>();
 	for (const event of events) {
@@ -480,9 +484,9 @@ async function writeDecisionLessons(
 				.filter((f) => !isReplaceableLesson(f))
 				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
-		const [lesson] = buildDecisionLessons(topicEvents, covered);
-		if (!lesson) continue;
-		const evidence = new Set(lesson.metadata.evidenceEventIds);
+		const [quoted] = buildDecisionLessons(topicEvents, covered);
+		if (!quoted) continue;
+		const evidence = new Set(quoted.metadata.evidenceEventIds);
 		// The miner's earlier lessons this one replaces: every one under this
 		// key, and a shared-key one whose evidence this lesson fully contains.
 		const replaced = [
@@ -498,17 +502,53 @@ async function writeDecisionLessons(
 			).values(),
 		];
 		// Nothing new since the active lesson for this scope: no churn. A
-		// pending one from before auto-confirmation is rewritten as active.
+		// pending one from before auto-confirmation is rewritten as active, and
+		// a quoted one is rewritten once a distiller is available.
 		const activeIds = new Set(
 			replaced
 				.filter((f) => f.reviewStatus === "confirmed")
 				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
+		const undistilled =
+			distill !== undefined &&
+			replaced.some(
+				(f) => rec(rec(f.metadata).learningFeed).distilled !== true,
+			);
 		if (
+			!undistilled &&
 			!replaced.some((f) => f.reviewStatus === "pending") &&
-			lesson.metadata.evidenceEventIds.every((id) => activeIds.has(id))
+			quoted.metadata.evidenceEventIds.every((id) => activeIds.has(id))
 		)
 			continue;
+		// Quotes become durable rules when a distiller is given. A distiller
+		// that finds nothing lasting retires the miner's earlier lesson here.
+		const rules = distill
+			? await distill({ content: quoted.content, scope: quoted.scope }).catch(
+					() => null,
+				)
+			: null;
+		if (rules && rules.length === 0) {
+			for (const old of replaced)
+				await invalidateFact(
+					db,
+					old.id,
+					`No lasting rule in the decisions for topic ${topicKey}`,
+				);
+			continue;
+		}
+		const lesson: DecisionLessonDraft = rules
+			? {
+					...quoted,
+					content: clip(
+						[
+							quoted.content.split("\n")[0]!,
+							...rules.map((rule) => `- ${rule}`),
+						].join("\n"),
+						FACT_CHARS,
+					),
+					metadata: { ...quoted.metadata, distilled: true },
+				}
+			: quoted;
 		const sourceHash = await sha256(
 			`${ownerUserId ?? ""}\n${lesson.content.toLowerCase()}`,
 		);
@@ -768,6 +808,7 @@ async function mineHistoricImports(
 	orgId: string,
 	result: LearningFeedResult,
 	route: LessonRouter | undefined,
+	distill?: LessonDistiller,
 ): Promise<void> {
 	const issueKeys = await listLearningIssueKeysForReflection(db, {
 		organizationId: orgId,
@@ -788,7 +829,7 @@ async function mineHistoricImports(
 			})
 		).filter((event) => event.organizationId === orgId);
 		result.decisionEventsScanned += events.length;
-		await writeDecisionLessons(db, orgId, events, result, route);
+		await writeDecisionLessons(db, orgId, events, result, route, distill);
 	}
 }
 /**
@@ -801,11 +842,14 @@ export async function mineLearningFeed(
 		orgId,
 		now = new Date(),
 		route,
+		distill,
 	}: {
 		orgId: string;
 		now?: Date;
 		/** Owning-tedi router (`clefLessonRouter(env)`); omitted: no routing. */
 		route?: LessonRouter;
+		/** Turns quoted decisions into durable rules (`modelLessonDistiller(env)`). */
+		distill?: LessonDistiller;
 	},
 ): Promise<LearningFeedResult> {
 	const result: LearningFeedResult = {
@@ -832,12 +876,12 @@ export async function mineLearningFeed(
 			})
 		).filter((event) => event.organizationId === orgId);
 		result.decisionEventsScanned = decisions.length;
-		await writeDecisionLessons(db, orgId, decisions, result, route);
+		await writeDecisionLessons(db, orgId, decisions, result, route, distill);
 	} catch (error) {
 		console.error("[learning-feed] decision lessons failed:", error);
 	}
 	try {
-		await mineHistoricImports(db, orgId, result, route);
+		await mineHistoricImports(db, orgId, result, route, distill);
 	} catch (error) {
 		console.error("[learning-feed] historic import lessons failed:", error);
 	}

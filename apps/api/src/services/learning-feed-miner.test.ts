@@ -324,6 +324,96 @@ describe("historic session imports", () => {
 			learningFeed: { evidenceEventIds: ["h2", "h1"] },
 		});
 	});
+
+	it("writes distilled rules in place of quotes", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
+		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
+			"decision:acme:claude-code:deploy",
+		]);
+		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+			imported("h1", "2025-01-01T10:00:00.000Z"),
+			imported("h2", "2025-02-01T10:00:00.000Z"),
+		]);
+		const distill = vi.fn(async () => ["Never deploy on Fridays."]);
+		await mineLearningFeed(db, { orgId: "org-1", distill });
+		expect(vi.mocked(distill).mock.calls[0]![0]).toMatchObject({
+			scope: { repo: "acme", harness: "claude-code", topic: "deploy" },
+		});
+		const fact = vi.mocked(createFact).mock.calls[0]![1];
+		expect(fact.content).toBe(
+			"Lessons from user decisions in acme (claude-code, deploy):\n- Never deploy on Fridays.",
+		);
+		expect(fact.metadata).toMatchObject({ learningFeed: { distilled: true } });
+	});
+
+	it("rewrites an earlier quoted lesson once, then leaves the distilled one alone", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
+		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
+			"decision:acme:claude-code:deploy",
+		]);
+		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+			imported("h1", "2025-01-01T10:00:00.000Z"),
+			imported("h2", "2025-02-01T10:00:00.000Z"),
+		]);
+		const lesson = (distilled: boolean) => ({
+			id: "fact-1",
+			reviewStatus: "confirmed",
+			metadata: {
+				learningFeed: {
+					evidenceEventIds: ["h2", "h1"],
+					autoConfirmed: true,
+					...(distilled ? { distilled } : {}),
+				},
+			},
+		});
+		const distill = vi.fn(async () => ["Never deploy on Fridays."]);
+		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
+			lesson(false),
+		] as never);
+		expect(
+			(await mineLearningFeed(db, { orgId: "org-1", distill })).factsWritten,
+		).toBe(1);
+		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
+			lesson(true),
+		] as never);
+		distill.mockClear();
+		expect(
+			(await mineLearningFeed(db, { orgId: "org-1", distill })).factsWritten,
+		).toBe(0);
+		expect(distill).not.toHaveBeenCalled();
+	});
+
+	it("retires the miner's lesson when nothing lasting is left", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
+		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
+			"decision:acme:claude-code:deploy",
+		]);
+		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+			imported("h1", "2025-01-01T10:00:00.000Z"),
+			imported("h2", "2025-02-01T10:00:00.000Z"),
+			imported("h3", "2025-03-01T10:00:00.000Z"),
+		]);
+		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
+			{
+				id: "fact-quotes",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { evidenceEventIds: ["h1", "h2"], autoConfirmed: true },
+				},
+			},
+		] as never);
+		const result = await mineLearningFeed(db, {
+			orgId: "org-1",
+			distill: async () => [],
+		});
+		expect(result.factsWritten).toBe(0);
+		expect(createFact).not.toHaveBeenCalled();
+		expect(invalidateFact).toHaveBeenCalledWith(
+			db,
+			"fact-quotes",
+			expect.stringContaining("No lasting rule"),
+		);
+	});
 });
 
 describe("mineLearningFeed", () => {
