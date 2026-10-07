@@ -641,6 +641,7 @@
         "ink": "^8.0.0",
         "react": "catalog:",
         "react-devtools-core": "^8.0.0",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@tedix/tsconfig": "workspace:*",
