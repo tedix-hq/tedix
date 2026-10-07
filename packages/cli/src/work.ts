@@ -39,6 +39,14 @@ import {
 	ListWorkInteractionCliInboxInputSchema,
 	ListWorkInteractionCliInboxResultSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
+import {
+	TriageAgentTurnInputSchema,
+	TriageResultSchema,
+	LabelAgentReplyInputSchema,
+	LabelAgentReplyResultSchema,
+	RequestAgentReplyDraftInputSchema,
+	RequestAgentReplyDraftResultSchema,
+} from "@tedix/api-contract/schemas/agent-turn-triage";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolveAgentContext, type AgentContextResult } from "./agent-context";
@@ -462,6 +470,18 @@ const CLI_PROJECTION_SCHEMAS: Record<
 	string,
 	{ input: z.ZodType; output: z.ZodType }
 > = {
+	"agentTurnTriage/triage": {
+		input: TriageAgentTurnInputSchema,
+		output: TriageResultSchema,
+	},
+	"agentTurnTriage/labelReply": {
+		input: LabelAgentReplyInputSchema,
+		output: LabelAgentReplyResultSchema,
+	},
+	"agentTurnTriage/requestReplyDraft": {
+		input: RequestAgentReplyDraftInputSchema,
+		output: RequestAgentReplyDraftResultSchema,
+	},
 	"workItems/listCliProjection": {
 		input: ListWorkCliProjectionInputSchema,
 		output: ListWorkCliProjectionResultSchema,
@@ -488,6 +508,9 @@ const CLI_PROJECTION_SCHEMAS: Record<
 	},
 };
 const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
+	triage_agent_turn: "agentTurnTriage/triage",
+	label_agent_reply: "agentTurnTriage/labelReply",
+	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
@@ -2648,6 +2671,7 @@ page — the board exposes no server-side evidence filter — so raise --limit b
 trusting a filtered page as a whole-ledger answer.
 
 Factory controls (--input accepts inline JSON or @path):
+  agent-turn-triage|agent-reply-label|agent-reply-draft-request
   case-list|get|create|stage|close|attach|dependency-add
   milestone-list|create|update|attach|dependency-add · health-list|record
   approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
@@ -2683,7 +2707,7 @@ type VerbHandler = (
 
 interface StructuredFactoryVerb {
 	tool: string;
-	namespace?: "projects" | "work";
+	namespace?: "projects" | "work" | "agent";
 	write: boolean;
 	pathField?: string;
 	defaultInput?: (ctx: WorkContext) => Record<string, unknown>;
@@ -2691,6 +2715,21 @@ interface StructuredFactoryVerb {
 }
 
 const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
+	"agent-turn-triage": {
+		tool: "triage_agent_turn",
+		namespace: "agent",
+		write: false,
+	},
+	"agent-reply-label": {
+		tool: "label_agent_reply",
+		namespace: "agent",
+		write: false,
+	},
+	"agent-reply-draft-request": {
+		tool: "request_agent_reply_draft",
+		namespace: "agent",
+		write: true,
+	},
 	"case-list": {
 		tool: "list_work_cases",
 		write: false,

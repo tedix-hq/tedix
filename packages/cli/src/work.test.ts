@@ -32,6 +32,9 @@ const ATTEMPT = "22222222-2222-4222-8222-222222222222";
 
 const TEST_ORG = "99999999-9999-4999-8999-999999999999";
 const TEST_ENDPOINTS: Record<string, string> = {
+	triage_agent_turn: "agentTurnTriage/triage",
+	label_agent_reply: "agentTurnTriage/labelReply",
+	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
@@ -2662,6 +2665,23 @@ describe("native dispatcher coverage", () => {
 			{ args?: string; work?: WorkOptions; expected?: number }
 		> = {
 			checkpoint: { args: "" },
+			"agent-turn-triage": {
+				args: "",
+				work: { input: JSON.stringify({ text: "Fictional turn" }) },
+			},
+			"agent-reply-label": {
+				args: "",
+				work: {
+					input: JSON.stringify({
+						turnText: "Fictional turn",
+						replyText: "yes",
+					}),
+				},
+			},
+			"agent-reply-draft-request": {
+				args: "",
+				work: { input: JSON.stringify({ requestId: ITEM }) },
+			},
 			"claim-files": {
 				work: { repoKey: "example", paths: ["src/example.ts"] },
 			},
@@ -2726,6 +2746,20 @@ describe("native dispatcher coverage", () => {
 			const fixture = modernContext(
 				spec?.work ?? (spec ? {} : { input: "{}" }),
 				(source) => {
+					if (source.includes("triage_agent_turn"))
+						return {
+							status: "ok",
+							urgency: "later",
+							labels: {},
+							urgentLabels: [],
+							model: "fixture",
+							policyVersion: 1,
+							latencyMs: 1,
+						};
+					if (source.includes("label_agent_reply"))
+						return { status: "ok", label: "approve", p: 0.9, model: "fixture" };
+					if (source.includes("request_agent_reply_draft"))
+						return { status: "queued" };
 					if (source.includes("get_work_admission_specification"))
 						return {
 							workItemId: ITEM,
@@ -2828,7 +2862,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(57);
+		expect(covered).toHaveLength(60);
 	});
 });
 
@@ -2854,5 +2888,107 @@ describe("native Work publication boundary", () => {
 			"Caller stopped",
 		);
 		expect(fixture.sources).toHaveLength(1);
+	});
+});
+
+describe("native agent hook factory operations", () => {
+	const cases = [
+		[
+			"agent-turn-triage",
+			"triage_agent_turn",
+			{ text: "Fictional turn" },
+			{
+				status: "ok",
+				urgency: "later",
+				labels: {},
+				urgentLabels: [],
+				model: "fixture",
+				policyVersion: 1,
+				latencyMs: 1,
+			},
+		],
+		[
+			"agent-reply-label",
+			"label_agent_reply",
+			{ turnText: "Fictional turn", replyText: "yes" },
+			{ status: "ok", label: "approve", p: 0.9, model: "fixture" },
+		],
+		[
+			"agent-reply-draft-request",
+			"request_agent_reply_draft",
+			{ requestId: ITEM },
+			{ status: "queued" },
+		],
+	] as const;
+	test("calls literal configured agent descriptors once with current schemas and no code executor", async () => {
+		for (const [verb, tool, input, output] of cases) {
+			const { ctx, sources, nativeCalls } = modernContext(
+				{ input: JSON.stringify(input) },
+				() => output,
+			);
+			const result = await capture(verb, ctx);
+			expect(result.code).toBe(0);
+			expect(JSON.parse(result.out[0]!)).toEqual(output);
+			expect(sources).toHaveLength(1);
+			expect(sources[0]).toContain(`agent.${tool}`);
+			expect(
+				nativeCalls.filter((x) => x.name === `configured_agent__${tool}`),
+			).toHaveLength(1);
+			expect(nativeCalls.some((x) => x.name === "code")).toBe(false);
+		}
+	});
+	test("refuses invalid owning input before bootstrap and invalid output without publishing", async () => {
+		for (const [verb] of cases) {
+			const bad = modernContext({ input: "{}" });
+			const inputResult = await capture(verb, bad.ctx);
+			expect(inputResult.code).not.toBe(0);
+			expect(bad.nativeCalls).toHaveLength(0);
+			const [, , input] = cases.find((x) => x[0] === verb)!;
+			const badOutput = modernContext({ input: JSON.stringify(input) }, () => ({
+				status: "invented",
+			}));
+			const outputResult = await capture(verb, badOutput.ctx);
+			expect(outputResult.code).not.toBe(0);
+			expect(outputResult.out.join(" ")).not.toContain('"status":"invented"');
+			expect(badOutput.sources).toHaveLength(1);
+		}
+	});
+	test("refuses ineligible or unauthorized configured routes before each purpose call", async () => {
+		for (const [verb, , input, output] of cases)
+			for (const field of ["eligible", "authorized"]) {
+				const fixture = modernContext(
+					{ input: JSON.stringify(input) },
+					() => output,
+				);
+				const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+				fixture.ctx.client.callTool = (async (name, args, options) => {
+					const result = (await invoke(name, args, options)) as any;
+					if (name === "catalog_search")
+						result.results[0].native[field] = false;
+					return result;
+				}) as TedixHomeClient["callTool"];
+				expect((await capture(verb, fixture.ctx)).code).not.toBe(0);
+				expect(fixture.sources).toEqual([]);
+				expect(fixture.wire.some((x) => x.name === "code")).toBe(false);
+				await fixture.client.close();
+			}
+	});
+
+	test("ambiguous draft mutation failure never repeats or falls back", async () => {
+		const { ctx, sources, nativeCalls } = modernContext(
+			{ input: JSON.stringify({ requestId: ITEM }) },
+			() => {
+				throw new Error("Connection dropped after dispatch");
+			},
+		);
+		const result = await capture("agent-reply-draft-request", ctx);
+		expect(result.code).not.toBe(0);
+		expect(sources).toHaveLength(1);
+		expect(
+			nativeCalls.filter(
+				(x) => x.name === "configured_agent__request_agent_reply_draft",
+			),
+		).toHaveLength(1);
+		expect(nativeCalls.some((x) => x.name === "code")).toBe(false);
 	});
 });
