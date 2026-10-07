@@ -395,6 +395,7 @@ describe("Work interaction canonical actor projections", () => {
 			createdAt: "2026-08-21T02:00:00.000Z",
 			turnType: "approval",
 			delivery: "review",
+			gate: null as unknown,
 		};
 		expect(await target.get({ requestId: request.id })).toMatchObject({
 			latestDraft,
@@ -414,6 +415,36 @@ describe("Work interaction canonical actor projections", () => {
 		});
 		expect(await owner.get({ requestId: request.id })).toMatchObject({
 			latestDraft,
+		});
+		// The delivery-gate audit is exposed for review; a malformed row reads null.
+		const gate = {
+			status: "fail",
+			model: "@cf/cloudflare/clef-flash",
+			checks: [{ id: "needs_human", p: 0.9, pass: false }],
+			latencyMs: 40,
+		};
+		const insertGated = sqlite.prepare(
+			"INSERT INTO work_interaction_reply_drafts (id,org_id,interaction_id,drafter_type,drafter_id,body,rationale,turn_type,gate,created_at) VALUES (?,?,?,'tedi','drafter','Third','Board priority','approval',?,?)",
+		);
+		insertGated.run(
+			"00000000-0000-4000-8000-0000000000d3",
+			ORG_ID,
+			request.id,
+			JSON.stringify(gate),
+			"2026-08-21T03:00:00.000Z",
+		);
+		expect(await target.get({ requestId: request.id })).toMatchObject({
+			latestDraft: { body: "Third", gate },
+		});
+		insertGated.run(
+			"00000000-0000-4000-8000-0000000000d4",
+			ORG_ID,
+			request.id,
+			JSON.stringify({ status: "maybe" }),
+			"2026-08-21T04:00:00.000Z",
+		);
+		expect(await target.get({ requestId: request.id })).toMatchObject({
+			latestDraft: { gate: null },
 		});
 		await expect(other.get({ requestId: request.id })).rejects.toMatchObject({
 			code: "FORBIDDEN",

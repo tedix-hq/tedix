@@ -16,6 +16,7 @@
  * {@link countConsecutiveAutoReplies}.
  */
 
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -55,6 +56,8 @@ export interface InsertReplyDraftParams {
 	turnType?: string | null;
 	/** Defaults to `review`. */
 	delivery?: ReplyDraftDelivery;
+	/** Delivery-gate audit (JSON); null when the gate was not reached. */
+	gate?: Record<string, JsonValue> | null;
 	now: string;
 }
 
@@ -101,6 +104,7 @@ export async function insertReplyDraft(
 				rationale: p.rationale,
 				turnType: p.turnType ?? null,
 				delivery: p.delivery ?? "review",
+				gate: p.gate ?? null,
 				createdAt: p.now,
 			})
 			.returning();

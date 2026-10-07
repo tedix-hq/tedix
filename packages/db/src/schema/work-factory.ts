@@ -672,6 +672,13 @@ export const workInteractionReplyDrafts = sqliteTable(
 		delivery: text("delivery", { enum: ["review", "auto"] as const })
 			.notNull()
 			.default("review"),
+		/**
+		 * Audit of the Clef delivery gate that decided `delivery`: per-check
+		 * probabilities and verdicts, or `unavailable` (failed closed to
+		 * `review`). Null when the gate was not reached (an earlier autoSend
+		 * guardrail already chose `review`) and on drafts before the gate.
+		 */
+		gate: text("gate", { mode: "json" }).$type<Record<string, JsonValue>>(),
 		createdAt: text("created_at").notNull(),
 	},
 	(table) => [

@@ -784,6 +784,10 @@
 		{
 			"name": "20261006213854_reply_draft_delivery/migration.sql",
 			"sha256": "8ec4f8a25fdd23c9567e16e0cb394c9d9311c5b4f43f3e5779c219eca506ff21"
+		},
+		{
+			"name": "20261007101135_reply_draft_gate/migration.sql",
+			"sha256": "c1eccbb67a24dba9879cebb1d91576d337d06de8501f7cbe807e0a3307b5a8b8"
 		}
 	]
 }

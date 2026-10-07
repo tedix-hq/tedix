@@ -95,6 +95,42 @@ describe("agentTurnTriageContract", () => {
 		).toBe(true);
 	});
 
+	it("validates the delivery gate and keeps it optional", () => {
+		const base = {
+			enabled: true,
+			model: "@cf/cloudflare/clef-flash",
+			questions: [question],
+		};
+		expect(
+			AgentTurnTriagePolicyInputSchema.parse(base).deliveryGate,
+		).toBeUndefined();
+		const gate = (autoWhen: unknown, id = "needs_human") => ({
+			...base,
+			deliveryGate: {
+				model: "@cf/cloudflare/clef-flash",
+				questions: [{ id, instructions: "Needs the human?", autoWhen }],
+			},
+		});
+		for (const autoWhen of [{ gte: 0.8 }, { lte: 0.3 }])
+			expect(
+				AgentTurnTriagePolicyInputSchema.safeParse(gate(autoWhen)).success,
+			).toBe(true);
+		for (const autoWhen of [{}, { gte: 1.1 }, { gte: 0.8, lte: 0.3 }])
+			expect(
+				AgentTurnTriagePolicyInputSchema.safeParse(gate(autoWhen)).success,
+			).toBe(false);
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse(gate({ lte: 0.3 }, "bad id"))
+				.success,
+		).toBe(false);
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse({
+				...base,
+				deliveryGate: { model: "@cf/cloudflare/clef-flash", questions: [] },
+			}).success,
+		).toBe(false);
+	});
+
 	it("bounds reply drafts", () => {
 		const draft = {
 			requestId: "3f1b5d4e-8f6c-4a42-9b8e-1c2d3e4f5a6b",

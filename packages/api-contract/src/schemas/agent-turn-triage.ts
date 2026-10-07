@@ -113,7 +113,8 @@ export type AgentReplyDraftingPolicy = z.infer<
  * proposed next step is reversible, the question is quiet (triage `ok`,
  * `later`, no urgent labels) and fewer than `maxConsecutive` earlier questions
  * of the same agent session were auto-answered since the user last replied
- * there themselves. Otherwise the draft waits for review. Off by default.
+ * there themselves, and every `deliveryGate` check passes. Otherwise the
+ * draft waits for review. Off by default.
  */
 export const AgentReplyAutoSendPolicySchema = z.strictObject({
 	enabled: z
@@ -130,6 +131,89 @@ export const AgentReplyAutoSendPolicySchema = z.strictObject({
 });
 export type AgentReplyAutoSendPolicy = z.infer<
 	typeof AgentReplyAutoSendPolicySchema
+>;
+
+/**
+ * One yes/no check of the auto-send delivery gate. Clef scores it over the
+ * agent's message and the drafted reply; the check passes when the
+ * probability is ≥ `autoWhen.gte` or ≤ `autoWhen.lte`.
+ */
+export const AgentReplyDeliveryGateQuestionSchema = z.strictObject({
+	id: ClefQuestionIdSchema.describe(
+		"Stable check id; the key under which the probability is recorded",
+	),
+	instructions: z
+		.string()
+		.trim()
+		.min(1)
+		.max(2000)
+		.describe(
+			"The yes/no question the model answers about the agent message and the drafted reply",
+		),
+	autoWhen: z
+		.union([
+			z.strictObject({
+				gte: z
+					.number()
+					.min(0)
+					.max(1)
+					.describe("Passes when the probability is ≥ gte"),
+			}),
+			z.strictObject({
+				lte: z
+					.number()
+					.min(0)
+					.max(1)
+					.describe("Passes when the probability is ≤ lte"),
+			}),
+		])
+		.describe("The pass condition; every check must pass for `auto`"),
+});
+export type AgentReplyDeliveryGateQuestion = z.infer<
+	typeof AgentReplyDeliveryGateQuestionSchema
+>;
+
+/**
+ * Independent Clef review of a draft before it may be sent without review.
+ * Reached only after every other autoSend guardrail holds; a failed check, a
+ * model error, or a timeout delivers `review` (fail closed).
+ */
+export const AgentReplyDeliveryGatePolicySchema = z.strictObject({
+	model: AgentTurnTriageModelSchema,
+	questions: z
+		.array(AgentReplyDeliveryGateQuestionSchema)
+		.min(1)
+		.max(16)
+		.refine(
+			(questions) =>
+				new Set(questions.map((question) => question.id)).size ===
+				questions.length,
+			{ message: "Check ids must be unique" },
+		),
+});
+export type AgentReplyDeliveryGatePolicy = z.infer<
+	typeof AgentReplyDeliveryGatePolicySchema
+>;
+
+/** The stored audit of one delivery-gate evaluation. */
+export const AgentReplyDeliveryGateResultSchema = z.object({
+	status: z
+		.enum(["pass", "fail", "unavailable"])
+		.describe(
+			"`pass`: every check passed; `fail`: at least one did not; `unavailable`: the model failed or timed out (delivered `review`)",
+		),
+	model: z.string(),
+	checks: z.array(
+		z.object({
+			id: z.string(),
+			p: z.number().min(0).max(1),
+			pass: z.boolean(),
+		}),
+	),
+	latencyMs: z.number().min(0),
+});
+export type AgentReplyDeliveryGateResult = z.infer<
+	typeof AgentReplyDeliveryGateResultSchema
 >;
 
 /**
@@ -195,6 +279,9 @@ const policyFields = {
 		DEFAULT_AGENT_REPLY_AUTO_SEND,
 	).describe(
 		"Guardrails for sending a reversible draft without review; off by default",
+	),
+	deliveryGate: AgentReplyDeliveryGatePolicySchema.optional().describe(
+		"Clef checks every auto-send candidate must pass; absent, the shipped default gate applies",
 	),
 };
 
@@ -396,7 +483,7 @@ export const AGENT_REPLY_DRAFT_DELIVERIES = ["review", "auto"] as const;
 export const AgentReplyDraftDeliverySchema = z
 	.enum(AGENT_REPLY_DRAFT_DELIVERIES)
 	.describe(
-		"`review`: the user accepts, edits, or replaces it in Tedix OS; `auto`: it may be sent without review (policy autoSend on, reversible, quiet question, session budget not exhausted)",
+		"`review`: the user accepts, edits, or replaces it in Tedix OS; `auto`: it may be sent without review (policy autoSend on, reversible, quiet question, session budget not exhausted, every delivery-gate check passed)",
 	);
 export type AgentReplyDraftDelivery = z.infer<
 	typeof AgentReplyDraftDeliverySchema
