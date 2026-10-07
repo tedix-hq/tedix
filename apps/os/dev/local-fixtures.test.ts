@@ -314,6 +314,7 @@ const CALLS: Record<string, unknown> = {
 		name: "Revenue Operations",
 	},
 	"osWorkspaces/workspaces/archive": { workspaceId: IDS.workspaceRevenue },
+	"osWorkspaces/workspaces/restore": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspacePreferences/list": {},
 	"osWorkspaces/workspacePreferences/setFavorite": {
 		workspaceId: IDS.workspaceRevenue,

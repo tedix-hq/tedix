@@ -1,4 +1,4 @@
-import { Clock, SquaresFour, Star } from "@phosphor-icons/react";
+import { Archive, Clock, SquaresFour, Star } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
@@ -21,11 +21,13 @@ import {
 	PageTitle,
 } from "@/components/kumo/page";
 import { SearchInput } from "@/components/kumo/search-input";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	activeWorkspacesQueryOptions,
+	archivedWorkspacesQueryOptions,
 	osQuery,
 	osQueryKeys,
 	workspacePreferencesQueryOptions,
@@ -40,9 +42,17 @@ import { useState } from "react";
 /** Initial workspace window; larger loaded libraries expand in 15-row steps. */
 export const WORKSPACES_VISIBLE_PAGE_SIZE = 15;
 
+type LibraryView = "active" | "archived";
+
+const LIBRARY_VIEWS = [
+	{ value: "active", label: "Active" },
+	{ value: "archived", label: "Archived" },
+] as const;
+
 export function WorkspaceLibraryPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const [view, setView] = useState<LibraryView>("active");
 	const [search, setSearch] = useState("");
 	const [visibleLimit, setVisibleLimit] = useState(
 		WORKSPACES_VISIBLE_PAGE_SIZE,
@@ -89,14 +99,30 @@ export function WorkspaceLibraryPage() {
 				</PageActions>
 			</PageHeader>
 
-			{workspaces.isPending ? <ListSkeleton rows={4} /> : null}
-			{workspaces.isError ? (
+			<SegmentedControl
+				ariaLabel="Workspace status"
+				compact
+				onValueChange={(next) => {
+					changeSearch("");
+					setView(next);
+				}}
+				options={LIBRARY_VIEWS}
+				value={view}
+			/>
+
+			{view === "archived" ? <ArchivedWorkspaces /> : null}
+			{view === "active" && workspaces.isPending ? (
+				<ListSkeleton rows={4} />
+			) : null}
+			{view === "active" && workspaces.isError ? (
 				<Alert variant="destructive">
 					<AlertTitle>Workspaces are unavailable</AlertTitle>
 					<AlertDescription>{workspaces.error.message}</AlertDescription>
 				</Alert>
 			) : null}
-			{workspaces.data && workspaces.data.items.length > 0 ? (
+			{view === "active" &&
+			workspaces.data &&
+			workspaces.data.items.length > 0 ? (
 				<div className="grid gap-4">
 					<SearchInput
 						aria-label="Search workspaces"
@@ -228,7 +254,9 @@ export function WorkspaceLibraryPage() {
 					) : null}
 				</div>
 			) : null}
-			{workspaces.data && workspaces.data.items.length === 0 ? (
+			{view === "active" &&
+			workspaces.data &&
+			workspaces.data.items.length === 0 ? (
 				<Empty appearance="quiet">
 					<EmptyHeader>
 						<EmptyMedia variant="icon">
@@ -249,5 +277,112 @@ export function WorkspaceLibraryPage() {
 				</Empty>
 			) : null}
 		</Page>
+	);
+}
+
+/**
+ * Archived workspaces and the way back. Archiving changes only the workspace's
+ * own status, so a restore returns its outputs, gadgets and resources as they
+ * were; the shared `workspaces()` key refreshes every list at once.
+ */
+function ArchivedWorkspaces() {
+	const queryClient = useQueryClient();
+	const archived = useQuery(archivedWorkspacesQueryOptions());
+	const restore = useMutation({
+		...osQuery.osWorkspaces.workspaces.restore.mutationOptions(),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() }),
+	});
+
+	if (archived.isPending) return <ListSkeleton rows={4} />;
+	if (archived.isError) {
+		return (
+			<Alert variant="destructive">
+				<AlertTitle>Archived workspaces are unavailable</AlertTitle>
+				<AlertDescription>{archived.error.message}</AlertDescription>
+			</Alert>
+		);
+	}
+	if (archived.data.items.length === 0) {
+		return (
+			<Empty appearance="quiet">
+				<EmptyHeader>
+					<EmptyMedia variant="icon">
+						<Archive size={20} />
+					</EmptyMedia>
+					<EmptyTitle>No archived workspaces</EmptyTitle>
+					<EmptyDescription>
+						Archived workspaces appear here, and you can restore them with their
+						outputs and gadgets.
+					</EmptyDescription>
+				</EmptyHeader>
+			</Empty>
+		);
+	}
+	return (
+		<div className="grid gap-4">
+			{restore.isError ? (
+				<Alert variant="destructive">
+					<AlertTitle>Could not restore the workspace</AlertTitle>
+					<AlertDescription>{restore.error.message}</AlertDescription>
+				</Alert>
+			) : null}
+			<Collection aria-label="Archived workspaces">
+				{archived.data.items.map((workspace) => {
+					const restoring =
+						restore.isPending &&
+						restore.variables?.workspaceId === workspace.id;
+					return (
+						<li
+							className="flex min-w-0 items-center gap-3 px-3 py-2.5"
+							key={workspace.id}
+						>
+							<Text
+								as="span"
+								role="label"
+								weight="medium"
+								tone="secondary"
+								className="grid size-9 shrink-0 place-items-center rounded-lg bg-kumo-fill"
+							>
+								{workspaceInitials(workspace.name)}
+							</Text>
+							<span className="grid min-w-0 flex-1 gap-0.5">
+								<Text
+									as="strong"
+									role="body"
+									weight="medium"
+									tone="strong"
+									className="truncate"
+								>
+									{workspace.name}
+								</Text>
+								<Text
+									as="span"
+									role="label"
+									tone="secondary"
+									className="truncate"
+								>
+									Archived {new Date(workspace.updatedAt).toLocaleDateString()}
+								</Text>
+							</span>
+							<Button
+								aria-label={`Restore ${workspace.name}`}
+								disabled={restoring}
+								onClick={() => restore.mutate({ workspaceId: workspace.id })}
+								size="sm"
+								variant="outline"
+							>
+								{restoring ? "Restoring…" : "Restore"}
+							</Button>
+						</li>
+					);
+				})}
+			</Collection>
+			{archived.data.truncated ? (
+				<Text role="body" tone="secondary" className="m-0">
+					Showing the first {archived.data.items.length} archived workspaces.
+				</Text>
+			) : null}
+		</div>
 	);
 }

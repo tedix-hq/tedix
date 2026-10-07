@@ -301,6 +301,48 @@ describe("workspaces", () => {
 		expect((await c.org1.workspacePreferences.list({})).items).toHaveLength(0);
 	});
 
+	it("restores an archived workspace with its gadgets and outputs intact", async () => {
+		const { workspace } = await c.org1.workspaces.create({ name: "Revived" });
+		const { output } = await c.org1.outputs.create({
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Kept draft",
+			content: { kind: "document", blocks: [] },
+		});
+		await c.org1.workspaces.archive({ workspaceId: workspace.id });
+		expect(
+			(await c.org1.workspaces.list({ status: "archived" })).items.map(
+				({ id }) => id,
+			),
+		).toContain(workspace.id);
+
+		await expect(
+			c.org2.workspaces.restore({ workspaceId: workspace.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const restored = await c.org1.workspaces.restore({
+			workspaceId: workspace.id,
+		});
+		expect(restored.workspace).toMatchObject({
+			id: workspace.id,
+			name: "Revived",
+			status: "active",
+		});
+		expect(
+			(await c.org1.workspaces.list({ status: "active" })).items.map(
+				({ id }) => id,
+			),
+		).toContain(workspace.id);
+		expect(
+			(await c.org1.outputs.list({ workspaceId: workspace.id })).items.map(
+				({ id }) => id,
+			),
+		).toContain(output.id);
+		// Restoring an active workspace is a no-op, not an error.
+		await expect(
+			c.org1.workspaces.restore({ workspaceId: workspace.id }),
+		).resolves.toMatchObject({ workspace: { status: "active" } });
+	});
+
 	it("refuses to permanently delete an active workspace", async () => {
 		const { workspace } = await c.org1.workspaces.create({ name: "Active" });
 		await expect(
