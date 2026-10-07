@@ -1758,6 +1758,206 @@ describe("bounded native calls", () => {
 				fetch: fetcher,
 				...(oauth ? { oauthProvider: provider } : {}),
 			});
+		test(`${oauth ? "OAuth SDK" : "raw"} negotiates once per sequence and keeps every tool call authorized`, async () => {
+			const requests: string[] = [];
+			let denied = false;
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				requests.push(b.method);
+				if (b.method === "server/discover")
+					return response(b.id, { supportedVersions: ["2026-07-28"] });
+				if (denied)
+					return response(b.id, {
+						isError: true,
+						content: [{ type: "text", text: "Revoked scope" }],
+					});
+				return response(b.id, { structuredContent: { ok: true } });
+			});
+			try {
+				const sequence = {};
+				for (const name of [
+					"get_info",
+					"catalog_search",
+					"catalog_describe",
+					"configured_tool",
+				])
+					await client.callTool(
+						name,
+						{},
+						{ ...options, protocolSequence: sequence },
+					);
+				expect(requests).toEqual([
+					"server/discover",
+					"tools/call",
+					"tools/call",
+					"tools/call",
+					"tools/call",
+				]);
+				denied = true;
+				await expect(
+					client.callTool(
+						"configured_tool",
+						{},
+						{ ...options, protocolSequence: sequence },
+					),
+				).rejects.toThrow("Revoked scope");
+				expect(requests.at(-1)).toBe("tools/call");
+				denied = false;
+				await client.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: {} },
+				);
+				expect(requests.slice(-2)).toEqual(["server/discover", "tools/call"]);
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} canceled discovery cannot seed capability or poison a sibling`, async () => {
+			let discoveries = 0;
+			let begun!: () => void;
+			const started = new Promise<void>((r) => {
+				begun = r;
+			});
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover") {
+					discoveries++;
+					if (discoveries === 1) {
+						begun();
+						return new Promise<Response>(() => {});
+					}
+					return response(b.id, { supportedVersions: ["2026-07-28"] });
+				}
+				return response(b.id, { structuredContent: { ok: true } });
+			});
+			const sequence = {};
+			const abort = new AbortController();
+			try {
+				const first = client.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: sequence, signal: abort.signal },
+				);
+				const refusal = first.catch((error: unknown) => error);
+				await started;
+				await client.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: {} },
+				);
+				abort.abort(new Error("withdrawn"));
+				expect(String(await refusal)).toContain("withdrawn");
+				await client.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: sequence },
+				);
+				expect(discoveries).toBe(3);
+			} finally {
+				await client.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} negotiation cannot cross client bindings and constructor headers are immutable`, async () => {
+			const sequence = {};
+			const seen: Array<{ url: string; org: string | null; method: string }> =
+				[];
+			const originalHeaders = { "X-Organization": "fictional-org-a" };
+			const fetcher = async (
+				url: Parameters<
+					NonNullable<ConstructorParameters<typeof TedixHomeClient>[0]["fetch"]>
+				>[0],
+				init?: RequestInit,
+			) => {
+				const b = JSON.parse(String(init?.body));
+				seen.push({
+					url: String(url),
+					org: new Headers(init?.headers).get("X-Organization"),
+					method: b.method,
+				});
+				return response(
+					b.id,
+					b.method === "server/discover"
+						? { supportedVersions: ["2026-07-28"] }
+						: { structuredContent: { ok: true } },
+				);
+			};
+			const a = new TedixHomeClient({
+				url: "https://fictional-a.example/mcp",
+				headers: originalHeaders,
+				fetch: fetcher,
+				...(oauth ? { oauthProvider: provider } : {}),
+			});
+			const b = new TedixHomeClient({
+				url: "https://fictional-b.example/mcp",
+				headers: { "X-Organization": "fictional-org-b" },
+				fetch: fetcher,
+				...(oauth ? { oauthProvider: provider } : {}),
+			});
+			try {
+				await a.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: sequence },
+				);
+				originalHeaders["X-Organization"] = "fictional-org-b";
+				await a.callTool(
+					"configured_tool",
+					{},
+					{ ...options, protocolSequence: sequence },
+				);
+				await b.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: sequence },
+				);
+				expect(seen.filter((r) => r.method === "server/discover")).toHaveLength(
+					2,
+				);
+				expect(
+					seen
+						.filter((r) => r.url.includes("fictional-a"))
+						.every((r) => r.org === "fictional-org-a"),
+				).toBe(true);
+				expect(
+					seen
+						.filter((r) => r.url.includes("fictional-b"))
+						.every((r) => r.org === "fictional-org-b"),
+				).toBe(true);
+			} finally {
+				await a.close();
+				await b.close();
+			}
+		});
+		test(`${oauth ? "OAuth SDK" : "raw"} unsupported discovery is not retained`, async () => {
+			let discoveries = 0;
+			const client = make(async (_url, init) => {
+				const b = JSON.parse(String(init?.body));
+				if (b.method === "server/discover")
+					return response(b.id, {
+						supportedVersions: ++discoveries === 1 ? [] : ["2026-07-28"],
+					});
+				return response(b.id, { structuredContent: { ok: true } });
+			});
+			try {
+				const sequence = {};
+				await expect(
+					client.callTool(
+						"get_info",
+						{},
+						{ ...options, protocolSequence: sequence },
+					),
+				).rejects.toThrow("required protocol");
+				await client.callTool(
+					"get_info",
+					{},
+					{ ...options, protocolSequence: sequence },
+				);
+				expect(discoveries).toBe(2);
+			} finally {
+				await client.close();
+			}
+		});
 		test(`${oauth ? "OAuth SDK" : "raw"} refuses oversized streaming body and cancels without replay`, async () => {
 			let calls = 0,
 				cancelled = 0;
