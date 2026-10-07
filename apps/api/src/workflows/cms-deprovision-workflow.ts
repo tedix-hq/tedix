@@ -10,6 +10,10 @@ import {
 	getAppMetadataJson,
 	updateApp,
 } from "@tedix/db/queries/app-records";
+import {
+	aggregateAppEntryMatches,
+	aggregateAppLink,
+} from "@tedix/db/queries/aggregate-app-links";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
 	beginRemovingCmsDomainClaim,
@@ -318,15 +322,20 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 						(app) => app.id === operation.authoringAppId,
 					);
 					if (authoring) {
+						const link = aggregateAppLink(authoring);
+						// deleteApp also scrubs these links; this pass records which
+						// gateways referenced the authoring app.
 						for (const gateway of apps) {
 							const entries = aggregateEntries(gateway);
-							if (!entries.some((entry) => entry.slug === authoring.slug))
+							if (
+								!entries.some((entry) => aggregateAppEntryMatches(entry, link))
+							)
 								continue;
 							await updateApp(db, gateway.id, {
 								metadata: mergeAppMetadataPatch(getAppMetadataJson(gateway), {
 									mcpConfig: {
 										aggregateApps: entries.filter(
-											(entry) => entry.slug !== authoring.slug,
+											(entry) => !aggregateAppEntryMatches(entry, link),
 										),
 									},
 								}),

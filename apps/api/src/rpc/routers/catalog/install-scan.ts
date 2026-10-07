@@ -55,7 +55,7 @@ import { toJsonRecord } from "@tedix/db/utils/json";
 import { updateApp } from "@tedix/db/queries/app-records";
 import { updateCatalogAppHealthMetrics } from "@tedix/db/queries/catalog/health-metrics";
 import {
-	AggregateAppEntry,
+	detachAggregateAppEntries,
 	CatalogAppRecord,
 	TenantMcpInstallInput,
 	TenantMcpInstallResult,
@@ -242,6 +242,7 @@ export async function installTenantMcpAppFromCatalog(
 	const effectiveConnectionScopes = connectionScopes ?? inheritedScopes;
 	const aggregateEntry = {
 		slug: proxySummary.slug,
+		...(proxySummary.id ? { appId: proxySummary.id } : {}),
 		prefix: namespace,
 		...(organizationQueryParam && organization?.slug
 			? {
@@ -601,19 +602,15 @@ export async function uninstallTenantMcpAppFromAggregator(
 	const slug = input.slug?.toLowerCase();
 	const metadata = metadataRecord(targetAggregator.metadata);
 	const mcpConfig = mcpConfigRecord(metadata);
-	const aggregateApps = readAggregateApps(mcpConfig);
-	const matchesInput = (entry: AggregateAppEntry) => {
-		if (slug && entry.slug !== slug) return false;
-		if (input.prefix) {
-			const entryNamespace = entry.prefix ?? sanitizeNamespace(entry.slug);
-			if (entryNamespace !== input.prefix) return false;
-		}
-		return true;
-	};
-	const aggregateEntry = aggregateApps.find(matchesInput) ?? null;
-	const remainingAggregateApps = aggregateEntry
-		? aggregateApps.filter((entry) => !matchesInput(entry))
-		: aggregateApps;
+	// Resolve the slug to the org's app so an entry linked by id still matches
+	// after that app was renamed.
+	const linkedApp = slug
+		? await getAppBySlugForOrg(context.db, slug, orgId)
+		: null;
+	const { aggregateEntry, remainingAggregateApps } = detachAggregateAppEntries(
+		readAggregateApps(mcpConfig),
+		{ appId: linkedApp?.id, slug, prefix: input.prefix },
+	);
 	const scopeKeys = aggregateEntry
 		? [
 				aggregateEntry.prefix,

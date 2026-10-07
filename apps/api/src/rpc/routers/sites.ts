@@ -10,6 +10,11 @@ import {
 	getAppBySlug,
 	getAppMetadataJson,
 } from "@tedix/db/queries/app-records";
+import {
+	aggregateAppEntryMatches,
+	aggregateAppLink,
+	getAggregateAppLinkTargets,
+} from "@tedix/db/queries/aggregate-app-links";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
 	activateCmsDomainClaim,
@@ -106,8 +111,21 @@ const STARTER_CMS_SITE_QUOTA =
 function aggregateEntries(app: { metadata: unknown }) {
 	const entries = getAppMetadataJson(app as never)?.mcpConfig?.aggregateApps;
 	return Array.isArray(entries)
-		? (entries as Array<{ slug: string; [key: string]: unknown }>)
+		? (entries as Array<{
+				slug: string;
+				appId?: string;
+				[key: string]: unknown;
+			}>)
 		: [];
+}
+
+/** The platform CMS app that every authoring proxy links to by id. */
+async function getPlatformCmsApp(db: BaseContext["db"]) {
+	const [cmsApp] = await getAggregateAppLinkTargets(db, {
+		ids: [],
+		slugs: ["cms"],
+	});
+	return cmsApp ?? null;
 }
 
 async function requireCmsSite(context: BaseContext, siteId: string) {
@@ -444,8 +462,12 @@ function isCmsAuthoringProxy(
 	app: NonNullable<Awaited<ReturnType<typeof getAppBySlug>>>,
 	organizationId: string,
 	slug: string,
+	cmsApp: { id: string; slug: string } | null | undefined,
 ): boolean {
 	const config = getAppMetadataJson(app)?.mcpConfig;
+	const entry: unknown = Array.isArray(config?.aggregateApps)
+		? config.aggregateApps[0]
+		: undefined;
 	return (
 		app.organizationId === organizationId &&
 		app.visibility === "private" &&
@@ -455,8 +477,11 @@ function isCmsAuthoringProxy(
 		config?.connectionLabel === slug &&
 		Array.isArray(config.aggregateApps) &&
 		config.aggregateApps.length === 1 &&
-		config.aggregateApps[0]?.slug === "cms" &&
-		Object.keys(config.aggregateApps[0]).length === 1
+		aggregateAppEntryMatches(
+			entry,
+			cmsApp ? aggregateAppLink(cmsApp) : { appId: null, slug: "cms" },
+		) &&
+		Object.keys(entry ?? {}).every((key) => key === "slug" || key === "appId")
 	);
 }
 
@@ -507,6 +532,8 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 				);
 		}
 		let authoringApp = await getAppBySlug(context.db, appSlug);
+		// The authoring proxy links the platform CMS app by its stable id.
+		const cmsApp = await getPlatformCmsApp(context.db);
 		if (existing && !authoringApp)
 			throw createError(
 				ErrorCodes.CONFLICT,
@@ -527,7 +554,9 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 							codeMode: true,
 							expectedAudience: buildTedixMcpResourceUri(appSlug),
 							connectionLabel: input.slug,
-							aggregateApps: [{ slug: "cms" }],
+							aggregateApps: [
+								cmsApp ? aggregateAppLink(cmsApp) : { slug: "cms" },
+							],
 						},
 					} as AppMetadata,
 				});
@@ -539,7 +568,7 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 		}
 		if (
 			!authoringApp ||
-			!isCmsAuthoringProxy(authoringApp, organizationId, input.slug)
+			!isCmsAuthoringProxy(authoringApp, organizationId, input.slug, cmsApp)
 		)
 			throw createError(
 				ErrorCodes.CONFLICT,
@@ -625,6 +654,7 @@ export const registerCmsSiteProcedure = authedSitesOs.registerCms
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
 		const apps = await getAppsByOrganization(context.db, organizationId);
 		const authoringApp = apps.find((app) => app.id === input.authoringAppId);
+		const cmsApp = await getPlatformCmsApp(context.db);
 		const config = authoringApp
 			? getAppMetadataJson(authoringApp as never)?.mcpConfig
 			: null;
@@ -632,7 +662,12 @@ export const registerCmsSiteProcedure = authedSitesOs.registerCms
 			!config ||
 			config.connectionLabel !== input.slug ||
 			!authoringApp ||
-			!aggregateEntries(authoringApp).some((app) => app.slug === "cms")
+			!aggregateEntries(authoringApp).some((entry) =>
+				aggregateAppEntryMatches(
+					entry,
+					cmsApp ? aggregateAppLink(cmsApp) : { appId: null, slug: "cms" },
+				),
+			)
 		)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -1459,8 +1494,8 @@ export const getDeprovisionPlanProcedure = authedSitesOs.getDeprovisionPlan
 		const mcpApp = apps.find((app) => app.id === site.mcpAppId);
 		const gateway = authoringApp
 			? apps.find((app) =>
-					aggregateEntries(app).some(
-						(entry) => entry.slug === authoringApp.slug,
+					aggregateEntries(app).some((entry) =>
+						aggregateAppEntryMatches(entry, aggregateAppLink(authoringApp)),
 					),
 				)
 			: null;

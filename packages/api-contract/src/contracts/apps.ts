@@ -155,6 +155,13 @@ export const appsContract = oc
 						.array(
 							z.object({
 								slug: z.string(),
+								appId: z
+									.string()
+									.uuid()
+									.optional()
+									.describe(
+										"Stable app id this entry links to; preferred over slug.",
+									),
 								prefix: z.string().optional(),
 								connectionLabel: z.string().optional(),
 								connectionProviderId: z.string().optional(),

@@ -20,6 +20,7 @@ import {
 import { appToolCspDomains } from "../schema/configuration";
 import { appTools } from "../schema/tools";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
+import { aggregateAppEntryMatchesSql } from "./aggregate-app-links";
 
 type ToolSelectionOptions = {
 	endpointPrefixes?: string[];
@@ -747,8 +748,52 @@ export async function updateApp(
  * Delete an app
  * @returns true if deletion was successful (no error thrown)
  */
+/**
+ * Delete an app and, in the same batch, remove every `aggregateApps` /
+ * `inactiveAggregateApps` entry that links to it from the other apps of its
+ * organization (by id, or by slug for entries written before ids were stored).
+ * Links from other organizations are left alone.
+ */
 export async function deleteApp(db: DbClient, id: string): Promise<boolean> {
-	await db.delete(apps).where(eq(apps.id, id));
+	const [target] = await db
+		.select({
+			id: apps.id,
+			organizationId: apps.organizationId,
+			slug: apps.slug,
+		})
+		.from(apps)
+		.where(eq(apps.id, id))
+		.limit(1);
+	const remove = db.delete(apps).where(eq(apps.id, id));
+	if (!target) {
+		await remove;
+		return true;
+	}
+	const matches = aggregateAppEntryMatchesSql({
+		appId: target.id,
+		slug: target.slug,
+	});
+	const now = new Date().toISOString();
+	const scrub = (path: string) =>
+		db
+			.update(apps)
+			.set({
+				metadata: sql`json_set(${apps.metadata}, ${path}, json((select coalesce(json_group_array(json(value)), json('[]')) from json_each(${apps.metadata}, ${path}) where not ${matches})))`,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(apps.organizationId, target.organizationId),
+					sql`${apps.id} != ${target.id}`,
+					sql`json_type(${apps.metadata}, ${path}) = 'array'`,
+					sql`exists (select 1 from json_each(${apps.metadata}, ${path}) where ${matches})`,
+				),
+			);
+	await db.batch([
+		scrub("$.mcpConfig.aggregateApps"),
+		scrub("$.mcpConfig.inactiveAggregateApps"),
+		remove,
+	]);
 	return true;
 }
 
@@ -926,23 +971,33 @@ export async function updateWidgetConfig(
 	return updateAppMetadata(db, appId, { widgetConfig: merged });
 }
 
-/** Atomically change only one gateway member; preserve all other metadata. */
+/**
+ * Atomically change only one gateway member; preserve all other metadata.
+ *
+ * Entries are matched by app id (slug for entries written before ids were
+ * stored). Enabling stamps the member's current `{ appId, slug }` onto its
+ * entry, so a renamed app stays linked and old slug-only entries gain an id.
+ */
 export async function setAppGatewayMembership(
 	db: DbClient,
 	organizationId: string,
 	gatewayId: string,
-	slug: string,
+	member: { appId: string; slug: string },
 	enabled: boolean,
 ) {
+	const { appId, slug } = member;
+	const matches = aggregateAppEntryMatchesSql(member);
 	const members = sql`coalesce(json_extract(${apps.metadata}, '$.mcpConfig.aggregateApps'), json('[]'))`;
 	const inactive = sql`coalesce(json_extract(${apps.metadata}, '$.mcpConfig.inactiveAggregateApps'), json('[]'))`;
-	const activeMatches = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${members}) where json_extract(value, '$.slug') = ${slug})`;
-	const savedMatches = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${inactive}) where json_extract(value, '$.slug') = ${slug})`;
-	const filtered = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${members}) where json_extract(value, '$.slug') != ${slug})`;
-	const inactiveFiltered = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${inactive}) where json_extract(value, '$.slug') != ${slug})`;
-	const restored = sql`case when json_array_length(${savedMatches}) > 0 then ${savedMatches} else json_array(json_object('slug', ${slug})) end`;
+	const stamp = sql`json_set(json(value), '$.appId', ${appId}, '$.slug', ${slug})`;
+	const activeMatches = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${members}) where ${matches})`;
+	const savedMatches = sql`(select coalesce(json_group_array(${stamp}), json('[]')) from json_each(${inactive}) where ${matches})`;
+	const stampedMembers = sql`(select coalesce(json_group_array(case when ${matches} then ${stamp} else json(value) end), json('[]')) from json_each(${members}))`;
+	const filtered = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${members}) where not ${matches})`;
+	const inactiveFiltered = sql`(select coalesce(json_group_array(json(value)), json('[]')) from json_each(${inactive}) where not ${matches})`;
+	const restored = sql`case when json_array_length(${savedMatches}) > 0 then ${savedMatches} else json_array(json_object('appId', ${appId}, 'slug', ${slug})) end`;
 	const next = enabled
-		? sql`case when json_array_length(${activeMatches}) > 0 then ${members} else (select json_group_array(json(value)) from (select value from json_each(${members}) union all select value from json_each(${restored}))) end`
+		? sql`case when json_array_length(${activeMatches}) > 0 then ${stampedMembers} else (select json_group_array(json(value)) from (select value from json_each(${members}) union all select value from json_each(${restored}))) end`
 		: filtered;
 	const nextInactive = enabled
 		? inactiveFiltered

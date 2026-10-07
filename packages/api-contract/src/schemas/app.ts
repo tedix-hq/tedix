@@ -201,6 +201,13 @@ export type AppCapabilities = z.infer<typeof AppCapabilitiesSchema>;
 const AggregateAppSchema = z.object({
 	/** Source app slug to pull tools from */
 	slug: z.string(),
+	appId: z
+		.string()
+		.uuid()
+		.optional()
+		.describe(
+			"Stable app id this entry links to; preferred over slug. Slug remains for display and as a fallback for entries written before ids were stored.",
+		),
 	/** Prefix for tool names (defaults to slug). Tools become `{prefix}__{toolName}`. */
 	prefix: z
 		.string()

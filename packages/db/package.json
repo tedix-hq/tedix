@@ -123,6 +123,7 @@
 		"./schema/work-factory": "./src/schema/work-factory.ts",
 		"./schema/workstations": "./src/schema/workstations.ts",
 		"./schema/workflow-runs": "./src/schema/workflow-runs.ts",
+		"./queries/aggregate-app-links": "./src/queries/aggregate-app-links.ts",
 		"./queries/app-records": "./src/queries/app-records.ts",
 		"./queries/items": "./src/queries/items.ts",
 		"./queries/jobs": "./src/queries/jobs.ts",

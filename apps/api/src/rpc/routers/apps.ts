@@ -29,6 +29,10 @@ import {
 	publishAppConfigVersion,
 } from "@tedix/db/queries/app-config-versions";
 import {
+	aggregateAppEntryMatches,
+	getAggregateAppLinkTargets,
+} from "@tedix/db/queries/aggregate-app-links";
+import {
 	setAppGatewayMembership,
 	createApp,
 	deleteApp,
@@ -389,6 +393,90 @@ export async function assertTenantMcpConfigAllowed(
 }
 
 /**
+ * Stamp each caller-supplied aggregate entry with the linked app's stable id
+ * and current slug. Apps link by id; the slug is kept for display and for
+ * entries written before ids were stored. An entry naming an unknown `appId`
+ * is rejected; an unknown slug is left as given (the tenant guard rejects it).
+ */
+export async function linkAggregateAppEntries<T>(
+	db: DbClient,
+	entries: T[] | undefined,
+): Promise<T[] | undefined> {
+	if (!Array.isArray(entries) || entries.length === 0) return entries;
+	const field = (entry: unknown, key: "appId" | "slug") => {
+		const value =
+			entry && typeof entry === "object"
+				? (entry as Record<string, unknown>)[key]
+				: undefined;
+		return typeof value === "string" && value.length > 0 ? value : undefined;
+	};
+	const targets = await getAggregateAppLinkTargets(db, {
+		ids: entries.flatMap((entry) => field(entry, "appId") ?? []),
+		slugs: entries.flatMap((entry) =>
+			field(entry, "appId") ? [] : (field(entry, "slug") ?? []),
+		),
+	});
+	const byId = new Map(targets.map((target) => [target.id, target]));
+	const bySlug = new Map(targets.map((target) => [target.slug, target]));
+	return entries.map((entry) => {
+		const appId = field(entry, "appId");
+		const slug = field(entry, "slug");
+		const target = appId
+			? byId.get(appId)
+			: slug
+				? bySlug.get(slug)
+				: undefined;
+		if (appId && !target)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`aggregateApps references unknown app id "${appId}".`,
+			);
+		return target ? { ...entry, appId: target.id, slug: target.slug } : entry;
+	});
+}
+
+/** {@link linkAggregateAppEntries} for both aggregate lists of a metadata patch. */
+async function linkMetadataAggregateApps<T>(
+	db: DbClient,
+	metadata: T,
+): Promise<T> {
+	const mcpConfig = (metadata as { mcpConfig?: unknown } | null | undefined)
+		?.mcpConfig;
+	if (!mcpConfig || typeof mcpConfig !== "object") return metadata;
+	const config = mcpConfig as {
+		aggregateApps?: unknown[];
+		inactiveAggregateApps?: unknown[];
+	};
+	if (
+		!Array.isArray(config.aggregateApps) &&
+		!Array.isArray(config.inactiveAggregateApps)
+	)
+		return metadata;
+	return {
+		...metadata,
+		mcpConfig: {
+			...config,
+			...(Array.isArray(config.aggregateApps)
+				? {
+						aggregateApps: await linkAggregateAppEntries(
+							db,
+							config.aggregateApps,
+						),
+					}
+				: {}),
+			...(Array.isArray(config.inactiveAggregateApps)
+				? {
+						inactiveAggregateApps: await linkAggregateAppEntries(
+							db,
+							config.inactiveAggregateApps,
+						),
+					}
+				: {}),
+		},
+	};
+}
+
+/**
  * Provision an app — D1 row plus optional Descope OAuth Resource registration.
  *
  * Patterns are soft hints; user-supplied `mcpConfig` overrides win. AIH
@@ -429,11 +517,20 @@ export const provisionAppProcedure = authedAppsOs.provision
 			);
 		}
 
+		// Apps link by id: stamp every aggregate entry with its target's appId.
+		const inputAggregateApps = await linkAggregateAppEntries(
+			db,
+			input.aggregateApps,
+		);
+		const { mcpConfig: inputMcpConfig } = await linkMetadataAggregateApps(db, {
+			mcpConfig: input.mcpConfig,
+		});
+
 		// Tenant callers cannot set platform-managed mcpConfig keys or aggregate
 		// apps outside their org / the tedix platform org. (Audit #6/#7.)
 		await assertTenantMcpConfigAllowed(db, context, orgId, {
-			mcpConfig: input.mcpConfig as Record<string, unknown> | undefined,
-			aggregateApps: input.aggregateApps,
+			mcpConfig: inputMcpConfig as Record<string, unknown> | undefined,
+			aggregateApps: inputAggregateApps,
 		});
 
 		const pattern = input.pattern ?? "customer";
@@ -491,13 +588,13 @@ export const provisionAppProcedure = authedAppsOs.provision
 		const mergedMcpConfig = {
 			serverName: input.name,
 			...presets,
-			...input.mcpConfig,
+			...inputMcpConfig,
 			expectedAudience: mcpServerUrl,
 			...(descopeResourceId ? { descopeResourceId } : {}),
-			...(input.aggregateApps && input.aggregateApps.length > 0
-				? { aggregateApps: input.aggregateApps }
-				: input.mcpConfig?.aggregateApps
-					? { aggregateApps: input.mcpConfig.aggregateApps }
+			...(inputAggregateApps && inputAggregateApps.length > 0
+				? { aggregateApps: inputAggregateApps }
+				: inputMcpConfig?.aggregateApps
+					? { aggregateApps: inputMcpConfig.aggregateApps }
 					: {}),
 		} as ContractAppMetadata["mcpConfig"];
 
@@ -507,11 +604,9 @@ export const provisionAppProcedure = authedAppsOs.provision
 		// aggregators keep their own brand logo (set via update_app), so we only
 		// auto-inherit for the unambiguous single-aggregate proxy pattern.
 		const soleAggregate =
-			(input.aggregateApps?.length === 1
-				? input.aggregateApps[0]
-				: undefined) ??
-			(input.mcpConfig?.aggregateApps?.length === 1
-				? input.mcpConfig.aggregateApps[0]
+			(inputAggregateApps?.length === 1 ? inputAggregateApps[0] : undefined) ??
+			(inputMcpConfig?.aggregateApps?.length === 1
+				? inputMcpConfig.aggregateApps[0]
 				: undefined);
 		const inheritedLogoUrl = soleAggregate?.slug
 			? ((await getAppBySlug(db, soleAggregate.slug.toLowerCase()))?.logoUrl ??
@@ -672,7 +767,10 @@ async function gatewayMembershipContext(
 						: null;
 	const members = gateway?.metadata?.mcpConfig?.aggregateApps;
 	const enabled =
-		Array.isArray(members) && members.some((entry) => entry?.slug === app.slug);
+		Array.isArray(members) &&
+		members.some((entry) =>
+			aggregateAppEntryMatches(entry, { appId: app.id, slug: app.slug }),
+		);
 	return { app, gateway, enabled, unavailableReason };
 }
 
@@ -708,21 +806,22 @@ export const listGatewayMemberships = authedAppsOs.listGatewayMemberships
 		const gateway = records.find(
 			(record) => record.slug === gateways.get(orgId)?.slug,
 		);
-		const members = gateway?.metadata?.mcpConfig?.aggregateApps;
-		const enabledSlugs = new Set(
-			Array.isArray(members)
-				? members.flatMap((entry) =>
-						typeof entry?.slug === "string" ? [entry.slug] : [],
-					)
-				: [],
-		);
+		const gatewayMembers = gateway?.metadata?.mcpConfig?.aggregateApps;
+		const members: unknown[] = Array.isArray(gatewayMembers)
+			? gatewayMembers
+			: [];
 		return {
 			gateway: gateway
 				? { id: gateway.id, name: gateway.name, slug: gateway.slug }
 				: null,
 			memberships: records.map((record) => ({
 				appId: record.id,
-				enabled: enabledSlugs.has(record.slug),
+				enabled: members.some((entry) =>
+					aggregateAppEntryMatches(entry, {
+						appId: record.id,
+						slug: record.slug,
+					}),
+				),
 			})),
 		};
 	});
@@ -756,7 +855,7 @@ export const setGatewayMembership = authedAppsOs.setGatewayMembership
 				context.db,
 				orgId,
 				state.gateway.id,
-				state.app.slug,
+				{ appId: state.app.id, slug: state.app.slug },
 				input.enabled,
 			);
 			if (!changed.length)
@@ -851,14 +950,16 @@ export const updateAppProcedure = authedAppsOs.update
 			// mergeAppMetadataPatch consumes it and clears the complete binding.
 			// Other keys keep ordinary merge semantics and never infer deletion.
 			const existing = getAppMetadataJson(existingApp) ?? {};
-			const incoming = normalizeAppMetadata(metadata);
+			// Apps link by id: stamp every aggregate entry with its target's appId.
+			const linkedMetadata = await linkMetadataAggregateApps(db, metadata);
+			const incoming = normalizeAppMetadata(linkedMetadata);
 			mcpConfigChanged = incoming.mcpConfig !== undefined;
 			// Tenant callers cannot set platform-managed mcpConfig keys or aggregate
 			// apps outside their org / the tedix platform org. (Audit #6/#7.)
 			await assertTenantMcpConfigAllowed(db, context, orgId, {
 				mcpConfig: incoming.mcpConfig as Record<string, unknown> | undefined,
 			});
-			const mergedMetadata = mergeAppMetadataPatch(existing, metadata);
+			const mergedMetadata = mergeAppMetadataPatch(existing, linkedMetadata);
 			warnGuidanceSkillAppsMismatch(
 				mergedMetadata,
 				`${existingApp.slug} (${existingApp.id})`,
@@ -998,14 +1099,16 @@ export const updateByIdOrSlugProcedure = authedAppsOs.updateByIdOrSlug
 		let mcpConfigChanged = false;
 		if (metadata !== undefined) {
 			const existing = getAppMetadataJson(existingApp) ?? {};
-			const incoming = normalizeAppMetadata(metadata);
+			// Apps link by id: stamp every aggregate entry with its target's appId.
+			const linkedMetadata = await linkMetadataAggregateApps(db, metadata);
+			const incoming = normalizeAppMetadata(linkedMetadata);
 			mcpConfigChanged = incoming.mcpConfig !== undefined;
 			// Tenant callers cannot set platform-managed mcpConfig keys or aggregate
 			// apps outside their org / the tedix platform org. (Audit #6/#7.)
 			await assertTenantMcpConfigAllowed(db, context, orgId, {
 				mcpConfig: incoming.mcpConfig as Record<string, unknown> | undefined,
 			});
-			const mergedMetadata = mergeAppMetadataPatch(existing, metadata);
+			const mergedMetadata = mergeAppMetadataPatch(existing, linkedMetadata);
 			warnGuidanceSkillAppsMismatch(
 				mergedMetadata,
 				`${existingApp.slug} (${existingApp.id})`,
