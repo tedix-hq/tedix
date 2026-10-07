@@ -208,7 +208,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			"stop",
 			{
 				last_assistant_message:
-					"## Deployed\nAll green. Want me to also clean up legacy?",
+					"## **Deployed** commit `fc6b8f9`\nAll green. Want me to also clean up legacy?",
 			},
 			[BINDING, AUTH, CREATED],
 		);
@@ -220,7 +220,9 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			id: "U-fixture-user",
 		});
 		expect(created.kind).toBe("question");
-		expect(created.subject).toContain("claude-code waiting: Deployed");
+		expect(created.subject).toMatch(
+			/claude-code waiting: Deployed commit fc6b8f9$/,
+		);
 		expect(created.metadata.sessionId).toBe(SESSION);
 		expect(Date.parse(created.expiresAt) - Date.now()).toBeGreaterThan(
 			0.9 * 86_400_000,

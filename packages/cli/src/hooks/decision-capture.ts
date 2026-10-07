@@ -39,6 +39,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import {
 	applyTriagedStop,
 	asciiJson,
@@ -782,7 +783,7 @@ async function onStop(
 		message
 			.trim()
 			.split(/\r\n|\r|\n/)
-			.map((line) => line.replace(/^[ #*>-]+|[ #*>-]+$/g, ""))
+			.map(markdownLineToPlainText)
 			.find(Boolean) ?? "Agent turn ended";
 	const [first] = redact(firstLine, 160);
 	const now = (deps.now ?? (() => new Date()))();
