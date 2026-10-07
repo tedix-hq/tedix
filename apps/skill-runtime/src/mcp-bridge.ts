@@ -137,6 +137,60 @@ export class McpUpstreamTimeoutError extends Error {
 	}
 }
 
+/**
+ * A recovery call through the organization's Code Mode aggregate found no
+ * binding for the namespace. The sandbox only says `<ns> is not defined`,
+ * which hides why the direct route failed first: the namespace names no app
+ * in the organization (typically a renamed or removed app), or the mapped app
+ * exposed no such tool to this run. Name that cause so a scheduled run's
+ * failure is actionable without a log search.
+ */
+export class McpNamespaceUnavailableError extends Error {
+	readonly code = "MCP_NAMESPACE_UNAVAILABLE";
+	constructor(message: string, cause: unknown) {
+		super(message, { cause });
+	}
+}
+
+/**
+ * Rewrite a Code Mode `<namespace> is not defined` recovery failure into the
+ * cause the bridge already knows; any other error passes through unchanged.
+ */
+export function explainCodeModeNamespaceMiss(
+	error: unknown,
+	input: {
+		namespace: string;
+		codeModeNamespace: string;
+		method: string;
+		mappedSlug: string | undefined;
+		aggregateMcpSlug: string;
+		directFailure: "method_not_found" | "connection_missing";
+	},
+): unknown {
+	if (!(error instanceof Error)) return error;
+	if (!error.message.includes(`${input.codeModeNamespace} is not defined`)) {
+		return error;
+	}
+	const call = `env.MCP.${input.namespace}.${input.method}`;
+	const gateway = `the organization gateway "${input.aggregateMcpSlug}" has no "${input.codeModeNamespace}" namespace either`;
+	if (input.directFailure === "connection_missing") {
+		return new McpNamespaceUnavailableError(
+			`MCP_NAMESPACE_UNAVAILABLE: ${call} failed because app "${input.mappedSlug ?? input.namespace}" has no connection credential for this run, and ${gateway}. Connect the provider for the organization, then rerun. (${error.message})`,
+			error,
+		);
+	}
+	if (!input.mappedSlug) {
+		return new McpNamespaceUnavailableError(
+			`MCP_NAMESPACE_UNAVAILABLE: ${call} names no app in this organization, and ${gateway}. The app was probably renamed or removed; find its current namespace with discover.search and update the skill's capabilities.mcp and calls. (${error.message})`,
+			error,
+		);
+	}
+	return new McpNamespaceUnavailableError(
+		`MCP_NAMESPACE_UNAVAILABLE: app "${input.mappedSlug}" exposes no "${input.method}" tool to this run, and ${gateway}. Check the tool name with discover.search, and that the app's tools and connection are enabled for the organization. (${error.message})`,
+		error,
+	);
+}
+
 function isToolNotFoundError(error: unknown, toolName: string): boolean {
 	if (!(error instanceof Error)) return false;
 	const message = error.message.toLowerCase();
@@ -603,6 +657,26 @@ async function executeMcpTool(
 		return codeModeResult;
 	};
 
+	// Code Mode as a recovery for a failed direct call: keep the direct
+	// failure's cause when the aggregate has no binding for the namespace.
+	const recoverViaCodeMode = async (
+		directFailure: "method_not_found" | "connection_missing",
+	) => {
+		try {
+			return await invokeViaCodeMode();
+		} catch (recoveryError) {
+			throw explainCodeModeNamespaceMiss(recoveryError, {
+				namespace,
+				codeModeNamespace:
+					namespace === "tedi" ? (props.tediNamespace ?? namespace) : namespace,
+				method,
+				mappedSlug: props.namespaceToSlug[namespace],
+				aggregateMcpSlug: props.aggregateMcpSlug,
+				directFailure,
+			});
+		}
+	};
+
 	try {
 		// Aggregate-tedi tools are virtual Code Mode providers, not first-class
 		// direct tools. Go straight through the configured role namespace (for
@@ -616,7 +690,7 @@ async function executeMcpTool(
 			!AGGREGATE_NAMESPACES.has(namespace) &&
 			needsAggregateCredentialRecovery(directResult)
 		) {
-			return await invokeViaCodeMode();
+			return await recoverViaCodeMode("connection_missing");
 		}
 		return directResult;
 	} catch (error) {
@@ -658,7 +732,7 @@ async function executeMcpTool(
 		// code-mode; route the call through Code Mode. Skip aggregate namespaces
 		// (home/kernel), where -32601 is a genuine error.
 		if (isMethodNotFoundError(error) && !AGGREGATE_NAMESPACES.has(namespace)) {
-			return await invokeViaCodeMode();
+			return await recoverViaCodeMode("method_not_found");
 		}
 
 		throw error;

@@ -6,8 +6,11 @@ mock.module("cloudflare:workers", () => ({
 	WorkerEntrypoint: class {},
 }));
 
-const { callMcpTool, CapabilityNotDeclaredError } =
-	await import("../src/mcp-bridge");
+const {
+	callMcpTool,
+	CapabilityNotDeclaredError,
+	McpNamespaceUnavailableError,
+} = await import("../src/mcp-bridge");
 
 const manifest: CapabilityManifest = {
 	mcp: { notion_tedix: ["notion_search"] },
@@ -283,4 +286,137 @@ test("a mapped Code Mode app with no prefixed match still falls back to the aggr
 		"firecrawl-tedix.mcp.tedix.dev tools/list ",
 		"tedix-unified.mcp.tedix.dev tools/call code",
 	]);
+});
+
+function namespaceMissEnv(calls: string[], missing: string) {
+	return {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const request = new Request(input, init);
+				const body = (await request.json()) as {
+					id: string;
+					method: string;
+					params?: { name?: string };
+				};
+				const host = new URL(request.url).hostname;
+				calls.push(`${host} ${body.method} ${body.params?.name ?? ""}`);
+				if (body.method === "tools/list") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { tools: [] },
+					});
+				}
+				if (host.startsWith("tedix-unified.") && body.params?.name === "code") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: {
+							isError: true,
+							content: [
+								{
+									type: "text",
+									text: `Execution error: ${missing} is not defined`,
+								},
+							],
+						},
+					});
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					error: { code: -32601, message: "Method not found" },
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+}
+
+test("a namespace that names no app explains the miss instead of 'is not defined'", async () => {
+	const calls: string[] = [];
+	await assert.rejects(
+		callMcpTool(
+			namespaceMissEnv(calls, "resend_old_acme"),
+			{
+				...props,
+				manifest: { ...manifest, mcp: { resend_old_acme: ["list-emails"] } },
+				// A renamed app no longer resolves, so the namespace is unmapped.
+				namespaceToSlug: {},
+			},
+			{
+				namespace: "resend_old_acme",
+				method: "list-emails",
+				args: {},
+				workflow,
+			},
+		),
+		(error: unknown) => {
+			assert.ok(error instanceof McpNamespaceUnavailableError);
+			assert.match(
+				error.message,
+				/^MCP_NAMESPACE_UNAVAILABLE: env\.MCP\.resend_old_acme\.list-emails names no app in this organization/,
+			);
+			assert.match(error.message, /renamed or removed/);
+			assert.match(error.message, /resend_old_acme is not defined/);
+			return true;
+		},
+	);
+	assert.equal(calls.at(-1), "tedix-unified.mcp.tedix.dev tools/call code");
+});
+
+test("a mapped app without the tool names the app, not just the namespace", async () => {
+	const calls: string[] = [];
+	await assert.rejects(
+		callMcpTool(
+			namespaceMissEnv(calls, "resend_acme"),
+			{
+				...props,
+				manifest: { ...manifest, mcp: { resend_acme: ["list-emails"] } },
+				namespaceToSlug: { resend_acme: "resend-acme" },
+			},
+			{
+				namespace: "resend_acme",
+				method: "list-emails",
+				args: {},
+				workflow,
+			},
+		),
+		(error: unknown) => {
+			assert.ok(error instanceof McpNamespaceUnavailableError);
+			assert.match(
+				error.message,
+				/app "resend-acme" exposes no "list-emails" tool to this run/,
+			);
+			return true;
+		},
+	);
+	assert.deepEqual(calls, [
+		"resend-acme.mcp.tedix.dev tools/call list-emails",
+		"resend-acme.mcp.tedix.dev tools/list ",
+		"tedix-unified.mcp.tedix.dev tools/call code",
+	]);
+});
+
+test("an unrelated Code Mode failure keeps its original error", async () => {
+	await assert.rejects(
+		callMcpTool(
+			namespaceMissEnv([], "somethingElse"),
+			{
+				...props,
+				manifest: { ...manifest, mcp: { resend_acme: ["list-emails"] } },
+				namespaceToSlug: { resend_acme: "resend-acme" },
+			},
+			{
+				namespace: "resend_acme",
+				method: "list-emails",
+				args: {},
+				workflow,
+			},
+		),
+		(error: unknown) => {
+			assert.ok(!(error instanceof McpNamespaceUnavailableError));
+			assert.match((error as Error).message, /somethingElse is not defined/);
+			return true;
+		},
+	);
 });
