@@ -125,64 +125,46 @@ describe("local agent context", () => {
 		).toBeUndefined();
 	});
 
-	test("team lessons are a second organization document beside preferences", () => {
+	test("a legacy team-lessons document selection is ignored, and resolve reports origin and branch for lesson ranking", () => {
 		const { opts } = fixture();
 		bind(opts);
 		const workspaceId = "11111111-1111-4111-8111-111111111111";
 		const preferenceId = "22222222-2222-4222-8222-222222222222";
-		const lessonsId = "33333333-3333-4333-8333-333333333333";
-		expect(() =>
-			changeAgentContext(
-				"connect-lessons",
-				{ osWorkspaceId: workspaceId },
-				opts,
-			),
-		).toThrow("connect-lessons requires");
 		changeAgentContext(
 			"connect-preferences",
 			{ osWorkspaceId: workspaceId, contextOutputId: preferenceId },
 			opts,
 		);
-		changeAgentContext(
-			"connect-lessons",
-			{ osWorkspaceId: workspaceId, contextOutputId: lessonsId },
-			opts,
-		);
-		const sessionId = "00000000-0000-4000-8000-000000000001";
-		const chat = { ...opts, sessionId };
-		changeAgentContext(
-			"connect",
-			{ workspace: "tedix", projectId: PROJECT },
-			chat,
-		);
-		expect(resolveAgentContext(chat)).toMatchObject({
-			preferencesOutputId: preferenceId,
-			lessonsWorkspaceId: workspaceId,
-			lessonsOutputId: lessonsId,
-		});
-		writeWorkspaceCredentials(
-			"customer",
+		const path = join(opts.configDir, "agent-contexts.json");
+		const store = JSON.parse(readFileSync(path, "utf8"));
+		// Written by CLI 0.1.0-beta.130 and earlier; one entry was even malformed.
+		store.lessons = [
 			{
-				loginId: "operator",
-				org: "org_customer",
-				mcpUrl: "https://customer.example.invalid/mcp",
+				workspace: "tedix",
+				org: "org_tedix",
+				mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				osWorkspaceId: workspaceId,
+				contextOutputId: "33333333-3333-4333-8333-333333333333",
 			},
-			opts,
+			{ workspace: "tedix", contextOutputId: "not-a-uuid" },
+		];
+		writeFileSync(path, JSON.stringify(store));
+		const resolved = resolveAgentContext(opts);
+		expect(resolved).toMatchObject({
+			status: "bound",
+			preferencesOutputId: preferenceId,
+			origin: "https://example.invalid/repo.git",
+			branch: "main",
+		});
+		expect(Object.keys(resolved).some((key) => key.startsWith("lessons"))).toBe(
+			false,
 		);
-		const customer = {
-			...opts,
-			sessionId: "30000000-0000-4000-8000-000000000001",
-		};
-		changeAgentContext(
-			"connect",
-			{ workspace: "customer", projectId: PROJECT },
-			customer,
+		// The old document commands are gone; a later write keeps the old entry inert.
+		expect(() => runAgentContext(["connect-lessons"], opts)).toThrow(
+			"Unknown context action",
 		);
-		expect(resolveAgentContext(customer).lessonsOutputId).toBeUndefined();
-		changeAgentContext("disconnect-lessons", {}, chat);
-		const after = resolveAgentContext(chat);
-		expect(after.lessonsOutputId).toBeUndefined();
-		expect(after.preferencesOutputId).toBe(preferenceId);
+		changeAgentContext("disconnect-preferences", {}, opts);
+		expect(resolveAgentContext(opts).status).toBe("bound");
 	});
 
 	test("decision capture is an explicit per-organization opt-in that other organizations do not inherit", () => {

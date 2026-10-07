@@ -70,6 +70,7 @@ import { type ClefQuestion, runClef } from "../../lib/clef";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
 import { requireOrgId } from "../org-scope";
+import { getSessionLessons } from "./agent-session-lessons";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -941,6 +942,12 @@ const getReplyDraftAcceptanceProcedure = readOs.getReplyDraftAcceptance.handler(
 	},
 );
 
+/** Approved team lessons for a local agent session; org-wide facts only. */
+const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
+	async ({ input, context }) =>
+		getSessionLessons(context, requireOrgId(context), input),
+);
+
 export const agentTurnTriageContractRouter = os.router({
 	triage,
 	labelReply,
@@ -949,4 +956,5 @@ export const agentTurnTriageContractRouter = os.router({
 	requestReplyDraft,
 	proposeReplyDraft,
 	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
+	getSessionLessons: getSessionLessonsProcedure,
 });

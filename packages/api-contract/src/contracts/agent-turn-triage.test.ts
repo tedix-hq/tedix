@@ -20,6 +20,7 @@ describe("agentTurnTriageContract", () => {
 		expect(Object.keys(agentTurnTriageContract).sort()).toEqual([
 			"getPolicy",
 			"getReplyDraftAcceptance",
+			"getSessionLessons",
 			"labelReply",
 			"proposeReplyDraft",
 			"requestReplyDraft",

@@ -245,16 +245,20 @@ without repeating an older briefing as current. `context disconnect-output`
 removes the document selection; the selection is scoped to this checkout,
 branch and chat and leaves Work selection and sibling chats/worktrees unchanged.
 
-Two optional organization-wide documents reach every chat of the same profile
-and organization, under the same ownership and revision checks: working
-preferences and team engineering lessons.
+An optional organization-wide working-preferences document reaches every chat
+of the same profile and organization, under the same ownership and revision
+checks; `disconnect-preferences` removes it.
 
 ```sh
 tedix setup agents context connect-preferences --os-workspace <workspace-UUID> --output <output-UUID>
-tedix setup agents context connect-lessons --os-workspace <workspace-UUID> --output <output-UUID>
 ```
 
-`disconnect-preferences` and `disconnect-lessons` remove them.
+Every bound chat also receives the organization's approved team lessons
+(`agent.get_agent_session_lessons`): learning-feed memory facts that a person
+confirmed, filtered to this repository and host and ranked by the
+branch name's words, about 2,800 bytes at most, each with a short fact id.
+Probation and superseded lessons never appear. Only the host kind, repository
+(without credentials) and branch words are sent; no selection is needed.
 
 The hook reads bounded host metadata (including `session_id`), discards prompt text,
 and never uploads or saves it. It does not write updates, restore execution
