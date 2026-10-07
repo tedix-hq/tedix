@@ -2,10 +2,10 @@
  * Learning feed miner: one deterministic step of MemoryReflectionWorkflow.
  *
  * 1. Decisions → memory. Decision-capture answers recorded in the learning
- *    ledger (`decision-learning-signal.ts`) are grouped by scope
- *    (repo, harness, topic). A group with a draft correction (edited /
- *    replaced / overridden) or at least two substantive decisions becomes ONE
- *    review-pending memory fact per scope. A newer fact for the same scope
+ *    ledger (`decision-learning-signal.ts`) are grouped by the user who made
+ *    them and by scope (repo, harness, topic). A group with a draft correction
+ *    (edited / replaced / overridden) or at least two substantive decisions
+ *    becomes ONE review-pending memory fact per user and scope. A newer fact for the same scope
  *    supersedes the earlier still-pending one instead of duplicating it;
  *    reviewed facts (confirmed, rejected, ...) are never superseded, and the
  *    events they already cover are not learned again.
@@ -17,15 +17,31 @@
  *    through `record_learning_interaction` with surface `work_fix` and issue key
  *    `agent-mistake:<topic>` and it joins the same grouping.
  *
+ * Where a lesson lands (its brain):
+ *   - Organization: always the organization the events were recorded in. One
+ *     run mines exactly one organization and drops any row of another.
+ *   - Person: a lesson learned from one user's decisions is personal — tedi
+ *     null, visibility `private`, `metadata.learningFeed.ownerUserId` — so only
+ *     that user's sessions receive it once confirmed. A reviewer may widen it
+ *     (visibility `org`) when confirming. Events without a personal scope keep
+ *     the org-wide shape.
+ *   - Tedi: when one of the organization's live tedis clearly owns the
+ *     lesson's domain (Clef decides from the tedis' own names, tags and
+ *     personality, never a hardcoded roster; probability >= ROUTE_THRESHOLD),
+ *     the fact carries that tediId (memory scope `tedi`, private to it), so
+ *     that tedi's brain learns it. Model unavailable or unsure: personal.
+ *
  * Nothing here approves anything: facts stay `reviewStatus: "pending"` with
  * `usePolicy: "requires_user_confirmation"`; proposals stay `proposed`.
  *
  * Fact tags for delivery (see LearningFeedFactMetadata): `topicKey`
- * `learning-feed:decision:<repo>:<harness>:<topic>` and
+ * `learning-feed:decision:<repo>:<harness>:<topic>` (personal lessons append
+ * `:user:<userId>`) and
  * `metadata.learningFeed.scope = { repo, harness, topic }`.
  */
 
 import type { DbClient } from "@tedix/db/client";
+import type { Tedi } from "@tedix/db/schema/tedis";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import {
 	listLearningImprovementProposals,
@@ -43,6 +59,7 @@ import {
 	findFactBySourceHash,
 	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
+import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { listWorkActivity } from "@tedix/db/queries/work-items/activity";
 import { AUTO_REPLY_FOLLOW_CLASSES } from "@tedix/db/queries/work-items/reply-drafts";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -54,6 +71,7 @@ import {
 	buildBrainWriteQualityEnvelope,
 	mergeBrainWriteMetadata,
 } from "./brain-write-quality";
+import { type ClefModelId, type ClefQuestion, runClef } from "../lib/clef";
 
 export const LEARNING_FEED_PRODUCER = "learning-feed";
 export const WORK_FIX_LEARNING_SURFACE = "work_fix";
@@ -69,6 +87,11 @@ const MIN_DECISION_CHARS = 24;
 const MIN_DECISIONS_PER_FACT = 2;
 const MISTAKE_MIN_OCCURRENCES = 3;
 const STRONG_KINDS = new Set(["edited", "manually_replaced"]);
+/** Clef probability a tedi must reach before a lesson enters its brain. */
+export const ROUTE_THRESHOLD = 0.75;
+const ROUTE_MODEL: ClefModelId = "@cf/cloudflare/clef-flash";
+const ROUTE_MAX_TEDIS = 12;
+const ROUTE_NONE = "none";
 const OPEN_PROPOSAL_STATUSES = new Set([
 	"proposed",
 	"evaluating",
@@ -90,14 +113,32 @@ export interface LearningFeedFactMetadata {
 	evidenceEventIds: string[];
 	/** Personal-scope ids (users) whose decisions the fact was learned from. */
 	learnedFromUserIds: string[];
+	/** The user a personal lesson belongs to; null for an org-wide lesson. */
+	ownerUserId: string | null;
+	/** How the owning tedi was chosen; absent when routing was not attempted. */
+	routing?: LessonRouting;
 	signalCounts: Record<string, number>;
 	lastEventAt: string;
 }
+
+export interface LessonRouting {
+	status: "routed" | "personal" | "unavailable";
+	tediId: string | null;
+	probability: number | null;
+	model: ClefModelId;
+}
+
+/** Chooses the tedi that owns a lesson, or none. Injected in tests. */
+export type LessonRouter = (
+	lesson: DecisionLessonDraft,
+	tedis: Tedi[],
+) => Promise<LessonRouting>;
 
 export interface LearningFeedResult {
 	decisionEventsScanned: number;
 	factsWritten: number;
 	factsSuperseded: number;
+	factsRoutedToTedi: number;
 	mistakeEventsRecorded: number;
 	proposalsCreated: number;
 	budgetHit: boolean;
@@ -129,8 +170,21 @@ async function sha256(value: string): Promise<string> {
 		.join("");
 }
 
-export function learningFeedTopicKey(scope: LearningFeedScope): string {
-	return `learning-feed:decision:${scope.repo}:${scope.harness}:${scope.topic}`;
+export function learningFeedTopicKey(
+	scope: LearningFeedScope,
+	ownerUserId: string | null = null,
+): string {
+	const base = `learning-feed:decision:${scope.repo}:${scope.harness}:${scope.topic}`;
+	return ownerUserId ? `${base}:user:${ownerUserId}` : base;
+}
+
+/** The user whose decision this is, or null for a non-personal event. */
+function ownerOf(event: LearningInteractionEventRow): string | null {
+	return event.scopeKind === "personal" && event.scopeId ? event.scopeId : null;
+}
+
+function groupKey(event: LearningInteractionEventRow): string {
+	return learningFeedTopicKey(scopeOf(event), ownerOf(event));
 }
 
 function scopeOf(event: LearningInteractionEventRow): LearningFeedScope {
@@ -187,7 +241,7 @@ export function buildDecisionLessons(
 	for (const event of events) {
 		if (event.surface !== DECISION_CAPTURE_LEARNING_SURFACE) continue;
 		if (coveredEventIds.has(event.id)) continue;
-		const key = learningFeedTopicKey(scopeOf(event));
+		const key = groupKey(event);
 		groups.set(key, [...(groups.get(key) ?? []), event]);
 	}
 	const lessons: DecisionLessonDraft[] = [];
@@ -215,7 +269,8 @@ export function buildDecisionLessons(
 			0,
 			ITEMS_PER_FACT,
 		);
-		const header = `Lessons from user decisions in ${scope.repo} (${scope.harness}, ${scope.topic}):`;
+		const where = scope.repo === "general" ? "" : ` in ${scope.repo}`;
+		const header = `Lessons from user decisions${where} (${scope.harness}, ${scope.topic}):`;
 		const content = clip(
 			[header, ...chosen.map((l) => `- ${l.line}`)].join("\n"),
 			FACT_CHARS,
@@ -235,6 +290,7 @@ export function buildDecisionLessons(
 							.map((e) => e.scopeId),
 					),
 				],
+				ownerUserId: ownerOf(ordered[0]!),
 				signalCounts,
 				lastEventAt: ordered[0]!.occurredAt,
 			},
@@ -250,26 +306,130 @@ function evidenceIdsOf(metadata: unknown): string[] {
 		: [];
 }
 
+function tediCriterion(tedi: Tedi): string {
+	const tags = (tedi.tags ?? []).filter((t) => typeof t === "string");
+	const persona = text(tedi.personality ?? "");
+	return clip(
+		[
+			`${tedi.displayName ?? tedi.name} (${tedi.slug})`,
+			tags.length ? `tags: ${tags.join(", ")}` : "",
+			persona ? `role: ${persona}` : "",
+		]
+			.filter(Boolean)
+			.join("; "),
+		400,
+	);
+}
+
+/**
+ * Tedis that may receive a lesson: the organization's live, org-scoped
+ * workers, plus the owner's own personal tedi. Never another user's personal
+ * tedi, never another organization's.
+ */
+export function routeCandidates(
+	tedis: Tedi[],
+	orgId: string,
+	ownerUserId: string | null,
+): Tedi[] {
+	return tedis
+		.filter(
+			(t) =>
+				t.organizationId === orgId &&
+				!t.retiredAt &&
+				(t.scope === "organization" ||
+					(ownerUserId !== null && t.ownerUserId === ownerUserId)),
+		)
+		.slice(0, ROUTE_MAX_TEDIS);
+}
+
+/**
+ * Pure decision step: the chosen tedi when Clef's choice is a candidate at or
+ * above ROUTE_THRESHOLD, else personal.
+ */
+export function routingFromChoice(
+	choice: { choice: string; probabilities: Record<string, number> } | null,
+	optionToTedi: ReadonlyMap<string, string>,
+): LessonRouting {
+	if (!choice)
+		return {
+			status: "unavailable",
+			tediId: null,
+			probability: null,
+			model: ROUTE_MODEL,
+		};
+	const probability = choice.probabilities[choice.choice] ?? 0;
+	const tediId = optionToTedi.get(choice.choice) ?? null;
+	return tediId && probability >= ROUTE_THRESHOLD
+		? { status: "routed", tediId, probability, model: ROUTE_MODEL }
+		: { status: "personal", tediId: null, probability, model: ROUTE_MODEL };
+}
+
+/** Clef-backed router. Any model failure leaves the lesson personal. */
+export function clefLessonRouter(
+	env: Parameters<typeof runClef>[0],
+): LessonRouter {
+	return async (lesson, tedis) => {
+		const optionToTedi = new Map<string, string>();
+		const criteria: Record<string, string> = {};
+		tedis.forEach((tedi, index) => {
+			optionToTedi.set(`t${index + 1}`, tedi.id);
+			criteria[`t${index + 1}`] = tediCriterion(tedi);
+		});
+		criteria[ROUTE_NONE] =
+			"No single worker clearly owns this: personal, cross-cutting or unclear";
+		const question: ClefQuestion = {
+			type: "choice",
+			instructions:
+				"A person made these decisions while working with an AI agent. Which AI worker's area of responsibility (for example engineering, finance, marketing) do they clearly belong to? Choose none unless one worker plainly owns the subject.",
+			criteria,
+		};
+		const result = await runClef(env, {
+			modelId: ROUTE_MODEL,
+			state: {
+				lesson: lesson.content,
+				scope: lesson.scope,
+			},
+			questions: { owner: question },
+			surface: "learning-feed-routing",
+		});
+		const answer = result.ok ? result.answers.owner : undefined;
+		return routingFromChoice(
+			answer?.type === "choice" ? answer : null,
+			optionToTedi,
+		);
+	};
+}
+
 async function writeDecisionLessons(
 	db: DbClient,
 	orgId: string,
 	events: LearningInteractionEventRow[],
 	result: LearningFeedResult,
+	route: LessonRouter | undefined,
 ): Promise<void> {
 	const byTopic = new Map<string, LearningInteractionEventRow[]>();
 	for (const event of events) {
-		const key = learningFeedTopicKey(scopeOf(event));
+		const key = groupKey(event);
 		byTopic.set(key, [...(byTopic.get(key) ?? []), event]);
 	}
+	let tedis: Tedi[] | undefined;
 	for (const [topicKey, topicEvents] of byTopic) {
 		if (result.factsWritten >= MAX_FACTS_PER_RUN) {
 			result.budgetHit = true;
 			return;
 		}
+		const ownerUserId = ownerOf(topicEvents[0]!);
 		const current = await findCurrentFactsByTopicKey(db, orgId, topicKey);
+		// Lessons written before personal scoping used the shared key; events a
+		// reviewed one covers are not learned again.
+		const legacyKey = learningFeedTopicKey(scopeOf(topicEvents[0]!));
+		const legacy =
+			legacyKey === topicKey
+				? []
+				: await findCurrentFactsByTopicKey(db, orgId, legacyKey);
 		const pending = current.filter((f) => f.reviewStatus === "pending");
 		const covered = new Set(
-			current
+			[...current, ...legacy]
 				.filter((f) => f.reviewStatus !== "pending")
 				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
@@ -281,8 +441,35 @@ async function writeDecisionLessons(
 		);
 		if (lesson.metadata.evidenceEventIds.every((id) => pendingIds.has(id)))
 			continue;
-		const sourceHash = await sha256(lesson.content.toLowerCase());
+		const sourceHash = await sha256(
+			`${ownerUserId ?? ""}\n${lesson.content.toLowerCase()}`,
+		);
 		if (await findFactBySourceHash(db, orgId, sourceHash)) continue;
+
+		let routing: LessonRouting | undefined;
+		if (route) {
+			tedis ??= await getTedisByOrganization(db, orgId).catch(() => []);
+			const candidates = routeCandidates(tedis, orgId, ownerUserId);
+			if (candidates.length) {
+				try {
+					routing = await route(lesson, candidates);
+				} catch {
+					routing = undefined;
+				}
+				// Only a candidate of this organization can own the fact.
+				if (
+					routing?.tediId &&
+					!candidates.some((t) => t.id === routing!.tediId)
+				)
+					routing = { ...routing, status: "personal", tediId: null };
+			}
+		}
+		const tediId = routing?.status === "routed" ? routing.tediId : null;
+		if (tediId) result.factsRoutedToTedi++;
+		const learningFeed: LearningFeedFactMetadata = {
+			...lesson.metadata,
+			...(routing ? { routing } : {}),
+		};
 
 		const domain = await getOrCreateDomain(db, orgId, DOMAIN_NAME);
 		const source = `learning-feed:decision:${orgId}:${lesson.metadata.evidenceEventIds[0]}`;
@@ -290,12 +477,15 @@ async function writeDecisionLessons(
 		const metadata: Meta = {
 			producer: LEARNING_FEED_PRODUCER,
 			sourceKind: "brain-reflection",
-			expectedUse:
-				"Deliver reviewed user decisions to agents working in the same repo, harness and topic",
+			expectedUse: tediId
+				? "Teach the tedi that owns this domain the user's reviewed decisions"
+				: ownerUserId
+					? "Deliver the user's own reviewed decisions to their agent sessions in the same repo, harness and topic"
+					: "Deliver reviewed user decisions to agents working in the same repo, harness and topic",
 			confidenceReason: strong
 				? "User corrected a drafted reply; reversible until reviewed"
 				: "Repeated explicit user decisions; reversible until reviewed",
-			learningFeed: lesson.metadata,
+			learningFeed,
 		};
 		const quality = buildBrainWriteQualityEnvelope({
 			content: lesson.content,
@@ -311,7 +501,7 @@ async function writeDecisionLessons(
 		await createFact(db, {
 			id: factId,
 			organizationId: orgId,
-			tediId: null,
+			tediId,
 			domainId: domain.id,
 			content: lesson.content,
 			summary: clip(
@@ -324,8 +514,10 @@ async function writeDecisionLessons(
 			status: "probation",
 			reviewStatus: "pending",
 			usePolicy: "requires_user_confirmation",
-			memoryScope: "org",
-			visibility: "org",
+			// Personal (one user's decisions) or tedi-owned until a reviewer
+			// widens it; org-wide only for events without a personal scope.
+			memoryScope: tediId ? "tedi" : "org",
+			visibility: tediId || ownerUserId ? "private" : "org",
 			topicKey,
 			validFrom: now,
 			validTo: null,
@@ -474,12 +666,22 @@ async function proposeMistakeDirectives(
  */
 export async function mineLearningFeed(
 	db: DbClient,
-	{ orgId, now = new Date() }: { orgId: string; now?: Date },
+	{
+		orgId,
+		now = new Date(),
+		route,
+	}: {
+		orgId: string;
+		now?: Date;
+		/** Owning-tedi router (`clefLessonRouter(env)`); omitted: no routing. */
+		route?: LessonRouter;
+	},
 ): Promise<LearningFeedResult> {
 	const result: LearningFeedResult = {
 		decisionEventsScanned: 0,
 		factsWritten: 0,
 		factsSuperseded: 0,
+		factsRoutedToTedi: 0,
 		mistakeEventsRecorded: 0,
 		proposalsCreated: 0,
 		budgetHit: false,
@@ -488,14 +690,17 @@ export async function mineLearningFeed(
 		now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
 	).toISOString();
 	try {
-		const decisions = await listLearningInteractionsForReflection(db, {
-			organizationId: orgId,
-			surfaces: [DECISION_CAPTURE_LEARNING_SURFACE],
-			since,
-			limit: EVENT_SCAN_LIMIT,
-		});
+		// One run, one organization: a row of another never joins a lesson.
+		const decisions = (
+			await listLearningInteractionsForReflection(db, {
+				organizationId: orgId,
+				surfaces: [DECISION_CAPTURE_LEARNING_SURFACE],
+				since,
+				limit: EVENT_SCAN_LIMIT,
+			})
+		).filter((event) => event.organizationId === orgId);
 		result.decisionEventsScanned = decisions.length;
-		await writeDecisionLessons(db, orgId, decisions, result);
+		await writeDecisionLessons(db, orgId, decisions, result, route);
 	} catch (error) {
 		console.error("[learning-feed] decision lessons failed:", error);
 	}

@@ -932,3 +932,49 @@ describe("tedix hooks prompt-context", () => {
 			}));
 	});
 });
+
+describe("prompt-context outside a bound repository", () => {
+	const DEFAULT: JsonObject = {
+		status: "bound",
+		contextSource: "default",
+		workspace: "fixture",
+		org: "org_fixture",
+		mcpUrl: "https://fixture.example.invalid/mcp",
+	};
+	const additional = (out: string): string =>
+		out ? JSON.parse(out).hookSpecificOutput.additionalContext : "";
+
+	test("reads the default organization's lessons with no repository", async () => {
+		const { out, calls } = await run([
+			DEFAULT,
+			AUTH,
+			lessonsData([{ shortId: "abcd1234", text: "Quote prices in EUR." }]),
+		]);
+		expect(calls[0]).toContain("--allow-default");
+		const code = calls[2]!.at(-1)!;
+		expect(code).toContain('"lessons":{"harness"');
+		expect(code).not.toContain('"repo"');
+		expect(code).not.toContain('"topics"');
+		const text = additional(out);
+		expect(text).toContain("no bound repository (default organization)");
+		expect(text).toContain("outside any repository");
+		expect(text).toContain("Quote prices in EUR.");
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThan(6500);
+	});
+
+	test("stays silent with no lesson, and when no single organization resolves", async () => {
+		expect((await run([DEFAULT, AUTH, NO_LESSONS])).out).toBe("");
+		const { out, calls } = await run([{ status: "unbound" }]);
+		expect(out).toBe("");
+		expect(calls).toHaveLength(1);
+	});
+
+	test("never reads a selection a default context could carry", async () => {
+		const { calls } = await run([
+			{ ...DEFAULT, osWorkspaceId: WORKSPACE, contextOutputId: OUTPUT },
+			AUTH,
+			NO_LESSONS,
+		]);
+		expect(calls[2]!.at(-1)).not.toContain(OUTPUT);
+	});
+});

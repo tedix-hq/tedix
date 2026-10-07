@@ -828,6 +828,146 @@ describe("shared Connect context targets", () => {
 	});
 });
 
+describe("default organization outside a bound repository", () => {
+	const SECOND = "7c0f1a52-9a7e-4c5e-9a39-2b7f8d1e6a10";
+	function connect(
+		opts: ReturnType<typeof fixture>["opts"],
+		selected: string[],
+	) {
+		writeWorkspaceCredentials(
+			"connect",
+			{
+				loginId: "operator",
+				org: "incidental_session_tenant",
+				mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+				oauthTokens: {
+					access_token: `e30.${Buffer.from(JSON.stringify({ tedixSelectedOrganizations: selected })).toString("base64url")}.sig`,
+					token_type: "Bearer",
+				},
+			},
+			opts,
+		);
+	}
+	function outside(
+		opts: ReturnType<typeof fixture>["opts"],
+		env: Record<string, string>,
+	) {
+		return {
+			configDir: opts.configDir,
+			cwd: join(opts.cwd, ".."),
+			sessionId: null,
+			env,
+		};
+	}
+
+	test("is opt-in per caller and names no repository", () => {
+		const { opts } = fixture();
+		const away = outside(opts, { TEDIX_WORKSPACE: "tedix" });
+		expect(resolveAgentContext(away).status).toBe("unbound");
+		const resolved = resolveAgentContext({ ...away, allowDefault: true });
+		expect(resolved).toEqual({
+			status: "bound",
+			contextSource: "default",
+			workspace: "tedix",
+			org: "org_tedix",
+			mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+		});
+		// A bound checkout keeps its own binding.
+		bind(opts);
+		expect(resolveAgentContext({ ...opts, allowDefault: true })).toMatchObject({
+			status: "bound",
+			projectId: PROJECT,
+		});
+		expect(
+			resolveAgentContext({ ...opts, allowDefault: true }).contextSource,
+		).toBeUndefined();
+	});
+
+	test("never guesses among several organizations", () => {
+		const { opts } = fixture();
+		connect(opts, ["org_tedix", "org_customer"]);
+		const resolve = (env: Record<string, string>) =>
+			resolveAgentContext({ ...outside(opts, env), allowDefault: true });
+		expect(resolve({ TEDIX_WORKSPACE: "connect" }).status).toBe("unbound");
+		expect(
+			resolve({
+				TEDIX_WORKSPACE: "connect",
+				TEDIX_ORGANIZATION: "org_unselected",
+			}).status,
+		).toBe("unbound");
+		expect(
+			resolve({
+				TEDIX_WORKSPACE: "connect",
+				TEDIX_ORGANIZATION: "org_customer",
+			}),
+		).toMatchObject({
+			status: "bound",
+			contextSource: "default",
+			org: "org_customer",
+			organization: "org_customer",
+		});
+		connect(opts, ["org_customer"]);
+		expect(resolve({ TEDIX_WORKSPACE: "connect" })).toMatchObject({
+			org: "org_customer",
+			organization: "org_customer",
+		});
+		// A tenant profile serves only its own organization.
+		expect(
+			resolve({ TEDIX_WORKSPACE: "tedix", TEDIX_ORGANIZATION: "org_other" })
+				.status,
+		).toBe("unbound");
+	});
+
+	test("captures only with the organization's opt-in and one project inbox", () => {
+		const { opts } = fixture();
+		const away = {
+			...outside(opts, { TEDIX_WORKSPACE: "tedix" }),
+			allowDefault: true,
+		};
+		bind(opts);
+		expect(resolveAgentContext(away).decisionCapture).toBeUndefined();
+		changeAgentContext("enable-decision-capture", {}, opts);
+		// The repository opt-in and its one bound project carry over.
+		expect(resolveAgentContext(away)).toMatchObject({
+			decisionCapture: true,
+			projectId: PROJECT,
+		});
+		// A second project of the organization makes the inbox ambiguous.
+		const other = join(opts.cwd, "..", "other");
+		mkdirSync(other);
+		git(other, ["init", "-b", "main"]);
+		git(other, ["remote", "add", "origin", "https://example.invalid/b.git"]);
+		changeAgentContext(
+			"bind",
+			{ workspace: "tedix", projectId: SECOND },
+			{ ...opts, cwd: other },
+		);
+		const ambiguous = resolveAgentContext(away);
+		expect(ambiguous.decisionCapture).toBeUndefined();
+		expect(ambiguous.projectId).toBeUndefined();
+		// Enabling outside a repository pins the inbox; re-enabling inside a
+		// repository keeps it; disabling anywhere stops it.
+		expect(
+			changeAgentContext(
+				"enable-decision-capture",
+				{ projectId: SECOND },
+				away,
+			),
+		).toMatchObject({ decisionCapture: true, projectId: SECOND });
+		changeAgentContext("enable-decision-capture", {}, opts);
+		expect(resolveAgentContext(away).projectId).toBe(SECOND);
+		changeAgentContext("disable-decision-capture", {}, away);
+		expect(resolveAgentContext(opts).decisionCapture).toBeUndefined();
+		expect(() =>
+			changeAgentContext(
+				"enable-decision-capture",
+				{},
+				{ ...away, env: { TEDIX_WORKSPACE: "missing" } },
+			),
+		).toThrow("No single organization");
+	});
+});
+
 test("Claude Code session id selects chat context and conflicts with a different Codex chat", () => {
 	const { opts } = fixture();
 	bind(opts);

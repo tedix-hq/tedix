@@ -137,7 +137,7 @@ export const agentTurnTriageContract = oc
 				path: "/session-lessons",
 				summary: "Get approved team lessons for a local agent session",
 				description:
-					"Returns the credential-resolved organization's approved lessons (facts under `learning-feed:` topic keys that a person confirmed, org-wide; probation, pending, archived and superseded facts never appear) whose `metadata.learningFeed.scope` repo and harness match the session (`general` matches any), most relevant first, trimmed to `budgetBytes`. Read-only.",
+					"Returns the credential-resolved organization's approved lessons (facts under `learning-feed:` topic keys that a person confirmed: org-wide lessons plus the calling user's own personal lessons; probation, pending, archived and superseded facts never appear) whose `metadata.learningFeed.scope` repo and harness match the session (`general` matches any), most relevant first, trimmed to `budgetBytes`. Read-only.",
 			})
 			.input(GetAgentSessionLessonsInputSchema)
 			.output(GetAgentSessionLessonsResultSchema),

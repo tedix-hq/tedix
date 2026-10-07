@@ -45,7 +45,10 @@ import { getFactById } from "@tedix/db/queries/memory-graph/facts";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { type KernelEnv, kernelModel } from "../rpc/routers/kernel/llm";
 import { mineHomeOperatorDecisions } from "../services/home-reflection-producer";
-import { mineLearningFeed } from "../services/learning-feed-miner";
+import {
+	clefLessonRouter,
+	mineLearningFeed,
+} from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
 import { assessDelegatedAnswerCriteriaWithJev } from "../rpc/routers/kernel/jev-goal-assessment";
 import { reconcileCanonicalMemoryProjection } from "../integrations/cloudflare/agent-memory";
@@ -480,7 +483,10 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
 			async () => {
 				try {
-					return await mineLearningFeed(db, { orgId: organizationId });
+					return await mineLearningFeed(db, {
+						orgId: organizationId,
+						route: clefLessonRouter(this.env),
+					});
 				} catch (e) {
 					console.error("[LearningFeed] mine-learning-feed failed:", e);
 					return null;
