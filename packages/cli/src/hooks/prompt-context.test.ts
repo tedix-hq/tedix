@@ -137,6 +137,99 @@ describe("tedix hooks prompt-context", () => {
 		expect(out).toContain("simple user stories");
 	});
 
+	test("team lessons are read next to preferences and fenced the same way", async () => {
+		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
+		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
+		const binding = {
+			...rest,
+			preferencesWorkspaceId: WORKSPACE,
+			preferencesOutputId: OUTPUT,
+			lessonsWorkspaceId: WORKSPACE,
+			lessonsOutputId: lessonsOutput,
+		};
+		const data: JsonObject = { preferences: copy(DATA.shared) };
+		data.lessons = copy(DATA.shared);
+		data.lessons.output.id = lessonsOutput;
+		data.lessons.revision.outputId = lessonsOutput;
+		data.lessons.text = "Edit the ops overlay with any binding change.";
+		let { out, calls } = await run([binding, AUTH, data]);
+		expect(out).toContain("Working preferences");
+		expect(out).toContain("Team lessons");
+		expect(out).toContain("ops overlay");
+		expect(out.indexOf("Working preferences")).toBeLessThan(
+			out.indexOf("Team lessons"),
+		);
+		const source = calls.at(-1)!.at(-1)!;
+		expect(source).toContain(lessonsOutput);
+		expect(source).not.toContain("prompt");
+		// A lessons document from another organization hides every body.
+		data.lessons.workspace.organizationId = OUTPUT;
+		data.lessons.output.organizationId = OUTPUT;
+		data.lessons.revision.organizationId = OUTPUT;
+		({ out } = await run([binding, AUTH, data]));
+		expect(out).toContain("unavailable");
+		expect(out).not.toContain("ops overlay");
+		expect(out).not.toContain("simple user stories");
+		// A stale revision is rejected, not shown.
+		data.lessons = copy(DATA.shared);
+		data.lessons.output.id = lessonsOutput;
+		data.lessons.revision.outputId = lessonsOutput;
+		data.lessons.output.currentRevisionId = WORK;
+		({ out } = await run([binding, AUTH, data]));
+		expect(out).toContain("unavailable");
+		// Half a selection never reaches the gateway.
+		({ out, calls } = await run([
+			{ ...binding, lessonsWorkspaceId: undefined },
+			AUTH,
+			data,
+		]));
+		expect(out).toContain("unavailable");
+		expect(calls).toHaveLength(1);
+	});
+
+	test("lessons alone make a chat targeted and stay under the byte cap", async () => {
+		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
+		const binding = {
+			...BINDING,
+			preferencesWorkspaceId: WORKSPACE,
+			preferencesOutputId: OUTPUT,
+			lessonsWorkspaceId: WORKSPACE,
+			lessonsOutputId: lessonsOutput,
+		};
+		const big = (text: string, id = OUTPUT) => {
+			const doc = copy(DATA.shared);
+			doc.output.id = id;
+			doc.revision.outputId = id;
+			doc.text = text.repeat(3200);
+			return doc;
+		};
+		const { out } = await run([
+			binding,
+			AUTH,
+			{
+				shared: big("s"),
+				preferences: big("p"),
+				lessons: big("l", lessonsOutput),
+			},
+		]);
+		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(9600);
+		expect(text).toContain("complete=false");
+		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
+		const lessonsOnly = {
+			...rest,
+			lessonsWorkspaceId: WORKSPACE,
+			lessonsOutputId: OUTPUT,
+		};
+		const { out: only } = await run([
+			lessonsOnly,
+			AUTH,
+			{ lessons: DATA.shared },
+		]);
+		expect(only).toContain("Team lessons");
+		expect(only).not.toContain("Working preferences");
+	});
+
 	test("connect routes the selected org and uses the live UUID for ownership", async () => {
 		const binding = {
 			...BINDING,
@@ -353,7 +446,7 @@ describe("tedix hooks prompt-context", () => {
 		data.shared.text = "𠮷".repeat(3200);
 		const { out } = await run([BINDING, AUTH, data]);
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
-		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6000);
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(9600);
 		expect(text).toContain("complete=false");
 	});
 

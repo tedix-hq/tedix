@@ -71,6 +71,8 @@ interface Store {
 	version: 1;
 	repositories: Binding[];
 	preferences?: PreferenceSelection[];
+	/** Organization-wide engineering lessons, injected next to preferences. */
+	lessons?: PreferenceSelection[];
 	/** Explicit per-organization opt-in for recording turn ends and replies. */
 	decisionCapture?: Omit<
 		PreferenceSelection,
@@ -101,6 +103,8 @@ export interface AgentContextResult {
 	contextSessionId?: string;
 	preferencesWorkspaceId?: string;
 	preferencesOutputId?: string;
+	lessonsWorkspaceId?: string;
+	lessonsOutputId?: string;
 	osWorkspaceId?: string;
 	contextOutputId?: string;
 	decisionCapture?: boolean;
@@ -343,6 +347,31 @@ function chatBinding(
 	};
 }
 
+/** The one organization-wide document of a kind for this profile, if selected. */
+function organizationDocument(
+	rows: PreferenceSelection[] | undefined,
+	active: ContextTarget,
+): PreferenceSelection | undefined {
+	const matches = (rows ?? []).filter(
+		(row) =>
+			row.workspace === active.workspace &&
+			row.org === active.org &&
+			row.mcpUrl === active.mcpUrl,
+	);
+	if (
+		matches.length > 1 ||
+		matches.some(
+			(row) =>
+				!looksLikeUuid(row.osWorkspaceId) ||
+				!looksLikeUuid(row.contextOutputId),
+		)
+	)
+		throw new Error(
+			"Invalid organization document selection; reconnect preferences or lessons explicitly",
+		);
+	return matches[0];
+}
+
 /** Local correlation only. Does not read the gateway or restore an Attempt credential. */
 export function resolveAgentContext(
 	options?: AgentContextOptions,
@@ -363,24 +392,8 @@ export function resolveAgentContext(
 		const scoped = chatBinding(binding, repo, options);
 		const active = scoped.binding;
 		checkedBinding(active, repo, options);
-		const preferences = (store.preferences ?? []).filter(
-			(row) =>
-				row.workspace === active.workspace &&
-				row.org === active.org &&
-				row.mcpUrl === active.mcpUrl,
-		);
-		if (
-			preferences.length > 1 ||
-			preferences.some(
-				(row) =>
-					!looksLikeUuid(row.osWorkspaceId) ||
-					!looksLikeUuid(row.contextOutputId),
-			)
-		)
-			throw new Error(
-				"Invalid preference selection; reconnect preferences explicitly",
-			);
-		const preference = preferences[0];
+		const preference = organizationDocument(store.preferences, active);
+		const lessons = organizationDocument(store.lessons, active);
 		const capture = (store.decisionCapture ?? []).some(
 			(row) =>
 				row.workspace === active.workspace &&
@@ -409,6 +422,12 @@ export function resolveAgentContext(
 				? {
 						preferencesWorkspaceId: preference.osWorkspaceId,
 						preferencesOutputId: preference.contextOutputId,
+					}
+				: {}),
+			...(lessons
+				? {
+						lessonsWorkspaceId: lessons.osWorkspaceId,
+						lessonsOutputId: lessons.contextOutputId,
 					}
 				: {}),
 			...selectedWork(active, repo),
@@ -450,6 +469,8 @@ export function changeAgentContext(
 		| "disconnect-output"
 		| "connect-preferences"
 		| "disconnect-preferences"
+		| "connect-lessons"
+		| "disconnect-lessons"
 		| "enable-decision-capture"
 		| "disable-decision-capture",
 	input: {
@@ -598,30 +619,35 @@ export function changeAgentContext(
 				});
 		} else if (
 			action === "connect-preferences" ||
-			action === "disconnect-preferences"
+			action === "disconnect-preferences" ||
+			action === "connect-lessons" ||
+			action === "disconnect-lessons"
 		) {
 			if (!binding)
 				throw new Error("This repository is not bound; use context bind first");
 			const active = chatBinding(binding, repo, options).binding;
 			checkedBinding(active, repo, options);
+			const connect = action.startsWith("connect-");
+			const kind = action.endsWith("-lessons") ? "lessons" : "preferences";
 			if (
-				action === "connect-preferences" &&
+				connect &&
 				(!input.osWorkspaceId ||
 					!looksLikeUuid(input.osWorkspaceId) ||
 					!input.contextOutputId ||
 					!looksLikeUuid(input.contextOutputId))
 			)
 				throw new Error(
-					"connect-preferences requires --os-workspace <UUID> and --output <UUID>",
+					`connect-${kind} requires --os-workspace <UUID> and --output <UUID>`,
 				);
-			store.preferences = (store.preferences ?? []).filter(
+			const rows = (store[kind] ?? []).filter(
 				(row) =>
 					row.workspace !== active.workspace ||
 					row.org !== active.org ||
 					row.mcpUrl !== active.mcpUrl,
 			);
-			if (action === "connect-preferences")
-				store.preferences.push({
+			store[kind] = rows;
+			if (connect)
+				rows.push({
 					workspace: active.workspace,
 					org: active.org,
 					mcpUrl: active.mcpUrl,
@@ -774,6 +800,8 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context connect-output --os-workspace <UUID> --output <UUID>
   tedix setup agents context connect-preferences --os-workspace <UUID> --output <UUID>
   tedix setup agents context disconnect-preferences
+  tedix setup agents context connect-lessons --os-workspace <UUID> --output <UUID>
+  tedix setup agents context disconnect-lessons
   tedix setup agents context enable-decision-capture
   tedix setup agents context disable-decision-capture
   tedix setup agents context disconnect-output
@@ -794,6 +822,9 @@ other checkouts use an explicit selection scoped to the current branch.
 connect-output selects a read-only shared document for this checkout and branch,
 without changing Work selection or sibling worktrees. Its ownership is verified
 by the prompt hook at read time; local selection alone verifies no live access.
+connect-preferences and connect-lessons select one organization-wide document
+each (working preferences, team engineering lessons) that every chat of this
+profile and organization reads next to its task context, under the same checks.
 enable-decision-capture opts this profile and organization into recording each
 finished agent turn and the reply that follows as an Interaction addressed to you
 in its project inbox. It is the only context setting that sends conversation text;
@@ -823,6 +854,8 @@ export function runAgentContext(
 			"disconnect-output",
 			"connect-preferences",
 			"disconnect-preferences",
+			"connect-lessons",
+			"disconnect-lessons",
 			"enable-decision-capture",
 			"disable-decision-capture",
 		].includes(action!)
@@ -856,7 +889,11 @@ export function runAgentContext(
 			throw new Error(`Unknown, duplicate or missing context option: ${arg}`);
 		if (
 			["osWorkspaceId", "contextOutputId"].includes(key)
-				? !["connect-output", "connect-preferences"].includes(action!)
+				? ![
+						"connect-output",
+						"connect-preferences",
+						"connect-lessons",
+					].includes(action!)
 				: !["cwd", "sessionId"].includes(key) &&
 					!["bind", "connect"].includes(action!)
 		)
@@ -886,6 +923,8 @@ export function runAgentContext(
 						| "disconnect-output"
 						| "connect-preferences"
 						| "disconnect-preferences"
+						| "connect-lessons"
+						| "disconnect-lessons"
 						| "enable-decision-capture"
 						| "disable-decision-capture",
 					values,

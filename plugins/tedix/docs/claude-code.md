@@ -94,7 +94,7 @@ Attempt, or record a conversation. Review the hook command with `/hooks` before
 enabling it. A governed Work Item still needs its own accepted outcome, executor
 identity, admission, lease, and settlement.
 
-The prompt hook reads current shared preferences, project context and recent
+The prompt hook reads current shared preferences, team lessons, project context and recent
 Work updates only from the selected CLI binding. It supplies fresh factual
 context on a submitted prompt, including supported autonomous turns. It does
 not store or upload the prompt. Invalid or conflicting context stays unavailable.
