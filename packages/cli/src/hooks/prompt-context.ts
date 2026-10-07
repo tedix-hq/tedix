@@ -8,11 +8,13 @@
  * branch's words. Lessons need no local selection, so a chat on any profile of
  * the organization gets them.
  *
- * Outside a bound repository (any folder, non-coding work too) the chat gets
+ * Outside any Git repository (any folder, non-coding work too) the chat gets
  * the same lessons for the default organization with no repository, when the
  * profile resolves to exactly one organization (TEDIX_ORGANIZATION, the saved
  * set-default-organization choice while still selected, or the profile's only
  * one). Several possible organizations and none chosen: nothing is read.
+ * Inside an unbound Git repository the default never applies: only bound
+ * repositories with the same origin owner, all in one organization, name it.
  *
  * With decision capture enabled, it also checks the chat's open question by ID:
  * when the user already answered it in Tedix OS, it hands that answer to the

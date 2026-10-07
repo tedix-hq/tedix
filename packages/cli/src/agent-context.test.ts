@@ -1054,6 +1054,55 @@ describe("default organization outside a bound repository", () => {
 			),
 		).toThrow("No single organization");
 	});
+
+	test("inside an unbound Git repository only a same-owner binding names the organization", () => {
+		const { opts } = fixture();
+		connect(opts, ["org_tedix", "org_customer"]);
+		runAgentContext(
+			["set-default-organization", "org_tedix", "--workspace", "connect"],
+			{ ...outside(opts, {}), allowDefault: true },
+		);
+		function repo(name: string, origin?: string) {
+			const cwd = join(opts.cwd, "..", name);
+			mkdirSync(cwd);
+			git(cwd, ["init", "-b", "main"]);
+			if (origin) git(cwd, ["remote", "add", "origin", origin]);
+			return { ...opts, cwd, env: {}, allowDefault: true };
+		}
+		// No binding anywhere: the saved default applies outside Git only.
+		expect(
+			resolveAgentContext({ ...outside(opts, {}), allowDefault: true }),
+		).toMatchObject({ contextSource: "default", org: "org_tedix" });
+		const customer = repo("customer-app", "git@github.com:customer/app.git");
+		expect(resolveAgentContext(customer)).toEqual({ status: "unbound" });
+		expect(resolveAgentContext(repo("loose"))).toEqual({ status: "unbound" });
+		// A bound sibling of the same owner names its organization.
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", organization: "org_customer", projectId: SECOND },
+			repo("customer-api", "https://github.com/Customer/api"),
+		);
+		expect(resolveAgentContext(customer)).toMatchObject({
+			status: "bound",
+			contextSource: "default",
+			workspace: "connect",
+			org: "org_customer",
+			organization: "org_customer",
+		});
+		// Another owner stays idle despite the default.
+		const other = repo("other-app", "https://github.com/someone/app.git");
+		expect(resolveAgentContext(other)).toEqual({ status: "unbound" });
+		// Same-owner bindings in two organizations: never a guess.
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", organization: "org_tedix", projectId: PROJECT },
+			repo("customer-web", "https://github.com/customer/web.git"),
+		);
+		expect(resolveAgentContext(customer)).toEqual({ status: "unbound" });
+		expect(resolveAgentContext({ ...customer, allowDefault: false })).toEqual({
+			status: "unbound",
+		});
+	});
 });
 
 test("Claude Code session id selects chat context and conflicts with a different Codex chat", () => {
