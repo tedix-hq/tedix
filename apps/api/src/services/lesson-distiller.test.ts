@@ -3,6 +3,7 @@ import {
 	acceptedRules,
 	distillPrompt,
 	distillReplies,
+	mergeRules,
 	modelLessonDistiller,
 	parseCitedRules,
 	supportedRules,
@@ -48,6 +49,17 @@ describe("parseCitedRules", () => {
 		]);
 	});
 
+	it("reads a numbered list and parenthesized citations", () => {
+		expect(
+			parseCitedRules(
+				"Here are the rules:\n\n1. **Answer in plain English.** [20, 76]\n2) Fan out to subagents (replies 3, 9)",
+			),
+		).toEqual([
+			{ rule: "Answer in plain English.", cites: [20, 76] },
+			{ rule: "Fan out to subagents", cites: [3, 9] },
+		]);
+	});
+
 	it("reads NONE as nothing lasting and junk as a failure", () => {
 		expect(parseCitedRules("NONE")).toEqual([]);
 		expect(parseCitedRules("I cannot help with that")).toBeNull();
@@ -88,6 +100,21 @@ describe("acceptedRules", () => {
 				replies,
 			),
 		).toEqual([]);
+	});
+});
+
+describe("mergeRules", () => {
+	it("ranks rules several slices found first and drops repeats", () => {
+		expect(
+			mergeRules([
+				["Fan out to subagents.", "Answer in plain English."],
+				["Answer in plain English please.", "Keep the console lean."],
+			]),
+		).toEqual([
+			"Answer in plain English.",
+			"Fan out to subagents.",
+			"Keep the console lean.",
+		]);
 	});
 });
 
