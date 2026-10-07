@@ -148,6 +148,37 @@ function isSubjectLesson(row: CurrentLearningFeedLessonRow): boolean {
 	return scope.harness === "general" && scope.topic === "general";
 }
 
+/**
+ * Reply classes the session importer assigned (`classify` in the CLI). An
+ * imported lesson was once keyed by host and one of these; live decision
+ * capture uses triage labels and draft turn types instead.
+ */
+const IMPORT_REPLY_CLASSES = new Set([
+	"frustration",
+	"correction",
+	"challenge",
+	"verify",
+	"plain-english",
+	"simplify",
+	"fan-out",
+	"ship",
+	"approve",
+	"status",
+	"continue",
+	"question",
+	"instruction",
+]);
+
+/** A lesson of imported sessions under the retired per-reply-type grouping. */
+function isReplyTypeLesson(row: CurrentLearningFeedLessonRow): boolean {
+	const scope = rec(rec(rec(row.metadata).learningFeed).scope);
+	return (
+		(scope.harness === "codex" || scope.harness === "claude-code") &&
+		typeof scope.topic === "string" &&
+		IMPORT_REPLY_CLASSES.has(scope.topic)
+	);
+}
+
 function evidenceOf(row: CurrentLearningFeedLessonRow): string[] {
 	const ids = rec(rec(row.metadata).learningFeed).evidenceEventIds;
 	return Array.isArray(ids)
@@ -193,8 +224,9 @@ export async function consolidatePersonalLessons(
 				row.topicKey !== key &&
 				!isSubjectLesson(row) &&
 				minerWritten(row) &&
-				evidence.length > 0 &&
-				evidence.every((id) => subjectEvidence.has(id))
+				((evidence.length > 0 &&
+					evidence.every((id) => subjectEvidence.has(id))) ||
+					(subjectEvidence.size > 0 && isReplyTypeLesson(row)))
 			) {
 				await invalidateFact(db, row.id, "Folded into its subject lesson");
 				result.topicLessonsRetired++;

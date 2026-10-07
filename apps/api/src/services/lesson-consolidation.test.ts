@@ -160,6 +160,46 @@ describe("consolidatePersonalLessons", () => {
 		});
 	});
 
+	it("retires every old per-reply-type import lesson once a subject lesson exists", async () => {
+		const subject = lesson("subj", "general", ["Deploy after tests pass."]);
+		(subject.metadata.learningFeed as Record<string, unknown>).scope = {
+			repo: "acme",
+			harness: "general",
+			topic: "general",
+		};
+		const replyType = lesson("rt", "simplify", ["Set the connector scope."]);
+		(replyType.metadata.learningFeed as Record<string, unknown>).scope = {
+			repo: "acme",
+			harness: "claude-code",
+			topic: "simplify",
+		};
+		(
+			replyType.metadata.learningFeed as Record<string, unknown>
+		).evidenceEventIds = ["older-than-the-subject"];
+		const live = lesson("live", "blocker_or_failure", ["Report blockers."]);
+		(live.metadata.learningFeed as Record<string, unknown>).scope = {
+			repo: "acme",
+			harness: "codex",
+			topic: "blocker_or_failure",
+		};
+		vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([
+			subject,
+			replyType,
+			live,
+		] as never);
+		await consolidatePersonalLessons(db, "org-1");
+		expect(invalidateFact).toHaveBeenCalledWith(
+			db,
+			"rt",
+			"Folded into its subject lesson",
+		);
+		expect(invalidateFact).not.toHaveBeenCalledWith(
+			db,
+			"live",
+			expect.anything(),
+		);
+	});
+
 	it("leaves an unchanged standing lesson alone", async () => {
 		vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([
 			{
