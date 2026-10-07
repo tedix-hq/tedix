@@ -1,4 +1,3 @@
-import type { CustodyInspectionScope } from "../../context";
 import type { CreateTediInput } from "@tedix/api-contract/schemas/tedi";
 /**
  * Tedis Router — CRUD procedures + logs
@@ -1942,7 +1941,6 @@ const DECOMMISSION_ADMIN_TIMEOUT_MS = 10_000;
  */
 export type AgentAdminFetchFailure =
 	| "no_provisioning_config"
-	| "service_binding_unavailable"
 	| "secrets_master_key_unavailable"
 	| "timeout"
 	| "transport_failure";
@@ -1953,7 +1951,6 @@ export async function agentAdminFetch(
 	path:
 		| "/__admin/agent-diag"
 		| "/__admin/pi-recovery"
-		| "/__admin/pi-state-cutover"
 		| "/__admin/dequeue"
 		| "/__admin/schedules"
 		| "/__admin/agent-memory/inspect"
@@ -1962,37 +1959,17 @@ export async function agentAdminFetch(
 		method: "GET" | "POST";
 		body?: unknown;
 		query?: Record<string, string | undefined>;
-		/** Exact raw-object maintenance must use the internal service transport. */
-		requireServiceBinding?: boolean;
 		timeoutMs: number;
-		custodyInspectionScope?: CustodyInspectionScope;
 	},
 ): Promise<
 	| { ok: boolean; status: number; json: unknown }
 	| { error: string; failure: AgentAdminFetchFailure }
 > {
-	const selected =
-		path === "/__admin/pi-state-cutover" &&
-		typeof options.body === "object" &&
-		options.body !== null &&
-		"command" in options.body &&
-		options.body.command === "inspect_custody_coverage";
-	const scope = options.custodyInspectionScope;
-	if (selected && !scope)
-		throw new Error("Custody inspection request scope unavailable");
-	if (scope && !selected)
-		throw new Error("Unexpected custody inspection scope");
-	scope?.guard();
 	const provConfig = getProvisioningConfig(tedi, context.env);
 	if (!provConfig)
 		return {
 			error: "no_provisioning_config",
 			failure: "no_provisioning_config",
-		};
-	if (options.requireServiceBinding && !provConfig.fetcher)
-		return {
-			error: "service_binding_unavailable",
-			failure: "service_binding_unavailable",
 		};
 
 	const masterKey = context.env.SECRETS_MASTER_KEY;
@@ -2017,102 +1994,26 @@ export async function agentAdminFetch(
 		headers["X-Tedix-Host"] = provConfig.hostOverride;
 	}
 
-	if (scope) headers["X-Tedix-Custody-Deadline"] = String(scope.epochDeadline);
 	const fetchFn = provConfig.fetcher?.fetch.bind(provConfig.fetcher) ?? fetch;
 	const controller = new AbortController();
-	const timeout = setTimeout(() => {
-		controller.abort();
-		if (scope) {
-			try {
-				scope.refuse();
-			} catch {}
-		}
-	}, options.timeoutMs);
-	const abort = () => controller.abort();
-	scope?.signal.addEventListener("abort", abort, { once: true });
-	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-	const checked = <T>(read: () => PromiseLike<T>) =>
-		scope
-			? scope.checked(async () => {
-					const observed = Promise.resolve(read());
-					void observed.catch(() => {});
-					let stop: (() => void) | undefined;
-					try {
-						return await Promise.race([
-							observed,
-							new Promise<never>((_, reject) => {
-								stop = () => reject(Error("Custody inspection unavailable"));
-								controller.signal.addEventListener("abort", stop, {
-									once: true,
-								});
-								if (controller.signal.aborted) stop();
-							}),
-						]);
-					} finally {
-						if (stop) controller.signal.removeEventListener("abort", stop);
-					}
-				})
-			: Promise.resolve(read());
+	const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 	try {
-		const response = await checked(() => {
-			const sent = fetchFn(url.toString(), {
-				method: options.method,
-				headers,
-				body:
-					options.body !== undefined ? JSON.stringify(options.body) : undefined,
-				signal: controller.signal,
-			});
-			if (scope)
-				void Promise.resolve(sent).then(
-					(late) => {
-						if (controller.signal.aborted && late.body) {
-							try {
-								void late.body.cancel().catch(() => {});
-							} catch {}
-						}
-					},
-					() => {},
-				);
-			return sent;
+		const response = await fetchFn(url.toString(), {
+			method: options.method,
+			headers,
+			body:
+				options.body !== undefined ? JSON.stringify(options.body) : undefined,
+			signal: controller.signal,
 		});
 		controller.signal.throwIfAborted();
 		let json: unknown = null;
 		try {
-			if (scope && response.body) {
-				reader = response.body.getReader();
-				const chunks: Uint8Array[] = [];
-				let size = 0;
-				while (true) {
-					scope.guard();
-					const part = await checked(() => reader!.read());
-					scope.guard();
-					if (part.done) break;
-					if (
-						!Number.isSafeInteger(size + part.value.byteLength) ||
-						size + part.value.byteLength > 8 * 1024 * 1024
-					)
-						throw Error("Custody inspection response unavailable");
-					size += part.value.byteLength;
-					chunks.push(part.value);
-				}
-				scope.guard();
-				const body = new Uint8Array(size);
-				let offset = 0;
-				for (const chunk of chunks) {
-					scope.guard();
-					body.set(chunk, offset);
-					offset += chunk.byteLength;
-				}
-				json = JSON.parse(new TextDecoder().decode(body));
-				scope.guard();
-			} else json = await checked(() => response.json());
-		} catch (error) {
-			if (scope) throw error;
+			json = await response.json();
+		} catch {
 			json = null;
 		}
 		// Body parsing can swallow an abort; the original owned deadline still wins.
 		controller.signal.throwIfAborted();
-		scope?.guard();
 		return { ok: response.ok, status: response.status, json };
 	} catch (error) {
 		return {
@@ -2124,15 +2025,6 @@ export async function agentAdminFetch(
 			failure: controller.signal.aborted ? "timeout" : "transport_failure",
 		};
 	} finally {
-		if (scope) {
-			controller.abort();
-			if (reader) {
-				try {
-					void Promise.resolve(reader.cancel()).catch(() => {});
-				} catch {}
-			}
-		}
-		scope?.signal.removeEventListener("abort", abort);
 		clearTimeout(timeout);
 	}
 }

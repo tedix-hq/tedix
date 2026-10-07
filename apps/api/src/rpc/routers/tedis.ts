@@ -1,7 +1,3 @@
-import {
-	inspectRuntimeCutoverProcedure,
-	operateRuntimeCutoverProcedure,
-} from "./tedis/cutover-inventory";
 import { inspectRuntimeRecoveryProcedure } from "./tedis/recovery-diagnostic";
 import {
 	runTediDurableCode,
@@ -165,8 +161,6 @@ export const tedisContractRouter = tedisOs.router({
 	getStatus,
 	listSchedules: listSchedulesProcedure,
 	inspectRuntimeOutbox: inspectRuntimeOutboxProcedure,
-	inspectRuntimeCutover: inspectRuntimeCutoverProcedure,
-	operateRuntimeCutover: operateRuntimeCutoverProcedure,
 	inspectRuntimeRecovery: inspectRuntimeRecoveryProcedure,
 	inspectAgentMemory: inspectAgentMemoryProcedure,
 	wake,

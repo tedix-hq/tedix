@@ -129,8 +129,6 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// requires platform authority; the exact endpoint keeps aliases from
 	// borrowing any broader tedi grant.
 	"tedis/rebind": "platform:admin",
-	// Read-only cutover inventory; temporary, removed with the cutover tooling.
-	"tedis/inspectRuntimeCutover": "platform:admin",
 	// Contract projection can change the fleet tool catalog, including internal
 	// procedures. Keep its operator route platform-only through org aliases.
 	"toolSchemaSync/preview": "platform:admin",
