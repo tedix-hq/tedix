@@ -26,6 +26,11 @@ export const ACTIVE_WORKSPACES_INPUT = {
 	limit: 100,
 };
 
+export const ARCHIVED_WORKSPACES_INPUT = {
+	status: "archived" as const,
+	limit: 100,
+};
+
 export const ACTIVE_OUTPUT_LIBRARY_INPUT = {
 	status: "active" as const,
 	limit: 200,
@@ -55,6 +60,11 @@ export const EXPIRING_API_KEYS_WINDOW_DAYS = 30;
 export const activeWorkspacesQueryOptions = () =>
 	osQuery.osWorkspaces.workspaces.list.queryOptions({
 		input: ACTIVE_WORKSPACES_INPUT,
+	});
+
+export const archivedWorkspacesQueryOptions = () =>
+	osQuery.osWorkspaces.workspaces.list.queryOptions({
+		input: ARCHIVED_WORKSPACES_INPUT,
 	});
 
 export const workspaceDetailQueryOptions = (workspaceId: string) =>

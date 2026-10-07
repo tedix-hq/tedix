@@ -12,7 +12,7 @@ import {
 } from "vite-plus/test";
 
 const api = vi.hoisted(() => ({
-	workspaces: { list: vi.fn() },
+	workspaces: { list: vi.fn(), restore: vi.fn() },
 	workspacePreferences: {
 		list: vi.fn(),
 		setFavorite: vi.fn(),
@@ -266,6 +266,69 @@ describe("WorkspaceLibraryPage", () => {
 		if (!browse) throw new Error("blueprint entry missing");
 		click(browse);
 		expect(navigate).toHaveBeenCalledWith({ to: "/blueprints" });
+		act(() => root.unmount());
+	});
+
+	it("lists archived workspaces and restores one", async () => {
+		const archivedWorkspace = workspace({
+			id: SECOND_WORKSPACE_ID,
+			name: "Old Probe",
+			status: "archived",
+		});
+		api.workspaces.list.mockImplementation(
+			async (input: { status?: string }) =>
+				input.status === "archived"
+					? { items: [archivedWorkspace], truncated: false }
+					: { items: [workspace()], truncated: false },
+		);
+		api.workspaces.restore.mockResolvedValue({
+			workspace: { ...archivedWorkspace, status: "active" },
+		});
+		const { container, root } = await renderPage();
+		expect(container.textContent).not.toContain("Old Probe");
+
+		const archivedTab = Array.from(container.querySelectorAll("button")).find(
+			(button) => button.textContent?.trim() === "Archived",
+		);
+		if (!archivedTab) throw new Error("Archived view missing");
+		click(archivedTab);
+		await flush();
+		expect(
+			container.querySelector('ul[aria-label="Archived workspaces"]')
+				?.textContent,
+		).toContain("Old Probe");
+
+		const restore = container.querySelector(
+			'button[aria-label="Restore Old Probe"]',
+		);
+		if (!restore) throw new Error("Restore button missing");
+		const listCalls = api.workspaces.list.mock.calls.length;
+		click(restore);
+		await flush();
+		expect(api.workspaces.restore).toHaveBeenCalledWith(
+			{ workspaceId: SECOND_WORKSPACE_ID },
+			expect.anything(),
+		);
+		// The shared workspaces key refreshes the lists after a restore.
+		expect(api.workspaces.list.mock.calls.length).toBeGreaterThan(listCalls);
+		act(() => root.unmount());
+	});
+
+	it("explains an empty archive", async () => {
+		api.workspaces.list.mockImplementation(
+			async (input: { status?: string }) =>
+				input.status === "archived"
+					? { items: [], truncated: false }
+					: { items: [workspace()], truncated: false },
+		);
+		const { container, root } = await renderPage();
+		const archivedTab = Array.from(container.querySelectorAll("button")).find(
+			(button) => button.textContent?.trim() === "Archived",
+		);
+		if (!archivedTab) throw new Error("Archived view missing");
+		click(archivedTab);
+		await flush();
+		expect(container.textContent).toContain("No archived workspaces");
 		act(() => root.unmount());
 	});
 

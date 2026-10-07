@@ -265,6 +265,16 @@ export const osWorkspacesContract = oc
 				})
 				.input(workspaceIdInput)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
+			restore: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/restore",
+					summary: "Restore an archived Tedix OS workspace",
+					description:
+						"Returns an archived workspace to active. Archiving changes only the workspace's own status, so its gadgets, outputs, resources and preferences come back as they were. Names stay reserved while archived, so a restore cannot collide with another workspace. Restoring an active workspace returns it unchanged.",
+				})
+				.input(workspaceIdInput)
+				.output(z.object({ workspace: OsWorkspaceSchema })),
 			delete: oc
 				.route({
 					method: "DELETE",

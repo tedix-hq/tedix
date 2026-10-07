@@ -5037,6 +5037,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 		workspace.updatedAt = now();
 		return { workspace };
 	},
+	"osWorkspaces/workspaces/restore": (input: { workspaceId: string }) => {
+		const workspace = findWorkspace(input.workspaceId);
+		workspace.status = "active";
+		workspace.updatedAt = now();
+		return { workspace };
+	},
 	"osWorkspaces/workspacePreferences/list": () => ({
 		items: [...state.workspacePreferences],
 	}),

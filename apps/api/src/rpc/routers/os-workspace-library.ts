@@ -226,6 +226,23 @@ const archive = authorOs.workspaces.archive.handler(
 	},
 );
 
+const restore = authorOs.workspaces.restore.handler(
+	async ({ input, context }) => {
+		const row = await updateOsWorkspace(
+			queryDb(context),
+			{
+				organizationId: requireOrgId(context),
+				workspaceId: input.workspaceId,
+			},
+			{ status: "active" },
+		);
+		if (!row) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
+		}
+		return { workspace: mapWorkspace(row) };
+	},
+);
+
 const deleteWorkspace = adminOs.workspaces.delete.handler(
 	async ({ input, context }) => {
 		const workspace = await requireWorkspace(context, input.workspaceId);
@@ -387,6 +404,7 @@ export const osWorkspaceProcedures = {
 	get,
 	update,
 	archive,
+	restore,
 	delete: deleteWorkspace,
 };
 export const osWorkspacePreferenceProcedures = {

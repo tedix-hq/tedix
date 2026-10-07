@@ -147,6 +147,7 @@ describe("Tedix OS audit coverage", () => {
 			"workspaces.create",
 			"workspaces.update",
 			"workspaces.archive",
+			"workspaces.restore",
 			"workspaces.decideBlueprintUpgrade",
 			"resources.startRepositoryWork",
 			"gadgets.create",

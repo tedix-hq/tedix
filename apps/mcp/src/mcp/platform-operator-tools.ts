@@ -59,6 +59,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "restore_os_workspace",
+		endpoint: "osWorkspaces/workspaces/restore",
+		kind: "write",
+	},
+	{
 		toolId: "list_os_workspace_preferences",
 		endpoint: "osWorkspaces/workspacePreferences/list",
 		kind: "read",
