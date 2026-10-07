@@ -423,3 +423,28 @@ export const ListWorkInteractionInboxResultSchema = z.strictObject({
 	hasMore: z.boolean(),
 	observedAt: z.iso.datetime(),
 });
+
+export const ListWorkInteractionCliInboxInputSchema =
+	ListWorkInteractionInboxInputSchema.extend({
+		states: z.array(z.literal("open")).length(1).default(["open"]),
+		limit: z.number().int().min(1).max(5).default(5),
+	});
+export const WorkInteractionCliRequestSchema =
+	WorkInteractionRequestSchema.omit({ metadata: true }).extend({
+		prompt: z.string().max(800),
+		promptComplete: z.boolean(),
+	});
+export const ListWorkInteractionCliInboxResultSchema =
+	ListWorkInteractionInboxResultSchema.extend({
+		data: z
+			.array(
+				WorkInteractionInboxRowSchema.extend({
+					request: WorkInteractionCliRequestSchema,
+					workItem: WorkInteractionInboxRowSchema.shape.workItem
+						.unwrap()
+						.extend({ title: z.string().max(500) })
+						.nullable(),
+				}),
+			)
+			.max(5),
+	});

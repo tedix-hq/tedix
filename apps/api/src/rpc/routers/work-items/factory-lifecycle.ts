@@ -1,4 +1,12 @@
 import {
+	WorkAttemptCliRowSchema,
+	WorkEvidenceCliRowSchema,
+	WorkEventCliRowSchema,
+	ListWorkAttemptCliProjectionResultSchema,
+	ListWorkEvidenceCliProjectionResultSchema,
+	ListWorkEventCliProjectionResultSchema,
+} from "@tedix/api-contract/schemas/work-items";
+import {
 	heartbeatWorkItemAttempt,
 	listWorkItemAttempts,
 	recordWorkAttemptRepository,
@@ -831,3 +839,66 @@ export const cancelFactoryWorkItemProcedure = factoryOs.cancel.handler(
 		}
 	},
 );
+
+const cliLedgerOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Each ledger verifies Work Item organization access before reading scoped rows",
+		},
+		"mcp:work.read",
+	),
+);
+export const listAttemptCliProjectionProcedure =
+	cliLedgerOs.listAttemptCliProjection.handler(async ({ input, context }) => {
+		const w = await assertWorkItemAccess(context, input.id);
+		const p = await listWorkItemAttempts(context.db, {
+			orgId: w.orgId,
+			workItemId: w.id,
+			cursor: input.cursor
+				? { startedAt: input.cursor.at, id: input.cursor.id }
+				: undefined,
+			limit: input.limit,
+		});
+		return ListWorkAttemptCliProjectionResultSchema.parse({
+			data: p.data.map((row) => WorkAttemptCliRowSchema.strip().parse(row)),
+			nextCursor: p.nextCursor
+				? { at: p.nextCursor.startedAt, id: p.nextCursor.id }
+				: null,
+		});
+	});
+export const listEvidenceCliProjectionProcedure =
+	cliLedgerOs.listEvidenceCliProjection.handler(async ({ input, context }) => {
+		const w = await assertWorkItemAccess(context, input.id);
+		const p = await listWorkItemEvidence(context.db, {
+			orgId: w.orgId,
+			workItemId: w.id,
+			cursor: input.cursor
+				? { submittedAt: input.cursor.at, id: input.cursor.id }
+				: undefined,
+			limit: input.limit,
+		});
+		const rows = await Promise.all(
+			p.data.map((row) => resolveWorkEvidenceRow(context, row)),
+		);
+		return ListWorkEvidenceCliProjectionResultSchema.parse({
+			data: rows.map((row) => WorkEvidenceCliRowSchema.strip().parse(row)),
+			nextCursor: p.nextCursor
+				? { at: p.nextCursor.submittedAt, id: p.nextCursor.id }
+				: null,
+		});
+	});
+export const listEventCliProjectionProcedure =
+	cliLedgerOs.listEventCliProjection.handler(async ({ input, context }) => {
+		const w = await assertWorkItemAccess(context, input.id);
+		const rows = await listWorkItemEvents(context.db, {
+			orgId: w.orgId,
+			workItemId: w.id,
+			afterSequence: input.afterSequence,
+			limit: input.limit,
+		});
+		return ListWorkEventCliProjectionResultSchema.parse({
+			events: rows.map((row) => WorkEventCliRowSchema.strip().parse(row)),
+			nextSequence: rows.length === input.limit ? rows.at(-1)!.sequence : null,
+		});
+	});

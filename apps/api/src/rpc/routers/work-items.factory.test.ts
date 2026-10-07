@@ -43,3 +43,17 @@ describe("Work Item factory router", () => {
 		}
 	});
 });
+
+it("mounts each bounded CLI read without replacing full lifecycle reads", () => {
+	expect(Object.keys(workItemsContractRouter)).toEqual(
+		expect.arrayContaining([
+			"listCliProjection",
+			"getCheckpointProjection",
+			"listAttemptCliProjection",
+			"listEvidenceCliProjection",
+			"listEventCliProjection",
+			"getById",
+			"listEvidence",
+		]),
+	);
+});

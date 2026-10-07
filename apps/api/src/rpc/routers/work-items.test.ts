@@ -1,3 +1,4 @@
+import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -764,5 +765,137 @@ describe("Work Item router collaboration ledgers", () => {
 				body: "Different payload",
 			}),
 		]);
+	});
+});
+
+describe("bounded CLI projections using owning D1 reads", () => {
+	function projectionClient(scopes = ["mcp:work.read"]) {
+		const ctx = context();
+		const facade = createD1Facade(sqlite);
+		ctx.db = createDbClient(facade);
+		ctx.env = { ...ctx.env, DB: facade };
+		ctx.apiKey!.scopes = scopes;
+		return createRouterClient(workItemsContractRouter, { context: ctx });
+	}
+	it("preserves SQL filters, totals, last page and resolve fields without full records", async () => {
+		for (let i = 1; i <= 3; i++)
+			seed({
+				id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+				title: `CLI ${i}`,
+			});
+		sqlite
+			.prepare(
+				"UPDATE work_items SET description=?,metadata=?,acceptance_contract=?",
+			)
+			.run(
+				"x".repeat(20000),
+				JSON.stringify({ large: "x".repeat(20000) }),
+				JSON.stringify({ version: 1, doneLooksLike: "x".repeat(2000) }),
+			);
+		const c = projectionClient();
+		const first = await c.listCliProjection({
+			view: "board",
+			titleContains: "CLI",
+			limit: 2,
+		});
+		expect(first.data).toHaveLength(2);
+		expect(first.pagination).toMatchObject({ total: 3, hasMore: true });
+		expect(first.data[0]).not.toHaveProperty("metadata");
+		expect(first.data[0]).not.toHaveProperty("acceptanceContract");
+		expect(first.data[0]).toHaveProperty("activeAttempt", null);
+		const last = await c.listCliProjection({
+			view: "resolve",
+			titleContains: "CLI",
+			limit: 2,
+			offset: 2,
+		});
+		expect(last.pagination).toMatchObject({ total: 3, hasMore: false });
+		expect(last.data).toHaveLength(1);
+		expect(last.data[0]).not.toHaveProperty("activeAttempt");
+		expect(await c.getCheckpointProjection({ id: first.data[0]!.id })).toEqual({
+			id: first.data[0]!.id,
+			orgId: ORG_ID,
+			projectId: null,
+			disposition: "proposed",
+		});
+	});
+	it("retains org and scope refusals instead of returning empty data", async () => {
+		const id = "00000000-0000-4000-8000-000000000009";
+		seed({ id, orgId: "00000000-0000-4000-8000-000000000099" });
+		await expect(
+			projectionClient().getCheckpointProjection({ id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			projectionClient(["mcp:messaging.read"]).listCliProjection({
+				view: "board",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("projects exact ledger rows and continuation while leaving metadata/payload out", async () => {
+		const id = "00000000-0000-4000-8000-000000000010";
+		seed({ id });
+		const at = "2026-10-07T00:00:00.000Z";
+		for (let i = 1; i <= 2; i++) {
+			const rowId = `00000000-0000-4000-8000-${String(i + 10).padStart(12, "0")}`;
+			sqlite
+				.prepare(
+					"INSERT INTO work_attempts (id,work_item_id,org_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,metadata) VALUES (?,?,?,'tedi','actor','running',?,?,?,'{}')",
+				)
+				.run(rowId, id, ORG_ID, i, at, at);
+			sqlite
+				.prepare(
+					"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES (?,?,?,'observed','user','owner',?,?)",
+				)
+				.run(
+					rowId,
+					ORG_ID,
+					id,
+					JSON.stringify({ large: "x".repeat(20000) }),
+					at,
+				);
+			sqlite
+				.prepare(
+					"INSERT INTO work_evidence(id,work_item_id,org_id,claim_key,kind,uri,submitted_by_type,submitted_by_id,submitted_at,metadata) VALUES (?,?,?,'claim','citation','https://evidence.test/receipt','user','owner',?,'{}')",
+				)
+				.run(rowId, id, ORG_ID, at);
+		}
+		const c = projectionClient();
+		const a = await c.listAttemptCliProjection({ id, limit: 1 });
+		expect(a.data).toHaveLength(1);
+		expect(a.data[0]).not.toHaveProperty("metadata");
+		expect(a.nextCursor).not.toBeNull();
+		expect(
+			(
+				await c.listAttemptCliProjection({
+					id,
+					limit: 1,
+					cursor: a.nextCursor!,
+				})
+			).nextCursor,
+		).toBeNull();
+		const e = await c.listEvidenceCliProjection({ id, limit: 1 });
+		expect(e.data[0]).not.toHaveProperty("reference");
+		expect(e.nextCursor).not.toBeNull();
+		expect(
+			(
+				await c.listEvidenceCliProjection({
+					id,
+					limit: 1,
+					cursor: e.nextCursor!,
+				})
+			).nextCursor,
+		).toBeNull();
+		const events = await c.listEventCliProjection({ id, limit: 1 });
+		expect(events.events[0]).not.toHaveProperty("payload");
+		expect(events.nextSequence).not.toBeNull();
+		expect(
+			(
+				await c.listEventCliProjection({
+					id,
+					limit: 1,
+					afterSequence: events.nextSequence!,
+				})
+			).events,
+		).toHaveLength(1);
 	});
 });

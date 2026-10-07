@@ -1,3 +1,4 @@
+import { ListWorkInteractionCliInboxResultSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { implement } from "@orpc/server";
 import {
 	type AgentReplyDeliveryGateResult,
@@ -353,6 +354,47 @@ const listInboxProcedure = readOs.listInbox.handler(
 	},
 );
 
+const listCliInboxProjectionProcedure = readOs.listCliInboxProjection.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const caller = await verifiedActiveWorkActor(context, orgId);
+		const observedAt = new Date().toISOString();
+		const page = await listWorkInteractionInbox(context.db, {
+			orgId,
+			states: input.states,
+			kinds: input.kinds,
+			urgency: input.urgency,
+			workItemId: input.workItemId,
+			projectId: input.projectId,
+			targetType: caller.type,
+			targetId: caller.id,
+			cursor: input.cursor,
+			limit: input.limit,
+			observedAt,
+		});
+		return ListWorkInteractionCliInboxResultSchema.parse({
+			data: page.data.map((row) => {
+				const { metadata: _metadata, ...request } = requestOutput(row.request);
+				return {
+					request: {
+						...request,
+						prompt: request.prompt.slice(0, 800),
+						promptComplete: request.prompt.length <= 800,
+					},
+					effectiveState: row.effectiveState,
+					canRespond: row.effectiveState === "open",
+					canCancel: false,
+					workItem: row.workItem?.id ? row.workItem : null,
+					responseCount: row.responseCount,
+				};
+			}),
+			nextCursor: page.nextCursor,
+			hasMore: page.hasMore,
+			observedAt,
+		});
+	},
+);
+
 const listOutboxProcedure = readOs.listOutbox.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
@@ -430,6 +472,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 	cancel: cancelProcedure,
 	get: getProcedure,
 	listInbox: listInboxProcedure,
+	listCliInboxProjection: listCliInboxProjectionProcedure,
 	listOutbox: listOutboxProcedure,
 	listAudit: listAuditProcedure,
 });

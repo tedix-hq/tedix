@@ -538,3 +538,24 @@ it("classifies only the Work approval request as an ordinary Work write", () => 
 		"mcp:work.admin",
 	);
 });
+
+it("maps six exact bounded CLI projection names without lending inbox Work authority", () => {
+	expect(toolToGranularCapabilityScope("list_work_item_cli_rows")).toBe(
+		"mcp:work.read",
+	);
+	expect(toolToGranularCapabilityScope("get_work_item_checkpoint")).toBe(
+		"mcp:work.read",
+	);
+	expect(toolToGranularCapabilityScope("list_work_attempt_cli_rows")).toBe(
+		"mcp:work.read",
+	);
+	expect(toolToGranularCapabilityScope("list_work_evidence_cli_rows")).toBe(
+		"mcp:work.read",
+	);
+	expect(toolToGranularCapabilityScope("list_work_event_cli_rows")).toBe(
+		"mcp:work.read",
+	);
+	expect(toolToGranularCapabilityScope("list_work_interaction_cli_rows")).toBe(
+		"mcp:messaging.read",
+	);
+});

@@ -1,3 +1,10 @@
+import {
+	ListWorkCliProjectionResultSchema,
+	WorkCliBoardRowSchema,
+	WorkCliResolveRowSchema,
+	WorkCheckpointProjectionSchema,
+} from "@tedix/api-contract/schemas/work-items";
+import { withAuthorization } from "../../orpc";
 import { getOrgGraphHealth } from "@tedix/db/queries/org-graph-health";
 import {
 	getWorkGraphHealth,
@@ -423,3 +430,68 @@ export const listActivityProcedure = authOs.listActivity.handler(
 		};
 	},
 );
+
+const cliReadOs = authOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Each read is scoped to the verified organization; record reads additionally assert Work Item access",
+		},
+		"mcp:work.read",
+	),
+);
+export const listCliProjectionProcedure = cliReadOs.listCliProjection.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const page = await listWorkItemsPage(context.db, {
+			orgId,
+			disposition: input.disposition,
+			workKind: input.workKind,
+			projectId: input.projectId,
+			objectiveId: input.objectiveId,
+			workClass: input.workClass,
+			idPrefix: input.idPrefix,
+			titleContains: input.titleContains,
+			customerVisiblePreFilter: input.customerVisibleOnly,
+			limit: input.limit,
+			offset: input.offset,
+		});
+		const pagination = {
+			limit: input.limit,
+			offset: input.offset,
+			total: page.total,
+			hasMore: input.offset + page.data.length < page.total,
+		};
+		if (input.view === "resolve")
+			return ListWorkCliProjectionResultSchema.parse({
+				view: input.view,
+				data: page.data.map((row) =>
+					WorkCliResolveRowSchema.strip().parse(row),
+				),
+				pagination,
+			});
+		const holders = await listLiveWorkAttemptHolders(context.db, { orgId });
+		return ListWorkCliProjectionResultSchema.parse({
+			view: input.view,
+			data: page.data.map((row) => {
+				const holder = holders.get(row.id);
+				return WorkCliBoardRowSchema.strip().parse({
+					...row,
+					activeAttempt: holder
+						? {
+								agentSession: holder.agentSession,
+								executorId: holder.executorId,
+							}
+						: null,
+				});
+			}),
+			pagination,
+		});
+	},
+);
+export const getCheckpointProjectionProcedure =
+	cliReadOs.getCheckpointProjection.handler(async ({ input, context }) =>
+		WorkCheckpointProjectionSchema.strip().parse(
+			await assertWorkItemAccess(context, input.id),
+		),
+	);
