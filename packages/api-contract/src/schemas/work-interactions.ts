@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { AgentReplyDeliveryGateResultSchema } from "./agent-turn-triage";
 import { BoundedJsonObjectSchema } from "./bounded-json";
 import {
 	CredentialWorkActorTypeSchema,
@@ -305,6 +306,11 @@ export const WorkInteractionReplyDraftSchema = z.strictObject({
 		.enum(["review", "auto"])
 		.describe(
 			"`review`: waits for the user to accept, edit, or replace it; `auto`: the server judged it safe to send without review",
+		),
+	gate: AgentReplyDeliveryGateResultSchema.nullable()
+		.optional()
+		.describe(
+			"Audit of the Clef delivery gate behind `delivery`; null when the gate was not reached",
 		),
 });
 export type WorkInteractionReplyDraft = z.infer<

@@ -1,5 +1,5 @@
 {
-	"assetVersion": 3,
+	"assetVersion": 4,
 	"policy": {
 		"enabled": true,
 		"model": "@cf/cloudflare/clef-flash",
@@ -37,6 +37,32 @@
 		"autoSend": {
 			"enabled": false,
 			"maxConsecutive": 3
+		},
+		"deliveryGate": {
+			"model": "@cf/cloudflare/clef-flash",
+			"questions": [
+				{
+					"id": "reversible_step",
+					"instructions": "Does the drafted reply tell the agent to take only reversible steps (local edits, tests, commits, a reviewed push to main), and nothing that deploys, publishes, releases, deletes data, force-pushes, messages other people, spends money, or touches credentials?",
+					"autoWhen": {
+						"gte": 0.8
+					}
+				},
+				{
+					"id": "correction_or_challenge",
+					"instructions": "Does the drafted reply correct, contradict or challenge what the agent said or did?",
+					"autoWhen": {
+						"lte": 0.3
+					}
+				},
+				{
+					"id": "needs_human",
+					"instructions": "Does the drafted reply or the agent's message require something only the human can provide (a decision on goals or priorities, consent, login, credentials, payment)?",
+					"autoWhen": {
+						"lte": 0.3
+					}
+				}
+			]
 		}
 	},
 	"replyLabel": {

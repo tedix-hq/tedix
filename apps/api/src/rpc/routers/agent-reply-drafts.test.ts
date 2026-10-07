@@ -100,9 +100,18 @@ function fixture() {
 
 	const facade = createD1Facade(sqlite);
 	const send = vi.fn(async (_body: unknown) => undefined);
+	// The Clef delivery gate: every default check passes unless a test says otherwise.
+	const clef = vi.fn(async (_model: string, _input: unknown) => ({
+		answers: {
+			reversible_step: { type: "noul", noul: 0.95 },
+			correction_or_challenge: { type: "noul", noul: 0.05 },
+			needs_human: { type: "noul", noul: 0.05 },
+		} as Record<string, unknown>,
+	}));
 	const env = {
 		ENVIRONMENT: "test",
 		DB: facade,
+		AI: { run: clef },
 		AUTOMATION_EVENTS: { send },
 	} as unknown as CloudflareEnv;
 	const base = {
@@ -216,6 +225,7 @@ function fixture() {
 	return {
 		sqlite,
 		send,
+		clef,
 		target,
 		gatewayTarget: gatewayUser("target-sub"),
 		other: user("other-id", "other-sub"),
@@ -548,6 +558,126 @@ describe("proposeReplyDraft delivery", () => {
 				.prepare("SELECT count(*) AS n FROM work_interaction_reply_drafts")
 				.get(),
 		).toMatchObject({ n: 0 });
+	});
+
+	describe("Clef delivery gate", () => {
+		const PASSING = {
+			reversible_step: 0.95,
+			correction_or_challenge: 0.05,
+			needs_human: 0.05,
+		};
+		function answers(probabilities: Record<string, number>) {
+			return {
+				answers: Object.fromEntries(
+					Object.entries(probabilities).map(([id, noul]) => [
+						id,
+						{ type: "noul", noul },
+					]),
+				),
+			};
+		}
+		function storedGate(f: ReturnType<typeof fixture>, requestId: string) {
+			const row = f.sqlite
+				.prepare(
+					"SELECT gate FROM work_interaction_reply_drafts WHERE interaction_id=?",
+				)
+				.get(requestId) as { gate: string | null };
+			return row.gate === null ? null : JSON.parse(row.gate);
+		}
+
+		it("auto-sends only when every check passes and records the audit", async () => {
+			const f = fixture();
+			await f.configure(AUTO_SEND);
+			const { requestId, delivery } = await turn(f, 1);
+			expect(delivery).toBe("auto");
+			const [model, input] = f.clef.mock.calls[0] ?? [];
+			expect(model).toBe("@cf/cloudflare/clef-flash");
+			expect(input).toMatchObject({
+				state: {
+					agent_message: "Tests pass. Commit and push now?",
+					draft_reply: draft.body,
+				},
+			});
+			expect(Object.keys((input as { questions: object }).questions)).toEqual(
+				Object.keys(PASSING),
+			);
+			expect(storedGate(f, requestId)).toMatchObject({
+				status: "pass",
+				checks: [
+					{ id: "reversible_step", p: 0.95, pass: true },
+					{ id: "correction_or_challenge", p: 0.05, pass: true },
+					{ id: "needs_human", p: 0.05, pass: true },
+				],
+			});
+			const detail = await f.target.getReplyDraftAcceptance({});
+			expect(detail.byTurnType[0]?.autoSent).toBe(1);
+		});
+
+		it.each([
+			["reversible_step", { reversible_step: 0.79 }],
+			["correction_or_challenge", { correction_or_challenge: 0.31 }],
+			["needs_human", { needs_human: 0.31 }],
+		])("delivers review when %s fails", async (failed, patch) => {
+			const f = fixture();
+			await f.configure(AUTO_SEND);
+			f.clef.mockResolvedValueOnce(answers({ ...PASSING, ...patch }));
+			const { requestId, delivery } = await turn(f, 1);
+			expect(delivery).toBe("review");
+			const gate = storedGate(f, requestId);
+			expect(gate.status).toBe("fail");
+			expect(
+				gate.checks
+					.filter((check: { pass: boolean }) => !check.pass)
+					.map((check: { id: string }) => check.id),
+			).toEqual([failed]);
+		});
+
+		it("fails closed when Clef errors or answers malformed", async () => {
+			const f = fixture();
+			await f.configure(AUTO_SEND);
+			f.clef.mockRejectedValueOnce(new Error("5xx from Workers AI"));
+			const errored = await turn(f, 1);
+			expect(errored.delivery).toBe("review");
+			expect(storedGate(f, errored.requestId)).toMatchObject({
+				status: "unavailable",
+				checks: [],
+			});
+			f.clef.mockResolvedValueOnce(answers({ reversible_step: 0.99 }));
+			const partial = await turn(f, 2);
+			expect(partial.delivery).toBe("review");
+			expect(storedGate(f, partial.requestId).status).toBe("unavailable");
+		});
+
+		it("is not consulted when an earlier guardrail already chose review", async () => {
+			const f = fixture();
+			await f.configure(AUTO_SEND);
+			const { requestId, delivery } = await turn(f, 1, { reversible: false });
+			expect(delivery).toBe("review");
+			expect(f.clef).not.toHaveBeenCalled();
+			expect(storedGate(f, requestId)).toBeNull();
+		});
+
+		it("applies a policy-configured gate", async () => {
+			const f = fixture();
+			await f.configure({
+				...AUTO_SEND,
+				deliveryGate: {
+					model: "@cf/cloudflare/clef",
+					questions: [
+						{
+							id: "tone_ok",
+							instructions: "Is the reply polite?",
+							autoWhen: { gte: 0.5 },
+						},
+					],
+				},
+			});
+			f.clef.mockResolvedValueOnce(answers({ tone_ok: 0.4 }));
+			expect((await turn(f, 1)).delivery).toBe("review");
+			f.clef.mockResolvedValueOnce(answers({ tone_ok: 0.6 }));
+			expect((await turn(f, 2)).delivery).toBe("auto");
+			expect(f.clef.mock.calls[1]?.[0]).toBe("@cf/cloudflare/clef");
+		});
 	});
 
 	it("reports auto sends and overrides in acceptance", async () => {

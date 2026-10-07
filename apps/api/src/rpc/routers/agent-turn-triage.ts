@@ -21,7 +21,8 @@
  * server decides its delivery once ({@link decideReplyDraftDelivery}):
  * `review` drafts wait for the user to accept, edit, or replace them (cited in
  * response metadata, which is what acceptance is measured from); `auto`
- * drafts may be sent without review under the policy's `autoSend` guardrails.
+ * drafts may be sent without review under the policy's `autoSend` guardrails
+ * and its Clef `deliveryGate` (`services/reply-draft-gate.ts`).
  * The drafting prompt is the versioned `replyDraft` block of the defaults
  * asset.
  */
@@ -30,6 +31,8 @@ import { ORPCError, implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
 	AGENT_REPLY_LABELS,
+	type AgentReplyDeliveryGatePolicy,
+	type AgentReplyDeliveryGateResult,
 	type AgentReplyDraftDelivery,
 	type AgentReplyDraftIneligibleReason,
 	type AgentReplyLabel,
@@ -55,6 +58,7 @@ import {
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
+import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -110,6 +114,12 @@ for (const label of AGENT_REPLY_LABELS) {
 }
 export const DEFAULT_AGENT_TURN_TRIAGE_POLICY: AgentTurnTriagePolicy =
 	DEFAULTS.policy;
+if (!DEFAULTS.policy.deliveryGate) {
+	throw new Error("agent-turn-triage defaults: missing policy.deliveryGate");
+}
+/** The gate for stored policies that predate `deliveryGate`. */
+export const DEFAULT_AGENT_REPLY_DELIVERY_GATE: AgentReplyDeliveryGatePolicy =
+	DEFAULTS.policy.deliveryGate;
 
 /**
  * The user who owns the policy row: the session's Tedix user id, else the
@@ -474,25 +484,32 @@ async function requireInteraction(
  * Delivery of a proposed draft. `auto` only when every guardrail holds:
  * policy `autoSend.enabled`, the drafter asserted `reversible`, the question
  * is quiet (checked by the caller and the DB insert guard), it carries a
- * `metadata.sessionId`, and fewer than `autoSend.maxConsecutive` of that
+ * `metadata.sessionId`, fewer than `autoSend.maxConsecutive` of that
  * session's earlier questions were auto-answered since the user last replied
- * there. Anything else is `review`.
+ * there, and every Clef `deliveryGate` check passes over the question's
+ * prompt and the draft body. Anything else, including a gate model failure,
+ * is `review`. `gate` is the gate audit, null when the gate was not reached.
  */
 export async function decideReplyDraftDelivery(
-	context: Pick<BaseContext, "db">,
+	context: Pick<BaseContext, "db" | "env">,
 	params: {
 		policy: AgentTurnTriagePolicy;
 		reversible: boolean;
+		body: string;
 		request: InteractionRow;
 		targetUserId: string;
 	},
-): Promise<AgentReplyDraftDelivery> {
+): Promise<{
+	delivery: AgentReplyDraftDelivery;
+	gate: AgentReplyDeliveryGateResult | null;
+}> {
+	const review = { delivery: "review", gate: null } as const;
 	const { autoSend } = params.policy;
-	if (!autoSend.enabled || params.reversible !== true) return "review";
-	if (autoSend.maxConsecutive <= 0) return "review";
+	if (!autoSend.enabled || params.reversible !== true) return review;
+	if (autoSend.maxConsecutive <= 0) return review;
 	const metadata = params.request.metadata as Record<string, unknown>;
 	const sessionId = metadata.sessionId;
-	if (typeof sessionId !== "string" || sessionId.length === 0) return "review";
+	if (typeof sessionId !== "string" || sessionId.length === 0) return review;
 	const consecutive = await countConsecutiveAutoReplies(context.db, {
 		orgId: params.request.orgId,
 		interactionId: params.request.id,
@@ -501,7 +518,13 @@ export async function decideReplyDraftDelivery(
 		createdAt: params.request.createdAt,
 		limit: autoSend.maxConsecutive,
 	});
-	return consecutive < autoSend.maxConsecutive ? "auto" : "review";
+	if (consecutive >= autoSend.maxConsecutive) return review;
+	const gate = await evaluateReplyDraftGate(context.env, {
+		gate: params.policy.deliveryGate ?? DEFAULT_AGENT_REPLY_DELIVERY_GATE,
+		agentMessage: params.request.prompt,
+		draftReply: params.body,
+	});
+	return { delivery: gate.status === "pass" ? "auto" : "review", gate };
 }
 
 const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
@@ -604,9 +627,10 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 				`Question cannot be drafted: ${reason}`,
 			);
 		}
-		const delivery = await decideReplyDraftDelivery(context, {
+		const { delivery, gate } = await decideReplyDraftDelivery(context, {
 			policy,
 			reversible: input.reversible,
+			body: input.body,
 			request,
 			targetUserId,
 		});
@@ -620,6 +644,7 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 				rationale: input.rationale,
 				turnType: input.turnType ?? null,
 				delivery,
+				gate: gate as Record<string, JsonValue> | null,
 				now,
 			});
 			return { draftId: draft.id, delivery: draft.delivery };

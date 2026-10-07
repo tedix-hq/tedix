@@ -192,6 +192,42 @@ describe("work interaction reply drafts (migrated D1 triggers)", () => {
 		).toThrow(/reply drafts are immutable/);
 	});
 
+	it("stores the delivery-gate audit without disturbing the draft triggers", async () => {
+		const { sqlite, db } = seed();
+		question(sqlite, "q1");
+		const gate = {
+			status: "fail",
+			model: "@cf/cloudflare/clef-flash",
+			checks: [{ id: "needs_human", p: 0.9, pass: false }],
+			latencyMs: 12,
+		};
+		await insertReplyDraft(db, draft({ gate }));
+		await insertReplyDraft(
+			db,
+			draft({ id: "draft-0", now: "2026-08-20T00:59:00.000Z" }),
+		);
+		expect(
+			await getLatestReplyDraft(db, { orgId: "org", interactionId: "q1" }),
+		).toMatchObject({ id: "draft-1", gate });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT gate FROM work_interaction_reply_drafts WHERE id='draft-0'",
+				)
+				.get(),
+		).toEqual({ gate: null });
+		// The ADD COLUMN kept the insert guard and immutability triggers.
+		expect(() =>
+			sqlite.exec("UPDATE work_interaction_reply_drafts SET gate=NULL"),
+		).toThrow(/reply drafts are immutable/);
+		question(sqlite, "q2", {
+			metadata: { ...QUIET, triage: { ...QUIET.triage, urgency: "now" } },
+		});
+		await expect(
+			insertReplyDraft(db, draft({ id: "draft-x", interactionId: "q2", gate })),
+		).rejects.toThrow(/NOT_ELIGIBLE/);
+	});
+
 	it("measures acceptance per turn type from cited responses", async () => {
 		const { sqlite, db } = seed();
 		const outcomes: Array<[string, string | null, string | null]> = [

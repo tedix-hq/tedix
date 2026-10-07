@@ -1,4 +1,8 @@
 import { implement } from "@orpc/server";
+import {
+	type AgentReplyDeliveryGateResult,
+	AgentReplyDeliveryGateResultSchema,
+} from "@tedix/api-contract/schemas/agent-turn-triage";
 import { workInteractionsContract } from "@tedix/api-contract/contracts/work-interactions";
 import {
 	cancelWorkInteraction,
@@ -237,6 +241,12 @@ const cancelProcedure = writeOs.cancel.handler(async ({ input, context }) => {
 	}
 });
 
+/** A draft's stored gate audit; an unreadable row reads as not reached. */
+function storedGate(value: unknown): AgentReplyDeliveryGateResult | null {
+	const parsed = AgentReplyDeliveryGateResultSchema.safeParse(value);
+	return parsed.success ? parsed.data : null;
+}
+
 const getProcedure = readOs.get.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	try {
@@ -294,6 +304,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 						createdAt: latestDraft.createdAt,
 						turnType: latestDraft.turnType,
 						delivery: latestDraft.delivery,
+						gate: storedGate(latestDraft.gate),
 					}
 				: null,
 			responses: {
