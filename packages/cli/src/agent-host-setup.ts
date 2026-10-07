@@ -32,10 +32,16 @@ Usage:
   tedix setup agents --update        Preview and refresh installed host plugins
   tedix setup agents --dry-run       Show planned host commands without installing
 
-The host plugin bundles Tedix skills, a remote MCP connection, and an optional
-read-only SessionStart hook. Installation does not authorize MCP access or trust
-Codex hooks. Review each host's OAuth consent and hook definition separately.
-The Tedix repository must be accessible through Git while it is private.
+The host plugin bundles Tedix skills, a remote MCP connection, and lifecycle
+hooks that run "tedix hooks <name>" at session start, prompt submit, tool use,
+stop and session end. Each hook exits silently when the tedix CLI is missing
+and does nothing until you opt in: a repository binding or
+TEDIX_PLUGIN_PREFLIGHT=1 for context reads, enable-decision-capture for turn
+recording, ~/.tedix/agent-status.json for status reports. To turn the hooks
+off entirely, disable or uninstall the Tedix plugin in the host.
+Installation does not authorize MCP access or trust Codex hooks; Codex runs a
+hook only after you trust it in /hooks. Review each host's OAuth consent and
+hook definition separately.
 `;
 }
 
@@ -302,7 +308,8 @@ export async function runAgentHostSetup(
 			for (const command of commands)
 				console.log(`  ${host} ${command.join(" ")}`);
 		console.log(`The plugin includes skills, the https://connect.mcp.tedix.dev/mcp connection,
-and an optional read-only SessionStart hook. Review its source before installing:
+and opt-in lifecycle hooks (tedix hooks <name>) that do nothing until you enable
+them and exit silently without the CLI. Review its source before installing:
 https://github.com/tedix-hq/tedix/tree/main/plugins/tedix`);
 		if (!options.dryRun) {
 			if (!options.yes) {
@@ -348,7 +355,7 @@ https://github.com/tedix-hq/tedix/tree/main/plugins/tedix`);
 Codex: enable MCP 2026-07-28 when status reports it disabled, restart Codex, then run codex mcp login tedix
 connections.read permits reviewed connected-provider reads, subject to the provider grant; write and destructive operations remain excluded. Updating the plugin does not expand an existing grant: reconnect and review fresh consent.
 Claude Code: open /mcp and connect Tedix. In a running session, use /reload-plugins.
-Review the bundled SessionStart hook in each host. Codex skips it until you trust it.
+Review the bundled hooks in each host's /hooks view. Codex skips them until you trust them.
 To opt in to the read-only preflight, start the host with TEDIX_PLUGIN_PREFLIGHT=1.
 The Tedix CLI login and each host's MCP login are separate.`);
 	}

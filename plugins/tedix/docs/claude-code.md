@@ -4,10 +4,12 @@ For online Claude chat, Cowork and local-only or hybrid package choices, start
 with [Tedix in the Claude family](./claude.md). Code's local hooks and Claude's
 remote connectors have different execution and authentication boundaries.
 
-The Tedix plugin gives Claude Code the `tedix-connect`, `tedix-guardian-session`,
-`tedix-resume-work`, and `tedix-workspace-output` skills, a remote Tedix MCP
-connection, and an optional session-start preflight. It does not sign you in or
-grant Work execution authority. Complete Tedix sign-in yourself when prompted.
+The Tedix plugin gives Claude Code six skills (`tedix-session-guide`,
+`tedix-connect`, `tedix-delegate`, `tedix-guardian-session`,
+`tedix-resume-work`, and `tedix-workspace-output`), a remote Tedix MCP
+connection, and opt-in lifecycle hooks (see [Hooks](#hooks)). It does not sign
+you in or grant Work execution authority. Complete Tedix sign-in yourself when
+prompted.
 
 ## Install
 
@@ -35,7 +37,7 @@ claude plugin install tedix@tedix --scope user
 claude plugin list
 ```
 
-The marketplace command needs Git access to the Tedix repository. To test a
+The marketplace command fetches the public Tedix repository. To test a
 local checkout for one Claude Code session instead of installing it, run
 `claude --plugin-dir ./plugins/tedix` from the repository root. A session
 already open before installation can load the new plugin with
@@ -49,8 +51,9 @@ flow. The plugin offers the same optional permissions as ordinary `tedix login`:
 Tedix feature reads, changes and administration, plus connected app reads,
 changes and destructive actions. Browser consent starts with reads selected.
 Choose additional access explicitly and review the organizations before approving.
-The checked-in `.mcp.json` supplies the local permission catalog. Compare
-the actual scopes in the host consent screen.
+The checked-in `.mcp.json` declares only the server type and URL; the server
+offers the permissions during consent. Compare the actual scopes in the host
+consent screen.
 Updating the plugin does not change an existing grant. Reconnect to review
 new choices. Provider grants and organization policy remain enforced.
 The bundled server points to Tedix Connect, which serves tools from the
@@ -121,6 +124,31 @@ Invoke `/tedix:tedix-guardian-session` at the start, at a material checkpoint,
 or before closing a local Claude Code session. It reports current authority,
 evidence, and next action from bounded CLI and repo reads. It does not monitor
 turns between invocations.
+
+## Hooks
+
+Installing the plugin registers these hooks in Claude Code. Each runs
+`tedix hooks <name>` behind a guard: when the `tedix` command is not installed,
+the hook exits 0 with no output, so Claude Code shows no error. With the CLI,
+each hook still does nothing until you opt in to its feature.
+
+| Event                                                                                                                    | Hook             | Once opted in                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SessionStart` (startup, resume, clear, compact, fork)                                                                   | `session-start`  | Reads your auth and bound Work context from Tedix and adds a short brief. Sends no session content.                                            |
+| `UserPromptSubmit`                                                                                                       | `prompt-context` | Reads selected documents and Work updates. Never sends the prompt text.                                                                        |
+| `UserPromptSubmit` (background)                                                                                          | `capture-reply`  | Decision capture: sends your redacted reply, bounded to 6,000 characters.                                                                      |
+| `Stop` (background)                                                                                                      | `capture-stop`   | Decision capture: sends the turn's redacted final message, bounded to 6,000 characters, as a question in your organization.                    |
+| `Stop` (background, `asyncRewake`, up to four hours)                                                                     | `await-reply`    | Decision capture: wakes the session with your Tedix OS answer or an automatic tedi reply.                                                      |
+| `Stop` (up to 320 seconds)                                                                                               | `await-draft`    | Codex only. It is registered when you install from the marketplace and exits at once in Claude Code.                                           |
+| `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SessionEnd` (background) | `status`         | Turn status: a local status line and macOS notification; with a profile, sends the state, session ID, repo/branch and a 160-character summary. |
+
+Opt in to the context reads with a repository binding or
+`TEDIX_PLUGIN_PREFLIGHT=1`, to decision capture with
+`tedix setup agents context enable-decision-capture`, and to turn status as
+described [below](#opt-in-turn-status). Undo them with `context unbind`,
+`TEDIX_PLUGIN_PREFLIGHT=0`, `disable-decision-capture` and
+`TEDIX_AGENT_STATUS=0`. To remove every hook, disable or uninstall the plugin
+with `/plugin`. Review the exact commands with `/hooks`.
 
 ## Opt-in turn status
 

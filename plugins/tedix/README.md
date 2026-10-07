@@ -10,17 +10,20 @@ format from the same skills; `--local` adds opt-in context hooks. An explicit
 Build a reproducible review ZIP from this source with Bun:
 
 ```sh
-bun packages/cli/scripts/package-plugin.ts /tmp/tedix-public-1.1.0.zip
-bun packages/cli/scripts/package-plugin.ts --local /tmp/tedix-local-1.1.0.zip
+bun packages/cli/scripts/package-plugin.ts /tmp/tedix-public.zip
+bun packages/cli/scripts/package-plugin.ts --local /tmp/tedix-local.zip
 ```
 
 For the default OpenAI artifact, root `plugin.json` owns the canonical `tedix` identity. The builder imports
 `review/cases.json` and `review/release-notes.md` as review expectations, not
-recorded passes. The current version is 1.1.0. The default cloud
+recorded passes. The current plugin version is the `version` field in
+[`plugin.json`](plugin.json); the host reports the installed one. The default cloud
 artifact contains the manifest, portable MCP connection, skills and assets.
 `--local` adds the opt-in `hooks/hooks.json` and host compatibility files to
 the same plugin identity. The hooks contain no scripts: each runs
-`tedix hooks <name>` in the installed Tedix CLI, which is their only requirement. Neither artifact contains app registrations or credentials.
+`tedix hooks <name>` in the installed Tedix CLI, which is their only
+requirement, and exits silently when that CLI is not installed. Neither
+artifact contains app registrations or credentials.
 Building a ZIP does not install, submit or publish it.
 
 OpenAI supports MCP, skills and trusted local hooks in one plugin. Omitting
@@ -30,10 +33,11 @@ and authenticated Tedix CLI that runs the hooks. Review changed hook definitions
 in the local host before enabling them. No second plugin is needed; the only
 recorder is the opt-in decision-capture hook described in the Codex guide.
 
-Portable `mcp.json` uses the Agent Plugins `streamable-http` schema. The legacy
-`.mcp.json` retains the approved Connect permission catalog for existing hosts;
-the portable schema does not support its host-specific OAuth field. Browser
-consent and server enforcement determine access in either format.
+Portable `mcp.json` uses the Agent Plugins `streamable-http` schema. The
+host-native `.mcp.json` declares the same remote server with type `http` and
+the URL `https://connect.mcp.tedix.dev/mcp`, and nothing else. Neither file
+lists scopes or holds credentials: the host's OAuth flow, browser consent and
+server enforcement determine access.
 
 `tedix-connect` is the packaged onboarding skill. First use verifies the current
 account via `get_profile`, resolves the organization separately, and performs one
@@ -72,6 +76,7 @@ Use these requests to check host discovery after packaging:
 | `tedix-session-guide`    | “Find the Work for this task”; “Was this Tedix change shipped?”     | “Summarize this Git diff” |
 | `tedix-connect`          | “Connect my Tedix account”; “Why does Tedix login fail?”            | “Summarize this Git diff” |
 | `tedix-guardian-session` | “Check this session's authority”; “Guardian checkpoint”             | “Run this one Tedix tool” |
+| `tedix-delegate`         | “Ask a tedi to handle this”; “How is my tedi run going?”            | “Run this one Tedix tool” |
 | `tedix-resume-work`      | “Continue Work Item 123”; “Pick up the admitted Tedix task”         | “List my Work Items”      |
 | `tedix-workspace-output` | “Create a report in our Tedix Workspace”; “Update that Tedix sheet” | “Edit this local DOCX”    |
 
@@ -100,8 +105,8 @@ support Work reads, scoped tools, tedi delegation, and Workspace Outputs without
 a local CLI, subject to the actual grant and organization policy. The repository
 connection offers the shared human Connect permission catalog, with reads selected
 initially in browser consent. Writes and destructive actions require explicit
-selection. Review the scopes in the host consent screen; the legacy `.mcp.json`
-lists the local connection catalog.
+selection. Review the scopes in the host consent screen; `.mcp.json` declares
+only the server type and URL.
 `connections.read` permits reviewed reads through verified provider connections.
 Provider writes require explicit `connections.execute` consent; destructive actions require `connections.admin`. Platform writes still need their relevant consent.
 
@@ -130,26 +135,42 @@ The repo marketplace at `.agents/plugins/marketplace.json` offers the `tedix`
 plugin. Add this checkout as a local marketplace with
 `codex plugin marketplace add <repo-root>`, then install `tedix@tedix-repo` from
 the Plugins Directory or `codex plugin add tedix@tedix-repo`. For a Codex CLI
-read-only check, run `codex mcp login tedix --scopes mcp:work.read` and complete
-the owner OAuth flow. In ChatGPT Work,
+read-only check, first enable the MCP protocol feature Tedix Connect requires
+(`codex features enable mcp_2026_07_28` when `codex features list` shows it
+disabled, then restart Codex), run `codex mcp login tedix --scopes mcp:work.read`
+and complete the owner OAuth flow. In ChatGPT Work,
 enable the local marketplace in the desktop app and start a new Work chat with
 the plugin enabled. Register or authorize the bundled remote Tedix MCP
 connection through the host's OAuth flow; the plugin contains only the gateway
 URL, never a bearer token. A web installation cannot install the Tedix CLI the local hooks run.
+ChatGPT on the web is not supported yet: the plugin is not in the ChatGPT
+plugin directory, and a developer-mode custom connector is not a tested path.
 
-The optional `SessionStart` hook is installed at `hooks/hooks.json`. Review and
-trust it in the host's hook browser before use. It stays silent unless a repository binding or
+The plugin's lifecycle hooks are declared in `hooks/hooks.json`, the hosts'
+default plugin hook location. Review them in the host's `/hooks` view; Codex
+runs them only after you trust them. Every hook runs `tedix hooks <name>`
+behind a guard: without the `tedix` command it exits 0 with no output, so a
+host without the CLI sees no error and no live authentication or Work facts
+are read. With the CLI, each hook still does nothing until you opt in to its
+feature. The [CLI guide](https://docs.tedix.dev/cli#set-up-codex-and-claude-code)
+lists every hook, when it runs, what it sends and how to turn it off; disabling
+or uninstalling the plugin removes them all.
+
+The `SessionStart` hook stays silent unless a repository binding or
 `TEDIX_PLUGIN_PREFLIGHT=1` opts in. Set `TEDIX_WORKSPACE` to
 choose a CLI profile and `TEDIX_WORK_ITEM_ID` to include one read-only Work
 Item summary. It reads auth and board context through the installed `tedix`
 CLI at startup, resume, clear, and compaction, so the context is restored after
 a host context reset. It does not log turns, start Attempts, or change Work
 state. With `TEDIX_WORK_ITEM_ID`, it also shows the latest bounded Attempt state
-and lease expiry, which still must be verified before a write. Every hook runs
-`tedix hooks <name>`; without the CLI the host reports a non-blocking hook error
-and no live authentication or Work facts are read. Command hooks cannot invoke
-the agent's native MCP tool session through the documented host interface, and
-ordinary Chat does not run local hooks.
+and lease expiry, which still must be verified before a write. Command hooks
+cannot invoke the agent's native MCP tool session through the documented host
+interface, and ordinary Chat does not run local hooks.
+
+The source `hooks/hooks.json` registers both `await-reply` (Claude Code) and
+`await-draft` (Codex); a marketplace install from this directory gets both, and
+each exits at once on the other host. Packaged `--host` artifacts ship only
+their host's hook.
 
 The opt-in turn-status reporter is described in the
 [Claude Code guide](docs/claude-code.md#opt-in-turn-status). It is silent

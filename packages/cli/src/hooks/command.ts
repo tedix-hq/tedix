@@ -14,7 +14,7 @@ export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix pl
   tedix hooks capture-stop    Stop: open a decision-capture Interaction (opt-in)
   tedix hooks capture-reply   UserPromptSubmit: answer it with the user's reply (opt-in)
   tedix hooks await-reply     Stop (Claude Code asyncRewake): wake on a Tedix OS answer or auto reply (opt-in)
-  tedix hooks await-draft     Stop (Codex only): continue with a tedi auto reply, 90s max (opt-in)
+  tedix hooks await-draft     Stop (Codex only): continue with a tedi auto reply, 5 min max (opt-in)
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
 
 Each reads one host event JSON object on stdin and exits 0; await-reply exits 2

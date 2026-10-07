@@ -129,9 +129,9 @@ export function AgentInstallPage() {
 							command="tedix setup agents"
 						>
 							The CLI detects Codex and Claude Code, asks before installing the
-							Tedix Agent Toolkit, and verifies the result. Skills and the
-							optional hook come with the plugin; complete each host's login and
-							hook review below.
+							Tedix plugin, and verifies the result. Skills and opt-in hooks
+							come with the plugin; complete each host's login and hook review
+							below.
 						</Step>
 						<Step
 							number={5}
@@ -177,16 +177,20 @@ export function AgentInstallPage() {
 								title="Install in Codex"
 								command={CODEX_MARKETPLACE}
 							>
-								Requires Git access to the Tedix repository while it is private.
+								Adds the public Tedix repository as a plugin marketplace.
 							</Step>
 							<Step number={2} title="Enable the plugin" command={CODEX_PLUGIN}>
-								In ChatGPT Work, choose the Tedix Agent Toolkit in the Plugins
+								In ChatGPT Work, choose the Tedix marketplace in the Plugins
 								Directory, enable the plugin, and start a new Work chat.
 							</Step>
 							<Step number={3} title="Authorize MCP" command={CODEX_LOGIN}>
-								Review the organization, Tedix read access, and connection
-								execution access for ordinary provider reads and writes. Admin
-								access is excluded. ChatGPT Work uses its own connection prompt.
+								If <code>codex features list</code> shows{" "}
+								<code>mcp_2026_07_28</code> disabled, first run{" "}
+								<code>codex features enable mcp_2026_07_28</code> and restart
+								Codex. Review the organization, Tedix read access, and
+								connection execution access for ordinary provider reads and
+								writes. Admin access is excluded. ChatGPT Work uses its own
+								connection prompt.
 							</Step>
 							<Step number={4} title="Verify" command="codex mcp list">
 								Start a new chat and ask tedix-connect to read an existing Work
@@ -214,7 +218,7 @@ export function AgentInstallPage() {
 								title="Add the marketplace"
 								command={CLAUDE_MARKETPLACE}
 							>
-								Requires Git access to the Tedix repository.
+								Adds the public Tedix repository as a plugin marketplace.
 							</Step>
 							<Step
 								number={2}
