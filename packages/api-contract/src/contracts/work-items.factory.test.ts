@@ -257,3 +257,15 @@ describe("Work Item factory contract", () => {
 		});
 	});
 });
+
+it("mounts the five distinct strict bounded Work CLI procedures", () => {
+	expect(Object.keys(workItemsContract)).toEqual(
+		expect.arrayContaining([
+			"listCliProjection",
+			"getCheckpointProjection",
+			"listAttemptCliProjection",
+			"listEvidenceCliProjection",
+			"listEventCliProjection",
+		]),
+	);
+});

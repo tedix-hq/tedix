@@ -2169,3 +2169,132 @@ export const ListWorkActivityResultSchema = z.object({
 	events: z.array(WorkActivityEventSchema),
 	truncated: z.boolean(),
 });
+
+/** Exact bounded CLI read shapes; full Work records remain separate. */
+export const WorkCliBoardRowSchema = WorkItemSchema.pick({
+	id: true,
+	workKind: true,
+	disposition: true,
+	riskLevel: true,
+	priority: true,
+	title: true,
+	projectId: true,
+	createdAt: true,
+})
+	.extend({
+		title: z.string().max(500),
+		activeAttempt: z
+			.strictObject({
+				agentSession: z.string().max(300).nullable(),
+				executorId: z.string().max(300),
+			})
+			.nullable(),
+	})
+	.strict();
+export const WorkCliResolveRowSchema = WorkCliBoardRowSchema.omit({
+	activeAttempt: true,
+});
+export const ListWorkCliProjectionInputSchema = z.strictObject({
+	view: z.enum(["board", "resolve"]),
+	disposition: WorkItemDispositionSchema.optional(),
+	workKind: WorkItemKindSchema.optional(),
+	projectId: z.uuid().optional(),
+	objectiveId: z.uuid().optional(),
+	workClass: WorkItemClassSchema.optional(),
+	idPrefix: z
+		.string()
+		.regex(/^[0-9a-f-]{6,36}$/)
+		.optional(),
+	titleContains: z.string().min(1).max(200).optional(),
+	customerVisibleOnly: z.boolean().optional(),
+	limit: z.number().int().min(1).max(50).default(50),
+	offset: z.number().int().nonnegative().default(0),
+});
+const WorkCliPaginationSchema = z.strictObject({
+	limit: z.number().int().min(1).max(50),
+	offset: z.number().int().nonnegative(),
+	total: z.number().int().nonnegative(),
+	hasMore: z.boolean(),
+});
+export const ListWorkCliProjectionResultSchema = z.discriminatedUnion("view", [
+	z.strictObject({
+		view: z.literal("board"),
+		data: z.array(WorkCliBoardRowSchema).max(50),
+		pagination: WorkCliPaginationSchema,
+	}),
+	z.strictObject({
+		view: z.literal("resolve"),
+		data: z.array(WorkCliResolveRowSchema).max(50),
+		pagination: WorkCliPaginationSchema,
+	}),
+]);
+export const WorkCheckpointProjectionSchema = WorkItemSchema.pick({
+	id: true,
+	projectId: true,
+	orgId: true,
+	disposition: true,
+}).strict();
+export const WorkCheckpointProjectionInputSchema = z.strictObject({
+	id: z.uuid(),
+});
+export const WorkAttemptCliRowSchema = WorkAttemptSchema.pick({
+	id: true,
+	attemptNumber: true,
+	runtimeState: true,
+	outcome: true,
+	executorType: true,
+	executorId: true,
+	externalSessionKey: true,
+	startedAt: true,
+	heartbeatAt: true,
+	expiresAt: true,
+	finishedAt: true,
+	summary: true,
+}).strict();
+export const WorkEvidenceCliRowSchema = WorkEvidenceSchema.pick({
+	id: true,
+	claimKey: true,
+	kind: true,
+	disposition: true,
+	uri: true,
+	label: true,
+	attemptId: true,
+	submittedByType: true,
+	submittedById: true,
+	submittedAt: true,
+	reviewedByType: true,
+	reviewedById: true,
+	reviewedAt: true,
+	reviewReason: true,
+}).strict();
+export const WorkEventCliRowSchema = WorkEventSchema.pick({
+	sequence: true,
+	id: true,
+	eventType: true,
+	actorType: true,
+	actorId: true,
+	attemptId: true,
+	occurredAt: true,
+}).strict();
+export const WorkCliLedgerInputSchema = z.strictObject({
+	id: z.uuid(),
+	cursor: WorkFactoryProjectionCursorSchema.strict().optional(),
+	limit: z.number().int().min(1).max(100).default(50),
+});
+export const ListWorkAttemptCliProjectionResultSchema = z.strictObject({
+	data: z.array(WorkAttemptCliRowSchema).max(100),
+	nextCursor: WorkFactoryProjectionCursorSchema.strict().nullable(),
+});
+export const ListWorkEvidenceCliProjectionResultSchema = z.strictObject({
+	data: z.array(WorkEvidenceCliRowSchema).max(100),
+	nextCursor: WorkFactoryProjectionCursorSchema.strict().nullable(),
+});
+export const WorkCliEventInputSchema = z.strictObject({
+	id: z.uuid(),
+	afterSequence: z.number().int().nonnegative().optional(),
+	limit: z.number().int().min(1).max(100).default(100),
+});
+export const ListWorkEventCliProjectionResultSchema = z.strictObject({
+	events: z.array(WorkEventCliRowSchema).max(100),
+	nextSequence: z.number().int().positive().nullable(),
+});

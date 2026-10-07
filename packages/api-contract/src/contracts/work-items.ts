@@ -1,3 +1,14 @@
+import {
+	ListWorkCliProjectionInputSchema,
+	ListWorkCliProjectionResultSchema,
+	WorkCheckpointProjectionSchema,
+	WorkCheckpointProjectionInputSchema,
+	WorkCliLedgerInputSchema,
+	WorkCliEventInputSchema,
+	ListWorkAttemptCliProjectionResultSchema,
+	ListWorkEvidenceCliProjectionResultSchema,
+	ListWorkEventCliProjectionResultSchema,
+} from "../schemas/work-items";
 import "@orpc/openapi/extensions/route";
 /**
  * Work Items Contract
@@ -128,6 +139,47 @@ export const workItemsContract = oc
 	.route({ tags: ["work-items"], prefix: "/work-items" })
 	.errors(baseErrors)
 	.router({
+		listCliProjection: oc
+			.route({
+				method: "GET",
+				path: "/cli/listCliProjection",
+				summary: "Bounded CLI listCliProjection",
+			})
+			.input(ListWorkCliProjectionInputSchema)
+			.output(ListWorkCliProjectionResultSchema),
+		getCheckpointProjection: oc
+			.route({
+				method: "GET",
+				path: "/cli/getCheckpointProjection",
+				summary: "Bounded CLI getCheckpointProjection",
+			})
+			.input(WorkCheckpointProjectionInputSchema)
+			.output(WorkCheckpointProjectionSchema),
+		listAttemptCliProjection: oc
+			.route({
+				method: "GET",
+				path: "/cli/listAttemptCliProjection",
+				summary: "Bounded CLI listAttemptCliProjection",
+			})
+			.input(WorkCliLedgerInputSchema)
+			.output(ListWorkAttemptCliProjectionResultSchema),
+		listEvidenceCliProjection: oc
+			.route({
+				method: "GET",
+				path: "/cli/listEvidenceCliProjection",
+				summary: "Bounded CLI listEvidenceCliProjection",
+			})
+			.input(WorkCliLedgerInputSchema)
+			.output(ListWorkEvidenceCliProjectionResultSchema),
+		listEventCliProjection: oc
+			.route({
+				method: "GET",
+				path: "/cli/listEventCliProjection",
+				summary: "Bounded CLI listEventCliProjection",
+			})
+			.input(WorkCliEventInputSchema)
+			.output(ListWorkEventCliProjectionResultSchema),
+
 		authorizeOwnedChannel: oc
 			.route({
 				method: "POST",

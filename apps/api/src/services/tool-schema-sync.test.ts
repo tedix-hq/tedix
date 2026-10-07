@@ -1,3 +1,7 @@
+import {
+	resolveMcpToolRequiredScopes,
+	isMcpToolVisibleToCaller,
+} from "@tedix/mcp-shared/auth/tool-scopes";
 import { skillsContract } from "@tedix/api-contract/contracts/cognitive";
 import {
 	listContractEndpoints,
@@ -11,6 +15,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	runToolSchemaSync,
 	OS_TOOL_ID_OVERRIDES,
+	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 	OS_KIND_OVERRIDES,
 } from "./tool-schema-sync";
 
@@ -2150,4 +2155,129 @@ describe("calendar and personal consent projections", () => {
 		])
 			expect(OS_KIND_OVERRIDES[endpoint]).toBe("write");
 	});
+});
+
+it("projects all six CLI endpoint/name/scope triples through the existing authority resolver", () => {
+	expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES["workItems/listCliProjection"]).toBe(
+		"list_work_item_cli_rows",
+	);
+	expect(
+		resolveMcpToolRequiredScopes(
+			{
+				toolId: "list_work_item_cli_rows",
+				toolTypeId: "rpc",
+				config: { endpoint: "workItems/listCliProjection" },
+			},
+			"selected_org",
+			undefined,
+		),
+	).toEqual(["mcp:work.read"]);
+	expect(
+		WORK_HIERARCHY_TOOL_ID_OVERRIDES["workItems/getCheckpointProjection"],
+	).toBe("get_work_item_checkpoint");
+	expect(
+		resolveMcpToolRequiredScopes(
+			{
+				toolId: "get_work_item_checkpoint",
+				toolTypeId: "rpc",
+				config: { endpoint: "workItems/getCheckpointProjection" },
+			},
+			"selected_org",
+			undefined,
+		),
+	).toEqual(["mcp:work.read"]);
+	expect(
+		WORK_HIERARCHY_TOOL_ID_OVERRIDES["workItems/listAttemptCliProjection"],
+	).toBe("list_work_attempt_cli_rows");
+	expect(
+		resolveMcpToolRequiredScopes(
+			{
+				toolId: "list_work_attempt_cli_rows",
+				toolTypeId: "rpc",
+				config: { endpoint: "workItems/listAttemptCliProjection" },
+			},
+			"selected_org",
+			undefined,
+		),
+	).toEqual(["mcp:work.read"]);
+	expect(
+		WORK_HIERARCHY_TOOL_ID_OVERRIDES["workItems/listEvidenceCliProjection"],
+	).toBe("list_work_evidence_cli_rows");
+	expect(
+		resolveMcpToolRequiredScopes(
+			{
+				toolId: "list_work_evidence_cli_rows",
+				toolTypeId: "rpc",
+				config: { endpoint: "workItems/listEvidenceCliProjection" },
+			},
+			"selected_org",
+			undefined,
+		),
+	).toEqual(["mcp:work.read"]);
+	expect(
+		WORK_HIERARCHY_TOOL_ID_OVERRIDES["workItems/listEventCliProjection"],
+	).toBe("list_work_event_cli_rows");
+	expect(
+		resolveMcpToolRequiredScopes(
+			{
+				toolId: "list_work_event_cli_rows",
+				toolTypeId: "rpc",
+				config: { endpoint: "workItems/listEventCliProjection" },
+			},
+			"selected_org",
+			undefined,
+		),
+	).toEqual(["mcp:work.read"]);
+	expect(
+		WORK_HIERARCHY_TOOL_ID_OVERRIDES["workInteractions/listCliInboxProjection"],
+	).toBe("list_work_interaction_cli_rows");
+	expect(
+		resolveMcpToolRequiredScopes(
+			{
+				toolId: "list_work_interaction_cli_rows",
+				toolTypeId: "rpc",
+				config: { endpoint: "workInteractions/listCliInboxProjection" },
+			},
+			"selected_org",
+			undefined,
+		),
+	).toEqual(["mcp:messaging.read"]);
+});
+
+it("keeps exact read projections denied for missing/wrong scope and unknown alias endpoint", () => {
+	const tool = {
+		toolId: "list_work_interaction_cli_rows",
+		toolTypeId: "rpc",
+		config: { endpoint: "workInteractions/listCliInboxProjection" },
+	};
+	expect(
+		isMcpToolVisibleToCaller(tool, "org_alias", undefined, {
+			authType: "oauth",
+			scopes: ["mcp:work.read"],
+		}),
+	).toBe(false);
+	expect(
+		isMcpToolVisibleToCaller(tool, "org_alias", undefined, {
+			authType: "oauth",
+			scopes: [],
+		}),
+	).toBe(false);
+	expect(
+		isMcpToolVisibleToCaller(tool, "org_alias", undefined, {
+			authType: "oauth",
+			scopes: ["mcp:messaging.read"],
+		}),
+	).toBe(true);
+	expect(
+		isMcpToolVisibleToCaller(
+			{
+				toolId: "list_unknown_projection",
+				toolTypeId: "rpc",
+				config: { endpoint: "unknown/listCliProjection" },
+			},
+			"org_alias",
+			undefined,
+			{ authType: "oauth", scopes: ["mcp:work.read"] },
+		),
+	).toBe(false);
 });

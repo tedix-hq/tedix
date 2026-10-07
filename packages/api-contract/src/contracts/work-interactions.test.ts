@@ -1,3 +1,7 @@
+import {
+	ListWorkInteractionCliInboxInputSchema,
+	WorkInteractionReplyDraftSchema,
+} from "../schemas/work-interactions";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	CreateWorkInteractionInputSchema,
@@ -9,6 +13,7 @@ import { workInteractionsContract } from "./work-interactions";
 describe("Work interactions contract", () => {
 	it("exposes structured request, immutable response, cancellation, detail, and inbox operations", () => {
 		expect(Object.keys(workInteractionsContract)).toEqual([
+			"listCliInboxProjection",
 			"delegate",
 			"create",
 			"respond",
@@ -139,4 +144,38 @@ describe("Work interactions contract", () => {
 			}).success,
 		).toBe(false);
 	});
+});
+
+it("bounds the canonical inbox and keeps current full review/auto draft fields", () => {
+	expect(ListWorkInteractionCliInboxInputSchema.parse({})).toMatchObject({
+		states: ["open"],
+		limit: 5,
+	});
+	for (const value of [
+		{ limit: 6 },
+		{ states: ["answered"] },
+		{ targetedToCaller: false },
+	])
+		expect(
+			ListWorkInteractionCliInboxInputSchema.safeParse(value).success,
+		).toBe(false);
+	const draft = {
+		id: "00000000-0000-4000-8000-000000000001",
+		body: "Reply",
+		rationale: "Reason",
+		drafterId: "drafter",
+		drafterName: null,
+		createdAt: "2026-10-07T00:00:00.000Z",
+		turnType: null,
+		gate: null,
+	};
+	for (const delivery of ["auto", "review"])
+		expect(
+			WorkInteractionReplyDraftSchema.parse({ ...draft, delivery }),
+		).toEqual({ ...draft, delivery });
+	expect(WorkInteractionReplyDraftSchema.safeParse(draft).success).toBe(false);
+	expect(
+		WorkInteractionReplyDraftSchema.safeParse({ ...draft, delivery: "other" })
+			.success,
+	).toBe(false);
 });

@@ -1,4 +1,13 @@
 import {
+	listCliProjectionProcedure,
+	getCheckpointProjectionProcedure,
+} from "./work-items/creation-reads";
+import {
+	listAttemptCliProjectionProcedure,
+	listEvidenceCliProjectionProcedure,
+	listEventCliProjectionProcedure,
+} from "./work-items/factory-lifecycle";
+import {
 	authorizeOwnedChannelProcedure,
 	revokeOwnedChannelProcedure,
 } from "./work-items/owned-channel";
@@ -63,6 +72,11 @@ import {
 import { inspectAttemptRepositoryProcedure } from "./work-items/workstation-inspection";
 
 export const workItemsContractRouter = workItemsOs.router({
+	listCliProjection: listCliProjectionProcedure,
+	getCheckpointProjection: getCheckpointProjectionProcedure,
+	listAttemptCliProjection: listAttemptCliProjectionProcedure,
+	listEvidenceCliProjection: listEvidenceCliProjectionProcedure,
+	listEventCliProjection: listEventCliProjectionProcedure,
 	authorizeOwnedChannel: authorizeOwnedChannelProcedure,
 	revokeOwnedChannel: revokeOwnedChannelProcedure,
 	create: createProcedure,

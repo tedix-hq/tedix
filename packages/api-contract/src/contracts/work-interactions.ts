@@ -1,3 +1,7 @@
+import {
+	ListWorkInteractionCliInboxInputSchema,
+	ListWorkInteractionCliInboxResultSchema,
+} from "../schemas/work-interactions";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
@@ -19,6 +23,14 @@ export const workInteractionsContract = oc
 	.route({ tags: ["work-interactions"], prefix: "/work-interactions" })
 	.errors(baseErrors)
 	.router({
+		listCliInboxProjection: oc
+			.route({
+				method: "GET",
+				path: "/cli-inbox",
+				summary: "Bounded CLI interaction inbox",
+			})
+			.input(ListWorkInteractionCliInboxInputSchema)
+			.output(ListWorkInteractionCliInboxResultSchema),
 		delegate: oc
 			.route({
 				method: "POST",

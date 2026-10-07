@@ -149,6 +149,13 @@ export type McpGranularCapabilityScopeName =
 const DOCS_SCOPES_BY_TOOL = new Map(Object.entries(DOCS_TOOL_SCOPES));
 
 const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
+	list_work_item_cli_rows: "mcp:work",
+	get_work_item_checkpoint: "mcp:work",
+	list_work_attempt_cli_rows: "mcp:work",
+	list_work_evidence_cli_rows: "mcp:work",
+	list_work_event_cli_rows: "mcp:work",
+	list_work_interaction_cli_rows: "mcp:messaging",
+
 	// The canonical approval inbox uses a plural name outside WORK_TOOL_RE.
 	list_work_approvals: "mcp:work",
 	// The local agent session board names its own resource, outside WORK_TOOL_RE.

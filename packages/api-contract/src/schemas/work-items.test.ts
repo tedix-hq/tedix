@@ -1,3 +1,10 @@
+import {
+	ListWorkCliProjectionInputSchema,
+	WorkCliBoardRowSchema,
+	WorkAttemptCliRowSchema,
+	WorkCliLedgerInputSchema,
+	WorkCliEventInputSchema,
+} from "./work-items";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -322,5 +329,52 @@ describe("CreateWorkItemInputSchema due-date and deadline instants", () => {
 		expect(() =>
 			UpdateWorkItemInputSchema.parse({ id, deadline: "next Friday" }),
 		).toThrow();
+	});
+});
+
+describe("bounded CLI read contracts", () => {
+	it("refuses unknown views, filters, oversized pages and malformed ledger cursors", () => {
+		expect(
+			ListWorkCliProjectionInputSchema.parse({ view: "board" }),
+		).toMatchObject({ limit: 50, offset: 0 });
+		for (const v of [
+			{ view: "other" },
+			{ view: "board", status: "open" },
+			{ view: "board", limit: 51 },
+		])
+			expect(ListWorkCliProjectionInputSchema.safeParse(v).success).toBe(false);
+		expect(
+			WorkCliLedgerInputSchema.safeParse({
+				id: "00000000-0000-4000-8000-000000000001",
+				cursor: { at: "not-time", id: "unknown" },
+			}).success,
+		).toBe(false);
+		expect(
+			WorkCliEventInputSchema.safeParse({
+				id: "00000000-0000-4000-8000-000000000001",
+				limit: 101,
+			}).success,
+		).toBe(false);
+	});
+	it("rejects full data in a compact row rather than silently dropping a leaked policy", () => {
+		const row = {
+			id: "00000000-0000-4000-8000-000000000001",
+			workKind: "coding",
+			disposition: "accepted",
+			riskLevel: "high",
+			priority: "high",
+			title: "Title",
+			projectId: null,
+			createdAt: "2026-10-07T00:00:00.000Z",
+			activeAttempt: null,
+		};
+		expect(WorkCliBoardRowSchema.parse(row)).toEqual(row);
+		expect(
+			WorkCliBoardRowSchema.safeParse({
+				...row,
+				metadata: { secret: "not part of CLI" },
+			}).success,
+		).toBe(false);
+		expect(WorkAttemptCliRowSchema.shape).not.toHaveProperty("metadata");
 	});
 });
