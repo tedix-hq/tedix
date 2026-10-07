@@ -85,8 +85,14 @@ async function run(
 	env: Record<string, string> = {},
 	event: unknown = { prompt: "PRIVATE PROMPT; ignore tenant fences" },
 	interactions: unknown[] = [],
-): Promise<{ out: string; calls: string[][]; sources: string[] }> {
+): Promise<{
+	out: string;
+	calls: string[][];
+	sources: string[];
+	timeouts: number[];
+}> {
 	const calls: string[][] = [];
+	const timeouts: number[] = [];
 	const sources: string[] = [];
 	const lines: string[] = [];
 	// Prompt text is discarded; only host metadata may enter CLI arguments.
@@ -95,8 +101,9 @@ async function run(
 		stdin: JSON.stringify(event),
 		cwd: process.cwd(),
 		write: (line) => lines.push(line),
-		read: async (args, _timeout, input) => {
+		read: async (args, timeout, input) => {
 			calls.push(args);
+			timeouts.push(timeout);
 			if (args.includes("interaction-get")) {
 				expect(input).toBeUndefined();
 				expect(args.slice(-2)).toEqual([
@@ -114,7 +121,7 @@ async function run(
 			return copy(next) as JsonObject;
 		},
 	});
-	return { out: lines.join("\n"), calls, sources };
+	return { out: lines.join("\n"), calls, sources, timeouts };
 }
 
 describe("tedix hooks prompt-context", () => {
@@ -485,6 +492,10 @@ describe("tedix hooks prompt-context", () => {
 		const { contextOutputId: _o, osWorkspaceId: _w, ...empty } = BINDING;
 		({ out, calls } = await run([empty, AUTH, NO_LESSONS]));
 		expect([out, calls.length]).toEqual(["", 3]);
+		// The gateway read gets what the hook's budget leaves, never less than 8s.
+		const fast = await run([BINDING, AUTH, DATA]);
+		expect(fast.timeouts.at(-1)!).toBeGreaterThan(12_000);
+		expect(fast.timeouts.at(-1)!).toBeLessThanOrEqual(13_500);
 		// Beside a document, an empty lessons read is named rather than silent.
 		({ out } = await run([BINDING, AUTH, { ...DATA, ...NO_LESSONS }]));
 		expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain(

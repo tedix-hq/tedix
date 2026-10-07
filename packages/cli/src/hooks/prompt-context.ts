@@ -48,6 +48,8 @@ const LESSON_BYTES = 2800;
 const OUTPUT_BYTES = 9600;
 const TRUNCATED_BYTES = 9200;
 const EVENT_LIMIT = 1_048_576;
+/** All reads finish inside the plugin's 15s hook timeout, with room to write. */
+const READ_BUDGET_MS = 13_500;
 const UNAVAILABLE =
 	"Tedix shared context unavailable: no current shared decision, Work update or team lesson was read. Do not reuse an older briefing as current; verify through the CLI before relying on it. No execution authority changed.";
 const TARGET_KEYS = [
@@ -384,6 +386,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		)
 	)
 		return;
+	const started = Date.now();
 	try {
 		// Only the chat identity and host kind are retained; the prompt text is discarded here.
 		const { event, session } = hostEvent(deps.stdin, env, EVENT_LIMIT);
@@ -501,7 +504,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 						topics: branchTopics(binding.branch),
 					}),
 				],
-				8000,
+				// A cold gateway can take longer than 8s; use what the host's timeout leaves.
+				Math.max(8000, READ_BUDGET_MS - (Date.now() - started)),
 			);
 			context = render(binding, data, (deps.now ?? (() => new Date()))());
 			// Only the header: nothing selected and no lessons source was read.
