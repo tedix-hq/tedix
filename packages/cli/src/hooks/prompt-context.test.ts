@@ -481,10 +481,15 @@ describe("tedix hooks prompt-context", () => {
 		expect(calls).toHaveLength(1);
 		({ out, calls } = await run([], { TEDIX_PLUGIN_PREFLIGHT: "0" }));
 		expect([out, calls.length]).toEqual(["", 0]);
-		// A bound chat always asks for lessons; with none, nothing is injected.
+		// A bound chat always asks for lessons; with none and nothing else, nothing is injected.
 		const { contextOutputId: _o, osWorkspaceId: _w, ...empty } = BINDING;
 		({ out, calls } = await run([empty, AUTH, NO_LESSONS]));
 		expect([out, calls.length]).toEqual(["", 3]);
+		// Beside a document, an empty lessons read is named rather than silent.
+		({ out } = await run([BINDING, AUTH, { ...DATA, ...NO_LESSONS }]));
+		expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain(
+			"Team lessons: none approved for this repository and host.",
+		);
 	});
 
 	test("fresh delivery and revision change without prompt capture", async () => {
