@@ -8,6 +8,8 @@ vi.mock("@tedix/db/queries/learning-feedback", async (importActual) => {
 	return {
 		summarizeRecurringLearningIssues: actual.summarizeRecurringLearningIssues,
 		listLearningInteractionsForReflection: vi.fn(),
+		listLearningIssueKeysForReflection: vi.fn(async () => []),
+		listLearningInteractionsForIssueKey: vi.fn(async () => []),
 		recordLearningInteraction: vi.fn(),
 		proposeLearningImprovement: vi.fn(),
 		listLearningImprovementProposals: vi.fn(),
@@ -40,7 +42,9 @@ vi.mock("@tedix/db/queries/work-items/activity", () => ({
 
 import {
 	listLearningImprovementProposals,
+	listLearningInteractionsForIssueKey,
 	listLearningInteractionsForReflection,
+	listLearningIssueKeysForReflection,
 	proposeLearningImprovement,
 	recordLearningInteraction,
 } from "@tedix/db/queries/learning-feedback";
@@ -111,6 +115,8 @@ beforeEach(() => {
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
 	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
 	vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([]);
+	vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([]);
+	vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([]);
 	vi.mocked(listLearningImprovementProposals).mockResolvedValue([]);
 	vi.mocked(listWorkActivity).mockResolvedValue({
 		events: [],
@@ -283,6 +289,40 @@ describe("fixTopic", () => {
 		expect(fixTopic("revert catalog slug change")).toBe("general");
 		expect(fixTopic("feat(mcp): new tool")).toBeNull();
 		expect(fixTopic("fixture cleanup")).toBeNull();
+	});
+});
+
+describe("historic session imports", () => {
+	const imported = (id: string, occurredAt: string) =>
+		event(id, {
+			surface: "agent_session_import",
+			clientEventId: `agent-session-import:${id}`,
+			occurredAt,
+		});
+
+	it("walks imported scopes outside the 30-day window, one scope at a time", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
+		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
+			"decision:acme:claude-code:deploy",
+		]);
+		vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([
+			imported("h1", "2025-01-01T10:00:00.000Z"),
+			imported("h2", "2025-02-01T10:00:00.000Z"),
+		]);
+		const result = await mineLearningFeed(db, {
+			orgId: "org-1",
+			now: new Date("2026-10-07T12:00:00.000Z"),
+		});
+		expect(result.factsWritten).toBe(1);
+		expect(listLearningInteractionsForIssueKey).toHaveBeenCalledWith(db, {
+			organizationId: "org-1",
+			issueKey: "decision:acme:claude-code:deploy",
+			surfaces: ["decision_capture", "agent_session_import"],
+			limit: 40,
+		});
+		expect(vi.mocked(createFact).mock.calls[0]![1].metadata).toMatchObject({
+			learningFeed: { evidenceEventIds: ["h2", "h1"] },
+		});
 	});
 });
 

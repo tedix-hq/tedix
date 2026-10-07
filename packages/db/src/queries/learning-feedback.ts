@@ -1,7 +1,18 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gte, inArray, lte, ne, or } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNotNull,
+	lte,
+	max,
+	ne,
+	or,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
-import { chunkForBoundParams } from "../utils/batch";
+import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
 import {
 	type LearningFeedbackAttributionRow,
 	type LearningFeedbackMeasurementRow,
@@ -260,6 +271,124 @@ export async function listLearningInteractionsForReflection(
 		)
 		.orderBy(desc(learningInteractionEvents.occurredAt))
 		.limit(input.limit);
+}
+
+function ownedBy(userId: string | undefined) {
+	return userId
+		? and(
+				eq(learningInteractionEvents.scopeKind, "personal"),
+				eq(learningInteractionEvents.scopeId, userId),
+			)
+		: undefined;
+}
+
+/**
+ * Issue keys that have events on one producer surface, most recently active
+ * first. Reflection-only (same fence as
+ * {@link listLearningInteractionsForReflection}): it lets a miner walk a large
+ * historic backlog one scope at a time instead of one time window.
+ */
+export async function listLearningIssueKeysForReflection(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		surface: string;
+		/** Only this person's own personal-scope events. */
+		ownerUserId?: string;
+		limit: number;
+	},
+): Promise<string[]> {
+	const lastAt = max(learningInteractionEvents.occurredAt);
+	const rows = await db
+		.select({ issueKey: learningInteractionEvents.issueKey, lastAt })
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				eq(learningInteractionEvents.surface, input.surface),
+				isNotNull(learningInteractionEvents.issueKey),
+				ownedBy(input.ownerUserId),
+			),
+		)
+		.groupBy(learningInteractionEvents.issueKey)
+		.orderBy(desc(lastAt))
+		.limit(input.limit);
+	return rows.flatMap((row) => (row.issueKey ? [row.issueKey] : []));
+}
+
+/** Newest events of one issue key on the given producer surfaces. Reflection-only. */
+export async function listLearningInteractionsForIssueKey(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		issueKey: string;
+		surfaces: string[];
+		/** Only this person's own personal-scope events. */
+		ownerUserId?: string;
+		limit: number;
+	},
+): Promise<LearningInteractionEventRow[]> {
+	if (input.surfaces.length === 0) return [];
+	return db
+		.select()
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				eq(learningInteractionEvents.issueKey, input.issueKey),
+				// bound-params: callers pass a fixed list of producer surfaces
+				inArray(learningInteractionEvents.surface, input.surfaces),
+				ownedBy(input.ownerUserId),
+			),
+		)
+		.orderBy(desc(learningInteractionEvents.occurredAt))
+		.limit(input.limit);
+}
+
+/** Rows per INSERT: 18 columns each keeps a statement under D1's 100 bound params. */
+const INTERACTION_INSERT_CHUNK = 5;
+
+/**
+ * Insert many learning events in one D1 batch, idempotent per
+ * (organization, clientEventId): an existing key is skipped, never compared or
+ * overwritten. Returns how many rows were new.
+ */
+export async function recordLearningInteractionsBatch(
+	db: DbClient,
+	rows: Array<
+		Omit<
+			typeof learningInteractionEvents.$inferInsert,
+			"id" | "createdAt" | "signalClass"
+		> & { signalClass?: LearningSignalClass }
+	>,
+): Promise<{ recorded: number }> {
+	if (rows.length === 0) return { recorded: 0 };
+	const statements = chunkForBoundParams(rows, INTERACTION_INSERT_CHUNK).map(
+		(chunk) =>
+			db
+				.insert(learningInteractionEvents)
+				.values(
+					chunk.map((row) => ({
+						...row,
+						id: crypto.randomUUID(),
+						signalClass: row.signalClass ?? "quality",
+					})),
+				)
+				.onConflictDoNothing({
+					target: [
+						learningInteractionEvents.organizationId,
+						learningInteractionEvents.clientEventId,
+					],
+				})
+				.returning({ id: learningInteractionEvents.id }),
+	);
+	const results = await db.batch(batchNonEmpty(statements));
+	return {
+		recorded: results.reduce(
+			(sum, inserted) => sum + (inserted as unknown[]).length,
+			0,
+		),
+	};
 }
 
 export async function getLearningInteractionsByIds(

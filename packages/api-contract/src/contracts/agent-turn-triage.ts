@@ -10,6 +10,10 @@ import {
 	MineAgentSessionLessonsResultSchema,
 } from "../schemas/agent-session-lessons";
 import {
+	ImportAgentSessionDecisionsInputSchema,
+	ImportAgentSessionDecisionsResultSchema,
+} from "../schemas/agent-session-decisions";
+import {
 	AgentTurnTriagePolicyStateSchema,
 	GetAgentReplyDraftAcceptanceInputSchema,
 	GetAgentReplyDraftAcceptanceResultSchema,
@@ -32,7 +36,8 @@ import {
  * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`), and the
  * approved team lessons a local agent session receives
  * (MCP: `get_agent_session_lessons`, learned on demand by
- * `mine_agent_session_lessons`).
+ * `mine_agent_session_lessons`), and the historic import of the caller's
+ * own past local session decisions (MCP: `import_agent_session_decisions`).
  *
  * Triage and reply labelling are stateless model reads: nothing about the
  * submitted text is stored. A model failure or timeout is reported as
@@ -155,6 +160,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(MineAgentSessionLessonsInputSchema)
 			.output(MineAgentSessionLessonsResultSchema),
+
+		importSessionDecisions: oc
+			.route({
+				method: "POST",
+				path: "/session-decisions/import",
+				summary: "Import the caller's past local agent-session decisions",
+				description:
+					"Records up to 25 locally extracted, redacted (agent message tail, user reply) pairs from the caller's own past Claude Code or Codex sessions as personal-scope learning events (surface `agent_session_import`) for the learning-feed miner (nightly, or now with `mine_agent_session_lessons`). Requires a person's identity. Idempotent by (harness, sessionId, turnId): a re-run reports duplicates and writes nothing new.",
+			})
+			.input(ImportAgentSessionDecisionsInputSchema)
+			.output(ImportAgentSessionDecisionsResultSchema),
 	});
 
 export type AgentTurnTriageContract = typeof agentTurnTriageContract;

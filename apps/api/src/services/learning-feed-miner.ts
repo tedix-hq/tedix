@@ -54,7 +54,9 @@ import type { Tedi } from "@tedix/db/schema/tedis";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import {
 	listLearningImprovementProposals,
+	listLearningInteractionsForIssueKey,
 	listLearningInteractionsForReflection,
+	listLearningIssueKeysForReflection,
 	proposeLearningImprovement,
 	recordLearningInteraction,
 	summarizeRecurringLearningIssues,
@@ -77,6 +79,7 @@ import {
 	DECISION_CAPTURE_LEARNING_SURFACE,
 	learningScopeSlug,
 } from "./decision-learning-signal";
+import { AGENT_SESSION_IMPORT_LEARNING_SURFACE } from "./agent-session-decision-import";
 import {
 	buildBrainWriteQualityEnvelope,
 	mergeBrainWriteMetadata,
@@ -104,6 +107,19 @@ export const ROUTE_THRESHOLD = 0.75;
 const ROUTE_MODEL: ClefModelId = "@cf/cloudflare/clef-flash";
 const ROUTE_MAX_TEDIS = 12;
 const ROUTE_NONE = "none";
+/** Live decision capture and historic session imports teach alike. */
+const DECISION_SURFACES = [
+	DECISION_CAPTURE_LEARNING_SURFACE,
+	AGENT_SESSION_IMPORT_LEARNING_SURFACE,
+];
+/**
+ * Historic imports may span years, so they are walked one scope (issue key)
+ * at a time, most recently active first, instead of by the 30-day window.
+ * Already-learned scopes are skipped cheaply, so a large backlog drains over
+ * nightly runs within MAX_FACTS_PER_RUN.
+ */
+const HISTORIC_SCOPES_PER_RUN = 100;
+const HISTORIC_EVENTS_PER_SCOPE = 40;
 const OPEN_PROPOSAL_STATUSES = new Set([
 	"proposed",
 	"evaluating",
@@ -254,7 +270,7 @@ export function buildDecisionLessons(
 ): DecisionLessonDraft[] {
 	const groups = new Map<string, LearningInteractionEventRow[]>();
 	for (const event of events) {
-		if (event.surface !== DECISION_CAPTURE_LEARNING_SURFACE) continue;
+		if (!DECISION_SURFACES.includes(event.surface)) continue;
 		if (coveredEventIds.has(event.id)) continue;
 		const key = groupKey(event);
 		groups.set(key, [...(groups.get(key) ?? []), event]);
@@ -742,6 +758,40 @@ async function proposeMistakeDirectives(
 }
 
 /**
+ * Imported historic session decisions, one scope at a time. Each scope reads
+ * its newest events from both decision surfaces, so a lesson the live pass
+ * wrote for the same scope is a subset and the two passes settle instead of
+ * superseding each other every night.
+ */
+async function mineHistoricImports(
+	db: DbClient,
+	orgId: string,
+	result: LearningFeedResult,
+	route: LessonRouter | undefined,
+): Promise<void> {
+	const issueKeys = await listLearningIssueKeysForReflection(db, {
+		organizationId: orgId,
+		surface: AGENT_SESSION_IMPORT_LEARNING_SURFACE,
+		limit: HISTORIC_SCOPES_PER_RUN,
+	});
+	for (const issueKey of issueKeys) {
+		if (result.factsWritten >= MAX_FACTS_PER_RUN) {
+			result.budgetHit = true;
+			return;
+		}
+		const events = (
+			await listLearningInteractionsForIssueKey(db, {
+				organizationId: orgId,
+				issueKey,
+				surfaces: DECISION_SURFACES,
+				limit: HISTORIC_EVENTS_PER_SCOPE,
+			})
+		).filter((event) => event.organizationId === orgId);
+		result.decisionEventsScanned += events.length;
+		await writeDecisionLessons(db, orgId, events, result, route);
+	}
+}
+/**
  * Called from MemoryReflectionWorkflow step "mine-learning-feed". Each half is
  * fail-soft so a mistake-scan error never drops the decision lessons.
  */
@@ -785,6 +835,11 @@ export async function mineLearningFeed(
 		await writeDecisionLessons(db, orgId, decisions, result, route);
 	} catch (error) {
 		console.error("[learning-feed] decision lessons failed:", error);
+	}
+	try {
+		await mineHistoricImports(db, orgId, result, route);
+	} catch (error) {
+		console.error("[learning-feed] historic import lessons failed:", error);
 	}
 	try {
 		await archiveStaleLessons(db, orgId, now, result);

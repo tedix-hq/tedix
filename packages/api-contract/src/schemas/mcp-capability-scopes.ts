@@ -211,6 +211,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	get_agent_session_lessons: "mcp:messaging",
 	// Learns those lessons from recent decisions now instead of nightly.
 	mine_agent_session_lessons: "mcp:messaging",
+	// The caller's own past local session decisions, imported as learning events.
+	import_agent_session_decisions: "mcp:messaging",
 	// A budget rejection may ask a human to change policy; the request itself
 	// never authorizes spend. The separate budget-policy mutation stays admin.
 	request_budget_override: "mcp:messaging",
