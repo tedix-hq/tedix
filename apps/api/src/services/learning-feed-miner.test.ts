@@ -28,6 +28,9 @@ vi.mock("@tedix/db/queries/memory-graph/facts", () => ({
 	findFactBySourceHash: vi.fn(async () => undefined),
 	updateFact: vi.fn(async () => undefined),
 }));
+vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
+	listStaleLearningFeedLessons: vi.fn(async () => []),
+}));
 vi.mock("@tedix/db/queries/tedis", () => ({
 	getTedisByOrganization: vi.fn(async () => []),
 }));
@@ -41,6 +44,7 @@ import {
 	proposeLearningImprovement,
 	recordLearningInteraction,
 } from "@tedix/db/queries/learning-feedback";
+import { listStaleLearningFeedLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { createEdge } from "@tedix/db/queries/memory-graph/edges";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import {
@@ -57,6 +61,7 @@ import {
 	type LessonRouter,
 	mineLearningFeed,
 	ROUTE_THRESHOLD,
+	STALE_DAYS,
 	routeCandidates,
 	routingFromChoice,
 } from "./learning-feed-miner";
@@ -105,6 +110,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
 	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
+	vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listLearningImprovementProposals).mockResolvedValue([]);
 	vi.mocked(listWorkActivity).mockResolvedValue({
 		events: [],
@@ -281,7 +287,7 @@ describe("fixTopic", () => {
 });
 
 describe("mineLearningFeed", () => {
-	it("writes one pending, unapproved lesson and supersedes the pending one", async () => {
+	it("writes one active lesson at once and supersedes the miner's earlier ones", async () => {
 		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
 			async (_db, input) =>
 				input.surfaces[0] === "decision_capture"
@@ -291,8 +297,15 @@ describe("mineLearningFeed", () => {
 		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
 			{
 				id: "fact-old",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { autoConfirmed: true, evidenceEventIds: ["e1", "e2"] },
+				},
+			},
+			{
+				id: "fact-pending",
 				reviewStatus: "pending",
-				metadata: { learningFeed: { evidenceEventIds: ["e1", "e2"] } },
+				metadata: { learningFeed: { evidenceEventIds: ["e1"] } },
 			},
 			{
 				id: "fact-confirmed",
@@ -306,7 +319,7 @@ describe("mineLearningFeed", () => {
 			now: new Date("2026-10-07T12:00:00.000Z"),
 		});
 
-		expect(result).toMatchObject({ factsWritten: 1, factsSuperseded: 1 });
+		expect(result).toMatchObject({ factsWritten: 1, factsSuperseded: 2 });
 		expect(findCurrentFactsByTopicKey).toHaveBeenCalledWith(
 			db,
 			"org-1",
@@ -316,8 +329,8 @@ describe("mineLearningFeed", () => {
 		expect(fact).toMatchObject({
 			organizationId: "org-1",
 			tediId: null,
-			status: "probation",
-			reviewStatus: "pending",
+			status: "active",
+			reviewStatus: "confirmed",
 			usePolicy: "requires_user_confirmation",
 			memoryScope: "org",
 			visibility: "private",
@@ -330,8 +343,13 @@ describe("mineLearningFeed", () => {
 				scope: { repo: "acme", harness: "claude-code", topic: "deploy" },
 				evidenceEventIds: ["e3", "e2", "e1"],
 				ownerUserId: "user-1",
+				autoConfirmed: true,
 			},
 		});
+		// A person's own review is never replaced.
+		expect(vi.mocked(invalidateFact).mock.calls.map((call) => call[1])).toEqual(
+			["fact-old", "fact-pending"],
+		);
 		expect(invalidateFact).toHaveBeenCalledWith(
 			db,
 			"fact-old",
@@ -346,7 +364,7 @@ describe("mineLearningFeed", () => {
 		});
 	});
 
-	it("does not churn when the pending lesson already covers every event", async () => {
+	it("does not churn when the active lesson already covers every event", async () => {
 		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
 			async (_db, input) =>
 				input.surfaces[0] === "decision_capture"
@@ -356,13 +374,91 @@ describe("mineLearningFeed", () => {
 		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
 			{
 				id: "fact-old",
-				reviewStatus: "pending",
-				metadata: { learningFeed: { evidenceEventIds: ["e1", "e2"] } },
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { autoConfirmed: true, evidenceEventIds: ["e1", "e2"] },
+				},
 			},
 		] as never);
 		const result = await mineLearningFeed(db, { orgId: "org-1" });
 		expect(result.factsWritten).toBe(0);
 		expect(createFact).not.toHaveBeenCalled();
+	});
+
+	it("activates a lesson left pending before auto-confirmation", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
+			{
+				id: "fact-pending",
+				reviewStatus: "pending",
+				metadata: { learningFeed: { evidenceEventIds: ["e1", "e2"] } },
+			},
+		] as never);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result).toMatchObject({ factsWritten: 1, factsSuperseded: 1 });
+		expect(vi.mocked(createFact).mock.calls[0]![1]).toMatchObject({
+			status: "active",
+			reviewStatus: "confirmed",
+		});
+	});
+
+	it("leaves a hand-reviewed lesson alone and does not relearn its events", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
+			{
+				id: "fact-reviewed",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { autoConfirmed: true, evidenceEventIds: ["e1", "e2"] },
+					memoryLifecycle: { lastReview: { reviewStatus: "confirmed" } },
+				},
+			},
+		] as never);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result.factsWritten).toBe(0);
+		expect(invalidateFact).not.toHaveBeenCalled();
+	});
+
+	it("archives the miner's lessons with no supporting decision for STALE_DAYS", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
+		vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([
+			{
+				id: "fact-stale",
+				reviewStatus: "confirmed",
+				metadata: { learningFeed: { autoConfirmed: true } },
+			},
+			{
+				id: "fact-kept",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { autoConfirmed: true },
+					memoryLifecycle: { lastReview: { reviewStatus: "confirmed" } },
+				},
+			},
+		]);
+		const now = new Date("2026-10-07T12:00:00.000Z");
+		const result = await mineLearningFeed(db, { orgId: "org-1", now });
+		expect(listStaleLearningFeedLessons).toHaveBeenCalledWith(
+			db,
+			"org-1",
+			"learning-feed:decision:",
+			new Date(now.getTime() - STALE_DAYS * 86_400_000).toISOString(),
+		);
+		expect(result.factsArchived).toBe(1);
+		expect(updateFact).toHaveBeenCalledTimes(1);
+		expect(updateFact).toHaveBeenCalledWith(db, "fact-stale", {
+			archivedAt: now.toISOString(),
+		});
 	});
 
 	it("keeps an event without a personal scope org-wide", async () => {
@@ -436,7 +532,7 @@ describe("mineLearningFeed", () => {
 			tediId: "tedi-eng",
 			memoryScope: "tedi",
 			visibility: "private",
-			reviewStatus: "pending",
+			reviewStatus: "confirmed",
 		});
 		expect(fact.metadata).toMatchObject({
 			learningFeed: {

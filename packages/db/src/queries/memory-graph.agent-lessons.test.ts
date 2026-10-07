@@ -10,7 +10,10 @@ import { createDbClient } from "../client";
 import { memoryFacts } from "../schema/memory-graph";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listApprovedAgentLessons } from "./memory-graph/agent-lessons";
+import {
+	listApprovedAgentLessons,
+	listStaleLearningFeedLessons,
+} from "./memory-graph/agent-lessons";
 
 type Seed = {
 	id: string;
@@ -25,6 +28,7 @@ type Seed = {
 	confidence?: number;
 	visibility?: string | null;
 	ownerUserId?: string;
+	lastEventAt?: string;
 };
 
 function seed(seeds: Seed[]) {
@@ -57,6 +61,7 @@ function seed(seeds: Seed[]) {
 				learningFeed: {
 					scope: { repo: "tedix" },
 					...(fact.ownerUserId ? { ownerUserId: fact.ownerUserId } : {}),
+					...(fact.lastEventAt ? { lastEventAt: fact.lastEventAt } : {}),
 				},
 			}),
 			fact.visibility === undefined ? "org" : fact.visibility,
@@ -145,5 +150,41 @@ describe("listApprovedAgentLessons", () => {
 			"widened",
 		]);
 		expect(await ids()).toEqual(["team", "legacy-private", "widened"]);
+	});
+
+	it("lists current lessons whose newest decision is older than the cutoff", async () => {
+		const db = seed([
+			{ id: "old", lastEventAt: "2026-06-01T00:00:00.000Z" },
+			{ id: "fresh", lastEventAt: "2026-10-01T00:00:00.000Z" },
+			{ id: "undated" },
+			{
+				id: "old-archived",
+				lastEventAt: "2026-06-01T00:00:00.000Z",
+				archivedAt: "2026-09-01",
+			},
+			{
+				id: "old-superseded",
+				lastEventAt: "2026-06-01T00:00:00.000Z",
+				validTo: "2026-09-01",
+			},
+			{
+				id: "old-other-org",
+				org: "org-2",
+				lastEventAt: "2026-06-01T00:00:00.000Z",
+			},
+			{
+				id: "old-other-topic",
+				topicKey: "org:x.state",
+				lastEventAt: "2026-06-01T00:00:00.000Z",
+			},
+		]);
+		const rows = await listStaleLearningFeedLessons(
+			db,
+			"org-1",
+			"learning-feed:decision:",
+			"2026-07-09T00:00:00.000Z",
+		);
+		expect(rows.map((row) => row.id)).toEqual(["old"]);
+		expect(rows[0]!.reviewStatus).toBe("confirmed");
 	});
 });

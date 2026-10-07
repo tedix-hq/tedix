@@ -4,10 +4,11 @@
  * A lesson is an ordinary brain fact (`memory_facts`) whose topic key starts
  * with `learning-feed:` — the shape the learning feed writes
  * (`learning-feed:decision:<repo>:<harness>:<topic>`) and seeded lessons reuse.
- * Only approved lessons are delivered: org-wide ones (no tedi) plus the
+ * Only active lessons are delivered: org-wide ones (no tedi) plus the
  * caller's own personal lessons (`metadata.learningFeed.ownerUserId`,
- * visibility `private`, new learning-feed facts start personal),
- * `reviewStatus: confirmed` (a person confirmed it, which also ends
+ * visibility `private`; lessons learned from one user's decisions are
+ * personal), `reviewStatus: confirmed` (by a person, or by the miner once the
+ * evidence meets its thresholds — no review gate) (a person confirmed it, which also ends
  * probation), not archived and not superseded. `metadata.learningFeed.scope`
  * `{ repo, harness, topic }` targets a lesson; the slug `general` matches any
  * session.
@@ -76,4 +77,25 @@ export const GetAgentSessionLessonsResultSchema = z.object({
 });
 export type GetAgentSessionLessonsResult = z.infer<
 	typeof GetAgentSessionLessonsResultSchema
+>;
+
+export const MineAgentSessionLessonsInputSchema = z.strictObject({});
+export type MineAgentSessionLessonsInput = z.input<
+	typeof MineAgentSessionLessonsInputSchema
+>;
+
+export const MineAgentSessionLessonsResultSchema = z.object({
+	organizationId: z.string(),
+	decisionEventsScanned: z.number().int().nonnegative(),
+	factsWritten: z.number().int().nonnegative(),
+	factsSuperseded: z.number().int().nonnegative(),
+	factsRoutedToTedi: z.number().int().nonnegative(),
+	factsArchived: z.number().int().nonnegative(),
+	mistakeEventsRecorded: z.number().int().nonnegative(),
+	proposalsCreated: z.number().int().nonnegative(),
+	/** True when a per-run cap stopped the run early; run it again. */
+	budgetHit: z.boolean(),
+});
+export type MineAgentSessionLessonsResult = z.infer<
+	typeof MineAgentSessionLessonsResultSchema
 >;

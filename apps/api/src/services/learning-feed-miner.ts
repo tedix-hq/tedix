@@ -1,14 +1,19 @@
 /**
- * Learning feed miner: one deterministic step of MemoryReflectionWorkflow.
+ * Learning feed miner: one deterministic step of MemoryReflectionWorkflow,
+ * also run on demand (`mine_agent_session_lessons`).
  *
  * 1. Decisions → memory. Decision-capture answers recorded in the learning
  *    ledger (`decision-learning-signal.ts`) are grouped by the user who made
  *    them and by scope (repo, harness, topic). A group with a draft correction
  *    (edited / replaced / overridden) or at least two substantive decisions
- *    becomes ONE review-pending memory fact per user and scope. A newer fact for the same scope
- *    supersedes the earlier still-pending one instead of duplicating it;
- *    reviewed facts (confirmed, rejected, ...) are never superseded, and the
- *    events they already cover are not learned again.
+ *    becomes ONE memory fact per user and scope, active at once: no review
+ *    gate. Correction is organic — when newer decisions arrive for a scope,
+ *    a fresh lesson built from them supersedes the earlier learned one, so a
+ *    later decision that contradicts or edits around a lesson replaces it. A
+ *    lesson with no new supporting decision for STALE_DAYS is archived.
+ *    A fact a person reviewed by hand (confirmed, rejected, ...) is never
+ *    superseded or archived here, and the events it covers are not learned
+ *    again.
  * 2. Agent mistakes → proposals. Completed Work Items titled as a fix
  *    (`fix(scope): ...`, `revert ...`) are recorded as `undone` learning events
  *    on surface `work_fix`. A scope with three or more fixes in the window
@@ -21,18 +26,22 @@
  *   - Organization: always the organization the events were recorded in. One
  *     run mines exactly one organization and drops any row of another.
  *   - Person: a lesson learned from one user's decisions is personal — tedi
- *     null, visibility `private`, `metadata.learningFeed.ownerUserId` — so only
- *     that user's sessions receive it once confirmed. A reviewer may widen it
- *     (visibility `org`) when confirming. Events without a personal scope keep
- *     the org-wide shape.
+ *     null, visibility `private`, `metadata.learningFeed.ownerUserId` — so it
+ *     reaches every session of that user in the organization and no one
+ *     else's. A person may widen it (visibility `org`) through memory review.
+ *     Events without a personal scope keep the org-wide shape.
  *   - Tedi: when one of the organization's live tedis clearly owns the
  *     lesson's domain (Clef decides from the tedis' own names, tags and
  *     personality, never a hardcoded roster; probability >= ROUTE_THRESHOLD),
  *     the fact carries that tediId (memory scope `tedi`, private to it), so
  *     that tedi's brain learns it. Model unavailable or unsure: personal.
  *
- * Nothing here approves anything: facts stay `reviewStatus: "pending"` with
- * `usePolicy: "requires_user_confirmation"`; proposals stay `proposed`.
+ * A lesson is context, never authority: delivery frames it as tenant data
+ * that cannot override repository rules, approvals or tenant boundaries, and
+ * its use policy stays `requires_user_confirmation` (no action on the
+ * lesson's strength alone). Its review status is `confirmed` with
+ * `metadata.learningFeed.autoConfirmed`, which marks it as the miner's own and
+ * replaceable. Mistake proposals stay `proposed` for a human.
  *
  * Fact tags for delivery (see LearningFeedFactMetadata): `topicKey`
  * `learning-feed:decision:<repo>:<harness>:<topic>` (personal lessons append
@@ -50,6 +59,7 @@ import {
 	recordLearningInteraction,
 	summarizeRecurringLearningIssues,
 } from "@tedix/db/queries/learning-feedback";
+import { listStaleLearningFeedLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import { createEdge } from "@tedix/db/queries/memory-graph/edges";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
@@ -86,6 +96,8 @@ const FACT_CHARS = 1500;
 const MIN_DECISION_CHARS = 24;
 const MIN_DECISIONS_PER_FACT = 2;
 const MISTAKE_MIN_OCCURRENCES = 3;
+/** A learned lesson with no supporting decision for this long is archived. */
+export const STALE_DAYS = 90;
 const STRONG_KINDS = new Set(["edited", "manually_replaced"]);
 /** Clef probability a tedi must reach before a lesson enters its brain. */
 export const ROUTE_THRESHOLD = 0.75;
@@ -117,6 +129,8 @@ export interface LearningFeedFactMetadata {
 	ownerUserId: string | null;
 	/** How the owning tedi was chosen; absent when routing was not attempted. */
 	routing?: LessonRouting;
+	/** Active without review; the miner may supersede or archive it. */
+	autoConfirmed?: true;
 	signalCounts: Record<string, number>;
 	lastEventAt: string;
 }
@@ -139,6 +153,7 @@ export interface LearningFeedResult {
 	factsWritten: number;
 	factsSuperseded: number;
 	factsRoutedToTedi: number;
+	factsArchived: number;
 	mistakeEventsRecorded: number;
 	proposalsCreated: number;
 	budgetHit: boolean;
@@ -299,6 +314,23 @@ export function buildDecisionLessons(
 	return lessons;
 }
 
+/**
+ * The miner's own lesson (pending from before auto-confirmation, or
+ * auto-confirmed) that no person has reviewed since: safe to replace.
+ */
+export function isReplaceableLesson(fact: {
+	reviewStatus: string | null;
+	metadata: unknown;
+}): boolean {
+	const meta = rec(fact.metadata);
+	if (rec(meta.memoryLifecycle).lastReview) return false;
+	return (
+		fact.reviewStatus === "pending" ||
+		(fact.reviewStatus === "confirmed" &&
+			rec(meta.learningFeed).autoConfirmed === true)
+	);
+}
+
 function evidenceIdsOf(metadata: unknown): string[] {
 	const ids = rec(rec(metadata).learningFeed).evidenceEventIds;
 	return Array.isArray(ids)
@@ -427,19 +459,39 @@ async function writeDecisionLessons(
 			legacyKey === topicKey
 				? []
 				: await findCurrentFactsByTopicKey(db, orgId, legacyKey);
-		const pending = current.filter((f) => f.reviewStatus === "pending");
 		const covered = new Set(
 			[...current, ...legacy]
-				.filter((f) => f.reviewStatus !== "pending")
+				.filter((f) => !isReplaceableLesson(f))
 				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
 		const [lesson] = buildDecisionLessons(topicEvents, covered);
 		if (!lesson) continue;
-		// Nothing new since the pending lesson for this scope: no churn.
-		const pendingIds = new Set(
-			pending.flatMap((f) => evidenceIdsOf(f.metadata)),
+		const evidence = new Set(lesson.metadata.evidenceEventIds);
+		// The miner's earlier lessons this one replaces: every one under this
+		// key, and a shared-key one whose evidence this lesson fully contains.
+		const replaced = [
+			...new Map(
+				[
+					...current.filter(isReplaceableLesson),
+					...legacy.filter(
+						(f) =>
+							isReplaceableLesson(f) &&
+							evidenceIdsOf(f.metadata).every((id) => evidence.has(id)),
+					),
+				].map((f) => [f.id, f]),
+			).values(),
+		];
+		// Nothing new since the active lesson for this scope: no churn. A
+		// pending one from before auto-confirmation is rewritten as active.
+		const activeIds = new Set(
+			replaced
+				.filter((f) => f.reviewStatus === "confirmed")
+				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
-		if (lesson.metadata.evidenceEventIds.every((id) => pendingIds.has(id)))
+		if (
+			!replaced.some((f) => f.reviewStatus === "pending") &&
+			lesson.metadata.evidenceEventIds.every((id) => activeIds.has(id))
+		)
 			continue;
 		const sourceHash = await sha256(
 			`${ownerUserId ?? ""}\n${lesson.content.toLowerCase()}`,
@@ -469,6 +521,7 @@ async function writeDecisionLessons(
 		const learningFeed: LearningFeedFactMetadata = {
 			...lesson.metadata,
 			...(routing ? { routing } : {}),
+			autoConfirmed: true,
 		};
 
 		const domain = await getOrCreateDomain(db, orgId, DOMAIN_NAME);
@@ -483,8 +536,8 @@ async function writeDecisionLessons(
 					? "Deliver the user's own reviewed decisions to their agent sessions in the same repo, harness and topic"
 					: "Deliver reviewed user decisions to agents working in the same repo, harness and topic",
 			confidenceReason: strong
-				? "User corrected a drafted reply; reversible until reviewed"
-				: "Repeated explicit user decisions; reversible until reviewed",
+				? "User corrected a drafted reply; replaced by the next decisions in scope"
+				: "Repeated explicit user decisions; replaced by the next decisions in scope",
 			learningFeed,
 		};
 		const quality = buildBrainWriteQualityEnvelope({
@@ -511,9 +564,11 @@ async function writeDecisionLessons(
 			factType: strong ? "preference" : "decision",
 			confidence: quality.confidenceApplied,
 			priority: quality.priorityApplied,
-			status: "probation",
-			reviewStatus: "pending",
+			// Active at once; context only, never authority (see header).
+			status: "active",
+			reviewStatus: "confirmed",
 			usePolicy: "requires_user_confirmation",
+			lastVerifiedAt: now,
 			// Personal (one user's decisions) or tedi-owned until a reviewer
 			// widens it; org-wide only for events without a personal scope.
 			memoryScope: tediId ? "tedi" : "org",
@@ -530,7 +585,7 @@ async function writeDecisionLessons(
 			accessCount: 0,
 		});
 		result.factsWritten++;
-		for (const old of pending) {
+		for (const old of replaced) {
 			await invalidateFact(
 				db,
 				old.id,
@@ -547,6 +602,32 @@ async function writeDecisionLessons(
 			});
 			result.factsSuperseded++;
 		}
+	}
+}
+
+/**
+ * Archive the miner's own lessons whose newest supporting decision is older
+ * than STALE_DAYS. Lessons a person reviewed by hand are left alone.
+ */
+async function archiveStaleLessons(
+	db: DbClient,
+	orgId: string,
+	now: Date,
+	result: LearningFeedResult,
+): Promise<void> {
+	const before = new Date(
+		now.getTime() - STALE_DAYS * 24 * 60 * 60 * 1000,
+	).toISOString();
+	const stale = await listStaleLearningFeedLessons(
+		db,
+		orgId,
+		"learning-feed:decision:",
+		before,
+	);
+	for (const fact of stale) {
+		if (!isReplaceableLesson(fact)) continue;
+		await updateFact(db, fact.id, { archivedAt: now.toISOString() });
+		result.factsArchived++;
 	}
 }
 
@@ -682,6 +763,7 @@ export async function mineLearningFeed(
 		factsWritten: 0,
 		factsSuperseded: 0,
 		factsRoutedToTedi: 0,
+		factsArchived: 0,
 		mistakeEventsRecorded: 0,
 		proposalsCreated: 0,
 		budgetHit: false,
@@ -703,6 +785,11 @@ export async function mineLearningFeed(
 		await writeDecisionLessons(db, orgId, decisions, result, route);
 	} catch (error) {
 		console.error("[learning-feed] decision lessons failed:", error);
+	}
+	try {
+		await archiveStaleLessons(db, orgId, now, result);
+	} catch (error) {
+		console.error("[learning-feed] stale lesson archive failed:", error);
 	}
 	try {
 		await recordWorkFixes(db, orgId, result);

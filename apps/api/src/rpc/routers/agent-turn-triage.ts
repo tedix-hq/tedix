@@ -948,6 +948,23 @@ const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 		getSessionLessons(context, requireOrgId(context), input),
 );
 
+/**
+ * Run the learning-feed miner for the caller's organization now. Writes only
+ * that organization's memory, under the same bounds as nightly reflection.
+ */
+const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
+	async ({ context }) => {
+		const organizationId = requireOrgId(context);
+		const { mineLearningFeed, clefLessonRouter } =
+			await import("../../services/learning-feed-miner");
+		const result = await mineLearningFeed(context.db, {
+			orgId: organizationId,
+			route: clefLessonRouter(context.env),
+		});
+		return { organizationId, ...result };
+	},
+);
+
 export const agentTurnTriageContractRouter = os.router({
 	triage,
 	labelReply,
@@ -957,4 +974,5 @@ export const agentTurnTriageContractRouter = os.router({
 	proposeReplyDraft,
 	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
 	getSessionLessons: getSessionLessonsProcedure,
+	mineSessionLessons: mineSessionLessonsProcedure,
 });

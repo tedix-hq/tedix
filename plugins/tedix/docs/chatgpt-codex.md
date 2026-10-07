@@ -253,18 +253,25 @@ checks; `disconnect-preferences` removes it.
 tedix setup agents context connect-preferences --os-workspace <workspace-UUID> --output <output-UUID>
 ```
 
-Every bound chat also receives the organization's approved team lessons
-(`agent.get_agent_session_lessons`): learning-feed memory facts that a person
-confirmed, filtered to this repository and host and ranked by the
+Every bound chat also receives the organization's active team lessons
+(`agent.get_agent_session_lessons`): learning-feed memory facts, filtered to this repository and host and ranked by the
 branch name's words, about 2,800 bytes at most, each with a short fact id.
 Probation and superseded lessons never appear. Only the host kind, repository
 (without credentials) and branch words are sent; no selection is needed.
 
-A lesson learned from your decisions starts personal: once confirmed it reaches
-only your own sessions, unless the reviewer widens it to the organization. When
-one of the organization's tedis clearly owns the subject (for example
-engineering or finance, judged from the tedis' own names, tags and role), the
-lesson also enters that tedi's memory; when unsure it stays personal.
+Lessons are learned from your decision-capture answers without a review step:
+once the evidence is strong enough (a correction of a drafted reply, or at least
+two substantive decisions in the same scope), the lesson is active and delivered
+from the next prompt. Newer decisions in the same scope replace the earlier
+lesson, so a later decision that contradicts or edits around it corrects it; a
+lesson with no supporting decision for 90 days is archived. The nightly
+reflection runs the miner; `agent.mine_agent_session_lessons` runs it now. A
+lesson learned from your decisions is personal: it reaches all your sessions in
+that organization and no one else's. When one of the organization's tedis
+clearly owns the subject (for example engineering or finance, judged from the
+tedis' own names, tags and role), the lesson also enters that tedi's memory.
+A lesson is context only: it never grants execution authority and cannot
+override repository rules, approvals or tenant boundaries.
 
 Outside a bound repository, in any folder and for non-coding work too, the same
 hooks use a default organization: `TEDIX_WORKSPACE` or the current profile, and
