@@ -774,6 +774,7 @@ export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"agentTurnTriage/proposeReplyDraft": "propose_agent_reply_draft",
 	"agentTurnTriage/getReplyDraftAcceptance": "get_agent_reply_draft_acceptance",
 	"agentTurnTriage/getSessionLessons": "get_agent_session_lessons",
+	"agentTurnTriage/mineSessionLessons": "mine_agent_session_lessons",
 };
 
 export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
@@ -788,6 +789,7 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 	"agentTurnTriage/proposeReplyDraft": "write",
 	"agentTurnTriage/getReplyDraftAcceptance": "read",
 	"agentTurnTriage/getSessionLessons": "read",
+	"agentTurnTriage/mineSessionLessons": "write",
 };
 
 /**

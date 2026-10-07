@@ -22,6 +22,7 @@ describe("agentTurnTriageContract", () => {
 			"getReplyDraftAcceptance",
 			"getSessionLessons",
 			"labelReply",
+			"mineSessionLessons",
 			"proposeReplyDraft",
 			"requestReplyDraft",
 			"triage",

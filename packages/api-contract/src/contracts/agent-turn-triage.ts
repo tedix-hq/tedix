@@ -6,6 +6,8 @@ import { baseErrors } from "../errors";
 import {
 	GetAgentSessionLessonsInputSchema,
 	GetAgentSessionLessonsResultSchema,
+	MineAgentSessionLessonsInputSchema,
+	MineAgentSessionLessonsResultSchema,
 } from "../schemas/agent-session-lessons";
 import {
 	AgentTurnTriagePolicyStateSchema,
@@ -29,7 +31,8 @@ import {
  * decision-capture questions (MCP: `request_agent_reply_draft`,
  * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`), and the
  * approved team lessons a local agent session receives
- * (MCP: `get_agent_session_lessons`).
+ * (MCP: `get_agent_session_lessons`, learned on demand by
+ * `mine_agent_session_lessons`).
  *
  * Triage and reply labelling are stateless model reads: nothing about the
  * submitted text is stored. A model failure or timeout is reported as
@@ -137,10 +140,21 @@ export const agentTurnTriageContract = oc
 				path: "/session-lessons",
 				summary: "Get approved team lessons for a local agent session",
 				description:
-					"Returns the credential-resolved organization's approved lessons (facts under `learning-feed:` topic keys that a person confirmed: org-wide lessons plus the calling user's own personal lessons; probation, pending, archived and superseded facts never appear) whose `metadata.learningFeed.scope` repo and harness match the session (`general` matches any), most relevant first, trimmed to `budgetBytes`. Read-only.",
+					"Returns the credential-resolved organization's active lessons (facts under `learning-feed:` topic keys, confirmed by a person or learned automatically from enough decisions: org-wide lessons plus the calling user's own personal lessons; probation, pending, archived and superseded facts never appear) whose `metadata.learningFeed.scope` repo and harness match the session (`general` matches any), most relevant first, trimmed to `budgetBytes`. Read-only.",
 			})
 			.input(GetAgentSessionLessonsInputSchema)
 			.output(GetAgentSessionLessonsResultSchema),
+
+		mineSessionLessons: oc
+			.route({
+				method: "POST",
+				path: "/session-lessons/mine",
+				summary: "Learn lessons from recent decisions now",
+				description:
+					"Runs the learning-feed miner for the credential-resolved organization immediately instead of waiting for nightly reflection: recent decision-capture answers become active lessons (personal to the deciding user, or in the owning tedi's memory when one clearly owns the subject), newer decisions supersede earlier learned lessons, and learned lessons without a supporting decision for 90 days are archived. Bounded per run and idempotent: a repeat run with no new decisions writes nothing. Returns the run counts.",
+			})
+			.input(MineAgentSessionLessonsInputSchema)
+			.output(MineAgentSessionLessonsResultSchema),
 	});
 
 export type AgentTurnTriageContract = typeof agentTurnTriageContract;

@@ -79,3 +79,41 @@ export async function listApprovedAgentLessons(
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.updatedAt))
 		.limit(options.limit ?? 200);
 }
+
+export interface StaleLearningFeedLessonRow {
+	id: string;
+	reviewStatus: string | null;
+	metadata: Record<string, JsonValue> | null;
+}
+
+/**
+ * Current (not archived, not invalidated) lessons under the prefix whose
+ * `metadata.learningFeed.lastEventAt` is before `before`. The caller decides
+ * which of them it may archive.
+ */
+export async function listStaleLearningFeedLessons(
+	db: DbQueryClient,
+	orgId: string,
+	topicPrefix: string,
+	before: string,
+	limit = 200,
+): Promise<StaleLearningFeedLessonRow[]> {
+	return db
+		.select({
+			id: memoryFacts.id,
+			reviewStatus: memoryFacts.reviewStatus,
+			metadata: memoryFacts.metadata,
+		})
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				gte(memoryFacts.topicKey, topicPrefix),
+				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
+				isNull(memoryFacts.archivedAt),
+				isNull(memoryFacts.validTo),
+				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.lastEventAt') < ${before}`,
+			),
+		)
+		.limit(limit);
+}

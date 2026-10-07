@@ -181,6 +181,23 @@ describe("getSessionLessons procedure", () => {
 		expect(await texts()).toEqual(["Org one lesson."]);
 	});
 
+	it("mines on demand for the caller's organization with the write scope only", async () => {
+		const result = await createRouterClient(agentTurnTriageContractRouter, {
+			context: context(ORG_1, ["mcp:messaging.write"]),
+		}).mineSessionLessons({});
+		expect(result).toMatchObject({
+			organizationId: ORG_1,
+			factsWritten: 0,
+			factsArchived: 0,
+			budgetHit: false,
+		});
+		await expect(
+			createRouterClient(agentTurnTriageContractRouter, {
+				context: context(ORG_1, ["mcp:messaging.read"]),
+			}).mineSessionLessons({}),
+		).rejects.toThrow();
+	});
+
 	it("requires the messaging read scope", async () => {
 		await expect(
 			createRouterClient(agentTurnTriageContractRouter, {
