@@ -46,6 +46,16 @@ Each CLI release gets hand-written notes in
 language. A GitHub Release is created only for a real release, with the same
 notes, never for an intermediate build.
 
+## Publishing the plugin
+
+[tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins) is the
+public plugin repository for every host (Claude Code, Codex, and later ones):
+one plugin at the root, one manifest per host, shared skills and MCP
+connection, no hooks. It is generated, never edited by hand. After tagging
+`plugin-vX.Y.Z` here, rebuild it into a clone of that repository with
+`bun run --cwd packages/cli plugin:repo <clone>`, commit, tag `vX.Y.Z` there,
+and push.
+
 ## Plugin compatibility
 
 The plugin's local hooks run in the installed Tedix CLI.
