@@ -93,6 +93,20 @@ describe("serveCliDownload", () => {
 		expect(await response?.text()).toBe("");
 	});
 
+	it("serves the beta channel pointer like the stable one", async () => {
+		const entry = object("beta.json", '{"version":"0.3.0-beta.1"}');
+		const response = await serveCliDownload(
+			new Request("https://downloads.tedix.dev/beta.json"),
+			bucket({ "beta.json": entry }),
+			"downloads.tedix.dev",
+		);
+		expect(response?.status).toBe(200);
+		expect(response?.headers.get("Cache-Control")).toBe(
+			"public, max-age=300, must-revalidate",
+		);
+		expect(await response?.text()).toBe('{"version":"0.3.0-beta.1"}');
+	});
+
 	it("serves valid byte ranges and rejects invalid ranges", async () => {
 		const key = "releases/0.1.0/tedix-0.1.0-linux-x64";
 		const store = bucket({ [key]: object(key) });

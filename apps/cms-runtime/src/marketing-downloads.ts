@@ -1,5 +1,5 @@
 const RELEASE_PREFIX = "releases/";
-const MUTABLE_KEYS = new Set(["install.sh", "latest.json"]);
+const MUTABLE_KEYS = new Set(["install.sh", "latest.json", "beta.json"]);
 
 function objectKey(pathname: string): string | null {
 	const key = pathname.replace(/^\/+/, "");
