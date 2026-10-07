@@ -22,6 +22,9 @@ import {
 } from "./update";
 import { CLI_VERSION } from "./shared";
 
+/** A release always newer than the CLI under test, whatever its own version. */
+const NEXT_VERSION = "99.0.0";
+
 function script(version: string): string {
 	return `#!/bin/sh\nprintf '%s\\n' '${version}'\n`;
 }
@@ -39,7 +42,7 @@ function fixture(options?: {
 	const installDir = join(root, "bin");
 	const configDir = join(root, "config");
 	const installPath = join(installDir, "tedix");
-	const version = options?.version ?? "0.2.0";
+	const version = options?.version ?? NEXT_VERSION;
 	const body = options?.scriptBody ?? script(version);
 	const artifactBody = options?.artifactBody ?? body;
 	const os = process.platform === "darwin" ? "darwin" : process.platform;
@@ -207,7 +210,7 @@ function fakeProbes(kind: "stuck" | "noisy") {
 			kill,
 			stdout: stream((controller) => {
 				if (kind === "noisy" && state.emitted === 0) {
-					const version = new TextEncoder().encode("0.2.0\n");
+					const version = new TextEncoder().encode(`${NEXT_VERSION}\n`);
 					state.emitted += version.byteLength;
 					controller.enqueue(version);
 				}
@@ -764,7 +767,7 @@ describe("CLI update lifecycle", () => {
 	});
 
 	test("bounds streamed artifacts and leaves the active binary intact", async () => {
-		const body = script("0.2.0");
+		const body = script(NEXT_VERSION);
 		const test = fixture({
 			artifactBody: `${body}unexpected`,
 			assetSize: Buffer.byteLength(body),

@@ -26,6 +26,7 @@ const checksum = createHash("sha256").update(binary).digest("hex");
 const files = new Map([
 	["/install.sh", readFileSync(join(packageDir, "install.sh"), "utf8")],
 	["/latest.json", `${JSON.stringify({ version })}\n`],
+	["/beta.json", `${JSON.stringify({ version })}\n`],
 	[`/releases/${version}/${asset}`, binary],
 	[`/releases/${version}/SHA256SUMS`, `${checksum}  ${asset}\n`],
 ]);
@@ -163,6 +164,26 @@ try {
 			.every((request) => request.path !== "/latest.json"),
 		"Exact installer version unexpectedly resolved latest.json",
 	);
+
+	// The beta channel resolves beta.json instead of the stable pointer.
+	const betaInstallDir = mkdtempSync(join(tmpdir(), "tedix-installer-beta-"));
+	const betaRequestStart = requests.length;
+	await install({
+		PATH: `${betaInstallDir}:${systemPath}`,
+		TEDIX_CLI_CHANNEL: "beta",
+		TEDIX_INSTALL_DIR: betaInstallDir,
+	});
+	const betaPaths = requests.slice(betaRequestStart).map(({ path }) => path);
+	assert(
+		betaPaths.includes("/beta.json") && !betaPaths.includes("/latest.json"),
+		"Beta channel did not resolve beta.json",
+	);
+	const unknownChannel = await runInstaller({
+		PATH: `${betaInstallDir}:${systemPath}`,
+		TEDIX_CLI_CHANNEL: "nightly",
+		TEDIX_INSTALL_DIR: betaInstallDir,
+	});
+	assert(unknownChannel.exitCode !== 0, "Unknown channel was accepted");
 
 	// Other verified files cannot stand in for the executable being installed.
 	const latestBody = files.get("/latest.json")!;

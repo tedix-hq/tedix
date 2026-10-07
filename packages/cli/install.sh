@@ -4,7 +4,22 @@ set -eu
 BASE_URL="${TEDIX_CLI_BASE_URL:-https://downloads.tedix.dev}"
 INSTALL_DIR="${TEDIX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${TEDIX_CLI_VERSION:-}"
+CHANNEL="${TEDIX_CLI_CHANNEL:-stable}"
 RETRY_DELAY_SECONDS="${TEDIX_CLI_RETRY_DELAY_SECONDS:-1}"
+
+# `curl -fsSL https://downloads.tedix.dev/install.sh | sh -s -- --channel beta`
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --channel) CHANNEL=${2:-}; shift 2 2>/dev/null || shift ;;
+    --channel=*) CHANNEL=${1#--channel=}; shift ;;
+    *) echo "Unknown installer option: $1" >&2; exit 1 ;;
+  esac
+done
+case "$CHANNEL" in
+  stable) POINTER=latest.json ;;
+  beta) POINTER=beta.json ;;
+  *) echo "Unknown Tedix CLI channel: $CHANNEL (use stable or beta)" >&2; exit 1 ;;
+esac
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "The Tedix CLI installer requires curl" >&2
@@ -39,8 +54,8 @@ download() {
 
 if [ -z "$VERSION" ]; then
   LATEST_CACHE_BUST=$(date +%s)
-  if ! download "$BASE_URL/latest.json?t=$LATEST_CACHE_BUST" "$TMP_DIR/latest.json" no-cache; then
-    echo "Could not resolve the latest Tedix CLI release" >&2
+  if ! download "$BASE_URL/$POINTER?t=$LATEST_CACHE_BUST" "$TMP_DIR/latest.json" no-cache; then
+    echo "Could not resolve the latest Tedix CLI release ($CHANNEL channel)" >&2
     exit 1
   fi
   VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TMP_DIR/latest.json")
