@@ -20,6 +20,7 @@ const {
 	createPiEventProjection,
 } = await import("./pi-agent");
 import type { SessionMessage } from "agents/sessions";
+import { conversationCompactionSettings } from "./pi-compaction";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 for (const cancelledAt of ["ingress", "dispatch", "never"] as const) {
@@ -153,6 +154,17 @@ assert.deepEqual(
 	}),
 	[],
 );
+{
+	// 200k fallback window: blocking compaction above 170k, background from 120k,
+	// so a 180k imported history is summarized instead of resent every turn.
+	const settings = conversationCompactionSettings(200_000);
+	assert.equal(200_000 - settings.reserveTokens, 170_000);
+	assert.equal(
+		200_000 - settings.reserveTokens - settings.backgroundTokens,
+		120_000,
+	);
+	assert.equal(settings.keepRecentTokens, 20_000);
+}
 const usage = {
 	input: 0,
 	output: 0,

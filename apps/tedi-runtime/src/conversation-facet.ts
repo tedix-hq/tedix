@@ -27,7 +27,10 @@ import {
 	LiveDoc,
 } from "@earendil-works/pi-durable";
 import type { SessionMessage } from "agents/sessions";
-import { summarizeContextEntries } from "./pi-compaction";
+import {
+	conversationCompactionSettings,
+	summarizeContextEntries,
+} from "./pi-compaction";
 import { admitTediNativeRecovery } from "./pi-recovery";
 import { invalidateReadEvidence } from "./read-evidence";
 import { PiAgent, PiImageBridge } from "./pi-agent";
@@ -1081,12 +1084,9 @@ export class ConversationFacet extends PiAgent<
 	protected piSettings() {
 		return {
 			retry: { enabled: true, maxRetries: 3, baseDelayMs: 100 },
-			compaction: {
-				enabled: true,
-				reserveTokens: Math.ceil(this.selectedPiModel().contextWindow * 0.15),
-				keepRecentTokens: 20000,
-				backgroundTokens: 0,
-			},
+			compaction: conversationCompactionSettings(
+				this.selectedPiModel().contextWindow,
+			),
 		};
 	}
 	private readonly approvalSinks = new Set<
