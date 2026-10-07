@@ -359,7 +359,9 @@ describe("tedix hooks prompt-context", () => {
 		]);
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
 		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(9600);
-		expect(text).toContain("complete=false");
+		// Lessons beyond the top three go before any document text.
+		expect(text).toContain("Team lessons: 3 of 5 approved");
+		expect(text).not.toContain("Context truncated");
 		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
 		const { out: only } = await run([
 			rest,
@@ -571,6 +573,69 @@ describe("tedix hooks prompt-context", () => {
 			expect(out).toContain("no current shared decision");
 			expect(out).not.toContain("simple user stories");
 		}
+	});
+
+	test("fits each host's budget by trimming lessons beyond the top three, then document tails", async () => {
+		const preferenceOutput = "88888888-8888-4888-8888-888888888888";
+		const binding = {
+			...BINDING,
+			preferencesWorkspaceId: WORKSPACE,
+			preferencesOutputId: preferenceOutput,
+		};
+		const lessons = Array.from({ length: 8 }, (_, n) => ({
+			shortId: `l${n}`,
+			text: `Lesson ${n} ${"z".repeat(500)}`,
+		}));
+		const data = { ...copy(DATA), ...lessonsData(lessons) };
+		data.shared.text = "s".repeat(3200);
+		data.preferences = copy(DATA.shared);
+		data.preferences.output.id = preferenceOutput;
+		data.preferences.revision.outputId = preferenceOutput;
+		data.preferences.text = "p".repeat(3200);
+		const codexEvent = {
+			session_id: "77777777-7777-4777-8777-777777777777",
+			turn_id: "turn-1",
+		};
+		for (const [event, limit] of [
+			[undefined, 9600],
+			[codexEvent, 6400],
+		] as const) {
+			const { out } = await run([binding, AUTH, data], {}, event);
+			const text = JSON.parse(out).hookSpecificOutput.additionalContext;
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(limit);
+			// The top lessons always survive; trimming never cuts mid-message.
+			for (const id of ["l0", "l1", "l2"]) expect(text).toContain(`[${id}]`);
+			expect(text).not.toContain("Context truncated");
+			expect(text).toContain("more were omitted for space");
+		}
+		// Codex loses every lesson beyond the top three before any document text.
+		const { out } = await run([binding, AUTH, data], {}, codexEvent);
+		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
+		expect(text).toContain("Team lessons: 3 of 8 approved");
+		expect(text).not.toContain("[l3]");
+		expect(text).toContain("complete=false");
+		expect(text).toContain("Shared document is truncated");
+		// Claude keeps more lessons in its larger budget.
+		const claude = JSON.parse((await run([binding, AUTH, data])).out)
+			.hookSpecificOutput.additionalContext;
+		expect(claude).toContain("[l3]");
+		expect(claude).not.toContain("complete=false");
+		// Small context passes untouched.
+		const small = JSON.parse(
+			(
+				await run(
+					[
+						BINDING,
+						AUTH,
+						{ ...copy(DATA), ...lessonsData(lessons.slice(0, 5)) },
+					],
+					{},
+					codexEvent,
+				)
+			).out,
+		).hookSpecificOutput.additionalContext;
+		expect(small).toContain("Team lessons: 5 of 5 approved");
+		expect(small).toContain("complete=true");
 	});
 
 	test("truncation and selected Work receipts", async () => {

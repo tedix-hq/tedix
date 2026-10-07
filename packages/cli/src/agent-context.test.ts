@@ -918,6 +918,94 @@ describe("default organization outside a bound repository", () => {
 		).toBe("unbound");
 	});
 
+	test("a saved default organization serves several while still selected", () => {
+		const { opts } = fixture();
+		connect(opts, ["org_tedix", "org_customer", "personal_operator"]);
+		const away = (env: Record<string, string> = {}) => ({
+			...outside(opts, env),
+			allowDefault: true,
+		});
+		// Several organizations and no default: idle.
+		expect(resolveAgentContext(away()).status).toBe("unbound");
+		expect(() =>
+			runAgentContext(
+				[
+					"set-default-organization",
+					"org_unselected",
+					"--workspace",
+					"connect",
+				],
+				away(),
+			),
+		).toThrow("not an organization this profile selected");
+		expect(() => runAgentContext(["set-default-organization"], away())).toThrow(
+			"or --clear",
+		);
+		// A slug names org_<slug>; the exact ID is stored.
+		expect(
+			runAgentContext(
+				["set-default-organization", "customer", "--workspace", "connect"],
+				away(),
+			),
+		).toBe(0);
+		expect(
+			JSON.parse(
+				readFileSync(join(opts.configDir, "agent-contexts.json"), "utf8"),
+			).defaultOrganization,
+		).toEqual({ workspace: "connect", organization: "org_customer" });
+		expect(resolveAgentContext(away())).toMatchObject({
+			status: "bound",
+			contextSource: "default",
+			workspace: "connect",
+			org: "org_customer",
+			organization: "org_customer",
+		});
+		// Explicit environment still wins.
+		expect(
+			resolveAgentContext(
+				away({ TEDIX_WORKSPACE: "connect", TEDIX_ORGANIZATION: "org_tedix" }),
+			).org,
+		).toBe("org_tedix");
+		// Another profile ignores a default saved for connect.
+		expect(resolveAgentContext(away({ TEDIX_WORKSPACE: "tedix" })).org).toBe(
+			"org_tedix",
+		);
+		// Decision capture outside a repository follows the default.
+		expect(
+			changeAgentContext(
+				"enable-decision-capture",
+				{ projectId: SECOND },
+				away(),
+			),
+		).toMatchObject({
+			org: "org_customer",
+			decisionCapture: true,
+			projectId: SECOND,
+		});
+		// A bound repository keeps its own binding.
+		bind(opts);
+		expect(resolveAgentContext({ ...opts, allowDefault: true })).toMatchObject({
+			workspace: "tedix",
+			projectId: PROJECT,
+		});
+		// Once the login no longer selects it, nothing is guessed.
+		connect(opts, ["org_tedix", "personal_operator"]);
+		expect(resolveAgentContext(away()).status).toBe("unbound");
+		connect(opts, ["org_tedix"]);
+		expect(resolveAgentContext(away()).status).toBe("unbound");
+		connect(opts, ["org_customer", "org_tedix"]);
+		expect(resolveAgentContext(away()).org).toBe("org_customer");
+		expect(
+			runAgentContext(["set-default-organization", "--clear"], away()),
+		).toBe(0);
+		expect(resolveAgentContext(away()).status).toBe("unbound");
+		expect(
+			JSON.parse(
+				readFileSync(join(opts.configDir, "agent-contexts.json"), "utf8"),
+			).defaultOrganization,
+		).toBeUndefined();
+	});
+
 	test("captures only with the organization's opt-in and one project inbox", () => {
 		const { opts } = fixture();
 		const away = {

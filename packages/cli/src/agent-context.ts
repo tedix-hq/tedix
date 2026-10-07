@@ -79,6 +79,15 @@ interface Store {
 	lessons?: unknown;
 	/** Explicit per-organization opt-in for recording turn ends and replies. */
 	decisionCapture?: CaptureOptIn[];
+	/**
+	 * Organization for sessions outside a bound repository when the profile
+	 * serves several. Re-checked against the profile's selection at every use.
+	 */
+	defaultOrganization?: DefaultOrganization;
+}
+interface DefaultOrganization {
+	workspace: string;
+	organization: string;
 }
 interface CaptureOptIn extends Omit<
 	PreferenceSelection,
@@ -400,22 +409,44 @@ function organizationDocument(
 	return matches[0];
 }
 
+function pinnedDefault(store: Store): DefaultOrganization | undefined {
+	const pinned = store.defaultOrganization;
+	return pinned &&
+		typeof pinned === "object" &&
+		typeof pinned.workspace === "string" &&
+		WORKSPACE.test(pinned.workspace) &&
+		typeof pinned.organization === "string" &&
+		pinned.organization.length > 0 &&
+		pinned.organization.length <= 256
+		? pinned
+		: undefined;
+}
+
 /**
  * The profile and organization a session outside any bound repository works
- * in: TEDIX_WORKSPACE or the current profile, and TEDIX_ORGANIZATION or the
- * profile's only organization. Several selectable organizations and none
- * chosen, or a choice the profile cannot serve, is no target: never a guess.
+ * in: TEDIX_WORKSPACE, else the saved default's profile, else the current
+ * profile; and TEDIX_ORGANIZATION, else the saved default organization (for
+ * that profile), else the profile's only organization. Several selectable
+ * organizations and none chosen, or a choice the profile no longer serves, is
+ * no target: never a guess.
  */
 function defaultTarget(
+	store: Store,
 	options?: AgentContextOptions,
 ): Omit<ContextTarget, "projectId"> | undefined {
 	const env = options?.env ?? process.env;
+	const pinned = pinnedDefault(store);
 	const workspace =
-		env.TEDIX_WORKSPACE?.trim() || getCurrentWorkspace(options) || "";
+		env.TEDIX_WORKSPACE?.trim() ||
+		pinned?.workspace ||
+		getCurrentWorkspace(options) ||
+		"";
 	if (!WORKSPACE.test(workspace)) return undefined;
 	const profile = readWorkspaceCredentials(workspace, options);
 	if (!profile?.mcpUrl) return undefined;
-	const requested = env.TEDIX_ORGANIZATION?.trim() || undefined;
+	const requested =
+		env.TEDIX_ORGANIZATION?.trim() ||
+		(pinned?.workspace === workspace ? pinned.organization : undefined);
 	let organization: string | undefined;
 	if (isMultiOrganizationMcpUrl(profile.mcpUrl)) {
 		const selected = decodeJwtPayload(
@@ -442,7 +473,7 @@ function defaultContext(
 	store: Store,
 	options?: AgentContextOptions,
 ): AgentContextResult {
-	const target = defaultTarget(options);
+	const target = defaultTarget(store, options);
 	if (!target) return { status: "unbound" };
 	const same = (row: { workspace: string; org: string; mcpUrl: string }) =>
 		row.workspace === target.workspace &&
@@ -494,7 +525,13 @@ export function normalizeGitOrigin(value: string): string {
 export function defaultOrganizationTarget(
 	options?: AgentContextOptions,
 ): OrganizationTarget | undefined {
-	return defaultTarget(options);
+	let store: Store;
+	try {
+		store = readStore(options);
+	} catch {
+		return undefined;
+	}
+	return defaultTarget(store, options);
 }
 
 /**
@@ -992,10 +1029,10 @@ function changeDefaultCapture(
 	projectId: string | undefined,
 	options?: AgentContextOptions,
 ): AgentContextResult {
-	const target = defaultTarget(options);
+	const target = defaultTarget(readStore(options), options);
 	if (!target)
 		throw new Error(
-			"No single organization for this folder: set TEDIX_ORGANIZATION to a selected organization ID (see tedix auth status), or run in a bound repository",
+			"No single organization for this folder: run setup agents context set-default-organization <selected ID>, set TEDIX_ORGANIZATION to a selected organization ID (see tedix auth status), or run in a bound repository",
 		);
 	if (projectId !== undefined && (!enable || !looksLikeUuid(projectId)))
 		throw new Error("--project takes a project UUID and only when enabling");
@@ -1025,6 +1062,59 @@ function changeDefaultCapture(
 	return resolveAgentContext({ ...options, allowDefault: true });
 }
 
+/**
+ * Save (or clear) the organization sessions outside a bound repository use
+ * when the profile serves several. The value must be one the profile has
+ * selected now; it is re-checked at every use and ignored once unselected.
+ */
+export function setDefaultOrganization(
+	value: string | undefined,
+	workspaceInput: string | undefined,
+	options?: AgentContextOptions,
+): AgentContextResult {
+	const directory = credentialDirectory(options);
+	let pinned: DefaultOrganization | undefined;
+	if (value !== undefined) {
+		const env = options?.env ?? process.env;
+		const workspace =
+			workspaceInput ||
+			env.TEDIX_WORKSPACE?.trim() ||
+			getCurrentWorkspace(options) ||
+			"";
+		if (!WORKSPACE.test(workspace))
+			throw new Error("Choose a saved profile with --workspace <profile>");
+		const profile = readWorkspaceCredentials(workspace, options);
+		if (!profile?.mcpUrl)
+			throw new Error("Choose a saved profile; run tedix auth status first");
+		const multi = isMultiOrganizationMcpUrl(profile.mcpUrl);
+		const selected: unknown = multi
+			? decodeJwtPayload(profile.oauthTokens?.access_token ?? "")
+					?.tedixSelectedOrganizations
+			: [profile.org];
+		const candidates = Array.isArray(selected)
+			? selected.filter((id): id is string => typeof id === "string")
+			: [];
+		// An exact ID, or a slug naming the organization ID org_<slug>.
+		const organization = [value, `org_${value}`].find((id) =>
+			candidates.includes(id),
+		);
+		if (!organization)
+			throw new Error(
+				`${value} is not an organization this profile selected; see tedix auth status, or renew login to select it`,
+			);
+		contextTarget(workspace, multi ? organization : undefined, options);
+		pinned = { workspace, organization };
+	}
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	withFileLockSync(join(directory, "locks", "agent-contexts"), () => {
+		const store = readStore(options);
+		if (pinned) store.defaultOrganization = pinned;
+		else delete store.defaultOrganization;
+		writeStore(store, options);
+	});
+	return defaultContext(readStore(options), options);
+}
+
 export const agentContextUsage = `Local opt-in Tedix session context
 
   tedix setup agents context bind --workspace <profile> [--organization <selected ID>] --project <UUID>
@@ -1036,6 +1126,8 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context disconnect-preferences
   tedix setup agents context enable-decision-capture [--project <UUID>]
   tedix setup agents context disable-decision-capture
+  tedix setup agents context set-default-organization <selected ID or slug> [--workspace <profile>]
+  tedix setup agents context set-default-organization --clear
   tedix setup agents context disconnect-output
   tedix setup agents context show [--json] [--allow-default]
   tedix setup agents context unbind
@@ -1061,8 +1153,11 @@ organization's approved lessons for this repository from Tedix memory: lessons
 for everyone in the organization plus your own personal ones.
 Outside a bound repository (any folder, non-coding work included), the prompt
 and capture hooks use the default organization: TEDIX_WORKSPACE or the current
-profile, and TEDIX_ORGANIZATION or that profile's only organization. With
-several selectable organizations and none chosen they stay idle; they never
+profile, and TEDIX_ORGANIZATION or that profile's only organization. A profile
+with several organizations uses the one saved by set-default-organization
+(which also pins its profile); it must still be selected in that profile's
+login at each use, else the hooks stay idle. A repository binding always wins.
+With several selectable organizations and none chosen they stay idle; they never
 guess. There, lessons carry no repository, and decision capture runs only when
 the organization opted in and has one project inbox: the one its bound
 repositories share, or the --project given to enable-decision-capture run
@@ -1098,14 +1193,26 @@ export function runAgentContext(
 			"disconnect-preferences",
 			"enable-decision-capture",
 			"disable-decision-capture",
+			"set-default-organization",
 		].includes(action!)
 	)
 		throw new Error("Unknown context action; use setup agents context --help");
 	const values: Record<string, string> = {};
 	let json = false;
 	let allowDefault = false;
+	let clearDefault = false;
 	for (let i = 1; i < args.length; i++) {
 		const arg = args[i]!;
+		if (action === "set-default-organization") {
+			if (arg === "--clear" && !clearDefault) {
+				clearDefault = true;
+				continue;
+			}
+			if (i === 1 && !arg.startsWith("--")) {
+				values.organization = arg;
+				continue;
+			}
+		}
 		if (arg === "--json" && !json) {
 			json = true;
 			continue;
@@ -1137,7 +1244,8 @@ export function runAgentContext(
 				? !["connect-output", "connect-preferences"].includes(action!)
 				: !["cwd", "sessionId"].includes(key) &&
 					!["bind", "connect"].includes(action!) &&
-					!(key === "projectId" && action === "enable-decision-capture")
+					!(key === "projectId" && action === "enable-decision-capture") &&
+					!(key === "workspace" && action === "set-default-organization")
 		)
 			throw new Error(`${arg} applies only to context bind or connect-output`);
 		values[key] = value;
@@ -1152,32 +1260,51 @@ export function runAgentContext(
 		...(values.sessionId ? { sessionId: values.sessionId } : {}),
 		...(allowDefault ? { allowDefault } : {}),
 	};
+	if (
+		action === "set-default-organization" &&
+		clearDefault === Boolean(values.organization)
+	)
+		throw new Error(
+			"set-default-organization takes one organization ID or slug, or --clear",
+		);
+	if (action === "set-default-organization" && clearDefault && values.workspace)
+		throw new Error("--clear removes the one saved default; omit --workspace");
 	const result =
 		action === "show"
 			? resolveAgentContext(opts)
-			: changeAgentContext(
-					action as
-						| "bind"
-						| "connect"
-						| "select"
-						| "clear"
-						| "unbind"
-						| "connect-output"
-						| "disconnect-output"
-						| "connect-preferences"
-						| "disconnect-preferences"
-						| "enable-decision-capture"
-						| "disable-decision-capture",
-					values,
-					opts,
-				);
+			: action === "set-default-organization"
+				? setDefaultOrganization(
+						clearDefault ? undefined : values.organization,
+						values.workspace,
+						opts,
+					)
+				: changeAgentContext(
+						action as
+							| "bind"
+							| "connect"
+							| "select"
+							| "clear"
+							| "unbind"
+							| "connect-output"
+							| "disconnect-output"
+							| "connect-preferences"
+							| "disconnect-preferences"
+							| "enable-decision-capture"
+							| "disable-decision-capture",
+						values,
+						opts,
+					);
 	console.log(
 		json
 			? JSON.stringify(result)
-			: result.status === "bound"
-				? `Bound ${result.root} to ${result.workspace}, project ${result.projectId}.\n${result.workItemId ? `Selected Work: ${result.workItemId} (${result.contextSource})` : "No selected Work; use context select or a governed worktree."}`
-				: (result.message ??
-					"Repository context is unbound; Tedix preflight stays idle."),
+			: result.contextSource === "default"
+				? `Outside a bound repository: organization ${result.org} on profile ${result.workspace}; ${result.decisionCapture ? `decision capture on, project ${result.projectId}` : "decision capture off"}. Repository bindings still win.`
+				: action === "set-default-organization" && result.status === "unbound"
+					? "No default organization resolves; sessions outside a bound repository stay idle."
+					: result.status === "bound"
+						? `Bound ${result.root} to ${result.workspace}, project ${result.projectId}.\n${result.workItemId ? `Selected Work: ${result.workItemId} (${result.contextSource})` : "No selected Work; use context select or a governed worktree."}`
+						: (result.message ??
+							"Repository context is unbound; Tedix preflight stays idle."),
 	);
 	return result.status === "invalid" && !json ? 1 : 0;
 }
