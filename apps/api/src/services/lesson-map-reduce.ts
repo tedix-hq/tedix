@@ -14,10 +14,11 @@
  *           distinct sessions behind it and, on conflict, the newer one wins.
  *           A rule survives when two or more sessions state it, or one states
  *           it as standing ("always", "never", ...).
- *   WRITE   one standing "how the user works" lesson (cross-subject rules,
- *           delivered first in every session) and one lesson per subject and
- *           scope: a rule from one repository stays in that repository's
- *           lesson; anything else is in the lesson outside any repository.
+ *   WRITE   a standing "how the user works" lesson (cross-subject rules,
+ *           delivered first in every session), one standing lesson per
+ *           repository (its most supported rules, delivered first there), and
+ *           one lesson per subject and scope for the rest: a rule from one
+ *           repository stays in that repository; anything else is outside any.
  *
  * Writes supersede the miner's own earlier lessons for that person; a lesson
  * a person reviewed or archived is never touched, and neither its decisions
@@ -520,32 +521,44 @@ export function planLessons(
 	rules: RuleCandidate[],
 ): PlannedLesson[] {
 	const ranked = [...rules].sort(bySupport);
-	const general = ranked.filter(isGeneral);
-	const diverse = fill(
-		STANDING_HEADER,
-		general,
-		(rule, taken) => taken.filter((t) => t.subject === rule.subject).length < 2,
-	);
-	const standing = [
-		...diverse,
-		...fill(
-			render(STANDING_HEADER, diverse),
-			general.filter((rule) => !diverse.includes(rule)),
-		),
-	].sort(bySupport);
+	const repoOf = (rule: RuleCandidate) =>
+		isGeneral(rule) ? ANY : rule.repos[0]!;
 	const lessons: PlannedLesson[] = [];
-	if (standing.length)
+	const hoisted = new Set<RuleCandidate>();
+	// Standing lessons: everywhere, then one per repository, so the most
+	// supported rules of a session's scope arrive first within its budget.
+	const repos = [ANY, ...new Set(ranked.map(repoOf).filter((r) => r !== ANY))];
+	for (const repo of repos) {
+		const header =
+			repo === ANY ? STANDING_HEADER : `How the user works in ${repo}:`;
+		const scoped = ranked.filter((rule) => repoOf(rule) === repo);
+		const diverse = fill(
+			header,
+			scoped,
+			(rule, taken) =>
+				taken.filter((t) => t.subject === rule.subject).length < 2,
+		);
+		const standing = [
+			...diverse,
+			...fill(
+				render(header, diverse),
+				scoped.filter((rule) => !diverse.includes(rule)),
+			).slice(0, MAX_RULES_PER_LESSON - diverse.length),
+		].sort(bySupport);
+		if (standing.length === 0) continue;
+		for (const rule of standing) hoisted.add(rule);
 		lessons.push({
-			topicKey: personalLessonTopicKey(ownerUserId, ANY, STANDING_TOPIC),
-			scope: { repo: ANY, harness: ANY, topic: STANDING_TOPIC },
+			topicKey: personalLessonTopicKey(ownerUserId, repo, STANDING_TOPIC),
+			scope: { repo, harness: ANY, topic: STANDING_TOPIC },
 			standing: true,
-			content: render(STANDING_HEADER, standing),
+			content: render(header, standing),
 			rules: standing,
 		});
+	}
 	const groups = new Map<string, RuleCandidate[]>();
 	for (const rule of ranked) {
-		if (standing.includes(rule)) continue;
-		const repo = isGeneral(rule) ? ANY : rule.repos[0]!;
+		if (hoisted.has(rule)) continue;
+		const repo = repoOf(rule);
 		const key = `${repo}\u0000${rule.subject}`;
 		groups.set(key, [...(groups.get(key) ?? []), rule]);
 	}
