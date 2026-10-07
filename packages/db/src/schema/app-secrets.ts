@@ -30,7 +30,7 @@ export const appSecrets = sqliteTable(
 			.notNull()
 			.references(() => apps.id, { onDelete: "cascade" }),
 
-		// Secret identifier (e.g., "SHOPIFY_TOKEN", "FIRECRAWL_API_KEY")
+		// Secret identifier (e.g., "SHOPIFY_TOKEN", "STRIPE_API_KEY")
 		name: text("name").notNull(),
 
 		// Encrypted value: base64(iv[12] + ciphertext + authTag[16])

@@ -45,7 +45,6 @@ import { modelCatalogContract } from "./model-catalog";
 import { earnedDelegationContract } from "./earned-delegation";
 import { externalAgentIdentityContract } from "./external-agent-identity";
 import { flywheelHealthContract } from "./flywheel-health";
-import { generatedWidgetArtifactsContract } from "./generated-widget-artifacts";
 import { governanceContract } from "./governance";
 import { graphRetrievalBenchmarksContract } from "./graph-retrieval-benchmarks";
 import { growthSnapshotsContract } from "./growth-snapshots";
@@ -93,8 +92,6 @@ import { userSettingsContract } from "./user-settings";
 import { userProfileContract } from "./user-profile";
 import { voiceContract } from "./voice";
 import { waitlistContract } from "./waitlist";
-import { widgetTestContract } from "./widget-test";
-import { widgetTestRunsContract } from "./widget-test-runs";
 import { workItemsContract } from "./work-items";
 import { workApprovalsContract } from "./work-approvals";
 import { workAgentSessionsContract } from "./work-agent-sessions";
@@ -320,9 +317,6 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	// Tedi email (inbound email routing — internal only, service binding)
 	tediEmail: tediEmailContract,
 
-	// Widget E2E testing (real MCP call + Puppeteer screenshot — internal only)
-	widgetTest: widgetTestContract,
-
 	// Tedi objectives and tasks (mission directives + execution log)
 	tediObjectives: tediObjectivesContract,
 
@@ -359,12 +353,6 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	// MCP tool-approval grant resolution (internal, service-binding only —
 	// isolated grant layer for the destructive-tool approval gate)
 	mcpGovernance: mcpGovernanceContract,
-
-	// Widget test runs (persisted E2E test results — internal only)
-	widgetTestRuns: widgetTestRunsContract,
-
-	// Generated widget artifacts (GenUI drafts, Browser QA, publish progress)
-	generatedWidgetArtifacts: generatedWidgetArtifactsContract,
 
 	// Tedi runtime metrics from Analytics Engine
 });

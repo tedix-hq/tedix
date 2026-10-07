@@ -185,7 +185,7 @@ export function serviceBindingFetchFn(fetcher: ServiceBindingFetcher) {
 }
 
 // =============================================================================
-// Shared MCP Utilities (used by health, widget-test, and eval workflows)
+// Shared MCP Utilities (used by health and eval workflows)
 // =============================================================================
 
 /**

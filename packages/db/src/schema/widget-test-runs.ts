@@ -1,12 +1,12 @@
 /**
  * Widget Test Runs Schema
  *
- * Persists every widget test run (static + interactive) with results,
- * screenshots, step details, and timing — queryable by app or org.
+ * Retired: widget browser testing was removed and nothing reads or writes
+ * this table. The model stays so migration history and drift checks keep
+ * describing the existing D1 table until a deliberate drop migration.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import type { WidgetVisualDiffOutput } from "@tedix/api-contract/schemas/widget-test-runs";
 import { sql } from "drizzle-orm";
 import {
 	index,
@@ -42,7 +42,7 @@ export const widgetTestRuns = sqliteTable(
 			Record<string, JsonValue>
 		>(),
 
-		/** Test mode: "static" (Puppeteer) or "interactive" (Firecrawl) */
+		/** Test mode: "static" or "interactive" */
 		mode: text("mode").notNull(),
 
 		/** Overall pass/fail */
@@ -80,9 +80,9 @@ export const widgetTestRuns = sqliteTable(
 		>(),
 
 		/** Screenshot comparison against the latest promoted/passed baseline run */
-		visualDiff: text("visual_diff", {
-			mode: "json",
-		}).$type<WidgetVisualDiffOutput>(),
+		visualDiff: text("visual_diff", { mode: "json" }).$type<
+			Record<string, JsonValue>
+		>(),
 
 		/** Preview URL for manual inspection */
 		previewUrl: text("preview_url"),

@@ -198,8 +198,6 @@ const INTERNAL_TIMEOUT_FLOORS_MS: Record<string, number> = {
 	"tedis/resetSandbox": 30_000,
 	"tedis/getStatus": 30_000,
 	"tedis/sendMessage": 145_000, // ACP: 130s wait + 15s headroom
-	"widgetTest/run": 60_000,
-	"widgetTest/runInteractive": 180_000,
 	"mcpEval/run": 30_000,
 	"mcpHealth/run": 30_000,
 	// The graph steward performs several bounded D1 health scans before it

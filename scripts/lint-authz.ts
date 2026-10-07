@@ -94,8 +94,7 @@ const BLOCK_RE =
  * Extract procedures declared directly inside `os.router({ ... })` objects.
  * The top-level block parser otherwise sees only the router builder and misses
  * each nested `.handler(...)` chain — which previously hid real single-plane
- * procedures in generated-widget-artifacts, MCP health/eval, and runtime
- * routers.
+ * procedures in MCP health/eval and runtime routers.
  */
 function collectInlineHandlers(rhs: string): InlineHandler[] {
 	const lines = rhs.split("\n");

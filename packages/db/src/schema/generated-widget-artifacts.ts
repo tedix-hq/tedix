@@ -1,9 +1,10 @@
 /**
  * Generated Widget Artifacts Schema
  *
- * Durable records for GenUI surfaces created from MCP tool results. A record can
- * start as a draft json-render layout, move through Browser QA, then publish as
- * a widget/resource URI that Tedix OS can render inline.
+ * Retired: the generated widget artifact draft/QA/publish lane was removed
+ * with widget browser testing and nothing reads or writes this table. The
+ * model stays so migration history and drift checks keep describing the
+ * existing D1 table until a deliberate drop migration.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";

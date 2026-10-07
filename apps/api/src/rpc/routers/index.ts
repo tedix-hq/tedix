@@ -309,17 +309,6 @@ export const apiRouter = {
 	),
 	voice: lazyRouter(() => import("./voice").then((m) => m.voiceContractRouter)),
 
-	widgetTest: lazyRouter(() =>
-		import("./widget-test").then((m) => m.widgetTestContractRouter),
-	),
-	widgetTestRuns: lazyRouter(() =>
-		import("./widget-test-runs").then((m) => m.widgetTestRunsContractRouter),
-	),
-	generatedWidgetArtifacts: lazyRouter(() =>
-		import("./generated-widget-artifacts").then(
-			(m) => m.generatedWidgetArtifactsContractRouter,
-		),
-	),
 	tediObjectives: lazyRouter(() =>
 		import("./tedi-objectives").then((m) => m.tediObjectivesContractRouter),
 	),

@@ -65,8 +65,6 @@ describe("platform operator tool definitions", () => {
 		expect(ids).toContain("create_mcp_connection_provider");
 		expect(ids).toContain("initiate_connection");
 		expect(ids).toContain("store_connection_api_key");
-		expect(ids).toContain("create_generated_widget_artifact");
-		expect(ids).toContain("run_widget_browser_qa");
 		expect(ids).toContain("query_gsc_search_analytics");
 		expect(ids).toContain("research_keywords");
 		expect(ids).toContain("get_serp_results");
@@ -124,7 +122,6 @@ describe("platform operator tool definitions", () => {
 		expect(definition("get_catalog_stats").kind).toBe("read");
 		expect(definition("run_openapi_import").kind).toBe("write");
 		expect(definition("create_tedi").kind).toBe("write");
-		expect(definition("create_generated_widget_artifact").kind).toBe("write");
 		expect(definition("delete_app").kind).toBe("destructive");
 		expect(definition("decommission_tedi").kind).toBe("destructive");
 		expect(definition("create_os_gadget").kind).toBe("write");
@@ -152,35 +149,12 @@ describe("platform operator tool definitions", () => {
 		expect(definition("delete_os_gadget").kind).toBe("destructive");
 	});
 
-	it("keeps generated widget operator tools searchable", () => {
-		const createArtifact = definition("create_generated_widget_artifact");
-		const runQa = definition("run_widget_browser_qa");
-
-		expect(createArtifact.description).toContain("generated widget artifact");
-		expect(createArtifact.description).toContain("MCP UI");
-		expect(runQa.description).toContain("Browser QA");
-		expect(runQa.description).toContain("widget");
-	});
-
 	it("defines persisted render widget overlays for operator workflow surfaces", () => {
 		expectOperatorWidget("get_catalog_stats", "catalog-stats");
 		expectOperatorWidget("get_catalog_sync_logs", "catalog-sync-logs");
 		expectOperatorWidget("get_tool_tests", "catalog-tool-tests");
 		expectOperatorWidget("get_tool_test_stats", "catalog-tool-test-stats");
 		expectOperatorWidget("preview_openapi_import", "openapi-import-preview");
-		expectOperatorWidget(
-			"list_generated_widget_artifacts",
-			"generated-widget-artifacts",
-		);
-		expectOperatorWidget(
-			"get_generated_widget_artifact",
-			"generated-widget-artifact",
-		);
-		expectOperatorWidget(
-			"list_widget_browser_qa_runs",
-			"widget-browser-qa-runs",
-		);
-		expectOperatorWidget("get_widget_browser_qa_run", "widget-browser-qa-run");
 		expectOperatorWidget("run_mcp_protocol_probe", "mcp-protocol-probe");
 		expectOperatorWidget(
 			"list_tedi_email_address_requests",

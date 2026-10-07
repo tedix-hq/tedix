@@ -5,7 +5,7 @@
  * validates the id and throws `notFound()` on a missing app, so every tab
  * renders inside a proven app identity. Tabs are REAL sibling sub-routes, not
  * component state: `autoCodeSplitting` gives each tab its own lazy chunk,
- * which is what keeps the analytics/evals/settings code out of the entry.
+ * which is what keeps the analytics/settings code out of the entry.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -44,7 +44,6 @@ const APP_DETAIL_TABS = [
 	{ value: "analytics", label: "Analytics", suffix: "/analytics" },
 	{ value: "content", label: "Content", suffix: "/content" },
 	{ value: "tools", label: "Tools", suffix: "/tools" },
-	{ value: "evals", label: "Evals", suffix: "/evals" },
 	{ value: "settings", label: "Settings", suffix: "/settings" },
 ] as const;
 

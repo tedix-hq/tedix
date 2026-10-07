@@ -45,14 +45,6 @@
 		"waitlist": {
 			"guard": "namespace",
 			"tenantExceptions": []
-		},
-		"widgetTest": {
-			"guard": "namespace",
-			"tenantExceptions": []
-		},
-		"widgetTestRuns": {
-			"guard": "namespace",
-			"tenantExceptions": []
 		}
 	}
 }

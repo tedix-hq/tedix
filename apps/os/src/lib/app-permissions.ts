@@ -7,7 +7,6 @@
  *   - `apps:update`  — apps.update, appTools/appAdapters enable/disable,
  *                      content mutations (AUTHZ.appsWrite / AUTHZ.toolsWrite)
  *   - `secrets:manage` — appSecrets.delete (AUTHZ.secretsWrite)
- *   - `platform:admin` — mcpEval.run (AUTHZ.platformAdmin)
  *
  * `apps.delete` additionally demands a step-up (`su`) token; see the settings
  * page's danger zone.
@@ -31,15 +30,8 @@ export function useCanManageSecrets(): boolean {
 	return useHasPermission("secrets:manage");
 }
 
-export function useCanRunEvals(): boolean {
-	return useHasPermission("platform:admin");
-}
-
 export const APPS_MANAGE_DENIED_REASON =
 	"Changing app configuration requires the Update apps permission.";
 
 export const SECRETS_MANAGE_DENIED_REASON =
 	"Deleting secrets requires the Manage secrets permission.";
-
-export const EVALS_RUN_DENIED_REASON =
-	"Starting widget evals requires platform administrator authority.";

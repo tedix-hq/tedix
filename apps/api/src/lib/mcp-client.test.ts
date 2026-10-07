@@ -763,7 +763,7 @@ describe("connectMcpServer", () => {
 			"search_listings",
 			{ q: "chairs" },
 			{
-				clientName: "tedix-widget-tester",
+				clientName: "tedix-mcp-test-client",
 				fetchFn,
 				headers: {
 					Authorization: "Bearer service-token",
@@ -859,7 +859,7 @@ describe("connectMcpServer", () => {
 			"search_listings",
 			{ q: "chairs" },
 			{
-				clientName: "tedix-widget-tester",
+				clientName: "tedix-mcp-test-client",
 				fetchFn,
 				headers: { "X-Tedix-Host": "acme.mcp.tedix.dev" },
 			},
@@ -880,7 +880,7 @@ describe("connectMcpServer", () => {
 		expect(toolCall?.meta).toMatchObject({
 			"io.modelcontextprotocol/protocolVersion": "2026-07-28",
 			"io.modelcontextprotocol/clientInfo": {
-				name: "tedix-widget-tester",
+				name: "tedix-mcp-test-client",
 				version: "1.0.0",
 			},
 			"io.modelcontextprotocol/clientCapabilities": {},
