@@ -621,8 +621,18 @@ async function executeMcpTool(
 		return directResult;
 	} catch (error) {
 		// Recovery 1: a bare-name "tool not found" may be exposed under a
-		// prefixed aggregate name — recover it via tools/list.
-		if (isToolNotFoundError(error, toolName)) {
+		// prefixed aggregate name — recover it via tools/list. A mapped wrapper
+		// app (e.g. `planetscale-<tenant>` aggregating `planetscale`) registers
+		// only `<prefix>__<tool>` names; a programmatic bare call materializes
+		// no tool there, so apps/mcp has no tools/call handler and answers
+		// -32601 instead of "tool not found". Resolve that case the same way
+		// before the Code Mode fallback below, which cannot see the wrapper's
+		// own namespace on the org aggregate ("<namespace> is not defined").
+		const mappedAppMissingMethod =
+			isMethodNotFoundError(error) &&
+			!AGGREGATE_NAMESPACES.has(namespace) &&
+			Boolean(props.namespaceToSlug[namespace]);
+		if (isToolNotFoundError(error, toolName) || mappedAppMissingMethod) {
 			let resolvedToolName: string | null = null;
 			try {
 				const { text, contentType } = await postJsonRpc({

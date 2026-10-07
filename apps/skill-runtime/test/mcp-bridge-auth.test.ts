@@ -128,3 +128,159 @@ test("typed credential miss crosses RPC and continuation pins the selected accou
 	});
 	assert.deepEqual(normal, { __tedixMcpResult: true, value: { ok: true } });
 });
+
+test("a bare method on a single-app wrapper resolves to its prefixed wire name", async () => {
+	const calls: Array<{ host: string; method: string; name?: string }> = [];
+	const wrapperEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const request = new Request(input, init);
+				const body = (await request.json()) as {
+					id: string;
+					method: string;
+					params?: { name?: string };
+				};
+				calls.push({
+					host: new URL(request.url).hostname,
+					method: body.method,
+					name: body.params?.name,
+				});
+				// The wrapper registers only its aggregated, prefixed tools. A
+				// programmatic bare call materializes no tool, so the SDK server has
+				// no tools/call handler at all and answers -32601.
+				if (body.method === "tools/list") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: {
+							tools: [
+								{ name: "planetscale__planetscale_execute_read_query" },
+								{ name: "planetscale__planetscale_list_databases" },
+							],
+						},
+					});
+				}
+				if (
+					body.params?.name === "planetscale__planetscale_execute_read_query"
+				) {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { content: [{ type: "text", text: '{"rows":[]}' }] },
+					});
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					error: { code: -32601, message: "Method not found" },
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+
+	const result = await callMcpTool(
+		wrapperEnv,
+		{
+			...props,
+			manifest: {
+				...manifest,
+				mcp: { planetscale_acme: ["planetscale_execute_read_query"] },
+			},
+			namespaceToSlug: { planetscale_acme: "planetscale-acme" },
+		},
+		{
+			namespace: "planetscale_acme",
+			method: "planetscale_execute_read_query",
+			args: { query: "select 1" },
+			workflow,
+		},
+	);
+
+	assert.deepEqual(result, { __tedixMcpResult: true, value: { rows: [] } });
+	assert.deepEqual(calls, [
+		{
+			host: "planetscale-acme.mcp.tedix.dev",
+			method: "tools/call",
+			name: "planetscale_execute_read_query",
+		},
+		{
+			host: "planetscale-acme.mcp.tedix.dev",
+			method: "tools/list",
+			name: undefined,
+		},
+		{
+			host: "planetscale-acme.mcp.tedix.dev",
+			method: "tools/call",
+			name: "planetscale__planetscale_execute_read_query",
+		},
+	]);
+});
+
+test("a mapped Code Mode app with no prefixed match still falls back to the aggregate", async () => {
+	const calls: string[] = [];
+	const codeModeEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const request = new Request(input, init);
+				const body = (await request.json()) as {
+					id: string;
+					method: string;
+					params?: { name?: string };
+				};
+				const host = new URL(request.url).hostname;
+				calls.push(`${host} ${body.method} ${body.params?.name ?? ""}`);
+				if (body.method === "tools/list") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { tools: [{ name: "code" }] },
+					});
+				}
+				if (host.startsWith("tedix-unified.") && body.params?.name === "code") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: {
+							content: [
+								{
+									type: "text",
+									text: '{"executionId":"e1","result":{"hits":1}}',
+								},
+							],
+						},
+					});
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					error: { code: -32601, message: "Method not found" },
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+
+	const result = await callMcpTool(
+		codeModeEnv,
+		{
+			...props,
+			manifest: {
+				...manifest,
+				mcp: { firecrawl_tedix: ["firecrawl_search"] },
+			},
+			namespaceToSlug: { firecrawl_tedix: "firecrawl-tedix" },
+		},
+		{
+			namespace: "firecrawl_tedix",
+			method: "firecrawl_search",
+			args: { query: "example" },
+			workflow,
+		},
+	);
+
+	assert.deepEqual(result, { __tedixMcpResult: true, value: { hits: 1 } });
+	assert.deepEqual(calls, [
+		"firecrawl-tedix.mcp.tedix.dev tools/call firecrawl_search",
+		"firecrawl-tedix.mcp.tedix.dev tools/list ",
+		"tedix-unified.mcp.tedix.dev tools/call code",
+	]);
+});
