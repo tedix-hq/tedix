@@ -19,6 +19,7 @@
 		"build:standalone": "bun scripts/build-standalone.ts",
 		"test:standalone": "bun scripts/test-standalone.ts",
 		"test:installer": "bun scripts/test-installer.ts",
+		"plugin:repo": "bun scripts/build-plugin-repo.ts",
 		"test:tui": "bun test src/interactive-ink.test.ts src/ink-render.test.tsx src/message-queue.test.ts src/question-prompt.test.ts src/live-panel.test.ts src/activity.test.ts src/composer-editor.test.ts src/composer-input.test.ts src/composer-viewport.test.ts src/tui-accessibility.test.tsx src/tui-interaction.test.ts src/banner.test.ts"
 	},
 	"dependencies": {

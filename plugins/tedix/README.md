@@ -132,8 +132,15 @@ or trust a Codex hook; complete those steps in the host.
 `--dry-run` to apply it. Git marketplaces refresh through their host manager.
 For a local marketplace, update its checkout first: setup preserves that source.
 
-The repo marketplace at `.agents/plugins/marketplace.json` offers the `tedix`
-plugin. Add this checkout as a local marketplace with
+Without the CLI, install from the generated public plugin repository:
+`claude plugin marketplace add tedix-hq/tedix-plugins` then
+`claude plugin install tedix@tedix-plugins --scope user`, or
+`codex plugin marketplace add tedix-hq/tedix-plugins` then
+`codex plugin add tedix@tedix-plugins`. It ships skills and the MCP connection
+without hooks.
+
+For development, the repo marketplace at `.agents/plugins/marketplace.json`
+offers the `tedix` plugin. Add this checkout as a local marketplace with
 `codex plugin marketplace add <repo-root>`, then install `tedix@tedix-repo` from
 the Plugins Directory or `codex plugin add tedix@tedix-repo`. For a Codex CLI
 read-only check, first enable the MCP protocol feature Tedix Connect requires

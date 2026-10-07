@@ -28,16 +28,19 @@ protocol; Claude Code's v2 client negotiates that protocol with HTTP servers.
 The v2 client is the default from Claude Code 2.1.274, including sessions that
 do not fetch feature flags. See Anthropic's [MCP client runtime reference](https://code.claude.com/docs/en/mcp#mcp-client-runtimes).
 
-Add the Tedix repository as a Claude Code marketplace, then install the plugin
-for your user account:
+Without the CLI, add the published plugin repository as a Claude Code
+marketplace, then install the plugin for your user account:
 
 ```sh
-claude plugin marketplace add tedix-hq/tedix
-claude plugin install tedix@tedix --scope user
+claude plugin marketplace add tedix-hq/tedix-plugins
+claude plugin install tedix@tedix-plugins --scope user
 claude plugin list
 ```
 
-The marketplace command fetches the public Tedix repository. To test a
+[tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins) carries the
+skills and the MCP connection only, with no hooks; it is generated from
+`plugins/tedix` on each plugin release. `tedix setup agents` installs the same
+plugin with the optional local hooks. Use one route, not both. To test a
 local checkout for one Claude Code session instead of installing it, run
 `claude --plugin-dir ./plugins/tedix` from the repository root. A session
 already open before installation can load the new plugin with

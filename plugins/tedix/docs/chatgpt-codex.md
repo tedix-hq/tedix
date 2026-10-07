@@ -56,12 +56,12 @@ preview `tedix setup agents --codex --update --dry-run` and then run without
 `--dry-run`. A local development marketplace stays local; refresh its checkout
 before running the update. Review changed hooks again in `/hooks`.
 
-Without the CLI, add the public Tedix repository as a marketplace and install
-the plugin:
+Without the CLI, add the published plugin repository as a marketplace and
+install the plugin (skills and the MCP connection only, no hooks):
 
 ```sh
-codex plugin marketplace add tedix-hq/tedix
-codex plugin add tedix@tedix-repo
+codex plugin marketplace add tedix-hq/tedix-plugins
+codex plugin add tedix@tedix-plugins
 ```
 
 During plugin development, `codex plugin marketplace add .` from a local
