@@ -81,14 +81,6 @@ export const tenancyRelations = defineRelationsPart(schema, (r) => ({
 			from: r.organizations.id,
 			to: r.workspaceTemplateSets.organizationId,
 		}),
-		widgetTestRuns: r.many.widgetTestRuns({
-			from: r.organizations.id,
-			to: r.widgetTestRuns.organizationId,
-		}),
-		generatedWidgetArtifacts: r.many.generatedWidgetArtifacts({
-			from: r.organizations.id,
-			to: r.generatedWidgetArtifacts.organizationId,
-		}),
 		tediApprovalRequests: r.many.tediApprovalRequests({
 			from: r.organizations.id,
 			to: r.tediApprovalRequests.orgId,
