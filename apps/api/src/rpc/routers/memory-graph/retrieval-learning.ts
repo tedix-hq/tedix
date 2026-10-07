@@ -451,7 +451,7 @@ const learn = authed.learn
 		// Create the canonical fact in D1 before any managed projection call.
 		const factId = crypto.randomUUID();
 		const { evidence: sourceEvidence, metadata: inputMetadata } =
-			extractMemoryQualityEvidence(input.metadata);
+			extractMemoryQualityEvidence(input.metadata, input.sourceEvidence);
 		const forwardedTediId =
 			getHeader(context, "x-tedix-auth-tedi-id") ??
 			getHeader(context, "x-tedix-tedi-id");
@@ -489,10 +489,11 @@ const learn = authed.learn
 		});
 		const factTediId = ownership.tediId;
 		const visibility = ownership.visibility;
-		// Only the trusted runtime bridge supplies the actual user turn. The
-		// observer's generated fact and assistant answer cannot ground themselves.
-		// An absent/oversized excerpt performs no paid call and makes no claim of
-		// semantic support. This verdict cannot grant any memory authority.
+		// Only the trusted runtime bridge supplies the turn the Observer saw: the
+		// user turn, the assistant reply and content-free tool receipts. The
+		// observer's generated fact never grounds itself. An absent/oversized
+		// excerpt performs no paid call and makes no claim of semantic support.
+		// This verdict can only restrict; it cannot grant any memory authority.
 		// Shadow (the default) judges after the insert and only records the
 		// verdict; enforce is an explicit tenant opt-in that gates the row inline.
 		const memoryQualityRoute =

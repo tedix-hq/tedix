@@ -59,6 +59,40 @@ export const MemoryReviewStatusSchema = z.enum([
 ]);
 export type MemoryReviewStatus = z.infer<typeof MemoryReviewStatusSchema>;
 
+/** Per-part caps; together they keep the judged bundle under 8k characters. */
+export const MEMORY_SOURCE_EVIDENCE_LIMITS = {
+	userTurnChars: 3_000,
+	assistantReplyChars: 4_000,
+	toolReceipts: 16,
+	toolNameChars: 48,
+} as const;
+
+/**
+ * What the after-turn Observer saw when it wrote a fact: the user turn, the
+ * assistant reply and content-free tool receipts. Request-only evidence for
+ * the memory-quality judgment; the API never persists it.
+ */
+export const MemorySourceEvidenceSchema = z.object({
+	userTurn: z.string().max(MEMORY_SOURCE_EVIDENCE_LIMITS.userTurnChars),
+	assistantReply: z
+		.string()
+		.max(MEMORY_SOURCE_EVIDENCE_LIMITS.assistantReplyChars)
+		.optional(),
+	toolReceipts: z
+		.array(
+			z.object({
+				tool: z
+					.string()
+					.min(1)
+					.max(MEMORY_SOURCE_EVIDENCE_LIMITS.toolNameChars),
+				outcome: z.enum(["succeeded", "failed", "unavailable", "unknown"]),
+			}),
+		)
+		.max(MEMORY_SOURCE_EVIDENCE_LIMITS.toolReceipts)
+		.optional(),
+});
+export type MemorySourceEvidence = z.infer<typeof MemorySourceEvidenceSchema>;
+
 export const ExpertiseLevelSchema = z.enum([
 	"novice",
 	"familiar",

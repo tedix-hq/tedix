@@ -4,6 +4,7 @@ import {
 	interpretMemoryQuality,
 	evaluateMemoryQuality,
 	extractMemoryQualityEvidence,
+	formatMemorySourceEvidence,
 	memoryQualityDisposition,
 	memorySourceEvidenceHash,
 	shouldEvaluateAfterTurnMemory,
@@ -43,6 +44,35 @@ describe("advisory memory quality", () => {
 			evidence: "The user's original request",
 			metadata: { producer: "afterTurn" },
 		});
+	});
+	it("judges the turn the Observer saw and never persists it", () => {
+		const sourceEvidence = {
+			userTurn: "Summarize the Example Co invoices.",
+			assistantReply:
+				"The invoice tool reported 3 open invoices for Example Co.",
+			toolReceipts: [
+				{ tool: "invoices_list", outcome: "succeeded" as const },
+				{ tool: "crm_lookup", outcome: "failed" as const },
+			],
+		};
+		const extracted = extractMemoryQualityEvidence(
+			{ producer: "afterTurn", sourceEvidence: "legacy user turn" },
+			sourceEvidence,
+		);
+		expect(extracted.metadata).toEqual({ producer: "afterTurn" });
+		expect(extracted.evidence).toBe(
+			[
+				"## User turn\nSummarize the Example Co invoices.",
+				"## Assistant reply (the worker's report of this turn, including what its tools returned)\nThe invoice tool reported 3 open invoices for Example Co.",
+				"## Tool receipts (recorded by the runtime)\n- invoices_list: succeeded\n- crm_lookup: failed",
+			].join("\n\n"),
+		);
+		expect(formatMemorySourceEvidence({ userTurn: "Only the request" })).toBe(
+			"## User turn\nOnly the request",
+		);
+		expect(extractMemoryQualityEvidence(null, sourceEvidence).metadata).toBe(
+			null,
+		);
 	});
 	it("records a source fingerprint without keeping the excerpt", async () => {
 		expect(await memorySourceEvidenceHash("")).toBeNull();
