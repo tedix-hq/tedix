@@ -3,6 +3,24 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.0 — 2026-10-07
+
+### Added
+
+- `tedix setup agents context set-default-organization <ID or slug>` saves
+  the organization that sessions outside a bound repository use when your
+  profile has several. It is checked against your login at every use: if
+  that organization is no longer selected, nothing is read or recorded.
+  Repository bindings still win, and decision capture outside a repository
+  follows this organization's opt-in. `--clear` removes it.
+
+### Fixed
+
+- The prompt hook keeps its context within each host's limit: about 6,400
+  bytes for Codex and 9,600 for Claude Code. It drops lower-ranked lessons
+  first, keeping at least the top three, then shortens document text, instead
+  of cutting the end of the message.
+
 ## 0.5.0 — 2026-10-07
 
 ### Added

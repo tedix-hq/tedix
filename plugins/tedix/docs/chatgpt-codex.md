@@ -276,16 +276,23 @@ override repository rules, approvals or tenant boundaries.
 Outside a bound repository, in any folder and for non-coding work too, the same
 hooks use a default organization: `TEDIX_WORKSPACE` or the current profile, and
 `TEDIX_ORGANIZATION` or that profile's only organization. A chat there receives
-lessons with no repository. With several selectable organizations and none
-chosen, nothing is read or recorded; the hooks never guess an organization.
+lessons with no repository. When the profile has several organizations, save
+one with
+`tedix setup agents context set-default-organization <ID or slug>`; it also
+pins that profile, is checked against the login's selected organizations at
+every use, and is ignored once no longer selected. `--clear` removes it. With
+several selectable organizations and none chosen, nothing is read or recorded;
+the hooks never guess an organization.
 `tedix setup agents context show --allow-default` prints what a folder
 resolves to.
 
 The hook reads bounded host metadata (including `session_id`), discards prompt text,
 and never uploads or saves it. It does not write updates, restore execution
 authority or deliver a full transcript. Document text is bounded to 3,200
-characters; each comment to 400; the whole briefing to 9,600 UTF-8 bytes.
-Truncation is explicit. It checks every submitted user prompt rather than
+characters; each comment to 400; the whole briefing to 6,400 UTF-8 bytes in
+Codex (its package declares a 6,500-character limit) and 9,600 in Claude Code.
+Over that budget the hook first drops lower-ranked lessons, always keeping the
+top three, then shortens document text. Truncation is explicit. It checks every submitted user prompt rather than
 caching a successful read that may never have reached the model.
 
 ### Record decisions with explicit opt-in
