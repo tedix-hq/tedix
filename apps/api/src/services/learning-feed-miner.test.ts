@@ -8,8 +8,6 @@ vi.mock("@tedix/db/queries/learning-feedback", async (importActual) => {
 	return {
 		summarizeRecurringLearningIssues: actual.summarizeRecurringLearningIssues,
 		listLearningInteractionsForReflection: vi.fn(),
-		listLearningIssueKeysForReflection: vi.fn(async () => []),
-		listLearningInteractionsForIssuePrefix: vi.fn(async () => []),
 		recordLearningInteraction: vi.fn(),
 		proposeLearningImprovement: vi.fn(),
 		listLearningImprovementProposals: vi.fn(),
@@ -34,9 +32,6 @@ vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
 	listArchivedLearningFeedLessons: vi.fn(async () => []),
 	listStaleLearningFeedLessons: vi.fn(async () => []),
 }));
-vi.mock("./lesson-consolidation", () => ({
-	consolidatePersonalLessons: vi.fn(async () => ({})),
-}));
 vi.mock("@tedix/db/queries/tedis", () => ({
 	getTedisByOrganization: vi.fn(async () => []),
 }));
@@ -46,9 +41,7 @@ vi.mock("@tedix/db/queries/work-items/activity", () => ({
 
 import {
 	listLearningImprovementProposals,
-	listLearningInteractionsForIssuePrefix,
 	listLearningInteractionsForReflection,
-	listLearningIssueKeysForReflection,
 	proposeLearningImprovement,
 	recordLearningInteraction,
 } from "@tedix/db/queries/learning-feedback";
@@ -76,7 +69,6 @@ import {
 	routeCandidates,
 	routingFromChoice,
 } from "./learning-feed-miner";
-import { DISTILL_VERSION } from "./lesson-distiller";
 
 const db = {} as DbClient;
 
@@ -96,8 +88,8 @@ function event(
 		clientEventId: `decision-capture:${id}`,
 		signalClass: "quality",
 		eventKind: "answered",
-		scopeKind: "personal",
-		scopeId: "user-1",
+		scopeKind: "organization",
+		scopeId: "org-1",
 		issueKey: "decision:acme:claude-code:deploy",
 		surface: "decision_capture",
 		targetType: "work_interaction",
@@ -118,14 +110,17 @@ function event(
 	};
 }
 
+const personal = (userId: string) => ({
+	scopeKind: "personal" as const,
+	scopeId: userId,
+});
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
 	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
 	vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([]);
-	vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([]);
-	vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([]);
 	vi.mocked(listLearningImprovementProposals).mockResolvedValue([]);
 	vi.mocked(listWorkActivity).mockResolvedValue({
 		events: [],
@@ -136,8 +131,9 @@ beforeEach(() => {
 describe("buildDecisionLessons", () => {
 	it("puts draft corrections first as prefer/avoid lines", () => {
 		const [lesson] = buildDecisionLessons([
-			event("e1"),
+			event("e1", personal("user-1")),
 			event("e2", {
+				...personal("user-1"),
 				eventKind: "manually_replaced",
 				meta: {
 					answer: "Run the dry-run migration first.",
@@ -194,10 +190,10 @@ describe("buildDecisionLessons", () => {
 
 	it("keeps each user's decisions in their own lesson", () => {
 		const lessons = buildDecisionLessons([
-			event("e1"),
-			event("e2"),
-			event("e3", { scopeId: "user-2", actorId: "user-2" }),
-			event("e4", { scopeId: "user-2", actorId: "user-2" }),
+			event("e1", personal("user-1")),
+			event("e2", personal("user-1")),
+			event("e3", { ...personal("user-2"), actorId: "user-2" }),
+			event("e4", { ...personal("user-2"), actorId: "user-2" }),
 		]);
 		expect(
 			lessons.map((l) => [
@@ -301,145 +297,6 @@ describe("fixTopic", () => {
 	});
 });
 
-describe("historic session imports", () => {
-	const imported = (id: string, occurredAt: string) =>
-		event(id, {
-			surface: "agent_session_import",
-			clientEventId: `agent-session-import:${id}`,
-			occurredAt,
-		});
-
-	it("learns imports per repository, outside the 30-day window", async () => {
-		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
-		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
-			"decision:acme:claude-code:deploy",
-			"decision:acme:codex:question",
-		]);
-		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
-			imported("h1", "2025-01-01T10:00:00.000Z"),
-			imported("h2", "2025-02-01T10:00:00.000Z"),
-		]);
-		const result = await mineLearningFeed(db, {
-			orgId: "org-1",
-			now: new Date("2026-10-07T12:00:00.000Z"),
-		});
-		expect(result.factsWritten).toBe(1);
-		expect(listLearningInteractionsForIssuePrefix).toHaveBeenCalledTimes(1);
-		expect(listLearningInteractionsForIssuePrefix).toHaveBeenCalledWith(db, {
-			organizationId: "org-1",
-			issuePrefix: "decision:acme:",
-			surfaces: ["agent_session_import"],
-			limit: 1000,
-		});
-		const fact = vi.mocked(createFact).mock.calls[0]![1];
-		// One subject lesson per repository: the reply type and host drop out.
-		expect(fact.topicKey).toBe(
-			"learning-feed:decision:acme:general:general:user:user-1",
-		);
-		expect(fact.metadata).toMatchObject({
-			learningFeed: { evidenceEventIds: ["h2", "h1"] },
-		});
-	});
-
-	it("writes distilled rules in place of quotes", async () => {
-		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
-		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
-			"decision:acme:claude-code:deploy",
-		]);
-		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
-			imported("h1", "2025-01-01T10:00:00.000Z"),
-			imported("h2", "2025-02-01T10:00:00.000Z"),
-		]);
-		const distill = vi.fn(async () => ["Never deploy on Fridays."]);
-		await mineLearningFeed(db, { orgId: "org-1", distill });
-		expect(vi.mocked(distill).mock.calls[0]![0]).toMatchObject({
-			scope: { repo: "acme", harness: "general", topic: "general" },
-			replies: [
-				{
-					text: "Never deploy on Fridays; wait for Monday morning.",
-					session: null,
-					kind: "deploy",
-				},
-				expect.anything(),
-			],
-		});
-		const fact = vi.mocked(createFact).mock.calls[0]![1];
-		expect(fact.content).toMatch(/\n- Never deploy on Fridays\.$/);
-		expect(fact.metadata).toMatchObject({
-			learningFeed: { distilled: DISTILL_VERSION },
-		});
-	});
-
-	it("rewrites a lesson from an earlier distiller once, then leaves the distilled one alone", async () => {
-		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
-		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
-			"decision:acme:claude-code:deploy",
-		]);
-		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
-			imported("h1", "2025-01-01T10:00:00.000Z"),
-			imported("h2", "2025-02-01T10:00:00.000Z"),
-		]);
-		const lesson = (distilled: number | undefined) => ({
-			id: "fact-1",
-			reviewStatus: "confirmed",
-			metadata: {
-				learningFeed: {
-					evidenceEventIds: ["h2", "h1"],
-					autoConfirmed: true,
-					...(distilled ? { distilled } : {}),
-				},
-			},
-		});
-		const distill = vi.fn(async () => ["Never deploy on Fridays."]);
-		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
-			lesson(1),
-		] as never);
-		expect(
-			(await mineLearningFeed(db, { orgId: "org-1", distill })).factsWritten,
-		).toBe(1);
-		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
-			lesson(DISTILL_VERSION),
-		] as never);
-		distill.mockClear();
-		expect(
-			(await mineLearningFeed(db, { orgId: "org-1", distill })).factsWritten,
-		).toBe(0);
-		expect(distill).not.toHaveBeenCalled();
-	});
-
-	it("retires the miner's lesson when nothing lasting is left", async () => {
-		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
-		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
-			"decision:acme:claude-code:deploy",
-		]);
-		vi.mocked(listLearningInteractionsForIssuePrefix).mockResolvedValue([
-			imported("h1", "2025-01-01T10:00:00.000Z"),
-			imported("h2", "2025-02-01T10:00:00.000Z"),
-			imported("h3", "2025-03-01T10:00:00.000Z"),
-		]);
-		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
-			{
-				id: "fact-quotes",
-				reviewStatus: "confirmed",
-				metadata: {
-					learningFeed: { evidenceEventIds: ["h1", "h2"], autoConfirmed: true },
-				},
-			},
-		] as never);
-		const result = await mineLearningFeed(db, {
-			orgId: "org-1",
-			distill: async () => [],
-		});
-		expect(result.factsWritten).toBe(0);
-		expect(createFact).not.toHaveBeenCalled();
-		expect(invalidateFact).toHaveBeenCalledWith(
-			db,
-			"fact-quotes",
-			expect.stringContaining("No lasting rule"),
-		);
-	});
-});
-
 describe("mineLearningFeed", () => {
 	it("writes one active lesson at once and supersedes the miner's earlier ones", async () => {
 		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
@@ -477,7 +334,7 @@ describe("mineLearningFeed", () => {
 		expect(findCurrentFactsByTopicKey).toHaveBeenCalledWith(
 			db,
 			"org-1",
-			"learning-feed:decision:acme:claude-code:deploy:user:user-1",
+			"learning-feed:decision:acme:claude-code:deploy",
 		);
 		const fact = vi.mocked(createFact).mock.calls[0]![1];
 		expect(fact).toMatchObject({
@@ -487,16 +344,16 @@ describe("mineLearningFeed", () => {
 			reviewStatus: "confirmed",
 			usePolicy: "requires_user_confirmation",
 			memoryScope: "org",
-			visibility: "private",
+			visibility: "org",
 			factType: "decision",
-			topicKey: "learning-feed:decision:acme:claude-code:deploy:user:user-1",
+			topicKey: "learning-feed:decision:acme:claude-code:deploy",
 		});
 		expect(fact.metadata).toMatchObject({
 			producer: "learning-feed",
 			learningFeed: {
 				scope: { repo: "acme", harness: "claude-code", topic: "deploy" },
 				evidenceEventIds: ["e3", "e2", "e1"],
-				ownerUserId: "user-1",
+				ownerUserId: null,
 				autoConfirmed: true,
 			},
 		});
@@ -516,6 +373,18 @@ describe("mineLearningFeed", () => {
 			targetFactId: "fact-old",
 			relationType: "supersedes",
 		});
+	});
+
+	it("leaves a person's own decisions to the whole-history distillation", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1", personal("user-1")), event("e2", personal("user-1"))]
+					: [],
+		);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result.factsWritten).toBe(0);
+		expect(createFact).not.toHaveBeenCalled();
 	});
 
 	it("does not churn when the active lesson already covers every event", async () => {
@@ -731,13 +600,13 @@ describe("mineLearningFeed", () => {
 		});
 		expect(fact.metadata).toMatchObject({
 			learningFeed: {
-				ownerUserId: "user-1",
+				ownerUserId: null,
 				routing: { status: "routed", tediId: "tedi-eng" },
 			},
 		});
 	});
 
-	it("stays personal when the router is unsure, fails or names a stranger", async () => {
+	it("stays org-wide when the router is unsure, fails or names a stranger", async () => {
 		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
 			async (_db, input) =>
 				input.surfaces[0] === "decision_capture"
@@ -768,7 +637,7 @@ describe("mineLearningFeed", () => {
 			expect(result.factsRoutedToTedi).toBe(0);
 			expect(vi.mocked(createFact).mock.calls[0]![1]).toMatchObject({
 				tediId: null,
-				visibility: "private",
+				visibility: "org",
 				memoryScope: "org",
 			});
 		}

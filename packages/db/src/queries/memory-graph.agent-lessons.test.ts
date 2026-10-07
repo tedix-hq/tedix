@@ -12,6 +12,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	listApprovedAgentLessons,
+	listArchivedLearningFeedLessonsForOwner,
 	listStaleLearningFeedLessons,
 } from "./memory-graph/agent-lessons";
 
@@ -186,5 +187,28 @@ describe("listApprovedAgentLessons", () => {
 		);
 		expect(rows.map((row) => row.id)).toEqual(["old"]);
 		expect(rows[0]!.reviewStatus).toBe("confirmed");
+	});
+
+	it("lists one person's archived lessons", async () => {
+		const db = seed([
+			{ id: "mine", ownerUserId: "user-1", archivedAt: "2026-09-01" },
+			{ id: "mine-current", ownerUserId: "user-1" },
+			{ id: "theirs", ownerUserId: "user-2", archivedAt: "2026-09-01" },
+			{
+				id: "mine-other-org",
+				org: "org-2",
+				ownerUserId: "user-1",
+				archivedAt: "2026-09-01",
+			},
+		]);
+		const rows = await listArchivedLearningFeedLessonsForOwner(
+			db,
+			"org-1",
+			"learning-feed:decision:",
+			"user-1",
+		);
+		expect(rows.map((row) => [row.id, row.content])).toEqual([
+			["mine", "content mine"],
+		]);
 	});
 });

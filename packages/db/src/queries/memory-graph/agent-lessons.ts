@@ -196,3 +196,37 @@ export async function listArchivedLearningFeedLessons(
 		)
 		.limit(limit);
 }
+
+/**
+ * One person's archived lessons under the prefix. A lesson a person archived
+ * still covers its decisions and its rules: the miner must not learn them
+ * again. The caller tells a person's archive from the miner's stale archive.
+ */
+export async function listArchivedLearningFeedLessonsForOwner(
+	db: DbQueryClient,
+	orgId: string,
+	topicPrefix: string,
+	ownerUserId: string,
+	limit = 200,
+): Promise<CurrentLearningFeedLessonRow[]> {
+	return db
+		.select({
+			id: memoryFacts.id,
+			topicKey: memoryFacts.topicKey,
+			content: memoryFacts.content,
+			reviewStatus: memoryFacts.reviewStatus,
+			metadata: memoryFacts.metadata,
+		})
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				gte(memoryFacts.topicKey, topicPrefix),
+				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
+				isNotNull(memoryFacts.archivedAt),
+				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId') = ${ownerUserId}`,
+			),
+		)
+		.orderBy(desc(memoryFacts.updatedAt))
+		.limit(limit);
+}

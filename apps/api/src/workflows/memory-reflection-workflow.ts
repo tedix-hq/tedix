@@ -21,6 +21,7 @@ import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
 	type WorkflowStep,
+	type WorkflowStepConfig,
 } from "cloudflare:workers";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import {
@@ -51,6 +52,7 @@ import {
 } from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
 import { modelLessonDistiller } from "../services/lesson-distiller";
+import { distillPersonalLessons } from "../services/lesson-map-reduce";
 import { assessDelegatedAnswerCriteriaWithJev } from "../rpc/routers/kernel/jev-goal-assessment";
 import { reconcileCanonicalMemoryProjection } from "../integrations/cloudflare/agent-memory";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
@@ -58,8 +60,14 @@ import { asRecord } from "@tedix/api-contract/utils/is-record";
 interface ReflectionParams {
 	organizationId: string;
 	tediId?: string;
-	scope: "full" | "recent" | "domain";
+	/** `lessons`: only distil each person's decision history into lessons. */
+	scope: "full" | "recent" | "domain" | "lessons";
 	domain?: string;
+}
+
+/** The lesson distillation runs as its own instance (fresh invocation budget). */
+export function lessonDistillationInstanceId(parentInstanceId: string): string {
+	return `${parentInstanceId}-lessons`.slice(0, 100);
 }
 
 interface ReflectionResult {
@@ -273,6 +281,19 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 	async run(event: WorkflowEvent<ReflectionParams>, step: WorkflowStep) {
 		const { organizationId, tediId, scope } = event.payload;
 		const db = createDbClient(this.env.DB);
+
+		// Each person's whole decision history -> lessons, one step per chunk
+		// (see lesson-map-reduce.ts). Its own instance, dispatched below and by
+		// `mine_agent_session_lessons`.
+		if (scope === "lessons")
+			return distillPersonalLessons(
+				<T>(name: string, config: WorkflowStepConfig, body: () => Promise<T>) =>
+					// Every step result is plain JSON by construction.
+					step.do(name, config, body as () => Promise<never>) as Promise<T>,
+				db,
+				this.env,
+				organizationId,
+			);
 
 		// Step 1: Collect recent facts to review
 		const facts = await step.do(
@@ -496,6 +517,28 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			},
 		);
 		const learningFeedFactsWritten = learningFeed?.factsWritten ?? 0;
+
+		// Step 9c: distil each person's whole decision history into lessons,
+		// as its own instance so its many model calls get a fresh budget.
+		await step.do(
+			"dispatch-lesson-distillation",
+			{ retries: { limit: 1, delay: "5 seconds" }, timeout: "30 seconds" },
+			async () => {
+				try {
+					await this.env.MEMORY_REFLECTION_WORKFLOW.create({
+						id: lessonDistillationInstanceId(event.instanceId),
+						params: { organizationId, scope: "lessons" as const },
+					});
+					return true;
+				} catch (e) {
+					console.error(
+						"[LearningFeed] lesson distillation dispatch failed:",
+						e,
+					);
+					return false;
+				}
+			},
+		);
 		const learningFeedProposalsCreated = learningFeed?.proposalsCreated ?? 0;
 
 		// Step 10: Grade recent kernel route decisions and persist eval results

@@ -2,9 +2,12 @@
  * Learning feed miner: one deterministic step of MemoryReflectionWorkflow,
  * also run on demand (`mine_agent_session_lessons`).
  *
- * 1. Decisions → memory. Decision-capture answers recorded in the learning
- *    ledger (`decision-learning-signal.ts`) are grouped by the user who made
- *    them and by scope (repo, harness, topic). A group with a draft correction
+ * 1. Decisions → memory. A person's own decisions (personal scope: live
+ *    decision capture and imported historic sessions) are distilled from
+ *    their whole history by `lesson-map-reduce.ts`, as Workflow steps. Here,
+ *    org-wide decision-capture answers in the learning ledger
+ *    (`decision-learning-signal.ts`) are grouped by scope (repo, harness,
+ *    topic). A group with a draft correction
  *    (edited / replaced / overridden) or at least two substantive decisions
  *    becomes ONE memory fact per user and scope, active at once: no review
  *    gate. Correction is organic — when newer decisions arrive for a scope,
@@ -54,9 +57,7 @@ import type { Tedi } from "@tedix/db/schema/tedis";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import {
 	listLearningImprovementProposals,
-	listLearningInteractionsForIssuePrefix,
 	listLearningInteractionsForReflection,
-	listLearningIssueKeysForReflection,
 	proposeLearningImprovement,
 	recordLearningInteraction,
 	summarizeRecurringLearningIssues,
@@ -88,7 +89,6 @@ import {
 	mergeBrainWriteMetadata,
 } from "./brain-write-quality";
 import { type ClefModelId, type ClefQuestion, runClef } from "../lib/clef";
-import { consolidatePersonalLessons } from "./lesson-consolidation";
 import { DISTILL_VERSION, type LessonDistiller } from "./lesson-distiller";
 
 export const LEARNING_FEED_PRODUCER = "learning-feed";
@@ -117,14 +117,6 @@ const DECISION_SURFACES = [
 	DECISION_CAPTURE_LEARNING_SURFACE,
 	AGENT_SESSION_IMPORT_LEARNING_SURFACE,
 ];
-/**
- * Historic imports may span years, so they are walked one repository at a
- * time (its newest events), instead of by the 30-day window. Already-learned
- * repositories are skipped cheaply, so a large backlog drains over runs
- * within MAX_FACTS_PER_RUN.
- */
-const HISTORIC_SCOPES_PER_RUN = 500;
-const HISTORIC_EVENTS_PER_REPO = 1000;
 const OPEN_PROPOSAL_STATUSES = new Set([
 	"proposed",
 	"evaluating",
@@ -824,45 +816,6 @@ async function proposeMistakeDirectives(
 }
 
 /**
- * Imported historic session decisions, one scope at a time. Each scope reads
- * its newest events from both decision surfaces, so a lesson the live pass
- * wrote for the same scope is a subset and the two passes settle instead of
- * superseding each other every night.
- */
-async function mineHistoricImports(
-	db: DbClient,
-	orgId: string,
-	result: LearningFeedResult,
-	route: LessonRouter | undefined,
-	distill?: LessonDistiller,
-): Promise<void> {
-	const issueKeys = await listLearningIssueKeysForReflection(db, {
-		organizationId: orgId,
-		surface: AGENT_SESSION_IMPORT_LEARNING_SURFACE,
-		limit: HISTORIC_SCOPES_PER_RUN,
-	});
-	// Imports are learned per repository (see scopeOf): `decision:<repo>:...`.
-	const repos = [
-		...new Set(issueKeys.map((key) => key.split(":")[1]).filter(Boolean)),
-	] as string[];
-	for (const repo of repos) {
-		if (result.factsWritten >= MAX_FACTS_PER_RUN) {
-			result.budgetHit = true;
-			return;
-		}
-		const events = (
-			await listLearningInteractionsForIssuePrefix(db, {
-				organizationId: orgId,
-				issuePrefix: `decision:${repo}:`,
-				surfaces: [AGENT_SESSION_IMPORT_LEARNING_SURFACE],
-				limit: HISTORIC_EVENTS_PER_REPO,
-			})
-		).filter((event) => event.organizationId === orgId);
-		result.decisionEventsScanned += events.length;
-		await writeDecisionLessons(db, orgId, events, result, route, distill);
-	}
-}
-/**
  * Called from MemoryReflectionWorkflow step "mine-learning-feed". Each half is
  * fail-soft so a mistake-scan error never drops the decision lessons.
  */
@@ -896,7 +849,9 @@ export async function mineLearningFeed(
 		now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
 	).toISOString();
 	try {
-		// One run, one organization: a row of another never joins a lesson.
+		// One run, one organization: a row of another never joins a lesson. A
+		// person's own decisions are distilled from their whole history by
+		// `lesson-map-reduce.ts`; this pass learns the org-wide ones.
 		const decisions = (
 			await listLearningInteractionsForReflection(db, {
 				organizationId: orgId,
@@ -904,23 +859,13 @@ export async function mineLearningFeed(
 				since,
 				limit: EVENT_SCAN_LIMIT,
 			})
-		).filter((event) => event.organizationId === orgId);
+		).filter(
+			(event) => event.organizationId === orgId && ownerOf(event) === null,
+		);
 		result.decisionEventsScanned = decisions.length;
 		await writeDecisionLessons(db, orgId, decisions, result, route, distill);
 	} catch (error) {
 		console.error("[learning-feed] decision lessons failed:", error);
-	}
-	try {
-		await mineHistoricImports(db, orgId, result, route, distill);
-	} catch (error) {
-		console.error("[learning-feed] historic import lessons failed:", error);
-	}
-	if (distill) {
-		try {
-			await consolidatePersonalLessons(db, orgId);
-		} catch (error) {
-			console.error("[learning-feed] lesson consolidation failed:", error);
-		}
 	}
 	try {
 		await archiveStaleLessons(db, orgId, now, result);
