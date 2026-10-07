@@ -857,10 +857,16 @@ export const previewToolScopesProcedure = authedMcpServerOs.previewToolScopes
 		// aggregated sources included — that is the config the edge resolves
 		// against, so the preview must resolve against the same one.
 		const mcpConfig = readMcpConfig(app);
-		// Omit tools the edge hides for missing capability mappings.
-		const effectiveTools = [...toolsById.values()]
-			.filter((tool) => isScopePreviewToolVisible(tool, mcpConfig))
-			.sort((a, b) => a.toolId.localeCompare(b.toolId));
+		// Tools the edge hides for missing capability mappings are reported by
+		// id, not scoped: they fail closed for every caller until mapped.
+		const effectiveTools: PreviewTool[] = [];
+		const unmappedTools: string[] = [];
+		for (const tool of [...toolsById.values()].sort((a, b) =>
+			a.toolId.localeCompare(b.toolId),
+		)) {
+			if (isScopePreviewToolVisible(tool, mcpConfig)) effectiveTools.push(tool);
+			else unmappedTools.push(tool.toolId);
+		}
 		const toolNames = effectiveTools.map((t) => t.toolId);
 
 		const toolScopes: Record<string, string[]> = {};
@@ -894,6 +900,7 @@ export const previewToolScopesProcedure = authedMcpServerOs.previewToolScopes
 			granularGrouped,
 			toolCount: toolNames.length,
 			complete: preview.skippedSources.length === 0,
+			unmappedTools,
 			scopeSummary,
 			granularScopeSummary,
 			sources: preview.sources,

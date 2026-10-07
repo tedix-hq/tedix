@@ -83,6 +83,8 @@ export const McpServerStatusOutputSchema = z.object({
  * - `sources`: own/aggregated same-zone apps included in the preview
  * - `skippedSources`: external or missing sources that could not be previewed
  * - `complete`: false when skippedSources means the mapping is partial
+ * - `unmappedTools`: tools the edge hides because no capability mapping
+ *   resolves; they fail closed for every caller until mapped
  */
 export const McpServerPreviewToolScopesOutputSchema = z.object({
 	toolScopes: z.record(z.string(), z.array(z.string())),
@@ -91,6 +93,7 @@ export const McpServerPreviewToolScopesOutputSchema = z.object({
 	granularGrouped: z.record(z.string(), z.array(z.string())),
 	toolCount: z.number(),
 	complete: z.boolean(),
+	unmappedTools: z.array(z.string()).optional(),
 	scopeSummary: z.record(z.string(), z.number()),
 	granularScopeSummary: z.record(z.string(), z.number()),
 	sources: z.array(

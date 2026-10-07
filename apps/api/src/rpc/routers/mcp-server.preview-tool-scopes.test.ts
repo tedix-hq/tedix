@@ -339,6 +339,7 @@ describe("aggregate scope preview", () => {
 		expect(result.complete).toBe(true);
 		expect(result.toolCount).toBe(1);
 		expect(Object.keys(result.toolScopes)).toEqual(["cms_site__content_get"]);
+		expect(result.unmappedTools).toEqual(["cms_site__activate_media_usage"]);
 	});
 
 	it("loads nested sources in breadth-first waves and inherits the outer prefix", async () => {
