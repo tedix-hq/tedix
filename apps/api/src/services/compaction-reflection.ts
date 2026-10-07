@@ -1,7 +1,7 @@
 /**
  * Compaction-triggered memory reflection.
  *
- * WHY: reflection was purely TIME-triggered — `runMemoryReflectionAndEnrichment`
+ * WHY: reflection was purely TIME-triggered — `runMemoryReflection`
  * sweeps every org at 4am UTC with `scope: "full"`. That sweep has no idea what
  * was lost. The runtime's session-compaction seam emits ONE canonical
  * `context.compacted` runtime event per real cut into D1 `tedi_runtime_events`.

@@ -15,7 +15,7 @@ import "@orpc/openapi/extensions/route";
  * - No persistence. Request/response research only, same shape as `seo.ts`'s
  *   research procedures before their receipts are read back.
  * - No credit metering. This calls the plain Workers AI binding directly
- *   (the same non-kernel pattern `catalog-enrichment-workflow.ts` uses), not
+ *   (a plain non-kernel call), not
  *   `seo.ts`'s DataForSEO credit-reservation pipeline.
  *
  * Auth: same org-scoped `apps:read` guard as `seo.ts`'s research procedures —

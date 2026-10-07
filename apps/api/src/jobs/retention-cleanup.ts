@@ -210,25 +210,6 @@ export async function runRetentionCleanupCron(
 	// Catalog monitoring is diagnostic. It must never suppress the independent
 	// catalog lifecycle writes or the rationale/TTL/steward work below.
 	try {
-		const { getCatalogEnrichmentHealth } =
-			await import("@tedix/db/queries/catalog/scheduled-maintenance");
-		const enrichmentCheck = await getCatalogEnrichmentHealth(db);
-		console.log(
-			`[Scheduled] Enrichment health: ${enrichmentCheck.needsEnrichment}/${enrichmentCheck.totalMcp} MCP apps need enrichment`,
-		);
-		if (enrichmentCheck.needsEnrichment > 20) {
-			console.warn(
-				`[Scheduled] WARNING: ${enrichmentCheck.needsEnrichment} apps need enrichment — check if enrichment workflow is running`,
-			);
-		}
-	} catch (enrichmentHealthError) {
-		console.warn(
-			"[Scheduled] Catalog enrichment health check failed (non-fatal):",
-			safeExceptionTopology(enrichmentHealthError),
-		);
-	}
-
-	try {
 		const {
 			getStaleUnhealthyAppCount,
 			autoDisableDeadMcpCatalogApps,
@@ -538,7 +519,6 @@ export async function runRetentionCleanupCron(
 				status: "running",
 				source: "claude",
 				details: {
-					enableEnrichment: true,
 					r2Path: "catalog/claude/",
 					trigger: "claude-registry-cron",
 					serverCount,
@@ -550,7 +530,6 @@ export async function runRetentionCleanupCron(
 				params: {
 					syncType: "r2" as const,
 					r2Path: "catalog/claude/",
-					enableEnrichment: true,
 					syncLogId: syncLog.id,
 				},
 			});

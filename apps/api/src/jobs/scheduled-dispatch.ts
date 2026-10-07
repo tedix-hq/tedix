@@ -44,7 +44,7 @@ async function trackPlatformCronPath(
  *   (9am UTC)
  * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance
  * - 0 3 * * * (3am UTC) → Retention cleanup, catalog integrity, Claude registry
- * - 0 4 * * * (4am UTC) → Memory reflection (confidence decay, archive, edge discovery) + Catalog enrichment
+ * - 0 4 * * * (4am UTC) → Memory reflection (confidence decay, archive, edge discovery)
  * - 0 6 * * * (6am UTC) → Tool testing and quality scores
  * - 0 7 * * * (7am UTC) → Content Sync
  * - Every 6h (0,6,12,18 UTC) → Tedi MCP access-health workflow (repair enabled)
@@ -250,13 +250,12 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		if (fleetEnabled && cron === "0 4 * * *") {
-			const { runMemoryReflectionAndEnrichment } =
-				await import("./memory-reflection");
+			const { runMemoryReflection } = await import("./memory-reflection");
 			await trackPlatformCronPath(
 				env,
 				event,
 				"memory-reflection-and-enrichment",
-				() => runMemoryReflectionAndEnrichment(env, runId),
+				() => runMemoryReflection(env, runId),
 			);
 		}
 

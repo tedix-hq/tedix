@@ -18,9 +18,8 @@
  *   (`runSeoResearch`: atomic reservation → provider call → settle/release)
  *   is deliberately NOT reused or copied here — wiring a new paid-inference
  *   product-metering surface is separate, riskier work than this task's
- *   scope. This procedure calls the plain Workers AI binding directly, the
- *   same non-kernel pattern `workflows/catalog-enrichment-workflow.ts` uses
- *   (`this.env.AI.run(...)`, no billing reservation) — already-provisioned
+ *   scope. This procedure calls the plain Workers AI binding directly
+ *   (`env.AI.run(...)`, no billing reservation) — already-provisioned
  *   Worker capacity, not a new spend surface.
  *
  * Auth model: org-scoped `apps:read` — same guard as `seo.ts`'s research

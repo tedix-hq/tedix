@@ -854,11 +854,10 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 
 export const syncClaudeRegistryCatalog = fleetCatalogOs.syncClaudeRegistry
 	.use(AUTHZ.catalogWrite)
-	.handler(async ({ input, context }) => {
+	.handler(async ({ context }) => {
 		requireCatalogOperatorAccess(context);
 		const { db, env } = context;
-		const { enableEnrichment } = input;
-		return runClaudeRegistrySync(db, env, enableEnrichment);
+		return runClaudeRegistrySync(db, env);
 	});
 
 // =============================================================================

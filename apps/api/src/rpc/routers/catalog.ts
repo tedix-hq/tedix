@@ -49,7 +49,6 @@ import {
 import {
 	installFromCatalogProcedure,
 	setScanConnectionCatalog,
-	triggerEnrichCatalog,
 	triggerScanCatalog,
 } from "./catalog/tenant-install";
 export { calculateCatalogInstallability } from "./catalog/policy-quality";
@@ -69,7 +68,6 @@ export { installFromCatalogProcedure } from "./catalog/tenant-install";
 export { listCatalog } from "./catalog/discovery-sync";
 export { setScanConnectionCatalog } from "./catalog/tenant-install";
 export { syncClaudeRegistryCatalog } from "./catalog/source-administration";
-export { triggerEnrichCatalog } from "./catalog/tenant-install";
 export { triggerScanCatalog } from "./catalog/tenant-install";
 export { triggerSyncCatalog } from "./catalog/discovery-sync";
 export { triggerToolTestCatalog } from "./catalog/quality-governance";
@@ -93,7 +91,6 @@ export const catalogContractRouter = catalogOs.router({
 	syncClaudeRegistry: syncClaudeRegistryCatalog,
 	setScanConnection: setScanConnectionCatalog,
 	triggerScan: triggerScanCatalog,
-	triggerEnrich: triggerEnrichCatalog,
 	// Install from catalog
 	installFromCatalog: installFromCatalogProcedure,
 	createTenantOpenApiMcpApp: createTenantOpenApiMcpAppProcedure,

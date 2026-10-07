@@ -189,14 +189,6 @@ export const STATIC_WORKFLOW_DEFINITIONS: readonly StaticWorkflowDefinition[] =
 			triggers: ["cron", "operator"],
 		}),
 		staticWorkflowDefinition({
-			workflowType: "catalog_enrichment",
-			title: "Catalog enrichment",
-			description: "Repairs and enriches catalog assets and metadata.",
-			binding: "CATALOG_ENRICHMENT_WORKFLOW",
-			entrypoint: "CatalogEnrichmentWorkflow",
-			triggers: ["cron", "operator"],
-		}),
-		staticWorkflowDefinition({
 			workflowType: "mcp_scan",
 			title: "MCP scan",
 			description: "Scans MCP endpoint health and schemas.",

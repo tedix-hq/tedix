@@ -2,10 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
-import {
-	getCatalogEnrichmentHealth,
-	listEnabledCatalogAppsForVectorSync,
-} from "./scheduled-maintenance";
+import { listEnabledCatalogAppsForVectorSync } from "./scheduled-maintenance";
 
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -35,38 +32,6 @@ function realDb() {
 	`);
 	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
 }
-
-describe("getCatalogEnrichmentHealth", () => {
-	it("reads enrichment state from rich_content instead of the removed enriched_at column", async () => {
-		const { db, sqlite } = realDb();
-		const insert = sqlite.prepare(
-			"INSERT INTO app_catalog (id, connector_type, is_discoverable, rich_content) VALUES (?, ?, ?, ?)",
-		);
-		insert.run("mcp-never", "MCP", 1, null);
-		insert.run("mcp-missing-field", "MCP", 1, "{}");
-		insert.run(
-			"mcp-enriched",
-			"MCP",
-			1,
-			JSON.stringify({ enrichedAt: "2026-08-01T00:00:00.000Z" }),
-		);
-		insert.run("mcp-hidden", "MCP", 0, null);
-		insert.run("rest-never", "REST", 1, null);
-
-		await expect(getCatalogEnrichmentHealth(db)).resolves.toEqual({
-			needsEnrichment: 2,
-			totalMcp: 3,
-		});
-	});
-
-	it("returns zeroes for an empty catalog", async () => {
-		const { db } = realDb();
-		await expect(getCatalogEnrichmentHealth(db)).resolves.toEqual({
-			needsEnrichment: 0,
-			totalMcp: 0,
-		});
-	});
-});
 
 describe("listEnabledCatalogAppsForVectorSync", () => {
 	it("returns deterministic bounded pages and excludes disabled apps", async () => {

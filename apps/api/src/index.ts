@@ -160,12 +160,6 @@ export class CatalogDriftWorkflow extends LazyWorkflow {
 		return m.CatalogDriftWorkflow as unknown as WorkflowImplClass;
 	}
 }
-export class CatalogEnrichmentWorkflow extends LazyWorkflow {
-	protected async loadImpl(): Promise<WorkflowImplClass> {
-		const m = await import("./workflows/catalog-enrichment-workflow");
-		return m.CatalogEnrichmentWorkflow as unknown as WorkflowImplClass;
-	}
-}
 export class CatalogIntegrityWorkflow extends LazyWorkflow {
 	protected async loadImpl(): Promise<WorkflowImplClass> {
 		const m = await import("./workflows/catalog-integrity-workflow");

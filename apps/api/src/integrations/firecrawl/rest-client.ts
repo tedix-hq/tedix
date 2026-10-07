@@ -1,13 +1,6 @@
-/** Firecrawl scrape and browser APIs used by catalog enrichment and widget tests. */
+/** Firecrawl browser sandbox API used by widget tests. */
 
 const BASE_URL = "https://api.firecrawl.dev";
-
-export interface FirecrawlClient {
-	scrape(
-		url: string,
-		options?: Record<string, unknown>,
-	): Promise<Record<string, unknown>>;
-}
 
 async function request(
 	apiKey: string,
@@ -96,19 +89,6 @@ export function createFirecrawlBrowserClient(
 					`Firecrawl browser close error ${response.status}: ${text}`,
 				);
 			}
-		},
-	};
-}
-
-/** Create the scrape client used by catalog enrichment. */
-export function createFirecrawlRestClient(apiKey: string): FirecrawlClient {
-	return {
-		async scrape(url, options) {
-			const result = await request(apiKey, "/v1/scrape", { url, ...options });
-			if (result.success && result.data && typeof result.data === "object") {
-				return result.data as Record<string, unknown>;
-			}
-			return result;
 		},
 	};
 }

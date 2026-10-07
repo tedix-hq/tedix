@@ -590,20 +590,13 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 	.handler(async ({ input, context }) => {
 		requireCatalogOperatorAccess(context);
 		const { db, env } = context;
-		const {
-			r2Path,
-			data,
-			enableEnrichment,
-			source,
-			searchOnly = false,
-		} = input;
+		const { r2Path, data, source, searchOnly = false } = input;
 		const syncType = searchOnly ? "full" : input.syncType;
-		if (searchOnly && (source || r2Path || data || enableEnrichment)) {
+		if (searchOnly && (source || r2Path || data)) {
 			return {
 				success: false,
 				syncLogId: "",
-				message:
-					"searchOnly cannot be combined with source, r2Path, data, or enrichment",
+				message: "searchOnly cannot be combined with source, r2Path, or data",
 			};
 		}
 		const syncStartedAt = new Date();
@@ -642,7 +635,7 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 		// Dispatch by source. "claude" reuses the registry sync (no r2Path
 		// needed — fetched live from Claude's public MCP Registry API).
 		if (!searchOnly && source === "claude") {
-			const result = await runClaudeRegistrySync(db, env, enableEnrichment);
+			const result = await runClaudeRegistrySync(db, env);
 			return {
 				success: result.success,
 				syncLogId: result.syncLogId ?? "",
@@ -684,7 +677,6 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 			status: "running",
 			source: detectedSource as typeof detectedSource,
 			details: {
-				enableEnrichment,
 				searchOnly,
 				r2Path: r2Path || null,
 				hasUploadData: !!data,
@@ -701,7 +693,6 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 					syncType,
 					r2Path,
 					data,
-					enableEnrichment,
 					searchOnly,
 					syncLogId: syncLog.id,
 				},

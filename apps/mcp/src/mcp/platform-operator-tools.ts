@@ -498,11 +498,6 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
-		toolId: "trigger_catalog_enrich",
-		endpoint: "catalog/triggerEnrich",
-		kind: "write",
-	},
-	{
 		toolId: "install_catalog_app",
 		endpoint: "catalog/installFromCatalog",
 		kind: "write",

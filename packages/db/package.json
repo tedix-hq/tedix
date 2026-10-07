@@ -142,7 +142,6 @@
 		"./queries/catalog/create-base-app": "./src/queries/catalog/create-base-app.ts",
 		"./queries/catalog/drift-reports": "./src/queries/catalog/drift-reports.ts",
 		"./queries/catalog/endpoint-normalization": "./src/queries/catalog/endpoint-normalization.ts",
-		"./queries/catalog/enrichment": "./src/queries/catalog/enrichment.ts",
 		"./queries/catalog/fork-propagation": "./src/queries/catalog/fork-propagation.ts",
 		"./queries/catalog/get-app": "./src/queries/catalog/get-app.ts",
 		"./queries/catalog/health-history": "./src/queries/catalog/health-history.ts",

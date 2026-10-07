@@ -1,10 +1,10 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
- * 4am UTC per-org memory reflection + catalog enrichment dispatch, extracted
- * verbatim from worker-app.ts's scheduled() handler.
+ * 4am UTC per-org memory reflection dispatch, extracted from worker-app.ts's
+ * scheduled() handler.
  */
 
-export async function runMemoryReflectionAndEnrichment(
+export async function runMemoryReflection(
 	env: CloudflareEnv,
 	runId: string,
 ): Promise<Record<string, number>> {
@@ -27,22 +27,8 @@ export async function runMemoryReflectionAndEnrichment(
 		);
 	}
 
-	// Catalog Enrichment (runs after memory reflection in the 4am slot)
-	console.log(`[Scheduled] Starting CatalogEnrichmentWorkflow (${runId})`);
-	const enrichInstance = await env.CATALOG_ENRICHMENT_WORKFLOW.create({
-		id: `enrich-cron-${runId}`,
-		params: {
-			limit: 10,
-			drainAll: false,
-			mode: "logo-repair",
-			maxChainDepth: 0,
-		},
-	});
-	console.log(
-		`[Scheduled] CatalogEnrichmentWorkflow started: ${enrichInstance.id}`,
-	);
 	return {
 		organizationsDispatched: orgs.length,
-		workflowsDispatched: orgs.length + 1,
+		workflowsDispatched: orgs.length,
 	};
 }

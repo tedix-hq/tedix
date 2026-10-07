@@ -72,12 +72,12 @@ describe("catalog search-only refresh", () => {
 		);
 		return { output, steps };
 	}
-	it("uploads existing records without supplier capture, removals, or enrichment", async () => {
+	it("uploads existing records without supplier capture or removals", async () => {
 		vi.mocked(bulkUpsertCatalogApps).mockResolvedValue({
 			upserted: 1,
 			failed: 0,
 		});
-		const { output, steps } = await refresh();
+		const { output } = await refresh();
 		expect(output).toMatchObject({
 			success: true,
 			appsInserted: 0,
@@ -87,7 +87,6 @@ describe("catalog search-only refresh", () => {
 		});
 		expect(disableOrphanedCatalogApps).not.toHaveBeenCalled();
 		expect(markStoreListingsAsRemoved).not.toHaveBeenCalled();
-		expect(steps).not.toContain("trigger-enrichment");
 	});
 	it("reports failed uploads as an unsuccessful refresh", async () => {
 		vi.mocked(bulkUpsertCatalogApps).mockResolvedValue({
