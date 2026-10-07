@@ -27,6 +27,12 @@ export interface CallerIdentity {
 	externalAgentClientRecordId?: string;
 	externalAgentHarness?: string;
 	externalAgentModel?: string;
+	/**
+	 * Owner-host Agent-Session verified for one Code Mode execution (the `code`
+	 * tool's `agentSessionId`). Human OAuth callers only; never parsed from a
+	 * request header. apps/api re-validates it on every forwarded call.
+	 */
+	ownerHostSessionId?: string;
 	credentialMode?: string;
 	scopes?: string[];
 	skillRunId?: string;

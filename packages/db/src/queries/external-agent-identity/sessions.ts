@@ -54,6 +54,8 @@ export async function openExternalAgentSession(
 		modelId: string;
 		modelVersion: string;
 		identitySource: "native" | "explicit" | "derived";
+		/** Force a session out of corroboration credit (owner-asserted hosts). */
+		creditEligible?: false;
 		metadata?: Record<string, JsonValue>;
 		startedAt: string;
 	},
@@ -116,7 +118,8 @@ export async function openExternalAgentSession(
 	const existing = await findExistingSession();
 	if (existing) return validateExistingSession(existing);
 
-	const creditEligible = input.identitySource !== "derived";
+	const creditEligible =
+		input.identitySource !== "derived" && input.creditEligible !== false;
 	const metadata = input.metadata ?? {};
 	const inserted = (await db.all(sql`
 		INSERT INTO ${externalAgentSessions} (

@@ -695,6 +695,76 @@ describe("Work Item router collaboration ledgers", () => {
 		).rejects.toThrow(/active immutable MCP session/);
 		expect(await client().listCorroborations({ id: created.id })).toEqual([]);
 	});
+	it("treats an owner and their owner-host agent as one party for corroboration", async () => {
+		const insertPrincipal = sqlite.prepare(
+			"INSERT INTO external_agent_principals(id,organization_id,key,display_name,status,credential_binding_type,credential_binding_id,created_by_type,created_by_id,metadata,created_at,updated_at) VALUES (?,?,?,?,'active',?,?,'user','owner-1','{}','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z')",
+		);
+		insertPrincipal.run(
+			"77777777-7777-4777-8777-777777777777",
+			ORG_ID,
+			"owner-host-0123456789ab",
+			"Plugin hosts of owner",
+			"owner_user",
+			"owner-1",
+		);
+		insertPrincipal.run(
+			"88888888-8888-4888-8888-888888888888",
+			ORG_ID,
+			"codex",
+			"Codex",
+			"api_key",
+			"key-other",
+		);
+		const attempt = sqlite.prepare(
+			"INSERT INTO work_attempts(id,work_item_id,org_id,executor_type,executor_id,executor_session_id,runtime_state,attempt_number,started_at,heartbeat_at) VALUES (?,?,?,'external_agent',?,'99999999-9999-4999-8999-999999999999',?,1,'2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z')",
+		);
+		for (const runtimeState of ["running", "succeeded"]) {
+			const created = await client().create({
+				...PURPOSE,
+				title: `Owner-host ${runtimeState}`,
+			});
+			attempt.run(
+				crypto.randomUUID(),
+				created.id,
+				ORG_ID,
+				"77777777-7777-4777-8777-777777777777",
+				runtimeState,
+			);
+			await expect(
+				client("owner").corroborate({
+					id: created.id,
+					evidenceRef: "artifact://self",
+					body: "My own agent did it",
+				}),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			await expect(
+				client("owner").corroborate({
+					id: created.id,
+					evidenceRef: "artifact://self",
+					body: "My own agent got it wrong",
+					stance: "contradicts",
+				}),
+			).resolves.toMatchObject({ principalType: "user" });
+		}
+		const independent = await client().create({
+			...PURPOSE,
+			title: "Another agent's work",
+		});
+		attempt.run(
+			crypto.randomUUID(),
+			independent.id,
+			ORG_ID,
+			"88888888-8888-4888-8888-888888888888",
+			"running",
+		);
+		await expect(
+			client("owner").corroborate({
+				id: independent.id,
+				evidenceRef: "artifact://independent",
+				body: "Reproduced independently",
+			}),
+		).resolves.toMatchObject({ principalType: "user", principalId: "owner-1" });
+	});
 	it("appends authenticated comments and returns them on canonical read", async () => {
 		const created = await client().create({ ...PURPOSE, title: "Discuss" });
 		const comment = await client().addComment({

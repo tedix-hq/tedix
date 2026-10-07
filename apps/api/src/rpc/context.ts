@@ -118,6 +118,13 @@ export interface BaseContext {
 	externalAgentSessionId?: string;
 	externalAgentClientRecordId?: string;
 	/**
+	 * Owner-host Agent-Session the MCP edge attached to a forwarded human user
+	 * call (Code Mode `agentSessionId`). Set only after `withAuth` resolved it as
+	 * an active `owner_user` session of this exact user and organization; Work
+	 * admission re-validates it before attributing anything to it.
+	 */
+	ownerHostSessionId?: string;
+	/**
 	 * Service account authentication (M2M tokens)
 	 * Used for machine-to-machine communication (e.g., MCP -> API internal calls)
 	 * Present when authenticated via service binding

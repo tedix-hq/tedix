@@ -247,6 +247,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"earnedDelegation/getProfile": "platform:admin",
 	"earnedDelegation/proposeDecision": "platform:admin",
 	"earnedDelegation/recordObservation": "platform:admin",
+	"externalAgentIdentity/openOwnerHostSession": "mcp:work.write",
 	"externalAgentIdentity/setPrincipalStatus": "platform:admin",
 	"flywheelHealth/crons": "mcp:tedis.read",
 	"flywheelHealth/decisionEpisodes": "mcp:tedis.read",

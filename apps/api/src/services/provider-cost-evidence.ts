@@ -122,7 +122,7 @@ export async function recordProviderCostEvidence(
 		{ ...context, db },
 		organizationId,
 	);
-	if (!external)
+	if (!external || external.ownerBound)
 		throw new ORPCError("FORBIDDEN", {
 			message: "Verified external agent is required",
 		});

@@ -15,7 +15,9 @@ import { tracing } from "cloudflare:workers";
 import {
 	EXTERNAL_AGENT_SESSION_EXCHANGE_CALLER,
 	EXTERNAL_AGENT_WORKLOAD_EXCHANGE_CALLER,
+	OWNER_HOST_SESSION_HEADER,
 } from "@tedix/api-contract/contracts/external-agent-identity";
+import { resolveOwnerHostSession } from "@tedix/db/queries/external-agent-identity/owner-host-sessions";
 import {
 	decodeTokenUnsafe,
 	isM2MToken,
@@ -513,7 +515,15 @@ async function authenticateForwardedMcpUserJwt(
 	const targetOrg = await measureMiningPhase(context, "auth.organization", () =>
 		resolveForwardedMcpUserOrganization(context),
 	);
-	if (!targetOrg) return;
+	if (!targetOrg) {
+		if (context.headers.get(OWNER_HOST_SESSION_HEADER)) {
+			throw createError(
+				ErrorCodes.UNAUTHORIZED,
+				"An owner-host Agent-Session requires an organization-scoped call",
+			);
+		}
+		return;
+	}
 	if (!context.user.sub) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
@@ -543,6 +553,48 @@ async function authenticateForwardedMcpUserJwt(
 	if (forwardedContext.activeTenantId) {
 		context.user.dct = forwardedContext.activeTenantId;
 	}
+	await bindForwardedOwnerHostSession(context, targetOrg.id, member);
+}
+
+const OWNER_HOST_SESSION_UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * A plugin-only host authenticated as its human owner may name one of that
+ * owner's `owner_user` Agent-Sessions per call. The MCP edge stamps the id on
+ * this trusted hop only; inbound `x-tedix-auth-*` headers are stripped at
+ * public ingress. Fail closed: a named session that is not the caller's own
+ * active owner-host session rejects the whole call instead of silently
+ * degrading to the owner's identity.
+ */
+export async function bindForwardedOwnerHostSession(
+	context: BaseContext,
+	organizationId: string,
+	member: { status?: string | null; userId?: string | null } | undefined,
+): Promise<void> {
+	const sessionId = context.headers.get(OWNER_HOST_SESSION_HEADER)?.trim();
+	if (!sessionId) return;
+	if (!OWNER_HOST_SESSION_UUID_RE.test(sessionId)) {
+		throw createError(
+			ErrorCodes.UNAUTHORIZED,
+			"Malformed owner-host Agent-Session id",
+		);
+	}
+	const userId = member?.status === "active" ? member.userId : null;
+	const resolved = userId
+		? await resolveOwnerHostSession(context.db, {
+				organizationId,
+				userId,
+				sessionId,
+			})
+		: null;
+	if (!resolved) {
+		throw createError(
+			ErrorCodes.UNAUTHORIZED,
+			"agentSessionId is not an active owner-host Agent-Session of this user in this organization",
+		);
+	}
+	context.ownerHostSessionId = resolved.session.id;
 }
 
 /**

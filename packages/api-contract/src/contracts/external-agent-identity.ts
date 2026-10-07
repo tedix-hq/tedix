@@ -5,7 +5,7 @@ import { baseErrors } from "../errors";
 import {
 	ExternalAgentAttributionSchema,
 	ExternalAgentContextualReputationSchema,
-	ExternalAgentCredentialBindingTypeSchema,
+	ExternalAgentGovernedCredentialBindingTypeSchema,
 	ExternalAgentKnowledgeCheckpointSchema,
 	ExternalAgentKnowledgeDispositionSchema,
 	ExternalAgentPrincipalSchema,
@@ -57,6 +57,52 @@ export const ExternalAgentSessionExchangeOutputSchema = z.object({
 	}),
 });
 
+/** Trusted MCP-edge header carrying a per-call owner-host Agent-Session id. */
+export const OWNER_HOST_SESSION_HEADER = "X-Tedix-Auth-Owner-Host-Session-Id";
+
+const OwnerHostHarnessSchema = z
+	.string()
+	.min(1)
+	.max(120)
+	.regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "harness must be a plain token");
+
+export const OpenOwnerHostSessionInputSchema = z
+	.object({
+		harness: OwnerHostHarnessSchema,
+		externalSessionKey: z
+			.string()
+			.min(3)
+			.max(300)
+			.regex(
+				/^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9._:-]+$/,
+				"externalSessionKey must be <harness>:<id>",
+			)
+			.optional()
+			.describe(
+				"Stable host session key in <harness>:<id> form. Omit to mint a fresh session; reuse it only with the identical harness/model tuple.",
+			),
+		harnessVersion: z.string().min(1).max(120),
+		modelProvider: z.string().min(1).max(120),
+		modelId: z.string().min(1).max(200),
+		modelVersion: z.string().min(1).max(200),
+	})
+	.strict();
+
+export const OwnerHostSessionPrincipalSchema =
+	ExternalAgentPrincipalSchema.pick({ id: true, key: true, displayName: true });
+
+export const OpenOwnerHostSessionOutputSchema = z.object({
+	session: ExternalAgentSessionSchema,
+	principal: OwnerHostSessionPrincipalSchema,
+});
+
+export type OpenOwnerHostSessionInput = z.infer<
+	typeof OpenOwnerHostSessionInputSchema
+>;
+export type OpenOwnerHostSessionOutput = z.infer<
+	typeof OpenOwnerHostSessionOutputSchema
+>;
+
 export type ExternalAgentSessionExchangeInput = z.infer<
 	typeof ExternalAgentSessionExchangeInputSchema
 >;
@@ -80,7 +126,8 @@ export const externalAgentIdentityContract = oc
 					organizationId: OrganizationIdSchema,
 					key: z.string().min(1).max(120),
 					displayName: z.string().min(1).max(200),
-					credentialBindingType: ExternalAgentCredentialBindingTypeSchema,
+					credentialBindingType:
+						ExternalAgentGovernedCredentialBindingTypeSchema,
 					credentialBindingId: z.string().min(1).max(200),
 					metadata: JsonRecordSchema.optional(),
 				}),
@@ -125,6 +172,29 @@ export const externalAgentIdentityContract = oc
 				}),
 			)
 			.output(ExternalAgentSessionSchema),
+
+		openOwnerHostSession: oc
+			.route({
+				method: "POST",
+				path: "/owner-host-sessions",
+				summary:
+					"Start an owner-bound Agent-Session for the calling plugin host",
+				description:
+					"For MCP-only hosts that authenticate as their human owner. The caller's own owner_user principal in the current organization is created on first use; the session is owner-asserted, never credit eligible, and never counts as independent review. Pass the returned session id as the Code Mode agentSessionId argument so Work admission attributes those calls to this session. No credential is issued.",
+				successStatus: 201,
+			})
+			.input(OpenOwnerHostSessionInputSchema)
+			.output(OpenOwnerHostSessionOutputSchema),
+
+		resolveOwnerHostSession: oc
+			.route({
+				method: "POST",
+				path: "/internal/owner-host-session",
+				summary:
+					"Resolve the caller's active owner-host Agent-Session for a trusted edge",
+			})
+			.input(z.object({ sessionId: z.uuid() }).strict())
+			.output(OpenOwnerHostSessionOutputSchema),
 
 		authorizeWorkloadSession: oc
 			.route({

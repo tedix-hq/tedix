@@ -76,6 +76,29 @@ describe("platform control-plane tool scopes", () => {
 	});
 });
 
+describe("owner-host session start scope", () => {
+	it("keeps Work write authority under an organization aggregate alias", () => {
+		const tool = {
+			toolId: "example_org__start_external_agent_session_for_host",
+			toolTypeId: "rpc",
+			authRequired: true,
+			config: {
+				endpoint: "externalAgentIdentity/openOwnerHostSession",
+				_aggregateNamespace: "example_org",
+			},
+			annotations: { readOnlyHint: false, destructiveHint: false },
+		};
+		expect(
+			resolveMcpToolRequiredScopes(
+				tool,
+				"example_org",
+				{ authMode: "authenticated" },
+				{ fallbackOnAuthenticatedAuthMode: true },
+			),
+		).toEqual(["mcp:work.write"]);
+	});
+});
+
 describe("external-agent self lifecycle scopes", () => {
 	const bindings = [
 		["end_external_agent_session", "externalAgentIdentity/endSession"],
@@ -86,6 +109,10 @@ describe("external-agent self lifecycle scopes", () => {
 		[
 			"record_external_agent_knowledge_disposition",
 			"externalAgentIdentity/recordKnowledgeDisposition",
+		],
+		[
+			"start_external_agent_session_for_host",
+			"externalAgentIdentity/openOwnerHostSession",
 		],
 	] as const;
 	it.each(bindings)(

@@ -185,6 +185,8 @@ export async function executeTool(
 		resultStrategy: ResultStrategy;
 		executionId?: string;
 		clientSupportsTasks?: boolean;
+		/** Verified owner-host Agent-Session for this Code Mode execution. */
+		ownerHostSessionId?: string;
 	},
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
@@ -193,6 +195,15 @@ export async function executeTool(
 	/** MCP convention — set on handler-thrown errors and upstream status >= 400. */
 	isError?: boolean;
 }> {
+	if (options.ownerHostSessionId && agent.callerIdentity) {
+		agent = {
+			...agent,
+			callerIdentity: {
+				...agent.callerIdentity,
+				ownerHostSessionId: options.ownerHostSessionId,
+			},
+		};
+	}
 	const toolTypeId = tool.toolTypeId;
 	const toolConfig = tool.config;
 	if (

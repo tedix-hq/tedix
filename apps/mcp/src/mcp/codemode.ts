@@ -128,6 +128,10 @@ import type { AppTool, ServerContext } from "./server-context";
 import { resolveToolRequestMeta } from "./tool-registration";
 import { executeTool } from "./tool-execution";
 import {
+	OwnerHostSessionError,
+	resolveCodeModeOwnerHostSession,
+} from "./owner-host-session";
+import {
 	enforceToolRiskRateLimit,
 	toolRiskAuditMetadata,
 } from "./tool-risk-policy";
@@ -1035,6 +1039,8 @@ interface CodeModeExecutionRefs {
 	skillWorkflowRunIds: Set<string>;
 	readObservations: OwnedReadObservation[];
 	collectionReads: OwnedConnectedCollectionRead[];
+	/** Verified owner-host Agent-Session for the current execution only. */
+	ownerHostSessionId: string | undefined;
 }
 
 export function collectCodeModeReadObservation(input: {
@@ -1756,6 +1762,7 @@ function buildNamespaceGroups(
 						adapterScope,
 						resultStrategy,
 						executionId: executionRefs.executionId,
+						ownerHostSessionId: executionRefs.ownerHostSessionId,
 					});
 					if (result.isError) {
 						rpcSuccess = false;
@@ -5534,6 +5541,7 @@ export async function registerCodeModeTools(
 		skillWorkflowRunIds: new Set(),
 		readObservations: [],
 		collectionReads: [],
+		ownerHostSessionId: undefined,
 	};
 
 	const collisionOwners = codeModeCollisionOwners(
@@ -5753,9 +5761,15 @@ export async function registerCodeModeTools(
 					.describe(
 						'Optional x402 payment proof for paid inner tools. Accepts an encoded facilitator payment string or an object proof and forwards it as _meta["x402/payment"] for clients that cannot set MCP request _meta directly.',
 					),
+				agentSessionId: z
+					.uuid()
+					.optional()
+					.describe(
+						"Optional owner-host Agent-Session id (session.id from start_external_agent_session_for_host). When the caller is a signed-in human, Tedix calls in this run act as that Agent-Session for Work admission; an invalid id fails the call. Ignored for machine credentials.",
+					),
 			}),
 		},
-		async ({ code, payment }, ctx?: McpCtx) => {
+		async ({ code, payment, agentSessionId }, ctx?: McpCtx) => {
 			const extra = {
 				_meta: resolveToolRequestMeta(
 					ctx?.mcpReq?._meta,
@@ -5903,6 +5917,30 @@ export async function registerCodeModeTools(
 			};
 
 			try {
+				executionRefs.ownerHostSessionId = undefined;
+				try {
+					executionRefs.ownerHostSessionId =
+						await resolveCodeModeOwnerHostSession({
+							agentSessionId,
+							caller: serverCtx.callerIdentity,
+							bearerToken: serverCtx.bearerToken,
+							env: serverCtx.env,
+							appOrganizationId: organizationId,
+						});
+				} catch (error) {
+					const message =
+						error instanceof OwnerHostSessionError
+							? error.message
+							: "agentSessionId could not be verified";
+					emitExecTelemetry(false, message);
+					return {
+						content: [
+							{ type: "text" as const, text: `Execution error: ${message}` },
+						],
+						isError: true,
+						structuredContent: { executionId, error: message },
+					};
+				}
 				executionRefs.authorizationDenial = undefined;
 				executionRefs.replayUnsafeBuiltinCalls = 0;
 				executionRefs.executionId = executionId;
@@ -6112,6 +6150,7 @@ export async function registerCodeModeTools(
 					executionRefs.collectionReads,
 				);
 			} finally {
+				executionRefs.ownerHostSessionId = undefined;
 				executionRefs.authorizationDenial = undefined;
 				executionRefs.replayUnsafeBuiltinCalls = 0;
 				executionRefs.executionId = undefined;

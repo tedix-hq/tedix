@@ -46,6 +46,10 @@ import {
 } from "@tedix/db/queries/external-agent-identity/mcp-credentials";
 import { recordVerifiedExternalAgentMcpExecution } from "@tedix/db/queries/external-agent-identity/mcp-executions";
 import {
+	getOwnerUserExternalAgentPrincipal,
+	OWNER_USER_BINDING_TYPE,
+} from "@tedix/db/queries/external-agent-identity/owner-host-sessions";
+import {
 	createExternalAgentPrincipal,
 	ExternalAgentIdentityError,
 	getExternalAgentPrincipal,
@@ -78,6 +82,13 @@ import {
 	governanceAuthorityActor,
 	hasEarnedDelegationGovernanceAuthority,
 } from "./earned-delegation-access";
+import {
+	resolveCallerOwnerHostSession,
+	verifiedActiveUserMembership,
+} from "./work-items-principal";
+
+/** Reserved: only openOwnerHostSession mints principals with this key prefix. */
+const OWNER_HOST_PRINCIPAL_KEY_PREFIX = "owner-host-";
 
 const identityOs = implement(
 	externalAgentIdentityContract,
@@ -351,6 +362,12 @@ const createPrincipal = authed.createPrincipal.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrganization(context, input.organizationId);
 		const actor = requireGovernance(context);
+		if (input.key.toLowerCase().startsWith(OWNER_HOST_PRINCIPAL_KEY_PREFIX)) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`Principal keys starting with "${OWNER_HOST_PRINCIPAL_KEY_PREFIX}" are reserved for owner-host sessions`,
+			);
+		}
 		if (input.credentialBindingType === "api_key") {
 			const apiKey = await getApiKeyById(context.db, input.credentialBindingId);
 			if (
@@ -434,6 +451,160 @@ const openSession = authed.openSession.handler(async ({ input, context }) => {
 		rethrowIdentityError(error);
 	}
 });
+
+function requireHumanUser(context: BaseContext): void {
+	if (
+		context.authType !== "user" ||
+		typeof context.user?.sub !== "string" ||
+		context.tediId ||
+		context.externalAgentPrincipalId
+	) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Owner-host Agent-Sessions require an authenticated human user",
+		);
+	}
+}
+
+async function ownerHostPrincipalKey(userId: string): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(userId),
+	);
+	const hex = [...new Uint8Array(digest)]
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+	return `${OWNER_HOST_PRINCIPAL_KEY_PREFIX}${hex.slice(0, 12)}`;
+}
+
+function ownerHostDisplayName(context: BaseContext): string {
+	const claims = (context.user ?? {}) as Record<string, unknown>;
+	const name = typeof claims.name === "string" ? claims.name.trim() : "";
+	const email = typeof claims.email === "string" ? claims.email.trim() : "";
+	const label = name || email.split("@")[0]?.trim() || "their owner";
+	return `Plugin hosts of ${label}`.slice(0, 200);
+}
+
+/**
+ * Get or create the caller's single owner_user principal. The binding is the
+ * canonical user id from verified active membership; organization comes only
+ * from authenticated context. A suspended or retired principal stays so.
+ */
+async function ensureOwnerHostPrincipal(
+	context: BaseContext,
+	organizationId: string,
+	userId: string,
+) {
+	const existing = await getOwnerUserExternalAgentPrincipal(context.db, {
+		organizationId,
+		userId,
+	});
+	let principal = existing;
+	if (!principal) {
+		try {
+			principal = await createExternalAgentPrincipal(context.db, {
+				id: crypto.randomUUID(),
+				organizationId,
+				key: await ownerHostPrincipalKey(userId),
+				displayName: ownerHostDisplayName(context),
+				credentialBindingType: OWNER_USER_BINDING_TYPE,
+				credentialBindingId: userId,
+				createdByType: "user",
+				createdById: userId,
+				metadata: { ownerBound: true, source: "mcp-plugin" },
+				createdAt: new Date().toISOString(),
+			});
+		} catch (error) {
+			rethrowIdentityError(error);
+		}
+	}
+	if (principal.status !== "active") {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			`Owner-host principal is ${principal.status}`,
+		);
+	}
+	return principal;
+}
+
+const openOwnerHostSession = authed.openOwnerHostSession.handler(
+	async ({ input, context }) => {
+		requireHumanUser(context);
+		const organizationId = requireOrganization(context);
+		const membership = await verifiedActiveUserMembership(
+			context,
+			organizationId,
+			"active owner-host",
+		);
+		const externalSessionKey =
+			input.externalSessionKey ?? `${input.harness}:${crypto.randomUUID()}`;
+		if (!externalSessionKey.startsWith(`${input.harness}:`)) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"externalSessionKey must be <harness>:<id> for the supplied harness",
+			);
+		}
+		const principal = await ensureOwnerHostPrincipal(
+			context,
+			organizationId,
+			membership.userId,
+		);
+		let session: Awaited<ReturnType<typeof openExternalAgentSession>>;
+		try {
+			session = await openExternalAgentSession(context.db, {
+				id: crypto.randomUUID(),
+				organizationId,
+				principalId: principal.id,
+				externalSessionKey,
+				harness: input.harness,
+				harnessVersion: input.harnessVersion,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+				modelVersion: input.modelVersion,
+				identitySource: "explicit",
+				creditEligible: false,
+				metadata: { ownerBound: true, source: "mcp-plugin" },
+				startedAt: new Date().toISOString(),
+			});
+		} catch (error) {
+			rethrowIdentityError(error);
+		}
+		if (session.creditEligible) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Owner-host Agent-Session unexpectedly carries corroboration credit",
+			);
+		}
+		return {
+			session,
+			principal: {
+				id: principal.id,
+				key: principal.key,
+				displayName: principal.displayName,
+			},
+		};
+	},
+);
+
+const resolveOwnerHostSession = authed.resolveOwnerHostSession.handler(
+	async ({ input, context }) => {
+		requireHumanUser(context);
+		const organizationId = requireOrganization(context);
+		const { principal, session } = await resolveCallerOwnerHostSession(
+			context,
+			organizationId,
+			input.sessionId,
+		);
+		return {
+			session,
+			principal: {
+				id: principal.id,
+				key: principal.key,
+				displayName: principal.displayName,
+			},
+		};
+	},
+);
 
 const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 	async ({ input, context }) => {
@@ -1354,6 +1525,8 @@ export const externalAgentIdentityContractRouter = identityOs.router({
 	createPrincipal,
 	setPrincipalStatus,
 	openSession,
+	openOwnerHostSession,
+	resolveOwnerHostSession,
 	authorizeWorkloadSession,
 	heartbeatSession,
 	recordKnowledgeCheckpoint,

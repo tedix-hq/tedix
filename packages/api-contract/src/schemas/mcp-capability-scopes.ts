@@ -328,6 +328,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// External-agent principal creation is governed Work administration rather
 	// than platform scope.
 	create_external_agent_principal: "mcp:work",
+	// A plugin host starting its owner's own Agent-Session is Work lifecycle.
+	start_external_agent_session_for_host: "mcp:work",
 	// Removing an org-scoped tedi-to-app grant is ordinary worker capability
 	// management. The API revalidates ownership of both records before revoking
 	// FGA/AIH state; this generated procedure name does not begin with `tedi_`,
@@ -612,6 +614,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	heartbeat_work_attempt: "write",
 	record_external_agent_knowledge_checkpoint: "write",
 	record_external_agent_knowledge_disposition: "write",
+	start_external_agent_session_for_host: "write",
 	retry_delegation: "write",
 	synthesize_spoken_reply: "write",
 	work_item_comment: "write",

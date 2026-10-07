@@ -9,6 +9,15 @@ export const ExternalAgentPrincipalStatusSchema = z.enum([
 export const ExternalAgentCredentialBindingTypeSchema = z.enum([
 	"api_key",
 	"github_actions_oidc",
+	// Owner-asserted plugin-host identity: bound to the canonical user id of the
+	// human whose OAuth session the host uses. Only openOwnerHostSession creates
+	// these principals, and their sessions are never credit eligible.
+	"owner_user",
+]);
+/** Binding types an owner/admin may create directly through createPrincipal. */
+export const ExternalAgentGovernedCredentialBindingTypeSchema = z.enum([
+	"api_key",
+	"github_actions_oidc",
 ]);
 export const ExternalAgentIdentitySourceSchema = z.enum([
 	"native",
