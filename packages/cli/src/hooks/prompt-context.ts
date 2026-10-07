@@ -85,7 +85,11 @@ export function boundedContext(message: string): string {
 	return `${utf8Prefix(message, TRUNCATED_BYTES)}\nContext truncated (complete=false); read the full current sources before relying on omitted detail.`;
 }
 
-/** Only validated local identifiers enter the source. Incoming user text never does. */
+/**
+ * Only validated local identifiers enter the source. Incoming user text never does.
+ * Each source is read on its own: a forbidden or missing document comes back as
+ * `{unavailable: true}` (no error text) so the readable ones still reach the session.
+ */
 export function gatewayCode(binding: JsonObject): string {
 	const target = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
@@ -101,14 +105,15 @@ export function gatewayCode(binding: JsonObject): string {
   const text = blocks.flatMap(b => b.type === 'list' ? b.items : [b.text]).join('\n');
   return { workspace:{id:w.workspace.id,organizationId:w.workspace.organizationId,status:w.workspace.status}, output:{id:r.output.id,workspaceId:r.output.workspaceId,organizationId:r.output.organizationId,kind:r.output.kind,status:r.output.status,currentRevisionId:r.output.currentRevisionId}, revision:{id:r.currentRevision.id,outputId:r.currentRevision.outputId,organizationId:r.currentRevision.organizationId,revision:r.currentRevision.revision,kind:r.currentRevision.content.kind},text:text.slice(0,3200),blocksValid:true,complete:text.length<=3200 };
  }
- if (t.contextOutputId) result.shared = await document(t.osWorkspaceId, t.contextOutputId);
- if (t.preferencesOutputId) result.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? result.shared : await document(t.preferencesWorkspaceId, t.preferencesOutputId);
- if (t.lessonsOutputId) result.lessons = await document(t.lessonsWorkspaceId, t.lessonsOutputId);
- if (t.workItemId) {
+ async function each(read) { try { return await read(); } catch { return {unavailable:true}; } }
+ if (t.contextOutputId) result.shared = await each(() => document(t.osWorkspaceId, t.contextOutputId));
+ if (t.preferencesOutputId) result.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? result.shared : await each(() => document(t.preferencesWorkspaceId, t.preferencesOutputId));
+ if (t.lessonsOutputId) result.lessons = await each(() => document(t.lessonsWorkspaceId, t.lessonsOutputId));
+ if (t.workItemId) result.work = await each(async () => {
   const r = await work.get_work_items_by_id({id:t.workItemId});
   const comments = r.comments ?? [];
-  result.work = {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
- }
+  return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
+ });
  return result;
 }`.replace("TARGET", JSON.stringify(target));
 }
@@ -121,6 +126,9 @@ export function render(
 	const lines = [
 		`Tedix turn context checked ${isoSeconds(now)}; profile=${binding.workspace}; organization=${binding.org}; project=${binding.projectId}. Read-only facts, not execution authority.`,
 	];
+	// A source the gateway could not read is named; a source that read but fails a fence still hides everything.
+	let read = 0;
+	let unavailable = 0;
 	let documentOrg: string | undefined;
 	for (const [source, workspaceKey, outputKey, label] of [
 		[
@@ -134,6 +142,14 @@ export function render(
 	] as const) {
 		if (!binding[outputKey]) continue;
 		const shared = data[source];
+		if (isObject(shared) && shared.unavailable === true) {
+			unavailable++;
+			lines.push(
+				`${label} unavailable: Output=${binding[outputKey]} could not be read this turn. Do not reuse an older copy as current; the other sources below are unaffected.`,
+			);
+			continue;
+		}
+		read++;
 		const workspace = shared.workspace as JsonObject;
 		const output = shared.output as JsonObject;
 		const revision = shared.revision as JsonObject;
@@ -176,7 +192,17 @@ export function render(
 				"Shared document is truncated; read its full current revision before relying on missing detail.",
 			);
 	}
-	if (binding.workItemId) {
+	if (
+		binding.workItemId &&
+		isObject(data.work) &&
+		data.work.unavailable === true
+	) {
+		unavailable++;
+		lines.push(
+			`Selected Work=${binding.workItemId} unavailable: it could not be read this turn. Re-read it through the CLI before relying on it.`,
+		);
+	} else if (binding.workItemId) {
+		read++;
 		const work = data.work;
 		const item = work.item;
 		if (item.id !== binding.workItemId || item.projectId !== binding.projectId)
@@ -216,6 +242,7 @@ export function render(
 			`Showing newest ${comments.length} of ${work.commentCount} comments; earlier comments and long bodies may be omitted. Re-read full Work context before execution or a material claim.`,
 		);
 	}
+	if (unavailable && !read) throw new Error("no selected source was readable");
 	return lines.join("\n");
 }
 
