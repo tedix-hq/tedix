@@ -116,21 +116,6 @@ export const platformRelations = defineRelationsPart(schema, (r) => ({
 	},
 
 	// =========================================================================
-	// WIDGET TEST RUNS
-	// =========================================================================
-
-	widgetTestRuns: {
-		app: r.one.apps({
-			from: r.widgetTestRuns.appId,
-			to: r.apps.id,
-		}),
-		organization: r.one.organizations({
-			from: r.widgetTestRuns.organizationId,
-			to: r.organizations.id,
-		}),
-	},
-
-	// =========================================================================
 	// TEMPLATES
 	// =========================================================================
 

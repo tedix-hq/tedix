@@ -80,14 +80,6 @@ export const appRelations = defineRelationsPart(schema, (r) => ({
 			from: r.apps.id,
 			to: r.jobs.appId,
 		}),
-		widgetTestRuns: r.many.widgetTestRuns({
-			from: r.apps.id,
-			to: r.widgetTestRuns.appId,
-		}),
-		generatedWidgetArtifacts: r.many.generatedWidgetArtifacts({
-			from: r.apps.id,
-			to: r.generatedWidgetArtifacts.appId,
-		}),
 	},
 
 	appAdapters: {
@@ -127,29 +119,6 @@ export const appRelations = defineRelationsPart(schema, (r) => ({
 		cspDomains: r.many.appToolCspDomains({
 			from: r.appTools.id,
 			to: r.appToolCspDomains.appToolId,
-		}),
-		generatedWidgetArtifacts: r.many.generatedWidgetArtifacts({
-			from: r.appTools.id,
-			to: r.generatedWidgetArtifacts.appToolId,
-		}),
-	},
-
-	generatedWidgetArtifacts: {
-		organization: r.one.organizations({
-			from: r.generatedWidgetArtifacts.organizationId,
-			to: r.organizations.id,
-		}),
-		app: r.one.apps({
-			from: r.generatedWidgetArtifacts.appId,
-			to: r.apps.id,
-		}),
-		tool: r.one.appTools({
-			from: r.generatedWidgetArtifacts.appToolId,
-			to: r.appTools.id,
-		}),
-		widgetTestRun: r.one.widgetTestRuns({
-			from: r.generatedWidgetArtifacts.widgetTestRunId,
-			to: r.widgetTestRuns.id,
 		}),
 	},
 

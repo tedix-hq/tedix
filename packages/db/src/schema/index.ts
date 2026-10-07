@@ -54,11 +54,6 @@ export * from "./os-shares";
 export * from "./os-workspaces";
 export * from "./skill-run-effects";
 export * from "./external-agent-identity";
-export type {
-	GeneratedWidgetArtifact,
-	NewGeneratedWidgetArtifact,
-} from "./generated-widget-artifacts";
-export * from "./generated-widget-artifacts";
 export * from "./graph-projection";
 export * from "./items";
 // Re-export item converter utilities
@@ -248,9 +243,6 @@ export * from "./tedi-objectives";
 // Per-app CMS bundles (apps/cms-runtime serves these via Worker Loader)
 export type { NewTenantBundle, TenantBundle } from "./tenant-bundles";
 export * from "./tenant-bundles";
-// Widget test runs (persisted E2E widget test results)
-export type { NewWidgetTestRun, WidgetTestRun } from "./widget-test-runs";
-export * from "./widget-test-runs";
 // Platform workflow run ledger
 export * from "./workflow-runs";
 

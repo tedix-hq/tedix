@@ -1500,13 +1500,6 @@
 		},
 		{
 			"kind": "table",
-			"sourcePath": "packages/db/src/schema/generated-widget-artifacts.ts",
-			"identifier": "generated_widget_artifacts",
-			"category": "tenant-product",
-			"rationale": "Generated widget artifacts are tenant app authoring state."
-		},
-		{
-			"kind": "table",
 			"sourcePath": "packages/db/src/schema/graph-projection.ts",
 			"identifier": "graph_projection_consumers",
 			"category": "tenant-product",
@@ -2267,13 +2260,6 @@
 			"identifier": "users",
 			"category": "tenant-product",
 			"rationale": "User identity projection is core tenant product state."
-		},
-		{
-			"kind": "table",
-			"sourcePath": "packages/db/src/schema/widget-test-runs.ts",
-			"identifier": "widget_test_runs",
-			"category": "fleet-commercial",
-			"rationale": "Widget certification evidence supports platform catalog quality and promotion."
 		},
 		{
 			"kind": "table",

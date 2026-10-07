@@ -792,6 +792,10 @@
 		{
 			"name": "20261007112224_provider_cost_evidence/migration.sql",
 			"sha256": "ed4d3c4328abdf41d97b4cf9d4ad123c19f2f226278bd8c5da26990cad00bcde"
+		},
+		{
+			"name": "20261007180037_drop-retired-widget-test-tables/migration.sql",
+			"sha256": "4725b785bb00b8cab8cc6fb7532a654c56c6182f5585a62dcaad65497bcc8651"
 		}
 	]
 }
