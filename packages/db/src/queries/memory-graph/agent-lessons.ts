@@ -15,7 +15,18 @@
  * it an org-wide lesson, provided no tedi owns it.
  */
 
-import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts } from "../../schema/memory-graph";
@@ -113,6 +124,35 @@ export async function listStaleLearningFeedLessons(
 				isNull(memoryFacts.archivedAt),
 				isNull(memoryFacts.validTo),
 				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.lastEventAt') < ${before}`,
+			),
+		)
+		.limit(limit);
+}
+
+/**
+ * Archived lessons under these exact topic keys. A lesson a person archived
+ * still covers its decisions: the miner must not learn them again.
+ */
+export async function listArchivedLearningFeedLessons(
+	db: DbQueryClient,
+	orgId: string,
+	topicKeys: string[],
+	limit = 50,
+): Promise<StaleLearningFeedLessonRow[]> {
+	if (topicKeys.length === 0) return [];
+	return db
+		.select({
+			id: memoryFacts.id,
+			reviewStatus: memoryFacts.reviewStatus,
+			metadata: memoryFacts.metadata,
+		})
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				// bound-params: capped at 10 keys (callers pass a topic key and its legacy key)
+				inArray(memoryFacts.topicKey, topicKeys.slice(0, 10)),
+				isNotNull(memoryFacts.archivedAt),
 			),
 		)
 		.limit(limit);

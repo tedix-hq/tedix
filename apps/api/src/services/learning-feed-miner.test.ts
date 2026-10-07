@@ -31,6 +31,7 @@ vi.mock("@tedix/db/queries/memory-graph/facts", () => ({
 	updateFact: vi.fn(async () => undefined),
 }));
 vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
+	listArchivedLearningFeedLessons: vi.fn(async () => []),
 	listStaleLearningFeedLessons: vi.fn(async () => []),
 }));
 vi.mock("@tedix/db/queries/tedis", () => ({
@@ -48,7 +49,10 @@ import {
 	proposeLearningImprovement,
 	recordLearningInteraction,
 } from "@tedix/db/queries/learning-feedback";
-import { listStaleLearningFeedLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
+import {
+	listArchivedLearningFeedLessons,
+	listStaleLearningFeedLessons,
+} from "@tedix/db/queries/memory-graph/agent-lessons";
 import { createEdge } from "@tedix/db/queries/memory-graph/edges";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import {
@@ -115,6 +119,7 @@ beforeEach(() => {
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
 	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
 	vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([]);
+	vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([]);
 	vi.mocked(listLearningInteractionsForIssueKey).mockResolvedValue([]);
 	vi.mocked(listLearningImprovementProposals).mockResolvedValue([]);
@@ -557,6 +562,47 @@ describe("mineLearningFeed", () => {
 		const result = await mineLearningFeed(db, { orgId: "org-1" });
 		expect(result.factsWritten).toBe(0);
 		expect(invalidateFact).not.toHaveBeenCalled();
+	});
+
+	it("does not relearn events of a lesson a person archived", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([
+			{
+				id: "fact-archived",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { autoConfirmed: true, evidenceEventIds: ["e1", "e2"] },
+					memoryLifecycle: { lastReview: { archived: true } },
+				},
+			},
+		]);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result.factsWritten).toBe(0);
+	});
+
+	it("relearns events of a lesson the miner archived as stale", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([
+			{
+				id: "fact-stale",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: { autoConfirmed: true, evidenceEventIds: ["e1", "e2"] },
+				},
+			},
+		]);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result.factsWritten).toBe(1);
 	});
 
 	it("archives the miner's lessons with no supporting decision for STALE_DAYS", async () => {

@@ -61,7 +61,10 @@ import {
 	recordLearningInteraction,
 	summarizeRecurringLearningIssues,
 } from "@tedix/db/queries/learning-feedback";
-import { listStaleLearningFeedLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
+import {
+	listArchivedLearningFeedLessons,
+	listStaleLearningFeedLessons,
+} from "@tedix/db/queries/memory-graph/agent-lessons";
 import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import { createEdge } from "@tedix/db/queries/memory-graph/edges";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
@@ -479,8 +482,12 @@ async function writeDecisionLessons(
 			legacyKey === topicKey
 				? []
 				: await findCurrentFactsByTopicKey(db, orgId, legacyKey);
+		// A lesson a person archived is not current, but still covers its events.
+		const archived = await listArchivedLearningFeedLessons(db, orgId, [
+			...new Set([topicKey, legacyKey]),
+		]);
 		const covered = new Set(
-			[...current, ...legacy]
+			[...current, ...legacy, ...archived]
 				.filter((f) => !isReplaceableLesson(f))
 				.flatMap((f) => evidenceIdsOf(f.metadata)),
 		);
