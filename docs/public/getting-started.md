@@ -101,6 +101,35 @@ provider), either as `TEDIX_BUILD_*` environment variables or in the `vars`
 block of `apps/os/wrangler.jsonc`. The build stops and names any missing value.
 See "Build configuration" in `apps/os/README.md`.
 
+## Let your coding agent set it up
+
+A coding agent such as Codex or Claude Code can do the local setup for you.
+Paste this prompt into it:
+
+```text
+Set up Tedix locally from source. Read https://docs.tedix.dev/getting-started
+and the README at https://github.com/tedix-hq/tedix, check that Git, Bun and
+Node.js 22+ are installed, clone the repository, and run `bun run-local`.
+Do not log in to anything or turn on model calls. When Tedix OS is running,
+tell me its URL and stop.
+```
+
+## What to try first
+
+- **Local:** create the **Supplier review** workspace from
+  [A first offline task](#a-first-offline-task), refresh, and check that it is
+  still there.
+- **Local:** run the
+  [supplier-review example](https://github.com/tedix-hq/tedix/tree/main/examples/supplier-review)
+  to import a sample supplier folder as a Workspace document.
+- **Local, with model calls:** ask Home to save a short note as a document and
+  approve the action it proposes.
+- **Cloud:** give a tedi one small task with
+  [Run a digital worker](./learning-paths/first-worker.md) and open its run.
+- **Cloud:** ask Home what is in progress with
+  `tedix ask "Summarize the active work and cite its evidence."`, then run
+  `tedix work --help` to see how to list and create Work Items.
+
 ## Next
 
 - [Connect to Tedix Cloud](./learning-paths/first-connection.md) to use a live

@@ -28,6 +28,16 @@ Tedix Cloud**. They carry your own requests, not telemetry, but a
 self-hosted installation contacts `*.tedix.dev` until you override them. See
 [Default endpoints](#default-endpoints-that-point-at-tedix-cloud).
 
+## Tedix Cloud and plugin hooks
+
+- **Tedix CLI:** sends no analytics, telemetry, or crash reports. It contacts
+  Tedix only for the commands you run.
+- **Tedix Cloud:** as the operator, Tedix keeps normal server logs and the
+  counters in the table below for the requests your organization sends.
+- **Tedix plugin hooks:** each hook sends nothing to Tedix until you opt in to
+  its feature. The [CLI hooks table](./cli.md#set-up-codex-and-claude-code)
+  lists what each one sends and how to turn it off.
+
 ## What is collected, and where it goes
 
 | Source                          | What                                                                | Destination                                 | Default                                                             |

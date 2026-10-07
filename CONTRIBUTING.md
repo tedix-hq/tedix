@@ -2,11 +2,20 @@
 
 Issues, bug reports, and ideas are welcome; questions and open-ended ideas can
 also go to [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions).
-Maintainers write all merged code, which keeps licensing simple without a
-contributor agreement. Pull requests are currently disabled; proposals start
-as issues. You can still fork and modify Tedix under its licenses.
 
 Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Who contributes code
+
+Maintainers write all merged code, which keeps licensing simple without a
+contributor agreement. Code from outside the maintainer team is not merged,
+and pull requests are disabled. You are free to fork and modify Tedix under
+its licenses.
+
+The most useful contribution is a precise issue or Discussion: what you did,
+what you expected, what happened, and the smallest reproduction. When an idea
+is accepted, a maintainer re-authors it and credits you as described in
+[What happens next](#what-happens-next).
 
 ## Report a bug or propose an idea
 
@@ -29,6 +38,9 @@ trailer.
 Maintainer commits also carry `Work-Item:` and `Agent-Session:` trailers that
 identify the task and the agent session behind the change. The ids do not
 resolve publicly, and you never need them.
+
+[RELEASING.md](RELEASING.md) explains when a landed change reaches a CLI or
+plugin release.
 
 ## Working in your own fork
 
