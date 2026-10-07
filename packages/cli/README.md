@@ -37,7 +37,7 @@ and durable answer settlement.
   it, decided by the same local opt-in check (`captureOwnsStop`), so each Stop
   notifies at most once. `capture-reply` adds `metadata.replyClassClef` from
   `tedix work agent-reply-label` (3 s). Quiet draft requests use
-  `tedix work agent-reply-draft-request` (3 s). All three resolve current
+  `tedix work agent-reply-draft-request` (6 s). All three resolve current
   authorized native descriptors; none executes a JavaScript wrapper.
 
 - **MCP Home client** (`home-client.ts`) — `TedixHomeClient` wraps

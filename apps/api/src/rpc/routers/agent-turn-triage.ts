@@ -639,22 +639,27 @@ async function replyDraftDispatchTimes(
 }
 
 /**
- * Start a drafting turn. With a request lifetime to borrow, dispatch it
- * directly (the queue consumer's own dispatch, so the idempotency ledger
- * behaves the same) and fall back to the queue only when that dispatch fails;
- * the queue adds its batch wait and a cold consumer to every draft.
+ * Start a drafting turn whose event is built by `build` (every prompt read).
+ * With a request lifetime to borrow, the build and the dispatch both run
+ * after the response, so a caller with a short budget (the CLI hook) never
+ * cancels the request before the turn is registered; the dispatch is the
+ * queue consumer's own (so the idempotency ledger behaves the same) and the
+ * queue is the fallback when it fails. The queue adds its batch wait and a
+ * cold consumer to every draft.
  */
 async function dispatchReplyDraftTurn(
-	context: BaseContext,
+	context: Pick<BaseContext, "env" | "waitUntil">,
 	queue: Queue,
-	event: AutomationEvent,
+	build: () => Promise<AutomationEvent>,
 ): Promise<void> {
 	const waitUntil = context.waitUntil;
 	if (!waitUntil) {
-		await queue.send(event);
+		await queue.send(await build());
 		return;
 	}
+	let event: AutomationEvent | undefined;
 	const direct = async () => {
+		event = await build();
 		const { handleAutomationEventMessage } =
 			await import("../../jobs/automation-events");
 		const outcome = await handleAutomationEventMessage(context.env, event, {
@@ -666,15 +671,17 @@ async function dispatchReplyDraftTurn(
 		direct().catch(async (error) => {
 			console.warn("reply-draft direct dispatch failed; queueing", {
 				idempotencyKey:
-					event.kind === "tedi_turn" ? event.idempotencyKey : undefined,
+					event?.kind === "tedi_turn" ? event.idempotencyKey : undefined,
 				error: error instanceof Error ? error.message : String(error),
 			});
-			await queue.send(event).catch((sendError) => {
+			try {
+				await queue.send(event ?? (await build()));
+			} catch (sendError) {
 				console.error("reply-draft queue fallback failed", {
 					error:
 						sendError instanceof Error ? sendError.message : String(sendError),
 				});
-			});
+			}
 		}),
 	);
 }
@@ -793,11 +800,23 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				"Automation queue binding is not configured",
 			);
 		}
-		// Every read the prompt needs, plus the attempt state, in one round.
-		const [latestDraft, dispatchedAt, sessions, examples, board, skill] =
-			await Promise.all([
-				getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
-				replyDraftDispatchTimes(context, request.id),
+		// Only the attempt state is read before answering; the prompt's reads
+		// run after the response (see dispatchReplyDraftTurn).
+		const [latestDraft, dispatchedAt] = await Promise.all([
+			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
+			replyDraftDispatchTimes(context, request.id),
+		]);
+		const next = nextReplyDraftAttempt({
+			hasDraft: latestDraft !== null,
+			dispatchedAt,
+			nowMs: Date.parse(observedAt),
+		});
+		if (next.action === "pending") return { status: "queued" };
+		if (next.action === "exhausted")
+			return { status: "ineligible", reason: "attempts_exhausted" };
+		const key = replyDraftDispatchKey(request.id, next.attempt);
+		const build = async (): Promise<AutomationEvent> => {
+			const [sessions, examples, board, skill] = await Promise.all([
 				listWorkAgentSessions(context.db, {
 					organizationId: orgId,
 					userId: actor.id,
@@ -815,38 +834,30 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 					tediId,
 				}),
 			]);
-		const next = nextReplyDraftAttempt({
-			hasDraft: latestDraft !== null,
-			dispatchedAt,
-			nowMs: Date.parse(observedAt),
-		});
-		if (next.action === "pending") return { status: "queued" };
-		if (next.action === "exhausted")
-			return { status: "ineligible", reason: "attempts_exhausted" };
-		const key = replyDraftDispatchKey(request.id, next.attempt);
-		const event: AutomationEvent = AutomationEventSchema.parse({
-			kind: "tedi_turn",
-			organizationId: orgId,
-			tediId,
-			content: renderReplyDraftPrompt({
-				request,
-				sessions,
-				skillSlug: policy.drafting.skillSlug,
-				skillContent: skill,
-				board,
-				turnTypeChoices: policy.turnTypeChoices,
-				examples,
-			}),
-			// One drafting turn per attempt: the dispatch ledger makes redelivery
-			// and repeat requests of the same attempt no-ops.
-			idempotencyKey: key,
-			// A fresh conversation per attempt: a draft never queues behind, or
-			// inherits the state of, the tedi's main conversation or a failed
-			// earlier attempt.
-			conversationId: key,
-			source: `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`,
-		});
-		await dispatchReplyDraftTurn(context, queue, event);
+			return AutomationEventSchema.parse({
+				kind: "tedi_turn",
+				organizationId: orgId,
+				tediId,
+				content: renderReplyDraftPrompt({
+					request,
+					sessions,
+					skillSlug: policy.drafting.skillSlug,
+					skillContent: skill,
+					board,
+					turnTypeChoices: policy.turnTypeChoices,
+					examples,
+				}),
+				// One drafting turn per attempt: the dispatch ledger makes
+				// redelivery and repeat requests of the same attempt no-ops.
+				idempotencyKey: key,
+				// A fresh conversation per attempt: a draft never queues behind, or
+				// inherits the state of, the tedi's main conversation or a failed
+				// earlier attempt.
+				conversationId: key,
+				source: `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`,
+			});
+		};
+		await dispatchReplyDraftTurn(context, queue, build);
 		return { status: "queued" };
 	},
 );
