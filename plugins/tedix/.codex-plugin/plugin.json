@@ -1,6 +1,6 @@
 {
 	"name": "tedix",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
 	"author": {
 		"name": "Tedix",
@@ -92,7 +92,7 @@
 				}
 			},
 			"publication": {
-				"release_notes": "Tedix 0.1.0 — first public preview of the Tedix plugin.\n\nConnect ChatGPT, Codex and Claude Code to an authorized Tedix organization\nthrough the shared Tedix gateway. Bundled skills guide connection checks,\nscoped Work reads, governed task handoff, tedi delegation and Workspace Output\nworkflows. Each operation remains subject to the account's actual grants and\norganization policy; installing a skill does not enable writes or grant\nexecution authority.\n\nThe public package uses one canonical Tedix identity, onboarding guidance and\nlight/dark brand assets. It contains no local lifecycle hooks, credentials or\ncopied tokens. Local lifecycle hooks are a separate local install: they run in\nthe installed Tedix CLI (`tedix hooks <name>`) and are opt-in.\n\nTedix Cloud is an invited beta; using the plugin requires an account in an\norganization you have been invited to. Version numbers stay below 1.0 while\nthe plugin and its gateway contract may still change."
+				"release_notes": "Tedix 0.1.1 — hooks stay silent without the Tedix CLI.\n\nEvery local hook now exits immediately, with no output, when the `tedix`\ncommand is not installed. The install guides describe each hook, when it runs,\nwhat it sends once opted in, and how to turn it off.\n\nTedix 0.1.0 — first public preview of the Tedix plugin.\n\nConnect ChatGPT, Codex and Claude Code to an authorized Tedix organization\nthrough the shared Tedix gateway. Bundled skills guide connection checks,\nscoped Work reads, governed task handoff, tedi delegation and Workspace Output\nworkflows. Each operation remains subject to the account's actual grants and\norganization policy; installing a skill does not enable writes or grant\nexecution authority.\n\nThe public package uses one canonical Tedix identity, onboarding guidance and\nlight/dark brand assets. It contains no local lifecycle hooks, credentials or\ncopied tokens. Local lifecycle hooks are a separate local install: they run in\nthe installed Tedix CLI (`tedix hooks <name>`) and are opt-in.\n\nTedix Cloud is an invited beta; using the plugin requires an account in an\norganization you have been invited to. Version numbers stay below 1.0 while\nthe plugin and its gateway contract may still change."
 			}
 		}
 	}
