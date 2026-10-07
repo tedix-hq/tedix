@@ -1,4 +1,7 @@
-import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
+import {
+	CatalogueSearchInputJsonSchema,
+	CatalogueDescribeInputJsonSchema,
+} from "@tedix/api-contract/schemas/tools";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import {
@@ -29,7 +32,6 @@ import {
 	buildEdgeListCacheHints,
 	buildMcpServer,
 	buildServerContext,
-	isConfiguredCatalogTool,
 	type CachedAppData,
 	extractCallerIdentity,
 	fetchWidgetHtmlForApp,
@@ -1107,4 +1109,214 @@ it("keeps interleaved factory-built caller catalogs isolated on the shared handl
 	const alphaResult = await alphaPending;
 	expect(rankAlpha).toHaveBeenCalledOnce();
 	expect(JSON.stringify(alphaResult.data)).not.toContain("beta.get_item");
+});
+
+import {
+	buildNativeBootstrap,
+	isConfiguredCatalogTool,
+} from "./registration/bootstrap";
+import { McpNativeBootstrapSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
+
+describe("native request-private bootstrap", () => {
+	const rows = () => [
+		catalogRow({
+			config: {
+				transport: "catalog",
+				endpoint: "catalog/search",
+				nativeDirect: true,
+			},
+		}),
+		catalogRow({
+			id: "fictional-describe-row",
+			toolId: "describe_tools",
+			inputSchema:
+				CatalogueDescribeInputJsonSchema as unknown as import("./server-context").AppTool["inputSchema"],
+			config: {
+				transport: "catalog",
+				endpoint: "catalog/describe",
+				nativeDirect: true,
+			},
+		}),
+	];
+	const cached = (org = "fictional-org") => {
+		const c = createCachedData();
+		c.app.organizationId = org;
+		c.organizationId = org;
+		c.tools = rows();
+		c.metadata = {
+			mcpConfig: {
+				codeMode: true,
+				authMode: "authenticated",
+				capabilities: {},
+				enforcePolicies: false,
+				toolScopes: {
+					find_tools: ["mcp:catalog.read"],
+					describe_tools: ["mcp:catalog.read"],
+				},
+			},
+		} as unknown as CachedAppData["metadata"];
+		return c;
+	};
+	it.each([
+		"oauth",
+		"user",
+		"m2m",
+		"tedi",
+		"service",
+		"apiKey",
+		"external_agent",
+	] as const)(
+		"registered get_info keeps %s identity and no loader",
+		async (authType) => {
+			listByApp.mockResolvedValue({ skills: [] });
+			const load = vi.fn(() => {
+				throw Error("loader forbidden");
+			});
+			const get = vi.fn(() => {
+				throw Error("get forbidden");
+			});
+			const sink = vi.spyOn(console, "log");
+			const server = await buildMcpServer(
+				cached(),
+				{
+					authType,
+					organizationId: "fictional-org",
+					scopes: ["mcp:catalog.read"],
+					externalAgentPrincipalId: "fixture-principal",
+					externalAgentSessionId: "fixture-session",
+				},
+				{ ...createEnv(), LOADER: { load, get } } as unknown as CloudflareEnv,
+				createExecutionContext(),
+			);
+			const client = await connectLegacyClient(server);
+			const response = await client.request("tools/call", {
+				name: "get_info",
+				arguments: { nativeDirect: true, organizationId: "forged" },
+			});
+			expect(response.error).toBeUndefined();
+			const info = (
+				response.result as { structuredContent: Record<string, unknown> }
+			).structuredContent;
+			expect(
+				McpNativeBootstrapSchema.parse({
+					nativeContext: info.nativeContext,
+					nativeCatalog: info.nativeCatalog,
+				}),
+			).toMatchObject({
+				nativeContext: { organizationId: "fictional-org", actor: { authType } },
+				nativeCatalog: {
+					status: "usable",
+					search: {
+						name: "find_tools",
+						toolRowId: "fictional-catalog",
+						endpoint: "catalog/search",
+					},
+					describe: { name: "describe_tools" },
+				},
+			});
+			expect(load).not.toHaveBeenCalled();
+			expect(get).not.toHaveBeenCalled();
+			expect(
+				sink.mock.calls.filter((args) =>
+					JSON.stringify(args).includes('"event":"loader_call"'),
+				),
+			).toEqual([]);
+		},
+	);
+	it("refuses absent, duplicate, invalid, wrong-org, missing scopes and forceCodeMode without lending authority", () => {
+		const c = cached();
+		const agent = buildServerContext(
+			{} as McpServer,
+			c,
+			{
+				authType: "oauth",
+				organizationId: "fictional-org",
+				scopes: ["mcp:catalog.read"],
+			},
+			createEnv(),
+			createExecutionContext(),
+		);
+		for (const row of c.tools) agent.loadedTools.set(row.toolId, row);
+		expect(buildNativeBootstrap(agent, c.tools).nativeCatalog.status).toBe(
+			"usable",
+		);
+		for (const registry of [
+			[],
+			[...c.tools, c.tools[0]!],
+			[c.tools[0]!],
+			c.tools.map((row) => ({
+				...row,
+				config: { ...row.config, nativeDirect: "true" },
+			})),
+		] as (typeof c.tools)[])
+			expect(buildNativeBootstrap(agent, registry).nativeCatalog.status).toBe(
+				"unavailable",
+			);
+		for (const caller of [
+			undefined,
+			{ authType: "anonymous" as const, organizationId: "fictional-org" },
+			{
+				authType: "oauth" as const,
+				organizationId: "other-org",
+				scopes: ["mcp:catalog.read"],
+			},
+			{
+				authType: "oauth" as const,
+				organizationId: "fictional-org",
+				scopes: ["mcp:work.read"],
+			},
+			{
+				authType: "oauth" as const,
+				organizationId: "fictional-org",
+				scopes: ["mcp:catalog.read"],
+				forceCodeMode: true,
+			},
+		]) {
+			const result = buildNativeBootstrap(
+				{ ...agent, callerIdentity: caller },
+				c.tools,
+			);
+			expect(result.nativeCatalog.status).toBe("unavailable");
+			if (
+				!caller ||
+				caller.authType === "anonymous" ||
+				caller.organizationId !== "fictional-org"
+			)
+				expect(result.nativeContext).toBeNull();
+		}
+	});
+	it("concurrent request contexts retain separate original org and catalog", async () => {
+		listByApp.mockResolvedValue({ skills: [] });
+		const make = async (org: string) => {
+			const c = cached(org);
+			c.app.id = org;
+			const server = await buildMcpServer(
+				c,
+				{
+					authType: "oauth",
+					organizationId: org,
+					scopes: ["mcp:catalog.read"],
+				},
+				createEnv(),
+				createExecutionContext(),
+			);
+			const client = await connectLegacyClient(server);
+			return client.request("tools/call", { name: "get_info", arguments: {} });
+		};
+		const [a, b] = await Promise.all([make("alpha-org"), make("beta-org")]);
+		expect(a).toMatchObject({
+			result: {
+				structuredContent: {
+					nativeContext: { appId: "alpha-org", organizationId: "alpha-org" },
+				},
+			},
+		});
+		expect(b).toMatchObject({
+			result: {
+				structuredContent: {
+					nativeContext: { appId: "beta-org", organizationId: "beta-org" },
+				},
+			},
+		});
+	});
 });

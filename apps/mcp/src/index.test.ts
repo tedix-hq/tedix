@@ -1,4 +1,8 @@
-import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
+import type { CachedAppData } from "./mcp/server-factory";
+import {
+	CatalogueSearchInputJsonSchema,
+	CatalogueDescribeInputJsonSchema,
+} from "@tedix/api-contract/schemas/tools";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import worker, {
@@ -251,7 +255,11 @@ describe("Connect compact protocol organization routing", () => {
 			description: "Selected organization discovery",
 			toolTypeId: "rpc",
 			enabled: true,
-			config: { transport: "catalog", endpoint: "catalog/search" },
+			config: {
+				transport: "catalog",
+				endpoint: "catalog/search",
+				nativeDirect: true,
+			},
 			inputSchema: CatalogueSearchInputJsonSchema,
 			outputSchema: null,
 			annotations: { readOnlyHint: true },
@@ -268,10 +276,26 @@ describe("Connect compact protocol organization routing", () => {
 					codeMode: true,
 					authMode: "authenticated",
 					enforcePolicies: false,
-					toolScopes: { find_catalog_entries: ["mcp:catalog.read"] },
+					toolScopes: {
+						find_catalog_entries: ["mcp:catalog.read"],
+						describe_catalog_entry: ["mcp:catalog.read"],
+					},
 				},
 			},
-			tools: [row],
+			tools: [
+				row,
+				{
+					...row,
+					id: "fictional-connect-describe",
+					toolId: "describe_catalog_entry",
+					config: {
+						transport: "catalog",
+						endpoint: "catalog/describe",
+						nativeDirect: true,
+					},
+					inputSchema: CatalogueDescribeInputJsonSchema,
+				},
+			],
 		};
 		resolveGateway.mockImplementation(
 			async ({ appSlug }: { appSlug: string }) =>
@@ -310,7 +334,8 @@ describe("Connect compact protocol organization routing", () => {
 			LOADER: { load: loads, get: loads },
 		});
 		try {
-			for (const method of ["tools/list", "tools/call"]) {
+			for (const command of ["tools/list", "tools/call", "get_info"]) {
+				const method = command === "get_info" ? "tools/call" : command;
 				for (const target of ["tedix", "unselected"]) {
 					vi.mocked(validateAuth).mockResolvedValueOnce({
 						type: "oauth",
@@ -331,14 +356,18 @@ describe("Connect compact protocol organization routing", () => {
 					// Caller-supplied headers must not replace the authenticated selection.
 					headers.set("x-tedix-auth-org-id", "unselected-org");
 					headers.set("x-tedix-auth-type", "service");
-					if (method === "tools/call") headers.set("Mcp-Name", row.toolId);
+					if (method === "tools/call")
+						headers.set(
+							"Mcp-Name",
+							command === "get_info" ? "get_info" : row.toolId,
+						);
 					const body = (await original.json()) as {
 						params: Record<string, unknown>;
 					};
 					if (method === "tools/call")
 						Object.assign(body.params, {
-							name: row.toolId,
-							arguments: { query: "" },
+							name: command === "get_info" ? "get_info" : row.toolId,
+							arguments: command === "get_info" ? {} : { query: "" },
 						});
 					const previousContexts = contextSpy.mock.calls.length;
 					const response = await worker.fetch(
@@ -362,6 +391,23 @@ describe("Connect compact protocol organization routing", () => {
 						target === "tedix" ? 200 : 403,
 					);
 					if (target === "tedix") {
+						if (command === "get_info")
+							expect(value).toMatchObject({
+								result: {
+									structuredContent: {
+										nativeContext: {
+											appId: "fictional-selected-gateway",
+											organizationId: "org-id",
+											actor: { authType: "oauth" },
+										},
+										nativeCatalog: {
+											status: "usable",
+											search: { name: row.toolId },
+											describe: { name: "describe_catalog_entry" },
+										},
+									},
+								},
+							});
 						expect(value.result?.isError).not.toBe(true);
 						if (method === "tools/list")
 							expect(value.result?.tools?.map((tool) => tool.name)).toContain(
@@ -899,4 +945,499 @@ describe("public ingress configured native catalog", () => {
 			contextSpy.mockRestore();
 		}
 	});
+});
+
+import { McpNativeBootstrapSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
+
+describe("verified native bootstrap and opted-in Work ingress", () => {
+	it("uses original OAuth context and owning native handlers with zero loader diagnostics", async () => {
+		const { validateAuth } = await import("./auth-helpers");
+		const factory = await import("./mcp/server-factory");
+		const search = {
+			id: "search-row",
+			toolId: "find_native_entries",
+			title: "Find",
+			enabled: true,
+			toolTypeId: "rpc",
+			config: {
+				transport: "catalog",
+				endpoint: "catalog/search",
+				nativeDirect: true,
+			},
+			inputSchema: CatalogueSearchInputJsonSchema,
+			outputSchema: null,
+		};
+		const describeRow = {
+			...search,
+			id: "describe-row",
+			toolId: "describe_native_entry",
+			config: {
+				transport: "catalog",
+				endpoint: "catalog/describe",
+				nativeDirect: true,
+			},
+			inputSchema: CatalogueDescribeInputJsonSchema,
+		};
+		const work = {
+			...search,
+			id: "work-row",
+			toolId: "list_native_work",
+			config: {
+				transport: "rpc",
+				endpoint: "workItems/list",
+				nativeDirect: true,
+			},
+			inputSchema: {
+				type: "object",
+				properties: {},
+				additionalProperties: false,
+			},
+		};
+		const app = {
+			app: {
+				id: "native-app",
+				slug: "fictional-native",
+				name: "Native fixture",
+				organizationId: "org-id",
+				visibility: "public",
+			},
+			metadata: {
+				mcpConfig: {
+					codeMode: true,
+					authMode: "authenticated",
+					enforcePolicies: false,
+					toolScopes: {
+						find_native_entries: ["mcp:catalog.read"],
+						describe_native_entry: ["mcp:catalog.read"],
+						list_native_work: ["mcp:work.read"],
+					},
+				},
+			},
+			tools: [search, describeRow, work],
+		};
+		resolveGateway.mockResolvedValue(app);
+		const context = vi.spyOn(factory, "getAppContext").mockResolvedValue({
+			...app,
+			capabilities: {},
+			organizationId: "org-id",
+			expiresAt: Date.now() + 60000,
+			catalogMcp: null,
+			catalogResources: [],
+			catalogResourceTemplates: [],
+			catalogPrompts: [],
+		} as unknown as CachedAppData);
+		const load = vi.fn(() => {
+			throw Error("load forbidden");
+		});
+		const get = vi.fn(() => {
+			throw Error("get forbidden");
+		});
+		const logs = vi.spyOn(console, "log");
+		const api = vi.fn(async (_request: RequestInfo | URL) =>
+			Response.json({ json: { data: [], total: 0 } }),
+		);
+		const env = createEnv({
+			ENVIRONMENT: "development",
+			MCP_URL: "http://localhost:3000",
+			DESCOPE_PROJECT_ID: "local-development-disabled",
+			API_SERVICE: { fetch: api },
+			LOADER: { load, get },
+		});
+		const invoke = async (
+			name: string,
+			arguments_: Record<string, unknown>,
+			scopes = ["mcp:catalog.read", "mcp:work.read"],
+			force = false,
+		) => {
+			vi.mocked(validateAuth).mockResolvedValueOnce({
+				type: "oauth",
+				userId: "local-demo-owner",
+				organizationId: "org-id",
+				scopes,
+				localDemo: true,
+				payload: {
+					sub: "local-demo-owner",
+					dct: "personal_local-demo-owner",
+					exp: 2000000000,
+					iss: "fixture",
+				},
+			});
+			return worker.fetch(
+				new Request("http://localhost:3000/mcp?appSlug=fictional-native", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer offline",
+						Accept: "application/json, text/event-stream",
+						"Content-Type": "application/json",
+						"MCP-Protocol-Version": "2026-07-28",
+						"Mcp-Method": "tools/call",
+						"Mcp-Name": name,
+						"x-tedix-auth-type": "service",
+						"x-tedix-auth-org-id": "forged",
+						"x-tedix-auth-scopes": "platform:admin mcp:work.admin",
+						"x-tedix-native-direct": "true",
+						...(force ? { "x-tedix-code-mode": "force" } : {}),
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/call",
+						params: {
+							name,
+							arguments: arguments_,
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientCapabilities": {},
+							},
+						},
+					}),
+				}),
+				env,
+				{
+					waitUntil: (p: Promise<unknown>) => {
+						void p.catch(() => {});
+					},
+				} as ExecutionContext,
+			);
+		};
+		try {
+			const bootstrap = await invoke("get_info", {});
+			expect(bootstrap.status, await bootstrap.clone().text()).toBe(200);
+			const info = (
+				(await bootstrap.json()) as {
+					result: {
+						structuredContent: {
+							nativeContext: unknown;
+							nativeCatalog: unknown;
+						};
+					};
+				}
+			).result.structuredContent;
+			expect(
+				McpNativeBootstrapSchema.parse({
+					nativeContext: info.nativeContext,
+					nativeCatalog: info.nativeCatalog,
+				}),
+			).toMatchObject({
+				nativeContext: {
+					actor: { authType: "oauth" },
+					organizationId: "org-id",
+					appId: "native-app",
+				},
+				nativeCatalog: {
+					status: "usable",
+					search: { name: search.toolId },
+					describe: { name: describeRow.toolId },
+				},
+			});
+			const found = await invoke(search.toolId, { query: "" });
+			expect(found.status, await found.clone().text()).toBe(200);
+			const result = (await found.json()) as {
+				result: {
+					structuredContent: {
+						results: Array<{ callable: string; native: { name: string } }>;
+					};
+				};
+			};
+			const entry = result.result.structuredContent.results.find(
+				(row) => row.native?.name === work.toolId,
+			);
+			expect(entry).toBeDefined();
+			const described = await invoke(describeRow.toolId, {
+				callable: entry!.callable,
+			});
+			expect(described.status, await described.clone().text()).toBe(200);
+			expect(await described.json()).toMatchObject({
+				result: {
+					structuredContent: {
+						native: {
+							name: work.toolId,
+							endpoint: "workItems/list",
+							toolRowId: "work-row",
+							eligible: true,
+							authorized: true,
+						},
+					},
+				},
+			});
+			const called = await invoke(work.toolId, {});
+			expect(called.status, await called.clone().text()).toBe(200);
+			expect(
+				((await called.json()) as { result: { isError?: boolean } }).result
+					.isError,
+			).not.toBe(true);
+			expect(api).toHaveBeenCalled();
+			const before = api.mock.calls.length;
+			const denied = await invoke(work.toolId, {}, ["mcp:catalog.read"]);
+			expect(denied.status).toBe(403);
+			expect(api.mock.calls).toHaveLength(before);
+			const forgedArguments = await invoke(work.toolId, {
+				nativeDirect: true,
+				organizationId: "forged",
+			});
+			expect(forgedArguments.status, await forgedArguments.clone().text()).toBe(
+				200,
+			);
+			expect(
+				((await forgedArguments.json()) as { result: { isError?: boolean } })
+					.result.isError,
+			).not.toBe(true);
+			expect(
+				(api.mock.calls.at(-1)![0] as Request).headers.get("X-Tedix-Org-Id"),
+			).toBe("org-id");
+			const forcedBootstrap = await invoke(
+				"get_info",
+				{},
+				["mcp:catalog.read", "mcp:work.read"],
+				true,
+			);
+			expect(await forcedBootstrap.json()).toMatchObject({
+				result: {
+					structuredContent: {
+						nativeContext: { nativeTransportAvailable: false },
+						nativeCatalog: { status: "unavailable" },
+					},
+				},
+			});
+			const forcedCall = await invoke(
+				work.toolId,
+				{},
+				["mcp:catalog.read", "mcp:work.read"],
+				true,
+			);
+			expect(await forcedCall.json()).toMatchObject({
+				error: expect.anything(),
+			});
+			const workDispatches = () =>
+				api.mock.calls.filter((args) =>
+					new URL((args[0] as Request).url).pathname.endsWith(
+						"/workItems/list",
+					),
+				);
+			const priorApi = workDispatches().length;
+			delete (work.config as { nativeDirect?: boolean }).nativeDirect;
+			const notOpted = await invoke(work.toolId, { nativeDirect: true });
+			expect(await notOpted.json()).toMatchObject({ error: expect.anything() });
+			expect(workDispatches()).toHaveLength(priorApi);
+			const noCatalog = await invoke("get_info", {}, ["mcp:work.read"]);
+			expect(await noCatalog.json()).toMatchObject({
+				result: {
+					structuredContent: {
+						nativeCatalog: {
+							status: "unavailable",
+							search: null,
+							describe: null,
+						},
+					},
+				},
+			});
+			expect(load).not.toHaveBeenCalled();
+			expect(get).not.toHaveBeenCalled();
+			expect(
+				logs.mock.calls.filter((args) =>
+					JSON.stringify(args).includes('"event":"loader_call"'),
+				),
+			).toEqual([]);
+		} finally {
+			context.mockRestore();
+			logs.mockRestore();
+		}
+	});
+});
+
+// These normalized identities are the trusted post-auth ingress contract, not
+// invented public AuthResult variants. Worker.fetch OAuth/Connect tests above
+// separately exercise public verification and inbound-header hygiene.
+describe("native bootstrap post-auth credential-family and Home ingress", () => {
+	it.each([
+		"oauth",
+		"user",
+		"m2m",
+		"tedi",
+		"service",
+		"apiKey",
+		"external_agent",
+	] as const)(
+		"keeps %s fast/session identity and Home catalog without loading code",
+		async (authType) => {
+			const factory = await import("./mcp/server-factory");
+			const { buildHomeSurfaceTools } = await import("./mcp/home-surface");
+			const { buildBootstrapInfo } =
+				await import("./mcp/registration/bootstrap");
+			const { buildServerContext } = factory;
+			const { createMcpServer } = await import("@tedix/mcp-shared/server");
+			const search = {
+				id: "family-search",
+				toolId: "find_tools",
+				title: "Find",
+				enabled: true,
+				toolTypeId: "rpc",
+				config: {
+					transport: "catalog",
+					endpoint: "catalog/search",
+					nativeDirect: true,
+				},
+				inputSchema: CatalogueSearchInputJsonSchema,
+				outputSchema: null,
+			};
+			const describeRow = {
+				...search,
+				id: "family-describe",
+				toolId: "describe_tools",
+				config: {
+					transport: "catalog",
+					endpoint: "catalog/describe",
+					nativeDirect: true,
+				},
+				inputSchema: CatalogueDescribeInputJsonSchema,
+			};
+			const cached = {
+				app: {
+					id: "family-app",
+					slug: "tedix-unified",
+					name: "Fictional Home",
+					organizationId: "org-id",
+					visibility: "public",
+				},
+				tools: [search, describeRow],
+				metadata: {
+					mcpConfig: {
+						codeMode: true,
+						enforcePolicies: false,
+						authMode: "authenticated",
+						toolScopes: {
+							find_tools: ["mcp:catalog.read"],
+							describe_tools: ["mcp:catalog.read"],
+						},
+					},
+				},
+				capabilities: {},
+				organizationId: "org-id",
+				expiresAt: Date.now() + 60000,
+				catalogMcp: null,
+				catalogResources: [],
+				catalogResourceTemplates: [],
+				catalogPrompts: [],
+			} as unknown as CachedAppData;
+			const contextSpy = vi
+				.spyOn(factory, "getAppContext")
+				.mockResolvedValue(cached);
+			const load = vi.fn(() => {
+					throw Error("load forbidden");
+				}),
+				get = vi.fn(() => {
+					throw Error("get forbidden");
+				});
+			const sink = vi.spyOn(console, "log");
+			const env = createEnv({
+				ENVIRONMENT: "development",
+				LOADER: { load, get },
+				API_SERVICE: {
+					fetch: vi.fn(async () => Response.json({ json: { skills: [] } })),
+				},
+			});
+			const ctx = {
+				waitUntil: (p: Promise<unknown>) => {
+					void p.catch(() => {});
+				},
+			} as ExecutionContext;
+			try {
+				const response = await handleMcpRequest(
+					new Request("http://localhost/mcp", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"MCP-Protocol-Version": "2026-07-28",
+							"Mcp-Method": "tools/call",
+							"Mcp-Name": "get_info",
+							"x-tedix-auth-type": authType,
+							"x-tedix-auth-org-id": "org-id",
+							"x-tedix-auth-user-id": "fictional-user",
+							"x-tedix-auth-scopes": "mcp:catalog.read",
+							"x-tedix-auth-external-principal-id": "fictional-principal",
+							"x-tedix-auth-external-session-id": "fictional-session",
+						},
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: 1,
+							method: "tools/call",
+							params: {
+								name: "get_info",
+								arguments: {},
+								_meta: {
+									"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+									"io.modelcontextprotocol/clientCapabilities": {},
+								},
+							},
+						}),
+					}),
+					cached as unknown as Parameters<typeof handleMcpRequest>[1],
+					env,
+					ctx,
+				);
+				expect(response.status, await response.clone().text()).toBe(200);
+				const info = (
+					(await response.json()) as {
+						result: { structuredContent: Record<string, unknown> };
+					}
+				).result.structuredContent;
+				const actual = McpNativeBootstrapSchema.parse({
+					nativeContext: info.nativeContext,
+					nativeCatalog: info.nativeCatalog,
+				});
+				expect(actual).toMatchObject({
+					nativeContext: {
+						appId: "family-app",
+						appSlug: "tedix-unified",
+						organizationId: "org-id",
+						actor: { authType },
+					},
+					nativeCatalog: {
+						status: "usable",
+						search: { name: "find_tools" },
+						describe: { name: "describe_tools" },
+					},
+				});
+				// Compare the actual fast-ingress payload with the shared session owner
+				// using the same Home registry; registered callback transport is exercised
+				// independently in server-factory.test.ts for each of these seven families.
+				const homeTools = buildHomeSurfaceTools();
+				expect(homeTools.some((row) => row.toolId.startsWith("home__"))).toBe(
+					true,
+				);
+				const sessionData = {
+					...cached,
+					tools: [...cached.tools, ...homeTools],
+				};
+				const server = createMcpServer({
+					name: "Fictional Home",
+					version: "1.0.0",
+				});
+				const session = buildServerContext(
+					server,
+					sessionData,
+					{ authType, organizationId: "org-id", scopes: ["mcp:catalog.read"] },
+					env,
+					ctx,
+				);
+				const sessionInfo = buildBootstrapInfo(session, sessionData.tools);
+				expect(actual).toEqual(
+					McpNativeBootstrapSchema.parse({
+						nativeContext: sessionInfo.nativeContext,
+						nativeCatalog: sessionInfo.nativeCatalog,
+					}),
+				);
+				expect(load).not.toHaveBeenCalled();
+				expect(get).not.toHaveBeenCalled();
+				expect(
+					sink.mock.calls.filter((args) =>
+						JSON.stringify(args).includes('"event":"loader_call"'),
+					),
+				).toHaveLength(0);
+			} finally {
+				contextSpy.mockRestore();
+				sink.mockRestore();
+			}
+		},
+	);
 });

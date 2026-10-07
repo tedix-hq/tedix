@@ -5,6 +5,61 @@ import {
 	shouldBypassCodeModeForCaller,
 } from "./caller-identity";
 
+describe("configured direct transport eligibility", () => {
+	const row = {
+		toolId: "get_work",
+		enabled: true,
+		config: { nativeDirect: true },
+	};
+	it.each([
+		"user",
+		"m2m",
+		"tedi",
+		"service",
+		"apiKey",
+		"oauth",
+		"external_agent",
+	] as const)(
+		"uses exact configured opt-in for validated %s callers",
+		(authType) => {
+			expect(
+				shouldBypassCodeModeForCaller({ authType }, "get_work", [row]),
+			).toBe(true);
+			expect(
+				shouldBypassCodeModeForCaller(
+					{ authType, forceCodeMode: true },
+					"get_work",
+					[row],
+				),
+			).toBe(false);
+		},
+	);
+	it("refuses anonymous, absent, duplicate, disabled and wrong configured rows", () => {
+		expect(
+			shouldBypassCodeModeForCaller({ authType: "anonymous" }, "get_work", [
+				row,
+			]),
+		).toBe(false);
+		expect(shouldBypassCodeModeForCaller(undefined, "get_work", [row])).toBe(
+			false,
+		);
+		for (const rows of [
+			[],
+			[row, row],
+			[{ ...row, enabled: false }],
+			[{ ...row, toolId: "other" }],
+			[{ ...row, config: { nativeDirect: "true" } }],
+		]) {
+			expect(
+				shouldBypassCodeModeForCaller({ authType: "oauth" }, "get_work", rows),
+			).toBe(false);
+		}
+		expect(
+			shouldBypassCodeModeForCaller({ authType: "oauth" }, "code", [row]),
+		).toBe(false);
+	});
+});
+
 describe("caller identity normalization", () => {
 	it("treats tedi callers as delegated agent actors", () => {
 		const normalized = normalizeCallerIdentity({

@@ -172,6 +172,7 @@
 		"./schemas/tedi-app-assignments": "./src/schemas/tedi-app-assignments.ts",
 		"./schemas/tenant-membership": "./src/schemas/tenant-membership.ts",
 		"./schemas/tools": "./src/schemas/tools.ts",
+		"./schemas/mcp-native-transport": "./src/schemas/mcp-native-transport.ts",
 		"./schemas/user-settings": "./src/schemas/user-settings.ts",
 		"./schemas/waitlist": "./src/schemas/waitlist.ts",
 		"./schemas/widget": "./src/schemas/widget.ts",
