@@ -3,7 +3,7 @@ import { withCompletionEvidence } from "@tedix/api-contract/schemas/execution-ev
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TedixHomeClient } from "./home-client";
+import { TedixHomeClient } from "./home-client";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
 	attemptSessionLabel,
@@ -29,6 +29,112 @@ import { detachedGitEnv } from "../../../scripts/oss/git-env";
 
 const ITEM = "11111111-1111-4111-8111-111111111111";
 const ATTEMPT = "22222222-2222-4222-8222-222222222222";
+
+const TEST_ORG = "99999999-9999-4999-8999-999999999999";
+const TEST_ENDPOINTS: Record<string, string> = {
+	list_work_item_cli_rows: "workItems/listCliProjection",
+	corroborate_work_items: "workItems/corroborate",
+	accept_work_item: "workItems/accept",
+	add_comment: "workItems/addComment",
+	add_project_milestone_dependency: "projects/addMilestoneDependency",
+	add_work_case_dependency: "workItems/addCaseDependency",
+	attach_project_milestone_work_item: "projects/attachMilestoneWorkItem",
+	attach_work_case_item: "workItems/attachCaseWorkItem",
+	authorize_owned_channel: "workItems/authorizeOwnedChannel",
+	cancel_work_interaction: "workInteractions/cancel",
+	cancel_work_items: "workItems/cancel",
+	complete_work_item: "workItems/complete",
+	create_project_milestone: "projects/createMilestone",
+	create_work_case: "workItems/createCase",
+	create_work_interaction: "workInteractions/create",
+	create_work_items: "workItems/create",
+	decide_work_approval: "workApprovals/decide",
+	get_work_admission_specification: "workItems/getAdmissionSpecification",
+	get_work_case: "workItems/getCase",
+	get_work_fleet_control_tower: "workFleet/getControlTower",
+	get_work_interaction: "workInteractions/get",
+	get_work_item_checkpoint: "workItems/getCheckpointProjection",
+	get_work_item_readiness: "workItems/getReadiness",
+	get_work_items_by_id: "workItems/getById",
+	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
+	list_project_health_judgments: "projects/listHealthJudgments",
+	list_project_milestones: "projects/listMilestones",
+	list_ready_work: "workScheduler/listReady",
+	list_work_approval_audit: "workApprovals/listAudit",
+	list_work_approvals: "workApprovals/listInbox",
+	list_work_attempt_cli_rows: "workItems/listAttemptCliProjection",
+	list_work_budget_envelopes: "workItems/listBudgetEnvelopes",
+	list_work_cases: "workItems/listCases",
+	list_work_event_cli_rows: "workItems/listEventCliProjection",
+	list_work_evidence_cli_rows: "workItems/listEvidenceCliProjection",
+	list_work_interaction_audit: "workInteractions/listAudit",
+	list_work_interaction_cli_rows: "workInteractions/listCliInboxProjection",
+	list_work_interaction_outbox: "workInteractions/listOutbox",
+	list_work_item_attempts: "workItems/listAttempts",
+	list_work_item_events: "workItems/listEvents",
+	list_work_item_evidence: "workItems/listEvidence",
+	list_work_items: "workItems/list",
+	list_work_resource_pools: "workItems/listResourcePools",
+	plan_work_execution_clusters: "workScheduler/planClusters",
+	propose_work_approval: "workApprovals/propose",
+	put_work_budget_envelope: "workItems/putBudgetEnvelope",
+	put_work_resource_pool: "workItems/putResourcePool",
+	record_project_health_judgment: "projects/recordHealthJudgment",
+	replace_work_admission_specification:
+		"workItems/replaceAdmissionSpecification",
+	respond_work_interaction: "workInteractions/respond",
+	revoke_owned_channel: "workItems/revokeOwnedChannel",
+	settle_work_item_attempt: "workItems/settleAttempt",
+	start_work_item_attempt: "workItems/startAttempt",
+	submit_work_item_evidence: "workItems/submitEvidence",
+	update_project_milestone: "projects/updateMilestone",
+	update_work_case: "workItems/updateCase",
+};
+function nativeDescriptorFixture(callable: string) {
+	const tool = callable.slice(callable.indexOf(".") + 1);
+	return {
+		name: `configured_${callable.replace(".", "__")}`,
+		toolRowId: `row-${tool}`,
+		endpoint: TEST_ENDPOINTS[tool] ?? "unknown",
+		eligible: true,
+		authorized: true,
+		schemaFreshness: {
+			source: "orpc",
+			sourceRef: TEST_ENDPOINTS[tool] ?? "unknown",
+			sourceHash: "fixture-hash",
+			syncedAt: "2026-10-07T12:00:00Z",
+		},
+	};
+}
+function nativeBootstrapFixture() {
+	const catalog = (name: string, endpoint: string) => ({
+		...nativeDescriptorFixture(name),
+		name,
+		endpoint,
+		schemaFreshness: {
+			source: "catalog",
+			sourceRef: endpoint,
+			sourceHash: "fixture-hash",
+			syncedAt: "2026-10-07T12:00:00Z",
+		},
+	});
+	return {
+		nativeContext: {
+			version: 1,
+			surface: "mcp-gateway",
+			appId: "fixture-app",
+			appSlug: "fixture",
+			organizationId: TEST_ORG,
+			actor: { authType: "user" },
+			nativeTransportAvailable: true,
+		},
+		nativeCatalog: {
+			status: "usable",
+			search: catalog("catalog_search", "catalog/search"),
+			describe: catalog("catalog_describe", "catalog/describe"),
+		},
+	};
+}
 
 describe("coding-host Work handoff", () => {
 	test("previews an accepted item without launching or mutating Work", async () => {
@@ -139,32 +245,201 @@ function makeContext(
 			},
 			activeAttempt,
 		);
+	const nativeCalls: Array<{
+		name: string;
+		args: Record<string, unknown>;
+		options: unknown;
+	}> = [];
+	const descriptors = new Map<
+		string,
+		ReturnType<typeof nativeDescriptorFixture>
+	>();
+	const invoke = async (
+		name: string,
+		args: Record<string, unknown>,
+		callOptions: unknown,
+	) => {
+		nativeCalls.push({ name, args, options: callOptions });
+		if (name === "get_info") return nativeBootstrapFixture();
+		if (name === "catalog_search") {
+			const callable = `${args.namespace}.${args.query}`;
+			const descriptor = nativeDescriptorFixture(callable);
+			descriptors.set(descriptor.name, descriptor);
+			return { results: [{ callable, authorized: true, native: descriptor }] };
+		}
+		if (name === "catalog_describe") {
+			const callable = String(args.callable);
+			const native = nativeDescriptorFixture(callable);
+			return {
+				callable,
+				authorized: true,
+				native,
+				schemaFreshness: native.schemaFreshness,
+				parameters: { type: "object", additionalProperties: true },
+				outputSchema: {},
+			};
+		}
+		const descriptor = descriptors.get(name);
+		if (!descriptor) throw new Error(`Unresolved native fixture tool ${name}`);
+		const callable = name.slice("configured_".length).replace("__", ".");
+		const source = `${callable}(${JSON.stringify(args)})`;
+		sources.push(source);
+		let result = respond
+			? await respond(source)
+			: source.includes("start_work_item_attempt") ||
+				  source.includes("start_work_attempt")
+				? { attempt: { id: ATTEMPT, externalSessionKey: session } }
+				: { id: ITEM };
+		if (
+			callable.endsWith("list_work_item_cli_rows") &&
+			!boardErrorFromValue(result) &&
+			!(result as Record<string, unknown>)?.__tedix_truncated
+		) {
+			const page = result as Record<string, unknown>;
+			const data = Array.isArray(page?.data) ? page.data : [];
+			result = {
+				view: args.view,
+				data,
+				pagination: page?.pagination ?? {
+					limit: args.limit,
+					offset: args.offset ?? 0,
+					total: data.length,
+					hasMore: false,
+				},
+			};
+		}
+		if (
+			callable.endsWith("get_work_item_checkpoint") &&
+			(result as Record<string, unknown>)?.workItem
+		)
+			result = (result as Record<string, unknown>).workItem;
+		if (
+			callable.endsWith("list_work_event_cli_rows") &&
+			(result as Record<string, unknown>)?.data
+		) {
+			const page = result as Record<string, unknown>;
+			result = { events: page.data, nextSequence: page.next ?? null };
+		}
+		if (result && typeof result === "object" && !boardErrorFromValue(result)) {
+			if (callable.endsWith("get_work_item_checkpoint"))
+				result = { disposition: "accepted", ...(result as object) };
+			if (/list_work_(attempt|evidence)_cli_rows$/.test(callable))
+				result = { nextCursor: null, ...(result as object) };
+			if (callable.endsWith("list_work_interaction_cli_rows") && !respond)
+				result = {
+					data: [],
+					nextCursor: null,
+					hasMore: false,
+					observedAt: "2026-10-07T12:00:00Z",
+				};
+			const page = result as Record<string, unknown>;
+			if (
+				callable.endsWith("list_work_item_cli_rows") &&
+				Array.isArray(page.data)
+			)
+				page.data = page.data.map((row) => ({
+					workKind: "coding",
+					disposition: "proposed",
+					riskLevel: "low",
+					priority: "medium",
+					projectId: null,
+					createdAt: "2026-10-07T12:00:00Z",
+					...(args.view === "board" ? { activeAttempt: null } : {}),
+					...(row as object),
+				}));
+			if (
+				callable.endsWith("list_work_evidence_cli_rows") &&
+				Array.isArray(page.data)
+			)
+				page.data = page.data.map((row) => ({
+					label: null,
+					attemptId: null,
+					submittedByType: "user",
+					submittedById: "fixture-user",
+					submittedAt: "2026-10-07T12:00:00Z",
+					reviewedByType: null,
+					reviewedById: null,
+					reviewedAt: null,
+					reviewReason: null,
+					...(row as object),
+				}));
+			if (
+				callable.endsWith("list_work_attempt_cli_rows") &&
+				Array.isArray(page.data)
+			)
+				page.data = page.data.map((row) => ({
+					externalSessionKey: null,
+					expiresAt: null,
+					finishedAt: null,
+					summary: null,
+					...(row as object),
+				}));
+			if (
+				callable.endsWith("list_work_interaction_cli_rows") &&
+				Array.isArray(page.data)
+			)
+				page.data = page.data.map((row) => {
+					const r = row as Record<string, unknown>;
+					if (!r.request || typeof r.request !== "object") return row;
+					const request = r.request as Record<string, unknown>;
+					return {
+						canCancel: false,
+						workItem: null,
+						responseCount: 0,
+						...r,
+						request: {
+							subject: "Example request",
+							version: 1,
+							caseId: null,
+							projectId: null,
+							kind: "coordination",
+							requestedFromType: "user",
+							requestedFromId: "fixture-user",
+							creatorType: "user",
+							creatorId: "fixture-user",
+							creatorSessionId: null,
+							state: "open",
+							requestedAt: "2026-10-07T12:00:00Z",
+							dueAt: null,
+							expiresAt: null,
+							resolvedAt: null,
+							...request,
+							prompt:
+								typeof request.prompt === "string"
+									? request.prompt.slice(0, 800)
+									: (request.prompt ?? "Example prompt"),
+							promptComplete:
+								request.promptComplete === true &&
+								typeof request.prompt === "string" &&
+								request.prompt.length <= 800,
+						},
+					};
+				});
+		}
+		return result;
+	};
 	const client = {
-		runCode: async (source: string) => {
-			sources.push(source);
-			const result = respond
-				? respond(source)
-				: source.includes("start_work_item_attempt") ||
-					  source.includes("start_work_attempt")
-					? { attempt: { id: ATTEMPT, externalSessionKey: session } }
-					: { id: ITEM };
-			return { result };
-		},
-		runCodeWithDestructiveApproval: async (source: string) => {
-			sources.push(source);
-			return { result: respond ? respond(source) : { id: ITEM } };
-		},
+		callTool: invoke,
+		callToolWithDestructiveApproval: (
+			name: string,
+			args: Record<string, unknown>,
+			_reason: string,
+			options: unknown,
+		) => invoke(name, args, options),
+		getTimeoutMs: () => 60_000,
 	} as unknown as TedixHomeClient;
 	const ctx: WorkContext = {
 		client,
 		color: { enabled: false },
 		json: settings.json ?? true,
 		workspace: "test",
+		mcpUrl: "https://tenant.example/mcp",
+		organizationId: TEST_ORG,
 		authSource: settings.authSource,
 		attemptStore,
 		work: options,
 	};
-	return { ctx, sources, attemptStore };
+	return { ctx, sources, attemptStore, nativeCalls };
 }
 
 async function capture(
@@ -680,7 +955,7 @@ describe("canonical work lifecycle", () => {
 			],
 		}));
 		expect(await runWork(`evidence ${ITEM}`, ctx)).toBe(0);
-		expect(sources[0]).toContain("work.list_work_item_evidence");
+		expect(sources[0]).toContain("work.list_work_evidence_cli_rows");
 	});
 
 	test("cancels obsolete unstarted Work through the curated lifecycle verb", async () => {
@@ -699,9 +974,9 @@ describe("canonical work lifecycle", () => {
 	});
 
 	test("preserves --as for read-only namespace selection", async () => {
-		const { ctx, sources } = makeContext({ as: "research-lead", mine: true });
+		const { ctx, sources } = makeContext({ as: "research-lead" });
 		expect(await runWork("list", ctx)).toBe(0);
-		expect(sources[0]).toContain("research_lead.work_items_list");
+		expect(sources[0]).toContain("research_lead.list_work_item_cli_rows");
 	});
 });
 
@@ -788,7 +1063,7 @@ describe("artifact-neutral factory control verbs", () => {
 	test("routes interaction inbox, outbox, and audit reads to separate tools", async () => {
 		const inbox = makeContext();
 		expect(await runWork("interaction-list", inbox.ctx)).toBe(0);
-		expect(inbox.sources[0]).toContain("work.list_work_interactions");
+		expect(inbox.sources[0]).toContain("work.list_work_interaction_cli_rows");
 
 		const audit = makeContext();
 		expect(await runWork("interaction-audit-list", audit.ctx)).toBe(0);
@@ -926,7 +1201,7 @@ describe("canonical list pagination and output", () => {
 		id: `${String(index).padStart(8, "0")}-1111-4111-8111-111111111111`,
 		workKind: "coding",
 		disposition: "accepted",
-		riskLevel: "standard",
+		riskLevel: "medium",
 		priority: "medium",
 		title: `Item ${index}`,
 	});
@@ -935,7 +1210,7 @@ describe("canonical list pagination and output", () => {
 		const all = Array.from({ length: 75 }, (_, index) => row(index));
 		const { ctx, sources } = makeContext({ limit: 75 }, undefined, (source) => {
 			const args = JSON.parse(
-				source.match(/list_work_items\((\{[^)]*\})\)/)?.[1] ?? "{}",
+				source.match(/list_work_item_cli_rows\((\{[^)]*\})\)/)?.[1] ?? "{}",
 			) as { limit: number; offset?: number };
 			const offset = args.offset ?? 0;
 			return {
@@ -975,9 +1250,8 @@ describe("canonical list pagination and output", () => {
 		expect(filtered.sources[0]).not.toContain("projectKey");
 
 		const mine = makeContext({ as: "research-lead", mine: true });
-		expect((await capture("list", mine.ctx)).code).toBe(0);
-		expect(mine.sources[0]).toContain("research_lead.work_items_list");
-		expect(mine.sources[0]).toContain('"mine":true');
+		expect((await capture("list", mine.ctx)).code).toBe(WORK_EXIT_FAIL);
+		expect(mine.nativeCalls).toEqual([]);
 		await expect(
 			runWork("list", makeContext({ mine: true }).ctx),
 		).rejects.toThrow("needs --as <tediSlug>");
@@ -1027,12 +1301,12 @@ describe("canonical ID and title resolution", () => {
 		expect((await capture(`context ${FULL_A}`, ctx)).code).toBe(0);
 		expect(sources).toHaveLength(1);
 		expect(sources[0]).toContain("get_work_items_by_id");
-		expect(sources[0]).not.toContain("list_work_items");
+		expect(sources[0]).not.toContain("list_work_item_cli_rows");
 	});
 
 	test("a unique mixed-case prefix resolves server-side before context", async () => {
 		const { ctx, sources } = makeContext({}, undefined, (source) =>
-			source.includes("list_work_items")
+			source.includes("list_work_item_cli_rows")
 				? { data: [{ id: FULL_A, title: "Alpha" }] }
 				: {
 						workItem: { id: FULL_A, title: "Alpha" },
@@ -1193,7 +1467,7 @@ describe("canonical context JSON and human rendering", () => {
 			id: ITEM,
 			workKind: "research",
 			disposition: "accepted",
-			riskLevel: "standard",
+			riskLevel: "medium",
 			priority: "high",
 			title: "Research agent scheduling",
 			description: "  Evidence-backed scheduling context.  ",
@@ -1294,7 +1568,7 @@ describe("work item ledger reads", () => {
 		}));
 		const result = await capture(`evidence ${ITEM}`, ctx);
 		expect(result.code).toBe(0);
-		expect(sources[0]).toContain("work.list_work_item_evidence");
+		expect(sources[0]).toContain("work.list_work_evidence_cli_rows");
 		expect(sources[0]).toContain(`"id":"${ITEM}"`);
 		expect(sources[0]).toContain('"limit":25');
 		const payload = JSON.parse(result.out[0]!) as {
@@ -1321,7 +1595,7 @@ describe("work item ledger reads", () => {
 		expect(result.code).toBe(0);
 		// The board takes only { id, limit }; the filters never reach the wire.
 		expect(sources[0]).toContain(
-			`work.list_work_item_evidence({"id":"${ITEM}","limit":25})`,
+			`work.list_work_evidence_cli_rows({"id":"${ITEM}","limit":25})`,
 		);
 		const payload = JSON.parse(result.out[0]!) as { data: { id: string }[] };
 		expect(payload.data.map((e) => e.id)).toEqual([EVIDENCE_A]);
@@ -1373,7 +1647,7 @@ describe("work item ledger reads", () => {
 			nextCursor: null,
 		}));
 		expect((await capture(`attempts ${ITEM}`, attemptCtx.ctx)).code).toBe(0);
-		expect(attemptCtx.sources[0]).toContain("work.list_work_item_attempts");
+		expect(attemptCtx.sources[0]).toContain("work.list_work_attempt_cli_rows");
 		expect(attemptCtx.sources[0]).toContain('"limit":3');
 
 		// runCode is faked, so the mock returns what the in-sandbox projection
@@ -1394,9 +1668,13 @@ describe("work item ledger reads", () => {
 		}));
 		const events = await capture(`events ${ITEM}`, eventCtx.ctx);
 		expect(events.code).toBe(0);
-		expect(eventCtx.sources[0]).toContain("work.list_work_item_events");
-		expect(eventCtx.sources[0]).toContain('r["events"]');
-		expect(eventCtx.sources[0]).toContain('r["nextSequence"]');
+		expect(eventCtx.sources[0]).toContain("work.list_work_event_cli_rows");
+		expect(eventCtx.nativeCalls.at(-1)?.name).toContain(
+			"list_work_event_cli_rows",
+		);
+		expect(eventCtx.nativeCalls.at(-1)?.options).toMatchObject({
+			retryable: false,
+		});
 		const payload = JSON.parse(events.out[0]!) as { data: unknown[] };
 		expect(payload.data).toHaveLength(1);
 	});
@@ -1711,7 +1989,7 @@ describe("selected chat Work checkpoint", () => {
 						organizationId: ORG,
 						actor: { authType: "user" },
 					})
-				: source.includes("list_work_interactions")
+				: source.includes("list_work_interaction_cli_rows")
 					? page
 					: (options.item ?? {
 							workItem: {
@@ -1725,6 +2003,28 @@ describe("selected chat Work checkpoint", () => {
 		ctx.resolveContext = () => options.binding ?? binding;
 		ctx.mcpUrl = options.gateway ?? gateway;
 		ctx.organizationId = options.org ?? ORG;
+		const callTool = ctx.client.callTool.bind(ctx.client);
+		ctx.client.callTool = (async (
+			name: string,
+			args: Record<string, unknown>,
+			options: Parameters<TedixHomeClient["callTool"]>[2],
+		) => {
+			if (name === "get_info") {
+				const bootstrap = nativeBootstrapFixture();
+				const runtime = optionsRuntime;
+				bootstrap.nativeContext.organizationId = ORG;
+				if (runtime && typeof runtime === "object") {
+					const { mode: _mode, ...nativeRuntime } = runtime as Record<
+						string,
+						unknown
+					>;
+					Object.assign(bootstrap.nativeContext, nativeRuntime);
+				}
+				return bootstrap;
+			}
+			return callTool(name, args, options);
+		}) as TedixHomeClient["callTool"];
+		const optionsRuntime = options.runtime;
 		return { ctx, sources };
 	}
 	test("reads exact selected chat Work and directed inbox without writes", async () => {
@@ -1736,11 +2036,11 @@ describe("selected chat Work checkpoint", () => {
 		expect(data.receipt).toBe("retrieved");
 		expect(data.requests[0].version).toBe(2);
 		expect(data.guidance).toContain("not acknowledgment or action");
-		expect(sources).toHaveLength(3);
+		expect(sources).toHaveLength(2);
 		expect(sources.join("\n")).not.toMatch(
 			/respond_work|add_comment|start_work|settle_work/,
 		);
-		expect(sources[2]).toContain(`"workItemId":"${ITEM}"`);
+		expect(sources[1]).toContain(`"workItemId":"${ITEM}"`);
 	});
 	test("returns a bounded inbox page with its canonical continuation cursor", async () => {
 		const cursor = {
@@ -1773,7 +2073,7 @@ describe("selected chat Work checkpoint", () => {
 		expect(data.requests).toHaveLength(5);
 		expect(data.nextCursor).toEqual(cursor);
 		expect(data.hasMore).toBe(true);
-		expect(sources).toHaveLength(3);
+		expect(sources).toHaveLength(2);
 	});
 	test("rejects malformed inbox continuation cursors", async () => {
 		for (const nextCursor of ["opaque", { at: "invalid", id: REQUEST }]) {
@@ -1785,12 +2085,10 @@ describe("selected chat Work checkpoint", () => {
 					observedAt: "2026-10-03T10:00:00Z",
 				},
 			});
-			await expect(runWork("checkpoint", ctx)).rejects.toThrow(
-				"Malformed checkpoint inbox page",
-			);
+			expect((await capture("checkpoint", ctx)).code).toBe(WORK_EXIT_FAIL);
 		}
 	});
-	test("verifies stored-login tenant from runtime without inventing a profile UUID", async () => {
+	test("verifies stored-login organization from authenticated bootstrap", async () => {
 		const { ctx } = fixture();
 		delete ctx.organizationId;
 		ctx.authSource = "stored-login:test";
@@ -1812,10 +2110,8 @@ describe("selected chat Work checkpoint", () => {
 			},
 		]) {
 			const { ctx, sources } = fixture({ runtime });
-			await expect(runWork("checkpoint", ctx)).rejects.toThrow(
-				"authenticated gateway organization",
-			);
-			expect(sources).toHaveLength(1);
+			await expect(runWork("checkpoint", ctx)).rejects.toThrow();
+			expect(sources).toHaveLength(0);
 		}
 		const { ctx, sources } = fixture({
 			runtime: {
@@ -1825,8 +2121,8 @@ describe("selected chat Work checkpoint", () => {
 				message: "Denied",
 			},
 		});
-		expect((await capture("checkpoint", ctx)).code).toBe(WORK_EXIT_FAIL);
-		expect(sources).toHaveLength(1);
+		await expect(runWork("checkpoint", ctx)).rejects.toThrow();
+		expect(sources).toHaveLength(0);
 	});
 	test("separate chat selection queries its own Work only", async () => {
 		const { ctx, sources } = fixture({
@@ -1883,7 +2179,7 @@ describe("selected chat Work checkpoint", () => {
 		]) {
 			const { ctx, sources } = fixture({ item: { workItem: item } });
 			await expect(runWork("checkpoint", ctx)).rejects.toThrow("mismatch");
-			expect(sources).toHaveLength(2);
+			expect(sources).toHaveLength(1);
 		}
 	});
 	test("never renders errors or malformed pages as an empty successful inbox", async () => {
@@ -1898,8 +2194,8 @@ describe("selected chat Work checkpoint", () => {
 		const result = await capture("checkpoint", ctx);
 		expect(result.code).toBe(WORK_EXIT_FAIL);
 		const malformed = fixture({ page: { data: [] } });
-		await expect(runWork("checkpoint", malformed.ctx)).rejects.toThrow(
-			"Malformed",
+		expect((await capture("checkpoint", malformed.ctx)).code).toBe(
+			WORK_EXIT_FAIL,
 		);
 	});
 	test("does not make audit-only rows actionable and rejects cross-Work rows", async () => {
@@ -2128,5 +2424,435 @@ describe("heartbeat watch rate-pressure recovery", () => {
 				retryAfter: 600,
 			}),
 		).toMatchObject({ status: 429, retryAfter: 600 });
+	});
+});
+
+/** Exercise the command dispatcher through the real modern JSON-RPC transport. */
+function modernContext(
+	work: WorkOptions = {},
+	response?: (source: string) => unknown,
+) {
+	const fixture = makeContext(work, ATTEMPT, response);
+	const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+	const wire: Array<{
+		method: string;
+		name?: string;
+		args?: Record<string, unknown>;
+	}> = [];
+	const client = new TedixHomeClient({
+		url: fixture.ctx.mcpUrl!,
+		headers: { Authorization: "Bearer fictional-fixture" },
+		timeoutMs: 60_000,
+		fetch: async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			wire.push({
+				method: request.method,
+				name: request.params?.name,
+				args: request.params?.arguments,
+			});
+			const result =
+				request.method === "server/discover"
+					? { supportedVersions: ["2026-07-28"], capabilities: {} }
+					: {
+							resultType: "complete",
+							content: [],
+							structuredContent: await invoke(
+								request.params.name,
+								request.params.arguments,
+								{},
+							),
+						};
+			return Response.json({ jsonrpc: "2.0", id: request.id, result });
+		},
+	});
+	fixture.ctx.client = client;
+	return { ...fixture, wire, client };
+}
+
+describe("native Work transport", () => {
+	test("uses returned configured names on the modern protocol and preserves full interaction delivery", async () => {
+		for (const delivery of ["auto", "review"]) {
+			const complete = {
+				request: { id: ITEM },
+				draft: {
+					delivery,
+					body: "complete draft",
+					metadata: { nested: { kept: true } },
+				},
+				responses: { data: [] },
+			};
+			const fixture = modernContext({}, () => complete);
+			const result = await capture(`interaction-get ${ITEM}`, fixture.ctx);
+			expect(result.code).toBe(0);
+			expect(JSON.parse(result.out[0]!)).toEqual(complete);
+			expect(fixture.wire.map((r) => r.method)).toEqual([
+				"server/discover",
+				"tools/call",
+				"server/discover",
+				"tools/call",
+				"server/discover",
+				"tools/call",
+				"server/discover",
+				"tools/call",
+			]);
+			expect(fixture.wire.filter((r) => r.name).map((r) => r.name)).toEqual([
+				"get_info",
+				"catalog_search",
+				"catalog_describe",
+				"configured_work__get_work_interaction",
+			]);
+			expect(fixture.wire.some((r) => r.name === "code")).toBe(false);
+			await fixture.client.close();
+		}
+	});
+	test("rejects missing, denied, ambiguous, stale and redirected descriptors before writes", async () => {
+		for (const scenario of [
+			"missing",
+			"denied",
+			"ambiguous",
+			"stale",
+			"redirect",
+			"schema-change",
+			"unsupported-input",
+			"unsupported-output",
+			"description-denied",
+			"description-missing-authorization",
+		]) {
+			const fixture = makeContext({ doneWhen: "An exact result" });
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (
+				name: string,
+				args: Record<string, unknown>,
+				options: unknown,
+			) => {
+				const result = (await invoke(name, args, options as never)) as Record<
+					string,
+					unknown
+				>;
+				if (name === "catalog_search") {
+					const rows = result.results as Array<Record<string, unknown>>;
+					const native = rows[0]!.native as Record<string, unknown>;
+					if (scenario === "missing") result.results = [];
+					if (scenario === "ambiguous") result.results = [rows[0], rows[0]];
+					if (scenario === "denied") native.authorized = false;
+					if (scenario === "stale")
+						(native.schemaFreshness as Record<string, unknown>).sourceHash =
+							null;
+					if (scenario === "redirect") native.endpoint = "workItems/create";
+				}
+				if (name === "catalog_describe") {
+					if (scenario === "schema-change")
+						(result.native as Record<string, unknown>).toolRowId = "changed";
+					if (scenario === "unsupported-input")
+						result.parameters = {
+							type: "object",
+							properties: { id: { type: "number" } },
+							required: ["id"],
+						};
+					if (scenario === "unsupported-output") delete result.outputSchema;
+					if (scenario === "description-denied") result.authorized = false;
+					if (scenario === "description-missing-authorization")
+						delete result.authorized;
+				}
+				return result;
+			}) as TedixHomeClient["callTool"];
+			expect((await capture(`accept ${ITEM}`, fixture.ctx)).code).toBe(
+				WORK_EXIT_FAIL,
+			);
+			expect(fixture.sources).toEqual([]);
+		}
+	});
+	test("fails closed for absent bootstrap, force-CodeMode, wrong org and anonymous actor", async () => {
+		for (const scenario of [
+			"null",
+			"force",
+			"org",
+			"anonymous",
+			"catalog-endpoint",
+		]) {
+			const fixture = makeContext({ doneWhen: "An exact result" });
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (
+				name: string,
+				args: Record<string, unknown>,
+				options: unknown,
+			) => {
+				if (name !== "get_info") return invoke(name, args, options as never);
+				const bootstrap = nativeBootstrapFixture();
+				if (scenario === "null") return { ...bootstrap, nativeContext: null };
+				if (scenario === "force")
+					bootstrap.nativeContext.nativeTransportAvailable = false;
+				if (scenario === "org") bootstrap.nativeContext.organizationId = ITEM;
+				if (scenario === "anonymous")
+					bootstrap.nativeContext.actor.authType = "anonymous";
+				if (scenario === "catalog-endpoint")
+					bootstrap.nativeCatalog.search.endpoint = "workItems/create";
+				return bootstrap;
+			}) as TedixHomeClient["callTool"];
+			expect((await capture(`accept ${ITEM}`, fixture.ctx)).code).toBe(
+				WORK_EXIT_FAIL,
+			);
+			expect(fixture.nativeCalls.map((c) => c.name)).not.toContain(
+				"catalog_search",
+			);
+			expect(fixture.sources).toEqual([]);
+		}
+	});
+	test("captures the carrier before bootstrap awaits and binds one nonrenewing deadline", async () => {
+		const fixture = makeContext({ doneWhen: "Original result" });
+		const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+		fixture.ctx.client.callTool = (async (
+			name: string,
+			args: Record<string, unknown>,
+			options: unknown,
+		) => {
+			if (name === "get_info") {
+				fixture.ctx.work.doneWhen = "Changed";
+				fixture.ctx.work.as = "another_actor";
+				fixture.ctx.organizationId = ITEM;
+				fixture.ctx.client.callTool = (() => {
+					throw new Error("mutated carrier");
+				}) as TedixHomeClient["callTool"];
+			}
+			return invoke(name, args, options as never);
+		}) as TedixHomeClient["callTool"];
+		expect((await capture(`accept ${ITEM}`, fixture.ctx)).code).toBe(0);
+		expect(fixture.sources[0]).toContain("Original result");
+		expect(fixture.sources[0]).not.toContain("Changed");
+		const deadlines = fixture.nativeCalls.map(
+			(c) => (c.options as { deadlineAt: number }).deadlineAt,
+		);
+		expect(new Set(deadlines).size).toBe(1);
+	});
+	test("does not replay a read-shaped mutation on ambiguous connection loss", async () => {
+		const fixture = modernContext({ input: "{}" });
+		let calls = 0;
+		const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+		fixture.ctx.client.callTool = (async (
+			name: string,
+			args: Record<string, unknown>,
+			options: unknown,
+		) => {
+			if (name === "configured_work__plan_work_execution_clusters") {
+				calls++;
+				throw new Error("connection closed after execution");
+			}
+			return invoke(name, args, options as never);
+		}) as TedixHomeClient["callTool"];
+		expect((await capture("clusters", fixture.ctx)).code).toBe(WORK_EXIT_FAIL);
+		expect(calls).toBe(1);
+		await fixture.client.close();
+	});
+	test("rejects namespace selectors for corroboration mutations", async () => {
+		const fixture = makeContext({
+			as: "research-lead",
+			evidence: "artifact://reproduction",
+		});
+		await expect(runWork(`confirm ${ITEM}`, fixture.ctx)).rejects.toThrow(
+			"read-only",
+		);
+		expect(fixture.nativeCalls).toEqual([]);
+	});
+});
+
+describe("native dispatcher coverage", () => {
+	test("covers every current dispatcher key through modern native transport or its local-only path", async () => {
+		const direct: Record<
+			string,
+			{ args?: string; work?: WorkOptions; expected?: number }
+		> = {
+			checkpoint: { args: "" },
+			"claim-files": {
+				work: { repoKey: "example", paths: ["src/example.ts"] },
+			},
+			list: { args: "" },
+			find: { args: "Example" },
+			create: { args: "Example result", work: { objective: ITEM } },
+			accept: { work: { doneWhen: "Example result" } },
+			readiness: {},
+			start: {},
+			handoff: { work: { host: "codex" } },
+			comment: { args: `${ITEM} An observed result` },
+			"authorize-blog": {
+				work: {
+					campaign: "example",
+					contentIds: ITEM,
+					validUntil: "2026-10-09T12:00:00Z",
+				},
+			},
+			"revoke-blog": {
+				work: { campaign: "example", reason: "Example revocation" },
+			},
+			heartbeat: {},
+			confirm: { work: { evidence: "artifact://example" } },
+			settle: { work: { outcome: "succeeded" } },
+			"submit-evidence": {
+				work: {
+					claimKey: "example",
+					evidenceKind: "test_report",
+					evidence: "artifact://example",
+				},
+			},
+			complete: {},
+			cancel: {},
+			context: {},
+			evidence: {},
+			attempts: {},
+			events: {},
+			trailers: {},
+		};
+		const pathVerbs = new Set([
+			"case-get",
+			"case-stage",
+			"case-close",
+			"case-attach",
+			"milestone-list",
+			"milestone-create",
+			"milestone-update",
+			"milestone-attach",
+			"milestone-dependency-add",
+			"health-list",
+			"health-record",
+			"approval-decide",
+			"interaction-get",
+			"interaction-respond",
+			"interaction-cancel",
+			"admission-get",
+			"admission-replace",
+		]);
+		const covered: string[] = [];
+		for (const verb of workVerbNames()) {
+			const spec = direct[verb];
+			const fixture = modernContext(
+				spec?.work ?? (spec ? {} : { input: "{}" }),
+				(source) => {
+					if (source.includes("get_work_admission_specification"))
+						return {
+							workItemId: ITEM,
+							workItemVersion: 1,
+							admissionSpecRevision: "fixture-revision",
+							resources: [
+								{ resourceKey: "file:example:src/example.ts", quantity: 1 },
+							],
+							budget: null,
+						};
+					if (source.includes("list_work_resource_pools"))
+						return {
+							data: [
+								{
+									pool: {
+										id: ITEM,
+										orgId: TEST_ORG,
+										resourceKey: "file:example:src/example.ts",
+										allocationMode: "exclusive",
+										capacity: 1,
+										ownerRef: null,
+										createdAt: "2026-10-07T12:00:00Z",
+										updatedAt: null,
+										version: 1,
+									},
+									activeReserved: 0,
+									effectiveAvailable: 1,
+								},
+							],
+							nextCursor: null,
+						};
+					if (source.includes("get_work_item_checkpoint"))
+						return {
+							id: ITEM,
+							projectId: ATTEMPT,
+							orgId: TEST_ORG,
+							disposition: "accepted",
+						};
+					if (source.includes("list_work_interaction_cli_rows"))
+						return {
+							data: [],
+							nextCursor: null,
+							hasMore: false,
+							observedAt: "2026-10-07T12:00:00Z",
+						};
+					if (source.includes("get_work_items_by_id"))
+						return {
+							workItem: { id: ITEM, disposition: "accepted", title: "Example" },
+						};
+					if (source.includes("start_work_item_attempt"))
+						return {
+							attempt: {
+								id: ATTEMPT,
+								externalSessionKey:
+									"codex:33333333-3333-4333-8333-333333333333",
+							},
+						};
+					if (source.includes("list_work_event_cli_rows"))
+						return { events: [], nextSequence: null };
+					if (/list_work_(attempt|evidence)_cli_rows/.test(source))
+						return { data: [], nextCursor: null };
+					return { id: ITEM };
+				},
+			);
+			if (verb === "checkpoint")
+				fixture.ctx.resolveContext = () => ({
+					status: "bound",
+					workspace: "test",
+					mcpUrl: fixture.ctx.mcpUrl!,
+					projectId: ATTEMPT,
+					workItemId: ITEM,
+					contextSessionId: ITEM,
+					contextSource: "chat",
+				});
+			const tail = spec ? (spec.args ?? ITEM) : pathVerbs.has(verb) ? ITEM : "";
+			const result = await capture(`${verb} ${tail}`, fixture.ctx);
+			expect({ verb, code: result.code }).toEqual({
+				verb,
+				code: spec?.expected ?? 0,
+			});
+			if (verb === "trailers") expect(fixture.wire).toEqual([]);
+			else {
+				expect(
+					fixture.wire.filter((r) => r.name).length,
+				).toBeGreaterThanOrEqual(4);
+				expect(
+					fixture.wire
+						.filter((r) => r.name)
+						.every(
+							(r) =>
+								r.name === "get_info" ||
+								r.name === "catalog_search" ||
+								r.name === "catalog_describe" ||
+								r.name!.startsWith("configured_"),
+						),
+				).toBe(true);
+				expect(fixture.wire.some((r) => r.name === "code")).toBe(false);
+			}
+			covered.push(verb);
+			await fixture.client.close();
+		}
+		expect(covered).toEqual(workVerbNames());
+		expect(covered).toHaveLength(57);
+	});
+});
+
+describe("native Work publication boundary", () => {
+	test("refuses an output after caller cancellation even when an injected client ignores abort", async () => {
+		const fixture = makeContext({ doneWhen: "Example result" });
+		const controller = new AbortController();
+		fixture.ctx.signal = controller.signal;
+		const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+		fixture.ctx.client.callTool = (async (
+			name: string,
+			args: Record<string, unknown>,
+			options: unknown,
+		) => {
+			const value = await invoke(name, args, options as never);
+			if (name.startsWith("configured_"))
+				controller.abort(new Error("Caller stopped"));
+			return value;
+		}) as TedixHomeClient["callTool"];
+		const result = await capture(`accept ${ITEM}`, fixture.ctx);
+		expect(result.code).toBe(WORK_EXIT_FAIL);
+		expect(JSON.parse(result.out[0]!).error.message).toContain(
+			"Caller stopped",
+		);
+		expect(fixture.sources).toHaveLength(1);
 	});
 });
