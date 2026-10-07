@@ -10,7 +10,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DETAIL_CALLABLE } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 import { gatewayCode, runPromptContext } from "./prompt-context";
 
@@ -80,18 +79,16 @@ async function run(
 		write: (line) => lines.push(line),
 		read: async (args, _timeout, input) => {
 			calls.push(args);
-			if (input !== undefined) {
-				// The Interaction read: run the real projection against a fixture.
-				sources.push(input);
+			if (args.includes("interaction-get")) {
+				expect(input).toBeUndefined();
+				expect(args.slice(-2)).toEqual([
+					"--input",
+					JSON.stringify({ responseLimit: 5 }),
+				]);
 				const next = interactions.shift();
 				if (next === undefined || next instanceof Error)
-					throw next ?? new Error("Unknown tool");
-				const work = {
-					[DETAIL_CALLABLE.split(".")[1]!]: async () => structuredClone(next),
-				};
-				return (await new Function("work", `return (${input})();`)(
-					work,
-				)) as JsonObject;
+					throw next ?? new Error("Unknown native tool");
+				return structuredClone(next) as JsonObject;
 			}
 			if (!reads.length) throw new Error("unexpected read");
 			const next = reads.shift();
@@ -454,18 +451,61 @@ describe("tedix hooks prompt-context", () => {
 			...AUTH,
 			storedLogin: { org: "org_fixture", loginId: "U-me" },
 		};
-		const detail = (overrides: JsonObject = {}): JsonObject => ({
-			request: { id: REQUEST, version: 2, expiresAt: null },
-			effectiveState: "open",
-			latestDraft: {
-				id: DRAFT,
-				body: 'Yes, ship it. "Then" tidy docs.',
-				rationale: "Routine follow-up.",
-				drafterId: "tedi-docs",
-			},
-			responses: { data: [], nextCursor: null, hasMore: false },
-			...overrides,
-		});
+		const detail = (overrides: JsonObject = {}): JsonObject => {
+			const value: JsonObject = {
+				request: {
+					id: REQUEST,
+					orgId: ORG,
+					workItemId: null,
+					caseId: null,
+					projectId: PROJECT,
+					kind: "question",
+					subject: "Fixture decision",
+					prompt: "Fixture question",
+					requestedFromType: "user",
+					requestedFromId: "U-me",
+					creatorType: "user",
+					creatorId: "U-me",
+					creatorSessionId: null,
+					state: "open",
+					requestedAt: "2026-10-06T00:00:00Z",
+					dueAt: null,
+					expiresAt: null,
+					resolvedAt: null,
+					version: 2,
+					metadata: {},
+				},
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				latestDraft: {
+					id: DRAFT,
+					body: 'Yes, ship it. "Then" tidy docs.',
+					rationale: "Routine follow-up.",
+					drafterId: "tedi-docs",
+					drafterName: null,
+					createdAt: "2026-10-06T00:00:00Z",
+					turnType: null,
+					delivery: "review",
+				},
+				responses: { data: [], nextCursor: null, hasMore: false },
+				...overrides,
+			};
+			value.responses.data = value.responses.data.map(
+				(response: JsonObject) => ({
+					id: "22222222-2222-4222-8222-222222222222",
+					requestId: REQUEST,
+					responseKind: "answer",
+					artifactRef: null,
+					artifactVersion: null,
+					artifactDigest: null,
+					respondedBySessionId: null,
+					respondedAt: "2026-10-06T01:00:00Z",
+					...response,
+				}),
+			);
+			return value;
+		};
 
 		function withConfig(
 			body: (config: string, dir: string) => Promise<void>,
@@ -494,7 +534,13 @@ describe("tedix hooks prompt-context", () => {
 						[detail()],
 					);
 					expect(out).toBe("");
-					expect(sources[0]).toContain(REQUEST);
+					expect(sources).toEqual([]);
+					expect(
+						calls.some(
+							(args) =>
+								args.includes("interaction-get") && args.includes(REQUEST),
+						),
+					).toBe(true);
 					const files = readdirSync(dir)
 						.map((name) => readFileSync(join(dir, name), "utf8"))
 						.join("");
