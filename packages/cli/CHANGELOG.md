@@ -3,6 +3,14 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.3 — 2026-10-08
+
+### Fixed
+
+- `tedix learn import-sessions` waits a minute before asking again when
+  turning decisions into lessons outlasts the gateway's wait, so two runs do
+  not overlap.
+
 ## 0.6.2 — 2026-10-07
 
 ### Fixed
