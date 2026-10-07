@@ -631,6 +631,7 @@ export class ConversationFacet extends PiAgent<
 											provider: message.provider,
 											modelId: message.responseModel ?? message.model,
 										},
+								providerMetadata: measurement.providerMetadata,
 								stepNumber: receipt.ordinal,
 								finishReason: message.stopReason,
 								text: message.content

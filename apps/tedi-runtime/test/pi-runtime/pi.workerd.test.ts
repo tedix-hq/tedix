@@ -54,12 +54,20 @@ describe("Production ConversationFacet on native Pi", () => {
 			provider: unknown;
 			model: unknown;
 			usage: { cacheReadTokens: unknown; cacheWriteTokens: unknown };
+			autoRouter?: unknown;
 		}>;
 		// The turn's real selection, not Pi's stable `tedix/selected` catalog entry.
 		expect(step?.provider).toBe("workers-ai");
 		expect(step?.model).toBe("@cf/test");
 		expect(step?.usage.cacheReadTokens).toEqual(expect.any(Number));
 		expect(step?.usage.cacheWriteTokens).toEqual(expect.any(Number));
+		// The Auto Router's concrete choice reaches the receipt from the finish part.
+		expect(step?.autoRouter).toEqual({
+			routedModel: "@cf/routed-test",
+			routingReason: "fixture-route",
+			routingDecisionId: "decision-1",
+			requestId: null,
+		});
 	});
 	it("honors the configured ceiling and persists a tools-off final report", async () => {
 		const agent = await fixture(crypto.randomUUID());
