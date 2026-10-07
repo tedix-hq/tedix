@@ -6,6 +6,8 @@ import {
 
 export interface PlatformAggregateAppEntry {
 	slug: string;
+	/** Stable app id this entry links to; preferred over slug. */
+	appId?: string;
 	connectionLabel?: string;
 	connectionProviderId?: string;
 	connectionScope?: "tenant" | "user" | "hybrid";

@@ -667,3 +667,235 @@ describe("aggregate entry resolution is batched", () => {
 		expect(getBySlugsWithTools).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("aggregate entries link by stable app id", () => {
+	const PROXY_ID = "3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+	const BASE_ID = "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d";
+	const REFUSED_ID = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
+	// Distinct per case: the per-source L1 cache outlives a single test.
+	const SPOOF_ID = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
+
+	type BatchRequest = {
+		slug: string;
+		appId?: string;
+		hostOrganizationId?: string;
+	};
+
+	function appWithIdentity(
+		fixture: AppFixture,
+		identity: { id: string; organizationId: string },
+	) {
+		const response = appResponse(fixture);
+		return { ...response, app: { ...response.app, ...identity } };
+	}
+
+	/**
+	 * Wire upstream resolution like apps/api: slug requests resolve by slug and
+	 * id requests by id. Ownership is apps/api's job (proved in packages/db);
+	 * here `refusedIds` stands for ids it answered with `app: null`.
+	 */
+	function installIdFixtures(
+		bySlugEntries: Array<ReturnType<typeof appWithIdentity>>,
+		byIdEntries: Array<ReturnType<typeof appWithIdentity>>,
+		refusedIds: string[] = [],
+	) {
+		const bySlug = new Map(bySlugEntries.map((e) => [e.app.slug, e]));
+		const byId = new Map(byIdEntries.map((e) => [e.app.id, e]));
+		const empty = { app: null, tools: [] };
+		const answer = (request: BatchRequest) =>
+			request.appId
+				? refusedIds.includes(request.appId)
+					? empty
+					: (byId.get(request.appId) ?? empty)
+				: (bySlug.get(request.slug) ?? empty);
+		getBySlugWithTools.mockImplementation(async ({ slug }: { slug: string }) =>
+			answer({ slug }),
+		);
+		getBySlugsWithTools.mockImplementation(
+			async ({ apps }: { apps: BatchRequest[] }) => ({
+				results: apps.map((request) => ({
+					slug: request.slug,
+					...answer(request),
+				})),
+			}),
+		);
+	}
+
+	function batchedRequests(): BatchRequest[] {
+		return getBySlugsWithTools.mock.calls.flatMap(
+			(call) => (call[0] as { apps: BatchRequest[] }).apps,
+		);
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		getByDomain.mockResolvedValue({ app: null });
+		getBySlugWithTools.mockResolvedValue({ app: null, tools: [] });
+		buildMcpServer.mockResolvedValue({} as unknown);
+	});
+
+	it("resolves a gateway → proxy → base chain by id after every slug was renamed", async () => {
+		const gateway = appWithIdentity(
+			{
+				slug: "idlink-gateway",
+				mcpConfig: {
+					authMode: "public",
+					// Both stored slugs are stale: the apps were renamed after linking.
+					aggregateApps: [
+						{ slug: "idlink-proxy-old", appId: PROXY_ID, prefix: "crm" },
+					],
+				},
+			},
+			{ id: "app-idlink-gateway", organizationId: "org-acme" },
+		);
+		const proxy = appWithIdentity(
+			{
+				slug: "idlink-proxy-acme",
+				mcpConfig: {
+					aggregateApps: [{ slug: "idlink-base-old", appId: BASE_ID }],
+				},
+			},
+			{ id: PROXY_ID, organizationId: "org-acme" },
+		);
+		const base = appWithIdentity(
+			{ slug: "idlink-base", tools: [tool("list_contacts")] },
+			{ id: BASE_ID, organizationId: "org-platform" },
+		);
+		installIdFixtures([gateway], [proxy, base]);
+
+		const toolIds = await serveAndCaptureTools("idlink-gateway");
+
+		expect(toolIds).toEqual(["crm__list_contacts"]);
+		// Each id entry carried the organization of the app that holds it: the
+		// gateway's for the proxy, the proxy's for its nested base entry.
+		expect(
+			batchedRequests().map(({ slug, appId, hostOrganizationId }) => ({
+				slug,
+				appId,
+				hostOrganizationId,
+			})),
+		).toEqual([
+			{
+				slug: "idlink-proxy-old",
+				appId: PROXY_ID,
+				hostOrganizationId: "org-acme",
+			},
+			{
+				slug: "idlink-base-old",
+				appId: BASE_ID,
+				hostOrganizationId: "org-acme",
+			},
+		]);
+		// The stale slugs were never looked up.
+		expect(singleResolveSlugs("idlink-gateway")).toEqual([]);
+	});
+
+	it("still resolves entries written before ids were stored by slug", async () => {
+		const gateway = appWithIdentity(
+			{
+				slug: "mixed-gateway",
+				mcpConfig: {
+					authMode: "public",
+					aggregateApps: [
+						{ slug: "mixed-legacy" },
+						{ slug: "mixed-linked-old", appId: BASE_ID },
+					],
+				},
+			},
+			{ id: "app-mixed-gateway", organizationId: "org-sample" },
+		);
+		const legacy = appWithIdentity(
+			{ slug: "mixed-legacy", tools: [tool("legacy_list")] },
+			{ id: "app-mixed-legacy", organizationId: "org-sample" },
+		);
+		const linked = appWithIdentity(
+			{ slug: "mixed-linked", tools: [tool("linked_list")] },
+			{ id: BASE_ID, organizationId: "org-sample" },
+		);
+		installIdFixtures([gateway, legacy], [linked]);
+
+		const toolIds = await serveAndCaptureTools("mixed-gateway");
+
+		expect(toolIds.sort()).toEqual([
+			"mixed-legacy__legacy_list",
+			"mixed-linked-old__linked_list",
+		]);
+		const requests = batchedRequests();
+		expect(requests.find((r) => r.slug === "mixed-legacy")?.appId).toBe(
+			undefined,
+		);
+		expect(requests.find((r) => r.slug === "mixed-linked-old")).toMatchObject({
+			appId: BASE_ID,
+			hostOrganizationId: "org-sample",
+		});
+	});
+
+	it("never falls back to the stored slug when apps/api refuses the id", async () => {
+		const gateway = appWithIdentity(
+			{
+				slug: "refused-gateway",
+				mcpConfig: {
+					authMode: "public",
+					// The id names another organization's private app; the stored slug
+					// happens to match an app that would resolve.
+					aggregateApps: [{ slug: "refused-decoy", appId: REFUSED_ID }],
+				},
+			},
+			{ id: "app-refused-gateway", organizationId: "org-acme" },
+		);
+		const decoy = appWithIdentity(
+			{ slug: "refused-decoy", tools: [tool("decoy_list")] },
+			{ id: "app-refused-decoy", organizationId: "org-acme" },
+		);
+		const foreign = appWithIdentity(
+			{ slug: "foreign-private", tools: [tool("private_list")] },
+			{ id: REFUSED_ID, organizationId: "org-sample" },
+		);
+		installIdFixtures([gateway, decoy], [foreign], [REFUSED_ID]);
+
+		const toolIds = await serveAndCaptureTools("refused-gateway");
+
+		expect(toolIds).toEqual([]);
+		expect(singleResolveSlugs("refused-gateway")).toEqual([]);
+	});
+
+	it("ignores a host organization stored in metadata", async () => {
+		const gateway = appWithIdentity(
+			{
+				slug: "spoof-gateway",
+				mcpConfig: {
+					authMode: "public",
+					aggregateApps: [
+						{
+							slug: "spoof-target",
+							appId: SPOOF_ID,
+							hostOrganizationId: "org-sample",
+						},
+					],
+				},
+			},
+			{ id: "app-spoof-gateway", organizationId: "org-acme" },
+		);
+		installIdFixtures([gateway], []);
+
+		await serveAndCaptureTools("spoof-gateway");
+
+		expect(batchedRequests()).toEqual([
+			expect.objectContaining({
+				appId: SPOOF_ID,
+				hostOrganizationId: "org-acme",
+			}),
+		]);
+	});
+
+	it("never shares a surface snapshot between an id entry and a slug entry", () => {
+		const bySlug = aggregateSurfaceCacheKey([{ slug: "shared-name" }]);
+		const byId = aggregateSurfaceCacheKey([
+			{ slug: "shared-name", appId: BASE_ID, hostOrganizationId: "org-acme" },
+		]);
+		const otherHost = aggregateSurfaceCacheKey([
+			{ slug: "shared-name", appId: BASE_ID, hostOrganizationId: "org-sample" },
+		]);
+		expect(new Set([bySlug, byId, otherHost]).size).toBe(3);
+	});
+});

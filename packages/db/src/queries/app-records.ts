@@ -18,6 +18,7 @@ import {
 	appCatalogMcpResourceTemplates,
 } from "../schema/catalog";
 import { appToolCspDomains } from "../schema/configuration";
+import { organizations } from "../schema/organizations";
 import { appTools } from "../schema/tools";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import { aggregateAppEntryMatchesSql } from "./aggregate-app-links";
@@ -482,7 +483,53 @@ function loadAppBySlugWithTools(
 	});
 }
 
-export type AppSurfaceRequest = { slug: string } & ToolSelectionOptions;
+/**
+ * One aggregate entry to resolve. `appId`, when present, wins over `slug`: the
+ * entry resolves by its stable id and `slug` is only the display/fallback name
+ * stored beside it. An id entry also names `hostOrganizationId` — the
+ * organization of the app whose `aggregateApps` holds the entry — so the id
+ * cannot reach an app the aggregate ownership rule refuses (see
+ * {@link aggregateSourceAllowed}).
+ */
+export type AppSurfaceRequest = {
+	slug: string;
+	appId?: string;
+	hostOrganizationId?: string;
+} & ToolSelectionOptions;
+
+type AggregateOwnershipOrg = {
+	id: string;
+	slug: string;
+	descopeTenantId: string | null;
+};
+
+/** Tedix Cloud's own tenant key; an own-account installation never matches it. */
+function isTedixPlatformOrganization(
+	org: AggregateOwnershipOrg | undefined,
+): boolean {
+	return org?.slug === "tedix" || org?.descopeTenantId === "org_tedix";
+}
+
+/**
+ * The aggregate ownership rule, applied to an id-linked entry.
+ *
+ * A host may aggregate its own organization's apps or the Tedix platform
+ * organization's shared apps — the rule `assertTenantMcpConfigAllowed` enforces
+ * when a tenant writes `aggregateApps` and `previewSourceAllowed` applies to the
+ * scope preview. A host in the platform organization is written only by platform
+ * principals, which that write rule leaves unrestricted.
+ */
+function aggregateSourceAllowed(
+	hostOrganizationId: string,
+	sourceOrganizationId: string,
+	orgById: Map<string, AggregateOwnershipOrg>,
+): boolean {
+	return (
+		sourceOrganizationId === hostOrganizationId ||
+		isTedixPlatformOrganization(orgById.get(sourceOrganizationId)) ||
+		isTedixPlatformOrganization(orgById.get(hostOrganizationId))
+	);
+}
 
 /** Result element of {@link getAppsBySlugsWithTools}; `null` = slug not found. */
 export type AppSurfaceResult = Awaited<
@@ -532,14 +579,75 @@ export async function getAppsBySlugsWithTools(
 		`${requests.length} app surface(s) with tools`,
 		async () => {
 			// ── apps ──────────────────────────────────────────────────────────────
-			const slugs = [...new Set(requests.map((r) => r.slug))];
-			const appRows: Array<typeof apps.$inferSelect> = [];
+			// An entry with `appId` resolves by id; only entries without one fall
+			// back to the slug lookup.
+			const slugs = [
+				...new Set(requests.filter((r) => !r.appId).map((r) => r.slug)),
+			];
+			const ids = [
+				...new Set(
+					requests.map((r) => r.appId).filter((id): id is string => !!id),
+				),
+			];
+			const slugRows: Array<typeof apps.$inferSelect> = [];
 			for (const chunk of chunked(slugs, APP_SURFACE_ID_CHUNK)) {
-				appRows.push(
+				slugRows.push(
 					...(await db.select().from(apps).where(inArray(apps.slug, chunk))),
 				);
 			}
-			const appBySlug = new Map(appRows.map((app) => [app.slug, app]));
+			const idRows: Array<typeof apps.$inferSelect> = [];
+			for (const chunk of chunked(ids, APP_SURFACE_ID_CHUNK)) {
+				idRows.push(
+					...(await db.select().from(apps).where(inArray(apps.id, chunk))),
+				);
+			}
+			const appBySlug = new Map(slugRows.map((app) => [app.slug, app]));
+			const appById = new Map(idRows.map((app) => [app.id, app]));
+
+			// Ownership facts for every id entry whose target sits outside its host.
+			const orgIds = new Set<string>();
+			for (const request of requests) {
+				const target = request.appId ? appById.get(request.appId) : undefined;
+				if (!target || !request.hostOrganizationId) continue;
+				if (target.organizationId === request.hostOrganizationId) continue;
+				orgIds.add(target.organizationId);
+				orgIds.add(request.hostOrganizationId);
+			}
+			const orgById = new Map<string, AggregateOwnershipOrg>();
+			for (const chunk of chunked([...orgIds], APP_SURFACE_ID_CHUNK)) {
+				const rows = await db
+					.select({
+						id: organizations.id,
+						slug: organizations.slug,
+						descopeTenantId: organizations.descopeTenantId,
+					})
+					.from(organizations)
+					.where(inArray(organizations.id, chunk));
+				for (const row of rows) orgById.set(row.id, row);
+			}
+
+			// Positionally parallel to `requests`. An id entry without a host, or
+			// whose target the ownership rule refuses, is unresolved (`null`) —
+			// never silently re-resolved by its slug.
+			const resolvedApps = requests.map((request) => {
+				if (!request.appId) return appBySlug.get(request.slug) ?? null;
+				const target = appById.get(request.appId);
+				if (!target || !request.hostOrganizationId) return null;
+				return aggregateSourceAllowed(
+					request.hostOrganizationId,
+					target.organizationId,
+					orgById,
+				)
+					? target
+					: null;
+			});
+			const appRows = [
+				...new Map(
+					resolvedApps
+						.filter((app): app is typeof apps.$inferSelect => app !== null)
+						.map((app) => [app.id, app]),
+				).values(),
+			];
 
 			// ── tools, grouped by identical tool selection ────────────────────────
 			// Requests overwhelmingly share the empty selection, so this is normally
@@ -548,8 +656,8 @@ export async function getAppsBySlugsWithTools(
 				string,
 				{ options: ToolSelectionOptions; appIds: string[] }
 			>();
-			for (const request of requests) {
-				const app = appBySlug.get(request.slug);
+			for (const [index, request] of requests.entries()) {
+				const app = resolvedApps[index];
 				if (!app) continue;
 				const options: ToolSelectionOptions = {
 					toolIds: request.toolIds,
@@ -632,8 +740,8 @@ export async function getAppsBySlugsWithTools(
 				catalogAppIds,
 			);
 
-			return requests.map((request) => {
-				const app = appBySlug.get(request.slug);
+			return requests.map((request, index) => {
+				const app = resolvedApps[index];
 				if (!app) return null;
 				const signature = appSurfaceKey("", {
 					toolIds: request.toolIds,

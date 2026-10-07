@@ -364,17 +364,28 @@ export async function assertTenantMcpConfigAllowed(
 	if (!Array.isArray(aggregates)) return;
 
 	for (const entry of aggregates) {
-		const slug =
+		const record =
 			entry && typeof entry === "object"
-				? (entry as Record<string, unknown>).slug
+				? (entry as Record<string, unknown>)
 				: undefined;
-		if (typeof slug !== "string" || slug.length === 0) continue;
+		const slug = record?.slug;
+		const appId =
+			typeof record?.appId === "string" && record.appId.length > 0
+				? record.appId
+				: undefined;
+		if (!appId && (typeof slug !== "string" || slug.length === 0)) continue;
 
-		const sourceApp = await getAppBySlug(db, slug);
+		// The read path resolves an entry by its stable `appId` when present, so
+		// that is the link the ownership rule must check.
+		const sourceApp = appId
+			? await getAppById(db, appId)
+			: await getAppBySlug(db, slug as string);
 		if (!sourceApp) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`aggregateApps references unknown app slug "${slug}".`,
+				appId
+					? `aggregateApps references unknown app id "${appId}".`
+					: `aggregateApps references unknown app slug "${slug}".`,
 			);
 		}
 		if (sourceApp.organizationId === callerOrgId) continue;
@@ -386,7 +397,7 @@ export async function assertTenantMcpConfigAllowed(
 		if (!isTedixPlatformOrg) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
-				`aggregateApps cannot reference app "${slug}" outside your organization.`,
+				`aggregateApps cannot reference app "${appId ?? slug}" outside your organization.`,
 			);
 		}
 	}

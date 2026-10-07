@@ -7,13 +7,18 @@ import type { BaseContext } from "../orpc";
 // those modules keep their real (pure) implementations. The privileged-key and
 // platform-bypass paths never reach the db, so those tests are mock-agnostic.
 const mocks = vi.hoisted(() => ({
+	getAppById: vi.fn(),
 	getAppBySlug: vi.fn(),
 	getOrganizationById: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/app-records", async (importOriginal) => {
 	const actual = await importOriginal<Record<string, unknown>>();
-	return { ...actual, getAppBySlug: mocks.getAppBySlug };
+	return {
+		...actual,
+		getAppById: mocks.getAppById,
+		getAppBySlug: mocks.getAppBySlug,
+	};
 });
 
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => {
@@ -41,6 +46,7 @@ const platformCtx = (): BaseContext =>
 	}) as unknown as BaseContext;
 
 beforeEach(() => {
+	mocks.getAppById.mockReset();
 	mocks.getAppBySlug.mockReset();
 	mocks.getOrganizationById.mockReset();
 });
@@ -121,6 +127,33 @@ describe("assertTenantMcpConfigAllowed", () => {
 				aggregateApps: [{ slug: "victim" }],
 			}),
 		).rejects.toThrow(/outside your organization/);
+	});
+
+	it("checks an entry's appId, not its slug, because reads resolve by id", async () => {
+		// The slug names the caller's own app; the id names another tenant's.
+		mocks.getAppBySlug.mockResolvedValue({
+			id: "app-mine",
+			slug: "mine",
+			organizationId: CALLER_ORG,
+		});
+		mocks.getAppById.mockResolvedValue({
+			id: "app-x",
+			slug: "victim",
+			organizationId: OTHER_ORG,
+		});
+		mocks.getOrganizationById.mockResolvedValue({
+			id: OTHER_ORG,
+			slug: "sample",
+			descopeTenantId: "org_sample",
+		});
+		await expect(
+			assertTenantMcpConfigAllowed(db, tenantCtx(), CALLER_ORG, {
+				aggregateApps: [
+					{ slug: "mine", appId: "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a" },
+				],
+			}),
+		).rejects.toThrow(/outside your organization/);
+		expect(mocks.getAppBySlug).not.toHaveBeenCalled();
 	});
 
 	it("rejects aggregateApps that reference an unknown slug", async () => {

@@ -401,6 +401,13 @@ export const appsContract = oc
 		 * and `app: null` means that slug does not exist. "No tools" (`tools: []`)
 		 * is therefore always distinguishable from "not asked for" (absent index).
 		 * Duplicate slugs with different tool selections are legal.
+		 *
+		 * An entry that carries `appId` is resolved by that stable id instead of
+		 * its slug, so renaming an app's slug cannot break the link. An id entry
+		 * must name `hostOrganizationId` (the organization of the app whose
+		 * `aggregateApps` holds the entry); the target is returned only when it
+		 * belongs to that organization or to the Tedix platform organization, or
+		 * when the host itself is the platform organization. Otherwise `app: null`.
 		 */
 		getBySlugsWithTools: oc
 			.route({
@@ -417,6 +424,20 @@ export const appsContract = oc
 						.array(
 							z.object({
 								slug: z.string().min(1),
+								appId: z
+									.string()
+									.uuid()
+									.optional()
+									.describe(
+										"Stable app id; when present the entry resolves by id and slug is only echoed.",
+									),
+								hostOrganizationId: z
+									.string()
+									.min(1)
+									.optional()
+									.describe(
+										"Organization of the app that holds this entry; required for an id entry to resolve.",
+									),
 								endpointPrefixes: z
 									.array(z.string().min(1))
 									.optional()
