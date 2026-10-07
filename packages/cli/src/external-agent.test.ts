@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CAPABILITY_SCOPES } from "@tedix/mcp-shared/auth/scopes";
 import {
+	defaultLocalPrincipal,
 	externalAgentStatus,
 	finishExternalAgentSession,
 	resolveExternalAgentAuth,
@@ -1035,25 +1036,184 @@ test.each(["same", "different"])(
 		const second = startExternalAgentSession({
 			...common,
 			agentKey: scenario === "same" ? "race-one" : "race-two",
+			notice: () => {},
 		});
 		const outcomes = Promise.allSettled([first, second]);
 		release();
 		const results = await outcomes;
-		expect(results[0]?.status).toBe("fulfilled");
-		expect(results[1]?.status).toBe(
-			scenario === "same" ? "fulfilled" : "rejected",
-		);
+		// A different key no longer fails: the second session joins the first
+		// principal with its own Agent-Session, and nothing extra is issued.
+		expect(results.map((result) => result.status)).toEqual([
+			"fulfilled",
+			"fulfilled",
+		]);
 		expect(createdKeys).toBe(1);
 		expect(createdPrincipals).toBe(1);
-		expect(exchanges).toBe(scenario === "same" ? 2 : 1);
+		expect(exchanges).toBe(2);
 		const stored = JSON.parse(
 			readFileSync(join(configDir, "external-agents.json"), "utf8"),
 		).workspaces.tedix;
 		expect(stored.key).toBe("race-one");
-		expect(Object.keys(stored.sessions).sort()).toEqual(
-			scenario === "same"
-				? ["codex:race-one", "codex:race-two"]
-				: ["codex:race-one"],
-		);
+		expect(Object.keys(stored.sessions).sort()).toEqual([
+			"codex:race-one",
+			"codex:race-two",
+		]);
 	},
 );
+
+describe("one profile shared by parallel harness sessions", () => {
+	const owner = {
+		workspace: "connect",
+		workspaceCredential: { loginId: "owner", org: "org_tedix" },
+		mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+		oauthBearer: "owner-token",
+		harnessVersion: "2.1.293",
+		modelProvider: "anthropic",
+		modelId: "claude-opus-5-5",
+		modelVersion: "claude-opus-5-5",
+		listWorkspaces: async () => [
+			{
+				org: ORG,
+				slug: "tedix",
+				name: "Tedix",
+				gatewayUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				descopeTenantId: "org_tedix",
+			},
+		],
+	} as const;
+
+	function bootstrapClient(code: string[]) {
+		return () => ({
+			runCode: async (source: string) => {
+				code.push(source);
+				if (source.includes("organizations.create_api_key"))
+					return {
+						result: {
+							rawKey: "sk_external_secret",
+							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
+						},
+					};
+				if (source.includes("external.create_external_agent_principal"))
+					return { result: { id: PRINCIPAL } };
+				return { result: { success: true } };
+			},
+			close: async () => {},
+		});
+	}
+
+	// The server echoes the requested tuple, so each harness session keeps its key.
+	const echoExchange = async (
+		_url: string | URL | Request,
+		init?: RequestInit,
+	) => {
+		const body = JSON.parse(String(init?.body)) as Record<string, string>;
+		const response = (await exchangeResponse().json()) as {
+			session: Record<string, unknown>;
+			credential: unknown;
+		};
+		return Response.json(
+			{
+				...response,
+				session: {
+					...response.session,
+					id: crypto.randomUUID(),
+					externalSessionKey: body.externalSessionKey,
+					harness: body.harness,
+					harnessVersion: body.harnessVersion,
+					modelProvider: body.modelProvider,
+					modelId: body.modelId,
+					modelVersion: body.modelVersion,
+				},
+			},
+			{ status: 201 },
+		);
+	};
+
+	test("names a new principal for the machine and user when no key is given", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		process.env.TEDIX_AGENT_SESSION =
+			"claude-code:11111111-aaaa-4aaa-8aaa-111111111111";
+		const code: string[] = [];
+
+		const started = await startExternalAgentSession({
+			...owner,
+			harness: "claude-code",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+		});
+
+		const expected = defaultLocalPrincipal();
+		expect(started.profile.key).toBe(expected.key);
+		expect(started.profile.displayName).toBe(expected.displayName);
+		expect(
+			code.find((source) =>
+				source.includes("external.create_external_agent_principal"),
+			),
+		).toContain(`"key":"${expected.key}"`);
+	});
+
+	test("two parallel sessions on one profile get distinct Agent-Sessions under one principal", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		const code: string[] = [];
+		const notices: string[] = [];
+
+		process.env.TEDIX_AGENT_SESSION =
+			"codex:01a0eee2-147e-7493-9c14-e11a4d6d598d";
+		const codex = await startExternalAgentSession({
+			...owner,
+			harness: "codex",
+			agentKey: "codex-gtm-01a0f212",
+			displayName: "Codex GTM",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+		});
+
+		process.env.TEDIX_AGENT_SESSION =
+			"claude-code:3a7952ab-c045-4521-830c-be30b0b69c03";
+		const claude = await startExternalAgentSession({
+			...owner,
+			harness: "claude-code",
+			agentKey: "claude-local",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+			notice: (message) => notices.push(message),
+		});
+
+		expect(claude.profile.principalId).toBe(codex.profile.principalId);
+		expect(codex.session.externalSessionKey).toBe(
+			"codex:01a0eee2-147e-7493-9c14-e11a4d6d598d",
+		);
+		expect(claude.session.externalSessionKey).toBe(
+			"claude-code:3a7952ab-c045-4521-830c-be30b0b69c03",
+		);
+		expect(claude.session.id).not.toBe(codex.session.id);
+		expect(Object.keys(claude.profile.sessions).sort()).toEqual([
+			"claude-code:3a7952ab-c045-4521-830c-be30b0b69c03",
+			"codex:01a0eee2-147e-7493-9c14-e11a4d6d598d",
+		]);
+		// A differing --agent-key is reported, not fatal, and mints nothing new.
+		expect(notices).toEqual([
+			expect.stringContaining('--agent-key "claude-local" was ignored'),
+		]);
+		expect(
+			code.filter((source) =>
+				source.includes("external.create_external_agent_principal"),
+			),
+		).toHaveLength(1);
+	});
+
+	test("sanitizes machine and user into a valid principal key", () => {
+		expect(defaultLocalPrincipal("Ada L", "Adas-MacBook-Pro.local")).toEqual({
+			key: "local-ada-l-adas-macbook-pro",
+			displayName: "Local coding agents (Ada L@Adas-MacBook-Pro.local)",
+		});
+		expect(defaultLocalPrincipal("", "")).toEqual({
+			key: "local",
+			displayName: "Local coding agents (user@machine)",
+		});
+	});
+});
