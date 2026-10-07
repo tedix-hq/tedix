@@ -145,7 +145,9 @@ import {
 	aggregateAppNamespaceCandidates,
 	aggregateTediNamespace,
 	isOrganizationMountNamespace,
+	mountedAppToolScopes,
 	organizationAppNamespace,
+	organizationMountToolScopes,
 } from "./mcp/aggregate-namespaces";
 import {
 	buildAggregateTaskHandlers,
@@ -589,6 +591,31 @@ interface InternalResolveResult {
 		forwardedQueryParams?: Record<string, string>;
 	}> | null;
 	resolutionFailed?: boolean;
+	/** The app's own `mcpConfig.toolScopes`, unvalidated. */
+	toolScopes?: unknown;
+}
+
+/**
+ * Add Connect organization-mount scopes to a request's app metadata. Connect's
+ * own keys win; the mount keys only name namespaces Connect serves for the
+ * selected organizations, so they never widen an existing Connect rule.
+ */
+function withMountToolScopes<T extends { mcpConfig?: unknown } | null>(
+	metadata: T,
+	mountToolScopes: Record<string, string[]>,
+): T {
+	const mcpConfig =
+		metadata?.mcpConfig && typeof metadata.mcpConfig === "object"
+			? (metadata.mcpConfig as Record<string, unknown>)
+			: {};
+	const own =
+		mcpConfig.toolScopes && typeof mcpConfig.toolScopes === "object"
+			? (mcpConfig.toolScopes as Record<string, string[]>)
+			: {};
+	return {
+		...(metadata ?? {}),
+		mcpConfig: { ...mcpConfig, toolScopes: { ...mountToolScopes, ...own } },
+	} as T;
 }
 
 export interface AggregatedMcpSurface {
@@ -597,6 +624,8 @@ export interface AggregatedMcpSurface {
 	resourceTemplates: InternalCatalogMcpResourceTemplate[];
 	prompts: InternalCatalogMcpPrompt[];
 	degraded?: boolean;
+	/** Connect organization-mount scopes, keyed by the namespaces Connect serves. */
+	toolScopes?: Record<string, string[]>;
 }
 
 const internalToolCache = new Map<
@@ -929,6 +958,7 @@ function toInternalResolveResult(
 		catalogPrompts,
 		forwardedQueryParams,
 		aggregateApps,
+		toolScopes: mcpConfig?.toolScopes,
 	};
 }
 
@@ -2090,6 +2120,7 @@ async function aggregateAndPrefixToolsUncached(
 				catalogPrompts: appCatalogPrompts,
 				forwardedQueryParams: appForwardedQueryParams,
 				resolutionFailed,
+				toolScopes: appToolScopes,
 			} = resolved;
 			if (resolutionFailed) {
 				return {
@@ -2175,6 +2206,28 @@ async function aggregateAndPrefixToolsUncached(
 						undefined,
 				};
 			});
+			// Connect evaluates scopes against its own config. Carry the selected
+			// organization's reviewed scopes to the namespaces Connect serves: the
+			// gateway's per-app keys, and each mounted app's own per-tool keys.
+			const entryToolScopes: Record<string, string[]> = {
+				...(entry.legacyNamespace
+					? mountedAppToolScopes(
+							prefix,
+							mountable.map((tool) => tool.toolId),
+							appToolScopes,
+						)
+					: {}),
+				...(entry.organizationMount
+					? organizationMountToolScopes(
+							prefix,
+							ensurePlatformOperatorAggregateApps(
+								entry.slug,
+								nestedAggregateApps ?? [],
+							),
+							appToolScopes,
+						)
+					: {}),
+			};
 			const loadNestedSurface = () => {
 				const nestedVisited = new Set(visited);
 				nestedVisited.add(entry.slug);
@@ -2323,6 +2376,10 @@ async function aggregateAndPrefixToolsUncached(
 						...(nestedSurface?.prompts ?? []),
 					],
 					degraded: nestedSurface?.degraded,
+					toolScopes: {
+						...entryToolScopes,
+						...(nestedSurface?.toolScopes ?? {}),
+					},
 				};
 			}
 
@@ -2340,7 +2397,11 @@ async function aggregateAndPrefixToolsUncached(
 			// label if the entry didn't override). E.g. tedix-unified → cloudflare-tedix
 			// (aggregateApps:[cloudflare]) → cloudflare D1 tools, prefixed cloudflare-tedix__*.
 			if (nestedEntries.length > 0) {
-				return loadNestedSurface();
+				const nested = await loadNestedSurface();
+				return {
+					...nested,
+					toolScopes: { ...entryToolScopes, ...(nested.toolScopes ?? {}) },
+				};
 			}
 
 			return { tools: [], resources: [], resourceTemplates: [], prompts: [] };
@@ -2352,6 +2413,14 @@ async function aggregateAndPrefixToolsUncached(
 		resourceTemplates: results.flatMap((result) => result.resourceTemplates),
 		prompts: results.flatMap((result) => result.prompts),
 		degraded: results.some((result) => result.degraded),
+		toolScopes: Object.assign(
+			{},
+			...results.map(
+				(result) =>
+					(result as { toolScopes?: Record<string, string[]> }).toolScopes ??
+					{},
+			),
+		) as Record<string, string[]>,
 	};
 	if (visited.size === 0) {
 		const slowest = [...entryTimings]
@@ -3056,8 +3125,19 @@ export async function handleMcpRequest(
 			aggregatedSurface.resourceTemplates.length > 0 ||
 			aggregatedSurface.prompts.length > 0
 		) {
+			const mountToolScopes = multiOrgResource
+				? aggregatedSurface.toolScopes
+				: undefined;
 			cachedData = {
 				...cachedData,
+				...(mountToolScopes && Object.keys(mountToolScopes).length > 0
+					? {
+							metadata: withMountToolScopes(
+								cachedData.metadata,
+								mountToolScopes,
+							),
+						}
+					: {}),
 				tools: [...cachedData.tools, ...aggregatedSurface.tools],
 				catalogResources: multiOrgResource
 					? []
