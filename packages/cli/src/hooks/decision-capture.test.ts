@@ -16,12 +16,9 @@ import {
 	claimReply,
 	classify,
 	draftStatusPath,
-	LABEL_CALLABLE,
 	peek,
 	questionPath,
-	REQUEST_DRAFT_CALLABLE,
 	runDecisionCapture,
-	TRIAGE_CALLABLE,
 } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
@@ -46,6 +43,9 @@ const AUTH = {
 	storedLogin: { loginId: "U-fixture-user" },
 };
 const CREATED = { id: REQUEST, version: 1 };
+const TRIAGE_CALLABLE = "agent.triage_agent_turn";
+const LABEL_CALLABLE = "agent.label_agent_reply";
+const REQUEST_DRAFT_CALLABLE = "agent.request_agent_reply_draft";
 const DETAIL_CALLABLE = "work.get_work_interaction";
 
 const nativeRequest = (overrides: JsonObject = {}) => ({
@@ -165,28 +165,28 @@ async function runHook(
 						await handler({ requestId: REQUEST, responseLimit: 5 }),
 					) as JsonObject;
 				}
-				if (args.at(-1) === "code") {
-					// Run the real Code Mode source against fixture namespaces.
-					const namespace = (name: string) =>
-						new Proxy(
-							{},
-							{
-								get: (_, tool) => async (input: JsonObject) => {
-									const callable = `${name}.${String(tool)}`;
-									gatewayCalls.push([callable, input, args]);
-									const handler = gateway[callable];
-									if (!handler) throw new Error("Unknown tool");
-									return handler(structuredClone(input));
-								},
-							},
-						);
-					const run = new Function(
-						"work",
-						"agent",
-						`return (${stdinInput!})();`,
-					) as (work: unknown, agent: unknown) => Promise<JsonObject>;
-					return await run(namespace("work"), namespace("agent"));
+				const nativeAgentVerbs: Record<string, string> = {
+					"agent-turn-triage": TRIAGE_CALLABLE,
+					"agent-reply-label": LABEL_CALLABLE,
+					"agent-reply-draft-request": REQUEST_DRAFT_CALLABLE,
+				};
+				const agentVerb = args.find((arg) => nativeAgentVerbs[arg]);
+				if (agentVerb) {
+					expect(_timeout).toBe(
+						timeoutMs ?? (agentVerb === "agent-turn-triage" ? 4000 : 3000),
+					);
+					expect(stdinInput).toBeUndefined();
+					const fileArg = args[args.indexOf("--input") + 1]!;
+					expect(fileArg.startsWith("@")).toBe(true);
+					const input = JSON.parse(readFileSync(fileArg.slice(1), "utf8"));
+					const callable = nativeAgentVerbs[agentVerb]!;
+					gatewayCalls.push([callable, input, args]);
+					const handler = gateway[callable];
+					if (!handler) throw new Error("Unknown native agent tool");
+					return structuredClone(await handler(input)) as JsonObject;
 				}
+				if (args.includes("code"))
+					throw new Error("Unexpected Code Mode wrapper");
 				if (failRespond && args.includes("interaction-respond"))
 					throw new Error("offline");
 				const input = args.indexOf("--input");
@@ -505,8 +505,13 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		const [callable, input, args] = gatewayCalls[0]!;
 		expect(callable).toBe(TRIAGE_CALLABLE);
 		expect(input).toEqual({ text: message });
-		// Turn text reaches the child over stdin, never as an argument.
-		expect(args).toEqual(["-w", "fixture", "code"]);
+		// Turn text reaches the child through a private payload file, never argv.
+		expect(args.slice(0, 4)).toEqual([
+			"-w",
+			"fixture",
+			"work",
+			"agent-turn-triage",
+		]);
 		expect(calls.flat().join(" ")).not.toContain("D1 migration");
 		expect(payloads[0]![1].metadata.triage).toEqual(TRIAGE_OK);
 		expect(statusState()?.state).toBe("needs_you");
@@ -693,11 +698,16 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			},
 		);
 		expect(asked).toEqual([{ requestId: REQUEST }]);
-		// The draft request carries only the ID, over stdin.
+		// The draft request carries only the ID through the private payload file.
 		const draftCall = gatewayCalls.find(
 			([name]) => name === REQUEST_DRAFT_CALLABLE,
 		)!;
-		expect(draftCall[2]).toEqual(["-w", "fixture", "code"]);
+		expect(draftCall[2].slice(0, 4)).toEqual([
+			"-w",
+			"fixture",
+			"work",
+			"agent-reply-draft-request",
+		]);
 		expect(
 			JSON.parse(readFileSync(questionPath(state()), "utf8")),
 		).toMatchObject({ requestId: REQUEST, host: "claude-code" });

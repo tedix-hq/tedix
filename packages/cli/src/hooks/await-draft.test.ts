@@ -66,22 +66,6 @@ const nativeRequest = (overrides: JsonObject = {}) => ({
 	metadata: {},
 	...overrides,
 });
-const nativeResponse = (overrides: JsonObject) => ({
-	id: "22222222-2222-4222-8222-222222222222",
-	requestId: REQUEST,
-	responseKind: "answer",
-	body: "Fixture answer",
-	artifactRef: null,
-	artifactVersion: null,
-	artifactDigest: null,
-	resolvesRequest: true,
-	respondedByType: "user",
-	respondedById: "U-fixture-user",
-	respondedBySessionId: null,
-	respondedAt: "2026-10-06T01:00:00Z",
-	metadata: {},
-	...overrides,
-});
 let config: string;
 beforeEach(() => {
 	config = mkdtempSync(join(tmpdir(), "tedix-await-draft-"));

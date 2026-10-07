@@ -43,7 +43,6 @@ import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import {
 	applyTriagedStop,
-	asciiJson,
 	harnessOf,
 	type StatusDeps,
 	type TriageResult,
@@ -69,9 +68,6 @@ const TRIAGE_TIMEOUT_MS = 4000;
 const LABEL_TIMEOUT_MS = 3000;
 const DRAFT_TIMEOUT_MS = 3000;
 const DETAIL_TIMEOUT_MS = 3000;
-export const TRIAGE_CALLABLE = "agent.triage_agent_turn";
-export const LABEL_CALLABLE = "agent.label_agent_reply";
-export const REQUEST_DRAFT_CALLABLE = "agent.request_agent_reply_draft";
 
 /** Test seams: status side effects and gateway-call timeouts. */
 export interface CaptureOptions {
@@ -248,12 +244,14 @@ async function call(
 	verb: string,
 	payload: JsonObject,
 	pathId?: string,
+	timeoutMs?: number,
 ): Promise<JsonObject> {
 	const directory = mkdtempSync(join(stateDir(deps.env), "tedix-decision-"));
 	const file = join(directory, "input.json");
+	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
-		writeFileSync(file, JSON.stringify(payload), { mode: 0o600 });
-		return await deps.read(
+		writeFileSync(file, JSON.stringify(payload), { mode: 0o600, flag: "wx" });
+		const read = deps.read(
 			[
 				...binding.command,
 				"work",
@@ -263,38 +261,21 @@ async function call(
 				`@${file}`,
 				"--json",
 			],
-			15000,
+			timeoutMs ?? 15000,
 		);
-	} finally {
-		rmSync(directory, { recursive: true, force: true });
-	}
-}
-
-/**
- * One bounded Code Mode call through `tedix code`. The source, which carries
- * redacted turn text, goes over stdin, never into a process argument.
- */
-async function gatewayCall(
-	deps: HookDeps,
-	binding: Binding,
-	callable: string,
-	input: JsonObject,
-	timeoutMs: number,
-	source = `async () => await ${callable}(${asciiJson(input)})`,
-): Promise<JsonObject> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	try {
+		if (timeoutMs === undefined) return await read;
 		return await Promise.race([
-			deps.read([...binding.command, "code"], timeoutMs, source),
+			read,
 			new Promise<never>((_, reject) => {
 				timer = setTimeout(
-					() => reject(new Error("gateway call timed out")),
+					() => reject(new Error("Native agent call timed out")),
 					timeoutMs,
 				);
 			}),
 		]);
 	} finally {
 		clearTimeout(timer);
+		rmSync(directory, { recursive: true, force: true });
 	}
 }
 
@@ -350,11 +331,12 @@ async function triageTurn(
 	const started = Date.now();
 	let value: unknown;
 	try {
-		value = await gatewayCall(
+		value = await call(
 			deps,
 			binding,
-			TRIAGE_CALLABLE,
+			"agent-turn-triage",
 			{ text },
+			undefined,
 			timeoutMs,
 		);
 	} catch {
@@ -372,11 +354,12 @@ async function labelReply(
 	timeoutMs: number,
 ): Promise<{ label: string; p: number } | undefined> {
 	try {
-		const value = await gatewayCall(
+		const value = await call(
 			deps,
 			binding,
-			LABEL_CALLABLE,
+			"agent-reply-label",
 			{ turnText, replyText },
+			undefined,
 			timeoutMs,
 		);
 		if (
@@ -880,11 +863,12 @@ async function requestDraft(
 	options: CaptureOptions,
 ): Promise<boolean> {
 	try {
-		const result = await gatewayCall(
+		const result = await call(
 			deps,
 			binding,
-			REQUEST_DRAFT_CALLABLE,
+			"agent-reply-draft-request",
 			{ requestId },
+			undefined,
 			options.draftTimeoutMs ?? DRAFT_TIMEOUT_MS,
 		);
 		return result.status === "queued";
