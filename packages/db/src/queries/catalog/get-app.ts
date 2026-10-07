@@ -4,6 +4,7 @@
  */
 
 import { eq, sql } from "drizzle-orm";
+import { apps } from "../../schema/apps";
 import {
 	appCatalog,
 	appCatalogStoreListings,
@@ -164,6 +165,9 @@ export async function generateUniqueCatalogAppSlug(
 		) {
 			return slug;
 		}
+		if (slug === baseSlug && (await releaseRetiredCatalogSlug(db, slug))) {
+			return slug;
+		}
 
 		// Add suffix and try again
 		slug = `${baseSlug}-${counter}`;
@@ -178,6 +182,36 @@ export async function generateUniqueCatalogAppSlug(
 	}
 
 	return slug;
+}
+
+/**
+ * A disabled entry that no app was ever built from holds its slug only by
+ * history. Move it aside so the vendor's live entry gets the plain name
+ * instead of a numbered one (`resend-2`), which every base app, connection
+ * provider, tenant install and Code Mode namespace would otherwise inherit.
+ */
+export async function releaseRetiredCatalogSlug(
+	db: Database,
+	slug: string,
+): Promise<boolean> {
+	const [holder] = await db
+		.select({ id: appCatalog.id, status: appCatalog.status })
+		.from(appCatalog)
+		.where(eq(appCatalog.slug, slug))
+		.limit(1);
+	if (!holder || holder.status !== "DISABLED") return false;
+	const [builtFrom] = await db
+		.select({ id: apps.id })
+		.from(apps)
+		.where(eq(apps.catalogAppId, holder.id))
+		.limit(1);
+	if (builtFrom) return false;
+	await updateCatalogAppSlug(
+		db,
+		holder.id,
+		`${slug}-retired-${holder.id.slice(0, 8)}`,
+	);
+	return true;
 }
 
 /**
