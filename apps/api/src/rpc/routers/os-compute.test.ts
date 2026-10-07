@@ -20,6 +20,7 @@ import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import {
 	billingAccounts,
+	billingProviderCostEvidenceVersions,
 	billingInferencePolicies,
 	billingPlanVersions,
 	billingUsagePeriods,
@@ -186,6 +187,7 @@ beforeEach(() => {
 			organizations,
 			tedis,
 			tediCallCosts,
+			billingProviderCostEvidenceVersions,
 			billingAccounts,
 			billingInferencePolicies,
 			billingPlanVersions,
