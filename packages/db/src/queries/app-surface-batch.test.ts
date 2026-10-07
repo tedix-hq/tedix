@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { apps } from "../schema/apps";
 import { appToolCspDomains } from "../schema/configuration";
+import { organizations } from "../schema/organizations";
 import { appTools } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
 import { getAppBySlugWithTools, getAppsBySlugsWithTools } from "./app-records";
@@ -32,12 +33,13 @@ function ddlFor(table: SQLiteTable): string {
 	return `CREATE TABLE ${name} (${defs.join(", ")});`;
 }
 
-const DDL = [appToolCspDomains, appTools, apps]
+const DDL = [appToolCspDomains, appTools, apps, organizations]
 	.map((table) => ddlFor(table as SQLiteTable))
 	.join("\n");
 
 function db(extraToolCount = 0): {
 	client: DbClient;
+	sqlite: DatabaseSync;
 	statements: () => string[];
 } {
 	const sqlite = new DatabaseSync(":memory:");
@@ -124,6 +126,7 @@ function db(extraToolCount = 0): {
 	});
 	return {
 		client: createDbClient(counted as never),
+		sqlite,
 		statements: () => statements,
 	};
 }
@@ -220,5 +223,156 @@ describe("getAppsBySlugsWithTools", () => {
 		const { client, statements } = db();
 		expect(await getAppsBySlugsWithTools(client, [])).toEqual([]);
 		expect(statements()).toEqual([]);
+	});
+});
+
+/**
+ * Aggregate entries that carry a stable `appId` resolve by id, so renaming an
+ * app's slug cannot break the link — but an id must never reach an app the
+ * aggregate ownership rule refuses: the host's own organization or the Tedix
+ * platform organization only (unless the host is the platform organization).
+ */
+describe("getAppsBySlugsWithTools with id-linked entries", () => {
+	const PROXY_ID = "3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+	const BASE_ID = "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d";
+	const FOREIGN_ID = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
+
+	function ownershipDb() {
+		const fixture = db();
+		const insertOrg = fixture.sqlite.prepare(
+			"INSERT INTO organizations (id, name, slug, descope_tenant_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		);
+		insertOrg.run("org-acme", "Acme", "acme", null, "2026-07-31", "2026-07-31");
+		insertOrg.run(
+			"org-sample",
+			"Sample",
+			"sample",
+			null,
+			"2026-07-31",
+			"2026-07-31",
+		);
+		insertOrg.run(
+			"org-platform",
+			"Platform",
+			"tedix",
+			null,
+			"2026-07-31",
+			"2026-07-31",
+		);
+		const insertApp = fixture.sqlite.prepare(
+			"INSERT INTO apps (id, organization_id, slug, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		);
+		// The acme proxy, already renamed away from the slug its links stored.
+		insertApp.run(
+			PROXY_ID,
+			"org-acme",
+			"crm-acme-renamed",
+			"CRM",
+			"2026-07-31",
+			"2026-07-31",
+		);
+		insertApp.run(
+			BASE_ID,
+			"org-platform",
+			"crm",
+			"CRM",
+			"2026-07-31",
+			"2026-07-31",
+		);
+		insertApp.run(
+			FOREIGN_ID,
+			"org-sample",
+			"sample-private",
+			"Private",
+			"2026-07-31",
+			"2026-07-31",
+		);
+		const insertTool = fixture.sqlite.prepare(
+			"INSERT INTO app_tools (id, app_id, tool_id, enabled, sort_order, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		);
+		insertTool.run(
+			"t-base-1",
+			BASE_ID,
+			"list_contacts",
+			1,
+			1,
+			"{}",
+			"2026-07-31",
+			"2026-07-31",
+		);
+		insertTool.run(
+			"t-foreign-1",
+			FOREIGN_ID,
+			"private_list",
+			1,
+			1,
+			"{}",
+			"2026-07-31",
+			"2026-07-31",
+		);
+		return fixture;
+	}
+
+	it("resolves by id after the target's slug changed", async () => {
+		const { client } = ownershipDb();
+		const [proxy, base] = await getAppsBySlugsWithTools(client, [
+			// Stored slug is stale; the id still names the app.
+			{ slug: "crm-acme", appId: PROXY_ID, hostOrganizationId: "org-acme" },
+			{ slug: "crm-old", appId: BASE_ID, hostOrganizationId: "org-acme" },
+		]);
+		expect(proxy?.app.id).toBe(PROXY_ID);
+		expect(proxy?.app.slug).toBe("crm-acme-renamed");
+		// A platform base app is shared with every organization.
+		expect(base?.app.id).toBe(BASE_ID);
+		expect(base?.tools.map((tool) => tool.toolId)).toEqual(["list_contacts"]);
+	});
+
+	it("still resolves entries without an id by slug", async () => {
+		const { client } = ownershipDb();
+		const [legacy, linked] = await getAppsBySlugsWithTools(client, [
+			{ slug: "crm" },
+			{ slug: "crm-acme", appId: PROXY_ID, hostOrganizationId: "org-acme" },
+		]);
+		expect(legacy?.app.id).toBe(BASE_ID);
+		expect(linked?.app.id).toBe(PROXY_ID);
+	});
+
+	it("refuses an id naming another organization's app, without falling back to the slug", async () => {
+		const { client } = ownershipDb();
+		const results = await getAppsBySlugsWithTools(client, [
+			// The stored slug names a resolvable app; the id must still be refused.
+			{ slug: "crm", appId: FOREIGN_ID, hostOrganizationId: "org-acme" },
+			// No host organization: nothing to check ownership against.
+			{ slug: "crm", appId: BASE_ID },
+			// The owning organization itself may link its own app.
+			{ slug: "x", appId: FOREIGN_ID, hostOrganizationId: "org-sample" },
+		]);
+		expect(results[0]).toBeNull();
+		expect(results[1]).toBeNull();
+		expect(results[2]?.app.id).toBe(FOREIGN_ID);
+	});
+
+	it("lets a platform-organization host link any organization's app by id", async () => {
+		const { client } = ownershipDb();
+		const [foreign] = await getAppsBySlugsWithTools(client, [
+			{ slug: "x", appId: FOREIGN_ID, hostOrganizationId: "org-platform" },
+		]);
+		expect(foreign?.app.id).toBe(FOREIGN_ID);
+	});
+
+	it("keeps id reads within D1's bound-parameter cap", async () => {
+		const { client, statements } = ownershipDb();
+		const requests = Array.from({ length: 50 }, (_, index) => ({
+			slug: `missing-${index}`,
+			appId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+			hostOrganizationId: `org-host-${index}`,
+		}));
+		await getAppsBySlugsWithTools(client, [
+			...requests,
+			{ slug: "x", appId: FOREIGN_ID, hostOrganizationId: "org-acme" },
+		]);
+		for (const sql of statements()) {
+			expect((sql.match(/\?/g) ?? []).length).toBeLessThanOrEqual(100);
+		}
 	});
 });

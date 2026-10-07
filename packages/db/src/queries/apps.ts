@@ -198,6 +198,32 @@ export async function listAppReferenceMetadataBySlugs(
 	return rows;
 }
 
+/**
+ * Narrow bulk projection by app id, for `aggregateApps` entries that link by
+ * their stable `appId` instead of a slug.
+ */
+export async function listAppReferenceMetadataByIds(
+	db: DbClient,
+	ids: string[],
+): Promise<AppReferenceMetadataRow[]> {
+	const rows: AppReferenceMetadataRow[] = [];
+	const uniqueIds = [...new Set(ids.filter(Boolean))];
+	for (const chunk of chunkForBoundParams(uniqueIds, D1_IN_LIST_CHUNK)) {
+		rows.push(
+			...(await db
+				.select({
+					id: apps.id,
+					slug: apps.slug,
+					organizationId: apps.organizationId,
+					metadata: apps.metadata,
+				})
+				.from(apps)
+				.where(inArray(apps.id, chunk))),
+		);
+	}
+	return rows;
+}
+
 export type PreviewSourceAppRow = AppReferenceMetadataRow & {
 	sourceOrgSlug: string;
 	sourceOrgTenantId: string | null;
@@ -230,6 +256,36 @@ export async function listPreviewSourceAppsBySlugs(
 				.from(apps)
 				.innerJoin(organizations, eq(apps.organizationId, organizations.id))
 				.where(inArray(apps.slug, chunk))),
+		);
+	}
+	return rows;
+}
+
+/** {@link listPreviewSourceAppsBySlugs} for entries that link by `appId`. */
+export async function listPreviewSourceAppsByIds(
+	db: DbClient,
+	ids: string[],
+): Promise<PreviewSourceAppRow[]> {
+	const rows: PreviewSourceAppRow[] = [];
+	const uniqueIds = [...new Set(ids.filter(Boolean))];
+	for (const chunk of chunkForBoundParams(uniqueIds, D1_IN_LIST_CHUNK)) {
+		rows.push(
+			...(await db
+				.select({
+					id: apps.id,
+					slug: apps.slug,
+					organizationId: apps.organizationId,
+					metadata: apps.metadata,
+					sourceOrgSlug: sql<string>`${organizations.slug}`.as(
+						"source_org_slug",
+					),
+					sourceOrgTenantId: sql<
+						string | null
+					>`${organizations.descopeTenantId}`.as("source_org_tenant_id"),
+				})
+				.from(apps)
+				.innerJoin(organizations, eq(apps.organizationId, organizations.id))
+				.where(inArray(apps.id, chunk))),
 		);
 	}
 	return rows;

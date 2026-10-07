@@ -40,6 +40,7 @@ import {
 	updateApp,
 } from "@tedix/db/queries/app-records";
 import {
+	listPreviewSourceAppsByIds,
 	listPreviewSourceAppsBySlugs,
 	type PreviewSourceAppRow,
 } from "@tedix/db/queries/apps";
@@ -92,6 +93,8 @@ async function extractScopes(
 
 type AggregateEntry = {
 	slug: string;
+	/** Stable app id; preferred over slug when present. */
+	appId?: string;
 	prefix?: string;
 	connectionLabel?: string;
 };
@@ -128,7 +131,8 @@ type SkippedPreviewSource = {
 type PreviewApp = Pick<App, "id" | "slug" | "organizationId" | "metadata">;
 
 type PreviewGraph = {
-	appsBySlug: Map<string, PreviewApp>;
+	/** Keyed by {@link previewRef}: `id:<appId>` or a lowercased slug. */
+	appsByRef: Map<string, PreviewApp>;
 	unavailable: Map<string, string>;
 	toolsByAppId: Map<string, ToolScopePreviewResult[]>;
 };
@@ -167,39 +171,61 @@ function prefixToolId(prefix: string, toolId: string): string {
 	return `${prefix}__${toolId}`;
 }
 
+/**
+ * Graph key for one aggregate entry. An entry with a stable `appId` is linked
+ * by id; only entries written before ids were stored fall back to the slug.
+ */
+function previewRef(entry: Pick<AggregateEntry, "slug" | "appId">): string {
+	return typeof entry.appId === "string" && entry.appId
+		? `id:${entry.appId}`
+		: previewSlug(entry.slug);
+}
+
 /** Hydrate each aggregate depth in bulk; recurse only after ownership checks. */
 async function loadPreviewGraph(
 	db: DbClient,
 	root: App,
 ): Promise<PreviewGraph> {
-	const appsBySlug = new Map<string, PreviewApp>([
+	const appsByRef = new Map<string, PreviewApp>([
 		[previewSlug(root.slug), root],
+		[`id:${root.id}`, root],
 	]);
 	const unavailable = new Map<string, string>();
 	const pending = new Set(
-		getAggregateApps(getAppMetadataJson(root)?.mcpConfig).map((entry) =>
-			previewSlug(entry.slug),
-		),
+		getAggregateApps(getAppMetadataJson(root)?.mcpConfig).map(previewRef),
 	);
 
 	while (pending.size > 0) {
-		const slugs = [...pending].filter(
-			(slug) => !appsBySlug.has(slug) && !unavailable.has(slug),
+		const refs = [...pending].filter(
+			(ref) => !appsByRef.has(ref) && !unavailable.has(ref),
 		);
 		pending.clear();
-		if (slugs.length === 0) break;
-		const rows = await listPreviewSourceAppsBySlugs(db, slugs);
-		const candidatesBySlug = new Map<string, PreviewSourceAppRow[]>();
-		for (const row of rows) {
-			const slug = previewSlug(row.slug);
-			const candidates = candidatesBySlug.get(slug) ?? [];
+		if (refs.length === 0) break;
+		const slugs = refs.filter((ref) => !ref.startsWith("id:"));
+		const ids = refs
+			.filter((ref) => ref.startsWith("id:"))
+			.map((ref) => ref.slice(3));
+		const candidatesByRef = new Map<string, PreviewSourceAppRow[]>();
+		const addCandidate = (ref: string, row: PreviewSourceAppRow) => {
+			const candidates = candidatesByRef.get(ref) ?? [];
 			candidates.push(row);
-			candidatesBySlug.set(slug, candidates);
+			candidatesByRef.set(ref, candidates);
+		};
+		if (slugs.length > 0) {
+			for (const row of await listPreviewSourceAppsBySlugs(db, slugs)) {
+				addCandidate(previewSlug(row.slug), row);
+			}
 		}
-		for (const slug of slugs) {
-			const candidates = candidatesBySlug.get(slug) ?? [];
+		if (ids.length > 0) {
+			for (const row of await listPreviewSourceAppsByIds(db, ids)) {
+				addCandidate(`id:${row.id}`, row);
+			}
+		}
+		for (const ref of refs) {
+			const candidates = candidatesByRef.get(ref) ?? [];
 			// Slugs can repeat across organizations. Prefer the caller's own app;
 			// never select an unrelated tenant merely because its row came first.
+			// An id names exactly one row, which must pass the same boundary.
 			const source =
 				candidates.find((row) => row.organizationId === root.organizationId) ??
 				candidates.find((row) =>
@@ -207,32 +233,31 @@ async function loadPreviewGraph(
 				);
 			if (!source) {
 				unavailable.set(
-					slug,
+					ref,
 					candidates.length > 0
 						? "aggregate app is outside the allowed preview boundary"
 						: "aggregate app not found",
 				);
 				continue;
 			}
-			appsBySlug.set(slug, source);
+			appsByRef.set(ref, source);
 			for (const entry of getAggregateApps(
 				getAppMetadataJson(source)?.mcpConfig,
 			)) {
-				pending.add(previewSlug(entry.slug));
+				pending.add(previewRef(entry));
 			}
 		}
 	}
 
 	const toolsByAppId = new Map<string, ToolScopePreviewResult[]>();
-	for (const tool of await listToolsForScopePreviewByAppIds(
-		db,
-		[...appsBySlug.values()].map((app) => app.id),
-	)) {
+	for (const tool of await listToolsForScopePreviewByAppIds(db, [
+		...new Set([...appsByRef.values()].map((app) => app.id)),
+	])) {
 		const tools = toolsByAppId.get(tool.appId) ?? [];
 		tools.push(tool);
 		toolsByAppId.set(tool.appId, tools);
 	}
-	return { appsBySlug, unavailable, toolsByAppId };
+	return { appsByRef, unavailable, toolsByAppId };
 }
 
 function collectPreviewToolsForApp(
@@ -300,13 +325,12 @@ function collectPreviewToolsForApp(
 	}
 
 	for (const entry of getAggregateApps(mcpConfig)) {
-		const sourceApp = graph.appsBySlug.get(previewSlug(entry.slug));
+		const sourceApp = graph.appsByRef.get(previewRef(entry));
 		if (!sourceApp) {
 			skippedSources.push({
 				slug: entry.slug,
 				reason:
-					graph.unavailable.get(previewSlug(entry.slug)) ??
-					"aggregate app not found",
+					graph.unavailable.get(previewRef(entry)) ?? "aggregate app not found",
 			});
 			continue;
 		}

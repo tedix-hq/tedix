@@ -542,6 +542,17 @@ type InternalCatalogMcpPrompt = import("./mcp/server-context").CatalogMcpPrompt;
 
 type AggregateAppEntry = {
 	slug: string;
+	/**
+	 * Stable app id this entry links to; preferred over slug. Slug remains for
+	 * display and as a fallback for entries written before ids were stored.
+	 */
+	appId?: string;
+	/**
+	 * Organization of the app whose `aggregateApps` holds this entry. Never read
+	 * from stored metadata: the gateway stamps it from the resolved host app so
+	 * apps/api can apply the aggregate ownership rule to an id-linked entry.
+	 */
+	hostOrganizationId?: string;
 	connectionInstanceId?: string;
 	/** Present only on a server-verified multi-organization selection. */
 	organizationId?: string;
@@ -571,6 +582,10 @@ interface InternalResolveResult {
 	tools: InternalAppTool[];
 	connectionInstanceId?: string;
 	appId: string | null;
+	/** The resolved app's current slug (an id-linked entry may store an old one). */
+	appSlug?: string | null;
+	/** The resolved app's organization; hosts the nested `aggregateApps` entries. */
+	organizationId?: string | null;
 	upstreamMcpUrl: string | null;
 	connectionLabel: string | null;
 	connectionProviderId: string | null;
@@ -585,6 +600,7 @@ interface InternalResolveResult {
 	 *  to recurse through D1-backed app bundles. */
 	aggregateApps: Array<{
 		slug: string;
+		appId?: string;
 		connectionInstanceId?: string;
 		endpointPrefixes?: string[];
 		toolIds?: string[];
@@ -619,7 +635,7 @@ function withMountToolScopes<T extends { mcpConfig?: unknown } | null>(
 			? (mcpConfig.toolScopes as Record<string, string[]>)
 			: {};
 	return {
-		...(metadata ?? {}),
+		...metadata,
 		mcpConfig: { ...mcpConfig, toolScopes: { ...mountToolScopes, ...own } },
 	} as T;
 }
@@ -692,6 +708,12 @@ export function aggregateSurfaceCacheKey(
 		activationEpoch,
 		entries: entries.map((entry) => ({
 			slug: entry.slug,
+			// An id-linked entry resolves by id under its host's ownership rule, so
+			// it must never share a snapshot with a slug-keyed entry of that name.
+			appId: entry.appId ?? null,
+			hostOrganizationId: entry.appId
+				? (entry.hostOrganizationId ?? null)
+				: null,
 			organizationId: entry.organizationId ?? null,
 			prefix: entry.prefix ?? null,
 			connectionLabel: entry.connectionLabel ?? null,
@@ -844,12 +866,46 @@ export async function writeAggregateActivationEpoch(
 	}
 }
 
+/**
+ * How one aggregate entry names its source app. `appId` wins over `slug`; an
+ * id-linked entry also carries the organization of the app that holds it, which
+ * apps/api needs to apply the aggregate ownership rule.
+ */
+type AggregateSourceRef = {
+	slug: string;
+	appId?: string;
+	hostOrganizationId?: string;
+};
+
+/**
+ * Identity of an aggregate source in the per-source L1 cache and the cycle
+ * guard. An id-linked entry is keyed by id and host organization, never by its
+ * stored (possibly stale) slug, so it cannot reuse a slug-keyed result.
+ */
+function aggregateSourceKey(ref: AggregateSourceRef): string {
+	return ref.appId
+		? `id:${ref.appId}@${ref.hostOrganizationId ?? ""}`
+		: ref.slug;
+}
+
+/**
+ * Cycle guard. The resolution stack records each ancestor's app id and current
+ * slug, so an id-linked entry is caught by id and a slug entry by slug,
+ * whichever way the ancestor itself was linked.
+ */
+function isAggregateSourceVisited(
+	visited: Set<string>,
+	ref: AggregateSourceRef,
+): boolean {
+	return ref.appId ? visited.has(ref.appId) : visited.has(ref.slug);
+}
+
 function internalToolCacheKey(
-	upstreamSlug: string,
+	source: AggregateSourceRef,
 	selection?: { endpointPrefixes?: string[]; toolIds?: string[] },
 	activationEpoch = "direct",
 ): string {
-	return `internal:${activationEpoch}:${upstreamSlug}:${JSON.stringify(selection ?? {})}`;
+	return `internal:${activationEpoch}:${aggregateSourceKey(source)}:${JSON.stringify(selection ?? {})}`;
 }
 
 /** App exists but resolves to nothing — not a failure, so never `degraded`. */
@@ -889,6 +945,8 @@ function toInternalResolveResult(
 		return emptyInternalResolveResult();
 	}
 	const resolvedApp = result.app;
+	// The app's current slug: an id-linked entry may still store an old one.
+	const sourceAppSlug = resolvedApp.slug || upstreamSlug;
 
 	const mcpConfig = (result.app.metadata as Record<string, unknown> | null)
 		?.mcpConfig as Record<string, unknown> | undefined;
@@ -914,14 +972,14 @@ function toInternalResolveResult(
 			| undefined) ?? null;
 	const aggregateApps =
 		(mcpConfig?.aggregateApps as
-			| Array<{ slug: string; connectionLabel?: string; prefix?: string }>
+			| InternalResolveResult["aggregateApps"]
 			| null
 			| undefined) ?? null;
 
 	const tools = (result.tools ?? []).filter((t) => t.enabled !== false);
 	const catalogResources = (result.catalogResources ?? []).map((resource) => ({
 		...resource,
-		sourceAppSlug: upstreamSlug,
+		sourceAppSlug,
 		sourceAppId: resolvedApp.id,
 		catalogMcp: result.catalogMcp ?? null,
 		connectionProviderId,
@@ -931,7 +989,7 @@ function toInternalResolveResult(
 	const catalogResourceTemplates = (result.catalogResourceTemplates ?? []).map(
 		(template) => ({
 			...template,
-			sourceAppSlug: upstreamSlug,
+			sourceAppSlug,
 			sourceAppId: resolvedApp.id,
 			catalogMcp: result.catalogMcp ?? null,
 			connectionProviderId,
@@ -941,7 +999,7 @@ function toInternalResolveResult(
 	);
 	const catalogPrompts = (result.catalogPrompts ?? []).map((prompt) => ({
 		...prompt,
-		sourceAppSlug: upstreamSlug,
+		sourceAppSlug,
 		catalogMcp: result.catalogMcp ?? null,
 		connectionProviderId,
 		connectionScope: connectionScope as "tenant" | "user" | "hybrid" | null,
@@ -951,6 +1009,8 @@ function toInternalResolveResult(
 	return {
 		tools,
 		appId: resolvedApp.id,
+		appSlug: sourceAppSlug,
+		organizationId: resolvedApp.organizationId ?? null,
 		...(typeof mcpConfig?.connectionInstanceId === "string"
 			? { connectionInstanceId: mcpConfig.connectionInstanceId }
 			: {}),
@@ -969,7 +1029,7 @@ function toInternalResolveResult(
 }
 
 async function resolveUpstreamToolsInternally(
-	upstreamSlug: string,
+	source: AggregateSourceRef,
 	env: CloudflareEnv,
 	selection?: {
 		endpointPrefixes?: string[];
@@ -978,11 +1038,8 @@ async function resolveUpstreamToolsInternally(
 	activationEpoch = "direct",
 	cacheable = true,
 ): Promise<InternalResolveResult> {
-	const cacheKey = internalToolCacheKey(
-		upstreamSlug,
-		selection,
-		activationEpoch,
-	);
+	const upstreamSlug = source.slug;
+	const cacheKey = internalToolCacheKey(source, selection, activationEpoch);
 	if (cacheable) pruneExpiredCacheEntries(internalToolCache);
 	const cached = cacheable ? internalToolCache.get(cacheKey) : undefined;
 	if (cached && cached.expiresAt > Date.now()) return cached.result;
@@ -1004,16 +1061,36 @@ async function resolveUpstreamToolsInternally(
 			// joiner) until isolate recycle. Same budget as any single apps/api
 			// attempt; a trip throws → the catch below degrades (`resolutionFailed`)
 			// and the settled promise is evicted so the next request retries fresh.
-			const result = await withStepBudget(
+			const selectionInput = {
+				...(selection?.endpointPrefixes?.length
+					? { endpointPrefixes: selection.endpointPrefixes }
+					: {}),
+				...(selection?.toolIds?.length ? { toolIds: selection.toolIds } : {}),
+			};
+			// An id-linked entry resolves through the batched endpoint, the one
+			// path that resolves by id under the aggregate ownership rule.
+			const result: UpstreamAppWithTools = await withStepBudget(
 				"internal_tool_resolve",
 				UPSTREAM_ATTEMPT_TIMEOUT_MS,
-				client.apps.getBySlugWithTools({
-					slug: upstreamSlug,
-					...(selection?.endpointPrefixes?.length
-						? { endpointPrefixes: selection.endpointPrefixes }
-						: {}),
-					...(selection?.toolIds?.length ? { toolIds: selection.toolIds } : {}),
-				}),
+				source.appId
+					? client.apps
+							.getBySlugsWithTools({
+								apps: [
+									{
+										slug: upstreamSlug,
+										appId: source.appId,
+										...(source.hostOrganizationId
+											? { hostOrganizationId: source.hostOrganizationId }
+											: {}),
+										...selectionInput,
+									},
+								],
+							})
+							.then(({ results }) => results[0] ?? { app: null, tools: [] })
+					: client.apps.getBySlugWithTools({
+							slug: upstreamSlug,
+							...selectionInput,
+						}),
 				upstreamSlug,
 			);
 			const resolved = toInternalResolveResult(upstreamSlug, result);
@@ -1118,6 +1195,24 @@ function withAggregateConnectionProvider(
 		auth,
 		_aggregateConnectionProviderId: provider.connectionProviderId,
 	};
+}
+
+/**
+ * Stamp the host app's organization onto its own `aggregateApps` entries.
+ *
+ * apps/api resolves an id-linked entry only when the target belongs to this
+ * organization or to the platform organization, so the host is always taken
+ * from the resolved app — never from a value stored in the entry itself. An
+ * id-linked entry of a host with no known organization resolves to nothing.
+ */
+export function withAggregateHostOrganization(
+	entries: AggregateAppEntry[],
+	hostOrganizationId: string | null | undefined,
+): AggregateAppEntry[] {
+	return entries.map((entry) => {
+		const { hostOrganizationId: _stored, ...rest } = entry;
+		return hostOrganizationId ? { ...rest, hostOrganizationId } : rest;
+	});
 }
 
 /**
@@ -1849,6 +1944,8 @@ const AGGREGATE_PREFETCH_COALESCE_MS = 25;
 
 type AggregatePrefetchRequest = {
 	slug: string;
+	appId?: string;
+	hostOrganizationId?: string;
 	endpointPrefixes?: string[];
 	toolIds?: string[];
 	cacheable: boolean;
@@ -1964,24 +2061,32 @@ async function prefetchAggregateEntries(
 	const now = Date.now();
 	const wanted = new Map<string, AggregatePrefetchRequest>();
 	for (const entry of entries) {
-		if (visited.has(entry.slug)) continue;
+		if (isAggregateSourceVisited(visited, entry)) continue;
 		const selection = {
 			...(entry.endpointPrefixes?.length
 				? { endpointPrefixes: entry.endpointPrefixes }
 				: {}),
 			...(entry.toolIds?.length ? { toolIds: entry.toolIds } : {}),
 		};
-		const cacheKey = internalToolCacheKey(
-			entry.slug,
-			selection,
-			activationEpoch,
-		);
+		const cacheKey = internalToolCacheKey(entry, selection, activationEpoch);
 		if (wanted.has(cacheKey)) continue;
 		if (cacheable) pruneExpiredCacheEntries(internalToolCache);
 		const cached = cacheable ? internalToolCache.get(cacheKey) : undefined;
 		if (cached && cached.expiresAt > now) continue;
 		if (cacheable && internalToolInFlight.has(cacheKey)) continue;
-		wanted.set(cacheKey, { slug: entry.slug, ...selection, cacheable });
+		wanted.set(cacheKey, {
+			slug: entry.slug,
+			...(entry.appId
+				? {
+						appId: entry.appId,
+						...(entry.hostOrganizationId
+							? { hostOrganizationId: entry.hostOrganizationId }
+							: {}),
+					}
+				: {}),
+			...selection,
+			cacheable,
+		});
 	}
 	if (wanted.size === 0) return;
 
@@ -2053,10 +2158,10 @@ async function aggregateAndPrefixToolsUncached(
 	const entryTimings: Array<{ slug: string; resolveMs: number }> = [];
 	const results = await Promise.all(
 		entries.map(async (entry) => {
-			// Cycle guard: skip if this slug is already on the resolution stack.
-			if (visited.has(entry.slug)) {
+			// Cycle guard: skip if this source is already on the resolution stack.
+			if (isAggregateSourceVisited(visited, entry)) {
 				console.warn(
-					`[aggregate] Cycle detected: ${entry.slug} already in [${[...visited].join(", ")}], skipping`,
+					`[aggregate] Cycle detected: ${entry.appId ?? entry.slug} already in [${[...visited].join(", ")}], skipping`,
 				);
 				return { tools: [], resources: [], resourceTemplates: [], prompts: [] };
 			}
@@ -2068,7 +2173,7 @@ async function aggregateAndPrefixToolsUncached(
 			let entryTimer: ReturnType<typeof setTimeout> | undefined;
 			const resolved = await Promise.race([
 				resolveUpstreamToolsInternally(
-					entry.slug,
+					entry,
 					env,
 					{
 						endpointPrefixes: entry.endpointPrefixes,
@@ -2114,6 +2219,8 @@ async function aggregateAndPrefixToolsUncached(
 			const {
 				tools,
 				appId: sourceAppId,
+				appSlug: resolvedAppSlug,
+				organizationId: sourceOrganizationId,
 				upstreamMcpUrl,
 				aggregateApps: nestedAggregateApps,
 				connectionLabel: appConnectionLabel,
@@ -2146,8 +2253,15 @@ async function aggregateAndPrefixToolsUncached(
 			const mountable = entry.readOnly
 				? tools.filter((tool) => tool.writeCapability === "read")
 				: tools;
+			// The source app's current slug. An id-linked entry may still store the
+			// slug the app had when it was linked.
+			const sourceSlug = resolvedAppSlug ?? entry.slug;
+			// Nested entries live in this source app's `aggregateApps`, so its
+			// organization is their host for the id ownership rule. Without a
+			// resolved organization an id-linked nested entry resolves to nothing.
+			const nestedHostOrganizationId = sourceOrganizationId ?? undefined;
 			const nestedEntries = ensurePlatformOperatorAggregateApps(
-				entry.slug,
+				sourceSlug,
 				nestedAggregateApps ?? [],
 			).map((sub) => {
 				const providerId =
@@ -2166,6 +2280,14 @@ async function aggregateAndPrefixToolsUncached(
 						: undefined;
 				return {
 					slug: sub.slug,
+					...(typeof sub.appId === "string" && sub.appId
+						? {
+								appId: sub.appId,
+								...(nestedHostOrganizationId
+									? { hostOrganizationId: nestedHostOrganizationId }
+									: {}),
+							}
+						: {}),
 					organizationId: entry.organizationId,
 					toolIds: sub.toolIds,
 					endpointPrefixes: sub.endpointPrefixes,
@@ -2227,7 +2349,7 @@ async function aggregateAndPrefixToolsUncached(
 					? organizationMountToolScopes(
 							prefix,
 							ensurePlatformOperatorAggregateApps(
-								entry.slug,
+								sourceSlug,
 								nestedAggregateApps ?? [],
 							),
 							appToolScopes,
@@ -2236,7 +2358,11 @@ async function aggregateAndPrefixToolsUncached(
 			};
 			const loadNestedSurface = () => {
 				const nestedVisited = new Set(visited);
-				nestedVisited.add(entry.slug);
+				// Record the source by current slug and by id so a cycle is caught
+				// whichever way a descendant links back to it.
+				if (!entry.appId) nestedVisited.add(entry.slug);
+				nestedVisited.add(sourceSlug);
+				if (sourceAppId) nestedVisited.add(sourceAppId);
 				return aggregateAndPrefixTools(
 					nestedEntries,
 					env,
@@ -2297,7 +2423,7 @@ async function aggregateAndPrefixToolsUncached(
 						config: {
 							...aggregateConfig,
 							...(sourceAppId ? { _sourceAppId: sourceAppId } : {}),
-							_sourceAppSlug: entry.slug,
+							_sourceAppSlug: sourceSlug,
 							...(entry.organizationId
 								? { _multiOrgOrganizationId: entry.organizationId }
 								: {}),
@@ -2384,7 +2510,7 @@ async function aggregateAndPrefixToolsUncached(
 					degraded: nestedSurface?.degraded,
 					toolScopes: {
 						...entryToolScopes,
-						...(nestedSurface?.toolScopes ?? {}),
+						...nestedSurface?.toolScopes,
 					},
 				};
 			}
@@ -2406,7 +2532,7 @@ async function aggregateAndPrefixToolsUncached(
 				const nested = await loadNestedSurface();
 				return {
 					...nested,
-					toolScopes: { ...entryToolScopes, ...(nested.toolScopes ?? {}) },
+					toolScopes: { ...entryToolScopes, ...nested.toolScopes },
 				};
 			}
 
@@ -3067,9 +3193,12 @@ export async function handleMcpRequest(
 				organizationId: organization.organizationId,
 				organizationMount: true,
 			}))
-		: ((cachedData?.metadata?.mcpConfig?.aggregateApps as
-				| AggregateAppEntry[]
-				| undefined) ?? []);
+		: withAggregateHostOrganization(
+				(cachedData?.metadata?.mcpConfig?.aggregateApps as
+					| AggregateAppEntry[]
+					| undefined) ?? [],
+				resolvedApp.app.organizationId,
+			);
 	// Host-level connection overrides (connectionProviderId + label/scope/scopes)
 	// default into every aggregate entry so `-{tenant}` provider variants don't
 	// need per-entry copies of the host credential binding. Explicit entry
@@ -4553,7 +4682,7 @@ export function compactCodeModeTools(
 				meta: tool.meta,
 			}),
 			securitySchemes,
-			_meta: { ...(tool.meta ?? {}), securitySchemes },
+			_meta: { ...tool.meta, securitySchemes },
 		});
 	}
 	return sortToolsDeterministically(tools);

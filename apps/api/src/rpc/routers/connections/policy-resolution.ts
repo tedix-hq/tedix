@@ -48,6 +48,7 @@ import { getTediOrganizationId } from "@tedix/db/queries/tedis";
 import { implement } from "@orpc/server";
 import {
 	listAppReferenceMetadataByOrganization,
+	listAppReferenceMetadataByIds,
 	listAppReferenceMetadataBySlugs,
 } from "@tedix/db/queries/apps";
 import { listToolConnectionReferencesByAppIds } from "@tedix/db/queries/tools";
@@ -1237,13 +1238,17 @@ export async function collectReferencedProviders(
 		while (appWave.length > 0) {
 			const currentApps: typeof appWave = [];
 			for (const app of appWave) {
-				if (visited.has(app.slug)) continue;
+				if (visited.has(app.slug) || visited.has(app.id)) continue;
 				visited.add(app.slug);
+				visited.add(app.id);
 				currentApps.push(app);
 			}
 			if (currentApps.length === 0) break;
 
 			const aggregateSlugs: string[] = [];
+			// Entries that carry a stable `appId` follow it; only older entries
+			// without one are followed by slug.
+			const aggregateIds: string[] = [];
 			for (const app of currentApps) {
 				const recordReference = (id: unknown, source: "app" | "aggregate") => {
 					if (typeof id !== "string" || !id) return;
@@ -1269,6 +1274,7 @@ export async function collectReferencedProviders(
 				const aggregateApps = mcpConfig?.aggregateApps as
 					| Array<{
 							slug?: string;
+							appId?: string;
 							connectionProviderId?: string;
 							connectionScopes?: string[];
 							credentialProfile?: unknown;
@@ -1282,7 +1288,9 @@ export async function collectReferencedProviders(
 						entry.credentialProfile,
 						entry.connectionScopes,
 					);
-					if (entry.slug && !visited.has(entry.slug)) {
+					if (typeof entry.appId === "string" && entry.appId) {
+						if (!visited.has(entry.appId)) aggregateIds.push(entry.appId);
+					} else if (entry.slug && !visited.has(entry.slug)) {
 						aggregateSlugs.push(entry.slug);
 					}
 				}
@@ -1307,7 +1315,12 @@ export async function collectReferencedProviders(
 				}
 			}
 
-			appWave = await listAppReferenceMetadataBySlugs(db, aggregateSlugs);
+			appWave = [
+				...(await listAppReferenceMetadataBySlugs(db, aggregateSlugs)),
+				...(aggregateIds.length > 0
+					? await listAppReferenceMetadataByIds(db, aggregateIds)
+					: []),
+			];
 		}
 	} catch (error) {
 		referenced.complete = false;
