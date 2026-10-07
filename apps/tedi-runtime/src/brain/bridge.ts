@@ -4,6 +4,7 @@
  * Callers supply platform I/O, persistent dedup state, and optional metrics.
  */
 
+import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type {
 	ObservationPriority,
 	EntityType,
@@ -127,8 +128,8 @@ export interface BridgeOptions {
 	platform: PlatformClient;
 	dedup: DedupStore;
 	currentTask?: string;
-	/** Canonical user-turn text only. Observer/assistant prose is not source evidence. */
-	userSourceEvidence?: string;
+	/** The bounded turn the Observer saw; request-only evidence for the quality judgment. */
+	sourceEvidence?: MemorySourceEvidence;
 	/** Optional callback for bridge metrics. */
 	onMetrics?: BridgeMetricsCallback;
 	/** Optional logger override. Defaults to console. */
@@ -155,7 +156,7 @@ export async function bridgeObservations(
 		platform,
 		dedup,
 		currentTask,
-		userSourceEvidence,
+		sourceEvidence,
 		onMetrics,
 		logger = defaultLogger,
 	} = options;
@@ -242,10 +243,8 @@ export async function bridgeObservations(
 					observationPriority: obs.priority,
 					observationDate: obs.date,
 					observationTime: obs.time,
-					...(userSourceEvidence?.trim()
-						? { sourceEvidence: userSourceEvidence }
-						: {}),
 				},
+				...(sourceEvidence ? { sourceEvidence } : {}),
 			});
 		}),
 	);

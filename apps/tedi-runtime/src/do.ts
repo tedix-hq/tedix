@@ -582,10 +582,10 @@ import {
 	resolveSurfaceModelRef,
 } from "./model-policy";
 import {
+	buildMemorySourceEvidence,
 	buildObserverInput,
 	digestObserverToolResult,
 	ensureTerminalEpisodeObservation,
-	observerUserTurn,
 	type ObserverToolExecutionEvidence,
 	observerToolEvidenceFromSteps,
 } from "./observer-execution-evidence";
@@ -12037,7 +12037,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					platform,
 					dedup: this.getDedupStore(),
 					currentTask: parsed.currentTasks?.[0],
-					userSourceEvidence: observerUserTurn(observerUser).content,
+					sourceEvidence: buildMemorySourceEvidence(
+						observerUser,
+						payload.assistant,
+						payload.executionEvidence,
+					),
 					onMetrics: (metrics) => {
 						telemetry.bridge = metrics;
 					},

@@ -1,3 +1,8 @@
+import {
+	MEMORY_SOURCE_EVIDENCE_LIMITS,
+	type MemorySourceEvidence,
+} from "@tedix/api-contract/schemas/memory-graph";
+import { scrubText } from "@tedix/context-core/trace-safety";
 import type { Observation } from "@tedix/context-core/types";
 import { projectEmbeddedTranscript } from "./embedded-transcript";
 import type { TraceToolStep } from "./trace-bundle-writer";
@@ -122,6 +127,50 @@ export async function digestObserverToolResult(
 	} catch {
 		return undefined;
 	}
+}
+
+/** Keep both ends: a request's ask and a reply's conclusion sit at the edges. */
+function elide(text: string, maxChars: number): string {
+	const trimmed = text.trim();
+	if (trimmed.length <= maxChars) return trimmed;
+	const marker = "\n[... middle elided ...]\n";
+	const budget = maxChars - marker.length;
+	const head = Math.ceil((budget * 2) / 3);
+	return `${trimmed.slice(0, head)}${marker}${trimmed.slice(trimmed.length - (budget - head))}`;
+}
+
+/**
+ * The material the Observer saw, bounded and secret-scrubbed, so the API's
+ * memory-quality judgment checks support against the same turn. Tool receipts
+ * stay content-free (tool name and outcome only).
+ */
+export function buildMemorySourceEvidence(
+	user: ObserverTurnInput,
+	assistant: ObserverTurnInput,
+	executionEvidence: readonly ObserverToolExecutionEvidence[] = [],
+): MemorySourceEvidence | undefined {
+	const limits = MEMORY_SOURCE_EVIDENCE_LIMITS;
+	const userTurn = elide(
+		scrubText(observerUserTurn(user).content),
+		limits.userTurnChars,
+	);
+	if (!userTurn) return undefined;
+	const assistantReply = elide(
+		scrubText(assistant.content),
+		limits.assistantReplyChars,
+	);
+	const toolReceipts = executionEvidence
+		.slice(0, limits.toolReceipts)
+		.map((evidence) => ({
+			tool: evidence.tool.slice(0, limits.toolNameChars),
+			outcome: evidence.outcome,
+		}))
+		.filter((receipt) => receipt.tool.length > 0);
+	return {
+		userTurn,
+		...(assistantReply ? { assistantReply } : {}),
+		...(toolReceipts.length > 0 ? { toolReceipts } : {}),
+	};
 }
 
 export function buildObserverInput(
