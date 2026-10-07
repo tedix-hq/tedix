@@ -471,9 +471,9 @@ function defaultTarget(
  */
 function defaultContext(
 	store: Store,
-	options?: AgentContextOptions,
+	options: AgentContextOptions | undefined,
+	target: Omit<ContextTarget, "projectId"> | undefined,
 ): AgentContextResult {
-	const target = defaultTarget(store, options);
 	if (!target) return { status: "unbound" };
 	const same = (row: { workspace: string; org: string; mcpUrl: string }) =>
 		row.workspace === target.workspace &&
@@ -504,6 +504,56 @@ function defaultContext(
 		...(optIn && projectId ? { decisionCapture: true } : {}),
 		...(sessionId ? { contextSessionId: sessionId } : {}),
 	};
+}
+
+/** `host/owner` of a normalized origin `host/owner/repo`, or undefined. */
+function originOwner(origin: string): string | undefined {
+	const normalized = normalizeGitOrigin(origin);
+	const cut = normalized.lastIndexOf("/");
+	return cut > 0 && normalized.indexOf("/") < cut
+		? normalized.slice(0, cut)
+		: undefined;
+}
+
+/**
+ * Organization for an unbound Git repository: the one target that every other
+ * bound repository with the same origin owner (`host/owner`) uses. No origin,
+ * no sibling, siblings in different organizations, or a sibling whose profile
+ * no longer serves it: no target. The saved default never applies inside Git.
+ */
+function ownerTarget(
+	store: Store,
+	repo: Repo,
+	options?: AgentContextOptions,
+): Omit<ContextTarget, "projectId"> | undefined {
+	const owner = repo.origin ? originOwner(repo.origin) : undefined;
+	if (!owner) return undefined;
+	const siblings = store.repositories.filter(
+		(row) =>
+			typeof row.origin === "string" &&
+			row.origin &&
+			originOwner(row.origin) === owner,
+	);
+	const keys = new Set(
+		siblings.map((row) =>
+			JSON.stringify([row.workspace, row.org, row.mcpUrl, row.organization]),
+		),
+	);
+	const sibling = siblings[0];
+	if (keys.size !== 1 || !sibling || !WORKSPACE.test(sibling.workspace))
+		return undefined;
+	try {
+		const target = contextTarget(
+			sibling.workspace,
+			sibling.organization,
+			options,
+		);
+		return target.org === sibling.org && target.mcpUrl === sibling.mcpUrl
+			? { workspace: sibling.workspace, ...target }
+			: undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** The profile and organization a Tedix call for some context goes to. */
@@ -584,17 +634,23 @@ export function resolveAgentContext(
 ): AgentContextResult {
 	try {
 		const store = readStore(options);
-		const unbound = (): AgentContextResult =>
-			options?.allowDefault
-				? defaultContext(store, options)
-				: { status: "unbound" };
-		if (!store.repositories.length) return unbound();
+		if (!options?.allowDefault && !store.repositories.length)
+			return { status: "unbound" };
 		let repo: Repo;
 		try {
 			repo = repoAt(options);
 		} catch {
-			return unbound();
+			// Outside any Git repository: the default organization, when asked.
+			return options?.allowDefault
+				? defaultContext(store, options, defaultTarget(store, options))
+				: { status: "unbound" };
 		}
+		// An unbound Git repository may belong to another organization: only a
+		// bound sibling with the same origin owner names it; else nothing.
+		const unbound = (): AgentContextResult =>
+			options?.allowDefault
+				? defaultContext(store, options, ownerTarget(store, repo, options))
+				: { status: "unbound" };
 		const binding = store.repositories.find(
 			(row) => row.commonDir === repo.commonDir,
 		);
@@ -1112,7 +1168,8 @@ export function setDefaultOrganization(
 		else delete store.defaultOrganization;
 		writeStore(store, options);
 	});
-	return defaultContext(readStore(options), options);
+	const store = readStore(options);
+	return defaultContext(store, options, defaultTarget(store, options));
 }
 
 export const agentContextUsage = `Local opt-in Tedix session context
@@ -1151,7 +1208,7 @@ that every chat of this profile and organization reads next to its task context,
 under the same checks. Team lessons need no selection: each bound chat reads the
 organization's approved lessons for this repository from Tedix memory: lessons
 for everyone in the organization plus your own personal ones.
-Outside a bound repository (any folder, non-coding work included), the prompt
+Outside any Git repository (any folder, non-coding work included), the prompt
 and capture hooks use the default organization: TEDIX_WORKSPACE or the current
 profile, and TEDIX_ORGANIZATION or that profile's only organization. A profile
 with several organizations uses the one saved by set-default-organization
@@ -1161,7 +1218,10 @@ With several selectable organizations and none chosen they stay idle; they never
 guess. There, lessons carry no repository, and decision capture runs only when
 the organization opted in and has one project inbox: the one its bound
 repositories share, or the --project given to enable-decision-capture run
-outside a repository. show --allow-default prints that resolution.
+outside a repository. Inside an unbound Git repository the default never
+applies: the hooks use the organization of the other bound repositories with
+the same origin owner (host/owner) when they all share one, else stay idle.
+show --allow-default prints that resolution.
 enable-decision-capture opts this profile and organization into recording each
 finished agent turn and the reply that follows as an Interaction addressed to you
 in its project inbox. It is the only context setting that sends conversation text;
