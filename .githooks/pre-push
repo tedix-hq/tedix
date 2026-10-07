@@ -26,7 +26,17 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_COMMON_DIR \
 
 status=0
 preflight_ranges=()
-while read -r _localRef localSha _remoteRef remoteSha; do
+while read -r _localRef localSha remoteRef remoteSha; do
+	# The public repository has one branch. Work happens on main; releases are
+	# tags. A pushed side branch is public at once (GitHub also rejects it).
+	case "$remoteRef" in
+		refs/heads/main | refs/tags/v* | refs/tags/cli-v*) ;;
+		*)
+			echo "pre-push: refusing to push $remoteRef; only main and release tags are published. Push your commits to main instead." >&2
+			status=1
+			continue
+			;;
+	esac
 	# All-zero local sha = branch deletion; nothing to validate.
 	case "$localSha" in
 		''|*[!0-9a-f]*) continue ;;
