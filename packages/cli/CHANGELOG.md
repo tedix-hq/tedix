@@ -3,6 +3,14 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.1 — 2026-10-07
+
+### Fixed
+
+- A headless Claude Code run (`claude -p`, the Agent SDK) with decision
+  capture on now exits when it finishes instead of waiting up to four hours
+  for a Tedix OS answer nobody can deliver to it.
+
 ## 0.6.0 — 2026-10-07
 
 ### Added
