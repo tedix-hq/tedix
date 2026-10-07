@@ -460,6 +460,7 @@ export function boardErrorFromValue(value: unknown): BoardError | undefined {
 
 /** A native command owns one deadline and a snapshot of the selected context. */
 interface NativeCommand {
+	protocolSequence: object;
 	deadlineAt: number;
 	callDeadlineAt?: number;
 	context?: z.infer<typeof McpNativeBootstrapSchema>;
@@ -578,6 +579,7 @@ function nativeOptions(ctx: WorkContext) {
 		throw new Error("Work native command deadline exceeded");
 	return {
 		retryable: false,
+		protocolSequence: state.protocolSequence,
 		deadlineAt: state.callDeadlineAt ?? state.deadlineAt,
 		maxResponseBytes: WORK_RESPONSE_BYTES,
 		...(ctx.signal ? { signal: ctx.signal } : {}),
@@ -3209,6 +3211,7 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 		},
 	};
 	nativeCommands.set(ctx, {
+		protocolSequence: {},
 		deadlineAt:
 			Date.now() +
 			Math.max(ctx.client.getTimeoutMs(), (ctx.work.watch ?? 0) * 1000),

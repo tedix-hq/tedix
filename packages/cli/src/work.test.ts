@@ -2491,11 +2491,8 @@ describe("native Work transport", () => {
 			expect(fixture.wire.map((r) => r.method)).toEqual([
 				"server/discover",
 				"tools/call",
-				"server/discover",
 				"tools/call",
-				"server/discover",
 				"tools/call",
-				"server/discover",
 				"tools/call",
 			]);
 			expect(fixture.wire.filter((r) => r.name).map((r) => r.name)).toEqual([
@@ -2505,6 +2502,16 @@ describe("native Work transport", () => {
 				"configured_work__get_work_interaction",
 			]);
 			expect(fixture.wire.some((r) => r.name === "code")).toBe(false);
+			const before = fixture.wire.length;
+			const next = await capture(`interaction-get ${ITEM}`, fixture.ctx);
+			expect(next.code).toBe(0);
+			expect(fixture.wire.slice(before).map((r) => r.method)).toEqual([
+				"server/discover",
+				"tools/call",
+				"tools/call",
+				"tools/call",
+				"tools/call",
+			]);
 			await fixture.client.close();
 		}
 	});

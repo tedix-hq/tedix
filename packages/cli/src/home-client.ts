@@ -430,6 +430,8 @@ class NativeCallScope {
 }
 
 export interface McpCallOptions {
+	/** Fresh command-local identity; completed protocol capability only. */
+	protocolSequence?: object;
 	/** Raw bytes across every input/task response in this logical call. */
 	maxResponseBytes?: number;
 	/** Absolute caller deadline; task/input/progress cannot renew it. */
@@ -1164,13 +1166,15 @@ export class TedixHomeClient {
 		{ resolve: (payload: { error?: unknown; result?: unknown }) => void }
 	>();
 	#modernDiscovery: Promise<{ supportsTasks: boolean }> | undefined;
+	#nativeProtocols = new WeakMap<object, { supportsTasks: boolean }>();
 	#destructiveApprovalReason: string | undefined;
 	#destructiveCallTail: Promise<void> = Promise.resolve();
 
 	constructor(options: TedixHomeClientOptions) {
 		// The local MCP edge resolves the app from the host. Supply X-Tedix-Host
 		// for loopback URLs unless the caller already set it.
-		let headers = options.headers;
+		// A client keeps its selected gateway binding; caller mutation cannot retarget it.
+		let headers = Object.freeze({ ...options.headers });
 		try {
 			const host = new URL(options.url).hostname;
 			if (
@@ -1550,6 +1554,7 @@ export class TedixHomeClient {
 	async #ensureModernProtocol(
 		signal?: AbortSignal,
 		scope?: NativeCallScope,
+		sequence?: object,
 	): Promise<{ supportsTasks: boolean }> {
 		const discover = async () => {
 			const result = await this.#rawModernRequest(
@@ -1576,7 +1581,16 @@ export class TedixHomeClient {
 					isRecord(extensions) && MCP_TASKS_EXTENSION in extensions,
 			};
 		};
-		if (scope) return await discover();
+		if (scope) {
+			scope.guard();
+			const completed = sequence && this.#nativeProtocols.get(sequence);
+			if (completed) return completed;
+			// Never share a pending discovery tied to another caller's signal or budget.
+			const protocol = await discover();
+			scope.guard();
+			if (sequence) this.#nativeProtocols.set(sequence, protocol);
+			return protocol;
+		}
 		this.#modernDiscovery ??= discover();
 		try {
 			return await this.#modernDiscovery;
@@ -1592,7 +1606,11 @@ export class TedixHomeClient {
 		options: McpCallOptions,
 		scope?: NativeCallScope,
 	): Promise<unknown> {
-		const protocol = await this.#ensureModernProtocol(options.signal, scope);
+		const protocol = await this.#ensureModernProtocol(
+			options.signal,
+			scope,
+			options.protocolSequence,
+		);
 		let params: Record<string, unknown> = {
 			name: toolName,
 			arguments: args,
