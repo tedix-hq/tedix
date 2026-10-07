@@ -95,6 +95,8 @@ export function humanReply(raw: string): string | null {
 	const request = text.lastIndexOf("## My request");
 	if (request >= 0) text = text.slice(text.indexOf("\n", request) + 1);
 	text = text
+		// Claude Code does not always close a paste block: drop it to the end.
+		.replace(/<pasted_content[^>]*>[\s\S]*?(?:<\/pasted_content>|$)/g, "")
 		.replace(/<([A-Za-z_][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g, "")
 		.replace(/<image [^>]*>/g, "")
 		.replace(/```[\s\S]*?(?:```|$)/g, "")
@@ -511,6 +513,8 @@ interface LearnDeps {
 	write?: (line: string) => void;
 	targets?: Map<string, OrganizationTarget>;
 	defaultTarget?: OrganizationTarget | undefined;
+	/** Retry pause (tests). */
+	sleep?: (ms: number) => Promise<void>;
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -557,6 +561,9 @@ function samples(plan: ImportPlan, count: number): AgentSessionDecision[] {
 
 const CALL_TIMEOUT_MS = 120_000;
 const MAX_MINE_PASSES = 30;
+const IMPORT_ATTEMPTS = 3;
+/** Pause before a retry; the gateway rate-limits bursts of writes. */
+const RETRY_PAUSE_MS = 5_000;
 
 export async function runLearnCommand(
 	argv: string[],
@@ -612,6 +619,9 @@ export async function runLearnCommand(
 		return 0;
 	}
 	const read = deps.read ?? cliRead;
+	const pause =
+		deps.sleep ??
+		((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
 	let failed = false;
 	const results: Json = {};
 	for (const [key, { target, decisions }] of plan.byTarget) {
@@ -621,11 +631,24 @@ export async function runLearnCommand(
 			...(target.organization ? ["--organization", target.organization] : []),
 			"code",
 		];
+		const call = async (source: string): Promise<Json> => {
+			const result = await read(command, CALL_TIMEOUT_MS, source);
+			// Code Mode reports a failed tool call as a value, not an exit code.
+			if (result.ok === false)
+				throw new Error(String(result.error ?? "tool call failed"));
+			return result;
+		};
 		const outcome = {
 			recorded: 0,
 			duplicates: 0,
 			failedBatches: 0,
+			errors: [] as string[],
 			mining: null as Json | null,
+		};
+		const note = (error: unknown) => {
+			const message = error instanceof Error ? error.message : String(error);
+			if (outcome.errors.length < 3 && !outcome.errors.includes(message))
+				outcome.errors.push(message.slice(0, 200));
 		};
 		for (
 			let i = 0;
@@ -636,15 +659,21 @@ export async function runLearnCommand(
 				i,
 				i + AGENT_SESSION_DECISION_LIMITS.perCall,
 			);
-			try {
-				const result = await read(
-					command,
-					CALL_TIMEOUT_MS,
-					`async () => await agent.import_agent_session_decisions(${asciiJson({ decisions: batch })})`,
-				);
-				outcome.recorded += Number(result.recorded ?? 0);
-				outcome.duplicates += Number(result.duplicates ?? 0);
-			} catch {
+			const source = `async () => await agent.import_agent_session_decisions(${asciiJson({ decisions: batch })})`;
+			let done = false;
+			// Idempotent per turn, so a retry after a lost response is safe.
+			for (let attempt = 0; attempt < IMPORT_ATTEMPTS && !done; attempt++) {
+				try {
+					const result = await call(source);
+					outcome.recorded += Number(result.recorded ?? 0);
+					outcome.duplicates += Number(result.duplicates ?? 0);
+					done = true;
+				} catch (error) {
+					note(error);
+					await pause(RETRY_PAUSE_MS * (attempt + 1));
+				}
+			}
+			if (!done) {
 				outcome.failedBatches++;
 				failed = true;
 			}
@@ -654,30 +683,36 @@ export async function runLearnCommand(
 				passes: 0,
 				factsWritten: 0,
 				factsSuperseded: 0,
+				timedOut: 0,
 				done: false,
 			};
-			try {
-				while (mining.passes < MAX_MINE_PASSES) {
-					const result = await read(
-						command,
-						CALL_TIMEOUT_MS,
+			while (mining.passes + mining.timedOut < MAX_MINE_PASSES) {
+				let result: Json;
+				try {
+					result = await call(
 						"async () => await agent.mine_agent_session_lessons({})",
 					);
-					mining.passes++;
-					mining.factsWritten += Number(result.factsWritten ?? 0);
-					mining.factsSuperseded += Number(result.factsSuperseded ?? 0);
-					// Another cap (proposals) may stay hit; stop once lessons stop changing.
-					const changed =
-						Number(result.factsWritten ?? 0) +
-						Number(result.factsSuperseded ?? 0);
-					if (!result.budgetHit || changed === 0) {
-						mining.done = true;
-						break;
-					}
+				} catch (error) {
+					// The gateway stops waiting before a large pass ends; the pass
+					// itself keeps writing, so ask again to continue it.
+					mining.timedOut++;
+					note(error);
+					await pause(RETRY_PAUSE_MS);
+					continue;
 				}
-			} catch {
-				failed = true;
+				mining.passes++;
+				const changed =
+					Number(result.factsWritten ?? 0) +
+					Number(result.factsSuperseded ?? 0);
+				mining.factsWritten += Number(result.factsWritten ?? 0);
+				mining.factsSuperseded += Number(result.factsSuperseded ?? 0);
+				// Another cap (proposals) may stay hit; stop once lessons stop changing.
+				if (!result.budgetHit || changed === 0) {
+					mining.done = true;
+					break;
+				}
 			}
+			if (!mining.done) failed = true;
 			outcome.mining = mining;
 		}
 		results[key] = outcome;
