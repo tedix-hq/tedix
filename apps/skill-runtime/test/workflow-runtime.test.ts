@@ -1455,7 +1455,8 @@ snapshotSqlite.exec(`
 		capability_manifest TEXT,
 		created_by TEXT,
 		work_item_id TEXT,
-		origin_tedi_run_id TEXT
+		origin_tedi_run_id TEXT,
+		resource_access_envelope TEXT
 	);
 	INSERT INTO skill_runs (
 		id, skill_id, tedi_id, organization_id, params, execution_epoch,
@@ -3320,7 +3321,8 @@ usageStampSqlite.exec(`
 		paused_at TEXT,
 		created_by TEXT,
 		work_item_id TEXT,
-		origin_tedi_run_id TEXT
+		origin_tedi_run_id TEXT,
+		resource_access_envelope TEXT
 	);
 	CREATE TABLE skill_usage_events (
 		id TEXT PRIMARY KEY NOT NULL,
