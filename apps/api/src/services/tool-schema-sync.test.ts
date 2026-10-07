@@ -338,6 +338,106 @@ describe("schema-only provenance refresh", () => {
 	});
 });
 
+describe("projection native transport opt-in", () => {
+	const endpoint = "workItems/listCliProjection";
+	const options = {
+		mode: "projection" as const,
+		apply: true,
+		endpoints: [endpoint],
+		pruneStale: false,
+	};
+
+	it("preserves a reviewed true opt-in through projection and repeated no-op sync", async () => {
+		const fixture = makeDb([
+			makeRpcTool({
+				toolId: "list_work_item_cli_rows",
+				endpoint,
+				config: { nativeDirect: true, unreviewedPolicy: "discard" },
+				authRequired: true,
+				visibility: "private",
+			}),
+		]);
+		const result = await runToolSchemaSync(fixture.db, options);
+		expect(result).toMatchObject({ updated: 1, failed: 0 });
+		const projected = structuredClone(fixture.store[0]!);
+		expect(projected.config).toMatchObject({
+			transport: "rpc",
+			endpoint,
+			nativeDirect: true,
+		});
+		expect(projected.config).not.toHaveProperty("unreviewedPolicy");
+		expect(projected).toMatchObject({
+			authRequired: true,
+			visibility: "private",
+		});
+		expect(projected.schemaSourceHash).toMatch(/^[a-f0-9]{64}$/);
+		expect(Number.isFinite(Date.parse(projected.schemaSyncedAt!))).toBe(true);
+		expect(Number.isFinite(Date.parse(projected.updatedAt!))).toBe(true);
+		const control = makeDb([
+			makeRpcTool({ toolId: projected.toolId, endpoint }),
+		]);
+		await runToolSchemaSync(control.db, options);
+		const withoutOptIn = control.store[0]!;
+		expect(projected.config).toEqual({
+			...withoutOptIn.config,
+			nativeDirect: true,
+		});
+		expect(projected.schemaSourceHash).not.toBe(withoutOptIn.schemaSourceHash);
+		expect(projected.annotations).toEqual(withoutOptIn.annotations);
+		expect(projected.writeCapability).toBe(withoutOptIn.writeCapability);
+		expect(
+			resolveMcpToolRequiredScopes(projected, "selected_org", undefined),
+		).toEqual(
+			resolveMcpToolRequiredScopes(withoutOptIn, "selected_org", undefined),
+		);
+		fixture.updates.length = 0;
+		expect(await runToolSchemaSync(fixture.db, options)).toMatchObject({
+			inSync: 1,
+			updated: 0,
+			planned: 0,
+		});
+		expect(fixture.updates).toHaveLength(0);
+		expect(fixture.store[0]).toEqual(projected);
+		// The existing schema owner refreshes provenance with one server timestamp
+		// without undoing the projection's explicit native transport policy.
+		const refreshed = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			toolIds: [projected.toolId],
+			pruneStale: false,
+		});
+		expect(refreshed).toMatchObject({ updated: 1, failed: 0 });
+		expect(fixture.store[0]!.config).toEqual(projected.config);
+		expect(fixture.store[0]!.schemaSyncedAt).toBe(fixture.store[0]!.updatedAt);
+	});
+
+	it.each([undefined, false, "true", 1, {}, []])(
+		"does not opt in absent or non-true policy %j",
+		async (nativeDirect) => {
+			const fixture = makeDb([
+				makeRpcTool({
+					toolId: "list_work_item_cli_rows",
+					endpoint,
+					config: nativeDirect === undefined ? {} : { nativeDirect },
+				}),
+			]);
+			expect(await runToolSchemaSync(fixture.db, options)).toMatchObject({
+				updated: 1,
+				failed: 0,
+			});
+			expect(fixture.store[0]!.config).not.toHaveProperty("nativeDirect");
+		},
+	);
+
+	it("does not enable native transport for newly generated rows", async () => {
+		const fixture = makeDb([]);
+		expect(await runToolSchemaSync(fixture.db, options)).toMatchObject({
+			created: 1,
+			failed: 0,
+		});
+		expect(fixture.inserts[0]!.config).not.toHaveProperty("nativeDirect");
+	});
+});
+
 describe("runToolSchemaSync entity routing flags", () => {
 	it("plans config repair for tedi-scoped oRPC tools", async () => {
 		const { db } = makeDb([
