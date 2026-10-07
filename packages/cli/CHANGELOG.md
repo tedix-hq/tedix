@@ -3,6 +3,14 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.5 — 2026-10-08
+
+### Fixed
+
+- `tedix learn import-sessions` waits while the lesson run finishes in the
+  background instead of reporting a timeout, and no longer imports test
+  prompts such as "without tools, report only…".
+
 ## 0.6.4 — 2026-10-08
 
 ### Fixed
