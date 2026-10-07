@@ -1078,6 +1078,28 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 	},
 	{ toolId: "update_app", endpoint: "apps/update", kind: "write" },
 	{ toolId: "delete_app", endpoint: "apps/delete", kind: "destructive" },
+	// Platform-admin cross-organization reference repair; dry run by default.
+	{
+		toolId: "backfill_aggregate_app_ids",
+		endpoint: "apps/backfillAggregateAppIds",
+		kind: "write",
+		description:
+			"Platform admin. Set appId on every aggregateApps entry that links only by slug, resolving the slug exactly as the gateway does. Unresolvable entries are reported, never dropped. Dry run unless dryRun is false; returns the per-row plan.",
+	},
+	{
+		toolId: "rename_app_slug",
+		endpoint: "apps/renameSlug",
+		kind: "write",
+		description:
+			"Platform admin. Rename one app's slug in any organization and, in the same batch, update every aggregateApps entry that links to it by appId or old slug. Dry run unless dryRun is false; returns the per-row plan and any blockers.",
+	},
+	{
+		toolId: "relink_connection_provider",
+		endpoint: "apps/relinkConnectionProvider",
+		kind: "write",
+		description:
+			"Platform admin. Replace connection provider id `from` with an existing `to` in app mcpConfig, aggregate entries, connection-auth tools and catalog scan connections. Never creates or deletes Descope apps. Dry run unless dryRun is false; returns the per-row plan.",
+	},
 	// Sites are deployed content surfaces, independent of MCP apps and gateways.
 	{ toolId: "list_sites", endpoint: "sites/list", kind: "read" },
 	{ toolId: "create_cms_site", endpoint: "sites/createCms", kind: "write" },

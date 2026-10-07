@@ -22,6 +22,14 @@ import {
 	UpdateAppInputSchema,
 } from "../schemas/app";
 import {
+	BackfillAggregateAppIdsInputSchema,
+	BackfillAggregateAppIdsOutputSchema,
+	RelinkConnectionProviderInputSchema,
+	RelinkConnectionProviderOutputSchema,
+	RenameAppSlugInputSchema,
+	RenameAppSlugOutputSchema,
+} from "../schemas/app-reference-maintenance";
+import {
 	AppIdOrSlugParamSchema,
 	AppIdParamSchema,
 	PaginationMetaSchema,
@@ -636,6 +644,54 @@ export const appsContract = oc
 						.nullable(),
 				}),
 			),
+
+		/**
+		 * Platform-admin: write the resolved `appId` into aggregate entries that
+		 * link only by slug. Dry run by default.
+		 */
+		backfillAggregateAppIds: oc
+			.route({
+				method: "POST",
+				path: "/maintenance/backfill-aggregate-app-ids",
+				tags: ["internal"],
+				summary: "Backfill aggregate app ids",
+				description:
+					"Platform admin only. Resolve every aggregateApps entry lacking appId by slug, exactly as the MCP gateway resolves it, and set appId. Unresolvable entries are reported and left unchanged. Dry run unless dryRun is false.",
+			})
+			.input(BackfillAggregateAppIdsInputSchema)
+			.output(BackfillAggregateAppIdsOutputSchema),
+
+		/**
+		 * Platform-admin: rename an app's slug in any organization and rewrite
+		 * every aggregate entry that links to it. Dry run by default.
+		 */
+		renameSlug: oc
+			.route({
+				method: "POST",
+				path: "/maintenance/rename-slug",
+				tags: ["internal"],
+				summary: "Rename app slug",
+				description:
+					"Platform admin only. Rename one app's slug across organizations and, in the same batch, update the slug of every aggregateApps entry in any organization that links to it by appId or by the old slug. Refused while a slug-only link is ambiguous. Dry run unless dryRun is false.",
+			})
+			.input(RenameAppSlugInputSchema)
+			.output(RenameAppSlugOutputSchema),
+
+		/**
+		 * Platform-admin: point every reference to one connection provider at
+		 * another existing provider. Dry run by default.
+		 */
+		relinkConnectionProvider: oc
+			.route({
+				method: "POST",
+				path: "/maintenance/relink-connection-provider",
+				tags: ["internal"],
+				summary: "Relink connection provider",
+				description:
+					"Platform admin only. Replace connection provider id `from` with `to` in apps' mcpConfig.connectionProviderId, mcpConfig.openApiSync.connectionProviderId, aggregate entries, connection-auth tool rows and catalog scan connections. Never creates or deletes Descope apps; `to` must already exist. Dry run unless dryRun is false.",
+			})
+			.input(RelinkConnectionProviderInputSchema)
+			.output(RelinkConnectionProviderOutputSchema),
 	});
 
 export type AppsContract = typeof appsContract;
