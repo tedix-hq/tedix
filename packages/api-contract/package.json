@@ -109,6 +109,7 @@
 		"./schemas/ai-gateway-attribution": "./src/schemas/ai-gateway-attribution.ts",
 		"./schemas/analytics": "./src/schemas/analytics.ts",
 		"./schemas/app": "./src/schemas/app.ts",
+		"./schemas/app-reference-maintenance": "./src/schemas/app-reference-maintenance.ts",
 		"./schemas/app-gating": "./src/schemas/app-gating.ts",
 		"./schemas/automation-events": "./src/schemas/automation-events.ts",
 		"./schemas/billing": "./src/schemas/billing.ts",
