@@ -9,6 +9,7 @@ import {
 	billingUsageReservations,
 	billingUsageCharges,
 	billingUsageQuarantines,
+	billingProviderCostEvidenceVersions,
 } from "../../schema/billing";
 import {
 	getRecentProviderAttributionHealth,
@@ -28,6 +29,7 @@ function fixture() {
 		billingUsageCharges,
 		billingUsageQuarantines,
 		providerExecutionAttempts,
+		billingProviderCostEvidenceVersions,
 	])
 		sqlite.exec(schemaDdl(table));
 	const db = createDbClient(createD1Facade(sqlite));

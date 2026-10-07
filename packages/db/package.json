@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/billing/provider-cost-evidence": "./src/queries/billing/provider-cost-evidence.ts",
 		"./schema/provider-events": "./src/schema/provider-events.ts",
 		"./queries/provider-events": "./src/queries/provider-events.ts",
 		"./schema/os-gadget-state": "./src/schema/os-gadget-state.ts",

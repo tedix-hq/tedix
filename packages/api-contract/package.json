@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/provider-cost-evidence": "./src/schemas/provider-cost-evidence.ts",
 		"./utils/personal-resource-tool-binding": "./src/utils/personal-resource-tool-binding.ts",
 		"./contracts/provider-events": "./src/contracts/provider-events.ts",
 		"./schemas/provider-events": "./src/schemas/provider-events.ts",

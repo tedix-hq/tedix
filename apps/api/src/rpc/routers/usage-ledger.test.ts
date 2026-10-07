@@ -16,6 +16,8 @@ function row(
 	},
 ) {
 	return {
+		providerCostEvidence: overrides.providerCostEvidence ?? null,
+		sourceRetired: overrides.sourceRetired ?? false,
 		costBasis: overrides.costBasis ?? "legacy_estimate",
 		rateVersionId: null,
 		callDurationMs: overrides.callDurationMs ?? null,
@@ -427,4 +429,59 @@ describe("usage ledger — an EMPTY ledger is not a CLEAN ledger", () => {
 		expect(d.dataQuality.score).toBe(1);
 		expect(d.billing.invoiceReady).toBe(true);
 	});
+});
+
+describe("reviewed provider estimates stay nonpayable", () => {
+	test.each(["ok", "quarantined_no_pricing"] as const)(
+		"retains raw provenance and original held cost with quality %s",
+		(dataQuality) => {
+			const input = row({
+				id: "reviewed",
+				sessionType: "tedi",
+				totalTokens: 100,
+				estimatedCostUsd: null,
+				dataQuality,
+				costBasis: "unknown",
+				providerCostEvidence: {
+					versionId: "00000000-0000-4000-8000-000000000001",
+					pricingBasis: "reported_estimate",
+					providerEstimatedCostMicros: 33199,
+					basisFactsDigest: "a".repeat(64),
+					sourceSnapshotDigest: "b".repeat(64),
+					effectiveCostBasis: "reviewed_provider_estimate",
+					originalCostBasis: "unknown",
+					originalCostReason: "missing-price",
+					originalDataQuality: "quarantined_no_pricing",
+					originalEstimatedCostUsd: null,
+				},
+				sourceRetired: true,
+			});
+			const normalized = normalizeLedgerRows([input]);
+			expect(normalized[0]).toMatchObject({
+				estimatedCostUsd: 0.033199,
+				rawEstimatedCostUsd: null,
+				costBasis: "unknown",
+				billable: false,
+				invoiceReady: false,
+				quarantinedTokens: 100,
+				quarantinedCostUsd: 0,
+				sourceRetired: true,
+			});
+			const drilldown = buildCostDrilldown({
+				rows: normalized,
+				period: "24h",
+				now: new Date("2026-05-19T00:00:00Z"),
+			});
+			expect(drilldown.totals).toMatchObject({
+				reviewedEstimateRowCount: 1,
+				reviewedEstimateTokens: 100,
+				reviewedEstimateMicros: 33199,
+				sourceRetiredRowCount: 1,
+				billableCostUsd: 0,
+				invoiceReadyCostUsd: 0,
+				quarantinedTokens: 100,
+				quarantinedCostUsd: 0,
+			});
+		},
+	);
 });

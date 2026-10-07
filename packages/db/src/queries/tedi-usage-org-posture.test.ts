@@ -1,3 +1,4 @@
+import { billingProviderCostEvidenceVersions } from "../schema/billing";
 /**
  * The org-scoped compute-posture reads exist BECAUSE the platform-wide probe
  * next to them is not safe for a tenant surface: a busy platform would mask a
@@ -33,7 +34,7 @@ const WINDOW_FROM = new Date(NOW - 7 * 24 * 60 * 60 * 1000).toISOString();
 function fixture(): { db: DbClient; sqlite: DatabaseSync } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(schemaDdl(tediCallCosts));
+	sqlite.exec(schemaDdl(tediCallCosts, billingProviderCostEvidenceVersions));
 	return { db: createDbClient(createD1Facade(sqlite)) as DbClient, sqlite };
 }
 

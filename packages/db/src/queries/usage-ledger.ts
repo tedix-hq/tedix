@@ -1,6 +1,23 @@
-import { and, desc, eq, gte, lt, lte, ne, or, type SQL } from "drizzle-orm";
+import {
+	normalizeEffectiveCallCost,
+	effectiveCallCostsRelation,
+	providerCostEvidenceProjection,
+	sourceRetiredProjection,
+} from "./billing/provider-cost-evidence";
+import {
+	and,
+	desc,
+	eq,
+	gte,
+	lt,
+	lte,
+	ne,
+	or,
+	getColumns,
+	type SQL,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
-import { tediCallCosts, tedis } from "../schema/tedis";
+import { tediCallCosts, tedis, type TediCallCost } from "../schema/tedis";
 
 export interface UsageLedgerFilters {
 	organizationId: string;
@@ -49,9 +66,12 @@ export async function listOrgCallCostLedger(
 		);
 	}
 
-	return db
+	const rows = await db
 		.select({
+			...getColumns(tediCallCosts),
 			id: tediCallCosts.id,
+			providerCostEvidence: providerCostEvidenceProjection,
+			sourceRetired: sourceRetiredProjection,
 			tediId: tediCallCosts.tediId,
 			tediName: tedis.name,
 			tediSlug: tedis.slug,
@@ -82,11 +102,21 @@ export async function listOrgCallCostLedger(
 			dataQuality: tediCallCosts.dataQuality,
 			createdAt: tediCallCosts.createdAt,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.leftJoin(tedis, eq(tediCallCosts.tediId, tedis.id))
 		.where(and(...conditions))
 		.orderBy(desc(tediCallCosts.snapshotAt), desc(tediCallCosts.id))
 		.limit(filters.limit ?? 500);
+	return (
+		rows as unknown as Array<
+			TediCallCost & {
+				tediName: string | null;
+				tediSlug: string | null;
+				providerCostEvidence: string | null;
+				sourceRetired: number;
+			}
+		>
+	).map(normalizeEffectiveCallCost);
 }
 
 export type OrgCallCostLedgerRow = Awaited<

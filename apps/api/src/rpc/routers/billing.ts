@@ -1047,6 +1047,16 @@ const setServiceCreditControlsContract = os.setServiceCreditControls
 		return { snapshot };
 	});
 
+const recordProviderCostEvidenceContract = os.recordProviderCostEvidence
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.handler(async ({ context, input }) => {
+		requirePlatformBillingAuthority(context);
+		const { recordProviderCostEvidence } =
+			await import("../../services/provider-cost-evidence");
+		return recordProviderCostEvidence(context, input);
+	});
+
 const recordProviderReconciliationContract = os.recordProviderReconciliation
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -1198,5 +1208,6 @@ export const billingContractRouter = os.router({
 	grantInferenceCapacity: grantInferenceCapacityContract,
 	grantServiceCredits: grantServiceCreditsContract,
 	setServiceCreditControls: setServiceCreditControlsContract,
+	recordProviderCostEvidence: recordProviderCostEvidenceContract,
 	recordProviderReconciliation: recordProviderReconciliationContract,
 });

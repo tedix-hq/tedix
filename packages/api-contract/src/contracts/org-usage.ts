@@ -1,5 +1,6 @@
+import { ProviderCostEvidenceProjectionSchema } from "../schemas/provider-cost-evidence";
 import {
-	CostSummarySchema,
+	ReviewedProviderCostSummarySchema,
 	PersistedCostBasisSchema,
 } from "../schemas/cost-provenance";
 import "@orpc/openapi/extensions/route";
@@ -21,7 +22,7 @@ const OrgUsageWindowSchema = z
 	});
 
 const OrgUsageTediBreakdownSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	tediId: z.string(),
 	tediName: z.string(),
 	tediSlug: z.string(),
@@ -36,7 +37,7 @@ const OrgUsageTediBreakdownSchema = z.object({
 });
 
 const OrgUsageDailySchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	date: z.string(),
 	totalTokens: z.number(),
 	estimatedCostUsd: z
@@ -50,7 +51,7 @@ const OrgUsageDailySchema = z.object({
 });
 
 const OrgModelBreakdownSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	model: z.string(),
 	provider: z.string().nullable(),
 	providerResource: z.string().nullable(),
@@ -70,7 +71,7 @@ const OrgModelBreakdownSchema = z.object({
 });
 
 const OrgSourceBreakdownSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	source: z.string(),
 	sessionType: z.string(),
 	totalInputTokens: z.number(),
@@ -88,7 +89,7 @@ const OrgSourceBreakdownSchema = z.object({
 });
 
 const CostAggregateSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	key: z.string(),
 	label: z.string(),
 	totalInputTokens: z.number(),
@@ -112,7 +113,7 @@ const CostAggregateSchema = z.object({
 });
 
 const CostDrilldownTotalsSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	inputTokens: z.number(),
 	outputTokens: z.number(),
 	cacheReadTokens: z.number(),
@@ -246,6 +247,8 @@ const BillingDataQualitySchema = z.object({
 });
 
 const CostDrilldownRowSchema = z.object({
+	providerCostEvidence: ProviderCostEvidenceProjectionSchema.nullable(),
+	sourceRetired: z.boolean(),
 	id: z.string(),
 	tediId: z.string(),
 	tediName: z.string(),
@@ -410,7 +413,7 @@ const OrgUsageOutputSchema = z.object({
 	period: OrgUsagePeriodSchema,
 	window: OrgUsageWindowSchema,
 	totals: z.object({
-		...CostSummarySchema.shape,
+		...ReviewedProviderCostSummarySchema.shape,
 		totalTokens: z.number(),
 		inputTokens: z.number(),
 		outputTokens: z.number(),
