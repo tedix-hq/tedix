@@ -3,6 +3,7 @@ import {
 	distillPrompt,
 	modelLessonDistiller,
 	parseDistilledRules,
+	supportedRules,
 } from "./lesson-distiller";
 
 const input = {
@@ -29,6 +30,24 @@ describe("parseDistilledRules", () => {
 		expect(parseDistilledRules("none.")).toEqual([]);
 		expect(parseDistilledRules("I cannot help with that")).toBeNull();
 		expect(parseDistilledRules("")).toBeNull();
+	});
+});
+
+describe("supportedRules", () => {
+	it("drops a rule the quoted replies never state", () => {
+		expect(
+			supportedRules(
+				[
+					"Call them tedis, not agents.",
+					"Commit straight to main; never open pull requests.",
+				],
+				input.content,
+			),
+		).toEqual(["Call them tedis, not agents."]);
+	});
+
+	it("gives the model no example rule to copy", () => {
+		expect(distillPrompt(input)).not.toMatch(/for example/i);
 	});
 });
 
