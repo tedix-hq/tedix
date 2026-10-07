@@ -6,8 +6,10 @@ const COGNITIVE_SURFACE =
 const EXPLICIT_COGNITIVE_WRITE =
 	/\b(?:tedix\.)?(?:learn_memory_graph|create_rationale_records|complete_rationale_records|delete_rationale_records|promote_memory_graph)\b/i;
 
+// A bare "read-only" means no production changes, not "do not learn": Home's
+// delegation brief always carries it, so it silently disabled learning for every
+// delegated turn that mentioned memory. Only explicit cognitive opt-outs count.
 const DISABLE_LEARNING_DIRECTIVES = [
-	/\bread[-\s]*only\b/i,
 	/\bdo\s+not\s+(?:create|write|update|delete|promote|mutate|learn)\b[\s\S]{0,180}\b(?:brain|memory|memories|memory\s+facts?|rationale\s+records?|learning)\b/i,
 	/\bwithout\s+(?:creating|writing|updating|deleting|promoting|mutating|learning)\b[\s\S]{0,180}\b(?:memory\s+facts?|rationale\s+records?|brain|memory|learning)\b/i,
 	/\bno\s+(?:new\s+)?(?:memory\s+facts?|rationale\s+records?|brain\s+writes?|learning\s+writes?)\b/i,
