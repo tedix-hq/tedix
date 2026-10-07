@@ -15,6 +15,7 @@ import {
 	Workspace as WorkspaceVfs,
 } from "@cloudflare/computer";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { createGovernedComputerGitClient } from "./computer-git-policy";
 import { createCloudflareObserver } from "@cloudflare/computer/observe/cloudflare";
 import {
@@ -313,6 +314,12 @@ export function createTediWorkspaceVfs(
 					backends: [
 						new WorkerShellBackend({
 							...opts.execution,
+							loader: opts.execution.loader
+								? withDynamicWorkerLoaderDiagnostics(opts.execution.loader, {
+										surface: "tedi_workspace_shell",
+										reason: "tedi_workspace_shell_invocation",
+									})
+								: opts.execution.loader,
 							// Make the release's default-deny policy structural at our
 							// integration seam, rather than relying on an upstream default.
 							egress: { mode: "none" },

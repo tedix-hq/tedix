@@ -36,6 +36,15 @@ export type ModelAuthoredLoaderHost =
 			reason: "tedi_durable_authored_invocation";
 	  };
 
+/** Diagnostic-only sites do not acquire the model-authored hardening policy. */
+export type DynamicWorkerLoaderHost =
+	| ModelAuthoredLoaderHost
+	| { surface: "tedi_browser_code"; reason: "tedi_browser_authored_invocation" }
+	| {
+			surface: "tedi_workspace_shell";
+			reason: "tedi_workspace_shell_invocation";
+	  };
+
 function capturedHost(
 	host: ModelAuthoredLoaderHost | undefined,
 ): ModelAuthoredLoaderHost | undefined {
@@ -64,9 +73,38 @@ function capturedHost(
 	}
 }
 
+function capturedDiagnosticHost(
+	host: DynamicWorkerLoaderHost,
+): DynamicWorkerLoaderHost | undefined {
+	try {
+		if (
+			!host ||
+			Reflect.ownKeys(host).length !== 2 ||
+			!Object.hasOwn(host, "surface") ||
+			!Object.hasOwn(host, "reason")
+		)
+			return;
+		const { surface, reason } = host;
+		const original = capturedHost({
+			surface,
+			reason,
+		} as ModelAuthoredLoaderHost);
+		if (original) return original;
+		if (
+			(surface === "tedi_browser_code" &&
+				reason === "tedi_browser_authored_invocation") ||
+			(surface === "tedi_workspace_shell" &&
+				reason === "tedi_workspace_shell_invocation")
+		)
+			return { surface, reason } as DynamicWorkerLoaderHost;
+	} catch {
+		/* Invalid labels cannot change the native call. */
+	}
+}
+
 /** Synchronous best effort: counts host calls, not provider creations or billing. */
 function emitLoaderCall(
-	host: ModelAuthoredLoaderHost | undefined,
+	host: DynamicWorkerLoaderHost | undefined,
 	method: "load" | "get",
 	identity: "anonymous" | "named",
 	phase: "attempted" | "returned" | "threw",
@@ -87,6 +125,51 @@ function emitLoaderCall(
 	} catch {
 		/* A log sink cannot change the native result or error. */
 	}
+}
+
+/** Observe native calls without inspecting, hardening or wrapping their code. */
+export function withDynamicWorkerLoaderDiagnostics<
+	T extends {
+		get(
+			name: string,
+			getCode: () => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>,
+		): unknown;
+		load?: (code: WorkerLoaderWorkerCode) => unknown;
+	},
+>(loader: T, host: DynamicWorkerLoaderHost): T {
+	const fixed = capturedDiagnosticHost(host);
+	return {
+		...(loader.load
+			? {
+					load: (code: WorkerLoaderWorkerCode) => {
+						emitLoaderCall(fixed, "load", "anonymous", "attempted");
+						try {
+							const stub = loader.load!(code);
+							emitLoaderCall(fixed, "load", "anonymous", "returned");
+							return stub;
+						} catch (error) {
+							emitLoaderCall(fixed, "load", "anonymous", "threw");
+							throw error;
+						}
+					},
+				}
+			: {}),
+		get: (
+			name: string,
+			getCode: () => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>,
+		) => {
+			const identity = name === null ? "anonymous" : "named";
+			emitLoaderCall(fixed, "get", identity, "attempted");
+			try {
+				const stub = loader.get(name, getCode);
+				emitLoaderCall(fixed, "get", identity, "returned");
+				return stub;
+			} catch (error) {
+				emitLoaderCall(fixed, "get", identity, "threw");
+				throw error;
+			}
+		},
+	} as T;
 }
 
 /**
