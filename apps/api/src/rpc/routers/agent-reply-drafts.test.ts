@@ -244,7 +244,7 @@ describe("requestReplyDraft", () => {
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
 			conversationId: `reply-draft:${requestId}`,
-			source: "reply-draft:v2",
+			source: "reply-draft:v3",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);
 		const content = first.content as string;
@@ -252,6 +252,11 @@ describe("requestReplyDraft", () => {
 		expect(content).toContain("Tests pass. Commit and push now?");
 		expect(content).toContain("api refactor [working]");
 		expect(content).toContain('"operator-reply-style"');
+		// One bounded board read through known callables, no catalog discovery.
+		expect(content).toContain("limit: 10");
+		expect(content).toContain("never run discover.search");
+		// Corrections and challenges always wait for the operator's review.
+		expect(content).toMatch(/corrects the agent[^.]*always reversible false/);
 		expect(content).toContain(
 			`propose_agent_reply_draft once with requestId "${requestId}"`,
 		);

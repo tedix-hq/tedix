@@ -372,7 +372,10 @@ function oneLine(value: string, limit: number): string {
 
 /** Render the versioned drafting prompt from the defaults asset. */
 export function renderReplyDraftPrompt(params: {
-	request: Pick<InteractionRow, "id" | "subject" | "prompt" | "workItemId">;
+	request: Pick<
+		InteractionRow,
+		"id" | "subject" | "prompt" | "workItemId" | "projectId"
+	>;
 	sessions: ReadonlyArray<{ label: string; state: string; summary: string }>;
 	skillSlug?: string;
 	turnTypeChoices?: readonly string[];
@@ -395,11 +398,12 @@ export function renderReplyDraftPrompt(params: {
 		requestId: params.request.id,
 		subject: oneLine(params.request.subject, 300),
 		workItemId: params.request.workItemId ?? "none",
+		projectId: params.request.projectId ?? "none",
 		prompt,
 		sessions,
 		skillStep: params.skillSlug
-			? `- Load the skill "${params.skillSlug}" (get_skill) and follow it.`
-			: "- No drafting skill is configured; rely on the steps below.",
+			? `- skills.get_skills_for_mcp({ slug: "${params.skillSlug}" }) for the drafting skill; follow it where it differs from the style below.`
+			: "- (No drafting skill is configured.)",
 		turnTypeChoices: params.turnTypeChoices?.length
 			? params.turnTypeChoices.join(", ")
 			: "a short label you choose, such as approval, continue, status, correction",

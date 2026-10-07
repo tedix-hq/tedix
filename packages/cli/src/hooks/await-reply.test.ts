@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	AUTO_REPLY_LIMIT,
+	AWAIT_DRAFT_WINDOW_MS,
 	AWAIT_MAX_DELAY_MS,
 	type AwaitResult,
 	autoDraftMessage,
@@ -218,11 +219,15 @@ describe("tedix hooks await-reply", () => {
 		);
 	});
 
-	test("backoff runs 5s doubling to 60s", () => {
+	test("backoff runs 5s doubling to 20s while a draft may land, then 60s", () => {
 		const delays: number[] = [];
 		let delay: number | undefined;
-		for (let i = 0; i < 7; i++) delays.push((delay = nextDelay(delay)));
-		expect(delays).toEqual([5000, 10000, 20000, 40000, 60000, 60000, 60000]);
+		for (let i = 0; i < 5; i++) delays.push((delay = nextDelay(delay)));
+		expect(delays).toEqual([5000, 10000, 20000, 20000, 20000]);
+		const late: number[] = [];
+		for (let i = 0; i < 3; i++)
+			late.push((delay = nextDelay(delay, AWAIT_DRAFT_WINDOW_MS)));
+		expect(late).toEqual([40000, 60000, 60000]);
 		expect(AWAIT_MAX_DELAY_MS).toBe(60000);
 	});
 

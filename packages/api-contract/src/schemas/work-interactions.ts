@@ -290,6 +290,12 @@ export const WorkInteractionReplyDraftSchema = z.strictObject({
 		.max(2_000)
 		.describe("Why the drafting tedi proposed this reply"),
 	drafterId: z.string().describe("The drafting tedi's id"),
+	drafterName: z
+		.string()
+		.nullable()
+		.describe(
+			"The drafting tedi's display name; null when it cannot be resolved",
+		),
 	createdAt: z.string(),
 	turnType: z
 		.string()

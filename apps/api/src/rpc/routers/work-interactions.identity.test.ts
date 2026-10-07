@@ -391,10 +391,24 @@ describe("Work interaction canonical actor projections", () => {
 			body: "Second",
 			rationale: "Board priority",
 			drafterId: "drafter",
+			drafterName: null as string | null,
 			createdAt: "2026-08-21T02:00:00.000Z",
 			turnType: "approval",
 			delivery: "review",
 		};
+		expect(await target.get({ requestId: request.id })).toMatchObject({
+			latestDraft,
+		});
+		const insertTedi = sqlite.prepare(
+			"INSERT INTO tedis (id,organization_id,name,display_name,slug) VALUES (?,?,?,?,?)",
+		);
+		insertTedi.run("drafter", "other-org", "Foreign", "Foreign", "foreign");
+		expect(await target.get({ requestId: request.id })).toMatchObject({
+			latestDraft,
+		});
+		sqlite.exec("DELETE FROM tedis");
+		insertTedi.run("drafter", ORG_ID, "cto", null, "cto");
+		latestDraft.drafterName = "cto";
 		expect(await target.get({ requestId: request.id })).toMatchObject({
 			latestDraft,
 		});
