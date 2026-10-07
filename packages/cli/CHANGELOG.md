@@ -3,6 +3,15 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.4 — 2026-10-08
+
+### Fixed
+
+- The prompt and decision-capture hooks no longer apply the saved default
+  organization inside an unbound Git repository. There they use the
+  organization of your other bound repositories with the same owner, or stay
+  idle; the default applies only outside Git.
+
 ## 0.6.3 — 2026-10-08
 
 ### Fixed
