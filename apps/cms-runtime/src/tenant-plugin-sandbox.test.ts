@@ -1,5 +1,12 @@
 import { env, exports as workerExports } from "cloudflare:workers";
-import { beforeAll, describe, expect, test, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	closeCmsRestoreFence,
@@ -59,6 +66,8 @@ type PluginHostEnv = {
 
 const platformD1 = (env as unknown as PluginHostEnv).PLATFORM_DB;
 const platformDb = createDbQueryClient(platformD1);
+
+afterEach(() => vi.restoreAllMocks());
 
 beforeAll(async () => {
 	await platformD1
@@ -1212,3 +1221,160 @@ test("native plugin transport exposes only its named bridge and denies ambient a
 		secret: null,
 	});
 }, 15000);
+
+describe("CMS plugin production Loader diagnostics", () => {
+	async function assertBridgeClosed(code: WorkerLoaderWorkerCode) {
+		let refusal: unknown;
+		try {
+			await (
+				code.env!.BRIDGE as { kvGet(key: string): Promise<unknown> }
+			).kvGet("fictional-key");
+		} catch (error) {
+			refusal = error;
+		}
+		expect(refusal).toBeInstanceOf(Error);
+		expect((refusal as Error).message).toBe("Plugin KV request context closed");
+	}
+	const scope: TenantPluginScope = {
+		tenantSlug: "fictional-diagnostics",
+		siteId: "fictional-site",
+		restoreEpoch: 3,
+		pluginId: "fictional-plugin",
+		pluginVersion: "1.0.0",
+		grants: ["kv:read"],
+	};
+	const pluginSource =
+		"export default { invoke() { return 'fictional-private-result'; } }";
+	const event = (phase: string) => ({
+		event: "tedix.dynamic_worker.loader_call",
+		version: 1,
+		surface: "cms_tenant_plugin",
+		reason: "cms_tenant_plugin_invocation",
+		method: "get",
+		identity: "named",
+		phase,
+	});
+	test.each([false, true])(
+		"preserves per-invocation names, manifests, entrypoint and bridge retirement with sink failure %s",
+		async (sinkThrows) => {
+			const log = vi.spyOn(console, "log").mockImplementation(() => {
+				if (sinkThrows) throw Error("fictional-sink");
+			});
+			const names: string[] = [];
+			const factories: (() =>
+				| WorkerLoaderWorkerCode
+				| Promise<WorkerLoaderWorkerCode>)[] = [];
+			const entrypoint = {
+				invoke: vi.fn(async () => "fictional-private-result"),
+			};
+			const native = {
+				get(
+					name: string,
+					factory: () =>
+						| WorkerLoaderWorkerCode
+						| Promise<WorkerLoaderWorkerCode>,
+				) {
+					expect(this).toBe(native);
+					names.push(name);
+					factories.push(factory);
+					return { getEntrypoint: () => entrypoint };
+				},
+			};
+			const host = {
+				...(env as unknown as PluginHostEnv),
+				LOADER: native as unknown as WorkerLoader,
+			};
+			const invoke = vi.fn(
+				async (actual: { invoke(...args: unknown[]): Promise<string> }) => {
+					expect(actual).toBe(entrypoint);
+					return actual.invoke();
+				},
+			);
+			for (let i = 0; i < 2; i++)
+				expect(
+					await invokeTenantPluginTransport(host, scope, pluginSource, invoke),
+				).toBe("fictional-private-result");
+			expect(invoke).toHaveBeenCalledTimes(2);
+			expect(names[0]).not.toBe(names[1]);
+			expect(names[0]!.split(":").slice(0, 3)).toEqual(
+				names[1]!.split(":").slice(0, 3),
+			);
+			const codes = await Promise.all(factories.map((factory) => factory()));
+			for (const code of codes) {
+				expect(code).toMatchObject({
+					compatibilityDate: "2026-05-14",
+					compatibilityFlags: ["disallow_importable_env"],
+					mainModule: "plugin.mjs",
+					modules: { "plugin.mjs": { js: pluginSource } },
+					globalOutbound: null,
+					limits: { cpuMs: 50, subRequests: 10 },
+				});
+				expect(Object.keys(code.env!)).toEqual(["BRIDGE"]);
+				await assertBridgeClosed(code);
+			}
+			expect(codes[0]!.env!.BRIDGE).not.toBe(codes[1]!.env!.BRIDGE);
+			const events = log.mock.calls.map(([s]) => JSON.parse(String(s)));
+			expect(events).toEqual([
+				event("attempted"),
+				event("returned"),
+				event("attempted"),
+				event("returned"),
+			]);
+			for (const e of events)
+				expect(Object.keys(e)).toEqual([
+					"event",
+					"version",
+					"surface",
+					"reason",
+					"method",
+					"identity",
+					"phase",
+				]);
+			expect(JSON.stringify(events)).not.toContain("fictional");
+		},
+	);
+	test.each(["get", "invoke"])(
+		"preserves original %s error and retires its bridge",
+		async (failureAt) => {
+			const failure = Error("fictional-native-or-invoke-error");
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
+			let factory:
+				| (() => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>)
+				| undefined;
+			const native = {
+				get(
+					_name: string,
+					callback: () =>
+						| WorkerLoaderWorkerCode
+						| Promise<WorkerLoaderWorkerCode>,
+				) {
+					expect(this).toBe(native);
+					factory = callback;
+					if (failureAt === "get") throw failure;
+					return {
+						getEntrypoint: () => ({
+							invoke: async () => {
+								throw failure;
+							},
+						}),
+					};
+				},
+			};
+			const host = {
+				...(env as unknown as PluginHostEnv),
+				LOADER: native as unknown as WorkerLoader,
+			};
+			await expect(
+				invokeTenantPluginTransport(host, scope, pluginSource, (entry) =>
+					entry.invoke(),
+				),
+			).rejects.toBe(failure);
+			const code = await factory!();
+			await assertBridgeClosed(code);
+			expect(log.mock.calls.map(([s]) => JSON.parse(String(s)))).toEqual([
+				event("attempted"),
+				event(failureAt === "get" ? "threw" : "returned"),
+			]);
+		},
+	);
+});

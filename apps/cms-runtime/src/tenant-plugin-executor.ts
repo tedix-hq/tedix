@@ -1,4 +1,5 @@
 import { exports as workerExports, WorkerEntrypoint } from "cloudflare:workers";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { generatePluginWrapper } from "@emdash-cms/cloudflare/sandbox";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
@@ -705,18 +706,18 @@ async function invokeTenantPluginModules<T>(
 	await bridge.kvBegin(invocationId);
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	try {
-		const worker = env.LOADER.get(
-			`cms-plugin:${scope.siteId}:${codeHash}:${invocationId}`,
-			() => ({
-				compatibilityDate: "2026-05-14",
-				compatibilityFlags: ["disallow_importable_env"],
-				mainModule: "plugin.mjs",
-				modules,
-				globalOutbound: null,
-				limits: { cpuMs: 50, subRequests: 10 },
-				env: { BRIDGE: bridge },
-			}),
-		);
+		const worker = withDynamicWorkerLoaderDiagnostics(env.LOADER, {
+			surface: "cms_tenant_plugin",
+			reason: "cms_tenant_plugin_invocation",
+		}).get(`cms-plugin:${scope.siteId}:${codeHash}:${invocationId}`, () => ({
+			compatibilityDate: "2026-05-14",
+			compatibilityFlags: ["disallow_importable_env"],
+			mainModule: "plugin.mjs",
+			modules,
+			globalOutbound: null,
+			limits: { cpuMs: 50, subRequests: 10 },
+			env: { BRIDGE: bridge },
+		}));
 		return await Promise.race([
 			invoke(worker.getEntrypoint(), invocationId),
 			new Promise<never>((_, reject) => {
