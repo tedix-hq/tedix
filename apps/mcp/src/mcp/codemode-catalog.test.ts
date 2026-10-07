@@ -1627,7 +1627,7 @@ it("keeps reviewed endpoint floors and denials identical in native discovery", a
 	try {
 		for (const endpoint of [
 			"organizations/cancel",
-			"tedis/inspectRuntimeCutover",
+			"tedis/inspectRuntimeOutbox",
 			"workspaceApps/list",
 			"providerEvents/list",
 			"unreviewed/unknown",

@@ -17,12 +17,8 @@ import {
 } from "../schemas/provider-model-pricing";
 import { baseErrors } from "../errors";
 import {
-	FiniteExecutionAuthorizationInputSchema,
-	FiniteExecutionAuthorizationSchema,
 	FiniteExecutionRevocationInputSchema,
 	FiniteExecutionRevocationSchema,
-	HistoricalExposureInputSchema,
-	HistoricalExposureSchema,
 	HistoricalExposureListInputSchema,
 	HistoricalExposureSetSchema,
 	HistoricalFreshDecisionInputSchema,
@@ -89,16 +85,6 @@ export const billingContract = oc
 	.route({ tags: ["billing"], prefix: "/billing" })
 	.errors(baseErrors)
 	.router({
-		recordHistoricalExposure: oc
-			.route({
-				method: "POST",
-				path: "/historical-exposures",
-				tags: ["internal"],
-				description:
-					"Human owner/admin: record server-audited UNKNOWN exposure for a selected physical root or registered descendant under canonical root custody. No settlement or execution authority.",
-			})
-			.input(HistoricalExposureInputSchema)
-			.output(HistoricalExposureSchema),
 		listHistoricalExposures: oc
 			.route({
 				method: "GET",
@@ -109,16 +95,6 @@ export const billingContract = oc
 			})
 			.input(HistoricalExposureListInputSchema)
 			.output(HistoricalExposureSetSchema),
-		authorizeHistoricalFreshExecution: oc
-			.route({
-				method: "POST",
-				path: "/historical-fresh-execution/authorize",
-				tags: ["internal"],
-				description:
-					"Human owner/admin: explicitly record finite fresh-execution permission within existing funding after distinct nonactive root inspection. Unresolved UNKNOWN is unbounded; already admitted finite send windows may outlive revocation. Recording does not release actors or enforce provider admission.",
-			})
-			.input(FiniteExecutionAuthorizationInputSchema)
-			.output(FiniteExecutionAuthorizationSchema),
 		revokeHistoricalFreshExecution: oc
 			.route({
 				method: "POST",

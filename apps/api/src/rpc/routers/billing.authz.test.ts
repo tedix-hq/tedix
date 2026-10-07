@@ -273,16 +273,7 @@ vi.mock("@tedix/db/queries/tedis", () => ({
 }));
 describe("historical records require actual human membership, never platform bypass", () => {
 	const userId = "00000000-0000-4000-8000-000000000003";
-	const audit = {
-		tediId: "00000000-0000-4000-8000-000000000002",
-		operationId: "audit",
-		rootObjectId: "a".repeat(64),
-		objectId: "a".repeat(64),
-		targetPath: [],
-		expectedGeneration: 1,
-		snapshotId: "b".repeat(64),
-		sourceHash: "c".repeat(64),
-	};
+	const audit = { tediId: "00000000-0000-4000-8000-000000000002" };
 	for (const authType of [
 		"apikey",
 		"tedi",
@@ -301,9 +292,9 @@ describe("historical records require actual human membership, never platform byp
 			const client = createRouterClient(billingContractRouter, {
 				context: ctx,
 			});
-			await expect(
-				client.recordHistoricalExposure(audit),
-			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(client.listHistoricalExposures(audit)).rejects.toMatchObject(
+				{ code: "FORBIDDEN" },
+			);
 			expect(historicalMember).not.toHaveBeenCalled();
 		});
 	}
@@ -320,12 +311,12 @@ describe("historical records require actual human membership, never platform byp
 			const client = createRouterClient(billingContractRouter, {
 				context: ctx,
 			});
-			await expect(
-				client.recordHistoricalExposure(audit),
-			).rejects.toMatchObject({
-				code: "CONFLICT",
-				message: "Canonical historical custody unavailable",
-			});
+			await expect(client.listHistoricalExposures(audit)).rejects.toMatchObject(
+				{
+					code: "CONFLICT",
+					message: "Canonical historical custody unavailable",
+				},
+			);
 		});
 	}
 	for (const member of [
@@ -342,9 +333,9 @@ describe("historical records require actual human membership, never platform byp
 					userId,
 				},
 			});
-			await expect(
-				client.recordHistoricalExposure(audit),
-			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(client.listHistoricalExposures(audit)).rejects.toMatchObject(
+				{ code: "FORBIDDEN" },
+			);
 		});
 	}
 });
@@ -361,17 +352,6 @@ describe("historical billing records reject disabled commercial plane", () => {
 			hash = "a".repeat(64);
 		const requests = [
 			() => client.listHistoricalExposures({ tediId }),
-			() =>
-				client.recordHistoricalExposure({
-					tediId,
-					operationId: "audit",
-					rootObjectId: hash,
-					objectId: hash,
-					targetPath: [],
-					expectedGeneration: 1,
-					snapshotId: hash,
-					sourceHash: hash,
-				}),
 			() =>
 				client.recordHistoricalFreshDecision({
 					tediId,
@@ -413,37 +393,9 @@ describe("historical billing records reject disabled commercial plane", () => {
 	});
 });
 
-describe("explicit finite execution authorization human-only routing", () => {
+describe("finite execution revocation human-only routing", () => {
 	const userId = "00000000-0000-4000-8000-000000000003",
 		tediId = "00000000-0000-4000-8000-000000000002";
-	const permit = {
-		kind: "authorize_fresh_execution" as const,
-		tediId,
-		operationId: "permit",
-		expectedRevision: 0,
-		exposureSetHash: "a".repeat(64),
-		freshRootName: "fresh",
-		freshRootId: "b".repeat(64),
-		preparedGeneration: 1,
-		executionGeneration: 2,
-		leafScopes: [],
-		funding: {
-			accountId: organizationId,
-			entitlementVersion: 1,
-			settlementMode: "managed" as const,
-			billingMode: "internal" as const,
-			status: "active" as const,
-			planVersionId: userId,
-			planVersion: 1,
-			periodStart: "2026-10-01T00:00:00.000Z",
-			periodEnd: "2026-11-01T00:00:00.000Z",
-			stripeEnvironment: null,
-		},
-		maxSendDurationSeconds: 60,
-		expiresAt: "2026-10-05T10:00:00.000Z",
-		acknowledgeUnboundedUnknownExposure: true as const,
-		acknowledgeOutstandingSendWindowAfterRevocation: true as const,
-	};
 	const revoke = {
 		kind: "revoke_fresh_execution" as const,
 		tediId,
@@ -452,7 +404,7 @@ describe("explicit finite execution authorization human-only routing", () => {
 		authorizationId: userId,
 	};
 	for (const authType of ["apikey", "tedi", "m2m", "service-binding"] as const)
-		it(`rejects ${authType} for both new operations despite wildcard/platform scopes`, async () => {
+		it(`rejects ${authType} despite wildcard/platform scopes`, async () => {
 			historicalMember.mockReset();
 			const ctx = {
 				...context(["*", "platform:admin", "billing:manage", "billing:write"]),
@@ -461,9 +413,6 @@ describe("explicit finite execution authorization human-only routing", () => {
 			const client = createRouterClient(billingContractRouter, {
 				context: ctx,
 			});
-			await expect(
-				client.authorizeHistoricalFreshExecution(permit),
-			).rejects.toMatchObject({ code: "FORBIDDEN" });
 			await expect(
 				client.revokeHistoricalFreshExecution(revoke),
 			).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -482,20 +431,14 @@ describe("explicit finite execution authorization human-only routing", () => {
 				context: { ...context(["billing:manage"], true), userId },
 			});
 			await expect(
-				client.authorizeHistoricalFreshExecution(permit),
-			).rejects.toMatchObject({ code: "CONFLICT" });
-			await expect(
 				client.revokeHistoricalFreshExecution(revoke),
 			).rejects.toMatchObject({ code: "CONFLICT" });
 		});
-	it("disabled fleet denies both new operations before membership or private audit", async () => {
+	it("disabled fleet denies revocation before membership", async () => {
 		historicalMember.mockReset();
 		const ctx = { ...context(["billing:manage"], true), userId };
 		ctx.env.TEDIX_FLEET_AUTHORITY_MODE = "disabled";
 		const client = createRouterClient(billingContractRouter, { context: ctx });
-		await expect(
-			client.authorizeHistoricalFreshExecution(permit),
-		).rejects.toMatchObject({ code: "NOT_FOUND" });
 		await expect(
 			client.revokeHistoricalFreshExecution(revoke),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });

@@ -1130,15 +1130,6 @@ const publishProviderModelRateContract = os.publishProviderModelRate
 		return row;
 	});
 
-const recordHistoricalExposureContract = os.recordHistoricalExposure
-	.use(withAuth)
-	.use(withFleetAuthority)
-	.use(withAuthorization("billing:manage", "billing:write"))
-	.handler(async ({ context, input }) =>
-		(
-			await import("./billing/historical-exposure")
-		).recordHistoricalExposureHandler(context, input),
-	);
 const listHistoricalExposuresContract = os.listHistoricalExposures
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -1166,16 +1157,6 @@ const revokeHistoricalFreshDecisionContract = os.revokeHistoricalFreshDecision
 			await import("./billing/historical-exposure")
 		).revokeHistoricalFreshDecisionHandler(context, input),
 	);
-const authorizeHistoricalFreshExecutionContract =
-	os.authorizeHistoricalFreshExecution
-		.use(withAuth)
-		.use(withFleetAuthority)
-		.use(withAuthorization("billing:manage", "billing:write"))
-		.handler(async ({ context, input }) =>
-			(
-				await import("./billing/historical-exposure")
-			).authorizeHistoricalFreshExecutionHandler(context, input),
-		);
 const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -1186,9 +1167,7 @@ const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 		).revokeHistoricalFreshExecutionHandler(context, input),
 	);
 export const billingContractRouter = os.router({
-	authorizeHistoricalFreshExecution: authorizeHistoricalFreshExecutionContract,
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
-	recordHistoricalExposure: recordHistoricalExposureContract,
 	listHistoricalExposures: listHistoricalExposuresContract,
 	recordHistoricalFreshDecision: recordHistoricalFreshDecisionContract,
 	revokeHistoricalFreshDecision: revokeHistoricalFreshDecisionContract,

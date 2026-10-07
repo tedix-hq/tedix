@@ -504,7 +504,7 @@ it("never lends catalog-read authority to reviewed writes, platform aliases or u
 		"organizations/cancel",
 		"workspaceApps/create",
 		"providerEvents/list",
-		"tedis/inspectRuntimeCutover",
+		"tedis/inspectRuntimeOutbox",
 		"unreviewed/unknown",
 	]) {
 		const context = {

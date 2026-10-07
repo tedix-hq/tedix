@@ -78,10 +78,6 @@ import {
 	TediRuntimeStatusSchema,
 	TediScheduleListResponseSchema,
 	TediRuntimeOutboxDiagnosticResponseSchema,
-	TediRuntimeCutoverQuerySchema,
-	TediRuntimeCutoverOperationQuerySchema,
-	TediRuntimeCutoverOperationResponseSchema,
-	TediRuntimeCutoverInventoryResponseSchema,
 	TediRuntimeRecoveryQuerySchema,
 	TediRuntimeRecoveryDiagnosticResponseSchema,
 	TediSchema,
@@ -538,30 +534,6 @@ export const tedisContract = oc
 			})
 			.input(TediIdParamSchema)
 			.output(TediScheduleListResponseSchema),
-
-		inspectRuntimeCutover: oc
-			.route({
-				method: "GET",
-				path: "/{routeTediId}/runtime-cutover/inspect",
-				summary: "Inspect one finite cutover object's stored metadata",
-				description:
-					"Temporary platform-admin-only stable paged inventory for an exact known raw object ID. Each page is bounded to 200 entries per array with complete counts and an inventory hash; continuation requires that hash. The route tedi is a transport anchor, not an ownership claim. Optional exact candidate names recover only the matching named object ID and never infer ownership. Does not import, apply, redrive, delete, or explicitly dispatch cognition.",
-				tags: ["internal"],
-			})
-			.input(TediRuntimeCutoverQuerySchema)
-			.output(TediRuntimeCutoverInventoryResponseSchema),
-
-		operateRuntimeCutover: oc
-			.route({
-				method: "POST",
-				path: "/{routeTediId}/runtime-cutover/operate",
-				summary: "Operate one finite runtime cutover object",
-				description:
-					"Temporary platform-admin-only stored cutover operations with canonical D1 custody and exact physical roots/facets. Historical custody commands require an already nonactive canonical root and actual local Raw receiver: inspect returns the exact engine source hash, capture pins it to one atomic immutable archive with all replay seals, and audit verifies the existing archive hash and generation. They preserve only the root local fixed whitelist, not descendants or financial coverage; no execution authority, admission transition or unknown-effect settlement is granted. inspect_capture_size returns root-only fixed-whitelist scalar read-window observations, permits ACTIVE or admission-absent generation-zero roots, and creates no admission or receipt; results are not atomic snapshot size, peak heap, financial coverage or writer exclusion. Other stored operations retain their admission and receipt requirements. Root-only exclude_writers requires an already nonactive canonical root and interrupts its hosted graph and in-flight execution. It creates no success receipt, automatic retry, provider cancellation or settlement. A lost outcome remains UNKNOWN; obtain fresh passive Raw-object inspection confirming exact current custody, object ID and generation before continuing. Does not redrive effects or infer ownership.",
-				tags: ["internal"],
-			})
-			.input(TediRuntimeCutoverOperationQuerySchema)
-			.output(TediRuntimeCutoverOperationResponseSchema),
 
 		inspectRuntimeRecovery: oc
 			.route({
