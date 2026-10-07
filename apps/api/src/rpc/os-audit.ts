@@ -518,6 +518,18 @@ export const OS_SHARES_AUDIT: OsAuditRegistry = {
 			decision: input.decision,
 		}),
 	},
+	"reviews.saveGadgetFeedback": {
+		action: "os.review_feedback.saved",
+		resourceType: "os_review_batch",
+		resourceId: ({ input }) => text(input.batchId),
+		metadata: ({ input, output }) => ({
+			cardId: input.cardId,
+			revision: fields(output.feedback).revision,
+			decision: input.decision,
+			gadgetId: input.gadgetId,
+			via: "workspace",
+		}),
+	},
 
 	// `output.token` is the one-time plaintext share credential and is
 	// deliberately NOT in metadata — an audit table is readable by every

@@ -139,6 +139,21 @@ const reviewSessionInput = z.object({
 	shareId: z.string().uuid(),
 	sessionToken: z.string().min(20).max(128),
 });
+const reviewGadgetInput = z.object({
+	workspaceId: z.string().uuid().describe("Workspace that contains the gadget"),
+	gadgetId: z
+		.string()
+		.uuid()
+		.describe("Gadget whose active review link binds the batch"),
+});
+const reviewFeedbackFields = {
+	batchId: z.string().uuid(),
+	cardId: z.string().min(1).max(100),
+	expectedRevision: z.number().int().nonnegative(),
+	decision: OsReviewFeedbackSchema.shape.decision,
+	editedReply: z.string().max(8000),
+	reason: z.string().max(4000),
+};
 
 const createShareInput = z
 	.object({
@@ -280,16 +295,32 @@ export const osSharesContract = oc
 					path: "/reviews/feedback",
 					summary: "Save your review feedback",
 				})
-				.input(
-					reviewSessionInput.extend({
-						batchId: z.string().uuid(),
-						cardId: z.string().min(1).max(100),
-						expectedRevision: z.number().int().nonnegative(),
-						decision: OsReviewFeedbackSchema.shape.decision,
-						editedReply: z.string().max(8000),
-						reason: z.string().max(4000),
+				.input(reviewSessionInput.extend(reviewFeedbackFields))
+				.output(z.object({ feedback: OsReviewFeedbackSchema })),
+			getForGadget: oc
+				.route({
+					method: "GET",
+					path: "/reviews/gadgets/{gadgetId}",
+					summary: "Read your review of a gadget's active batch",
+					description:
+						"Workspace members see the same immutable batch a gadget's active review link shows recipients, with only their own saved feedback. Returns a null batch when no active review link is bound.",
+				})
+				.input(reviewGadgetInput.strict())
+				.output(
+					z.object({
+						batch: OsReviewBatchSchema.nullable(),
+						feedback: z.array(OsReviewFeedbackSchema),
 					}),
-				)
+				),
+			saveGadgetFeedback: oc
+				.route({
+					method: "POST",
+					path: "/reviews/gadgets/{gadgetId}/feedback",
+					summary: "Save your review feedback from the workspace",
+					description:
+						"Writes the same per-reviewer, conflict-checked feedback record as the shared review link. Requires workspace access to the gadget and an active review link; never changes the source output.",
+				})
+				.input(reviewGadgetInput.extend(reviewFeedbackFields))
 				.output(z.object({ feedback: OsReviewFeedbackSchema })),
 		}),
 		shares: oc.router({

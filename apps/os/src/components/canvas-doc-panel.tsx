@@ -40,6 +40,7 @@ import {
 	OutputWorkshopStatus,
 } from "@/components/output-workshop";
 import { ShareControls } from "@/components/share-controls";
+import { WorkspaceGadgetReview } from "@/components/shared-review-batch";
 import { WidgetFrame } from "@/components/widget-frame";
 import { diffFiles } from "@/collab/ot/code-change";
 import { COLLAB_DOC_PATH } from "@/collab/protocol";
@@ -720,23 +721,33 @@ export function CanvasDocPanel({
 							className="flex min-h-0 flex-1 flex-col"
 						>
 							<CardContent className="flex min-h-0 flex-1 flex-col gap-3">
-								<div className="flex flex-wrap items-center gap-2">
-									<Badge variant="secondary">Committed preview</Badge>
-									<Text as="span" role="label" tone="secondary">
-										Commit source changes to refresh this runnable view.
-									</Text>
-								</div>
-								<WidgetFrame
-									layout="fill"
-									appSlug={gadgetWidgetTarget.appSlug}
-									resourceUri={gadgetWidgetTarget.resourceUri}
-									title={title ?? "Canvas Gadget"}
-									onFollowUp={onWidgetFollowUp}
-									toolInput={previewExecution?.input ?? undefined}
-									toolResult={
-										previewExecution
-											? gadgetExecutionToolResult(previewExecution)
-											: undefined
+								{/* A gadget with an active review link opens on the same
+								    review app recipients use; its own app stays available. */}
+								<WorkspaceGadgetReview
+									workspaceId={workspaceId}
+									gadgetId={doc.id}
+									gadget={
+										<>
+											<div className="flex flex-wrap items-center gap-2">
+												<Badge variant="secondary">Committed preview</Badge>
+												<Text as="span" role="label" tone="secondary">
+													Commit source changes to refresh this runnable view.
+												</Text>
+											</div>
+											<WidgetFrame
+												layout="fill"
+												appSlug={gadgetWidgetTarget.appSlug}
+												resourceUri={gadgetWidgetTarget.resourceUri}
+												title={title ?? "Canvas Gadget"}
+												onFollowUp={onWidgetFollowUp}
+												toolInput={previewExecution?.input ?? undefined}
+												toolResult={
+													previewExecution
+														? gadgetExecutionToolResult(previewExecution)
+														: undefined
+												}
+											/>
+										</>
 									}
 								/>
 							</CardContent>

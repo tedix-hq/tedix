@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
 	osReviewBatches,
@@ -40,6 +40,28 @@ export async function getOsReviewBatch(
 		);
 	return row;
 }
+/**
+ * The newest batch bound to an active, review-only share link of this gadget.
+ * Workspace members review the same batch recipients see; the share link is
+ * the binding, so revoking or expiring it closes the review in both places.
+ */
+export async function getActiveOsReviewBatchForGadget(
+	db: DbQueryClient,
+	p: { organizationId: string; gadgetId: string; now: string },
+): Promise<OsReviewBatchRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osReviewBatches)
+		.where(
+			and(
+				eq(osReviewBatches.organizationId, p.organizationId),
+				sql`exists(select 1 from ${osShareLinks} l where l.id=${osReviewBatches.shareLinkId} and l.organization_id=${p.organizationId} and l.resource_type='gadget' and l.resource_id=${p.gadgetId} and l.role='use' and (l.policy_max_role is null or l.policy_max_role='use') and l.revoked_at is null and (l.expires_at is null or l.expires_at>${p.now}))`,
+			),
+		)
+		.orderBy(desc(osReviewBatches.createdAt))
+		.limit(1);
+	return row;
+}
 export async function listOsReviewFeedback(
 	db: DbQueryClient,
 	organizationId: string,
@@ -57,13 +79,19 @@ export async function listOsReviewFeedback(
 			),
 		);
 }
-/** Session, link, tenant, card and gadget liveness are fenced in the write itself. */
+/**
+ * Who is writing: a share recipient proves a live redemption session; a
+ * workspace member proves (in the router) workspace access to the bound gadget.
+ */
+export type OsReviewFeedbackAccess =
+	| { kind: "share"; shareId: string; sessionHash: string }
+	| { kind: "workspace"; gadgetId: string };
+/** Session or gadget, link, tenant, card and gadget liveness are fenced in the write itself. */
 export async function saveOsReviewFeedback(
 	db: DbQueryClient,
 	p: {
 		organizationId: string;
-		shareId: string;
-		sessionHash: string;
+		access: OsReviewFeedbackAccess;
 		batchId: string;
 		cardId: string;
 		reviewerId: string;
@@ -74,15 +102,17 @@ export async function saveOsReviewFeedback(
 		now: string;
 	},
 ) {
+	const caller =
+		p.access.kind === "share"
+			? sql`l.id=${p.access.shareId} and exists(select 1 from ${osShareSessions} s where s.share_link_id=l.id and s.session_token_hash=${p.access.sessionHash} and s.revoked_at is null and s.expires_at>${p.now})`
+			: sql`l.resource_id=${p.access.gadgetId}`;
 	const active = sql`exists(select 1 from ${osReviewBatches} b
  join ${osShareLinks} l on l.id=b.share_link_id
- join ${osShareSessions} s on s.share_link_id=l.id
  join ${osGadgets} g on g.id=l.resource_id and g.organization_id=l.organization_id
  where b.id=${p.batchId} and b.organization_id=${p.organizationId} and l.organization_id=${p.organizationId}
- and l.id=${p.shareId} and l.resource_type='gadget' and l.role='use'
+ and ${caller} and l.resource_type='gadget' and l.role='use'
  and (l.policy_max_role is null or l.policy_max_role='use')
  and l.revoked_at is null and (l.expires_at is null or l.expires_at>${p.now})
- and s.session_token_hash=${p.sessionHash} and s.revoked_at is null and s.expires_at>${p.now}
  and g.status='active' and exists(select 1 from json_each(b.cards) c where json_extract(c.value,'$.id')=${p.cardId}))`;
 	const values = {
 		organizationId: p.organizationId,
