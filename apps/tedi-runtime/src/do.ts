@@ -39,6 +39,7 @@ import {
 } from "./runtime-admission-do";
 import { errorMessage } from "@tedix/worker-kit/error-message";
 import { logTediSourceFailure } from "./context-failure-log";
+import { cacheOrderedSystemPrompt } from "./prompt-cache";
 import {
 	logTediFacetBudgetStop,
 	logTediRuntimeDiagnostic,
@@ -9134,16 +9135,23 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			input.userMessage,
 			turnBinding,
 		);
-		const baseSystem = addenda
-			? `${this.state.systemPrompt}\n\n${addenda}`
-			: this.state.systemPrompt;
 		const toolsNote = workspaceToolGuidance({
 			supervised,
 			repositoryMode: input.repositoryMode,
 		});
-		let system = mcpRuntime
-			? `${baseSystem}\n\n${mcpRuntime.getSystemInstructions({ includeGuidance: !supervised })}\n\n${toolsNote}\n\n${CODE_MODE_BATCHING_NOTE}`
-			: `${baseSystem}\n\n${toolsNote}\n\n${CODE_MODE_BATCHING_NOTE}`;
+		// Per-turn addenda (memory recall, matched directives, retrieved skills)
+		// follow the turn-invariant runtime contract so the provider prefix cache
+		// can reuse everything before them.
+		let system = cacheOrderedSystemPrompt(
+			[
+				this.state.systemPrompt,
+				mcpRuntime?.getSystemInstructions({ includeGuidance: !supervised }) ??
+					"",
+				toolsNote,
+				CODE_MODE_BATCHING_NOTE,
+			],
+			[addenda],
+		);
 		// Runtime-authored consent block: appended to the
 		// SYSTEM prompt, never the user message, so the one trustworthy consent
 		// representation lives on the side of the turn tenant text cannot reach.
@@ -15045,18 +15053,21 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					const addenda = contextPolicy.cognitiveAddenda
 						? await this.cognitiveAddenda(sessionKey, userMessage, turnBinding)
 						: "";
-					const baseSystem = addenda
-						? `${this.state.systemPrompt}\n\n${addenda}`
-						: this.state.systemPrompt;
 					const toolsNote = input.toolArgumentConstraints
 						? ""
 						: WORKSPACE_TOOLS_NOTE;
-					const systemWithoutToolFit = mcpRuntime
-						? `${baseSystem}\n\n${contextPolicy.compactInstructions ? mcpRuntime.getUtilitySystemInstructions() : mcpRuntime.getSystemInstructions()}\n\n${toolsNote}\n\n${CODE_MODE_BATCHING_NOTE}`
-						: `${baseSystem}\n\n${toolsNote}\n\n${CODE_MODE_BATCHING_NOTE}`;
-					const system = embeddedFit
-						? `${systemWithoutToolFit}\n\n${embeddedFit}`
-						: systemWithoutToolFit;
+					// Turn-invariant blocks first; see cacheOrderedSystemPrompt.
+					const system = cacheOrderedSystemPrompt(
+						[
+							this.state.systemPrompt,
+							(contextPolicy.compactInstructions
+								? mcpRuntime?.getUtilitySystemInstructions()
+								: mcpRuntime?.getSystemInstructions()) ?? "",
+							toolsNote,
+							CODE_MODE_BATCHING_NOTE,
+						],
+						[addenda, embeddedFit ?? ""],
+					);
 					if (turnBinding) this.activeTurnBinding = turnBinding;
 					// Per turn: the counts are meaningless across turns and the map
 					// would otherwise grow for the life of the Durable Object.
