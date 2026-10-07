@@ -668,6 +668,10 @@ import {
 	writeTraceBundle,
 } from "./trace-bundle-writer";
 import { wrapUntrustedInput } from "./untrusted-input";
+import {
+	type MemoryRecallReport,
+	recallLongTermMemoryBlock,
+} from "./memory-recall";
 import { withTimeout } from "./with-timeout";
 import { DoWorkItemPromotionStore } from "./work-item-promotion-store-do";
 import {
@@ -2844,35 +2848,26 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * Combine the cached governed brain digest with bounded semantic recall from
 	 * the platform memory API. That API uses Agent Memory only for candidate IDs
 	 * and returns facts after canonical D1 lifecycle and visibility validation.
+	 * Recall starts alongside the digest load and is capped at 2 s; trivial
+	 * messages skip it (see `memory-recall.ts`).
 	 */
-	private async brainDigestAddendum(userText: string): Promise<string> {
+	private async brainDigestAddendum(
+		userText: string,
+		onRecall?: (report: MemoryRecallReport) => void,
+	): Promise<string> {
+		const recallPromise = recallLongTermMemoryBlock({
+			userText,
+			search: async (query, limit) => {
+				const platform = await this.getPlatformClient();
+				return platform ? await platform.memorySearch(query, limit) : null;
+			},
+		});
 		await this.ensureBrainDigestLoaded();
 		const digest = this.brainDigest
 			? serializeBrainDigest(this.brainDigest)
 			: "";
-		const platform = await this.getPlatformClient();
-		if (!platform || !userText.trim()) return digest;
-		let recall = "";
-		try {
-			const result = await platform.memorySearch(userText, 6);
-			const facts = result.results
-				.map((entry) => entry.fact)
-				.filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
-				.map((fact) => fact.summary || fact.content || "")
-				.filter(Boolean);
-			if (facts.length > 0) {
-				recall = [
-					"# Relevant Long-Term Memory",
-					"Relevant facts retrieved by the platform and validated against canonical D1 memory.",
-					wrapUntrustedInput(
-						facts.map((fact) => `- ${fact}`).join("\n"),
-						"memory",
-					),
-				].join("\n\n");
-			}
-		} catch (error) {
-			logTediSourceFailure("memory_recall", "query", error, "error");
-		}
+		const { block: recall, ...report } = await recallPromise;
+		onRecall?.(report);
 		return [digest, recall].filter(Boolean).join("\n\n");
 	}
 
@@ -2906,6 +2901,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		userText: string,
 		telemetryBinding?: ActiveTurnBinding | null,
 	): Promise<string> {
+		let memoryRecall: MemoryRecallReport | null = null;
 		return await composeCognitiveAddenda({
 			sessionKey,
 			runId: telemetryBinding?.runId ?? this.activeTurnBinding?.runId ?? null,
@@ -2915,7 +2911,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			sources: {
 				directives: () =>
 					this.directivesPromptAddendum(userText, telemetryBinding),
-				brainDigest: () => this.brainDigestAddendum(userText),
+				brainDigest: () =>
+					this.brainDigestAddendum(userText, (report) => {
+						memoryRecall = report;
+					}),
 				// Cached block into this turn, rebuild behind it (and one blocking
 				// build on a cold cache) — see {@link skillGuidanceAddendum}.
 				skillGuidance: () => this.skillGuidanceAddendum(),
@@ -2925,6 +2924,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				retrievedSkills: () =>
 					this.retrievedSkillsAddendum(userText, telemetryBinding),
 			},
+			// Same event as the default sink, plus whether recall was skipped,
+			// timed out or completed (null when the brain digest was withheld).
+			onComposition: (report) =>
+				console.log({ event: "tedi.context.addenda", ...report, memoryRecall }),
 		});
 	}
 
