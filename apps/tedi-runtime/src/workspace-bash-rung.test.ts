@@ -45,16 +45,87 @@ const { ScopedComputerWorkspace } = await import("./computer-workspace-scope");
 // --- the durable Workspace registers one default-deny isolate backend ---
 {
 	const ctx = facetContext();
+	const events: Record<string, unknown>[] = [];
+	const originalLog = console.log;
+	const stub = {
+		getEntrypoint() {
+			throw new Error("not executed");
+		},
+	};
+	let called = 0;
+	const callback = () => {
+		called++;
+		return {
+			compatibilityDate: "2026-06-17",
+			mainModule: "fixture.js",
+			modules: {},
+		};
+	};
+	const loader = {
+		get(name: string, getCode: unknown) {
+			assert.equal(this, loader);
+			assert.equal(name, "fictional-stable-shell");
+			assert.equal(getCode, callback);
+			return stub;
+		},
+	};
 	const execution = {
 		ctx: ctx as never,
-		loader: {} as never,
+		loader,
 		workspace: { binding: "TEDI_COMPUTER_WORKSPACE", id: "ws-1" },
 	};
 	shellBackends.length = 0;
-	createTediWorkspaceVfs(ctx.storage as never, { execution });
-	assert.deepEqual(shellBackends, [
-		{ ...execution, egress: { mode: "none" }, id: COMPUTER_ISOLATE_BACKEND_ID },
-	]);
+	console.log = (value: unknown) => events.push(JSON.parse(String(value)));
+	try {
+		createTediWorkspaceVfs(ctx.storage as never, { execution });
+		assert.equal(shellBackends.length, 1);
+		const options = shellBackends[0]!;
+		const { loader: passedLoader, ...rest } = options;
+		assert.deepEqual(rest, {
+			ctx: execution.ctx,
+			workspace: execution.workspace,
+			egress: { mode: "none" },
+			id: COMPUTER_ISOLATE_BACKEND_ID,
+		});
+		assert.equal(options.ctx, execution.ctx);
+		assert.equal(options.workspace, execution.workspace);
+		assert.notEqual(passedLoader, loader);
+		assert.equal(events.length, 0);
+		assert.equal(
+			(passedLoader as typeof loader).get("fictional-stable-shell", callback),
+			stub,
+		);
+		assert.equal(called, 0, "native named get retains lazy callback");
+		assert.equal("load" in (passedLoader as object), false);
+		assert.deepEqual(
+			events,
+			["attempted", "returned"].map((phase) => ({
+				event: "tedix.dynamic_worker.loader_call",
+				version: 1,
+				surface: "tedi_workspace_shell",
+				reason: "tedi_workspace_shell_invocation",
+				method: "get",
+				identity: "named",
+				phase,
+			})),
+		);
+		for (const event of events)
+			assert.deepEqual(Object.keys(event).sort(), [
+				"event",
+				"identity",
+				"method",
+				"phase",
+				"reason",
+				"surface",
+				"version",
+			]);
+		assert.equal(
+			JSON.stringify(events).includes("fictional-stable-shell"),
+			false,
+		);
+	} finally {
+		console.log = originalLog;
+	}
 	shellBackends.length = 0;
 	createTediWorkspaceVfs(ctx.storage as never);
 	assert.deepEqual(shellBackends, [], "no execution, no shell backend");
