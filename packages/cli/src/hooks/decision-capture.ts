@@ -39,6 +39,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import {
 	applyTriagedStop,
@@ -71,7 +72,6 @@ const DETAIL_TIMEOUT_MS = 3000;
 export const TRIAGE_CALLABLE = "agent.triage_agent_turn";
 export const LABEL_CALLABLE = "agent.label_agent_reply";
 export const REQUEST_DRAFT_CALLABLE = "agent.request_agent_reply_draft";
-export const DETAIL_CALLABLE = "work.get_work_interaction";
 
 /** Test seams: status side effects and gateway-call timeouts. */
 export interface CaptureOptions {
@@ -395,7 +395,7 @@ async function labelReply(
 	return undefined;
 }
 
-/** The parts of an Interaction decision capture needs, bounded in the gateway. */
+/** The parts of an Interaction decision capture needs, projected locally. */
 export interface InteractionDetail {
 	requestId: string;
 	version: number;
@@ -409,7 +409,7 @@ export interface InteractionDetail {
 		source: string | null;
 		sessionId: string | null;
 	} | null;
-	/** The request's newest tedi draft; `delivery` is absent on older servers. */
+	/** The request's newest tedi draft and its current delivery policy. */
 	draft: {
 		id: string;
 		body: string;
@@ -420,13 +420,47 @@ export interface InteractionDetail {
 	} | null;
 }
 
-/**
- * Code Mode source for one Interaction read. Only the validated request ID
- * enters it; the projection keeps the result small and drops every other field.
- */
-function interactionDetailCode(requestId: string): string {
-	if (!UUID.test(requestId)) throw new Error("invalid request ID");
-	return `async () => { const r = await ${DETAIL_CALLABLE}(${JSON.stringify({ requestId, responseLimit: 5 })}); const s = (v, n) => typeof v === 'string' ? v.slice(0, n) : null; const x = (r.responses?.data ?? []).find((e) => e.resolvesRequest) ?? null; const d = r.latestDraft ?? null; return { requestId: r.request.id, version: r.request.version, state: r.effectiveState, expiresAt: r.request.expiresAt ?? null, resolution: x ? { body: s(x.body, ${REPLY_LIMIT}), complete: typeof x.body === 'string' && x.body.length <= ${REPLY_LIMIT}, byType: s(x.respondedByType, 50), byId: s(x.respondedById, 300), source: s(x.metadata?.source, 100), sessionId: s(x.metadata?.sessionId, 100) } : null, draft: d && typeof d === 'object' ? { id: s(d.id, 100), body: s(d.body, ${REPLY_LIMIT}), complete: typeof d.body === 'string' && d.body.length <= ${REPLY_LIMIT}, drafterId: s(d.drafterId, 300), drafterName: s(d.drafterName, 100), delivery: s(d.delivery, 20) } : null }; }`;
+/** Project only validated native Interaction fields needed by these hooks. */
+function nativeDetail(
+	value: unknown,
+	requestId: string,
+): InteractionDetail | undefined {
+	const parsed = GetWorkInteractionResultSchema.safeParse(value);
+	if (!parsed.success || parsed.data.request.id !== requestId) return undefined;
+	const r = parsed.data;
+	const x = r.responses.data.find((e) => e.resolvesRequest) ?? null;
+	const d = r.latestDraft ?? null;
+	const bounded = (v: unknown, n: number) =>
+		typeof v === "string" ? v.slice(0, n) : null;
+	return detailOf(
+		{
+			requestId: r.request.id,
+			version: r.request.version,
+			state: r.effectiveState,
+			expiresAt: r.request.expiresAt,
+			resolution: x
+				? {
+						body: bounded(x.body, REPLY_LIMIT),
+						complete: x.body.length <= REPLY_LIMIT,
+						byType: bounded(x.respondedByType, 50),
+						byId: bounded(x.respondedById, 300),
+						source: bounded(x.metadata?.source, 100),
+						sessionId: bounded(x.metadata?.sessionId, 100),
+					}
+				: null,
+			draft: d
+				? {
+						id: bounded(d.id, 100),
+						body: bounded(d.body, REPLY_LIMIT),
+						complete: d.body.length <= REPLY_LIMIT,
+						drafterId: bounded(d.drafterId, 300),
+						drafterName: bounded(d.drafterName, 100),
+						delivery: d.delivery,
+					}
+				: null,
+		},
+		requestId,
+	);
 }
 
 /** Validate a projected detail; anything unexpected is undefined. */
@@ -499,14 +533,18 @@ export async function interactionDetail(
 	timeoutMs: number,
 ): Promise<InteractionDetail | undefined> {
 	try {
-		return detailOf(
-			await gatewayCall(
-				deps,
-				binding,
-				DETAIL_CALLABLE,
-				{},
+		if (!UUID.test(requestId)) return undefined;
+		return nativeDetail(
+			await deps.read(
+				[
+					...binding.command,
+					"work",
+					"interaction-get",
+					requestId,
+					"--input",
+					JSON.stringify({ responseLimit: 5 }),
+				],
 				timeoutMs,
-				interactionDetailCode(requestId),
 			),
 			requestId,
 		);

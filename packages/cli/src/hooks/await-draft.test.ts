@@ -9,12 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AWAIT_DRAFT_MAX_MS, runAwaitDraft } from "./await-draft";
-import {
-	autoDeliveryPath,
-	DETAIL_CALLABLE,
-	draftStatusPath,
-	peek,
-} from "./decision-capture";
+import { autoDeliveryPath, draftStatusPath, peek } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
 /** Checks for the Codex Stop continuation: only an explicit auto draft continues the turn. */
@@ -39,7 +34,8 @@ const AUTH = {
 const DRAFT = {
 	id: "abababab-abab-4bab-8bab-abababababab",
 	body: "Yes, rerun the failing test.",
-	rationale: null,
+	rationale: "Fixture rationale",
+	delivery: "review",
 	drafterId: "33333333-3333-4333-8333-333333333333",
 	drafterName: "Builder",
 	createdAt: "2026-10-06T00:00:00Z",
@@ -47,6 +43,45 @@ const DRAFT = {
 };
 const CODEX_STOP = { session_id: SESSION, turn_id: "turn-1" };
 
+const nativeRequest = (overrides: JsonObject = {}) => ({
+	id: REQUEST,
+	orgId: "11111111-1111-4111-8111-111111111111",
+	workItemId: null,
+	caseId: null,
+	projectId: null,
+	kind: "question",
+	subject: "Fixture decision",
+	prompt: "Fixture question",
+	requestedFromType: "user",
+	requestedFromId: "U-fixture-user",
+	creatorType: "user",
+	creatorId: "U-fixture-user",
+	creatorSessionId: null,
+	state: "open",
+	requestedAt: "2026-10-06T00:00:00Z",
+	dueAt: null,
+	expiresAt: null,
+	resolvedAt: null,
+	version: 2,
+	metadata: {},
+	...overrides,
+});
+const nativeResponse = (overrides: JsonObject) => ({
+	id: "22222222-2222-4222-8222-222222222222",
+	requestId: REQUEST,
+	responseKind: "answer",
+	body: "Fixture answer",
+	artifactRef: null,
+	artifactVersion: null,
+	artifactDigest: null,
+	resolvesRequest: true,
+	respondedByType: "user",
+	respondedById: "U-fixture-user",
+	respondedBySessionId: null,
+	respondedAt: "2026-10-06T01:00:00Z",
+	metadata: {},
+	...overrides,
+});
 let config: string;
 beforeEach(() => {
 	config = mkdtempSync(join(tmpdir(), "tedix-await-draft-"));
@@ -72,7 +107,9 @@ const created = (status: "queued" | "none" = "queued") => {
 	);
 };
 const interaction = (latestDraft: unknown, effectiveState = "open") => ({
-	request: { id: REQUEST, version: 2, expiresAt: null },
+	request: nativeRequest(),
+	canRespond: true,
+	canCancel: false,
 	effectiveState,
 	latestDraft,
 	responses: { data: [], nextCursor: null, hasMore: false },
@@ -102,16 +139,19 @@ async function run(
 				throw new Error("the command prints the continuation");
 			},
 			read: async (args, _timeout, input) => {
-				if (args.at(-1) === "code") {
+				if (args.includes("interaction-get")) {
 					detailReads++;
+					expect(input).toBeUndefined();
+					expect(args.slice(-5)).toEqual([
+						"work",
+						"interaction-get",
+						REQUEST,
+						"--input",
+						JSON.stringify({ responseLimit: 5 }),
+					]);
 					const next = details.shift();
-					if (next === undefined) throw new Error("Unknown tool");
-					const work = {
-						[DETAIL_CALLABLE.split(".")[1]!]: async () => structuredClone(next),
-					};
-					return (await new Function("work", `return (${input!})();`)(
-						work,
-					)) as JsonObject;
+					if (next === undefined) throw new Error("Unknown native tool");
+					return structuredClone(next) as JsonObject;
 				}
 				if (!reads.length) throw new Error("unexpected read");
 				return structuredClone(reads.shift()) as JsonObject;

@@ -30,8 +30,12 @@ handler closures capture per-request `ServerContext` (fresh caller identity).
 ## Tools are D1 rows, not files
 
 Every app tool is a config-driven `app_tools` row executed by the universal
-`ToolHandler` (`src/mcp/handler.ts` — five transports: rpc/rest/external/mcp/
-code). **No per-tool handler files.** The few code-built platform tools under
+`ToolHandler` (`src/mcp/handler.ts` — six transports: rpc/rest/external/mcp/
+code/catalog). The `catalog` transport runs configured `catalog/search` and
+`catalog/describe` through the same authorized catalog projection with fresh
+request context; it does not create a WorkerLoader. Native RPC descriptors
+remain subject to their endpoint scope checks. **No per-tool handler files.**
+The few code-built platform tools under
 `src/mcp/tools/` (widget authoring) are the deliberate exceptions,
 not a pattern. `tool_id` names are verb-first snake_case (root rule "MCP Tool
 Naming").

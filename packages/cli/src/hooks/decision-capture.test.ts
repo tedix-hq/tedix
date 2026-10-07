@@ -15,7 +15,6 @@ import {
 	captureStatePath,
 	claimReply,
 	classify,
-	DETAIL_CALLABLE,
 	draftStatusPath,
 	LABEL_CALLABLE,
 	peek,
@@ -47,7 +46,47 @@ const AUTH = {
 	storedLogin: { loginId: "U-fixture-user" },
 };
 const CREATED = { id: REQUEST, version: 1 };
+const DETAIL_CALLABLE = "work.get_work_interaction";
 
+const nativeRequest = (overrides: JsonObject = {}) => ({
+	id: REQUEST,
+	orgId: "11111111-1111-4111-8111-111111111111",
+	workItemId: null,
+	caseId: null,
+	projectId: null,
+	kind: "question",
+	subject: "Fixture decision",
+	prompt: "Fixture question",
+	requestedFromType: "user",
+	requestedFromId: "U-fixture-user",
+	creatorType: "user",
+	creatorId: "U-fixture-user",
+	creatorSessionId: null,
+	state: "open",
+	requestedAt: "2026-10-06T00:00:00Z",
+	dueAt: null,
+	expiresAt: null,
+	resolvedAt: null,
+	version: 2,
+	metadata: {},
+	...overrides,
+});
+const nativeResponse = (overrides: JsonObject) => ({
+	id: "22222222-2222-4222-8222-222222222222",
+	requestId: REQUEST,
+	responseKind: "answer",
+	body: "Fixture answer",
+	artifactRef: null,
+	artifactVersion: null,
+	artifactDigest: null,
+	resolvesRequest: true,
+	respondedByType: "user",
+	respondedById: "U-fixture-user",
+	respondedBySessionId: null,
+	respondedAt: "2026-10-06T01:00:00Z",
+	metadata: {},
+	...overrides,
+});
 let config: string;
 let payloads: Array<[string[], JsonObject]>;
 let gatewayCalls: Array<[string, JsonObject, string[]]>;
@@ -106,6 +145,26 @@ async function runHook(
 				// Interactions are addressed to the signed-in user, never an agent identity.
 				expect(environment.TEDIX_EXTERNAL_AGENT).toBeUndefined();
 				expect(environment.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
+				if (args.includes("interaction-get")) {
+					expect(stdinInput).toBeUndefined();
+					expect(args.slice(-5)).toEqual([
+						"work",
+						"interaction-get",
+						REQUEST,
+						"--input",
+						JSON.stringify({ responseLimit: 5 }),
+					]);
+					const handler = gateway[DETAIL_CALLABLE];
+					if (!handler) throw new Error("Unknown native tool");
+					gatewayCalls.push([
+						DETAIL_CALLABLE,
+						{ requestId: REQUEST, responseLimit: 5 },
+						args,
+					]);
+					return structuredClone(
+						await handler({ requestId: REQUEST, responseLimit: 5 }),
+					) as JsonObject;
+				}
 				if (args.at(-1) === "code") {
 					// Run the real Code Mode source against fixture namespaces.
 					const namespace = (name: string) =>
@@ -710,12 +769,10 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 	const DRAFT_ID = "abababab-abab-4bab-8bab-abababababab";
 	const DRAFT_BODY = "Yes, tidy the docs and push.";
 	const detail = (overrides: JsonObject = {}): JsonObject => ({
-		request: {
-			id: REQUEST,
-			version: 2,
+		request: nativeRequest({
 			expiresAt: "2026-10-07T00:00:00Z",
 			prompt: "PRIVATE QUESTION TEXT",
-		},
+		}),
 		effectiveState: "open",
 		canRespond: true,
 		canCancel: false,
@@ -724,6 +781,8 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			body: DRAFT_BODY,
 			rationale: "Docs drift after a push.",
 			drafterId: "tedi-fixture",
+			drafterName: null,
+			delivery: "review",
 			createdAt: "2026-10-06T00:00:00Z",
 			turnType: "approve",
 		},
@@ -883,13 +942,13 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			effectiveState: "resolved",
 			responses: {
 				data: [
-					{
+					nativeResponse({
 						body: DRAFT_BODY,
 						resolvesRequest: true,
 						respondedByType: "user",
 						respondedById: "U-fixture-user",
 						metadata: { source: "os-inbox", draftId: DRAFT_ID },
-					},
+					}),
 				],
 				nextCursor: null,
 				hasMore: false,
