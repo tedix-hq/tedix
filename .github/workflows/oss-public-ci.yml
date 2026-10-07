@@ -53,6 +53,11 @@ jobs:
       - name: Frozen install
         run: bun install --frozen-lockfile --ignore-scripts
 
+      # The tedi computer's code-search tests run rg whenever tedi-runtime or a
+      # package it depends on changes.
+      - name: Install ripgrep
+        run: sudo apt-get install -y --no-install-recommends ripgrep
+
       - name: Verify the pushed or proposed range
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
