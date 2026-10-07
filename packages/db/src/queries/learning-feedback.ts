@@ -230,6 +230,38 @@ export async function listLearningInteractions(
 	return rows;
 }
 
+/**
+ * Server-side reflection read of one organization's events on the given
+ * surfaces, every scope included. Personal events are returned for every
+ * member: only the reflection workflow (a service actor that writes governed,
+ * review-pending memory) may call this — never a user-facing handler, which
+ * must use {@link listLearningInteractions} and its personal-scope fence.
+ */
+export async function listLearningInteractionsForReflection(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		surfaces: string[];
+		since: string;
+		limit: number;
+	},
+): Promise<LearningInteractionEventRow[]> {
+	if (input.surfaces.length === 0) return [];
+	return db
+		.select()
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				// bound-params: callers pass a fixed list of producer surfaces
+				inArray(learningInteractionEvents.surface, input.surfaces),
+				gte(learningInteractionEvents.occurredAt, input.since),
+			),
+		)
+		.orderBy(desc(learningInteractionEvents.occurredAt))
+		.limit(input.limit);
+}
+
 export async function getLearningInteractionsByIds(
 	db: DbClient,
 	organizationId: string,

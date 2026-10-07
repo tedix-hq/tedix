@@ -18,6 +18,7 @@ describe("learning feedback schemas", () => {
 			"undone",
 			"manually_replaced",
 			"completed_elsewhere",
+			"answered",
 		] as const) {
 			expect(
 				RecordLearningInteractionInputSchema.parse({

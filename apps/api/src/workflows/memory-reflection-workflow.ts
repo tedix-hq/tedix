@@ -45,6 +45,7 @@ import { getFactById } from "@tedix/db/queries/memory-graph/facts";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { type KernelEnv, kernelModel } from "../rpc/routers/kernel/llm";
 import { mineHomeOperatorDecisions } from "../services/home-reflection-producer";
+import { mineLearningFeed } from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
 import { assessDelegatedAnswerCriteriaWithJev } from "../rpc/routers/kernel/jev-goal-assessment";
 import { reconcileCanonicalMemoryProjection } from "../integrations/cloudflare/agent-memory";
@@ -70,6 +71,8 @@ interface ReflectionResult {
 	probationExpired: number;
 	graphAlgorithmsRun: number;
 	homeDecisionFactsWritten: number;
+	learningFeedFactsWritten: number;
+	learningFeedProposalsCreated: number;
 	kernelRouteEvalGraded: number;
 	tediCapabilitiesDistilled: number;
 	transitions: ConsolidationTransitions;
@@ -469,6 +472,24 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			},
 		);
 
+		// Step 9b: Learning feed — user decisions from agent sessions become
+		// review-pending lessons; repeated agent fixes become improvement
+		// proposals. Fail-soft: never fails the reflection.
+		const learningFeed = await step.do(
+			"mine-learning-feed",
+			{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
+			async () => {
+				try {
+					return await mineLearningFeed(db, { orgId: organizationId });
+				} catch (e) {
+					console.error("[LearningFeed] mine-learning-feed failed:", e);
+					return null;
+				}
+			},
+		);
+		const learningFeedFactsWritten = learningFeed?.factsWritten ?? 0;
+		const learningFeedProposalsCreated = learningFeed?.proposalsCreated ?? 0;
+
 		// Step 10: Grade recent kernel route decisions and persist eval results
 		const kernelRouteEvalGraded = await step.do(
 			"grade-kernel-routes",
@@ -524,6 +545,10 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			homeDecisionFactsWritten > 0
 				? ` Mined ${homeDecisionFactsWritten} Home operator decision fact${homeDecisionFactsWritten === 1 ? "" : "s"}.`
 				: "";
+		const learningFeedNote =
+			learningFeedFactsWritten + learningFeedProposalsCreated > 0
+				? ` Learning feed: ${learningFeedFactsWritten} pending lesson${learningFeedFactsWritten === 1 ? "" : "s"}, ${learningFeedProposalsCreated} mistake proposal${learningFeedProposalsCreated === 1 ? "" : "s"}.`
+				: "";
 		const kernelRouteEvalNote =
 			kernelRouteEvalGraded > 0
 				? ` Graded ${kernelRouteEvalGraded} kernel route decision${kernelRouteEvalGraded === 1 ? "" : "s"}.`
@@ -561,10 +586,12 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			probationExpired: probationExpireResult.count,
 			graphAlgorithmsRun,
 			homeDecisionFactsWritten,
+			learningFeedFactsWritten,
+			learningFeedProposalsCreated,
 			kernelRouteEvalGraded,
 			tediCapabilitiesDistilled,
 			transitions,
-			summary: `Reflection complete. Reviewed ${factsCount} facts. Found ${dupsCount} similar pairs, created ${edgesCreated} new edges.${mergeNote}${autoLinkNote} Decayed confidence on ${confidenceUpdated} facts. Archived ${factsArchived} low-confidence facts.${probationNote}${transitionsNote}${graphNote}${algoNote}${homeNote}${kernelRouteEvalNote}${capabilityNote}`,
+			summary: `Reflection complete. Reviewed ${factsCount} facts. Found ${dupsCount} similar pairs, created ${edgesCreated} new edges.${mergeNote}${autoLinkNote} Decayed confidence on ${confidenceUpdated} facts. Archived ${factsArchived} low-confidence facts.${probationNote}${transitionsNote}${graphNote}${algoNote}${homeNote}${learningFeedNote}${kernelRouteEvalNote}${capabilityNote}`,
 		};
 
 		return result;

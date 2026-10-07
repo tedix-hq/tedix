@@ -10,6 +10,9 @@ export const LEARNING_INTERACTION_KINDS = [
 	"undone",
 	"manually_replaced",
 	"completed_elsewhere",
+	// A human answered an agent's question with no tedi draft to judge: a
+	// decision to learn from, neither praise nor a correction.
+	"answered",
 ] as const;
 
 export const LEARNING_SCOPE_KINDS = [
