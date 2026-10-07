@@ -425,6 +425,7 @@ export const AGENT_REPLY_DRAFT_INELIGIBLE_REASONS = [
 	"urgent",
 	"drafting_disabled",
 	"no_drafting_tedi",
+	"attempts_exhausted",
 ] as const;
 export const AgentReplyDraftIneligibleReasonSchema = z.enum(
 	AGENT_REPLY_DRAFT_INELIGIBLE_REASONS,
@@ -437,7 +438,7 @@ export const RequestAgentReplyDraftResultSchema = z.object({
 	status: z
 		.enum(["queued", "ineligible"])
 		.describe(
-			"`queued`: a drafting turn was queued (redelivery and repeat requests are no-ops); `ineligible`: nothing was queued",
+			"`queued`: a drafting turn was started, or one is in flight or already drafted (repeat requests are no-ops); `ineligible`: nothing was started",
 		),
 	reason: AgentReplyDraftIneligibleReasonSchema.optional().describe(
 		"Why the question cannot be drafted; present only when ineligible",

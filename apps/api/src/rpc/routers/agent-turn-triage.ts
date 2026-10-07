@@ -16,8 +16,10 @@
  * Reply drafting (`requestReplyDraft`, `proposeReplyDraft`,
  * `getReplyDraftAcceptance`): the target user of a quiet (`later`, no urgent
  * labels) decision-capture question may ask the policy's drafting tedi for a
- * reply proposal. The request queues one `tedi_turn` automation event per
- * question; the tedi stores its proposal with `proposeReplyDraft`, and the
+ * reply proposal. The request starts one `tedi_turn` per attempt (dispatched
+ * directly, the automation queue as fallback) with the board context inlined,
+ * so the tedi's only tool call stores its proposal with `proposeReplyDraft`
+ * (a failed attempt may be re-requested, bounded), and the
  * server decides its delivery once ({@link decideReplyDraftDelivery}):
  * `review` drafts wait for the user to accept, edit, or replace them (cited in
  * response metadata, which is what acceptance is measured from); `auto`
@@ -46,15 +48,23 @@ import {
 	AutomationEventSchema,
 } from "@tedix/api-contract/schemas/automation-events";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { getSkillEntryForMcp } from "@tedix/db/queries/cognitive/skill-crud";
+import { getChatDispatchMappingByIdempotencyKey } from "@tedix/db/queries/kernel-runtime-events";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { listWorkAgentSessions } from "@tedix/db/queries/work-agent-sessions";
+import {
+	getWorkItemById,
+	listWorkItems,
+} from "@tedix/db/queries/work-items/crud";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
 	countConsecutiveAutoReplies,
+	getLatestReplyDraft,
 	getReplyDraftAcceptance,
 	insertReplyDraft,
 } from "@tedix/db/queries/work-items/reply-drafts";
+import type { WorkItem } from "@tedix/db/schema/work-items";
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
@@ -319,6 +329,12 @@ export const REPLY_DRAFT_PROMPT_VERSION = DEFAULTS.replyDraft.promptVersion;
 const REPLY_DRAFT_SOURCE = "reply-draft";
 const PROMPT_TEXT_LIMIT = 8_000;
 const PEER_SESSION_LIMIT = 10;
+const BOARD_ITEM_LIMIT = 10;
+const SKILL_TEXT_LIMIT = 6_000;
+/** Drafting turns per question: the first plus two re-requests. */
+export const REPLY_DRAFT_MAX_ATTEMPTS = 3;
+/** A re-request may start a new attempt once the previous dispatch is this old. */
+export const REPLY_DRAFT_RETRY_AFTER_MS = 2 * 60_000;
 
 type InteractionRow = NonNullable<
 	Awaited<ReturnType<typeof getWorkInteraction>>
@@ -381,6 +397,48 @@ function oneLine(value: string, limit: number): string {
 	return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 }
 
+type BoardItem = Pick<
+	WorkItem,
+	"id" | "title" | "description" | "disposition" | "priority" | "projectId"
+>;
+
+/**
+ * The board context a drafting turn needs, read server-side so the tedi makes
+ * no reads of its own: the linked Work Item and up to
+ * {@link BOARD_ITEM_LIMIT} accepted Work Items of the question's project.
+ */
+export function renderReplyDraftBoard(params: {
+	linked: BoardItem | null;
+	projectId: string | null;
+	accepted: readonly BoardItem[];
+}): string {
+	const lines: string[] = [];
+	const { linked } = params;
+	if (linked) {
+		lines.push(
+			`Linked Work Item ${linked.id} [${linked.disposition}, ${linked.priority}]: ${oneLine(linked.title, 200)}`,
+		);
+		if (linked.description?.trim()) {
+			lines.push(`  ${oneLine(linked.description, 600)}`);
+		}
+	} else {
+		lines.push("Linked Work Item: none");
+	}
+	if (!params.projectId) {
+		lines.push("Accepted project Work Items: no project");
+		return lines.join("\n");
+	}
+	const accepted = params.accepted
+		.filter((item) => item.id !== linked?.id)
+		.slice(0, BOARD_ITEM_LIMIT);
+	lines.push(`Accepted Work Items of project ${params.projectId}:`);
+	if (accepted.length === 0) lines.push("- none");
+	for (const item of accepted) {
+		lines.push(`- ${item.id} [${item.priority}]: ${oneLine(item.title, 160)}`);
+	}
+	return lines.join("\n");
+}
+
 /** Render the versioned drafting prompt from the defaults asset. */
 export function renderReplyDraftPrompt(params: {
 	request: Pick<
@@ -389,6 +447,10 @@ export function renderReplyDraftPrompt(params: {
 	>;
 	sessions: ReadonlyArray<{ label: string; state: string; summary: string }>;
 	skillSlug?: string;
+	/** The drafting skill's body, read server-side; absent when unavailable. */
+	skillContent?: string | null;
+	/** The rendered board block ({@link renderReplyDraftBoard}). */
+	board?: string;
 	turnTypeChoices?: readonly string[];
 	/** The user's past replies block; placed at `{{examples}}`, else after the sessions. */
 	examples?: string;
@@ -414,9 +476,8 @@ export function renderReplyDraftPrompt(params: {
 		projectId: params.request.projectId ?? "none",
 		prompt,
 		sessions,
-		skillStep: params.skillSlug
-			? `- skills.get_skills_for_mcp({ slug: "${params.skillSlug}" }) for the drafting skill; follow it where it differs from the style below.`
-			: "- (No drafting skill is configured.)",
+		board: params.board?.trim() || "unavailable; draft from the question alone",
+		skill: renderSkillBlock(params.skillSlug, params.skillContent),
 		turnTypeChoices: params.turnTypeChoices?.length
 			? params.turnTypeChoices.join(", ")
 			: "a short label you choose, such as approval, continue, status, correction",
@@ -442,6 +503,180 @@ export function renderReplyDraftPrompt(params: {
 		})
 		.concat(anchor === -1 && !placed && examples ? ["", examples] : [])
 		.join("\n");
+}
+
+function renderSkillBlock(
+	slug: string | undefined,
+	content: string | null | undefined,
+): string {
+	if (!slug) return "(No drafting skill is configured.)";
+	const body = content?.trim();
+	if (!body) {
+		return `(The drafting skill "${slug}" is unavailable; use the style below.)`;
+	}
+	const bounded =
+		body.length > SKILL_TEXT_LIMIT
+			? `${body.slice(0, SKILL_TEXT_LIMIT)}\n[truncated]`
+			: body;
+	return `Drafting skill "${slug}"; follow it where it differs from the style below:\n<<<\n${bounded}\n>>>`;
+}
+
+/** The board block for a drafting prompt; a read failure drafts without it. */
+async function replyDraftBoard(
+	context: BaseContext,
+	orgId: string,
+	request: InteractionRow,
+): Promise<string> {
+	try {
+		const listAccepted = (projectId: string | null) =>
+			projectId
+				? listWorkItems(context.db, {
+						orgId,
+						projectId,
+						disposition: "accepted",
+						limit: BOARD_ITEM_LIMIT + 1,
+					})
+				: Promise.resolve([]);
+		const readLinked = request.workItemId
+			? getWorkItemById(context.db, request.workItemId, orgId)
+			: Promise.resolve(null);
+		// The question's own project lets both reads run at once; otherwise the
+		// project comes from the linked Work Item.
+		const [linked, known] = await Promise.all([
+			readLinked,
+			listAccepted(request.projectId),
+		]);
+		const projectId = request.projectId ?? linked?.projectId ?? null;
+		const accepted = request.projectId ? known : await listAccepted(projectId);
+		return renderReplyDraftBoard({ linked, projectId, accepted });
+	} catch (error) {
+		console.warn("reply-draft board unavailable", {
+			requestId: request.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return "";
+	}
+}
+
+/** The drafting skill's body as the drafting tedi may read it, else null. */
+async function replyDraftSkill(
+	context: BaseContext,
+	orgId: string,
+	params: { slug: string | undefined; tediId: string },
+): Promise<string | null> {
+	if (!params.slug) return null;
+	try {
+		const entry = await getSkillEntryForMcp(context.db, orgId, {
+			slug: params.slug,
+			tediId: params.tediId,
+		});
+		return entry && entry.lifecycleState !== "archived" ? entry.content : null;
+	} catch (error) {
+		console.warn("reply-draft skill unavailable", {
+			slug: params.slug,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+}
+
+/** Dispatch key of a question's drafting attempt; attempt 1 keeps the original key. */
+export function replyDraftDispatchKey(requestId: string, attempt: number) {
+	return attempt <= 1
+		? `reply-draft:${requestId}`
+		: `reply-draft:${requestId}:${attempt}`;
+}
+
+/** D1 `CURRENT_TIMESTAMP` has no zone; it is UTC. */
+function parseLedgerTime(value: string): number {
+	const iso = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+	return Date.parse(iso);
+}
+
+/**
+ * What a draft request does next, from the question's earlier dispatches
+ * (`createdAt` of each attempt's dispatch-ledger row, null when absent) and
+ * whether a draft exists. An attempt without a ledger row was never
+ * dispatched, so it is (re)sent under the same key; the runtime dedupes a
+ * key it already ran. A recent dispatch is in flight; an old one that left no
+ * draft failed, so the next attempt starts, up to
+ * {@link REPLY_DRAFT_MAX_ATTEMPTS}.
+ */
+export function nextReplyDraftAttempt(params: {
+	hasDraft: boolean;
+	dispatchedAt: ReadonlyArray<string | null>;
+	nowMs: number;
+}):
+	| { action: "dispatch"; attempt: number }
+	| { action: "pending" }
+	| { action: "exhausted" } {
+	if (params.hasDraft) return { action: "pending" };
+	let latest = 0;
+	params.dispatchedAt.forEach((at, index) => {
+		if (at) latest = index + 1;
+	});
+	if (latest === 0) return { action: "dispatch", attempt: 1 };
+	const at = parseLedgerTime(params.dispatchedAt[latest - 1] as string);
+	if (Number.isFinite(at) && params.nowMs - at < REPLY_DRAFT_RETRY_AFTER_MS)
+		return { action: "pending" };
+	if (latest >= REPLY_DRAFT_MAX_ATTEMPTS) return { action: "exhausted" };
+	return { action: "dispatch", attempt: latest + 1 };
+}
+
+async function replyDraftDispatchTimes(
+	context: BaseContext,
+	requestId: string,
+): Promise<Array<string | null>> {
+	return Promise.all(
+		Array.from({ length: REPLY_DRAFT_MAX_ATTEMPTS }, async (_, index) => {
+			const row = await getChatDispatchMappingByIdempotencyKey(
+				context.db,
+				replyDraftDispatchKey(requestId, index + 1),
+			);
+			return row?.createdAt ?? null;
+		}),
+	);
+}
+
+/**
+ * Start a drafting turn. With a request lifetime to borrow, dispatch it
+ * directly (the queue consumer's own dispatch, so the idempotency ledger
+ * behaves the same) and fall back to the queue only when that dispatch fails;
+ * the queue adds its batch wait and a cold consumer to every draft.
+ */
+async function dispatchReplyDraftTurn(
+	context: BaseContext,
+	queue: Queue,
+	event: AutomationEvent,
+): Promise<void> {
+	const waitUntil = context.waitUntil;
+	if (!waitUntil) {
+		await queue.send(event);
+		return;
+	}
+	const direct = async () => {
+		const { handleAutomationEventMessage } =
+			await import("../../jobs/automation-events");
+		const outcome = await handleAutomationEventMessage(context.env, event, {
+			waitUntil,
+		});
+		if (outcome === "retry") await queue.send(event);
+	};
+	waitUntil(
+		direct().catch(async (error) => {
+			console.warn("reply-draft direct dispatch failed; queueing", {
+				idempotencyKey:
+					event.kind === "tedi_turn" ? event.idempotencyKey : undefined,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			await queue.send(event).catch((sendError) => {
+				console.error("reply-draft queue fallback failed", {
+					error:
+						sendError instanceof Error ? sendError.message : String(sendError),
+				});
+			});
+		}),
+	);
 }
 
 /** The examples block for a drafting prompt; a read failure drafts without it. */
@@ -558,19 +793,37 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				"Automation queue binding is not configured",
 			);
 		}
-		const [sessions, examples] = await Promise.all([
-			listWorkAgentSessions(context.db, {
-				organizationId: orgId,
-				userId: actor.id,
-				includeEnded: false,
-				now: observedAt,
-			}),
-			replyDraftExamples(context, policy, {
-				orgId,
-				targetUserId: actor.id,
-				request,
-			}),
-		]);
+		// Every read the prompt needs, plus the attempt state, in one round.
+		const [latestDraft, dispatchedAt, sessions, examples, board, skill] =
+			await Promise.all([
+				getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
+				replyDraftDispatchTimes(context, request.id),
+				listWorkAgentSessions(context.db, {
+					organizationId: orgId,
+					userId: actor.id,
+					includeEnded: false,
+					now: observedAt,
+				}),
+				replyDraftExamples(context, policy, {
+					orgId,
+					targetUserId: actor.id,
+					request,
+				}),
+				replyDraftBoard(context, orgId, request),
+				replyDraftSkill(context, orgId, {
+					slug: policy.drafting.skillSlug,
+					tediId,
+				}),
+			]);
+		const next = nextReplyDraftAttempt({
+			hasDraft: latestDraft !== null,
+			dispatchedAt,
+			nowMs: Date.parse(observedAt),
+		});
+		if (next.action === "pending") return { status: "queued" };
+		if (next.action === "exhausted")
+			return { status: "ineligible", reason: "attempts_exhausted" };
+		const key = replyDraftDispatchKey(request.id, next.attempt);
 		const event: AutomationEvent = AutomationEventSchema.parse({
 			kind: "tedi_turn",
 			organizationId: orgId,
@@ -579,18 +832,21 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				request,
 				sessions,
 				skillSlug: policy.drafting.skillSlug,
+				skillContent: skill,
+				board,
 				turnTypeChoices: policy.turnTypeChoices,
 				examples,
 			}),
-			// One drafting turn per question: the consumer's dispatch ledger makes
-			// redelivery and repeat requests no-ops.
-			idempotencyKey: `reply-draft:${request.id}`,
-			// A fresh conversation per question: a draft never queues behind, or
-			// inherits the state of, the tedi's long-lived main conversation.
-			conversationId: `reply-draft:${request.id}`,
+			// One drafting turn per attempt: the dispatch ledger makes redelivery
+			// and repeat requests of the same attempt no-ops.
+			idempotencyKey: key,
+			// A fresh conversation per attempt: a draft never queues behind, or
+			// inherits the state of, the tedi's main conversation or a failed
+			// earlier attempt.
+			conversationId: key,
 			source: `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`,
 		});
-		await queue.send(event);
+		await dispatchReplyDraftTurn(context, queue, event);
 		return { status: "queued" };
 	},
 );
