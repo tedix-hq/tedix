@@ -1,7 +1,8 @@
 /**
  * Package one Tedix agent-plugin identity for cloud or an explicitly trusted
  * local host. Local artifacts ship only `hooks/hooks.json`; the hook logic runs
- * in the installed Tedix CLI (`tedix hooks ...`).
+ * in the installed Tedix CLI (`tedix hooks ...`). Every hook command first
+ * checks for the CLI, so a host without it runs each hook as a silent no-op.
  *
  *   bun packages/cli/scripts/package-plugin.ts [--local] [--host openai|claude]
  *     [--mcp-url <url>] [--mcp-bearer-env <NAME>] <new.zip>
@@ -21,8 +22,10 @@ import { parseArgs } from "node:util";
 
 export const ROOT = resolve(import.meta.dir, "../../../plugins/tedix");
 const ASSETS = ["icon.png", "icon-dark.png", "logo.png", "logo-dark.png"];
+/** A missing Tedix CLI makes every hook exit 0 with no output. */
+export const HOOK_GUARD = "command -v tedix >/dev/null 2>&1 || exit 0; ";
 const HOOK_COMMAND =
-	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|status)$/;
+	/^command -v tedix >\/dev\/null 2>&1 \|\| exit 0; tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|status)$/;
 /** Hooks only Codex runs; Claude Code packages omit them. */
 const CODEX_ONLY_HOOKS = new Set(["await-draft"]);
 type Host = "openai" | "claude";
@@ -146,12 +149,8 @@ function localHooks(root: string, host: Host): any {
 					throw new Error(
 						"Unsupported hook command; review the host adapter before packaging",
 					);
-				if (host === "claude") {
-					delete handler.additionalContextLimit;
-					// Exec form: spawned directly with no shell.
-					handler.command = "tedix";
-					handler.args = ["hooks", command[1]];
-				}
+				// Shell form: the guard needs a shell to test for the CLI.
+				if (host === "claude") delete handler.additionalContextLimit;
 			}
 	return hooks;
 }

@@ -1,10 +1,12 @@
 # Use Tedix in ChatGPT Work and Codex
 
-The current release is **1.1.0**. Its portable
-package has one canonical `tedix` identity and a remote HTTPS MCP endpoint.
+The portable package has one canonical `tedix` identity and a remote HTTPS MCP
+endpoint; its current version is the `version` field in
+[`../plugin.json`](../plugin.json).
 The default cloud artifact omits local hooks and registered `.app.json`
 references. The local artifact adds opt-in hooks under the same plugin identity;
-each hook runs `tedix hooks <name>` and needs only the installed Tedix CLI.
+each hook runs `tedix hooks <name>`, needs only the installed Tedix CLI, and
+exits silently when that CLI is missing.
 OpenAI allows a plugin to combine MCP, skills and trusted local hooks; a web
 installation cannot supply the local CLI.
 
@@ -38,8 +40,8 @@ operation needs them. A grant change does not repair a missing tool mapping.
 
 Skills and remote tools supply the core workflow. Local hooks add repository
 context recovery; they run the installed Tedix CLI and cannot directly call
-model-native plugin tools or borrow host OAuth credentials. Without the CLI the
-host reports a non-blocking hook error and no Tedix context is added. Keep the
+model-native plugin tools or borrow host OAuth credentials. Without the CLI
+every hook exits silently and no Tedix context is added. Keep the
 CLI when local automation or repo policy requires it. Ordinary Chat does not execute local hooks.
 
 ## Install from the Tedix marketplace
@@ -54,8 +56,8 @@ preview `tedix setup agents --codex --update --dry-run` and then run without
 `--dry-run`. A local development marketplace stays local; refresh its checkout
 before running the update. Review changed hooks again in `/hooks`.
 
-With Git access to the Tedix repository, add its marketplace and install the
-plugin:
+Without the CLI, add the public Tedix repository as a marketplace and install
+the plugin:
 
 ```sh
 codex plugin marketplace add tedix-hq/tedix
@@ -72,16 +74,25 @@ If the marketplace does not appear, restart the desktop app and check
 cache; reinstall after changing the package locally. A repository marketplace
 is a team distribution path, not publication to the universal plugin directory.
 
+### ChatGPT on the web
+
+ChatGPT on the web is not supported yet. The Tedix plugin is not published in
+the ChatGPT plugin directory, and adding the Tedix Connect URL as a
+developer-mode custom connector is not a tested or documented path. Use the
+ChatGPT desktop app (ChatGPT Work) or Codex as described above.
+
 The OpenAI compatibility manifest is
 [`../.codex-plugin/plugin.json`](../.codex-plugin/plugin.json). It points to
-the shared [`skills/`](../skills/) directory, the bundled
-[`../.mcp.json`](../.mcp.json) connection, and
-[`../hooks/hooks.json`](../hooks/hooks.json). The connection targets
+the shared [`skills/`](../skills/) directory and the bundled
+[`../.mcp.json`](../.mcp.json) connection. It does not reference hooks; the
+plugin's [`../hooks/hooks.json`](../hooks/hooks.json) sits at the default
+plugin hook location, and Codex runs those hooks only after you trust them in
+`/hooks`. `.mcp.json` declares only the server type and URL. The connection targets
 `https://connect.mcp.tedix.dev/mcp` and offers the same optional permissions as
 ordinary `tedix login`: Tedix feature reads, changes and administration, plus
 connected app reads, changes and destructive actions. Browser consent starts
 with reads selected. Additional access requires your explicit selection.
-The legacy connection file supplies the local Codex/Claude permission catalog.
+Neither connection file lists scopes; the server offers them during consent.
 The portable cloud package uses its remote HTTPS MCP connection and the host's
 OAuth flow. Compare actual requested scopes in the consent screen; packaging
 alone does not prove matching grants.
@@ -89,19 +100,16 @@ Provider grants, organization membership and Work admission remain enforced.
 
 ## Authorize the connection
 
-For Codex CLI, inspect the connection and start its OAuth flow:
+For Codex CLI:
 
-```sh
-codex features list
-codex features enable mcp_2026_07_28 # when disabled; restart Codex
-codex mcp list
-codex mcp login tedix
-```
-
-Codex v0.159.0 left this experimental host feature off by default; without it,
-Tedix Connect rejected the legacy handshake before OAuth. `tedix setup agents
---status` reports the prerequisite separately from the login state. The feature
-is a Codex-wide setting, so review its status before changing it.
+1. Enable the MCP 2026-07-28 protocol feature, which Tedix Connect requires.
+   Check it with `codex features list`; if `mcp_2026_07_28` is disabled, run
+   `codex features enable mcp_2026_07_28` and restart Codex. Without it, Tedix
+   Connect rejects Codex's older handshake before OAuth starts. It is a
+   Codex-wide setting, so review its status before changing it;
+   `tedix setup agents --status` reports it separately from the login state.
+2. Run `codex mcp list` and confirm the plugin's `tedix` server is listed.
+3. Run `codex mcp login tedix` and complete the browser OAuth flow.
 
 The account owner completes browser sign-in, selects the intended Tedix
 organization, and reviews the consent screen. In ChatGPT Work, connect the
@@ -147,6 +155,14 @@ are `tedix-session-guide`, `tedix-delegate`, `tedix-guardian-session`, `tedix-re
 check must not start an Attempt or write data.
 
 ## Optional local preflight
+
+The plugin's hooks run at session start, prompt submit, tool use, permission
+requests, stop and session end. Each runs `tedix hooks <name>`, exits silently
+when the CLI is missing, and does nothing until you opt in to its feature. The
+[CLI guide](https://docs.tedix.dev/cli#set-up-codex-and-claude-code) lists every
+hook, when it runs, what it sends to Tedix and how to turn it off. Codex runs
+them only after you trust them in `/hooks`; to remove them, disable or
+uninstall the Tedix plugin.
 
 For ordinary sessions in a repository, opt in once with an installed CLI:
 

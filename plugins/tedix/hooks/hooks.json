@@ -1,5 +1,5 @@
 {
-	"description": "Runs the installed Tedix CLI (tedix hooks). Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture (Claude Code also waits in the background for a Tedix OS answer or a tedi auto reply; Codex packages omit that rewake hook and instead wait up to 90 seconds at Stop for an auto reply, a hook Claude packages omit); status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
+	"description": "Runs the installed Tedix CLI (tedix hooks <name>); each hook exits silently with no output when the tedix command is not installed. Optional Tedix session preflight, opt-in decision capture and an opt-in turn-status reporter. Enable reads with a local repository binding or TEDIX_PLUGIN_PREFLIGHT=1; recording requires setup agents context enable-decision-capture (Claude Code also waits in the background for a Tedix OS answer or a tedi auto reply; Codex packages omit that rewake hook and instead wait up to 5 minutes at Stop for an auto reply, a hook Claude packages omit); status reporting requires ~/.tedix/agent-status.json or TEDIX_AGENT_STATUS=1.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -7,7 +7,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks session-start",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks session-start",
 						"timeout": 15,
 						"additionalContextLimit": 600,
 						"statusMessage": "Checking opt-in Tedix context"
@@ -20,14 +20,14 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks prompt-context",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks prompt-context",
 						"timeout": 15,
 						"additionalContextLimit": 6500,
 						"statusMessage": "Reading selected Tedix decisions and Work updates"
 					},
 					{
 						"type": "command",
-						"command": "tedix hooks capture-reply",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks capture-reply",
 						"timeout": 30,
 						"async": true
 					}
@@ -37,7 +37,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -49,7 +49,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks capture-stop",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks capture-stop",
 						"timeout": 30,
 						"async": true
 					}
@@ -59,7 +59,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks await-reply",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks await-reply",
 						"timeout": 14460,
 						"asyncRewake": true
 					}
@@ -69,7 +69,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks await-draft",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks await-draft",
 						"timeout": 320
 					}
 				]
@@ -78,7 +78,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -90,7 +90,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -102,7 +102,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -114,7 +114,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -126,7 +126,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}
@@ -138,7 +138,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "tedix hooks status",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks status",
 						"async": true,
 						"timeout": 10
 					}

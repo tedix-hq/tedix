@@ -58,8 +58,8 @@ bun packages/cli/scripts/package-plugin.ts --host claude --local /tmp/tedix-clau
 
 It adds the existing opt-in `SessionStart` and `UserPromptSubmit` context hooks.
 They need only an installed Tedix CLI in the execution environment: each hook
-runs `tedix hooks <name>`. Without the CLI the host reports a non-blocking hook
-error and the session continues without Tedix context.
+runs `tedix hooks <name>`. Without the CLI each hook exits silently and the
+session continues without Tedix context.
 Configure the matching CLI profile and chat selection separately; changing the
 MCP endpoint does not change the hooks' CLI binding. Review hooks in the host.
 If the CLI or selection is unavailable, the hooks do not claim fresh context.

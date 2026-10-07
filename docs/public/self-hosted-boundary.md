@@ -33,7 +33,7 @@ response, and support. The paid boundary is a service, not a feature switch.
 
 | Surface                   | Support                                                                    |
 | ------------------------- | -------------------------------------------------------------------------- |
-| Tedix Cloud               | Invited Cloud beta; managed support follows the customer's agreement.      |
+| Tedix Cloud               | Invited beta; managed support follows the customer's agreement.            |
 | Public `main`             | Fast-moving source; no compatibility promise. Issues are welcome, no SLA.  |
 | Local mode                | The way to run from source for evaluation and development; issues welcome. |
 | Self-hosted installations | Experimental and unsupported: no upgrade, backup, or restore guarantees.   |

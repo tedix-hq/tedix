@@ -27,7 +27,8 @@ repository is the whole product and the source Tedix Cloud is built from;
 
 ## Try Tedix Cloud
 
-Tedix Cloud is the managed service, in an invited beta. With access:
+Tedix Cloud is the managed service, in an invited beta. To get access, ask
+through the [contact page](https://tedix.dev/contact/). With access:
 
 ```sh
 curl -fsSL https://downloads.tedix.dev/install.sh | sh

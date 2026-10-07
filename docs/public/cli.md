@@ -15,7 +15,8 @@ visibility: public
 
 # Install the Tedix CLI
 
-> The CLI is in public beta; see [Release status](./release-status.md).
+> The CLI is a public beta that anyone can download. Tedix Cloud, which it
+> connects to, is an invited beta; see [Release status](./release-status.md).
 
 The Tedix CLI is a small program installed on your machine. It covers Home
 conversations, Code Mode, Work Items, skills, automations, flows, engine
@@ -46,6 +47,11 @@ matching immutable release, verifies it against `SHA256SUMS`, and installs
 failures, checksum tools run with a neutral locale, and the installer checks
 that the destination is writable before downloading the binary.
 
+The checksum protects against a corrupted or truncated download. It is not a
+signature: `SHA256SUMS` is served from the same host as the binaries, and the
+beta binaries are not yet code-signed or notarized. See [Verify a
+release](#verify-a-release) for the build-provenance attestations.
+
 `~/.local/bin` is not on the default macOS `PATH`, so a new shell cannot find
 `tedix` until that directory is added. The installer detects this, appends the
 directory to your shell profile (`~/.zshrc`, `~/.bash_profile`, or
@@ -75,9 +81,28 @@ Codex and Claude Code, shows the exact marketplace and plugin commands, asks
 before installing, and checks that each host reports the Tedix plugin. Use
 `--codex` or `--claude` to target one host; `--dry-run` previews without
 installing. The Tedix plugin carries its skills,
-remote MCP connection, and optional local hooks. Each hook runs
-`tedix hooks <name>` in this CLI, so the hooks need no other runtime. The marketplace
-and plugin source ship in the Tedix repository; fetching them requires Git.
+remote MCP connection, and local lifecycle hooks. Each hook runs
+`tedix hooks <name>` in this CLI, so the hooks need no other runtime. If the
+`tedix` command is not installed, every hook exits immediately with no output.
+The marketplace and plugin source ship in the public Tedix repository; the host
+fetches them with Git.
+
+Every hook does nothing until you opt in to its feature:
+
+| Hook (`tedix hooks …`) | Runs at                                                                                            | Does, once opted in                                                                                                                       | Opt in with                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `session-start`        | Session start, resume, clear, compaction                                                           | Reads auth and the bound Work Item from Tedix and adds a short brief to the session. Sends no session content.                            | `tedix setup agents context bind`, or `TEDIX_PLUGIN_PREFLIGHT=1`                                         |
+| `prompt-context`       | Each submitted prompt                                                                              | Reads the selected Work's latest comments and connected documents and adds them as context. Never sends the prompt text.                  | A repository binding plus `context select`, `connect-output`, `connect-preferences` or `connect-lessons` |
+| `capture-stop`         | End of each turn (background)                                                                      | Sends the turn's final message, redacted and bounded to 6,000 characters, as a question in your organization.                             | `tedix setup agents context enable-decision-capture`                                                     |
+| `capture-reply`        | Each submitted prompt (background)                                                                 | Sends your reply to that question, redacted and bounded the same way.                                                                     | Same as `capture-stop`                                                                                   |
+| `await-reply`          | End of each turn; Claude Code only, background, up to four hours                                   | Polls that question and wakes the session when you answer it in Tedix OS or a tedi sends an automatic reply.                              | Same as `capture-stop`                                                                                   |
+| `await-draft`          | End of each turn; Codex only, may hold the turn up to 5 minutes                                    | Polls that question and continues the turn only for an automatic tedi reply.                                                              | Same as `capture-stop`                                                                                   |
+| `status`               | Prompt submit, tool use, permission request, notification, stop, failure, session end (background) | Records a local status line and macOS notification; with a profile, sends the state, session ID, repo/branch and a 160-character summary. | `~/.tedix/agent-status.json` with `"enabled": true`, or `TEDIX_AGENT_STATUS=1`                           |
+
+Undo an opt-in with `context unbind`, `disable-decision-capture`,
+`TEDIX_PLUGIN_PREFLIGHT=0` or `TEDIX_AGENT_STATUS=0`. To remove the hooks
+entirely, disable or uninstall the Tedix plugin in the host. Codex runs a
+plugin hook only after you trust it in `/hooks`.
 
 Run `tedix setup agents --status` to see plugin and marketplace state and the
 remaining host login, hook trust, and read-verification steps. An enabled plugin
@@ -88,19 +113,21 @@ points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
 Plugin installation does not authorize Tedix access. Complete the OAuth flow
-in each host for the intended organization and scopes. Review and trust the
-hook in Codex before enabling it; the optional preflight runs only when
-`TEDIX_PLUGIN_PREFLIGHT=1` is set for that host session. CLI login and host MCP
+in each host for the intended organization and scopes. Review the hooks in each
+host's `/hooks` view; Codex skips them until you trust them. CLI login and host MCP
 login use separate credentials. See the [Codex](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/chatgpt-codex.md)
 and [Claude Code](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/claude-code.md)
 guides for those host steps.
 
-To install into a directory that is already on `PATH`:
+To install into another directory you own, such as one already on your `PATH`:
 
 ```bash
 curl -fsSL https://downloads.tedix.dev/install.sh |
-  TEDIX_INSTALL_DIR=/usr/local/bin sh
+  TEDIX_INSTALL_DIR="$HOME/bin" sh
 ```
+
+The installer never uses `sudo`. A system directory such as `/usr/local/bin`
+works only if your user can already write to it.
 
 ## Supported platforms
 

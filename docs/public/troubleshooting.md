@@ -59,8 +59,10 @@ section](./cli.md#troubleshooting) owns the full installer guidance.
 **Cause:** Cloud beta admission and organization membership are separate. The
 signed-in person may not yet be a member of the intended organization.
 
-**Fix:** Ask the inviter to confirm membership, or wait for beta admission,
-then run `tedix login` again. Do not use a credential from another person.
+**Fix:** Ask the inviter to confirm membership. Tedix Cloud is an invited
+beta; without access, request it through the
+[contact page](https://tedix.dev/contact/) and wait for beta admission. Then
+run `tedix login` again. Do not use a credential from another person.
 
 **Verify:** The browser flow lists the intended organization and the terminal
 reports a saved CLI profile after consent.

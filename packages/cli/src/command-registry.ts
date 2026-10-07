@@ -503,7 +503,7 @@ function rows(commands: CliHelpCommand[]): string[] {
 export function rootHelp(): string {
 	return [
 		"Tedix CLI — work with your digital workers",
-		"A small program installed on your machine. Public beta.",
+		"A small program on your machine (public beta). Tedix Cloud is an invited beta.",
 		"",
 		"Get started:",
 		"  tedix login                          Choose organizations and permissions",

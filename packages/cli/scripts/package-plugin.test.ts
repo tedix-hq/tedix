@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { build, packageFiles, ROOT } from "./package-plugin";
+import { build, HOOK_GUARD, packageFiles, ROOT } from "./package-plugin";
 
 const decode = (files: Map<string, Uint8Array>, name: string) =>
 	JSON.parse(new TextDecoder().decode(files.get(name)!));
@@ -16,6 +22,12 @@ const EVENTS = new Set([
 	"PostToolUse",
 	"SessionEnd",
 ]);
+
+/** The hook name after the missing-CLI guard, or undefined for another command. */
+const hookName = (handler: any): string | undefined =>
+	handler.command.startsWith(`${HOOK_GUARD}tedix hooks `)
+		? handler.command.slice(`${HOOK_GUARD}tedix hooks `.length)
+		: undefined;
 
 function handlers(hooks: Record<string, any[]>): any[] {
 	return Object.values(hooks).flatMap((definitions) =>
@@ -87,21 +99,17 @@ describe("plugin packager", () => {
 		expect(new Set(Object.keys(hooks))).toEqual(EVENTS);
 		// The status reporter observes every turn boundary but always runs in the background.
 		const status = handlers(hooks).filter(
-			(handler) => handler.command === "tedix hooks status",
+			(handler) => hookName(handler) === "status",
 		);
 		expect(status).toHaveLength(7);
 		expect(status.every((handler) => handler.async === true)).toBe(true);
 		// Recording handlers run in the background and cannot block or steer the session.
 		const capture = handlers(hooks).filter((handler) =>
-			handler.command.startsWith("tedix hooks capture-"),
+			hookName(handler)?.startsWith("capture-"),
 		);
 		expect(capture).toHaveLength(2);
 		expect(capture.every((handler) => handler.async === true)).toBe(true);
-		expect(
-			handlers(hooks).every((handler) =>
-				handler.command.startsWith("tedix hooks "),
-			),
-		).toBe(true);
+		expect(handlers(hooks).every((handler) => hookName(handler))).toBe(true);
 		expect(decode(local, ".codex-plugin/plugin.json").name).toBe("tedix");
 		expect(
 			decode(local, "plugin.json").extensions["com.openai"].publication
@@ -158,7 +166,7 @@ describe("plugin packager", () => {
 		);
 	});
 
-	test("claude local hooks are native exec form and not duplicated", () => {
+	test("claude local hooks are guarded shell commands and not duplicated", () => {
 		const files = packageFiles({ host: "claude", local: true });
 		const manifest = decode(files, ".claude-plugin/plugin.json");
 		expect(manifest).not.toHaveProperty("hooks");
@@ -169,16 +177,14 @@ describe("plugin packager", () => {
 			for (const definition of definitions)
 				for (const handler of definition.hooks) {
 					expect(handler).not.toHaveProperty("additionalContextLimit");
-					expect(handler.command).toBe("tedix");
-					expect(handler.args[0]).toBe("hooks");
-					if (event === "SessionStart")
-						expect(handler.args).toEqual(["hooks", "session-start"]);
+					expect(handler).not.toHaveProperty("args");
+					const name = hookName(handler);
+					expect(name).toBeDefined();
+					if (event === "SessionStart") expect(name).toBe("session-start");
 					if (event === "Stop")
-						expect(["capture-stop", "await-reply", "status"]).toContain(
-							handler.args[1],
-						);
+						expect(["capture-stop", "await-reply", "status"]).toContain(name);
 					if (!["Stop", "UserPromptSubmit", "SessionStart"].includes(event))
-						expect(handler.args).toEqual(["hooks", "status"]);
+						expect(name).toBe("status");
 				}
 		expect(
 			[...files.keys()].filter((name) => name.startsWith("hooks/")),
@@ -189,24 +195,27 @@ describe("plugin packager", () => {
 		const claude = handlers(
 			decode(packageFiles({ host: "claude", local: true }), "hooks/hooks.json")
 				.hooks,
-		).filter((handler) => handler.args?.[1] === "await-reply");
+		).filter((handler) => hookName(handler) === "await-reply");
 		expect(claude).toHaveLength(1);
 		expect(claude[0]!.asyncRewake).toBe(true);
 		// Codex cannot be woken; a synchronous four-hour Stop would hold its turn.
 		const openai = decode(packageFiles({ local: true }), "hooks/hooks.json");
 		expect(
 			handlers(openai.hooks).some(
-				(handler) =>
-					handler.asyncRewake || handler.command.includes("await-reply"),
+				(handler) => handler.asyncRewake || hookName(handler) === "await-reply",
 			),
 		).toBe(false);
 		expect(new Set(Object.keys(openai.hooks))).toEqual(EVENTS);
 		// Codex continues from a synchronous Stop hook instead; Claude never gets it.
 		const awaitDraft = handlers({ Stop: openai.hooks.Stop }).filter(
-			(handler) => handler.command === "tedix hooks await-draft",
+			(handler) => hookName(handler) === "await-draft",
 		);
 		expect(awaitDraft).toEqual([
-			{ type: "command", command: "tedix hooks await-draft", timeout: 320 },
+			{
+				type: "command",
+				command: `${HOOK_GUARD}tedix hooks await-draft`,
+				timeout: 320,
+			},
 		]);
 		expect(
 			handlers(
@@ -214,7 +223,7 @@ describe("plugin packager", () => {
 					packageFiles({ host: "claude", local: true }),
 					"hooks/hooks.json",
 				).hooks,
-			).some((handler) => handler.args?.[1] === "await-draft"),
+			).some((handler) => hookName(handler) === "await-draft"),
 		).toBe(false);
 		expect(
 			Object.values<any[]>(openai.hooks).every((definitions) =>
@@ -222,6 +231,36 @@ describe("plugin packager", () => {
 			),
 		).toBe(true);
 	});
+
+	test("every source hook is guarded against a missing CLI", () => {
+		const hooks = JSON.parse(
+			readFileSync(join(ROOT, "hooks/hooks.json"), "utf8"),
+		).hooks;
+		expect(handlers(hooks).every((handler) => hookName(handler))).toBe(true);
+	});
+
+	test.skipIf(!Bun.which("sh"))(
+		"the guard is a silent no-op without the CLI and transparent with it",
+		() =>
+			withDirectory((directory) => {
+				const sh = Bun.which("sh")!;
+				const command = `${HOOK_GUARD}tedix hooks await-reply`;
+				const missing = Bun.spawnSync([sh, "-c", command], {
+					env: { PATH: directory },
+				});
+				expect(missing.exitCode).toBe(0);
+				expect(missing.stdout.toString()).toBe("");
+				expect(missing.stderr.toString()).toBe("");
+				const cli = join(directory, "tedix");
+				writeFileSync(cli, '#!/bin/sh\necho "$@" >&2\nexit 2\n');
+				chmodSync(cli, 0o755);
+				const present = Bun.spawnSync([sh, "-c", command], {
+					env: { PATH: `${directory}:/usr/bin:/bin` },
+				});
+				expect(present.exitCode).toBe(2);
+				expect(present.stderr.toString()).toBe("hooks await-reply\n");
+			}),
+	);
 
 	test("explicit local endpoint and remote validation", () => {
 		for (const url of [

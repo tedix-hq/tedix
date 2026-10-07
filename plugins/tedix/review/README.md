@@ -6,8 +6,8 @@ negative cases. `release-notes.md` supplies `publication.release_notes`.
 The package builder imports these two sources; this directory itself is not
 part of the public ZIP. Cases are expected behaviors, **not passing results**.
 
-The current release is **1.1.0**. Uploading a corrected
-candidate does not imply review approval or publication. Imported test cases
+The current version is the `version` field in `../plugin.json`. Uploading a
+corrected candidate does not imply review approval or publication. Imported test cases
 are managed by the package and become read-only in the dashboard.
 
 ## Validation and walkthrough

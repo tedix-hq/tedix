@@ -29,7 +29,8 @@ locally](../getting-started.md).
 You need:
 
 - Tedix Cloud beta access: membership in an organization, or approval to
-  create your own;
+  create your own. Tedix Cloud is an invited beta; to request access, use the
+  [contact page](https://tedix.dev/contact/);
 - a browser in which you can sign in and approve the requested access; and
 - a computer supported by the [Tedix CLI](../cli.md#supported-platforms).
 
@@ -134,7 +135,9 @@ still fails, follow the [CLI PATH recovery](../cli.md#troubleshooting).
 ### The organization is missing in the browser
 
 Cloud admission and membership are separate. Ask the inviter to confirm your
-membership, or wait for beta admission, then run `tedix login` again. You cannot
+membership. If you have no Cloud access yet, request it through the [contact
+page](https://tedix.dev/contact/) and wait for beta admission, then run
+`tedix login` again. You cannot
 repair missing organization access with a token from another person.
 
 ### `auth status` names the wrong profile or gateway
