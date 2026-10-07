@@ -3,6 +3,20 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.4.1 — 2026-10-07
+
+### Fixed
+
+- The prompt hook's gateway read uses the rest of the hook's time budget
+  instead of a fixed 8 seconds, so a slow first call no longer drops
+  preferences and team lessons from the turn.
+- When other context is shown and no approved lesson applies, the hook says
+  "Team lessons: none approved for this repository and host." instead of
+  omitting lessons silently.
+- Decision-capture questions name the repository from its Git origin, not
+  the worktree or clone folder, so lessons learned in a worktree reach the
+  repository's sessions.
+
 ## 0.4.0 — 2026-10-07
 
 ### Added
