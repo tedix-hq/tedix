@@ -1,3 +1,9 @@
+Tedix 0.1.1 — hooks stay silent without the Tedix CLI.
+
+Every local hook now exits immediately, with no output, when the `tedix`
+command is not installed. The install guides describe each hook, when it runs,
+what it sends once opted in, and how to turn it off.
+
 Tedix 0.1.0 — first public preview of the Tedix plugin.
 
 Connect ChatGPT, Codex and Claude Code to an authorized Tedix organization
