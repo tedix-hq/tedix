@@ -165,6 +165,22 @@ async function runHook(
 						await handler({ requestId: REQUEST, responseLimit: 5 }),
 					) as JsonObject;
 				}
+				const codeAgent =
+					typeof stdinInput === "string" &&
+					/^async \(\) => await (agent\.[a-z_]+)\(([\s\S]*)\)$/.exec(
+						stdinInput,
+					);
+				if (codeAgent && args.at(-1) === "code") {
+					const callable = codeAgent[1]!;
+					expect(_timeout).toBe(
+						timeoutMs ?? (callable === "agent.triage_agent_turn" ? 6000 : 3000),
+					);
+					const input = JSON.parse(codeAgent[2]!);
+					gatewayCalls.push([callable, input, args]);
+					const handler = gateway[callable];
+					if (!handler) throw new Error("Unknown agent tool");
+					return structuredClone(await handler(input)) as JsonObject;
+				}
 				const nativeAgentVerbs: Record<string, string> = {
 					"agent-turn-triage": TRIAGE_CALLABLE,
 					"agent-reply-label": LABEL_CALLABLE,
@@ -505,13 +521,8 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		const [callable, input, args] = gatewayCalls[0]!;
 		expect(callable).toBe(TRIAGE_CALLABLE);
 		expect(input).toEqual({ text: message });
-		// Turn text reaches the child through a private payload file, never argv.
-		expect(args.slice(0, 4)).toEqual([
-			"-w",
-			"fixture",
-			"work",
-			"agent-turn-triage",
-		]);
+		// Turn text reaches the child over stdin as Code Mode source, never argv.
+		expect(args).toEqual(["-w", "fixture", "code"]);
 		expect(calls.flat().join(" ")).not.toContain("D1 migration");
 		expect(payloads[0]![1].metadata.triage).toEqual(TRIAGE_OK);
 		expect(statusState()?.state).toBe("needs_you");
@@ -702,12 +713,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		const draftCall = gatewayCalls.find(
 			([name]) => name === REQUEST_DRAFT_CALLABLE,
 		)!;
-		expect(draftCall[2].slice(0, 4)).toEqual([
-			"-w",
-			"fixture",
-			"work",
-			"agent-reply-draft-request",
-		]);
+		expect(draftCall[2]).toEqual(["-w", "fixture", "code"]);
 		expect(
 			JSON.parse(readFileSync(questionPath(state()), "utf8")),
 		).toMatchObject({ requestId: REQUEST, host: "claude-code" });

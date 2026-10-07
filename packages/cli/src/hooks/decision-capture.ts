@@ -43,6 +43,7 @@ import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import {
 	applyTriagedStop,
+	asciiJson,
 	harnessOf,
 	type StatusDeps,
 	type TriageResult,
@@ -64,7 +65,7 @@ const MESSAGE_LIMIT = 6000;
 const REPLY_LIMIT = 6000;
 const EXPIRY_MS = 24 * 60 * 60 * 1000;
 const EVENT_LIMIT = CAPTURE_EVENT_LIMIT;
-const TRIAGE_TIMEOUT_MS = 4000;
+const TRIAGE_TIMEOUT_MS = 6000;
 const LABEL_TIMEOUT_MS = 3000;
 const DRAFT_TIMEOUT_MS = 3000;
 const DETAIL_TIMEOUT_MS = 3000;
@@ -238,6 +239,18 @@ export async function bindingFor(
 	return { ...binding, command, user };
 }
 
+/**
+ * Model-backed agent tools go through Code Mode: one `tedix code` call takes
+ * ~2 s, while the native `work agent-*` verbs measured 14-20 s or hit the
+ * gateway rate limit, so every triage missed its 4 s budget and no turn was
+ * drafted. The source, which carries redacted turn text, goes over stdin.
+ */
+const AGENT_CODE_CALLABLES: Record<string, string> = {
+	"agent-turn-triage": "agent.triage_agent_turn",
+	"agent-reply-label": "agent.label_agent_reply",
+	"agent-reply-draft-request": "agent.request_agent_reply_draft",
+};
+
 async function call(
 	deps: HookDeps,
 	binding: Binding,
@@ -246,6 +259,28 @@ async function call(
 	pathId?: string,
 	timeoutMs?: number,
 ): Promise<JsonObject> {
+	const callable = AGENT_CODE_CALLABLES[verb];
+	if (callable) {
+		let codeTimer: ReturnType<typeof setTimeout> | undefined;
+		const budget = timeoutMs ?? 15000;
+		try {
+			return await Promise.race([
+				deps.read(
+					[...binding.command, "code"],
+					budget,
+					`async () => await ${callable}(${asciiJson(payload)})`,
+				),
+				new Promise<never>((_, reject) => {
+					codeTimer = setTimeout(
+						() => reject(new Error("Agent tool call timed out")),
+						budget,
+					);
+				}),
+			]);
+		} finally {
+			clearTimeout(codeTimer);
+		}
+	}
 	const directory = mkdtempSync(join(stateDir(deps.env), "tedix-decision-"));
 	const file = join(directory, "input.json");
 	let timer: ReturnType<typeof setTimeout> | undefined;
