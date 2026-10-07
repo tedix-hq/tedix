@@ -1,13 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	createReaderScope,
 	executeD1,
 	main,
 	resolveInstalledReaderTools,
+	READER_DIAGNOSTIC_TAIL_CHARS,
 	READER_RAW_BYTE_LIMIT,
+	ReaderRefusal,
+	redactDiagnostic,
 	REQUIRED_PROJECTION_ENDPOINTS,
 	TOOL_SCHEMA_SELECT,
 	type ReaderChild,
@@ -23,6 +30,7 @@ import {
 	zodToStructuredOutputJsonSchema,
 } from "@tedix/api-contract/utils/tool-json-schema";
 
+const FICTION_TOKEN = "fiction-cloudflare-token-0123456789";
 const tools: ReaderTools = {
 	node: "/fiction/node",
 	wrangler: "/fiction/wrangler/bin/wrangler.js",
@@ -84,6 +92,7 @@ function fixture(
 		},
 		log: (line) => logs.push(line),
 		error: (line) => errors.push(line),
+		env: { CLOUDFLARE_API_TOKEN: FICTION_TOKEN, PATH: "/fiction/bin" },
 	};
 	return {
 		io,
@@ -481,14 +490,19 @@ describe("real registry and owning main", () => {
 		const f = fixture((c, a, i) =>
 			c.finish(
 				report(a.at(-1) === TOOL_SCHEMA_SELECT ? rows : []),
-				"SECRET",
+				`write failed with ${FICTION_TOKEN}`,
 				i === 3 ? 1 : 0,
 			),
 		);
 		expect(await main(["--apply", "--only=a,b"], f.io)).toBe(1);
 		expect(f.commands).toHaveLength(4);
 		expect(f.logs.join("\n")).not.toContain("Apply complete");
-		expect(f.errors.join("\n")).not.toContain("SECRET");
+		const printed = f.errors.join("\n");
+		expect(printed).toContain("exited with code 1");
+		expect(printed).toContain(
+			"write failed with [redacted CLOUDFLARE_API_TOKEN]",
+		);
+		expect(printed).not.toContain(FICTION_TOKEN);
 	});
 	test("one original deadline covers tool resolution and later commands; mutable args/io cannot renew", async () => {
 		const f = fixture();
@@ -527,12 +541,15 @@ describe("real registry and owning main", () => {
 		};
 		expect(await main([], f.io)).toBe(1);
 		expect(f.commands).toHaveLength(0);
+		expect(f.errors.join("\n")).toContain('reported "v20.0.0"');
 		const g = fixture();
 		g.io.resolveTools = () => {
-			throw Error("SECRET");
+			throw Error(`unexpected ${FICTION_TOKEN}`);
 		};
 		expect(await main([], g.io)).toBe(1);
-		expect(g.errors.join("\n")).not.toContain("SECRET");
+		expect(g.errors[0]).toBe("Schema reader refused: execution.");
+		expect(g.errors.join("\n")).toContain("unexpected [redacted");
+		expect(g.errors.join("\n")).not.toContain(FICTION_TOKEN);
 	});
 });
 
@@ -597,6 +614,91 @@ describe("publication and immutable original scope", () => {
 	});
 });
 
+describe("diagnosable refusals", () => {
+	// Regression: a failed deploy repair step printed nothing or only a fixed
+	// stage, so a Wrangler failure (e.g. account selection) was undiagnosable.
+	test("child failure prints exit status and redacted, bounded stderr/stdout tails", async () => {
+		const wranglerError = JSON.stringify({
+			error: { text: "More than one account available" },
+		});
+		const f = fixture((c) =>
+			c.finish(
+				wranglerError,
+				`${"x".repeat(10_000)}\u001b[31m✘ [ERROR]\u001b[0m Authorization: Bearer ${FICTION_TOKEN}\nretry with ${FICTION_TOKEN}`,
+				1,
+			),
+		);
+		expect(await main(["--check"], f.io)).toBe(1);
+		expect(f.errors[0]).toBe(
+			"Schema reader refused: child status or incomplete streams.",
+		);
+		const cause = f.errors.slice(1).join("\n");
+		expect(cause).toStartWith(
+			"Cause: `node wrangler.js d1 execute` exited with code 1, signal none",
+		);
+		expect(cause).toContain("✘ [ERROR] Authorization: Bearer [redacted");
+		expect(redactDiagnostic("Authorization: Bearer abcdefgh12345")).toBe(
+			"Authorization: Bearer [redacted]",
+		);
+		expect(cause).toContain("retry with [redacted CLOUDFLARE_API_TOKEN]");
+		expect(cause).toContain("More than one account available");
+		expect(cause).not.toContain(FICTION_TOKEN);
+		expect(cause).not.toContain("\u001b");
+		expect(cause).not.toContain(TOOL_SCHEMA_SELECT);
+		expect(cause.length).toBeLessThan(2 * READER_DIAGNOSTIC_TAIL_CHARS + 500);
+	});
+	test("spawn failure names the errno", async () => {
+		const f = fixture((c) =>
+			c.emit(
+				"error",
+				Object.assign(Error("spawn /fiction/node ENOENT"), { code: "ENOENT" }),
+			),
+		);
+		expect(await main(["--check"], f.io)).toBe(1);
+		expect(f.errors).toEqual([
+			"Schema reader refused: spawn.",
+			expect.stringContaining("ENOENT"),
+		]);
+	});
+	test("redaction masks secret-named env values, keeps the tail", () => {
+		expect(
+			redactDiagnostic("a CF_DEPLOY_TOKEN=abcdefgh123 b", {
+				CF_DEPLOY_TOKEN: "abcdefgh123",
+				HOME: "/home/fiction",
+				SHORT_TOKEN: "abc",
+			}),
+		).toBe("a CF_DEPLOY_TOKEN=[redacted CF_DEPLOY_TOKEN] b");
+		expect(redactDiagnostic("0123456789", {}, 4)).toBe("…6789");
+	});
+	test("the real script, run the way deploy runs it, never fails silently", () => {
+		// No node on PATH: the reader must refuse with a printed cause, not exit
+		// quietly. Read-only and offline: refusal precedes any Wrangler call.
+		const empty = mkdtempSync(join(tmpdir(), "sync-tool-schemas-path-"));
+		try {
+			const result = spawnSync(
+				process.execPath,
+				[
+					fileURLToPath(new URL("./sync-tool-schemas.ts", import.meta.url)),
+					"--check",
+				],
+				{
+					cwd: fileURLToPath(new URL("../../apps/api/", import.meta.url)),
+					env: { PATH: empty, HOME: empty },
+					encoding: "utf8",
+					timeout: 20_000,
+				},
+			);
+			expect(result.status).toBe(1);
+			expect(result.stderr).toContain(
+				"Schema reader refused: installed tools.",
+			);
+			expect(result.stderr).toMatch(/Cause: failed check: /);
+		} finally {
+			rmSync(empty, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("installed package preflight", () => {
 	const root = "/fiction",
 		pkg = "/installed/wrangler";
@@ -624,15 +726,29 @@ describe("installed package preflight", () => {
 			config: "/fiction/apps/api/wrangler.jsonc",
 		});
 	});
+	const failedCheck = {
+		alias: "node_modules/.bin/wrangler resolves to the package entry",
+		package: "wrangler package.json name/bin",
+		node: "executable node on PATH",
+		regular: "node_modules/.bin/wrangler resolves to the package entry",
+	} as const;
 	for (const kind of ["alias", "package", "node", "regular"] as const)
-		test(`${kind} malformed refuses without package fallback`, () => {
+		test(`${kind} malformed refuses without package fallback, naming the failed check`, () => {
 			const f = files();
 			if (kind === "alias") f.realpath = () => "/outside";
 			if (kind === "package") f.read = () => '{"name":"other"}';
 			if (kind === "node") f.findNode = () => null as unknown as string;
 			if (kind === "regular") f.isFile = () => false;
-			expect(() => resolveInstalledReaderTools(root, f)).toThrow(
-				"installed tools",
+			let caught: unknown;
+			try {
+				resolveInstalledReaderTools(root, f);
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(ReaderRefusal);
+			expect((caught as ReaderRefusal).message).toBe(
+				"Schema reader refused: installed tools.",
 			);
+			expect((caught as ReaderRefusal).detail).toContain(failedCheck[kind]);
 		});
 });
