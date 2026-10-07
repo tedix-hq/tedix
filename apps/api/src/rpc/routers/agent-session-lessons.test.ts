@@ -32,6 +32,34 @@ const row = (
 });
 
 describe("selectSessionLessons", () => {
+	it("puts a person's standing preferences first", () => {
+		const standing = {
+			...row("standing-1", "Standing preferences: answer briefly."),
+			metadata: {
+				learningFeed: {
+					version: 1,
+					hoisted: true,
+					scope: { repo: "general", harness: "general", topic: "standing" },
+				},
+			} as never,
+		};
+		const result = selectSessionLessons(
+			[
+				row("tedix-repo", "Repo and harness lesson.", {
+					repo: "tedix",
+					harness: "codex",
+					topic: "ship",
+				}),
+				standing,
+			],
+			{ harness: "codex", repo: "tedix", budgetBytes: 3200 },
+		);
+		expect(result.lessons.map((l) => l.id)).toEqual([
+			"standing-1",
+			"tedix-repo",
+		]);
+	});
+
 	it("keeps general and matching lessons, ranks repo and topic matches first", () => {
 		const result = selectSessionLessons(
 			[

@@ -97,6 +97,45 @@ export interface StaleLearningFeedLessonRow {
 	metadata: Record<string, JsonValue> | null;
 }
 
+export interface CurrentLearningFeedLessonRow {
+	id: string;
+	topicKey: string | null;
+	content: string;
+	reviewStatus: string | null;
+	metadata: Record<string, JsonValue> | null;
+}
+
+/**
+ * Every current (not archived, not invalidated) lesson under the prefix, for
+ * the miner's cross-lesson consolidation. The caller decides which it may edit.
+ */
+export async function listCurrentLearningFeedLessons(
+	db: DbQueryClient,
+	orgId: string,
+	topicPrefix: string,
+	limit = 500,
+): Promise<CurrentLearningFeedLessonRow[]> {
+	return db
+		.select({
+			id: memoryFacts.id,
+			topicKey: memoryFacts.topicKey,
+			content: memoryFacts.content,
+			reviewStatus: memoryFacts.reviewStatus,
+			metadata: memoryFacts.metadata,
+		})
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				gte(memoryFacts.topicKey, topicPrefix),
+				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
+				isNull(memoryFacts.archivedAt),
+				isNull(memoryFacts.validTo),
+			),
+		)
+		.limit(limit);
+}
+
 /**
  * Current (not archived, not invalidated) lessons under the prefix whose
  * `metadata.learningFeed.lastEventAt` is before `before`. The caller decides

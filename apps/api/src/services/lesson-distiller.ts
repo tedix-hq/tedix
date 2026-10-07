@@ -28,7 +28,7 @@ export type LessonDistiller = (input: DistillInput) => Promise<string[] | null>;
  * Bumped when the prompt or filter changes, so lessons distilled by an
  * earlier version are rewritten once.
  */
-export const DISTILL_VERSION = 2;
+export const DISTILL_VERSION = 3;
 
 export function distillPrompt(input: DistillInput): string {
 	// No example rules: a model copies examples into answers they do not fit.
@@ -36,7 +36,7 @@ export function distillPrompt(input: DistillInput): string {
 		"Below are replies a person gave to their AI coding or work agent, each with what the agent had just said.",
 		"Write at most 3 durable rules that agent should follow in every future session, in short imperative plain English.",
 		"Only write a rule for a lasting preference, standing decision, naming convention or correction that one of the replies below states in its own words. Each rule must restate what a reply says; never add a rule the replies do not state.",
-		"Do not write rules for one-off task requests, questions, approvals or status checks. Do not include names of other people, emails, or secrets.",
+		"A rule needs at least two replies that say it, unless one reply states it as standing (always, never, from now on, we do not). Do not write rules for one-off task requests, a single tool or setting used once, questions, approvals or status checks. Do not include names of other people, emails, or secrets.",
 		"If there is no lasting rule, answer exactly NONE. Otherwise output one rule per line, each starting with '- '.",
 		"",
 		input.content,
