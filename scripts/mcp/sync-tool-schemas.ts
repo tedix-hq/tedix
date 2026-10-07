@@ -1,6 +1,16 @@
 #!/usr/bin/env bun
 
 import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
+import {
+	accessSync,
+	constants,
+	readFileSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
+import type { Readable } from "node:stream";
 
 /**
  * Drift gate: D1 `app_tools` schemas vs oRPC contract zod schemas.
@@ -46,7 +56,7 @@ const D1_DB = "DB";
 
 const IGNORE_DRIFT: Record<string, string> = {};
 
-const REQUIRED_PROJECTION_ENDPOINTS = [
+export const REQUIRED_PROJECTION_ENDPOINTS = [
 	"workflows/listDefinitions",
 	"skills/listPromotionCandidates",
 	"skills/listWorkflowSchedules",
@@ -84,25 +94,352 @@ const REQUIRED_PROJECTION_ENDPOINTS = [
 	"graphRetrievalBenchmarks/getGate",
 ] as const;
 
-const argv = process.argv.slice(2);
-const mode: "apply" | "check" | "dry-run" = argv.includes("--apply")
-	? "apply"
-	: argv.includes("--check")
-		? "check"
-		: "dry-run";
-const onlyArg = argv.find((arg) => arg.startsWith("--only="));
-const onlyFilter = onlyArg
-	? new Set(onlyArg.slice("--only=".length).split(",").filter(Boolean))
-	: null;
+export const READER_RAW_BYTE_LIMIT = 8_388_608;
+export const READER_DEADLINE_MS = 30_000;
 
-interface D1Row {
-	id: string;
-	tool_id: string;
-	tool_type_id: string | null;
-	schema_dialect: string | null;
-	input_schema: string | null;
-	output_schema: string | null;
-	endpoint: string | null;
+export interface ReaderChild {
+	readonly pid?: number;
+	readonly stdout: Readable;
+	readonly stderr: Readable;
+	on(event: "error", listener: (error: Error) => void): unknown;
+	on(
+		event: "close",
+		listener: (code: number | null, signal: string | null) => void,
+	): unknown;
+}
+export interface ReaderTools {
+	readonly node: string;
+	readonly wrangler: string;
+	readonly config: string;
+}
+/** Primitive collaborators only; production never selects them from arguments/config. */
+export interface ReaderIo {
+	readonly platform: string;
+	now(): number;
+	setTimer(callback: () => void, ms: number): unknown;
+	clearTimer(handle: unknown): void;
+	resolveTools(): ReaderTools | Promise<ReaderTools>;
+	spawn(argv: readonly string[]): ReaderChild;
+	killGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void;
+	log(line: string): void;
+	error(line: string): void;
+}
+export interface ReaderScope {
+	readonly signal: AbortSignal | undefined;
+	readonly rawBytes: number;
+	check(): void;
+	remaining(): number;
+	charge(bytes: number): void;
+	fail(stage: string): Error;
+}
+
+/** One original monotonic deadline and shared budget, private from its callers. */
+export function createReaderScope(
+	io: ReaderIo,
+	signal?: AbortSignal,
+): ReaderScope {
+	const now = io.now.bind(io);
+	const start = now();
+	const deadline = start + READER_DEADLINE_MS;
+	let last = start;
+	let bytes = 0;
+	let terminal: Error | undefined;
+	const fail = (stage: string) => {
+		terminal ??= new Error(`Schema reader refused: ${stage}.`);
+		return terminal;
+	};
+	const check = () => {
+		if (terminal) throw terminal;
+		const current = now();
+		if (
+			!Number.isFinite(start) ||
+			!Number.isFinite(current) ||
+			current < last ||
+			current >= deadline
+		)
+			throw fail("deadline");
+		last = current;
+		if (signal?.aborted) throw fail("aborted");
+	};
+	return Object.freeze({
+		signal,
+		get rawBytes() {
+			return bytes;
+		},
+		check,
+		remaining() {
+			check();
+			return deadline - now();
+		},
+		charge(size: number) {
+			check();
+			if (
+				!Number.isSafeInteger(size) ||
+				size < 0 ||
+				!Number.isSafeInteger(bytes + size) ||
+				bytes + size > READER_RAW_BYTE_LIMIT
+			)
+				throw fail("raw byte budget");
+			bytes += size;
+		},
+		fail,
+	});
+}
+
+interface ToolFiles {
+	realpath(path: string): string;
+	isFile(path: string): boolean;
+	read(path: string): string;
+	findNode(): string | null;
+}
+/** Check only the installed owning package; no package runner/download fallback. */
+export function resolveInstalledReaderTools(
+	root: string,
+	files: ToolFiles,
+): ReaderTools {
+	try {
+		const packageRoot = files.realpath(join(root, "node_modules/wrangler"));
+		const pkg = JSON.parse(files.read(join(packageRoot, "package.json"))) as {
+			name?: string;
+			bin?: { wrangler?: string };
+		};
+		if (pkg.name !== "wrangler" || pkg.bin?.wrangler !== "./bin/wrangler.js")
+			throw new Error();
+		const expected = join(packageRoot, "bin/wrangler.js");
+		const wrangler = files.realpath(join(root, "node_modules/.bin/wrangler"));
+		if (wrangler !== expected || !files.isFile(wrangler)) throw new Error();
+		const candidate = files.findNode();
+		if (!candidate) throw new Error();
+		const node = files.realpath(candidate);
+		if (!files.isFile(node)) throw new Error();
+		return Object.freeze({
+			node,
+			wrangler,
+			config: join(root, "apps/api/wrangler.jsonc"),
+		});
+	} catch {
+		throw new Error("Schema reader refused: installed tools.");
+	}
+}
+
+function productionIo(): ReaderIo {
+	return {
+		platform: process.platform,
+		now: () => performance.now(),
+		setTimer: (callback, ms) => setTimeout(callback, ms),
+		clearTimer: (handle) =>
+			clearTimeout(handle as ReturnType<typeof setTimeout>),
+		resolveTools: () =>
+			resolveInstalledReaderTools(
+				fileURLToPath(new URL("../../", import.meta.url)),
+				{
+					realpath: realpathSync,
+					isFile: (path) => statSync(path).isFile(),
+					read: (path) => readFileSync(path, "utf8"),
+					findNode: () => {
+						for (const directory of (process.env.PATH ?? "").split(":")) {
+							if (!directory) continue;
+							const candidate = resolve(directory, "node");
+							try {
+								accessSync(candidate, constants.X_OK);
+								if (statSync(candidate).isFile()) return candidate;
+							} catch {
+								/* Try the next existing executable only. */
+							}
+						}
+						return null;
+					},
+				},
+			),
+		spawn: (argv) =>
+			spawn(argv[0]!, argv.slice(1), {
+				detached: true,
+				shell: false,
+				stdio: ["ignore", "pipe", "pipe"],
+			}),
+		killGroup: (pid, signal) => {
+			process.kill(-pid, signal);
+		},
+		log: (line) => console.log(line),
+		error: (line) => console.error(line),
+	};
+}
+
+/** Streams drain concurrently; success needs both EOFs and the owned close status. */
+function collectCommand(
+	argv: readonly string[],
+	scope: ReaderScope,
+	io: ReaderIo,
+): Promise<string> {
+	scope.check();
+	if (io.platform === "win32") throw scope.fail("unsupported process groups");
+	const command = Object.freeze([...argv]);
+	const spawnChild = io.spawn.bind(io);
+	const killGroup = io.killGroup.bind(io);
+	const setTimer = io.setTimer.bind(io);
+	const clearTimer = io.clearTimer.bind(io);
+	return new Promise((resolveResult, reject) => {
+		let child: ReaderChild;
+		try {
+			child = spawnChild(command);
+		} catch {
+			reject(scope.fail("spawn"));
+			return;
+		}
+		const pid = child.pid;
+		let terminal = false;
+		let timer: unknown;
+		let stdoutEnd = false;
+		let stderrEnd = false;
+		const chunks: string[] = [];
+		const outDecoder = new TextDecoder("utf-8", { fatal: true });
+		const errDecoder = new TextDecoder("utf-8", { fatal: true });
+		const cleanup = () => {
+			clearTimer(timer);
+			scope.signal?.removeEventListener("abort", onAbort);
+		};
+		const refuse = (stage: string) => {
+			if (terminal) return;
+			terminal = true;
+			let error = scope.fail(stage);
+			cleanup();
+			chunks.length = 0;
+			child.stdout.destroy();
+			child.stderr.destroy();
+			if (Number.isSafeInteger(pid) && pid! > 0 && pid !== process.pid) {
+				let confirmed = true;
+				for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+					try {
+						killGroup(pid!, signal);
+					} catch (failure) {
+						// ESRCH means the owned group is already absent.
+						if ((failure as NodeJS.ErrnoException)?.code !== "ESRCH")
+							confirmed = false;
+					}
+				}
+				if (!confirmed)
+					error = new Error("Schema reader refused: cancellation unconfirmed.");
+			}
+			reject(error);
+		};
+		const onAbort = () => refuse("aborted");
+		const read = (chunk: unknown, decoder: TextDecoder, keep: boolean) => {
+			if (terminal) return;
+			try {
+				if (!(chunk instanceof Uint8Array)) throw scope.fail("stream chunk");
+				scope.charge(chunk.byteLength);
+				const decoded = decoder.decode(chunk, { stream: true });
+				if (keep) chunks.push(decoded);
+			} catch {
+				refuse("stream or byte budget");
+			}
+		};
+		child.stdout.on("data", (chunk: unknown) => read(chunk, outDecoder, true));
+		child.stderr.on("data", (chunk: unknown) => read(chunk, errDecoder, false));
+		child.stdout.on("error", () => refuse("stdout"));
+		child.stderr.on("error", () => refuse("stderr"));
+		child.on("error", () => refuse("spawn"));
+		child.stdout.on("end", () => {
+			if (terminal) return;
+			try {
+				scope.check();
+				chunks.push(outDecoder.decode());
+				stdoutEnd = true;
+			} catch {
+				refuse("stdout UTF8 or deadline");
+			}
+		});
+		child.stderr.on("end", () => {
+			if (terminal) return;
+			try {
+				scope.check();
+				errDecoder.decode();
+				stderrEnd = true;
+			} catch {
+				refuse("stderr UTF8 or deadline");
+			}
+		});
+		child.on("close", (code, signal) => {
+			if (terminal) return;
+			try {
+				scope.check();
+				if (code !== 0 || signal !== null || !stdoutEnd || !stderrEnd) {
+					refuse("child status or incomplete streams");
+					return;
+				}
+				const output = chunks.join("");
+				chunks.length = 0;
+				scope.check();
+				terminal = true;
+				cleanup();
+				resolveResult(output);
+			} catch {
+				refuse("deadline");
+			}
+		});
+		if (!Number.isSafeInteger(pid) || pid! <= 0 || pid === process.pid) {
+			refuse("missing owned PID");
+			return;
+		}
+		try {
+			scope.check();
+			scope.signal?.addEventListener("abort", onAbort, { once: true });
+			timer = setTimer(() => refuse("deadline"), scope.remaining());
+		} catch {
+			refuse("deadline or aborted");
+		}
+	});
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+interface D1Report {
+	results: unknown[];
+}
+export async function executeD1(
+	sql: string,
+	scope: ReaderScope,
+	io: ReaderIo,
+	tools: ReaderTools,
+): Promise<D1Report> {
+	scope.check();
+	const output = await collectCommand(
+		[
+			tools.node,
+			tools.wrangler,
+			"d1",
+			"execute",
+			D1_DB,
+			"--remote",
+			"--config",
+			tools.config,
+			"--json",
+			"--command",
+			sql,
+		],
+		scope,
+		io,
+	);
+	scope.check();
+	try {
+		const parsed: unknown = JSON.parse(output);
+		scope.check();
+		if (
+			!Array.isArray(parsed) ||
+			parsed.length !== 1 ||
+			!record(parsed[0]) ||
+			parsed[0].success !== true ||
+			!Array.isArray(parsed[0].results) ||
+			(Object.hasOwn(parsed[0], "error") && parsed[0].error !== null) ||
+			(Object.hasOwn(parsed[0], "errors") &&
+				(!Array.isArray(parsed[0].errors) || parsed[0].errors.length !== 0))
+		)
+			throw scope.fail("D1 result envelope");
+		return { results: parsed[0].results };
+	} catch {
+		throw scope.fail("D1 JSON or envelope");
+	}
 }
 
 interface D1ToolState {
@@ -114,45 +451,55 @@ interface D1ToolState {
 	outputSchema: unknown;
 	endpoint: string | null;
 }
-
-async function fetchD1Rows(): Promise<D1ToolState[]> {
-	const sql = `SELECT id, tool_id, tool_type_id, schema_dialect, json(input_schema) AS input_schema, json(output_schema) AS output_schema, json_extract(config, '$.endpoint') AS endpoint FROM app_tools WHERE app_id = ${TEDIX_APP_ID_SQL} AND json_extract(config, '$.transport') = 'rpc'`;
-	const parsed = await executeD1(sql);
-	return (parsed[0]?.results ?? []).map((row) => ({
-		id: row.id,
-		toolId: row.tool_id,
-		toolTypeId: row.tool_type_id,
-		schemaDialect: row.schema_dialect,
-		inputSchema: row.input_schema ? JSON.parse(row.input_schema) : null,
-		outputSchema: row.output_schema ? JSON.parse(row.output_schema) : null,
-		endpoint: row.endpoint,
-	}));
-}
-
-async function executeD1(sql: string): Promise<Array<{ results?: D1Row[] }>> {
-	const proc = Bun.spawn(
-		[
-			"bunx",
-			"wrangler",
-			"d1",
-			"execute",
-			D1_DB,
-			"--remote",
-			"--config",
-			fileURLToPath(new URL("../../apps/api/wrangler.jsonc", import.meta.url)),
-			"--json",
-			"--command",
-			sql,
-		],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	const out = await new Response(proc.stdout).text();
-	const err = await new Response(proc.stderr).text();
-	const code = await proc.exited;
-	if (code !== 0) {
-		throw new Error(`wrangler d1 execute failed (${code}):\n${err}\n${out}`);
-	}
-	return JSON.parse(out) as Array<{ results?: D1Row[] }>;
+export const TOOL_SCHEMA_SELECT = `SELECT id, tool_id, tool_type_id, schema_dialect, json(input_schema) AS input_schema, json(output_schema) AS output_schema, json_extract(config, '$.endpoint') AS endpoint FROM app_tools WHERE app_id = ${TEDIX_APP_ID_SQL} AND json_extract(config, '$.transport') = 'rpc'`;
+async function fetchD1Rows(
+	scope: ReaderScope,
+	io: ReaderIo,
+	tools: ReaderTools,
+): Promise<D1ToolState[]> {
+	const parsed = await executeD1(TOOL_SCHEMA_SELECT, scope, io, tools);
+	scope.check();
+	return parsed.results.map((row) => {
+		scope.check();
+		if (
+			!record(row) ||
+			typeof row.id !== "string" ||
+			typeof row.tool_id !== "string" ||
+			![
+				"tool_type_id",
+				"schema_dialect",
+				"input_schema",
+				"output_schema",
+				"endpoint",
+			].every(
+				(key) =>
+					Object.hasOwn(row, key) &&
+					(row[key] === null || typeof row[key] === "string"),
+			)
+		)
+			throw scope.fail("SELECT row aliases");
+		try {
+			const value = {
+				id: row.id,
+				toolId: row.tool_id,
+				toolTypeId: row.tool_type_id as string | null,
+				schemaDialect: row.schema_dialect as string | null,
+				inputSchema:
+					row.input_schema === null
+						? null
+						: JSON.parse(row.input_schema as string),
+				outputSchema:
+					row.output_schema === null
+						? null
+						: JSON.parse(row.output_schema as string),
+				endpoint: row.endpoint as string | null,
+			};
+			scope.check();
+			return value;
+		} catch {
+			throw scope.fail("nested schema JSON");
+		}
+	});
 }
 
 function stableStringify(value: unknown): string {
@@ -188,8 +535,11 @@ function sqlJson(value: unknown): string {
 	return sqlString(JSON.stringify(value));
 }
 
-async function deleteStaleRow(row: D1ToolState): Promise<void> {
-	await executeD1(
+async function deleteStaleRow(
+	row: D1ToolState,
+	execute: (sql: string) => Promise<D1Report>,
+): Promise<void> {
+	await execute(
 		`DELETE FROM app_tools WHERE id = ${sqlString(row.id)} AND app_id = ${TEDIX_APP_ID_SQL}`,
 	);
 }
@@ -202,6 +552,7 @@ async function updateSchemaRow(
 		toolTypeId?: "rpc";
 		schemaDialect?: "json-schema-2020-12";
 	},
+	execute: (sql: string) => Promise<D1Report>,
 ): Promise<void> {
 	const assignments: string[] = [];
 	if (patch.inputSchema !== undefined) {
@@ -224,207 +575,274 @@ async function updateSchemaRow(
 	assignments.push(`schema_synced_at = ${sqlString(now)}`);
 	assignments.push(`updated_at = ${sqlString(now)}`);
 
-	await executeD1(
+	await execute(
 		`UPDATE app_tools SET ${assignments.join(", ")} WHERE id = ${sqlString(row.id)} AND app_id = ${TEDIX_APP_ID_SQL}`,
 	);
 }
 
-async function main() {
-	console.log(
-		`# Sync tool schemas — mode: ${mode}${onlyFilter ? ` (filter: ${[...onlyFilter].join(",")})` : ""}\n`,
+export async function main(
+	args: readonly string[] = process.argv.slice(2),
+	primitiveIo: ReaderIo = productionIo(),
+	signal?: AbortSignal,
+): Promise<number> {
+	// Capture collaborators/arguments before any await; neither is a mutable grant.
+	const io: ReaderIo = Object.freeze(
+		Object.fromEntries(
+			Object.entries(primitiveIo).map(([key, value]) => [
+				key,
+				typeof value === "function" ? value.bind(primitiveIo) : value,
+			]),
+		) as unknown as ReaderIo,
 	);
-	const rows = await fetchD1Rows();
-	const filtered = onlyFilter
-		? rows.filter((row) => onlyFilter.has(row.toolId))
-		: rows;
-
-	const buckets = {
-		inSync: [] as string[],
-		missingSchema: [] as string[],
-		realMismatch: [] as string[],
-		converterUnsupported: [] as string[],
-		noContract: [] as string[],
-		missingProjection: [] as string[],
-		typeDrift: [] as string[],
-		ignored: [] as string[],
-		applied: [] as string[],
+	const scope = createReaderScope(io, signal);
+	const argv = [...args];
+	const log = (line: string) => {
+		scope.check();
+		io.log(line);
 	};
+	const mode: "apply" | "check" | "dry-run" = argv.includes("--apply")
+		? "apply"
+		: argv.includes("--check")
+			? "check"
+			: "dry-run";
+	const onlyArg = argv.find((arg) => arg.startsWith("--only="));
+	const onlyFilter = onlyArg
+		? new Set(onlyArg.slice("--only=".length).split(",").filter(Boolean))
+		: null;
+	try {
+		scope.check();
+		if (io.platform === "win32") throw scope.fail("unsupported process groups");
+		const tools = Object.freeze({ ...(await io.resolveTools()) });
+		scope.check();
+		const version = await collectCommand([tools.node, "--version"], scope, io);
+		scope.check();
+		if (
+			!/^v\d+\.\d+\.\d+\s*$/.test(version) ||
+			Number(version.slice(1).split(".")[0]) < 22
+		)
+			throw scope.fail("Node minimum 22");
+		const execute = (sql: string) => executeD1(sql, scope, io, tools);
+		scope.check();
+		log(
+			`# Sync tool schemas — mode: ${mode}${onlyFilter ? ` (filter: ${[...onlyFilter].join(",")})` : ""}\n`,
+		);
+		const rows = await fetchD1Rows(scope, io, tools);
+		scope.check();
+		const filtered = onlyFilter
+			? rows.filter((row) => onlyFilter.has(row.toolId))
+			: rows;
 
-	if (!onlyFilter) {
-		const rowEndpoints = new Set(
-			rows
-				.map((row) => row.endpoint)
-				.filter((endpoint): endpoint is string => !!endpoint),
-		);
-		const contractEndpoints = new Set(
-			listContractEndpoints({ includeInternal: true }).map(
-				(endpoint) => `${endpoint.router}/${endpoint.procPath}`,
-			),
-		);
-		for (const endpoint of REQUIRED_PROJECTION_ENDPOINTS) {
-			if (!contractEndpoints.has(endpoint)) {
+		const buckets = {
+			inSync: [] as string[],
+			missingSchema: [] as string[],
+			realMismatch: [] as string[],
+			converterUnsupported: [] as string[],
+			noContract: [] as string[],
+			missingProjection: [] as string[],
+			typeDrift: [] as string[],
+			ignored: [] as string[],
+			applied: [] as string[],
+		};
+
+		if (!onlyFilter) {
+			const rowEndpoints = new Set(
+				rows
+					.map((row) => row.endpoint)
+					.filter((endpoint): endpoint is string => !!endpoint),
+			);
+			const contractEndpoints = new Set(
+				listContractEndpoints({ includeInternal: true }).map(
+					(endpoint) => `${endpoint.router}/${endpoint.procPath}`,
+				),
+			);
+			for (const endpoint of REQUIRED_PROJECTION_ENDPOINTS) {
+				scope.check();
+				if (!contractEndpoints.has(endpoint)) {
+					buckets.noContract.push(
+						`required projection endpoint "${endpoint}" is not in the contract router`,
+					);
+				} else if (!rowEndpoints.has(endpoint)) {
+					buckets.missingProjection.push(
+						`required projection endpoint "${endpoint}" has no tedix admin app_tools row`,
+					);
+				}
+			}
+		}
+
+		filtered.sort((a, b) => a.toolId.localeCompare(b.toolId));
+
+		for (const row of filtered) {
+			scope.check();
+			if (!row.endpoint) {
+				buckets.noContract.push(`${row.toolId}: config.endpoint is missing`);
+				if (mode === "apply") {
+					await deleteStaleRow(row, execute);
+					scope.check();
+					buckets.applied.push(
+						`${row.toolId}: deleted missing-endpoint rpc row`,
+					);
+				}
+				continue;
+			}
+			const lookup = resolveContractEndpoint(row.endpoint);
+			if (!lookup) {
 				buckets.noContract.push(
-					`required projection endpoint "${endpoint}" is not in the contract router`,
+					`${row.toolId}: no contract proc at "${row.endpoint}"`,
 				);
-			} else if (!rowEndpoints.has(endpoint)) {
-				buckets.missingProjection.push(
-					`required projection endpoint "${endpoint}" has no tedix admin app_tools row`,
+				if (mode === "apply") {
+					await deleteStaleRow(row, execute);
+					scope.check();
+					buckets.applied.push(`${row.toolId}: deleted stale rpc row`);
+				}
+				continue;
+			}
+			const patch: Parameters<typeof updateSchemaRow>[1] = {};
+			if (row.toolTypeId !== "rpc") {
+				buckets.typeDrift.push(
+					`${row.toolId}: tool_type_id=${row.toolTypeId ?? "NULL"} (expected rpc)`,
 				);
+				patch.toolTypeId = "rpc";
 			}
-		}
-	}
-
-	filtered.sort((a, b) => a.toolId.localeCompare(b.toolId));
-
-	for (const row of filtered) {
-		if (!row.endpoint) {
-			buckets.noContract.push(`${row.toolId}: config.endpoint is missing`);
-			if (mode === "apply") {
-				await deleteStaleRow(row);
-				buckets.applied.push(`${row.toolId}: deleted missing-endpoint rpc row`);
+			if (row.schemaDialect !== "json-schema-2020-12") {
+				buckets.typeDrift.push(
+					`${row.toolId}: schema_dialect=${row.schemaDialect ?? "NULL"} (expected json-schema-2020-12)`,
+				);
+				patch.schemaDialect = "json-schema-2020-12";
 			}
-			continue;
-		}
-		const lookup = resolveContractEndpoint(row.endpoint);
-		if (!lookup) {
-			buckets.noContract.push(
-				`${row.toolId}: no contract proc at "${row.endpoint}"`,
-			);
-			if (mode === "apply") {
-				await deleteStaleRow(row);
-				buckets.applied.push(`${row.toolId}: deleted stale rpc row`);
+			if (IGNORE_DRIFT[row.toolId]) {
+				buckets.ignored.push(
+					`${row.toolId}: ignored — ${IGNORE_DRIFT[row.toolId]}`,
+				);
+				continue;
 			}
-			continue;
-		}
-		const patch: Parameters<typeof updateSchemaRow>[1] = {};
-		if (row.toolTypeId !== "rpc") {
-			buckets.typeDrift.push(
-				`${row.toolId}: tool_type_id=${row.toolTypeId ?? "NULL"} (expected rpc)`,
-			);
-			patch.toolTypeId = "rpc";
-		}
-		if (row.schemaDialect !== "json-schema-2020-12") {
-			buckets.typeDrift.push(
-				`${row.toolId}: schema_dialect=${row.schemaDialect ?? "NULL"} (expected json-schema-2020-12)`,
-			);
-			patch.schemaDialect = "json-schema-2020-12";
-		}
-		if (IGNORE_DRIFT[row.toolId]) {
-			buckets.ignored.push(
-				`${row.toolId}: ignored — ${IGNORE_DRIFT[row.toolId]}`,
-			);
-			continue;
-		}
 
-		let expectedInput: unknown;
-		let expectedOutput: unknown;
-		try {
-			expectedInput = zodToToolInputJsonSchema(lookup.inputSchema);
-			expectedOutput = zodToStructuredOutputJsonSchema(lookup.outputSchema);
-		} catch (error) {
-			buckets.converterUnsupported.push(
-				`${row.toolId}: ${(error as Error).message} at "${row.endpoint}"`,
-			);
-			continue;
-		}
+			let expectedInput: unknown;
+			let expectedOutput: unknown;
+			try {
+				expectedInput = zodToToolInputJsonSchema(lookup.inputSchema);
+				expectedOutput = zodToStructuredOutputJsonSchema(lookup.outputSchema);
+			} catch {
+				buckets.converterUnsupported.push(
+					`${row.toolId}: schema conversion unsupported at "${row.endpoint}"`,
+				);
+				continue;
+			}
 
-		let toolInSync = true;
-		if (row.inputSchema === null) {
-			buckets.missingSchema.push(`${row.toolId}: inputSchema`);
-			patch.inputSchema = expectedInput;
-			toolInSync = false;
-		} else if (
-			stableStringify(expectedInput) !== stableStringify(row.inputSchema)
-		) {
-			console.log(
-				diff(row.toolId, "inputSchema", expectedInput, row.inputSchema),
-			);
-			console.log("");
-			buckets.realMismatch.push(`${row.toolId}: inputSchema`);
-			patch.inputSchema = expectedInput;
-			toolInSync = false;
-		}
-
-		if (expectedOutput !== null) {
-			if (row.outputSchema === null) {
-				buckets.missingSchema.push(`${row.toolId}: outputSchema`);
-				patch.outputSchema = expectedOutput;
+			let toolInSync = true;
+			if (row.inputSchema === null) {
+				buckets.missingSchema.push(`${row.toolId}: inputSchema`);
+				patch.inputSchema = expectedInput;
 				toolInSync = false;
 			} else if (
-				stableStringify(expectedOutput) !== stableStringify(row.outputSchema)
+				stableStringify(expectedInput) !== stableStringify(row.inputSchema)
 			) {
-				console.log(
-					diff(row.toolId, "outputSchema", expectedOutput, row.outputSchema),
-				);
-				console.log("");
-				buckets.realMismatch.push(`${row.toolId}: outputSchema`);
-				patch.outputSchema = expectedOutput;
+				log(diff(row.toolId, "inputSchema", expectedInput, row.inputSchema));
+				log("");
+				buckets.realMismatch.push(`${row.toolId}: inputSchema`);
+				patch.inputSchema = expectedInput;
 				toolInSync = false;
 			}
+
+			if (expectedOutput !== null) {
+				if (row.outputSchema === null) {
+					buckets.missingSchema.push(`${row.toolId}: outputSchema`);
+					patch.outputSchema = expectedOutput;
+					toolInSync = false;
+				} else if (
+					stableStringify(expectedOutput) !== stableStringify(row.outputSchema)
+				) {
+					log(
+						diff(row.toolId, "outputSchema", expectedOutput, row.outputSchema),
+					);
+					log("");
+					buckets.realMismatch.push(`${row.toolId}: outputSchema`);
+					patch.outputSchema = expectedOutput;
+					toolInSync = false;
+				}
+			}
+
+			if (mode === "apply" && Object.keys(patch).length > 0) {
+				await updateSchemaRow(row, patch, execute);
+				scope.check();
+				buckets.applied.push(
+					`${row.toolId}: updated ${Object.keys(patch).join(", ")}`,
+				);
+			}
+
+			if (toolInSync) buckets.inSync.push(row.toolId);
 		}
 
-		if (mode === "apply" && Object.keys(patch).length > 0) {
-			await updateSchemaRow(row, patch);
-			buckets.applied.push(
-				`${row.toolId}: updated ${Object.keys(patch).join(", ")}`,
-			);
-		}
+		scope.check();
+		const printBucket = (label: string, items: string[]) => {
+			if (!items.length) return;
+			log(`\n# ${label} (${items.length})`);
+			for (const item of items) {
+				scope.check();
+				log(`  ${item}`);
+			}
+		};
 
-		if (toolInSync) buckets.inSync.push(row.toolId);
-	}
+		printBucket("missingSchema", buckets.missingSchema);
+		printBucket("realMismatch", buckets.realMismatch);
+		printBucket("converterUnsupported", buckets.converterUnsupported);
+		printBucket("noContract", buckets.noContract);
+		printBucket("missingProjection", buckets.missingProjection);
+		printBucket("typeDrift", buckets.typeDrift);
+		printBucket("ignored", buckets.ignored);
+		printBucket("applied", buckets.applied);
 
-	const printBucket = (label: string, items: string[]) => {
-		if (!items.length) return;
-		console.log(`\n# ${label} (${items.length})`);
-		for (const item of items) console.log(`  ${item}`);
-	};
-
-	printBucket("missingSchema", buckets.missingSchema);
-	printBucket("realMismatch", buckets.realMismatch);
-	printBucket("converterUnsupported", buckets.converterUnsupported);
-	printBucket("noContract", buckets.noContract);
-	printBucket("missingProjection", buckets.missingProjection);
-	printBucket("typeDrift", buckets.typeDrift);
-	printBucket("ignored", buckets.ignored);
-	printBucket("applied", buckets.applied);
-
-	console.log(
-		`\nSummary: ${buckets.inSync.length} in sync | ${buckets.missingSchema.length} missingSchema | ${buckets.realMismatch.length} realMismatch | ${buckets.converterUnsupported.length} converterUnsupported | ${buckets.noContract.length} noContract | ${buckets.missingProjection.length} missingProjection | ${buckets.typeDrift.length} typeDrift | ${buckets.ignored.length} ignored — over ${filtered.length} rpc-transport tools on tedix admin app`,
-	);
-
-	if (mode === "apply") {
-		const unrepairable =
-			buckets.converterUnsupported.length + buckets.missingProjection.length;
-		if (unrepairable > 0) {
-			console.error(
-				`\nApply finished with ${unrepairable} unrepairable schema issue(s).`,
-			);
-			process.exit(1);
-		}
-		console.log("\nApply complete. Rerun --check to verify D1 state.");
-		return;
-	}
-
-	if (mode !== "check") return;
-
-	const failing =
-		buckets.missingSchema.length +
-		buckets.realMismatch.length +
-		buckets.converterUnsupported.length +
-		buckets.noContract.length +
-		buckets.missingProjection.length +
-		buckets.typeDrift.length;
-	if (failing > 0) {
-		console.error(
-			`\nDrift detected. Fix through the ToolSchemaSyncWorkflow exposed by Tedix admin MCP (tool.run_tool_schema_sync). For intentionally removed oRPC endpoints, run schema sync with pruneStale=true.`,
+		log(
+			`\nSummary: ${buckets.inSync.length} in sync | ${buckets.missingSchema.length} missingSchema | ${buckets.realMismatch.length} realMismatch | ${buckets.converterUnsupported.length} converterUnsupported | ${buckets.noContract.length} noContract | ${buckets.missingProjection.length} missingProjection | ${buckets.typeDrift.length} typeDrift | ${buckets.ignored.length} ignored — over ${filtered.length} rpc-transport tools on tedix admin app`,
 		);
-		process.exit(1);
-	}
 
-	console.log("\nCheck passed: no tool schema drift.");
+		if (mode === "apply") {
+			const unrepairable =
+				buckets.converterUnsupported.length + buckets.missingProjection.length;
+			if (unrepairable > 0) {
+				io.error(
+					`\nApply finished with ${unrepairable} unrepairable schema issue(s).`,
+				);
+				return 1;
+			}
+			log("\nApply complete. Rerun --check to verify D1 state.");
+			scope.check();
+			return 0;
+		}
+
+		if (mode !== "check") {
+			scope.check();
+			return 0;
+		}
+
+		const failing =
+			buckets.missingSchema.length +
+			buckets.realMismatch.length +
+			buckets.converterUnsupported.length +
+			buckets.noContract.length +
+			buckets.missingProjection.length +
+			buckets.typeDrift.length;
+		if (failing > 0) {
+			io.error(
+				`\nDrift detected. Fix through the ToolSchemaSyncWorkflow exposed by Tedix admin MCP (tool.run_tool_schema_sync). For intentionally removed oRPC endpoints, run schema sync with pruneStale=true.`,
+			);
+			return 1;
+		}
+
+		scope.check();
+		log("\nCheck passed: no tool schema drift.");
+
+		scope.check();
+		return 0;
+	} catch (error) {
+		// Only our fixed stages may cross the failure boundary.
+		const message =
+			error instanceof Error &&
+			/^Schema reader refused: [A-Za-z0-9 -]+\.$/.test(error.message)
+				? error.message
+				: "Schema reader refused: execution.";
+		io.error(message);
+		return 1;
+	}
 }
 
-main().catch((error) => {
-	console.error(error);
-	process.exit(1);
-});
+if (import.meta.main) process.exitCode = await main();
