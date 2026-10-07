@@ -30,7 +30,7 @@ while read -r _localRef localSha remoteRef remoteSha; do
 	# The public repository has one branch. Work happens on main; releases are
 	# tags. A pushed side branch is public at once (GitHub also rejects it).
 	case "$remoteRef" in
-		refs/heads/main | refs/tags/v* | refs/tags/cli-v*) ;;
+		refs/heads/main | refs/tags/v* | refs/tags/cli-v* | refs/tags/plugin-v*) ;;
 		*)
 			echo "pre-push: refusing to push $remoteRef; only main and release tags are published. Push your commits to main instead." >&2
 			status=1
