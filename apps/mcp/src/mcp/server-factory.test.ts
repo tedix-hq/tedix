@@ -2,7 +2,7 @@ import {
 	CatalogueSearchInputJsonSchema,
 	CatalogueDescribeInputJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { McpServer } from "@modelcontextprotocol/server";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import {
 	afterEach,
@@ -1113,6 +1113,8 @@ it("keeps interleaved factory-built caller catalogs isolated on the shared handl
 
 import {
 	buildNativeBootstrap,
+	buildNativeOrganizations,
+	aggregateNativeTools,
 	isConfiguredCatalogTool,
 } from "./registration/bootstrap";
 import { McpNativeBootstrapSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
@@ -1318,5 +1320,353 @@ describe("native request-private bootstrap", () => {
 				},
 			},
 		});
+	});
+});
+
+describe("aggregate Connect native protocol", () => {
+	function fixture() {
+		const cached = createCachedData();
+		cached.app = {
+			...cached.app,
+			id: "connect-host",
+			slug: "connect",
+			organizationId: undefined,
+		};
+		const tools = ["alpha", "beta"].flatMap((slug) => [
+			catalogRow({
+				id: slug + "-search",
+				toolId: slug + "__find_tools",
+				config: {
+					transport: "catalog",
+					endpoint: "catalog/search",
+					nativeDirect: true,
+					_multiOrgOrganizationId: slug,
+					_aggregateNamespace: slug,
+					_sourceAppId: slug + "-gateway",
+					_sourceAppSlug: slug,
+				},
+			}),
+			catalogRow({
+				id: slug + "-describe",
+				toolId: slug + "__describe_tools",
+				inputSchema:
+					CatalogueDescribeInputJsonSchema as unknown as import("./server-context").AppTool["inputSchema"],
+				config: {
+					transport: "catalog",
+					endpoint: "catalog/describe",
+					nativeDirect: true,
+					_multiOrgOrganizationId: slug,
+					_aggregateNamespace: slug,
+					_sourceAppId: slug + "-gateway",
+					_sourceAppSlug: slug,
+				},
+			}),
+			catalogRow({
+				id: slug + "-work",
+				toolId: slug + "__get_work_items_by_id",
+				inputSchema: {
+					type: "object",
+					properties: { id: { type: "string" } },
+					required: ["id"],
+				},
+				config: {
+					transport: "rpc",
+					endpoint: "workItems/getById",
+					nativeDirect: true,
+					_multiOrgOrganizationId: slug,
+					_aggregateNamespace: slug,
+					_sourceAppId: slug + "-gateway",
+					_sourceAppSlug: slug,
+				},
+			}),
+			catalogRow({
+				id: slug + "-hidden",
+				toolId: slug + "__unopted",
+				config: {
+					transport: "rpc",
+					endpoint: "workItems/getById",
+					_multiOrgOrganizationId: slug,
+					_aggregateNamespace: slug,
+					_sourceAppId: slug + "-gateway",
+				},
+			}),
+		]);
+		const toolScopes = Object.fromEntries(
+			tools.map((row) => [
+				row.toolId,
+				[
+					row.config?.transport === "catalog"
+						? "mcp:catalog.read"
+						: "mcp:work.read",
+				],
+			]),
+		);
+		cached.tools = tools;
+		cached.metadata = {
+			mcpConfig: {
+				codeMode: true,
+				multiOrgConsent: true,
+				authMode: "authenticated",
+				toolScopes,
+			},
+		} as unknown as CachedAppData["metadata"];
+		const caller = {
+			authType: "oauth" as const,
+			userId: "human",
+			scopes: ["mcp:catalog.read", "mcp:work.read"],
+			verifiedMultiOrgOrganizations: ["alpha", "beta"].map((slug) => ({
+				organizationId: slug,
+				descopeTenantId: slug,
+				gatewaySlug: slug,
+			})),
+		};
+		return { cached, caller };
+	}
+	it("advertises only opted-in authorized rows and calls catalogs through fresh organization views without a Loader", async () => {
+		listByApp.mockResolvedValue({ skills: [] });
+		const { cached, caller } = fixture();
+		const loader = vi.fn(() => {
+			throw new Error("Forbidden Loader");
+		});
+		const env = createEnv();
+		Object.assign(env, {
+			LOADER: { load: loader, get: loader },
+			DYNAMIC_WORKER_DIAGNOSTICS: { writeDataPoint: loader },
+		});
+		const server = await buildMcpServer(
+			cached,
+			caller,
+			env,
+			createExecutionContext(),
+		);
+		const client = await connectLegacyClient(server);
+		const list = await client.request("tools/list");
+		const names = (list.result as { tools: { name: string }[] }).tools.map(
+			(row) => row.name,
+		);
+		expect(names).toContain("alpha__get_work_items_by_id");
+		expect(names).toContain("beta__get_work_items_by_id");
+		expect(names.join()).not.toContain("unopted");
+		const [a, b] = await Promise.all(
+			["alpha", "beta"].map((slug) =>
+				client.request("tools/call", {
+					name: slug + "__find_tools",
+					arguments: { query: "" },
+				}),
+			),
+		);
+		for (const [result, own, other] of [
+			[a, "alpha", "beta"],
+			[b, "beta", "alpha"],
+		] as const) {
+			if (!result) throw new Error("Missing result");
+			expect(result.error).toBeUndefined();
+			expect((result.result as { isError?: boolean }).isError).not.toBe(true);
+			const content = JSON.stringify(
+				(result.result as { structuredContent: unknown }).structuredContent,
+			);
+			expect(content).toContain(own + ".get_work_items_by_id");
+			expect(content).not.toContain(other + ".get_work_items_by_id");
+		}
+		const info = await client.request("tools/call", {
+			name: "get_info",
+			arguments: {},
+		});
+		expect(
+			(info.result as { structuredContent: unknown }).structuredContent,
+		).toMatchObject({
+			nativeContext: null,
+			nativeCatalog: { status: "unavailable" },
+			nativeOrganizations: [
+				{ nativeContext: { organizationId: "alpha", appId: "alpha-gateway" } },
+				{ nativeContext: { organizationId: "beta", appId: "beta-gateway" } },
+			],
+		});
+		expect(loader).not.toHaveBeenCalled();
+	});
+	it("indexes 1010 rows per organization with bounded traversals and serves the actual multi-org protocol", async () => {
+		listByApp.mockResolvedValue({ skills: [] });
+		const { cached, caller } = fixture();
+		const source = cached.tools.find(
+			(row) => row.toolId === "alpha__get_work_items_by_id",
+		)!;
+		const catalog = cached.tools.filter(
+			(row) =>
+				row.config?.transport === "catalog" && row.toolId.startsWith("alpha__"),
+		);
+		let identityReads = 0;
+		cached.tools = ["alpha", "beta", "gamma"].flatMap((slug) => {
+			const rows = [
+				...catalog.map((row) => ({
+					...row,
+					id: slug + row.id,
+					toolId: row.toolId.replace("alpha__", slug + "__"),
+					config: {
+						...row.config,
+						_multiOrgOrganizationId: slug,
+						_aggregateNamespace: slug,
+						_sourceAppId: slug + "-gateway",
+						_sourceAppSlug: slug,
+					},
+				})),
+				...Array.from({ length: 1008 }, (_, i) => ({
+					...source,
+					id: slug + "-" + i,
+					toolId: slug + "__read_work_" + i,
+					config: {
+						...source.config,
+						_multiOrgOrganizationId: slug,
+						_aggregateNamespace: slug,
+						_sourceAppId: slug + "-gateway",
+						_sourceAppSlug: slug,
+					},
+				})),
+			];
+			return rows.map((row) => {
+				const name = row.toolId;
+				Object.defineProperty(row, "toolId", {
+					enumerable: true,
+					get: () => {
+						identityReads++;
+						return name;
+					},
+				});
+				return row;
+			});
+		});
+		cached.metadata!.mcpConfig!.toolScopes = Object.fromEntries(
+			cached.tools.map((row) => [
+				row.toolId,
+				[
+					row.config?.transport === "catalog"
+						? "mcp:catalog.read"
+						: "mcp:work.read",
+				],
+			]),
+		);
+		caller.verifiedMultiOrgOrganizations.push({
+			organizationId: "gamma",
+			descopeTenantId: "gamma",
+			gatewaySlug: "gamma",
+		});
+		const context = buildServerContext(
+			new McpServer({ name: "large", version: "1" }),
+			cached,
+			caller,
+			createEnv(),
+			createExecutionContext(),
+		);
+		identityReads = 0;
+		const projected = aggregateNativeTools(context, cached.tools);
+		expect(projected).toHaveLength(3030);
+		// Count actual identity accesses, not elapsed time: scanning the complete
+		// registry for each opted row exceeds this linear upper bound.
+		expect(identityReads).toBeLessThan(cached.tools.length * 64);
+		const server = await buildMcpServer(
+			cached,
+			caller,
+			createEnv(),
+			createExecutionContext(),
+		);
+		const client = await connectLegacyClient(server);
+		const listed = await client.request("tools/list");
+		const names = (listed.result as { tools: { name: string }[] }).tools.map(
+			(row) => row.name,
+		);
+		for (const slug of ["alpha", "beta", "gamma"]) {
+			expect(names).toContain(slug + "__read_work_1007");
+		}
+		const info = await client.request("tools/call", {
+			name: "get_info",
+			arguments: {},
+		});
+		expect(
+			(info.result as { structuredContent: { nativeOrganizations: unknown[] } })
+				.structuredContent.nativeOrganizations,
+		).toHaveLength(3);
+		// Worst-order availability: 1008 unopted rows precede each positive
+		// catalog pair. Measure the plural builder and actual get_info, not
+		// merely the outer native projection.
+		cached.tools = [...cached.tools].sort(
+			(a, b) =>
+				Number(a.config?.transport === "catalog") -
+				Number(b.config?.transport === "catalog"),
+		);
+		for (const row of cached.tools)
+			if (row.config?.transport !== "catalog")
+				row.config = { ...row.config, nativeDirect: false };
+		const worstContext = buildServerContext(
+			new McpServer({ name: "worst", version: "1" }),
+			cached,
+			caller,
+			createEnv(),
+			createExecutionContext(),
+		);
+		identityReads = 0;
+		expect(buildNativeOrganizations(worstContext, cached.tools)).toHaveLength(
+			3,
+		);
+		expect(identityReads).toBeLessThan(cached.tools.length * 64);
+		const worstServer = await buildMcpServer(
+			cached,
+			caller,
+			createEnv(),
+			createExecutionContext(),
+		);
+		const worstClient = await connectLegacyClient(worstServer);
+		identityReads = 0;
+		const worstInfo = await worstClient.request("tools/call", {
+			name: "get_info",
+			arguments: {},
+		});
+		expect(
+			(
+				worstInfo.result as {
+					structuredContent: { nativeOrganizations: unknown[] };
+				}
+			).structuredContent.nativeOrganizations,
+		).toHaveLength(3);
+		expect(identityReads).toBeLessThan(cached.tools.length * 64);
+	});
+	it("withholds scopes, revoked mounts, false opt-in and duplicate owners from the shared projection", () => {
+		const { cached, caller } = fixture();
+		const context = buildServerContext(
+			new McpServer({ name: "test", version: "1" }),
+			cached,
+			caller,
+			createEnv(),
+			createExecutionContext(),
+		);
+		const rows = cached.tools;
+		expect(
+			aggregateNativeTools(
+				{ ...context, callerIdentity: { ...caller, scopes: [] } },
+				rows,
+			),
+		).toEqual([]);
+		expect(
+			aggregateNativeTools(
+				{
+					...context,
+					callerIdentity: {
+						...caller,
+						verifiedMultiOrgOrganizations:
+							caller.verifiedMultiOrgOrganizations.slice(0, 1),
+					},
+				},
+				rows,
+			).every((row) => row.toolId.startsWith("alpha__")),
+		).toBe(true);
+		expect(
+			aggregateNativeTools(context, [...rows, rows[0]!]).some((row) =>
+				row.toolId.startsWith("alpha__"),
+			),
+		).toBe(false);
+		expect(
+			aggregateNativeTools(
+				{ ...context, callerIdentity: { ...caller, forceCodeMode: true } },
+				rows,
+			),
+		).toEqual([]);
 	});
 });

@@ -1,4 +1,8 @@
 import {
+	decodeToolsListCursor,
+	paginateSortedToolsList,
+} from "../tools-list-pagination";
+import {
 	MCP_CAPABILITY_SCOPES,
 	MCP_GRANULAR_CAPABILITY_SCOPES,
 } from "@tedix/api-contract/schemas/mcp-capability-scopes";
@@ -8,7 +12,10 @@ import {
 	ToolInputJsonSchemaSchema,
 	ToolJsonSchemaSchema,
 } from "@tedix/api-contract/schemas/tools";
-import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes";
+import {
+	isMcpToolVisibleToCaller,
+	resolveMcpToolRequiredScopes,
+} from "@tedix/mcp-shared/auth/tool-scopes";
 /**
  * Bootstrap tool + resource registration.
  *
@@ -25,9 +32,11 @@ import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes
 import * as z from "zod";
 import {
 	McpNativeBootstrapSchema,
+	McpNativeOrganizationsSchema,
 	McpNativeDescriptorSchema,
 	McpNativeContextSchema,
 } from "@tedix/api-contract/schemas/mcp-native-transport";
+import { isOrganizationMountNamespace } from "../aggregate-namespaces";
 import { shouldBypassCodeModeForCaller } from "../caller-identity";
 import { evaluateMcpToolScopeAuthorization } from "../codemode-auth";
 
@@ -139,14 +148,215 @@ export function nativeDescriptor(
 	return parsed.success ? parsed.data : null;
 }
 
+/** Request-local registry index. Dispatch creates its own index and view. */
+function indexOrganizationRegistry(
+	agent: ServerContext,
+	registry: ReadonlyArray<AppTool>,
+) {
+	const organizations = new Map(
+		(agent.callerIdentity?.verifiedMultiOrgOrganizations ?? []).map((org) => [
+			org.organizationId,
+			org,
+		]),
+	);
+	const counts = new Map<string, number>();
+	const groups = new Map<
+		string,
+		{ rows: AppTool[]; tools: Map<string, AppTool>; duplicate: boolean }
+	>();
+	for (const row of registry) {
+		counts.set(row.toolId, (counts.get(row.toolId) ?? 0) + 1);
+		const org = organizations.get(String(row.config?._multiOrgOrganizationId));
+		const namespace = row.config?._aggregateNamespace;
+		if (
+			!org ||
+			typeof namespace !== "string" ||
+			!isOrganizationMountNamespace(
+				org.gatewaySlug,
+				namespace.replace(/[^a-zA-Z0-9_]/g, "_"),
+			) ||
+			!row.toolId.startsWith(`${namespace}__`)
+		)
+			continue;
+		let group = groups.get(org.organizationId);
+		if (!group) {
+			group = { rows: [], tools: new Map(), duplicate: false };
+			groups.set(org.organizationId, group);
+		}
+		if (group.tools.has(row.toolId)) group.duplicate = true;
+		group.rows.push(row);
+		group.tools.set(row.toolId, row);
+	}
+	return { organizations, counts, groups };
+}
+
+function indexedOrganizationView(
+	agent: ServerContext,
+	tool: AppTool,
+	index: ReturnType<typeof indexOrganizationRegistry>,
+): ServerContext | null {
+	const caller = agent.callerIdentity;
+	if (
+		agent.appSlug !== "connect" ||
+		agent.appMetadata?.mcpConfig?.multiOrgConsent !== true ||
+		caller?.authType !== "oauth"
+	)
+		return null;
+	const selected = index.organizations.get(
+		String(tool.config?._multiOrgOrganizationId),
+	);
+	const group = selected && index.groups.get(selected.organizationId);
+	if (
+		!selected ||
+		!group ||
+		group.duplicate ||
+		group.tools.get(tool.toolId) !== tool ||
+		typeof tool.config?._sourceAppId !== "string"
+	)
+		return null;
+	return {
+		...agent,
+		appId: tool.config._sourceAppId,
+		appSlug: selected.gatewaySlug,
+		app: {
+			...agent.app,
+			id: tool.config._sourceAppId,
+			slug: selected.gatewaySlug,
+			organizationId: selected.organizationId,
+		},
+		callerIdentity: {
+			...caller,
+			organizationId: selected.organizationId,
+			tediId: undefined,
+		},
+		loadedTools: group.tools,
+		registeredTools: new Map(),
+		catalogResources: [],
+		catalogResourceTemplates: [],
+		catalogPrompts: [],
+	};
+}
+
+/** Only server-hydrated mounts in the current verified OAuth grant can select a fresh dispatch view. */
+export function organizationNativeView(
+	agent: ServerContext,
+	tool: AppTool,
+	registry: ReadonlyArray<AppTool> = [...agent.loadedTools.values()],
+): ServerContext | null {
+	return indexedOrganizationView(
+		agent,
+		tool,
+		indexOrganizationRegistry(agent, registry),
+	);
+}
+
+/** Common outer projection. Missing mapping, duplicate, visibility or consent withholds schema. */
+function projectAggregateNativeTools(
+	agent: ServerContext,
+	registry: ReadonlyArray<AppTool> = [...agent.loadedTools.values()],
+) {
+	const index = indexOrganizationRegistry(agent, registry);
+	const tools = agent.callerIdentity?.forceCodeMode
+		? []
+		: registry.filter((tool) => {
+				if (
+					tool.config?.nativeDirect !== true ||
+					!["rpc", "catalog"].includes(String(tool.config?.transport)) ||
+					["code", "get_info", "get_profile"].includes(tool.toolId)
+				)
+					return false;
+				const view = indexedOrganizationView(agent, tool, index);
+				if (!view || index.counts.get(tool.toolId) !== 1) return false;
+				if (
+					tool.config.transport === "catalog" &&
+					!isConfiguredCatalogTool(tool, agent.appMetadata?.mcpConfig)
+				)
+					return false;
+				try {
+					const namespace = String(tool.config._aggregateNamespace);
+					if (
+						!isMcpToolVisibleToCaller(
+							tool,
+							namespace,
+							view.appMetadata?.mcpConfig,
+							view.callerIdentity!,
+							{ fallbackOnAuthenticatedAuthMode: true },
+						)
+					)
+						return false;
+					// Global uniqueness was proved above. The helper only searches by this
+					// name (including shouldBypassCodeModeForCaller); a singleton therefore
+					// preserves its exact enabled/nativeDirect/forceCodeMode semantics.
+					const descriptor = nativeDescriptor(view, tool, [tool]);
+					return descriptor?.eligible === true && descriptor.authorized;
+				} catch {
+					return false;
+				}
+			});
+	return { tools, index };
+}
+
+export function aggregateNativeTools(
+	agent: ServerContext,
+	registry: ReadonlyArray<AppTool> = [...agent.loadedTools.values()],
+): AppTool[] {
+	return projectAggregateNativeTools(agent, registry).tools;
+}
+
+export function buildNativeOrganizations(
+	agent: ServerContext,
+	registry: ReadonlyArray<AppTool>,
+) {
+	const { tools: native, index } = projectAggregateNativeTools(agent, registry);
+	const entries = [];
+	for (const org of agent.callerIdentity?.verifiedMultiOrgOrganizations ?? []) {
+		const rows = native.filter(
+			(row) => row.config?._multiOrgOrganizationId === org.organizationId,
+		);
+		const search = rows.filter(
+				(row) => row.config?.endpoint === "catalog/search",
+			),
+			describe = rows.filter(
+				(row) => row.config?.endpoint === "catalog/describe",
+			);
+		if (
+			search.length !== 1 ||
+			describe.length !== 1 ||
+			search[0]!.config?._sourceAppId !== describe[0]!.config?._sourceAppId ||
+			search[0]!.config?._sourceAppSlug !== org.gatewaySlug ||
+			describe[0]!.config?._sourceAppSlug !== org.gatewaySlug
+		)
+			continue;
+		const view = indexedOrganizationView(agent, search[0]!, index);
+		if (!view) continue;
+		const bootstrap = buildNativeBootstrap(view, [
+			...view.loadedTools.values(),
+		]);
+		if (bootstrap.nativeContext && bootstrap.nativeCatalog.status === "usable")
+			entries.push({
+				nativeContext: bootstrap.nativeContext,
+				nativeCatalog: bootstrap.nativeCatalog,
+			});
+	}
+	const parsed = McpNativeOrganizationsSchema.safeParse(entries);
+	return parsed.success ? parsed.data : [];
+}
+
 export function buildNativeBootstrap(
 	agent: ServerContext,
 	registry: ReadonlyArray<AppTool> = [...agent.loadedTools.values()],
 ) {
 	const caller = agent.callerIdentity;
 	const org = agent.app?.organizationId;
+	const nameCounts = new Map<string, number>();
+	for (const tool of registry)
+		nameCounts.set(tool.toolId, (nameCounts.get(tool.toolId) ?? 0) + 1);
 	const authenticated =
 		caller &&
+		!(
+			agent.appSlug === "connect" &&
+			agent.appMetadata?.mcpConfig?.multiOrgConsent === true
+		) &&
 		caller.authType !== "anonymous" &&
 		typeof org === "string" &&
 		caller.organizationId === org;
@@ -162,7 +372,10 @@ export function buildNativeBootstrap(
 					nativeTransportAvailable:
 						!caller.forceCodeMode &&
 						registry.some(
-							(tool) => nativeDescriptor(agent, tool, registry)?.eligible,
+							// Global uniqueness is proved once before the exact-name helper.
+							(tool) =>
+								nameCounts.get(tool.toolId) === 1 &&
+								nativeDescriptor(agent, tool, [tool])?.eligible,
 						),
 				}
 			: null,
@@ -218,6 +431,15 @@ export function buildBootstrapInfo(
 		toolCount: agent.registeredTools.size,
 		capabilities: agent.appCapabilities,
 		...buildNativeBootstrap(agent, registry),
+		...(agent.appSlug === "connect" &&
+		agent.appMetadata?.mcpConfig?.multiOrgConsent === true
+			? {
+					nativeOrganizations: buildNativeOrganizations(
+						agent,
+						registry ?? [...agent.loadedTools.values()],
+					),
+				}
+			: {}),
 	};
 }
 
@@ -423,4 +645,18 @@ export function registerBootstrapResources(agent: ServerContext): void {
 
 	agent.registeredResources.set("app-info", infoResource);
 	console.log("[MCP] Registered bootstrap resource: app-info");
+}
+
+/** Consent changes cannot reuse an anchor withheld from the current native registry. */
+export function paginateAggregateNativeTools<T>(tools: T[], cursor: unknown) {
+	if (cursor !== undefined) {
+		if (typeof cursor !== "string") return { ok: false } as const;
+		const anchor = decodeToolsListCursor(cursor);
+		if (
+			anchor === undefined ||
+			!tools.some((row) => (row as { name?: unknown }).name === anchor)
+		)
+			return { ok: false } as const;
+	}
+	return paginateSortedToolsList(tools, cursor);
 }

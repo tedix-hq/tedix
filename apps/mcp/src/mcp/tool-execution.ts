@@ -1,3 +1,4 @@
+import { organizationNativeView } from "./registration/bootstrap";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
@@ -217,16 +218,26 @@ export async function executeTool(
 			) {
 				throw new Error("Tool is outside the selected organizations");
 			}
-			agent = {
-				...agent,
-				callerIdentity: {
-					...agent.callerIdentity,
-					organizationId: selected.organizationId,
-					// A Connect grant is human authority. A hosting-org tedi must
-					// not select credentials or audit identity in the target org.
-					tediId: undefined,
-				},
-			};
+			if (toolConfig?.transport === "catalog") {
+				const view = organizationNativeView(agent, tool);
+				if (!view) throw new Error("Organization mount unavailable");
+				agent = {
+					...view,
+					catalogTransport: async (config, input) => {
+						const { executeCatalogOperation } = await import("./codemode");
+						return executeCatalogOperation(view, config, input);
+					},
+				};
+			} else {
+				agent = {
+					...agent,
+					callerIdentity: {
+						...agent.callerIdentity,
+						organizationId: selected.organizationId,
+						tediId: undefined,
+					},
+				};
+			}
 		}
 	}
 
