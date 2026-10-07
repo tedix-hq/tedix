@@ -24,10 +24,12 @@ export async function createOsReviewBatch(
 		.returning();
 	return batch;
 }
+/** A link's current review round: its newest batch. Older rounds stay stored. */
 export async function getOsReviewBatch(
 	db: DbQueryClient,
 	organizationId: string,
 	shareLinkId: string,
+	batchId?: string,
 ): Promise<OsReviewBatchRow | undefined> {
 	const [row] = await db
 		.select()
@@ -36,9 +38,34 @@ export async function getOsReviewBatch(
 			and(
 				eq(osReviewBatches.organizationId, organizationId),
 				eq(osReviewBatches.shareLinkId, shareLinkId),
+				batchId ? eq(osReviewBatches.id, batchId) : undefined,
 			),
-		);
+		)
+		.orderBy(desc(osReviewBatches.createdAt), desc(osReviewBatches.id))
+		.limit(1);
 	return row;
+}
+/** Every round on a link, newest first, without card payloads. */
+export async function listOsReviewBatchRounds(
+	db: DbQueryClient,
+	organizationId: string,
+	shareLinkId: string,
+) {
+	return db
+		.select({
+			id: osReviewBatches.id,
+			title: osReviewBatches.title,
+			createdAt: osReviewBatches.createdAt,
+		})
+		.from(osReviewBatches)
+		.where(
+			and(
+				eq(osReviewBatches.organizationId, organizationId),
+				eq(osReviewBatches.shareLinkId, shareLinkId),
+			),
+		)
+		.orderBy(desc(osReviewBatches.createdAt), desc(osReviewBatches.id))
+		.limit(50);
 }
 /**
  * The newest batch bound to an active, review-only share link of this gadget.
@@ -58,7 +85,7 @@ export async function getActiveOsReviewBatchForGadget(
 				sql`exists(select 1 from ${osShareLinks} l where l.id=${osReviewBatches.shareLinkId} and l.organization_id=${p.organizationId} and l.resource_type='gadget' and l.resource_id=${p.gadgetId} and l.role='use' and (l.policy_max_role is null or l.policy_max_role='use') and l.revoked_at is null and (l.expires_at is null or l.expires_at>${p.now}))`,
 			),
 		)
-		.orderBy(desc(osReviewBatches.createdAt))
+		.orderBy(desc(osReviewBatches.createdAt), desc(osReviewBatches.id))
 		.limit(1);
 	return row;
 }

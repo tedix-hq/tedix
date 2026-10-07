@@ -14,6 +14,7 @@ import {
 	createOsReviewBatch,
 	getActiveOsReviewBatchForGadget,
 	getOsReviewBatch,
+	listOsReviewBatchRounds,
 	listOsReviewFeedback,
 	saveOsReviewFeedback,
 	type OsReviewFeedbackAccess,
@@ -88,20 +89,32 @@ async function fixture() {
 	return { db, sqlite, batch, params };
 }
 describe("bounded review persistence", () => {
-	it("pins one immutable batch and preserves source provenance", async () => {
+	it("keeps every immutable round on a link and serves the newest", async () => {
 		const { db, batch } = await fixture();
 		expect(await createOsReviewBatch(db, batch, now)).toMatchObject(batch);
+		const later = "2026-10-06T13:00:00.000Z";
 		expect(
 			await createOsReviewBatch(
 				db,
-				{ ...batch, id: "second", cards: "[]" },
-				now,
+				{ ...batch, id: "second", cards: "[]", createdAt: later },
+				later,
 			),
+		).toMatchObject({ id: "second" });
+		// The same id is never overwritten.
+		expect(
+			await createOsReviewBatch(db, { ...batch, title: "Changed" }, later),
 		).toBeUndefined();
 		expect(await getOsReviewBatch(db, "other-org", "share")).toBeUndefined();
 		expect(await getOsReviewBatch(db, "org", "share")).toMatchObject({
-			cards: batch.cards,
+			id: "second",
 		});
+		expect(await getOsReviewBatch(db, "org", "share", "batch")).toMatchObject({
+			cards: batch.cards,
+			title: "Review batch",
+		});
+		expect(
+			(await listOsReviewBatchRounds(db, "org", "share")).map((r) => r.id),
+		).toEqual(["second", "batch"]);
 	});
 	it("keeps reviewers separate and rejects stale writes without changing research", async () => {
 		const { db, batch, params } = await fixture();

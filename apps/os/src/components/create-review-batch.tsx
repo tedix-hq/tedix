@@ -20,9 +20,11 @@ const blank = (): OsReviewCard => ({
 export function CreateReviewBatch({
 	shareId,
 	gadgetId,
+	label = "Prepare a feedback review",
 }: {
 	shareId: string;
 	gadgetId: string;
+	label?: string;
 }) {
 	const [sources, setSources] = useState<Array<{ id: string; title: string }>>(
 		[],
@@ -110,7 +112,7 @@ export function CreateReviewBatch({
 			});
 			setDone(true);
 			setStatus(
-				"Review batch saved. This link now opens these cards. Later research changes do not change this batch.",
+				"Review round saved. This link now opens these cards; earlier rounds and their feedback are kept. Later research changes do not change this round.",
 			);
 		} catch (error) {
 			setStatus(
@@ -124,9 +126,7 @@ export function CreateReviewBatch({
 	}
 	return (
 		<details className="grid gap-3">
-			<summary className="cursor-pointer font-medium">
-				Prepare a feedback review
-			</summary>
+			<summary className="cursor-pointer font-medium">{label}</summary>
 			<p className="text-sm text-kumo-subtle">
 				The organization owner chooses exactly what is shared. Feedback stays
 				separate from your research. Recipients must already have access to this

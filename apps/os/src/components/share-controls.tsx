@@ -122,6 +122,18 @@ export function ShareRow(props: {
 			{props.share.resourceType === "gadget" && props.share.role === "use" && (
 				<ReviewFeedbackSummary shareId={props.share.id} />
 			)}
+			{props.share.resourceType === "gadget" &&
+				props.share.role === "use" &&
+				status === "active" && (
+					// A new round reuses this link: recipients keep one bookmark.
+					<div className="w-full pl-6">
+						<CreateReviewBatch
+							shareId={props.share.id}
+							gadgetId={props.share.resourceId}
+							label="Add a new review round"
+						/>
+					</div>
+				)}
 		</li>
 	);
 }

@@ -796,6 +796,10 @@
 		{
 			"name": "20261007180037_drop-retired-widget-test-tables/migration.sql",
 			"sha256": "4725b785bb00b8cab8cc6fb7532a654c56c6182f5585a62dcaad65497bcc8651"
+		},
+		{
+			"name": "20261007201755_review_batch_rounds/migration.sql",
+			"sha256": "05875f0c881915d62e20aba16147d57cfaa6ae22c68b34d24e9616b45f1694d8"
 		}
 	]
 }
