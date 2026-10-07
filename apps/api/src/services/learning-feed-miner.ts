@@ -85,7 +85,7 @@ import {
 	mergeBrainWriteMetadata,
 } from "./brain-write-quality";
 import { type ClefModelId, type ClefQuestion, runClef } from "../lib/clef";
-import type { LessonDistiller } from "./lesson-distiller";
+import { DISTILL_VERSION, type LessonDistiller } from "./lesson-distiller";
 
 export const LEARNING_FEED_PRODUCER = "learning-feed";
 export const WORK_FIX_LEARNING_SURFACE = "work_fix";
@@ -150,8 +150,8 @@ export interface LearningFeedFactMetadata {
 	autoConfirmed?: true;
 	signalCounts: Record<string, number>;
 	lastEventAt: string;
-	/** The content is model-distilled rules, not quotes. */
-	distilled?: boolean;
+	/** Distiller version whose rules the content is; absent for quotes. */
+	distilled?: number;
 }
 
 export interface LessonRouting {
@@ -512,7 +512,7 @@ async function writeDecisionLessons(
 		const undistilled =
 			distill !== undefined &&
 			replaced.some(
-				(f) => rec(rec(f.metadata).learningFeed).distilled !== true,
+				(f) => rec(rec(f.metadata).learningFeed).distilled !== DISTILL_VERSION,
 			);
 		if (
 			!undistilled &&
@@ -546,7 +546,7 @@ async function writeDecisionLessons(
 						].join("\n"),
 						FACT_CHARS,
 					),
-					metadata: { ...quoted.metadata, distilled: true },
+					metadata: { ...quoted.metadata, distilled: DISTILL_VERSION },
 				}
 			: quoted;
 		const sourceHash = await sha256(

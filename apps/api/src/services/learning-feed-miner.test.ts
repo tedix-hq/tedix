@@ -343,10 +343,10 @@ describe("historic session imports", () => {
 		expect(fact.content).toBe(
 			"Lessons from user decisions in acme (claude-code, deploy):\n- Never deploy on Fridays.",
 		);
-		expect(fact.metadata).toMatchObject({ learningFeed: { distilled: true } });
+		expect(fact.metadata).toMatchObject({ learningFeed: { distilled: 2 } });
 	});
 
-	it("rewrites an earlier quoted lesson once, then leaves the distilled one alone", async () => {
+	it("rewrites a lesson from an earlier distiller once, then leaves the distilled one alone", async () => {
 		vi.mocked(listLearningInteractionsForReflection).mockResolvedValue([]);
 		vi.mocked(listLearningIssueKeysForReflection).mockResolvedValue([
 			"decision:acme:claude-code:deploy",
@@ -355,7 +355,7 @@ describe("historic session imports", () => {
 			imported("h1", "2025-01-01T10:00:00.000Z"),
 			imported("h2", "2025-02-01T10:00:00.000Z"),
 		]);
-		const lesson = (distilled: boolean) => ({
+		const lesson = (distilled: number | undefined) => ({
 			id: "fact-1",
 			reviewStatus: "confirmed",
 			metadata: {
@@ -368,13 +368,13 @@ describe("historic session imports", () => {
 		});
 		const distill = vi.fn(async () => ["Never deploy on Fridays."]);
 		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
-			lesson(false),
+			lesson(1),
 		] as never);
 		expect(
 			(await mineLearningFeed(db, { orgId: "org-1", distill })).factsWritten,
 		).toBe(1);
 		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
-			lesson(true),
+			lesson(2),
 		] as never);
 		distill.mockClear();
 		expect(
