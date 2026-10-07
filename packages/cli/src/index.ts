@@ -183,6 +183,12 @@ async function main() {
 		process.exitCode = await runHooksCommand(process.argv.slice(3));
 		return;
 	}
+	// Local extraction; each organization call runs as its own `tedix code` child.
+	if (localCommand === "learn") {
+		const { runLearnCommand } = await import("./learn-import");
+		process.exitCode = await runLearnCommand(process.argv.slice(3));
+		return;
+	}
 	// P4 BONUS: reset terminal modes on startup and on exit so a crash never
 	// leaves the parent shell with mouse-tracking / bracketed-paste / alt-screen
 	// escape garbage. Only write to stdout if it's a real TTY.

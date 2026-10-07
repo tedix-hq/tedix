@@ -3,6 +3,7 @@ import { agentContextUsage } from "./agent-context";
 import { HUMAN_CONNECT_CONSENT_SCOPES } from "@tedix/mcp-shared/auth/consent-scopes";
 import { flowUsage } from "./flow";
 import { hooksUsage } from "./hooks/command";
+import { learnUsage } from "./learn-import";
 import { skillUsage } from "./skill";
 import { localInstallationUsage } from "./local-installation";
 import { CLI_VERSION } from "./shared";
@@ -75,6 +76,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "mixed",
 		output: ["json"],
 		help: () => hooksUsage,
+	},
+	{
+		name: "learn",
+		argHint: "import-sessions [--dry-run]",
+		surface: "mixed",
+		summary: "Teach Tedix from your past local agent sessions",
+		mutability: "write",
+		output: HUMAN_JSON,
+		help: () => learnUsage,
 	},
 	{
 		name: "chat",

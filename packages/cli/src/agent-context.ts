@@ -475,6 +475,72 @@ function defaultContext(
 	};
 }
 
+/** The profile and organization a Tedix call for some context goes to. */
+export type OrganizationTarget = Omit<ContextTarget, "projectId">;
+
+/** `git@host:a/b.git`, `https://host/a/b/` → `host/a/b` (lowercase). */
+export function normalizeGitOrigin(value: string): string {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/^[a-z+]+:\/\//, "")
+		.replace(/^[^@/]+@([^:/]+):/, "$1/")
+		.replace(/^[^@/]+@/, "")
+		.replace(/\.git$/, "")
+		.replace(/\/+$/, "");
+}
+
+/** Default organization outside any bound repository (see `defaultTarget`). */
+export function defaultOrganizationTarget(
+	options?: AgentContextOptions,
+): OrganizationTarget | undefined {
+	return defaultTarget(options);
+}
+
+/**
+ * The organization each bound repository works in, keyed by normalized Git
+ * origin. A binding whose profile no longer serves it is left out, and an
+ * origin bound to two different targets is left out: never a guess.
+ */
+export function repositoryTargetsByOrigin(
+	options?: AgentContextOptions,
+): Map<string, OrganizationTarget> {
+	const targets = new Map<string, OrganizationTarget>();
+	const ambiguous = new Set<string>();
+	let store: Store;
+	try {
+		store = readStore(options);
+	} catch {
+		return targets;
+	}
+	for (const binding of store.repositories) {
+		if (!binding.origin || !WORKSPACE.test(binding.workspace)) continue;
+		let target: OrganizationTarget;
+		try {
+			const resolved = contextTarget(
+				binding.workspace,
+				binding.organization,
+				options,
+			);
+			if (resolved.org !== binding.org || resolved.mcpUrl !== binding.mcpUrl)
+				continue;
+			target = { workspace: binding.workspace, ...resolved };
+		} catch {
+			continue;
+		}
+		const origin = normalizeGitOrigin(binding.origin);
+		const existing = targets.get(origin);
+		if (
+			existing &&
+			(existing.workspace !== target.workspace || existing.org !== target.org)
+		)
+			ambiguous.add(origin);
+		targets.set(origin, target);
+	}
+	for (const origin of ambiguous) targets.delete(origin);
+	return targets;
+}
+
 /** Local correlation only. Does not read the gateway or restore an Attempt credential. */
 export function resolveAgentContext(
 	options?: AgentContextOptions,
