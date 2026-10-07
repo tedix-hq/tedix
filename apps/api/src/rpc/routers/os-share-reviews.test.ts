@@ -363,6 +363,68 @@ describe("bounded share reviews", () => {
 			JSON.stringify({ kind: "document", blocks: [] }),
 		);
 	});
+	it("adds a new round to the same link: recipients and the workspace see the newest, older feedback stays put", async () => {
+		const h = await fixture();
+		const first = (await h.owner.reviews.create(h.input)).batch;
+		await h.reader.reviews.saveFeedback({
+			...h.session,
+			batchId: first.id,
+			cardId: "card",
+			expectedRevision: 0,
+			decision: "skip",
+			editedReply: "Round one",
+			reason: "Old round",
+		});
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const second = (
+			await h.owner.reviews.create({
+				...h.input,
+				title: "Round two",
+				cards: [{ ...h.input.cards[0], id: "card", draft: "Fresh draft" }],
+			})
+		).batch;
+		expect(second.id).not.toBe(first.id);
+		// The same link now opens round two, with no feedback carried over.
+		const shared = await h.reader.reviews.get(h.session);
+		expect(shared.batch?.id).toBe(second.id);
+		expect(shared.feedback).toEqual([]);
+		expect((await h.reader.reviews.getForGadget(h.gadget)).batch?.id).toBe(
+			second.id,
+		);
+		// A reviewer still on round one is told to reload instead of writing to it.
+		await expect(
+			h.reader.reviews.saveFeedback({
+				...h.session,
+				batchId: first.id,
+				cardId: "card",
+				expectedRevision: 1,
+				decision: "ready",
+				editedReply: "Late",
+				reason: "Late",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		// The owner sees every round and can still read round one's feedback.
+		const latest = await h.owner.reviews.listFeedback({
+			shareId: h.input.shareId,
+		});
+		expect(latest.batch.id).toBe(second.id);
+		expect(latest.rounds.map((round) => round.id)).toEqual([
+			second.id,
+			first.id,
+		]);
+		const older = await h.owner.reviews.listFeedback({
+			shareId: h.input.shareId,
+			batchId: first.id,
+		});
+		expect(older.feedback).toMatchObject([
+			{ editedReply: "Round one", revision: 1 },
+		]);
+		// A revoked link still refuses, whichever round it holds.
+		await h.owner.shares.revoke({ shareId: h.input.shareId });
+		await expect(h.reader.reviews.get(h.session)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+	});
 	it("fails closed on missing/malformed source provenance and never widens an existing batch", async () => {
 		const h = await fixture();
 		await h.db.update(osOutputRevisions).set({ accessEnvelope: null });

@@ -306,6 +306,22 @@ describe("focused review app", () => {
 		expect(container.textContent).toContain("Feedback saved at");
 	});
 
+	it("tells the reviewer to reload when the link has moved to a newer round", async () => {
+		api.get.mockResolvedValue({ batch, feedback: [] });
+		api.saveFeedback.mockRejectedValue(
+			Object.assign(
+				new Error("A newer review round is available. Reload to review it."),
+				{ code: "CONFLICT" },
+			),
+		);
+		const { container, button, click } = await render();
+		await click(button("Save feedback"));
+		expect(container.textContent).toContain("A new review round is ready");
+		expect(container.textContent).not.toContain(
+			"Someone saved a newer version",
+		);
+	});
+
 	it("does not fall back to arbitrary widget tools on access failure", async () => {
 		api.get.mockRejectedValue(new Error("Forbidden"));
 		const { container } = await render();

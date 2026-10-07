@@ -269,11 +269,33 @@ export const osSharesContract = oc
 					path: "/reviews/feedback",
 					summary: "Read saved feedback for an owner-approved batch",
 				})
-				.input(z.object({ shareId: z.string().uuid() }).strict())
+				.input(
+					z
+						.object({
+							shareId: z.string().uuid(),
+							batchId: z
+								.string()
+								.uuid()
+								.optional()
+								.describe(
+									"An earlier round on this link; omitted reads the current (newest) round",
+								),
+						})
+						.strict(),
+				)
 				.output(
 					z.object({
 						batch: OsReviewBatchSchema,
 						feedback: z.array(OsReviewFeedbackSchema),
+						rounds: z
+							.array(
+								z.object({
+									id: z.string().uuid(),
+									title: z.string(),
+									createdAt: z.string(),
+								}),
+							)
+							.describe("Every review round on this link, newest first"),
 					}),
 				),
 			get: oc

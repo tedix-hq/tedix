@@ -9,6 +9,7 @@ import {
 	createOsReviewBatch,
 	getActiveOsReviewBatchForGadget,
 	getOsReviewBatch,
+	listOsReviewBatchRounds,
 	listOsReviewFeedback,
 	type OsReviewFeedbackAccess,
 	saveOsReviewFeedback,
@@ -168,11 +169,9 @@ const create = author.reviews.create.handler(async ({ context, input }) => {
 		},
 		new Date().toISOString(),
 	);
-	if (!batch)
-		throw createError(
-			ErrorCodes.CONFLICT,
-			"This share already has an immutable review batch. Create a new link for a new batch.",
-		);
+	// The link's newest batch becomes its current round; earlier rounds and
+	// their feedback stay stored and readable to the owner.
+	if (!batch) unavailable();
 	return { batch: batchWire(batch) };
 });
 const get = read.reviews.get.handler(async ({ context, input }) => {
@@ -195,7 +194,12 @@ const listFeedback = author.reviews.listFeedback.handler(
 	async ({ context, input }) => {
 		const organizationId = requireOrgId(context);
 		const db = createDbQueryClient(context.env.DB);
-		const batch = await getOsReviewBatch(db, organizationId, input.shareId);
+		const batch = await getOsReviewBatch(
+			db,
+			organizationId,
+			input.shareId,
+			input.batchId,
+		);
 		if (!batch) unavailable();
 		await sourceAllowed(context, organizationId, batch.accessEnvelope);
 		return {
@@ -203,6 +207,7 @@ const listFeedback = author.reviews.listFeedback.handler(
 			feedback: (await listOsReviewFeedback(db, organizationId, batch.id)).map(
 				(row) => OsReviewFeedbackSchema.parse(row),
 			),
+			rounds: await listOsReviewBatchRounds(db, organizationId, input.shareId),
 		};
 	},
 );
@@ -225,7 +230,13 @@ async function writeFeedback(
 	access: OsReviewFeedbackAccess,
 	input: FeedbackFields,
 ) {
-	if (!state.batch || state.batch.id !== input.batchId) unavailable();
+	if (!state.batch) unavailable();
+	// Feedback goes to the current round only; an open older round must reload.
+	if (state.batch.id !== input.batchId)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"A newer review round is available. Reload to review it.",
+		);
 	const batch = batchWire(state.batch);
 	if (!batch.cards.some((card) => card.id === input.cardId)) unavailable();
 	const feedback = await saveOsReviewFeedback(state.db, {

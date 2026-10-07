@@ -37,7 +37,13 @@ type Saved = {
 	revision: number;
 	updatedAt: string | null;
 };
-type SaveState = "idle" | "saving" | "saved" | "conflict" | "error";
+type SaveState =
+	| "idle"
+	| "saving"
+	| "saved"
+	| "conflict"
+	| "newRound"
+	| "error";
 type Draft = Saved & { save: SaveState };
 
 // Plain-language reviewer choices. The stored values stay the contract enum;
@@ -107,6 +113,14 @@ function isDirty(draft: Draft, saved: Saved) {
 /** Reviewed means a saved decision other than "not sure yet". */
 function isReviewed(saved: Saved) {
 	return saved.revision > 0 && saved.decision !== "needs_checking";
+}
+
+/** The link moved on to a newer round while this one was open. */
+function isNewRound(error: unknown) {
+	return (
+		isConflict(error) &&
+		/newer review round/i.test(String((error as { message?: unknown }).message))
+	);
 }
 
 function isConflict(error: unknown) {
@@ -426,7 +440,11 @@ function ReviewApp({
 					...current,
 					[card.id]: {
 						...current[card.id]!,
-						save: isConflict(error) ? "conflict" : "error",
+						save: isNewRound(error)
+							? "newRound"
+							: isConflict(error)
+								? "conflict"
+								: "error",
 					},
 				}));
 			}
@@ -942,6 +960,15 @@ function CardDetail({
 			</div>
 
 			<footer className="sticky bottom-0 grid shrink-0 gap-2 rounded-b-xl border-t border-kumo-line bg-kumo-elevated px-4 py-3 lg:static">
+				{draft.save === "newRound" && (
+					<Alert variant="warning">
+						<AlertTitle>A new review round is ready</AlertTitle>
+						<AlertDescription>
+							This link now shows newer suggestions. Copy your text if you need
+							it, then reload the page.
+						</AlertDescription>
+					</Alert>
+				)}
 				{draft.save === "conflict" && (
 					<Alert variant="warning">
 						<AlertTitle>Someone saved a newer version</AlertTitle>

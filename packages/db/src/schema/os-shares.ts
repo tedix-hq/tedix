@@ -105,7 +105,10 @@ export type NewOsShareLinkRow = typeof osShareLinks.$inferInsert;
 export type OsShareSessionRow = typeof osShareSessions.$inferSelect;
 export type NewOsShareSessionRow = typeof osShareSessions.$inferInsert;
 
-/** Immutable owner-reviewed projection; source provenance is retained independently. */
+/**
+ * Immutable owner-reviewed projection; source provenance is retained independently.
+ * A link may carry several dated rounds; recipients see the newest one.
+ */
 export const osReviewBatches = sqliteTable(
 	"os_review_batches",
 	{
@@ -125,7 +128,7 @@ export const osReviewBatches = sqliteTable(
 		createdAt: text("created_at").notNull(),
 	},
 	(t) => [
-		uniqueIndex("os_review_batches_share_unique").on(t.shareLinkId),
+		index("os_review_batches_share_created_idx").on(t.shareLinkId, t.createdAt),
 		index("os_review_batches_org_idx").on(t.organizationId),
 	],
 );
