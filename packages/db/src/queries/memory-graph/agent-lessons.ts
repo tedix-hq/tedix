@@ -2,14 +2,20 @@
  * Approved team lessons for local coding-agent sessions.
  *
  * A lesson is a fact whose topic key starts with the given prefix
- * (`learning-feed:`). Only approved lessons are returned: org-wide (no tedi),
+ * (`learning-feed:`). Only approved lessons are returned: org-wide ones (no
+ * tedi, not a personal lesson) plus the viewer's own personal lessons,
  * `review_status = confirmed`, `status = active`, a use policy that allows
  * injection, not archived and not invalidated (superseded facts carry
  * `valid_to`). The prefix is a range on `idx_memory_facts_topic_key`
  * (organization, topic key), so the scan never leaves the lesson keys.
+ *
+ * A personal lesson carries `metadata.learningFeed.ownerUserId` and
+ * `visibility = private`; it reaches only that user, also when it was routed
+ * into a tedi's brain. A reviewer who widens it to `org` (or `shared`) makes
+ * it an org-wide lesson, provided no tedi owns it.
  */
 
-import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts } from "../../schema/memory-graph";
@@ -33,8 +39,13 @@ export async function listApprovedAgentLessons(
 	db: DbQueryClient,
 	orgId: string,
 	topicPrefix: string,
-	limit = 200,
+	options: { viewerUserId?: string | null; limit?: number } = {},
 ): Promise<ApprovedAgentLessonRow[]> {
+	const owner = sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId')`;
+	const orgWide = and(
+		isNull(memoryFacts.tediId),
+		or(sql`${memoryFacts.visibility} IS NOT 'private'`, sql`${owner} IS NULL`),
+	);
 	return db
 		.select({
 			id: memoryFacts.id,
@@ -50,7 +61,9 @@ export async function listApprovedAgentLessons(
 				eq(memoryFacts.organizationId, orgId),
 				gte(memoryFacts.topicKey, topicPrefix),
 				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
-				isNull(memoryFacts.tediId),
+				options.viewerUserId
+					? or(orgWide, sql`${owner} = ${options.viewerUserId}`)
+					: orgWide,
 				eq(memoryFacts.reviewStatus, "confirmed"),
 				eq(memoryFacts.status, "active"),
 				// A confirmed lesson is delivered; one restricted to evidence or
@@ -64,5 +77,5 @@ export async function listApprovedAgentLessons(
 			),
 		)
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.updatedAt))
-		.limit(limit);
+		.limit(options.limit ?? 200);
 }

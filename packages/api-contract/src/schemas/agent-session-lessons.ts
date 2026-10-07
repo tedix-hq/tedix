@@ -4,7 +4,9 @@
  * A lesson is an ordinary brain fact (`memory_facts`) whose topic key starts
  * with `learning-feed:` — the shape the learning feed writes
  * (`learning-feed:decision:<repo>:<harness>:<topic>`) and seeded lessons reuse.
- * Only approved lessons are delivered: org-wide (no tedi),
+ * Only approved lessons are delivered: org-wide ones (no tedi) plus the
+ * caller's own personal lessons (`metadata.learningFeed.ownerUserId`,
+ * visibility `private`, new learning-feed facts start personal),
  * `reviewStatus: confirmed` (a person confirmed it, which also ends
  * probation), not archived and not superseded. `metadata.learningFeed.scope`
  * `{ repo, harness, topic }` targets a lesson; the slug `general` matches any

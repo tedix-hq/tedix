@@ -323,6 +323,20 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(existsSync(state())).toBe(false);
 	});
 
+	test("outside a bound repository the default organization's inbox gets a repository-free question", async () => {
+		const { root: _root, ...rest } = BINDING;
+		const calls = await runHook(
+			"stop",
+			{ last_assistant_message: "Draft the pricing memo for Q4?" },
+			[{ ...rest, contextSource: "default" }, AUTH, CREATED],
+		);
+		expect(calls[0]).toContain("--allow-default");
+		const created = payloads[0]![1];
+		expect(created.projectId).toBe(PROJECT);
+		expect(created.metadata.repository).toBeNull();
+		expect(created.subject).toMatch(/^session · claude-code waiting: /);
+	});
+
 	test("selected Work is the context and secrets are redacted", async () => {
 		await runHook(
 			"stop",

@@ -122,7 +122,11 @@ describe("selectSessionLessons", () => {
 });
 
 describe("getSessionLessons procedure", () => {
-	function context(organizationId: string, scopes: string[]): BaseContext {
+	function context(
+		organizationId: string,
+		scopes: string[],
+		userId?: string,
+	): BaseContext {
 		const sqlite = new DatabaseSync(":memory:");
 		sqlite.exec("PRAGMA foreign_keys = OFF");
 		sqlite.exec(schemaDdl(memoryFacts));
@@ -132,6 +136,11 @@ describe("getSessionLessons procedure", () => {
 			('fact-org-1', '${ORG_1}', 'learning-feed:lesson:general:general:a', 'Org one lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation'),
 			('fact-pending', '${ORG_1}', 'learning-feed:decision:tedix:codex:b', 'Unapproved.', 'preference', 'probation', 'pending', 'requires_user_confirmation'),
 			('fact-org-2', '${ORG_2}', 'learning-feed:lesson:general:general:a', 'Org two lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation')`);
+		sqlite.exec(`INSERT INTO memory_facts
+			(id, organization_id, topic_key, content, fact_type, status, review_status, use_policy, visibility, metadata)
+			VALUES
+			('fact-mine', '${ORG_1}', 'learning-feed:decision:general:codex:x:user:user-a', 'My lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation', 'private', '{"learningFeed":{"ownerUserId":"user-a"}}'),
+			('fact-theirs', '${ORG_1}', 'learning-feed:decision:general:codex:x:user:user-b', 'Their lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation', 'private', '{"learningFeed":{"ownerUserId":"user-b"}}')`);
 		const env = {
 			ENVIRONMENT: "test",
 			DB: createD1Facade(sqlite),
@@ -144,6 +153,7 @@ describe("getSessionLessons procedure", () => {
 			headers: new Headers(),
 			organizationId,
 			url: new URL("https://api.tedix.test/rpc/agentTurnTriage"),
+			...(userId ? { user: { sub: userId } } : {}),
 		} as BaseContext;
 	}
 
@@ -155,6 +165,20 @@ describe("getSessionLessons procedure", () => {
 		expect(result.lessons.map((lesson) => lesson.text)).toEqual([
 			"Org one lesson.",
 		]);
+	});
+
+	it("adds only the calling user's own personal lessons", async () => {
+		const texts = async (userId?: string) =>
+			(
+				await createRouterClient(agentTurnTriageContractRouter, {
+					context: context(ORG_1, ["mcp:messaging.read"], userId),
+				}).getSessionLessons({ harness: "codex" })
+			).lessons
+				.map((lesson) => lesson.text)
+				.sort();
+		expect(await texts("user-a")).toEqual(["My lesson.", "Org one lesson."]);
+		expect(await texts("user-b")).toEqual(["Org one lesson.", "Their lesson."]);
+		expect(await texts()).toEqual(["Org one lesson."]);
 	});
 
 	it("requires the messaging read scope", async () => {

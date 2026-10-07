@@ -87,7 +87,10 @@ export function captureOwnsStop(raw: string, env: NodeJS.ProcessEnv): boolean {
 		const { session } = hostEvent(raw, env, CAPTURE_EVENT_LIMIT, {
 			requireIdentity: true,
 		});
-		const binding = resolveAgentContext({ sessionId: session! });
+		const binding = resolveAgentContext({
+			sessionId: session!,
+			allowDefault: true,
+		});
 		return binding.status === "bound" && binding.decisionCapture === true;
 	} catch {
 		return false;

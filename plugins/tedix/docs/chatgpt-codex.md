@@ -260,6 +260,20 @@ branch name's words, about 2,800 bytes at most, each with a short fact id.
 Probation and superseded lessons never appear. Only the host kind, repository
 (without credentials) and branch words are sent; no selection is needed.
 
+A lesson learned from your decisions starts personal: once confirmed it reaches
+only your own sessions, unless the reviewer widens it to the organization. When
+one of the organization's tedis clearly owns the subject (for example
+engineering or finance, judged from the tedis' own names, tags and role), the
+lesson also enters that tedi's memory; when unsure it stays personal.
+
+Outside a bound repository, in any folder and for non-coding work too, the same
+hooks use a default organization: `TEDIX_WORKSPACE` or the current profile, and
+`TEDIX_ORGANIZATION` or that profile's only organization. A chat there receives
+lessons with no repository. With several selectable organizations and none
+chosen, nothing is read or recorded; the hooks never guess an organization.
+`tedix setup agents context show --allow-default` prints what a folder
+resolves to.
+
 The hook reads bounded host metadata (including `session_id`), discards prompt text,
 and never uploads or saves it. It does not write updates, restore execution
 authority or deliver a full transcript. Document text is bounded to 3,200
@@ -282,7 +296,12 @@ tedix setup agents context disable-decision-capture
 ```
 
 The opt-in applies to every bound repository of the current profile and
-organization, in Codex and Claude Code alike. Both handlers run in the
+organization, in Codex and Claude Code alike, and to chats outside any bound
+repository when that organization is the default one (see above). Those
+questions name no repository and go to the one project the organization's
+repository bindings share; with several, run
+`tedix setup agents context enable-decision-capture --project <UUID>` outside a
+repository to choose the inbox. Both handlers run in the
 background, never block or steer the session, and stay silent on any failure.
 Text is redacted for common secret shapes and bounded to 6,000 characters before
 it leaves the machine, and is sent only to the bound organization as the signed-in

@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	credentialDirectory,
+	getCurrentWorkspace,
 	readWorkspaceCredentials,
 	type CredentialStoreOpts,
 } from "./credential-store";
@@ -77,10 +78,17 @@ interface Store {
 	 */
 	lessons?: unknown;
 	/** Explicit per-organization opt-in for recording turn ends and replies. */
-	decisionCapture?: Omit<
-		PreferenceSelection,
-		"osWorkspaceId" | "contextOutputId"
-	>[];
+	decisionCapture?: CaptureOptIn[];
+}
+interface CaptureOptIn extends Omit<
+	PreferenceSelection,
+	"osWorkspaceId" | "contextOutputId"
+> {
+	/**
+	 * Project inbox for sessions outside a bound repository. Unset: the one
+	 * project this organization's repository bindings share, if exactly one.
+	 */
+	projectId?: string;
 }
 interface Repo {
 	root: string;
@@ -92,6 +100,13 @@ export interface AgentContextOptions extends CredentialStoreOpts {
 	cwd?: string;
 	/** null explicitly selects legacy checkout context for non-host callers. */
 	sessionId?: string | null;
+	/**
+	 * Outside a bound repository, resolve the default organization context
+	 * (see `defaultContext`). Only the prompt and decision-capture hooks ask.
+	 */
+	allowDefault?: boolean;
+	/** Environment for TEDIX_WORKSPACE / TEDIX_ORGANIZATION (tests). */
+	env?: NodeJS.ProcessEnv;
 }
 export interface AgentContextResult {
 	organization?: string;
@@ -102,7 +117,8 @@ export interface AgentContextResult {
 	projectId?: string;
 	root?: string;
 	workItemId?: string;
-	contextSource?: "selection" | "worktree" | "chat";
+	/** `default`: no bound repository; the profile's one organization. */
+	contextSource?: "selection" | "worktree" | "chat" | "default";
 	contextSessionId?: string;
 	preferencesWorkspaceId?: string;
 	preferencesOutputId?: string;
@@ -384,23 +400,102 @@ function organizationDocument(
 	return matches[0];
 }
 
+/**
+ * The profile and organization a session outside any bound repository works
+ * in: TEDIX_WORKSPACE or the current profile, and TEDIX_ORGANIZATION or the
+ * profile's only organization. Several selectable organizations and none
+ * chosen, or a choice the profile cannot serve, is no target: never a guess.
+ */
+function defaultTarget(
+	options?: AgentContextOptions,
+): Omit<ContextTarget, "projectId"> | undefined {
+	const env = options?.env ?? process.env;
+	const workspace =
+		env.TEDIX_WORKSPACE?.trim() || getCurrentWorkspace(options) || "";
+	if (!WORKSPACE.test(workspace)) return undefined;
+	const profile = readWorkspaceCredentials(workspace, options);
+	if (!profile?.mcpUrl) return undefined;
+	const requested = env.TEDIX_ORGANIZATION?.trim() || undefined;
+	let organization: string | undefined;
+	if (isMultiOrganizationMcpUrl(profile.mcpUrl)) {
+		const selected = decodeJwtPayload(
+			profile.oauthTokens?.access_token ?? "",
+		)?.tedixSelectedOrganizations;
+		if (!Array.isArray(selected)) return undefined;
+		organization =
+			requested ?? (selected.length === 1 ? String(selected[0]) : undefined);
+		if (!organization) return undefined;
+	} else if (requested && requested !== profile.org) return undefined;
+	try {
+		return { workspace, ...contextTarget(workspace, organization, options) };
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Default context for a session outside a bound repository: lessons for the
+ * organization (no repository), and decision capture when this profile and
+ * organization opted in and a project inbox is unambiguous.
+ */
+function defaultContext(
+	store: Store,
+	options?: AgentContextOptions,
+): AgentContextResult {
+	const target = defaultTarget(options);
+	if (!target) return { status: "unbound" };
+	const same = (row: { workspace: string; org: string; mcpUrl: string }) =>
+		row.workspace === target.workspace &&
+		row.org === target.org &&
+		row.mcpUrl === target.mcpUrl;
+	const optIn = (store.decisionCapture ?? []).find(same);
+	const projects = new Set(
+		store.repositories
+			.filter(same)
+			.map((row) => row.projectId)
+			.filter(looksLikeUuid),
+	);
+	const projectId =
+		optIn?.projectId && looksLikeUuid(optIn.projectId)
+			? optIn.projectId
+			: projects.size === 1
+				? [...projects][0]
+				: undefined;
+	const sessionId = chatIdentity(options);
+	return {
+		status: "bound",
+		contextSource: "default",
+		workspace: target.workspace,
+		org: target.org,
+		...(target.organization ? { organization: target.organization } : {}),
+		mcpUrl: target.mcpUrl,
+		...(projectId ? { projectId } : {}),
+		...(optIn && projectId ? { decisionCapture: true } : {}),
+		...(sessionId ? { contextSessionId: sessionId } : {}),
+	};
+}
+
 /** Local correlation only. Does not read the gateway or restore an Attempt credential. */
 export function resolveAgentContext(
 	options?: AgentContextOptions,
 ): AgentContextResult {
 	try {
 		const store = readStore(options);
-		if (!store.repositories.length) return { status: "unbound" };
+		const unbound = (): AgentContextResult =>
+			options?.allowDefault
+				? defaultContext(store, options)
+				: { status: "unbound" };
+		if (!store.repositories.length) return unbound();
 		let repo: Repo;
 		try {
 			repo = repoAt(options);
 		} catch {
-			return { status: "unbound" };
+			return unbound();
 		}
 		const binding = store.repositories.find(
 			(row) => row.commonDir === repo.commonDir,
 		);
-		if (!binding) return { status: "unbound" };
+		if (!binding) return unbound();
 		const scoped = chatBinding(binding, repo, options);
 		const active = scoped.binding;
 		checkedBinding(active, repo, options);
@@ -488,6 +583,16 @@ export function changeAgentContext(
 	},
 	options?: AgentContextOptions,
 ): AgentContextResult {
+	if (
+		(action === "enable-decision-capture" ||
+			action === "disable-decision-capture") &&
+		!insideBoundRepository(options)
+	)
+		return changeDefaultCapture(
+			action === "enable-decision-capture",
+			input.projectId,
+			options,
+		);
 	const repo = repoAt(options);
 	const sessionId = chatIdentity(options);
 	const directory = credentialDirectory(options);
@@ -610,17 +715,20 @@ export function changeAgentContext(
 				throw new Error("This repository is not bound; use context bind first");
 			const active = chatBinding(binding, repo, options).binding;
 			checkedBinding(active, repo, options);
+			const same = (row: CaptureOptIn) =>
+				row.workspace === active.workspace &&
+				row.org === active.org &&
+				row.mcpUrl === active.mcpUrl;
+			const pinned = (store.decisionCapture ?? []).find(same)?.projectId;
 			store.decisionCapture = (store.decisionCapture ?? []).filter(
-				(row) =>
-					row.workspace !== active.workspace ||
-					row.org !== active.org ||
-					row.mcpUrl !== active.mcpUrl,
+				(row) => !same(row),
 			);
 			if (action === "enable-decision-capture")
 				store.decisionCapture.push({
 					workspace: active.workspace,
 					org: active.org,
 					mcpUrl: active.mcpUrl,
+					...(pinned ? { projectId: pinned } : {}),
 				});
 		} else if (
 			action === "connect-preferences" ||
@@ -778,19 +886,77 @@ export function changeAgentContext(
 				});
 			}
 		}
-		const path = storePath(options);
-		const temp = `${path}.${randomUUID()}.tmp`;
-		try {
-			writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, {
-				mode: 0o600,
-				flag: "wx",
-			});
-			renameSync(temp, path);
-		} finally {
-			rmSync(temp, { force: true });
-		}
+		writeStore(store, options);
 	});
 	return resolveAgentContext(options);
+}
+
+function writeStore(store: Store, options?: AgentContextOptions): void {
+	const path = storePath(options);
+	const temp = `${path}.${randomUUID()}.tmp`;
+	try {
+		writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, {
+			mode: 0o600,
+			flag: "wx",
+		});
+		renameSync(temp, path);
+	} finally {
+		rmSync(temp, { force: true });
+	}
+}
+
+function insideBoundRepository(options?: AgentContextOptions): boolean {
+	try {
+		const repo = repoAt(options);
+		return readStore(options).repositories.some(
+			(row) => row.commonDir === repo.commonDir,
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Decision-capture opt-in outside a bound repository: for the default
+ * organization only (see `defaultTarget`), optionally pinning the project
+ * inbox its questions go to.
+ */
+function changeDefaultCapture(
+	enable: boolean,
+	projectId: string | undefined,
+	options?: AgentContextOptions,
+): AgentContextResult {
+	const target = defaultTarget(options);
+	if (!target)
+		throw new Error(
+			"No single organization for this folder: set TEDIX_ORGANIZATION to a selected organization ID (see tedix auth status), or run in a bound repository",
+		);
+	if (projectId !== undefined && (!enable || !looksLikeUuid(projectId)))
+		throw new Error("--project takes a project UUID and only when enabling");
+	const directory = credentialDirectory(options);
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	withFileLockSync(join(directory, "locks", "agent-contexts"), () => {
+		const store = readStore(options);
+		const rows = store.decisionCapture ?? [];
+		const old = rows.find(
+			(row) =>
+				row.workspace === target.workspace &&
+				row.org === target.org &&
+				row.mcpUrl === target.mcpUrl,
+		);
+		store.decisionCapture = rows.filter((row) => row !== old);
+		if (enable) {
+			const project = projectId ?? old?.projectId;
+			store.decisionCapture.push({
+				workspace: target.workspace,
+				org: target.org,
+				mcpUrl: target.mcpUrl,
+				...(project ? { projectId: project } : {}),
+			});
+		}
+		writeStore(store, options);
+	});
+	return resolveAgentContext({ ...options, allowDefault: true });
 }
 
 export const agentContextUsage = `Local opt-in Tedix session context
@@ -802,10 +968,10 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context connect-output --os-workspace <UUID> --output <UUID>
   tedix setup agents context connect-preferences --os-workspace <UUID> --output <UUID>
   tedix setup agents context disconnect-preferences
-  tedix setup agents context enable-decision-capture
+  tedix setup agents context enable-decision-capture [--project <UUID>]
   tedix setup agents context disable-decision-capture
   tedix setup agents context disconnect-output
-  tedix setup agents context show [--json]
+  tedix setup agents context show [--json] [--allow-default]
   tedix setup agents context unbind
 
 Run in the repository, or pass --directory <path>. Select/clear/connect-output/
@@ -825,7 +991,16 @@ by the prompt hook at read time; local selection alone verifies no live access.
 connect-preferences selects one organization-wide working-preferences document
 that every chat of this profile and organization reads next to its task context,
 under the same checks. Team lessons need no selection: each bound chat reads the
-organization's approved lessons for this repository from Tedix memory.
+organization's approved lessons for this repository from Tedix memory: lessons
+for everyone in the organization plus your own personal ones.
+Outside a bound repository (any folder, non-coding work included), the prompt
+and capture hooks use the default organization: TEDIX_WORKSPACE or the current
+profile, and TEDIX_ORGANIZATION or that profile's only organization. With
+several selectable organizations and none chosen they stay idle; they never
+guess. There, lessons carry no repository, and decision capture runs only when
+the organization opted in and has one project inbox: the one its bound
+repositories share, or the --project given to enable-decision-capture run
+outside a repository. show --allow-default prints that resolution.
 enable-decision-capture opts this profile and organization into recording each
 finished agent turn and the reply that follows as an Interaction addressed to you
 in its project inbox. It is the only context setting that sends conversation text;
@@ -862,10 +1037,15 @@ export function runAgentContext(
 		throw new Error("Unknown context action; use setup agents context --help");
 	const values: Record<string, string> = {};
 	let json = false;
+	let allowDefault = false;
 	for (let i = 1; i < args.length; i++) {
 		const arg = args[i]!;
 		if (arg === "--json" && !json) {
 			json = true;
+			continue;
+		}
+		if (arg === "--allow-default" && action === "show" && !allowDefault) {
+			allowDefault = true;
 			continue;
 		}
 		if (action === "select" && i === 1 && !arg.startsWith("--")) {
@@ -890,7 +1070,8 @@ export function runAgentContext(
 			["osWorkspaceId", "contextOutputId"].includes(key)
 				? !["connect-output", "connect-preferences"].includes(action!)
 				: !["cwd", "sessionId"].includes(key) &&
-					!["bind", "connect"].includes(action!)
+					!["bind", "connect"].includes(action!) &&
+					!(key === "projectId" && action === "enable-decision-capture")
 		)
 			throw new Error(`${arg} applies only to context bind or connect-output`);
 		values[key] = value;
@@ -903,6 +1084,7 @@ export function runAgentContext(
 		...options,
 		...(values.cwd ? { cwd: values.cwd } : {}),
 		...(values.sessionId ? { sessionId: values.sessionId } : {}),
+		...(allowDefault ? { allowDefault } : {}),
 	};
 	const result =
 		action === "show"

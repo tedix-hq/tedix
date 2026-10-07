@@ -3,7 +3,8 @@
  *
  * Lessons are brain facts under the `learning-feed:` topic keys (see
  * `@tedix/api-contract/schemas/agent-session-lessons`). The query returns only
- * approved, org-wide lessons; this module filters them to the session's repo
+ * approved lessons: org-wide ones plus the calling user's own personal ones
+ * (`metadata.learningFeed.ownerUserId`); this module filters them to the session's repo
  * and harness by `metadata.learningFeed.scope`, ranks them (repo, then harness,
  * then topic overlap, then priority and confidence) and trims them to the
  * caller's byte budget.
@@ -18,6 +19,7 @@ import {
 	type ApprovedAgentLessonRow,
 	listApprovedAgentLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
+import { observedLearningActor } from "../../services/learning-interaction-recorder";
 import type { BaseContext } from "../orpc";
 
 /** Per-lesson text cap, so one long fact cannot take the whole budget. */
@@ -165,10 +167,14 @@ export async function getSessionLessons(
 		budgetBytes: number;
 	},
 ): Promise<GetAgentSessionLessonsResult> {
+	// The same server-derived identity the learning ledger records answers
+	// under, so a user's personal lessons come back only to that user.
+	const actor = observedLearningActor(context);
 	const rows = await listApprovedAgentLessons(
 		context.db,
 		organizationId,
 		AGENT_LESSON_TOPIC_PREFIX,
+		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
 	return { organizationId, ...selectSessionLessons(rows, input) };
 }

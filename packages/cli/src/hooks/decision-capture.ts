@@ -22,7 +22,10 @@
  * eventual chat reply to it cites the draft as `draftOutcome: "auto-sent"`.
  *
  * Recording happens only after `tedix setup agents context
- * enable-decision-capture` for the bound organization. Text is redacted and
+ * enable-decision-capture` for the bound organization. Outside a bound
+ * repository the same opt-in applies to the default organization (exactly one
+ * resolvable, never guessed) and its one project inbox; the question then
+ * names no repository. Text is redacted and
  * bounded before it leaves this machine and goes only to that organization.
  * Failures are silent: capture never blocks, delays or changes the session.
  */
@@ -196,7 +199,16 @@ export async function bindingFor(
 	onOptedIn?: () => void,
 ): Promise<Binding | undefined> {
 	const binding = await deps.read(
-		["setup", "agents", "context", "show", "--json", "--session", session],
+		[
+			"setup",
+			"agents",
+			"context",
+			"show",
+			"--json",
+			"--allow-default",
+			"--session",
+			session,
+		],
 		5000,
 	);
 	if (binding.status !== "bound" || binding.decisionCapture !== true)
@@ -216,7 +228,11 @@ export async function bindingFor(
 		!UUID.test(String(binding.workItemId))
 	)
 		throw new Error("invalid Work identifier");
-	if (!insideRoot(binding.root, deps.cwd)) throw new Error("wrong checkout");
+	if (
+		binding.contextSource !== "default" &&
+		!insideRoot(binding.root, deps.cwd)
+	)
+		throw new Error("wrong checkout");
 	const command = ["-w", binding.workspace];
 	if (binding.organization)
 		command.push("--organization", binding.organization);
@@ -834,7 +850,11 @@ async function onStop(
 	);
 	await settle(triage);
 	const cwd = typeof event.cwd === "string" ? event.cwd : deps.cwd;
-	const repository = basename(String(binding.root)).slice(0, 80);
+	// Outside a bound repository the question names none (lessons: `general`).
+	const repository =
+		binding.contextSource === "default"
+			? null
+			: basename(String(binding.root)).slice(0, 80);
 	const firstLine =
 		message
 			.trim()
@@ -845,7 +865,10 @@ async function onStop(
 	const now = (deps.now ?? (() => new Date()))();
 	const payload: JsonObject = {
 		kind: "question",
-		subject: `${repository} · ${host} waiting: ${first}`.slice(0, 300),
+		subject: `${repository ?? "session"} · ${host} waiting: ${first}`.slice(
+			0,
+			300,
+		),
 		prompt: text,
 		requestedFrom: { type: "user", id: binding.user },
 		expiresAt: isoSeconds(new Date(now.getTime() + EXPIRY_MS), true),

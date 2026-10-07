@@ -28,6 +28,9 @@ vi.mock("@tedix/db/queries/memory-graph/facts", () => ({
 	findFactBySourceHash: vi.fn(async () => undefined),
 	updateFact: vi.fn(async () => undefined),
 }));
+vi.mock("@tedix/db/queries/tedis", () => ({
+	getTedisByOrganization: vi.fn(async () => []),
+}));
 vi.mock("@tedix/db/queries/work-items/activity", () => ({
 	listWorkActivity: vi.fn(async () => ({ events: [], truncated: false })),
 }));
@@ -45,11 +48,17 @@ import {
 	findCurrentFactsByTopicKey,
 	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
+import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { listWorkActivity } from "@tedix/db/queries/work-items/activity";
+import type { Tedi } from "@tedix/db/schema/tedis";
 import {
 	buildDecisionLessons,
 	fixTopic,
+	type LessonRouter,
 	mineLearningFeed,
+	ROUTE_THRESHOLD,
+	routeCandidates,
+	routingFromChoice,
 } from "./learning-feed-miner";
 
 const db = {} as DbClient;
@@ -95,6 +104,7 @@ function event(
 beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
+	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
 	vi.mocked(listLearningImprovementProposals).mockResolvedValue([]);
 	vi.mocked(listWorkActivity).mockResolvedValue({
 		events: [],
@@ -119,6 +129,7 @@ describe("buildDecisionLessons", () => {
 			scope: { repo: "acme", harness: "claude-code", topic: "deploy" },
 			evidenceEventIds: ["e2", "e1"],
 			learnedFromUserIds: ["user-1"],
+			ownerUserId: "user-1",
 			signalCounts: { answered: 1, manually_replaced: 1 },
 		});
 		expect(lesson?.content.split("\n")).toEqual([
@@ -158,6 +169,102 @@ describe("buildDecisionLessons", () => {
 			}),
 		]);
 		expect(lessons.map((l) => l.scope.repo).sort()).toEqual(["acme", "other"]);
+	});
+
+	it("keeps each user's decisions in their own lesson", () => {
+		const lessons = buildDecisionLessons([
+			event("e1"),
+			event("e2"),
+			event("e3", { scopeId: "user-2", actorId: "user-2" }),
+			event("e4", { scopeId: "user-2", actorId: "user-2" }),
+		]);
+		expect(
+			lessons.map((l) => [
+				l.metadata.ownerUserId,
+				l.metadata.learnedFromUserIds,
+				l.metadata.evidenceEventIds,
+			]),
+		).toEqual([
+			["user-1", ["user-1"], ["e2", "e1"]],
+			["user-2", ["user-2"], ["e4", "e3"]],
+		]);
+	});
+
+	it("words a lesson outside any repository without one", () => {
+		const [lesson] = buildDecisionLessons([
+			event("e1", {
+				meta: {
+					scope: { repo: "general", harness: "codex", topic: "pricing" },
+				},
+			}),
+			event("e2", {
+				meta: {
+					scope: { repo: "general", harness: "codex", topic: "pricing" },
+				},
+			}),
+		]);
+		expect(lesson?.content.split("\n")[0]).toBe(
+			"Lessons from user decisions (codex, pricing):",
+		);
+	});
+});
+
+function tedi(id: string, over: Partial<Tedi> = {}): Tedi {
+	return {
+		id,
+		organizationId: "org-1",
+		scope: "organization",
+		ownerUserId: null,
+		retiredAt: null,
+		name: id,
+		slug: id,
+		displayName: null,
+		tags: null,
+		personality: null,
+		...over,
+	} as Tedi;
+}
+
+describe("routing", () => {
+	it("routes only at or above the threshold, to a known candidate", () => {
+		const options = new Map([["t1", "tedi-eng"]]);
+		expect(
+			routingFromChoice(
+				{ choice: "t1", probabilities: { t1: ROUTE_THRESHOLD } },
+				options,
+			),
+		).toMatchObject({ status: "routed", tediId: "tedi-eng" });
+		expect(
+			routingFromChoice(
+				{ choice: "t1", probabilities: { t1: ROUTE_THRESHOLD - 0.01 } },
+				options,
+			),
+		).toMatchObject({ status: "personal", tediId: null });
+		expect(
+			routingFromChoice(
+				{ choice: "none", probabilities: { none: 0.99 } },
+				options,
+			),
+		).toMatchObject({ status: "personal", tediId: null });
+		expect(routingFromChoice(null, options)).toMatchObject({
+			status: "unavailable",
+			tediId: null,
+		});
+	});
+
+	it("offers only this organization's live shared tedis and the owner's own", () => {
+		const candidates = routeCandidates(
+			[
+				tedi("shared"),
+				tedi("other-org", { organizationId: "org-2" }),
+				tedi("retired", { retiredAt: "2026-10-01" }),
+				tedi("mine", { scope: "personal", ownerUserId: "user-1" }),
+				tedi("theirs", { scope: "personal", ownerUserId: "user-2" }),
+			],
+			"org-1",
+			"user-1",
+		);
+		expect(candidates.map((t) => t.id)).toEqual(["shared", "mine"]);
 	});
 });
 
@@ -203,7 +310,7 @@ describe("mineLearningFeed", () => {
 		expect(findCurrentFactsByTopicKey).toHaveBeenCalledWith(
 			db,
 			"org-1",
-			"learning-feed:decision:acme:claude-code:deploy",
+			"learning-feed:decision:acme:claude-code:deploy:user:user-1",
 		);
 		const fact = vi.mocked(createFact).mock.calls[0]![1];
 		expect(fact).toMatchObject({
@@ -213,15 +320,16 @@ describe("mineLearningFeed", () => {
 			reviewStatus: "pending",
 			usePolicy: "requires_user_confirmation",
 			memoryScope: "org",
-			visibility: "org",
+			visibility: "private",
 			factType: "decision",
-			topicKey: "learning-feed:decision:acme:claude-code:deploy",
+			topicKey: "learning-feed:decision:acme:claude-code:deploy:user:user-1",
 		});
 		expect(fact.metadata).toMatchObject({
 			producer: "learning-feed",
 			learningFeed: {
 				scope: { repo: "acme", harness: "claude-code", topic: "deploy" },
 				evidenceEventIds: ["e3", "e2", "e1"],
+				ownerUserId: "user-1",
 			},
 		});
 		expect(invalidateFact).toHaveBeenCalledWith(
@@ -255,6 +363,166 @@ describe("mineLearningFeed", () => {
 		const result = await mineLearningFeed(db, { orgId: "org-1" });
 		expect(result.factsWritten).toBe(0);
 		expect(createFact).not.toHaveBeenCalled();
+	});
+
+	it("keeps an event without a personal scope org-wide", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [
+							event("e1", { scopeKind: "organization", scopeId: "org-1" }),
+							event("e2", { scopeKind: "organization", scopeId: "org-1" }),
+						]
+					: [],
+		);
+		await mineLearningFeed(db, { orgId: "org-1" });
+		expect(vi.mocked(createFact).mock.calls[0]![1]).toMatchObject({
+			tediId: null,
+			memoryScope: "org",
+			visibility: "org",
+			topicKey: "learning-feed:decision:acme:claude-code:deploy",
+		});
+	});
+
+	it("does not relearn events a reviewed pre-personal lesson covers", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(findCurrentFactsByTopicKey).mockImplementation(
+			async (_db, _org, topicKey) =>
+				topicKey === "learning-feed:decision:acme:claude-code:deploy"
+					? ([
+							{
+								id: "fact-legacy",
+								reviewStatus: "confirmed",
+								metadata: { learningFeed: { evidenceEventIds: ["e1", "e2"] } },
+							},
+						] as never)
+					: [],
+		);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result.factsWritten).toBe(0);
+	});
+
+	it("routes a lesson into the owning tedi's brain", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(getTedisByOrganization).mockResolvedValue([
+			tedi("tedi-eng", { tags: ["engineering"] }),
+			tedi("tedi-fin", { tags: ["finance"] }),
+		]);
+		const route = vi.fn<LessonRouter>(async () => ({
+			status: "routed",
+			tediId: "tedi-eng",
+			probability: 0.9,
+			model: "@cf/cloudflare/clef-flash",
+		}));
+		const result = await mineLearningFeed(db, { orgId: "org-1", route });
+		expect(route.mock.calls[0]![1].map((t) => t.id)).toEqual([
+			"tedi-eng",
+			"tedi-fin",
+		]);
+		expect(result.factsRoutedToTedi).toBe(1);
+		const fact = vi.mocked(createFact).mock.calls[0]![1];
+		expect(fact).toMatchObject({
+			organizationId: "org-1",
+			tediId: "tedi-eng",
+			memoryScope: "tedi",
+			visibility: "private",
+			reviewStatus: "pending",
+		});
+		expect(fact.metadata).toMatchObject({
+			learningFeed: {
+				ownerUserId: "user-1",
+				routing: { status: "routed", tediId: "tedi-eng" },
+			},
+		});
+	});
+
+	it("stays personal when the router is unsure, fails or names a stranger", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(getTedisByOrganization).mockResolvedValue([tedi("tedi-eng")]);
+		const routers: LessonRouter[] = [
+			async () => ({
+				status: "personal",
+				tediId: null,
+				probability: 0.4,
+				model: "@cf/cloudflare/clef-flash",
+			}),
+			async () => {
+				throw new Error("AI binding down");
+			},
+			async () => ({
+				status: "routed",
+				tediId: "tedi-of-org-2",
+				probability: 0.99,
+				model: "@cf/cloudflare/clef-flash",
+			}),
+		];
+		for (const route of routers) {
+			vi.mocked(createFact).mockClear();
+			const result = await mineLearningFeed(db, { orgId: "org-1", route });
+			expect(result.factsRoutedToTedi).toBe(0);
+			expect(vi.mocked(createFact).mock.calls[0]![1]).toMatchObject({
+				tediId: null,
+				visibility: "private",
+				memoryScope: "org",
+			});
+		}
+	});
+
+	it("never mixes organizations", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [
+							event("e1"),
+							event("e2", { organizationId: "org-2" }),
+							event("e3", { organizationId: "org-2" }),
+						]
+					: [],
+		);
+		vi.mocked(getTedisByOrganization).mockResolvedValue([
+			tedi("tedi-other", { organizationId: "org-2" }),
+		]);
+		const route = vi.fn<LessonRouter>();
+		const result = await mineLearningFeed(db, { orgId: "org-1", route });
+		// Only org-1's single decision remains, which alone teaches nothing.
+		expect(result.decisionEventsScanned).toBe(1);
+		expect(createFact).not.toHaveBeenCalled();
+		expect(listLearningInteractionsForReflection).toHaveBeenCalledWith(
+			db,
+			expect.objectContaining({ organizationId: "org-1" }),
+		);
+
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e4"), event("e2", { organizationId: "org-2" })]
+					: [],
+		);
+		await mineLearningFeed(db, { orgId: "org-1", route });
+		// A foreign tedi is never offered, so nothing is routed.
+		expect(route).not.toHaveBeenCalled();
+		const fact = vi.mocked(createFact).mock.calls[0]![1];
+		expect(fact).toMatchObject({ organizationId: "org-1", tediId: null });
+		expect(fact.metadata).toMatchObject({
+			learningFeed: { evidenceEventIds: ["e4", "e1"] },
+		});
+		for (const call of vi.mocked(findCurrentFactsByTopicKey).mock.calls)
+			expect(call[1]).toBe("org-1");
 	});
 
 	it("records fix Work Items and proposes a directive after three", async () => {
