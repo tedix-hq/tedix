@@ -17,6 +17,10 @@ import {
 	getAppMetadataJson,
 	updateAppMetadata,
 } from "@tedix/db/queries/app-records";
+import {
+	aggregateAppEntryMatches,
+	aggregateAppLink,
+} from "@tedix/db/queries/aggregate-app-links";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import type { getProviderInstallation } from "@tedix/db/queries/provider-installations";
 import {
@@ -89,6 +93,7 @@ export async function ensureProviderInstallationGateway(
 		);
 	try {
 		const slug = `embedded-gateway-${installation.id}`;
+		const sourceLink = aggregateAppLink(source);
 		const apps = await getAppsByOrganization(
 			context.db,
 			installation.customerOrganizationId,
@@ -106,7 +111,7 @@ export async function ensureProviderInstallationGateway(
 				return (
 					candidate.visibility !== "disabled" &&
 					aggregate?.length === 1 &&
-					aggregate[0]?.slug === source.slug &&
+					aggregateAppEntryMatches(aggregate[0], sourceLink) &&
 					aggregate[0]?.prefix === installation.hostTenantNamespace
 				);
 			});
@@ -135,7 +140,7 @@ export async function ensureProviderInstallationGateway(
 							assignmentConfig: { mode: "manual" },
 							aggregateApps: [
 								{
-									slug: source.slug,
+									...sourceLink,
 									prefix: installation.hostTenantNamespace,
 									// The source's read tools, by rule: nothing to recompute
 									// when the provider ships another endpoint.
@@ -157,20 +162,26 @@ export async function ensureProviderInstallationGateway(
 		const aggregates = config?.aggregateApps;
 		if (
 			aggregates?.length !== 1 ||
-			aggregates[0]?.slug !== source.slug ||
+			!aggregateAppEntryMatches(aggregates[0], sourceLink) ||
 			aggregates[0]?.prefix !== installation.hostTenantNamespace
 		)
 			throw unavailable("Provider gateway source identity changed");
 		// Gateways created before the rule carry an enumerated allowlist. Migrate
 		// them once: the snapshot is what went stale, so it is removed rather
-		// than refreshed.
-		if (aggregates[0].toolIds || aggregates[0].readOnly !== true) {
+		// than refreshed. Gateways linked by slug alone (or under the source's
+		// former slug) gain the source's stable id and current slug.
+		if (
+			aggregates[0].toolIds ||
+			aggregates[0].readOnly !== true ||
+			aggregates[0].appId !== sourceLink.appId ||
+			aggregates[0].slug !== sourceLink.slug
+		) {
 			const { toolIds: _snapshot, ...entry } = aggregates[0];
 			app =
 				(await updateAppMetadata(context.db, app.id, {
 					mcpConfig: {
 						...config,
-						aggregateApps: [{ ...entry, readOnly: true }],
+						aggregateApps: [{ ...entry, ...sourceLink, readOnly: true }],
 					},
 				})) ?? undefined;
 			if (!app)

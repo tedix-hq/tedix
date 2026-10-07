@@ -1324,6 +1324,7 @@ export const InstallTenantMcpAppOutputSchema = z.object({
 	}),
 	aggregateEntry: z.object({
 		slug: z.string(),
+		appId: z.string().uuid().optional(),
 		prefix: z.string().optional(),
 		connectionProviderId: z.string().optional(),
 		connectionScope: z.enum(["tenant", "user", "hybrid"]).optional(),
@@ -1421,6 +1422,7 @@ export type UninstallTenantMcpAppInput = z.infer<
 
 const TenantMcpAggregateEntrySchema = z.object({
 	slug: z.string(),
+	appId: z.string().uuid().optional(),
 	prefix: z.string().optional(),
 	toolIds: z.array(z.string()).optional(),
 	endpointPrefixes: z.array(z.string()).optional(),

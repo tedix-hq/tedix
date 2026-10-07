@@ -130,6 +130,18 @@ vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
 	getAppBySlug: mocks.getAppBySlug,
 	createApp: mocks.createApp,
 }));
+// The platform CMS app every authoring proxy links to by id.
+const CMS_APP = {
+	id: "77777777-7777-4777-8777-777777777777",
+	slug: "cms",
+	organizationId: "platform-org",
+};
+vi.mock("@tedix/db/queries/aggregate-app-links", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/aggregate-app-links")
+	>()),
+	getAggregateAppLinkTargets: vi.fn(async () => [CMS_APP]),
+}));
 vi.mock("@tedix/db/queries/docs-sites/sites", () => ({
 	getDocsSiteById: mocks.getDocsSiteById,
 	listDocsSites: mocks.listDocsSites,
@@ -888,6 +900,23 @@ describe("CMS site creation", () => {
 		expect(mocks.registerCmsSiteWithinQuota).not.toHaveBeenCalled();
 	});
 
+	it("reuses an authoring proxy linked to the CMS app by id", async () => {
+		mocks.getCmsSiteBySlug.mockResolvedValue(site);
+		mocks.getAppBySlug.mockResolvedValue({
+			...authoringApp,
+			metadata: {
+				mcpConfig: {
+					...authoringApp.metadata.mcpConfig,
+					aggregateApps: [{ appId: CMS_APP.id, slug: "cms-renamed" }],
+				},
+			},
+		});
+		await expect(client().createCms(input)).resolves.toMatchObject({
+			siteId: site.id,
+		});
+		expect(mocks.createApp).not.toHaveBeenCalled();
+	});
+
 	it("creates one authoring proxy and an unpublished site, then safely retries", async () => {
 		mocks.getCmsSiteBySlug
 			.mockResolvedValueOnce(null)
@@ -922,7 +951,7 @@ describe("CMS site creation", () => {
 				metadata: expect.objectContaining({
 					mcpConfig: expect.objectContaining({
 						connectionLabel: input.slug,
-						aggregateApps: [{ slug: "cms" }],
+						aggregateApps: [{ appId: CMS_APP.id, slug: "cms" }],
 					}),
 				}),
 			}),

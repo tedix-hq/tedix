@@ -23,6 +23,7 @@ import {
 import { canonicalCatalogCategory } from "@tedix/db/queries/catalog/list-apps";
 import { catalogContract } from "@tedix/api-contract/contracts/catalog";
 import { tenantCatalogContract } from "@tedix/api-contract/contracts/tenant-catalog";
+import { aggregateAppEntryMatches } from "@tedix/db/queries/aggregate-app-links";
 import { getAppById } from "@tedix/db/queries/app-records";
 import { getCatalogAppById } from "@tedix/db/queries/catalog/get-app";
 import { getCatalogAppBySlugWithRelations } from "@tedix/db/queries/catalog/list-with-relations";
@@ -294,6 +295,8 @@ export function summarizeBaseApp(baseApp: BaseAppSummary | null) {
 
 export type AggregateAppEntry = {
 	slug: string;
+	/** Stable id of the linked app; preferred over slug when matching. */
+	appId?: string;
 	prefix?: string;
 	toolIds?: string[];
 	endpointPrefixes?: string[];
@@ -351,6 +354,12 @@ export function readAggregateApps(
 		: [];
 }
 
+/**
+ * Insert `nextEntry` or merge it into the entry that already links to the same
+ * app. Matching uses `appId` when both sides have one, else slug, so an old
+ * slug-only entry and an id entry whose app was renamed are both found. Later
+ * duplicates of the same link are dropped.
+ */
 export function upsertAggregateAppEntry(
 	entries: AggregateAppEntry[],
 	nextEntry: AggregateAppEntry,
@@ -359,18 +368,56 @@ export function upsertAggregateAppEntry(
 	attached: boolean;
 } {
 	let attached = true;
-	const entriesWithoutDuplicate = entries.map((entry) => {
-		if (entry.slug !== nextEntry.slug) return entry;
+	const merged: AggregateAppEntry[] = [];
+	const link = { appId: nextEntry.appId, slug: nextEntry.slug };
+	for (const entry of entries) {
+		if (!aggregateAppEntryMatches(entry, link)) {
+			merged.push(entry);
+			continue;
+		}
+		if (!attached) continue;
 		attached = false;
-		return {
+		merged.push({
 			...entry,
 			...nextEntry,
-		};
-	});
-	if (attached) entriesWithoutDuplicate.push(nextEntry);
+		});
+	}
+	if (attached) merged.push(nextEntry);
 	return {
-		entries: entriesWithoutDuplicate,
+		entries: merged,
 		attached,
+	};
+}
+
+/**
+ * Split `entries` into the first entry matching the detach request and the
+ * entries that remain. `appId`/`slug` identify the linked app (id preferred,
+ * slug for entries written before ids were stored); `prefix` narrows by
+ * Code Mode namespace. At least one criterion must be given.
+ */
+export function detachAggregateAppEntries(
+	entries: AggregateAppEntry[],
+	target: { appId?: string | null; slug?: string | null; prefix?: string },
+): {
+	aggregateEntry: AggregateAppEntry | null;
+	remainingAggregateApps: AggregateAppEntry[];
+} {
+	const link = { appId: target.appId, slug: target.slug };
+	const matches = (entry: AggregateAppEntry) => {
+		if ((link.appId || link.slug) && !aggregateAppEntryMatches(entry, link))
+			return false;
+		if (target.prefix) {
+			const entryNamespace = entry.prefix ?? sanitizeNamespace(entry.slug);
+			if (entryNamespace !== target.prefix) return false;
+		}
+		return Boolean(target.appId || target.slug || target.prefix);
+	};
+	const aggregateEntry = entries.find(matches) ?? null;
+	return {
+		aggregateEntry,
+		remainingAggregateApps: aggregateEntry
+			? entries.filter((entry) => !matches(entry))
+			: entries,
 	};
 }
 

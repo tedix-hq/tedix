@@ -42,11 +42,12 @@ vi.mock("@tedix/auth/fga", () => ({ grantAppOperator: mocks.grant }));
 vi.mock("../lib/tedi-aih-client-sync", () => ({
 	ensureTediAihClientForApp: mocks.sync,
 }));
+const SOURCE_ID = "50000000-0000-4000-8000-000000000001";
 const installation = {
 	id: "11111111-1111-4111-8111-111111111111",
 	status: "active",
 	providerOrganizationId: "provider",
-	providerAppId: "source",
+	providerAppId: SOURCE_ID,
 	customerOrganizationId: "customer",
 	primaryTediId: "worker",
 	hostTenantNamespace: "vendor",
@@ -64,7 +65,7 @@ beforeEach(() => {
 	vi.resetAllMocks();
 	rows = [];
 	mocks.source.mockResolvedValue({
-		id: "source",
+		id: SOURCE_ID,
 		slug: "provider-source",
 		organizationId: "provider",
 		visibility: "private",
@@ -104,7 +105,12 @@ describe("installation gateway provisioning", () => {
 		expect(mocks.create).toHaveBeenCalledTimes(1);
 		expect(mocks.register).toHaveBeenCalledTimes(1);
 		expect(rows[0].metadata.mcpConfig.aggregateApps).toEqual([
-			{ slug: "provider-source", prefix: "vendor", readOnly: true },
+			{
+				appId: SOURCE_ID,
+				slug: "provider-source",
+				prefix: "vendor",
+				readOnly: true,
+			},
 		]);
 		expect(rows[0].metadata.mcpConfig.assignmentConfig.mode).toBe("manual");
 		expect(mocks.grant).toHaveBeenLastCalledWith(
@@ -113,7 +119,11 @@ describe("installation gateway provisioning", () => {
 			installation.id,
 		);
 		expect(mocks.sync).toHaveBeenCalledTimes(2);
-		expect(mocks.source).toHaveBeenCalledWith(context.db, "source", "provider");
+		expect(mocks.source).toHaveBeenCalledWith(
+			context.db,
+			SOURCE_ID,
+			"provider",
+		);
 		expect(mocks.tedi).toHaveBeenCalledWith(context.db, "worker", "customer");
 	});
 	it("reuses a customized existing single-source gateway, keeping its branding", async () => {
@@ -145,7 +155,12 @@ describe("installation gateway provisioning", () => {
 		expect(rows[0].metadata.branding).toEqual({ color: "blue" });
 		expect(rows[0].metadata.mcpConfig.descopeResourceId).toBe("existing");
 		expect(rows[0].metadata.mcpConfig.aggregateApps).toEqual([
-			{ slug: "provider-source", prefix: "vendor", readOnly: true },
+			{
+				appId: SOURCE_ID,
+				slug: "provider-source",
+				prefix: "vendor",
+				readOnly: true,
+			},
 		]);
 		expect(mocks.create).not.toHaveBeenCalled();
 		expect(mocks.grant).toHaveBeenCalledWith({}, "identity", "custom");
@@ -175,7 +190,12 @@ describe("installation gateway provisioning", () => {
 		await ensureProviderInstallationGateway(context, installation);
 		// The snapshot is what went stale, so it is removed rather than refreshed.
 		expect(rows[0].metadata.mcpConfig.aggregateApps).toEqual([
-			{ slug: "provider-source", prefix: "vendor", readOnly: true },
+			{
+				appId: SOURCE_ID,
+				slug: "provider-source",
+				prefix: "vendor",
+				readOnly: true,
+			},
 		]);
 		expect(mocks.create).not.toHaveBeenCalled();
 
@@ -189,6 +209,40 @@ describe("installation gateway provisioning", () => {
 		expect(mocks.update.mock.calls.length).toBe(updatesAfterMigration);
 	});
 
+	it("keeps a gateway linked by id after the source app was renamed", async () => {
+		rows = [
+			{
+				id: "linked",
+				slug: "linked",
+				name: "Linked",
+				organizationId: "customer",
+				visibility: "private",
+				metadata: {
+					mcpConfig: {
+						descopeResourceId: "existing",
+						aggregateApps: [
+							{
+								appId: SOURCE_ID,
+								slug: "provider-source-old",
+								prefix: "vendor",
+								readOnly: true,
+							},
+						],
+					},
+				},
+			},
+		];
+		await ensureProviderInstallationGateway(context, installation);
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(rows[0].metadata.mcpConfig.aggregateApps).toEqual([
+			{
+				appId: SOURCE_ID,
+				slug: "provider-source",
+				prefix: "vendor",
+				readOnly: true,
+			},
+		]);
+	});
 	it("ignores malformed unrelated app configuration", async () => {
 		rows = [
 			{

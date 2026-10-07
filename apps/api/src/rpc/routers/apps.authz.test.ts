@@ -164,7 +164,7 @@ describe("tenant gateway membership", () => {
 			expect.anything(),
 			"org-1",
 			gatewayId,
-			"initech-org",
+			{ appId: APP_ID, slug: "initech-org" },
 			true,
 		);
 	});

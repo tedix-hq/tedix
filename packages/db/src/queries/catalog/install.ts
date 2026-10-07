@@ -5,6 +5,7 @@
 
 import { and, eq, isNull } from "drizzle-orm";
 import { apps } from "../../schema/index";
+import { aggregateAppLink } from "../aggregate-app-links";
 import { getCatalogAppById } from "./get-app";
 import {
 	type ConnectionScope,
@@ -158,7 +159,7 @@ export async function installFromCatalog(
 				...(effectiveConnectionScopes?.length
 					? { connectionScopes: effectiveConnectionScopes }
 					: {}),
-				aggregateApps: [{ slug: baseApp.slug }],
+				aggregateApps: [aggregateAppLink(baseApp)],
 			},
 		},
 		catalogAppId: catalogAppId,
