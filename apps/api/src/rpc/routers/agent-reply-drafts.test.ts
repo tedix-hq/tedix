@@ -32,6 +32,26 @@ import {
 	nextReplyDraftAttempt,
 } from "./agent-turn-triage";
 
+// A gate on the sessions read lets a test hold the prompt's reads open.
+const sessionsRead = vi.hoisted(() => ({
+	gate: null as Promise<void> | null,
+}));
+vi.mock("@tedix/db/queries/work-agent-sessions", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("@tedix/db/queries/work-agent-sessions")
+		>();
+	return {
+		...actual,
+		listWorkAgentSessions: async (
+			...args: Parameters<typeof actual.listWorkAgentSessions>
+		) => {
+			if (sessionsRead.gate) await sessionsRead.gate;
+			return actual.listWorkAgentSessions(...args);
+		},
+	};
+});
+
 // The direct reply-draft dispatch reuses the queue consumer's handler.
 const directDispatch = vi.hoisted(() => ({
 	handle: vi.fn(
@@ -293,7 +313,7 @@ describe("requestReplyDraft", () => {
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
 			conversationId: `reply-draft:${requestId}`,
-			source: "reply-draft:v4",
+			source: "reply-draft:v5",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);
 		const content = first.content as string;
@@ -308,15 +328,19 @@ describe("requestReplyDraft", () => {
 		expect(content).toContain(
 			`Linked Work Item ${WORK_ITEM_ID} [proposed, medium]: Ship drafts`,
 		);
-		expect(content).toContain("Make exactly one tool call");
-		expect(content).toContain("never run discover.search");
+		// The drafter's only tool is Code Mode: the prompt names it and the
+		// exact call, with this question's id filled in.
+		expect(content).toContain("Make exactly one tool call: tedix_mcp_code");
+		expect(content).toContain("Never ask a question, never answer in text");
+		expect(content).toContain("no discover.search");
 		expect(content).not.toContain("work.list_work_items");
 		expect(content).not.toContain("get_skills_for_mcp");
 		// Corrections and challenges always wait for the operator's review.
 		expect(content).toMatch(/corrects the agent[^.]*always reversible false/);
 		expect(content).toContain(
-			`agent.propose_agent_reply_draft with requestId "${requestId}"`,
+			`async () => await agent.propose_agent_reply_draft({ requestId: "${requestId}", body: "`,
 		);
+		expect(content).toContain(`turnType: "approval", reversible: true })`);
 		expect(content).not.toMatch(/\{\{\w+\}\}/);
 	});
 
@@ -528,6 +552,33 @@ describe("requestReplyDraft direct dispatch", () => {
 			idempotencyKey: `reply-draft:${requestId}`,
 		});
 		expect(f.send).not.toHaveBeenCalled();
+	});
+
+	it("answers before the prompt's reads finish", async () => {
+		directDispatch.handle.mockClear();
+		directDispatch.handle.mockResolvedValueOnce("ack");
+		let release = () => {};
+		sessionsRead.gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		try {
+			const f = fixture({ waitUntil: true });
+			await f.configure();
+			const requestId = f.question();
+			// The sessions read is still pending: the response must not wait on it.
+			await expect(f.target.requestReplyDraft({ requestId })).resolves.toEqual({
+				status: "queued",
+			});
+			expect(f.pending).toHaveLength(1);
+			expect(directDispatch.handle).not.toHaveBeenCalled();
+			release();
+			await Promise.all(f.pending);
+			expect(directDispatch.handle).toHaveBeenCalledTimes(1);
+			expect(f.send).not.toHaveBeenCalled();
+		} finally {
+			sessionsRead.gate = null;
+			release();
+		}
 	});
 
 	it("falls back to the queue when the direct dispatch fails", async () => {
@@ -1052,7 +1103,7 @@ describe("requestReplyDraft examples", () => {
 			content.indexOf("api refactor [working]"),
 		);
 		expect(content.indexOf(HEADER)).toBeLessThan(
-			content.indexOf("Your one tool call"),
+			content.indexOf("Your one action"),
 		);
 	});
 

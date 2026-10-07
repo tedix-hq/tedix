@@ -173,7 +173,11 @@ async function runHook(
 				if (codeAgent && args.at(-1) === "code") {
 					const callable = codeAgent[1]!;
 					expect(_timeout).toBe(
-						timeoutMs ?? (callable === "agent.triage_agent_turn" ? 6000 : 3000),
+						timeoutMs ??
+							(callable === "agent.triage_agent_turn" ||
+							callable === "agent.request_agent_reply_draft"
+								? 6000
+								: 3000),
 					);
 					const input = JSON.parse(codeAgent[2]!);
 					gatewayCalls.push([callable, input, args]);
