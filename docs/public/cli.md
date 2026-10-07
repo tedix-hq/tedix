@@ -112,6 +112,15 @@ Git marketplaces are refreshed through the host plugin manager. If a marketplace
 points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
+To teach Tedix from sessions you already had, run
+`tedix learn import-sessions --dry-run`, review the counts and samples, then run
+it without `--dry-run`. It reads your local Claude Code and Codex history and
+sends only redacted pairs of the agent's last message and your reply, never a
+whole transcript, to the organization each repository is bound to. Sessions
+outside a repository go to your default organization; anything else is
+skipped and counted. Re-running is safe. The pairs become personal lessons
+your later sessions receive.
+
 Plugin installation does not authorize Tedix access. Complete the OAuth flow
 in each host for the intended organization and scopes. Review the hooks in each
 host's `/hooks` view; Codex skips them until you trust them. CLI login and host MCP
