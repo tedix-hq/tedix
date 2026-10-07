@@ -1,3 +1,10 @@
+Tedix 0.2.0 — a version number no earlier release used.
+
+Claude Code caches a plugin by its version. Machines that had installed an
+earlier 0.1.x series kept those old files under the reused 0.1.0 and 0.1.1
+numbers, so they ran an old prompt hook or none. 0.2.0 ships the 0.1.1
+content under a new number, so every install refreshes.
+
 Tedix 0.1.1 — hooks stay silent without the Tedix CLI.
 
 Every local hook now exits immediately, with no output, when the `tedix`
