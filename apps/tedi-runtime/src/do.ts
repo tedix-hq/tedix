@@ -154,6 +154,7 @@ import {
 import { assertTediChatNotCanceled } from "./pi-recovery";
 
 import { createBrowserRuntime, type BrowserRuntime } from "agents/browser/ai";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import {
 	callRpc,
 	RpcCallError,
@@ -6970,10 +6971,16 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	private getBrowserRuntime(): BrowserRuntime {
 		if (this.browserRuntime) return this.browserRuntime;
+		const loader = this.env.LOADER;
 		this.browserRuntime = createBrowserRuntime({
 			ctx: this.ctx,
 			browser: this.env.BROWSER,
-			loader: this.env.LOADER,
+			loader: loader
+				? withDynamicWorkerLoaderDiagnostics(loader, {
+						surface: "tedi_browser_code",
+						reason: "tedi_browser_authored_invocation",
+					})
+				: loader,
 			name: "tedi-native-browser",
 			quickActions: { maxChars: 0 },
 			session: { mode: "dynamic" },

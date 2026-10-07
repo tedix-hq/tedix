@@ -934,3 +934,127 @@ console.log("workspace-fs.test.ts OK");
 	);
 	assert.equal(await ws.readFile(path), "");
 }
+
+// Use the REAL installed WorkerShellBackend through the owning VFS. Native
+// get and entrypoint primitives never execute shell code or external I/O.
+{
+	const events: Record<string, unknown>[] = [];
+	const originalLog = console.log;
+	const names: string[] = [];
+	const callbacks: Array<() => unknown> = [];
+	const workspaceIdentity = {
+		binding: "FICTIONAL_WORKSPACE",
+		id: "fictional-workspace",
+	};
+	const host = { fictional: true };
+	let proxyCalls = 0;
+	let entrypoints = 0;
+	let disposals = 0;
+	const ctx = {
+		exports: {
+			WorkspaceServiceProxy: ({ props }: { props: unknown }) => {
+				assert.deepEqual(props, workspaceIdentity);
+				proxyCalls++;
+				return host;
+			},
+		},
+	};
+	const entrypoint = {
+		[Symbol.dispose]() {
+			disposals++;
+		},
+	};
+	const stub = {
+		getEntrypoint(name: string) {
+			assert.equal(name, "ShellWorker");
+			entrypoints++;
+			return entrypoint;
+		},
+		dispose() {
+			disposals++;
+		},
+	};
+	const loader = {
+		load() {
+			throw new Error("shell must retain named get");
+		},
+		get(name: string, callback: () => unknown) {
+			assert.equal(this, loader);
+			names.push(name);
+			callbacks.push(callback);
+			return stub;
+		},
+	};
+	console.log = (value: unknown) => events.push(JSON.parse(String(value)));
+	try {
+		const workspace = createTediWorkspaceVfs(makeStorage(), {
+			execution: { ctx, loader, workspace: workspaceIdentity } as never,
+		});
+		assert.equal(events.length, 0);
+		assert.equal(proxyCalls, 0);
+		await workspace.ready("isolate");
+		assert.equal(names.length, 1);
+		assert.match(names[0]!, /^workspace-shell:fictional-workspace:/);
+		assert.equal(proxyCalls, 0);
+		const manifest = callbacks[0]!() as {
+			compatibilityFlags: unknown;
+			mainModule: string;
+			globalOutbound: unknown;
+			env: { HOST: unknown };
+			modules: Record<string, unknown>;
+		};
+		assert.equal(manifest instanceof Promise, false);
+		assert.deepEqual(manifest.compatibilityFlags, ["nodejs_compat"]);
+		assert.equal(manifest.mainModule, "shell.js");
+		assert.equal(manifest.globalOutbound, null);
+		assert.equal(manifest.env.HOST, host);
+		assert.equal(typeof manifest.modules["shell.js"], "object");
+		assert.equal(
+			typeof (manifest.modules["shell.js"] as { js: unknown }).js,
+			"string",
+		);
+		assert.equal(proxyCalls, 1);
+		await workspace.close();
+		await workspace.ready("isolate");
+		assert.equal(names.length, 2);
+		assert.equal(names[0], names[1]);
+		assert.equal(proxyCalls, 1);
+		assert.equal(entrypoints, 2);
+		await workspace.close();
+		assert.equal(disposals, 2);
+		assert.equal(events.length, 4);
+		for (const event of events) {
+			assert.deepEqual(Object.keys(event).sort(), [
+				"event",
+				"identity",
+				"method",
+				"phase",
+				"reason",
+				"surface",
+				"version",
+			]);
+			assert.equal(event.surface, "tedi_workspace_shell");
+			assert.equal(event.reason, "tedi_workspace_shell_invocation");
+			assert.equal(event.method, "get");
+			assert.equal(event.identity, "named");
+		}
+		assert.deepEqual(
+			events.map((event) => event.phase),
+			["attempted", "returned", "attempted", "returned"],
+		);
+		assert.equal(JSON.stringify(events).includes("fictional-workspace"), false);
+		assert.throws(
+			() =>
+				createTediWorkspaceVfs(makeStorage(), {
+					execution: { ctx, workspace: workspaceIdentity } as never,
+				}),
+			/requires/,
+		);
+		const local = createTediWorkspaceVfs(makeStorage());
+		await local.ready("isolate");
+		await local.close();
+		assert.equal(events.length, 4);
+	} finally {
+		console.log = originalLog;
+	}
+}

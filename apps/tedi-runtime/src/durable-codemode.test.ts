@@ -164,3 +164,140 @@ console.log("durable-codemode OK");
 		/owner-guarded rollback/,
 	);
 }
+
+// Capture the actual parent's options and construct the real installed browser
+// runtime. Its executor bridge uses only a primitive fictional entrypoint;
+// neither the browser binding nor a tenant facet executes.
+{
+	const bunTestModule = "bun:test";
+	const { mock } = await import(bunTestModule);
+	const { createBrowserRuntime } = await import("agents/browser/ai");
+	const { DynamicWorkerExecutor } = await import("@cloudflare/codemode");
+	const installedConstructor = createBrowserRuntime;
+	const captures: Parameters<typeof installedConstructor>[0][] = [];
+	const events: Record<string, unknown>[] = [];
+	const originalLog = console.log;
+	let browserCalls = 0;
+	let manifest: unknown;
+	let fail = false;
+	const nativeError = new Error("fictional native refusal");
+	const rawCallback = () => ({
+		compatibilityDate: "2026-06-17",
+		mainModule: "raw.js",
+		modules: {},
+	});
+	const entrypoint = {
+		evaluate: async () => ({ result: 7, logs: [] }),
+		[Symbol.dispose]() {},
+	};
+	const stub = { getEntrypoint: () => entrypoint, dispose() {} };
+	const loader = {
+		load(code: unknown) {
+			assert.equal(this, loader);
+			manifest = code;
+			if (fail) throw nativeError;
+			return stub;
+		},
+		get(name: unknown, callback: unknown) {
+			assert.equal(this, loader);
+			assert.equal(name, null);
+			assert.equal(callback, rawCallback);
+			return stub;
+		},
+	};
+	mock.module("agents/browser/ai", () => ({
+		createBrowserRuntime: (
+			options: Parameters<typeof installedConstructor>[0],
+		) => {
+			captures.push(options);
+			return installedConstructor(options);
+		},
+	}));
+	console.log = (value: unknown) => events.push(JSON.parse(String(value)));
+	try {
+		const ctx = {
+			exports: { CodemodeRuntime: class {} },
+			facets: { get: () => ({}) },
+		};
+		const browser = {
+			fetch() {
+				browserCalls++;
+				throw new Error("no browser execution");
+			},
+		};
+		const agent = tediDo({ ctx, env: { BROWSER: browser, LOADER: loader } });
+		const runtime = agent.getBrowserRuntime();
+		assert.equal(agent.getBrowserRuntime(), runtime);
+		assert.equal(captures.length, 1);
+		const options = captures[0]!;
+		assert.equal(options.ctx, agent.ctx);
+		assert.equal(options.browser, browser);
+		assert.equal(options.name, "tedi-native-browser");
+		assert.deepEqual(options.quickActions, { maxChars: 0 });
+		assert.deepEqual(options.session, { mode: "dynamic" });
+		assert.equal(events.length, 0);
+		const raw = {
+			compatibilityDate: "2026-06-17",
+			mainModule: "raw.js",
+			modules: {},
+			compatibilityFlags: ["nodejs_compat"],
+		};
+		assert.equal(options.loader!.load(raw), stub);
+		assert.equal(manifest, raw);
+		assert.equal(options.loader!.get(null, rawCallback), stub);
+		const executor = new DynamicWorkerExecutor({
+			loader: options.loader!,
+			timeout: 1000,
+		});
+		await executor.execute("async () => 7", []);
+		assert.deepEqual(
+			(manifest as { compatibilityFlags: unknown }).compatibilityFlags,
+			["nodejs_compat"],
+		);
+		assert.equal(
+			(manifest as unknown as { globalOutbound: unknown }).globalOutbound,
+			null,
+		);
+		fail = true;
+		assert.throws(
+			() => options.loader!.load(raw),
+			(error) => error === nativeError,
+		);
+		const missing = tediDo({ ctx, env: { BROWSER: browser } });
+		missing.getBrowserRuntime();
+		assert.equal(captures[1]!.loader, undefined);
+		assert.equal(browserCalls, 0);
+		assert.equal(events.length, 8);
+		for (const event of events) {
+			assert.deepEqual(Object.keys(event).sort(), [
+				"event",
+				"identity",
+				"method",
+				"phase",
+				"reason",
+				"surface",
+				"version",
+			]);
+			assert.equal(event.surface, "tedi_browser_code");
+			assert.equal(event.reason, "tedi_browser_authored_invocation");
+		}
+		assert.deepEqual(
+			events.map((event) => event.phase),
+			[
+				"attempted",
+				"returned",
+				"attempted",
+				"returned",
+				"attempted",
+				"returned",
+				"attempted",
+				"threw",
+			],
+		);
+	} finally {
+		console.log = originalLog;
+		mock.module("agents/browser/ai", () => ({
+			createBrowserRuntime: installedConstructor,
+		}));
+	}
+}

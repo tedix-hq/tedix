@@ -2,6 +2,7 @@ import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import {
 	MODEL_AUTHORED_CODE_FLAG,
+	withDynamicWorkerLoaderDiagnostics,
 	withModelAuthoredCodeIsolation,
 } from "./model-authored-code-loader";
 
@@ -329,7 +330,7 @@ describe("trusted native loader-call diagnostics", () => {
 	test("invalid extra/mismatched/getter labels omit events; mutable labels are captured", () => {
 		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
 		const stub = {} as WorkerStub;
-		const load = vi.fn(() => stub);
+		const load = vi.fn((_code: WorkerLoaderWorkerCode) => stub);
 		for (const label of [
 			Object.defineProperty({ ...host }, "private", { value: "secret" }),
 			{ ...host, [Symbol("extra")]: "secret" },
@@ -391,4 +392,258 @@ describe("trusted native loader-call diagnostics", () => {
 		expect(load).toHaveBeenCalledTimes(1);
 		expect(events(spy).map((e) => e.phase)).toEqual(["attempted", "returned"]);
 	});
+});
+
+const diagnosticPairs = [
+	{ surface: "tedi_browser_code", reason: "tedi_browser_authored_invocation" },
+	{
+		surface: "tedi_workspace_shell",
+		reason: "tedi_workspace_shell_invocation",
+	},
+] as const;
+
+describe("diagnostic-only native loader boundary", () => {
+	test.each([...hostPairs, ...diagnosticPairs])(
+		"exact raw native load/get and receiver, no construction events: $surface",
+		(pair) => {
+			const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const stub = {} as WorkerStub;
+			let loaded: WorkerLoaderWorkerCode | undefined;
+			let callback: unknown;
+			const native: WorkerLoader = {
+				load(code) {
+					expect(this).toBe(native);
+					loaded = code;
+					return stub;
+				},
+				get(name, getCode) {
+					expect(this).toBe(native);
+					expect(name).toBe("private-name");
+					callback = getCode;
+					return stub;
+				},
+			};
+			const wrapper = withDynamicWorkerLoaderDiagnostics(native, pair);
+			expect(spy).not.toHaveBeenCalled();
+			const getCode = vi.fn(() => baseCode);
+			expect(wrapper.load(baseCode)).toBe(stub);
+			expect(loaded).toBe(baseCode);
+			expect(wrapper.get("private-name", getCode)).toBe(stub);
+			expect(callback).toBe(getCode);
+			expect(getCode).not.toHaveBeenCalled();
+			expect(baseCode.compatibilityFlags).not.toContain(
+				MODEL_AUTHORED_CODE_FLAG,
+			);
+			expect(events(spy)).toEqual(
+				["load", "get"].flatMap((method) =>
+					["attempted", "returned"].map((phase) => ({
+						event: "tedix.dynamic_worker.loader_call",
+						version: 1,
+						...pair,
+						method,
+						identity: method === "get" ? "named" : "anonymous",
+						phase,
+					})),
+				),
+			);
+			for (const event of events(spy))
+				expect(Object.keys(event)).toEqual([
+					"event",
+					"version",
+					"surface",
+					"reason",
+					"method",
+					"identity",
+					"phase",
+				]);
+			expect(JSON.stringify(spy.mock.calls)).not.toContain("private-name");
+		},
+	);
+	test.each(diagnosticPairs)(
+		"new pair does not widen original isolation validator: $surface",
+		(pair) => {
+			const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+			let hardened: WorkerLoaderWorkerCode | undefined;
+			withModelAuthoredCodeIsolation(
+				{
+					load: (code) => {
+						hardened = code;
+						return {} as WorkerStub;
+					},
+					get: vi.fn(),
+				} as WorkerLoader,
+				pair as never,
+			).load(baseCode);
+			expect(spy).not.toHaveBeenCalled();
+			expect(hardened?.compatibilityFlags).toContain(MODEL_AUTHORED_CODE_FLAG);
+		},
+	);
+	test.each(diagnosticPairs)(
+		"raw manifests are never inspected or cloned: $surface",
+		(pair) => {
+			const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const code = {
+				...baseCode,
+				get compatibilityFlags(): string[] {
+					throw Error("must not inspect raw flags");
+				},
+			};
+			const load = vi.fn(() => ({}) as WorkerStub);
+			withDynamicWorkerLoaderDiagnostics(
+				{ load, get: vi.fn() } as WorkerLoader,
+				pair,
+			).load(code);
+			expect(load.mock.calls[0]?.[0]).toBe(code);
+			expect(events(spy).map((e) => e.phase)).toEqual([
+				"attempted",
+				"returned",
+			]);
+		},
+	);
+	test.each([null, "private-cache-key"])(
+		"get keeps original callback and null/name semantics: %s",
+		(name) => {
+			const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const failure = new Error("private later callback");
+			const callback = vi.fn(() => {
+				throw failure;
+			});
+			let captured!: typeof callback;
+			const stub = {} as WorkerStub;
+			const get: WorkerLoader["get"] = (key, cb) => {
+				expect(key).toBe(name);
+				captured = cb as typeof callback;
+				return stub;
+			};
+			const wrapped = withDynamicWorkerLoaderDiagnostics(
+				{ load: vi.fn(), get } as WorkerLoader,
+				diagnosticPairs[0],
+			);
+			expect(wrapped.get(name, callback)).toBe(stub);
+			expect(wrapped.get(name, callback)).toBe(stub);
+			expect(callback).not.toHaveBeenCalled();
+			expect(captured).toBe(callback);
+			try {
+				captured();
+				throw Error("expected callback failure");
+			} catch (e) {
+				expect(e).toBe(failure);
+			}
+			expect(events(spy).map((e) => [e.identity, e.phase])).toEqual(
+				["attempted", "returned", "attempted", "returned"].map((p) => [
+					name === null ? "anonymous" : "named",
+					p,
+				]),
+			);
+		},
+	);
+	test.each(["load", "get"] as const)(
+		"native %s synchronous error and sink errors preserve identity",
+		(method) => {
+			const failure = new Error("private native");
+			const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+			const native = {
+				load: () => {
+					throw failure;
+				},
+				get: () => {
+					throw failure;
+				},
+			} as WorkerLoader;
+			const wrapper = withDynamicWorkerLoaderDiagnostics(
+				native,
+				diagnosticPairs[1],
+			);
+			try {
+				if (method === "load") wrapper.load(baseCode);
+				else wrapper.get(null, () => baseCode);
+				throw Error("expected");
+			} catch (e) {
+				expect(e).toBe(failure);
+			}
+			expect(events(spy).map((e) => e.phase)).toEqual(["attempted", "threw"]);
+			spy.mockImplementation(() => {
+				throw Error("sink");
+			});
+			try {
+				if (method === "load") wrapper.load(baseCode);
+				else wrapper.get(null, () => baseCode);
+				throw Error("expected");
+			} catch (e) {
+				expect(e).toBe(failure);
+			}
+			const stub = {} as WorkerStub;
+			const success = withDynamicWorkerLoaderDiagnostics(
+				{ load: () => stub, get: () => stub } as WorkerLoader,
+				diagnosticPairs[1],
+			);
+			expect(success.load(baseCode)).toBe(stub);
+			expect(success.get(null, () => baseCode)).toBe(stub);
+		},
+	);
+	test("malformed labels omit events, snapshot getters once and caller mutation cannot rebind", () => {
+		const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const stub = {} as WorkerStub;
+		const native = { load: () => stub, get: () => stub } as WorkerLoader;
+		for (const pair of diagnosticPairs)
+			for (const label of [
+				Object.defineProperty({ ...pair }, "private", { value: "secret" }),
+				{ ...pair, [Symbol("extra")]: "secret" },
+				{ ...pair, reason: "wrong" },
+				{
+					get surface() {
+						throw Error("labels");
+					},
+					reason: pair.reason,
+				},
+			])
+				expect(
+					withDynamicWorkerLoaderDiagnostics(native, label as never).load(
+						baseCode,
+					),
+				).toBe(stub);
+		expect(spy).not.toHaveBeenCalled();
+		let reads = 0;
+		const pair = {
+			get surface() {
+				reads++;
+				return "tedi_browser_code" as const;
+			},
+			reason: "tedi_browser_authored_invocation" as const,
+		};
+		const wrapped = withDynamicWorkerLoaderDiagnostics(native, pair);
+		expect(reads).toBe(1);
+		Object.assign(pair, { reason: "private" });
+		wrapped.load(baseCode);
+		expect(events(spy)[0]).toMatchObject(diagnosticPairs[0]);
+		expect(JSON.stringify(spy.mock.calls)).not.toContain("secret");
+	});
+});
+
+test("get-only SDK loader remains get-only and later async callback failure is not native throw", async () => {
+	const error = new Error("fictional later callback failure");
+	const callback = async () => {
+		throw error;
+	};
+	const stub = {};
+	let captured: typeof callback | undefined;
+	const native = {
+		get(_name: string, getCode: () => unknown) {
+			expect(this).toBe(native);
+			captured = getCode as typeof callback;
+			return stub;
+		},
+	};
+	const log = vi.spyOn(console, "log").mockImplementation(() => {});
+	const wrapped = withDynamicWorkerLoaderDiagnostics(
+		native,
+		diagnosticPairs[1]!,
+	);
+	expect("load" in wrapped).toBe(false);
+	expect(wrapped.get("private-name", callback)).toBe(stub);
+	expect(captured).toBe(callback);
+	await expect(captured!()).rejects.toBe(error);
+	expect(
+		log.mock.calls.map(([value]) => JSON.parse(String(value)).phase),
+	).toEqual(["attempted", "returned"]);
 });
