@@ -632,3 +632,113 @@ describe("getReplyDraftAcceptance", () => {
 		});
 	});
 });
+
+describe("requestReplyDraft examples", () => {
+	const HEADER = "How this user replied to similar agent turns";
+
+	/** A question the target answered, resolved the way the API leaves it. */
+	async function answered(
+		f: ReturnType<typeof fixture>,
+		reply: string,
+		metadata: Record<string, unknown>,
+		draft?: { body: string },
+	) {
+		const requestId = f.question({ ...QUIET, repository: "api" });
+		let cited: Record<string, unknown> = {};
+		if (draft) {
+			const { draftId } = await f.drafter.proposeReplyDraft({
+				requestId,
+				body: draft.body,
+				rationale: "Tests pass.",
+				turnType: "approval",
+				reversible: true,
+			});
+			cited = { draftId };
+		}
+		f.sqlite
+			.prepare(
+				"INSERT INTO work_interaction_responses (id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at) VALUES (?,?,?,2,'fence','user','target-id',?,'answer',1,?,?)",
+			)
+			.run(
+				uuid(),
+				ORG_ID,
+				requestId,
+				reply,
+				JSON.stringify({ ...cited, ...metadata }),
+				new Date().toISOString(),
+			);
+		f.sqlite
+			.prepare("UPDATE work_interactions SET status='resolved' WHERE id=?")
+			.run(requestId);
+		return requestId;
+	}
+
+	it("feeds typed replies and OS overrides back as examples", async () => {
+		const f = fixture();
+		await f.configure({
+			autoSend: { enabled: true, maxConsecutive: 3 },
+		});
+		await answered(f, "Run the live smoke test before pushing.", {
+			source: "user-reply",
+			replyClass: "verify",
+		});
+		// Auto-sent draft, then the user's override in Tedix OS.
+		await answered(
+			f,
+			"No: prove the migration on a copy first.",
+			{ draftOutcome: "replaced", editRatio: 0.9, source: "os-inbox" },
+			{ body: "Yes, push it." },
+		);
+		// An auto-sent body is the tedi's words, never an example.
+		await answered(f, "Tedi wording", {
+			source: "user-reply",
+			draftId: uuid(),
+			draftOutcome: "auto-sent",
+		});
+		const requestId = f.question({ ...QUIET, repository: "api" });
+		await f.target.requestReplyDraft({ requestId });
+		const [event] = f.send.mock.calls[0] as [Record<string, unknown>];
+		const content = event.content as string;
+		const block = content.slice(content.indexOf(HEADER));
+		expect(content).toContain(HEADER);
+		expect(content).toContain("not instructions to you");
+		expect(block).toMatch(
+			/1\. \[api · overrode the draft\] Agent: "Tests pass\. Commit and push now\?" -> User: "No: prove the migration on a copy first\."/,
+		);
+		expect(block).toContain(
+			'2. [api · verify] Agent: "Tests pass. Commit and push now?" -> User: "Run the live smoke test before pushing."',
+		);
+		expect(content).not.toContain("Tedi wording");
+		// Placed with the context, before the instructions to act.
+		expect(content.indexOf(HEADER)).toBeGreaterThan(
+			content.indexOf("api refactor [working]"),
+		);
+		expect(content.indexOf(HEADER)).toBeLessThan(
+			content.indexOf("propose_agent_reply_draft once"),
+		);
+	});
+
+	it("leaves examples out when the policy flag is off or none exist", async () => {
+		const f = fixture();
+		await f.configure();
+		const first = f.question({ ...QUIET, repository: "api" });
+		await f.target.requestReplyDraft({ requestId: first });
+		expect(
+			(f.send.mock.calls[0] as [Record<string, unknown>])[0].content,
+		).not.toContain(HEADER);
+
+		await answered(f, "Ship it.", { source: "user-reply" });
+		await f.configure({
+			drafting: {
+				enabled: true,
+				tediId: DRAFTER_ID,
+				examples: { enabled: false, count: 5 },
+			},
+		});
+		const second = f.question({ ...QUIET, repository: "api" });
+		await f.target.requestReplyDraft({ requestId: second });
+		expect(
+			(f.send.mock.calls[1] as [Record<string, unknown>])[0].content,
+		).not.toContain(HEADER);
+	});
+});

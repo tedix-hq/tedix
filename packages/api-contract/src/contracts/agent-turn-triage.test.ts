@@ -35,7 +35,20 @@ describe("agentTurnTriageContract", () => {
 			version: 3,
 			questions: [question],
 		});
-		expect(stored.drafting).toEqual({ enabled: false });
+		expect(stored.drafting).toEqual({
+			enabled: false,
+			examples: { enabled: true, count: 5 },
+		});
+		// A stored drafting block without examples gets the defaults.
+		expect(
+			AgentTurnTriagePolicySchema.parse({
+				enabled: true,
+				model: "@cf/cloudflare/clef-flash",
+				version: 3,
+				questions: [question],
+				drafting: { enabled: true },
+			}).drafting.examples,
+		).toEqual({ enabled: true, count: 5 });
 		expect(stored.eligibility).toEqual({ minRate: 0.9, minDrafts: 50 });
 		expect(stored.autoSend).toEqual({ enabled: false, maxConsecutive: 3 });
 		const base = {
@@ -47,6 +60,12 @@ describe("agentTurnTriageContract", () => {
 			AgentTurnTriagePolicyInputSchema.safeParse({
 				...base,
 				drafting: { enabled: true, tediId: "not-a-uuid" },
+			}).success,
+		).toBe(false);
+		expect(
+			AgentTurnTriagePolicyInputSchema.safeParse({
+				...base,
+				drafting: { enabled: true, examples: { enabled: true, count: 0 } },
 			}).success,
 		).toBe(false);
 		expect(
