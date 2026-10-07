@@ -374,14 +374,14 @@ handler's query rarely helps. The per-request D1 session uses
 
 ## Extraction Configuration
 
-`packages/api-contract/src/schemas/extraction-config.ts` owns stored fields;
-`apps/api/src/services/default-extraction-configs.ts` resolves D1 instructions
-and vertical defaults. Unsupported options are rejected on write, read, and
+`packages/api-contract/src/schemas/extraction-config.ts` owns the stored
+`extractionConfig` fields on app metadata and templates. The Firecrawl item
+extraction workflow is retired; the import workflow still reads
+`extractionConfig.fieldMappings`. Unsupported options are rejected on write, read, and
 template application — never silently stripped. Template application
 substitutes `{siteContext}` and validates the merged result before writing.
-`quality.minScore` controls the low-score warning (default 0.7), not rejection;
-`rejectIncomplete` with `requiredFields` filters incomplete items.
-`stopConditions` limits are prompt instructions, not local counters.
+No runtime consumes the other extraction fields (agent, prompt, schema,
+quality and stop conditions) any more.
 
 ## Known Issue: Middleware Type Inference
 

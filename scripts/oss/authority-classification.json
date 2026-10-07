@@ -2572,13 +2572,6 @@
 		{
 			"kind": "webhook",
 			"sourcePath": "apps/api/src/worker-app.ts",
-			"identifier": "POST /webhooks/firecrawl",
-			"category": "tenant-product",
-			"rationale": "Firecrawl completion resumes tenant content extraction workflows."
-		},
-		{
-			"kind": "webhook",
-			"sourcePath": "apps/api/src/worker-app.ts",
 			"identifier": "POST /webhooks/stripe",
 			"category": "fleet-commercial",
 			"rationale": "Live Stripe events mutate commercial subscription and settlement state."
@@ -2652,13 +2645,6 @@
 			"identifier": "CONTENT_SYNC_WORKFLOW:ContentSyncWorkflow",
 			"category": "tenant-product",
 			"rationale": "Content synchronization maintains tenant-owned product content."
-		},
-		{
-			"kind": "workflow",
-			"sourcePath": "apps/api/wrangler.jsonc",
-			"identifier": "EXTRACTION_WORKFLOW:ExtractionWorkflow",
-			"category": "tenant-product",
-			"rationale": "Extraction produces tenant-owned content and evidence."
 		},
 		{
 			"kind": "workflow",

@@ -33,28 +33,19 @@ server implementation tree.
 Routes are registered in [src/worker-app.ts](src/worker-app.ts). Authentication
 and authorization are specific to each procedure or endpoint.
 
-| Path                                                                                          | Purpose                                                |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `/rpc/*`                                                                                      | oRPC procedures used by Tedix clients and Workers      |
-| `/v1/*`                                                                                       | Explicitly published REST operations, a subset of RPC  |
-| `/openapi.json`, `/docs`                                                                      | Public REST specification and API reference UI         |
-| `/health`                                                                                     | Worker health and revision metadata                    |
-| `/kernel/ws-token`                                                                            | Scoped token issuance for kernel voice                 |
-| `/kernel/voice/*`                                                                             | Home voice transport and transcription                 |
-| `/webhooks/firecrawl`, `/webhooks/descope/audit`, `/webhooks/stripe`, `/webhooks/stripe/test` | Provider callbacks with endpoint-specific verification |
+| Path                                                                   | Purpose                                                |
+| ---------------------------------------------------------------------- | ------------------------------------------------------ |
+| `/rpc/*`                                                               | oRPC procedures used by Tedix clients and Workers      |
+| `/v1/*`                                                                | Explicitly published REST operations, a subset of RPC  |
+| `/openapi.json`, `/docs`                                               | Public REST specification and API reference UI         |
+| `/health`                                                              | Worker health and revision metadata                    |
+| `/kernel/ws-token`                                                     | Scoped token issuance for kernel voice                 |
+| `/kernel/voice/*`                                                      | Home voice transport and transcription                 |
+| `/webhooks/descope/audit`, `/webhooks/stripe`, `/webhooks/stripe/test` | Provider callbacks with endpoint-specific verification |
 
 Media, artifact, export, sharing, and branding endpoints also live in the route
 registration file. The REST operation inventory is
 [src/rpc/public-rest-operations.ts](src/rpc/public-rest-operations.ts).
-
-## Extraction
-
-The `workflows.startExtraction` procedure starts
-[ExtractionWorkflow](src/workflows/extraction-workflow.ts). It loads the app's
-D1 extraction configuration, submits a Firecrawl `/v2/agent` job, waits for a
-verified webhook event, normalizes the result, and persists items. The API also
-uses Firecrawl's single-page scrape and browser-session clients for other
-workloads; those do not replace the durable extraction workflow.
 
 ## Development and validation
 
@@ -80,7 +71,6 @@ and the [self-hosted boundary](../../docs/public/self-hosted-boundary.md).
 ## References
 
 - [Cloudflare architecture](../../docs/public/cloudflare-architecture.md)
-- [Firecrawl webhook implementation](src/webhooks/firecrawl.ts)
 - [Getting started](../../docs/public/getting-started.md)
 - [Agent operating rules](AGENTS.md)
 
