@@ -276,15 +276,22 @@ function chatIdentity(options?: AgentContextOptions): string | undefined {
 	if (options?.sessionId === null) return undefined;
 	if (options?.sessionId !== undefined) {
 		if (!looksLikeUuid(options.sessionId))
-			throw new Error("--session requires a full Codex chat UUID");
+			throw new Error("--session requires a full chat UUID");
 		return options.sessionId.toLowerCase();
 	}
-	const ids = [process.env.CODEX_SESSION_ID, process.env.CODEX_THREAD_ID]
+	// One chat per process: a Codex chat id and a Claude Code session id that
+	// disagree mean the environment leaked from another host, so fail closed.
+	const ids = [
+		process.env.CODEX_SESSION_ID,
+		process.env.CODEX_THREAD_ID,
+		process.env.CLAUDE_CODE_SESSION_ID,
+	]
+		.map((id) => id?.trim())
 		.filter((id): id is string => Boolean(id))
 		.map((id) => id.toLowerCase());
 	if (ids.some((id) => !looksLikeUuid(id)) || new Set(ids).size > 1)
 		throw new Error(
-			"Codex chat identity is invalid or conflicting; verify the current chat before selecting context",
+			"Chat identity is invalid or conflicting; verify the current chat before selecting context",
 		);
 	return ids[0];
 }
@@ -298,7 +305,7 @@ function chatBinding(
 	if (!rows.length) return { binding };
 	if (!sessionId)
 		throw new Error(
-			"Chat-scoped context requires the current Codex chat identity; no checkout selection was inherited",
+			"Chat-scoped context requires the current chat identity (Codex chat or Claude Code session); no checkout selection was inherited",
 		);
 	const matches = rows.filter(
 		(row) => row.sessionId.toLowerCase() === sessionId,
@@ -533,7 +540,7 @@ export function changeAgentContext(
 				throw new Error("This repository is not bound; use context bind first");
 			if (!sessionId || !repo.branch)
 				throw new Error(
-					"connect requires a Codex chat identity and named branch",
+					"connect requires a chat identity (Codex chat or Claude Code session) and named branch",
 				);
 			if (binding.origin !== repo.origin)
 				throw new Error(
@@ -701,7 +708,7 @@ export function changeAgentContext(
 				};
 			} else if (original.chats?.some((row) => row.root === repo.root)) {
 				throw new Error(
-					"Chat-scoped context requires --session or the current Codex chat identity",
+					"Chat-scoped context requires --session or the current chat identity (Codex chat or Claude Code session)",
 				);
 			}
 			checkedBinding(binding, repo, options);
@@ -802,8 +809,8 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context unbind
 
 Run in the repository, or pass --directory <path>. Select/clear/connect-output/
-disconnect-output/show accept --session <Codex chat UUID>; Codex chat environment
-identity is used automatically. Connect profiles require an exact consent-selected
+disconnect-output/show accept --session <chat UUID>; the Codex chat or Claude Code
+session identity in the environment is used automatically. Connect profiles require an exact consent-selected
 organization ID from auth status. connect pins the profile, organization and project
 for this chat only; it does not retarget the repository or sibling chats. Clear Work
 and disconnect-output before changing a chat target. Live ownership is checked by

@@ -1,3 +1,4 @@
+import { hostname, userInfo } from "node:os";
 import {
 	type ExternalAgentSessionExchangeOutput,
 	ExternalAgentSessionExchangeOutputSchema,
@@ -90,6 +91,42 @@ interface StartExternalAgentOptions {
 	sessionExchangeTimeoutMs?: number;
 	listWorkspaces?: () => Promise<AvailableWorkspace[]>;
 	createClient?: GatewayClientFactory;
+	/** Receives non-fatal notices, such as an ignored --agent-key. Defaults to stderr. */
+	notice?: (message: string) => void;
+}
+
+/**
+ * A profile's principal is shared by every harness session on this machine, so
+ * it is named for the machine and user. Naming it after the first agent that
+ * bootstrapped it made every later Claude or Codex session look borrowed.
+ */
+export function defaultLocalPrincipal(
+	user: string = safeUsername(),
+	host: string = hostname(),
+): { key: string; displayName: string } {
+	const part = (value: string) =>
+		value
+			.toLowerCase()
+			.replace(/\.local$/, "")
+			.replace(/[^a-z0-9_-]+/g, "-")
+			.replace(/^-+|-+$/g, "");
+	const key = ["local", part(user), part(host)]
+		.filter(Boolean)
+		.join("-")
+		.slice(0, 120)
+		.replace(/-+$/, "");
+	return {
+		key,
+		displayName: `Local coding agents (${user || "user"}@${host || "machine"})`,
+	};
+}
+
+function safeUsername(): string {
+	try {
+		return userInfo().username;
+	} catch {
+		return process.env.USER ?? process.env.USERNAME ?? "";
+	}
 }
 
 interface SessionExchangeOptions {
@@ -522,9 +559,11 @@ async function startExternalAgentSessionLocked(
 			}
 		}
 	}
+	// Every harness session on a profile shares its principal and still gets its
+	// own Agent-Session, so a different --agent-key is not a reason to fail.
 	if (profile && options.agentKey && profile.key !== options.agentKey.trim()) {
-		throw new Error(
-			`Workspace "${options.workspace}" is already bound to external-agent principal "${profile.key}".`,
+		(options.notice ?? ((message) => console.error(message)))(
+			`Notice: workspace "${options.workspace}" already uses external-agent principal "${profile.key}"; --agent-key "${options.agentKey.trim()}" was ignored. This run still gets its own Agent-Session.`,
 		);
 	}
 	// Scopes are fixed when the principal is bootstrapped: the block below seeds
@@ -545,13 +584,9 @@ async function startExternalAgentSessionLocked(
 		}
 	}
 	if (!profile) {
-		const agentKey = options.agentKey?.trim();
-		const displayName = options.displayName?.trim();
-		if (!agentKey || !displayName) {
-			throw new Error(
-				"First-time setup requires --agent-key and --display-name.",
-			);
-		}
+		const local = defaultLocalPrincipal();
+		const agentKey = options.agentKey?.trim() || local.key;
+		const displayName = options.displayName?.trim() || local.displayName;
 		if (!/^[a-z0-9][a-z0-9_-]{0,119}$/i.test(agentKey)) {
 			throw new Error(
 				"--agent-key must be 1-120 letters, digits, underscores, or hyphens.",

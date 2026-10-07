@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	changeAgentContext,
@@ -10,6 +10,17 @@ import {
 	runAgentContext,
 } from "./agent-context";
 import { writeWorkspaceCredentials } from "./credential-store";
+
+// These tests drive chat identity explicitly; a host session id from the
+// harness running them must not leak in.
+const hostClaudeSession = process.env.CLAUDE_CODE_SESSION_ID;
+beforeAll(() => {
+	delete process.env.CLAUDE_CODE_SESSION_ID;
+});
+afterAll(() => {
+	if (hostClaudeSession !== undefined)
+		process.env.CLAUDE_CODE_SESSION_ID = hostClaudeSession;
+});
 
 const PROJECT = "b63b48b5-3c12-49b4-b508-d7a407676c12";
 const WORK = "4faadb1d-dfb5-4930-84d4-39bda2160c46";
@@ -815,4 +826,42 @@ describe("shared Connect context targets", () => {
 			runAgentContext(["show", "--organization", "org_tedix"], opts),
 		).toThrow("applies only");
 	});
+});
+
+test("Claude Code session id selects chat context and conflicts with a different Codex chat", () => {
+	const { opts } = fixture();
+	bind(opts);
+	const saved = {
+		claude: process.env.CLAUDE_CODE_SESSION_ID,
+		thread: process.env.CODEX_THREAD_ID,
+		session: process.env.CODEX_SESSION_ID,
+	};
+	const claude = "3a7952ab-c045-4521-830c-be30b0b69c03";
+	const automatic = { cwd: opts.cwd, configDir: opts.configDir };
+	try {
+		delete process.env.CODEX_THREAD_ID;
+		delete process.env.CODEX_SESSION_ID;
+		process.env.CLAUDE_CODE_SESSION_ID = claude.toUpperCase();
+		changeAgentContext("select", { workItemId: WORK }, automatic);
+		expect(resolveAgentContext(automatic)).toMatchObject({
+			contextSessionId: claude,
+			workItemId: WORK,
+			contextSource: "chat",
+		});
+		// The same checkout seen from a Codex chat does not inherit the selection.
+		delete process.env.CLAUDE_CODE_SESSION_ID;
+		process.env.CODEX_THREAD_ID = "01a0eee2-147e-7493-9c14-e11a4d6d598d";
+		expect(resolveAgentContext(automatic).workItemId).toBeUndefined();
+		process.env.CLAUDE_CODE_SESSION_ID = claude;
+		expect(resolveAgentContext(automatic).status).toBe("invalid");
+	} finally {
+		for (const [name, value] of [
+			["CLAUDE_CODE_SESSION_ID", saved.claude],
+			["CODEX_THREAD_ID", saved.thread],
+			["CODEX_SESSION_ID", saved.session],
+		] as const) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+	}
 });
