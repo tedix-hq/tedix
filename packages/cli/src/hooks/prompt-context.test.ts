@@ -187,6 +187,76 @@ describe("tedix hooks prompt-context", () => {
 		expect(calls).toHaveLength(1);
 	});
 
+	test("a forbidden lessons document leaves preferences injected", async () => {
+		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
+		const binding = {
+			...BINDING,
+			preferencesWorkspaceId: WORKSPACE,
+			preferencesOutputId: OUTPUT,
+			lessonsWorkspaceId: WORKSPACE,
+			lessonsOutputId: lessonsOutput,
+		};
+		// The gateway source itself catches the per-document failure.
+		const project = new Function(
+			"os",
+			"work",
+			`return (${gatewayCode(binding)})();`,
+		) as (os: unknown, work: unknown) => Promise<JsonObject>;
+		const data = await project(
+			{
+				get_os_workspace: async () => ({ workspace: DATA.shared.workspace }),
+				get_os_output: async ({ outputId }: { outputId: string }) => {
+					if (outputId === lessonsOutput)
+						throw new Error("FORBIDDEN: Output source access is unavailable");
+					return {
+						output: DATA.shared.output,
+						currentRevision: {
+							...DATA.shared.revision,
+							content: {
+								kind: "document",
+								blocks: [
+									{ type: "paragraph", text: "Use simple user stories." },
+								],
+							},
+						},
+					};
+				},
+			},
+			{},
+		);
+		expect(data.lessons).toEqual({ unavailable: true });
+		const { out } = await run([binding, AUTH, data]);
+		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
+		expect(text).toContain("Working preferences: Output=");
+		expect(text).toContain("simple user stories");
+		expect(text).toContain(
+			`Team lessons unavailable: Output=${lessonsOutput} could not be read this turn.`,
+		);
+		expect(text).not.toContain("FORBIDDEN");
+		expect(text).not.toContain("Tedix shared context unavailable");
+		// A forbidden Work read is named the same way.
+		const withWork = await run([
+			{ ...binding, workItemId: WORK },
+			AUTH,
+			{ ...data, work: { unavailable: true } },
+		]);
+		expect(withWork.out).toContain(`Selected Work=${WORK} unavailable`);
+		expect(withWork.out).toContain("simple user stories");
+		// Every selected source unreadable keeps the single unavailable message.
+		const none = await run([
+			{ ...binding, workItemId: WORK },
+			AUTH,
+			{
+				shared: { unavailable: true },
+				preferences: { unavailable: true },
+				lessons: { unavailable: true },
+				work: { unavailable: true },
+			},
+		]);
+		expect(none.out).toContain("Tedix shared context unavailable");
+		expect(none.out).not.toContain("Working preferences");
+	});
+
 	test("lessons alone make a chat targeted and stay under the byte cap", async () => {
 		const lessonsOutput = "99999999-9999-4999-8999-999999999999";
 		const binding = {
@@ -495,12 +565,11 @@ describe("tedix hooks prompt-context", () => {
 			};
 			const valid =
 				Array.isArray(blocks) && (blocks.length === 0 || blocks.length === 2);
-			const result = await project(os).then(
-				(value) => value,
-				() => undefined,
-			);
-			expect(result !== undefined).toBe(valid);
-			if (result) {
+			const result = await project(os);
+			// A malformed document is reported unavailable without its body.
+			expect(result.shared.unavailable === true).toBe(!valid);
+			if (!valid) expect(JSON.stringify(result)).not.toContain("secret");
+			if (valid) {
 				expect(result.shared.blocksValid).toBe(true);
 				expect(result.shared.text).toBe(
 					(blocks as unknown[]).length ? "first\nsecond\nthird" : "",
