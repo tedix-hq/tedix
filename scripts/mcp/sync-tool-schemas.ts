@@ -96,6 +96,63 @@ export const REQUIRED_PROJECTION_ENDPOINTS = [
 
 export const READER_RAW_BYTE_LIMIT = 8_388_608;
 export const READER_DEADLINE_MS = 30_000;
+/** Per-stream tail kept for refusal diagnostics; bounded and redacted before printing. */
+export const READER_DIAGNOSTIC_TAIL_CHARS = 2_000;
+
+/**
+ * A refusal carries a fixed stage message plus an optional cause (exit status,
+ * redacted child output tail) so a failed deploy step says what went wrong.
+ * The message stays fixed; only `main` prints the cause, after redaction.
+ */
+export class ReaderRefusal extends Error {
+	constructor(
+		stage: string,
+		readonly detail?: string,
+	) {
+		super(`Schema reader refused: ${stage}.`);
+		this.name = "ReaderRefusal";
+	}
+}
+
+const ANSI_ESCAPE = new RegExp(
+	`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`,
+	"g",
+);
+const SECRET_ENV_NAME =
+	/TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|API_KEY|PRIVATE_KEY|_KEY$/i;
+/** Strip control characters, mask secret-named env values and bearer tokens, keep the tail. */
+export function redactDiagnostic(
+	text: string,
+	env: Readonly<Record<string, string | undefined>> = {},
+	limit = READER_DIAGNOSTIC_TAIL_CHARS,
+): string {
+	let out = text;
+	const secrets = Object.entries(env)
+		.filter(
+			(entry): entry is [string, string] =>
+				SECRET_ENV_NAME.test(entry[0]) &&
+				typeof entry[1] === "string" &&
+				entry[1].length >= 8,
+		)
+		.sort((a, b) => b[1].length - a[1].length);
+	for (const [name, value] of secrets)
+		out = out.split(value).join(`[redacted ${name}]`);
+	out = Array.from(
+		out
+			.replace(ANSI_ESCAPE, "")
+			.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]"),
+		// Drop control characters (and CR) except newline and tab.
+		(char) => {
+			const code = char.charCodeAt(0);
+			return (code < 32 && code !== 9 && code !== 10) || code === 127
+				? ""
+				: char;
+		},
+	)
+		.join("")
+		.trim();
+	return out.length > limit ? `…${out.slice(out.length - limit)}` : out;
+}
 
 export interface ReaderChild {
 	readonly pid?: number;
@@ -123,6 +180,8 @@ export interface ReaderIo {
 	killGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void;
 	log(line: string): void;
 	error(line: string): void;
+	/** Environment whose secret-named values are masked from printed causes. */
+	readonly env?: Readonly<Record<string, string | undefined>>;
 }
 export interface ReaderScope {
 	readonly signal: AbortSignal | undefined;
@@ -130,7 +189,7 @@ export interface ReaderScope {
 	check(): void;
 	remaining(): number;
 	charge(bytes: number): void;
-	fail(stage: string): Error;
+	fail(stage: string, detail?: string): Error;
 }
 
 /** One original monotonic deadline and shared budget, private from its callers. */
@@ -144,8 +203,8 @@ export function createReaderScope(
 	let last = start;
 	let bytes = 0;
 	let terminal: Error | undefined;
-	const fail = (stage: string) => {
-		terminal ??= new Error(`Schema reader refused: ${stage}.`);
+	const fail = (stage: string, detail?: string) => {
+		terminal ??= new ReaderRefusal(stage, detail);
 		return terminal;
 	};
 	const check = () => {
@@ -157,7 +216,10 @@ export function createReaderScope(
 			current < last ||
 			current >= deadline
 		)
-			throw fail("deadline");
+			throw fail(
+				"deadline",
+				`${READER_DEADLINE_MS} ms reader deadline reached after ${Math.round(current - start)} ms`,
+			);
 		last = current;
 		if (signal?.aborted) throw fail("aborted");
 	};
@@ -197,8 +259,10 @@ export function resolveInstalledReaderTools(
 	root: string,
 	files: ToolFiles,
 ): ReaderTools {
+	let step = "realpath node_modules/wrangler";
 	try {
 		const packageRoot = files.realpath(join(root, "node_modules/wrangler"));
+		step = "wrangler package.json name/bin";
 		const pkg = JSON.parse(files.read(join(packageRoot, "package.json"))) as {
 			name?: string;
 			bin?: { wrangler?: string };
@@ -206,8 +270,10 @@ export function resolveInstalledReaderTools(
 		if (pkg.name !== "wrangler" || pkg.bin?.wrangler !== "./bin/wrangler.js")
 			throw new Error();
 		const expected = join(packageRoot, "bin/wrangler.js");
+		step = "node_modules/.bin/wrangler resolves to the package entry";
 		const wrangler = files.realpath(join(root, "node_modules/.bin/wrangler"));
 		if (wrangler !== expected || !files.isFile(wrangler)) throw new Error();
+		step = "executable node on PATH";
 		const candidate = files.findNode();
 		if (!candidate) throw new Error();
 		const node = files.realpath(candidate);
@@ -217,8 +283,12 @@ export function resolveInstalledReaderTools(
 			wrangler,
 			config: join(root, "apps/api/wrangler.jsonc"),
 		});
-	} catch {
-		throw new Error("Schema reader refused: installed tools.");
+	} catch (failure) {
+		const code = (failure as NodeJS.ErrnoException)?.code;
+		throw new ReaderRefusal(
+			"installed tools",
+			`failed check: ${step}${typeof code === "string" ? ` (${code})` : ""}`,
+		);
 	}
 }
 
@@ -262,7 +332,24 @@ function productionIo(): ReaderIo {
 		},
 		log: (line) => console.log(line),
 		error: (line) => console.error(line),
+		env: process.env,
 	};
+}
+
+/** Executable basename plus subcommand words; never SQL or other argument values. */
+function commandLabel(argv: readonly string[]): string {
+	const executable = (path: string) => path.split("/").pop() ?? path;
+	return [
+		...argv.slice(0, 2).map(executable),
+		...argv.slice(2, 4).filter((arg) => /^[a-z][a-z0-9-]*$/i.test(arg)),
+	].join(" ");
+}
+
+/** A failure's errno code or name/message only, for a later redacted cause line. */
+function errorCause(failure: unknown): string {
+	if (!(failure instanceof Error)) return "non-Error failure";
+	const code = (failure as NodeJS.ErrnoException).code;
+	return `${typeof code === "string" ? `${code}: ` : ""}${failure.name}: ${failure.message}`;
 }
 
 /** Streams drain concurrently; success needs both EOFs and the owned close status. */
@@ -282,8 +369,8 @@ function collectCommand(
 		let child: ReaderChild;
 		try {
 			child = spawnChild(command);
-		} catch {
-			reject(scope.fail("spawn"));
+		} catch (failure) {
+			reject(scope.fail("spawn", errorCause(failure)));
 			return;
 		}
 		const pid = child.pid;
@@ -292,16 +379,32 @@ function collectCommand(
 		let stdoutEnd = false;
 		let stderrEnd = false;
 		const chunks: string[] = [];
+		// Bounded rolling tail of stderr, only ever printed (redacted) on refusal.
+		let stderrTail = "";
+		const keepTail = (text: string) => {
+			stderrTail = (stderrTail + text).slice(-READER_DIAGNOSTIC_TAIL_CHARS);
+		};
+		const exitDetail = (code: number | null, signal: string | null) => {
+			const stdoutTail = chunks.join("").slice(-READER_DIAGNOSTIC_TAIL_CHARS);
+			return [
+				`\`${commandLabel(command)}\` exited with code ${code ?? "none"}, signal ${signal ?? "none"}` +
+					(stdoutEnd && stderrEnd
+						? ""
+						: `; streams ended: stdout=${stdoutEnd} stderr=${stderrEnd}`),
+				stderrTail.trim() ? `stderr tail:\n${stderrTail}` : "stderr: (empty)",
+				stdoutTail.trim() ? `stdout tail:\n${stdoutTail}` : "stdout: (empty)",
+			].join("\n");
+		};
 		const outDecoder = new TextDecoder("utf-8", { fatal: true });
 		const errDecoder = new TextDecoder("utf-8", { fatal: true });
 		const cleanup = () => {
 			clearTimer(timer);
 			scope.signal?.removeEventListener("abort", onAbort);
 		};
-		const refuse = (stage: string) => {
+		const refuse = (stage: string, detail?: string) => {
 			if (terminal) return;
 			terminal = true;
-			let error = scope.fail(stage);
+			let error = scope.fail(stage, detail);
 			cleanup();
 			chunks.length = 0;
 			child.stdout.destroy();
@@ -318,7 +421,10 @@ function collectCommand(
 					}
 				}
 				if (!confirmed)
-					error = new Error("Schema reader refused: cancellation unconfirmed.");
+					error = new ReaderRefusal(
+						"cancellation unconfirmed",
+						(error as ReaderRefusal).detail,
+					);
 			}
 			reject(error);
 		};
@@ -330,15 +436,22 @@ function collectCommand(
 				scope.charge(chunk.byteLength);
 				const decoded = decoder.decode(chunk, { stream: true });
 				if (keep) chunks.push(decoded);
+				else keepTail(decoded);
 			} catch {
 				refuse("stream or byte budget");
 			}
 		};
 		child.stdout.on("data", (chunk: unknown) => read(chunk, outDecoder, true));
 		child.stderr.on("data", (chunk: unknown) => read(chunk, errDecoder, false));
-		child.stdout.on("error", () => refuse("stdout"));
-		child.stderr.on("error", () => refuse("stderr"));
-		child.on("error", () => refuse("spawn"));
+		child.stdout.on("error", (failure) =>
+			refuse("stdout", errorCause(failure)),
+		);
+		child.stderr.on("error", (failure) =>
+			refuse("stderr", errorCause(failure)),
+		);
+		child.on("error", (failure) =>
+			refuse("spawn", `\`${commandLabel(command)}\`: ${errorCause(failure)}`),
+		);
 		child.stdout.on("end", () => {
 			if (terminal) return;
 			try {
@@ -353,7 +466,7 @@ function collectCommand(
 			if (terminal) return;
 			try {
 				scope.check();
-				errDecoder.decode();
+				keepTail(errDecoder.decode());
 				stderrEnd = true;
 			} catch {
 				refuse("stderr UTF8 or deadline");
@@ -364,7 +477,10 @@ function collectCommand(
 			try {
 				scope.check();
 				if (code !== 0 || signal !== null || !stdoutEnd || !stderrEnd) {
-					refuse("child status or incomplete streams");
+					refuse(
+						"child status or incomplete streams",
+						exitDetail(code, signal),
+					);
 					return;
 				}
 				const output = chunks.join("");
@@ -620,7 +736,10 @@ export async function main(
 			!/^v\d+\.\d+\.\d+\s*$/.test(version) ||
 			Number(version.slice(1).split(".")[0]) < 22
 		)
-			throw scope.fail("Node minimum 22");
+			throw scope.fail(
+				"Node minimum 22",
+				`${tools.node} reported ${JSON.stringify(version.trim().slice(0, 40))}`,
+			);
 		const execute = (sql: string) => executeD1(sql, scope, io, tools);
 		scope.check();
 		log(
@@ -834,13 +953,20 @@ export async function main(
 		scope.check();
 		return 0;
 	} catch (error) {
-		// Only our fixed stages may cross the failure boundary.
-		const message =
+		// The first line is always a fixed stage; unexpected errors map to "execution".
+		const fixed =
 			error instanceof Error &&
-			/^Schema reader refused: [A-Za-z0-9 -]+\.$/.test(error.message)
-				? error.message
-				: "Schema reader refused: execution.";
-		io.error(message);
+			/^Schema reader refused: [A-Za-z0-9 -]+\.$/.test(error.message);
+		io.error(fixed ? error.message : "Schema reader refused: execution.");
+		// The cause (exit status, child output tail, unexpected error) is printed
+		// redacted and bounded so a failed deploy step is diagnosable.
+		const detail =
+			error instanceof ReaderRefusal ? error.detail : errorCause(error);
+		// Each child stream tail is already bounded; this caps the whole cause.
+		if (detail)
+			io.error(
+				`Cause: ${redactDiagnostic(detail, io.env, 3 * READER_DIAGNOSTIC_TAIL_CHARS + 1_000)}`,
+			);
 		return 1;
 	}
 }
