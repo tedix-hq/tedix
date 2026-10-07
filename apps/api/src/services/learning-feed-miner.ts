@@ -88,6 +88,7 @@ import {
 	mergeBrainWriteMetadata,
 } from "./brain-write-quality";
 import { type ClefModelId, type ClefQuestion, runClef } from "../lib/clef";
+import { consolidatePersonalLessons } from "./lesson-consolidation";
 import { DISTILL_VERSION, type LessonDistiller } from "./lesson-distiller";
 
 export const LEARNING_FEED_PRODUCER = "learning-feed";
@@ -891,6 +892,13 @@ export async function mineLearningFeed(
 		await mineHistoricImports(db, orgId, result, route, distill);
 	} catch (error) {
 		console.error("[learning-feed] historic import lessons failed:", error);
+	}
+	if (distill) {
+		try {
+			await consolidatePersonalLessons(db, orgId);
+		} catch (error) {
+			console.error("[learning-feed] lesson consolidation failed:", error);
+		}
 	}
 	try {
 		await archiveStaleLessons(db, orgId, now, result);

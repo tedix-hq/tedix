@@ -34,6 +34,9 @@ vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
 	listArchivedLearningFeedLessons: vi.fn(async () => []),
 	listStaleLearningFeedLessons: vi.fn(async () => []),
 }));
+vi.mock("./lesson-consolidation", () => ({
+	consolidatePersonalLessons: vi.fn(async () => ({})),
+}));
 vi.mock("@tedix/db/queries/tedis", () => ({
 	getTedisByOrganization: vi.fn(async () => []),
 }));
@@ -73,6 +76,7 @@ import {
 	routeCandidates,
 	routingFromChoice,
 } from "./learning-feed-miner";
+import { DISTILL_VERSION } from "./lesson-distiller";
 
 const db = {} as DbClient;
 
@@ -348,7 +352,9 @@ describe("historic session imports", () => {
 		expect(fact.content).toBe(
 			"Lessons from user decisions in acme (claude-code, deploy):\n- Never deploy on Fridays.",
 		);
-		expect(fact.metadata).toMatchObject({ learningFeed: { distilled: 2 } });
+		expect(fact.metadata).toMatchObject({
+			learningFeed: { distilled: DISTILL_VERSION },
+		});
 	});
 
 	it("rewrites a lesson from an earlier distiller once, then leaves the distilled one alone", async () => {
@@ -379,7 +385,7 @@ describe("historic session imports", () => {
 			(await mineLearningFeed(db, { orgId: "org-1", distill })).factsWritten,
 		).toBe(1);
 		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
-			lesson(2),
+			lesson(DISTILL_VERSION),
 		] as never);
 		distill.mockClear();
 		expect(

@@ -88,6 +88,19 @@ export function lessonScope(
 	};
 }
 
+/** The learning feed's consolidated standing lesson for one person. */
+function isStandingLesson(
+	metadata: ApprovedAgentLessonRow["metadata"],
+): boolean {
+	const feed = metadata?.learningFeed;
+	return (
+		!!feed &&
+		typeof feed === "object" &&
+		!Array.isArray(feed) &&
+		feed.hoisted === true
+	);
+}
+
 function lessonText(row: ApprovedAgentLessonRow): string {
 	const text = row.content.replace(/\s+/g, " ").trim();
 	return text.length > LESSON_TEXT_LIMIT
@@ -130,6 +143,8 @@ export function selectSessionLessons(
 				(harnessScoped ? 2 : 0) +
 				Math.min(overlap, 3) +
 				(row.priority === "core" ? 1 : 0) +
+				// A person's standing preferences apply to every session: first.
+				(isStandingLesson(row.metadata) ? 10 : 0) +
 				row.confidence,
 			lesson: {
 				id: row.id,
