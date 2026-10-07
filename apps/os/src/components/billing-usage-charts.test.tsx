@@ -23,6 +23,10 @@ vi.mock("@/components/kumo/event-chart", () => ({
 const chartOptions: Array<{ series?: Array<{ data: unknown[] }> }> = [];
 const priced = {
 	knownSubtotalUsd: 1.25,
+	reviewedEstimateRowCount: 0,
+	reviewedEstimateTokens: 0,
+	reviewedEstimateMicros: 0,
+	sourceRetiredRowCount: 0,
 	pricedRowCount: 1,
 	unpricedRowCount: 0,
 	unpricedTokens: 0,
