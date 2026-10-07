@@ -3,6 +3,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { effectiveCallCostsRelation } from "./provider-cost-evidence";
 import {
 	type BillingProviderReconciliation,
 	type BillingUsagePeriod,
@@ -299,7 +300,20 @@ export async function getRecentProviderPricingHealth(
 		LIMIT 10
 	`);
 	const first = groups[0];
+	const reviewed = await db.all<{
+		reviewedEstimateRowCount: number;
+		reviewedEstimateTokens: number;
+		reviewedEstimateMicros: number;
+		sourceRetiredRowCount: number;
+	}>(sql`
+	SELECT COUNT(reviewed_cost_micros) AS reviewedEstimateRowCount,
+	COALESCE(SUM(CASE WHEN reviewed_cost_micros IS NOT NULL THEN total_tokens ELSE 0 END),0) AS reviewedEstimateTokens,
+	COALESCE(SUM(reviewed_cost_micros),0) AS reviewedEstimateMicros,
+	COALESCE(SUM(source_retired),0) AS sourceRetiredRowCount
+	FROM ${effectiveCallCostsRelation()} WHERE snapshot_at >= ${window.sinceInclusive} AND snapshot_at < ${window.untilExclusive}
+	AND provider IN ('azure-openai','workers-ai') AND usage_kind IS NULL`);
 	return {
+		...reviewed[0]!,
 		affectedRows: first?.totalRows ?? 0,
 		affectedTokens: first?.totalTokens ?? 0,
 		unattributedRows: first?.totalUnattributed ?? 0,

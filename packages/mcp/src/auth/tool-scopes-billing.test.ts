@@ -47,4 +47,20 @@ describe("provider capacity sponsorship scope resolution", () => {
 			resolve("grant_inference_capacity", { readOnlyHint: false }),
 		).toEqual(["platform:admin"]);
 	});
+	it("requires platform authority for reviewed provider estimates, even with read hints", () => {
+		for (const readOnlyHint of [true, false])
+			expect(
+				resolveMcpToolRequiredScopes(
+					{
+						toolId: "tedix_unified__record_provider_cost_evidence",
+						toolTypeId: "rpc",
+						authRequired: true,
+						config: { endpoint: "billing/recordProviderCostEvidence" },
+						annotations: { readOnlyHint },
+					},
+					"tedix_unified",
+					tenantAggregateConfig,
+				),
+			).toEqual(["platform:admin"]);
+	});
 });

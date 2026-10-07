@@ -1,3 +1,4 @@
+import { billingProviderCostEvidenceVersions } from "../schema/billing";
 /**
  * Quarantined value must not reach the cost anomaly detector.
  *
@@ -30,7 +31,7 @@ import { getDailySpendRate } from "./tedi-usage";
 function fixture(): { db: DbClient; sqlite: DatabaseSync } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(schemaDdl(tediCallCosts));
+	sqlite.exec(schemaDdl(tediCallCosts, billingProviderCostEvidenceVersions));
 	return { db: createDbClient(createD1Facade(sqlite)) as DbClient, sqlite };
 }
 

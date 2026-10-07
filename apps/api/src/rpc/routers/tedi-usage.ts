@@ -1,6 +1,6 @@
 import {
-	costSummary,
-	type CostSummary,
+	reviewedProviderCostSummary,
+	type ReviewedProviderCostSummary,
 } from "@tedix/api-contract/schemas/cost-provenance";
 /**
  * Tedi Token Usage Router
@@ -36,7 +36,7 @@ import {
 
 type CallCost = Awaited<ReturnType<typeof getCallCosts>>[number];
 
-type ModelCostEntry = CostSummary & {
+type ModelCostEntry = ReviewedProviderCostSummary & {
 	rowCount: number;
 	model: string;
 	provider: string | null;
@@ -51,7 +51,7 @@ type ModelCostEntry = CostSummary & {
 	sessionCount: number;
 };
 
-type SourceCostEntry = CostSummary & {
+type SourceCostEntry = ReviewedProviderCostSummary & {
 	source: string;
 	sessionType: string;
 	totalInputTokens: number;
@@ -64,31 +64,63 @@ type SourceCostEntry = CostSummary & {
 };
 
 function addCost(
-	summary: CostSummary,
-	row: Pick<CallCost, "estimatedCostUsd" | "totalTokens" | "dataQuality">,
+	summary: ReviewedProviderCostSummary,
+	row: Pick<
+		CallCost,
+		| "estimatedCostUsd"
+		| "totalTokens"
+		| "costBasis"
+		| "dataQuality"
+		| "providerCostEvidence"
+		| "sourceRetired"
+	>,
 ) {
+	const evidence = row.providerCostEvidence;
+	const amount = evidence
+		? evidence.providerEstimatedCostMicros / 1_000_000
+		: row.estimatedCostUsd;
 	const known =
-		row.dataQuality === "ok" &&
-		row.estimatedCostUsd !== null &&
-		Number.isFinite(row.estimatedCostUsd) &&
-		row.estimatedCostUsd >= 0;
-	summary.knownSubtotalUsd += known ? row.estimatedCostUsd! : 0;
+		evidence !== null ||
+		(row.dataQuality === "ok" &&
+			row.costBasis !== "unknown" &&
+			row.estimatedCostUsd !== null &&
+			Number.isFinite(row.estimatedCostUsd) &&
+			row.estimatedCostUsd >= 0);
+	summary.knownSubtotalUsd += known ? amount! : 0;
 	summary.pricedRowCount += known ? 1 : 0;
 	summary.unpricedRowCount += known ? 0 : 1;
 	summary.unpricedTokens += known ? 0 : row.totalTokens;
-	Object.assign(summary, costSummary(summary));
+	if (evidence) {
+		summary.reviewedEstimateRowCount++;
+		summary.reviewedEstimateTokens += row.totalTokens;
+		summary.reviewedEstimateMicros += evidence.providerEstimatedCostMicros;
+	}
+	if (row.sourceRetired) summary.sourceRetiredRowCount++;
+	Object.assign(summary, reviewedProviderCostSummary(summary));
 	return summary.costCompleteness === "complete"
 		? summary.knownSubtotalUsd
 		: null;
 }
 function initialCost(
-	row: Pick<CallCost, "estimatedCostUsd" | "totalTokens" | "dataQuality">,
+	row: Pick<
+		CallCost,
+		| "estimatedCostUsd"
+		| "totalTokens"
+		| "costBasis"
+		| "dataQuality"
+		| "providerCostEvidence"
+		| "sourceRetired"
+	>,
 ) {
-	const summary = costSummary({
+	const summary = reviewedProviderCostSummary({
 		knownSubtotalUsd: 0,
 		pricedRowCount: 0,
 		unpricedRowCount: 0,
 		unpricedTokens: 0,
+		reviewedEstimateRowCount: 0,
+		reviewedEstimateTokens: 0,
+		reviewedEstimateMicros: 0,
+		sourceRetiredRowCount: 0,
 	});
 	addCost(summary, row);
 	return summary;
@@ -149,7 +181,10 @@ function aggregateSourceCosts(
 			| "cacheWriteTokens"
 			| "totalTokens"
 			| "estimatedCostUsd"
+			| "costBasis"
 			| "dataQuality"
+			| "providerCostEvidence"
+			| "sourceRetired"
 		>
 	>,
 ): SourceCostEntry[] {
@@ -255,7 +290,7 @@ const getTediUsageProcedure = authedOs.getTediUsage
 			cacheWriteTokens: callCostTotals.cacheWriteTokens,
 			totalTokens: callCostTotals.totalTokens,
 			estimatedCostUsd: callCostTotals.estimatedCostUsd,
-			...costSummary(callCostTotals),
+			...reviewedProviderCostSummary(callCostTotals),
 			callCount: callCostTotals.callCount,
 			toolCallsTotal: aeToolCalls.totalCalls,
 			toolCallsFailed: aeToolCalls.failedCalls,
@@ -342,7 +377,7 @@ const getTediUsageProcedure = authedOs.getTediUsage
 				toolCallSuccessRate: toolSuccessRate,
 			},
 			cost: {
-				...costSummary(totals),
+				...reviewedProviderCostSummary(totals),
 				totalUsd: totals.estimatedCostUsd,
 				dailyAvgUsd,
 				modelBreakdown,
@@ -390,6 +425,8 @@ const getCallCostsProcedure = authedOs.getCallCosts
 		});
 		const normalizedCosts = costs.map((cost) => ({
 			id: cost.id,
+			providerCostEvidence: cost.providerCostEvidence,
+			sourceRetired: cost.sourceRetired,
 			// getCallCosts filters on this exact tediId, so it is always resolved
 			// here even though the column is nullable for kernel-only rows.
 			tediId: cost.tediId as string,
@@ -409,7 +446,9 @@ const getCallCostsProcedure = authedOs.getCallCosts
 			cacheReadTokens: cost.cacheReadTokens,
 			cacheWriteTokens: cost.cacheWriteTokens,
 			totalTokens: cost.totalTokens,
-			estimatedCostUsd: cost.estimatedCostUsd,
+			estimatedCostUsd: cost.providerCostEvidence
+				? cost.providerCostEvidence.providerEstimatedCostMicros / 1_000_000
+				: cost.estimatedCostUsd,
 			costBasis: cost.costBasis,
 			rateVersionId: cost.rateVersionId,
 			costReason: cost.costReason,
@@ -431,7 +470,7 @@ const getCallCostsProcedure = authedOs.getCallCosts
 			totalTokens: row.totalTokens,
 			totalCostUsd: row.estimatedCostUsd,
 			snapshotCount: row.rowCount,
-			...costSummary(row),
+			...reviewedProviderCostSummary(row),
 		}));
 
 		const sourceSummary = aggregateSourceCosts(normalizedCosts);

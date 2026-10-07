@@ -788,6 +788,10 @@
 		{
 			"name": "20261007101135_reply_draft_gate/migration.sql",
 			"sha256": "c1eccbb67a24dba9879cebb1d91576d337d06de8501f7cbe807e0a3307b5a8b8"
+		},
+		{
+			"name": "20261007112224_provider_cost_evidence/migration.sql",
+			"sha256": "ed4d3c4328abdf41d97b4cf9d4ad123c19f2f226278bd8c5da26990cad00bcde"
 		}
 	]
 }

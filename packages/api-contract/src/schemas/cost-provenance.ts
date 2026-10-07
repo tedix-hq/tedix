@@ -87,6 +87,7 @@ export const COST_PROVENANCE_ORDER = [
 	"quarantined",
 	"unknown",
 	"pricing_table_estimate",
+	"reviewed_provider_estimate",
 	"gateway_reported",
 	"provider_reported",
 ] as const;
@@ -95,6 +96,7 @@ export const CostProvenanceSchema = z.enum([
 	"provider_reported",
 	"gateway_reported",
 	"pricing_table_estimate",
+	"reviewed_provider_estimate",
 	"unknown",
 	"quarantined",
 ]);
@@ -112,6 +114,7 @@ export const COST_PROVENANCE_PRODUCED_TODAY: Readonly<
 	provider_reported: false,
 	gateway_reported: true,
 	pricing_table_estimate: true,
+	reviewed_provider_estimate: true,
 	unknown: true,
 	quarantined: true,
 };
@@ -125,6 +128,8 @@ export const COST_PROVENANCE_DETAIL: Readonly<Record<CostProvenance, string>> =
 			"Cloudflare AI Gateway's own charge for the call, stored verbatim. Produced only for Workers AI traffic.",
 		pricing_table_estimate:
 			"A persisted governed or historical estimate. Current rates never rewrite historical evidence; this is an estimate, not a bill.",
+		reviewed_provider_estimate:
+			"An immutable, separately approved provider estimate. It is never a customer charge or provider invoice.",
 		unknown:
 			"The row exists but nothing on it records which branch produced the number, so its basis cannot be attested.",
 		quarantined:
@@ -139,6 +144,8 @@ export const COST_PROVENANCE_SOURCE: Readonly<Record<CostProvenance, string>> =
 		gateway_reported:
 			"tedi_call_costs.estimated_cost_usd (provider=workers-ai)",
 		pricing_table_estimate: "tedi_call_costs.cost_basis / rate_version_id",
+		reviewed_provider_estimate:
+			"billing_provider_cost_evidence_versions current leaf",
 		unknown: "tedi_call_costs.cost_basis / cost_reason",
 		quarantined: "tedi_call_costs.data_quality / billing_usage_quarantines",
 	};
@@ -487,3 +494,28 @@ export type CostAttributionGap = z.infer<typeof CostAttributionGapSchema>;
 
 export const COST_ATTRIBUTION_GAP_DETAIL =
 	"Unattributed rows that still carry this organization. Rows with no organization at all are invisible to every org-scoped read, so this is a floor on unattributed spend, never a total.";
+
+export const ReviewedProviderCostSummarySchema = CostSummarySchema.extend({
+	reviewedEstimateRowCount: z.number().int().nonnegative(),
+	reviewedEstimateTokens: z.number().int().nonnegative(),
+	reviewedEstimateMicros: z
+		.number()
+		.int()
+		.nonnegative()
+		.max(Number.MAX_SAFE_INTEGER),
+	sourceRetiredRowCount: z.number().int().nonnegative(),
+});
+export type ReviewedProviderCostSummary = z.infer<
+	typeof ReviewedProviderCostSummarySchema
+>;
+export function reviewedProviderCostSummary(
+	input: Omit<ReviewedProviderCostSummary, "costCompleteness">,
+): ReviewedProviderCostSummary {
+	return {
+		...costSummary(input),
+		reviewedEstimateRowCount: input.reviewedEstimateRowCount,
+		reviewedEstimateTokens: input.reviewedEstimateTokens,
+		reviewedEstimateMicros: input.reviewedEstimateMicros,
+		sourceRetiredRowCount: input.sourceRetiredRowCount,
+	};
+}

@@ -1,3 +1,7 @@
+import {
+	RecordProviderCostEvidenceInputSchema,
+	RecordProviderCostEvidenceResponseSchema,
+} from "../schemas/provider-cost-evidence";
 import "@orpc/openapi/extensions/route";
 /**
  * Billing Contract for oRPC
@@ -425,6 +429,18 @@ export const billingContract = oc
 			.output(SetBillingServiceCreditControlsResponseSchema),
 
 		/** Platform-admin provider invoice/export reconciliation. */
+		recordProviderCostEvidence: oc
+			.route({
+				method: "POST",
+				path: "/provider-cost-evidence",
+				tags: ["internal"],
+				summary: "Record reviewed provider cost evidence",
+				description:
+					"Platform billing authority with separately admitted external financial authority: validate or append immutable provider estimates without customer charges.",
+			})
+			.input(RecordProviderCostEvidenceInputSchema)
+			.output(RecordProviderCostEvidenceResponseSchema),
+
 		recordProviderReconciliation: oc
 			.route({
 				method: "POST",

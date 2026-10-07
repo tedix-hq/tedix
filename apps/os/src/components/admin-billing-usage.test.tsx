@@ -117,6 +117,10 @@ function usage(): OrgUsageOutput {
 			cacheWriteTokens: 0,
 			estimatedCostUsd: null,
 			knownSubtotalUsd: 1.25,
+			reviewedEstimateRowCount: 0,
+			reviewedEstimateTokens: 0,
+			reviewedEstimateMicros: 0,
+			sourceRetiredRowCount: 0,
 			pricedRowCount: 2,
 			unpricedRowCount: 1,
 			unpricedTokens: 40,
@@ -192,6 +196,23 @@ function render(
 	return html;
 }
 describe("billing population coverage", () => {
+	it("shows reviewed estimates as nonpayable and retains source-retired details", () => {
+		const value = usage();
+		value.totals.reviewedEstimateMicros = 33199;
+		value.totals.reviewedEstimateRowCount = 1;
+		value.totals.reviewedEstimateTokens = 12410;
+		value.totals.sourceRetiredRowCount = 1;
+		const html = render(value);
+		expect(html).toContain("Reviewed provider estimates");
+		expect(html).toContain("1 reviewed rows");
+		expect(html).toContain("not payable");
+		expect(html).toContain(
+			"do not release held usage or change customer charges",
+		);
+		expect(html).toContain("Technical details");
+		expect(html).toContain("original source is no longer present");
+		expect(html).toContain("Metered usage charges");
+	});
 	it("distinguishes settled allowance math from observed pricing coverage", () => {
 		const html = render();
 		expect(html).toContain("Settled billing tokens");

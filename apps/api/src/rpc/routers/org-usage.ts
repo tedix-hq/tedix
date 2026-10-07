@@ -1,4 +1,4 @@
-import { costSummary } from "@tedix/api-contract/schemas/cost-provenance";
+import { reviewedProviderCostSummary } from "@tedix/api-contract/schemas/cost-provenance";
 /**
  * Organization Usage Router
  * Aggregates token usage across all tedis in an org.
@@ -117,7 +117,7 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 				tediSlug: row.tediSlug,
 				totalTokens: row.totalTokens,
 				estimatedCostUsd: row.totalCostUsd,
-				...costSummary(row),
+				...reviewedProviderCostSummary(row),
 				cacheHitRate:
 					denominator > 0 ? row.totalCacheReadTokens / denominator : null,
 			};
@@ -158,7 +158,7 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 				cacheReadTokens: usage.totals.cacheReadTokens,
 				cacheWriteTokens: usage.totals.cacheWriteTokens,
 				estimatedCostUsd: usage.totals.estimatedCostUsd,
-				...costSummary(usage.totals),
+				...reviewedProviderCostSummary(usage.totals),
 				activeTedis: tediBreakdown.filter(
 					(row) => row.tediId !== "unattributed" && row.totalTokens > 0,
 				).length,
@@ -174,7 +174,7 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 				date: row.date,
 				totalTokens: row.totalTokens,
 				estimatedCostUsd: row.totalCostUsd,
-				...costSummary(row),
+				...reviewedProviderCostSummary(row),
 				inputTokens: row.totalInputTokens,
 				outputTokens: row.totalOutputTokens,
 			})),
@@ -190,7 +190,7 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 				totalCacheWriteTokens: row.totalCacheWriteTokens,
 				totalTokens: row.totalTokens,
 				totalCostUsd: row.totalCostUsd,
-				...costSummary(row),
+				...reviewedProviderCostSummary(row),
 				snapshotCount: row.rowCount,
 			})),
 			sourceBreakdown: usage.bySource.map((row) => ({
@@ -202,7 +202,7 @@ const getOrgUsageProcedure = authedOs.getOrgUsage
 				totalCacheWriteTokens: row.totalCacheWriteTokens,
 				totalTokens: row.totalTokens,
 				totalCostUsd: row.totalCostUsd,
-				...costSummary(row),
+				...reviewedProviderCostSummary(row),
 				rowCount: row.rowCount,
 			})),
 		};

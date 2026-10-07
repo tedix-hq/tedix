@@ -310,6 +310,37 @@ export function BillingUsageOverview({
 			</MetricGrid>
 			<Card tone="raised">
 				<CardHeader>
+					<CardTitle>Reviewed provider estimates</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-2">
+					<Text role="metric">
+						{formatCost(
+							usageQuery.data.totals.reviewedEstimateMicros / 1_000_000,
+						)}
+					</Text>
+					<Text>
+						{formatTokens(usageQuery.data.totals.reviewedEstimateRowCount)}{" "}
+						reviewed rows ·{" "}
+						{formatTokens(usageQuery.data.totals.reviewedEstimateTokens)}{" "}
+						observed tokens
+					</Text>
+					<Text tone="secondary">
+						Included in the known model-cost subtotal. These estimates are not
+						payable and do not release held usage or change customer charges.
+					</Text>
+					<details>
+						<summary>Technical details</summary>
+						<Text tone="secondary">
+							{formatTokens(usageQuery.data.totals.sourceRetiredRowCount)}{" "}
+							retained records whose original source is no longer present. Only
+							the current reviewed version contributes; original usage is
+							counted once.
+						</Text>
+					</details>
+				</CardContent>
+			</Card>
+			<Card tone="raised">
+				<CardHeader>
 					<CardTitle>Reconciled workstation cost</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-2">

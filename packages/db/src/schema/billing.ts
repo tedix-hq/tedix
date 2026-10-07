@@ -1313,3 +1313,135 @@ export const billingHistoricalDecisions = sqliteTable(
 		),
 	],
 );
+
+/** Immutable billing-domain provider-estimate evidence; no source or authority FK. */
+export const billingProviderCostEvidenceVersions = sqliteTable(
+	"billing_provider_cost_evidence_versions",
+	{
+		id: text("id").primaryKey(),
+		originalOrgId: text("original_org_id").notNull(),
+		sourceGatewayId: text("source_gateway_id").notNull(),
+		gatewayLogId: text("gateway_log_id").notNull(),
+		sourceCallId: text("source_call_id").notNull(),
+		scopeDigest: text("scope_digest").notNull(),
+		originalSourceDigest: text("original_source_digest").notNull(),
+		occurredAt: text("occurred_at").notNull(),
+		recordedAt: text("recorded_at").notNull(),
+		provider: text("provider").notNull(),
+		nativeModel: text("native_model").notNull(),
+		nativeFactsReceiptDigest: text("native_facts_receipt_digest").notNull(),
+		basisFactsDigest: text("basis_facts_digest").notNull(),
+		financialManifestDigest: text("financial_manifest_digest").notNull(),
+		financialWorkId: text("financial_work_id").notNull(),
+		financialSpecRevision: text("financial_spec_revision").notNull(),
+		approvalProposalId: text("approval_proposal_id").notNull(),
+		approvalDecisionId: text("approval_decision_id").notNull(),
+		attemptId: text("attempt_id").notNull(),
+		admissionId: text("admission_id").notNull(),
+		createdByActorType: text("created_by_actor_type").notNull(),
+		createdByActorId: text("created_by_actor_id").notNull(),
+		createdBySessionId: text("created_by_session_id").notNull(),
+		idempotencyDigest: text("idempotency_digest").notNull(),
+		payloadDigest: text("payload_digest").notNull(),
+		originalTediId: text("original_tedi_id"),
+		originalRunId: text("original_run_id"),
+		originalWorkId: text("original_work_id"),
+		originalExecutionId: text("original_execution_id"),
+		originalReservationId: text("original_reservation_id"),
+		rateCertificateDigest: text("rate_certificate_digest"),
+		reportedCostDecimal: text("reported_cost_decimal"),
+		reportedReporter: text("reported_reporter"),
+		supersedesEvidenceVersionId: text("supersedes_evidence_version_id"),
+		originalSourceSnapshot: text("original_source_snapshot", { mode: "json" })
+			.$type<Record<string, JsonValue>>()
+			.notNull(),
+		deploymentScope: text("deployment_scope", { mode: "json" })
+			.$type<Record<string, JsonValue>>()
+			.notNull(),
+		rateCertificateSnapshot: text("rate_certificate_snapshot", {
+			mode: "json",
+		}).$type<Record<string, JsonValue>>(),
+		reportedEstimateSnapshot: text("reported_estimate_snapshot", {
+			mode: "json",
+		}).$type<Record<string, JsonValue>>(),
+		financialManifestSnapshot: text("financial_manifest_snapshot", {
+			mode: "json",
+		})
+			.$type<Record<string, JsonValue>>()
+			.notNull(),
+		approvalDecisionSnapshot: text("approval_decision_snapshot", {
+			mode: "json",
+		})
+			.$type<Record<string, JsonValue>>()
+			.notNull(),
+		originalSourceVersion: integer("original_source_version").notNull(),
+		inputTokens: integer("input_tokens").notNull(),
+		outputTokens: integer("output_tokens").notNull(),
+		cacheReadTokens: integer("cache_read_tokens").notNull(),
+		cacheWriteTokens: integer("cache_write_tokens").notNull(),
+		providerEstimatedCostMicros: integer(
+			"provider_estimated_cost_micros",
+		).notNull(),
+		financialWorkVersion: integer("financial_work_version").notNull(),
+		inputPriceMicrosPerMillion: integer("input_price_micros_per_million"),
+		outputPriceMicrosPerMillion: integer("output_price_micros_per_million"),
+		cacheReadPriceMicrosPerMillion: integer(
+			"cache_read_price_micros_per_million",
+		),
+		cacheWritePriceMicrosPerMillion: integer(
+			"cache_write_price_micros_per_million",
+		),
+		nativeUsageKnown: integer("native_usage_known", {
+			mode: "boolean",
+		}).notNull(),
+		kind: text("kind", { enum: ["provider_estimate"] }).notNull(),
+		currency: text("currency", { enum: ["USD"] }).notNull(),
+		pricingBasis: text("pricing_basis", {
+			enum: ["reported_estimate", "rate_estimated"],
+		}).notNull(),
+	},
+	(table) => [
+		check(
+			"chk_provider_cost_evidence_known_safe",
+			sql`${table.nativeUsageKnown} = 1
+AND ${table.kind} = 'provider_estimate'
+AND ${table.currency} = 'USD'
+AND length(${table.originalOrgId}) > 0
+AND length(${table.sourceGatewayId}) > 0
+AND length(${table.gatewayLogId}) > 0
+AND length(${table.sourceCallId}) > 0
+AND length(${table.scopeDigest}) = 64
+AND length(${table.basisFactsDigest}) = 64
+AND typeof(${table.originalSourceVersion}) = 'integer' AND ${table.originalSourceVersion} BETWEEN 0 AND 9007199254740991
+AND typeof(${table.inputTokens}) = 'integer' AND ${table.inputTokens} BETWEEN 0 AND 9007199254740991
+AND typeof(${table.outputTokens}) = 'integer' AND ${table.outputTokens} BETWEEN 0 AND 9007199254740991
+AND typeof(${table.cacheReadTokens}) = 'integer' AND ${table.cacheReadTokens} BETWEEN 0 AND 9007199254740991
+AND typeof(${table.cacheWriteTokens}) = 'integer' AND ${table.cacheWriteTokens} BETWEEN 0 AND 9007199254740991
+AND typeof(${table.providerEstimatedCostMicros}) = 'integer' AND ${table.providerEstimatedCostMicros} BETWEEN 0 AND 9007199254740991
+AND typeof(${table.financialWorkVersion}) = 'integer' AND ${table.financialWorkVersion} BETWEEN 0 AND 9007199254740991
+AND ${table.originalSourceVersion} >= 1
+AND ${table.financialWorkVersion} >= 1
+AND ${table.cacheReadTokens} <= ${table.inputTokens} - ${table.cacheWriteTokens}
+AND ((${table.pricingBasis} = 'rate_estimated' AND ${table.rateCertificateDigest} IS NOT NULL AND ${table.rateCertificateSnapshot} IS NOT NULL AND ${table.inputPriceMicrosPerMillion} IS NOT NULL AND ${table.outputPriceMicrosPerMillion} IS NOT NULL AND ${table.cacheReadPriceMicrosPerMillion} IS NOT NULL AND ${table.cacheWritePriceMicrosPerMillion} IS NOT NULL AND typeof(${table.inputPriceMicrosPerMillion}) = 'integer' AND ${table.inputPriceMicrosPerMillion} BETWEEN 0 AND 9007199254740991 AND typeof(${table.outputPriceMicrosPerMillion}) = 'integer' AND ${table.outputPriceMicrosPerMillion} BETWEEN 0 AND 9007199254740991 AND typeof(${table.cacheReadPriceMicrosPerMillion}) = 'integer' AND ${table.cacheReadPriceMicrosPerMillion} BETWEEN 0 AND 9007199254740991 AND typeof(${table.cacheWritePriceMicrosPerMillion}) = 'integer' AND ${table.cacheWritePriceMicrosPerMillion} BETWEEN 0 AND 9007199254740991 AND json_valid(${table.rateCertificateSnapshot}) AND ${table.reportedEstimateSnapshot} IS NULL AND ${table.reportedCostDecimal} IS NULL AND ${table.reportedReporter} IS NULL) OR (${table.pricingBasis} = 'reported_estimate' AND ${table.rateCertificateDigest} IS NULL AND ${table.rateCertificateSnapshot} IS NULL AND ${table.inputPriceMicrosPerMillion} IS NULL AND ${table.outputPriceMicrosPerMillion} IS NULL AND ${table.cacheReadPriceMicrosPerMillion} IS NULL AND ${table.cacheWritePriceMicrosPerMillion} IS NULL AND ${table.reportedEstimateSnapshot} IS NOT NULL AND ${table.reportedCostDecimal} IS NOT NULL AND ${table.reportedReporter} IS NOT NULL AND ${table.reportedReporter} = 'cloudflare_ai_gateway' AND length(${table.reportedCostDecimal}) BETWEEN 1 AND 36 AND json_valid(${table.reportedEstimateSnapshot})))`,
+		),
+		uniqueIndex("uniq_provider_cost_evidence_original_root")
+			.on(
+				table.originalOrgId,
+				table.sourceGatewayId,
+				table.gatewayLogId,
+				table.sourceCallId,
+			)
+			.where(sql`${table.supersedesEvidenceVersionId} IS NULL`),
+		uniqueIndex("uniq_provider_cost_evidence_child")
+			.on(table.supersedesEvidenceVersionId)
+			.where(sql`${table.supersedesEvidenceVersionId} IS NOT NULL`),
+		uniqueIndex("uniq_provider_cost_evidence_idempotency").on(
+			table.idempotencyDigest,
+		),
+		index("idx_provider_cost_evidence_org_time_source").on(
+			table.originalOrgId,
+			table.occurredAt,
+			table.sourceCallId,
+		),
+	],
+);

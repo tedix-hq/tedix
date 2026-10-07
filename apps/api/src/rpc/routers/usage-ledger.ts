@@ -10,6 +10,8 @@ export type LedgerSessionType =
 	| "unattributed";
 
 export interface NormalizedLedgerRow {
+	providerCostEvidence: OrgCallCostLedgerRow["providerCostEvidence"];
+	sourceRetired: boolean;
 	id: string;
 	tediId: string;
 	tediName: string;
@@ -57,6 +59,10 @@ export interface NormalizedLedgerRow {
 }
 
 export interface CostAggregate {
+	reviewedEstimateRowCount: number;
+	reviewedEstimateTokens: number;
+	reviewedEstimateMicros: number;
+	sourceRetiredRowCount: number;
 	knownSubtotalUsd: number;
 	pricedRowCount: number;
 	unpricedRowCount: number;
@@ -81,6 +87,10 @@ export interface CostAggregate {
 
 export interface CostDrilldown {
 	totals: {
+		reviewedEstimateRowCount: number;
+		reviewedEstimateTokens: number;
+		reviewedEstimateMicros: number;
+		sourceRetiredRowCount: number;
 		knownSubtotalUsd: number;
 		pricedRowCount: number;
 		unpricedRowCount: number;
@@ -280,14 +290,18 @@ function normalizeEstimatedCost(
 	| "costReason"
 > {
 	const amount = row.estimatedCostUsd;
+	const evidence = row.providerCostEvidence;
 	return {
 		estimatedCostUsd:
-			row.dataQuality === "ok" &&
-			typeof amount === "number" &&
-			Number.isFinite(amount) &&
-			amount >= 0
-				? amount
-				: null,
+			evidence !== null && evidence !== undefined
+				? evidence.providerEstimatedCostMicros / 1_000_000
+				: row.dataQuality === "ok" &&
+					  row.costBasis !== "unknown" &&
+					  typeof amount === "number" &&
+					  Number.isFinite(amount) &&
+					  amount >= 0
+					? amount
+					: null,
 		rawEstimatedCostUsd: amount,
 		costBasis: row.costBasis,
 		rateVersionId: row.rateVersionId,
@@ -298,7 +312,10 @@ function normalizeEstimatedCost(
 function withReconciliation(row: NormalizedLedgerRow): NormalizedLedgerRow {
 	const reconciliationReasons = qualityFlagsForValues(row);
 	const quarantineReasons = reconciliationReasons.filter(isQuarantineReason);
-	const invoiceReady = quarantineReasons.length === 0;
+	const invoiceReady =
+		row.providerCostEvidence === null &&
+		!row.sourceRetired &&
+		quarantineReasons.length === 0;
 	const billable = invoiceReady;
 	return {
 		...row,
@@ -311,7 +328,18 @@ function withReconciliation(row: NormalizedLedgerRow): NormalizedLedgerRow {
 		reconciliationStatus: invoiceReady ? "ready" : "quarantined",
 		reconciliationReasons,
 		quarantinedTokens: invoiceReady ? 0 : row.totalTokens,
-		quarantinedCostUsd: invoiceReady ? 0 : (row.estimatedCostUsd ?? 0),
+		quarantinedCostUsd: invoiceReady
+			? 0
+			: row.providerCostEvidence !== null
+				? row.providerCostEvidence.originalDataQuality === "ok" &&
+					row.providerCostEvidence.originalCostBasis !== "unknown" &&
+					typeof row.providerCostEvidence.originalEstimatedCostUsd ===
+						"number" &&
+					Number.isFinite(row.providerCostEvidence.originalEstimatedCostUsd) &&
+					row.providerCostEvidence.originalEstimatedCostUsd >= 0
+					? row.providerCostEvidence.originalEstimatedCostUsd
+					: 0
+				: (row.estimatedCostUsd ?? 0),
 	};
 }
 
@@ -336,6 +364,8 @@ export function normalizeLedgerRows(
 		const cost = normalizeEstimatedCost(row);
 		return withReconciliation({
 			id: row.id,
+			providerCostEvidence: row.providerCostEvidence,
+			sourceRetired: row.sourceRetired,
 			// The ledger intentionally includes org-scoped platform/kernel rows with
 			// no tedi. Give them a stable aggregate key instead of dropping them.
 			tediId,
@@ -378,7 +408,10 @@ export function normalizeLedgerRows(
 			reconciliationReasons: [],
 			quarantinedTokens: row.totalTokens,
 			quarantinedCostUsd: cost.estimatedCostUsd ?? 0,
-			pricingVersion: row.rateVersionId ?? row.costBasis,
+			pricingVersion:
+				row.providerCostEvidence?.versionId ??
+				row.rateVersionId ??
+				row.costBasis,
 			attributionVersion: USAGE_ATTRIBUTION_VERSION,
 		});
 	});
@@ -400,6 +433,10 @@ function emptyAggregate(key: string, label: string): CostAggregate {
 		key,
 		label,
 		knownSubtotalUsd: 0,
+		reviewedEstimateRowCount: 0,
+		reviewedEstimateTokens: 0,
+		reviewedEstimateMicros: 0,
+		sourceRetiredRowCount: 0,
 		pricedRowCount: 0,
 		unpricedRowCount: 0,
 		unpricedTokens: 0,
@@ -421,6 +458,13 @@ function emptyAggregate(key: string, label: string): CostAggregate {
 }
 
 function addToAggregate(aggregate: CostAggregate, row: NormalizedLedgerRow) {
+	if (row.providerCostEvidence) {
+		aggregate.reviewedEstimateRowCount++;
+		aggregate.reviewedEstimateTokens += row.totalTokens;
+		aggregate.reviewedEstimateMicros +=
+			row.providerCostEvidence.providerEstimatedCostMicros;
+	}
+	if (row.sourceRetired) aggregate.sourceRetiredRowCount++;
 	aggregate.totalInputTokens += row.inputTokens;
 	aggregate.totalOutputTokens += row.outputTokens;
 	aggregate.totalCacheReadTokens += row.cacheReadTokens;
@@ -742,6 +786,10 @@ export function buildCostDrilldown(params: {
 		totalTokens: 0,
 		estimatedCostUsd: null,
 		knownSubtotalUsd: 0,
+		reviewedEstimateRowCount: 0,
+		reviewedEstimateTokens: 0,
+		reviewedEstimateMicros: 0,
+		sourceRetiredRowCount: 0,
 		pricedRowCount: 0,
 		unpricedRowCount: 0,
 		unpricedTokens: 0,
@@ -757,6 +805,13 @@ export function buildCostDrilldown(params: {
 	};
 
 	for (const row of params.rows) {
+		if (row.providerCostEvidence) {
+			totals.reviewedEstimateRowCount++;
+			totals.reviewedEstimateTokens += row.totalTokens;
+			totals.reviewedEstimateMicros +=
+				row.providerCostEvidence.providerEstimatedCostMicros;
+		}
+		if (row.sourceRetired) totals.sourceRetiredRowCount++;
 		totals.inputTokens += row.inputTokens;
 		totals.outputTokens += row.outputTokens;
 		totals.cacheReadTokens += row.cacheReadTokens;
@@ -923,6 +978,10 @@ function mergeAggregateGroups<T extends CostAggregate>(groups: T[][]): T[] {
 				merged.set(entry.key, { ...entry });
 				continue;
 			}
+			existing.reviewedEstimateRowCount += entry.reviewedEstimateRowCount;
+			existing.reviewedEstimateTokens += entry.reviewedEstimateTokens;
+			existing.reviewedEstimateMicros += entry.reviewedEstimateMicros;
+			existing.sourceRetiredRowCount += entry.sourceRetiredRowCount;
 			existing.totalInputTokens += entry.totalInputTokens;
 			existing.totalOutputTokens += entry.totalOutputTokens;
 			existing.totalCacheReadTokens += entry.totalCacheReadTokens;
@@ -986,6 +1045,10 @@ export function mergeCostDrilldowns(params: {
 			totalTokens: 0,
 			estimatedCostUsd: null,
 			knownSubtotalUsd: 0,
+			reviewedEstimateRowCount: 0,
+			reviewedEstimateTokens: 0,
+			reviewedEstimateMicros: 0,
+			sourceRetiredRowCount: 0,
 			pricedRowCount: 0,
 			unpricedRowCount: 0,
 			unpricedTokens: 0,

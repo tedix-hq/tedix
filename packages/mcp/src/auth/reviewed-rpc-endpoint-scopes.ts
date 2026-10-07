@@ -104,6 +104,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"billing/recordHistoricalExposure": "platform:admin",
 	"billing/recordHistoricalFreshDecision": "platform:admin",
 	"billing/recordProviderReconciliation": "platform:admin",
+	"billing/recordProviderCostEvidence": "platform:admin",
 	"billing/recordVoiceProviderUsage": "platform:admin",
 	"billing/restoreDailyCapacity": "platform:admin",
 	"billing/revokeHistoricalFreshDecision": "platform:admin",

@@ -1,5 +1,6 @@
+import { ProviderCostEvidenceProjectionSchema } from "../schemas/provider-cost-evidence";
 import {
-	CostSummarySchema,
+	ReviewedProviderCostSummarySchema,
 	PersistedCostBasisSchema,
 } from "../schemas/cost-provenance";
 import "@orpc/openapi/extensions/route";
@@ -14,7 +15,7 @@ import { baseErrors } from "../errors";
 import { TediIdParamSchema } from "../schemas/tedi";
 
 const TokenTotalsSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	inputTokens: z.number(),
 	outputTokens: z.number(),
 	cacheReadTokens: z.number(),
@@ -33,7 +34,7 @@ const TokenTotalsSchema = z.object({
 });
 
 const SourceBreakdownEntrySchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	source: z.string(),
 	sessionType: z.string(),
 	totalInputTokens: z.number(),
@@ -51,7 +52,7 @@ const SourceBreakdownEntrySchema = z.object({
 });
 
 const ModelBreakdownEntrySchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	model: z.string(),
 	provider: z.string().nullable(),
 	providerResource: z.string().nullable(),
@@ -77,7 +78,7 @@ const EfficiencySchema = z.object({
 
 /** Daily-bucketed token/cost history, aggregated directly from `tedi_call_costs`. */
 const CallCostHistoryBucketSchema = z.object({
-	...CostSummarySchema.shape,
+	...ReviewedProviderCostSummarySchema.shape,
 	date: z.string(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
@@ -92,6 +93,8 @@ const CallCostHistoryBucketSchema = z.object({
 });
 
 const CallCostEntrySchema = z.object({
+	providerCostEvidence: ProviderCostEvidenceProjectionSchema.nullable(),
+	sourceRetired: z.boolean(),
 	id: z.string(),
 	tediId: z.string(),
 	snapshotAt: z.string(),
@@ -149,7 +152,7 @@ const CallCostsOutputSchema = z.object({
 	costs: z.array(CallCostEntrySchema),
 	summary: z.array(
 		z.object({
-			...CostSummarySchema.shape,
+			...ReviewedProviderCostSummarySchema.shape,
 			model: z.string(),
 			provider: z.string().nullable(),
 			providerResource: z.string().nullable(),
@@ -181,7 +184,7 @@ const TediUsageOutputSchema = z.object({
 	totals: TokenTotalsSchema,
 	efficiency: EfficiencySchema,
 	cost: z.object({
-		...CostSummarySchema.shape,
+		...ReviewedProviderCostSummarySchema.shape,
 		totalUsd: z
 			.number()
 			.nullable()

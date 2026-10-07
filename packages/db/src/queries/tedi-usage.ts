@@ -1,6 +1,16 @@
+import { getColumns } from "drizzle-orm";
 import {
-	costSummary,
-	type CostSummary,
+	normalizeEffectiveCallCost,
+	effectiveCallCostsRelation,
+	effectiveCostKnown,
+	effectiveCostUsd,
+	providerCostEvidenceProjection,
+	sourceRetiredProjection,
+	reviewedCostMicros,
+} from "./billing/provider-cost-evidence";
+import {
+	reviewedProviderCostSummary as costSummary,
+	type ReviewedProviderCostSummary as CostSummary,
 } from "@tedix/api-contract/schemas/cost-provenance";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
@@ -85,12 +95,24 @@ export async function getCallCosts(
 		conditions.push(eq(tediCallCosts.model, opts.model));
 	}
 
-	return db
-		.select()
-		.from(tediCallCosts)
+	const rows = await db
+		.select({
+			...getColumns(tediCallCosts),
+			providerCostEvidence: providerCostEvidenceProjection,
+			sourceRetired: sourceRetiredProjection,
+		})
+		.from(effectiveCallCostsRelation())
 		.where(and(...conditions))
 		.orderBy(desc(tediCallCosts.snapshotAt))
 		.limit(opts.limit ?? 500);
+	return (
+		rows as unknown as Array<
+			TediCallCost & {
+				providerCostEvidence: string | null;
+				sourceRetired: number;
+			}
+		>
+	).map(normalizeEffectiveCallCost);
 }
 
 export interface CallCostTotals extends CostSummary {
@@ -125,13 +147,17 @@ export async function getCallCostTotals(
 			cacheReadTokens: sql<number>`COALESCE(SUM(${tediCallCosts.cacheReadTokens}), 0)`,
 			cacheWriteTokens: sql<number>`COALESCE(SUM(${tediCallCosts.cacheWriteTokens}), 0)`,
 			totalTokens: sql<number>`COALESCE(SUM(${tediCallCosts.totalTokens}), 0)`,
-			knownSubtotalUsd: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
-			pricedRowCount: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' AND ${tediCallCosts.estimatedCostUsd} IS NOT NULL THEN 1 ELSE 0 END)`,
-			unpricedRowCount: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' OR ${tediCallCosts.estimatedCostUsd} IS NULL THEN 1 ELSE 0 END)`,
-			unpricedTokens: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' OR ${tediCallCosts.estimatedCostUsd} IS NULL THEN ${tediCallCosts.totalTokens} ELSE 0 END)`,
+			reviewedEstimateRowCount: sql<number>`COALESCE(SUM(CASE WHEN ${reviewedCostMicros} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+			reviewedEstimateTokens: sql<number>`COALESCE(SUM(CASE WHEN ${reviewedCostMicros} IS NOT NULL THEN ${tediCallCosts.totalTokens} ELSE 0 END), 0)`,
+			reviewedEstimateMicros: sql<number>`COALESCE(SUM(${reviewedCostMicros}), 0)`,
+			sourceRetiredRowCount: sql<number>`COALESCE(SUM(${sourceRetiredProjection}), 0)`,
+			knownSubtotalUsd: sql<number>`COALESCE(SUM(CASE WHEN ${effectiveCostKnown} THEN ${effectiveCostUsd} ELSE 0 END), 0)`,
+			pricedRowCount: sql<number>`SUM(CASE WHEN ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
+			unpricedRowCount: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
+			unpricedTokens: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN ${tediCallCosts.totalTokens} ELSE 0 END)`,
 			callCount: sql<number>`COUNT(*)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(and(...conditions));
 
 	const row = rows[0];
@@ -143,6 +169,10 @@ export async function getCallCostTotals(
 		totalTokens: Number(row?.totalTokens ?? 0),
 		...costSummary({
 			knownSubtotalUsd: Number(row?.knownSubtotalUsd ?? 0),
+			reviewedEstimateRowCount: Number(row?.reviewedEstimateRowCount ?? 0),
+			reviewedEstimateTokens: Number(row?.reviewedEstimateTokens ?? 0),
+			reviewedEstimateMicros: Number(row?.reviewedEstimateMicros ?? 0),
+			sourceRetiredRowCount: Number(row?.sourceRetiredRowCount ?? 0),
 			pricedRowCount: Number(row?.pricedRowCount ?? 0),
 			unpricedRowCount: Number(row?.unpricedRowCount ?? 0),
 			unpricedTokens: Number(row?.unpricedTokens ?? 0),
@@ -188,13 +218,17 @@ export async function getCallCostHistory(
 			inputTokens: sql<number>`COALESCE(SUM(${tediCallCosts.inputTokens}), 0)`,
 			outputTokens: sql<number>`COALESCE(SUM(${tediCallCosts.outputTokens}), 0)`,
 			totalTokens: sql<number>`COALESCE(SUM(${tediCallCosts.totalTokens}), 0)`,
-			knownSubtotalUsd: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
-			pricedRowCount: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' AND ${tediCallCosts.estimatedCostUsd} IS NOT NULL THEN 1 ELSE 0 END)`,
-			unpricedRowCount: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' OR ${tediCallCosts.estimatedCostUsd} IS NULL THEN 1 ELSE 0 END)`,
-			unpricedTokens: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' OR ${tediCallCosts.estimatedCostUsd} IS NULL THEN ${tediCallCosts.totalTokens} ELSE 0 END)`,
+			reviewedEstimateRowCount: sql<number>`COALESCE(SUM(CASE WHEN ${reviewedCostMicros} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+			reviewedEstimateTokens: sql<number>`COALESCE(SUM(CASE WHEN ${reviewedCostMicros} IS NOT NULL THEN ${tediCallCosts.totalTokens} ELSE 0 END), 0)`,
+			reviewedEstimateMicros: sql<number>`COALESCE(SUM(${reviewedCostMicros}), 0)`,
+			sourceRetiredRowCount: sql<number>`COALESCE(SUM(${sourceRetiredProjection}), 0)`,
+			knownSubtotalUsd: sql<number>`COALESCE(SUM(CASE WHEN ${effectiveCostKnown} THEN ${effectiveCostUsd} ELSE 0 END), 0)`,
+			pricedRowCount: sql<number>`SUM(CASE WHEN ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
+			unpricedRowCount: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
+			unpricedTokens: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN ${tediCallCosts.totalTokens} ELSE 0 END)`,
 			callCount: sql<number>`COUNT(*)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(and(...conditions))
 		.groupBy(dateBucket)
 		.orderBy(dateBucket);
@@ -206,6 +240,10 @@ export async function getCallCostHistory(
 		totalTokens: Number(row.totalTokens ?? 0),
 		...costSummary({
 			knownSubtotalUsd: Number(row.knownSubtotalUsd ?? 0),
+			reviewedEstimateRowCount: Number(row.reviewedEstimateRowCount ?? 0),
+			reviewedEstimateTokens: Number(row.reviewedEstimateTokens ?? 0),
+			reviewedEstimateMicros: Number(row.reviewedEstimateMicros ?? 0),
+			sourceRetiredRowCount: Number(row.sourceRetiredRowCount ?? 0),
 			pricedRowCount: Number(row.pricedRowCount ?? 0),
 			unpricedRowCount: Number(row.unpricedRowCount ?? 0),
 			unpricedTokens: Number(row.unpricedTokens ?? 0),
@@ -253,7 +291,7 @@ export async function getCostLedgerFreshness(
 			count24h: sql<number>`SUM(CASE WHEN ${tediCallCosts.snapshotAt} >= ${iso24h} THEN 1 ELSE 0 END)`,
 			count30d: sql<number>`COUNT(*)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(gte(tediCallCosts.snapshotAt, iso30d));
 	const row = rows[0];
 	return {
@@ -311,6 +349,10 @@ export async function getRuntimeLedgerFreshness(
 // =============================================================================
 
 export interface DailySpendModelBreakdown {
+	reviewedEstimateRowCount: number;
+	reviewedEstimateTokens: number;
+	reviewedEstimateMicros: number;
+	sourceRetiredRowCount: number;
 	model: string;
 	cost_usd: number | null;
 	knownSubtotalUsd: number;
@@ -319,6 +361,10 @@ export interface DailySpendModelBreakdown {
 }
 
 export interface DailySpendRate {
+	reviewedEstimateRowCount: number;
+	reviewedEstimateTokens: number;
+	reviewedEstimateMicros: number;
+	sourceRetiredRowCount: number;
 	/** ISO date (YYYY-MM-DD) the most recent lookback window covers */
 	asOf: string;
 	/** Sum of estimated_cost_usd over the last `lookbackDays` days */
@@ -376,18 +422,22 @@ export async function getDailySpendRate(
 	// 1. Current window aggregate + per-model breakdown
 	const windowRows = await db
 		.select({
+			reviewedEstimateRowCount: sql<number>`COALESCE(SUM(${reviewedCostMicros} IS NOT NULL),0)`,
+			reviewedEstimateTokens: sql<number>`COALESCE(SUM(CASE WHEN ${reviewedCostMicros} IS NOT NULL THEN ${tediCallCosts.totalTokens} ELSE 0 END),0)`,
+			reviewedEstimateMicros: sql<number>`COALESCE(SUM(${reviewedCostMicros}),0)`,
+			sourceRetiredRowCount: sql<number>`COALESCE(SUM(${sourceRetiredProjection}),0)`,
 			model: tediCallCosts.model,
 			// Quarantined rows are NOT spend. The sibling reads in this same module
 			// (`getCallCostTotals`, `getTediCallCostTotals`) already sum with this
 			// exact filter; the anomaly detector summed unfiltered, so one module
 			// disagreed with itself and alerting was the side that was wrong.
-			unpricedCalls: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' OR ${tediCallCosts.estimatedCostUsd} IS NULL THEN 1 ELSE 0 END)`,
-			cost: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
+			unpricedCalls: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
+			cost: sql<number>`COALESCE(SUM(CASE WHEN ${effectiveCostKnown} THEN ${effectiveCostUsd} ELSE 0 END), 0)`,
 			quarantinedCost: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
 			calls: sql<number>`COUNT(*)`,
 			quarantinedCalls: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' THEN 1 ELSE 0 END), 0)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(
 			and(
 				...tediFilter,
@@ -401,8 +451,16 @@ export async function getDailySpendRate(
 	let dailyCalls = 0;
 	let quarantinedUsd = 0;
 	let quarantinedCalls = 0;
+	const reviewed = {
+		reviewedEstimateRowCount: 0,
+		reviewedEstimateTokens: 0,
+		reviewedEstimateMicros: 0,
+		sourceRetiredRowCount: 0,
+	};
 	const models: DailySpendModelBreakdown[] = [];
 	for (const row of windowRows) {
+		for (const key of Object.keys(reviewed) as Array<keyof typeof reviewed>)
+			reviewed[key] += Number(row[key]);
 		const cost = Number(row.cost ?? 0);
 		const calls = Number(row.calls ?? 0);
 		dailyUsd += cost;
@@ -411,6 +469,10 @@ export async function getDailySpendRate(
 		quarantinedUsd += Number(row.quarantinedCost ?? 0);
 		quarantinedCalls += Number(row.quarantinedCalls ?? 0);
 		models.push({
+			reviewedEstimateRowCount: Number(row.reviewedEstimateRowCount),
+			reviewedEstimateTokens: Number(row.reviewedEstimateTokens),
+			reviewedEstimateMicros: Number(row.reviewedEstimateMicros),
+			sourceRetiredRowCount: Number(row.sourceRetiredRowCount),
 			model: row.model,
 			cost_usd: Number(row.unpricedCalls ?? 0) > 0 ? null : cost,
 			knownSubtotalUsd: cost,
@@ -427,10 +489,10 @@ export async function getDailySpendRate(
 			// value is not comparable to a window that excludes it — the ratio
 			// would move whenever the QUARANTINE RATE changed, with no change in
 			// real spend, which is precisely a false anomaly.
-			unpricedCalls: sql<number>`SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' OR ${tediCallCosts.estimatedCostUsd} IS NULL THEN 1 ELSE 0 END)`,
-			cost: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
+			unpricedCalls: sql<number>`SUM(CASE WHEN NOT ${effectiveCostKnown} THEN 1 ELSE 0 END)`,
+			cost: sql<number>`COALESCE(SUM(CASE WHEN ${effectiveCostKnown} THEN ${effectiveCostUsd} ELSE 0 END), 0)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(
 			and(
 				...tediFilter,
@@ -458,6 +520,7 @@ export async function getDailySpendRate(
 
 	return {
 		asOf: now.toISOString().slice(0, 10),
+		...reviewed,
 		daily_usd: unpricedCalls > 0 ? null : dailyUsd,
 		knownSubtotalUsd: dailyUsd,
 		unpricedCalls,
@@ -496,7 +559,7 @@ export async function getOrgCostLedgerFreshness(
 			count24h: sql<number>`SUM(CASE WHEN ${tediCallCosts.snapshotAt} >= ${iso24h} THEN 1 ELSE 0 END)`,
 			count30d: sql<number>`COUNT(*)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(
 			and(
 				eq(tediCallCosts.orgId, organizationId),
@@ -564,7 +627,7 @@ export async function getOrgCallCostProvenanceGroups(
 			totalTokens: sql<number>`COALESCE(SUM(${tediCallCosts.totalTokens}), 0)`,
 			costUsd: sql<number>`COALESCE(SUM(CASE WHEN ${hasCost} = 1 THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
 		})
-		.from(tediCallCosts)
+		.from(effectiveCallCostsRelation())
 		.where(
 			and(
 				eq(tediCallCosts.orgId, organizationId),
