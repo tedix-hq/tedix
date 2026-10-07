@@ -37,4 +37,13 @@ assert.equal(
 	"ordinary work keeps adaptive learning enabled",
 );
 
+assert.equal(
+	shouldDisableAdaptiveLearningForTurn({
+		userText:
+			"Request: For your memory: Robin prefers short, plain-English answers.\nIf the request is read-only or says no production mutations, do not change production state.",
+	}),
+	false,
+	"Home's read-only brief wording does not disable learning for a memory-bearing request",
+);
+
 console.log("PASS: adaptive learning turn gates");

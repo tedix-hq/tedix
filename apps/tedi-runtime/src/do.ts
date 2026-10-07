@@ -8375,6 +8375,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		) {
 			if (input.dailyLog !== false)
 				this.enqueueDailyLogPair(input.user, input.assistant);
+			createTurnLearningTelemetry(input).finish("skipped", "learning_disabled");
 			return;
 		}
 		const admission = this.runtimeAdmission();
