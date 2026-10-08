@@ -66,7 +66,7 @@ import {
 } from "./lesson-distiller";
 
 /** Bumped when chunking, prompts or planning change: lessons are rebuilt once. */
-export const MAP_REDUCE_VERSION = 4;
+export const MAP_REDUCE_VERSION = 5;
 export const CHUNK_REPLIES = 150;
 /** At most this many chunks per person per run (4,500 replies). */
 export const MAX_CHUNKS = 30;
@@ -97,8 +97,6 @@ const MIN_SESSIONS = 2;
 /** A rule with fewer sessions than FADE_MIN_SESSIONS fades after FADE_DAYS unrestated. */
 const FADE_DAYS = 45;
 const FADE_MIN_SESSIONS = 5;
-/** An unmerged candidate this widely supported is kept on its own. */
-const KEEP_UNMERGED_SESSIONS = 3;
 const SAME_RULE = 0.5;
 const LESSON_PREFIX = "learning-feed:decision:";
 const ANY = "general";
@@ -379,6 +377,28 @@ function bySupport(a: RuleCandidate, b: RuleCandidate): number {
 	);
 }
 
+/**
+ * The most recently stated of several candidates: a correction usually
+ * reuses the old rule's words ("okapi-, not zebra-"), so when candidates are
+ * merged by words the newest wording is the person's current rule, however
+ * many older sessions stated the other one.
+ */
+function newestOf(candidates: RuleCandidate[]): RuleCandidate {
+	return [...candidates].sort((a, b) =>
+		b.newestAt.localeCompare(a.newestAt),
+	)[0]!;
+}
+
+/** A newer rule on the same topic (two shared content words) replaced it. */
+function replacedBy(old: RuleCandidate, rules: RuleCandidate[]): boolean {
+	const own = new Set(words(old.rule));
+	return rules.some(
+		(rule) =>
+			rule.newestAt > old.newestAt &&
+			new Set(words(rule.rule).filter((word) => own.has(word))).size >= 2,
+	);
+}
+
 function mostCommon<T>(values: T[]): T {
 	const counts = new Map<T, number>();
 	for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -421,7 +441,7 @@ export function mergeByWords(candidates: RuleCandidate[]): RuleCandidate[] {
 		if (group) group.push(candidate);
 		else groups.push([candidate]);
 	}
-	return groups.map((group) => unite(group[0]!.rule, null, group));
+	return groups.map((group) => unite(newestOf(group).rule, null, group));
 }
 
 export function reducePrompt(
@@ -430,7 +450,7 @@ export function reducePrompt(
 ): string {
 	return [
 		"Below are candidate rules learned from different slices of one person's replies to their AI agents. Each shows its subject, how many sessions state it and the date it was last stated.",
-		"Merge candidates that state the same rule into one rule. When candidates contradict each other, or an older one describes a tool, process or setup that a newer one replaced, keep only the newer one.",
+		"Merge candidates that state the same rule into one rule; never join different rules into one sentence, and never fold a specific rule into a broader one. When candidates contradict each other, or an older one describes a tool, process or setup that a newer one replaced, keep only the newer one.",
 		"Write each merged rule once as one short imperative sentence of at most 12 words, keeping the person's own terms. Do not mention people's names, emails, money or secrets.",
 		"Start each rule with '- ', then its subject, a colon, the rule, and the numbers of every candidate it merges in square brackets, like: - <subject>: <rule> [3, 17, 40]",
 		SUBJECT_HELP,
@@ -461,28 +481,45 @@ export function mergedFromResponse(
 	const used = new Set<number>();
 	for (const { rule: line, cites } of cited) {
 		const [subject, rule] = splitSubject(line);
-		const sources = cites
-			.map((n) => candidates[n - 1])
-			.filter((c): c is RuleCandidate => c !== undefined);
-		if (sources.length === 0) continue;
-		for (const n of cites) used.add(n);
+		const cited = [...new Set(cites)]
+			.map((n) => [n, candidates[n - 1]] as const)
+			.filter((pair): pair is readonly [number, RuleCandidate] => !!pair[1]);
+		if (cited.length === 0) continue;
 		// A merged wording the candidates do not share is replaced by theirs.
-		const wording =
+		const newest = newestOf(cited.map(([, c]) => c)).rule;
+		const states = (wording: string, c: RuleCandidate) =>
+			c.rule === wording || supportedRules([c.rule], wording).length > 0;
+		// A merged wording the candidates do not share is replaced by theirs.
+		let wording =
 			rule.length >= 8 &&
 			!privateOrMoney(rule) &&
-			supportedRules([rule], sources.map((c) => c.rule).join("\n")).length > 0
+			supportedRules([rule], cited.map(([, c]) => c.rule).join("\n")).length > 0
 				? rule
-				: [...sources].sort(bySupport)[0]!.rule;
+				: newest;
+		// Only candidates the wording states join it: a model folding a
+		// specific rule into a broad one ("follow naming") would erase it.
+		// One left out stays unused and is weighed on its own below.
+		if (!cited.some(([, c]) => states(wording, c))) wording = newest;
+		const sources = cited
+			.filter(([, c]) => states(wording, c))
+			.map(([n, c]) => {
+				used.add(n);
+				return c;
+			});
 		const united = unite(wording, subject, sources);
 		merged.push(ranked ? { ...united, rank: merged.length } : united);
 	}
 	if (merged.length === 0) return null;
-	// A widely supported candidate the model left out is kept on its own.
+	// A lasting candidate the model left out is kept on its own: a merge
+	// pass dedupes and orders, and a fresh rule two sessions state (or one
+	// states as standing) must not vanish because a long history crowded it
+	// out. Not when a newer rule on its topic replaced it (newest wins).
 	candidates.forEach((candidate, index) => {
 		if (
 			!used.has(index + 1) &&
-			candidate.sessions.length >= KEEP_UNMERGED_SESSIONS &&
-			!merged.some((m) => sameRule(m.rule, candidate.rule))
+			(candidate.sessions.length >= MIN_SESSIONS || candidate.standing) &&
+			!merged.some((m) => sameRule(m.rule, candidate.rule)) &&
+			!replacedBy(candidate, merged)
 		)
 			merged.push(candidate);
 	});
@@ -504,7 +541,11 @@ export function lastingRules(
 		if (blocked.some((b) => sameRule(b, rule.rule))) continue;
 		const twin = kept.find((k) => sameRule(k.rule, rule.rule));
 		if (twin) {
-			kept[kept.indexOf(twin)] = unite(twin.rule, twin.subject, [twin, rule]);
+			kept[kept.indexOf(twin)] = unite(
+				newestOf([twin, rule]).rule,
+				twin.subject,
+				[twin, rule],
+			);
 			continue;
 		}
 		kept.push(rule);
