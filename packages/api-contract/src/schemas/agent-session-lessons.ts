@@ -49,6 +49,13 @@ export const GetAgentSessionLessonsInputSchema = z.strictObject({
 		.max(8000)
 		.default(3200)
 		.describe("UTF-8 byte budget for the returned lesson texts"),
+	sessionId: z
+		.string()
+		.regex(/^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/)
+		.optional()
+		.describe(
+			"The agent host's chat id. With it, which lessons reached this session is recorded so their effect can be measured, and a stable 10% of sessions (by this id) are a holdout that receives no learned lessons.",
+		),
 });
 export type GetAgentSessionLessonsInput = z.input<
 	typeof GetAgentSessionLessonsInputSchema
@@ -74,6 +81,11 @@ export const GetAgentSessionLessonsResultSchema = z.object({
 	matched: z.number().int().nonnegative(),
 	/** True when the budget dropped at least one matching lesson. */
 	truncated: z.boolean(),
+	/**
+	 * This session is in the measurement holdout: learned (mined) lessons
+	 * were withheld and only written or person-reviewed ones returned.
+	 */
+	holdout: z.boolean().optional(),
 });
 export type GetAgentSessionLessonsResult = z.infer<
 	typeof GetAgentSessionLessonsResultSchema
@@ -102,4 +114,80 @@ export const MineAgentSessionLessonsResultSchema = z.object({
 });
 export type MineAgentSessionLessonsResult = z.infer<
 	typeof MineAgentSessionLessonsResultSchema
+>;
+
+export const GetLessonEffectivenessInputSchema = z.strictObject({
+	weeks: z
+		.number()
+		.int()
+		.min(1)
+		.max(8)
+		.default(4)
+		.describe("How many recent weeks of sessions to measure"),
+});
+export type GetLessonEffectivenessInput = z.input<
+	typeof GetLessonEffectivenessInputSchema
+>;
+
+const LessonEffectivenessArmSchema = z.object({
+	/** Sessions in this arm. */
+	sessions: z.number().int().nonnegative(),
+	/** Matching user corrections in those sessions after the lessons arrived. */
+	corrections: z.number().int().nonnegative(),
+	/** Corrections per session; null without sessions. */
+	rate: z.number().nullable(),
+});
+export type LessonEffectivenessArm = z.infer<
+	typeof LessonEffectivenessArmSchema
+>;
+
+export const LessonEffectivenessVerdictSchema = z.enum([
+	"insufficient",
+	"helps",
+	"no_better",
+]);
+export type LessonEffectivenessVerdict = z.infer<
+	typeof LessonEffectivenessVerdictSchema
+>;
+
+export const LessonEffectivenessEntrySchema = z.object({
+	/** The lesson's lineage; a superseding lesson keeps it. */
+	topicKey: z.string(),
+	/** The current lesson under the key, when it is still delivered. */
+	lessonId: z.string().nullable(),
+	shortId: z.string().nullable(),
+	subjects: z.array(z.string()),
+	/** Sessions that received it, and corrections there on its subject. */
+	delivered: LessonEffectivenessArmSchema,
+	/** Holdout sessions it would have reached, and corrections there. */
+	holdout: LessonEffectivenessArmSchema,
+	verdict: LessonEffectivenessVerdictSchema,
+});
+export type LessonEffectivenessEntry = z.infer<
+	typeof LessonEffectivenessEntrySchema
+>;
+
+export const GetLessonEffectivenessResultSchema = z.object({
+	organizationId: z.string(),
+	since: z.string(),
+	holdoutPercent: z.number(),
+	/** Every correction in sessions that got learned lessons vs the holdout. */
+	overall: z.object({
+		delivered: LessonEffectivenessArmSchema,
+		holdout: LessonEffectivenessArmSchema,
+	}),
+	weeks: z.array(
+		z.object({
+			/** Monday (UTC) of the week the session first received lessons. */
+			weekStart: z.string(),
+			delivered: LessonEffectivenessArmSchema,
+			holdout: LessonEffectivenessArmSchema,
+		}),
+	),
+	lessons: z.array(LessonEffectivenessEntrySchema),
+	/** A read cap was reached; older sessions were not counted. */
+	truncated: z.boolean(),
+});
+export type GetLessonEffectivenessResult = z.infer<
+	typeof GetLessonEffectivenessResultSchema
 >;

@@ -348,6 +348,9 @@ export function isReplaceableLesson(fact: {
 }): boolean {
 	const meta = rec(fact.metadata);
 	if (rec(meta.memoryLifecycle).lastReview) return false;
+	// Retired for not reducing corrections (`lesson-effectiveness.ts`):
+	// settled like a person's archive, so it is not learned again.
+	if (rec(meta.learningFeed).retired) return false;
 	return (
 		fact.reviewStatus === "pending" ||
 		(fact.reviewStatus === "confirmed" &&

@@ -33,6 +33,8 @@ import { memoryFacts } from "../../schema/memory-graph";
 
 export interface ApprovedAgentLessonRow {
 	id: string;
+	/** The lesson's lineage: a newer lesson that supersedes it keeps the key. */
+	topicKey: string | null;
 	content: string;
 	priority: "core" | "active" | "background" | null;
 	confidence: number;
@@ -60,6 +62,7 @@ export async function listApprovedAgentLessons(
 	return db
 		.select({
 			id: memoryFacts.id,
+			topicKey: memoryFacts.topicKey,
 			content: memoryFacts.content,
 			priority: memoryFacts.priority,
 			confidence: memoryFacts.confidence,
@@ -103,6 +106,8 @@ export interface CurrentLearningFeedLessonRow {
 	content: string;
 	reviewStatus: string | null;
 	metadata: Record<string, JsonValue> | null;
+	priority?: "core" | "active" | "background" | null;
+	confidence?: number;
 }
 
 /**
@@ -122,6 +127,8 @@ export async function listCurrentLearningFeedLessons(
 			content: memoryFacts.content,
 			reviewStatus: memoryFacts.reviewStatus,
 			metadata: memoryFacts.metadata,
+			priority: memoryFacts.priority,
+			confidence: memoryFacts.confidence,
 		})
 		.from(memoryFacts)
 		.where(

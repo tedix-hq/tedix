@@ -194,6 +194,10 @@ export async function listLearningInteractions(
 		scopeKind?: LearningScopeKind;
 		scopeId?: string;
 		issueKey?: string;
+		/** Only events that carry an issue key. */
+		withIssueKey?: boolean;
+		/** Only events on these producer surfaces. */
+		surfaces?: string[];
 		since?: string;
 		until?: string;
 		limit: number;
@@ -227,6 +231,14 @@ export async function listLearningInteractions(
 	}
 	if (input.issueKey) {
 		conditions.push(eq(learningInteractionEvents.issueKey, input.issueKey));
+	}
+	if (input.withIssueKey) {
+		conditions.push(isNotNull(learningInteractionEvents.issueKey));
+	}
+	if (input.surfaces) {
+		if (input.surfaces.length === 0) return [];
+		// bound-params: callers pass a fixed list of producer surfaces
+		conditions.push(inArray(learningInteractionEvents.surface, input.surfaces));
 	}
 	if (input.since) {
 		conditions.push(gte(learningInteractionEvents.occurredAt, input.since));
@@ -1086,6 +1098,9 @@ export async function analyzeRecurringLearningIssues(
 		since: input.since,
 		until: input.until,
 		personalScopeId: input.personalScopeId,
+		// Events without an issue key never form an issue; without this, a
+		// busy keyless producer (lesson delivery) crowds the window out.
+		withIssueKey: true,
 		limit: 200,
 	});
 	return summarizeRecurringLearningIssues({

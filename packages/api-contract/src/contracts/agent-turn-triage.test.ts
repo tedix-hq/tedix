@@ -18,6 +18,7 @@ const question = {
 describe("agentTurnTriageContract", () => {
 	it("exposes exactly the triage and reply-draft procedures", () => {
 		expect(Object.keys(agentTurnTriageContract).sort()).toEqual([
+			"getLessonEffectiveness",
 			"getPolicy",
 			"getReplyDraftAcceptance",
 			"getSessionLessons",

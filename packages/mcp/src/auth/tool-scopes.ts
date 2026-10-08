@@ -120,6 +120,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"agentTurnTriage/proposeReplyDraft": "mcp:messaging.write",
 	"agentTurnTriage/getReplyDraftAcceptance": "mcp:messaging.read",
 	"agentTurnTriage/getSessionLessons": "mcp:messaging.read",
+	"agentTurnTriage/getLessonEffectiveness": "mcp:messaging.read",
 	"agentTurnTriage/mineSessionLessons": "mcp:messaging.write",
 	"agentTurnTriage/importSessionDecisions": "mcp:messaging.write",
 	// The local agent session board is the caller's own Work status. Keep the

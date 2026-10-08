@@ -952,6 +952,18 @@ const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 );
 
 /**
+ * Whether delivered lessons reduce repeated corrections: the caller's own
+ * sessions (and org-wide ones), delivered vs holdout. Read-only.
+ */
+const getLessonEffectivenessProcedure = readOs.getLessonEffectiveness.handler(
+	async ({ input, context }) => {
+		const { readLessonEffectiveness } =
+			await import("../../services/lesson-effectiveness");
+		return readLessonEffectiveness(context, requireOrgId(context), input.weeks);
+	},
+);
+
+/**
  * Run the learning-feed miner for the caller's organization now. Writes only
  * that organization's memory, under the same bounds as nightly reflection.
  * Each person's whole decision history is distilled by a Workflow instance
@@ -1067,5 +1079,6 @@ export const agentTurnTriageContractRouter = os.router({
 	proposeReplyDraft,
 	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
 	getSessionLessons: getSessionLessonsProcedure,
+	getLessonEffectiveness: getLessonEffectivenessProcedure,
 	mineSessionLessons: mineSessionLessonsProcedure,
 });
