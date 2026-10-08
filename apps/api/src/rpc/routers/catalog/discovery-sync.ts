@@ -17,6 +17,14 @@ import {
 } from "@tedix/db/queries/catalog/categories-stats";
 import { getCatalogHealthSummary } from "@tedix/db/queries/catalog/health-metrics";
 import { listCatalogApps } from "@tedix/db/queries/catalog/list-apps";
+import {
+	type CatalogVendorVariantRow,
+	listCatalogVendorVariants,
+} from "@tedix/db/queries/catalog/vendor-variants";
+import {
+	type CatalogAppVariant,
+	SourceSchema,
+} from "@tedix/api-contract/schemas/catalog";
 import { semanticSearchCatalogApps } from "@tedix/db/queries/catalog/semantic-search";
 import { requireCatalogOperatorAccess } from "../catalog-operator-access";
 import {
@@ -42,6 +50,44 @@ import {
 	getUpstreamProtocolUsageFromAE,
 	hasAEConfig,
 } from "../../../lib/analytics-engine";
+
+/** Installability states the catalog list hides behind a runnable sibling. */
+const NON_RUNNABLE_INSTALLABILITY_STATES = new Set<string>([
+	"listing_only",
+	"service_connector",
+	"needs_mcp_endpoint",
+]);
+
+async function mapCatalogVariants(
+	db: Parameters<typeof listBaseAppsForCatalogApps>[0],
+	rows: CatalogVendorVariantRow[],
+): Promise<CatalogAppVariant[]> {
+	if (rows.length === 0) return [];
+	const baseApps = await listBaseAppsForCatalogApps(
+		db,
+		rows.map((row) => row.id),
+	);
+	const baseAppByCatalogId = new Map<string, BaseAppSummary>();
+	for (const app of baseApps) {
+		if (app.catalogAppId && !baseAppByCatalogId.has(app.catalogAppId)) {
+			baseAppByCatalogId.set(app.catalogAppId, app);
+		}
+	}
+	return rows.map((row) => {
+		const parsedSource = SourceSchema.safeParse(row.primarySource);
+		return {
+			id: row.id,
+			slug: row.slug,
+			name: row.name,
+			source: parsedSource.success ? parsedSource.data : null,
+			installabilityState: calculateCatalogInstallability(
+				row,
+				baseAppByCatalogId.get(row.id),
+			).state,
+			mcpToolCount: row.mcpToolCount ?? 0,
+		};
+	});
+}
 
 // =============================================================================
 // PROCEDURE IMPLEMENTATIONS
@@ -100,6 +146,7 @@ export const listCatalog = fleetCatalogOs.list
 			limit,
 			offset,
 			includeAll: false,
+			hideShadowedVariants: !input.includeVariants,
 		});
 		if (normalizedSearch) {
 			console.log("[Catalog Search] retrieval", {
@@ -227,8 +274,18 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 			result.storeListings[0] ??
 			null;
 		const quality = calculateCatalogQuality(result, primaryListing);
-		const baseApp = await getCatalogBaseApp(db, result.id);
+		const [baseApp, variantRows] = await Promise.all([
+			getCatalogBaseApp(db, result.id),
+			listCatalogVendorVariants(db, result.id),
+		]);
 		const installability = calculateCatalogInstallability(result, baseApp);
+		const variants = await mapCatalogVariants(db, variantRows);
+		const canonicalSlug = NON_RUNNABLE_INSTALLABILITY_STATES.has(
+			installability.state,
+		)
+			? (variantRows.find((variant) => variant.runnable && variant.slug)
+					?.slug ?? null)
+			: null;
 
 		// Map to detail schema with relations
 		// Unpack JSON blob columns (systemHints, healthData, scores, mcpMetadata,
@@ -299,6 +356,8 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 			discoverability,
 			quality,
 			installability,
+			variants,
+			canonicalSlug,
 			// Timestamps
 			lastSyncedAt: result.lastSyncedAt,
 			createdAt: result.createdAt,

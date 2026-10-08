@@ -201,8 +201,20 @@ export function CatalogToolList({
 	);
 }
 
+function variantSummary(
+	variant: NonNullable<CatalogAppDetail["variants"]>[number],
+): string {
+	const runnable =
+		variant.installabilityState === "installable" ||
+		variant.installabilityState === "needs_base_app";
+	if (!runnable) return "Listing only";
+	if (variant.mcpToolCount === 0) return "MCP server";
+	return `${variant.mcpToolCount} ${variant.mcpToolCount === 1 ? "tool" : "tools"}`;
+}
+
 export function CatalogAppMetadata({ app }: { app: CatalogAppDetail }) {
 	const listings = app.storeListings ?? [];
+	const variants = app.variants ?? [];
 	const hasLinks = Boolean(
 		app.website || app.privacyPolicy || app.termsOfService,
 	);
@@ -328,6 +340,44 @@ export function CatalogAppMetadata({ app }: { app: CatalogAppDetail }) {
 										<ArrowSquareOut className="size-3" />
 									</Button>
 								) : null}
+							</li>
+						))}
+					</Collection>
+				</section>
+			) : null}
+			{variants.length ? (
+				<section
+					aria-labelledby="app-variants-heading"
+					className="border-kumo-line border-t p-4"
+				>
+					<Text
+						as="h2"
+						id="app-variants-heading"
+						role="section"
+						weight="semibold"
+						className="m-0 mb-3"
+					>
+						Also available as
+					</Text>
+					<Collection appearance="inline" aria-label="Same-vendor variants">
+						{variants.map((variant) => (
+							<li
+								key={variant.id}
+								className="flex min-w-0 items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
+							>
+								<Link
+									to="/explore/apps/$slug"
+									params={{ slug: variant.slug ?? variant.id }}
+									className="min-w-0 text-kumo-brand hover:underline [overflow-wrap:anywhere]"
+								>
+									{variant.name}
+									{variant.source ? (
+										<span className="capitalize"> · {variant.source}</span>
+									) : null}
+								</Link>
+								<Text as="span" role="label" tone="secondary">
+									{variantSummary(variant)}
+								</Text>
 							</li>
 						))}
 					</Collection>
