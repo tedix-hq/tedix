@@ -47,8 +47,9 @@ make it pass. Report exactly what ran, and keep passing tests, a recorded
 outcome, and a deployment distinct.
 
 Before committing, run `bun run format <changed files>`; unformatted files are
-the most common pre-push failure. When the gates pass but the remote rejects
-the push because main moved, rebase onto `origin/main` and push again.
+the most common pre-push failure. Push with `bun run push`, not `git push`: it
+queues behind other sessions on this machine, rebases onto `origin/main`, runs
+the normal pre-push gates, and retries if main moved elsewhere.
 
 ## Worktrees and closeout
 

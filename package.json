@@ -57,6 +57,7 @@
 		"mcp:sync-tool-schemas": "bun scripts/mcp/sync-tool-schemas.ts",
 		"oss:check": "bun scripts/oss/public-surface.ts && bun scripts/oss/dependency-licenses.ts",
 		"prepare": "bun run hooks:install",
+		"push": "bun scripts/dev/push-queue.ts",
 		"release:notes": "bun scripts/release/generate-release-notes.ts",
 		"run-local": "bun scripts/run-local.ts",
 		"scan:secrets": "bun scripts/oss/secret-scan.ts",
