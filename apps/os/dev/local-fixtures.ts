@@ -3553,6 +3553,166 @@ function localAgentSessions(includeEnded: boolean | undefined) {
 	return { sessions, counts };
 }
 
+// --- Office (/work/office): knocks, auto-sent replies and the notebook ---
+
+/** Agent turns that knocked today, aged relative to the request. */
+const LOCAL_KNOCKS: readonly {
+	n: number;
+	subject: string;
+	host: "claude-code" | "codex";
+	repository: string;
+	urgency: "now" | "later";
+	state: "open" | "resolved";
+	minutesAgo: number;
+	draft: "auto" | "review" | null;
+	drafter: string;
+}[] = [
+	{
+		n: 1,
+		subject: "Tests pass. Push the retry fix to main?",
+		host: "claude-code",
+		repository: "acme/books",
+		urgency: "later",
+		state: "open",
+		minutesAgo: 2,
+		draft: "auto",
+		drafter: TEDI_NOVA,
+	},
+	{
+		n: 2,
+		subject: "The production database migration drops a column. Run it now?",
+		host: "codex",
+		repository: "acme/books",
+		urgency: "now",
+		state: "open",
+		minutesAgo: 9,
+		draft: null,
+		drafter: TEDI_NOVA,
+	},
+	{
+		n: 3,
+		subject: "Hero copy rewritten in plain English. Ship it?",
+		host: "claude-code",
+		repository: "acme/landing",
+		urgency: "later",
+		state: "open",
+		minutesAgo: 21,
+		draft: "auto",
+		drafter: TEDI_MILES,
+	},
+	{
+		n: 4,
+		subject: "Which pricing tier should the new plan default to?",
+		host: "codex",
+		repository: "acme/landing",
+		urgency: "later",
+		state: "open",
+		minutesAgo: 47,
+		draft: "review",
+		drafter: TEDI_MILES,
+	},
+	{
+		n: 5,
+		subject: "Done with the invoice export. Anything else?",
+		host: "claude-code",
+		repository: "acme/books",
+		urgency: "later",
+		state: "resolved",
+		minutesAgo: 95,
+		draft: null,
+		drafter: TEDI_NOVA,
+	},
+];
+
+function localKnockRequest(knock: (typeof LOCAL_KNOCKS)[number]) {
+	const at = new Date(Date.now() - knock.minutesAgo * 60_000).toISOString();
+	return {
+		id: fid("a7", knock.n),
+		orgId: ORG_ID,
+		workItemId: null,
+		caseId: null,
+		projectId: null,
+		kind: "question" as const,
+		subject: knock.subject,
+		prompt: knock.subject,
+		requestedFromType: "user" as const,
+		requestedFromId: "dev-operator",
+		creatorType: "user" as const,
+		creatorId: "dev-operator",
+		creatorSessionId: null,
+		state: knock.state,
+		requestedAt: at,
+		dueAt: null,
+		expiresAt: null,
+		resolvedAt: knock.state === "resolved" ? at : null,
+		version: 1,
+		metadata: {
+			schema: "tedix.decision-capture.v1",
+			host: knock.host,
+			sessionId: fid("a8", knock.n),
+			repository: knock.repository,
+			triage: { urgency: knock.urgency },
+		},
+	};
+}
+
+function localKnockRow(knock: (typeof LOCAL_KNOCKS)[number]) {
+	return {
+		request: localKnockRequest(knock),
+		effectiveState: knock.state,
+		canRespond: knock.state === "open",
+		canCancel: false,
+		workItem: null,
+		responseCount: knock.state === "resolved" ? 1 : 0,
+	};
+}
+
+function localKnockDetail(requestId: string) {
+	const knock = LOCAL_KNOCKS.find((row) => fid("a7", row.n) === requestId);
+	if (!knock) throw new RpcError("NOT_FOUND", "Interaction not found");
+	const row = localKnockRow(knock);
+	return {
+		request: row.request,
+		effectiveState: row.effectiveState,
+		canRespond: row.canRespond,
+		canCancel: false,
+		latestDraft: knock.draft
+			? {
+					id: fid("a9", knock.n),
+					body: "Yes, go ahead.",
+					rationale: "Reversible and matches how you answered last time.",
+					drafterId: knock.drafter,
+					drafterName: null,
+					createdAt: row.request.requestedAt,
+					turnType: "ship",
+					delivery: knock.draft,
+				}
+			: null,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	};
+}
+
+const LOCAL_LESSONS = [
+	{
+		n: 1,
+		text: "Answer in plain English and keep it short; no IDs in the reply.",
+		addedMinutesAgo: 30,
+		replies: 1,
+	},
+	{
+		n: 2,
+		text: "Commit and push to main once checks pass; never open a pull request.",
+		addedMinutesAgo: 60 * 26,
+		replies: 4,
+	},
+	{
+		n: 3,
+		text: "Prefer the simple version first; ask before adding a feature flag.",
+		addedMinutesAgo: 60 * 24 * 5,
+		replies: 0,
+	},
+] as const;
+
 // ---------------------------------------------------------------------------
 // Per-procedure handlers
 // ---------------------------------------------------------------------------
@@ -3560,6 +3720,54 @@ function localAgentSessions(includeEnded: boolean | undefined) {
 const handlers: Record<string, (input: never) => unknown> = {
 	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
 		localAgentSessions(input?.includeEnded),
+	"workInteractions/listInbox": (
+		input: { states?: string[]; urgency?: string } | undefined,
+	) => ({
+		data: LOCAL_KNOCKS.filter(
+			(knock) =>
+				(!input?.states || input.states.includes(knock.state)) &&
+				(!input?.urgency || input.urgency === knock.urgency),
+		).map(localKnockRow),
+		nextCursor: null,
+		hasMore: false,
+		observedAt: new Date().toISOString(),
+	}),
+	"workInteractions/get": (input: { requestId: string }) =>
+		localKnockDetail(input.requestId),
+	"agentTurnTriage/getReplyDraftAcceptance": () => ({
+		byTurnType: [
+			{
+				turnType: "ship",
+				drafts: 3,
+				decided: 1,
+				accepted: 0,
+				edited: 1,
+				replaced: 0,
+				rate: 0,
+				eligible: false,
+				autoSent: 2,
+				autoFollowedUp: 1,
+				overridden: 0,
+				overrideRate: 0,
+			},
+		],
+		policy: { minDrafts: 50, minRate: 0.9 },
+	}),
+	"agentTurnTriage/listLessons": () => ({
+		lessons: LOCAL_LESSONS.map((lesson) => {
+			const added = new Date(
+				Date.now() - lesson.addedMinutesAgo * 60_000,
+			).toISOString();
+			return {
+				id: fid("b1", lesson.n),
+				text: lesson.text,
+				addedAt: added,
+				learnedFrom: lesson.replies
+					? { replies: lesson.replies, lastReplyAt: added, fromCaller: true }
+					: null,
+			};
+		}),
+	}),
 	"catalog/list": (input: ListCatalogAppsInput) => {
 		const rows = LOCAL_CATALOG.filter(
 			(app) =>

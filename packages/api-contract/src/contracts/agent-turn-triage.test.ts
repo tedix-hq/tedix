@@ -24,6 +24,7 @@ describe("agentTurnTriageContract", () => {
 			"getSessionLessons",
 			"importSessionDecisions",
 			"labelReply",
+			"listLessons",
 			"mineSessionLessons",
 			"proposeReplyDraft",
 			"requestReplyDraft",

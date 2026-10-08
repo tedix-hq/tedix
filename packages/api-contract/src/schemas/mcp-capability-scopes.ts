@@ -209,6 +209,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	get_agent_reply_draft_acceptance: "mcp:messaging",
 	// Approved team lessons a local agent session reads before each prompt.
 	get_agent_session_lessons: "mcp:messaging",
+	// The same lessons as one notebook, newest first, with their sources.
+	list_agent_session_lessons: "mcp:messaging",
 	// Whether those lessons reduce repeated corrections (delivered vs holdout).
 	get_lesson_effectiveness: "mcp:messaging",
 	// Learns those lessons from recent decisions now instead of nightly.

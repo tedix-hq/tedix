@@ -69,6 +69,7 @@ import { Route as SessionTenantWorkClustersRouteImport } from './routes/_session
 import { Route as SessionTenantWorkControlRouteImport } from './routes/_session/_tenant/work.control'
 import { Route as SessionTenantWorkGraphRouteImport } from './routes/_session/_tenant/work.graph'
 import { Route as SessionTenantWorkInteractionsRouteImport } from './routes/_session/_tenant/work.interactions'
+import { Route as SessionTenantWorkOfficeRouteImport } from './routes/_session/_tenant/work.office'
 import { Route as SessionTenantWorkPortfolioRouteImport } from './routes/_session/_tenant/work.portfolio'
 import { Route as SessionTenantWorkRecoveryRouteImport } from './routes/_session/_tenant/work.recovery'
 import { Route as SessionTenantAppsAppIdIndexRouteImport } from './routes/_session/_tenant/apps_.$appId.index'
@@ -412,6 +413,11 @@ const SessionTenantWorkInteractionsRoute =
     path: '/interactions',
     getParentRoute: () => SessionTenantWorkRoute,
   } as any)
+const SessionTenantWorkOfficeRoute = SessionTenantWorkOfficeRouteImport.update({
+  id: '/office',
+  path: '/office',
+  getParentRoute: () => SessionTenantWorkRoute,
+} as any)
 const SessionTenantWorkPortfolioRoute =
   SessionTenantWorkPortfolioRouteImport.update({
     id: '/portfolio',
@@ -610,6 +616,7 @@ export interface FileRoutesByFullPath {
   '/work/control': typeof SessionTenantWorkControlRoute
   '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
+  '/work/office': typeof SessionTenantWorkOfficeRoute
   '/work/portfolio': typeof SessionTenantWorkPortfolioRoute
   '/work/recovery': typeof SessionTenantWorkRecoveryRoute
   '/admin/': typeof SessionTenantAdminIndexRoute
@@ -685,6 +692,7 @@ export interface FileRoutesByTo {
   '/work/control': typeof SessionTenantWorkControlRoute
   '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
+  '/work/office': typeof SessionTenantWorkOfficeRoute
   '/work/portfolio': typeof SessionTenantWorkPortfolioRoute
   '/work/recovery': typeof SessionTenantWorkRecoveryRoute
   '/admin': typeof SessionTenantAdminIndexRoute
@@ -772,6 +780,7 @@ export interface FileRoutesById {
   '/_session/_tenant/work/control': typeof SessionTenantWorkControlRoute
   '/_session/_tenant/work/graph': typeof SessionTenantWorkGraphRoute
   '/_session/_tenant/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
+  '/_session/_tenant/work/office': typeof SessionTenantWorkOfficeRoute
   '/_session/_tenant/work/portfolio': typeof SessionTenantWorkPortfolioRoute
   '/_session/_tenant/work/recovery': typeof SessionTenantWorkRecoveryRoute
   '/_session/_tenant/admin/': typeof SessionTenantAdminIndexRoute
@@ -855,6 +864,7 @@ export interface FileRouteTypes {
     | '/work/control'
     | '/work/graph'
     | '/work/interactions'
+    | '/work/office'
     | '/work/portfolio'
     | '/work/recovery'
     | '/admin/'
@@ -930,6 +940,7 @@ export interface FileRouteTypes {
     | '/work/control'
     | '/work/graph'
     | '/work/interactions'
+    | '/work/office'
     | '/work/portfolio'
     | '/work/recovery'
     | '/admin'
@@ -1016,6 +1027,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/work/control'
     | '/_session/_tenant/work/graph'
     | '/_session/_tenant/work/interactions'
+    | '/_session/_tenant/work/office'
     | '/_session/_tenant/work/portfolio'
     | '/_session/_tenant/work/recovery'
     | '/_session/_tenant/admin/'
@@ -1473,6 +1485,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkInteractionsRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
+    '/_session/_tenant/work/office': {
+      id: '/_session/_tenant/work/office'
+      path: '/office'
+      fullPath: '/work/office'
+      preLoaderRoute: typeof SessionTenantWorkOfficeRouteImport
+      parentRoute: typeof SessionTenantWorkRoute
+    }
     '/_session/_tenant/work/portfolio': {
       id: '/_session/_tenant/work/portfolio'
       path: '/portfolio'
@@ -1782,6 +1801,7 @@ interface SessionTenantWorkRouteChildren {
   SessionTenantWorkControlRoute: typeof SessionTenantWorkControlRoute
   SessionTenantWorkGraphRoute: typeof SessionTenantWorkGraphRoute
   SessionTenantWorkInteractionsRoute: typeof SessionTenantWorkInteractionsRouteWithChildren
+  SessionTenantWorkOfficeRoute: typeof SessionTenantWorkOfficeRoute
   SessionTenantWorkPortfolioRoute: typeof SessionTenantWorkPortfolioRoute
   SessionTenantWorkRecoveryRoute: typeof SessionTenantWorkRecoveryRoute
   SessionTenantWorkIndexRoute: typeof SessionTenantWorkIndexRoute
@@ -1803,6 +1823,7 @@ const SessionTenantWorkRouteChildren: SessionTenantWorkRouteChildren = {
   SessionTenantWorkGraphRoute: SessionTenantWorkGraphRoute,
   SessionTenantWorkInteractionsRoute:
     SessionTenantWorkInteractionsRouteWithChildren,
+  SessionTenantWorkOfficeRoute: SessionTenantWorkOfficeRoute,
   SessionTenantWorkPortfolioRoute: SessionTenantWorkPortfolioRoute,
   SessionTenantWorkRecoveryRoute: SessionTenantWorkRecoveryRoute,
   SessionTenantWorkIndexRoute: SessionTenantWorkIndexRoute,

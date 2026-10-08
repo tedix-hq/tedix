@@ -238,6 +238,12 @@ const CALLS: Record<string, unknown> = {
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
 	"workAgentSessions/list": {},
+	"workInteractions/listInbox": { limit: 100 },
+	"workInteractions/get": { requestId: "000000a7-0000-4000-8000-000000000001" },
+	"agentTurnTriage/getReplyDraftAcceptance": {
+		since: "2026-10-08T00:00:00.000Z",
+	},
+	"agentTurnTriage/listLessons": { limit: 50 },
 	"projects/list": { limit: 100 },
 	"workItems/listRelations": { limit: 500 },
 	"workItems/getOrgGraphHealth": { limit: 20 },

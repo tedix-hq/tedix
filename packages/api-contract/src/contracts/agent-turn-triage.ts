@@ -8,6 +8,8 @@ import {
 	GetAgentSessionLessonsResultSchema,
 	GetLessonEffectivenessInputSchema,
 	GetLessonEffectivenessResultSchema,
+	ListAgentLessonsInputSchema,
+	ListAgentLessonsResultSchema,
 	MineAgentSessionLessonsInputSchema,
 	MineAgentSessionLessonsResultSchema,
 } from "../schemas/agent-session-lessons";
@@ -151,6 +153,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(GetAgentSessionLessonsInputSchema)
 			.output(GetAgentSessionLessonsResultSchema),
+
+		listLessons: oc
+			.route({
+				method: "GET",
+				path: "/session-lessons/notebook",
+				summary: "List the lessons the caller's sessions receive, newest first",
+				description:
+					"The same approved lessons `get_agent_session_lessons` delivers (org-wide plus the caller's own personal ones), unfiltered by session and newest first, each with when it was written and the decisions it was learned from (count, newest reply time, and whether they were the caller's). Read-only; records nothing.",
+			})
+			.input(ListAgentLessonsInputSchema)
+			.output(ListAgentLessonsResultSchema),
 
 		getLessonEffectiveness: oc
 			.route({

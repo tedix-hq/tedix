@@ -13,7 +13,11 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { isHoldoutSession } from "../../services/lesson-delivery";
 import type { BaseContext } from "../orpc";
-import { normalizeRepo, selectSessionLessons } from "./agent-session-lessons";
+import {
+	lessonLearnedFrom,
+	normalizeRepo,
+	selectSessionLessons,
+} from "./agent-session-lessons";
 import { agentTurnTriageContractRouter } from "./agent-turn-triage";
 
 const ORG_1 = "00000000-0000-4000-8000-000000000001";
@@ -31,6 +35,7 @@ const row = (
 	confidence,
 	topicKey: null,
 	metadata: (scope ? { learningFeed: { version: 1, scope } } : null) as never,
+	createdAt: null,
 	updatedAt: "2026-10-07T00:00:00Z",
 });
 
@@ -322,6 +327,19 @@ describe("getSessionLessons procedure", () => {
 		expect(await texts()).toEqual(["Org one lesson."]);
 	});
 
+	it("lists the caller's notebook with each lesson's sources", async () => {
+		const result = await createRouterClient(agentTurnTriageContractRouter, {
+			context: context(ORG_1, ["mcp:messaging.read"], "user-a"),
+		}).listLessons({});
+		expect(result.lessons.map((lesson) => lesson.text).sort()).toEqual([
+			"My lesson.",
+			"Org one lesson.",
+		]);
+		expect(result.lessons.every((lesson) => lesson.learnedFrom === null)).toBe(
+			true,
+		);
+	});
+
 	it("mines on demand for the caller's organization with the write scope only", async () => {
 		startWorkflow.mockClear();
 		const result = await createRouterClient(agentTurnTriageContractRouter, {
@@ -451,5 +469,25 @@ describe("getSessionLessons holdout and delivery log", () => {
 				},
 			],
 		});
+	});
+});
+
+describe("lessonLearnedFrom", () => {
+	it("counts cited replies and says whose they were", () => {
+		const metadata = {
+			learningFeed: {
+				evidenceEventIds: ["e1", "e2"],
+				lastEventAt: "2026-10-07T10:00:00Z",
+				ownerUserId: "user-a",
+			},
+		};
+		expect(lessonLearnedFrom(metadata, "user-a")).toEqual({
+			replies: 2,
+			lastReplyAt: "2026-10-07T10:00:00Z",
+			fromCaller: true,
+		});
+		expect(lessonLearnedFrom(metadata, "user-b")?.fromCaller).toBe(false);
+		expect(lessonLearnedFrom({ learningFeed: {} }, "user-a")).toBeNull();
+		expect(lessonLearnedFrom(null, null)).toBeNull();
 	});
 });
