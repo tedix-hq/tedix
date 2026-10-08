@@ -1564,3 +1564,115 @@ describe("ToolHandler MCP transport", () => {
 		});
 	});
 });
+
+describe("caller trust on the tedi inject hop", () => {
+	function injectCtx(
+		callerIdentity: ToolExecutionContext["callerIdentity"],
+		config: Record<string, unknown> = {},
+	) {
+		const ctx = mcpCtx({
+			transport: "mcp",
+			mcpServerUrl: "https://cto.tedi.tedix.dev/mcp",
+			mcpToolName: "run_tedi_turn",
+			_aggregateTediId: "cto_tedi_1",
+			_aggregateTediOrgId: "org_1",
+			...config,
+		});
+		ctx.callerIdentity = callerIdentity;
+		const injectFetch = vi.fn(async (url: unknown, init: RequestInit) => {
+			expect(String(url)).toBe("https://cto.tedi.tedix.dev/hooks/inject");
+			void init;
+			return Response.json({ accepted: true }, { status: 202 });
+		});
+		ctx.env.TEDI_SERVICE = { fetch: injectFetch } as unknown as Fetcher;
+		return { ctx, injectFetch };
+	}
+	const params = {
+		text: "hello",
+		learning_mode: "off",
+		metadata: { source: "caller" },
+	};
+	function sentBody(fetch: ReturnType<typeof vi.fn>) {
+		const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+		return {
+			headers: new Headers(init.headers),
+			body: JSON.parse(String(init.body)) as Record<string, unknown>,
+		};
+	}
+
+	it("stamps member and keeps learning_mode/metadata for a same-org human", async () => {
+		const { ctx, injectFetch } = injectCtx({
+			authType: "oauth",
+			userId: "user_1",
+			organizationId: "org_1",
+		});
+		const result = await new ToolHandler().execute({ ...params }, ctx);
+		expect(result.status).toBe(200);
+		const { headers, body } = sentBody(injectFetch);
+		expect(headers.get("x-tedix-caller-trust")).toBe("member");
+		expect(body.learning_mode).toBe("off");
+		expect(body.metadata).toEqual({ source: "caller" });
+	});
+
+	it("stamps tedi and strips learning_mode/metadata for a same-org tedi JWT", async () => {
+		const { ctx, injectFetch } = injectCtx({
+			authType: "tedi",
+			tediId: "other_tedi",
+			organizationId: "org_1",
+		});
+		const result = await new ToolHandler().execute({ ...params }, ctx);
+		expect(result.status).toBe(200);
+		const { headers, body } = sentBody(injectFetch);
+		expect(headers.get("x-tedix-caller-trust")).toBe("tedi");
+		expect(body.text).toBe("hello");
+		expect(body).not.toHaveProperty("learning_mode");
+		expect(body).not.toHaveProperty("metadata");
+	});
+
+	it("refuses a cross-org caller with 403 before reaching the runtime", async () => {
+		const { ctx, injectFetch } = injectCtx({
+			authType: "oauth",
+			userId: "user_1",
+			organizationId: "org_2",
+		});
+		const result = await new ToolHandler().execute({ ...params }, ctx);
+		expect(result.status).toBe(403);
+		expect(result.data).toMatchObject({
+			error: expect.stringContaining("another organization"),
+		});
+		expect(injectFetch).not.toHaveBeenCalled();
+	});
+
+	it("refuses a same-org-less caller when the target organization is known", async () => {
+		const { ctx, injectFetch } = injectCtx({ authType: "oauth", userId: "u" });
+		const result = await new ToolHandler().execute({ ...params }, ctx);
+		expect(result.status).toBe(403);
+		expect(injectFetch).not.toHaveBeenCalled();
+	});
+
+	it("lets a platform operator cross organizations as member", async () => {
+		const { ctx, injectFetch } = injectCtx({
+			authType: "oauth",
+			userId: "admin_1",
+			organizationId: "org_platform",
+			scopes: ["platform:admin"],
+		});
+		const result = await new ToolHandler().execute({ ...params }, ctx);
+		expect(result.status).toBe(200);
+		expect(sentBody(injectFetch).headers.get("x-tedix-caller-trust")).toBe(
+			"member",
+		);
+	});
+
+	it("stamps foreign and strips steering fields when the target org is unknown", async () => {
+		const { ctx, injectFetch } = injectCtx(
+			{ authType: "oauth", userId: "user_1", organizationId: "org_1" },
+			{ _aggregateTediOrgId: undefined },
+		);
+		const result = await new ToolHandler().execute({ ...params }, ctx);
+		expect(result.status).toBe(200);
+		const { headers, body } = sentBody(injectFetch);
+		expect(headers.get("x-tedix-caller-trust")).toBe("foreign");
+		expect(body).not.toHaveProperty("learning_mode");
+	});
+});
