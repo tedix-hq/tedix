@@ -23,12 +23,6 @@ site chooses its own hostname, Git content root, and delivery policy:
 - `sourceAuthMode: "connection"` clones through the organization's governed
   Git provider connection.
 
-Creating or publishing a Docs site does not require Tedix Git-provenance checks,
-Work Item commit trailers, or a repository CI key. Teams that later allow agents
-to merge or deploy production code without human review may opt into
-[repository controls](./workers-and-governance.md#repositories-changed-by-agents) separately. That
-choice does not change Docs source access or reader access.
-
 Source privacy and reader access are separate choices. A public site may be
 built from a private repository, provided its selected content root is safe to
 publish.

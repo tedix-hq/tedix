@@ -15,11 +15,8 @@ visibility: public
 
 # Agent guide
 
-Use this page as the public, repository-independent starting contract for an
-agent. It distinguishes reading public product documentation from operating an
-authenticated Tedix organization.
-
-Choose the path that matches the task:
+Start here when an agent needs to research Tedix or operate a Tedix
+organization. Choose the path that matches the task:
 
 | Task                             | Start here                                                                                                               |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
