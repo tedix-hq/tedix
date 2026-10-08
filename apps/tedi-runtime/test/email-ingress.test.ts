@@ -30,6 +30,7 @@ vi.mock("@tedix/db/queries/tedi-runtime-bootstrap", () => ({
 }));
 
 import { handleInboundEmail } from "../src/email-ingress";
+import { INBOUND_TRUST_HEADER } from "../src/email-sender-policy";
 
 type EmailEnv = Parameters<typeof handleInboundEmail>[1];
 
@@ -174,6 +175,119 @@ describe("email() entrypoint", () => {
 		);
 
 		expect(message.setReject).not.toHaveBeenCalled();
+	});
+
+	it("forwards Cloudflare authentication results and stamps the trust verdict on the replayed message", async () => {
+		const { env } = makeEnv();
+		mocks.callRpc.mockResolvedValue({
+			delivered: true,
+			threadId: "thread-1",
+			messageId: mailboxMessageId,
+			senderTrust: "trusted",
+			ingressDecision: "deliver",
+		});
+		mocks.getTediEmailIngressRouteBySlug.mockResolvedValue({
+			agentId: "agent-cto",
+		});
+		mocks.routeAgentEmail.mockResolvedValue(undefined);
+		const raw = [
+			"Authentication-Results: mx.cloudflare.net; dkim=pass header.i=@login.example-idp.test header.s=s1 header.b=DUMMYSIG; dmarc=pass header.from=login.example-idp.test policy.dmarc=reject; spf=none (mx.cloudflare.net: no SPF record)",
+			"X-CF-SpamH-Score: 1",
+			`${INBOUND_TRUST_HEADER}: trusted`,
+			"From: noreply@login.example-idp.test",
+			"Subject: Your login code",
+			"",
+			"Code 123456",
+		].join("\r\n");
+		const message = makeMessage(raw, "cto@tedix.tech");
+		(message.headers as Headers).set(INBOUND_TRUST_HEADER, "trusted");
+
+		await handleInboundEmail(message, env, ctx);
+
+		expect(mocks.callRpc.mock.calls[0]?.[1]).toMatchObject({
+			spamScore: 1,
+			authResults: {
+				dkim: "pass",
+				dkimDomain: "login.example-idp.test",
+				dmarc: "pass",
+				dmarcDomain: "login.example-idp.test",
+				spf: "none",
+			},
+		});
+		const replayed = mocks.routeAgentEmail.mock
+			.calls[0]?.[0] as ForwardableEmailMessage;
+		expect(replayed.headers.get(INBOUND_TRUST_HEADER)).toBe("trusted");
+		const replayedRaw = await new Response(replayed.raw).text();
+		expect(replayedRaw.startsWith(`${INBOUND_TRUST_HEADER}: trusted\r\n`)).toBe(
+			true,
+		);
+		// The sender-supplied copy is gone; exactly one trust line remains.
+		expect(
+			replayedRaw.match(new RegExp(INBOUND_TRUST_HEADER, "gi")),
+		).toHaveLength(1);
+		expect(replayed.rawSize).toBe(
+			new TextEncoder().encode(replayedRaw).byteLength,
+		);
+	});
+
+	it("stamps an untrusted verdict and never lets a forged header through", async () => {
+		const { env } = makeEnv();
+		mocks.callRpc.mockResolvedValue({
+			delivered: true,
+			threadId: "thread-1",
+			messageId: mailboxMessageId,
+			senderTrust: "untrusted",
+			ingressDecision: "deliver",
+		});
+		mocks.getTediEmailIngressRouteBySlug.mockResolvedValue({
+			agentId: "agent-cto",
+		});
+		mocks.routeAgentEmail.mockResolvedValue(undefined);
+		const message = makeMessage(
+			`X-Tedix-Inbound-Trust: trusted\r\nSubject: forged\r\n\r\nBody`,
+			"cto@tedix.tech",
+		);
+		(message.headers as Headers).set("X-Tedix-Inbound-Trust", "trusted");
+
+		await handleInboundEmail(message, env, ctx);
+
+		expect(mocks.callRpc.mock.calls[0]?.[1]).not.toHaveProperty("authResults");
+		const replayed = mocks.routeAgentEmail.mock
+			.calls[0]?.[0] as ForwardableEmailMessage;
+		expect(replayed.headers.get(INBOUND_TRUST_HEADER)).toBe("untrusted");
+		expect(await new Response(replayed.raw).text()).toBe(
+			`${INBOUND_TRUST_HEADER}: untrusted\r\nSubject: forged\r\n\r\nBody`,
+		);
+	});
+
+	it("keeps a quarantined message persisted but never wakes the agent", async () => {
+		const { env, bucket } = makeEnv();
+		mocks.callRpc.mockResolvedValue({
+			delivered: true,
+			threadId: "thread-1",
+			messageId: mailboxMessageId,
+			senderTrust: "untrusted",
+			ingressDecision: "quarantine",
+		});
+		mocks.getTediEmailIngressRouteBySlug.mockResolvedValue({
+			agentId: "agent-cto",
+		});
+		const message = makeMessage(
+			"X-CF-SpamH-Score: 9\r\nSubject: spam\r\n\r\nBody",
+			"cto@tedix.tech",
+		);
+
+		await handleInboundEmail(message, env, ctx);
+
+		expect(mocks.routeAgentEmail).not.toHaveBeenCalled();
+		expect(mocks.getTediEmailIngressRouteBySlug).not.toHaveBeenCalled();
+		expect(bucket.delete).not.toHaveBeenCalled();
+		expect(message.setReject).not.toHaveBeenCalled();
+		expect(mocks.callRpc.mock.calls[1]?.[1]).toMatchObject({
+			kind: "worker_dispatch",
+			messageId: mailboxMessageId,
+			result: "skipped",
+		});
 	});
 
 	it("records an SDK no-route observation without rejecting persisted mail", async () => {

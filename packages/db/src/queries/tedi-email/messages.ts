@@ -2,7 +2,7 @@
  * Tedi Email Query Helpers
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, notInArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type TediEmailAttachment,
@@ -142,4 +142,36 @@ export async function findUniqueInboundTediEmailMessageIdentityByHeader(
 	if (rows.length === 0) return { status: "missing" };
 	if (rows.length > 1) return { status: "ambiguous" };
 	return { status: "found", message: rows[0]! };
+}
+
+/**
+ * Inbound messages received by one tedi since `sinceIso`, excluding senders in
+ * `excludeFromAddrs`. Callers pass the recipient's known trusted correspondents
+ * so the result approximates untrusted inbound volume for rate limiting.
+ */
+export async function countRecentInboundTediEmailMessages(
+	db: DbClient,
+	input: {
+		tediId: string;
+		organizationId: string;
+		sinceIso: string;
+		excludeFromAddrs?: string[];
+	},
+): Promise<number> {
+	const exclude = [...new Set(input.excludeFromAddrs ?? [])].slice(0, 50);
+	const rows = await db
+		.select({ total: sql<number>`count(*)` })
+		.from(tediEmailMessages)
+		.where(
+			and(
+				eq(tediEmailMessages.tediId, input.tediId),
+				eq(tediEmailMessages.organizationId, input.organizationId),
+				eq(tediEmailMessages.direction, "inbound"),
+				gte(tediEmailMessages.receivedAt, input.sinceIso),
+				...(exclude.length
+					? [notInArray(tediEmailMessages.fromAddr, exclude)]
+					: []),
+			),
+		);
+	return Number(rows[0]?.total ?? 0);
 }

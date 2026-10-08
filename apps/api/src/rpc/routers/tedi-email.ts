@@ -15,9 +15,9 @@ import {
 } from "@tedix/api-contract/schemas/common";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import { getAppBySlug } from "@tedix/db/queries/apps";
+import { getActiveMemberByEmail } from "@tedix/db/queries/organization-members";
 import {
 	createTediEmailAddress,
-	ensurePrimaryTediEmailAddress,
 	getActiveTediEmailAddressByAddress,
 	getTediEmailAddressById,
 	listTediEmailAddresses,
@@ -31,6 +31,7 @@ import {
 } from "@tedix/db/queries/tedi-email/delivery";
 import { recordTediEmailOutcome } from "@tedix/db/queries/tedi-email/events";
 import {
+	countRecentInboundTediEmailMessages,
 	findUniqueInboundTediEmailMessageIdentityByHeader,
 	getTediEmailAttachment,
 	getTediEmailMessage,
@@ -43,12 +44,14 @@ import {
 	markTediEmail,
 	searchTediEmail,
 } from "@tedix/db/queries/tedi-email/threads";
-import {
-	getActiveTediIdBySlug,
-	getActiveTediSlugById,
-	getTediById,
-} from "@tedix/db/queries/tedis";
+import { getActiveTediSlugById, getTediById } from "@tedix/db/queries/tedis";
 import { sendTransactionalEmail } from "../../lib/email";
+import {
+	decideIngress,
+	evaluateSenderTrust,
+	INBOUND_EMAIL_POLICY,
+	parseInboundRoutingPolicy,
+} from "../../lib/inbound-email-policy";
 import {
 	AUTHZ,
 	withAuthorization,
@@ -331,48 +334,66 @@ function actorLabel(context: BaseContext): string {
 
 const inboundEmail = serviceAuthed.inboundEmail.handler(
 	async ({ input, context }) => {
-		const { slug, from, subject, body } = input;
+		const { from, subject, body } = input;
 		const to = normalizeEmailRecipient(input.to);
 		const toAddress = to.email;
 
-		let tediId: string | null = null;
-		let tedi: Awaited<ReturnType<typeof getTediById>> | null = null;
+		// Addresses are opt-in: only an active `tedi_email_addresses` row
+		// receives mail. `{slug}@tedix.tech` is provisioned explicitly through
+		// `requestAddress`/`provisionAddress`, never implied from a tedi slug.
 		const routedAddress = await getActiveTediEmailAddressByAddress(
 			context.db,
 			toAddress,
 		);
-		if (routedAddress) {
-			tediId = routedAddress.tediId;
-			tedi = await getTediById(context.db, routedAddress.tediId);
-		} else if (slug) {
-			tediId = (await getActiveTediIdBySlug(context.db, slug)) ?? null;
-			if (tediId) {
-				tedi = await getTediById(context.db, tediId);
-			}
-		}
-		if (!tediId) {
+		const tedi = routedAddress
+			? await getTediById(context.db, routedAddress.tediId)
+			: null;
+		if (!routedAddress || !tedi) {
 			console.warn(
 				`[Email] No active tedi address found for recipient: ${toAddress}`,
 			);
 			return { delivered: false };
 		}
-		if (!tedi) {
-			console.warn(
-				`[Email] Active tedi id not found for recipient: ${toAddress}`,
-			);
-			return { delivered: false };
-		}
+		const tediId = routedAddress.tediId;
+		const organizationId = tedi.organizationId;
 
-		if (slug && !routedAddress) {
-			await ensurePrimaryTediEmailAddress(context.db, {
-				tediId,
-				organizationId: tedi.organizationId,
-				slug,
-			});
-		}
+		const policy = parseInboundRoutingPolicy(routedAddress.routingPolicy);
+		const fromEmail = normalizeEmailRecipient(from).email;
+		const [member, senderAddress] = await Promise.all([
+			getActiveMemberByEmail(context.db, organizationId, fromEmail),
+			getActiveTediEmailAddressByAddress(context.db, fromEmail),
+		]);
+		const senderTrust = evaluateSenderTrust({
+			fromEmail,
+			authResults: input.authResults,
+			policy,
+			isOrganizationMember: member !== undefined,
+			isOrganizationTediAddress:
+				senderAddress?.organizationId === organizationId,
+		});
+		const recentUntrustedCount =
+			senderTrust === "untrusted"
+				? await countRecentInboundTediEmailMessages(context.db, {
+						tediId,
+						organizationId,
+						sinceIso: new Date(
+							Date.now() - INBOUND_EMAIL_POLICY.untrustedRateWindowMs,
+						).toISOString(),
+						excludeFromAddrs: policy.allowedSenders.filter(
+							(entry) => !entry.startsWith("@"),
+						),
+					})
+				: 0;
+		const ingressDecision = decideIngress({
+			senderTrust,
+			spamScore: input.spamScore,
+			policy,
+			recentUntrustedCount,
+		});
+
 		const stored = await ingestInboundTediEmail(context.db, {
 			tediId,
-			organizationId: tedi.organizationId,
+			organizationId,
 			to,
 			from,
 			cc: input.cc,
@@ -389,14 +410,24 @@ const inboundEmail = serviceAuthed.inboundEmail.handler(
 			inReplyTo: input.inReplyTo,
 			references: input.references,
 		});
+		if (ingressDecision === "quarantine") {
+			// Persisted for operator triage, filed as spam, never woken.
+			await markTediEmail(context.db, {
+				tediId,
+				organizationId,
+				threadId: stored.thread.id,
+				spam: true,
+			});
+		}
 
 		// Acknowledge durable mailbox persistence. Runtime ingress separately
-		// forwards the accepted message through the Agents SDK to wake the runtime.
-
+		// forwards a delivered message through the Agents SDK to wake the runtime.
 		return {
 			delivered: true,
 			threadId: stored.thread.id,
 			messageId: stored.message.id,
+			senderTrust,
+			ingressDecision,
 		};
 	},
 );

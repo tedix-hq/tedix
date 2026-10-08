@@ -14,6 +14,12 @@ import { getTediEmailIngressRouteBySlug } from "@tedix/db/queries/tedi-runtime-b
 import { routeAgentEmail } from "agents";
 import { createSecureReplyEmailResolver } from "agents/email";
 import { logInboundEmailPersistenceFailure } from "./email-ingress-failure-log";
+import {
+	type InboundTrust,
+	parseAuthenticationResults,
+	stampInboundTrustOnHeaders,
+	stampInboundTrustOnRawBytes,
+} from "./email-sender-policy";
 
 interface Env {
 	API_SERVICE: Fetcher;
@@ -599,17 +605,20 @@ async function deleteInboundEmailObjects(
  * inside `Agent._onEmail`, which throws `This ReadableStream is currently
  * locked to a reader.` when the upstream stream has already been consumed.
  *
- * The proxy delegates every field/method (from, to, headers, rawSize,
- * setReject, forward, reply) to the original message and only overrides
- * `raw` with a fresh, single-use `ReadableStream` backed by the bytes
- * we buffered. This preserves reply correlation (reply/forward still
- * hit the live `ForwardableEmailMessage` connection) while letting the
- * SDK re-stream the body.
+ * The proxy delegates every field/method (from, to, setReject, forward,
+ * reply) to the original message and overrides `raw`, `rawSize` and
+ * `headers` with the buffered bytes stamped with the apps/api sender
+ * verdict: any sender-supplied `x-tedix-inbound-trust` is stripped first, so
+ * the DO reads one unforgeable value whether it uses `headers.get()` or
+ * parses the MIME bytes. Reply/forward still hit the live connection.
  */
-function rawReplayableEmailMessage(
+export function rawReplayableEmailMessage(
 	message: ForwardableEmailMessage,
 	rawBytes: Uint8Array,
+	trust: InboundTrust,
 ): ForwardableEmailMessage {
+	const stampedBytes = stampInboundTrustOnRawBytes(rawBytes, trust);
+	const stampedHeaders = stampInboundTrustOnHeaders(message.headers, trust);
 	// Host objects like `ForwardableEmailMessage` carry getters/methods that
 	// only work when invoked with the original host object as `this`. A naive
 	// Proxy with `Reflect.get(target, prop, receiver)` forwards `this = Proxy`
@@ -622,11 +631,13 @@ function rawReplayableEmailMessage(
 			if (prop === "raw") {
 				return new ReadableStream<Uint8Array>({
 					start(controller) {
-						controller.enqueue(rawBytes);
+						controller.enqueue(stampedBytes);
 						controller.close();
 					},
 				});
 			}
+			if (prop === "rawSize") return stampedBytes.byteLength;
+			if (prop === "headers") return stampedHeaders;
 			const value = (target as unknown as Record<string | symbol, unknown>)[
 				prop as string
 			];
@@ -640,7 +651,7 @@ function rawReplayableEmailMessage(
 async function maybeRouteToAgent(
 	message: ForwardableEmailMessage,
 	env: Env,
-	input: { slug: string; rawBytes: Uint8Array },
+	input: { slug: string; rawBytes: Uint8Array; senderTrust: InboundTrust },
 ): Promise<"sdk_returned" | "no_route" | "skipped" | "failed"> {
 	let route: { agentId: string } | null;
 	try {
@@ -674,6 +685,7 @@ async function maybeRouteToAgent(
 		const replayableMessage = rawReplayableEmailMessage(
 			message,
 			input.rawBytes,
+			input.senderTrust,
 		);
 		let noRoute = false;
 		await routeAgentEmail(replayableMessage, env as unknown as Cloudflare.Env, {
@@ -720,9 +732,12 @@ export async function handleInboundEmail(
 		? { email: normaliseEmail(recipient), name: headerTo.name }
 		: { email: normaliseEmail(recipient) };
 
-	// `{slug}@tedix.tech` remains the implicit primary fallback. Aliases and
-	// custom domains route through the address table in apps/api.
+	// The slug names the R2 prefix and the DO route; delivery itself requires an
+	// active address row in apps/api (no implicit `{slug}@tedix.tech` fallback).
 	const slug = recipient.match(/^(.+)@tedix\.tech$/)?.[1];
+	const authResults = parseAuthenticationResults(
+		parseRawPart(rawBody).headers.get("authentication-results") ?? [],
+	);
 	const storedObjects = await storeInboundEmailObjects(env, {
 		slug: slug ?? recipient,
 		parsed,
@@ -730,7 +745,13 @@ export async function handleInboundEmail(
 	});
 
 	let result:
-		| { delivered?: boolean; threadId?: string; messageId?: string }
+		| {
+				delivered?: boolean;
+				threadId?: string;
+				messageId?: string;
+				senderTrust?: InboundTrust;
+				ingressDecision?: "deliver" | "quarantine";
+		  }
 		| undefined;
 	try {
 		result = await callRpc(
@@ -751,6 +772,7 @@ export async function handleInboundEmail(
 				spamScore: optionalNumber(
 					Number.parseFloat(getMessageHeader("x-cf-spamh-score") ?? ""),
 				),
+				...(authResults ? { authResults } : {}),
 				messageId: getMessageHeader("message-id") ?? undefined,
 				inReplyTo: getMessageHeader("in-reply-to") ?? undefined,
 				references: parseReferences(getMessageHeader("references")),
@@ -778,9 +800,14 @@ export async function handleInboundEmail(
 	// namespace binding (`TEDI_AGENT`) and invokes `Agent.onEmail()` directly.
 	// No /hooks/email round-trip.
 	if (result?.messageId) {
+		// A quarantined message is persisted for triage but never wakes the model.
 		const dispatchResult =
-			slug && result.threadId
-				? await maybeRouteToAgent(message, env, { slug, rawBytes })
+			slug && result.threadId && result.ingressDecision !== "quarantine"
+				? await maybeRouteToAgent(message, env, {
+						slug,
+						rawBytes,
+						senderTrust: result.senderTrust ?? "untrusted",
+					})
 				: "skipped";
 		try {
 			// Capture elapsed time before the receipt RPC so it measures inbound

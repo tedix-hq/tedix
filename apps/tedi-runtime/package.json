@@ -15,7 +15,7 @@
 		"type-check": "tsc --noEmit",
 		"test": "bun run test:run",
 		"test:run": "for f in src/*.test.ts; do [ \"$f\" = \"src/model-generation.test.ts\" ] && continue; echo \"RUN $f\"; bun run \"$f\" || exit 1; done && bun test src/brain/ && bun run test:email && bun run test:provider",
-		"test:email": "vp test run test/email-ingress.test.ts test/email-header-parsing.test.ts",
+		"test:email": "vp test run test/email-ingress.test.ts test/email-header-parsing.test.ts test/email-sender-policy.test.ts",
 		"test:ci": "bun run test:run",
 		"test:provider": "vp test run --config vitest.workers.config.ts test/pi-runtime/submissions.workerd.test.ts",
 		"test:workers": "vp test run --config vitest.workers.config.ts",
