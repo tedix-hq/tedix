@@ -74,6 +74,9 @@ export const INTERNAL_TRUST_HEADERS: readonly string[] = [
 	SERVICE_BINDING_HEADER,
 	OPERATOR_CONSENT_HEADER,
 	PLATFORM_CALLER_HEADER,
+	// Caller trust tier stamped by apps/mcp and first-party Workers on tedi
+	// inject requests; a public caller must never be able to assert it.
+	"x-tedix-caller-trust",
 	// Tenancy / organization selection.
 	"X-Tedix-Tenant-Id",
 	"X-Tedix-Org-Id",

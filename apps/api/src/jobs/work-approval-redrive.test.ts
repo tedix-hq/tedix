@@ -58,6 +58,7 @@ describe("work approval redrive", () => {
 			nowMs: 600_000,
 		});
 		expect(request.headers.get("X-Tedix-Host")).toBe("cto.tedi.tedix.dev");
+		expect(request.headers.get("x-tedix-caller-trust")).toBe("member");
 		const body = (await request.json()) as Record<string, unknown>;
 		expect(body).toMatchObject({
 			session_key: "work-approval:proposal-1:v1:e1",

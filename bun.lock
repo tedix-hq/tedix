@@ -775,6 +775,7 @@
       "name": "@tedix/provisioning",
       "version": "0.0.1",
       "dependencies": {
+        "@tedix/mcp-shared": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
       },
       "devDependencies": {

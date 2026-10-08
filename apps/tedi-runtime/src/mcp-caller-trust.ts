@@ -19,18 +19,16 @@ import type { SurfaceTrust } from "./turn-trust";
 /**
  * Tier of a request on an internal, service-binding-only route.
  *
- * The header is authoritative when present. Public ingress strips the
- * service-binding marker, so a request with no header can only come from a
- * first-party Worker that authored the text itself and predates the header:
- * the kernel's delegation and approval-redrive injects (`apps/api`),
- * provisioning, and mesh tedi→tedi inject. Those carry `metadata`
- * (workItemId, homeRunId) that a `foreign` tier would strip, so an absent
- * header is `member`, not `foreign`. A malformed header is `foreign`.
+ * The header is authoritative and the only signal. Every first-party sender
+ * stamps it: the gateway (`apps/mcp`) from the authenticated caller, the
+ * kernel's delegation and approval-redrive injects (`@tedix/provisioning`
+ * `injectAgentMessage`, `apps/api` `work-approval-redrive`) as `member`, and
+ * mesh tedi→tedi inject as `tedi`. A missing or malformed header fails
+ * closed to `foreign`: the turn runs on the untrusted surface and its
+ * member-only fields (`learning_mode`, `metadata`) are stripped.
  */
 export function callerTrustTierForRequest(headers: Headers): CallerTrustTier {
-	const raw = headers.get(CALLER_TRUST_HEADER);
-	if (raw === null) return "member";
-	return parseCallerTrustTier(raw) ?? "foreign";
+	return parseCallerTrustTier(headers.get(CALLER_TRUST_HEADER)) ?? "foreign";
 }
 
 /**

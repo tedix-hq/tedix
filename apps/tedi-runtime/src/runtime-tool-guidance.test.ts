@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { tool, asSchema, type ToolSet } from "ai";
 import { z } from "zod";
 import {
@@ -236,6 +237,7 @@ assert.match(AGENT_RUNTIME_PROMPT, /untrusted information/);
 		await agent.onRequest(
 			new Request("https://do.internal/__internal/inject", {
 				method: "POST",
+				headers: { [CALLER_TRUST_HEADER]: "member" },
 				body: JSON.stringify({
 					text: "fix the bug",
 					client_request_id: `req-${operation}`,

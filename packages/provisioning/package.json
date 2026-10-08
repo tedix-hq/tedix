@@ -13,6 +13,7 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/worker-kit": "workspace:*"
 	},
 	"devDependencies": {
