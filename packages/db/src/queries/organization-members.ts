@@ -57,6 +57,24 @@ export async function getMemberByUserId(
 }
 
 /**
+ * Active member of an organization by normalized email. Used by inbound email
+ * sender trust: a verified member address is a trusted correspondent.
+ */
+export async function getActiveMemberByEmail(
+	db: DbClient,
+	organizationId: string,
+	email: string,
+): Promise<OrganizationMember | undefined> {
+	return db.query.organizationMembers.findFirst({
+		where: {
+			organizationId,
+			email: email.trim().toLowerCase(),
+			status: "active",
+		},
+	});
+}
+
+/**
  * One statement for a user's memberships in a bounded set of Descope tenants:
  * non-retired organizations joined to that user's member rows. Callers decide
  * which statuses grant access. Replaces a per-tenant org-then-member lookup on

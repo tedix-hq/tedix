@@ -7,12 +7,14 @@ const queries = vi.hoisted(() => ({
 	address: vi.fn(),
 	ensurePrimary: vi.fn(),
 	tedi: vi.fn(),
-	activeId: vi.fn(),
 	activeSlug: vi.fn(),
 	ingest: vi.fn(),
 	identity: vi.fn(),
 	byHeader: vi.fn(),
 	recordOutcome: vi.fn(),
+	member: vi.fn(),
+	recentCount: vi.fn(),
+	mark: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/tedi-email/addresses", async (importOriginal) => ({
@@ -23,7 +25,6 @@ vi.mock("@tedix/db/queries/tedi-email/addresses", async (importOriginal) => ({
 vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	getTediById: queries.tedi,
-	getActiveTediIdBySlug: queries.activeId,
 	getActiveTediSlugById: queries.activeSlug,
 }));
 vi.mock("@tedix/db/queries/tedi-email/delivery", async (importOriginal) => ({
@@ -34,6 +35,15 @@ vi.mock("@tedix/db/queries/tedi-email/messages", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	getInboundTediEmailMessageIdentity: queries.identity,
 	findUniqueInboundTediEmailMessageIdentityByHeader: queries.byHeader,
+	countRecentInboundTediEmailMessages: queries.recentCount,
+}));
+vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	getActiveMemberByEmail: queries.member,
+}));
+vi.mock("@tedix/db/queries/tedi-email/threads", async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	markTediEmail: queries.mark,
 }));
 vi.mock("@tedix/db/queries/tedi-email/events", async (importOriginal) => ({
 	...(await importOriginal<object>()),
@@ -45,6 +55,13 @@ const input = {
 	to: { email: "worker@tedix.tech" },
 	subject: "Mailbox persistence",
 	body: "Please review this message.",
+};
+const authPass = {
+	dkim: "pass" as const,
+	dmarc: "pass" as const,
+	spf: "pass" as const,
+	dkimDomain: "example.com",
+	dmarcDomain: "example.com",
 };
 
 function client(serviceBinding = true) {
@@ -65,19 +82,27 @@ function client(serviceBinding = true) {
 describe("inbound email mailbox acknowledgement", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		queries.address.mockResolvedValue({ tediId: "tedi-1" });
+		queries.address.mockImplementation(async (_db, address: string) =>
+			address === "worker@tedix.tech"
+				? { tediId: "tedi-1", organizationId: "org-1", routingPolicy: null }
+				: null,
+		);
 		queries.tedi.mockResolvedValue({ id: "tedi-1", organizationId: "org-1" });
+		queries.member.mockResolvedValue(undefined);
+		queries.recentCount.mockResolvedValue(0);
 		queries.ingest.mockResolvedValue({
 			thread: { id: "thread-1" },
 			message: { id: "message-1" },
 		});
 	});
 
-	it("acknowledges persisted mail without a runtime service binding or slug lookup", async () => {
+	it("acknowledges persisted mail from a stranger as untrusted but delivered", async () => {
 		await expect(client().inboundEmail(input)).resolves.toEqual({
 			delivered: true,
 			threadId: "thread-1",
 			messageId: "message-1",
+			senderTrust: "untrusted",
+			ingressDecision: "deliver",
 		});
 		expect(queries.ingest).toHaveBeenCalledWith(
 			expect.anything(),
@@ -88,30 +113,141 @@ describe("inbound email mailbox acknowledgement", () => {
 				textBody: input.body,
 			}),
 		);
+		expect(queries.mark).not.toHaveBeenCalled();
 		expect(queries.activeSlug).not.toHaveBeenCalled();
 	});
 
-	it("preserves primary-address provisioning for a known slug fallback", async () => {
+	it("does not deliver to a slug without an address row", async () => {
 		queries.address.mockResolvedValue(null);
-		queries.activeId.mockResolvedValue("tedi-1");
 		await expect(
 			client().inboundEmail({ ...input, slug: "worker" }),
-		).resolves.toMatchObject({ delivered: true });
-		expect(queries.ensurePrimary).toHaveBeenCalledWith(expect.anything(), {
+		).resolves.toEqual({ delivered: false });
+		expect(queries.ensurePrimary).not.toHaveBeenCalled();
+		expect(queries.ingest).not.toHaveBeenCalled();
+	});
+
+	it("trusts an authenticated organization member and skips the rate-limit count", async () => {
+		queries.member.mockResolvedValue({ id: "member-1", status: "active" });
+		await expect(
+			client().inboundEmail({ ...input, authResults: authPass }),
+		).resolves.toMatchObject({
+			senderTrust: "trusted",
+			ingressDecision: "deliver",
+		});
+		expect(queries.member).toHaveBeenCalledWith(
+			expect.anything(),
+			"org-1",
+			"sender@example.com",
+		);
+		expect(queries.recentCount).not.toHaveBeenCalled();
+	});
+
+	it("keeps a member untrusted without an aligned DKIM or DMARC pass", async () => {
+		queries.member.mockResolvedValue({ id: "member-1", status: "active" });
+		await expect(client().inboundEmail(input)).resolves.toMatchObject({
+			senderTrust: "untrusted",
+		});
+		await expect(
+			client().inboundEmail({
+				...input,
+				authResults: {
+					...authPass,
+					dkimDomain: "evil.net",
+					dmarcDomain: "evil.net",
+				},
+			}),
+		).resolves.toMatchObject({ senderTrust: "untrusted" });
+	});
+
+	it("trusts a same-organization tedi address, not one from another tenant", async () => {
+		queries.address.mockImplementation(async (_db, address: string) => {
+			if (address === "worker@tedix.tech")
+				return {
+					tediId: "tedi-1",
+					organizationId: "org-1",
+					routingPolicy: null,
+				};
+			if (address === "peer@tedix.tech")
+				return { tediId: "tedi-2", organizationId: "org-1" };
+			if (address === "foreign@tedix.tech")
+				return { tediId: "tedi-9", organizationId: "org-9" };
+			return null;
+		});
+		const auth = {
+			...authPass,
+			dkimDomain: "tedix.tech",
+			dmarcDomain: "tedix.tech",
+		};
+		await expect(
+			client().inboundEmail({
+				...input,
+				from: { email: "peer@tedix.tech" },
+				authResults: auth,
+			}),
+		).resolves.toMatchObject({ senderTrust: "trusted" });
+		await expect(
+			client().inboundEmail({
+				...input,
+				from: { email: "foreign@tedix.tech" },
+				authResults: auth,
+			}),
+		).resolves.toMatchObject({ senderTrust: "untrusted" });
+	});
+
+	it("quarantines spam-scored mail: persisted, marked spam, never delivered", async () => {
+		await expect(
+			client().inboundEmail({ ...input, spamScore: 7.5 }),
+		).resolves.toMatchObject({
+			delivered: true,
+			messageId: "message-1",
+			ingressDecision: "quarantine",
+		});
+		expect(queries.ingest).toHaveBeenCalledTimes(1);
+		expect(queries.mark).toHaveBeenCalledWith(expect.anything(), {
 			tediId: "tedi-1",
 			organizationId: "org-1",
-			slug: "worker",
+			threadId: "thread-1",
+			spam: true,
 		});
 	});
 
-	it("does not ingest mail for an unknown recipient", async () => {
-		queries.address.mockResolvedValue(null);
-		queries.activeId.mockResolvedValue(null);
+	it("applies the address routing policy for untrusted senders and the rate limit", async () => {
+		queries.address.mockResolvedValue({
+			tediId: "tedi-1",
+			organizationId: "org-1",
+			routingPolicy: { untrustedSenders: "quarantine" },
+		});
+		await expect(client().inboundEmail(input)).resolves.toMatchObject({
+			senderTrust: "untrusted",
+			ingressDecision: "quarantine",
+		});
+
+		queries.address.mockResolvedValue({
+			tediId: "tedi-1",
+			organizationId: "org-1",
+			routingPolicy: { allowedSenders: ["@example.com"] },
+		});
 		await expect(
-			client().inboundEmail({ ...input, slug: "unknown" }),
-		).resolves.toEqual({ delivered: false });
-		expect(queries.ingest).not.toHaveBeenCalled();
-		expect(queries.ensurePrimary).not.toHaveBeenCalled();
+			client().inboundEmail({ ...input, authResults: authPass }),
+		).resolves.toMatchObject({
+			senderTrust: "trusted",
+			ingressDecision: "deliver",
+		});
+
+		queries.address.mockResolvedValue({
+			tediId: "tedi-1",
+			organizationId: "org-1",
+			routingPolicy: null,
+		});
+		queries.recentCount.mockResolvedValue(21);
+		await expect(client().inboundEmail(input)).resolves.toMatchObject({
+			senderTrust: "untrusted",
+			ingressDecision: "quarantine",
+		});
+		expect(queries.recentCount).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ tediId: "tedi-1", organizationId: "org-1" }),
+		);
 	});
 
 	it("propagates storage failure instead of acknowledging delivery", async () => {

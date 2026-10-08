@@ -740,28 +740,6 @@ export async function listTediRuntimeMetaBySlugs(
 	return rows;
 }
 
-/**
- * Get active (non-paused) tedi ID by slug.
- * Used by inbound email routing to resolve tedi from email address slug.
- */
-export async function getActiveTediIdBySlug(
-	db: DbClient,
-	slug: string,
-): Promise<string | undefined> {
-	const result = await db
-		.select({ id: tedis.id })
-		.from(tedis)
-		.where(
-			and(
-				eq(tedis.slug, slug),
-				sql`${tedis.status} != 'paused'`,
-				isNull(tedis.retiredAt),
-			),
-		)
-		.limit(1);
-	return result[0]?.id;
-}
-
 /** Durable Object instance name for inbound Agent-runtime email routing. */
 export async function getTediAgentIdBySlug(
 	db: DbClient,

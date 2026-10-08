@@ -9,6 +9,11 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { JsonValueSchema } from "../schemas/common";
+import {
+	EmailAuthResultsSchema,
+	EmailIngressDecisionSchema,
+	EmailSenderTrustSchema,
+} from "../schemas/tedi-email";
 
 const EmailThreadStatusSchema = z.enum(["open", "archived", "spam", "all"]);
 const EmailAddressKindSchema = z.enum([
@@ -22,6 +27,7 @@ const EmailRecipientSchema = z.object({
 	email: z.string().email(),
 	name: z.string().min(1).max(200).optional(),
 });
+
 const EmailAddressSchema = z.object({
 	id: z.string(),
 	organizationId: z.string(),
@@ -127,6 +133,7 @@ export const tediEmailContract = oc
 					htmlR2Key: z.string().optional(),
 					rawSize: z.number().int().nonnegative().optional(),
 					spamScore: z.number().optional(),
+					authResults: EmailAuthResultsSchema.optional(),
 					attachments: z
 						.array(
 							z.object({
@@ -153,6 +160,12 @@ export const tediEmailContract = oc
 						),
 					threadId: z.string().optional(),
 					messageId: z.string().optional(),
+					senderTrust: EmailSenderTrustSchema.optional().describe(
+						"Sender verdict for a persisted message: trusted only for an allowlisted, member or same-organization tedi address that passed DKIM or DMARC for its domain.",
+					),
+					ingressDecision: EmailIngressDecisionSchema.optional().describe(
+						"deliver wakes the runtime; quarantine keeps the message for triage, marks it spam and must not wake the model.",
+					),
 				}),
 			),
 

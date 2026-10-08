@@ -4,6 +4,7 @@ import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { recordTediEmailOutcome } from "./events";
 import {
+	countRecentInboundTediEmailMessages,
 	findUniqueInboundTediEmailMessageIdentityByHeader,
 	getInboundTediEmailMessageIdentity,
 } from "./messages";
@@ -14,7 +15,9 @@ function fixture() {
 		CREATE TABLE tedi_email_messages (
 			id TEXT PRIMARY KEY, thread_id TEXT NOT NULL,
 			organization_id TEXT NOT NULL, tedi_id TEXT NOT NULL,
-			direction TEXT NOT NULL, message_id_header TEXT
+			direction TEXT NOT NULL, message_id_header TEXT,
+			from_addr TEXT NOT NULL DEFAULT 'sender@example.com',
+			received_at TEXT
 		);
 		CREATE TABLE tedi_email_events (
 			id TEXT PRIMARY KEY, message_id TEXT, thread_id TEXT,
@@ -134,5 +137,41 @@ describe("content-free email outcome receipts", () => {
 			.prepare("SELECT provider FROM tedi_email_events")
 			.get() as { provider: string };
 		expect(row.provider).toBe("email-ingress");
+	});
+});
+
+describe("recent inbound volume for sender rate limiting", () => {
+	it("counts one tedi's inbound mail inside the window, minus excluded senders", async () => {
+		const { db, sqlite } = fixture();
+		const insert = sqlite.prepare(`
+			INSERT INTO tedi_email_messages
+			(id, thread_id, organization_id, tedi_id, direction, from_addr, received_at)
+			VALUES (?, ?, 'org-1', ?, ?, ?, ?)
+		`);
+		const now = Date.now();
+		const at = (minutesAgo: number) =>
+			new Date(now - minutesAgo * 60_000).toISOString();
+		insert.run("a", "t-a", "tedi-1", "inbound", "x@spam.example", at(1));
+		insert.run("b", "t-b", "tedi-1", "inbound", "y@spam.example", at(5));
+		insert.run("c", "t-c", "tedi-1", "inbound", "ada@example.com", at(2));
+		insert.run("d", "t-d", "tedi-1", "inbound", "z@spam.example", at(30));
+		insert.run("e", "t-e", "tedi-1", "outbound", "tedi@tedix.tech", at(1));
+		insert.run("f", "t-f", "tedi-2", "inbound", "x@spam.example", at(1));
+		const sinceIso = at(10);
+		await expect(
+			countRecentInboundTediEmailMessages(db, {
+				tediId: "tedi-1",
+				organizationId: "org-1",
+				sinceIso,
+			}),
+		).resolves.toBe(3);
+		await expect(
+			countRecentInboundTediEmailMessages(db, {
+				tediId: "tedi-1",
+				organizationId: "org-1",
+				sinceIso,
+				excludeFromAddrs: ["ada@example.com"],
+			}),
+		).resolves.toBe(2);
 	});
 });
