@@ -95,6 +95,10 @@ function requestOutput(row: InteractionRow, attention?: AttentionOverlay) {
 			? {
 					...row.metadata,
 					attention: { kind: attention.kind, need: attention.need },
+					// The Office reads the one-line ask under this name.
+					...(attention.kind === "needs_you" && attention.need
+						? { neededFromYou: attention.need }
+						: {}),
 				}
 			: row.metadata,
 	};

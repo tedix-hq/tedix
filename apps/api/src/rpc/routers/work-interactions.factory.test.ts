@@ -240,6 +240,9 @@ it("shows stored attention as metadata.attention and keeps fyi turns out of urge
 		kind: "needs_you",
 		need: "Approve the deploy.",
 	});
+	expect(now.data[0]?.request.metadata?.neededFromYou).toBe(
+		"Approve the deploy.",
+	);
 	expect(
 		(await target.get({ requestId: update.id })).request.metadata?.attention,
 	).toEqual({ kind: "fyi", need: null });
