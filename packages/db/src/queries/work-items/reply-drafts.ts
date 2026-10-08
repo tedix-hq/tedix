@@ -258,48 +258,33 @@ type AcceptanceRow = {
 	overridden_count: number;
 };
 
+function replyClassLists() {
+	return {
+		followClasses: sql.join(
+			AUTO_REPLY_FOLLOW_CLASSES.map((label) => sql`${label}`),
+			sql`, `,
+		),
+		neutralClasses: sql.join(
+			AUTO_REPLY_NEUTRAL_CLASSES.map((label) => sql`${label}`),
+			sql`, `,
+		),
+	};
+}
+
 /**
- * Draft acceptance per turn type for one target user. A draft's outcome is the
- * `draftOutcome` of the earliest response by that user citing the draft id;
- * drafts nobody answered with count toward `drafts` but not `decided`, so an
- * ignored draft can never earn eligibility.
- *
- * An `auto` draft's follow-up is the earliest `user-reply` answer by the
- * target user on its own question or on the session's next decision-capture
- * question (same target user and `metadata.sessionId`, created after it). It
- * is overridden when that answer's `replyClass` is missing or not one of
- * {@link AUTO_REPLY_FOLLOW_CLASSES} or {@link AUTO_REPLY_NEUTRAL_CLASSES}. It
- * is also overridden when the agent's next turn declined it: a later question
- * carries `metadata.priorDraft` {draftId, draftOutcome: "rejected"}, written
- * by the capture hook as agent-sourced, not as the user's answer.
+ * One row per draft for the target user's questions created at or after
+ * `since`: its outcome (the earliest citing answer's `draftOutcome`), delivery,
+ * auto follow-up `replyClass`, whether the agent declined it, its drafter and
+ * how long after the question it landed (`reply_seconds`).
  */
-export async function getReplyDraftAcceptance(
-	db: DbQueryClient,
-	p: GetReplyDraftAcceptanceParams,
-	options: ReplyDraftAcceptanceOptions,
-): Promise<ReplyDraftAcceptanceResult[]> {
+function draftOutcomes(p: GetReplyDraftAcceptanceParams) {
 	const since = p.since ?? null;
-	const followClasses = sql.join(
-		AUTO_REPLY_FOLLOW_CLASSES.map((label) => sql`${label}`),
-		sql`, `,
-	);
-	const neutralClasses = sql.join(
-		AUTO_REPLY_NEUTRAL_CLASSES.map((label) => sql`${label}`),
-		sql`, `,
-	);
-	const rows = await db.all<AcceptanceRow>(sql`
-		SELECT
-			outcomes.turn_type AS turn_type,
-			count(*) AS draft_count,
-			sum(CASE WHEN outcomes.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
-			sum(CASE WHEN outcomes.outcome = 'edited' THEN 1 ELSE 0 END) AS edited_count,
-			sum(CASE WHEN outcomes.outcome = 'replaced' THEN 1 ELSE 0 END) AS replaced_count,
-			sum(CASE WHEN outcomes.delivery = 'auto' THEN 1 ELSE 0 END) AS auto_count,
-			sum(CASE WHEN outcomes.followup IS NOT NULL THEN 1 ELSE 0 END) AS auto_followed_count,
-			sum(CASE WHEN outcomes.rejected = 1 OR (outcomes.followup IS NOT NULL AND outcomes.followup NOT IN (${followClasses}) AND outcomes.followup NOT IN (${neutralClasses})) THEN 1 ELSE 0 END) AS overridden_count
-		FROM (
+	return sql`
 			SELECT
 				d.turn_type AS turn_type,
+				d.drafter_id AS drafter_id,
+				d.created_at AS created_at,
+				(julianday(d.created_at) - julianday(i.created_at)) * 86400 AS reply_seconds,
 				(
 					SELECT json_extract(r.metadata, '$.draftOutcome')
 					FROM work_interaction_responses r
@@ -352,6 +337,42 @@ export async function getReplyDraftAcceptance(
 				AND i.target_type = 'user'
 				AND i.target_id = ${p.targetUserId}
 				AND (${since} IS NULL OR d.created_at >= ${since})
+	`;
+}
+
+/**
+ * Draft acceptance per turn type for one target user. A draft's outcome is the
+ * `draftOutcome` of the earliest response by that user citing the draft id;
+ * drafts nobody answered with count toward `drafts` but not `decided`, so an
+ * ignored draft can never earn eligibility.
+ *
+ * An `auto` draft's follow-up is the earliest `user-reply` answer by the
+ * target user on its own question or on the session's next decision-capture
+ * question (same target user and `metadata.sessionId`, created after it). It
+ * is overridden when that answer's `replyClass` is missing or not one of
+ * {@link AUTO_REPLY_FOLLOW_CLASSES} or {@link AUTO_REPLY_NEUTRAL_CLASSES}. It
+ * is also overridden when the agent's next turn declined it: a later question
+ * carries `metadata.priorDraft` {draftId, draftOutcome: "rejected"}, written
+ * by the capture hook as agent-sourced, not as the user's answer.
+ */
+export async function getReplyDraftAcceptance(
+	db: DbQueryClient,
+	p: GetReplyDraftAcceptanceParams,
+	options: ReplyDraftAcceptanceOptions,
+): Promise<ReplyDraftAcceptanceResult[]> {
+	const { followClasses, neutralClasses } = replyClassLists();
+	const rows = await db.all<AcceptanceRow>(sql`
+		SELECT
+			outcomes.turn_type AS turn_type,
+			count(*) AS draft_count,
+			sum(CASE WHEN outcomes.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
+			sum(CASE WHEN outcomes.outcome = 'edited' THEN 1 ELSE 0 END) AS edited_count,
+			sum(CASE WHEN outcomes.outcome = 'replaced' THEN 1 ELSE 0 END) AS replaced_count,
+			sum(CASE WHEN outcomes.delivery = 'auto' THEN 1 ELSE 0 END) AS auto_count,
+			sum(CASE WHEN outcomes.followup IS NOT NULL THEN 1 ELSE 0 END) AS auto_followed_count,
+			sum(CASE WHEN outcomes.rejected = 1 OR (outcomes.followup IS NOT NULL AND outcomes.followup NOT IN (${followClasses}) AND outcomes.followup NOT IN (${neutralClasses})) THEN 1 ELSE 0 END) AS overridden_count
+		FROM (
+${draftOutcomes(p)}
 		) outcomes
 		GROUP BY outcomes.turn_type
 		ORDER BY draft_count DESC, outcomes.turn_type
@@ -379,4 +400,96 @@ export async function getReplyDraftAcceptance(
 			overrideRate: autoSent > 0 ? overridden / autoSent : 0,
 		};
 	});
+}
+
+export interface GetReplyDraftLeaderboardParams extends GetReplyDraftAcceptanceParams {
+	since: string;
+	/** Start of "today"; at or after `since`. */
+	todaySince: string;
+}
+
+export interface ReplyDraftScore {
+	/** Drafts the tedi wrote (each one answers a knock). */
+	answered: number;
+	/** Auto drafts sent without review. */
+	autoSent: number;
+	/** Auto drafts not overridden, plus review drafts accepted as written. */
+	stood: number;
+	/** Edited or replaced drafts, plus overridden auto drafts. */
+	corrected: number;
+	/** Mean seconds from the question to the draft; null with no drafts. */
+	avgReplySeconds: number | null;
+}
+
+export interface ReplyDraftLeaderboardResult {
+	tediId: string;
+	name: string;
+	avatar: string | null;
+	week: ReplyDraftScore;
+	today: ReplyDraftScore;
+}
+
+type ScoreColumn =
+	`${"w" | "t"}_${"answered" | "auto" | "stood" | "corrected" | "reply_seconds"}`;
+type LeaderboardRow = {
+	drafter_id: string;
+	tedi_name: string | null;
+	tedi_avatar: string | null;
+} & Record<ScoreColumn, number | null>;
+
+/**
+ * Per drafting tedi, how its replies to the target user's questions fared
+ * since `since` and since `todaySince`, ranked by replies that stood. Uses the
+ * same outcome rules as {@link getReplyDraftAcceptance}.
+ */
+export async function getReplyDraftLeaderboard(
+	db: DbQueryClient,
+	p: GetReplyDraftLeaderboardParams,
+): Promise<ReplyDraftLeaderboardResult[]> {
+	const { followClasses, neutralClasses } = replyClassLists();
+	const overridden = sql`(o.rejected = 1 OR (o.followup IS NOT NULL AND o.followup NOT IN (${followClasses}) AND o.followup NOT IN (${neutralClasses})))`;
+	const stood = sql`((o.delivery = 'auto' AND NOT ${overridden}) OR (o.delivery IS NOT 'auto' AND o.outcome = 'accepted'))`;
+	const corrected = sql`(o.outcome IN ('edited', 'replaced') OR (o.delivery = 'auto' AND ${overridden}))`;
+	const today = sql`o.created_at >= ${p.todaySince}`;
+	const rows = await db.all<LeaderboardRow>(sql`
+		SELECT
+			o.drafter_id AS drafter_id,
+			t.name AS tedi_name,
+			t.avatar AS tedi_avatar,
+			count(*) AS w_answered,
+			sum(CASE WHEN o.delivery = 'auto' THEN 1 ELSE 0 END) AS w_auto,
+			sum(CASE WHEN ${stood} THEN 1 ELSE 0 END) AS w_stood,
+			sum(CASE WHEN ${corrected} THEN 1 ELSE 0 END) AS w_corrected,
+			avg(o.reply_seconds) AS w_reply_seconds,
+			sum(CASE WHEN ${today} THEN 1 ELSE 0 END) AS t_answered,
+			sum(CASE WHEN ${today} AND o.delivery = 'auto' THEN 1 ELSE 0 END) AS t_auto,
+			sum(CASE WHEN ${today} AND ${stood} THEN 1 ELSE 0 END) AS t_stood,
+			sum(CASE WHEN ${today} AND ${corrected} THEN 1 ELSE 0 END) AS t_corrected,
+			avg(CASE WHEN ${today} THEN o.reply_seconds END) AS t_reply_seconds
+		FROM (
+${draftOutcomes(p)}
+		) o
+		LEFT JOIN tedis t ON t.id = o.drafter_id AND t.organization_id = ${p.orgId}
+		GROUP BY o.drafter_id
+		ORDER BY w_stood DESC, w_corrected ASC, w_answered DESC, o.drafter_id
+		LIMIT 50
+	`);
+	const score = (row: LeaderboardRow, at: "w" | "t"): ReplyDraftScore => {
+		const seconds = row[`${at}_reply_seconds`];
+		return {
+			answered: Number(row[`${at}_answered`] ?? 0),
+			autoSent: Number(row[`${at}_auto`] ?? 0),
+			stood: Number(row[`${at}_stood`] ?? 0),
+			corrected: Number(row[`${at}_corrected`] ?? 0),
+			avgReplySeconds:
+				seconds === null ? null : Math.max(0, Math.round(Number(seconds))),
+		};
+	};
+	return rows.map((row) => ({
+		tediId: row.drafter_id,
+		name: row.tedi_name ?? "Former tedi",
+		avatar: row.tedi_avatar,
+		week: score(row, "w"),
+		today: score(row, "t"),
+	}));
 }

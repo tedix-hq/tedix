@@ -21,6 +21,8 @@ import {
 	AgentTurnTriagePolicyStateSchema,
 	GetAgentReplyDraftAcceptanceInputSchema,
 	GetAgentReplyDraftAcceptanceResultSchema,
+	GetAgentReplyDraftLeaderboardInputSchema,
+	GetAgentReplyDraftLeaderboardResultSchema,
 	LabelAgentReplyInputSchema,
 	LabelAgentReplyResultSchema,
 	ProposeAgentReplyDraftInputSchema,
@@ -142,6 +144,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(GetAgentReplyDraftAcceptanceInputSchema)
 			.output(GetAgentReplyDraftAcceptanceResultSchema),
+
+		getReplyDraftLeaderboard: oc
+			.route({
+				method: "GET",
+				path: "/reply-drafts/leaderboard",
+				summary: "Rank the tedis that draft the caller's replies",
+				description:
+					"Per drafting tedi, for the caller's questions since `since` and since `todaySince`: drafts written, auto-sent, replies that stood (auto not overridden, or accepted as written), corrected (edited, replaced or overridden) and mean reply time, ranked by replies that stood. Same outcome rules as get_agent_reply_draft_acceptance. Measurement only.",
+			})
+			.input(GetAgentReplyDraftLeaderboardInputSchema)
+			.output(GetAgentReplyDraftLeaderboardResultSchema),
 
 		getSessionLessons: oc
 			.route({

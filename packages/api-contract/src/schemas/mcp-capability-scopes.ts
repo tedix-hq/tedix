@@ -207,6 +207,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	request_agent_reply_draft: "mcp:messaging",
 	propose_agent_reply_draft: "mcp:messaging",
 	get_agent_reply_draft_acceptance: "mcp:messaging",
+	// The tedis that draft those replies, ranked by replies that stood.
+	get_agent_reply_draft_leaderboard: "mcp:messaging",
 	// Approved team lessons a local agent session reads before each prompt.
 	get_agent_session_lessons: "mcp:messaging",
 	// The same lessons as one notebook, newest first, with their sources.

@@ -1228,6 +1228,23 @@ describe("getReplyDraftAcceptance", () => {
 		await expect(f.drafter.getReplyDraftAcceptance({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
+		const period = {
+			since: "2000-01-01T00:00:00.000Z",
+			todaySince: "2000-01-01T00:00:00.000Z",
+		};
+		const { tedis } = await f.target.getReplyDraftLeaderboard(period);
+		expect(tedis).toHaveLength(1);
+		expect(tedis[0]?.week).toMatchObject({
+			answered: 3,
+			stood: 2,
+			corrected: 1,
+		});
+		await expect(f.other.getReplyDraftLeaderboard(period)).resolves.toEqual({
+			tedis: [],
+		});
+		await expect(
+			f.drafter.getReplyDraftLeaderboard(period),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 });
 

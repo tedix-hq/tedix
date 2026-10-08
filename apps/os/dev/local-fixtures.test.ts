@@ -243,6 +243,10 @@ const CALLS: Record<string, unknown> = {
 	"agentTurnTriage/getReplyDraftAcceptance": {
 		since: "2026-10-08T00:00:00.000Z",
 	},
+	"agentTurnTriage/getReplyDraftLeaderboard": {
+		since: "2026-10-05T00:00:00.000Z",
+		todaySince: "2026-10-08T00:00:00.000Z",
+	},
 	"agentTurnTriage/listLessons": { limit: 50 },
 	"projects/list": { limit: 100 },
 	"workItems/listRelations": { limit: 500 },

@@ -551,3 +551,53 @@ export const GetAgentReplyDraftAcceptanceResultSchema = z.object({
 	byTurnType: z.array(AgentReplyDraftAcceptanceRowSchema),
 	policy: AgentReplyDraftEligibilitySchema,
 });
+
+export const GetAgentReplyDraftLeaderboardInputSchema = z.strictObject({
+	since: z.iso
+		.datetime()
+		.describe(
+			"Start of the period (e.g. this week); drafts created at or after it",
+		),
+	todaySince: z.iso
+		.datetime()
+		.describe("Start of today, in the caller's time zone"),
+});
+
+const AgentReplyDraftScoreSchema = z.object({
+	answered: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Drafts written (knocks answered)"),
+	autoSent: z.number().int().min(0).describe("Drafts delivered `auto`"),
+	stood: z
+		.number()
+		.int()
+		.min(0)
+		.describe(
+			"Auto drafts not overridden plus review drafts accepted as written",
+		),
+	corrected: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Edited or replaced drafts plus overridden auto drafts"),
+	avgReplySeconds: z
+		.number()
+		.int()
+		.min(0)
+		.nullable()
+		.describe("Mean seconds from the question to the draft"),
+});
+
+export const GetAgentReplyDraftLeaderboardResultSchema = z.object({
+	tedis: z.array(
+		z.object({
+			tediId: z.string(),
+			name: z.string(),
+			avatar: z.string().nullable().describe("URL or emoji"),
+			week: AgentReplyDraftScoreSchema,
+			today: AgentReplyDraftScoreSchema,
+		}),
+	),
+});

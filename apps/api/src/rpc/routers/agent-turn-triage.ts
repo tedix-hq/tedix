@@ -69,6 +69,7 @@ import {
 	countConsecutiveAutoReplies,
 	getLatestReplyDraft,
 	getReplyDraftAcceptance,
+	getReplyDraftLeaderboard,
 	insertReplyDraft,
 } from "@tedix/db/queries/work-items/reply-drafts";
 import type { WorkItem } from "@tedix/db/schema/work-items";
@@ -1148,6 +1149,26 @@ const getReplyDraftAcceptanceProcedure = readOs.getReplyDraftAcceptance.handler(
 	},
 );
 
+/** The caller's drafting tedis, ranked by replies that stood. */
+const getReplyDraftLeaderboardProcedure =
+	readOs.getReplyDraftLeaderboard.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		if (actor.type !== "user") {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Reply-draft leaderboard belongs to a Tedix user identity",
+			);
+		}
+		const tedis = await getReplyDraftLeaderboard(context.db, {
+			orgId,
+			targetUserId: actor.id,
+			since: input.since,
+			todaySince: input.todaySince,
+		});
+		return { tedis };
+	});
+
 /** Approved team lessons for a local agent session; org-wide facts only. */
 const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 	async ({ input, context }) =>
@@ -1287,6 +1308,7 @@ export const agentTurnTriageContractRouter = os.router({
 	requestReplyDraft,
 	proposeReplyDraft,
 	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
+	getReplyDraftLeaderboard: getReplyDraftLeaderboardProcedure,
 	getSessionLessons: getSessionLessonsProcedure,
 	listLessons: listLessonsProcedure,
 	getLessonEffectiveness: getLessonEffectivenessProcedure,
