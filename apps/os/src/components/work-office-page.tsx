@@ -1,6 +1,19 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
 import { Badge } from "@/components/kumo/badge";
+import {
+	Card,
+	CardContent,
+	CardHeader,
+	CardTitle,
+} from "@/components/kumo/card";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
@@ -52,15 +65,6 @@ function isToday(iso: string | null | undefined, since: string) {
 	return !Number.isNaN(at) && at >= Date.parse(since);
 }
 
-/** "Oct 7" (or "today") for a plain-English line. */
-function day(iso: string, since: string) {
-	if (isToday(iso, since)) return "today";
-	return new Date(normalizeD1Timestamp(iso)).toLocaleDateString(undefined, {
-		month: "short",
-		day: "numeric",
-	});
-}
-
 type Lane = "answered" | "you";
 
 /** Where a knock went, in plain words. */
@@ -91,37 +95,112 @@ export function knockOutcome(input: {
 	};
 }
 
+/**
+ * The one line a person needs: the interaction's "What's needed from you"
+ * when it carries one, else its subject without the "repo · host waiting:"
+ * prefix every decision-capture subject starts with.
+ */
+export function officeAsk(request: {
+	subject: string;
+	metadata?: unknown;
+	neededFromYou?: unknown;
+}): string {
+	const meta =
+		typeof request.metadata === "object" && request.metadata !== null
+			? (request.metadata as Record<string, unknown>)
+			: {};
+	const needed = request.neededFromYou ?? meta.neededFromYou;
+	if (typeof needed === "string" && needed.trim()) return needed.trim();
+	const subject = interactionSubject(request);
+	return subject.replace(/^[^:]{0,80}\bwaiting:\s*/i, "") || subject;
+}
+
+export const NOTEBOOK_SUBJECTS = [
+	"Answers",
+	"Git",
+	"Deploys",
+	"Work",
+	"Agents",
+] as const;
+type NotebookSubject = (typeof NOTEBOOK_SUBJECTS)[number];
+
+const SUBJECT_PATTERNS: Array<[NotebookSubject, RegExp]> = [
+	[
+		"Git",
+		/\b(git|commit|push|pull request|branch|rebase|merge|worktree|stash)\b/i,
+	],
+	["Deploys", /\b(deploy\w*|ship|release|rollout|wrangler|production|prod)\b/i],
+	["Work", /\b(work items?|board|claim|lease|ticket|issue|project|backlog)\b/i],
+	["Agents", /\b(agents?|tedis?|sub-?agents?|sessions?|delegat\w*|model)\b/i],
+];
+
+/** Which notebook subject a lesson reads as; "Answers" when none matches. */
+export function lessonSubject(text: string): NotebookSubject {
+	return (
+		SUBJECT_PATTERNS.find(([, pattern]) => pattern.test(text))?.[0] ?? "Answers"
+	);
+}
+
+/** "Learned from 3 replies" for a lesson that cites decisions. */
+export function learnedFromLine(
+	learnedFrom: { replies: number } | null,
+): string | null {
+	if (!learnedFrom || learnedFrom.replies < 1) return null;
+	return `Learned from ${learnedFrom.replies} ${learnedFrom.replies === 1 ? "reply" : "replies"}`;
+}
+
+function initials(name: string) {
+	const parts = name.trim().split(/\s+/).filter(Boolean);
+	return (
+		parts
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase())
+			.join("") || "?"
+	);
+}
+
 export function OfficeSummarySentence({
 	knocks,
 	answered,
 	waiting,
-	corrected,
 }: {
 	knocks: number;
 	answered: number;
 	waiting: number;
-	corrected: number;
 }) {
 	if (knocks === 0) return <>Quiet so far: nobody has knocked today.</>;
+	if (waiting === 0)
+		return (
+			<>
+				Nothing needs you. {answered} of today's {knocks} knocks were answered
+				for you.
+			</>
+		);
 	return (
 		<>
-			{knocks} {knocks === 1 ? "knock" : "knocks"} today. Your chief of staff
-			answered {answered} for you, {waiting} {waiting === 1 ? "is" : "are"}{" "}
-			waiting for you, and you corrected {corrected}.
+			{waiting} {waiting === 1 ? "thing needs" : "things need"} you. {answered}{" "}
+			of today's {knocks} knocks were answered for you.
 		</>
 	);
 }
 
-function TodayCard({ since }: { since: string }) {
+function useTodayKnocks(since: string) {
 	const knocks = useQuery(workOfficeKnocksQueryOptions());
-	const urgent = useQuery(workUrgentInteractionsQueryOptions());
-	const acceptance = useQuery(replyDraftAcceptanceQueryOptions(since));
 	const rows = (knocks.data?.data ?? []).filter(
 		(row) =>
 			decisionCaptureSummary(row.request.metadata) &&
 			isToday(row.request.requestedAt, since),
 	);
-	const more = Boolean(knocks.data?.hasMore && rows.length === 100);
+	return {
+		knocks,
+		rows,
+		more: Boolean(knocks.data?.hasMore && rows.length === 100),
+	};
+}
+
+function useTodayTotals(since: string) {
+	const acceptance = useQuery(replyDraftAcceptanceQueryOptions(since));
+	const urgent = useQuery(workUrgentInteractionsQueryOptions());
 	const totals = (acceptance.data?.byTurnType ?? []).reduce(
 		(sum, row) => ({
 			answered: sum.answered + row.autoSent,
@@ -129,64 +208,79 @@ function TodayCard({ since }: { since: string }) {
 		}),
 		{ answered: 0, corrected: 0 },
 	);
-	const waiting = urgent.data?.data.length ?? 0;
-	if (knocks.isPending)
-		return <Skeleton className="h-32 w-full" aria-label="Loading today" />;
+	return { ...totals, waiting: urgent.data?.data.length ?? 0 };
+}
+
+function OfficeHeader({ since }: { since: string }) {
+	const { knocks, rows } = useTodayKnocks(since);
+	const totals = useTodayTotals(since);
 	return (
-		<PageSection aria-labelledby="office-today-title">
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle id="office-today-title">Today</SectionTitle>
-					<SectionDescription>
+		<PageHeader>
+			<PageHeading>
+				<PageTitle>Your office</PageTitle>
+				<PageDescription className="text-kumo-default type-tedix-dialog">
+					{knocks.isPending ? (
+						"Reading today's knocks…"
+					) : (
 						<OfficeSummarySentence
 							knocks={rows.length}
 							answered={totals.answered}
-							waiting={waiting}
-							corrected={totals.corrected}
+							waiting={totals.waiting}
 						/>
-					</SectionDescription>
-				</SectionHeading>
-			</SectionHeader>
-			<MetricGrid columns={4} appearance="bounded" aria-label="Today">
-				<MetricItem
-					label="Knocks today"
-					emphasis="metric"
-					value={`${rows.length}${more ? "+" : ""}`}
-					description="Sessions that finished a turn"
-				/>
-				<MetricItem
-					label="Answered for you"
-					emphasis="metric"
-					value={totals.answered}
-					description="Routine replies sent the way you would"
-				/>
-				<MetricItem
-					label="Waiting for you"
-					emphasis="metric"
-					value={<Link href="/work/interactions">{waiting}</Link>}
-					description="Only the important ones"
-				/>
-				<MetricItem
-					label="You corrected"
-					emphasis="metric"
-					value={totals.corrected}
-					description="Each one teaches the notebook"
-				/>
-			</MetricGrid>
-		</PageSection>
+					)}
+				</PageDescription>
+			</PageHeading>
+		</PageHeader>
 	);
 }
 
-function KnockList({ since }: { since: string }) {
-	const knocks = useQuery(workOfficeKnocksQueryOptions());
+function TodayTiles({ since }: { since: string }) {
+	const { knocks, rows, more } = useTodayKnocks(since);
+	const totals = useTodayTotals(since);
+	if (knocks.isPending)
+		return <Skeleton className="h-24 w-full" aria-label="Loading today" />;
+	return (
+		<MetricGrid columns={4} appearance="bounded" aria-label="Today">
+			<MetricItem
+				className="py-4"
+				label="Knocks today"
+				emphasis="metric"
+				value={`${rows.length}${more ? "+" : ""}`}
+			/>
+			<MetricItem
+				className="py-4"
+				label="Answered for you"
+				emphasis="metric"
+				value={totals.answered}
+			/>
+			<MetricItem
+				className="py-4"
+				label="Waiting for you"
+				emphasis="metric"
+				value={<Link href="/work/interactions">{totals.waiting}</Link>}
+			/>
+			<MetricItem
+				className="py-4"
+				label="You corrected"
+				emphasis="metric"
+				value={totals.corrected}
+			/>
+		</MetricGrid>
+	);
+}
+
+function Time({ at }: { at: string }) {
+	return (
+		<time dateTime={at} title={absoluteTime(at)}>
+			{relativeTime(at)}
+		</time>
+	);
+}
+
+function Knocks({ since }: { since: string }) {
+	const { knocks, rows: today } = useTodayKnocks(since);
 	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
-	const rows = (knocks.data?.data ?? [])
-		.filter(
-			(row) =>
-				decisionCaptureSummary(row.request.metadata) &&
-				isToday(row.request.requestedAt, since),
-		)
-		.slice(0, KNOCKS_SHOWN);
+	const rows = today.slice(0, KNOCKS_SHOWN);
 	const details = useQueries({
 		queries: rows.map((row) => ({
 			...workInteractionDetailQueryOptions(row.request.id),
@@ -207,114 +301,159 @@ function KnockList({ since }: { since: string }) {
 			tedi.displayName || tedi.name,
 		]),
 	);
-	if (rows.length === 0) return null;
+	if (knocks.isPending) return null;
 	const items = rows.map((row, index) => {
 		const summary = decisionCaptureSummary(row.request.metadata);
 		const draft = latestDraftOf(details[index]?.data);
+		const drafter = draft
+			? (names.get(draft.drafterId) ?? "Your chief of staff")
+			: null;
+		const open = row.effectiveState === "open";
 		const outcome = knockOutcome({
 			urgent: summary?.urgency === "now",
-			open: row.effectiveState === "open",
+			open,
 			answeredByYou: row.responseCount > 0 && draft?.delivery !== "auto",
-			draft: draft
-				? {
-						delivery: draft.delivery,
-						drafter: names.get(draft.drafterId) ?? "your chief of staff",
-					}
-				: null,
+			draft: draft && drafter ? { delivery: draft.delivery, drafter } : null,
 		});
-		return { row, summary, outcome };
+		return {
+			row,
+			open,
+			urgent: summary?.urgency === "now",
+			outcome,
+			drafter,
+			arriving: !firstPaint && !seen.current?.has(row.request.id),
+		};
 	});
-	const lanes: Array<[Lane, string, string]> = [
-		[
-			"answered",
-			"Answered for you",
-			"Routine knocks your chief of staff and department heads took care of.",
-		],
-		["you", "For you", "Important knocks, and replies waiting for your OK."],
-	];
+	const forYou = items.filter(
+		(item) => item.outcome.lane === "you" && item.open,
+	);
+	const answered = items.filter((item) => item.outcome.lane === "answered");
+	const byTedi = new Map<string, typeof answered>();
+	for (const item of answered) {
+		const key = item.drafter ?? "Your chief of staff";
+		byTedi.set(key, [...(byTedi.get(key) ?? []), item]);
+	}
 	return (
-		<PageSection aria-labelledby="office-knocks-title">
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle id="office-knocks-title">Latest knocks</SectionTitle>
-				</SectionHeading>
-			</SectionHeader>
-			<div className="grid gap-4 md:grid-cols-2">
-				{lanes.map(([lane, title, description]) => {
-					const laneItems = items.filter((item) => item.outcome.lane === lane);
-					return (
-						<div key={lane} className="grid min-w-0 content-start gap-2">
-							<div>
-								<Text as="h3" role="label" tone="strong">
-									{title} ({laneItems.length})
-								</Text>
+		<>
+			<PageSection aria-labelledby="office-for-you-title">
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle id="office-for-you-title">For you</SectionTitle>
+					</SectionHeading>
+				</SectionHeader>
+				{forYou.length ? (
+					<Collection aria-label="For you">
+						{forYou.map(({ row, urgent, outcome, arriving }) => (
+							<li
+								key={row.request.id}
+								className={cn(
+									"grid gap-1 px-4 py-3",
+									arriving && "office-knock-arrive",
+								)}
+							>
+								<div className="flex min-w-0 items-start gap-2">
+									<Link
+										variant="record"
+										href={`/work/interactions/${row.request.id}`}
+										className="line-clamp-2 min-w-0 flex-1"
+									>
+										{officeAsk(row.request)}
+									</Link>
+									{urgent ? (
+										<Badge variant="warning" className="shrink-0">
+											Important
+										</Badge>
+									) : null}
+								</div>
 								<Text as="p" role="label" tone="secondary">
-									{description}
+									{outcome.text} · <Time at={row.request.requestedAt} />
 								</Text>
-							</div>
-							{laneItems.length ? (
-								<Collection aria-label={title}>
-									{laneItems.map(({ row, summary, outcome }) => (
-										<li
-											key={row.request.id}
-											className={cn(
-												"grid gap-0.5 px-3 py-2",
-												!firstPaint &&
-													!seen.current?.has(row.request.id) &&
-													"office-knock-arrive",
-											)}
-										>
-											<Link
-												variant="record"
-												href={`/work/interactions/${row.request.id}`}
-												title={summary?.sessionId}
-												className="truncate"
+							</li>
+						))}
+					</Collection>
+				) : (
+					<Empty appearance="quiet">
+						<EmptyHeader>
+							<EmptyTitle>Nothing needs you</EmptyTitle>
+							<EmptyDescription>
+								Important knocks and replies waiting for your OK land here.
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
+				)}
+			</PageSection>
+			<PageSection aria-labelledby="office-answered-title">
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle id="office-answered-title">
+							Answered for you
+						</SectionTitle>
+						<SectionDescription>
+							Routine knocks your tedis replied to the way you would.
+						</SectionDescription>
+					</SectionHeading>
+				</SectionHeader>
+				{byTedi.size ? (
+					<div className="grid gap-3">
+						{[...byTedi].map(([tedi, list]) => (
+							<Card key={tedi} size="sm">
+								<CardHeader className="flex items-center gap-3">
+									<Avatar size="sm">
+										<AvatarFallback>{initials(tedi)}</AvatarFallback>
+									</Avatar>
+									<CardTitle className="min-w-0 flex-1 truncate">
+										{tedi}
+									</CardTitle>
+									<Badge variant="secondary">{list.length}</Badge>
+								</CardHeader>
+								<CardContent>
+									<ul className="m-0 grid list-none gap-2 p-0">
+										{list.map(({ row, arriving }) => (
+											<li
+												key={row.request.id}
+												className={cn(
+													"flex min-w-0 items-baseline gap-3",
+													arriving && "office-knock-arrive",
+												)}
 											>
-												{interactionSubject(row.request)}
-											</Link>
-											<Text as="p" role="label" tone="secondary">
-												{outcome.text} ·{" "}
-												<time
-													dateTime={row.request.requestedAt}
-													title={absoluteTime(row.request.requestedAt)}
+												<Link
+													variant="record"
+													href={`/work/interactions/${row.request.id}`}
+													className="min-w-0 flex-1 truncate"
 												>
-													{relativeTime(row.request.requestedAt)}
-												</time>
-											</Text>
-										</li>
-									))}
-								</Collection>
-							) : (
-								<Text as="p" role="body" tone="secondary">
-									None yet today.
-								</Text>
-							)}
-						</div>
-					);
-				})}
-			</div>
-		</PageSection>
+													{officeAsk(row.request)}
+												</Link>
+												<Text
+													as="span"
+													role="label"
+													tone="secondary"
+													className="shrink-0"
+												>
+													<Time at={row.request.requestedAt} />
+												</Text>
+											</li>
+										))}
+									</ul>
+								</CardContent>
+							</Card>
+						))}
+					</div>
+				) : (
+					<Text as="p" role="body" tone="secondary">
+						None yet today.
+					</Text>
+				)}
+			</PageSection>
+		</>
 	);
 }
 
-/** "learned from: your reply on Oct 7" for a lesson that cites decisions. */
-export function learnedFromLine(
-	learnedFrom: {
-		replies: number;
-		lastReplyAt: string | null;
-		fromCaller: boolean;
-	} | null,
-	since: string,
-): string | null {
-	if (!learnedFrom) return null;
-	const whose = learnedFrom.fromCaller ? "your" : "a teammate's";
-	const date = learnedFrom.lastReplyAt
-		? day(learnedFrom.lastReplyAt, since)
-		: null;
-	const when = date ? (date === "today" ? " today" : ` on ${date}`) : "";
-	if (learnedFrom.replies <= 1) return `Learned from ${whose} reply${when}`;
-	const many = learnedFrom.fromCaller ? "your" : "your team's";
-	return `Learned from ${learnedFrom.replies} of ${many} replies, the latest${when}`;
+/**
+ * Reserved for the office leaderboard. Another change ships the data and the
+ * `OfficeLeaderboard` component; until then the slot renders nothing.
+ */
+function LeaderboardSlot() {
+	return null;
 }
 
 function Notebook({ since }: { since: string }) {
@@ -322,16 +461,23 @@ function Notebook({ since }: { since: string }) {
 	const profile = useQuery({ ...userProfileQueryOptions(), retry: false });
 	const firstName = profile.data?.name?.trim().split(/\s+/)[0];
 	const title = firstName ? `How ${firstName} works` : "How you work";
+	const groups = NOTEBOOK_SUBJECTS.map(
+		(subject) =>
+			[
+				subject,
+				(lessons.data?.lessons ?? []).filter(
+					(lesson) => lessonSubject(lesson.text) === subject,
+				),
+			] as const,
+	).filter(([, list]) => list.length > 0);
 	return (
 		<PageSection aria-labelledby="office-notebook-title">
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle id="office-notebook-title">
-						The notebook: {title}
-					</SectionTitle>
+					<SectionTitle id="office-notebook-title">{title}</SectionTitle>
 					<SectionDescription>
-						What the office has learned. When you correct someone, a line is
-						added here, and every session reads it before it starts.
+						Every session reads this notebook before it starts. Your corrections
+						add to it.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -341,41 +487,59 @@ function Notebook({ since }: { since: string }) {
 				<Text as="p" role="body" tone="secondary">
 					The notebook could not be read right now.
 				</Text>
-			) : lessons.data.lessons.length === 0 ? (
-				<Text as="p" role="body" tone="secondary">
-					The notebook is empty. Lines appear after you correct a session.
-				</Text>
+			) : groups.length === 0 ? (
+				<Empty appearance="quiet">
+					<EmptyHeader>
+						<EmptyTitle>The notebook is empty</EmptyTitle>
+						<EmptyDescription>
+							Lines appear after you correct a session.
+						</EmptyDescription>
+					</EmptyHeader>
+				</Empty>
 			) : (
-				<Collection aria-label={title}>
-					{lessons.data.lessons.map((lesson) => {
-						const source = learnedFromLine(lesson.learnedFrom, since);
-						const fresh = isToday(lesson.addedAt, since);
-						return (
-							<li
-								key={lesson.id}
-								title={lesson.id}
-								className={cn(
-									"grid gap-1 px-3 py-2.5",
-									fresh && "bg-kumo-success-tint",
-								)}
-							>
-								<Text as="p" role="body" className="line-clamp-4">
-									{fresh ? (
-										<Badge variant="success" className="mr-2">
-											Added today
-										</Badge>
-									) : null}
-									{lesson.text}
+				<div className="grid gap-3">
+					{groups.map(([subject, list]) => (
+						<Card key={subject} size="sm">
+							<CardHeader className="flex items-center gap-2">
+								<CardTitle className="flex-1">{subject}</CardTitle>
+								<Text as="span" role="label" tone="secondary">
+									{list.length}
 								</Text>
-								{source ? (
-									<Text as="p" role="label" tone="secondary">
-										{source}
-									</Text>
-								) : null}
-							</li>
-						);
-					})}
-				</Collection>
+							</CardHeader>
+							<CardContent>
+								<ul className="m-0 grid list-none divide-y divide-kumo-hairline p-0">
+									{list.map((lesson) => {
+										const source = learnedFromLine(lesson.learnedFrom);
+										const fresh = isToday(lesson.addedAt, since);
+										return (
+											<li
+												key={lesson.id}
+												title={lesson.id}
+												className="grid gap-1 py-2.5 first:pt-0 last:pb-0"
+											>
+												<Text as="p" role="body" className="line-clamp-4">
+													{lesson.text}
+												</Text>
+												{source || fresh ? (
+													<div className="flex flex-wrap items-center gap-2">
+														{source ? (
+															<Text as="span" role="label" tone="secondary">
+																{source}
+															</Text>
+														) : null}
+														{fresh ? (
+															<Badge variant="success">New today</Badge>
+														) : null}
+													</div>
+												) : null}
+											</li>
+										);
+									})}
+								</ul>
+							</CardContent>
+						</Card>
+					))}
+				</div>
 			)}
 		</PageSection>
 	);
@@ -385,20 +549,13 @@ export function WorkOfficePage() {
 	useDocumentTitle("Office · Work");
 	const since = startOfToday();
 	return (
-		<Page width="xl">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Your office</PageTitle>
-					<PageDescription>
-						Your coding sessions are employees. When one finishes a turn, it
-						knocks. Your chief of staff answers the routine knocks the way you
-						would, department heads answer the ones in their area, and only the
-						important ones reach you.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<TodayCard since={since} />
-			<KnockList since={since} />
+		<Page width="md" className="gap-10">
+			<div className="grid gap-5">
+				<OfficeHeader since={since} />
+				<TodayTiles since={since} />
+			</div>
+			<Knocks since={since} />
+			<LeaderboardSlot />
 			<Notebook since={since} />
 		</Page>
 	);
