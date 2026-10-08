@@ -121,6 +121,16 @@ outside a repository go to your default organization; anything else is
 skipped and counted. Re-running is safe. The pairs become personal lessons
 your later sessions receive.
 
+`tedix learn analyze-sessions --dry-run` reads the same sessions whole and
+ranks three things per organization: requests you repeat (candidates for a
+skill or command), recurring friction such as failing commands, retry loops,
+denials and long stalls (candidates for automation or a hook), and decisions
+you stated, which your local `claude` CLI extracts (`--no-model` skips them).
+Without `--dry-run` it keeps one Work Item per list in each organization and
+updates the same items on every run; pass `--project <id>` the first time so
+they are filed under a project. Only counts and short redacted paraphrases are
+sent.
+
 Plugin installation does not authorize Tedix access. Complete the OAuth flow
 in each host for the intended organization and scopes. Review the hooks in each
 host's `/hooks` view; Codex skips them until you trust them. CLI login and host MCP

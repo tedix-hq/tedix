@@ -3,6 +3,19 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.7.0 — 2026-10-08
+
+### Added
+
+- `tedix learn analyze-sessions` reads your local Claude Code and Codex
+  sessions whole and keeps three ranked lists per organization, each in one
+  Work Item that later runs update in place: requests you repeat (candidates
+  for a skill or command), recurring friction such as failing commands, retry
+  loops, permission denials and long stalls (candidates for automation or a
+  hook), and a decision log your local `claude` CLI extracts, citing the
+  session and time. Only counts and short redacted paraphrases are sent;
+  `--dry-run` shows them first.
+
 ## 0.6.8 — 2026-10-08
 
 ### Added

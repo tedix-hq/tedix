@@ -58,7 +58,7 @@ const INJECTED =
 	/^\s*(?:<|\{|\[|>>>|# AGENTS\.md|#+ Files (?:mentioned|pasted) by the user|Base directory for this skill|This session is being continued|Caveat:|Another (?:Claude|Codex) session sent|The following is the Codex|Reviewed Codex session|The Codex agent has|Assess the exact|Planned action JSON|Some conversation entries|Continue working toward|Tedix [^\n]{1,120}? replied for the user|No response requested|Reply OK\b)/i;
 /** Test and harness prompts about the agent setup itself, not the person's work. */
 const META_PROMPT =
-	/\b(without (?:using )?tools|report only|reply (?:only )?with|respond only|say only|tedix context received)\b/i;
+	/\b(without (?:using )?tools|use no tools|report only|reply (?:only )?with|respond only|say only|tedix context received)\b/i;
 const LOG_LINE =
 	/^\s*(?:at\s+\S+|\d{4}-\d{2}-\d{2}[T ]\d|\[[A-Za-z0-9:._ -]{1,40}\]|[{}[\],]|"[^"]+":|\$\s|>\s|[\w./-]+:\d+(?::\d+)?\b|(?:error|warn(?:ing)?|info|debug|trace)\b[:\]]|[│├└─┌┐┘┬┴┼|+-]{3,}|\d+\s+(?:passed|failed)|✓|✗|×)/i;
 
@@ -90,10 +90,10 @@ function bounded(text: string, limit: number, keep: "head" | "tail"): string {
 }
 
 /**
- * The person's own words in a user turn, or null when the turn is host or
- * hook injection, a slash command, an interruption or a pasted log.
+ * The person's own words in a user turn, of any length, or null when the turn
+ * is host or hook injection, a slash command, an interruption or a pasted log.
  */
-export function humanReply(raw: string): string | null {
+export function humanText(raw: string): string | null {
 	let text = raw;
 	const request = text.lastIndexOf("## My request");
 	if (request >= 0) text = text.slice(text.indexOf("\n", request) + 1);
@@ -125,8 +125,13 @@ export function humanReply(raw: string): string | null {
 		lines.filter((line) => LOG_LINE.test(line)).length * 2 >= lines.length
 	)
 		return null;
-	if (text.length < MIN_REPLY_CHARS) return null;
 	return text;
+}
+
+/** A reply long enough to teach something on its own. */
+export function humanReply(raw: string): string | null {
+	const text = humanText(raw);
+	return text && text.length >= MIN_REPLY_CHARS ? text : null;
 }
 
 function agentText(raw: string): string {
@@ -137,7 +142,7 @@ function agentText(raw: string): string {
 		.trim();
 }
 
-function textParts(content: unknown, type: string): string {
+export function textParts(content: unknown, type: string): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
@@ -148,7 +153,7 @@ function textParts(content: unknown, type: string): string {
 		.join("\n");
 }
 
-function parseLines(path: string): Json[] {
+export function parseLines(path: string): Json[] {
 	if (statSync(path).size > MAX_FILE_BYTES) return [];
 	const rows: Json[] = [];
 	for (const line of readFileSync(path, "utf8").split("\n")) {
@@ -327,7 +332,7 @@ export function sessionFiles(home = homedir()): SessionFile[] {
 	];
 }
 
-type Location =
+export type Location =
 	| { kind: "repo"; origin: string; repository: string }
 	| { kind: "none" }
 	| { kind: "unknown" };
@@ -402,6 +407,58 @@ export function targetKey(target: OrganizationTarget): string {
 	return `${target.workspace}/${target.organization ?? target.org}`;
 }
 
+export type Unrouted = ImportPlan["unrouted"];
+
+export function emptyUnrouted(): Unrouted {
+	return {
+		unboundRepository: {},
+		unknownLocation: 0,
+		noDefaultOrganization: 0,
+	};
+}
+
+/** `locate`, cached per (origin, cwd) so each checkout is asked once. */
+export function sessionLocator(
+	originOf?: (directory: string) => string | null | undefined,
+): (session: Pick<ParsedSession, "cwd" | "origin">) => Location {
+	const cache = new Map<string, Location>();
+	return (session) => {
+		const key = `${session.origin ?? ""}\n${session.cwd ?? ""}`;
+		const location = cache.get(key) ?? locate(session, originOf);
+		cache.set(key, location);
+		return location;
+	};
+}
+
+/**
+ * The organization a located session belongs to: its repository's binding, or
+ * the default organization outside a repository. Anything else is counted in
+ * `unrouted` (by `weight`) and gets no target; an organization is never guessed.
+ */
+export function routedTarget(
+	location: Location,
+	input: {
+		targets: Map<string, OrganizationTarget>;
+		defaultTarget: OrganizationTarget | undefined;
+	},
+	unrouted: Unrouted,
+	weight: number,
+): OrganizationTarget | undefined {
+	if (location.kind === "repo") {
+		const target = input.targets.get(location.origin);
+		if (!target)
+			unrouted.unboundRepository[location.repository] =
+				(unrouted.unboundRepository[location.repository] ?? 0) + weight;
+		return target;
+	}
+	if (location.kind === "none") {
+		if (!input.defaultTarget) unrouted.noDefaultOrganization += weight;
+		return input.defaultTarget;
+	}
+	unrouted.unknownLocation += weight;
+	return undefined;
+}
+
 /** Extract, route and dedupe every pair; reads local files only. */
 export function planImport(input: {
 	files: SessionFile[];
@@ -418,14 +475,10 @@ export function planImport(input: {
 		skippedSessions: {},
 		pairs: 0,
 		byTarget: new Map(),
-		unrouted: {
-			unboundRepository: {},
-			unknownLocation: 0,
-			noDefaultOrganization: 0,
-		},
+		unrouted: emptyUnrouted(),
 	};
 	const seen = new Set<string>();
-	const locations = new Map<string, Location>();
+	const locateSession = sessionLocator(input.originOf);
 	const read = input.read ?? parseLines;
 	for (const file of input.files) {
 		let rows: Json[];
@@ -448,28 +501,9 @@ export function planImport(input: {
 		);
 		if (pairs.length === 0) continue;
 		plan.sessions[session.harness]++;
-		const cacheKey = `${session.origin ?? ""}\n${session.cwd ?? ""}`;
-		const location = locations.get(cacheKey) ?? locate(session, input.originOf);
-		locations.set(cacheKey, location);
-		let target: OrganizationTarget | undefined;
-		if (location.kind === "repo") {
-			target = input.targets.get(location.origin);
-			if (!target) {
-				plan.unrouted.unboundRepository[location.repository] =
-					(plan.unrouted.unboundRepository[location.repository] ?? 0) +
-					pairs.length;
-				continue;
-			}
-		} else if (location.kind === "none") {
-			target = input.defaultTarget;
-			if (!target) {
-				plan.unrouted.noDefaultOrganization += pairs.length;
-				continue;
-			}
-		} else {
-			plan.unrouted.unknownLocation += pairs.length;
-			continue;
-		}
+		const location = locateSession(session);
+		const target = routedTarget(location, input, plan.unrouted, pairs.length);
+		if (!target) continue;
 		const key = targetKey(target);
 		const bucket = plan.byTarget.get(key) ?? { target, decisions: [] };
 		plan.byTarget.set(key, bucket);
@@ -513,9 +547,20 @@ Re-running is safe: imported turns are recognized and not recorded twice.
 After the upload your decisions are mined into personal lessons (--no-mine
 skips that; the nightly reflection also mines them).
 
---dry-run prints counts and five samples and sends nothing.`;
+--dry-run prints counts and five samples and sends nothing.
 
-interface LearnDeps {
+  tedix learn analyze-sessions [--dry-run] [--since <YYYY-MM-DD>]
+      [--project [<workspace>/<organization>=]<project-id>] [--no-model] [--json]
+
+Reads the same sessions whole and keeps, per organization, one Work Item for
+each of: repeated requests (skill or command candidates), friction hotspots
+(repeated tool errors, retry loops, denials, stalls) and a decision log. Only
+counts and short redacted paraphrases are sent; a re-run updates the same three
+items. Decisions are extracted by your local claude CLI (--no-model skips them).
+--project files new items under that project; existing items are found and
+updated in place.`;
+
+export interface LearnDeps {
 	home?: string;
 	read?: ReadJson;
 	write?: (line: string) => void;
@@ -585,6 +630,10 @@ export async function runLearnCommand(
 	if (!action || action === "--help" || action === "-h" || action === "help") {
 		write(learnUsage);
 		return 0;
+	}
+	if (action === "analyze-sessions") {
+		const { runAnalyzeSessions } = await import("./learn-analyze");
+		return runAnalyzeSessions(args, deps);
 	}
 	if (action !== "import-sessions") {
 		write(learnUsage);
