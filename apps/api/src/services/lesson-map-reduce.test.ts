@@ -544,6 +544,7 @@ describe("distillPersonalLessons", () => {
 							version: MAP_REDUCE_VERSION,
 							events: 400,
 							newestAt: history[0]!.occurredAt,
+							settled: 0,
 							complete: true,
 						},
 					},
@@ -554,6 +555,19 @@ describe("distillPersonalLessons", () => {
 		expect(result.ownersSkipped).toBe(1);
 		expect(runDistillModel).not.toHaveBeenCalled();
 		expect(createFact).not.toHaveBeenCalled();
+		// A lesson the person archived since then: distilled again.
+		vi.mocked(listArchivedLearningFeedLessonsForOwner).mockResolvedValue([
+			{
+				id: "archived",
+				topicKey: "learning-feed:decision:general:general:work:user:user-1",
+				content: "Work:\n- y",
+				reviewStatus: "rejected",
+				metadata: { learningFeed: { ownerUserId: "user-1" } },
+			},
+		]);
+		expect(
+			(await distillPersonalLessons(direct, db, env, "org-1")).ownersSkipped,
+		).toBe(0);
 	});
 
 	it("keeps an identical lesson instead of rewriting it", async () => {

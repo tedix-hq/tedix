@@ -766,6 +766,11 @@ export interface HistorySignature {
 	version: number;
 	events: number;
 	newestAt: string;
+	/**
+	 * Lessons the person reviewed or archived: archiving one by hand changes
+	 * what is covered and blocked, so the history is distilled again.
+	 */
+	settled: number;
 }
 
 export interface OwnerPreparation {
@@ -801,11 +806,6 @@ export async function prepareOwners(
 	});
 	const prepared: OwnerPreparation[] = [];
 	for (const owner of owners) {
-		const signature: HistorySignature = {
-			version: MAP_REDUCE_VERSION,
-			events: owner.events,
-			newestAt: owner.newestAt,
-		};
 		const current = await ownerLessons(db, orgId, owner.ownerUserId);
 		const archived = await listArchivedLearningFeedLessonsForOwner(
 			db,
@@ -816,6 +816,12 @@ export async function prepareOwners(
 		const settled = [...current, ...archived].filter(
 			(row) => !isReplaceableLesson(row),
 		);
+		const signature: HistorySignature = {
+			version: MAP_REDUCE_VERSION,
+			events: owner.events,
+			newestAt: owner.newestAt,
+			settled: settled.length,
+		};
 		const skip = current.some((row) => {
 			const run = rec(rec(rec(row.metadata).learningFeed).mapReduce);
 			return (
@@ -823,7 +829,8 @@ export async function prepareOwners(
 				run.complete === true &&
 				run.version === signature.version &&
 				run.events === signature.events &&
-				run.newestAt === signature.newestAt
+				run.newestAt === signature.newestAt &&
+				run.settled === signature.settled
 			);
 		});
 		prepared.push({
