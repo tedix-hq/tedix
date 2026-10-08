@@ -1,5 +1,7 @@
 import { WORKFLOW_PLATFORM_MCP_METHODS } from "@tedix/api-contract/utils/skill-manifest";
+import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
 import { eq, inArray } from "drizzle-orm";
+import { parse as parseYaml } from "yaml";
 import type { DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -57,6 +59,19 @@ export function validateWorkflowSource(
 ): SkillValidationIssue[] {
 	const errors: SkillValidationIssue[] = [];
 	const path = `files["${filePath}"]`;
+
+	// 0. WORKFLOW_HEADER_COMMENT_CLOSED_EARLY — a leading `/* tedix ... */`
+	// manifest comment ends at the FIRST close marker, so a cron such as
+	// "*/5 * * * *" inside it turns the rest of the header into code and the
+	// run dies with `SyntaxError: Unexpected token`.
+	const headerIssue = detectPrematureHeaderClose(source);
+	if (headerIssue) {
+		errors.push({
+			code: "WORKFLOW_HEADER_COMMENT_CLOSED_EARLY",
+			message: headerIssue,
+			path,
+		});
+	}
 
 	// Strip line and block comments + string literals so identifiers inside
 	// them don't trigger false positives. Uses a single-pass scanner.
@@ -212,6 +227,22 @@ export function validateWorkflowSource(
 	}
 
 	return errors;
+}
+
+/**
+ * A leading block comment must close only at the end of a line. A close marker
+ * followed by more text on the same line (a cron step like `*` + `/5`) ended
+ * the comment early.
+ */
+export function detectPrematureHeaderClose(source: string): string | null {
+	const trimmed = source.trimStart();
+	if (!/^\/\*\s*tedix\b/.test(trimmed)) return null;
+	const close = trimmed.indexOf("*/", 2);
+	if (close === -1) return null;
+	const lineEnd = trimmed.indexOf("\n", close);
+	const rest = trimmed.slice(close + 2, lineEnd === -1 ? undefined : lineEnd);
+	if (rest.trim().length === 0) return null;
+	return "The leading workflow header comment closes early: a `*/` (usually a cron step such as `*/5`) is followed by more text on the same line, so the rest is parsed as code (SyntaxError at run time). Write the cron as an explicit list (`0,5,10,...`) or a range with a step (`0-59/5`), or drop the header and declare capabilities in SKILL.md frontmatter, which is the manifest of record for recorded skills.";
 }
 
 /**
@@ -754,6 +785,36 @@ export async function validateSkillInput(
 	const manifestCapabilities =
 		workflowCapabilities ?? parseSkillFrontmatterCapabilities(content);
 	errors.push(...validateSkillReliabilityPolicy(content));
+	// SKILL_SCHEDULE_INVALID — the same parser the API scheduler fires from, so
+	// a cron it cannot schedule is an error here rather than a vanished row.
+	const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
+	if (frontmatter !== undefined) {
+		try {
+			parseYaml(frontmatter);
+		} catch (error) {
+			warnings.push({
+				code: "SKILL_FRONTMATTER_INVALID_YAML",
+				message: `SKILL.md frontmatter is not valid YAML, so its capabilities manifest is ignored: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}. Quote values that contain ": " or start with a special character.`,
+				path: "content",
+			});
+		}
+	}
+	const scheduleCheck = validateSkillSchedulePolicy(content);
+	for (const issue of scheduleCheck.issues) {
+		errors.push({
+			code: issue.code,
+			message: `${issue.message}. Supported cron syntax: five UTC fields (minute hour day-of-month month day-of-week), each a number, a-b range, * wildcard, an optional /step, or a comma list (for example 0-59/5, */15, 0 9 * * 1-5); names such as MON are not supported.`,
+			path: issue.path,
+		});
+	}
+	if (scheduleCheck.schedule) {
+		warnings.push({
+			code: "SKILL_SCHEDULE_PROJECTED_WHEN_ACTIVE",
+			message:
+				"capabilities.schedule only creates a skill_schedules row once the skill is active (not draft, stale or archived) and has an owning tediId; check skill_schedules after publishing.",
+			path: "capabilities.schedule",
+		});
+	}
 	if (Object.keys(manifestCapabilities.mcp).length) {
 		warnings.push(...(await lintCapabilityManifest(db, manifestCapabilities)));
 	}

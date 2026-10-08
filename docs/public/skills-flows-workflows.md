@@ -75,6 +75,11 @@ export default {
 };
 ```
 
+The header is only for one-off `flow run` files; a recorded skill declares
+its manifest in SKILL.md frontmatter and needs no header. Never write a
+`*/` inside the header (a cron such as `*/5` ends the comment early); use
+`0-59/5` or a comma list, or move the schedule to SKILL.md frontmatter.
+
 Discover the exact callable and parameter schema before declaring a
 capability; do not guess tool names. Then run and watch it:
 
