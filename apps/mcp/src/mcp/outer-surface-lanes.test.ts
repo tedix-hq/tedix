@@ -58,6 +58,7 @@ describe("outer-surface lanes", () => {
 				readOnlyHint: false,
 				destructiveHint: true,
 				openWorldHint: true,
+				title: "Code Mode",
 			});
 			const transform = mcpToolsListResultTransform(
 				[{ toolId: "sample_read", authRequired: false }],
@@ -86,6 +87,8 @@ describe("outer-surface lanes", () => {
 			"get_info",
 			"get_profile",
 		]);
+		for (const tool of tools)
+			expect((tool.annotations as { title?: string }).title).toBe(tool.title);
 	});
 
 	it("session lane's native home surface is exactly ask", () => {
