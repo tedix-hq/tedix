@@ -94,6 +94,7 @@
 		"zod": "catalog:"
 	},
 	"overrides": {
+		"@modelcontextprotocol/sdk": "1.32.0",
 		"@puppeteer/browsers": "3.2.3",
 		"@tiptap/core": "3.31.4",
 		"@tiptap/pm": "3.31.4",
@@ -105,7 +106,7 @@
 		"@vitest/spy": "4.1.11",
 		"@vitest/utils": "4.1.11",
 		"chat": "catalog:",
-		"sharp": "0.35.4",
+		"sharp": "0.35.5",
 		"vite": "catalog:",
 		"vitest": "catalog:",
 		"zod": "4.6.5"
