@@ -139,9 +139,11 @@ states.
 The database diagnostic endpoint requires `X-Tedix-CMS-Internal-Auth` (or a
 bearer token) equal to the runtime's internal token and reads the adapter from
 the bundle's compiled `virtual:emdash/config` module.
-The repository database-architecture validator checks the source side (starter
-adapter, runtime bindings, diagnostic, and this doc); its live mode also checks
-the routes and the diagnostic's reported adapter.
+The repository database-architecture validator
+(`bun run cms:database-architecture:validate`) checks the source side (starter
+adapter, runtime bindings, diagnostic, and this doc); its live mode
+(`bun run cms:database-architecture:validate -- --live --json`) also checks the
+routes and the diagnostic's reported adapter.
 
 Both starters compile explicit routes for nondefault locales. The public
 locale prefix selects the original content locale through Astro rewrites for

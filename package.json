@@ -8,6 +8,7 @@
 	],
 	"scripts": {
 		"build": "vp run -r build",
+		"cms:database-architecture:validate": "bun apps/cms/scripts/database-architecture-validate.ts",
 		"cms:emdash-release:validate": "bun apps/cms/scripts/emdash-release-validate.ts",
 		"cms:mcp:schema-repair": "bun apps/cms/scripts/mcp-schema-repair.ts",
 		"cms:mcp:tool-repair": "bun apps/cms/scripts/mcp-tool-repair.ts",
