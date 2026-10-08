@@ -230,6 +230,30 @@ describe("email() entrypoint", () => {
 		);
 	});
 
+	it("stores auto-submitted mail but never wakes the model", async () => {
+		const { env } = makeEnv();
+		mocks.callRpc.mockResolvedValue({
+			delivered: true,
+			threadId: "thread-1",
+			messageId: mailboxMessageId,
+			senderTrust: "trusted",
+			ingressDecision: "deliver",
+		});
+		const raw = [
+			"Auto-Submitted: auto-replied",
+			"From: ceo@tedix.tech",
+			"Subject: Re: ping",
+			"",
+			"pong",
+		].join("\r\n");
+		await handleInboundEmail(makeMessage(raw, "cto@tedix.tech"), env, ctx);
+		expect(mocks.routeAgentEmail).not.toHaveBeenCalled();
+		expect(mocks.callRpc.mock.calls[1]?.[1]).toMatchObject({
+			kind: "worker_dispatch",
+			result: "skipped",
+		});
+	});
+
 	it("stamps an untrusted verdict and never lets a forged header through", async () => {
 		const { env } = makeEnv();
 		mocks.callRpc.mockResolvedValue({

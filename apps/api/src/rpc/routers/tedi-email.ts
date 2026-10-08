@@ -794,6 +794,9 @@ const sendEmail = authed.sendEmail
 				// header so inbound replies can be correlated back to the outbound
 				// thread. In-Reply-To and References ARE on CF's whitelist.
 				"X-Tedix-Message-ID": messageIdHeader,
+				// RFC 3834: a tedi's mail is machine-generated, so a peer tedi
+				// mailbox stores it without waking its model (no reply loops).
+				"Auto-Submitted": "auto-replied",
 				...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
 				...(references.length > 0 ? { References: references.join(" ") } : {}),
 			},
@@ -923,6 +926,9 @@ const replyEmail = authed.replyEmail
 				// header so inbound replies can be correlated back to the outbound
 				// thread. In-Reply-To and References ARE on CF's whitelist.
 				"X-Tedix-Message-ID": messageIdHeader,
+				// RFC 3834: a tedi's mail is machine-generated, so a peer tedi
+				// mailbox stores it without waking its model (no reply loops).
+				"Auto-Submitted": "auto-replied",
 				...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
 				...(references.length > 0 ? { References: references.join(" ") } : {}),
 			},

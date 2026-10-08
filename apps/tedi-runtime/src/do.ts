@@ -674,6 +674,10 @@ import {
 	type TraceToolStep,
 	writeTraceBundle,
 } from "./trace-bundle-writer";
+import {
+	AUTO_SUBMITTED_HEADER,
+	AUTO_SUBMITTED_VALUE,
+} from "./email-sender-policy";
 import { wrapUntrustedInput } from "./untrusted-input";
 import {
 	type MemoryRecallReport,
@@ -14832,6 +14836,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				body: text,
 				...(subject ? { subject } : {}),
 				...(secret ? { secret } : {}),
+				headers: { [AUTO_SUBMITTED_HEADER]: AUTO_SUBMITTED_VALUE },
 			});
 			replied = true;
 			return {

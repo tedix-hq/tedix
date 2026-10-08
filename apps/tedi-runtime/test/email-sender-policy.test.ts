@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	INBOUND_TRUST_HEADER,
+	isAutoSubmittedEmail,
 	parseAuthenticationResults,
 	stampInboundTrustOnHeaders,
 	stampInboundTrustOnRawBytes,
@@ -109,5 +110,34 @@ describe("inbound trust stamping", () => {
 			),
 		);
 		expect(stamped).toBe(`${INBOUND_TRUST_HEADER}: trusted\r\nSubject: bare`);
+	});
+});
+
+describe("auto-submitted detection", () => {
+	const reader = (headers: Record<string, string>) => (name: string) =>
+		headers[name.toLowerCase()] ?? null;
+
+	it("flags RFC 3834, Microsoft and bulk-precedence markers", () => {
+		expect(
+			isAutoSubmittedEmail(reader({ "auto-submitted": "auto-replied" })),
+		).toBe(true);
+		expect(
+			isAutoSubmittedEmail(reader({ "auto-submitted": "auto-generated" })),
+		).toBe(true);
+		expect(
+			isAutoSubmittedEmail(reader({ "x-auto-response-suppress": "All" })),
+		).toBe(true);
+		expect(isAutoSubmittedEmail(reader({ precedence: "bulk" }))).toBe(true);
+		expect(isAutoSubmittedEmail(reader({ precedence: "auto_reply" }))).toBe(
+			true,
+		);
+	});
+
+	it("lets ordinary mail through", () => {
+		expect(isAutoSubmittedEmail(reader({}))).toBe(false);
+		expect(isAutoSubmittedEmail(reader({ "auto-submitted": "no" }))).toBe(
+			false,
+		);
+		expect(isAutoSubmittedEmail(reader({ precedence: "normal" }))).toBe(false);
 	});
 });

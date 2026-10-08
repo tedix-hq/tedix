@@ -127,3 +127,28 @@ export function stampInboundTrustOnHeaders(
 	stamped.set(INBOUND_TRUST_HEADER, trust);
 	return stamped;
 }
+
+/** Outbound tedi mail carries this so a peer mailbox never answers it (RFC 3834). */
+export const AUTO_SUBMITTED_HEADER = "Auto-Submitted";
+export const AUTO_SUBMITTED_VALUE = "auto-replied";
+
+/**
+ * True when the message declares itself machine-generated: RFC 3834
+ * `Auto-Submitted` (anything but `no`), Microsoft `X-Auto-Response-Suppress`,
+ * or a bulk/list/auto-reply `Precedence`. Such mail is stored for triage but
+ * must never wake the model, or two tedi mailboxes answer each other forever.
+ */
+export function isAutoSubmittedEmail(
+	getHeader: (name: string) => string | null,
+): boolean {
+	const autoSubmitted = getHeader(AUTO_SUBMITTED_HEADER)?.trim().toLowerCase();
+	if (autoSubmitted && autoSubmitted !== "no") return true;
+	if (getHeader("X-Auto-Response-Suppress")) return true;
+	const precedence = getHeader("Precedence")?.trim().toLowerCase();
+	return (
+		precedence === "bulk" ||
+		precedence === "junk" ||
+		precedence === "list" ||
+		precedence === "auto_reply"
+	);
+}

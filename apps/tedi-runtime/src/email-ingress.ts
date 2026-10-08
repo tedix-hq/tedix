@@ -19,6 +19,7 @@ import {
 	parseAuthenticationResults,
 	stampInboundTrustOnHeaders,
 	stampInboundTrustOnRawBytes,
+	isAutoSubmittedEmail,
 } from "./email-sender-policy";
 
 interface Env {
@@ -800,9 +801,14 @@ export async function handleInboundEmail(
 	// namespace binding (`TEDI_AGENT`) and invokes `Agent.onEmail()` directly.
 	// No /hooks/email round-trip.
 	if (result?.messageId) {
-		// A quarantined message is persisted for triage but never wakes the model.
+		// A quarantined or machine-generated message is persisted for triage but
+		// never wakes the model: tedi replies carry `Auto-Submitted`, so two
+		// mailboxes cannot answer each other in a loop.
 		const dispatchResult =
-			slug && result.threadId && result.ingressDecision !== "quarantine"
+			slug &&
+			result.threadId &&
+			result.ingressDecision !== "quarantine" &&
+			!isAutoSubmittedEmail(getMessageHeader)
 				? await maybeRouteToAgent(message, env, {
 						slug,
 						rawBytes,
