@@ -111,11 +111,13 @@ const NOISE =
 	/^\s*<|\[request interrupted|tedix shared context|<command-|<task-notification|<system-reminder|sessionstart|preflight|\/compact|(?:do not|don't|without) use? ?(?:any )?tools/i;
 /** Contact details, links and credentials never enter a lesson. */
 /**
- * A lesson is context, never authority: a rule to bypass deployment, CI or
- * verification would contradict repository rules, so it is never learned.
+ * A lesson is context, never authority: a rule to bypass deployment, CI,
+ * verification, approvals or permissions would contradict repository rules
+ * and the approval path, so it is never learned ("auto-approve actions
+ * without a human gate" was once learned from "no review gate for lessons").
  */
 const UNSAFE =
-	/\b(?:deploy(?:s|ing)? (?:manually|by hand)|hand[- ]deploy|manual(?:ly)? (?:production )?deploy|(?:disable|skip|bypass)\w* (?:the )?(?:ci|checks?|tests?|hooks?|verification|review)|ci (?:is )?disabled|without (?:waiting for )?(?:verification|validation|checks?|tests?|review)|--no-verify|force[- ]push)/i;
+	/\b(?:deploy(?:s|ing)? (?:manually|by hand)|hand[- ]deploy|manual(?:ly)? (?:production )?deploy|(?:disable|skip|bypass)\w* (?:the )?(?:ci|checks?|tests?|hooks?|verification|review)|ci (?:is )?disabled|without (?:waiting for )?(?:verification|validation|checks?|tests?|review)|--no-verify|force[- ]push|auto[\s\u2010-\u2015-]*approv\w*|approv\w* (?:\w+ )?automatically|(?:skip|bypass|remove|avoid|ignore|without|no)\w* (?:the |any |a )?(?:human[\s\u2010-\u2015-]*(?:in[\s\u2010-\u2015-]*the[\s\u2010-\u2015-]*loop )?)?(?:gates?|approvals?|permissions?|sign[\s\u2010-\u2015-]*offs?|consent)\b|human (?:approval )?gate)/i;
 /**
  * The person's standing preference is that agents decide and continue; a
  * learned "ask first" habit contradicts it.
