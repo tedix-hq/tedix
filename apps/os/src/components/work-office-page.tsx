@@ -29,6 +29,7 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import { OfficeLeaderboard } from "@/components/office-leaderboard";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
@@ -603,14 +604,6 @@ function Activity() {
 	);
 }
 
-/**
- * Reserved for the office leaderboard. Another change ships the data and the
- * `OfficeLeaderboard` component; until then the slot renders nothing.
- */
-function LeaderboardSlot() {
-	return null;
-}
-
 function Notebook({ since }: { since: string }) {
 	const lessons = useQuery(notebookLessonsQueryOptions());
 	const profile = useQuery({ ...userProfileQueryOptions(), retry: false });
@@ -711,7 +704,7 @@ export function WorkOfficePage() {
 				<Activity />
 			</div>
 			<Knocks since={since} />
-			<LeaderboardSlot />
+			<OfficeLeaderboard />
 			<Notebook since={since} />
 		</Page>
 	);
