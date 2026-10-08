@@ -12,6 +12,33 @@ export const TEDI_CAREER_STAGES = [
 export const TediCareerStageSchema = z.enum(TEDI_CAREER_STAGES);
 export type TediCareerStage = z.infer<typeof TediCareerStageSchema>;
 
+/**
+ * A career ladder for one routine competency (such as replies that stood),
+ * stored as config in its entrustable activity's rubric under `careerLadder`.
+ * A stage it moves is a title only and never grants authority.
+ */
+export const CompetencyCareerLadderSchema = z.object({
+	version: z.number().int().positive(),
+	/** Promote one stage after this many outcomes that stood at this rate. */
+	promotion: z.object({
+		stood: z.number().int().positive(),
+		minStandingRate: z.number().min(0).max(1),
+	}),
+	/** Demote one stage when a window's rate falls below this. */
+	demotion: z.object({
+		windowDays: z.number().int().positive(),
+		minDecided: z.number().int().positive(),
+		belowStandingRate: z.number().min(0).max(1),
+	}),
+	/** The ladder never promotes past this stage. */
+	maximumStage: TediCareerStageSchema,
+	/** An auto-sent reply with no override this long after it stood. */
+	autoSettleMinutes: z.number().int().positive(),
+});
+export type CompetencyCareerLadder = z.infer<
+	typeof CompetencyCareerLadderSchema
+>;
+
 /** Ordered task-scoped authority. It never follows from role or stage alone. */
 export const ENTRUSTMENT_LEVELS = [
 	"observe",

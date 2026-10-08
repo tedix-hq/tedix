@@ -10,6 +10,11 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { createDbClient } from "@tedix/db/client";
+import {
+	competencyObservations,
+	entrustableActivities,
+	tediRoleAssignments,
+} from "@tedix/db/schema/earned-delegation";
 import { skillEntries } from "@tedix/db/schema/cognitive";
 import { chatDispatchIdempotency } from "@tedix/db/schema/cognitive-runtime";
 import { runtimeProfiles } from "@tedix/db/schema/control-plane";
@@ -119,6 +124,9 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			chatDispatchIdempotency,
 			skillEntries,
 			runtimeProfiles,
+			entrustableActivities,
+			competencyObservations,
+			tediRoleAssignments,
 		),
 	);
 	sqlite
@@ -1241,6 +1249,8 @@ describe("getReplyDraftAcceptance", () => {
 			stood: 2,
 			corrected: 1,
 		});
+		// No stage before the ladder has settled any of its replies.
+		expect(tedis[0]?.level).toBeNull();
 		await expect(f.other.getReplyDraftLeaderboard(period)).resolves.toEqual({
 			tedis: [],
 		});

@@ -37,6 +37,7 @@ export const PLATFORM_CRON_IDS = [
 	"machine-scope-drift",
 	"tedi-access-key-rotation",
 	"site-reconciliation",
+	"reply-draft-career",
 ] as const;
 export type PlatformCronId = (typeof PLATFORM_CRON_IDS)[number];
 
@@ -87,6 +88,7 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 			"billing-and-gateway-cost",
 			"workstation-lease-reaper",
 			"workstation-compute-metering",
+			"reply-draft-career",
 		] as const
 	).map((id) => ({
 		id,
