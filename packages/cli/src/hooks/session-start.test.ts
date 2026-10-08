@@ -312,10 +312,25 @@ describe("tedix hooks session-start", () => {
 		expect(text).toContain("bookkeeping/admission under repo policy");
 		expect(text).toContain("do not re-ask permission for that task");
 		expect(text).toContain("ambiguous target or reserved decision");
+		expect(text).toContain(
+			"Decision capture: OFF for this organization; no turns or replies are recorded",
+		);
 		expect(calls).toEqual([
 			["setup", "agents", "context", "show", "--json"],
 			["-w", "tedix", "auth", "status", "--json"],
 		]);
+	});
+
+	test("a bound session states that decision capture is on", async () => {
+		const { output } = await automaticBrief({
+			status: "bound",
+			workspace: "tedix",
+			projectId: "project-id",
+			decisionCapture: true,
+		});
+		const text = context(output);
+		expect(text).toContain("Decision capture: on.");
+		expect(text).not.toContain("OFF");
 	});
 
 	test("a bound project mismatch hides the item and skips attempts", async () => {

@@ -316,7 +316,11 @@ repository when that organization is the default one (see above). Those
 questions name no repository and go to the one project the organization's
 repository bindings share; with several, run
 `tedix setup agents context enable-decision-capture --project <UUID>` outside a
-repository to choose the inbox. Both handlers run in the
+repository to choose the inbox. Because disabling it stops every repository
+of the organization, `disable-decision-capture` refuses while other
+repositories are bound unless you add `--organization-wide`; `unbind` keeps the
+opt-in for the others. `context show` and the session-start brief state whether
+capture is on or off. Both handlers run in the
 background, never block or steer the session, and stay silent on any failure.
 Text is redacted for common secret shapes and bounded to 6,000 characters before
 it leaves the machine, and is sent only to the bound organization as the signed-in

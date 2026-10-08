@@ -754,6 +754,8 @@ export function changeAgentContext(
 		workItemId?: string;
 		osWorkspaceId?: string;
 		contextOutputId?: string;
+		/** disable-decision-capture: confirm stopping other bound repositories too. */
+		organizationWide?: boolean;
 	},
 	options?: AgentContextOptions,
 ): AgentContextResult {
@@ -765,6 +767,7 @@ export function changeAgentContext(
 		return changeDefaultCapture(
 			action === "enable-decision-capture",
 			input.projectId,
+			input.organizationWide === true,
 			options,
 		);
 	const repo = repoAt(options);
@@ -893,6 +896,8 @@ export function changeAgentContext(
 				row.workspace === active.workspace &&
 				row.org === active.org &&
 				row.mcpUrl === active.mcpUrl;
+			if (action === "disable-decision-capture" && !input.organizationWide)
+				refuseWideCaptureStop(store, active, repo.commonDir);
 			const pinned = (store.decisionCapture ?? []).find(same)?.projectId;
 			store.decisionCapture = (store.decisionCapture ?? []).filter(
 				(row) => !same(row),
@@ -1098,6 +1103,7 @@ function insideBoundRepository(options?: AgentContextOptions): boolean {
 function changeDefaultCapture(
 	enable: boolean,
 	projectId: string | undefined,
+	organizationWide: boolean,
 	options?: AgentContextOptions,
 ): AgentContextResult {
 	const target = defaultTarget(readStore(options), options);
@@ -1111,6 +1117,7 @@ function changeDefaultCapture(
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	withFileLockSync(join(directory, "locks", "agent-contexts"), () => {
 		const store = readStore(options);
+		if (!enable && !organizationWide) refuseWideCaptureStop(store, target);
 		const rows = store.decisionCapture ?? [];
 		const old = rows.find(
 			(row) =>
@@ -1131,6 +1138,30 @@ function changeDefaultCapture(
 		writeStore(store, options);
 	});
 	return resolveAgentContext({ ...options, allowDefault: true });
+}
+
+/**
+ * The opt-in is per organization, so disabling it from one repository (or
+ * from outside any) also stops every other bound repository of that
+ * organization. A scratch-repository cleanup once did exactly that, silently;
+ * that now needs --organization-wide. Unbinding never touches the opt-in.
+ */
+function refuseWideCaptureStop(
+	store: Store,
+	target: { workspace: string; org: string; mcpUrl: string },
+	exceptCommonDir?: string,
+): void {
+	const others = store.repositories.filter(
+		(row) =>
+			row.commonDir !== exceptCommonDir &&
+			row.workspace === target.workspace &&
+			row.org === target.org &&
+			row.mcpUrl === target.mcpUrl,
+	).length;
+	if (others)
+		throw new Error(
+			`disable-decision-capture would stop decision capture for organization ${target.org} everywhere, including ${others} other bound ${others === 1 ? "repository" : "repositories"}. To stop only this repository, run unbind (it keeps the organization's opt-in). To stop it everywhere, add --organization-wide.`,
+		);
 }
 
 /**
@@ -1197,7 +1228,7 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context connect-preferences --os-workspace <UUID> --output <UUID>
   tedix setup agents context disconnect-preferences
   tedix setup agents context enable-decision-capture [--project <UUID>]
-  tedix setup agents context disable-decision-capture
+  tedix setup agents context disable-decision-capture [--organization-wide]
   tedix setup agents context set-default-organization <selected ID or slug> [--workspace <profile>]
   tedix setup agents context set-default-organization --clear
   tedix setup agents context disconnect-output
@@ -1240,8 +1271,11 @@ show --allow-default prints that resolution.
 enable-decision-capture opts this profile and organization into recording each
 finished agent turn and the reply that follows as an Interaction addressed to you
 in its project inbox. It is the only context setting that sends conversation text;
-disable-decision-capture stops it for every bound repository of that organization.
-unbind revokes the local opt-in for all worktrees of this repository.
+disable-decision-capture stops it for every bound repository of that organization,
+so while other repositories of it are bound it refuses without --organization-wide.
+unbind revokes the local opt-in for all worktrees of this repository and keeps the
+organization's decision-capture opt-in for its other repositories.
+show states whether decision capture is on or off.
 These commands do not grant execution authority; only decision capture changes Tedix records.
 `;
 
@@ -1276,8 +1310,17 @@ export function runAgentContext(
 	let json = false;
 	let allowDefault = false;
 	let clearDefault = false;
+	let organizationWide = false;
 	for (let i = 1; i < args.length; i++) {
 		const arg = args[i]!;
+		if (
+			arg === "--organization-wide" &&
+			action === "disable-decision-capture" &&
+			!organizationWide
+		) {
+			organizationWide = true;
+			continue;
+		}
 		if (action === "set-default-organization") {
 			if (arg === "--clear" && !clearDefault) {
 				clearDefault = true;
@@ -1366,7 +1409,7 @@ export function runAgentContext(
 							| "disconnect-preferences"
 							| "enable-decision-capture"
 							| "disable-decision-capture",
-						values,
+						{ ...values, ...(organizationWide ? { organizationWide } : {}) },
 						opts,
 					);
 	console.log(
@@ -1377,7 +1420,7 @@ export function runAgentContext(
 				: action === "set-default-organization" && result.status === "unbound"
 					? "No default organization resolves; sessions outside a bound repository stay idle."
 					: result.status === "bound"
-						? `Bound ${result.root} to ${result.workspace}, project ${result.projectId}.\n${result.workItemId ? `Selected Work: ${result.workItemId} (${result.contextSource})` : "No selected Work; use context select or a governed worktree."}`
+						? `Bound ${result.root} to ${result.workspace}, project ${result.projectId}.\n${result.workItemId ? `Selected Work: ${result.workItemId} (${result.contextSource})` : "No selected Work; use context select or a governed worktree."}\n${result.decisionCapture ? `Decision capture: on for organization ${result.org}.` : `Decision capture: OFF for organization ${result.org}; no turns or replies are recorded. Turn it on with setup agents context enable-decision-capture.`}`
 						: (result.message ??
 							"Repository context is unbound; Tedix preflight stays idle."),
 	);
