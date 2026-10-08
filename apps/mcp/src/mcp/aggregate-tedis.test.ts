@@ -700,6 +700,23 @@ describe("aggregate tedis", () => {
 			endpoint: "tediEmail/sendEmail",
 			_aggregateTediSlug: "echo",
 		});
+		for (const [toolId, endpoint, extra] of [
+			["echo__list_tedi_email_addresses", "tediEmail/listAddresses", {}],
+			["echo__create_tedi_email_address", "tediEmail/createAddress", {}],
+			["echo__update_tedi_email_address", "tediEmail/updateAddress", {}],
+			["echo__retire_tedi_email_address", "tediEmail/deleteAddress", {}],
+		] as const) {
+			expect(isolateToolIds).toContain(toolId);
+			expect(
+				isolateTools.find((tool) => tool.toolId === toolId)?.config,
+				toolId,
+			).toMatchObject({
+				transport: "rpc",
+				endpoint,
+				_aggregateTediSlug: "echo",
+				...extra,
+			});
+		}
 		expect(
 			isolateTools.find((tool) => tool.toolId === "echo__start_work_attempt")
 				?.config,
@@ -1054,6 +1071,140 @@ describe("aggregate Work Item write tools are fail-closed without the write scop
 				id,
 			).toBe(true);
 		}
+	});
+});
+
+describe("aggregate mailbox address tools", () => {
+	const tools = buildAggregateTediTools(
+		[
+			{
+				slug: "cto",
+				namespace: "cto",
+				runtimeKind: "agent",
+				tediId: "cto-id",
+			},
+		],
+		env,
+	);
+	const byId = new Map(tools.map((tool) => [tool.toolId, tool]));
+	const EXPECTED: Record<
+		string,
+		{
+			endpoint: string;
+			readOnly: boolean;
+			destructive?: boolean;
+			scope: string;
+		}
+	> = {
+		cto__list_tedi_email_addresses: {
+			endpoint: "tediEmail/listAddresses",
+			readOnly: true,
+			scope: "mcp:messaging.read",
+		},
+		cto__create_tedi_email_address: {
+			endpoint: "tediEmail/createAddress",
+			readOnly: false,
+			scope: "mcp:messaging.write",
+		},
+		cto__update_tedi_email_address: {
+			endpoint: "tediEmail/updateAddress",
+			readOnly: false,
+			scope: "mcp:messaging.write",
+		},
+		cto__retire_tedi_email_address: {
+			endpoint: "tediEmail/deleteAddress",
+			readOnly: false,
+			// retire_ with a plain mutating annotation stays on the API's
+			// mcp:messaging.write tier so tenant admins can use it.
+			scope: "mcp:messaging.write",
+		},
+	};
+
+	it("projects names, annotations, endpoints and messaging scopes", () => {
+		for (const [id, expected] of Object.entries(EXPECTED)) {
+			const tool = byId.get(id);
+			expect(tool, id).toBeDefined();
+			expect(tool!.toolTypeId, id).toBe("rpc");
+			expect(tool!.config, id).toMatchObject({
+				endpoint: expected.endpoint,
+				staticParams: expect.objectContaining({ tediId: "cto-id" }),
+			});
+			expect(tool!.annotations, id).toEqual({
+				readOnlyHint: expected.readOnly,
+				...(expected.destructive ? { destructiveHint: true } : {}),
+			});
+			expect(resolveMcpToolRequiredScopes(tool!, "cto", undefined), id).toEqual(
+				[expected.scope],
+			);
+		}
+	});
+
+	it("documents every routing policy key where an agent sets an allowlist", () => {
+		for (const id of [
+			"cto__create_tedi_email_address",
+			"cto__update_tedi_email_address",
+		]) {
+			const tool = byId.get(id)!;
+			for (const key of [
+				"allowedSenders",
+				"untrustedSenders",
+				"spamThreshold",
+			]) {
+				expect(tool.description, id).toContain(key);
+			}
+			type PolicySchema = {
+				properties?: Record<string, unknown>;
+				additionalProperties?: boolean;
+				anyOf?: PolicySchema[];
+			};
+			const raw = (tool.inputSchema?.properties as Record<string, PolicySchema>)
+				.routingPolicy;
+			// update accepts `null` to clear the policy; create takes the object.
+			const policy = raw?.anyOf ? raw.anyOf[0] : raw;
+			expect(policy, id).toBeDefined();
+			expect(Object.keys(policy?.properties ?? {}), id).toEqual([
+				"allowedSenders",
+				"untrustedSenders",
+				"spamThreshold",
+				"source",
+			]);
+			expect(policy?.additionalProperties, id).toBe(false);
+		}
+	});
+
+	it("projects retire as a plain write so tenant admins keep the write scope", () => {
+		const tool = byId.get("cto__retire_tedi_email_address")!;
+		expect(tool.inputSchema).toMatchObject({
+			required: ["addressId"],
+			additionalProperties: false,
+		});
+		expect(tool.annotations?.destructiveHint).not.toBe(true);
+		expect(tool.description).toContain("threads and messages are kept");
+	});
+
+	it("lets a tenant create primary and plus mailboxes and clear a policy", () => {
+		const create = byId.get("cto__create_tedi_email_address")!;
+		expect(
+			(create.inputSchema?.properties as Record<string, { enum?: string[] }>)
+				.kind?.enum,
+		).toEqual(["primary", "plus", "alias", "custom_domain"]);
+		const update = byId.get("cto__update_tedi_email_address")!;
+		expect(update.inputSchema?.required).toEqual(["addressId"]);
+		expect(
+			(update.inputSchema?.properties as Record<string, { enum?: string[] }>)
+				.status?.enum,
+		).toEqual(["active", "paused"]);
+		expect(update.inputSchema?.properties?.routingPolicy).toMatchObject({
+			anyOf: [expect.objectContaining({ type: "object" }), { type: "null" }],
+		});
+	});
+
+	it("hides every mailbox address tool when the tedi identity is not hydrated", () => {
+		const ids = buildAggregateTediTools(
+			[{ slug: "cto", namespace: "cto", runtimeKind: "agent" }],
+			env,
+		).map((tool) => tool.toolId);
+		for (const id of Object.keys(EXPECTED)) expect(ids).not.toContain(id);
 	});
 });
 
