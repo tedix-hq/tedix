@@ -18,7 +18,11 @@ import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
 import { decisionCaptureLearningSignal } from "../../services/decision-learning-signal";
-import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
+import {
+	observedLearningActor,
+	recordObservedLearningInteraction,
+} from "../../services/learning-interaction-recorder";
+import { startIncrementalLessons } from "../../services/lesson-incremental-dispatch";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -231,7 +235,12 @@ async function recordDecisionLearning(
 			response,
 			draft,
 		});
-		if (signal) await recordObservedLearningInteraction(context, signal);
+		if (!signal) return;
+		await recordObservedLearningInteraction(context, signal);
+		// The person's lessons learn the decision now, not at night.
+		const actor = observedLearningActor(context);
+		if (actor.actorType === "user" && actor.actorId)
+			await startIncrementalLessons(context.env, orgId, actor.actorId);
 	} catch (error) {
 		console.warn("[learning-feed] decision-capture signal skipped", {
 			interactionId: request.id,
