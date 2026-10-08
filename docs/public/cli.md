@@ -99,6 +99,18 @@ Every hook does nothing until you opt in to its feature:
 | `await-draft`          | End of each turn; Codex only, may hold the turn up to 5 minutes                                    | Polls that question and continues the turn only for an automatic tedi reply.                                                                                                           | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
 | `status`               | Prompt submit, tool use, permission request, notification, stop, failure, session end (background) | Records a local status line and macOS notification; with a profile, sends the state, session ID, repo/branch and a 160-character summary.                                              | `~/.tedix/agent-status.json` with `"enabled": true`, or `TEDIX_AGENT_STATUS=1`                                                                                                                                                                                                                          |
 
+A tedi auto reply that lands after a Codex session's `await-draft` stopped
+waiting reaches nobody, so the session idles. `tedix supervise` checks every
+30 seconds and delivers such a reply: through `codex queue` to an open Codex
+window, or, with none open, by resuming the session headless with
+`codex exec resume`. It sends only drafts the server marked for automatic
+delivery, once per question and at most three in a row, and records them like
+the hooks do. For Claude Code it only logs a reply that arrived after
+`await-reply` stopped waiting. `tedix supervise --once` runs one check;
+`tedix supervise install` runs it at login as a user LaunchAgent on macOS
+(no `sudo`), and `tedix supervise uninstall` removes it. Activity goes to
+`~/.tedix/supervisor.log`.
+
 Undo an opt-in with `context unbind`, `disable-decision-capture`,
 `TEDIX_PLUGIN_PREFLIGHT=0` or `TEDIX_AGENT_STATUS=0`. To remove the hooks
 entirely, disable or uninstall the Tedix plugin in the host. Codex runs a

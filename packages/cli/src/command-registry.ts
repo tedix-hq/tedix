@@ -5,6 +5,7 @@ import { flowUsage } from "./flow";
 import { hooksUsage } from "./hooks/command";
 import { learnUsage } from "./learn-import";
 import { skillUsage } from "./skill";
+import { superviseUsage } from "./supervise";
 import { localInstallationUsage } from "./local-installation";
 import { CLI_VERSION } from "./shared";
 import { tediUsage } from "./tedi";
@@ -76,6 +77,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "mixed",
 		output: ["json"],
 		help: () => hooksUsage,
+	},
+	{
+		name: "supervise",
+		argHint: "[--once|install|uninstall]",
+		surface: "mixed",
+		summary: "Deliver late tedi auto replies to idle Codex sessions",
+		mutability: "write",
+		output: ["human"],
+		help: () => superviseUsage,
 	},
 	{
 		name: "learn",

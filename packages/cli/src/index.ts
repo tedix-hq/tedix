@@ -184,6 +184,11 @@ async function main() {
 		process.exitCode = await runHooksCommand(process.argv.slice(3));
 		return;
 	}
+	if (localCommand === "supervise") {
+		const { runSuperviseCommand } = await import("./supervise");
+		process.exitCode = await runSuperviseCommand(process.argv.slice(3));
+		return;
+	}
 	// Local extraction; each organization call runs as its own `tedix code` child.
 	if (localCommand === "learn") {
 		const { runLearnCommand } = await import("./learn-import");
@@ -231,7 +236,12 @@ async function main() {
 		console.log(commandMap());
 		return;
 	}
-	if (command === "setup" || command === "dev" || command === "hooks") {
+	if (
+		command === "setup" ||
+		command === "dev" ||
+		command === "hooks" ||
+		command === "supervise"
+	) {
 		throw new Error(
 			`Put local options after the command: tedix ${command} --help. Workspace and gateway options do not apply to local installations.`,
 		);
