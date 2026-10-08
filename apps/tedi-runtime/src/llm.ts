@@ -324,13 +324,28 @@ export interface ObserverCallOptions {
 	deployment?: string;
 }
 
+/**
+ * Azure rejects `json_object` mode with a 400 unless some message mentions
+ * "json"; reflector prompts that only describe the shape lost every call.
+ */
+export function withJsonInstruction(
+	messages: ObserverCallOptions["messages"],
+): ObserverCallOptions["messages"] {
+	if (messages.some((message) => /json/i.test(message.content)))
+		return messages;
+	return [
+		...messages,
+		{ role: "system", content: "Respond with a single JSON object." },
+	];
+}
+
 export async function observerCompletion(
 	opts: ObserverCallOptions,
 ): Promise<string> {
 	const deployment = opts.deployment || opts.env.AZURE_OBSERVER_DEPLOYMENT;
 	const url = azureChatUrl(opts.env, deployment);
 	const body = JSON.stringify({
-		messages: opts.messages,
+		messages: withJsonInstruction(opts.messages),
 		// GPT-5 reasoning deployments reject `temperature`. Observer quality is
 		// schema-constrained, so use the provider default across Azure models.
 		max_completion_tokens: opts.maxCompletionTokens ?? 4000,

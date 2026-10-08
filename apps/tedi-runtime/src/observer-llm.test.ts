@@ -71,9 +71,11 @@ console.log("PASS: observer cancellation never starts provider fallback");
 
 const originalFetch = globalThis.fetch;
 let azureCalls = 0;
+let azureBody = "";
 try {
-	globalThis.fetch = async () => {
+	globalThis.fetch = async (_url, init) => {
 		azureCalls++;
+		azureBody = String(init?.body ?? "");
 		return new Response("provider unavailable", { status: 503 });
 	};
 	await assert.rejects(
@@ -111,6 +113,11 @@ try {
 		/503/,
 	);
 	assert.ok(azureCalls > 0);
+	assert.match(
+		azureBody,
+		/Respond with a single JSON object/,
+		"json_object mode always names JSON, or Azure returns 400",
+	);
 	assert.equal(
 		fallbackCalls,
 		0,
