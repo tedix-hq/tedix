@@ -1,0 +1,41 @@
+name: MCP Registry publish
+
+# Publishes server.json to the official MCP Registry as io.github.tedix-hq/tedix.
+# GitHub's OIDC token proves the run belongs to tedix-hq, so no personal token
+# or org app approval is needed. Bump "version" in server.json to republish.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - server.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-registry-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mcp-publisher v1.8.1
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: ./mcp-publisher publish
