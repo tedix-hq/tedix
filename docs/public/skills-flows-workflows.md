@@ -102,7 +102,7 @@ tedix -w acme flow inspect RUN_ID
 tedix -w acme flow list
 ```
 
-Status is a compact lifecycle projection. Inspect is the detailed evidence
+Status shows a short summary of where the run is. Inspect is the detailed evidence
 view for failures, steps, calls, retries, approvals, and artifacts.
 
 ## Reuse an executable skill
@@ -137,7 +137,7 @@ tedix -w acme workflow status WORKFLOW_ID
 Definitions include static Tedix platform workflows and dynamic executable
 skills available to the organization. A definition with no run history is
 unobserved, not failed. For a dynamic skill run, use `skill status` or `skill
-inspect` for canonical engine reconciliation and detailed evidence.
+inspect` for the run's current status and detailed evidence.
 
 ## CLI, MCP gateway, and Tedix OS
 

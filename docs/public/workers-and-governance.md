@@ -101,4 +101,4 @@ not require any special Git service or key.
 - Keep changes small and keep a tested way to roll back a release.
 
 A commit reference names a change; it does not show that tests passed or that a
-deployment worked. Documentation sites need none of these controls.
+deployment worked.

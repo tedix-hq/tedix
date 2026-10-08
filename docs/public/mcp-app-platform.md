@@ -44,7 +44,7 @@ durability, and audit records around that surface.
 
 ## Trace one tool
 
-The existing external-transport test starts with this configuration:
+One external-transport test starts with this configuration:
 
 ```json
 {
@@ -78,12 +78,11 @@ requires an exact organization and Interaction request ID, human OAuth access,
 and a verified public HTTPS callback. Notifications contain saved record IDs;
 the host retrieves the answer through the existing read tool.
 
-Delivery uses the existing subscription Durable Object, signed callbacks,
-duplicate suppression and bounded retries. Access is rechecked before delivery.
+Delivery uses signed callbacks, duplicate suppression and bounded retries. Access is rechecked before delivery.
 Subscriptions expire no later than the credential; the host must refresh them.
-There is no replay cursor or atomic outbox between the canonical response save
-and initial notification acceptance. A missed notification requires reading the
-canonical request; a successful callback acknowledges receipt, not task completion.
+Notifications are not replayed, and a saved answer is not guaranteed to produce
+one. If you miss a notification, read the request; a successful callback
+acknowledges receipt, not task completion.
 
 OpenAI currently supports these events in ChatGPT Work on web, desktop Work with
 Cloud selected, and dots. Local Codex desktop wake-up is not proved by this
@@ -111,7 +110,7 @@ Catalog operations execute synchronously in the original caller context;
 async-task replay and executable code inputs are refused. Arbitrary Code Mode
 programs still use a fresh anonymous isolated Dynamic Worker with no ambient
 network access. Native catalog calls can still use the existing discovery API
-and ranking services; no billing savings or deployment is implied by local tests.
+and ranking services.
 
 Configured catalog rows use the shared strict search or describe input declaration.
 They require capability-map mode (`enforcePolicies: false`); policy-mode rows do not expose this transport.

@@ -172,8 +172,8 @@ tedix -w acme retry WORK_ITEM_ID
 
 This retry applies only to that blocked delegated Work Item. It sends the same
 work to the same tedi under a new child attempt and keeps the same Home run ID.
-The retry command's server response is authoritative. If the server accepts the
-retry, inspect the same Home run again:
+The server decides whether the retry runs. If the server accepts the retry,
+inspect the same Home run again:
 
 ```bash
 tedix -w acme inspect HOME_RUN_ID --events --artifacts

@@ -15,8 +15,7 @@ visibility: public
 
 # Troubleshoot Tedix connections and worker runs
 
-Start with the exact symptom you can see. Each entry gives the likely cause,
-the supported next step, and the result that verifies recovery. Do not submit a
+Start with the exact symptom you can see. Do not submit a
 duplicate worker task while its original Home run may still be active.
 
 For the complete setup and task context, use [First connection to Tedix
@@ -48,7 +47,7 @@ user.
 **Fix:** If the default directory was previously created with `sudo`, run the
 ownership command printed by the installer. Otherwise, choose a writable
 directory with `TEDIX_INSTALL_DIR`. The [CLI troubleshooting
-section](./cli.md#troubleshooting) owns the full installer guidance.
+section](./cli.md#troubleshooting) has the full installer guidance.
 
 **Verify:** Run `command -v tedix` and `tedix --version` after installation.
 
@@ -182,7 +181,7 @@ tedix -w CLI_PROFILE inspect HOME_RUN_ID --events --artifacts
 tedix -w CLI_PROFILE retry WORK_ITEM_ID
 ```
 
-The retry server response is authoritative. If it refuses the request, stop;
+The server decides whether the retry runs. If it refuses the request, stop;
 do not create a replacement task automatically.
 
 **Verify:** After an accepted retry, inspect the same Home run ID. It should
