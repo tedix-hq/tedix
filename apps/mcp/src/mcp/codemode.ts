@@ -477,8 +477,10 @@ export function buildFlowProvider(
 						suppliedSkillDoc ??
 						[
 							"---",
-							`name: ${name}`,
-							`description: ${description}`,
+							// JSON strings are valid YAML double-quoted scalars, so a ": ",
+							// quote, or newline in the value cannot break the frontmatter.
+							`name: ${JSON.stringify(name)}`,
+							`description: ${JSON.stringify(description)}`,
 							`capabilities: ${JSON.stringify(capabilities)}`,
 							"---",
 							"",

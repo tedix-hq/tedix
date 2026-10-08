@@ -314,6 +314,27 @@ describe("flow.run", () => {
 		expect(String(run.args.reason)).toContain("sweep");
 	});
 
+	it("keeps frontmatter valid YAML when name/description hold colons, quotes, newlines", async () => {
+		const { parseSkillFrontmatter } =
+			await import("@tedix/api-contract/utils/skill-manifest");
+		const description = 'Sweep: count "tools"\nsecond line # not a comment';
+		const name = "sweep: v2";
+		const { groups, calls } = makeGroups();
+		await tools(groups).run!.execute({
+			source: SOURCE,
+			name,
+			description,
+			capabilities: { mcp: { app_config: ["list_app_tools"] } },
+		});
+		const record = calls.find((c) => c.callable === "skills.record_skills")!;
+		const frontmatter = parseSkillFrontmatter(String(record.args.content));
+		expect(frontmatter).toMatchObject({
+			name,
+			description,
+			capabilities: { mcp: { app_config: ["list_app_tools"] } },
+		});
+	});
+
 	it("routes through the tedi named by tediSlug and rejects garbage slugs", async () => {
 		const { groups, calls } = makeGroups();
 		await tools(groups).run!.execute({ source: SOURCE, tediSlug: "cto" });
