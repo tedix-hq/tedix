@@ -6,6 +6,7 @@ import type { ExecutionSurface } from "@tedix/api-contract/schemas/execution-evi
 import type { DelegationAuthorityMode } from "./delegation-authority";
 import type { TrustedInstructionOrigin } from "./inference-guardrails";
 import type { FacetWorkflowTurnInput } from "./delegated-work-lease";
+import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
 
 /**
  * Caller-supplied payload for a single chat turn. The turn context (system
@@ -56,6 +57,11 @@ export interface ChatTurnParams {
 	 * completion. Never set this from an inbound user message.
 	 */
 	trustedInstructionOrigin?: TrustedInstructionOrigin;
+	/**
+	 * Gateway-stamped tier of the caller that sent this turn (`mcp-caller-trust`).
+	 * `foreign` runs a plain turn untrusted; a Home delegation ignores it.
+	 */
+	callerTrust?: CallerTrustTier;
 	/**
 	 * This turn's model in place of the tedi's chat policy (`turnModelForInject`:
 	 * reply-draft turns only). Memory, persona and tools are unchanged.

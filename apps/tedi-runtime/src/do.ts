@@ -537,6 +537,15 @@ import {
 	trustedInstructionOriginForInject,
 } from "./inference-guardrails";
 import {
+	callerTrustTierForRequest,
+	mcpTurnSurfaceTrust,
+} from "./mcp-caller-trust";
+import {
+	CALLER_TRUST_HEADER,
+	type CallerTrustTier,
+	stripMemberOnlyInjectFields,
+} from "@tedix/mcp-shared/auth/caller-trust";
+import {
 	scheduleDelegatedWorkLeaseRenewal,
 	renewDelegatedWorkLease,
 	observeDelegatedWorkLeaseWorkflow,
@@ -683,6 +692,7 @@ import {
 } from "./email-sender-policy";
 import {
 	selectTrustedTurnTools,
+	type SurfaceTrust,
 	trustedTurnMemoryEffects,
 	untrustedTurnSystemAddendum,
 	untrustedTurnToolAllowlist,
@@ -2208,6 +2218,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const headers = new Headers({
 			"Content-Type": "application/json",
 			"X-Service-Binding": "true",
+			[CALLER_TRUST_HEADER]: "tedi",
 			"X-Tedi-Id": target.tediId,
 			"X-Tedi-Slug": target.slug,
 		});
@@ -9054,6 +9065,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		authorityEnvelope?: DelegationAuthorityEnvelope;
 		authorityMode?: DelegationAuthorityMode;
 		operatorConsent?: OperatorConsentAttestation;
+		/** Omitted ⇒ trusted; `untrusted` keeps the MCP read-only allowlist. */
+		trust?: SurfaceTrust;
 	}): Promise<{
 		tools: ToolSet;
 		system: string;
@@ -9148,11 +9161,16 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			supervised,
 			input.authorityMode === "enforce",
 		);
-		const tools = restrictDelegatedToolSet(
-			supervisedTools,
-			input.authorityEnvelope,
-			input.authorityMode,
-		);
+		const trust = input.trust ?? "trusted";
+		const tools = selectTrustedTurnTools({
+			trust,
+			allowlist: untrustedTurnToolAllowlist("mcp"),
+			full: restrictDelegatedToolSet(
+				supervisedTools,
+				input.authorityEnvelope,
+				input.authorityMode,
+			),
+		});
 		const addenda = await this.cognitiveAddenda(
 			input.sessionKey,
 			input.userMessage,
@@ -9172,6 +9190,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					"",
 				toolsNote,
 				CODE_MODE_BATCHING_NOTE,
+				trust === "untrusted" ? untrustedTurnSystemAddendum("mcp") : "",
 			],
 			[addenda],
 		);
@@ -9739,6 +9758,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		/** Explicit caller override (sync-inject threads the payload's
 		 * learning_mode); absent ⇒ derived from the resolved user text. */
 		learningMode?: AdaptiveLearningMode;
+		callerTrust?: CallerTrustTier;
 	}): Promise<{
 		ok: true;
 		run_id: string;
@@ -9837,6 +9857,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 						traceId: input.traceId,
 						clientRequestId: input.clientRequestId,
 						learningMode,
+						callerTrust: input.callerTrust,
 					},
 					// Same explicit binding as the async-inject dispatch: the binding
 					// can't be auto-detected from the class name in this context.
@@ -10222,7 +10243,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	/** Only a final segment gets the canonical assistant row and terminal ledger. */
 	private async commitFacetWorkflowSegment(
-		input: FacetWorkflowTurnInput,
+		input: FacetWorkflowTurnInput & { dailyLog?: boolean },
 		result: ComputerWorkflowSegmentResult,
 	): Promise<FacetWorkflowTurnResult> {
 		const commit = async (segment: ComputerWorkflowSegmentResult) => {
@@ -10349,9 +10370,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const modelUserText = completionText
 			? `${input.userText}\n\n${completionText}`
 			: input.userText;
+		const trust = mcpTurnSurfaceTrust(input);
 		const setup = await this.prepareMcpFacetTurn({
 			sessionKey: input.sessionKey,
 			userMessage: modelUserText,
+			trust,
 			conversationId: input.conversationId,
 			runId: input.runId,
 			traceId: input.traceId,
@@ -10504,19 +10527,22 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.peekPendingToolSteps(input.runId),
 		);
 
-		return this.commitFacetWorkflowSegment(input, {
-			text: committedAssistantText,
-			stopReason: settledStopReason,
-			toolCalls,
-			suppressMemoryEffects: isSyntheticTerminalNote,
-			...(input.workItemId &&
-			input.homeRunId &&
-			!isSyntheticTerminalNote &&
-			facetTurn.modelIdentity
-				? { modelIdentity: facetTurn.modelIdentity }
-				: {}),
-			...(facetTurn.usage ? { facetUsage: facetTurn.usage } : {}),
-		});
+		return this.commitFacetWorkflowSegment(
+			{ ...input, ...trustedTurnMemoryEffects(trust) },
+			{
+				text: committedAssistantText,
+				stopReason: settledStopReason,
+				toolCalls,
+				suppressMemoryEffects: isSyntheticTerminalNote,
+				...(input.workItemId &&
+				input.homeRunId &&
+				!isSyntheticTerminalNote &&
+				facetTurn.modelIdentity
+					? { modelIdentity: facetTurn.modelIdentity }
+					: {}),
+				...(facetTurn.usage ? { facetUsage: facetTurn.usage } : {}),
+			},
+		);
 	}
 
 	/**
@@ -10555,6 +10581,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		 * tend — are spared the identical placeholder string on every fire.
 		 */
 		suppressMemoryEffects?: boolean;
+		/** False keeps an unverified turn out of the daily log. */
+		dailyLog?: boolean;
 		/** Facet-reported turn token usage (null-absent), forwarded to the ledger
 		 * mirror so a durable facet turn's `run.completed.tokensUsed` is not dark. */
 		facetUsage?: FacetTurnUsage;
@@ -10582,6 +10610,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		learningMode?: AdaptiveLearningMode;
 		workItemId?: string;
 		suppressMemoryEffects?: boolean;
+		dailyLog?: boolean;
 		facetUsage?: FacetTurnUsage;
 		modelIdentity?: TediSessionModelIdentity;
 	}): Promise<void> {
@@ -10698,7 +10727,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 						assistantText: input.assistantText,
 					}),
 				awaitBridge: true,
-				dailyLog: inserted,
+				dailyLog: inserted && input.dailyLog !== false,
 			});
 		}
 		try {
@@ -15599,6 +15628,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					{ status: 400 },
 				);
 			}
+			const callerTrust = callerTrustTierForRequest(request.headers);
+			// Defense in depth: the gateway already strips these for non-members.
+			payload = stripMemberOnlyInjectFields(payload, callerTrust);
 			const text = (payload.text ?? payload.message ?? "").trim();
 			if (!text) {
 				return Response.json(
@@ -15884,6 +15916,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 									...(authorityEnvelope ? { authorityEnvelope } : {}),
 									...(operatorConsent ? { operatorConsent } : {}),
 									trustedInstructionOrigin,
+									callerTrust,
 									...(turnModel ? { turnModel } : {}),
 								},
 								// Agent binding can't be auto-detected from the class name in
@@ -15976,6 +16009,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					traceId,
 					attachments: sanitizeChatAttachments(payload.attachments),
 					learningMode: payload.learning_mode,
+					callerTrust,
 				};
 				const result = await this.runDurableChatTurn(turnInput);
 				return Response.json({ success: true, ...result });
@@ -16749,6 +16783,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 							traceId: trace_id,
 							clientRequestId: client_request_id,
 							attachments: sanitizeChatAttachments(attachments),
+							callerTrust: callerTrustTierForRequest(request.headers),
 						};
 						return this.runDurableChatTurn(turnInput);
 					},
