@@ -14,6 +14,7 @@ import {
 	renderDescription,
 	repeatedRequests,
 	runAnalyzeSessions,
+	searchCommand,
 	syncSource,
 	type ToolEvent,
 } from "./learn-analyze";
@@ -206,6 +207,25 @@ describe("codexEvents", () => {
 			["bun run lint", true],
 		]);
 		expect(events[1]!.error).toBe("lint: N errors found");
+	});
+
+	it("treats exit 1 from a pipeline ending in a search as no match", () => {
+		expect(searchCommand("ls src | grep needle")).toBe(true);
+		expect(searchCommand("cd /work && LC_ALL=C rg -n needle")).toBe(true);
+		expect(searchCommand("rg needle src | bun run lint")).toBe(true);
+		expect(searchCommand("bun run lint")).toBe(false);
+		const input =
+			'await Promise.all([tools.exec_command({cmd:"git log --oneline | grep fix"}), tools.exec_command({cmd:"bun run lint"})]);';
+		const output = [
+			"Script completed",
+			'{"which":0,"result":{"exit_code":1,"output":""}}',
+			'{"which":1,"result":{"exit_code":1,"output":"lint: 3 errors found"}}',
+		].join("\n");
+		const events = codexEvents("exec", input, output, T(3), T(3, 1));
+		expect(events.map((e) => [e.head, e.failed])).toEqual([
+			["git log", false],
+			["bun run lint", true],
+		]);
 	});
 
 	it("names the failing tool of a failed script", () => {
