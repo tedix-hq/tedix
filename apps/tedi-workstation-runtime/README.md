@@ -44,5 +44,4 @@ workstation Durable Object namespace fails with
 For an existing installation, preserve its Durable Object migration history.
 Renaming `TediWorkstationSandbox` to `TediWorkstationRuntimeSandbox` requires
 `renamed_classes`, not a fresh `new_sqlite_classes` entry for the existing
-namespace. Never delete classes this Worker did not export. Managed deployment
-runs through the guarded workflow in `tedix-hq/tedix-cloud-ops`.
+namespace. Never delete classes this Worker did not export.

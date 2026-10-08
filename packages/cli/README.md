@@ -150,5 +150,4 @@ Native requests share a 4 MiB response limit and the original deadline across
 input and task continuations. Cancellation stops local reads and refuses late
 results; it does not prove that a remote write stopped. Ambiguous writes are not
 replayed. Explicit user-authored `tedix code` and the decision-capture hook retain
-their separate transport purposes. Publishing source alone does not install or
-activate a CLI release, configure native tools, or prove live adoption or savings.
+their separate transport purposes.

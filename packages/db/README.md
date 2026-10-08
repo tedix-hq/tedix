@@ -46,8 +46,7 @@ Key principles:
   govern statement and raw-D1 ownership.
 - Wrangler consumes Drizzle's timestamped migration directories directly; the
   append-only integrity manifest pins every applied path and SQL digest.
-- Table inventories are read from `src/schema/`; this README does not duplicate
-  a list that will drift.
+- Table definitions live in `src/schema/`.
 - Canonical Tedix principals map to external identity providers through exact
   issuer/subject tuples in `principal_identities`; provider subjects are never
   used as authority without that binding.

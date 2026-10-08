@@ -117,8 +117,7 @@ bundle, storage, and authenticated connection; theme preview/build also needs
 the Sandbox container. The root local launcher does not provision that CMS setup.
 Use an invited Cloud site for the first editorial trial described in the guide above.
 
-Managed production releases build product `main` through the guarded workflow
-in `tedix-hq/tedix-cloud-ops`; do not hand-deploy from this checkout. This surface
+Do not hand-deploy Tedix Cloud from this checkout. This surface
 requires Docker to build its container image. Every
 Worker secret must be declared in `cloudflare.config.ts`: `cf deploy` deletes
 any live secret the config omits.

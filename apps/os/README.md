@@ -122,9 +122,6 @@ project default.
 
 Tedix OS intentionally does not use TanStack Start today. It is an authenticated,
 editor-heavy workspace whose useful state begins after session establishment.
-Move OS to Start only for a measured server-rendering or server-function need;
-earlier framework choices are historical evidence, not a reason to make the
-package lists match.
 
 ## Architecture
 
