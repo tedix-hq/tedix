@@ -16,6 +16,7 @@ import type { BaseContext } from "../orpc";
 import {
 	AGENT_TURN_TRIAGE_NAMESPACE,
 	agentTurnTriageContractRouter,
+	DEFAULT_AGENT_TURN_STEERING,
 	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 } from "./agent-turn-triage";
 
@@ -88,10 +89,9 @@ function noulAnswers(probabilities: Record<string, number>) {
 		model: "clef-flash",
 		usage: { input_tokens: 400, output_tokens: 0 },
 		answers: Object.fromEntries(
-			Object.entries({ asks_user: 0.9, ...probabilities }).map(([id, noul]) => [
-				id,
-				{ type: "noul", noul },
-			]),
+			Object.entries({ asks_user: 0.9, off_track: 0.1, ...probabilities }).map(
+				([id, noul]) => [id, { type: "noul", noul }],
+			),
 		),
 	};
 }
@@ -138,6 +138,10 @@ describe("triage", () => {
 					type: "noul",
 					instructions:
 						"Does this turn ask the user for a decision, fact, approval or action only they can give?",
+				},
+				off_track: {
+					type: "noul",
+					instructions: DEFAULT_AGENT_TURN_STEERING.instructions,
 				},
 			},
 		});

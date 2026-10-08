@@ -1,5 +1,5 @@
 {
-	"assetVersion": 7,
+	"assetVersion": 8,
 	"policy": {
 		"enabled": true,
 		"model": "@cf/cloudflare/clef-flash",
@@ -63,6 +63,17 @@
 					}
 				}
 			]
+		},
+		"steering": {
+			"enabled": true,
+			"id": "off_track",
+			"instructions": "Is the agent going off track: doing something that contradicts the user's stated goal for this session, the repository rules, or the operator's lessons? Examples: opening or proposing a pull request (pull requests are disabled; work is committed to main), hand-deploying instead of using the release pipeline, redoing work that already shipped, asking the operator to do routine bookkeeping the agent can do itself, or looping: retrying the same failing step again without a new approach. A progress report, passing validation, finished work, or a genuine question only the operator can answer does not count.",
+			"steerWhen": {
+				"gte": 0.7
+			},
+			"draft": "Kind: the agent is going off track. Do not tell it to continue. Draft a short STEERING reply of at most three sentences: name what it is doing that is off track, cite the rule or lesson it breaks (for example: pull requests are disabled, commit and push to main; never hand-deploy, ship through the release pipeline; check the board and main before redoing shipped work; do routine bookkeeping yourself; stop retrying the same failure and change approach), and say exactly what to do instead. Use turnType steer. Steering is not a challenge that needs the operator's review: set reversible true when the step it tells the agent to take instead is reversible.",
+			"gateSkips": ["correction_or_challenge"],
+			"escalateNeed": "Still off track after a steering reply; step in: {{message}}"
 		}
 	},
 	"replyLabel": {

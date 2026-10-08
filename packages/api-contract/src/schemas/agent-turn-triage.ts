@@ -238,6 +238,61 @@ export type AgentReplyDraftEligibility = z.infer<
 	typeof AgentReplyDraftEligibilitySchema
 >;
 
+/** The turn type of every steering draft; counted on its own in acceptance and the leaderboard. */
+export const AGENT_REPLY_STEER_TURN_TYPE = "steer";
+
+/**
+ * The wrong-turn check. Triage also asks Clef whether the agent is going off
+ * track; at `steerWhen.gte` or above the turn is never urgent and its draft is
+ * a short steering reply (`draft` replaces the turn-kind line of the drafting
+ * prompt), stored with turn type {@link AGENT_REPLY_STEER_TURN_TYPE}. It goes
+ * through the same auto-send guardrails, except the delivery-gate checks in
+ * `gateSkips` (a steering reply corrects the agent by design). A session's
+ * next off-track turn after a steering draft is not steered again: it needs
+ * the user, with `escalateNeed` (`{{message}}`: the turn's first line) as the
+ * one-line need.
+ */
+export const AgentTurnSteeringPolicySchema = z.strictObject({
+	enabled: z.boolean().describe("When false, no turn is steered"),
+	id: ClefQuestionIdSchema.describe(
+		"Label id under which triage reports the off-track probability",
+	),
+	instructions: z
+		.string()
+		.trim()
+		.min(1)
+		.max(2000)
+		.describe("The yes/no question: is the agent going off track?"),
+	steerWhen: z.strictObject({
+		gte: z
+			.number()
+			.min(0)
+			.max(1)
+			.describe("The turn is steered when the probability is ≥ gte"),
+	}),
+	draft: z
+		.string()
+		.trim()
+		.min(1)
+		.max(2000)
+		.describe("What the drafting tedi is told to write for an off-track turn"),
+	gateSkips: z
+		.array(ClefQuestionIdSchema)
+		.max(16)
+		.describe("Delivery-gate check ids not asked for a steering draft"),
+	escalateNeed: z
+		.string()
+		.trim()
+		.min(1)
+		.max(240)
+		.describe(
+			"The one-line need when the agent stays off track after steering; {{message}} is its first line",
+		),
+});
+export type AgentTurnSteeringPolicy = z.infer<
+	typeof AgentTurnSteeringPolicySchema
+>;
+
 export const DEFAULT_AGENT_REPLY_DRAFTING: AgentReplyDraftingPolicy = {
 	enabled: false,
 	examples: DEFAULT_AGENT_REPLY_DRAFT_EXAMPLES,
@@ -283,6 +338,9 @@ const policyFields = {
 	),
 	deliveryGate: AgentReplyDeliveryGatePolicySchema.optional().describe(
 		"Clef checks every auto-send candidate must pass; absent, the shipped default gate applies",
+	),
+	steering: AgentTurnSteeringPolicySchema.optional().describe(
+		"The wrong-turn check and its steering replies; absent, the shipped default applies",
 	),
 };
 
@@ -427,6 +485,7 @@ export const AGENT_REPLY_DRAFT_INELIGIBLE_REASONS = [
 	"drafting_disabled",
 	"no_drafting_tedi",
 	"attempts_exhausted",
+	"steering_repeated",
 ] as const;
 export const AgentReplyDraftIneligibleReasonSchema = z.enum(
 	AGENT_REPLY_DRAFT_INELIGIBLE_REASONS,
@@ -583,6 +642,13 @@ const AgentReplyDraftScoreSchema = z.object({
 		.int()
 		.min(0)
 		.describe("Edited or replaced drafts plus overridden auto drafts"),
+	steered: z
+		.number()
+		.int()
+		.min(0)
+		.describe(
+			"Steering drafts: replies that put an off-track agent back on course",
+		),
 	avgReplySeconds: z
 		.number()
 		.int()

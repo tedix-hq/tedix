@@ -10,6 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { createDbClient } from "@tedix/db/client";
+import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
 	competencyObservations,
 	entrustableActivities,
@@ -36,6 +37,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import {
 	agentTurnTriageContractRouter,
+	annotateAgentTurnAttention,
 	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 	nextReplyDraftAttempt,
 	REPLY_DRAFT_OWNER_TIMEOUT_S,
@@ -1435,5 +1437,148 @@ describe("turn attention", () => {
 			{ id: ask, status: "open", version: 1 },
 			{ id: answered, status: "resolved", version: 1 },
 		]);
+	});
+});
+
+describe("wrong-turn steering", () => {
+	const AUTO_SEND = { autoSend: { enabled: true, maxConsecutive: 3 } };
+	const PR_TURN =
+		"Validation passed. I'll open a pull request for review with gh pr create.";
+	const LOOP_TURN =
+		"The pre-push gate failed again with the same lockfile error; retrying the push.";
+	const offTrack = (p: number, sessionId = "session-a") => ({
+		...QUIET,
+		sessionId,
+		triage: {
+			...QUIET.triage,
+			labels: { risky_action: 0.1, asks_user: 0.1, off_track: p },
+		},
+	});
+	const at = (minute: number) =>
+		`2026-08-21T00:${String(minute).padStart(2, "0")}:00.000Z`;
+	function turn(
+		f: ReturnType<typeof fixture>,
+		prompt: string,
+		metadata: Record<string, unknown>,
+		minute: number,
+	) {
+		const id = f.question(metadata, { createdAt: at(minute) });
+		f.sqlite
+			.prepare("UPDATE work_interactions SET prompt=? WHERE id=?")
+			.run(prompt, id);
+		return id;
+	}
+	const steerReply = {
+		body: "Pull requests are disabled here: commit and push to main with bun run push instead.",
+		rationale: "Repo rule: maintainers commit to main; no PRs.",
+		turnType: "continue",
+		reversible: true,
+	};
+
+	it("asks the off-track question and never makes an off-track turn urgent", async () => {
+		const f = fixture();
+		f.clef.mockResolvedValueOnce({
+			answers: {
+				blocker_or_failure: { type: "noul", noul: 0.1 },
+				human_only_action: { type: "noul", noul: 0.1 },
+				risky_action: { type: "noul", noul: 0.9 },
+				asks_user: { type: "noul", noul: 0.6 },
+				off_track: { type: "noul", noul: 0.85 },
+			},
+		});
+		const result = await f.target.triage({ text: PR_TURN });
+		const [, input] = f.clef.mock.calls[0] as [string, { questions: object }];
+		expect(Object.keys(input.questions)).toContain("off_track");
+		expect(result).toMatchObject({
+			status: "ok",
+			urgency: "later",
+			urgentLabels: [],
+			labels: { off_track: 0.85 },
+		});
+	});
+
+	it("drafts a steering reply for a PR-opening turn, auto-sent past the correction check", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		const requestId = turn(f, PR_TURN, offTrack(0.85), 1);
+		await f.target.requestReplyDraft({ requestId });
+		const [event] = f.send.mock.calls[0] as [Record<string, unknown>];
+		expect(event.content).toContain("Draft a short STEERING reply");
+		expect(event.content).not.toContain("Kind: a status update.");
+		const { delivery } = await f.drafter.proposeReplyDraft({
+			requestId,
+			...steerReply,
+		});
+		expect(delivery).toBe("auto");
+		const [, gateInput] = f.clef.mock.calls[0] as [
+			string,
+			{ questions: object },
+		];
+		expect(Object.keys(gateInput.questions)).toEqual([
+			"irreversible_step",
+			"needs_human",
+		]);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT turn_type FROM work_interaction_reply_drafts WHERE interaction_id=?",
+				)
+				.get(requestId),
+		).toEqual({ turn_type: "steer" });
+		const { tedis } = await f.target.getReplyDraftLeaderboard({
+			since: "2000-01-01T00:00:00.000Z",
+			todaySince: "2000-01-01T00:00:00.000Z",
+		});
+		expect(tedis[0]?.week).toMatchObject({ answered: 1, steered: 1 });
+	});
+
+	it("keeps an on-track turn a normal continue", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		const requestId = turn(f, "Tests pass; pushed to main.", offTrack(0.2), 1);
+		await f.target.requestReplyDraft({ requestId });
+		const [event] = f.send.mock.calls[0] as [Record<string, unknown>];
+		expect(event.content).not.toContain("STEERING");
+		await f.drafter.proposeReplyDraft({
+			requestId,
+			...steerReply,
+			body: "Continue.",
+		});
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT turn_type FROM work_interaction_reply_drafts WHERE interaction_id=?",
+				)
+				.get(requestId),
+		).toEqual({ turn_type: "continue" });
+	});
+
+	it("escalates a looping turn to the user instead of steering twice", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		const first = turn(f, LOOP_TURN, offTrack(0.8), 1);
+		await f.drafter.proposeReplyDraft({ requestId: first, ...steerReply });
+		const again = turn(f, LOOP_TURN, offTrack(0.9), 2);
+		await expect(
+			f.target.requestReplyDraft({ requestId: again }),
+		).resolves.toEqual({ status: "ineligible", reason: "steering_repeated" });
+		const db = createDbClient(f.env.DB) as BaseContext["db"];
+		const row = await getWorkInteraction(db, {
+			orgId: ORG_ID,
+			interactionId: again,
+		});
+		const attention = await annotateAgentTurnAttention(
+			{ db, env: f.env },
+			row as NonNullable<typeof row>,
+		);
+		expect(attention).toMatchObject({
+			kind: "needs_you",
+			need: `Still off track after a steering reply; step in: ${LOOP_TURN}`,
+		});
+		// Another session is steered on its own.
+		const other = turn(f, LOOP_TURN, offTrack(0.9, "session-b"), 3);
+		await expect(
+			f.target.requestReplyDraft({ requestId: other }),
+		).resolves.toEqual({ status: "queued" });
 	});
 });
