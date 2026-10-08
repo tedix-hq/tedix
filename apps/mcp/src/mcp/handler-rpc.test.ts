@@ -89,6 +89,16 @@ describe("browser RPC timeout", () => {
 	});
 });
 
+describe("catalog snapshot import timeout", () => {
+	it("outlasts the inline browser capture", () => {
+		expect(
+			resolveInternalTransportTimeout("catalog/importSnapshot", {
+				transport: "rpc",
+			} as ToolConfig),
+		).toBe(150_000);
+	});
+});
+
 describe("ToolHandler RPC transport logging", () => {
 	afterEach(() => {
 		globalThis.fetch = originalFetch;
