@@ -29,6 +29,7 @@ describe("Work shell navigation", () => {
 	it("keeps frequent destinations visible and advanced controls in overflow", () => {
 		expect(PRIMARY_WORK_SECTIONS.map(([label]) => label)).toEqual([
 			"Queue",
+			"Office",
 			"Portfolio",
 			"Attention",
 			"Agents",

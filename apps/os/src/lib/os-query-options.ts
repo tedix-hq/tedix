@@ -605,6 +605,31 @@ export const workUrgentInteractionsQueryOptions = () =>
 		},
 	});
 
+/** Polled so a new knock shows up in the office within half a minute. */
+export const WORK_OFFICE_REFETCH_MS = 30_000;
+
+/** The caller's newest inbox page: the office counts today's knocks from it. */
+export const workOfficeKnocksQueryOptions = () =>
+	osQuery.workInteractions.listInbox.queryOptions({
+		input: { limit: 100 },
+		refetchInterval: WORK_OFFICE_REFETCH_MS,
+		refetchOnWindowFocus: true,
+	});
+
+/** Reply-draft outcomes for the caller's questions since `since` (ISO). */
+export const replyDraftAcceptanceQueryOptions = (since: string) =>
+	osQuery.agentTurnTriage.getReplyDraftAcceptance.queryOptions({
+		input: { since },
+		refetchInterval: WORK_OFFICE_REFETCH_MS,
+	});
+
+/** The lessons the caller's sessions receive, newest first. */
+export const notebookLessonsQueryOptions = () =>
+	osQuery.agentTurnTriage.listLessons.queryOptions({
+		input: { limit: 50 },
+		refetchInterval: WORK_OFFICE_REFETCH_MS,
+	});
+
 export const workInteractionDetailQueryOptions = (
 	requestId: string,
 	responseCursor?: { at: string; id: string },

@@ -2023,6 +2023,19 @@ a:focus-visible {
 		var(--ease-tedix-enter);
 }
 
+/* A new knock in the office settles into its lane once; no loop. */
+.office-knock-arrive {
+	animation: office-knock-arrive var(--duration-tedix-structural)
+		var(--ease-tedix-enter);
+}
+
+@keyframes office-knock-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(-6px);
+	}
+}
+
 @keyframes canvas-presence-pop-in {
 	from {
 		opacity: 0;
@@ -2538,7 +2551,8 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.canvas-presence-pop {
+	.canvas-presence-pop,
+	.office-knock-arrive {
 		animation: none;
 	}
 

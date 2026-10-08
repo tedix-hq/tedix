@@ -39,6 +39,7 @@ export interface ApprovedAgentLessonRow {
 	priority: "core" | "active" | "background" | null;
 	confidence: number;
 	metadata: Record<string, JsonValue> | null;
+	createdAt: string | null;
 	updatedAt: string | null;
 }
 
@@ -67,6 +68,7 @@ export async function listApprovedAgentLessons(
 			priority: memoryFacts.priority,
 			confidence: memoryFacts.confidence,
 			metadata: memoryFacts.metadata,
+			createdAt: memoryFacts.createdAt,
 			updatedAt: memoryFacts.updatedAt,
 		})
 		.from(memoryFacts)

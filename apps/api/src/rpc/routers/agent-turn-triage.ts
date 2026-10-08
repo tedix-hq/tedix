@@ -80,7 +80,10 @@ import { startIncrementalLessons } from "../../services/lesson-incremental-dispa
 import { importAgentSessionDecisions } from "../../services/agent-session-decision-import";
 import { observedLearningActor } from "../../services/learning-interaction-recorder";
 import { requireOrgId } from "../org-scope";
-import { getSessionLessons } from "./agent-session-lessons";
+import {
+	getSessionLessons,
+	listNotebookLessons,
+} from "./agent-session-lessons";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -1067,6 +1070,12 @@ const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 		getSessionLessons(context, requireOrgId(context), input),
 );
 
+/** The caller's lessons as one notebook, newest first, with their sources. */
+const listLessonsProcedure = readOs.listLessons.handler(
+	async ({ input, context }) =>
+		listNotebookLessons(context, requireOrgId(context), input.limit),
+);
+
 /**
  * Whether delivered lessons reduce repeated corrections: the caller's own
  * sessions (and org-wide ones), delivered vs holdout. Read-only.
@@ -1195,6 +1204,7 @@ export const agentTurnTriageContractRouter = os.router({
 	proposeReplyDraft,
 	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
 	getSessionLessons: getSessionLessonsProcedure,
+	listLessons: listLessonsProcedure,
 	getLessonEffectiveness: getLessonEffectivenessProcedure,
 	mineSessionLessons: mineSessionLessonsProcedure,
 });

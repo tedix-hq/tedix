@@ -21,8 +21,10 @@
 
 import {
 	AGENT_LESSON_TOPIC_PREFIX,
+	type AgentLessonEntry,
 	type AgentSessionLesson,
 	type GetAgentSessionLessonsResult,
+	type ListAgentLessonsResult,
 } from "@tedix/api-contract/schemas/agent-session-lessons";
 import {
 	type ApprovedAgentLessonRow,
@@ -309,6 +311,59 @@ export async function getSessionLessons(
 	if (context.waitUntil) context.waitUntil(record);
 	else await record;
 	return { organizationId, ...result, holdout };
+}
+
+/** A lesson's cited decisions (`learningFeed.evidenceEventIds`), or null. */
+export function lessonLearnedFrom(
+	metadata: ApprovedAgentLessonRow["metadata"],
+	viewerUserId: string | null,
+): AgentLessonEntry["learnedFrom"] {
+	const feed = metadata?.learningFeed;
+	if (!feed || typeof feed !== "object" || Array.isArray(feed)) return null;
+	const ids = Array.isArray(feed.evidenceEventIds) ? feed.evidenceEventIds : [];
+	if (ids.length === 0) return null;
+	const users = Array.isArray(feed.learnedFromUserIds)
+		? feed.learnedFromUserIds
+		: [];
+	return {
+		replies: ids.length,
+		lastReplyAt: typeof feed.lastEventAt === "string" ? feed.lastEventAt : null,
+		fromCaller:
+			viewerUserId !== null &&
+			(feed.ownerUserId === viewerUserId || users.includes(viewerUserId)),
+	};
+}
+
+/**
+ * Every lesson the caller's sessions can receive, newest first, with its
+ * sources: the "How you work" notebook. Records nothing.
+ */
+export async function listNotebookLessons(
+	context: BaseContext,
+	organizationId: string,
+	limit: number,
+): Promise<ListAgentLessonsResult> {
+	const actor = observedLearningActor(context);
+	const viewerUserId = actor.actorType === "user" ? actor.actorId : null;
+	const rows = await listApprovedAgentLessons(
+		context.db,
+		organizationId,
+		AGENT_LESSON_TOPIC_PREFIX,
+		{ viewerUserId },
+	);
+	const addedAt = (row: ApprovedAgentLessonRow) =>
+		row.createdAt ?? row.updatedAt ?? "";
+	return {
+		lessons: [...rows]
+			.sort((a, b) => addedAt(b).localeCompare(addedAt(a)))
+			.slice(0, limit)
+			.map((row) => ({
+				id: row.id,
+				text: lessonText(row),
+				addedAt: row.createdAt ?? row.updatedAt,
+				learnedFrom: lessonLearnedFrom(row.metadata, viewerUserId),
+			})),
+	};
 }
 
 /** One row per session and lesson set (fail-soft, see the recorder). */

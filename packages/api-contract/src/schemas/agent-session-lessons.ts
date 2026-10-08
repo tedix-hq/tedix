@@ -91,6 +91,51 @@ export type GetAgentSessionLessonsResult = z.infer<
 	typeof GetAgentSessionLessonsResultSchema
 >;
 
+export const ListAgentLessonsInputSchema = z.strictObject({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.default(50)
+		.describe("How many lessons to return, newest first"),
+});
+export type ListAgentLessonsInput = z.input<typeof ListAgentLessonsInputSchema>;
+
+export const AgentLessonEntrySchema = z.object({
+	id: z.string().describe("Fact id"),
+	text: z.string(),
+	addedAt: z
+		.string()
+		.nullable()
+		.describe("When the lesson was written (its fact's creation time)"),
+	learnedFrom: z
+		.object({
+			replies: z
+				.number()
+				.int()
+				.nonnegative()
+				.describe("Decisions (replies) the lesson cites"),
+			lastReplyAt: z
+				.string()
+				.nullable()
+				.describe("Time of the newest cited reply"),
+			fromCaller: z
+				.boolean()
+				.describe("True when the lesson was learned from the caller's replies"),
+		})
+		.nullable()
+		.describe("Null when the lesson cites no decisions (written by hand)"),
+});
+export type AgentLessonEntry = z.infer<typeof AgentLessonEntrySchema>;
+
+export const ListAgentLessonsResultSchema = z.object({
+	lessons: z.array(AgentLessonEntrySchema),
+});
+export type ListAgentLessonsResult = z.infer<
+	typeof ListAgentLessonsResultSchema
+>;
+
 export const MineAgentSessionLessonsInputSchema = z.strictObject({});
 export type MineAgentSessionLessonsInput = z.input<
 	typeof MineAgentSessionLessonsInputSchema
