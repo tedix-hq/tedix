@@ -3,6 +3,14 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.7.1 — 2026-10-08
+
+### Fixed
+
+- `tedix learn analyze-sessions` finds the Work Items it created on an earlier
+  run and updates them; 0.7.0 searched by a title too long for the server and
+  could not. A failed search now stops the run instead of creating.
+
 ## 0.7.0 — 2026-10-08
 
 ### Added
