@@ -66,7 +66,7 @@ import {
 } from "./lesson-distiller";
 
 /** Bumped when chunking, prompts or planning change: lessons are rebuilt once. */
-export const MAP_REDUCE_VERSION = 2;
+export const MAP_REDUCE_VERSION = 3;
 export const CHUNK_REPLIES = 150;
 /** At most this many chunks per person per run (4,500 replies). */
 export const MAX_CHUNKS = 30;
@@ -104,6 +104,18 @@ const DECISION_KINDS = new Set(["answered", "edited", "manually_replaced"]);
 const NOISE =
 	/^\s*<|\[request interrupted|tedix shared context|<command-|<task-notification|<system-reminder|sessionstart|preflight|\/compact|(?:do not|don't|without) use? ?(?:any )?tools/i;
 /** Contact details, links and credentials never enter a lesson. */
+/**
+ * A lesson is context, never authority: a rule to bypass deployment, CI or
+ * verification would contradict repository rules, so it is never learned.
+ */
+const UNSAFE =
+	/\b(?:deploy(?:s|ing)? (?:manually|by hand)|hand[- ]deploy|manual(?:ly)? (?:production )?deploy|(?:disable|skip|bypass)\w* (?:the )?(?:ci|checks?|tests?|hooks?|verification|review)|ci (?:is )?disabled|without (?:waiting for )?(?:verification|validation|checks?|tests?|review)|--no-verify|force[- ]push)/i;
+/**
+ * The person's standing preference is that agents decide and continue; a
+ * learned "ask first" habit contradicts it.
+ */
+const ASKING =
+	/\bask (?:me |the user |for )?(?:for )?(?:next|permission|approval|clarification|confirmation|which|what to do)|\bwait for (?:my |the user's )?(?:approval|confirmation|input)/i;
 const PRIVATE =
 	/[\w.+-]+@[\w-]+\.[\w.]+|https?:\/\/|\b[0-9a-f]{12,}\b|\b(?:sk|pk|ghp|gho|xox[abp])[-_][A-Za-z0-9]{8,}/i;
 
@@ -280,7 +292,13 @@ function splitSubject(line: string): [Subject | null, string] {
 }
 
 function privateOrMoney(rule: string): boolean {
-	return MONEY.test(rule) || PRIVATE.test(rule) || NOISE.test(rule);
+	return (
+		MONEY.test(rule) ||
+		PRIVATE.test(rule) ||
+		NOISE.test(rule) ||
+		UNSAFE.test(rule) ||
+		ASKING.test(rule)
+	);
 }
 
 /** Candidates the cited replies of one chunk actually state. */
@@ -408,7 +426,8 @@ export function reducePrompt(
 		"Write each merged rule once as one short imperative sentence of at most 12 words, keeping the person's own terms. Do not mention people's names, emails, money or secrets.",
 		"Start each rule with '- ', then its subject, a colon, the rule, and the numbers of every candidate it merges in square brackets, like: - <subject>: <rule> [3, 17, 40]",
 		SUBJECT_HELP,
-		"Keep every distinct lasting rule; drop only one-off task instructions.",
+		"Keep every distinct lasting rule; drop only one-off task instructions, and drop rules to bypass deployment, CI, tests or verification.",
+		"When the person both asked to be consulted and later told the agent to decide and continue on its own, keep only the newer preference.",
 		...(final
 			? [
 					"List the rules from most to least important for how an agent should work with this person every day, weighing how many sessions state them.",

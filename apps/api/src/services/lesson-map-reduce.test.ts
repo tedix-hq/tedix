@@ -203,6 +203,18 @@ describe("reduce", () => {
 		});
 	});
 
+	it("never learns a rule to bypass deploys or checks, or to wait for approval", () => {
+		expect(
+			lastingRules(
+				[
+					"Deploy manually; keep CI disabled",
+					"Ship to production without waiting for verification",
+					"Ask for next priorities or clarification before proceeding",
+				].map((rule) => candidate({ rule, sessions: ["s1", "s2"] })),
+			),
+		).toEqual([]);
+	});
+
 	it("never relearns a rule a person archived", () => {
 		expect(
 			lastingRules(
