@@ -116,15 +116,7 @@ jobs:
         run: bun run lint:deps
 
       - name: Check architecture and policy invariants
-        run: |
-          set -euo pipefail
-          bun scripts/check-package-boundaries.ts
-          bun scripts/check-package-exports.ts
-          bun scripts/lint-wrangler.ts --strict
-          bun scripts/lint-db-access.ts
-          bun scripts/lint-d1.ts
-          bun scripts/lint-authz.ts --strict
-          bun scripts/lint-contracts.ts
+        run: bun run lint:repo
 
   types:
     name: Generated and workspace types
