@@ -88,6 +88,25 @@ export function rankVendorSiblings<T extends VendorSiblingRankInput>(
 	);
 }
 
+function hasConcreteEndpoint(app: CatalogApp): boolean {
+	const endpoint = app.mcpEndpointNormalized ?? app.baseUrl;
+	return Boolean(endpoint) && !/[{}]/.test(endpoint ?? "");
+}
+
+/** Better installability, or the same installability with more tools. */
+function strictlyOutranks(
+	a: Pick<VendorSiblingRankInput, "installabilityState" | "mcpToolCount">,
+	b: Pick<VendorSiblingRankInput, "installabilityState" | "mcpToolCount">,
+): boolean {
+	const byInstallability =
+		INSTALLABILITY_RANK[b.installabilityState] -
+		INSTALLABILITY_RANK[a.installabilityState];
+	return (
+		byInstallability > 0 ||
+		(byInstallability === 0 && a.mcpToolCount > b.mcpToolCount)
+	);
+}
+
 export interface RankedCatalogVendorSibling extends VendorSiblingRankInput {
 	app: CatalogApp;
 	baseAppId: string | null;
@@ -235,7 +254,17 @@ export async function planCatalogPlainSlugReassignment(
 		ranked: ranked.map(planEntry),
 	};
 
-	const best = ranked[0];
+	// Only a sibling under this same name with a real endpoint may take the
+	// slug, and only when it is strictly better — a source-order tie-break or a
+	// `{url}` template endpoint is churn, not an improvement.
+	const best = ranked.find(
+		(row) =>
+			row.id === holderApp.id ||
+			((row.app.slug === params.slug ||
+				row.app.slug?.startsWith(`${params.slug}-`) === true) &&
+				hasConcreteEndpoint(row.app) &&
+				strictlyOutranks(row, holder)),
+	);
 	if (!best || best.id === holderApp.id) {
 		plan.reason =
 			ranked.length > 1

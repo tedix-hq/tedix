@@ -175,6 +175,43 @@ describe("plain-slug reassignment", () => {
 		expect(again?.action).toBe("keep");
 	});
 
+	it("keeps the slug on a tie and never hands it to a template endpoint", async () => {
+		const holder = await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "https://mcp.pipewise.example/openai",
+			name: "Pipewise",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.pipewise.example/openai",
+			website: "https://pipewise.example",
+		});
+		const tied = await syncCatalogAppFromStore(db, {
+			source: "official",
+			sourceAppId: "https://mcp.pipewise.example/anthropic",
+			name: "Pipewise",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.pipewise.example/anthropic",
+			website: "https://pipewise.example",
+		});
+		await updateCatalogApp(db, holder!.app.id, { mcpToolCount: 4 });
+		await updateCatalogApp(db, tied!.app.id, { mcpToolCount: 4 });
+		const tie = await planCatalogPlainSlugReassignment(db, {
+			slug: holder!.app.slug!,
+			classifyInstallability: classify,
+		});
+		expect(tie?.action).toBe("keep");
+
+		await updateCatalogApp(db, tied!.app.id, {
+			mcpToolCount: 40,
+			baseUrl: "{url}",
+			mcpEndpointNormalized: null,
+		});
+		const template = await planCatalogPlainSlugReassignment(db, {
+			slug: holder!.app.slug!,
+			classifyInstallability: () => "needs_base_app",
+		});
+		expect(template?.action).toBe("keep");
+	});
+
 	it("refuses to move the slug off a holder that apps are built from", async () => {
 		const { brokered } = await seedVendor();
 		const now = new Date().toISOString();
