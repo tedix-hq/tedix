@@ -710,6 +710,30 @@ describe("distillPersonalLessons", () => {
 			expect(vi.mocked(createFact).mock.calls[0]![1].metadata).toMatchObject({
 				learningFeed: { mapReduce: { incremental: true } },
 			});
+			// The reversal takes the old rule's key; the old rule is history.
+			const feeds = [
+				...vi.mocked(createFact).mock.calls.map((call) => call[1].metadata),
+				...vi.mocked(updateFact).mock.calls.map((call) => call[2].metadata),
+			].flatMap((meta) =>
+				meta
+					? [(meta as { learningFeed: Record<string, unknown> }).learningFeed]
+					: [],
+			);
+			expect(feeds.flatMap((feed) => feed.rules as unknown[])).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						key: "git.pull-requests",
+						rule: "Always open a pull request for every change",
+					}),
+				]),
+			);
+			expect(feeds.flatMap((feed) => feed.revokedRules ?? [])).toEqual([
+				expect.objectContaining({
+					key: "git.pull-requests",
+					rule: "Commit straight to main, never open pull requests",
+					replacedBy: "Always open a pull request for every change",
+				}),
+			]);
 		});
 
 		it("asks for the whole history when there is nothing to build on", async () => {

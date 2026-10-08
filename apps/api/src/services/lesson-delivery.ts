@@ -144,6 +144,8 @@ export interface MeasuredLesson {
 	id: string;
 	topicKey: string;
 	subjects: Subject[];
+	/** Rule keys delivered (or withheld) from it, to spot misapplied ones. */
+	keys?: string[];
 }
 
 /** `learning_interaction_events.metadata` of a delivery row. */
@@ -165,6 +167,7 @@ export function lessonDeliveryMetadata(input: {
 			id: lesson.id,
 			topicKey: lesson.topicKey,
 			subjects: lesson.subjects,
+			...(lesson.keys ? { keys: lesson.keys } : {}),
 		})),
 	};
 }
