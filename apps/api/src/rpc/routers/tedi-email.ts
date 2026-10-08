@@ -18,6 +18,7 @@ import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getActiveMemberByEmail } from "@tedix/db/queries/organization-members";
 import {
 	createTediEmailAddress,
+	deleteTediEmailAddress,
 	getActiveTediEmailAddressByAddress,
 	getTediEmailAddressById,
 	listTediEmailAddresses,
@@ -118,6 +119,91 @@ function requireEmailProvisioningAuthority(context: BaseContext): void {
 		ErrorCodes.FORBIDDEN,
 		"Platform email provisioning authority required",
 	);
+}
+
+const SHARED_TEDI_EMAIL_DOMAIN = "tedix.tech";
+const PLUS_TAG_PATTERN = /^[a-z0-9-]{1,32}$/;
+
+/**
+ * Primary and plus addresses on the shared `tedix.tech` domain are tenant
+ * self-serve: the local part is derived from the tedi's own slug, so a tenant
+ * admin cannot claim another tedi's mailbox. Alias and custom-domain rows
+ * stay behind platform provisioning authority.
+ */
+function isSelfServeSharedAddress(address: {
+	kind: string;
+	domain: string;
+}): boolean {
+	return (
+		(address.kind === "primary" || address.kind === "plus") &&
+		address.domain === SHARED_TEDI_EMAIL_DOMAIN
+	);
+}
+
+function assertSelfServeAddressShape(input: {
+	slug: string;
+	kind: "primary" | "plus";
+	address: string;
+}): void {
+	const address = input.address.trim().toLowerCase();
+	const at = address.lastIndexOf("@");
+	const localPart = at === -1 ? "" : address.slice(0, at);
+	const domain = at === -1 ? "" : address.slice(at + 1);
+	if (domain !== SHARED_TEDI_EMAIL_DOMAIN) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`A ${input.kind} address must use the ${SHARED_TEDI_EMAIL_DOMAIN} domain; custom domains require platform provisioning`,
+		);
+	}
+	if (input.kind === "primary") {
+		if (localPart !== input.slug) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`A primary address must be exactly ${input.slug}@${SHARED_TEDI_EMAIL_DOMAIN}`,
+			);
+		}
+		return;
+	}
+	const prefix = `${input.slug}+`;
+	const tag = localPart.startsWith(prefix)
+		? localPart.slice(prefix.length)
+		: "";
+	if (!PLUS_TAG_PATTERN.test(tag)) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`A plus address must be ${input.slug}+{tag}@${SHARED_TEDI_EMAIL_DOMAIN} with a tag of 1-32 lowercase letters, digits, or hyphens`,
+		);
+	}
+}
+
+/** Mailbox administration is for humans and operator keys; a tedi may only reserve. */
+function requireNonTediMailboxAdmin(context: BaseContext): void {
+	if (context.authType === "tedi" && !hasEmailProvisioningAuthority(context)) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A tedi cannot administer its own mailbox addresses",
+		);
+	}
+}
+
+async function requireManagedAddress(
+	context: BaseContext,
+	input: { tediId: string; addressId: string },
+) {
+	requireNonTediMailboxAdmin(context);
+	const tedi = await requireTediEmailAccess(context, input.tediId);
+	const existing = await getTediEmailAddressById(context.db, input.addressId);
+	if (
+		!existing ||
+		existing.tediId !== tedi.id ||
+		existing.organizationId !== tedi.organizationId
+	) {
+		throw createError(ErrorCodes.NOT_FOUND, "Email address not found");
+	}
+	if (!isSelfServeSharedAddress(existing)) {
+		requireEmailProvisioningAuthority(context);
+	}
+	return { tedi, existing };
 }
 
 function assertOrganizationAccess(
@@ -666,15 +752,26 @@ const createAddress = authed.createAddress
 	.use(withAuthorization("tedis:update", "mcp:messaging.write"))
 	.handler(async ({ input, context }) => {
 		const tedi = await requireTediEmailAccess(context, input.tediId);
-		const requestedStatus = input.status ?? "reserved";
-		if (requestedStatus !== "reserved") {
+		const address = input.address.trim().toLowerCase();
+		const selfServeKind = input.kind === "primary" || input.kind === "plus";
+		if (selfServeKind) {
+			assertSelfServeAddressShape({
+				slug: tedi.slug,
+				kind: input.kind as "primary" | "plus",
+				address,
+			});
+		}
+		const selfServe = selfServeKind && !hasEmailProvisioningAuthority(context);
+		const requestedStatus =
+			input.status ?? (selfServeKind ? "active" : "reserved");
+		if (requestedStatus !== "reserved" && !selfServe) {
 			requireEmailProvisioningAuthority(context);
 		}
 		try {
-			const address = await createTediEmailAddress(context.db, {
+			const created = await createTediEmailAddress(context.db, {
 				tediId: input.tediId,
 				organizationId: tedi.organizationId,
-				address: input.address,
+				address,
 				kind: input.kind,
 				status: context.authType === "tedi" ? "reserved" : requestedStatus,
 				routingPolicy: normalizeOptionalJsonRecord(
@@ -682,7 +779,7 @@ const createAddress = authed.createAddress
 				),
 				createdBy: actorLabel(context),
 			});
-			return { address };
+			return { address: created };
 		} catch (err) {
 			throw createError(
 				ErrorCodes.CONFLICT,
@@ -692,10 +789,18 @@ const createAddress = authed.createAddress
 	});
 
 const updateAddress = authed.updateAddress
-	.use(AUTHZ.platformAdmin)
+	.use(withAuthorization("tedis:update", "mcp:messaging.write"))
 	.handler(async ({ input, context }) => {
-		requireEmailProvisioningAuthority(context);
-		const tedi = await requireTediEmailAccess(context, input.tediId);
+		const { tedi } = await requireManagedAddress(context, input);
+		if (
+			input.status === "reserved" &&
+			!hasEmailProvisioningAuthority(context)
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"A tenant may set an address to active or paused",
+			);
+		}
 		const address = await updateTediEmailAddressStatus(context.db, {
 			id: input.addressId,
 			tediId: input.tediId,
@@ -707,6 +812,21 @@ const updateAddress = authed.updateAddress
 			throw createError(ErrorCodes.NOT_FOUND, "Email address not found");
 		}
 		return { address };
+	});
+
+const deleteAddress = authed.deleteAddress
+	.use(withAuthorization("tedis:update", "mcp:messaging.write"))
+	.handler(async ({ input, context }) => {
+		const { tedi } = await requireManagedAddress(context, input);
+		const removed = await deleteTediEmailAddress(context.db, {
+			id: input.addressId,
+			tediId: input.tediId,
+			organizationId: tedi.organizationId,
+		});
+		if (!removed) {
+			throw createError(ErrorCodes.NOT_FOUND, "Email address not found");
+		}
+		return { deleted: true, addressId: removed.id, address: removed.address };
 	});
 
 const provisionAddress = authed.provisionAddress
@@ -985,6 +1105,7 @@ export const tediEmailContractRouter = os.router({
 	listAddressRequests,
 	createAddress,
 	updateAddress,
+	deleteAddress,
 	provisionAddress,
 	sendEmail,
 	replyEmail,

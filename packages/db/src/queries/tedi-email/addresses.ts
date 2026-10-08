@@ -206,14 +206,14 @@ export async function updateTediEmailAddressStatus(
 		id: string;
 		tediId: string;
 		organizationId: string;
-		status: TediEmailAddressStatus;
+		status?: TediEmailAddressStatus;
 		routingPolicy?: Record<string, JsonValue> | null;
 	},
 ): Promise<TediEmailAddress | null> {
 	const rows = await db
 		.update(tediEmailAddresses)
 		.set({
-			status: input.status,
+			...(input.status !== undefined ? { status: input.status } : {}),
 			...(input.routingPolicy !== undefined
 				? { routingPolicy: input.routingPolicy }
 				: {}),
@@ -248,6 +248,24 @@ export async function updateTediEmailAddressProvisioning(
 			updatedAt: sql`(CURRENT_TIMESTAMP)`,
 		})
 		.where(eq(tediEmailAddresses.id, input.id))
+		.returning();
+	return rows[0] ?? null;
+}
+
+/** Tenant-scoped delete; returns the removed row or null when no row matched. */
+export async function deleteTediEmailAddress(
+	db: DbClient,
+	input: { id: string; tediId: string; organizationId: string },
+): Promise<TediEmailAddress | null> {
+	const rows = await db
+		.delete(tediEmailAddresses)
+		.where(
+			and(
+				eq(tediEmailAddresses.id, input.id),
+				eq(tediEmailAddresses.tediId, input.tediId),
+				eq(tediEmailAddresses.organizationId, input.organizationId),
+			),
+		)
 		.returning();
 	return rows[0] ?? null;
 }

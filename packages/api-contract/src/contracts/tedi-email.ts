@@ -12,6 +12,7 @@ import { JsonValueSchema } from "../schemas/common";
 import {
 	EmailAuthResultsSchema,
 	EmailIngressDecisionSchema,
+	EmailRoutingPolicySchema,
 	EmailSenderTrustSchema,
 } from "../schemas/tedi-email";
 
@@ -418,15 +419,16 @@ export const tediEmailContract = oc
 				path: "/addresses",
 				summary: "Create or request a tedi email address",
 				description:
-					"Tedis may reserve alias/custom-domain addresses; platform-admin callers can activate provisioned routes.",
+					"A caller with tedis:update creates and activates `{slug}@tedix.tech` (primary) or `{slug}+{tag}@tedix.tech` (plus) for its own tedi; alias and custom-domain addresses are reserved until a platform admin provisions them. Tedi JWT callers always reserve.",
 			})
 			.input(
 				z.object({
 					tediId: z.string().uuid(),
 					address: z.string().email(),
-					kind: EmailAddressKindSchema.exclude(["primary"]),
+					kind: EmailAddressKindSchema,
+					/** Defaults to `active` for a self-serve tedix.tech address, otherwise `reserved`. */
 					status: EmailAddressStatusSchema.optional(),
-					routingPolicy: z.record(z.string(), z.unknown()).optional(),
+					routingPolicy: EmailRoutingPolicySchema.optional(),
 				}),
 			)
 			.output(z.object({ address: EmailAddressSchema })),
@@ -437,17 +439,39 @@ export const tediEmailContract = oc
 				path: "/addresses/{addressId}",
 				summary: "Update a tedi email address",
 				description:
-					"Platform-admin update of address status or routing metadata after provisioning, pausing, or custom-domain validation.",
+					"Tenant update (tedis:update) of status (active|paused) and routing policy for a primary or plus tedix.tech address; alias and custom-domain rows stay platform-admin.",
 			})
 			.input(
 				z.object({
 					tediId: z.string().uuid(),
 					addressId: z.string().uuid(),
-					status: EmailAddressStatusSchema,
-					routingPolicy: z.record(z.string(), z.unknown()).optional(),
+					status: EmailAddressStatusSchema.optional(),
+					routingPolicy: EmailRoutingPolicySchema.nullable().optional(),
 				}),
 			)
 			.output(z.object({ address: EmailAddressSchema })),
+
+		deleteAddress: oc
+			.route({
+				method: "DELETE",
+				path: "/addresses/{addressId}",
+				summary: "Delete a tedi email address",
+				description:
+					"Removes a mailbox address so it stops routing; the same authorization as updateAddress. Stored threads and messages are kept.",
+			})
+			.input(
+				z.object({
+					tediId: z.string().uuid(),
+					addressId: z.string().uuid(),
+				}),
+			)
+			.output(
+				z.object({
+					deleted: z.boolean(),
+					addressId: z.string(),
+					address: z.string(),
+				}),
+			),
 
 		provisionAddress: oc
 			.route({

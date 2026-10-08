@@ -15,12 +15,25 @@ const queries = vi.hoisted(() => ({
 	member: vi.fn(),
 	recentCount: vi.fn(),
 	mark: vi.fn(),
+	validateToken: vi.fn(),
+	createAddress: vi.fn(),
+	addressById: vi.fn(),
+	updateAddressStatus: vi.fn(),
+	deleteAddress: vi.fn(),
 }));
 
+vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	validateToken: queries.validateToken,
+}));
 vi.mock("@tedix/db/queries/tedi-email/addresses", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	getActiveTediEmailAddressByAddress: queries.address,
 	ensurePrimaryTediEmailAddress: queries.ensurePrimary,
+	createTediEmailAddress: queries.createAddress,
+	getTediEmailAddressById: queries.addressById,
+	updateTediEmailAddressStatus: queries.updateAddressStatus,
+	deleteTediEmailAddress: queries.deleteAddress,
 }));
 vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
 	...(await importOriginal<object>()),
@@ -348,5 +361,299 @@ describe("email outcome receipts", () => {
 			code: "NOT_FOUND",
 		});
 		expect(queries.recordOutcome).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("tenant self-serve mailbox addresses", () => {
+	const ORG = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
+	const OTHER_ORG = "7d0a4a7e-2d7f-4e42-9d7f-2d6f6c3f1a11";
+	const TEDI = "d3b0f0a2-51f6-4a7e-9a36-2a8f1f0b1f11";
+	const ADDRESS_ID = "53146845-24c0-4e89-b681-9309a98156a3";
+
+	function orgAdmin(organizationId = ORG, permissions = ["tedis:update"]) {
+		return createRouterClient(tediEmailContractRouter, {
+			context: {
+				authType: "user",
+				db: {} as BaseContext["db"],
+				env: { ENVIRONMENT: "test" } as CloudflareEnv,
+				headers: new Headers(),
+				organizationId,
+				url: new URL("https://api.tedix.test/rpc/tediEmail"),
+				user: {
+					aud: "test",
+					dct: "tenant-1",
+					exp: 2,
+					iat: 1,
+					iss: "https://auth.tedix.test",
+					permissions,
+					roles: [],
+					sub: "user-1",
+				},
+			} as BaseContext,
+		});
+	}
+
+	/** A real tedi JWT strategy run: withAuth resolves authType "tedi" from the token. */
+	function tediJwt() {
+		queries.validateToken.mockResolvedValue({
+			aud: "test",
+			exp: 2,
+			iat: 1,
+			iss: "https://auth.tedix.test",
+			sub: "key-1",
+			entityType: "tedi",
+			tediId: TEDI,
+			descopeUserId: "descope-user-1",
+			tedixRuntimeApiScopes: ["mcp:messaging.write"],
+		});
+		return createRouterClient(tediEmailContractRouter, {
+			context: {
+				db: {} as BaseContext["db"],
+				env: { ENVIRONMENT: "test" } as CloudflareEnv,
+				headers: new Headers({ Authorization: "Bearer tedi-token" }),
+				organizationId: ORG,
+				url: new URL("https://api.tedix.test/rpc/tediEmail"),
+			} as BaseContext,
+		});
+	}
+
+	beforeEach(() => {
+		vi.resetAllMocks();
+		queries.tedi.mockResolvedValue({
+			id: TEDI,
+			organizationId: ORG,
+			slug: "worker",
+		});
+		queries.createAddress.mockImplementation(async (_db, input) => ({
+			id: ADDRESS_ID,
+			...input,
+			localPart: input.address.split("@")[0],
+			domain: input.address.split("@")[1],
+		}));
+		queries.addressById.mockResolvedValue({
+			id: ADDRESS_ID,
+			organizationId: ORG,
+			tediId: TEDI,
+			address: "worker@tedix.tech",
+			localPart: "worker",
+			domain: "tedix.tech",
+			kind: "primary",
+			status: "active",
+			routingPolicy: null,
+		});
+		queries.updateAddressStatus.mockImplementation(async (_db, input) => ({
+			id: input.id,
+			organizationId: input.organizationId,
+			tediId: input.tediId,
+			address: "worker@tedix.tech",
+			localPart: "worker",
+			domain: "tedix.tech",
+			kind: "primary",
+			status: input.status ?? "active",
+			routingPolicy: input.routingPolicy ?? null,
+		}));
+		queries.deleteAddress.mockResolvedValue({
+			id: ADDRESS_ID,
+			address: "worker@tedix.tech",
+		});
+	});
+
+	it("lets an org admin create and activate its own slug address", async () => {
+		const { address } = await orgAdmin().createAddress({
+			tediId: TEDI,
+			address: "Worker@Tedix.tech",
+			kind: "primary",
+		});
+		expect(address).toMatchObject({
+			address: "worker@tedix.tech",
+			status: "active",
+			kind: "primary",
+		});
+		expect(queries.createAddress).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ status: "active", organizationId: ORG }),
+		);
+
+		const plus = await orgAdmin().createAddress({
+			tediId: TEDI,
+			address: "worker+billing@tedix.tech",
+			kind: "plus",
+		});
+		expect(plus.address).toMatchObject({ status: "active", kind: "plus" });
+	});
+
+	it("rejects a local part that is not the tedi slug, a bad plus tag, or a foreign domain", async () => {
+		for (const [address, kind] of [
+			["other@tedix.tech", "primary"],
+			["worker+Bad_Tag@tedix.tech", "plus"],
+			["other+tag@tedix.tech", "plus"],
+			["worker@example.com", "primary"],
+		] as const) {
+			await expect(
+				orgAdmin().createAddress({ tediId: TEDI, address, kind }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		}
+		expect(queries.createAddress).not.toHaveBeenCalled();
+	});
+
+	it("keeps custom-domain activation behind platform authority", async () => {
+		await expect(
+			orgAdmin().createAddress({
+				tediId: TEDI,
+				address: "worker@example.com",
+				kind: "custom_domain",
+				status: "active",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+		const { address } = await orgAdmin().createAddress({
+			tediId: TEDI,
+			address: "worker@example.com",
+			kind: "custom_domain",
+		});
+		expect(address.status).toBe("reserved");
+
+		queries.addressById.mockResolvedValue({
+			id: ADDRESS_ID,
+			organizationId: ORG,
+			tediId: TEDI,
+			address: "worker@example.com",
+			localPart: "worker",
+			domain: "example.com",
+			kind: "custom_domain",
+			status: "reserved",
+			routingPolicy: null,
+		});
+		await expect(
+			orgAdmin().updateAddress({
+				tediId: TEDI,
+				addressId: ADDRESS_ID,
+				status: "active",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			orgAdmin().deleteAddress({ tediId: TEDI, addressId: ADDRESS_ID }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(queries.updateAddressStatus).not.toHaveBeenCalled();
+		expect(queries.deleteAddress).not.toHaveBeenCalled();
+	});
+
+	it("keeps a tedi JWT on reserved and out of mailbox administration", async () => {
+		const { address } = await tediJwt().createAddress({
+			tediId: TEDI,
+			address: "worker@tedix.tech",
+			kind: "primary",
+			status: "active",
+		});
+		expect(address.status).toBe("reserved");
+		await expect(
+			tediJwt().updateAddress({
+				tediId: TEDI,
+				addressId: ADDRESS_ID,
+				status: "paused",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			tediJwt().deleteAddress({ tediId: TEDI, addressId: ADDRESS_ID }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("validates and lowercases the routing policy", async () => {
+		await expect(
+			orgAdmin().updateAddress({
+				tediId: TEDI,
+				addressId: ADDRESS_ID,
+				routingPolicy: { allowedSenders: ["not-an-email"] },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			orgAdmin().updateAddress({
+				tediId: TEDI,
+				addressId: ADDRESS_ID,
+				routingPolicy: { spamThreshold: 99 },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			orgAdmin().updateAddress({
+				tediId: TEDI,
+				addressId: ADDRESS_ID,
+				routingPolicy: { unknownKey: true } as never,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+		const { address } = await orgAdmin().updateAddress({
+			tediId: TEDI,
+			addressId: ADDRESS_ID,
+			status: "paused",
+			routingPolicy: {
+				allowedSenders: [" Alice@Example.com ", "@Partner.example.com"],
+				untrustedSenders: "quarantine",
+				spamThreshold: 3,
+			},
+		});
+		expect(address.status).toBe("paused");
+		expect(address.routingPolicy).toEqual({
+			allowedSenders: ["alice@example.com", "@partner.example.com"],
+			untrustedSenders: "quarantine",
+			spamThreshold: 3,
+		});
+	});
+
+	it("rejects a tenant moving an address back to reserved", async () => {
+		await expect(
+			orgAdmin().updateAddress({
+				tediId: TEDI,
+				addressId: ADDRESS_ID,
+				status: "reserved",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("deletes an own shared-domain address", async () => {
+		await expect(
+			orgAdmin().deleteAddress({ tediId: TEDI, addressId: ADDRESS_ID }),
+		).resolves.toEqual({
+			deleted: true,
+			addressId: ADDRESS_ID,
+			address: "worker@tedix.tech",
+		});
+		expect(queries.deleteAddress).toHaveBeenCalledWith(expect.anything(), {
+			id: ADDRESS_ID,
+			tediId: TEDI,
+			organizationId: ORG,
+		});
+	});
+
+	it("denies a caller from another organization and one without tedis:update", async () => {
+		for (const call of [
+			() =>
+				orgAdmin(OTHER_ORG).createAddress({
+					tediId: TEDI,
+					address: "worker@tedix.tech",
+					kind: "primary",
+				}),
+			() =>
+				orgAdmin(OTHER_ORG).updateAddress({
+					tediId: TEDI,
+					addressId: ADDRESS_ID,
+					status: "active",
+				}),
+			() =>
+				orgAdmin(OTHER_ORG).deleteAddress({
+					tediId: TEDI,
+					addressId: ADDRESS_ID,
+				}),
+			() =>
+				orgAdmin(ORG, ["tedis:read"]).createAddress({
+					tediId: TEDI,
+					address: "worker@tedix.tech",
+					kind: "primary",
+				}),
+		]) {
+			await expect(call()).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+		expect(queries.createAddress).not.toHaveBeenCalled();
+		expect(queries.updateAddressStatus).not.toHaveBeenCalled();
+		expect(queries.deleteAddress).not.toHaveBeenCalled();
 	});
 });
