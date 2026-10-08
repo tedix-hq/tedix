@@ -1,0 +1,10 @@
+{
+	"ladder": {
+		"version": 1,
+		"promotion": { "stood": 25, "minStandingRate": 0.9 },
+		"demotion": { "windowDays": 7, "minDecided": 5, "belowStandingRate": 0.7 },
+		"maximumStage": "specialist",
+		"autoSettleMinutes": 60
+	},
+	"initialRole": { "key": "reply_drafter", "name": "Reply drafter" }
+}

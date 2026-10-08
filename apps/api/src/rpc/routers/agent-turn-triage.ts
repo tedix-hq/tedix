@@ -83,6 +83,7 @@ import {
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
+import { readReplyDraftLevels } from "../../services/reply-draft-career";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
 import { runDistillModel } from "../../services/lesson-distiller";
@@ -1334,7 +1335,17 @@ const getReplyDraftLeaderboardProcedure =
 			since: input.since,
 			todaySince: input.todaySince,
 		});
-		return { tedis };
+		const levels = await readReplyDraftLevels(
+			context.db,
+			orgId,
+			tedis.map((row) => row.tediId),
+		);
+		return {
+			tedis: tedis.map((row) => ({
+				...row,
+				level: levels.get(row.tediId) ?? null,
+			})),
+		};
 	});
 
 /** Approved team lessons for a local agent session; org-wide facts only. */

@@ -37,6 +37,7 @@ async function trackPlatformCronPath(
  *   schedules, always-on keepalive, orphan-run sweep, work-attempt lease
  *   sweep, work approval redrive
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
+ *   reply-draft career ladder,
  *   workstation compute metering
  * - 0 * * * * (hourly) → MCP endpoint freshness scan (bounded 200-row
  *   workflow), site reconciliation, external-agent MCP client reaper, plus two
@@ -194,6 +195,14 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				event,
 				"workstation-compute-metering",
 				() => runWorkstationComputeMeteringTick(env),
+			);
+			// Settled reply drafts become competency observations and move
+			// career stages by the reply-drafting ladder (titles, never authority).
+			const { createDbClient } = await import("@tedix/db/client");
+			const { settleReplyDraftCareers } =
+				await import("../services/reply-draft-career");
+			await trackPlatformCronPath(env, event, "reply-draft-career", () =>
+				settleReplyDraftCareers(createDbClient(env.DB)),
 			);
 		}
 

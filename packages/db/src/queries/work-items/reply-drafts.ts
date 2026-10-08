@@ -271,16 +271,28 @@ function replyClassLists() {
 	};
 }
 
+/** Narrows {@link draftOutcomes}; an omitted field does not filter. */
+interface DraftOutcomeScope {
+	orgId?: string;
+	targetUserId?: string;
+	since?: string;
+}
+
 /**
  * One row per draft for the target user's questions created at or after
  * `since`: its outcome (the earliest citing answer's `draftOutcome`), delivery,
  * auto follow-up `replyClass`, whether the agent declined it, its drafter and
  * how long after the question it landed (`reply_seconds`).
  */
-function draftOutcomes(p: GetReplyDraftAcceptanceParams) {
+function draftOutcomes(p: DraftOutcomeScope) {
 	const since = p.since ?? null;
+	const orgId = p.orgId ?? null;
+	const targetUserId = p.targetUserId ?? null;
 	return sql`
 			SELECT
+				d.id AS draft_id,
+				d.org_id AS org_id,
+				i.target_id AS target_id,
 				d.turn_type AS turn_type,
 				d.drafter_id AS drafter_id,
 				d.created_at AS created_at,
@@ -291,7 +303,7 @@ function draftOutcomes(p: GetReplyDraftAcceptanceParams) {
 					WHERE r.org_id = d.org_id
 						AND r.interaction_id = d.interaction_id
 						AND r.responder_type = 'user'
-						AND r.responder_id = ${p.targetUserId}
+						AND r.responder_id = i.target_id
 						AND json_extract(r.metadata, '$.draftId') = d.id
 					ORDER BY r.responded_at, r.id
 					LIMIT 1
@@ -302,7 +314,7 @@ function draftOutcomes(p: GetReplyDraftAcceptanceParams) {
 					FROM work_interaction_responses u
 					WHERE u.org_id = d.org_id
 						AND u.responder_type = 'user'
-						AND u.responder_id = ${p.targetUserId}
+						AND u.responder_id = i.target_id
 						AND json_extract(u.metadata, '$.source') = ${USER_REPLY_SOURCE}
 						AND u.interaction_id IN (
 							d.interaction_id,
@@ -333,9 +345,9 @@ function draftOutcomes(p: GetReplyDraftAcceptanceParams) {
 				) ELSE 0 END AS rejected
 			FROM work_interaction_reply_drafts d
 			JOIN work_interactions i ON i.org_id = d.org_id AND i.id = d.interaction_id
-			WHERE d.org_id = ${p.orgId}
+			WHERE (${orgId} IS NULL OR d.org_id = ${orgId})
 				AND i.target_type = 'user'
-				AND i.target_id = ${p.targetUserId}
+				AND (${targetUserId} IS NULL OR i.target_id = ${targetUserId})
 				AND (${since} IS NULL OR d.created_at >= ${since})
 	`;
 }
@@ -491,5 +503,97 @@ ${draftOutcomes(p)}
 		avatar: row.tedi_avatar,
 		week: score(row, "w"),
 		today: score(row, "t"),
+	}));
+}
+
+/** The `client_observation_id` of a reply draft's competency observation. */
+export function replyDraftObservationKey(draftId: string): string {
+	return `reply-draft:${draftId}`;
+}
+
+export interface ListUnrecordedReplyDraftOutcomesParams {
+	/** Drafts created at or after this instant. */
+	since: string;
+	/** An auto draft with no override created at or before this instant stood. */
+	settledBefore: string;
+	limit: number;
+}
+
+export interface SettledReplyDraftOutcome {
+	orgId: string;
+	draftId: string;
+	drafterId: string;
+	/** The human whose question it answered and who judged it. */
+	targetUserId: string;
+	createdAt: string;
+	delivery: ReplyDraftDelivery;
+	/** By the rules of {@link getReplyDraftLeaderboard}. */
+	verdict: "stood" | "corrected";
+}
+
+type SettledRow = {
+	org_id: string;
+	draft_id: string;
+	drafter_id: string;
+	target_id: string;
+	created_at: string;
+	delivery: ReplyDraftDelivery;
+	verdict: "stood" | "corrected";
+};
+
+/**
+ * Settled reply drafts, across organizations, that have no competency
+ * observation yet, oldest first, by the rules of
+ * {@link getReplyDraftLeaderboard}: a review draft settles when its human
+ * answers with it (accepted stood; edited or replaced was corrected). An auto
+ * draft was corrected when overridden, and stood once followed without
+ * override or, with no follow-up, once created at or before `settledBefore`.
+ */
+export async function listUnrecordedReplyDraftOutcomes(
+	db: DbQueryClient,
+	p: ListUnrecordedReplyDraftOutcomesParams,
+): Promise<SettledReplyDraftOutcome[]> {
+	const { followClasses, neutralClasses } = replyClassLists();
+	const overridden = sql`(o.rejected = 1 OR (o.followup IS NOT NULL AND o.followup NOT IN (${followClasses}) AND o.followup NOT IN (${neutralClasses})))`;
+	const rows = await db.all<SettledRow>(sql`
+		SELECT * FROM (
+			SELECT
+				o.org_id AS org_id,
+				o.draft_id AS draft_id,
+				o.drafter_id AS drafter_id,
+				o.target_id AS target_id,
+				o.created_at AS created_at,
+				o.delivery AS delivery,
+				CASE
+					WHEN o.delivery = 'auto' AND ${overridden} THEN 'corrected'
+					WHEN o.delivery = 'auto' AND (o.followup IS NOT NULL OR o.created_at <= ${p.settledBefore}) THEN 'stood'
+					WHEN o.delivery IS NOT 'auto' AND o.outcome = 'accepted' THEN 'stood'
+					WHEN o.delivery IS NOT 'auto' AND o.outcome IN ('edited', 'replaced') THEN 'corrected'
+				END AS verdict
+			FROM (
+${draftOutcomes({ since: p.since })}
+			) o
+			WHERE EXISTS (
+				SELECT 1 FROM tedis t
+				WHERE t.id = o.drafter_id AND t.organization_id = o.org_id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM competency_observations c
+				WHERE c.organization_id = o.org_id
+					AND c.client_observation_id = 'reply-draft:' || o.draft_id
+			)
+		) settled
+		WHERE settled.verdict IS NOT NULL
+		ORDER BY settled.created_at, settled.draft_id
+		LIMIT ${p.limit}
+	`);
+	return rows.map((row) => ({
+		orgId: row.org_id,
+		draftId: row.draft_id,
+		drafterId: row.drafter_id,
+		targetUserId: row.target_id,
+		createdAt: row.created_at,
+		delivery: row.delivery,
+		verdict: row.verdict,
 	}));
 }

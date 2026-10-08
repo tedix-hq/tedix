@@ -3769,6 +3769,15 @@ const handlers: Record<string, (input: never) => unknown> = {
 					avatar: null,
 					week: score(14, 9, 11, 2, 38),
 					today: score(3, 2, 3, 0, 31),
+					level: {
+						stage: "apprentice" as const,
+						nextStage: "operator" as const,
+						stood: 12,
+						corrected: 1,
+						target: 25,
+						minStandingRate: 0.9,
+						streakDays: 4,
+					},
 				},
 				{
 					tediId: TEDI_MILES,
@@ -3776,6 +3785,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 					avatar: null,
 					week: score(6, 2, 4, 1, 52),
 					today: score(1, 0, 0, 1, 64),
+					level: null,
 				},
 			],
 		};

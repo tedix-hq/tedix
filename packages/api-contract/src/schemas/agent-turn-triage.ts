@@ -12,6 +12,7 @@
  */
 
 import * as z from "zod";
+import { TediCareerStageSchema } from "./earned-delegation";
 
 export const AGENT_TURN_TRIAGE_MODELS = [
 	"@cf/cloudflare/clef-flash",
@@ -590,6 +591,37 @@ const AgentReplyDraftScoreSchema = z.object({
 		.describe("Mean seconds from the question to the draft"),
 });
 
+const AgentReplyDraftLevelSchema = z.object({
+	stage: TediCareerStageSchema,
+	nextStage: TediCareerStageSchema.nullable().describe(
+		"The stage the ladder promotes to next; null at its top",
+	),
+	stood: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Replies that stood since the current stage began"),
+	corrected: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Replies corrected since the current stage began"),
+	target: z
+		.number()
+		.int()
+		.min(0)
+		.nullable()
+		.describe("Replies that must stand to reach nextStage"),
+	minStandingRate: z.number().min(0).max(1),
+	streakDays: z
+		.number()
+		.int()
+		.min(0)
+		.describe(
+			"Consecutive UTC days, ending today or yesterday, with a reply that stood",
+		),
+});
+
 export const GetAgentReplyDraftLeaderboardResultSchema = z.object({
 	tedis: z.array(
 		z.object({
@@ -598,6 +630,9 @@ export const GetAgentReplyDraftLeaderboardResultSchema = z.object({
 			avatar: z.string().nullable().describe("URL or emoji"),
 			week: AgentReplyDraftScoreSchema,
 			today: AgentReplyDraftScoreSchema,
+			level: AgentReplyDraftLevelSchema.nullable().describe(
+				"Career stage earned from replies that stood; null before the tedi has one",
+			),
 		}),
 	),
 });
