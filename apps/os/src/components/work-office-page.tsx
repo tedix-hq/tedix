@@ -281,6 +281,7 @@ function Time({ at }: { at: string }) {
 function Knocks({ since }: { since: string }) {
 	const { knocks, rows: today } = useTodayKnocks(since);
 	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
+	const urgent = useQuery(workUrgentInteractionsQueryOptions());
 	const rows = today.slice(0, KNOCKS_SHOWN);
 	const details = useQueries({
 		queries: rows.map((row) => ({
@@ -325,8 +326,25 @@ function Knocks({ since }: { since: string }) {
 			arriving: !firstPaint && !seen.current?.has(row.request.id),
 		};
 	});
-	const forYou = items.filter(
+	// Every open important knock reaches "For you", not only the recent ones.
+	const recentForYou = items.filter(
 		(item) => item.outcome.lane === "you" && item.open,
+	);
+	const shown = new Set(recentForYou.map((item) => item.row.request.id));
+	const forYou = [
+		...(urgent.data?.data ?? [])
+			.filter((row) => !shown.has(row.request.id))
+			.map((row) => ({
+				row,
+				open: true,
+				urgent: true,
+				outcome: { lane: "you" as Lane, text: "Important, brought to you" },
+				drafter: null,
+				arriving: false,
+			})),
+		...recentForYou,
+	].sort((a, b) =>
+		b.row.request.requestedAt.localeCompare(a.row.request.requestedAt),
 	);
 	const answered = items.filter((item) => item.outcome.lane === "answered");
 	const byTedi = new Map<string, typeof answered>();
