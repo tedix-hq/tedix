@@ -72,7 +72,6 @@ import {
 	detectSourceFromFilename,
 	isCatalogSyncDeployReset,
 	planCatalogFileBatchOffsets,
-	planCatalogVectorPageOffsets,
 } from "./catalog-sync-files";
 
 // ============================================================================
@@ -1254,12 +1253,19 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				vectorErrors.push(message);
 			}
 
+			// Pages follow an id cursor, not an offset: apps that change status mid
+			// run must not shift later pages and end the reconciliation early.
+			// Step names keep the former offset form so a native replay can still
+			// restart from the earliest failed `vector-index-sync-<n>` step.
+			let vectorReachedEnd = false;
 			if (vectorReady) {
-				const vectorOffsets = planCatalogVectorPageOffsets(
-					changelog.after.enabledCount,
-					CATALOG_VECTOR_PAGE_SIZE,
-				);
-				for (const offset of vectorOffsets) {
+				const maxPages =
+					Math.ceil(changelog.after.enabledCount / CATALOG_VECTOR_PAGE_SIZE) *
+						2 +
+					10;
+				let afterId: string | undefined;
+				for (let page = 0; page < maxPages; page++) {
+					const offset = page * CATALOG_VECTOR_PAGE_SIZE;
 					try {
 						const result = (await step.do(
 							`vector-index-sync-${offset}`,
@@ -1272,11 +1278,17 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 									this.env,
 								);
 								if (!vectorClient) {
-									return { vectorSynced: 0, vectorFailed: 0, skipped: true };
+									return {
+										vectorSynced: 0,
+										vectorFailed: 0,
+										skipped: true,
+										count: 0,
+										lastId: null,
+									};
 								}
 								const apps = await listEnabledCatalogAppsForVectorSync(db, {
 									limit: CATALOG_VECTOR_PAGE_SIZE,
-									offset,
+									afterId,
 								});
 								const vectorApps: CatalogAppVectorInput[] = apps.map((app) => ({
 									id: app.id,
@@ -1312,28 +1324,45 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 									vectorSynced: result.upserted,
 									vectorFailed: result.failed,
 									skipped: false,
+									count: apps.length,
+									lastId: apps.at(-1)?.id ?? null,
 								};
 							},
 						)) as {
 							vectorSynced: number;
 							vectorFailed: number;
 							skipped: boolean;
+							count: number;
+							lastId: string | null;
 						};
 						vectorSynced += result.vectorSynced;
 						vectorFailed += result.vectorFailed;
 						vectorSkipped ||= result.skipped;
+						if (result.skipped) break;
+						if (typeof result.count !== "number") {
+							// A run that started on offset paging replays its cached pages
+							// without a cursor; it cannot prove it reached the end.
+							vectorErrors.push(
+								`offset ${offset}: cached page has no cursor; rerun the refresh`,
+							);
+							break;
+						}
+						if (result.count < CATALOG_VECTOR_PAGE_SIZE || !result.lastId) {
+							vectorReachedEnd = true;
+							break;
+						}
+						afterId = result.lastId;
 					} catch (error) {
+						// Without the page's last id the cursor cannot advance; stop
+						// and report the reconciliation incomplete.
 						const message =
 							error instanceof Error ? error.message : String(error);
 						console.error(
 							`[App Catalog Sync] Vector page ${offset} failed after retries`,
 							error,
 						);
-						vectorFailed += Math.min(
-							CATALOG_VECTOR_PAGE_SIZE,
-							changelog.after.enabledCount - offset,
-						);
 						vectorErrors.push(`offset ${offset}: ${message}`);
+						break;
 					}
 				}
 			}
@@ -1344,8 +1373,9 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				skipped: vectorSkipped,
 				complete:
 					!vectorSkipped &&
+					vectorReachedEnd &&
 					vectorFailed === 0 &&
-					vectorSynced === changelog.after.enabledCount,
+					vectorErrors.length === 0,
 				errors: vectorErrors.slice(0, 10),
 			};
 			const success = !searchOnly || search.complete;

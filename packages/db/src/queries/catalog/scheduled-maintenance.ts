@@ -3,7 +3,7 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { appCatalog } from "../../schema/catalog";
 import { chunkForBoundParams } from "../../utils/batch";
 import { getAffectedRows } from "../../utils/d1-result";
@@ -195,7 +195,7 @@ export async function getCatalogSnapshotStats(
  */
 export async function listEnabledCatalogAppsForVectorSync(
 	db: Database,
-	options: { limit: number; offset: number },
+	options: { limit: number; afterId?: string },
 ) {
 	return db
 		.select({
@@ -218,8 +218,14 @@ export async function listEnabledCatalogAppsForVectorSync(
 			hasInteractive: appCatalog.hasInteractive,
 		})
 		.from(appCatalog)
-		.where(eq(appCatalog.status, "ENABLED"))
+		.where(
+			options.afterId
+				? and(
+						eq(appCatalog.status, "ENABLED"),
+						gt(appCatalog.id, options.afterId),
+					)
+				: eq(appCatalog.status, "ENABLED"),
+		)
 		.orderBy(asc(appCatalog.id))
-		.limit(options.limit)
-		.offset(options.offset);
+		.limit(options.limit);
 }

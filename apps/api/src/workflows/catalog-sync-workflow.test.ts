@@ -104,6 +104,42 @@ describe("catalog search-only refresh", () => {
 			expect.objectContaining({ status: "failed" }),
 		);
 	});
+	it("follows an id cursor to the end even when the enabled count changes", async () => {
+		const fullPage = Array.from({ length: 100 }, (_, index) => ({
+			id: `app-${String(index).padStart(3, "0")}`,
+			name: "App",
+			connectorType: "MCP",
+		}));
+		vi.mocked(listEnabledCatalogAppsForVectorSync)
+			.mockResolvedValueOnce(
+				fullPage as Awaited<
+					ReturnType<typeof listEnabledCatalogAppsForVectorSync>
+				>,
+			)
+			.mockResolvedValueOnce([
+				{ id: "app-100", name: "App", connectorType: "MCP" },
+			] as Awaited<ReturnType<typeof listEnabledCatalogAppsForVectorSync>>);
+		vi.mocked(bulkUpsertCatalogApps).mockImplementation(
+			async (_client, apps) => ({
+				upserted: apps.length,
+				failed: 0,
+			}),
+		);
+		const { output, steps } = await refresh();
+		expect(output).toMatchObject({
+			success: true,
+			search: { synced: 101, complete: true },
+		});
+		expect(
+			vi.mocked(listEnabledCatalogAppsForVectorSync).mock.calls[1]?.[1],
+		).toEqual({
+			limit: 100,
+			afterId: "app-099",
+		});
+		expect(
+			steps.filter((name) => name.startsWith("vector-index-sync-")),
+		).toEqual(["vector-index-sync-0", "vector-index-sync-100"]);
+	});
 	it("does not report an unconfigured index as a successful refresh", async () => {
 		vi.mocked(getOrCreateCatalogVectorClient).mockResolvedValue(null);
 		const { output } = await refresh();
