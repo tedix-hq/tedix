@@ -30,8 +30,30 @@ While a version starts with `0.`:
 
 ## Cadence
 
-Release when a user-visible change is ready, not on every commit. Batch small
-fixes into one patch release.
+Release the CLI at most once a day. Fixes and features wait in `.changeset/`
+and ship together. Release sooner only for a broken install or update, a
+security fix, or data loss.
+
+A commit that changes the CLI never edits its version, its `CHANGELOG.md`, or
+tags a release. It records the change instead:
+
+```sh
+bun changeset   # pick @tedix/cli, patch or minor, one plain-language line
+```
+
+Commit the generated `.changeset/*.md` file with the change. Internal changes
+(tests, refactors) need none.
+
+## Cutting a CLI release
+
+A maintainer, deliberately, not as part of a fix:
+
+1. `bun changeset status` lists what is pending.
+2. `bun changeset version` bumps `packages/cli/package.json` and moves every
+   pending note into `packages/cli/CHANGELOG.md`. Edit the new entry into
+   plain user language and add the date to its heading.
+3. Commit as `chore(cli): release X.Y.Z`, push, tag `cli-vX.Y.Z` on that
+   commit, and push the tag.
 
 ## Channels
 
@@ -41,9 +63,9 @@ only.
 
 ## Release notes
 
-Each CLI release gets hand-written notes in
+Each CLI release gets notes in
 [packages/cli/CHANGELOG.md](packages/cli/CHANGELOG.md), in plain user
-language. A GitHub Release is created only for a real release, with the same
+language, collected from its changesets. A GitHub Release is created only for a real release, with the same
 notes, never for an intermediate build.
 
 ## Publishing the plugin

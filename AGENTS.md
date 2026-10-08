@@ -83,6 +83,10 @@ Maintainers commit directly to `main` after validation. Pull requests are
 disabled; agents must not create them. Proposals start as issues. See
 `CONTRIBUTING.md`. Never invent a Work Item or agent identity.
 
+A user-visible CLI change adds a changeset (`bun changeset`) in the same
+commit. Never bump the CLI version, edit its `CHANGELOG.md`, or tag a release
+as part of a change; releases are batched, at most daily (`RELEASING.md`).
+
 ## Deployment boundary
 
 This repository owns product source and example configuration, not the live
