@@ -6,6 +6,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -124,6 +125,12 @@ function placeholderRules(): string {
 }
 
 describe("public secret scan", () => {
+	test("a tracked symlink to a directory is skipped, its target still scanned", () => {
+		const root = fixture({ ".agents/skills/x/SKILL.md": "# Skill\n" });
+		symlinkSync(".agents/skills", resolve(root, ".claude-skills"));
+		spawnSync("git", ["add", "--all"], { cwd: root, env: detachedGitEnv() });
+		expect(scanTrackedFiles(root)).toEqual([]);
+	});
 	test("NUL-containing source cannot bypass private content rules", () => {
 		const root = fixture({
 			"src/example.ts": "export const tenant = 'globex\0corp';\n",
