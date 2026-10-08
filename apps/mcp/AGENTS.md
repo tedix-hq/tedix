@@ -34,12 +34,7 @@ Every app tool is a config-driven `app_tools` row executed by the universal
 code/catalog). The `catalog` transport runs configured `catalog/search` and
 `catalog/describe` through the same authorized catalog projection with fresh
 request context; it does not create a WorkerLoader. Native RPC descriptors
-remain subject to their endpoint scope checks. Aggregate Connect lists only positively
-opted-in native RPC/catalog rows from its current verified organization mounts.
-`get_info.nativeOrganizations` describes each authorized gateway catalog pair;
-the singular context remains unavailable until an organization is selected. Each
-call independently verifies the mount and uses a fresh organization catalog view.
-Descriptor eligibility never grants input-specific approval or Work admission. **No per-tool handler files.**
+remain subject to their endpoint scope checks. **No per-tool handler files.**
 The few code-built platform tools under
 `src/mcp/tools/` (widget authoring) are the deliberate exceptions,
 not a pattern. `tool_id` names are verb-first snake_case (root rule "MCP Tool
