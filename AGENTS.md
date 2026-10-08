@@ -42,6 +42,16 @@ The pre-push hook selects relevant checks. Do not weaken a failing check to
 make it pass. Report exactly what ran, and keep passing tests, a recorded
 outcome, and a deployment distinct.
 
+## Worktrees and closeout
+
+Work in a worktree, never in a checkout another session is using. Put manual
+worktrees under `.worktrees/` (ignored); harness-managed ones may live
+elsewhere. Run `git worktree list` before creating one and reuse your own.
+Once your change is pushed or abandoned, remove your worktree and scratch
+files; never remove one a live session is in. `bun run worktree:gc` lists every
+worktree of this repo and `--apply` removes only merged, clean, idle ones. The
+`worktree-closeout` skill in `.agents/skills/` is the full procedure.
+
 ## Hard Invariants
 
 Breaking these is expensive and usually invisible locally. Do not:
