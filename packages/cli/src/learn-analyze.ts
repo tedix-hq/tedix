@@ -155,6 +155,16 @@ export function errorLine(output: string): string {
 /** Exit 1 from a search or comparison means "no match", not an error. */
 const NO_MATCH = /^(?:rg|grep|egrep|fgrep|test|diff|cmp|\[)\b/;
 
+/** A pipeline exits with its last stage: `ls | grep x` finding nothing is no error. */
+export function searchCommand(command: string): boolean {
+	const last = command
+		.split(/&&|\|\||;|\n|\|/)
+		.map((stage) => stage.trim().replace(/^(?:\w+=\S*\s+)+/, ""))
+		.filter(Boolean)
+		.at(-1);
+	return NO_MATCH.test(commandHead(command)) || NO_MATCH.test(last ?? "");
+}
+
 function toolEvent(
 	name: string,
 	head: string,
@@ -163,10 +173,11 @@ function toolEvent(
 	start: unknown,
 	end: unknown,
 	exit?: number,
+	command = head,
 ): ToolEvent {
 	const begun = typeof start === "string" ? Date.parse(start) : Number.NaN;
 	const ended = typeof end === "string" ? Date.parse(end) : Number.NaN;
-	const real = failed && !(exit === 1 && NO_MATCH.test(head));
+	const real = failed && !(exit === 1 && searchCommand(command));
 	const error = real ? errorLine(output) : "";
 	return {
 		head,
@@ -198,7 +209,10 @@ export function claudeSignals(rows: Json[]): SessionSignals | null {
 		asks: [],
 		tools: [],
 	};
-	const uses = new Map<string, { name: string; head: string; at: unknown }>();
+	const uses = new Map<
+		string,
+		{ name: string; head: string; command?: string; at: unknown }
+	>();
 	for (const row of rows) {
 		if (row.isSidechain) continue;
 		const message = row.message;
@@ -213,6 +227,7 @@ export function claudeSignals(rows: Json[]): SessionSignals | null {
 						name === "Bash" && typeof command === "string"
 							? commandHead(command)
 							: toolName(name),
+					command: typeof command === "string" ? command : undefined,
 					at: row.timestamp,
 				});
 			}
@@ -241,6 +256,7 @@ export function claudeSignals(rows: Json[]): SessionSignals | null {
 						use.at,
 						row.timestamp,
 						exit === undefined ? undefined : Number(exit),
+						use.command,
 					),
 				);
 			}
@@ -322,7 +338,8 @@ export function codexEvents(
 	start: unknown,
 	end: unknown,
 ): ToolEvent[] {
-	const commands = codexCommands(name, input).map(commandHead);
+	const raw = codexCommands(name, input);
+	const commands = raw.map(commandHead);
 	const fallback =
 		commands.length === 1
 			? commands[0]!
@@ -335,7 +352,18 @@ export function codexEvents(
 		text: string,
 		exit?: number,
 		timed = true,
-	) => toolEvent(timed ? name : "wait", head, failed, text, start, end, exit);
+		command = raw.length === 1 ? raw[0] : undefined,
+	) =>
+		toolEvent(
+			timed ? name : "wait",
+			head,
+			failed,
+			text,
+			start,
+			end,
+			exit,
+			command ?? head,
+		);
 	if (name === "exec" && output.startsWith("Script failed")) {
 		const marker = output.indexOf("Script error:");
 		const error = marker < 0 ? output : output.slice(marker + 13);
@@ -352,13 +380,15 @@ export function codexEvents(
 	const results = execResults(output);
 	if (!results.length)
 		return [event(fallback, /^collab \w+ failed/.test(output), output)];
+	const aligned = results.length === commands.length;
 	return results.map((result, i) =>
 		event(
-			results.length === commands.length ? commands[i]! : fallback,
+			aligned ? commands[i]! : fallback,
 			result.exit !== 0,
 			result.output,
 			result.exit,
 			i === 0,
+			aligned ? raw[i] : undefined,
 		),
 	);
 }

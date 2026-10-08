@@ -46,6 +46,10 @@ The pre-push hook selects relevant checks. Do not weaken a failing check to
 make it pass. Report exactly what ran, and keep passing tests, a recorded
 outcome, and a deployment distinct.
 
+Before committing, run `bun run format <changed files>`; unformatted files are
+the most common pre-push failure. When the gates pass but the remote rejects
+the push because main moved, rebase onto `origin/main` and push again.
+
 ## Worktrees and closeout
 
 Work in a worktree, never in a checkout another session is using. Put manual
