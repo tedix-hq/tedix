@@ -41,6 +41,7 @@ import {
 	getToolTestsRoute,
 	listRoute,
 	mergeCatalogAppsProcedure,
+	reassignCatalogPlainSlugProcedure,
 	reconcileCatalogAppProcedure,
 	syncClaudeRegistryCatalog,
 	updateCatalogAppProcedure,
@@ -122,6 +123,7 @@ export const catalogContractRouter = catalogOs.router({
 	updateStoreListing: updateCatalogStoreListingProcedure,
 	deleteApp: deleteCatalogAppProcedure,
 	mergeApps: mergeCatalogAppsProcedure,
+	reassignPlainSlug: reassignCatalogPlainSlugProcedure,
 });
 
 // =============================================================================

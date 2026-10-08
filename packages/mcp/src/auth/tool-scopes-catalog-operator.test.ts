@@ -103,6 +103,12 @@ describe("catalog operator scope resolution", () => {
 				"mcp:skills.admin",
 			],
 			["merge_catalog_apps", "catalog/mergeApps", {}, "mcp:catalog.admin"],
+			[
+				"reassign_catalog_plain_slug",
+				"catalog/reassignPlainSlug",
+				{},
+				"mcp:catalog.admin",
+			],
 		] as const) {
 			expect(resolve(name, endpoint, annotations)).toEqual([scope]);
 		}

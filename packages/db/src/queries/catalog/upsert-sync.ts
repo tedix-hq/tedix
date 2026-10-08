@@ -23,6 +23,7 @@ import {
 	getCanonicalCatalogAppForConnector,
 	getCatalogAppByMcpEndpointHash,
 	hashMcpEndpoint,
+	isTemplatedMcpEndpoint,
 	normalizeMcpEndpoint,
 } from "./endpoint-normalization";
 import { generateUniqueCatalogAppSlug, getCatalogAppById } from "./get-app";
@@ -174,8 +175,9 @@ export interface SyncCatalogAppInput {
  * Sync a catalog app from a store source
  *
  * Deduplication strategy:
- * - For MCP apps: Deduplicate by normalized endpoint hash
- * - For non-MCP apps: Each sourceAppId creates a separate entry (no cross-store dedup)
+ * - For MCP apps with a concrete endpoint: deduplicate by normalized endpoint hash
+ * - Without one (no URL, a `{url}` template, or a non-MCP connector): attach to
+ *   the same-vendor row when exactly one exists, else create a new entry
  *
  * Returns the catalog app and whether it was newly created
  */
@@ -224,21 +226,29 @@ export async function syncCatalogAppFromStore(
 		}
 	}
 
-	// Vendor-identity canonicalization. A store-brokered connector with no
-	// dedup-able MCP endpoint (SERVICE / no baseUrl) cannot be matched by
-	// endpoint hash, so without this it spawns a standalone duplicate row (this
-	// is exactly how `github-3` was minted alongside the official `github`).
-	// Instead, fold it onto the existing canonical runnable row for the same
-	// vendor (matched by registrable domain + exact name) and attach it as a
-	// store-listing facet. Attach-only: we do NOT overwrite the canonical row's
-	// core fields (endpoint, connectorType, distribution channel) with the
-	// brokered listing's thin metadata.
+	// Vendor-identity canonicalization. Any input with no dedup-able endpoint —
+	// a store-brokered SERVICE connector, an MCP row whose store hides the URL
+	// (first-party ChatGPT connectors), or a directory entry whose URL is a
+	// `{url}` template — cannot be matched by endpoint hash, so without this it
+	// spawns a standalone duplicate row (this is how `github-3` was minted beside
+	// the official `github`). Fold it onto the existing row for the same vendor
+	// (registrable domain + exact name) and attach it as a store-listing facet.
+	// A template input first looks for a same-vendor template row (the same
+	// user-supplied-server listing seen again), then for the runnable row.
+	// Attach-only: we do NOT overwrite the canonical row's core fields
+	// (endpoint, connectorType, distribution channel) with the listing's thin
+	// metadata. Inputs with a concrete endpoint never take this path, so
+	// per-store endpoint variants of one vendor stay separate rows.
 	let attachOnly = false;
-	if (!existingApp && !mcpEndpointHash && input.connectorType !== "MCP") {
-		const canonical = await getCanonicalCatalogAppForConnector(db, {
-			website: input.website,
-			name: input.name,
-		});
+	if (!existingApp && !mcpEndpointHash) {
+		const vendor = { website: input.website, name: input.name };
+		const canonical =
+			(isTemplatedMcpEndpoint(input.baseUrl)
+				? await getCanonicalCatalogAppForConnector(db, {
+						...vendor,
+						templateEndpoint: true,
+					})
+				: null) ?? (await getCanonicalCatalogAppForConnector(db, vendor));
 		if (canonical) {
 			existingApp = canonical;
 			attachOnly = true;
@@ -517,6 +527,7 @@ export async function syncCatalogAppFromStore(
 		const slug = await generateUniqueCatalogAppSlug(db, input.name, {
 			storeSourceId: input.sourceAppId,
 			baseUrl: input.baseUrl,
+			website: input.website,
 		});
 
 		await db.insert(appCatalog).values({

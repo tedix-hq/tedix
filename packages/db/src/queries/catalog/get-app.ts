@@ -13,6 +13,10 @@ import {
 	type NewCatalogApp,
 	type NewCatalogStoreListing,
 } from "../../schema/catalog";
+import {
+	isTemplatedMcpEndpoint,
+	registrableVendorDomain,
+} from "./endpoint-normalization";
 import type { Database } from "./tool-source-policy";
 
 // =============================================================================
@@ -121,8 +125,8 @@ export function generateSlug(
 		if (isValidSlug(fromSourceId)) return fromSourceId;
 	}
 
-	// Fallback 2: derive from baseUrl domain
-	if (fallbacks?.baseUrl) {
+	// Fallback 2: derive from baseUrl domain (a `{url}` template names nothing)
+	if (fallbacks?.baseUrl && !isTemplatedMcpEndpoint(fallbacks.baseUrl)) {
 		const fromUrl = slugFromBaseUrl(fallbacks.baseUrl);
 		if (isValidSlug(fromUrl)) return fromUrl;
 	}
@@ -132,7 +136,14 @@ export function generateSlug(
 }
 
 /**
- * Generate a unique slug for catalog apps, handling collisions by appending suffix
+ * Generate a unique slug for catalog apps.
+ *
+ * When the plain slug is held by a row of a DIFFERENT vendor (registrable
+ * domains differ — `breeze.in` vs `breezesec.com`), the newcomer is a different
+ * company that happens to share a name, so it gets a domain-qualified slug
+ * (`breeze-breezesec`) rather than a numbered one that reads like a duplicate.
+ * `-N` stays the last resort: same-vendor siblings, unknown domains, or a
+ * domain-qualified slug that is itself taken.
  */
 export async function generateUniqueCatalogAppSlug(
 	db: Database,
@@ -141,47 +152,79 @@ export async function generateUniqueCatalogAppSlug(
 		excludeId?: string;
 		storeSourceId?: string | null;
 		baseUrl?: string | null;
+		/** Vendor website of the row being named; enables domain qualification. */
+		website?: string | null;
 	},
 ): Promise<string> {
 	const baseSlug = generateSlug(name, {
 		storeSourceId: options?.storeSourceId,
 		baseUrl: options?.baseUrl,
 	});
-	let slug = baseSlug;
-	let counter = 2;
-
-	while (true) {
-		// Check if slug exists
+	const isFree = async (candidate: string): Promise<boolean> => {
 		const existing = await db
 			.select({ id: appCatalog.id })
 			.from(appCatalog)
-			.where(eq(appCatalog.slug, slug))
+			.where(eq(appCatalog.slug, candidate))
 			.limit(1);
-
-		// If no conflict, or conflict is with the same app (for updates), use this slug
-		if (
+		return (
 			existing.length === 0 ||
-			(options?.excludeId && existing[0]?.id === options.excludeId)
-		) {
-			return slug;
-		}
-		if (slug === baseSlug && (await releaseRetiredCatalogSlug(db, slug))) {
-			return slug;
-		}
+			Boolean(options?.excludeId && existing[0]?.id === options.excludeId)
+		);
+	};
 
-		// Add suffix and try again
-		slug = `${baseSlug}-${counter}`;
-		counter++;
+	if (await isFree(baseSlug)) return baseSlug;
+	if (await releaseRetiredCatalogSlug(db, baseSlug)) return baseSlug;
 
-		// Safety limit
-		if (counter > 100) {
-			// Use a random suffix if we've tried too many times
-			slug = `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
-			break;
-		}
+	const qualified = await domainQualifiedCatalogSlug(
+		db,
+		baseSlug,
+		options?.website,
+	);
+	if (qualified && (await isFree(qualified))) return qualified;
+
+	for (let counter = 2; counter <= 100; counter++) {
+		const slug = `${baseSlug}-${counter}`;
+		if (await isFree(slug)) return slug;
 	}
+	// Use a random suffix if we've tried too many times
+	return `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
+}
 
-	return slug;
+/**
+ * The domain-qualified alternative to `baseSlug` for a row whose vendor website
+ * is `website`, or null when the current holder of `baseSlug` is the same
+ * vendor (or either domain is unknown) — then the rows are siblings, not
+ * namesakes, and a domain suffix would not distinguish them.
+ */
+export async function domainQualifiedCatalogSlug(
+	db: Database,
+	baseSlug: string,
+	website: string | null | undefined,
+): Promise<string | null> {
+	const domain = registrableVendorDomain(website);
+	if (!domain) return null;
+	const [holder] = await db
+		.select({ website: appCatalog.website })
+		.from(appCatalog)
+		.where(eq(appCatalog.slug, baseSlug))
+		.limit(1);
+	const holderDomain = registrableVendorDomain(holder?.website);
+	if (!holderDomain || holderDomain === domain) return null;
+	return qualifySlugWithDomain(baseSlug, domain);
+}
+
+/**
+ * `breeze` + `breezesec.com` → `breeze-breezesec`; when the domain label is the
+ * name itself (`breeze` + `breeze.pm`) the whole domain carries the distinction
+ * (`breeze-pm`, not the stuttering `breeze-breeze`).
+ */
+export function qualifySlugWithDomain(
+	baseSlug: string,
+	domain: string,
+): string {
+	const label = sanitizeToSlug(domain.split(".")[0] ?? "");
+	if (label && label !== baseSlug) return `${baseSlug}-${label}`.slice(0, 50);
+	return sanitizeToSlug(domain.replaceAll(".", "-"));
 }
 
 /**

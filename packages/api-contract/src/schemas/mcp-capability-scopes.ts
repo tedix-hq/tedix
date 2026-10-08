@@ -182,6 +182,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// Installing creates an org app; the API authorizes it as an Apps create.
 	install_catalog_app: "mcp:apps",
 	merge_catalog_apps: "mcp:catalog",
+	reassign_catalog_plain_slug: "mcp:catalog",
 	create_base_app_from_catalog: "mcp:catalog",
 	// Verb-first skills-router tools miss the `skill_`/`skills_` prefix rules.
 	// The API's skills guards stay authoritative after this capability gate.
@@ -686,6 +687,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	apply_workshop: "write",
 	quarantine_workshop: "admin",
 	merge_catalog_apps: "admin",
+	reassign_catalog_plain_slug: "admin",
 	mine_skill_candidates: "write",
 	activate_skill_workflow_improvement: "write",
 	approve_skill_workflow: "write",

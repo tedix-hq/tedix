@@ -2433,11 +2433,50 @@ export const MergeCatalogAppsOutputSchema = z.object({
 	relistedListings: z.number().int(),
 	droppedSnapshotRows: z.number().int(),
 	movedChangeRows: z.number().int(),
+	/** Apps whose catalogAppId moves to the canonical row instead of being unlinked. */
+	repointedApps: z.number().int(),
+	carriedScanConnection: z.boolean(),
 	deletedOrphan: z.boolean(),
 	summary: z.string(),
 });
 export type MergeCatalogAppsOutput = z.infer<
 	typeof MergeCatalogAppsOutputSchema
+>;
+
+export const ReassignCatalogPlainSlugInputSchema = z.object({
+	/** The plain vendor slug to reassign, e.g. `hubspot`. */
+	slug: z.string().min(1),
+	/** Preview the plan without mutating (default true). */
+	dryRun: z.boolean().optional().default(true),
+});
+export type ReassignCatalogPlainSlugInput = z.infer<
+	typeof ReassignCatalogPlainSlugInputSchema
+>;
+
+const CatalogPlainSlugPlanEntrySchema = z.object({
+	catalogAppId: z.string(),
+	slug: z.string().nullable(),
+	installabilityState: CatalogInstallabilitySchema.shape.state,
+	mcpToolCount: z.number().int(),
+	sources: z.array(SourceSchema),
+	baseAppId: z.string().nullable(),
+});
+
+export const ReassignCatalogPlainSlugOutputSchema = z.object({
+	dryRun: z.boolean(),
+	slug: z.string(),
+	/** `reassign`: the winner takes the slug; `keep`: no better sibling; `blocked`: apps are built from the holder. */
+	action: z.enum(["reassign", "keep", "blocked"]),
+	reason: z.string(),
+	holder: CatalogPlainSlugPlanEntrySchema,
+	winner: CatalogPlainSlugPlanEntrySchema.nullable(),
+	holderNextSlug: z.string().nullable(),
+	/** Same-vendor siblings (website domain + name), best-first. */
+	ranked: z.array(CatalogPlainSlugPlanEntrySchema),
+	applied: z.boolean(),
+});
+export type ReassignCatalogPlainSlugOutput = z.infer<
+	typeof ReassignCatalogPlainSlugOutputSchema
 >;
 
 // ============================================================
