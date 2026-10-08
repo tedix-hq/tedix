@@ -15,10 +15,11 @@ import {
 	applyTriagedStop,
 	classifyStop,
 	DETACHED,
+	type DetachedOptions,
 	harnessOf,
-	REPORT_CALLABLE,
+	REPORT_VERB,
 	recordAutoContinued,
-	reportSource,
+	reportInput,
 	runAgentStatus,
 	SUPERVISOR_CONTINUED_SUFFIX,
 	type TriageResult,
@@ -32,7 +33,7 @@ import type { JsonObject } from "./hook-io";
 const SESSION = "11111111-1111-4111-8111-111111111111";
 
 let base: string;
-let spawned: Array<[string[], typeof DETACHED]>;
+let spawned: Array<[string[], DetachedOptions]>;
 
 beforeEach(() => {
 	base = mkdtempSync(join(tmpdir(), "tedix-status-"));
@@ -81,7 +82,6 @@ const notifications = () =>
 	spawned.filter(([args]) => args[0] === "osascript").map(([a]) => a);
 const reports = () =>
 	spawned.filter(([args]) => args[0] === "tedix").map(([a]) => a);
-const PREFIX = `async () => await ${REPORT_CALLABLE}(`;
 
 describe("tedix hooks status", () => {
 	test("disabled has no output or side effects", async () => {
@@ -244,8 +244,7 @@ describe("tedix hooks status", () => {
 		expect(notifications()).toHaveLength(2);
 		await fire("SessionEnd", { reason: "other" });
 		expect(state()).toBeUndefined();
-		const last = reports().at(-1)![4]!;
-		expect(JSON.parse(last.slice(PREFIX.length, -1)).state).toBe("ended");
+		expect(JSON.parse(reports().at(-1)!.at(-1)!).state).toBe("ended");
 	});
 
 	test("notify false suppresses notifications", async () => {
@@ -280,14 +279,39 @@ describe("tedix hooks status", () => {
 			tool_name: "Bash",
 			tool_input: { command: "ls" },
 		});
-		expect(reports().at(-1)!.slice(0, 6)).toEqual([
+		expect(reports().at(-1)!.slice(0, 8)).toEqual([
 			"tedix",
 			"-w",
 			"connect",
 			"--organization",
 			"org_example",
-			"code",
+			"work",
+			REPORT_VERB,
+			"--input",
 		]);
+	});
+
+	test("the report uses the stored login, not an exported agent identity", async () => {
+		enable();
+		await fire(
+			"Stop",
+			{ last_assistant_message: "Shipped." },
+			{
+				CODEX_THREAD_ID: "thread",
+				TEDIX_EXTERNAL_AGENT: "agent",
+				TEDIX_AGENT_SESSION: "codex:thread",
+				TEDIX_MCP_BEARER_TOKEN: "token",
+				TEDIX_MCP_API_KEY: "key",
+			},
+		);
+		const [args, options] = spawned.find(([a]) => a[0] === "tedix")!;
+		// The host environment still labels the session.
+		expect(JSON.parse(args.at(-1)!).harness).toBe("codex");
+		expect(options).toMatchObject(DETACHED);
+		expect(options.env).toEqual({
+			TEDIX_CONFIG_DIR: base,
+			CODEX_THREAD_ID: "thread",
+		});
 	});
 
 	test("the remote command uses a safe JSON literal", async () => {
@@ -296,10 +320,16 @@ describe("tedix hooks status", () => {
 			last_assistant_message: 'Done: `"); evil(); ("`   café </script>',
 		});
 		const [args, options] = spawned.find(([a]) => a[0] === "tedix")!;
-		expect(args.slice(0, 4)).toEqual(["tedix", "-w", "connect", "code"]);
-		const source = args[4]!;
-		expect(source.startsWith(PREFIX) && source.endsWith(")")).toBe(true);
-		const literal = source.slice(PREFIX.length, -1);
+		expect(args.slice(0, 6)).toEqual([
+			"tedix",
+			"-w",
+			"connect",
+			"work",
+			REPORT_VERB,
+			"--input",
+		]);
+		expect(args).toHaveLength(7);
+		const literal = args[6]!;
 		expect(/^[\x00-\x7f]*$/.test(literal)).toBe(true);
 		const decoded = JSON.parse(literal);
 		expect(new Set(Object.keys(decoded))).toEqual(
@@ -311,7 +341,7 @@ describe("tedix hooks status", () => {
 		expect(options.detached).toBe(true);
 		expect(options.stdin).toBe("ignore");
 		expect(() =>
-			reportSource({
+			reportInput({
 				harness: "claude-code",
 				sessionKey: "bad key",
 				state: "done",
@@ -443,7 +473,7 @@ describe("tedix hooks status", () => {
 			cwd: process.cwd(),
 			platform: "darwin" as const,
 			which: (name: string) => `/usr/bin/${name}`,
-			spawn: (args: string[], options: typeof DETACHED) =>
+			spawn: (args: string[], options: DetachedOptions) =>
 				spawned.push([args, options]),
 			label: () => "repo · main",
 		};
@@ -482,7 +512,7 @@ describe("tedix hooks status", () => {
 			cwd: process.cwd(),
 			platform: "darwin" as const,
 			which: (name: string) => `/usr/bin/${name}`,
-			spawn: (args: string[], options: typeof DETACHED) =>
+			spawn: (args: string[], options: DetachedOptions) =>
 				spawned.push([args, options]),
 			label: () => "repo · main",
 		};

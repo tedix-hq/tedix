@@ -238,7 +238,12 @@ async function runHook(
 				platform: "darwin",
 				which: (name) => `/usr/bin/${name}`,
 				spawn: (args, options) => {
-					expect(options).toEqual(DETACHED);
+					expect(options).toMatchObject(DETACHED);
+					// The board report uses the stored login; labels kept the host env.
+					if (args[0] === "tedix") {
+						expect(options.env?.TEDIX_EXTERNAL_AGENT).toBeUndefined();
+						expect(options.env?.TEDIX_CONFIG_DIR).toBe(config);
+					}
 					spawned.push(args);
 				},
 				label: () => "repo · main",

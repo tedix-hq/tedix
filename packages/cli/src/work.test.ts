@@ -35,6 +35,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	triage_agent_turn: "agentTurnTriage/triage",
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
+	report_work_agent_session_status: "workAgentSessions/report",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
@@ -2689,6 +2690,16 @@ describe("native dispatcher coverage", () => {
 				args: "",
 				work: { input: JSON.stringify({ requestId: ITEM }) },
 			},
+			"agent-session-report": {
+				args: "",
+				work: {
+					input: JSON.stringify({
+						harness: "codex",
+						sessionKey: "fixture",
+						state: "working",
+					}),
+				},
+			},
 			"claim-files": {
 				work: { repoKey: "example", paths: ["src/example.ts"] },
 			},
@@ -2869,7 +2880,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(60);
+		expect(covered).toHaveLength(61);
 	});
 });
 

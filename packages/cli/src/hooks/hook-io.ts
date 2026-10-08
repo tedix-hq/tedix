@@ -17,6 +17,14 @@ export const ORGANIZATION_PROBE =
 
 export type JsonObject = Record<string, any>;
 
+/** Credentials an exported agent identity would use instead of the signed-in user. */
+export const AGENT_IDENTITY_ENV = [
+	"TEDIX_EXTERNAL_AGENT",
+	"TEDIX_AGENT_SESSION",
+	"TEDIX_MCP_BEARER_TOKEN",
+	"TEDIX_MCP_API_KEY",
+] as const;
+
 /**
  * One `tedix <args>` read that must return a JSON object; throws otherwise.
  * `input` goes to the child's stdin, so text never appears in its arguments.

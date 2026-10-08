@@ -512,6 +512,7 @@ const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	triage_agent_turn: "agentTurnTriage/triage",
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
+	report_work_agent_session_status: "workAgentSessions/report",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
@@ -2673,7 +2674,7 @@ page — the board exposes no server-side evidence filter — so raise --limit b
 trusting a filtered page as a whole-ledger answer.
 
 Factory controls (--input accepts inline JSON or @path):
-  agent-turn-triage|agent-reply-label|agent-reply-draft-request
+  agent-turn-triage|agent-reply-label|agent-reply-draft-request|agent-session-report
   case-list|get|create|stage|close|attach|dependency-add
   milestone-list|create|update|attach|dependency-add · health-list|record
   approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
@@ -2730,6 +2731,10 @@ const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 	"agent-reply-draft-request": {
 		tool: "request_agent_reply_draft",
 		namespace: "agent",
+		write: true,
+	},
+	"agent-session-report": {
+		tool: "report_work_agent_session_status",
 		write: true,
 	},
 	"case-list": {
