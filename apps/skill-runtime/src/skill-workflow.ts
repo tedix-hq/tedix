@@ -28,6 +28,7 @@ import {
 import {
 	loadSkillRunSnapshot,
 	resolveNamespaceSlugs,
+	resolveSkillNamespaceSlugs,
 	resolveSkillWorkflowMcpGateway,
 	skillRunEnvironmentMatches,
 } from "./db";
@@ -187,7 +188,12 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 				});
 			}
 			const namespaces = Object.keys(manifest.mcp ?? {});
-			const namespaceToSlug = await resolveNamespaceSlugs(env.DB, namespaces);
+			const namespaceToSlug = await resolveSkillNamespaceSlugs(env.DB, {
+				orgId: snapshot.orgId,
+				skillId: snapshot.skillId,
+				namespaces,
+				runId: meta.runId,
+			});
 			// Routing for the PLATFORM's evidence scrape. Resolved separately from
 			// the tenant map so grounding works for every skill without the skill
 			// declaring — or being able to widen — scrape access.

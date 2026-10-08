@@ -10,6 +10,10 @@ import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-wor
 
 import { createDbClient } from "@tedix/db/client";
 import { reconcileSkillWorkflowDispatchRationale } from "@tedix/db/queries/rationale-records";
+import {
+	recordMissingSkillMcpAppBindings,
+	resolveSkillMcpNamespaceSlugs,
+} from "@tedix/db/queries/cognitive/skill-mcp-bindings";
 import { recordSkillRunOutcome } from "@tedix/db/queries/skill-usage";
 import { logRuntimeFailure } from "./control-log";
 import { isWorkflowRetirementError } from "./workflow-retirement";
@@ -597,6 +601,60 @@ export async function resolveNamespaceSlugs(
 		// like `seo`/`cognitive` are not apps).
 	}
 	return out;
+}
+
+/**
+ * Namespace → slug map for a skill run's declared namespaces. A namespace the
+ * skill bound to an app id (`skill_entries.mcp_app_bindings`) routes to that
+ * app's current slug, so an app rename does not detach the skill; unbound
+ * namespaces keep the slug matching of {@link resolveNamespaceSlugs}.
+ *
+ * Lazy backfill: a namespace that still resolved by slug is bound to that
+ * app (org-owned or public only) so a later rename keeps working. The write is
+ * best-effort and never changes this run's routing.
+ */
+export async function resolveSkillNamespaceSlugs(
+	db: D1Database,
+	params: {
+		orgId: string;
+		skillId: string;
+		namespaces: string[];
+		runId?: string;
+	},
+): Promise<Record<string, string>> {
+	if (params.namespaces.length === 0) return {};
+	const client = createDbClient(db);
+	let resolved: Awaited<ReturnType<typeof resolveSkillMcpNamespaceSlugs>>;
+	try {
+		resolved = await resolveSkillMcpNamespaceSlugs(client, {
+			organizationId: params.orgId,
+			skillId: params.skillId,
+			namespaces: params.namespaces,
+		});
+	} catch (error) {
+		logRuntimeFailure(
+			"workflow.mcp_app_binding_lookup.failed",
+			error,
+			params.runId,
+		);
+		return resolveNamespaceSlugs(db, params.namespaces);
+	}
+	if (Object.keys(resolved.backfill).length > 0) {
+		try {
+			await recordMissingSkillMcpAppBindings(client, {
+				organizationId: params.orgId,
+				skillId: params.skillId,
+				bindings: resolved.backfill,
+			});
+		} catch (error) {
+			logRuntimeFailure(
+				"workflow.mcp_app_binding_backfill.failed",
+				error,
+				params.runId,
+			);
+		}
+	}
+	return resolved.namespaceToSlug;
 }
 
 /**

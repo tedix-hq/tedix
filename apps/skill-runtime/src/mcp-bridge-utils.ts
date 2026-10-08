@@ -243,8 +243,8 @@ export function resolveMcpTarget(
 	tediNamespace?: string | null,
 ): McpTarget {
 	// SECURITY: reserved aggregate namespaces take precedence over any mapped app
-	// slug. The namespace→slug lookup (resolveNamespaceSlugs) is an org-wide
-	// `SELECT slug FROM apps` with no reserved-name guard, so without this an
+	// slug. The namespace→slug lookup (resolveSkillNamespaceSlugs: stored app-id
+	// bindings, then a global slug match) has no reserved-name guard, so without this an
 	// attacker who creates an app slugged `home`/`kernel`/`tedi` in the org would
 	// hijack those tool calls a skill makes (calls carry the caller's org/tedi
 	// headers). An app slug must never shadow a reserved aggregate surface.

@@ -1,0 +1,1 @@
+ALTER TABLE `skill_entries` ADD `mcp_app_bindings` text;
