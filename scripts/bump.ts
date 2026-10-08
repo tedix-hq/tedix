@@ -23,6 +23,8 @@ Default: update to latest releases, including majors, prepare, and validate.
 --interactive  Preselect patches and filter incompatible peer upgrades.
 --check        Show available updates without changing files.
 --verify       Prepare and validate existing changes without querying versions.
+Pinned GitHub Action SHAs in .github/ follow their latest release
+(--interactive holds major updates). Requires an authenticated gh CLI.
 Other options (e.g. --filter, --target) are passed to NCU.
 Full logs and a JSON result are saved in the printed temporary directory.`);
 	process.exit(0);
@@ -268,6 +270,125 @@ function emdashNeedsWiring() {
 	);
 }
 
+// GitHub Actions are pinned as `uses: owner/repo[/path]@<40-hex sha> # vX[.Y.Z]`.
+// Pull requests are disabled here, so Dependabot/Renovate cannot deliver
+// updates; this step resolves each action's newest stable release to a commit
+// and rewrites the pin and its comment (keeping the comment's precision).
+// --interactive takes only same-major updates; the default takes majors too.
+const actionPinPattern =
+	/^(\s*(?:-\s+)?uses:\s*)([\w.-]+\/[\w.-]+)((?:\/[^@\s]+)?)@([0-9a-f]{40})(\s*#\s*(v?\d[\w.-]*))?[ \t]*$/gm;
+
+function actionFiles() {
+	const result = spawnSync(
+		"git",
+		[
+			"ls-files",
+			"-z",
+			":(glob).github/workflows/*.yml",
+			":(glob).github/workflows/*.yaml",
+			":(glob).github/actions/**/action.yml",
+			":(glob).github/actions/**/action.yaml",
+		],
+		{ cwd: root, env: detachedGitEnv(), encoding: "utf8" },
+	);
+	if (result.status !== 0) throw new Error("Could not list workflow files.");
+	return result.stdout.split("\0").filter(Boolean);
+}
+
+function ghApi(path: string) {
+	return new Promise<unknown>((resolve, reject) => {
+		const child = spawn("gh", ["api", path], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (data: Buffer) => (stdout += data));
+		child.stderr.on("data", (data: Buffer) => (stderr += data));
+		child.once("error", reject);
+		child.once("close", (code) =>
+			code === 0
+				? resolve(JSON.parse(stdout))
+				: reject(new Error(`gh api ${path}: ${stderr.trim()}`)),
+		);
+	});
+}
+
+const semverOf = (tag: string) => {
+	const parts = tag.replace(/^v/, "").split(".");
+	while (parts.length < 3) parts.push("0");
+	return parts.join(".");
+};
+
+async function latestActionRelease(repo: string) {
+	const releases = (await ghApi(`repos/${repo}/releases?per_page=50`)) as {
+		tag_name: string;
+		draft: boolean;
+		prerelease: boolean;
+	}[];
+	const tags = releases
+		.filter(
+			(r) => !r.draft && !r.prerelease && /^v\d+(\.\d+)*$/.test(r.tag_name),
+		)
+		.map((r) => r.tag_name)
+		.sort((a, b) => Bun.semver.order(semverOf(b), semverOf(a)));
+	if (!tags[0]) return null;
+	const commit = (await ghApi(`repos/${repo}/commits/${tags[0]}`)) as {
+		sha: string;
+	};
+	return { tag: tags[0], sha: commit.sha };
+}
+
+async function updateActionPins(apply: boolean, sameMajorOnly: boolean) {
+	const files = actionFiles();
+	const sources = new Map(
+		files.map((file) => [file, readFileSync(join(root, file), "utf8")]),
+	);
+	const repos = new Set<string>();
+	for (const source of sources.values())
+		for (const match of source.matchAll(actionPinPattern)) repos.add(match[2]!);
+	if (!repos.size) return;
+	console.log(`bump: checking ${repos.size} pinned GitHub Action(s)…`);
+	const latest = new Map<string, { tag: string; sha: string } | null>();
+	await Promise.all(
+		[...repos].map(async (repo) => {
+			try {
+				latest.set(repo, await latestActionRelease(repo));
+			} catch (error) {
+				console.log(
+					`  ${repo}: could not resolve the latest release (${error instanceof Error ? error.message : error})`,
+				);
+			}
+		}),
+	);
+	const changes: Record<string, string> = {};
+	for (const [file, original] of sources) {
+		const source = original.replace(
+			actionPinPattern,
+			(line, prefix, repo, path, sha, _comment, version?: string) => {
+				const release = latest.get(repo);
+				if (!release || release.sha === sha) return line;
+				const major = (tag: string) => tag.replace(/^v/, "").split(".")[0];
+				const precision = version?.replace(/^v/, "").split(".").length ?? 3;
+				const tag = `v${release.tag.replace(/^v/, "").split(".").slice(0, precision).join(".")}`;
+				const key = `${repo}${path}`;
+				const held =
+					sameMajorOnly && version && major(version) !== major(release.tag);
+				changes[key] ??=
+					`${version ?? sha.slice(0, 7)} → ${release.tag}${held ? " (major; held, run bump:latest)" : ""}`;
+				if (!apply || held) return line;
+				return `${prefix}${repo}${path}@${release.sha} # ${tag}`;
+			},
+		);
+		if (apply && source !== original) writeFileSync(join(root, file), source);
+	}
+	report.updates["GitHub Actions"] = changes;
+	if (!Object.keys(changes).length)
+		console.log("bump: pinned GitHub Actions are current.");
+	for (const [key, change] of Object.entries(changes))
+		console.log(`  ${key}: ${change}`);
+	saveReport();
+}
+
 const originalManifests: Record<string, string> = {};
 // Reverts selections the repo cannot take yet and aligns the @vitest overrides
 // with the catalog Vitest. Returns the manifests it rewrote in this call, so a
@@ -494,6 +615,7 @@ async function update(name: string, command: string[]) {
 try {
 	if (!check) deferIncompatibleSelections();
 	if (!verify) {
+		await updateActionPins(!check, interactive);
 		const holdEmdash = interactive && !emdashEncryptionWired();
 		// NCU evaluates peers within each manifest. The catalog's Vitest pin and
 		// the Worker pool declaration live in different manifests.
@@ -624,7 +746,20 @@ try {
 			]);
 		}
 	} else if (!check) {
-		console.log("bump: no dependency changes; nothing to install or validate.");
+		const workflowChanges = changedFiles().filter((file) =>
+			file.startsWith(".github/"),
+		);
+		if (workflowChanges.length)
+			await run("Validate with pre-push gates", [
+				"bun",
+				"scripts/ci/preflight-gates.mjs",
+				"--files",
+				...workflowChanges,
+			]);
+		else
+			console.log(
+				"bump: no dependency changes; nothing to install or validate.",
+			);
 	}
 	report.changedFiles = changedFiles();
 	report.status = "passed";
