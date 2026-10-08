@@ -52,7 +52,7 @@ This published plugin contains **no hooks**. Optional local session hooks
 
 The plugin follows its own semver while below 1.0; see `version` in
 `.claude-plugin/plugin.json` and the
-[releasing policy](https://github.com/tedix-hq/tedix/blob/main/RELEASING.md).
+[releasing policy](https://github.com/tedix-hq/tedix/blob/main/CONTRIBUTING.md#releases).
 
 ## License
 

@@ -5,27 +5,26 @@
  * The seam itself is small — `withFleetAuthority` rejects before a handler can
  * touch commercial storage or provider secrets, and fleet-authority.test.ts
  * plus routers/fleet-authority.test.ts prove that behavior. What nothing
- * proved until this file is COVERAGE: that every procedure the authority
- * classification calls fleet-commercial actually carries the guard, and that
- * the guard never leaks into tenant-product namespaces. Both directions used
- * to rest on 17 routers each remembering a `.use(withFleetAuthority)` line.
+ * proved until this file is COVERAGE: that every fleet-commercial procedure
+ * actually carries the guard, and that the guard never leaks into
+ * tenant-product namespaces. Both directions used to rest on 17 routers each
+ * remembering a `.use(withFleetAuthority)` line.
  *
- * Three inputs must agree, exactly:
- *  - scripts/oss/authority-classification.json — which api-namespaces are
- *    fleet-commercial (the OSS separation authority);
- *  - fleet-authority-guards.json — per-procedure expectations, including the
- *    deliberate tenant-product exceptions inside mixed namespaces;
+ * Two inputs must agree, exactly:
+ *  - fleet-authority-guards.json — the classification: the fleet-commercial
+ *    namespaces and their per-procedure expectations, including deliberate
+ *    tenant-product exceptions inside mixed namespaces. A namespace it does
+ *    not list is tenant product;
  *  - the live router — which procedures actually carry the middleware,
  *    detected by reference identity on the implementer's middleware chain.
  *
  * A new procedure in a `guard: "namespace"` namespace must be guarded or this
  * fails (fail-closed default). Removing a guard, adding a stale exception, or
- * guarding a procedure the classification calls tenant-product all fail too.
+ * guarding a procedure outside the listed namespaces all fail too.
  */
 
 import { Procedure, unlazyRouter } from "@orpc/server";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
-import classification from "../../../../scripts/oss/authority-classification.json";
 import { withFleetAuthority } from "./orpc";
 import baseline from "./fleet-authority-guards.json";
 import { apiRouter } from "./routers/index";
@@ -84,16 +83,6 @@ async function buildGuardInventory(): Promise<ProcedureGuardState[]> {
 	);
 }
 
-function classifiedFleetCommercialNamespaces(): string[] {
-	return classification.entries
-		.filter(
-			(entry) =>
-				entry.kind === "api-namespace" && entry.category === "fleet-commercial",
-		)
-		.map((entry) => entry.identifier)
-		.sort();
-}
-
 describe("fleet-authority guard coverage", () => {
 	// Build the inventory ONCE, outside any assertion body. The memo above
 	// shares the cost between tests, but whichever `it()` ran first still paid
@@ -139,35 +128,6 @@ describe("fleet-authority guard coverage", () => {
 		expect(
 			namesFor("catalog").filter((name) => tenantProcedures.includes(name)),
 		).toEqual([]);
-	});
-
-	it("keeps the baseline aligned with the authority classification", () => {
-		const fleetCommercial = classifiedFleetCommercialNamespaces();
-
-		// Every fleet-commercial namespace must carry a baseline guard policy.
-		expect(
-			fleetCommercial.filter((namespace) => !(namespace in policies)),
-		).toEqual([]);
-
-		// A baseline entry OUTSIDE the fleet-commercial classification is legal
-		// in exactly one shape: procedure-scoped commercial exceptions inside an
-		// explicitly tenant-product namespace, pending their namespace split
-		// (the workItems shape — see the classification rationale). Anything
-		// else is a stale baseline or an unclassified namespace: fail closed.
-		const classifiedCategories = new Map(
-			classification.entries
-				.filter((entry) => entry.kind === "api-namespace")
-				.map((entry) => [entry.identifier, entry.category]),
-		);
-		const extras = Object.keys(policies)
-			.filter((namespace) => !fleetCommercial.includes(namespace))
-			.sort();
-		for (const namespace of extras) {
-			expect(policies[namespace]?.guard, namespace).toBe("procedures");
-			expect(classifiedCategories.get(namespace), namespace).toBe(
-				"tenant-product",
-			);
-		}
 	});
 
 	it("matches the live router guard state exactly", async () => {

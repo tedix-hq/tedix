@@ -94,7 +94,7 @@ jobs:
       - name: Lint workflow definitions
         uses: ./.github/actions/actionlint
 
-      - name: Check licenses, provenance and workspace license map
+      - name: Check workspace license map and dependency licenses
         run: bun run oss:check
 
       - name: Check installation manifest contract
@@ -105,14 +105,6 @@ jobs:
 
       - name: Test OSS scripts
         run: bun run test:scripts
-
-      - name: Generate and verify release evidence
-        run: |
-          set -euo pipefail
-          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
-          export SOURCE_DATE_EPOCH
-          bun scripts/oss/release-evidence.ts --out "$RUNNER_TEMP/evidence" --ref "$GITHUB_SHA"
-          (cd "$RUNNER_TEMP/evidence" && sha256sum --check --strict checksums.txt)
 
       - name: Scan for secrets
         run: bun run scan:secrets

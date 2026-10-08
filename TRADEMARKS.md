@@ -36,4 +36,4 @@ must not ship Tedix certification badges.
 Certification claims ("Tedix Certified", certified runtime badges) are granted only through the Tedix certification program and may be
 revoked if certification lapses.
 
-Questions and permission requests: use the channels in [SUPPORT.md](SUPPORT.md).
+Questions and permission requests: use the channels in [CONTRIBUTING.md](CONTRIBUTING.md#getting-help).

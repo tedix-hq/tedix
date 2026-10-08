@@ -72,11 +72,11 @@ Tedix classifies source-owned control surfaces into three planes:
   curation/promotion, provider and usage settlement, Stripe, and billing
   reconciliation
 
-`scripts/oss/authority-classification.json` records the exact shared tables,
-API namespaces, schedules, Workflows, queues, and webhooks at the current source
-ref. Maintainer release tooling derives that inventory from schemas, contract
-registries, Wrangler configuration, and handler source, and fails on an
-unclassified or stale surface.
+`apps/api/src/rpc/fleet-authority-guards.json` lists the fleet-commercial API
+namespaces and procedures, and `apps/api/src/jobs/scheduled-dispatch.test.ts`
+lists the fleet-commercial schedules. Their tests fail when a listed procedure
+lacks the fleet guard, the guard appears outside the list, or a commercial
+schedule runs in `disabled` mode.
 
 The API requires the non-secret `TEDIX_FLEET_AUTHORITY_MODE`. `disabled` makes
 fleet-commercial API procedures, Stripe webhooks, and commercial schedules

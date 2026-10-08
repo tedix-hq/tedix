@@ -65,3 +65,32 @@ jobs:
         with:
           name: tedix-${{ matrix.target }}
           path: packages/cli/dist/tedix-*
+
+  # Checksums and a build-provenance attestation for every binary, so a
+  # download can be verified with `sha256sum --check SHA256SUMS` and
+  # `gh attestation verify <file> --repo tedix-hq/tedix`.
+  attest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: tedix-*
+          path: dist
+          merge-multiple: true
+      - name: Write checksums
+        working-directory: dist
+        run: sha256sum tedix-* > SHA256SUMS
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tedix-cli-checksums
+          path: dist/SHA256SUMS
+          if-no-files-found: error

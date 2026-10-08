@@ -24,6 +24,7 @@
 		"lint-repo.ts",
 		"lint-vite-plus-imports.ts",
 		"oxc-ast.ts",
+		"oss/dependency-licenses.ts",
 		"oss/secret-scan.ts",
 		"mcp/sync-tool-schemas.ts"
 	],

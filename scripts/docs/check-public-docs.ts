@@ -423,14 +423,11 @@ await validateReadmeLinks(
 	"README.md",
 );
 for (const path of [
-	"CODE_OF_CONDUCT.md",
 	"CONTRIBUTING.md",
-	"GOVERNANCE.md",
 	"LICENSES/README.md",
 	"README.md",
-	"RELEASING.md",
 	"SECURITY.md",
-	"SUPPORT.md",
+	"THIRD_PARTY_NOTICES.md",
 	"TRADEMARKS.md",
 ]) {
 	await validateExportReferences(

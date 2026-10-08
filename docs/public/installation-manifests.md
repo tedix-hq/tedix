@@ -56,12 +56,12 @@ overage, and `daily_5m` prices.
 `disabled` and requires no Stripe secret names. `co-located` requires the
 worker's `DB` binding. No other mode is accepted.
 
-Installation authority is also distinct from tenant and fleet authority. The
-machine-checked map in `scripts/oss/authority-classification.json` keeps runtime
-entitlements in `tenant-product`, puts bootstrap, upgrade, backup, restore, and
-installation-owner health in `installation-operations`, and reserves Stripe,
+Installation authority is also distinct from tenant and fleet authority.
+Runtime entitlements stay in `tenant-product`; bootstrap, upgrade, backup,
+restore, and installation-owner health are `installation-operations`; Stripe,
 provider settlement, reconciliation, global catalog promotion, and
-cross-installation administration for `fleet-commercial`. An installation
+cross-installation administration are `fleet-commercial` (see
+[Cloudflare architecture](./cloudflare-architecture.md#authority-boundaries)). An installation
 manifest may supply coordinates for enabled planes; it does not merge their
 authority or make commercial settlement a prerequisite for tenant entitlement
 enforcement.

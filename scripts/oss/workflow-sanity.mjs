@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// Two workflow invariants actionlint does not check: every job has a
+// timeout-minutes (a hung runner otherwise burns six hours), and no
+// pull_request_target workflow checks out pull request head code.
+
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -10,13 +14,6 @@ for (const name of readdirSync(workflowDirectory).sort()) {
 	if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
 	const path = join(workflowDirectory, name);
 	const text = readFileSync(path, "utf8");
-	const lines = text.split("\n");
-	for (const [index, line] of lines.entries()) {
-		if (line.includes("\t")) errors.push(`${path}:${index + 1}: tab character`);
-		if (/^(<{7}|={7}|>{7})/.test(line)) {
-			errors.push(`${path}:${index + 1}: merge conflict marker`);
-		}
-	}
 	if (
 		text.includes("pull_request_target") &&
 		/ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.(?:ref|sha)\s*\}\}/.test(

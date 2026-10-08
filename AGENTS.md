@@ -85,7 +85,7 @@ disabled; agents must not create them. Proposals start as issues. See
 
 A user-visible CLI change adds a changeset (`bun changeset`) in the same
 commit. Never bump the CLI version, edit its `CHANGELOG.md`, or tag a release
-as part of a change; releases are batched, at most daily (`RELEASING.md`).
+as part of a change; releases are batched, at most daily (`CONTRIBUTING.md`, Releases).
 
 ## Deployment boundary
 

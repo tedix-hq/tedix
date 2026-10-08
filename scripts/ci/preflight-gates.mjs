@@ -269,10 +269,14 @@ const changedScriptTests = relatedTestTargets.filter((f) =>
 const migrationsTouched = (files ?? []).some((f) =>
 	/^packages\/db\/drizzle\//.test(f),
 );
-// A patch edit without its provenance hash blocks the OSS export of main.
-const thirdPartySourcesTouched = (files ?? []).some(
+// A dependency, patch or workspace-license change can bring in a license the
+// product cannot ship, or a patch with no third-party notice.
+const licenseInputsTouched = touched(
 	(f) =>
-		/(^|\/)patches\//.test(f) || f === "scripts/oss/third-party-sources.json",
+		/(^|\/)(patches\/|package\.json$)/.test(f) ||
+		f === "bun.lock" ||
+		f === "THIRD_PARTY_NOTICES.md" ||
+		f.startsWith("scripts/oss/"),
 );
 
 const TYPE_ERROR_FIX =
@@ -343,6 +347,12 @@ const gates = [
 		cmd: ["actionlint", "-color=false"],
 		requires: "actionlint",
 		requiresHint: "brew install actionlint",
+	},
+	{
+		name: "workflow timeouts and pull_request_target safety",
+		when: workflowsTouched,
+		cmd: ["node", "scripts/oss/workflow-sanity.mjs"],
+		fix: "give the job a timeout-minutes; never check out pull request head code under pull_request_target",
 	},
 	{
 		name: "generated Worker types are current",
@@ -440,10 +450,10 @@ const gates = [
 		fix: "fix the failing test, or the code it covers — never delete the assertion to go green",
 	},
 	{
-		name: "third-party patch provenance",
-		when: thirdPartySourcesTouched,
-		cmd: ["bun", "scripts/oss/third-party-provenance.ts", "--strict"],
-		fix: "update the patch's sha256 in scripts/oss/third-party-sources.json to the file you committed",
+		name: "license map, dependency licenses and patch notices",
+		when: licenseInputsTouched,
+		cmd: ["bun", "run", "oss:check"],
+		fix: "name the patch in THIRD_PARTY_NOTICES.md, or replace the dependency whose license is not on the allow-list in scripts/oss/dependency-licenses.ts",
 	},
 	{
 		name: "migration gates for a changed migration",

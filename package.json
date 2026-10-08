@@ -53,7 +53,7 @@
 		"lint:kumo": "bun scripts/lint-kumo.ts",
 		"lint:repo": "bun scripts/lint-repo.ts",
 		"mcp:sync-tool-schemas": "bun scripts/mcp/sync-tool-schemas.ts",
-		"oss:check": "bun scripts/oss/public-surface.ts && bun scripts/oss/third-party-provenance.ts --strict && bun scripts/oss/license-readiness.ts --check && bun scripts/oss/dependency-license-policy.ts",
+		"oss:check": "bun scripts/oss/public-surface.ts && bun scripts/oss/dependency-licenses.ts",
 		"prepare": "bun run hooks:install",
 		"release:notes": "bun scripts/release/generate-release-notes.ts",
 		"run-local": "bun scripts/run-local.ts",

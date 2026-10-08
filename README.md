@@ -100,14 +100,12 @@ editing; `bun run verify` runs the same checks as the pre-push hook.
 ## Contributing, support, and security
 
 Issues and ideas are welcome; maintainers write the code
-([Contributing](CONTRIBUTING.md)). Report bugs through [Support](SUPPORT.md)
-and vulnerabilities through [Security](SECURITY.md). See also
-[Governance](GOVERNANCE.md) and [Trademarks](TRADEMARKS.md).
+([Contributing](CONTRIBUTING.md), which also covers support, governance, the
+code of conduct, and releases). Report vulnerabilities through
+[Security](SECURITY.md). See also [Trademarks](TRADEMARKS.md).
 
 Community: ask questions and share what you build in
 [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions).
-
-Releases: [RELEASING.md](RELEASING.md) explains what is versioned and when.
 
 Telemetry: the CLI sends no analytics, telemetry, or crash reports. See
 [Telemetry and network contact](docs/public/telemetry.md) for what Tedix Cloud

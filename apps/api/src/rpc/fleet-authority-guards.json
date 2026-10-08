@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"comment": "Per-procedure withFleetAuthority expectations for every api-namespace classified fleet-commercial in scripts/oss/authority-classification.json. Enforced exactly (both directions) by fleet-authority-coverage.test.ts. guard=namespace: every procedure must carry the guard except the listed deliberate tenant-product exceptions (fail-closed default for new procedures). guard=procedures: only the listed procedures are commercial and must carry the guard; the rest of the namespace is tenant product (used where the namespace is tenant-first). Tenant exceptions: tenant runtime entitlements and budget controls are not commercial merely because Stripe or provider projections exist beside them.",
+	"comment": "The fleet-commercial API namespaces and their per-procedure withFleetAuthority expectations; a namespace not listed here is tenant product. Enforced exactly (both directions) by fleet-authority-coverage.test.ts. guard=namespace: every procedure must carry the guard except the listed deliberate tenant-product exceptions (fail-closed default for new procedures). guard=procedures: only the listed procedures are commercial and must carry the guard; the rest of the namespace is tenant product (used where the namespace is tenant-first). Tenant exceptions: tenant runtime entitlements and budget controls are not commercial merely because Stripe or provider projections exist beside them.",
 	"namespaces": {
 		"billing": {
 			"guard": "namespace",

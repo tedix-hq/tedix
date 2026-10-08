@@ -7,8 +7,6 @@ export default defineConfig({
 			// Vendored and generated sources retain their owning toolchain's formatting.
 			"**/*.astro",
 			"docs/DOCS_MAP.md",
-			// Export-generated evidence is pinned by release-evidence/checksums.txt.
-			"release-evidence/**",
 			"packages/db/drizzle/**/snapshot.json",
 			"**/worker-configuration.d.ts",
 			"**/routeTree.gen.ts",

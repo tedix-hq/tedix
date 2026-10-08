@@ -1,7 +1,8 @@
 # Third-Party Notices
 
-This repository includes the third-party code listed below. This file is
-generated from `scripts/oss/third-party-sources.json`.
+This repository includes the third-party code listed below. Add an entry when
+you copy or patch third-party code; every dependency patch must be named here
+as "a patch to <package> <version>" (`bun run oss:check` enforces it).
 
 ## cloudflare-agents-facet-lifecycle-alarm-transport
 
