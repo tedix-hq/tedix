@@ -191,6 +191,10 @@ const INTERNAL_TIMEOUT_FLOORS_MS: Record<string, number> = {
 	// Starting CMS cleanup is durable, but a cold API and workflow enqueue may
 	// exceed the generic 15s transport deadline before returning the receipt.
 	"sites/deprovision": 30_000,
+	// A snapshot import runs its browser capture (page load and capture, each
+	// bounded at 60s) before it returns the workflow receipt. Under 15s the
+	// caller gave up mid-capture and its retries started duplicate captures.
+	"catalog/importSnapshot": 150_000,
 	"tedis/getLogs": 45_000,
 	"tedis/syncStorage": 125_000,
 	"tedis/wake": 120_000,
