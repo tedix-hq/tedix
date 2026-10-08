@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { findNodeAtLocation, parseTree } from "jsonc-parser";
 import { parsePushRanges } from "../ci/push-range-selection.mjs";
@@ -473,6 +473,9 @@ export function scanTrackedFiles(
 		: tracked;
 
 	for (const path of selected) {
+		// A tracked symlink to a directory (`.claude/skills`) has no content of
+		// its own; the files it points at are tracked and scanned at their path.
+		if (statSync(resolve(root, path)).isDirectory()) continue;
 		const content = readFileSync(resolve(root, path));
 		const contentSha256 = sha256(content);
 		const isAllowed = (rule: string): boolean => {
