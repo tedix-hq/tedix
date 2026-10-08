@@ -4,6 +4,8 @@ import {
 	learnedFromLine,
 	lessonSubject,
 	officeAsk,
+	sessionActivity,
+	sessionsFromKnocks,
 } from "./work-office-page";
 
 describe("office helpers", () => {
@@ -25,6 +27,21 @@ describe("office helpers", () => {
 	it("counts replies in plain words", () => {
 		expect(learnedFromLine({ replies: 1 })).toBe("Learned from 1 reply");
 		expect(learnedFromLine(null)).toBeNull();
+	});
+
+	it("counts distinct sessions from captured turns", () => {
+		const now = Date.parse("2026-10-08T12:30:00Z");
+		const turn = (sessionId: string, requestedAt: string, host = "codex") => ({
+			request: { requestedAt, metadata: { host, sessionId } },
+		});
+		const seen = sessionsFromKnocks([
+			turn("a", "2026-10-08T12:25:00Z"),
+			turn("a", "2026-10-08T09:00:00Z"),
+			turn("b", "2026-10-08T09:00:00Z"),
+			turn("c", "2026-10-06T09:00:00Z"),
+			{ request: { requestedAt: "2026-10-08T12:29:00Z", metadata: {} } },
+		]);
+		expect(sessionActivity(seen, now)).toEqual({ active: 1, idle: 1 });
 	});
 
 	it("buckets knocks into the last 24 hours, oldest first", () => {

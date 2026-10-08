@@ -490,23 +490,75 @@ export function knocksPerHour(requestedAt: string[], now: number): number[] {
 
 const HARNESS_LABELS = { "claude-code": "Claude Code", codex: "Codex" };
 
+type SeenSession = { harness: string; key: string; at: string };
+
+/**
+ * Sessions seen through their captured turns. The status board stays empty
+ * when the hooks report under an agent identity, but every finished turn
+ * still lands as a decision-capture interaction carrying host and session.
+ */
+export function sessionsFromKnocks(
+	rows: Array<{ request: { requestedAt: string; metadata?: unknown } }>,
+): SeenSession[] {
+	return rows.flatMap((row) => {
+		const meta = row.request.metadata as
+			| { host?: unknown; sessionId?: unknown }
+			| null
+			| undefined;
+		return typeof meta?.host === "string" && typeof meta.sessionId === "string"
+			? [
+					{
+						harness: meta.host,
+						key: meta.sessionId,
+						at: row.request.requestedAt,
+					},
+				]
+			: [];
+	});
+}
+
+/** Distinct sessions: active within 15 minutes, idle within 24 hours. */
+export function sessionActivity(seen: SeenSession[], now: number) {
+	const latest = new Map<string, number>();
+	for (const entry of seen) {
+		const at = Date.parse(normalizeD1Timestamp(entry.at));
+		if (Number.isNaN(at)) continue;
+		latest.set(entry.key, Math.max(latest.get(entry.key) ?? 0, at));
+	}
+	let active = 0;
+	let idle = 0;
+	for (const at of latest.values()) {
+		if (now - at <= ACTIVE_WINDOW_MS) active += 1;
+		else if (now - at <= 24 * 3_600_000) idle += 1;
+	}
+	return { active, idle };
+}
+
 function Activity() {
 	const sessions = useQuery(workAgentSessionsQueryOptions());
 	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
 	const knocks = useQuery(workOfficeKnocksQueryOptions());
 	const now = Date.now();
-	const live = (sessions.data?.sessions ?? []).filter(
-		(session) => session.effectiveState !== "ended",
-	);
-	const harnesses = (["claude-code", "codex"] as const).map((harness) => {
-		const mine = live.filter((session) => session.harness === harness);
-		const active = mine.filter(
-			(session) =>
-				session.effectiveState === "working" ||
-				isActive(session.lastEventAt, now),
-		).length;
-		return { harness, active, idle: mine.length - active };
-	});
+	const seen = [
+		...(sessions.data?.sessions ?? [])
+			.filter((session) => session.effectiveState !== "ended")
+			.map((session) => ({
+				harness: session.harness,
+				key: session.sessionKey,
+				at:
+					session.effectiveState === "working"
+						? new Date(now).toISOString()
+						: session.lastEventAt,
+			})),
+		...sessionsFromKnocks(knocks.data?.data ?? []),
+	];
+	const harnesses = (["claude-code", "codex"] as const).map((harness) => ({
+		harness,
+		...sessionActivity(
+			seen.filter((entry) => entry.harness === harness),
+			now,
+		),
+	}));
 	const hours = knocksPerHour(
 		(knocks.data?.data ?? []).map((row) => row.request.requestedAt),
 		now,
