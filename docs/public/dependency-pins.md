@@ -62,6 +62,6 @@ Cloudflare adapter; `bun.lock` records the same patch paths:
 The CMS starters carry matching copies under `apps/cms/templates/*/patches/`.
 Their manifests also apply `@emdash-cms/plugin-forms@0.2.9.patch`, which excludes
 raw visitor IPs from stored submissions and defaults new forms to 30-day
-retention. The exact patch inventory and hashes are recorded in
-`scripts/oss/third-party-sources.json`.
+retention. Each patched dependency has an entry in `THIRD_PARTY_NOTICES.md`,
+and `bun run oss:check` fails on a patch without one.
 Review the actual hunks on every upgrade and remove fixes supplied upstream.

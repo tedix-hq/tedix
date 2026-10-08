@@ -6,15 +6,25 @@
  * before each `await import()`, so a poisoned env proxy proves both at once:
  * if a commercial branch ran, its job would touch a binding and throw.
  *
- * The pattern list is read from scripts/oss/authority-classification.json, so
- * adding a new fleet-commercial cron automatically extends this sweep, and a
- * commercial cron whose branch forgets the `fleetEnabled &&` gate fails here
- * before it can reach commercial storage in a self-hosted installation.
+ * FLEET_COMMERCIAL_CRONS below is the classification: add a new
+ * fleet-commercial cron here, and a commercial cron whose branch forgets the
+ * `fleetEnabled &&` gate fails before it can reach commercial storage in a
+ * self-hosted installation.
  */
 
 import { describe, expect, it, vi } from "vite-plus/test";
-import classification from "../../../../scripts/oss/authority-classification.json";
 import { scheduled } from "./scheduled-dispatch";
+
+/** apps/api crons whose every branch is fleet-commercial authority. */
+const FLEET_COMMERCIAL_CRONS = [
+	"*/15 * * * *", // provider usage ingestion and commercial billing ledgers
+	"0 * * * *", // installation health paging plus provider cost anomalies
+	"0 */6 * * *", // global provider scan, catalog drift, cross-tenant health
+	"0 2 * * *", // trial expiration and global catalog synchronization
+	"0 3 * * *", // retention that also repairs the global catalog
+	"0 4 * * *", // memory reflection dispatched only on fleet installations
+	"0 6 * * *", // global catalog tool certification
+];
 
 const catchup = vi.hoisted(() => ({
 	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
@@ -86,27 +96,8 @@ function poisonedDisabledEnv(accessed: Array<string | symbol>): CloudflareEnv {
 	) as CloudflareEnv;
 }
 
-function fleetCommercialCrons(): string[] {
-	return classification.entries
-		.filter(
-			(entry) => entry.kind === "cron" && entry.category === "fleet-commercial",
-		)
-		.map((entry) => entry.identifier)
-		.sort();
-}
-
 describe("scheduled dispatch under disabled fleet authority", () => {
-	// The sweep below is generated from the classification file, which this
-	// file's header calls a feature: a new fleet-commercial cron extends it
-	// automatically. So the guard's whole job is non-vacuity — a classifier that
-	// stopped emitting this category would make every generated case disappear
-	// silently instead of failing. A fixed count would go stale whenever a
-	// trigger is added or removed.
-	it("classifies commercial cron patterns to sweep", () => {
-		expect(fleetCommercialCrons().length).toBeGreaterThan(0);
-	});
-
-	for (const cron of fleetCommercialCrons()) {
+	for (const cron of FLEET_COMMERCIAL_CRONS) {
 		it(`dispatches nothing for "${cron}"`, async () => {
 			const accessed: Array<string | symbol> = [];
 			// Cover every hour-gated branch (hourly digests key on UTC hour).

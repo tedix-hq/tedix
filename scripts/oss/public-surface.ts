@@ -455,16 +455,50 @@ export function checkPublicSurface(
 	);
 }
 
+const SPDX_BY_CLASS: Record<LicenseClass, string> = {
+	"agpl-product": "AGPL-3.0-only",
+	"apache-ecosystem": "Apache-2.0",
+	"mit-ecosystem": "MIT",
+};
+
+/**
+ * License metadata agrees with the classification: the root manifest declares
+ * AGPL-3.0-only and every workspace manifest declares its class's SPDX id.
+ */
+export function licenseMetadataErrors(
+	repositoryRoot: string,
+	result: PublicSurfaceResult,
+): string[] {
+	const root = JSON.parse(
+		readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+	) as { license?: string };
+	const errors =
+		root.license === "AGPL-3.0-only"
+			? []
+			: ["root package.json must declare AGPL-3.0-only"];
+	for (const workspace of result.resolved) {
+		const spdx = SPDX_BY_CLASS[workspace.licenseClass];
+		if (workspace.declaredLicense !== spdx) {
+			errors.push(
+				`${workspace.path} declares ${workspace.declaredLicense ?? "no license"}; its class requires ${spdx}`,
+			);
+		}
+	}
+	return errors;
+}
+
 if (import.meta.main) {
 	const args = process.argv.slice(2);
 	const refIndex = args.indexOf("--ref");
 	const ref = refIndex === -1 ? "HEAD" : args[refIndex + 1];
 	if (!ref) throw new Error("--ref requires a Git ref");
+	const repositoryRoot = resolve(import.meta.dirname, "../..");
 	const result = checkPublicSurface(
-		resolve(import.meta.dirname, "../.."),
+		repositoryRoot,
 		ref,
 		!args.includes("--manifest-from-ref"),
 	);
+	result.errors.push(...licenseMetadataErrors(repositoryRoot, result));
 	console.log(
 		JSON.stringify(
 			{

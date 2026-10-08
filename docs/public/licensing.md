@@ -45,7 +45,7 @@ code. Ask counsel about any material that mixes code and private configuration.
 AGPL section 13 adds a network-source obligation for a modified covered
 program: users interacting with it remotely must be offered the corresponding
 source of that modified version. The complete license text in
-`LICENSES/AGPL-3.0-only.txt` controls the scope and method.
+`LICENSE` controls the scope and method.
 
 ### Can I offer an unmodified Tedix release as a service?
 

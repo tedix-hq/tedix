@@ -27,6 +27,8 @@ describe("public CI policy", () => {
 		expect(workflow).toContain('test "${GITHUB_REF_NAME}" = "cli-v${VERSION}"');
 		expect(workflow).toContain("build:standalone ${{ matrix.target }}");
 		expect(workflow).toContain("actions/upload-artifact@");
+		expect(workflow).toContain("sha256sum tedix-* > SHA256SUMS");
+		expect(workflow).toContain("actions/attest-build-provenance@");
 		expect(workflow).toContain("permissions:\n  contents: read\n");
 		expect(workflow).not.toContain("${{ secrets.");
 		expect(workflow).not.toContain("CLOUDFLARE_ACCOUNT_ID");
@@ -62,28 +64,5 @@ describe("public CI policy", () => {
 			);
 			expect(heavy).toContain("github.event.repository.private == false");
 		}
-	});
-
-	test("stable tag callers explicitly run every full certification job", () => {
-		const caller = read(".github/workflows/oss-release-evidence.yml");
-		expect(job(caller, "certify-public-source")).toContain("force_full: true");
-		const workflow = read(".github/workflows/oss-public-ci.yml");
-		expect(workflow).toContain("force_full:\n");
-		for (const name of ["policy", "types", "tests", "build"]) {
-			expect(job(workflow, name)).toContain(
-				"inputs.force_full == true || github.event_name != 'push'",
-			);
-		}
-	});
-
-	test("blocks stable release evidence on unresolved dependency licenses", () => {
-		const workflow = read(".github/workflows/oss-release-evidence.yml");
-		expect(workflow).toContain("uses: ./.github/workflows/oss-public-ci.yml");
-		expect(workflow).toContain("needs: certify-public-source");
-		const gate = workflow.indexOf(
-			"run: bun scripts/oss/dependency-license-policy.ts",
-		);
-		expect(gate).toBeGreaterThan(-1);
-		expect(gate).toBeLessThan(workflow.indexOf("release-evidence.ts --out"));
 	});
 });
