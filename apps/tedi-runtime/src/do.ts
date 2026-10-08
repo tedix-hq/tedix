@@ -340,6 +340,7 @@ import {
 } from "./embedded-internal-routes";
 import { embeddedToolFitGuidance } from "./embedded-tool-fit";
 import {
+	emailTurnMemoryEffects,
 	emailTurnSystemAddendum,
 	type InboundEmailTrust,
 	inboundEmailTrust,
@@ -14783,13 +14784,16 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			logTediRuntimeFailure("tedi.runtime.email_ledger_mirror_queue_failed", e);
 		});
 
-		// Brain + rationale + artifact bridge + daily log.
+		// Brain + rationale + artifact bridge + daily log. An untrusted sender's
+		// turn is never learned from (`emailTurnMemoryEffects`); compaction is
+		// session-size management only and stays on for every email.
 		await this.dispatchTurnMemoryEffects({
 			user: userTurn,
 			assistant: assistantTurn,
 			runId: emailRunId,
 			origin: "chat",
 			sessionKey,
+			...emailTurnMemoryEffects(trust),
 		});
 		await this.enqueueCompaction(sessionKey);
 

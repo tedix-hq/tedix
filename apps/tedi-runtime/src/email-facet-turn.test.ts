@@ -45,6 +45,7 @@ function emailProbe(
 	const facetInputs: Array<Record<string, unknown>> = [];
 	const queued: Array<{ callback: string; payload: Record<string, unknown> }> =
 		[];
+	const memoryEffects: Array<Record<string, unknown>> = [];
 	const agent = tediDo({
 		env: {},
 		name: "isolate-acme",
@@ -83,10 +84,12 @@ function emailProbe(
 		async queue(callback: string, payload: Record<string, unknown>) {
 			queued.push({ callback, payload });
 		},
-		async dispatchTurnMemoryEffects() {},
+		async dispatchTurnMemoryEffects(input: Record<string, unknown>) {
+			memoryEffects.push(input);
+		},
 		enqueueCompaction() {},
 	});
-	return { agent, appended, replies, facetInputs, queued };
+	return { agent, appended, replies, facetInputs, queued, memoryEffects };
 }
 
 const runId = buildRunId("tedi-1", "<m1@example.com>", "chat");
@@ -138,6 +141,12 @@ const runId = buildRunId("tedi-1", "<m1@example.com>", "chat");
 		(entry) => entry.callback === "onLedgerMirror",
 	);
 	assert.deepEqual(mirror?.payload.facetUsage, { totalTokens: 12 });
+	// The untrusted turn is audited but never learned from: learning disabled
+	// and no daily-log entry, so the sender's text never reaches memory.
+	assert.equal(probe.memoryEffects.length, 1);
+	assert.equal(probe.memoryEffects[0]?.runId, runId);
+	assert.equal(probe.memoryEffects[0]?.learningMode, "disabled");
+	assert.equal(probe.memoryEffects[0]?.dailyLog, false);
 }
 
 {
@@ -160,6 +169,10 @@ const runId = buildRunId("tedi-1", "<m1@example.com>", "chat");
 		"workspaceAiTools",
 		"workstationAiTool",
 	]);
+	// A trusted turn is learned from like any other chat turn.
+	assert.equal(probe.memoryEffects.length, 1);
+	assert.equal(probe.memoryEffects[0]?.learningMode, undefined);
+	assert.equal(probe.memoryEffects[0]?.dailyLog, undefined);
 }
 
 {
