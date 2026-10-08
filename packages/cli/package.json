@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/cli",
-	"version": "0.7.2",
+	"version": "0.7.3",
 	"private": true,
 	"description": "The tedix command: a small program installed on your machine for working with Tedix.",
 	"license": "AGPL-3.0-only",

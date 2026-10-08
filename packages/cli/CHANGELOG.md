@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.7.3 — 2026-10-08
+
+### Fixed
+
+- A tedi auto-reply now says plainly which steps the agent may take on it
+  (reversible routine work within the current task) and which still need you
+  (pushing to a public repository, deploying, messaging people, credentials,
+  money). When the agent declines an auto-reply, the draft is recorded as
+  rejected, and a question you ask about a tedi reply no longer counts as
+  overriding it.
+- Session analysis no longer counts a pipeline that ends in a search finding
+  nothing (for example `ls | grep x`) as a failing tool call.
+
 ## 0.7.2 — 2026-10-08
 
 ### Fixed
