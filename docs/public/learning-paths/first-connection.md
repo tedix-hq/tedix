@@ -112,8 +112,8 @@ tedix -w CLI_PROFILE code \
 ```
 
 **Expected result:** the command returns a positive `count` and a `sample` of up
-to five namespace names. The bounded projection proves that the saved grant can
-reach the live gateway without returning the complete capability inventory. It
+to five namespace names. This short result proves that the saved login can
+reach the live gateway without listing every capability. It
 creates no Home run and does not call an application tool.
 
 You are connected when all three conditions hold:

@@ -16,7 +16,7 @@ visibility: public
 # Self-hosting Tedix and the managed service boundary
 
 Self-hosting is experimental; [Release status](./release-status.md) has the
-current state. This page covers what you get, what you run, and what it costs.
+current state.
 
 ## The same product either way
 

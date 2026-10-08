@@ -15,9 +15,6 @@ visibility: public
 
 # Release status
 
-This is the only page that states what is available. Other pages link here
-instead of repeating it.
-
 ## Available today
 
 | Surface      | Status       | What it means                                                                                                                         |
