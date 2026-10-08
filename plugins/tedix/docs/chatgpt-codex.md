@@ -377,9 +377,13 @@ these hold:
   the same limit of 3 locally, and a reply you type resets it.
 
 An automatic reply reaches the agent as `Tedix <tedi> replied for the user
-(auto, reversible step; the user can override at any time): "<reply>"`. The
-reply is a quoted JSON string, framed as untrusted drafted content that stands
-in for your answer, not as instructions. The question itself stays open: no
+(delegated answer; the user can override any time): "<reply>"`. The reply is a
+quoted JSON string framed as your delegated answer, not as system or tool
+instructions. The agent acts on it, including routine bookkeeping such as
+closing verified Work Items, and holds back only for steps that need you
+yourself: credentials, payments, consent, messaging people as you, publishing
+to a public repo, or irreversible actions affecting others. An agent that
+declines says "Declining the tedi reply" and why. The question itself stays open: no
 hook answers in your name. In Tedix OS the reply shows "Sent automatically by
 <tedi>" with no Accept button; write an override there at any time and it
 answers the question normally, recorded as `draftOutcome: "replaced"`. If you

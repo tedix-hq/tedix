@@ -987,15 +987,18 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			state(),
 			JSON.stringify({ requestId: REQUEST, version: 1, token: "t" }),
 		);
-		expect(
-			claimReply(
-				{
-					prompt:
-						'Tedix tedi Docs replied for the user (auto, reversible step; the user can override at any time): "yes"',
-				},
-				state(),
-			),
-		).toBeUndefined();
+		for (const framing of [
+			"delegated answer; the user can override any time",
+			"auto, reversible step; the user can override at any time",
+		])
+			expect(
+				claimReply(
+					{
+						prompt: `Tedix tedi Docs replied for the user (${framing}): "yes"`,
+					},
+					state(),
+				),
+			).toBeUndefined();
 		expect(existsSync(state())).toBe(true);
 	});
 

@@ -114,9 +114,10 @@ your answer; a reply typed in the chat, expiry or four hours end the wait.
 A tedi-drafted reply is either for review or sent automatically; the
 organization decides per draft. Review drafts are accepted or edited only in
 Tedix OS and never reach the chat until you answer there. An automatic reply
-wakes the session the same way, as `Tedix <tedi> replied for the user (auto,
-reversible step; the user can override at any time): "<reply>"`, with the reply
-quoted and framed as untrusted drafted content that stands in for your answer.
+wakes the session the same way, as `Tedix <tedi> replied for the user
+(delegated answer; the user can override any time): "<reply>"`, with the reply
+quoted as your delegated answer. The agent acts on it, including routine
+bookkeeping, and holds back only for steps that need you yourself.
 The [guardrails](./chatgpt-codex.md#automatic-replies-and-their-guardrails)
 are the same for Claude Code and Codex: reversible steps only, never an
 urgent turn, at most 3 automatic replies in a row, and you can override at

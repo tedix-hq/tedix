@@ -43,7 +43,7 @@
 			"questions": [
 				{
 					"id": "irreversible_step",
-					"instructions": "Does the drafted reply tell the agent to do anything that cannot be undone or that other people or live systems see: deploy, publish, release, delete or drop data, change a live database or organization, force-push, open or comment on pull requests or issues, post or send messages or emails to other people, spend money, or create, rotate, revoke or change credentials or secrets? Writing code, running tests or checks, verifying and committing do not count; a normal push to main does not count only when the agent message says validation passed. Approving a change to the reply-drafting or turn-triage prompt, policy or delivery gate always counts.",
+					"instructions": "Does the drafted reply tell the agent to do anything that cannot be undone or that other people or live systems see: deploy, publish, release, delete or drop data, change a live database or organization, force-push, open or comment on pull requests or issues, post or send messages or emails to other people, spend money, or create, rotate, revoke or change credentials or secrets? Writing code, running tests or checks, verifying, committing and routine Work Item bookkeeping (closing verified items, recording progress) do not count; a normal push to main does not count only when the agent message says validation passed. Approving a change to the reply-drafting or turn-triage prompt, policy or delivery gate always counts.",
 					"autoWhen": {
 						"lte": 0.3
 					}
