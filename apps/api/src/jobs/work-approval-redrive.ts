@@ -1,3 +1,4 @@
+import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { createDbClient } from "@tedix/db/client";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
@@ -34,6 +35,9 @@ export function buildWorkApprovalWakeRequest(input: {
 			"Content-Type": "application/json",
 			"X-Tedix-Host": `${input.tediSlug}.tedi.${input.domain}`,
 			"X-Service-Binding": "true",
+			// The runtime fails closed on a missing tier; the wake carries
+			// `metadata` the approver turn must keep.
+			[CALLER_TRUST_HEADER]: "member",
 		},
 		body: JSON.stringify({
 			session_key: deliveryKey,

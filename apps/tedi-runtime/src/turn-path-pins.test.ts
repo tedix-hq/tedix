@@ -13,6 +13,7 @@
  *    facet setup, the ledger mirror and terminal failure mirroring.
  */
 import assert from "node:assert/strict";
+import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import {
 	facetWorkflowTurnProbe,
 	memoryStorage,
@@ -49,6 +50,7 @@ import {
 	const inject = await agent.onRequest(
 		new Request("https://do.internal/__internal/inject", {
 			method: "POST",
+			headers: { [CALLER_TRUST_HEADER]: "member" },
 			body: JSON.stringify({
 				text: "hello",
 				client_request_id: "req-1",

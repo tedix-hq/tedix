@@ -4,7 +4,7 @@
  * Sender" addendum, draws the background lane and is never learned from;
  * `tedi` keeps the full surface but cannot steer learning; `member` steers.
  * A Home delegation keeps its own ceiling whatever the tier. A missing header
- * is a first-party Worker (kernel, provisioning, mesh), never the gateway.
+ * fails closed to `foreign`: every first-party sender stamps the tier.
  */
 import assert from "node:assert/strict";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
@@ -27,7 +27,11 @@ import {
 } from "./mcp-caller-trust";
 
 // --- the tier a request carries ---
-assert.equal(callerTrustTierForRequest(new Headers()), "member");
+assert.equal(
+	callerTrustTierForRequest(new Headers()),
+	"foreign",
+	"a missing tier fails closed",
+);
 for (const tier of ["member", "tedi", "foreign"] as const) {
 	assert.equal(
 		callerTrustTierForRequest(new Headers({ [CALLER_TRUST_HEADER]: tier })),
@@ -232,8 +236,8 @@ async function inject(
 	const steer = { text: "hello", learning_mode: "disabled" };
 	const missing = await inject(null, steer);
 	assert.equal(missing.status, 200);
-	assert.equal(missing.durable?.callerTrust, "member");
-	assert.equal(missing.durable?.learningMode, "disabled");
+	assert.equal(missing.durable?.callerTrust, "foreign", "header-less inject");
+	assert.equal(missing.durable?.learningMode, undefined, "steering stripped");
 
 	const member = await inject("member", steer);
 	assert.equal(member.durable?.callerTrust, "member");
@@ -268,7 +272,9 @@ console.log("PASS: sync inject caller trust");
 
 	const missing = await inject(null, delegation);
 	assert.equal(missing.status, 202);
-	assert.equal(missing.dispatched?.workItemId, "work-1", "kernel inject");
+	assert.equal(missing.dispatched?.workItemId, undefined, "header-less inject");
+	assert.equal(missing.dispatched?.homeRunId, undefined);
+	assert.equal(missing.dispatched?.callerTrust, "foreign");
 
 	const foreign = await inject("foreign", delegation);
 	assert.equal(foreign.status, 202);

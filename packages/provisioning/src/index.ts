@@ -9,6 +9,8 @@
  * Admin routes are protected by service binding detection (no public HTTP access).
  */
 
+import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -377,6 +379,10 @@ export async function injectAgentMessage(
 		assistant?: { role: "assistant"; content: string; ts: number };
 	}>(config, "/hooks/inject", {
 		method: "POST",
+		// The runtime fails closed on a missing caller-trust tier; the kernel
+		// injects for the organization, so the turn's steering fields
+		// (`learning_mode`, `metadata`) are honoured.
+		headers: { [CALLER_TRUST_HEADER]: "member" },
 		body: JSON.stringify({
 			text: options.message,
 			session_key: options.session,
