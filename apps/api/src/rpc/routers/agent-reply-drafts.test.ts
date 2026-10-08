@@ -13,6 +13,7 @@ import { createDbClient } from "@tedix/db/client";
 import { skillEntries } from "@tedix/db/schema/cognitive";
 import { chatDispatchIdempotency } from "@tedix/db/schema/cognitive-runtime";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { apps } from "@tedix/db/schema/apps";
 import { tedis } from "@tedix/db/schema/tedis";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
@@ -52,6 +53,20 @@ vi.mock("@tedix/db/queries/work-agent-sessions", async (importOriginal) => {
 		},
 	};
 });
+
+// Descope's AIH clients on the unified gateway, which may narrow a tedi's scopes.
+const descopeClients = vi.hoisted(() => ({
+	search: vi.fn(
+		async (
+			_env: unknown,
+			_params: unknown,
+		): Promise<{ id: string; tags: string[]; scopes: string[] }[]> => [],
+	),
+}));
+vi.mock("@tedix/auth/aih-client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/auth/aih-client")>()),
+	searchDescopeMcpServerClients: descopeClients.search,
+}));
 
 // The direct reply-draft dispatch reuses the queue consumer's handler.
 const directDispatch = vi.hoisted(() => ({
@@ -96,6 +111,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			workAgentSessions,
 			organizationMembers,
 			tedis,
+			apps,
 			chatDispatchIdempotency,
 			skillEntries,
 		),
@@ -282,6 +298,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 
 	return {
 		sqlite,
+		env,
 		send,
 		pending,
 		dispatched,
@@ -653,6 +670,37 @@ describe("requestReplyDraft owner routing", () => {
 			content: owned.content,
 		});
 		expect(options).toEqual({ delaySeconds: REPLY_DRAFT_OWNER_TIMEOUT_S });
+	});
+
+	it("never routes to a tedi whose gateway client cannot store a draft", async () => {
+		for (const scopes of [["mcp:work.write"], ["mcp:messaging.write"]]) {
+			const f = routedFixture(0.9);
+			Object.assign(f.env, {
+				DESCOPE_PROJECT_ID: "P1",
+				DESCOPE_MANAGEMENT_KEY: "K1",
+			});
+			f.sqlite
+				.prepare(
+					"INSERT INTO apps (id,organization_id,name,slug,metadata) VALUES ('app-1',?,'Acme Unified MCP','acme-unified',?)",
+				)
+				.run(
+					ORG_ID,
+					JSON.stringify({ mcpConfig: { descopeResourceId: "RS1" } }),
+				);
+			descopeClients.search.mockResolvedValueOnce([
+				{ id: "c1", tags: [`tedi:${OTHER_TEDI_ID}`], scopes },
+			]);
+			await f.configure();
+			await f.target.requestReplyDraft({ requestId: f.question() });
+			expect(descopeClients.search).toHaveBeenLastCalledWith(
+				expect.anything(),
+				{ mcpServerId: "RS1" },
+			);
+			const first = f.send.mock.calls.at(-1) as [Record<string, unknown>];
+			expect(first[0].tediId).toBe(
+				scopes.includes("mcp:messaging.write") ? OTHER_TEDI_ID : DRAFTER_ID,
+			);
+		}
 	});
 
 	it("keeps the drafter below the routing threshold", async () => {

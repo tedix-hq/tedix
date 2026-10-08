@@ -101,13 +101,15 @@ const readOs = os.use(withAuth).use(AUTHZ.messagingRead);
 const writeOs = os
 	.use(withAuth)
 	.use(withAuthorization("tedis:update", "mcp:messaging.write"));
+/** The scope a tedi needs to store a reply draft (`proposeReplyDraft`). */
+const REPLY_DRAFT_WRITE_SCOPE = "mcp:messaging.write";
 const draftWriteOs = os.use(withAuth).use(
 	withAuthorization(
 		{
 			handlerOwnedUserAuthorization:
 				"Reply drafts are bound to one question: only its target user may request one and only the target's configured drafting tedi may propose one; handlers revalidate the active actor and the DB insert guard rechecks question, org, and tedi",
 		},
-		"mcp:messaging.write",
+		REPLY_DRAFT_WRITE_SCOPE,
 	),
 );
 
@@ -658,6 +660,36 @@ async function replyDraftDispatches(context: BaseContext, requestId: string) {
 }
 
 /**
+ * Tedis whose gateway credential cannot store a reply draft, so are never its
+ * owner. Empty, admitting every tedi, when Descope is unconfigured or fails:
+ * the drafter fallback still covers an owner that cannot propose.
+ */
+async function tedisDeniedReplyDraftWrite(
+	context: BaseContext,
+	orgId: string,
+): Promise<Set<string>> {
+	const { DESCOPE_PROJECT_ID, DESCOPE_MANAGEMENT_KEY, DESCOPE_BASE_URL } =
+		context.env;
+	if (!DESCOPE_PROJECT_ID || !DESCOPE_MANAGEMENT_KEY) return new Set();
+	try {
+		const { tedisDeniedUnifiedGatewayScope } =
+			await import("../../lib/tedi-aih-client-sync");
+		return await tedisDeniedUnifiedGatewayScope({
+			env: { DESCOPE_PROJECT_ID, DESCOPE_MANAGEMENT_KEY, DESCOPE_BASE_URL },
+			db: context.db,
+			organizationId: orgId,
+			scope: REPLY_DRAFT_WRITE_SCOPE,
+		});
+	} catch (error) {
+		console.warn("reply-draft owner scope check unavailable", {
+			orgId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return new Set();
+	}
+}
+
+/**
  * The tedi that owns a question's subject (CTO for code and deploys, CMO for
  * go-to-market, ...), chosen from the organization's own tedis by the same
  * Clef classifier and threshold that routes lessons into tedi brains. Null
@@ -676,9 +708,16 @@ async function owningDraftTediId(
 	try {
 		const { routeCandidates, routeToOwningTedi } =
 			await import("../../services/learning-feed-miner");
+		const [tedis, denied] = await Promise.all([
+			getTedisByOrganization(context.db, params.orgId),
+			tedisDeniedReplyDraftWrite(context, params.orgId),
+		]);
 		const candidates = routeCandidates(
-			(await getTedisByOrganization(context.db, params.orgId)).filter(
-				(tedi) => tedi.status === "active" && tedi.id !== params.drafterTediId,
+			tedis.filter(
+				(tedi) =>
+					tedi.status === "active" &&
+					tedi.id !== params.drafterTediId &&
+					!denied.has(tedi.id),
 			),
 			params.orgId,
 			params.targetUserId,
