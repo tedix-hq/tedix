@@ -440,6 +440,8 @@ async function main() {
 			const renamed = await renameExternalAgentPrincipal({
 				workspace,
 				oauthBearer: bearer,
+				mcpUrl: readWorkspaceCredentials(workspace)?.mcpUrl,
+				organization: options.organization,
 				displayName: options.agentDisplayName,
 			});
 			if (options.json) console.log(JSON.stringify(renamed, null, 2));

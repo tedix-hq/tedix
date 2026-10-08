@@ -1056,6 +1056,9 @@ export async function finishExternalAgentSession(options: {
 export async function renameExternalAgentPrincipal(options: {
 	workspace: string;
 	oauthBearer: string;
+	/** Gateway the owner's login belongs to; a Connect token is not valid elsewhere. */
+	mcpUrl?: string;
+	organization?: string;
 	displayName?: string;
 	createClient?: GatewayClientFactory;
 }): Promise<{ key: string; displayName: string; previous: string }> {
@@ -1063,10 +1066,23 @@ export async function renameExternalAgentPrincipal(options: {
 	if (!profile) throw new Error("No external-agent profile is configured.");
 	const displayName =
 		options.displayName?.trim() || defaultLocalPrincipal().displayName;
+	const url = options.mcpUrl ?? profile.mcpUrl;
+	const target = isMultiOrganizationMcpUrl(url)
+		? resolveOrganizationTarget({
+				url,
+				command: "agent",
+				workspace: options.workspace,
+				organization: options.organization,
+				accessToken: options.oauthBearer,
+			})
+		: { headers: {} };
 	const client = createGatewayClient(
 		{
-			headers: { Authorization: `Bearer ${options.oauthBearer}` },
-			url: profile.mcpUrl,
+			headers: {
+				Authorization: `Bearer ${options.oauthBearer}`,
+				...target.headers,
+			},
+			url,
 		},
 		options.createClient,
 	);
