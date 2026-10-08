@@ -40,7 +40,8 @@ identify the task and the agent session behind the change. The ids do not
 resolve publicly, and you never need them.
 
 [RELEASING.md](RELEASING.md) explains when a landed change reaches a CLI or
-plugin release.
+plugin release. A user-visible CLI change carries a `.changeset/` note made
+with `bun changeset`; the release that ships it is cut separately.
 
 ## Working in your own fork
 

@@ -73,6 +73,7 @@
 		"verify": "bun scripts/ci/preflight-gates.mjs"
 	},
 	"devDependencies": {
+		"@changesets/cli": "^3.0.3",
 		"@tedix/api-client": "workspace:*",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/db": "workspace:*",

@@ -1,7 +1,7 @@
 # Tedix CLI changelog
 
-Hand-written notes for each CLI release, newest first. See
-[RELEASING.md](../../RELEASING.md) for how versions are chosen.
+Notes for each CLI release, newest first, collected from `.changeset/` files.
+See [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
 ## 0.7.2 — 2026-10-08
 
