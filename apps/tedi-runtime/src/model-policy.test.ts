@@ -7,6 +7,7 @@ import {
 	modelOverrideForSurface,
 	normalizeModelPolicy,
 	resolveSurfaceModelRef,
+	turnModelForInject,
 } from "./model-policy";
 
 const CHAT_REF = "azure-openai/gpt-5.6-terra";
@@ -104,5 +105,29 @@ assert.equal(
 	),
 	"gpt-5.6-luna",
 );
+
+// A per-turn model rides only on a reply-draft inject; any other turn, or a
+// malformed selection, keeps the tedi's own policy.
+const draftModel = {
+	modelRef: CRON_REF,
+	generation: { reasoningEffort: "low", maxOutputTokens: 1500 },
+};
+assert.deepEqual(
+	turnModelForInject({ source: "reply-draft:v6:owner", turnModel: draftModel }),
+	draftModel,
+);
+assert.equal(
+	turnModelForInject({ source: "automation-queue", turnModel: draftModel }),
+	undefined,
+);
+assert.equal(turnModelForInject({ turnModel: draftModel }), undefined);
+assert.equal(
+	turnModelForInject({
+		source: "reply-draft:v6:owner",
+		turnModel: { modelRef: "not a ref" },
+	}),
+	undefined,
+);
+assert.equal(turnModelForInject(undefined), undefined);
 
 console.log("model-policy.test.ts: all assertions passed");
