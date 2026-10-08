@@ -1,5 +1,6 @@
 import type { AudioAttachment } from "@tedix/voice/stt";
 import type { AdaptiveLearningMode } from "./adaptive-learning";
+import type { SurfaceTrust, UntrustedTurnChannel } from "./turn-trust";
 
 export type ChatContextPolicy = "conversation" | "session_only";
 
@@ -47,6 +48,14 @@ export interface StreamChatTurnInput {
 	toolNamespacePrefix?: string;
 	toolAllowedCallables?: string[];
 	embeddedSessionToken?: string;
+	/**
+	 * Whether the turn's author is verified. Absent means trusted: the OS
+	 * operator WebSocket and service-binding paths authenticate their caller.
+	 * An untrusted turn names its channel so the tool allowlist and system
+	 * addendum match the surface (`turn-trust.ts`).
+	 */
+	trust?: SurfaceTrust;
+	trustChannel?: UntrustedTurnChannel;
 	modelRefOverride?: string;
 	/**
 	 * Explicit thinking effort for this turn, already checked at the edge against
@@ -56,11 +65,36 @@ export interface StreamChatTurnInput {
 	reasoningEffortOverride?: "none" | "low" | "medium" | "high";
 }
 
+/** Embedded identities are canonical host-scoped `embed:` sessions. */
+export function isEmbeddedSessionKey(sessionKey: string): boolean {
+	return sessionKey.startsWith("embed:");
+}
+
+/**
+ * Trust for a turn posted to `/__internal/chat/stream`. A website visitor is
+ * never verified: the signed session proves the host minted it, not who is
+ * typing, and no claim on it asserts host-side verification. Every other
+ * caller of that route is a service binding and stays trusted.
+ */
+export function internalChatStreamTrust(
+	payload: Pick<
+		InternalChatStreamPayload,
+		"session_key" | "tool_argument_constraints" | "embedded_session_token"
+	>,
+	sessionKey: string,
+): Pick<StreamChatTurnInput, "trust" | "trustChannel"> {
+	return isEmbeddedSessionKey(sessionKey) ||
+		payload.tool_argument_constraints !== undefined ||
+		payload.embedded_session_token !== undefined
+		? { trust: "untrusted", trustChannel: "widget" }
+		: {};
+}
+
 /** Report selected policy, not a claim that memory was retrieved or used. */
 export function resolveChatContext(input: StreamChatTurnInput, runId: string) {
 	// Embedded identities are canonical host-scoped sessions. A missing or stale
 	// ingress field must never enable the broader organization memory corpus.
-	const embedded = input.sessionKey.startsWith("embed:");
+	const embedded = isEmbeddedSessionKey(input.sessionKey);
 	const selectedPolicy = embedded
 		? "session_only"
 		: (input.contextPolicy ?? "conversation");

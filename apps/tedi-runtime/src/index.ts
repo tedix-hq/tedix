@@ -818,7 +818,7 @@ function embeddedTurnText(
 				]
 			: []),
 		"",
-		"Verified host context (authoritative for this embedded session):",
+		"Signed host context (labels are host-asserted, not verified by Tedix):",
 		`Host organization: ${claims.hostOrganizationLabel ?? "unknown"} (id ${claims.hostOrganizationId ?? "unknown"})`,
 		`Host user: ${claims.hostUserLabel ?? claims.hostUserId ?? claims.sub}`,
 		`Host role: ${claims.hostRole ?? "unknown"}`,

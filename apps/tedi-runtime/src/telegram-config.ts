@@ -17,7 +17,9 @@
  * across multiple bots — each bot's `setWebhook` registers the same token).
  */
 
-export interface TelegramChannelLike {
+import type { TelegramTurnPolicyConfig } from "./telegram-turn-policy";
+
+export interface TelegramChannelLike extends TelegramTurnPolicyConfig {
 	enabled?: boolean;
 	botToken?: string;
 	botUsername?: string;

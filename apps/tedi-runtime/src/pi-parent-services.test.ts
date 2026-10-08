@@ -134,9 +134,13 @@ const author = {
 	isBot: false,
 };
 const message = { id: "m1", text: "hello", author, attachments: [] };
-function telegram(selected = true) {
+function telegram(
+	selected = true,
+	turnPolicy?: () => Record<string, unknown> | null,
+) {
 	const storage = new Storage(),
 		gate = admission(selected);
+	const trusts: string[] = [];
 	let sends = 0,
 		models = 0,
 		typing = 0,
@@ -180,8 +184,10 @@ function telegram(selected = true) {
 				fibers++;
 				await fn({ stash() {} });
 			},
-			runTurn: async () => {
+			turnPolicy,
+			runTurn: async (turn: { trust: string }) => {
 				models++;
+				trusts.push(turn.trust);
 				afterModel?.();
 				return "x".repeat(8000);
 			},
@@ -193,6 +199,7 @@ function telegram(selected = true) {
 		storage,
 		gate,
 		thread,
+		trusts,
 		get sends() {
 			return sends;
 		},
@@ -219,6 +226,35 @@ function telegram(selected = true) {
 		},
 		accept: (msg = message) => ChatBoundary.latest.direct(thread, msg),
 	};
+}
+{
+	// The channel policy decides the turn before anything is admitted: a
+	// disabled DM policy drops the message without a record, a fiber or a model
+	// call; an allowlisted author's trust rides the turn into the model call.
+	const closed = telegram(true, () => ({ dmPolicy: "disabled" }));
+	await closed.accept();
+	assert.equal(closed.gate.admits, 0);
+	assert.equal(closed.fibers, 0);
+	assert.equal(closed.models, 0);
+	assert.equal(closed.sends, 0);
+	const bot = telegram(true, () => ({ dmPolicy: "open" }));
+	await bot.accept({ ...message, author: { ...author, isBot: true } });
+	assert.equal(bot.models, 0);
+	const listed = telegram(true, () => ({
+		dmPolicy: "allowlist",
+		allowFrom: ["@alice"],
+	}));
+	await listed.accept();
+	assert.deepEqual(listed.trusts, ["trusted"]);
+	await listed.accept({
+		...message,
+		id: "m2",
+		author: { ...author, userId: "mallory", userName: "mallory" },
+	});
+	assert.deepEqual(listed.trusts, ["trusted", "untrusted"]);
+	const unconfigured = telegram();
+	await unconfigured.accept();
+	assert.deepEqual(unconfigured.trusts, ["untrusted"]);
 }
 {
 	const f = telegram();
