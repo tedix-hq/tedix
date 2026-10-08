@@ -393,7 +393,13 @@ export interface LearningOwnerSummary {
  */
 export async function listLearningOwnersForReflection(
 	db: DbClient,
-	input: { organizationId: string; surfaces: string[]; limit: number },
+	input: {
+		organizationId: string;
+		surfaces: string[];
+		limit: number;
+		/** Only this person. */
+		ownerUserId?: string;
+	},
 ): Promise<LearningOwnerSummary[]> {
 	if (input.surfaces.length === 0) return [];
 	const newestAt = max(learningInteractionEvents.occurredAt);
@@ -411,6 +417,9 @@ export async function listLearningOwnersForReflection(
 				eq(learningInteractionEvents.scopeKind, "personal"),
 				// bound-params: callers pass a fixed list of producer surfaces
 				inArray(learningInteractionEvents.surface, input.surfaces),
+				input.ownerUserId
+					? eq(learningInteractionEvents.scopeId, input.ownerUserId)
+					: undefined,
 			),
 		)
 		.groupBy(learningInteractionEvents.scopeId)

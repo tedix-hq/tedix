@@ -22,6 +22,12 @@
  *           one lesson per subject and scope for the rest: a rule from one
  *           repository stays in that repository; anything else is outside any.
  *
+ * INCREMENTAL  a new decision re-distils only what it touches: the person's
+ *           current lessons (their rules, as stored) plus the decisions
+ *           since the last run, mapped in one call and merged against the
+ *           existing rules that share its topic. Seconds, not minutes; the
+ *           nightly run re-reads the whole history.
+ *
  * Writes supersede the miner's own earlier lessons for that person; a lesson
  * a person reviewed or archived is never touched, and neither its decisions
  * nor its rules are learned again. Nothing is written when the person's
@@ -66,7 +72,7 @@ import {
 } from "./lesson-distiller";
 
 /** Bumped when chunking, prompts or planning change: lessons are rebuilt once. */
-export const MAP_REDUCE_VERSION = 5;
+export const MAP_REDUCE_VERSION = 6;
 export const CHUNK_REPLIES = 150;
 /** At most this many chunks per person per run (4,500 replies). */
 export const MAX_CHUNKS = 30;
@@ -81,6 +87,7 @@ const MAP_REDUCE_MODEL = "@cf/openai/gpt-oss-120b";
 const MAP_TIMEOUT_MS = 150_000;
 const REDUCE_TIMEOUT_MS = 240_000;
 const REDUCE_MAX_CANDIDATES = 240;
+const INCREMENTAL_TIMEOUT_MS = 90_000;
 const RULE_CHARS = 150;
 /** Delivery shows at most 600 characters of one lesson. */
 const LESSON_CHARS = 600;
@@ -114,10 +121,13 @@ const NOISE =
  * A lesson is context, never authority: a rule to bypass deployment, CI,
  * verification, approvals or permissions would contradict repository rules
  * and the approval path, so it is never learned ("auto-approve actions
- * without a human gate" was once learned from "no review gate for lessons").
+ * without a human gate" was once learned from "no review gate for lessons",
+ * "assume all actions are authorized" from "don't wait, keep going"). A
+ * lesson keeps agreed work moving; it never assumes authorization or lets
+ * agents approve on the person's behalf.
  */
 const UNSAFE =
-	/\b(?:deploy(?:s|ing)? (?:manually|by hand)|hand[- ]deploy|manual(?:ly)? (?:production )?deploy|(?:disable|skip|bypass)\w* (?:the )?(?:ci|checks?|tests?|hooks?|verification|review)|ci (?:is )?disabled|without (?:waiting for )?(?:verification|validation|checks?|tests?|review)|--no-verify|force[- ]push|auto[\s\u2010-\u2015-]*approv\w*|approv\w* (?:\w+ )?automatically|(?:skip|bypass|remove|avoid|ignore|without|no)\w* (?:the |any |a )?(?:human[\s\u2010-\u2015-]*(?:in[\s\u2010-\u2015-]*the[\s\u2010-\u2015-]*loop )?)?(?:gates?|approvals?|permissions?|sign[\s\u2010-\u2015-]*offs?|consent)\b|human (?:approval )?gate)/i;
+	/\b(?:deploy(?:s|ing)? (?:manually|by hand)|hand[- ]deploy|manual(?:ly)? (?:production )?deploy|(?:disable|skip|bypass)\w* (?:the )?(?:ci|checks?|tests?|hooks?|verification|review)|ci (?:is )?disabled|without (?:waiting for )?(?:verification|validation|checks?|tests?|review)|--no-verify|force[- ]push|auto[\s\u2010-\u2015-]*approv\w*|approv\w* (?:\w+ )?automatically|(?:skip|bypass|remove|avoid|ignore|without|no)\w* (?:the |any |a )?(?:human[\s\u2010-\u2015-]*(?:in[\s\u2010-\u2015-]*the[\s\u2010-\u2015-]*loop )?)?(?:gates?|approvals?|permissions?|sign[\s\u2010-\u2015-]*offs?|consent)\b|human (?:approval )?gate|assum\w* (?:that )?(?:\w+ ){0,3}(?:are |is )?(?:authori[sz]ed|approved|permitted|allowed)|agents? (?:can |may |should |will )?approve\w*|approv\w* (?:\w+ ){0,2}on (?:my|the user'?s|their|his|her) behalf)/i;
 /**
  * The person's standing preference is that agents decide and continue; a
  * learned "ask first" habit contradicts it.
@@ -771,6 +781,8 @@ export interface HistorySignature {
 	 * what is covered and blocked, so the history is distilled again.
 	 */
 	settled: number;
+	/** Written by an incremental pass: the nightly run still re-reads all. */
+	incremental?: true;
 }
 
 export interface OwnerPreparation {
@@ -798,11 +810,13 @@ async function ownerLessons(
 export async function prepareOwners(
 	db: DbClient,
 	orgId: string,
+	ownerUserId?: string,
 ): Promise<OwnerPreparation[]> {
 	const owners = await listLearningOwnersForReflection(db, {
 		organizationId: orgId,
 		surfaces: DECISION_SURFACES,
 		limit: MAX_OWNERS_PER_RUN,
+		...(ownerUserId ? { ownerUserId } : {}),
 	});
 	const prepared: OwnerPreparation[] = [];
 	for (const owner of owners) {
@@ -827,6 +841,7 @@ export async function prepareOwners(
 			return (
 				isReplaceableLesson(row) &&
 				run.complete === true &&
+				run.incremental !== true &&
 				run.version === signature.version &&
 				run.events === signature.events &&
 				run.newestAt === signature.newestAt &&
@@ -947,10 +962,15 @@ export async function writeOwnerLessons(
 					distilled: DISTILL_VERSION,
 					...(lesson.standing ? { hoisted: true } : {}),
 					subject: lesson.scope.topic,
+					// Everything an incremental pass needs to merge the rule again.
 					rules: lesson.rules.map((r) => ({
 						rule: r.rule,
 						sessions: r.sessions.length,
 						newestAt: r.newestAt,
+						subject: r.subject,
+						repos: r.repos,
+						standing: r.standing,
+						...(r.rank !== undefined ? { rank: r.rank } : {}),
 					})),
 					mapReduce: { ...input.signature, complete: input.complete },
 				},
@@ -1101,4 +1121,189 @@ export async function distillPersonalLessons(
 		result.lessonsSuperseded += written.superseded;
 	}
 	return result;
+}
+
+/** A lesson's rules as stored, or null when one lacks what a merge needs. */
+export function storedRules(row: {
+	metadata: unknown;
+}): RuleCandidate[] | null {
+	const feed = rec(rec(row.metadata).learningFeed);
+	if (!Array.isArray(feed.rules)) return null;
+	const evidence = evidenceOf(row);
+	const rules: RuleCandidate[] = [];
+	for (const value of feed.rules) {
+		const stored = rec(value);
+		const subject = subjectOf(text(stored.subject));
+		const repos = Array.isArray(stored.repos)
+			? stored.repos.filter((r): r is string => typeof r === "string")
+			: [];
+		const rule = text(stored.rule);
+		const newestAt = text(stored.newestAt);
+		if (!subject || !rule || !newestAt || repos.length === 0) return null;
+		const count =
+			typeof stored.sessions === "number" ? Math.max(1, stored.sessions) : 1;
+		rules.push({
+			rule,
+			subject,
+			eventIds: evidence,
+			// Stand-ins for the sessions behind it: only their count is kept.
+			sessions: Array.from({ length: count }, (_, i) => `prior:${rule}:${i}`),
+			repos,
+			newestAt,
+			standing: stored.standing === true,
+			...(typeof stored.rank === "number" ? { rank: stored.rank } : {}),
+		});
+	}
+	return rules;
+}
+
+function sharedWords(a: string, b: string): number {
+	const own = new Set(words(a));
+	return new Set(words(b).filter((word) => own.has(word))).size;
+}
+
+/**
+ * Merge freshly mapped candidates into the person's current rules. Only the
+ * current rules on a fresh candidate's topic go to the model with it (the
+ * rest stay as they are), so a correction replaces the rule it contradicts,
+ * however many sessions stated that rule.
+ */
+export async function mergeIncrementally(
+	env: DistillEnv,
+	existing: RuleCandidate[],
+	fresh: RuleCandidate[],
+	blocked: string[],
+): Promise<RuleCandidate[]> {
+	if (fresh.length === 0) return settle(lastingRules(existing, blocked));
+	const related = existing.filter((rule) =>
+		fresh.some(
+			(f) => sameRule(rule.rule, f.rule) || sharedWords(rule.rule, f.rule) >= 2,
+		),
+	);
+	const others = existing.filter((rule) => !related.includes(rule));
+	const pool = [...related, ...fresh];
+	const response = await runDistillModel(env, reducePrompt(pool), {
+		maxTokens: 4000,
+		model: MAP_REDUCE_MODEL,
+		timeoutMs: INCREMENTAL_TIMEOUT_MS,
+		surface: "learning-feed-reduce",
+	});
+	const merged =
+		(response === null ? null : mergedFromResponse(response, pool)) ??
+		mergeByWords(pool);
+	return settle(lastingRules([...others, ...merged], blocked));
+}
+
+export interface IncrementalResult {
+	/** `full`: no current lessons to build on; the whole history is needed. */
+	status: "updated" | "unchanged" | "full";
+	replies: number;
+	lessonsWritten: number;
+	lessonsKept: number;
+	lessonsSuperseded: number;
+}
+
+/**
+ * Re-distil one person's lessons from their current lessons and the
+ * decisions since the last run. Returns `full` when there is nothing to build
+ * on (no current lessons, an older format, or more new decisions than one
+ * chunk), and the caller runs `distillPersonalLessons` instead.
+ */
+export async function distillOwnerIncrementally(
+	step: StepRunner,
+	db: DbClient,
+	env: DistillEnv,
+	orgId: string,
+	ownerUserId: string,
+): Promise<IncrementalResult> {
+	const result: IncrementalResult = {
+		status: "unchanged",
+		replies: 0,
+		lessonsWritten: 0,
+		lessonsKept: 0,
+		lessonsSuperseded: 0,
+	};
+	const quick = {
+		retries: { limit: 2, delay: "2 seconds" },
+		timeout: "1 minute",
+	} as const;
+	const base = await step("lessons-inc-base", quick, async () => {
+		const [owner] = await prepareOwners(db, orgId, ownerUserId);
+		if (!owner) return null;
+		const rows = (await ownerLessons(db, orgId, ownerUserId)).filter(
+			isReplaceableLesson,
+		);
+		const runs = rows.map((row) =>
+			rec(rec(rec(row.metadata).learningFeed).mapReduce),
+		);
+		if (rows.length === 0 || runs.some((r) => r.version !== MAP_REDUCE_VERSION))
+			return { owner, rules: null, since: "", settled: -1 };
+		const rules: RuleCandidate[] = [];
+		for (const row of rows) {
+			const stored = storedRules(row);
+			if (!stored) return { owner, rules: null, since: "", settled: -1 };
+			rules.push(...stored);
+		}
+		return {
+			owner,
+			rules,
+			since:
+				runs
+					.map((r) => text(r.newestAt))
+					.sort()
+					.at(-1) ?? "",
+			settled: Math.max(...runs.map((r) => Number(r.settled ?? -1))),
+		};
+	});
+	if (!base) return result;
+	if (!base.rules) return { ...result, status: "full" };
+	const { owner, rules: existing, since } = base;
+	const page = await step("lessons-inc-read", quick, () =>
+		readOwnerChunk(db, {
+			orgId,
+			ownerUserId,
+			before: null,
+			covered: new Set(owner.covered),
+		}),
+	);
+	const fresh = page.replies.filter((reply) => reply.occurredAt > since);
+	// More new decisions than one chunk: the whole history is due.
+	if (fresh.length === page.replies.length && page.next)
+		return { ...result, status: "full" };
+	result.replies = fresh.length;
+	if (fresh.length === 0 && base.settled === owner.signature.settled)
+		return result;
+	const candidates =
+		fresh.length === 0
+			? []
+			: await step(
+					"lessons-inc-map",
+					{ retries: { limit: 1, delay: "5 seconds" }, timeout: "3 minutes" },
+					() => mapChunk(env, fresh),
+				);
+	const lessons = await step(
+		"lessons-inc-merge",
+		{ retries: { limit: 1, delay: "5 seconds" }, timeout: "3 minutes" },
+		async () =>
+			planLessons(
+				ownerUserId,
+				await mergeIncrementally(env, existing, candidates, owner.blocked),
+			),
+	);
+	const written = await step("lessons-inc-write", quick, () =>
+		writeOwnerLessons(db, {
+			orgId,
+			ownerUserId,
+			lessons,
+			signature: { ...owner.signature, incremental: true },
+			complete: true,
+		}),
+	);
+	return {
+		...result,
+		status: "updated",
+		lessonsWritten: written.written,
+		lessonsKept: written.kept,
+		lessonsSuperseded: written.superseded,
+	};
 }

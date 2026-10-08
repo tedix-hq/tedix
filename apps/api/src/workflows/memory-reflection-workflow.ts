@@ -52,7 +52,10 @@ import {
 } from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
 import { modelLessonDistiller } from "../services/lesson-distiller";
-import { distillPersonalLessons } from "../services/lesson-map-reduce";
+import {
+	distillOwnerIncrementally,
+	distillPersonalLessons,
+} from "../services/lesson-map-reduce";
 import { assessDelegatedAnswerCriteriaWithJev } from "../rpc/routers/kernel/jev-goal-assessment";
 import { reconcileCanonicalMemoryProjection } from "../integrations/cloudflare/agent-memory";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
@@ -60,8 +63,13 @@ import { asRecord } from "@tedix/api-contract/utils/is-record";
 interface ReflectionParams {
 	organizationId: string;
 	tediId?: string;
-	/** `lessons`: only distil each person's decision history into lessons. */
-	scope: "full" | "recent" | "domain" | "lessons";
+	/**
+	 * `lessons`: only distil each person's decision history into lessons.
+	 * `lessons-incremental`: only `ownerUserId`'s lessons, from their current
+	 * lessons and the decisions since (a new decision, within a minute or two).
+	 */
+	scope: "full" | "recent" | "domain" | "lessons" | "lessons-incremental";
+	ownerUserId?: string;
 	domain?: string;
 }
 
@@ -279,21 +287,35 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 	ReflectionParams
 > {
 	async run(event: WorkflowEvent<ReflectionParams>, step: WorkflowStep) {
-		const { organizationId, tediId, scope } = event.payload;
+		const { organizationId, tediId, scope, ownerUserId } = event.payload;
 		const db = createDbClient(this.env.DB);
+		const steps = <T>(
+			name: string,
+			config: WorkflowStepConfig,
+			body: () => Promise<T>,
+		) =>
+			// Every step result is plain JSON by construction.
+			step.do(name, config, body as () => Promise<never>) as Promise<T>;
+
+		// One person's new decisions -> their lessons, built on the current
+		// ones; the whole history when there is nothing to build on.
+		if (scope === "lessons-incremental" && ownerUserId) {
+			const result = await distillOwnerIncrementally(
+				steps,
+				db,
+				this.env,
+				organizationId,
+				ownerUserId,
+			);
+			if (result.status !== "full") return result;
+			return distillPersonalLessons(steps, db, this.env, organizationId);
+		}
 
 		// Each person's whole decision history -> lessons, one step per chunk
 		// (see lesson-map-reduce.ts). Its own instance, dispatched below and by
 		// `mine_agent_session_lessons`.
 		if (scope === "lessons")
-			return distillPersonalLessons(
-				<T>(name: string, config: WorkflowStepConfig, body: () => Promise<T>) =>
-					// Every step result is plain JSON by construction.
-					step.do(name, config, body as () => Promise<never>) as Promise<T>,
-				db,
-				this.env,
-				organizationId,
-			);
+			return distillPersonalLessons(steps, db, this.env, organizationId);
 
 		// Step 1: Collect recent facts to review
 		const facts = await step.do(

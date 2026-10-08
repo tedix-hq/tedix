@@ -69,6 +69,7 @@ import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
+import { startIncrementalLessons } from "../../services/lesson-incremental-dispatch";
 import { importAgentSessionDecisions } from "../../services/agent-session-decision-import";
 import { observedLearningActor } from "../../services/learning-interaction-recorder";
 import { requireOrgId } from "../org-scope";
@@ -960,15 +961,28 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 	async ({ context }) => {
 		const organizationId = requireOrgId(context);
 		let distilling = false;
-		try {
-			await context.env.MEMORY_REFLECTION_WORKFLOW.create({
-				id: `lessons-${organizationId}-${Date.now()}`,
-				params: { organizationId, scope: "lessons" as const },
-			});
-			distilling = true;
-		} catch (error) {
-			console.error("[learning-feed] lesson distillation start failed:", error);
-		}
+		// A person's own lessons build on their current ones (a minute or two);
+		// without a person, every person's whole history is distilled.
+		const actor = observedLearningActor(context);
+		if (actor.actorType === "user" && actor.actorId)
+			distilling = await startIncrementalLessons(
+				context.env,
+				organizationId,
+				actor.actorId,
+			);
+		else
+			try {
+				await context.env.MEMORY_REFLECTION_WORKFLOW.create({
+					id: `lessons-${organizationId}-${Date.now()}`,
+					params: { organizationId, scope: "lessons" as const },
+				});
+				distilling = true;
+			} catch (error) {
+				console.error(
+					"[learning-feed] lesson distillation start failed:",
+					error,
+				);
+			}
 		const { mineLearningFeed, clefLessonRouter } =
 			await import("../../services/learning-feed-miner");
 		const { modelLessonDistiller } =
