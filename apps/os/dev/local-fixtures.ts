@@ -3753,6 +3753,33 @@ const handlers: Record<string, (input: never) => unknown> = {
 		],
 		policy: { minDrafts: 50, minRate: 0.9 },
 	}),
+	"agentTurnTriage/getReplyDraftLeaderboard": () => {
+		const score = (
+			answered: number,
+			autoSent: number,
+			stood: number,
+			corrected: number,
+			avgReplySeconds: number | null,
+		) => ({ answered, autoSent, stood, corrected, avgReplySeconds });
+		return {
+			tedis: [
+				{
+					tediId: TEDI_NOVA,
+					name: "Nova",
+					avatar: null,
+					week: score(14, 9, 11, 2, 38),
+					today: score(3, 2, 3, 0, 31),
+				},
+				{
+					tediId: TEDI_MILES,
+					name: "Miles",
+					avatar: null,
+					week: score(6, 2, 4, 1, 52),
+					today: score(1, 0, 0, 1, 64),
+				},
+			],
+		};
+	},
 	"agentTurnTriage/listLessons": () => ({
 		lessons: LOCAL_LESSONS.map((lesson) => {
 			const added = new Date(

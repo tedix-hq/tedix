@@ -8,6 +8,7 @@ import {
 	countConsecutiveAutoReplies,
 	getLatestReplyDraft,
 	getReplyDraftAcceptance,
+	getReplyDraftLeaderboard,
 	insertReplyDraft,
 } from "./reply-drafts";
 
@@ -574,6 +575,77 @@ describe("auto-send acceptance metrics", () => {
 			autoSent: 2,
 			autoFollowedUp: 1,
 			overridden: 1,
+		});
+	});
+});
+
+describe("reply draft leaderboard", () => {
+	it("ranks tedis by replies that stood, this week and today", async () => {
+		const { sqlite, db } = seed();
+		sqlite.exec(
+			"INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('cto','org','CTO','cto','active')",
+		);
+		const answer = (id: string, outcome: string) =>
+			respondToWorkInteraction(db, {
+				id: `r-${id}`,
+				orgId: "org",
+				interactionId: id,
+				expectedVersion: 1,
+				responder: { type: "user", id: "user" },
+				responseKind: "answer",
+				body: "Answer",
+				resolvesRequest: true,
+				metadata: { draftId: `d-${id}`, draftOutcome: outcome, editRatio: 0 },
+				now: "2026-08-20T02:00:00.000Z",
+			});
+		// Drafter: one accepted, one edited, both 60 s after the question.
+		for (const [id, outcome] of [
+			["q1", "accepted"],
+			["q2", "edited"],
+		] as const) {
+			question(sqlite, id);
+			await insertReplyDraft(
+				db,
+				draft({
+					id: `d-${id}`,
+					interactionId: id,
+					now: "2026-08-20T00:01:00.000Z",
+				}),
+			);
+			await answer(id, outcome);
+		}
+		// CTO: two auto replies nobody overrode, the newer one today.
+		for (const [id, now] of [
+			["q3", "2026-08-20T00:02:00.000Z"],
+			["q4", "2026-08-21T00:02:00.000Z"],
+		] as const) {
+			question(sqlite, id);
+			await insertReplyDraft(
+				db,
+				draft({
+					id: `d-${id}`,
+					interactionId: id,
+					drafterId: "cto",
+					delivery: "auto",
+					now,
+				}),
+			);
+		}
+		const rows = await getReplyDraftLeaderboard(db, {
+			orgId: "org",
+			targetUserId: "user",
+			since: "2026-08-19T00:00:00.000Z",
+			todaySince: "2026-08-21T00:00:00.000Z",
+		});
+		expect(rows.map((row) => row.name)).toEqual(["CTO", "Drafter"]);
+		expect(rows[0]).toMatchObject({
+			week: { answered: 2, autoSent: 2, stood: 2, corrected: 0 },
+			today: { answered: 1, autoSent: 1, stood: 1, corrected: 0 },
+		});
+		expect(rows[1]).toMatchObject({
+			tediId: "drafter",
+			week: { answered: 2, stood: 1, corrected: 1, avgReplySeconds: 60 },
+			today: { answered: 0, stood: 0, avgReplySeconds: null },
 		});
 	});
 });

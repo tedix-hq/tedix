@@ -623,6 +623,16 @@ export const replyDraftAcceptanceQueryOptions = (since: string) =>
 		refetchInterval: WORK_OFFICE_REFETCH_MS,
 	});
 
+/** The caller's drafting tedis this week and today, ranked by replies that stood. */
+export const replyDraftLeaderboardQueryOptions = (
+	since: string,
+	todaySince: string,
+) =>
+	osQuery.agentTurnTriage.getReplyDraftLeaderboard.queryOptions({
+		input: { since, todaySince },
+		refetchInterval: WORK_OFFICE_REFETCH_MS,
+	});
+
 /** The lessons the caller's sessions receive, newest first. */
 export const notebookLessonsQueryOptions = () =>
 	osQuery.agentTurnTriage.listLessons.queryOptions({
