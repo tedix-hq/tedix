@@ -3,14 +3,17 @@
 [![OSS Public CI](https://github.com/tedix-hq/tedix/actions/workflows/oss-public-ci.yml/badge.svg?branch=main)](https://github.com/tedix-hq/tedix/actions/workflows/oss-public-ci.yml)
 [![Status: beta](https://img.shields.io/badge/status-beta-yellow)](docs/public/release-status.md)
 
-**Agents you can hold accountable.**
+**AI coworkers that show their work.**
 
 [Website](https://tedix.dev) · [Docs](https://docs.tedix.dev) ·
 [Discussions](https://github.com/tedix-hq/tedix/discussions)
 
-Tedix runs long-lived AI workers, called **tedis**, inside your organization.
-Each tedi has its own identity, scoped tools, a budget, and approval rules, and
-Tedix keeps a record of every run: what the worker did, why, and who allowed it.
+Tedix gives your team AI coworkers, called **tedis**, for recurring work. They
+ask before risky steps, and every run leaves a record: what the tedi did, which
+tools it used, and who approved it.
+
+If a chatbot is a smart intern you have to watch, a tedi is a teammate with a
+job, a budget and a paper trail.
 
 For example, give a tedi access to one supplier folder. It can write a
 decision note with cited sources, draft a follow-up, and ask before sending
