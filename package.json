@@ -33,6 +33,7 @@
 		"dev:local:demo-stack": "vp run --parallel --filter @tedix/api --filter @tedix/mcp --filter @tedix/os dev:local-launcher",
 		"dev:local:seed": "cd packages/db && bun ../../scripts/dev-local.ts -- wrangler d1 migrations apply DB",
 		"dev:local:test": "bun test scripts/dev-local.test.ts",
+		"worktree:gc": "bun scripts/dev/worktree-gc.ts",
 		"dev:os-stack": "./scripts/dev-with-logs.sh dev os",
 		"docs:public:check": "bun scripts/docs/check-public-docs.ts",
 		"format": "vp fmt",

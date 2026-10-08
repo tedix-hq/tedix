@@ -36,5 +36,6 @@ storybook-static/
 .vscode/
 *.swp
 
-# Local agent worktrees (Claude Code) are separate checkouts, never sources
+# Local agent worktrees are separate checkouts, never sources
 .claude/worktrees/
+.worktrees/
