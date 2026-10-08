@@ -116,8 +116,6 @@ and the opt-in plugin hooks send.
 
 ## News
 
-Newest first. Each entry is a date and one or two plain sentences.
-
 - **2026-10-07**: The Tedix plugin restarted at version 0.1.0 and is now
   versioned independently of the CLI.
 - **2026-10-06**: The source is public on GitHub, with the first source
