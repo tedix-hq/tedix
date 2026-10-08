@@ -54,6 +54,8 @@ import {
 	OpenApiImportWorkflowOutputSchema,
 	PropagateToolsInputSchema,
 	PropagateToolsOutputSchema,
+	ReassignCatalogPlainSlugInputSchema,
+	ReassignCatalogPlainSlugOutputSchema,
 	ReconcileCatalogAppInputSchema,
 	ReconcileCatalogAppOutputSchema,
 	SyncCatalogToolsToAppInputSchema,
@@ -634,11 +636,28 @@ export const catalogContract = oc
 				operationId: "merge_catalog_apps",
 				summary: "Merge catalog apps",
 				description:
-					"Merge a duplicate/orphan catalog app (typically a store-brokered SERVICE connector with no MCP endpoint) into its canonical runnable entry: re-parent its store listings as listing facets, move its change history, drop redundant snapshots, and delete the orphan row. Defaults to a dry run.",
+					"Merge a duplicate/orphan catalog app (typically a store-brokered SERVICE connector with no MCP endpoint) into its canonical runnable entry: re-parent its store listings as listing facets, repoint apps built from it, move its change history, drop redundant snapshots, and delete the orphan row, all in one atomic batch. Defaults to a dry run.",
 				tags: ["service", "internal"],
 			})
 			.input(MergeCatalogAppsInputSchema)
 			.output(MergeCatalogAppsOutputSchema),
+
+		/**
+		 * Give a plain vendor slug to the best same-vendor catalog row
+		 * POST /catalog/apps/reassign-plain-slug
+		 */
+		reassignPlainSlug: oc
+			.route({
+				method: "POST",
+				path: "/apps/reassign-plain-slug",
+				operationId: "reassign_catalog_plain_slug",
+				summary: "Reassign a plain catalog slug",
+				description:
+					"Rank the catalog rows of one vendor (same website domain and name) by installability, MCP tool count and listing source, and give the plain slug (e.g. `hubspot`) to the best-ranked one. The current holder moves to a numbered slug, and only when no app is built from it. Platform-admin only. Defaults to a dry run that returns the plan.",
+				tags: ["service", "internal"],
+			})
+			.input(ReassignCatalogPlainSlugInputSchema)
+			.output(ReassignCatalogPlainSlugOutputSchema),
 
 		// ============================================================
 		// Create from MCP Endpoint

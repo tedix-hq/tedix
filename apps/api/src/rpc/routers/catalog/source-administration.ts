@@ -31,6 +31,11 @@ import {
 	normalizeMcpEndpoint,
 } from "@tedix/db/queries/catalog/endpoint-normalization";
 import { mergeCatalogApps } from "@tedix/db/queries/catalog/merge";
+import {
+	applyCatalogPlainSlugReassignment,
+	planCatalogPlainSlugReassignment,
+} from "@tedix/db/queries/catalog/vendor-siblings";
+import { isPlatformPrincipal } from "@tedix/auth/types";
 import { previewOpenApiToolImport } from "../../../services/openapi-tool-import";
 import {
 	projectCatalogToolsFromBaseApp,
@@ -1146,6 +1151,36 @@ export const mergeCatalogAppsProcedure = fleetCatalogOs.mergeApps
 			);
 		}
 	});
+
+/**
+ * Give a plain vendor slug to the best-ranked same-vendor catalog row.
+ * `app_catalog` is global and its slug is inherited by every base app,
+ * connection provider and Code Mode namespace, so this is a platform decision.
+ */
+export const reassignCatalogPlainSlugProcedure =
+	fleetCatalogOs.reassignPlainSlug
+		.use(AUTHZ.catalogWrite)
+		.handler(async ({ input, context }) => {
+			requireCatalogOperatorAccess(context);
+			if (!isPlatformPrincipal(context)) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Reassigning a catalog slug requires platform-admin authority",
+				);
+			}
+			const { db } = context;
+			const plan = await planCatalogPlainSlugReassignment(db, {
+				slug: input.slug,
+				classifyInstallability: (app, baseApp) =>
+					calculateCatalogInstallability(app, baseApp).state,
+			});
+			if (!plan) {
+				throw createError(ErrorCodes.NOT_FOUND, "Catalog app not found");
+			}
+			const apply = !input.dryRun && plan.action === "reassign";
+			if (apply) await applyCatalogPlainSlugReassignment(db, plan);
+			return { ...plan, dryRun: input.dryRun, applied: apply };
+		});
 
 // =============================================================================
 // ROUTER EXPORT

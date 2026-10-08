@@ -3,7 +3,7 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, like, sql } from "drizzle-orm";
 import { appCatalog, type CatalogApp } from "../../schema/catalog";
 import type { Database } from "./tool-source-policy";
 
@@ -11,8 +11,19 @@ import type { Database } from "./tool-source-policy";
 // MCP ENDPOINT NORMALIZATION
 // =============================================================================
 
+/**
+ * True when a base URL is a placeholder the installer fills in (`{url}`,
+ * `https://{tenant}.example.com/mcp`), not a server anyone can reach. Such a URL
+ * identifies no endpoint, so it must never be hashed for endpoint dedup.
+ */
+export function isTemplatedMcpEndpoint(
+	url: string | null | undefined,
+): boolean {
+	return typeof url === "string" && /[{}]/.test(url);
+}
+
 export function normalizeMcpEndpoint(url: string | null): string | null {
-	if (!url) return null;
+	if (!url || isTemplatedMcpEndpoint(url)) return null;
 
 	try {
 		const parsed = new URL(url);
@@ -116,32 +127,41 @@ export function normalizeVendorName(name: string | null | undefined): string {
 }
 
 /**
- * Find the canonical runnable catalog row a no-endpoint connector should fold
- * onto, matched by registrable domain + exact normalized name. Only returns a
- * candidate that is itself a runnable MCP row (has `mcpEndpointNormalized`), so
- * a brokered listing is never attached to another brokered listing. Returns
- * null when there is no safe, unambiguous match.
+ * Find the canonical catalog row an endpoint-less connector should fold onto,
+ * matched by registrable domain + exact normalized name. By default only a
+ * runnable MCP row (has `mcpEndpointNormalized`) qualifies, so a brokered
+ * listing is never attached to another brokered listing. With
+ * `templateEndpoint`, the candidate must instead be a row whose own endpoint is
+ * a template (`{url}`) — the same user-supplied-server listing seen again in
+ * another directory entry. Returns null when there is no safe, unambiguous
+ * match.
  */
 export async function getCanonicalCatalogAppForConnector(
 	db: Database,
 	input: {
 		website: string | null | undefined;
 		name: string | null | undefined;
+		templateEndpoint?: boolean;
 	},
 ): Promise<CatalogApp | null> {
 	const domain = extractVendorDomain(input.website);
 	const name = normalizeVendorName(input.name);
 	if (!domain || !name) return null;
 
-	// Candidate canonical rows: runnable (endpoint present) and sharing the same
-	// registrable domain. Domain is compared with the same www-stripping applied
-	// on both sides so `www.github.com` and `github.com` match.
+	// Domain is compared with the same www-stripping applied on both sides so
+	// `www.github.com` and `github.com` match.
+	const endpointShape = input.templateEndpoint
+		? and(
+				isNull(appCatalog.mcpEndpointNormalized),
+				like(appCatalog.baseUrl, "%{%"),
+			)
+		: isNotNull(appCatalog.mcpEndpointNormalized);
 	const candidates = await db
 		.select()
 		.from(appCatalog)
 		.where(
 			and(
-				isNotNull(appCatalog.mcpEndpointNormalized),
+				endpointShape,
 				isNotNull(appCatalog.website),
 				sql`lower(replace(replace(${appCatalog.website}, 'https://', ''), 'http://', '')) LIKE ${`%${domain}%`}`,
 			),
@@ -155,4 +175,34 @@ export async function getCanonicalCatalogAppForConnector(
 
 	// Only canonicalize on a single unambiguous match.
 	return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+const SECOND_LEVEL_LABELS = new Set([
+	"co",
+	"com",
+	"net",
+	"org",
+	"ac",
+	"gov",
+	"edu",
+	"ne",
+	"or",
+]);
+
+/**
+ * The registrable domain of a vendor website (`app.breezesec.com` →
+ * `breezesec.com`, `shop.example.co.jp` → `example.co.jp`). A heuristic, not a
+ * public-suffix lookup: it only names a slug, never decides identity.
+ */
+export function registrableVendorDomain(
+	websiteOrHost: string | null | undefined,
+): string | null {
+	const host = extractVendorDomain(websiteOrHost);
+	if (!host) return null;
+	const labels = host.split(".").filter(Boolean);
+	if (labels.length <= 2) return labels.join(".");
+	const tld = labels[labels.length - 1] ?? "";
+	const second = labels[labels.length - 2] ?? "";
+	const keep = tld.length === 2 && SECOND_LEVEL_LABELS.has(second) ? 3 : 2;
+	return labels.slice(-keep).join(".");
 }

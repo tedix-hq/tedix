@@ -2,15 +2,24 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { eq } from "drizzle-orm";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
+import { apps } from "../../schema/apps";
+import { organizations } from "../../schema/organizations";
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	extractVendorDomain,
 	getCanonicalCatalogAppForConnector,
+	normalizeMcpEndpoint,
 	normalizeVendorName,
+	registrableVendorDomain,
 } from "./endpoint-normalization";
-import { getCatalogAppById, getCatalogAppBySlug } from "./get-app";
+import {
+	getCatalogAppById,
+	getCatalogAppBySlug,
+	qualifySlugWithDomain,
+} from "./get-app";
 import { checkCatalogIntegrity } from "./mcp-tools";
 import { mergeCatalogApps } from "./merge";
 import { getCatalogStoreListings } from "./store-listings";
@@ -170,6 +179,156 @@ describe("vendor-identity canonicalization", () => {
 	});
 });
 
+describe("templated and endpoint-less imports", () => {
+	let db: DbClient;
+	beforeEach(() => {
+		db = migratedDb();
+	});
+
+	it("treats a templated base URL as no endpoint", () => {
+		expect(normalizeMcpEndpoint("{url}")).toBeNull();
+		expect(normalizeMcpEndpoint("https://{tenant}.crm.example/mcp")).toBeNull();
+		expect(
+			normalizeMcpEndpoint("https://mcp.example.com/{workspace}"),
+		).toBeNull();
+		expect(normalizeMcpEndpoint("https://mcp.example.com/mcp/")).toBe(
+			"https://mcp.example.com/mcp",
+		);
+	});
+
+	it("folds a template-endpoint listing into the existing same-vendor template row", async () => {
+		const first = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_ledgerly_a",
+			name: "Ledgerly",
+			connectorType: "MCP",
+			baseUrl: "{url}",
+			website: "https://ledgerly.example",
+		});
+		const second = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_ledgerly_b",
+			name: "Ledgerly",
+			connectorType: "MCP",
+			baseUrl: "{url}",
+			website: "https://www.ledgerly.example/",
+		});
+
+		expect(first?.created).toBe(true);
+		expect(first?.app.mcpEndpointHash).toBeNull();
+		expect(second?.created).toBe(false);
+		expect(second?.app.id).toBe(first?.app.id);
+		expect(await getCatalogAppBySlug(db, "ledgerly-2")).toBeNull();
+		const listings = await getCatalogStoreListings(db, first!.app.id);
+		expect(listings.map((l) => l.sourceAppId).sort()).toEqual([
+			"claude_dir_ledgerly_a",
+			"claude_dir_ledgerly_b",
+		]);
+	});
+
+	it("attaches an endpoint-less MCP connector to the runnable same-vendor row", async () => {
+		const runnable = await syncCatalogAppFromStore(db, {
+			source: "official",
+			sourceAppId: "https://mcp.mailtide.example/mcp",
+			name: "Mailtide",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.mailtide.example/mcp",
+			website: "https://mailtide.example",
+		});
+		const brokered = await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "connector_1p_mailtide",
+			name: "Mailtide",
+			connectorType: "MCP",
+			baseUrl: null,
+			website: "https://mailtide.example",
+		});
+
+		expect(brokered?.created).toBe(false);
+		expect(brokered?.app.id).toBe(runnable?.app.id);
+		expect(await getCatalogAppBySlug(db, "mailtide-2")).toBeNull();
+		const kept = await getCatalogAppById(db, runnable!.app.id);
+		expect(kept?.mcpEndpointNormalized).toBe(
+			"https://mcp.mailtide.example/mcp",
+		);
+		const listings = await getCatalogStoreListings(db, runnable!.app.id);
+		expect(listings.map((l) => l.source).sort()).toEqual([
+			"chatgpt",
+			"official",
+		]);
+	});
+
+	it("keeps per-store endpoint variants of one vendor as separate rows", async () => {
+		const openai = await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "asdk_app_dealflow",
+			name: "Dealflow",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.dealflow.example/openai",
+			website: "https://dealflow.example",
+		});
+		const anthropic = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_dealflow",
+			name: "Dealflow",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.dealflow.example/anthropic",
+			website: "https://dealflow.example",
+		});
+
+		expect(anthropic?.created).toBe(true);
+		expect(anthropic?.app.id).not.toBe(openai?.app.id);
+		// Same vendor: a domain suffix would not distinguish them, so `-N`.
+		expect(anthropic?.app.slug).toBe("dealflow-2");
+	});
+
+	it("gives a same-name app of a different company a domain-qualified slug", async () => {
+		await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "asdk_app_breeze_hr",
+			name: "Breeze",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.breeze-hr.example/mcp",
+			website: "https://breeze-hr.example",
+		});
+		const security = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_breeze_sec",
+			name: "Breeze",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.breezesec.example/mcp",
+			website: "https://app.breezesec.example",
+		});
+		// Never merged across companies, and named for its own domain.
+		expect(security?.created).toBe(true);
+		expect(security?.app.slug).toBe("breeze-breezesec");
+
+		const pm = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_breeze_pm",
+			name: "Breeze",
+			connectorType: "SERVICE",
+			baseUrl: null,
+			website: "https://breeze.pm",
+		});
+		expect(pm?.created).toBe(true);
+		expect(pm?.app.slug).toBe("breeze-pm");
+	});
+
+	it("derives the registrable domain and the qualified slug", () => {
+		expect(registrableVendorDomain("https://app.breezesec.example")).toBe(
+			"breezesec.example",
+		);
+		expect(registrableVendorDomain("https://shop.example.co.jp")).toBe(
+			"example.co.jp",
+		);
+		expect(qualifySlugWithDomain("breeze", "breezesec.com")).toBe(
+			"breeze-breezesec",
+		);
+		expect(qualifySlugWithDomain("breeze", "breeze.in")).toBe("breeze-in");
+	});
+});
+
 describe("mergeCatalogApps", () => {
 	let db: DbClient;
 	beforeEach(() => {
@@ -224,6 +383,63 @@ describe("mergeCatalogApps", () => {
 			"chatgpt",
 			"official",
 		]);
+	});
+
+	it("repoints apps built from the orphan and writes everything in one batch", async () => {
+		const canonical = await syncCatalogAppFromStore(db, {
+			source: "official",
+			sourceAppId: "https://mcp.notebay.example/mcp",
+			name: "Notebay",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.notebay.example/mcp",
+			website: "https://notebay.example",
+		});
+		const orphan = await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "connector_notebay",
+			name: "Notebay Connector",
+			connectorType: "SERVICE",
+			baseUrl: null,
+			website: "https://notebay.example",
+		});
+		const now = new Date().toISOString();
+		await db.insert(organizations).values({
+			id: "org-fictional",
+			name: "Fictional Co",
+			slug: "fictional-co",
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(apps).values({
+			id: "app-built-from-orphan",
+			organizationId: "org-fictional",
+			name: "Notebay",
+			slug: "notebay",
+			catalogAppId: orphan!.app.id,
+		});
+
+		const dry = await mergeCatalogApps(db, {
+			fromCatalogAppId: orphan!.app.id,
+			intoCatalogAppId: canonical!.app.id,
+			dryRun: true,
+		});
+		expect(dry.repointedApps).toBe(1);
+		expect(dry.summary).toMatch(/repoint 1 app/);
+
+		const batch = vi.spyOn(db, "batch");
+		const real = await mergeCatalogApps(db, {
+			fromCatalogAppId: orphan!.app.id,
+			intoCatalogAppId: canonical!.app.id,
+			dryRun: false,
+		});
+		expect(real.deletedOrphan).toBe(true);
+		expect(batch).toHaveBeenCalledTimes(1);
+
+		const [app] = await db
+			.select({ catalogAppId: apps.catalogAppId })
+			.from(apps)
+			.where(eq(apps.id, "app-built-from-orphan"));
+		expect(app?.catalogAppId).toBe(canonical!.app.id);
 	});
 
 	it("refuses to merge an app into itself", async () => {
