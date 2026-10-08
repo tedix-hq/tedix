@@ -27,6 +27,10 @@ Read the nearest scoped `AGENTS.md`, exact callers, and tests before changing
 behavior. Keep unrelated work intact. Contracts and current code take priority
 over prose; fix stale instructions when you encounter them.
 
+Before each patch, re-read the exact lines it replaces. Never copy context
+lines from memory or from your own earlier edit, because a formatter may have
+rewritten them. Keep Markdown line breaks exactly as the file has them.
+
 ## Validate the change
 
 - `bun run --cwd <workspace> type-check`: TypeScript source.
