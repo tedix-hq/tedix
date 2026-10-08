@@ -100,6 +100,84 @@ const DEFAULT_CHANNEL_POLICY: CommonChannelPolicy = {
 	requireMention: true,
 };
 
+/**
+ * Plain-language labels for what the runtime actually does with each policy
+ * (`apps/tedi-runtime/src/telegram-turn-policy.ts`). The stored enum values
+ * are unchanged; `pairing` is kept because it may already be stored, but the
+ * runtime has no pairing-approval flow and treats it exactly as `allowlist`.
+ */
+export const DM_POLICY_OPTIONS: ReadonlyArray<{
+	value: DmPolicy;
+	label: string;
+	help: string;
+}> = [
+	{
+		value: "pairing",
+		label: "Allowlist (pairing not yet available)",
+		help: "Behaves exactly like Allowlist until a pairing approval flow exists.",
+	},
+	{
+		value: "allowlist",
+		label: "Allowlist",
+		help: "Only listed users get the tedi's full tool set. Everyone else gets a short reply only: no tools, nothing is learned.",
+	},
+	{
+		value: "open",
+		label: "Open",
+		help: "Anyone can message. Unverified senders get a short reply only: no tools, nothing is learned.",
+	},
+	{
+		value: "disabled",
+		label: "Disabled",
+		help: "Direct messages are dropped without a reply.",
+	},
+];
+
+export const GROUP_POLICY_OPTIONS: ReadonlyArray<{
+	value: GroupPolicy;
+	label: string;
+	help: string;
+}> = [
+	{
+		value: "allowlist",
+		label: "Allowlist",
+		help: "Only listed group members get the tedi's full tool set. Everyone else gets a short reply only: no tools, nothing is learned.",
+	},
+	{
+		value: "open",
+		label: "Open",
+		help: "Anyone in a group can message. Unverified senders get a short reply only: no tools, nothing is learned.",
+	},
+	{
+		value: "disabled",
+		label: "Disabled",
+		help: "Group messages are dropped without a reply.",
+	},
+];
+
+export const ALLOW_FROM_HELP = "Telegram user id or @username, one per line.";
+
+export function policyHelp<T extends string>(
+	options: ReadonlyArray<{ value: T; help: string }>,
+	value: T,
+): string {
+	return options.find((option) => option.value === value)?.help ?? "";
+}
+
+/** One allowlist entry per line; blank lines are ignored. */
+export function parseAllowFrom(text: string): string[] {
+	return text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+}
+
+function allowFromText(value: unknown): string {
+	return Array.isArray(value)
+		? value.filter((entry) => typeof entry === "string").join("\n")
+		: "";
+}
+
 function recordValue(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -190,7 +268,9 @@ const channelPolicySchema = z.object({
 	enabled: z.boolean(),
 	botToken: z.string(),
 	dmPolicy: z.enum(["allowlist", "disabled", "open", "pairing"]),
+	allowFrom: z.string(),
 	groupPolicy: z.enum(["allowlist", "disabled", "open"]),
+	groupAllowFrom: z.string(),
 	requireMention: z.boolean(),
 });
 
@@ -200,7 +280,7 @@ const liveChannelsSchema = z.object({
 
 type LiveChannelsValues = z.output<typeof liveChannelsSchema>;
 
-function liveChannelValues(channelsValue: unknown): LiveChannelsValues {
+export function liveChannelValues(channelsValue: unknown): LiveChannelsValues {
 	const channels = recordValue(channelsValue);
 	return Object.fromEntries(
 		(["telegram"] as const).map((channel) => {
@@ -221,7 +301,9 @@ function liveChannelValues(channelsValue: unknown): LiveChannelsValues {
 					enabled: existing.enabled === true,
 					botToken: "",
 					dmPolicy,
+					allowFrom: allowFromText(existing.allowFrom),
 					groupPolicy,
+					groupAllowFrom: allowFromText(existing.groupAllowFrom),
 					requireMention: existing.requireMention !== false,
 				},
 			];
@@ -332,53 +414,95 @@ function LiveChannelsForm({
 							</div>
 						)}
 					</FormField>
-					<div className="grid gap-3 sm:grid-cols-3">
-						<FormField
-							form={form}
-							name={`${channel}.dmPolicy`}
-							label="DM policy"
-						>
-							{(field, meta) => (
-								<FormSelect field={field} {...meta} disabled={!canManage}>
-									{["pairing", "allowlist", "open", "disabled"].map((value) => (
-										<SelectItem key={value} value={value}>
-											{value}
-										</SelectItem>
-									))}
-								</FormSelect>
-							)}
-						</FormField>
-						<FormField
-							form={form}
-							name={`${channel}.groupPolicy`}
-							label="Group policy"
-						>
-							{(field, meta) => (
-								<FormSelect field={field} {...meta} disabled={!canManage}>
-									{["allowlist", "open", "disabled"].map((value) => (
-										<SelectItem key={value} value={value}>
-											{value}
-										</SelectItem>
-									))}
-								</FormSelect>
-							)}
-						</FormField>
-						<FormField
-							form={form}
-							name={`${channel}.requireMention`}
-							label="Require mention"
-							orientation="horizontal"
-						>
-							{(field, meta) => (
-								<Switch
-									id={meta.id}
-									checked={field.state.value}
-									disabled={!canManage}
-									onCheckedChange={field.handleChange}
-								/>
-							)}
-						</FormField>
-					</div>
+					<form.Subscribe
+						selector={(state) => ({
+							dmPolicy: state.values[channel].dmPolicy,
+							groupPolicy: state.values[channel].groupPolicy,
+						})}
+					>
+						{({ dmPolicy, groupPolicy }) => (
+							<div className="grid gap-3 sm:grid-cols-2">
+								<FormField
+									form={form}
+									name={`${channel}.dmPolicy`}
+									label="Direct messages"
+									description={policyHelp(DM_POLICY_OPTIONS, dmPolicy)}
+								>
+									{(field, meta) => (
+										<FormSelect field={field} {...meta} disabled={!canManage}>
+											{DM_POLICY_OPTIONS.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</FormSelect>
+									)}
+								</FormField>
+								<FormField
+									form={form}
+									name={`${channel}.allowFrom`}
+									label="Trusted DM senders"
+									description={ALLOW_FROM_HELP}
+								>
+									{(field, meta) => (
+										<FormTextarea
+											field={field}
+											{...meta}
+											rows={3}
+											disabled={!canManage}
+										/>
+									)}
+								</FormField>
+								<FormField
+									form={form}
+									name={`${channel}.groupPolicy`}
+									label="Groups"
+									description={policyHelp(GROUP_POLICY_OPTIONS, groupPolicy)}
+								>
+									{(field, meta) => (
+										<FormSelect field={field} {...meta} disabled={!canManage}>
+											{GROUP_POLICY_OPTIONS.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</FormSelect>
+									)}
+								</FormField>
+								<FormField
+									form={form}
+									name={`${channel}.groupAllowFrom`}
+									label="Trusted group members"
+									description={ALLOW_FROM_HELP}
+								>
+									{(field, meta) => (
+										<FormTextarea
+											field={field}
+											{...meta}
+											rows={3}
+											disabled={!canManage}
+										/>
+									)}
+								</FormField>
+								<FormField
+									form={form}
+									name={`${channel}.requireMention`}
+									label="Reply in groups only when mentioned"
+									description="On: group messages that do not mention the bot are dropped. Off: the tedi reads every group message."
+									orientation="horizontal"
+								>
+									{(field, meta) => (
+										<Switch
+											id={meta.id}
+											checked={field.state.value}
+											disabled={!canManage}
+											onCheckedChange={field.handleChange}
+										/>
+									)}
+								</FormField>
+							</div>
+						)}
+					</form.Subscribe>
 				</Surface>
 			))}
 			<Button type="submit" disabled={!canManage || isSaving}>
@@ -931,7 +1055,9 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 					...recordValue(current.telegram),
 					enabled: value.telegram.enabled,
 					dmPolicy: value.telegram.dmPolicy,
+					allowFrom: parseAllowFrom(value.telegram.allowFrom),
 					groupPolicy: value.telegram.groupPolicy,
+					groupAllowFrom: parseAllowFrom(value.telegram.groupAllowFrom),
 					requireMention: value.telegram.requireMention,
 				},
 			} as ChannelsConfig;
@@ -960,7 +1086,9 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 						config: {
 							enabled: value[channel].enabled,
 							dmPolicy: value[channel].dmPolicy,
+							allowFrom: parseAllowFrom(value[channel].allowFrom),
 							groupPolicy: value[channel].groupPolicy,
+							groupAllowFrom: parseAllowFrom(value[channel].groupAllowFrom),
 							requireMention: value[channel].requireMention,
 						},
 					}),
