@@ -30,7 +30,8 @@ relaxing the gate.
 | `lint-vite-plus-imports.ts`                          | Vite/Vitest are imported through `vite-plus`                                    |
 
 Each script's header states its rule. Run one with `bun run lint:<name>`; run
-them all with `bun run lint:repo`, which must stay offline. Gates print findings
+them all with `bun run lint:repo` (`lint-repo.ts`, which runs them in parallel and
+reports every failure; add new gates there), which must stay offline. Gates print findings
 and exit 0 by default; `--strict` (what `lint:repo` uses) exits 1 on errors.
 
 ## Baselines
