@@ -40,6 +40,12 @@ and durable answer settlement.
   `tedix work agent-reply-draft-request` (6 s). All three resolve current
   authorized native descriptors; none executes a JavaScript wrapper.
 
+- **Session supervisor** (`supervise.ts`) — `tedix supervise` delivers a tedi
+  auto reply that arrives after a Codex session's `await-draft` stopped waiting:
+  `codex queue` for an open window (confirmed in the session transcript), else a
+  headless `codex exec resume` whose thread ID must match. Same delivery rules
+  and cap as the hooks; `install`/`uninstall` manage a user LaunchAgent.
+
 - **MCP Home client** (`home-client.ts`) — `TedixHomeClient` wraps
   `@modelcontextprotocol/client`'s `StreamableHTTPClientTransport` and calls
   the gateway's raw `home__*` tools (`ask`, `home__read_home_run`,
