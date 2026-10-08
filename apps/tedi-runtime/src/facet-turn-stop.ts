@@ -53,6 +53,22 @@ export function reservedFinalStepConfig(
 	return ceiling === null ? undefined : finalStepToolChoice(ordinal, ceiling);
 }
 
+/**
+ * Why the turn needs the tools-off final report, if it does. Besides an early
+ * stop, a loop that ends with no prose gets one: models sometimes finish
+ * `stop` with empty text right after a large tool result, and failing the
+ * whole turn then throws away every completed tool effect.
+ */
+export function finalReportReason(input: {
+	stopReason: string | null;
+	assistantText: string;
+}): string | null {
+	if (input.stopReason) return input.stopReason;
+	return input.assistantText.trim()
+		? null
+		: "your last response contained no written answer";
+}
+
 /** The synthetic instruction that drives the forced final report. */
 export function finalReportInstruction(reason: string): string {
 	return (

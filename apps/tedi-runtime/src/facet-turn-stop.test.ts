@@ -3,6 +3,7 @@ import {
 	accountingStepPolicy,
 	composeStoppedTurnText,
 	finalReportInstruction,
+	finalReportReason,
 	reservedFinalStepConfig,
 	resolveFacetStepCeiling,
 	stepCeilingReached,
@@ -79,3 +80,19 @@ assert.equal(
 );
 
 console.log("facet-turn-stop OK");
+
+// An early stop keeps its own reason; an empty loop answer also gets a report.
+assert.equal(
+	finalReportReason({ stopReason: "budget", assistantText: "partial" }),
+	"budget",
+);
+assert.equal(
+	finalReportReason({ stopReason: null, assistantText: "  \n" }),
+	"your last response contained no written answer",
+	"an empty final answer gets one tools-off report instead of failing the turn",
+);
+assert.equal(
+	finalReportReason({ stopReason: null, assistantText: "done" }),
+	null,
+);
+console.log("PASS: final report covers early stops and empty answers");
