@@ -14,6 +14,7 @@ import {
 	renderDescription,
 	repeatedRequests,
 	runAnalyzeSessions,
+	syncSource,
 	type ToolEvent,
 } from "./learn-analyze";
 
@@ -417,6 +418,74 @@ describe("runAnalyzeSessions", () => {
 		const report = JSON.parse(out.join("\n"));
 		expect(report.targets).toEqual({});
 		expect(report.unrouted.unboundRepository).toEqual({ acme: 5 });
+	});
+});
+
+describe("syncSource", () => {
+	/** Runs the Code Mode program against an in-memory board. */
+	async function run(
+		source: string,
+		rows: any[] | { ok: false; error: string },
+	) {
+		const calls: string[] = [];
+		const work = {
+			list_work_items: async (input: { titleContains: string }) => {
+				calls.push(`list:${input.titleContains}`);
+				return Array.isArray(rows) ? { data: rows } : rows;
+			},
+			update_work_item_specification: async (input: { id: string }) => {
+				calls.push(`update:${input.id}`);
+				return {};
+			},
+			create_work_items: async (input: { sourceIntentId: string }) => {
+				calls.push(`create:${input.sourceIntentId}`);
+				return { id: "new" };
+			},
+		};
+		const program = new Function("work", `return (${source})();`);
+		return { result: await program(work), calls };
+	}
+	const want = {
+		title: CATEGORIES.friction.title,
+		intent: CATEGORIES.friction.intent,
+		description: "list v2",
+		projectId: "11111111-2222-4333-8444-555555555555",
+		create: true,
+	};
+
+	it("updates the existing item, leaves an identical one alone and creates once", async () => {
+		const existing = {
+			id: "w-1",
+			title: want.title,
+			sourceIntentId: want.intent,
+			disposition: "proposed",
+		};
+		expect(
+			await run(syncSource(want), [{ ...existing, description: "list v1" }]),
+		).toEqual({
+			result: { id: "w-1", action: "updated" },
+			calls: ["list:Session analysis", "update:w-1"],
+		});
+		expect(
+			(await run(syncSource(want), [{ ...existing, description: "list v2" }]))
+				.result,
+		).toEqual({
+			id: "w-1",
+			action: "unchanged",
+		});
+		expect((await run(syncSource(want), [])).calls).toEqual([
+			"list:Session analysis",
+			`create:${want.intent}`,
+		]);
+	});
+
+	it("never creates when the listing fails", async () => {
+		const { result, calls } = await run(syncSource(want), {
+			ok: false,
+			error: "Internal Server Error",
+		});
+		expect(result.ok).toBe(false);
+		expect(calls).toEqual(["list:Session analysis"]);
 	});
 });
 

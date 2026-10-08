@@ -952,6 +952,9 @@ export function rankAll(
 	};
 }
 
+/** Every category title starts with this; it stays under D1's 50-byte LIKE limit. */
+const TITLE_PREFIX = "Session analysis";
+
 /** Code Mode program: find the item by intent or title, then update or create it. */
 export function syncSource(want: {
 	title: string;
@@ -962,8 +965,10 @@ export function syncSource(want: {
 }): string {
 	return `async () => {
 	const want = ${asciiJson(want)};
-	const page = await work.list_work_items({ titleContains: want.title, limit: 25 });
-	const rows = (page.data ?? []).filter((r) => r.sourceIntentId === want.intent || r.title === want.title);
+	const page = await work.list_work_items({ titleContains: ${JSON.stringify(TITLE_PREFIX)}, limit: 100 });
+	// A failed read must never fall through to a create.
+	if (page?.ok === false || !Array.isArray(page?.data)) return { ok: false, error: "listing Work Items failed: " + String(page?.error ?? "no data") };
+	const rows = page.data.filter((r) => r.sourceIntentId === want.intent || r.title === want.title);
 	const row = rows.find((r) => r.disposition !== "cancelled");
 	if (row) {
 		if (row.description === want.description) return { id: row.id, action: "unchanged" };
