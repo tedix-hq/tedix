@@ -6,7 +6,7 @@ export const GET: APIRoute = () => {
 	lines.push("# Tedix");
 	lines.push("");
 	lines.push(
-		"> Agents you can hold accountable. Tedix runs persistent AI workers (tedis) with identity, scoped tools, budgets, approvals and a record of every run, on Cloudflare.",
+		"> AI coworkers that show their work. Tedix gives teams AI coworkers (tedis) for recurring work: they ask before risky steps, and every run leaves a record of what was done, with which tools, and who approved it. Open source, runs on Cloudflare.",
 	);
 	lines.push("");
 	lines.push(

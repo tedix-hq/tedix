@@ -43,7 +43,7 @@ const englishContent = {
 		languageLabel: "Language",
 	},
 	footer: {
-		tagline: "Agents you can hold accountable.",
+		tagline: "AI coworkers that show their work.",
 		product: "Product",
 		appStore: "App Store",
 		howItWorks: "How It Works",
@@ -389,7 +389,7 @@ const germanContent = {
 		languageLabel: "Sprache",
 	},
 	footer: {
-		tagline: "KI-Agenten, die Rechenschaft ablegen.",
+		tagline: "KI-Kollegen, die ihre Arbeit zeigen.",
 		product: "Produkt",
 		appStore: "App Store",
 		howItWorks: "So funktioniert es",
@@ -732,7 +732,7 @@ const spanishContent = {
 		languageLabel: "Idioma",
 	},
 	footer: {
-		tagline: "Agentes a los que puedes pedir cuentas.",
+		tagline: "Compañeros de IA que muestran su trabajo.",
 		product: "Producto",
 		appStore: "App Store",
 		howItWorks: "Cómo funciona",

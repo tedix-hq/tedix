@@ -13,9 +13,9 @@ visibility: public
 
 # Tedix documentation
 
-**Agents you can hold accountable.**
+**AI coworkers that show their work.**
 
-Tedix runs long-lived AI workers, called tedis, inside your organization. Ask a
+Tedix gives your team AI coworkers, called tedis, for recurring work. Ask a
 tedi to work from a source you grant, then open the run to see what it used,
 what it produced, and who approved any outside action.
 
