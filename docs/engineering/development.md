@@ -68,9 +68,3 @@ the Worker is ready.
 Local lanes need no secrets. Do not create `.dev.vars` or disable TLS
 verification; put any value an app's `.env.example` names in a gitignored
 `.env`.
-
-## Related
-
-- [Architecture](architecture.md)
-- [Auth](platform/auth.md)
-- [Tedix OS](product/tedix-os.md)

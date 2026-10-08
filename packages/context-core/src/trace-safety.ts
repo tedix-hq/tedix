@@ -2,7 +2,7 @@
  * Trace safety — the enforcement a trace writer MUST run before any raw prompt,
  * tool payload, or model output is committed to R2 / Artifacts
  * (`TraceBundle.bundleUri`). Raw traces are the highest-risk artifact class in
- * the system (`docs/engineering/cognition/harness.md` § Trace Safety Contract), so nothing raw is
+ * the system (`docs/engineering/cognition/runtime.md`), so nothing raw is
  * written until this module has redacted it.
  *
  * BODY-NEUTRAL + PURE: no I/O, no SDK, no zod at runtime. Runtime writers call

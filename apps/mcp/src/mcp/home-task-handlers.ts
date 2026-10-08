@@ -1,6 +1,6 @@
 /**
  * MCP tasks extension (`io.modelcontextprotocol/tasks`) handlers backed by
- * the kernel runtime (docs/engineering/product/tedix-os.md "Home MCP Contract").
+ * the kernel runtime (docs/engineering/product/tedix-os.md).
  *
  * Why: `ask` turns can run 40–60s while many MCP callers time out at
  * ~15s. The protocol-shaped recovery is the tasks extension — `ask`

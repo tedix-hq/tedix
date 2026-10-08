@@ -124,7 +124,3 @@ writing:
 A specific production failure that a specific pre-proof check would have caught,
 where correction was impossible or cost more than the check. One such incident
 earns one such check, scoped to that failure.
-
-## Related
-
-- [Work Items](../docs/engineering/cognition/work-items.md)

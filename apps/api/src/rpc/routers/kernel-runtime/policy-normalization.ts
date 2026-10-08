@@ -503,8 +503,7 @@ export let activeTranscribeAudio: typeof transcribeAudioAttachment =
 	transcribeAudioAttachment;
 
 /**
- * Hybrid soft-deadline response contract (docs/engineering/product/tedix-os.md "Kernel Runtime
- * Decision"): `enqueueMessage` awaits the KernelDO turn up to this
+ * Hybrid soft-deadline response contract: `enqueueMessage` awaits the KernelDO turn up to this
  * deadline. Fast turns answer in-band exactly like before; slower turns return
  * an ack carrying the real run id (`task.id = homeRunId` for the MCP tasks
  * extension) while the DO keeps running the turn in its own execution context.

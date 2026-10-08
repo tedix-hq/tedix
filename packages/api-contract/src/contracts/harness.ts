@@ -3,7 +3,7 @@ import "@orpc/openapi/extensions/route";
  * Harness Versioning + Trace Bundle Contract
  *
  * Write/read surface for harness versions and trace bundles
- * (`docs/engineering/cognition/harness.md`). The isolate DO's `HttpPlatformClient` calls
+ * (`docs/engineering/cognition/runtime.md`). The isolate DO's `HttpPlatformClient` calls
  * `ensureActiveHarnessVersion` (on identity load) and `recordTraceBundle` (per
  * run at close); Tedix OS Activity and audit surfaces read `listTraceBundles` and
  * `getActiveHarnessVersion`.

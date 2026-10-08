@@ -22,7 +22,7 @@
  *      personal connection is missing (the approved hybrid credential model);
  *   3. structured `{ok}` result — the caller persists evidence/transcript.
  *
- * IDENTITY (docs/engineering/product/tedix-os.md "Home direct-tool audit"): every MCP request is org-scoped
+ * IDENTITY (docs/engineering/product/tedix-os.md): every MCP request is org-scoped
  * service-binding (`X-Service-Binding` + `X-Tedix-Org-Id`, NO tediId) and
  * carries `X-Tedix-Kernel: true` — apps/mcp maps it to the
  * `kernel` audit actor (subjectUserId = initiating human), so the

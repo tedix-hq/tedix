@@ -1,7 +1,7 @@
 /**
  * Harness Versioning + Trace Bundle Schemas
  *
- * Foundation for the harness-evolution ledger described in `docs/engineering/cognition/harness.md`
+ * Foundation for the harness-evolution ledger described in `docs/engineering/cognition/runtime.md`
  * ("active harness versions" in the Tenant Cognitive OS table; "produce trace
  * bundle, rationale, patch, eval result, rollback plan" in the System-2 flow).
  *
@@ -29,7 +29,7 @@ import { WorkstationProfileIdSchema } from "./workstation";
 
 /**
  * Promotion lifecycle for a harness version / candidate
- * (docs/engineering/cognition/harness.md § "Promotion and rollback" — proposed, evaluated, canary,
+ * (proposed, evaluated, canary,
  * promoted, rejected, rolled_back). `active` is the pointer a runtime body
  * actually loads.
  */
@@ -48,8 +48,7 @@ export type HarnessPromotionStatus = z.infer<
 
 /**
  * The harness components that can change and therefore force a version bump
- * (docs/engineering/cognition/harness.md § "Strategic Read" component list + § "Component
- * attribution" / extended blameChain). Used as the canonical key set for the
+ * (component attribution / extended blameChain). Used as the canonical key set for the
  * `components` content-hash record so attribution and version diffing share a
  * vocabulary. The record itself stays open (`z.record`) so new components do
  * not require a schema change, but these are the well-known names.
@@ -118,15 +117,14 @@ export type TraceBundleWorkstation = z.infer<
  * `components` is a content-hash / version map (component-name → hash|version)
  * so the snapshot stays flexible and small — it points at component source
  * (Artifacts commit, policy-pack id, directive-set hash) rather than copying
- * config bodies into the ledger (docs/engineering/cognition/harness.md § "Harness Manifest" — "The
- * manifest should reference source commits and component hashes, not copy large
- * source files into D1"). Keys SHOULD be drawn from `HarnessComponentSchema`
+ * config bodies into the ledger (the manifest references source commits and component hashes; it never
+ * copies large source files into D1). Keys SHOULD be drawn from `HarnessComponentSchema`
  * but the record is intentionally open.
  */
 export const HarnessVersionSchema = z.object({
 	id: z.string(),
 	tediId: z.string(),
-	/** Org scope — trace/version rows are tenant-isolated (docs/engineering/cognition/harness.md § Trace Safety). */
+	/** Org scope — trace/version rows are tenant-isolated. */
 	orgId: z.string().optional(),
 	/**
 	 * Monotonic int (`"7"`) or semver (`"1.4.0"`) — kept as a string so callers
@@ -145,7 +143,7 @@ export const HarnessVersionSchema = z.object({
 	parentVersionId: z.string().nullable().optional(),
 	/** Why the version was bumped: "directive promoted", "model swap", etc. */
 	reason: z.string().nullable().optional(),
-	/** Artifacts commit SHA for the replayable source tree (docs/engineering/cognition/harness.md § Versioning Map). */
+	/** Artifacts commit SHA for the replayable source tree. */
 	artifactCommitSha: z.string().nullable().optional(),
 	/** Trace-safety policy in force for trace writers under this version. */
 	traceSafetyPolicyId: z.string().nullable().optional(),
@@ -195,7 +193,7 @@ export type HarnessSubjectVersion = z.infer<typeof HarnessSubjectVersionSchema>;
  * (`TediArtifact`). `harnessVersionId` stamps which harness produced the
  * episode so before/after comparison and component attribution are possible.
  * Raw payloads (prompt, tool payloads) live in Artifacts/R2 under
- * `harness/runs/<runId>/...` (docs/engineering/cognition/harness.md § Trace Bundle Shape) and are pointed
+ * `harness/runs/<runId>/...` and are pointed
  * at by `bundleUri`, never inlined here.
  */
 export const TraceBundleSchema = z.object({
@@ -257,7 +255,7 @@ export type HarnessSubjectTraceBundle = z.infer<
 >;
 
 // =============================================================================
-// TRACE SAFETY POLICY (docs/engineering/cognition/harness.md § Trace Safety Contract)
+// TRACE SAFETY POLICY
 // =============================================================================
 
 /**
@@ -299,7 +297,7 @@ export type TraceSafetyPolicy = z.infer<typeof TraceSafetyPolicySchema>;
 
 /**
  * Minimal eval-result stub for the harness eval ledger gap
- * (docs/engineering/cognition/harness.md § "Harness Evaluation Ledger"). One scored evaluation of a
+ * (docs/engineering/cognition/runtime.md). One scored evaluation of a
  * harness version. `gates` is a per-protected-metric pass map (task success,
  * grounding, cost, latency, approval burden, data exposure, …); `passed` is
  * the AND over the required gates. Promotion logic and the multi-lane eval
@@ -888,7 +886,7 @@ export type HarnessSubjectEvalRun = z.infer<typeof HarnessSubjectEvalRunSchema>;
  * it to `rejected`. `active` (the live pointer), `promoted`, `rejected`, and
  * `rolled_back` are terminal for the automatic ladder — `active`/`rolled_back`
  * are managed by the runtime/operator, not the eval gate. Mirrors
- * `docs/engineering/cognition/harness.md` § Promotion Gate And Eval Splits.
+ * `docs/engineering/cognition/runtime.md` (Evals and Promotion).
  */
 export const PROMOTION_STAGE_LANE: Readonly<
 	Partial<Record<HarnessPromotionStatus, string>>

@@ -49,7 +49,7 @@ import { DOCS_TOOL_SCOPES } from "../contracts/docs-tool-scopes";
  *   NOT `user.roles CONTAINS "<role>"`. The inbound-app consent flow does
  *   not establish a tenant context, so `user.roles` is empty (`{}`) and any
  *   roles-only policy will silently deny with "CreateConsentPoliciesDenied".
- *   See docs/engineering/platform/auth.md "AIH Consent Flow Gotchas" for the full story.
+ *   See docs/engineering/platform/auth.md "MCP and AIH" for the consent-flow rules.
  *
  *   Also: Tedix CLI binds the tenant before authorization, so the Resource's
  *   User Consent Flow must be `inbound-apps-user-consent`. The separate Client

@@ -38,24 +38,12 @@ authorization-server metadata with the §3.3 issuer check.
 
 `app_catalog` (`packages/db/src/schema/catalog.ts`) holds one global row per
 MCP endpoint, keyed by normalized endpoint and hash, with declared auth types.
-Rows come from official app stores, registries and platform-admin additions;
-supplier claims are provenance, not proof of endpoint ownership. The scan
-workflow (`apps/api/src/workflows/mcp-scan-workflow.ts`) verifies health and
-syncs tool schemas.
+Supplier claims on a row are provenance, not proof of endpoint ownership.
 
-The MCP 2026-07-28 authorization specification requires:
-
-- **Protected-resource discovery**: servers publish RFC 9728 metadata; clients
-  parse `WWW-Authenticate` / `resource_metadata`, fall back to well-known URIs,
-  and apply the RFC 8414 §3.3 issuer check.
-- **CIMD over DCR**: for clients with no prior relationship, an HTTPS URL is the
-  `client_id` and points at a client metadata document. DCR is a deprecated
-  compatibility fallback. DCR or pre-registered credentials are keyed by issuer
-  and never reused across a changed authorization server.
-- **RFC 9207 `iss` validation** (SEP-2468): record the expected issuer before
-  redirecting, then exact-compare `iss` in the authorization response before
-  calling a token endpoint. Mismatch aborts; absence aborts when the server
-  advertises `authorization_response_iss_parameter_supported`.
+The MCP 2026-07-28 authorization specification requires RFC 9728
+protected-resource discovery, CIMD over DCR (DCR is a deprecated fallback, and
+credentials are keyed by issuer), and RFC 9207 `iss` validation before any
+token request.
 
 Policy: tedis may connect only to MCP servers listed in the catalog. The
 catalog is the allowlist. This ADR specifies the flow inside that policy.
@@ -67,7 +55,7 @@ catalog is the allowlist. This ADR specifies the flow inside that policy.
 A tedi- or agent-initiated connection must resolve to an `app_catalog` row by
 normalized endpoint (not display name) before any discovery or OAuth traffic.
 No row means refuse, fail closed, and emit a catalog-request event. The
-allowlist grows only through ingestion and admin-gated catalog procedures.
+allowlist grows only through admin-gated catalog procedures.
 
 ### 2. The connect flow
 

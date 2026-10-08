@@ -1038,8 +1038,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					);
 				}
 				if (doTurn) {
-					// Hybrid soft-deadline response contract (docs/engineering/product/tedix-os.md "Kernel
-					// Runtime Decision"): race the DO turn against the soft deadline
+					// Hybrid soft-deadline response contract: race the DO turn against the soft deadline
 					// ONCE. The settled-union shape makes the pre/post-deadline error
 					// distinction structural:
 					//
