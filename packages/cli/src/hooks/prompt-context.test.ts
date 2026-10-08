@@ -350,7 +350,7 @@ describe("tedix hooks prompt-context", () => {
 				shared: big("s"),
 				preferences: big("p"),
 				...lessonsData(
-					Array.from({ length: 5 }, (_, n) => ({
+					Array.from({ length: 8 }, (_, n) => ({
 						shortId: `0000000${n}`,
 						text: "l".repeat(560),
 					})),
@@ -358,9 +358,9 @@ describe("tedix hooks prompt-context", () => {
 			},
 		]);
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
-		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(9600);
-		// Lessons beyond the top three go before any document text.
-		expect(text).toContain("Team lessons: 3 of 5 approved");
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6400);
+		// Lessons beyond the top six go before any document text.
+		expect(text).toContain("Team lessons: 6 of 8 approved");
 		expect(text).not.toContain("Context truncated");
 		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
 		const { out: only } = await run([
@@ -575,14 +575,28 @@ describe("tedix hooks prompt-context", () => {
 		}
 	});
 
-	test("fits each host's budget by trimming lessons beyond the top three, then document tails", async () => {
+	test("stays under the plugin's declared limit on both hosts, trimming lessons beyond the top six, then document tails", async () => {
+		// The limit the plugin hook manifests (Claude source, Codex package) declare.
+		const limit = JSON.parse(
+			readFileSync(
+				join(import.meta.dir, "../../../../plugins/tedix/hooks/hooks.json"),
+				"utf8",
+			),
+		)
+			.hooks.UserPromptSubmit.flatMap(
+				(definition: { hooks: JsonObject[] }) => definition.hooks,
+			)
+			.find((handler: JsonObject) =>
+				String(handler.command).endsWith("tedix hooks prompt-context"),
+			).additionalContextLimit;
+		expect(limit).toBe(6500);
 		const preferenceOutput = "88888888-8888-4888-8888-888888888888";
 		const binding = {
 			...BINDING,
 			preferencesWorkspaceId: WORKSPACE,
 			preferencesOutputId: preferenceOutput,
 		};
-		const lessons = Array.from({ length: 8 }, (_, n) => ({
+		const lessons = Array.from({ length: 10 }, (_, n) => ({
 			shortId: `l${n}`,
 			text: `Lesson ${n} ${"z".repeat(400)}`,
 		}));
@@ -596,30 +610,40 @@ describe("tedix hooks prompt-context", () => {
 			session_id: "77777777-7777-4777-8777-777777777777",
 			turn_id: "turn-1",
 		};
-		for (const [event, limit] of [
-			[undefined, 9600],
-			[codexEvent, 6400],
-		] as const) {
+		const top = ["l0", "l1", "l2", "l3", "l4", "l5"];
+		// Claude Code and Codex share one budget below the declared limit.
+		for (const event of [undefined, codexEvent]) {
 			const { out } = await run([binding, AUTH, data], {}, event);
 			const text = JSON.parse(out).hookSpecificOutput.additionalContext;
-			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(limit);
-			// The top lessons always survive; trimming never cuts mid-message.
-			for (const id of ["l0", "l1", "l2"]) expect(text).toContain(`[${id}]`);
-			expect(text).not.toContain("Context truncated");
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6400);
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThan(limit);
+			// Lessons beyond the top six go first, then document tails; the top
+			// lessons always survive and trimming never cuts mid-message.
+			for (const id of top) expect(text).toContain(`[${id}]`);
+			expect(text).not.toContain("[l6]");
+			expect(text).toContain("Team lessons: 6 of 10 approved");
 			expect(text).toContain("more were omitted for space");
+			expect(text).toContain("complete=false");
+			expect(text).toContain("Shared document is truncated");
+			expect(text).not.toContain("Context truncated");
 		}
-		// Codex loses every lesson beyond the top three before any document text.
-		const { out } = await run([binding, AUTH, data], {}, codexEvent);
-		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
-		expect(text).toContain("Team lessons: 3 of 8 approved");
-		expect(text).not.toContain("[l3]");
-		expect(text).toContain("complete=false");
-		expect(text).toContain("Shared document is truncated");
-		// Claude keeps more lessons in its larger budget.
-		const claude = JSON.parse((await run([binding, AUTH, data])).out)
-			.hookSpecificOutput.additionalContext;
-		expect(claude).toContain("[l3]");
-		expect(claude).not.toContain("complete=false");
+		// The live shape: a 3 KB preferences document beside a full lesson set.
+		const live = {
+			...lessonsData(lessons.slice(0, 7)),
+			preferences: { ...copy(data.preferences), text: "p".repeat(3034) },
+		};
+		const preferencesOnly = {
+			...binding,
+			osWorkspaceId: null,
+			contextOutputId: null,
+		};
+		for (const event of [undefined, codexEvent]) {
+			const { out } = await run([preferencesOnly, AUTH, live], {}, event);
+			const text = JSON.parse(out).hookSpecificOutput.additionalContext;
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThan(limit);
+			for (const id of top) expect(text).toContain(`[${id}]`);
+			expect(text).not.toContain("Context truncated");
+		}
 		// Small context passes untouched.
 		const small = JSON.parse(
 			(
