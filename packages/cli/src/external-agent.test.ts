@@ -8,6 +8,7 @@ import {
 	externalAgentStatus,
 	finishExternalAgentSession,
 	renameExternalAgentPrincipal,
+	renameNotice,
 	resolveExternalAgentAuth,
 	startExternalAgentSession,
 } from "./external-agent";
@@ -1269,4 +1270,76 @@ test("renames an existing profile's principal to the machine and user, keeping i
 		key: "codex-gtm-example",
 		displayName: expected,
 	});
+});
+
+test("points an unconfirmed agent-named profile to agent rename, and stays quiet otherwise", async () => {
+	const machine = defaultLocalPrincipal().displayName;
+	expect(renameNotice("connect", { displayName: "Codex GTM" })).toBe(
+		'Notice: every agent session on workspace "connect" appears as "Codex GTM". Name it for this machine with: tedix -w connect agent rename',
+	);
+	expect(renameNotice("connect", { displayName: machine })).toBeUndefined();
+	expect(
+		renameNotice("connect", {
+			displayName: "Ada's review bots",
+			displayNameConfirmedAt: "2026-10-08T00:00:00.000Z",
+		}),
+	).toBeUndefined();
+
+	const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+	dirs.push(configDir);
+	process.env.TEDIX_CONFIG_DIR = configDir;
+	process.env.TEDIX_AGENT_SESSION = "codex:session-1";
+	writeExternalAgentProfile("connect", {
+		organizationId: ORG,
+		principalId: PRINCIPAL,
+		key: "codex-gtm-example",
+		displayName: "Codex GTM",
+		apiKeyId: "22222222-2222-4222-8222-222222222222",
+		rawApiKey: "sk_external_secret",
+		scopes: ["mcp:work.read"],
+		mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+		createdAt: "2026-07-22T00:00:00.000Z",
+		sessions: {},
+	});
+	const notices: string[] = [];
+	await startExternalAgentSession({
+		workspace: "connect",
+		mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+		harness: "codex",
+		harnessVersion: "1.2.3",
+		modelProvider: "openai",
+		modelId: "gpt-5.6",
+		modelVersion: "2026-07-22",
+		fetch: async () => exchangeResponse(),
+		notice: (message) => notices.push(message),
+	});
+	expect(notices).toEqual([
+		expect.stringContaining("tedix -w connect agent rename"),
+	]);
+
+	// Renaming confirms the name, so the next start is quiet.
+	await renameExternalAgentPrincipal({
+		workspace: "connect",
+		oauthBearer: "owner-token",
+		displayName: "Ada's review bots",
+		createClient: () => ({
+			runCode: async () => ({
+				result: { id: PRINCIPAL, displayName: "Ada's review bots" },
+			}),
+			close: async () => {},
+		}),
+	});
+	notices.length = 0;
+	await startExternalAgentSession({
+		workspace: "connect",
+		mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+		harness: "codex",
+		harnessVersion: "1.2.3",
+		modelProvider: "openai",
+		modelId: "gpt-5.6",
+		modelVersion: "2026-07-22",
+		fetch: async () => exchangeResponse(),
+		notice: (message) => notices.push(message),
+	});
+	expect(notices).toEqual([]);
 });
