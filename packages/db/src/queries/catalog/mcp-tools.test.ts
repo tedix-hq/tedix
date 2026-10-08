@@ -72,6 +72,46 @@ describe("syncCatalogMcpTools", () => {
 		expect(await label()).toBe(false);
 	});
 
+	it("stores only ToolAnnotations keys and parks upstream extras in _meta", async () => {
+		const { db } = setup();
+		await db.insert(appCatalog).values({
+			id: CATALOG_APP_ID,
+			name: "Slides",
+			slug: "slides",
+			connectorType: "MCP",
+			lastSyncedAt: "2026-09-20T00:00:00.000Z",
+		});
+		const tool = {
+			name: "render_deck",
+			annotations: {
+				title: "Render deck",
+				readOnlyHint: false,
+				cost: { usd: 0.02, unit: "call", note: "per render" },
+				"x-openai-isConsequential": true,
+			},
+			_meta: { audience: ["user"] },
+		};
+		await syncCatalogMcpTools(db, CATALOG_APP_ID, [
+			tool as Parameters<typeof syncCatalogMcpTools>[2][number],
+		]);
+		const [row] = await db
+			.select({
+				annotations: appCatalogMcpTools.annotations,
+				meta: appCatalogMcpTools.meta,
+			})
+			.from(appCatalogMcpTools);
+		expect(row).toEqual({
+			annotations: { title: "Render deck", readOnlyHint: false },
+			meta: {
+				audience: ["user"],
+				"tedix/upstreamAnnotations": {
+					cost: { usd: 0.02, unit: "call", note: "per render" },
+					"x-openai-isConsequential": true,
+				},
+			},
+		});
+	});
+
 	it("repairs a stale positive count with no snapshot rows, only in apply mode", async () => {
 		const { db } = setup();
 		await db.insert(appCatalog).values({

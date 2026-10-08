@@ -289,10 +289,70 @@ export function normalizeToolIcons(icons: unknown): ToolIcon[] | null {
 	return Array.isArray(icons) ? (icons as ToolIcon[]) : null;
 }
 
+const TOOL_ANNOTATION_HINT_KEYS = [
+	"readOnlyHint",
+	"destructiveHint",
+	"idempotentHint",
+	"openWorldHint",
+] as const;
+
+/**
+ * `_meta` key that keeps upstream annotation keys the MCP `ToolAnnotations`
+ * shape does not define (`cost`, `progressHint`, `x-openai-*`, ...). Stored
+ * annotations must match `ToolAnnotationsSchema` exactly: the catalog read
+ * path validates against it, and one foreign key makes the whole entry
+ * unreadable.
+ */
+export const UPSTREAM_TOOL_ANNOTATIONS_META_KEY = "tedix/upstreamAnnotations";
+
+export interface SplitToolAnnotationsResult {
+	/** `title` (string) and the four boolean hints; null when none remain. */
+	annotations: ToolAnnotations | null;
+	/** Every other key, or a known key with the wrong type; null when none. */
+	extras: Record<string, JsonValue> | null;
+}
+
+export function splitToolAnnotations(
+	annotations: unknown,
+): SplitToolAnnotationsResult {
+	if (!isRecord(annotations)) return { annotations: null, extras: null };
+	const kept: ToolAnnotations = {};
+	const extras: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(annotations)) {
+		if (value === undefined) continue;
+		if (key === "title" && typeof value === "string") {
+			kept.title = value;
+		} else if (
+			(TOOL_ANNOTATION_HINT_KEYS as readonly string[]).includes(key) &&
+			typeof value === "boolean"
+		) {
+			kept[key as (typeof TOOL_ANNOTATION_HINT_KEYS)[number]] = value;
+		} else {
+			extras[key] = value;
+		}
+	}
+	return {
+		annotations: Object.keys(kept).length > 0 ? kept : null,
+		extras: Object.keys(extras).length > 0 ? toJsonRecord(extras) : null,
+	};
+}
+
 export function normalizeToolAnnotations(
 	annotations: unknown,
 ): ToolAnnotations | null {
-	return isRecord(annotations) ? (annotations as ToolAnnotations) : null;
+	return splitToolAnnotations(annotations).annotations;
+}
+
+/**
+ * Fold upstream annotation keys that `ToolAnnotations` does not define into
+ * the tool's `_meta`, so sanitizing annotations loses nothing.
+ */
+export function withUpstreamAnnotationsMeta(
+	meta: Record<string, JsonValue> | null,
+	extras: Record<string, JsonValue> | null,
+): Record<string, JsonValue> | null {
+	if (!extras) return meta;
+	return { ...(meta ?? {}), [UPSTREAM_TOOL_ANNOTATIONS_META_KEY]: extras };
 }
 
 export function normalizeToolMeta(

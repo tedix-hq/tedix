@@ -808,6 +808,10 @@
 		{
 			"name": "20261008151049_work_interaction_attention/migration.sql",
 			"sha256": "d95108070fb5c903c05af1b4ebddea87590d65d85c05b9b5e5721b125eb8bd91"
+		},
+		{
+			"name": "20261008210408_sanitize-tool-annotations/migration.sql",
+			"sha256": "bfdc339cabfb49734219eb41602f6b8cd49a6e82daca2bfcc8c5e8fbc1bfd8e0"
 		}
 	]
 }

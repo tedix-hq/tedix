@@ -5,6 +5,11 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import {
+	normalizeToolMeta,
+	splitToolAnnotations,
+	withUpstreamAnnotationsMeta,
+} from "@tedix/db/queries/catalog/tool-source-policy";
 
 type D1Result<T> = {
 	results: T[];
@@ -156,16 +161,6 @@ function normalizeToolIcons(icons: unknown): unknown[] | null {
 	return Array.isArray(icons) ? icons : null;
 }
 
-function normalizeToolAnnotations(
-	annotations: unknown,
-): Record<string, unknown> | null {
-	return isRecord(annotations) ? annotations : null;
-}
-
-function normalizeToolMeta(meta: unknown): Record<string, unknown> | null {
-	return isRecord(meta) ? meta : null;
-}
-
 function normalizeExecutionTaskSupport(execution: unknown): string | null {
 	if (!isRecord(execution)) return null;
 	const taskSupport = execution.taskSupport;
@@ -306,13 +301,18 @@ for (const toolName of tools) {
 	if (!tool) fail(`Site Builder MCP tools/list did not include ${toolName}`);
 
 	const inputSchema = normalizeInputSchema(tool.inputSchema);
-	const annotations = normalizeToolAnnotations(tool.annotations);
+	const { annotations, extras: upstreamAnnotations } = splitToolAnnotations(
+		tool.annotations,
+	);
 	const outputSchema = normalizeOutputSchema(tool.outputSchema, annotations);
 	const title = normalizeToolTitle(tool.title);
 	const appTitle = title ?? titleFromToolName(toolName);
 	const icons = normalizeToolIcons(tool.icons);
 	const executionTaskSupport = normalizeExecutionTaskSupport(tool.execution);
-	const meta = normalizeToolMeta(tool._meta);
+	const meta = withUpstreamAnnotationsMeta(
+		normalizeToolMeta(tool._meta),
+		upstreamAnnotations,
+	);
 	const sourceRef = `${ids.catalog_app_id}:${toolName}`;
 	const sourceHash = await sha256Json({
 		toolName,
