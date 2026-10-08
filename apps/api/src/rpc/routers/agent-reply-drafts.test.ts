@@ -313,7 +313,7 @@ describe("requestReplyDraft", () => {
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
 			conversationId: `reply-draft:${requestId}`,
-			source: "reply-draft:v5",
+			source: "reply-draft:v6",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);
 		const content = first.content as string;

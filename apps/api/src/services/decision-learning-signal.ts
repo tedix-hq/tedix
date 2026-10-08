@@ -20,7 +20,10 @@
 
 import type { LearningInteractionKind } from "@tedix/api-contract/schemas/learning-feedback";
 import type { WorkInteractionReplyDraft } from "@tedix/db/schema/work-factory";
-import { AUTO_REPLY_FOLLOW_CLASSES } from "@tedix/db/queries/work-items/reply-drafts";
+import {
+	AUTO_REPLY_FOLLOW_CLASSES,
+	AUTO_REPLY_NEUTRAL_CLASSES,
+} from "@tedix/db/queries/work-items/reply-drafts";
 import type { ObservedLearningInteractionInput } from "./learning-interaction-recorder";
 
 export const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
@@ -95,6 +98,12 @@ function eventKindFor(
 			return "manually_replaced";
 		case "auto-sent": {
 			const replyClass = str(responseMeta.replyClass, 64);
+			// A question about the auto-sent draft judges nothing.
+			if (
+				replyClass &&
+				(AUTO_REPLY_NEUTRAL_CLASSES as readonly string[]).includes(replyClass)
+			)
+				return "answered";
 			return replyClass &&
 				(AUTO_REPLY_FOLLOW_CLASSES as readonly string[]).includes(replyClass)
 				? "accepted"

@@ -40,6 +40,36 @@ export function scoreReplyDraftGate(
 	};
 }
 
+/** The drafter, triage or gate configuration itself. */
+const SELF_MODIFICATION =
+	/\b(?:drafter|drafting (?:prompt|tedi|policy)|reply[- ]?draft(?:ing)?|(?:turn[- ]?)?triage (?:prompt|policy|questions?)|agent-turn-triage|work\.turn-triage|delivery[- ]?gate|auto[- ]?send)\b/i;
+const PUSH = /\bpush(?:ed|es|ing)?\b/i;
+const VALIDATION_PASSED =
+	/\b(?:pass(?:ed|es|ing)?|green|validated|succeeded)\b/i;
+
+/**
+ * Deterministic checks no stored policy can relax, failed before any model
+ * call: a draft about the drafting or triage prompt, policy or gate itself
+ * (self-modification), and a push the agent has not reported as validated.
+ */
+export function guardReplyDraft(
+	agentMessage: string,
+	draftReply: string,
+): AgentReplyDeliveryGateResult["checks"] {
+	const checks: AgentReplyDeliveryGateResult["checks"] = [];
+	if (
+		SELF_MODIFICATION.test(draftReply) ||
+		SELF_MODIFICATION.test(agentMessage)
+	)
+		checks.push({ id: "self_modification", p: 1, pass: false });
+	if (
+		PUSH.test(draftReply) &&
+		(!VALIDATION_PASSED.test(agentMessage) || /\bfail/i.test(agentMessage))
+	)
+		checks.push({ id: "unvalidated_push", p: 1, pass: false });
+	return checks;
+}
+
 export async function evaluateReplyDraftGate(
 	env: GateEnv,
 	params: {
@@ -49,6 +79,14 @@ export async function evaluateReplyDraftGate(
 		timeoutMs?: number;
 	},
 ): Promise<AgentReplyDeliveryGateResult> {
+	const guarded = guardReplyDraft(params.agentMessage, params.draftReply);
+	if (guarded.length)
+		return {
+			status: "fail",
+			model: params.gate.model,
+			checks: guarded,
+			latencyMs: 0,
+		};
 	const questions: Record<string, ClefQuestion> = {};
 	for (const question of params.gate.questions) {
 		questions[question.id] = {

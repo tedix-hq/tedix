@@ -46,6 +46,12 @@ export const AUTO_REPLY_FOLLOW_CLASSES = [
 	"fan-out",
 ] as const;
 
+/**
+ * User `replyClass` values that neither follow nor redirect an auto-sent
+ * reply: a question about it ("what did the tedi suggest?") is not an override.
+ */
+export const AUTO_REPLY_NEUTRAL_CLASSES = ["question"] as const;
+
 export interface InsertReplyDraftParams {
 	id: string;
 	orgId: string;
@@ -232,7 +238,10 @@ export interface ReplyDraftAcceptanceResult {
 	autoSent: number;
 	/** Auto drafts the user followed up on (a `user-reply` answer). */
 	autoFollowedUp: number;
-	/** Auto drafts whose user follow-up was not a follow class. */
+	/**
+	 * Auto drafts whose user follow-up was neither a follow nor a neutral
+	 * class, or that the agent's next turn declined (`priorDraft` rejected).
+	 */
 	overridden: number;
 	/** overridden / autoSent; 0 when nothing was auto-sent. */
 	overrideRate: number;
@@ -259,7 +268,10 @@ type AcceptanceRow = {
  * target user on its own question or on the session's next decision-capture
  * question (same target user and `metadata.sessionId`, created after it). It
  * is overridden when that answer's `replyClass` is missing or not one of
- * {@link AUTO_REPLY_FOLLOW_CLASSES}.
+ * {@link AUTO_REPLY_FOLLOW_CLASSES} or {@link AUTO_REPLY_NEUTRAL_CLASSES}. It
+ * is also overridden when the agent's next turn declined it: a later question
+ * carries `metadata.priorDraft` {draftId, draftOutcome: "rejected"}, written
+ * by the capture hook as agent-sourced, not as the user's answer.
  */
 export async function getReplyDraftAcceptance(
 	db: DbQueryClient,
@@ -271,6 +283,10 @@ export async function getReplyDraftAcceptance(
 		AUTO_REPLY_FOLLOW_CLASSES.map((label) => sql`${label}`),
 		sql`, `,
 	);
+	const neutralClasses = sql.join(
+		AUTO_REPLY_NEUTRAL_CLASSES.map((label) => sql`${label}`),
+		sql`, `,
+	);
 	const rows = await db.all<AcceptanceRow>(sql`
 		SELECT
 			outcomes.turn_type AS turn_type,
@@ -280,7 +296,7 @@ export async function getReplyDraftAcceptance(
 			sum(CASE WHEN outcomes.outcome = 'replaced' THEN 1 ELSE 0 END) AS replaced_count,
 			sum(CASE WHEN outcomes.delivery = 'auto' THEN 1 ELSE 0 END) AS auto_count,
 			sum(CASE WHEN outcomes.followup IS NOT NULL THEN 1 ELSE 0 END) AS auto_followed_count,
-			sum(CASE WHEN outcomes.followup IS NOT NULL AND outcomes.followup NOT IN (${followClasses}) THEN 1 ELSE 0 END) AS overridden_count
+			sum(CASE WHEN outcomes.rejected = 1 OR (outcomes.followup IS NOT NULL AND outcomes.followup NOT IN (${followClasses}) AND outcomes.followup NOT IN (${neutralClasses})) THEN 1 ELSE 0 END) AS overridden_count
 		FROM (
 			SELECT
 				d.turn_type AS turn_type,
@@ -320,7 +336,16 @@ export async function getReplyDraftAcceptance(
 						)
 					ORDER BY u.responded_at, u.id
 					LIMIT 1
-				) END AS followup
+				) END AS followup,
+				CASE WHEN d.delivery = 'auto' THEN EXISTS (
+					SELECT 1 FROM work_interactions n
+					WHERE n.org_id = i.org_id
+						AND n.target_type = 'user'
+						AND n.target_id = i.target_id
+						AND n.kind = 'question'
+						AND json_extract(n.metadata, '$.priorDraft.draftId') = d.id
+						AND json_extract(n.metadata, '$.priorDraft.draftOutcome') = 'rejected'
+				) ELSE 0 END AS rejected
 			FROM work_interaction_reply_drafts d
 			JOIN work_interactions i ON i.org_id = d.org_id AND i.id = d.interaction_id
 			WHERE d.org_id = ${p.orgId}

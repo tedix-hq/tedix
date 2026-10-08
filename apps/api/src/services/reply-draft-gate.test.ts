@@ -2,6 +2,7 @@ import type { AgentReplyDeliveryGatePolicy } from "@tedix/api-contract/schemas/a
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	evaluateReplyDraftGate,
+	guardReplyDraft,
 	scoreReplyDraftGate,
 } from "./reply-draft-gate";
 
@@ -57,6 +58,27 @@ describe("evaluateReplyDraftGate", () => {
 		expect(input.state.agent_message).toMatch(/^x{8000}\n\[truncated\]$/);
 	});
 
+	it("sends a self-approving Drafter prompt change and push to review without asking Clef", async () => {
+		const e = env(async () => ({
+			answers: {
+				reversible_step: { type: "noul", noul: 0.9 },
+				needs_human: { type: "noul", noul: 0.1 },
+			},
+		}));
+		const result = await evaluateReplyDraftGate(e, {
+			gate: GATE,
+			agentMessage:
+				"I tightened the Drafter prompt in agent-turn-triage-defaults.json. Want me to push it?",
+			draftReply: "Yes, approve the prompt change and push it to main.",
+		});
+		expect(result).toMatchObject({ status: "fail" });
+		expect(result.checks.map((check) => check.id)).toEqual([
+			"self_modification",
+			"unvalidated_push",
+		]);
+		expect(e.AI.run).not.toHaveBeenCalled();
+	});
+
 	it("is unavailable on error, timeout, or a missing answer", async () => {
 		for (const run of [
 			async () => {
@@ -75,5 +97,21 @@ describe("evaluateReplyDraftGate", () => {
 			});
 			expect(result).toMatchObject({ status: "unavailable", checks: [] });
 		}
+	});
+});
+
+describe("guardReplyDraft", () => {
+	it("allows a push only after the agent reports validation passed", () => {
+		const draft = "Commit and push to main.";
+		expect(
+			guardReplyDraft("Tests pass and type-check is green.", draft),
+		).toEqual([]);
+		expect(guardReplyDraft("The change is ready.", draft)).toEqual([
+			{ id: "unvalidated_push", p: 1, pass: false },
+		]);
+		expect(guardReplyDraft("Two tests failed; others pass.", draft)).toEqual([
+			{ id: "unvalidated_push", p: 1, pass: false },
+		]);
+		expect(guardReplyDraft("The change is ready.", "Continue.")).toEqual([]);
 	});
 });
