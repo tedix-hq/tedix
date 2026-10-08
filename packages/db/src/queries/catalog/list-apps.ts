@@ -19,6 +19,10 @@ import {
 	type Source,
 } from "../../schema/catalog";
 import type { Database } from "./tool-source-policy";
+import {
+	buildHideShadowedVariantsCondition,
+	catalogVisibilityConditions,
+} from "./vendor-variants";
 
 // =============================================================================
 // LIST APPS
@@ -51,6 +55,12 @@ export interface ListCatalogAppsOptions {
 	includeAll?: boolean;
 	/** If true, includes apps with review_status != RELEASED (admin only) */
 	includeUnreleased?: boolean;
+	/**
+	 * If true, omits non-runnable rows (listing-only, store-brokered, no MCP
+	 * endpoint) that have a runnable, visible same-vendor sibling. Their detail
+	 * pages stay resolvable by slug.
+	 */
+	hideShadowedVariants?: boolean;
 }
 
 export function canonicalCatalogCategory(
@@ -91,27 +101,19 @@ export async function listCatalogApps(
 		offset = 0,
 		includeAll = false,
 		includeUnreleased = false,
+		hideShadowedVariants = false,
 	} = options;
 
-	// Build filter conditions
-	const conditions = [];
+	// Default: only trusted, discoverable, enabled, RELEASED apps
+	const conditions: Array<SQL | undefined> = catalogVisibilityConditions(
+		appCatalog,
+		{ includeAll, includeUnreleased },
+	);
 
-	// Default: exclude untrusted developers and non-discoverable apps
-	if (!includeAll) {
+	if (hideShadowedVariants) {
 		conditions.push(
-			or(
-				eq(appCatalog.developerType, "TRUSTED_PARTNER"),
-				eq(appCatalog.developerType, "OAI"),
-				eq(appCatalog.developerType, "THIRD_PARTY"),
-			),
+			buildHideShadowedVariantsCondition(db, { includeAll, includeUnreleased }),
 		);
-		conditions.push(eq(appCatalog.isDiscoverable, true));
-		conditions.push(eq(appCatalog.status, "ENABLED"));
-	}
-
-	// Default: only show RELEASED apps in public listings
-	if (!includeUnreleased) {
-		conditions.push(eq(appCatalog.reviewStatus, "RELEASED"));
 	}
 
 	// Search filter — searches across all discoverable text fields

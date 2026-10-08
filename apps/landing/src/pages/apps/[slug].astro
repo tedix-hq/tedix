@@ -328,6 +328,19 @@ const pageDescription = app
 
 // Canonical URL for SEO - NEW: /apps/ instead of /marketplace/
 const canonicalUrl = new URL(`/apps/${app?.slug || slug}/`, Astro.site || "https://tedix.dev");
+// A non-runnable variant hidden from browsing canonicalizes to the runnable
+// same-vendor app, so search engines index one page per vendor.
+const seoCanonicalUrl = app?.canonicalSlug
+	? new URL(`/apps/${app.canonicalSlug}/`, Astro.site || "https://tedix.dev")
+	: canonicalUrl;
+const appVariants = (app?.variants ?? []).filter((variant) => variant.slug);
+const variantLabel = (variant: (typeof appVariants)[number]) => {
+	if (variant.installabilityState !== "installable" && variant.installabilityState !== "needs_base_app") {
+		return "Listing only";
+	}
+	if (variant.mcpToolCount === 0) return "MCP server";
+	return `${variant.mcpToolCount} ${variant.mcpToolCount === 1 ? "tool" : "tools"}`;
+};
 const agentDiscoveryCategory = primaryCategoryLabel ?? "AI application";
 const agentDiscoveryWorkflowContext = primaryCategoryLabel
 	? primaryCategoryLabel.toLowerCase()
@@ -678,6 +691,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 	consentBannerVariant="compact"
 	includeSoftwareApplicationSchema={false}
 	includeWebPageSchema={false}
+	canonicalPath={seoCanonicalUrl.pathname}
 >
 	{notFound && <meta name="robots" content="noindex, follow" slot="head" />}
 
@@ -1346,6 +1360,22 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 
 					<!-- Right Column: Links Sidebar (1 col) -->
 					<div class="space-y-6 lg:sticky lg:top-24 self-start">
+						<!-- Same-vendor variants -->
+						{appVariants.length > 0 && (
+							<Card className="p-5">
+								<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Also available as</h3>
+								<ul class="space-y-2 text-sm">
+									{appVariants.map((variant) => (
+										<li class="flex items-center justify-between gap-2">
+											<a href={`/apps/${variant.slug}/`} class="min-w-0 truncate font-medium hover:underline">
+												{variant.name}{variant.source && <span class="text-muted-foreground capitalize"> · {variant.source}</span>}
+											</a>
+											<span class="shrink-0 text-xs text-muted-foreground">{variantLabel(variant)}</span>
+										</li>
+									))}
+								</ul>
+							</Card>
+						)}
 						<!-- Links -->
 			<Card className="p-5">
 							<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Links</h3>

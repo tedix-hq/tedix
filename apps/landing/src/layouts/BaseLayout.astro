@@ -26,6 +26,8 @@ interface Props {
 	locale?: Locale;
 	includeSoftwareApplicationSchema?: boolean;
 	includeWebPageSchema?: boolean;
+	/** Override the canonical path (e.g. a variant pointing at its primary page). */
+	canonicalPath?: string;
 }
 
 const {
@@ -38,6 +40,7 @@ const {
 	locale = defaultLocale,
 	includeSoftwareApplicationSchema = true,
 	includeWebPageSchema = true,
+	canonicalPath,
 } = Astro.props;
 
 const layoutContent = getLocaleContent(locale);
@@ -51,7 +54,10 @@ function canonicalPathname(pathname: string): string {
 	return lastSegment.includes(".") ? pathname : `${pathname}/`;
 }
 
-const canonicalURL = new URL(canonicalPathname(Astro.url.pathname), Astro.site);
+const canonicalURL = new URL(
+	canonicalPathname(canonicalPath ?? Astro.url.pathname),
+	Astro.site,
+);
 
 import { env } from 'cloudflare:workers';
 

@@ -387,6 +387,20 @@ export const CatalogInstallabilitySchema = z.object({
 export type CatalogInstallability = z.infer<typeof CatalogInstallabilitySchema>;
 
 /**
+ * A publicly visible catalog row for the same vendor (same registrable website
+ * domain and normalized name) as the app being viewed.
+ */
+export const CatalogAppVariantSchema = z.object({
+	id: z.string(),
+	slug: z.string().nullable(),
+	name: z.string(),
+	source: SourceSchema.nullable(),
+	installabilityState: CatalogInstallabilitySchema.shape.state,
+	mcpToolCount: z.number(),
+});
+export type CatalogAppVariant = z.infer<typeof CatalogAppVariantSchema>;
+
+/**
  * Catalog App List Item - Extended summary for list views with more metadata
  * (Used by landing page catalog grid)
  */
@@ -536,6 +550,16 @@ export const CatalogAppDetailSchema = z.object({
 	updatedAt: z.string().nullable(),
 	sourceCreatedAt: z.string().nullable(),
 
+	// Same-vendor siblings ("Also available as ...")
+	variants: z.array(CatalogAppVariantSchema).optional(),
+	canonicalSlug: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"Slug of the runnable same-vendor app when this app is a non-runnable variant hidden from catalog browsing; null otherwise.",
+		),
+
 	// Relations (populated when requested)
 	storeListings: z.array(CatalogStoreListingSchema).optional(),
 	tools: z.array(CatalogMcpToolWithMetricsSchema).optional(),
@@ -572,6 +596,15 @@ export const ListCatalogAppsInputSchema = z.object({
 	sortDir: z.enum(["asc", "desc"]).optional(),
 	limit: z.coerce.number().min(1).max(200).default(50),
 	offset: z.coerce.number().min(0).default(0),
+	includeVariants: z
+		.union([
+			z.boolean(),
+			z.enum(["true", "false"]).transform((v) => v === "true"),
+		])
+		.optional()
+		.describe(
+			"Include non-runnable listings (listing-only, store-brokered, no MCP endpoint) that a runnable same-vendor app already covers. Hidden by default.",
+		),
 });
 export type ListCatalogAppsInput = z.infer<typeof ListCatalogAppsInputSchema>;
 

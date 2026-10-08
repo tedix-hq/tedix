@@ -172,6 +172,52 @@ describe("App Store migration", () => {
 		).toContain("Review installation");
 	});
 
+	it("lists same-vendor variants under Also available as", async () => {
+		const { host } = await mountInRouter(
+			<AppStoreDetailPage slug="acme-listing" />,
+			(client) =>
+				client.setQueryData(
+					catalogAppDetailQueryOptions("acme-listing").queryKey,
+					{
+						id: "acme-listing",
+						slug: "acme-listing",
+						name: "Acme",
+						tools: [],
+						installability: { installable: false, reason: "Listing" },
+						variants: [
+							{
+								id: "acme-mcp",
+								slug: "acme",
+								name: "Acme",
+								source: "official",
+								installabilityState: "installable",
+								mcpToolCount: 4,
+							},
+							{
+								id: "acme-claude",
+								slug: "acme-claude",
+								name: "Acme",
+								source: "claude",
+								installabilityState: "listing_only",
+								mcpToolCount: 0,
+							},
+						],
+					} as never,
+				),
+		);
+		const section = host.querySelector(
+			'[aria-labelledby="app-variants-heading"]',
+		);
+		expect(section?.textContent).toContain("Also available as");
+		expect(section?.textContent).toContain("4 tools");
+		expect(section?.textContent).toContain("Listing only");
+		expect(
+			[...(section?.querySelectorAll("a") ?? [])].map((a) =>
+				a.getAttribute("href"),
+			),
+		).toEqual(["/explore/apps/acme", "/explore/apps/acme-claude"]);
+	});
+
 	it("installs after review and refreshes the apps and catalog domains", async () => {
 		const { host, invalidated } = await mountInRouter(
 			<InstallButton appId="acme" name="Acme" disabled={false} reason="" />,
