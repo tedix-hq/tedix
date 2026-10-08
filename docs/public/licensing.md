@@ -62,8 +62,13 @@ proprietary integration.
 
 ### Which packages are permissive?
 
-The [README](https://github.com/tedix-hq/tedix#licensing) lists them. Every
-workspace has exactly one SPDX identifier. Permissive packages may not have
+| License       | Workspaces                                                                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AGPL-3.0-only | `LICENSE`: every `apps/*` app and all other `packages/*`                                                                                                                           |
+| Apache-2.0    | `packages/`: `api-client`, `api-contract`, `context-core`, `installation-manifest`, `mcp`, `mcp-client-core`, `ssrf-guard`, `tedi-codemode-core`, `tenant-directory`, `worker-kit` |
+| MIT           | `packages/`: `design-tokens`, `tsconfig`, `webmcp-core`, `widget-i18n`, `widget-ui`; `apps/cms/templates/*`                                                                        |
+
+Every workspace has exactly one SPDX identifier. Permissive packages may not have
 runtime dependencies on AGPL product workspaces; CI fails if one appears.
 
 ### Is there a commercial license?

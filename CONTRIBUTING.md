@@ -128,10 +128,26 @@ and push. The plugin's hooks run in the installed CLI;
 [plugins/tedix/README.md](plugins/tedix/README.md) states the minimum CLI
 version they need.
 
+## Find your way around the code
+
+| Work on                 | Start here                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| A screen                | [apps/os](apps/os)                                                                                 |
+| An API or stored record | [packages/api-contract](packages/api-contract) → [apps/api](apps/api) → [packages/db](packages/db) |
+| Worker execution        | [apps/tedi-runtime](apps/tedi-runtime)                                                             |
+| A tool or integration   | [apps/mcp](apps/mcp) and the [MCP app platform](docs/public/mcp-app-platform.md)                   |
+| The CLI                 | [packages/cli](packages/cli)                                                                       |
+| Websites                | [apps/cms](apps/cms) and the [CMS guide](docs/public/cms.md)                                       |
+
+[One request through Tedix](docs/public/cloudflare-architecture.md#one-request-through-tedix)
+traces a request from the CLI through routing to the next turn. The
+[engineering docs](docs/engineering/README.md) cover architecture, data, MCP, and the
+worker runtime; [decision records](decisions/README.md) explain why.
+
 ## Working in your own fork
 
-Read [AGENTS.md](AGENTS.md) and the nearest scoped `AGENTS.md`, then run
-`bun run verify` for the same checks as the pre-push hook.
+Read [AGENTS.md](AGENTS.md) and the nearest scoped `AGENTS.md` before editing,
+then run `bun run verify` for the same checks as the pre-push hook.
 
 `bun run test:ci` runs the full suite, including a Chromium browser test in
 `apps/os` and code-search tests that run [ripgrep](https://github.com/BurntSushi/ripgrep)
@@ -148,5 +164,5 @@ run `bunx playwright install-deps chromium` from `apps/os` as root, then
 ## Licensing
 
 Product code is AGPL-3.0-only; contracts, SDKs, clients and templates are
-Apache-2.0 or MIT per package. The [README](README.md#licensing) lists which is
-which.
+Apache-2.0 or MIT per package. [Licensing](docs/public/licensing.md#which-packages-are-permissive)
+lists which is which.
