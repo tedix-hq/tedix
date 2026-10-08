@@ -353,8 +353,8 @@ export const REPLY_DRAFT_MAX_ATTEMPTS = 3;
 export const REPLY_DRAFT_RETRY_AFTER_MS = 2 * 60_000;
 /**
  * A question routed to its owning tedi is drafted by the configured drafter
- * instead when the owner has stored no draft this long after the request
- * (the runtime has no per-turn fast-model override to make the owner faster).
+ * instead when the owner has stored no draft this long after the request.
+ * The owner drafts on the drafter's fast model, so this rarely fires.
  */
 export const REPLY_DRAFT_OWNER_TIMEOUT_S = 25;
 
@@ -397,11 +397,11 @@ export function replyDraftQuestionIneligibility(
 	return null;
 }
 
-async function activeDraftingTediId(
+async function activeDraftingTedi(
 	context: BaseContext,
 	policy: AgentTurnTriagePolicy,
 	organizationId: string,
-): Promise<string | null> {
+) {
 	const tediId = policy.drafting.tediId;
 	if (!tediId) return null;
 	const tedi = await getTediByIdForOrganization(
@@ -410,8 +410,26 @@ async function activeDraftingTediId(
 		organizationId,
 	);
 	return tedi && tedi.status === "active" && tedi.retiredAt === null
-		? tedi.id
+		? tedi
 		: null;
+}
+
+/** The drafter's own model for an owner's drafting turn; null keeps the owner's. */
+async function drafterTurnModel(
+	context: BaseContext,
+	drafter: NonNullable<Awaited<ReturnType<typeof activeDraftingTedi>>>,
+) {
+	try {
+		const { tediChatTurnModel } =
+			await import("../../lib/tedi-model-overrides");
+		return await tediChatTurnModel(context.db, drafter);
+	} catch (error) {
+		console.warn("reply-draft drafter model unavailable", {
+			tediId: drafter.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
 }
 
 function oneLine(value: string, limit: number): string {
@@ -600,6 +618,15 @@ async function replyDraftSkill(
 		});
 		return null;
 	}
+}
+
+/** Seconds until the owner timeout, counted from the request; at least 1. */
+export function replyDraftFallbackDelaySeconds(
+	requestedAtMs: number,
+	nowMs: number,
+): number {
+	const elapsed = Math.max(0, nowMs - requestedAtMs) / 1000;
+	return Math.max(1, Math.ceil(REPLY_DRAFT_OWNER_TIMEOUT_S - elapsed));
 }
 
 /** Dispatch key of a question's drafting attempt; attempt 1 keeps the original key. */
@@ -903,8 +930,9 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		const { policy } = await readPolicyStateFor(context, actor.id, orgId);
 		if (!policy.drafting.enabled)
 			return { status: "ineligible", reason: "drafting_disabled" };
-		const tediId = await activeDraftingTediId(context, policy, orgId);
-		if (!tediId) return { status: "ineligible", reason: "no_drafting_tedi" };
+		const drafter = await activeDraftingTedi(context, policy, orgId);
+		if (!drafter) return { status: "ineligible", reason: "no_drafting_tedi" };
+		const tediId = drafter.id;
 
 		const queue = context.env.AUTOMATION_EVENTS;
 		if (!queue) {
@@ -931,32 +959,36 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		// The first attempt goes to the tedi that owns the question's subject;
 		// a re-request, or no clear owner, goes to the configured drafter.
 		const build = async (): Promise<AutomationEvent> => {
-			const [owner, sessions, examples, board, skill] = await Promise.all([
-				next.attempt === 1
-					? owningDraftTediId(context, {
-							orgId,
-							targetUserId: actor.id,
-							drafterTediId: tediId,
-							request,
-						})
-					: Promise.resolve({ tediId: null, probability: null }),
-				listWorkAgentSessions(context.db, {
-					organizationId: orgId,
-					userId: actor.id,
-					includeEnded: false,
-					now: observedAt,
-				}),
-				replyDraftExamples(context, policy, {
-					orgId,
-					targetUserId: actor.id,
-					request,
-				}),
-				replyDraftBoard(context, orgId, request),
-				replyDraftSkill(context, orgId, {
-					slug: policy.drafting.skillSlug,
-					tediId,
-				}),
-			]);
+			const [owner, ownerTurnModel, sessions, examples, board, skill] =
+				await Promise.all([
+					next.attempt === 1
+						? owningDraftTediId(context, {
+								orgId,
+								targetUserId: actor.id,
+								drafterTediId: tediId,
+								request,
+							})
+						: Promise.resolve({ tediId: null, probability: null }),
+					next.attempt === 1
+						? drafterTurnModel(context, drafter)
+						: Promise.resolve(null),
+					listWorkAgentSessions(context.db, {
+						organizationId: orgId,
+						userId: actor.id,
+						includeEnded: false,
+						now: observedAt,
+					}),
+					replyDraftExamples(context, policy, {
+						orgId,
+						targetUserId: actor.id,
+						request,
+					}),
+					replyDraftBoard(context, orgId, request),
+					replyDraftSkill(context, orgId, {
+						slug: policy.drafting.skillSlug,
+						tediId,
+					}),
+				]);
 			const source = `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`;
 			console.log("reply-draft route", {
 				requestId: request.id,
@@ -965,10 +997,14 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				routed: owner.tediId !== null,
 				probability: owner.probability,
 			});
+			// The owner keeps its memory, persona and tools but drafts on the
+			// drafter's fast model for this one turn.
+			const turnModel = owner.tediId ? ownerTurnModel : null;
 			const event = AutomationEventSchema.parse({
 				kind: "tedi_turn",
 				organizationId: orgId,
 				tediId: owner.tediId ?? tediId,
+				...(turnModel ? { turnModel } : {}),
 				content: renderReplyDraftPrompt({
 					request,
 					sessions,
@@ -989,18 +1025,25 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 			});
 			if (owner.tediId && event.kind === "tedi_turn") {
 				// The owner's draft is not guaranteed in time: the drafter takes the
-				// next attempt after a delay unless a draft has landed by then.
+				// next attempt unless a draft has landed by then. The timer counts
+				// from the request, not from the end of this build.
 				const fallbackKey = replyDraftDispatchKey(request.id, 2);
 				await queue.send(
 					{
 						...event,
 						tediId,
+						turnModel: undefined,
 						idempotencyKey: fallbackKey,
 						conversationId: fallbackKey,
 						source: `${source}:owner-timeout`,
 						skipIfReplyDraftFor: request.id,
 					},
-					{ delaySeconds: REPLY_DRAFT_OWNER_TIMEOUT_S },
+					{
+						delaySeconds: replyDraftFallbackDelaySeconds(
+							Date.parse(observedAt),
+							Date.now(),
+						),
+					},
 				);
 			}
 			return event;
