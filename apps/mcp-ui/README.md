@@ -35,7 +35,6 @@ Run those commands from `apps/mcp-ui`. The upload returns a public preview URL
 without promoting it to the installation's active version. Check its `/health`
 for the uploaded SHA and `/preview` with a synthetic widget spec. Previews use
 the configured API/MCP bindings; do not put customer data in their URLs.
-Tedix Cloud releases are handled by the private operations repository.
 
 Key runtime pieces:
 

@@ -51,7 +51,7 @@ run-set cadence and the embedded widget's approval projection. Its contract is:
 The subscribe-before-read guarantee applies when a caller supplies a durable
 hint subscription. The current embedded approval projection uses canonical
 timer reads plus local mutation wakes; OS uses its run-scoped event pump plus
-15-second active and 60-second idle canonical run-set reads. A conversation-scoped server subscription that
-covers no-run changes remains follow-on work. The watcher does not promise
+15-second active and 60-second idle canonical run-set reads. No
+conversation-scoped server subscription covers changes made outside a run yet. The watcher does not promise
 exactly-once notifications or ordering across independent producers, and a
 healthy socket never implies a fresh projection.

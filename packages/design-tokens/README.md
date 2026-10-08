@@ -11,9 +11,6 @@ tests check widget parity, the stacking ladder, and styling invariants.
 The package has no runtime dependencies and works in Node, Bun, and
 Cloudflare Workers builds.
 
-This package is the exported cross-surface token source of truth: new runtime
-token decisions should map back here rather than being redefined locally.
-
 Consumers: `apps/os` (Kumo CSS), `apps/widget` (typed widget values), and
 `packages/widget-ui` (typed widget bridge and CSS baseline).
 

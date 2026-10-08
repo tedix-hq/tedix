@@ -76,7 +76,3 @@ name a Tedix-served origin (a tenant's `{slug}.mcp.tedix.dev` MCP endpoint, a
 `{slug}.cms.tedix.dev` site to render) but must never reach the Worker's own
 host or network. Used by `apps/api` (browser tools, catalog/connection MCP
 endpoints). `apps/docs` uses the default (strict) mode for repository URLs.
-
-```typescript
-
-```

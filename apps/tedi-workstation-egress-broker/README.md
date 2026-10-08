@@ -60,7 +60,6 @@ bun run test:run          # vitest run
 
 `workers_dev` is disabled in every environment — this Worker is only reached
 via a service binding from `apps/tedi-workstation-runtime`, never a public route.
-Managed deployment runs through the guarded workflow in `tedix-hq/tedix-cloud-ops`.
 
 ## GitHub App activation and containment
 

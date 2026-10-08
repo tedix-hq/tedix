@@ -22,7 +22,7 @@ owns transport-edge mechanics, not application policy:
   substitute fallback text stay with their callers. Record guards
   (`isRecord`, `asRecord`) live in `@tedix/api-contract/utils/is-record`.
 
-Keep imports on these subpaths. Do not add a root barrel.
+Import these subpaths directly; the package has no root barrel.
 
 ## Logger (`@tedix/worker-kit/logger`)
 
@@ -50,12 +50,8 @@ type, message, stack, cause chain and aggregate errors. The shared Hono error
 handler uses this logger for uncaught request failures. Other direct `console`
 call sites do not inherit the structured shape until migrated.
 
-This replaces a docblock with a compiler. `apps/api/src/lib/safe-log-metadata.ts`
-already says "Never pass those objects directly to console methods" — prose that
-nothing enforces. Here it is enforced, and `src/logger.test.ts` inverts the
-guarantee: each prohibition is a `// @ts-expect-error` line, so if the mapped
-type is ever weakened the _unused_ directive fails the build. The prohibition
-therefore cannot rot silently.
+`src/logger.test.ts` checks each prohibition with a `// @ts-expect-error` line,
+so if the mapped type is ever weakened the _unused_ directive fails the build.
 
 The type-level assertions are checked by `tsc`, not by Vitest:
 
@@ -66,14 +62,13 @@ bun run --filter @tedix/worker-kit test:run     # proves the emission shape
 
 ## Public surface
 
-One entrypoint, `@tedix/worker-kit/logger` (no barrel, per the repo's
-direct-import rule):
+One entrypoint, `@tedix/worker-kit/logger` (no barrel):
 
 | Export                                             | Kind     | Purpose                                                               |
 | -------------------------------------------------- | -------- | --------------------------------------------------------------------- |
 | `createLogger<Fields>({ component, ...defaults })` | function | Module-scoped logger. `component` is a stable dot-separated identity. |
 | `Logger<Fields>`                                   | type     | `with()`, `debug()`, `info()`, `warn()`, `error()`.                   |
-| `ReservedLogField`                                 | type     | The eleven prohibited names.                                          |
+| `ReservedLogField`                                 | type     | The twelve prohibited names.                                          |
 | `LogValue`                                         | type     | What a structured field may hold.                                     |
 | `LogLevel`                                         | type     | `"debug" \| "info" \| "warn" \| "error"`.                             |
 
@@ -109,7 +104,7 @@ One `console[level]` call, one object argument, per log:
 ```
 
 Workers Logs promotes the object's own keys to queryable fields; Logpush
-`workers_trace_events` → R2 (`tedix-observability`, job `1753261`) carries it as
+`workers_trace_events` → R2 carries it as
 `logs[].message[0]`, queryable with Log Explorer or R2 SQL. The level is
 deliberately **not** a field: `logs[].level` already records it, so adding one
 would only create a name that could collide. The public

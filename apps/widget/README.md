@@ -43,8 +43,7 @@ runtime downloads with it, and the signed session is requested only after
 interaction. `eager` additionally requests the session as soon as the runtime
 boots, and `idle` requests it when the browser next goes idle — both trade a
 little bootstrap work for a faster first answer. Every mode downloads the
-runtime at init; the loader used to act only on `open`, which left the other
-two inert. Opening or preloading the widget does not run a business query.
+runtime at init. Opening or preloading the widget does not run a business query.
 
 The host supplies authenticated, same-origin POST routes at `/r/tedi/session`
 and `/r/tedi/identify`, derives identity from its own session, and keeps the

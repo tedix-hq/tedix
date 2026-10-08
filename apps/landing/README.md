@@ -72,5 +72,5 @@ endpoints under `src/pages/api/catalog/` proxy live API data for SSR pages.
 - **Production:** https://tedix.dev
 - **Local:** http://localhost:3003
 
-Production deployment is maintained separately from local development. See the
-[release status](../../docs/public/release-status.md) for supported deployment options.
+See the [release status](../../docs/public/release-status.md) for supported
+deployment options.
