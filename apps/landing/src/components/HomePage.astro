@@ -50,6 +50,24 @@ const useCasesConfig = t.useCases as typeof t.useCases & {
 	visualMode?: "eurolabs";
 };
 const isEuroLabsResearch = useCasesConfig.visualMode === "eurolabs";
+
+// Only the EuroLabs page frames itself with a challenge section; the
+// localized homepage leads straight from the hero into the work.
+interface ChallengeCard {
+	badge: string;
+	title: string;
+	description: string;
+	alt: string;
+}
+interface ChallengeContent {
+	eyebrow: string;
+	title: string;
+	description: string;
+	cards: readonly [ChallengeCard, ChallengeCard, ChallengeCard];
+	closingPrefix: string;
+	closingAccent: string;
+}
+const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
 ---
 
 <div class="relative flex min-h-screen flex-col">
@@ -158,18 +176,19 @@ const isEuroLabsResearch = useCasesConfig.visualMode === "eurolabs";
   </section>
 
   <!-- ═══════════════════════════════════════════
-       SECTION 2 — THE CHALLENGE
+       SECTION 2 — THE CHALLENGE (EuroLabs only)
        ═══════════════════════════════════════════ -->
+  {challenge ? (
   <section class="relative pt-4 pb-8 md:pt-5 md:pb-10" id="what-a-tedi-does">
     <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
       <div class="mx-auto">
         <div class="mb-7 text-center">
-          <p class="mb-4 font-medium text-violet-600 text-sm uppercase tracking-[0.2em] dark:text-violet-400">{t.challenge.eyebrow}</p>
+          <p class="mb-4 font-medium text-violet-600 text-sm uppercase tracking-[0.2em] dark:text-violet-400">{challenge.eyebrow}</p>
           <h2 class="mb-5 font-bold font-display text-3xl leading-tight tracking-tight md:text-4xl lg:text-5xl">
-            {t.challenge.title}
+            {challenge.title}
           </h2>
           <p class="mx-auto max-w-2xl text-muted-foreground text-lg leading-relaxed">
-            {t.challenge.description}
+            {challenge.description}
           </p>
         </div>
 
@@ -182,14 +201,14 @@ const isEuroLabsResearch = useCasesConfig.visualMode === "eurolabs";
                 <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400">
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
-                <span class="challenge-badge inline-flex items-center rounded-md bg-violet-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-violet-500/40">{t.challenge.cards[0].badge}</span>
+                <span class="challenge-badge inline-flex items-center rounded-md bg-violet-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-violet-500/40">{challenge.cards[0].badge}</span>
               </div>
-              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-violet-700 dark:group-hover:text-violet-300 md:text-2xl">{t.challenge.cards[0].title}</h3>
-              <p class="text-muted-foreground text-sm leading-relaxed">{t.challenge.cards[0].description}</p>
+              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-violet-700 dark:group-hover:text-violet-300 md:text-2xl">{challenge.cards[0].title}</h3>
+              <p class="text-muted-foreground text-sm leading-relaxed">{challenge.cards[0].description}</p>
             </Card>
             <figure class="challenge-visual group relative min-h-[270px] overflow-hidden rounded-2xl border border-violet-200/60 bg-white shadow-sm dark:border-violet-800/30 dark:bg-violet-950/20">
-              <img src="/images/challenges/complexity-light.jpg" alt={t.challenge.cards[0].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
-              <Image src={challengeComplexity} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.challenge.cards[0].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
+              <img src="/images/challenges/complexity-light.jpg" alt={challenge.cards[0].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
+              <Image src={challengeComplexity} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={challenge.cards[0].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
             </figure>
           </div>
 
@@ -201,14 +220,14 @@ const isEuroLabsResearch = useCasesConfig.visualMode === "eurolabs";
                 <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400">
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                 </div>
-                <span class="challenge-badge inline-flex items-center rounded-md bg-rose-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-rose-500/40">{t.challenge.cards[1].badge}</span>
+                <span class="challenge-badge inline-flex items-center rounded-md bg-rose-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-rose-500/40">{challenge.cards[1].badge}</span>
               </div>
-              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-rose-700 dark:group-hover:text-rose-300 md:text-2xl">{t.challenge.cards[1].title}</h3>
-              <p class="text-muted-foreground text-sm leading-relaxed">{t.challenge.cards[1].description}</p>
+              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-rose-700 dark:group-hover:text-rose-300 md:text-2xl">{challenge.cards[1].title}</h3>
+              <p class="text-muted-foreground text-sm leading-relaxed">{challenge.cards[1].description}</p>
             </Card>
             <figure class="challenge-visual group relative min-h-[270px] overflow-hidden rounded-2xl border border-rose-200/60 bg-white shadow-sm dark:border-rose-800/30 dark:bg-rose-950/20">
-              <img src="/images/challenges/risks-light.jpg" alt={t.challenge.cards[1].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
-              <Image src={challengeRisks} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.challenge.cards[1].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
+              <img src="/images/challenges/risks-light.jpg" alt={challenge.cards[1].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
+              <Image src={challengeRisks} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={challenge.cards[1].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
             </figure>
           </div>
 
@@ -220,30 +239,33 @@ const isEuroLabsResearch = useCasesConfig.visualMode === "eurolabs";
                 <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-900/40 dark:text-fuchsia-400">
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
                 </div>
-                <span class="challenge-badge inline-flex items-center rounded-md bg-fuchsia-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-fuchsia-500/40">{t.challenge.cards[2].badge}</span>
+                <span class="challenge-badge inline-flex items-center rounded-md bg-fuchsia-600 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow-sm shadow-fuchsia-500/40">{challenge.cards[2].badge}</span>
               </div>
-              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-fuchsia-700 dark:group-hover:text-fuchsia-300 md:text-2xl">{t.challenge.cards[2].title}</h3>
-              <p class="text-muted-foreground text-sm leading-relaxed">{t.challenge.cards[2].description}</p>
+              <h3 class="challenge-title mb-3 font-bold font-display text-xl text-foreground transition-colors group-hover:text-fuchsia-700 dark:group-hover:text-fuchsia-300 md:text-2xl">{challenge.cards[2].title}</h3>
+              <p class="text-muted-foreground text-sm leading-relaxed">{challenge.cards[2].description}</p>
             </Card>
             <figure class="challenge-visual group relative min-h-[270px] overflow-hidden rounded-2xl border border-fuchsia-200/60 bg-white shadow-sm dark:border-fuchsia-800/30 dark:bg-fuchsia-950/20">
-              <img src="/images/challenges/silos-light.jpg" alt={t.challenge.cards[2].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
-              <Image src={challengeSilos} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={t.challenge.cards[2].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
+              <img src="/images/challenges/silos-light.jpg" alt={challenge.cards[2].alt} loading="lazy" class="h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:hidden" />
+              <Image src={challengeSilos} layout="none" format="webp" widths={[320, 640, 960, 1280]} sizes="(min-width: 1312px) 389px, (min-width: 1024px) calc((100vw - 144px) / 3), (min-width: 768px) calc((100vw - 128px) / 3), (min-width: 640px) calc(100vw - 80px), calc(100vw - 64px)" alt={challenge.cards[2].alt} loading="lazy" class="hidden h-full min-h-[270px] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] dark:block" />
             </figure>
           </div>
         </div>
 
         <div class="mt-14 text-center">
           <p class="mx-auto max-w-xl font-bold font-display text-xl tracking-tight md:text-2xl">
-            {t.challenge.closingPrefix}{" "}
+            {challenge.closingPrefix}{" "}
             <br class="hidden sm:block" />
             <AnimatedGradientText client:idle speed="3s" colorFrom="#7c3aed" colorTo="#ea580c" className="font-bold font-display text-2xl md:text-3xl">
-              {t.challenge.closingAccent}
+              {challenge.closingAccent}
             </AnimatedGradientText>
           </p>
         </div>
       </div>
     </div>
   </section>
+  ) : (
+  <div id="what-a-tedi-does" aria-hidden="true"></div>
+  )}
 
   <!-- ═══════════════════════════════════════════
        SECTION 3 — PROVEN RESULTS (Use Cases) — Dark section
