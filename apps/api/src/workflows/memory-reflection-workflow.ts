@@ -51,6 +51,7 @@ import {
 	mineLearningFeed,
 } from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
+import { retireIneffectiveLessons } from "../services/lesson-effectiveness";
 import { modelLessonDistiller } from "../services/lesson-distiller";
 import {
 	distillOwnerIncrementally,
@@ -539,6 +540,24 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			},
 		);
 		const learningFeedFactsWritten = learningFeed?.factsWritten ?? 0;
+
+		// Step 9b': learned lessons that do not reduce repeated corrections
+		// (delivered vs holdout sessions) lose confidence, then are archived.
+		// Fail-soft: never fails the reflection.
+		await step.do(
+			"retire-ineffective-lessons",
+			{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
+			async () => {
+				try {
+					return await retireIneffectiveLessons(db, {
+						orgId: organizationId,
+					});
+				} catch (e) {
+					console.error("[LearningFeed] retire-ineffective-lessons failed:", e);
+					return null;
+				}
+			},
+		);
 
 		// Step 9c: distil each person's whole decision history into lessons,
 		// as its own instance so its many model calls get a fresh budget.

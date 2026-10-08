@@ -8,6 +8,10 @@
  * and harness by `metadata.learningFeed.scope`, ranks them (standing lessons,
  * answer-style lessons, core rules, then repo, harness, topic overlap and
  * confidence) and trims them to the caller's byte budget.
+ *
+ * With a `sessionId`, a stable 10% of sessions are a measurement holdout that
+ * receives no learned lessons, and what each session received is recorded
+ * (`services/lesson-delivery.ts`) so `get_lesson_effectiveness` can compare.
  */
 
 import {
@@ -19,7 +23,19 @@ import {
 	type ApprovedAgentLessonRow,
 	listApprovedAgentLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
-import { observedLearningActor } from "../../services/learning-interaction-recorder";
+import {
+	observedLearningActor,
+	observedLearningEventId,
+	recordObservedLearningInteraction,
+} from "../../services/learning-interaction-recorder";
+import {
+	isHoldoutSession,
+	isMinedLesson,
+	LESSON_DELIVERY_SURFACE,
+	lessonDeliveryMetadata,
+	lessonSubjects,
+	type MeasuredLesson,
+} from "../../services/lesson-delivery";
 import type { BaseContext } from "../orpc";
 
 /** Per-lesson text cap, so one long fact cannot take the whole budget. */
@@ -88,17 +104,6 @@ export function lessonScope(
 		harness: slug(record.harness),
 		topic: slug(record.topic),
 	};
-}
-
-/** Written by the miner without review (not seeded, not person-reviewed). */
-function isMinedLesson(metadata: ApprovedAgentLessonRow["metadata"]): boolean {
-	const feed = metadata?.learningFeed;
-	return (
-		!!feed &&
-		typeof feed === "object" &&
-		!Array.isArray(feed) &&
-		feed.autoConfirmed === true
-	);
 }
 
 /** The learning feed's consolidated standing lesson for one person. */
@@ -198,6 +203,7 @@ export async function getSessionLessons(
 		repo?: string;
 		topics?: string[];
 		budgetBytes: number;
+		sessionId?: string;
 	},
 ): Promise<GetAgentSessionLessonsResult> {
 	// The same server-derived identity the learning ledger records answers
@@ -209,5 +215,82 @@ export async function getSessionLessons(
 		AGENT_LESSON_TOPIC_PREFIX,
 		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
-	return { organizationId, ...selectSessionLessons(rows, input) };
+	const selected = selectSessionLessons(rows, input);
+	const sessionId = input.sessionId?.toLowerCase();
+	if (!sessionId) return { organizationId, ...selected };
+	// A holdout session gets every lesson except the miner's own.
+	const holdout = await isHoldoutSession(sessionId);
+	const result = holdout
+		? selectSessionLessons(
+				rows.filter((row) => !isMinedLesson(row.metadata)),
+				input,
+			)
+		: selected;
+	// The learned lessons this session got, or (holdout) would have got.
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	const measured: MeasuredLesson[] = selected.lessons.flatMap((lesson) => {
+		const row = byId.get(lesson.id);
+		if (!row || !isMinedLesson(row.metadata)) return [];
+		return [
+			{
+				id: row.id,
+				topicKey: row.topicKey ?? `fact:${row.id}`,
+				subjects: lessonSubjects(row),
+			},
+		];
+	});
+	const record = recordLessonDelivery(context, organizationId, {
+		sessionId,
+		harness: normalizeHarness(input.harness),
+		repo: input.repo ? normalizeRepo(input.repo) : undefined,
+		holdout,
+		delivered: result.lessons,
+		measured,
+	});
+	// Measurement never delays or fails the lessons themselves.
+	if (context.waitUntil) context.waitUntil(record);
+	else await record;
+	return { organizationId, ...result, holdout };
+}
+
+/** One row per session and lesson set (fail-soft, see the recorder). */
+async function recordLessonDelivery(
+	context: BaseContext,
+	organizationId: string,
+	input: {
+		sessionId: string;
+		harness: string;
+		repo?: string;
+		holdout: boolean;
+		delivered: AgentSessionLesson[];
+		measured: MeasuredLesson[];
+	},
+): Promise<void> {
+	try {
+		await recordObservedLearningInteraction(context, {
+			organizationId,
+			clientEventId: await observedLearningEventId(
+				"lesson-delivery",
+				input.sessionId,
+				input.holdout ? "holdout" : "delivered",
+				input.delivered
+					.map((lesson) => lesson.id)
+					.sort()
+					.join(","),
+				input.measured
+					.map((lesson) => lesson.id)
+					.sort()
+					.join(","),
+			),
+			signalClass: "lifecycle",
+			eventKind: "delivered",
+			surface: LESSON_DELIVERY_SURFACE,
+			targetType: "agent_session",
+			targetId: input.sessionId,
+			threadId: input.sessionId,
+			metadata: lessonDeliveryMetadata(input),
+		});
+	} catch (error) {
+		console.warn("[lesson-delivery] record failed:", error);
+	}
 }

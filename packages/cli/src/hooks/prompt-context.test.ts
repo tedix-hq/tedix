@@ -202,6 +202,10 @@ describe("tedix hooks prompt-context", () => {
 		expect(source).toContain('"harness":"claude-code"');
 		expect(source).toContain('"repo":"github.com/tedix-hq/tedix"');
 		expect(source).toContain('"topics":["ops","overlay","binding"]');
+		// The chat id lets the server record delivery and pick the holdout.
+		expect(source).toContain(
+			'"sessionId":"77777777-7777-4777-8777-777777777777"',
+		);
 		// Credentials in the origin URL and prompt text never leave the machine.
 		expect(source).not.toContain("secret");
 		expect(source).not.toContain("prompt");
@@ -328,6 +332,7 @@ describe("tedix hooks prompt-context", () => {
 			organizationId: ORG,
 			matched: 1,
 			truncated: false,
+			holdout: false,
 			lessons: [{ shortId: "abcd1234", text: "t" }],
 		});
 	});

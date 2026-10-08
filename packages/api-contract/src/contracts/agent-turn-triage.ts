@@ -6,6 +6,8 @@ import { baseErrors } from "../errors";
 import {
 	GetAgentSessionLessonsInputSchema,
 	GetAgentSessionLessonsResultSchema,
+	GetLessonEffectivenessInputSchema,
+	GetLessonEffectivenessResultSchema,
 	MineAgentSessionLessonsInputSchema,
 	MineAgentSessionLessonsResultSchema,
 } from "../schemas/agent-session-lessons";
@@ -36,7 +38,7 @@ import {
  * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`), and the
  * approved team lessons a local agent session receives
  * (MCP: `get_agent_session_lessons`, learned on demand by
- * `mine_agent_session_lessons`), and the historic import of the caller's
+ * `mine_agent_session_lessons`, measured by `get_lesson_effectiveness`), and the historic import of the caller's
  * own past local session decisions (MCP: `import_agent_session_decisions`).
  *
  * Triage and reply labelling are stateless model reads: nothing about the
@@ -149,6 +151,18 @@ export const agentTurnTriageContract = oc
 			})
 			.input(GetAgentSessionLessonsInputSchema)
 			.output(GetAgentSessionLessonsResultSchema),
+
+		getLessonEffectiveness: oc
+			.route({
+				method: "POST",
+				path: "/session-lessons/effectiveness",
+				summary:
+					"Measure whether delivered lessons reduce repeated corrections",
+				description:
+					"For the caller's own sessions (and org-wide ones) over recent weeks: sessions that received learned lessons vs the stable 10% holdout that did not, and the user corrections that followed (decision-capture answers classed correction, challenge, frustration, simplify, verify or plain-english, or an edited or replaced draft), overall, per week and per learned lesson (corrections matched to the lesson's subject). A lesson with at least 20 delivered and 4 holdout sessions gets a verdict: `helps` when its delivered rate is lower, else `no_better`. Read-only.",
+			})
+			.input(GetLessonEffectivenessInputSchema)
+			.output(GetLessonEffectivenessResultSchema),
 
 		mineSessionLessons: oc
 			.route({

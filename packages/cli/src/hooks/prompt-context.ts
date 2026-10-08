@@ -8,6 +8,11 @@
  * branch's words. Lessons need no local selection, so a chat on any profile of
  * the organization gets them.
  *
+ * The chat's id goes with the lessons read: the server records which lessons
+ * reached this chat, and a stable 10% of chats (by that id) are a holdout that
+ * receives no learned lessons, so their effect on repeated corrections can be
+ * measured (`get_lesson_effectiveness`).
+ *
  * Outside any Git repository (any folder, non-coding work too) the chat gets
  * the same lessons for the default organization with no repository, plus the
  * working-preferences document selected for that profile and organization,
@@ -187,7 +192,12 @@ export function boundedContext(
  */
 export function gatewayCode(
 	binding: JsonObject,
-	lessons?: { harness: string; repo?: string; topics: string[] },
+	lessons?: {
+		harness: string;
+		repo?: string;
+		topics: string[];
+		sessionId?: string;
+	},
 ): string {
 	const target = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
@@ -198,6 +208,9 @@ export function gatewayCode(
 			...(lessons.repo ? { repo: lessons.repo } : {}),
 			...(lessons.topics.length ? { topics: lessons.topics } : {}),
 			budgetBytes: LESSON_BYTES,
+			...(lessons.sessionId && UUID.test(lessons.sessionId)
+				? { sessionId: lessons.sessionId }
+				: {}),
 		};
 	return String.raw`async () => {
  const t = TARGET;
@@ -215,7 +228,7 @@ export function gatewayCode(
  if (t.preferencesOutputId) result.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? result.shared : await each(() => document(t.preferencesWorkspaceId, t.preferencesOutputId));
  if (t.lessons) result.lessons = await each(async () => {
   const r = await agent.get_agent_session_lessons(t.lessons);
-  return {organizationId:r.organizationId,matched:r.matched,truncated:r.truncated,lessons:r.lessons.map(l => ({shortId:l.shortId,text:l.text}))};
+  return {organizationId:r.organizationId,matched:r.matched,truncated:r.truncated,holdout:r.holdout === true,lessons:r.lessons.map(l => ({shortId:l.shortId,text:l.text}))};
  });
  if (t.workItemId) result.work = await each(async () => {
   const r = await work.get_work_items_by_id({id:t.workItemId});
@@ -563,6 +576,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 						harness,
 						repo: repoSlug(binding.origin),
 						topics: branchTopics(binding.branch),
+						sessionId: session,
 					}),
 				],
 				// A cold gateway can take longer than 8s; use what the host's timeout leaves.

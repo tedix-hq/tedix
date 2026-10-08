@@ -6,10 +6,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { isHoldoutSession } from "../../services/lesson-delivery";
 import type { BaseContext } from "../orpc";
 import { normalizeRepo, selectSessionLessons } from "./agent-session-lessons";
 import { agentTurnTriageContractRouter } from "./agent-turn-triage";
@@ -27,6 +29,7 @@ const row = (
 	content,
 	priority: "active" as const,
 	confidence,
+	topicKey: null,
 	metadata: (scope ? { learningFeed: { version: 1, scope } } : null) as never,
 	updatedAt: "2026-10-07T00:00:00Z",
 });
@@ -268,5 +271,103 @@ describe("getSessionLessons procedure", () => {
 				context: context(ORG_1, ["mcp:work.read"]),
 			}).getSessionLessons({ harness: "codex" }),
 		).rejects.toThrow();
+	});
+});
+
+describe("getSessionLessons holdout and delivery log", () => {
+	function context(): { ctx: BaseContext; sqlite: DatabaseSync } {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(schemaDdl(memoryFacts));
+		// The generated DDL leaves out SQL defaults; D1 has CURRENT_TIMESTAMP.
+		sqlite.exec(
+			schemaDdl(learningInteractionEvents).replace(
+				/(created_at\W*\s+text\s+NOT NULL)/i,
+				"$1 DEFAULT CURRENT_TIMESTAMP",
+			),
+		);
+		sqlite.exec(`INSERT INTO memory_facts
+			(id, organization_id, topic_key, content, fact_type, status, review_status, use_policy, metadata)
+			VALUES
+			('fact-written', '${ORG_1}', 'learning-feed:lesson:general:general:naming', 'Written lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation', '{"learningFeed":{"scope":{"topic":"naming"}}}'),
+			('fact-mined', '${ORG_1}', 'learning-feed:decision:general:general:communication', 'Mined lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation', '{"learningFeed":{"autoConfirmed":true,"scope":{"topic":"communication"}}}')`);
+		const env = {
+			ENVIRONMENT: "test",
+			DB: createD1Facade(sqlite),
+		} as unknown as CloudflareEnv;
+		return {
+			sqlite,
+			ctx: {
+				apiKey: {
+					id: "key-1",
+					name: "test",
+					organizationId: ORG_1,
+					scopes: ["mcp:messaging.read"],
+				},
+				authType: "apikey",
+				db: createDbClient(env.DB) as BaseContext["db"],
+				env,
+				headers: new Headers(),
+				organizationId: ORG_1,
+				url: new URL("https://api.tedix.test/rpc/agentTurnTriage"),
+			} as BaseContext,
+		};
+	}
+	async function sessionIn(holdout: boolean): Promise<string> {
+		for (let i = 0; ; i++) {
+			const id = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+			if ((await isHoldoutSession(id)) === holdout) return id;
+		}
+	}
+
+	it("withholds only learned lessons from a holdout session and logs both arms", async () => {
+		const { ctx, sqlite } = context();
+		const client = createRouterClient(agentTurnTriageContractRouter, {
+			context: ctx,
+		});
+		const texts = (result: { lessons: Array<{ text: string }> }) =>
+			result.lessons.map((lesson) => lesson.text).sort();
+		const delivered = await client.getSessionLessons({
+			harness: "codex",
+			sessionId: await sessionIn(false),
+		});
+		expect(delivered.holdout).toBe(false);
+		expect(texts(delivered)).toEqual(["Mined lesson.", "Written lesson."]);
+		const holdoutId = await sessionIn(true);
+		const held = await client.getSessionLessons({
+			harness: "codex",
+			sessionId: holdoutId,
+		});
+		expect(held.holdout).toBe(true);
+		expect(texts(held)).toEqual(["Written lesson."]);
+		// Without a session id nothing is withheld or recorded.
+		const plain = await client.getSessionLessons({ harness: "codex" });
+		expect(plain.holdout).toBeUndefined();
+		expect(texts(plain)).toEqual(["Mined lesson.", "Written lesson."]);
+		// A repeat with the same lessons adds no row.
+		await client.getSessionLessons({ harness: "codex", sessionId: holdoutId });
+		const rows = sqlite
+			.prepare(
+				"SELECT thread_id, event_kind, metadata FROM learning_interaction_events WHERE surface = 'lesson_delivery'",
+			)
+			.all() as Array<{
+			thread_id: string;
+			event_kind: string;
+			metadata: string;
+		}>;
+		expect(rows).toHaveLength(2);
+		const holdoutRow = rows.find((row) => row.thread_id === holdoutId)!;
+		expect(holdoutRow.event_kind).toBe("delivered");
+		expect(JSON.parse(holdoutRow.metadata)).toMatchObject({
+			holdout: true,
+			lessonIds: ["fact-written"],
+			measured: [
+				{
+					id: "fact-mined",
+					topicKey: "learning-feed:decision:general:general:communication",
+					subjects: ["communication"],
+				},
+			],
+		});
 	});
 });

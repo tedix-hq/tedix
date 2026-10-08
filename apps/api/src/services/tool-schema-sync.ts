@@ -778,6 +778,7 @@ export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"agentTurnTriage/proposeReplyDraft": "propose_agent_reply_draft",
 	"agentTurnTriage/getReplyDraftAcceptance": "get_agent_reply_draft_acceptance",
 	"agentTurnTriage/getSessionLessons": "get_agent_session_lessons",
+	"agentTurnTriage/getLessonEffectiveness": "get_lesson_effectiveness",
 	"agentTurnTriage/mineSessionLessons": "mine_agent_session_lessons",
 	"agentTurnTriage/importSessionDecisions": "import_agent_session_decisions",
 };
@@ -794,6 +795,7 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 	"agentTurnTriage/proposeReplyDraft": "write",
 	"agentTurnTriage/getReplyDraftAcceptance": "read",
 	"agentTurnTriage/getSessionLessons": "read",
+	"agentTurnTriage/getLessonEffectiveness": "read",
 	"agentTurnTriage/mineSessionLessons": "write",
 	"agentTurnTriage/importSessionDecisions": "write",
 };

@@ -13,6 +13,9 @@ export const LEARNING_INTERACTION_KINDS = [
 	// A human answered an agent's question with no tedi draft to judge: a
 	// decision to learn from, neither praise nor a correction.
 	"answered",
+	// Lessons were delivered to (or, in a holdout session, withheld from) an
+	// agent session: the exposure side of lesson effectiveness.
+	"delivered",
 ] as const;
 
 export const LEARNING_SCOPE_KINDS = [
