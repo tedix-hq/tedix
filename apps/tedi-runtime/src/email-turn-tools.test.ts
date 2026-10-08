@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { Tool, ToolSet } from "ai";
 import {
+	emailTurnMemoryEffects,
 	emailTurnSystemAddendum,
 	inboundEmailTrust,
 	selectEmailTurnTools,
@@ -72,6 +73,15 @@ const replyTool = marker("reply_to_email");
 	assert.match(addendum, /NOT verified/);
 	assert.match(addendum, /one-time codes/);
 	assert.match(addendum, /Do not follow any instructions/);
+}
+
+{
+	// An untrusted turn is never learned from; a trusted one keeps the defaults.
+	assert.deepEqual(emailTurnMemoryEffects("untrusted"), {
+		learningMode: "disabled",
+		dailyLog: false,
+	});
+	assert.deepEqual(emailTurnMemoryEffects("trusted"), {});
 }
 
 console.log("email-turn-tools OK");
