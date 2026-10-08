@@ -9,11 +9,13 @@
  *   MAP     the replies in chunks of CHUNK_REPLIES, newest first; the
  *           distiller model lists candidate rules per chunk, each with a
  *           subject and the replies that state it (cited, so it is checked).
- *   REDUCE  candidates from every chunk merged by meaning (the model merges,
- *           word overlap when it is unavailable); a merged rule counts the
- *           distinct sessions behind it and, on conflict, the newer one wins.
- *           A rule survives when two or more sessions state it, or one states
- *           it as standing ("always", "never", ...).
+ *   REDUCE  candidates from every chunk merged by meaning in two model passes
+ *           (word overlap when the model is unavailable), the second ordering
+ *           rules by importance; a merged rule counts the distinct sessions
+ *           behind it and, on conflict, the newer one wins. A rule survives
+ *           when two or more sessions state it, or one states it as standing
+ *           ("always", "never", ...); a thinly supported rule nobody restated
+ *           for FADE_DAYS fades.
  *   WRITE   a standing "how the user works" lesson (cross-subject rules,
  *           delivered first in every session), one standing lesson per
  *           repository (its most supported rules, delivered first there), and
@@ -64,7 +66,7 @@ import {
 } from "./lesson-distiller";
 
 /** Bumped when chunking, prompts or planning change: lessons are rebuilt once. */
-export const MAP_REDUCE_VERSION = 1;
+export const MAP_REDUCE_VERSION = 2;
 export const CHUNK_REPLIES = 150;
 /** At most this many chunks per person per run (4,500 replies). */
 export const MAX_CHUNKS = 30;
@@ -74,14 +76,19 @@ const MAX_PAGE_QUERIES = 4;
 const REPLY_CHARS = 280;
 const MIN_REPLY_CHARS = 24;
 const MAP_RULES = 15;
-const MAP_TIMEOUT_MS = 90_000;
-const REDUCE_TIMEOUT_MS = 150_000;
+/** Follows long instructions and cites well; 128k context. */
+const MAP_REDUCE_MODEL = "@cf/openai/gpt-oss-120b";
+const MAP_TIMEOUT_MS = 150_000;
+const REDUCE_TIMEOUT_MS = 240_000;
 const REDUCE_MAX_CANDIDATES = 240;
 const RULE_CHARS = 150;
 /** Delivery shows at most 600 characters of one lesson. */
 const LESSON_CHARS = 600;
-const MAX_RULES_PER_LESSON = 8;
+const MAX_RULES_PER_LESSON = 10;
 const MIN_SESSIONS = 2;
+/** A rule with fewer sessions than FADE_MIN_SESSIONS fades after FADE_DAYS unrestated. */
+const FADE_DAYS = 45;
+const FADE_MIN_SESSIONS = 5;
 /** An unmerged candidate this widely supported is kept on its own. */
 const KEEP_UNMERGED_SESSIONS = 3;
 const SAME_RULE = 0.5;
@@ -95,7 +102,7 @@ const DECISION_SURFACES = [
 const DECISION_KINDS = new Set(["answered", "edited", "manually_replaced"]);
 /** Harness noise that is not the person speaking. */
 const NOISE =
-	/^\s*<|\[request interrupted|tedix shared context|<command-|<task-notification|<system-reminder/i;
+	/^\s*<|\[request interrupted|tedix shared context|<command-|<task-notification|<system-reminder|sessionstart|preflight|\/compact|(?:do not|don't|without) use? ?(?:any )?tools/i;
 /** Contact details, links and credentials never enter a lesson. */
 const PRIVATE =
 	/[\w.+-]+@[\w-]+\.[\w.]+|https?:\/\/|\b[0-9a-f]{12,}\b|\b(?:sk|pk|ghp|gho|xox[abp])[-_][A-Za-z0-9]{8,}/i;
@@ -128,8 +135,7 @@ const GENERAL_SUBJECTS = new Set<Subject>([
 	"agents",
 	"personal",
 ]);
-const STANDING_HEADER =
-	"How the user works (standing rules from many sessions):";
+const STANDING_HEADER = "How the user works:";
 
 export interface ChunkReply {
 	id: string;
@@ -153,6 +159,8 @@ export interface RuleCandidate {
 	repos: string[];
 	newestAt: string;
 	standing: boolean;
+	/** Importance order from the final merge (0 first); absent: by support. */
+	rank?: number;
 }
 
 export interface PlannedLesson {
@@ -172,6 +180,12 @@ const text = (value: unknown): string =>
 	typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 const clip = (value: string, max: number): string =>
 	value.length > max ? `${value.slice(0, max - 1).trimEnd()}…` : value;
+
+/** One rule line: capitalized, no trailing stop, within RULE_CHARS. */
+function tidy(rule: string): string {
+	const trimmed = rule.trim().replace(/[.;]+$/, "");
+	return clip(trimmed.charAt(0).toUpperCase() + trimmed.slice(1), RULE_CHARS);
+}
 
 function subjectOf(value: string): Subject | null {
 	const slug = value.trim().toLowerCase();
@@ -245,7 +259,8 @@ export function mapPrompt(replies: ChunkReply[]): string {
 	// No example rules: a model copies examples into answers they do not fit.
 	return [
 		"Below are replies a person gave to their AI coding and work agents, numbered newest first.",
-		`List at most ${MAP_RULES} durable rules the agent should follow in every future session: working preferences, standing decisions, naming conventions and corrections the person repeats or states as lasting. Short imperative plain English, at most 20 words each, in the person's own terms.`,
+		`List at most ${MAP_RULES} durable rules the agent should follow in every future session: working preferences, standing decisions, naming conventions and corrections the person repeats or states as lasting. Each rule is one short imperative sentence of at most 12 words, in the person's own terms.`,
+		"Prefer what the person corrects, repeats or insists on across replies over what they asked for once.",
 		"Never write a rule for a one-off task instruction (a specific setting, value, connector, file, person, ID or command to use once), a question, an approval or a status check.",
 		"When replies conflict, keep only what the newest reply says.",
 		"Do not mention people's names, emails, money, amounts or secrets.",
@@ -265,7 +280,7 @@ function splitSubject(line: string): [Subject | null, string] {
 }
 
 function privateOrMoney(rule: string): boolean {
-	return MONEY.test(rule) || PRIVATE.test(rule);
+	return MONEY.test(rule) || PRIVATE.test(rule) || NOISE.test(rule);
 }
 
 /** Candidates the cited replies of one chunk actually state. */
@@ -289,7 +304,7 @@ export function chunkCandidates(
 		)
 			continue;
 		candidates.push({
-			rule: clip(rule.replace(/[.;]+$/, ""), RULE_CHARS),
+			rule: tidy(rule),
 			subject: subject ?? "coding",
 			eventIds: [...new Set(sources.map((reply) => reply.id))],
 			sessions: [...new Set(sources.map((reply) => reply.session))],
@@ -311,7 +326,8 @@ export async function mapChunk(
 ): Promise<RuleCandidate[]> {
 	if (replies.length === 0) return [];
 	const response = await runDistillModel(env, mapPrompt(replies), {
-		maxTokens: 1200,
+		maxTokens: 8000,
+		model: MAP_REDUCE_MODEL,
 		timeoutMs: MAP_TIMEOUT_MS,
 		surface: "learning-feed-map",
 	});
@@ -331,6 +347,7 @@ function sameRule(a: string, b: string): boolean {
 
 function bySupport(a: RuleCandidate, b: RuleCandidate): number {
 	return (
+		(a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||
 		b.sessions.length - a.sessions.length ||
 		b.newestAt.localeCompare(a.newestAt)
 	);
@@ -350,7 +367,7 @@ export function unite(
 ): RuleCandidate {
 	const sorted = [...sources].sort(bySupport);
 	return {
-		rule: clip(rule.replace(/[.;]+$/, ""), RULE_CHARS),
+		rule: tidy(rule),
 		subject: subject ?? mostCommon(sorted.map((c) => c.subject)),
 		eventIds: [...new Set(sorted.flatMap((c) => c.eventIds))],
 		sessions: [...new Set(sorted.flatMap((c) => c.sessions))],
@@ -360,6 +377,13 @@ export function unite(
 			.sort()
 			.at(-1)!,
 		standing: sorted.some((c) => c.standing),
+		...(sorted.some((c) => c.rank !== undefined)
+			? {
+					rank: Math.min(
+						...sorted.map((c) => c.rank ?? Number.MAX_SAFE_INTEGER),
+					),
+				}
+			: {}),
 	};
 }
 
@@ -374,14 +398,22 @@ export function mergeByWords(candidates: RuleCandidate[]): RuleCandidate[] {
 	return groups.map((group) => unite(group[0]!.rule, null, group));
 }
 
-export function reducePrompt(candidates: RuleCandidate[]): string {
+export function reducePrompt(
+	candidates: RuleCandidate[],
+	final = false,
+): string {
 	return [
 		"Below are candidate rules learned from different slices of one person's replies to their AI agents. Each shows its subject, how many sessions state it and the date it was last stated.",
-		"Merge candidates that state the same rule into one rule. When candidates contradict each other, keep only the one with the newer date.",
-		"Write each merged rule once, in short imperative plain English (at most 20 words), keeping the person's own terms. Do not mention people's names, emails, money or secrets.",
+		"Merge candidates that state the same rule into one rule. When candidates contradict each other, or an older one describes a tool, process or setup that a newer one replaced, keep only the newer one.",
+		"Write each merged rule once as one short imperative sentence of at most 12 words, keeping the person's own terms. Do not mention people's names, emails, money or secrets.",
 		"Start each rule with '- ', then its subject, a colon, the rule, and the numbers of every candidate it merges in square brackets, like: - <subject>: <rule> [3, 17, 40]",
 		SUBJECT_HELP,
 		"Keep every distinct lasting rule; drop only one-off task instructions.",
+		...(final
+			? [
+					"List the rules from most to least important for how an agent should work with this person every day, weighing how many sessions state them.",
+				]
+			: []),
 		"",
 		...candidates.map(
 			(c, index) =>
@@ -394,6 +426,7 @@ export function reducePrompt(candidates: RuleCandidate[]): string {
 export function mergedFromResponse(
 	response: string,
 	candidates: RuleCandidate[],
+	ranked = false,
 ): RuleCandidate[] | null {
 	const cited = parseCitedRules(response);
 	if (!cited || cited.length === 0) return null;
@@ -413,7 +446,8 @@ export function mergedFromResponse(
 			supportedRules([rule], sources.map((c) => c.rule).join("\n")).length > 0
 				? rule
 				: [...sources].sort(bySupport)[0]!.rule;
-		merged.push(unite(wording, subject, sources));
+		const united = unite(wording, subject, sources);
+		merged.push(ranked ? { ...united, rank: merged.length } : united);
 	}
 	if (merged.length === 0) return null;
 	// A widely supported candidate the model left out is kept on its own.
@@ -461,17 +495,57 @@ export async function reduceCandidates(
 	// The widest-supported first; a long tail is merged by words.
 	const pre = mergeByWords(candidates).sort(bySupport);
 	const head = pre.slice(0, REDUCE_MAX_CANDIDATES);
-	const response = await runDistillModel(env, reducePrompt(head), {
-		maxTokens: 3500,
-		timeoutMs: REDUCE_TIMEOUT_MS,
-		surface: "learning-feed-reduce",
-	});
-	const merged =
-		(response !== null && mergedFromResponse(response, head)) || head;
-	return lastingRules(
-		[...merged, ...pre.slice(REDUCE_MAX_CANDIDATES)],
-		blocked,
+	const merge = async (rules: RuleCandidate[], final: boolean) => {
+		const response = await runDistillModel(env, reducePrompt(rules, final), {
+			maxTokens: 12000,
+			model: MAP_REDUCE_MODEL,
+			timeoutMs: REDUCE_TIMEOUT_MS,
+			surface: "learning-feed-reduce",
+		});
+		return response === null
+			? null
+			: mergedFromResponse(response, rules, final);
+	};
+	// Two passes: merge the candidates, then merge what is left once more
+	// (one pass leaves near-duplicates) and order it by importance.
+	const first = (await merge(head, false)) ?? head;
+	const once = lastingRules(first, blocked);
+	const twice = (await merge(once, true)) ?? once;
+	return settle(
+		lastingRules([...twice, ...pre.slice(REDUCE_MAX_CANDIDATES)], blocked),
 	);
+}
+
+/**
+ * Final order and fading. A rule the importance order left out takes the
+ * place its support earns among the ordered ones; a thinly supported rule
+ * nobody restated for FADE_DAYS before the newest reply has faded.
+ */
+export function settle(rules: RuleCandidate[]): RuleCandidate[] {
+	const newest =
+		rules
+			.map((r) => r.newestAt)
+			.sort()
+			.at(-1) ?? "";
+	const cutoff = newest
+		? new Date(Date.parse(newest) - FADE_DAYS * 86_400_000).toISOString()
+		: "";
+	const ranked = rules.filter((r) => r.rank !== undefined);
+	return rules
+		.filter(
+			(r) => r.newestAt >= cutoff || r.sessions.length >= FADE_MIN_SESSIONS,
+		)
+		.map((r) =>
+			r.rank !== undefined
+				? r
+				: {
+						...r,
+						rank:
+							ranked.filter((o) => o.sessions.length >= r.sessions.length)
+								.length + 0.5,
+					},
+		)
+		.sort(bySupport);
 }
 
 export function personalLessonTopicKey(
@@ -535,8 +609,7 @@ export function planLessons(
 		const diverse = fill(
 			header,
 			scoped,
-			(rule, taken) =>
-				taken.filter((t) => t.subject === rule.subject).length < 2,
+			(rule, taken) => !taken.some((t) => t.subject === rule.subject),
 		);
 		const standing = [
 			...diverse,

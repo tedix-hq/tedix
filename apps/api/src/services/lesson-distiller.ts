@@ -222,6 +222,17 @@ export type DistillEnv = Pick<CloudflareEnv, "AI"> & {
 	AI_GATEWAY_LLM_ID?: string;
 };
 
+/** The text of a Workers AI answer: `response`, or a chat completion's. */
+export function responseText(outcome: unknown): string | null {
+	const result = outcome as {
+		response?: unknown;
+		choices?: Array<{ message?: { content?: unknown } }>;
+	} | null;
+	if (typeof result?.response === "string") return result.response;
+	const content = result?.choices?.[0]?.message?.content;
+	return typeof content === "string" ? content : null;
+}
+
 /** One call to the distiller model; null on failure or timeout. */
 export async function runDistillModel(
 	env: DistillEnv,
@@ -230,12 +241,18 @@ export async function runDistillModel(
 		maxTokens = 500,
 		timeoutMs = DISTILL_TIMEOUT_MS,
 		surface = "learning-feed-distill",
-	}: { maxTokens?: number; timeoutMs?: number; surface?: string } = {},
+		model = DISTILL_MODEL,
+	}: {
+		maxTokens?: number;
+		timeoutMs?: number;
+		surface?: string;
+		model?: string;
+	} = {},
 ): Promise<string | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const call = env.AI.run(
-			DISTILL_MODEL as keyof AiModels,
+			model as keyof AiModels,
 			{
 				messages: [{ role: "user", content: prompt }],
 				max_tokens: maxTokens,
@@ -253,8 +270,7 @@ export async function runDistillModel(
 			}),
 		]);
 		if (outcome === "timeout") return null;
-		const response = (outcome as { response?: unknown } | null)?.response;
-		return typeof response === "string" ? response : null;
+		return responseText(outcome);
 	} catch {
 		return null;
 	} finally {

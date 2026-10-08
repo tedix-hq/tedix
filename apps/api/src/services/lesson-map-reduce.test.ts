@@ -38,7 +38,7 @@ import {
 } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { createFact, updateFact } from "@tedix/db/queries/memory-graph/facts";
-import { runDistillModel } from "./lesson-distiller";
+import { responseText, runDistillModel } from "./lesson-distiller";
 import {
 	CHUNK_REPLIES,
 	chunkCandidates,
@@ -47,6 +47,7 @@ import {
 	MAP_REDUCE_VERSION,
 	mergedFromResponse,
 	planLessons,
+	settle,
 	type RuleCandidate,
 	type StepRunner,
 	usableReply,
@@ -212,6 +213,42 @@ describe("reduce", () => {
 	});
 });
 
+describe("settle", () => {
+	it("orders by importance, slots unordered rules by support and fades stale thin ones", () => {
+		const rules = settle([
+			candidate({ rule: "Second", rank: 1, sessions: ["a", "b"] }),
+			candidate({ rule: "First", rank: 0, sessions: ["a", "b", "c", "d"] }),
+			candidate({ rule: "Unordered", sessions: ["a", "b", "c"] }),
+			candidate({
+				rule: "Stale and thin",
+				rank: 2,
+				sessions: ["a", "b"],
+				newestAt: "2026-07-01T00:00:00.000Z",
+			}),
+			candidate({
+				rule: "Stale but widely stated",
+				rank: 3,
+				sessions: ["a", "b", "c", "d", "e"],
+				newestAt: "2026-07-01T00:00:00.000Z",
+			}),
+		]);
+		expect(rules.map((r) => r.rule)).toEqual([
+			"First",
+			"Second",
+			"Unordered",
+			"Stale but widely stated",
+		]);
+	});
+
+	it("reads both Workers AI answer shapes", () => {
+		expect(responseText({ response: "a" })).toBe("a");
+		expect(responseText({ choices: [{ message: { content: "b" } }] })).toBe(
+			"b",
+		);
+		expect(responseText({})).toBeNull();
+	});
+});
+
 describe("planLessons", () => {
 	it("puts cross-subject rules in the standing lesson and repo rules in the repo", () => {
 		const lessons = planLessons("user-1", [
@@ -227,7 +264,7 @@ describe("planLessons", () => {
 				sessions: ["s1", "s2"],
 			}),
 			// More git rules than the repository's standing lesson holds.
-			...Array.from({ length: 8 }, (_, n) =>
+			...Array.from({ length: 10 }, (_, n) =>
 				candidate({
 					rule: `Git habit ${n} here`,
 					sessions: ["s1", "s2"],
@@ -237,7 +274,7 @@ describe("planLessons", () => {
 		]);
 		expect(lessons.map((l) => [l.topicKey, l.rules.length])).toEqual([
 			["learning-feed:decision:general:general:standing:user:user-1", 2],
-			["learning-feed:decision:tedix:general:standing:user:user-1", 8],
+			["learning-feed:decision:tedix:general:standing:user:user-1", 10],
 			["learning-feed:decision:tedix:general:git:user:user-1", 1],
 		]);
 		expect(lessons[0]!.content.split("\n")[1]).toBe(
