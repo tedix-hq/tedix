@@ -21,7 +21,6 @@
  */
 import { harnessOf, recordAutoContinued } from "./agent-status";
 import {
-	AGENT_IDENTITY_ENV,
 	answeredElsewhere,
 	autoDeliveryPath,
 	type Binding,
@@ -36,6 +35,7 @@ import {
 	writeState,
 } from "./decision-capture";
 import {
+	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	type HookDeps,
 	hostEvent,

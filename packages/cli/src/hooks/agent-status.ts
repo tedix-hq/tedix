@@ -4,7 +4,7 @@
  * Records one line of state per session at turn boundaries, raises a local
  * macOS notification when a session needs its owner or fails, and, with a
  * configured CLI profile, reports the change to Tedix through a detached
- * `tedix code` call. It never prints to stdout, prompts, or blocks the host turn.
+ * `tedix work agent-session-report` call. It never prints to stdout, prompts, or blocks the host turn.
  */
 import { execFileSync, spawn } from "node:child_process";
 import {
@@ -23,6 +23,7 @@ import {
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
 import {
+	AGENT_IDENTITY_ENV,
 	captureOwnsStop,
 	isObject,
 	isoSeconds,
@@ -31,7 +32,11 @@ import {
 	selfCommand,
 } from "./hook-io";
 
-export const REPORT_CALLABLE = "work.report_work_agent_session_status";
+/**
+ * The native `tedix work` verb, as decision capture creates Interactions: the
+ * board accepts only the signed-in user, which Code Mode does not carry.
+ */
+export const REPORT_VERB = "agent-session-report";
 const SESSION_KEY = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const ORGANIZATION = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const STATES = new Set(["working", "needs_you", "done", "error", "ended"]);
@@ -69,6 +74,9 @@ export const AUTO_CONTINUED_SUFFIX = ".auto-continued";
 /** Options for detached children: a new process group with no stdin. */
 export const DETACHED = { detached: true, stdin: "ignore" } as const;
 
+/** Detached options; `env` replaces the host environment for that child. */
+export type DetachedOptions = typeof DETACHED & { env?: NodeJS.ProcessEnv };
+
 export interface StatusDeps {
 	env: NodeJS.ProcessEnv;
 	stdin: string;
@@ -77,7 +85,7 @@ export interface StatusDeps {
 	/** Resolve an executable on PATH, or undefined. */
 	which?: (name: string) => string | undefined;
 	/** Start a detached child; `tedix` means this CLI. */
-	spawn?: (args: string[], options: typeof DETACHED) => void;
+	spawn?: (args: string[], options: DetachedOptions) => void;
 	label?: (cwd: unknown) => string;
 	now?: () => Date;
 	/**
@@ -430,7 +438,8 @@ export function asciiJson(value: unknown): string {
 	);
 }
 
-export function reportSource(payload: JsonObject): string {
+/** The `--input` JSON for one report; throws on an invalid payload. */
+export function reportInput(payload: JsonObject): string {
 	if (
 		!HARNESSES.has(payload.harness) ||
 		!STATES.has(payload.state) ||
@@ -444,17 +453,17 @@ export function reportSource(payload: JsonObject): string {
 		summary: oneLine(payload.summary || "", SUMMARY_LIMIT),
 		label: oneLine(payload.label || "", LABEL_LIMIT),
 	};
-	return `async () => await ${REPORT_CALLABLE}(${asciiJson(fields)})`;
+	return asciiJson(fields);
 }
 
 function detachedSpawner(env: NodeJS.ProcessEnv) {
-	return (args: string[], options: typeof DETACHED): void => {
+	return (args: string[], options: DetachedOptions): void => {
 		const [command, prefix] =
 			args[0] === "tedix" ? selfCommand() : [args[0]!, [] as string[]];
 		const output = openSync(join(statusDir(env), "report.log"), "a");
 		try {
 			spawn(command, [...prefix, ...args.slice(1)], {
-				env: { ...env },
+				env: { ...(options.env ?? env) },
 				detached: options.detached,
 				stdio: [options.stdin, output, output],
 			}).unref();
@@ -622,7 +631,11 @@ function recordStatus(
 			statusLog(env, `notify failed: ${(error as Error).name}`);
 		}
 	}
-	if (configured.profile)
+	if (configured.profile) {
+		// The session board accepts only the signed-in user, so the report uses the
+		// stored login, never an exported agent identity.
+		const userEnv = { ...env };
+		for (const key of AGENT_IDENTITY_ENV) delete userEnv[key];
 		start(
 			[
 				"tedix",
@@ -631,9 +644,12 @@ function recordStatus(
 				...(configured.organization
 					? ["--organization", configured.organization]
 					: []),
-				"code",
-				reportSource(record),
+				"work",
+				REPORT_VERB,
+				"--input",
+				reportInput(record),
 			],
-			DETACHED,
+			{ ...DETACHED, env: userEnv },
 		);
+	}
 }

@@ -20,14 +20,18 @@ import {
 	deliverAutoDraft,
 } from "./await-reply";
 import {
-	AGENT_IDENTITY_ENV,
 	bindingFor,
 	captureStatePath,
 	draftStatusPath,
 	interactionDetail,
 	peek,
 } from "./decision-capture";
-import { CAPTURE_EVENT_LIMIT, type HookDeps, hostEvent } from "./hook-io";
+import {
+	AGENT_IDENTITY_ENV,
+	CAPTURE_EVENT_LIMIT,
+	type HookDeps,
+	hostEvent,
+} from "./hook-io";
 
 export const AWAIT_DRAFT_MAX_MS = 300_000;
 export const AWAIT_DRAFT_POLL_MS = 5000;

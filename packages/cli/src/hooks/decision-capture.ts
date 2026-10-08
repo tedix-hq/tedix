@@ -52,6 +52,7 @@ import {
 	type TriageResult,
 } from "./agent-status";
 import {
+	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	type HookDeps,
 	type JsonObject,
@@ -112,14 +113,6 @@ export interface CaptureOptions {
 	draftTimeoutMs?: number;
 	detailTimeoutMs?: number;
 }
-
-/** Credentials an exported agent identity would use instead of the signed-in user. */
-export const AGENT_IDENTITY_ENV = [
-	"TEDIX_EXTERNAL_AGENT",
-	"TEDIX_AGENT_SESSION",
-	"TEDIX_MCP_BEARER_TOKEN",
-	"TEDIX_MCP_API_KEY",
-] as const;
 
 const SECRETS: Array<[RegExp, string]> = [
 	[
@@ -1023,7 +1016,7 @@ export async function runDecisionCapture(
 	deps: HookDeps,
 	options: CaptureOptions = {},
 ): Promise<void> {
-	// The status report keeps the host's own environment, as `tedix hooks status` does.
+	// Status labels read the host's own environment, as `tedix hooks status` does.
 	const hostEnv = { ...deps.env };
 	// Interactions are addressed to the signed-in user, who alone may answer them.
 	// An exported external-agent identity would create rows the user cannot resolve.
