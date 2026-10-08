@@ -15,7 +15,7 @@ provider, runtime, transcript, or UI view is a second source of truth.
 
 **Admission is the only gate; settled means done.** There is no review or
 evidence gate between settlement and completion. See
-[minimal-gates-over-pre-proof.md](../decisions/minimal-gates-over-pre-proof.md)
+[minimal-gates-over-pre-proof.md](../../../decisions/minimal-gates-over-pre-proof.md)
 before adding one.
 
 ## Record map
@@ -389,5 +389,5 @@ fence.
 
 ## Related
 
-- [Minimal gates over pre-proof](../decisions/minimal-gates-over-pre-proof.md)
+- [Minimal gates over pre-proof](../../../decisions/minimal-gates-over-pre-proof.md)
 - [Kernel execution model](kernel-execution-model.md)

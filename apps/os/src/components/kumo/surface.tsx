@@ -5,7 +5,7 @@ import { cn } from "../../lib/utils";
 /**
  * Why this adapter exists
  * -----------------------
- * `docs/product/design.md` mandates three persistent surface levels — canvas,
+ * `docs/engineering/product/design.md` mandates three persistent surface levels — canvas,
  * bounded surface, overlay — but only the composed card (`card.tsx`) was
  * adapted. Anything that needed a plain bounded box with no header/content/
  * footer rhythm reached for ad-hoc `bg-kumo-*` + `border-*` + `rounded-*`
@@ -36,7 +36,7 @@ import { cn } from "../../lib/utils";
  * Two tiers: `tier="panel"` vs `tier="well"`
  * -----------------------------------------
  * The card tier exists because a card must read as a *layer above* the
- * controls it contains (`docs/product/design.md`, "Radii"). That reasoning
+ * controls it contains (`docs/engineering/product/design.md`, "Radii"). That reasoning
  * only holds for a box that is itself a top-level layer. A box nested *inside*
  * a card is not a layer above the controls it contains — it is a recess in the
  * layer that already exists — so it stays on the control tier. Hence:

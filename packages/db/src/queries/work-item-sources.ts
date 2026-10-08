@@ -5,7 +5,7 @@
  * tombstone ladder live here in TypeScript because they are org-agnostic
  * invariants. WHICH sources a tenant attaches, on what cadence, and what a
  * digest does with them is skill-workflow config, not platform code
- * (`docs/cognition/skills.md`).
+ * (`docs/engineering/cognition/skills.md`).
  *
  * Federation over ingestion: this module stores identity and a content hash,
  * never source content.

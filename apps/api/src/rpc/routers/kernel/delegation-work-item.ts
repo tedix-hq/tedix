@@ -1130,7 +1130,7 @@ export async function disposeDelegationWorkItem(
 		if (outcome === "succeeded" && homeCreatedDelegationWrapper) {
 			// Settled means done: result references remain in Attempt metadata,
 			// and evidence storage does not stand between settlement and completion
-			// (docs/decisions/minimal-gates-over-pre-proof.md).
+			// (decisions/minimal-gates-over-pre-proof.md).
 			const current = await getWorkItemById(context.db, input.workItemId);
 			if (current?.disposition === "accepted") {
 				try {

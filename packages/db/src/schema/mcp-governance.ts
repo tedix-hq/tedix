@@ -14,7 +14,7 @@
  * destructive MCP tool call skip the per-call elicitation/MRTR round-trip.
  * Nothing in this batch creates grants automatically — issuance is a manual
  * operator action via `createGrant` (queries layer only; no RPC/UI wired yet,
- * intentionally — see `docs/mcp/runtime.md` follow-up).
+ * intentionally — see `docs/engineering/mcp/runtime.md` follow-up).
  *
  * Additive table only. No existing table is altered.
  */

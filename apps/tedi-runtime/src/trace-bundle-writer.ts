@@ -2,7 +2,7 @@
  * Raw trace-bundle writer for the isolate tedi runtime.
  *
  * Writes the redacted `harness/runs/<runId>/...` evidence folder
- * (`docs/cognition/harness.md` § Trace Bundle Shape) to R2 and returns its `bundleUri`,
+ * (`docs/engineering/cognition/harness.md` § Trace Bundle Shape) to R2 and returns its `bundleUri`,
  * which the per-run `TraceBundle` row references. Every file passes through the
  * FAIL-CLOSED `@tedix/context-core/trace-safety` redactor before it is written —
  * raw prompts / outputs / payloads are NEVER committed unredacted (the trace
@@ -15,7 +15,7 @@
  * (`memory-hits.jsonl`, from the prompt-injected brain digest), the disclosed
  * skill/guidance summaries (`skills.jsonl`, from the MCP runtime guidance block),
  * and the outcome. This closes the `memory-hits.jsonl` / `skills.jsonl` learning
- * substrate the `docs/cognition/harness.md` Trace Bundle Shape lists. On the
+ * substrate the `docs/engineering/cognition/harness.md` Trace Bundle Shape lists. On the
  * recovery-exhaustion evidence path a `recovery.json`
  * file is added carrying the incident identity + give-up reason/budget + linkage
  * ids, turning SDK recovery telemetry into harness-certification evidence. Every
@@ -48,7 +48,7 @@ export interface TraceDirective {
  * One inference step's tool + usage telemetry, captured in-DO from native Pi
  * provider-round receipts (no `diagnostics_channel` dependency). Written as
  * `tool-calls.jsonl` — the raw per-step tool/cost trace ("raw traces beat
- * summaries", `docs/cognition/harness.md`).
+ * summaries", `docs/engineering/cognition/harness.md`).
  */
 export interface TraceToolStep {
 	stepNumber: number;
@@ -65,7 +65,7 @@ export interface TraceToolStep {
 
 /**
  * One retrieved brain fact that was in hand for this turn (→ memory-hits.jsonl —
- * `docs/cognition/harness.md` Trace Bundle Shape "retrieved memory fact IDs and
+ * `docs/engineering/cognition/harness.md` Trace Bundle Shape "retrieved memory fact IDs and
  * scores"). Sourced from the prompt-injected brain digest the model actually saw
  * (domains indexed, fact count, budget-dropped fact ids), so it is genuine
  * in-hand retrieval evidence rather than a re-query. Every field is optional so
@@ -89,7 +89,7 @@ export interface TraceMemoryHit {
 
 /**
  * One per-turn skill/guidance summary that was disclosed to the model (→
- * skills.jsonl — `docs/cognition/harness.md` Trace Bundle Shape "selected skills
+ * skills.jsonl — `docs/engineering/cognition/harness.md` Trace Bundle Shape "selected skills
  * and directives"). Sourced from the MCP runtime's `listGuidanceResources()`
  * (the same `- skill {name}: {summary}` block folded into the system prompt), so
  * it is the exact guidance surface the turn saw. The shared FAIL-CLOSED redactor

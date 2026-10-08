@@ -43,7 +43,7 @@ const TEMPLATE_ASTRO_CONFIG = "apps/cms/templates/tedix/astro.config.mjs";
 const MARKETING_TEMPLATE_ASTRO_CONFIG =
 	"apps/cms/templates/marketing/astro.config.mjs";
 const TEMPLATE_SNAPSHOT = "apps/cms/src/template-snapshot.ts";
-const CMS_DOC = "docs/emdash/cms.md";
+const CMS_DOC = "docs/engineering/emdash/cms.md";
 const SHARED_LOCKED_PLUGIN_FILES = [
 	"src/plugins/tedix-seo-aeo/index.ts",
 	"src/plugins/tedix-homepage-policy/index.ts",
@@ -488,7 +488,7 @@ async function main(): Promise<void> {
 				cmsDoc.includes("cms:plugin-trust:validate") &&
 				cmsDoc.includes("declaredAccess"),
 			detail:
-				"docs/emdash/cms.md should document the plugin trust release gate.",
+				"docs/engineering/emdash/cms.md should document the plugin trust release gate.",
 		},
 	];
 

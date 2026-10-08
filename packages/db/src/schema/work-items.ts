@@ -839,7 +839,7 @@ export type NewWorkItemCommitCertification =
  * Nothing writes or reads this table any more. The independent evidence-review
  * plane it fed — the leased tedi reviewer, the readback verifiers, and the
  * corroboration projection on the inbox — was deleted under
- * `docs/decisions/minimal-gates-over-pre-proof.md`, which found that the
+ * `decisions/minimal-gates-over-pre-proof.md`, which found that the
  * mechanical gates caught 0 of 34 production rejections while carrying
  * essentially all of the friction.
  *

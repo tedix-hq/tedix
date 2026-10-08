@@ -305,7 +305,7 @@ export function WidgetPreviewFrame({
  * unavailable (the MCP Apps renderer failed and no anonymous preview exists).
  * Per the host contract, broken mounts degrade to a native panel that keeps
  * the structured evidence — here, the exact resource identifier — instead of
- * a blank loader shell (docs/mcp/apps.md, Ship Checklist 9-10).
+ * a blank loader shell (docs/engineering/mcp/apps.md, Ship Checklist 9-10).
  */
 export function WidgetHostOnlyPanel({ resourceUri }: { resourceUri: string }) {
 	return (
@@ -357,7 +357,7 @@ interface WidgetFrameBoundaryState {
 
 /**
  * Per-widget containment per the MCP Apps host contract: a renderer failure
- * affects only its own mount (docs/mcp/apps.md, Host Architecture / Ship
+ * affects only its own mount (docs/engineering/mcp/apps.md, Host Architecture / Ship
  * Checklist 10). One broken widget degrades to its fallback while every other
  * row on the page stays healthy.
  */

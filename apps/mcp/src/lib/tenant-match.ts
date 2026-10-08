@@ -14,7 +14,7 @@
  * contains that organization. The latter is safe only after the caller's
  * exact Resource-audience check, which always precedes this gate.
  *
- * Per docs/platform/auth.md and Descope's own MCP Gateway pattern (one MCP server per
+ * Per docs/engineering/platform/auth.md and Descope's own MCP Gateway pattern (one MCP server per
  * tenant), the resource server is the canonical enforcement point.
  */
 import { createDbClient } from "@tedix/db/client";

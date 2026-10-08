@@ -556,7 +556,7 @@ export const provisionAppProcedure = authedAppsOs.provision
 			(env as { PLATFORM_DOMAIN?: string }).PLATFORM_DOMAIN ?? "tedix.dev";
 		const mcpServerUrl = `https://${slug}.mcp.${platformDomain}/mcp`;
 
-		// Hostname follows our standard MCP routing — see docs/mcp/runtime.md.
+		// Hostname follows our standard MCP routing — see docs/engineering/mcp/runtime.md.
 		// Custom domains can be set later via update_app.
 		// Register Descope AIH MCP server only when explicitly requested, then
 		// stamp its id into the D1 row's mcpConfig for first-read consistency.

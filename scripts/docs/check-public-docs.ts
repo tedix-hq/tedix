@@ -456,17 +456,20 @@ for await (const path of workspaceAgentGlob.scan({
 		await requireRepositoryTarget(path, match[1]!, match[1]!);
 	}
 }
-// The engineering reference set publishes at its source paths outside
-// docs/public. Its links may reach only each other, docs/public, exported
-// source files, or external URLs. In the public tree every doc on disk ships.
+// The engineering reference (docs/engineering) and the decision records
+// (decisions/) publish at their source paths outside docs/public. Their links
+// may reach only each other, docs/public, exported source files, or external
+// URLs. In the public tree every doc on disk ships.
 const engineeringDocs: string[] = [];
-for await (const relativePath of allDocsGlob.scan({
-	cwd: docsRoot,
-	onlyFiles: true,
-})) {
-	if (relativePath.startsWith("public/")) continue;
-	const path = `docs/${relativePath}`;
-	if (!exportedFiles || exportedFiles.has(path)) engineeringDocs.push(path);
+for (const base of ["docs", "decisions"]) {
+	for await (const relativePath of allDocsGlob.scan({
+		cwd: resolve(repoRoot, base),
+		onlyFiles: true,
+	})) {
+		if (base === "docs" && relativePath.startsWith("public/")) continue;
+		const path = `${base}/${relativePath}`;
+		if (!exportedFiles || exportedFiles.has(path)) engineeringDocs.push(path);
+	}
 }
 const engineeringDocSet = new Set(engineeringDocs);
 for (const path of engineeringDocs) {
@@ -489,7 +492,7 @@ for (const path of engineeringDocs) {
 			),
 		);
 		if (
-			/^docs\/.*\.mdx?$/.test(target) &&
+			/^(?:docs|decisions)\/.*\.mdx?$/.test(target) &&
 			!target.startsWith("docs/public/") &&
 			!engineeringDocSet.has(target)
 		) {

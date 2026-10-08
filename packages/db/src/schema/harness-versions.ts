@@ -1,7 +1,7 @@
 /**
  * Harness Versioning + Trace Bundle Schema (D1)
  *
- * Storage for harness versions and trace bundles (`docs/cognition/harness.md`):
+ * Storage for harness versions and trace bundles (`docs/engineering/cognition/harness.md`):
  *
  * - `harness_versions` — one row per `HarnessVersion` (content-hashed snapshot
  *   of a tedi's active harness config). The runtime loads whichever row is
@@ -292,7 +292,7 @@ export const harnessSubjectTraceBundles = sqliteTable(
 /**
  * `harness_eval_results` — the leaf RECORD layer of the harness eval ledger.
  *
- * One row per scored evaluation of a harness version (docs/cognition/harness.md §
+ * One row per scored evaluation of a harness version (docs/engineering/cognition/harness.md §
  * "Harness Evaluation Ledger"). Persists the api-contract `HarnessEvalResult`
  * shape. `gates` is a per-protected-metric pass map; `passed` is the AND over
  * the required gates the eval runner enforced. This table is the substrate the

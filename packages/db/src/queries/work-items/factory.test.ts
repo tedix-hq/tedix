@@ -376,7 +376,7 @@ describe("artifact-neutral work factory", () => {
 	});
 
 	// Settled means done: completion counts no evidence and requires no review
-	// (docs/decisions/minimal-gates-over-pre-proof.md). A legacy item whose
+	// (decisions/minimal-gates-over-pre-proof.md). A legacy item whose
 	// stored contract still declares claims and a contract-less item both
 	// complete through the same path, with or without any evidence rows.
 	it("completes accepted work with no evidence, contract or not", async () => {

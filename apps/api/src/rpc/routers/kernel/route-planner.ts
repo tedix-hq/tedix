@@ -157,7 +157,7 @@ const RECITATION_WORK_ITEMS_CAP = 5;
 
 /**
  * A route decision stamped with the router's content-hash version — harness
- * evidence v1 (docs/cognition/harness.md "Attention Router Contract": the router itself
+ * evidence v1 (docs/engineering/cognition/harness.md "Attention Router Contract": the router itself
  * is a harness component and needs versioning/evals).
  *
  * `routerVersion` is deliberately not in {@link KernelRouteDecisionSchema}: that
@@ -400,7 +400,7 @@ export type PlanKernelRouteArgs = {
 	gatewayContext?: KernelGatewayContext;
 	/**
 	 * Optional per-turn operator-abort signal (`KernelDO.cancelTurn` —
-	 * docs/cognition/kernel-execution-model.md "Operator cancel"). Combined
+	 * docs/engineering/cognition/kernel-execution-model.md "Operator cancel"). Combined
 	 * (`AbortSignal.any`) with every internal timeout/idle signal on every
 	 * provider path, so an operator cancel actually stops the in-flight LLM
 	 * call instead of just being ignored until it finishes.

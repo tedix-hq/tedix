@@ -61,7 +61,7 @@ describe("JWT token type detection", () => {
 		expect(isM2MToken(payload)).toBe(false);
 	});
 
-	// docs/decisions/agent-capability-mutation-gate.md: an adversarial review of
+	// decisions/agent-capability-mutation-gate.md: an adversarial review of
 	// the capability-mutation-gate fix flagged that `isUserToken` proved only
 	// "not overtly a tedi token," not "affirmatively a human" — the same
 	// failure shape the gate fix itself closed elsewhere. `isM2MToken` assumes

@@ -1054,14 +1054,14 @@ export interface TediRuntimeAdapter {
 //   - `isolate_body`  — apps/tedi-runtime AgentTediDO seals synchronously:
 //     onChatResponse (`run.completed`), onChatError / onChatResponse(status≠
 //     "completed") (`run.failed`), and chatRecovery.onExhausted (`run.failed`
-//     with a bounded recovery budget). See docs/tedi/agent-runtime.md.
+//     with a bounded recovery budget). See docs/engineering/tedi/agent-runtime.md.
 //   - `api_dispatch`  — apps/api cognitiveRuntime.enqueueMessage writes
 //     `run.failed` when the runtime cannot be reached to start the turn.
 //   - `orphan_sweep`  — apps/api sweepOrphanRuns (scheduled every 2 min; a
 //     12-minute age + multi-kind liveness predicate decides candidacy)
 //     synthesizes `run.completed` when durable success evidence exists but the
 //     terminal was lost, otherwise `run.failed` with `runtime_dropped`. See
-//     docs/cognition/runtime.md "Canonical orphan-run health".
+//     docs/engineering/cognition/runtime.md "Canonical orphan-run health".
 //
 // Terminal `run.failed` carries `payload.reason: RunTerminalReason` when the
 // cause fits an existing category; known observation failures omit it instead of

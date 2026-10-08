@@ -1,9 +1,9 @@
 # Tedix Landing Page — Design System
 
-> Global Tedix design-system decisions live in `../../docs/product/design.md`. This file
+> Global Tedix design-system decisions live in `../../docs/engineering/product/design.md`. This file
 > only owns Landing-specific marketing composition, page sections, imagery,
 > animations, and copy rhythm. When the two disagree on cross-surface tokens or
-> runtime ownership, update `../../docs/product/design.md` and keep this file local.
+> runtime ownership, update `../../docs/engineering/product/design.md` and keep this file local.
 >
 > This file is the source of truth for any AI agent (Claude Code, Codex)
 > working on the Tedix landing app. Read this before writing any UI code.

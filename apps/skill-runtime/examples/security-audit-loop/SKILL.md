@@ -58,5 +58,5 @@ run_skill_workflow({ slug: "security-audit-loop", params: {
 
 For real repo hunting (compiling/running code, sandboxed PoC execution) the Hunt
 step should delegate to a tedi on a **leased Cloudflare Sandbox workstation**
-(see `docs/decisions/workstations-over-bodies.md`) rather than a kernel reasoning turn — the kernel
+(see `decisions/workstations-over-bodies.md`) rather than a kernel reasoning turn — the kernel
 pass here demonstrates the loop shape and the oracle/validation contract.

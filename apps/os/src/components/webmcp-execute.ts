@@ -7,7 +7,7 @@ import {
 /**
  * Shared execute-time failure mapping for every WebMCP tool module.
  *
- * The readiness doctrine (docs/product/tedix-os.md, "Readiness, tenant
+ * The readiness doctrine (docs/engineering/product/tedix-os.md, "Readiness, tenant
  * binding, and multiple tabs") requires that a tool discoverable before the
  * tenant session is executable return ONE stable, typed, retryable
  * `context_unavailable` result — never an ad hoc message. Registration is

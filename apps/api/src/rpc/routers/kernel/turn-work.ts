@@ -4,7 +4,7 @@
  * proposal, completion patch, transcript events).
  *
  * Why this is a separate module, and the dated findings behind the ordering
- * below: `docs/cognition/kernel-execution-model.md` "Turn-Work Design Record".
+ * below: `docs/engineering/cognition/kernel-execution-model.md` "Turn-Work Design Record".
  *
  * Contracts:
  *  - Runs in two execution contexts: inline in the HTTP request (awaited +
@@ -291,7 +291,7 @@ export interface KernelTurnWorkDeps {
 	 * inserted — so the batcher's trailing partial is stamped ahead of the
 	 * terminal row in the `(createdAt, id)` stream. Readers latch on the
 	 * terminal row, so a later flush is dropped as a straggler (measured; see
-	 * `docs/cognition/kernel-execution-model.md` "Turn-Work Design Record").
+	 * `docs/engineering/cognition/kernel-execution-model.md` "Turn-Work Design Record").
 	 * Fail-soft: a throwing hook never affects the turn.
 	 */
 	flushStreamedProgress?: () => void;
@@ -401,7 +401,7 @@ export interface KernelTurnWorkDeps {
 	 * (`runKernel` → `planKernelRoute`), which combines it with its own
 	 * internal timeout/idle signals. Absent on the inline (non-DO) turn-work
 	 * path — no per-turn abort there (see
-	 * `docs/cognition/kernel-execution-model.md` "Operator cancel").
+	 * `docs/engineering/cognition/kernel-execution-model.md` "Operator cancel").
 	 */
 	plannerAbortSignal?: AbortSignal;
 	/**
@@ -631,7 +631,7 @@ function recordOrNull(value: unknown): Record<string, unknown> | null {
  * by design: no answer text, no tool args, no message bodies, rationale capped
  * at ~300 chars. Optional keys (targetTediId/workflowHint) are omitted rather
  * than null when inapplicable. Why it exists:
- * `docs/cognition/kernel-execution-model.md` "Turn-Work Design Record".
+ * `docs/engineering/cognition/kernel-execution-model.md` "Turn-Work Design Record".
  */
 function compactRouteDecision(
 	route: KernelResult["route"] | null | undefined,
@@ -1489,7 +1489,7 @@ async function runWorkflowConfirmIntercept(
  * with a short truthful canceled marker instead of materializing the routed
  * answer/ack. Also the landing spot for an aborted planner pass
  * (`AbortController.abort()` from `KernelDO.cancelTurn` — see
- * `docs/cognition/kernel-execution-model.md` "Operator cancel"): the aborted
+ * `docs/engineering/cognition/kernel-execution-model.md` "Operator cancel"): the aborted
  * kernel call rejects, `kernelResult` is null, but `currentRunStatus` already
  * reads "canceled" (`cancelKernelRunCore` durably marks the run canceled
  * before calling the DO's `cancelTurn`), so this same gate settles it as a
@@ -1547,7 +1547,7 @@ async function runPreMaterializeCancelGate(params: {
 	// message: it becomes the turn's completion content, so Tedix OS renders it
 	// with no frontend change. No run.completed event is written — the cancel
 	// core already emitted run.canceled. Why the gate exists:
-	// `docs/cognition/kernel-execution-model.md` "Turn-Work Design Record".
+	// `docs/engineering/cognition/kernel-execution-model.md` "Turn-Work Design Record".
 	const turnCanceled =
 		canceledBeforeDispatch || currentRunStatus === "canceled";
 	if (turnCanceled) {
@@ -2040,7 +2040,7 @@ export async function runKernelTurnWork(
 			// above) so it is not duplicated alongside `content`.
 			conversationId,
 			currentUserMessageId: userMessageId,
-			// Per-turn operator abort (docs/cognition/kernel-execution-model.md
+			// Per-turn operator abort (docs/engineering/cognition/kernel-execution-model.md
 			// "Operator cancel"): absent on the inline turn-work path. When
 			// present (KernelDO), combined by planKernelRoute with its own
 			// internal timeout/idle signals so a cancel actually stops the
@@ -2084,7 +2084,7 @@ export async function runKernelTurnWork(
 			// Advisory only — never let a progress sink break the turn.
 		}
 	}
-	// Harness evidence v1 (docs/cognition/harness.md "Kernel evidence rollout" slice (a)):
+	// Harness evidence v1 (docs/engineering/cognition/harness.md "Kernel evidence rollout" slice (a)):
 	// the route planner stamps a deterministic content-hash `routerVersion` on
 	// every successful decision (route-planner.ts → StampedKernelRouteDecision).
 	// Lift it to a top-level key on the run/event metadata so persisted evidence

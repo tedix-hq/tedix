@@ -56,7 +56,7 @@ export const FactoryBlueprintSchema = z
 				successMetric: text,
 				/**
 				 * Retired: independent review is no longer part of the factory
-				 * handoff (docs/decisions/minimal-gates-over-pre-proof.md), so
+				 * handoff (decisions/minimal-gates-over-pre-proof.md), so
 				 * no authored blueprint carries it and nothing reads it. It stays
 				 * declared and optional because this schema parses immutable
 				 * blueprint revisions already stored in D1 — dropping the key
@@ -112,7 +112,7 @@ export const FactoryBlueprintSchema = z
 			});
 		}
 		// Independent review is no longer a completion requirement
-		// (docs/decisions/minimal-gates-over-pre-proof.md), so a blueprint may
+		// (decisions/minimal-gates-over-pre-proof.md), so a blueprint may
 		// omit the claim/evidence shape entirely. Stored blueprints that still
 		// carry it keep parsing unchanged.
 		if (new Set(factory.maintenance.certificationScenarios).size !== 7) {

@@ -53,7 +53,7 @@ that schedules and routes. It:
 It must not have a free tool loop, a `tediId` (`subject_kind='kernel'`), memory
 writes, a skills engine, or an free in-loop agent. It keeps track of many
 concurrent work streams because it never does the cognitive work itself. See
-[Kernel execution model](../cognition/kernel-execution-model.md).
+[Kernel execution model](../docs/engineering/cognition/kernel-execution-model.md).
 
 The kernel is singular by definition. Where a proposed "kernel" holds state and
 cadence it is a plane; where it needs an identity it is a tedi.
@@ -175,7 +175,7 @@ Reliability comes from:
 
 ## Related
 
-- [Kernel execution model](../cognition/kernel-execution-model.md)
-- [Brain](../cognition/brain.md)
-- [Skills](../cognition/skills.md)
-- [Work items](../cognition/work-items.md)
+- [Kernel execution model](../docs/engineering/cognition/kernel-execution-model.md)
+- [Brain](../docs/engineering/cognition/brain.md)
+- [Skills](../docs/engineering/cognition/skills.md)
+- [Work items](../docs/engineering/cognition/work-items.md)

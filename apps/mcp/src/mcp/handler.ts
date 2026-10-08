@@ -1756,7 +1756,7 @@ export class ToolHandler {
 				ctx.callerIdentity?.authType === "user");
 		// Tools may opt into forwarding the authenticated caller's user ID (a
 		// claim, not the JWT) on the service-binding call — e.g. Home direct reads
-		// act under the user's speaker authority (docs/product/tedix-os.md). This keeps the
+		// act under the user's speaker authority (docs/engineering/product/tedix-os.md). This keeps the
 		// service-binding auth/permissions (no forwarded-user RBAC path) and only
 		// adds the id so the kernel can resolve the user's own provider connection.
 		const forwardActingUser =

@@ -88,7 +88,7 @@ export const WorkItemRiskLevelSchema = z.enum([
  * Parses every contract ever written, including the older shape whose
  * `evidenceKinds`/`minimumAcceptedEvidence`/`requiresIndependentReview` fields
  * are still stored on live rows. Those fields are no longer consulted — see
- * `docs/decisions/minimal-gates-over-pre-proof.md` — but this schema is an
+ * `decisions/minimal-gates-over-pre-proof.md` — but this schema is an
  * oRPC `.output()` schema, so a rejected stored contract would turn one past
  * write into a permanent read failure. It only ever widens: every legacy field
  * is still declared, and the object stays strict because the previous strict

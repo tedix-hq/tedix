@@ -1,7 +1,7 @@
 /**
  * Catalog-allowlist gate for tedi-initiated MCP connections.
  *
- * ADR docs/decisions/tedi-client-oauth-cimd.md (phase 1 — "Enforce the
+ * ADR decisions/tedi-client-oauth-cimd.md (phase 1 — "Enforce the
  * catalog gate in the tedi-facing connect path"): the app catalog IS the
  * connection allowlist for external MCP servers. A tedi-facing connection to
  * an endpoint that resolves to no `app_catalog` row refuses fail-closed with

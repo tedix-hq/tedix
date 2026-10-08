@@ -297,7 +297,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					organizationId,
 				})
 			: null;
-		// "Workstations over bodies" (docs/decisions/workstations-over-bodies.md):
+		// "Workstations over bodies" (decisions/workstations-over-bodies.md):
 		// the workstation-attach path is gated on CAPABILITY, not body kind.
 		// A target is workstation-capable when it carries a durable workstation
 		// signal (a warm workstation_leases seat OR a configured coding repo).
@@ -1038,7 +1038,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					);
 				}
 				if (doTurn) {
-					// Hybrid soft-deadline response contract (docs/product/tedix-os.md "Kernel
+					// Hybrid soft-deadline response contract (docs/engineering/product/tedix-os.md "Kernel
 					// Runtime Decision"): race the DO turn against the soft deadline
 					// ONCE. The settled-union shape makes the pre/post-deadline error
 					// distinction structural:

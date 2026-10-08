@@ -2,7 +2,7 @@
  * auditActor — unit tests for the shared actor-resolution helper.
  *
  * Added alongside the capability-mutation gate fix
- * (docs/decisions/agent-capability-mutation-gate.md): before this change,
+ * (decisions/agent-capability-mutation-gate.md): before this change,
  * `auditActor` had no branch for a tedi-authenticated caller
  * (`context.tediId` set), so every tedi-driven audited action collapsed into
  * `actorType: "service"` / `actorId: "service-binding"` (or "anonymous"),

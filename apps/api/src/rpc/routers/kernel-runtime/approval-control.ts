@@ -637,7 +637,7 @@ async function approveHomePlanAssignmentsCore(
 	});
 
 	// Fleet fan-out = independent-reads-only (Anthropic's orchestrator-worker
-	// envelope; docs/decisions/agentic-kernel-architecture.md). Parallel fan-out is
+	// envelope; decisions/agentic-kernel-architecture.md). Parallel fan-out is
 	// proven for breadth-first INDEPENDENT work; a WRITE-BEARING fan-out (2+ members
 	// MUTATE shared work-item/ledger/facet state) is a cross-facet write race, so it
 	// serializes its dispatch (await each child before the next) instead of firing

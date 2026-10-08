@@ -14,7 +14,7 @@ import { parseWorkOption } from "./work-options";
 import { parseFlowOption } from "./flow-options";
 import { parseAgentOption } from "./agent-options";
 
-// The local apps/mcp Worker (see docs/DEVELOPMENT.md). TedixHomeClient adds
+// The local apps/mcp Worker (see docs/engineering/development.md). TedixHomeClient adds
 // the app-resolution header for loopback targets; a tunnel is an explicit opt-in.
 export const LOCAL_TEDIX_MCP_URL = "http://localhost:3000/mcp";
 

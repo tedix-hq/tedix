@@ -1516,7 +1516,7 @@ describe("planKernelRoute — stall guards (intermittent-wedge fix)", () => {
 
 // ── Operator abort classification (per-turn cancel) ─────────────────────────
 // `KernelDO.cancelTurn` aborts a runId-keyed AbortController mid-plan
-// (docs/cognition/kernel-execution-model.md "Operator cancel"). These pin the
+// (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"). These pin the
 // classification contract: an operator abort settles to `null` (same as any
 // other fail-soft outcome — the turn body's pre-materialize cancel gate owns
 // the actual settle via the run row's already-`canceled` DB status), but it

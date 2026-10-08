@@ -72,7 +72,7 @@ export default defineConfig({
 	adapter: cloudflare({
 		sessions: { enabled: false },
 		// /_image is served by the parent-level interception in
-		// apps/cms-runtime/src/index.ts (see docs/emdash/cms.md).
+		// apps/cms-runtime/src/index.ts (see docs/engineering/emdash/cms.md).
 		imageService: "cloudflare-binding",
 	}),
 	integrations: [
@@ -149,7 +149,7 @@ export default defineConfig({
 			// through the /_image optimization pipeline. That pipeline is served
 			// by apps/cms-runtime's parent-level IMAGES-binding interception (the
 			// binding can't be forwarded into a Worker-Loader-dispatched tenant
-			// isolate — see docs/emdash/cms.md), not by anything in this bundle.
+			// isolate — see docs/engineering/emdash/cms.md), not by anything in this bundle.
 			// Live-verified against production before enabling; see the
 			// imageService comment above.
 			images: true,

@@ -146,7 +146,7 @@ export function buildConnectionProviderMaps(
 }
 
 // =============================================================================
-// Issuer pinning (ADR docs/decisions/tedi-client-oauth-cimd.md, phase 1a)
+// Issuer pinning (ADR decisions/tedi-client-oauth-cimd.md, phase 1a)
 // =============================================================================
 
 export interface ConnectionProviderIssuerPin {

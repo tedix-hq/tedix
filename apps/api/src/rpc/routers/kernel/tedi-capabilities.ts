@@ -206,7 +206,7 @@ export function isKernelVisibleTedi(tedi: {
  * Whether a tedi has a WORKSTATION capability signal — the durable,
  * config-driven markers that an isolate tedi can carry embodied (shell / files /
  * coding / process) work through a workstation lease, even though its body is an
- * isolate (docs/decisions/workstations-over-bodies.md).
+ * isolate (decisions/workstations-over-bodies.md).
  *
  * Two durable signals, EITHER is sufficient:
  *   - `hasWorkstationLease` — the tedi currently holds a warm/available

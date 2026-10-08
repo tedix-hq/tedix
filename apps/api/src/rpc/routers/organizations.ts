@@ -619,7 +619,7 @@ async function createOrganizationResources(
 				descopeTenantId = desiredTenantId;
 				// Set default role for SSO/SCIM-provisioned users so newly federated
 				// employees land on `member` automatically. Project-level roles are
-				// reusable across tenants — see docs/platform/auth.md Layer 2.
+				// reusable across tenants — see docs/engineering/platform/auth.md Layer 2.
 				try {
 					await mgmt.management.tenant.updateDefaultRoles(desiredTenantId, [
 						"member",
@@ -736,7 +736,7 @@ async function createOrganizationResources(
 	// Sync creator's roles to Descope so JWT tenants[descopeTenantId].roles
 	// is populated. Two roles needed:
 	//   - "owner": our project-level RBAC role for human `withPermission()`
-	//     checks (see docs/platform/auth.md Layer 2).
+	//     checks (see docs/engineering/platform/auth.md Layer 2).
 	//   - "admin": Descope admin capability required to connect
 	//     outbound OAuth applications at tenant scope. Without it, the first
 	//     time a creator tries to connect any org-level OAuth provider they
@@ -2077,7 +2077,7 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 			if (!cancelledAt) {
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
-					`Organization must be cancelled first (call /organizations/${organizationId}/cancel) or pass force=true. See two-phase offboarding in docs/platform/auth.md.`,
+					`Organization must be cancelled first (call /organizations/${organizationId}/cancel) or pass force=true. See two-phase offboarding in docs/engineering/platform/auth.md.`,
 				);
 			}
 			const cancelledDate = new Date(cancelledAt);

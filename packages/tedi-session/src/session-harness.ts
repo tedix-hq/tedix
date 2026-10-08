@@ -12,7 +12,7 @@
  * body-neutrally in the cognitive ledger (`tedi_runtime_events`, D1); a
  * DO-local store is only an Agent-runtime cache.
  *
- * Layering (see `docs/tedi/agent-runtime.md` § "Session harness"):
+ * Layering (see `docs/engineering/tedi/agent-runtime.md` § "Session harness"):
  *   Brain (D1+Neo4j, shared cross-conversation memory)  — separate, untouched here
  *   Cognitive ledger (D1, durable transcript/proof)      — canonical, body-neutral
  *   TediSessionHarness (per-sessionKey context + append)

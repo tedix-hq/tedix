@@ -4,7 +4,7 @@
  * Shared helpers for Code Mode availability checks. Used by both
  * apps/mcp (customer-facing MCP) and apps/tedi (tedi runtime MCP).
  *
- * @see docs/mcp/codemode.md
+ * @see docs/engineering/mcp/codemode.md
  */
 
 /** Generic Code Mode can invoke authorized mutations and external providers. */

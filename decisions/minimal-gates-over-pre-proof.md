@@ -127,4 +127,4 @@ earns one such check, scoped to that failure.
 
 ## Related
 
-- [Work Items](../cognition/work-items.md)
+- [Work Items](../docs/engineering/cognition/work-items.md)

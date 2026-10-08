@@ -264,7 +264,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * e.g. after an `abortIfStaleCode` restart) simply has no entry, and the
 	 * cancel is a fail-soft no-op there (the existing pre-materialize cancel
 	 * gate + durable submission-ledger abort stamp still own correctness in
-	 * that case — see docs/cognition/kernel-execution-model.md "Operator
+	 * that case — see docs/engineering/cognition/kernel-execution-model.md "Operator
 	 * cancel").
 	 */
 	private readonly turnAbortControllers = new Map<string, AbortController>();
@@ -764,7 +764,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				kernelErrorMessage(error),
 			);
 		}
-		// Per-turn abort controller (docs/cognition/kernel-execution-model.md
+		// Per-turn abort controller (docs/engineering/cognition/kernel-execution-model.md
 		// "Operator cancel"): registered before the turn body runs so a
 		// `cancelTurn(runId)` RPC landing concurrently (this DO is
 		// single-threaded, but the RPC and this method interleave at `await`

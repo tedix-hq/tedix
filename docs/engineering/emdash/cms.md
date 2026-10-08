@@ -746,6 +746,6 @@ Emdash routes to already compiled bundles.
 
 - [MCP runtime](../mcp/runtime.md)
 - [Design system](../product/design.md)
-- [Development](../DEVELOPMENT.md)
+- [Development](../development.md)
 
 Canonical-aware native collection sitemaps declare `X-EmDash-Sitemap-Canonical: 1`. The edge preserves those URLs exactly, including per-entry trailing slashes; only older unmarked bundles retain the legacy theme-based slash rewrite.

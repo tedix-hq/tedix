@@ -10,7 +10,7 @@
  * (`premortem: { failureModes: string[≥2], rollback }`).
  *
  * Skip authority follows the capability-mutation-gate allowlist doctrine
- * (docs/decisions/agent-capability-mutation-gate.md): only a signed-in human
+ * (decisions/agent-capability-mutation-gate.md): only a signed-in human
  * or an operator API key — caller types that structurally cannot be an LLM's
  * own in-turn tool selection — may waive the premortem, and only with an
  * explicit `skipPremortemReason` that is logged and appended to the durable

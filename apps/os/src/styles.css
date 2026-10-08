@@ -786,7 +786,7 @@ a:focus-visible {
 	padding: 16px;
 	border: 1px solid var(--border);
 	/* Bounded surface, so it carries the card tier (--radius-xl, 12px), not
-	 * the --radius control token. See docs/product/design.md ("Radii"). */
+	 * the --radius control token. See docs/engineering/product/design.md ("Radii"). */
 	border-radius: var(--radius-xl);
 	background: var(--background);
 }
@@ -1411,7 +1411,7 @@ a:focus-visible {
 
 /*
  * Document prose measure. The paper keeps its 72rem maximum (see
- * docs/product/design.md) so desktop Canvas does not become a narrow card, but
+ * docs/engineering/product/design.md) so desktop Canvas does not become a narrow card, but
  * the text inside it holds a readable column instead of running the full paper
  * width. 48rem matches the preview column (a 52rem paper less its 2 x 2.5rem
  * padding), so editing and reading do not reflow against each other.
@@ -1768,7 +1768,7 @@ a:focus-visible {
 
 /*
  * The square stage stays fixed-light neutral in either shell theme, as defined
- * in docs/product/design.md. The slide canvas keeps its own rounded geometry.
+ * in docs/engineering/product/design.md. The slide canvas keeps its own rounded geometry.
  */
 .slides-editor-stage {
 	min-height: 24rem;
@@ -2447,7 +2447,7 @@ a:focus-visible {
 	 * sits under that line, so every text field on the product would trip it.
 	 *
 	 * This is a deliberate, documented exception to the 13/14px control contract
-	 * in docs/product/design.md, scoped exactly the way the touch-target floor is:
+	 * in docs/engineering/product/design.md, scoped exactly the way the touch-target floor is:
 	 * by POINTER CAPABILITY, so no fine-pointer surface changes. Checkbox, radio,
 	 * range, and color inputs are excluded — they render no text and some size
 	 * their box from the font.

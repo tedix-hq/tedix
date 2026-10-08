@@ -268,7 +268,7 @@ archival always pass.
 A failure is **recovered** once ≥2 consecutive verified successes follow it.
 Self-reported success never erases a failure. Signed-in humans and operator API
 keys may override with `force: true`; agent, M2M, and service callers are
-rejected (see [agent-capability-mutation-gate](../decisions/agent-capability-mutation-gate.md)).
+rejected (see [agent-capability-mutation-gate](../../../decisions/agent-capability-mutation-gate.md)).
 Draft skills are excluded from app listings unless a review surface opts in.
 
 ### Ownership and visibility
@@ -389,7 +389,7 @@ self-applied. Surfaces: `skills.mineCandidates` / `mine_skill_candidates`
 (`dryRun`, default cap of 3 proposals); an optional runtime hook on a
 `skill-development` cron fire (`shouldRunTrajectoryMining` in
 `apps/tedi-runtime/src/cron.ts`); and the on-demand
-[`trajectory-mining`](../../apps/skill-runtime/examples/trajectory-mining/SKILL.md)
+[`trajectory-mining`](../../../apps/skill-runtime/examples/trajectory-mining/SKILL.md)
 workflow, which is not scheduled.
 
 ### Pace layers
@@ -847,7 +847,7 @@ with a compact checkpoint and start a successor run with a new `runId`. Do not
 use restart for this; restart keeps the same instance identity.
 
 **Conformance fixture.**
-[`apps/skill-runtime/examples/runtime-proof/`](../../apps/skill-runtime/examples/runtime-proof/SKILL.md)
+[`apps/skill-runtime/examples/runtime-proof/`](../../../apps/skill-runtime/examples/runtime-proof/SKILL.md)
 (`workflow-kitchen-sink`) exercises steps, retries, `NonRetryableError`,
 timeouts, sensitive output, sleeps, MCP calls, network policy, parallel and
 dynamic steps, artifacts, a tedi turn, approvals/events, rollback, and lifecycle

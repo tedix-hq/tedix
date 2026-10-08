@@ -11,7 +11,7 @@
  * belongs to the Agent runtime facets that own durable state; this wrapper
  * stays request-scoped for stateless MCP transport.
  *
- * @see docs/mcp/codemode.md
+ * @see docs/engineering/mcp/codemode.md
  */
 
 import {

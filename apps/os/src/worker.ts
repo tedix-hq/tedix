@@ -828,7 +828,7 @@ async function proxyApiRequest(
 }
 
 /**
- * An unprovisioned slug must not resolve — `docs/product/tedix-os.md` makes
+ * An unprovisioned slug must not resolve — `docs/engineering/product/tedix-os.md` makes
  * that a product rule, and serving the shell to one would leak the existence
  * and shape of the surface. `os.tedix.dev` is the central launcher: it serves
  * the SPA (the CLI-login org picker and workspace launcher) and resolves no
@@ -1064,7 +1064,7 @@ export async function handleOsRequest(
 		return mountCapnChat(authenticated, env, hostTenantId, { localDemo });
 	}
 
-	// Governed widget bridge (docs/mcp/apps.md): the SPA fetches ui://
+	// Governed widget bridge (docs/engineering/mcp/apps.md): the SPA fetches ui://
 	// resources and relays widget-originated MCP calls through these
 	// same-origin endpoints; the caller's own session rides through and
 	// iframes never see a token. Tenant hosts only.

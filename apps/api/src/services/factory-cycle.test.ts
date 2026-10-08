@@ -59,7 +59,7 @@ describe("Factory Blueprint v0", () => {
 		).toHaveLength(2);
 	});
 	// Independent review is no longer required of a blueprint claim
-	// (docs/decisions/minimal-gates-over-pre-proof.md), so only the deliverable
+	// (decisions/minimal-gates-over-pre-proof.md), so only the deliverable
 	// template count is still enforced here.
 	it("rejects a blueprint that declares no deliverable template", () => {
 		const invalid = structuredClone(assurance);

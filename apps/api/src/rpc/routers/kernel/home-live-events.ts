@@ -93,7 +93,7 @@ export async function recordHomeAnswerDelta(
  *     payload: { phase: <CHAT_RUNTIME_PHASES value>, detail?: string, at: ISO } }
  *
  * Idempotent by sequence within one turn and fail-soft — persistence cannot
- * affect the turn. Documented in docs/cognition/runtime.md § Home live events.
+ * affect the turn. Documented in docs/engineering/cognition/runtime.md § Home live events.
  */
 export async function recordHomePhaseEvent(
 	context: BaseContext,

@@ -655,14 +655,14 @@ exact Query keys invalidated by writes. User-visible changes also need browser
 checks for sign-in, two-tenant isolation, and the affected route. Local green
 checks prove the implementation, not deployed behavior.
 
-See [DEVELOPMENT.md](../DEVELOPMENT.md) for lanes and prerequisites.
+See [DEVELOPMENT.md](../development.md) for lanes and prerequisites.
 
 ## Related
 
-- [Architecture](../ARCHITECTURE.md)
+- [Architecture](../architecture.md)
 - [Design system](design.md)
 - [MCP runtime](../mcp/runtime.md) and [MCP Apps](../mcp/apps.md)
 - [Kernel execution model](../cognition/kernel-execution-model.md)
 - [Work Items](../cognition/work-items.md)
-- [Collaborative editing ADR](../decisions/ot-authority.md)
+- [Collaborative editing ADR](../../../decisions/ot-authority.md)
 - [Platform auth](../platform/auth.md)

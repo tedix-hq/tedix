@@ -236,7 +236,7 @@
 		color-mix(in oklch, var(--background) 88%, var(--foreground))
 	);
 	/*
-	 * Artifact-specific depth, which `docs/product/design.md` reserves for
+	 * Artifact-specific depth, which `docs/engineering/product/design.md` reserves for
 	 * document paper, slide canvases, and media frames. `--shadow-tedix-raised`
 	 * is a 1px component lift and is too slight to lift a page off a desk.
 	 */

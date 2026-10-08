@@ -562,7 +562,7 @@ export const inviteMemberContract = authedMembersOs.inviteMember
 				// unset — which falls into the flow's Else branch ("Waitlist
 				// Pending"). Without this, every invited member is bounced at login
 				// holding a perfectly valid invite. Non-blocking: the invite itself
-				// has already succeeded. See docs/platform/auth.md (waitlist gate).
+				// has already succeeded. See docs/engineering/platform/auth.md (waitlist gate).
 				try {
 					await mgmt.management.user.updateCustomAttribute(
 						email,

@@ -36,7 +36,7 @@ import { cn } from "../../lib/utils";
  * Typography note: the adapter pins the inline case to the Tedix `control`
  * role, but deliberately leaves the block's internal `<pre>` on Kumo's own
  * geometry. Kumo sets that padding and size with `!important` inside the Shiki
- * container, and per `docs/product/design.md` a Kumo component that owns its
+ * container, and per `docs/engineering/product/design.md` a Kumo component that owns its
  * own fixed geometry keeps it. What this adapter owns is the block's *surface*
  * — the semantic line and the 8px radius — which is the drift being fixed.
  *

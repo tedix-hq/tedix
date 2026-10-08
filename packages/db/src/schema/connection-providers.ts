@@ -62,7 +62,7 @@ export const connectionProviders = sqliteTable(
 			mode: "json",
 		}).$type<ConnectionProviderOAuthConfig>(),
 
-		// --- Issuer pinning (ADR docs/decisions/tedi-client-oauth-cimd.md, phase 1a) ---
+		// --- Issuer pinning (ADR decisions/tedi-client-oauth-cimd.md, phase 1a) ---
 		// The RFC 8414-validated authorization-server issuer recorded on first
 		// successful MCP OAuth discovery. Later discovery producing a different
 		// issuer refuses fail-closed instead of silently re-provisioning (the MCP

@@ -95,7 +95,7 @@ export function stripDestructiveApprovalArgs(
  * `_meta` key carried on `tools/call` so a skill workflow runner can declare
  * the tool-annotation assertion from its CapabilityManifest. The gateway
  * fails closed with ANNOTATION_VIOLATION if the invoked tool's annotations
- * contradict the assertion. See Sam Morrow Part 3 in `docs/cognition/skills.md`
+ * contradict the assertion. See Sam Morrow Part 3 in `docs/engineering/cognition/skills.md`
  * "External Design Lessons".
  */
 export const EXPECTED_ANNOTATIONS_META_KEY =

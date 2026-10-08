@@ -890,7 +890,7 @@ describe("push-safety invariants (healer parity, 72ecb864)", () => {
 		}
 		for (const path of [
 			"apps/mcp/src/mcp/payments.ts",
-			"docs/DEVELOPMENT.md",
+			"docs/engineering/development.md",
 			"packages/db/src/queries/mcp-payments.ts",
 			"apps/api/src/rpc/routers/work-items.ts",
 		]) {

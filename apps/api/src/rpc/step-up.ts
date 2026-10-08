@@ -8,7 +8,7 @@
  * Descope re-issues the session token with `su: true` when a step-up flow
  * succeeds and bounds that token's life by the project's Step Up Token Timeout,
  * so a validated token still carrying the claim is proof of a recent
- * re-authentication. See `docs/platform/auth.md` § Step-Up Re-Authentication for
+ * re-authentication. See `docs/engineering/platform/auth.md` § Step-Up Re-Authentication for
  * the full contract, including the client half that must forward the token.
  *
  * Lives here rather than beside each caller for the reason `org-scope.ts`

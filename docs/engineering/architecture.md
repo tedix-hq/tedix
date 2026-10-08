@@ -91,7 +91,7 @@ because another product happens to use it internally.
 
 Worker Loader isolates are the home for stateless or step-scoped code. OS
 processes, repo checkouts, system dependencies, and long-lived ports belong to
-workstation leases ([Workstations over bodies](decisions/workstations-over-bodies.md)).
+workstation leases ([Workstations over bodies](../../decisions/workstations-over-bodies.md)).
 Use Workflows whenever an operation needs replay, retries, sleeps, or
 event waits; add `@cloudflare/dynamic-workflows` only when the Workflow must
 run tenant-authored code.
@@ -171,7 +171,7 @@ and owns auth, MCP, admin APIs, status/wake, sync, and mesh.
 | Embedded widget                | Pi `ConversationFacet` in `apps/tedi-runtime`                            | native Pi Durable loop         |
 
 The two backends are deliberate: the kernel routes, delegates, and handles
-approvals and Work Items ([Agentic kernel](decisions/agentic-kernel-architecture.md));
+approvals and Work Items ([Agentic kernel](../../decisions/agentic-kernel-architecture.md));
 the widget needs the tool-capable Pi loop. They share only packages:
 `@tedix/workers-ai` (the one model provider), `@tedix/context-core` (the one
 compaction boundary and overflow classifier), and `@tedix/chat-transport`
@@ -215,10 +215,10 @@ directory for the current set. See [API](platform/api.md).
 Every Worker deploys to one named Wrangler environment, `production`.
 `scripts/lint-wrangler.ts` rejects any `env.staging`, because a staging block
 that binds the same D1 and R2 is not isolation. Preview work belongs in local
-development ([Development](DEVELOPMENT.md)).
+development ([Development](development.md)).
 
 ## Related
 
-- [Development](DEVELOPMENT.md)
+- [Development](development.md)
 - [API](platform/api.md), [Auth](platform/auth.md), [Data model](platform/data-model.md), [DB](platform/db.md)
 - [MCP runtime](mcp/runtime.md), [Agent runtime](tedi/agent-runtime.md)

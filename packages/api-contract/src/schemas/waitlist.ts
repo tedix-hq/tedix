@@ -2,7 +2,7 @@
  * Waitlist Schemas for oRPC
  *
  * The waitlist gate lives entirely in the Descope `sign-up-or-in` flow and the
- * `waitlistStatus` custom user attribute (see `docs/platform/auth.md`). These
+ * `waitlistStatus` custom user attribute (see `docs/engineering/platform/auth.md`). These
  * schemas back the Tedix admin tools that let operators read and set that
  * attribute without dropping to the raw Descope management passthrough.
  *

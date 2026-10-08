@@ -735,7 +735,7 @@ export const submitEvidenceProcedure = factoryOs.submitEvidence.handler(
 			});
 			// Evidence is recorded telemetry, not a gate: nothing is woken, no
 			// readback is performed, and no disposition is required
-			// (docs/decisions/minimal-gates-over-pre-proof.md).
+			// (decisions/minimal-gates-over-pre-proof.md).
 			return resolveWorkEvidenceRow(context, evidence);
 		} catch (error) {
 			rethrowWorkItemWriteError(error);

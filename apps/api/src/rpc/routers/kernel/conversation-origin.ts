@@ -57,7 +57,7 @@ export const KERNEL_CONVERSATION_ORIGIN_PAYLOAD_KEY = "origin";
  *
  * `agent` ⇐ any of:
  * - a machine principal class (`apikey`, `m2m`, `tedi`, `service-binding`) —
- *   see docs/platform/auth.md,
+ *   see docs/engineering/platform/auth.md,
  * - a gateway-verified external coding agent (Claude Code / Codex), which
  *   rides a service binding but carries its own principal id,
  * - a user credential replayed by the MCP protocol edge. `tedix ask`, Code

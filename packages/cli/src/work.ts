@@ -1830,7 +1830,7 @@ function parseObjectArgument(
  * gate. Keeping a flag that wrote unread fields and silently overrode
  * `--done-when` only offered a way to get acceptance wrong.
  *
- * See `docs/decisions/minimal-gates-over-pre-proof.md`. Stored legacy
+ * See `decisions/minimal-gates-over-pre-proof.md`. Stored legacy
  * contracts still PARSE on read so live rows keep deserializing; nothing
  * writes one.
  */
@@ -1883,7 +1883,7 @@ async function workReadiness(ctx: WorkContext, id: string): Promise<number> {
 /**
  * Resolve every repeated `--commit <sha>` into the settlement metadata block.
  *
- * Under `docs/decisions/minimal-gates-over-pre-proof.md` settling IS the
+ * Under `decisions/minimal-gates-over-pre-proof.md` settling IS the
  * completion, and for coding work the commits on `main` are the ledger entry
  * — so the shas have to travel with the settlement rather than through a
  * separate evidence submission that nothing reads any more.
@@ -1992,7 +1992,7 @@ async function workSubmitEvidence(
 	// record now, and the kind vocabulary is the server's to police. The
 	// `--evidence-digest` demand invited hand-typed sha256 values, so the flag
 	// is gone rather than guarded
-	// (docs/decisions/minimal-gates-over-pre-proof.md).
+	// (decisions/minimal-gates-over-pre-proof.md).
 	const metadata = ctx.work.evidenceMetadata?.trim()
 		? parseObjectArgument(
 				ctx.work.evidenceMetadata.trim(),
@@ -2178,7 +2178,7 @@ export function contextBriefJson(value: Record<string, unknown>): unknown {
 		stewardId: item.stewardId ?? null,
 		reviewerId: item.reviewerId ?? null,
 		// Read-only now. Nothing binds or enforces a reviewer since the review
-		// plane was retired (docs/decisions/minimal-gates-over-pre-proof.md);
+		// plane was retired (decisions/minimal-gates-over-pre-proof.md);
 		// these three are surfaced so an operator reading a Work Item accepted
 		// before that still sees what its stored row says.
 		reviewerType: item.reviewerType ?? null,
@@ -2691,7 +2691,7 @@ they remain advisory and every start re-evaluates admission.
 An attempt id is a local capability fence scoped to workspace, actor, session, and Work Item.
 Settled means done: complete carries no evidence count and no review requirement, and a wrong
 claim is corrected with the confirm verb when noticed rather than prevented by pre-proof
-(docs/decisions/minimal-gates-over-pre-proof.md).
+(decisions/minimal-gates-over-pre-proof.md).
 
 Heartbeat --watch renews only the original Attempt for 900 seconds by default
 (maximum 3600). It stops on errors, cache replacement, process exit, or the

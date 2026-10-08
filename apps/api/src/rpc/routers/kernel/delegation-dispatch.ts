@@ -727,7 +727,7 @@ export function buildDelegationWorkOrder(input: {
 	// "Workstations over bodies": a router-planned delegate_tedi to an embodied
 	// target carrying a workstation lease or configured repository is a WORKSTATION
 	// attachment — the operator should see a workstation, not a body
-	// (docs/decisions/workstations-over-bodies.md). A non-embodied
+	// (decisions/workstations-over-bodies.md). A non-embodied
 	// delegation stays a plain tedi.delegate. Reuses this one builder; only the
 	// kind differs; authority and capability are carried by the formal contract.
 	//
@@ -837,7 +837,7 @@ export function assignmentIsWriteBearing(input: {
 }
 
 /**
- * Fleet fan-out = independent-reads-only (docs/decisions/agentic-kernel-
+ * Fleet fan-out = independent-reads-only (decisions/agentic-kernel-
  * architecture.md). Decide whether a multi-tedi plan dispatch must be serialized
  * (single-threaded through the kernel) rather than fanned out in parallel.
  * Parallel fan-out is Anthropic's proven orchestrator-worker envelope for
@@ -1287,7 +1287,7 @@ export function decideDelegationDispatch(input: {
 	 * Home turn is 0; the first delegated child dispatching further is 1; etc.).
 	 * When absent it is treated as 0 (backward-compatible no-op). See
 	 * MAX_DELEGATION_DEPTH — LangGraph's finding that error compounds past
-	 * ~8–10 hops (docs/decisions/agentic-kernel-architecture.md).
+	 * ~8–10 hops (decisions/agentic-kernel-architecture.md).
 	 */
 	delegationDepth?: number;
 }): DispatchDecision {

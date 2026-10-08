@@ -725,7 +725,7 @@ async function cancelKernelRunCore(
 	});
 
 	// Best-effort DO-side abort of an in-flight kernel turn's LLM pass
-	// (docs/cognition/kernel-execution-model.md "Operator cancel") — AFTER the
+	// (docs/engineering/cognition/kernel-execution-model.md "Operator cancel") — AFTER the
 	// run row above is durably `canceled`, so the turn body's pre-materialize
 	// cancel gate settles correctly regardless of whether this call reaches
 	// the DO or finds a live controller. Fail-soft at this call site too (on

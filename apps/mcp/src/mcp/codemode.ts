@@ -17,7 +17,7 @@ import { TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS } from "@tedix/api-contract/schema
  * SUGGESTIONS, PROVIDER RESOLUTION and REGISTRATION. Everything above the
  * first banner is descriptor/schema plumbing and is not yet sectioned.
  *
- * @see docs/mcp/codemode.md
+ * @see docs/engineering/mcp/codemode.md
  * @module @tedix/mcp/mcp/codemode
  */
 
