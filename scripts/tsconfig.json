@@ -21,6 +21,7 @@
 		"lint-kumo.ts",
 		"lint-worker-route-authz.ts",
 		"lint-os.ts",
+		"lint-repo.ts",
 		"lint-vite-plus-imports.ts",
 		"oxc-ast.ts",
 		"oss/secret-scan.ts",

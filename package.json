@@ -51,7 +51,7 @@
 		"lint:fix": "vp check --fix",
 		"lint:knip": "TEDIX_BUILD_LOCAL_DEMO_ENABLED=true knip",
 		"lint:kumo": "bun scripts/lint-kumo.ts",
-		"lint:repo": "bun scripts/check-package-boundaries.ts && bun scripts/lint-import-cycles.ts && bun scripts/lint-db-access.ts && bun scripts/check-package-exports.ts && bun scripts/lint-wrangler.ts --strict && bun scripts/lint-loader-sandbox.ts --strict && bun scripts/lint-kumo.ts && bun scripts/lint-d1.ts && bun scripts/lint-authz.ts --strict && bun scripts/lint-worker-route-authz.ts --strict && bun scripts/lint-contracts.ts && bun scripts/lint-os.ts && bun scripts/lint-vite-plus-imports.ts",
+		"lint:repo": "bun scripts/lint-repo.ts",
 		"mcp:sync-tool-schemas": "bun scripts/mcp/sync-tool-schemas.ts",
 		"oss:check": "bun scripts/oss/public-surface.ts && bun scripts/oss/third-party-provenance.ts --strict && bun scripts/oss/license-readiness.ts --check && bun scripts/oss/dependency-license-policy.ts",
 		"prepare": "bun run hooks:install",
