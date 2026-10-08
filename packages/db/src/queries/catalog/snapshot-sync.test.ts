@@ -10,6 +10,8 @@ import { schemaDdl } from "../../test/schema-ddl";
 import {
 	ensureCatalogSnapshotSyncLog,
 	markStaleFeedStoreListingsAsRemoved,
+	markStoreListingsAsRemoved,
+	SNAPSHOT_FEED_MARKER,
 } from "./sync-logs";
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -88,5 +90,45 @@ describe("catalog snapshot persistence", () => {
 		expect(
 			await markStaleFeedStoreListingsAsRemoved(db, "claude", "supplier", []),
 		).toBe(0);
+	});
+	it("keeps a snapshot feed's listings out of a registry sync's removals", async () => {
+		const db = realDb();
+		await db.insert(appCatalogStoreListings).values([
+			{
+				id: "registry-current",
+				catalogAppId: "app",
+				lastSyncedAt: "2026-10-08T00:00:00Z",
+				source: "claude",
+				sourceAppId: "registry-current",
+				rawData: { registry: { id: "registry-current" } },
+			},
+			{
+				id: "registry-stale",
+				catalogAppId: "app",
+				lastSyncedAt: "2026-10-08T00:00:00Z",
+				source: "claude",
+				sourceAppId: "registry-stale",
+				rawData: { registry: { id: "registry-stale" } },
+			},
+			{
+				id: "feed-owned",
+				catalogAppId: "app",
+				lastSyncedAt: "2026-10-08T00:00:00Z",
+				source: "claude",
+				sourceAppId: "feed-owned",
+				rawData: {
+					supplier: { id: "feed-owned" },
+					[SNAPSHOT_FEED_MARKER]: "supplier",
+				},
+			},
+		]);
+		expect(
+			await markStoreListingsAsRemoved(db, "claude", ["registry-current"]),
+		).toBe(1);
+		expect(
+			(await db.select().from(appCatalogStoreListings))
+				.map((row) => row.id)
+				.sort(),
+		).toEqual(["feed-owned", "registry-current"]);
 	});
 });
