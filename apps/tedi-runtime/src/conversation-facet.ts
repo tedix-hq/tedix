@@ -72,6 +72,7 @@ import {
 	stoppedTurnNotice,
 	reservedFinalStepConfig,
 	finalReportInstruction,
+	finalReportReason,
 } from "./facet-turn-stop";
 import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
 import { codeModeToolModelOutput } from "./codemode-model-output";
@@ -1323,10 +1324,14 @@ export class ConversationFacet extends PiAgent<
 			});
 		const stop = this.state.budgetStop;
 		let report = "";
-		if (stop) {
+		const reportReason = finalReportReason({
+			stopReason: stop?.reason ?? null,
+			assistantText: text,
+		});
+		if (reportReason) {
 			this.setState({
 				...this.state,
-				finalReportStop: { reason: stop.reason },
+				finalReportStop: { reason: reportReason },
 			});
 			const reportId = `${id}:final-report`;
 			await this.submitMessages(
@@ -1335,7 +1340,7 @@ export class ConversationFacet extends PiAgent<
 						id: `${reportId}:user`,
 						role: "user",
 						parts: [
-							{ type: "text", text: finalReportInstruction(stop.reason) },
+							{ type: "text", text: finalReportInstruction(reportReason) },
 						],
 					},
 				],
@@ -1357,11 +1362,11 @@ export class ConversationFacet extends PiAgent<
 			? [text, report, stoppedTurnNotice(stop.reason)]
 					.filter(Boolean)
 					.join("\n\n")
-			: text;
+			: text || report.trim();
 		const usage = await this.accounting.usage();
 		const modelIdentity = attributableConversationModel({
 			selectedModels: this.state.selectedTurnModels ?? [],
-			hasFreshText: !!text,
+			hasFreshText: !!assistantText,
 			stopped: !!stop,
 		});
 		const result: ConversationFacetTurnResult = {
