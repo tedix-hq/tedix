@@ -3,6 +3,15 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.8 — 2026-10-08
+
+### Added
+
+- The prompt hook sends the chat's id with its team-lessons read, so Tedix can
+  record which lessons reached each chat and measure whether they reduce
+  repeated corrections. A stable 10% of chats receive no learned lessons
+  (written and reviewed lessons still arrive) as the comparison group.
+
 ## 0.6.7 — 2026-10-08
 
 ### Fixed
