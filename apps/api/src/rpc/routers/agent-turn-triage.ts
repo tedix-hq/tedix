@@ -42,6 +42,9 @@ import {
 	type AgentReplyDraftDelivery,
 	type AgentReplyDraftIneligibleReason,
 	type AgentReplyLabel,
+	type AgentTurnAttention,
+	type AgentTurnAttentionKind,
+	AgentTurnAttentionKindSchema,
 	type AgentTurnTriagePolicy,
 	type AgentTurnTriagePolicyState,
 	AgentTurnTriagePolicySchema,
@@ -64,7 +67,12 @@ import {
 	getWorkItemById,
 	listWorkItems,
 } from "@tedix/db/queries/work-items/crud";
-import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
+import {
+	expireWorkInteraction,
+	getWorkInteraction,
+	listWorkInteractionInbox,
+	setWorkInteractionAttention,
+} from "@tedix/db/queries/work-items/interactions";
 import {
 	countConsecutiveAutoReplies,
 	getLatestReplyDraft,
@@ -77,6 +85,7 @@ import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
+import { runDistillModel } from "../../services/lesson-distiller";
 import { startIncrementalLessons } from "../../services/lesson-incremental-dispatch";
 import { importAgentSessionDecisions } from "../../services/agent-session-decision-import";
 import { observedLearningActor } from "../../services/learning-interaction-recorder";
@@ -126,6 +135,18 @@ const DefaultsAssetSchema = z.object({
 	replyDraft: z.object({
 		promptVersion: z.number().int().min(1),
 		lines: z.array(z.string()).min(1),
+	}),
+	attention: z.object({
+		ask: z.object({
+			id: z.string().regex(/^[A-Za-z0-9_.-]+$/),
+			instructions: z.string().min(1),
+			needsYouWhen: z.object({ gte: z.number().min(0).max(1) }),
+		}),
+		turnKind: z.record(AgentTurnAttentionKindSchema, z.string().min(1)),
+		need: z.object({
+			maxChars: z.number().int().min(20).max(240),
+			lines: z.array(z.string()).min(1),
+		}),
 	}),
 });
 
@@ -215,7 +236,146 @@ export function scoreTriage(
 	const urgentLabels = policy.questions
 		.filter((question) => (labels[question.id] ?? 0) >= question.urgentWhen.gte)
 		.map((question) => question.id);
+	const asks = labels[ATTENTION.ask.id];
+	// A turn that asks the user for nothing is an update: never urgent.
+	if (asks !== undefined && attentionKindOf(asks) === "fyi")
+		return { urgency: "later", urgentLabels: [] };
 	return { urgency: urgentLabels.length > 0 ? "now" : "later", urgentLabels };
+}
+
+/**
+ * Whether a captured agent turn needs its user. Asked in every triage call
+ * (reported as the `asks_user` label, never a policy question) and judged
+ * again by `retriageQuestions` for turns captured before it existed.
+ */
+const ATTENTION = DEFAULTS.attention;
+
+export function attentionKindOf(asks: number): AgentTurnAttentionKind {
+	return asks >= ATTENTION.ask.needsYouWhen.gte ? "needs_you" : "fyi";
+}
+
+/** The ask probability triage recorded on a captured question, if any. */
+export function recordedAskProbability(metadata: unknown): number | null {
+	if (!isRecord(metadata) || !isRecord(metadata.triage)) return null;
+	if (metadata.triage.status !== "ok" || !isRecord(metadata.triage.labels))
+		return null;
+	const asks = metadata.triage.labels[ATTENTION.ask.id];
+	return typeof asks === "number" && asks >= 0 && asks <= 1 ? asks : null;
+}
+
+function askedAttention(metadata: unknown): AgentTurnAttentionKind | null {
+	const asks = recordedAskProbability(metadata);
+	return asks === null ? null : attentionKindOf(asks);
+}
+
+/** The first line of a model's answer as one plain sentence, or null. */
+export function cleanNeed(
+	text: string | null,
+	maxChars: number,
+): string | null {
+	const line = (text ?? "")
+		.split(/\r?\n/)
+		.map((part) => part.trim())
+		.find(Boolean);
+	if (!line) return null;
+	const plain = line
+		.replace(/[*_`#>]/g, "")
+		.replace(/^["'“]+|["'”]+$/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!plain) return null;
+	return plain.length > maxChars ? `${plain.slice(0, maxChars - 1)}…` : plain;
+}
+
+async function judgeAsk(
+	env: BaseContext["env"],
+	text: string,
+): Promise<number | null> {
+	const result = await runClef(env, {
+		modelId: DEFAULTS.policy.model,
+		state: { agent_message: text },
+		questions: {
+			[ATTENTION.ask.id]: {
+				type: "noul",
+				instructions: ATTENTION.ask.instructions,
+			},
+		},
+		surface: "agent-turn-attention",
+	});
+	const answer = result.ok ? result.answers[ATTENTION.ask.id] : undefined;
+	return answer?.type === "noul" ? answer.noul : null;
+}
+
+async function writeNeed(
+	env: BaseContext["env"],
+	text: string,
+): Promise<string | null> {
+	const prompt = ATTENTION.need.lines
+		.join("\n")
+		.replace(
+			"{{prompt}}",
+			text.length > PROMPT_TEXT_LIMIT ? text.slice(-PROMPT_TEXT_LIMIT) : text,
+		);
+	const answer = await runDistillModel(env, prompt, {
+		maxTokens: 80,
+		timeoutMs: 10_000,
+		surface: "agent-turn-need",
+	});
+	return cleanNeed(answer, ATTENTION.need.maxChars);
+}
+
+/**
+ * The attention verdict for one captured turn: the ask probability triage
+ * recorded (or a fresh Clef judgement), and for a turn that needs the user a
+ * one-line need. Null when the model could not judge it.
+ */
+export async function decideAgentTurnAttention(
+	env: BaseContext["env"],
+	params: { prompt: string; metadata: unknown },
+): Promise<AgentTurnAttention | null> {
+	const asks =
+		recordedAskProbability(params.metadata) ??
+		(await judgeAsk(env, params.prompt));
+	if (asks === null) return null;
+	const kind = attentionKindOf(asks);
+	return {
+		kind,
+		need: kind === "needs_you" ? await writeNeed(env, params.prompt) : null,
+		asks,
+		decidedAt: new Date().toISOString(),
+	};
+}
+
+/** True for an open-able decision-capture question addressed to a user. */
+function isCapturedQuestion(
+	row: Pick<InteractionRow, "kind" | "targetType" | "metadata">,
+): boolean {
+	return (
+		row.kind === "question" &&
+		row.targetType === "user" &&
+		isRecord(row.metadata) &&
+		row.metadata.schema === DECISION_CAPTURE_SCHEMA
+	);
+}
+
+/**
+ * Judge and store whether a just-captured question needs its user. Runs
+ * after the create response (best effort); a model failure stores nothing,
+ * and the question then reads as needing the user.
+ */
+export async function annotateAgentTurnAttention(
+	context: Pick<BaseContext, "db" | "env">,
+	row: InteractionRow,
+): Promise<AgentTurnAttention | null> {
+	if (!isCapturedQuestion(row)) return null;
+	const attention = await decideAgentTurnAttention(context.env, row);
+	if (attention)
+		await setWorkInteractionAttention(context.db, {
+			orgId: row.orgId,
+			interactionId: row.id,
+			...attention,
+		});
+	return attention;
 }
 
 const triage = readOs.triage.handler(async ({ input, context }) => {
@@ -239,6 +399,10 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 			instructions: question.instructions,
 		};
 	}
+	questions[ATTENTION.ask.id] ??= {
+		type: "noul",
+		instructions: ATTENTION.ask.instructions,
+	};
 	const result = await runClef(context.env, {
 		modelId: policy.model,
 		state: { agent_message: input.text },
@@ -495,6 +659,8 @@ export function renderReplyDraftPrompt(params: {
 	turnTypeChoices?: readonly string[];
 	/** The user's past replies block; placed at `{{examples}}`, else after the sessions. */
 	examples?: string;
+	/** Whether the turn asks the user for something; omitted when not judged. */
+	attention?: AgentTurnAttentionKind | null;
 }): string {
 	const prompt =
 		params.request.prompt.length > PROMPT_TEXT_LIMIT
@@ -519,6 +685,7 @@ export function renderReplyDraftPrompt(params: {
 		sessions,
 		board: params.board?.trim() || "unavailable; draft from the question alone",
 		skill: renderSkillBlock(params.skillSlug, params.skillContent),
+		turnKind: params.attention ? ATTENTION.turnKind[params.attention] : "",
 		turnTypeChoices: params.turnTypeChoices?.length
 			? params.turnTypeChoices.join(", ")
 			: "a short label you choose, such as approval, continue, status, correction",
@@ -1014,6 +1181,7 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 					board,
 					turnTypeChoices: policy.turnTypeChoices,
 					examples,
+					attention: askedAttention(request.metadata),
 				}),
 				// One drafting turn per attempt: the dispatch ledger makes
 				// redelivery and repeat requests of the same attempt no-ops.
@@ -1299,8 +1467,100 @@ const importSessionDecisionsProcedure =
 		});
 	});
 
+const retriageOs = os.use(withAuth).use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"A person re-triages only the open questions addressed to them: the handler requires the verified active user and lists by that target, never from input",
+		},
+		"mcp:messaging.write",
+	),
+);
+
+const RETRIAGE_CONCURRENCY = 5;
+
+/**
+ * Re-judge the caller's open captured questions with the attention question.
+ * With `apply`, the verdict is stored and updates are expired: the lifecycle's
+ * non-destructive close (an answer would speak for the user, and cancel is a
+ * destructive action).
+ */
+const retriageQuestions = retriageOs.retriageQuestions.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		if (actor.type !== "user")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Re-triaging questions requires a person's identity",
+			);
+		const page = await listWorkInteractionInbox(context.db, {
+			orgId,
+			states: ["open"],
+			kinds: ["question"],
+			targetType: "user",
+			targetId: actor.id,
+			limit: input.limit,
+			observedAt: new Date().toISOString(),
+		});
+		const rows = page.data
+			.map((row) => row.request)
+			.filter((request) => isCapturedQuestion(request));
+		const items: Array<{
+			requestId: string;
+			kind: AgentTurnAttentionKind | null;
+			need: string | null;
+			expired: boolean;
+		}> = [];
+		for (let start = 0; start < rows.length; start += RETRIAGE_CONCURRENCY) {
+			const batch = rows.slice(start, start + RETRIAGE_CONCURRENCY);
+			items.push(
+				...(await Promise.all(
+					batch.map(async (request) => {
+						const attention = await decideAgentTurnAttention(
+							context.env,
+							request,
+						);
+						let expired = false;
+						if (attention && input.apply) {
+							await setWorkInteractionAttention(context.db, {
+								orgId,
+								interactionId: request.id,
+								...attention,
+							});
+							if (attention.kind === "fyi")
+								expired =
+									(await expireWorkInteraction(context.db, {
+										orgId,
+										interactionId: request.id,
+										expectedVersion: request.version,
+										now: new Date().toISOString(),
+									})) !== null;
+						}
+						return {
+							requestId: request.id,
+							kind: attention?.kind ?? null,
+							need: attention?.need ?? null,
+							expired,
+						};
+					}),
+				)),
+			);
+		}
+		return {
+			scanned: items.length,
+			needsYou: items.filter((item) => item.kind === "needs_you").length,
+			updates: items.filter((item) => item.kind === "fyi").length,
+			unavailable: items.filter((item) => item.kind === null).length,
+			expired: items.filter((item) => item.expired).length,
+			items,
+		};
+	},
+);
+
 export const agentTurnTriageContractRouter = os.router({
 	importSessionDecisions: importSessionDecisionsProcedure,
+	retriageQuestions,
 	triage,
 	labelReply,
 	getPolicy,

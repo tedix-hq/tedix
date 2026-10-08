@@ -9,6 +9,7 @@ import {
 import { organizationMembers } from "../../schema/organization-members";
 import { tedis } from "../../schema/tedis";
 import {
+	workInteractionAttention,
 	workInteractionResponses,
 	workInteractions,
 } from "../../schema/work-factory";
@@ -26,7 +27,7 @@ const NOW = "2026-08-21T12:00:00.000Z";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses)}`,
+		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses, workInteractionAttention)}`,
 	);
 	sqlite
 		.prepare(

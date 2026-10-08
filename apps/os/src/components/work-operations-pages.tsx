@@ -1463,12 +1463,22 @@ const decisionCaptureMetadataSchema = z.object({
 		})
 		.optional()
 		.catch(undefined),
+	/** The server's verdict: `fyi` asks nothing of the user; `need` says what. */
+	attention: z
+		.object({
+			kind: z.enum(["needs_you", "fyi"]),
+			need: z.string().nullish(),
+		})
+		.optional()
+		.catch(undefined),
 });
 
 /**
  * Where a decision-capture question came from and why it waits, or null for
  * any other Interaction. The question is the agent's own turn-end message in
- * the user's local session, not a message from another person.
+ * the user's local session, not a message from another person. An `fyi` turn
+ * (a status update) is never urgent; `need` is the one-line ask of a turn that
+ * needs the user, when the server could write it.
  */
 export function decisionCaptureSummary(metadata: unknown) {
 	const parsed = decisionCaptureMetadataSchema.safeParse(metadata);
@@ -1477,10 +1487,13 @@ export function decisionCaptureSummary(metadata: unknown) {
 	const host = value.host
 		? (DECISION_CAPTURE_HOSTS[value.host] ?? value.host)
 		: "agent";
+	const attention = value.attention?.kind ?? null;
 	const urgency =
-		value.triage?.urgency === "now" || value.triage?.urgency === "later"
-			? value.triage.urgency
-			: null;
+		attention === "fyi"
+			? "later"
+			: value.triage?.urgency === "now" || value.triage?.urgency === "later"
+				? value.triage.urgency
+				: null;
 	return {
 		source: `your ${host} session`,
 		origin: [`From your ${host} session`, value.repository, value.branch]
@@ -1490,20 +1503,27 @@ export function decisionCaptureSummary(metadata: unknown) {
 		shortSessionId: value.sessionId?.slice(0, 8),
 		urgency,
 		reasons: urgency === "now" ? urgentReasons(value.triage?.urgentLabels) : [],
+		attention,
+		need:
+			attention === "needs_you" ? value.attention?.need?.trim() || null : null,
 	};
 }
 
 /**
- * The subject as plain text. Decision-capture subjects come from the agent's
- * Markdown; rows written before the CLI stripped it still carry the markers.
+ * The subject as plain text. For a captured turn that needs the user, its
+ * one-line need ("What's needed from you") replaces the agent's first line.
+ * Decision-capture subjects come from the agent's Markdown; rows written
+ * before the CLI stripped it still carry the markers.
  */
 export function interactionSubject(request: {
 	subject: string;
 	metadata?: unknown;
 }) {
-	if (!decisionCaptureMetadataSchema.safeParse(request.metadata).success)
-		return request.subject;
-	return markdownLineToPlainText(request.subject) || request.subject;
+	const summary = decisionCaptureSummary(request.metadata);
+	if (!summary) return request.subject;
+	return (
+		summary.need || markdownLineToPlainText(request.subject) || request.subject
+	);
 }
 
 /** Plain-language reasons and origin for one triaged agent-turn request. */
@@ -2179,6 +2199,29 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 			? request.metadata.originChatTitle.trim().slice(0, 120)
 			: "";
 	const decisionCapture = decisionCaptureSummary(request.metadata);
+	// The tedi's recommended answer: shown first for a captured agent turn.
+	const draftReply = draft ? (
+		<InteractionDraftReply
+			draft={draft}
+			drafterName={namedWorkPrincipal("tedi", draft.drafterId, names)}
+			host={
+				typeof request.metadata?.host === "string"
+					? request.metadata.host
+					: request.metadata?.agentHarness === "codex"
+						? "codex"
+						: undefined
+			}
+			pending={respond.isPending}
+			onAnswer={(body, metadata) =>
+				respond.mutate({
+					responseKind: "answer",
+					body,
+					resolvesRequest: true,
+					metadata,
+				})
+			}
+		/>
+	) : null;
 	const questionSource =
 		decisionCapture?.source ||
 		originChatTitle ||
@@ -2257,7 +2300,9 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 								? effectiveState === "resolved"
 									? "Answer saved"
 									: effectiveState === "open"
-										? "Share what you know"
+										? decisionCapture?.attention === "fyi"
+											? "Update: nothing needed from you"
+											: "What's needed from you"
 										: "Question closed"
 								: "Request"}
 					</CardTitle>
@@ -2271,6 +2316,9 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 						) : isQuestion ? (
 							effectiveState === "resolved" ? (
 								`Your answer is saved for ${questionSource}.`
+							) : effectiveState === "open" &&
+							  decisionCapture?.attention === "fyi" ? (
+								"Your agent reported progress and asked for nothing. Reply only to redirect it."
 							) : effectiveState === "open" && query.data.canRespond ? (
 								`Your reply will be saved with this task for ${questionSource}.`
 							) : (
@@ -2315,11 +2363,19 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 								</span>
 							) : decisionCapture?.urgency === "later" ? (
 								<Text as="p" role="label" tone="secondary">
-									Can wait
+									{decisionCapture.attention === "fyi" ? "Update" : "Can wait"}
 								</Text>
 							) : null}
+							{decisionCapture && draftReply ? draftReply : null}
 							{decisionCapture ? (
-								<ChatMarkdown content={request.prompt} />
+								<>
+									{draftReply || decisionCapture.need ? (
+										<Text as="h3" role="label" tone="secondary">
+											What your agent said
+										</Text>
+									) : null}
+									<ChatMarkdown content={request.prompt} />
+								</>
 							) : (
 								<p className="whitespace-pre-wrap">{request.prompt}</p>
 							)}
@@ -2385,32 +2441,7 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 								</Button>
 							) : query.data.canRespond ? (
 								<>
-									{draft ? (
-										<InteractionDraftReply
-											draft={draft}
-											drafterName={namedWorkPrincipal(
-												"tedi",
-												draft.drafterId,
-												names,
-											)}
-											host={
-												typeof request.metadata?.host === "string"
-													? request.metadata.host
-													: request.metadata?.agentHarness === "codex"
-														? "codex"
-														: undefined
-											}
-											pending={respond.isPending}
-											onAnswer={(body, metadata) =>
-												respond.mutate({
-													responseKind: "answer",
-													body,
-													resolvesRequest: true,
-													metadata,
-												})
-											}
-										/>
-									) : null}
+									{decisionCapture ? null : draftReply}
 									<form
 										className="grid gap-3"
 										onSubmit={(event) => {

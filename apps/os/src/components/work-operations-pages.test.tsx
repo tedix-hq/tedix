@@ -413,6 +413,8 @@ describe("Decision-capture questions", () => {
 			shortSessionId: "abcdef12",
 			urgency: "now",
 			reasons: ["Needs you to act", "Risky action"],
+			attention: null,
+			need: null,
 		});
 		expect(
 			decisionCaptureSummary({
@@ -461,6 +463,36 @@ describe("Decision-capture questions", () => {
 		expect(container.querySelectorAll(".chat-markdown li")).toHaveLength(2);
 		expect(container.querySelector(".chat-markdown b")).toBeNull();
 		expect(text).not.toContain("**");
+	});
+
+	it("leads with the one-line need and calls an update an update", async () => {
+		const ask = {
+			...decisionMetadata({ urgency: "now", urgentLabels: [] }),
+			attention: { kind: "needs_you", need: "Approve the production deploy." },
+		};
+		const asked = await renderDetail(ask);
+		expect(asked.querySelector("h1")?.textContent).toBe(
+			"Approve the production deploy.",
+		);
+		expect(asked.textContent).toContain("What's needed from you");
+		expect(asked.textContent).not.toContain("Share what you know");
+
+		const update = {
+			...decisionMetadata({
+				urgency: "now",
+				urgentLabels: ["blocker_or_failure"],
+			}),
+			attention: { kind: "fyi", need: null },
+		};
+		expect(decisionCaptureSummary(update)).toMatchObject({
+			urgency: "later",
+			reasons: [],
+			attention: "fyi",
+			need: null,
+		});
+		const told = await renderDetail(update);
+		expect(told.textContent).toContain("Update: nothing needed from you");
+		expect(told.textContent).not.toContain("Blocked");
 	});
 
 	it("marks a later question as able to wait", async () => {

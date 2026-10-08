@@ -10,6 +10,7 @@ import {
 	createWorkInteraction,
 	delegateWorkInteraction,
 	getWorkInteraction,
+	getWorkInteractionAttention,
 	listWorkInteractionInbox,
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
@@ -60,7 +61,10 @@ function rethrowInteractionError(error: unknown): never {
 type InteractionRow = NonNullable<
 	Awaited<ReturnType<typeof getWorkInteraction>>
 >;
-function requestOutput(row: InteractionRow) {
+/** The stored attention verdict, shown to clients as `metadata.attention`. */
+type AttentionOverlay = { kind: string | null; need: string | null } | null;
+
+function requestOutput(row: InteractionRow, attention?: AttentionOverlay) {
 	if (!row.targetType || !row.targetId) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
@@ -87,8 +91,20 @@ function requestOutput(row: InteractionRow) {
 		expiresAt: row.expiresAt,
 		resolvedAt: row.resolvedAt,
 		version: row.version,
-		metadata: row.metadata,
+		metadata: attention?.kind
+			? {
+					...row.metadata,
+					attention: { kind: attention.kind, need: attention.need },
+				}
+			: row.metadata,
 	};
+}
+
+function rowAttention(row: {
+	attentionKind: string | null;
+	attentionNeed: string | null;
+}): AttentionOverlay {
+	return { kind: row.attentionKind, need: row.attentionNeed };
 }
 
 type ResponseRow = Awaited<
@@ -143,25 +159,44 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		);
 	}
 	try {
-		return requestOutput(
-			await createWorkInteraction(context.db, {
-				id: crypto.randomUUID(),
-				orgId,
-				workItemId: input.workItemId,
-				caseId: input.caseId,
-				projectId: input.projectId,
-				kind: input.kind,
-				subject: input.subject,
-				prompt: input.prompt,
-				creator: actor,
-				targetType: input.requestedFrom.type,
-				targetId: input.requestedFrom.id,
-				dueAt: input.dueAt,
-				expiresAt: input.expiresAt,
-				metadata: input.metadata,
-				now: requestedAt,
-			}),
-		);
+		const created = await createWorkInteraction(context.db, {
+			id: crypto.randomUUID(),
+			orgId,
+			workItemId: input.workItemId,
+			caseId: input.caseId,
+			projectId: input.projectId,
+			kind: input.kind,
+			subject: input.subject,
+			prompt: input.prompt,
+			creator: actor,
+			targetType: input.requestedFrom.type,
+			targetId: input.requestedFrom.id,
+			dueAt: input.dueAt,
+			expiresAt: input.expiresAt,
+			metadata: input.metadata,
+			now: requestedAt,
+		});
+		// A captured agent turn learns after the response whether it needs
+		// its user (and what, in one line).
+		if (
+			context.waitUntil &&
+			created.kind === "question" &&
+			created.targetType === "user" &&
+			input.metadata?.schema === "tedix.decision-capture.v1"
+		)
+			context.waitUntil(
+				import("./agent-turn-triage")
+					.then(({ annotateAgentTurnAttention }) =>
+						annotateAgentTurnAttention(context, created),
+					)
+					.catch((error: unknown) =>
+						console.warn("agent-turn attention failed", {
+							requestId: created.id,
+							error: error instanceof Error ? error.message : String(error),
+						}),
+					),
+			);
+		return requestOutput(created);
 	} catch (error) {
 		rethrowInteractionError(error);
 	}
@@ -315,7 +350,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				"Work interaction audit detail",
 			);
 		}
-		const [rows, latestDraft] = await Promise.all([
+		const [rows, latestDraft, attention] = await Promise.all([
 			listWorkInteractionResponses(context.db, {
 				orgId,
 				interactionId: request.id,
@@ -324,6 +359,10 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				afterId: input.responseCursor?.id,
 			}),
 			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
+			getWorkInteractionAttention(context.db, {
+				orgId,
+				interactionId: request.id,
+			}),
 		]);
 		const [drafter] = latestDraft
 			? await listTediDisplayNamesByIds(context.db, {
@@ -337,7 +376,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 		const observedAt = new Date().toISOString();
 		const state = effectiveState(request, observedAt);
 		return {
-			request: requestOutput(request),
+			request: requestOutput(request, attention),
 			effectiveState: state,
 			canRespond: isTarget && state === "open",
 			canCancel: isCreator && state === "open",
@@ -386,7 +425,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 		});
 		return {
 			data: page.data.map((row) => ({
-				request: requestOutput(row.request),
+				request: requestOutput(row.request, rowAttention(row)),
 				effectiveState: row.effectiveState,
 				canRespond: row.effectiveState === "open",
 				canCancel: false,
@@ -461,7 +500,7 @@ const listOutboxProcedure = readOs.listOutbox.handler(
 		});
 		return {
 			data: page.data.map((row) => ({
-				request: requestOutput(row.request),
+				request: requestOutput(row.request, rowAttention(row)),
 				effectiveState: row.effectiveState,
 				canRespond: false,
 				canCancel: row.effectiveState === "open",
@@ -497,7 +536,7 @@ const listAuditProcedure = readOs.listAudit.handler(
 		});
 		return {
 			data: page.data.map((row) => ({
-				request: requestOutput(row.request),
+				request: requestOutput(row.request, rowAttention(row)),
 				effectiveState: row.effectiveState,
 				canRespond: false,
 				canCancel: false,

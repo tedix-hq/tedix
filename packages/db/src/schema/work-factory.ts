@@ -15,6 +15,7 @@ import {
 	index,
 	integer,
 	primaryKey,
+	real,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -707,6 +708,48 @@ export const workInteractionReplyDrafts = sqliteTable(
 		check(
 			"chk_work_interaction_reply_draft_delivery",
 			sql`${table.delivery} IN ('review','auto')`,
+		),
+	],
+);
+
+/**
+ * The server's verdict on whether a captured agent turn needs its user: one
+ * row per decision-capture question, replaced when it is re-triaged. `fyi`
+ * turns ask nothing of the user (status updates); `needs_you` turns ask for a
+ * decision, fact, approval or action only the user can give, and `need` says
+ * what in one plain line. Kept beside the question because its lifecycle
+ * guards make the question's own metadata immutable.
+ */
+export const workInteractionAttention = sqliteTable(
+	"work_interaction_attention",
+	{
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		interactionId: text("interaction_id").notNull(),
+		kind: text("kind", { enum: ["needs_you", "fyi"] as const }).notNull(),
+		need: text("need"),
+		/** Clef probability that the turn asks the user for something. */
+		asks: real("asks"),
+		decidedAt: text("decided_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			name: "pk_work_interaction_attention",
+			columns: [table.orgId, table.interactionId],
+		}),
+		foreignKey({
+			name: "fk_work_interaction_attention_request",
+			columns: [table.orgId, table.interactionId],
+			foreignColumns: [workInteractions.orgId, workInteractions.id],
+		}).onDelete("cascade"),
+		check(
+			"chk_work_interaction_attention_kind",
+			sql`${table.kind} IN ('needs_you','fyi')`,
+		),
+		check(
+			"chk_work_interaction_attention_need",
+			sql`${table.need} IS NULL OR length(${table.need}) BETWEEN 1 AND 240`,
 		),
 	],
 );

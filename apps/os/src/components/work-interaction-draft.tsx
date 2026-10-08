@@ -219,9 +219,9 @@ function ReviewDraft({
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>Draft from {drafterName}</CardTitle>
+				<CardTitle>Recommended answer from {drafterName}</CardTitle>
 				<CardDescription>
-					A suggested reply. Nothing is sent until you accept it.
+					Nothing is sent until you choose Send this.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="grid gap-3">
@@ -280,14 +280,14 @@ function ReviewDraft({
 									})
 								}
 							>
-								Accept
+								Send this
 							</Button>
 							<Button
 								variant="outline"
 								disabled={pending}
 								onClick={() => setEditing(true)}
 							>
-								Edit
+								Write my own
 							</Button>
 						</>
 					)}

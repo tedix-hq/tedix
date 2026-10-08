@@ -108,7 +108,7 @@ describe("tedi-drafted replies", () => {
 				onAnswer={() => {}}
 			/>,
 		);
-		expect(codex).toContain("Draft from Docs");
+		expect(codex).toContain("Recommended answer from Docs");
 		expect(codex).toContain("Docs drift after a push.");
 		expect(codex).toContain("Codex receives your answer with its next prompt");
 		expect(
@@ -147,8 +147,8 @@ describe("tedi-drafted replies", () => {
 		const labels = [...container.querySelectorAll("button")].map((button) =>
 			button.textContent?.trim(),
 		);
-		expect(labels).not.toContain("Accept");
-		expect(labels).not.toContain("Edit");
+		expect(labels).not.toContain("Send this");
+		expect(labels).not.toContain("Write my own");
 		const override = [...container.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Override",
 		)!;
@@ -186,7 +186,7 @@ describe("tedi-drafted replies", () => {
 					onAnswer={() => {}}
 				/>,
 			);
-			expect(html).toContain("Accept");
+			expect(html).toContain("Send this");
 			expect(html).not.toContain("Sent automatically");
 		}
 	});
@@ -206,7 +206,7 @@ describe("tedi-drafted replies", () => {
 				/>,
 			),
 		);
-		click(container, "Edit");
+		click(container, "Write my own");
 		const textarea = container.querySelector("textarea")!;
 		expect(textarea.value).toBe(DRAFT.body);
 		const setter = Object.getOwnPropertyDescriptor(
@@ -296,10 +296,10 @@ describe("tedi-drafted replies", () => {
 				</QueryClientProvider>,
 			),
 		);
-		expect(container.textContent).toContain("Draft from");
+		expect(container.textContent).toContain("Recommended answer from");
 		expect(container.textContent).toContain(DRAFT.body);
 		expect(container.textContent).toContain("Codex receives your answer");
-		await act(async () => click(container, "Accept"));
+		await act(async () => click(container, "Send this"));
 		expect(respond).toHaveBeenCalledWith({
 			requestId,
 			expectedRequestVersion: 3,

@@ -601,3 +601,73 @@ export const GetAgentReplyDraftLeaderboardResultSchema = z.object({
 		}),
 	),
 });
+
+/**
+ * Whether a captured agent turn needs its user, stored by the server on the
+ * question as `metadata.attention`. `fyi`: the turn asks nothing of the user
+ * (a status update); it is acknowledged for them and never counts as needing
+ * them. `needs_you`: the turn asks for a decision, fact, approval or action
+ * only the user can give; `need` says what in one plain line (null when the
+ * model could not write it).
+ */
+export const AGENT_TURN_ATTENTION_KINDS = ["needs_you", "fyi"] as const;
+export const AgentTurnAttentionKindSchema = z.enum(AGENT_TURN_ATTENTION_KINDS);
+export type AgentTurnAttentionKind = z.infer<
+	typeof AgentTurnAttentionKindSchema
+>;
+export const AgentTurnAttentionSchema = z.object({
+	kind: AgentTurnAttentionKindSchema,
+	need: z
+		.string()
+		.max(240)
+		.nullable()
+		.describe("What is needed from the user, in one plain line"),
+	asks: z
+		.number()
+		.min(0)
+		.max(1)
+		.nullable()
+		.describe("Probability that the turn asks the user for something"),
+	decidedAt: z.string(),
+});
+export type AgentTurnAttention = z.infer<typeof AgentTurnAttentionSchema>;
+
+export const RetriageAgentTurnQuestionsInputSchema = z.strictObject({
+	apply: z
+		.boolean()
+		.default(false)
+		.describe(
+			"false previews the verdicts; true stores them and expires the updates",
+		),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(50)
+		.default(25)
+		.describe("At most this many of the caller's open questions, newest first"),
+});
+
+export const RetriageAgentTurnQuestionsResultSchema = z.object({
+	scanned: z.number().int().min(0),
+	needsYou: z.number().int().min(0),
+	updates: z.number().int().min(0),
+	unavailable: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Questions the model could not judge; left unchanged"),
+	expired: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Updates closed by expiring them (only with apply)"),
+	items: z.array(
+		z.object({
+			requestId: z.uuid(),
+			kind: AgentTurnAttentionKindSchema.nullable(),
+			need: z.string().nullable(),
+			expired: z.boolean(),
+		}),
+	),
+});
