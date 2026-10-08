@@ -170,6 +170,7 @@ const DETAIL_NAV = [
 	},
 	{ path: "/team/$tediId/learning", value: "learning", label: "Learning" },
 	{ path: "/team/$tediId/memory", value: "memory", label: "Memory" },
+	{ path: "/team/$tediId/mailbox", value: "mailbox", label: "Mailbox" },
 	{ path: "/team/$tediId/settings", value: "settings", label: "Settings" },
 ] as const;
 
@@ -241,7 +242,7 @@ export function TediOverview({ tediId }: { tediId: string }) {
 				<AlertDescription>
 					The header is the canonical roster and runtime summary for this
 					digital worker. Use the focused sections for authority, telemetry,
-					learning, memory, and governed settings.
+					learning, memory, mailbox, and governed settings.
 				</AlertDescription>
 			</Alert>
 			<Alert>

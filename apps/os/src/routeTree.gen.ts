@@ -86,6 +86,7 @@ import { Route as SessionTenantSkillsSkillIdVersionsRouteImport } from './routes
 import { Route as SessionTenantTeamTediIdIndexRouteImport } from './routes/_session/_tenant/team_.$tediId.index'
 import { Route as SessionTenantTeamTediIdAuthorityRouteImport } from './routes/_session/_tenant/team_.$tediId.authority'
 import { Route as SessionTenantTeamTediIdLearningRouteImport } from './routes/_session/_tenant/team_.$tediId.learning'
+import { Route as SessionTenantTeamTediIdMailboxRouteImport } from './routes/_session/_tenant/team_.$tediId.mailbox'
 import { Route as SessionTenantTeamTediIdMemoryRouteImport } from './routes/_session/_tenant/team_.$tediId.memory'
 import { Route as SessionTenantTeamTediIdSettingsRouteImport } from './routes/_session/_tenant/team_.$tediId.settings'
 import { Route as SessionTenantTeamTediIdTelemetryRouteImport } from './routes/_session/_tenant/team_.$tediId.telemetry'
@@ -514,6 +515,12 @@ const SessionTenantTeamTediIdLearningRoute =
     path: '/learning',
     getParentRoute: () => SessionTenantTeamTediIdRoute,
   } as any)
+const SessionTenantTeamTediIdMailboxRoute =
+  SessionTenantTeamTediIdMailboxRouteImport.update({
+    id: '/mailbox',
+    path: '/mailbox',
+    getParentRoute: () => SessionTenantTeamTediIdRoute,
+  } as any)
 const SessionTenantTeamTediIdMemoryRoute =
   SessionTenantTeamTediIdMemoryRouteImport.update({
     id: '/memory',
@@ -639,6 +646,7 @@ export interface FileRoutesByFullPath {
   '/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
   '/team/$tediId/authority': typeof SessionTenantTeamTediIdAuthorityRoute
   '/team/$tediId/learning': typeof SessionTenantTeamTediIdLearningRoute
+  '/team/$tediId/mailbox': typeof SessionTenantTeamTediIdMailboxRoute
   '/team/$tediId/memory': typeof SessionTenantTeamTediIdMemoryRoute
   '/team/$tediId/settings': typeof SessionTenantTeamTediIdSettingsRoute
   '/team/$tediId/telemetry': typeof SessionTenantTeamTediIdTelemetryRoute
@@ -716,6 +724,7 @@ export interface FileRoutesByTo {
   '/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
   '/team/$tediId/authority': typeof SessionTenantTeamTediIdAuthorityRoute
   '/team/$tediId/learning': typeof SessionTenantTeamTediIdLearningRoute
+  '/team/$tediId/mailbox': typeof SessionTenantTeamTediIdMailboxRoute
   '/team/$tediId/memory': typeof SessionTenantTeamTediIdMemoryRoute
   '/team/$tediId/settings': typeof SessionTenantTeamTediIdSettingsRoute
   '/team/$tediId/telemetry': typeof SessionTenantTeamTediIdTelemetryRoute
@@ -805,6 +814,7 @@ export interface FileRoutesById {
   '/_session/_tenant/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
   '/_session/_tenant/team_/$tediId/authority': typeof SessionTenantTeamTediIdAuthorityRoute
   '/_session/_tenant/team_/$tediId/learning': typeof SessionTenantTeamTediIdLearningRoute
+  '/_session/_tenant/team_/$tediId/mailbox': typeof SessionTenantTeamTediIdMailboxRoute
   '/_session/_tenant/team_/$tediId/memory': typeof SessionTenantTeamTediIdMemoryRoute
   '/_session/_tenant/team_/$tediId/settings': typeof SessionTenantTeamTediIdSettingsRoute
   '/_session/_tenant/team_/$tediId/telemetry': typeof SessionTenantTeamTediIdTelemetryRoute
@@ -890,6 +900,7 @@ export interface FileRouteTypes {
     | '/skills/$skillId/versions'
     | '/team/$tediId/authority'
     | '/team/$tediId/learning'
+    | '/team/$tediId/mailbox'
     | '/team/$tediId/memory'
     | '/team/$tediId/settings'
     | '/team/$tediId/telemetry'
@@ -967,6 +978,7 @@ export interface FileRouteTypes {
     | '/skills/$skillId/versions'
     | '/team/$tediId/authority'
     | '/team/$tediId/learning'
+    | '/team/$tediId/mailbox'
     | '/team/$tediId/memory'
     | '/team/$tediId/settings'
     | '/team/$tediId/telemetry'
@@ -1055,6 +1067,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/skills/$skillId/versions'
     | '/_session/_tenant/team_/$tediId/authority'
     | '/_session/_tenant/team_/$tediId/learning'
+    | '/_session/_tenant/team_/$tediId/mailbox'
     | '/_session/_tenant/team_/$tediId/memory'
     | '/_session/_tenant/team_/$tediId/settings'
     | '/_session/_tenant/team_/$tediId/telemetry'
@@ -1616,6 +1629,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantTeamTediIdLearningRouteImport
       parentRoute: typeof SessionTenantTeamTediIdRoute
     }
+    '/_session/_tenant/team_/$tediId/mailbox': {
+      id: '/_session/_tenant/team_/$tediId/mailbox'
+      path: '/mailbox'
+      fullPath: '/team/$tediId/mailbox'
+      preLoaderRoute: typeof SessionTenantTeamTediIdMailboxRouteImport
+      parentRoute: typeof SessionTenantTeamTediIdRoute
+    }
     '/_session/_tenant/team_/$tediId/memory': {
       id: '/_session/_tenant/team_/$tediId/memory'
       path: '/memory'
@@ -1883,6 +1903,7 @@ const SessionTenantAppsAppIdRouteWithChildren =
 interface SessionTenantTeamTediIdRouteChildren {
   SessionTenantTeamTediIdAuthorityRoute: typeof SessionTenantTeamTediIdAuthorityRoute
   SessionTenantTeamTediIdLearningRoute: typeof SessionTenantTeamTediIdLearningRoute
+  SessionTenantTeamTediIdMailboxRoute: typeof SessionTenantTeamTediIdMailboxRoute
   SessionTenantTeamTediIdMemoryRoute: typeof SessionTenantTeamTediIdMemoryRoute
   SessionTenantTeamTediIdSettingsRoute: typeof SessionTenantTeamTediIdSettingsRoute
   SessionTenantTeamTediIdTelemetryRoute: typeof SessionTenantTeamTediIdTelemetryRoute
@@ -1894,6 +1915,7 @@ const SessionTenantTeamTediIdRouteChildren: SessionTenantTeamTediIdRouteChildren
     SessionTenantTeamTediIdAuthorityRoute:
       SessionTenantTeamTediIdAuthorityRoute,
     SessionTenantTeamTediIdLearningRoute: SessionTenantTeamTediIdLearningRoute,
+    SessionTenantTeamTediIdMailboxRoute: SessionTenantTeamTediIdMailboxRoute,
     SessionTenantTeamTediIdMemoryRoute: SessionTenantTeamTediIdMemoryRoute,
     SessionTenantTeamTediIdSettingsRoute: SessionTenantTeamTediIdSettingsRoute,
     SessionTenantTeamTediIdTelemetryRoute:
