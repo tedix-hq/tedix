@@ -44,11 +44,17 @@ describe("listEnabledCatalogAppsForVectorSync", () => {
 		insert.run("b", "b", "B", "ENABLED");
 		insert.run("disabled", "disabled", "Disabled", "DISABLED");
 
-		const page = await listEnabledCatalogAppsForVectorSync(db, {
-			limit: 2,
-			offset: 1,
-		});
+		const first = await listEnabledCatalogAppsForVectorSync(db, { limit: 2 });
+		expect(first.map((app) => app.id)).toEqual(["a", "b"]);
 
-		expect(page.map((app) => app.id)).toEqual(["b", "c"]);
+		// A status change behind the cursor must not shift the next page.
+		sqlite
+			.prepare("UPDATE app_catalog SET status = 'DISABLED' WHERE id = 'a'")
+			.run();
+		const next = await listEnabledCatalogAppsForVectorSync(db, {
+			limit: 2,
+			afterId: first.at(-1)?.id,
+		});
+		expect(next.map((app) => app.id)).toEqual(["c"]);
 	});
 });

@@ -32,20 +32,6 @@ export function planCatalogFileBatchOffsets(
 }
 
 /**
- * Return stable offsets for a paged vector reindex. Unlike a source file, an
- * empty enabled catalog needs no explicit upload step.
- */
-export function planCatalogVectorPageOffsets(
-	recordCount: number,
-	pageSize: number,
-): number[] {
-	if (recordCount === 0) {
-		return [];
-	}
-	return planCatalogFileBatchOffsets(recordCount, pageSize);
-}
-
-/**
  * Cloudflare may replay an active Workflow after its backing Durable Object
  * resets — a code deploy, a storage timeout, or a lost connection to the
  * object. None of those is a terminal business failure, so classify on the

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	isCatalogSyncDeployReset,
 	planCatalogFileBatchOffsets,
-	planCatalogVectorPageOffsets,
 } from "./catalog-sync-files";
 
 describe("planCatalogFileBatchOffsets", () => {
@@ -26,20 +25,6 @@ describe("planCatalogFileBatchOffsets", () => {
 		expect(() => planCatalogFileBatchOffsets(10, 0)).toThrow(
 			"batchSize must be a positive safe integer",
 		);
-	});
-});
-
-describe("planCatalogVectorPageOffsets", () => {
-	it("splits the enabled catalog into durable AI Search pages", () => {
-		expect(planCatalogVectorPageOffsets(2722, 100)).toEqual([
-			0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300,
-			1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500,
-			2600, 2700,
-		]);
-	});
-
-	it("skips upload steps for an empty enabled catalog", () => {
-		expect(planCatalogVectorPageOffsets(0, 100)).toEqual([]);
 	});
 });
 
