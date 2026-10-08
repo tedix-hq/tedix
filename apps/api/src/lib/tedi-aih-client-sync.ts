@@ -25,6 +25,8 @@ import {
 } from "@tedix/auth/app-assignment-policy";
 import type { DbClient } from "@tedix/db/client";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
+import { getAppsByOrganization } from "@tedix/db/queries/apps";
+import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import type { App } from "@tedix/db/schema/apps";
 import {
 	deleteTediSecret,
@@ -307,6 +309,41 @@ async function findExistingTediClient(params: {
 			client.name === legacyClientName ||
 			client.tags?.includes(`tedi:${params.tedi.id}`),
 	);
+}
+
+/**
+ * The tedis whose AIH client on one of the organization's unified gateways
+ * (`*-unified` apps) was issued without `scope`. A client may narrow a tedi
+ * below its D1 profile and the gateway enforces the narrower set, so a tedi
+ * returned here cannot call a tool that needs `scope` through that gateway. A
+ * tedi with no client there is not returned. Throws when Descope fails.
+ */
+export async function tedisDeniedUnifiedGatewayScope(params: {
+	env: AihEnv;
+	db: DbClient;
+	organizationId: string;
+	scope: string;
+}): Promise<Set<string>> {
+	const serverIds = (
+		await getAppsByOrganization(params.db, params.organizationId)
+	)
+		.filter((app) => app.slug.endsWith("-unified"))
+		.map(getDescopeMcpResourceId)
+		.filter((id): id is string => id !== null);
+	const clients = (
+		await Promise.all(
+			serverIds.map((mcpServerId) =>
+				searchDescopeMcpServerClients(params.env, { mcpServerId }),
+			),
+		)
+	).flat();
+	const denied = new Set<string>();
+	for (const client of clients) {
+		const tediTag = client.tags?.find((tag) => tag.startsWith("tedi:"));
+		if (tediTag && !hasScope(client.scopes ?? [], params.scope))
+			denied.add(tediTag.slice("tedi:".length));
+	}
+	return denied;
 }
 
 function getClientId(client: McpServerClientRecord): string | null {
