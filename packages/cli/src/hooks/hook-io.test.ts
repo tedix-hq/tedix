@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	existsSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readJsonChild, HOOK_READ_STDOUT_LIMIT } from "./hook-io";
+import {
+	readJsonChild,
+	HOOK_READ_STDOUT_LIMIT,
+	unattendedRun,
+} from "./hook-io";
 const run = (source: string, timeout = 1000) =>
 	readJsonChild(process.execPath, ["-e", source], timeout);
 describe("owning raw hook child collector", () => {
@@ -100,5 +110,46 @@ describe("owning raw hook child collector", () => {
 				'{"ok":true}',
 			),
 		).toEqual({ ok: true });
+	});
+});
+
+describe("unattendedRun", () => {
+	test("claude -p and codex exec are unattended; interactive runs are not", () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-unattended-"));
+		try {
+			const rollout = (source: unknown) => {
+				const path = join(
+					dir,
+					`rollout-${JSON.stringify(source).length}.jsonl`,
+				);
+				writeFileSync(
+					path,
+					`${JSON.stringify({ type: "session_meta", payload: { id: "x", originator: "codex_exec", source, base_instructions: { text: "y".repeat(20_000) } } })}\n{"type":"event"}\n`,
+				);
+				return path;
+			};
+			const codex = (transcript_path: unknown) => ({
+				turn_id: "turn-1",
+				transcript_path,
+			});
+			expect(unattendedRun({}, { CLAUDE_CODE_SESSION_ATTENDED: "0" })).toBe(
+				true,
+			);
+			expect(unattendedRun({}, { CLAUDE_CODE_SESSION_ATTENDED: "1" })).toBe(
+				false,
+			);
+			expect(unattendedRun(codex(rollout("exec")), {})).toBe(true);
+			expect(unattendedRun(codex(rollout("cli")), {})).toBe(false);
+			expect(unattendedRun(codex(rollout({ subagent: "x" })), {})).toBe(false);
+			// Not Codex, missing or unreadable transcripts: attended.
+			expect(unattendedRun({ transcript_path: rollout("exec") }, {})).toBe(
+				false,
+			);
+			expect(unattendedRun(codex(null), {})).toBe(false);
+			expect(unattendedRun(codex(join(dir, "missing.jsonl")), {})).toBe(false);
+			expect(unattendedRun(codex("relative.jsonl"), {})).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

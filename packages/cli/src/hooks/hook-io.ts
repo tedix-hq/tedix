@@ -4,7 +4,8 @@
  * never placed in a command argument, uploaded by the read hooks, logged or saved.
  */
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { closeSync, openSync, readSync, realpathSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAgentContext } from "../agent-context";
 import { IS_STANDALONE_BUILD } from "../shared";
@@ -73,6 +74,45 @@ export function hostEvent(
 	};
 }
 
+/**
+ * True for a run nobody is attending, so no question can be put to a person:
+ * `claude -p` and the Agent SDK (CLAUDE_CODE_SESSION_ATTENDED=0), and
+ * `codex exec`, whose rollout transcript opens with session_meta
+ * `"source":"exec"` (Codex hooks carry no environment or payload flag for it).
+ */
+export function unattendedRun(
+	event: JsonObject,
+	env: NodeJS.ProcessEnv,
+): boolean {
+	if (env.CLAUDE_CODE_SESSION_ATTENDED === "0") return true;
+	const transcript = event.transcript_path;
+	if (
+		event.turn_id === undefined ||
+		typeof transcript !== "string" ||
+		!isAbsolute(transcript) ||
+		!transcript.endsWith(".jsonl")
+	)
+		return false;
+	let head = "";
+	try {
+		const fd = openSync(transcript, "r");
+		try {
+			const buffer = Buffer.alloc(8192);
+			head = buffer
+				.subarray(0, readSync(fd, buffer, 0, buffer.length, 0))
+				.toString("utf8");
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return false;
+	}
+	const first = head.split("\n", 1)[0] ?? "";
+	return (
+		first.includes('"type":"session_meta"') && /"source":"exec"/.test(first)
+	);
+}
+
 /** Largest host event decision capture accepts. */
 export const CAPTURE_EVENT_LIMIT = 4_194_304;
 
@@ -84,9 +124,11 @@ export const CAPTURE_EVENT_LIMIT = 4_194_304;
  */
 export function captureOwnsStop(raw: string, env: NodeJS.ProcessEnv): boolean {
 	try {
-		const { session } = hostEvent(raw, env, CAPTURE_EVENT_LIMIT, {
+		const { event, session } = hostEvent(raw, env, CAPTURE_EVENT_LIMIT, {
 			requireIdentity: true,
 		});
+		// Capture skips an unattended run, so the status hook keeps its Stop.
+		if (unattendedRun(event, env)) return false;
 		const binding = resolveAgentContext({
 			sessionId: session!,
 			allowDefault: true,

@@ -584,7 +584,7 @@ describe("tedix hooks prompt-context", () => {
 		};
 		const lessons = Array.from({ length: 8 }, (_, n) => ({
 			shortId: `l${n}`,
-			text: `Lesson ${n} ${"z".repeat(500)}`,
+			text: `Lesson ${n} ${"z".repeat(400)}`,
 		}));
 		const data = { ...copy(DATA), ...lessonsData(lessons) };
 		data.shared.text = "s".repeat(3200);
@@ -1050,12 +1050,39 @@ describe("prompt-context outside a bound repository", () => {
 		expect(calls).toHaveLength(1);
 	});
 
-	test("never reads a selection a default context could carry", async () => {
+	test("never reads a task selection a default context could carry", async () => {
 		const { calls } = await run([
-			{ ...DEFAULT, osWorkspaceId: WORKSPACE, contextOutputId: OUTPUT },
+			{
+				...DEFAULT,
+				osWorkspaceId: WORKSPACE,
+				contextOutputId: OUTPUT,
+				workItemId: WORK,
+			},
 			AUTH,
 			NO_LESSONS,
 		]);
 		expect(calls[2]!.at(-1)).not.toContain(OUTPUT);
+		expect(calls[2]!.at(-1)).not.toContain(WORK);
+	});
+
+	test("reads the organization's working preferences beside its lessons", async () => {
+		const { out, calls } = await run([
+			{
+				...DEFAULT,
+				preferencesWorkspaceId: WORKSPACE,
+				preferencesOutputId: OUTPUT,
+			},
+			AUTH,
+			{
+				preferences: copy(DATA.shared),
+				...lessonsData([{ shortId: "abcd1234", text: "Quote prices in EUR." }]),
+			},
+		]);
+		expect(calls[2]!.at(-1)).toContain(OUTPUT);
+		const text = additional(out);
+		expect(text).toContain("Working preferences");
+		expect(text).toContain("simple user stories");
+		expect(text).toContain("Quote prices in EUR.");
+		expect(text).toContain("For a status question, check live state");
 	});
 });

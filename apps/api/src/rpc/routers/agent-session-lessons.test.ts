@@ -60,6 +60,30 @@ describe("selectSessionLessons", () => {
 		]);
 	});
 
+	it("ranks answer-style lessons, then core rules, above repo matches", () => {
+		const result = selectSessionLessons(
+			[
+				row("tedix-repo", "Repo and harness lesson.", {
+					repo: "tedix",
+					harness: "codex",
+					topic: "ship",
+				}),
+				{ ...row("core-rule", "Call the workers tedis."), priority: "core" },
+				row("answer", "How to answer and report: - Answer in plain English", {
+					repo: "general",
+					harness: "general",
+					topic: "communication",
+				}),
+			],
+			{ harness: "codex", repo: "tedix", budgetBytes: 3200 },
+		);
+		expect(result.lessons.map((l) => l.id)).toEqual([
+			"answer",
+			"core-rule",
+			"tedix-repo",
+		]);
+	});
+
 	it("keeps general and matching lessons, ranks repo and topic matches first", () => {
 		const result = selectSessionLessons(
 			[

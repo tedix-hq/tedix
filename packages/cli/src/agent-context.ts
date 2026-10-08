@@ -387,7 +387,7 @@ function chatBinding(
 /** The one organization-wide document of a kind for this profile, if selected. */
 function organizationDocument(
 	rows: PreferenceSelection[] | undefined,
-	active: ContextTarget,
+	active: Omit<ContextTarget, "projectId">,
 ): PreferenceSelection | undefined {
 	const matches = (rows ?? []).filter(
 		(row) =>
@@ -466,7 +466,8 @@ function defaultTarget(
 
 /**
  * Default context for a session outside a bound repository: lessons for the
- * organization (no repository), and decision capture when this profile and
+ * organization (no repository), the working-preferences document selected for
+ * this profile and organization, and decision capture when this profile and
  * organization opted in and a project inbox is unambiguous.
  */
 function defaultContext(
@@ -493,6 +494,14 @@ function defaultContext(
 				? [...projects][0]
 				: undefined;
 	const sessionId = chatIdentity(options);
+	// The same organization-wide selection bound repositories use; an invalid
+	// one only drops the document, never the lessons.
+	let preference: PreferenceSelection | undefined;
+	try {
+		preference = organizationDocument(store.preferences, target);
+	} catch {
+		preference = undefined;
+	}
 	return {
 		status: "bound",
 		contextSource: "default",
@@ -502,6 +511,12 @@ function defaultContext(
 		mcpUrl: target.mcpUrl,
 		...(projectId ? { projectId } : {}),
 		...(optIn && projectId ? { decisionCapture: true } : {}),
+		...(preference
+			? {
+					preferencesWorkspaceId: preference.osWorkspaceId,
+					preferencesOutputId: preference.contextOutputId,
+				}
+			: {}),
 		...(sessionId ? { contextSessionId: sessionId } : {}),
 	};
 }

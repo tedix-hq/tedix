@@ -9,10 +9,11 @@
  * the organization gets them.
  *
  * Outside any Git repository (any folder, non-coding work too) the chat gets
- * the same lessons for the default organization with no repository, when the
- * profile resolves to exactly one organization (TEDIX_ORGANIZATION, the saved
- * set-default-organization choice while still selected, or the profile's only
- * one). Several possible organizations and none chosen: nothing is read.
+ * the same lessons for the default organization with no repository, plus the
+ * working-preferences document selected for that profile and organization,
+ * when the profile resolves to exactly one organization (TEDIX_ORGANIZATION,
+ * the saved set-default-organization choice while still selected, or the
+ * profile's only one). Several possible organizations and none chosen: nothing is read.
  * Inside an unbound Git repository the default never applies: only bound
  * repositories with the same origin owner, all in one organization, name it.
  *
@@ -59,6 +60,9 @@ const TOP_LESSONS = 3;
 const DOCUMENT_STEP = 200;
 const TRUNCATION_NOTE =
 	"\nContext truncated (complete=false); read the full current sources before relying on omitted detail.";
+/** Fixed, prompt-independent: a status answer from git alone misses live state. */
+const STATUS_HINT =
+	"For a status question, check live state before answering (the Work board via tedix work list or find, deploys and API health, CI), not just git.";
 const EVENT_LIMIT = 1_048_576;
 /** All reads finish inside the plugin's 15s hook timeout, with room to write. */
 const READ_BUDGET_MS = 13_500;
@@ -418,6 +422,7 @@ function compose(
 	// hook that never asked; alone it stays silent like any empty turn.
 	if (noLessons && lines.length > 1)
 		lines.push("Team lessons: none approved for this repository and host.");
+	if (lines.length > 1) lines.push(STATUS_HINT);
 	return lines.join("\n");
 }
 
@@ -460,7 +465,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			throw new Error("resolved chat mismatch");
 		if (binding.status === "unbound") return;
 		if (binding.status !== "bound") throw new Error("invalid binding");
-		// No bound repository: the default organization, lessons only.
+		// No bound repository: the default organization's lessons and preferences.
 		const outside = binding.contextSource === "default";
 		// Decision capture adds a read only while this chat has a question on file.
 		const capture =
@@ -478,7 +483,9 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			throw new Error("explicit profile conflicts with binding");
 		// The resolver verifies Git origin/profile/branch. Check current directory containment too.
 		if (outside) {
-			for (const key of TARGET_KEYS) delete binding[key];
+			// Only the organization-wide preferences document applies outside a repository.
+			for (const key of TARGET_KEYS)
+				if (!key.startsWith("preferences")) delete binding[key];
 			delete binding.origin;
 			delete binding.branch;
 		} else if (!insideRoot(binding.root, deps.cwd))

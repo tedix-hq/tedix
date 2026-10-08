@@ -883,6 +883,33 @@ describe("default organization outside a bound repository", () => {
 		).toBeUndefined();
 	});
 
+	test("carries the same organization's working-preferences document", () => {
+		const { opts } = fixture();
+		bind(opts);
+		const workspaceId = "11111111-1111-4111-8111-111111111111";
+		const preferenceId = "22222222-2222-4222-8222-222222222222";
+		changeAgentContext(
+			"connect-preferences",
+			{ osWorkspaceId: workspaceId, contextOutputId: preferenceId },
+			opts,
+		);
+		const away = outside(opts, { TEDIX_WORKSPACE: "tedix" });
+		expect(resolveAgentContext({ ...away, allowDefault: true })).toMatchObject({
+			contextSource: "default",
+			org: "org_tedix",
+			preferencesWorkspaceId: workspaceId,
+			preferencesOutputId: preferenceId,
+		});
+		// Another organization's default never borrows it.
+		connect(opts, ["org_customer"]);
+		expect(
+			resolveAgentContext({
+				...outside(opts, { TEDIX_WORKSPACE: "connect" }),
+				allowDefault: true,
+			}),
+		).not.toHaveProperty("preferencesOutputId");
+	});
+
 	test("never guesses among several organizations", () => {
 		const { opts } = fixture();
 		connect(opts, ["org_tedix", "org_customer"]);

@@ -66,7 +66,7 @@ import {
 } from "./lesson-distiller";
 
 /** Bumped when chunking, prompts or planning change: lessons are rebuilt once. */
-export const MAP_REDUCE_VERSION = 3;
+export const MAP_REDUCE_VERSION = 4;
 export const CHUNK_REPLIES = 150;
 /** At most this many chunks per person per run (4,500 replies). */
 export const MAX_CHUNKS = 30;
@@ -85,6 +85,14 @@ const RULE_CHARS = 150;
 /** Delivery shows at most 600 characters of one lesson. */
 const LESSON_CHARS = 600;
 const MAX_RULES_PER_LESSON = 10;
+/**
+ * Standing lessons arrive first in every session and share its lesson budget
+ * with written rules, so they stay compact: a few short rules each.
+ */
+const STANDING_CHARS = 450;
+const MAX_STANDING_RULES = 8;
+/** Answer-style rules lead a standing lesson: they shape every reply. */
+const MAX_VOICE_RULES = 3;
 const MIN_SESSIONS = 2;
 /** A rule with fewer sessions than FADE_MIN_SESSIONS fades after FADE_DAYS unrestated. */
 const FADE_DAYS = 45;
@@ -588,13 +596,17 @@ function fill(
 	header: string,
 	rules: RuleCandidate[],
 	accept: (rule: RuleCandidate, taken: RuleCandidate[]) => boolean = () => true,
+	limit: { chars: number; rules: number } = {
+		chars: LESSON_CHARS,
+		rules: MAX_RULES_PER_LESSON,
+	},
 ): RuleCandidate[] {
 	const taken: RuleCandidate[] = [];
 	let length = header.length;
 	for (const rule of rules) {
-		if (taken.length >= MAX_RULES_PER_LESSON) break;
+		if (taken.length >= limit.rules) break;
 		const added = rule.rule.length + 3;
-		if (length + added > LESSON_CHARS || !accept(rule, taken)) continue;
+		if (length + added > limit.chars || !accept(rule, taken)) continue;
 		taken.push(rule);
 		length += added;
 	}
@@ -606,8 +618,10 @@ function render(header: string, rules: RuleCandidate[]): string {
 }
 
 /**
- * Pure: the standing lesson (the most supported cross-subject rules, at most
- * two per subject before the rest fill), then one lesson per scope and subject.
+ * Pure: the standing lessons (within STANDING_CHARS and MAX_STANDING_RULES:
+ * up to MAX_VOICE_RULES answer-style rules first, then the most supported
+ * rule of each other subject, then the rest by support), then one lesson per
+ * scope and subject.
  */
 export function planLessons(
 	ownerUserId: string,
@@ -625,18 +639,33 @@ export function planLessons(
 		const header =
 			repo === ANY ? STANDING_HEADER : `How the user works in ${repo}:`;
 		const scoped = ranked.filter((rule) => repoOf(rule) === repo);
-		const diverse = fill(
+		const room = (taken: RuleCandidate[]) => ({
+			chars: STANDING_CHARS,
+			rules: MAX_STANDING_RULES - taken.length,
+		});
+		const voice = fill(
 			header,
-			scoped,
-			(rule, taken) => !taken.some((t) => t.subject === rule.subject),
+			scoped.filter((rule) => rule.subject === "communication"),
+			undefined,
+			{ chars: STANDING_CHARS, rules: MAX_VOICE_RULES },
 		);
+		const diverse = fill(
+			render(header, voice),
+			scoped.filter((rule) => !voice.includes(rule)),
+			(rule, taken) =>
+				![...voice, ...taken].some((t) => t.subject === rule.subject),
+			room(voice),
+		);
+		const first = [...voice, ...diverse.sort(bySupport)];
 		const standing = [
-			...diverse,
+			...first,
 			...fill(
-				render(header, diverse),
-				scoped.filter((rule) => !diverse.includes(rule)),
-			).slice(0, MAX_RULES_PER_LESSON - diverse.length),
-		].sort(bySupport);
+				render(header, first),
+				scoped.filter((rule) => !first.includes(rule)),
+				undefined,
+				room(first),
+			),
+		];
 		if (standing.length === 0) continue;
 		for (const rule of standing) hoisted.add(rule);
 		lessons.push({
