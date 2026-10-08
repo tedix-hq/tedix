@@ -174,4 +174,30 @@ describe("consumeAutomationEvents", () => {
 		);
 		expect(settled).toEqual(["ack:poison", "ack:good", "retry:bad"]);
 	});
+
+	it("skips a fallback drafting turn once the question has a draft", async () => {
+		const dispatched: string[] = [];
+		const event = (key: string, interactionId: string) => ({
+			kind: "tedi_turn",
+			organizationId: ORG,
+			tediId: TEDI,
+			content: "draft",
+			idempotencyKey: key,
+			skipIfReplyDraftFor: interactionId,
+		});
+		const deps = {
+			hasReplyDraft: async (_org: string, id: string) => id === "drafted",
+			enqueueTediTurn: async (e: { idempotencyKey: string }) => {
+				dispatched.push(e.idempotencyKey);
+				return { status: "queued" };
+			},
+		};
+		await expect(
+			handleAutomationEventMessage(env, event("a", "drafted"), {}, deps),
+		).resolves.toBe("ack");
+		await expect(
+			handleAutomationEventMessage(env, event("b", "missed"), {}, deps),
+		).resolves.toBe("ack");
+		expect(dispatched).toEqual(["b"]);
+	});
 });

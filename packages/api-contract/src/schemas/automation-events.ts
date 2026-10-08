@@ -35,6 +35,12 @@ export const AutomationEventSchema = z.discriminatedUnion("kind", [
 		conversationId: z.string().optional(),
 		idempotencyKey: z.string().min(1),
 		source: z.string().optional(),
+		/**
+		 * A Work Interaction id: the turn is skipped (acked, never dispatched)
+		 * when that interaction already has a reply draft. A delayed fallback
+		 * drafting turn carries it so it only runs when the first drafter missed.
+		 */
+		skipIfReplyDraftFor: z.string().min(1).optional(),
 	}),
 ]);
 

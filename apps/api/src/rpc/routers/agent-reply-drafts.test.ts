@@ -30,6 +30,7 @@ import {
 	agentTurnTriageContractRouter,
 	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 	nextReplyDraftAttempt,
+	REPLY_DRAFT_OWNER_TIMEOUT_S,
 } from "./agent-turn-triage";
 
 // A gate on the sessions read lets a test hold the prompt's reads open.
@@ -593,6 +594,110 @@ describe("requestReplyDraft direct dispatch", () => {
 		expect(
 			(f.send.mock.calls[0] as [Record<string, unknown>])[0],
 		).toMatchObject({ idempotencyKey: `reply-draft:${requestId}` });
+	});
+});
+
+describe("requestReplyDraft owner routing", () => {
+	const draft = {
+		body: "Yes, push it.",
+		rationale: "Tests pass.",
+		reversible: false,
+	};
+
+	/** OTHER_TEDI is an org tedi; Clef picks it (t1) with probability `p`. */
+	function routedFixture(p: number) {
+		const f = fixture();
+		f.sqlite
+			.prepare("UPDATE tedis SET scope='organization' WHERE id=?")
+			.run(OTHER_TEDI_ID);
+		f.clef.mockImplementation(async (_model, input) =>
+			"owner" in (input as { questions: Record<string, unknown> }).questions
+				? {
+						answers: {
+							owner: {
+								type: "choice",
+								choice: "t1",
+								probabilities: { t1: p, none: 1 - p },
+								confidence: p,
+							},
+						},
+					}
+				: { answers: {} },
+		);
+		return f;
+	}
+
+	it("sends the first attempt to the owning tedi with a delayed drafter fallback", async () => {
+		const f = routedFixture(0.9);
+		await f.configure();
+		const requestId = f.question();
+		await f.target.requestReplyDraft({ requestId });
+		expect(f.send).toHaveBeenCalledTimes(2);
+		const [fallback, options] = f.send.mock.calls[0] as unknown as [
+			Record<string, unknown>,
+			{ delaySeconds: number },
+		];
+		const [owned] = f.send.mock.calls[1] as [Record<string, unknown>];
+		expect(owned).toMatchObject({
+			tediId: OTHER_TEDI_ID,
+			idempotencyKey: `reply-draft:${requestId}`,
+			source: "reply-draft:v6:owner",
+		});
+		expect(owned.skipIfReplyDraftFor).toBeUndefined();
+		expect(fallback).toMatchObject({
+			tediId: DRAFTER_ID,
+			idempotencyKey: `reply-draft:${requestId}:2`,
+			conversationId: `reply-draft:${requestId}:2`,
+			source: "reply-draft:v6:owner-timeout",
+			skipIfReplyDraftFor: requestId,
+			content: owned.content,
+		});
+		expect(options).toEqual({ delaySeconds: REPLY_DRAFT_OWNER_TIMEOUT_S });
+	});
+
+	it("keeps the drafter below the routing threshold", async () => {
+		const f = routedFixture(0.6);
+		await f.configure();
+		const requestId = f.question();
+		await f.target.requestReplyDraft({ requestId });
+		expect(f.send).toHaveBeenCalledTimes(1);
+		expect(
+			(f.send.mock.calls[0] as [Record<string, unknown>])[0],
+		).toMatchObject({ tediId: DRAFTER_ID, source: "reply-draft:v6" });
+	});
+
+	it("lets the dispatched owner propose once; the late drafter is refused", async () => {
+		const f = routedFixture(0.9);
+		await f.configure();
+		const requestId = f.question();
+		// Not dispatched to it yet: an unconfigured tedi is refused.
+		await expect(
+			f.otherTedi.proposeReplyDraft({ requestId, ...draft }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		f.sqlite
+			.prepare(
+				"INSERT INTO chat_dispatch_idempotency (idempotency_key,tedi_id,organization_id,conversation_id,status,created_at) VALUES (?,?,?,?,'queued',CURRENT_TIMESTAMP)",
+			)
+			.run(
+				`reply-draft:${requestId}`,
+				OTHER_TEDI_ID,
+				ORG_ID,
+				`reply-draft:${requestId}`,
+			);
+		const { draftId } = await f.otherTedi.proposeReplyDraft({
+			requestId,
+			...draft,
+		});
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT drafter_id FROM work_interaction_reply_drafts WHERE id=?",
+				)
+				.get(draftId),
+		).toMatchObject({ drafter_id: OTHER_TEDI_ID });
+		await expect(
+			f.drafter.proposeReplyDraft({ requestId, ...draft }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 });
 
