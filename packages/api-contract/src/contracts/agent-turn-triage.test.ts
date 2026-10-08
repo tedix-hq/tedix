@@ -29,6 +29,7 @@ describe("agentTurnTriageContract", () => {
 			"mineSessionLessons",
 			"proposeReplyDraft",
 			"requestReplyDraft",
+			"retriageQuestions",
 			"triage",
 			"updatePolicy",
 		]);

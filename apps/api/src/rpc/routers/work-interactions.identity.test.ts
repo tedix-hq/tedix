@@ -4,6 +4,7 @@ import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
+	workInteractionAttention,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
@@ -27,6 +28,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workEvents,
 			workInteractions,
 			workInteractionResponses,
+			workInteractionAttention,
 			workInteractionReplyDrafts,
 			organizationMembers,
 			tedis,

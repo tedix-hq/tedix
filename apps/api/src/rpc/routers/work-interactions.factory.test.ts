@@ -4,6 +4,7 @@ import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
+	workInteractionAttention,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
@@ -27,6 +28,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workEvents,
 			workInteractions,
 			workInteractionResponses,
+			workInteractionAttention,
 			workInteractionReplyDrafts,
 			organizationMembers,
 			tedis,
@@ -203,6 +205,44 @@ it("projects targeted open inbox prompts and strips metadata/drafts with truthfu
 	expect(
 		(await target.get({ requestId: request.id })).latestDraft?.delivery,
 	).toBe("review");
+});
+
+it("shows stored attention as metadata.attention and keeps fyi turns out of urgent", async () => {
+	const { owner, target, sqlite } = fixture();
+	const urgent = {
+		schema: "tedix.decision-capture.v1",
+		triage: { status: "ok", urgency: "now", urgentLabels: ["risky_action"] },
+	};
+	const ask = await owner.create({
+		workItemId: WORK_ITEM_ID,
+		kind: "question",
+		subject: "Ask",
+		prompt: "Deploy now?",
+		metadata: urgent,
+		requestedFrom: { type: "user", id: "target-id" },
+	});
+	const update = await owner.create({
+		workItemId: WORK_ITEM_ID,
+		kind: "question",
+		subject: "Update",
+		prompt: "Deployed; checks green.",
+		metadata: urgent,
+		requestedFrom: { type: "user", id: "target-id" },
+	});
+	const insert = sqlite.prepare(
+		"INSERT INTO work_interaction_attention (org_id,interaction_id,kind,need,asks,decided_at) VALUES (?,?,?,?,?,?)",
+	);
+	insert.run(ORG_ID, ask.id, "needs_you", "Approve the deploy.", 0.9, "t");
+	insert.run(ORG_ID, update.id, "fyi", null, 0.1, "t");
+	const now = await target.listInbox({ urgency: "now" });
+	expect(now.data.map((row) => row.request.id)).toEqual([ask.id]);
+	expect(now.data[0]?.request.metadata?.attention).toEqual({
+		kind: "needs_you",
+		need: "Approve the deploy.",
+	});
+	expect(
+		(await target.get({ requestId: update.id })).request.metadata?.attention,
+	).toEqual({ kind: "fyi", need: null });
 });
 
 it("requires messaging scope and a verified active actor for compact inbox", async () => {

@@ -29,6 +29,8 @@ import {
 	ProposeAgentReplyDraftResultSchema,
 	RequestAgentReplyDraftInputSchema,
 	RequestAgentReplyDraftResultSchema,
+	RetriageAgentTurnQuestionsInputSchema,
+	RetriageAgentTurnQuestionsResultSchema,
 	TriageAgentTurnInputSchema,
 	TriageResultSchema,
 	UpdateAgentTurnTriagePolicyInputSchema,
@@ -39,7 +41,9 @@ import {
  * `label_agent_reply`, `get_agent_turn_triage_policy`,
  * `update_agent_turn_triage_policy`) and tedi-drafted replies to quiet
  * decision-capture questions (MCP: `request_agent_reply_draft`,
- * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`), and the
+ * `propose_agent_reply_draft`, `get_agent_reply_draft_acceptance`), the
+ * re-judging of the caller's open questions as updates or real asks
+ * (MCP: `retriage_agent_turn_questions`), and the
  * approved team lessons a local agent session receives
  * (MCP: `get_agent_session_lessons`, learned on demand by
  * `mine_agent_session_lessons`, measured by `get_lesson_effectiveness`), and the historic import of the caller's
@@ -133,6 +137,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(ProposeAgentReplyDraftInputSchema)
 			.output(ProposeAgentReplyDraftResultSchema),
+
+		retriageQuestions: oc
+			.route({
+				method: "POST",
+				path: "/questions/retriage",
+				summary: "Re-triage the caller's open agent-turn questions",
+				description:
+					"For the caller's own open decision-capture questions (newest first, up to `limit`): asks Clef whether each turn asks the caller for a decision, fact, approval or action only they can give, and writes a one-line `need` for those that do. With `apply`, stores the verdict as `metadata.attention` and expires the updates (turns that ask nothing); it never answers or cancels a question. A question the model cannot judge is left unchanged.",
+			})
+			.input(RetriageAgentTurnQuestionsInputSchema)
+			.output(RetriageAgentTurnQuestionsResultSchema),
 
 		getReplyDraftAcceptance: oc
 			.route({

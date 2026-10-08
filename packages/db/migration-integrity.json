@@ -804,6 +804,10 @@
 		{
 			"name": "20261008120632_skill-mcp-app-bindings/migration.sql",
 			"sha256": "451fbb5098eb2a687bc71c8c0fb713ab69a784a2db32dd9891e77a7d38eb387d"
+		},
+		{
+			"name": "20261008151049_work_interaction_attention/migration.sql",
+			"sha256": "d95108070fb5c903c05af1b4ebddea87590d65d85c05b9b5e5721b125eb8bd91"
 		}
 	]
 }

@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workItems } from "../../schema/work-items";
 import {
+	workInteractionAttention,
 	workInteractionResponses,
 	workInteractions,
 	type WorkInteraction,
@@ -13,6 +14,9 @@ import {
 } from "../../schema/work-factory";
 import { prefixedColumns } from "../../utils/select";
 import { tedis } from "../../schema/tedis";
+
+export type WorkInteractionAttentionRow =
+	typeof workInteractionAttention.$inferSelect;
 import {
 	WorkControlError,
 	requireActivePrincipal,
@@ -382,6 +386,96 @@ export async function cancelWorkInteraction(
 		);
 	return row;
 }
+export interface SetWorkInteractionAttentionParams {
+	orgId: string;
+	interactionId: string;
+	kind: WorkInteractionAttentionRow["kind"];
+	need: string | null;
+	asks: number | null;
+	decidedAt: string;
+}
+
+/** Store (or replace) the attention verdict of one question. */
+export async function setWorkInteractionAttention(
+	db: DbQueryClient,
+	p: SetWorkInteractionAttentionParams,
+): Promise<void> {
+	const values = {
+		kind: p.kind,
+		need: p.need,
+		asks: p.asks,
+		decidedAt: p.decidedAt,
+	};
+	await db
+		.insert(workInteractionAttention)
+		.values({ orgId: p.orgId, interactionId: p.interactionId, ...values })
+		.onConflictDoUpdate({
+			target: [
+				workInteractionAttention.orgId,
+				workInteractionAttention.interactionId,
+			],
+			set: values,
+		});
+}
+
+/** The attention verdict of one question, or null when none was stored. */
+export async function getWorkInteractionAttention(
+	db: DbQueryClient,
+	p: { orgId: string; interactionId: string },
+): Promise<WorkInteractionAttentionRow | null> {
+	return (
+		(
+			await db
+				.select()
+				.from(workInteractionAttention)
+				.where(
+					and(
+						eq(workInteractionAttention.orgId, p.orgId),
+						eq(workInteractionAttention.interactionId, p.interactionId),
+					),
+				)
+				.limit(1)
+		)[0] ?? null
+	);
+}
+
+/**
+ * Expire an open question now: the lifecycle's non-destructive close. It
+ * neither answers nor cancels the question. Null when it is no longer open at
+ * `expectedVersion`.
+ */
+export async function expireWorkInteraction(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		interactionId: string;
+		expectedVersion: number;
+		now: string;
+	},
+) {
+	return (
+		(
+			await db
+				.update(workInteractions)
+				.set({
+					status: "expired",
+					expiredAt: p.now,
+					resolutionFence: crypto.randomUUID(),
+					version: sql`${workInteractions.version}+1`,
+				})
+				.where(
+					and(
+						eq(workInteractions.orgId, p.orgId),
+						eq(workInteractions.id, p.interactionId),
+						eq(workInteractions.version, p.expectedVersion),
+						eq(workInteractions.status, "open"),
+					),
+				)
+				.returning({ id: workInteractions.id })
+		)[0] ?? null
+	);
+}
+
 export async function getWorkInteraction(
 	db: DbQueryClient,
 	p: { orgId: string; interactionId: string },
@@ -441,8 +535,9 @@ export async function listWorkInteractionInbox(
 		targetId?: string | null;
 		/**
 		 * Triage urgency recorded at create time in `metadata.triage.urgency`.
-		 * "later" also covers every interaction without triage, so the two
-		 * values partition the inbox exactly.
+		 * "later" also covers every interaction without triage, and every one
+		 * whose stored attention is `fyi` (it asks nothing of the user), so the
+		 * two values partition the inbox exactly.
 		 */
 		urgency?: WorkInteractionUrgency;
 		cursor?: { at: string; id: string };
@@ -454,7 +549,7 @@ export async function listWorkInteractionInbox(
 		"open" | "resolved" | "cancelled" | "expired"
 	>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workInteractions.status} END`;
 	const limit = Math.min(p.limit ?? 50, 200);
-	const urgency = sql`COALESCE(json_extract(${workInteractions.metadata},'$.triage.urgency'),'later')`;
+	const urgency = sql`CASE WHEN ${workInteractionAttention.kind}='fyi' THEN 'later' ELSE COALESCE(json_extract(${workInteractions.metadata},'$.triage.urgency'),'later') END`;
 	const rows = await db
 		.select({
 			request: prefixedColumns(workInteractions, "work_interaction"),
@@ -474,6 +569,12 @@ export async function listWorkInteractionInbox(
 				sql<number>`(SELECT COUNT(*) FROM work_interaction_responses response_count WHERE response_count.org_id=${workInteractions.orgId} AND response_count.interaction_id=${workInteractions.id})`.as(
 					"response_count",
 				),
+			attentionKind: sql<
+				WorkInteractionAttentionRow["kind"] | null
+			>`${workInteractionAttention.kind}`.as("work_interaction_attention_kind"),
+			attentionNeed: sql<string | null>`${workInteractionAttention.need}`.as(
+				"work_interaction_attention_need",
+			),
 		})
 		.from(workInteractions)
 		.leftJoin(
@@ -481,6 +582,13 @@ export async function listWorkInteractionInbox(
 			and(
 				eq(workItems.orgId, workInteractions.orgId),
 				eq(workItems.id, workInteractions.workItemId),
+			),
+		)
+		.leftJoin(
+			workInteractionAttention,
+			and(
+				eq(workInteractionAttention.orgId, workInteractions.orgId),
+				eq(workInteractionAttention.interactionId, workInteractions.id),
 			),
 		)
 		.where(

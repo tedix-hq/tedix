@@ -82,12 +82,13 @@ function client(context: BaseContext) {
 	return createRouterClient(agentTurnTriageContractRouter, { context });
 }
 
+/** Clef answers; the turn asks the user for something unless `asks_user` says otherwise. */
 function noulAnswers(probabilities: Record<string, number>) {
 	return {
 		model: "clef-flash",
 		usage: { input_tokens: 400, output_tokens: 0 },
 		answers: Object.fromEntries(
-			Object.entries(probabilities).map(([id, noul]) => [
+			Object.entries({ asks_user: 0.9, ...probabilities }).map(([id, noul]) => [
 				id,
 				{ type: "noul", noul },
 			]),
@@ -126,12 +127,19 @@ describe("triage", () => {
 		expect(body).toEqual({
 			model: "clef-flash",
 			state: { agent_message: "All checks pass; committed." },
-			questions: Object.fromEntries(
-				DEFAULT_AGENT_TURN_TRIAGE_POLICY.questions.map((q) => [
-					q.id,
-					{ type: "noul", instructions: q.instructions },
-				]),
-			),
+			questions: {
+				...Object.fromEntries(
+					DEFAULT_AGENT_TURN_TRIAGE_POLICY.questions.map((q) => [
+						q.id,
+						{ type: "noul", instructions: q.instructions },
+					]),
+				),
+				asks_user: {
+					type: "noul",
+					instructions:
+						"Does this turn ask the user for a decision, fact, approval or action only they can give?",
+				},
+			},
 		});
 		expect(options).toHaveProperty("signal");
 	});
@@ -152,6 +160,26 @@ describe("triage", () => {
 			"blocker_or_failure",
 			"human_only_action",
 		]);
+	});
+
+	it("never marks a turn that asks the user for nothing urgent", async () => {
+		const { env } = createEnv(async () =>
+			noulAnswers({
+				blocker_or_failure: 0.8,
+				human_only_action: 0.1,
+				risky_action: 0.1,
+				asks_user: 0.2,
+			}),
+		);
+		const result = await client(userContext(env)).triage({
+			text: "Rishi hasn't replied yet; I left the tracker unchanged.",
+		});
+		expect(result).toMatchObject({
+			status: "ok",
+			urgency: "later",
+			urgentLabels: [],
+			labels: { blocker_or_failure: 0.8, asks_user: 0.2 },
+		});
 	});
 
 	it("degrades to unavailable when the model errors", async () => {

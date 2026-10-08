@@ -206,6 +206,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// Reply drafting proposes answers to the operator's own questions.
 	request_agent_reply_draft: "mcp:messaging",
 	propose_agent_reply_draft: "mcp:messaging",
+	// Re-judges the caller's own open questions; expires updates, never answers.
+	retriage_agent_turn_questions: "mcp:messaging",
 	get_agent_reply_draft_acceptance: "mcp:messaging",
 	// The tedis that draft those replies, ranked by replies that stood.
 	get_agent_reply_draft_leaderboard: "mcp:messaging",
@@ -583,6 +585,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	// turn / append a draft) but never answer for the user.
 	request_agent_reply_draft: "write",
 	propose_agent_reply_draft: "write",
+	retriage_agent_turn_questions: "write",
 	// Emdash marks editorial writes destructive to request action confirmation.
 	// That hint does not make drafting or publishing content administration;
 	// publication still passes the owned-channel authorization gate.

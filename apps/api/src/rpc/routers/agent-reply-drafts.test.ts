@@ -19,6 +19,7 @@ import { tedis } from "@tedix/db/schema/tedis";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import {
+	workInteractionAttention,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
@@ -109,6 +110,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			workEvents,
 			workInteractions,
 			workInteractionResponses,
+			workInteractionAttention,
 			workInteractionReplyDrafts,
 			workAgentSessions,
 			organizationMembers,
@@ -334,7 +336,7 @@ describe("requestReplyDraft", () => {
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
 			conversationId: `reply-draft:${requestId}`,
-			source: "reply-draft:v6",
+			source: "reply-draft:v7",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);
 		const content = first.content as string;
@@ -661,14 +663,14 @@ describe("requestReplyDraft owner routing", () => {
 		expect(owned).toMatchObject({
 			tediId: OTHER_TEDI_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
-			source: "reply-draft:v6:owner",
+			source: "reply-draft:v7:owner",
 		});
 		expect(owned.skipIfReplyDraftFor).toBeUndefined();
 		expect(fallback).toMatchObject({
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}:2`,
 			conversationId: `reply-draft:${requestId}:2`,
-			source: "reply-draft:v6:owner-timeout",
+			source: "reply-draft:v7:owner-timeout",
 			skipIfReplyDraftFor: requestId,
 			content: owned.content,
 		});
@@ -767,7 +769,7 @@ describe("requestReplyDraft owner routing", () => {
 		expect(f.send).toHaveBeenCalledTimes(1);
 		expect(
 			(f.send.mock.calls[0] as [Record<string, unknown>])[0],
-		).toMatchObject({ tediId: DRAFTER_ID, source: "reply-draft:v6" });
+		).toMatchObject({ tediId: DRAFTER_ID, source: "reply-draft:v7" });
 	});
 
 	it("lets the dispatched owner propose once; the late drafter is refused", async () => {
@@ -1355,5 +1357,73 @@ describe("requestReplyDraft examples", () => {
 		expect(
 			(f.send.mock.calls[1] as [Record<string, unknown>])[0].content,
 		).not.toContain(HEADER);
+	});
+});
+
+describe("turn attention", () => {
+	const withAsk = (asks: number) => ({
+		...QUIET,
+		triage: { ...QUIET.triage, labels: { risky_action: 0.1, asks_user: asks } },
+	});
+
+	it("tells the drafter an update only needs a carry-on acknowledgement", async () => {
+		const f = fixture();
+		await f.configure();
+		const requestId = f.question(withAsk(0.1));
+		await f.target.requestReplyDraft({ requestId });
+		const [event] = f.send.mock.calls[0] as [Record<string, unknown>];
+		expect(event.content).toContain("Kind: a status update.");
+	});
+
+	it("re-triages open questions: updates expire, asks get a one-line need", async () => {
+		const f = fixture();
+		const update = f.question(QUIET);
+		const ask = f.question(withAsk(0.9));
+		const answered = f.question(QUIET, { status: "resolved" });
+		f.clef.mockImplementation(
+			async (model: string) =>
+				(model.includes("clef")
+					? { answers: { asks_user: { type: "noul", noul: 0.05 } } }
+					: {
+							response: '"**Decide** whether to ship the migration now."',
+						}) as never,
+		);
+		const preview = await f.target.retriageQuestions({});
+		expect(preview).toMatchObject({
+			scanned: 2,
+			updates: 1,
+			needsYou: 1,
+			expired: 0,
+		});
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_attention")
+				.get(),
+		).toEqual({ n: 0 });
+
+		const applied = await f.target.retriageQuestions({ apply: true });
+		expect(applied.expired).toBe(1);
+		expect(applied.items).toEqual(
+			expect.arrayContaining([
+				{ requestId: update, kind: "fyi", need: null, expired: true },
+				{
+					requestId: ask,
+					kind: "needs_you",
+					need: "Decide whether to ship the migration now.",
+					expired: false,
+				},
+			]),
+		);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT id, status, version FROM work_interactions ORDER BY id",
+				)
+				.all(),
+		).toEqual([
+			{ id: update, status: "expired", version: 2 },
+			{ id: ask, status: "open", version: 1 },
+			{ id: answered, status: "resolved", version: 1 },
+		]);
 	});
 });
