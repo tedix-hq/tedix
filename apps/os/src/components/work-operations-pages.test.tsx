@@ -112,7 +112,7 @@ describe("Request scope navigation", () => {
 		expect(html).toContain("Organization requests");
 		expect(html).toContain('href="/work/interactions"');
 		expect(html).toContain("My requests");
-		expect(html).toContain('href="/work?disposition=completed"');
+		expect(html).toContain('href="/work/queue?disposition=completed"');
 		expect(html).toContain('href="/work/attempts?view=active"');
 	});
 

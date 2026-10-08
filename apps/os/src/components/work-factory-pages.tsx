@@ -120,7 +120,7 @@ function FactoryPageHeader({
 export function WorkItemInspectorPage({ children }: { children: ReactNode }) {
 	return (
 		<Page width="lg">
-			<PageBack render={<Link href="/work" />}>All work</PageBack>
+			<PageBack render={<Link href="/work/queue" />}>All work</PageBack>
 			{children}
 		</Page>
 	);
@@ -798,9 +798,9 @@ export function WorkCompletedPage() {
 				description="Work recorded as completed. Open a record to inspect its outcome; completion does not by itself prove deployment."
 			/>
 			<Text as="p" role="body">
-				<Link href="/work">Queue</Link>
+				<Link href="/work/queue">Queue</Link>
 				{" · "}
-				<Link href="/work?disposition=completed" aria-current="page">
+				<Link href="/work/queue?disposition=completed" aria-current="page">
 					Completed
 				</Link>
 			</Text>
@@ -848,11 +848,11 @@ export function WorkQueuePage() {
 				description="Accepted work is evaluated against dependencies, capabilities, authority, budget, resources, and active attempts. Each row distinguishes completed gate evaluation from pending or unavailable checks."
 			/>
 			<Text as="p" role="body">
-				<Link href="/work" aria-current="page">
+				<Link href="/work/queue" aria-current="page">
 					Queue
 				</Link>
 				{" · "}
-				<Link href="/work?disposition=completed">Completed</Link>
+				<Link href="/work/queue?disposition=completed">Completed</Link>
 			</Text>
 			<WorkAttentionSummary
 				snapshot={fleet.data}

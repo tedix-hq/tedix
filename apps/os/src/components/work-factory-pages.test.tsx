@@ -138,7 +138,7 @@ describe("Work factory queue", () => {
 		);
 
 		expect(html).toContain("max-w-5xl");
-		expect(html).toContain('href="/work"');
+		expect(html).toContain('href="/work/queue"');
 		expect(html).toContain("All work");
 	});
 

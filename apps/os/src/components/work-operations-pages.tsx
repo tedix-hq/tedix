@@ -2627,7 +2627,9 @@ export function WorkControlPage() {
 			<Header
 				title="Attention"
 				description="See what needs a decision and what is working across your organization."
-				action={<Link href="/work?disposition=completed">Completed work</Link>}
+				action={
+					<Link href="/work/queue?disposition=completed">Completed work</Link>
+				}
 			/>
 			{fleet.isPending ? (
 				<Loading />
