@@ -198,6 +198,9 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 	if (bound) {
 		lines.push(
 			`Local opt-in: project=${JSON.stringify(binding.projectId ?? null)}; pointer=${JSON.stringify(binding.contextSource ?? "none")}. Pointers are not authority.`,
+			binding.decisionCapture === true
+				? "Decision capture: on."
+				: "Decision capture: OFF for this organization; no turns or replies are recorded (tedix setup agents context enable-decision-capture turns it on).",
 		);
 		if (!workId)
 			lines.push(

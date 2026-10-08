@@ -222,6 +222,68 @@ describe("local agent context", () => {
 		).toEqual([]);
 	});
 
+	test("cleaning up a scratch repository never turns decision capture off for the organization's other repositories", () => {
+		const { opts } = fixture();
+		bind(opts);
+		changeAgentContext("enable-decision-capture", {}, opts);
+		const scratch = join(opts.cwd, "..", "scratch");
+		mkdirSync(scratch);
+		git(scratch, ["init", "-b", "main"]);
+		git(scratch, [
+			"remote",
+			"add",
+			"origin",
+			"https://example.invalid/scratch.git",
+		]);
+		const temp = { ...opts, cwd: scratch };
+		changeAgentContext(
+			"bind",
+			{ workspace: "tedix", projectId: PROJECT },
+			temp,
+		);
+		expect(resolveAgentContext(temp).decisionCapture).toBe(true);
+		// The 2026-10-08 cleanup: disable in the scratch repository, then unbind.
+		expect(() => runAgentContext(["disable-decision-capture"], temp)).toThrow(
+			"including 1 other bound repository. To stop only this repository, run unbind",
+		);
+		changeAgentContext("unbind", {}, temp);
+		expect(resolveAgentContext(temp).status).toBe("unbound");
+		expect(resolveAgentContext(opts).decisionCapture).toBe(true);
+		// The last bound repository may still turn it off without the flag, and
+		// an explicit --organization-wide always may.
+		changeAgentContext(
+			"bind",
+			{ workspace: "tedix", projectId: PROJECT },
+			temp,
+		);
+		runAgentContext(["disable-decision-capture", "--organization-wide"], temp);
+		expect(resolveAgentContext(opts).decisionCapture).toBeUndefined();
+		expect(() =>
+			runAgentContext(["show", "--organization-wide"], opts),
+		).toThrow("Unknown, duplicate or missing context option");
+	});
+
+	test("show states plainly whether decision capture is on or off", () => {
+		const { opts } = fixture();
+		bind(opts);
+		const printed: string[] = [];
+		const log = console.log;
+		console.log = (line: string) => printed.push(line);
+		try {
+			runAgentContext(["show"], opts);
+			changeAgentContext("enable-decision-capture", {}, opts);
+			runAgentContext(["show"], opts);
+		} finally {
+			console.log = log;
+		}
+		expect(printed[0]).toContain(
+			"Decision capture: OFF for organization org_tedix; no turns or replies are recorded.",
+		);
+		expect(printed[1]).toContain(
+			"Decision capture: on for organization org_tedix.",
+		);
+	});
+
 	test("unconfigured directories stay unbound and binding pins explicit profile/project", () => {
 		const { opts } = fixture();
 		expect(resolveAgentContext(opts)).toEqual({ status: "unbound" });
@@ -1071,7 +1133,16 @@ describe("default organization outside a bound repository", () => {
 		).toMatchObject({ decisionCapture: true, projectId: SECOND });
 		changeAgentContext("enable-decision-capture", {}, opts);
 		expect(resolveAgentContext(away).projectId).toBe(SECOND);
-		changeAgentContext("disable-decision-capture", {}, away);
+		// Two repositories are bound, so stopping it org-wide must be confirmed.
+		expect(() =>
+			changeAgentContext("disable-decision-capture", {}, away),
+		).toThrow("--organization-wide");
+		expect(resolveAgentContext(opts).decisionCapture).toBe(true);
+		changeAgentContext(
+			"disable-decision-capture",
+			{ organizationWide: true },
+			away,
+		);
 		expect(resolveAgentContext(opts).decisionCapture).toBeUndefined();
 		expect(() =>
 			changeAgentContext(

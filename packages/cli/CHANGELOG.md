@@ -3,6 +3,18 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.7.2 — 2026-10-08
+
+### Fixed
+
+- `setup agents context disable-decision-capture` no longer silently turns
+  decision capture off for an organization's other bound repositories. While
+  others are bound it refuses and says so; add `--organization-wide` to stop it
+  everywhere, or run `unbind` to drop only this repository. `unbind` keeps the
+  organization's opt-in.
+- `setup agents context show` and the session-start brief now say plainly
+  whether decision capture is on or off.
+
 ## 0.7.1 — 2026-10-08
 
 ### Fixed
