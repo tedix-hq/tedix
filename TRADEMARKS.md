@@ -2,8 +2,7 @@
 
 "Tedix", the Tedix logo, "Tedix Cloud", "tedi", and Tedix certification
 badges are trademarks of Tedix GbR and its legal successors ("Tedix"). The
-code licenses do not grant trademark rights. This policy explains what you may do without separate
-permission.
+code licenses do not grant trademark rights.
 
 ## Allowed Without Permission
 
