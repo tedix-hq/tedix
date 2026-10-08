@@ -1,4 +1,5 @@
 import { GOVERNED_LEARNING_SCHEDULES } from "@tedix/api-contract/utils/governed-learning";
+import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
 import type { InferenceBudgetAdmissionClass } from "./inference-budget-store-do";
 
 const MAX_GATEWAY_SOURCE_CHARS = 96;
@@ -97,11 +98,14 @@ export type TrustedInstructionOrigin = "computer_execution" | "cron";
 export function inferenceBudgetAdmissionClass(input: {
 	trustedInstructionOrigin?: TrustedInstructionOrigin;
 	sessionKey?: string | null;
+	callerTrust?: CallerTrustTier;
 }): InferenceBudgetAdmissionClass {
 	const sessionKey = input.sessionKey?.trim() ?? "";
 	if (GOVERNED_LEARNING_SESSION_RE.test(sessionKey)) {
 		return "governed_learning";
 	}
+	// Nobody in the organization is waiting on a foreign caller's turn.
+	if (input.callerTrust === "foreign") return "background";
 	// Every runtime-authored origin is unattended work and draws the background
 	// lane; only a turn somebody is waiting on draws the operator reserve.
 	return input.trustedInstructionOrigin ? "background" : "operator";

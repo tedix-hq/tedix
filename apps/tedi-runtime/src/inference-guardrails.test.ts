@@ -22,6 +22,15 @@ assert.equal(
 	inferenceBudgetAdmissionClass({ trustedInstructionOrigin: "cron" }),
 	"background",
 );
+assert.equal(
+	inferenceBudgetAdmissionClass({ callerTrust: "foreign" }),
+	"background",
+	"a foreign MCP caller never draws the operator reserve",
+);
+assert.equal(
+	inferenceBudgetAdmissionClass({ callerTrust: "tedi" }),
+	"operator",
+);
 const assignmentWakeOrigin = trustedInstructionOriginForInject({
 	source: "work_item_assignment_inbox",
 });

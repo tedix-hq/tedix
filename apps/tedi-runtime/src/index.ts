@@ -60,6 +60,7 @@ import {
 	type JwtTenantExtractor,
 	type JwtValidator,
 } from "@tedix/mcp-shared/auth";
+import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { TEDI_MCP_SCOPES } from "@tedix/mcp-shared/auth/scopes";
 import type { McpAuthContext } from "@tedix/mcp-shared/auth/types";
 import { handleProtectedResource } from "@tedix/mcp-shared/well-known";
@@ -79,6 +80,7 @@ import { ChatTurnWorkflow } from "./chat-turn-workflow";
 import { AgentTediDO } from "./do";
 export { InertRuntimeDO } from "./inert-runtime-do";
 import { canManageDurableCode } from "./durable-codemode-auth";
+import { callerTrustTierForDirectMcpAuth } from "./mcp-caller-trust";
 import {
 	applyDurableCodeRecoveryAuthority,
 	resolveDurableCodeDelegation,
@@ -2201,6 +2203,15 @@ export default {
 			if (mcpAuth.error) return mcpAuth.error;
 			const auth = mcpAuth.auth;
 			const serviceBinding = isServiceBinding(request.headers);
+			// The gateway stamps the caller's trust tier on its service-binding hop.
+			// A direct caller's tier is derived from the authentication above, so
+			// an inbound copy of the header is never trusted.
+			if (!serviceBinding) {
+				headersForDo.set(
+					CALLER_TRUST_HEADER,
+					callerTrustTierForDirectMcpAuth(auth),
+				);
+			}
 			const durableDelegation = await resolveDurableCodeDelegation({
 				request,
 				trustedServiceBinding: serviceBinding,
