@@ -25,8 +25,8 @@ run locally.
 ![A supplier folder in a Tedix OS workspace](docs/public/assets/tedix-os-supplier-review.png)
 
 Tedix runs on Cloudflare Workers, Durable Objects, Workflows, D1, and R2. This
-repository is the whole product and the source Tedix Cloud is built from;
-`main` is the source line. Tedix is in beta:
+repository is the whole product and the source Tedix Cloud is built from.
+Tedix is in beta:
 [Release status](docs/public/release-status.md) lists what is available today.
 
 ## Try Tedix Cloud

@@ -1,8 +1,8 @@
 # Changelog
 
-Human release notes for the Tedix source repository. Each tagged release also
-carries machine-generated notes built from its conventional commits
-(`bun run release:notes`). The standalone CLI has its own `cli-v*` releases.
+Release notes for the Tedix source repository. Each tagged release also
+carries notes generated from its commits. The standalone CLI has its own
+`cli-v*` releases.
 
 ## v0.1.0-beta.1 (6 October 2026)
 
