@@ -45,6 +45,7 @@ import {
 	distillPersonalLessons,
 	lastingRules,
 	MAP_REDUCE_VERSION,
+	mergeByWords,
 	mergedFromResponse,
 	planLessons,
 	settle,
@@ -213,6 +214,80 @@ describe("reduce", () => {
 				].map((rule) => candidate({ rule, sessions: ["s1", "s2"] })),
 			),
 		).toEqual([]);
+	});
+
+	it("lets one newer correction override a rule many older sessions stated", () => {
+		const old = candidate({
+			rule: "Always name fixture files with the zebra- prefix",
+			subject: "coding",
+			sessions: ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"],
+			eventIds: ["a"],
+			newestAt: "2026-10-01T00:00:00.000Z",
+			standing: true,
+		});
+		const correction = candidate({
+			rule: "Always name fixture files with the okapi- prefix",
+			subject: "coding",
+			sessions: ["s9"],
+			eventIds: ["b"],
+			newestAt: "2026-10-08T00:00:00.000Z",
+			standing: true,
+		});
+		// Merged by words (the old rule's words): the newest wording wins.
+		expect(mergeByWords([old, correction]).map((c) => c.rule)).toEqual([
+			"Always name fixture files with the okapi- prefix",
+		]);
+		expect(lastingRules([old, correction]).map((c) => c.rule)).toEqual([
+			"Always name fixture files with the okapi- prefix",
+		]);
+		// The model kept only the newer rule: the older, widely supported one
+		// is not brought back.
+		const reworded = {
+			...correction,
+			rule: "Use the okapi- prefix for fixture files, not zebra-",
+		};
+		expect(
+			mergedFromResponse(
+				"- coding: Use the okapi- prefix for fixture files, not zebra- [2]",
+				[old, reworded],
+			)!.map((c) => c.rule),
+		).toEqual(["Use the okapi- prefix for fixture files, not zebra-"]);
+		// An unrelated widely supported rule the model left out is still kept.
+		expect(
+			mergedFromResponse(
+				"- coding: Use the okapi- prefix for fixture files, not zebra- [2]",
+				[candidate({ sessions: ["s1", "s2", "s3"] }), reworded],
+			)!.map((c) => c.rule),
+		).toEqual([
+			"Use the okapi- prefix for fixture files, not zebra-",
+			"Commit straight to main and never open pull requests",
+		]);
+	});
+
+	it("keeps a fresh two-session rule the model left out of a long merge", () => {
+		const fresh = candidate({
+			rule: "Name every fixture file with the zebra- prefix",
+			subject: "coding",
+			sessions: ["s8", "s9"],
+			eventIds: ["z"],
+			repos: ["scratch"],
+			newestAt: "2026-10-08T00:00:00.000Z",
+		});
+		const thin = candidate({
+			rule: "Use the blue button once",
+			subject: "coding",
+			sessions: ["s3"],
+			eventIds: ["c"],
+		});
+		const merged = mergedFromResponse(
+			"- git: Commit straight to main, never open pull requests [1]",
+			[candidate({ sessions: ["s1", "s2"] }), fresh, thin],
+			true,
+		)!;
+		expect(merged.map((c) => c.rule)).toEqual([
+			"Commit straight to main, never open pull requests",
+			"Name every fixture file with the zebra- prefix",
+		]);
 	});
 
 	it("never relearns a rule a person archived", () => {
