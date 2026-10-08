@@ -1329,6 +1329,7 @@ describe("oRPC tool projection sync", () => {
 			"list_stale_external_agent_knowledge_sessions",
 			"record_external_agent_knowledge_checkpoint",
 			"record_external_agent_knowledge_disposition",
+			"rename_external_agent_principal",
 			"retire_abandoned_external_agent_session",
 			"revoke_external_agent_mcp_credential",
 			"start_external_agent_session_for_host",

@@ -192,6 +192,35 @@ export async function setExternalAgentPrincipalStatus(
 	return rows[0];
 }
 
+/** Display name only: the key is immutable because provenance refers to it. */
+export async function renameExternalAgentPrincipal(
+	db: DbClient,
+	params: {
+		organizationId: string;
+		principalId: string;
+		displayName: string;
+		updatedAt: string;
+	},
+): Promise<ExternalAgentPrincipal> {
+	const [row] = await db
+		.update(externalAgentPrincipals)
+		.set({ displayName: params.displayName, updatedAt: params.updatedAt })
+		.where(
+			and(
+				eq(externalAgentPrincipals.organizationId, params.organizationId),
+				eq(externalAgentPrincipals.id, params.principalId),
+			),
+		)
+		.returning();
+	if (!row) {
+		throw new ExternalAgentIdentityError(
+			"principal_not_found",
+			"External-agent principal not found",
+		);
+	}
+	return row;
+}
+
 export async function listExternalAgentPrincipals(
 	db: DbClient,
 	params: { organizationId: string; limit?: number },

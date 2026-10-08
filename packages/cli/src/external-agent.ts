@@ -1049,6 +1049,57 @@ export async function finishExternalAgentSession(options: {
 	return session;
 }
 
+/**
+ * Renames this profile's principal for the people reading the board. The key
+ * is immutable: commit provenance and every stored session refer to it.
+ */
+export async function renameExternalAgentPrincipal(options: {
+	workspace: string;
+	oauthBearer: string;
+	displayName?: string;
+	createClient?: GatewayClientFactory;
+}): Promise<{ key: string; displayName: string; previous: string }> {
+	const profile = readExternalAgentProfile(options.workspace);
+	if (!profile) throw new Error("No external-agent profile is configured.");
+	const displayName =
+		options.displayName?.trim() || defaultLocalPrincipal().displayName;
+	const client = createGatewayClient(
+		{
+			headers: { Authorization: `Bearer ${options.oauthBearer}` },
+			url: profile.mcpUrl,
+		},
+		options.createClient,
+	);
+	try {
+		const renamed = await callGatewayTool<Record<string, unknown>>(
+			client,
+			"external",
+			"rename_external_agent_principal",
+			{
+				organizationId: profile.organizationId,
+				principalId: profile.principalId,
+				displayName,
+			},
+		);
+		const stored = requiredString(
+			renamed.displayName,
+			"display name",
+			"rename_external_agent_principal",
+		);
+		writeExternalAgentProfile(options.workspace, {
+			...profile,
+			displayName: stored,
+		});
+		return {
+			key: profile.key,
+			displayName: stored,
+			previous: profile.displayName,
+		};
+	} finally {
+		await client.close();
+	}
+}
+
 export async function listStaleExternalAgentKnowledgeSessions(options: {
 	workspace: string;
 	oauthBearer: string;

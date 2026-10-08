@@ -7,6 +7,7 @@ import {
 	defaultLocalPrincipal,
 	externalAgentStatus,
 	finishExternalAgentSession,
+	renameExternalAgentPrincipal,
 	resolveExternalAgentAuth,
 	startExternalAgentSession,
 } from "./external-agent";
@@ -1215,5 +1216,57 @@ describe("one profile shared by parallel harness sessions", () => {
 			key: "local",
 			displayName: "Local coding agents (user@machine)",
 		});
+	});
+});
+
+test("renames an existing profile's principal to the machine and user, keeping its key", async () => {
+	const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+	dirs.push(configDir);
+	process.env.TEDIX_CONFIG_DIR = configDir;
+	writeExternalAgentProfile("connect", {
+		organizationId: ORG,
+		principalId: PRINCIPAL,
+		key: "codex-gtm-example",
+		displayName: "Codex GTM",
+		apiKeyId: "22222222-2222-4222-8222-222222222222",
+		rawApiKey: "sk_external_secret",
+		scopes: ["mcp:work.read"],
+		mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+		createdAt: "2026-07-22T00:00:00.000Z",
+		sessions: {},
+	});
+	const code: string[] = [];
+	const expected = defaultLocalPrincipal().displayName;
+
+	const renamed = await renameExternalAgentPrincipal({
+		workspace: "connect",
+		oauthBearer: "owner-token",
+		createClient: () => ({
+			runCode: async (source: string) => {
+				code.push(source);
+				return {
+					result: {
+						id: PRINCIPAL,
+						key: "codex-gtm-example",
+						displayName: expected,
+					},
+				};
+			},
+			close: async () => {},
+		}),
+	});
+
+	expect(renamed).toEqual({
+		key: "codex-gtm-example",
+		displayName: expected,
+		previous: "Codex GTM",
+	});
+	expect(code).toHaveLength(1);
+	expect(code[0]).toContain("external.rename_external_agent_principal");
+	expect(code[0]).toContain(`"principalId":"${PRINCIPAL}"`);
+	expect(code[0]).toContain(`"organizationId":"${ORG}"`);
+	expect(externalAgentStatus("connect")).toMatchObject({
+		key: "codex-gtm-example",
+		displayName: expected,
 	});
 });

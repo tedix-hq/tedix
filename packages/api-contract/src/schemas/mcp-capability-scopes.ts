@@ -330,6 +330,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// External-agent principal creation is governed Work administration rather
 	// than platform scope.
 	create_external_agent_principal: "mcp:work",
+	rename_external_agent_principal: "mcp:work",
 	// A plugin host starting its owner's own Agent-Session is Work lifecycle.
 	start_external_agent_session_for_host: "mcp:work",
 	// Removing an org-scoped tedi-to-app grant is ordinary worker capability
@@ -666,6 +667,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	list_all_mine: "read",
 	create_api_key: "admin",
 	create_external_agent_principal: "admin",
+	rename_external_agent_principal: "admin",
 	apply_skill_proposal: "write",
 	// Plural skills-router twins keep their singular counterparts' tiers.
 	improve_skills: "write",

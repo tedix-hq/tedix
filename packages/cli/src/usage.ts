@@ -81,6 +81,7 @@ is required to start governed attempts or record their lifecycle evidence.
 Usage:
   tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> --model-version <version> [--agent-key <key>] [--display-name <name>]
   tedix agent status
+  tedix agent rename [--display-name <name>]
   tedix agent checkpoint <work-item-id> --note <summary> --idempotency-key <key>
   tedix agent finish [work-item-id] [--no-handoff-reason <reason>]
   tedix agent finish --zero-work-reason <reason> --idempotency-key <key>
@@ -97,6 +98,9 @@ Options:
 
 Agent session writes are governed production mutations. Subagents do not own
 the parent session or its Work Item attempt.
+
+Rename changes only the principal's display name (default: the machine and
+user); its key stays fixed because commit provenance refers to it.
 
 Use --zero-work-reason only when this session never started a Work Item attempt;
 it records an explicit audited zero-work disposition and closes the session.
