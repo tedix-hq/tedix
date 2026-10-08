@@ -307,6 +307,13 @@ export const McpConfigSchema = z
 		descopeResourceId: z.string().optional(),
 		expectedAudience: z.string().optional(),
 		protectedResourceMetadata: z.record(z.string(), JsonValueSchema).optional(),
+		/**
+		 * Default scopes named in the unauthenticated 401 challenge (RFC 6750
+		 * `scope`). Hosts that follow the MCP spec request these on first
+		 * sign-in instead of every advertised scope; clients that ask for more
+		 * explicitly (the CLI's admin login) still can.
+		 */
+		challengeScopes: z.array(z.string()).optional(),
 		toolScopes: z.record(z.string(), z.array(z.string())).optional(),
 		chatgptToolAllowlist: z.array(z.string()).optional(),
 		scopeDescriptions: z.record(z.string(), z.string()).optional(),
