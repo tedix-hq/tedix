@@ -32,11 +32,8 @@ tool work → result → continued context.
 
 OS and CLI conversations use Home/kernel in `apps/api`. When work is delegated,
 the tedi runs in `apps/tedi-runtime`. The embedded widget instead uses that
-runtime's conversation path directly. Do not route every request through all
+runtime's conversation path directly. Not every request passes through all
 these services: simple Home answers need no delegation or MCP tool call.
-
-To change the example's behavior, start at its owning step, read that subtree's
-`AGENTS.md`, and run its focused checks. No new service or framework is needed.
 
 ## Platform building blocks
 
@@ -73,10 +70,7 @@ Tedix classifies source-owned control surfaces into three planes:
   reconciliation
 
 `apps/api/src/rpc/fleet-authority-guards.json` lists the fleet-commercial API
-namespaces and procedures, and `apps/api/src/jobs/scheduled-dispatch.test.ts`
-lists the fleet-commercial schedules. Their tests fail when a listed procedure
-lacks the fleet guard, the guard appears outside the list, or a commercial
-schedule runs in `disabled` mode.
+namespaces and procedures.
 
 The API requires the non-secret `TEDIX_FLEET_AUTHORITY_MODE`. `disabled` makes
 fleet-commercial API procedures, Stripe webhooks, and commercial schedules
@@ -85,8 +79,7 @@ unavailable before they read commercial tables or provider secrets.
 current managed deployment. Any other value fails closed. Runtime entitlements
 remain on tenant `DB` in every mode.
 
-This is a physical optionality seam, not a claim that every classified table is
-already separate. Stripe receipt/subscription projection, provider
-reconciliation, and global alert-state owners resolve through the fleet store;
-catalog, submission, template, payment, and remaining billing query owners are
-still co-located and guarded.
+Not every fleet-commercial table is separate yet. Stripe receipts and
+subscriptions, provider reconciliation, and global alert state use the fleet
+store. Catalog, submission, template, payment, and remaining billing data still
+live in the tenant database, behind the fleet guard.

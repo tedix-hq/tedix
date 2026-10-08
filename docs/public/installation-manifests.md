@@ -97,17 +97,16 @@ Workers, Browser Rendering, Workers AI, Vectorize, Hyperdrive, Containers,
 assets), and that every declared zone exists, contains its declared hostname,
 and belongs to its declared account.
 
-Every manifest resource kind maps to exactly one probe; adding a resource kind
-to the schema without deciding its probe fails compilation, so a required
-dependency can never be silently omitted. Unresolved account or zone
+Every manifest resource kind maps to exactly one probe, so a required
+dependency is never silently skipped. Unresolved account or zone
 coordinates fail the preflight without any network call. Optional-resource
 capabilities that are missing are recorded but do not block.
 
 For a disposable-account certification, set `freshAccount: true` on the target
 account. The same read-only preflight then verifies that Worker scripts and
 every declared resource inventory with a Cloudflare list endpoint are empty. A
-non-empty inventory fails before provisioning, so an old alpha environment
-cannot be misrepresented as a fresh-account result.
+non-empty inventory fails before provisioning, so a used account cannot pass
+as a fresh one.
 
 Run `bunx wrangler login` once using your own Cloudflare account. Then
 `bun run --cwd packages/installation-manifest preflight --manifest <path>`
@@ -177,7 +176,7 @@ broker callbacks, cookies, tenant selection, session renewal, or logout.
 Provisioning checks the manifest OS worker's declared configuration, not
 deployed routes or browser build settings. Those must still agree with it.
 
-The OS and broker runtime now consume those exact installation origins. The
+The OS and broker runtime consume those exact installation origins. The
 browser build must receive the same values through its Wrangler overlay or
 `TEDIX_BUILD_OS_URL` and `TEDIX_BUILD_SESSION_BROKER_URL`. The OS Worker serves
 the exact launcher host; it does not infer tenant subdomains from a
@@ -216,7 +215,7 @@ resource; `apply` creates missing resources idempotently and adopts existing
 ones instead of recreating them, resolving unresolved coordinates from the
 created ids.
 
-Every resource kind has exactly one compile-time-checked provisioning path:
+Every resource kind has exactly one provisioning path:
 D1, R2, KV, Queues, and Vectorize are API-creatable; Durable Objects,
 Workflows, services, assets, and containers are deploy-owned (materialized by
 deploying the declaring Workers, reported but untouched); Browser Rendering
@@ -234,9 +233,7 @@ manifest.
 uses the same Wrangler login or explicit API token and prints the plan;
 mutation requires the explicit `--apply` flag, and `--json` emits the
 machine-readable report. Interactive apply reads only `DESCOPE_MANAGEMENT_KEY`
-for the identity check above. The former `--os-url`, `--descope-base-url`, and
-`--descope-management-api-base` provisioning flags are removed; target settings
-belong in the manifest, not parallel command-line or environment overrides.
+for the identity check above. Target settings come only from the manifest.
 Provisioning creates resources, not a complete running installation; it does
 not deploy Workers or replace the remaining bootstrap and identity setup.
 
@@ -251,7 +248,7 @@ schema, so a missing table fails instead of narrowing the check),
 `r2BackupRoundtrip` (write → copy under a backup prefix → byte-compare), and
 `applyD1Upgrade` (migration statements plus a schema verification against a
 restored database — recovery must accept the next upgrade, not just serve
-reads). All network access is injectable; tests never leave the process.
+reads).
 
 ## Wrangler overlays
 
@@ -276,9 +273,8 @@ names are returned separately and secret values are never emitted.
 Preview mode permits an uncertified schema-valid manifest but rejects unresolved
 coordinates. Deploy mode requires a successfully certified manifest at
 `installation-ready` or `operational`. The tracked
-`apps/api/wrangler.oss-example.json` and matching `.secrets.json` name artifact
-are regenerated with `bun run installation-manifest:overlay`; CI enforces drift
-with `bun run installation-manifest:overlay:check`.
+`apps/api/wrangler.oss-example.json` and its matching `.secrets.json` list of
+secret names are regenerated with `bun run installation-manifest:overlay`.
 
 These generated files are sanitized examples, not deployment or clean-account
 certification. Managed production coordinates are never published: every
