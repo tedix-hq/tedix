@@ -236,6 +236,8 @@ export const skillsImprove = authedSkills.improve
 					files: input.files ?? existing.files ?? null,
 					toolSlugs: allToolSlugs,
 					metadataToolSlugs,
+					mcpAppBindings: existing.mcpAppBindings,
+					organizationId: existing.organizationId,
 				},
 				scopeAppId,
 			);
@@ -778,6 +780,8 @@ export const skillsPreview = authedSkills.preview
 				files: effective.files,
 				toolSlugs: allToolSlugs,
 				metadataToolSlugs,
+				mcpAppBindings: existing?.mcpAppBindings,
+				organizationId: existing?.organizationId,
 			},
 			scopeAppId,
 		);

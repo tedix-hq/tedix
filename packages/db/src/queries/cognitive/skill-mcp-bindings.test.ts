@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { skillEntries } from "../../schema/cognitive";
+import { appTools } from "../../schema/tools";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { createSkillEntry, updateSkillEntry } from "./skill-crud";
@@ -10,6 +11,7 @@ import {
 	recordMissingSkillMcpAppBindings,
 	resolveSkillMcpNamespaceSlugs,
 } from "./skill-mcp-bindings";
+import { validateSkillInput } from "./skill-validation";
 
 /**
  * A skill names apps by namespace; an app slug may be renamed. These tests run
@@ -298,5 +300,56 @@ describe("skill MCP app bindings", () => {
 		expect(namespaceToSlug).toEqual({ acme_mail: "acme-mail" });
 		// A stale binding is replaced on the next content write, not by backfill.
 		expect(backfill).toEqual({});
+	});
+});
+
+describe("validateSkillInput after an app rename", () => {
+	function lintDb() {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(schemaDdl(apps, appTools));
+		return { db: createDbClient(createD1Facade(sqlite)), sqlite };
+	}
+	const unknownNamespace = (warnings: { code: string }[]) =>
+		warnings.filter((w) => w.code === "SKILL_CAPABILITY_UNKNOWN_NAMESPACE");
+	const input = {
+		title: "Mail digest",
+		content: skillBody({ mailer_acme: ["list-emails"] }),
+	};
+
+	it("trusts a stored binding instead of warning on the old namespace", async () => {
+		const { db, sqlite } = lintDb();
+		insertApp(sqlite, {
+			id: "app-mailer",
+			organizationId: ACME_ORG,
+			slug: "mailer-2-acme",
+		});
+		renameApp(sqlite, "app-mailer", "mailer-acme-renamed");
+
+		const unbound = await validateSkillInput(db, input);
+		expect(unknownNamespace(unbound.warnings)).toHaveLength(1);
+
+		const bound = await validateSkillInput(db, {
+			...input,
+			mcpAppBindings: { mailer_acme: "app-mailer" },
+			organizationId: ACME_ORG,
+		});
+		expect(unknownNamespace(bound.warnings)).toHaveLength(0);
+	});
+
+	it("ignores a binding to another organization's private app", async () => {
+		const { db, sqlite } = lintDb();
+		insertApp(sqlite, {
+			id: "app-foreign",
+			organizationId: OTHER_ORG,
+			slug: "foreign-mailer",
+		});
+
+		const result = await validateSkillInput(db, {
+			...input,
+			mcpAppBindings: { mailer_acme: "app-foreign" },
+			organizationId: ACME_ORG,
+		});
+		expect(unknownNamespace(result.warnings)).toHaveLength(1);
 	});
 });
