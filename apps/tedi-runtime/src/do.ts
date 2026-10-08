@@ -368,6 +368,7 @@ import { finalizeSuccessfulChatStream } from "./chat-stream-finalization";
 import { createRuntimePhaseTracker } from "./chat-runtime-phase";
 import { createToolInputProgress } from "./chat-tool-input-progress";
 import {
+	internalChatStreamTrust,
 	resolveChatContext,
 	type InternalChatStreamPayload,
 } from "./chat-stream-input";
@@ -680,6 +681,12 @@ import {
 	AUTO_SUBMITTED_HEADER,
 	AUTO_SUBMITTED_VALUE,
 } from "./email-sender-policy";
+import {
+	selectTrustedTurnTools,
+	trustedTurnMemoryEffects,
+	untrustedTurnSystemAddendum,
+	untrustedTurnToolAllowlist,
+} from "./turn-trust";
 import { wrapUntrustedInput } from "./untrusted-input";
 import {
 	type MemoryRecallReport,
@@ -1482,6 +1489,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				subAgent: this.subAgent.bind(this),
 				startFiber: this.startFiber.bind(this),
 				resolveFiber: this.resolveFiber.bind(this),
+				turnPolicy: () => this.state.telegramChannel ?? null,
 				runTurn: async (turn, onDelta) =>
 					consumeTelegramTurnStream(
 						await this.streamChatTurn(
@@ -1491,6 +1499,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 								clientRequestId: turn.operationId,
 								durableSubmissionId: turn.operationId,
 								messengerMetadata: turn.metadata,
+								// A record accepted before trust was decided carries none.
+								trust: turn.trust ?? "untrusted",
+								trustChannel: "telegram",
 								originalUiMessage: {
 									id: turn.operationId,
 									role: "user",
@@ -15072,19 +15083,27 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 							: Promise.resolve(""),
 					]);
 					const computerScope = computerWorkspaceScope({ sessionKey });
-					const tools: ToolSet = input.toolArgumentConstraints
-						? mcpTools
-						: {
-								...this.workspaceAiTools(computerScope, turnBinding),
-								...mcpTools,
-								...this.browserAiTools(computerScope, turnBinding),
-								...this.skillReadTool(turnBinding),
-								...this.durableCodemodeAiTools(computerScope, turnBinding),
-								...this.cronAiTool(sessionKey),
-								...this.workstationAiTool(computerScope, turnBinding),
-								...this.objectStoreAiTools(),
-								...this.r2SqlAiTool(),
-							};
+					const trust = input.trust ?? "trusted";
+					const trustChannel = input.trustChannel ?? "mcp";
+					// An unverified author keeps only the channel's read-only allowlist
+					// on top of the fenced (embedded) or full surface.
+					const tools: ToolSet = selectTrustedTurnTools({
+						trust,
+						allowlist: untrustedTurnToolAllowlist(trustChannel),
+						full: input.toolArgumentConstraints
+							? mcpTools
+							: {
+									...this.workspaceAiTools(computerScope, turnBinding),
+									...mcpTools,
+									...this.browserAiTools(computerScope, turnBinding),
+									...this.skillReadTool(turnBinding),
+									...this.durableCodemodeAiTools(computerScope, turnBinding),
+									...this.cronAiTool(sessionKey),
+									...this.workstationAiTool(computerScope, turnBinding),
+									...this.objectStoreAiTools(),
+									...this.r2SqlAiTool(),
+								},
+					});
 					const addenda = contextPolicy.cognitiveAddenda
 						? await this.cognitiveAddenda(sessionKey, userMessage, turnBinding)
 						: "";
@@ -15100,6 +15119,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 								: mcpRuntime?.getSystemInstructions()) ?? "",
 							toolsNote,
 							CODE_MODE_BATCHING_NOTE,
+							trust === "untrusted"
+								? untrustedTurnSystemAddendum(trustChannel)
+								: "",
 						],
 						[addenda, embeddedFit ?? ""],
 					);
@@ -15221,6 +15243,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 									userText: userTurn.content,
 									assistantText: assistantTurn.content,
 								}),
+					...trustedTurnMemoryEffects(input.trust ?? "trusted"),
 				});
 				if (!serviceOperationId)
 					await this.queue(
@@ -15490,10 +15513,12 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					{ status: 400 },
 				);
 			}
+			const sessionKey = payload.session_key || DEFAULT_SESSION_KEY;
 			return this.streamChatTurn({
-				sessionKey: payload.session_key || DEFAULT_SESSION_KEY,
+				sessionKey,
 				text: payload.text ?? "",
 				clientRequestId,
+				...internalChatStreamTrust(payload, sessionKey),
 				attachments: sanitizeChatAttachments(payload.attachments),
 				learningMode: payload.learning_mode,
 				contextPolicy: payload.context_policy,

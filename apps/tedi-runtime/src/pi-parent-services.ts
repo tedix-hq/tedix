@@ -476,6 +476,11 @@ import {
 	type ChatSdkStateParent,
 } from "agents/chat-sdk";
 import type { Agent, FiberRecoveryContext, FiberRecoveryResult } from "agents";
+import {
+	decideTelegramTurn,
+	type TelegramTurnPolicyConfig,
+} from "./telegram-turn-policy";
+import type { SurfaceTrust } from "./turn-trust";
 
 export const TelegramStateAgent = class ThinkMessengerStateAgent extends ChatSdkStateAgent {};
 
@@ -485,6 +490,8 @@ export interface TelegramTurn {
 	sessionKey: string;
 	text: string;
 	metadata: Record<string, unknown>;
+	/** Decided by `decideTelegramTurn` from the tedi's channel policy. */
+	trust: SurfaceTrust;
 }
 interface ReplyRecord extends AcceptedServiceOperation {
 	version: 1;
@@ -498,6 +505,8 @@ interface ReplyRecord extends AcceptedServiceOperation {
 }
 interface TelegramHost extends ChatSdkStateParent, ParentServiceAdmissionHost {
 	storage: DurableObjectStorage;
+	/** Current `channels.telegram` policy; read per message so edits apply live. */
+	turnPolicy?(): TelegramTurnPolicyConfig | null;
 	startFiber: Agent["startFiber"];
 	resolveFiber: Agent["resolveFiber"];
 	/** Must use operationId as native Pi submission id and return its owned answer. */
@@ -707,6 +716,21 @@ export class PiTelegram {
 		text: string,
 	): Promise<void> {
 		if (author.isMe) return;
+		const decision = decideTelegramTurn(this.host.turnPolicy?.() ?? null, {
+			isDM: thread.isDM,
+			channelId: thread.channelId,
+			author,
+			mentioned: kind !== "subscribed-message",
+		});
+		if (!decision.accept) {
+			console.log({
+				event: "tedi.telegram.dropped",
+				reason: decision.reason,
+				threadId: thread.id,
+				messageId,
+			});
+			return;
+		}
 		const threadId = thread.id;
 		const operationId = `telegram:${threadId}:${messageId}`;
 		const key = this.key(operationId);
@@ -744,6 +768,7 @@ export class PiTelegram {
 							? `${label(author)}: ${text}`
 							: text,
 					metadata,
+					trust: decision.trust,
 				},
 				thread: serialized,
 				stage: "accepted" as const,
