@@ -139,7 +139,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 	// The Clef delivery gate: every default check passes unless a test says otherwise.
 	const clef = vi.fn(async (_model: string, _input: unknown) => ({
 		answers: {
-			reversible_step: { type: "noul", noul: 0.95 },
+			irreversible_step: { type: "noul", noul: 0.05 },
 			correction_or_challenge: { type: "noul", noul: 0.05 },
 			needs_human: { type: "noul", noul: 0.05 },
 		} as Record<string, unknown>,
@@ -821,7 +821,7 @@ describe("proposeReplyDraft delivery", () => {
 
 	describe("Clef delivery gate", () => {
 		const PASSING = {
-			reversible_step: 0.95,
+			irreversible_step: 0.05,
 			correction_or_challenge: 0.05,
 			needs_human: 0.05,
 		};
@@ -863,7 +863,7 @@ describe("proposeReplyDraft delivery", () => {
 			expect(storedGate(f, requestId)).toMatchObject({
 				status: "pass",
 				checks: [
-					{ id: "reversible_step", p: 0.95, pass: true },
+					{ id: "irreversible_step", p: 0.05, pass: true },
 					{ id: "correction_or_challenge", p: 0.05, pass: true },
 					{ id: "needs_human", p: 0.05, pass: true },
 				],
@@ -873,7 +873,7 @@ describe("proposeReplyDraft delivery", () => {
 		});
 
 		it.each([
-			["reversible_step", { reversible_step: 0.79 }],
+			["irreversible_step", { irreversible_step: 0.31 }],
 			["correction_or_challenge", { correction_or_challenge: 0.31 }],
 			["needs_human", { needs_human: 0.31 }],
 		])("delivers review when %s fails", async (failed, patch) => {
@@ -901,7 +901,7 @@ describe("proposeReplyDraft delivery", () => {
 				status: "unavailable",
 				checks: [],
 			});
-			f.clef.mockResolvedValueOnce(answers({ reversible_step: 0.99 }));
+			f.clef.mockResolvedValueOnce(answers({ irreversible_step: 0.01 }));
 			const partial = await turn(f, 2);
 			expect(partial.delivery).toBe("review");
 			expect(storedGate(f, partial.requestId).status).toBe("unavailable");
