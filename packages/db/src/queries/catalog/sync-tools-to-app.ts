@@ -27,6 +27,7 @@ import {
 	jsonEqual,
 	mcpToolOutputSchema,
 	normalizeMcpInputSchema,
+	normalizeToolAnnotations,
 	ownsCatalogMcpTool,
 	readAppMcpConfig,
 	titleFromToolName,
@@ -229,7 +230,7 @@ export async function syncCatalogToolsToApp(
 		const title = ct.title ?? titleFromToolName(ct.toolName);
 		const icons = ct.icons ?? null;
 		const executionTaskSupport = ct.executionTaskSupport ?? null;
-		const annotations = ct.annotations ?? null;
+		const annotations = normalizeToolAnnotations(ct.annotations);
 		// Declarative classification, derived ONCE from the upstream annotations
 		// and persisted alongside them. Everything downstream (the Kernel write
 		// planner, the apps/mcp destructive gate) reads a column instead of

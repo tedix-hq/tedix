@@ -53,8 +53,10 @@ import {
 	normalizeToolAnnotations,
 	normalizeToolIcons,
 	normalizeToolMeta,
+	splitToolAnnotations,
 	type ToolDriftReportItem,
 	type ToolMetadataSnapshot,
+	withUpstreamAnnotationsMeta,
 } from "./tool-source-policy";
 
 // =============================================================================
@@ -142,14 +144,20 @@ export async function syncCatalogMcpTools(
 			mode === "partial"
 				? (existingTool?.executionTaskSupport ?? null)
 				: (tool.execution?.taskSupport ?? null);
+		// Upstream servers send non-standard annotation keys; keep only the
+		// MCP ToolAnnotations shape and park the rest in _meta.
+		const upstreamAnnotations = splitToolAnnotations(tool.annotations);
 		const annotations =
 			mode === "partial"
 				? (existingTool?.annotations ?? null)
-				: (tool.annotations ?? null);
+				: upstreamAnnotations.annotations;
 		const meta =
 			mode === "partial"
 				? (existingTool?.meta ?? null)
-				: normalizeToolMeta(tool._meta);
+				: withUpstreamAnnotationsMeta(
+						normalizeToolMeta(tool._meta),
+						upstreamAnnotations.extras,
+					);
 		const schemaDialect =
 			tool.schemaDialect ??
 			(mode === "partial" ? existingTool?.schemaDialect : null) ??
