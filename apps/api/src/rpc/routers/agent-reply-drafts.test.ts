@@ -12,6 +12,7 @@ import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/age
 import { createDbClient } from "@tedix/db/client";
 import { skillEntries } from "@tedix/db/schema/cognitive";
 import { chatDispatchIdempotency } from "@tedix/db/schema/cognitive-runtime";
+import { runtimeProfiles } from "@tedix/db/schema/control-plane";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { apps } from "@tedix/db/schema/apps";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -32,6 +33,7 @@ import {
 	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 	nextReplyDraftAttempt,
 	REPLY_DRAFT_OWNER_TIMEOUT_S,
+	replyDraftFallbackDelaySeconds,
 } from "./agent-turn-triage";
 
 // A gate on the sessions read lets a test hold the prompt's reads open.
@@ -114,6 +116,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			apps,
 			chatDispatchIdempotency,
 			skillEntries,
+			runtimeProfiles,
 		),
 	);
 	sqlite
@@ -669,7 +672,60 @@ describe("requestReplyDraft owner routing", () => {
 			skipIfReplyDraftFor: requestId,
 			content: owned.content,
 		});
-		expect(options).toEqual({ delaySeconds: REPLY_DRAFT_OWNER_TIMEOUT_S });
+		expect(options.delaySeconds).toBeGreaterThan(0);
+		expect(options.delaySeconds).toBeLessThanOrEqual(
+			REPLY_DRAFT_OWNER_TIMEOUT_S,
+		);
+		// The drafter has no runtime profile: the owner keeps its own model.
+		expect(owned.turnModel).toBeUndefined();
+	});
+
+	it("runs the owner's drafting turn on the drafter's model", async () => {
+		const f = routedFixture(0.9);
+		f.sqlite
+			.prepare(
+				"INSERT INTO runtime_profiles (id,organization_id,name,slug,config) VALUES ('rp-fast',?,'Fast','fast',?)",
+			)
+			.run(
+				ORG_ID,
+				JSON.stringify({
+					modelPolicy: {
+						chatModelRef: "azure-openai/gpt-6-luna",
+						cronModelRef: "azure-openai/gpt-6-luna",
+						observerModelRef: "azure-openai/gpt-6-luna",
+						generation: {
+							chat: { reasoningEffort: "low", maxOutputTokens: 1500 },
+						},
+					},
+				}),
+			);
+		f.sqlite
+			.prepare("UPDATE tedis SET runtime_profile_id='rp-fast' WHERE id=?")
+			.run(DRAFTER_ID);
+		await f.configure();
+		const requestId = f.question();
+		await f.target.requestReplyDraft({ requestId });
+		const [fallback] = f.send.mock.calls[0] as [Record<string, unknown>];
+		const [owned] = f.send.mock.calls[1] as [Record<string, unknown>];
+		expect(owned).toMatchObject({
+			tediId: OTHER_TEDI_ID,
+			turnModel: {
+				modelRef: "azure-openai/gpt-6-luna",
+				generation: { reasoningEffort: "low", maxOutputTokens: 1500 },
+			},
+		});
+		// The drafter's own fallback turn runs on its own policy.
+		expect(fallback.turnModel).toBeUndefined();
+	});
+
+	it("counts the fallback delay from the request", () => {
+		expect(replyDraftFallbackDelaySeconds(0, 0)).toBe(
+			REPLY_DRAFT_OWNER_TIMEOUT_S,
+		);
+		expect(replyDraftFallbackDelaySeconds(0, 4_200)).toBe(
+			REPLY_DRAFT_OWNER_TIMEOUT_S - 4,
+		);
+		expect(replyDraftFallbackDelaySeconds(0, 60_000)).toBe(1);
 	});
 
 	it("never routes to a tedi whose gateway client cannot store a draft", async () => {

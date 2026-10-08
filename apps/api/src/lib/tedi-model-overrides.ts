@@ -10,9 +10,17 @@
  */
 
 import {
+	type TurnModelSelection,
+	TurnModelSelectionSchema,
+} from "@tedix/api-contract/schemas/automation-events";
+import {
 	findCatalogEntry,
 	parseModelRef,
 } from "@tedix/api-contract/schemas/model-catalog";
+import type { DbClient } from "@tedix/db/client";
+import { getRuntimeProfileById } from "@tedix/db/queries/control-plane/definitions";
+import type { ModelPolicy } from "@tedix/db/schema/control-plane";
+import type { Tedi } from "@tedix/db/schema/tedis";
 
 /**
  * Extract + normalize the per-tedi chat model override from
@@ -53,4 +61,32 @@ export function rawChatModelOverride(
 		} | null
 	)?.agents?.defaults?.model?.primary;
 	return typeof primary === "string" && primary.length > 0 ? primary : null;
+}
+
+/**
+ * The model a tedi's own chat turns run on, as a selection another tedi's
+ * single turn can borrow (a reply draft routed to its owner runs on the
+ * Drafter's fast model). Same precedence as `tedis.getModelPolicy`: the
+ * per-tedi pin, then the runtime profile's `chatModelRef` with its chat
+ * generation settings. Null when neither names a model.
+ */
+export async function tediChatTurnModel(
+	db: DbClient,
+	tedi: Pick<Tedi, "runtimeOverrides" | "runtimeProfileId">,
+): Promise<TurnModelSelection | null> {
+	const profile = tedi.runtimeProfileId
+		? await getRuntimeProfileById(db, tedi.runtimeProfileId)
+		: null;
+	const policy = profile?.config?.modelPolicy as ModelPolicy | undefined;
+	const modelRef =
+		chatModelRefFromRuntimeOverrides(tedi.runtimeOverrides) ??
+		(typeof policy?.chatModelRef === "string" && policy.chatModelRef
+			? policy.chatModelRef
+			: null);
+	if (!modelRef) return null;
+	const parsed = TurnModelSelectionSchema.safeParse({
+		modelRef,
+		generation: policy?.generation?.chat,
+	});
+	return parsed.success ? parsed.data : null;
 }

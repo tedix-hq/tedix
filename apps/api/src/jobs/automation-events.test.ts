@@ -172,7 +172,42 @@ describe("consumeAutomationEvents", () => {
 				}),
 			},
 		);
-		expect(settled).toEqual(["ack:poison", "ack:good", "retry:bad"]);
+		expect(settled.sort()).toEqual(["ack:good", "ack:poison", "retry:bad"]);
+	});
+
+	it("dispatches a batch concurrently, not one message after another", async () => {
+		const turn = (key: string): AutomationQueueMessage => ({
+			body: {
+				kind: "tedi_turn",
+				organizationId: ORG,
+				tediId: TEDI,
+				content: "draft",
+				idempotencyKey: key,
+			},
+			ack: () => {},
+			retry: () => {},
+		});
+		const started: string[] = [];
+		let release = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const consumed = consumeAutomationEvents(
+			env,
+			[turn("a"), turn("b")],
+			{},
+			{
+				enqueueTediTurn: async (e) => {
+					started.push(e.idempotencyKey);
+					await held;
+					return { status: "queued" };
+				},
+			},
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(started).toEqual(["a", "b"]);
+		release();
+		await consumed;
 	});
 
 	it("skips a fallback drafting turn once the question has a draft", async () => {

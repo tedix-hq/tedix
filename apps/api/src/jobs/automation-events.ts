@@ -153,6 +153,7 @@ export async function handleAutomationEventMessage(
 					metadata: {
 						source: e.source ?? "automation-queue",
 						dispatchMode: "async",
+						...(e.turnModel ? { turnModel: e.turnModel } : {}),
 					},
 				});
 			});
@@ -183,21 +184,28 @@ export interface AutomationQueueMessage {
 	retry: () => void;
 }
 
-/** Consume one batch: settle each message independently (no batch-wide retry). */
+/**
+ * Consume one batch: settle each message independently (no batch-wide retry).
+ * Messages dispatch concurrently: a tedi_turn dispatch waits for the runtime
+ * to admit the turn (seconds on a cold tedi), and in series a batch of delayed
+ * reply-draft fallbacks started each one that much later than the last.
+ */
 export async function consumeAutomationEvents(
 	env: CloudflareEnv,
 	messages: readonly AutomationQueueMessage[],
 	opts: { waitUntil?: (p: Promise<unknown>) => void } = {},
 	deps: AutomationEventDeps = {},
 ): Promise<void> {
-	for (const message of messages) {
-		const outcome = await handleAutomationEventMessage(
-			env,
-			message.body,
-			opts,
-			deps,
-		);
-		if (outcome === "ack") message.ack();
-		else message.retry();
-	}
+	await Promise.all(
+		messages.map(async (message) => {
+			const outcome = await handleAutomationEventMessage(
+				env,
+				message.body,
+				opts,
+				deps,
+			);
+			if (outcome === "ack") message.ack();
+			else message.retry();
+		}),
+	);
 }
