@@ -148,7 +148,7 @@ export async function invalidateFact(
 		.where(eq(memoryFacts.id, factId));
 }
 
-/** Promote retrieved probation facts only after their producer's evidence gate. */
+/** Promote retrieved probation facts unless the evidence check rejected them. */
 export async function promoteFromProbation(
 	db: DbClient,
 	orgId: string,
@@ -167,16 +167,14 @@ export async function promoteFromProbation(
 				isNull(memoryFacts.archivedAt),
 				sql`${memoryFacts.validTo} IS NULL`,
 				sql`${memoryFacts.accessCount} >= ${minAccessCount}`,
-				// The afterTurn bridge writes observation:// facts. Access alone is
-				// not proof that an observer's generated claim is true or durable.
-				// Legacy observations without a verdict stay probationary; other
-				// producers retain their existing access-based promotion path.
+				// The afterTurn bridge writes observation:// facts. Use earns
+				// promotion like any other fact; only an observation the evidence
+				// check found unsupported stays probationary. Malformed metadata
+				// cannot prove it passed, so it also stays.
 				sql`CASE WHEN COALESCE(${memoryFacts.source}, '') LIKE 'observation://%'
-					THEN CASE WHEN json_valid(${memoryFacts.metadata})
-						THEN json_extract(${memoryFacts.metadata}, '$.memoryQuality.recipe') = 'memory-quality-v1'
-							AND json_extract(${memoryFacts.metadata}, '$.memoryQuality.verdict') = 'durable_candidate'
-							AND json_type(${memoryFacts.metadata}, '$.memoryQuality.sourceEvidenceSha256') = 'text'
-							AND length(json_extract(${memoryFacts.metadata}, '$.memoryQuality.sourceEvidenceSha256')) = 64
+					THEN CASE WHEN json_valid(COALESCE(${memoryFacts.metadata}, '{}'))
+						THEN COALESCE(json_extract(COALESCE(${memoryFacts.metadata}, '{}'), '$.memoryQuality.verdict'), '')
+							NOT IN ('unsupported', 'transient_or_unsupported')
 						ELSE 0 END
 				ELSE 1 END`,
 			),

@@ -494,8 +494,9 @@ const learn = authed.learn
 		// observer's generated fact never grounds itself. An absent/oversized
 		// excerpt performs no paid call and makes no claim of semantic support.
 		// This verdict can only restrict; it cannot grant any memory authority.
-		// Shadow (the default) judges after the insert and only records the
-		// verdict; enforce is an explicit tenant opt-in that gates the row inline.
+		// Enforce (the default) judges inline and restricts only an unsupported
+		// fact; a failed judgment never blocks the write. Shadow judges after the
+		// insert and only logs the verdict.
 		const memoryQualityRoute =
 			sourceEvidence.trim() &&
 			shouldEvaluateAfterTurnMemory({
@@ -523,7 +524,16 @@ const learn = authed.learn
 			: null;
 		const memoryQuality =
 			judgeMemoryQuality && memoryQualityRoute?.mode === "enforce"
-				? memoryQualityDisposition(await judgeMemoryQuality())
+				? memoryQualityDisposition(
+						await judgeMemoryQuality().catch((error) => {
+							console.warn("[memory.learn] memory quality judgment failed", {
+								orgId,
+								factId,
+								error: error instanceof Error ? error.message : String(error),
+							});
+							return "unavailable" as const;
+						}),
+					)
 				: null;
 		const memoryEvidenceHash = memoryQuality
 			? await memorySourceEvidenceHash(sourceEvidence)

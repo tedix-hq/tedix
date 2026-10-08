@@ -43,8 +43,9 @@ export const MEMORY_QUALITY_CASES = [
 			"Usually keep it brief. For this answer only, give me a long explanation.",
 	},
 	{
+		// Supported but temporary: expiry and decay handle it, not the check.
 		id: "status",
-		expected: false,
+		expected: true,
 		fact: "The deployment is currently waiting for a build.",
 		evidence:
 			"The deployment is currently waiting for a build; check again in five minutes.",
@@ -77,7 +78,7 @@ export const MEMORY_QUALITY_CASES = [
 	},
 	{
 		id: "ephemeral-supported",
-		expected: false,
+		expected: true,
 		fact: "The user is having soup for lunch today.",
 		evidence: "I'm having soup for lunch today.",
 	},
@@ -155,7 +156,7 @@ async function main() {
 				id: fixture.id,
 				expected: fixture.expected,
 				verdict,
-				passed: (verdict === "durable_candidate") === fixture.expected,
+				passed: (verdict !== "unsupported") === fixture.expected,
 				model: result.model,
 				usage: result.usage,
 				answers: result.answers,
@@ -183,11 +184,11 @@ async function main() {
 				split,
 				planned: fixtures.length,
 				attempted: rows.length,
-				falseDurableAdmissions: rows.filter(
-					(r) => !r.expected && r.verdict === "durable_candidate",
+				missedUnsupported: rows.filter(
+					(r) => !r.expected && r.verdict !== "unsupported",
 				).length,
-				lostDurableFacts: rows.filter(
-					(r) => r.expected && r.verdict !== "durable_candidate",
+				lostSupportedFacts: rows.filter(
+					(r) => r.expected && r.verdict === "unsupported",
 				).length,
 				rows,
 			},

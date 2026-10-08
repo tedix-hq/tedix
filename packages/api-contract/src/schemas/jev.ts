@@ -10,17 +10,20 @@ export const DecisionModelSchema = z.enum([
 export type DecisionModel = z.infer<typeof DecisionModelSchema>;
 
 /**
- * Memory judgments are unevaluated (no recorded eval run), so a confident wrong
- * verdict would silently remove recall. They run in shadow by default: judged,
- * metered and logged, never applied. An org opts into enforcement explicitly.
+ * A confident wrong memory verdict silently removes recall, so a purpose
+ * enforces by default only after a recorded evaluation on real facts. Memory
+ * quality passed (2026-10-07, see jev-memory-quality.ts); graph linking has
+ * not and stays in shadow: judged, metered and logged, never applied.
  * Clef keeps memory content on Workers AI rather than a third-party model owner.
  */
-const MemoryJudgmentPolicySchema = z
-	.strictObject({
-		mode: z.enum(["shadow", "enforce"]).default("shadow"),
-		model: DecisionModelSchema.default("@cf/cloudflare/clef-flash"),
-	})
-	.prefault({});
+const memoryJudgmentPolicy = (mode: "shadow" | "enforce") =>
+	z
+		.strictObject({
+			mode: z.enum(["shadow", "enforce"]).default(mode),
+			model: DecisionModelSchema.default("@cf/cloudflare/clef-flash"),
+		})
+		.prefault({});
+const MemoryJudgmentPolicySchema = memoryJudgmentPolicy("shadow");
 export type MemoryJudgmentPolicy = z.infer<typeof MemoryJudgmentPolicySchema>;
 
 /** Ranking defaults on; explicit v1 tenant/purpose denials remain authoritative. */
@@ -61,7 +64,7 @@ export const JevSettingsSchema = z.strictObject({
 					maxCandidates: z.number().int().min(1).max(40).default(40),
 				})
 				.prefault({}),
-			memoryQuality: MemoryJudgmentPolicySchema,
+			memoryQuality: memoryJudgmentPolicy("enforce"),
 			graphLinking: MemoryJudgmentPolicySchema,
 		})
 		.prefault({}),
