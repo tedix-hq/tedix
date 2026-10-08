@@ -354,7 +354,7 @@ export const REPLY_DRAFT_RETRY_AFTER_MS = 2 * 60_000;
  * instead when the owner has stored no draft this long after the request
  * (the runtime has no per-turn fast-model override to make the owner faster).
  */
-export const REPLY_DRAFT_OWNER_TIMEOUT_S = 35;
+export const REPLY_DRAFT_OWNER_TIMEOUT_S = 25;
 
 type InteractionRow = NonNullable<
 	Awaited<ReturnType<typeof getWorkInteraction>>
@@ -688,7 +688,7 @@ async function owningDraftTediId(
 		const routing = await routeToOwningTedi(context.env, {
 			tedis: candidates,
 			instructions:
-				"An operator's coding agent asked them this question during a work session. Which AI worker's area of responsibility (for example engineering and deploys, marketing and go-to-market, finance) does the subject clearly belong to? Choose none unless one worker plainly owns it.",
+				"An operator's coding agent asked them this question during a work session. Which AI worker's area of responsibility (for example engineering and deploys, marketing and go-to-market, finance) does the subject clearly belong to? Choose the worker that owns and does that work, not one that only reviews, validates or benchmarks it. Choose none unless one worker plainly owns it.",
 			state: {
 				subject: oneLine(params.request.subject, 300),
 				agentMessage: oneLine(params.request.prompt, 2_000),
