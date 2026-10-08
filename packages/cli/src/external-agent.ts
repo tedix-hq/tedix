@@ -121,6 +121,24 @@ export function defaultLocalPrincipal(
 	};
 }
 
+/**
+ * A profile set up before principals were named for the machine still carries
+ * the first agent's name, so every session on it looks like that agent. Point
+ * to the one command that fixes it; a name the owner chose stays quiet.
+ */
+export function renameNotice(
+	workspace: string,
+	profile: Pick<
+		StoredExternalAgentProfile,
+		"displayName" | "displayNameConfirmedAt"
+	>,
+): string | undefined {
+	if (profile.displayNameConfirmedAt) return undefined;
+	if (profile.displayName === defaultLocalPrincipal().displayName)
+		return undefined;
+	return `Notice: every agent session on workspace "${workspace}" appears as "${profile.displayName}". Name it for this machine with: tedix -w ${workspace} agent rename`;
+}
+
 function safeUsername(): string {
 	try {
 		return userInfo().username;
@@ -514,6 +532,7 @@ async function startExternalAgentSessionLocked(
 	session: StoredExternalAgentSession;
 }> {
 	let profile = readExternalAgentProfile(options.workspace);
+	const existingProfile = Boolean(profile);
 	if (profile && isMultiOrganizationMcpUrl(options.mcpUrl)) {
 		const target = options.oauthBearer
 			? resolveOrganizationTarget({
@@ -703,12 +722,18 @@ async function startExternalAgentSessionLocked(
 				scopes,
 				mcpUrl: organization.mcpUrl,
 				createdAt: new Date().toISOString(),
+				displayNameConfirmedAt: new Date().toISOString(),
 				sessions: {},
 			};
 			writeExternalAgentProfile(options.workspace, profile);
 		} finally {
 			await ownerClient.close();
 		}
+	}
+	if (existingProfile) {
+		const notice = renameNotice(options.workspace, profile);
+		if (notice)
+			(options.notice ?? ((message) => console.error(message)))(notice);
 	}
 	let exchange: ExternalAgentSessionExchangeOutput;
 	try {
@@ -1105,6 +1130,7 @@ export async function renameExternalAgentPrincipal(options: {
 		writeExternalAgentProfile(options.workspace, {
 			...profile,
 			displayName: stored,
+			displayNameConfirmedAt: new Date().toISOString(),
 		});
 		return {
 			key: profile.key,

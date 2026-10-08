@@ -40,6 +40,8 @@ export interface StoredExternalAgentProfile {
 	scopes: string[];
 	mcpUrl: string;
 	createdAt: string;
+	/** Set when the owner chose this name (first setup or `agent rename`). */
+	displayNameConfirmedAt?: string;
 	sessions: Record<string, StoredExternalAgentSession>;
 }
 
@@ -130,6 +132,9 @@ function coerceProfile(value: unknown): StoredExternalAgentProfile | null {
 		scopes: value.scopes as string[],
 		mcpUrl: value.mcpUrl as string,
 		createdAt: value.createdAt as string,
+		...(typeof value.displayNameConfirmedAt === "string"
+			? { displayNameConfirmedAt: value.displayNameConfirmedAt }
+			: {}),
 		sessions,
 	};
 }
