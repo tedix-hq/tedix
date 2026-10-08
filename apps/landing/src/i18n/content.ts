@@ -24,9 +24,9 @@ export const supportedLocaleCodes = Object.keys(supportedLocales) as Locale[];
 
 const englishContent = {
 	meta: {
-		title: "Tedix — Persistent AI workers for your organization",
+		title: "Tedix — AI coworkers that show their work",
 		description:
-			"Draft a meeting agenda, revise it in the same conversation, or assign tool-based work to a tedi with scoped permissions and a record of its actions.",
+			"Tedix gives your team AI coworkers for recurring work. They ask before risky steps and leave a record of every run.",
 	},
 	layout: {
 		skipToContent: "Skip to content",
@@ -85,12 +85,12 @@ const englishContent = {
 	},
 	home: {
 		hero: {
-			line1: "Give your team",
-			line2: "persistent",
-			line3: "AI workers.",
-			subtitleIntro:
-				"Start with a brief. Inspect the result. Continue the work.",
-			subtitleHighlight: "Invited beta.",
+			line1: "AI coworkers",
+			line2: "that show",
+			line3: "their work.",
+			subtitleIntro: "Tedix gives your team AI coworkers for recurring work.",
+			subtitleHighlight:
+				"They ask before risky steps and leave a record of every run.",
 			description:
 				"Draft a meeting agenda, revise it in the same conversation, or assign tool-based work to a tedi with scoped permissions and a record of its actions.",
 			primaryCta: "Open Tedix Cloud",
@@ -102,37 +102,6 @@ const englishContent = {
 				"Built on Cloudflare",
 			],
 			betaBadge: "Invited beta.",
-		},
-		challenge: {
-			eyebrow: "The challenge",
-			title: "The AI promise vs. reality",
-			description:
-				"Tired of hearing AI can do everything — but still don’t know how to leverage it?",
-			cards: [
-				{
-					badge: "Complexity",
-					title: "Months to deploy AI",
-					description:
-						"You’ve tried ChatGPT, Claude, etc. but going from “cool demo” to real business value feels impossible.",
-					alt: "A business team overwhelmed by the complexity of turning AI demos into production systems",
-				},
-				{
-					badge: "Risks",
-					title: "AI experimentation is costly",
-					description:
-						"Updating your technology stack causes high costs and embeds risks because the technology is still early.",
-					alt: "A visual metaphor for expensive and risky AI experimentation",
-				},
-				{
-					badge: "Silos",
-					title: "Chaotic information",
-					description:
-						"Data lives in 15 different tools. Nobody has the full picture. There are many knowledge sources. Decisions take weeks instead of hours.",
-					alt: "A stressed worker surrounded by tangled app logos and scattered company data",
-				},
-			],
-			closingPrefix: "You don’t need another AI tool.",
-			closingAccent: "You need an AI Assistant that understands your business.",
 		},
 		useCases: {
 			eyebrow: "Tasks and examples",
@@ -370,9 +339,9 @@ export type TimelineContent = HomeContent["timeline"];
 
 const germanContent = {
 	meta: {
-		title: "Tedix — Dauerhafte KI-Worker für Ihre Organisation",
+		title: "Tedix — KI-Kollegen, die ihre Arbeit zeigen",
 		description:
-			"Erstellen Sie eine Besprechungsagenda, überarbeiten Sie sie im selben Gespräch oder delegieren Sie Aufgaben mit Tools an einen Tedi mit begrenzten Rechten und nachvollziehbaren Aktionen.",
+			"Tedix gibt Ihrem Team KI-Kollegen für wiederkehrende Arbeit. Sie fragen vor riskanten Schritten nach und dokumentieren jeden Lauf.",
 	},
 	layout: {
 		skipToContent: "Zum Inhalt springen",
@@ -431,12 +400,13 @@ const germanContent = {
 	},
 	home: {
 		hero: {
-			line1: "Geben Sie Ihrem Team",
-			line2: "dauerhafte",
-			line3: "KI-Worker.",
+			line1: "KI-Kollegen,",
+			line2: "die ihre Arbeit",
+			line3: "zeigen.",
 			subtitleIntro:
-				"Mit einem Briefing starten. Ergebnis prüfen. Weiterarbeiten.",
-			subtitleHighlight: "Beta auf Einladung.",
+				"Tedix gibt Ihrem Team KI-Kollegen für wiederkehrende Arbeit.",
+			subtitleHighlight:
+				"Sie fragen vor riskanten Schritten nach und dokumentieren jeden Lauf.",
 			description:
 				"Erstellen Sie eine Besprechungsagenda, überarbeiten Sie sie im selben Gespräch oder delegieren Sie Aufgaben mit Tools an einen Tedi mit begrenzten Rechten und nachvollziehbaren Aktionen.",
 			primaryCta: "Tedix Cloud öffnen",
@@ -448,38 +418,6 @@ const germanContent = {
 				"Auf Cloudflare gebaut",
 			],
 			betaBadge: "Beta auf Einladung.",
-		},
-		challenge: {
-			eyebrow: "Die Herausforderung",
-			title: "Das KI-Versprechen vs. die Realität",
-			description:
-				"Sie hören ständig, KI könne alles — wissen aber noch nicht, wie Sie sie wirklich nutzen?",
-			cards: [
-				{
-					badge: "Komplexität",
-					title: "Monate bis zum KI-Einsatz",
-					description:
-						"Sie haben ChatGPT, Claude und andere Tools getestet, aber der Weg von der coolen Demo zu echtem Geschäftswert fühlt sich unmöglich an.",
-					alt: "Ein Business-Team, das von der Komplexität produktiver KI-Systeme überfordert ist",
-				},
-				{
-					badge: "Risiken",
-					title: "KI-Experimente sind teuer",
-					description:
-						"Die Modernisierung Ihres Tech-Stacks verursacht hohe Kosten und bringt Risiken mit sich, weil die Technologie noch jung ist.",
-					alt: "Eine visuelle Metapher für teure und riskante KI-Experimente",
-				},
-				{
-					badge: "Silos",
-					title: "Chaotische Informationen",
-					description:
-						"Daten liegen in 15 verschiedenen Tools. Niemand sieht das ganze Bild. Entscheidungen dauern Wochen statt Stunden.",
-					alt: "Eine gestresste Person, umgeben von App-Logos und verstreuten Unternehmensdaten",
-				},
-			],
-			closingPrefix: "Sie brauchen kein weiteres KI-Tool.",
-			closingAccent:
-				"Sie brauchen einen KI-Assistenten, der Ihr Unternehmen versteht.",
 		},
 		useCases: {
 			eyebrow: "Aufgaben und Beispiele",
@@ -713,9 +651,9 @@ const germanContent = {
 
 const spanishContent = {
 	meta: {
-		title: "Tedix — Workers de IA persistentes para tu organización",
+		title: "Tedix — Compañeros de IA que muestran su trabajo",
 		description:
-			"Crea una agenda, revísala en la misma conversación o asigna tareas con herramientas a un tedi con permisos limitados y un registro de sus acciones.",
+			"Tedix ofrece a tu equipo compañeros de IA para el trabajo recurrente. Preguntan antes de dar pasos arriesgados y dejan un registro de cada ejecución.",
 	},
 	layout: {
 		skipToContent: "Saltar al contenido",
@@ -774,12 +712,13 @@ const spanishContent = {
 	},
 	home: {
 		hero: {
-			line1: "Dale a tu equipo",
-			line2: "workers de IA",
-			line3: "persistentes.",
+			line1: "Compañeros de IA",
+			line2: "que muestran",
+			line3: "su trabajo.",
 			subtitleIntro:
-				"Empieza con un encargo. Revisa el resultado. Continúa el trabajo.",
-			subtitleHighlight: "Beta por invitación.",
+				"Tedix ofrece a tu equipo compañeros de IA para el trabajo recurrente.",
+			subtitleHighlight:
+				"Preguntan antes de dar pasos arriesgados y dejan un registro de cada ejecución.",
 			description:
 				"Crea una agenda, revísala en la misma conversación o asigna tareas con herramientas a un tedi con permisos limitados y un registro de sus acciones.",
 			primaryCta: "Abrir Tedix Cloud",
@@ -791,37 +730,6 @@ const spanishContent = {
 				"Basado en Cloudflare",
 			],
 			betaBadge: "Beta por invitación.",
-		},
-		challenge: {
-			eyebrow: "El reto",
-			title: "La promesa de la IA vs. la realidad",
-			description:
-				"¿Cansado de oír que la IA puede hacerlo todo, pero sin saber cómo aprovecharla?",
-			cards: [
-				{
-					badge: "Complejidad",
-					title: "Meses para desplegar IA",
-					description:
-						"Has probado ChatGPT, Claude y otras herramientas, pero pasar de una demo interesante a valor real de negocio parece imposible.",
-					alt: "Un equipo de negocio abrumado por la complejidad de convertir demos de IA en sistemas productivos",
-				},
-				{
-					badge: "Riesgos",
-					title: "Experimentar con IA es caro",
-					description:
-						"Actualizar tu stack tecnológico genera costes altos y añade riesgos porque la tecnología todavía es nueva.",
-					alt: "Una metáfora visual de experimentación con IA costosa y arriesgada",
-				},
-				{
-					badge: "Silos",
-					title: "Información caótica",
-					description:
-						"Los datos viven en 15 herramientas diferentes. Nadie tiene la imagen completa. Las decisiones tardan semanas en vez de horas.",
-					alt: "Una persona estresada rodeada de logos de apps y datos dispersos de la empresa",
-				},
-			],
-			closingPrefix: "No necesitas otra herramienta de IA.",
-			closingAccent: "Necesitas un asistente de IA que entienda tu negocio.",
 		},
 		useCases: {
 			eyebrow: "Tareas y ejemplos",

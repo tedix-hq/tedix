@@ -9,6 +9,6 @@ const content = getLocaleContent(locale);
 
 ---
 
-<BaseLayout title={content.meta.title} description={content.meta.description} locale={locale}>
+<BaseLayout title={content.meta.title} description={content.meta.description} image="/og-image.jpg" locale={locale}>
 	<HomePage content={content.home} locale={locale} />
 </BaseLayout>
