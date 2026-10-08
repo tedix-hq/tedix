@@ -32,6 +32,8 @@ export const REPLY_DRAFT_DELIVERIES = ["review", "auto"] as const;
 export type ReplyDraftDelivery = (typeof REPLY_DRAFT_DELIVERIES)[number];
 
 const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
+/** Turn type of a steering draft (`AGENT_REPLY_STEER_TURN_TYPE`). */
+const STEER_TURN_TYPE = "steer";
 /** Response `metadata.source` of an answer the user typed to their agent. */
 const USER_REPLY_SOURCE = "user-reply";
 /**
@@ -206,6 +208,46 @@ export async function countConsecutiveAutoReplies(
 		count++;
 	}
 	return count;
+}
+
+export interface GetPreviousSessionDraftTurnTypeParams {
+	orgId: string;
+	/** The current question; only questions before it count. */
+	interactionId: string;
+	targetUserId: string;
+	sessionId: string;
+	createdAt: string;
+}
+
+/**
+ * The turn type of the latest draft on the session's decision-capture question
+ * just before `interactionId` (same org, target user and `metadata.sessionId`);
+ * null when there is no earlier question, it has no draft, or no turn type.
+ */
+export async function getPreviousSessionDraftTurnType(
+	db: DbQueryClient,
+	p: GetPreviousSessionDraftTurnTypeParams,
+): Promise<string | null> {
+	const [row] = await db.all<{ turn_type: string | null }>(sql`
+		SELECT (
+			SELECT d.turn_type FROM work_interaction_reply_drafts d
+			WHERE d.org_id = q.org_id AND d.interaction_id = q.id
+			ORDER BY d.created_at DESC, d.id DESC
+			LIMIT 1
+		) AS turn_type
+		FROM work_interactions q
+		WHERE q.org_id = ${p.orgId}
+			AND q.target_type = 'user'
+			AND q.target_id = ${p.targetUserId}
+			AND q.kind = 'question'
+			AND q.id <> ${p.interactionId}
+			AND json_extract(q.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
+			AND json_extract(q.metadata, '$.sessionId') = ${p.sessionId}
+			AND (q.created_at < ${p.createdAt} OR (q.created_at = ${p.createdAt} AND q.id < ${p.interactionId}))
+		ORDER BY q.created_at DESC, q.id DESC
+		LIMIT 1
+	`);
+	return row?.turn_type ?? null;
 }
 
 export interface GetReplyDraftAcceptanceParams {
@@ -429,6 +471,8 @@ export interface ReplyDraftScore {
 	stood: number;
 	/** Edited or replaced drafts, plus overridden auto drafts. */
 	corrected: number;
+	/** Steering drafts (turn type `steer`). */
+	steered: number;
 	/** Mean seconds from the question to the draft; null with no drafts. */
 	avgReplySeconds: number | null;
 }
@@ -442,7 +486,7 @@ export interface ReplyDraftLeaderboardResult {
 }
 
 type ScoreColumn =
-	`${"w" | "t"}_${"answered" | "auto" | "stood" | "corrected" | "reply_seconds"}`;
+	`${"w" | "t"}_${"answered" | "auto" | "stood" | "corrected" | "steered" | "reply_seconds"}`;
 type LeaderboardRow = {
 	drafter_id: string;
 	tedi_name: string | null;
@@ -463,6 +507,7 @@ export async function getReplyDraftLeaderboard(
 	const stood = sql`((o.delivery = 'auto' AND NOT ${overridden}) OR (o.delivery IS NOT 'auto' AND o.outcome = 'accepted'))`;
 	const corrected = sql`(o.outcome IN ('edited', 'replaced') OR (o.delivery = 'auto' AND ${overridden}))`;
 	const today = sql`o.created_at >= ${p.todaySince}`;
+	const steered = sql`o.turn_type = ${STEER_TURN_TYPE}`;
 	const rows = await db.all<LeaderboardRow>(sql`
 		SELECT
 			o.drafter_id AS drafter_id,
@@ -472,11 +517,13 @@ export async function getReplyDraftLeaderboard(
 			sum(CASE WHEN o.delivery = 'auto' THEN 1 ELSE 0 END) AS w_auto,
 			sum(CASE WHEN ${stood} THEN 1 ELSE 0 END) AS w_stood,
 			sum(CASE WHEN ${corrected} THEN 1 ELSE 0 END) AS w_corrected,
+			sum(CASE WHEN ${steered} THEN 1 ELSE 0 END) AS w_steered,
 			avg(o.reply_seconds) AS w_reply_seconds,
 			sum(CASE WHEN ${today} THEN 1 ELSE 0 END) AS t_answered,
 			sum(CASE WHEN ${today} AND o.delivery = 'auto' THEN 1 ELSE 0 END) AS t_auto,
 			sum(CASE WHEN ${today} AND ${stood} THEN 1 ELSE 0 END) AS t_stood,
 			sum(CASE WHEN ${today} AND ${corrected} THEN 1 ELSE 0 END) AS t_corrected,
+			sum(CASE WHEN ${today} AND ${steered} THEN 1 ELSE 0 END) AS t_steered,
 			avg(CASE WHEN ${today} THEN o.reply_seconds END) AS t_reply_seconds
 		FROM (
 ${draftOutcomes(p)}
@@ -493,6 +540,7 @@ ${draftOutcomes(p)}
 			autoSent: Number(row[`${at}_auto`] ?? 0),
 			stood: Number(row[`${at}_stood`] ?? 0),
 			corrected: Number(row[`${at}_corrected`] ?? 0),
+			steered: Number(row[`${at}_steered`] ?? 0),
 			avgReplySeconds:
 				seconds === null ? null : Math.max(0, Math.round(Number(seconds))),
 		};

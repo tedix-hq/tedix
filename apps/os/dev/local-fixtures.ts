@@ -3760,7 +3760,14 @@ const handlers: Record<string, (input: never) => unknown> = {
 			stood: number,
 			corrected: number,
 			avgReplySeconds: number | null,
-		) => ({ answered, autoSent, stood, corrected, avgReplySeconds });
+		) => ({
+			answered,
+			autoSent,
+			stood,
+			corrected,
+			steered: 0,
+			avgReplySeconds,
+		});
 		return {
 			tedis: [
 				{

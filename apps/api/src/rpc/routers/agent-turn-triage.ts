@@ -37,6 +37,7 @@ import { ORPCError, implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
 	AGENT_REPLY_LABELS,
+	AGENT_REPLY_STEER_TURN_TYPE,
 	type AgentReplyDeliveryGatePolicy,
 	type AgentReplyDeliveryGateResult,
 	type AgentReplyDraftDelivery,
@@ -48,6 +49,7 @@ import {
 	type AgentTurnTriagePolicy,
 	type AgentTurnTriagePolicyState,
 	AgentTurnTriagePolicySchema,
+	type AgentTurnSteeringPolicy,
 	type TriageResult,
 } from "@tedix/api-contract/schemas/agent-turn-triage";
 import {
@@ -76,6 +78,7 @@ import {
 import {
 	countConsecutiveAutoReplies,
 	getLatestReplyDraft,
+	getPreviousSessionDraftTurnType,
 	getReplyDraftAcceptance,
 	getReplyDraftLeaderboard,
 	insertReplyDraft,
@@ -170,6 +173,21 @@ if (!DEFAULTS.policy.deliveryGate) {
 export const DEFAULT_AGENT_REPLY_DELIVERY_GATE: AgentReplyDeliveryGatePolicy =
 	DEFAULTS.policy.deliveryGate;
 
+if (!DEFAULTS.policy.steering) {
+	throw new Error("agent-turn-triage defaults: missing policy.steering");
+}
+/** The wrong-turn check for stored policies that predate `steering`. */
+export const DEFAULT_AGENT_TURN_STEERING: AgentTurnSteeringPolicy =
+	DEFAULTS.policy.steering;
+
+/** The policy's wrong-turn check, or null when it is off. */
+function steeringOf(
+	policy: AgentTurnTriagePolicy,
+): AgentTurnSteeringPolicy | null {
+	const steering = policy.steering ?? DEFAULT_AGENT_TURN_STEERING;
+	return steering.enabled ? steering : null;
+}
+
 /**
  * The user who owns the policy row: the session's Tedix user id, else the
  * verified active member behind a gateway credential (the same identity the
@@ -201,7 +219,7 @@ async function readPolicyState(
 
 /** The stored policy of one user in one organization, or the defaults. */
 async function readPolicyStateFor(
-	context: BaseContext,
+	context: Pick<BaseContext, "db">,
 	userId: string | null,
 	organizationId: string,
 ): Promise<AgentTurnTriagePolicyState> {
@@ -237,6 +255,10 @@ export function scoreTriage(
 	const urgentLabels = policy.questions
 		.filter((question) => (labels[question.id] ?? 0) >= question.urgentWhen.gte)
 		.map((question) => question.id);
+	// An off-track turn is steered by its drafting tedi, not escalated.
+	const steering = steeringOf(policy);
+	if (steering && (labels[steering.id] ?? 0) >= steering.steerWhen.gte)
+		return { urgency: "later", urgentLabels: [] };
 	const asks = labels[ATTENTION.ask.id];
 	// A turn that asks the user for nothing is an update: never urgent.
 	if (asks !== undefined && attentionKindOf(asks) === "fyi")
@@ -255,13 +277,60 @@ export function attentionKindOf(asks: number): AgentTurnAttentionKind {
 	return asks >= ATTENTION.ask.needsYouWhen.gte ? "needs_you" : "fyi";
 }
 
-/** The ask probability triage recorded on a captured question, if any. */
-export function recordedAskProbability(metadata: unknown): number | null {
+/** One label's probability as triage recorded it on a captured question. */
+function recordedLabel(metadata: unknown, id: string): number | null {
 	if (!isRecord(metadata) || !isRecord(metadata.triage)) return null;
 	if (metadata.triage.status !== "ok" || !isRecord(metadata.triage.labels))
 		return null;
-	const asks = metadata.triage.labels[ATTENTION.ask.id];
-	return typeof asks === "number" && asks >= 0 && asks <= 1 ? asks : null;
+	const p = metadata.triage.labels[id];
+	return typeof p === "number" && p >= 0 && p <= 1 ? p : null;
+}
+
+/** The ask probability triage recorded on a captured question, if any. */
+export function recordedAskProbability(metadata: unknown): number | null {
+	return recordedLabel(metadata, ATTENTION.ask.id);
+}
+
+/** Whether triage judged a captured question's turn off track. */
+export function isOffTrack(
+	steering: AgentTurnSteeringPolicy | null,
+	metadata: unknown,
+): steering is AgentTurnSteeringPolicy {
+	if (!steering) return false;
+	const p = recordedLabel(metadata, steering.id);
+	return p !== null && p >= steering.steerWhen.gte;
+}
+
+/**
+ * What an off-track turn gets: `none` when it is on track, `steer` for a
+ * steering draft, `escalate` when the session's previous question was already
+ * steered (the agent kept going): it then needs the user instead.
+ */
+export async function steeringVerdict(
+	context: Pick<BaseContext, "db">,
+	policy: AgentTurnTriagePolicy,
+	request: Pick<
+		InteractionRow,
+		"id" | "orgId" | "targetType" | "targetId" | "createdAt" | "metadata"
+	>,
+): Promise<"none" | "steer" | "escalate"> {
+	if (!isOffTrack(steeringOf(policy), request.metadata)) return "none";
+	const metadata = request.metadata as Record<string, unknown>;
+	if (
+		request.targetType !== "user" ||
+		!request.targetId ||
+		typeof metadata.sessionId !== "string" ||
+		!metadata.sessionId
+	)
+		return "steer";
+	const previous = await getPreviousSessionDraftTurnType(context.db, {
+		orgId: request.orgId,
+		interactionId: request.id,
+		targetUserId: request.targetId,
+		sessionId: metadata.sessionId,
+		createdAt: request.createdAt,
+	});
+	return previous === AGENT_REPLY_STEER_TURN_TYPE ? "escalate" : "steer";
 }
 
 function askedAttention(metadata: unknown): AgentTurnAttentionKind | null {
@@ -369,7 +438,27 @@ export async function annotateAgentTurnAttention(
 	row: InteractionRow,
 ): Promise<AgentTurnAttention | null> {
 	if (!isCapturedQuestion(row)) return null;
-	const attention = await decideAgentTurnAttention(context.env, row);
+	const { policy } = await readPolicyStateFor(context, row.targetId, row.orgId);
+	const steering = steeringOf(policy);
+	// Steered once and still off track: the user steps in.
+	const attention: AgentTurnAttention | null =
+		steering && (await steeringVerdict(context, policy, row)) === "escalate"
+			? {
+					kind: "needs_you",
+					need: cleanNeed(
+						steering.escalateNeed.replace(
+							"{{message}}",
+							oneLine(
+								row.prompt.split(/\r?\n/).find((line) => line.trim()) ?? "",
+								160,
+							),
+						),
+						ATTENTION.need.maxChars,
+					),
+					asks: recordedAskProbability(row.metadata),
+					decidedAt: new Date().toISOString(),
+				}
+			: await decideAgentTurnAttention(context.env, row);
 	if (attention)
 		await setWorkInteractionAttention(context.db, {
 			orgId: row.orgId,
@@ -404,6 +493,12 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 		type: "noul",
 		instructions: ATTENTION.ask.instructions,
 	};
+	const steering = steeringOf(policy);
+	if (steering)
+		questions[steering.id] ??= {
+			type: "noul",
+			instructions: steering.instructions,
+		};
 	const result = await runClef(context.env, {
 		modelId: policy.model,
 		state: { agent_message: input.text },
@@ -662,6 +757,8 @@ export function renderReplyDraftPrompt(params: {
 	examples?: string;
 	/** Whether the turn asks the user for something; omitted when not judged. */
 	attention?: AgentTurnAttentionKind | null;
+	/** The steering instruction of an off-track turn; replaces the turn kind. */
+	steer?: string | null;
 }): string {
 	const prompt =
 		params.request.prompt.length > PROMPT_TEXT_LIMIT
@@ -686,7 +783,9 @@ export function renderReplyDraftPrompt(params: {
 		sessions,
 		board: params.board?.trim() || "unavailable; draft from the question alone",
 		skill: renderSkillBlock(params.skillSlug, params.skillContent),
-		turnKind: params.attention ? ATTENTION.turnKind[params.attention] : "",
+		turnKind:
+			params.steer ??
+			(params.attention ? ATTENTION.turnKind[params.attention] : ""),
 		turnTypeChoices: params.turnTypeChoices?.length
 			? params.turnTypeChoices.join(", ")
 			: "a short label you choose, such as approval, continue, status, correction",
@@ -1049,6 +1148,8 @@ export async function decideReplyDraftDelivery(
 		body: string;
 		request: InteractionRow;
 		targetUserId: string;
+		/** Set for a steering draft: its `gateSkips` checks are not asked. */
+		steering?: AgentTurnSteeringPolicy | null;
 	},
 ): Promise<{
 	delivery: AgentReplyDraftDelivery;
@@ -1070,8 +1171,14 @@ export async function decideReplyDraftDelivery(
 		limit: autoSend.maxConsecutive,
 	});
 	if (consecutive >= autoSend.maxConsecutive) return review;
+	const fullGate =
+		params.policy.deliveryGate ?? DEFAULT_AGENT_REPLY_DELIVERY_GATE;
+	const skips = params.steering?.gateSkips ?? [];
+	const questions = fullGate.questions.filter(
+		(question) => !skips.includes(question.id),
+	);
 	const gate = await evaluateReplyDraftGate(context.env, {
-		gate: params.policy.deliveryGate ?? DEFAULT_AGENT_REPLY_DELIVERY_GATE,
+		gate: questions.length > 0 ? { ...fullGate, questions } : fullGate,
 		agentMessage: params.request.prompt,
 		draftReply: params.body,
 	});
@@ -1102,6 +1209,9 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		const drafter = await activeDraftingTedi(context, policy, orgId);
 		if (!drafter) return { status: "ineligible", reason: "no_drafting_tedi" };
 		const tediId = drafter.id;
+		const steer = await steeringVerdict(context, policy, request);
+		if (steer === "escalate")
+			return { status: "ineligible", reason: "steering_repeated" };
 
 		const queue = context.env.AUTOMATION_EVENTS;
 		if (!queue) {
@@ -1183,6 +1293,7 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 					turnTypeChoices: policy.turnTypeChoices,
 					examples,
 					attention: askedAttention(request.metadata),
+					steer: steer === "steer" ? steeringOf(policy)?.draft : null,
 				}),
 				// One drafting turn per attempt: the dispatch ledger makes
 				// redelivery and repeat requests of the same attempt no-ops.
@@ -1271,12 +1382,16 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 				"This question already has a reply draft",
 			);
 		}
+		// An off-track turn's draft is a steering reply, whatever label it chose.
+		const steering = steeringOf(policy);
+		const steered = isOffTrack(steering, request.metadata);
 		const { delivery, gate } = await decideReplyDraftDelivery(context, {
 			policy,
 			reversible: input.reversible,
 			body: input.body,
 			request,
 			targetUserId,
+			steering: steered ? steering : null,
 		});
 		try {
 			const draft = await insertReplyDraft(context.db, {
@@ -1286,7 +1401,9 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 				drafterId: actor.id,
 				body: input.body,
 				rationale: input.rationale,
-				turnType: input.turnType ?? null,
+				turnType: steered
+					? AGENT_REPLY_STEER_TURN_TYPE
+					: (input.turnType ?? null),
 				delivery,
 				gate: gate as Record<string, JsonValue> | null,
 				now,
