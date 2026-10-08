@@ -11,6 +11,14 @@
  */
 
 import * as z from "zod";
+import { ModelGenerationSettingsSchema } from "./model-generation";
+
+/** A per-turn model: a catalog model ref and its chat generation settings. */
+export const TurnModelSelectionSchema = z.strictObject({
+	modelRef: z.string().regex(/^[a-z0-9-]+\/[\w./@-]{1,120}$/i),
+	generation: ModelGenerationSettingsSchema.optional(),
+});
+export type TurnModelSelection = z.infer<typeof TurnModelSelectionSchema>;
 
 export const AutomationEventSchema = z.discriminatedUnion("kind", [
 	z.object({
@@ -41,6 +49,12 @@ export const AutomationEventSchema = z.discriminatedUnion("kind", [
 		 * drafting turn carries it so it only runs when the first drafter missed.
 		 */
 		skipIfReplyDraftFor: z.string().min(1).optional(),
+		/**
+		 * The model this one turn runs on instead of the tedi's own chat model
+		 * (the tedi keeps its memory, persona and tools). The runtime honors it
+		 * only on reply-draft turns.
+		 */
+		turnModel: TurnModelSelectionSchema.optional(),
 	}),
 ]);
 

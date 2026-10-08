@@ -1,4 +1,5 @@
 import type { WorkflowImageRef } from "./workflow-image-handoff";
+import type { TurnModelSelection } from "@tedix/api-contract/schemas/automation-events";
 import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { RepositoryMode } from "./runtime-tool-guidance";
 import type { ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
@@ -55,6 +56,11 @@ export interface ChatTurnParams {
 	 * completion. Never set this from an inbound user message.
 	 */
 	trustedInstructionOrigin?: TrustedInstructionOrigin;
+	/**
+	 * This turn's model in place of the tedi's chat policy (`turnModelForInject`:
+	 * reply-draft turns only). Memory, persona and tools are unchanged.
+	 */
+	turnModel?: TurnModelSelection;
 	/**
 	 * Original client request id from the inbound `chat.send` frame / MCP send.
 	 * It is the turnKey source for `runId`, and is also echoed on broadcast

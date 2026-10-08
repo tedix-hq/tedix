@@ -586,6 +586,7 @@ import {
 	type ModelPolicySurface,
 	normalizeModelPolicy,
 	resolveSurfaceModelRef,
+	turnModelForInject,
 } from "./model-policy";
 import {
 	buildMemorySourceEvidence,
@@ -9217,6 +9218,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		 * resolves exactly as before the per-surface refs existed.
 		 */
 		modelSurface?: ModelPolicySurface;
+		/** Replaces the surface's model and generation for this turn only. */
+		turnModel?: ChatTurnParams["turnModel"];
 	}): Promise<{
 		assistantText: string;
 		turnError: string | null;
@@ -9265,7 +9268,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				input.admissionClass,
 			);
 			const modelSurface = input.modelSurface ?? "chat";
-			const modelOverride = this.modelOverrideForSurface(modelSurface);
+			const modelOverride = input.turnModel
+				? { modelRef: input.turnModel.modelRef }
+				: this.modelOverrideForSurface(modelSurface);
 			// Adaptive routing is authority, not a property a model ref grants itself.
 			// Ordinary chat, agent, and background turns use the platform default;
 			// Model routing does not replace deterministic authority or Work admission.
@@ -9283,10 +9288,12 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				)?.modelRef.startsWith("azure-openai/")
 					? this.observerDeploymentForTurn()
 					: null,
-				generation: generationForSurface(
-					this.runtimeConfigCache.modelPolicy,
-					modelSurface,
-				),
+				generation: input.turnModel
+					? (input.turnModel.generation ?? {})
+					: generationForSurface(
+							this.runtimeConfigCache.modelPolicy,
+							modelSurface,
+						),
 				adaptiveRouting,
 				aigMetadata: this.tediAigMetadata(source, {
 					runId: input.runId,
@@ -10397,6 +10404,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				// background lane — cheapening it re-creates the zero-evidence wakes
 				// the wake/maintenance split exists to prevent.
 				modelSurface: isMaintenanceCycle ? "cron" : "chat",
+				...(input.turnModel && !isMaintenanceCycle
+					? { turnModel: input.turnModel }
+					: {}),
 				runId: input.runId,
 				sessionKey: input.sessionKey,
 				surface: "mcp",
@@ -15721,6 +15731,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 						}
 						const trustedInstructionOrigin =
 							trustedInstructionOriginForInject(metadata);
+						const turnModel = turnModelForInject(metadata);
 						// Operator-consent attestation: read from request
 						// HEADERS only — the edge strips/stamps them, so payload metadata (a
 						// tenant-reachable surface) can never author consent.
@@ -15844,6 +15855,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 									...(authorityEnvelope ? { authorityEnvelope } : {}),
 									...(operatorConsent ? { operatorConsent } : {}),
 									trustedInstructionOrigin,
+									...(turnModel ? { turnModel } : {}),
 								},
 								// Agent binding can't be auto-detected from the class name in
 								// this dispatch context (runWorkflow throws "Could not detect
