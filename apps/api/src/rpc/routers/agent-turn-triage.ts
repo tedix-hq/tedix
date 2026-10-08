@@ -693,7 +693,9 @@ async function owningDraftTediId(
 				subject: oneLine(params.request.subject, 300),
 				agentMessage: oneLine(params.request.prompt, 2_000),
 				projectId: params.request.projectId,
-				...(isRecord(metadata.scope) ? { scope: metadata.scope } : {}),
+				...(typeof metadata.repository === "string"
+					? { repository: metadata.repository }
+					: {}),
 			},
 			surface: "reply-draft-routing",
 		});
