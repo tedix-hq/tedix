@@ -41,6 +41,7 @@ import {
 	replyDraftAcceptanceQueryOptions,
 	tediRosterQueryOptions,
 	userProfileQueryOptions,
+	workAgentSessionsQueryOptions,
 	workInteractionDetailQueryOptions,
 	workOfficeKnocksQueryOptions,
 	workUrgentInteractionsQueryOptions,
@@ -448,6 +449,142 @@ function Knocks({ since }: { since: string }) {
 	);
 }
 
+/** Active means something happened in the last 15 minutes. */
+export const ACTIVE_WINDOW_MS = 15 * 60_000;
+
+function isActive(iso: string | null | undefined, now: number) {
+	if (!iso) return false;
+	const at = Date.parse(normalizeD1Timestamp(iso));
+	return !Number.isNaN(at) && now - at <= ACTIVE_WINDOW_MS;
+}
+
+/** Knocks per hour over the last 24 hours, oldest first. */
+export function knocksPerHour(requestedAt: string[], now: number): number[] {
+	const hours = Array.from({ length: 24 }, () => 0);
+	for (const iso of requestedAt) {
+		const age = now - Date.parse(normalizeD1Timestamp(iso));
+		if (Number.isNaN(age) || age < 0 || age >= 24 * 3_600_000) continue;
+		hours[23 - Math.floor(age / 3_600_000)]! += 1;
+	}
+	return hours;
+}
+
+const HARNESS_LABELS = { "claude-code": "Claude Code", codex: "Codex" };
+
+function Activity() {
+	const sessions = useQuery(workAgentSessionsQueryOptions());
+	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
+	const knocks = useQuery(workOfficeKnocksQueryOptions());
+	const now = Date.now();
+	const live = (sessions.data?.sessions ?? []).filter(
+		(session) => session.effectiveState !== "ended",
+	);
+	const harnesses = (["claude-code", "codex"] as const).map((harness) => {
+		const mine = live.filter((session) => session.harness === harness);
+		const active = mine.filter(
+			(session) =>
+				session.effectiveState === "working" ||
+				isActive(session.lastEventAt, now),
+		).length;
+		return { harness, active, idle: mine.length - active };
+	});
+	const hours = knocksPerHour(
+		(knocks.data?.data ?? []).map((row) => row.request.requestedAt),
+		now,
+	);
+	const peak = Math.max(1, ...hours);
+	const roster = tedis.data?.data ?? [];
+	return (
+		<Card size="sm" aria-labelledby="office-activity-title">
+			<CardHeader className="flex items-center gap-2">
+				<CardTitle id="office-activity-title" className="flex-1">
+					Activity
+				</CardTitle>
+				<svg
+					viewBox="0 0 96 16"
+					className="h-4 w-24 text-kumo-brand"
+					role="img"
+					aria-label={`Knocks per hour, last 24 hours: ${hours.reduce((a, b) => a + b, 0)} in all`}
+				>
+					{hours.map((count, index) => {
+						const height = count ? Math.max(2, (count / peak) * 16) : 1;
+						return (
+							<rect
+								key={index}
+								x={index * 4}
+								y={16 - height}
+								width={2.5}
+								height={height}
+								rx={1}
+								fill="currentColor"
+								opacity={count ? 1 : 0.25}
+							>
+								<title>
+									{count} {count === 1 ? "knock" : "knocks"},{" "}
+									{23 - index === 0 ? "this hour" : `${23 - index}h ago`}
+								</title>
+							</rect>
+						);
+					})}
+				</svg>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				<div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+					<Text as="span" role="label" tone="secondary" className="w-14">
+						Sessions
+					</Text>
+					{harnesses.map(({ harness, active, idle }) => (
+						<Text key={harness} as="span" role="body">
+							{HARNESS_LABELS[harness]}{" "}
+							<Text as="span" role="body" tone="strong" weight="semibold">
+								{active}
+							</Text>{" "}
+							active
+							<Text as="span" role="body" tone="secondary">
+								{" "}
+								/ {idle} idle
+							</Text>
+						</Text>
+					))}
+				</div>
+				<div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+					<Text as="span" role="label" tone="secondary" className="w-14">
+						Tedis
+					</Text>
+					{roster.length ? (
+						<div className="flex flex-wrap gap-1.5">
+							{roster.map((tedi) => {
+								const name = tedi.displayName || tedi.name;
+								const active = isActive(tedi.lastActivityAt, now);
+								return (
+									<Avatar
+										key={tedi.id}
+										size="sm"
+										title={`${name}: ${
+											tedi.lastActivityAt
+												? `active ${relativeTime(tedi.lastActivityAt)}`
+												: "no activity yet"
+										}`}
+										className={cn(
+											active ? "ring-2 ring-kumo-brand" : "opacity-40",
+										)}
+									>
+										<AvatarFallback>{initials(name)}</AvatarFallback>
+									</Avatar>
+								);
+							})}
+						</div>
+					) : (
+						<Text as="span" role="body" tone="secondary">
+							No tedis yet.
+						</Text>
+					)}
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
 /**
  * Reserved for the office leaderboard. Another change ships the data and the
  * `OfficeLeaderboard` component; until then the slot renders nothing.
@@ -553,6 +690,7 @@ export function WorkOfficePage() {
 			<div className="grid gap-5">
 				<OfficeHeader since={since} />
 				<TodayTiles since={since} />
+				<Activity />
 			</div>
 			<Knocks since={since} />
 			<LeaderboardSlot />
