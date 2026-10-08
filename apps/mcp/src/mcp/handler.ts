@@ -61,6 +61,12 @@ import {
 	parseDocsFileObservationReceipt,
 	type DocsFileObservationReceipt,
 } from "@tedix/mcp-shared/read-observation-receipt";
+import {
+	CALLER_TRUST_HEADER,
+	isPlatformTrustedCaller,
+	resolveCallerTrustTier,
+	stripMemberOnlyInjectFields,
+} from "@tedix/mcp-shared/auth/caller-trust";
 import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { getApiClient } from "../lib/api-client";
 import { callApiRpc } from "../lib/rpc";
@@ -2814,9 +2820,38 @@ export class ToolHandler {
 		const usesModernOnlyDocsServiceBinding = Boolean(
 			serviceBinding && serviceBinding === ctx.env.DOCS,
 		);
+		// The tedi runtime trusts service-binding callers for identity, so the
+		// gateway decides here whether this caller may reach the target tedi at
+		// all and how far it is trusted to steer the turn. Target organization is
+		// hydrated from D1 (`_aggregateTediOrgId`), never from caller input.
+		const targetTediOrgId =
+			typeof (config as unknown as Record<string, unknown>)
+				._aggregateTediOrgId === "string"
+				? ((config as unknown as Record<string, unknown>)
+						._aggregateTediOrgId as string)
+				: undefined;
+		const callerTrustTier = resolveCallerTrustTier(
+			ctx.callerIdentity,
+			targetTediOrgId,
+		);
+		if (
+			usesInternalTediServiceBinding &&
+			targetTediOrgId &&
+			callerTrustTier === "foreign" &&
+			!isPlatformTrustedCaller(ctx.callerIdentity)
+		) {
+			return {
+				data: {
+					error:
+						"This tedi belongs to another organization. Only members of its organization or a platform operator may call it.",
+				},
+				status: 403,
+			};
+		}
 		if (serviceBinding && managedTediHost) {
 			headers["X-Tedix-Host"] = managedTediHost;
 			headers["X-Service-Binding"] = "true";
+			headers[CALLER_TRUST_HEADER] = callerTrustTier;
 			const aggregateRemoteName = (config as unknown as Record<string, unknown>)
 				._aggregateTediRemoteName;
 			const namespacedRemoteName = ctx.toolId.includes("__")
@@ -3126,7 +3161,7 @@ export class ToolHandler {
 					method: "POST",
 					headers,
 					body: JSON.stringify({
-						...params,
+						...stripMemberOnlyInjectFields(params, callerTrustTier),
 						...(ctx.traceId ? { trace_id: ctx.traceId } : {}),
 						async: true,
 						client_request_id:

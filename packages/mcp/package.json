@@ -10,6 +10,7 @@
 		"./auth/client-credentials": "./src/auth/client-credentials.ts",
 		"./auth/durable-code-delegation": "./src/auth/durable-code-delegation.ts",
 		"./auth/principal": "./src/auth/principal.ts",
+		"./auth/caller-trust": "./src/auth/caller-trust.ts",
 		"./auth/consent-scopes": "./src/auth/consent-scopes.ts",
 		"./auth/scopes": "./src/auth/scopes.ts",
 		"./auth/tool-scopes": "./src/auth/tool-scopes.ts",
