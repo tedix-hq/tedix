@@ -72,6 +72,8 @@ type Lane = "answered" | "you";
 /** Where a knock went, in plain words. */
 export function knockOutcome(input: {
 	urgent: boolean;
+	/** An update: triage found it asks nothing of you (metadata.attention fyi). */
+	fyi?: boolean;
 	open: boolean;
 	answeredByYou: boolean;
 	draft: { delivery?: string | null; drafter: string } | null;
@@ -85,6 +87,7 @@ export function knockOutcome(input: {
 		};
 	if (input.draft?.delivery === "auto")
 		return { lane: "answered", text: `Answered by ${input.draft.drafter}` };
+	if (input.fyi) return { lane: "answered", text: "Update, nothing needed" };
 	if (input.answeredByYou) return { lane: "you", text: "You answered" };
 	if (input.draft)
 		return {
@@ -95,6 +98,13 @@ export function knockOutcome(input: {
 		lane: "you",
 		text: input.open ? "Waiting for you" : "Closed",
 	};
+}
+
+/** The stored attention verdict (`metadata.attention.kind`), if any. */
+function attentionOf(metadata: unknown): unknown {
+	const attention = (metadata as { attention?: { kind?: unknown } } | null)
+		?.attention;
+	return attention?.kind;
 }
 
 /**
@@ -314,6 +324,7 @@ function Knocks({ since }: { since: string }) {
 		const open = row.effectiveState === "open";
 		const outcome = knockOutcome({
 			urgent: summary?.urgency === "now",
+			fyi: attentionOf(row.request.metadata) === "fyi",
 			open,
 			answeredByYou: row.responseCount > 0 && draft?.delivery !== "auto",
 			draft: draft && drafter ? { delivery: draft.delivery, drafter } : null,

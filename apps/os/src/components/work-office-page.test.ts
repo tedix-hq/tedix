@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	knockOutcome,
 	knocksPerHour,
 	learnedFromLine,
 	lessonSubject,
@@ -27,6 +28,23 @@ describe("office helpers", () => {
 	it("counts replies in plain words", () => {
 		expect(learnedFromLine({ replies: 1 })).toBe("Learned from 1 reply");
 		expect(learnedFromLine(null)).toBeNull();
+	});
+
+	it("files an update (attention fyi) under answered, not For you", () => {
+		const base = { urgent: false, open: true, answeredByYou: false };
+		expect(knockOutcome({ ...base, fyi: true, draft: null })).toEqual({
+			lane: "answered",
+			text: "Update, nothing needed",
+		});
+		// A held carry-on draft does not pull the update back to For you.
+		expect(
+			knockOutcome({
+				...base,
+				fyi: true,
+				draft: { delivery: null, drafter: "Chief of staff" },
+			}).lane,
+		).toBe("answered");
+		expect(knockOutcome({ ...base, draft: null }).lane).toBe("you");
 	});
 
 	it("counts distinct sessions from captured turns", () => {
