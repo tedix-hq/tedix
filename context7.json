@@ -1,4 +1,6 @@
 {
+	"url": "https://context7.com/tedix-hq/tedix",
+	"public_key": "pk_OFMLe3yeyaPJ0kmk3Lx6n",
 	"$schema": "https://context7.com/schema/context7.json",
 	"projectTitle": "Tedix",
 	"description": "Open-source AI coworkers that show their work: recurring work, approval before risky steps, a record of every run.",
