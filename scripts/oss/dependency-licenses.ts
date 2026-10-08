@@ -36,7 +36,7 @@ const REVIEWED: Record<string, string> = {
 /** Reviewed copyleft packages inside an Apache-2.0 or MIT runtime closure. */
 const REVIEWED_IN_ECOSYSTEM: Record<string, string> = {
 	"@wordpress/block-serialization-default-parser":
-		"reached only through upstream emdash's WordPress import (@emdash-cms/gutenberg-to-portable-text), as in emdash's own MIT templates; Tedix code does not import it",
+		"reached only through upstream emdash's WordPress import (@emdash-cms/gutenberg-to-portable-text), as in emdash's own MIT templates; Tedix code does not import it. Owner accepted 2026-10-08, matching upstream emdash",
 };
 
 type Manifest = {
