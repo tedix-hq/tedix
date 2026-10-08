@@ -69,6 +69,7 @@
 		"./queries/cognitive/skill-catalog": "./src/queries/cognitive/skill-catalog.ts",
 		"./queries/cognitive/skill-crud": "./src/queries/cognitive/skill-crud.ts",
 		"./queries/cognitive/skill-folders": "./src/queries/cognitive/skill-folders.ts",
+		"./queries/cognitive/skill-mcp-bindings": "./src/queries/cognitive/skill-mcp-bindings.ts",
 		"./queries/cognitive/skill-crystallization": "./src/queries/cognitive/skill-crystallization.ts",
 		"./queries/cognitive/skill-inventory": "./src/queries/cognitive/skill-inventory.ts",
 		"./queries/cognitive/skill-promotion": "./src/queries/cognitive/skill-promotion.ts",

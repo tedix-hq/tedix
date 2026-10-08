@@ -24,7 +24,9 @@ type RuntimeFailureEvent =
 	| "workflow.reconciliation_row.failed"
 	| "workflow.reconciliation_cursor.failed"
 	| "workflow.skill_usage_stamp.failed"
-	| "workflow.dispatch_rationale_reconciliation.failed";
+	| "workflow.dispatch_rationale_reconciliation.failed"
+	| "workflow.mcp_app_binding_lookup.failed"
+	| "workflow.mcp_app_binding_backfill.failed";
 
 type RuntimeWarningEvent =
 	| "workflow.reconciliation_status_unrecognized"

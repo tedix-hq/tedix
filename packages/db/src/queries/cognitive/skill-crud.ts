@@ -15,6 +15,7 @@ import {
 	paceLayerForLifecycle,
 	SkillPaceLayerOverrideError,
 } from "../skill-lifecycle";
+import { resolveSkillMcpAppBindings } from "./skill-mcp-bindings";
 import { slugify } from "./skill-validation";
 
 export type { CognitiveVisibility };
@@ -50,6 +51,13 @@ export async function createSkillEntry(
 	// collision check is a best-effort race guard; the unique index on
 	// (organization_id, slug) is the real safety net.
 	const id = entry.id ?? crypto.randomUUID();
+	const mcpAppBindings =
+		entry.mcpAppBindings !== undefined
+			? entry.mcpAppBindings
+			: await resolveSkillMcpAppBindings(db, {
+					organizationId: entry.organizationId,
+					content: entry.content,
+				});
 	let slug = entry.slug;
 	if (!slug && entry.title) {
 		const base = slugify(entry.title);
@@ -64,7 +72,14 @@ export async function createSkillEntry(
 	try {
 		const [created] = await db
 			.insert(skillEntries)
-			.values({ ...entry, id, slug, lifecycleState, paceLayer })
+			.values({
+				...entry,
+				id,
+				slug,
+				lifecycleState,
+				paceLayer,
+				mcpAppBindings,
+			})
 			.returning();
 		if (!created) throw new Error(`Failed to create skill entry: ${id}`);
 		return created;
@@ -76,7 +91,14 @@ export async function createSkillEntry(
 			const fallbackSlug = `${slugify(entry.title)}-${id.slice(0, 8)}`;
 			const [created] = await db
 				.insert(skillEntries)
-				.values({ ...entry, id, slug: fallbackSlug, lifecycleState, paceLayer })
+				.values({
+					...entry,
+					id,
+					slug: fallbackSlug,
+					lifecycleState,
+					paceLayer,
+					mcpAppBindings,
+				})
 				.returning();
 			if (!created)
 				throw new Error(`Failed to create skill entry on retry: ${id}`);
@@ -256,10 +278,32 @@ export async function updateSkillEntry(
 	}
 	// WS6 pace-layer auto-classification: every lifecycle transition re-derives
 	// the layer unless the caller explicitly overrides it in the same write.
-	const patch =
+	let patch =
 		updates.lifecycleState != null && updates.paceLayer === undefined
 			? { ...updates, paceLayer: paceLayerForLifecycle(updates.lifecycleState) }
 			: updates;
+	// A content write re-derives the MCP namespace → app id bindings, keeping
+	// existing ones whose app still exists so a renamed app stays bound.
+	if (updates.content !== undefined && updates.mcpAppBindings === undefined) {
+		const [current] = await db
+			.select({
+				organizationId: skillEntries.organizationId,
+				mcpAppBindings: skillEntries.mcpAppBindings,
+			})
+			.from(skillEntries)
+			.where(scopedWhere)
+			.limit(1);
+		if (current) {
+			patch = {
+				...patch,
+				mcpAppBindings: await resolveSkillMcpAppBindings(db, {
+					organizationId: current.organizationId,
+					content: updates.content,
+					existing: current.mcpAppBindings,
+				}),
+			};
+		}
+	}
 	await db
 		.update(skillEntries)
 		.set({ ...patch, updatedAt: new Date().toISOString() })

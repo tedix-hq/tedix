@@ -34,6 +34,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			r2_path TEXT,
 			app_id TEXT,
 			tool_ids TEXT,
+			mcp_app_bindings TEXT,
 			summary TEXT,
 			tags TEXT,
 			audience TEXT,

@@ -213,6 +213,16 @@ export const skillEntries = sqliteTable(
 		// App-scoped skills (MCP progressive disclosure)
 		appId: text("app_id").references(() => apps.id, { onDelete: "set null" }),
 		toolIds: text("tool_ids", { mode: "json" }).$type<string[]>(),
+		/**
+		 * Executable-skill MCP namespace → app id (`{ resend: "<app id>" }`),
+		 * derived from `capabilities.mcp` on every content write and never
+		 * authored. The runtime routes a bound namespace to that app's current
+		 * slug, so an app slug rename does not detach the skill. Owned by
+		 * queries/cognitive/skill-mcp-bindings.ts.
+		 */
+		mcpAppBindings: text("mcp_app_bindings", { mode: "json" }).$type<
+			Record<string, string>
+		>(),
 		summary: text("summary"),
 
 		tags: text("tags", { mode: "json" }).$type<string[]>(),

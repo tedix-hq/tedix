@@ -800,6 +800,10 @@
 		{
 			"name": "20261007201755_review_batch_rounds/migration.sql",
 			"sha256": "05875f0c881915d62e20aba16147d57cfaa6ae22c68b34d24e9616b45f1694d8"
+		},
+		{
+			"name": "20261008120632_skill-mcp-app-bindings/migration.sql",
+			"sha256": "451fbb5098eb2a687bc71c8c0fb713ab69a784a2db32dd9891e77a7d38eb387d"
 		}
 	]
 }
