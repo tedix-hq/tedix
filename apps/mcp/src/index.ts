@@ -4629,6 +4629,13 @@ export function compactCodeModeTools(
 			_meta: { ...tool.meta, securitySchemes },
 		});
 	}
+	// Directory listings read the display name from `annotations.title`
+	// (the 2025-03-26 location); newer clients read the top-level `title`.
+	for (const tool of tools) {
+		const annotations = tool.annotations as Record<string, unknown> | undefined;
+		if (typeof tool.title === "string" && annotations?.title === undefined)
+			tool.annotations = { ...annotations, title: tool.title };
+	}
 	return sortToolsDeterministically(tools);
 }
 
