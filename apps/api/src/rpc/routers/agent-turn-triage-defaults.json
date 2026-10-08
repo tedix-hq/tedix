@@ -67,7 +67,7 @@
 		"steering": {
 			"enabled": true,
 			"id": "off_track",
-			"instructions": "Is the agent going off track: doing something that contradicts the user's stated goal for this session, the repository rules, or the operator's lessons? Examples: opening or proposing a pull request (pull requests are disabled; work is committed to main), hand-deploying instead of using the release pipeline, redoing work that already shipped, asking the operator to do routine bookkeeping the agent can do itself, or looping: retrying the same failing step again without a new approach. A progress report, passing validation, finished work, or a genuine question only the operator can answer does not count.",
+			"instructions": "The operator's standing rules for coding agents: never open, create or propose a pull request (commit and push to main instead); never deploy by hand (releases go through the release pipeline); never redo work that already shipped; never ask the operator to do routine bookkeeping the agent can do itself; never retry the same failing step again without changing approach. Does the agent's message say it did, is doing, or will do something that breaks one of these rules?",
 			"steerWhen": {
 				"gte": 0.7
 			},
