@@ -423,40 +423,59 @@ export function routingFromChoice(
 		: { status: "personal", tediId: null, probability, model: ROUTE_MODEL };
 }
 
+/**
+ * The tedi among `tedis` that clearly owns a subject: Clef decides from the
+ * tedis' own names, tags and personality, never a hardcoded roster. Below
+ * ROUTE_THRESHOLD, or on any model failure, no tedi owns it. Shared by lesson
+ * routing and reply-draft routing.
+ */
+export async function routeToOwningTedi(
+	env: Parameters<typeof runClef>[0],
+	input: {
+		tedis: Tedi[];
+		instructions: string;
+		state: Record<string, unknown>;
+		surface: string;
+	},
+): Promise<LessonRouting> {
+	const optionToTedi = new Map<string, string>();
+	const criteria: Record<string, string> = {};
+	input.tedis.forEach((tedi, index) => {
+		optionToTedi.set(`t${index + 1}`, tedi.id);
+		criteria[`t${index + 1}`] = tediCriterion(tedi);
+	});
+	criteria[ROUTE_NONE] =
+		"No single worker clearly owns this: personal, cross-cutting or unclear";
+	const question: ClefQuestion = {
+		type: "choice",
+		instructions: input.instructions,
+		criteria,
+	};
+	const result = await runClef(env, {
+		modelId: ROUTE_MODEL,
+		state: input.state,
+		questions: { owner: question },
+		surface: input.surface,
+	});
+	const answer = result.ok ? result.answers.owner : undefined;
+	return routingFromChoice(
+		answer?.type === "choice" ? answer : null,
+		optionToTedi,
+	);
+}
+
 /** Clef-backed router. Any model failure leaves the lesson personal. */
 export function clefLessonRouter(
 	env: Parameters<typeof runClef>[0],
 ): LessonRouter {
-	return async (lesson, tedis) => {
-		const optionToTedi = new Map<string, string>();
-		const criteria: Record<string, string> = {};
-		tedis.forEach((tedi, index) => {
-			optionToTedi.set(`t${index + 1}`, tedi.id);
-			criteria[`t${index + 1}`] = tediCriterion(tedi);
-		});
-		criteria[ROUTE_NONE] =
-			"No single worker clearly owns this: personal, cross-cutting or unclear";
-		const question: ClefQuestion = {
-			type: "choice",
+	return (lesson, tedis) =>
+		routeToOwningTedi(env, {
+			tedis,
 			instructions:
 				"A person made these decisions while working with an AI agent. Which AI worker's area of responsibility (for example engineering, finance, marketing) do they clearly belong to? Choose none unless one worker plainly owns the subject.",
-			criteria,
-		};
-		const result = await runClef(env, {
-			modelId: ROUTE_MODEL,
-			state: {
-				lesson: lesson.content,
-				scope: lesson.scope,
-			},
-			questions: { owner: question },
+			state: { lesson: lesson.content, scope: lesson.scope },
 			surface: "learning-feed-routing",
 		});
-		const answer = result.ok ? result.answers.owner : undefined;
-		return routingFromChoice(
-			answer?.type === "choice" ? answer : null,
-			optionToTedi,
-		);
-	};
 }
 
 async function writeDecisionLessons(

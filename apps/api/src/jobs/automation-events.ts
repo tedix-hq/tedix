@@ -24,6 +24,7 @@ import {
 	type AutomationEvent,
 	AutomationEventSchema,
 } from "@tedix/api-contract/schemas/automation-events";
+import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
 import { createContext } from "../rpc/orpc";
 import { skillsContractRouter } from "../rpc/routers/cognitive";
 import { cognitiveRuntimeContractRouter } from "../rpc/routers/cognitive-runtime";
@@ -39,6 +40,11 @@ export interface AutomationEventDeps {
 	enqueueTediTurn?: (
 		event: Extract<AutomationEvent, { kind: "tedi_turn" }>,
 	) => Promise<{ status: string }>;
+	/** Whether a Work Interaction already has a reply draft. */
+	hasReplyDraft?: (
+		organizationId: string,
+		interactionId: string,
+	) => Promise<boolean>;
 }
 
 /** Canonical queue-event → skill-workflow admission mapping. */
@@ -113,6 +119,24 @@ export async function handleAutomationEventMessage(
 				`[automation-events] skill_workflow dispatched key=${event.idempotencyKey} status=${result.status}`,
 			);
 			return "ack";
+		}
+
+		if (event.skipIfReplyDraftFor) {
+			const hasReplyDraft =
+				deps.hasReplyDraft ??
+				(async (organizationId, interactionId) =>
+					(await getLatestReplyDraft(internalContext(env, organizationId).db, {
+						orgId: organizationId,
+						interactionId,
+					})) !== null);
+			if (
+				await hasReplyDraft(event.organizationId, event.skipIfReplyDraftFor)
+			) {
+				console.log(
+					`[automation-events] tedi_turn skipped key=${event.idempotencyKey}: reply already drafted`,
+				);
+				return "ack";
+			}
 		}
 
 		const enqueue =

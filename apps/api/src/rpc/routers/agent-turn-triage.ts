@@ -15,8 +15,12 @@
  *
  * Reply drafting (`requestReplyDraft`, `proposeReplyDraft`,
  * `getReplyDraftAcceptance`): the target user of a quiet (`later`, no urgent
- * labels) decision-capture question may ask the policy's drafting tedi for a
- * reply proposal. The request starts one `tedi_turn` per attempt (dispatched
+ * labels) decision-capture question may ask for a tedi-drafted reply
+ * proposal. The first attempt goes to the organization tedi that clearly owns
+ * the question's subject (lesson routing's Clef classifier and threshold), the
+ * policy's drafting tedi otherwise; a routed attempt queues a delayed drafter
+ * fallback that runs only if no draft landed in time. The request starts one
+ * `tedi_turn` per attempt (dispatched
  * directly, the automation queue as fallback) with the board context inlined,
  * so the tedi's only tool call stores its proposal with `proposeReplyDraft`
  * (a failed attempt may be re-requested, bounded), and the
@@ -50,7 +54,10 @@ import {
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { getSkillEntryForMcp } from "@tedix/db/queries/cognitive/skill-crud";
 import { getChatDispatchMappingByIdempotencyKey } from "@tedix/db/queries/kernel-runtime-events";
-import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
+import {
+	getTediByIdForOrganization,
+	getTedisByOrganization,
+} from "@tedix/db/queries/tedis";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { listWorkAgentSessions } from "@tedix/db/queries/work-agent-sessions";
 import {
@@ -339,6 +346,12 @@ const SKILL_TEXT_LIMIT = 6_000;
 export const REPLY_DRAFT_MAX_ATTEMPTS = 3;
 /** A re-request may start a new attempt once the previous dispatch is this old. */
 export const REPLY_DRAFT_RETRY_AFTER_MS = 2 * 60_000;
+/**
+ * A question routed to its owning tedi is drafted by the configured drafter
+ * instead when the owner has stored no draft this long after the request
+ * (the runtime has no per-turn fast-model override to make the owner faster).
+ */
+export const REPLY_DRAFT_OWNER_TIMEOUT_S = 35;
 
 type InteractionRow = NonNullable<
 	Awaited<ReturnType<typeof getWorkInteraction>>
@@ -627,19 +640,71 @@ export function nextReplyDraftAttempt(params: {
 	return { action: "dispatch", attempt: latest + 1 };
 }
 
-async function replyDraftDispatchTimes(
-	context: BaseContext,
-	requestId: string,
-): Promise<Array<string | null>> {
+/** The dispatch-ledger row of each drafting attempt, null when absent. */
+async function replyDraftDispatches(context: BaseContext, requestId: string) {
 	return Promise.all(
-		Array.from({ length: REPLY_DRAFT_MAX_ATTEMPTS }, async (_, index) => {
-			const row = await getChatDispatchMappingByIdempotencyKey(
-				context.db,
-				replyDraftDispatchKey(requestId, index + 1),
-			);
-			return row?.createdAt ?? null;
-		}),
+		Array.from(
+			{ length: REPLY_DRAFT_MAX_ATTEMPTS },
+			async (_, index) =>
+				(await getChatDispatchMappingByIdempotencyKey(
+					context.db,
+					replyDraftDispatchKey(requestId, index + 1),
+				)) ?? null,
+		),
 	);
+}
+
+/**
+ * The tedi that owns a question's subject (CTO for code and deploys, CMO for
+ * go-to-market, ...), chosen from the organization's own tedis by the same
+ * Clef classifier and threshold that routes lessons into tedi brains. Null
+ * when no tedi clearly owns it, routing failed, or the owner is the drafter:
+ * the configured drafter then drafts.
+ */
+async function owningDraftTediId(
+	context: BaseContext,
+	params: {
+		orgId: string;
+		targetUserId: string;
+		drafterTediId: string;
+		request: InteractionRow;
+	},
+): Promise<{ tediId: string | null; probability: number | null }> {
+	try {
+		const { routeCandidates, routeToOwningTedi } =
+			await import("../../services/learning-feed-miner");
+		const candidates = routeCandidates(
+			(await getTedisByOrganization(context.db, params.orgId)).filter(
+				(tedi) => tedi.status === "active" && tedi.id !== params.drafterTediId,
+			),
+			params.orgId,
+			params.targetUserId,
+		);
+		if (candidates.length === 0) return { tediId: null, probability: null };
+		const metadata = params.request.metadata as Record<string, unknown>;
+		const routing = await routeToOwningTedi(context.env, {
+			tedis: candidates,
+			instructions:
+				"An operator's coding agent asked them this question during a work session. Which AI worker's area of responsibility (for example engineering and deploys, marketing and go-to-market, finance) does the subject clearly belong to? Choose none unless one worker plainly owns it.",
+			state: {
+				subject: oneLine(params.request.subject, 300),
+				agentMessage: oneLine(params.request.prompt, 2_000),
+				projectId: params.request.projectId,
+				...(isRecord(metadata.scope) ? { scope: metadata.scope } : {}),
+			},
+			surface: "reply-draft-routing",
+		});
+		return {
+			tediId: routing.status === "routed" ? routing.tediId : null,
+			probability: routing.probability,
+		};
+	} catch (error) {
+		console.warn("reply-draft routing unavailable", {
+			requestId: params.request.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return { tediId: null, probability: null };
+	}
 }
 
 /**
@@ -806,21 +871,31 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		}
 		// Only the attempt state is read before answering; the prompt's reads
 		// run after the response (see dispatchReplyDraftTurn).
-		const [latestDraft, dispatchedAt] = await Promise.all([
+		const [latestDraft, dispatches] = await Promise.all([
 			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
-			replyDraftDispatchTimes(context, request.id),
+			replyDraftDispatches(context, request.id),
 		]);
 		const next = nextReplyDraftAttempt({
 			hasDraft: latestDraft !== null,
-			dispatchedAt,
+			dispatchedAt: dispatches.map((row) => row?.createdAt ?? null),
 			nowMs: Date.parse(observedAt),
 		});
 		if (next.action === "pending") return { status: "queued" };
 		if (next.action === "exhausted")
 			return { status: "ineligible", reason: "attempts_exhausted" };
 		const key = replyDraftDispatchKey(request.id, next.attempt);
+		// The first attempt goes to the tedi that owns the question's subject;
+		// a re-request, or no clear owner, goes to the configured drafter.
 		const build = async (): Promise<AutomationEvent> => {
-			const [sessions, examples, board, skill] = await Promise.all([
+			const [owner, sessions, examples, board, skill] = await Promise.all([
+				next.attempt === 1
+					? owningDraftTediId(context, {
+							orgId,
+							targetUserId: actor.id,
+							drafterTediId: tediId,
+							request,
+						})
+					: Promise.resolve({ tediId: null, probability: null }),
 				listWorkAgentSessions(context.db, {
 					organizationId: orgId,
 					userId: actor.id,
@@ -838,10 +913,18 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 					tediId,
 				}),
 			]);
-			return AutomationEventSchema.parse({
+			const source = `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`;
+			console.log("reply-draft route", {
+				requestId: request.id,
+				attempt: next.attempt,
+				tediId: owner.tediId ?? tediId,
+				routed: owner.tediId !== null,
+				probability: owner.probability,
+			});
+			const event = AutomationEventSchema.parse({
 				kind: "tedi_turn",
 				organizationId: orgId,
-				tediId,
+				tediId: owner.tediId ?? tediId,
 				content: renderReplyDraftPrompt({
 					request,
 					sessions,
@@ -858,8 +941,25 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				// inherits the state of, the tedi's main conversation or a failed
 				// earlier attempt.
 				conversationId: key,
-				source: `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`,
+				source: owner.tediId ? `${source}:owner` : source,
 			});
+			if (owner.tediId && event.kind === "tedi_turn") {
+				// The owner's draft is not guaranteed in time: the drafter takes the
+				// next attempt after a delay unless a draft has landed by then.
+				const fallbackKey = replyDraftDispatchKey(request.id, 2);
+				await queue.send(
+					{
+						...event,
+						tediId,
+						idempotencyKey: fallbackKey,
+						conversationId: fallbackKey,
+						source: `${source}:owner-timeout`,
+						skipIfReplyDraftFor: request.id,
+					},
+					{ delaySeconds: REPLY_DRAFT_OWNER_TIMEOUT_S },
+				);
+			}
+			return event;
 		};
 		await dispatchReplyDraftTurn(context, queue, build);
 		return { status: "queued" };
@@ -879,11 +979,20 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 		const request = await requireInteraction(context, orgId, input.requestId);
 		const targetUserId =
 			request.targetType === "user" ? request.targetId : null;
-		const { policy } = await readPolicyStateFor(context, targetUserId, orgId);
+		const [{ policy }, dispatches, existing] = await Promise.all([
+			readPolicyStateFor(context, targetUserId, orgId),
+			replyDraftDispatches(context, request.id),
+			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
+		]);
+		// The configured drafter, or the tedi this question's drafting turn was
+		// dispatched to (its owner, chosen at request time).
+		const dispatchedToActor = dispatches.some(
+			(row) => row?.tediId === actor.id && row.organizationId === orgId,
+		);
 		if (
 			!targetUserId ||
 			!policy.drafting.enabled ||
-			policy.drafting.tediId !== actor.id
+			(policy.drafting.tediId !== actor.id && !dispatchedToActor)
 		) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
@@ -896,6 +1005,13 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 			throw createError(
 				ErrorCodes.UNPROCESSABLE_CONTENT,
 				`Question cannot be drafted: ${reason}`,
+			);
+		}
+		// The owner and the timeout fallback may both finish: the first wins.
+		if (existing) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"This question already has a reply draft",
 			);
 		}
 		const { delivery, gate } = await decideReplyDraftDelivery(context, {
