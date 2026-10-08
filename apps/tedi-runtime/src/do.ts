@@ -340,6 +340,12 @@ import {
 } from "./embedded-internal-routes";
 import { embeddedToolFitGuidance } from "./embedded-tool-fit";
 import {
+	emailTurnSystemAddendum,
+	type InboundEmailTrust,
+	inboundEmailTrust,
+	selectEmailTurnTools,
+} from "./email-turn-tools";
+import {
 	recordDeliverableArtifact,
 	recordTurnSummaryArtifact,
 	recordWorkstationProcessArtifactRefs,
@@ -14690,8 +14696,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		// We need the email-channel system addendum on this turn only, so we
 		// temporarily compose a system prompt without persisting it. Mirrors the
 		// MCP runtime augmentation pattern shared by the chat paths.
+		const trust = inboundEmailTrust(email.headers);
 		const baseSystemPrompt = this.state.systemPrompt;
-		const augmentedSystem = `${baseSystemPrompt}${emailSystemAddendum}`;
+		const augmentedSystem = `${baseSystemPrompt}${emailSystemAddendum}${emailTurnSystemAddendum(trust)}`;
 
 		// The turn runs on the email conversation's own
 		// ConversationFacet. History hydration is facet-owned (first-turn capped
@@ -14707,6 +14714,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				runId: emailRunId,
 				sessionKey,
 				system: augmentedSystem,
+				trust,
 				userTs: userTurn.ts,
 			});
 		} catch (error) {
@@ -14797,6 +14805,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		inboundEmail: AgentEmail;
 		payload: InboundEmailPayload;
 		guardedUserText: string;
+		trust: InboundEmailTrust;
 		userTs: number;
 	}): Promise<{ text: string; replied: boolean; usage?: FacetTurnUsage }> {
 		// Parent-side reply closure over the live AgentEmail bridge. The facet
@@ -14869,18 +14878,21 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		// Same facet tool surface as the MCP/mesh turn plus the
 		// email-only reply tool — one ToolSet composition for every facet turn
 		// host, so the surfaces never drift apart again.
-		const tools: ToolSet = {
-			...this.workspaceAiTools(computerScope, turnBinding),
-			...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
-			...this.browserAiTools(computerScope, turnBinding),
-			...this.skillReadTool(turnBinding),
-			...this.durableCodemodeAiTools(computerScope, turnBinding),
-			...this.cronAiTool(input.sessionKey),
-			...this.workstationAiTool(computerScope, turnBinding),
-			...this.objectStoreAiTools(),
-			...this.r2SqlAiTool(),
-			reply_to_email: replyTool,
-		};
+		const tools = selectEmailTurnTools({
+			trust: input.trust,
+			full: {
+				...this.workspaceAiTools(computerScope, turnBinding),
+				...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
+				...this.browserAiTools(computerScope, turnBinding),
+				...this.skillReadTool(turnBinding),
+				...this.durableCodemodeAiTools(computerScope, turnBinding),
+				...this.cronAiTool(input.sessionKey),
+				...this.workstationAiTool(computerScope, turnBinding),
+				...this.objectStoreAiTools(),
+				...this.r2SqlAiTool(),
+			},
+			replyTool,
+		});
 		const system = mcpRuntime
 			? `${input.system}\n\n${mcpRuntime.getSystemInstructions()}\n\n${WORKSPACE_TOOLS_NOTE}\n\n${CODE_MODE_BATCHING_NOTE}`
 			: `${input.system}\n\n${WORKSPACE_TOOLS_NOTE}\n\n${CODE_MODE_BATCHING_NOTE}`;
