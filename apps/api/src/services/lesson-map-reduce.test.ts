@@ -265,15 +265,16 @@ describe("planLessons", () => {
 	it("puts cross-subject rules in the standing lesson and repo rules in the repo", () => {
 		const lessons = planLessons("user-1", [
 			candidate({ sessions: ["s1", "s2", "s3"] }),
+			// Less supported than the agents rule, still first: it shapes every reply.
 			candidate({
 				rule: "Answer short in plain English with one recommendation",
 				subject: "communication",
-				sessions: ["s1", "s2", "s3", "s4"],
+				sessions: ["s1", "s2"],
 			}),
 			candidate({
 				rule: "Call the workers tedis",
 				subject: "agents",
-				sessions: ["s1", "s2"],
+				sessions: ["s1", "s2", "s3", "s4", "s5"],
 			}),
 			// More git rules than the repository's standing lesson holds.
 			...Array.from({ length: 10 }, (_, n) =>
@@ -286,8 +287,8 @@ describe("planLessons", () => {
 		]);
 		expect(lessons.map((l) => [l.topicKey, l.rules.length])).toEqual([
 			["learning-feed:decision:general:general:standing:user:user-1", 2],
-			["learning-feed:decision:tedix:general:standing:user:user-1", 10],
-			["learning-feed:decision:tedix:general:git:user:user-1", 1],
+			["learning-feed:decision:tedix:general:standing:user:user-1", 8],
+			["learning-feed:decision:tedix:general:git:user:user-1", 3],
 		]);
 		expect(lessons[0]!.content.split("\n")[1]).toBe(
 			"- Answer short in plain English with one recommendation",
@@ -302,7 +303,9 @@ describe("planLessons", () => {
 			topic: "git",
 		});
 		for (const lesson of lessons)
-			expect(lesson.content.length).toBeLessThanOrEqual(600);
+			expect(lesson.content.length).toBeLessThanOrEqual(
+				lesson.standing ? 450 : 600,
+			);
 	});
 });
 

@@ -3,6 +3,18 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.6 — 2026-10-08
+
+### Fixed
+
+- Outside a bound repository, the prompt hook also delivers the
+  working-preferences document selected with `connect-preferences` for the
+  default profile and organization, not only team lessons.
+- The prompt hook adds one fixed line: for a status question, check live state
+  (the Work board, deploys, API health, CI) before answering, not just git.
+- Decision capture files no question from unattended runs: `claude -p`, the
+  Agent SDK and `codex exec`.
+
 ## 0.6.5 — 2026-10-08
 
 ### Fixed

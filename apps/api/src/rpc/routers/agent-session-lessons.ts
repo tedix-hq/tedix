@@ -5,9 +5,9 @@
  * `@tedix/api-contract/schemas/agent-session-lessons`). The query returns only
  * approved lessons: org-wide ones plus the calling user's own personal ones
  * (`metadata.learningFeed.ownerUserId`); this module filters them to the session's repo
- * and harness by `metadata.learningFeed.scope`, ranks them (repo, then harness,
- * then topic overlap, then priority and confidence) and trims them to the
- * caller's byte budget.
+ * and harness by `metadata.learningFeed.scope`, ranks them (standing lessons,
+ * answer-style lessons, core rules, then repo, harness, topic overlap and
+ * confidence) and trims them to the caller's byte budget.
  */
 
 import {
@@ -28,6 +28,8 @@ const LESSON_TEXT_LIMIT = 600;
 const LINE_OVERHEAD = 16;
 /** The learning feed's slug for "no specific value": matches any session. */
 const ANY = "general";
+/** The miner's answer-style subject (`lesson-map-reduce` SUBJECTS). */
+const ANSWER_TOPIC = "communication";
 
 /** `git@github.com:a/b.git`, `https://github.com/a/b` → `github.com/a/b`. */
 export function normalizeRepo(value: string): string {
@@ -153,9 +155,12 @@ export function selectSessionLessons(
 				(repoScoped ? 2 : 0) +
 				(harnessScoped ? 1 : 0) +
 				Math.min(overlap, 3) +
-				(row.priority === "core" ? 1 : 0) +
+				// A core rule (naming, shipping) must survive a crowded budget.
+				(row.priority === "core" ? 4 : 0) +
 				// A person's standing preferences apply to every session: first.
 				(isStandingLesson(row.metadata) ? 10 : 0) +
+				// How to answer shapes every reply: next after standing ones.
+				(scope.topic === ANSWER_TOPIC ? 6 : 0) +
 				// A written or person-reviewed rule outranks a mined one of the same reach.
 				(isMinedLesson(row.metadata) ? 0 : 2) +
 				row.confidence,

@@ -378,6 +378,32 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(payloads).toEqual([]);
 	});
 
+	test("claude -p and codex exec file no question", async () => {
+		const rollout = join(config, "rollout-exec.jsonl");
+		writeFileSync(
+			rollout,
+			`${JSON.stringify({ type: "session_meta", payload: { originator: "codex_exec", source: "exec" } })}\n`,
+		);
+		expect(
+			await runHook("stop", { last_assistant_message: "done" }, [BINDING], {
+				env: { CLAUDE_CODE_SESSION_ATTENDED: "0" },
+			}),
+		).toEqual([]);
+		expect(
+			await runHook(
+				"stop",
+				{
+					last_assistant_message: "done",
+					turn_id: "turn-1",
+					transcript_path: rollout,
+				},
+				[BINDING],
+			),
+		).toEqual([]);
+		expect(payloads).toEqual([]);
+		expect(existsSync(state())).toBe(false);
+	});
+
 	test("system re-entries and unpaired prompts are not replies", async () => {
 		expect(
 			await runHook("reply", { prompt: "first prompt of a session" }, []),

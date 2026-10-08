@@ -276,7 +276,8 @@ override repository rules, approvals or tenant boundaries.
 Outside a bound repository, in any folder and for non-coding work too, the same
 hooks use a default organization: `TEDIX_WORKSPACE` or the current profile, and
 `TEDIX_ORGANIZATION` or that profile's only organization. A chat there receives
-lessons with no repository. When the profile has several organizations, save
+lessons with no repository, and the working-preferences document selected with
+`connect-preferences` for that profile and organization. When the profile has several organizations, save
 one with
 `tedix setup agents context set-default-organization <ID or slug>`; it also
 pins that profile, is checked against the login's selected organizations at
@@ -322,7 +323,9 @@ it leaves the machine, and is sent only to the bound organization as the signed-
 user. Host re-entries such as task notifications are not treated as replies. A
 turn that ends with background work pending is not marked as waiting, and an
 unanswered turn is left open when the next one ends and expires after 24 hours;
-the agents board shows which sessions are waiting now.
+the agents board shows which sessions are waiting now. Unattended runs file no
+question: `claude -p` and the Agent SDK (`CLAUDE_CODE_SESSION_ATTENDED=0`) and
+`codex exec`, recognized by its transcript's `session_meta` source `exec`.
 
 Before the question is created, the redacted turn is triaged by the bound
 organization (`agent.triage_agent_turn`, at most 4 seconds) and the result is

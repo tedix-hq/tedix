@@ -61,6 +61,7 @@ import {
 	isoSeconds,
 	PROFILE,
 	UUID,
+	unattendedRun,
 } from "./hook-io";
 
 const SCHEMA = "tedix.decision-capture.v1";
@@ -1010,6 +1011,8 @@ export async function runDecisionCapture(
 		const { event, session } = hostEvent(deps.stdin, deps.env, EVENT_LIMIT, {
 			requireIdentity: true,
 		});
+		// Nobody attends `claude -p` or `codex exec`: no question goes to the inbox.
+		if (unattendedRun(event, hostEnv)) return;
 		const id = session!;
 		const state = captureStatePath(deps.env, id);
 		// A typed reply ends the run of consecutive auto replies.

@@ -40,6 +40,7 @@ import {
 	hostEvent,
 	type JsonObject,
 	UUID,
+	unattendedRun,
 } from "./hook-io";
 
 export const AWAIT_FIRST_DELAY_MS = 5000;
@@ -108,7 +109,7 @@ export async function runAwaitReply(
 		if (harnessOf(event, deps.env) === "codex") return { code: 0 };
 		// An unattended run (`claude -p`, the SDK) has no one to wake, and its
 		// process waits for this hook before it exits.
-		if (hostEnv.CLAUDE_CODE_SESSION_ATTENDED === "0") return { code: 0 };
+		if (unattendedRun(event, hostEnv)) return { code: 0 };
 		const id = session!;
 		const state = captureStatePath(deps.env, id);
 		// The question this Stop's capture-stop is about to open, not an older one.
