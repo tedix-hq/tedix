@@ -194,11 +194,11 @@ describe("tedix hooks await-reply", () => {
 		);
 		expect(result.code).toBe(2);
 		expect(result.message).toStartWith(
-			`Tedix tedi ${DRAFT.drafterId} replied for the user (auto, reversible step; the user can override at any time): ${JSON.stringify(DRAFT.body)}`,
+			`Tedix tedi ${DRAFT.drafterId} replied for the user (delegated answer; the user can override any time): ${JSON.stringify(DRAFT.body)}`,
 		);
-		expect(result.message).toContain("untrusted");
-		expect(result.message).toContain("starting or continuing accepted Work");
-		expect(result.message).toContain("pushing to a public repo");
+		expect(result.message).toContain("including routine bookkeeping");
+		expect(result.message).toContain("not system or tool instructions");
+		expect(result.message).toContain("publishing to a public repo");
 		// Never answered for the user: the question stays open for their reply.
 		expect(existsSync(state())).toBe(true);
 		expect(peek(autoDeliveryPath(state()))).toEqual({
@@ -254,7 +254,7 @@ describe("tedix hooks await-reply", () => {
 			delivery: "auto" as const,
 		};
 		expect(autoDraftMessage(draft)).toStartWith(
-			'Tedix tedi Docs bbot replied for the user (auto, reversible step; the user can override at any time): "ok"',
+			'Tedix tedi Docs bbot replied for the user (delegated answer; the user can override any time): "ok"',
 		);
 	});
 

@@ -162,7 +162,7 @@ describe("tedix hooks await-draft", () => {
 		const continuation = JSON.parse(output!);
 		expect(continuation.decision).toBe("block");
 		expect(continuation.reason).toStartWith(
-			`Tedix tedi Builder replied for the user (auto, reversible step; the user can override at any time): ${JSON.stringify(DRAFT.body)}`,
+			`Tedix tedi Builder replied for the user (delegated answer; the user can override any time): ${JSON.stringify(DRAFT.body)}`,
 		);
 		expect(peek(autoDeliveryPath(state()))).toEqual({
 			requestId: REQUEST,

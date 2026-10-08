@@ -143,7 +143,7 @@ const SECRETS: Array<[RegExp, string]> = [
 
 /** Host re-entries that arrive through the prompt hook but were not typed by the user. */
 const SYSTEM_PROMPT =
-	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context|Tedix [^\n]{1,120}? replied for the user \(auto,)/;
+	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context|Tedix [^\n]{1,120}? replied for the user \((?:auto,|delegated answer;))/;
 
 /** Coarse first-pass labels mined from historic replies; the learning pass re-reads the full pair. */
 const CLASSES: Array<[string, RegExp]> = [
