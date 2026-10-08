@@ -1,0 +1,36 @@
+{
+	"$schema": "https://context7.com/schema/context7.json",
+	"projectTitle": "Tedix",
+	"description": "Open-source AI coworkers that show their work: recurring work, approval before risky steps, a record of every run.",
+	"folders": ["docs/public"],
+	"excludeFolders": [
+		"./apps",
+		"./packages",
+		"./plugins",
+		"./scripts",
+		"./decisions",
+		"./examples",
+		"./patches",
+		"./docs/engineering",
+		"node_modules",
+		"**/test",
+		"**/tests",
+		"**/__tests__"
+	],
+	"excludeFiles": [
+		"CHANGELOG.md",
+		"THIRD_PARTY_NOTICES.md",
+		"TRADEMARKS.md",
+		"LICENSE.md",
+		"NOTICE.md"
+	],
+	"rules": [
+		"For product questions, read https://docs.tedix.dev/llms.txt first and fetch only the relevant page's Markdown; use llms-full.txt only for cross-document analysis.",
+		"Run Tedix locally from a source checkout with `bun run-local` (needs Git, Bun and Node.js 22+). It needs no login and makes no model calls unless started with `--inference --workers-ai-account=<id>`.",
+		"Tedix Cloud is an invited beta. Install the CLI with `curl -fsSL https://downloads.tedix.dev/install.sh | sh`, have the owner run `tedix login`, then check the workspace and scopes with `tedix auth status`.",
+		"Remote MCP clients connect to https://connect.mcp.tedix.dev/mcp through the host's OAuth flow. Never request, paste or persist tokens, cookies or API keys.",
+		"Discover before calling in Code Mode, for example `tedix code 'async () => await discover.search({ query: \"work items\", limit: 5 })'`. Never invent a callable, namespace, schema or permission.",
+		"Read-only discovery does not authorize a mutation. Treat write-capable calls as production changes to the selected organization; human consent, MFA and user presence stay with the human.",
+		"A queued workflow, green test, commit or health check proves only itself. Confirm completion from the settled run, its artifacts, the mutation receipt and the live target state."
+	]
+}

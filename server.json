@@ -1,0 +1,19 @@
+{
+	"$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+	"name": "io.github.tedix-hq/tedix",
+	"title": "Tedix",
+	"description": "Open-source AI coworkers that show their work: approval before risky steps, a record of every run.",
+	"version": "0.2.0",
+	"websiteUrl": "https://docs.tedix.dev",
+	"repository": {
+		"url": "https://github.com/tedix-hq/tedix",
+		"source": "github",
+		"id": "1407008349"
+	},
+	"remotes": [
+		{
+			"type": "streamable-http",
+			"url": "https://connect.mcp.tedix.dev/mcp"
+		}
+	]
+}
