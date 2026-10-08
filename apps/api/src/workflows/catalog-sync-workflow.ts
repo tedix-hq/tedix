@@ -41,6 +41,7 @@ import { getCatalogStoreListingBySourceId } from "@tedix/db/queries/catalog/stor
 import {
 	disableOrphanedCatalogApps,
 	markStaleFeedStoreListingsAsRemoved,
+	SNAPSHOT_FEED_MARKER,
 	markStoreListingsAsRemoved,
 	updateAppCatalogSyncLog,
 } from "@tedix/db/queries/catalog/sync-logs";
@@ -1007,7 +1008,16 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 					throw new NonRetryableError("Snapshot input identity mismatch");
 				const snapshot = CatalogSnapshotSchema.parse(archived.snapshot);
 				totalAppsDiscovered = snapshot.items.length;
-				const batches = this.splitIntoBatches(snapshot.items, 10);
+				// Mark every listing this feed writes so a registry sync's removal
+				// pass for the same source leaves it to this feed's own reconciliation.
+				const feedItems = snapshot.items.map((item) => ({
+					...item,
+					rawData: {
+						...(item.rawData ?? {}),
+						[SNAPSHOT_FEED_MARKER]: event.payload.snapshotProvenanceKey!,
+					},
+				}));
+				const batches = this.splitIntoBatches(feedItems, 10);
 				for (const [index, batch] of batches.entries()) {
 					const result = await step.do(
 						`sync-snapshot-batch-${index}`,

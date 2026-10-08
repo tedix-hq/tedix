@@ -139,6 +139,13 @@ export async function failStaleAppCatalogSyncLogs(
  * @param currentSourceAppIds - Source app IDs present in the current sync
  * @returns Count of store listings deleted
  */
+/**
+ * Listing `rawData` key every snapshot feed stamps on the listings it owns.
+ * A feed's own provenance key is private to that feed, so this shared marker
+ * is how other feeds' removal passes recognise and leave those listings alone.
+ */
+export const SNAPSHOT_FEED_MARKER = "snapshotFeed";
+
 export async function markStoreListingsAsRemoved(
 	db: Database,
 	source: Source,
@@ -150,13 +157,21 @@ export async function markStoreListingsAsRemoved(
 		return 0;
 	}
 
-	// Step 1: Get all existing source app IDs for this source
+	// Step 1: Get existing source app IDs for this source. Listings a snapshot
+	// feed owns are reconciled only by that feed, never by a registry sync.
 	const existingListings = await db
-		.select({ sourceAppId: appCatalogStoreListings.sourceAppId })
+		.select({
+			sourceAppId: appCatalogStoreListings.sourceAppId,
+			rawData: appCatalogStoreListings.rawData,
+		})
 		.from(appCatalogStoreListings)
 		.where(eq(appCatalogStoreListings.source, source));
 
-	const existingIds = existingListings.map((l) => l.sourceAppId);
+	const existingIds = existingListings
+		.filter(
+			(listing) => typeof listing.rawData?.[SNAPSHOT_FEED_MARKER] !== "string",
+		)
+		.map((listing) => listing.sourceAppId);
 
 	// Step 2: Find IDs that exist in DB but not in current sync (orphaned)
 	const currentIdSet = new Set(currentSourceAppIds);
