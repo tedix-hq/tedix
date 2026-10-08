@@ -525,4 +525,55 @@ describe("auto-send acceptance metrics", () => {
 			overrideRate: 1 / 3,
 		});
 	});
+
+	it("counts an agent decline as an override and a question as neither", async () => {
+		const { sqlite, db } = seed();
+		question(sqlite, "q1", { metadata: SESSION, createdAt: at(1) });
+		question(sqlite, "q2", {
+			metadata: {
+				...SESSION,
+				priorDraft: {
+					draftId: "d1",
+					draftOutcome: "rejected",
+					reason: "already shipped",
+				},
+			},
+			createdAt: at(2),
+		});
+		question(sqlite, "q3", { metadata: SESSION, createdAt: at(3) });
+		for (const [id, interactionId] of [
+			["d1", "q1"],
+			["d3", "q3"],
+		])
+			await insertReplyDraft(
+				db,
+				draft({ id, interactionId, delivery: "auto", turnType: "continue" }),
+			);
+		await respondToWorkInteraction(db, {
+			id: "r3",
+			orgId: "org",
+			interactionId: "q3",
+			expectedVersion: 1,
+			responder: { type: "user", id: "user" },
+			responseKind: "answer",
+			body: "What did the tedi suggest?",
+			resolvesRequest: true,
+			metadata: {
+				source: "user-reply",
+				sessionId: "session-a",
+				replyClass: "question",
+			},
+			now: at(4),
+		});
+		const [row] = await getReplyDraftAcceptance(
+			db,
+			{ orgId: "org", targetUserId: "user" },
+			{ minRate: 0.9, minDrafts: 50 },
+		);
+		expect(row).toMatchObject({
+			autoSent: 2,
+			autoFollowedUp: 1,
+			overridden: 1,
+		});
+	});
 });

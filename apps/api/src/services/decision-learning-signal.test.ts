@@ -129,6 +129,9 @@ describe("decisionCaptureLearningSignal", () => {
 		expect(kind({ draftOutcome: "auto-sent", replyClass: "redirect" })).toBe(
 			"manually_replaced",
 		);
+		expect(kind({ draftOutcome: "auto-sent", replyClass: "question" })).toBe(
+			"answered",
+		);
 	});
 
 	it("ignores a cited draft that is not the stored one", () => {

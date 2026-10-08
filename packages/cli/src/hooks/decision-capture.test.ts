@@ -15,6 +15,7 @@ import {
 	captureStatePath,
 	claimReply,
 	classify,
+	DECLINE_MARKER,
 	draftStatusPath,
 	peek,
 	questionPath,
@@ -948,6 +949,36 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		);
 		expect(payloads.at(-1)![1].metadata).not.toHaveProperty("draftOutcome");
 		expect(existsSync(auto())).toBe(false);
+	});
+
+	test("the next turn declining an auto draft records it as rejected, once", async () => {
+		const auto = autoDeliveryPath(state());
+		mkdirSync(join(config, "decision-capture"), { recursive: true });
+		writeFileSync(
+			auto,
+			JSON.stringify({ requestId: REQUEST, draftId: DRAFT_ID, count: 1 }),
+		);
+		const decline = `${DECLINE_MARKER}: the top accepted items are already shipped.\nClosing them instead.`;
+		await runHook("stop", { last_assistant_message: decline }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		expect(payloads[0]![1].metadata.priorDraft).toEqual({
+			draftId: DRAFT_ID,
+			draftOutcome: "rejected",
+			reason: `${DECLINE_MARKER}: the top accepted items are already shipped.`,
+			source: "agent-turn",
+		});
+		// The draft keeps its ID for the user's reply; a later turn never re-judges it.
+		expect(peek(auto)).toMatchObject({ draftId: DRAFT_ID, judged: true });
+		payloads = [];
+		await runHook("stop", { last_assistant_message: decline }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		expect(payloads[0]![1].metadata).not.toHaveProperty("priorDraft");
 	});
 
 	test("an auto reply re-entering as a prompt is never a user reply", () => {

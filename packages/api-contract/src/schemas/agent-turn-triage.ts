@@ -538,7 +538,7 @@ export const AgentReplyDraftAcceptanceRowSchema = z.object({
 		.int()
 		.min(0)
 		.describe(
-			"Auto drafts whose follow-up replyClass is missing or not one of continue, approve, ship, fan-out (the user redirected the agent)",
+			"Auto drafts whose follow-up replyClass is missing or not one of continue, approve, ship, fan-out, question (the user redirected the agent), or that the agent's next turn declined (a later question's metadata.priorDraft.draftOutcome `rejected`)",
 		),
 	overrideRate: z
 		.number()

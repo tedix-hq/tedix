@@ -74,6 +74,36 @@ const LABEL_TIMEOUT_MS = 3000;
 const DRAFT_TIMEOUT_MS = 6000;
 const DETAIL_TIMEOUT_MS = 3000;
 
+/** What an agent says to decline an auto-delivered tedi draft. */
+export const DECLINE_MARKER = "Declining the tedi reply";
+const DECLINE =
+	/\bdeclin(?:e|es|ed|ing) (?:the |this )?(?:tedi|auto|drafted)\b/i;
+
+/**
+ * The agent's own decline of the auto draft it was just handed, recorded on
+ * its next question as `metadata.priorDraft`: agent-sourced, never an answer
+ * in the user's name. Undefined when the message does not decline it.
+ */
+export function declinedDraft(
+	message: string,
+	auto: JsonObject | undefined,
+): JsonObject | undefined {
+	if (!auto || auto.judged || typeof auto.draftId !== "string") return;
+	if (!UUID.test(auto.draftId)) return;
+	const match = DECLINE.exec(message);
+	if (!match) return;
+	const [reason] = redact(
+		message.slice(match.index).split(/\r?\n/)[0] ?? "",
+		200,
+	);
+	return {
+		draftId: auto.draftId,
+		draftOutcome: "rejected",
+		reason,
+		source: "agent-turn",
+	};
+}
+
 /** Test seams: status side effects and gateway-call timeouts. */
 export interface CaptureOptions {
 	status?: Pick<StatusDeps, "spawn" | "platform" | "which" | "label" | "now">;
@@ -829,6 +859,11 @@ async function onStop(
 		return;
 	// Codex hooks configured globally carry no Codex environment; its turn_id does.
 	const host = harnessOf(event, deps.env);
+	// Only the first turn after an auto delivery can decline that draft.
+	const auto = peek(autoDeliveryPath(state));
+	const priorDraft = declinedDraft(message, auto);
+	if (auto && !auto.judged)
+		writeState(autoDeliveryPath(state), { ...auto, judged: true });
 	const previous = claim(state);
 	const kept = previous?.requestId ? claim(early(state)) : undefined;
 	if (kept && kept.token === previous!.token) {
@@ -893,6 +928,7 @@ async function onStop(
 			branch: (deps.branch ?? gitBranch)(cwd),
 			messageComplete: complete,
 			triage,
+			...(priorDraft ? { priorDraft } : {}),
 		},
 	};
 	if (binding.workItemId) payload.workItemId = binding.workItemId;

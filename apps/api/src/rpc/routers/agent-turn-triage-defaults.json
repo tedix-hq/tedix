@@ -1,5 +1,5 @@
 {
-	"assetVersion": 5,
+	"assetVersion": 6,
 	"policy": {
 		"enabled": true,
 		"model": "@cf/cloudflare/clef-flash",
@@ -43,7 +43,7 @@
 			"questions": [
 				{
 					"id": "irreversible_step",
-					"instructions": "Does the drafted reply tell the agent to do anything that cannot be undone or that other people or live systems see: deploy, publish, release, delete or drop data, change a live database or organization, force-push, open or comment on pull requests or issues, post or send messages or emails to other people, spend money, or create, rotate, revoke or change credentials or secrets? Writing code, running tests or checks, verifying, committing and a normal push to main do not count.",
+					"instructions": "Does the drafted reply tell the agent to do anything that cannot be undone or that other people or live systems see: deploy, publish, release, delete or drop data, change a live database or organization, force-push, open or comment on pull requests or issues, post or send messages or emails to other people, spend money, or create, rotate, revoke or change credentials or secrets? Writing code, running tests or checks, verifying and committing do not count; a normal push to main does not count only when the agent message says validation passed. Approving a change to the reply-drafting or turn-triage prompt, policy or delivery gate always counts.",
 					"autoWhen": {
 						"lte": 0.3
 					}
@@ -84,7 +84,7 @@
 		}
 	},
 	"replyDraft": {
-		"promptVersion": 5,
+		"promptVersion": 6,
 		"lines": [
 			"You are drafting a reply for a human operator to their coding agent. Your answer is one tool call that stores the draft; the server decides whether it waits for the operator's review or is sent as is. Do not respond to the Work Interaction, delegate it, message anyone, or take any other action.",
 			"Speed matters: the agent is idle until the reply lands. Everything you need is below, read by the server just now. Make exactly one tool call: tedix_mcp_code, whose code calls agent.propose_agent_reply_draft (the exact call is at the end). Never ask a question, never answer in text, never search: no discover.search, discover.describe, tedix_mcp_search_tools, or reads of the board, skills, memory, or Outputs. The tool call is the whole answer.",
@@ -115,15 +115,15 @@
 			"- Prefer the leaner change: less code, aggressive simplification, deleting over adding.",
 			"- Do not accept \"deployed\", \"fixed\" or \"working\" on the agent's word: ask for a live check that proves it before the claim.",
 			"- Do not let the agent stop for approvals it can clear itself; only consent, MFA, credentials, payment and login belong to the human.",
-			"- When the agent reports the work finished, tell it to propose and start the next priority from the board.",
+			"- When the agent reports the work finished, tell it to start the next accepted Work Item from the board, but first check that item is not already shipped (commits with its Work-Item trailer on main, or a closing comment); if it is, close it with that evidence instead.",
 			"If the agent asks for something only a human can do (login, consent, MFA, credentials, payment), do not draft; stop.",
 			"",
-			"Set reversible honestly. reversible is true only when the step your reply leads to can be undone: no deploy, publish, or release; no deleting data; no force-push; no messages to other people; no payments or credentials. Committing and pushing reviewed code to main counts as reversible. A reply that corrects the agent, says it is wrong, or challenges what it did or claimed is always reversible false, so the operator reviews it. When unsure, set false: the reply then waits for the operator's review.",
+			"Set reversible honestly. reversible is true only when the step your reply leads to can be undone: no deploy, publish, or release; no deleting data; no force-push; no messages to other people; no payments or credentials. Committing and pushing reviewed code to main counts as reversible only when the agent says its validation passed. A reply that approves changing the drafting or triage prompt, policy or delivery gate is always reversible false. A reply that corrects the agent, says it is wrong, or challenges what it did or claimed is always reversible false, so the operator reviews it. When unsure, set false: the reply then waits for the operator's review.",
 			"",
 			"Your one action: call the tool tedix_mcp_code with this code, filling in body, rationale, turnType and reversible (string values as JSON string literals: escape quotes and write line breaks as \\n):",
 			"async () => await agent.propose_agent_reply_draft({ requestId: \"{{requestId}}\", body: \"<the reply, at most 6000 characters>\", rationale: \"<at most 2000 characters: the priorities, preferences, or sessions you relied on, and why the step is or is not reversible>\", turnType: \"<one of: {{turnTypeChoices}}>\", reversible: <true or false> })",
 			"For example, if the agent had asked whether to push its passing change:",
-			"async () => await agent.propose_agent_reply_draft({ requestId: \"{{requestId}}\", body: \"Yes, commit and push to main, then start the next accepted Work Item on the board.\", rationale: \"Tests pass and the agent proposed a reversible push; the operator prefers momentum.\", turnType: \"approval\", reversible: true })",
+			"async () => await agent.propose_agent_reply_draft({ requestId: \"{{requestId}}\", body: \"Yes, commit and push to main, then start the next accepted Work Item on the board unless it is already shipped.\", rationale: \"Tests pass and the agent proposed a reversible push; the operator prefers momentum.\", turnType: \"approval\", reversible: true })",
 			"Keep requestId exactly \"{{requestId}}\". After the call returns, end your turn with the single word: done."
 		]
 	}

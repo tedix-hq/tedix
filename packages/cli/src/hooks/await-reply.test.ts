@@ -197,6 +197,8 @@ describe("tedix hooks await-reply", () => {
 			`Tedix tedi ${DRAFT.drafterId} replied for the user (auto, reversible step; the user can override at any time): ${JSON.stringify(DRAFT.body)}`,
 		);
 		expect(result.message).toContain("untrusted");
+		expect(result.message).toContain("starting or continuing accepted Work");
+		expect(result.message).toContain("pushing to a public repo");
 		// Never answered for the user: the question stays open for their reply.
 		expect(existsSync(state())).toBe(true);
 		expect(peek(autoDeliveryPath(state()))).toEqual({
