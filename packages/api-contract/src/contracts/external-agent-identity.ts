@@ -149,6 +149,23 @@ export const externalAgentIdentityContract = oc
 			)
 			.output(ExternalAgentPrincipalSchema),
 
+		renamePrincipal: oc
+			.route({
+				method: "PATCH",
+				path: "/principals/{principalId}/display-name",
+				summary: "Rename an external-agent principal",
+				description:
+					"Changes only the display name. The key stays fixed because commit provenance and stored sessions refer to it.",
+			})
+			.input(
+				z.object({
+					organizationId: OrganizationIdSchema,
+					principalId: z.uuid(),
+					displayName: z.string().trim().min(1).max(200),
+				}),
+			)
+			.output(ExternalAgentPrincipalSchema),
+
 		openSession: oc
 			.route({
 				method: "POST",

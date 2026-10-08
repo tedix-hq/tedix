@@ -340,3 +340,32 @@ describe("owner-host Work identity", () => {
 		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 	});
 });
+
+describe("renamePrincipal", () => {
+	it("lets an owner rename a principal's display name and keeps its key", async () => {
+		const opened = await client(userContext(OWNER)).openOwnerHostSession(TUPLE);
+		const member = client(userContext(OTHER));
+		await expect(
+			member.renamePrincipal({
+				organizationId: ORG,
+				principalId: opened.principal.id,
+				displayName: "Taken over",
+			}),
+		).rejects.toThrow(/owner\/admin authority/);
+
+		const owner = client({
+			...userContext(OWNER),
+			userRole: "owner",
+		} as BaseContext);
+		const renamed = await owner.renamePrincipal({
+			organizationId: ORG,
+			principalId: opened.principal.id,
+			displayName: "Local coding agents (ada@laptop)",
+		});
+		expect(renamed).toMatchObject({
+			id: opened.principal.id,
+			key: opened.principal.key,
+			displayName: "Local coding agents (ada@laptop)",
+		});
+	});
+});

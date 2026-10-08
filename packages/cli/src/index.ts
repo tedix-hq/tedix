@@ -52,6 +52,7 @@ import {
 	externalAgentStatus,
 	finishExternalAgentSession,
 	listStaleExternalAgentKnowledgeSessions,
+	renameExternalAgentPrincipal,
 	startExternalAgentSession,
 } from "./external-agent";
 import { runFlowCommand } from "./flow";
@@ -424,6 +425,30 @@ async function main() {
 				);
 			return;
 		}
+		if (subcommand === "rename") {
+			const { auth, loginError } = await resolveStoredLoginAuth(workspace);
+			const oauthTokens = await auth?.oauthProvider?.tokens();
+			const bearer =
+				auth?.headers.Authorization?.replace(/^Bearer /, "") ??
+				oauthTokens?.access_token;
+			if (!bearer) {
+				throw new Error(
+					loginError ??
+						"agent rename requires a signed-in owner/admin workspace.",
+				);
+			}
+			const renamed = await renameExternalAgentPrincipal({
+				workspace,
+				oauthBearer: bearer,
+				displayName: options.agentDisplayName,
+			});
+			if (options.json) console.log(JSON.stringify(renamed, null, 2));
+			else
+				console.log(
+					`Renamed external-agent principal ${renamed.key}: "${renamed.previous}" -> "${renamed.displayName}". The key is unchanged.`,
+				);
+			return;
+		}
 		if (subcommand === "reconcile") {
 			const { auth, loginError } = await resolveStoredLoginAuth(workspace);
 			const oauthTokens = await auth?.oauthProvider?.tokens();
@@ -463,7 +488,7 @@ async function main() {
 			return;
 		}
 		throw new Error(
-			`Unknown agent command "${subcommand}". Usage: tedix agent start|status|checkpoint|finish|reconcile|end`,
+			`Unknown agent command "${subcommand}". Usage: tedix agent start|status|rename|checkpoint|finish|reconcile|end`,
 		);
 	}
 	if (command === "workspaces" || command === "workspace") {

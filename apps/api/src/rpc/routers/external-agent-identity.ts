@@ -56,6 +56,7 @@ import {
 	getExternalAgentPrincipalById,
 	getExternalAgentPrincipalByCredential,
 	listExternalAgentPrincipals,
+	renameExternalAgentPrincipal,
 	setExternalAgentPrincipalStatus,
 } from "@tedix/db/queries/external-agent-identity/principals";
 import {
@@ -420,6 +421,23 @@ const setPrincipalStatus = authed.setPrincipalStatus.handler(
 				organizationId,
 				principalId: input.principalId,
 				status: input.status,
+				updatedAt: new Date().toISOString(),
+			});
+		} catch (error) {
+			rethrowIdentityError(error);
+		}
+	},
+);
+
+const renamePrincipal = authed.renamePrincipal.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrganization(context, input.organizationId);
+		requireGovernance(context);
+		try {
+			return await renameExternalAgentPrincipal(context.db, {
+				organizationId,
+				principalId: input.principalId,
+				displayName: input.displayName,
 				updatedAt: new Date().toISOString(),
 			});
 		} catch (error) {
@@ -1524,6 +1542,7 @@ const listStaleKnowledgeSessions = authed.listStaleKnowledgeSessions.handler(
 export const externalAgentIdentityContractRouter = identityOs.router({
 	createPrincipal,
 	setPrincipalStatus,
+	renamePrincipal,
 	openSession,
 	openOwnerHostSession,
 	resolveOwnerHostSession,

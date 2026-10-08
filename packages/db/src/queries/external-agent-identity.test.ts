@@ -28,6 +28,7 @@ import { recordVerifiedExternalAgentMcpExecution } from "./external-agent-identi
 import {
 	createExternalAgentPrincipal,
 	type ExternalAgentIdentityError,
+	renameExternalAgentPrincipal,
 	setExternalAgentPrincipalStatus,
 } from "./external-agent-identity/principals";
 import {
@@ -326,6 +327,31 @@ describe("external-agent identity", () => {
 				sessionId: run.id,
 			}),
 		).resolves.toBeNull();
+	});
+
+	it("renames only the display name and keeps the key", async () => {
+		const db = fixture();
+		const actor = await principal(db);
+		const renamed = await renameExternalAgentPrincipal(db, {
+			organizationId: ORG,
+			principalId: actor.id,
+			displayName: "Local coding agents (ada@laptop)",
+			updatedAt: LATER,
+		});
+		expect(renamed).toMatchObject({
+			id: actor.id,
+			key: actor.key,
+			displayName: "Local coding agents (ada@laptop)",
+			updatedAt: LATER,
+		});
+		await expect(
+			renameExternalAgentPrincipal(db, {
+				organizationId: "00000000-0000-4000-8000-0000000000ff",
+				principalId: actor.id,
+				displayName: "Cross-org rename",
+				updatedAt: LATER,
+			}),
+		).rejects.toMatchObject({ reason: "principal_not_found" });
 	});
 
 	it("keeps one stable principal per credential binding", async () => {
