@@ -3,6 +3,15 @@
 Hand-written notes for each CLI release, newest first. See
 [RELEASING.md](../../RELEASING.md) for how versions are chosen.
 
+## 0.6.7 — 2026-10-08
+
+### Fixed
+
+- The prompt hook keeps its context under 6,400 bytes in Claude Code as well as
+  Codex; both plugin hooks declare a 6,500-character limit, and 0.6.6 could
+  exceed it in Claude Code. Over budget it drops lower-ranked lessons first,
+  always keeping the top six, then shortens document text.
+
 ## 0.6.6 — 2026-10-08
 
 ### Fixed

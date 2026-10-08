@@ -49,14 +49,19 @@ const TEXT_LIMIT = 3200;
 const COMMENT_LIMIT = 400;
 const LESSON_BYTES = 2800;
 /**
- * Whole-message budgets, in UTF-8 bytes (never fewer than characters): Claude
- * Code caps hook context at 10,000 characters; the Codex package declares
- * additionalContextLimit 6500. Over budget, render trims lessons beyond the
- * top TOP_LESSONS first, then document tails; it never drops lessons entirely.
+ * Whole-message budget, in UTF-8 bytes (never fewer than characters). The
+ * Claude Code and Codex plugin hooks both declare additionalContextLimit 6500
+ * for this hook (`plugins/tedix/hooks/hooks.json`); one budget with headroom
+ * keeps every host under it. Over budget, render trims lessons beyond the top
+ * TOP_LESSONS first, then document tails; it never drops lessons entirely.
  */
-const CLAUDE_BYTES = 9600;
-const CODEX_BYTES = 6400;
-const TOP_LESSONS = 3;
+export const HOOK_BYTES = 6400;
+/**
+ * Lessons kept before document text is shortened. The gateway ranks standing
+ * lessons first, then answer-style and core rules, so the top six keep the
+ * standing and core rules a crowded budget must not lose.
+ */
+const TOP_LESSONS = 6;
 const DOCUMENT_STEP = 200;
 const TRUNCATION_NOTE =
 	"\nContext truncated (complete=false); read the full current sources before relying on omitted detail.";
@@ -166,15 +171,10 @@ async function captureContext(
 	}
 }
 
-/** The host's whole-context budget in bytes. */
-export function contextBudget(harness: string): number {
-	return harness === "codex" ? CODEX_BYTES : CLAUDE_BYTES;
-}
-
 /** Last-resort cut to the host budget, after render's own priority trimming. */
 export function boundedContext(
 	message: string,
-	budget: number = CLAUDE_BYTES,
+	budget: number = HOOK_BYTES,
 ): string {
 	if (Buffer.byteLength(message, "utf8") <= budget) return message;
 	return `${utf8Prefix(message, budget - Buffer.byteLength(TRUNCATION_NOTE, "utf8"))}${TRUNCATION_NOTE}`;
@@ -235,7 +235,7 @@ export function render(
 	binding: JsonObject,
 	data: JsonObject,
 	now: Date,
-	budget: number = CLAUDE_BYTES,
+	budget: number = HOOK_BYTES,
 ): string {
 	const available =
 		isObject(data.lessons) && Array.isArray(data.lessons.lessons)
@@ -428,8 +428,7 @@ function compose(
 
 export async function runPromptContext(deps: HookDeps): Promise<void> {
 	const { env, read } = deps;
-	// Codex is told apart by its event's turn_id, or its environment.
-	let budget = CLAUDE_BYTES;
+	const budget = HOOK_BYTES;
 	const send = (message: string) =>
 		deps.write(
 			JSON.stringify({
@@ -449,8 +448,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 	try {
 		// Only the chat identity and host kind are retained; the prompt text is discarded here.
 		const { event, session } = hostEvent(deps.stdin, env, EVENT_LIMIT);
+		// Codex is told apart by its event's turn_id, or its environment.
 		const harness = harnessOf(event, env);
-		budget = contextBudget(harness);
 		const contextCommand = [
 			"setup",
 			"agents",

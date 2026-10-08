@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HOOK_BYTES } from "../src/hooks/prompt-context";
 import { build, HOOK_GUARD, packageFiles, ROOT } from "./package-plugin";
 
 const decode = (files: Map<string, Uint8Array>, name: string) =>
@@ -115,6 +116,20 @@ describe("plugin packager", () => {
 			decode(local, "plugin.json").extensions["com.openai"].publication
 				.release_notes,
 		).toContain("run by the installed Tedix CLI");
+	});
+
+	test("prompt context fits the limit both installed plugins declare", () => {
+		// Installed Claude plugins run the source hooks.json; Codex runs the package.
+		const declared = [
+			JSON.parse(readFileSync(join(ROOT, "hooks/hooks.json"), "utf8")).hooks,
+			decode(packageFiles({ local: true }), "hooks/hooks.json").hooks,
+		].map((hooks) =>
+			handlers(hooks)
+				.filter((handler) => hookName(handler) === "prompt-context")
+				.map((handler) => handler.additionalContextLimit),
+		);
+		expect(declared).toEqual([[6500], [6500]]);
+		expect(HOOK_BYTES).toBeLessThan(6500);
 	});
 
 	test("reproducible and does not overwrite", () =>
