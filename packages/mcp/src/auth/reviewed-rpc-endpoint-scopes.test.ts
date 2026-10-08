@@ -51,11 +51,23 @@ describe("reviewed RPC endpoint scopes", () => {
 			"tediApprovals/create",
 			"kernelRuntime/proposeRepoCommit",
 			"tedis/authorizeOsPortableCall",
-			"tediEmail/createAddress",
+			"tediEmail/provisionAddress",
 			"organizations/cancel",
 			"billing/grantCredit",
 		]) {
 			expect(resolve(endpoint, {})).toEqual(["platform:admin"]);
+		}
+	});
+
+	it("keeps tenant mailbox self-serve on the messaging family", () => {
+		expect(resolve("tediEmail/listAddresses")).toEqual(["mcp:messaging.read"]);
+		for (const endpoint of [
+			"tediEmail/createAddress",
+			"tediEmail/updateAddress",
+		]) {
+			expect(resolve(endpoint, { readOnlyHint: false })).toEqual([
+				"mcp:messaging.write",
+			]);
 		}
 	});
 
