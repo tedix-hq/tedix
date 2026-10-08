@@ -50,6 +50,10 @@ export interface SkillValidationInput {
 	files?: Record<string, string> | null;
 	toolSlugs?: string[];
 	metadataToolSlugs?: string[];
+	/** Improve only: the skill's stored namespace → appId bindings, so a namespace whose app was renamed still resolves. */
+	mcpAppBindings?: unknown;
+	/** Owning organization; a binding counts only for its own or a public app. */
+	organizationId?: string;
 }
 
 export function validateWorkflowSource(
@@ -503,6 +507,84 @@ const RESERVED_CAPABILITY_METHODS: Record<string, ReadonlySet<string>> = {
 };
 
 /**
+ * Apps a skill's stored bindings point at, keyed by namespace. Mirrors the
+ * runtime: a binding counts only while its app exists and belongs to the
+ * skill's organization or is public, so a renamed app still resolves.
+ */
+async function listBoundApps(
+	db: DbClient,
+	namespaces: string[],
+	binding?: { mcpAppBindings?: unknown; organizationId?: string },
+): Promise<
+	Map<
+		string,
+		{
+			id: string;
+			slug: string;
+			metadata: (typeof apps.$inferSelect)["metadata"];
+		}
+	>
+> {
+	const out = new Map<
+		string,
+		{
+			id: string;
+			slug: string;
+			metadata: (typeof apps.$inferSelect)["metadata"];
+		}
+	>();
+	const stored = binding?.mcpAppBindings;
+	if (!binding?.organizationId || !stored || typeof stored !== "object")
+		return out;
+	const bound = namespaces.flatMap((namespace) => {
+		const appId = (stored as Record<string, unknown>)[namespace];
+		return typeof appId === "string" && appId
+			? [[namespace, appId] as const]
+			: [];
+	});
+	if (!bound.length) return out;
+	const rows: Array<{
+		id: string;
+		slug: string;
+		metadata: (typeof apps.$inferSelect)["metadata"];
+		organizationId: string | null;
+		visibility: (typeof apps.$inferSelect)["visibility"];
+	}> = [];
+	for (const chunk of chunkForBoundParams(
+		[...new Set(bound.map(([, appId]) => appId))],
+		50,
+	)) {
+		rows.push(
+			...(await db
+				.select({
+					id: apps.id,
+					slug: apps.slug,
+					metadata: apps.metadata,
+					organizationId: apps.organizationId,
+					visibility: apps.visibility,
+				})
+				.from(apps)
+				.where(inArray(apps.id, chunk))),
+		);
+	}
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	for (const [namespace, appId] of bound) {
+		const app = byId.get(appId);
+		if (
+			app &&
+			(app.organizationId === binding.organizationId ||
+				app.visibility === "public")
+		)
+			out.set(namespace, {
+				id: app.id,
+				slug: app.slug,
+				metadata: app.metadata,
+			});
+	}
+	return out;
+}
+
+/**
  * Write-time lint over the executable-skill capability manifest. Resolves each
  * declared `capabilities.mcp` namespace the same way the skill-runtime does at
  * dispatch (`resolveNamespaceSlugs`: exact app slug → `${ns}-tedix` →
@@ -514,6 +596,7 @@ const RESERVED_CAPABILITY_METHODS: Record<string, ReadonlySet<string>> = {
 async function lintCapabilityManifest(
 	db: DbClient,
 	capabilities: WorkflowCapabilities,
+	binding?: { mcpAppBindings?: unknown; organizationId?: string },
 ): Promise<SkillValidationIssue[]> {
 	const issues: SkillValidationIssue[] = [];
 	for (const [namespace, knownMethods] of Object.entries(
@@ -555,10 +638,12 @@ async function lintCapabilityManifest(
 		);
 	}
 	const bySlug = new Map(appRows.map((row) => [row.slug, row]));
+	const boundById = await listBoundApps(db, namespaces, binding);
 
 	for (const namespace of namespaces) {
 		const path = `capabilities.mcp.${namespace}`;
 		const resolved =
+			boundById.get(namespace) ??
 			bySlug.get(namespace) ??
 			bySlug.get(`${namespace}-tedix`) ??
 			bySlug.get(namespace.replace(/_/g, "-"));
@@ -816,7 +901,9 @@ export async function validateSkillInput(
 		});
 	}
 	if (Object.keys(manifestCapabilities.mcp).length) {
-		warnings.push(...(await lintCapabilityManifest(db, manifestCapabilities)));
+		warnings.push(
+			...(await lintCapabilityManifest(db, manifestCapabilities, input)),
+		);
 	}
 
 	// App-scoped checks
