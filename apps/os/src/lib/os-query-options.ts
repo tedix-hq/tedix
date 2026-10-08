@@ -895,6 +895,30 @@ export const tediPairingRequestsQueryOptions = (tediId: string) =>
 export const tediDetailQueryOptions = (tediId: string) =>
 	osQuery.tedis.get.queryOptions({ input: { tediId } });
 
+/**
+ * Inbox pages are keyed by status so the loader and the filtered surface read
+ * the identical cache entry.
+ */
+export const TEDI_EMAIL_INBOX_LIMIT = 50;
+
+export const tediEmailAddressesQueryOptions = (tediId: string) =>
+	osQuery.tediEmail.listAddresses.queryOptions({
+		input: { tediId, status: "all" },
+	});
+
+export const tediEmailInboxQueryOptions = (
+	tediId: string,
+	status: "open" | "archived" | "spam" | "all" = "open",
+) =>
+	osQuery.tediEmail.listInbox.queryOptions({
+		input: { tediId, status, limit: TEDI_EMAIL_INBOX_LIMIT },
+	});
+
+export const tediEmailThreadQueryOptions = (tediId: string, threadId: string) =>
+	osQuery.tediEmail.readThread.queryOptions({
+		input: { tediId, threadId },
+	});
+
 export const tediRuntimeStatusQueryOptions = (tediId: string) =>
 	osQuery.tedis.getStatus.queryOptions({ input: { tediId } });
 
@@ -1208,6 +1232,8 @@ export const osQueryKeys = {
 	/** Roster, detail, status, channel pairing, and operations projections. */
 	tedis: () => osQuery.tedis.key({ type: "query" }),
 	tediSecrets: () => osQuery.tediSecrets.key({ type: "query" }),
+	/** Addresses, inbox pages, and thread reads for a tedi mailbox. */
+	tediEmail: () => osQuery.tediEmail.key({ type: "query" }),
 	tediAppAssignments: () => osQuery.tediAppAssignments.key({ type: "query" }),
 	skillRunRetryCandidates: () =>
 		osQuery.skills.listWorkflowRetryCandidates.key({ type: "query" }),

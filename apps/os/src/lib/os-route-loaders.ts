@@ -83,6 +83,8 @@ import {
 	tediDetailQueryOptions,
 	tediDevicesQueryOptions,
 	tediDomainsQueryOptions,
+	tediEmailAddressesQueryOptions,
+	tediEmailInboxQueryOptions,
 	tediExpertiseQueryOptions,
 	tediKnowledgeMapQueryOptions,
 	tediRationaleQueryOptions,
@@ -424,6 +426,17 @@ export async function prefetchTediMemoryRoute(
 	await Promise.allSettled([
 		queryClient.ensureQueryData(tediKnowledgeMapQueryOptions(tediId, 2, 60)),
 		queryClient.ensureQueryData(tediRationaleQueryOptions(tediId, 25)),
+	]);
+}
+
+export async function prefetchTediMailboxRoute(
+	queryClient: QueryClient,
+	tediId: string,
+) {
+	await Promise.allSettled([
+		queryClient.ensureQueryData(tediDetailQueryOptions(tediId)),
+		queryClient.ensureQueryData(tediEmailAddressesQueryOptions(tediId)),
+		queryClient.ensureQueryData(tediEmailInboxQueryOptions(tediId, "open")),
 	]);
 }
 
