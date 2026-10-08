@@ -56,19 +56,7 @@ An account role and an OAuth grant are separate. Human Connect tokens may identi
 
 For native tedis, MCP resolves the current capability profile and constructs `X-Tedix-Tedi-Id` and `X-Tedix-Tedi-Scopes` on its CMS service request. CMS honors platform scope only after verifying the service secret and matching the tedi actor/id. Public headers and service/kernel actors do not supply tedi authority. Existing selected-organization checks at Connect and platform cross-organization semantics remain in force.
 
-## Credential types
-
-| Method                         | Format                             | Org scope               | Use                                                      |
-| ------------------------------ | ---------------------------------- | ----------------------- | -------------------------------------------------------- |
-| User JWT                       | `Authorization: Bearer <jwt>`      | Selected tenant (`dct`) | Tedix OS and other human product sessions                |
-| Service binding                | Transport trust, no token          | Delegated scope only    | Worker-to-worker                                         |
-| M2M JWT                        | `Authorization: Bearer <jwt>`      | `tenants` claim         | External integrations (Descope access keys)              |
-| Tedi JWT                       | `Authorization: Bearer <jwt>`      | FGA + D1 profile        | Tedi runtime → API                                       |
-| OAuth 2.1 (AIH)                | `Authorization: Bearer <jwt>`      | Token claims            | MCP clients                                              |
-| AIH M2M (`client_credentials`) | `Authorization: Bearer <jwt>`      | Token claims            | Tedis and external-agent sessions → MCP; no user consent |
-| API key                        | `X-API-Key: sk_…` or `Bearer sk_…` | Owning organization     | Automation at the API edge; rejected on `/mcp`           |
-
-### Boundaries
+## Credentials and boundaries
 
 | Boundary                       | Credential                                                    | Tenant check                                       |
 | ------------------------------ | ------------------------------------------------------------- | -------------------------------------------------- |
@@ -90,12 +78,9 @@ local/raw-HTTP paths. New paths use named service bindings.
 
 ### API keys (`sk_*`)
 
-Per-organization keys for API automation (`packages/db/src/schema/api-keys.ts`,
-`packages/db/src/queries/api-keys.ts`). `sk_test_` / `sk_live_` are labels and do
-not select a data environment. Keys are stored as SHA-256 hashes and carry
-scopes, an optional IP allowlist, and expiry. `API_RATE_LIMITER`
-(`apps/api/src/worker-app.ts`) buckets RPC by credential-or-IP and public REST by
-IP.
+Per-organization automation keys, stored as SHA-256 hashes with scopes, an
+optional IP allowlist, and expiry. `sk_test_` / `sk_live_` are labels only and
+do not select a data environment. API keys are rejected on `/mcp`.
 
 - `organizations.rotateApiKey` replaces the hash in place, returns the raw key
   once, keeps the old hash valid for a 24-hour grace period, and requires
@@ -105,9 +90,6 @@ IP.
   scopes.
 - OS fleet-runner mutations accept only a key with the literal `os:fleet-run`
   scope (not `*`, not `platform:admin`); only a platform principal may mint it.
-- On MCP, `X-API-Key` carrying a Descope access-key JWT is converted to a Bearer
-  token and validated as a JWT. A bearer value starting with `sk_` is rejected
-  with 401 (`apps/mcp/src/auth-helpers.ts`).
 
 ### External-agent sessions
 
@@ -136,10 +118,6 @@ Coding agents open an immutable Agent-Session at the MCP gateway's no-store
   `retire_abandoned_external_agent_session`. It refuses active Attempts, ends the
   session, deletes its Descope MCP clients, revokes the D1 credential rows, and
   emits `external_agent.session.retired_abandoned`.
-
-Owners: `apps/mcp/src/external-agent-session.ts`,
-`packages/cli/src/external-agent.ts`, and the API's
-`externalAgentIdentity.issueMcpCredential`.
 
 ### Worker ingress
 
@@ -184,6 +162,13 @@ pass the usual tenant, FGA, and scope checks.
 - Org resolution (`apps/api/src/rpc/orpc.ts`) maps issuer + `dct` through
   `principal_identities`; slug reconstruction is forbidden.
 
+## Waitlist gate
+
+Signup is gated in the Descope sign-up-or-in flow on the `waitlistStatus` user
+attribute; there is no D1 copy. `user.invite` leaves the attribute unset, so
+member invitation must also mark the invitee approved or a valid invite is
+bounced at login.
+
 ## RBAC
 
 Descope is the RBAC source of truth; `roles[]` and `permissions[]` arrive in the
@@ -193,17 +178,9 @@ JWT and are enforced by `withPermission()` plus UI gating.
 `permissions` claim; editing it grants nothing until synced. The sync only adds,
 so `controlPlane.getDescopeRbacDrift` reports only what Descope lacks. Tenant
 admins compose custom roles from Tedix-defined permissions (`ALL_PERMISSIONS`)
-but cannot mint permissions.
-
-| Role               | Permission envelope                                                                 |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| `owner`            | Admin permissions plus `billing:manage`; never platform authority                   |
-| `admin`            | Org app/tedi/team/settings/content/storage/tool operations; no billing, no platform |
-| `member`           | Read-only app/tedi/team/analytics                                                   |
-| `viewer`           | Read-only app/tedi/analytics                                                        |
-| `tedi`             | Empty; tedi authority comes from the D1 profile and FGA                             |
-| `catalog-operator` | `catalog:manage` only                                                               |
-| `platform-admin`   | `platform:admin`, `catalog:manage`, and the explicit `os:*` permissions             |
+but cannot mint permissions. `tedi` has an empty role (authority comes from the
+D1 profile and FGA); `owner` adds only `billing:manage` to `admin`; neither
+carries platform authority.
 
 Rules:
 
@@ -246,19 +223,9 @@ attributes `tediId` and `entityType`. `createTediIdentity()`
 sign into Tedix OS like humans when they hold the right roles and grants.
 
 **Tedi runtime → API.** The runtime exchanges its access key for a JWT
-(`packages/auth/src/access-key-exchange.ts`); `withTediAuth` validates it.
-
-```json
-{
-	"sub": "<access-key-client-id>",
-	"tediId": "<uuid>",
-	"descopeUserId": "<descope-user-id>",
-	"entityType": "tedi",
-	"tedixRuntimeApiScopes": ["tedis:read", "tedis:write", "billing:read"],
-	"tenants": { "org_tedix": {} },
-	"aud": ["<project-id>"]
-}
-```
+(`packages/auth/src/access-key-exchange.ts`) carrying `tediId`,
+`descopeUserId`, `entityType: "tedi"`, and runtime API scopes; `withTediAuth`
+validates it.
 
 - `descopeUserId` is required and never inferred from `sub`.
 - `tenants` carries no roles, so `isPlatformAdmin()` is never true for a tedi.
@@ -307,12 +274,9 @@ relations, owned by `packages/auth/src/fga.ts`. D1
 assignments (`packages/auth/src/app-assignment-policy.ts`); FGA holds the
 materialized grants.
 
-- Mutations and batch checks use `management.fga` (`grantAppOperator`,
-  `grantAppObserver`, `revokeAppAccess`, `getOperableApps`, …). Use batch checks
-  for authorization gates.
-- Discovery queries use `management.authz` (`queryTediRelations`,
-  `queryAppRelations`) for admin tooling. They throw on failure so an outage is
-  never read as "no grants".
+- Authorization gates use `management.fga` batch checks. Discovery queries
+  (`management.authz`) throw on failure so an outage is never read as "no
+  grants".
 - `descopeAih.auditDrift` flags relations whose app no longer exists in D1.
 
 AIH scopes decide whether a caller may reach a capability; FGA decides whether
@@ -362,15 +326,6 @@ Consent-flow rules (`packages/auth/src/aih-client.ts`,
 4. CLI access tokens use a current-tenant JWT template: `dct` plus that tenant's
    roles and permissions, no multi-tenant `tenants` map.
 
-| MCP request                               | Result                                  |
-| ----------------------------------------- | --------------------------------------- |
-| `X-API-Key` with a Descope access-key JWT | Converted to Bearer, validated as JWT   |
-| Bearer starting with `sk_`                | 401                                     |
-| Expired JWT or wrong `aud`                | 401                                     |
-| Missing required scope                    | 403 `insufficient_scope`                |
-| No auth on an authenticated app           | 401 + `WWW-Authenticate`                |
-| Service binding                           | Internal principal with explicit scopes |
-
 ## Security properties
 
 **Step-up.** Organization deletion, `organizations.rotateApiKey`, and
@@ -402,33 +357,22 @@ cookies.
 **Audit webhook.** `apps/api/src/webhooks/descope-audit.ts` verifies the
 raw-body HMAC, validates batches (≤ 100 events), and persists before returning 200. Failures return 503; deterministic ids with `ON CONFLICT DO NOTHING` make
 redelivery safe. Events without a resolvable organization are skipped; this is
-a tenant archive, not a complete project archive. Descope treats 2xx as final.
+a tenant archive, not a complete project archive. Descope treats 2xx as final. Deduplication is by id, not a timestamp window:
+dropping a late but genuine batch would lose audit evidence permanently.
 
-**Agent audit.** Every MCP `tool_call`, `prompt_get`, and Code Mode `code_exec`
-records `actorType` (`user`, `tedi`, `external_agent`, `m2m`, `service`,
-`anonymous`), `actorId`, `tediId` / `agentTediId`, `subjectUserId`,
-`oauthClientId`, `grantedScopeCount`, `delegationMode`, `skillRunId` /
-`skillId`, and a trace id. This records what context was used; it is not an
+**Agent audit.** MCP `tool_call`, `prompt_get`, and Code Mode `code_exec`
+records carry the actor, tedi, subject user, OAuth client, delegation mode,
+skill run, and trace id. They record what context was used; they are not an
 authorization source.
 
-## Middleware
-
-| Middleware          | Purpose                                                              |
-| ------------------- | -------------------------------------------------------------------- |
-| `withAuth`          | Service binding / user JWT / M2M JWT / tedi JWT / API key            |
-| `withServiceAuth`   | Service binding only; fails closed                                   |
-| `withTediAuth`      | Service binding or tedi JWT with explicit `tediId` + `descopeUserId` |
-| `withPermission(p)` | Descope permission check                                             |
-| `validateAuth()`    | MCP OAuth JWT validation at the edge                                 |
+## withAuth order
 
 `withAuth` order (`apps/api/src/rpc/orpc.ts`): service binding → external-agent
 session-exchange marker (only `openSession` / `issueMcpCredential`) → forwarded
 MCP user → external-agent identity → user JWT → M2M JWT → tedi JWT → API key.
 The service-binding branch short-circuits first and hydrates `tediId`,
 `tediScopes`, and `descopeUserId` (from `X-Tedix-Acting-User`, an identity hint,
-not a grant). All routes are contract-first via `implement()`.
-`validateToken()` uses the Descope SDK's `validateSession()` with built-in JWKS
-caching.
+not a grant).
 
 ## CMS (Emdash) tool calls
 
@@ -455,33 +399,3 @@ holds the provider signing key. Code:
 `apps/api/src/rpc/routers/tedis/embedded-host-delegation.ts`,
 `apps/mcp/src/mcp/embedded-host-delegation.ts`,
 `packages/mcp-client-core/src/client-manager.ts`.
-
-## Key files
-
-| File                                               | Purpose                                                     |
-| -------------------------------------------------- | ----------------------------------------------------------- |
-| `packages/auth/src/principal.ts`                   | Normalized `AuthPrincipal` and internal MCP scopes          |
-| `packages/auth/src/principal-identity.ts`          | Provider tuple → Tedix principal; Cloudflare Access adapter |
-| `packages/auth/src/jwt.ts`                         | JWT validation (standard and AIH)                           |
-| `packages/auth/src/rbac.ts`                        | Role → permission baseline                                  |
-| `packages/auth/src/fga.ts`                         | FGA mutations, batch checks, AuthZ queries                  |
-| `packages/auth/src/tedi-identity.ts`               | Tedi Descope user and access-key lifecycle                  |
-| `packages/auth/src/aih-client.ts`                  | Pre-registered AIH clients and credential exchange          |
-| `packages/auth/src/descope-fetch.ts`               | Bounded-retry fetch for Descope REST paths the SDK lacks    |
-| `packages/auth/src/session-broker.ts`              | Broker allowlists, TTLs, RPC contracts, URL validators      |
-| `apps/session-broker/src/index.ts`                 | Auth-host broker: authorize, product RPC, logout, refresh   |
-| `packages/mcp/src/auth/scopes.ts`                  | Capability profiles and scope helpers                       |
-| `apps/api/src/rpc/orpc.ts`                         | `withAuth`, `withServiceAuth`, `withTediAuth`               |
-| `apps/api/src/rpc/routers/mcp-credentials.ts`      | Tedi credential resolution                                  |
-| `apps/api/src/rpc/routers/tedi-app-assignments.ts` | FGA-backed assignment management                            |
-| `apps/api/src/rpc/routers/descope-aih.ts`          | AIH resource reconciliation and drift audit                 |
-| `apps/mcp/src/auth-helpers.ts`                     | MCP JWT validation and scope extraction                     |
-| `apps/mcp/src/well-known.ts`                       | OAuth protected-resource metadata                           |
-| `apps/mcp/src/mcp/handler.ts`                      | Tool execution and cross-scope override                     |
-
-## Related
-
-- [MCP runtime](../mcp/runtime.md)
-- [Data model: organization identity](data-model.md)
-- [API layer](api.md)
-- [Tedi client OAuth / CIMD decision](../../../decisions/tedi-client-oauth-cimd.md)

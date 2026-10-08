@@ -115,37 +115,8 @@ MCP → API → Tedi edge → runtime/workstation   (live tool execution)
 
 Storage roles: D1 holds control-plane facts; R2/Artifacts hold large immutable
 payloads; Durable Object SQLite holds private runtime state; workstation files
-are scratch until committed or captured as an artifact. Tedi behavior config
-lives in versioned `runtime_profiles`, `policy_packs`, and
-`workspace_template_sets` rows that each tedi pins by foreign key.
-
-### Relational boundaries
-
-```text
-request / workflow / job
-  └── auth + validation + orchestration
-        └── @tedix/db/queries/<domain>[/<capability>]
-              ├── Drizzle builder / db.query.*
-              ├── Drizzle sql`` escape hatch (bound, tested)
-              └── registered raw D1 primitive (rare CAS/bulk exception)
-                    └── shared D1
-
-runtime enforcement → registered lifecycle/CAS owner → shared D1
-app-owned D1        → app storage module (never shared tables)
-DO / Agent state    → object-local SQLite (separate consistency boundary)
-```
-
-`packages/db` is the single schema and query owner for shared D1. Apps create a
-client but do not build queries inline. Direct `D1Database.prepare()` requires
-an entry in `scripts/db-access-exceptions.json`. Query barrels are forbidden
-because they eagerly load unrelated code. Schema changes are append-only
-generated migrations under `packages/db/drizzle/`. On D1, `db.batch()` is the
-only atomic primitive; see [Data model](platform/data-model.md#query-rules-on-d1)
-and [DB](platform/db.md).
-
-Commercial storage is selected explicitly by `TEDIX_FLEET_AUTHORITY_MODE`
-(`apps/api/src/lib/fleet-authority.ts`); `disabled` blocks commercial handlers
-before they touch storage, and nothing infers the mode from bindings.
+are scratch until committed or captured as an artifact. See
+[Data model](platform/data-model.md).
 
 ## Runtime
 
@@ -178,19 +149,9 @@ compaction boundary and overflow classifier), and `@tedix/chat-transport`
 (transcript reducer). Both bound history by token pressure against the model
 window, not by turn count.
 
-### Skill workflows
-
-`apps/skill-runtime` hosts one static `SkillWorkflow` class. A run inserts a
-`skill_runs` row with the pinned source snapshot, then starts a Workflow
-instance with the same id. The class loads tenant code from that snapshot into
-a Worker Loader isolate and passes only capability stubs (`env.MCP` and
-non-secret run context); tokens, D1, and service bindings stay on the loader
-side. The `SKILL.md` capability manifest gates `env.MCP.<namespace>` and
-`fetch()`; without `network: true` the isolate has no outbound network.
-Cloudflare Workflows owns step identity, retries, sleeps, events, and
-pause/resume; Tedix owns identity, capability checks, pinned source, and run
-records. A cron plus read-time reconciliation keeps `skill_runs` status in sync
-with the engine. See [Skills](cognition/skills.md).
+Executable skills run in `apps/skill-runtime`: one static `SkillWorkflow`
+class loads pinned tenant code into a Worker Loader isolate that receives only
+capability stubs; see [Skills](cognition/skills.md).
 
 ### MCP
 
@@ -202,23 +163,9 @@ metadata (`/.well-known/oauth-protected-resource`); authorization-server
 discovery, client registration, and authorization are hosted by the identity
 provider. See [MCP runtime](mcp/runtime.md) and [Auth](platform/auth.md).
 
-## API Client
-
-`@tedix/api-client` provides `getApiClient()` for public URLs,
-`getInternalApiClient(env)` for Worker-to-Worker calls over `API_SERVICE`, and
-`callRpc()` for config-driven procedure paths. All delegate encoding to oRPC's
-`RPCLink`. Contracts live in `packages/api-contract/src/contracts/`; list that
-directory for the current set. See [API](platform/api.md).
-
 ## Deploy Target
 
 Every Worker deploys to one named Wrangler environment, `production`.
 `scripts/lint-wrangler.ts` rejects any `env.staging`, because a staging block
 that binds the same D1 and R2 is not isolation. Preview work belongs in local
 development ([Development](development.md)).
-
-## Related
-
-- [Development](development.md)
-- [API](platform/api.md), [Auth](platform/auth.md), [Data model](platform/data-model.md), [DB](platform/db.md)
-- [MCP runtime](mcp/runtime.md), [Agent runtime](tedi/agent-runtime.md)

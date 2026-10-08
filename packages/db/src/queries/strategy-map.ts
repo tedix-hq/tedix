@@ -15,8 +15,8 @@
  * (Pearson r) + sample size (paired buckets) and returns
  * `insufficient_data` below a floor — no p-value theater.
  *
- * The hypotheses map onto benchmark v2's causal chain
- * (documented in docs/engineering/cognition/brain.md § Strategy Map):
+ * The hypotheses map onto benchmark v2's causal chain:
+ *
  *   learning stage  →  process stage  →  outcome stage
  */
 

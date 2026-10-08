@@ -2,7 +2,7 @@
  * Harness Versioning + Trace Bundle Router
  *
  * Tedix-owned write/read surface for the harness-evolution evidence substrate
- * (see docs/engineering/cognition/harness.md). The isolate DO's `HttpPlatformClient` calls
+ * (see docs/engineering/cognition/runtime.md). The isolate DO's `HttpPlatformClient` calls
  * `ensureActiveHarnessVersion` (identity load) + `recordTraceBundle` (run close).
  *
  * Version-bump policy lives here so monotonicity stays server-authoritative:

@@ -25,7 +25,7 @@ import { resolveThemeMode, useOsTheme } from "@/lib/theme";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /**
- * MCP Apps host mount for Tedix OS (docs/engineering/mcp/apps.md, "Host Architecture").
+ * MCP Apps host mount for Tedix OS (docs/engineering/mcp/apps.md).
  *
  * Fetches the widget's `ui://` resource through the governed same-origin
  * proxy (`GET /widgets/resource`), then mounts the HTML with
@@ -321,7 +321,7 @@ function WidgetFrameInner({
 	);
 
 	// MCP passthrough: guest tool calls ride the governed bridge, never a
-	// direct MCP connection (docs/engineering/mcp/apps.md, "Host Bridge and Token Handling").
+	// direct MCP connection (docs/engineering/mcp/apps.md).
 	const handleCallTool = useCallback<WidgetCallTool>(
 		async (params, extra) => {
 			const response = await fetch("/widgets/mcp", {

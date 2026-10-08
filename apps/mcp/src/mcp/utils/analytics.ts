@@ -162,7 +162,7 @@ function getAuditActor(event: McpEvent): {
 		// Kernel calls carry delegationMode "kernel" in the caller
 		// metadata (built by buildCallerAuditMetadata from the normalized
 		// identity). They audit as the tenant control-plane actor — actorId is
-		// the initiating human when present (docs/engineering/product/tedix-os.md Phase 2 audit contract).
+		// the initiating human when present (audit contract).
 		if (event.metadata?.delegationMode === "kernel") {
 			return {
 				actorId: event.userId ?? "kernel",

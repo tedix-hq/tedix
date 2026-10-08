@@ -445,7 +445,7 @@ export async function handleWidgetResource(
  *
  * Relays a widget-originated MCP call through the caller's own session:
  * same-origin only, Tedix-managed targets only, and only the allowlisted
- * guest operations (docs/engineering/mcp/apps.md, "Host Bridge and Token Handling").
+ * guest operations (docs/engineering/mcp/apps.md).
  */
 export async function handleWidgetMcp(
 	request: Request,

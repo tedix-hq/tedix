@@ -55,7 +55,7 @@ export interface CallerIdentity {
 		gatewaySlug: string;
 	}>;
 	/**
-	 * Kernel marker (docs/engineering/product/tedix-os.md Phase 2 audit contract): the call is a tenant
+	 * Kernel marker (audit contract): the call is a tenant
 	 * control-plane action ("Home used a tool for this turn"), not a generic
 	 * internal worker. Set only from the trusted service-binding auth path
 	 * (apps/api kernel sends X-Tedix-Kernel; apps/mcp re-emits it as

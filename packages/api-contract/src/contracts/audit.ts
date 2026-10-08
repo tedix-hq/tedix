@@ -23,7 +23,7 @@ const AuditEventSchema = z.object({
 	actorId: z.string(),
 	// "kernel" = tenant control-plane actor (kernel direct tool
 	// calls) — distinguishes "Home used a tool for this turn" from generic
-	// internal service callers (docs/engineering/product/tedix-os.md Phase 2 audit contract).
+	// internal service callers (audit contract).
 	actorType: z.enum([
 		"user",
 		"service",

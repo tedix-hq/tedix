@@ -1,5 +1,5 @@
 /**
- * First-class "home" namespace MCP tools (docs/engineering/product/tedix-os.md "Chat execution and MCP UI").
+ * First-class "home" namespace MCP tools (docs/engineering/product/tedix-os.md).
  *
  * These tools let an org aggregate MCP surface DRIVE that org's kernel and
  * converse with it directly — without borrowing a tedi identity. Unlike the

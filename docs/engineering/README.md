@@ -8,10 +8,10 @@ title: "Engineering docs"
 
 # Engineering Docs
 
-User guides live in [docs/public](../public/index.md): installation, concepts,
-the CLI, the MCP app platform, and licensing. The pages below are the
-engineering reference for people changing the code. When a page and the code
-disagree, the code wins.
+User guides live in [docs/public](../public/index.md). These pages hold only
+what the code does not show quickly: invariants, cross-component flows, and the
+reasons behind them. Rules for a single workspace live in its `AGENTS.md`. When
+a page and the code disagree, the code wins; fix or delete the page.
 
 ## Start here
 
@@ -24,9 +24,8 @@ disagree, the code wins.
 
 - [API](platform/api.md): contract-first oRPC and the public REST boundary.
 - [Auth](platform/auth.md): identities, credentials, RBAC, and auth middleware.
-- [Data model](platform/data-model.md): where state lives and the D1 query
-  rules.
-- [Database](platform/db.md): Drizzle schema, query modules, and migrations.
+- [Data model](platform/data-model.md): where state lives, D1 traps, and
+  migration gates.
 
 ## MCP
 
@@ -39,12 +38,10 @@ disagree, the code wins.
 ## Workers and cognition
 
 - [Agent runtime](tedi/agent-runtime.md): how a tedi executes and recovers.
-- [Cognitive runtime](cognition/runtime.md): sessions, events, streaming, and
-  run control.
+- [Cognitive runtime](cognition/runtime.md): sessions, events, run control,
+  traces, and harness evals.
 - [Kernel execution model](cognition/kernel-execution-model.md): dispatch,
   delegation, cancel, and wake-back.
-- [Harness](cognition/harness.md): context, tools, rationale, memory, traces,
-  and evals around each tedi.
 - [Work Items](cognition/work-items.md): records, admission, Attempts, and
   settlement.
 - [Skills](cognition/skills.md): storage, lifecycle, executable workflows, and

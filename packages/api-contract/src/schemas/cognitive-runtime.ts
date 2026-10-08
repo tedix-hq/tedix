@@ -1061,7 +1061,7 @@ export interface TediRuntimeAdapter {
 //     12-minute age + multi-kind liveness predicate decides candidacy)
 //     synthesizes `run.completed` when durable success evidence exists but the
 //     terminal was lost, otherwise `run.failed` with `runtime_dropped`. See
-//     docs/engineering/cognition/runtime.md "Canonical orphan-run health".
+//     docs/engineering/cognition/runtime.md.
 //
 // Terminal `run.failed` carries `payload.reason: RunTerminalReason` when the
 // cause fits an existing category; known observation failures omit it instead of

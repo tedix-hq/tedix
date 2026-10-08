@@ -157,8 +157,8 @@ const RECITATION_WORK_ITEMS_CAP = 5;
 
 /**
  * A route decision stamped with the router's content-hash version — harness
- * evidence v1 (docs/engineering/cognition/harness.md "Attention Router Contract": the router itself
- * is a harness component and needs versioning/evals).
+ * evidence v1 (the router itself is a harness component and needs
+ * versioning/evals; see docs/engineering/cognition/runtime.md).
  *
  * `routerVersion` is deliberately not in {@link KernelRouteDecisionSchema}: that
  * zod schema is the model-facing contract (`generateObject` strict structured

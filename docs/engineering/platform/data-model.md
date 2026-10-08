@@ -1,7 +1,7 @@
 ---
-summary: "Where Tedix state lives: D1 vs runtime, storage planes, catalog layers, organization identity, and D1 query rules"
+summary: "Where Tedix state lives, the D1 traps that pass local tests, and the migration gates"
 read_when:
-  - Changing D1 schema, identifiers, or runtime data boundaries
+  - Changing D1 schema, identifiers, migrations, or runtime data boundaries
   - Checking where platform state should live
   - Writing a D1 query that joins, batches, or updates rows
 title: "Data model"
@@ -9,268 +9,159 @@ title: "Data model"
 
 # Data Model
 
-This page owns _what_ lives where: the D1-vs-runtime split, storage planes,
-identifiers, and the D1 query rules. For _how_ to write schema and queries
-(Drizzle, migrations, module layout) see [DB](db.md). The table list itself
-lives in `packages/db/src/schema/`; this page does not enumerate it.
-
-```text
-Tedix OS (TanStack Router + Query)
-    ↓ oRPC
-API (Workers + D1)
-    ↓ Service Binding
-Tedi runtime (Agents/Pi Worker + Durable Object)
-    ↓ optional lease
-Workstation runtime (containers for OS/process work)
-```
+Query ownership, layout, and naming rules are in `packages/db/AGENTS.md`; the
+table inventory is `packages/db/src/schema/`. This page covers where state
+belongs and the traps that are not visible from the code.
 
 ## Storage Roles
 
-| Store          | Holds                                                                                    |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| Git            | Code, schemas, migrations, docs, decisions                                               |
-| D1             | Tenant facts, lifecycle, identity, governance, Work Items, decisions, projection control |
-| R2 / Artifacts | Large immutable payloads (source snapshots, traces, transcripts) referenced from D1      |
-| Agent Memory   | Per-tedi semantic recall over eligible D1 facts; results are bounded and untrusted       |
-| Neo4j          | Rebuildable, organization-scoped relationship read model                                 |
+| Store                 | Holds                                                                             |
+| --------------------- | --------------------------------------------------------------------------------- |
+| Shared D1             | Tenant facts, lifecycle, identity, governance, Work Items, decisions              |
+| R2 / Artifacts        | Large immutable payloads (source snapshots, traces, transcripts) referenced by D1 |
+| Durable Object SQLite | Private state of one DO/Agent instance; a separate consistency boundary           |
+| Agent Memory          | Per-tedi semantic recall over eligible D1 facts; bounded, untrusted               |
+| Neo4j                 | Rebuildable, organization-scoped relationship read model                          |
 
-Workstation checkouts and runtime-local files are not long-term memory. External
-systems stay federated when their APIs can answer live; Tedix snapshots into R2
-and D1 only when a stable copy is required.
+Workstation checkouts and runtime-local files are scratch, not memory. External
+systems stay federated when their APIs can answer live. Semantic recall and
+search results are untrusted context and never decide authorization or
+lifecycle.
 
-## Relational Storage Planes
+Commercial storage is chosen explicitly by `TEDIX_FLEET_AUTHORITY_MODE`
+(`apps/api/src/lib/fleet-authority.ts`); `disabled` fails closed and nothing is
+inferred from bindings. An app-owned D1 (for example the docs registry) never
+holds shared platform tables.
 
-| Plane                         | Scope                                                       | Query owner                                                                              |
-| ----------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Shared platform D1            | Multi-tenant control-plane facts shared by all Workers      | `packages/db` schema and query modules, imported by direct `@tedix/db/queries/...` paths |
-| Commercial seam               | Commercial storage chosen by `TEDIX_FLEET_AUTHORITY_MODE`   | `apps/api/src/lib/fleet-authority.ts`; `disabled` fails closed, nothing is inferred      |
-| Shared-D1 runtime enforcement | Narrow lifecycle, receipt, epoch, or replay fences          | The exact Worker storage owner listed in `scripts/db-access-exceptions.json`             |
-| App-owned D1                  | A dedicated product database (for example a docs registry)  | The app's storage module; never shared platform tables                                   |
-| Durable Object SQLite         | Private, strongly consistent state of one DO/Agent instance | The owning runtime module (native SQL or `drizzle-orm/durable-sqlite`)                   |
-| Migrations / provisioning     | Schema and database lifecycle                               | Append-only generated migrations under `packages/db/drizzle/`                            |
+## Lifecycle Invariants
 
-Routers, workflows, and jobs may create a Drizzle client but delegate every
-shared-D1 statement to a package query helper. Direct `D1Database.prepare()` is
-allowed only for entries in `scripts/db-access-exceptions.json`, whose file,
-plane, binding, owner, and reason `lint:repo` checks. Applied migrations are
-frozen by path and SQL digest in `packages/db/migration-integrity.json`;
-corrections are always new migrations.
-
-## Data Categories
-
-### Stored in D1
-
-User-configured values managed through Tedix OS or the API. A few `tedis`
-fields (`runtimeStatus`, `lastSeenAt`, `lastSyncAt`, `runtimeVersion`) are
-projections refreshed from the runtime.
-
-| Data                | Location                                                          | Notes                                                                                                                                                                                                      |
-| ------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tedi identity       | `tedis.*`                                                         | Name, slug, display name, language, timezone, avatar                                                                                                                                                       |
-| Channels            | `tedis.channels`                                                  | Channel config; credentials live in encrypted secrets                                                                                                                                                      |
-| Governance          | `tedis.toolPolicy`, `budgets`, `quietHours`, `governanceOverride` | `governanceOverride.requiresApproval` beats the policy pack; otherwise pack signals decide; unknown defaults to gated (`deriveRequiresApproval` in `apps/api/src/rpc/routers/kernel/tedi-capabilities.ts`) |
-| Platform permission | `tedis.mcp_capability_profile`                                    | What a tedi may do. `resolveTediScopes` (`packages/mcp/src/auth/scopes.ts`) maps `standard`, `org_admin`, `platform_admin` to scopes. Identity-provider roles are never projected into tedi tokens.        |
-| Retirement          | `tedis.retiredAt`, `tedis.retiredSlug`                            | Soft delete. Tedi-scoped tables cascade on delete, so `DELETE /tedis/{tediId}` retires the row and renames the slug instead; only `tedis.decommission` with `hardPurge` removes it                         |
-| Org retirement      | `organizations.metadata.retiredAt`, `retiredSlug`                 | `organizations.delete` retires in one batch (tedis, API keys, apps, memberships) and keeps rows so cascades never fire                                                                                     |
-| Secrets             | `tedi_secrets`, `app_secrets`, `organization_secrets`             | Encrypted at rest                                                                                                                                                                                          |
-
-### Control-plane configuration
-
-`runtime_profiles`, `policy_packs`, and `workspace_template_sets` define what a
-tedi runs, how it behaves, and which files bootstrap its workspace. Every row
-is an immutable revision identified by `(scope, slug, version)`; publish,
-archive, and rollback append rows. `tedis.runtime_profile_id`,
-`policy_pack_id`, and `workspace_template_set_id` pin exact revisions, and
-rebinding appends `tedi_control_plane_binding_history` so the revision that
-governed a run can be recovered.
-
-### Live runtime reads
-
-These need a live runtime connection (or an active workstation lease) and can
-take seconds:
-
-| Data                    | Endpoint                                                   |
-| ----------------------- | ---------------------------------------------------------- |
-| Worker health           | `GET /health`                                              |
-| Runtime status          | `GET /api/status`                                          |
-| Detailed runtime status | `GET /api/admin/status/detailed`                           |
-| Channels / devices      | `GET /api/admin/channels/status`, `GET /api/admin/devices` |
-| Agent turns             | Service-binding inject                                     |
-
-### Projections cached in D1
-
-`ingestRuntimeProjection` stores runtime snapshots for fast reads:
-`tedi_runtime_snapshots` (runtime, channel, device status, version),
-`tedis.lastSeenAt`, `tedis.lastSyncAt`, and `tedi_usage_events`.
-
-Tedix OS reads projections by default and makes live runtime calls only on
-explicit user action.
-
-### Deliberately not in D1
-
-- **Signup waitlist state** lives only in the identity provider's
-  `waitlistStatus` user attribute, read and written by
-  `apps/api/src/rpc/routers/waitlist.ts`. A D1 copy would be a second truth.
-
-## App Catalog
-
-Two layers. Organizations can read the catalog layer but only platform jobs
-and admin operations write it.
-
-**Catalog layer (global).** `app_catalog` has one row per MCP endpoint or
-logical app, with `tool_source` (`upstream_mcp`, `tedix_app`, `openapi`).
-Child tables hold store listings, tool/resource/prompt snapshots, tool tests,
-health history, and a field-level change log; `upstream_drift_reports` tracks
-divergence between a live upstream and its snapshot. Tedix-owned sources
-project their snapshot from the linked base app's `app_tools` and never produce
-drift reports.
-
-**Instance layer (per organization).** `apps` rows belong to an organization;
-`app_tools` holds tool definitions.
-
-| Condition                              | App type                                | Tool execution                             |
-| -------------------------------------- | --------------------------------------- | ------------------------------------------ |
-| `app_tools` rows present               | Base app, generated app, or custom fork | `ToolHandler` per `app_tools` row          |
-| No rows, `mcpConfig.aggregateApps` set | Tenant proxy or aggregator              | Composes source apps with policy overlays  |
-| `upstreamMcpUrl` set, no rows          | Invalid                                 | Rejected until tools are forked into a row |
-
-The MCP runtime serves D1 rows; it never delegates a whole app to an upstream
-URL. See [MCP runtime](../mcp/runtime.md).
-
-**Schema provenance.** `input_schema` is required and always a root object.
-Runtime and catalog tool rows carry `schemaDialect`, `schemaSource`,
-`schemaSourceRef`, `schemaSourceHash`, and `schemaSyncedAt`. RPC tools derive
-from oRPC contracts (non-object results use a `{ data }` envelope), MCP tools
-from upstream `tools/list`, and REST tools from OpenAPI via
-`mcpConfig.openApiSync`. Change schemas through the sync workflow or app-tool
-API, not by editing D1.
-
-## Graph Projection
-
-D1 is the source; Neo4j is a projection that can be rebuilt.
-
-- `graph_projection_outbox` records mutations in the same batch as the D1
-  write. Upserts rehydrate current D1 state; deletes are tombstone hints.
-- `graph_projection_consumers` holds one per-organization cursor, advanced only
-  by the current lease holder.
-- `graph_projection_readiness` decides whether graph reads are allowed and
-  tracks repair progress.
-- `graph_projection_maintenance_runs` records explicit graph maintenance; its
-  MCP task id equals the Workflow instance id.
-
-The consumer never skips ahead of a predecessor waiting on retry. A poisoned
-event is skipped with a degraded reason and never reported as projected. Cron
-and manual triggers are hints; the outbox and cursor define order. Reads are
-admitted only after a full repair, an empty backlog, and count parity between
-D1 and Neo4j; derived GDS reads also need a matching GDS watermark.
-
-Code: `packages/db/src/queries/graph-projection.ts`,
-`packages/db/src/queries/graph-projection-maintenance.ts`,
-`apps/api/src/services/graph-projection-{drain,certification,schema,algorithms}.ts`,
-`apps/api/src/workflows/graph-gds-refresh-workflow.ts`.
-
-## Telemetry And Retention
-
-- `audit_events` is the platform audit trail (actions such as `tedi.provision`,
-  `tedi.retire`, `tedi.governance.updated`, `tedi.purge`).
-- `platform_cron_executions` stores one start and one terminal record per
-  scheduled run, unique on `(schedule_id, scheduled_at)`.
-- Inbound MCP tool-call metrics go to Analytics Engine; a tedi's outbound calls
-  are recorded in `tedi_runtime_events`.
-
-`apps/api/src/jobs/retention-cleanup.ts` (nightly) prunes append-only ledgers
-on fixed windows. `tedi_call_costs` and `mcp_payment_events` are never expired
-by schedule because they are billing records.
+- **Retire, never delete.** Tedi-scoped tables cascade on delete, so
+  `DELETE /v1/tedis/{tediId}` retires instead (`retireTedi` in
+  `packages/db/src/queries/tedis.ts`): it stamps `retired_at`, parks the
+  runtime, renames the slug to `<slug>-retired-<tediId>` (keeping
+  `retired_slug`), and pins `isolate_agent_id` so the Durable Object name stays
+  stable. The update is conditional on `retired_at IS NULL`. Only
+  `tedis.decommission` with `hardPurge` and an exact `confirmSlug` deletes
+  cognitive state. Organization deletion likewise retires in one batch and
+  keeps rows so cascades never fire.
+- **Control-plane config is append-only.** `runtime_profiles`, `policy_packs`,
+  and `workspace_template_sets` rows are immutable `(scope, slug, version)`
+  revisions; publish is an `INSERT ... SELECT` compare-and-swap against the
+  family head, and archive/rollback append rows. Tedis pin exact revision ids,
+  and rebinding appends `tedi_control_plane_binding_history` so the revision
+  that governed a run is recoverable.
+- **Runtime projections are cached, live reads are explicit.**
+  `ingestRuntimeProjection` refreshes `tedi_runtime_snapshots`,
+  `tedis.lastSeenAt`/`lastSyncAt`, and usage events. Tedix OS reads projections
+  and calls a live runtime only on explicit user action.
+- **Signup waitlist state is not in D1.** It lives only in the identity
+  provider's `waitlistStatus` attribute; a D1 copy would be a second truth.
+- **Billing ledgers are never expired.** `apps/api/src/jobs/retention-cleanup.ts`
+  prunes append-only ledgers nightly but skips `tedi_call_costs` and
+  `mcp_payment_events`.
+- **Secrets** (`tedi_secrets`, `app_secrets`, `organization_secrets`) are
+  encrypted at rest. Tedi secrets use AES-256-GCM with a key derived by HKDF
+  from `SECRETS_MASTER_KEY` per tedi and secret name; only `listTediSecrets`
+  (metadata) is safe for display.
 
 ## Organization Identity
 
-| Field                                             | Mutability            | Role                                                                                                                     |
-| ------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `principal_identities(provider, issuer, subject)` | Immutable, revocable  | Auth join: maps one external identity to one Tedix principal and rejects rebinding                                       |
-| `organizations.descope_tenant_id`                 | Adapter-owned         | Opaque identity-provider tenant id; never derived from slug or name                                                      |
-| `organizations.slug`                              | Immutable once routed | Routing and infrastructure key (`{slug}.mcp.tedix.dev`, CMS storage names); renaming needs a coordinated infra migration |
-| `organizations.name`                              | Mutable               | Display only; `organizations.update` syncs it to the identity provider                                                   |
+| Field                                             | Rule                                                                         |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `principal_identities(provider, issuer, subject)` | Immutable, revocable; rebinding fails closed                                 |
+| `organizations.descope_tenant_id`                 | Opaque provider id; never derived from slug or name                          |
+| `organizations.slug`                              | Immutable once routed (MCP host, CMS storage names); renaming is a migration |
+| `organizations.name`                              | Display only; synced to the identity provider on update                      |
 
-Principal ids and their mappings never change on rename, so grants and
-relationships stay attached.
+Principal ids never change on rename, so grants stay attached.
 
-## Schema And Relations
+## Apps And Tools
 
-- Tables are `sqliteTable()` definitions in `packages/db/src/schema/`.
-- Relations use Drizzle Relations v2. Every table used through `db.query` must
-  be in the schema passed to `defineRelations()`; `relations.test.ts` pins
-  coverage.
-- Query modules live at `packages/db/src/queries/<domain>.ts` or
-  `packages/db/src/queries/<domain>/<capability>.ts`, with no aggregating
-  `index.ts`.
+`app_catalog` and its child tables are global; organizations read them, only
+platform jobs and admins write them. Per-organization `apps` rows execute by
+shape:
 
-## Query Rules On D1
+| Condition                              | Execution                                     |
+| -------------------------------------- | --------------------------------------------- |
+| `app_tools` rows present               | One `ToolHandler` per row                     |
+| No rows, `mcpConfig.aggregateApps` set | Composes source apps with policy overlays     |
+| `upstreamMcpUrl` set, no rows          | Rejected until tools are forked into a D1 row |
 
-### Ownership first
+The MCP runtime serves D1 rows and never delegates a whole app to an upstream
+URL. `input_schema` is required and always a root object; schema provenance
+columns record where each schema came from. Change schemas through the sync
+workflow or app-tool API, not by editing D1. See [MCP runtime](../mcp/runtime.md).
 
-Put shared-D1 statements in the domain query module and call them by exact
-path. Apps own authentication, validation, orchestration, and contract
-normalization; query helpers own tenant predicates, ordering, pagination,
-atomic statement builders, and result types. Use typed Drizzle builders or
-`db.query.*` by default; Drizzle `sql`...`` is an acceptable escape hatch inside
-the query module as long as values stay bound and tenant scope is in the
-statement.
+## Graph Projection
 
-Two Drizzle idioms are valid SQL, pass local tests, and fail on real D1.
+D1 is the source; Neo4j is rebuildable.
 
-### Never `db.transaction()`; use `db.batch()`
+- `graph_projection_outbox` is written in the same batch as the D1 change.
+  Upserts rehydrate current D1 state; deletes are tombstone hints.
+- One per-organization cursor in `graph_projection_consumers`, advanced only by
+  the lease holder. The consumer never skips past a predecessor waiting on
+  retry; a poisoned event is skipped with a degraded reason, never reported as
+  projected. Cron and manual triggers are hints; outbox and cursor define order.
+- `graph_projection_readiness` admits graph reads only after a full repair, an
+  empty backlog, and D1/Neo4j count parity (GDS reads also need a matching
+  watermark).
 
-D1 rejects the `BEGIN`/`SAVEPOINT` statements the Drizzle D1 driver emits for
-`.transaction()`. `db.batch()` runs in an implicit transaction. To keep
-multi-write work atomic, write a builder that returns the unexecuted statement
-and compose it into a batch (for example `buildProvisionBillingAccountStatement`
-in `packages/db/src/queries/billing/plans.ts`). `lint:repo` rejects
-`db.transaction()` in D1-backed code. `.transaction()` is correct on
-`drizzle-orm/durable-sqlite`.
+## D1 Traps
 
-### Unique selected output names
+`db.transaction()` and duplicate output names are covered in the root
+`AGENTS.md`. Also:
 
-`db.batch()` returns object rows, so duplicate column names collapse before
-Drizzle maps them back to positions, silently shifting values or breaking JSON
-decoding. Every join must select unique output names, even if it is not batched
-today, because a helper may be composed into a batch later. All of these
-collide:
+- `db.batch()` cannot branch on an earlier result. For read-dependent writes
+  use one conditional/CAS statement, a constraint conflict with retry, or a
+  Durable Object/Workflow coordinator. `.transaction()` is correct only on
+  `drizzle-orm/durable-sqlite`.
+- `prefixedColumns()` keeps column decoders via `.mapWith(column)`; a bare
+  ``sql`${column}`.as(...)`` loses them. `db.select({ a: tableA, b: tableB })`
+  and distinct TypeScript keys still collide.
+- Keep `updatedAt` manual. `$onUpdate` would fire on read-path writes (access
+  counters, confidence boosts) and make hot rows look freshly written, and it
+  does not fire on raw statements.
+- D1 caps a statement at 100 bound parameters; chunk at 50 inside the query
+  module.
+- `text(..., { enum })` is TypeScript-only, so enum changes need no migration.
+  A TS `.default(sql...)` applies only when an insert omits the column; if live
+  DDL differs, raw inserts diverge (`db:drift:check` catches it).
+- Tests use `createD1Facade()` and fixture DDL from `schemaDdl()`;
+  `bun run lint:d1` flags duplicate joined output names statically. A green
+  `lint:repo` proves call sites are registered, not that tenant scope or
+  decoders are right.
 
-```typescript
-db.select().from(a).innerJoin(b, ...)          // shared column names
-db.select({ account: accounts, plan: plans })  // looks namespaced, is not
-db.select({ factId: a.id, domainId: b.id })    // distinct TS keys do not help
+## Migrations
+
+Each migration is `packages/db/drizzle/<timestamp>_<slug>/` with
+`migration.sql` and `snapshot.json`; keep every snapshot, because the
+`id`/`prevIds` graph is how `drizzle-kit check` detects concurrent branches.
+
+```bash
+bun run db:migrate:generate -- --name <change>
+bun packages/db/scripts/migration-integrity.ts --write   # record after review
+bun run db:migrate:check   # schema, history, digests, gates, full empty-D1 replay
+bun run db:drift:check     # read-only declared-vs-live comparison
 ```
 
-Use `prefixedColumns(table, prefix)` from `packages/db/src/utils/select.ts`. It
-keeps the nested result shape and preserves column decoders via
-`.mapWith(column)`; a bare `sql`${column}`.as(...)` loses them. Relational
-Queries v2 is safe on its own.
+- `packages/db/migration-integrity.json` pins each path and SHA-256; history is
+  append-only and corrections are new migrations. Generation never adopts
+  unrecorded drafts.
+- **Destructive DDL** (drops, renames, table rebuilds, row deletion) fails
+  without `-- tedix: destructive-reviewed Work-Item: <uuid>` pointing at a
+  reviewed export/verify/rollback plan.
+- **Cascade gate.** D1 ignores `PRAGMA foreign_keys=OFF` inside an applied
+  migration, so drizzle-kit's rebuild header does not protect child rows.
+  Before a drop or rename the replay fails if another table references the
+  target `ON DELETE CASCADE`, unless acknowledged per table with
+  `-- tedix: cascade-reviewed Work-Item: <uuid> Table: <table>`. FK
+  disablement always refuses.
+- These gates judge only migrations after `APPLIED_BASELINE`
+  (`packages/db/scripts/check-migrations.ts`).
+- `db:drift:check` reports `current`, `acknowledged`, `drift` (fails), or
+  `unverified` (warns). Acknowledged differences live in
+  `packages/db/scripts/schema-description.ts`; a stale entry fails.
 
-### Keep `updatedAt` manual
-
-Do not add `$onUpdate` to `updatedAt`. It fires on every Drizzle update,
-including read-path writes such as access counters and confidence boosts, which
-would make frequently read rows look freshly written to anything that ranks by
-`updatedAt`. It also does not fire on raw statements. Decide per write whether
-it changes content.
-
-### Test doubles no looser than D1
-
-Use `createD1Facade()` (`packages/db/src/test/d1-facade.ts`), which rejects
-both failure modes above, and derive fixture DDL with `schemaDdl()`
-(`ddl-fidelity.test.ts` rejects hand-written DDL that drifts from the schema).
-`bun run lint:d1` (`scripts/lint-d1.ts`) statically flags duplicate output
-names in joined selects across `apps/` and `packages/`.
-
-### Bound parameters
-
-D1 caps a statement at 100 bound parameters. Keep chunks at 50 or fewer and do
-the chunking inside the query module.
-
-### Non-guarantees
-
-A green `lint:repo` means there are no unregistered call sites. It does not
-prove tenant scoping or decoder behavior; those need focused tests in the query
-owner. When a raw path moves to Drizzle, remove its exception entry in the same
-change.
+Production applies run before Worker deploys and record a D1 Time Travel
+bookmark first. Wrangler rolls back a failing migration; a migration that
+succeeded with wrong effects needs a manual Time Travel restore.

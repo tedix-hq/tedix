@@ -16,7 +16,7 @@ import { WorkstationProfileIdSchema } from "./workstation";
 // ENUM SCHEMAS
 // =============================================================================
 
-/** Dual-process role this body is certified to fill (docs/engineering/cognition/harness.md). */
+/** Dual-process role this body is certified to fill (docs/engineering/cognition/runtime.md). */
 export const EmbodimentClassSchema = z.enum([
 	"system1-facet",
 	"system2-org-body",
