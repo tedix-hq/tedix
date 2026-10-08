@@ -3,7 +3,7 @@
  * cognitive-runtime event ledger (D1 `tedi_runtime_events`).
  *
  * The DO is the SINGLE EMITTER for these events (no edge mirror). This avoids
- * the double-write inflation risk documented in `docs/cognition/runtime.md`
+ * the double-write inflation risk documented in `docs/engineering/cognition/runtime.md`
  * "Audit 2" for the runtime path.
  *
  * Per turn we emit a deterministic four-event sequence keyed on a stable

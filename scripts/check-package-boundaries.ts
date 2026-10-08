@@ -153,7 +153,7 @@ for (const file of files.filter((path) => /\.[cm]?tsx?$/.test(path))) {
 }
 
 // Planes run only mechanical, policy-as-data transitions; the kernel is the one
-// place a model decides (docs/decisions/agentic-kernel-architecture.md).
+// place a model decides (decisions/agentic-kernel-architecture.md).
 // packages/db is the plane layer, so it must never reach a model runtime.
 const PLANE_MODEL_IMPORT =
 	/(?:from|import\s*\()\s*["'](?:ai|@ai-sdk\/[^"']+|@cloudflare\/ai-chat|@earendil-works\/(?:pi-ai|pi-durable)|agents\/harness\/pi|@tedix\/workers-ai)["']|\bAI\.run\s*\(/g;

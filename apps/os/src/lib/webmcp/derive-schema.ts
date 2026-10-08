@@ -2,7 +2,7 @@ import * as z from "zod";
 
 /**
  * Derive a WebMCP tool's input JSON Schema from the owning zod contract in
- * `@tedix/api-contract`, per the doctrine in docs/product/tedix-os.md ("One
+ * `@tedix/api-contract`, per the doctrine in docs/engineering/product/tedix-os.md ("One
  * backend contract, two thin adapters"): tool schemas are adapters over the
  * canonical contract, never a second contract. What the contract owns —
  * required fields, enum vocabularies, string/array caps, formats — is

@@ -15,7 +15,7 @@ import { cn } from "../../lib/utils";
  * The adapter exists for the same reason `input.tsx` does: to hold the OS
  * density and typography contract. Kumo's own size classes put `text-xs` on
  * the compact tiers and give heights of 20/26/36/40px; OS pins the compact
- * tiers to the 24px/28px desktop rows from `docs/product/design.md`, pins type
+ * tiers to the 24px/28px desktop rows from `docs/engineering/product/design.md`, pins type
  * to the Tedix roles, and keeps the 44px pointer-coarse touch floor. Kumo's
  * `className` lands on the *container* (which carries the size and focus
  * treatment), which is why these overrides work here exactly as they do in

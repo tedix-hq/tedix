@@ -13,7 +13,7 @@
  *     write-tier auto-approve path only resolves home_tool_write approvals), so
  *     no operator-vs-auto filter is needed here.
  *
- * Gates (see docs/cognition/brain.md):
+ * Gates (see docs/engineering/cognition/brain.md):
  *   - Source URI: home:reflection:{orgId}:{eventId}
  *   - Scope: orgId always set; tediId only when the decision named a tedi
  *   - Visibility: "org"; confidence <= 0.7 (operator decisions are reversible)

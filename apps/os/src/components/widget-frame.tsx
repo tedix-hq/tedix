@@ -25,7 +25,7 @@ import { resolveThemeMode, useOsTheme } from "@/lib/theme";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /**
- * MCP Apps host mount for Tedix OS (docs/mcp/apps.md, "Host Architecture").
+ * MCP Apps host mount for Tedix OS (docs/engineering/mcp/apps.md, "Host Architecture").
  *
  * Fetches the widget's `ui://` resource through the governed same-origin
  * proxy (`GET /widgets/resource`), then mounts the HTML with
@@ -101,7 +101,7 @@ function parseWidgetPermissions(
 /**
  * Pull the HTML document and MCP Apps CSP out of a `resources/read` result.
  * Security metadata rides on the resource `_meta.ui`, not the tool
- * (docs/mcp/apps.md, "Resource Contract").
+ * (docs/engineering/mcp/apps.md, "Resource Contract").
  */
 export function extractWidgetResource(payload: unknown): {
 	html: string;
@@ -268,7 +268,7 @@ interface BoundaryProps {
 /**
  * One broken widget must not take down the page: renderer failures are
  * contained per mount and replaced with the honest fallback
- * (docs/mcp/apps.md ship checklist, item 10).
+ * (docs/engineering/mcp/apps.md ship checklist, item 10).
  */
 class WidgetErrorBoundary extends Component<
 	BoundaryProps,
@@ -321,7 +321,7 @@ function WidgetFrameInner({
 	);
 
 	// MCP passthrough: guest tool calls ride the governed bridge, never a
-	// direct MCP connection (docs/mcp/apps.md, "Host Bridge and Token Handling").
+	// direct MCP connection (docs/engineering/mcp/apps.md, "Host Bridge and Token Handling").
 	const handleCallTool = useCallback<WidgetCallTool>(
 		async (params, extra) => {
 			const response = await fetch("/widgets/mcp", {

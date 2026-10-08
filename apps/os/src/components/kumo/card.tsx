@@ -11,7 +11,7 @@ import { cn } from "../../lib/utils";
  * adapter's class wins because `LayerCard` merges its own classes through
  * tailwind-merge with `className` last. Controls *inside* a card stay on
  * `--radius` (8px) — the two tiers are what makes a card read as a layer above
- * the buttons, inputs and selects it contains. See `docs/product/design.md`
+ * the buttons, inputs and selects it contains. See `docs/engineering/product/design.md`
  * ("Radii"). Do not move this by bumping `--radius`: that is the control token
  * and would drag the whole ladder with it.
  */

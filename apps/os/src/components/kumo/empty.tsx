@@ -10,7 +10,7 @@ import { cn } from "../../lib/utils";
 type EmptyAppearance = "default" | "quiet" | "inline";
 
 /**
- * `docs/product/design.md` reserves the `dialog` tier for PROMINENT empty-state
+ * `docs/engineering/product/design.md` reserves the `dialog` tier for PROMINENT empty-state
  * titles. `quiet` and `inline` are the bounded-collection appearances — an
  * absent list inside a card, or a panel that already owns its heading — so an
  * 18px title there outranks the surface containing it.

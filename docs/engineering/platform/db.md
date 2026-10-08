@@ -11,7 +11,7 @@ title: "Database layer"
 Shared platform D1 is accessed only through Drizzle query modules in
 `packages/db`. Application layers do not own SQL builders. This doc owns _how_
 to model, access, and type the schema; _what_ lives in D1 versus runtime state
-is in [data-model.md](./data-model.md).
+is in [data-model.md](data-model.md).
 
 ## Invariants
 
@@ -30,7 +30,7 @@ is in [data-model.md](./data-model.md).
   object-row batches, Relations v2, generation, and the migration ledger.
 - Never call `db.transaction()` (D1 rejects `BEGIN`); use `db.batch()`. Never
   select two columns with the same output name. See
-  [Query rules on D1](./data-model.md#query-rules-on-d1).
+  [Query rules on D1](data-model.md#query-rules-on-d1).
 - Tenant scope belongs inside the query. A caller-supplied `organizationId`
   protects nothing unless the SQL predicate uses it.
 - Direct `D1Database.prepare()` needs a reviewed entry in

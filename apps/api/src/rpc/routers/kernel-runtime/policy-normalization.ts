@@ -227,7 +227,7 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 		// Delegation-depth propagation: each delegate hop increments the
 		// chain depth carried on run metadata, so a child that itself delegates
 		// inherits parent+1. `decideDelegationDispatch` refuses a dispatch once
-		// this reaches MAX_DELEGATION_DEPTH (docs/decisions/agentic-kernel-architecture.md).
+		// this reaches MAX_DELEGATION_DEPTH (decisions/agentic-kernel-architecture.md).
 		metadata: {
 			...metadata,
 			dispatchMode: "async",
@@ -414,7 +414,7 @@ export type KernelDoTurnCanceler = (input: {
 
 /**
  * Best-effort DO-side abort of an in-flight kernel turn's LLM pass
- * (docs/cognition/kernel-execution-model.md "Operator cancel"). Called from
+ * (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"). Called from
  * `cancelKernelRunCore` AFTER the run row is durably marked `canceled` — this
  * only stops the wasted token burn; the actual cancel SETTLE is owned by the
  * existing `turn-work.ts` pre-materialize cancel gate, which reads the
@@ -430,7 +430,7 @@ export type KernelDoTurnCanceler = (input: {
 
 export /**
  * Best-effort DO-side abort of an in-flight kernel turn's LLM pass
- * (docs/cognition/kernel-execution-model.md "Operator cancel"). Called from
+ * (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"). Called from
  * `cancelKernelRunCore` AFTER the run row is durably marked `canceled` — this
  * only stops the wasted token burn; the actual cancel SETTLE is owned by the
  * existing `turn-work.ts` pre-materialize cancel gate, which reads the
@@ -503,7 +503,7 @@ export let activeTranscribeAudio: typeof transcribeAudioAttachment =
 	transcribeAudioAttachment;
 
 /**
- * Hybrid soft-deadline response contract (docs/product/tedix-os.md "Kernel Runtime
+ * Hybrid soft-deadline response contract (docs/engineering/product/tedix-os.md "Kernel Runtime
  * Decision"): `enqueueMessage` awaits the KernelDO turn up to this
  * deadline. Fast turns answer in-band exactly like before; slower turns return
  * an ack carrying the real run id (`task.id = homeRunId` for the MCP tasks

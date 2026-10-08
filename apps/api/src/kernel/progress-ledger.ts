@@ -5,7 +5,7 @@ import {
 
 /**
  * Deterministic progress-ledger reconciliation for kernel runs — the
- * "run-reconciliation / progress-ledger" pass named in docs/product/tedix-os.md's
+ * "run-reconciliation / progress-ledger" pass named in docs/engineering/product/tedix-os.md's
  * bounded-agency orchestrator list (Magentic-One's five questions per step).
  * v1 answers all five questions WITHOUT an LLM (the closed-pass-list doctrine
  * allows a planned LLM pass later; this module must stay deterministic):

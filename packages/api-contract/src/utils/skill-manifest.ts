@@ -26,7 +26,7 @@ export type RationaleMode = "off" | "important" | "all";
  * `destructive: false` is the fail-closed default; `readOnly: false` means no
  * read-only assertion. A skill must opt into destructive inner tools explicitly.
  * A violation surfaces as `ANNOTATION_VIOLATION` (see Sam Morrow Part 3 in
- * `docs/cognition/skills.md` "External Design Lessons").
+ * `docs/engineering/cognition/skills.md` "External Design Lessons").
  */
 export interface ExpectedAnnotations {
 	destructive?: boolean;

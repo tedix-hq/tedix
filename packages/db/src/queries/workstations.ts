@@ -966,7 +966,7 @@ const ACTIVE_WORKSTATION_PARTICIPANT_STATUSES = ["invited", "active", "paused"];
  * Bounded org-scoped read: the set of tedi ids that currently hold a warm /
  * available workstation lease seat. This is the DURABLE workstation-capability
  * signal the kernel routing path consults to treat an isolate tedi as embodied
- * (docs/decisions/workstations-over-bodies.md "Harness Contract": only OS/process
+ * (decisions/workstations-over-bodies.md "Harness Contract": only OS/process
  * work attaches a workstation; the lease row is the durable stamp).
  *
  * Cost: two indexed read shapes, no per-tedi fan-out —

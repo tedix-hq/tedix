@@ -4,7 +4,7 @@ import "@orpc/openapi/extensions/route";
  *
  * Tedix-native admin surface for the onboarding waitlist gate. The gate itself
  * is owned by the Descope `sign-up-or-in` flow + the `waitlistStatus` custom
- * attribute (see `docs/platform/auth.md`); these tools let operators inspect
+ * attribute (see `docs/engineering/platform/auth.md`); these tools let operators inspect
  * and drive that attribute from the Tedix admin surface instead of the raw
  * Descope management passthrough.
  *

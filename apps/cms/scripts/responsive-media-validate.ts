@@ -129,7 +129,7 @@ const [starters, runtimeImages, runtimeSource, cmsDoc] = await Promise.all([
 	),
 	inspectCloudflareConfigImagesBinding(RUNTIME_CONFIG),
 	read("apps/cms-runtime/src/index.ts"),
-	read("docs/emdash/cms.md"),
+	read("docs/engineering/emdash/cms.md"),
 ]);
 // Both questions below are answered per scope: every cf mode of the runtime,
 // every parsed Wrangler environment of a starter (named envs do not inherit).
@@ -183,7 +183,7 @@ const checks: Check[] = [
 			cmsDoc.includes("cms:responsive-media:validate") &&
 			cmsDoc.includes("responsive-media"),
 		detail:
-			"docs/emdash/cms.md should tell operators which validator gates responsive media changes.",
+			"docs/engineering/emdash/cms.md should tell operators which validator gates responsive media changes.",
 	},
 	{
 		name: "cloudflare-binding runtime path",

@@ -33,7 +33,7 @@ swap. The platform/runtime split is owned by
 
 It does not own arbitrary shell processes, repo checkouts, native dependencies,
 dev servers, or persistent CDP sessions — those need a workstation
-([workstations-over-bodies](../decisions/workstations-over-bodies.md)).
+([workstations-over-bodies](../../../decisions/workstations-over-bodies.md)).
 
 ### Ownership boundaries
 

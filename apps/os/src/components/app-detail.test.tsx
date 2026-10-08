@@ -522,7 +522,7 @@ describe("WidgetPreviewFrame", () => {
 		expect(html).toContain('data-slot="card"');
 		expect(html).toContain('sandbox="allow-scripts"');
 		// The card root carries the 12px bounded-surface tier, not the 8px
-		// control tier. See docs/product/design.md ("Radii").
+		// control tier. See docs/engineering/product/design.md ("Radii").
 		expect(html).toContain("rounded-xl");
 		expect(html).not.toContain("rounded-lg");
 	});
@@ -550,7 +550,7 @@ describe("WidgetHostOnlyPanel", () => {
 		expect(html).toContain('data-slot="card-content"');
 		expect(html).toContain("border-dashed");
 		// 12px card boundary; the 8px icon chip inside it stays on the control
-		// tier. See docs/product/design.md ("Radii").
+		// tier. See docs/engineering/product/design.md ("Radii").
 		expect(html).toContain("rounded-xl");
 		expect(html).toContain("rounded-lg");
 	});

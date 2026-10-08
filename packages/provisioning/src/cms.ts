@@ -7,7 +7,7 @@
  *
  * Resource teardown requires a Cloudflare token with R2 bucket deletion
  * permissions. Bundle publication uses caller-supplied bindings.
- * See docs/emdash/cms.md for storage ownership.
+ * See docs/engineering/emdash/cms.md for storage ownership.
  */
 
 import { sha256Hex } from "@tedix/worker-kit/crypto";

@@ -118,7 +118,7 @@ export function auditActor(context: {
 	// this branch every tedi-authenticated write previously fell through to
 	// `actorType: "service"` / `actorId: "service-binding"` (or "anonymous"),
 	// making it impossible to tell which tedi performed a given action from the
-	// audit trail alone — see docs/decisions/agent-capability-mutation-gate.md.
+	// audit trail alone — see decisions/agent-capability-mutation-gate.md.
 	if (context.tediId) {
 		return {
 			actorId: context.tediId,

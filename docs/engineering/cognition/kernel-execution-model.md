@@ -13,7 +13,7 @@ title: "Kernel execution model"
 The kernel is a pure router and answerer. It never calls provider tools. Every
 live-data read, owned write, and multi-step task is delegated to a tedi that
 has its own identity, memory, skills, and Agent-runtime body. The design
-rationale is [agentic-kernel-architecture](../decisions/agentic-kernel-architecture.md).
+rationale is [agentic-kernel-architecture](../../../decisions/agentic-kernel-architecture.md).
 
 The Home conversation is a non-blocking multiplexer: an operator can ask many
 things, each turn gets one parent `homeRunId`, delegated work runs
@@ -71,7 +71,7 @@ snapshot — no answer text, tool args, or message bodies.
   risk is not high, and the speaker holds `approvalAuthority` (a human org
   member). Otherwise the operator sees an approval card. There is no global
   override that promotes `needs_approval` verdicts; see
-  [agent-capability-mutation-gate](../decisions/agent-capability-mutation-gate.md).
+  [agent-capability-mutation-gate](../../../decisions/agent-capability-mutation-gate.md).
 - **Children inherit nothing implicit.** The dispatch carries only the rendered
   work order, a deterministic idempotency key, and bounded metadata (parent
   ids, optional budget caps). Never the parent's credentials, scopes, tool

@@ -10,7 +10,7 @@
  * Additive by design: these are NEW tables. Submission/attempt identifiers ride
  * in the existing *_runtime_events.payload JSON and runs link back via runId, so
  * no existing runtime table is mutated and no hot-table recreation is required.
- * See docs/cognition/runtime.md.
+ * See docs/engineering/cognition/runtime.md.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";

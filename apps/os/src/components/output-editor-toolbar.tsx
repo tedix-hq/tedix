@@ -10,7 +10,7 @@ import { Toolbar } from "@/components/kumo/toolbar";
  * re-decide what a toolbar is, so the row chrome, the icon target, the group
  * hairline, and the colour target all live here.
  *
- * `docs/product/design.md` owns the rule these primitives encode: one
+ * `docs/engineering/product/design.md` owns the rule these primitives encode: one
  * horizontally scrollable row, controls separated into scannable groups by
  * a hairline, and every control either a labelled Select or a square icon
  * target -- colour pickers included.

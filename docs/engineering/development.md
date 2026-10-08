@@ -28,7 +28,7 @@ Bun shim; the launcher checks this before building).
 
 `bun run-local` is the one launcher for the whole product. Its options (smoke
 run, demo data, Workers AI on your own account) are in
-[Getting started](public/getting-started.md#run-tedix-locally); `bun run-local
+[Getting started](../public/getting-started.md#run-tedix-locally); `bun run-local
 --help` lists them all. With the installed CLI, `tedix dev` resumes a saved
 installation.
 
@@ -71,6 +71,6 @@ verification; put any value an app's `.env.example` names in a gitignored
 
 ## Related
 
-- [Architecture](ARCHITECTURE.md)
+- [Architecture](architecture.md)
 - [Auth](platform/auth.md)
 - [Tedix OS](product/tedix-os.md)

@@ -92,7 +92,7 @@ function shellSingleQuote(value: string): string {
  * reaches for the nearest identity it can find — `git log -1 --format=%an` —
  * and signs a commit it wrote with a human's name. That is a false attribution
  * in an immutable ledger. The identity here is the tedi's first-class Descope
- * identity from `docs/platform/auth.md`: login `tedi:{slug}`, alias
+ * identity from `docs/engineering/platform/auth.md`: login `tedi:{slug}`, alias
  * `{slug}@tedix.tech`.
  *
  * Written globally (`~/.gitconfig`), not per-repository, so it holds for every

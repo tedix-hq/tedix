@@ -904,7 +904,7 @@ export const AppMetadataSchema = z
 		// Emdash collection urlPattern.
 		publicSiteUrl: z.string().optional(),
 		// Extraction workflow configuration (single source of truth)
-		// @see docs/platform/api.md for configuration guide
+		// @see docs/engineering/platform/api.md for configuration guide
 		extractionConfig: ExtractionConfigExpandedSchema.optional(),
 		itemImport: z
 			.object({

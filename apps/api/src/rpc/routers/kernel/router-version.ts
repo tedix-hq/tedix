@@ -1,10 +1,10 @@
 /**
  * Kernel — router version (harness evidence v1).
  *
- * docs/cognition/harness.md § "Attention Router Contract": "The router itself is a
+ * docs/engineering/cognition/harness.md § "Attention Router Contract": "The router itself is a
  * harness component. It needs versioning, evals, trace capture, and rollback."
  * The Home route planner IS that router, but the kernel has NO tedi identity
- * and must never fake one (docs/product/tedix-os.md Identity Decision) — and
+ * and must never fake one (docs/engineering/product/tedix-os.md Identity Decision) — and
  * kernel harness rows now use `harness_subject_versions`, keyed by
  * `subject_kind="kernel"` / `subject_id="kernel:{orgId}"`, so the kernel can
  * be versioned without fabricating a tedi identity.

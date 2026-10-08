@@ -15,7 +15,7 @@ import {
 /**
  * Governed widget proxy for the MCP Apps host bridge.
  *
- * Widget iframes never receive raw bearer tokens (docs/mcp/apps.md, "Host
+ * Widget iframes never receive raw bearer tokens (docs/engineering/mcp/apps.md, "Host
  * Bridge and Token Handling"). The SPA calls these same-origin endpoints on
  * the OS worker; the worker forwards the caller's OWN credentials to
  * Tedix-managed MCP hosts over public HTTPS, restricted to
@@ -31,7 +31,7 @@ const APP_SLUG_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
 
 const MCP_CLIENT_NAME = "tedix-os-widget-proxy";
 
-/** Guest operations a widget may relay (docs/mcp/apps.md). Nothing else. */
+/** Guest operations a widget may relay (docs/engineering/mcp/apps.md). Nothing else. */
 const ALLOWED_WIDGET_METHODS: ReadonlySet<string> = new Set([
 	"tools/call",
 	"resources/list",
@@ -407,7 +407,7 @@ function upstreamFailureResponse(error: unknown): Response {
  * Fetches a widget's `ui://` resource from the app's MCP host with the
  * caller's own session and returns the `resources/read` content JSON
  * `{ contents: [{ uri, mimeType, text, _meta }] }` — `_meta` preserved,
- * because the MCP Apps CSP rides in `_meta.ui.csp` (docs/mcp/apps.md).
+ * because the MCP Apps CSP rides in `_meta.ui.csp` (docs/engineering/mcp/apps.md).
  */
 export async function handleWidgetResource(
 	request: Request,
@@ -445,7 +445,7 @@ export async function handleWidgetResource(
  *
  * Relays a widget-originated MCP call through the caller's own session:
  * same-origin only, Tedix-managed targets only, and only the allowlisted
- * guest operations (docs/mcp/apps.md, "Host Bridge and Token Handling").
+ * guest operations (docs/engineering/mcp/apps.md, "Host Bridge and Token Handling").
  */
 export async function handleWidgetMcp(
 	request: Request,

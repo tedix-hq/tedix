@@ -407,7 +407,7 @@ export async function runKernel(args: {
 	sessionPolicy?: DispatchPolicyLayer | null;
 	/**
 	 * Optional per-turn operator-abort signal (`KernelDO.cancelTurn` — see
-	 * `docs/cognition/kernel-execution-model.md` "Operator cancel"). Forwarded
+	 * `docs/engineering/cognition/kernel-execution-model.md` "Operator cancel"). Forwarded
 	 * verbatim to `planKernelRoute`, which combines it with its own internal
 	 * timeout/idle signals so an operator cancel actually stops the in-flight
 	 * route-planner LLM call instead of running to completion unattended.
@@ -419,7 +419,7 @@ export async function runKernel(args: {
 	 * `kernelDelegateRunner`). Threaded into `decideDelegationDispatch` so the
 	 * `MAX_DELEGATION_DEPTH` bound is enforced end-to-end — a grandchild that
 	 * itself tries to delegate is blocked. Absent ⇒ 0 (a top-level Home turn).
-	 * See docs/decisions/agentic-kernel-architecture.md.
+	 * See decisions/agentic-kernel-architecture.md.
 	 */
 	delegationDepth?: number;
 	/**

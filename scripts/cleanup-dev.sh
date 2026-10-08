@@ -20,7 +20,7 @@ done
 # each app's committed wrangler.jsonc `dev` block (and, for the vp-dev/Astro
 # apps, the config that actually binds the port), so adding an app no longer
 # means editing the same table here, in that app's package.json `clear-port`
-# args, and in docs/DEVELOPMENT.md. Shared OAuth/debug ports are still not ours
+# args, and in docs/engineering/development.md. Shared OAuth/debug ports are still not ours
 # and never appear in the inventory.
 #
 # The sweep below runs with TEDIX_DEV_PORT_SWEEP_FORCE set because this script

@@ -16,7 +16,7 @@ import { WorkstationProfileIdSchema } from "./workstation";
 // ENUM SCHEMAS
 // =============================================================================
 
-/** Dual-process role this body is certified to fill (docs/cognition/harness.md). */
+/** Dual-process role this body is certified to fill (docs/engineering/cognition/harness.md). */
 export const EmbodimentClassSchema = z.enum([
 	"system1-facet",
 	"system2-org-body",
@@ -141,7 +141,7 @@ export type BodySession = z.infer<typeof BodySessionSchema>;
  * Voice surface (structured; advisory — NOT a load-bearing cert gate).
  * The realtime layer is a front-end that consults the canonical tedi loop;
  * durable transcript/recap writes route through the session harness/ledger,
- * not the voice body's ephemeral store. See docs/cognition/runtime.md.
+ * not the voice body's ephemeral store. See docs/engineering/cognition/runtime.md.
  */
 export const BodyVoiceSchema = z.object({
 	/** async voice-note STT folded into a normal chat turn */

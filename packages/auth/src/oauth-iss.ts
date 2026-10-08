@@ -2,7 +2,7 @@
  * @tedix/auth - RFC 9207 authorization-response `iss` validation
  *
  * Shared client-side check applied to every Tedix-handled OAuth authorization
- * response (ADR: docs/decisions/tedi-client-oauth-cimd.md, phase 1). The
+ * response (ADR: decisions/tedi-client-oauth-cimd.md, phase 1). The
  * client records the issuer it expects (from validated RFC 8414
  * authorization-server metadata) before redirecting, then compares any `iss`
  * parameter in the authorization response against it BEFORE the authorization

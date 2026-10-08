@@ -331,7 +331,7 @@ async function executeMcpTool(
 	// Carry the workflow's expectedAnnotations assertion into the gateway
 	// via params._meta. apps/mcp fails closed with ANNOTATION_VIOLATION
 	// when the invoked tool's annotations contradict the assertion.
-	// See Sam Morrow Part 3 in docs/cognition/skills.md "External Design Lessons".
+	// See Sam Morrow Part 3 in docs/engineering/cognition/skills.md "External Design Lessons".
 	const params: {
 		name: string;
 		arguments: unknown;

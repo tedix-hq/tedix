@@ -61,7 +61,7 @@ function evidenceEventInsert(
  * Record one evidence observation against a claim key.
  *
  * Evidence is telemetry, not a gate
- * (`docs/decisions/minimal-gates-over-pre-proof.md`): the declared
+ * (`decisions/minimal-gates-over-pre-proof.md`): the declared
  * `evidenceKinds` allowlist no longer decides whether a row may be written, and
  * nothing here reviews, corroborates, or blocks. What remains is storage
  * integrity — the attempt fence derives `orgId`/`workItemId` from the

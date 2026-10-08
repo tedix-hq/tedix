@@ -121,7 +121,7 @@ export function webMcpError(message: string): WebMcpToolResult {
 /**
  * Stable, typed, retryable failure for a tool invoked while the authenticated
  * tenant context is not executable (session expired mid-page, org scope not
- * yet bound). The readiness doctrine in docs/product/tedix-os.md requires one
+ * yet bound). The readiness doctrine in docs/engineering/product/tedix-os.md requires one
  * uniform `context_unavailable` shape across every scope — never an ad hoc
  * message like "Organization identity is temporarily unavailable".
  */

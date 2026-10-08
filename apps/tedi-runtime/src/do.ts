@@ -120,7 +120,7 @@ import {
  *
  * Pi owns inference orchestration, durable transcript/tasks, recovery and event streaming.
  * Tedix hooks enforce tenant policy, durable cancellation, and bounded spend.
- * See docs/tedi/agent-runtime.md for the current routing.
+ * See docs/engineering/tedi/agent-runtime.md for the current routing.
  */
 
 import { RuntimeConfigCache } from "./runtime-config-cache";
@@ -17748,7 +17748,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	/**
 	 * Tedix-owned per-conversation model-context builder — the read half of the
 	 * isolate session-harness contract;
-	 * see docs/tedi/agent-runtime.md). Returns the `{role,content}`
+	 * see docs/engineering/tedi/agent-runtime.md). Returns the `{role,content}`
 	 * history for ONE conversation, **filtered by `sessionKey`** so the model
 	 * never sees turns from a different conversation.
 	 *

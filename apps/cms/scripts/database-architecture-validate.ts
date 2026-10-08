@@ -345,7 +345,7 @@ const [
 	),
 	read("apps/cms-runtime/src/index.ts"),
 	read("apps/cms/src/agent/cms-proxy-inspection.ts"),
-	read("docs/emdash/cms.md"),
+	read("docs/engineering/emdash/cms.md"),
 ]);
 
 const normalizedSnapshot = normalizeEmbeddedSource(templateSnapshot);
@@ -426,7 +426,7 @@ const checks: Check[] = [
 			) &&
 			cmsDoc.includes("/_tedix/internal/database-runtime"),
 		detail:
-			"docs/emdash/cms.md should record the Durable Object SQLite production backend, the protected database-runtime diagnostic, and source/live validation commands.",
+			"docs/engineering/emdash/cms.md should record the Durable Object SQLite production backend, the protected database-runtime diagnostic, and source/live validation commands.",
 	},
 ];
 

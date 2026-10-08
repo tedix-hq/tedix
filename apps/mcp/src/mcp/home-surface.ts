@@ -1,5 +1,5 @@
 /**
- * First-class "home" namespace MCP tools (docs/product/tedix-os.md "Chat execution and MCP UI").
+ * First-class "home" namespace MCP tools (docs/engineering/product/tedix-os.md "Chat execution and MCP UI").
  *
  * These tools let an org aggregate MCP surface DRIVE that org's kernel and
  * converse with it directly — without borrowing a tedi identity. Unlike the
@@ -8,7 +8,7 @@
  * dedicated `home` namespace (`ask`, `home__read_home_messages`, …)
  * so calling them never implies that CTO (or any named tedi) owns Home.
  *
- * Identity / audit model (docs/product/tedix-os.md):
+ * Identity / audit model (docs/engineering/product/tedix-os.md):
  *  - Org-scoped, not modeled under a tedi. Every tool sets
  *    `allowExplicitTediId: false` and `includeTediIdParam: false`, and never
  *    injects a `tediId` static param.
@@ -797,7 +797,7 @@ function buildHomeSurfaceTool(spec: HomeSurfaceToolSpec): AppTool {
 				? { staticParams: { subject: { type: "kernel" } } }
 				: {}),
 			// Forward the authenticated caller's auth to apps/api so the Home
-			// kernel runs under the user's speaker authority (docs/product/tedix-os.md).
+			// kernel runs under the user's speaker authority (docs/engineering/product/tedix-os.md).
 			// The operator surface is public-auth; this opt-in flag forwards only an
 			// already-authenticated oauth/user caller, with no escalation.
 			// Detached generic tasks cannot replay a live bearer credential. Async

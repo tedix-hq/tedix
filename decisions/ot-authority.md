@@ -200,4 +200,4 @@ straggler bridge. A submission whose position cannot be resolved is rejected
 - `apps/os/src/collab/ot/authority.ts` — the loop.
 - `apps/os/src/collab/ot/code-change.ts` — the transform algebra.
 - `apps/os/src/collab/room.ts` — the Durable Object room.
-- [Tedix OS](../product/tedix-os.md)
+- [Tedix OS](../docs/engineering/product/tedix-os.md)

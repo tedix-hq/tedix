@@ -3,7 +3,7 @@
  *
  * Tedix-native admin surface for the onboarding waitlist gate. The gate is
  * owned by the Descope `sign-up-or-in` flow + the `waitlistStatus` custom user
- * attribute (see `docs/platform/auth.md`). These handlers read and write that
+ * attribute (see `docs/engineering/platform/auth.md`). These handlers read and write that
  * attribute through the Descope management SDK so operators can run onboarding
  * from the Tedix admin surface instead of the raw Descope passthrough.
  *

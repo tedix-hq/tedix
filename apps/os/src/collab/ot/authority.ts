@@ -9,7 +9,7 @@
  * of one accept. Storage, the broadcast sink, the clock and the digest are injected
  * (`OtAuthorityDeps`), so the loop is unit-testable without a runtime.
  *
- * Design rationale and history: `docs/decisions/ot-authority.md` (why a DO and not D1, the
+ * Design rationale and history: `decisions/ot-authority.md` (why a DO and not D1, the
  * materialize/retire/prune ladder, the base-move hazard, canonical grounding, why grounding is a
  * third verb). The invariants below stay here because breaking one is silent.
  *
@@ -146,7 +146,7 @@ function parseStoredBase(value: unknown): StoredBase | null {
 /**
  * Which canonical revision the room represents — the stamp a commit's compare-and-swap is pinned
  * to. Pinning to whatever the canonical store reports at commit time instead is silent data loss;
- * see `docs/decisions/ot-authority.md` "Canonical grounding".
+ * see `decisions/ot-authority.md` "Canonical grounding".
  *
  * `revision`/`revisionId` is the canonical revision the stream was grounded on (from `seed` or
  * `adopt`); `atRevision` is the stream position at which the room's content last equalled it.
@@ -210,7 +210,7 @@ function parseStoredCanonical(value: unknown): StoredCanonical | null {
  * Scoped to the authenticated user, not to `clientId` alone: `clientId` rides the public broadcast
  * echo, so an unscoped record would let one collaborator consume another's next seq.
  *
- * Rationale: `docs/decisions/ot-authority.md` "Dedupe records are never pruned".
+ * Rationale: `decisions/ot-authority.md` "Dedupe records are never pruned".
  */
 export interface ClientRecord {
 	/** The last accepted submission's seq. Only `seq + 1` may continue the session. */
@@ -234,7 +234,7 @@ export interface ClientRecord {
  * construction, because materialization runs in the same synchronous step as the accept that
  * crosses the threshold and can neither fail nor be deferred. This is a fail-safe against a
  * regression in this file (a materialization made conditional, deferred to an alarm, or allowed to
- * throw), not a product limit. See `docs/decisions/ot-authority.md`.
+ * throw), not a product limit. See `decisions/ot-authority.md`.
  */
 export const MAX_STREAM_ROWS = 4096;
 
@@ -278,7 +278,7 @@ export const MATERIALIZE_BUDGET_UNITS = 1024 * 1024;
  * must discard its local edits and rebuild from a fresh seed. Reconnect ladders, bfcache freezes
  * and middlebox flaps routinely cost a minute or two. Near-free: retired rows are already written,
  * excluded from the content fold, and pruning is lazy. `MAX_RETAINED_ROWS` is the backstop.
- * Rationale: `docs/decisions/ot-authority.md`.
+ * Rationale: `decisions/ot-authority.md`.
  */
 export const RETIRED_ROW_TTL_MS = 5 * 60_000;
 
@@ -815,7 +815,7 @@ const STREAM_GONE_MESSAGE =
  * And it does not promise delivery: `capacity` implies an unacknowledged submission, so this alert
  * and `UNACKNOWLEDGED_COMMIT_MESSAGE` (in `@/components/canvas-doc-panel`) render at the same time
  * and must agree — there is no offline log (`@/lib/use-collab-doc`), so a disconnect before the
- * acknowledgement loses the edits. See `docs/decisions/ot-authority.md`.
+ * acknowledgement loses the edits. See `decisions/ot-authority.md`.
  */
 export const CAPACITY_MESSAGE =
 	"The room's change window stopped being reclaimed, which is a fault on our side, not something you did. Your edits are kept and resent until the room recovers. If the connection drops first, they are discarded.";
@@ -908,7 +908,7 @@ function groundSynchronously(
  *      edited room is refused unless the caller forced it; the surface blocks Commit and offers the
  *      user an explicit, warned replacement.
  *
- * Rationale: `docs/decisions/ot-authority.md` "Adoption is one server-authored row".
+ * Rationale: `decisions/ot-authority.md` "Adoption is one server-authored row".
  *
  * Exported for the structural no-await test and for direct span tests; production callers go
  * through `adoptCanonical`.
@@ -1032,7 +1032,7 @@ export function adoptCanonicalSynchronously(
  *
  * Adoption asks "is the room's content NOW equal to this revision"; grounding asks "was it, at the
  * position the caller committed from". Why this verb exists at all (a room that keeps typing
- * through its own commit wedges permanently under adoption): `docs/decisions/ot-authority.md`.
+ * through its own commit wedges permanently under adoption): `decisions/ot-authority.md`.
  *
  * A peer cannot forge one. `prepared` is a client claim, and every part that matters is re-derived
  * here from the stream rather than believed:
@@ -1511,7 +1511,7 @@ export class OtAuthority {
 	 * synchronous continuation, so the base, the rows and the position are read at the same instant
 	 * and the returned content is content at exactly that `(generation, revision)`. It can still go
 	 * stale before the span runs, which is what the span's revalidation is for; it can no longer be
-	 * internally inconsistent. See `docs/decisions/ot-authority.md`.
+	 * internally inconsistent. See `decisions/ot-authority.md`.
 	 *
 	 * The fold starts at the base's own revision, so a base that moved is folded with the rows that
 	 * actually follow it; `null` means the two do not bridge at all — corrupt storage, not a race.

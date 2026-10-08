@@ -9,7 +9,7 @@
  * the LLM to call tools correctly. No JSDoc, no separate type declarations,
  * no field descriptions. Use discover.search() for full detail.
  *
- * @see docs/mcp/codemode.md
+ * @see docs/engineering/mcp/codemode.md
  */
 
 import type { JsonSchemaToolDescriptors } from "@cloudflare/codemode";

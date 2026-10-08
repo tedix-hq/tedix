@@ -457,7 +457,7 @@ export const resolve = os.resolve
 		targetKind = resolvedApp ? "app" : resolvedTedi ? "tedi" : "unknown";
 
 		if (!resolvedApp && !resolvedTedi) {
-			// Catalog-allowlist gate (ADR docs/decisions/tedi-client-oauth-cimd.md):
+			// Catalog-allowlist gate (ADR decisions/tedi-client-oauth-cimd.md):
 			// a tedi-initiated connection to an external MCP server must resolve
 			// to an app_catalog row before any credentials are resolved or
 			// issued. No row → typed fail-closed refusal, never a direct

@@ -40,7 +40,7 @@ import {
  * WORKFLOW exports, main fetch handler.
  *
  * Design rationale behind the caching, aggregation and trust-header behaviour
- * in this file: `docs/mcp/runtime.md` "Edge Design Record". Scoped operating
+ * in this file: `docs/engineering/mcp/runtime.md` "Edge Design Record". Scoped operating
  * rules: `apps/mcp/AGENTS.md`.
  */
 
@@ -687,7 +687,7 @@ const SELECTIVE_AGGREGATE_HYDRATION_ATTEMPTS = 2;
  * budgeted, so these fire only for a genuinely wedged promise, and each is
  * sized above the worst-case SUM of the inner budgets (internal tool resolve
  * one 12s upstream call → 30s; aggregate surface load ~35s → 45s). The
- * arithmetic: `docs/mcp/runtime.md` "Edge Design Record".
+ * arithmetic: `docs/engineering/mcp/runtime.md` "Edge Design Record".
  */
 const INTERNAL_TOOL_WEDGE_EVICT_MS = 30_000;
 const AGGREGATE_LOAD_WEDGE_EVICT_MS = 45_000;
@@ -1213,7 +1213,7 @@ export function withAggregateHostOrganization(
  * Default aggregate entries' connection overrides from the host app's own
  * mcpConfig before resolution. Without it the base app's connection settings
  * win and a thin multi-tenant aggregator serves the base credential; see
- * `docs/mcp/runtime.md` "Edge Design Record".
+ * `docs/engineering/mcp/runtime.md` "Edge Design Record".
  *
  * Per-field precedence after this step: explicit entry value > host app
  * mcpConfig > aggregated app mcpConfig (the last fallback lives in
@@ -1367,7 +1367,7 @@ async function readAggregateL2(
 		if (typeof caches === "undefined" || !caches.default) return null;
 		// Budgeted (match + body read together): an unbudgeted Cache API hang here
 		// sits at the top of the shared aggregate load — the silent-hang class in
-		// `docs/mcp/runtime.md` "Edge Design Record". A trip emits the
+		// `docs/engineering/mcp/runtime.md` "Edge Design Record". A trip emits the
 		// diagnosis line and fails open to the next tier.
 		const wrapped = await withStepBudget(
 			"aggregate_l2_read",
@@ -1615,7 +1615,7 @@ export async function aggregateAndPrefixTools(
 	// tool contract. The original intent was "GIT_SHA is injected by the release
 	// workflow" — it never was: the deployed var is the literal wrangler value
 	// ("production"), so L2/R2 keys never rolled and a redeploy kept serving
-	// snapshots with pre-deploy tool schemas (see `docs/mcp/runtime.md` "Edge Design Record").
+	// snapshots with pre-deploy tool schemas (see `docs/engineering/mcp/runtime.md` "Edge Design Record").
 	// `version_metadata` cannot drift the same way — the runtime stamps a fresh
 	// id on every deploy, no CI cooperation required. GIT_SHA stays as the
 	// fallback for local dev/tests.
@@ -1836,7 +1836,7 @@ export async function aggregateAndPrefixTools(
  * something a request has to survive, because every caller joins the one
  * in-flight rebuild and a single cold key can otherwise stall every concurrent
  * request on the surface. The rebuild is never cancelled; it keeps running and
- * populates the caches for whoever comes next. See `docs/mcp/runtime.md` "Edge Design Record".
+ * populates the caches for whoever comes next. See `docs/engineering/mcp/runtime.md` "Edge Design Record".
  */
 /** Sentinel so a deadline win is distinguishable from a legitimate surface. */
 const AGGREGATE_DEADLINE = Symbol("aggregate-join-deadline");
@@ -1917,7 +1917,7 @@ export async function joinAggregateLoad(
  * A memory bound, not a bound-parameter one (the query chunks its own
  * `inArray`s): hydrating several app surfaces at once in one isolate is what
  * produced the `exceededMemory` kills on `getAppBySlugWithTools`. See
- * `docs/mcp/runtime.md` "Edge Design Record".
+ * `docs/engineering/mcp/runtime.md` "Edge Design Record".
  */
 const AGGREGATE_PREFETCH_CHUNK = 20;
 
@@ -1932,7 +1932,7 @@ const AGGREGATE_PREFETCH_CHUNK = 20;
  * one chunked batch leaves recursion semantics untouched, and subsumes the
  * earlier same-set single-flight guard (concurrent rebuilds of the same
  * aggregate merge into one buffer and issue exactly one batched call).
- * Rationale: `docs/mcp/runtime.md` "Edge Design Record".
+ * Rationale: `docs/engineering/mcp/runtime.md` "Edge Design Record".
  */
 const AGGREGATE_PREFETCH_COALESCE_MS = 25;
 
@@ -1963,7 +1963,7 @@ const AGGREGATE_PREFETCH_TIMEOUT_MS = UPSTREAM_ATTEMPT_TIMEOUT_MS;
  * Resolve every aggregate entry in one upstream call per 20 apps, seeding the
  * per-slug L1 cache that {@link resolveUpstreamToolsInternally} already reads.
  * This removes the entry-resolution fan-out that degraded whole surfaces; see
- * `docs/mcp/runtime.md` "Edge Design Record".
+ * `docs/engineering/mcp/runtime.md` "Edge Design Record".
  *
  * Deliberately a cache seed and not a new resolution path: entry resolution,
  * cycle detection, per-entry timeouts, nested-aggregate recursion, the
@@ -3328,7 +3328,7 @@ export async function handleMcpRequest(
 		}
 	}
 
-	// First-class "home" namespace (docs/product/tedix-os.md Home MCP Contract): expose
+	// First-class "home" namespace (docs/engineering/product/tedix-os.md Home MCP Contract): expose
 	// the kernel as org-scoped `home__*` tools on org aggregate surfaces so an
 	// operator can drive and converse with Home directly — not under a borrowed
 	// tedi identity. Caller org rides the X-Tedix-Org-Id header (set in
@@ -4518,7 +4518,7 @@ function modernDiscoverInstructions(
 
 // Exported for the outer-surface lane conformance test: the stateless fast
 // path deliberately advertises `code` + `get_info` and not `ask` — see
-// outer-surface-lanes.test.ts and docs/mcp/codemode.md.
+// outer-surface-lanes.test.ts and docs/engineering/mcp/codemode.md.
 export function compactCodeModeTools(
 	resolvedApp: ResolvedApp,
 	requestHeaders: Headers,
@@ -4959,7 +4959,7 @@ const worker = {
 		// Purge the durable aggregate-surface cache (L3/R2 globally, L1 for this
 		// isolate). Called by the tool-schema-sync workflow after it applies
 		// schema changes, because these layers otherwise have no invalidation
-		// (see `docs/mcp/runtime.md` "Edge Design Record"). Purge rolls the
+		// (see `docs/engineering/mcp/runtime.md` "Edge Design Record"). Purge rolls the
 		// global activation epoch before deleting snapshots; every aggregate
 		// request reads that marker before addressing L1/L2 so notifications
 		// never outrun it.
@@ -5241,7 +5241,7 @@ const worker = {
 		// platform-operator cross-org grant in
 		// `cognitive-runtime/events-policy.ts` rests on; why the gap was inert
 		// but one refactor from a cross-tenant authority grant:
-		// `docs/mcp/runtime.md` "Edge Design Record".
+		// `docs/engineering/mcp/runtime.md` "Edge Design Record".
 		//
 		// Additive by construction: a genuine service-binding request is left
 		// untouched (the helper returns early), preserving today's behavior for

@@ -3,7 +3,7 @@
  *
  * When the route planner decides `propose_tool_write`, this module plans the
  * one concrete provider write call that a human will approve before anything
- * executes (docs/product/tedix-os.md: "Mutating or high-impact tools must produce approval
+ * executes (docs/engineering/product/tedix-os.md: "Mutating or high-impact tools must produce approval
  * cards before execution"). It catalogs direct providers with `tools/list`
  * and aggregate providers with Code Mode discovery, filters to write-capable
  * tools, and selects one tool before constructing arguments against its exact input
@@ -25,7 +25,7 @@
  *  - Fail-soft: every failure returns `null`, so the orchestrator keeps
  *    the recommendation-text behavior.
  *
- * Identity (docs/product/tedix-os.md "Home direct-tool audit"): every MCP
+ * Identity (docs/engineering/product/tedix-os.md "Home direct-tool audit"): every MCP
  * request is org-scoped service-binding (`X-Service-Binding` + `X-Tedix-Org-Id`,
  * no tediId) and carries `X-Tedix-Kernel: true` — apps/mcp maps it to the
  * `kernel` audit actor (subjectUserId = initiating human) so proposal

@@ -82,7 +82,7 @@ export const ResolveCredentialsOutputSchema = z.object({
 	/**
 	 * Present when the target is an external MCP server with no app_catalog
 	 * row — the catalog is the connection allowlist and the request refused
-	 * fail-closed (ADR docs/decisions/tedi-client-oauth-cimd.md).
+	 * fail-closed (ADR decisions/tedi-client-oauth-cimd.md).
 	 */
 	catalogRefused: CatalogRefusedSchema.optional(),
 });

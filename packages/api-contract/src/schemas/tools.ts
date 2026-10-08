@@ -1432,7 +1432,7 @@ export interface ToolConfig {
 	 * Setting this field does NOT itself create a grant. A grant only exists
 	 * once a human/operator issues one via the `packages/db/src/queries/
 	 * mcp-governance.ts` `createGrant` helper — there is no creation RPC/UI as
-	 * of this field's introduction (see docs/mcp/runtime.md). A tool declaring
+	 * of this field's introduction (see docs/engineering/mcp/runtime.md). A tool declaring
 	 * `"once"`/`"always"` with zero matching grants behaves exactly like
 	 * `"never"` — it always falls through to elicitation.
 	 */

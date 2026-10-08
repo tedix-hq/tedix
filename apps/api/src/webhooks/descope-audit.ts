@@ -264,7 +264,7 @@ const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
  *
  * Dedup, NOT a ±5-minute timestamp window: this is an audit sink, where
  * dropping a late-but-genuine batch loses evidence permanently while a
- * duplicate only corrupts the trail. Rationale in docs/platform/auth.md.
+ * duplicate only corrupts the trail. Rationale in docs/engineering/platform/auth.md.
  *
  * Hashes identity-bearing fields only, all inside the HMAC-signed body so they
  * cannot be varied without breaking the signature. `data`/`geo`/`device` are

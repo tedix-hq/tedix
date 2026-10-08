@@ -8,16 +8,16 @@ title: "Engineering docs"
 
 # Engineering Docs
 
-User guides live in [docs/public](public/index.md): installation, concepts,
+User guides live in [docs/public](../public/index.md): installation, concepts,
 the CLI, the MCP app platform, and licensing. The pages below are the
 engineering reference for people changing the code. When a page and the code
 disagree, the code wins.
 
 ## Start here
 
-- [Architecture](ARCHITECTURE.md): Worker topology, package boundaries, and how
+- [Architecture](architecture.md): Worker topology, package boundaries, and how
   services talk to each other.
-- [Development](DEVELOPMENT.md): local development lanes and how to check a
+- [Development](development.md): local development lanes and how to check a
   change.
 
 ## Platform
@@ -60,9 +60,4 @@ disagree, the code wins.
 
 ## Decisions
 
-- [Minimal gates over pre-proof](decisions/minimal-gates-over-pre-proof.md)
-- [Agentic kernel architecture](decisions/agentic-kernel-architecture.md)
-- [Agent capability mutation gate](decisions/agent-capability-mutation-gate.md)
-- [OT authority](decisions/ot-authority.md)
-- [Tedi client OAuth with CIMD](decisions/tedi-client-oauth-cimd.md)
-- [Workstations over bodies](decisions/workstations-over-bodies.md)
+Architecture decision records live in [decisions/](../../decisions/README.md).

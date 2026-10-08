@@ -625,7 +625,7 @@ describe("canonical work lifecycle", () => {
 			"release",
 			"review",
 			// Retired with the review plane: there is no reviewer to decide a
-			// row any more (docs/decisions/minimal-gates-over-pre-proof.md).
+			// row any more (decisions/minimal-gates-over-pre-proof.md).
 			"review-evidence",
 			"done",
 			"next",
@@ -923,7 +923,7 @@ describe("canonical work lifecycle", () => {
 	// Replaces "reviews evidence and completes": the review step it pinned is
 	// deliberately removed, so what survives is the claim that still holds —
 	// complete is one unconditional board call with no evidence decision in
-	// front of it (docs/decisions/minimal-gates-over-pre-proof.md).
+	// front of it (decisions/minimal-gates-over-pre-proof.md).
 	test("completes without a review step in front of it", async () => {
 		const { ctx, sources } = makeContext();
 		expect(await runWork(`complete ${ITEM}`, ctx)).toBe(0);

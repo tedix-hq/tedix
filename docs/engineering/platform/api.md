@@ -1,7 +1,7 @@
 ---
 summary: "oRPC/OpenAPI architecture: contract-first rules, RPC vs public REST boundary, lazy routers, client package, and key internal surfaces"
 read_when:
-  - Changing API contracts, routers, OpenAPI generation, or extraction config
+  - Changing API contracts, routers, or OpenAPI generation
   - Checking internal RPC versus public REST behavior
   - Investigating API request latency or cold isolates
 title: "API platform"
@@ -372,17 +372,6 @@ handler's query rarely helps. The per-request D1 session uses
 `first-primary` (`apps/api/src/rpc/context.ts`); handlers should read through
 `context.db` so they stay inside that session's consistency guarantee.
 
-## Extraction Configuration
-
-`packages/api-contract/src/schemas/extraction-config.ts` owns the stored
-`extractionConfig` fields on app metadata and templates. The Firecrawl item
-extraction workflow is retired; the import workflow still reads
-`extractionConfig.fieldMappings`. Unsupported options are rejected on write, read, and
-template application — never silently stripped. Template application
-substitutes `{siteContext}` and validates the merged result before writing.
-No runtime consumes the other extraction fields (agent, prompt, schema,
-quality and stop conditions) any more.
-
 ## Known Issue: Middleware Type Inference
 
 The `ApiRouter` type can lose inference through complex middleware chains
@@ -394,5 +383,5 @@ by typing against the pure contract. Runtime behavior is unaffected.
 - [Auth](auth.md)
 - [Data model](data-model.md)
 - [DB access](db.md)
-- [`apps/api/README.md`](../../apps/api/README.md)
-- [`packages/db/README.md`](../../packages/db/README.md)
+- [`apps/api/README.md`](../../../apps/api/README.md)
+- [`packages/db/README.md`](../../../packages/db/README.md)

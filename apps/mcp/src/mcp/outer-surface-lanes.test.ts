@@ -2,7 +2,7 @@ import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tool
 /**
  * Outer-surface lane conformance: the
  * registered outer tool surface per lane is a decided contract, not an
- * accident of two code paths. docs/mcp/codemode.md documents the decision;
+ * accident of two code paths. docs/engineering/mcp/codemode.md documents the decision;
  * this test pins it so registration and documentation cannot drift.
  *
  * Lane decision:

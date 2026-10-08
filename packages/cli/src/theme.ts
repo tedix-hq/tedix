@@ -1,5 +1,5 @@
 /**
- * Tedix terminal theme — the "Codex" dark identity from docs/product/design.md
+ * Tedix terminal theme — the "Codex" dark identity from docs/engineering/product/design.md
  * mapped to the terminal: a single sage accent (#7FB28C) over a warm-black,
  * with muted + faint text tiers. Each swatch carries truecolor / 256-color / 16-color
  * SGR so the same token renders well across terminals (downshifting by the

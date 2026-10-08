@@ -42,7 +42,7 @@ import { buildWorkspaceWebMcpTools } from "@/components/workspace-webmcp-tools";
 import { buildWorkWebMcpTools } from "@/components/work-webmcp-tools";
 
 /**
- * Doctrine drift guard (docs/product/tedix-os.md, "One backend contract, two
+ * Doctrine drift guard (docs/engineering/product/tedix-os.md, "One backend contract, two
  * thin adapters"). The high-value tool schemas are now DERIVED from the owning
  * zod contracts via `deriveToolSchema` (src/lib/webmcp/derive-schema.ts), so
  * the assertions that used to catch hand-written drift against the contract

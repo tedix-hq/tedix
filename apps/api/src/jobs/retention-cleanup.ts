@@ -328,7 +328,7 @@ export async function runRetentionCleanupCron(
 		// probation backlog instead of being
 		// crowded out by the fast admission loop. The kernel/scheduled
 		// governance owns the budget; the memory plane does the mechanical
-		// drain (no LLM). See docs/decisions/agentic-kernel-architecture.md.
+		// drain (no LLM). See decisions/agentic-kernel-architecture.md.
 		const probationSweep = await sweepExpiredProbationFacts(db, {
 			now: new Date(event.scheduledTime),
 			maxBatchesPerOrg: FACT_TTL_SWEEP_HOMEOSTAT_MAX_BATCHES_PER_ORG,

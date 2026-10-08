@@ -10,7 +10,7 @@ export const HOME_ROUTE_KINDS = [
 ] as const;
 
 /**
- * Effort class — a routing output, not a suggestion (docs/product/tedix-os.md "Kernel
+ * Effort class — a routing output, not a suggestion (docs/engineering/product/tedix-os.md "Kernel
  * Runtime Decision", Anthropic scaling-rules lineage). The policy layer
  * enforces it as a budget:
  *

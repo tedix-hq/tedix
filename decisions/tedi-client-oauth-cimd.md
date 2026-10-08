@@ -136,7 +136,7 @@ For a catalog app that declares `OAUTH`:
 
 ## References
 
-- [Platform auth](../platform/auth.md)
+- [Platform auth](../docs/engineering/platform/auth.md)
 - MCP 2026-07-28 authorization:
   <https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization>
 - MCP deprecated features:

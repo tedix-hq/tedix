@@ -28,7 +28,7 @@
  *
  * Why an isolate-level ledger: the parent `AgentTediDO` executes every file
  * tool, including the ones a conversation facet proxies back to it, and each
- * facet is a COLOCATED child Durable Object (`docs/tedi/agent-runtime.md`).
+ * facet is a COLOCATED child Durable Object (`docs/engineering/tedi/agent-runtime.md`).
  * Parent and facets therefore share one isolate, so a facet compacting its own
  * session can invalidate the evidence the parent recorded for it without any
  * cross-object plumbing. The epoch is global for the same reason: a compacting

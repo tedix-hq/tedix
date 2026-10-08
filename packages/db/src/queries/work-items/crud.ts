@@ -609,7 +609,7 @@ export async function completeWorkItem(
 	// double-send drains instead of deadlocking the item.
 	if (item.disposition === "completed") return item;
 	// Settled means done: completion carries no evidence count and no review
-	// requirement (docs/decisions/minimal-gates-over-pre-proof.md). Legacy
+	// requirement (decisions/minimal-gates-over-pre-proof.md). Legacy
 	// contract-bearing items and contract-less items complete through one path.
 	if (item.disposition !== "accepted")
 		throw new WorkFactoryError(

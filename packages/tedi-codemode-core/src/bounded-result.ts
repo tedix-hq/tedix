@@ -5,7 +5,7 @@
  * valid, partial JSON value for a complete result. The preview remains a
  * string for the installed CLI envelope contract.
  *
- * @see docs/mcp/codemode.md
+ * @see docs/engineering/mcp/codemode.md
  */
 
 import { truncateResult } from "@cloudflare/codemode";

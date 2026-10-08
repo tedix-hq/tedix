@@ -1185,7 +1185,7 @@ describe("cognitive runtime router invariants", () => {
 				prBase: null,
 				changeSummary: {
 					fileCount: 1,
-					addedOrModified: ["docs/tedi/README.md"],
+					addedOrModified: ["docs/engineering/tedi/README.md"],
 					deleted: [],
 					totalBytes: 128,
 				},

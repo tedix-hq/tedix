@@ -538,7 +538,7 @@ function severityForQualityIssue(
  * reports `warning` / score 0 and says plainly that no attestation is possible,
  * pointing at the ingestion cron as the first thing to check. Fail loud, not
  * healthy — the same rule the capability gate learned
- * (docs/decisions/agent-capability-mutation-gate.md).
+ * (decisions/agent-capability-mutation-gate.md).
  *
  * This is load-bearing for more than a dashboard: `cost-latency-anomaly-watcher`
  * exists to alert on "spend up 2x vs the 7-day baseline". With an empty ledger

@@ -35,4 +35,4 @@ repository commits, Artifacts and the runtime event ledger.
   only the Computer interface.
 
 The runtime side of this contract lives in
-[Agent runtime](../tedi/agent-runtime.md).
+[Agent runtime](../docs/engineering/tedi/agent-runtime.md).

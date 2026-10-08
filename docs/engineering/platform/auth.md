@@ -336,7 +336,7 @@ in.
 ## MCP and AIH
 
 - `apps/mcp` is the resource server; Descope AIH is the authorization server
-  (DCR and CIMD — see [the CIMD decision](../decisions/tedi-client-oauth-cimd.md)).
+  (DCR and CIMD — see [the CIMD decision](../../../decisions/tedi-client-oauth-cimd.md)).
 - Descope policies filter scopes at issuance; the MCP edge enforces the issued
   scopes on every call. Scopes follow `mcp:<tool.name>`.
 - AIH consent policies are authored in Descope, not by Tedix code. The scope
@@ -482,6 +482,6 @@ holds the provider signing key. Code:
 ## Related
 
 - [MCP runtime](../mcp/runtime.md)
-- [Data model: organization identity](./data-model.md)
-- [API layer](./api.md)
-- [Tedi client OAuth / CIMD decision](../decisions/tedi-client-oauth-cimd.md)
+- [Data model: organization identity](data-model.md)
+- [API layer](api.md)
+- [Tedi client OAuth / CIMD decision](../../../decisions/tedi-client-oauth-cimd.md)

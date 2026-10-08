@@ -62,7 +62,7 @@ export function StreamedAssistantBubble({
 						 * not Tailwind's stock 2s `pulse` cycle. It runs on the
 						 * `tedix-structural` duration and the standard easing, and
 						 * `motion-reduce` drops it to a solid bar rather than removing
-						 * the affordance. See `docs/product/design.md`, "Elevation,
+						 * the affordance. See `docs/engineering/product/design.md`, "Elevation,
 						 * Borders, and Motion".
 						 */
 						<span

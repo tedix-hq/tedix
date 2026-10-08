@@ -93,8 +93,8 @@ See [Getting started](docs/public/getting-started.md) for the full walkthrough.
 
 [One request through Tedix](docs/public/cloudflare-architecture.md#one-request-through-tedix)
 traces a request from the CLI through routing to the next turn. The
-[engineering docs](docs/ENGINEERING.md) cover architecture, data, MCP, and the
-worker runtime. Read [AGENTS.md](AGENTS.md) and the nearest scoped guide before
+[engineering docs](docs/engineering/README.md) cover architecture, data, MCP, and the
+worker runtime; [decision records](decisions/README.md) explain why. Read [AGENTS.md](AGENTS.md) and the nearest scoped guide before
 editing; `bun run verify` runs the same checks as the pre-push hook.
 
 ## Contributing, support, and security

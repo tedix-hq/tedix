@@ -666,4 +666,4 @@ Emdash admin UI as a Kumo-adapter surface.
 - [Tedix OS](tedix-os.md)
 - [MCP Apps](../mcp/apps.md)
 - [CMS](../emdash/cms.md)
-- [Architecture](../ARCHITECTURE.md)
+- [Architecture](../architecture.md)
