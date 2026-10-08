@@ -9,6 +9,11 @@
  * answer-style lessons, core rules, then repo, harness, topic overlap and
  * confidence) and trims them to the caller's byte budget.
  *
+ * A distilled lesson is delivered as its keyed rules (`lesson-rules.ts`),
+ * grouped by subject. Standing ones always arrive whole; another delivers
+ * only the rules whose subject key the session's branch words name, when
+ * they name any.
+ *
  * With a `sessionId`, a stable 10% of sessions are a measurement holdout that
  * receives no learned lessons, and what each session received is recorded
  * (`services/lesson-delivery.ts`) so `get_lesson_effectiveness` can compare.
@@ -36,6 +41,12 @@ import {
 	lessonSubjects,
 	type MeasuredLesson,
 } from "../../services/lesson-delivery";
+import {
+	deliverableRules,
+	facetOf,
+	facetsIn,
+	renderRules,
+} from "../../services/lesson-rules";
 import type { BaseContext } from "../orpc";
 
 /** Per-lesson text cap, so one long fact cannot take the whole budget. */
@@ -126,6 +137,34 @@ function lessonText(row: ApprovedAgentLessonRow): string {
 		: text;
 }
 
+/**
+ * A distilled lesson's rules for this session, rendered, or null for a
+ * lesson without stored rules (delivered whole). Every rule of a standing
+ * lesson, or of any lesson when the session names no subject; else only the
+ * rules on a named subject (none: the lesson is left out).
+ */
+function selectedRules(
+	row: ApprovedAgentLessonRow,
+	hints: ReadonlySet<string>,
+): { text: string; keys: string[]; matches: number } | null {
+	if (!isMinedLesson(row.metadata)) return null;
+	const rules = deliverableRules(row.metadata);
+	if (!rules) return null;
+	const whole = isStandingLesson(row.metadata) || hints.size === 0;
+	const matching = rules.filter((rule) => hints.has(facetOf(rule.key)));
+	const chosen = whole ? rules : matching;
+	const header = row.content.split("\n")[0]!.trim();
+	const text = renderRules(header, chosen);
+	return {
+		text:
+			text.length > LESSON_TEXT_LIMIT
+				? `${text.slice(0, LESSON_TEXT_LIMIT - 1)}…`
+				: text,
+		keys: chosen.map((rule) => rule.key),
+		matches: matching.length,
+	};
+}
+
 /** Pure selection step, exported for tests. */
 export function selectSessionLessons(
 	rows: ApprovedAgentLessonRow[],
@@ -135,11 +174,17 @@ export function selectSessionLessons(
 		topics?: string[];
 		budgetBytes: number;
 	},
-): Omit<GetAgentSessionLessonsResult, "organizationId"> {
+): Omit<GetAgentSessionLessonsResult, "organizationId"> & {
+	/** Rule keys delivered per lesson id, for the delivery log. */
+	ruleKeys: Record<string, string[]>;
+} {
 	const harness = normalizeHarness(session.harness);
 	const topicWords = new Set(
 		(session.topics ?? []).flatMap((topic) => [...words(topic)]),
 	);
+	// Subject keys the branch words name (`git.push`, `deploy.release`).
+	const hints = new Set(facetsIn((session.topics ?? []).join(" ")));
+	const ruleKeys: Record<string, string[]> = {};
 	const scored: Array<{ lesson: AgentSessionLesson; score: number }> = [];
 	for (const row of rows) {
 		const scope = lessonScope(row.metadata);
@@ -148,7 +193,10 @@ export function selectSessionLessons(
 		if (repoScoped && !(session.repo && repoMatches(scope.repo, session.repo)))
 			continue;
 		if (harnessScoped && normalizeHarness(scope.harness) !== harness) continue;
-		const text = lessonText(row);
+		const keyed = selectedRules(row, hints);
+		if (keyed && keyed.keys.length === 0) continue;
+		if (keyed) ruleKeys[row.id] = keyed.keys;
+		const text = keyed?.text ?? lessonText(row);
 		const lessonWords = words(
 			`${scope.topic === ANY ? "" : scope.topic} ${text}`,
 		);
@@ -160,6 +208,7 @@ export function selectSessionLessons(
 				(repoScoped ? 2 : 0) +
 				(harnessScoped ? 1 : 0) +
 				Math.min(overlap, 3) +
+				Math.min(keyed?.matches ?? 0, 3) +
 				// A core rule (naming, shipping) must survive a crowded budget.
 				(row.priority === "core" ? 4 : 0) +
 				// A person's standing preferences apply to every session: first.
@@ -192,6 +241,7 @@ export function selectSessionLessons(
 		lessons,
 		matched: scored.length,
 		truncated: lessons.length < scored.length,
+		ruleKeys,
 	};
 }
 
@@ -215,16 +265,23 @@ export async function getSessionLessons(
 		AGENT_LESSON_TOPIC_PREFIX,
 		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
-	const selected = selectSessionLessons(rows, input);
+	const { ruleKeys, ...selected } = selectSessionLessons(rows, input);
 	const sessionId = input.sessionId?.toLowerCase();
 	if (!sessionId) return { organizationId, ...selected };
 	// A holdout session gets every lesson except the miner's own.
 	const holdout = await isHoldoutSession(sessionId);
-	const result = holdout
+	const withheld = holdout
 		? selectSessionLessons(
 				rows.filter((row) => !isMinedLesson(row.metadata)),
 				input,
 			)
+		: null;
+	const result = withheld
+		? {
+				lessons: withheld.lessons,
+				matched: withheld.matched,
+				truncated: withheld.truncated,
+			}
 		: selected;
 	// The learned lessons this session got, or (holdout) would have got.
 	const byId = new Map(rows.map((row) => [row.id, row]));
@@ -236,6 +293,7 @@ export async function getSessionLessons(
 				id: row.id,
 				topicKey: row.topicKey ?? `fact:${row.id}`,
 				subjects: lessonSubjects(row),
+				...(ruleKeys[row.id] ? { keys: ruleKeys[row.id] } : {}),
 			},
 		];
 	});

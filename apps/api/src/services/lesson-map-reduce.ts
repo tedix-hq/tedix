@@ -60,6 +60,13 @@ import {
 	learningScopeSlug,
 } from "./decision-learning-signal";
 import {
+	assignRuleKeys,
+	mergeRevoked,
+	revokedRulesOf,
+	sameRule,
+	sharedWords,
+} from "./lesson-rules";
+import {
 	DISTILL_VERSION,
 	type DistillEnv,
 	META_REPLY,
@@ -104,7 +111,6 @@ const MIN_SESSIONS = 2;
 /** A rule with fewer sessions than FADE_MIN_SESSIONS fades after FADE_DAYS unrestated. */
 const FADE_DAYS = 45;
 const FADE_MIN_SESSIONS = 5;
-const SAME_RULE = 0.5;
 const LESSON_PREFIX = "learning-feed:decision:";
 const ANY = "general";
 const STANDING_TOPIC = "standing";
@@ -191,6 +197,10 @@ export interface RuleCandidate {
 	standing: boolean;
 	/** Importance order from the final merge (0 first); absent: by support. */
 	rank?: number;
+	/** Stable subject key (`lesson-rules.ts`): one active rule per key. */
+	key?: string;
+	/** When this wording was first learned (`newestAt`: last confirmed). */
+	createdAt?: string;
 }
 
 export interface PlannedLesson {
@@ -373,14 +383,6 @@ export async function mapChunk(
 	return candidates;
 }
 
-function sameRule(a: string, b: string): boolean {
-	const x = new Set(words(a));
-	const y = new Set(words(b));
-	if (x.size === 0 || y.size === 0) return a.toLowerCase() === b.toLowerCase();
-	const shared = [...x].filter((word) => y.has(word)).length;
-	return shared / new Set([...x, ...y]).size >= SAME_RULE;
-}
-
 function bySupport(a: RuleCandidate, b: RuleCandidate): number {
 	return (
 		(a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||
@@ -435,6 +437,10 @@ export function unite(
 			.sort()
 			.at(-1)!,
 		standing: sorted.some((c) => c.standing),
+		// A merged rule keeps its lineage's key: a newer wording replaces it.
+		...(sorted.find((c) => c.key)?.key
+			? { key: sorted.find((c) => c.key)!.key }
+			: {}),
 		...(sorted.some((c) => c.rank !== undefined)
 			? {
 					rank: Math.min(
@@ -885,10 +891,34 @@ export async function writeOwnerLessons(
 	const replaceable = (
 		await ownerLessons(db, input.orgId, input.ownerUserId)
 	).filter(isReplaceableLesson);
+	// Keys: a rule takes the key of the current rule it restates or revises;
+	// a replaced rule is kept as revoked history on the first lesson.
+	const previous = assignRuleKeys(
+		replaceable.flatMap((row) => storedRules(row) ?? []),
+	).rules;
+	const keyed = assignRuleKeys(
+		input.lessons.flatMap((lesson) => lesson.rules),
+		previous,
+	);
+	let next = 0;
+	const lessons = input.lessons.map((lesson) => ({
+		...lesson,
+		rules: lesson.rules.map(() => keyed.rules[next++]!),
+	}));
+	const history = mergeRevoked(
+		keyed.revoked,
+		...replaceable.map((row) => revokedRulesOf(row.metadata)),
+	);
+	const feedOf = (lesson: PlannedLesson) => ({
+		rules: ruleRecords(lesson.rules),
+		...(lesson === lessons[0] && history.length
+			? { revokedRules: history }
+			: {}),
+	});
 	const keep = new Set<string>();
 	const newIdByKey = new Map<string, string>();
 	const domain = await getOrCreateDomain(db, input.orgId, "operations");
-	for (const lesson of input.lessons) {
+	for (const lesson of lessons) {
 		const same = replaceable.find(
 			(row) =>
 				row.topicKey === lesson.topicKey && row.content === lesson.content,
@@ -903,6 +933,7 @@ export async function writeOwnerLessons(
 					...meta,
 					learningFeed: {
 						...rec(meta.learningFeed),
+						...feedOf(lesson),
 						mapReduce: { ...input.signature, complete: input.complete },
 					},
 				}),
@@ -963,15 +994,7 @@ export async function writeOwnerLessons(
 					...(lesson.standing ? { hoisted: true } : {}),
 					subject: lesson.scope.topic,
 					// Everything an incremental pass needs to merge the rule again.
-					rules: lesson.rules.map((r) => ({
-						rule: r.rule,
-						sessions: r.sessions.length,
-						newestAt: r.newestAt,
-						subject: r.subject,
-						repos: r.repos,
-						standing: r.standing,
-						...(r.rank !== undefined ? { rank: r.rank } : {}),
-					})),
+					...feedOf(lesson),
 					mapReduce: { ...input.signature, complete: input.complete },
 				},
 			}),
@@ -1003,6 +1026,22 @@ export async function writeOwnerLessons(
 		result.superseded++;
 	}
 	return result;
+}
+
+/** Stored per rule: everything a later merge needs, and its key. */
+function ruleRecords(rules: RuleCandidate[]) {
+	return rules.map((r) => ({
+		rule: r.rule,
+		key: r.key,
+		sessions: r.sessions.length,
+		newestAt: r.newestAt,
+		createdAt: r.createdAt ?? r.newestAt,
+		subject: r.subject,
+		repos: r.repos,
+		standing: r.standing,
+		eventIds: r.eventIds.slice(0, 20),
+		...(r.rank !== undefined ? { rank: r.rank } : {}),
+	}));
 }
 
 /** A durable Workflow step (`step.do`), or a direct call in tests. */
@@ -1142,10 +1181,16 @@ export function storedRules(row: {
 		if (!subject || !rule || !newestAt || repos.length === 0) return null;
 		const count =
 			typeof stored.sessions === "number" ? Math.max(1, stored.sessions) : 1;
+		const own = Array.isArray(stored.eventIds)
+			? stored.eventIds.filter((id): id is string => typeof id === "string")
+			: [];
 		rules.push({
 			rule,
 			subject,
-			eventIds: evidence,
+			// Its own decisions; for a rule stored before it kept them, the lesson's.
+			eventIds: own.length ? own : evidence,
+			...(text(stored.key) ? { key: text(stored.key) } : {}),
+			...(text(stored.createdAt) ? { createdAt: text(stored.createdAt) } : {}),
 			// Stand-ins for the sessions behind it: only their count is kept.
 			sessions: Array.from({ length: count }, (_, i) => `prior:${rule}:${i}`),
 			repos,
@@ -1155,11 +1200,6 @@ export function storedRules(row: {
 		});
 	}
 	return rules;
-}
-
-function sharedWords(a: string, b: string): number {
-	const own = new Set(words(a));
-	return new Set(words(b).filter((word) => own.has(word))).size;
 }
 
 /**

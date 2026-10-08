@@ -165,6 +165,88 @@ describe("selectSessionLessons", () => {
 		expect(result).toMatchObject({ matched: 10, truncated: true });
 	});
 
+	it("delivers a distilled lesson's rules for the branch's subjects, standing ones whole", () => {
+		const mined = (
+			id: string,
+			hoisted: boolean,
+			content: string,
+			rules: object[],
+		) => ({
+			...row(id, content),
+			metadata: {
+				learningFeed: {
+					version: 1,
+					autoConfirmed: true,
+					...(hoisted ? { hoisted: true } : {}),
+					scope: {
+						repo: "general",
+						harness: "general",
+						topic: hoisted ? "standing" : "git",
+					},
+					rules,
+				},
+			} as never,
+		});
+		const rows = [
+			mined(
+				"standing",
+				true,
+				"How the user works:\n- Answer short\n- Push promptly",
+				[
+					{
+						rule: "Answer short",
+						subject: "communication",
+						key: "comms.length",
+					},
+					{ rule: "Push promptly", subject: "git", key: "git.push" },
+				],
+			),
+			mined(
+				"git",
+				false,
+				"Git and shipping:\n- Rebase before pushing\n- Never open pull requests",
+				[
+					{
+						rule: "Rebase before pushing",
+						subject: "git",
+						key: "git.push.rebase",
+					},
+					{
+						rule: "Never open pull requests",
+						subject: "git",
+						key: "git.pull-requests",
+					},
+				],
+			),
+			mined("tests", false, "Code and architecture:\n- Write a test first", [
+				{ rule: "Write a test first", subject: "coding", key: "coding.tests" },
+			]),
+			{ ...row("core", "Call the workers tedis."), priority: "core" as const },
+		];
+		const branch = selectSessionLessons(rows, {
+			harness: "codex",
+			topics: ["rebase", "push"],
+			budgetBytes: 3200,
+		});
+		expect(branch.lessons.map((l) => [l.id, l.text])).toEqual([
+			[
+				"standing",
+				"How the user works:\n- Answers: Answer short\n- Git: Push promptly",
+			],
+			["core", "Call the workers tedis."],
+			["git", "Git and shipping:\n- Rebase before pushing"],
+		]);
+		expect(branch.ruleKeys).toEqual({
+			standing: ["comms.length", "git.push"],
+			git: ["git.push.rebase"],
+		});
+		// No subject named: every lesson, as before.
+		expect(
+			selectSessionLessons(rows, { harness: "codex", budgetBytes: 3200 })
+				.lessons,
+		).toHaveLength(4);
+	});
+
 	it("normalizes Git origins", () => {
 		for (const origin of [
 			"https://github.com/tedix-hq/tedix.git",
