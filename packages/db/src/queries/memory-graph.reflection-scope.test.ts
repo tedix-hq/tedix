@@ -16,7 +16,7 @@ function fixture() {
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 describe("reflection selection bounds lifecycle writes", () => {
-	it("promotes only source-grounded afterTurn facts while preserving other producers", async () => {
+	it("promotes used afterTurn facts unless the evidence check rejected them", async () => {
 		const { sqlite, db } = fixture();
 		try {
 			const insert = sqlite.prepare(
@@ -37,7 +37,9 @@ describe("reflection selection bounds lifecycle writes", () => {
 				quality("durable_candidate"),
 			);
 			for (const verdict of [
+				"unsupported",
 				"transient_or_unsupported",
+				"supported",
 				"uncertain",
 				"unavailable",
 				"insufficient_evidence",
@@ -65,7 +67,7 @@ describe("reflection selection bounds lifecycle writes", () => {
 				quality("durable_candidate"),
 			);
 
-			expect(await promoteFromProbation(db, "org", 1)).toBe(2);
+			expect(await promoteFromProbation(db, "org", 1)).toBe(8);
 			const statuses = sqlite
 				.prepare(
 					"SELECT id,status FROM memory_facts WHERE status IS NOT NULL ORDER BY id",
@@ -73,7 +75,16 @@ describe("reflection selection bounds lifecycle writes", () => {
 				.all() as Array<{ id: string; status: string }>;
 			expect(
 				statuses.filter((row) => row.status === "active").map((row) => row.id),
-			).toEqual(["grounded", "other-producer"]);
+			).toEqual([
+				"grounded",
+				"insufficient_evidence",
+				"legacy",
+				"missing-hash",
+				"other-producer",
+				"supported",
+				"unavailable",
+				"uncertain",
+			]);
 			expect(
 				statuses.find((row) => row.id === "foreign-grounded")?.status,
 			).toBe("probation");

@@ -101,10 +101,21 @@ it("defaults missing policy on while preserving explicit v1 denial", () => {
 	).toBe(0.6);
 });
 
-it("keeps memory judgments in shadow on Clef unless a tenant opts in", () => {
-	const shadow = { mode: "shadow", model: "@cf/cloudflare/clef-flash" };
-	expect(parseJevSettings({}).purposes.memoryQuality).toEqual(shadow);
-	expect(parseJevSettings({}).purposes.graphLinking).toEqual(shadow);
+it("enforces only evaluated memory judgments by default", () => {
+	const clef = "@cf/cloudflare/clef-flash";
+	expect(parseJevSettings({}).purposes.memoryQuality).toEqual({
+		mode: "enforce",
+		model: clef,
+	});
+	expect(parseJevSettings({}).purposes.graphLinking).toEqual({
+		mode: "shadow",
+		model: clef,
+	});
+	expect(
+		parseJevSettings({
+			jev: { purposes: { memoryQuality: { mode: "shadow" } } },
+		}).purposes.memoryQuality.mode,
+	).toBe("shadow");
 	expect(
 		parseJevSettings({
 			jev: { purposes: { graphLinking: { mode: "enforce" } } },

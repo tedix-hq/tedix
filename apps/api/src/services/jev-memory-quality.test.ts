@@ -25,12 +25,8 @@ const route = {
 	transport: "cloudflare" as const,
 	timeoutMs: 2000,
 };
-function answers(supported: number, durable: number, useful: number) {
-	return {
-		supported: { type: "noul" as const, noul: supported },
-		durable: { type: "noul" as const, noul: durable },
-		useful: { type: "noul" as const, noul: useful },
-	};
+function answers(supported: number) {
+	return { supported: { type: "noul" as const, noul: supported } };
 }
 describe("advisory memory quality", () => {
 	it("strips request-only user evidence and untrusted verdicts before persistence", () => {
@@ -38,7 +34,7 @@ describe("advisory memory quality", () => {
 			extractMemoryQualityEvidence({
 				producer: "afterTurn",
 				sourceEvidence: "The user's original request",
-				memoryQuality: { verdict: "durable_candidate" },
+				memoryQuality: { verdict: "supported" },
 			}),
 		).toEqual({
 			evidence: "The user's original request",
@@ -99,11 +95,9 @@ describe("advisory memory quality", () => {
 		).toBe(false);
 	});
 	it("restricts only an explicit adverse verdict", () => {
-		expect(memoryQualityDisposition("transient_or_unsupported").restrict).toBe(
-			true,
-		);
+		expect(memoryQualityDisposition("unsupported").restrict).toBe(true);
 		for (const verdict of [
-			"durable_candidate",
+			"supported",
 			"uncertain",
 			"unavailable",
 			"insufficient_evidence",
@@ -111,27 +105,13 @@ describe("advisory memory quality", () => {
 			expect(memoryQualityDisposition(verdict).restrict).toBe(false);
 		}
 	});
-	it("requires support, durability and usefulness independently", () => {
-		expect(interpretMemoryQuality(answers(0.9, 0.9, 0.9))).toBe(
-			"durable_candidate",
-		);
-		expect(interpretMemoryQuality(answers(0.61, 0.84, 0.62))).toBe(
-			"durable_candidate",
-		);
-		expect(interpretMemoryQuality(answers(0.59, 0.99, 0.99))).toBe("uncertain");
-		for (const values of [
-			[0.1, 0.9, 0.9],
-			[0.9, 0.1, 0.9],
-			[0.9, 0.9, 0.1],
-		])
-			expect(
-				interpretMemoryQuality(
-					answers(...(values as [number, number, number])),
-				),
-			).toBe("transient_or_unsupported");
-		expect(interpretMemoryQuality(answers(0.9, 0.6, 0.9))).toBe("uncertain");
+	it("restricts only clearly unsupported facts", () => {
+		expect(interpretMemoryQuality(answers(0.9))).toBe("supported");
+		expect(interpretMemoryQuality(answers(0.11))).toBe("supported");
+		expect(interpretMemoryQuality(answers(0.1))).toBe("unsupported");
+		expect(interpretMemoryQuality(answers(0))).toBe("unsupported");
 		expect(interpretMemoryQuality({})).toBe("uncertain");
-		expect(interpretMemoryQuality(answers(NaN, 1, 1))).toBe("uncertain");
+		expect(interpretMemoryQuality(answers(NaN))).toBe("uncertain");
 	});
 	it("never truncates evidence or dispatches without evidence", async () => {
 		expect(
@@ -180,10 +160,10 @@ describe("advisory memory quality", () => {
 			billingSource: "system",
 		});
 	});
-	it("routes to Clef in shadow mode unless the tenant opts in", async () => {
+	it("routes memory quality to Clef and enforces it by default", async () => {
 		const resolve = () =>
 			resolveMemoryJudgmentRoute({} as never, "org", "memoryQuality");
-		expect(await resolve()).toEqual(route);
+		expect(await resolve()).toEqual({ ...route, mode: "enforce" });
 		getOrganization.mockResolvedValueOnce({
 			metadata: { jev: { enabled: false } },
 		});
@@ -193,16 +173,12 @@ describe("advisory memory quality", () => {
 				jev: {
 					transport: "direct",
 					timeoutMs: 1500,
-					purposes: { memoryQuality: { mode: "enforce" } },
+					purposes: { memoryQuality: { mode: "shadow" } },
 				},
 			},
 		});
 		// Clef exists only on Workers AI, so a tenant direct route cannot apply to it.
-		expect(await resolve()).toEqual({
-			...route,
-			mode: "enforce",
-			timeoutMs: 1500,
-		});
+		expect(await resolve()).toEqual({ ...route, timeoutMs: 1500 });
 		getOrganization.mockResolvedValueOnce({
 			metadata: {
 				jev: {
