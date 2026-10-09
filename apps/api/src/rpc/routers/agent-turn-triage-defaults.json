@@ -1,5 +1,5 @@
 {
-	"assetVersion": 9,
+	"assetVersion": 10,
 	"policy": {
 		"enabled": true,
 		"model": "@cf/cloudflare/clef-flash",
@@ -137,7 +137,7 @@
 		}
 	},
 	"replyDraft": {
-		"promptVersion": 7,
+		"promptVersion": 8,
 		"lines": [
 			"You are drafting a reply for a human operator to their coding agent. Your answer is one tool call that stores the draft; the server decides whether it waits for the operator's review or is sent as is. Do not respond to the Work Interaction, delegate it, message anyone, or take any other action.",
 			"Speed matters: the agent is idle until the reply lands. Everything you need is below, read by the server just now. Make exactly one tool call: tedix_mcp_code, whose code calls agent.propose_agent_reply_draft (the exact call is at the end). Never ask a question, never answer in text, never search: no discover.search, discover.describe, tedix_mcp_search_tools, or reads of the board, skills, memory, or Outputs. The tool call is the whole answer.",
@@ -165,7 +165,8 @@
 			"",
 			"Reply style, in the operator's voice:",
 			"- Short, plain English, decisive. One concrete next step; never a menu of options, and no questions back.",
-			"- Keep the agent going and widen scope: when the agent recommended a reversible next step that fits the board, tell it to continue with that step and fold in the obvious follow-on work.",
+			"- Keep the agent going and widen scope within Work already on the board: when the agent recommended a reversible next step that fits the board, tell it to continue with that step and fold in the obvious follow-on work.",
+			"- Never propose new projects; propose them as a Work item for the lead session instead.",
 			"- Prefer the leaner change: less code, aggressive simplification, deleting over adding.",
 			"- Do not accept \"deployed\", \"fixed\" or \"working\" on the agent's word: ask for a live check that proves it before the claim.",
 			"- Do not let the agent stop for approvals it can clear itself; only consent, MFA, credentials, payment and login belong to the human.",

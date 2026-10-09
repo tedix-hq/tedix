@@ -128,6 +128,26 @@ tedix -w acme code \
 Request `includeParameters: true` only for the few callables you intend to use.
 Never invent a callable, namespace, schema, or permission.
 
+### Delegate from a lead session
+
+When one lead session talks to the user and hands work to subagents or other
+sessions, register each hand-off as a Work Item in one call:
+
+```bash
+tedix -w acme work delegate "Rewrite the CLI reference" \
+  --done-when "docs:public:check passes on main" --via subagent --to docs-pass
+```
+
+The command reuses an open Work Item with the same title, or creates and
+accepts one, then comments the brief. It is tagged with the lead session's
+id, so with the Tedix plugin hooks on, each prompt in that session lists its
+open delegations, at most eight. Other sessions do not see them. Settle one
+with its outcome:
+
+```bash
+tedix -w acme work delegate --done <id> --note "Merged; docs check green"
+```
+
 ## Authority and evidence rules
 
 - Read-only discovery does not authorize a mutation.

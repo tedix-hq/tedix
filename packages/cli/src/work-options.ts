@@ -30,6 +30,10 @@ const valueOptions = {
 	"--executor-tedi": "workExecutorTedi",
 	"--worktree-root": "workWorktreeRoot",
 	"--session": "workSession",
+	// `work delegate`: how the brief travels, its target, and settlement.
+	"--via": "workVia",
+	"--to": "workTo",
+	"--done": "workDone",
 	"--host": "workHost",
 	// `tedix who`: which files to check, and how far back.
 	"--paths": "whoPaths",
