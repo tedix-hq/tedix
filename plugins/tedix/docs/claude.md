@@ -1,5 +1,21 @@
 # Tedix in Claude, Cowork and Claude Code
 
+## Quick start
+
+1. In Claude, open **Settings**, then **Connectors**, and add a custom connector
+   named **Tedix** with the URL `https://connect.mcp.tedix.dev/mcp`.
+2. Sign in through the browser OAuth flow, pick your organization and review
+   the requested access.
+3. Start a new chat and say "Connect my Tedix account".
+
+A connector gives Claude the Tedix tools, not the bundled skills; for skills in
+Claude Code, use the published plugin described in the
+[Claude Code guide](./claude-code.md). The plain-English version is at
+<https://docs.tedix.dev/learning-paths/first-plugin>.
+
+**Reference.** The rest of this page is detail: setup choices, packaging for
+maintainers, local and hybrid packages, lifecycle limits and verification.
+
 Use the same Tedix organization context, Work Items, skills and Workspace Outputs
 from each host. Start with your task. The plugin should find relevant context,
 carry out authorized steps and ask a clear question only when it needs your input.
@@ -34,8 +50,18 @@ The owner handles sign-in and consent. Never paste a token into a chat or packag
 Remote connectors connect from Anthropic's infrastructure, including when used
 from the desktop app; they cannot reach your computer's loopback address.
 
-For bundled skills, build the online plugin and upload the ZIP using the host's
-plugin installation interface:
+Most people need only this connector, or the published plugin from
+[tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins) in Claude
+Code. A connector alone provides tools, not bundled skills. Installation does
+not grant writes or execution authority. Custom connectors are available on
+Free with a one-connector limit; plugin and Cowork availability depend on the
+host's current plan and organization policy.
+
+### Build the package yourself (maintainers)
+
+To get the bundled skills into online Claude or Cowork, build the online plugin
+from a Tedix checkout and upload the ZIP using the host's plugin installation
+interface:
 
 ```sh
 bun packages/cli/scripts/package-plugin.ts --host claude /tmp/tedix-claude-online.zip
@@ -43,10 +69,7 @@ bun packages/cli/scripts/package-plugin.ts --host claude /tmp/tedix-claude-onlin
 
 This package contains the native Claude manifest, remote MCP connection and the
 shared Tedix skills. It contains no executable hooks. Use the same connector URL
-to reuse an existing Tedix connection. A connector alone provides tools, not
-bundled skills. Installation does not grant writes or execution authority.
-Custom connectors are available on Free with a one-connector limit; plugin and
-Cowork availability depend on the host's current plan and organization policy.
+to reuse an existing Tedix connection.
 
 ## Local and hybrid
 

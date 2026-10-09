@@ -21,28 +21,31 @@ what it produced, and who approved any outside action.
 
 To use the invited Cloud beta, [connect the Tedix CLI](./learning-paths/first-connection.md),
 then get a useful result from [your first digital worker](./learning-paths/first-worker.md).
+To use Tedix from an assistant you already have, [add the Tedix plugin to
+ChatGPT, Codex or Claude](./learning-paths/first-plugin.md).
 To evaluate the product from source without a Cloud account, [run Tedix
 locally](./getting-started.md). [Release status](./release-status.md) lists what
 is available today.
 
 ## Choose your path
 
-| You want to…                                        | Start with                                                              |
-| --------------------------------------------------- | ----------------------------------------------------------------------- |
-| Run Tedix locally without a Cloud account           | [Getting started locally](./getting-started.md)                         |
-| Connect this computer to a Cloud organization       | [First connection to Tedix Cloud](./learning-paths/first-connection.md) |
-| Run an existing worker and find its result          | [Run a digital worker](./learning-paths/first-worker.md)                |
-| Recover a CLI connection or worker run              | [Troubleshoot Tedix tasks](./troubleshooting.md)                        |
-| Check what is available today                       | [Release status](./release-status.md)                                   |
-| Learn the vocabulary                                | [Core concepts](./concepts.md)                                          |
-| Understand worker permissions and approvals         | [Worker permissions and governance](./workers-and-governance.md)        |
-| Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)     |
-| Give an agent reliable Tedix context                | [Agent guide](./agent-guide.md)                                         |
-| Connect applications and tools                      | [MCP app platform](./mcp-app-platform.md)                               |
-| Publish public or organization-only product docs    | [Documentation sites](./docs-sites.md)                                  |
-| Edit and publish website content                    | [Websites and CMS](./cms.md)                                            |
-| Deploy into your own Cloudflare account             | [Self-hosting and managed service boundary](./self-hosted-boundary.md)  |
-| Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                            |
+| You want to…                                        | Start with                                                                 |
+| --------------------------------------------------- | -------------------------------------------------------------------------- |
+| Run Tedix locally without a Cloud account           | [Getting started locally](./getting-started.md)                            |
+| Use Tedix from ChatGPT, Codex or Claude             | [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md) |
+| Connect this computer to a Cloud organization       | [First connection to Tedix Cloud](./learning-paths/first-connection.md)    |
+| Run an existing worker and find its result          | [Run a digital worker](./learning-paths/first-worker.md)                   |
+| Recover a CLI connection or worker run              | [Troubleshoot Tedix tasks](./troubleshooting.md)                           |
+| Check what is available today                       | [Release status](./release-status.md)                                      |
+| Learn the vocabulary                                | [Core concepts](./concepts.md)                                             |
+| Understand worker permissions and approvals         | [Worker permissions and governance](./workers-and-governance.md)           |
+| Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)        |
+| Give an agent reliable Tedix context                | [Agent guide](./agent-guide.md)                                            |
+| Connect applications and tools                      | [MCP app platform](./mcp-app-platform.md)                                  |
+| Publish public or organization-only product docs    | [Documentation sites](./docs-sites.md)                                     |
+| Edit and publish website content                    | [Websites and CMS](./cms.md)                                               |
+| Deploy into your own Cloudflare account             | [Self-hosting and managed service boundary](./self-hosted-boundary.md)     |
+| Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                               |
 
 ## Read these docs as an agent
 

@@ -1,5 +1,24 @@
 # Use Tedix in ChatGPT Work and Codex
 
+## Quick start
+
+1. Enable the MCP protocol Tedix Connect requires (a Codex-wide setting):
+   `codex features enable mcp_2026_07_28`, then restart Codex.
+2. Add the Tedix marketplace: `codex plugin marketplace add tedix-hq/tedix-plugins`.
+3. Install the plugin: `codex plugin add tedix@tedix-plugins`.
+4. Sign in: `codex mcp login tedix` opens the browser OAuth flow; pick your
+   organization and review the requested access.
+5. In the ChatGPT desktop app, open the Plugins Directory, enable `tedix`, and
+   start a new **Work** chat.
+6. Say "Connect my Tedix account" and follow the prompts.
+
+ChatGPT on the web is not supported yet (see [below](#chatgpt-on-the-web)).
+The plain-English version is at
+<https://docs.tedix.dev/learning-paths/first-plugin>.
+
+**Reference.** The rest of this page is detail: packaging, manifests, the
+authorization model, hooks and verification.
+
 The portable package has one canonical `tedix` identity and a remote HTTPS MCP
 endpoint; its current version is the `version` field in
 [`../plugin.json`](../plugin.json).
@@ -60,9 +79,17 @@ Without the CLI, add the published plugin repository as a marketplace and
 install the plugin (skills and the MCP connection only, no hooks):
 
 ```sh
+codex features enable mcp_2026_07_28
 codex plugin marketplace add tedix-hq/tedix-plugins
 codex plugin add tedix@tedix-plugins
+codex mcp login tedix
 ```
+
+The first command is required: Tedix's MCP gateway uses the 2026-07-28 MCP
+protocol, and Codex only negotiates it with the `mcp_2026_07_28` feature
+enabled. Restart Codex after enabling it. The last command completes the
+browser OAuth sign-in; [Authorize the connection](#authorize-the-connection)
+describes both steps in detail.
 
 During plugin development, `codex plugin marketplace add .` from a local
 Tedix checkout is also supported.
