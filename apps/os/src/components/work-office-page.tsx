@@ -33,6 +33,7 @@ import { OfficeLeaderboard } from "@/components/office-leaderboard";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
+	answerDeliveryLine,
 	decisionCaptureSummary,
 	interactionSubject,
 } from "@/components/work-operations-pages";
@@ -78,7 +79,11 @@ export function knockOutcome(input: {
 	open: boolean;
 	answeredByYou: boolean;
 	draft: { delivery?: string | null; drafter: string } | null;
+	/** Whether your answer reached the session that asked. */
+	delivery?: { text: string } | null;
 }): { lane: Lane; text: string } {
+	if (input.answeredByYou && input.delivery)
+		return { lane: "you", text: input.delivery.text };
 	if (input.urgent)
 		return {
 			lane: "you",
@@ -355,16 +360,19 @@ function Knocks({ since }: { since: string }) {
 			? (names.get(draft.drafterId) ?? "Your chief of staff")
 			: null;
 		const open = row.effectiveState === "open";
+		const delivery = answerDeliveryLine(row.request.metadata);
 		const outcome = knockOutcome({
 			urgent: summary?.urgency === "now",
 			fyi: attentionOf(row.request.metadata) === "fyi",
 			open,
 			answeredByYou: row.responseCount > 0 && draft?.delivery !== "auto",
 			draft: draft && drafter ? { delivery: draft.delivery, drafter } : null,
+			delivery,
 		});
 		return {
 			row,
-			open,
+			// An answer that has not reached its session still needs watching.
+			open: open || Boolean(delivery?.pending),
 			urgent: summary?.urgency === "now",
 			outcome,
 			drafter,

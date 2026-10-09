@@ -4,6 +4,7 @@ import { useStore } from "@tanstack/react-form";
 import { useEffect, useState, type ReactNode } from "react";
 import * as z from "zod";
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
+import { WorkInteractionDeliveryOverlaySchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { WorkAttentionSummary } from "@/components/work-attention-summary";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
@@ -76,6 +77,7 @@ import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
 import { sentenceCase } from "@/lib/format";
+import { normalizeD1Timestamp } from "@/lib/time";
 import {
 	pendingApprovalsQueryOptions,
 	membersListQueryOptions,
@@ -1509,6 +1511,51 @@ export function decisionCaptureSummary(metadata: unknown) {
 	};
 }
 
+/** Local hour and minute, e.g. "18:21". */
+function clockTime(iso: string) {
+	const at = new Date(normalizeD1Timestamp(iso));
+	return Number.isNaN(at.getTime())
+		? ""
+		: at.toLocaleTimeString([], {
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			});
+}
+
+/**
+ * Whether your answer to a session question reached that session, in plain
+ * words, or null when there is nothing to tell (`metadata.delivery`).
+ * `pending` is true while the answer has not reached the session itself.
+ */
+export function answerDeliveryLine(
+	metadata: unknown,
+): { text: string; pending: boolean } | null {
+	const parsed = WorkInteractionDeliveryOverlaySchema.safeParse(
+		(metadata as { delivery?: unknown } | null | undefined)?.delivery,
+	);
+	if (!parsed.success) return null;
+	const delivery = parsed.data;
+	switch (delivery.state) {
+		case "saved":
+			return { text: "Saved", pending: true };
+		case "delivered": {
+			const time = delivery.deliveredAt ? clockTime(delivery.deliveredAt) : "";
+			return {
+				text: `Delivered to your session${time ? ` ${time}` : ""}`,
+				pending: false,
+			};
+		}
+		case "acknowledged":
+			return { text: "Acknowledged", pending: false };
+		case "handed_off":
+			return {
+				text: `Couldn't reach the session — handed to ${delivery.handoffTo ?? "your lead session"}`,
+				pending: true,
+			};
+	}
+}
+
 /**
  * The subject as plain text. For a captured turn that needs the user, its
  * one-line need ("What's needed from you") replaces the agent's first line.
@@ -2199,6 +2246,7 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 			? request.metadata.originChatTitle.trim().slice(0, 120)
 			: "";
 	const decisionCapture = decisionCaptureSummary(request.metadata);
+	const delivery = answerDeliveryLine(request.metadata);
 	// The tedi's recommended answer: shown first for a captured agent turn.
 	const draftReply = draft ? (
 		<InteractionDraftReply
@@ -2315,7 +2363,19 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 							)
 						) : isQuestion ? (
 							effectiveState === "resolved" ? (
-								`Your answer is saved for ${questionSource}.`
+								<>
+									{`Your answer is saved for ${questionSource}.`}
+									{delivery ? (
+										<Text
+											as="span"
+											role="label"
+											tone="secondary"
+											className="block"
+										>
+											{delivery.text}
+										</Text>
+									) : null}
+								</>
 							) : effectiveState === "open" &&
 							  decisionCapture?.attention === "fyi" ? (
 								"Your agent reported progress and asked for nothing. Reply only to redirect it."
