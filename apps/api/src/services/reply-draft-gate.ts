@@ -397,12 +397,60 @@ export function replyDraftRiskClasses(text: string): string[] {
 }
 
 /**
+ * A negation and the rest of its clause: "workshops can't email customers
+ * until reviewed" proposes no step. Not when a pronoun follows, since "can't
+ * I delete it?" still asks.
+ */
+const NEGATED_CLAUSE = new RegExp(
+	`(?<!${W})(?:can['’]?t|cannot|can not|won['’]?t|will not|wouldn['’]?t|would not|shouldn['’]?t|should not|mustn['’]?t|must not|don['’]?t|do not|doesn['’]?t|does not|didn['’]?t|did not|no longer|not allowed to|never|nicht|kein\\p{L}*|nie|niemals|no|nunca|jam[áa]s)(?!${W})(?!\\s+(?:i|we|you|ich|wir|du|yo)(?!${W}))[^,;:—–\\n]*`,
+	"giu",
+);
+/** A step only the human user can take: the draft cannot perform it. */
+const USER_ASSIGNED = words(
+	"your (?:\\p{L}+ ){0,2}(?:part|steps?|clicks?|turn|actions?|job)",
+	"you (?:need|have|must|will need) to",
+	"you must",
+	"you['’]ll need to",
+	"when you",
+	"only you can",
+	"deine? (?:\\p{L}+ ){0,2}(?:teil|schritt\\p{L}*|klicks?)",
+	"du musst",
+	"wenn du",
+	"tu (?:\\p{L}+ ){0,2}(?:parte|pasos?)",
+	"tienes que",
+	"debes",
+	"cuando (?:tú|tu)",
+);
+/** The agent itself acting: "when you approve, I'll rotate the key". */
+const AGENT_SELF = words(
+	"i",
+	"me",
+	"my",
+	"we",
+	"us",
+	"our",
+	"ich",
+	"mich",
+	"wir",
+	"yo",
+);
+
+/**
  * What the agent asks the user to approve: its questions and closing lines,
- * which is where a bare "yes, go ahead" draft points.
+ * which is where a bare "yes, go ahead" draft points. Negated clauses and
+ * steps assigned to the human user are dropped; the draft is checked whole.
  */
 function agentAsk(agentMessage: string): string {
 	const questions = agentMessage.match(/[^.!?\n]*\?/g) ?? [];
-	return [...questions, agentMessage.slice(-400)].join("\n");
+	return [...questions, agentMessage.slice(-400)]
+		.join("\n")
+		.normalize("NFC")
+		.split(/(?<=[.!?\n])/)
+		.filter(
+			(sentence) => !USER_ASSIGNED.test(sentence) || AGENT_SELF.test(sentence),
+		)
+		.map((sentence) => sentence.replace(NEGATED_CLAUSE, " "))
+		.join("");
 }
 
 /**
