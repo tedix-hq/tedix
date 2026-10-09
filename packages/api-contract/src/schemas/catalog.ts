@@ -502,9 +502,8 @@ export const CatalogAppDetailSchema = z.object({
 	healthUptimePercent: z.number().nullable(),
 	healthErrorMessage: z.string().nullable(),
 
-	// Enrichment Data
+	// Listing content
 	screenshotUrl: z.string().nullable(),
-	enrichedDescription: z.string().nullable(),
 	seoDescription: z.string().nullable(),
 	socialLinks: z.array(z.string()).nullable(),
 	examplePrompts: z
@@ -521,7 +520,6 @@ export const CatalogAppDetailSchema = z.object({
 		)
 		.nullable(),
 	categories: z.array(z.string()).nullable(),
-	enrichedAt: z.string().nullable(),
 
 	// Computed discoverability insights (API-generated)
 	discoverability: z.object({

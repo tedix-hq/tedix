@@ -299,7 +299,6 @@ const logoUrl = app ? resolveLogoUrl(app.logoUrl) : null;
 const screenshots: string[] = app?.screenshots || [];
 const appDescription = cleanPublicText(app?.description);
 const appSeoDescription = cleanPublicText(app?.seoDescription);
-const appEnrichedDescription = cleanPublicText(app?.enrichedDescription);
 const appModelDescription = cleanPublicText(app?.modelDescription);
 
 // Parse regions from storeListings
@@ -404,7 +403,6 @@ const verificationProfile = app ? [
 	{ label: "Catalog synced", value: formatFreshness(app.lastSyncedAt) },
 	app.healthLastCheckedAt ? { label: "Connector checked", value: formatFreshness(app.healthLastCheckedAt) } : null,
 	app.mcpLastScannedAt ? { label: "MCP scanned", value: formatFreshness(app.mcpLastScannedAt) } : null,
-	app.enrichedAt ? { label: "Website enriched", value: formatFreshness(app.enrichedAt) } : null,
 	app.updatedAt ? { label: "Directory updated", value: formatFreshness(app.updatedAt) } : null,
 ].filter((item): item is { label: string; value: string } => Boolean(item)) : [];
 const actionProfile = app?.tools
@@ -837,7 +835,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 									Category needed
 								</Badge>
 							)}
-							{/* Additional categories from enrichment (excluding primary) */}
+							{/* Additional categories (excluding primary) */}
 							{app.categories && app.categories.filter(c => c !== app.category).map((cat) => (
 								<a
 									href={`/apps?category=${encodeURIComponent(cat)}`}
@@ -1083,30 +1081,6 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 										</div>
 									))}
 								</div>
-							</section>
-							</Card>
-						)}
-
-						<!-- Enriched Description (from website scrape) -->
-						{appEnrichedDescription && appEnrichedDescription !== appDescription && (
-							<Card className="rounded-2xl">
-							<section class="p-6">
-								<h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
-									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<circle cx="12" cy="12" r="10"></circle>
-										<line x1="2" y1="12" x2="22" y2="12"></line>
-										<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-									</svg>
-									About This App
-								</h2>
-								<p class="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-									{appEnrichedDescription}
-								</p>
-								{app.enrichedAt && (
-									<p class="text-xs text-muted-foreground/60 mt-3">
-										Last updated: {formatDate(app.enrichedAt)}
-									</p>
-								)}
 							</section>
 							</Card>
 						)}
@@ -1441,7 +1415,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 							</div>
 			</Card>
 
-						<!-- Social Links (from enrichment) -->
+						<!-- Social Links -->
 						{app.socialLinks && app.socialLinks.length > 0 && (
 							<Card className="p-5">
 								<h3 class="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Social</h3>

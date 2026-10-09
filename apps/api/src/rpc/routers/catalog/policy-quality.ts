@@ -1016,7 +1016,7 @@ export function calculateDiscoverability(
 	}
 	if (daysSinceSync !== null && daysSinceSync > 30) {
 		tips.push({
-			tip: "Metadata is stale (>30 days). Re-run sync/enrichment to keep listings current and reliable.",
+			tip: "Metadata is stale (>30 days). Re-run the catalog sync to keep listings current and reliable.",
 			priority: "medium",
 		});
 	}
