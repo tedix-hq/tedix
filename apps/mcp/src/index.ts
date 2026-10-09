@@ -2717,12 +2717,7 @@ export async function enforceMcpAccess(params: {
 		});
 		const hasOAuth = advertisedScopes.length > 0;
 		const wwwAuth = hasOAuth
-			? buildWwwAuthenticate(
-					hostname,
-					undefined,
-					undefined,
-					metadata?.mcpConfig?.challengeScopes,
-				)
+			? buildWwwAuthenticate(hostname)
 			: 'Bearer realm="MCP"';
 
 		return {

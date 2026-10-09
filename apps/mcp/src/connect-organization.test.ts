@@ -130,42 +130,4 @@ describe("Connect organization targeting", () => {
 			).toBe(403);
 		}
 	});
-	it("names only the configured default scopes in the sign-in challenge", async () => {
-		const challenge = async (challengeScopes?: string[]) =>
-			(
-				await enforceMcpAccess({
-					request: new Request("https://connect.mcp.tedix.dev/mcp", {
-						method: "POST",
-					}),
-					hostname: "connect.mcp.tedix.dev",
-					resolvedApp: {
-						app: {
-							id: "connect",
-							name: "Tedix",
-							slug: "connect",
-							domain: null,
-							organizationId: tedix.organizationId,
-						},
-						metadata: {
-							mcpConfig: {
-								authMode: "authenticated" as const,
-								capabilities: [],
-								enforcePolicies: false,
-								toolScopes: { code: ["mcp:work.read", "platform:admin"] },
-								...(challengeScopes ? { challengeScopes } : {}),
-							},
-						},
-						tools: [],
-					},
-					env: {} as CloudflareEnv,
-					oauthJwtPayload: null,
-					multiOrgSelection: null,
-					isDev: false,
-				})
-			)?.response.headers.get("WWW-Authenticate");
-		expect(await challenge()).not.toContain("scope=");
-		expect(await challenge(["mcp:work.read", "mcp:work.write"])).toContain(
-			'scope="mcp:work.read mcp:work.write"',
-		);
-	});
 });
