@@ -5,6 +5,7 @@ import {
 	mkdtempSync,
 	rmSync,
 	utimesSync,
+	readFileSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,9 @@ import {
 	CODEX_IDLE_MS,
 	type CodexDriver,
 	launchAgentPlist,
+	loadLaunchAgent,
 	Supervisor,
+	systemLaunchctl,
 } from "./supervise";
 
 const SESSION = "01a11c83-81a9-7a32-9332-21edc1832f00";
@@ -275,5 +278,83 @@ describe("tedix supervise", () => {
 		expect(plist).toContain("<string>/opt/tedix &amp; co/tedix</string>");
 		expect(plist).toContain("<string>supervise</string>");
 		expect(plist).toContain("<key>RunAtLoad</key>");
+	});
+
+	describe("loading the LaunchAgent", () => {
+		let dir: string;
+		const domain = "gui/501";
+		const service = `${domain}/dev.tedix.supervisor`;
+		const plist = () => join(dir, "agent.plist");
+		const fake = () => join(dir, "launchctl");
+		const calls = () =>
+			readFileSync(join(dir, "calls"), "utf8").trim().split("\n");
+		const setState = (value: string) =>
+			writeFileSync(join(dir, "state"), value);
+		const load = () =>
+			loadLaunchAgent(plist(), domain, systemLaunchctl(fake()), {
+				attempts: 5,
+				unloadAttempts: 5,
+				sleep: async () => {},
+			});
+
+		beforeEach(() => {
+			dir = mkdtempSync(join(tmpdir(), "tedix-launchctl-"));
+			// Like launchd, bootout returns while the old job is still listed for
+			// a couple of checks, and bootstrap refuses until it is gone.
+			writeFileSync(
+				fake(),
+				`#!/bin/sh
+dir="$(dirname "$0")"
+echo "$*" >> "$dir/calls"
+state="$(cat "$dir/state")"
+case "$1" in
+print)
+	case "$state" in
+	loaded) echo "state = running"; exit 0 ;;
+	unloading2) echo unloading1 > "$dir/state"; exit 0 ;;
+	unloading1) echo none > "$dir/state"; exit 0 ;;
+	*) echo "Could not find service" >&2; exit 113 ;;
+	esac ;;
+bootout)
+	if [ "$state" = loaded ]; then echo unloading2 > "$dir/state"; exit 0; fi
+	echo "Boot-out failed: 3: No such process" >&2; exit 3 ;;
+bootstrap)
+	if [ "$state" = none ]; then echo loaded > "$dir/state"; exit 0; fi
+	echo "Bootstrap failed: 5: Input/output error" >&2; exit 5 ;;
+esac
+exit 64
+`,
+				{ mode: 0o755 },
+			);
+			writeFileSync(plist(), "<plist/>");
+		});
+		afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+		test("a fresh install ignores the not-loaded bootout", async () => {
+			setState("none");
+			expect(await load()).toBeUndefined();
+			expect(calls()).toEqual([
+				`bootout ${service}`,
+				`print ${service}`,
+				`bootstrap ${domain} ${plist()}`,
+				`print ${service}`,
+			]);
+		});
+
+		test("a reinstall waits for the old job to unload before bootstrapping", async () => {
+			setState("loaded");
+			expect(await load()).toBeUndefined();
+			expect(calls().filter((call) => call.startsWith("bootstrap"))).toEqual([
+				`bootstrap ${domain} ${plist()}`,
+			]);
+			expect(readFileSync(join(dir, "state"), "utf8").trim()).toBe("loaded");
+		});
+
+		test("a bootstrap that never loads reports launchctl's error", async () => {
+			setState("broken");
+			const error = await load();
+			expect(error).toContain("exit 5");
+			expect(error).toContain("Input/output error");
+		});
 	});
 });
