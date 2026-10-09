@@ -3,6 +3,36 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.1 — 2026-10-09
+
+### Fixed
+
+- Answers you give in Tedix OS now reach the session that asked. The hooks hand
+  a session every pending answer to its questions, not only the newest, and
+  record the delivery. `tedix supervise` resumes a closed Claude Code session in
+  the background with the answer, delivers to Codex by queue or resume, and
+  after two hours hands an undelivered answer to your lead session as a
+  delegated Work Item. New verbs: `tedix work interaction-undelivered` and
+  `tedix work interaction-ack`.
+- `tedix work` errors say why a Work tool cannot be called: an alias names its
+  canonical tool, a missing scope lists what is required and missing, and a
+  gateway problem says whether the catalog is unavailable or the organization
+  does not match.
+- The Work interaction guidance names the response kind each request kind
+  takes, instead of telling agents to acknowledge every request with
+  `coordination_update`.
+- `tedix supervise install` reinstalls over a loaded LaunchAgent: it waits for
+  the old job to unload, retries, and confirms the job before reporting success.
+- A session with no status update for 12 hours counts as ended; `tedix hooks
+status` and `tedix supervise` remove status files untouched for 7 days.
+
+### Added
+
+- `tedix work delegate "<title>" --done-when "…" --via subagent|session`
+  registers a lead session's hand-off as an accepted Work Item and comments the
+  brief; `--done <id> --note "…"` records the outcome and completes it. The
+  prompt-context hook lists that session's open delegations (at most eight).
+
 ## 0.8.0 — 2026-10-09
 
 ### Added
