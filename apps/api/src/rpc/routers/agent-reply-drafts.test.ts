@@ -26,6 +26,7 @@ import { userConfigs } from "@tedix/db/schema/user-configs";
 import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import {
 	workInteractionAttention,
+	workInteractionDeliveries,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
@@ -118,6 +119,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			workInteractions,
 			workInteractionResponses,
 			workInteractionAttention,
+			workInteractionDeliveries,
 			workInteractionReplyDrafts,
 			workAgentSessions,
 			organizationMembers,

@@ -820,6 +820,10 @@
 		{
 			"name": "20261009141430_mcp_consent_grants/migration.sql",
 			"sha256": "46799aa29e36b87cb789b7c772e6d9c9c4e7b0c8064eae824779b952559eb184"
+		},
+		{
+			"name": "20261009183421_work_interaction_deliveries/migration.sql",
+			"sha256": "f39273d716ba20765372a5202c92b49fd5450038b53d568bb84f676daa60203d"
 		}
 	]
 }
