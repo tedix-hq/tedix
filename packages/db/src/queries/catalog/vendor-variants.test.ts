@@ -80,6 +80,37 @@ const ROWS: Row[] = [
 		website: "https://shynotes.example",
 		connector: "FIRST_PARTY_ECOSYSTEM",
 	},
+	// Two runnable per-store endpoints; only one has discovered tools.
+	{
+		id: "duo-stocked",
+		name: "Duo Desk",
+		website: "https://duodesk.example",
+		connector: "MCP",
+		endpoint: "https://mcp.duodesk.example/anthropic",
+		tools: 5,
+	},
+	{
+		id: "duo-empty",
+		name: "Duo Desk",
+		website: "https://duodesk.example",
+		connector: "MCP",
+		endpoint: "https://mcp.duodesk.example/openai",
+	},
+	// Two runnable endpoints, neither scanned yet: both stay.
+	{
+		id: "bare-a",
+		name: "Bare Board",
+		website: "https://bareboard.example",
+		connector: "MCP",
+		endpoint: "https://bareboard.example/a",
+	},
+	{
+		id: "bare-b",
+		name: "Bare Board",
+		website: "https://bareboard.example",
+		connector: "MCP",
+		endpoint: "https://bareboard.example/b",
+	},
 ];
 
 function seededDb(): DbClient {
@@ -121,11 +152,14 @@ async function listedIds(db: DbClient, hide: boolean): Promise<string[]> {
 }
 
 describe("catalog vendor variants", () => {
-	it("hides a non-runnable row only when a visible runnable same-vendor sibling exists", async () => {
+	it("hides a non-runnable row, or a runnable row with no tools, only when a better same-vendor sibling is visible", async () => {
 		const db = seededDb();
 		expect(await listedIds(db, true)).toEqual([
 			"acme-mcp",
 			"acme-other-co",
+			"bare-a",
+			"bare-b",
+			"duo-stocked",
 			"lonely-listing",
 			"shy-listing",
 		]);
