@@ -27,8 +27,8 @@ import {
 import { resolveLocalDemoUser } from "@tedix/auth/local-demo";
 import {
 	descopeServiceIdentity,
+	descopeProjectUserIdentity,
 	descopeTenantIdentity,
-	descopeUserIdentity,
 } from "@tedix/auth/principal-identity";
 import {
 	hasPermission,
@@ -42,6 +42,7 @@ import {
 	getTenantId,
 	getTenantRoles,
 	isPlatformPrincipal,
+	type JWTPayload,
 	resolveTenantOverride,
 } from "@tedix/auth/types";
 import { extractTokenFromCookie } from "@tedix/auth/utils";
@@ -334,14 +335,24 @@ async function resolveOrganizationForIdentityToken(
 	);
 }
 
+function descopeUserIdentityForContext(
+	context: BaseContext,
+	payload: JWTPayload,
+) {
+	return descopeProjectUserIdentity(payload, {
+		projectId: context.env.DESCOPE_PROJECT_ID,
+		baseUrl: context.env.DESCOPE_BASE_URL,
+	});
+}
+
 async function resolveCanonicalUserId(
 	context: BaseContext,
-	payload: { iss: string; sub?: string },
+	payload: JWTPayload,
 ): Promise<string | undefined> {
 	if (!payload.sub) return undefined;
 	const mapping = await resolvePrincipalIdentity(
 		context.db,
-		descopeUserIdentity(payload),
+		descopeUserIdentityForContext(context, payload),
 		{ principalType: "user" },
 	);
 	return mapping?.principalId;
@@ -1565,7 +1576,7 @@ async function authenticateUserJwt(
 				() =>
 					resolveUserTenantIdentityContext(context.db, {
 						organizationIdentity: descopeTenantIdentity(payload, tenantId),
-						userIdentity: descopeUserIdentity(payload),
+						userIdentity: descopeUserIdentityForContext(context, payload),
 					}),
 				{ timeoutMs: 5_000 },
 			);

@@ -80,6 +80,7 @@ const shareAuthMocks = vi.hoisted(() => ({
 	getWorkspaceResource: vi.fn(),
 	resolveAvailability: vi.fn(),
 	resolveUserTenantIdentityContext: vi.fn(),
+	resolvePrincipalIdentity: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/principal-identities", async (importOriginal) => {
@@ -91,6 +92,10 @@ vi.mock("@tedix/db/queries/principal-identities", async (importOriginal) => {
 		...actual,
 		resolveUserTenantIdentityContext:
 			shareAuthMocks.resolveUserTenantIdentityContext,
+		resolvePrincipalIdentity:
+			shareAuthMocks.resolvePrincipalIdentity.mockImplementation(
+				actual.resolvePrincipalIdentity,
+			),
 	};
 });
 
@@ -454,6 +459,101 @@ describe("forwarded MCP authentication failures", () => {
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN", message: "Access denied" });
 		expect(handler).not.toHaveBeenCalled();
+	});
+});
+
+describe("forwarded MCP agentic-app user identity", () => {
+	afterEach(async () => {
+		const actual = await vi.importActual<
+			typeof import("@tedix/db/queries/principal-identities")
+		>("@tedix/db/queries/principal-identities");
+		shareAuthMocks.resolvePrincipalIdentity
+			.mockClear()
+			.mockImplementation(actual.resolvePrincipalIdentity);
+	});
+	const projectIssuer = "https://auth.tedix.dev/P2fictional";
+	const agenticIssuer =
+		"https://api.descope.com/v1/apps/agentic/P2fictional/RSapp1";
+
+	async function resolve(claims: Record<string, unknown>) {
+		shareAuthMocks.resolvePrincipalIdentity.mockImplementation(
+			async (_db, identity: { issuer: string; subject: string }, options) =>
+				identity.issuer === projectIssuer &&
+				identity.subject === "U2fictionaluser" &&
+				options?.principalType === "user"
+					? { principalId: "canonical-user" }
+					: undefined,
+		);
+		const payload = {
+			iss: agenticIssuer,
+			sub: "U2fictionaluser",
+			email: "ada@example.test",
+			azp: "cimd-client",
+			client_id: "cimd-client",
+			exp: 4_000_000_000,
+			...claims,
+		};
+		const token = `e30.${btoa(JSON.stringify(payload))}.signature`;
+		let seen: BaseContext | undefined;
+		const guarded = os
+			.$context<BaseContext>()
+			.use(withAuth)
+			.handler(({ context }) => {
+				seen = context;
+				return "ok";
+			});
+		const context = {
+			url: new URL("https://api/rpc/user/getMine"),
+			env: { ENVIRONMENT: "production", DESCOPE_PROJECT_ID: "P2fictional" },
+			headers: new Headers({
+				"X-Service-Binding": "true",
+				"X-Tedix-Caller-Type": "mcp-edge-user",
+				"X-Forwarded-Authorization": `Bearer ${token}`,
+			}),
+			db: {},
+		} as unknown as BaseContext;
+		await call(guarded, undefined, { context });
+		const [, identity] =
+			shareAuthMocks.resolvePrincipalIdentity.mock.calls.at(-1) ?? [];
+		return { context: seen, identity };
+	}
+
+	it("resolves a same-project agentic user token to the canonical user", async () => {
+		const { context, identity } = await resolve({});
+		expect(identity).toMatchObject({
+			issuer: projectIssuer,
+			subject: "U2fictionaluser",
+		});
+		expect(context?.authType).toBe("user");
+		expect(context?.userId).toBe("canonical-user");
+	});
+
+	it("does not resolve a token from another Descope project", async () => {
+		const iss = "https://api.descope.com/v1/apps/agentic/P2other/RSapp1";
+		const { context, identity } = await resolve({ iss });
+		expect(identity).toMatchObject({ issuer: iss });
+		expect(context?.userId).toBeUndefined();
+	});
+
+	it("keeps a delegated agent token off the human user binding", async () => {
+		const { context, identity } = await resolve({ act: { sub: "TPAagent" } });
+		expect(identity).toMatchObject({ issuer: agenticIssuer });
+		expect(context?.userId).toBeUndefined();
+	});
+
+	it.each([
+		[
+			"an AIH client-credentials token",
+			{ sub: "TPAclient1", email: undefined },
+		],
+		["a tedi token", { entityType: "tedi", tediId: "tedi-1" }],
+		["a token without a subject", { sub: undefined }],
+	])("rejects %s as a forwarded user", async (_label, claims) => {
+		await expect(resolve(claims)).rejects.toMatchObject({
+			code: "UNAUTHORIZED",
+			message: "Forwarded MCP user token is not a user token",
+		});
+		expect(shareAuthMocks.resolvePrincipalIdentity).not.toHaveBeenCalled();
 	});
 });
 
