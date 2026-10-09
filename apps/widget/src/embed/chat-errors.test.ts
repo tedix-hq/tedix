@@ -1,13 +1,17 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { buildTranslate } from "@tedix/widget-i18n";
 import enCatalog from "@tedix/widget-i18n/en.json";
 import esCatalog from "@tedix/widget-i18n/es.json";
+import deCatalog from "@tedix/widget-i18n/de.json";
 
 const en = buildTranslate(enCatalog);
 const es = buildTranslate(esCatalog, enCatalog);
 import {
+	capacityRetryCopy,
 	type ChatErrorCode,
+	chatErrorRetryAfterSeconds,
 	classifyChatError,
+	startRetryCountdown,
 	userFacingChatError,
 } from "./chat-errors";
 
@@ -134,4 +138,110 @@ it("describes a deployment interruption without claiming completion or replay", 
 	expect(userFacingChatError(error, es)).toBe(
 		"Una actualización del servicio interrumpió la conexión. No se pudo completar la solicitud.",
 	);
+});
+
+describe("chatErrorRetryAfterSeconds", () => {
+	const refusal =
+		"inference_capacity_exhausted: embedded visitor turn quota reached (60/60 per hour); retry in 1234s";
+
+	it("reads the wait the runtime wrote into the quota refusal", () => {
+		expect(chatErrorRetryAfterSeconds(new Error(refusal))).toBe(1234);
+		expect(classifyChatError(new Error(refusal))).toBe(
+			"inference_capacity_exhausted",
+		);
+	});
+
+	it("prefers a retryAfterSeconds field when the error carries one", () => {
+		expect(
+			chatErrorRetryAfterSeconds(
+				Object.assign(new Error(refusal), { retryAfterSeconds: 7.2 }),
+			),
+		).toBe(8);
+	});
+
+	it("gives no wait for a capacity failure that named none, or for any other failure", () => {
+		expect(
+			chatErrorRetryAfterSeconds(new Error("inference_capacity_exhausted")),
+		).toBeUndefined();
+		expect(
+			chatErrorRetryAfterSeconds(new Error("session expired; retry in 30s")),
+		).toBeUndefined();
+		expect(
+			chatErrorRetryAfterSeconds(new Error(refusal.replace("1234", "0"))),
+		).toBeUndefined();
+		expect(chatErrorRetryAfterSeconds(abort())).toBeUndefined();
+	});
+
+	it("keeps the generic capacity copy when the server gave no retry-after", () => {
+		expect(userFacingChatError(new Error(refusal), en)).toBe(
+			"{{assistant}} has no capacity available right now. Try again later.",
+		);
+	});
+});
+
+describe("capacityRetryCopy", () => {
+	it("rounds a long wait up to minutes and a short one to seconds, in every catalog", () => {
+		expect(capacityRetryCopy(1234, en)).toBe(
+			"{{assistant}} has no capacity available right now. Try again in about 21 minutes.",
+		);
+		expect(capacityRetryCopy(61, en)).toContain("about 2 minutes");
+		expect(capacityRetryCopy(60, en)).toContain("in 60 seconds");
+		expect(capacityRetryCopy(0.4, en)).toContain("in 1 seconds");
+		expect(capacityRetryCopy(0, en)).toBe(
+			"{{assistant}} has capacity again. You can try again now.",
+		);
+		expect(capacityRetryCopy(1234, es)).toContain("unos 21 minutos");
+		expect(capacityRetryCopy(5, es)).toContain("en 5 segundos");
+		const de = buildTranslate(deCatalog, enCatalog);
+		expect(capacityRetryCopy(1234, de)).toContain("etwa 21 Minuten");
+		expect(capacityRetryCopy(5, de)).toContain("in 5 Sekunden");
+		// A locale with no entry falls back to the source copy.
+		expect(capacityRetryCopy(5, buildTranslate({}, enCatalog))).toContain(
+			"in 5 seconds",
+		);
+	});
+});
+
+describe("startRetryCountdown", () => {
+	it("ticks the remaining seconds down and expires exactly once at zero", () => {
+		vi.useFakeTimers();
+		try {
+			const ticks: number[] = [];
+			const onExpire = vi.fn();
+			startRetryCountdown(3, { onTick: (left) => ticks.push(left), onExpire });
+			expect(ticks).toEqual([3]);
+			vi.advanceTimersByTime(1000);
+			expect(ticks).toEqual([3, 2]);
+			expect(onExpire).not.toHaveBeenCalled();
+			vi.advanceTimersByTime(2000);
+			expect(ticks).toEqual([3, 2, 1]);
+			expect(onExpire).toHaveBeenCalledTimes(1);
+			vi.advanceTimersByTime(5000);
+			expect(onExpire).toHaveBeenCalledTimes(1);
+			expect(ticks).toEqual([3, 2, 1]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("never expires after it was stopped", () => {
+		vi.useFakeTimers();
+		try {
+			const onExpire = vi.fn();
+			const stop = startRetryCountdown(2, { onTick: () => {}, onExpire });
+			stop();
+			vi.advanceTimersByTime(10_000);
+			expect(onExpire).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("expires immediately for a wait that is already over", () => {
+		const onExpire = vi.fn();
+		const onTick = vi.fn();
+		startRetryCountdown(0, { onTick, onExpire });
+		expect(onTick).not.toHaveBeenCalled();
+		expect(onExpire).toHaveBeenCalledTimes(1);
+	});
 });

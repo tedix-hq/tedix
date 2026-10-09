@@ -110,3 +110,65 @@ export function classifyChatError(error: unknown): ChatErrorCode {
 export function userFacingChatError(error: unknown, t: Translate): string {
 	return t(matchChatError(error).copy);
 }
+
+/**
+ * The runtime's quota refusal says when the hour rolls over, both as a
+ * `retryAfterSeconds` frame field and inside the message ("retry in 1234s").
+ * The transport forwards only the message, so the wait is read from the text;
+ * a field on the error wins when a caller attached one.
+ */
+export function chatErrorRetryAfterSeconds(error: unknown): number | undefined {
+	if (matchChatError(error).code !== "inference_capacity_exhausted")
+		return undefined;
+	const field =
+		error && typeof error === "object"
+			? (error as { retryAfterSeconds?: unknown }).retryAfterSeconds
+			: undefined;
+	if (typeof field === "number" && Number.isFinite(field) && field > 0)
+		return Math.ceil(field);
+	const match = /retry in (\d+)s\b/i.exec(errorMessage(error));
+	if (!match) return undefined;
+	const seconds = Number(match[1]);
+	return seconds > 0 ? seconds : undefined;
+}
+
+/** Capacity copy that names the wait: whole minutes past one, else seconds. */
+export function capacityRetryCopy(secondsLeft: number, t: Translate): string {
+	const seconds = Math.max(0, Math.ceil(secondsLeft));
+	if (seconds === 0) return t("error_capacity_retry_now");
+	if (seconds > 60)
+		return t("error_capacity_retry_minutes", {
+			minutes: Math.ceil(seconds / 60),
+		});
+	return t("error_capacity_retry_seconds", { seconds });
+}
+
+/**
+ * Count a retry-after down once a second. `onTick` receives the remaining
+ * whole seconds (never zero); `onExpire` fires once when the wait is over.
+ * Returns a stop function for teardown; stopping never fires `onExpire`.
+ */
+export function startRetryCountdown(
+	seconds: number,
+	hooks: { onTick(secondsLeft: number): void; onExpire(): void },
+	clock: { now(): number } = Date,
+): () => void {
+	const deadline = clock.now() + Math.max(0, seconds) * 1000;
+	let timer: ReturnType<typeof setInterval> | undefined;
+	const tick = () => {
+		const left = Math.ceil((deadline - clock.now()) / 1000);
+		if (left > 0) {
+			hooks.onTick(left);
+			return;
+		}
+		if (timer !== undefined) clearInterval(timer);
+		timer = undefined;
+		hooks.onExpire();
+	};
+	tick();
+	if (clock.now() < deadline) timer = setInterval(tick, 1000);
+	return () => {
+		if (timer !== undefined) clearInterval(timer);
+		timer = undefined;
+	};
+}

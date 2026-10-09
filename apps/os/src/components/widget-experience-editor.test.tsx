@@ -292,3 +292,78 @@ it("uses actionable field labels for invalid colors", async () => {
 		"accentColor:",
 	);
 });
+
+it("publishes both hourly turn limits under tediWidget.turnQuota", async () => {
+	const { host, change, button } = await mount();
+	const visitor = host.querySelector<HTMLInputElement>(
+		'[aria-label="Turns per visitor per hour"]',
+	)!;
+	expect(visitor.placeholder).toBe("60");
+	expect(
+		host.querySelector<HTMLInputElement>(
+			'[aria-label="Turns per website per hour"]',
+		)!.placeholder,
+	).toBe("600");
+	expect(host.textContent).toContain("Leave empty for the default.");
+	api.get.mockResolvedValue(organization);
+	api.update.mockImplementation(async (input) => ({
+		...organization,
+		metadata: input.metadata,
+	}));
+	await change("Turns per visitor per hour", "20");
+	await change("Turns per website per hour", "300");
+	expect(host.querySelector('[role="alert"]')).toBeNull();
+	expect(button("Publish changes").disabled).toBe(false);
+	await act(async () => {
+		button("Publish changes").click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(
+		api.update.mock.calls.at(-1)?.[0].metadata.tediWidget.turnQuota,
+	).toEqual({ visitorTurnsPerHour: 20, originTurnsPerHour: 300 });
+});
+
+it("drops the turnQuota key when both limits are cleared", async () => {
+	const config = {
+		...base,
+		turnQuota: { visitorTurnsPerHour: 20, originTurnsPerHour: 300 },
+	};
+	const { host, change, button } = await mount(config);
+	api.get.mockResolvedValue({
+		...organization,
+		metadata: { tediWidget: config },
+	});
+	api.update.mockImplementation(async (input) => ({
+		...organization,
+		metadata: input.metadata,
+	}));
+	await change("Turns per visitor per hour", "");
+	await change("Turns per website per hour", "");
+	expect(button("Publish changes").disabled).toBe(false);
+	await act(async () => {
+		button("Publish changes").click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	const published = api.update.mock.calls.at(-1)?.[0].metadata.tediWidget;
+	expect("turnQuota" in published).toBe(false);
+	expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("blocks publishing an out-of-range or fractional turn limit", async () => {
+	const { host, change, button } = await mount();
+	await change("Turns per visitor per hour", "0");
+	expect(button("Publish changes").disabled).toBe(true);
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+		"Turns per visitor per hour: enter a whole number from 1 to 10,000",
+	);
+	await change("Turns per visitor per hour", "30");
+	await change("Turns per website per hour", "100001");
+	expect(button("Publish changes").disabled).toBe(true);
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+		"Turns per website per hour: enter a whole number from 1 to 100,000",
+	);
+	await change("Turns per website per hour", "2.5");
+	expect(button("Publish changes").disabled).toBe(true);
+	await change("Turns per website per hour", "");
+	expect(button("Publish changes").disabled).toBe(false);
+});
