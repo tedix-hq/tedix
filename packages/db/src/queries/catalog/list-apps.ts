@@ -58,7 +58,8 @@ export interface ListCatalogAppsOptions {
 	/**
 	 * If true, omits non-runnable rows (listing-only, store-brokered, no MCP
 	 * endpoint) that have a runnable, visible same-vendor sibling. Their detail
-	 * pages stay resolvable by slug.
+	 * pages stay resolvable by slug. Public listings read the precomputed
+	 * `exploreShadowed` flag; admin listings compute it live.
 	 */
 	hideShadowedVariants?: boolean;
 }

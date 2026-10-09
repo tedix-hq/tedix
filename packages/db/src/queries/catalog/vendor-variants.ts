@@ -9,8 +9,8 @@
  * `normalizeVendorName` define. Rows with the same name on different domains
  * are different companies and never match.
  *
- * The identity and runnability are expressed in SQL so list browsing can hide
- * shadowed rows in the same statement (no per-row queries, no bound-param
+ * The identity and runnability are expressed in SQL so the shadowed-variant
+ * refresh is one set-based statement (no per-row queries, no bound-param
  * growth) and detail reads agree with the list about which row is canonical.
  */
 
@@ -111,20 +111,22 @@ export function catalogVisibilityConditions(
 }
 
 /**
- * List-filter condition: keep a row unless it is non-runnable AND a runnable,
- * visible sibling with the same vendor key exists. The sibling set is a
- * non-correlated subquery, so SQLite evaluates it once per statement. A NULL
- * key (no website or name) never matches, so such rows are always kept.
+ * The ids the public catalog list hides as shadowed vendor variants: a row is
+ * shadowed when it is non-runnable beside a runnable visible sibling, has no
+ * inventory beside a stocked sibling, or is a stocked row that is not its
+ * vendor's first card (plain slug first, then most stocked). A NULL vendor key
+ * (no website or name) never matches, so such rows are never shadowed.
+ *
+ * One pass over the visible catalog: each row's vendor key, inventory and
+ * runnability are computed once, and window functions compare it with its
+ * vendor group. This is a full-catalog scan, so the public list reads the
+ * precomputed `explore_shadowed` flag that `refreshCatalogShadowedVariants`
+ * maintains instead of evaluating it per request.
  */
-export function buildHideShadowedVariantsCondition(
+function shadowedCatalogIdsQuery(
 	db: Database,
 	options: CatalogVisibilityOptions = {},
-): SQL {
-	// One pass over the visible catalog: each row's vendor key, inventory and
-	// runnability are computed once, and window functions compare it with its
-	// vendor group. A row is shadowed when it is non-runnable beside a runnable
-	// sibling, has no inventory beside a stocked sibling, or is a stocked row
-	// that is not its vendor's first card (plain slug first, then most stocked).
+) {
 	const sibling = alias(appCatalog, "vendor_sibling");
 	const key = catalogVendorKeySql(sibling);
 	const inventory = catalogInventorySql(sibling);
@@ -154,13 +156,82 @@ export function buildHideShadowedVariantsCondition(
 			),
 		)
 		.as("vendor_grouped");
-	const shadowed = db
+	return db
 		.select({ id: grouped.id })
 		.from(grouped)
 		.where(
 			sql`(${grouped.runnable} = 0 AND ${grouped.groupRunnable} = 1) OR (${grouped.stocked} = 0 AND ${grouped.groupStocked} = 1) OR (${grouped.stocked} = 1 AND ${grouped.rank} > 1)`,
 		);
-	return sql`${appCatalog.id} NOT IN ${shadowed}`;
+}
+
+/**
+ * List-filter condition: keep a row unless it is a shadowed vendor variant.
+ *
+ * Public visibility (the default) reads the precomputed `explore_shadowed`
+ * flag, which is computed against public visibility. Admin visibility
+ * (`includeAll` / `includeUnreleased`) widens the sibling set, so it keeps the
+ * live window subquery: rare, and never stale.
+ */
+export function buildHideShadowedVariantsCondition(
+	db: Database,
+	options: CatalogVisibilityOptions = {},
+): SQL {
+	if (!options.includeAll && !options.includeUnreleased) {
+		return eq(appCatalog.exploreShadowed, false);
+	}
+	return sql`${appCatalog.id} NOT IN ${shadowedCatalogIdsQuery(db, options)}`;
+}
+
+export interface RefreshCatalogShadowedVariantsResult {
+	/** Rows newly flagged as shadowed. */
+	flagged: number;
+	/** Rows whose shadowed flag was cleared. */
+	cleared: number;
+}
+
+/**
+ * The two unexecuted statements that recompute `explore_shadowed` against
+ * public visibility: flag newly shadowed rows, then clear rows that are no
+ * longer shadowed. Only rows whose flag changes are written, and `updated_at`
+ * is left alone: the flag is derived list state, not an app edit. Append them
+ * to a write batch that changes vendor grouping, runnability, inventory or
+ * visibility so the flag commits with the write.
+ */
+export function buildRefreshCatalogShadowedVariantsStatements(db: Database) {
+	const flag = db
+		.update(appCatalog)
+		.set({ exploreShadowed: true })
+		.where(
+			and(
+				eq(appCatalog.exploreShadowed, false),
+				sql`${appCatalog.id} IN ${shadowedCatalogIdsQuery(db)}`,
+			),
+		)
+		.returning({ id: appCatalog.id });
+	const clear = db
+		.update(appCatalog)
+		.set({ exploreShadowed: false })
+		.where(
+			and(
+				eq(appCatalog.exploreShadowed, true),
+				sql`${appCatalog.id} NOT IN ${shadowedCatalogIdsQuery(db)}`,
+			),
+		)
+		.returning({ id: appCatalog.id });
+	return [flag, clear] as const;
+}
+
+/**
+ * Recompute `explore_shadowed` for the whole catalog in one batch. Run after
+ * store sync and MCP scan runs, and from scheduled maintenance as a safety net.
+ */
+export async function refreshCatalogShadowedVariants(
+	db: Database,
+): Promise<RefreshCatalogShadowedVariantsResult> {
+	const [flagged, cleared] = await db.batch(
+		buildRefreshCatalogShadowedVariantsStatements(db),
+	);
+	return { flagged: flagged.length, cleared: cleared.length };
 }
 
 export interface CatalogVendorVariantRow {

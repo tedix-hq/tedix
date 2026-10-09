@@ -255,6 +255,25 @@ export async function runRetentionCleanupCron(
 		);
 	}
 
+	// Safety net for the shadowed-variant flags the public catalog list reads;
+	// sync, scans, merges and slug reassignment refresh them on write. Runs
+	// after the lifecycle writes above because visibility changes move them.
+	try {
+		const { refreshCatalogShadowedVariants } =
+			await import("@tedix/db/queries/catalog/vendor-variants");
+		const shadowed = await refreshCatalogShadowedVariants(db);
+		if (shadowed.flagged > 0 || shadowed.cleared > 0) {
+			console.log(
+				`[Scheduled] Shadowed catalog variants: ${shadowed.flagged} flagged, ${shadowed.cleared} cleared`,
+			);
+		}
+	} catch (shadowedVariantsError) {
+		console.warn(
+			"[Scheduled] Shadowed-variant refresh failed (non-fatal):",
+			safeExceptionTopology(shadowedVariantsError),
+		);
+	}
+
 	try {
 		const integrityWorkflow = await env.CATALOG_INTEGRITY_WORKFLOW.create({
 			id: `catalog-integrity-${runId}`,

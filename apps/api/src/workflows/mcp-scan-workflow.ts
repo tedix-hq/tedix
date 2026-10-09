@@ -45,6 +45,7 @@ import {
 } from "@tedix/db/queries/catalog/mcp-tools";
 import { syncCatalogMcpSkills } from "@tedix/db/queries/catalog/mcp-skills";
 import { syncCatalogToolsToApp } from "@tedix/db/queries/catalog/sync-tools-to-app";
+import { refreshCatalogShadowedVariants } from "@tedix/db/queries/catalog/vendor-variants";
 import {
 	isTedixHostedMcpEndpoint,
 	shouldProjectCatalogToolsFromBaseApp,
@@ -552,6 +553,21 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				0,
 			);
 			const allErrors = batchResults.flatMap((r) => r.errors);
+			// Scans change runnability and inventory, which decide which vendor
+			// variant the public catalog list shows. Once per run, not per app.
+			const shadowedVariants = await step
+				.do(
+					"refresh-shadowed-variants",
+					{ retries: { limit: 2, delay: "5 seconds" }, timeout: "1 minute" },
+					async () => refreshCatalogShadowedVariants(db),
+				)
+				.catch((error: unknown) => {
+					console.warn(
+						"[MCP Scan] Shadowed-variant refresh failed (non-fatal):",
+						error instanceof Error ? error.message : String(error),
+					);
+					return null;
+				});
 			const scanBacklog = await step.do(
 				"summarize-scan-backlog-after-run",
 				async () =>
@@ -581,6 +597,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				batches: batches.length,
 				scanBacklog,
 				throughput,
+				shadowedVariants,
 			};
 			await step.do("record workflow completion", async () => {
 				await completeWorkflowRunRecord(db, ledgerId, {

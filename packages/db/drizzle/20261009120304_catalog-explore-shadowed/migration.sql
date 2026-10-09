@@ -1,0 +1,1 @@
+ALTER TABLE `app_catalog` ADD `explore_shadowed` integer DEFAULT false NOT NULL;

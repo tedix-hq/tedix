@@ -16,6 +16,7 @@ import { listCatalogApps } from "./list-apps";
 import {
 	catalogVendorKeySql,
 	listCatalogVendorVariants,
+	refreshCatalogShadowedVariants,
 } from "./vendor-variants";
 
 type Row = {
@@ -130,7 +131,7 @@ const ROWS: Row[] = [
 	},
 ];
 
-function seededDb(): DbClient {
+function seededSqlite(): { sqlite: DatabaseSync; db: DbClient } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		schemaDdl(appCatalog, appCatalogStoreListings, appCatalogMcpTools),
@@ -157,12 +158,36 @@ function seededDb(): DbClient {
 			('sl-2', 'acme-listing', 'chatgpt', 'a2', '2026-01-01T00:00:00Z'),
 			('sl-3', 'acme-listing', 'claude', 'a3', '2026-01-01T00:00:00Z');
 	`);
-	return createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+	return {
+		sqlite,
+		db: createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 })),
+	};
 }
 
-async function listedIds(db: DbClient, hide: boolean): Promise<string[]> {
+/** A seeded catalog whose shadowed flags are already refreshed. */
+async function seededDb(): Promise<DbClient> {
+	const { db } = seededSqlite();
+	await refreshCatalogShadowedVariants(db);
+	return db;
+}
+
+function flaggedIds(sqlite: DatabaseSync): string[] {
+	return sqlite
+		.prepare(
+			"SELECT id FROM app_catalog WHERE explore_shadowed = 1 ORDER BY id",
+		)
+		.all()
+		.map((row) => String(row.id));
+}
+
+async function listedIds(
+	db: DbClient,
+	hide: boolean,
+	options: { includeUnreleased?: boolean } = {},
+): Promise<string[]> {
 	const { apps, total } = await listCatalogApps(db, {
 		hideShadowedVariants: hide,
+		...options,
 	});
 	expect(total).toBe(apps.length);
 	return apps.map((app) => app.id).sort();
@@ -170,7 +195,7 @@ async function listedIds(db: DbClient, hide: boolean): Promise<string[]> {
 
 describe("catalog vendor variants", () => {
 	it("hides a non-runnable row, or a runnable row with no tools, only when a better same-vendor sibling is visible", async () => {
-		const db = seededDb();
+		const db = await seededDb();
 		expect(await listedIds(db, true)).toEqual([
 			"acme-mcp",
 			"acme-other-co",
@@ -184,7 +209,7 @@ describe("catalog vendor variants", () => {
 	});
 
 	it("keeps every row when variants are requested", async () => {
-		const db = seededDb();
+		const db = await seededDb();
 		expect(await listedIds(db, false)).toEqual(
 			ROWS.filter((row) => row.discoverable !== false)
 				.map((row) => row.id)
@@ -193,7 +218,7 @@ describe("catalog vendor variants", () => {
 	});
 
 	it("hides shadowed rows under search too", async () => {
-		const { apps } = await listCatalogApps(seededDb(), {
+		const { apps } = await listCatalogApps(await seededDb(), {
 			search: "acme",
 			hideShadowedVariants: true,
 		});
@@ -204,7 +229,7 @@ describe("catalog vendor variants", () => {
 	});
 
 	it("returns same-vendor siblings, runnable first, with their primary store", async () => {
-		const db = seededDb();
+		const db = await seededDb();
 		const variants = await listCatalogVendorVariants(db, "acme-listing");
 		expect(variants.map((v) => [v.id, v.runnable, v.primarySource])).toEqual([
 			["acme-mcp", true, "official"],
@@ -217,6 +242,59 @@ describe("catalog vendor variants", () => {
 		]);
 		expect(await listCatalogVendorVariants(db, "acme-other-co")).toEqual([]);
 		expect(await listCatalogVendorVariants(db, "missing")).toEqual([]);
+	});
+
+	it("flags exactly the rows the live window condition hides", async () => {
+		const { sqlite, db } = seededSqlite();
+		expect(flaggedIds(sqlite)).toEqual([]);
+		// The admin path still evaluates the window subquery live; with every
+		// fixture row RELEASED its visibility equals the public one.
+		const liveVisible = await listedIds(db, true, { includeUnreleased: true });
+		expect(await refreshCatalogShadowedVariants(db)).toEqual({
+			flagged: 4,
+			cleared: 0,
+		});
+		expect(flaggedIds(sqlite)).toEqual([
+			"acme-listing",
+			"acme-service",
+			"duo-empty",
+			"twin-ride-2",
+		]);
+		expect(await listedIds(db, true)).toEqual(liveVisible);
+	});
+
+	it("is idempotent", async () => {
+		const { sqlite, db } = seededSqlite();
+		await refreshCatalogShadowedVariants(db);
+		const before = flaggedIds(sqlite);
+		expect(await refreshCatalogShadowedVariants(db)).toEqual({
+			flagged: 0,
+			cleared: 0,
+		});
+		expect(flaggedIds(sqlite)).toEqual(before);
+	});
+
+	it("clears a flag when the shadowing sibling disappears", async () => {
+		const { sqlite, db } = seededSqlite();
+		await refreshCatalogShadowedVariants(db);
+		sqlite.exec(
+			"UPDATE app_catalog SET is_discoverable = 0 WHERE id = 'acme-mcp'",
+		);
+		expect(await refreshCatalogShadowedVariants(db)).toEqual({
+			flagged: 0,
+			cleared: 2,
+		});
+		expect(flaggedIds(sqlite)).toEqual(["duo-empty", "twin-ride-2"]);
+		expect(await listedIds(db, true)).toContain("acme-listing");
+	});
+
+	it("hides flagged rows by default and shows them with variants", async () => {
+		const { sqlite, db } = seededSqlite();
+		sqlite.exec(
+			"UPDATE app_catalog SET explore_shadowed = 1 WHERE id = 'lonely-listing'",
+		);
+		expect(await listedIds(db, true)).not.toContain("lonely-listing");
+		expect(await listedIds(db, false)).toContain("lonely-listing");
 	});
 
 	it("computes the same vendor key in SQL as the TypeScript helpers", async () => {
