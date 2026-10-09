@@ -69,6 +69,18 @@ describe("early public restore gate", () => {
 		expect(mocks.permit).not.toHaveBeenCalled();
 	});
 
+	it("answers 404, not a restore message, for an unclaimed platform subdomain", async () => {
+		mocks.getSiteBySlug.mockResolvedValue(null);
+		const response = await cmsRuntime.fetch(
+			new Request("https://no-such-site.cms.tedix.dev/"),
+			{ PLATFORM_DB: {}, ENVIRONMENT: "production" } as never,
+			{} as never,
+		);
+		expect(response.status).toBe(404);
+		expect(await response.text()).toBe("CMS site not found");
+		expect(mocks.permit).not.toHaveBeenCalled();
+	});
+
 	it("passes the marketing slug through the admitted public route", async () => {
 		mocks.permit.mockImplementation(async (_db, _identity, run) => ({
 			admitted: true,
