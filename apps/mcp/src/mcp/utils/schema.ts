@@ -241,13 +241,6 @@ export function validateStructuredContentAgainstOutputSchema(
 	toolId: string,
 ): void {
 	if (!jsonSchema) return;
-	if (
-		!hasObjectRoot(jsonSchema) &&
-		isRecord(structuredContent) &&
-		"data" in structuredContent
-	) {
-		structuredContent = structuredContent.data;
-	}
 	const schemaObject = jsonSchema as JsonObject;
 	let validate = compiledValidatorCache.get(schemaObject);
 	if (!validate) {
@@ -255,9 +248,17 @@ export function validateStructuredContentAgainstOutputSchema(
 		compiledValidatorCache.set(schemaObject, validate);
 	}
 	const result = validate(structuredContent);
-	if (!result.valid) {
-		throw new Error(
-			`Tool "${toolId}" returned structuredContent that does not match outputSchema: ${result.errorMessage ?? "validation failed"}`,
-		);
-	}
+	if (result.valid) return;
+	// A root that is not an object (or a composed root such as oneOf) may
+	// describe the wrapped value; accept the envelope when its `data` matches.
+	if (
+		!hasObjectRoot(jsonSchema) &&
+		isRecord(structuredContent) &&
+		"data" in structuredContent &&
+		validate(structuredContent.data).valid
+	)
+		return;
+	throw new Error(
+		`Tool "${toolId}" returned structuredContent that does not match outputSchema: ${result.errorMessage ?? "validation failed"}`,
+	);
 }
