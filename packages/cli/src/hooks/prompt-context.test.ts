@@ -10,10 +10,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	type Delegation,
+	readDelegations,
+	recordDelegation,
+} from "../delegation-ledger";
 import type { JsonObject } from "./hook-io";
 import {
 	branchTopics,
 	gatewayCode,
+	render,
 	repoSlug,
 	runPromptContext,
 } from "./prompt-context";
@@ -1113,5 +1119,91 @@ describe("prompt-context outside a bound repository", () => {
 		expect(text).toContain("simple user stories");
 		expect(text).toContain("Quote prices in EUR.");
 		expect(text).toContain("For a status question, check live state");
+	});
+});
+
+describe("prompt-context open delegations", () => {
+	const LEAD = "77777777-7777-4777-8777-777777777777";
+	const OTHER = "88888888-8888-4888-8888-888888888888";
+	const OPEN = "aaaaaaaa-1111-4111-8111-111111111111";
+	const DONE = "bbbbbbbb-2222-4222-8222-222222222222";
+	const additional = (out: string): string =>
+		out ? JSON.parse(out).hookSpecificOutput.additionalContext : "";
+	const now = new Date("2026-10-09T12:00:00Z");
+	const entry = (id: string, title: string): Delegation => ({
+		id,
+		title,
+		via: "subagent",
+		to: "docs-pass",
+		workspace: "fixture",
+		createdAt: "2026-10-09T10:00:00Z",
+	});
+
+	test("only the lead session sees its open delegations; settled ones drop off", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-delegations-"));
+		try {
+			const env = { TEDIX_CONFIG_DIR: dir };
+			recordDelegation(env, `claude-code:${LEAD}`, entry(DONE, "Old task"));
+			recordDelegation(env, `claude-code:${LEAD}`, entry(OPEN, "Rewrite docs"));
+			const data = {
+				...NO_LESSONS,
+				delegations: [
+					{ id: OPEN, disposition: "accepted" },
+					{ id: DONE, disposition: "completed" },
+				],
+			};
+			const { contextOutputId: _o, osWorkspaceId: _w, ...binding } = BINDING;
+			const lead = await run([binding, AUTH, data], env, {
+				session_id: LEAD,
+				prompt: "PRIVATE",
+			});
+			const text = additional(lead.out);
+			expect(lead.calls[2]!.at(-1)).toContain(OPEN);
+			expect(text).toContain("Your open delegations");
+			expect(text).toMatch(
+				/- aaaaaaaa · \S+ · via subagent → "docs-pass" · "Rewrite docs"/,
+			);
+			expect(text).not.toContain("Old task");
+			expect(readDelegations(env, LEAD).map((d) => d.id)).toEqual([OPEN]);
+			const other = await run([binding, AUTH, NO_LESSONS], env, {
+				session_id: OTHER,
+				prompt: "PRIVATE",
+			});
+			expect(other.calls[2]!.at(-1)).not.toContain(OPEN);
+			expect(additional(other.out)).not.toContain("open delegations");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("delegation lines go after the extra lessons, before the top six", () => {
+		const tasks = Array.from({ length: 8 }, (_, i) =>
+			entry(
+				`cccccccc-${String(i).padStart(4, "0")}-4111-8111-111111111111`,
+				`Task ${i}`,
+			),
+		);
+		const data = {
+			...lessonsData(
+				Array.from({ length: 8 }, (_, i) => ({
+					shortId: `l${i}`,
+					text: "x".repeat(300),
+				})),
+			),
+			delegations: tasks.map((t) => ({ id: t.id, disposition: "accepted" })),
+		};
+		const { contextOutputId: _o, osWorkspaceId: _w, ...binding } = BINDING;
+		const full = render(binding, data, now, 100_000, tasks);
+		expect(full.match(/^- cccccccc/gm)).toHaveLength(8);
+		const size = Buffer.byteLength(full);
+		const tight = render(binding, data, now, size - 200, tasks);
+		expect(tight.match(/^- cccccccc/gm)).toHaveLength(8);
+		expect(tight.match(/\[l\d\]/g)).toHaveLength(7);
+		const tighter = render(binding, data, now, size - 1000, tasks);
+		expect((tighter.match(/^- cccccccc/gm) ?? []).length).toBeLessThan(8);
+		expect(tighter.match(/\[l\d\]/g)).toHaveLength(6);
+		expect(
+			gatewayCode(binding, undefined, [tasks[0]!.id, "not-a-uuid"]),
+		).toContain(`"delegations":["${tasks[0]!.id}"]`);
 	});
 });

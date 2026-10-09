@@ -347,7 +347,7 @@ describe("requestReplyDraft", () => {
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
 			conversationId: `reply-draft:${requestId}`,
-			source: "reply-draft:v7",
+			source: "reply-draft:v8",
 		});
 		expect(second.idempotencyKey).toBe(first.idempotencyKey);
 		const content = first.content as string;
@@ -674,14 +674,14 @@ describe("requestReplyDraft owner routing", () => {
 		expect(owned).toMatchObject({
 			tediId: OTHER_TEDI_ID,
 			idempotencyKey: `reply-draft:${requestId}`,
-			source: "reply-draft:v7:owner",
+			source: "reply-draft:v8:owner",
 		});
 		expect(owned.skipIfReplyDraftFor).toBeUndefined();
 		expect(fallback).toMatchObject({
 			tediId: DRAFTER_ID,
 			idempotencyKey: `reply-draft:${requestId}:2`,
 			conversationId: `reply-draft:${requestId}:2`,
-			source: "reply-draft:v7:owner-timeout",
+			source: "reply-draft:v8:owner-timeout",
 			skipIfReplyDraftFor: requestId,
 			content: owned.content,
 		});
@@ -780,7 +780,7 @@ describe("requestReplyDraft owner routing", () => {
 		expect(f.send).toHaveBeenCalledTimes(1);
 		expect(
 			(f.send.mock.calls[0] as [Record<string, unknown>])[0],
-		).toMatchObject({ tediId: DRAFTER_ID, source: "reply-draft:v7" });
+		).toMatchObject({ tediId: DRAFTER_ID, source: "reply-draft:v8" });
 	});
 
 	it("lets the dispatched owner propose once; the late drafter is refused", async () => {

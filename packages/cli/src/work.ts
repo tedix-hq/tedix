@@ -51,6 +51,11 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolveAgentContext, type AgentContextResult } from "./agent-context";
 import { claimFiles, fileResourceKeys } from "./work-claim-files";
+import {
+	delegationKey,
+	forgetDelegations,
+	recordDelegation,
+} from "./delegation-ledger";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
 	McpNativeBootstrapSchema,
@@ -133,6 +138,12 @@ export interface WorkOptions {
 	evidenceMetadata?: string;
 	/** Agent SESSION id (`--session`); traces a board write to one harness run. */
 	session?: string;
+	/** `delegate`: subagent|session — how the brief reaches its executor. */
+	via?: string;
+	/** `delegate`: name of the delegated session or subagent. */
+	to?: string;
+	/** `delegate --done <id>`: settle that delegation. */
+	done?: string;
 	/** `handoff`: local coding host receiving one Work Item. */
 	host?: string;
 	/** `handoff`: launch the host after reading the accepted item. */
@@ -2647,6 +2658,11 @@ Lifecycle:
   complete <id>
   cancel <id> [--reason <summary>]
 
+Delegation (a lead session's hand-offs; open ones appear in its prompt context):
+  delegate "<title>" --done-when "<what done looks like>" --via subagent|session
+           [--to <session or subagent name>] [--project <id>] [--session <lead id>]
+  delegate --done <id> --note "<outcome and evidence>" [--commit <sha> ...]
+
 Ledger (historical rows on in-flight items stay readable; nothing reviews them):
   submit-evidence <id> --claim-key <key> --evidence-kind <kind> --evidence <uri>
                     [--evidence-media-type <type>] [--evidence-label <label>]
@@ -3108,6 +3124,180 @@ async function workCheckpoint(
 	return ok(ctx, value, () => console.log(JSON.stringify(value, null, 2)));
 }
 
+// ─── Delegation ledger ───────────────────────────────────────────────────────
+
+/** Default purpose window of a delegation filed without --objective. */
+const DELEGATION_EXPIRES = "14d";
+
+/**
+ * `tedix work delegate "<title>" --done-when "…" --via subagent|session`:
+ * the lead session registers work it handed off as one accepted Work Item
+ * (reused when an open item has the same title), with the brief as a comment,
+ * and remembers the id locally so its prompt context names it until settled.
+ * `--done <id> --note "…"` records the outcome and completes the item.
+ */
+async function workDelegate(ctx: WorkContext, title: string): Promise<number> {
+	mutationCallable(ctx.work.as?.trim(), "work.create_work_items");
+	const lead = resolveAgentSession(ctx.work.session);
+	if (!lead || lead.derived || !delegationKey(lead.session))
+		throw new Error(
+			"work delegate needs the lead session's id: run it inside Claude Code or Codex, or pass --session <id>",
+		);
+	if (ctx.work.done?.trim()) return settleDelegation(ctx, lead.session);
+	const t = title.trim();
+	const via = ctx.work.via?.trim();
+	const doneWhen = ctx.work.doneWhen?.trim();
+	if (!t || !doneWhen || (via !== "subagent" && via !== "session"))
+		throw new Error(
+			'work delegate requires "<title>" --done-when "<what done looks like>" --via subagent|session',
+		);
+	const to = ctx.work.to?.trim() || undefined;
+	const delegation = {
+		via,
+		...(to ? { to } : {}),
+		leadSession: lead.session,
+	};
+	const search = await listWorkItems(ctx, {
+		titleContains: t.slice(0, 200),
+		limit: 20,
+		...projectArg(ctx.work.project),
+	});
+	if (search.error)
+		return fail(
+			ctx,
+			search.error,
+			`Could not search work items: ${search.error.message}`,
+		);
+	const existing = itemsFromList(search.value).find(
+		(row) =>
+			String(row.title ?? "").toLowerCase() === t.toLowerCase() &&
+			(row.disposition === "proposed" || row.disposition === "accepted"),
+	);
+	let id = typeof existing?.id === "string" ? existing.id : "";
+	let disposition = String(existing?.disposition ?? "proposed");
+	if (!id) {
+		const { objective, workClass } = ctx.work;
+		if (workClass && !CREATE_EXCEPTION_CLASSES.has(workClass))
+			throw new Error(
+				`--class must be one of maintenance|incident|hygiene, got "${workClass}"`,
+			);
+		const created = await boardCall(
+			ctx,
+			"work.create_work_items",
+			withSession(ctx, {
+				title: t,
+				description: `Delegated by lead session ${lead.session} via ${via}${to ? ` to ${to}` : ""}.\n\nDone when: ${doneWhen}`,
+				...(ctx.work.kind ? { workKind: ctx.work.kind } : {}),
+				// A project carries its own purpose; an unparented delegation is a
+				// time-bounded maintenance exception unless told otherwise.
+				...(objective
+					? { objectiveId: objective.trim() }
+					: workClass || !ctx.work.project
+						? {
+								workClass: workClass ?? "maintenance",
+								purposeExceptionExpiresAt: expiresToIso(
+									ctx.work.expires ?? DELEGATION_EXPIRES,
+								),
+							}
+						: {}),
+				...projectArg(ctx.work.project),
+				metadata: { delegation },
+			}),
+		);
+		if (created.error)
+			return fail(
+				ctx,
+				created.error,
+				`Could not create the delegation: ${created.error.message}`,
+			);
+		const item = isRecord(created.value)
+			? isRecord(created.value.workItem)
+				? created.value.workItem
+				: created.value
+			: {};
+		id = typeof item.id === "string" ? item.id : "";
+		disposition = String(item.disposition ?? "proposed");
+		if (!id)
+			return fail(
+				ctx,
+				{ code: "MISSING_ID", message: "create returned no id" },
+				"Could not create the delegation: the board returned no id.",
+			);
+	}
+	if (disposition === "proposed") {
+		const accepted = await boardCall(ctx, "work.accept_work_item", {
+			id,
+			acceptanceContract: buildAcceptanceContract(doneWhen),
+		});
+		if (accepted.error)
+			return fail(
+				ctx,
+				accepted.error,
+				`Created ${id} but could not accept it: ${accepted.error.message}`,
+			);
+	}
+	const brief = await postComment(
+		ctx,
+		id,
+		`Delegation brief (via ${via}${to ? ` → ${to}` : ""}; lead session ${lead.session}): ${t}\nDone when: ${doneWhen}\nSettle with: tedix work delegate --done ${id} --note "<outcome and evidence>"`,
+		{ delegation },
+	);
+	if (brief.error)
+		return fail(
+			ctx,
+			brief.error,
+			`Could not comment the brief on ${id}: ${brief.error.message}`,
+		);
+	recordDelegation(process.env, lead.session, {
+		id,
+		title: t,
+		via,
+		...(to ? { to } : {}),
+		workspace: ctx.workspace,
+		createdAt: new Date().toISOString(),
+	});
+	const reused = Boolean(existing);
+	return ok(ctx, { id, reused, via, ...(to ? { to } : {}) }, () =>
+		console.log(
+			`${green(reused ? "Reused" : "Delegated", ctx.color)} ${id}  via ${via}${to ? ` → ${to}` : ""}  ${truncate(t, 60)}`,
+		),
+	);
+}
+
+async function settleDelegation(
+	ctx: WorkContext,
+	leadSession: string,
+): Promise<number> {
+	const note = ctx.work.note?.trim();
+	if (!note)
+		throw new Error(
+			'work delegate --done <id> requires --note "<outcome and evidence>"',
+		);
+	const id = await resolveWorkItemId(ctx, ctx.work.done!.trim());
+	const settlement = buildSettlementMetadata(ctx.work.commit);
+	const comment = await postComment(ctx, id, `Delegation settled: ${note}`, {
+		delegation: { settled: true },
+		...settlement,
+	});
+	if (comment.error)
+		return fail(
+			ctx,
+			comment.error,
+			`Could not record the outcome on ${id}: ${comment.error.message}`,
+		);
+	const call = await boardCall(ctx, "work.complete_work_item", { id });
+	if (call.error)
+		return fail(
+			ctx,
+			call.error,
+			`Recorded the outcome on ${id} but could not complete it: ${call.error.message}`,
+		);
+	forgetDelegations(process.env, leadSession, [id]);
+	return ok(ctx, call.value, () =>
+		console.log(`${green("Settled delegation", ctx.color)} ${id}.`),
+	);
+}
+
 async function workCancel(ctx: WorkContext, id: string): Promise<number> {
 	if (!id) throw new Error("work cancel requires a work item id");
 	mutationCallable(ctx.work.as?.trim(), "work.cancel_work_items");
@@ -3146,6 +3336,7 @@ const VERBS: Record<string, VerbHandler> = {
 	"submit-evidence": (ctx, id) => workSubmitEvidence(ctx, id),
 	complete: (ctx, id) => workComplete(ctx, id),
 	cancel: (ctx, id) => workCancel(ctx, id),
+	delegate: (ctx, id, text) => workDelegate(ctx, text ? `${id} ${text}` : id),
 	context: (ctx, id) => workContext(ctx, id),
 	evidence: (ctx, id) => workEvidence(ctx, id),
 	attempts: (ctx, id) => workAttempts(ctx, id),

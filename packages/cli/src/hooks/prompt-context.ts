@@ -27,7 +27,17 @@
  * session. This is how Codex, which has no background rewake, receives OS
  * answers. Tedi-drafted replies never reach the session from here; they are
  * reviewed and accepted only in Tedix OS.
+ *
+ * A lead session that registered delegations (`tedix work delegate`) also sees
+ * one line per open one, newest first, re-read from the board each turn. Over
+ * budget they go after the lessons beyond the top six and before any document
+ * text; only that session sees them.
  */
+import {
+	type Delegation,
+	forgetDelegations,
+	readDelegations,
+} from "../delegation-ledger";
 import { harnessOf } from "./agent-status";
 import {
 	answeredElsewhere,
@@ -68,6 +78,8 @@ export const HOOK_BYTES = 6400;
  */
 const TOP_LESSONS = 6;
 const DOCUMENT_STEP = 200;
+/** Open delegations named per turn; settled ones drop off the local list. */
+const DELEGATION_LIMIT = 8;
 const TRUNCATION_NOTE =
 	"\nContext truncated (complete=false); read the full current sources before relying on omitted detail.";
 /** Fixed, prompt-independent: a status answer from git alone misses live state. */
@@ -198,10 +210,15 @@ export function gatewayCode(
 		topics: string[];
 		sessionId?: string;
 	},
+	delegationIds: readonly string[] = [],
 ): string {
-	const target = Object.fromEntries(
+	const target: JsonObject = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
 	);
+	const ids = delegationIds
+		.filter((id) => UUID.test(id))
+		.slice(0, DELEGATION_LIMIT);
+	if (ids.length) target.delegations = ids;
 	if (lessons)
 		target.lessons = {
 			harness: lessons.harness,
@@ -235,13 +252,14 @@ export function gatewayCode(
   const comments = r.comments ?? [];
   return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
  });
+ if (t.delegations) result.delegations = await Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
  return result;
 }`.replace("TARGET", JSON.stringify(target));
 }
 
 /**
  * Render within `budget` bytes: drop the lowest-ranked lessons down to the top
- * TOP_LESSONS, then shorten document tails. Whatever still exceeds the budget
+ * TOP_LESSONS, then delegation lines, then shorten document tails. Whatever still exceeds the budget
  * is left to `boundedContext`.
  */
 export function render(
@@ -249,20 +267,65 @@ export function render(
 	data: JsonObject,
 	now: Date,
 	budget: number = HOOK_BYTES,
+	delegations: readonly Delegation[] = [],
 ): string {
 	const available =
 		isObject(data.lessons) && Array.isArray(data.lessons.lessons)
 			? data.lessons.lessons.length
 			: 0;
+	const open = openDelegations(delegations, data);
+	let taskCap = open.length;
 	let lessonCap = available;
 	let textCap = TEXT_LIMIT;
 	for (;;) {
-		const text = compose(binding, data, now, lessonCap, textCap);
+		const text = compose(binding, data, now, lessonCap, textCap, [
+			...open.slice(0, taskCap),
+		]);
 		if (Buffer.byteLength(text, "utf8") <= budget) return text;
+		// Delegation lines rank below the top lessons and documents.
 		if (lessonCap > TOP_LESSONS) lessonCap--;
+		else if (taskCap > 0) taskCap--;
 		else if (textCap > 0) textCap = Math.max(0, textCap - DOCUMENT_STEP);
 		else return text;
 	}
+}
+
+/** Delegations the board still reads as open (proposed or accepted). */
+export function openDelegations(
+	delegations: readonly Delegation[],
+	data: JsonObject,
+): Delegation[] {
+	if (!Array.isArray(data.delegations)) return [];
+	const open = new Set(
+		data.delegations
+			.filter(
+				(row: unknown) =>
+					isObject(row) &&
+					(row.disposition === "proposed" || row.disposition === "accepted"),
+			)
+			.map((row: JsonObject) => String(row.id).toLowerCase()),
+	);
+	return delegations.filter((d) => open.has(d.id.toLowerCase()));
+}
+
+/** Ids the board reads as completed or cancelled: safe to forget locally. */
+export function settledDelegationIds(data: JsonObject): string[] {
+	if (!Array.isArray(data.delegations)) return [];
+	return data.delegations
+		.filter(
+			(row: unknown) =>
+				isObject(row) &&
+				(row.disposition === "completed" || row.disposition === "cancelled"),
+		)
+		.map((row: JsonObject) => String(row.id));
+}
+
+function age(from: string, now: Date): string {
+	const minutes = Math.max(0, (now.getTime() - Date.parse(from)) / 60_000);
+	if (!Number.isFinite(minutes)) return "?";
+	if (minutes < 60) return `${Math.floor(minutes)}m`;
+	if (minutes < 48 * 60) return `${Math.floor(minutes / 60)}h`;
+	return `${Math.floor(minutes / 1440)}d`;
 }
 
 function compose(
@@ -271,6 +334,7 @@ function compose(
 	now: Date,
 	lessonCap: number,
 	textCap: number,
+	tasks: readonly Delegation[] = [],
 ): string {
 	const outside = binding.contextSource === "default";
 	const lines = [
@@ -430,6 +494,15 @@ function compose(
 			`Showing newest ${comments.length} of ${work.commentCount} comments; earlier comments and long bodies may be omitted. Re-read full Work context before execution or a material claim.`,
 		);
 	}
+	if (tasks.length) {
+		lines.push(
+			`Your open delegations (this session registered them; settle each with tedix work delegate --done <id> --note "<outcome>"):`,
+		);
+		for (const task of tasks)
+			lines.push(
+				`- ${task.id.slice(0, 8)} · ${age(task.createdAt, now)} · via ${task.via}${task.to ? ` → ${JSON.stringify(task.to.slice(0, 40))}` : ""} · ${JSON.stringify(task.title.slice(0, 80))}`,
+			);
+	}
 	if (unavailable && !read) throw new Error("no selected source was readable");
 	// Beside other context, an empty lessons read is named so it cannot pass for a
 	// hook that never asked; alone it stays silent like any empty turn.
@@ -565,6 +638,12 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 						session!,
 					)
 				: [];
+		// Only the session that registered them; titles stay local.
+		const delegations = session
+			? readDelegations(env, session)
+					.filter((d) => d.workspace === binding.workspace)
+					.slice(0, DELEGATION_LIMIT)
+			: [];
 		// A claimed OS answer is delivered even when the shared context fails.
 		let context: string;
 		try {
@@ -572,12 +651,16 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				[
 					...command,
 					"code",
-					gatewayCode(binding, {
-						harness,
-						repo: repoSlug(binding.origin),
-						topics: branchTopics(binding.branch),
-						sessionId: session,
-					}),
+					gatewayCode(
+						binding,
+						{
+							harness,
+							repo: repoSlug(binding.origin),
+							topics: branchTopics(binding.branch),
+							sessionId: session,
+						},
+						delegations.map((d) => d.id),
+					),
 				],
 				// A cold gateway can take longer than 8s; use what the host's timeout leaves.
 				Math.max(8000, READ_BUDGET_MS - (Date.now() - started)),
@@ -592,7 +675,9 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 						(size, line) => size + Buffer.byteLength(line, "utf8") + 1,
 						0,
 					),
+				delegations,
 			);
+			if (session) forgetDelegations(env, session, settledDelegationIds(data));
 			// Only the header: nothing selected and no lessons source was read.
 			if (!context.includes("\n")) context = "";
 		} catch {

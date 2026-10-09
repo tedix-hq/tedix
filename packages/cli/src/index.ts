@@ -1166,6 +1166,9 @@ async function main() {
 						? { worktreeRoot: options.workWorktreeRoot }
 						: {}),
 					...(options.workSession ? { session: options.workSession } : {}),
+					...(options.workVia ? { via: options.workVia } : {}),
+					...(options.workTo ? { to: options.workTo } : {}),
+					...(options.workDone ? { done: options.workDone } : {}),
 					...(options.workOperatorOverride ? { operatorOverride: true } : {}),
 					...(options.workContradicts ? { contradicts: true } : {}),
 					...(options.limit ? { limit: options.limit } : {}),

@@ -3,6 +3,7 @@ import { withCompletionEvidence } from "@tedix/api-contract/schemas/execution-ev
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readDelegations } from "./delegation-ledger";
 import { TedixHomeClient } from "./home-client";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
@@ -2733,6 +2734,7 @@ describe("native dispatcher coverage", () => {
 			},
 			complete: {},
 			cancel: {},
+			delegate: { args: "", work: { done: ITEM, note: "Example outcome" } },
 			context: {},
 			evidence: {},
 			attempts: {},
@@ -2880,7 +2882,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(61);
+		expect(covered).toHaveLength(62);
 	});
 });
 
@@ -3008,5 +3010,98 @@ describe("native agent hook factory operations", () => {
 			),
 		).toHaveLength(1);
 		expect(nativeCalls.some((x) => x.name === "code")).toBe(false);
+	});
+});
+
+describe("delegation ledger", () => {
+	const LEAD = "33333333-3333-4333-8333-333333333333";
+	let dir: string;
+	let previous: string | undefined;
+	beforeAll(() => {
+		dir = mkdtempSync(join(tmpdir(), "tedix-delegate-"));
+		previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = dir;
+	});
+	afterAll(() => {
+		if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+		else process.env.TEDIX_CONFIG_DIR = previous;
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("creates, accepts and briefs one item, then indexes it for the lead session", async () => {
+		const { ctx, sources } = makeContext(
+			{ via: "subagent", to: "docs-pass", doneWhen: "Docs build passes" },
+			undefined,
+			(source) =>
+				source.includes("list_work_item_cli_rows")
+					? { data: [] }
+					: source.includes("create_work_items")
+						? { id: ITEM, disposition: "proposed" }
+						: { id: ITEM },
+		);
+		const result = await capture("delegate Rewrite the CLI docs", ctx);
+		expect(result.code).toBe(0);
+		expect(sources[0]).toContain('"titleContains":"Rewrite the CLI docs"');
+		expect(sources[1]).toContain("work.create_work_items");
+		expect(sources[1]).toContain('"workClass":"maintenance"');
+		expect(sources[1]).toContain(`"leadSession":"codex:${LEAD}"`);
+		expect(sources[2]).toContain("work.accept_work_item");
+		expect(sources[2]).toContain('"doneLooksLike":"Docs build passes"');
+		expect(sources[3]).toContain("work.add_comment");
+		expect(sources[3]).toContain("Delegation brief (via subagent → docs-pass");
+		expect(readDelegations(process.env, LEAD)).toMatchObject([
+			{
+				id: ITEM,
+				title: "Rewrite the CLI docs",
+				via: "subagent",
+				to: "docs-pass",
+			},
+		]);
+	});
+
+	test("reuses an open item with the same title instead of filing a duplicate", async () => {
+		const { ctx, sources } = makeContext(
+			{ via: "session", doneWhen: "Shipped" },
+			undefined,
+			(source) =>
+				source.includes("list_work_item_cli_rows")
+					? {
+							data: [
+								{
+									id: ITEM,
+									title: "rewrite the cli docs",
+									disposition: "accepted",
+								},
+							],
+						}
+					: { id: ITEM },
+		);
+		const result = await capture("delegate Rewrite the CLI docs", ctx);
+		expect(result.code).toBe(0);
+		expect(sources.some((s) => s.includes("create_work_items"))).toBe(false);
+		expect(sources.some((s) => s.includes("accept_work_item"))).toBe(false);
+		expect(sources[1]).toContain("work.add_comment");
+		expect(result.out.join("\n")).toContain(`"reused":true`);
+	});
+
+	test("--done records the outcome, completes the item and forgets it locally", async () => {
+		const { ctx, sources } = makeContext({ done: ITEM, note: "Docs merged" });
+		expect((await capture("delegate", ctx)).code).toBe(0);
+		expect(sources[0]).toContain("work.add_comment");
+		expect(sources[0]).toContain("Delegation settled: Docs merged");
+		expect(sources[1]).toContain("work.complete_work_item");
+		expect(readDelegations(process.env, LEAD)).toEqual([]);
+	});
+
+	test("refuses a delegation without --via, --done-when or a settlement note", async () => {
+		await expect(
+			runWork("delegate Thing", makeContext({ doneWhen: "x" }).ctx),
+		).rejects.toThrow(/--via subagent\|session/);
+		await expect(
+			runWork("delegate Thing", makeContext({ via: "subagent" }).ctx),
+		).rejects.toThrow(/--done-when/);
+		await expect(
+			runWork("delegate", makeContext({ done: ITEM }).ctx),
+		).rejects.toThrow(/--note/);
 	});
 });

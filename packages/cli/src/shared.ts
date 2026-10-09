@@ -101,6 +101,10 @@ export interface CliOptions {
 	workContentIds?: string;
 	workValidUntil?: string;
 	workSession?: string;
+	/** `work delegate`: subagent|session, the target name, and --done <id>. */
+	workVia?: string;
+	workTo?: string;
+	workDone?: string;
 	/** `work handoff`: target coding host. */
 	workHost?: string;
 	/** `work handoff`: explicitly launch the host after a read-only preview. */
