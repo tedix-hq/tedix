@@ -587,14 +587,61 @@ ${Object.entries(variables)
 `;
 }
 
-function launchctl(args: string[]): number {
-	return (
-		spawnSync("launchctl", args, { stdio: ["ignore", "ignore", "ignore"] })
-			.status ?? 1
-	);
+export interface LaunchctlResult {
+	status: number;
+	output: string;
+}
+export type Launchctl = (args: string[]) => LaunchctlResult;
+
+export function systemLaunchctl(bin = "launchctl"): Launchctl {
+	return (args) => {
+		const result = spawnSync(bin, args, {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		return {
+			status: result.status ?? 1,
+			output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim(),
+		};
+	};
 }
 
-function install(env: NodeJS.ProcessEnv): number {
+/**
+ * Loads the LaunchAgent at `path` into `domain`, replacing a loaded copy.
+ * `bootout` returns before launchd finishes tearing the old job down, so an
+ * immediate `bootstrap` fails on a reinstall; wait for the old job to leave,
+ * retry the bootstrap, and let `launchctl print` decide the outcome. launchd
+ * gives a job 20 seconds to exit before killing it, so the unload wait is
+ * longer than that.
+ * Returns an error message, or undefined once the job is loaded.
+ */
+export async function loadLaunchAgent(
+	path: string,
+	domain: string,
+	run: Launchctl,
+	{ attempts = 20, unloadAttempts = 120, sleep = pause, delayMs = 250 } = {},
+): Promise<string | undefined> {
+	const service = `${domain}/${LAUNCH_AGENT_LABEL}`;
+	const loaded = () => run(["print", service]).status === 0;
+	// "Not loaded" is the fresh-install case, not an error.
+	run(["bootout", service]);
+	let waited = 0;
+	while (loaded()) {
+		if (++waited >= unloadAttempts)
+			return `the existing ${service} did not unload; run launchctl bootout ${service} and retry.`;
+		await sleep(delayMs);
+	}
+	let last: LaunchctlResult = { status: 1, output: "" };
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		last = run(["bootstrap", domain, path]);
+		if (last.status === 0 || loaded()) break;
+		await sleep(delayMs);
+	}
+	if (loaded()) return undefined;
+	return `launchctl bootstrap ${domain} failed (exit ${last.status}${last.output ? `: ${last.output}` : ""}).`;
+}
+
+async function install(env: NodeJS.ProcessEnv): Promise<number> {
 	if (process.platform !== "darwin") {
 		console.error(
 			"tedix supervise install writes a macOS LaunchAgent; elsewhere run tedix supervise under your own service manager.",
@@ -611,10 +658,13 @@ function install(env: NodeJS.ProcessEnv): number {
 			mode: 0o644,
 		},
 	);
-	const domain = `gui/${process.getuid!()}`;
-	launchctl(["bootout", `${domain}/${LAUNCH_AGENT_LABEL}`]);
-	if (launchctl(["bootstrap", domain, path]) !== 0) {
-		console.error(`Wrote ${path} but launchctl bootstrap failed.`);
+	const error = await loadLaunchAgent(
+		path,
+		`gui/${process.getuid!()}`,
+		systemLaunchctl(),
+	);
+	if (error) {
+		console.error(`Wrote ${path} but ${error}`);
 		return 1;
 	}
 	console.log(
@@ -625,7 +675,10 @@ function install(env: NodeJS.ProcessEnv): number {
 
 function uninstall(): number {
 	if (process.platform !== "darwin") return 0;
-	launchctl(["bootout", `gui/${process.getuid!()}/${LAUNCH_AGENT_LABEL}`]);
+	systemLaunchctl()([
+		"bootout",
+		`gui/${process.getuid!()}/${LAUNCH_AGENT_LABEL}`,
+	]);
 	rmSync(launchAgentPath(), { force: true });
 	console.log("Removed the Tedix supervisor LaunchAgent.");
 	return 0;
