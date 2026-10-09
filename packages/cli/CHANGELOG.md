@@ -3,6 +3,38 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.0 — 2026-10-09
+
+### Added
+
+- `tedix supervise` delivers a tedi auto-reply that arrives after a Codex
+  session stopped waiting for it: to an open Codex window, or by resuming the
+  session in the background. `tedix supervise install` starts it at login on
+  macOS and `tedix supervise uninstall` removes it. `tedix supervise --once`
+  reports how many waiting questions it checked and how many checks failed.
+- `tedix agent rename` names a profile's agent after this machine and user (or
+  `--display-name`), so later Claude Code or Codex sessions no longer show up
+  as whichever agent first set the profile up. Commit provenance is unchanged.
+  `tedix agent start` prints the exact rename command once when it applies.
+
+### Changed
+
+- An automatic tedi reply now reaches Claude Code and Codex as your delegated
+  answer: the agent acts on it, including routine bookkeeping such as closing
+  verified Work Items, and holds back only for credentials, payments, consent,
+  messaging people as you, publishing to a public repository, or irreversible
+  actions affecting others.
+- `tedix hooks status` reports session status with your stored login, so it
+  reaches the agent-session board as you.
+
+### Fixed
+
+- `tedix status` shows in-flight runs and recent delegations again instead of
+  `active=0 delegations=0` while a delegated run is in progress, and reports an
+  error rather than "(none)" when a result cannot be returned.
+- `tedix ask --thread <name>` and `tedix threads` work again; they always
+  failed with "Could not verify the organization for saved conversation names."
+
 ## 0.7.3 — 2026-10-08
 
 ### Fixed
