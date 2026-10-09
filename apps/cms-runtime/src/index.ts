@@ -4986,7 +4986,16 @@ export default {
 			const slug = alias?.slug ?? marketingSlug ?? resolved?.slug;
 			if (!slug) return fetchCmsSite(request, env, ctx, resolved, alias);
 			const site = alias ?? (await getCmsSiteBySlug(db, slug));
-			if (!site) return cmsRestoreFenceResponse();
+			if (!site) {
+				// Only an unclaimed platform subdomain is provably absent; the
+				// marketing site and custom domains keep failing closed.
+				if (!marketingSlug && resolved && !resolved.customDomain)
+					return new Response("CMS site not found", {
+						status: 404,
+						headers: { "Cache-Control": "no-store" },
+					});
+				return cmsRestoreFenceResponse();
+			}
 			const identity = {
 				siteId: site.id,
 				slug: site.slug,
