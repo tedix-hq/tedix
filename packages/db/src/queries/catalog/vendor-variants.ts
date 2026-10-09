@@ -142,8 +142,31 @@ export function buildHideShadowedVariantsCondition(
 				...catalogVisibilityConditions(sibling, options),
 			),
 		);
+	// Among a vendor's visible rows that do have inventory, one card is enough:
+	// keep the plain-slug row (the best one owns it), then the most stocked.
+	// A window function ranks every vendor group once per statement.
+	const ranked = db
+		.select({
+			id: sql<string>`${sibling.id}`.as("ranked_id"),
+			rank: sql<number>`row_number() OVER (PARTITION BY ${siblingKey} ORDER BY (${sibling.slug} GLOB '*-[0-9]*') ASC, ${catalogInventorySql(sibling)} DESC, ${sibling.id} ASC)`.as(
+				"vendor_rank",
+			),
+		})
+		.from(sibling)
+		.where(
+			and(
+				sql`${siblingKey} IS NOT NULL`,
+				sql`${catalogInventorySql(sibling)} > 0`,
+				...catalogVisibilityConditions(sibling, options),
+			),
+		)
+		.as("vendor_ranked");
+	const outranked = db
+		.select({ id: ranked.id })
+		.from(ranked)
+		.where(sql`${ranked.rank} > 1`);
 	const key = catalogVendorKeySql(appCatalog);
-	return sql`NOT ((NOT ${catalogRunnableSql(appCatalog)} AND coalesce(${key} IN ${runnableVendorKeys}, 0)) OR (${catalogInventorySql(appCatalog)} = 0 AND coalesce(${key} IN ${stockedVendorKeys}, 0)))`;
+	return sql`NOT ((NOT ${catalogRunnableSql(appCatalog)} AND coalesce(${key} IN ${runnableVendorKeys}, 0)) OR (${catalogInventorySql(appCatalog)} = 0 AND coalesce(${key} IN ${stockedVendorKeys}, 0)) OR ${appCatalog.id} IN ${outranked})`;
 }
 
 export interface CatalogVendorVariantRow {

@@ -295,7 +295,14 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 				? (variantRows.find(
 						(variant) => (variant.mcpToolCount ?? 0) > 0 && variant.slug,
 					)?.slug ?? null)
-				: null;
+				: /-\d+$/.test(result.slug ?? "")
+					? (variantRows.find(
+							(variant) =>
+								(variant.mcpToolCount ?? 0) > 0 &&
+								variant.slug &&
+								!/-\d+$/.test(variant.slug),
+						)?.slug ?? null)
+					: null;
 
 		// Map to detail schema with relations
 		// Unpack JSON blob columns (systemHints, healthData, scores, mcpMetadata,

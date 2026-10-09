@@ -96,6 +96,23 @@ const ROWS: Row[] = [
 		connector: "MCP",
 		endpoint: "https://mcp.duodesk.example/openai",
 	},
+	// Two stocked per-store endpoints: one card, the plain slug.
+	{
+		id: "twin-ride",
+		name: "Twin Ride",
+		website: "https://twinride.example",
+		connector: "MCP",
+		endpoint: "https://mcp.twinride.example/mcp",
+		tools: 2,
+	},
+	{
+		id: "twin-ride-2",
+		name: "Twin Ride",
+		website: "https://twinride.example",
+		connector: "MCP",
+		endpoint: "https://mcp.twinride.example/claude/mcp",
+		tools: 3,
+	},
 	// Two runnable endpoints, neither scanned yet: both stay.
 	{
 		id: "bare-a",
@@ -162,6 +179,7 @@ describe("catalog vendor variants", () => {
 			"duo-stocked",
 			"lonely-listing",
 			"shy-listing",
+			"twin-ride",
 		]);
 	});
 
