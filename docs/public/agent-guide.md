@@ -18,12 +18,13 @@ visibility: public
 Start here when an agent needs to research Tedix or operate a Tedix
 organization. Choose the path that matches the task:
 
-| Task                             | Start here                                                                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Answer a public product question | Use the documentation endpoints below. No login is needed.                                                               |
-| Evaluate Tedix on one computer   | Follow the [local path](./getting-started.md#run-tedix-locally). It does not connect to Tedix Cloud or run remote tedis. |
-| Run a Cloud worker               | Sign in to an invited beta organization, then follow [Your first digital worker](./learning-paths/first-worker.md).      |
-| Change the source repository     | Read the root and nearest scoped `AGENTS.md` files before editing.                                                       |
+| Task                             | Start here                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Answer a public product question | Use the documentation endpoints below. No login is needed.                                                                    |
+| Evaluate Tedix on one computer   | Follow the [local path](./getting-started.md#run-tedix-locally). It does not connect to Tedix Cloud or run remote tedis.      |
+| Operate Tedix from an assistant  | Connect the host's Tedix plugin or connector; see [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md). |
+| Run a Cloud worker               | Sign in to an invited beta organization, then follow [Your first digital worker](./learning-paths/first-worker.md).           |
+| Change the source repository     | Read the root and nearest scoped `AGENTS.md` files before editing.                                                            |
 
 ## Documentation endpoints
 
@@ -48,15 +49,58 @@ It does not enumerate private oRPC procedures or authenticated MCP tools.
 
 ## First Cloud connection
 
-For an owner testing the Cloud beta, install the [CLI](./cli.md) and run
-`tedix login`. The command opens Tedix OS in a browser. Pause while the owner
-signs in, accepts any invitation or consent request, and creates or selects an
+An agent reaches a Tedix organization in one of two ways. The first needs no
+CLI and is the default for Claude, Claude Code, Codex and the ChatGPT desktop
+app. The second is for a local coding harness that needs hooks or repository
+policy.
+
+### Through the host's plugin or connector
+
+The Tedix plugin gives the host a remote MCP connection to
+`https://connect.mcp.tedix.dev/mcp` and six skills: `tedix-session-guide`,
+`tedix-connect`, `tedix-delegate`, `tedix-resume-work`,
+`tedix-workspace-output` and `tedix-guardian-session`. In Claude chat and
+Cowork, the same URL is added as a custom connector, which carries the tools
+but not the skills. The human installs it and signs in once through the host's
+own OAuth flow: a browser opens, the owner signs in, selects an organization
+and reviews the requested access. The host stores the grant; do not ask for a
+password, browser cookie, or token. The human steps, per host, are in
+[Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md); the
+packaged skills and host guides are in the
+[plugin README](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/README.md),
+and the published marketplace is
+[tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins).
+
+On first use, run the `tedix-connect` skill, or follow its steps: confirm the
+account with `get_profile`, resolve the organization separately, and make one
+bounded read-only call through Code Mode. Account identity, organization
+selection and granted capabilities are separate facts; the grant authenticates
+the **owner**, not the agent.
+
+A host that reaches Tedix only through the MCP plugin calls
+`start_external_agent_session_for_host` once, then passes the returned session
+id as `agentSessionId` on each `code` call that should run as that session. The
+session is bound to the signed-in owner and counts as the same party as the
+owner: it can start Work Attempts but never approves, corroborates or reviews
+its owner's work. Start with a read-only tool discovery or a bounded task, then
+inspect its result. The owner remains responsible for identity and any
+human-required consent; an agent session does not become the organization
+owner.
+
+### Through the CLI
+
+For a local coding harness that needs the opt-in session hooks or a
+repository's Tedix policy, install the [CLI](./cli.md) and run `tedix login`.
+The command opens Tedix OS in a browser. Pause while the owner signs in,
+accepts any invitation or consent request, and creates or selects an
 organization. After the owner selects an organization, the CLI saves a local
 connection profile and receives its grant through OAuth; do not ask for a
 password, browser cookie, or token. An approved new owner can create their own
 organization without joining the inviter's organization. If beta approval is
 pending, the owner may need to rerun `tedix login` after admission. If an
-invited organization is missing, ask the inviter to confirm access.
+invited organization is missing, ask the inviter to confirm access. The CLI
+login and the host's plugin sign-in are separate credentials; one does not sign
+in the other.
 
 Run `tedix auth status` to check the selected workspace and granted scopes.
 That login authenticates the **owner**, not the agent. For continuing work under
@@ -71,16 +115,6 @@ principal. On the first bootstrap, pass `--agent-scopes` with only the MCP
 capabilities the task needs; omitting it requests the default broad capability
 set. Set `TEDIX_EXTERNAL_AGENT` to the principal key for subsequent CLI calls
 and check `tedix agent status` before acting.
-
-A host that reaches Tedix only through the MCP plugin calls
-`start_external_agent_session_for_host` once, then passes the returned session
-id as `agentSessionId` on each `code` call that should run as that session. The
-session is bound to the signed-in owner and counts as the same party as the
-owner: it can start Work Attempts but never approves, corroborates or reviews
-its owner's work. Start with a read-only tool discovery or a bounded task, then
-inspect its result. The owner remains responsible for identity and any
-human-required consent; an agent session does not become the organization
-owner.
 
 For a first worker run, do not bootstrap an external-agent identity. Use the
 bounded [first-worker tutorial](./learning-paths/first-worker.md), which targets
@@ -100,8 +134,9 @@ promise; do not present it as a stable release.
 
 ## Authenticated operation
 
-Use the installed `tedix` CLI when an operator has authorized access to an
-organization:
+From a plugin host, the same lanes are reached through the packaged skills and
+the `code` tool. The commands below use the installed `tedix` CLI when an
+operator has authorized access to an organization:
 
 ```bash
 tedix -w acme auth status

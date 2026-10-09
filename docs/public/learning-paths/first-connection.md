@@ -18,7 +18,8 @@ visibility: public
 This tutorial connects the Tedix CLI on one computer to an invited Tedix Cloud
 organization. You finish with a saved CLI profile and a successful read-only
 call to that organization's live MCP gateway. It does not run a worker, call a
-model, or change organization data.
+model, or change organization data. This is the CLI route; if you are not a
+developer, [use Tedix in ChatGPT, Codex and Claude](./first-plugin.md) instead.
 
 [Release status](../release-status.md) says who can use Tedix Cloud today. To
 evaluate the local product without a Cloud account, follow [Getting started

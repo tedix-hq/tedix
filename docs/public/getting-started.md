@@ -16,7 +16,9 @@ visibility: public
 
 This tutorial starts Tedix from a source checkout, creates one local Workspace,
 and checks that its data persists. No account or Cloud credential is needed.
-To use an invited Cloud organization instead, [connect to Tedix
+This page is for evaluating the product from source; to simply use Tedix
+Cloud, [use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md).
+To connect the CLI to an invited Cloud organization instead, [connect to Tedix
 Cloud](./learning-paths/first-connection.md).
 
 ## Run Tedix locally

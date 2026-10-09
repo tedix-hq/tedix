@@ -1,5 +1,20 @@
 # Tedix plugin
 
+## Use it
+
+- Claude chat and Cowork: add a custom connector named **Tedix** with the URL
+  `https://connect.mcp.tedix.dev/mcp`, then sign in.
+- Claude Code: `claude plugin marketplace add tedix-hq/tedix-plugins`, then
+  `claude plugin install tedix@tedix-plugins --scope user`, then sign in via `/mcp`.
+- Codex and the ChatGPT desktop app: `codex features enable mcp_2026_07_28`,
+  `codex plugin marketplace add tedix-hq/tedix-plugins`,
+  `codex plugin add tedix@tedix-plugins`, then `codex mcp login tedix`; in the
+  ChatGPT desktop app, enable **tedix** in the Plugins Directory.
+
+The human walkthrough is at
+<https://docs.tedix.dev/learning-paths/first-plugin>; the published plugin and
+marketplace is <https://github.com/tedix-hq/tedix-plugins>.
+
 ## Cloud package and first use
 
 For Claude chat, Cowork and Claude Code, see the

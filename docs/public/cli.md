@@ -18,6 +18,11 @@ visibility: public
 > The CLI is a public beta that anyone can download. Tedix Cloud, which it
 > connects to, is an invited beta; see [Release status](./release-status.md).
 
+**Do you need the CLI?** Most people use Tedix through the plugin in Claude or
+ChatGPT; see [Use Tedix in ChatGPT, Codex and
+Claude](./learning-paths/first-plugin.md). The CLI is for developers,
+operators, and local hooks.
+
 The Tedix CLI is a small program installed on your machine. It covers Home
 conversations, Code Mode, Work Items, skills, automations, flows, engine
 observation, and tedi operations. The standalone

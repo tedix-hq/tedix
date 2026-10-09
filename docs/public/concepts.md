@@ -40,13 +40,15 @@ work. The compute is disposable; the identity, permissions, and record are not.
 
 ## Capabilities
 
-| Term       | Meaning                                                                                                                          |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| MCP app    | Tenant-configured collection of tools, resources, prompts, or widgets exposed through the Model Context Protocol.                |
-| Connection | Organization- or user-scoped authorization linking an app to an external provider.                                               |
-| Tool       | Callable capability with a schema, scope requirements, and an execution handler.                                                 |
-| Skill      | Reusable procedure a tedi can learn, run, evaluate, and improve; some skills run on a schedule as automations.                   |
-| Code Mode  | Direct gateway lane where an agent discovers namespaced tools and composes bounded JavaScript calls without creating a Home run. |
+| Term         | Meaning                                                                                                                                                               |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP app      | Tenant-configured collection of tools, resources, prompts, or widgets exposed through the Model Context Protocol.                                                     |
+| Connector    | The MCP connection a host such as Claude, Codex or ChatGPT uses to reach your organization's tools: `https://connect.mcp.tedix.dev/mcp`, with sign-in in the browser. |
+| Tedix plugin | Packaged Tedix skills and the connector for Claude Code, Codex and the ChatGPT desktop app; Claude chat and Cowork add the connector directly.                        |
+| Connection   | Organization- or user-scoped authorization linking an app to an external provider.                                                                                    |
+| Tool         | Callable capability with a schema, scope requirements, and an execution handler.                                                                                      |
+| Skill        | Reusable procedure a tedi can learn, run, evaluate, and improve; some skills run on a schedule as automations.                                                        |
+| Code Mode    | Direct gateway lane where an agent discovers namespaced tools and composes bounded JavaScript calls without creating a Home run.                                      |
 
 ## Governance
 

@@ -55,6 +55,11 @@ tedix -w acme tedi WORKER_SLUG ask \
 The command targets that worker directly and waits for the run. Keep the Home
 run ID printed by the CLI; you will inspect it next.
 
+Without the CLI, in Claude or ChatGPT with the [Tedix
+plugin](./first-plugin.md) connected, say "Ask a tedi to help with this task
+and show the run's progress" and include the same brief. The expected result is
+the same: the named tedi produces the answer and the run's progress is shown.
+
 ## Check the answer
 
 A useful answer has all of these:

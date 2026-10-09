@@ -1,6 +1,6 @@
 ---
 sidebar:
-  order: 7
+  order: 4
 title: "Use Tedix in ChatGPT, Codex and Claude"
 topic: "Learning paths"
 resource_type: tutorial
@@ -35,7 +35,8 @@ You need:
 - one of the hosts below.
 
 Never paste a token or password into a chat. Sign-in always happens in your
-browser, and the connection URL is the same for every host:
+browser. The connection address below is the same for every host; you only
+need to copy it for Claude chat and Cowork:
 
 ```text
 https://connect.mcp.tedix.dev/mcp
@@ -45,8 +46,8 @@ https://connect.mcp.tedix.dev/mcp
 
 ### Claude chat and Cowork
 
-Open Claude's connector settings, add a custom connector named **Tedix**, and
-paste the URL above. This gives Claude the Tedix tools; the bundled skills are
+Open Claude's settings, go to **Connectors**, add a custom connector named
+**Tedix**, and paste the address above. This gives Claude the Tedix tools; the bundled skills are
 not included. Cowork runs in its own environment, so it cannot reach anything
 on your laptop, such as a local Tedix.
 
@@ -81,11 +82,11 @@ codex mcp login tedix
 
 The first command turns on the MCP protocol version Tedix requires; restart
 Codex after it. The last one opens your browser to sign in. In the ChatGPT
-desktop app, open the Plugins Directory, enable **tedix**, and start a new
-**Work** chat.
+desktop app, no terminal is needed: open the Plugins Directory, enable
+**tedix**, and start a new **Work** chat.
 
-**Expected result:** `codex mcp list` shows `tedix`, and a new Work chat offers
-the Tedix plugin.
+**Expected result:** in Codex, `codex mcp list` shows `tedix`; in the ChatGPT
+desktop app, a new Work chat offers the Tedix plugin.
 
 ### ChatGPT on the web
 
@@ -138,15 +139,15 @@ Start with the symptom you see.
 
 ### The assistant does not know Tedix
 
-The plugin is not enabled in this chat. Enable it in the host, then start a new
-chat; an open chat does not pick up a new plugin. In Claude chat and Cowork,
+The plugin is not enabled in this chat. Turn it on in the app you are using,
+then start a new chat; an open chat does not pick up a new plugin. In Claude chat and Cowork,
 check that the Tedix connector is added and turned on.
 
 ### `Not logged in` or an authorization error
 
-The host has no Tedix sign-in yet. Repeat the sign-in for that host: `/mcp` in
-Claude Code, `codex mcp login tedix` in Codex, or the connector's sign-in in
-Claude. Signing in to the CLI does not help here.
+The app has no Tedix sign-in yet. Repeat the sign-in for the app you are
+using: the connector's sign-in in Claude, `/mcp` in Claude Code, or
+`codex mcp login tedix` in Codex. Signing in to the CLI does not help here.
 
 ### Your organization is missing in the browser
 
