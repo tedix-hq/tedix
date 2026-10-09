@@ -814,6 +814,9 @@ export async function heartbeatWorkItemAttempt(
 	return attempt;
 }
 
+/** Same-Attempt heartbeats racing a settle; each retry re-checks every fence. */
+const SETTLE_VERSION_RETRIES = 3;
+
 export async function settleWorkItemAttempt(
 	db: DbQueryClient,
 	params: {
@@ -833,130 +836,138 @@ export async function settleWorkItemAttempt(
 	},
 ): Promise<{ workItem: WorkItem; attempt: WorkAttempt }> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
-	const prior = await getAuthoritativeWorkItemAttempt(db, {
-		orgId: params.orgId,
-		workItemId: params.workItemId,
-		attemptId: params.attemptId,
-		executor: params.executor,
-		sessionId: params.sessionId,
-		externalSessionKey: params.externalSessionKey,
-		at: settledAt,
-	});
-	const runtimeState: WorkAttemptRuntimeState =
-		params.outcome === "succeeded" ? "finished" : params.outcome;
-	const settlementMetadata = buildWorkAttemptSettlementMetadata({
-		priorMetadata: prior.metadata,
-		metadata: params.metadata,
-		repositoryLifecycle: params.repositoryLifecycle,
-		attemptId: params.attemptId,
-		workItemId: params.workItemId,
-	});
-	const settleMutation = db
-		.update(workAttempts)
-		.set({
-			runtimeState,
-			outcome: params.outcome,
-			summary: params.summary,
-			finishedAt: settledAt,
-			metadata: settlementMetadata,
-			version: sql`${workAttempts.version} + 1`,
-		})
-		.where(
-			and(
-				eq(workAttempts.id, params.attemptId),
-				eq(workAttempts.orgId, params.orgId),
-				eq(workAttempts.workItemId, params.workItemId),
-				eq(workAttempts.executorType, params.executor.type),
-				eq(workAttempts.executorId, params.executor.id),
-				eq(workAttempts.version, prior.version),
-				params.sessionId
-					? eq(workAttempts.executorSessionId, params.sessionId)
-					: isNull(workAttempts.executorSessionId),
-				params.externalSessionKey
-					? eq(workAttempts.externalSessionKey, params.externalSessionKey)
-					: isNull(workAttempts.externalSessionKey),
-				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
-				sql`${workAttempts.expiresAt} > ${settledAt}`,
-			),
-		)
-		.returning();
-	const settleEvent = db.insert(workEvents).select(
-		db
-			.select({
-				id: sql<string>`${crypto.randomUUID()}`.as("id"),
-				orgId: workAttempts.orgId,
-				workItemId: workAttempts.workItemId,
-				attemptId: workAttempts.id,
-				eventType: sql<string>`'attempt.settled'`.as("event_type"),
-				actorType: workAttempts.executorType,
-				actorId: workAttempts.executorId,
-				actorSessionId: workAttempts.executorSessionId,
-				payload: sql<
-					Record<string, JsonValue>
-				>`${JSON.stringify({ outcome: params.outcome, summary: params.summary ?? null })}`.as(
-					"payload",
-				),
-				occurredAt: sql<string>`${settledAt}`.as("occurred_at"),
+	// A heartbeat from this same Attempt bumps its version without changing who
+	// owns it. If one lands between the read and the write, re-check ownership
+	// and retry instead of refusing a valid settle; anything that really changed
+	// the fences (another executor or session, an ended state, an expired lease)
+	// still fails in getAuthoritativeWorkItemAttempt.
+	for (let tries = 0; ; tries++) {
+		const prior = await getAuthoritativeWorkItemAttempt(db, {
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			attemptId: params.attemptId,
+			executor: params.executor,
+			sessionId: params.sessionId,
+			externalSessionKey: params.externalSessionKey,
+			at: settledAt,
+		});
+		const runtimeState: WorkAttemptRuntimeState =
+			params.outcome === "succeeded" ? "finished" : params.outcome;
+		const settlementMetadata = buildWorkAttemptSettlementMetadata({
+			priorMetadata: prior.metadata,
+			metadata: params.metadata,
+			repositoryLifecycle: params.repositoryLifecycle,
+			attemptId: params.attemptId,
+			workItemId: params.workItemId,
+		});
+		const settleMutation = db
+			.update(workAttempts)
+			.set({
+				runtimeState,
+				outcome: params.outcome,
+				summary: params.summary,
+				finishedAt: settledAt,
+				metadata: settlementMetadata,
+				version: sql`${workAttempts.version} + 1`,
 			})
-			.from(workAttempts)
 			.where(
 				and(
 					eq(workAttempts.id, params.attemptId),
-					eq(workAttempts.version, prior.version + 1),
-					eq(workAttempts.runtimeState, runtimeState),
+					eq(workAttempts.orgId, params.orgId),
+					eq(workAttempts.workItemId, params.workItemId),
+					eq(workAttempts.executorType, params.executor.type),
+					eq(workAttempts.executorId, params.executor.id),
+					eq(workAttempts.version, prior.version),
+					params.sessionId
+						? eq(workAttempts.executorSessionId, params.sessionId)
+						: isNull(workAttempts.executorSessionId),
+					params.externalSessionKey
+						? eq(workAttempts.externalSessionKey, params.externalSessionKey)
+						: isNull(workAttempts.externalSessionKey),
+					inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+					sql`${workAttempts.expiresAt} > ${settledAt}`,
 				),
-			),
-	);
-	const releaseResources = db
-		.update(workResourceReservations)
-		.set({
-			state: "released",
-			settledAt,
-			version: sql`${workResourceReservations.version} + 1`,
-		})
-		.where(
-			and(
-				eq(workResourceReservations.orgId, params.orgId),
-				eq(workResourceReservations.workItemId, params.workItemId),
-				eq(workResourceReservations.state, "active"),
-				sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workResourceReservations.admissionId} AND settlement_winner.org_id=${workResourceReservations.orgId} AND settlement_winner.work_item_id=${workResourceReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
-			),
+			)
+			.returning();
+		const settleEvent = db.insert(workEvents).select(
+			db
+				.select({
+					id: sql<string>`${crypto.randomUUID()}`.as("id"),
+					orgId: workAttempts.orgId,
+					workItemId: workAttempts.workItemId,
+					attemptId: workAttempts.id,
+					eventType: sql<string>`'attempt.settled'`.as("event_type"),
+					actorType: workAttempts.executorType,
+					actorId: workAttempts.executorId,
+					actorSessionId: workAttempts.executorSessionId,
+					payload: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify({ outcome: params.outcome, summary: params.summary ?? null })}`.as(
+						"payload",
+					),
+					occurredAt: sql<string>`${settledAt}`.as("occurred_at"),
+				})
+				.from(workAttempts)
+				.where(
+					and(
+						eq(workAttempts.id, params.attemptId),
+						eq(workAttempts.version, prior.version + 1),
+						eq(workAttempts.runtimeState, runtimeState),
+					),
+				),
 		);
-	const consumeBudgets = db
-		.update(workBudgetReservations)
-		.set({
-			...budgetSettlementValues({
-				committedMicros: params.costMicros,
-				fullOnUnknown:
-					params.outcome === "succeeded" || params.outcome === "failed",
-			}),
-			settledAt,
-			version: sql`${workBudgetReservations.version} + 1`,
-		})
-		.where(
-			and(
-				eq(workBudgetReservations.orgId, params.orgId),
-				eq(workBudgetReservations.workItemId, params.workItemId),
-				eq(workBudgetReservations.state, "active"),
-				sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workBudgetReservations.admissionId} AND settlement_winner.org_id=${workBudgetReservations.orgId} AND settlement_winner.work_item_id=${workBudgetReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
-			),
-		);
-	const [settledRows] = await db.batch([
-		settleMutation,
-		releaseResources,
-		consumeBudgets,
-		settleEvent,
-	]);
-	const attempt = settledRows[0];
-	if (!attempt)
-		throw new WorkFactoryError(
-			"STALE_ATTEMPT",
-			`Attempt ${params.attemptId} is no longer authoritative`,
-		);
-	return {
-		workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
-		attempt,
-	};
+		const releaseResources = db
+			.update(workResourceReservations)
+			.set({
+				state: "released",
+				settledAt,
+				version: sql`${workResourceReservations.version} + 1`,
+			})
+			.where(
+				and(
+					eq(workResourceReservations.orgId, params.orgId),
+					eq(workResourceReservations.workItemId, params.workItemId),
+					eq(workResourceReservations.state, "active"),
+					sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workResourceReservations.admissionId} AND settlement_winner.org_id=${workResourceReservations.orgId} AND settlement_winner.work_item_id=${workResourceReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
+				),
+			);
+		const consumeBudgets = db
+			.update(workBudgetReservations)
+			.set({
+				...budgetSettlementValues({
+					committedMicros: params.costMicros,
+					fullOnUnknown:
+						params.outcome === "succeeded" || params.outcome === "failed",
+				}),
+				settledAt,
+				version: sql`${workBudgetReservations.version} + 1`,
+			})
+			.where(
+				and(
+					eq(workBudgetReservations.orgId, params.orgId),
+					eq(workBudgetReservations.workItemId, params.workItemId),
+					eq(workBudgetReservations.state, "active"),
+					sql`EXISTS (SELECT 1 FROM work_attempts AS settlement_winner WHERE settlement_winner.id=${params.attemptId} AND settlement_winner.admission_id=${workBudgetReservations.admissionId} AND settlement_winner.org_id=${workBudgetReservations.orgId} AND settlement_winner.work_item_id=${workBudgetReservations.workItemId} AND settlement_winner.version=${prior.version + 1} AND settlement_winner.runtime_state=${runtimeState})`,
+				),
+			);
+		const [settledRows] = await db.batch([
+			settleMutation,
+			releaseResources,
+			consumeBudgets,
+			settleEvent,
+		]);
+		const attempt = settledRows[0];
+		if (attempt)
+			return {
+				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
+				attempt,
+			};
+		if (tries >= SETTLE_VERSION_RETRIES)
+			throw new WorkFactoryError(
+				"STALE_ATTEMPT",
+				`Attempt ${params.attemptId} is no longer authoritative`,
+			);
+	}
 }
 
 /** Preserve admission provenance while accepting bounded settlement receipts. */

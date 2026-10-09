@@ -468,6 +468,76 @@ describe("artifact-neutral work factory", () => {
 		).toEqual({ runtime_state: "expired" });
 	});
 
+	it("settles when a same-Attempt heartbeat lands between the settle's read and write", async () => {
+		const { sqlite } = fixture();
+		seed(sqlite, "work");
+		const facade = createD1Facade(sqlite);
+		const db = createDbQueryClient(facade);
+		const { attempt } = await startWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "work",
+			admissionId: "admission-work-worker",
+			executor: { type: "tedi", id: "worker" },
+			expiresAt: "2026-08-20T13:00:00.000Z",
+			startedAt: NOW,
+		});
+		// Observed on a live Work Item: the executor's own heartbeat bumped the
+		// version after the settle read it, so a valid settle was refused.
+		const bump = (times: number) => {
+			const original = facade.batch.bind(facade);
+			let left = times;
+			facade.batch = (async (statements: Parameters<typeof original>[0]) => {
+				if (left-- > 0)
+					sqlite
+						.prepare("UPDATE work_attempts SET version=version+1 WHERE id=?")
+						.run(attempt.id);
+				return original(statements);
+			}) as typeof facade.batch;
+		};
+		bump(1);
+		const settled = await settleWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "work",
+			attemptId: attempt.id,
+			executor: { type: "tedi", id: "worker" },
+			outcome: "succeeded",
+			settledAt: NOW,
+		});
+		expect(settled.attempt).toMatchObject({
+			id: attempt.id,
+			outcome: "succeeded",
+			runtimeState: "finished",
+		});
+
+		// A version that keeps moving is bounded: the settle gives up as stale.
+		seed(sqlite, "work-2");
+		const second = await startWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "work-2",
+			admissionId: "admission-work-2-worker",
+			executor: { type: "tedi", id: "worker" },
+			expiresAt: "2026-08-20T13:00:00.000Z",
+			startedAt: NOW,
+		});
+		const original = facade.batch.bind(facade);
+		facade.batch = (async (statements: Parameters<typeof original>[0]) => {
+			sqlite
+				.prepare("UPDATE work_attempts SET version=version+1 WHERE id=?")
+				.run(second.attempt.id);
+			return original(statements);
+		}) as typeof facade.batch;
+		await expect(
+			settleWorkItemAttempt(db, {
+				orgId: "org",
+				workItemId: "work-2",
+				attemptId: second.attempt.id,
+				executor: { type: "tedi", id: "worker" },
+				outcome: "succeeded",
+				settledAt: NOW,
+			}),
+		).rejects.toMatchObject({ code: "STALE_ATTEMPT" });
+	});
+
 	it("rejects settlement after authority expiry", async () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "work");
