@@ -39,6 +39,7 @@
 		"com.openai": {
 			"onboardingSkill": "./skills/tedix-connect/SKILL.md",
 			"review": {
+				"demo_recording_url": "https://www.loom.com/share/76da2a2d59334c25b597d16a31bb033e",
 				"test_cases": {
 					"positive": [
 						{
