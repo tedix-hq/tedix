@@ -5,7 +5,10 @@
 
 import * as z from "zod";
 import { JevSettingsSchema } from "./jev";
-import { EmbeddedTediSelectionPolicySchema } from "./embedded-widget-access";
+import {
+	EmbeddedTediSelectionPolicySchema,
+	EmbeddedTurnQuotaPolicySchema,
+} from "./embedded-widget-access";
 import { ProviderCapacityPolicySchema } from "./billing";
 import { OrganizationOsThemeSchema } from "./os-theme";
 import { JsonValueSchema } from "./common";
@@ -464,6 +467,9 @@ export const OrganizationMetadataSchema = z.object({
 					"Canonical `provider/model-id` the OS quick chat routes at when the user picks nothing. Absent means inherit the tedi's own resolved chat model. Advisory: the session mint drops a ref the model catalog denies for that tedi, so this can never widen what a session may spend.",
 				),
 			version: z.literal(1),
+			turnQuota: EmbeddedTurnQuotaPolicySchema.optional().describe(
+				"Per-visitor and per-origin embedded turn ceilings per hour. Absent fields use the runtime platform defaults.",
+			),
 			analyticsEnabled: z
 				.boolean()
 				.optional()

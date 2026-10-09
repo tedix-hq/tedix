@@ -6,6 +6,7 @@ import type { tedisContract } from "@tedix/api-contract/contracts/tedis";
 import type { BaseContext } from "../../orpc";
 import {
 	evaluateEmbeddedWidgetAccess,
+	readEmbeddedTurnQuota,
 	readEmbeddedWidgetAccess,
 } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { getApiKeyById } from "@tedix/db/queries/api-keys";
@@ -402,6 +403,7 @@ export const createEmbeddedProviderSessionProcedure =
 				selectedPortableRoute?.profile ?? portableAdmission.profile,
 			portableRoute: selectedPortableRoute?.signedRoute,
 			hostDelegation: input.hostDelegation,
+			turnQuota: readEmbeddedTurnQuota(installation.provenance),
 		});
 		try {
 			await trackWidgetEvent(context.db, {

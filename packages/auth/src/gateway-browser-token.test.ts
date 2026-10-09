@@ -266,3 +266,44 @@ describe("embedded session surface", () => {
 		expect(forgedClaims.surface).toBeUndefined();
 	});
 });
+
+describe("embedded turn quota claims", () => {
+	const base = {
+		expiresAt: Math.floor(Date.now() / 1000) + 60,
+		secret: "quota-secret",
+		subject: "host:visitor",
+		tediId: "tedi_quota",
+	};
+	const verify = (token: string) =>
+		verifyGatewayBrowserToken(token, {
+			expectedTediId: "tedi_quota",
+			secret: "quota-secret",
+		});
+
+	it("round-trips configured ceilings and leaves them absent otherwise", async () => {
+		const configured = await verify(
+			await issueGatewayBrowserToken({
+				...base,
+				visitorTurnsPerHour: 30,
+				originTurnsPerHour: 900,
+			}),
+		);
+		expect(configured.visitorTurnsPerHour).toBe(30);
+		expect(configured.originTurnsPerHour).toBe(900);
+		const absent = await verify(await issueGatewayBrowserToken(base));
+		expect(absent.visitorTurnsPerHour).toBeUndefined();
+		expect(absent.originTurnsPerHour).toBeUndefined();
+	});
+
+	it("drops a ceiling that is not a positive integer", async () => {
+		const claims = await verify(
+			await issueGatewayBrowserToken({
+				...base,
+				visitorTurnsPerHour: 0,
+				originTurnsPerHour: 1.5,
+			}),
+		);
+		expect(claims.visitorTurnsPerHour).toBeUndefined();
+		expect(claims.originTurnsPerHour).toBeUndefined();
+	});
+});

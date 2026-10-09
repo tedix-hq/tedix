@@ -1,5 +1,6 @@
 import type { AudioAttachment } from "@tedix/voice/stt";
 import type { AdaptiveLearningMode } from "./adaptive-learning";
+import type { InternalEmbeddedQuotaPayload } from "./embedded-turn-quota";
 import type { SurfaceTrust, UntrustedTurnChannel } from "./turn-trust";
 
 export type ChatContextPolicy = "conversation" | "session_only";
@@ -34,6 +35,16 @@ export interface InternalChatStreamPayload {
 	/** Validated at the runtime edge against the tedi's model roster. */
 	reasoning_effort?: string;
 	context_policy?: ChatContextPolicy;
+	/** Set by the runtime edge for embedded turns; see `embedded-turn-quota.ts`. */
+	embedded_quota?: InternalEmbeddedQuotaPayload;
+}
+
+/** Embedded turn-quota scope and signed ceilings, as `streamChatTurn` carries them. */
+export interface EmbeddedTurnQuota {
+	origin?: string;
+	visitorKey?: string;
+	visitorTurnsPerHour?: number;
+	originTurnsPerHour?: number;
 }
 
 export interface StreamChatTurnInput {
@@ -48,6 +59,12 @@ export interface StreamChatTurnInput {
 	toolNamespacePrefix?: string;
 	toolAllowedCallables?: string[];
 	embeddedSessionToken?: string;
+	/**
+	 * Per-visitor and per-origin hourly ceilings for an embedded turn, from the
+	 * signed session claims via the edge. Absent on an embedded session key
+	 * still counts the visitor at the platform default.
+	 */
+	embeddedQuota?: EmbeddedTurnQuota;
 	/**
 	 * Whether the turn's author is verified. Absent means trusted: the OS
 	 * operator WebSocket and service-binding paths authenticate their caller.

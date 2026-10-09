@@ -373,6 +373,10 @@ import {
 	type InternalChatStreamPayload,
 } from "./chat-stream-input";
 import { CmSessionGate } from "./cm-execution-gate";
+import {
+	embeddedTurnQuotaFromPayload,
+	refuseOverEmbeddedTurnQuota,
+} from "./embedded-turn-quota";
 import { CmExecutionStore, hashCode } from "./cm-execution-store";
 import {
 	composeCognitiveAddenda,
@@ -14991,6 +14995,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		serviceOperationId?: string,
 	): Promise<Response> {
 		await this.ensureIdentity();
+		// Per-visitor / per-origin hourly ceiling for embedded sessions, decided
+		// before admission so a refused turn is never accepted or counted.
+		const quotaRefusal = await refuseOverEmbeddedTurnQuota(
+			this.ctx.storage,
+			input,
+			this.state.tediId,
+		);
+		if (quotaRefusal) return quotaRefusal;
 		const sessionKey = input.sessionKey;
 		const streamOrigin = input.origin ?? "chat";
 		const sseRunId = buildRunId(
@@ -15555,6 +15567,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				toolNamespacePrefix: payload.tool_namespace_prefix,
 				toolAllowedCallables: payload.tool_allowed_callables,
 				embeddedSessionToken: payload.embedded_session_token,
+				embeddedQuota: embeddedTurnQuotaFromPayload(payload.embedded_quota),
 				// `/__internal/*` is reachable only from this Worker's own edge, which
 				// resolves a model choice against the tedi's model-catalog roster
 				// before dispatching. Re-deriving that verdict here would need a

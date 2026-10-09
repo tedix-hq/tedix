@@ -77,6 +77,28 @@ export type EmbeddedModelSelection = z.infer<
 	typeof EmbeddedModelSelectionSchema
 >;
 
+/**
+ * Per-hour embedded turn ceilings. Absent fields fall back to the runtime's
+ * platform defaults (`apps/tedi-runtime/src/embedded-turn-quota.ts`); the
+ * values are signed into the session so the runtime enforces what the API
+ * minted, never a browser-supplied number.
+ */
+export const EmbeddedTurnQuotaPolicySchema = z.object({
+	visitorTurnsPerHour: z.number().int().min(1).max(10_000).optional(),
+	originTurnsPerHour: z.number().int().min(1).max(100_000).optional(),
+});
+export type EmbeddedTurnQuotaPolicy = z.infer<
+	typeof EmbeddedTurnQuotaPolicySchema
+>;
+
+/** Installation-level override; absent or malformed defers to the customer organization's widget config. */
+export function readEmbeddedTurnQuota(
+	provenance: Record<string, unknown> | null | undefined,
+): EmbeddedTurnQuotaPolicy | undefined {
+	const result = EmbeddedTurnQuotaPolicySchema.safeParse(provenance?.turnQuota);
+	return result.success ? result.data : undefined;
+}
+
 const UserIdSchema = z.string().trim().min(1).max(200);
 export const EmbeddedWidgetAccessPolicySchema = z.object({
 	version: z.literal(1),
