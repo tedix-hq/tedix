@@ -1,5 +1,6 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { sweepElapsedWorkAttempts } from "@tedix/db/queries/work-items/attempts";
+import { sweepStaleFailedDelegationWorkItems } from "@tedix/db/queries/work-items/stale-delegation-sweep";
 
 /**
  * Bounded per tick. The steady state is zero candidates — one index probe on
@@ -47,5 +48,24 @@ export async function runWorkAttemptLeaseSweeperTick(
 			`[WorkAttemptLeaseSweeper] retired ${result.expired} elapsed attempt lease(s)`,
 		);
 	}
-	return { ...result };
+	// Same tick, same shape: pure D1, idempotent, zero candidates at steady state.
+	// Closes kernel-delegation items whose failed Attempt nobody retried in a week.
+	const stale = await sweepStaleFailedDelegationWorkItems(
+		createDbQueryClient(env.DB),
+		{
+			now: new Date(scheduledTime).toISOString(),
+			limit: MAX_ATTEMPTS_PER_TICK,
+		},
+	);
+	if (stale.cancelled > 0) {
+		console.log(
+			`[WorkAttemptLeaseSweeper] cancelled ${stale.cancelled} stale failed delegation(s)`,
+		);
+	}
+	return {
+		...result,
+		staleDelegationsObserved: stale.observed,
+		staleDelegationsCancelled: stale.cancelled,
+		staleDelegationsSkipped: stale.skipped,
+	};
 }
