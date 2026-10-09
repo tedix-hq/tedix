@@ -85,12 +85,11 @@ const englishContent = {
 	},
 	home: {
 		hero: {
-			line1: "AI coworkers",
-			line2: "that show",
-			line3: "their work.",
-			subtitleIntro: "Tedix gives your team AI coworkers for recurring work.",
-			subtitleHighlight:
-				"They ask before risky steps and leave a record of every run.",
+			line1: "Turn signals",
+			line2: "into approved",
+			line3: "actions.",
+			subtitleIntro: "Run autonomous workflows across",
+			subtitleHighlight: "systems your company already uses.",
 			description:
 				"Draft a meeting agenda, revise it in the same conversation, or assign tool-based work to a tedi with scoped permissions and a record of its actions.",
 			primaryCta: "Open Tedix Cloud",
@@ -400,13 +399,11 @@ const germanContent = {
 	},
 	home: {
 		hero: {
-			line1: "KI-Kollegen,",
-			line2: "die ihre Arbeit",
-			line3: "zeigen.",
-			subtitleIntro:
-				"Tedix gibt Ihrem Team KI-Kollegen für wiederkehrende Arbeit.",
-			subtitleHighlight:
-				"Sie fragen vor riskanten Schritten nach und dokumentieren jeden Lauf.",
+			line1: "Aus Signalen",
+			line2: "werden freigegebene",
+			line3: "Aktionen.",
+			subtitleIntro: "Führen Sie autonome Workflows über",
+			subtitleHighlight: "Systeme aus, die Ihr Unternehmen bereits nutzt.",
 			description:
 				"Erstellen Sie eine Besprechungsagenda, überarbeiten Sie sie im selben Gespräch oder delegieren Sie Aufgaben mit Tools an einen Tedi mit begrenzten Rechten und nachvollziehbaren Aktionen.",
 			primaryCta: "Tedix Cloud öffnen",
@@ -712,13 +709,11 @@ const spanishContent = {
 	},
 	home: {
 		hero: {
-			line1: "Compañeros de IA",
-			line2: "que muestran",
-			line3: "su trabajo.",
-			subtitleIntro:
-				"Tedix ofrece a tu equipo compañeros de IA para el trabajo recurrente.",
-			subtitleHighlight:
-				"Preguntan antes de dar pasos arriesgados y dejan un registro de cada ejecución.",
+			line1: "Convierte señales",
+			line2: "en acciones",
+			line3: "aprobadas.",
+			subtitleIntro: "Ejecuta flujos de trabajo autónomos en",
+			subtitleHighlight: "los sistemas que tu empresa ya usa.",
 			description:
 				"Crea una agenda, revísala en la misma conversación o asigna tareas con herramientas a un tedi con permisos limitados y un registro de sus acciones.",
 			primaryCta: "Abrir Tedix Cloud",
