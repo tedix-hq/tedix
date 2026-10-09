@@ -2,10 +2,130 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	cloudflareAccessPrincipalIdentity,
 	descopeServiceIdentity,
+	descopeAgenticAppUserIssuer,
 	descopeIssuer,
+	descopeProjectUserIdentity,
 	descopeTenantIdentity,
 	descopeUserIdentity,
 } from "./principal-identity";
+
+describe("Descope agentic-app user tokens", () => {
+	const options = {
+		projectId: "P2fictional",
+		baseUrl: "https://auth.example.test",
+	};
+	const agenticIssuer =
+		"https://api.descope.com/v1/apps/agentic/P2fictional/RSapp1";
+	const userToken = {
+		iss: agenticIssuer,
+		sub: "U2fictionaluser",
+		email: "ada@example.test",
+		client_id: "cimd-client",
+		azp: "cimd-client",
+		exp: 4_000_000_000,
+	};
+
+	it("names a same-project user token by the project issuer", () => {
+		expect(descopeProjectUserIdentity(userToken, options)).toEqual({
+			provider: "descope",
+			issuer: "https://auth.example.test/P2fictional",
+			subject: "U2fictionaluser",
+		});
+	});
+
+	it.each([
+		[
+			"another project",
+			"https://api.descope.com/v1/apps/agentic/P2other/RSapp1",
+		],
+		[
+			"a lookalike host",
+			"https://api.descope.com.evil.test/v1/apps/agentic/P2fictional/RSapp1",
+		],
+		[
+			"a custom origin",
+			"https://auth.example.test/v1/apps/agentic/P2fictional/RSapp1",
+		],
+		["plain http", "http://api.descope.com/v1/apps/agentic/P2fictional/RSapp1"],
+		[
+			"an extra segment",
+			"https://api.descope.com/v1/apps/agentic/P2fictional/RSapp1/x",
+		],
+		["a missing app", "https://api.descope.com/v1/apps/agentic/P2fictional"],
+		[
+			"a non-agentic path",
+			"https://api.descope.com/v1/apps/other/P2fictional/RSapp1",
+		],
+		[
+			"a project prefix",
+			"https://api.descope.com/v1/apps/agentic/P2fictionalX/RSapp1",
+		],
+		[
+			"a query",
+			"https://api.descope.com/v1/apps/agentic/P2fictional/RSapp1?x=1",
+		],
+		[
+			"credentials",
+			[
+				"https://u:p",
+				"api.descope.com/v1/apps/agentic/P2fictional/RSapp1",
+			].join("@"),
+		],
+		["the bare project id", "P2fictional"],
+	])("keeps the raw issuer for %s", (_label, iss) => {
+		const token = { ...userToken, iss };
+		expect(descopeAgenticAppUserIssuer(token, options)).toBeNull();
+		expect(descopeProjectUserIdentity(token, options).issuer).toBe(
+			iss.replace(/\/+$/, ""),
+		);
+	});
+
+	it("does not map when no project is configured", () => {
+		expect(
+			descopeAgenticAppUserIssuer(userToken, { projectId: " " }),
+		).toBeNull();
+	});
+
+	it.each([
+		[
+			"an AIH client-credentials subject",
+			{ sub: "TPAclient1", email: undefined },
+		],
+		["a machine token without email", { email: undefined }],
+		["a tedi entity", { entityType: "tedi" }],
+		["a tedi id claim", { tediId: "tedi-1" }],
+		["a delegated actor", { act: { sub: "TPAagent" } }],
+		[
+			"a subject equal to the client",
+			{ sub: "Ucimd", client_id: "Ucimd", azp: "Ucimd" },
+		],
+		["a non-user subject", { sub: "external-agent-1" }],
+	])("never maps %s to a human user", (_label, claims) => {
+		const token = { ...userToken, ...claims };
+		expect(descopeAgenticAppUserIssuer(token, options)).toBeNull();
+		expect(descopeProjectUserIdentity(token, options).issuer).toBe(
+			agenticIssuer,
+		);
+	});
+
+	it("rejects a token without a subject", () => {
+		const token = { ...userToken, sub: undefined };
+		expect(descopeAgenticAppUserIssuer(token, options)).toBeNull();
+		expect(() => descopeProjectUserIdentity(token, options)).toThrow(
+			/missing sub/,
+		);
+	});
+
+	it("leaves project-issuer tokens unchanged", () => {
+		const token = {
+			...userToken,
+			iss: "https://auth.example.test/P2fictional",
+		};
+		expect(descopeProjectUserIdentity(token, options).issuer).toBe(
+			"https://auth.example.test/P2fictional",
+		);
+	});
+});
 
 describe("provider-neutral principal identity", () => {
 	it("constructs the certified Descope issuer from installation config", () => {

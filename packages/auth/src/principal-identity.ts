@@ -1,5 +1,6 @@
+import { isUserToken } from "./jwt.ts";
 import type { JWTPayload } from "./types";
-import { DESCOPE_DEFAULT_BASE_URL } from "./types";
+import { DESCOPE_DEFAULT_BASE_URL, DESCOPE_MANAGEMENT_BASE_URL } from "./types";
 import { trimTrailingSlashes } from "./utils.ts";
 
 export interface ExternalPrincipalIdentity {
@@ -52,6 +53,74 @@ export function descopeUserIdentity(
 ): ExternalPrincipalIdentity {
 	if (!payload.sub) throw new Error("Descope user token is missing sub");
 	return descopePrincipalIdentity(payload, payload.sub);
+}
+
+/** Descope user ids; AIH client-credentials subjects are `TPA…` client ids. */
+const DESCOPE_USER_SUBJECT_RE = /^U[A-Za-z0-9]+$/;
+const DESCOPE_AGENTIC_APP_SEGMENT_RE = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * A Descope agentic app (AIH MCP server) signs its OAuth tokens with
+ * `https://api.descope.com/v1/apps/agentic/<project>/<app>`, while Tedix binds
+ * human users under the project issuer. Return the project issuer when `iss`
+ * is exactly an agentic-app issuer of the configured project and the token is
+ * a human user token; otherwise null. Signature and expiry are the caller's
+ * responsibility; this only decides which issuer names the same user.
+ */
+export function descopeAgenticAppUserIssuer(
+	payload: JWTPayload,
+	options: { projectId: string; baseUrl?: string },
+): string | null {
+	const projectId = options.projectId.trim();
+	if (!projectId) return null;
+	let issuer: URL;
+	try {
+		issuer = new URL(payload.iss);
+	} catch {
+		return null;
+	}
+	if (
+		issuer.origin !== DESCOPE_MANAGEMENT_BASE_URL ||
+		issuer.search ||
+		issuer.hash ||
+		issuer.username ||
+		issuer.password
+	) {
+		return null;
+	}
+	const path = issuer.pathname.split("/");
+	if (
+		path.length !== 6 ||
+		path[0] !== "" ||
+		path[1] !== "v1" ||
+		path[2] !== "apps" ||
+		path[3] !== "agentic" ||
+		path[4] !== projectId ||
+		!DESCOPE_AGENTIC_APP_SEGMENT_RE.test(path[5] ?? "")
+	) {
+		return null;
+	}
+	const subject = payload.sub?.trim();
+	if (!subject || !DESCOPE_USER_SUBJECT_RE.test(subject)) return null;
+	// Machine, tedi, external-agent and delegated (RFC 8693 `act`) tokens keep
+	// their own issuer, so they can never resolve to a human user binding.
+	if (!isUserToken(payload)) return null;
+	if (payload.act !== undefined) return null;
+	if (subject === payload.client_id || subject === payload.azp) return null;
+	return descopeIssuer(projectId, options.baseUrl);
+}
+
+/**
+ * The user identity for a Descope token, naming agentic-app user tokens of the
+ * configured project by the project issuer they are bound under.
+ */
+export function descopeProjectUserIdentity(
+	payload: JWTPayload,
+	options: { projectId: string; baseUrl?: string },
+): ExternalPrincipalIdentity {
+	const identity = descopeUserIdentity(payload);
+	const projectIssuer = descopeAgenticAppUserIssuer(payload, options);
+	return projectIssuer ? { ...identity, issuer: projectIssuer } : identity;
 }
 
 export function descopeServiceIdentity(
