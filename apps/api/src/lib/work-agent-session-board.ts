@@ -3,7 +3,9 @@
  *
  * Stored state is whatever the plugin last reported. A report can go stale
  * (the machine slept, the host crashed), so the board ages it into `idle`
- * instead of letting a forgotten "working" or "done" sit at the top forever.
+ * instead of letting a forgotten "working" or "done" sit at the top forever,
+ * and a session silent for 12 hours reads as `ended`: it stopped without a
+ * final status.
  */
 
 import type {
@@ -28,6 +30,9 @@ const STALE_AFTER_MS: Partial<Record<StoredState, number>> = {
 	error: 24 * HOUR_MS,
 };
 
+/** A session with no update for this long has ended. */
+const ENDED_AFTER_MS = 12 * HOUR_MS;
+
 /** Board order, most urgent first. */
 export const WORK_AGENT_SESSION_BOARD_ORDER = [
 	"needs_you",
@@ -45,6 +50,7 @@ export function deriveWorkAgentSessionEffectiveState(
 	const staleAfter = STALE_AFTER_MS[session.state];
 	if (staleAfter === undefined) return session.state;
 	const age = Date.parse(now) - Date.parse(session.lastEventAt);
+	if (age > ENDED_AFTER_MS) return "ended";
 	return age > staleAfter ? "idle" : session.state;
 }
 

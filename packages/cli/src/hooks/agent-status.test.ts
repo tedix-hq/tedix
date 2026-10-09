@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,11 +18,14 @@ import {
 	DETACHED,
 	type DetachedOptions,
 	harnessOf,
+	pruneStatusFiles,
 	REPORT_VERB,
 	recordAutoContinued,
 	reportInput,
 	runAgentStatus,
+	STATUS_ENDED_AFTER_MS,
 	SUPERVISOR_CONTINUED_SUFFIX,
+	statusEnded,
 	type TriageResult,
 	transition,
 	triagedOutcome,
@@ -555,5 +559,47 @@ describe("tedix hooks status", () => {
 			undefined,
 		);
 		expect(state("codex")?.state).toBe("needs_you");
+	});
+});
+
+describe("stale session status", () => {
+	const NOW = Date.parse("2026-10-09T12:00:00Z");
+	const at = (hoursAgo: number) =>
+		new Date(NOW - hoursAgo * 3_600_000).toISOString();
+
+	test("a session silent for 12 hours has ended", () => {
+		expect(statusEnded({ state: "working", updatedAt: at(1) }, NOW)).toBe(
+			false,
+		);
+		expect(statusEnded({ state: "done", updatedAt: at(11.9) }, NOW)).toBe(
+			false,
+		);
+		expect(statusEnded({ state: "needs_you", updatedAt: at(13) }, NOW)).toBe(
+			true,
+		);
+		expect(statusEnded({ state: "ended", updatedAt: at(0) }, NOW)).toBe(true);
+		expect(statusEnded({ state: "working" }, NOW)).toBe(true);
+		expect(STATUS_ENDED_AFTER_MS).toBe(12 * 3_600_000);
+	});
+
+	test("prunes session files older than 7 days and keeps the rest", () => {
+		const directory = join(base, "agent-status");
+		mkdirSync(directory, { recursive: true });
+		const file = (name: string, daysAgo: number) => {
+			const path = join(directory, name);
+			writeFileSync(path, "{}");
+			const time = (NOW - daysAgo * 86_400_000) / 1000;
+			utimesSync(path, time, time);
+			return path;
+		};
+		const old = file(`claude-code-${SESSION}.json`, 8);
+		const marker = file(`codex-${SESSION}${AUTO_CONTINUED_SUFFIX}`, 9);
+		const fresh = file("codex-22222222-2222-4222-8222-222222222222.json", 6);
+		const log = file("report.log", 30);
+		expect(pruneStatusFiles({ TEDIX_CONFIG_DIR: base }, NOW)).toBe(2);
+		expect(existsSync(old)).toBe(false);
+		expect(existsSync(marker)).toBe(false);
+		expect(existsSync(fresh)).toBe(true);
+		expect(existsSync(log)).toBe(true);
 	});
 });

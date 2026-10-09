@@ -18,6 +18,7 @@ import {
 	agentTurnTriageContractRouter,
 	DEFAULT_AGENT_TURN_STEERING,
 	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
+	saysNothingNeeded,
 } from "./agent-turn-triage";
 
 const ORG_1 = "00000000-0000-4000-8000-000000000001";
@@ -96,7 +97,55 @@ function noulAnswers(probabilities: Record<string, number>) {
 	};
 }
 
+describe("saysNothingNeeded", () => {
+	it.each([
+		"Pushed to main and the Ship run is going. Nothing else to do until the check finishes.",
+		"The fix is committed and the deploy is running. There's nothing for you to do.",
+		"All tests pass. No action needed from you.",
+		"Still waiting on the ship lane to pick this up; I'll report the live result.",
+		"Waiting for the subagent to finish the migration review.",
+		"Nothing needs you right now; the check reruns on its own.",
+		"Alles gepusht. Für dich ist nichts zu tun, ich warte auf den Deploy.",
+		"Keine Aktion deinerseits nötig.",
+		"Todo está en main. No necesitas hacer nada por ahora.",
+		"Esperando al despliegue; no se requiere ninguna acción.",
+	])("reads %j as an update", (text) => {
+		expect(saysNothingNeeded(text)).toBe(true);
+	});
+
+	it.each([
+		"Should I drop the old table or keep it for a week?",
+		"Please log in with tedix auth login so I can continue.",
+		"Waiting on the deploy. Nothing else to do until then, unless you want me to also bump the CLI?",
+		"The check failed twice with the same error; which approach do you prefer?",
+		"Waiting for your approval before I publish the release.",
+		"I am waiting on you to rotate the API key.",
+	])("keeps %j as an ask", (text) => {
+		expect(saysNothingNeeded(text)).toBe(false);
+	});
+});
+
 describe("triage", () => {
+	it("records an explicit 'nothing for you to do' turn as asking nothing", async () => {
+		const { env } = createEnv(async () =>
+			noulAnswers({
+				blocker_or_failure: 0.6,
+				human_only_action: 0.1,
+				risky_action: 0.1,
+				asks_user: 0.8,
+			}),
+		);
+		const result = await client(userContext(env)).triage({
+			text: "Pushed; the deploy is running. There is nothing for you to do until the check finishes.",
+		});
+		expect(result).toMatchObject({
+			status: "ok",
+			urgency: "later",
+			urgentLabels: [],
+			labels: { asks_user: 0 },
+		});
+	});
+
 	it("sends the Clef request shape and reports later below every threshold", async () => {
 		const { env } = createEnv(async () =>
 			noulAnswers({
@@ -136,8 +185,9 @@ describe("triage", () => {
 				),
 				asks_user: {
 					type: "noul",
-					instructions:
-						"Does this turn ask the user for a decision, fact, approval or action only they can give?",
+					instructions: expect.stringMatching(
+						/^Does this turn ask the user for a decision, fact, approval or action only they can give\? Answer no when/,
+					),
 				},
 				off_track: {
 					type: "noul",

@@ -1,5 +1,5 @@
 {
-	"assetVersion": 8,
+	"assetVersion": 9,
 	"policy": {
 		"enabled": true,
 		"model": "@cf/cloudflare/clef-flash",
@@ -97,7 +97,25 @@
 	"attention": {
 		"ask": {
 			"id": "asks_user",
-			"instructions": "Does this turn ask the user for a decision, fact, approval or action only they can give?",
+			"instructions": "Does this turn ask the user for a decision, fact, approval or action only they can give? Answer no when the agent only reports progress, says it is waiting on its own background work (a check, build, deploy, ship run, subagent or another agent), or says itself that nothing is needed from the user. Examples that ask nothing: 'Pushed; the deploy is running. Nothing else to do until the check finishes.' 'Waiting on the ship lane; there is nothing for you to do.' 'All tests pass and the fix is on main. No action needed from you.' 'I will report back when the subagent finishes.' Examples that do ask: 'Should I delete the old table or keep it?' 'Please log in with tedix auth login so I can continue.' 'Which of the two designs do you want?'",
+			"noAskPatterns": [
+				"\\bnothing (?:else |more |further )?(?:is )?(?:needed|required|needs doing) (?:from|of|by) you\\b",
+				"\\bnothing (?:else |more |further )?(?:needs|requires) (?:you|your (?:input|action|attention))\\b",
+				"\\bnothing (?:else |more |further )?(?:for you|on your (?:side|end|part)) to do\\b",
+				"\\bnothing (?:else |more |further )?(?:for you|you need) to (?:do|decide|answer)\\b",
+				"\\byou (?:don't|do not|won't|will not) (?:need|have) to do anything\\b",
+				"\\bno (?:action|input|decision)s? (?:is |are )?(?:needed|required)\\b",
+				"\\bnothing (?:else |more |further )?to do (?:until|while|but wait)\\b",
+				"\\b(?:still |now |just )?waiting (?:on|for) (?:the |a |my |your |its |this )?(?:(?:sub)?agents?|deploy(?:ment)?s?|ship(?: run| lane)?|release|ci|checks?|build|pipeline|tests?|workflow)\\b(?![^.!?\\n]*\\b(?:you|your)\\b)",
+				"\\bnichts (?:weiter(?:es)?|mehr|anderes )?\\s*(?:für dich |von dir |für sie |von ihnen )?(?:zu tun|nötig|erforderlich)\\b",
+				"\\b(?:du musst|sie müssen) nichts (?:tun|machen|entscheiden)\\b",
+				"\\bkeine (?:aktion|handlung|eingabe|entscheidung) (?:deinerseits |ihrerseits |von dir |von ihnen )?(?:nötig|erforderlich|notwendig)\\b",
+				"\\bwarte (?:noch )?auf (?:den |das |die )?(?:agenten?|subagenten?|deploy(?:ment)?|ship(?:-lauf)?|release|ci|checks?|build|pipeline|tests?)\\b",
+				"\\bnada (?:más )?(?:que hacer|pendiente) (?:por tu parte|de tu parte|para ti|hasta)\\b",
+				"\\bno (?:necesitas|tienes que|hace falta que) hag(?:a|as) nada\\b|\\bno (?:necesitas|tienes que) hacer nada\\b",
+				"\\bno se (?:requiere|necesita) (?:ninguna )?acción\\b|\\bninguna acción (?:necesaria|requerida)\\b",
+				"\\besperando (?:a |al |el |la |los |las )?(?:agentes?|subagentes?|deploy|despliegue|ship|release|ci|checks?|build|pipeline|pruebas|tests?)\\b"
+			],
 			"needsYouWhen": {
 				"gte": 0.5
 			}

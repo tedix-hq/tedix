@@ -15,9 +15,13 @@ describe("deriveWorkAgentSessionEffectiveState", () => {
 		["working", 31, "idle"],
 		["done", 119, "done"],
 		["done", 121, "idle"],
-		["needs_you", 23 * 60, "needs_you"],
-		["needs_you", 25 * 60, "idle"],
-		["error", 25 * 60, "idle"],
+		["done", 11 * 60, "idle"],
+		["working", 13 * 60, "ended"],
+		["done", 13 * 60, "ended"],
+		["needs_you", 11 * 60, "needs_you"],
+		["needs_you", 13 * 60, "ended"],
+		["error", 11 * 60, "error"],
+		["error", 13 * 60, "ended"],
 		["ended", 48 * 60, "ended"],
 	] as const)("%s after %i minutes reads as %s", (state, minutes, expected) => {
 		expect(
