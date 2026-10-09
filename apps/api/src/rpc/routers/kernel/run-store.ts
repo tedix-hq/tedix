@@ -36,6 +36,8 @@ import {
 	hasUnacceptedChatDispatch,
 	insertKernelRuntimeRunIfAbsent,
 	type KernelRuntimeRun,
+	settleKernelRuntimeTurn,
+	type TransitionKernelRuntimeRunStatusParams,
 	updateKernelRuntimeRunForOrg,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
@@ -2139,10 +2141,11 @@ export async function existingRunStartedCause(
 	return row.causeEventId;
 }
 
-export async function insertKernelRuntimeEventWithStatus(
+/** The persistable row for one kernel runtime event input. */
+function buildKernelRuntimeEventRow(
 	context: BaseContext,
 	input: KernelRuntimeEventInsertInput,
-): Promise<{ event: KernelRuntimeEvent; inserted: boolean }> {
+): NewKernelRuntimeEvent {
 	const createdAt = input.createdAt ?? nowIso();
 	const payload = stampConversationOrigin(context, input.kind, input.payload);
 	const event = buildKernelRuntimeEvent({
@@ -2163,30 +2166,58 @@ export async function insertKernelRuntimeEventWithStatus(
 		runtimeMetadata: input.runtimeMetadata,
 		createdAt,
 	});
+	return {
+		id: event.id,
+		organizationId: event.organizationId,
+		kind: event.kind,
+		conversationId: event.conversationId,
+		runId: event.runId,
+		messageId: event.messageId,
+		causeEventId: event.causeEventId,
+		delegatedTediId: event.delegatedTediId,
+		childRunId: event.childRunId,
+		sequence: event.sequence,
+		delta: event.delta,
+		payload:
+			event.payload === undefined ? undefined : toJsonRecord(event.payload),
+		runtimeBackend: event.runtime?.backend ?? KERNEL_RUNTIME_BACKEND,
+		runtimeExternalId: event.runtime?.externalId,
+		runtimeMetadata:
+			event.runtime?.metadata === undefined
+				? undefined
+				: toJsonRecord(event.runtime.metadata),
+		createdAt: event.createdAt,
+	};
+}
+
+/**
+ * Finish a persisted event: write-through to the durable Home conversation
+ * index only on a REAL insert (an idempotent replay returns the existing row
+ * and must not double-count). Fail-soft inside; no-op for kinds the projection
+ * does not track.
+ */
+async function finishPersistedKernelRuntimeEvent(
+	context: BaseContext,
+	persisted: { row: KernelRuntimeEventRow; inserted: boolean },
+): Promise<{ event: KernelRuntimeEvent; inserted: boolean }> {
+	if (persisted.inserted)
+		await applyKernelConversationEvent(context.db, persisted.row);
+	return {
+		event: normalizeHomeEvent(persisted.row),
+		inserted: persisted.inserted,
+	};
+}
+
+export async function insertKernelRuntimeEventWithStatus(
+	context: BaseContext,
+	input: KernelRuntimeEventInsertInput,
+): Promise<{ event: KernelRuntimeEvent; inserted: boolean }> {
 	let inserted;
 	try {
-		inserted = await insertKernelRuntimeEventIfAbsent(context.db, {
-			id: event.id,
-			organizationId: event.organizationId,
-			kind: event.kind,
-			conversationId: event.conversationId,
-			runId: event.runId,
-			messageId: event.messageId,
-			causeEventId: event.causeEventId,
-			delegatedTediId: event.delegatedTediId,
-			childRunId: event.childRunId,
-			sequence: event.sequence,
-			delta: event.delta,
-			payload:
-				event.payload === undefined ? undefined : toJsonRecord(event.payload),
-			runtimeBackend: event.runtime?.backend ?? KERNEL_RUNTIME_BACKEND,
-			runtimeExternalId: event.runtime?.externalId,
-			runtimeMetadata:
-				event.runtime?.metadata === undefined
-					? undefined
-					: toJsonRecord(event.runtime.metadata),
-			createdAt: event.createdAt,
-		});
+		inserted = await insertKernelRuntimeEventIfAbsent(
+			context.db,
+			buildKernelRuntimeEventRow(context, input),
+		);
 	} catch (error) {
 		if (error instanceof KernelRuntimeEventConflictError)
 			throw createError(
@@ -2195,20 +2226,68 @@ export async function insertKernelRuntimeEventWithStatus(
 			);
 		throw error;
 	}
-	if (inserted.inserted && inserted.row) {
-		// Write-through to the durable Home conversation index. Only on a REAL
-		// insert (an idempotent replay returns the existing row below and must
-		// not double-count). Fail-soft inside; no-op for kinds the projection
-		// does not track.
-		await applyKernelConversationEvent(context.db, inserted.row);
-		return { event: normalizeHomeEvent(inserted.row), inserted: true };
-	}
 	if (inserted.row)
-		return { event: normalizeHomeEvent(inserted.row), inserted: false };
+		return finishPersistedKernelRuntimeEvent(context, {
+			row: inserted.row,
+			inserted: inserted.inserted,
+		});
 	throw createError(
 		ErrorCodes.INTERNAL_SERVER_ERROR,
 		"kernel runtime event insert was ignored and no existing event was found",
 	);
+}
+
+/** Input of {@link persistKernelTurnSettlement}. */
+export interface KernelTurnSettlementInput {
+	run: TransitionKernelRuntimeRunStatusParams;
+	/** `message.completed` first, the terminal receipt second. */
+	events: readonly [
+		assistant: KernelRuntimeEventInsertInput,
+		terminal: KernelRuntimeEventInsertInput,
+	];
+}
+
+/**
+ * Land a turn's terminal run patch, its `message.completed` row and its
+ * terminal receipt in one D1 batch (`settleKernelRuntimeTurn`), then run the
+ * conversation-index write-through for each freshly inserted row in stream
+ * order. Same durability and idempotency as three sequential
+ * {@link insertKernelRuntimeEvent} / `transitionKernelRuntimeRunStatus`
+ * calls, with one primary round trip instead of three.
+ */
+export async function persistKernelTurnSettlement(
+	context: BaseContext,
+	input: KernelTurnSettlementInput,
+): Promise<{
+	runTransitioned: boolean;
+	assistantEvent: KernelRuntimeEvent;
+	terminalEvent: KernelRuntimeEvent;
+}> {
+	const settled = await settleKernelRuntimeTurn(context.db, {
+		run: input.run,
+		events: input.events.map((event) =>
+			buildKernelRuntimeEventRow(context, event),
+		),
+	});
+	const [assistant, terminal] = settled.events;
+	if (!assistant || !terminal)
+		throw createError(
+			ErrorCodes.INTERNAL_SERVER_ERROR,
+			"kernel turn settlement batch returned fewer events than it wrote",
+		);
+	const assistantEvent = await finishPersistedKernelRuntimeEvent(
+		context,
+		assistant,
+	);
+	const terminalEvent = await finishPersistedKernelRuntimeEvent(
+		context,
+		terminal,
+	);
+	return {
+		runTransitioned: settled.runTransitioned,
+		assistantEvent: assistantEvent.event,
+		terminalEvent: terminalEvent.event,
+	};
 }
 
 export async function insertKernelRuntimeEvent(

@@ -62,6 +62,7 @@ import {
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
 	getKernelRuntimeRun,
+	type KernelRuntimeRunUpdate,
 	transitionKernelRuntimeRunStatus,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -230,6 +231,37 @@ export interface KernelTurnWorkDeps {
 	insertKernelRuntimeEvent: (
 		input: HomeTurnRuntimeEventInput,
 	) => Promise<KernelRuntimeEvent>;
+	/**
+	 * Optional batched terminal persist: the conditional running→terminal run
+	 * patch, the `message.completed` row and the terminal receipt in ONE D1
+	 * batch (`run-store.ts` `persistKernelTurnSettlement`). Absent ⇒ the same
+	 * three writes run sequentially through `transitionKernelRuntimeRunStatus`
+	 * and {@link insertKernelRuntimeEvent}, which is what tests stub.
+	 */
+	persistTurnSettlement?: (input: {
+		run: {
+			id: string;
+			organizationId: string;
+			fromStatus: "running";
+			patch: KernelRuntimeRunUpdate;
+		};
+		events: readonly [
+			assistant: HomeTurnRuntimeEventInput,
+			terminal: HomeTurnRuntimeEventInput,
+		];
+	}) => Promise<{
+		assistantEvent: KernelRuntimeEvent;
+		terminalEvent: KernelRuntimeEvent;
+	}>;
+	/**
+	 * Optional holder for post-settlement work (conversation auto-title, trace
+	 * evidence) that must not delay the settled answer. The promise handed over
+	 * never rejects. Inline /rpc path: `context.waitUntil`. KernelDO: a tracker
+	 * drained after the live turn state is cleared and before the RPC returns,
+	 * because a promise detached in a DO can be dropped on abort/idle. Absent ⇒
+	 * the turn body awaits the work itself before resolving.
+	 */
+	holdAfterSettle?: (work: Promise<void>) => void;
 	resolveKernelWriteAnchorTediId: (
 		organizationId: string,
 	) => Promise<string | null>;
@@ -475,10 +507,11 @@ export interface KernelTurnWorkDeps {
 	 *   `waitUntil` (inline /rpc HTTP path) — fire-and-forget, the settle does
 	 *   not wait on title completion.
 	 * - Dep returns a `Promise` ⇒ the context has no waitUntil (e.g. the
-	 *   KernelDO's synthetic `turnContext()`) and nothing else would hold the
-	 *   work — the turn body awaits it so the promise cannot be dropped when
-	 *   the DO is aborted/idled between turns. Bounded: the helper has a 10s
-	 *   LLM abort and never throws.
+	 *   KernelDO's synthetic `turnContext()`). The turn body hands it to
+	 *   {@link holdAfterSettle} (the KernelDO drains it after the live turn
+	 *   state clears, before the RPC returns) or, without a holder, awaits it
+	 *   itself — so the promise cannot be dropped when the DO is aborted/idled
+	 *   between turns. Bounded: the helper has a 10s LLM abort and never throws.
 	 * Absent in tests that don't exercise titling.
 	 */
 	generateConversationTitle?: (input: {
@@ -2100,23 +2133,30 @@ export async function runKernelTurnWork(
 			?.routerVersion;
 		return typeof candidate === "string" ? candidate : null;
 	})();
-	let kernelHarnessVersion: HarnessSubjectVersion | null = null;
-	if (routerVersion && deps.ensureKernelHarnessVersion) {
-		try {
-			const ensured = await deps.ensureKernelHarnessVersion({
-				organizationId,
-				routerVersion,
-				createdAt,
-			});
-			kernelHarnessVersion = ensured?.version ?? null;
-		} catch (error) {
-			console.warn({
-				component: "kernel.turn_work",
-				event: "harness_version_ensure_failed",
-				error: safeExceptionTopology(error),
-			});
-		}
-	}
+	// Started here, resolved right before the terminal metadata needs it: the
+	// ensure is its own D1 round trip and nothing between here and the terminal
+	// writes reads it, so it overlaps the write-proposal / dispatch work instead
+	// of serializing ahead of it. Fail-soft: null on any failure, never throws.
+	const kernelHarnessVersionWork: Promise<HarnessSubjectVersion | null> =
+		routerVersion && deps.ensureKernelHarnessVersion
+			? Promise.resolve()
+					.then(() =>
+						deps.ensureKernelHarnessVersion?.({
+							organizationId,
+							routerVersion,
+							createdAt,
+						}),
+					)
+					.then((ensured) => ensured?.version ?? null)
+					.catch((error: unknown) => {
+						console.warn({
+							component: "kernel.turn_work",
+							event: "harness_version_ensure_failed",
+							error: safeExceptionTopology(error),
+						});
+						return null;
+					})
+			: Promise.resolve(null);
 	// Per-turn cost advisor (advise / shadow-telemetry mode only).
 	// Derives a shadow verdict from the existing route decision — no second LLM
 	// call. The verdict is recorded into run metadata below as
@@ -2551,6 +2591,18 @@ export async function runKernelTurnWork(
 					: autoDispatchFailed
 						? "failed"
 						: "needs_delegation";
+	// Three independent reads the terminal metadata needs, in flight together:
+	// the harness version (started after the kernel returned), the usage price
+	// (D1 rate lookups per attempt) and the current run row (metadata merge +
+	// cancel gate below). No write touches the run row between here and the
+	// cancel gate, so reading it before pricing observes the same state.
+	const [kernelHarnessVersion, price, currentRun] = await Promise.all([
+		kernelHarnessVersionWork,
+		priceKernelUsage(deps.env, { attempts: executionAttempts }),
+		getKernelRuntimeRun(deps.db, { id: runId, organizationId }).catch(
+			() => undefined,
+		),
+	]);
 	const traceBundleId = kernelHarnessVersion ? buildTraceBundleId(runId) : null;
 	// Aggregate routing, ranking, and post-route judgments from unique receipts.
 	// Missing provider counters stay unknown instead of understating turn usage.
@@ -2570,9 +2622,6 @@ export async function runKernelTurnWork(
 		routeUsage !== null
 			? (routeUsage.inputTokens ?? 0) + (routeUsage.outputTokens ?? 0) || null
 			: null;
-	const price = await priceKernelUsage(deps.env, {
-		attempts: executionAttempts,
-	});
 	const modelCostUsd = price.costUsd;
 	// True end-of-turn wall clock. The `createdAt`/`completedAt` inputs are
 	// persist-first placeholders (createdAt + 2ms) minted by `startKernelTurn`
@@ -2781,20 +2830,9 @@ export async function runKernelTurnWork(
 		}),
 		bodyExecutionResult,
 	};
-	let currentRunMetadata: Record<string, unknown> | null = null;
-	let currentRunStatus: string | null = null;
-	try {
-		const currentRun = await getKernelRuntimeRun(deps.db, {
-			id: runId,
-			organizationId,
-		});
-		currentRunMetadata = recordOrNull(currentRun?.metadata);
-		currentRunStatus =
-			typeof currentRun?.status === "string" ? currentRun.status : null;
-	} catch {
-		currentRunMetadata = null;
-		currentRunStatus = null;
-	}
+	const currentRunMetadata = recordOrNull(currentRun?.metadata);
+	const currentRunStatus =
+		typeof currentRun?.status === "string" ? currentRun.status : null;
 	const preMaterializeCanceled = await runPreMaterializeCancelGate({
 		deps,
 		organizationId,
@@ -2824,10 +2862,10 @@ export async function runKernelTurnWork(
 	emitProgress(deps, "Finalizing", undefined, undefined, "finalizing");
 	// running → terminal/requires_approval only: an operator cancel
 	// that landed while the kernel was in flight wins over this patch.
-	await transitionKernelRuntimeRunStatus(deps.db, {
+	const runTransition = {
 		id: runId,
 		organizationId,
-		fromStatus: "running",
+		fromStatus: "running" as const,
 		patch: {
 			status: dispatchAwareStatus,
 			progressValue: dispatchAwareProgress.current,
@@ -2842,8 +2880,8 @@ export async function runKernelTurnWork(
 				? { delegatedTediId: autoDelegatedTediId, childRunId: autoChildRunId }
 				: {}),
 		},
-	});
-	const assistantEvent = await deps.insertKernelRuntimeEvent({
+	};
+	const assistantEventInput: HomeTurnRuntimeEventInput = {
 		organizationId,
 		kind: "message.completed",
 		conversationId,
@@ -2919,22 +2957,8 @@ export async function runKernelTurnWork(
 		// places the final frame behind an already-advanced live cursor and leaves OS
 		// stuck on the preceding `finalizing` phase forever.
 		createdAt: settledAt,
-	});
-	// Make the completed answer durable before reconciling the auxiliary
-	// submission ledger. Submission settlement is fail-soft but can contend on
-	// D1; it must never hold the operator-visible terminal transcript behind it.
-	// Non-terminal kernel statuses leave the submission in flight as before.
-	const submissionOutcome =
-		kernelRunStatusToSubmissionOutcome(dispatchAwareStatus);
-	if (submissionOutcome) {
-		await settleKernelSubmission(deps.db, {
-			runId,
-			organizationId,
-			conversationId,
-			outcome: submissionOutcome,
-		});
-	}
-	const terminalEvent = await deps.insertKernelRuntimeEvent({
+	};
+	const terminalEventInput: HomeTurnRuntimeEventInput = {
 		organizationId,
 		// A model-unavailable turn (no route) emits run.failed; any parked decision
 		// emits approval.requested instead of a terminal run event — the run is
@@ -2995,18 +3019,70 @@ export async function runKernelTurnWork(
 		// Keep the terminal receipt strictly after `message.completed` in the same
 		// run-local offset stream even when settlement completes within one clock ms.
 		createdAt: deps.offsetIso(settledAt, 1),
-	});
+	};
+	// The terminal run patch, `message.completed` and the terminal receipt land
+	// together: one D1 batch when the batched persist is wired, otherwise the
+	// same three writes in sequence. The stream order (message.completed before
+	// the receipt) is carried by `createdAt`, not by write order.
+	let assistantEvent: KernelRuntimeEvent;
+	let terminalEvent: KernelRuntimeEvent;
+	if (deps.persistTurnSettlement) {
+		const persisted = await deps.persistTurnSettlement({
+			run: runTransition,
+			events: [assistantEventInput, terminalEventInput],
+		});
+		assistantEvent = persisted.assistantEvent;
+		terminalEvent = persisted.terminalEvent;
+	} else {
+		await transitionKernelRuntimeRunStatus(deps.db, runTransition);
+		assistantEvent = await deps.insertKernelRuntimeEvent(assistantEventInput);
+		terminalEvent = await deps.insertKernelRuntimeEvent(terminalEventInput);
+	}
+	// Reconcile the auxiliary submission ledger only after the operator-visible
+	// transcript is durable. Submission settlement is fail-soft, multi-step
+	// (reserve → finalize → `submission.settled`, stamped with the wall clock,
+	// so it stays last in the stream) and can contend on D1; it must never
+	// hold the answer behind it. Non-terminal kernel statuses leave the
+	// submission in flight as before.
+	const submissionOutcome =
+		kernelRunStatusToSubmissionOutcome(dispatchAwareStatus);
+	if (submissionOutcome) {
+		await settleKernelSubmission(deps.db, {
+			runId,
+			organizationId,
+			conversationId,
+			outcome: submissionOutcome,
+		});
+	}
+	// Post-settlement work that must not delay the settled answer. `holdAfterSettle`
+	// (inline path: `context.waitUntil`; KernelDO: a tracker drained after the
+	// live turn state clears) keeps each promise alive; without a holder the
+	// turn body awaits them before resolving, so nothing is ever detached in a
+	// context that could drop it. Every held promise is caught: a lost title or
+	// trace bundle is logged, never a broken settle.
+	const heldAfterSettle: Promise<void>[] = [];
+	const holdAfterSettle = (event: string, work: Promise<unknown>): void => {
+		const safe = work.then(
+			() => undefined,
+			(error: unknown) => {
+				console.warn({
+					component: "kernel.turn_work",
+					event,
+					error: safeExceptionTopology(error),
+				});
+			},
+		);
+		if (deps.holdAfterSettle) deps.holdAfterSettle(safe);
+		else heldAfterSettle.push(safe);
+	};
 	// Conversation auto-title (ChatGPT parity): when this settle completed the
 	// conversation's first exchange and no label exists yet, generate a short
 	// title from the exchange, after the terminal patch and transcript events
 	// are durable — a lost title is acceptable, a broken settle is not. Skipped
 	// on model-unavailable turns (no real reply to summarize). The dep owns the
-	// guard + LLM + persist. Durability: a `void` return means the dep parked
-	// the work on a real `waitUntil` (inline HTTP path — no settle latency); a
-	// returned promise means the context has no waitUntil (KernelDO turn
-	// context) and detaching would drop the promise on DO abort/idle — so we
-	// await it here (bounded: 10s LLM abort inside, never throws). The
-	// try/catch is the last-resort shield for a throwing/rejecting sink.
+	// guard + LLM + persist. A `void` return means the dep already parked the
+	// work on a real `waitUntil`; a returned promise is held as above (bounded:
+	// 10s LLM abort inside). The try/catch shields a synchronously throwing sink.
 	if (!modelUnavailable && deps.generateConversationTitle) {
 		try {
 			const titleWork = deps.generateConversationTitle({
@@ -3016,7 +3092,8 @@ export async function runKernelTurnWork(
 				userContent: content,
 				assistantContent,
 			});
-			if (titleWork) await titleWork;
+			if (titleWork)
+				holdAfterSettle("conversation_title_dispatch_failed", titleWork);
 		} catch (error) {
 			console.warn({
 				component: "kernel.turn_work",
@@ -3080,8 +3157,11 @@ export async function runKernelTurnWork(
 				return null;
 			});
 	}
+	// Trace evidence (R2 folder + D1 bundle index) is read by later harness
+	// views, never by the settled answer or the client's next read — held, not
+	// awaited.
 	if (kernelHarnessVersion && traceBundleId && deps.recordKernelTraceBundle) {
-		await recordKernelTraceEvidence({
+		const traceWork = recordKernelTraceEvidence({
 			kernelHarnessVersion,
 			traceBundleId,
 			recordKernelTraceBundle: deps.recordKernelTraceBundle,
@@ -3104,7 +3184,11 @@ export async function runKernelTurnWork(
 			routerVersion,
 			contextManifest: turnRunMetadata.contextManifest ?? {},
 		});
+		holdAfterSettle("trace_evidence_record_failed", traceWork);
 	}
+	// No holder was injected: the turn body itself keeps the post-settlement
+	// work alive (each promise is already caught above).
+	if (heldAfterSettle.length > 0) await Promise.all(heldAfterSettle);
 	// When a trusted write auto-resolved in-turn, the settle hook transitioned the
 	// run past requires_approval to its terminal state — reflect that in the
 	// returned snapshot so the immediate response isn't a stale "requires_approval".

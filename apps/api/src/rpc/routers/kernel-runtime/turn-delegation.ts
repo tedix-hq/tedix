@@ -52,6 +52,7 @@ import {
 	insertKernelRuntimeEvent,
 	insertKernelRuntimeRun,
 	normalizeHomeRunRecord,
+	persistKernelTurnSettlement,
 } from "../kernel/run-store";
 import {
 	readChildRunFinalAssistantMessage,
@@ -120,6 +121,19 @@ export function buildKernelTurnWorkDeps(
 		writeProposalPlanner: (args) => activeKernelWriteProposalPlanner(args),
 		insertKernelRuntimeEvent: (input) =>
 			insertKernelRuntimeEvent(context, input),
+		// Terminal run patch + message.completed + terminal receipt in one D1
+		// batch (see `persistKernelTurnSettlement`).
+		persistTurnSettlement: (input) =>
+			persistKernelTurnSettlement(context, input),
+		// Post-settlement work (auto-title, trace evidence) rides the request's
+		// real `waitUntil` on the inline /rpc path. The KernelDO overrides this
+		// with a tracker it drains itself: a promise detached in a DO can be
+		// dropped on abort/idle, and `DurableObjectState.waitUntil` is a no-op.
+		...(context.waitUntil
+			? {
+					holdAfterSettle: (work: Promise<void>) => context.waitUntil?.(work),
+				}
+			: {}),
 		resolveKernelWriteAnchorTediId: (organizationId) =>
 			resolveKernelFallbackTediId(context, organizationId),
 		// Trusted-write auto-resolve arm: resolve the (already-created) approval

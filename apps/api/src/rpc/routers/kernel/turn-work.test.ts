@@ -3494,3 +3494,114 @@ describe("runKernelTurnWork agent-in-the-loop delegation review", () => {
 		});
 	});
 });
+
+describe("runKernelTurnWork settle critical path", () => {
+	function answerKernel(): KernelTurnWorkDeps["kernel"] {
+		return async () => ({
+			route: route({ routeKind: "answer_in_home", answer: "All quiet." }),
+			assistantContent: "All quiet.",
+			evidence: null,
+		});
+	}
+	function toEvent(event: HomeTurnRuntimeEventInput): KernelRuntimeEvent {
+		return {
+			id: `event:${event.kind}`,
+			organizationId: event.organizationId,
+			kind: event.kind,
+			conversationId: event.conversationId,
+			runId: event.runId,
+			payload: event.payload,
+			runtime: { backend: "custom" },
+			createdAt: event.createdAt ?? "2026-06-11T00:00:01.000Z",
+		} as KernelRuntimeEvent;
+	}
+
+	it("lands the run patch, message.completed and the receipt through the batched persist", async () => {
+		const order: string[] = [];
+		const persistTurnSettlement = vi.fn(
+			async (
+				input: Parameters<
+					NonNullable<KernelTurnWorkDeps["persistTurnSettlement"]>
+				>[0],
+			) => {
+				order.push("persist");
+				return {
+					assistantEvent: toEvent(input.events[0]),
+					terminalEvent: toEvent(input.events[1]),
+				};
+			},
+		);
+		const deps = stubDeps({
+			kernel: answerKernel(),
+			persistTurnSettlement,
+			insertKernelRuntimeEvent: async (event) => {
+				order.push(`insert:${event.kind}`);
+				return toEvent(event);
+			},
+			offsetIso: (baseIso, offsetMs) =>
+				new Date(Date.parse(baseIso) + offsetMs).toISOString(),
+		});
+		const result = await runKernelTurnWork(deps, turnInput());
+		expect(result.status).toBe("needs_delegation");
+		expect(persistTurnSettlement).toHaveBeenCalledTimes(1);
+		const call = persistTurnSettlement.mock.calls[0]?.[0];
+		expect(call?.run.fromStatus).toBe("running");
+		expect(call?.run.patch.status).toBe("completed");
+		expect(call?.events.map((event) => event.kind)).toEqual([
+			"message.completed",
+			"run.completed",
+		]);
+		// The receipt stays strictly after message.completed in the offset stream.
+		const [assistant, terminal] = call?.events ?? [];
+		expect(String(terminal?.createdAt) > String(assistant?.createdAt)).toBe(
+			true,
+		);
+		// The terminal transcript never goes through the one-row insert path.
+		expect(order).toEqual(["persist"]);
+		// The returned snapshot is built from the batched assistant row.
+		expect(result.assistantMessage.createdAt).toBe(assistant?.createdAt);
+		expect(result.assistantMessage.content).toBe("All quiet.");
+	});
+
+	it("hands the title work to holdAfterSettle and resolves before it completes", async () => {
+		const held: Promise<void>[] = [];
+		let titleCompleted = false;
+		let releaseTitle: () => void = () => {};
+		const deps = stubDeps({
+			kernel: answerKernel(),
+			holdAfterSettle: (work) => {
+				held.push(work);
+			},
+			generateConversationTitle: () =>
+				new Promise<void>((resolve) => {
+					releaseTitle = () => {
+						titleCompleted = true;
+						resolve();
+					};
+				}),
+		});
+		const result = await runKernelTurnWork(deps, turnInput());
+		expect(result.status).toBe("needs_delegation");
+		expect(titleCompleted).toBe(false);
+		expect(held).toHaveLength(1);
+		releaseTitle();
+		await held[0];
+		expect(titleCompleted).toBe(true);
+	});
+
+	it("a held promise that rejects is caught before the holder sees it", async () => {
+		const held: Promise<void>[] = [];
+		const deps = stubDeps({
+			kernel: answerKernel(),
+			holdAfterSettle: (work) => {
+				held.push(work);
+			},
+			generateConversationTitle: () =>
+				Promise.reject(new Error("title exploded")),
+		});
+		const result = await runKernelTurnWork(deps, turnInput());
+		expect(result.status).toBe("needs_delegation");
+		expect(held).toHaveLength(1);
+		await expect(held[0]).resolves.toBeUndefined();
+	});
+});

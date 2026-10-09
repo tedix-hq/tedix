@@ -6,6 +6,12 @@ import {
 	chatDispatchIdempotency,
 	kernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
+import {
+	buildInsertKernelRuntimeEventIfAbsentStatement,
+	insertKernelRuntimeEventIfAbsent,
+	type KernelRuntimeEvent,
+	type NewKernelRuntimeEvent,
+} from "./kernel-runtime-events";
 
 export type KernelRuntimeRun = typeof kernelRuntimeRuns.$inferSelect;
 export type KernelRuntimeRunUpdate = Partial<
@@ -237,16 +243,19 @@ export async function updateKernelRuntimeRunForOrg(
 		);
 }
 
-export async function transitionKernelRuntimeRunStatus(
+export interface TransitionKernelRuntimeRunStatusParams {
+	id: string;
+	organizationId: string;
+	fromStatus: KernelRuntimeRun["status"];
+	patch: KernelRuntimeRunUpdate;
+}
+
+/** Unexecuted conditional status patch, for `db.batch()` composition. */
+export function buildTransitionKernelRuntimeRunStatusStatement(
 	db: DbClient,
-	input: {
-		id: string;
-		organizationId: string;
-		fromStatus: KernelRuntimeRun["status"];
-		patch: KernelRuntimeRunUpdate;
-	},
-): Promise<boolean> {
-	const rows = await db
+	input: TransitionKernelRuntimeRunStatusParams,
+) {
+	return db
 		.update(kernelRuntimeRuns)
 		.set(input.patch)
 		.where(
@@ -257,7 +266,61 @@ export async function transitionKernelRuntimeRunStatus(
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
+}
+
+export async function transitionKernelRuntimeRunStatus(
+	db: DbClient,
+	input: TransitionKernelRuntimeRunStatusParams,
+): Promise<boolean> {
+	const rows = await buildTransitionKernelRuntimeRunStatusStatement(db, input);
 	return rows.length > 0;
+}
+
+export interface SettleKernelRuntimeTurnParams {
+	run: TransitionKernelRuntimeRunStatusParams;
+	/** Terminal transcript events in stream order, each without a `causeEventId`. */
+	events: readonly NewKernelRuntimeEvent[];
+}
+
+export interface SettleKernelRuntimeTurnResult {
+	/** False when the run had already left `fromStatus` (an operator cancel won). */
+	runTransitioned: boolean;
+	/** One entry per input event, in order; `inserted: false` is an idempotent replay. */
+	events: Array<{ row: KernelRuntimeEvent; inserted: boolean }>;
+}
+
+/**
+ * Land a turn's terminal run patch and its transcript events in one D1 batch
+ * instead of one round trip per row. The patch is conditional and the inserts
+ * are idempotent, so the statements are independent: a lost status CAS still
+ * records the transcript, exactly as the sequential writes did. A replayed
+ * event (empty `returning()`) is resolved to its existing row afterwards.
+ */
+export async function settleKernelRuntimeTurn(
+	db: DbClient,
+	params: SettleKernelRuntimeTurnParams,
+): Promise<SettleKernelRuntimeTurnResult> {
+	const [runRows, ...eventRows] = await db.batch([
+		buildTransitionKernelRuntimeRunStatusStatement(db, params.run),
+		...params.events.map((event) =>
+			buildInsertKernelRuntimeEventIfAbsentStatement(db, event),
+		),
+	]);
+	const events: SettleKernelRuntimeTurnResult["events"] = [];
+	for (const [index, value] of params.events.entries()) {
+		const inserted = eventRows[index]?.[0];
+		if (inserted) {
+			events.push({ row: inserted, inserted: true });
+			continue;
+		}
+		const replay = await insertKernelRuntimeEventIfAbsent(db, value);
+		if (!replay.row)
+			throw new Error(
+				`settleKernelRuntimeTurn: event ${value.id} was neither inserted nor found`,
+			);
+		events.push({ row: replay.row, inserted: replay.inserted });
+	}
+	return { runTransitioned: runRows.length > 0, events };
 }
 
 /**
