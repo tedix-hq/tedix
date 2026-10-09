@@ -54,6 +54,9 @@ describe("reviewed RPC endpoint scopes", () => {
 			"tediEmail/provisionAddress",
 			"organizations/cancel",
 			"billing/grantCredit",
+			// Decrypted secret reads.
+			"secrets/get",
+			"appSecrets/get",
 		]) {
 			expect(resolve(endpoint, {})).toEqual(["platform:admin"]);
 		}
@@ -68,6 +71,29 @@ describe("reviewed RPC endpoint scopes", () => {
 			expect(resolve(endpoint, { readOnlyHint: false })).toEqual([
 				"mcp:messaging.write",
 			]);
+		}
+	});
+
+	it("locks decrypted secret reads to platform admins in every namespace", () => {
+		for (const [toolId, endpoint, namespace] of [
+			["get_secrets", "secrets/get", "secrets"],
+			["get_app_secrets", "appSecrets/get", "app"],
+			["tedix_unified__get_secrets", "secrets/get", "tedix_unified"],
+		] as const) {
+			expect(
+				resolveMcpToolRequiredScopes(
+					{
+						toolId,
+						toolTypeId: "rpc",
+						authRequired: true,
+						config: { endpoint },
+						annotations: { readOnlyHint: true },
+					},
+					namespace,
+					{ enforcePolicies: false, authMode: "authenticated" },
+					{ fallbackOnAuthenticatedAuthMode: true },
+				),
+			).toEqual(["platform:admin"]);
 		}
 	});
 
