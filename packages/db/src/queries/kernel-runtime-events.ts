@@ -262,14 +262,41 @@ export async function updateKernelRuntimeEventMetadata(
 		.where(eq(kernelRuntimeEvents.id, id));
 }
 
+function resolveEventTraceId(value: NewKernelRuntimeEvent): string | undefined {
+	const metadataTraceId = value.runtimeMetadata?.traceId;
+	return (
+		value.traceId ??
+		(typeof metadataTraceId === "string" ? metadataTraceId : undefined)
+	);
+}
+
+/**
+ * Unexecuted idempotent insert of a cause-less event, for `db.batch()`
+ * composition. An empty `returning()` result means the id already existed;
+ * the caller resolves the replay row with {@link insertKernelRuntimeEventIfAbsent}.
+ * Events that bind a `causeEventId` need the INSERT…SELECT form and cannot
+ * be composed through this statement.
+ */
+export function buildInsertKernelRuntimeEventIfAbsentStatement(
+	db: DbClient,
+	value: NewKernelRuntimeEvent,
+) {
+	if (value.causeEventId !== undefined && value.causeEventId !== null)
+		throw new Error(
+			"buildInsertKernelRuntimeEventIfAbsentStatement: cause-bound events are not batch-composable",
+		);
+	return db
+		.insert(kernelRuntimeEvents)
+		.values({ ...value, traceId: resolveEventTraceId(value) })
+		.onConflictDoNothing({ target: kernelRuntimeEvents.id })
+		.returning();
+}
+
 export async function insertKernelRuntimeEventIfAbsent(
 	db: DbClient,
 	value: NewKernelRuntimeEvent,
 ): Promise<{ row: KernelRuntimeEvent | undefined; inserted: boolean }> {
-	const metadataTraceId = value.runtimeMetadata?.traceId;
-	const traceId =
-		value.traceId ??
-		(typeof metadataTraceId === "string" ? metadataTraceId : undefined);
+	const traceId = resolveEventTraceId(value);
 	let rows: KernelRuntimeEvent[] = [];
 	if (value.causeEventId !== undefined && value.causeEventId !== null) {
 		if (value.causeEventId.length === 0)
@@ -340,11 +367,7 @@ export async function insertKernelRuntimeEventIfAbsent(
 			.onConflictDoNothing({ target: kernelRuntimeEvents.id })
 			.returning();
 	} else {
-		rows = await db
-			.insert(kernelRuntimeEvents)
-			.values({ ...value, traceId })
-			.onConflictDoNothing({ target: kernelRuntimeEvents.id })
-			.returning();
+		rows = await buildInsertKernelRuntimeEventIfAbsentStatement(db, value);
 	}
 	if (rows[0]) return { row: rows[0], inserted: true };
 	const [existing] = await db

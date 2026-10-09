@@ -530,6 +530,11 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// started by the synchronous progress seam and await the tracker from the
 		// async turn finalizer so a DO reset/eviction cannot drop dark SSE data.
 		const persistence = createProgressPersistenceTracker();
+		// Post-settlement work the turn body hands over (`deps.holdAfterSettle`:
+		// auto-title, trace evidence). Drained in `end()` AFTER the live turn
+		// state is cleared, so the operator sees the answer settled while the
+		// work still completes before this RPC returns — never detached.
+		const afterSettle = createProgressPersistenceTracker();
 		// Durable answer-delta batcher: flushes the first answerDelta immediately,
 		// then persists `message.delta` events every ~1s. One write per steady-state
 		// window, not per token. Fail-soft — never affects the turn.
@@ -649,7 +654,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				rationaleBatcher.end();
 				throttle.end();
 				await persistence.drain();
+				await afterSettle.drain();
 			},
+			holdAfterSettle: (work: Promise<void>): void => afterSettle.track(work),
 		};
 	}
 
@@ -783,6 +790,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					),
 					onProgress: progress.onProgress,
 					flushStreamedProgress: progress.flush,
+					holdAfterSettle: progress.holdAfterSettle,
 					plannerAbortSignal: abortController.signal,
 					...(relevanceCandidates ? { relevanceCandidates } : {}),
 					stageTimings,

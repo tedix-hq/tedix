@@ -116,6 +116,13 @@ function createVoiceTestDb() {
 	return {
 		events,
 		runs,
+		// D1 batch: the statements are already-built (awaitable) builders; run
+		// them in order and return one result per statement.
+		async batch(statements: Array<PromiseLike<unknown>>) {
+			const results: unknown[] = [];
+			for (const statement of statements) results.push(await statement);
+			return results;
+		},
 		insert(table: unknown) {
 			if (table === runtimeSubmissions) {
 				let value: typeof runtimeSubmissions.$inferInsert;
