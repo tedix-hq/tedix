@@ -627,14 +627,14 @@ async function nativeBootstrap(ctx: WorkContext) {
 		nativeContext: info.nativeContext,
 		nativeCatalog: info.nativeCatalog,
 	});
-	if (
-		!bootstrap.nativeContext ||
-		bootstrap.nativeCatalog.status !== "usable" ||
-		(ctx.organizationId !== undefined &&
-			bootstrap.nativeContext.organizationId !== ctx.organizationId)
-	)
+	const gatewayOrg = bootstrap.nativeContext?.organizationId;
+	if (!bootstrap.nativeContext || bootstrap.nativeCatalog.status !== "usable")
 		throw new Error(
-			"Work native gateway organization or catalog mismatch; configure authorized native routes for this credential. No Code Mode fallback is available.",
+			`Work native catalog unavailable for organization ${gatewayOrg ?? "(unidentified)"}: the gateway for workspace ${ctx.workspace} does not expose authorized catalog search/describe routes, which the CLI needs to resolve Work tools such as list_work_item_cli_rows. Configure authorized native routes for this credential. No Code Mode fallback is available.`,
+		);
+	if (ctx.organizationId !== undefined && gatewayOrg !== ctx.organizationId)
+		throw new Error(
+			`Work native gateway organization mismatch: workspace ${ctx.workspace} expects organization ${ctx.organizationId}, but the gateway answered for ${gatewayOrg}. Run \`tedix login --workspace ${ctx.workspace}\` against the matching gateway.`,
 		);
 	if (
 		usableDescriptor(bootstrap.nativeCatalog.search).endpoint !==
@@ -657,6 +657,32 @@ function validateNativeSchema(schema: unknown, value: unknown): void {
 		throw new Error(
 			`Native Work schema validation failed: ${result.error.message}`,
 		);
+}
+
+/** Explain why a catalog row cannot be called, keeping the row's alias and scope details. */
+function catalogRowRefusal(
+	ctx: WorkContext,
+	callable: string,
+	row: unknown,
+): string {
+	if (!isRecord(row)) return `Native Work callable ${callable} is malformed`;
+	if (typeof row.aliasOf === "string" && row.aliasOf)
+		return `Native Work callable ${callable} is an alias of ${row.aliasOf}; the CLI only calls canonical tools.`;
+	const scopes = (value: unknown) =>
+		Array.isArray(value)
+			? value.filter((s): s is string => typeof s === "string")
+			: [];
+	const missing = scopes(row.missingScopes);
+	const required = scopes(row.requiredScopes);
+	const login = `run \`tedix login --workspace ${ctx.workspace}\` with a login that grants them.`;
+	if (required.length === 0 && missing.length === 0)
+		return `Native Work callable ${callable} is not authorized for this login; ${login}`;
+	const needs = required.length > 0 ? ` needs ${required.join(", ")};` : "";
+	const lacks =
+		missing.length > 0
+			? ` this login is missing ${missing.join(", ")}`
+			: " this login does not grant them";
+	return `Native Work callable ${callable}${needs}${lacks}; ${login}`;
 }
 
 /** Resolve an exact configured callable; the catalog's native name is the wire identity. */
@@ -702,7 +728,7 @@ async function boardCall(
 			);
 		const row = matches[0];
 		if (!isRecord(row) || row.aliasOf || row.authorized !== true)
-			throw new Error("Native Work callable is an alias or unauthorized");
+			throw new Error(catalogRowRefusal(ctx, callable, row));
 		const selected = usableDescriptor(row.native);
 		if (!expectedEndpoint || selected.endpoint !== expectedEndpoint)
 			throw new Error("Native Work endpoint mismatch");

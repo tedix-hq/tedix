@@ -2610,6 +2610,85 @@ describe("native Work transport", () => {
 			expect(fixture.sources).toEqual([]);
 		}
 	});
+	test("names the organization and the missing piece when bootstrap fails", async () => {
+		const scenarios: Array<[string, string]> = [
+			["unavailable", "list_work_item_cli_rows"],
+			[
+				"org",
+				`organization mismatch: workspace test expects organization ${TEST_ORG}, but the gateway answered for ${ITEM}`,
+			],
+		];
+		for (const [scenario, message] of scenarios) {
+			const fixture = makeContext({ doneWhen: "An exact result" });
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (
+				name: string,
+				args: Record<string, unknown>,
+				options: unknown,
+			) => {
+				if (name !== "get_info") return invoke(name, args, options as never);
+				const bootstrap = nativeBootstrapFixture();
+				if (scenario === "org") bootstrap.nativeContext.organizationId = ITEM;
+				if (scenario === "unavailable")
+					return {
+						...bootstrap,
+						nativeCatalog: {
+							status: "unavailable",
+							search: null,
+							describe: null,
+						},
+					};
+				return bootstrap;
+			}) as TedixHomeClient["callTool"];
+			const result = await capture(`accept ${ITEM}`, fixture.ctx);
+			expect(result.code).toBe(WORK_EXIT_FAIL);
+			const text = [...result.out, ...result.err].join("\n");
+			expect(text).toContain(message);
+			if (scenario === "unavailable")
+				expect(text).toContain(
+					`catalog unavailable for organization ${TEST_ORG}`,
+				);
+		}
+	});
+	test("explains alias and missing-scope catalog rows instead of a generic refusal", async () => {
+		const rows: Array<[Record<string, unknown>, string[]]> = [
+			[
+				{ aliasOf: "tedix.accept_work_item" },
+				["is an alias of tedix.accept_work_item"],
+			],
+			[
+				{
+					authorized: false,
+					requiredScopes: ["mcp:work.write"],
+					missingScopes: ["mcp:work.write"],
+				},
+				[
+					"needs mcp:work.write",
+					"missing mcp:work.write",
+					"tedix login --workspace test",
+				],
+			],
+			[{ authorized: false }, ["is not authorized for this login"]],
+		];
+		for (const [patch, expected] of rows) {
+			const fixture = makeContext({ doneWhen: "An exact result" });
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (
+				name: string,
+				args: Record<string, unknown>,
+				options: unknown,
+			) => {
+				const result = (await invoke(name, args, options as never)) as any;
+				if (name === "catalog_search") Object.assign(result.results[0], patch);
+				return result;
+			}) as TedixHomeClient["callTool"];
+			const result = await capture(`accept ${ITEM}`, fixture.ctx);
+			expect(result.code).toBe(WORK_EXIT_FAIL);
+			const text = [...result.out, ...result.err].join("\n");
+			for (const fragment of expected) expect(text).toContain(fragment);
+			expect(fixture.sources).toEqual([]);
+		}
+	});
 	test("captures the carrier before bootstrap awaits and binds one nonrenewing deadline", async () => {
 		const fixture = makeContext({ doneWhen: "Original result" });
 		const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
