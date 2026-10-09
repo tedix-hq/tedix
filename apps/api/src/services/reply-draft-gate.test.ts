@@ -178,6 +178,46 @@ describe("guardReplyDraft", () => {
 		]);
 	});
 
+	const handoff = "Thanks, carry on with the handoff to LEARN.";
+
+	it.each([
+		"LEARN also made the product call I'd flagged: brand-new tenant workshops can't email customers until they're reviewed or reach a trust threshold.",
+		"Your only remaining part is the Authorize and MFA clicks when LEARN asks.",
+		"We will not deploy until the review lands.",
+		"Agents are no longer allowed to delete the customer records.",
+		"Wir werden den Kunden nicht benachrichtigen.",
+		"Nunca borramos los datos de clientes.",
+		"You need to rotate the API key yourself in the dashboard.",
+	])(
+		"ignores a negated or user-assigned step in the agent message: %s",
+		(agentMessage) => {
+			expect(ids(agentMessage, handoff)).toEqual([]);
+		},
+	);
+
+	it.each([
+		["external_message", "Shall I email the customer?"],
+		["external_message", "Next: I'll send the invoice to billing@example.com."],
+		["payment_or_credential", "Approve and I'll rotate the API key."],
+		["payment_or_credential", "When you approve, I'll rotate the API key."],
+		["destructive_delete", "Can't I just delete the old branch?"],
+		[
+			"destructive_delete",
+			"Nothing is blocked, so should I drop the users table?",
+		],
+	])("still holds %s asked by the agent: %s", (id, agentMessage) => {
+		expect(ids(agentMessage, handoff)).toContain(id);
+	});
+
+	it("still checks a draft that names a step the agent called negated", () => {
+		expect(
+			ids(
+				"Workshops can't email customers yet.",
+				"Email the customers anyway.",
+			),
+		).toEqual(["external_message"]);
+	});
+
 	it.each([
 		"Continue with the next test.",
 		"Remove the unused import and rerun type-check.",
