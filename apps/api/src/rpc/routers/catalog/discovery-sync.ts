@@ -280,12 +280,22 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 		]);
 		const installability = calculateCatalogInstallability(result, baseApp);
 		const variants = await mapCatalogVariants(db, variantRows);
+		// Point a shadowed row (non-runnable, or runnable with nothing
+		// discovered) at the sibling explore shows instead.
+		const inventory =
+			(result.mcpToolCount ?? 0) +
+			(result.mcpResourceCount ?? 0) +
+			(result.mcpPromptCount ?? 0);
 		const canonicalSlug = NON_RUNNABLE_INSTALLABILITY_STATES.has(
 			installability.state,
 		)
 			? (variantRows.find((variant) => variant.runnable && variant.slug)
 					?.slug ?? null)
-			: null;
+			: inventory === 0
+				? (variantRows.find(
+						(variant) => (variant.mcpToolCount ?? 0) > 0 && variant.slug,
+					)?.slug ?? null)
+				: null;
 
 		// Map to detail schema with relations
 		// Unpack JSON blob columns (systemHints, healthData, scores, mcpMetadata,

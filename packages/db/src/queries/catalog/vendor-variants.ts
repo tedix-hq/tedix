@@ -69,9 +69,14 @@ export function catalogVendorKeySql(table: CatalogVendorColumns): SQL {
  * `calculateCatalogInstallability`: rows that are false here are exactly the
  * `listing_only`, `service_connector` and `needs_mcp_endpoint` states.
  */
+/** Discovered MCP tools + resources + prompts. */
+export function catalogInventorySql(table: CatalogVendorColumns): SQL {
+	return sql`(coalesce(${table.mcpToolCount}, 0) + coalesce(${table.mcpResourceCount}, 0) + coalesce(${table.mcpPromptCount}, 0))`;
+}
+
 export function catalogRunnableSql(table: CatalogVendorColumns): SQL {
 	const connector = sql`coalesce(${table.connectorType}, '')`;
-	const inventory = sql`(coalesce(${table.mcpToolCount}, 0) + coalesce(${table.mcpResourceCount}, 0) + coalesce(${table.mcpPromptCount}, 0))`;
+	const inventory = catalogInventorySql(table);
 	const hasEndpoint = sql`(coalesce(${table.mcpEndpointNormalized}, '') <> '' OR coalesce(${table.baseUrl}, '') <> '')`;
 	return sql`(${connector} <> 'FIRST_PARTY_ECOSYSTEM' AND (${inventory} > 0 OR (${connector} = 'MCP' AND ${hasEndpoint})))`;
 }
@@ -126,7 +131,19 @@ export function buildHideShadowedVariantsCondition(
 				...catalogVisibilityConditions(sibling, options),
 			),
 		);
-	return sql`NOT (NOT ${catalogRunnableSql(appCatalog)} AND coalesce(${catalogVendorKeySql(appCatalog)} IN ${runnableVendorKeys}, 0))`;
+	// A runnable row with no discovered inventory (a per-store endpoint the
+	// scanner found nothing on) is likewise shadowed by a sibling that has tools.
+	const stockedVendorKeys = db
+		.select({ vendorKey: sql<string>`${siblingKey}`.as("vendor_key") })
+		.from(sibling)
+		.where(
+			and(
+				sql`${catalogInventorySql(sibling)} > 0`,
+				...catalogVisibilityConditions(sibling, options),
+			),
+		);
+	const key = catalogVendorKeySql(appCatalog);
+	return sql`NOT ((NOT ${catalogRunnableSql(appCatalog)} AND coalesce(${key} IN ${runnableVendorKeys}, 0)) OR (${catalogInventorySql(appCatalog)} = 0 AND coalesce(${key} IN ${stockedVendorKeys}, 0)))`;
 }
 
 export interface CatalogVendorVariantRow {
