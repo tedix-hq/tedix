@@ -47,9 +47,7 @@ import {
 	normalizeConsentPermissions,
 } from "@/shared/consent-permissions";
 
-export const INBOUND_CONSENT_FLOW_ID = "inbound-apps-user-consent";
-export const INBOUND_MULTI_ORG_CONSENT_FLOW_ID =
-	"inbound-apps-multi-org-consent";
+export const INBOUND_CONSENT_FLOW_ID = "inbound-apps-multi-org-consent";
 export const INBOUND_CONSENT_SCREEN_NAMES = new Set([
 	"Consent Screen - Verified App",
 	"Consent Screen - Unverified App",
@@ -235,9 +233,6 @@ export function inboundConsentCallbackUrl(
 	const callback = new URL(source.pathname, source.origin);
 	const tenant = source.searchParams.get("tenant")?.trim();
 	if (tenant) callback.searchParams.set("tenant", tenant);
-	if (source.searchParams.get("mode") === "multi-org") {
-		callback.searchParams.set("mode", "multi-org");
-	}
 	const appId = source.searchParams.get("third_party_app_id")?.trim();
 	if (appId && /^TPA[A-Za-z0-9_-]{1,252}$/.test(appId)) {
 		callback.searchParams.set("third_party_app_id", appId);
@@ -385,20 +380,6 @@ export function inboundConsentClientReference(
 	}
 }
 
-export function isMultiOrganizationConsent(locationUrl: string): boolean {
-	try {
-		return new URL(locationUrl).searchParams.get("mode") === "multi-org";
-	} catch {
-		return false;
-	}
-}
-
-export function inboundConsentFlowId(locationUrl: string) {
-	return isMultiOrganizationConsent(locationUrl)
-		? INBOUND_MULTI_ORG_CONSENT_FLOW_ID
-		: INBOUND_CONSENT_FLOW_ID;
-}
-
 function GroupedConsentScreen({
 	state,
 	tenant,
@@ -414,7 +395,6 @@ function GroupedConsentScreen({
 }) {
 	const descope = useDescope();
 	const { user } = useUser();
-	const multiOrganization = isMultiOrganizationConsent(window.location.href);
 	const selectableScopes = state.scopes.filter(
 		(scope) => scope.name !== "platform:admin",
 	);
@@ -444,8 +424,7 @@ function GroupedConsentScreen({
 	const [organizations, setOrganizations] = useState<
 		Array<{ id: string; name: string }>
 	>([]);
-	const [organizationsLoading, setOrganizationsLoading] =
-		useState(multiOrganization);
+	const [organizationsLoading, setOrganizationsLoading] = useState(true);
 	const [organizationsError, setOrganizationsError] = useState(false);
 	const [organizationsReload, setOrganizationsReload] = useState(0);
 	const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
@@ -455,7 +434,6 @@ function GroupedConsentScreen({
 		error: boolean;
 	} | null>(null);
 	useEffect(() => {
-		if (!multiOrganization) return;
 		let active = true;
 		setWorkspaceDirectory({
 			eligibleTenants: null,
@@ -495,7 +473,7 @@ function GroupedConsentScreen({
 		return () => {
 			active = false;
 		};
-	}, [multiOrganization, directoryReload]);
+	}, [directoryReload]);
 	const currentDirectory = workspaceDirectory;
 	const eligibleTenants =
 		currentDirectory?.eligibleTenants ?? new Set<string>();
@@ -510,7 +488,6 @@ function GroupedConsentScreen({
 		visibleOrganizations.some((organization) => organization.id === id),
 	);
 	useEffect(() => {
-		if (!multiOrganization) return;
 		let active = true;
 		setOrganizations([]);
 		setSelectedTenantIds([]);
@@ -545,6 +522,10 @@ function GroupedConsentScreen({
 			.then((tenants) => {
 				if (!active) return;
 				setOrganizations(tenants.map(({ id, name }) => ({ id, name })));
+				// A tenant-bound request (the CLI's `tenant` hint) starts selected.
+				if (tenants.some(({ id }) => id === tenant)) {
+					setSelectedTenantIds([tenant!]);
+				}
 				setOrganizationsError(false);
 				setOrganizationsLoading(false);
 			})
@@ -558,32 +539,7 @@ function GroupedConsentScreen({
 		return () => {
 			active = false;
 		};
-	}, [
-		descope,
-		multiOrganization,
-		organizationsReload,
-		currentDirectory?.eligibleTenants,
-	]);
-	const [organizationName, setOrganizationName] = useState<string | null>(null);
-	useEffect(() => {
-		if (!tenant) return;
-		let active = true;
-		void descope
-			.myTenants([tenant])
-			.then((result) => {
-				if (!active || !result.ok || !result.data) return;
-				setOrganizationName(
-					result.data.tenants.find((candidate) => candidate.id === tenant)
-						?.name ?? null,
-				);
-			})
-			.catch(() => {
-				// The consent decision remains available if the name lookup fails.
-			});
-		return () => {
-			active = false;
-		};
-	}, [descope, tenant]);
+	}, [descope, tenant, organizationsReload, currentDirectory?.eligibleTenants]);
 	const [submitting, setSubmitting] = useState<"authorize" | "cancel" | null>(
 		null,
 	);
@@ -605,7 +561,7 @@ function GroupedConsentScreen({
 		setDecisionError(null);
 		let consentRevision: string | undefined;
 		if (kind === "authorize") {
-			if (!clientId || !resourceUrl || (!multiOrganization && !tenant)) {
+			if (!clientId || !resourceUrl) {
 				setDecisionError(
 					"This access request is incomplete. Return to the application and try again.",
 				);
@@ -618,9 +574,7 @@ function GroupedConsentScreen({
 					const staged = await osApi.organizations.stageMultiOrgMcpConsent({
 						clientId,
 						resourceUrl,
-						selectedTenantIds: multiOrganization
-							? selectedTenantIds
-							: [tenant!],
+						selectedTenantIds,
 						approvedScopes: approvedPermissions
 							.filter(
 								(scope) =>
@@ -645,11 +599,7 @@ function GroupedConsentScreen({
 			consentForm(
 				state.context,
 				approvedPermissions,
-				multiOrganization
-					? selectedTenantIds
-					: kind === "authorize"
-						? [tenant!]
-						: undefined,
+				selectedTenantIds,
 				consentRevision,
 			),
 		);
@@ -664,7 +614,7 @@ function GroupedConsentScreen({
 				<CardHeader className="gap-2.5">
 					<TedixBrandMark />
 					<CardTitle>
-						{multiOrganization && step === "organizations"
+						{step === "organizations"
 							? "Choose organizations"
 							: step === "review"
 								? "Review access"
@@ -690,11 +640,6 @@ function GroupedConsentScreen({
 					{user?.email ? (
 						<Text role="body" tone="secondary">
 							Signed in as {user.email}
-						</Text>
-					) : null}
-					{tenant && !multiOrganization ? (
-						<Text role="body" weight="semibold">
-							Organization: {organizationName ?? tenant}
 						</Text>
 					) : null}
 				</CardHeader>
@@ -798,15 +743,13 @@ function GroupedConsentScreen({
 								</Button>
 								<Button
 									disabled={selectedScopes.length === 0}
-									onClick={() =>
-										setStep(multiOrganization ? "organizations" : "review")
-									}
+									onClick={() => setStep("organizations")}
 								>
-									{multiOrganization ? "Choose organizations" : "Review access"}
+									Choose organizations
 								</Button>
 							</div>
 						</>
-					) : multiOrganization && step === "organizations" ? (
+					) : step === "organizations" ? (
 						<>
 							<Text role="body">Select the organizations to include.</Text>
 							<Text role="label" tone="secondary">
@@ -926,17 +869,15 @@ function GroupedConsentScreen({
 								</Badge>
 							</div>
 							<ConsentPermissionGroups permissions={approvedPermissions} />
-							{multiOrganization
-								? visibleOrganizations
-										.filter((organization) =>
-											selectedTenantIds.includes(organization.id),
-										)
-										.map((organization) => (
-											<Text key={organization.id} role="body">
-												{organization.name}
-											</Text>
-										))
-								: null}
+							{visibleOrganizations
+								.filter((organization) =>
+									selectedTenantIds.includes(organization.id),
+								)
+								.map((organization) => (
+									<Text key={organization.id} role="body">
+										{organization.name}
+									</Text>
+								))}
 							{submitting ? (
 								<div role="status">
 									<Text role="body" tone="secondary">
@@ -955,11 +896,7 @@ function GroupedConsentScreen({
 									<Button
 										variant="ghost"
 										disabled={Boolean(submitting)}
-										onClick={() =>
-											setStep(
-												multiOrganization ? "organizations" : "permissions",
-											)
-										}
+										onClick={() => setStep("organizations")}
 									>
 										Back
 									</Button>
@@ -980,10 +917,8 @@ function GroupedConsentScreen({
 									disabled={
 										Boolean(submitting) ||
 										selectedScopes.length === 0 ||
-										(multiOrganization &&
-											(selectedScopes.length === 0 ||
-												selectedTenantIds.length === 0 ||
-												!selectedOrganizationsValid))
+										selectedTenantIds.length === 0 ||
+										!selectedOrganizationsValid
 									}
 									onClick={() =>
 										void continueFlow(
@@ -1140,7 +1075,7 @@ function InboundConsentFlow() {
 		inboundConsentClientReference(recoveryUrl.current, window.location.href),
 	);
 	const tenant = useMemo(() => inboundConsentTenant(window.location.href), []);
-	const flowId = useMemo(() => inboundConsentFlowId(window.location.href), []);
+	const flowId = INBOUND_CONSENT_FLOW_ID;
 	const [customScreen, setCustomScreen] =
 		useState<InboundCustomScreenState | null>(null);
 	const [flowError, setFlowError] = useState<InboundConsentFlowFailure | null>(

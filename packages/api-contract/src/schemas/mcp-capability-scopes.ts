@@ -51,8 +51,9 @@ import { DOCS_TOOL_SCOPES } from "../contracts/docs-tool-scopes";
  *   roles-only policy will silently deny with "CreateConsentPoliciesDenied".
  *   See docs/engineering/platform/auth.md "MCP and AIH" for the consent-flow rules.
  *
- *   Also: Tedix CLI binds the tenant before authorization, so the Resource's
- *   User Consent Flow must be `inbound-apps-user-consent`. The separate Client
+ *   Also: the Resource's User Consent Flow must be
+ *   `inbound-apps-multi-org-consent`; it preselects the tenant the CLI binds
+ *   before authorization. The separate Client
  *   Registration Flow assesses DCR and CIMD clients and must not be confused
  *   with the User Consent Flow. Current AIH policies are Console-managed.
  *

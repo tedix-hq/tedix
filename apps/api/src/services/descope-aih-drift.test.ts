@@ -288,7 +288,7 @@ describe("buildDescopeAihDriftReport", () => {
 					name: "Tedix Unified",
 					audienceWhitelist: ["https://tedix-unified.mcp.tedix.dev/mcp"],
 					loginPageURL:
-						"https://auth.tedix.dev/login/project-id?flow=inbound-apps-user-consent",
+						"https://auth.tedix.dev/login/project-id?flow=inbound-apps-multi-org-consent",
 					dynamicRegistration: {
 						flowId: "",
 						disableApprovedScopesAsDefault: true,
@@ -442,6 +442,14 @@ describe("buildDescopeAihDriftReport", () => {
 				"fga_relation_missing_d1_app",
 			]),
 		);
+		expect(
+			report.issues
+				.filter(
+					(issue) =>
+						issue.code === "mcp_server_login_flow_repeats_tenant_selection",
+				)
+				.map((issue) => issue.resourceId),
+		).toEqual(["server-bad-flow"]);
 		expect(
 			report.issues.find(
 				(issue) => issue.code === "descope_roles_without_permissions",

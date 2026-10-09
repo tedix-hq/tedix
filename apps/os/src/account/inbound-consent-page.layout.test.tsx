@@ -80,6 +80,14 @@ function renderConsentPage() {
 	root.render(<InboundConsentPage />);
 }
 
+async function clickButton(label: string) {
+	await act(async () => {
+		[...container.querySelectorAll("button")]
+			.find((button) => button.textContent === label)
+			?.click();
+	});
+}
+
 beforeEach(() => {
 	descopeMock.flowProps = null;
 	descopeMock.userEmail = "member@example.test";
@@ -94,8 +102,19 @@ beforeEach(() => {
 	apiMock.stageMultiOrgMcpConsent.mockReset();
 	apiMock.revokeMultiOrgMcpConsent.mockReset();
 	apiMock.listMyWorkspaces.mockResolvedValue({
-		data: [],
-		pagination: { limit: 100, offset: 0, total: 0, hasMore: false },
+		data: [
+			{
+				org: { descopeTenantId: "org_tedix", provisionComplete: true },
+				surfaces: [
+					{
+						surface: "mcp",
+						provisioned: true,
+						canonicalUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+					},
+				],
+			},
+		],
+		pagination: { limit: 100, offset: 0, total: 1, hasMore: false },
 	});
 	apiMock.stageMultiOrgMcpConsent.mockResolvedValue({
 		revision: consentRevision,
@@ -443,7 +462,7 @@ describe("InboundConsentPage layout", () => {
 				consentEmail: null,
 			},
 		].flatMap((entry) =>
-			["single", "multi-org"].map((mode) => ({ ...entry, mode })),
+			["tenant-bound", "multi-org"].map((mode) => ({ ...entry, mode })),
 		),
 	)(
 		"does not show consent for $caseName in $mode mode",
@@ -652,7 +671,7 @@ describe("InboundConsentPage layout", () => {
 		);
 		await act(async () => googleButton?.click());
 		expect(loginNext).toHaveBeenCalledWith(
-			DESCOPE_LOGIN_INTERACTIONS["inbound-apps-user-consent"].google,
+			DESCOPE_LOGIN_INTERACTIONS["inbound-apps-multi-org-consent"].google,
 			{ provider: "google" },
 		);
 
@@ -672,7 +691,7 @@ describe("InboundConsentPage layout", () => {
 	});
 });
 
-it("narrows a single-organization authorization to the selected scopes", async () => {
+it("narrows a tenant-bound authorization to the selected scopes and hinted organization", async () => {
 	window.history.replaceState(
 		{},
 		"",
@@ -722,12 +741,11 @@ it("narrows a single-organization authorization to the selected scopes", async (
 	expect(container.textContent).toContain("All requested");
 	expect(container.textContent).toContain("2 of 3 selected");
 	expect(container.textContent).toContain("Signed in as member@example.test");
-	expect(container.textContent).toContain("Organization: Tedix");
-	await act(async () => {
-		[...container.querySelectorAll("button")]
-			.find((button) => button.textContent === "Review access")
-			?.click();
-	});
+	await clickButton("Choose organizations");
+	expect(
+		container.querySelector('[role="checkbox"]')?.getAttribute("aria-checked"),
+	).toBe("true");
+	await clickButton("Review access");
 	const authorize = [...container.querySelectorAll("button")].find(
 		(button) => button.textContent === "Authorize",
 	);
@@ -759,11 +777,8 @@ it("keeps an accepted interaction disabled while waiting for completion", async 
 			next,
 		);
 	});
-	await act(async () => {
-		[...container.querySelectorAll("button")]
-			.find((button) => button.textContent === "Review access")
-			?.click();
-	});
+	await clickButton("Choose organizations");
+	await clickButton("Review access");
 	const authorize = [...container.querySelectorAll("button")].find(
 		(button) => button.textContent === "Authorize",
 	)!;
@@ -812,11 +827,8 @@ it.each([
 				vi.fn().mockResolvedValue({ ok: false, error }),
 			);
 		});
-		await act(async () => {
-			[...container.querySelectorAll("button")]
-				.find((button) => button.textContent === "Review access")
-				?.click();
-		});
+		await clickButton("Choose organizations");
+		await clickButton("Review access");
 		const authorize = [...container.querySelectorAll("button")].find(
 			(button) => button.textContent === "Authorize",
 		)!;
@@ -829,7 +841,7 @@ it.each([
 	},
 );
 
-it.each(["single", "multi-org"])(
+it.each(["tenant-bound", "multi-org"])(
 	"requires canonical broker cookie before showing %s consent and preserves exact request across bounce",
 	async (mode) => {
 		globalThis.fetch = vi.fn(async () =>
@@ -877,7 +889,7 @@ it.each(["single", "multi-org"])(
 		expect(next).not.toHaveBeenCalled();
 	},
 );
-it.each(["single", "multi-org"])(
+it.each(["tenant-bound", "multi-org"])(
 	"reports an expired canonical session in %s mode without advancing provider consent",
 	async (mode) => {
 		if (mode === "multi-org") {
@@ -886,20 +898,6 @@ it.each(["single", "multi-org"])(
 				"",
 				"/oauth/consent?mode=multi-org&third_party_app_id=TPAclient1&resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp",
 			);
-			apiMock.listMyWorkspaces.mockResolvedValue({
-				data: [
-					{
-						org: { descopeTenantId: "org_tedix", provisionComplete: true },
-						surfaces: [
-							{
-								surface: "mcp",
-								provisioned: true,
-								canonicalUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
-							},
-						],
-					},
-				],
-			});
 		}
 		apiMock.stageMultiOrgMcpConsent.mockRejectedValue({
 			code: "UNAUTHORIZED",
@@ -923,18 +921,9 @@ it.each(["single", "multi-org"])(
 			"/auth/session-broker/status",
 			expect.objectContaining({ credentials: "same-origin" }),
 		);
-		if (mode === "multi-org") {
-			await act(async () => {
-				[...container.querySelectorAll("button")]
-					.find((b) => b.textContent === "Choose organizations")
-					?.click();
-			});
-			await act(async () => {
-				[...container.querySelectorAll("button")]
-					.find((b) => b.textContent === "Select all current")
-					?.click();
-			});
-		}
+		await clickButton("Choose organizations");
+		// The tenant-bound request starts with its organization selected.
+		if (mode === "multi-org") await clickButton("Select all current");
 		await act(async () => {
 			[...container.querySelectorAll("button")]
 				.find((b) => b.textContent === "Review access")
