@@ -136,6 +136,8 @@ export const SkillEntrySchema = z.object({
 	r2Path: z.string().nullable().optional(),
 	appId: z.string().nullable().optional(),
 	toolIds: z.array(z.string()).nullable().optional(),
+	/** Executable-skill MCP namespace → app id, derived on every content write. */
+	mcpAppBindings: z.record(z.string(), z.string()).nullable().optional(),
 	summary: z.string().nullable().optional(),
 	tags: z.array(z.string()).nullable().optional(),
 	audience: z.array(z.string()).nullable().optional(),
