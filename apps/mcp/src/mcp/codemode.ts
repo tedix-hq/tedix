@@ -3023,6 +3023,80 @@ function compactDiscoveryDescription(
 	};
 }
 
+interface CatalogSearchField {
+	text: string;
+	weight: number;
+	/** Tokenized fields earn the full weight only on a whole-token match. */
+	tokens?: ReadonlySet<string>;
+	substringWeight?: number;
+}
+
+/**
+ * Normalized search text per catalog entry, computed once per entry instead of
+ * once per scoring pass. Normalizing every field (including the stringified
+ * input schema) of a 13k-tool aggregate catalog on each pass is what drove
+ * single broad `discover.search` calls past the Worker CPU limit: one search
+ * scored the whole catalog for ranking and again for nearest namespaces.
+ * Entries are immutable after `buildCatalogProvider`, so a WeakMap keyed by
+ * the entry is exact and is released with the catalog.
+ */
+/**
+ * Indexed prefix of the two unbounded fields. Vendor tools ship multi-KB REST
+ * doc dumps as descriptions and deep input schemas; ranking weights them at 4
+ * and 1, so their tails add CPU without changing which tools rank first.
+ */
+const CATALOG_SEARCH_DESCRIPTION_CHARS = 4_000;
+const CATALOG_SEARCH_PARAMETERS_CHARS = 2_000;
+
+const catalogSearchFieldsCache = new WeakMap<
+	CatalogToolEntry,
+	CatalogSearchField[]
+>();
+
+function catalogSearchFields(
+	namespace: string,
+	toolName: string,
+	meta: CatalogToolEntry,
+): CatalogSearchField[] {
+	const cached = catalogSearchFieldsCache.get(meta);
+	if (cached) return cached;
+	const namespaceText = normalizeSearchText(namespace);
+	const fields: CatalogSearchField[] = [
+		// Namespace is the highest-signal field, but a substring-only hit (e.g. the
+		// query "tedi" inside the tenant suffix "tedix" across ~40 external app
+		// namespaces) used to win at full weight and drown real results. So a
+		// full-TOKEN namespace match keeps 14, while a substring-only match is
+		// demoted below toolName (12) via `substringWeight`.
+		{
+			text: namespaceText,
+			weight: 14,
+			substringWeight: 6,
+			tokens: new Set(namespaceText.split(/[^a-z0-9]+/).filter(Boolean)),
+		},
+		{ text: normalizeSearchText(toolName), weight: 12 },
+		{ text: normalizeSearchText(meta.callable ?? ""), weight: 10 },
+		{ text: normalizeSearchText(meta.name ?? ""), weight: 8 },
+		{ text: normalizeSearchText(meta.displayName ?? ""), weight: 8 },
+		{
+			text: normalizeSearchText(
+				(meta.description ?? "").slice(0, CATALOG_SEARCH_DESCRIPTION_CHARS),
+			),
+			weight: 4,
+		},
+		{
+			text: normalizeSearchText(
+				(JSON.stringify(meta.parameters) ?? "").slice(
+					0,
+					CATALOG_SEARCH_PARAMETERS_CHARS,
+				),
+			),
+			weight: 1,
+		},
+	];
+	catalogSearchFieldsCache.set(meta, fields);
+	return fields;
+}
+
 function scoreCatalogSearch(
 	terms: string[],
 	namespace: string,
@@ -3032,44 +3106,23 @@ function scoreCatalogSearch(
 	if (terms.length === 0) {
 		return { score: 1, matchedTerms: [], unmatchedTerms: [] };
 	}
-	const fields = [
-		// Namespace is the highest-signal field, but a substring-only hit (e.g. the
-		// query "tedi" inside the tenant suffix "tedix" across ~40 external app
-		// namespaces) used to win at full weight and drown real results. So a
-		// full-TOKEN namespace match keeps 14, while a substring-only match is
-		// demoted below toolName (12) via `substringWeight`.
-		{ text: namespace, weight: 14, substringWeight: 6 },
-		{ text: toolName, weight: 12 },
-		{ text: meta.callable, weight: 10 },
-		{ text: meta.name, weight: 8 },
-		{ text: meta.displayName, weight: 8 },
-		{ text: meta.description, weight: 4 },
-		{ text: JSON.stringify(meta.parameters), weight: 1 },
-	].map((field) => ({ ...field, text: normalizeSearchText(field.text ?? "") }));
+	const fields = catalogSearchFields(namespace, toolName, meta);
 	let score = 0;
 	const matchedTerms: string[] = [];
 	const unmatchedTerms: string[] = [];
 	for (const term of terms) {
 		const variants = searchTermVariants(term);
-		const best = fields.reduce((max, field) => {
-			let fieldWeight = 0;
+		let best = 0;
+		for (const field of fields) {
 			for (const variant of variants) {
 				if (!field.text.includes(variant)) continue;
-				if (field.substringWeight !== undefined) {
-					// Tokenized field: a full-token (whole word) match earns the full
-					// weight; a mere substring earns the reduced substringWeight.
-					const tokens = field.text.split(/[^a-z0-9]+/).filter(Boolean);
-					const fullToken = tokens.includes(variant);
-					fieldWeight = Math.max(
-						fieldWeight,
-						fullToken ? field.weight : field.substringWeight,
-					);
-				} else {
-					fieldWeight = Math.max(fieldWeight, field.weight);
-				}
+				const fieldWeight =
+					field.tokens && !field.tokens.has(variant)
+						? (field.substringWeight ?? field.weight)
+						: field.weight;
+				if (fieldWeight > best) best = fieldWeight;
 			}
-			return Math.max(max, fieldWeight);
-		}, 0);
+		}
 		if (best > 0) {
 			score += best;
 			matchedTerms.push(term);

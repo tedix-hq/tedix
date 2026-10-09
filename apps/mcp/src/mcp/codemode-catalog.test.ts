@@ -413,6 +413,34 @@ describe("Code Mode catalog (discover.*) annotations + outputSchema", () => {
 		});
 	});
 
+	it("bounds the indexed description and keeps repeat searches stable", async () => {
+		// A broad search over the aggregate Connect catalog (13k tools, vendor
+		// REST-doc descriptions) exceeded the Worker CPU limit. Only a bounded
+		// description prefix is indexed, and each entry is normalized once.
+		const ctx = {
+			loadedTools: new Map<string, AppTool>([
+				[
+					"vendor__get_report",
+					tool({
+						id: "row-vendor",
+						toolId: "vendor__get_report",
+						title: "Get report",
+						description: `Report summary. ${"filler ".repeat(1_000)} quarterlyledger`,
+					}),
+				],
+			]),
+		} as unknown as ServerContext;
+		const provider = buildCatalogProvider(ctx, undefined);
+
+		const head = await runSearch(provider, "report summary");
+		expect(namespaceTools(head, "vendor")?.get_report).toBeDefined();
+		const again = await runSearch(provider, "report summary");
+		expect(again.results).toEqual(head.results);
+
+		const tail = await runSearch(provider, "quarterlyledger");
+		expect(namespaceTools(tail, "vendor")?.get_report).toBeUndefined();
+	});
+
 	it("returns discovery metadata and nearest namespaces when a search is empty", async () => {
 		const ctx = {
 			loadedTools: new Map<string, AppTool>([
