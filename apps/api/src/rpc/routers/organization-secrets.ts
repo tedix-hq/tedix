@@ -84,8 +84,10 @@ export const listOrgSecrets = authedOrganizationSecretsOs.list
 /**
  * Contract-based get procedure implementation
  */
+// Returns the decrypted value. Tools that need a secret get it injected by
+// the runtime; reading the plaintext is platform administration only.
 export const getOrgSecretProcedure = authedOrganizationSecretsOs.get
-	.use(AUTHZ.secretsRead)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
 		const { organizationId, secretId } = input;
