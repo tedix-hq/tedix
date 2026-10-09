@@ -448,3 +448,99 @@ export const ListWorkInteractionCliInboxResultSchema =
 			)
 			.max(5),
 	});
+
+/** How an answer reached the session that asked. */
+export const WorkInteractionDeliveryViaSchema = z.enum([
+	"hook",
+	"supervisor_resume",
+	"codex_queue",
+	"codex_resume",
+	"prompt_context",
+	"handoff",
+]);
+
+/**
+ * Where a session question's answer stands, shown as `metadata.delivery` on
+ * the request: saved (not yet in the session), delivered, acknowledged (the
+ * session ran a turn on it), or handed off to the user's lead session.
+ */
+export const WorkInteractionDeliveryOverlaySchema = z.object({
+	state: z.enum(["saved", "delivered", "acknowledged", "handed_off"]),
+	via: WorkInteractionDeliveryViaSchema.nullable(),
+	deliveredAt: z.string().nullable(),
+	acknowledgedAt: z.string().nullable(),
+	handoffTo: z.string().nullable(),
+});
+
+export const AckWorkInteractionDeliveryInputSchema = z.strictObject({
+	responseIds: z
+		.array(z.uuid())
+		.min(1)
+		.max(50)
+		.describe("Answers (response ids) that reached the asking session."),
+	via: WorkInteractionDeliveryViaSchema,
+	acknowledged: z
+		.boolean()
+		.default(false)
+		.describe(
+			"True once the session ran a turn on the answer, not only received it.",
+		),
+	handoffTo: z
+		.string()
+		.trim()
+		.min(1)
+		.max(80)
+		.optional()
+		.describe("With via=handoff: who took it over, in plain words."),
+	handoffRef: z
+		.uuid()
+		.optional()
+		.describe("With via=handoff: the Work Item that carries it."),
+});
+
+export const AckWorkInteractionDeliveryResultSchema = z.strictObject({
+	data: z.array(
+		z.strictObject({
+			responseId: z.uuid(),
+			requestId: z.uuid(),
+			deliveredAt: z.string().nullable(),
+			via: z.string().nullable(),
+			acknowledgedAt: z.string().nullable(),
+		}),
+	),
+});
+
+export const ListUndeliveredWorkInteractionResponsesInputSchema =
+	z.strictObject({
+		sessionId: z
+			.string()
+			.trim()
+			.min(1)
+			.max(100)
+			.optional()
+			.describe("Only answers to this agent session's questions."),
+		host: z.string().trim().min(1).max(50).optional(),
+		respondedAfter: z.iso
+			.datetime()
+			.optional()
+			.describe("Only answers given at or after this instant (default 24h)."),
+		limit: z.number().int().min(1).max(100).default(50),
+	});
+
+export const ListUndeliveredWorkInteractionResponsesResultSchema =
+	z.strictObject({
+		data: z.array(
+			z.strictObject({
+				responseId: z.uuid(),
+				requestId: z.uuid(),
+				subject: z.string(),
+				body: z.string(),
+				respondedAt: z.string(),
+				sessionId: z.string(),
+				host: z.string().nullable(),
+				workItemId: z.uuid().nullable(),
+				projectId: z.uuid().nullable(),
+			}),
+		),
+		observedAt: z.iso.datetime(),
+	});

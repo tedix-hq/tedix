@@ -754,6 +754,75 @@ export const workInteractionAttention = sqliteTable(
 	],
 );
 
+/**
+ * How an answer reached the session that asked: a hook wake, a supervisor
+ * headless resume, a Codex queue or resume, the next prompt's context, or a
+ * hand-off to the user's lead session. `legacy` marks answers recorded
+ * before this ledger existed, whose delivery is unknown.
+ */
+export const WORK_INTERACTION_DELIVERY_VIA_VALUES = [
+	"hook",
+	"supervisor_resume",
+	"codex_queue",
+	"codex_resume",
+	"prompt_context",
+	"handoff",
+	"legacy",
+] as const;
+export type WorkInteractionDeliveryVia =
+	(typeof WORK_INTERACTION_DELIVERY_VIA_VALUES)[number];
+
+/**
+ * Whether an answer reached the session that asked. Responses stay immutable;
+ * this sibling row records the first delivery and the first acknowledgement
+ * (the session ran a turn on it), each written once.
+ */
+export const workInteractionDeliveries = sqliteTable(
+	"work_interaction_deliveries",
+	{
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		responseId: text("response_id")
+			.notNull()
+			.references(() => workInteractionResponses.id, { onDelete: "cascade" }),
+		interactionId: text("interaction_id").notNull(),
+		deliveredAt: text("delivered_at"),
+		deliveredVia: text("delivered_via", {
+			enum: WORK_INTERACTION_DELIVERY_VIA_VALUES,
+		}),
+		acknowledgedAt: text("acknowledged_at"),
+		/** Who took a hand-off, in plain words ("LEARN"). */
+		handoffTo: text("handoff_to"),
+		/** The Work Item the hand-off created. */
+		handoffRef: text("handoff_ref"),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			name: "pk_work_interaction_deliveries",
+			columns: [table.orgId, table.responseId],
+		}),
+		foreignKey({
+			name: "fk_work_interaction_delivery_request",
+			columns: [table.orgId, table.interactionId],
+			foreignColumns: [workInteractions.orgId, workInteractions.id],
+		}).onDelete("cascade"),
+		index("idx_work_interaction_deliveries_request").on(
+			table.orgId,
+			table.interactionId,
+		),
+		check(
+			"chk_work_interaction_delivery_via",
+			sql`${table.deliveredVia} IS NULL OR ${table.deliveredVia} IN ('hook','supervisor_resume','codex_queue','codex_resume','prompt_context','handoff','legacy')`,
+		),
+		check(
+			"chk_work_interaction_delivery_handoff_to",
+			sql`${table.handoffTo} IS NULL OR length(${table.handoffTo}) BETWEEN 1 AND 80`,
+		),
+	],
+);
+
 export const workResourcePools = sqliteTable(
 	"work_resource_pools",
 	{

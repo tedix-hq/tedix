@@ -331,6 +331,7 @@
 		"./queries/work-items/health": "./src/queries/work-items/health.ts",
 		"./queries/work-items/approvals": "./src/queries/work-items/approvals.ts",
 		"./queries/work-items/capture-health": "./src/queries/work-items/capture-health.ts",
+		"./queries/work-items/interaction-deliveries": "./src/queries/work-items/interaction-deliveries.ts",
 		"./queries/work-items/interactions": "./src/queries/work-items/interactions.ts",
 		"./queries/work-items/reply-drafts": "./src/queries/work-items/reply-drafts.ts",
 		"./queries/work-items/reply-examples": "./src/queries/work-items/reply-examples.ts",

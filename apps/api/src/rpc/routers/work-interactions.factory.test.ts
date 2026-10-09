@@ -5,6 +5,7 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
 	workInteractionAttention,
+	workInteractionDeliveries,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
 	workInteractions,
@@ -30,6 +31,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workInteractionResponses,
 			workInteractionAttention,
 			workInteractionReplyDrafts,
+			workInteractionDeliveries,
 			organizationMembers,
 			tedis,
 		),
@@ -139,8 +141,85 @@ describe("Work interactions router", () => {
 			"listCliInboxProjection",
 			"listOutbox",
 			"listAudit",
+			"listUndelivered",
+			"ackDelivery",
 		]);
 	});
+});
+
+it("lists a session question's undelivered answer, records its delivery, and shows the state", async () => {
+	const { owner, target, other, sqlite } = fixture();
+	const session = "11111111-1111-4111-8111-111111111111";
+	// Decision capture: the user asks themselves on behalf of their session.
+	const question = await target.create({
+		workItemId: WORK_ITEM_ID,
+		kind: "question",
+		subject: "repo · claude-code waiting: Ship it?",
+		prompt: "Ship it?",
+		metadata: { sessionId: session, host: "claude-code" },
+		requestedFrom: { type: "user", id: "target-id" },
+	});
+	const responseId = "00000000-0000-4000-8000-0000000000aa";
+	sqlite
+		.prepare(
+			`INSERT INTO work_interaction_responses (id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at)
+			VALUES (?,?,?,2,'fence','user','target-id','Yes, ship','answer',1,'{}',?)`,
+		)
+		.run(responseId, ORG_ID, question.id, new Date().toISOString());
+	sqlite
+		.prepare(
+			"UPDATE work_interactions SET status='resolved', version=2 WHERE id=?",
+		)
+		.run(question.id);
+
+	const pending = await target.listUndelivered({ sessionId: session });
+	expect(pending.data).toEqual([
+		expect.objectContaining({
+			responseId,
+			requestId: question.id,
+			subject: "repo · claude-code waiting: Ship it?",
+			body: "Yes, ship",
+			sessionId: session,
+			host: "claude-code",
+		}),
+	]);
+	expect((await other.listUndelivered({})).data).toEqual([]);
+	expect(
+		(await target.get({ requestId: question.id })).request.metadata?.delivery,
+	).toMatchObject({ state: "saved", deliveredAt: null });
+
+	// Someone else cannot record it.
+	expect(
+		(await other.ackDelivery({ responseIds: [responseId], via: "hook" })).data,
+	).toEqual([]);
+	await expect(
+		target.ackDelivery({
+			responseIds: [responseId],
+			via: "hook",
+			handoffTo: "LEARN",
+		}),
+	).rejects.toThrow(/only valid with via=handoff/);
+	const acked = await target.ackDelivery({
+		responseIds: [responseId],
+		via: "hook",
+	});
+	expect(acked.data[0]).toMatchObject({ responseId, via: "hook" });
+	expect((await target.listUndelivered({})).data).toEqual([]);
+	const inbox = await target.listInbox({});
+	expect(
+		inbox.data.find((row) => row.request.id === question.id)?.request.metadata
+			?.delivery,
+	).toMatchObject({ state: "delivered", via: "hook" });
+	await target.ackDelivery({
+		responseIds: [responseId],
+		via: "hook",
+		acknowledged: true,
+	});
+	expect(
+		(await owner.listAudit({})).data.find(
+			(row) => row.request.id === question.id,
+		)?.request.metadata?.delivery,
+	).toMatchObject({ state: "acknowledged" });
 });
 
 it("projects targeted open inbox prompts and strips metadata/drafts with truthful continuation", async () => {

@@ -664,6 +664,9 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workInteractions/listInbox": "list_work_interactions",
 	"workInteractions/listOutbox": "list_work_interaction_outbox",
 	"workInteractions/listAudit": "list_work_interaction_audit",
+	"workInteractions/listUndelivered":
+		"list_undelivered_work_interaction_responses",
+	"workInteractions/ackDelivery": "ack_work_interaction_delivery",
 	"workFleet/getControlTower": "get_work_fleet_control_tower",
 	"workAgentSessions/report": "report_work_agent_session_status",
 	"workAgentSessions/list": "list_work_agent_sessions",
@@ -732,6 +735,8 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workInteractions/listInbox": "read",
 	"workInteractions/listOutbox": "read",
 	"workInteractions/listAudit": "read",
+	"workInteractions/listUndelivered": "read",
+	"workInteractions/ackDelivery": "write",
 	"workFleet/getControlTower": "read",
 	"workAgentSessions/report": "write",
 	"workAgentSessions/list": "read",

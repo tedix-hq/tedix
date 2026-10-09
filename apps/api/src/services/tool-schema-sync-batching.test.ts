@@ -254,6 +254,14 @@ describe("plan-wide tool id resolution", () => {
 			"workInteractions/listInbox": ["list_work_interactions", "read"],
 			"workInteractions/listOutbox": ["list_work_interaction_outbox", "read"],
 			"workInteractions/listAudit": ["list_work_interaction_audit", "read"],
+			"workInteractions/listUndelivered": [
+				"list_undelivered_work_interaction_responses",
+				"read",
+			],
+			"workInteractions/ackDelivery": [
+				"ack_work_interaction_delivery",
+				"write",
+			],
 			"workFleet/getControlTower": ["get_work_fleet_control_tower", "read"],
 			"workAgentSessions/report": ["report_work_agent_session_status", "write"],
 			"workAgentSessions/list": ["list_work_agent_sessions", "read"],
@@ -264,7 +272,7 @@ describe("plan-wide tool id resolution", () => {
 			expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint]).toBe(toolId);
 			expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint]).toBe(kind);
 			expect(toolId).toMatch(
-				/^(create|add|record|propose|decide|respond|cancel|get|list|plan|report)_/,
+				/^(create|add|record|propose|decide|respond|cancel|get|list|plan|report|ack)_/,
 			);
 		}
 	});

@@ -15,6 +15,11 @@ import {
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
 } from "@tedix/db/queries/work-items/interactions";
+import {
+	listUndeliveredWorkInteractionResponses,
+	listWorkInteractionDeliveries,
+	recordWorkInteractionDeliveries,
+} from "@tedix/db/queries/work-items/interaction-deliveries";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
@@ -64,7 +69,68 @@ type InteractionRow = NonNullable<
 /** The stored attention verdict, shown to clients as `metadata.attention`. */
 type AttentionOverlay = { kind: string | null; need: string | null } | null;
 
-function requestOutput(row: InteractionRow, attention?: AttentionOverlay) {
+/** The resolving answer of a session question and its delivery row. */
+export interface ResolutionDelivery {
+	responderType: string | null;
+	source: string | null;
+	sessionId: string | null;
+	deliveredAt: string | null;
+	deliveredVia: string | null;
+	acknowledgedAt: string | null;
+	handoffTo: string | null;
+}
+
+const DELIVERY_VIAS = new Set([
+	"hook",
+	"supervisor_resume",
+	"codex_queue",
+	"codex_resume",
+	"prompt_context",
+	"handoff",
+]);
+
+/**
+ * Where a session question's answer stands (`metadata.delivery`), or null
+ * when there is nothing to tell: not a session question, not the user's
+ * answer, a reply typed in the asking session itself, or an answer recorded
+ * before the delivery ledger existed.
+ */
+export function deliveryOverlay(
+	questionSessionId: unknown,
+	resolution: ResolutionDelivery | null,
+) {
+	if (typeof questionSessionId !== "string" || !resolution) return null;
+	if (resolution.responderType !== "user") return null;
+	if (
+		resolution.source === "user-reply" &&
+		resolution.sessionId === questionSessionId
+	)
+		return null;
+	if (resolution.deliveredVia === "legacy") return null;
+	const via =
+		resolution.deliveredVia && DELIVERY_VIAS.has(resolution.deliveredVia)
+			? resolution.deliveredVia
+			: null;
+	return {
+		state: !resolution.deliveredAt
+			? ("saved" as const)
+			: via === "handoff"
+				? ("handed_off" as const)
+				: resolution.acknowledgedAt
+					? ("acknowledged" as const)
+					: ("delivered" as const),
+		via,
+		deliveredAt: resolution.deliveredAt,
+		acknowledgedAt: resolution.acknowledgedAt,
+		handoffTo: resolution.handoffTo,
+	};
+}
+
+function requestOutput(
+	row: InteractionRow,
+	attention?: AttentionOverlay,
+	resolution?: ResolutionDelivery | null,
+) {
 	if (!row.targetType || !row.targetId) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
@@ -91,17 +157,28 @@ function requestOutput(row: InteractionRow, attention?: AttentionOverlay) {
 		expiresAt: row.expiresAt,
 		resolvedAt: row.resolvedAt,
 		version: row.version,
-		metadata: attention?.kind
-			? {
-					...row.metadata,
-					attention: { kind: attention.kind, need: attention.need },
-					// The Office reads the one-line ask under this name.
-					...(attention.kind === "needs_you" && attention.need
-						? { neededFromYou: attention.need }
-						: {}),
-				}
-			: row.metadata,
+		metadata: withDelivery(
+			attention?.kind
+				? {
+						...row.metadata,
+						attention: { kind: attention.kind, need: attention.need },
+						// The Office reads the one-line ask under this name.
+						...(attention.kind === "needs_you" && attention.need
+							? { neededFromYou: attention.need }
+							: {}),
+					}
+				: row.metadata,
+			resolution,
+		),
 	};
+}
+
+function withDelivery(
+	metadata: InteractionRow["metadata"],
+	resolution: ResolutionDelivery | null | undefined,
+): InteractionRow["metadata"] {
+	const delivery = deliveryOverlay(metadata.sessionId, resolution ?? null);
+	return delivery ? { ...metadata, delivery } : metadata;
 }
 
 function rowAttention(row: {
@@ -109,6 +186,12 @@ function rowAttention(row: {
 	attentionNeed: string | null;
 }): AttentionOverlay {
 	return { kind: row.attentionKind, need: row.attentionNeed };
+}
+
+function rowResolution(row: {
+	resolution: (ResolutionDelivery & { id: string | null }) | null;
+}): ResolutionDelivery | null {
+	return row.resolution?.id ? row.resolution : null;
 }
 
 type ResponseRow = Awaited<
@@ -354,7 +437,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				"Work interaction audit detail",
 			);
 		}
-		const [rows, latestDraft, attention] = await Promise.all([
+		const [rows, latestDraft, attention, deliveries] = await Promise.all([
 			listWorkInteractionResponses(context.db, {
 				orgId,
 				interactionId: request.id,
@@ -367,7 +450,17 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				orgId,
 				interactionId: request.id,
 			}),
+			request.status === "resolved"
+				? listWorkInteractionDeliveries(context.db, {
+						orgId,
+						interactionId: request.id,
+					})
+				: Promise.resolve([]),
 		]);
+		const resolving = rows.find((row) => row.resolvesRequest);
+		const delivery = resolving
+			? deliveries.find((row) => row.responseId === resolving.id)
+			: undefined;
 		const [drafter] = latestDraft
 			? await listTediDisplayNamesByIds(context.db, {
 					organizationId: orgId,
@@ -380,7 +473,21 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 		const observedAt = new Date().toISOString();
 		const state = effectiveState(request, observedAt);
 		return {
-			request: requestOutput(request, attention),
+			request: requestOutput(
+				request,
+				attention,
+				resolving
+					? {
+							responderType: resolving.responderType,
+							source: stringOrNull(resolving.metadata.source),
+							sessionId: stringOrNull(resolving.metadata.sessionId),
+							deliveredAt: delivery?.deliveredAt ?? null,
+							deliveredVia: delivery?.deliveredVia ?? null,
+							acknowledgedAt: delivery?.acknowledgedAt ?? null,
+							handoffTo: delivery?.handoffTo ?? null,
+						}
+					: null,
+			),
 			effectiveState: state,
 			canRespond: isTarget && state === "open",
 			canCancel: isCreator && state === "open",
@@ -429,7 +536,11 @@ const listInboxProcedure = readOs.listInbox.handler(
 		});
 		return {
 			data: page.data.map((row) => ({
-				request: requestOutput(row.request, rowAttention(row)),
+				request: requestOutput(
+					row.request,
+					rowAttention(row),
+					rowResolution(row),
+				),
 				effectiveState: row.effectiveState,
 				canRespond: row.effectiveState === "open",
 				canCancel: false,
@@ -504,7 +615,11 @@ const listOutboxProcedure = readOs.listOutbox.handler(
 		});
 		return {
 			data: page.data.map((row) => ({
-				request: requestOutput(row.request, rowAttention(row)),
+				request: requestOutput(
+					row.request,
+					rowAttention(row),
+					rowResolution(row),
+				),
 				effectiveState: row.effectiveState,
 				canRespond: false,
 				canCancel: row.effectiveState === "open",
@@ -540,7 +655,11 @@ const listAuditProcedure = readOs.listAudit.handler(
 		});
 		return {
 			data: page.data.map((row) => ({
-				request: requestOutput(row.request, rowAttention(row)),
+				request: requestOutput(
+					row.request,
+					rowAttention(row),
+					rowResolution(row),
+				),
 				effectiveState: row.effectiveState,
 				canRespond: false,
 				canCancel: false,
@@ -550,6 +669,82 @@ const listAuditProcedure = readOs.listAudit.handler(
 			nextCursor: page.nextCursor,
 			hasMore: page.hasMore,
 			observedAt,
+		};
+	},
+);
+
+function stringOrNull(value: unknown): string | null {
+	return typeof value === "string" ? value : null;
+}
+
+/** Questions expire after a day; older answers are not worth delivering. */
+const UNDELIVERED_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const listUndeliveredProcedure = readOs.listUndelivered.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const caller = await verifiedActiveWorkActor(context, orgId);
+		const observedAt = new Date().toISOString();
+		const rows = await listUndeliveredWorkInteractionResponses(context.db, {
+			orgId,
+			actor: { type: caller.type, id: caller.id },
+			respondedAfter:
+				input.respondedAfter ??
+				new Date(Date.now() - UNDELIVERED_WINDOW_MS).toISOString(),
+			sessionId: input.sessionId,
+			host: input.host,
+			limit: input.limit,
+		});
+		return {
+			data: rows.flatMap((row) =>
+				row.sessionId
+					? [
+							{
+								responseId: row.responseId,
+								requestId: row.interactionId,
+								subject: row.subject,
+								body: row.body,
+								respondedAt: row.respondedAt,
+								sessionId: row.sessionId,
+								host: row.host,
+								workItemId: row.workItemId,
+								projectId: row.projectId,
+							},
+						]
+					: [],
+			),
+			observedAt,
+		};
+	},
+);
+
+const ackDeliveryProcedure = writeOs.ackDelivery.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const caller = await verifiedActiveWorkActor(context, orgId);
+		if (input.via !== "handoff" && (input.handoffTo || input.handoffRef))
+			throw createError(
+				ErrorCodes.UNPROCESSABLE_CONTENT,
+				"handoffTo and handoffRef are only valid with via=handoff",
+			);
+		const rows = await recordWorkInteractionDeliveries(context.db, {
+			orgId,
+			actor: { type: caller.type, id: caller.id },
+			responseIds: input.responseIds,
+			via: input.via,
+			acknowledged: input.acknowledged,
+			handoffTo: input.handoffTo,
+			handoffRef: input.handoffRef,
+			now: new Date().toISOString(),
+		});
+		return {
+			data: rows.map((row) => ({
+				responseId: row.responseId,
+				requestId: row.interactionId,
+				deliveredAt: row.deliveredAt,
+				via: row.deliveredVia,
+				acknowledgedAt: row.acknowledgedAt,
+			})),
 		};
 	},
 );
@@ -564,6 +759,8 @@ export const workInteractionsContractRouter = interactionsOs.router({
 	listCliInboxProjection: listCliInboxProjectionProcedure,
 	listOutbox: listOutboxProcedure,
 	listAudit: listAuditProcedure,
+	listUndelivered: listUndeliveredProcedure,
+	ackDelivery: ackDeliveryProcedure,
 });
 
 export type WorkInteractionsContractRouter =

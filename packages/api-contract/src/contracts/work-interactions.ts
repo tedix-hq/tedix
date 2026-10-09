@@ -7,6 +7,8 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	AckWorkInteractionDeliveryInputSchema,
+	AckWorkInteractionDeliveryResultSchema,
 	CancelWorkInteractionInputSchema,
 	CreateWorkInteractionInputSchema,
 	DelegateWorkInteractionInputSchema,
@@ -14,6 +16,8 @@ import {
 	GetWorkInteractionResultSchema,
 	ListWorkInteractionInboxInputSchema,
 	ListWorkInteractionInboxResultSchema,
+	ListUndeliveredWorkInteractionResponsesInputSchema,
+	ListUndeliveredWorkInteractionResponsesResultSchema,
 	RespondToWorkInteractionInputSchema,
 	WorkInteractionRequestSchema,
 	WorkInteractionResponseSchema,
@@ -102,6 +106,26 @@ export const workInteractionsContract = oc
 			})
 			.input(ListWorkInteractionInboxInputSchema)
 			.output(ListWorkInteractionInboxResultSchema),
+		listUndelivered: oc
+			.route({
+				method: "GET",
+				path: "/responses/undelivered",
+				summary: "List the caller's answers not yet delivered to their session",
+				description:
+					"The caller's own answers to agent-session questions (metadata.sessionId) that no client has recorded as delivered, oldest first. A reply typed in the asking session itself is never listed. Clients deliver each one to its session, then call ack_work_interaction_delivery.",
+			})
+			.input(ListUndeliveredWorkInteractionResponsesInputSchema)
+			.output(ListUndeliveredWorkInteractionResponsesResultSchema),
+		ackDelivery: oc
+			.route({
+				method: "POST",
+				path: "/responses/deliveries",
+				summary: "Record that answers reached the asking session",
+				description:
+					"Records, once per answer, that it reached the agent session that asked (and with acknowledged=true, that the session ran a turn on it), or that it was handed to the user's lead session (via=handoff). Only the question's asker or the asked user may record it; other answers are ignored.",
+			})
+			.input(AckWorkInteractionDeliveryInputSchema)
+			.output(AckWorkInteractionDeliveryResultSchema),
 	});
 
 export type WorkInteractionsContract = typeof workInteractionsContract;

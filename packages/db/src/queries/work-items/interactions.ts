@@ -1,9 +1,11 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import { workItems } from "../../schema/work-items";
 import {
 	workInteractionAttention,
+	workInteractionDeliveries,
 	workInteractionResponses,
 	workInteractions,
 	type WorkInteraction,
@@ -569,6 +571,7 @@ export async function listWorkInteractionInbox(
 	>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workInteractions.status} END`;
 	const limit = Math.min(p.limit ?? 50, 200);
 	const urgency = sql`CASE WHEN ${workInteractionAttention.kind}='fyi' THEN 'later' ELSE COALESCE(json_extract(${workInteractions.metadata},'$.triage.urgency'),'later') END`;
+	const resolution = alias(workInteractionResponses, "resolution");
 	const rows = await db
 		.select({
 			request: prefixedColumns(workInteractions, "work_interaction"),
@@ -594,6 +597,44 @@ export async function listWorkInteractionInbox(
 			attentionNeed: sql<string | null>`${workInteractionAttention.need}`.as(
 				"work_interaction_attention_need",
 			),
+			resolution: {
+				id: sql<string | null>`${resolution.id}`.as(
+					"work_interaction_resolution_id",
+				),
+				responderType: sql<string | null>`${resolution.responderType}`.as(
+					"work_interaction_resolution_by_type",
+				),
+				source: sql<
+					string | null
+				>`json_extract(${resolution.metadata},'$.source')`.as(
+					"work_interaction_resolution_source",
+				),
+				sessionId: sql<
+					string | null
+				>`json_extract(${resolution.metadata},'$.sessionId')`.as(
+					"work_interaction_resolution_session_id",
+				),
+				deliveredAt: sql<
+					string | null
+				>`${workInteractionDeliveries.deliveredAt}`.as(
+					"work_interaction_delivered_at",
+				),
+				deliveredVia: sql<
+					string | null
+				>`${workInteractionDeliveries.deliveredVia}`.as(
+					"work_interaction_delivered_via",
+				),
+				acknowledgedAt: sql<
+					string | null
+				>`${workInteractionDeliveries.acknowledgedAt}`.as(
+					"work_interaction_acknowledged_at",
+				),
+				handoffTo: sql<
+					string | null
+				>`${workInteractionDeliveries.handoffTo}`.as(
+					"work_interaction_handoff_to",
+				),
+			},
 		})
 		.from(workInteractions)
 		.leftJoin(
@@ -608,6 +649,22 @@ export async function listWorkInteractionInbox(
 			and(
 				eq(workInteractionAttention.orgId, workInteractions.orgId),
 				eq(workInteractionAttention.interactionId, workInteractions.id),
+			),
+		)
+		// At most one response resolves a request (the resolution trigger).
+		.leftJoin(
+			resolution,
+			and(
+				eq(resolution.orgId, workInteractions.orgId),
+				eq(resolution.interactionId, workInteractions.id),
+				eq(resolution.resolvesRequest, true),
+			),
+		)
+		.leftJoin(
+			workInteractionDeliveries,
+			and(
+				eq(workInteractionDeliveries.orgId, resolution.orgId),
+				eq(workInteractionDeliveries.responseId, resolution.id),
 			),
 		)
 		.where(
