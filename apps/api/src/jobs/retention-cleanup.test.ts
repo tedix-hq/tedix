@@ -104,9 +104,6 @@ vi.mock("@tedix/db/queries/work-graph-steward", () => ({
 	listOrgIdsWithOpenWorkItems: vi.fn().mockResolvedValue([]),
 	runWorkGraphSteward: vi.fn().mockResolvedValue({}),
 }));
-vi.mock("../rpc/routers/catalog", () => ({
-	fetchClaudeRegistry: vi.fn().mockResolvedValue({ servers: [], error: null }),
-}));
 afterEach(() => vi.restoreAllMocks());
 
 describe("scheduled usage evidence retention", () => {
@@ -229,11 +226,6 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 				errors: ["token=secret-returned"],
 			} as Awaited<ReturnType<typeof runWorkGraphSteward>>)
 			.mockRejectedValueOnce(new Error("token=secret-org-failure"));
-		const { fetchClaudeRegistry } = await import("../rpc/routers/catalog");
-		vi.mocked(fetchClaudeRegistry).mockResolvedValueOnce({
-			servers: [],
-			error: "token=secret-registry",
-		});
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
