@@ -234,6 +234,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			targetId?: string;
 			createdAt?: string;
 			projectId?: string | null;
+			prompt?: string;
 		} = {},
 	) {
 		const id = uuid();
@@ -248,7 +249,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 				overrides.projectId ?? null,
 				overrides.status ?? "open",
 				"Should I ship the migration?",
-				"Tests pass. Commit and push now?",
+				overrides.prompt ?? "Tests pass. Commit and push now?",
 				overrides.targetType ?? "user",
 				overrides.targetId ?? "target-id",
 				overrides.createdAt ?? "2026-08-21T00:00:00.000Z",
@@ -1389,21 +1390,38 @@ describe("turn attention", () => {
 
 	it("re-triages open questions: updates expire, asks get a one-line need", async () => {
 		const f = fixture();
-		const update = f.question(QUIET);
+		// Misfiled as asks when captured; the turn itself says nothing is needed.
+		const update = f.question(withAsk(0.9), {
+			prompt:
+				"Pushed to main; the deploy is running. Nothing else to do until the check finishes.",
+		});
+		// Misfiled too; the current ask question re-judges it as an update.
+		const waiting = f.question(withAsk(0.9), {
+			prompt: "I will report back once the subagent finishes its review.",
+		});
 		const ask = f.question(withAsk(0.9));
 		const answered = f.question(QUIET, { status: "resolved" });
 		f.clef.mockImplementation(
-			async (model: string) =>
+			async (model: string, inputs: unknown) =>
 				(model.includes("clef")
-					? { answers: { asks_user: { type: "noul", noul: 0.05 } } }
+					? {
+							answers: {
+								asks_user: {
+									type: "noul",
+									noul: JSON.stringify(inputs).includes("push now?")
+										? 0.9
+										: 0.05,
+								},
+							},
+						}
 					: {
 							response: '"**Decide** whether to ship the migration now."',
 						}) as never,
 		);
 		const preview = await f.target.retriageQuestions({});
 		expect(preview).toMatchObject({
-			scanned: 2,
-			updates: 1,
+			scanned: 3,
+			updates: 2,
 			needsYou: 1,
 			expired: 0,
 		});
@@ -1414,10 +1432,11 @@ describe("turn attention", () => {
 		).toEqual({ n: 0 });
 
 		const applied = await f.target.retriageQuestions({ apply: true });
-		expect(applied.expired).toBe(1);
+		expect(applied.expired).toBe(2);
 		expect(applied.items).toEqual(
 			expect.arrayContaining([
 				{ requestId: update, kind: "fyi", need: null, expired: true },
+				{ requestId: waiting, kind: "fyi", need: null, expired: true },
 				{
 					requestId: ask,
 					kind: "needs_you",
@@ -1432,11 +1451,14 @@ describe("turn attention", () => {
 					"SELECT id, status, version FROM work_interactions ORDER BY id",
 				)
 				.all(),
-		).toEqual([
-			{ id: update, status: "expired", version: 2 },
-			{ id: ask, status: "open", version: 1 },
-			{ id: answered, status: "resolved", version: 1 },
-		]);
+		).toEqual(
+			[
+				{ id: update, status: "expired", version: 2 },
+				{ id: waiting, status: "expired", version: 2 },
+				{ id: ask, status: "open", version: 1 },
+				{ id: answered, status: "resolved", version: 1 },
+			].sort((a, b) => a.id.localeCompare(b.id)),
+		);
 	});
 });
 

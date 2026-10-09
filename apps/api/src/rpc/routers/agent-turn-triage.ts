@@ -145,6 +145,7 @@ const DefaultsAssetSchema = z.object({
 			id: z.string().regex(/^[A-Za-z0-9_.-]+$/),
 			instructions: z.string().min(1),
 			needsYouWhen: z.object({ gte: z.number().min(0).max(1) }),
+			noAskPatterns: z.array(z.string().min(1)),
 		}),
 		turnKind: z.record(AgentTurnAttentionKindSchema, z.string().min(1)),
 		need: z.object({
@@ -286,6 +287,27 @@ function recordedLabel(metadata: unknown, id: string): number | null {
 	return typeof p === "number" && p >= 0 && p <= 1 ? p : null;
 }
 
+const NO_ASK = ATTENTION.ask.noAskPatterns.map(
+	(pattern) => new RegExp(pattern, "iu"),
+);
+
+/**
+ * Cheap deterministic pre-check: the turn says in so many words that nothing
+ * is needed from the user ("nothing for you to do", "no action needed",
+ * "waiting on the deploy"; EN/DE/ES) and does not end on a question. Such a
+ * turn is an update whatever the model says.
+ */
+export function saysNothingNeeded(text: string): boolean {
+	const lines = text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const last = lines.at(-1) ?? "";
+	if (/\?["')\]]*\s*$/.test(last)) return false;
+	const plain = text.replace(/[*_`]/g, "").replace(/[’‘]/g, "'");
+	return NO_ASK.some((pattern) => pattern.test(plain));
+}
+
 /** The ask probability triage recorded on a captured question, if any. */
 export function recordedAskProbability(metadata: unknown): number | null {
 	return recordedLabel(metadata, ATTENTION.ask.id);
@@ -402,10 +424,12 @@ async function writeNeed(
 export async function decideAgentTurnAttention(
 	env: BaseContext["env"],
 	params: { prompt: string; metadata: unknown },
+	options: { rejudge?: boolean } = {},
 ): Promise<AgentTurnAttention | null> {
-	const asks =
-		recordedAskProbability(params.metadata) ??
-		(await judgeAsk(env, params.prompt));
+	const asks = saysNothingNeeded(params.prompt)
+		? 0
+		: ((options.rejudge ? null : recordedAskProbability(params.metadata)) ??
+			(await judgeAsk(env, params.prompt)));
 	if (asks === null) return null;
 	const kind = attentionKindOf(asks);
 	return {
@@ -511,6 +535,7 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 	for (const [id, answer] of Object.entries(result.answers)) {
 		if (answer.type === "noul") labels[id] = answer.noul;
 	}
+	if (saysNothingNeeded(input.text)) labels[ATTENTION.ask.id] = 0;
 	return {
 		status: "ok",
 		...scoreTriage(policy, labels),
@@ -1645,9 +1670,11 @@ const retriageQuestions = retriageOs.retriageQuestions.handler(
 			items.push(
 				...(await Promise.all(
 					batch.map(async (request) => {
+						// Re-judged with the current ask question, not the recorded one.
 						const attention = await decideAgentTurnAttention(
 							context.env,
 							request,
+							{ rejudge: true },
 						);
 						let expired = false;
 						if (attention && input.apply) {

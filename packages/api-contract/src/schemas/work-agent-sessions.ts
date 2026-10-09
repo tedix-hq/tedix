@@ -12,7 +12,7 @@ export const WorkAgentSessionStateSchema = z.enum([
 	"ended",
 ]);
 
-/** State shown on the board; `idle` is derived from age when the board is read. */
+/** State shown on the board; `idle`, and `ended` after 12 silent hours, are derived from age when the board is read. */
 export const WorkAgentSessionEffectiveStateSchema = z.enum([
 	"needs_you",
 	"error",

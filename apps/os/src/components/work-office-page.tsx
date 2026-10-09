@@ -528,7 +528,10 @@ export function sessionsFromKnocks(
 	});
 }
 
-/** Distinct sessions: active within 15 minutes, idle within 24 hours. */
+/** A session silent this long has ended, whether or not it said so. */
+const SESSION_ENDED_MS = 12 * 3_600_000;
+
+/** Distinct sessions: active within 15 minutes, idle within 12 hours. */
 export function sessionActivity(seen: SeenSession[], now: number) {
 	const latest = new Map<string, number>();
 	for (const entry of seen) {
@@ -540,7 +543,7 @@ export function sessionActivity(seen: SeenSession[], now: number) {
 	let idle = 0;
 	for (const at of latest.values()) {
 		if (now - at <= ACTIVE_WINDOW_MS) active += 1;
-		else if (now - at <= 24 * 3_600_000) idle += 1;
+		else if (now - at <= SESSION_ENDED_MS) idle += 1;
 	}
 	return { active, idle };
 }

@@ -56,7 +56,8 @@ describe("office helpers", () => {
 			turn("a", "2026-10-08T12:25:00Z"),
 			turn("a", "2026-10-08T09:00:00Z"),
 			turn("b", "2026-10-08T09:00:00Z"),
-			turn("c", "2026-10-06T09:00:00Z"),
+			turn("c", "2026-10-07T23:00:00Z"),
+			turn("d", "2026-10-06T09:00:00Z"),
 			{ request: { requestedAt: "2026-10-08T12:29:00Z", metadata: {} } },
 		]);
 		expect(sessionActivity(seen, now)).toEqual({ active: 1, idle: 1 });

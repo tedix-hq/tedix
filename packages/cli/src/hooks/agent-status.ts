@@ -14,6 +14,7 @@ import {
 	existsSync,
 	mkdirSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
@@ -70,6 +71,51 @@ export const SUPERVISOR_CONTINUED_SUFFIX = ".supervisor-continued";
  * continues the turn), so the session does not stay `working`.
  */
 export const AUTO_CONTINUED_SUFFIX = ".auto-continued";
+
+/** A session without a status update for this long has ended without saying so. */
+export const STATUS_ENDED_AFTER_MS = 12 * 60 * 60 * 1000;
+/** Session files untouched this long are removed. */
+export const STATUS_PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** True when the session reported `ended` or has not reported for 12 hours. */
+export function statusEnded(
+	record: JsonObject | undefined,
+	now: number,
+): boolean {
+	if (!record) return true;
+	if (record.state === "ended") return true;
+	const at =
+		typeof record.updatedAt === "string" ? Date.parse(record.updatedAt) : NaN;
+	return Number.isNaN(at) || now - at > STATUS_ENDED_AFTER_MS;
+}
+
+/**
+ * Remove per-session status files and markers untouched for 7 days, so
+ * sessions that ended without a final status do not accumulate. Best effort;
+ * returns the number removed.
+ */
+export function pruneStatusFiles(env: NodeJS.ProcessEnv, now: number): number {
+	const directory = statusDir(env);
+	let removed = 0;
+	let names: string[];
+	try {
+		names = readdirSync(directory);
+	} catch {
+		return 0;
+	}
+	for (const name of names) {
+		if (!/^(claude-code|codex)-/.test(name)) continue;
+		const path = join(directory, name);
+		try {
+			if (now - statSync(path).mtimeMs <= STATUS_PRUNE_AFTER_MS) continue;
+			rmSync(path, { force: true });
+			removed += 1;
+		} catch {
+			// Removed concurrently or unreadable: skip.
+		}
+	}
+	return removed;
+}
 
 /** Options for detached children: a new process group with no stdin. */
 export const DETACHED = { detached: true, stdin: "ignore" } as const;
@@ -585,6 +631,7 @@ function recordStatus(
 	const directory = statusDir(env);
 	const path = join(directory, `${harness}-${sessionKey}.json`);
 	const previous = readState(path);
+	pruneStatusFiles(env, (deps.now ?? (() => new Date()))().getTime());
 	const previousState = previous?.state;
 	const changed =
 		!previous ||

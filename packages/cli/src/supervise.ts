@@ -36,6 +36,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { pruneStatusFiles, statusEnded } from "./hooks/agent-status";
 import { AWAIT_DRAFT_MAX_MS } from "./hooks/await-draft";
 import {
 	AWAIT_MAX_MS,
@@ -72,6 +73,7 @@ const RESUME_CONFIRM_MS = 60_000;
 const DETAIL_TIMEOUT_MS = 15_000;
 /** Recheck a question without a deliverable draft at most this often. */
 const RECHECK_MAX_MS = 10 * 60 * 1000;
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
 const LOG_LIMIT = 1024 * 1024;
 export const LAUNCH_AGENT_LABEL = "dev.tedix.supervisor";
 
@@ -181,8 +183,9 @@ export function waitingQuestions(
 		const status = peek(
 			join(configDir(env), "agent-status", `${host}-${session}.json`),
 		);
-		// The session is running again (typed reply not captured, or a tool call).
-		if (status?.state === "working") continue;
+		// The session is running again (typed reply not captured, or a tool call);
+		// a status silent for 12 hours belongs to a session that ended.
+		if (status?.state === "working" && !statusEnded(status, now)) continue;
 		found.push({
 			session,
 			host,
@@ -201,6 +204,7 @@ export function waitingQuestions(
 export class Supervisor {
 	private readonly recheck = new Map<string, { at: number; delay: number }>();
 	private readonly logged = new Set<string>();
+	private prunedAt = Number.NEGATIVE_INFINITY;
 
 	constructor(private readonly deps: SuperviseDeps) {}
 
@@ -220,6 +224,10 @@ export class Supervisor {
 		let delivered = 0;
 		this.lastPass = { checked: 0, failed: 0 };
 		const now = this.now();
+		if (now - this.prunedAt >= PRUNE_EVERY_MS) {
+			this.prunedAt = now;
+			pruneStatusFiles(this.deps.env, now);
+		}
 		for (const candidate of waitingQuestions(this.deps.env, now)) {
 			const due =
 				candidate.host === "codex"
