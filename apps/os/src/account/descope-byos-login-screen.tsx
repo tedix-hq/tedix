@@ -172,7 +172,8 @@ export function TedixByosLoginScreen({
 			</div>
 
 			<p className="identity-legal-copy">
-				By continuing, you agree to the Tedix{" "}
+				Tedix is for businesses only. By continuing, you confirm you are signing
+				up for a business and agree to the Tedix{" "}
 				<a href="https://tedix.dev/privacy/" target="_blank" rel="noreferrer">
 					Privacy Policy
 				</a>{" "}

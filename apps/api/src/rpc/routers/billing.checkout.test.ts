@@ -130,6 +130,22 @@ describe("subscription checkout", () => {
 		});
 	}
 
+	it("collects the business declaration, address and tax ID at checkout", async () => {
+		storage.plan.mockResolvedValue(planRow("growth", true));
+		const client = createRouterClient(billingContractRouter, {
+			context: context("live"),
+		});
+
+		await client.createCheckout({ tier: "growth", interval: "month" });
+
+		const [params] = stripe.checkout.sessions.create.mock.calls[0];
+		expect(params.billing_address_collection).toBe("required");
+		expect(params.tax_id_collection).toEqual({ enabled: true });
+		expect(params.custom_text.submit.message).toContain("§ 14 BGB");
+		expect(params.custom_text.submit.message).toContain("§ 19 UStG");
+		expect(params.consent_collection).toBeUndefined();
+	});
+
 	it("omits overage for a plan that does not price it (live)", async () => {
 		storage.plan.mockResolvedValue(planRow("enterprise", false));
 		const client = createRouterClient(billingContractRouter, {

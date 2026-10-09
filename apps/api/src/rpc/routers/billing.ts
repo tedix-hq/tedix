@@ -7,6 +7,7 @@ import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-u
 /// <reference path="../../../worker-configuration.d.ts" />
 
 import { implement, ORPCError } from "@orpc/server";
+import { checkoutBusinessTermsParams } from "../../lib/checkout-business-terms";
 import { billingContract } from "@tedix/api-contract/contracts/billing";
 import {
 	listProviderModelRates,
@@ -287,6 +288,9 @@ const createCheckoutContract = os.createCheckout
 			{
 				mode: "subscription",
 				...customerParams,
+				...checkoutBusinessTermsParams({
+					hasExistingCustomer: "customer" in customerParams,
+				}),
 				client_reference_id: organizationId,
 				line_items: lineItems,
 				success_url: successUrl,
@@ -432,6 +436,9 @@ const createInferenceCapacityCheckoutContract =
 					mode: "payment",
 					allowed_payment_method_types: ["card"],
 					...customerParams,
+					...checkoutBusinessTermsParams({
+						hasExistingCustomer: "customer" in customerParams,
+					}),
 					client_reference_id: organizationId,
 					line_items: [{ price: priceId, quantity: 1 }],
 					success_url: successUrl,
