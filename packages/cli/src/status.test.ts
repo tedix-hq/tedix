@@ -277,6 +277,81 @@ describe("@tedix/cli buildStatusReport", () => {
 		}
 	});
 
+	test("reads runs and delegations through the Code Mode envelope", () => {
+		// Both reads run as Code Mode, so the payload can still be the gateway
+		// envelope `{ executionId, result }`. The envelope used to hide the whole
+		// child tree (delegations=0 while a delegated run was in flight).
+		const report = buildStatusReport({
+			conversationId: "home:cli:-private-tmp",
+			runSet: { executionId: "exec-1", result: sampleRunSet() },
+			childTree: {
+				executionId: "exec-2",
+				result: {
+					tree: {
+						conversationId: "home:cli:-private-tmp",
+						nodes: [
+							{
+								homeRunId: "r-deleg",
+								delegatedTediId: "tedi-cto",
+								childRunId: "child-9",
+								label: "CTO",
+								status: "running",
+								active: true,
+								children: [],
+								metadata: {
+									progress: { label: "Working", detail: "reading the repo" },
+									preview: "Reviewing the kernel change",
+								},
+							},
+						],
+					},
+				},
+			},
+		});
+		expect(report.errors).toBeUndefined();
+		expect(report.activeRuns.map((run) => run.homeRunId)).toEqual([
+			"r-run",
+			"r-appr",
+			"r-deleg",
+		]);
+		expect(report.recentDelegations).toEqual([
+			{
+				tedi: "CTO",
+				childRunId: "child-9",
+				status: "running",
+				preview: "Reviewing the kernel change",
+			},
+		]);
+	});
+
+	test("a truncated gateway result is an error, never an empty conversation", () => {
+		const truncated = {
+			executionId: "exec-1",
+			result: {
+				__tedix_truncated: true,
+				preview: '{"runSet":{"runs":[{"id":"r-deleg","status":"running"',
+				approxTokens: 27269,
+				guidance: "Result truncated by the Code Mode gateway: ~27,269 tokens",
+			},
+		};
+		const report = buildStatusReport({
+			conversationId: "conv-5",
+			runSet: truncated,
+			childTree: truncated,
+			errors: ["Runs: earlier"],
+		});
+		expect(report.activeRuns).toEqual([]);
+		expect(report.recentDelegations).toEqual([]);
+		expect(report.errors).toEqual([
+			"Runs: earlier",
+			"Runs: Result truncated by the Code Mode gateway: ~27,269 tokens",
+			"Delegations: Result truncated by the Code Mode gateway: ~27,269 tokens",
+		]);
+		expect(renderStatusReport(report, { json: false })).toContain(
+			"Status incomplete",
+		);
+	});
+
 	test("skips non-record rows and rows without an id", () => {
 		const report = buildStatusReport({
 			conversationId: "conv-4",

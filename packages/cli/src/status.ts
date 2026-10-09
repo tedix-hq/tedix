@@ -6,6 +6,7 @@ import {
 	summarizeHomePayload,
 } from "./home-client";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { normalizeCodeResult } from "./code-result";
 
 /**
  * Compact operator dashboard built purely from already-fetched gateway reads.
@@ -104,9 +105,17 @@ function flattenTreeNodes(payload: unknown): Record<string, unknown>[] {
 }
 
 function nodePreview(node: Record<string, unknown>): string | undefined {
-	const progress = isRecord(node.progress) ? node.progress : {};
+	// The kernel's tree keeps a child's preview and progress under
+	// `node.metadata`; older/flat shapes carry them on the node itself.
+	const metadata = isRecord(node.metadata) ? node.metadata : {};
+	const progress = isRecord(node.progress)
+		? node.progress
+		: isRecord(metadata.progress)
+			? metadata.progress
+			: {};
 	return (
 		stringValue(node.preview) ??
+		stringValue(metadata.preview) ??
 		stringValue(node.childRunPreview) ??
 		stringValue(node.summary) ??
 		stringValue(progress.detail) ??
@@ -139,9 +148,26 @@ export function buildStatusReport(input: {
 }): StatusReport {
 	const conversationId = input.conversationId;
 	try {
+		// Both reads run as Code Mode, so a payload may still be the gateway
+		// envelope `{ executionId, result }`, and an oversized result is a
+		// truncation preview. A preview holds no runs; treating it as an empty
+		// conversation is what made `tedix status` report nothing in flight while
+		// a delegated run was in progress, so it is an error, never silence.
+		const errors = [...(input.errors ?? [])];
+		const runSet = normalizeCodeResult(input.runSet);
+		if (runSet.truncated)
+			errors.push(
+				`Runs: ${runSet.truncationHint ?? "result truncated by the Code Mode gateway"}`,
+			);
+		const childTree = normalizeCodeResult(input.childTree);
+		if (childTree.truncated)
+			errors.push(
+				`Delegations: ${childTree.truncationHint ?? "result truncated by the Code Mode gateway"}`,
+			);
+
 		// Wrap each row in the run envelope expected by summarizeHomePayload.
 		const summaries: HomeRunSummary[] = [];
-		for (const row of findRunsArray(input.runSet)) {
+		for (const row of findRunsArray(runSet.truncated ? null : runSet.value)) {
 			const summary = summarizeHomePayload({ run: row });
 			if (summary) summaries.push(summary);
 		}
@@ -184,7 +210,9 @@ export function buildStatusReport(input: {
 		// delegatedTediId and a childRunId. A present-but-empty tree falls through
 		// so run-level delegations are not hidden.
 		const treeDelegations: StatusReport["recentDelegations"] = [];
-		for (const node of flattenTreeNodes(input.childTree)) {
+		for (const node of flattenTreeNodes(
+			childTree.truncated ? undefined : childTree.value,
+		)) {
 			const childRunId = stringValue(node.childRunId);
 			if (!childRunId) continue;
 			const preview = nodePreview(node);
@@ -222,7 +250,7 @@ export function buildStatusReport(input: {
 			activeRuns,
 			pendingApprovals,
 			recentDelegations,
-			...(input.errors?.length ? { errors: input.errors } : {}),
+			...(errors.length ? { errors } : {}),
 		};
 	} catch (error) {
 		console.error("[status] failed to build status report:", error);
