@@ -15,6 +15,7 @@ import {
 	type OsOutputRevision,
 	OS_OUTPUT_EXPORT_FORMAT_KINDS,
 	OsOutputContentSchema,
+	type OsDerivedAccessEnvelope,
 	OsDerivedAccessEnvelopeSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { getOsGadgetExecutionByRunId } from "@tedix/db/queries/os-workspaces/executions";
@@ -69,23 +70,37 @@ const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
 const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 
-async function resolveAccessEnvelope(
+const EMPTY_ACCESS_ENVELOPE = JSON.stringify({ version: 1, sources: [] });
+
+/**
+ * Envelope for a revision authored by a governed run.
+ *
+ * The run row's `resourceAccessEnvelope` is where the API admits workspace
+ * resource grants to a background run ("workflow params cannot establish
+ * credential authority"), and every credential or resource release to that
+ * run requires the envelope to name the source (`credentials-tedi`,
+ * `os-workspace-resource-read-authority`). A run this organization knows
+ * whose row carries no envelope, and whose Gadget execution carries none,
+ * therefore drew on no workspace resource; its faithful envelope is the same
+ * empty one a human author gets. Null stays reserved for an unverifiable
+ * producer: a run id this organization and environment do not know, or an
+ * envelope that no longer parses.
+ */
+async function resolveRunAccessEnvelope(
 	context: BaseContext,
+	input: { organizationId: string; skillRunId: string },
 ): Promise<string | null> {
-	const producer = resolveProducer(context);
-	if (!producer.skillRunId) {
-		return JSON.stringify({ version: 1, sources: [] });
-	}
 	const execution = await getOsGadgetExecutionByRunId(queryDb(context), {
-		organizationId: requireOrgId(context),
-		runId: producer.skillRunId,
+		organizationId: input.organizationId,
+		runId: input.skillRunId,
 	});
 	const run = await getSkillRun(
 		context.db,
-		producer.skillRunId,
-		requireOrgId(context),
+		input.skillRunId,
+		input.organizationId,
 		context.env.ENVIRONMENT,
 	);
+	if (!run && !execution) return null;
 
 	try {
 		const rawEnvelope =
@@ -93,12 +108,58 @@ async function resolveAccessEnvelope(
 			(execution?.resourceAccessEnvelope
 				? JSON.parse(execution.resourceAccessEnvelope)
 				: null);
-		if (!rawEnvelope) return null;
+		if (!rawEnvelope) return run ? EMPTY_ACCESS_ENVELOPE : null;
 		const parsed = OsDerivedAccessEnvelopeSchema.safeParse(rawEnvelope);
 		return parsed.success ? JSON.stringify(parsed.data) : null;
 	} catch {
 		return null;
 	}
+}
+
+async function resolveAccessEnvelope(
+	context: BaseContext,
+): Promise<string | null> {
+	const producer = resolveProducer(context);
+	if (!producer.skillRunId) return EMPTY_ACCESS_ENVELOPE;
+	return resolveRunAccessEnvelope(context, {
+		organizationId: requireOrgId(context),
+		skillRunId: producer.skillRunId,
+	});
+}
+
+/**
+ * The viewer requirements a stored revision carries. A revision written
+ * before run-authored envelopes defaulted to empty holds null next to its
+ * `skillRunId`; it is re-derived from the run exactly as a new write would be,
+ * so a legacy row is readable precisely when the run it names admitted no
+ * source the viewer must hold.
+ */
+async function resolveRevisionAccessEnvelope(
+	context: BaseContext,
+	revision: OsOutputRevisionRow,
+): Promise<OsDerivedAccessEnvelope | null> {
+	const stored = parseDerivedAccessEnvelope(revision.accessEnvelope);
+	if (stored || !revision.skillRunId) return stored;
+	return parseDerivedAccessEnvelope(
+		await resolveRunAccessEnvelope(context, {
+			organizationId: revision.organizationId,
+			skillRunId: revision.skillRunId,
+		}),
+	);
+}
+
+async function canReadDerivedRevision(
+	context: BaseContext,
+	revision: OsOutputRevisionRow,
+): Promise<boolean> {
+	const accessEnvelope = await resolveRevisionAccessEnvelope(context, revision);
+	return Boolean(
+		accessEnvelope &&
+		(await authorizeDerivedOutputSources(context, {
+			organizationId: revision.organizationId,
+			accessEnvelope,
+		})),
+	);
 }
 
 const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
@@ -125,18 +186,7 @@ const outputsLibrary = readOs.outputs.library.handler(
 			kind: input.kind,
 			status: input.status,
 			limit: input.limit,
-			canReadRevision: async (revision) => {
-				const accessEnvelope = parseDerivedAccessEnvelope(
-					revision.accessEnvelope,
-				);
-				return Boolean(
-					accessEnvelope &&
-					(await authorizeDerivedOutputSources(context, {
-						organizationId,
-						accessEnvelope,
-					})),
-				);
-			},
+			canReadRevision: (revision) => canReadDerivedRevision(context, revision),
 		});
 	},
 );
@@ -145,14 +195,7 @@ async function requireDerivedRevisionAccess(
 	context: BaseContext,
 	revision: OsOutputRevisionRow,
 ): Promise<void> {
-	const accessEnvelope = parseDerivedAccessEnvelope(revision.accessEnvelope);
-	if (
-		!accessEnvelope ||
-		!(await authorizeDerivedOutputSources(context, {
-			organizationId: revision.organizationId,
-			accessEnvelope,
-		}))
-	) {
+	if (!(await canReadDerivedRevision(context, revision))) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"Output source access is unavailable",
