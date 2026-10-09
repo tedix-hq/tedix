@@ -368,4 +368,30 @@ describe("streamHomeRunEvents pagination", () => {
 		expect(Date.now() - started).toBeGreaterThanOrEqual(45);
 		expect(stream.status).toBe("completed");
 	});
+
+	test("live: a caught-up page that carried events is followed immediately, not paced", async () => {
+		const started = Date.now();
+		const source = makePageSource([
+			makePage([{ offset: "0", kind: "tool.started" }], "1", true, "running"),
+			makePage([{ offset: "1", kind: "tool.completed" }], "2", true, "running"),
+			makePage(
+				[{ offset: "2", kind: "run.completed" }],
+				"3",
+				true,
+				"completed",
+			),
+		]);
+		const stream = streamHomeRunEvents(
+			source,
+			{ homeRunId: "r" },
+			{ live: true, pollIntervalMs: 200 },
+		);
+		const seen: HomeRunEvent[] = [];
+		for await (const event of stream) seen.push(event);
+		expect(seen).toHaveLength(3);
+		// Three non-empty pages: the long-poll only holds EMPTY pages open, so a
+		// page with events reads the next one at once instead of sleeping 200ms.
+		expect(Date.now() - started).toBeLessThan(150);
+		expect(stream.status).toBe("completed");
+	});
 });

@@ -90,8 +90,8 @@ export const MAX_MESSAGE_BYTES = 64 * 1024;
 export const RATE_LIMIT_CALLS = 30;
 /** Token-bucket window in milliseconds. */
 export const RATE_LIMIT_WINDOW_MS = 10_000;
-/** Mutation timeout above the API's 10s durable-ack budget, including cold starts. */
-export const CAPN_CHAT_MUTATION_TIMEOUT_MS = 30_000;
+/** Mutation timeout above the API's 25s inline-turn budget (KERNEL_TURN_SOFT_DEADLINE_MS), including cold starts. */
+export const CAPN_CHAT_MUTATION_TIMEOUT_MS = 45_000;
 /** Long-poll `waitMs` passed to `readRunEvents` inside a subscription pump. */
 export const SUBSCRIBE_POLL_WAIT_MS = 10_000;
 /** Pause between pump turns when there is no active run or no new events. */

@@ -173,10 +173,13 @@ export function streamHomeRunEvents(
 			// FOLLOW: terminate when run is settled and we are caught up
 			if (isSettledHomeStatus(currentStatus)) return;
 
-			// Always pace the next poll. The server's `waitMs` only holds an EMPTY
-			// page open, and even then it is a budget, not a guarantee — polling as
-			// fast as the gateway answers is how this loop used to rate-limit
-			// itself out of the run it was tailing.
+			// A page that carried events means the run is active: read the next page
+			// right away so the stream (and the settle wake it feeds) stays close to
+			// the server. Only an EMPTY page is paced — the server's `waitMs` holds
+			// it open as a budget, not a guarantee, and polling as fast as the
+			// gateway answers is how this loop used to rate-limit itself out of the
+			// run it was tailing.
+			if (page.events.length > 0) continue;
 			await sleep(pollIntervalMs, combinedSignal).catch(() => {});
 			if (combinedSignal.aborted) return;
 		}
