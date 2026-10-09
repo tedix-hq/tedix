@@ -6,7 +6,6 @@ import { isAuthError, isConnectionError } from "./operator/runtime-errors";
  * handler. Extracted verbatim from index.ts.
  */
 
-import { setTimeout as delay } from "node:timers/promises";
 import { createInterface } from "node:readline/promises";
 import {
 	activityRowPhase,
@@ -365,6 +364,35 @@ export async function waitForSettlement(
 	const ac = new AbortController();
 	const deadlineTimer = setTimeout(() => ac.abort(), options.pollTimeoutMs);
 	let receivedActivity = false;
+	// The event tail sees settlement before the next status poll would. When it
+	// ends on its own (settled/closed stream, not our abort) it wakes the settle
+	// loop so the terminal read happens now instead of after a full interval.
+	let tailSettled = false;
+	let wakeSettleLoop: (() => void) | null = null;
+	const signalTailSettled = () => {
+		if (ac.signal.aborted) return;
+		if (wakeSettleLoop) wakeSettleLoop();
+		else tailSettled = true;
+	};
+	// One wake per signal: a tail that settled while a status read was in
+	// flight skips the next pause only, never every pause after it.
+	const waitForPollOrSettle = (ms: number): Promise<void> =>
+		new Promise<void>((resolve) => {
+			if (tailSettled || ac.signal.aborted) {
+				tailSettled = false;
+				resolve();
+				return;
+			}
+			const done = () => {
+				clearTimeout(timer);
+				ac.signal.removeEventListener("abort", done);
+				wakeSettleLoop = null;
+				resolve();
+			};
+			const timer = setTimeout(done, ms);
+			wakeSettleLoop = done;
+			ac.signal.addEventListener("abort", done, { once: true });
+		});
 	const quietTimer = setTimeout(() => {
 		if (!receivedActivity && !ac.signal.aborted)
 			spinner.log(
@@ -440,6 +468,9 @@ export async function waitForSettlement(
 						);
 					}
 				}
+				// The stream returns on its own only once the run is settled or the
+				// terminal page drained; a tail we aborted says nothing.
+				signalTailSettled();
 			} catch {
 				clearTimeout(quietTimer);
 				if (!ac.signal.aborted)
@@ -462,11 +493,17 @@ export async function waitForSettlement(
 
 	let summary = initial;
 	const deadline = Date.now() + options.pollTimeoutMs;
+	// Poll at once, then back off 1s -> 2s -> `--poll-interval` (the ceiling).
+	// Most turns settle within a few seconds of submission; a fixed 5s pause
+	// before the first read was pure wait. The first pause is one event-loop
+	// tick so the tail issues its long-poll before the status read.
+	const backoffMs = [0, 1_000, 2_000];
+	let pollCount = 0;
 	try {
 		while (Date.now() < deadline) {
-			await delay(options.pollIntervalMs, undefined, {
-				signal: ac.signal,
-			}).catch(() => {});
+			const step = backoffMs[pollCount] ?? options.pollIntervalMs;
+			await waitForPollOrSettle(Math.min(step, options.pollIntervalMs));
+			pollCount++;
 			if (ac.signal.aborted) break;
 			try {
 				const task = await client.getTask(homeRunId, ac.signal);

@@ -39,8 +39,10 @@ export const OS_API_URL =
 /** A route must surface an actionable failure instead of holding a skeleton forever. */
 export const OS_API_REQUEST_TIMEOUT_MS = 15_000;
 /** Chat mutations are idempotent and persist-first, but may cross a cold OS
- * proxy and API isolate before the API's bounded acknowledgement is emitted. */
-export const OS_CHAT_MUTATION_TIMEOUT_MS = 30_000;
+ * proxy and API isolate before the API's bounded acknowledgement is emitted.
+ * The API answers a turn inline for up to 25s (KERNEL_TURN_SOFT_DEADLINE_MS)
+ * before falling back to a queued ack, so this must stay well above that. */
+export const OS_CHAT_MUTATION_TIMEOUT_MS = 45_000;
 /** Run-event reads may include a 10s server long-poll plus connection and
  * serialization overhead. Keep that protocol wait distinct from ordinary UI reads. */
 export const OS_CHAT_READ_TIMEOUT_MS = 30_000;

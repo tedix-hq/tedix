@@ -9723,6 +9723,11 @@ describe("kernel enqueue response budget", () => {
 	it("does not create extra budget when the clock moves backwards", () => {
 		expect(remainingKernelTurnBudgetMs(2_000, 1_000, 10_000)).toBe(10_000);
 	});
+
+	it("defaults to a 25s inline budget so typical 13-23s turns answer in-band", () => {
+		expect(remainingKernelTurnBudgetMs(0, 0)).toBe(25_000);
+		expect(remainingKernelTurnBudgetMs(0, 20_000)).toBe(5_000);
+	});
 });
 
 describe("kernel DO integration (enqueueMessage kernel path)", () => {

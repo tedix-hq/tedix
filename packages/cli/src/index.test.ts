@@ -1188,6 +1188,98 @@ describe("waitForSettlement", () => {
 		expect(result.status).toBe("completed");
 	});
 
+	test("polls immediately and backs off 1s -> 2s -> --poll-interval (the ceiling)", async () => {
+		const pollAt: number[] = [];
+		const started = Date.now();
+		let tailHold: (() => void) | null = null;
+		const client = {
+			getTask: async () => {
+				pollAt.push(Date.now() - started);
+				return taskState(
+					"home-run-1",
+					pollAt.length < 4 ? "working" : "completed",
+				);
+			},
+			readHomeRun: async () => ({
+				run: { id: "home-run-1", status: "completed" },
+			}),
+			// Hold the tail open so it never wakes the loop; only the backoff
+			// schedule is under test here.
+			readHomeRunEvents: (_input: unknown, signal?: AbortSignal) =>
+				new Promise((resolve) => {
+					tailHold = () =>
+						resolve({
+							events: [],
+							nextOffset: "0",
+							status: "running",
+							upToDate: true,
+						});
+					signal?.addEventListener("abort", () => tailHold?.(), {
+						once: true,
+					});
+				}),
+		} as unknown as TedixHomeClient;
+
+		const result = await waitForSettlement(
+			client,
+			"home-run-1",
+			makeHomeRunSummary({ status: "running" }),
+			makeOptions({ pollIntervalMs: 60, pollTimeoutMs: 5_000 }),
+			{ enabled: false },
+			makeQuietSpinner(),
+		);
+		expect(result.status).toBe("completed");
+		expect(pollAt).toHaveLength(4);
+		// First read is immediate: no interval-long pause before it.
+		expect(pollAt[0]).toBeLessThan(40);
+		// Every later pause is capped at --poll-interval (60ms here), so the 1s
+		// and 2s backoff steps collapse to the ceiling.
+		for (let i = 1; i < pollAt.length; i++) {
+			const gap = (pollAt[i] ?? 0) - (pollAt[i - 1] ?? 0);
+			expect(gap).toBeGreaterThanOrEqual(50);
+			expect(gap).toBeLessThan(200);
+		}
+	});
+
+	test("a settled event tail wakes the settle loop before the next poll interval", async () => {
+		const pollAt: number[] = [];
+		const started = Date.now();
+		let getTaskStatus: "working" | "completed" = "working";
+		const client = {
+			getTask: async () => {
+				pollAt.push(Date.now() - started);
+				return taskState("home-run-1", getTaskStatus);
+			},
+			readHomeRun: async () => ({
+				run: { id: "home-run-1", status: "completed" },
+			}),
+			// The tail reports settlement 30ms in — long before the 2s poll
+			// interval would have fired again.
+			readHomeRunEvents: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 30));
+				getTaskStatus = "completed";
+				return {
+					events: [],
+					nextOffset: "0",
+					status: "completed",
+					upToDate: true,
+				};
+			},
+		} as unknown as TedixHomeClient;
+
+		const result = await waitForSettlement(
+			client,
+			"home-run-1",
+			makeHomeRunSummary({ status: "running" }),
+			makeOptions({ pollIntervalMs: 2_000, pollTimeoutMs: 5_000 }),
+			{ enabled: false },
+			makeQuietSpinner(),
+		);
+		expect(result.status).toBe("completed");
+		expect(pollAt).toHaveLength(2);
+		expect(Date.now() - started).toBeLessThan(500);
+	});
+
 	test("a transient 429 read does not abandon a still-running turn", async () => {
 		let callCount = 0;
 		const client = {

@@ -510,8 +510,18 @@ export let activeTranscribeAudio: typeof transcribeAudioAttachment =
  * The budget covers the WHOLE handler, including admission and persistence
  * before the DO call. Starting a fresh 12s timer only after that work consumed
  * the common 15s caller budget and produced false outcome-unknown failures.
+ *
+ * 25s: a typical LLM-routed turn takes 13-23s, and a 10s deadline sent nearly
+ * all of them down the queued-ack path, costing clients a poll cycle or more
+ * before they could read an answer that was already there. Every caller that
+ * waits on this route gives it more room: the MCP gateway floors
+ * `kernelRuntime/enqueueMessage` at 60s (apps/mcp handler.ts), Tedix OS chat
+ * clients use `OS_CHAT_MUTATION_TIMEOUT_MS` / `CAPN_CHAT_MUTATION_TIMEOUT_MS`
+ * (45s), and the CLI waits its full poll timeout. Workers and Durable Object
+ * calls have no wall-clock cap on an awaited fetch. Raise this only together
+ * with those client timeouts.
  */
-const KERNEL_TURN_SOFT_DEADLINE_MS = 10_000;
+const KERNEL_TURN_SOFT_DEADLINE_MS = 25_000;
 
 export let kernelTurnSoftDeadlineMs: number = KERNEL_TURN_SOFT_DEADLINE_MS;
 
