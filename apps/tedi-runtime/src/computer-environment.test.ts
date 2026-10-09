@@ -854,6 +854,13 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 	assert.equal(result.ok, false);
 	assert.equal(result.ready, false);
 	assert.match(String(result.error), /readiness and ownership are unconfirmed/);
+	// A cold start routinely outlives the foreground budget; the model must be
+	// told this is "still starting, call open_computer again", not a failure.
+	// `pending` stays reserved for a confirmed acquisition.
+	assert.equal(result.pending, undefined);
+	assert.equal(typeof result.waitedMs, "number");
+	assert.match(String(result.instruction), /still starting/);
+	assert.match(String(result.instruction), /open_computer again/);
 	assert.doesNotMatch(String(result.instruction), /git fetch|shallow/);
 	for (const field of ["acquired", "leaseId", "cwd", "readinessTimedOut"])
 		assert.equal(field in result, false, `uncertainty must not claim ${field}`);

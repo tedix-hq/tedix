@@ -460,8 +460,9 @@ export class ComputerEnvironmentController {
 				);
 			return existing;
 		}
+		const budgetMs = this.acquisition.budgetMs ?? 20_000;
 		const context: OpenContext = {
-			deadline: new AcquisitionDeadline(this.acquisition.budgetMs ?? 20_000),
+			deadline: new AcquisitionDeadline(budgetMs),
 		};
 		const operation = (async () => {
 			await closings.get(this.store)?.get(this.key);
@@ -569,14 +570,20 @@ export class ComputerEnvironmentController {
 						);
 					// The expired budget cannot authorize another storage read. Keep
 					// the durable acquisition, but do not claim its current ownership.
+					// A cold workstation routinely outlives this budget (observed
+					// 25-30s), so this is the expected first answer, not a failure.
+					// `pending` stays reserved for a confirmed acquisition; the
+					// instruction tells the model the one action that resolves it.
 					return {
 						ok: false,
 						ready: false,
+						waitedMs: budgetMs,
 						...(context.lastObservation?.leaseId === context.confirmed.leaseId
 							? { lastObservation: context.lastObservation }
 							: {}),
 						error:
 							"Computer readiness and ownership are unconfirmed after the foreground deadline; reopen this same acquisition, do not reprovision",
+						instruction: `The computer is still starting after a ${Math.round(budgetMs / 1000)}s foreground wait; this is not a provisioning failure. Call open_computer again with the same arguments to resume this acquisition (it never reprovisions); it returns ready:true once the computer is up.`,
 					};
 				}
 			})(),

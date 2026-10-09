@@ -79,6 +79,79 @@ describe("validateStructuredContentAgainstOutputSchema", () => {
 			),
 		).not.toThrow();
 	});
+
+	it("validates the transport's { data } envelope against a non-object root (github list_commits)", () => {
+		// The upstream GitHub MCP server declares this root; the handler wraps
+		// its array payload as { data } because MCP structuredContent must be an
+		// object. Validating the envelope against the raw root rejected every
+		// successful call with: Instance type "object" is invalid. Expected
+		// "null", "array".
+		const listCommitsSchema = {
+			type: ["null", "array"],
+			items: {
+				type: "object",
+				properties: {
+					sha: { type: ["null", "string"] },
+					commit: {
+						type: ["null", "object"],
+						properties: { message: { type: "string" } },
+						required: ["message"],
+						additionalProperties: false,
+					},
+				},
+				additionalProperties: false,
+			},
+		} as unknown as ToolJsonSchema;
+
+		expect(() =>
+			validateStructuredContentAgainstOutputSchema(
+				listCommitsSchema,
+				{
+					data: [
+						{ sha: "9b15a44", commit: { message: "fix(catalog): page by id" } },
+					],
+				},
+				"github-tedix__list_commits",
+			),
+		).not.toThrow();
+		expect(() =>
+			validateStructuredContentAgainstOutputSchema(
+				listCommitsSchema,
+				{ data: null },
+				"github-tedix__list_commits",
+			),
+		).not.toThrow();
+		expect(() =>
+			validateStructuredContentAgainstOutputSchema(
+				listCommitsSchema,
+				{ data: [{ sha: 42 }] },
+				"github-tedix__list_commits",
+			),
+		).toThrow(/does not match outputSchema/);
+	});
+
+	it("does not unwrap { data } when the root schema is an object", () => {
+		const envelopeSchema: ToolJsonSchema = {
+			type: "object",
+			properties: { data: { type: "array", items: { type: "string" } } },
+			required: ["data"],
+			additionalProperties: false,
+		};
+		expect(() =>
+			validateStructuredContentAgainstOutputSchema(
+				envelopeSchema,
+				{ data: ["a"] },
+				"object_root",
+			),
+		).not.toThrow();
+		expect(() =>
+			validateStructuredContentAgainstOutputSchema(
+				envelopeSchema,
+				{ data: "a" },
+				"object_root",
+			),
+		).toThrow(/does not match outputSchema/);
+	});
 });
 
 describe("jsonSchemaToOutputSchema", () => {
