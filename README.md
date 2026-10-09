@@ -80,7 +80,8 @@ Then follow [Connect to Tedix Cloud](docs/public/learning-paths/first-connection
 ## Works with
 
 - **Claude** (chat, Cowork and Claude Code), **ChatGPT Work** and **Codex**
-  through the [Tedix plugin](plugins/tedix/README.md).
+  through the [Tedix plugin](plugins/tedix/README.md); the five-minute human
+  guide is [Use Tedix in ChatGPT, Codex and Claude](docs/public/learning-paths/first-plugin.md).
 - Other MCP-compatible clients through the
   [MCP gateway](docs/public/mcp-app-platform.md).
 - Built on Cloudflare Workers, Durable Objects, Workflows, D1, and R2.

@@ -148,7 +148,10 @@ in each host for the intended organization and scopes. Review the hooks in each
 host's `/hooks` view; Codex skips them until you trust them. CLI login and host MCP
 login use separate credentials. See the [Codex](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/chatgpt-codex.md)
 and [Claude Code](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/claude-code.md)
-guides for those host steps.
+guides for those host steps, and the
+[Claude chat and Cowork](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/claude.md)
+guide for a connector without the CLI. The short human walkthrough for every
+host is [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md).
 
 To install into another directory you own, such as one already on your `PATH`:
 

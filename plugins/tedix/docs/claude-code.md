@@ -1,5 +1,22 @@
 # Use Tedix in Claude Code
 
+## Quick start
+
+1. Add the Tedix marketplace: `claude plugin marketplace add tedix-hq/tedix-plugins`.
+2. Install the plugin: `claude plugin install tedix@tedix-plugins --scope user`.
+3. In Claude Code, open `/mcp`, select the Tedix server and sign in through the
+   browser; pick your organization and review the requested access.
+4. Say "Connect my Tedix account" and follow the prompts.
+
+If the [Tedix CLI](https://docs.tedix.dev/cli) is already installed, run
+`tedix setup agents --claude` instead of steps 1 and 2; it installs the same
+plugin plus the optional local hooks. Use one route, not both. The
+plain-English version is at
+<https://docs.tedix.dev/learning-paths/first-plugin>.
+
+**Reference.** The rest of this page is detail: install routes, the
+authorization model, hooks, turn status and troubleshooting.
+
 For online Claude chat, Cowork and local-only or hybrid package choices, start
 with [Tedix in the Claude family](./claude.md). Code's local hooks and Claude's
 remote connectors have different execution and authentication boundaries.
