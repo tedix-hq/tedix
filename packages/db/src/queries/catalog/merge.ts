@@ -37,6 +37,7 @@ import {
 import { batchNonEmpty } from "../../utils/batch";
 import { getCatalogAppById } from "./get-app";
 import type { Database } from "./tool-source-policy";
+import { buildRefreshCatalogShadowedVariantsStatements } from "./vendor-variants";
 
 export interface MergeCatalogAppsResult {
 	dryRun: boolean;
@@ -223,6 +224,8 @@ export async function mergeCatalogApps(
 			.delete(upstreamDriftReports)
 			.where(eq(upstreamDriftReports.catalogAppId, fromId)),
 		db.delete(appCatalog).where(eq(appCatalog.id, fromId)),
+		// 5. The orphan may have shadowed, or been shadowed by, a vendor sibling.
+		...buildRefreshCatalogShadowedVariantsStatements(db),
 	);
 	await db.batch(batchNonEmpty(writes));
 	result.deletedOrphan = true;

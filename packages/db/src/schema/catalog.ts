@@ -249,6 +249,13 @@ export const appCatalog = sqliteTable(
 		isDiscoverable: integer("is_discoverable", { mode: "boolean" }).default(
 			true,
 		),
+		/**
+		 * Precomputed by `refreshCatalogShadowedVariants`: true when the public
+		 * catalog list hides this row behind a better same-vendor sibling.
+		 */
+		exploreShadowed: integer("explore_shadowed", { mode: "boolean" })
+			.notNull()
+			.default(false),
 
 		// ========================================
 		// URLs and Endpoints

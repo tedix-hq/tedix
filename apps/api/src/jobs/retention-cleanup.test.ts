@@ -76,6 +76,11 @@ vi.mock("@tedix/db/queries/graph-projection", () => ({
 vi.mock("@tedix/db/queries/catalog/drift-reports", () => ({
 	deleteOldDriftReports: vi.fn().mockResolvedValue(0),
 }));
+vi.mock("@tedix/db/queries/catalog/vendor-variants", () => ({
+	refreshCatalogShadowedVariants: vi
+		.fn()
+		.mockResolvedValue({ flagged: 0, cleared: 0 }),
+}));
 vi.mock("@tedix/db/queries/catalog/scheduled-maintenance", () => ({
 	getStaleUnhealthyAppCount: vi.fn().mockResolvedValue(0),
 	autoDisableDeadMcpCatalogApps: vi.fn().mockResolvedValue({ disabled: 0 }),

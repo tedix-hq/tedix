@@ -28,6 +28,7 @@ import {
 import { getCatalogAppBySlug } from "./get-app";
 import { listCatalogStoreListingsByAppIds } from "./store-listings";
 import type { Database } from "./tool-source-policy";
+import { buildRefreshCatalogShadowedVariantsStatements } from "./vendor-variants";
 
 /** Mirrors the API's `CatalogInstallability.state`; the API owns the derivation. */
 export type CatalogInstallabilityState =
@@ -342,6 +343,8 @@ export async function applyCatalogPlainSlugReassignment(
 		setSlug(holderId, holderNextSlug),
 		slugChange(holderId, plan.slug, holderNextSlug),
 		slugChange(winner.catalogAppId, winner.slug, plan.slug),
+		// The plain slug ranks first in a vendor group, so the shadowed flags move.
+		...buildRefreshCatalogShadowedVariantsStatements(db),
 	];
 	await db.batch(batchNonEmpty(writes));
 }

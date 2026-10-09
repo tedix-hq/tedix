@@ -38,6 +38,7 @@ import {
 	listEnabledCatalogAppsForVectorSync,
 } from "@tedix/db/queries/catalog/scheduled-maintenance";
 import { getCatalogStoreListingBySourceId } from "@tedix/db/queries/catalog/store-listings";
+import { refreshCatalogShadowedVariants } from "@tedix/db/queries/catalog/vendor-variants";
 import {
 	disableOrphanedCatalogApps,
 	markStaleFeedStoreListingsAsRemoved,
@@ -1179,6 +1180,22 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				totalAppsDisabled = (orphanResult as { appsDisabled: number })
 					.appsDisabled;
 			}
+
+			// Recompute which vendor variants the public catalog list hides: sync
+			// adds, updates and disables rows, which can move a vendor's canonical
+			// card. Non-fatal; scheduled maintenance repeats it as a safety net.
+			await step
+				.do(
+					"refresh-shadowed-variants",
+					{ retries: { limit: 2, delay: "2 seconds" }, timeout: "1 minute" },
+					async () => refreshCatalogShadowedVariants(db),
+				)
+				.catch((error: unknown) => {
+					console.warn(
+						"[App Catalog Sync] Shadowed-variant refresh failed (non-fatal):",
+						error instanceof Error ? error.message : String(error),
+					);
+				});
 
 			// Step 4: Compute changelog diff (before vs after)
 			const changelog = (await step.do(

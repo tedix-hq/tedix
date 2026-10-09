@@ -812,6 +812,10 @@
 		{
 			"name": "20261008210408_sanitize-tool-annotations/migration.sql",
 			"sha256": "bfdc339cabfb49734219eb41602f6b8cd49a6e82daca2bfcc8c5e8fbc1bfd8e0"
+		},
+		{
+			"name": "20261009120304_catalog-explore-shadowed/migration.sql",
+			"sha256": "e73568fd4ff9c00ea97e434a4705a49e754474f4c4380249c2f75cea48852cd7"
 		}
 	]
 }
