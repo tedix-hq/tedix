@@ -82,6 +82,13 @@ export interface GatewayBrowserTokenInput {
 	 * the runtime honours an operator's default without trusting the browser.
 	 */
 	defaultModelRef?: string;
+	/**
+	 * Per-hour embedded turn ceilings resolved from D1 config at mint. Absent
+	 * means the runtime's platform default; the runtime never reads a limit
+	 * from the browser.
+	 */
+	visitorTurnsPerHour?: number;
+	originTurnsPerHour?: number;
 	tediId: string;
 	tenantId?: string | null;
 }
@@ -101,6 +108,13 @@ export type EmbeddedSessionSurface = (typeof EMBEDDED_SESSION_SURFACES)[number];
 function readModelRef(value: unknown): string | undefined {
 	return typeof value === "string" &&
 		/^[a-z0-9-]+\/[\w./@-]{1,120}$/i.test(value)
+		? value
+		: undefined;
+}
+
+/** A positive integer turn ceiling; anything else reads as "not configured". */
+function readTurnLimit(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isInteger(value) && value > 0
 		? value
 		: undefined;
 }
@@ -136,6 +150,8 @@ export interface GatewayBrowserTokenClaims {
 	hostConversationContext?: HostConversationContext;
 	surface?: EmbeddedSessionSurface;
 	defaultModelRef?: string;
+	visitorTurnsPerHour?: number;
+	originTurnsPerHour?: number;
 	tediId: string;
 	tenantId?: string;
 	typ: typeof GATEWAY_BROWSER_TOKEN_TYPE;
@@ -197,6 +213,10 @@ export async function issueGatewayBrowserToken(
 	if (input.surface) payload.surface = input.surface;
 	if (readModelRef(input.defaultModelRef))
 		payload.defaultModelRef = input.defaultModelRef;
+	if (readTurnLimit(input.visitorTurnsPerHour))
+		payload.visitorTurnsPerHour = input.visitorTurnsPerHour;
+	if (readTurnLimit(input.originTurnsPerHour))
+		payload.originTurnsPerHour = input.originTurnsPerHour;
 	if (input.tenantId) payload.tenantId = input.tenantId;
 	if (input.hostDelegation) {
 		const delegation = HostDelegationSchema.parse(input.hostDelegation);
@@ -406,6 +426,14 @@ function normalizeGatewayBrowserClaims(
 		// "no configured default" and leaves the tedi's own model in charge.
 		...(readModelRef(payload.defaultModelRef)
 			? { defaultModelRef: payload.defaultModelRef as string }
+			: {}),
+		// Absent on tokens minted before these claims existed: the runtime then
+		// applies its platform default rather than skipping the quota.
+		...(readTurnLimit(payload.visitorTurnsPerHour)
+			? { visitorTurnsPerHour: payload.visitorTurnsPerHour as number }
+			: {}),
+		...(readTurnLimit(payload.originTurnsPerHour)
+			? { originTurnsPerHour: payload.originTurnsPerHour as number }
 			: {}),
 		tediId: payload.tediId,
 		...(typeof payload.tenantId === "string"

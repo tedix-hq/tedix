@@ -1,7 +1,10 @@
 import { resolveEmbeddedTediSelection } from "../../../services/embedded-tedi-selection";
 import { buildModelCatalogProjection } from "../../../services/model-catalog-projection";
 import { resolveQuickChatDefaultRef } from "../../../services/embedded-model-default";
-import type { EmbeddedModelSelection } from "@tedix/api-contract/schemas/embedded-widget-access";
+import type {
+	EmbeddedModelSelection,
+	EmbeddedTurnQuotaPolicy,
+} from "@tedix/api-contract/schemas/embedded-widget-access";
 import type { HostDelegation } from "@tedix/api-contract/schemas/host-delegation";
 /**
  * Tedis Router - runtime messaging and peer discovery.
@@ -448,6 +451,12 @@ export async function issueEmbeddedSession(
 		surface?: EmbeddedSessionSurface;
 		/** Catalog-checked quick-chat default, signed into the session. */
 		defaultModelRef?: string;
+		/**
+		 * Installation-level turn ceilings. Absent means the customer
+		 * organization's widget config decides; absent there too means the
+		 * runtime platform default.
+		 */
+		turnQuota?: EmbeddedTurnQuotaPolicy;
 	},
 ) {
 	// The tenant fence is all-or-nothing. Leaving one field out used to produce
@@ -531,9 +540,13 @@ export async function issueEmbeddedSession(
 		webMcpProfile,
 		input.portableRoute,
 	);
+	const turnQuota =
+		input.turnQuota ?? organization.metadata?.tediWidget?.turnQuota;
 	const token = await issueGatewayBrowserToken({
 		allowedOrigin: input.allowedOrigin,
 		expiresAt: expiresAtSeconds,
+		visitorTurnsPerHour: turnQuota?.visitorTurnsPerHour,
+		originTurnsPerHour: turnQuota?.originTurnsPerHour,
 		hostDelegation: input.hostDelegation,
 		secret,
 		sessionKey,

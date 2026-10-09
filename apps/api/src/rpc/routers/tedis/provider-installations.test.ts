@@ -450,6 +450,31 @@ describe("provider embedded session exchange", () => {
 		expect(mocks.billingBalance).not.toHaveBeenCalled();
 	});
 
+	it("forwards a valid installation turn quota and drops a malformed one", async () => {
+		const existing = await mocks.resolve();
+		mocks.resolve.mockResolvedValue({
+			...existing,
+			provenance: { turnQuota: { visitorTurnsPerHour: 12 } },
+		});
+		const client = createRouterClient(router, { context: context() });
+		await client.createEmbeddedProviderSession(input());
+		expect(mocks.issue).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.anything(),
+			expect.objectContaining({ turnQuota: { visitorTurnsPerHour: 12 } }),
+		);
+		mocks.resolve.mockResolvedValue({
+			...existing,
+			provenance: { turnQuota: { visitorTurnsPerHour: 0 } },
+		});
+		await client.createEmbeddedProviderSession(input());
+		expect(mocks.issue).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.anything(),
+			expect.objectContaining({ turnQuota: undefined }),
+		);
+	});
+
 	it("denies an unmapped Acme tenant instead of inheriting Globex", async () => {
 		mocks.resolve.mockResolvedValue(undefined);
 		const client = createRouterClient(router, { context: context() });

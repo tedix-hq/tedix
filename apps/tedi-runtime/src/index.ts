@@ -1181,6 +1181,16 @@ function createEmbeddedCapabilityAdapter(
 					session_key: claims.sessionKey,
 					// Host-scoped recall is not available: keep embedded context session-only.
 					context_policy: "session_only",
+					// Hourly ceilings the API signed into the session; the DO counts
+					// them in its own storage so every session of one host shares them.
+					embedded_quota: {
+						origin: allowedOrigin,
+						visitor_key: claims.hostUserId
+							? `${claims.hostOrganizationId ?? ""}:${claims.hostUserId}`
+							: claims.sessionKey,
+						visitor_turns_per_hour: claims.visitorTurnsPerHour,
+						origin_turns_per_hour: claims.originTurnsPerHour,
+					},
 					// A user's own pick wins, once the roster has confirmed the tedi may
 					// route at it. With no pick, the session's signed default applies:
 					// it is resolved from D1 config when the session is minted and is
