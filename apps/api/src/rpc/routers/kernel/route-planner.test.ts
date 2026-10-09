@@ -1695,30 +1695,43 @@ describe("planKernelRoute — billing-policy denial propagation", () => {
 	});
 });
 
-describe("Auto Home final answer streaming", () => {
+describe("Auto Router Home answer", () => {
 	function autoModel(
 		decision: KernelRouteDecision,
 		stream: ReadableStream<any>,
 	) {
 		return new MockLanguageModelV3({
 			modelId: "cloudflare/auto",
-			doGenerate: async () => ({
-				finishReason: { unified: "stop", raw: "stop" },
-				usage: {
-					inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-					outputTokens: { total: 20, text: 20, reasoning: 0 },
-				},
-				warnings: [],
-				content: [
-					{
-						type: "text",
-						text: JSON.stringify(normalizeRouteDecisionCandidate(decision)),
+			doGenerate: async (call) => {
+				const system = call.prompt.find((m) => m.role === "system");
+				expect(system?.content).toBe(SYSTEM_PROMPT);
+				return {
+					finishReason: { unified: "stop", raw: "stop" },
+					usage: {
+						inputTokens: {
+							total: 10,
+							noCache: 10,
+							cacheRead: 0,
+							cacheWrite: 0,
+						},
+						outputTokens: { total: 20, text: 20, reasoning: 0 },
 					},
-				],
-			}),
+					warnings: [],
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify(normalizeRouteDecisionCandidate(decision)),
+						},
+					],
+				};
+			},
 			doStream: async (call) => {
 				expect(call.responseFormat?.type).not.toBe("json");
 				expect(call.tools?.length ?? 0).toBe(0);
+				// Same system prompt as the route pass, so the prefix cache covers
+				// both; only the tail instruction of the user prompt differs.
+				const system = call.prompt.find((m) => m.role === "system");
+				expect(system?.content).toBe(SYSTEM_PROMPT);
 				return { stream };
 			},
 		});
@@ -1731,35 +1744,93 @@ describe("Auto Home final answer streaming", () => {
 			outputTokens: { total: 2, text: 2, reasoning: 0 },
 		},
 	};
-	it("emits early text before provider finish, suppresses outline and sums both usage records", async () => {
-		let controller!: ReadableStreamDefaultController<any>;
-		const stream = new ReadableStream({
-			start(c) {
-				controller = c;
-			},
+	function textStream(...deltas: string[]) {
+		return simulateReadableStream({
+			initialDelayInMs: null,
+			chunkDelayInMs: null,
+			chunks: [
+				{ type: "stream-start", warnings: [] },
+				{ type: "text-start", id: "0" },
+				...deltas.map((delta) => ({ type: "text-delta", id: "0", delta })),
+				{ type: "text-end", id: "0" },
+				finish,
+			],
 		});
+	}
+	it("answers in one pass: the route answer is delivered as one delta, no answer stream, one usage record", async () => {
+		const model = autoModel(
+			{ ...FALLBACK_DECISION, answer: "Rain is water falling from clouds." },
+			textStream("never"),
+		);
 		const deltas: string[] = [];
-		const operation = planKernelRoute({
-			model: autoModel(
-				{ ...FALLBACK_DECISION, answer: "Buffered outline" },
-				stream,
-			),
+		const result = await planKernelRoute({
+			model,
 			context: EMPTY_CONTEXT,
 			content: "Explain rain",
 			onAnswerDelta: (d) => deltas.push(d),
 		});
-		controller.enqueue({ type: "stream-start", warnings: [] });
-		controller.enqueue({ type: "text-start", id: "0" });
-		controller.enqueue({ type: "text-delta", id: "0", delta: "Early" });
-		await vi.waitFor(() => expect(deltas).toEqual(["Early"]));
-		controller.enqueue({ type: "text-delta", id: "0", delta: " answer" });
-		controller.enqueue({ type: "text-end", id: "0" });
-		controller.enqueue(finish);
-		controller.close();
-		const result = await operation;
+		expect(result?.answer).toBe("Rain is water falling from clouds.");
+		expect(deltas).toEqual(["Rain is water falling from clouds."]);
+		expect(model.doGenerateCalls).toHaveLength(1);
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect(result?.usage).toMatchObject({ inputTokens: 10, outputTokens: 20 });
+	});
+	it("asks the route pass for the complete answer, not an outline", async () => {
+		const model = autoModel(FALLBACK_DECISION, textStream("never"));
+		await planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "Explain rain",
+			onAnswerDelta: () => {},
+		});
+		const user = model.doGenerateCalls[0]!.prompt.find(
+			(m) => m.role === "user",
+		);
+		const text = Array.isArray(user?.content)
+			? user!.content.map((part) => ("text" in part ? part.text : "")).join("")
+			: "";
+		expect(text).toContain("answer holds the complete final answer");
+		expect(text).not.toContain("outline");
+	});
+	it("streams a tool-free answer only when the route answer is empty, summing both usage records", async () => {
+		const model = autoModel(
+			{ ...FALLBACK_DECISION, answer: "   " },
+			textStream("Early", " answer"),
+		);
+		const deltas: string[] = [];
+		const result = await planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "Explain rain",
+			onAnswerDelta: (d) => deltas.push(d),
+		});
 		expect(result?.answer).toBe("Early answer");
-		expect(deltas.join("")).toBe("Early answer");
+		expect(deltas).toEqual(["Early", " answer"]);
+		expect(model.doStreamCalls).toHaveLength(1);
 		expect(result?.usage).toMatchObject({ inputTokens: 15, outputTokens: 22 });
+	});
+	it("streams a fresh answer when the guard downgraded a delegation, instead of reusing its preview", async () => {
+		const model = autoModel(
+			{
+				...FALLBACK_DECISION,
+				routeKind: "delegate_tedi",
+				targetTediId: "tedi-1",
+				targetTediLabel: "CTO",
+				answer: "I'll ask the CTO tedi to list them.",
+			},
+			textStream("You have two work items."),
+		);
+		const deltas: string[] = [];
+		const result = await planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "list our work items",
+			onAnswerDelta: (d) => deltas.push(d),
+		});
+		expect(result?.routeKind).toBe("answer_in_home");
+		expect(result?.answer).toBe("You have two work items.");
+		expect(deltas).toEqual(["You have two work items."]);
+		expect(model.doStreamCalls).toHaveLength(1);
 	});
 	it("does not start an answer pass for an action route", async () => {
 		const model = autoModel(
@@ -1782,7 +1853,7 @@ describe("Auto Home final answer streaming", () => {
 		expect(model.doStreamCalls).toHaveLength(0);
 		expect(delta).not.toHaveBeenCalled();
 	});
-	it("rejects a failed partial answer without falling back to its buffered outline", async () => {
+	it("rejects a failed partial answer stream without falling back to the empty route answer", async () => {
 		const stream = simulateReadableStream({
 			initialDelayInMs: null,
 			chunkDelayInMs: null,
@@ -1793,7 +1864,7 @@ describe("Auto Home final answer streaming", () => {
 				{ type: "error", error: new Error("provider failed") },
 			],
 		});
-		const model = autoModel(FALLBACK_DECISION, stream);
+		const model = autoModel({ ...FALLBACK_DECISION, answer: "" }, stream);
 		const delta = vi.fn();
 		await expect(
 			planKernelRoute({
@@ -1806,19 +1877,12 @@ describe("Auto Home final answer streaming", () => {
 		expect(delta).toHaveBeenCalledWith("Partial");
 		expect(model.doGenerateCalls).toHaveLength(1);
 	});
-	it("returns cancellation when aborted during final text without another dispatch", async () => {
+	it("returns cancellation when aborted during the answer stream without another dispatch", async () => {
 		const abort = new AbortController();
-		const stream = simulateReadableStream({
-			initialDelayInMs: null,
-			chunkDelayInMs: null,
-			chunks: [
-				{ type: "stream-start", warnings: [] },
-				{ type: "text-start", id: "0" },
-				{ type: "text-delta", id: "0", delta: "Partial" },
-				finish,
-			],
-		});
-		const model = autoModel(FALLBACK_DECISION, stream);
+		const model = autoModel(
+			{ ...FALLBACK_DECISION, answer: null },
+			textStream("Partial"),
+		);
 		const result = await planKernelRoute({
 			model,
 			context: EMPTY_CONTEXT,
@@ -1829,6 +1893,67 @@ describe("Auto Home final answer streaming", () => {
 		expect(result).toBeNull();
 		expect(model.doGenerateCalls).toHaveLength(1);
 		expect(model.doStreamCalls).toHaveLength(1);
+	});
+});
+
+describe("prompt prefix order", () => {
+	it("places stable context before the history and per-turn context after it", async () => {
+		let capturedUser = "";
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				capturedUser = options.prompt
+					.filter((message) => message.role === "user")
+					.flatMap((message) =>
+						Array.isArray(message.content) ? message.content : [],
+					)
+					.map((part) => ("text" in part ? String(part.text) : ""))
+					.join("\n");
+				return {
+					finishReason: "stop",
+					usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+					warnings: [],
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify(
+								normalizeRouteDecisionCandidate(FALLBACK_DECISION),
+							),
+						},
+					],
+				};
+			},
+		});
+		await planKernelRoute({
+			content: "what's our status?",
+			context: {
+				...EMPTY_CONTEXT,
+				tedis: [{ id: "t1", slug: "cto", name: "CTO", status: "running" }],
+				workItems: [
+					{
+						id: "w1",
+						title: "Ship it",
+						status: "open",
+						updatedAt: "2026-10-09T00:00:00.000Z",
+					},
+				],
+				facts: [{ text: "The sky is blue." }],
+				history: [{ role: "user", content: "hello" }],
+			},
+			model,
+		});
+		const at = (needle: string) => {
+			const index = capturedUser.indexOf(needle);
+			expect(index, needle).toBeGreaterThanOrEqual(0);
+			return index;
+		};
+		expect(at("AVAILABLE TEDIS")).toBeLessThan(at("<conversation_history>"));
+		expect(at("</conversation_history>")).toBeLessThan(at("ACTIVE WORK ITEMS"));
+		expect(at("ACTIVE WORK ITEMS")).toBeLessThan(at("TOP FACTS"));
+		expect(at("TOP FACTS")).toBeLessThan(at("OPERATOR MESSAGE:"));
+		// Timestamps live only in the per-turn block, after the history.
+		expect(at("updated=2026-10-09")).toBeGreaterThan(
+			at("</conversation_history>"),
+		);
 	});
 });
 

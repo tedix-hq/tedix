@@ -1736,10 +1736,26 @@ export async function assembleHomeContext(
 
 /**
  * Render the assembled context as a compact plaintext block for the planner
- * prompt. List sizes are capped and long strings truncated to keep the block
- * token-bounded (aim: < ~1500 tokens).
+ * prompt: the turn-stable sections followed by the per-turn sections. List
+ * sizes are capped and long strings truncated to keep the block token-bounded
+ * (aim: < ~1500 tokens). Callers that measure prompt pressure or need one
+ * rendering use this; the route planner places the two halves on either side of
+ * the conversation history so the stable half stays a cacheable prefix.
  */
 export function renderHomeContextPrompt(ctx: KernelContext): string {
+	return [renderHomeStableContext(ctx), renderHomeTurnContext(ctx)]
+		.filter(Boolean)
+		.join("\n\n");
+}
+
+/**
+ * Sections that do not change from one turn to the next within a conversation:
+ * the selected document, workspace references, capabilities and pins, the
+ * speaker, and the slug-sorted tedi/app/workflow inventories (no timestamps).
+ * Prefix caches reuse only the bytes before the first difference, so this
+ * half goes ahead of the conversation history.
+ */
+export function renderHomeStableContext(ctx: KernelContext): string {
 	const sections: string[] = [];
 	if (ctx.selectedWorkspaceDocument) {
 		sections.push(
@@ -1949,6 +1965,17 @@ export function renderHomeContextPrompt(ctx: KernelContext): string {
 		sections.push("AVAILABLE WORKFLOWS: none");
 	}
 
+	return sections.join("\n\n");
+}
+
+/**
+ * Sections that are re-ranked or re-stamped per turn — work items carry
+ * `updatedAt`, facts and rationale are ordered by relevance to this operator
+ * message, and referenced skills depend on the message. They follow the
+ * conversation history so a change here never invalidates the cached prefix.
+ */
+export function renderHomeTurnContext(ctx: KernelContext): string {
+	const sections: string[] = [];
 	// Active work items
 	if (ctx.workItems.length > 0) {
 		const lines = ctx.workItems.slice(0, RENDER_WORK_ITEMS_CAP).map((item) => {
@@ -1995,10 +2022,8 @@ export function renderHomeContextPrompt(ctx: KernelContext): string {
 		sections.push("RECENT RATIONALE: none");
 	}
 
-	// Operator-referenced skills, last — like the recitation block in
-	// buildUserPrompt, this is per-turn content placed at the tail so it never
-	// perturbs the cacheable prompt prefix that the org-state sections above
-	// form. A turn with no references appends nothing at all.
+	// Operator-referenced skills, last. A turn with no references appends
+	// nothing at all.
 	if (ctx.referencedSkills) {
 		const block = serializeRetrievedSkills(ctx.referencedSkills.matches, {
 			unresolvedReferences: ctx.referencedSkills.unresolved,
