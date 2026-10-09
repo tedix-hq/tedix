@@ -315,9 +315,9 @@ Consent-flow rules (`packages/auth/src/aih-client.ts`,
 1. Gate consent policies on `user.tenantIds CONTAINS "<tenantId>"`. A
    roles-only condition can evaluate against empty context and silently deny;
    roles may only narrow an already tenant-scoped rule.
-2. Use the `inbound-apps-user-consent` flow (`MCP_CONSENT_FLOW`) with the tenant
-   already selected. Selecting several organizations produces several
-   tenant-bound tokens, never one multi-tenant token.
+2. Use the `inbound-apps-multi-org-consent` flow, the only consent flow. A
+   `tenant` hint preselects that organization. Selecting several organizations
+   produces several tenant-bound tokens, never one multi-tenant token.
 3. The consent page (`/oauth/consent` in Tedix OS) embeds the Descope flow and
    replaces only the consent screens; authentication stays with Descope. It
    calls `selectTenant` once and waits until the session JWT's `dct` matches

@@ -118,10 +118,9 @@ type DescopeManagementEnv = {
 	DESCOPE_FGA_CACHE_URL?: string;
 };
 
-// The CLI passes Descope's `tenant` authorization parameter after the OS
-// organization picker. A consent flow with Switch Tenant repeats that choice
-// and can change the authorization away from the workspace the CLI selected.
-const CLI_TENANT_BOUND_CONSENT_FLOW = "inbound-apps-user-consent";
+// The only consent flow. Tedix OS preselects the organization named by the
+// `tenant` authorization parameter the CLI passes after its organization picker.
+const CONSENT_FLOW = "inbound-apps-multi-org-consent";
 const TEDIX_CLI_CIMD_DOMAIN = "os.tedix.dev";
 const BROAD_SCOPE_NAMES = new Set([
 	"platform:admin",
@@ -658,14 +657,14 @@ export function buildDescopeAihDriftReport(
 			});
 		}
 
-		if (flowFromLogin && flowFromLogin !== CLI_TENANT_BOUND_CONSENT_FLOW) {
+		if (flowFromLogin && flowFromLogin !== CONSENT_FLOW) {
 			issue(report, {
 				severity: "warning",
 				code: "mcp_server_login_flow_repeats_tenant_selection",
 				resourceType: "mcp_server",
 				resourceId: server.id,
 				resourceName: server.name,
-				message: `Descope MCP server ${server.name} uses login flow ${flowFromLogin}; expected ${CLI_TENANT_BOUND_CONSENT_FLOW} because the CLI authorization request already binds the selected tenant.`,
+				message: `Descope MCP server ${server.name} uses login flow ${flowFromLogin}; expected ${CONSENT_FLOW}, the only consent flow.`,
 				details: { flow: flowFromLogin },
 			});
 		}

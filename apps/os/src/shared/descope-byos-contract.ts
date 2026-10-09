@@ -65,11 +65,6 @@ export const DESCOPE_LOGIN_INTERACTIONS = {
 		apple: "DrraM2J7Lf",
 		passkey: "gDYTgzMsxf",
 	},
-	"inbound-apps-user-consent": {
-		email: "3TVRPM-NqM",
-		google: "FYf4hmIZgm",
-		apple: "0L1nCJrTJX",
-	},
 	"inbound-apps-multi-org-consent": {
 		email: "3TVRPM-NqM",
 		google: "FYf4hmIZgm",

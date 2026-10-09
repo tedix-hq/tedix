@@ -61,10 +61,9 @@ export interface AihEnv {
 	DESCOPE_BASE_URL?: string;
 }
 
-export const MCP_CONSENT_FLOW = "inbound-apps-user-consent";
 export const MCP_CONSENT_PAGE_URL = "https://os.tedix.dev/oauth/consent";
-export const MCP_MULTI_ORG_CONSENT_PAGE_URL =
-	"https://os.tedix.dev/oauth/consent?mode=multi-org";
+// Registrations made before multi-organization consent became the only mode.
+const LEGACY_MCP_CONSENT_PAGE_URL = `${MCP_CONSENT_PAGE_URL}?mode=multi-org`;
 
 // ---------------------------------------------------------------------------
 // MCP Server Management — CRUD via Descope Management API
@@ -228,7 +227,7 @@ export function buildMcpLoginPageURL(): string {
 
 function isMcpLoginPageURL(value: string | null | undefined): boolean {
 	return (
-		value === MCP_CONSENT_PAGE_URL || value === MCP_MULTI_ORG_CONSENT_PAGE_URL
+		value === MCP_CONSENT_PAGE_URL || value === LEGACY_MCP_CONSENT_PAGE_URL
 	);
 }
 
@@ -370,9 +369,9 @@ export async function registerDescopeMcpResource(
 			// `loginPageURL` controls which Descope flow runs on consent. Inbound-app
 			// MCP servers MUST use one of the inbound-app variants — anything else
 			// (e.g. `sign-up-or-in`) makes Descope reject the request with E102005
-			// "The flow type is invalid for this operation". The direct
-			// `inbound-apps-user-consent` flow uses the tenant already bound to the
-			// OAuth request and avoids a redundant tenant-selection screen.
+			// "The flow type is invalid for this operation". The Tedix OS consent
+			// page runs `inbound-apps-multi-org-consent` and preselects the tenant
+			// already bound to the OAuth request.
 			//
 			// **Domain matters**: serve the consent page from `auth.tedix.dev` (our
 			// custom Descope domain), not `api.descope.com`. The dashboard sets the

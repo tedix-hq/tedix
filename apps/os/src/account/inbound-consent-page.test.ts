@@ -8,13 +8,11 @@ import {
 	INBOUND_CONSENT_CANCEL_INTERACTION,
 	INBOUND_CONSENT_SCREEN_NAMES,
 	INBOUND_CONSENT_FLOW_ID,
-	INBOUND_MULTI_ORG_CONSENT_FLOW_ID,
 	inboundConsentCallbackUrl,
 	inboundConsentResourceUrl,
 	inboundConsentDecisionError,
 	inboundConsentClientReference,
 	inboundConsentContextError,
-	inboundConsentFlowId,
 	inboundConsentFlowFailure,
 	inboundConsentFlowError,
 	inboundConsentRecoveryUrl,
@@ -22,7 +20,6 @@ import {
 	inboundConsentTenant,
 	isInvalidDescopeJwtFamily,
 	isExpiredDescopeOauthCallback,
-	isMultiOrganizationConsent,
 } from "./inbound-consent-page";
 import { normalizeConsentPermissions } from "@/shared/consent-permissions";
 
@@ -36,12 +33,7 @@ describe("inbound consent BYOS contract", () => {
 		]);
 		expect(INBOUND_CONSENT_AUTHORIZE_INTERACTION).toBe("_Z6xPaS9jy");
 		expect(INBOUND_CONSENT_CANCEL_INTERACTION).toBe("6N3cb_5t3T");
-		expect(
-			inboundConsentFlowId("https://os.tedix.dev/oauth/consent?mode=multi-org"),
-		).toBe(INBOUND_MULTI_ORG_CONSENT_FLOW_ID);
-		expect(inboundConsentFlowId("https://os.tedix.dev/oauth/consent")).toBe(
-			INBOUND_CONSENT_FLOW_ID,
-		);
+		expect(INBOUND_CONSENT_FLOW_ID).toBe("inbound-apps-multi-org-consent");
 	});
 
 	it("passes the broker-selected tenant into the Descope consent flow", () => {
@@ -61,18 +53,12 @@ describe("inbound consent BYOS contract", () => {
 		expect(inboundConsentCallbackUrl(location)).toBe(
 			"https://os.tedix.dev/oauth/consent?tenant=org_tedix",
 		);
-		expect(
-			inboundConsentCallbackUrl(
-				"https://os.tedix.dev/oauth/consent?mode=multi-org&code=spent",
-			),
-		).toBe("https://os.tedix.dev/oauth/consent?mode=multi-org");
+		// The legacy `mode` parameter is not carried into the callback.
 		expect(
 			inboundConsentCallbackUrl(
 				"https://os.tedix.dev/oauth/consent?mode=multi-org&third_party_app_id=TPAclient1&code=spent",
 			),
-		).toBe(
-			"https://os.tedix.dev/oauth/consent?mode=multi-org&third_party_app_id=TPAclient1",
-		);
+		).toBe("https://os.tedix.dev/oauth/consent?third_party_app_id=TPAclient1");
 		expect(
 			inboundConsentClientReference(
 				null,
@@ -251,14 +237,6 @@ it("submits only chosen scopes and organization IDs for Tedix Connect", () => {
 		thirdPartyAppApproveScopes: ["mcp:apps.read"],
 		"form.tedixSelectedOrganizations": '["org_tedix","org_sample"]',
 	});
-	expect(
-		isMultiOrganizationConsent(
-			"https://os.tedix.dev/oauth/consent?mode=multi-org",
-		),
-	).toBe(true);
-	expect(isMultiOrganizationConsent("https://os.tedix.dev/oauth/consent")).toBe(
-		false,
-	);
 });
 
 it("retains the exact resource and application across single-org callbacks, rejecting unsafe resource URLs", () => {

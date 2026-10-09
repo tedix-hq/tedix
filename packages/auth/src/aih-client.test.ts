@@ -4,7 +4,6 @@ import {
 	DEFAULT_CIMD_DOMAIN_POLICIES,
 	exchangeAihClientCredentials,
 	hardenDescopeMcpServerRegistration,
-	MCP_MULTI_ORG_CONSENT_PAGE_URL,
 	registerDescopeMcpResource,
 } from "./aih-client";
 
@@ -88,16 +87,17 @@ describe("AIH MCP server registration hardening", () => {
 		);
 	});
 
-	it("preserves only the exact dedicated multi-organization consent URL", () => {
+	it("preserves only the exact legacy multi-organization consent URL", () => {
+		const legacy = "https://os.tedix.dev/oauth/consent?mode=multi-org";
 		const allowed = hardenDescopeMcpServerRegistration(
 			{
 				id: "connect-server",
 				name: "Tedix Connect",
-				loginPageURL: MCP_MULTI_ORG_CONSENT_PAGE_URL,
+				loginPageURL: legacy,
 			},
 			env,
 		);
-		expect(allowed.loginPageURL).toBe(MCP_MULTI_ORG_CONSENT_PAGE_URL);
+		expect(allowed.loginPageURL).toBe(legacy);
 
 		for (const variant of [
 			"https://os.tedix.dev/oauth/consent?mode=multi-org&extra=1",
