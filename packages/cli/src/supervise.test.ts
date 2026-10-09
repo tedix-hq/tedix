@@ -176,6 +176,7 @@ describe("tedix supervise", () => {
 		]);
 		expect(seen.resumed).toEqual([]);
 		expect(seen.withdrawals).toBe(0);
+		expect(runner.lastPass).toEqual({ checked: 1, failed: 0 });
 		expect(peek(autoDeliveryPath(state()))).toEqual({
 			requestId: REQUEST,
 			draftId: DRAFT.id,

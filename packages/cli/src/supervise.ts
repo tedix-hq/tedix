@@ -212,9 +212,13 @@ export class Supervisor {
 		return (this.deps.now ?? Date.now)();
 	}
 
+	/** Questions read and failed reads in the last pass. */
+	lastPass = { checked: 0, failed: 0 };
+
 	/** Returns the number of drafts delivered in this pass. */
 	async tick(): Promise<number> {
 		let delivered = 0;
+		this.lastPass = { checked: 0, failed: 0 };
 		const now = this.now();
 		for (const candidate of waitingQuestions(this.deps.env, now)) {
 			const due =
@@ -227,10 +231,12 @@ export class Supervisor {
 			let sent = false;
 			// The chat's context resolves from its own checkout, as in its hooks.
 			const home = process.cwd();
+			this.lastPass.checked++;
 			try {
 				if (existsSync(candidate.cwd)) process.chdir(candidate.cwd);
 				sent = await this.consider(candidate);
 			} catch (error) {
+				this.lastPass.failed++;
 				if (!backoff)
 					this.log(
 						`${candidate.host} ${candidate.session}: check failed: ${(error as Error).message?.slice(0, 200)}`,
@@ -656,8 +662,9 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 	try {
 		if (once) {
 			const delivered = await supervisor.tick();
+			const { checked, failed } = supervisor.lastPass;
 			console.log(
-				`${delivered} draft${delivered === 1 ? "" : "s"} delivered. Log: ${join(configDir(env), "supervisor.log")}`,
+				`Checked ${checked} waiting question${checked === 1 ? "" : "s"} (${failed} failed); ${delivered} draft${delivered === 1 ? "" : "s"} delivered. Log: ${join(configDir(env), "supervisor.log")}`,
 			);
 			return 0;
 		}
