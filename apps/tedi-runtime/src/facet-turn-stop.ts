@@ -69,6 +69,20 @@ export function finalReportReason(input: {
 		: "your last response contained no written answer";
 }
 
+/**
+ * A loop whose last model step ended in a provider error has no answer, and a
+ * tools-off report would only repeat the same failed call. Surface the provider
+ * text so the durable step can classify it (deterministic faults seal, transient
+ * ones retry) instead of hiding it behind `empty_assistant_message`.
+ */
+export function emptyTurnModelError(input: {
+	assistantText: string;
+	lastModelError: string | null | undefined;
+}): string | null {
+	if (input.assistantText.trim()) return null;
+	return input.lastModelError?.trim() || null;
+}
+
 /** The synthetic instruction that drives the forced final report. */
 export function finalReportInstruction(reason: string): string {
 	return (

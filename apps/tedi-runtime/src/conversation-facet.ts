@@ -72,6 +72,7 @@ import {
 	stoppedTurnNotice,
 	reservedFinalStepConfig,
 	finalReportInstruction,
+	emptyTurnModelError,
 	finalReportReason,
 } from "./facet-turn-stop";
 import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
@@ -127,6 +128,8 @@ export interface ConversationFacetState {
 	selectedTurnModels?: SelectedConversationModelIdentity[];
 	finalReportStop?: { reason: string } | null;
 	budgetStop?: { kind: FacetBudgetStopReason; reason: string } | null;
+	/** Provider error text of the last settled model step; null when it finished cleanly. */
+	lastModelError?: string | null;
 	imageRefs?: WorkflowImageRef[];
 }
 
@@ -587,6 +590,15 @@ export class ConversationFacet extends PiAgent<
 							"context_overflow"
 					)
 						message.errorMessage = `context_length_exceeded: ${message.errorMessage ?? "Provider context overflow"}`;
+					// Pi settles an errored step as an empty assistant entry, so the
+					// submission still completes; keep the provider text for the turn.
+					this.setState({
+						...this.state,
+						lastModelError:
+							message.stopReason === "error"
+								? message.errorMessage || "model step ended with an error"
+								: null,
+					});
 					if (!receipt) return;
 					await this.assertFacetOriginalReceipt(
 						receipt.runId,
@@ -1194,6 +1206,7 @@ export class ConversationFacet extends PiAgent<
 			toolRegistryUnavailableRunId: null,
 			budgetStop: null,
 			finalReportStop: null,
+			lastModelError: null,
 			selectedTurnModels: [],
 			imageRefs: [],
 		});
@@ -1323,6 +1336,11 @@ export class ConversationFacet extends PiAgent<
 				recoveryBlockedRunId: this.state.runId,
 			});
 		const stop = this.state.budgetStop;
+		const modelError = emptyTurnModelError({
+			assistantText: text,
+			lastModelError: this.state.lastModelError,
+		});
+		if (modelError) throw new Error(modelError);
 		let report = "";
 		const reportReason = finalReportReason({
 			stopReason: stop?.reason ?? null,
@@ -1363,6 +1381,11 @@ export class ConversationFacet extends PiAgent<
 					.filter(Boolean)
 					.join("\n\n")
 			: text || report.trim();
+		const reportError = emptyTurnModelError({
+			assistantText,
+			lastModelError: this.state.lastModelError,
+		});
+		if (reportError) throw new Error(reportError);
 		const usage = await this.accounting.usage();
 		const modelIdentity = attributableConversationModel({
 			selectedModels: this.state.selectedTurnModels ?? [],

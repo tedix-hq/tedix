@@ -13,6 +13,7 @@ for (const message of [
 	"cron_tool_failure",
 	"Durable provider-call ceiling reached",
 	"Interrupted tool effects require reconciliation before recovery",
+	"Paid inference requires private native origin capture",
 	"Chat inference denied for stopped run: persisted-run",
 	"Chat inference denied for canceled or stopped run: persisted-run",
 ]) {
