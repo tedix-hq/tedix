@@ -655,10 +655,8 @@ export function AppStoreDetailPage({ slug }: { slug: string }) {
 							</Surface>
 						</PageSection>
 					) : null}
-					{app.enrichedDescription || app.seoDescription ? (
-						<CatalogAboutSection
-							content={app.enrichedDescription || app.seoDescription || ""}
-						/>
+					{app.seoDescription ? (
+						<CatalogAboutSection content={app.seoDescription} />
 					) : null}
 					{app.screenshotUrl ? (
 						<PageSection>

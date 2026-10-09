@@ -360,16 +360,12 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 			healthConnectTimeMs: result.healthData?.connectTimeMs ?? null,
 			healthUptimePercent: result.healthData?.uptimePercent ?? null,
 			healthErrorMessage: result.healthData?.errorMessage ?? null,
-			// Enrichment Data (from richContent blob)
+			// Listing content (from richContent blob)
 			screenshotUrl: result.richContent?.screenshotUrl ?? null,
-			enrichedDescription: sanitizePublicText(
-				result.richContent?.enrichedDescription,
-			),
 			seoDescription: sanitizePublicText(result.seoDescription),
 			socialLinks: result.richContent?.socialLinks ?? null,
 			examplePrompts: result.richContent?.examplePrompts ?? null,
 			categories: publicCategories(result.categories),
-			enrichedAt: result.richContent?.enrichedAt ?? null,
 			discoverability,
 			quality,
 			installability,
