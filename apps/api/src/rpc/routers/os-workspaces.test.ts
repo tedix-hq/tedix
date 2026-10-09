@@ -33,7 +33,12 @@ import {
 import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
+import { eq } from "drizzle-orm";
 import { recordRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
+import {
+	type CreateSkillRunArgs,
+	createSkillRun,
+} from "@tedix/db/queries/skill-runs";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -860,6 +865,118 @@ describe("outputs", () => {
 			title: "Derived brief",
 		});
 		expect(created.revision.accessEnvelope).toEqual(accessEnvelope);
+	});
+
+	function skillRunProducer(runId: string) {
+		const context = apiKeyContext(c.env, "org-1");
+		context.serviceAccount = { clientId: "skill-runtime" };
+		context.headers = new Headers({
+			"X-Service-Binding": "true",
+			"X-Tedix-Tedi-Scopes": "apps:write",
+			"X-Tedix-Auth-Client-Id": "skill-runtime",
+			"X-Tedix-Skill-Run-Id": runId,
+		});
+		return createRouterClient(osWorkspacesContractRouter, { context });
+	}
+
+	async function seedSkillRunWithoutGrants(runId: string) {
+		await createSkillRun(createDbClient(c.env.DB), {
+			id: runId,
+			organizationId: "org-1",
+			skillId: "skill-1",
+			tediId: "tedi-1",
+			workflowInstanceId: `wf-${runId}`,
+			runtimeEnvironment: c.env
+				.ENVIRONMENT as CreateSkillRunArgs["runtimeEnvironment"],
+			status: "running",
+		});
+	}
+
+	it("writes an empty envelope for a known run that admitted no source grants", async () => {
+		const runId = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+		await seedSkillRunWithoutGrants(runId);
+		const created = await skillRunProducer(runId).outputs.create({
+			kind: "document",
+			title: "Internal drift report",
+		});
+		expect(created.revision.accessEnvelope).toEqual({
+			version: 1,
+			sources: [],
+		});
+		expect(created.revision.producedBy).toMatchObject({ skillRunId: runId });
+		mocks.authorizeDerivedOutputSources.mockClear();
+		const read = await c.org1.outputs.get({ outputId: created.output.id });
+		expect(read.currentRevision.accessEnvelope).toEqual({
+			version: 1,
+			sources: [],
+		});
+		expect(mocks.authorizeDerivedOutputSources).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				accessEnvelope: { version: 1, sources: [] },
+			}),
+		);
+	});
+
+	it("keeps a null envelope for a run this organization does not know", async () => {
+		const created = await skillRunProducer(
+			"2b3c4d5e-6f70-4a8b-9c0d-1e2f3a4b5c6d",
+		).outputs.create({ kind: "document", title: "Unverifiable" });
+		expect(created.revision.accessEnvelope).toBeNull();
+		await expect(
+			c.org1.outputs.get({ outputId: created.output.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("re-derives a legacy null envelope from the run that authored the revision", async () => {
+		const knownRun = "3c4d5e6f-7081-4b9c-8d1e-2f3a4b5c6d7e";
+		const unknownRun = "4d5e6f70-8192-4cad-9e2f-3a4b5c6d7e8f";
+		await seedSkillRunWithoutGrants(knownRun);
+		const readable = await c.org1.outputs.create({
+			kind: "document",
+			title: "Legacy readable",
+			content: {
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "internal only" }],
+			},
+		});
+		const closed = await c.org1.outputs.create({
+			kind: "document",
+			title: "Legacy closed",
+		});
+		const db = createDbClient(c.env.DB);
+		await db
+			.update(osOutputRevisions)
+			.set({
+				accessEnvelope: null,
+				skillRunId: knownRun,
+				createdByKind: "tedi",
+			})
+			.where(eq(osOutputRevisions.id, readable.revision.id));
+		await db
+			.update(osOutputRevisions)
+			.set({
+				accessEnvelope: null,
+				skillRunId: unknownRun,
+				createdByKind: "tedi",
+			})
+			.where(eq(osOutputRevisions.id, closed.revision.id));
+
+		const read = await c.org1.outputs.get({ outputId: readable.output.id });
+		expect(read.currentRevision.content).toEqual({
+			kind: "document",
+			blocks: [{ type: "paragraph", text: "internal only" }],
+		});
+		await expect(
+			c.org1.outputs.get({ outputId: closed.output.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+		const library = await c.org1.outputs.library({ limit: 20 });
+		const previews = Object.fromEntries(
+			library.items.map((item) => [item.output.id, item.preview.kind]),
+		);
+		expect(previews[readable.output.id]).not.toBe("unavailable");
+		expect(previews[closed.output.id]).toBe("unavailable");
 	});
 
 	it("denies direct reads, edits, and previews after source access is revoked", async () => {
