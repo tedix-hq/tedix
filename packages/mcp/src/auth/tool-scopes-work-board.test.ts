@@ -37,6 +37,8 @@ describe("Interaction RPC authority through organization aliases", () => {
 		["listInbox", "mcp:messaging.read"],
 		["listOutbox", "mcp:messaging.read"],
 		["listAudit", "mcp:messaging.read"],
+		["listUndelivered", "mcp:messaging.read"],
+		["ackDelivery", "mcp:messaging.write"],
 	] as const) {
 		it(`preserves ${scope} for ${endpoint}`, () => {
 			const tool = {
