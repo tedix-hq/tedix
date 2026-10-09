@@ -215,16 +215,25 @@ export function jsonSchemaToOutputSchema(
 	jsonSchema: ToolJsonSchema | null | undefined,
 ): StandardSchemaWithJSON | undefined {
 	if (!jsonSchema) return undefined;
-	if (jsonSchema.type !== "object" && !isRecord(jsonSchema.properties)) {
-		return undefined;
-	}
+	if (!hasObjectRoot(jsonSchema)) return undefined;
 	return fromJsonSchema(jsonSchema as JsonSchemaType, jsonSchemaValidator);
+}
+
+function hasObjectRoot(jsonSchema: ToolJsonSchema): boolean {
+	return jsonSchema.type === "object" || isRecord(jsonSchema.properties);
 }
 
 /**
  * Validate the actual MCP structuredContent against the stored outputSchema.
  * Runs for every output schema, including non-object roots that never reach
  * SDK registration.
+ *
+ * MCP structuredContent must be an object, so `ToolHandler.buildStructuredContent`
+ * wraps a non-object upstream payload (an array, scalar, or null) as
+ * `{ data }`. An upstream MCP server may still declare a non-object root
+ * (GitHub's `list_commits` declares `type: ["null", "array"]`); that root
+ * describes the wrapped value, so validate `data` against it rather than
+ * rejecting the envelope the transport itself produced.
  */
 export function validateStructuredContentAgainstOutputSchema(
 	jsonSchema: ToolJsonSchema | null | undefined,
@@ -232,6 +241,13 @@ export function validateStructuredContentAgainstOutputSchema(
 	toolId: string,
 ): void {
 	if (!jsonSchema) return;
+	if (
+		!hasObjectRoot(jsonSchema) &&
+		isRecord(structuredContent) &&
+		"data" in structuredContent
+	) {
+		structuredContent = structuredContent.data;
+	}
 	const schemaObject = jsonSchema as JsonObject;
 	let validate = compiledValidatorCache.get(schemaObject);
 	if (!validate) {
