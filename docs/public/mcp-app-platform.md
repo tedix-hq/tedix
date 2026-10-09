@@ -18,6 +18,10 @@ Tedix uses the Model Context Protocol (MCP) as a standard way to connect
 workers and compatible clients to tools, prompts, resources, and interactive
 application components.
 
+To connect your own assistant to Tedix, see
+[Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md).
+This page is about connecting tools and applications to Tedix workers.
+
 ## Tenant-scoped connections
 
 A shared application definition can be connected separately for each

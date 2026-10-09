@@ -70,12 +70,17 @@ bun run-local --inference --workers-ai-account=<account-id>
 Ask for access through the [contact page](https://tedix.dev/contact/). With
 access:
 
-```sh
-curl -fsSL https://downloads.tedix.dev/install.sh | sh
-tedix login
-```
+- **Use Tedix from Claude or ChatGPT:** follow
+  [Use Tedix in ChatGPT, Codex and Claude](docs/public/learning-paths/first-plugin.md).
+  Claude chat and Cowork need no install, only a connector URL.
+- **For developers, the CLI:**
 
-Then follow [Connect to Tedix Cloud](docs/public/learning-paths/first-connection.md).
+  ```sh
+  curl -fsSL https://downloads.tedix.dev/install.sh | sh
+  tedix login
+  ```
+
+  Then follow [Connect to Tedix Cloud](docs/public/learning-paths/first-connection.md).
 
 ## Works with
 

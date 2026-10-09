@@ -51,6 +51,46 @@ section](./cli.md#troubleshooting) has the full installer guidance.
 
 **Verify:** Run `command -v tedix` and `tedix --version` after installation.
 
+## Plugin and connector problems
+
+These apply to Tedix in Claude, Claude Code, Codex and the ChatGPT desktop app.
+[Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md#if-it-does-not-work)
+has the full recovery steps for the first three.
+
+### The assistant does not know Tedix
+
+**Cause:** The plugin or connector is not enabled in this chat.
+
+**Fix:** Enable it in the host, then start a new chat; an open chat does not
+pick up a new plugin.
+
+### `Not logged in` or an authorization error in the host
+
+**Cause:** The host has no Tedix sign-in yet.
+
+**Fix:** Sign in through that host: `/mcp` in Claude Code,
+`codex mcp login tedix` in Codex, or the connector's sign-in in Claude.
+
+### The organization is missing when signing in from the host
+
+**Cause:** Cloud access and organization membership are separate.
+
+**Fix:** Ask the inviter to confirm membership; see
+[the organization is missing in the browser](#the-organization-is-missing-in-the-browser).
+
+### CLI login works but the host says not logged in
+
+**Cause:** The CLI's stored login and the host's Tedix sign-in are separate
+credentials; `tedix login` does not sign in the host, and the host's sign-in
+does not create a CLI profile.
+
+**Fix:** Sign in through the host itself: `/mcp` in Claude Code,
+`codex mcp login tedix` in Codex, or the Tedix connector in Claude.
+
+**Verify:** `/mcp` shows the Tedix server as connected, `codex mcp list` shows
+`tedix`, or Claude's connector offers Tedix, and "Connect my Tedix account"
+names your account and organization.
+
 ## Make the first Cloud connection
 
 ### The organization is missing in the browser
