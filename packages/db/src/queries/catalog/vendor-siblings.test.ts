@@ -244,3 +244,31 @@ describe("plain-slug reassignment", () => {
 		);
 	});
 });
+
+describe("lookalike names at import", () => {
+	it("imports a mixed-script name hidden from browsing", async () => {
+		const db = migratedDb();
+		const lookalike = await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "asdk_lookalike",
+			name: "Pip\u0435wise",
+			connectorType: "MCP",
+			baseUrl: "https://lookalike.example/mcp",
+			website: "https://lookalike.example",
+		});
+		const genuine = await syncCatalogAppFromStore(db, {
+			source: "official",
+			sourceAppId: "https://mcp.pipewise.example/mcp",
+			name: "Pipewise",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.pipewise.example/mcp",
+			website: "https://pipewise.example",
+		});
+		expect(
+			(await getCatalogAppById(db, lookalike!.app.id))?.isDiscoverable,
+		).toBe(false);
+		expect((await getCatalogAppById(db, genuine!.app.id))?.isDiscoverable).toBe(
+			true,
+		);
+	});
+});
