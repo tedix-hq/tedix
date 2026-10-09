@@ -3753,6 +3753,11 @@ const handlers: Record<string, (input: never) => unknown> = {
 		],
 		policy: { minDrafts: 50, minRate: 0.9 },
 	}),
+	"agentTurnTriage/getCaptureHealth": () => ({
+		turns: 14,
+		drafts: 6,
+		lessons: 9,
+	}),
 	"agentTurnTriage/getReplyDraftLeaderboard": () => {
 		const score = (
 			answered: number,

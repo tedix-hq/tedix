@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	captureHealthLine,
 	knockOutcome,
 	knocksPerHour,
 	learnedFromLine,
@@ -10,6 +11,12 @@ import {
 } from "./work-office-page";
 
 describe("office helpers", () => {
+	it("writes the capture health line", () => {
+		expect(captureHealthLine({ turns: 3, drafts: 1, lessons: 0 })).toBe(
+			"Health: 3 turns · 1 drafts · 0 lessons today",
+		);
+	});
+
 	it("prefers the needed-from-you line and strips the waiting prefix", () => {
 		expect(
 			officeAsk({ subject: "x", metadata: { neededFromYou: " Approve it " } }),

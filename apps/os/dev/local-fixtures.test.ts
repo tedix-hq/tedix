@@ -243,6 +243,7 @@ const CALLS: Record<string, unknown> = {
 	"agentTurnTriage/getReplyDraftAcceptance": {
 		since: "2026-10-08T00:00:00.000Z",
 	},
+	"agentTurnTriage/getCaptureHealth": { since: "2026-10-08T00:00:00.000Z" },
 	"agentTurnTriage/getReplyDraftLeaderboard": {
 		since: "2026-10-05T00:00:00.000Z",
 		todaySince: "2026-10-08T00:00:00.000Z",

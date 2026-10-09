@@ -783,6 +783,7 @@ export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"agentTurnTriage/getReplyDraftAcceptance": "get_agent_reply_draft_acceptance",
 	"agentTurnTriage/getReplyDraftLeaderboard":
 		"get_agent_reply_draft_leaderboard",
+	"agentTurnTriage/getCaptureHealth": "get_decision_capture_health",
 	"agentTurnTriage/getSessionLessons": "get_agent_session_lessons",
 	"agentTurnTriage/listLessons": "list_agent_session_lessons",
 	"agentTurnTriage/getLessonEffectiveness": "get_lesson_effectiveness",
@@ -803,6 +804,7 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 	"agentTurnTriage/retriageQuestions": "write",
 	"agentTurnTriage/getReplyDraftAcceptance": "read",
 	"agentTurnTriage/getReplyDraftLeaderboard": "read",
+	"agentTurnTriage/getCaptureHealth": "read",
 	"agentTurnTriage/getSessionLessons": "read",
 	"agentTurnTriage/listLessons": "read",
 	"agentTurnTriage/getLessonEffectiveness": "read",

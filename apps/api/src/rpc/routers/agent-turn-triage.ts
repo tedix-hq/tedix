@@ -83,6 +83,7 @@ import {
 	getReplyDraftLeaderboard,
 	insertReplyDraft,
 } from "@tedix/db/queries/work-items/reply-drafts";
+import { getCaptureHealth } from "@tedix/db/queries/work-items/capture-health";
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
@@ -1490,6 +1491,25 @@ const getReplyDraftLeaderboardProcedure =
 		};
 	});
 
+/** What decision capture recorded for the caller since `since`. */
+const getCaptureHealthProcedure = readOs.getCaptureHealth.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		if (actor.type !== "user") {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Decision-capture health belongs to a Tedix user identity",
+			);
+		}
+		return getCaptureHealth(context.db, {
+			orgId,
+			userId: actor.id,
+			since: input.since,
+		});
+	},
+);
+
 /** Approved team lessons for a local agent session; org-wide facts only. */
 const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 	async ({ input, context }) =>
@@ -1724,6 +1744,7 @@ export const agentTurnTriageContractRouter = os.router({
 	proposeReplyDraft,
 	getReplyDraftAcceptance: getReplyDraftAcceptanceProcedure,
 	getReplyDraftLeaderboard: getReplyDraftLeaderboardProcedure,
+	getCaptureHealth: getCaptureHealthProcedure,
 	getSessionLessons: getSessionLessonsProcedure,
 	listLessons: listLessonsProcedure,
 	getLessonEffectiveness: getLessonEffectivenessProcedure,
