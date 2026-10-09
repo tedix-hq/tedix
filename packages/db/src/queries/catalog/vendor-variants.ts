@@ -120,53 +120,47 @@ export function buildHideShadowedVariantsCondition(
 	db: Database,
 	options: CatalogVisibilityOptions = {},
 ): SQL {
+	// One pass over the visible catalog: each row's vendor key, inventory and
+	// runnability are computed once, and window functions compare it with its
+	// vendor group. A row is shadowed when it is non-runnable beside a runnable
+	// sibling, has no inventory beside a stocked sibling, or is a stocked row
+	// that is not its vendor's first card (plain slug first, then most stocked).
 	const sibling = alias(appCatalog, "vendor_sibling");
-	const siblingKey = catalogVendorKeySql(sibling);
-	const runnableVendorKeys = db
-		.select({ vendorKey: sql<string>`${siblingKey}`.as("vendor_key") })
-		.from(sibling)
-		.where(
-			and(
-				catalogRunnableSql(sibling),
-				...catalogVisibilityConditions(sibling, options),
-			),
-		);
-	// A runnable row with no discovered inventory (a per-store endpoint the
-	// scanner found nothing on) is likewise shadowed by a sibling that has tools.
-	const stockedVendorKeys = db
-		.select({ vendorKey: sql<string>`${siblingKey}`.as("vendor_key") })
-		.from(sibling)
-		.where(
-			and(
-				sql`${catalogInventorySql(sibling)} > 0`,
-				...catalogVisibilityConditions(sibling, options),
-			),
-		);
-	// Among a vendor's visible rows that do have inventory, one card is enough:
-	// keep the plain-slug row (the best one owns it), then the most stocked.
-	// A window function ranks every vendor group once per statement.
-	const ranked = db
+	const key = catalogVendorKeySql(sibling);
+	const inventory = catalogInventorySql(sibling);
+	const runnable = sql`(CASE WHEN ${catalogRunnableSql(sibling)} THEN 1 ELSE 0 END)`;
+	const stocked = sql`(CASE WHEN ${inventory} > 0 THEN 1 ELSE 0 END)`;
+	const grouped = db
 		.select({
-			id: sql<string>`${sibling.id}`.as("ranked_id"),
-			rank: sql<number>`row_number() OVER (PARTITION BY ${siblingKey} ORDER BY (${sibling.slug} GLOB '*-[0-9]*') ASC, ${catalogInventorySql(sibling)} DESC, ${sibling.id} ASC)`.as(
-				"vendor_rank",
+			id: sql<string>`${sibling.id}`.as("grouped_id"),
+			runnable: sql<number>`${runnable}`.as("grouped_runnable"),
+			stocked: sql<number>`${stocked}`.as("grouped_stocked"),
+			groupRunnable:
+				sql<number>`max(${runnable}) OVER (PARTITION BY ${key})`.as(
+					"group_runnable",
+				),
+			groupStocked: sql<number>`max(${stocked}) OVER (PARTITION BY ${key})`.as(
+				"group_stocked",
+			),
+			rank: sql<number>`row_number() OVER (PARTITION BY ${key} ORDER BY ${stocked} DESC, (${sibling.slug} GLOB '*-[0-9]*') ASC, ${inventory} DESC, ${sibling.id} ASC)`.as(
+				"group_rank",
 			),
 		})
 		.from(sibling)
 		.where(
 			and(
-				sql`${siblingKey} IS NOT NULL`,
-				sql`${catalogInventorySql(sibling)} > 0`,
+				sql`${key} IS NOT NULL`,
 				...catalogVisibilityConditions(sibling, options),
 			),
 		)
-		.as("vendor_ranked");
-	const outranked = db
-		.select({ id: ranked.id })
-		.from(ranked)
-		.where(sql`${ranked.rank} > 1`);
-	const key = catalogVendorKeySql(appCatalog);
-	return sql`NOT ((NOT ${catalogRunnableSql(appCatalog)} AND coalesce(${key} IN ${runnableVendorKeys}, 0)) OR (${catalogInventorySql(appCatalog)} = 0 AND coalesce(${key} IN ${stockedVendorKeys}, 0)) OR ${appCatalog.id} IN ${outranked})`;
+		.as("vendor_grouped");
+	const shadowed = db
+		.select({ id: grouped.id })
+		.from(grouped)
+		.where(
+			sql`(${grouped.runnable} = 0 AND ${grouped.groupRunnable} = 1) OR (${grouped.stocked} = 0 AND ${grouped.groupStocked} = 1) OR (${grouped.stocked} = 1 AND ${grouped.rank} > 1)`,
+		);
+	return sql`${appCatalog.id} NOT IN ${shadowed}`;
 }
 
 export interface CatalogVendorVariantRow {
