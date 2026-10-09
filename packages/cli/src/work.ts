@@ -3145,7 +3145,7 @@ async function workCheckpoint(
 		hasMore: page.hasMore,
 		receipt: "retrieved",
 		guidance:
-			"Retrieval is not acknowledgment or action. Read truncated requests with work interaction-get <id>. Explicitly acknowledge with work interaction-respond <id> --input containing expectedRequestVersion, responseKind=coordination_update, body and resolvesRequest=false; record acted/deferred separately with evidence. No execution authority changed.",
+			"Retrieval is not acknowledgment or action. Read truncated requests with work interaction-get <id>. Explicitly acknowledge with work interaction-respond <id> --input containing expectedRequestVersion, the responseKind its kind takes (question: answer, input: input_provided, handoff: handoff_accepted or handoff_declined, coordination: coordination_update), body and resolvesRequest=false; record acted/deferred separately with evidence. No execution authority changed.",
 	};
 	return ok(ctx, value, () => console.log(JSON.stringify(value, null, 2)));
 }

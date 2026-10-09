@@ -199,9 +199,26 @@ describe("Work interaction canonical actor projections", () => {
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(events).toEqual([]);
-		const update = await target.respond({
-			requestId: request.id,
-			expectedRequestVersion: request.version,
+		// The insert trigger takes coordination_update only on a coordination request.
+		await expect(
+			target.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "coordination_update",
+				body: "Checking",
+				resolvesRequest: false,
+			}),
+		).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+		const coordination = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "coordination",
+			subject: "Keep me posted",
+			prompt: "Report progress on the admission evidence.",
+			requestedFrom: { type: "user", id: "target-id" },
+		});
+		await target.respond({
+			requestId: coordination.id,
+			expectedRequestVersion: coordination.version,
 			responseKind: "coordination_update",
 			body: "Checking",
 			resolvesRequest: false,
@@ -209,7 +226,7 @@ describe("Work interaction canonical actor projections", () => {
 		expect(events).toEqual([]);
 		const saved = await target.respond({
 			requestId: request.id,
-			expectedRequestVersion: update.request.version,
+			expectedRequestVersion: request.version,
 			responseKind: "answer",
 			body: "Private user answer",
 			resolvesRequest: true,
