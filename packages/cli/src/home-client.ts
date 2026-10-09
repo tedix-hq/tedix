@@ -650,6 +650,54 @@ export const HOME_RUN_EVENTS_PAGE = 12;
 
 /** Transcript rows per page, for the same gateway-budget reason. */
 export const HOME_MESSAGES_PAGE = 10;
+export const HOME_RUN_SET_PAGE = 20;
+/** Run-row fields the CLI reads (summaries, latest-run recovery, HomeRunSchema). */
+const HOME_RUN_SET_RUN_KEYS = [
+	"id",
+	"organizationId",
+	"conversationId",
+	"status",
+	"inputMessageId",
+	"outputMessageId",
+	"delegatedTediId",
+	"childRunId",
+	"startedAt",
+	"completedAt",
+	"timeoutAt",
+	"createdAt",
+	"updatedAt",
+	"progress",
+	"usage",
+];
+/** `run.metadata` keys `summarizeHomePayload` and its helpers consume. */
+const HOME_RUN_SET_METADATA_KEYS = [
+	"source",
+	"approvalRequestId",
+	"cancelReason",
+	"childRunId",
+	"childTaskOutcome",
+	"clientSubmissionId",
+	"delegatedTediId",
+	"delegationError",
+	"delegationWorkOrder",
+	"homeDelegation",
+	"kernelWriteProposalDeclined",
+	"workItemId",
+];
+/** Child-tree node fields the CLI renders; `metadata` keeps progress and a clipped preview. */
+const HOME_CHILD_TREE_NODE_KEYS = [
+	"id",
+	"homeRunId",
+	"conversationId",
+	"delegatedTediId",
+	"childRunId",
+	"parentRunId",
+	"label",
+	"status",
+	"active",
+	"depth",
+	"updatedAt",
+];
 
 function parseMcpResponsePayload(
 	text: string,
@@ -2099,15 +2147,73 @@ export class TedixHomeClient {
 		}
 	}
 
+	/**
+	 * Read the conversation's run set, projected to the fields the CLI renders.
+	 *
+	 * A raw run row carries its whole `runtime.metadata` (execution requirement,
+	 * redrive input, work orders) so a page of twenty real runs is several times
+	 * the Code Mode gateway's result budget and comes back as a truncation
+	 * preview with no runs in it. `tedix status` used to read that preview as an
+	 * empty conversation. Project inside the gateway program so the result is
+	 * small by construction, halve the page while it still does not fit, and
+	 * return the unwrapped `{ runSet }` payload rather than the gateway envelope.
+	 */
 	async readHomeRunSet(input: ReadHomeRunSetInput): Promise<unknown> {
-		return this.#callHomeTool(
-			"read_home_run_set",
-			{
-				conversationId: input.conversationId,
-				...(input.limit ? { limit: input.limit } : {}),
+		let limit = Math.max(1, input.limit ?? HOME_RUN_SET_PAGE);
+		while (true) {
+			const args = { conversationId: input.conversationId, limit };
+			const payload = await this.callTool(
+				"code",
+				{
+					code: `async () => {
+	const clip = (value, max) =>
+		typeof value === "string" && value.length > max
+			? value.slice(0, max) + "…"
+			: value;
+	const pick = (source, keys) => {
+		const out = {};
+		if (!source || typeof source !== "object") return out;
+		for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
+		return out;
+	};
+	const projectRun = (run) => {
+		const metadata = run.metadata && typeof run.metadata === "object" ? run.metadata : {};
+		const route = metadata.kernelRoute && typeof metadata.kernelRoute === "object" ? metadata.kernelRoute : undefined;
+		const body = metadata.bodyExecutionResult && typeof metadata.bodyExecutionResult === "object" ? metadata.bodyExecutionResult : undefined;
+		return {
+			...pick(run, ${JSON.stringify(HOME_RUN_SET_RUN_KEYS)}),
+			metadata: {
+				...pick(metadata, ${JSON.stringify(HOME_RUN_SET_METADATA_KEYS)}),
+				...(route ? { kernelRoute: { ...route, answer: clip(route.answer, 2000) } } : {}),
+				...(body ? { bodyExecutionResult: { summary: clip(body.summary, 2000) } } : {}),
+				...(metadata.childRunPreview !== undefined ? { childRunPreview: clip(metadata.childRunPreview, 500) } : {}),
 			},
-			{ retryable: true },
-		);
+		};
+	};
+	const payload = await home.read_home_run_set(${JSON.stringify(args)});
+	const runSet = payload && typeof payload === "object" && payload.runSet && typeof payload.runSet === "object" ? payload.runSet : payload;
+	if (!runSet || typeof runSet !== "object") return payload;
+	return {
+		runSet: {
+			...pick(runSet, ["organizationId", "conversationId", "activeRunIds", "approvalMirrors", "updatedAt"]),
+			runs: (Array.isArray(runSet.runs) ? runSet.runs : []).map(projectRun),
+		},
+	};
+}`,
+				},
+				{ retryable: true },
+			);
+			const normalized = normalizeCodeResult(payload);
+			if (!normalized.truncated) return normalized.value;
+			if (limit <= 1) {
+				throw new Error(
+					`Home run set is too large for the Code Mode gateway to return${
+						normalized.truncationHint ? `: ${normalized.truncationHint}` : "."
+					}`,
+				);
+			}
+			limit = Math.max(1, Math.floor(limit / 2));
+		}
 	}
 
 	async listHomeConversations(
@@ -2237,15 +2343,70 @@ export class TedixHomeClient {
 		);
 	}
 
+	/**
+	 * Read the conversation's delegated child-run tree, projected to the node
+	 * fields the CLI renders (a child's preview is the delegated tedi's whole
+	 * answer, so unprojected nodes overrun the gateway budget together). Returns
+	 * the unwrapped `{ tree }` payload rather than the gateway envelope, halving
+	 * the page while the gateway still truncates it.
+	 */
 	async readChildRunTree(input: ReadChildRunTreeInput): Promise<unknown> {
-		return this.#callHomeTool(
-			"read_child_run_tree",
-			{
+		let limit = input.limit ? Math.max(1, input.limit) : undefined;
+		while (true) {
+			const args = {
 				conversationId: input.conversationId,
-				...(input.limit ? { limit: input.limit } : {}),
+				...(limit ? { limit } : {}),
+			};
+			const payload = await this.callTool(
+				"code",
+				{
+					code: `async () => {
+	const clip = (value, max) =>
+		typeof value === "string" && value.length > max
+			? value.slice(0, max) + "…"
+			: value;
+	const pick = (source, keys) => {
+		const out = {};
+		if (!source || typeof source !== "object") return out;
+		for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
+		return out;
+	};
+	const projectNode = (node) => {
+		if (!node || typeof node !== "object") return node;
+		const metadata = node.metadata && typeof node.metadata === "object" ? node.metadata : {};
+		return {
+			...pick(node, ${JSON.stringify(HOME_CHILD_TREE_NODE_KEYS)}),
+			metadata: {
+				...pick(metadata, ["progress"]),
+				...(metadata.preview !== undefined ? { preview: clip(metadata.preview, 300) } : {}),
 			},
-			{ retryable: true },
-		);
+			children: (Array.isArray(node.children) ? node.children : []).map(projectNode),
+		};
+	};
+	const payload = await home.read_child_run_tree(${JSON.stringify(args)});
+	const tree = payload && typeof payload === "object" && payload.tree && typeof payload.tree === "object" ? payload.tree : null;
+	if (!tree) return payload;
+	return {
+		tree: {
+			...pick(tree, ["organizationId", "conversationId", "activeNodeId", "updatedAt"]),
+			nodes: (Array.isArray(tree.nodes) ? tree.nodes : []).map(projectNode),
+		},
+	};
+}`,
+				},
+				{ retryable: true },
+			);
+			const normalized = normalizeCodeResult(payload);
+			if (!normalized.truncated) return normalized.value;
+			if (limit !== undefined && limit <= 1) {
+				throw new Error(
+					`Home child-run tree is too large for the Code Mode gateway to return${
+						normalized.truncationHint ? `: ${normalized.truncationHint}` : "."
+					}`,
+				);
+			}
+			limit = Math.max(1, Math.floor((limit ?? HOME_RUN_SET_PAGE) / 2));
+		}
 	}
 
 	async readHomeRunEvents(

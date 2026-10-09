@@ -73,6 +73,7 @@ import {
 import { CLI_VERSION, looksLikeUuid, type CliOptions } from "./shared";
 import { runSkillCommand } from "./skill";
 import { buildStatusReport, renderStatusReport } from "./status";
+import { resolveThreadOrganizationId } from "./thread-organization";
 import { runTediCommand } from "./tedi";
 import { listThreads, resolveThread, setThread } from "./thread-store";
 import { buildContext, buildOps } from "./turn";
@@ -942,22 +943,9 @@ async function main() {
 		});
 		options.organization = organizationContext.organization;
 		if (options.thread || command === "threads") {
-			const runtime = normalizeCodeResult(
-				await client.runCode(
-					"async () => ({organizationId: codemode.__runtime().organizationId})",
-				),
-			).value;
-			if (
-				!runtime ||
-				typeof runtime !== "object" ||
-				!("organizationId" in runtime) ||
-				typeof runtime.organizationId !== "string" ||
-				!looksLikeUuid(runtime.organizationId)
-			)
-				throw new Error(
-					"Could not verify the organization for saved conversation names.",
-				);
-			const threadOptions = { organizationId: runtime.organizationId };
+			const threadOptions = {
+				organizationId: await resolveThreadOrganizationId(client),
+			};
 			if (command === "threads") {
 				const threads = listThreads(threadOptions);
 				if (options.json) console.log(JSON.stringify(threads, null, 2));
@@ -994,22 +982,21 @@ async function main() {
 				}),
 				client.readChildRunTree({ conversationId: options.conversationId }),
 			]);
-			const errors = [
-				runSet.status === "rejected"
-					? `Runs: ${errorText(runSet.reason)}`
-					: null,
-				childTree.status === "rejected"
-					? `Delegations: ${errorText(childTree.reason)}`
-					: null,
-			].filter((v): v is string => v !== null);
 			const report = buildStatusReport({
 				conversationId: options.conversationId,
 				runSet: runSet.status === "fulfilled" ? runSet.value : null,
 				childTree:
 					childTree.status === "fulfilled" ? childTree.value : undefined,
-				errors,
+				errors: [
+					runSet.status === "rejected"
+						? `Runs: ${errorText(runSet.reason)}`
+						: null,
+					childTree.status === "rejected"
+						? `Delegations: ${errorText(childTree.reason)}`
+						: null,
+				].filter((v): v is string => v !== null),
 			});
-			if (errors.length) process.exitCode = 2;
+			if (report.errors?.length) process.exitCode = 2;
 			console.log(renderStatusReport(report, { json: options.json }));
 			return;
 		}
