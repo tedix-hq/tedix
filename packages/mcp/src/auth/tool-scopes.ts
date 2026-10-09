@@ -120,6 +120,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"agentTurnTriage/proposeReplyDraft": "mcp:messaging.write",
 	"agentTurnTriage/getReplyDraftAcceptance": "mcp:messaging.read",
 	"agentTurnTriage/getReplyDraftLeaderboard": "mcp:messaging.read",
+	"agentTurnTriage/getCaptureHealth": "mcp:messaging.read",
 	"agentTurnTriage/getSessionLessons": "mcp:messaging.read",
 	"agentTurnTriage/listLessons": "mcp:messaging.read",
 	"agentTurnTriage/getLessonEffectiveness": "mcp:messaging.read",

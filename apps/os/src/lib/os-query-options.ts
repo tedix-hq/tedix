@@ -623,6 +623,13 @@ export const replyDraftAcceptanceQueryOptions = (since: string) =>
 		refetchInterval: WORK_OFFICE_REFETCH_MS,
 	});
 
+/** Captured turns, drafts and lesson deliveries for the caller since `since`. */
+export const captureHealthQueryOptions = (since: string) =>
+	osQuery.agentTurnTriage.getCaptureHealth.queryOptions({
+		input: { since },
+		refetchInterval: WORK_OFFICE_REFETCH_MS,
+	});
+
 /** The caller's drafting tedis this week and today, ranked by replies that stood. */
 export const replyDraftLeaderboardQueryOptions = (
 	since: string,

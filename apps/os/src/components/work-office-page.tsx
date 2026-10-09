@@ -38,6 +38,7 @@ import {
 } from "@/components/work-operations-pages";
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
+	captureHealthQueryOptions,
 	notebookLessonsQueryOptions,
 	replyDraftAcceptanceQueryOptions,
 	tediRosterQueryOptions,
@@ -246,18 +247,50 @@ function OfficeHeader({ since }: { since: string }) {
 	);
 }
 
+/** The silent-failure line: zero turns on a working day means capture broke. */
+export function captureHealthLine(counts: {
+	turns: number;
+	drafts: number;
+	lessons: number;
+}): string {
+	return `Health: ${counts.turns} turns · ${counts.drafts} drafts · ${counts.lessons} lessons today`;
+}
+
 function TodayTiles({ since }: { since: string }) {
 	const { knocks, rows, more } = useTodayKnocks(since);
 	const totals = useTodayTotals(since);
+	const health = useQuery(captureHealthQueryOptions(since));
 	if (knocks.isPending)
 		return <Skeleton className="h-24 w-full" aria-label="Loading today" />;
+	return (
+		<div className="grid gap-2">
+			<TodayMetrics
+				knocks={`${rows.length}${more ? "+" : ""}`}
+				totals={totals}
+			/>
+			{health.data ? (
+				<Text as="p" role="label" tone="secondary">
+					{captureHealthLine(health.data)}
+				</Text>
+			) : null}
+		</div>
+	);
+}
+
+function TodayMetrics({
+	knocks,
+	totals,
+}: {
+	knocks: string;
+	totals: ReturnType<typeof useTodayTotals>;
+}) {
 	return (
 		<MetricGrid columns={4} appearance="bounded" aria-label="Today">
 			<MetricItem
 				className="py-4"
 				label="Knocks today"
 				emphasis="metric"
-				value={`${rows.length}${more ? "+" : ""}`}
+				value={knocks}
 			/>
 			<MetricItem
 				className="py-4"

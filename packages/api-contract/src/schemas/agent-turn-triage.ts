@@ -703,6 +703,30 @@ export const GetAgentReplyDraftLeaderboardResultSchema = z.object({
 	),
 });
 
+export const GetDecisionCaptureHealthInputSchema = z.strictObject({
+	since: z.iso
+		.datetime()
+		.describe("Start of the period (e.g. today); records at or after it"),
+});
+
+export const GetDecisionCaptureHealthResultSchema = z.object({
+	turns: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Decision-capture questions from the caller's agent turns"),
+	drafts: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Tedi reply drafts on those questions"),
+	lessons: z
+		.number()
+		.int()
+		.min(0)
+		.describe("Lesson deliveries to the caller's agent sessions"),
+});
+
 /**
  * Whether a captured agent turn needs its user, stored by the server on the
  * question as `metadata.attention`. `fyi`: the turn asks nothing of the user

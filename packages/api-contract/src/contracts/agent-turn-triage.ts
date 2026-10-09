@@ -23,6 +23,8 @@ import {
 	GetAgentReplyDraftAcceptanceResultSchema,
 	GetAgentReplyDraftLeaderboardInputSchema,
 	GetAgentReplyDraftLeaderboardResultSchema,
+	GetDecisionCaptureHealthInputSchema,
+	GetDecisionCaptureHealthResultSchema,
 	LabelAgentReplyInputSchema,
 	LabelAgentReplyResultSchema,
 	ProposeAgentReplyDraftInputSchema,
@@ -170,6 +172,17 @@ export const agentTurnTriageContract = oc
 			})
 			.input(GetAgentReplyDraftLeaderboardInputSchema)
 			.output(GetAgentReplyDraftLeaderboardResultSchema),
+
+		getCaptureHealth: oc
+			.route({
+				method: "GET",
+				path: "/capture-health",
+				summary: "Count what decision capture recorded for the caller",
+				description:
+					"Since `since`: decision-capture questions from the caller's agent turns, tedi reply drafts on them, and lesson deliveries to the caller's agent sessions. Zero turns on a working day usually means capture is broken on the caller's machine. Measurement only.",
+			})
+			.input(GetDecisionCaptureHealthInputSchema)
+			.output(GetDecisionCaptureHealthResultSchema),
 
 		getSessionLessons: oc
 			.route({

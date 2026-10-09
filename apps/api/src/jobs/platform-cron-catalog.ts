@@ -38,6 +38,7 @@ export const PLATFORM_CRON_IDS = [
 	"tedi-access-key-rotation",
 	"site-reconciliation",
 	"reply-draft-career",
+	"capture-health-heartbeat",
 ] as const;
 export type PlatformCronId = (typeof PLATFORM_CRON_IDS)[number];
 
@@ -152,6 +153,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		requiresFleet: true,
 	},
 	{ id: "content-sync", cron: "0 7 * * *", intervalMinutes: 1_440 },
+	{
+		id: "capture-health-heartbeat",
+		cron: "0 7 * * *",
+		intervalMinutes: 1_440,
+		requiresFleet: true,
+	},
 	{
 		id: "platform-health-digest",
 		cron: "0 8 * * *",
