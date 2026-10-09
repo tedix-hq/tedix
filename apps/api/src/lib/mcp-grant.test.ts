@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	listMcpConsentSelections: vi.fn(),
 	disableMcpConsentSelection: vi.fn(),
 	getMcpConsentSelection: vi.fn(),
+	getMcpConsentGrant: vi.fn(),
 	getMcpConsentPending: vi.fn(),
 	stageMcpConsentPending: vi.fn(),
 	promoteMcpConsentPending: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@tedix/db/queries/mcp-consent", () => ({
 	listMcpConsentSelections: mocks.listMcpConsentSelections,
 	disableMcpConsentSelection: mocks.disableMcpConsentSelection,
 	getMcpConsentSelection: mocks.getMcpConsentSelection,
+	getMcpConsentGrant: mocks.getMcpConsentGrant,
 	getMcpConsentPending: mocks.getMcpConsentPending,
 	stageMcpConsentPending: mocks.stageMcpConsentPending,
 	promoteMcpConsentPending: mocks.promoteMcpConsentPending,
@@ -110,9 +112,25 @@ const env = {
 	DESCOPE_MANAGEMENT_KEY: "key",
 } as CloudflareEnv;
 
+/**
+ * Default grant read for single-install cases: the latest selection row is the
+ * only grant, as for a row written before multiple grants existed.
+ */
+function useLatestSelectionAsOnlyGrant() {
+	mocks.getMcpConsentGrant.mockImplementation(
+		async (db: unknown, key: { revision: string }) => {
+			const row = await mocks.getMcpConsentSelection(db, key);
+			return row?.status === "active" && row.revision === key.revision
+				? row
+				: null;
+		},
+	);
+}
+
 describe("verifyHumanMcpGrant", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		useLatestSelectionAsOnlyGrant();
 		mocks.loadDescopeMcpServer.mockResolvedValue({
 			id: input.mcpServerId,
 			type: "mcp",
@@ -637,6 +655,61 @@ describe("verifyHumanMcpGrant", () => {
 		);
 	});
 
+	it("allows two installs of one client with their own grants and exact authority", async () => {
+		const second = {
+			...input,
+			consentRevision: "00000000-0000-4000-8000-000000000002",
+			selectedTenantIds: [tenantIds[0]!],
+		};
+		const grants = new Map([
+			[
+				input.consentRevision,
+				{
+					appId: "app-1",
+					revision: input.consentRevision,
+					selectedTenantIds: tenantIds,
+					approvedScopes: input.tokenScopes,
+				},
+			],
+			[
+				second.consentRevision,
+				{
+					appId: "app-1",
+					revision: second.consentRevision,
+					selectedTenantIds: [tenantIds[0]],
+					approvedScopes: input.tokenScopes,
+				},
+			],
+		]);
+		mocks.getMcpConsentGrant.mockImplementation(
+			async (_db: unknown, key: { revision: string }) =>
+				grants.get(key.revision) ?? null,
+		);
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		await expect(
+			verifyHumanMcpGrant({} as never, env, input),
+		).resolves.toMatchObject({ allowed: true });
+		await expect(
+			verifyHumanMcpGrant({} as never, env, second),
+		).resolves.toMatchObject({ allowed: true });
+		// Each grant keeps its own organizations: no mixing between installs.
+		await expect(
+			verifyHumanMcpGrant({} as never, env, {
+				...second,
+				selectedTenantIds: tenantIds,
+			}),
+		).resolves.toMatchObject({ allowed: false, reason: "selection_replaced" });
+		grants.clear();
+		for (const token of [input, second])
+			await expect(
+				verifyHumanMcpGrant({} as never, env, token),
+			).resolves.toMatchObject({
+				allowed: false,
+				reason: "selection_replaced",
+			});
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
+	});
+
 	it("stages only a verified client's exact member organizations and scopes, then revokes them", async () => {
 		const { stageHumanMcpConsent, revokeHumanMcpConsent } =
 			await import("./mcp-grant");
@@ -1073,6 +1146,7 @@ describe("human authorization management", () => {
 describe("explicit human platform administration", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		useLatestSelectionAsOnlyGrant();
 		mocks.loadDescopeMcpServer.mockResolvedValue({
 			id: input.mcpServerId,
 			type: "mcp",

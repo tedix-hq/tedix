@@ -108,16 +108,17 @@ import {
 import {
 	buildWwwAuthenticate,
 	extractRequiredScopes,
+	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
 	resolveAihM2mClientScopeContext,
 	resolveAihM2mTediOrganizationId,
 	resolveExternalAgentSessionAuth,
+	resolveHumanMcpSelection,
 	resolveMcpExpectedAudience,
 	shouldEnforceMcpToolScopes,
 	shouldEnforceTenantMatchForOAuth,
 	validateAuth,
-	validateHumanMcpSelection,
 	type MultiOrgMcpSelection,
 } from "./auth-helpers";
 // Import from split modules
@@ -5536,7 +5537,7 @@ const worker = {
 									headers: { "Content-Type": "application/json" },
 								},
 							);
-						const selection = await validateHumanMcpSelection(
+						const resolved = await resolveHumanMcpSelection(
 							authResult.payload,
 							env,
 							{
@@ -5545,17 +5546,8 @@ const worker = {
 								multiOrganization: config?.multiOrgConsent === true,
 							},
 						);
-						if (!selection)
-							return new Response(
-								JSON.stringify({
-									error: "human_mcp_grant_invalid",
-									message: "Reconnect this application to review permissions.",
-								}),
-								{
-									status: 403,
-									headers: { "Content-Type": "application/json" },
-								},
-							);
+						if (!resolved.ok) return humanMcpGrantFailureResponse(resolved);
+						const selection = resolved.selection;
 						if (config?.multiOrgConsent === true) multiOrgSelection = selection;
 						else if (
 							selection.organizations.length !== 1 ||

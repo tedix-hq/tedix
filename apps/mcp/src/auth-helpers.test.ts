@@ -23,11 +23,13 @@ vi.mock("@tedix/auth/jwt", async (importOriginal) => {
 import {
 	intersectScopes,
 	extractRequiredScopes,
+	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
 	resolveAihM2mClientScopeContext,
 	resolveAihM2mTediOrganizationId,
 	resolveExternalAgentSessionAuth,
+	resolveHumanMcpSelection,
 	resolveMcpExpectedAudience,
 	resolveMcpTokenValidationAudience,
 	shouldEnforceTenantMatchForOAuth,
@@ -167,6 +169,81 @@ describe("multi-organization MCP consent", () => {
 			validateHumanMcpSelection(payload, env, config),
 		).resolves.toBeNull();
 		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps the API's denial reason and separates an unavailable check from an invalid grant", async () => {
+		const fetch = vi.fn();
+		const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+		fetch.mockResolvedValueOnce(
+			Response.json({
+				json: {
+					allowed: false,
+					reason: "selection_replaced",
+					organizations: [],
+				},
+			}),
+		);
+		const replaced = await resolveHumanMcpSelection(payload, env, config);
+		expect(replaced).toEqual({
+			ok: false,
+			unavailable: false,
+			reason: "selection_replaced",
+		});
+		const forbidden = humanMcpGrantFailureResponse(
+			replaced as Extract<typeof replaced, { ok: false }>,
+		);
+		expect(forbidden.status).toBe(403);
+		expect(await forbidden.json()).toMatchObject({
+			error: "human_mcp_grant_invalid",
+			reason: "selection_replaced",
+			message: expect.stringContaining("selection_replaced"),
+		});
+
+		fetch.mockResolvedValueOnce(
+			Response.json({
+				json: {
+					allowed: false,
+					reason: "provider_unavailable",
+					organizations: [],
+				},
+			}),
+		);
+		const provider = await resolveHumanMcpSelection(payload, env, config);
+		expect(provider).toEqual({
+			ok: false,
+			unavailable: true,
+			reason: "provider_unavailable",
+		});
+		fetch.mockRejectedValueOnce(new Error("service binding down"));
+		const caught = await resolveHumanMcpSelection(payload, env, config);
+		expect(caught).toEqual({
+			ok: false,
+			unavailable: true,
+			reason: "grant_check_failed",
+		});
+		for (const result of [provider, caught]) {
+			const response = humanMcpGrantFailureResponse(
+				result as Extract<typeof result, { ok: false }>,
+			);
+			expect(response.status).toBe(503);
+			expect(response.headers.get("Retry-After")).toBe("5");
+			expect(await response.json()).toMatchObject({
+				error: "human_mcp_grant_unavailable",
+				reason: (result as { reason: string }).reason,
+			});
+		}
+		expect(
+			await resolveHumanMcpSelection(
+				{ ...payload, tedixConsentRevision: undefined },
+				env,
+				config,
+			),
+		).toEqual({
+			ok: false,
+			unavailable: false,
+			reason: "token_claims_invalid",
+		});
+		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
 	it("rejects wrong audience, missing client, duplicate tenants before API access", async () => {

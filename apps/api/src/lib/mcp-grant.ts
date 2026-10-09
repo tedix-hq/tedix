@@ -19,6 +19,7 @@ import {
 	getMcpConsentResource,
 	disableMcpConsentSelection,
 	listMcpConsentSelections,
+	getMcpConsentGrant,
 	getMcpConsentSelection,
 	getMcpConsentPending,
 	stageMcpConsentPending,
@@ -262,7 +263,7 @@ export async function stageHumanMcpConsent(
 	return revision;
 }
 
-/** Explicit revocation advances the current-revision fence. */
+/** Explicit revocation advances the fence and removes every grant for the client. */
 export async function revokeHumanMcpConsent(
 	db: DbClient,
 	env: CloudflareEnv,
@@ -463,17 +464,19 @@ async function verifyHumanMcpGrantStages(
 		mcpServerId: input.mcpServerId,
 		clientId: input.clientId,
 	};
+	const grantKey = { ...key, revision: input.consentRevision };
+	// Several installs of one OAuth client may each hold an active grant; the
+	// signed revision selects exactly one, whose authority must match exactly.
 	const matchesActive = (
-		current: Awaited<ReturnType<typeof getMcpConsentSelection>>,
+		grant: Awaited<ReturnType<typeof getMcpConsentGrant>>,
 	) =>
-		current?.status === "active" &&
-		current.appId === appId &&
-		current.revision === input.consentRevision &&
-		sameCanonicalSet(current.selectedTenantIds, input.selectedTenantIds) &&
-		sameCanonicalSet(current.approvedScopes, input.tokenScopes);
+		grant?.appId === appId &&
+		grant.revision === input.consentRevision &&
+		sameCanonicalSet(grant.selectedTenantIds, input.selectedTenantIds) &&
+		sameCanonicalSet(grant.approvedScopes, input.tokenScopes);
 	let pending: Awaited<ReturnType<typeof getMcpConsentPending>> = null;
 	try {
-		const current = await getMcpConsentSelection(db, key);
+		const current = await getMcpConsentGrant(db, grantKey);
 		if (!matchesActive(current)) {
 			pending = await getMcpConsentPending(db, {
 				...key,
@@ -546,8 +549,8 @@ async function verifyHumanMcpGrantStages(
 			});
 		}
 		// A concurrent request may already have activated this revision, or a
-		// revoke/replacement may have won. Only the current exact row can allow.
-		if (!matchesActive(await getMcpConsentSelection(db, key))) {
+		// revoke may have won. Only an exact active grant can allow.
+		if (!matchesActive(await getMcpConsentGrant(db, grantKey))) {
 			return deny("selection_replaced");
 		}
 	} catch {

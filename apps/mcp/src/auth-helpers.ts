@@ -99,6 +99,22 @@ export interface MultiOrgMcpSelection {
 }
 
 /**
+ * Why a human MCP selection was not accepted. `unavailable` means the grant
+ * could not be checked (provider or API outage) and the caller should retry;
+ * otherwise the token or its grant is not valid and the client must reconnect.
+ */
+export type HumanMcpSelectionResult =
+	| { ok: true; selection: MultiOrgMcpSelection }
+	| { ok: false; unavailable: boolean; reason: string };
+
+type HumanMcpSelectionConfig = {
+	audience: string;
+	mcpServerId: string;
+	tenantId?: string;
+	multiOrganization?: boolean;
+};
+
+/**
  * Accept only a human token for this one resource, then resolve its signed
  * selected tenant IDs through the API's live consent and membership check.
  * This check is repeated for every MCP request, including discovery.
@@ -106,13 +122,50 @@ export interface MultiOrgMcpSelection {
 export async function validateHumanMcpSelection(
 	payload: JWTPayload,
 	env: CloudflareEnv,
-	config: {
-		audience: string;
-		mcpServerId: string;
-		tenantId?: string;
-		multiOrganization?: boolean;
-	},
+	config: HumanMcpSelectionConfig,
 ): Promise<MultiOrgMcpSelection | null> {
+	const result = await resolveHumanMcpSelection(payload, env, config);
+	return result.ok ? result.selection : null;
+}
+
+/**
+ * A grant that could not be checked is a retryable 503 and never asks the user
+ * to reconnect; a real grant problem stays 403 and names its reason.
+ */
+export function humanMcpGrantFailureResponse(
+	result: Extract<HumanMcpSelectionResult, { ok: false }>,
+): Response {
+	return Response.json(
+		result.unavailable
+			? {
+					error: "human_mcp_grant_unavailable",
+					reason: result.reason,
+					message:
+						"Access could not be verified right now. Retry shortly; reconnecting is not needed.",
+				}
+			: {
+					error: "human_mcp_grant_invalid",
+					reason: result.reason,
+					message: `Reconnect this application to review permissions (${result.reason}).`,
+				},
+		{
+			status: result.unavailable ? 503 : 403,
+			headers: result.unavailable ? { "Retry-After": "5" } : undefined,
+		},
+	);
+}
+
+/** {@link validateHumanMcpSelection} with the denial reason kept. */
+export async function resolveHumanMcpSelection(
+	payload: JWTPayload,
+	env: CloudflareEnv,
+	config: HumanMcpSelectionConfig,
+): Promise<HumanMcpSelectionResult> {
+	const invalid = (reason: string): HumanMcpSelectionResult => ({
+		ok: false,
+		unavailable: false,
+		reason,
+	});
 	const exactAudience = hasResourceAudience(payload, config.audience);
 	const selected = payload.tedixSelectedOrganizations;
 	if (
@@ -132,48 +185,54 @@ export async function validateHumanMcpSelection(
 		selected.some((id) => typeof id !== "string" || !id || id.length > 256) ||
 		new Set(selected).size !== selected.length
 	) {
-		return null;
+		return invalid("token_claims_invalid");
 	}
 	const scopes = extractJwtScopes(payload).filter(
 		(scope) =>
 			!["openid", "offline_access", "profile", "email"].includes(scope),
 	);
-	if (scopes.length === 0) return null;
+	if (scopes.length === 0) return invalid("scope_missing");
 	if (
 		!config.multiOrganization &&
 		(selected.length !== 1 ||
 			payload.dct !== selected[0] ||
 			(config.tenantId && selected[0] !== config.tenantId))
 	)
-		return null;
-	try {
-		const client = getApiClient({ serviceFetch: env.API_SERVICE });
-		const decision = await client.organizations.verifyMultiOrgMcpGrant({
-			descopeUserId: payload.sub,
-			selectedTenantIds: selected as string[],
-			mcpServerId: config.mcpServerId,
-			clientId: payload.azp,
-			consentId: payload.dci,
-			consentRevision: payload.tedixConsentRevision,
-			tokenScopes: scopes,
-		});
-		if (
-			!decision.allowed ||
-			decision.organizations.length !== selected.length
-		) {
-			return null;
-		}
-		if (
-			decision.organizations.some(
-				(org, index) => org.descopeTenantId !== selected[index],
-			)
-		) {
-			return null;
-		}
-		return { organizations: decision.organizations };
-	} catch {
-		return null;
-	}
+		return invalid("token_claims_invalid");
+	const sub = payload.sub;
+	const azp = payload.azp;
+	const dci = payload.dci;
+	const tedixConsentRevision = payload.tedixConsentRevision;
+	const decision = await Promise.resolve()
+		.then(() =>
+			getApiClient({
+				serviceFetch: env.API_SERVICE,
+			}).organizations.verifyMultiOrgMcpGrant({
+				descopeUserId: sub,
+				selectedTenantIds: selected as string[],
+				mcpServerId: config.mcpServerId,
+				clientId: azp,
+				consentId: dci,
+				consentRevision: tedixConsentRevision,
+				tokenScopes: scopes,
+			}),
+		)
+		.catch(() => null);
+	// The API was unreachable or failed: the grant was not judged.
+	if (!decision)
+		return { ok: false, unavailable: true, reason: "grant_check_failed" };
+	if (!decision.allowed)
+		return decision.reason === "provider_unavailable"
+			? { ok: false, unavailable: true, reason: decision.reason }
+			: invalid(decision.reason);
+	if (
+		decision.organizations.length !== selected.length ||
+		decision.organizations.some(
+			(org, index) => org.descopeTenantId !== selected[index],
+		)
+	)
+		return invalid("selection_mismatch");
+	return { ok: true, selection: { organizations: decision.organizations } };
 }
 
 export function resolveMcpExpectedAudience(options: {

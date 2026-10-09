@@ -816,6 +816,10 @@
 		{
 			"name": "20261009120304_catalog-explore-shadowed/migration.sql",
 			"sha256": "e73568fd4ff9c00ea97e434a4705a49e754474f4c4380249c2f75cea48852cd7"
+		},
+		{
+			"name": "20261009141430_mcp_consent_grants/migration.sql",
+			"sha256": "46799aa29e36b87cb789b7c772e6d9c9c4e7b0c8064eae824779b952559eb184"
 		}
 	]
 }

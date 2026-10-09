@@ -26,14 +26,17 @@ vi.mock("./auth-helpers", async (importOriginal) => ({
 		scopes: [],
 		payload: { sub: "human", dct: "org_tedix" },
 	})),
-	validateHumanMcpSelection: vi.fn(async () => ({
-		organizations: [
-			{
-				organizationId: "org-id",
-				descopeTenantId: "org_tedix",
-				gatewaySlug: "tedix-unified",
-			},
-		],
+	resolveHumanMcpSelection: vi.fn(async () => ({
+		ok: true,
+		selection: {
+			organizations: [
+				{
+					organizationId: "org-id",
+					descopeTenantId: "org_tedix",
+					gatewaySlug: "tedix-unified",
+				},
+			],
+		},
 	})),
 	resolveAihM2mClientScopeContext: vi.fn(async () => null),
 }));
