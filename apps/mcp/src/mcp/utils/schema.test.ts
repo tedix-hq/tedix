@@ -130,6 +130,31 @@ describe("validateStructuredContentAgainstOutputSchema", () => {
 		).toThrow(/does not match outputSchema/);
 	});
 
+	it("accepts the envelope itself when a composed root matches it (work list rows)", () => {
+		// `list_work_item_cli_rows` declares a oneOf root of object shapes and
+		// returns an object envelope; unwrapping `data` here broke `tedix work`.
+		const composed: ToolJsonSchema = {
+			oneOf: [
+				{
+					type: "object",
+					properties: { data: { type: "array" } },
+					required: ["data"],
+				},
+				{
+					type: "object",
+					properties: { error: { type: "string" } },
+					required: ["error"],
+				},
+			],
+		} as ToolJsonSchema;
+		expect(() =>
+			validateStructuredContentAgainstOutputSchema(
+				composed,
+				{ data: [{ id: "x" }] },
+				"work_rows",
+			),
+		).not.toThrow();
+	});
 	it("does not unwrap { data } when the root schema is an object", () => {
 		const envelopeSchema: ToolJsonSchema = {
 			type: "object",
