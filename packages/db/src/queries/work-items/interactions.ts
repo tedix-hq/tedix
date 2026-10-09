@@ -146,6 +146,16 @@ export interface RespondWorkInteractionParams {
 	metadata?: Record<string, JsonValue>;
 	now: string;
 }
+/** Mirrors the kind check in `work_interaction_response_insert_guard`. */
+const RESPONSE_KINDS_BY_REQUEST_KIND: Record<
+	WorkInteractionKind,
+	readonly WorkInteractionResponseKind[]
+> = {
+	question: ["answer"],
+	input: ["input_provided"],
+	handoff: ["handoff_accepted", "handoff_declined"],
+	coordination: ["coordination_update"],
+};
 export async function respondToWorkInteraction(
 	db: DbQueryClient,
 	p: RespondWorkInteractionParams,
@@ -178,6 +188,12 @@ export async function respondToWorkInteraction(
 		throw new WorkControlError(
 			"INVALID_PRINCIPAL",
 			"Responder is not the request target",
+		);
+	const acceptedKinds = RESPONSE_KINDS_BY_REQUEST_KIND[request.kind];
+	if (!acceptedKinds.includes(p.responseKind))
+		throw new WorkControlError(
+			"INVALID_TRANSITION",
+			`A ${request.kind} request takes responseKind ${acceptedKinds.join(" or ")}, not ${p.responseKind}`,
 		);
 	const resolutionFence = crypto.randomUUID();
 	const resolvedVersion = p.expectedVersion + 1;
@@ -248,10 +264,13 @@ export async function respondToWorkInteraction(
 		const responses = await responseInsert;
 		if (!responses[0]) throw new Error("lost race");
 		return responses[0];
-	} catch {
+	} catch (error) {
+		const cause = error instanceof Error ? error.message : String(error);
 		throw new WorkControlError(
 			"CONFLICT",
-			"Interaction response lost its resolution race",
+			cause === "lost race" || /resolution race|stale/.test(cause)
+				? "Interaction response lost its resolution race"
+				: `Interaction response was rejected: ${cause}`,
 		);
 	}
 }

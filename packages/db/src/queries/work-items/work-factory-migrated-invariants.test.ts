@@ -531,6 +531,40 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		).toMatchObject({ status: "resolved", version: 3 });
 	});
 
+	it("names the accepted response kind instead of reporting a lost race", async () => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		sqlite.exec(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES('request','org','work','question','Question','Answer?','system','tedix','user','user','2026-08-20T00:00:00.000Z')",
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const respond = (responseKind: "coordination_update" | "answer") =>
+			respondToWorkInteraction(db, {
+				id: `reply-${responseKind}`,
+				orgId: "org",
+				interactionId: "request",
+				expectedVersion: 1,
+				responder: { type: "user", id: "user" },
+				responseKind,
+				body: "Done.",
+				resolvesRequest: true,
+				now: "2026-08-20T01:00:00.000Z",
+			});
+		await expect(respond("coordination_update")).rejects.toThrow(
+			"INVALID_TRANSITION: A question request takes responseKind answer, not coordination_update",
+		);
+		await expect(respond("answer")).resolves.toMatchObject({
+			responseKind: "answer",
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT status,version FROM work_interactions WHERE id='request'",
+				)
+				.get(),
+		).toMatchObject({ status: "resolved", version: 2 });
+	});
+
 	it.each([
 		"missing audit",
 		"wrong human",
