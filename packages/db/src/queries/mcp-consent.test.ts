@@ -1,14 +1,22 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { appCatalog } from "../schema/catalog";
 import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
-import { mcpConsentSelections, mcpConsentPending } from "../schema/mcp-consent";
+import {
+	mcpConsentGrants,
+	mcpConsentSelections,
+	mcpConsentPending,
+} from "../schema/mcp-consent";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
+	MAX_MCP_CONSENT_GRANTS_PER_CLIENT,
+	getMcpConsentGrant,
 	getMcpConsentResource,
+	listMcpConsentGrants,
 	stageMcpConsentPending,
 	getMcpConsentPending,
 	promoteMcpConsentPending,
@@ -18,19 +26,28 @@ import {
 	replaceMcpConsentSelection,
 } from "./mcp-consent";
 
-function fixture() {
+const GRANTS_MIGRATION = readFileSync(
+	new URL(
+		"../../drizzle/20261009141430_mcp_consent_grants/migration.sql",
+		import.meta.url,
+	),
+	"utf8",
+).replaceAll("--> statement-breakpoint", "");
+
+function fixture(options: { grants?: boolean } = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(schemaDdl(mcpConsentSelections));
+	if (options.grants !== false) sqlite.exec(schemaDdl(mcpConsentGrants));
 	sqlite.exec(schemaDdl(mcpConsentPending));
 	sqlite.exec(schemaDdl(organizations));
 	sqlite.exec(schemaDdl(appCatalog));
 	sqlite.exec(schemaDdl(apps));
-	return createDbQueryClient(createD1Facade(sqlite));
+	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
 describe("current MCP consent selection", () => {
 	it("atomically replaces the old revision and authority set without crossing clients", async () => {
-		const db = fixture();
+		const { db } = fixture();
 		const key = {
 			descopeUserId: "user-1",
 			mcpServerId: "connect-resource",
@@ -81,7 +98,7 @@ describe("current MCP consent selection", () => {
 });
 
 it("isolates subject/resource pagination and current revision disable", async () => {
-	const db = fixture();
+	const { db } = fixture();
 	const key = {
 		descopeUserId: "owner",
 		mcpServerId: "connect",
@@ -145,7 +162,7 @@ it("isolates subject/resource pagination and current revision disable", async ()
 });
 
 it("resolves exact configured audience and owning tenant, rejecting unknown and duplicate resources", async () => {
-	const db = fixture();
+	const { db } = fixture();
 	await db.insert(organizations).values({
 		id: "org",
 		name: "One",
@@ -227,11 +244,15 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		status: "active" as const,
 		approvedScopes: ["mcp:apps.read", "mcp:work.read"],
 	};
-	it("preserves the active grant while pending, activates once and fences old contenders", async () => {
-		const db = fixture();
+	it("keeps the active grant while pending and lets concurrent installs each activate", async () => {
+		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		await stageMcpConsentPending(db, pending);
-		await stageMcpConsentPending(db, { ...pending, revision: "competitor" });
+		await stageMcpConsentPending(db, {
+			...pending,
+			revision: "second-install",
+			selectedTenantIds: ["other-tenant"],
+		});
 		expect(await getMcpConsentSelection(db, key)).toMatchObject({
 			revision: "old",
 		});
@@ -240,17 +261,176 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		).toMatchObject({ expectedActiveRevision: "old" });
 		const results = await Promise.all([
 			promoteMcpConsentPending(db, pending),
-			promoteMcpConsentPending(db, { ...pending, revision: "competitor" }),
+			promoteMcpConsentPending(db, {
+				...pending,
+				revision: "second-install",
+				selectedTenantIds: ["other-tenant"],
+			}),
 		]);
-		expect(results.filter(Boolean)).toHaveLength(1);
-		expect(await promoteMcpConsentPending(db, pending)).toBe(false);
+		expect(results).toEqual([true, true]);
 		expect(await getMcpConsentSelection(db, key)).toMatchObject({
-			revision: "candidate",
 			status: "active",
 		});
+		// Every install keeps exactly its own authority.
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "old" }),
+		).toMatchObject({ approvedScopes: active.approvedScopes });
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "candidate" }),
+		).toMatchObject({ selectedTenantIds: ["tenant"] });
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "second-install" }),
+		).toMatchObject({ selectedTenantIds: ["other-tenant"] });
+		expect(
+			(await listMcpConsentGrants(db, key)).map((grant) => grant.revision),
+		).toHaveLength(3);
+	});
+
+	it("revoking or disabling the client removes every grant and fences stale candidates", async () => {
+		for (const revoke of ["disable", "replace"] as const) {
+			const { db } = fixture();
+			await replaceMcpConsentSelection(db, active);
+			for (const revision of ["one", "two"]) {
+				await stageMcpConsentPending(db, { ...pending, revision });
+				expect(
+					await promoteMcpConsentPending(db, { ...pending, revision }),
+				).toBe(true);
+			}
+			await stageMcpConsentPending(db, { ...pending, revision: "stale" });
+			const latest = await getMcpConsentSelection(db, key);
+			if (revoke === "disable")
+				expect(
+					await disableMcpConsentSelection(db, {
+						...key,
+						expectedRevision: latest!.revision,
+						revision: "revoked",
+					}),
+				).toMatchObject({ status: "revoked" });
+			else
+				await replaceMcpConsentSelection(db, {
+					...active,
+					revision: "revoked",
+					status: "revoked",
+					selectedTenantIds: [],
+					approvedScopes: [],
+				});
+			expect(await listMcpConsentGrants(db, key)).toEqual([]);
+			for (const revision of ["old", "one", "two"])
+				expect(await getMcpConsentGrant(db, { ...key, revision })).toBeNull();
+			expect(
+				await promoteMcpConsentPending(db, { ...pending, revision: "stale" }),
+			).toBe(false);
+		}
+	});
+
+	it("a disable fenced on a stale revision removes no grant", async () => {
+		const { db } = fixture();
+		await replaceMcpConsentSelection(db, active);
+		await stageMcpConsentPending(db, pending);
+		await promoteMcpConsentPending(db, pending);
+		expect(
+			await disableMcpConsentSelection(db, {
+				...key,
+				expectedRevision: "old",
+				revision: "revoked",
+			}),
+		).toBeNull();
+		expect(await listMcpConsentGrants(db, key)).toHaveLength(2);
+	});
+
+	it(`keeps at most ${MAX_MCP_CONSENT_GRANTS_PER_CLIENT} newest grants per client`, async () => {
+		const { db } = fixture();
+		await replaceMcpConsentSelection(db, active);
+		let expected = "old";
+		for (
+			let index = 0;
+			index < MAX_MCP_CONSENT_GRANTS_PER_CLIENT + 2;
+			index++
+		) {
+			const revision = `r${String(index).padStart(2, "0")}`;
+			await stageMcpConsentPending(db, {
+				...pending,
+				revision,
+				expectedActiveRevision: expected,
+			});
+			expect(
+				await promoteMcpConsentPending(db, {
+					...pending,
+					revision,
+					expectedActiveRevision: expected,
+				}),
+			).toBe(true);
+			expected = revision;
+			// Distinct creation timestamps order the grants deterministically.
+			await new Promise((resolve) => setTimeout(resolve, 2));
+		}
+		const grants = await listMcpConsentGrants(db, key);
+		expect(grants).toHaveLength(MAX_MCP_CONSENT_GRANTS_PER_CLIENT);
+		expect(grants[0]!.revision).toBe(
+			`r${MAX_MCP_CONSENT_GRANTS_PER_CLIENT + 1}`,
+		);
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "old" }),
+		).toBeNull();
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "r00" }),
+		).toBeNull();
+	});
+
+	it("migration keeps an existing active selection valid and the next install additive", async () => {
+		const { sqlite, db } = fixture({ grants: false });
+		await db.insert(mcpConsentSelections).values([
+			{ ...active, updatedAt: "2026-10-01T00:00:00.000Z" },
+			{
+				...active,
+				clientId: "revoked-client",
+				revision: "gone",
+				status: "revoked",
+			},
+		]);
+		sqlite.exec(GRANTS_MIGRATION);
+		expect(await listMcpConsentGrants(db, key)).toMatchObject([
+			{
+				revision: "old",
+				appId: "app",
+				selectedTenantIds: ["tenant"],
+				approvedScopes: active.approvedScopes,
+				createdAt: "2026-10-01T00:00:00.000Z",
+			},
+		]);
+		expect(
+			await listMcpConsentGrants(db, { ...key, clientId: "revoked-client" }),
+		).toEqual([]);
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "old" }),
+		).toMatchObject({ revision: "old" });
+		await stageMcpConsentPending(db, pending);
+		expect(await promoteMcpConsentPending(db, pending)).toBe(true);
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "old" }),
+		).not.toBeNull();
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "candidate" }),
+		).not.toBeNull();
+	});
+
+	it("treats a latest active selection written without a grant row as its grant and preserves it", async () => {
+		const { db } = fixture();
+		// Written by a release that predates grants, after the migration ran.
+		await db.insert(mcpConsentSelections).values(active);
+		expect(
+			await getMcpConsentGrant(db, { ...key, revision: "old" }),
+		).toMatchObject({ revision: "old" });
+		await stageMcpConsentPending(db, pending);
+		expect(await promoteMcpConsentPending(db, pending)).toBe(true);
+		expect(
+			(await listMcpConsentGrants(db, key))
+				.map((grant) => grant.revision)
+				.sort(),
+		).toEqual(["candidate", "old"]);
 	});
 	it("serializes activation against a concurrent revoke and blocks later replay", async () => {
-		const db = fixture();
+		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		await stageMcpConsentPending(db, pending);
 		const [promoted, revoked] = await Promise.all([
@@ -277,7 +457,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 	});
 
 	it("allows first-use activation only while the exact active key is absent", async () => {
-		const db = fixture();
+		const { db } = fixture();
 		const first = { ...pending, expectedActiveRevision: null };
 		await stageMcpConsentPending(db, first);
 		expect(await promoteMcpConsentPending(db, first)).toBe(true);
@@ -286,7 +466,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		expect(await promoteMcpConsentPending(db, other)).toBe(false);
 	});
 	it("revocation wins against a pending activation and replay cannot resurrect", async () => {
-		const db = fixture();
+		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		await stageMcpConsentPending(db, pending);
 		await disableMcpConsentSelection(db, {
@@ -301,7 +481,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		});
 	});
 	it("a first-use candidate cannot overwrite a later revocation tombstone", async () => {
-		const db = fixture();
+		const { db } = fixture();
 		const first = { ...pending, expectedActiveRevision: null };
 		await stageMcpConsentPending(db, first);
 		await replaceMcpConsentSelection(db, {
@@ -323,7 +503,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		{ approvedScopes: ["mcp:apps.write"] },
 		{ selectedTenantIds: ["other"] },
 	])("atomically rejects changed identity or authority %#", async (change) => {
-		const db = fixture();
+		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		await stageMcpConsentPending(db, pending);
 		expect(await promoteMcpConsentPending(db, { ...pending, ...change })).toBe(
@@ -334,7 +514,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 		});
 	});
 	it("checks expiration inside the promotion statement", async () => {
-		const db = fixture();
+		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		await stageMcpConsentPending(db, {
 			...pending,
