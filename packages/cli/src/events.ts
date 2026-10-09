@@ -64,9 +64,20 @@ export interface StreamHomeRunEventsInput {
 	offset?: string;
 }
 
+/**
+ * Pause after a caught-up page that carried events. The gateway admits 100
+ * requests per minute per identity (shared by every session on that token);
+ * a page is re-read at this floor instead of at once because streamed
+ * `message.delta` batches would otherwise drive several reads per second and
+ * a 429 holds every read for 60s.
+ */
+export const ACTIVE_PAGE_PACE_MS = 2_000;
+
 export interface StreamHomeRunEventsOptions {
 	live: boolean;
 	pollIntervalMs?: number;
+	/** Override of ACTIVE_PAGE_PACE_MS (tests). */
+	activePagePaceMs?: number;
 	signal?: AbortSignal;
 	onConnectionChange?: (connected: boolean) => void;
 }
@@ -81,6 +92,10 @@ export function streamHomeRunEvents(
 	opts: StreamHomeRunEventsOptions,
 ): HomeRunEventStream {
 	const pollIntervalMs = opts.pollIntervalMs ?? 2000;
+	const activePagePaceMs = Math.min(
+		opts.activePagePaceMs ?? ACTIVE_PAGE_PACE_MS,
+		pollIntervalMs,
+	);
 	const waitMs = opts.live ? 25_000 : 0;
 
 	let nextOffset: string = input.offset ?? HOME_RUN_EVENTS_START;
@@ -173,14 +188,15 @@ export function streamHomeRunEvents(
 			// FOLLOW: terminate when run is settled and we are caught up
 			if (isSettledHomeStatus(currentStatus)) return;
 
-			// A page that carried events means the run is active: read the next page
-			// right away so the stream (and the settle wake it feeds) stays close to
-			// the server. Only an EMPTY page is paced — the server's `waitMs` holds
-			// it open as a budget, not a guarantee, and polling as fast as the
-			// gateway answers is how this loop used to rate-limit itself out of the
-			// run it was tailing.
-			if (page.events.length > 0) continue;
-			await sleep(pollIntervalMs, combinedSignal).catch(() => {});
+			// Always pace the next poll. A page that carried events means the run
+			// is active, so it is followed at the shorter active pace; an EMPTY page
+			// waits the full interval — the server's `waitMs` holds it open as a
+			// budget, not a guarantee. Polling as fast as the gateway answers is how
+			// this loop used to rate-limit itself out of the run it was tailing.
+			await sleep(
+				page.events.length > 0 ? activePagePaceMs : pollIntervalMs,
+				combinedSignal,
+			).catch(() => {});
 			if (combinedSignal.aborted) return;
 		}
 	}
