@@ -158,7 +158,13 @@ export function draftIssueMessage(issue: {
 		horizontalOffset: "Distance from side",
 		bottomOffset: "Distance from bottom",
 		zIndex: "Stacking order",
+		visitorTurnsPerHour: "Turns per visitor per hour",
+		originTurnsPerHour: "Turns per website per hour",
 	};
+	if (key === "visitorTurnsPerHour")
+		return `${labels[key]}: enter a whole number from 1 to 10,000, or leave this field empty for the default.`;
+	if (key === "originTurnsPerHour")
+		return `${labels[key]}: enter a whole number from 1 to 100,000, or leave this field empty for the default.`;
 	if (key.includes("Url"))
 		return `${labels[key]}: enter a valid URL or leave this field empty.`;
 	if (key === "horizontalOffset" || key === "bottomOffset")
@@ -175,6 +181,39 @@ export function draftIssueMessage(issue: {
 	if (lengths[key])
 		return `${labels[key]}: enter text up to ${lengths[key]} characters.`;
 	return `${labels[key] ?? "Widget settings"}: ${issue.message}`;
+}
+
+/**
+ * Platform ceilings applied when the organization sets none. Mirrors
+ * `EMBEDDED_TURN_QUOTA_DEFAULTS` in the runtime (`apps/tedi-runtime`), which
+ * the OS cannot import; the runtime's own test pins the same numbers.
+ */
+export const EMBEDDED_TURN_QUOTA_DEFAULTS = {
+	visitorTurnsPerHour: 60,
+	originTurnsPerHour: 600,
+} as const;
+
+type TurnQuota = NonNullable<TediWidgetConfig["turnQuota"]>;
+
+/** A number input shows a draft value; an unset or invalid draft shows empty. */
+function quotaFieldValue(value: number | undefined): string {
+	return value === undefined || Number.isNaN(value) ? "" : String(value);
+}
+
+/**
+ * Empty clears the field so the platform default applies; a cleared quota
+ * drops the whole key. A non-numeric or fractional entry is kept as a failing
+ * draft (NaN or the decimal) so the schema blocks publishing with a message.
+ */
+export function withQuotaField(
+	quota: TurnQuota | undefined,
+	key: keyof TurnQuota,
+	raw: string,
+): TurnQuota | undefined {
+	const next: TurnQuota = { ...quota };
+	if (raw.trim() === "") delete next[key];
+	else next[key] = Number(raw);
+	return Object.keys(next).length === 0 ? undefined : next;
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -668,6 +707,45 @@ export function ExperienceEditor({
 										}
 									/>
 								</div>
+							))}
+						</Group>
+						<Group title="Usage limits">
+							{(
+								[
+									[
+										"visitorTurnsPerHour",
+										"Turns per visitor per hour",
+										EMBEDDED_TURN_QUOTA_DEFAULTS.visitorTurnsPerHour,
+										"Each website visitor can start this many turns per hour; above it the widget shows the capacity message until the hour rolls over. Leave empty for the default.",
+									],
+									[
+										"originTurnsPerHour",
+										"Turns per website per hour",
+										EMBEDDED_TURN_QUOTA_DEFAULTS.originTurnsPerHour,
+										"All visitors of one website together can start this many turns per hour; above it every visitor sees the capacity message until the hour rolls over. Leave empty for the default.",
+									],
+								] as const
+							).map(([key, label, fallback, help]) => (
+								<label key={key} className="grid gap-1">
+									{label}
+									<Input
+										type="number"
+										aria-label={label}
+										placeholder={String(fallback)}
+										value={quotaFieldValue(draft.turnQuota?.[key])}
+										onChange={(event) =>
+											edit(
+												"turnQuota",
+												withQuotaField(
+													draft.turnQuota,
+													key,
+													event.target.value,
+												),
+											)
+										}
+									/>
+									<span className="text-sm text-kumo-subtle">{help}</span>
+								</label>
 							))}
 						</Group>
 					</fieldset>

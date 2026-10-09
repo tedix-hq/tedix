@@ -30,7 +30,13 @@ import {
 	selectPortableRoute,
 } from "@tedix/webmcp-core/portable-profile";
 import { createEmbeddedClient } from "@tedix/chat-transport/embedded-client";
-import { classifyChatError, userFacingChatError } from "./chat-errors";
+import {
+	capacityRetryCopy,
+	chatErrorRetryAfterSeconds,
+	classifyChatError,
+	startRetryCountdown,
+	userFacingChatError,
+} from "./chat-errors";
 import {
 	bindHostNavigation,
 	compileHostRouteMap,
@@ -767,6 +773,36 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		const history = root.querySelector(".tedix-history");
 		const composerWrap = root.querySelector(".tedix-composer-wrap");
 		let busy = false;
+		// A quota refusal names when the hour rolls over. Until then the composer
+		// stays closed and the failure line counts down, so the customer is not
+		// invited to retry into the same refusal.
+		let stopRetryCountdown = null;
+		const retryLocked = () => stopRetryCountdown !== null;
+		const applyRetryLock = () => {
+			if (!retryLocked()) return;
+			input.disabled = true;
+			send.disabled = true;
+		};
+		const clearRetryLock = () => {
+			stopRetryCountdown?.();
+			stopRetryCountdown = null;
+		};
+		const armRetryLock = (seconds, line) => {
+			clearRetryLock();
+			stopRetryCountdown = startRetryCountdown(seconds, {
+				onTick: (left) => {
+					line.textContent = capacityRetryCopy(left, t);
+				},
+				onExpire: () => {
+					stopRetryCountdown = null;
+					line.textContent = capacityRetryCopy(0, t);
+					if (destroyed) return;
+					input.disabled = false;
+					send.disabled = !input.value.trim();
+					flushQueuedMessage();
+				},
+			});
+		};
 		/**
 		 * Follow-ups typed while a turn is still answering.
 		 *
@@ -2442,6 +2478,8 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				const failure = document.createElement("p");
 				failure.textContent = userFacingChatError(error, t);
 				pending.bubble.append(failure);
+				const retryAfterSeconds = chatErrorRetryAfterSeconds(error);
+				if (retryAfterSeconds) armRetryLock(retryAfterSeconds, failure);
 				emit(
 					reliability.lastTurnOutcome === "cancelled"
 						? "answer-cancelled"
@@ -2474,8 +2512,9 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				send.innerHTML = icon(ICONS.send);
 				send.setAttribute("aria-label", t("send"));
 				send.disabled = !input.value.trim();
+				applyRetryLock();
 				scrollLatest();
-				input.focus();
+				if (!retryLocked()) input.focus();
 				// `busy` is false again, so a queued follow-up can run now. Its bubble
 				// is already on screen from when it was queued.
 				flushQueuedMessage();
@@ -2484,7 +2523,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		};
 		/** Send the next follow-up that was typed while a turn was answering. */
 		function flushQueuedMessage() {
-			if (destroyed || busy) return;
+			if (destroyed || busy || retryLocked()) return;
 			const next = queuedMessages.shift();
 			if (!next) return;
 			void submit(next, { queued: true }).catch((error) => {
@@ -3067,6 +3106,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			shutdown: () => {
 				if (destroyed) return;
 				destroyed = true;
+				clearRetryLock();
 				disposeScrollResize();
 				activeRequest?.abort();
 				voiceController?.dispose();
