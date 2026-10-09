@@ -19,10 +19,14 @@ import {
 } from "./hooks/decision-capture";
 import type { JsonObject } from "./hooks/hook-io";
 import {
+	answerAction,
+	type ClaudeDriver,
 	CODEX_IDLE_MS,
 	type CodexDriver,
+	HANDOFF_AFTER_MS,
 	launchAgentPlist,
 	loadLaunchAgent,
+	OPEN_SESSION_GRACE_MS,
 	Supervisor,
 	systemLaunchctl,
 } from "./supervise";
@@ -269,6 +273,281 @@ describe("tedix supervise", () => {
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain("not delivered");
 		expect(existsSync(autoDeliveryPath(state()))).toBe(false);
+	});
+
+	describe("undelivered OS answers", () => {
+		const CLAUDE = "11111111-1111-4111-8111-111111111111";
+		const CODEX = "22222222-2222-4222-8222-222222222222";
+		const LEAD = "33333333-3333-4333-8333-333333333333";
+		const WORK = "44444444-4444-4444-8444-444444444444";
+		const answer = (
+			session: string,
+			host: string,
+			ageMs: number,
+			responseId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		) => ({
+			responseId,
+			requestId: REQUEST,
+			subject: `tedix · ${host} waiting: Ship it?`,
+			body: "Yes, ship it.",
+			respondedAt: new Date(Date.now() - ageMs).toISOString(),
+			sessionId: session,
+			host,
+			workItemId: null,
+			projectId: PROJECT,
+		});
+		/** What capture-stop leaves for each session: host and directory. */
+		function sessions(...entries: Array<[string, string]>): void {
+			for (const [session, host] of entries)
+				writeFileSync(
+					join(config, "decision-capture", `${session}.session.json`),
+					JSON.stringify({ host, cwd: config }),
+				);
+		}
+
+		function drain(
+			answers: unknown[],
+			{
+				open = false,
+				started = true,
+				lead = LEAD as string | null,
+				received = true,
+			}: {
+				open?: boolean | undefined;
+				started?: boolean;
+				lead?: string | null;
+				received?: boolean;
+			} = {},
+		) {
+			const lines: string[] = [];
+			const acks: JsonObject[] = [];
+			const resumed: Array<[string, string, string]> = [];
+			const queued: Array<[string, string]> = [];
+			const board: string[][] = [];
+			let finish: (ok: boolean) => void = () => {};
+			const claude: ClaudeDriver = {
+				open: () => open,
+				name: (session) => (session === LEAD ? "LEARN" : undefined),
+				resume: async (session, message, cwd) => {
+					resumed.push([session, message, cwd]);
+					return {
+						started,
+						done: new Promise<boolean>((resolve) => {
+							finish = resolve;
+						}),
+					};
+				},
+			};
+			const codex: CodexDriver = {
+				queue: async (thread, message) => {
+					queued.push([thread, message]);
+					return { id: "queue-item-1", offset: 0 };
+				},
+				received: () => received,
+				withdraw: () => true,
+				resume: async () => true,
+			};
+			const runner = new Supervisor({
+				env: { TEDIX_CONFIG_DIR: config },
+				codex,
+				claude,
+				lead: () => lead ?? undefined,
+				sleep: async () => {},
+				log: (line) => lines.push(line),
+				read: async (args) => {
+					if (args.includes("interaction-undelivered"))
+						return {
+							data: structuredClone(answers),
+							observedAt: new Date().toISOString(),
+						} as JsonObject;
+					if (args.includes("interaction-ack")) {
+						acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+						return { data: [] };
+					}
+					if (args.includes("delegate")) {
+						board.push(args);
+						return { id: WORK, reused: false, via: "session" };
+					}
+					if (args.includes("comment")) {
+						board.push(args);
+						return {};
+					}
+					if (args.includes("context")) return structuredClone(BINDING);
+					if (args.includes("auth")) return structuredClone(AUTH);
+					throw new Error(`unexpected read ${args.join(" ")}`);
+				},
+			});
+			return {
+				runner,
+				lines,
+				acks,
+				resumed,
+				queued,
+				board,
+				finish: (ok: boolean) => finish(ok),
+			};
+		}
+
+		test("decides by host, open session and age", () => {
+			const base = { open: false, working: false };
+			expect(
+				answerAction({ ...base, host: "claude-code", ageMs: 1000 }).kind,
+			).toBe("claude-resume");
+			expect(
+				answerAction({ ...base, host: "claude-code", ageMs: 1000, open: true }),
+			).toEqual({
+				kind: "wait",
+				reason:
+					"the Claude Code session is open in a terminal; its hooks deliver it",
+			});
+			expect(
+				answerAction({
+					...base,
+					host: "claude-code",
+					ageMs: OPEN_SESSION_GRACE_MS,
+					open: true,
+				}).kind === "wait" &&
+					answerAction({
+						...base,
+						host: "claude-code",
+						ageMs: OPEN_SESSION_GRACE_MS,
+						open: true,
+					}),
+			).toMatchObject({ reason: expect.stringContaining("after 15 minutes") });
+			expect(
+				answerAction({
+					...base,
+					host: "claude-code",
+					ageMs: 1000,
+					open: undefined,
+				}).kind,
+			).toBe("wait");
+			expect(answerAction({ ...base, host: "codex", ageMs: 1000 }).kind).toBe(
+				"codex",
+			);
+			expect(
+				answerAction({ ...base, host: "codex", ageMs: 1000, working: true })
+					.kind,
+			).toBe("wait");
+			for (const host of ["claude-code", "codex"] as const)
+				expect(
+					answerAction({
+						host,
+						ageMs: HANDOFF_AFTER_MS,
+						open: true,
+						working: true,
+					}).kind,
+				).toBe("handoff");
+		});
+
+		test("resumes a closed Claude Code session headless, then records delivery and acknowledgement", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CLAUDE, "claude-code", 60_000)]);
+			expect(await run.runner.tick()).toBe(1);
+			expect(run.resumed).toEqual([
+				[
+					CLAUDE,
+					'The user replied in Tedix OS: "Yes, ship it."\nThis is the user\'s own answer (not a tedi draft) to your question "Ship it?". Act on it as their reply.',
+					config,
+				],
+			]);
+			expect(run.acks).toEqual([
+				{
+					responseIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+					via: "supervisor_resume",
+					acknowledged: false,
+				},
+			]);
+			run.finish(true);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(run.acks.at(-1)).toEqual({
+				responseIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+				via: "supervisor_resume",
+				acknowledged: true,
+			});
+		});
+
+		test("never resumes a Claude Code session open in a terminal, and logs why once", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CLAUDE, "claude-code", 60_000)], {
+				open: true,
+			});
+			expect(await run.runner.tick()).toBe(0);
+			expect(await run.runner.tick()).toBe(0);
+			expect(run.resumed).toEqual([]);
+			expect(run.acks).toEqual([]);
+			expect(run.lines).toEqual([
+				expect.stringContaining("open in a terminal; its hooks deliver it"),
+			]);
+		});
+
+		test("a resume that does not confirm the session records nothing", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CLAUDE, "claude-code", 60_000)], {
+				started: false,
+			});
+			expect(await run.runner.tick()).toBe(0);
+			expect(run.acks).toEqual([]);
+			expect(run.lines.join("\n")).toContain("did not confirm this session");
+		});
+
+		test("queues a human answer for a Codex session like a draft", async () => {
+			sessions([CODEX, "codex"]);
+			const run = drain([answer(CODEX, "codex", 60_000)]);
+			expect(await run.runner.tick()).toBe(1);
+			expect(run.queued).toHaveLength(1);
+			expect(run.queued[0]![1]).toStartWith(
+				'The user replied in Tedix OS: "Yes, ship it."',
+			);
+			expect(run.acks).toEqual([
+				{
+					responseIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+					via: "codex_queue",
+					acknowledged: false,
+				},
+			]);
+		});
+
+		test("hands an answer undelivered for 2 hours to the lead session", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CLAUDE, "claude-code", HANDOFF_AFTER_MS)], {
+				open: true,
+			});
+			expect(await run.runner.tick()).toBe(1);
+			expect(run.resumed).toEqual([]);
+			const [delegate, comment] = run.board;
+			expect(delegate).toContain(`claude-code:${LEAD}`);
+			expect(delegate).toContain(PROJECT);
+			expect(comment!.join(" ")).toContain(
+				`The user's own answer (not a tedi draft): "Yes, ship it."`,
+			);
+			expect(run.acks).toEqual([
+				{
+					responseIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+					via: "handoff",
+					handoffTo: "LEARN",
+					handoffRef: WORK,
+				},
+			]);
+		});
+
+		test("without a lead session an overdue answer is logged and left", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CLAUDE, "claude-code", HANDOFF_AFTER_MS)], {
+				lead: null,
+			});
+			expect(await run.runner.tick()).toBe(0);
+			expect(run.board).toEqual([]);
+			expect(run.lines.join("\n")).toContain("no lead session");
+		});
+
+		test("an answer for a session on another machine waits for the hand-off", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CODEX, "codex", 60_000)]);
+			expect(await run.runner.tick()).toBe(0);
+			expect(run.queued).toEqual([]);
+			expect(run.lines.join("\n")).toContain("not on this machine");
+		});
 	});
 
 	test("the LaunchAgent runs the given program with escaped arguments", () => {

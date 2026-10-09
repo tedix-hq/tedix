@@ -51,6 +51,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	complete_work_item: "workItems/complete",
 	create_project_milestone: "projects/createMilestone",
 	create_work_case: "workItems/createCase",
+	ack_work_interaction_delivery: "workInteractions/ackDelivery",
 	create_work_interaction: "workInteractions/create",
 	create_work_items: "workItems/create",
 	decide_work_approval: "workApprovals/decide",
@@ -64,6 +65,8 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
 	list_project_health_judgments: "projects/listHealthJudgments",
 	list_project_milestones: "projects/listMilestones",
+	list_undelivered_work_interaction_responses:
+		"workInteractions/listUndelivered",
 	list_ready_work: "workScheduler/listReady",
 	list_work_approval_audit: "workApprovals/listAudit",
 	list_work_approvals: "workApprovals/listInbox",
@@ -2961,7 +2964,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(62);
+		expect(covered).toHaveLength(64);
 	});
 });
 

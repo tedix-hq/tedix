@@ -120,16 +120,25 @@ async function run(
 		env = {},
 		onSleep,
 		reads = [BINDING, AUTH],
+		undelivered,
 	}: {
 		event?: JsonObject;
 		env?: Record<string, string>;
 		onSleep?: (count: number) => void;
 		reads?: unknown[];
+		/** Ledger pages, one per poll; absent: an older server without it. */
+		undelivered?: unknown[];
 	} = {},
-): Promise<{ result: AwaitResult; sleeps: number[]; detailReads: number }> {
+): Promise<{
+	result: AwaitResult;
+	sleeps: number[];
+	detailReads: number;
+	acks: JsonObject[];
+}> {
 	let now = 0;
 	const sleeps: number[] = [];
 	let detailReads = 0;
+	const acks: JsonObject[] = [];
 	const queue = [...reads];
 	const result = await runAwaitReply(
 		{
@@ -140,6 +149,15 @@ async function run(
 				throw new Error("await-reply never writes to stdout");
 			},
 			read: async (args, _timeout, input) => {
+				if (args.includes("interaction-undelivered")) {
+					const page = undelivered?.shift();
+					if (!page) throw new Error("Unknown native tool");
+					return structuredClone(page) as JsonObject;
+				}
+				if (args.includes("interaction-ack")) {
+					acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+					return { data: [] };
+				}
 				if (args.includes("interaction-get")) {
 					detailReads++;
 					expect(input).toBeUndefined();
@@ -169,7 +187,7 @@ async function run(
 			questionWaitMs: 5000,
 		},
 	);
-	return { result, sleeps, detailReads };
+	return { result, sleeps, detailReads, acks };
 }
 
 const DRAFT = {
@@ -288,12 +306,101 @@ describe("tedix hooks await-reply", () => {
 		);
 		expect(result.code).toBe(2);
 		expect(result.message).toBe(
-			'The user replied in Tedix OS: "Ship it after the docs."',
+			'The user replied in Tedix OS: "Ship it after the docs."\nThis is the user\'s own answer (not a tedi draft). Act on it as their reply.',
 		);
 		// Waited for the question, then 5s and 10s polls.
 		expect(sleeps.slice(-2)).toEqual([5000, 10000]);
 		// The question is claimed so the next prompt neither answers nor repeats it.
 		expect(existsSync(state())).toBe(false);
+	});
+
+	test("wakes with every answered question of the session, then records them", async () => {
+		const older = "88888888-8888-4888-8888-888888888888";
+		const answer = (requestId: string, responseId: string, body: string) => ({
+			responseId,
+			requestId,
+			subject: `tedix · claude-code waiting: Question ${body}`,
+			body,
+			respondedAt: "2026-10-09T10:00:00.000Z",
+			sessionId: SESSION,
+			host: "claude-code",
+			workItemId: null,
+			projectId: PROJECT,
+		});
+		const page = (data: unknown[]) => ({
+			data,
+			observedAt: "2026-10-09T10:00:00.000Z",
+		});
+		const { result, acks, detailReads } = await run([], {
+			onSleep: (count) => count === 1 && open(),
+			undelivered: [
+				page([]),
+				page([
+					answer(older, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "main"),
+					answer(REQUEST, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "ship"),
+				]),
+			],
+		});
+		expect(result.code).toBe(2);
+		expect(result.message).toBe(
+			[
+				"The user replied in Tedix OS to 2 of your questions. These are the user's own answers, not tedi drafts; act on each, oldest first:",
+				'1. To "Question main": "main"',
+				'2. To "Question ship": "ship"',
+			].join("\n"),
+		);
+		// No draft was queued: the newest question is never read by ID.
+		expect(detailReads).toBe(0);
+		expect(acks).toEqual([
+			{
+				responseIds: [
+					"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				],
+				via: "hook",
+			},
+		]);
+		// The newest question is claimed; the next turn end acknowledges both.
+		expect(existsSync(state())).toBe(false);
+		expect(
+			peek(join(config, "decision-capture", `${SESSION}.delivered.json`)),
+		).toEqual({
+			responseIds: [
+				"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+			],
+			via: "hook",
+		});
+	});
+
+	test("an older question's answer is delivered while the newest stays open", async () => {
+		const older = "88888888-8888-4888-8888-888888888888";
+		const { result } = await run([], {
+			onSleep: (count) => count === 1 && open(),
+			undelivered: [
+				{
+					data: [
+						{
+							responseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							requestId: older,
+							subject: "Which branch?",
+							body: "main",
+							respondedAt: "2026-10-09T10:00:00.000Z",
+							sessionId: SESSION,
+							host: "claude-code",
+							workItemId: null,
+							projectId: null,
+						},
+					],
+					observedAt: "2026-10-09T10:00:00.000Z",
+				},
+			],
+		});
+		expect(result.message).toStartWith(
+			'The user replied in Tedix OS: "main"\nThis is the user\'s own answer (not a tedi draft) to your question "Which branch?".',
+		);
+		// This turn's question still waits for the user.
+		expect(peek(state())?.requestId).toBe(REQUEST);
 	});
 
 	test("a reply typed in the chat ends the wait without a read", async () => {

@@ -136,7 +136,7 @@ const SECRETS: Array<[RegExp, string]> = [
 
 /** Host re-entries that arrive through the prompt hook but were not typed by the user. */
 const SYSTEM_PROMPT =
-	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context|Tedix [^\n]{1,120}? replied for the user \((?:auto,|delegated answer;))/;
+	/^\s*(?:<heartbeat|<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-|<command-name>|<bash-(?:input|stdout)>|<codex_internal_context|Tedix [^\n]{1,120}? replied for the user \((?:auto,|delegated answer;)|The user replied in Tedix OS\b)/;
 
 /** Coarse first-pass labels mined from historic replies; the learning pass re-reads the full pair. */
 const CLASSES: Array<[string, RegExp]> = [
@@ -728,6 +728,108 @@ export function autoDeliveryPath(state: string): string {
 	return state.replace(/\.json$/, ".auto.json");
 }
 
+/** How an answer reached its session (the server's `via`). */
+export type DeliveryVia =
+	| "hook"
+	| "supervisor_resume"
+	| "codex_queue"
+	| "codex_resume"
+	| "prompt_context"
+	| "handoff";
+
+/**
+ * A chat's host and working directory, rewritten at each turn end, so the
+ * supervisor knows where a session lives after its question files are gone.
+ */
+export function sessionPath(state: string): string {
+	return state.replace(/\.json$/, ".session.json");
+}
+
+/** Record answers as delivered (or acknowledged); false on any failure. */
+export async function ackAnswers(
+	deps: Pick<HookDeps, "read">,
+	binding: Binding,
+	responseIds: string[],
+	via: DeliveryVia,
+	timeoutMs: number,
+	extra: {
+		acknowledged?: boolean;
+		handoffTo?: string;
+		handoffRef?: string;
+	} = {},
+): Promise<boolean> {
+	const ids = responseIds.filter((id) => UUID.test(id)).slice(0, 50);
+	if (!ids.length) return true;
+	try {
+		const value = await deps.read(
+			[
+				...binding.command,
+				"work",
+				"interaction-ack",
+				"--input",
+				JSON.stringify({ responseIds: ids, via, ...extra }),
+				"--json",
+			],
+			timeoutMs,
+		);
+		return isObject(value) && Array.isArray(value.data);
+	} catch {
+		return false;
+	}
+}
+
+/** Answers handed to the session and awaiting its next turn end: {responseIds}. */
+export function deliveredPath(state: string): string {
+	return state.replace(/\.json$/, ".delivered.json");
+}
+
+/** Remember delivered answers so the session's next turn end acknowledges them. */
+export function rememberDelivered(
+	state: string,
+	responseIds: string[],
+	via: DeliveryVia,
+): void {
+	try {
+		const previous = peek(deliveredPath(state));
+		const known = Array.isArray(previous?.responseIds)
+			? previous.responseIds.filter(
+					(id: unknown): id is string => typeof id === "string",
+				)
+			: [];
+		writeState(deliveredPath(state), {
+			responseIds: [...new Set([...known, ...responseIds])].slice(-50),
+			via,
+		});
+	} catch {
+		// Acknowledgement is best effort.
+	}
+}
+
+/**
+ * At a turn end: the session ran a turn on the answers it was handed, so
+ * record them acknowledged. Kept for the next turn end when the call fails.
+ */
+export async function acknowledgeDelivered(
+	deps: Pick<HookDeps, "read">,
+	binding: Binding,
+	state: string,
+	timeoutMs: number,
+): Promise<void> {
+	const pending = claim(deliveredPath(state));
+	if (!pending || !Array.isArray(pending.responseIds)) return;
+	const ids = pending.responseIds.filter(
+		(id: unknown): id is string => typeof id === "string",
+	);
+	const via =
+		typeof pending.via === "string" ? (pending.via as DeliveryVia) : "hook";
+	if (
+		!(await ackAnswers(deps, binding, ids, via, timeoutMs, {
+			acknowledged: true,
+		}))
+	)
+		rememberDelivered(state, ids, via);
+}
+
 /** Read a small local JSON object without claiming it; undefined when absent or malformed. */
 export function peek(path: string): JsonObject | undefined {
 	try {
@@ -873,6 +975,8 @@ async function onStop(
 	// Mark the turn as waiting before any network call, so a reply typed while
 	// the question is still being created is kept instead of lost.
 	const token = randomUUID().replaceAll("-", "");
+	const cwd = typeof event.cwd === "string" ? event.cwd : deps.cwd;
+	writeState(sessionPath(state), { host, cwd });
 	rmSync(early(state), { force: true });
 	rmSync(questionPath(state), { force: true });
 	rmSync(draftStatusPath(state), { force: true });
@@ -887,7 +991,6 @@ async function onStop(
 		options.triageTimeoutMs ?? TRIAGE_TIMEOUT_MS,
 	);
 	await settle(triage);
-	const cwd = typeof event.cwd === "string" ? event.cwd : deps.cwd;
 	// Outside a bound repository the question names none (lessons: `general`).
 	// The Git origin names the repository; a worktree or clone folder name does not.
 	const repository =
@@ -938,6 +1041,17 @@ async function onStop(
 	});
 	writeState(questionPath(state), { requestId: request.id, token, host });
 	await answerEarlyReply(deps, session, binding, state, options);
+	// This turn ran on any answers the session was handed: they are acknowledged.
+	try {
+		await acknowledgeDelivered(
+			deps,
+			binding,
+			state,
+			options.detailTimeoutMs ?? DETAIL_TIMEOUT_MS,
+		);
+	} catch {
+		// Best effort; kept for the next turn end.
+	}
 	// Only a question still waiting on the user gets a tedi-drafted reply.
 	const queued =
 		triage.urgency === "later" &&

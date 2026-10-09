@@ -104,6 +104,7 @@ let config: string;
 let payloads: Array<[string[], JsonObject]>;
 let gatewayCalls: Array<[string, JsonObject, string[]]>;
 let spawned: string[][];
+let acks: JsonObject[];
 
 type Gateway = Record<string, (input: JsonObject) => unknown>;
 
@@ -112,6 +113,7 @@ beforeEach(() => {
 	payloads = [];
 	gatewayCalls = [];
 	spawned = [];
+	acks = [];
 });
 afterEach(() => rmSync(config, { recursive: true, force: true }));
 
@@ -217,6 +219,10 @@ async function runHook(
 					const handler = gateway[callable];
 					if (!handler) throw new Error("Unknown native agent tool");
 					return structuredClone(await handler(input)) as JsonObject;
+				}
+				if (args.includes("interaction-ack")) {
+					acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+					return { data: [] };
 				}
 				if (args.includes("code"))
 					throw new Error("Unexpected Code Mode wrapper");
@@ -1004,6 +1010,49 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 					state(),
 				),
 			).toBeUndefined();
+		expect(existsSync(state())).toBe(true);
+	});
+
+	test("the turn end acknowledges answers the session was handed and records where it lives", async () => {
+		mkdirSync(join(config, "decision-capture"), { recursive: true });
+		const delivered = join(
+			config,
+			"decision-capture",
+			`${SESSION}.delivered.json`,
+		);
+		const ids = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"];
+		writeFileSync(delivered, JSON.stringify({ responseIds: ids, via: "hook" }));
+		await runHook(
+			"stop",
+			{ last_assistant_message: "Shipped on main.", cwd: "/tmp/fixture-repo" },
+			[BINDING, AUTH, CREATED],
+		);
+		expect(acks).toEqual([
+			{ responseIds: ids, via: "hook", acknowledged: true },
+		]);
+		expect(existsSync(delivered)).toBe(false);
+		expect(
+			JSON.parse(
+				readFileSync(
+					join(config, "decision-capture", `${SESSION}.session.json`),
+					"utf8",
+				),
+			),
+		).toEqual({ host: "claude-code", cwd: "/tmp/fixture-repo" });
+	});
+
+	test("a delivered OS answer re-entering as a prompt is never a user reply", () => {
+		mkdirSync(join(config, "decision-capture"), { recursive: true });
+		writeFileSync(
+			state(),
+			JSON.stringify({ requestId: REQUEST, version: 1, token: "t" }),
+		);
+		expect(
+			claimReply(
+				{ prompt: 'The user replied in Tedix OS: "ship it"' },
+				state(),
+			),
+		).toBeUndefined();
 		expect(existsSync(state())).toBe(true);
 	});
 
