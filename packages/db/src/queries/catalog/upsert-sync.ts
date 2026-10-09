@@ -27,6 +27,7 @@ import {
 	normalizeMcpEndpoint,
 } from "./endpoint-normalization";
 import { generateUniqueCatalogAppSlug, getCatalogAppById } from "./get-app";
+import { isLookalikeCatalogName } from "./lookalike-names";
 import {
 	getCatalogStoreListingBySourceId,
 	upsertCatalogStoreListing,
@@ -574,7 +575,11 @@ export async function syncCatalogAppFromStore(
 			hasFileSearch: input.hasFileSearch ?? false,
 			hasDeepResearch: input.hasDeepResearch ?? false,
 			hasSync: input.hasSync ?? false,
-			isDiscoverable: input.isDiscoverable ?? true,
+			// A name posing as another vendor via lookalike letters stays out of
+			// browsing until reviewed.
+			isDiscoverable: isLookalikeCatalogName(input.name)
+				? false
+				: (input.isDiscoverable ?? true),
 			keywordsForDiscovery: input.keywordsForDiscovery ?? null,
 			keywordsForTriggering: input.keywordsForTriggering ?? null,
 			systemHints: {
