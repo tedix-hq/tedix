@@ -629,7 +629,7 @@
     },
     "packages/cli": {
       "name": "@tedix/cli",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "bin": {
         "tedix": "./src/index.ts",
       },
