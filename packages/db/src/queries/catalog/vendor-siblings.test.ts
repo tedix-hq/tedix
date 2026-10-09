@@ -272,3 +272,26 @@ describe("lookalike names at import", () => {
 		);
 	});
 });
+
+describe("lookalike names on re-sync", () => {
+	it("keeps a clean name when a store sync sends a lookalike spelling", async () => {
+		const db = migratedDb();
+		const first = await syncCatalogAppFromStore(db, {
+			source: "official",
+			sourceAppId: "https://connect.relaykit.example/mcp",
+			name: "Relaykit",
+			connectorType: "MCP",
+			baseUrl: "https://connect.relaykit.example/mcp",
+			website: "https://relaykit.example",
+		});
+		await syncCatalogAppFromStore(db, {
+			source: "official",
+			sourceAppId: "https://connect.relaykit.example/mcp",
+			name: "R\u0435laykit",
+			connectorType: "MCP",
+			baseUrl: "https://connect.relaykit.example/mcp",
+			website: "https://relaykit.example",
+		});
+		expect((await getCatalogAppById(db, first!.app.id))?.name).toBe("Relaykit");
+	});
+});

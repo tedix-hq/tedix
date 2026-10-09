@@ -385,8 +385,13 @@ export async function syncCatalogAppFromStore(
 		await db
 			.update(appCatalog)
 			.set({
-				// Update basic info (prefer newer data)
-				name: input.name,
+				// Update basic info (prefer newer data), but never trade a clean
+				// name for a lookalike spelling of it ("Composio" → "Cоmpоsiо").
+				name:
+					isLookalikeCatalogName(input.name) &&
+					!isLookalikeCatalogName(existingApp.name)
+						? existingApp.name
+						: input.name,
 				description: input.description ?? existingApp.description,
 				modelDescription:
 					input.modelDescription ?? existingApp.modelDescription,
