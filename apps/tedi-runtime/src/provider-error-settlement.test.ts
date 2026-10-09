@@ -47,6 +47,13 @@ assert.equal(
 	"an unknown deployment is deterministic",
 );
 
+// (1b) An answer that is still empty after the facet's tools-off final report
+// is deterministic: seal it instead of re-running the turn through the retry budget.
+const empty = providerErrorWorkflowResult(new Error("empty_assistant_message"));
+assert.ok(empty, "an empty assistant message seals terminal");
+assert.equal(empty.providerErrorFamily, "empty_response");
+assert.equal(empty.error, "empty_assistant_message");
+
 // (2) Transient faults return null so the durable retry policy still owns them.
 for (const transient of [
 	"fetch failed",

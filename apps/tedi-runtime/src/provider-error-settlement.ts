@@ -55,7 +55,11 @@ export function providerErrorWorkflowResult(
 	error: unknown,
 ): ProviderErrorWorkflowResult | null {
 	const verdict = classifyProviderError(error);
-	if (verdict.retryable) return null;
+	// The facet already gave an empty loop answer one tools-off final report
+	// (`facet-turn-stop.ts`); a turn that is still empty after that is
+	// deterministic for this payload. Re-driving it burned the full retry
+	// budget (~8 minutes) on delegated runs before they could seal `failed`.
+	if (verdict.retryable && verdict.family !== "empty_response") return null;
 
 	const text = providerErrorText(error).trim() || "provider call failed";
 	return {

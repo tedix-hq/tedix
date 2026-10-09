@@ -3,6 +3,7 @@ import {
 	accountingStepPolicy,
 	composeStoppedTurnText,
 	finalReportInstruction,
+	emptyTurnModelError,
 	finalReportReason,
 	reservedFinalStepConfig,
 	resolveFacetStepCeiling,
@@ -96,3 +97,23 @@ assert.equal(
 	null,
 );
 console.log("PASS: final report covers early stops and empty answers");
+
+// A loop whose last step errored surfaces the provider text instead of asking
+// for a final report; prose or a clean finish keeps the normal path.
+assert.equal(
+	emptyTurnModelError({
+		assistantText: "",
+		lastModelError: "Paid inference requires private native origin capture",
+	}),
+	"Paid inference requires private native origin capture",
+);
+assert.equal(
+	emptyTurnModelError({ assistantText: "done", lastModelError: "boom" }),
+	null,
+	"prose wins over a stale step error",
+);
+assert.equal(
+	emptyTurnModelError({ assistantText: "", lastModelError: null }),
+	null,
+	"a clean empty finish still gets the tools-off final report",
+);

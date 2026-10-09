@@ -24,6 +24,7 @@ export function runtimeErrorWorkflowResult(
 		message !== "Durable provider-call ceiling reached" &&
 		message !==
 			"Interrupted tool effects require reconciliation before recovery" &&
+		message !== "Paid inference requires private native origin capture" &&
 		!message.startsWith("delegated_work_authority_lost: ") &&
 		!message.startsWith("Chat inference denied for stopped run: ") &&
 		!message.startsWith("Chat inference denied for canceled or stopped run: ")
