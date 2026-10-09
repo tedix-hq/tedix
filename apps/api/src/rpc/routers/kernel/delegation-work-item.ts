@@ -1034,6 +1034,7 @@ export async function disposeDelegationWorkItem(
 		input.proof.rationaleRef ??
 		`child-run:${input.childRunId}`;
 	let retryCount = 0;
+	let attemptLeaseExpired = false;
 	try {
 		const attempts = (
 			await listWorkItemAttempts(context.db, {
@@ -1057,7 +1058,25 @@ export async function disposeDelegationWorkItem(
 				candidate.runtimeState === "finished" &&
 				candidate.outcome === "succeeded",
 		);
-		const delegationAttempt = attempt ?? settledSucceededAttempt;
+		// The lease sweeper retires an attempt whose 5-minute lease elapsed
+		// without a heartbeat, and heartbeats are read-driven: a child that
+		// finishes while nobody reads the run set reaches terminal reconcile
+		// with its attempt already `expired`. That attempt is still this exact
+		// child run and executor, so it remains the settlement fence. Without
+		// it, a completed child could never complete its Home wrapper and a
+		// failed child never recorded its failure.
+		const expiredAttempt = attempts.find(
+			(candidate) =>
+				candidate.runId === input.childRunId &&
+				candidate.executorType === "tedi" &&
+				candidate.executorId === input.delegatedTediId &&
+				candidate.runtimeState === "expired",
+		);
+		const delegationAttempt =
+			attempt ?? settledSucceededAttempt ?? expiredAttempt;
+		attemptLeaseExpired = Boolean(
+			!attempt && !settledSucceededAttempt && expiredAttempt,
+		);
 		canonicalWorkItemReuse ||=
 			nonNullRecord(delegationAttempt?.metadata)?.canonicalWorkItemReuse ===
 			true;
@@ -1080,7 +1099,7 @@ export async function disposeDelegationWorkItem(
 		// Completion cannot be inferred from evidence belonging to another executor or run.
 		if (outcome === "succeeded" && !delegationAttempt) {
 			throw new Error(
-				"Delegation settlement requires the exact active or previously succeeded attempt fence",
+				"Delegation settlement requires the exact active, previously succeeded, or lease-expired attempt fence",
 			);
 		}
 
@@ -1193,6 +1212,7 @@ export async function disposeDelegationWorkItem(
 				retryable,
 				recoveryHints,
 				retryCount,
+				attemptLeaseExpired,
 			}),
 			createdAt: input.createdAt,
 		});

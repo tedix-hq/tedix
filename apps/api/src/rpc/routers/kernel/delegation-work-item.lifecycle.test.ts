@@ -484,7 +484,7 @@ describe("Home delegation evidence lifecycle", () => {
 		});
 
 		await expect(dispose()).rejects.toThrow(
-			"exact active or previously succeeded attempt fence",
+			"exact active, previously succeeded, or lease-expired attempt fence",
 		);
 		expect(mocks.listWorkItemEvidence).not.toHaveBeenCalled();
 		expect(mocks.completeWorkItem).not.toHaveBeenCalled();
@@ -511,6 +511,98 @@ describe("Home delegation evidence lifecycle", () => {
 			});
 		},
 	);
+
+	it("completes a Home wrapper whose attempt lease expired before the child finished", async () => {
+		mocks.listWorkItemAttempts.mockResolvedValue({
+			data: [
+				{
+					...activeAttempt,
+					runtimeState: "expired",
+					outcome: "expired",
+					finishedAt: NOW,
+				},
+			],
+			nextCursor: null,
+		});
+		await expect(dispose()).resolves.toMatchObject({
+			outcome: "succeeded",
+			workItemDisposition: "completed",
+		});
+		expect(mocks.settleWorkItemAttempt).not.toHaveBeenCalled();
+		expect(mocks.completeWorkItem).toHaveBeenCalledOnce();
+		expect(mocks.addWorkItemCommentIfAbsent).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				metadata: expect.objectContaining({ attemptLeaseExpired: true }),
+			}),
+		);
+	});
+
+	it("does not treat an expired attempt from another run or executor as the fence", async () => {
+		mocks.listWorkItemAttempts.mockResolvedValue({
+			data: [
+				{
+					...activeAttempt,
+					runId: "child-0",
+					runtimeState: "expired",
+					outcome: "expired",
+				},
+				{
+					...activeAttempt,
+					executorId: "different-tedi",
+					runtimeState: "expired",
+					outcome: "expired",
+				},
+			],
+			nextCursor: null,
+		});
+		await expect(dispose()).rejects.toThrow("attempt fence");
+		expect(mocks.completeWorkItem).not.toHaveBeenCalled();
+	});
+
+	it("records a failed child against an expired attempt without re-settling it", async () => {
+		mocks.listWorkItemAttempts.mockResolvedValue({
+			data: [
+				{
+					...activeAttempt,
+					runtimeState: "expired",
+					outcome: "expired",
+					finishedAt: NOW,
+				},
+			],
+			nextCursor: null,
+		});
+		await expect(
+			disposeDelegationWorkItem(context(), {
+				childRunId: "child-1",
+				childRunStatus: "failed",
+				createdAt: NOW,
+				delegatedTediId: "tedi-1",
+				delegationError:
+					"Runtime dropped before emitting a terminal event. Auto-failed by orphan sweep.",
+				organizationId: "org-1",
+				proof,
+				workItemId: WORK_ITEM_ID,
+			}),
+		).resolves.toMatchObject({
+			outcome: "failed",
+			workItemDisposition: "accepted",
+			failureReason: "delegation_failed",
+		});
+		expect(mocks.settleWorkItemAttempt).not.toHaveBeenCalled();
+		expect(mocks.completeWorkItem).not.toHaveBeenCalled();
+		expect(mocks.cancelWorkItem).not.toHaveBeenCalled();
+		expect(mocks.addWorkItemCommentIfAbsent).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				body: expect.stringContaining("orphan sweep"),
+				metadata: expect.objectContaining({
+					attemptLeaseExpired: true,
+					failureReason: "delegation_failed",
+				}),
+			}),
+		);
+	});
 
 	it("does not auto-complete a reused canonical Work Item", async () => {
 		mocks.getWorkItemById.mockReset();
