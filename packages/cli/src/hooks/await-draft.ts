@@ -10,7 +10,9 @@
  * draft is for review in Tedix OS, or when delivery is absent (older servers).
  *
  * Like `await-reply`, the question stays open for the user and the delivery
- * is recorded by ID only. Claude Code never runs it (it uses `await-reply`).
+ * is recorded by ID only. It also hands the turn every answer the user already
+ * gave in Tedix OS to this session's earlier questions (recorded as
+ * delivered). Claude Code never runs it (it uses `await-reply`).
  * Every failure is silent: no output, exit 0.
  */
 import { harnessOf } from "./agent-status";
@@ -20,11 +22,19 @@ import {
 	deliverAutoDraft,
 } from "./await-reply";
 import {
+	answersMessage,
+	claimAnsweredQuestion,
+	undeliveredAnswers,
+} from "./answer-delivery";
+import {
+	ackAnswers,
+	type Binding,
 	bindingFor,
 	captureStatePath,
 	draftStatusPath,
 	interactionDetail,
 	peek,
+	rememberDelivered,
 } from "./decision-capture";
 import {
 	AGENT_IDENTITY_ENV,
@@ -45,6 +55,28 @@ export interface AwaitDraftOptions {
 }
 
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
+/** The continuation carrying this session's pending OS answers, if any. */
+async function pendingAnswers(
+	deps: HookDeps,
+	binding: Binding,
+	session: string,
+	state: string,
+	question: { requestId: string; token: string },
+): Promise<string | undefined> {
+	const answers = await undeliveredAnswers(
+		deps,
+		binding,
+		{ sessionId: session },
+		DETAIL_TIMEOUT_MS,
+	);
+	if (!answers?.length || !claimAnsweredQuestion(state, question, answers))
+		return undefined;
+	const ids = answers.map((answer) => answer.responseId);
+	await ackAnswers(deps, binding, ids, "hook", DETAIL_TIMEOUT_MS);
+	rememberDelivered(state, ids, "hook");
+	return JSON.stringify({ decision: "block", reason: answersMessage(answers) });
+}
 
 /** The Codex Stop continuation, or undefined to let the turn end. */
 export async function runAwaitDraft(
@@ -72,6 +104,9 @@ export async function runAwaitDraft(
 		if (!binding) return undefined;
 		const question = await awaitQuestion(state, before, sleep, clock, deadline);
 		if (!question) return undefined;
+		// Answers the user gave to this session's earlier questions come first.
+		const answered = await pendingAnswers(deps, binding, id, state, question);
+		if (answered) return answered;
 		let failures = 0;
 		for (;;) {
 			// A reply or a newer turn took the question.
@@ -79,6 +114,8 @@ export async function runAwaitDraft(
 			const queued = peek(draftStatusPath(state));
 			if (queued?.requestId === question.requestId) {
 				if (queued.status !== "queued") return undefined;
+				const late = await pendingAnswers(deps, binding, id, state, question);
+				if (late) return late;
 				const detail = await interactionDetail(
 					deps,
 					binding,

@@ -105,10 +105,13 @@ async function run(
 		event = CODEX_STOP,
 		env = {},
 		onSleep = (count: number) => count === 1 && created(),
+		undelivered,
 	}: {
 		event?: JsonObject;
 		env?: Record<string, string>;
 		onSleep?: (count: number) => unknown;
+		/** Ledger pages; absent: an older server without it. */
+		undelivered?: unknown[];
 	} = {},
 ) {
 	let now = 0;
@@ -123,6 +126,12 @@ async function run(
 				throw new Error("the command prints the continuation");
 			},
 			read: async (args, _timeout, input) => {
+				if (args.includes("interaction-undelivered")) {
+					const page = undelivered?.shift();
+					if (!page) throw new Error("Unknown native tool");
+					return structuredClone(page) as JsonObject;
+				}
+				if (args.includes("interaction-ack")) return { data: [] };
 				if (args.includes("interaction-get")) {
 					detailReads++;
 					expect(input).toBeUndefined();
@@ -153,6 +162,34 @@ async function run(
 }
 
 describe("tedix hooks await-draft", () => {
+	test("continues the turn with answers the user gave in Tedix OS to earlier questions", async () => {
+		const { output } = await run([], {
+			undelivered: [
+				{
+					data: [
+						{
+							responseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							requestId: "88888888-8888-4888-8888-888888888888",
+							subject: "tedix · codex waiting: Which branch?",
+							body: "main",
+							respondedAt: "2026-10-09T10:00:00.000Z",
+							sessionId: SESSION,
+							host: "codex",
+							workItemId: null,
+							projectId: null,
+						},
+					],
+					observedAt: "2026-10-09T10:00:00.000Z",
+				},
+			],
+		});
+		expect(JSON.parse(output!)).toEqual({
+			decision: "block",
+			reason:
+				'The user replied in Tedix OS: "main"\nThis is the user\'s own answer (not a tedi draft) to your question "Which branch?". Act on it as their reply.',
+		});
+	});
+
 	test("an auto draft continues the Codex turn with the framed reply", async () => {
 		mkdirSync(join(config, "agent-status"), { recursive: true });
 		const { output } = await run(

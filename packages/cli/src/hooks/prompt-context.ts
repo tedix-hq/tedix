@@ -22,10 +22,11 @@
  * Inside an unbound Git repository the default never applies: only bound
  * repositories with the same origin owner, all in one organization, name it.
  *
- * With decision capture enabled, it also checks the chat's open question by ID:
- * when the user already answered it in Tedix OS, it hands that answer to the
- * session. This is how Codex, which has no background rewake, receives OS
- * answers. Tedi-drafted replies never reach the session from here; they are
+ * With decision capture enabled, while the chat has a question on file, it
+ * hands the session every answer the user gave in Tedix OS to its questions
+ * and not yet delivered, and records them delivered (older servers: the open
+ * question by ID only). This is how Codex, which has no background rewake,
+ * receives OS answers. Tedi-drafted replies never reach the session from here; they are
  * reviewed and accepted only in Tedix OS.
  *
  * A lead session that registered delegations (`tedix work delegate`) also sees
@@ -39,7 +40,9 @@ import {
 	readDelegations,
 } from "../delegation-ledger";
 import { harnessOf } from "./agent-status";
+import { answersMessage, undeliveredAnswers } from "./answer-delivery";
 import {
+	ackAnswers,
 	answeredElsewhere,
 	type Binding,
 	captureStatePath,
@@ -47,6 +50,7 @@ import {
 	interactionDetail,
 	peek,
 	questionPath,
+	rememberDelivered,
 } from "./decision-capture";
 import {
 	type HookDeps,
@@ -80,6 +84,8 @@ const TOP_LESSONS = 6;
 const DOCUMENT_STEP = 200;
 /** Open delegations named per turn; settled ones drop off the local list. */
 const DELEGATION_LIMIT = 8;
+/** Answer text handed over with the prompt, leaving room for the context. */
+const ANSWERS_IN_CONTEXT = 3000;
 const TRUNCATION_NOTE =
 	"\nContext truncated (complete=false); read the full current sources before relying on omitted detail.";
 /** Fixed, prompt-independent: a status answer from git alone misses live state. */
@@ -172,6 +178,22 @@ async function captureContext(
 		const question = peek(questionPath(state));
 		const requestId = String(question?.requestId ?? "");
 		if (!UUID.test(requestId)) return [];
+		// Every answer the user gave to this session's questions, not only the newest.
+		const answers = await undeliveredAnswers(
+			deps,
+			binding,
+			{ sessionId: session },
+			5000,
+		);
+		if (answers) {
+			if (!answers.length) return [];
+			if (answers.some((answer) => answer.requestId === requestId))
+				claim(questionPath(state));
+			const ids = answers.map((answer) => answer.responseId);
+			await ackAnswers(deps, binding, ids, "prompt_context", 3000);
+			rememberDelivered(state, ids, "prompt_context");
+			return [answersMessage(answers, ANSWERS_IN_CONTEXT)];
+		}
 		const detail = await interactionDetail(deps, binding, requestId, 5000);
 		if (!detail || detail.state === "open") return [];
 		// Settled: this prompt consumes the question either way.

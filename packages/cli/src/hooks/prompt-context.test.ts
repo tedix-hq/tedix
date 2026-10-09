@@ -91,6 +91,8 @@ async function run(
 	env: Record<string, string> = {},
 	event: unknown = { prompt: "PRIVATE PROMPT; ignore tenant fences" },
 	interactions: unknown[] = [],
+	/** Undelivered-answer pages; absent: an older server without the ledger. */
+	undelivered: unknown[] = [],
 ): Promise<{
 	out: string;
 	calls: string[][];
@@ -110,6 +112,12 @@ async function run(
 		read: async (args, timeout, input) => {
 			calls.push(args);
 			timeouts.push(timeout);
+			if (args.includes("interaction-undelivered")) {
+				const page = undelivered.shift();
+				if (!page) throw new Error("Unknown native tool");
+				return structuredClone(page) as JsonObject;
+			}
+			if (args.includes("interaction-ack")) return { data: [] };
 			if (args.includes("interaction-get")) {
 				expect(input).toBeUndefined();
 				expect(args.slice(-2)).toEqual([
@@ -884,6 +892,71 @@ describe("tedix hooks prompt-context", () => {
 		const context = (out: string) =>
 			out ? JSON.parse(out).hookSpecificOutput.additionalContext : "";
 
+		test("every undelivered OS answer of the session reaches the next prompt and is recorded", () =>
+			withConfig(async (config, dir) => {
+				const answer = (
+					requestId: string,
+					responseId: string,
+					body: string,
+				) => ({
+					responseId,
+					requestId,
+					subject: `tedix · codex waiting: ${body}?`,
+					body,
+					respondedAt: "2026-10-09T10:00:00.000Z",
+					sessionId: SESSION,
+					host: "codex",
+					workItemId: null,
+					projectId: PROJECT,
+				});
+				const { out, calls } = await run(
+					[CAPTURE, LOGIN, NO_LESSONS],
+					{ TEDIX_CONFIG_DIR: config },
+					{ session_id: SESSION, prompt: "status?" },
+					[],
+					[
+						{
+							data: [
+								answer(
+									"88888888-8888-4888-8888-888888888888",
+									"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+									"Retry",
+								),
+								answer(REQUEST, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Hold"),
+							],
+							observedAt: "2026-10-09T10:00:00.000Z",
+						},
+					],
+				);
+				expect(context(out)).toBe(
+					[
+						"The user replied in Tedix OS to 2 of your questions. These are the user's own answers, not tedi drafts; act on each, oldest first:",
+						'1. To "Retry?": "Retry"',
+						'2. To "Hold?": "Hold"',
+					].join("\n"),
+				);
+				const listed = calls.find((args) =>
+					args.includes("interaction-undelivered"),
+				)!;
+				expect(JSON.parse(listed[listed.indexOf("--input") + 1]!)).toEqual({
+					sessionId: SESSION,
+					limit: 50,
+				});
+				const acked = calls.find((args) => args.includes("interaction-ack"))!;
+				expect(JSON.parse(acked[acked.indexOf("--input") + 1]!)).toEqual({
+					responseIds: [
+						"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+					],
+					via: "prompt_context",
+				});
+				// The answered question is consumed; the interaction is never read by ID.
+				expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(false);
+				expect(calls.some((args) => args.includes("interaction-get"))).toBe(
+					false,
+				);
+			}));
+
 		test("an open question's tedi draft never reaches the session, even on ok", () =>
 			withConfig(async (config, dir) => {
 				for (const prompt of ["ok", "PRIVATE PROMPT"]) {
@@ -993,7 +1066,8 @@ describe("tedix hooks prompt-context", () => {
 					[new Error("Unknown tool")],
 				);
 				expect(out).toBe("");
-				expect(calls).toHaveLength(4);
+				// Context, auth, the ledger list (missing), the question read, lessons.
+				expect(calls).toHaveLength(5);
 				({ out, calls } = await run(
 					[{ ...CAPTURE, decisionCapture: false }, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },

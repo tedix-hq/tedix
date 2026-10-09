@@ -538,6 +538,7 @@ const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	complete_work_item: "workItems/complete",
 	create_project_milestone: "projects/createMilestone",
 	create_work_case: "workItems/createCase",
+	ack_work_interaction_delivery: "workInteractions/ackDelivery",
 	create_work_interaction: "workInteractions/create",
 	create_work_items: "workItems/create",
 	decide_work_approval: "workApprovals/decide",
@@ -551,6 +552,8 @@ const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
 	list_project_health_judgments: "projects/listHealthJudgments",
 	list_project_milestones: "projects/listMilestones",
+	list_undelivered_work_interaction_responses:
+		"workInteractions/listUndelivered",
 	list_ready_work: "workScheduler/listReady",
 	list_work_approval_audit: "workApprovals/listAudit",
 	list_work_approvals: "workApprovals/listInbox",
@@ -2721,6 +2724,7 @@ Factory controls (--input accepts inline JSON or @path):
   milestone-list|create|update|attach|dependency-add · health-list|record
   approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
   interaction-list|interaction-outbox-list|interaction-audit-list|interaction-get|interaction-create|interaction-respond|interaction-cancel
+  interaction-undelivered|interaction-ack (your answers not yet delivered to the asking session; record delivery)
   claim-files <id> --repo-key <stable-repo-key> --path <relative-file> [--path ...]
     Declare file requirements with existing owner/admin authority; reservation occurs at start.
   admission-get|replace · resource-list|put · budget-list|put · fleet · scheduler · clusters --executor-tedi <uuid>
@@ -2889,6 +2893,12 @@ const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		write: true,
 		pathField: "requestId",
 	},
+	"interaction-undelivered": {
+		tool: "list_undelivered_work_interaction_responses",
+		write: false,
+		defaultInput: (ctx) => ({ limit: ctx.work.limit ?? 50 }),
+	},
+	"interaction-ack": { tool: "ack_work_interaction_delivery", write: true },
 	"admission-get": {
 		tool: "get_work_admission_specification",
 		write: false,
