@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { answerDeliveryLine } from "./work-operations-pages";
 import {
 	captureHealthLine,
 	knockOutcome,
@@ -52,6 +53,44 @@ describe("office helpers", () => {
 			}).lane,
 		).toBe("answered");
 		expect(knockOutcome({ ...base, draft: null }).lane).toBe("you");
+	});
+
+	it("says in plain words whether your answer reached its session", () => {
+		const line = (delivery: Record<string, unknown>) =>
+			answerDeliveryLine({
+				delivery: {
+					via: null,
+					deliveredAt: null,
+					acknowledgedAt: null,
+					handoffTo: null,
+					...delivery,
+				},
+			});
+		expect(line({ state: "saved" })).toEqual({ text: "Saved", pending: true });
+		expect(
+			line({
+				state: "delivered",
+				via: "hook",
+				deliveredAt: new Date(2026, 9, 9, 18, 21).toISOString(),
+			})?.text,
+		).toBe("Delivered to your session 18:21");
+		expect(line({ state: "acknowledged" })?.text).toBe("Acknowledged");
+		expect(line({ state: "handed_off", handoffTo: "LEARN" })).toEqual({
+			text: "Couldn't reach the session — handed to LEARN",
+			pending: true,
+		});
+		expect(answerDeliveryLine({})).toBeNull();
+		const base = {
+			urgent: false,
+			open: false,
+			answeredByYou: true,
+			draft: null,
+		};
+		expect(knockOutcome({ ...base, delivery: { text: "Saved" } })).toEqual({
+			lane: "you",
+			text: "Saved",
+		});
+		expect(knockOutcome(base).text).toBe("You answered");
 	});
 
 	it("counts distinct sessions from captured turns", () => {
