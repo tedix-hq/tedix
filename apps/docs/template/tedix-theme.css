@@ -31,16 +31,10 @@ html[data-mode="dark"] {
 }
 
 .td-docs-mark {
-	display: grid;
+	display: block;
 	width: 1.5rem;
 	height: 1.5rem;
-	place-items: center;
-	border-radius: 0.35rem;
-	background: var(--nb-primary);
-	color: var(--nb-primary-foreground);
-	font-size: 0.8rem;
-	font-weight: 800;
-	line-height: 1;
+	object-fit: contain;
 }
 
 .td-home-card {

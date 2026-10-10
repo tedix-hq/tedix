@@ -50,6 +50,7 @@ COPY template/updates.astro /opt/tedix-docs-template/src/pages/updates.astro
 COPY template/updates-rss.xml.ts /opt/tedix-docs-template/src/pages/updates/rss.xml.ts
 COPY template/agent-setup.astro /opt/tedix-docs-template/src/pages/agent-setup.astro
 COPY template/tedix-theme.css /opt/tedix-docs-template/src/styles/tedix-theme.css
+COPY template/public/ /opt/tedix-docs-template/public/
 
 WORKDIR /workspace
 CMD ["sleep", "infinity"]
