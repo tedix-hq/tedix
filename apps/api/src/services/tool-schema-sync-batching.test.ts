@@ -262,6 +262,10 @@ describe("plan-wide tool id resolution", () => {
 				"ack_work_interaction_delivery",
 				"write",
 			],
+			"workInteractions/recordDraftDelivery": [
+				"record_reply_draft_delivery",
+				"write",
+			],
 			"workFleet/getControlTower": ["get_work_fleet_control_tower", "read"],
 			"workAgentSessions/report": ["report_work_agent_session_status", "write"],
 			"workAgentSessions/list": ["list_work_agent_sessions", "read"],

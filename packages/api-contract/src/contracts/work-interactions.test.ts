@@ -24,6 +24,7 @@ describe("Work interactions contract", () => {
 			"listAudit",
 			"listUndelivered",
 			"ackDelivery",
+			"recordDraftDelivery",
 		]);
 	});
 

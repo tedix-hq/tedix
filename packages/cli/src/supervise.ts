@@ -70,6 +70,7 @@ import {
 	draftStatusPath,
 	interactionDetail,
 	peek,
+	recordDraftDelivered,
 	sessionPath,
 } from "./hooks/decision-capture";
 import {
@@ -494,6 +495,15 @@ export class Supervisor {
 				),
 		);
 		const what = `draft ${detail.draft.id}`;
+		if (outcome === "codex_queue" || outcome === "codex_resume")
+			await recordDraftDelivered(
+				hookDeps,
+				binding,
+				candidate.requestId,
+				detail.draft.id,
+				outcome,
+				DETAIL_TIMEOUT_MS,
+			);
 		this.log(
 			outcome === "codex_queue"
 				? `codex ${candidate.session}: delivered ${what} for question ${candidate.requestId} to the open session`

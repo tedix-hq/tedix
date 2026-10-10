@@ -824,6 +824,10 @@
 		{
 			"name": "20261009183421_work_interaction_deliveries/migration.sql",
 			"sha256": "f39273d716ba20765372a5202c92b49fd5450038b53d568bb84f676daa60203d"
+		},
+		{
+			"name": "20261010144722_auto_reply_resolves_question/migration.sql",
+			"sha256": "b46a8aeb4c4f93d0b80733c36c4514547c21f6e1729857dc5089ba36e1c8cdbd"
 		}
 	]
 }

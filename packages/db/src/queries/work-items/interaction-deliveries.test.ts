@@ -129,6 +129,30 @@ function fixture() {
 		"{}",
 		"2026-10-07T10:00:00.000Z",
 	);
+	// A tedi's auto reply answered q-auto (never the user's answer); the
+	// user's later OS correction of it is news to the session.
+	question.run("q-auto", "Deploy?", USER.id, USER.id, meta(SESSION));
+	answer.run(
+		"r-auto",
+		"q-auto",
+		"tedi",
+		"cto",
+		"Deploy at noon",
+		1,
+		JSON.stringify({
+			source: "auto-reply",
+			draftId: "d-1",
+			draftOutcome: "auto",
+		}),
+		"2026-10-09T10:20:00.000Z",
+	);
+	sqlite
+		.prepare(
+			`INSERT INTO work_interaction_responses
+		(id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at)
+		VALUES ('r-fix','org','q-auto',3,'fence','user',?,'Hold it','answer',0,?,'2026-10-09T10:25:00.000Z')`,
+		)
+		.run(USER.id, JSON.stringify({ source: "tedix-os", corrects: "r-auto" }));
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
@@ -146,6 +170,7 @@ describe("Work interaction delivery ledger", () => {
 			"r-older",
 			"r-os",
 			"r-codex",
+			"r-fix",
 		]);
 		expect(rows[1]).toMatchObject({
 			interactionId: "q-os",
@@ -197,7 +222,7 @@ describe("Work interaction delivery ledger", () => {
 			actor: USER,
 			respondedAfter: AFTER,
 		});
-		expect(rows.map((row) => row.responseId)).toEqual(["r-codex"]);
+		expect(rows.map((row) => row.responseId)).toEqual(["r-codex", "r-fix"]);
 		expect(
 			await listWorkInteractionDeliveries(db, {
 				orgId: "org",

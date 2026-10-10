@@ -52,6 +52,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	create_project_milestone: "projects/createMilestone",
 	create_work_case: "workItems/createCase",
 	ack_work_interaction_delivery: "workInteractions/ackDelivery",
+	record_reply_draft_delivery: "workInteractions/recordDraftDelivery",
 	create_work_interaction: "workInteractions/create",
 	create_work_items: "workItems/create",
 	decide_work_approval: "workApprovals/decide",
@@ -2839,6 +2840,7 @@ describe("native dispatcher coverage", () => {
 			"interaction-get",
 			"interaction-respond",
 			"interaction-cancel",
+			"interaction-draft-delivered",
 			"admission-get",
 			"admission-replace",
 		]);
@@ -2964,7 +2966,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(64);
+		expect(covered).toHaveLength(65);
 	});
 });
 

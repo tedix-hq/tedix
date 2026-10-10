@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { listUndeliveredWorkInteractionResponses } from "./interaction-deliveries";
 import { respondToWorkInteraction } from "./interactions";
 import {
 	countConsecutiveAutoReplies,
@@ -10,6 +11,7 @@ import {
 	getReplyDraftAcceptance,
 	getReplyDraftLeaderboard,
 	insertReplyDraft,
+	recordAutoReplyDelivery,
 } from "./reply-drafts";
 
 const migrationRoot = new URL("../../../drizzle/", import.meta.url);
@@ -647,5 +649,207 @@ describe("reply draft leaderboard", () => {
 			week: { answered: 2, stood: 1, corrected: 1, avgReplySeconds: 60 },
 			today: { answered: 0, stood: 0, avgReplySeconds: null },
 		});
+	});
+});
+
+describe("auto reply delivery (migrated D1 triggers)", () => {
+	const SESSION = "11111111-1111-4111-8111-111111111111";
+	const row = (sqlite: DatabaseSync, id: string) =>
+		sqlite
+			.prepare(
+				"SELECT status, version, resolved_at FROM work_interactions WHERE id=?",
+			)
+			.get(id) as { status: string; version: number; resolved_at: string };
+	const delivery = {
+		orgId: "org",
+		interactionId: "q1",
+		draftId: "draft-1",
+		actor: { type: "user" as const, id: "user" },
+		via: "hook" as const,
+		responseId: "auto-1",
+		now: "2026-08-20T01:05:00.000Z",
+	};
+
+	it("answers in the tedi's name once delivered, idempotently, and keeps the delivery", async () => {
+		const { sqlite, db } = seed();
+		question(sqlite, "q1", {
+			metadata: { ...QUIET, sessionId: SESSION, host: "claude-code" },
+		});
+		await insertReplyDraft(db, draft({ delivery: "auto" }));
+		const first = await recordAutoReplyDelivery(db, delivery);
+		expect(first).toMatchObject({
+			created: true,
+			deliveredAt: delivery.now,
+			deliveredVia: "hook",
+			response: {
+				id: "auto-1",
+				responderType: "tedi",
+				responderId: "drafter",
+				resolvesRequest: true,
+				body: draft().body,
+				metadata: {
+					source: "auto-reply",
+					draftId: "draft-1",
+					draftOutcome: "auto",
+					sessionId: SESSION,
+					host: "claude-code",
+				},
+			},
+		});
+		expect(row(sqlite, "q1")).toMatchObject({
+			status: "resolved",
+			version: 2,
+			resolved_at: delivery.now,
+		});
+		// A second report returns the stored answer and the first delivery.
+		const again = await recordAutoReplyDelivery(db, {
+			...delivery,
+			responseId: "auto-2",
+			via: "codex_queue",
+			now: "2026-08-20T01:06:00.000Z",
+		});
+		expect(again).toMatchObject({
+			created: false,
+			deliveredAt: delivery.now,
+			deliveredVia: "hook",
+			response: { id: "auto-1" },
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_interaction_responses WHERE interaction_id='q1'",
+				)
+				.get(),
+		).toEqual({ n: 1 });
+		// The tedi's answer is never listed as the user's undelivered answer.
+		expect(
+			await listUndeliveredWorkInteractionResponses(db, {
+				orgId: "org",
+				actor: { type: "user", id: "user" },
+				respondedAfter: CREATED,
+			}),
+		).toEqual([]);
+		// Only the question's own user or asker may record it.
+		sqlite.exec(
+			"INSERT INTO users(id,email) VALUES('other','other@example.com'); INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status) VALUES('member-2','org','other','other','other@example.com','active')",
+		);
+		await expect(
+			recordAutoReplyDelivery(db, {
+				...delivery,
+				actor: { type: "user", id: "other" },
+				responseId: "auto-3",
+			}),
+		).rejects.toMatchObject({ code: "INVALID_PRINCIPAL" });
+	});
+
+	it("rejects a review draft and a tedi answer the trigger cannot trace to an auto draft", async () => {
+		const { sqlite, db } = seed();
+		question(sqlite, "q1", { metadata: { ...QUIET, sessionId: SESSION } });
+		await insertReplyDraft(db, draft());
+		await expect(recordAutoReplyDelivery(db, delivery)).rejects.toMatchObject({
+			code: "NOT_ELIGIBLE",
+		});
+		expect(() =>
+			sqlite
+				.prepare(
+					"INSERT INTO work_interaction_responses(id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at) VALUES('forged','org','q1',2,'fence','tedi','drafter','Mine','answer',1,?,?)",
+				)
+				.run(JSON.stringify({ draftId: "draft-1", draftOutcome: "auto" }), NOW),
+		).toThrow(/stale or unauthorized/);
+		expect(row(sqlite, "q1")).toMatchObject({ status: "open", version: 1 });
+	});
+
+	it("takes the user's later correction, delivers it, and counts the auto reply as corrected", async () => {
+		const { sqlite, db } = seed();
+		question(sqlite, "q1", { metadata: { ...QUIET, sessionId: SESSION } });
+		await insertReplyDraft(db, draft({ delivery: "auto" }));
+		await recordAutoReplyDelivery(db, delivery);
+		const board = () =>
+			getReplyDraftLeaderboard(db, {
+				orgId: "org",
+				targetUserId: "user",
+				since: CREATED,
+				todaySince: CREATED,
+			});
+		expect((await board())[0]?.week).toMatchObject({
+			answered: 1,
+			autoSent: 1,
+			stood: 1,
+			corrected: 0,
+		});
+		// From Tedix OS, after the tedi answered: a non-resolving correction.
+		const correction = await respondToWorkInteraction(db, {
+			id: "fix-1",
+			orgId: "org",
+			interactionId: "q1",
+			expectedVersion: 2,
+			responder: { type: "user", id: "user" },
+			responseKind: "answer",
+			body: "No, hold the release.",
+			resolvesRequest: true,
+			metadata: { source: "tedix-os" },
+			now: "2026-08-20T02:00:00.000Z",
+		});
+		expect(correction).toMatchObject({
+			resolvesRequest: false,
+			metadata: { source: "tedix-os", corrects: "auto-1" },
+			resolvedRequestVersion: 3,
+		});
+		expect(row(sqlite, "q1")).toMatchObject({ status: "resolved", version: 3 });
+		// It reaches the session through the delivery ledger.
+		const pending = await listUndeliveredWorkInteractionResponses(db, {
+			orgId: "org",
+			actor: { type: "user", id: "user" },
+			respondedAfter: CREATED,
+		});
+		expect(pending.map((entry) => entry.responseId)).toEqual(["fix-1"]);
+		expect((await board())[0]?.week).toMatchObject({ stood: 0, corrected: 1 });
+		// A correction is fenced like any answer; nobody else may add one.
+		await expect(
+			respondToWorkInteraction(db, {
+				id: "fix-2",
+				orgId: "org",
+				interactionId: "q1",
+				expectedVersion: 2,
+				responder: { type: "user", id: "user" },
+				responseKind: "answer",
+				body: "Stale",
+				resolvesRequest: true,
+				now: "2026-08-20T02:01:00.000Z",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(() =>
+			sqlite
+				.prepare(
+					"INSERT INTO work_interaction_responses(id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at) VALUES('forged','org','q1',4,'fence','tedi','drafter','Mine','answer',0,?,?)",
+				)
+				.run(JSON.stringify({ corrects: "auto-1" }), NOW),
+		).toThrow(/stale or unauthorized/);
+		// A question the user answered themselves takes no correction.
+		question(sqlite, "q2", { metadata: { ...QUIET, sessionId: SESSION } });
+		await respondToWorkInteraction(db, {
+			id: "own",
+			orgId: "org",
+			interactionId: "q2",
+			expectedVersion: 1,
+			responder: { type: "user", id: "user" },
+			responseKind: "answer",
+			body: "Mine",
+			resolvesRequest: true,
+			now: "2026-08-20T02:02:00.000Z",
+		});
+		await expect(
+			respondToWorkInteraction(db, {
+				id: "fix-3",
+				orgId: "org",
+				interactionId: "q2",
+				expectedVersion: 2,
+				responder: { type: "user", id: "user" },
+				responseKind: "answer",
+				body: "Again",
+				resolvesRequest: true,
+				now: "2026-08-20T02:03:00.000Z",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 });

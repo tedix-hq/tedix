@@ -116,6 +116,7 @@ async function run(
 ) {
 	let now = 0;
 	let detailReads = 0;
+	const drafted: Array<[string, JsonObject]> = [];
 	const reads = [BINDING, AUTH];
 	const output = await runAwaitDraft(
 		{
@@ -132,6 +133,11 @@ async function run(
 					return structuredClone(page) as JsonObject;
 				}
 				if (args.includes("interaction-ack")) return { data: [] };
+				if (args.includes("interaction-draft-delivered")) {
+					const at = args.indexOf("interaction-draft-delivered");
+					drafted.push([args[at + 1]!, JSON.parse(args[at + 3]!)]);
+					return { request: {}, response: {} };
+				}
 				if (args.includes("interaction-get")) {
 					detailReads++;
 					expect(input).toBeUndefined();
@@ -158,7 +164,7 @@ async function run(
 			},
 		},
 	);
-	return { output, detailReads, elapsed: now };
+	return { output, detailReads, elapsed: now, drafted };
 }
 
 describe("tedix hooks await-draft", () => {
@@ -192,11 +198,12 @@ describe("tedix hooks await-draft", () => {
 
 	test("an auto draft continues the Codex turn with the framed reply", async () => {
 		mkdirSync(join(config, "agent-status"), { recursive: true });
-		const { output } = await run(
+		const { output, drafted } = await run(
 			[interaction(null), interaction({ ...DRAFT, delivery: "auto" })],
 			{ env: { TEDIX_AGENT_STATUS: "1" } },
 		);
 		const continuation = JSON.parse(output!);
+		expect(drafted).toEqual([[REQUEST, { draftId: DRAFT.id, via: "hook" }]]);
 		expect(continuation.decision).toBe("block");
 		expect(continuation.reason).toStartWith(
 			`Tedix tedi Builder replied for the user (delegated answer; the user can override any time): ${JSON.stringify(DRAFT.body)}`,

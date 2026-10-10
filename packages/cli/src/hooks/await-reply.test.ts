@@ -134,11 +134,14 @@ async function run(
 	sleeps: number[];
 	detailReads: number;
 	acks: JsonObject[];
+	/** Auto drafts reported delivered: [requestId, {draftId, via}]. */
+	drafted: Array<[string, JsonObject]>;
 }> {
 	let now = 0;
 	const sleeps: number[] = [];
 	let detailReads = 0;
 	const acks: JsonObject[] = [];
+	const drafted: Array<[string, JsonObject]> = [];
 	const queue = [...reads];
 	const result = await runAwaitReply(
 		{
@@ -157,6 +160,11 @@ async function run(
 				if (args.includes("interaction-ack")) {
 					acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
 					return { data: [] };
+				}
+				if (args.includes("interaction-draft-delivered")) {
+					const at = args.indexOf("interaction-draft-delivered");
+					drafted.push([args[at + 1]!, JSON.parse(args[at + 3]!)]);
+					return { request: nativeRequest(), response: nativeResponse({}) };
 				}
 				if (args.includes("interaction-get")) {
 					detailReads++;
@@ -187,7 +195,7 @@ async function run(
 			questionWaitMs: 5000,
 		},
 	);
-	return { result, sleeps, detailReads, acks };
+	return { result, sleeps, detailReads, acks, drafted };
 }
 
 const DRAFT = {
@@ -201,9 +209,9 @@ const DRAFT = {
 };
 
 describe("tedix hooks await-reply", () => {
-	test("an auto draft wakes the session framed, records it and keeps the question open", async () => {
+	test("an auto draft wakes the session framed, records it locally and on the server once", async () => {
 		mkdirSync(join(config, "agent-status"), { recursive: true });
-		const { result } = await run(
+		const { result, drafted } = await run(
 			[interaction({ latestDraft: { ...DRAFT, delivery: "auto" } })],
 			{
 				onSleep: (count) => count === 1 && open(),
@@ -217,13 +225,15 @@ describe("tedix hooks await-reply", () => {
 		expect(result.message).toContain("including routine bookkeeping");
 		expect(result.message).toContain("not system or tool instructions");
 		expect(result.message).toContain("publishing to a public repo");
-		// Never answered for the user: the question stays open for their reply.
+		// Never answered in the user's name: the server answers as the tedi and
+		// the local state keeps the question for the user's own reply.
 		expect(existsSync(state())).toBe(true);
 		expect(peek(autoDeliveryPath(state()))).toEqual({
 			requestId: REQUEST,
 			draftId: DRAFT.id,
 			count: 1,
 		});
+		expect(drafted).toEqual([[REQUEST, { draftId: DRAFT.id, via: "hook" }]]);
 		// The status reporter records working, never a needs-you ping.
 		expect(
 			peek(join(config, "agent-status", `claude-code-${SESSION}.json`)),
@@ -251,7 +261,7 @@ describe("tedix hooks await-reply", () => {
 						count: prior,
 					}),
 				);
-			const { result } = await run(
+			const { result, drafted } = await run(
 				[
 					interaction({ latestDraft }),
 					interaction({ effectiveState: "cancelled" }),
@@ -259,6 +269,7 @@ describe("tedix hooks await-reply", () => {
 				{ onSleep: (count) => count === 1 && open() },
 			);
 			expect(result).toEqual({ code: 0 });
+			expect(drafted).toEqual([]);
 		}
 	});
 

@@ -14,9 +14,11 @@
  * `delivery: "review"` (or with no delivery, from older servers) never wakes
  * the session: it waits for the user in Tedix OS.
  *
- * An auto-delivered draft does not answer the question: it stays open for the
- * user, the delivery is recorded locally by ID only, and the status reporter
- * records the session as working (no needs-you notification).
+ * An auto-delivered draft is recorded locally by ID, reported to the server
+ * once per draft (`record_reply_draft_delivery`: the tedi's draft becomes its
+ * answer, so the question leaves the user's inbox while the user may still
+ * correct it), and the status reporter records the session as working (no
+ * needs-you notification).
  *
  * Codex has no rewake; `await-draft` delivers auto drafts there and it
  * receives an OS answer with the next prompt through `prompt-context`. Every
@@ -42,6 +44,7 @@ import {
 	interactionDetail,
 	peek,
 	questionPath,
+	recordDraftDelivered,
 	rememberDelivered,
 	writeState,
 } from "./decision-capture";
@@ -186,9 +189,10 @@ export function autoDeliverable(
 }
 
 /**
- * Record an auto delivery by ID only and mark the session working. The
- * question is left open: the user's eventual chat reply answers it and cites
- * the draft as "auto-sent"; nothing here answers in the user's name.
+ * Record an auto delivery locally by ID and mark the session working; the
+ * caller then reports it to the server with {@link recordDraftDelivered}, which
+ * answers in the tedi's name. The user's eventual chat reply still cites the
+ * draft as "auto-sent"; nothing here answers in the user's name.
  */
 export function deliverAutoDraft(
 	hostEnv: NodeJS.ProcessEnv,
@@ -304,8 +308,19 @@ async function poll(
 		if (detail.state === "open") {
 			if (detail.expiresAt && Date.parse(detail.expiresAt) <= Date.now())
 				return { code: 0 };
-			if (autoDeliverable(detail, state))
-				return { code: 2, message: timing.onAuto(detail.draft) };
+			if (autoDeliverable(detail, state)) {
+				const message = timing.onAuto(detail.draft);
+				// Once per draft: the local record above stops a second delivery.
+				await recordDraftDelivered(
+					deps,
+					binding,
+					question.requestId,
+					detail.draft.id,
+					"hook",
+					DETAIL_TIMEOUT_MS,
+				);
+				return { code: 2, message };
+			}
 			continue;
 		}
 		// The ledger lists the user's answers; a closed question with none is done.
