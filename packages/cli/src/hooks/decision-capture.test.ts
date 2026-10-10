@@ -1097,6 +1097,42 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		}
 	});
 
+	test("a typed reply after a tedi's auto reply is still sent, as the user's correction", async () => {
+		const autoAnswered = detail({
+			request: nativeRequest({ version: 3 }),
+			effectiveState: "resolved",
+			canRespond: true,
+			latestDraft: {
+				...(detail().latestDraft as JsonObject),
+				delivery: "auto",
+			},
+			responses: {
+				data: [
+					nativeResponse({
+						body: DRAFT_BODY,
+						resolvesRequest: true,
+						respondedByType: "tedi",
+						respondedById: "tedi-fixture",
+						metadata: {
+							source: "auto-reply",
+							draftId: DRAFT_ID,
+							draftOutcome: "auto",
+						},
+					}),
+				],
+				nextCursor: null,
+				hasMore: false,
+			},
+		});
+		await replyWith("actually skip the docs", autoAnswered);
+		const [args, sent] = payloads.at(-1)!;
+		expect(args).toContain("interaction-respond");
+		expect(sent.body).toBe("actually skip the docs");
+		// The server records it against the resolved question as a correction.
+		expect(sent.expectedRequestVersion).toBe(3);
+		expect(sent.metadata).toMatchObject({ source: "user-reply" });
+	});
+
 	test("a question already answered in Tedix OS is not answered again", async () => {
 		const resolved = detail({
 			effectiveState: "resolved",

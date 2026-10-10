@@ -630,6 +630,15 @@ export function answeredElsewhere(
 	);
 }
 
+/** True when a tedi's auto-delivered draft resolved the question. */
+export function autoAnswered(detail: InteractionDetail): boolean {
+	return (
+		detail.state === "resolved" &&
+		detail.resolution?.byType === "tedi" &&
+		detail.resolution.source === "auto-reply"
+	);
+}
+
 function requestOf(result: JsonObject): { id: string; version: number } {
 	const request = isObject(result.request) ? result.request : result;
 	if (
@@ -778,6 +787,39 @@ export async function ackAnswers(
 	}
 }
 
+/**
+ * Record that an auto draft reached this session: the server answers the
+ * question in the drafting tedi's name (it leaves the user's inbox) and keeps
+ * the delivery. Idempotent per draft on the server; false on any failure.
+ */
+export async function recordDraftDelivered(
+	deps: Pick<HookDeps, "read">,
+	binding: Binding,
+	requestId: string,
+	draftId: string,
+	via: Exclude<DeliveryVia, "handoff">,
+	timeoutMs: number,
+): Promise<boolean> {
+	if (!UUID.test(requestId) || !UUID.test(draftId)) return false;
+	try {
+		const value = await deps.read(
+			[
+				...binding.command,
+				"work",
+				"interaction-draft-delivered",
+				requestId,
+				"--input",
+				JSON.stringify({ draftId, via }),
+				"--json",
+			],
+			timeoutMs,
+		);
+		return isObject(value) && isObject(value.response);
+	} catch {
+		return false;
+	}
+}
+
 /** Answers handed to the session and awaiting its next turn end: {responseIds}. */
 export function deliveredPath(state: string): string {
 	return state.replace(/\.json$/, ".delivered.json");
@@ -852,8 +894,10 @@ async function onReply(
 	const requestId = String(previous.requestId);
 	const timeout = options.detailTimeoutMs ?? DETAIL_TIMEOUT_MS;
 	const detail = await interactionDetail(deps, binding, requestId, timeout);
-	// Answered in Tedix OS, cancelled or expired: never answer it twice.
-	if (detail && detail.state !== "open") return;
+	// Answered in Tedix OS, cancelled or expired: never answer it twice. A
+	// question a tedi's auto reply answered still takes the user's reply as
+	// their correction (the server records it as non-resolving).
+	if (detail && detail.state !== "open" && !autoAnswered(detail)) return;
 	// A reply typed in the chat answers as typed. It cites a draft only when
 	// that draft was auto-delivered to this agent for this same question.
 	const cited =

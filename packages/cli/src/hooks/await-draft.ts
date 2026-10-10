@@ -9,8 +9,9 @@
  * the framed draft. It returns at once when no draft was queued, when the
  * draft is for review in Tedix OS, or when delivery is absent (older servers).
  *
- * Like `await-reply`, the question stays open for the user and the delivery
- * is recorded by ID only. It also hands the turn every answer the user already
+ * Like `await-reply`, it records the delivery locally by ID and reports it to
+ * the server once per draft, which answers the question in the tedi's name
+ * (the user may still correct it). It also hands the turn every answer the user already
  * gave in Tedix OS to this session's earlier questions (recorded as
  * delivered). Claude Code never runs it (it uses `await-reply`).
  * Every failure is silent: no output, exit 0.
@@ -34,6 +35,7 @@ import {
 	draftStatusPath,
 	interactionDetail,
 	peek,
+	recordDraftDelivered,
 	rememberDelivered,
 } from "./decision-capture";
 import {
@@ -127,18 +129,25 @@ export async function runAwaitDraft(
 				} else {
 					failures = 0;
 					if (detail.state !== "open") return undefined;
-					if (autoDeliverable(detail, state))
-						return JSON.stringify({
-							decision: "block",
-							reason: deliverAutoDraft(
-								hostEnv,
-								deps,
-								event,
-								state,
-								question,
-								detail.draft,
-							),
-						});
+					if (autoDeliverable(detail, state)) {
+						const reason = deliverAutoDraft(
+							hostEnv,
+							deps,
+							event,
+							state,
+							question,
+							detail.draft,
+						);
+						await recordDraftDelivered(
+							deps,
+							binding,
+							question.requestId,
+							detail.draft.id,
+							"hook",
+							DETAIL_TIMEOUT_MS,
+						);
+						return JSON.stringify({ decision: "block", reason });
+					}
 					// A review draft waits for the user in Tedix OS.
 					if (detail.draft) return undefined;
 				}

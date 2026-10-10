@@ -510,6 +510,25 @@ export const AckWorkInteractionDeliveryResultSchema = z.strictObject({
 	),
 });
 
+export const RecordReplyDraftDeliveryInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	draftId: z
+		.uuid()
+		.describe("The `auto` reply draft that reached the asking session."),
+	via: WorkInteractionDeliveryViaSchema.exclude(["handoff"]),
+});
+
+export const RecordReplyDraftDeliveryResultSchema = z.strictObject({
+	request: WorkInteractionRequestSchema,
+	response: WorkInteractionResponseSchema.describe(
+		"The tedi's answer the draft became (metadata {draftId, draftOutcome: auto}).",
+	),
+	deliveredAt: z.string().nullable(),
+	via: z.string().nullable(),
+	/** False when an earlier call had already recorded this draft. */
+	created: z.boolean(),
+});
+
 export const ListUndeliveredWorkInteractionResponsesInputSchema =
 	z.strictObject({
 		sessionId: z

@@ -18,6 +18,8 @@ import {
 	ListWorkInteractionInboxResultSchema,
 	ListUndeliveredWorkInteractionResponsesInputSchema,
 	ListUndeliveredWorkInteractionResponsesResultSchema,
+	RecordReplyDraftDeliveryInputSchema,
+	RecordReplyDraftDeliveryResultSchema,
 	RespondToWorkInteractionInputSchema,
 	WorkInteractionRequestSchema,
 	WorkInteractionResponseSchema,
@@ -126,6 +128,16 @@ export const workInteractionsContract = oc
 			})
 			.input(AckWorkInteractionDeliveryInputSchema)
 			.output(AckWorkInteractionDeliveryResultSchema),
+		recordDraftDelivery: oc
+			.route({
+				method: "POST",
+				path: "/{requestId}/draft-deliveries",
+				summary: "Record that an auto reply draft reached the asking session",
+				description:
+					"Once a client has delivered an `auto` reply draft to the agent session that asked, this answers the question in the drafting tedi's name (a resolving answer with metadata {draftId, draftOutcome: auto}) and records the delivery, so the question leaves the user's inbox. Only the question's asker or asked user may call it; a repeat for the same draft returns the stored answer. The asked user may still correct the answer later with respond_work_interaction.",
+			})
+			.input(RecordReplyDraftDeliveryInputSchema)
+			.output(RecordReplyDraftDeliveryResultSchema),
 	});
 
 export type WorkInteractionsContract = typeof workInteractionsContract;

@@ -21,7 +21,10 @@ import {
 	recordWorkInteractionDeliveries,
 } from "@tedix/db/queries/work-items/interaction-deliveries";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
-import { getLatestReplyDraft } from "@tedix/db/queries/work-items/reply-drafts";
+import {
+	getLatestReplyDraft,
+	recordAutoReplyDelivery,
+} from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
 import { decisionCaptureLearningSignal } from "../../services/decision-learning-signal";
 import {
@@ -461,6 +464,13 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 		const delivery = resolving
 			? deliveries.find((row) => row.responseId === resolving.id)
 			: undefined;
+		// A tedi's auto reply answered for the user; they may still correct it.
+		const correctable =
+			request.status === "resolved" &&
+			request.kind === "question" &&
+			request.targetType === "user" &&
+			resolving?.responderType === "tedi" &&
+			resolving.metadata.draftOutcome === "auto";
 		const [drafter] = latestDraft
 			? await listTediDisplayNamesByIds(context.db, {
 					organizationId: orgId,
@@ -489,7 +499,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 					: null,
 			),
 			effectiveState: state,
-			canRespond: isTarget && state === "open",
+			canRespond: isTarget && (state === "open" || correctable),
 			canCancel: isCreator && state === "open",
 			latestDraft: latestDraft
 				? {
@@ -749,6 +759,46 @@ const ackDeliveryProcedure = writeOs.ackDelivery.handler(
 	},
 );
 
+const recordDraftDeliveryProcedure = writeOs.recordDraftDelivery.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const caller = await verifiedActiveWorkActor(context, orgId);
+		try {
+			const recorded = await recordAutoReplyDelivery(context.db, {
+				orgId,
+				interactionId: input.requestId,
+				draftId: input.draftId,
+				actor: { type: caller.type, id: caller.id },
+				via: input.via,
+				responseId: crypto.randomUUID(),
+				now: new Date().toISOString(),
+			});
+			const request = await getWorkInteraction(context.db, {
+				orgId,
+				interactionId: input.requestId,
+			});
+			if (!request)
+				throw createError(ErrorCodes.NOT_FOUND, "Work interaction not found");
+			if (recorded.created)
+				await publishMcpInteractionResponse(context.env, {
+					organizationId: orgId,
+					requestId: request.id,
+					responseId: recorded.response.id,
+					respondedAt: recorded.response.respondedAt,
+				});
+			return {
+				request: requestOutput(request),
+				response: responseOutput(recorded.response),
+				deliveredAt: recorded.deliveredAt,
+				via: recorded.deliveredVia,
+				created: recorded.created,
+			};
+		} catch (error) {
+			rethrowInteractionError(error);
+		}
+	},
+);
+
 export const workInteractionsContractRouter = interactionsOs.router({
 	create: createProcedure,
 	respond: respondProcedure,
@@ -761,6 +811,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 	listAudit: listAuditProcedure,
 	listUndelivered: listUndeliveredProcedure,
 	ackDelivery: ackDeliveryProcedure,
+	recordDraftDelivery: recordDraftDeliveryProcedure,
 });
 
 export type WorkInteractionsContractRouter =

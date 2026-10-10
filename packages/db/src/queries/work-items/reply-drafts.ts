@@ -13,17 +13,29 @@
  * `delivery` is decided by the API at insert: `review` (default) waits for
  * the human; `auto` may be sent without review under the turn-triage
  * `autoSend` guardrails, whose per-session budget is
- * {@link countConsecutiveAutoReplies}.
+ * {@link countConsecutiveAutoReplies}. Once a client has delivered an auto
+ * draft to the asking session, {@link recordAutoReplyDelivery} answers the
+ * question in the drafting tedi's name (`draftOutcome: "auto"`) so it leaves
+ * the user's inbox; the user may still correct it (`metadata.corrects`).
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
+	type WorkInteractionDeliveryVia,
 	type WorkInteractionReplyDraft,
+	type WorkInteractionResponse,
+	type WorkInteractionTargetType,
+	workInteractionDeliveries,
 	workInteractionReplyDrafts,
+	workInteractionResponses,
+	workInteractions,
 } from "../../schema/work-factory";
 import { WorkControlError } from "./factory-validation";
+
+/** Response `metadata.source` of an auto draft answering in the tedi's name. */
+export const AUTO_REPLY_SOURCE = "auto-reply";
 
 export const REPLY_DRAFT_OUTCOMES = ["accepted", "edited", "replaced"] as const;
 export type ReplyDraftOutcome = (typeof REPLY_DRAFT_OUTCOMES)[number];
@@ -357,7 +369,7 @@ function draftOutcomes(p: DraftOutcomeScope) {
 					WHERE u.org_id = d.org_id
 						AND u.responder_type = 'user'
 						AND u.responder_id = i.target_id
-						AND json_extract(u.metadata, '$.source') = ${USER_REPLY_SOURCE}
+						AND (json_extract(u.metadata, '$.source') = ${USER_REPLY_SOURCE} OR json_extract(u.metadata, '$.corrects') IS NOT NULL)
 						AND u.interaction_id IN (
 							d.interaction_id,
 							(
@@ -400,8 +412,9 @@ function draftOutcomes(p: DraftOutcomeScope) {
  * drafts nobody answered with count toward `drafts` but not `decided`, so an
  * ignored draft can never earn eligibility.
  *
- * An `auto` draft's follow-up is the earliest `user-reply` answer by the
- * target user on its own question or on the session's next decision-capture
+ * An `auto` draft's follow-up is the earliest `user-reply` answer (or a
+ * correction of the tedi's auto reply, `metadata.corrects`) by the target
+ * user on its own question or on the session's next decision-capture
  * question (same target user and `metadata.sessionId`, created after it). It
  * is overridden when that answer's `replyClass` is missing or not one of
  * {@link AUTO_REPLY_FOLLOW_CLASSES} or {@link AUTO_REPLY_NEUTRAL_CLASSES}. It
@@ -552,6 +565,187 @@ ${draftOutcomes(p)}
 		week: score(row, "w"),
 		today: score(row, "t"),
 	}));
+}
+
+/** The tedi response an auto-delivered draft became, or null. */
+export async function getAutoReplyResponse(
+	db: DbQueryClient,
+	p: { orgId: string; interactionId: string; draftId: string },
+): Promise<WorkInteractionResponse | null> {
+	const [row] = await db
+		.select()
+		.from(workInteractionResponses)
+		.where(
+			and(
+				eq(workInteractionResponses.orgId, p.orgId),
+				eq(workInteractionResponses.interactionId, p.interactionId),
+				eq(workInteractionResponses.responderType, "tedi"),
+				sql`json_extract(${workInteractionResponses.metadata},'$.draftId')=${p.draftId}`,
+				sql`json_extract(${workInteractionResponses.metadata},'$.draftOutcome')='auto'`,
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
+export interface RecordAutoReplyDeliveryParams {
+	orgId: string;
+	interactionId: string;
+	draftId: string;
+	/** The caller: the question's asked user or its creator. */
+	actor: { type: WorkInteractionTargetType; id: string };
+	via: Exclude<WorkInteractionDeliveryVia, "legacy">;
+	/** Id of the response when this call creates it. */
+	responseId: string;
+	now: string;
+}
+
+export interface AutoReplyDeliveryResult {
+	response: WorkInteractionResponse;
+	deliveredAt: string | null;
+	deliveredVia: WorkInteractionDeliveryVia | null;
+	/** False when an earlier call already recorded this draft. */
+	created: boolean;
+}
+
+/**
+ * An auto draft reached the asking session: answer the question in the
+ * drafting tedi's name (`resolvesRequest`, `metadata.draftId`,
+ * `draftOutcome: "auto"`) and record the delivery, in one batch. The
+ * response-insert trigger admits only an `auto` draft of this question by
+ * this tedi. Idempotent per draft: a repeat returns the stored response and
+ * keeps the first delivery. A question answered meanwhile is a conflict.
+ */
+export async function recordAutoReplyDelivery(
+	db: DbQueryClient,
+	p: RecordAutoReplyDeliveryParams,
+): Promise<AutoReplyDeliveryResult> {
+	const [request] = await db
+		.select()
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.id, p.interactionId),
+			),
+		)
+		.limit(1);
+	if (!request)
+		throw new WorkControlError("NOT_FOUND", "Work interaction not found");
+	const owns =
+		(request.targetType === p.actor.type && request.targetId === p.actor.id) ||
+		(request.creatorType === p.actor.type && request.creatorId === p.actor.id);
+	if (!owns)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Only the question's asker or asked user records draft delivery",
+		);
+	const [draft] = await db
+		.select()
+		.from(workInteractionReplyDrafts)
+		.where(
+			and(
+				eq(workInteractionReplyDrafts.orgId, p.orgId),
+				eq(workInteractionReplyDrafts.interactionId, p.interactionId),
+				eq(workInteractionReplyDrafts.id, p.draftId),
+			),
+		)
+		.limit(1);
+	if (!draft) throw new WorkControlError("NOT_FOUND", "Reply draft not found");
+	if (draft.delivery !== "auto")
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Only an auto reply draft answers in the tedi's name",
+		);
+	const existing = await getAutoReplyResponse(db, p);
+	if (existing) {
+		const [row] = await db
+			.select()
+			.from(workInteractionDeliveries)
+			.where(
+				and(
+					eq(workInteractionDeliveries.orgId, p.orgId),
+					eq(workInteractionDeliveries.responseId, existing.id),
+				),
+			)
+			.limit(1);
+		return {
+			response: existing,
+			deliveredAt: row?.deliveredAt ?? null,
+			deliveredVia: row?.deliveredVia ?? null,
+			created: false,
+		};
+	}
+	if (request.status !== "open")
+		throw new WorkControlError(
+			"CONFLICT",
+			"Question was answered before the draft was delivered",
+		);
+	const { sessionId, host } = request.metadata;
+	try {
+		const [responses, deliveries] = await db.batch([
+			db
+				.insert(workInteractionResponses)
+				.values({
+					id: p.responseId,
+					orgId: p.orgId,
+					interactionId: p.interactionId,
+					resolvedRequestVersion: request.version + 1,
+					resolutionFence: crypto.randomUUID(),
+					responderType: "tedi",
+					responderId: draft.drafterId,
+					body: draft.body,
+					responseKind: "answer",
+					resolvesRequest: true,
+					metadata: {
+						source: AUTO_REPLY_SOURCE,
+						draftId: draft.id,
+						draftOutcome: "auto",
+						...(typeof sessionId === "string" ? { sessionId } : {}),
+						...(typeof host === "string" ? { host } : {}),
+					},
+					respondedAt: p.now,
+				})
+				.returning(),
+			db
+				.insert(workInteractionDeliveries)
+				.values({
+					orgId: p.orgId,
+					responseId: p.responseId,
+					interactionId: p.interactionId,
+					deliveredAt: p.now,
+					deliveredVia: p.via,
+					acknowledgedAt: null,
+					handoffTo: null,
+					handoffRef: null,
+					updatedAt: p.now,
+				})
+				.returning(),
+		]);
+		const response = responses[0];
+		if (!response) throw new Error("lost race");
+		return {
+			response,
+			deliveredAt: deliveries[0]?.deliveredAt ?? p.now,
+			deliveredVia: deliveries[0]?.deliveredVia ?? p.via,
+			created: true,
+		};
+	} catch (error) {
+		// Two clients delivering the same draft: the first record stands.
+		const raced = await getAutoReplyResponse(db, p);
+		if (raced)
+			return {
+				response: raced,
+				deliveredAt: null,
+				deliveredVia: null,
+				created: false,
+			};
+		const cause = error instanceof Error ? error.message : String(error);
+		throw new WorkControlError(
+			"CONFLICT",
+			`Auto reply was not recorded: ${cause}`,
+		);
+	}
 }
 
 /** The `client_observation_id` of a reply draft's competency observation. */

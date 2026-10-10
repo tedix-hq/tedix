@@ -159,6 +159,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// Answer delivery to the asking session: the caller's own answers only.
 	list_undelivered_work_interaction_responses: "mcp:messaging",
 	ack_work_interaction_delivery: "mcp:messaging",
+	record_reply_draft_delivery: "mcp:messaging",
 
 	// The canonical approval inbox uses a plural name outside WORK_TOOL_RE.
 	list_work_approvals: "mcp:work",
@@ -595,6 +596,8 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	retriage_agent_turn_questions: "write",
 	// "ack" matches no verb regex; it records delivery of the caller's answers.
 	ack_work_interaction_delivery: "write",
+	// "record" matches no verb regex; it answers in the drafting tedi's name.
+	record_reply_draft_delivery: "write",
 	// Emdash marks editorial writes destructive to request action confirmation.
 	// That hint does not make drafting or publishing content administration;
 	// publication still passes the owned-channel authorization gate.

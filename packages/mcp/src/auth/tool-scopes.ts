@@ -113,6 +113,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/listAudit": "mcp:messaging.read",
 	"workInteractions/listUndelivered": "mcp:messaging.read",
 	"workInteractions/ackDelivery": "mcp:messaging.write",
+	"workInteractions/recordDraftDelivery": "mcp:messaging.write",
 	// Agent-turn triage keeps the API's messaging authority through aliases.
 	"agentTurnTriage/triage": "mcp:messaging.read",
 	"agentTurnTriage/labelReply": "mcp:messaging.read",

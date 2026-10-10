@@ -2232,6 +2232,11 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 		);
 	const { request, effectiveState, responses } = query.data;
 	const isQuestion = request.kind === "question";
+	// A tedi's auto reply answered a question; the asked user may correct it.
+	const correctable =
+		isQuestion && effectiveState === "resolved" && query.data.canRespond;
+	const respondable =
+		query.data.canRespond && (effectiveState === "open" || correctable);
 	const draft =
 		isQuestion && effectiveState === "open" && query.data.canRespond
 			? latestDraftOf(query.data)
@@ -2362,7 +2367,9 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 								"No action is needed from you here."
 							)
 						) : isQuestion ? (
-							effectiveState === "resolved" ? (
+							correctable ? (
+								`A tedi answered this for you; it reached ${questionSource}. Reply only to correct it.`
+							) : effectiveState === "resolved" ? (
 								<>
 									{`Your answer is saved for ${questionSource}.`}
 									{delivery ? (
@@ -2483,10 +2490,10 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 							<p className="whitespace-pre-wrap">{request.prompt}</p>
 						</>
 					)}
-					{effectiveState === "open" &&
-					(query.data.canRespond || query.data.canCancel) ? (
+					{respondable ||
+					(effectiveState === "open" && query.data.canCancel) ? (
 						<>
-							{query.data.canRespond && externalAction ? (
+							{respondable && externalAction ? (
 								<Button
 									className="w-fit"
 									render={
@@ -2499,7 +2506,7 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 								>
 									{externalAction.label}
 								</Button>
-							) : query.data.canRespond ? (
+							) : respondable ? (
 								<>
 									{decisionCapture ? null : draftReply}
 									<form

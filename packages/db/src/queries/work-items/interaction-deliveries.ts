@@ -52,6 +52,7 @@ export interface ListUndeliveredWorkInteractionResponsesParams {
 /**
  * The caller's answered-but-undelivered session questions, oldest first: a
  * resolving answer by the asked user to a question that names its session,
+ * or their later correction of a tedi's auto reply (`metadata.corrects`),
  * except a reply typed in that same session (it is already there).
  */
 export async function listUndeliveredWorkInteractionResponses(
@@ -93,7 +94,7 @@ export async function listUndeliveredWorkInteractionResponses(
 			and(
 				eq(workInteractionResponses.orgId, p.orgId),
 				callerOwns(p.actor),
-				eq(workInteractionResponses.resolvesRequest, true),
+				sql`(${workInteractionResponses.resolvesRequest}=1 OR json_extract(${workInteractionResponses.metadata},'$.corrects') IS NOT NULL)`,
 				eq(workInteractionResponses.responderType, "user"),
 				eq(workInteractionResponses.responderId, workInteractions.targetId),
 				isNull(workInteractionDeliveries.deliveredAt),

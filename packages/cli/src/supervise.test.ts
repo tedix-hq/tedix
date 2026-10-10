@@ -134,6 +134,7 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 	};
 	const lines: string[] = [];
 	let reads = 0;
+	const drafted: Array<[string, JsonObject]> = [];
 	const codex: CodexDriver = {
 		queue: async (thread, message) => {
 			seen.queued.push([thread, message]);
@@ -165,21 +166,29 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 				if (next === undefined) throw new Error("no detail");
 				return structuredClone(next) as JsonObject;
 			}
+			if (args.includes("interaction-draft-delivered")) {
+				const at = args.indexOf("interaction-draft-delivered");
+				drafted.push([args[at + 1]!, JSON.parse(args[at + 3]!)]);
+				return { request: {}, response: {} };
+			}
 			if (args.includes("context")) return structuredClone(BINDING);
 			if (args.includes("auth")) return structuredClone(AUTH);
 			throw new Error(`unexpected read ${args.join(" ")}`);
 		},
 	});
-	return { runner, seen, lines, reads: () => reads };
+	return { runner, seen, lines, drafted, reads: () => reads };
 }
 
 describe("tedix supervise", () => {
 	test("queues a late auto draft for an open Codex session and records it", async () => {
 		waiting("codex", CODEX_IDLE_MS + 1000);
-		const { runner, seen, lines } = supervisor([interaction(DRAFT)]);
+		const { runner, seen, lines, drafted } = supervisor([interaction(DRAFT)]);
 		expect(await runner.tick()).toBe(1);
 		expect(seen.queued).toEqual([
 			[SESSION, autoDraftMessage({ ...DRAFT, complete: true } as never)],
+		]);
+		expect(drafted).toEqual([
+			[REQUEST, { draftId: DRAFT.id, via: "codex_queue" }],
 		]);
 		expect(seen.resumed).toEqual([]);
 		expect(seen.withdrawals).toBe(0);

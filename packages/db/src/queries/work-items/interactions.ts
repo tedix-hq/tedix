@@ -158,6 +158,40 @@ const RESPONSE_KINDS_BY_REQUEST_KIND: Record<
 	handoff: ["handoff_accepted", "handoff_declined"],
 	coordination: ["coordination_update"],
 };
+/**
+ * The tedi auto reply that resolved a user's question, when the question is
+ * resolved and that is how; null otherwise. Such a question still takes the
+ * asked user's correction (a non-resolving answer naming it).
+ */
+export async function autoReplyToCorrect(
+	db: DbQueryClient,
+	request: Pick<
+		WorkInteraction,
+		"orgId" | "id" | "status" | "kind" | "targetType"
+	>,
+): Promise<WorkInteractionResponse | null> {
+	if (
+		request.status !== "resolved" ||
+		request.kind !== "question" ||
+		request.targetType !== "user"
+	)
+		return null;
+	const [row] = await db
+		.select()
+		.from(workInteractionResponses)
+		.where(
+			and(
+				eq(workInteractionResponses.orgId, request.orgId),
+				eq(workInteractionResponses.interactionId, request.id),
+				eq(workInteractionResponses.resolvesRequest, true),
+				eq(workInteractionResponses.responderType, "tedi"),
+				sql`json_extract(${workInteractionResponses.metadata},'$.draftOutcome')='auto'`,
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
 export async function respondToWorkInteraction(
 	db: DbQueryClient,
 	p: RespondWorkInteractionParams,
@@ -172,8 +206,7 @@ export async function respondToWorkInteraction(
 					eq(workInteractions.orgId, p.orgId),
 					eq(workInteractions.id, p.interactionId),
 					eq(workInteractions.version, p.expectedVersion),
-					eq(workInteractions.status, "open"),
-					sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
+					sql`(${workInteractions.status}='open' AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now}) OR ${workInteractions.status}='resolved')`,
 				),
 			)
 			.limit(1)
@@ -191,12 +224,27 @@ export async function respondToWorkInteraction(
 			"INVALID_PRINCIPAL",
 			"Responder is not the request target",
 		);
+	// A resolved question takes only the asked user's correction of a tedi's
+	// auto reply; the trigger mirrors this.
+	const corrects =
+		request.status === "resolved"
+			? await autoReplyToCorrect(db, request)
+			: null;
+	if (request.status === "resolved" && !corrects)
+		throw new WorkControlError(
+			"CONFLICT",
+			"Interaction is no longer respondable",
+		);
 	const acceptedKinds = RESPONSE_KINDS_BY_REQUEST_KIND[request.kind];
 	if (!acceptedKinds.includes(p.responseKind))
 		throw new WorkControlError(
 			"INVALID_TRANSITION",
 			`A ${request.kind} request takes responseKind ${acceptedKinds.join(" or ")}, not ${p.responseKind}`,
 		);
+	const resolvesRequest = corrects ? false : p.resolvesRequest;
+	const metadata = corrects
+		? { ...p.metadata, corrects: corrects.id }
+		: (p.metadata ?? {});
 	const resolutionFence = crypto.randomUUID();
 	const resolvedVersion = p.expectedVersion + 1;
 	const responseInsert = db
@@ -238,12 +286,12 @@ export async function respondToWorkInteraction(
 					artifactDigest: sql<string | null>`${p.artifactDigest ?? null}`.as(
 						"artifact_digest",
 					),
-					resolvesRequest: sql<boolean>`${p.resolvesRequest ? 1 : 0}`.as(
+					resolvesRequest: sql<boolean>`${resolvesRequest ? 1 : 0}`.as(
 						"resolves_request",
 					),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify(p.metadata ?? {})}`.as("metadata"),
+					>`${JSON.stringify(metadata)}`.as("metadata"),
 					respondedAt: sql<string>`${p.now}`.as("responded_at"),
 				})
 				.from(workInteractions)
@@ -252,8 +300,12 @@ export async function respondToWorkInteraction(
 						eq(workInteractions.orgId, p.orgId),
 						eq(workInteractions.id, p.interactionId),
 						eq(workInteractions.version, p.expectedVersion),
-						eq(workInteractions.status, "open"),
-						sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
+						corrects
+							? eq(workInteractions.status, "resolved")
+							: and(
+									eq(workInteractions.status, "open"),
+									sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
+								),
 						and(
 							eq(workInteractions.targetType, p.responder.type),
 							eq(workInteractions.targetId, p.responder.id),

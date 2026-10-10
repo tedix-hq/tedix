@@ -143,6 +143,7 @@ describe("Work interactions router", () => {
 			"listAudit",
 			"listUndelivered",
 			"ackDelivery",
+			"recordDraftDelivery",
 		]);
 	});
 });
@@ -220,6 +221,70 @@ it("lists a session question's undelivered answer, records its delivery, and sho
 			(row) => row.request.id === question.id,
 		)?.request.metadata?.delivery,
 	).toMatchObject({ state: "acknowledged" });
+});
+
+it("records an auto draft's delivery as the tedi's answer, once, for the asked user only", async () => {
+	const { target, other, sqlite } = fixture();
+	const session = "11111111-1111-4111-8111-111111111111";
+	sqlite
+		.prepare(
+			"INSERT INTO tedis (id,organization_id,name,slug,status) VALUES (?,?,?,?,'active')",
+		)
+		.run("00000000-0000-4000-8000-00000000c0c0", ORG_ID, "CTO", "cto");
+	const question = await target.create({
+		workItemId: WORK_ITEM_ID,
+		kind: "question",
+		subject: "repo · claude-code waiting: Deploy?",
+		prompt: "Deploy?",
+		metadata: { sessionId: session, host: "claude-code" },
+		requestedFrom: { type: "user", id: "target-id" },
+	});
+	const draftId = "00000000-0000-4000-8000-0000000000dd";
+	sqlite
+		.prepare(
+			`INSERT INTO work_interaction_reply_drafts (id,org_id,interaction_id,drafter_type,drafter_id,body,rationale,turn_type,delivery,created_at)
+			VALUES (?,?,?,'tedi','00000000-0000-4000-8000-00000000c0c0','Deploy at noon.','Quiet window.','continue','auto',?)`,
+		)
+		.run(draftId, ORG_ID, question.id, new Date().toISOString());
+	await expect(
+		other.recordDraftDelivery({
+			requestId: question.id,
+			draftId,
+			via: "hook",
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	const first = await target.recordDraftDelivery({
+		requestId: question.id,
+		draftId,
+		via: "hook",
+	});
+	expect(first).toMatchObject({
+		created: true,
+		via: "hook",
+		response: {
+			requestId: question.id,
+			respondedByType: "tedi",
+			respondedById: "00000000-0000-4000-8000-00000000c0c0",
+			resolvesRequest: true,
+			body: "Deploy at noon.",
+			metadata: { draftId, draftOutcome: "auto", sessionId: session },
+		},
+	});
+	expect(first.deliveredAt).not.toBeNull();
+	const again = await target.recordDraftDelivery({
+		requestId: question.id,
+		draftId,
+		via: "codex_queue",
+	});
+	expect(again).toMatchObject({
+		created: false,
+		via: "hook",
+		response: { id: first.response.id },
+	});
+	// The tedi's answer is never the user's own undelivered answer.
+	expect((await target.listUndelivered({ sessionId: session })).data).toEqual(
+		[],
+	);
 });
 
 it("projects targeted open inbox prompts and strips metadata/drafts with truthful continuation", async () => {
