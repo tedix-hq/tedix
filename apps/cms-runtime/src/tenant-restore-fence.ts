@@ -96,7 +96,19 @@ export async function withCmsRestoreResponsePermit(
 	let response: Response;
 	try {
 		response = await run();
-		if (response.body) {
+		if (response.body && isFiniteHtmlResponse(response)) {
+			// A rendered page is finite and usually arrives in many small chunks.
+			// Admitting each chunk separately costs one ledger round trip per
+			// chunk (about 90 ms), which made a 190 KB page take six seconds.
+			// Reading the whole page under the initial permit is stricter, not
+			// looser: a restore close cannot interleave with the read.
+			const bytes = await response.arrayBuffer();
+			response = new Response(bytes, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+			});
+		} else if (response.body) {
 			const reader = response.body.getReader();
 			let pendingPull: Promise<void> | undefined;
 			let cancelled = false;
@@ -162,6 +174,12 @@ export async function withCmsRestoreResponsePermit(
 		await leavePermit(db, initialPermit, queries);
 	}
 	return { admitted: true, value: response };
+}
+
+/** Rendered HTML only; streams such as event streams keep per-pull admission. */
+function isFiniteHtmlResponse(response: Response): boolean {
+	const type = response.headers.get("content-type")?.toLowerCase() ?? "";
+	return type.startsWith("text/html");
 }
 
 export function cmsRestoreFenceResponse(): Response {

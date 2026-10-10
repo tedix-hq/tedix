@@ -153,6 +153,58 @@ describe("CMS public response restore permit", () => {
 		);
 	});
 
+	test("reads a finite HTML page under the initial permit instead of one permit per chunk", async () => {
+		const ledger = queries();
+		const chunks = ["<html>", "<body>", "page", "</body></html>"];
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const chunk of chunks)
+					controller.enqueue(new TextEncoder().encode(chunk));
+				controller.close();
+			},
+		});
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(source, {
+					status: 200,
+					headers: { "content-type": "text/html; charset=utf-8" },
+				}),
+			ledger,
+		);
+		if (!result.admitted) throw new Error("expected public read admission");
+		expect(ledger.enter).toHaveBeenCalledOnce();
+		expect(ledger.leave).toHaveBeenCalledOnce();
+		expect(await result.value.text()).toBe(chunks.join(""));
+		expect(result.value.headers.get("content-type")).toBe(
+			"text/html; charset=utf-8",
+		);
+		expect(ledger.enter).toHaveBeenCalledOnce();
+	});
+
+	test("keeps per-pull admission for non-HTML streams", async () => {
+		const ledger = queries();
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode("data: 1\n\n"));
+				controller.close();
+			},
+		});
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(source, {
+					headers: { "content-type": "text/event-stream" },
+				}),
+			ledger,
+		);
+		if (!result.admitted) throw new Error("expected public read admission");
+		await result.value.text();
+		expect(ledger.enter.mock.calls.length).toBeGreaterThan(1);
+	});
+
 	test("releases on reader cancellation, and only once", async () => {
 		const ledger = queries();
 		const cancel = vi.fn();
