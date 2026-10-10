@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.2 — 2026-10-10
+
+### Fixed
+
+- A tedi's automatic reply now answers its question on the server in the
+  tedi's name, so the question leaves your "For you" inbox instead of lingering
+  as an open ask. Your own later reply, typed in the chat or in Tedix OS, is
+  still recorded and delivered to the session as a correction. The hooks and
+  `tedix supervise` record each delivery once with the new
+  `tedix work interaction-draft-delivered` verb.
+
 ## 0.8.1 — 2026-10-09
 
 ### Fixed
