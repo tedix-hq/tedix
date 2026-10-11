@@ -89,6 +89,12 @@ export const ToolSchemaSyncInputSchema = z.object({
 		.describe(
 			"Projection mode only: aggressively rename existing rows to the generated/override tool_id instead of preserving the stored name. Renames in place by row id.",
 		),
+	incremental: z
+		.boolean()
+		.optional()
+		.describe(
+			"Projection workflow only: when applying, plan only endpoints whose stored contract hash differs from the deployed contract. Defaults to true; pass false to re-project every endpoint.",
+		),
 	pruneStale: z
 		.boolean()
 		.optional()

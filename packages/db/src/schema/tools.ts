@@ -178,6 +178,11 @@ export const appTools = sqliteTable(
 		schemaSourceRef: text("schema_source_ref"),
 		schemaSourceHash: text("schema_source_hash"),
 		schemaSyncedAt: text("schema_synced_at"),
+		// Hash of the code-derived projection inputs (contract schemas, overrides,
+		// generated metadata) this row was last projected from. Lets the post-deploy
+		// sync skip endpoints whose contract did not change. Any write that does not
+		// come from the projection clears it, so a hand-edited row is re-projected.
+		contractHash: text("contract_hash"),
 
 		// Tool Status
 		enabled: integer("enabled", { mode: "boolean" }).default(true),

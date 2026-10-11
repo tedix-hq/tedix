@@ -25,9 +25,11 @@ import type { DbClient } from "@tedix/db/client";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import {
 	deleteTool,
+	listToolContractHashesForSchemaSync,
 	listToolIdsForSchemaSync,
 	listToolsForSchemaSync,
 	listToolsForSchemaSyncScoped,
+	recordToolContractHashes,
 	refreshToolSchemaProvenance,
 	updateToolSchemaProjection,
 	upsertTool,
@@ -1244,6 +1246,55 @@ function mergeGeneratedConfig(
 	return nextConfig;
 }
 
+interface ProjectedSchemas {
+	inputSchema: AppTool["inputSchema"];
+	outputSchema: AppTool["outputSchema"];
+}
+
+function projectSchemas(endpoint: ResolvedContractEndpoint): ProjectedSchemas {
+	return {
+		inputSchema: zodToToolInputJsonSchema(
+			endpoint.inputSchema,
+		) as AppTool["inputSchema"],
+		outputSchema: endpoint.outputSchema
+			? (zodToStructuredOutputJsonSchema(
+					endpoint.outputSchema,
+				) as AppTool["outputSchema"])
+			: null,
+	};
+}
+
+/**
+ * Bump when a change to the projection reads an existing row differently
+ * (`mergeGeneratedConfig`, `mergeGeneratedMeta`, sticky widget columns).
+ * Code-only changes to what a fresh row looks like already change the hash.
+ */
+const TOOL_PROJECTION_REVISION = 1;
+
+type ProjectionOptions = NonNullable<Parameters<typeof buildProjectedTool>[3]>;
+
+/**
+ * Hash of everything the projection derives from code for one endpoint: the
+ * row a projection would write with no existing row to merge. Its
+ * `schemaSourceHash` already covers the generated schemas, tool id, title,
+ * description, config, annotations, meta and widget columns, so a contract,
+ * override, or projector change moves it, while existing-row state does not.
+ * The planner and the batch both compute it this way, so they always agree.
+ */
+async function projectionContractHash(
+	endpoint: ResolvedContractEndpoint,
+	options: ProjectionOptions,
+): Promise<string> {
+	const { tool } = await buildProjectedTool("", endpoint, undefined, {
+		...options,
+		contractHash: undefined,
+	});
+	return sha256({
+		revision: TOOL_PROJECTION_REVISION,
+		projection: tool.schemaSourceHash,
+	});
+}
+
 async function buildProjectedTool(
 	appId: string,
 	endpoint: ResolvedContractEndpoint,
@@ -1263,28 +1314,32 @@ async function buildProjectedTool(
 		 * row id (upsertTool updates by id first).
 		 */
 		regenerateToolIds?: boolean;
+		/** Already-generated JSON Schemas for this endpoint, to avoid a rerun. */
+		schemas?: ProjectedSchemas;
+		/** Stored on the row so later plans can skip this endpoint. */
+		contractHash?: string;
 	} = {},
 ): Promise<{
 	tool: Omit<
 		AppTool,
-		"id" | "createdAt" | "updatedAt" | "schemaSourceHash" | "schemaSyncedAt"
+		| "id"
+		| "createdAt"
+		| "updatedAt"
+		| "schemaSourceHash"
+		| "schemaSyncedAt"
+		| "contractHash"
 	> & {
 		id?: string;
 		schemaSourceHash: string;
 		schemaSyncedAt: string;
+		contractHash: string | null;
 	};
 	endpointPath: string;
 }> {
 	const endpointPath = `${endpoint.router}/${endpoint.procPath}`;
 	const widgetOverride = options.widgetOverrides?.[endpointPath];
-	const inputSchema = zodToToolInputJsonSchema(
-		endpoint.inputSchema,
-	) as AppTool["inputSchema"];
-	const outputSchema = endpoint.outputSchema
-		? (zodToStructuredOutputJsonSchema(
-				endpoint.outputSchema,
-			) as AppTool["outputSchema"])
-		: null;
+	const { inputSchema, outputSchema } =
+		options.schemas ?? projectSchemas(endpoint);
 	const generatedToolId =
 		options.resolvedToolId ??
 		options.toolIdOverrides?.[endpointPath] ??
@@ -1376,6 +1431,7 @@ async function buildProjectedTool(
 			schemaSourceRef: endpointPath,
 			schemaSourceHash,
 			schemaSyncedAt: new Date().toISOString(),
+			contractHash: options.contractHash ?? null,
 			sortOrder: existing?.sortOrder ?? 0,
 			enabled: existing?.enabled ?? true,
 		},
@@ -1565,6 +1621,10 @@ async function runToolProjectionSync(
 	let inSync = 0;
 	let skipped = 0;
 	let failed = 0;
+	// In-sync rows that predate their contract hash (or carry an older one).
+	// Recording it is bookkeeping, not a change: one batched write, no
+	// `updated_at` bump, no list_changed.
+	const contractHashes: Array<{ id: string; contractHash: string }> = [];
 
 	for (const endpoint of endpoints) {
 		const endpointPath = `${endpoint.router}/${endpoint.procPath}`;
@@ -1576,12 +1636,21 @@ async function runToolProjectionSync(
 
 		let projected: Awaited<ReturnType<typeof buildProjectedTool>>;
 		try {
-			projected = await buildProjectedTool(options.appId, endpoint, existing, {
+			const projectionOptions: ProjectionOptions = {
 				toolIdOverrides: options.toolIdOverrides,
 				kindOverrides: options.kindOverrides,
 				widgetOverrides: options.widgetOverrides,
 				resolvedToolId,
 				regenerateToolIds: options.regenerateToolIds,
+				schemas: projectSchemas(endpoint),
+			};
+			const contractHash = await projectionContractHash(
+				endpoint,
+				projectionOptions,
+			);
+			projected = await buildProjectedTool(options.appId, endpoint, existing, {
+				...projectionOptions,
+				contractHash,
 			});
 		} catch (error) {
 			skipped++;
@@ -1615,6 +1684,12 @@ async function runToolProjectionSync(
 
 		if (existing && changed.length === 0) {
 			inSync++;
+			if (existing.contractHash !== projected.tool.contractHash) {
+				contractHashes.push({
+					id: existing.id,
+					contractHash: projected.tool.contractHash as string,
+				});
+			}
 			items.push({
 				toolUuid: existing.id,
 				toolId: existing.toolId,
@@ -1674,6 +1749,8 @@ async function runToolProjectionSync(
 			});
 		}
 	}
+
+	if (options.apply) await recordToolContractHashes(db, contractHashes);
 
 	return {
 		appId: options.appId,
@@ -1805,14 +1882,10 @@ export function planToolSchemaSyncProjection(
 	options: ToolSchemaSyncInput,
 	adminAppId: string,
 ): ToolSchemaSyncProjectionPlan {
-	const appId = options.appId ?? adminAppId;
-	const effective = resolveEffectiveToolSchemaSyncOptions(
+	const { appId, candidates, resolved } = resolveProjectionPlan(
 		options,
-		appId,
 		adminAppId,
 	);
-	const candidates = projectionCandidates(effective).sort(compareEndpointPath);
-	const resolved = generateToolIdMap(candidates, effective.toolIdOverrides);
 	const toolIds: Record<string, string> = {};
 	const endpoints: string[] = [];
 	for (const candidate of candidates) {
@@ -1822,6 +1895,95 @@ export function planToolSchemaSyncProjection(
 		if (resolvedToolId) toolIds[path] = resolvedToolId;
 	}
 	return { appId, endpoints, toolIds };
+}
+
+function resolveProjectionPlan(
+	options: ToolSchemaSyncInput,
+	adminAppId: string,
+) {
+	const appId = options.appId ?? adminAppId;
+	const effective = resolveEffectiveToolSchemaSyncOptions(
+		options,
+		appId,
+		adminAppId,
+	);
+	const candidates = projectionCandidates(effective).sort(compareEndpointPath);
+	const resolved = generateToolIdMap(candidates, effective.toolIdOverrides);
+	return { appId, effective, candidates, resolved };
+}
+
+export interface ToolSchemaSyncIncrementalPlan extends ToolSchemaSyncProjectionPlan {
+	/** Endpoints skipped because their stored row carries the current hash. */
+	unchanged: number;
+	/** Endpoints whose schemas cannot be generated; no batch could project them. */
+	unsupported: string[];
+}
+
+/**
+ * Projection plan narrowed to endpoints whose code-derived projection changed.
+ *
+ * Every candidate's contract hash is computed here, one endpoint at a time so
+ * no generated schema outlives its hash (~1,000 endpoints is well under a
+ * second), and compared with the hash stored on the row a batch would match
+ * — by `config.endpoint` for rpc rows, else by the resolved tool id, the same
+ * lookup `runToolProjectionSync` uses. A missing row or a missing or different
+ * hash plans the endpoint; an unchanged deploy plans nothing.
+ *
+ * The tool id map is still resolved over the whole candidate set, then sliced
+ * to the planned endpoints, so collision handling is identical to a full walk.
+ */
+export async function planIncrementalToolSchemaSyncProjection(
+	db: DbClient,
+	options: ToolSchemaSyncInput,
+	adminAppId: string,
+): Promise<ToolSchemaSyncIncrementalPlan> {
+	const { appId, effective, candidates, resolved } = resolveProjectionPlan(
+		options,
+		adminAppId,
+	);
+	const rows = await listToolContractHashesForSchemaSync(db, appId);
+	const byEndpoint = new Map<string, string | null>();
+	const byToolId = new Map<string, string | null>();
+	for (const row of rows) {
+		byToolId.set(row.toolId, row.contractHash);
+		if (row.transport === "rpc" && typeof row.endpoint === "string") {
+			byEndpoint.set(row.endpoint, row.contractHash);
+		}
+	}
+
+	const endpoints: string[] = [];
+	const toolIds: Record<string, string> = {};
+	const unsupported: string[] = [];
+	let unchanged = 0;
+	for (const candidate of candidates) {
+		const path = endpointPathOf(candidate);
+		const resolvedToolId =
+			resolved.get(path) ?? generatedToolIdForEndpoint(candidate);
+		let contractHash: string;
+		try {
+			contractHash = await projectionContractHash(candidate, {
+				toolIdOverrides: effective.toolIdOverrides,
+				kindOverrides: effective.kindOverrides,
+				widgetOverrides: effective.widgetOverrides,
+				resolvedToolId,
+				regenerateToolIds: effective.regenerateToolIds,
+			});
+		} catch {
+			unsupported.push(path);
+			continue;
+		}
+		const stored = byEndpoint.has(path)
+			? byEndpoint.get(path)
+			: byToolId.get(resolvedToolId);
+		if (stored === contractHash) {
+			unchanged++;
+			continue;
+		}
+		endpoints.push(path);
+		const planned = resolved.get(path);
+		if (planned) toolIds[path] = planned;
+	}
+	return { appId, endpoints, toolIds, unchanged, unsupported };
 }
 
 export interface ToolSchemaSyncRowPlan {

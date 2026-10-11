@@ -11,6 +11,7 @@ vi.mock("cloudflare:workers", () => ({
 const mocks = vi.hoisted(() => ({
 	createDb: vi.fn(() => ({}) as never),
 	planProjection: vi.fn(),
+	planIncremental: vi.fn(),
 	planRows: vi.fn(),
 	run: vi.fn(),
 	publish: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@tedix/db/client", () => ({
 }));
 
 vi.mock("../services/tool-schema-sync", () => ({
+	planIncrementalToolSchemaSyncProjection: mocks.planIncremental,
 	planToolSchemaSyncProjection: mocks.planProjection,
 	planToolSchemaSyncRows: mocks.planRows,
 	resolveTedixAdminAppId: async () => "5eed0020-0000-4000-8000-000000000020",
@@ -128,9 +130,100 @@ beforeEach(() => {
 			endpoints(120).map((path, index) => [path, `tool_${index}`]),
 		),
 	});
+	// Until a test says otherwise every endpoint's hash differs, so the
+	// incremental plan is the full plan.
+	mocks.planIncremental.mockImplementation(
+		async (_db: unknown, options: ToolSchemaSyncInput, adminAppId: string) => ({
+			...mocks.planProjection(options, adminAppId),
+			unchanged: 0,
+			unsupported: [],
+		}),
+	);
 	mocks.planRows.mockResolvedValue({
 		appId: "app-1",
 		toolIds: endpoints(120).map((_, index) => `tool_${index}`),
+	});
+});
+
+describe("ToolSchemaSyncWorkflow incremental projection", () => {
+	it("plans zero batches when every contract hash matches, and publishes nothing", async () => {
+		mocks.planIncremental.mockResolvedValue({
+			appId: "app-1",
+			endpoints: [],
+			toolIds: {},
+			unchanged: 120,
+			unsupported: ["broken/proc"],
+		});
+		const env = { MCP_SERVICE: mcpService() };
+		const { step, executed, cache } = engine();
+		const aggregate = await workflow(env as never).run(
+			{
+				payload: {
+					mode: "projection",
+					source: "rpc",
+					target: "both",
+					apply: true,
+					pruneStale: true,
+				},
+			} as never,
+			step as never,
+		);
+
+		expect(executed).toEqual(["plan tool schema sync"]);
+		expect(mocks.planProjection).not.toHaveBeenCalled();
+		expect(mocks.run).not.toHaveBeenCalled();
+		expect(mocks.publish).not.toHaveBeenCalled();
+		expect(purgeCalls(env)).toBe(0);
+		expect(JSON.parse(cache.get("plan tool schema sync") as string)).toEqual({
+			appId: "app-1",
+			keys: [],
+			toolIds: {},
+			unchanged: 120,
+			unsupported: ["broken/proc"],
+		});
+		expect(aggregate).toMatchObject({
+			total: 0,
+			batchCount: 0,
+			batchesCompleted: 0,
+			failed: 0,
+		});
+	});
+
+	it("batches only the changed endpoints the incremental plan returns", async () => {
+		const changed = endpoints(3);
+		mocks.planIncremental.mockResolvedValue({
+			appId: "app-1",
+			endpoints: changed,
+			toolIds: Object.fromEntries(
+				changed.map((path, i) => [path, `tool_${i}`]),
+			),
+			unchanged: 117,
+			unsupported: [],
+		});
+		const { step, executed } = engine();
+		await workflow().run(
+			{ payload: { mode: "projection" } } as never,
+			step as never,
+		);
+
+		expect(
+			executed.filter((name) => name.startsWith("project-batch-")),
+		).toHaveLength(1);
+		expect(batchOptions()[0]?.endpoints).toEqual(changed);
+	});
+
+	it("walks every endpoint when incremental is off or the run is a preview", async () => {
+		for (const payload of [
+			{ mode: "projection", incremental: false },
+			{ mode: "projection", apply: false },
+		]) {
+			vi.clearAllMocks();
+			mocks.run.mockImplementation(async () => syncResult());
+			const { step } = engine();
+			await workflow().run({ payload } as never, step as never);
+			expect(mocks.planIncremental).not.toHaveBeenCalled();
+			expect(mocks.planProjection).toHaveBeenCalledTimes(1);
+		}
 	});
 });
 
