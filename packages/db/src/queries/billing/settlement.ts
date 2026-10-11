@@ -1,7 +1,12 @@
 /** Canonical billing settlement queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { getBillingBalanceSnapshot } from "./credits";
 import { and, eq, or } from "drizzle-orm";
+import {
+	monetaryInferenceConfig,
+	observedMonetaryInference,
+} from "./monetary-inference";
 import type { D1Executor, DbClient } from "../../client";
 import {
 	type BillingPlanVersion,
@@ -185,7 +190,14 @@ export async function settleBillingUsage(
 	}
 
 	const duplicate = await findExistingBillingUsageCharge(db, input);
-	if (duplicate) return duplicate;
+	if (duplicate) {
+		if (
+			duplicate.organizationId !== input.organizationId ||
+			duplicate.reservationId !== input.reservationId
+		)
+			throw new Error("Usage settlement identity mismatch");
+		return duplicate;
+	}
 
 	const [reservation] = await db
 		.select()
@@ -232,7 +244,11 @@ export async function settleBillingUsage(
 		})
 		.onConflictDoNothing();
 
-	const metadata = JSON.stringify(input.metadata ?? {});
+	const monetaryQuote = observedMonetaryInference(reservation, input);
+	if (monetaryInferenceConfig(plan) && !monetaryQuote)
+		throw new Error("Monetary settlement requires a pinned rate snapshot");
+	if (monetaryQuote && input.rateCardVersion !== monetaryQuote.rateSnapshot.id)
+		throw new Error("Settlement receipt differs from reserved monetary price");
 	const duplicateSql = `(
 		(? IS NOT NULL AND gateway_log_id = ?)
 		OR (? IS NOT NULL AND provider_usage_id = ?)
@@ -244,7 +260,14 @@ export async function settleBillingUsage(
 
 	for (let attempt = 0; attempt < 5; attempt++) {
 		const existing = await findExistingBillingUsageCharge(db, input);
-		if (existing) return existing;
+		if (existing) {
+			if (
+				existing.organizationId !== input.organizationId ||
+				existing.reservationId !== input.reservationId
+			)
+				throw new Error("Usage settlement identity mismatch");
+			return existing;
+		}
 
 		const [[period], [account]] = await Promise.all([
 			db
@@ -268,12 +291,46 @@ export async function settleBillingUsage(
 			);
 		}
 
-		const amounts = calculateSettlementAmounts({
-			totalTokens,
-			period,
-			plan,
-			creditBalanceMicros: account.creditBalanceMicros,
-			overageEnabled: account.overageEnabled,
+		const balanceSnapshot = monetaryQuote
+			? await getBillingBalanceSnapshot(db, input.organizationId, input.now)
+			: null;
+		const ownActiveHold =
+			reservation.status === "reserved" && reservation.expiresAt > input.now
+				? reservation.estimatedChargeMicros
+				: 0;
+		const otherHolds = Math.max(
+			(balanceSnapshot?.reservedChargeMicros ?? 0) - ownActiveHold,
+			0,
+		);
+		const amounts = monetaryQuote
+			? {
+					includedTokensApplied: 0,
+					stripeMeteredTokens: 0,
+					customerChargeMicros: 0,
+					// Inference exceeding its reserved ceiling is absorbed, not an
+					// unauthorized overdraft. Late receipts may use remaining funds only.
+					creditAppliedMicros: Math.min(
+						monetaryQuote.customerChargeMicros,
+						reservation.estimatedChargeMicros,
+						Math.max(account.creditBalanceMicros - otherHolds, 0),
+					),
+				}
+			: calculateSettlementAmounts({
+					totalTokens,
+					period,
+					plan,
+					creditBalanceMicros: account.creditBalanceMicros,
+					overageEnabled: account.overageEnabled,
+				});
+		const metadata = JSON.stringify({
+			...input.metadata,
+			...(monetaryQuote
+				? {
+						monetaryQuote,
+						absorbedChargeMicros:
+							monetaryQuote.customerChargeMicros - amounts.creditAppliedMicros,
+					}
+				: {}),
 		});
 		const nextSettlementVersion = period.settlementVersion + 1;
 		const outboxId = crypto.randomUUID();
@@ -294,9 +351,17 @@ export async function settleBillingUsage(
 				 WHERE id = ?
 				   AND settlement_version = ?
 				   AND EXISTS (
+				     SELECT 1 FROM billing_usage_reservations
+				     WHERE id = ? AND status IN ('reserved','expired')
+				   )
+				   AND NOT EXISTS (
+				     SELECT 1 FROM billing_usage_charges WHERE reservation_id = ?
+				   )
+				   AND EXISTS (
 				     SELECT 1 FROM billing_accounts
 				     WHERE organization_id = ?
 				       AND credit_balance_micros = ?
+ AND (? = 0 OR credit_balance_micros - ? >= COALESCE((SELECT SUM(held.estimated_charge_micros) FROM billing_usage_reservations held WHERE held.organization_id=billing_accounts.organization_id AND held.id<>? AND held.status='reserved' AND held.expires_at>?),0))
 				   )
 				   AND NOT EXISTS (
 				     SELECT 1 FROM billing_usage_charges
@@ -315,8 +380,14 @@ export async function settleBillingUsage(
 				input.now,
 				periodId,
 				period.settlementVersion,
+				input.reservationId,
+				input.reservationId,
 				input.organizationId,
 				account.creditBalanceMicros,
+				monetaryQuote ? 1 : 0,
+				amounts.creditAppliedMicros,
+				input.reservationId,
+				input.now,
 				input.gatewayLogId ?? null,
 				input.gatewayLogId ?? null,
 				input.providerUsageId ?? null,
@@ -475,6 +546,13 @@ export async function settleBillingUsage(
 	}
 
 	const existing = await findExistingBillingUsageCharge(db, input);
-	if (existing) return existing;
+	if (existing) {
+		if (
+			existing.organizationId !== input.organizationId ||
+			existing.reservationId !== input.reservationId
+		)
+			throw new Error("Usage settlement identity mismatch");
+		return existing;
+	}
 	throw new Error("Billing settlement concurrency retry exhausted");
 }

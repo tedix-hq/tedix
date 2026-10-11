@@ -136,6 +136,20 @@ describe("settleUnbilledGatewayCosts", () => {
 		);
 	});
 
+	for (const message of [
+		"Observed input is outside the reserved pricing tier",
+		"Settlement receipt differs from reserved monetary price",
+		"Invalid provider cache counters",
+		"tokens.uncachedInput must be a safe non-negative integer",
+	]) {
+		it(`quarantines deterministic monetary failure: ${message}`, async () => {
+			billingMocks.settleBillingUsage.mockRejectedValueOnce(new Error(message));
+			const result = await settleUnbilledGatewayCosts(
+				fakeDb([{ call: call("monetary-failed", "reserved") }], []) as never,
+			);
+			expect(result).toMatchObject({ failed: 0, quarantined: 1, settled: 0 });
+		});
+	}
 	it("prioritizes reserved usage, quarantines deterministic rows, and aggregates transient logs", async () => {
 		const current = [
 			{ call: call("gateway-ok", "reservation-ok") },

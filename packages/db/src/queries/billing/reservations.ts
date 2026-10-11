@@ -15,6 +15,8 @@ import {
 	type BillingUsageReservation,
 	type BillingUsageSource,
 	billingUsageReservations,
+	billingPlanVersions,
+	billingAccounts,
 } from "../../schema/billing";
 
 import {
@@ -23,6 +25,12 @@ import {
 } from "./credits";
 import { effectiveAllowOverageSql } from "./overage";
 import { reservationUsedTokensSql } from "./usage-tokens";
+import {
+	estimateMonetaryInference,
+	monetaryInferenceConfig,
+	monetaryPeriodSpendSql,
+	verifyMonetaryQuoteReceipt,
+} from "./monetary-inference";
 
 const ACTIVE_BILLING_STATUSES: BillingAccountStatus[] = ["trial", "active"];
 
@@ -237,7 +245,10 @@ export type BillingReservationDecision =
 				| "monthly_allowance_exhausted"
 				| "payment_required"
 				| "hard_spend_limit"
-				| "inference_capacity_exhausted";
+				| "inference_capacity_exhausted"
+				| "pricing_unavailable"
+				| "credit_allowance_exhausted";
+			// Monetary plans never fall back to token-priced admission.
 			snapshot: BillingBalanceSnapshot | null;
 	  };
 
@@ -291,6 +302,7 @@ export async function reserveBillingUsage(
 		source: BillingUsageSource;
 		provider: string;
 		model: string;
+		deploymentScope?: string;
 		estimatedInputTokens: number;
 		estimatedOutputTokens: number;
 		runId?: string | null;
@@ -361,7 +373,9 @@ export async function reserveBillingUsage(
 		)
 		.limit(1);
 	if (existing[0]) {
-		return existing[0].status === "reserved" || existing[0].status === "settled"
+		return (existing[0].status === "reserved" &&
+			existing[0].expiresAt > input.now) ||
+			existing[0].status === "settled"
 			? { allowed: true, reservation: existing[0] }
 			: {
 					allowed: false,
@@ -374,11 +388,63 @@ export async function reserveBillingUsage(
 				};
 	}
 
+	const [plan] = await db
+		.select({
+			id: billingPlanVersions.id,
+			currency: billingPlanVersions.currency,
+			metadata: billingPlanVersions.metadata,
+		})
+		.from(billingAccounts)
+		.innerJoin(
+			billingPlanVersions,
+			eq(billingAccounts.planVersionId, billingPlanVersions.id),
+		)
+		.where(eq(billingAccounts.organizationId, input.organizationId))
+		.limit(1);
+	let monetaryQuote: ReturnType<typeof estimateMonetaryInference> | null = null;
+	try {
+		const config = plan ? monetaryInferenceConfig(plan) : null;
+		if (config) {
+			if (config.perRunBudgetMicros !== undefined && !input.runId)
+				return {
+					allowed: false,
+					code: "hard_spend_limit",
+					snapshot: await getBillingBalanceSnapshot(
+						db,
+						input.organizationId,
+						input.now,
+					),
+				};
+			monetaryQuote = estimateMonetaryInference(config, input);
+			const deploymentScope =
+				input.execution?.deploymentScope ?? input.deploymentScope;
+			if (!deploymentScope)
+				throw new Error(
+					"Monetary inference requires exact execution deployment scope",
+				);
+			await verifyMonetaryQuoteReceipt(db, monetaryQuote, deploymentScope);
+		}
+	} catch {
+		return {
+			allowed: false,
+			code: "pricing_unavailable",
+			snapshot: await getBillingBalanceSnapshot(
+				db,
+				input.organizationId,
+				input.now,
+			),
+		};
+	}
+	const reservationMetadata = {
+		...input.metadata,
+		...(monetaryQuote ? { monetaryQuote } : {}),
+	};
 	const reservationStatement = db.all(sql`
 		WITH ${eligibility} snapshot AS (
 			SELECT
 				account.organization_id,
 				plan.id AS plan_version_id,
+				(json_extract(plan.metadata, '$.monetaryInference.version') = 1) AS is_monetary,
 				account.status,
 				account.billing_mode,
 				(json_extract(account.metadata, '$.providerCustomerKey') IS NOT NULL
@@ -400,8 +466,7 @@ export async function reserveBillingUsage(
 				plan.overage_unit_price_micros,
 				COALESCE(period.used_input_tokens + period.used_output_tokens, 0)
 					AS used_tokens,
-				COALESCE(period.customer_charge_micros, 0)
-					AS charged_micros,
+				CASE WHEN json_extract(plan.metadata, '$.monetaryInference.version') = 1 THEN ${monetaryPeriodSpendSql()} ELSE COALESCE(period.customer_charge_micros, 0) END AS charged_micros,
 				COALESCE((
 					SELECT SUM(
 						reservation.estimated_input_tokens +
@@ -520,6 +585,7 @@ export async function reserveBillingUsage(
 			SELECT
 				*,
 				CASE
+					WHEN is_monetary = 1 THEN ${monetaryQuote?.customerChargeMicros ?? 0}
 					WHEN incremental_overage_tokens <= 0 THEN 0
 					WHEN overage_unit_price_micros <= 0 THEN 0
 					ELSE (
@@ -557,9 +623,16 @@ export async function reserveBillingUsage(
 			estimated_charge_micros, period_start, period_end,
 			${input.runId ?? null}, ${input.traceId ?? null},
 			${input.idempotencyKey}, NULL, ${input.expiresAt},
-			${JSON.stringify(input.metadata ?? {})}, ${input.now}, ${input.now}
+			${JSON.stringify(reservationMetadata)}, ${input.now}, ${input.now}
 		FROM admission
-		WHERE ${executionPredicate} AND status IN ('trial', 'active')
+		WHERE plan_version_id = ${plan?.id ?? null}
+			AND (COALESCE(is_monetary,0) = 0 OR ${monetaryQuote !== null ? 1 : 0} = 1)
+ AND (is_monetary <> 1 OR json_extract((SELECT metadata FROM billing_plan_versions WHERE id=plan_version_id),'$.monetaryInference.perRunBudgetMicros') IS NULL OR (
+ COALESCE((SELECT SUM(charge.credit_applied_micros) FROM billing_usage_charges charge JOIN billing_usage_reservations held ON held.id=charge.reservation_id WHERE held.organization_id=admission.organization_id AND held.run_id=${input.runId ?? null} AND json_extract(charge.metadata,'$.monetaryQuote.schemaVersion')=1),0)
+ + COALESCE((SELECT SUM(held.estimated_charge_micros) FROM billing_usage_reservations held WHERE held.organization_id=admission.organization_id AND held.run_id=${input.runId ?? null} AND held.status='reserved' AND held.expires_at>${input.now}),0) + estimated_charge_micros
+ <= json_extract((SELECT metadata FROM billing_plan_versions WHERE id=plan_version_id),'$.monetaryInference.perRunBudgetMicros')))
+			AND datetime(${input.expiresAt}) > datetime(${input.now})
+			AND ${executionPredicate} AND status IN ('trial', 'active')
 			AND (
 				billing_mode <> 'stripe'
 				OR account_stripe_environment = ${input.stripeEnvironment ?? "live"}
@@ -567,7 +640,8 @@ export async function reserveBillingUsage(
 			AND datetime(${input.now}) >= datetime(period_start)
 			AND datetime(${input.now}) < datetime(period_end)
 			AND (
-				incremental_overage_tokens <= 0
+				(is_monetary = 1 AND credit_balance_micros - reserved_charge_micros >= estimated_charge_micros)
+				OR (COALESCE(is_monetary,0) = 0 AND (incremental_overage_tokens <= 0
 				OR (
 					allow_overage = 1
 					AND (
@@ -580,7 +654,7 @@ export async function reserveBillingUsage(
 						OR credit_balance_micros - reserved_charge_micros
 							>= estimated_charge_micros
 					)
-				)
+				)))
 			)
 			AND (
 				hard_spend_limit_micros IS NULL
@@ -597,7 +671,7 @@ export async function reserveBillingUsage(
 					(billing_mode = 'stripe' AND stripe_customer_id IS NOT NULL
 						AND stripe_environment = ${input.stripeEnvironment ?? "live"})
 				)) OR
-				${input.aiGatewayLimits?.organizationDailyTokenLimit ?? null} IS NULL
+				is_monetary = 1 OR ${input.aiGatewayLimits?.organizationDailyTokenLimit ?? null} IS NULL
 				OR organization_day_tokens + ${estimatedTokens} <=
 					${input.aiGatewayLimits?.organizationDailyTokenLimit ?? null} +
 					organization_day_capacity_tokens
@@ -623,7 +697,7 @@ export async function reserveBillingUsage(
 			-- The debit belongs to the organization conditions above, which still
 			-- carry it in full.
 			AND (
-				${input.aiGatewayLimits?.tediDailyTokenLimit ?? null} IS NULL
+				is_monetary = 1 OR ${input.aiGatewayLimits?.tediDailyTokenLimit ?? null} IS NULL
 				OR tedi_day_tokens + ${estimatedTokens} <=
 					${input.aiGatewayLimits?.tediDailyTokenLimit ?? null} +
 					MAX(organization_day_capacity_tokens, 0)
@@ -678,6 +752,19 @@ export async function reserveBillingUsage(
 		Date.parse(input.now) >= Date.parse(snapshot.periodEnd)
 	) {
 		return { allowed: false, code: "billing_period_inactive", snapshot };
+	}
+	if (monetaryQuote) {
+		if (snapshot.availableCreditMicros < monetaryQuote.customerChargeMicros)
+			return { allowed: false, code: "credit_allowance_exhausted", snapshot };
+		if (
+			snapshot.hardSpendLimitMicros !== null &&
+			(snapshot.monetarySpentMicros ?? 0) +
+				snapshot.reservedChargeMicros +
+				monetaryQuote.customerChargeMicros >
+				snapshot.hardSpendLimitMicros
+		)
+			return { allowed: false, code: "hard_spend_limit", snapshot };
+		return { allowed: false, code: "inference_capacity_exhausted", snapshot };
 	}
 	if (
 		!snapshot.allowOverage &&

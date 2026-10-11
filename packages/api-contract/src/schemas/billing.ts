@@ -33,6 +33,7 @@ export const MonetaryInferenceConfigSchema = z.object({
 				version: z.number().int().positive(),
 				provider: z.string().min(1),
 				model: z.string().min(1),
+				deploymentScope: z.string().min(1),
 				currency: z.literal("USD"),
 				funding: z.literal("managed"),
 				effectiveFrom: z.iso.datetime(),
@@ -71,7 +72,7 @@ export const BillingCreditOverviewSchema = z.object({
 	reservedMicros: z.number().int().nonnegative(),
 	availableMicros: z.number().int().nonnegative(),
 	spentMicros: z.number().int().nonnegative(),
-	monthlyCapMicros: z.number().int().positive().nullable(),
+	monthlyCapMicros: z.number().int().nonnegative().nullable(),
 });
 export type BillingCreditOverview = z.infer<typeof BillingCreditOverviewSchema>;
 
