@@ -9823,6 +9823,138 @@ describe("kernel DO integration (enqueueMessage kernel path)", () => {
 		expect(db.runs[0]?.status).toBe("running");
 	});
 
+	it("lands the ingress rows in one batch and skips the index bump on replay", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db);
+		const batch = vi.spyOn(db, "batch");
+		(context.env as Record<string, unknown>).KERNEL = {
+			idFromName: vi.fn(() => "do-id"),
+			get: vi.fn(() => ({
+				processTurn: vi.fn(
+					async (input: { runId: string; organizationId: string }) =>
+						doTurnResult(input.runId),
+				),
+			})),
+		};
+		kernelRuntimeTestHooks.setKernelForTest(vi.fn(async () => null));
+
+		const client = createKernelRuntimeClient(context);
+		await client.enqueueMessage({
+			conversationId: "home:batched",
+			content: "what changed today?",
+			idempotencyKey: "home-batched-1",
+		});
+
+		// First delivery: conversation-index bump + message.received +
+		// run.started + run row, one D1 batch.
+		expect(batch).toHaveBeenCalledTimes(1);
+		expect(batch.mock.calls[0]?.[0]).toHaveLength(4);
+		// The ledger's submission.admitted lands after the batch.
+		const ingress = db.events.filter(
+			(event) => event.runId === "home-batched-1",
+		);
+		expect(ingress.map((event) => event.kind)).toEqual([
+			"message.received",
+			"run.started",
+			"submission.admitted",
+		]);
+		expect(ingress[1]?.causeEventId).toBe(ingress[0]?.id);
+		expect(db.runs.map((run) => run.id)).toEqual(["home-batched-1"]);
+		const indexRows = db.conversationIndexRows.filter(
+			(row) => row.conversationId === "home:batched",
+		);
+		expect(indexRows).toHaveLength(1);
+		expect(indexRows[0]?.messageCount).toBe(1);
+
+		// Replay of the same idempotency key: the probe finds the stored
+		// run.started cause, so the batch carries no index bump and nothing is
+		// written twice.
+		await client.enqueueMessage({
+			conversationId: "home:batched",
+			content: "what changed today?",
+			idempotencyKey: "home-batched-1",
+		});
+		expect(batch).toHaveBeenCalledTimes(2);
+		expect(batch.mock.calls[1]?.[0]).toHaveLength(3);
+		expect(
+			db.events.filter((event) => event.runId === "home-batched-1"),
+		).toHaveLength(3);
+		expect(db.runs).toHaveLength(1);
+		expect(
+			db.conversationIndexRows.filter(
+				(row) => row.conversationId === "home:batched",
+			),
+		).toHaveLength(1);
+	});
+
+	it("issues the governance, allowlist and replay-probe reads together", async () => {
+		const db = createKernelRuntimeDb({
+			policyPackRows: [
+				{
+					id: "pack-1",
+					definition: { governancePolicy: { approvalTtlHours: 12 } },
+				} as unknown as PolicyPackRow,
+			],
+		});
+		const context = createContext(db);
+		(context.env as Record<string, unknown>).KERNEL = {
+			idFromName: vi.fn(() => "do-id"),
+			get: vi.fn(() => ({
+				processTurn: vi.fn(
+					async (input: { runId: string; organizationId: string }) =>
+						doTurnResult(input.runId),
+				),
+			})),
+		};
+		kernelRuntimeTestHooks.setKernelForTest(vi.fn(async () => null));
+
+		// Hold the governance-policy read open and record every select issued
+		// while it is pending: the allowlist (run metadata) and replay-probe
+		// (event by id) reads must already be in flight — they used to wait
+		// for it in series.
+		let releasePolicy: (() => void) | null = null;
+		const policyGate = new Promise<void>((resolve) => {
+			releasePolicy = resolve;
+		});
+		const issuedWhileHeld: unknown[] = [];
+		let held = false;
+		const originalSelect = db.select.bind(db);
+		db.select = ((selection?: Record<string, unknown>) => {
+			const builder = originalSelect(selection);
+			const from = builder.from.bind(builder);
+			builder.from = (table: unknown) => {
+				const result = from(table);
+				if (table === policyPacks && !held) {
+					held = true;
+					const then = result.then.bind(result);
+					result.then = ((onfulfilled, onrejected) =>
+						policyGate.then(() =>
+							then(onfulfilled, onrejected),
+						)) as typeof result.then;
+				} else if (held) {
+					issuedWhileHeld.push(table);
+				}
+				return result;
+			};
+			return builder;
+		}) as typeof db.select;
+
+		const client = createKernelRuntimeClient(context);
+		const pending = client.enqueueMessage({
+			conversationId: "home:parallel",
+			content: "what changed today?",
+			idempotencyKey: "home-parallel-1",
+		});
+		for (let tick = 0; tick < 20; tick += 1)
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(held).toBe(true);
+		expect(issuedWhileHeld).toContain(kernelRuntimeRuns);
+		expect(issuedWhileHeld).toContain(kernelRuntimeEvents);
+		releasePolicy?.();
+		await pending;
+		expect(db.runs.map((run) => run.id)).toEqual(["home-parallel-1"]);
+	});
+
 	it("acks immediately when the DO returns the async-dispatch sentinel (KERNEL_ASYNC_PLANNER)", async () => {
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);

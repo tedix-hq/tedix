@@ -167,21 +167,29 @@ export async function recordKernelSubmissionStarted(
 		idempotencyKey?: string | null;
 		delegatedTediId?: string | null;
 		createdAt?: string;
+		/**
+		 * The submission `claimKernelExecutionPolicy` already admitted for this
+		 * run; skips the re-admit round trip when its id matches.
+		 */
+		admitted?: RuntimeSubmission;
 	},
 ): Promise<void> {
 	try {
 		const submissionId = kernelSubmissionId(args.runId);
-		const submission = await admitSubmission(db, {
-			id: submissionId,
-			organizationId: args.organizationId,
-			subjectKind: "kernel",
-			subjectId: `kernel:${args.organizationId}`,
-			sourceKind: "home",
-			conversationId: args.conversationId,
-			runId: args.runId,
-			idempotencyKey: args.idempotencyKey ?? args.runId,
-			tediId: args.delegatedTediId ?? null,
-		});
+		const submission =
+			args.admitted?.id === submissionId
+				? args.admitted
+				: await admitSubmission(db, {
+						id: submissionId,
+						organizationId: args.organizationId,
+						subjectKind: "kernel",
+						subjectId: `kernel:${args.organizationId}`,
+						sourceKind: "home",
+						conversationId: args.conversationId,
+						runId: args.runId,
+						idempotencyKey: args.idempotencyKey ?? args.runId,
+						tediId: args.delegatedTediId ?? null,
+					});
 		// Open the first attempt only on the initial admit. A re-sent run returns
 		// the existing submission (already running, attemptCount ≥ 1) → skip.
 		if (submission.attemptCount === 0 && submission.status === "admitted") {

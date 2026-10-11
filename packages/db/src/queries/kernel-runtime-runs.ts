@@ -7,10 +7,16 @@ import {
 	kernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
 import {
+	buildRecordKernelConversationMessageStatement,
+	type RecordKernelConversationMessageParams,
+} from "./kernel-conversations";
+import {
 	buildInsertKernelRuntimeEventIfAbsentStatement,
+	buildInsertKernelRuntimeEventStatement,
 	insertKernelRuntimeEventIfAbsent,
 	type KernelRuntimeEvent,
 	type NewKernelRuntimeEvent,
+	resolveReplayedKernelRuntimeEvent,
 } from "./kernel-runtime-events";
 
 export type KernelRuntimeRun = typeof kernelRuntimeRuns.$inferSelect;
@@ -321,6 +327,83 @@ export async function settleKernelRuntimeTurn(
 		events.push({ row: replay.row, inserted: replay.inserted });
 	}
 	return { runTransitioned: runRows.length > 0, events };
+}
+
+export interface OpenKernelRuntimeTurnParams {
+	/** The persist-first run row (`onConflictDoNothing` on its id). */
+	run: NewKernelRuntimeRun;
+	/**
+	 * `message.received` first, `run.started` second. The second may bind its
+	 * `causeEventId` to the first: the batch inserts them in order inside one
+	 * transaction, so the cause row exists by the time the INSERT…SELECT runs.
+	 */
+	events: readonly [
+		received: NewKernelRuntimeEvent,
+		started: NewKernelRuntimeEvent,
+	];
+	/**
+	 * Conversation-index bump for the `message.received` row, composed only on
+	 * a first delivery (the caller proves there is no prior `run.started` for
+	 * this turn). `null` skips it — a replay must not double-count.
+	 */
+	conversation: RecordKernelConversationMessageParams | null;
+}
+
+export interface OpenKernelRuntimeTurnResult {
+	/** One entry per input event, in order; `inserted: false` is an idempotent replay. */
+	events: Array<{ row: KernelRuntimeEvent; inserted: boolean }>;
+}
+
+/**
+ * Land a Home turn's ingress rows — the conversation-index bump, the
+ * `message.received` and `run.started` events and the run row — in one D1
+ * batch instead of one round trip per row. Every statement is idempotent or
+ * caller-gated, so the batch is equivalent to the former sequential writes;
+ * a replayed event (empty `returning()`) is resolved to its existing row
+ * afterwards, and a `run.started` whose cause is missing raises
+ * `KernelRuntimeEventConflictError` exactly as the single insert did.
+ */
+export async function openKernelRuntimeTurn(
+	db: DbClient,
+	params: OpenKernelRuntimeTurnParams,
+): Promise<OpenKernelRuntimeTurnResult> {
+	const [received, started] = params.events;
+	const eventStatements = [
+		buildInsertKernelRuntimeEventStatement(db, received),
+		buildInsertKernelRuntimeEventStatement(db, started),
+	] as const;
+	const runStatement = db
+		.insert(kernelRuntimeRuns)
+		.values(params.run)
+		.onConflictDoNothing({ target: kernelRuntimeRuns.id })
+		.returning({ id: kernelRuntimeRuns.id });
+	const results = params.conversation
+		? (
+				await db.batch([
+					buildRecordKernelConversationMessageStatement(
+						db,
+						params.conversation,
+					),
+					...eventStatements,
+					runStatement,
+				])
+			).slice(1, 3)
+		: (await db.batch([...eventStatements, runStatement])).slice(0, 2);
+	const events: OpenKernelRuntimeTurnResult["events"] = [];
+	for (const [index, value] of params.events.entries()) {
+		const inserted = (results[index] as KernelRuntimeEvent[] | undefined)?.[0];
+		if (inserted) {
+			events.push({ row: inserted, inserted: true });
+			continue;
+		}
+		const replay = await resolveReplayedKernelRuntimeEvent(db, value);
+		if (!replay.row)
+			throw new Error(
+				`openKernelRuntimeTurn: event ${value.id} was neither inserted nor found`,
+			);
+		events.push({ row: replay.row, inserted: false });
+	}
+	return { events };
 }
 
 /**
