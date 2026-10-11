@@ -10,6 +10,10 @@ import type { OsBlueprintResourceRequirementSchema } from "@tedix/api-contract/s
 type OsBlueprintResourceRequirement = z.infer<
 	typeof OsBlueprintResourceRequirementSchema
 >;
+import {
+	GOOGLE_CALENDAR_SCOPE_FAMILY,
+	GOOGLE_CALENDAR_SCOPE_ROOT,
+} from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 
 type ApiClient = ReturnType<typeof getApiClient<ApiContract>>;
@@ -36,7 +40,6 @@ const UUID =
 const GOOGLE_EVENTS = "https://www.googleapis.com/auth/calendar.events";
 const GOOGLE_LIST =
 	"https://www.googleapis.com/auth/calendar.calendarlist.readonly";
-const GOOGLE_ROOT = "https://www.googleapis.com/auth/calendar";
 const METHOD = "reconcile_calendar_subscription";
 const USAGE =
 	"bun scripts/skills/install-calendar-coordinator.ts --api-url https://api.tedix.dev --organization UUID --worker UUID --google-provider ID --google-calendars N [--outlook-provider ID --outlook-calendars N] [--apply --reviewed --review-reason TEXT]";
@@ -227,8 +230,8 @@ function verifyProviders(
 			!resource.scopes.every(
 				(scope) =>
 					provider.availableScopes.includes(scope) ||
-					(scope.startsWith(`${GOOGLE_ROOT}.`) &&
-						provider.availableScopes.includes(GOOGLE_ROOT)),
+					(GOOGLE_CALENDAR_SCOPE_FAMILY.has(scope) &&
+						provider.availableScopes.includes(GOOGLE_CALENDAR_SCOPE_ROOT)),
 			)
 		)
 			throw new Error(
