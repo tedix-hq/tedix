@@ -3,6 +3,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	rmSync,
 	utimesSync,
 	readFileSync,
@@ -121,6 +122,7 @@ interface Fake {
 	received: (withdrawn: boolean) => boolean;
 	queueResult?: { id: string; offset: number };
 	withdrawals: number;
+	withdrawResult: boolean;
 }
 
 function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
@@ -129,6 +131,7 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 		resumed: [],
 		received: () => true,
 		withdrawals: 0,
+		withdrawResult: true,
 		queueResult: { id: "queue-item-1", offset: 0 },
 		...fake,
 	};
@@ -143,7 +146,7 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 		received: () => seen.received(seen.withdrawals > 0),
 		withdraw: () => {
 			seen.withdrawals++;
-			return true;
+			return seen.withdrawResult;
 		},
 		resume: async (thread, message) => {
 			seen.resumed.push([thread, message]);
@@ -223,6 +226,22 @@ describe("tedix supervise", () => {
 		});
 		expect(await runner.tick()).toBe(1);
 		expect(seen.resumed).toEqual([]);
+	});
+
+	test("retains an uncertain queue without starting another turn", async () => {
+		waiting("codex", CODEX_IDLE_MS + 1000);
+		const { runner, seen, drafted, lines } = supervisor([interaction(DRAFT)], {
+			received: () => false,
+			withdrawResult: false,
+		});
+		expect(await runner.tick()).toBe(0);
+		expect(seen.queued).toHaveLength(1);
+		expect(seen.resumed).toEqual([]);
+		expect(drafted).toEqual([]);
+		expect(lines.join("\n")).toContain("not confirmed");
+		expect(readdirSync(join(config, "supervisor", "codex-queue"))).toHaveLength(
+			1,
+		);
 	});
 
 	test("leaves a Codex question alone while await-draft may still deliver", async () => {
@@ -321,12 +340,14 @@ describe("tedix supervise", () => {
 				started = true,
 				lead = LEAD as string | null,
 				received = true,
+				withdrawn = true,
 				undeliveredError,
 			}: {
 				open?: boolean | undefined;
 				started?: boolean;
 				lead?: string | null;
 				received?: boolean;
+				withdrawn?: boolean;
 				undeliveredError?: Error;
 			} = {},
 		) {
@@ -357,15 +378,22 @@ describe("tedix supervise", () => {
 					return { id: "queue-item-1", offset: 0 };
 				},
 				received: () => received,
-				withdraw: () => true,
-				resume: async () => true,
+				withdraw: () => withdrawn,
+				resume: async (thread, message, cwd) => {
+					resumed.push([thread, message, cwd]);
+					return true;
+				},
 			};
+			let clock = Date.now();
 			const runner = new Supervisor({
 				env: { TEDIX_CONFIG_DIR: config },
 				codex,
 				claude,
 				lead: () => lead ?? undefined,
-				sleep: async () => {},
+				now: () => clock,
+				sleep: async (ms) => {
+					clock += ms;
+				},
 				log: (line) => lines.push(line),
 				read: async (args, _timeoutMs, _input, options) => {
 					cwds.push([args[0]!, options?.cwd]);
@@ -404,6 +432,80 @@ describe("tedix supervise", () => {
 				finish: (ok: boolean) => finish(ok),
 			};
 		}
+
+		test("an uncertain Codex answer reuses its queue after restart until receipt is confirmed", async () => {
+			sessions([SESSION, "codex"]);
+			const answers = [answer(SESSION, "codex", 60_000)];
+			const first = drain(answers, { received: false, withdrawn: false });
+			expect(await first.runner.tick()).toBe(0);
+			expect(first.queued).toHaveLength(1);
+			expect(first.resumed).toEqual([]);
+			expect(first.acks).toEqual([]);
+			const retry = drain(answers, { received: false, withdrawn: false });
+			expect(await retry.runner.tick()).toBe(0);
+			expect(retry.queued).toEqual([]);
+			expect(retry.resumed).toEqual([]);
+			const confirmed = drain(answers);
+			expect(await confirmed.runner.tick()).toBe(1);
+			expect(confirmed.queued).toEqual([]);
+			expect(confirmed.resumed).toEqual([]);
+			expect(confirmed.acks).toHaveLength(1);
+			expect(readdirSync(join(config, "supervisor", "codex-queue"))).toEqual(
+				[],
+			);
+		});
+
+		test("a retained Codex answer resumes only after withdrawal succeeds", async () => {
+			sessions([SESSION, "codex"]);
+			const answers = [answer(SESSION, "codex", 60_000)];
+			const first = drain(answers, { received: false, withdrawn: false });
+			expect(await first.runner.tick()).toBe(0);
+			const retry = drain(answers, { received: false, withdrawn: true });
+			expect(await retry.runner.tick()).toBe(1);
+			expect(retry.queued).toEqual([]);
+			expect(retry.resumed).toHaveLength(1);
+		});
+
+		test("new answers cannot enqueue another batch while the prior queue is uncertain", async () => {
+			sessions([SESSION, "codex"]);
+			const answers = [answer(SESSION, "codex", 60_000)];
+			expect(
+				await drain(answers, {
+					received: false,
+					withdrawn: false,
+				}).runner.tick(),
+			).toBe(0);
+			const retry = drain([
+				...answers,
+				answer(
+					SESSION,
+					"codex",
+					30_000,
+					"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				),
+			]);
+			expect(await retry.runner.tick()).toBe(0);
+			expect(retry.queued).toEqual([]);
+			expect(retry.resumed).toEqual([]);
+			expect(retry.acks).toEqual([]);
+		});
+
+		test("a damaged queue receipt does not start a replacement turn", async () => {
+			sessions([SESSION, "codex"]);
+			const answers = [answer(SESSION, "codex", 60_000)];
+			expect(
+				await drain(answers, {
+					received: false,
+					withdrawn: false,
+				}).runner.tick(),
+			).toBe(0);
+			const directory = join(config, "supervisor", "codex-queue");
+			writeFileSync(join(directory, readdirSync(directory)[0]!), "{");
+			const retry = drain(answers);
+			expect(await retry.runner.tick()).toBe(0);
+			expect(retry.queued).toEqual([]);
+			expect(retry.resumed).toEqual([]);
+		});
 
 		test("reads resolve from the session's checkout without changing this process's directory", async () => {
 			sessions([CLAUDE, "claude-code"]);

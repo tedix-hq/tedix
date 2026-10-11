@@ -28,6 +28,7 @@
  * per answer. Activity goes to `~/.tedix/supervisor.log`.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	appendFileSync,
 	closeSync,
@@ -500,7 +501,9 @@ export class Supervisor {
 					? `codex ${candidate.session}: no open window; resumed headless with ${what} for question ${candidate.requestId}`
 					: outcome === "queue-failed"
 						? `codex ${candidate.session}: codex queue failed; ${what} not delivered`
-						: `codex ${candidate.session}: headless resume failed; ${what} not delivered`,
+						: outcome === "queue-pending"
+							? `codex ${candidate.session}: queued ${what} not confirmed; no headless turn started`
+							: `codex ${candidate.session}: headless resume failed; ${what} not delivered`,
 		);
 		return outcome === "codex_queue" || outcome === "codex_resume";
 	}
@@ -516,25 +519,60 @@ export class Supervisor {
 		cwd: string,
 		onQueued?: () => void,
 	): Promise<
-		"codex_queue" | "codex_resume" | "queue-failed" | "resume-failed"
+		| "codex_queue"
+		| "codex_resume"
+		| "queue-failed"
+		| "queue-pending"
+		| "resume-failed"
 	> {
-		const item = await this.deps.codex.queue(session, message);
+		const key = createHash("sha256").update(session).digest("hex");
+		const messageHash = createHash("sha256").update(message).digest("hex");
+		const directory = join(
+			configDir(this.deps.env),
+			"supervisor",
+			"codex-queue",
+		);
+		const receipt = join(directory, `${key}.json`);
+		const saved = peek(receipt);
+		if (
+			existsSync(receipt) &&
+			(!saved ||
+				saved.messageHash !== messageHash ||
+				typeof saved.id !== "string" ||
+				typeof saved.offset !== "number")
+		)
+			return "queue-pending";
+		const item = saved
+			? { id: saved.id as string, offset: saved.offset as number }
+			: await this.deps.codex.queue(session, message);
 		if (!item) return "queue-failed";
+		if (!saved) {
+			mkdirSync(directory, { recursive: true, mode: 0o700 });
+			writeFileSync(receipt, JSON.stringify({ ...item, messageHash }), {
+				mode: 0o600,
+			});
+		}
 		onQueued?.();
 		const sleep = this.deps.sleep ?? pause;
 		const until = this.now() + QUEUE_PICKUP_MS;
 		for (;;) {
 			// Only the session transcript proves a window took it: Codex can drop a
 			// queued item for a thread nobody has open without running it.
-			if (this.deps.codex.received(session, message, item.offset))
+			if (this.deps.codex.received(session, message, item.offset)) {
+				rmSync(receipt, { force: true });
 				return "codex_queue";
+			}
 			if (this.now() + QUEUE_POLL_MS > until) break;
 			await sleep(QUEUE_POLL_MS);
 		}
-		// No window took it: take any queued copy back, then resume headless.
-		this.deps.codex.withdraw(item.id);
-		if (this.deps.codex.received(session, message, item.offset))
+		const withdrawn = this.deps.codex.withdraw(item.id);
+		if (this.deps.codex.received(session, message, item.offset)) {
+			rmSync(receipt, { force: true });
 			return "codex_queue";
+		}
+		// A missing row or failed deletion does not prove another host isn't taking it.
+		if (!withdrawn) return "queue-pending";
+		rmSync(receipt, { force: true });
 		return (await this.deps.codex.resume(session, message, cwd))
 			? "codex_resume"
 			: "resume-failed";
@@ -728,7 +766,9 @@ export class Supervisor {
 				return failed(
 					outcome === "queue-failed"
 						? "codex queue failed; not delivered"
-						: "headless codex resume failed; not delivered",
+						: outcome === "queue-pending"
+							? "queued reply not confirmed; retaining its receipt without another agent turn"
+							: "headless codex resume failed; not delivered",
 				);
 			const acked = await record(outcome);
 			for (const answer of fresh)
