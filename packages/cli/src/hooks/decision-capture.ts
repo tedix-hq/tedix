@@ -44,6 +44,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
+import { codexThreadPath } from "../codex-thread";
 import {
 	applyTriagedStop,
 	asciiJson,
@@ -108,6 +109,7 @@ export function declinedDraft(
 /** Test seams: status side effects and gateway-call timeouts. */
 export interface CaptureOptions {
 	status?: Pick<StatusDeps, "spawn" | "platform" | "which" | "label" | "now">;
+	codexTranscript?: typeof codexThreadPath;
 	triageTimeoutMs?: number;
 	labelTimeoutMs?: number;
 	draftTimeoutMs?: number;
@@ -998,6 +1000,12 @@ async function onStop(
 		return;
 	// Codex hooks configured globally carry no Codex environment; its turn_id does.
 	const host = harnessOf(event, deps.env);
+	// A question must belong to a stored chat that can receive its answer.
+	if (
+		host === "codex" &&
+		!(await (options.codexTranscript ?? codexThreadPath)(session, deps.env))
+	)
+		return;
 	// Only the first turn after an auto delivery can decline that draft.
 	const auto = peek(autoDeliveryPath(state));
 	const priorDraft = declinedDraft(message, auto);
