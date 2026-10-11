@@ -12,6 +12,7 @@ import {
 	billingCreditEntries,
 } from "../../schema/billing";
 import { effectiveAllowOverageSql } from "./overage";
+import { monetaryPeriodSpendSql } from "./monetary-inference";
 
 export async function expireBillingCredits(
 	db: DbClient,
@@ -88,6 +89,7 @@ export interface BillingBalanceSnapshot {
 	reservedChargeMicros: number;
 	availableCreditMicros: number;
 	customerChargeMicros: number;
+	monetarySpentMicros?: number;
 	hardSpendLimitMicros: number | null;
 	/** Plan permission combined with the admin opt-in for priced overage. */
 	allowOverage: boolean;
@@ -176,6 +178,7 @@ export async function getBillingBalanceSnapshot(
 				0
 			) AS availableCreditMicros,
 			COALESCE(period.customer_charge_micros, 0) AS customerChargeMicros,
+			${monetaryPeriodSpendSql()} AS monetarySpentMicros,
 			account.hard_spend_limit_micros AS hardSpendLimitMicros,
 			${sql.raw(effectiveAllowOverageSql("plan", "account"))} AS allowOverage,
 			account.overage_enabled AS overageEnabled,
@@ -218,6 +221,7 @@ export async function getBillingBalanceSnapshot(
 		reservedChargeMicros: Number(row.reservedChargeMicros),
 		availableCreditMicros: Number(row.availableCreditMicros),
 		customerChargeMicros: Number(row.customerChargeMicros),
+		monetarySpentMicros: Number(row.monetarySpentMicros),
 		hardSpendLimitMicros:
 			row.hardSpendLimitMicros === null
 				? null

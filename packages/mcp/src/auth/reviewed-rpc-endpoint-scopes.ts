@@ -113,6 +113,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"billing/revokeHistoricalFreshDecision": "platform:admin",
 	"billing/revokeHistoricalFreshExecution": "platform:admin",
 	"billing/setOverageSettings": "platform:admin",
+	"billing/setCreditBudget": "platform:admin",
 	"billing/setServiceCreditControls": "platform:admin",
 	"browser/capturePage": "mcp:content.write",
 	"browser/extractContent": "mcp:content.write",

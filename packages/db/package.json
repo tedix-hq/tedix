@@ -266,6 +266,7 @@
 		"./queries/tools": "./src/queries/tools.ts",
 		"./queries/usage-ledger": "./src/queries/usage-ledger.ts",
 		"./queries/billing/credits": "./src/queries/billing/credits.ts",
+		"./queries/billing/monetary-inference": "./src/queries/billing/monetary-inference.ts",
 		"./queries/billing/capacity-allocations": "./src/queries/billing/capacity-allocations.ts",
 		"./queries/billing/capacity-packs": "./src/queries/billing/capacity-packs.ts",
 		"./queries/billing/inference-admission": "./src/queries/billing/inference-admission.ts",

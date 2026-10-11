@@ -90,7 +90,14 @@ function deterministicSettlementFailure(
 	if (
 		message.startsWith("Billing reservation not found") ||
 		message.includes("cannot settle from") ||
-		message.includes("FOREIGN KEY constraint failed")
+		message.includes("FOREIGN KEY constraint failed") ||
+		message.includes("reserved pricing tier") ||
+		message.includes("reserved monetary price") ||
+		message.includes("pinned monetary quote") ||
+		message.includes("provider cache counters") ||
+		message.includes("tokens.uncachedInput") ||
+		message.includes("tokens.cacheRead") ||
+		message.includes("tokens.cacheWrite")
 	) {
 		return "invalid_attribution";
 	}

@@ -10,7 +10,9 @@
 - BYOK removes Tedix's estimated provider liability. Its separately published customer rate may cover only platform/service fees; it must not charge again for inference the customer pays directly to the provider. A zero platform rate is valid. Each snapshot pins its funding mode; a managed rate cannot be reused for BYOK.
 - Unknown pricing cannot be quoted as zero. Estimates and observed usage are identified separately; neither proves a provider invoice.
 
-This helper performs no admission, journal writes, entitlement changes or deployment. Runtime-frozen quote snapshots protect against caller mutation; durable immutability and event idempotency still belong to the ledger implementation.
+The opt-in engine now reserves monetary funds atomically, pins published provider receipts and settles the existing credit journal once. Monthly and per-run caps count only monetary usage, preserving legacy statements. Late receipts cannot consume another call's hold; usage beyond its reservation is absorbed and recorded. Accounts remain on their existing plan until explicitly configured. The quote helper itself changes no entitlement.
+
+The first wallet denomination is USD. New monthly grants carry forward without expiry; purchased/promotional splitting is not claimed. The overview separates the monthly allowance from the total wallet. The credit budget endpoint changes the monthly cap without enabling cash overage. Per-run caps apply across calls sharing a run ID; stage estimates and replayable completed stages remain subsequent work.
 
 ## Provider counter normalization
 

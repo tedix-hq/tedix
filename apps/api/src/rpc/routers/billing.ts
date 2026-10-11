@@ -1,3 +1,10 @@
+import {
+	monetaryInferenceConfig,
+	monetaryCreditOverview,
+	estimateMonetaryInference,
+	verifyMonetaryQuoteReceipt,
+	setMonetaryCreditBudget,
+} from "@tedix/db/queries/billing/monetary-inference";
 import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-usage";
 /**
  * Billing Router
@@ -667,6 +674,36 @@ const setOverageSettingsContract = os.setOverageSettings
 		return readBillingOverageSettings(context, organizationId);
 	});
 
+const setCreditBudgetContract = os.setCreditBudget
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context, input }) => {
+		requireOrganizationBillingAuthority(context);
+		const organizationId = context.organizationId;
+		if (!organizationId)
+			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+		const now = new Date().toISOString();
+		const updated = await setMonetaryCreditBudget(context.db, {
+			organizationId,
+			monthlyCapMicros: input.monthlyCapMicros,
+			now,
+		});
+		if (!updated.length)
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Credit budgets require an active monetary credit plan",
+			});
+		const [entitlement, snapshot] = await Promise.all([
+			getBillingEntitlement(context.db, organizationId),
+			getBillingBalanceSnapshot(context.db, organizationId, now),
+		]);
+		if (!entitlement || !snapshot)
+			throw new ORPCError("NOT_FOUND", {
+				message: "Billing account is not configured",
+			});
+		return monetaryCreditOverview(entitlement.plan, snapshot, null)!;
+	});
+
 const getOverviewContract = os.getOverview
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -734,19 +771,25 @@ const getOverviewContract = os.getOverview
 			baseDailySpendLimitMicros === null
 				? null
 				: baseDailySpendLimitMicros + capacity.allocatedSpendMicros;
-		const monthlyMetered = usesMonthlyInferenceCapacity({
-			status: snapshot.status,
-			allowOverage: snapshot.allowOverage,
-			billingMode: snapshot.billingMode,
-			isSponsoredCustomer: snapshot.isSponsoredCustomer,
-			stripeCustomerId:
-				entitlement.account.stripeEnvironment === stripeEnvironment
-					? snapshot.stripeCustomerId
-					: null,
-		});
+		const credits = monetaryCreditOverview(entitlement.plan, snapshot, period);
+		const monthlyMetered =
+			!!credits ||
+			usesMonthlyInferenceCapacity({
+				status: snapshot.status,
+				allowOverage: snapshot.allowOverage,
+				billingMode: snapshot.billingMode,
+				isSponsoredCustomer: snapshot.isSponsoredCustomer,
+				stripeCustomerId:
+					entitlement.account.stripeEnvironment === stripeEnvironment
+						? snapshot.stripeCustomerId
+						: null,
+			});
 		// Same rule as the admission gate: a second copy of the rules drifted and
 		// reported `available: true` for an organization the gate denied.
-		const blockingReason = billingBlockingReason({
+		let blockingReason:
+			| ReturnType<typeof billingBlockingReason>
+			| "pricing_unavailable"
+			| "credit_allowance_exhausted" = billingBlockingReason({
 			status: snapshot.status,
 			now,
 			periodStart: snapshot.periodStart,
@@ -779,6 +822,56 @@ const getOverviewContract = os.getOverview
 			// exact request proceed", so it asks about a representative turn.
 			estimatedTokens: NOMINAL_TURN_TOKENS,
 		});
+		if (credits) {
+			try {
+				const config = monetaryInferenceConfig(entitlement.plan)!;
+				const rate = config.rates[0]!;
+				const quote = estimateMonetaryInference(config, {
+					provider: rate.provider,
+					model: rate.model,
+					estimatedInputTokens: Math.max(rate.inputTokenMin, 10000),
+					estimatedOutputTokens: 4096,
+					now,
+				});
+				await verifyMonetaryQuoteReceipt(context.db, quote);
+				blockingReason = billingBlockingReason({
+					status: snapshot.status,
+					now,
+					periodStart: snapshot.periodStart,
+					periodEnd: snapshot.periodEnd,
+					allowOverage: true,
+					remainingIncludedTokens: 0,
+					billingMode: "internal",
+					stripeCustomerId: null,
+					availableCreditMicros: snapshot.availableCreditMicros,
+					hardSpendLimitMicros: snapshot.hardSpendLimitMicros,
+					customerChargeMicros: credits.spentMicros,
+					reservedChargeMicros: snapshot.reservedChargeMicros,
+					estimatedChargeMicros: quote.customerChargeMicros,
+					effectiveDailyTokens: Number.MAX_SAFE_INTEGER,
+					effectiveDailySpendMicros: effectiveSpend,
+					usedDailyTokens: 0,
+					usedDailySpendMicros: capacity.usedSpendMicros,
+					estimatedTokens: 0,
+				});
+				if (
+					!blockingReason &&
+					snapshot.availableCreditMicros < quote.customerChargeMicros
+				)
+					blockingReason = "credit_allowance_exhausted";
+				if (
+					!blockingReason &&
+					effectiveSpend !== null &&
+					capacity.usedSpendMicros +
+						snapshot.reservedChargeMicros +
+						quote.customerChargeMicros >
+						effectiveSpend
+				)
+					blockingReason = "inference_capacity_exhausted";
+			} catch {
+				blockingReason = "pricing_unavailable";
+			}
+		}
 		const unblockAction =
 			blockingReason === "inference_capacity_exhausted" && packs.length > 0
 				? ("top_up" as const)
@@ -793,6 +886,7 @@ const getOverviewContract = os.getOverview
 		return {
 			stripeEnvironment,
 			workstationCostCoverage,
+			credits,
 			overage: billingOverageSettings(snapshot, entitlement.plan),
 			snapshot: {
 				status: snapshot.status,
@@ -1273,6 +1367,7 @@ export const billingContractRouter = os.router({
 	getOverview: getOverviewContract,
 	getOverageSettings: getOverageSettingsContract,
 	setOverageSettings: setOverageSettingsContract,
+	setCreditBudget: setCreditBudgetContract,
 	listPlans: listPlansContract,
 	recordVoiceProviderUsage: recordVoiceProviderUsageContract,
 	grantCredit: grantCreditContract,

@@ -87,6 +87,22 @@ describe("own-organization billing authorization", () => {
 	});
 });
 
+describe("credit budget authority", () => {
+	for (const ctx of [
+		context(["billing:read"]),
+		{ ...context(["billing:manage"], true), userRole: "member" },
+	]) {
+		it(`denies credit budget writes for ${ctx.authType}/${ctx.userRole}`, async () => {
+			const client = createRouterClient(billingContractRouter, {
+				context: ctx as BaseContext,
+			});
+			await expect(
+				client.setCreditBudget({ monthlyCapMicros: 10000 }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		});
+	}
+});
+
 describe("overage opt-in authority", () => {
 	beforeEach(() => {
 		overageStorage.set.mockReset();
