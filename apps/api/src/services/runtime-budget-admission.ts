@@ -1,3 +1,6 @@
+import { getBillingEntitlement } from "@tedix/db/queries/billing/plans";
+import { getBillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
+import { preflightMonetaryInference } from "@tedix/db/queries/billing/monetary-inference";
 import type {
 	AuthorizeRuntimeInferenceInput,
 	AuthorizeRuntimeInferenceResponse,
@@ -66,6 +69,7 @@ export async function authorizeRuntimeBudget(input: {
 	execution?: NewProviderExecutionAttemptRow;
 	executionGuard?: ProviderExecutionAdmissionGuard;
 	nowMs?: number;
+	preflightOnly?: boolean;
 }): Promise<RuntimeBudgetDecision> {
 	const mode = resolveBillingSettlementMode(input.env);
 	if (mode !== input.request.settlementMode) {
@@ -155,6 +159,40 @@ export async function authorizeRuntimeBudget(input: {
 		};
 	}
 
+	if (input.preflightOnly) {
+		const [billing, balance] = await Promise.all([
+			getBillingEntitlement(input.db, input.request.organizationId),
+			getBillingBalanceSnapshot(
+				input.db,
+				input.request.organizationId,
+				new Date(nowMs).toISOString(),
+			),
+		]);
+		if (billing && balance) {
+			const readiness = await preflightMonetaryInference(
+				input.db,
+				billing.plan,
+				balance,
+				{
+					provider: input.request.provider,
+					model: input.request.model,
+					estimatedInputTokens: input.request.estimatedInputTokens,
+					estimatedOutputTokens: input.request.estimatedOutputTokens,
+					now: new Date(nowMs).toISOString(),
+				},
+			);
+			if (readiness) {
+				if (!readiness.allowed) return { ...readiness, entitlement };
+				return {
+					allowed: true,
+					settlementMode: mode,
+					reservationId: null,
+					expiresAt: null,
+					estimatedChargeMicros: readiness.estimatedChargeMicros,
+				};
+			}
+		}
+	}
 	const stripeAt = Date.now();
 	const stripeEnvironment = resolveStripeEnvironment(
 		input.env as Parameters<typeof resolveStripeEnvironment>[0],

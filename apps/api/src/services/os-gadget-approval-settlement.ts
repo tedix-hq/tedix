@@ -193,6 +193,7 @@ export async function authorizeGadgetInference(
 			? parseModelRef(modelPolicy.chatModelRef)
 			: null;
 	const decision = await authorizeRuntimeBudget({
+		preflightOnly: true,
 		db: context.db,
 		env: context.env,
 		request: {
