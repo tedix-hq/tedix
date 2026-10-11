@@ -31,6 +31,9 @@ and durable answer settlement.
 - **Plugin hooks** (`src/hooks/`) — `tedix hooks <session-start|prompt-context|capture-stop|capture-reply|status>`
   runs the plugin's host lifecycle hooks from the event JSON on stdin, so the
   plugin ships no scripts. `scripts/package-plugin.ts` builds its review ZIPs.
+  `prompt-context` runs its gateway, organization and answer reads together
+  and caches preferences, lessons and the organization id for ten minutes
+  (`src/hooks/context-cache.ts`); `TEDIX_HOOK_TRACE=1` prints step timings.
   With decision capture enabled, `capture-stop` triages the redacted turn
   (`tedix work agent-turn-triage`, 4 s, silent fallback) into `metadata.triage` and
   owns that chat's Stop status (`applyTriagedStop`); `status` skips Stop for

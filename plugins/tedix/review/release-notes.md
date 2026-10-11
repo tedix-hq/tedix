@@ -1,3 +1,11 @@
+Tedix 0.2.1 — the prompt hook gets a 30-second safety net.
+
+The `UserPromptSubmit` context hook (`tedix hooks prompt-context`) now
+declares a 30-second timeout instead of 15, so a slow gateway no longer makes
+Claude Code discard its output. The CLI side of the same fix (Tedix CLI
+0.8.4 or later) reads its sources in parallel and caches the slow-changing
+ones for ten minutes, so a turn normally takes well under five seconds.
+
 Tedix 0.2.0 — a version number no earlier release used.
 
 Claude Code caches a plugin by its version. Machines that had installed an

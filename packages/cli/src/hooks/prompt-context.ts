@@ -52,9 +52,11 @@ import {
 	questionPath,
 	rememberDelivered,
 } from "./decision-capture";
+import { readCache, writeCache } from "./context-cache";
 import {
 	type HookDeps,
 	type JsonObject,
+	hookTrace,
 	hostEvent,
 	insideRoot,
 	isObject,
@@ -92,8 +94,24 @@ const TRUNCATION_NOTE =
 const STATUS_HINT =
 	"For a status question, check live state before answering (the Work board via tedix work list or find, deploys and API health, CI), not just git.";
 const EVENT_LIMIT = 1_048_576;
-/** All reads finish inside the plugin's 15s hook timeout, with room to write. */
-const READ_BUDGET_MS = 13_500;
+/**
+ * The gateway read runs beside the organization probe and the answer reads,
+ * so the hook lasts about as long as this one call (target: p95 under 5s; the
+ * plugin's hook timeout is 30s). Over it, cached preferences and lessons
+ * still reach the session and the other sources are named unavailable.
+ */
+const GATEWAY_MS = 6500;
+/** Live organization probe; a fresh cached id replaces it. */
+const PROBE_MS = 6000;
+/** Per-turn answer reads: tight and fail-soft. */
+const ANSWER_MS = 3000;
+
+export interface LessonsQuery {
+	harness: string;
+	repo?: string;
+	topics: string[];
+	sessionId?: string;
+}
 const UNAVAILABLE =
 	"Tedix shared context unavailable: no current shared decision, Work update or team lesson was read. Do not reuse an older briefing as current; verify through the CLI before relying on it. No execution authority changed.";
 const TARGET_KEYS = [
@@ -183,18 +201,18 @@ async function captureContext(
 			deps,
 			binding,
 			{ sessionId: session },
-			5000,
+			ANSWER_MS,
 		);
 		if (answers) {
 			if (!answers.length) return [];
 			if (answers.some((answer) => answer.requestId === requestId))
 				claim(questionPath(state));
 			const ids = answers.map((answer) => answer.responseId);
-			await ackAnswers(deps, binding, ids, "prompt_context", 3000);
+			await ackAnswers(deps, binding, ids, "prompt_context", ANSWER_MS);
 			rememberDelivered(state, ids, "prompt_context");
 			return [answersMessage(answers, ANSWERS_IN_CONTEXT)];
 		}
-		const detail = await interactionDetail(deps, binding, requestId, 5000);
+		const detail = await interactionDetail(deps, binding, requestId, ANSWER_MS);
 		if (!detail || detail.state === "open") return [];
 		// Settled: this prompt consumes the question either way.
 		if (peek(questionPath(state))?.requestId === requestId)
@@ -226,22 +244,23 @@ export function boundedContext(
  */
 export function gatewayCode(
 	binding: JsonObject,
-	lessons?: {
-		harness: string;
-		repo?: string;
-		topics: string[];
-		sessionId?: string;
-	},
+	lessons?: LessonsQuery,
 	delegationIds: readonly string[] = [],
+	/** Sources a fresh local cache supplies this turn; the gateway skips them. */
+	cached: { preferences?: boolean; lessons?: boolean } = {},
 ): string {
 	const target: JsonObject = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
 	);
+	if (cached.preferences) {
+		target.preferencesWorkspaceId = null;
+		target.preferencesOutputId = null;
+	}
 	const ids = delegationIds
 		.filter((id) => UUID.test(id))
 		.slice(0, DELEGATION_LIMIT);
 	if (ids.length) target.delegations = ids;
-	if (lessons)
+	if (lessons && !cached.lessons)
 		target.lessons = {
 			harness: lessons.harness,
 			...(lessons.repo ? { repo: lessons.repo } : {}),
@@ -251,30 +270,34 @@ export function gatewayCode(
 				? { sessionId: lessons.sessionId }
 				: {}),
 		};
+	// Every source reads concurrently: the call lasts as long as its slowest read.
 	return String.raw`async () => {
  const t = TARGET;
- const result = {};
+ const pending = {};
  async function document(workspaceId, outputId) {
-  const w = await os.get_os_workspace({workspaceId:workspaceId});
-  const r = await os.get_os_output({outputId:outputId});
+  const [w, r] = await Promise.all([os.get_os_workspace({workspaceId:workspaceId}), os.get_os_output({outputId:outputId})]);
   const blocks = r.currentRevision.content.blocks;
   if (!Array.isArray(blocks) || blocks.some(b => !b || typeof b !== 'object' || (b.type === 'list' ? !Array.isArray(b.items) || b.items.some(item => typeof item !== 'string') : !['heading','paragraph','quote','code'].includes(b.type) || typeof b.text !== 'string'))) throw new Error('Malformed shared document blocks');
   const text = blocks.flatMap(b => b.type === 'list' ? b.items : [b.text]).join('\n');
   return { workspace:{id:w.workspace.id,organizationId:w.workspace.organizationId,status:w.workspace.status}, output:{id:r.output.id,workspaceId:r.output.workspaceId,organizationId:r.output.organizationId,kind:r.output.kind,status:r.output.status,currentRevisionId:r.output.currentRevisionId}, revision:{id:r.currentRevision.id,outputId:r.currentRevision.outputId,organizationId:r.currentRevision.organizationId,revision:r.currentRevision.revision,kind:r.currentRevision.content.kind},text:text.slice(0,3200),blocksValid:true,complete:text.length<=3200 };
  }
  async function each(read) { try { return await read(); } catch { return {unavailable:true}; } }
- if (t.contextOutputId) result.shared = await each(() => document(t.osWorkspaceId, t.contextOutputId));
- if (t.preferencesOutputId) result.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? result.shared : await each(() => document(t.preferencesWorkspaceId, t.preferencesOutputId));
- if (t.lessons) result.lessons = await each(async () => {
+ if (t.contextOutputId) pending.shared = each(() => document(t.osWorkspaceId, t.contextOutputId));
+ if (t.preferencesOutputId) pending.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? pending.shared : each(() => document(t.preferencesWorkspaceId, t.preferencesOutputId));
+ if (t.lessons) pending.lessons = each(async () => {
   const r = await agent.get_agent_session_lessons(t.lessons);
   return {organizationId:r.organizationId,matched:r.matched,truncated:r.truncated,holdout:r.holdout === true,lessons:r.lessons.map(l => ({shortId:l.shortId,text:l.text}))};
  });
- if (t.workItemId) result.work = await each(async () => {
+ if (t.workItemId) pending.work = each(async () => {
   const r = await work.get_work_items_by_id({id:t.workItemId});
   const comments = r.comments ?? [];
   return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
  });
- if (t.delegations) result.delegations = await Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
+ if (t.delegations) pending.delegations = Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
+ const keys = Object.keys(pending);
+ const values = await Promise.all(keys.map(k => pending[k]));
+ const result = {};
+ keys.forEach((k, i) => { result[k] = values[i]; });
  return result;
 }`.replace("TARGET", JSON.stringify(target));
 }
@@ -552,7 +575,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		)
 	)
 		return;
-	const started = Date.now();
+	const trace = hookTrace(env, "prompt-context");
+	const now = (deps.now ?? (() => new Date()))();
 	try {
 		// Only the chat identity and host kind are retained; the prompt text is discarded here.
 		const { event, session } = hostEvent(deps.stdin, env, EVENT_LIMIT);
@@ -567,7 +591,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			"--allow-default",
 		];
 		if (session) contextCommand.push("--session", session);
-		const binding = await read(contextCommand, 2000);
+		const binding = await trace("context", read(contextCommand, 2000));
 		if (binding.contextSessionId && binding.contextSessionId !== session)
 			throw new Error("resolved chat mismatch");
 		if (binding.status === "unbound") return;
@@ -612,7 +636,10 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		)
 			throw new Error("incomplete preference selection");
 		const command = ["-w", binding.workspace];
-		const auth = await read([...command, "auth", "status", "--json"], 3000);
+		const auth = await trace(
+			"auth",
+			read([...command, "auth", "status", "--json"], 3000),
+		);
 		const source = String(auth.wouldUse ?? "");
 		if (
 			auth.workspace !== binding.workspace ||
@@ -620,6 +647,15 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			(!binding.organization && auth.storedLogin?.org !== binding.org)
 		)
 			throw new Error("credential organization or gateway mismatch");
+		const login = auth.storedLogin?.loginId;
+		// Cache keys: profile, organization and signed-in user, plus what each read selects.
+		const principal = [
+			binding.workspace,
+			binding.org,
+			typeof login === "string" ? login : source,
+		].join("|");
+		/** Resolves the credential's live organization id, or throws. */
+		let probe: () => Promise<void> = async () => {};
 		if (binding.organization) {
 			const selected =
 				auth.storedLogin?.accessToken?.selectedOrganizations ?? [];
@@ -631,13 +667,27 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			)
 				throw new Error("organization no longer selected");
 			command.push("--organization", binding.organization);
-			const runtime = await read(
-				[...command, "code", ORGANIZATION_PROBE],
-				8000,
-			);
-			if (!UUID.test(String(runtime.organizationId ?? "")))
-				throw new Error("missing live organization");
-			binding.credentialOrganizationId = runtime.organizationId;
+			const key = `${principal}|${binding.mcpUrl}`;
+			const known = readCache(env, "organization", key, now);
+			if (known?.fresh && UUID.test(String(known.value.organizationId ?? "")))
+				binding.credentialOrganizationId = known.value.organizationId;
+			else
+				probe = async () => {
+					const runtime = await trace(
+						"organization",
+						read([...command, "code", ORGANIZATION_PROBE], PROBE_MS),
+					);
+					if (!UUID.test(String(runtime.organizationId ?? "")))
+						throw new Error("missing live organization");
+					binding.credentialOrganizationId = runtime.organizationId;
+					writeCache(
+						env,
+						"organization",
+						key,
+						{ organizationId: runtime.organizationId },
+						now,
+					);
+				};
 		}
 		if (source.startsWith("external-agent:")) {
 			const external = isObject(auth.externalAgent) ? auth.externalAgent : {};
@@ -651,46 +701,108 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		} else if (source !== "stored-login") {
 			throw new Error("explicit credential cannot be correlated safely");
 		}
-		const login = auth.storedLogin?.loginId;
-		const captured =
-			capture && source === "stored-login" && typeof login === "string" && login
-				? await captureContext(
-						deps,
-						{ ...binding, command, user: login },
-						session!,
-					)
-				: [];
 		// Only the session that registered them; titles stay local.
 		const delegations = session
 			? readDelegations(env, session)
 					.filter((d) => d.workspace === binding.workspace)
 					.slice(0, DELEGATION_LIMIT)
 			: [];
+		const lessons: LessonsQuery = {
+			harness,
+			repo: repoSlug(binding.origin),
+			topics: branchTopics(binding.branch),
+			sessionId: session,
+		};
+		// Slow-changing sources: a fresh local copy stands in for the read, an
+		// older one covers a failed read. The lessons key includes the chat, whose
+		// id selects the holdout and whose delivery the server records.
+		const cacheKeys = {
+			preferences: binding.preferencesOutputId
+				? `${principal}|${binding.preferencesWorkspaceId}|${binding.preferencesOutputId}`
+				: undefined,
+			lessons: `${principal}|${JSON.stringify(lessons)}|${outside ? "default" : binding.projectId}`,
+		};
+		const cached = {
+			preferences: cacheKeys.preferences
+				? readCache(env, "preferences", cacheKeys.preferences, now)
+				: undefined,
+			lessons: readCache(env, "lessons", cacheKeys.lessons, now),
+		};
+		const fresh = {
+			preferences: cached.preferences?.fresh === true,
+			lessons: cached.lessons?.fresh === true,
+		};
+		const liveSources = [
+			binding.contextOutputId ? "shared" : undefined,
+			binding.preferencesOutputId && !fresh.preferences
+				? "preferences"
+				: undefined,
+			fresh.lessons ? undefined : "lessons",
+			binding.workItemId ? "work" : undefined,
+			delegations.length ? "delegations" : undefined,
+		].filter((name): name is string => name !== undefined);
+		const gateway = async (): Promise<JsonObject> => {
+			if (!liveSources.length) return {};
+			try {
+				return await trace(
+					"gateway",
+					read(
+						[
+							...command,
+							"code",
+							gatewayCode(
+								binding,
+								lessons,
+								delegations.map((d) => d.id),
+								fresh,
+							),
+						],
+						GATEWAY_MS,
+					),
+				);
+			} catch {
+				// Fail soft: every live source is named unavailable; cached ones still render.
+				return Object.fromEntries(
+					liveSources.map((name) => [
+						name,
+						name === "delegations" ? [] : { unavailable: true },
+					]),
+				);
+			}
+		};
+		// Independent round trips run together; each fails on its own.
+		const [, captured, data] = await Promise.all([
+			probe(),
+			capture && source === "stored-login" && typeof login === "string" && login
+				? trace(
+						"answers",
+						captureContext(
+							deps,
+							{ ...binding, command, user: login },
+							session!,
+						),
+					)
+				: Promise.resolve([] as string[]),
+			gateway(),
+		]);
+		for (const name of ["preferences", "lessons"] as const) {
+			const live = data[name];
+			const copy = cached[name];
+			if (isObject(live) && live.unavailable !== true) {
+				const key = cacheKeys[name];
+				if (key) writeCache(env, name, key, live, now);
+			} else if (copy && (fresh[name] || live !== undefined)) {
+				// A fresh copy was never read live; a stale one covers a failed read.
+				data[name] = copy.value;
+			}
+		}
 		// A claimed OS answer is delivered even when the shared context fails.
 		let context: string;
 		try {
-			const data = await read(
-				[
-					...command,
-					"code",
-					gatewayCode(
-						binding,
-						{
-							harness,
-							repo: repoSlug(binding.origin),
-							topics: branchTopics(binding.branch),
-							sessionId: session,
-						},
-						delegations.map((d) => d.id),
-					),
-				],
-				// A cold gateway can take longer than 8s; use what the host's timeout leaves.
-				Math.max(8000, READ_BUDGET_MS - (Date.now() - started)),
-			);
 			context = render(
 				binding,
 				data,
-				(deps.now ?? (() => new Date()))(),
+				now,
 				// The claimed OS answer follows the context and must fit too.
 				budget -
 					captured.reduce(

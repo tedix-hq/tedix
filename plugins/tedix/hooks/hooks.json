@@ -21,7 +21,7 @@
 					{
 						"type": "command",
 						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks prompt-context",
-						"timeout": 15,
+						"timeout": 30,
 						"additionalContextLimit": 6500,
 						"statusMessage": "Reading selected Tedix decisions and Work updates"
 					},
