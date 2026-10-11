@@ -28,6 +28,7 @@ import {
 	listToolIdsForSchemaSync,
 	listToolsForSchemaSync,
 	listToolsForSchemaSyncScoped,
+	refreshToolSchemaProvenance,
 	updateToolSchemaProjection,
 	upsertTool,
 } from "@tedix/db/queries/tools";
@@ -1939,6 +1940,17 @@ export async function runToolSchemaSync(
 	let inSync = 0;
 	let skipped = 0;
 	let failed = 0;
+	// Rows whose regenerated content matched the stored row but whose sync
+	// bookkeeping is stale. They are reported `inSync` (nothing the sync owns
+	// changed, so `updatedAt` must not move and tools/list_changed must not
+	// fire) and refreshed in one batched round trip after the loop.
+	const provenanceTouchIds: string[] = [];
+	const provenanceCertify: Array<{
+		id: string;
+		schemaSourceRef: string;
+		schemaSourceHash: string;
+	}> = [];
+	const provenanceItems: ToolSchemaSyncResult["items"] = [];
 
 	for (const tool of rpcTools) {
 		const endpoint = asRpcEndpoint(tool);
@@ -2101,17 +2113,17 @@ export async function runToolSchemaSync(
 		});
 		const syncedAt = Date.parse(tool.schemaSyncedAt ?? "");
 		const updatedAt = Date.parse(tool.updatedAt ?? "");
-		if (
-			tool.schemaDialect !== "json-schema-2020-12" ||
-			tool.schemaSource !== "orpc" ||
-			tool.schemaSourceRef !== endpoint ||
-			tool.schemaSourceHash !== schemaSourceHash ||
+		const provenanceMatches =
+			tool.schemaDialect === "json-schema-2020-12" &&
+			tool.schemaSource === "orpc" &&
+			tool.schemaSourceRef === endpoint &&
+			tool.schemaSourceHash === schemaSourceHash;
+		const provenanceStale =
+			!provenanceMatches ||
 			!Number.isFinite(syncedAt) ||
 			!Number.isFinite(updatedAt) ||
-			updatedAt > syncedAt
-		) {
-			changed.push("schemaSource");
-		}
+			updatedAt > syncedAt;
+		if (provenanceStale) changed.push("schemaSource");
 
 		if (changed.length === 0) {
 			inSync++;
@@ -2122,6 +2134,33 @@ export async function runToolSchemaSync(
 				status: "inSync",
 				changed: [],
 			});
+			continue;
+		}
+
+		if (changed.length === 1 && provenanceStale) {
+			// Bookkeeping only: the schemas and config regenerated identically, so
+			// the row is in sync. Rewriting it in full (and bumping updatedAt) is
+			// what made every post-deploy reconcile rewrite the whole surface.
+			inSync++;
+			const item: ToolSchemaSyncResult["items"][number] = {
+				toolUuid: tool.id,
+				toolId: tool.toolId,
+				endpoint,
+				status: "inSync",
+				changed,
+			};
+			items.push(item);
+			if (apply) {
+				if (provenanceMatches) provenanceTouchIds.push(tool.id);
+				else {
+					provenanceCertify.push({
+						id: tool.id,
+						schemaSourceRef: endpoint,
+						schemaSourceHash,
+					});
+				}
+				provenanceItems.push(item);
+			}
 			continue;
 		}
 
@@ -2181,6 +2220,23 @@ export async function runToolSchemaSync(
 				changed,
 				message: (error as Error).message,
 			});
+		}
+	}
+
+	if (provenanceItems.length > 0) {
+		try {
+			await refreshToolSchemaProvenance(db, {
+				touchIds: provenanceTouchIds,
+				certify: provenanceCertify,
+				now: new Date().toISOString(),
+			});
+		} catch (error) {
+			for (const item of provenanceItems) {
+				item.status = "failed";
+				item.message = (error as Error).message;
+			}
+			inSync -= provenanceItems.length;
+			failed += provenanceItems.length;
 		}
 	}
 

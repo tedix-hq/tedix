@@ -558,6 +558,55 @@ export async function updateToolSchemaProjection(
 }
 
 /**
+ * Provenance-only refresh for rows whose regenerated schema and config matched
+ * what is stored. Nothing the sync owns changed, so `updated_at` stays put —
+ * only the sync bookkeeping moves:
+ *
+ * - `touchIds`: provenance columns already match; only `schema_synced_at`
+ *   advances, in one `UPDATE … WHERE id IN (…)` per ≤50-id chunk.
+ * - `certify`: provenance columns drifted (hash, ref, dialect, source); each
+ *   row is re-certified in place with its own hash.
+ *
+ * Everything lands in a single `db.batch()` round trip.
+ */
+export async function refreshToolSchemaProvenance(
+	db: DbClient,
+	input: {
+		touchIds: string[];
+		certify: Array<{
+			id: string;
+			schemaSourceRef: string;
+			schemaSourceHash: string;
+		}>;
+		now: string;
+	},
+): Promise<void> {
+	const touchIds = [...new Set(input.touchIds)];
+	const queries = [
+		...chunkForBoundParams(touchIds, D1_IN_LIST_CHUNK).map((chunk) =>
+			db
+				.update(appTools)
+				.set({ schemaSyncedAt: input.now })
+				.where(inArray(appTools.id, chunk)),
+		),
+		...input.certify.map((row) =>
+			db
+				.update(appTools)
+				.set({
+					schemaDialect: "json-schema-2020-12",
+					schemaSource: "orpc",
+					schemaSourceRef: row.schemaSourceRef,
+					schemaSourceHash: row.schemaSourceHash,
+					schemaSyncedAt: input.now,
+				})
+				.where(eq(appTools.id, row.id)),
+		),
+	];
+	if (queries.length === 0) return;
+	await db.batch(batchNonEmpty(queries));
+}
+
+/**
  * Toggle tool enabled status
  *
  * @param db - Database client
