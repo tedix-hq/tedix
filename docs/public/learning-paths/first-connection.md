@@ -67,18 +67,24 @@ Run:
 tedix login
 ```
 
-The CLI opens Tedix Connect in your browser so you can choose permissions and
-one or more organizations. Complete the browser sign-in and consent yourself.
-If you already know the intended organization slug, target it directly:
+The CLI opens the Tedix consent screen in your browser. Sign in, then use the
+organization picker to select one or more organizations you belong to and
+review the requested permissions. Complete the browser sign-in and consent
+yourself. If you already know the intended organization slug, target it
+directly:
 
 ```bash
 tedix login ORG_SLUG
 ```
 
-Replace `ORG_SLUG` with the real slug. The targeted command opens Tedix OS to
-authorize that organization. After authorization, the terminal prints the
-granted scopes and the saved CLI workspace name and gateway URL. The CLI stores
-the OAuth grant under `~/.tedix`; it does not print the token.
+Replace `ORG_SLUG` with the real slug. The targeted command opens the same
+screen with that organization preselected in the picker; you can still select
+others. Each selected organization becomes its own saved CLI profile with its
+own tenant-bound login; there is no single login that spans organizations.
+After authorization, the terminal prints the granted scopes and the saved CLI
+workspace name and gateway URL. The CLI stores the OAuth grant under `~/.tedix`;
+it does not print the token. Logging in later from another computer or agent
+host keeps its own grant and does not disturb this login.
 
 ## 3. Verify the saved CLI profile
 

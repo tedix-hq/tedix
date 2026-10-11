@@ -91,6 +91,33 @@ does not create a CLI profile.
 `tedix`, or Claude's connector offers Tedix, and "Connect my Tedix account"
 names your account and organization.
 
+### `403 human_mcp_grant_invalid` with a reason
+
+**Cause:** The sign-in this CLI profile or host presents no longer matches an
+active consent grant; the reason names why, for example the grant was revoked
+or its organizations or scopes changed. Signing in on another computer or host
+does not cause this: every consent keeps its own grant.
+
+**Fix:** For the CLI, run `tedix login ORG_SLUG` again for that profile and
+complete consent. For a plugin or connector, sign in again through that host:
+`/mcp` in Claude Code, `codex mcp login tedix` in Codex, or the connector's
+sign-in in Claude.
+
+**Verify:** `tedix -w CLI_PROFILE auth status` reports `selected source:
+stored-login`, or the host shows Tedix as connected, and a read-only call
+succeeds.
+
+### `503 human_mcp_grant_unavailable`
+
+**Cause:** The gateway could not check the consent grant right now. This is
+transient; the grant itself is not wrong.
+
+**Fix:** Wait for the `Retry-After` period in the response, then repeat the
+call. Nothing needs to be reconfigured or signed in again.
+
+**Verify:** The same call succeeds on retry. If it keeps returning `503`, escalate
+as described in [Escalate without exposing tenant data](#escalate-without-exposing-tenant-data).
+
 ## Make the first Cloud connection
 
 ### The organization is missing in the browser
