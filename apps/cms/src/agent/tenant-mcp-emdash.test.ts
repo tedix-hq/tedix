@@ -53,11 +53,11 @@ vi.mock("virtual:emdash/seed", () => ({
 // serves MCP through the official 2025-era SDK
 // WebStandardStreamableHTTPServerTransport, exactly as deployed.
 // @ts-expect-error Emdash does not publish declarations for its internal chunk.
-import { n as TedixEmDashRuntime } from "../../templates/tedix/node_modules/emdash/dist/emdash-runtime-BlybX9Ui.mjs";
+import { n as TedixEmDashRuntime } from "../../templates/tedix/node_modules/emdash/dist/emdash-runtime-C4oFeVpN.mjs";
 // @ts-expect-error Emdash does not publish declarations for its internal chunk.
-import { n as handleEntryLockAcquire } from "../../templates/tedix/node_modules/emdash/dist/entry-lock-De1L8qUQ.mjs";
+import { n as handleEntryLockAcquire } from "../../templates/tedix/node_modules/emdash/dist/entry-lock-B4n0HdQ_.mjs";
 // @ts-expect-error Emdash does not publish declarations for its internal chunk.
-import { n as handleApiTokenCreate } from "../../templates/tedix/node_modules/emdash/dist/api-tokens-P3mAaQgr.mjs";
+import { n as handleApiTokenCreate } from "../../templates/tedix/node_modules/emdash/dist/api-tokens-B0ZipcZ-.mjs";
 import { onRequest as authMiddleware } from "../../templates/tedix/node_modules/emdash/dist/astro/middleware/auth.mjs";
 import * as bylinesRoute from "../../templates/tedix/node_modules/emdash/dist/astro/routes/api/admin/bylines/index.mjs";
 import * as bylineRoute from "../../templates/tedix/node_modules/emdash/dist/astro/routes/api/admin/bylines/_id_/index.mjs";

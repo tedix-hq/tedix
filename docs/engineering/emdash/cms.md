@@ -112,8 +112,8 @@ manifests, snapshot, plugin peer ranges, and lockfiles aligned. Existing
 bundles keep their compiled version until rebuilt; before activating a new
 release for a tenant, check its migrations against that tenant's data.
 
-Patches live in `patches/emdash@1.1.0.patch` and
-`patches/@emdash-cms/cloudflare@1.1.0.patch` (root is canonical; starters copy
+Patches live in `patches/emdash@1.2.0.patch` and
+`patches/@emdash-cms/cloudflare@1.2.0.patch` (root is canonical; starters copy
 them, checked by `apps/cms/src/emdash-patches.test.ts`).
 `worker-loader-do-sql-runtime.ts` in each starter forks the DO SQL dialect.
 Delete a hunk only when its fix ships in the release the starters pin:

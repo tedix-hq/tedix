@@ -48,11 +48,11 @@ read those fields for the complete package list and current versions.
 The root `patchedDependencies` currently names `agents`, EmDash and its
 Cloudflare adapter; `bun.lock` records the same patch paths:
 
-- `patches/emdash@1.1.0.patch` handles the Worker Loader transaction path,
+- `patches/emdash@1.2.0.patch` handles the Worker Loader transaction path,
   guarded collection deletion, registry bundle validation and required plugin
   lifecycle hooks, external-auth roles, import/seed fencing, locale-aware
   taxonomy archives, and atomic menu replacement.
-- `patches/@emdash-cms/cloudflare@1.1.0.patch` implements the collection-deletion
+- `patches/@emdash-cms/cloudflare@1.2.0.patch` implements the collection-deletion
   registry guard using D1 batches or Durable Object `transactionSync`, and
   relaxes the Kumo peer dependency to a compatible range.
 - `patches/agents@0.26.0.patch` routes facet Lifecycle alarms through registered

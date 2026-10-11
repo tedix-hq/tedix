@@ -93,6 +93,7 @@ assert.deepEqual(execCalls, [
 			encoding: "utf8",
 			env: undefined,
 			input: undefined,
+			output: { maxBytes: 65_536, maxLines: 2_000 },
 		},
 	},
 ]);

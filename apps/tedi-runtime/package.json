@@ -50,8 +50,8 @@
 		"chat": "catalog:",
 		"diff": "9.0.0",
 		"fast-xml-parser": "catalog:",
-		"isomorphic-git": "1.43.0",
-		"postal-mime": "^4.0.4",
+		"isomorphic-git": "1.43.2",
+		"postal-mime": "^4.0.5",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

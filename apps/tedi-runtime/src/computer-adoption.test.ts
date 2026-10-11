@@ -46,6 +46,9 @@ assert.equal(
 				return { type: "file" };
 			},
 		},
+		runtime: {
+			backends: () => [],
+		},
 		git: {
 			async cli() {
 				events.push("git.cli");

@@ -58,7 +58,7 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@descope/node-sdk": "^2.17.0",
+		"@descope/node-sdk": "^2.18.0",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",
