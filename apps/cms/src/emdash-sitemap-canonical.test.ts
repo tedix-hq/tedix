@@ -18,6 +18,7 @@ const loadEndpoint = new Function(
 	"isI18nEnabled",
 	"buildSeoImageUrl",
 	"virtualConfig",
+	"parseCollectionSitemapName",
 	source.replace(/^import .*;$/gm, "").replace(/^export .*;$/gm, "") +
 		"\nreturn GET;",
 );
@@ -36,7 +37,12 @@ async function sitemap(canonical: string | null) {
 			success: true,
 			data: {
 				collections: [
-					{ collection: "pages", urlPattern: "/{slug}", entries: [entry] },
+					{
+						collection: "pages",
+						urlPattern: "/{slug}",
+						entries: [entry],
+						translations: [],
+					},
 				],
 			},
 		}),
@@ -47,6 +53,7 @@ async function sitemap(canonical: string | null) {
 		() => true,
 		() => "",
 		{},
+		(name: string) => ({ collection: name, page: 1 }),
 	);
 	return get({
 		params: { collection: "pages" },

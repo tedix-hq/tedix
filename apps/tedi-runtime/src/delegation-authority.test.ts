@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createAITools } from "@cloudflare/computer/tools";
+import { createAITools } from "@cloudflare/computer/tools/ai-sdk";
 import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { ToolSet } from "ai";
 import {
@@ -393,10 +393,7 @@ const computerWorkspace = {
 };
 const computerTools = createAITools({
 	workspace: computerWorkspace,
-	shell: {
-		defaultBackend: "isolate",
-		backends: { isolate: { description: "Native workspace" } },
-	},
+	exec: { isolate: { description: "Native workspace" } },
 });
 assert.deepEqual(
 	Object.keys(COMPUTER_TOOL_CAPABILITIES).sort(),

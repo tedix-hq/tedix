@@ -19,11 +19,11 @@ import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/mo
 import { createGovernedComputerGitClient } from "./computer-git-policy";
 import { createCloudflareObserver } from "@cloudflare/computer/observe/cloudflare";
 import {
-	createAITools,
 	createExecTool,
 	type ExecToolOutput,
 	type WorkspaceLike,
 } from "@cloudflare/computer/tools";
+import { createAITools } from "@cloudflare/computer/tools/ai-sdk";
 import type { FileInfo, WorkspaceFsLike } from "@cloudflare/shell";
 import type { ToolSet } from "ai";
 import { z } from "zod";
@@ -373,19 +373,18 @@ export function createTediComputerTools(ws: ComputerWorkspaceSurface): ToolSet {
 			grep: fs.grep.bind(fs),
 			readdir: fs.readdir.bind(fs),
 		},
-		runtime: ws.runtime,
+		// Only `exec` crosses this surface. Computer 0.5 validates `exec`
+		// backends against `runtime.backends()` when the runtime exposes it;
+		// the isolate backend is ours to declare, as before.
+		runtime: { exec: ws.runtime.exec.bind(ws.runtime) },
 	};
-	const shell = {
-		defaultBackend: COMPUTER_ISOLATE_BACKEND_ID,
-		backends: {
-			[COMPUTER_ISOLATE_BACKEND_ID]: {
-				description:
-					"Cloudflare Computer just-bash sandbox over the durable workspace. " +
-					"Use it for text processing, file traversal, and Git inspection. " +
-					"It has no network access or native processes; use governed HTTP capabilities for network reads and the Computer container workstation for full repository commands.",
-			},
+	const execBackends = {
+		[COMPUTER_ISOLATE_BACKEND_ID]: {
+			description:
+				"Cloudflare Computer just-bash sandbox over the durable workspace. " +
+				"Use it for text processing, file traversal, and Git inspection. " +
+				"It has no network access or native processes; use governed HTTP capabilities for network reads and the Computer container workstation for full repository commands.",
 		},
-		maxBytes: 65_536,
 	};
 	const tools = createAITools({
 		workspace,
@@ -394,7 +393,7 @@ export function createTediComputerTools(ws: ComputerWorkspaceSurface): ToolSet {
 			maxBytes: 65_536,
 			maxLines: 1_000,
 		},
-		shell,
+		exec: execBackends,
 	});
 	const nativeGrep = tools.grep!;
 	const nativeRead = tools.read!;
@@ -437,7 +436,8 @@ export function createTediComputerTools(ws: ComputerWorkspaceSurface): ToolSet {
 			execute: async (input, options) => {
 				const handles = new Set<{ [Symbol.dispose](): void }>();
 				const ownedExec = createExecTool({
-					...shell,
+					backends: execBackends,
+					maxBytes: 65_536,
 					workspace: {
 						runtime: {
 							exec: async (command, execOptions) => {

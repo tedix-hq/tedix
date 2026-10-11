@@ -1,5 +1,5 @@
 diff --git a/dist/db/d1.mjs b/dist/db/d1.mjs
-index 75038a3..7046333 100644
+index 75038a3c4a3a40bee06a14e7bb6d428df41ed911..70463333e100c85dc0e383acdb55a9d988aaa7e4 100644
 --- a/dist/db/d1.mjs
 +++ b/dist/db/d1.mjs
 @@ -499,7 +499,9 @@ async function executeCollectionDeletionGuard(config, input) {
@@ -51,7 +51,7 @@ index 75038a3..7046333 100644
  	const contentTable = `ec_${input.collectionSlug}`;
  	const ftsTable = `_emdash_fts_${input.collectionSlug}`;
 diff --git a/dist/db/do-sql.mjs b/dist/db/do-sql.mjs
-index ba2bdea..100e619 100644
+index ba2bdea1906c12fa6be89e03362eb39d8b24bd6c..100e619652c831f42b1f167cfaace5fad7622cb7 100644
 --- a/dist/db/do-sql.mjs
 +++ b/dist/db/do-sql.mjs
 @@ -469,7 +469,7 @@ var EmDashDB = class extends DurableObject {
@@ -88,7 +88,7 @@ index ba2bdea..100e619 100644
  			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_insert"`);
  			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_update"`);
 diff --git a/package.json b/package.json
-index 9ca5e7d..f18e673 100644
+index 31e10af1b971e8fb7a46089c36858fe6907c54fd..4b9c7546b376d3f525224326be2c6baba1dcee2d 100644
 --- a/package.json
 +++ b/package.json
 @@ -104,7 +104,7 @@
@@ -108,7 +108,7 @@ index 9ca5e7d..f18e673 100644
 \ No newline at end of file
 +}
 diff --git a/src/db/d1.ts b/src/db/d1.ts
-index 47be6ed..f7a6539 100644
+index 47be6ed31fcfe68429ae4203a6f9cfbddcf958a6..f7a653983ddd91c6c5d9b612d2f9d69c43ade01e 100644
 --- a/src/db/d1.ts
 +++ b/src/db/d1.ts
 @@ -204,9 +204,9 @@ export async function executeCollectionDeletionGuard(
@@ -176,7 +176,7 @@ index 47be6ed..f7a6539 100644
  	binding: D1Database,
  	input: Extract<CollectionDeletionGuardInput, { action: "drop" }>,
 diff --git a/src/db/do-sql-class.ts b/src/db/do-sql-class.ts
-index b074d3c..17d1253 100644
+index b074d3c7c0b0211906ec9c1bc34f0ad113d18a10..17d125397b55159a180a2df141d312a69a5be95c 100644
 --- a/src/db/do-sql-class.ts
 +++ b/src/db/do-sql-class.ts
 @@ -209,7 +209,7 @@ export class EmDashDB extends DurableObject {
