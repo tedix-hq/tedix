@@ -10,7 +10,9 @@
  */
 export function markdownLineToPlainText(line: string): string {
 	const leading =
-		/^(?:#{1,6}(?=\s|$)|>|[-*+](?=\s)|\d{1,3}[.)](?=\s)|\[[ xX]\](?=\s))\s*/;
+		// `text` is already whitespace-collapsed and trimmed, so a single space
+		// is the only separator left; no `\s` class, nothing to backtrack over.
+		/^(?:#{1,6}(?= |$)|>|[-*+](?= )|\d{1,3}[.)](?= )|\[[ xX]\](?= )) ?/;
 	let text = line.replace(/\s+/g, " ").trim();
 	while (leading.test(text)) text = text.replace(leading, "");
 	// Code spans keep their text verbatim; emphasis is only stripped outside them.
