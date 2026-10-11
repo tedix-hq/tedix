@@ -13,10 +13,12 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
 	configureCreditBilling,
-	buildIncludedCreditPeriodGrant,
+	recordPaidCreditCoverage,
 } from "./credit-activation";
+import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 import {
 	getActiveBillingPlanByKey,
+	buildProvisionBillingAccountStatement,
 	rollBillingPeriods,
 	getBillingEntitlement,
 	provisionBillingAccount,
@@ -59,6 +61,29 @@ function setup() {
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 describe("account-scoped credit billing activation", () => {
+	it("a stale Stripe projection cannot overwrite a newly activated tariff", async () => {
+		const { db } = setup();
+		const projection = buildProvisionBillingAccountStatement(db, {
+			organizationId: "org",
+			planVersionId: "plan",
+			status: "active",
+			billingMode: "stripe",
+			stripeEnvironment: "test",
+			periodStart: "2026-10-01T00:00:00.000Z",
+			periodEnd: "2026-11-01T00:00:00.000Z",
+			now,
+			metadata: { stripeStatus: "active" },
+		});
+		const activation = await configureCreditBilling(db, input, "owner", now);
+		await projection;
+		expect(
+			(await getBillingEntitlement(db, "org"))?.account.planVersionId,
+		).toBe(activation.planVersionId);
+		expect(
+			(await getBillingEntitlement(db, "org"))?.account.metadata
+				.creditBillingActivation,
+		).toBeTruthy();
+	});
 	it("preserves subscription and catalog, grants once without expiring purchased funds", async () => {
 		const { db, sqlite } = setup();
 		expect(await configureCreditBilling(db, input, "owner", now)).toMatchObject(
@@ -217,5 +242,49 @@ describe("account-scoped credit billing activation", () => {
 		expect(
 			sqlite.prepare("SELECT COUNT(*) n FROM billing_credit_entries").get(),
 		).toMatchObject({ n: 2 });
+	});
+	it("late old invoices cannot fund a new window; annual paid coverage funds monthly renewals only once", async () => {
+		const { db, sqlite } = setup();
+		await configureCreditBilling(db, input, "owner", now);
+		const old = {
+			subscriptionId: "sub-fixture",
+			invoiceId: "old",
+			periodStart: "2026-09-01T00:00:00.000Z",
+			periodEnd: "2026-10-01T00:00:00.000Z",
+		};
+		await recordPaidCreditCoverage(db, "org", old, now);
+		await rollBillingPeriods(db, "2026-11-01T00:00:00.000Z");
+		expect(
+			(await getBillingEntitlement(db, "org"))?.account.creditBalanceMicros,
+		).toBe(105000000);
+		const annual = {
+			subscriptionId: "sub-fixture",
+			invoiceId: "annual",
+			periodStart: "2026-10-01T00:00:00.000Z",
+			periodEnd: "2027-10-01T00:00:00.000Z",
+		};
+		await recordPaidCreditCoverage(
+			db,
+			"org",
+			annual,
+			"2026-11-01T00:00:00.000Z",
+		);
+		await recordPaidCreditCoverage(
+			db,
+			"org",
+			annual,
+			"2026-11-01T00:00:00.000Z",
+		);
+		expect(
+			(await getBillingEntitlement(db, "org"))?.account.creditBalanceMicros,
+		).toBe(205000000);
+		await rollBillingPeriods(db, "2026-12-01T00:00:00.000Z");
+		await rollBillingPeriods(db, "2026-12-01T00:00:00.000Z");
+		expect(
+			(await getBillingEntitlement(db, "org"))?.account.creditBalanceMicros,
+		).toBe(305000000);
+		expect(
+			sqlite.prepare("SELECT COUNT(*) n FROM billing_credit_entries").get(),
+		).toMatchObject({ n: 3 });
 	});
 });

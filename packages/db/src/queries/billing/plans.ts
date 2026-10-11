@@ -3,7 +3,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { buildIncludedCreditPeriodGrant } from "./credit-activation";
+import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 import {
 	type BillingAccount,
 	type BillingAccountStatus,
@@ -132,6 +132,12 @@ export function buildProvisionBillingAccountStatement(
 		metadata?: Record<string, JsonValue>;
 	},
 ) {
+	// Preserve a concurrently activated private tariff at the upsert boundary,
+	// rather than trusting a read that may precede activation.
+	const keepPrivatePlan = sql`EXISTS (SELECT 1 FROM billing_plan_versions current_plan
+  JOIN billing_plan_versions projected_plan ON projected_plan.id = ${input.planVersionId}
+  WHERE current_plan.id = billing_accounts.plan_version_id AND current_plan.plan_key = projected_plan.plan_key
+  AND json_type(current_plan.metadata, '$.monetaryInference') = 'object')`;
 	return db
 		.insert(billingAccounts)
 		.values({
@@ -152,7 +158,7 @@ export function buildProvisionBillingAccountStatement(
 		.onConflictDoUpdate({
 			target: billingAccounts.organizationId,
 			set: {
-				planVersionId: input.planVersionId,
+				planVersionId: sql`CASE WHEN ${keepPrivatePlan} THEN billing_accounts.plan_version_id ELSE ${input.planVersionId} END`,
 				status: input.status,
 				billingMode: input.billingMode,
 				stripeEnvironment: input.stripeEnvironment ?? null,
@@ -168,7 +174,7 @@ export function buildProvisionBillingAccountStatement(
 				periodStart: input.periodStart,
 				periodEnd: input.periodEnd,
 				entitlementVersion: sql`${billingAccounts.entitlementVersion} + 1`,
-				metadata: input.metadata ?? {},
+				metadata: sql`CASE WHEN ${keepPrivatePlan} THEN json_patch(billing_accounts.metadata, ${JSON.stringify(input.metadata ?? {})}) ELSE ${JSON.stringify(input.metadata ?? {})} END`,
 				updatedAt: input.now,
 			},
 		})
@@ -379,8 +385,18 @@ export async function rollBillingPeriods(
 		const entitlement = await getBillingEntitlement(db, account.organizationId);
 		// Stripe grants only on a paid invoice. Internal accounts renew their funded
 		// allowance atomically; purchased balances are never reset or expired.
+		const coverage = account.metadata.paidCreditCoverage as
+			| { subscriptionId?: string; periodStart?: string; periodEnd?: string }
+			| undefined;
+		const coveredStripePeriod =
+			account.billingMode === "stripe" &&
+			coverage?.subscriptionId === account.stripeSubscriptionId &&
+			typeof coverage.periodStart === "string" &&
+			typeof coverage.periodEnd === "string" &&
+			coverage.periodStart <= nextStart &&
+			coverage.periodEnd >= nextEndDate.toISOString();
 		if (
-			account.billingMode === "internal" &&
+			(account.billingMode === "internal" || coveredStripePeriod) &&
 			entitlement?.plan.metadata.monetaryInference &&
 			entitlement.plan.includedMonthlyCreditMicros > 0
 		) {
