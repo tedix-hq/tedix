@@ -2845,6 +2845,13 @@ export async function runKernelTurnWork(
 			settledAt,
 			turnType,
 		}),
+		// Route-pass hedge record (route-planner.ts `KernelRouteHedge`): whether
+		// a second identical request fired, which one won, and what the loser
+		// consumed. Present on every streamed route pass, fired or not, so the
+		// fire rate is readable from run metadata.
+		...(kernelResult?.routeHedge
+			? { kernelRouteHedge: kernelResult.routeHedge }
+			: {}),
 		bodyExecutionResult,
 	};
 	const currentRunMetadata = recordOrNull(currentRun?.metadata);

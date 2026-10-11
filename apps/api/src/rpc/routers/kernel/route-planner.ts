@@ -232,7 +232,52 @@ export type PlanKernelRouteResult = StampedKernelRouteDecision & {
 	usage: KernelRouteUsage;
 	/** Provider request captured at the call site, retained only for the redacted trace writer. */
 	traceInput: KernelRouteTraceInput;
+	/**
+	 * Single-hedge record of the streaming route pass (null on the buffered
+	 * `generateObject` path). Stamped into run metadata as `kernelRouteHedge`.
+	 */
+	hedge: KernelRouteHedge | null;
 };
+
+/**
+ * What the route-pass hedge did on this turn. Present on every streamed pass
+ * so the fire rate and the extra tokens can be read from run metadata and
+ * Workers Logs (`[kernel.route.hedge]` is logged once per fired hedge).
+ *
+ * `primaryFirstPartialMs` / `hedgeFirstPartialMs` are each measured from that
+ * request's own dispatch; null when the request never produced a partial.
+ */
+export interface KernelRouteHedge {
+	fired: boolean;
+	/** The configured deadline; 0 means the hedge is disabled. */
+	afterMs: number;
+	winner: "primary" | "hedge";
+	/** Tokens the provider reported for the aborted request, if any. */
+	loserTokens: { input: number | null; output: number | null } | null;
+	/** Admission id of the aborted request (its reservation stays unsettled, as for any aborted call). */
+	loserExecutionId: string | null;
+	primaryFirstPartialMs: number | null;
+	hedgeFirstPartialMs: number | null;
+}
+
+/** Default first-partial deadline before the second identical request starts. */
+export const KERNEL_ROUTE_HEDGE_AFTER_MS_DEFAULT = 5_000;
+
+/**
+ * `KERNEL_ROUTE_HEDGE_AFTER_MS`: ms without a first partial before one
+ * identical hedge request starts. Unset → the default; `0` disables; anything
+ * unparsable keeps the default.
+ */
+export function resolveRouteHedgeAfterMs(
+	env: Pick<KernelEnv, "KERNEL_ROUTE_HEDGE_AFTER_MS"> | null | undefined,
+): number {
+	const raw = env?.KERNEL_ROUTE_HEDGE_AFTER_MS?.trim();
+	if (!raw) return KERNEL_ROUTE_HEDGE_AFTER_MS_DEFAULT;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) && parsed >= 0
+		? Math.floor(parsed)
+		: KERNEL_ROUTE_HEDGE_AFTER_MS_DEFAULT;
+}
 
 export interface KernelRouteTraceInput {
 	provider: string;
@@ -571,21 +616,21 @@ async function planKernelRouteUnguarded(
 	if (!model) return null;
 
 	if (onAnswerDelta) {
-		const idle = withIdleAbort(streamIdleMs, "[kernel] route streamObject");
+		const hedged = hedgedRouteStream({
+			images: args.images,
+			content,
+			context,
+			model,
+			onAnswerDelta,
+			onRationaleDelta,
+			streamIdleMs,
+			abortSignal,
+			span,
+			hedgeAfterMs: resolveRouteHedgeAfterMs(args.env),
+			organizationId: gatewayContext?.organizationId ?? organizationId,
+		});
 		try {
-			return await streamRoutePlan({
-				images: args.images,
-				content,
-				context,
-				model,
-				onAnswerDelta,
-				...(onRationaleDelta ? { onRationaleDelta } : {}),
-				idle,
-				signal: abortSignal
-					? AbortSignal.any([idle.signal, abortSignal])
-					: idle.signal,
-				span,
-			});
+			return await hedged.run();
 		} catch (error) {
 			if (abortSignal?.aborted) return null;
 			// The Auto Router streams its structured output as a forced tool call
@@ -595,7 +640,7 @@ async function planKernelRouteUnguarded(
 			// they keep the fixed-model contract of no second dispatch.
 			if (
 				error instanceof EmptyRouteStreamError &&
-				!idle.timedOut &&
+				!hedged.idleTimedOut() &&
 				typeof model.model !== "string" &&
 				model.model.modelId === "cloudflare/auto"
 			) {
@@ -608,8 +653,6 @@ async function planKernelRouteUnguarded(
 				// Callers classify the provider's own error; the marker is internal.
 				throw error.cause;
 			} else throw error;
-		} finally {
-			idle.clear();
 		}
 	}
 
@@ -643,6 +686,7 @@ async function planKernelRouteUnguarded(
 			routerVersion: await getRouterVersion(SYSTEM_PROMPT),
 			usage: shapeRouteUsage(result.usage, model),
 			traceInput: requestTrace,
+			hedge: null,
 		};
 	} catch (error) {
 		if (abortSignal?.aborted) {
@@ -692,6 +736,223 @@ async function awaitWithSettleBound<T>(
 	}
 }
 
+/** The request lost the hedge race and was aborted; never surfaced as a provider failure. */
+class HedgeLostError extends Error {
+	constructor(lane?: HedgeLane) {
+		super(
+			`[kernel] route stream${lane ? ` (${lane})` : ""} lost the hedge race`,
+		);
+	}
+}
+
+type HedgeLane = "primary" | "hedge";
+
+interface HedgeLaneState {
+	lane: HedgeLane;
+	model: SelectedKernelModel;
+	idle: IdleAbort;
+	controller: AbortController;
+	firstPartialMs: number | null;
+	promise: Promise<PlanKernelRouteResult | null>;
+}
+
+/**
+ * The route stream with a single hedge against provider time-to-first-token
+ * variance. The primary request starts at once. If it has produced no partial
+ * object by `hedgeAfterMs`, one identical second request starts (same prompt,
+ * same model, same session affinity via `model.forOperation()`, so it hits the
+ * prompt cache). The first request to yield a partial wins; the other is
+ * aborted immediately and its sinks never fire, so the operator sees exactly
+ * one stream. The hedge never fires when the primary yields a partial or
+ * settles (success or failure) before the deadline, so a fast failure such as
+ * a billing denial is never doubled.
+ *
+ * Accounting: each lane is admitted and metered on its own
+ * (`forOperation()` gives the hedge its own execution attempt array, so the two
+ * execution ids never share a usage receipt). The winner's attempts become the
+ * turn's; the loser's attempt is kept out of them and reported on the
+ * {@link KernelRouteHedge} record instead, with any tokens the provider
+ * reported before the abort. The loser's reservation stays unsettled like any
+ * other aborted call.
+ */
+function hedgedRouteStream(input: {
+	images?: string[];
+	content: string;
+	context: KernelContext;
+	model: SelectedKernelModel;
+	onAnswerDelta: (delta: string) => void;
+	onRationaleDelta?: (delta: string) => void;
+	streamIdleMs: number;
+	abortSignal?: AbortSignal;
+	span: Record<string, string>;
+	hedgeAfterMs: number;
+	organizationId?: string;
+}): {
+	run: () => Promise<PlanKernelRouteResult | null>;
+	/** Whether the decisive lane's idle guard tripped (the stall class). */
+	idleTimedOut: () => boolean;
+} {
+	const { model, hedgeAfterMs } = input;
+	let winner: HedgeLane | null = null;
+	const lanes: Partial<Record<HedgeLane, HedgeLaneState>> = {};
+	const claim = (lane: HedgeLane): boolean => {
+		if (winner === null) {
+			winner = lane;
+			const loser = lanes[lane === "primary" ? "hedge" : "primary"];
+			loser?.controller.abort(new HedgeLostError(loser.lane));
+			return true;
+		}
+		return winner === lane;
+	};
+	const startLane = (
+		lane: HedgeLane,
+		laneModel: SelectedKernelModel,
+		onFirstPartial?: () => void,
+	): HedgeLaneState => {
+		const idle = withIdleAbort(
+			input.streamIdleMs,
+			`[kernel] route streamObject${lane === "hedge" ? " (hedge)" : ""}`,
+		);
+		const controller = new AbortController();
+		const startedAt = Date.now();
+		const state: HedgeLaneState = {
+			lane,
+			model: laneModel,
+			idle,
+			controller,
+			firstPartialMs: null,
+			promise: Promise.resolve(null),
+		};
+		state.promise = streamRoutePlan({
+			images: input.images,
+			content: input.content,
+			context: input.context,
+			model: laneModel,
+			idle,
+			signal: AbortSignal.any([
+				idle.signal,
+				controller.signal,
+				...(input.abortSignal ? [input.abortSignal] : []),
+			]),
+			span: input.span,
+			onFirstPartial: () => {
+				state.firstPartialMs = Date.now() - startedAt;
+				const won = claim(lane);
+				if (won) onFirstPartial?.();
+				return won;
+			},
+			// Only the winner reaches the operator; the loser is aborted on its
+			// first partial at the latest, and never emits.
+			onAnswerDelta: (delta) => {
+				if (winner === lane) input.onAnswerDelta(delta);
+			},
+			...(input.onRationaleDelta
+				? {
+						onRationaleDelta: (delta: string) => {
+							if (winner === lane) input.onRationaleDelta?.(delta);
+						},
+					}
+				: {}),
+		}).finally(() => idle.clear());
+		return state;
+	};
+	const decisive = (): HedgeLaneState | undefined => lanes[winner ?? "primary"];
+
+	return {
+		idleTimedOut: () => decisive()?.idle.timedOut ?? false,
+		async run() {
+			// The primary's attempts live in the shared array the turn reports;
+			// everything at or past this index belongs to this pass.
+			const attempts = model.attempts;
+			const primaryStart = attempts.length;
+			let primaryFirstPartial = (): void => {};
+			const firstPartial = new Promise<"partial">((resolve) => {
+				primaryFirstPartial = () => resolve("partial");
+			});
+			const primary = startLane("primary", model, () => primaryFirstPartial());
+			lanes.primary = primary;
+			const record: KernelRouteHedge = {
+				fired: false,
+				afterMs: hedgeAfterMs,
+				winner: "primary",
+				loserTokens: null,
+				loserExecutionId: null,
+				primaryFirstPartialMs: null,
+				hedgeFirstPartialMs: null,
+			};
+			const finish = (result: PlanKernelRouteResult | null) => {
+				record.primaryFirstPartialMs = primary.firstPartialMs;
+				record.hedgeFirstPartialMs = lanes.hedge?.firstPartialMs ?? null;
+				if (result) result.hedge = record;
+				return result;
+			};
+
+			if (hedgeAfterMs <= 0) return finish(await primary.promise);
+
+			let deadline: ReturnType<typeof setTimeout> | undefined;
+			const outcome = await Promise.race([
+				firstPartial,
+				primary.promise.then(
+					() => "settled" as const,
+					() => "settled" as const,
+				),
+				new Promise<"deadline">((resolve) => {
+					deadline = setTimeout(() => resolve("deadline"), hedgeAfterMs);
+				}),
+			]).finally(() => clearTimeout(deadline));
+			if (outcome !== "deadline" || (winner as HedgeLane | null) !== null)
+				return finish(await primary.promise);
+
+			// No partial within the deadline: one identical request, own admission.
+			record.fired = true;
+			const hedge = startLane("hedge", model.forOperation());
+			lanes.hedge = hedge;
+			const [primaryOutcome, hedgeOutcome] = await Promise.allSettled([
+				primary.promise,
+				hedge.promise,
+			]);
+			// `winner` is assigned inside `claim`, which control-flow narrowing
+			// cannot see from here.
+			const decidedLane = (winner as HedgeLane | null) ?? "primary";
+			record.winner = decidedLane;
+			const decided = decidedLane === "hedge" ? hedgeOutcome : primaryOutcome;
+			// The loser's attempt leaves the turn's usage; the winner's stays (and,
+			// when the hedge won, moves into the shared array the turn reports).
+			const loserAttempts =
+				decidedLane === "hedge"
+					? attempts.splice(primaryStart, attempts.length - primaryStart)
+					: [...hedge.model.attempts];
+			if (decidedLane === "hedge") attempts.push(...hedge.model.attempts);
+			const loser = loserAttempts.at(-1);
+			record.loserExecutionId = loser?.executionId ?? null;
+			record.loserTokens = loser?.usage
+				? {
+						input: loser.usage.inputTokens,
+						output: loser.usage.outputTokens,
+					}
+				: null;
+			record.primaryFirstPartialMs = primary.firstPartialMs;
+			record.hedgeFirstPartialMs = hedge.firstPartialMs;
+			console.info("[kernel.route.hedge]", {
+				component: "kernel.route_planner",
+				event: "route_hedge_fired",
+				organizationId: input.organizationId ?? null,
+				...record,
+				winnerSettled: decided.status === "fulfilled",
+			});
+			if (decided.status === "fulfilled") return finish(decided.value);
+			// Both failed, or the winner failed after winning: the original
+			// (primary) error surfaces when no lane produced a partial; a winner's
+			// own failure is reported as that lane's error, as a single stream's
+			// would be.
+			throw primaryOutcome.status === "rejected" &&
+				(winner as HedgeLane | null) === null
+				? primaryOutcome.reason
+				: decided.reason;
+		},
+	};
+}
+
 async function streamRoutePlan(args: {
 	images?: string[];
 	content: string;
@@ -703,6 +964,12 @@ async function streamRoutePlan(args: {
 	/** Provisional-rationale sink — display only, every route (see
 	 * {@link PlanKernelRouteArgs.onRationaleDelta}). */
 	onRationaleDelta?: (delta: string) => void;
+	/**
+	 * Called once, on the first partial object, before any sink. Returning
+	 * `false` means this request lost the hedge race: the pass stops at once
+	 * and rejects with {@link HedgeLostError}, so nothing from it is emitted.
+	 */
+	onFirstPartial?: () => boolean;
 	/** Idle-abort guard — reset on each partial; aborts only on a stall. */
 	idle: IdleAbort;
 	/**
@@ -722,6 +989,7 @@ async function streamRoutePlan(args: {
 		model,
 		onAnswerDelta,
 		onRationaleDelta,
+		onFirstPartial,
 		idle,
 		signal,
 	} = args;
@@ -740,6 +1008,11 @@ async function streamRoutePlan(args: {
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		abortSignal: signal ?? idle.signal,
 		maxRetries: 1,
+		// The SDK default logs every stream error; a request aborted because it
+		// lost the hedge race is an expected outcome, not one.
+		onError: ({ error }) => {
+			if (!(error instanceof HedgeLostError)) console.error(error);
+		},
 	});
 
 	// Track the last-emitted prefix so we only emit monotonic forward extensions.
@@ -759,6 +1032,12 @@ async function streamRoutePlan(args: {
 		// Forward progress — re-arm the idle deadline so a healthy slow stream
 		// never aborts; only a stalled one does.
 		idle.reset();
+		// The hedge race is decided on the first partial; a losing request stops
+		// here, before any sink, so its text never reaches the operator.
+		if (partials === 1 && onFirstPartial && !onFirstPartial()) {
+			signal?.throwIfAborted();
+			throw new HedgeLostError();
+		}
 		if (onRationaleDelta && typeof partial.rationale === "string") {
 			const rationale = partial.rationale;
 			// Forward extensions only: a regenerated prefix is skipped silently,
@@ -828,6 +1107,7 @@ async function streamRoutePlan(args: {
 		routerVersion,
 		usage: shapeRouteUsage(usage, model),
 		traceInput: requestTrace,
+		hedge: null,
 	};
 }
 

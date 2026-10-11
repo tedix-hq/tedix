@@ -83,7 +83,11 @@ import { groundedRosterDecision } from "./grounded-roster";
 import { createKernelHistorySummarizer } from "./history-summarizer";
 import type { KernelEnv } from "./llm";
 import { kernelModel } from "./llm";
-import type { KernelRouteTraceInput, KernelRouteUsage } from "./route-planner";
+import type {
+	KernelRouteHedge,
+	KernelRouteTraceInput,
+	KernelRouteUsage,
+} from "./route-planner";
 import { planKernelRoute } from "./route-planner";
 import type { KernelRouteDecision } from "./route-schema";
 import { readOrgDispatchPolicyLayer } from "./tedi-capabilities";
@@ -117,6 +121,8 @@ export interface KernelResult {
 	 * of defaulting null. Absent when the planner fell back (model null / threw).
 	 */
 	routeUsage?: KernelRouteUsage | null;
+	/** Single-hedge record of the streamed route pass (`route-planner.ts`); null when the pass was buffered. */
+	routeHedge?: KernelRouteHedge | null;
 	contextManifest: {
 		version: 1;
 		budgetTokens: number;
@@ -878,7 +884,12 @@ export async function runKernel(args: {
 	// Split the LLM call's token usage out of the route object: the route flows
 	// verbatim into run metadata as `kernelRoute`, while `routeUsage` is threaded
 	// into the kernel `bodyExecutionResult.usage`/`cost` by the turn body.
-	const { usage: routeUsage, traceInput, ...plannedRoute } = planned;
+	const {
+		usage: routeUsage,
+		traceInput,
+		hedge: routeHedge,
+		...plannedRoute
+	} = planned;
 	if (routeUsage && gatewayContext.executionAttempts.length) {
 		routeUsage.attempts = [
 			...gatewayContext.executionAttempts,
@@ -1037,6 +1048,7 @@ export async function runKernel(args: {
 		route,
 		delegation,
 		routeUsage,
+		routeHedge,
 		assistantContent,
 		contextManifest,
 		traceInput,
