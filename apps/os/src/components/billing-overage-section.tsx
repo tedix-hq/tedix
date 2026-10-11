@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
+import { BillingCreditBudget } from "@/components/billing-credit-budget";
 import { osApi } from "@/lib/api";
 import { formatBillingAmount } from "@/lib/billing-price";
 import { errorMessage } from "@/lib/orpc-error";
@@ -56,6 +57,14 @@ export function BillingOverageSection() {
 					{errorMessage(overviewQuery.error, "The billing read failed.")}
 				</AlertDescription>
 			</Alert>
+		);
+	}
+	if (overviewQuery.data.credits?.billingMode === "monetary") {
+		return (
+			<BillingCreditBudget
+				key={overviewQuery.data.credits.monthlyCapMicros ?? "unlimited"}
+				credits={overviewQuery.data.credits}
+			/>
 		);
 	}
 	return (

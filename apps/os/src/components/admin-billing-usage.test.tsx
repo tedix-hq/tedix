@@ -157,12 +157,36 @@ function render(
 		subscription?: boolean;
 		unlimited?: boolean;
 		workstationUnknown?: boolean;
+		monetary?: boolean;
+		paused?: boolean;
+		tinyCost?: boolean;
+		legacyCurrency?: string;
 	} = {},
 ) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	const bill = overview();
+	if (opts.legacyCurrency) bill.plan.currency = opts.legacyCurrency;
+	if (opts.monetary)
+		bill.credits = {
+			billingMode: "monetary",
+			currency: "usd",
+			creditValueMicros: 10_000,
+			includedMicros: 100_000_000,
+			usedIncludedMicros: 15_000_000,
+			remainingIncludedMicros: 85_000_000,
+			walletBalanceMicros: 85_000_000,
+			reservedMicros: 2_000_000,
+			availableMicros: 83_000_000,
+			spentMicros: 15_000_000,
+			monthlyCapMicros: 90_000_000,
+		};
+	if (opts.paused) {
+		bill.inferenceCapacity.available = false;
+		bill.inferenceCapacity.blockingReason = "hard_spend_limit";
+	}
+
 	if (opts.workstationUnknown)
 		bill.workstationCostCoverage = {
 			...bill.workstationCostCoverage,
@@ -173,6 +197,7 @@ function render(
 			pending: { rowCount: 1, leaseSeconds: 100 },
 			unproven: { rowCount: 0, leaseSeconds: 0 },
 		};
+	if (opts.tinyCost) bill.period!.providerCostMicros = 1;
 	if (opts.unlimited) {
 		bill.snapshot.includedTokens = 0;
 		bill.snapshot.allowOverage = true;
@@ -324,4 +349,36 @@ it("unknown workstation subtotal is never displayed as free zero", () => {
 	expect(render(usage(), { error: true })).not.toContain(
 		"Reconciled workstation cost",
 	);
+});
+
+it("leads monetary plans with available credits and exact wallet holds", () => {
+	const html = render(usage(), { monetary: true });
+	expect(html).toContain("8,300 credits");
+	expect(html).toContain("$83 of usage value");
+	expect(html).toContain("200 credits");
+	expect(html).toContain("$2 · released or settled");
+	expect(html).toContain("Ready to run");
+	expect(html).toContain("Advanced usage and billing details");
+	expect(html).toContain("Some usage is waiting for a price");
+	expect(html).toContain("Recorded model costs by run");
+	expect(html).not.toContain("0 records have no confirmed price");
+});
+it("does not imply a funded wallet bypasses a canonical spending block", () => {
+	const html = render(usage(), { monetary: true, paused: true });
+	expect(html).toContain("8,300 credits");
+	expect(html).toContain("Usage paused");
+	expect(html).toContain("monthly spending cap has been reached");
+	expect(html).not.toContain("Ready to run");
+});
+
+it("keeps tiny settled model costs visible instead of displaying free zero", () => {
+	expect(render(usage(), { tinyCost: true })).toContain("$0.000001");
+});
+
+it("preserves native legacy currency without inventing a EUR credit conversion", () => {
+	const html = render(usage(), { legacyCurrency: "eur" });
+	expect(html).toContain("Balance shown in EUR");
+	expect(html).toContain("exchange rate is applied");
+	expect(html).toContain("€0");
+	expect(html).not.toContain("1 credit =");
 });

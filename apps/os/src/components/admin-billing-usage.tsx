@@ -22,8 +22,11 @@ import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Progress } from "@/components/kumo/progress";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
+import { BillingCreditWallet } from "@/components/billing-credit-wallet";
+import { BillingRunCosts } from "@/components/billing-run-costs";
 import { formatPlanLimit, hasUnlimitedTokenUsage } from "@/lib/billing-display";
 import { formatCurrencyAmount } from "@/lib/billing-price";
+import { formatCreditWorth } from "@/lib/billing-credit-display";
 import {
 	billingOverviewQueryOptions,
 	ORG_USAGE_PERIOD,
@@ -43,7 +46,7 @@ function formatTokens(n: number): string {
 }
 
 function formatCost(n: number): string {
-	return formatCurrencyAmount(n);
+	return formatCurrencyAmount(n, "usd", n !== 0 && Math.abs(n) < 0.01 ? 6 : 2);
 }
 
 function formatPeriod(start: string, end: string): string {
@@ -132,6 +135,12 @@ export function BillingUsageOverview({
 	}
 
 	const overview = overviewQuery.data;
+	const chargeCurrency =
+		overview.credits?.billingMode === "monetary"
+			? overview.credits.currency
+			: overview.plan.currency;
+	const formatCharge = (micros: number) =>
+		formatCreditWorth(micros, chargeCurrency);
 	const usedTokens = overview.snapshot.usedTokens;
 	const includedTokens = overview.snapshot.includedTokens;
 	const usagePct = includedTokens > 0 ? usedTokens / includedTokens : 0;
@@ -151,251 +160,276 @@ export function BillingUsageOverview({
 
 	return (
 		<div className="space-y-5">
-			<div className="space-y-4">
-				{/* The primary billing story: plan, period, and usage in one place. */}
-				<Card
-					tone="raised"
-					className={
-						isCritical
-							? "border-kumo-danger"
-							: isWarning
-								? "border-kumo-warning"
-								: undefined
-					}
-				>
-					<CardHeader className="sm:grid-cols-[minmax(0,1fr)_auto]">
-						<div className="space-y-1">
-							<div className="flex flex-wrap items-center gap-2">
-								<CardTitle>
-									{sentenceCase(overview.snapshot.planKey)} plan
-								</CardTitle>
-								<Badge
-									variant={
-										overview.snapshot.status === "active"
-											? "success"
-											: overview.snapshot.status === "cancelled" ||
-												  overview.snapshot.status === "suspended" ||
-												  overview.snapshot.status === "past_due"
-												? "destructive"
-												: "secondary"
-									}
-								>
-									{sentenceCase(overview.snapshot.status)}
-								</Badge>
-								{isCritical && <Warning className="size-4 text-kumo-danger" />}
-							</div>
-							<Text role="label" tone="secondary">
-								Current billing period · {billingPeriod}
-							</Text>
-						</div>
-					</CardHeader>
-					<CardContent className="space-y-5">
-						<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-							<div>
-								<Text role="label" tone="secondary">
-									Settled billing tokens
-								</Text>
-								<Text
-									as="span"
-									role="metric"
-									weight="semibold"
-									className="block tabular-nums"
-								>
-									{formatTokens(usedTokens)}
-								</Text>
-							</div>
-							<Text role="body" tone="secondary" className="sm:text-right">
-								{isUnlimited
-									? "Unlimited plan allowance"
-									: monthlyMetered && overageTokens > 0
-										? `${formatTokens(includedTokens)} included · ${formatTokens(overageTokens)} overage tokens`
-										: monthlyMetered
-											? `${formatTokens(includedTokens)} included · overage billed per plan`
-											: `${formatTokens(Math.max(0, includedTokens - usedTokens))} remaining of ${formatTokens(includedTokens)}`}
-							</Text>
-						</div>
-						{!isUnlimited && !monthlyMetered && (
-							<Progress value={Math.min(usagePct * 100, 100)} />
-						)}
-						<div className="grid gap-3 border-kumo-line border-t pt-4 sm:grid-cols-4">
-							<PlanFact
-								label="Tedis"
-								value={formatPlanLimit(overview.plan.maxTedis)}
-							/>
-							<PlanFact
-								label="Jobs per tedi"
-								value={formatPlanLimit(overview.plan.maxCronJobsPerTedi)}
-							/>
-							<PlanFact
-								label="Steps per task"
-								value={formatPlanLimit(overview.plan.maxIterationsPerTask)}
-							/>
-							<PlanFact
-								label="Overage"
-								value={
-									overview.plan.overageUnitPriceMicros === 0
-										? "No surcharge"
-										: `${formatCost(overview.plan.overageUnitPriceMicros / 1_000_000)} / ${formatTokens(overview.plan.overageUnitTokens)}`
-								}
-							/>
-						</div>
-					</CardContent>
-				</Card>
-
-				<MetricGrid
-					appearance="bounded"
-					columns={3}
-					aria-label="Billing summary"
-				>
-					<MetricItem
-						emphasis="metric"
-						label="Metered usage charges"
-						value={formatCost(
-							(overview.period?.customerChargeMicros ?? 0) / 1_000_000,
-						)}
-						description={
-							isUnlimited
-								? "Estimated usage this period · unlimited token allowance"
-								: `Estimated usage this period · ${formatTokens(overview.period?.meteredOverageTokens ?? 0)} metered overage tokens`
+			<BillingCreditWallet overview={overview} />
+			{usageQuery.data.totals.unpricedRowCount > 0 && (
+				<Alert variant="warning">
+					<AlertTitle>Some usage is waiting for a price</AlertTitle>
+					<AlertDescription>
+						{usageQuery.data.totals.unpricedRowCount}{" "}
+						{usageQuery.data.totals.unpricedRowCount === 1
+							? "record has"
+							: "records have"}{" "}
+						no confirmed price. Known cost subtotals may be incomplete; missing
+						prices do not mean free usage.
+					</AlertDescription>
+				</Alert>
+			)}
+			<BillingRunCosts organizationId={organizationId} />
+			<details className="rounded-lg border border-kumo-line p-4">
+				<summary className="cursor-pointer font-medium">
+					Advanced usage and billing details
+				</summary>
+				<div className="mt-4 space-y-4">
+					{overview.credits?.billingMode === "monetary" && (
+						<Text tone="secondary">
+							Token counters and historical token-plan rates below are
+							diagnostic records. The credit wallet and monthly spending cap
+							govern current monetary usage.
+						</Text>
+					)}
+					{/* The primary billing story: plan, period, and usage in one place. */}
+					<Card
+						tone="raised"
+						className={
+							isCritical
+								? "border-kumo-danger"
+								: isWarning
+									? "border-kumo-warning"
+									: undefined
 						}
+					>
+						<CardHeader className="sm:grid-cols-[minmax(0,1fr)_auto]">
+							<div className="space-y-1">
+								<div className="flex flex-wrap items-center gap-2">
+									<CardTitle>
+										{sentenceCase(overview.snapshot.planKey)} plan
+									</CardTitle>
+									<Badge
+										variant={
+											overview.snapshot.status === "active"
+												? "success"
+												: overview.snapshot.status === "cancelled" ||
+													  overview.snapshot.status === "suspended" ||
+													  overview.snapshot.status === "past_due"
+													? "destructive"
+													: "secondary"
+										}
+									>
+										{sentenceCase(overview.snapshot.status)}
+									</Badge>
+									{isCritical && (
+										<Warning className="size-4 text-kumo-danger" />
+									)}
+								</div>
+								<Text role="label" tone="secondary">
+									Current billing period · {billingPeriod}
+								</Text>
+							</div>
+						</CardHeader>
+						<CardContent className="space-y-5">
+							<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+								<div>
+									<Text role="label" tone="secondary">
+										Settled billing tokens
+									</Text>
+									<Text
+										as="span"
+										role="metric"
+										weight="semibold"
+										className="block tabular-nums"
+									>
+										{formatTokens(usedTokens)}
+									</Text>
+								</div>
+								<Text role="body" tone="secondary" className="sm:text-right">
+									{isUnlimited
+										? "Unlimited plan allowance"
+										: monthlyMetered && overageTokens > 0
+											? `${formatTokens(includedTokens)} included · ${formatTokens(overageTokens)} overage tokens`
+											: monthlyMetered
+												? `${formatTokens(includedTokens)} included · overage billed per plan`
+												: `${formatTokens(Math.max(0, includedTokens - usedTokens))} remaining of ${formatTokens(includedTokens)}`}
+								</Text>
+							</div>
+							{!isUnlimited && !monthlyMetered && (
+								<Progress value={Math.min(usagePct * 100, 100)} />
+							)}
+							<div className="grid gap-3 border-kumo-line border-t pt-4 sm:grid-cols-4">
+								<PlanFact
+									label="Tedis"
+									value={formatPlanLimit(overview.plan.maxTedis)}
+								/>
+								<PlanFact
+									label="Jobs per tedi"
+									value={formatPlanLimit(overview.plan.maxCronJobsPerTedi)}
+								/>
+								<PlanFact
+									label="Steps per task"
+									value={formatPlanLimit(overview.plan.maxIterationsPerTask)}
+								/>
+								<PlanFact
+									label="Overage"
+									value={
+										overview.plan.overageUnitPriceMicros === 0
+											? "No surcharge"
+											: `${formatCreditWorth(overview.plan.overageUnitPriceMicros, overview.plan.currency)} / ${formatTokens(overview.plan.overageUnitTokens)}`
+									}
+								/>
+							</div>
+						</CardContent>
+					</Card>
+
+					<MetricGrid
+						appearance="bounded"
+						columns={3}
+						aria-label="Billing summary"
+					>
+						<MetricItem
+							emphasis="metric"
+							label="Metered usage charges"
+							value={formatCharge(overview.period?.customerChargeMicros ?? 0)}
+							description={
+								isUnlimited
+									? "Estimated usage this period · unlimited token allowance"
+									: `Estimated usage this period · ${formatTokens(overview.period?.meteredOverageTokens ?? 0)} metered overage tokens`
+							}
+						/>
+						<MetricItem
+							emphasis="metric"
+							label="Credits"
+							value={formatCharge(overview.snapshot.availableCreditMicros)}
+							description={`Available after reservations · ${formatCharge(overview.period?.creditAppliedMicros ?? 0)} applied this period`}
+						/>
+						<MetricItem
+							emphasis="metric"
+							label="Settled model cost"
+							value={formatCost(
+								(overview.period?.providerCostMicros ?? 0) / 1_000_000,
+							)}
+							description="Recorded model cost for settled usage · not a customer charge or total infrastructure spend"
+						/>
+					</MetricGrid>
+				</div>
+				<Text role="label" tone="secondary">
+					Settled tokens count billing input and output. Metered usage charges
+					exclude the subscription price and are not an invoice. Usage trends
+					below include organization-attributed observations, including cache
+					and records that may be held; they can differ from settled billing
+					totals.
+				</Text>
+				{overview.stripeEnvironment === "test" && (
+					<Text role="label" tone="secondary">
+						Stripe test mode · payment documents use test data; recorded usage
+						and model costs are not simulated.
+					</Text>
+				)}
+				<MetricGrid appearance="bounded" columns={3}>
+					<MetricItem
+						label="Observed model tokens"
+						value={formatTokens(usageQuery.data.totals.totalTokens)}
+						description="Organization-attributed ledger observations this period"
 					/>
 					<MetricItem
-						emphasis="metric"
-						label="Credits"
-						value={formatCost(
-							overview.snapshot.availableCreditMicros / 1_000_000,
-						)}
-						description={`Available after reservations · ${formatCost(
-							(overview.period?.creditAppliedMicros ?? 0) / 1_000_000,
-						)} applied this period`}
+						label="Known model-cost subtotal"
+						value={formatCost(usageQuery.data.totals.knownSubtotalUsd)}
+						description={`${sentenceCase(usageQuery.data.totals.costCompleteness)} pricing coverage · not a payable amount`}
 					/>
 					<MetricItem
-						emphasis="metric"
-						label="Settled model cost"
-						value={formatCost(
-							(overview.period?.providerCostMicros ?? 0) / 1_000_000,
-						)}
-						description="Recorded model cost for settled usage · not a customer charge or total infrastructure spend"
+						label="Unpriced observed tokens"
+						value={formatTokens(usageQuery.data.totals.unpricedTokens)}
+						description={`${formatTokens(usageQuery.data.totals.pricedRowCount)} priced rows · ${formatTokens(usageQuery.data.totals.unpricedRowCount)} unpriced rows`}
 					/>
 				</MetricGrid>
-			</div>
-			<Text role="label" tone="secondary">
-				Settled tokens count billing input and output. Metered usage charges
-				exclude the subscription price and are not an invoice. Usage trends
-				below include organization-attributed observations, including cache and
-				records that may be held; they can differ from settled billing totals.
-			</Text>
-			{overview.stripeEnvironment === "test" && (
-				<Text role="label" tone="secondary">
-					Stripe test mode · payment documents use test data; recorded usage and
-					model costs are not simulated.
-				</Text>
-			)}
-			<MetricGrid appearance="bounded" columns={3}>
-				<MetricItem
-					label="Observed model tokens"
-					value={formatTokens(usageQuery.data.totals.totalTokens)}
-					description="Organization-attributed ledger observations this period"
-				/>
-				<MetricItem
-					label="Known model-cost subtotal"
-					value={formatCost(usageQuery.data.totals.knownSubtotalUsd)}
-					description={`${sentenceCase(usageQuery.data.totals.costCompleteness)} pricing coverage · not a payable amount`}
-				/>
-				<MetricItem
-					label="Unpriced observed tokens"
-					value={formatTokens(usageQuery.data.totals.unpricedTokens)}
-					description={`${formatTokens(usageQuery.data.totals.pricedRowCount)} priced rows · ${formatTokens(usageQuery.data.totals.unpricedRowCount)} unpriced rows`}
-				/>
-			</MetricGrid>
-			<Card tone="raised">
-				<CardHeader>
-					<CardTitle>Reviewed provider estimates</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-2">
-					<Text role="metric">
-						{formatCost(
-							usageQuery.data.totals.reviewedEstimateMicros / 1_000_000,
-						)}
-					</Text>
-					<Text>
-						{formatTokens(usageQuery.data.totals.reviewedEstimateRowCount)}{" "}
-						reviewed rows ·{" "}
-						{formatTokens(usageQuery.data.totals.reviewedEstimateTokens)}{" "}
-						observed tokens
-					</Text>
-					<Text tone="secondary">
-						Included in the known model-cost subtotal. These estimates are not
-						payable and do not release held usage or change customer charges.
-					</Text>
-					<details>
-						<summary>Technical details</summary>
-						<Text tone="secondary">
-							{formatTokens(usageQuery.data.totals.sourceRetiredRowCount)}{" "}
-							retained records whose original source is no longer present. Only
-							the current reviewed version contributes; original usage is
-							counted once.
+				<Card tone="raised">
+					<CardHeader>
+						<CardTitle>Reviewed provider estimates</CardTitle>
+					</CardHeader>
+					<CardContent className="space-y-2">
+						<Text role="metric">
+							{formatCost(
+								usageQuery.data.totals.reviewedEstimateMicros / 1_000_000,
+							)}
 						</Text>
-					</details>
-				</CardContent>
-			</Card>
-			<Card tone="raised">
-				<CardHeader>
-					<CardTitle>Reconciled workstation cost</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-2">
-					<Text role="metric">
-						{overview.workstationCostCoverage.knownAttributedCostMicros === null
-							? "Unknown"
-							: formatCost(
-									overview.workstationCostCoverage.knownAttributedCostMicros /
-										1_000_000,
-								)}
-					</Text>
-					<Text tone="secondary">
-						Allocated share of recorded provider cost · separate from model cost
-						and customer charges.
-					</Text>
-					<Text>
-						{overview.workstationCostCoverage.reconciled.rowCount} reconciled
-						rows ·{" "}
-						{overview.workstationCostCoverage.reconciled.leaseSeconds.toLocaleString()}{" "}
-						lease seconds
-					</Text>
-					<Text>
-						{overview.workstationCostCoverage.pending.rowCount} pending rows ·{" "}
-						{overview.workstationCostCoverage.pending.leaseSeconds.toLocaleString()}{" "}
-						lease seconds
-					</Text>
-					<Text>
-						{overview.workstationCostCoverage.unproven.rowCount} unproven rows ·{" "}
-						{overview.workstationCostCoverage.unproven.leaseSeconds.toLocaleString()}{" "}
-						lease seconds
-					</Text>
-					<Text tone="secondary">
-						Lease-end observations in this billing period. Wall-clock lease
-						duration is a proxy, not active container time. Pending stored zero
-						does not mean free.
-					</Text>
-					<Text tone="secondary">
-						{overview.workstationCostCoverage.status === "none"
-							? "No recorded workstation usage."
-							: overview.workstationCostCoverage.status ===
-								  "recorded_rows_reconciled"
-								? "All recorded rows reconciled."
-								: "Recorded rows partially reconciled."}{" "}
-						Coverage excludes unrecorded leases and does not establish an
-						invoice or total infrastructure spend.
-					</Text>
-					<Text role="label" tone="secondary">
-						Observed{" "}
-						{new Date(
-							overview.workstationCostCoverage.observedAt,
-						).toISOString()}
-					</Text>
-				</CardContent>
-			</Card>
-
+						<Text>
+							{formatTokens(usageQuery.data.totals.reviewedEstimateRowCount)}{" "}
+							reviewed rows ·{" "}
+							{formatTokens(usageQuery.data.totals.reviewedEstimateTokens)}{" "}
+							observed tokens
+						</Text>
+						<Text tone="secondary">
+							Included in the known model-cost subtotal. These estimates are not
+							payable and do not release held usage or change customer charges.
+						</Text>
+						<details>
+							<summary>Technical details</summary>
+							<Text tone="secondary">
+								{formatTokens(usageQuery.data.totals.sourceRetiredRowCount)}{" "}
+								retained records whose original source is no longer present.
+								Only the current reviewed version contributes; original usage is
+								counted once.
+							</Text>
+						</details>
+					</CardContent>
+				</Card>
+				<Card tone="raised">
+					<CardHeader>
+						<CardTitle>Reconciled workstation cost</CardTitle>
+					</CardHeader>
+					<CardContent className="space-y-2">
+						<Text role="metric">
+							{overview.workstationCostCoverage.knownAttributedCostMicros ===
+							null
+								? "Unknown"
+								: formatCost(
+										overview.workstationCostCoverage.knownAttributedCostMicros /
+											1_000_000,
+									)}
+						</Text>
+						<Text tone="secondary">
+							Allocated share of recorded provider cost · separate from model
+							cost and customer charges.
+						</Text>
+						<Text>
+							{overview.workstationCostCoverage.reconciled.rowCount} reconciled
+							rows ·{" "}
+							{overview.workstationCostCoverage.reconciled.leaseSeconds.toLocaleString()}{" "}
+							lease seconds
+						</Text>
+						<Text>
+							{overview.workstationCostCoverage.pending.rowCount} pending rows ·{" "}
+							{overview.workstationCostCoverage.pending.leaseSeconds.toLocaleString()}{" "}
+							lease seconds
+						</Text>
+						<Text>
+							{overview.workstationCostCoverage.unproven.rowCount} unproven rows
+							·{" "}
+							{overview.workstationCostCoverage.unproven.leaseSeconds.toLocaleString()}{" "}
+							lease seconds
+						</Text>
+						<Text tone="secondary">
+							Lease-end observations in this billing period. Wall-clock lease
+							duration is a proxy, not active container time. Pending stored
+							zero does not mean free.
+						</Text>
+						<Text tone="secondary">
+							{overview.workstationCostCoverage.status === "none"
+								? "No recorded workstation usage."
+								: overview.workstationCostCoverage.status ===
+									  "recorded_rows_reconciled"
+									? "All recorded rows reconciled."
+									: "Recorded rows partially reconciled."}{" "}
+							Coverage excludes unrecorded leases and does not establish an
+							invoice or total infrastructure spend.
+						</Text>
+						<Text role="label" tone="secondary">
+							Observed{" "}
+							{new Date(
+								overview.workstationCostCoverage.observedAt,
+							).toISOString()}
+						</Text>
+					</CardContent>
+				</Card>
+			</details>
 			<Suspense
 				fallback={
 					<div className="grid gap-4 lg:grid-cols-2">
