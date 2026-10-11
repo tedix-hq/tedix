@@ -3,7 +3,7 @@
  * CRUD operations for plugins, plugin installs, and plugin events.
  */
 
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	tediPlugins,
@@ -39,7 +39,14 @@ export async function listPlugins(
 	const conditions = [];
 	if (type) conditions.push(eq(tediPlugins.type, type));
 	if (status) conditions.push(eq(tediPlugins.status, status));
-	if (query) conditions.push(like(tediPlugins.name, `%${query}%`));
+	// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+	// character search failed as a D1_ERROR. `lower` on both sides keeps
+	// LIKE's ASCII case-insensitivity.
+	if (query) {
+		conditions.push(
+			sql`instr(lower(${tediPlugins.name}), lower(${query})) > 0`,
+		);
+	}
 
 	const where = conditions.length > 0 ? and(...conditions) : undefined;
 

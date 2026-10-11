@@ -261,18 +261,22 @@ function buildWhereClause(
 	addExactFilter(clauses, params, "fact_type", input.fact_type);
 	addExactFilter(clauses, params, "status", input.status);
 	addExactFilter(clauses, params, "source_session_id", input.source_session_id);
+	// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+	// character prefix or search failed as a D1_ERROR. `lower` on both sides
+	// keeps LIKE's ASCII case-insensitivity; no wildcard escaping is needed.
 	if (input.source_prefix) {
-		clauses.push("source LIKE ?");
-		params.push(`${escapeLike(input.source_prefix)}%`);
+		clauses.push("instr(lower(source), lower(?)) = 1");
+		params.push(input.source_prefix);
 	}
 	if (input.producer) {
 		clauses.push("json_extract(metadata, '$.producer') = ?");
 		params.push(input.producer);
 	}
 	if (input.search) {
-		clauses.push("(content LIKE ? OR summary LIKE ?)");
-		const pattern = `%${escapeLike(input.search)}%`;
-		params.push(pattern, pattern);
+		clauses.push(
+			"(instr(lower(content), lower(?)) > 0 OR instr(lower(coalesce(summary, '')), lower(?)) > 0)",
+		);
+		params.push(input.search, input.search);
 	}
 
 	return {
@@ -402,13 +406,6 @@ function isOneOf<T extends string>(
 	allowed: readonly T[],
 ): value is T {
 	return typeof value === "string" && allowed.includes(value as T);
-}
-
-function escapeLike(value: string): string {
-	return value
-		.replaceAll("\\", "\\\\")
-		.replaceAll("%", "\\%")
-		.replaceAll("_", "\\_");
 }
 
 function numberFromCount(value: unknown): number {

@@ -31,11 +31,12 @@ const companyColumns = {
 const companyName = sql<
 	string | null
 >`CASE WHEN ${installations.companyProfile} IS NULL THEN ${organizations.name} ELSE json_extract(${installations.companyProfile}, '$.name') END`;
-function searchLike(value: string) {
-	return `%${value.replace(/[!%_]/g, "!$&")}%`;
-}
+// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+// character search failed as a D1_ERROR. `instr` takes the bound substring at
+// any length and needs no wildcard escaping; `lower` on both sides keeps
+// LIKE's ASCII case-insensitivity.
 function contains(column: SQL, search: string) {
-	return sql`${column} LIKE ${searchLike(search)} ESCAPE '!'`;
+	return sql`instr(lower(${column}), lower(${search})) > 0`;
 }
 
 export async function resolveProviderContactInstallation(

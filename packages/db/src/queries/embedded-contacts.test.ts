@@ -222,6 +222,30 @@ describe("durable embedded profiles", () => {
 			).total,
 		).toBe(0);
 	});
+	it("matches a search longer than D1's 50-byte LIKE pattern cap", async () => {
+		const { db } = await fixture();
+		const name =
+			"Maximiliane Freifrau von und zu Hohenlohe-Langenburg-Ingelfingen";
+		await identifyEmbeddedContact(db, {
+			...base,
+			hostUserId: "long",
+			profile: { user: { name } },
+		});
+		await identifyEmbeddedContact(db, {
+			...base,
+			hostUserId: "short",
+			profile: { user: { name: "Max" } },
+		});
+		const page = await listEmbeddedContacts(db, {
+			providerOrganizationId: "provider",
+			kind: "people",
+			search: name.toUpperCase(),
+			limit: 50,
+			offset: 0,
+		});
+		expect(page.total).toBe(1);
+		expect(page.people[0].hostUserId).toBe("long");
+	});
 	it("preserves simultaneous sparse updates to one user", async () => {
 		const { db } = await fixture();
 		await Promise.all([

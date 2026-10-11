@@ -1,7 +1,7 @@
 /** Item query helpers, isolated from app and job query graphs. */
 
 import type { LayoutItemSchemaType as LayoutItem } from "@tedix/api-contract/schemas/layout";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { NewItem } from "../schema/items";
 import { items, itemToLayoutItem } from "../schema/items";
@@ -41,8 +41,9 @@ export async function searchItems(
 	query: string,
 	opts?: { limit?: number },
 ) {
-	const searchPattern = `%${query}%`;
-
+	// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+	// character search failed as a D1_ERROR. `lower` on both sides keeps
+	// LIKE's ASCII case-insensitivity.
 	return db
 		.select()
 		.from(items)
@@ -50,8 +51,8 @@ export async function searchItems(
 			and(
 				eq(items.appId, appId),
 				or(
-					like(items.title, searchPattern),
-					like(items.description, searchPattern),
+					sql`instr(lower(${items.title}), lower(${query})) > 0`,
+					sql`instr(lower(coalesce(${items.description}, '')), lower(${query})) > 0`,
 				),
 			),
 		)

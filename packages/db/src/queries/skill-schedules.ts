@@ -141,16 +141,18 @@ export async function listSkillSchedulesPage(
 	}
 	const query = options.query?.trim().toLowerCase();
 	if (query) {
-		const pattern = `%${escapeLikePattern(query)}%`;
+		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a
+		// 48+ character search failed as a D1_ERROR. `instr` takes the bound
+		// substring at any length and needs no wildcard escaping.
 		conditions.push(sql`(
-			lower(${skillSchedules.cron}) LIKE ${pattern} ESCAPE '\\'
+			instr(lower(${skillSchedules.cron}), ${query}) > 0
 			OR EXISTS (
 				SELECT 1 FROM ${skillEntries}
 				WHERE ${skillEntries.id} = ${skillSchedules.skillId}
 				AND (
-					lower(${skillEntries.title}) LIKE ${pattern} ESCAPE '\\'
-					OR lower(coalesce(${skillEntries.slug}, '')) LIKE ${pattern} ESCAPE '\\'
-					OR lower(coalesce(${skillEntries.description}, '')) LIKE ${pattern} ESCAPE '\\'
+					instr(lower(${skillEntries.title}), ${query}) > 0
+					OR instr(lower(coalesce(${skillEntries.slug}, '')), ${query}) > 0
+					OR instr(lower(coalesce(${skillEntries.description}, '')), ${query}) > 0
 				)
 			)
 		)`);
@@ -169,10 +171,6 @@ export async function listSkillSchedulesPage(
 		db.$count(skillSchedules, whereClause),
 	]);
 	return { schedules, total };
-}
-
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, "\\$&");
 }
 
 export async function recordSkillScheduleDispatch(
