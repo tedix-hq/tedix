@@ -84,6 +84,14 @@ describe("relatedTestTargetsByWorkspace", () => {
 	 * the gate would re-run unrelated suites on every ordinary app change and
 	 * the added time would be blamed on the fan-out rather than on the bug.
 	 */
+	test("a package's changed test runs only in that package", () => {
+		const targets = relatedTestTargetsByWorkspace(
+			["packages/api-contract/src/schemas/a.test.ts"],
+			io,
+		);
+		expect([...targets.keys()]).toEqual(["packages/api-contract"]);
+	});
+
 	test("an app change stays in its own workspace", () => {
 		const targets = relatedTestTargetsByWorkspace(
 			["apps/mcp/src/mcp/codemode-auth.ts"],
@@ -199,6 +207,29 @@ describe("affectedWorkspaces", () => {
 		expect(affectedWorkspaces(["apps/mcp/src/index.ts"], io2)).toEqual([
 			"apps/mcp",
 		]);
+	});
+
+	/*
+	 * Nothing imports another workspace's test file, so a test-only change in a
+	 * package used to type-check every dependent and run their whole bun:test
+	 * suites for nothing.
+	 */
+	test("a package's test file stays in its own workspace", () => {
+		expect(
+			affectedWorkspaces(
+				["packages/api-contract/src/schemas/mcp-capability-scopes.test.ts"],
+				io2,
+			),
+		).toEqual(["packages/api-contract"]);
+	});
+
+	test("a workspace's root prose affects no workspace", () => {
+		expect(
+			affectedWorkspaces(
+				["packages/api-contract/README.md", "apps/mcp/AGENTS.md"],
+				io2,
+			),
+		).toEqual([]);
 	});
 
 	test("returns nothing for an unknown changed set or a non-workspace path", () => {

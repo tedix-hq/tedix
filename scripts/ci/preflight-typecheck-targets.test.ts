@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { typeCheckTargets } from "./preflight-typecheck-targets.mjs";
+import {
+	isWorkspaceProse,
+	typeCheckTargets,
+} from "./preflight-typecheck-targets.mjs";
 
 const allWorkspacesExist = () => true;
 
@@ -68,5 +71,42 @@ describe("typeCheckTargets", () => {
 	 */
 	test("requires a path inside the workspace, not the directory itself", () => {
 		expect(typeCheckTargets(["packages/cli"], allWorkspacesExist)).toEqual([]);
+	});
+
+	/*
+	 * A docs sweep over workspace READMEs type-checked every touched workspace
+	 * (and, through the dependent fan-out, 26 of them) though tsc reads none.
+	 */
+	test("skips a workspace's root prose", () => {
+		expect(
+			typeCheckTargets(
+				[
+					"apps/os/README.md",
+					"packages/db/AGENTS.md",
+					"packages/cli/CHANGELOG.md",
+				],
+				allWorkspacesExist,
+			),
+		).toEqual([]);
+	});
+
+	test("nested Markdown still selects its workspace", () => {
+		expect(
+			typeCheckTargets(
+				["apps/cms/templates/tedix/README.md", "apps/landing/src/content/a.md"],
+				allWorkspacesExist,
+			),
+		).toEqual(["apps/cms", "apps/landing"]);
+	});
+});
+
+describe("isWorkspaceProse", () => {
+	test("matches only a workspace's root prose files", () => {
+		expect(isWorkspaceProse("apps/os/README.md")).toBe(true);
+		expect(isWorkspaceProse("packages/cli/CHANGELOG.md")).toBe(true);
+		expect(isWorkspaceProse("README.md")).toBe(false);
+		expect(isWorkspaceProse("apps/os/DESIGN.md")).toBe(false);
+		expect(isWorkspaceProse("apps/os/src/README.md")).toBe(false);
+		expect(isWorkspaceProse("packages/cli/README.mdx")).toBe(false);
 	});
 });
