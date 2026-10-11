@@ -9,7 +9,10 @@
  * unscoped run. It runs as:
  *
  *   1. one cheap planning step that freezes the ordered work list (and, for a
- *      projection, the globally collision-resolved tool id map),
+ *      projection, the globally collision-resolved tool id map). An applied
+ *      projection is incremental by default: it plans only endpoints whose
+ *      stored contract hash differs from the deployed contract, so a deploy
+ *      that changed no contract plans zero batches,
  *   2. one durable step per bounded batch, and
  *   3. a single subscriber notification + aggregate cache purge, reached only
  *      after every batch has succeeded.
@@ -46,6 +49,10 @@ interface FrozenPlan {
 	keys: string[];
 	/** Projection only: endpointPath -> collision-resolved tool id. */
 	toolIds?: Record<string, string>;
+	/** Incremental projection: endpoints left out because their hash matched. */
+	unchanged?: number;
+	/** Incremental projection: endpoints whose schemas cannot be generated. */
+	unsupported?: string[];
 }
 
 export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
@@ -74,10 +81,25 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 				// The sync service intentionally walks every oRPC contract. Loading it
 				// only for this workflow keeps that schema graph out of Worker startup.
 				const {
+					planIncrementalToolSchemaSyncProjection,
 					planToolSchemaSyncProjection,
 					planToolSchemaSyncRows,
 					resolveTedixAdminAppId,
 				} = await import("../services/tool-schema-sync");
+				if (mode === "projection" && apply && payload.incremental !== false) {
+					const plan = await planIncrementalToolSchemaSyncProjection(
+						db,
+						payload,
+						await resolveTedixAdminAppId(db),
+					);
+					return JSON.stringify({
+						appId: plan.appId,
+						keys: plan.endpoints,
+						toolIds: plan.toolIds,
+						unchanged: plan.unchanged,
+						unsupported: plan.unsupported,
+					} satisfies FrozenPlan);
+				}
 				if (mode === "projection") {
 					const plan = planToolSchemaSyncProjection(
 						payload,

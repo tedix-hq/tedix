@@ -5,11 +5,14 @@ import { appTools } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
+	listToolContractHashesForSchemaSync,
 	listToolIdsForSchemaSync,
 	listToolsForScopePreview,
 	listToolsForSchemaSync,
 	listToolsForSchemaSyncScoped,
+	recordToolContractHashes,
 	refreshToolSchemaProvenance,
+	upsertTool,
 } from "./tools";
 
 const APP_ID = "5eed0020-0000-4000-8000-000000000020";
@@ -228,5 +231,63 @@ describe("refreshToolSchemaProvenance", () => {
 		expect((await listToolsForSchemaSync(db, APP_ID))[0]).toMatchObject({
 			schemaSyncedAt: null,
 		});
+	});
+});
+
+describe("tool contract hashes", () => {
+	it("lists lookup keys and hashes, records hashes without moving updated_at", async () => {
+		const { db } = await setup([
+			{ id: "a", toolId: "list_alpha", endpoint: "alpha/list" },
+			{ id: "b", toolId: "custom_tool", endpoint: null },
+			{
+				id: "x",
+				toolId: "list_alpha",
+				endpoint: "alpha/list",
+				appId: OTHER_APP_ID,
+			},
+		]);
+		await recordToolContractHashes(db, [
+			{ id: "a", contractHash: "c".repeat(64) },
+		]);
+
+		expect(await listToolContractHashesForSchemaSync(db, APP_ID)).toEqual([
+			{
+				toolId: "custom_tool",
+				transport: null,
+				endpoint: null,
+				contractHash: null,
+			},
+			{
+				toolId: "list_alpha",
+				transport: "rpc",
+				endpoint: "alpha/list",
+				contractHash: "c".repeat(64),
+			},
+		]);
+		const [alpha] = (await listToolsForSchemaSync(db, APP_ID)).filter(
+			(row) => row.id === "a",
+		);
+		expect(alpha).toMatchObject({ updatedAt: NOW });
+	});
+
+	it("clears the hash on any upsert that does not supply one", async () => {
+		const { db } = await setup([
+			{ id: "a", toolId: "list_alpha", endpoint: "alpha/list" },
+		]);
+		await recordToolContractHashes(db, [
+			{ id: "a", contractHash: "c".repeat(64) },
+		]);
+		const [row] = await listToolsForSchemaSync(db, APP_ID);
+		if (!row) throw new Error("row missing");
+		const {
+			createdAt: _createdAt,
+			updatedAt: _updatedAt,
+			contractHash: _hash,
+			...rest
+		} = row;
+		await upsertTool(db, { ...rest, description: "edited" } as never);
+
+		const [edited] = await listToolContractHashesForSchemaSync(db, APP_ID);
+		expect(edited?.contractHash).toBeNull();
 	});
 });

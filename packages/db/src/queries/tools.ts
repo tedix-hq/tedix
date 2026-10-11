@@ -450,6 +450,10 @@ export async function upsertTool(
 
 	const normalizedTool = {
 		...tool,
+		// Only the contract projection vouches for a contract hash. Any other
+		// writer changes the row in ways the hash does not describe, so clearing
+		// it makes the next projection revisit this row.
+		contractHash: tool.contractHash ?? null,
 		inputSchema: tool.inputSchema ?? EMPTY_TOOL_INPUT_SCHEMA,
 		meta: withDerivedToolOperationalRiskPolicy({
 			meta: tool.meta,
@@ -604,6 +608,61 @@ export async function refreshToolSchemaProvenance(
 	];
 	if (queries.length === 0) return;
 	await db.batch(batchNonEmpty(queries));
+}
+
+export interface ToolContractHashResult {
+	toolId: string;
+	transport: string | null;
+	endpoint: string | null;
+	contractHash: string | null;
+}
+
+/**
+ * The lookup keys and stored contract hash of every row on an app, without the
+ * schema/config JSON. This is what an incremental projection plan compares the
+ * deployed contract against, so it reads only the two keys the projection
+ * matches rows by (`config.endpoint` for rpc rows, and `tool_id`).
+ */
+export async function listToolContractHashesForSchemaSync(
+	db: DbClient,
+	appId: string,
+): Promise<ToolContractHashResult[]> {
+	return db
+		.select({
+			toolId: appTools.toolId,
+			transport: sql<
+				string | null
+			>`json_extract(${appTools.config}, '$.transport')`,
+			endpoint: sql<
+				string | null
+			>`json_extract(${appTools.config}, '$.endpoint')`,
+			contractHash: appTools.contractHash,
+		})
+		.from(appTools)
+		.where(eq(appTools.appId, appId))
+		.orderBy(asc(appTools.toolId));
+}
+
+/**
+ * Record the contract hash on rows the projection found already in sync.
+ * Nothing user-visible changed, so `updated_at` stays put. One `db.batch()`
+ * round trip.
+ */
+export async function recordToolContractHashes(
+	db: DbClient,
+	rows: Array<{ id: string; contractHash: string }>,
+): Promise<void> {
+	if (rows.length === 0) return;
+	await db.batch(
+		batchNonEmpty(
+			rows.map((row) =>
+				db
+					.update(appTools)
+					.set({ contractHash: row.contractHash })
+					.where(eq(appTools.id, row.id)),
+			),
+		),
+	);
 }
 
 /**

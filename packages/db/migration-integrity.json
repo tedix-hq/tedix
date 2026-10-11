@@ -832,6 +832,10 @@
 		{
 			"name": "20261011080845_billing_account_overage_opt_in/migration.sql",
 			"sha256": "7f59a43cb634c652706f0da01969074379bfa2603e271a0082b977c7947ecbeb"
+		},
+		{
+			"name": "20261011111031_app_tools_contract_hash/migration.sql",
+			"sha256": "71499d72b2574f03e06eeb129daa076dfda1454daf54474eeaf1ee31087795bd"
 		}
 	]
 }
