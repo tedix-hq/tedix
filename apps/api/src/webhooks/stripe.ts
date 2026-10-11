@@ -12,6 +12,7 @@
 
 import { createDbClient } from "@tedix/db/client";
 import { grantBillingCredit } from "@tedix/db/queries/billing/credits";
+import { buildIncludedCreditPeriodGrant } from "@tedix/db/queries/billing/credit-activation";
 import {
 	findCapacityAllocationByPaymentIntent,
 	reconcileCapacityRefund,
@@ -781,7 +782,19 @@ async function handleInvoicePaid(
 	if (!organizationId) return;
 	const entitlement = await getBillingEntitlement(db, organizationId);
 	const includedCredits = entitlement?.plan.includedMonthlyCreditMicros ?? 0;
-	if (includedCredits > 0) {
+	if (includedCredits > 0 && entitlement?.plan.metadata.monetaryInference) {
+		await db.batch([
+			buildIncludedCreditPeriodGrant(db, {
+				organizationId,
+				planVersionId: entitlement.plan.id,
+				periodStart: entitlement.account.periodStart,
+				periodEnd: entitlement.account.periodEnd,
+				amountMicros: includedCredits,
+				now: new Date().toISOString(),
+				metadata: { stripeInvoiceId: invoice.id, stripeEnvironment },
+			}),
+		]);
+	} else if (includedCredits > 0) {
 		await grantBillingCredit(db, {
 			id: crypto.randomUUID(),
 			organizationId,
