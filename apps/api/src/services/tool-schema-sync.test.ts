@@ -52,14 +52,36 @@ function makeRpcTool(
 	} as AppTool;
 }
 
+/** Every bound value under a drizzle SQL node, including IN (…) lists. */
+function boundValues(node: unknown, out: unknown[] = []): unknown[] {
+	if (!node || typeof node !== "object") return out;
+	if (Array.isArray(node)) {
+		for (const entry of node) boundValues(entry, out);
+		return out;
+	}
+	const record = node as { queryChunks?: unknown[]; value?: unknown };
+	if ("value" in record) {
+		if (Array.isArray(record.value)) out.push(...record.value);
+		else out.push(record.value);
+	}
+	if (record.queryChunks) boundValues(record.queryChunks, out);
+	return out;
+}
+
 function makeDb(rows: AppTool[]) {
 	const updates: Array<{ id: string; patch: Partial<AppTool> }> = [];
 	const inserts: AppTool[] = [];
 	const deletes: string[] = [];
+	/** Statement count of each `db.batch()` call. */
+	const batches: number[] = [];
 	let selectedRows = rows;
 	const store = [...rows];
 
 	const db = {
+		batch: async (statements: Array<Promise<unknown>>) => {
+			batches.push(statements.length);
+			return Promise.all(statements);
+		},
 		select: () => ({
 			from: () => ({
 				where: () => ({
@@ -109,32 +131,50 @@ function makeDb(rows: AppTool[]) {
 		}),
 		update: () => ({
 			set: (patch: Partial<AppTool>) => ({
-				where: async (where: { queryChunks: Array<{ value?: unknown }> }) => {
-					const rowId = where.queryChunks.find((chunk) =>
-						store.some((row) => row.id === chunk.value),
-					)?.value;
+				where: async (where: unknown) => {
+					const boundIds = new Set(
+						boundValues(where).filter((value) =>
+							store.some((row) => row.id === value),
+						),
+					);
 					const endpoint = (patch.config as Record<string, unknown> | undefined)
 						?.endpoint;
-					const row =
-						store.find((candidate) => {
-							if (rowId !== undefined) return rowId === candidate.id;
-							if (patch.id && candidate.id === patch.id) return true;
-							const config = candidate.config as Record<string, unknown> | null;
-							return (
-								typeof endpoint === "string" && config?.endpoint === endpoint
-							);
-						}) ?? store[updates.length];
-					updates.push({ id: row.id, patch });
-					const apply = (item: AppTool) =>
-						item.id === row.id ? ({ ...item, ...patch } as AppTool) : item;
-					selectedRows = selectedRows.map(apply);
-					for (let i = 0; i < store.length; i++) store[i] = apply(store[i]!);
+					const rows =
+						boundIds.size > 0
+							? store.filter((candidate) => boundIds.has(candidate.id))
+							: [
+									store.find((candidate) => {
+										if (patch.id && candidate.id === patch.id) return true;
+										const config = candidate.config as Record<
+											string,
+											unknown
+										> | null;
+										return (
+											typeof endpoint === "string" &&
+											config?.endpoint === endpoint
+										);
+									}) ?? store[updates.length]!,
+								];
+					for (const row of rows) {
+						updates.push({ id: row.id, patch });
+						const apply = (item: AppTool) =>
+							item.id === row.id ? ({ ...item, ...patch } as AppTool) : item;
+						selectedRows = selectedRows.map(apply);
+						for (let i = 0; i < store.length; i++) store[i] = apply(store[i]!);
+					}
 				},
 			}),
 		}),
 	};
 
-	return { db: db as unknown as DbClient, updates, inserts, deletes, store };
+	return {
+		db: db as unknown as DbClient,
+		updates,
+		inserts,
+		deletes,
+		batches,
+		store,
+	};
 }
 
 describe("schema-only provenance refresh", () => {
@@ -173,26 +213,38 @@ describe("schema-only provenance refresh", () => {
 		const preview = await runToolSchemaSync(fixture.db, options);
 		expect(preview.items).toEqual([
 			expect.objectContaining({
-				status: "wouldUpdate",
+				status: "inSync",
 				changed: ["schemaSource"],
 			}),
 		]);
 		expect(fixture.updates).toHaveLength(0);
+		expect(fixture.batches).toHaveLength(0);
 		const result = await runToolSchemaSync(fixture.db, {
 			...options,
 			apply: true,
 		});
-		expect(result).toMatchObject({ updated: 1, inSync: 0, failed: 0 });
+		// Content matched: no content write, no updatedAt bump, no planned write
+		// against `limit` — only synced_at moves, in one batched statement.
+		expect(result).toMatchObject({
+			updated: 0,
+			inSync: 1,
+			planned: 0,
+			failed: 0,
+		});
+		expect(fixture.batches).toEqual([1]);
 		expect(fixture.updates).toHaveLength(1);
 		const patch = fixture.updates[0]!.patch;
-		expect(patch.schemaSyncedAt).toBe(patch.updatedAt);
+		expect(Object.keys(patch)).toEqual(["schemaSyncedAt"]);
 		expect(Number.isFinite(Date.parse(patch.schemaSyncedAt!))).toBe(true);
-		expect(patch.schemaSourceHash).toBe(original.schemaSourceHash);
-		expect(patch).not.toHaveProperty("config");
+		expect(Date.parse(patch.schemaSyncedAt!)).toBeGreaterThan(
+			Date.parse(original.updatedAt!),
+		);
 		expect(fixture.store[0]).toEqual({
 			...original,
 			...patch,
 		});
+		expect(fixture.store[0]!.updatedAt).toBe(original.updatedAt);
+		expect(fixture.store[0]!.schemaSourceHash).toBe(original.schemaSourceHash);
 		expect(fixture.store[0]!.config).toEqual(original.config);
 		expect(fixture.store[0]!.visibility).toBe("private");
 		expect(fixture.store[0]!.authRequired).toBe(true);
@@ -215,10 +267,16 @@ describe("schema-only provenance refresh", () => {
 			toolIds: [row.toolId],
 			pruneStale: false,
 		});
-		expect(result.items[0]).toMatchObject({ changed: ["schemaSource"] });
+		expect(result.items[0]).toMatchObject({
+			status: "inSync",
+			changed: ["schemaSource"],
+		});
+		expect(result).toMatchObject({ inSync: 1, updated: 0, planned: 0 });
 		expect(fixture.store[0]!.schemaSourceHash).not.toBe(beforeHash);
 		expect(fixture.store[0]!.config).toEqual(row.config);
+		expect(fixture.store[0]!.updatedAt).toBe(row.updatedAt);
 		expect(fixture.updates[0]!.patch).not.toHaveProperty("config");
+		expect(fixture.updates[0]!.patch).not.toHaveProperty("updatedAt");
 		expect(await runToolSchemaSync(fixture.db, { apply: false })).toMatchObject(
 			{ inSync: 1, planned: 0 },
 		);
@@ -245,12 +303,15 @@ describe("schema-only provenance refresh", () => {
 				pruneStale: false,
 			});
 			expect(result.items[0]).toMatchObject({
-				status: "updated",
+				status: "inSync",
 				changed: ["schemaSource"],
 			});
+			expect(result).toMatchObject({ inSync: 1, updated: 0 });
+			expect(fixture.batches).toEqual([1]);
 			expect(fixture.updates[0]!.patch).not.toHaveProperty("inputSchema");
 			expect(fixture.updates[0]!.patch).not.toHaveProperty("outputSchema");
 			expect(fixture.updates[0]!.patch).not.toHaveProperty("config");
+			expect(fixture.updates[0]!.patch).not.toHaveProperty("updatedAt");
 			expect(
 				await runToolSchemaSync(fixture.db, { apply: false }),
 			).toMatchObject({ inSync: 1, planned: 0 });
@@ -265,6 +326,109 @@ describe("schema-only provenance refresh", () => {
 			await runToolSchemaSync(fixture.db, { apply: true, pruneStale: false }),
 		).toMatchObject({ inSync: 1, updated: 0, planned: 0 });
 		expect(fixture.updates).toHaveLength(0);
+	});
+
+	it("writes changed rows in full and only touches synced_at on unchanged ones", async () => {
+		const synced = await synchronizedTool();
+		const fresh = { ...synced, id: "tool-fresh", toolId: "a_fresh" };
+		const staleBookkeeping = {
+			...synced,
+			id: "tool-stale",
+			toolId: "b_stale",
+			schemaSyncedAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-01T00:00:00.001Z",
+		};
+		const drifted = {
+			...synced,
+			id: "tool-drifted",
+			toolId: "c_drifted",
+			inputSchema: {
+				type: "object",
+				properties: { stale: { type: "string" } },
+			} as AppTool["inputSchema"],
+		};
+		const fixture = makeDb([fresh, staleBookkeeping, drifted]);
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			pruneStale: false,
+		});
+		expect(result).toMatchObject({
+			total: 3,
+			inSync: 2,
+			updated: 1,
+			planned: 1,
+			failed: 0,
+		});
+		expect(result.items.map((item) => [item.toolId, item.status])).toEqual([
+			["a_fresh", "inSync"],
+			["b_stale", "inSync"],
+			["c_drifted", "updated"],
+		]);
+		expect(result.items[2]!.changed).toContain("inputSchema");
+		// One full write for the drifted row, one batched touch for the stale one.
+		expect(fixture.batches).toEqual([1]);
+		expect(fixture.updates.map((update) => update.id)).toEqual([
+			"tool-drifted",
+			"tool-stale",
+		]);
+		expect(fixture.updates[0]!.patch).toHaveProperty("inputSchema");
+		expect(fixture.updates[0]!.patch).toHaveProperty("updatedAt");
+		expect(Object.keys(fixture.updates[1]!.patch)).toEqual(["schemaSyncedAt"]);
+		expect(fixture.store[0]).toEqual(fresh);
+		expect(fixture.store[1]!.updatedAt).toBe(staleBookkeeping.updatedAt);
+		expect(fixture.store[2]!.inputSchema).toEqual(synced.inputSchema);
+		fixture.updates.length = 0;
+		fixture.batches.length = 0;
+		expect(
+			await runToolSchemaSync(fixture.db, { apply: true, pruneStale: false }),
+		).toMatchObject({ inSync: 3, updated: 0, planned: 0 });
+		expect(fixture.updates).toHaveLength(0);
+		expect(fixture.batches).toHaveLength(0);
+	});
+
+	it("chunks the synced_at touch under the D1 bound-parameter limit in one batch", async () => {
+		const synced = await synchronizedTool();
+		const rows = Array.from({ length: 120 }, (_, index) => ({
+			...synced,
+			id: `tool-${index}`,
+			toolId: `tool_${String(index).padStart(3, "0")}`,
+			schemaSyncedAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-01T00:00:00.001Z",
+		}));
+		const fixture = makeDb(rows);
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			pruneStale: false,
+		});
+		expect(result).toMatchObject({ inSync: 120, updated: 0, planned: 0 });
+		// 120 ids → 50 + 50 + 20, all inside a single db.batch() round trip.
+		expect(fixture.batches).toEqual([3]);
+		expect(fixture.updates).toHaveLength(120);
+		expect(
+			fixture.updates.every(
+				(update) => Object.keys(update.patch).join() === "schemaSyncedAt",
+			),
+		).toBe(true);
+	});
+
+	it("reports bookkeeping rows as failed when the batched refresh throws", async () => {
+		const row = await synchronizedTool();
+		row.schemaSyncedAt = "2026-01-01T00:00:00.000Z";
+		row.updatedAt = "2026-01-01T00:00:00.001Z";
+		const fixture = makeDb([row]);
+		(fixture.db as unknown as { batch: () => Promise<never> }).batch =
+			async () => {
+				throw new Error("D1 unavailable");
+			};
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			pruneStale: false,
+		});
+		expect(result).toMatchObject({ inSync: 0, updated: 0, failed: 1 });
+		expect(result.items[0]).toMatchObject({
+			status: "failed",
+			message: "D1 unavailable",
+		});
 	});
 
 	it("does not certify provenance or write a partial projection when conversion fails", async () => {
@@ -314,26 +478,40 @@ describe("schema-only provenance refresh", () => {
 			limit: 1,
 			pruneStale: false,
 		});
-		expect(result).toMatchObject({ updated: 1, deleted: 0 });
+		// The missing synced_at is bookkeeping: content matched, so the row is
+		// in sync and only its synced_at is touched.
+		expect(result).toMatchObject({ inSync: 1, updated: 0, deleted: 0 });
 		expect(result.items).toHaveLength(2);
 		expect(result.items[1]).toMatchObject({ status: "noContract" });
 		expect(fixture.updates.map((update) => update.id)).toEqual([row.id]);
 		expect(fixture.store.slice(1)).toEqual(before.slice(1));
 		expect(fixture.deletes).toHaveLength(0);
+		// `limit` bounds content writes, not bookkeeping touches: a drifted row
+		// beyond the budget is skipped, while an unchanged stale row is still
+		// touched.
+		const driftedSchema = {
+			type: "object",
+			properties: { stale: { type: "string" } },
+		} as AppTool["inputSchema"];
 		const limitedFixture = makeDb([
-			{ ...fixture.store[0]!, schemaSyncedAt: null },
-			other,
+			{ ...fixture.store[0]!, inputSchema: driftedSchema },
+			{ ...other, inputSchema: driftedSchema },
+			{ ...row, id: "stale-row", toolId: "stale_tool" },
 		]);
 		const limited = await runToolSchemaSync(limitedFixture.db, {
 			apply: true,
-			toolIds: [row.toolId, other.toolId],
+			toolIds: [row.toolId, other.toolId, "stale_tool"],
 			limit: 1,
 			pruneStale: false,
 		});
-		expect(limited).toMatchObject({ updated: 1, skipped: 1 });
+		expect(limited).toMatchObject({ updated: 1, skipped: 1, inSync: 1 });
 		expect(limited.items[1]).toMatchObject({
 			status: "skipped",
 			message: "Limit reached",
+		});
+		expect(limited.items[2]).toMatchObject({
+			status: "inSync",
+			changed: ["schemaSource"],
 		});
 	});
 });
@@ -398,16 +576,35 @@ describe("projection native transport opt-in", () => {
 		});
 		expect(fixture.updates).toHaveLength(0);
 		expect(fixture.store[0]).toEqual(projected);
-		// The existing schema owner refreshes provenance with one server timestamp
-		// without undoing the projection's explicit native transport policy.
+		// The schema owner hashes a narrower projection than the full-row
+		// projection, so it re-certifies provenance — but the content matched, so
+		// it must not rewrite the row or touch updatedAt (that rewrite, on every
+		// post-deploy reconcile, is what blew the deploy proof budget), and it
+		// never undoes the projection's explicit native transport policy.
 		const refreshed = await runToolSchemaSync(fixture.db, {
 			apply: true,
 			toolIds: [projected.toolId],
 			pruneStale: false,
 		});
-		expect(refreshed).toMatchObject({ updated: 1, failed: 0 });
+		expect(refreshed).toMatchObject({ inSync: 1, updated: 0, failed: 0 });
+		expect(refreshed.items[0]).toMatchObject({ changed: ["schemaSource"] });
 		expect(fixture.store[0]!.config).toEqual(projected.config);
-		expect(fixture.store[0]!.schemaSyncedAt).toBe(fixture.store[0]!.updatedAt);
+		expect(fixture.store[0]!.updatedAt).toBe(projected.updatedAt);
+		expect(fixture.store[0]!.schemaSourceHash).not.toBe(
+			projected.schemaSourceHash,
+		);
+		expect(
+			Date.parse(fixture.store[0]!.schemaSyncedAt!),
+		).toBeGreaterThanOrEqual(Date.parse(projected.updatedAt!));
+		fixture.updates.length = 0;
+		expect(
+			await runToolSchemaSync(fixture.db, {
+				apply: true,
+				toolIds: [projected.toolId],
+				pruneStale: false,
+			}),
+		).toMatchObject({ inSync: 1, updated: 0 });
+		expect(fixture.updates).toHaveLength(0);
 	});
 
 	it.each([undefined, false, "true", 1, {}, []])(

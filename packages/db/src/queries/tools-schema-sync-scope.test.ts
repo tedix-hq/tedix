@@ -9,6 +9,7 @@ import {
 	listToolsForScopePreview,
 	listToolsForSchemaSync,
 	listToolsForSchemaSyncScoped,
+	refreshToolSchemaProvenance,
 } from "./tools";
 
 const APP_ID = "5eed0020-0000-4000-8000-000000000020";
@@ -164,5 +165,68 @@ describe("listToolsForScopePreview", () => {
 		expect(tool).not.toHaveProperty("inputSchema");
 		expect(tool).not.toHaveProperty("outputSchema");
 		expect(tool).not.toHaveProperty("meta");
+	});
+});
+
+describe("refreshToolSchemaProvenance", () => {
+	it("touches synced_at in chunks and re-certifies drifted rows without moving updated_at", async () => {
+		// 120 touched ids exceed D1's 100 bound-parameter ceiling, which the
+		// facade enforces per statement: the chunking is what keeps this passing.
+		const touched = Array.from({ length: 120 }, (_, index) => ({
+			id: `touch-${index}`,
+			toolId: `touch_${String(index).padStart(3, "0")}`,
+		}));
+		const { db } = await setup([
+			...touched,
+			{ id: "drift", toolId: "drifted" },
+			{ id: "untouched", toolId: "untouched" },
+		]);
+		const later = "2026-08-19T00:00:00.000Z";
+
+		await refreshToolSchemaProvenance(db, {
+			touchIds: touched.map((row) => row.id),
+			certify: [
+				{
+					id: "drift",
+					schemaSourceRef: "router/drifted",
+					schemaSourceHash: "a".repeat(64),
+				},
+			],
+			now: later,
+		});
+
+		const rows = await listToolsForSchemaSync(db, APP_ID);
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		for (const row of touched) {
+			expect(byId.get(row.id)).toMatchObject({
+				schemaSyncedAt: later,
+				updatedAt: NOW,
+				schemaSourceHash: null,
+			});
+		}
+		expect(byId.get("drift")).toMatchObject({
+			schemaDialect: "json-schema-2020-12",
+			schemaSource: "orpc",
+			schemaSourceRef: "router/drifted",
+			schemaSourceHash: "a".repeat(64),
+			schemaSyncedAt: later,
+			updatedAt: NOW,
+		});
+		expect(byId.get("untouched")).toMatchObject({
+			schemaSyncedAt: null,
+			updatedAt: NOW,
+		});
+	});
+
+	it("is a no-op with nothing to refresh", async () => {
+		const { db } = await setup([{ id: "a", toolId: "list_alpha" }]);
+		await refreshToolSchemaProvenance(db, {
+			touchIds: [],
+			certify: [],
+			now: "2026-08-19T00:00:00.000Z",
+		});
+		expect((await listToolsForSchemaSync(db, APP_ID))[0]).toMatchObject({
+			schemaSyncedAt: null,
+		});
 	});
 });
