@@ -2,8 +2,8 @@
 
 /**
  * Fail when a workspace grows a new circular import beyond the baseline (policy in
- * `import-cycle-policy.ts`). Lexes comment-stripped source with anchored regexes.
- * Type-only imports/exports and `await import()` are not counted: neither can
+ * `import-cycle-policy.ts`). Edges come from `runtime-import-specifiers.mjs`,
+ * which skips type-only imports/exports and `await import()`: neither can
  * create an initialization-order hazard.
  */
 
@@ -15,6 +15,7 @@ import {
 	findCycles,
 	type WorkspaceCycles,
 } from "./import-cycle-policy";
+import { runtimeImportSpecifiers } from "./runtime-import-specifiers.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const baselinePath = join(repoRoot, "scripts", "import-cycles-baseline.json");
@@ -62,18 +63,6 @@ function walk(dir: string, out: string[] = []): string[] {
 	return out;
 }
 
-/** Blank out comment bodies so a commented-out import is not counted. */
-export function stripComments(source: string): string {
-	// Replace comment bodies with spaces rather than deleting them, so the
-	// anchored `^\s*` matches below cannot be fooled into joining two lines.
-	return source
-		.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-		.replace(
-			/(^|[^:])\/\/[^\n]*/g,
-			(m, lead) => lead + " ".repeat(m.length - lead.length),
-		);
-}
-
 /**
  * Relative specifiers carrying a STATIC runtime edge.
  *
@@ -81,30 +70,10 @@ export function stripComments(source: string): string {
  * are the package-boundary lint's job, and following them would make every
  * workspace's graph the whole repo.
  */
-export function runtimeImportSpecifiers(source: string): string[] {
-	const text = stripComments(source);
-	const specifiers: string[] = [];
-
-	// `import ... from "x"` / `export ... from "x"`, rejecting the type-only
-	// forms. `[^;]*?` keeps the match inside one statement.
-	const fromRe =
-		/^[ \t]*(?:import|export)[ \t]+(?!type[ \t])[^;]*?from[ \t]*["']([^"']+)["']/gm;
-	// Side-effect import: `import "x";`
-	const bareRe = /^[ \t]*import[ \t]*["']([^"']+)["']/gm;
-
-	for (const re of [fromRe, bareRe]) {
-		let match = re.exec(text);
-		while (match !== null) {
-			const specifier = match[1];
-			if (specifier?.startsWith(".")) specifiers.push(specifier);
-			match = re.exec(text);
-		}
-	}
-	return specifiers;
-}
-
 function runtimeImports(file: string): string[] {
-	return runtimeImportSpecifiers(readFileSync(file, "utf8"));
+	return runtimeImportSpecifiers(readFileSync(file, "utf8")).filter((s) =>
+		s.startsWith("."),
+	);
 }
 
 function resolveSpecifier(fromFile: string, specifier: string): string | null {

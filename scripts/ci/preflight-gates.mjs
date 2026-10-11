@@ -54,7 +54,11 @@ import {
 } from "./preflight-test-targets.mjs";
 import { typeCheckTargets } from "./preflight-typecheck-targets.mjs";
 import { formatCheckCommand } from "./preflight-format-targets.mjs";
-import { isD1SchemaGateInput } from "./preflight-db-targets.mjs";
+import {
+	fsRepoReader,
+	isD1SchemaGateInput,
+	schemaRuntimeImports,
+} from "./preflight-db-targets.mjs";
 import {
 	contentionAdvice,
 	describeLoadPressure,
@@ -134,7 +138,13 @@ const NODE_REQUIRED_HINT =
 	"  PATH=/path/to/node/bin:$PATH git push";
 
 const workflowsTouched = touched((f) => f.startsWith(".github/"));
-const dbTouched = touched(isD1SchemaGateInput);
+let schemaImports;
+const dbTouched = touched((f) =>
+	isD1SchemaGateInput(f, () => {
+		schemaImports ??= schemaRuntimeImports(fsRepoReader(repoRoot));
+		return schemaImports;
+	}),
+);
 const scriptsTouched = touched((f) => f.startsWith("scripts/"));
 const privateExportManifestPresent = existsSync(
 	`${repoRoot}/scripts/oss/public-files.json`,
