@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	existsSync,
 	writeFileSync,
@@ -10,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	readJsonChild,
+	HOOK_READ_STDERR_TAIL,
 	HOOK_READ_STDOUT_LIMIT,
 	unattendedRun,
 } from "./hook-io";
@@ -97,6 +99,43 @@ describe("owning raw hook child collector", () => {
 			}
 		},
 	);
+
+	test("the child runs in the given directory while this process stays put", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-read-cwd-"));
+		const home = process.cwd();
+		try {
+			expect(
+				await readJsonChild(
+					process.execPath,
+					["-e", `process.stdout.write(JSON.stringify({cwd:process.cwd()}))`],
+					1000,
+					undefined,
+					{ cwd: dir },
+				),
+			).toEqual({ cwd: realpathSync(dir) });
+			expect(process.cwd()).toBe(home);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("a failing child reports its exit code and the tail of its stderr", async () => {
+		await expect(
+			run(
+				`process.stderr.write('x'.repeat(400)+' Error: not signed in\\n');process.exit(3);`,
+			),
+		).rejects.toThrow(
+			new RegExp(
+				`^Tedix CLI read failed \\(exit 3\\): x{${HOOK_READ_STDERR_TAIL - " Error: not signed in\n".length}} Error: not signed in$`,
+			),
+		);
+		await expect(run(`process.kill(process.pid,'SIGKILL')`)).rejects.toThrow(
+			"Tedix CLI read failed (signal SIGKILL)",
+		);
+		await expect(
+			readJsonChild(join(tmpdir(), "tedix-no-such-binary"), [], 1000),
+		).rejects.toThrow(/^Tedix CLI read failed \(.*ENOENT.*\)$/);
+	});
 
 	test("stdin stays outside argv and production stream returns its JSON", async () => {
 		expect(

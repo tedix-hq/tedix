@@ -404,11 +404,8 @@ export class Supervisor {
 			const backoff = this.recheck.get(candidate.requestId);
 			if (backoff && backoff.at > now) continue;
 			let sent = false;
-			// The chat's context resolves from its own checkout, as in its hooks.
-			const home = process.cwd();
 			this.lastPass.checked++;
 			try {
-				if (existsSync(candidate.cwd)) process.chdir(candidate.cwd);
 				sent = await this.consider(candidate);
 			} catch (error) {
 				this.lastPass.failed++;
@@ -416,8 +413,6 @@ export class Supervisor {
 					this.log(
 						`${candidate.host} ${candidate.session}: check failed: ${(error as Error).message?.slice(0, 200)}`,
 					);
-			} finally {
-				process.chdir(home);
 			}
 			if (sent) delivered++;
 			else {
@@ -440,13 +435,7 @@ export class Supervisor {
 
 	private async consider(candidate: Candidate): Promise<boolean> {
 		const env = this.deps.env;
-		const hookDeps = {
-			env,
-			stdin: "",
-			cwd: candidate.cwd,
-			read: this.deps.read,
-			write: () => {},
-		};
+		const hookDeps = this.hookDeps(candidate.cwd);
 		const binding = await bindingFor(hookDeps, candidate.session);
 		if (!binding) return false;
 		const detail = await interactionDetail(
@@ -575,15 +564,15 @@ export class Supervisor {
 		);
 	}
 
-	/** Run in the session's checkout, where its context resolves, as in its hooks. */
-	private async inCwd<T>(cwd: string, work: () => Promise<T>): Promise<T> {
-		const home = process.cwd();
-		try {
-			if (existsSync(cwd)) process.chdir(cwd);
-			return await work();
-		} finally {
-			process.chdir(home);
-		}
+	/**
+	 * Reads that resolve their context from the session's checkout, as in its
+	 * hooks. The read gets `cwd` instead of this process changing directory:
+	 * `process.chdir` round trips made `getcwd` fail with EINTR under launchd.
+	 */
+	private reader(cwd: string): ReadJson {
+		const options = existsSync(cwd) ? { cwd } : {};
+		return (args, timeoutMs, input) =>
+			this.deps.read(args, timeoutMs, input, options);
 	}
 
 	private hookDeps(cwd: string) {
@@ -591,7 +580,7 @@ export class Supervisor {
 			env: this.deps.env,
 			stdin: "",
 			cwd,
-			read: this.deps.read,
+			read: this.reader(cwd),
 			write: () => {},
 		};
 	}
@@ -604,9 +593,7 @@ export class Supervisor {
 		if (cached && now - cached.at < BINDING_TTL_MS) return cached.binding;
 		let binding: Binding | undefined;
 		try {
-			binding = await this.inCwd(local.cwd, () =>
-				bindingFor(this.hookDeps(local.cwd), local.session),
-			);
+			binding = await bindingFor(this.hookDeps(local.cwd), local.session);
 		} catch (error) {
 			const reason = `${local.host} ${local.session}: no usable binding for answer delivery: ${(error as Error).message?.slice(0, 200)}`;
 			if (this.noted.get(local.session) !== reason) {
@@ -641,18 +628,21 @@ export class Supervisor {
 		}
 		let delivered = 0;
 		for (const group of groups.values()) {
-			const answers = await this.inCwd(group.cwd, () =>
-				undeliveredAnswers(
-					this.hookDeps(group.cwd),
-					group.binding,
-					{},
-					DETAIL_TIMEOUT_MS,
-				),
+			let why = "";
+			const answers = await undeliveredAnswers(
+				this.hookDeps(group.cwd),
+				group.binding,
+				{},
+				DETAIL_TIMEOUT_MS,
+				(reason) => {
+					why = reason;
+				},
 			);
 			if (!answers) {
-				const reason = `undelivered answers could not be read for ${group.binding.command.join(" ")}`;
-				if (this.noted.get(reason) !== reason) {
-					this.noted.set(reason, reason);
+				const key = `undelivered answers could not be read for ${group.binding.command.join(" ")}`;
+				const reason = `${key}: ${why.slice(0, 300)}`;
+				if (this.noted.get(key) !== reason) {
+					this.noted.set(key, reason);
 					this.log(reason);
 				}
 				continue;
@@ -806,29 +796,27 @@ export class Supervisor {
 			? "codex"
 			: "claude-code";
 		try {
-			const created = await this.inCwd(cwd, () =>
-				this.deps.read(
-					[
-						...binding.command,
-						"work",
-						"delegate",
-						`Undelivered answer ${answer.requestId.slice(0, 8)}: ${question}`.slice(
-							0,
-							200,
-						),
-						"--done-when",
-						"The user's answer is acted on, here or in the session that asked",
-						"--via",
-						"session",
-						"--to",
-						`${host} session ${answer.sessionId}`,
-						"--session",
-						`${leadHost}:${lead}`,
-						...(answer.projectId ? ["--project", answer.projectId] : []),
-						"--json",
-					],
-					HANDOFF_TIMEOUT_MS,
-				),
+			const created = await this.reader(cwd)(
+				[
+					...binding.command,
+					"work",
+					"delegate",
+					`Undelivered answer ${answer.requestId.slice(0, 8)}: ${question}`.slice(
+						0,
+						200,
+					),
+					"--done-when",
+					"The user's answer is acted on, here or in the session that asked",
+					"--via",
+					"session",
+					"--to",
+					`${host} session ${answer.sessionId}`,
+					"--session",
+					`${leadHost}:${lead}`,
+					...(answer.projectId ? ["--project", answer.projectId] : []),
+					"--json",
+				],
+				HANDOFF_TIMEOUT_MS,
 			);
 			const id = typeof created.id === "string" ? created.id : "";
 			if (!UUID.test(id)) throw new Error("the board returned no Work Item id");

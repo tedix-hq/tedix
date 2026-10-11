@@ -37,12 +37,14 @@ export const ANSWERS_LIMIT = 6000;
 /**
  * The user's undelivered answers (for one session when given), oldest first,
  * or undefined when they cannot be read (offline, signed out, older server).
+ * `failed` receives why, when a caller logs failures.
  */
 export async function undeliveredAnswers(
 	deps: Pick<HookDeps, "read">,
 	binding: Binding,
 	filter: { sessionId?: string },
 	timeoutMs: number,
+	failed?: (reason: string) => void,
 ): Promise<PendingAnswer[] | undefined> {
 	try {
 		const value = await deps.read(
@@ -58,13 +60,17 @@ export async function undeliveredAnswers(
 		);
 		const parsed =
 			ListUndeliveredWorkInteractionResponsesResultSchema.safeParse(value);
-		if (!parsed.success) return undefined;
+		if (!parsed.success) {
+			failed?.("the server answered with an unexpected shape");
+			return undefined;
+		}
 		return parsed.data.data.filter(
 			(answer) =>
 				!filter.sessionId ||
 				answer.sessionId.toLowerCase() === filter.sessionId.toLowerCase(),
 		);
-	} catch {
+	} catch (error) {
+		failed?.((error as Error).message || String(error));
 		return undefined;
 	}
 }

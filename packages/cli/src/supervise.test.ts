@@ -321,11 +321,13 @@ describe("tedix supervise", () => {
 				started = true,
 				lead = LEAD as string | null,
 				received = true,
+				undeliveredError,
 			}: {
 				open?: boolean | undefined;
 				started?: boolean;
 				lead?: string | null;
 				received?: boolean;
+				undeliveredError?: Error;
 			} = {},
 		) {
 			const lines: string[] = [];
@@ -333,6 +335,8 @@ describe("tedix supervise", () => {
 			const resumed: Array<[string, string, string]> = [];
 			const queued: Array<[string, string]> = [];
 			const board: string[][] = [];
+			/** The working directory each read was given, by its first command word. */
+			const cwds: Array<[string, string | undefined]> = [];
 			let finish: (ok: boolean) => void = () => {};
 			const claude: ClaudeDriver = {
 				open: () => open,
@@ -363,12 +367,15 @@ describe("tedix supervise", () => {
 				lead: () => lead ?? undefined,
 				sleep: async () => {},
 				log: (line) => lines.push(line),
-				read: async (args) => {
-					if (args.includes("interaction-undelivered"))
+				read: async (args, _timeoutMs, _input, options) => {
+					cwds.push([args[0]!, options?.cwd]);
+					if (args.includes("interaction-undelivered")) {
+						if (undeliveredError) throw undeliveredError;
 						return {
 							data: structuredClone(answers),
 							observedAt: new Date().toISOString(),
 						} as JsonObject;
+					}
 					if (args.includes("interaction-ack")) {
 						acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
 						return { data: [] };
@@ -393,9 +400,40 @@ describe("tedix supervise", () => {
 				resumed,
 				queued,
 				board,
+				cwds,
 				finish: (ok: boolean) => finish(ok),
 			};
 		}
+
+		test("reads resolve from the session's checkout without changing this process's directory", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const home = process.cwd();
+			const run = drain([answer(CLAUDE, "claude-code", HANDOFF_AFTER_MS)]);
+			expect(await run.runner.tick()).toBe(1);
+			expect(process.cwd()).toBe(home);
+			expect(run.cwds.filter(([word]) => word === "setup")).toEqual([
+				["setup", config],
+			]);
+			expect(
+				run.cwds.filter(([, cwd]) => cwd === config).map(([word]) => word),
+			).toEqual(["setup", "-w", "-w", "-w"]);
+		});
+
+		test("an unreadable answer list logs the read failure's reason once", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CLAUDE, "claude-code", 60_000)], {
+				undeliveredError: new Error(
+					"Tedix CLI read failed (exit 1): Error: not signed in",
+				),
+			});
+			expect(await run.runner.tick()).toBe(0);
+			expect(await run.runner.tick()).toBe(0);
+			expect(
+				run.lines.filter((line) => line.includes("could not be read")),
+			).toEqual([
+				"undelivered answers could not be read for -w fixture: Tedix CLI read failed (exit 1): Error: not signed in",
+			]);
+		});
 
 		test("decides by host, open session and age", () => {
 			const base = { open: false, working: false };
