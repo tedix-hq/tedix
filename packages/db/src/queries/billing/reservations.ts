@@ -665,7 +665,7 @@ export async function reserveBillingUsage(
 				-- Active funded overage accounts are governed by the monthly
 				-- allowance/charge and hard spend predicates above. Their old UTC
 				-- daily ceiling remains ledger history, not an admission gate.
-				(status = 'active' AND allow_overage = 1 AND (
+				(COALESCE(is_monetary,0) = 0 AND status = 'active' AND allow_overage = 1 AND (
 					billing_mode = 'invoice' OR
 					(billing_mode = 'internal' AND is_sponsored_customer = 0) OR
 					(billing_mode = 'stripe' AND stripe_customer_id IS NOT NULL
@@ -677,7 +677,7 @@ export async function reserveBillingUsage(
 					organization_day_capacity_tokens
 			)
 			AND (
-				(status = 'active' AND allow_overage = 1 AND (
+				(COALESCE(is_monetary,0) = 0 AND status = 'active' AND allow_overage = 1 AND (
 					billing_mode = 'invoice' OR
 					(billing_mode = 'internal' AND is_sponsored_customer = 0) OR
 					(billing_mode = 'stripe' AND stripe_customer_id IS NOT NULL

@@ -1352,7 +1352,18 @@ const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 			await import("./billing/historical-exposure")
 		).revokeHistoricalFreshExecutionHandler(context, input),
 	);
+const configureCreditBillingContract = os.configureCreditBilling
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(withAuthorization("platform:admin", "platform:admin"))
+	.handler(async ({ context, input }) => {
+		const actor = requirePlatformBillingAuthority(context);
+		return (
+			await import("./billing/credit-activation")
+		).configureCreditBillingHandler(context, input, actor);
+	});
 export const billingContractRouter = os.router({
+	configureCreditBilling: configureCreditBillingContract,
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
 	listHistoricalExposures: listHistoricalExposuresContract,
 	recordHistoricalFreshDecision: recordHistoricalFreshDecisionContract,
