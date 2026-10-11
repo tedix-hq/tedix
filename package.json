@@ -55,6 +55,7 @@
 		"lint:kumo": "bun scripts/lint-kumo.ts",
 		"lint:repo": "bun scripts/lint-repo.ts",
 		"mcp:sync-tool-schemas": "bun scripts/mcp/sync-tool-schemas.ts",
+		"mcp:tool-collisions": "bun scripts/mcp/tool-collision-report.ts",
 		"oss:check": "bun scripts/oss/public-surface.ts && bun scripts/oss/dependency-licenses.ts",
 		"prepare": "bun run hooks:install",
 		"push": "bun scripts/dev/push-queue.ts",
