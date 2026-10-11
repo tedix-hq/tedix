@@ -504,10 +504,23 @@ for (const path of engineeringDocs) {
 }
 // This public manual is also copied to the export root, where relative links
 // resolve differently. Check both locations without reading private root rules.
-await validateReadmeLinks(
-	await readFile(resolve(publicRoot, "AGENTS.md"), "utf8"),
-	"AGENTS.md",
+const publicAgentsManual = await readFile(
+	resolve(publicRoot, "AGENTS.md"),
+	"utf8",
 );
+await validateReadmeLinks(publicAgentsManual, "AGENTS.md");
+// The public manual is a hand copy of the root AGENTS.md below its frontmatter
+// and has no sync script, so it silently falls behind without this check.
+{
+	const bodyStart = publicAgentsManual.indexOf("\n---\n", 4) + 5;
+	const publicBody = publicAgentsManual.slice(bodyStart).replace(/^\n+/, "");
+	const rootBody = await readFile(resolve(repoRoot, "AGENTS.md"), "utf8");
+	if (publicBody !== rootBody) {
+		throw new Error(
+			"docs/public/AGENTS.md: body differs from the root AGENTS.md; copy the root file below the frontmatter",
+		);
+	}
+}
 console.log(
 	`public docs boundary ok: ${markdownCount} indexed public Markdown files, ${internalMarkdownCount} internal frontmatter files, ${engineeringDocs.length} engineering docs, ${workspaceReadmeCount} workspace READMEs`,
 );
