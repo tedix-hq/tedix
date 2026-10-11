@@ -83,6 +83,7 @@ import {
 import { recordVoiceProviderUsage } from "../../lib/voice-provider-usage";
 import { resolveSponsorshipReadiness } from "./billing-sponsorship-readiness";
 import {
+	AUTHZ,
 	type BaseContext,
 	withAuth,
 	withAuthorization,
@@ -1355,7 +1356,7 @@ const revokeHistoricalFreshExecutionContract = os.revokeHistoricalFreshExecution
 const configureCreditBillingContract = os.configureCreditBilling
 	.use(withAuth)
 	.use(withFleetAuthority)
-	.use(withAuthorization("platform:admin", "platform:admin"))
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const actor = requirePlatformBillingAuthority(context);
 		return (
