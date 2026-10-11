@@ -41,6 +41,10 @@ Read the nearest scoped `AGENTS.md`, exact callers, and tests before changing
 behavior. Keep unrelated work intact. Contracts and current code take priority
 over prose; fix stale instructions when you encounter them.
 
+Before each patch, re-read the exact lines it replaces. Never copy context
+lines from memory or from your own earlier edit, because a formatter may have
+rewritten them. Keep Markdown line breaks exactly as the file has them.
+
 ## Validate the change
 
 - `bun run --cwd <workspace> type-check`: TypeScript source.
@@ -55,6 +59,21 @@ over prose; fix stale instructions when you encounter them.
 The pre-push hook selects relevant checks. Do not weaken a failing check to
 make it pass. Report exactly what ran, and keep passing tests, a recorded
 outcome, and a deployment distinct.
+
+Before committing, run `bun run format <changed files>`; unformatted files are
+the most common pre-push failure. Push with `bun run push`, not `git push`: it
+queues behind other sessions on this machine, rebases onto `origin/main`, runs
+the normal pre-push gates, and retries if main moved elsewhere.
+
+## Worktrees and closeout
+
+Work in a worktree, never in a checkout another session is using. Put manual
+worktrees under `.worktrees/` (ignored); harness-managed ones may live
+elsewhere. Run `git worktree list` before creating one and reuse your own.
+Once your change is pushed or abandoned, remove your worktree and scratch
+files; never remove one a live session is in. `bun run worktree:gc` lists every
+worktree of this repo and `--apply` removes only merged, clean, idle ones. The
+`worktree-closeout` skill in `.agents/skills/` is the full procedure.
 
 ## Hard Invariants
 
@@ -96,6 +115,10 @@ stay with the human; other approvals go to the designated approver.
 Maintainers commit directly to `main` after validation. Pull requests are
 disabled; agents must not create them. Proposals start as issues. See
 `CONTRIBUTING.md`. Never invent a Work Item or agent identity.
+
+A user-visible CLI change adds a changeset (`bun changeset`) in the same
+commit. Never bump the CLI version, edit its `CHANGELOG.md`, or tag a release
+as part of a change; releases are batched, at most daily (`CONTRIBUTING.md`, Releases).
 
 ## Deployment boundary
 
