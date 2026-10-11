@@ -25,6 +25,7 @@ import {
 	HistoricalFreshRevocationInputSchema,
 	HistoricalFreshDecisionSchema,
 	ProviderCapacityPolicySchema,
+	BillingOverageSettingsSchema,
 	BillingOverviewSchema,
 	BillingPlanCatalogSchema,
 	CheckoutInputSchema,
@@ -39,6 +40,7 @@ import {
 	ProviderReconciliationResponseSchema,
 	RecordVoiceProviderUsageInputSchema,
 	RecordVoiceProviderUsageResponseSchema,
+	SetBillingOverageSettingsInputSchema,
 	SetBillingServiceCreditControlsInputSchema,
 	SetBillingServiceCreditControlsResponseSchema,
 } from "../schemas/billing";
@@ -258,6 +260,27 @@ export const billingContract = oc
 			})
 			.output(BillingOverviewSchema),
 
+		getOverageSettings: oc
+			.route({
+				method: "GET",
+				path: "/overage",
+				summary: "Get overage settings",
+				description:
+					"Return the authenticated organization's overage opt-in, monthly cap, and month-to-date overage charge.",
+			})
+			.output(BillingOverageSettingsSchema),
+
+		setOverageSettings: oc
+			.route({
+				method: "PUT",
+				path: "/overage",
+				summary: "Set overage settings",
+				description:
+					"Organization owner/admin: enable priced overage with a hard monthly cap, or disable it. Inference stops at the included allowance while disabled and at the cap while enabled.",
+			})
+			.input(SetBillingOverageSettingsInputSchema)
+			.output(BillingOverageSettingsSchema),
+
 		/** Internal direct ledger path for Gateway-blind voice provider units. */
 		recordVoiceProviderUsage: oc
 			.route({
@@ -435,6 +458,8 @@ export type BillingContract = typeof billingContract;
 export {
 	type BillingInterval,
 	BillingIntervalSchema,
+	type BillingOverageSettings,
+	BillingOverageSettingsSchema,
 	type BillingOverview,
 	BillingOverviewSchema,
 	type BillingPlanCatalog,
@@ -465,6 +490,8 @@ export {
 	RecordVoiceProviderUsageInputSchema,
 	type RecordVoiceProviderUsageResponse,
 	RecordVoiceProviderUsageResponseSchema,
+	type SetBillingOverageSettingsInput,
+	SetBillingOverageSettingsInputSchema,
 	type SetBillingServiceCreditControlsInput,
 	SetBillingServiceCreditControlsInputSchema,
 	type SetBillingServiceCreditControlsResponse,

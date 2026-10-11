@@ -4794,6 +4794,15 @@ const handlers: Record<string, (input: never) => unknown> = {
 	}),
 	"billing/getOverview": () => ({
 		stripeEnvironment: "test" as const,
+		overage: {
+			enabled: false,
+			monthlyCapMicros: null,
+			currency: "usd",
+			planSellsOverage: true,
+			monthToDateChargeMicros: 0,
+			reservedChargeMicros: 0,
+			capReached: false,
+		},
 		workstationCostCoverage: {
 			periodStart: T1,
 			periodEnd: new Date(Date.parse(T1) + 30 * 86_400_000).toISOString(),

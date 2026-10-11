@@ -1,0 +1,1 @@
+ALTER TABLE `billing_accounts` ADD `overage_enabled` integer DEFAULT false NOT NULL;

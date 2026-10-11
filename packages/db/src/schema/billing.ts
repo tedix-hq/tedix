@@ -128,6 +128,15 @@ export const billingAccounts = sqliteTable(
 		}),
 		periodStart: text("period_start").notNull(),
 		periodEnd: text("period_end").notNull(),
+		/**
+		 * Admin opt-in for priced overage. Off by default: a plan that sells
+		 * overage still stops at its included allowance until an organization
+		 * admin turns this on, and `hard_spend_limit_micros` then carries the
+		 * monthly cap (plan currency) at which admission stops again.
+		 */
+		overageEnabled: integer("overage_enabled", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		hardSpendLimitMicros: integer("hard_spend_limit_micros"),
 		/**
 		 * Materialized balance backed by billing_credit_entries. Migration-owned

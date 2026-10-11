@@ -65,6 +65,7 @@ function calculateSettlementAmounts(input: {
 	period: BillingUsagePeriod;
 	plan: BillingPlanVersion;
 	creditBalanceMicros: number;
+	overageEnabled: boolean;
 }): SettlementAmounts {
 	const { totalTokens, period, plan } = input;
 	const usedBefore = period.usedInputTokens + period.usedOutputTokens;
@@ -73,6 +74,21 @@ function calculateSettlementAmounts(input: {
 			? totalTokens
 			: Math.max(period.includedTokens - usedBefore, 0);
 	const includedTokensApplied = Math.min(totalTokens, remainingIncluded);
+	// Priced overage is sold only once an admin opted in. Admission already
+	// stops at the allowance without the opt-in, so anything landing here is an
+	// estimate undershoot; it is absorbed rather than metered to Stripe.
+	if (
+		plan.allowOverage &&
+		plan.overageUnitPriceMicros > 0 &&
+		!input.overageEnabled
+	) {
+		return {
+			includedTokensApplied,
+			stripeMeteredTokens: 0,
+			customerChargeMicros: 0,
+			creditAppliedMicros: 0,
+		};
+	}
 	const overageTokens = Math.max(totalTokens - includedTokensApplied, 0);
 	const overageBefore =
 		period.includedTokens < 0
@@ -239,6 +255,7 @@ export async function settleBillingUsage(
 			db
 				.select({
 					creditBalanceMicros: billingAccounts.creditBalanceMicros,
+					overageEnabled: billingAccounts.overageEnabled,
 				})
 				.from(billingAccounts)
 				.where(eq(billingAccounts.organizationId, input.organizationId))
@@ -256,6 +273,7 @@ export async function settleBillingUsage(
 			period,
 			plan,
 			creditBalanceMicros: account.creditBalanceMicros,
+			overageEnabled: account.overageEnabled,
 		});
 		const nextSettlementVersion = period.settlementVersion + 1;
 		const outboxId = crypto.randomUUID();
