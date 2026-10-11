@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.4 — 2026-10-11
+
+### Fixed
+
+- The prompt-context hook is fast again: a cold turn takes about 3 s and a
+  warm turn under a second (it took 16 s and Claude Code discarded its output
+  after 15 s). Slow-changing context (preferences, lessons, organization) is
+  cached under `~/.tedix/hook-cache` for 10 minutes; per-turn reads run in
+  parallel with short timeouts and fail on their own. `TEDIX_HOOK_TRACE=1`
+  prints step timings. The bundled plugin raises the hook timeout to 30 s.
+
 ## 0.8.3 — 2026-10-11
 
 ### Fixed
