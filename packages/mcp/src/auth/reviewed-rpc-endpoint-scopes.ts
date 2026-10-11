@@ -420,6 +420,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizations/list": "platform:admin",
 	"organizations/listMine": "platform:admin",
 	"organizations/listOsMine": "platform:admin",
+	"organizations/listWidgetQuotaStatus": "platform:admin",
 	"organizations/repairCmsDomainEntitlement": "platform:admin",
 	"organizations/resolveCliWorkspace": "platform:admin",
 	"organizations/revokeMultiOrgMcpConsent": "platform:admin",

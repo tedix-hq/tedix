@@ -57,6 +57,7 @@ import {
 	getOrganizationBySlug,
 	getOrganizationFeatures,
 	listOrganizations as listOrganizationsDb,
+	listOrganizationWidgetQuotaStatus as listOrganizationWidgetQuotaStatusDb,
 	retireOrganization,
 	updateOrganization,
 } from "@tedix/db/queries/organizations";
@@ -435,6 +436,17 @@ export const listOrganizations = authedOrganizationsOs.list
 			},
 		};
 	});
+
+/**
+ * Platform-operator drift read. Unlike `list`, machine principals holding
+ * platform:admin (a background tedi run) are admitted: the projection carries
+ * only the widget turn quota, never a general organization inventory.
+ */
+export const listWidgetQuotaStatus = authedOrganizationsOs.listWidgetQuotaStatus
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context }) => ({
+		organizations: await listOrganizationWidgetQuotaStatusDb(context.db),
+	}));
 
 /**
  * Contract-based get procedure implementation
@@ -2639,6 +2651,7 @@ export const organizationsContractRouter = organizationsOs.router({
 	getMyOrganization: getMyOrganizationContract,
 	completeOsOnboarding: completeOsOnboardingContract,
 	list: listOrganizations,
+	listWidgetQuotaStatus,
 	get: getOrganization,
 	getBySlug: getOrganizationBySlugContract,
 	isSlugAvailable: isSlugAvailableContract,

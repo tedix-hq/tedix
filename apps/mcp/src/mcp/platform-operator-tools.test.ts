@@ -84,6 +84,7 @@ describe("platform operator tool definitions", () => {
 		expect(ids).toContain("get_tedi_mcp_access_health");
 		expect(ids).toContain("run_tedi_mcp_access_health_workflow");
 		expect(ids).toContain("list_tedi_email_address_requests");
+		expect(ids).toContain("list_organization_widget_quotas");
 		expect(ids).toContain("provision_tedi_email_address");
 		expect(ids).toContain("list_workflow_definitions");
 		expect(ids).toContain("list_workflow_definition_health");
@@ -120,6 +121,10 @@ describe("platform operator tool definitions", () => {
 
 	it("marks read, write, and destructive operator intents", () => {
 		expect(definition("get_catalog_stats").kind).toBe("read");
+		expect(definition("list_organization_widget_quotas")).toMatchObject({
+			endpoint: "organizations/listWidgetQuotaStatus",
+			kind: "read",
+		});
 		expect(definition("run_openapi_import").kind).toBe("write");
 		expect(definition("create_tedi").kind).toBe("write");
 		expect(definition("delete_app").kind).toBe("destructive");

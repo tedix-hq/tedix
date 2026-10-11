@@ -306,6 +306,37 @@ export const organizationsContract = oc
 			.output(createPaginatedResponseSchema(OrganizationListItemSchema)),
 
 		/**
+		 * Platform-operator drift view: which organizations set an embedded
+		 * widget turn quota. Deliberately returns nothing else from metadata and
+		 * no pagination so a background tedi never gets a general inventory.
+		 * GET /organizations/widget-quota-status
+		 */
+		listWidgetQuotaStatus: oc
+			.route({
+				method: "GET",
+				path: "/widget-quota-status",
+				tags: ["internal"],
+				summary:
+					"Platform operator view of which organizations set an embedded widget turn quota",
+				description:
+					"Internal platform-operator read of `metadata.tediWidget.turnQuota` for every active organization; null means the organization never set that ceiling.",
+			})
+			.input(z.object({}).strict())
+			.output(
+				z.object({
+					organizations: z.array(
+						z.object({
+							id: z.string(),
+							slug: z.string(),
+							name: z.string(),
+							visitorTurnsPerHour: z.number().int().nullable(),
+							originTurnsPerHour: z.number().int().nullable(),
+						}),
+					),
+				}),
+			),
+
+		/**
 		 * Get organization by ID
 		 * GET /organizations/{organizationId}
 		 */

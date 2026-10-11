@@ -53,6 +53,8 @@ describe("reviewed RPC endpoint scopes", () => {
 			"tedis/authorizeOsPortableCall",
 			"tediEmail/provisionAddress",
 			"organizations/cancel",
+			"organizations/listWidgetQuotaStatus",
+			"tediEmail/listAddressRequests",
 			"billing/grantCredit",
 			// Decrypted secret reads.
 			"secrets/get",
