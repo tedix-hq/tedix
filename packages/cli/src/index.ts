@@ -1106,9 +1106,6 @@ async function main() {
 					...(options.workAs ? { as: options.workAs } : {}),
 					...(options.workHost ? { host: options.workHost } : {}),
 					...(options.workLaunch ? { launch: true } : {}),
-					...(options.workTargetChat
-						? { targetChat: options.workTargetChat }
-						: {}),
 					...(options.workRepoKey !== undefined
 						? { repoKey: options.workRepoKey }
 						: {}),

@@ -2,4 +2,4 @@
 "@tedix/cli": patch
 ---
 
-Allow accepted Work handoffs to explicitly target an existing Codex chat, reusing confirmed queue/resume delivery and refusing mismatched chat context or duplicate confirmed handoffs.
+Register accepted Work for automatic pickup in an explicit existing Codex chat with `work handoff --host codex --to codex:<chat-id> --launch`. Preserve profile, organization and project binding, check idle status and readiness, and reuse shared delivery locking and confirmed queue/resume receipts across retries and restarts.

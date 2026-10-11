@@ -109,8 +109,6 @@ export interface CliOptions {
 	workHost?: string;
 	/** `work handoff`: explicitly launch the host after a read-only preview. */
 	workLaunch?: boolean;
-	/** `work handoff`: exact existing Codex chat, never an inferred destination. */
-	workTargetChat?: string;
 	workEvidence?: string;
 	/** `work accept`: plain-language --done-when text. */
 	workDoneWhen?: string;
