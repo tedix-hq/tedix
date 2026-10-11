@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.7 — 2026-10-11
+
+### Fixed
+
+- Register accepted Work for pickup by its named existing Codex chat with
+  `work handoff --host codex --to codex:<chat-id> --launch`. The supervisor
+  checks the chat's organization, project, idle status and Work readiness
+  before delivery, and preserves receipts across retries and restarts.
+- Delivery is confirmed only by the complete message in a received user
+  message. Diagnostic commands or assistant text quoting it cannot count
+  as delivery. An uncertain queued message prevents a duplicate turn.
+
 ## 0.8.6 — 2026-10-11
 
 ### Fixed
