@@ -219,6 +219,22 @@ describe("listWorkItemsPage filters and counts in SQL", () => {
 		expect(caseInsensitive.total).toBe(1);
 	});
 
+	it("matches a title substring longer than D1's 50-byte LIKE pattern cap", async () => {
+		// A delegation title is searched for verbatim before it is created; the
+		// LIKE this replaced turned any 48+ character search into a D1_ERROR.
+		const title =
+			"Harden the embedded widget turn pipeline against sponsored-capacity exhaustion";
+		insert({ id: idFor(1), title });
+		insert({ id: idFor(2), title: "Harden something shorter" });
+
+		const page = await listWorkItemsPage(db, {
+			orgId: ORG,
+			titleContains: title.toUpperCase().slice(0, 200),
+		});
+		expect(page.total).toBe(1);
+		expect(page.data[0]?.id).toBe(idFor(1));
+	});
+
 	it("never leaks another organization's rows into a filtered count", async () => {
 		insert({ id: idFor(1), title: "Shared title" });
 		insert({ id: idFor(2), orgId: OTHER_ORG, title: "Shared title" });

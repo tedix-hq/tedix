@@ -203,11 +203,6 @@ export async function listWorkItems(
 	return rows.map(normalizeWorkItemRow);
 }
 
-/** Escape LIKE metacharacters so a caller's substring stays a literal match. */
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, (character) => `\\${character}`);
-}
-
 /**
  * Exclusive upper bound for a BINARY-collation prefix scan: the prefix with its
  * final code unit incremented. `id >= prefix AND id < successor` is exactly
@@ -299,8 +294,12 @@ export async function listWorkItemsPage(
 						lt(workItems.id, prefixUpperBound(idPrefix)),
 					)
 			: undefined,
+		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a
+		// substring of 48+ characters (every delegation title the CLI searches
+		// for before creating one) made the whole page a D1_ERROR. `instr` takes
+		// the bound substring at any length and needs no wildcard escaping.
 		titleContains
-			? sql`lower(${workItems.title}) LIKE ${`%${escapeLikePattern(titleContains)}%`} ESCAPE '\\'`
+			? sql`instr(lower(${workItems.title}), ${titleContains}) > 0`
 			: undefined,
 		// `_` is a LIKE wildcard, so `transitional_` must be escaped or it also
 		// matches `transitionalX`.
