@@ -8,12 +8,16 @@ import {
 	parseOverageCapMicros,
 } from "./billing-overage-section";
 
-function render(overage: BillingOverview["overage"]) {
+function render(
+	overage: BillingOverview["overage"],
+	credits?: BillingOverview["credits"],
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	client.setQueryData(billingOverviewQueryOptions().queryKey, {
 		overage,
+		credits,
 	} as BillingOverview);
 	const html = renderToStaticMarkup(
 		<QueryClientProvider client={client}>
@@ -75,4 +79,24 @@ describe("parseOverageCapMicros", () => {
 		expect(parseOverageCapMicros("-5")).toBeNull();
 		expect(parseOverageCapMicros("1000001")).toBeNull();
 	});
+});
+
+it("offers a monetary budget without enabling the legacy cash overage switch", () => {
+	const html = render(off, {
+		billingMode: "monetary",
+		currency: "usd",
+		creditValueMicros: 10_000,
+		includedMicros: 100_000_000,
+		usedIncludedMicros: 10_000_000,
+		remainingIncludedMicros: 90_000_000,
+		walletBalanceMicros: 90_000_000,
+		availableMicros: 88_000_000,
+		reservedMicros: 2_000_000,
+		spentMicros: 10_000_000,
+		monthlyCapMicros: 50_000_000,
+	});
+	expect(html).toContain("Monthly credit spending cap");
+	expect(html).toContain("1,200 credits ($12) used or reserved");
+	expect(html).toContain("Monthly cap (USD)");
+	expect(html).not.toContain("Allow overage");
 });
