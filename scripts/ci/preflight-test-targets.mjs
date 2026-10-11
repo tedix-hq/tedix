@@ -26,7 +26,15 @@
  * only has to ask.
  */
 
+import { isWorkspaceProse } from "./preflight-typecheck-targets.mjs";
+
 const WORKSPACE_PATH = /^(apps|packages)\/([^/]+)\//;
+
+/**
+ * A test module. Nothing imports a test file, from its own workspace or any
+ * other, so a changed test can only fail in the workspace that owns it.
+ */
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /**
  * Paths are passed to `vitest related` from inside the target workspace, so a
@@ -63,7 +71,9 @@ function dependentsOf(packageName, manifests) {
 /**
  * The workspaces one changed file affects: the workspace that owns it, plus —
  * when it lives in a package — every workspace that depends on that package.
- * Apps are leaves (nothing imports an app), so only a package fans out.
+ * Apps are leaves (nothing imports an app), so only a package fans out, and
+ * a package's test files are leaves too. A workspace's root prose affects
+ * nothing (see isWorkspaceProse).
  *
  * @param {string} file repo-relative changed path
  * @param {{manifests: Map<string, {deps: Set<string>}>, packageNameOf: Map<string, string | undefined>}} graph
@@ -71,9 +81,9 @@ function dependentsOf(packageName, manifests) {
  */
 function workspacesAffectedBy(file, graph) {
 	const match = WORKSPACE_PATH.exec(file);
-	if (!match) return [];
+	if (!match || isWorkspaceProse(file)) return [];
 	const owner = `${match[1]}/${match[2]}`;
-	if (match[1] !== "packages") return [owner];
+	if (match[1] !== "packages" || TEST_FILE.test(file)) return [owner];
 	const packageName = graph.packageNameOf.get(owner);
 	if (!packageName) return [owner];
 	return [
