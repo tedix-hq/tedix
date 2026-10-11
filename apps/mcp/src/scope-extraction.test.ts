@@ -354,11 +354,30 @@ describe("targeted Code Mode surface extraction", () => {
 			).map((entry) => entry.slug),
 		).toEqual(["tedix-unified"]);
 	});
+	it("bounds literal discovery mixed with direct calls to the named namespaces", () => {
+		// The Connect program that exhausted the Worker CPU limit: one literal
+		// describe plus calls into two organizations hydrated all ten.
+		expect(
+			extractCodeModeProviderNamespacesFromCode(`async () => {
+  const a = await acme_unified_tedix.get_my_organization({});
+  const b = await sample_unified_tedix.get_my_organization({});
+  const d = await discover.describe("sample_unified_tedix.get_my_organization");
+  return { a, b, endpoint: d.native?.endpoint };
+}`),
+		).toEqual(new Set(["acme_unified_tedix", "sample_unified_tedix"]));
+		expect(
+			extractCodeModeProviderNamespacesFromCode(
+				'async () => { await discover.search({"namespace":"tedix_unified"}); return await gmail.list_messages({}); }',
+			),
+		).toEqual(new Set(["tedix_unified", "gmail"]));
+	});
 	it.each([
 		'async () => await discover.search({"namespace":""})',
+		'async () => { const d = discover; return d.search({"namespace":"x"}); }',
+		'async () => { await discover.describe("acme_unified.a"); return await discover.search("broad"); }',
+		"async () => { for (const n of names) await discover.describe(`acme_unified.${n}`); }",
 		'async () => await discover.search({"namespace":"tedix_unified" + suffix})',
 		'async () => { const q = {namespace:"tedix_unified"}; return await discover.search(q); }',
-		'async () => await discover.search({"namespace":"tedix_unified"}); await gmail.list_messages({})',
 		'async () => await discover.describe({"callable":"dynamic"})',
 		"async () => await discover.list_namespaces()",
 		'async () => await discover.search({"namespace":"tedix_unified", "query": other.call()})',
