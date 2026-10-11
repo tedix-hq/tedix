@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KernelContext } from "./context-assembly";
 import {
 	planKernelRoute as runPlanKernelRoute,
+	resolveRouteHedgeAfterMs,
 	shapeRouteUsage as actualShapeRouteUsage,
 	SYSTEM_PROMPT,
 } from "./route-planner";
@@ -2186,5 +2187,328 @@ describe("operator intent before delegation fit", () => {
 			targetTediId: "cto",
 			explicitDelegationIntent: true,
 		});
+	});
+});
+
+// ── Route-pass hedge (single second request against TTFT variance) ──────────
+describe("planKernelRoute — route-pass hedge", () => {
+	const DECISION: KernelRouteDecision = {
+		...FALLBACK_DECISION,
+		answer: "Rain is water falling from clouds.",
+	};
+	const HEDGE_DECISION: KernelRouteDecision = {
+		...FALLBACK_DECISION,
+		answer: "Rain is condensed vapour falling from clouds.",
+	};
+	function chunksOf(decision: KernelRouteDecision, size = 8): string[] {
+		const json = JSON.stringify(normalizeRouteDecisionCandidate(decision));
+		const chunks: string[] = [];
+		for (let i = 0; i < json.length; i += size)
+			chunks.push(json.slice(i, i + size));
+		return chunks;
+	}
+	type Lane =
+		| { kind: "stream"; decision: KernelRouteDecision; delayMs?: number }
+		| { kind: "stall" }
+		| { kind: "error"; message: string; delayMs?: number };
+	/** An abort-aware stream for one lane: the real fetch body rejects on abort too. */
+	function laneStream(lane: Lane, abortSignal: AbortSignal | undefined) {
+		if (lane.kind === "stall")
+			return new ReadableStream({
+				start(controller) {
+					const onAbort = () =>
+						controller.error(abortSignal?.reason ?? new Error("aborted"));
+					if (abortSignal?.aborted) return onAbort();
+					abortSignal?.addEventListener("abort", onAbort, { once: true });
+				},
+			});
+		const chunks =
+			lane.kind === "stream"
+				? [
+						{ type: "text-start", id: "0" },
+						...chunksOf(lane.decision).map((delta) => ({
+							type: "text-delta",
+							id: "0",
+							delta,
+						})),
+						{ type: "text-end", id: "0" },
+						{
+							type: "finish",
+							finishReason: { unified: "stop", raw: "stop" },
+							usage: {
+								inputTokens: {
+									total: 10,
+									noCache: 10,
+									cacheRead: 0,
+									cacheWrite: 0,
+								},
+								outputTokens: { total: 20, text: 20, reasoning: 0 },
+							},
+						},
+					]
+				: [
+						{ type: "error", error: new Error(lane.message) },
+						{
+							type: "finish",
+							finishReason: { unified: "error", raw: "error" },
+							usage: {
+								inputTokens: {
+									total: 0,
+									noCache: 0,
+									cacheRead: 0,
+									cacheWrite: 0,
+								},
+								outputTokens: { total: 0, text: 0, reasoning: 0 },
+							},
+						},
+					];
+		const simulated = simulateReadableStream({
+			initialDelayInMs: lane.delayMs ?? null,
+			chunkDelayInMs: null,
+			chunks: [{ type: "stream-start", warnings: [] }, ...chunks],
+		});
+		if (!abortSignal) return simulated;
+		// Abort stops the simulated body the way a cancelled fetch body does.
+		const reader = simulated.getReader();
+		return new ReadableStream({
+			async pull(controller) {
+				if (abortSignal.aborted) {
+					controller.error(abortSignal.reason);
+					return;
+				}
+				const next = await reader.read();
+				if (next.done) controller.close();
+				else controller.enqueue(next.value);
+			},
+			cancel: () => reader.cancel(),
+		});
+	}
+	/** doStream call N serves lanes[N]; each call is admitted as its own execution. */
+	function hedgeModel(lanes: Lane[]) {
+		let call = 0;
+		const mock = new MockLanguageModelV3({
+			doStream: async ({ abortSignal }) => {
+				const lane = lanes[call++];
+				if (!lane) throw new Error("unexpected third dispatch");
+				return { stream: laneStream(lane, abortSignal) as any };
+			},
+			doGenerate: async () => {
+				throw new Error("buffered pass must not run");
+			},
+		});
+		let admitted = 0;
+		const make = (): SelectedKernelModel => {
+			const attempts: SelectedKernelModel["attempts"] = [];
+			return {
+				model: new Proxy(mock, {
+					get(target, key, receiver) {
+						if (key !== "doStream") {
+							const value = Reflect.get(target, key, receiver);
+							return typeof value === "function" ? value.bind(target) : value;
+						}
+						return async (...args: unknown[]) => {
+							attempts.push({
+								identity: {
+									provider: "workers-ai",
+									requestModel: "cloudflare/auto",
+									gatewayAccountId: "acct",
+									gatewayId: "gw",
+									transportKind: "gateway-https",
+									apiKind: "workers-ai-chat",
+									providerResource: null,
+									providerOrigin: null,
+									deployment: null,
+								},
+								occurredAt: new Date().toISOString(),
+								executionId: `exec-${++admitted}`,
+							});
+							return Reflect.apply(target.doStream, target, args);
+						};
+					},
+				}) as LanguageModel,
+				pricingIdentity: null,
+				attempts,
+				forOperation: make,
+			};
+		};
+		return { mock, selected: make() };
+	}
+	function run(
+		model: SelectedKernelModel,
+		afterMs: string,
+		deltas: string[] = [],
+	) {
+		return runPlanKernelRoute({
+			content: "Explain rain",
+			context: EMPTY_CONTEXT,
+			model,
+			env: { KERNEL_ROUTE_HEDGE_AFTER_MS: afterMs },
+			onAnswerDelta: (d) => deltas.push(d),
+			streamIdleMs: 2_000,
+		});
+	}
+
+	it("does not fire when the primary yields its first partial before the deadline", async () => {
+		const { mock, selected } = hedgeModel([
+			{ kind: "stream", decision: DECISION },
+		]);
+		const deltas: string[] = [];
+		const result = await run(selected, "500", deltas);
+		expect(result?.answer).toBe(DECISION.answer);
+		expect(deltas.join("")).toBe(DECISION.answer);
+		expect(mock.doStreamCalls).toHaveLength(1);
+		expect(result?.hedge).toMatchObject({
+			fired: false,
+			afterMs: 500,
+			winner: "primary",
+			loserTokens: null,
+			loserExecutionId: null,
+			hedgeFirstPartialMs: null,
+		});
+		expect(result?.hedge?.primaryFirstPartialMs).toBeTypeOf("number");
+		expect(result?.usage.executionId).toBe("exec-1");
+	});
+
+	it("fires after the deadline and the hedge wins: primary aborted, only hedge deltas emitted", async () => {
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		try {
+			const { mock, selected } = hedgeModel([
+				{ kind: "stall" },
+				{ kind: "stream", decision: HEDGE_DECISION },
+			]);
+			const deltas: string[] = [];
+			const result = await settlesWithin(
+				run(selected, "40", deltas),
+				3_000,
+				"hedge wins",
+			);
+			expect(result?.answer).toBe(HEDGE_DECISION.answer);
+			expect(deltas.join("")).toBe(HEDGE_DECISION.answer);
+			expect(mock.doStreamCalls).toHaveLength(2);
+			// The primary was aborted the moment the hedge produced a partial.
+			expect(mock.doStreamCalls[0]!.abortSignal?.aborted).toBe(true);
+			expect(result?.hedge).toMatchObject({
+				fired: true,
+				afterMs: 40,
+				winner: "hedge",
+				loserTokens: null,
+				loserExecutionId: "exec-1",
+				primaryFirstPartialMs: null,
+			});
+			expect(result?.hedge?.hedgeFirstPartialMs).toBeTypeOf("number");
+			// Accounting: the winner's admission is the turn's; the loser's is not.
+			expect(result?.usage.executionId).toBe("exec-2");
+			expect(result?.usage.attempts.map((a) => a.executionId)).toEqual([
+				"exec-2",
+			]);
+			expect(result?.usage).toMatchObject({
+				inputTokens: 10,
+				outputTokens: 20,
+			});
+			expect(info).toHaveBeenCalledWith(
+				"[kernel.route.hedge]",
+				expect.objectContaining({ fired: true, winner: "hedge" }),
+			);
+		} finally {
+			info.mockRestore();
+		}
+	});
+
+	it("fires and the primary wins: hedge aborted, only primary deltas emitted", async () => {
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		try {
+			const { mock, selected } = hedgeModel([
+				{ kind: "stream", decision: DECISION, delayMs: 120 },
+				{ kind: "stall" },
+			]);
+			const deltas: string[] = [];
+			const result = await settlesWithin(
+				run(selected, "40", deltas),
+				3_000,
+				"primary wins",
+			);
+			expect(result?.answer).toBe(DECISION.answer);
+			expect(deltas.join("")).toBe(DECISION.answer);
+			expect(mock.doStreamCalls).toHaveLength(2);
+			expect(mock.doStreamCalls[1]!.abortSignal?.aborted).toBe(true);
+			expect(result?.hedge).toMatchObject({
+				fired: true,
+				winner: "primary",
+				loserExecutionId: "exec-2",
+				loserTokens: null,
+				hedgeFirstPartialMs: null,
+			});
+			expect(result?.hedge?.primaryFirstPartialMs).toBeGreaterThanOrEqual(40);
+			expect(result?.usage.attempts.map((a) => a.executionId)).toEqual([
+				"exec-1",
+			]);
+			expect(info).toHaveBeenCalledTimes(1);
+		} finally {
+			info.mockRestore();
+		}
+	});
+
+	it("surfaces the primary's error when both requests fail", async () => {
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		try {
+			const { mock, selected } = hedgeModel([
+				{ kind: "error", message: "primary boom", delayMs: 120 },
+				{ kind: "error", message: "hedge boom" },
+			]);
+			const error = await settlesWithin(
+				run(selected, "40").catch((e: unknown) => e),
+				4_000,
+				"both fail",
+			);
+			expect(error).toBeInstanceOf(Error);
+			const cause = (error as Error).cause;
+			const text = `${(error as Error).message} ${
+				cause instanceof Error ? cause.message : ""
+			}`;
+			expect(text).toContain("primary boom");
+			expect(text).not.toContain("hedge boom");
+			expect(mock.doStreamCalls).toHaveLength(2);
+			expect(mock.doGenerateCalls).toHaveLength(0);
+		} finally {
+			info.mockRestore();
+		}
+	});
+
+	it("does not fire when the primary fails before the deadline", async () => {
+		const { mock, selected } = hedgeModel([
+			{ kind: "error", message: "primary boom" },
+			{ kind: "stream", decision: HEDGE_DECISION },
+		]);
+		await expect(run(selected, "500")).rejects.toThrow();
+		expect(mock.doStreamCalls).toHaveLength(1);
+	});
+
+	it("KERNEL_ROUTE_HEDGE_AFTER_MS=0 disables the hedge", async () => {
+		const { mock, selected } = hedgeModel([
+			{ kind: "stream", decision: DECISION, delayMs: 80 },
+			{ kind: "stream", decision: HEDGE_DECISION },
+		]);
+		const deltas: string[] = [];
+		const result = await run(selected, "0", deltas);
+		expect(result?.answer).toBe(DECISION.answer);
+		expect(mock.doStreamCalls).toHaveLength(1);
+		expect(result?.hedge).toMatchObject({ fired: false, afterMs: 0 });
+	});
+
+	it("resolves the deadline from env: unset → 5000, invalid → 5000, 0 → 0", () => {
+		expect(resolveRouteHedgeAfterMs(undefined)).toBe(5_000);
+		expect(resolveRouteHedgeAfterMs({})).toBe(5_000);
+		expect(resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: "x" })).toBe(
+			5_000,
+		);
+		expect(
+			resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: "-3" }),
+		).toBe(5_000);
+		expect(resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: "0" })).toBe(
+			0,
+		);
+		expect(
+			resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: " 2500 " }),
+		).toBe(2_500);
 	});
 });

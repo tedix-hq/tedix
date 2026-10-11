@@ -110,6 +110,11 @@ export interface KernelEnv {
 	/** Explicit provider/model ref; absent selects cloudflare/auto. */
 	KERNEL_MODEL_REF?: string;
 	/**
+	 * Route-pass hedge deadline (ms without a first partial before one identical
+	 * second request starts; `route-planner.ts`). Unset → 5000; `0` disables.
+	 */
+	KERNEL_ROUTE_HEDGE_AFTER_MS?: string;
+	/**
 	 * Workers-AI BYOK API token (CF token with Workers AI access). When present
 	 * alongside the AI Gateway vars, the Workers AI transport routes through the
 	 * authenticated AI Gateway (`…/workers-ai/v1/chat/completions`) for unified
