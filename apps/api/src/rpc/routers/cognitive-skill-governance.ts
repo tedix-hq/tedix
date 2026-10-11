@@ -11,6 +11,7 @@ import {
 	getSkillEntryBySlug,
 	updateSkillEntry,
 } from "@tedix/db/queries/cognitive/skill-crud";
+import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { listAllSkillsForOrg } from "@tedix/db/queries/cognitive/skill-inventory";
 import {
 	computeSkillPromotion,
@@ -213,6 +214,12 @@ export async function updateSkillEntryGated(
 ): Promise<void> {
 	try {
 		await updateSkillEntry(context.db, id, patch, options);
+		if (context.organizationId)
+			invalidateKernelContextCache(
+				context,
+				context.organizationId,
+				"skill.updated",
+			);
 	} catch (error) {
 		if (
 			error instanceof SkillLifecycleTransitionError ||

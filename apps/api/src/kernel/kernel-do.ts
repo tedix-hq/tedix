@@ -6,6 +6,7 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 
 import { isDurableObjectMemoryLimitReset } from "agents";
+import { getKernelContextCache } from "./context-cache";
 
 import { injectAgentMessage } from "@tedix/provisioning";
 import type { BaseContext } from "../rpc/context";
@@ -874,6 +875,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 						? { relevanceCandidates: candidatesInFlight }
 						: {}),
 					...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
+					// This DO is the org's single kernel instance, so the cache it
+					// reads through is the one `invalidateContextCache` reaches.
+					contextCache: getKernelContextCache(),
 					stageTimings,
 				},
 				input,
@@ -925,6 +929,24 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 */
 	async cancelTurn(runId: string): Promise<boolean> {
 		return abortKernelTurn(this.turnAbortControllers, runId);
+	}
+
+	/**
+	 * A write path changed one of the slow-changing context inputs (tedi, app,
+	 * skill, workflow, policy pack, organization row). Bump the org's cache
+	 * version so the next Home turn re-reads from D1 instead of waiting out
+	 * the TTL. Called fire-and-forget by `invalidateKernelContextCache`.
+	 */
+	async invalidateContextCache(reason: string): Promise<void> {
+		const organizationId =
+			this.state.organizationId ?? this.ctx.id.name ?? null;
+		if (!organizationId) return;
+		getKernelContextCache().invalidate(organizationId);
+		console.info({
+			component: "kernel.context",
+			event: "cache_invalidated",
+			reason,
+		});
 	}
 
 	/**

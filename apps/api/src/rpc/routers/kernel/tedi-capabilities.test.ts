@@ -16,6 +16,10 @@
 import type { DbClient } from "@tedix/db/client";
 import type { App } from "@tedix/db/schema/apps";
 import { describe, expect, it } from "vite-plus/test";
+import {
+	createCacheTrace,
+	KernelContextCache,
+} from "../../../kernel/context-cache";
 import { decideDelegationDispatch } from "./delegation-dispatch";
 import type { KernelRouteDecision } from "./route-schema";
 import {
@@ -738,6 +742,53 @@ describe("getTediCapabilityCards", () => {
 		expect(tablesRead).not.toContain("apps");
 		expect(tablesRead).toContain("skill_entries");
 		expect(tablesRead).toContain("policy_packs");
+	});
+
+	it("serves skill labels, policy packs and learned capabilities from the per-org cache, but re-reads workstation readiness every call", async () => {
+		const tablesRead: string[] = [];
+		const db = makeStubDb({
+			tedis: [
+				{
+					id: "tedi-1",
+					slug: "cto",
+					name: "cto",
+					runtimeState: "active",
+					policyPackId: "pack-1",
+				},
+			],
+			skills: [{ tediId: "tedi-1", slug: "deploy-audit", title: "Deploy" }],
+			packs: [
+				{
+					id: "pack-1",
+					definition: { governancePolicy: { autoDispatch: true } },
+				},
+			],
+			tablesRead,
+		});
+		const cache = new KernelContextCache();
+		const count = (name: string) =>
+			tablesRead.filter((table) => table === name).length;
+
+		const first = await getTediCapabilityCards(db, "org-1", {
+			cache: { cache, trace: createCacheTrace() },
+		});
+		const trace = createCacheTrace();
+		const second = await getTediCapabilityCards(db, "org-1", {
+			cache: { cache, trace },
+		});
+
+		expect(second).toEqual(first);
+		expect(second[0]!.skills).toEqual(["deploy-audit"]);
+		expect(count("skill_entries")).toBe(1);
+		expect(count("policy_packs")).toBe(1);
+		expect(count("knowledge_entries")).toBe(1);
+		expect(count("workstation_leases")).toBe(2);
+		expect(trace.hits.map((key) => key.split(":")[0]).sort()).toEqual([
+			"learnedCapabilities",
+			"policyPacks",
+			"skillLabels",
+		]);
+		expect(trace.misses).toEqual([]);
 	});
 
 	it("re-reads tedis + apps when opts are absent (standalone path)", async () => {

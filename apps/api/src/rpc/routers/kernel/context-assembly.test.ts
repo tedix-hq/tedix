@@ -47,6 +47,10 @@ import {
 } from "./context-assembly";
 import { selectSkillsForTurn } from "@tedix/context-core/skill-retrieval";
 import type { ContextCandidateRanker } from "./jev-context-ranking";
+import {
+	CONTEXT_CACHE_TTL_MS,
+	KernelContextCache,
+} from "../../../kernel/context-cache";
 
 const ORG_ID = "org-1";
 
@@ -241,6 +245,113 @@ describe("assembleHomeContext read scheduling", () => {
 
 		expect(startsBeforeRoster).toBe(1);
 		expect(recallStarted).toHaveBeenCalledOnce();
+		vi.restoreAllMocks();
+	});
+});
+
+describe("assembleHomeContext per-org context cache", () => {
+	function spyInventory() {
+		const tedis = vi
+			.spyOn(tediQueries, "getTedisByOrganization")
+			.mockResolvedValue([]);
+		const apps = vi
+			.spyOn(appQueries, "getAppsByOrganization")
+			.mockResolvedValue([]);
+		const workflows = vi
+			.spyOn(workflowQueries, "listKernelWorkflowCatalog")
+			.mockResolvedValue([]);
+		const workItems = vi
+			.spyOn(workItemQueries, "listWorkItems")
+			.mockResolvedValue([]);
+		return { tedis, apps, workflows, workItems };
+	}
+
+	it("serves the slow-changing inputs from the cache on the next turn and stamps hits, while per-turn inputs are re-read", async () => {
+		const spies = spyInventory();
+		const contextCache = new KernelContextCache();
+
+		const first = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			contextCache,
+			operatorMessage: "first turn",
+		});
+		const second = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			contextCache,
+			operatorMessage: "second turn",
+		});
+
+		expect(spies.tedis).toHaveBeenCalledTimes(1);
+		expect(spies.apps).toHaveBeenCalledTimes(1);
+		expect(spies.workflows).toHaveBeenCalledTimes(1);
+		// Work items are per-turn state and never cached.
+		expect(spies.workItems).toHaveBeenCalledTimes(2);
+
+		expect(first.cache?.misses).toEqual(
+			expect.arrayContaining(["tedis", "apps", "workflows"]),
+		);
+		expect(first.cache?.hits).toEqual([]);
+		expect(second.cache?.hits).toEqual(
+			expect.arrayContaining(["tedis", "apps", "workflows"]),
+		);
+		expect(second.cache?.misses).toEqual([]);
+		expect(second.cache?.hits).not.toContain("workItems");
+		vi.restoreAllMocks();
+	});
+
+	it("misses again after an invalidation, so a config change shows on the next turn", async () => {
+		const spies = spyInventory();
+		const contextCache = new KernelContextCache();
+		await assembleHomeContext(createEventsDb([]), ORG_ID, { contextCache });
+		contextCache.invalidate(ORG_ID);
+		const next = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			contextCache,
+		});
+		expect(spies.tedis).toHaveBeenCalledTimes(2);
+		expect(next.cache?.misses).toContain("tedis");
+		expect(next.cache?.hits).not.toContain("tedis");
+		vi.restoreAllMocks();
+	});
+
+	it("serves the last good roster when the re-read fails after the TTL", async () => {
+		let now = 10_000_000;
+		const contextCache = new KernelContextCache({ now: () => now });
+		const roster = [
+			{
+				id: "tedi-1",
+				slug: "finance",
+				name: "Finance",
+				organizationId: ORG_ID,
+			},
+		] as unknown as Awaited<
+			ReturnType<typeof tediQueries.getTedisByOrganization>
+		>;
+		vi.spyOn(tediQueries, "getTedisByOrganization")
+			.mockResolvedValueOnce(roster)
+			.mockRejectedValueOnce(new Error("D1 unavailable"));
+		vi.spyOn(appQueries, "getAppsByOrganization").mockResolvedValue([]);
+		vi.spyOn(workflowQueries, "listKernelWorkflowCatalog").mockResolvedValue(
+			[],
+		);
+		vi.spyOn(workItemQueries, "listWorkItems").mockResolvedValue([]);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await assembleHomeContext(createEventsDb([]), ORG_ID, { contextCache });
+		now += CONTEXT_CACHE_TTL_MS + 1;
+		const context = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			contextCache,
+		});
+
+		expect(context.tedis.map((tedi) => tedi.slug)).toEqual(["finance"]);
+		expect(context.cache?.stale).toEqual(["tedis"]);
+		warn.mockRestore();
+		vi.restoreAllMocks();
+	});
+
+	it("leaves the manifest trace absent and reads D1 every turn without a cache", async () => {
+		const spies = spyInventory();
+		const first = await assembleHomeContext(createEventsDb([]), ORG_ID, {});
+		await assembleHomeContext(createEventsDb([]), ORG_ID, {});
+		expect(first.cache).toBeUndefined();
+		expect(spies.tedis).toHaveBeenCalledTimes(2);
 		vi.restoreAllMocks();
 	});
 });

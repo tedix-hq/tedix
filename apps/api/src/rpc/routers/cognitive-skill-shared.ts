@@ -11,6 +11,7 @@ import {
 } from "@tedix/context-core/skill-adjacency";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { createSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
+import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { listSkillsForAdjacency } from "@tedix/db/queries/cognitive/skill-search";
 import { resolveToolSlugsForApp } from "@tedix/db/queries/cognitive/skill-tool-metadata";
 import {
@@ -580,6 +581,7 @@ export async function createSkillFromInput(
 			),
 		);
 	}
+	invalidateKernelContextCache(context, orgId, "skill.created");
 	return {
 		entry,
 		// Near-misses that did not cross the block floor are reported, never

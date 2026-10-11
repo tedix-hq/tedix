@@ -48,6 +48,7 @@ import {
 import { listAppSecrets } from "@tedix/db/queries/app-secrets";
 import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
+import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getToolsByAppId } from "@tedix/db/queries/tools";
 import type { AppMetadata } from "@tedix/db/schema/apps";
@@ -242,6 +243,7 @@ export const createAppProcedure = authedAppsOs.create
 
 		const appMetadata = getAppMetadataJson(app);
 
+		invalidateKernelContextCache(context, app.organizationId, "app.created");
 		return toAppDto(app, { metadata: appMetadata ?? null });
 	});
 
@@ -952,6 +954,11 @@ export const updateAppProcedure = authedAppsOs.update
 
 		const appMetadata = getAppMetadataJson(updatedApp);
 
+		invalidateKernelContextCache(
+			context,
+			updatedApp.organizationId,
+			"app.updated",
+		);
 		return toAppDto(updatedApp, { metadata: appMetadata ?? null });
 	});
 
@@ -1101,6 +1108,11 @@ export const updateByIdOrSlugProcedure = authedAppsOs.updateByIdOrSlug
 
 		const appMetadata = getAppMetadataJson(updatedApp);
 
+		invalidateKernelContextCache(
+			context,
+			updatedApp.organizationId,
+			"app.updated",
+		);
 		return toAppDto(updatedApp, { metadata: appMetadata ?? null });
 	});
 
@@ -1160,6 +1172,7 @@ export const deleteAppProcedure = authedAppsOs.delete
 			);
 		}
 
+		invalidateKernelContextCache(context, app.organizationId, "app.deleted");
 		console.log(`[Delete] Removed app: ${app.name} (${appId})`);
 
 		// Audit cross-org app deletion — platform-admin operation against the
@@ -1478,6 +1491,11 @@ export const refreshBrandingProcedure = authedAppsOs.refreshBranding
 
 		const appMetadata = getAppMetadataJson(updatedApp);
 
+		invalidateKernelContextCache(
+			context,
+			updatedApp.organizationId,
+			"app.updated",
+		);
 		return {
 			success: true as const,
 			app: toAppDto(updatedApp, { metadata: appMetadata ?? null }),

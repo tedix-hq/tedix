@@ -28,6 +28,7 @@ import {
 } from "./gateway-attribution";
 import type { AgentMemoryCandidate } from "../../../integrations/cloudflare/agent-memory";
 import type { StoredRelevanceRecall } from "../../../kernel/relevance-recall-store";
+import type { KernelContextCache } from "../../../kernel/context-cache";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { BodyExecutionResult } from "@tedix/api-contract/schemas/body-certification";
 import type { KernelTraceBundleEvidence } from "./kernel-trace-bundle-writer";
@@ -233,6 +234,12 @@ export interface KernelTurnWorkDeps {
 	 * turn start (age-checked there). Forwarded to `runKernel`.
 	 */
 	previousRelevanceRecall?: StoredRelevanceRecall | null;
+	/**
+	 * Per-org TTL cache for the slow-changing context inputs
+	 * (`context-cache.ts`). Supplied by the org `KernelDO`, which is also where
+	 * write-path invalidation lands; absent on the inline (non-DO) path.
+	 */
+	contextCache?: KernelContextCache;
 	writeProposalPlanner: typeof planKernelWriteProposal;
 	insertKernelRuntimeEvent: (
 		input: HomeTurnRuntimeEventInput,
@@ -2044,6 +2051,7 @@ export async function runKernelTurnWork(
 			...(deps.previousRelevanceRecall
 				? { previousRelevanceRecall: deps.previousRelevanceRecall }
 				: {}),
+			...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
 			db: deps.db,
 			env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],
 			organizationId,

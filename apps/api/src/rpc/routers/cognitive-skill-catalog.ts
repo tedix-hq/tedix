@@ -14,6 +14,7 @@ import {
 	getSkillEntryForMcp,
 	updateSkillEntry,
 } from "@tedix/db/queries/cognitive/skill-crud";
+import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import {
 	listAllSkillsForOrg,
 	listSkillPromotionCandidates,
@@ -374,6 +375,7 @@ export const skillsDelete = authedSkills.delete
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		await deleteSkillEntry(context.db, input.id, orgId);
+		invalidateKernelContextCache(context, orgId, "skill.deleted");
 		return { success: true };
 	});
 
@@ -960,6 +962,7 @@ export const skillsRepair = authedSkills.repair
 
 		if (hasPatch) {
 			await updateSkillEntry(context.db, existing.id, patch);
+			invalidateKernelContextCache(context, orgId, "skill.updated");
 		}
 		const updated = hasPatch
 			? ((await getSkillEntry(context.db, existing.id, orgId)) ??
