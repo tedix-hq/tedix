@@ -16,6 +16,7 @@ import {
 	PublishProviderModelRateInputSchema,
 } from "../schemas/provider-model-pricing";
 import { baseErrors } from "../errors";
+import { creditBillingActivationContract } from "./credit-billing-activation";
 import {
 	FiniteExecutionRevocationInputSchema,
 	FiniteExecutionRevocationSchema,
@@ -88,6 +89,7 @@ export const billingContract = oc
 	.route({ tags: ["billing"], prefix: "/billing" })
 	.errors(baseErrors)
 	.router({
+		...creditBillingActivationContract,
 		listHistoricalExposures: oc
 			.route({
 				method: "GET",

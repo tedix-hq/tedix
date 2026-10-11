@@ -87,6 +87,32 @@ describe("own-organization billing authorization", () => {
 	});
 });
 
+describe("credit activation authority", () => {
+	it("refuses tenant owners even when they manage their own billing", async () => {
+		const client = createRouterClient(billingContractRouter, {
+			context: context(["billing:manage"], true),
+		});
+		await expect(
+			client.configureCreditBilling({
+				organizationId,
+				expectedEntitlementVersion: 1,
+				idempotencyKey: "activation-denied",
+				reason: "must not mint funds",
+				includedMonthlyCreditMicros: 100000000,
+				monthlyCapMicros: 100000000,
+				perRunBudgetMicros: 5000000,
+				rateBindings: [
+					{
+						rateVersionId: "published",
+						inputConvention: "inclusive",
+						requestModelAliases: [],
+					},
+				],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});
+
 describe("credit budget authority", () => {
 	for (const ctx of [
 		context(["billing:read"]),

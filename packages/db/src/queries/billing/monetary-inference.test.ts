@@ -300,6 +300,16 @@ describe("opt-in monetary inference", () => {
 			allowed: false,
 		});
 	});
+	it("monetary plans retain explicit daily spend controls even with overage enabled", async () => {
+		const { db, sqlite } = setup();
+		sqlite.exec("UPDATE billing_accounts SET overage_enabled=1");
+		expect(
+			await reserveBillingUsage(db, {
+				...reservation("one"),
+				aiGatewayLimits: { organizationDailySpendLimitMicros: 1000 },
+			}),
+		).toMatchObject({ allowed: false });
+	});
 	it("a mismatched actual price receipt cannot debit the wallet", async () => {
 		const { db } = setup();
 		await reserveBillingUsage(db, reservation("one"));
