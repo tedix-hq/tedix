@@ -485,7 +485,7 @@ export const tediEmailContract = oc
 				z.object({
 					addressId: z.string().uuid(),
 					status: EmailAddressStatusSchema,
-					routingPolicy: z.record(z.string(), z.unknown()).optional(),
+					routingPolicy: EmailRoutingPolicySchema.optional(),
 				}),
 			)
 			.output(z.object({ address: EmailAddressSchema })),
