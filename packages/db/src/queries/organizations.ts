@@ -249,6 +249,60 @@ export async function listOrganizations(
 	return query;
 }
 
+export interface OrganizationWidgetQuotaStatus {
+	id: string;
+	slug: string;
+	name: string;
+	visitorTurnsPerHour: number | null;
+	originTurnsPerHour: number | null;
+}
+
+/**
+ * Project the embedded widget turn quota an organization set, or null per
+ * ceiling when it never did. Pure; a malformed value counts as unset.
+ */
+export function projectOrganizationWidgetQuota(
+	metadata: OrganizationMetadata | null | undefined,
+): Pick<
+	OrganizationWidgetQuotaStatus,
+	"visitorTurnsPerHour" | "originTurnsPerHour"
+> {
+	const quota = metadata?.tediWidget?.turnQuota;
+	const read = (value: unknown): number | null =>
+		typeof value === "number" && Number.isInteger(value) && value > 0
+			? value
+			: null;
+	return {
+		visitorTurnsPerHour: read(quota?.visitorTurnsPerHour),
+		originTurnsPerHour: read(quota?.originTurnsPerHour),
+	};
+}
+
+/**
+ * Platform-operator drift read: every active (non-retired) organization with
+ * only its embedded widget turn quota. No other metadata leaves this query.
+ */
+export async function listOrganizationWidgetQuotaStatus(
+	db: DbClient,
+): Promise<OrganizationWidgetQuotaStatus[]> {
+	const rows = await db
+		.select({
+			id: organizations.id,
+			slug: organizations.slug,
+			name: organizations.name,
+			metadata: organizations.metadata,
+		})
+		.from(organizations)
+		.where(sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`)
+		.orderBy(organizations.slug);
+	return rows.map((row) => ({
+		id: row.id,
+		slug: row.slug,
+		name: row.name,
+		...projectOrganizationWidgetQuota(row.metadata),
+	}));
+}
+
 /**
  * Get a user's personal organization
  * Joins through organization_members to find the org with type = "personal"
