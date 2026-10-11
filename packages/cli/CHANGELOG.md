@@ -58,7 +58,7 @@ See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chose
 - `tedix supervise install` reinstalls over a loaded LaunchAgent: it waits for
   the old job to unload, retries, and confirms the job before reporting success.
 - A session with no status update for 12 hours counts as ended; `tedix hooks
-status` and `tedix supervise` remove status files untouched for 7 days.
+  status` and `tedix supervise` remove status files untouched for 7 days.
 
 ### Added
 
