@@ -13,7 +13,10 @@ import type { CreateOrganizationInput } from "@tedix/api-contract/schemas/organi
 import { PLATFORM_ONLY_API_KEY_SCOPES } from "@tedix/api-contract/schemas/organization";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
 import { deleteAllAppRelations } from "@tedix/auth/fga";
-import { descopeIssuer } from "@tedix/auth/principal-identity";
+import {
+	descopeIssuer,
+	descopeProjectUserIdentity,
+} from "@tedix/auth/principal-identity";
 import { isTenantGrantablePermission } from "@tedix/auth/rbac";
 import type { JWTPayload } from "@tedix/auth/types";
 import {
@@ -1605,6 +1608,13 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 		}
 
 		const tenantId = getTenantId(user);
+		// A Connect (agentic app) token names the same human by an app issuer;
+		// bind under the project issuer like every other login, or the lookup
+		// misses and the bootstrap collides with the existing user's email.
+		const identityIssuer = descopeProjectUserIdentity(user, {
+			projectId: context.env.DESCOPE_PROJECT_ID,
+			baseUrl: context.env.DESCOPE_BASE_URL,
+		}).issuer;
 
 		// Ensure personal org exists for this user (bootstrap for new users,
 		// idempotent for returning users)
@@ -1613,7 +1623,7 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 			user.sub,
 			user.name ?? undefined,
 			user.email,
-			user.iss,
+			identityIssuer,
 			{
 				settlementMode: resolveBillingSettlementMode(context.env),
 				runtimeEntitlementGrants: resolveInstallationEntitlementGrants(
@@ -1657,7 +1667,7 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 					context.env,
 				),
 				descopeTenantId: tenantId,
-				identityIssuer: user.iss,
+				identityIssuer,
 				descopeUserId: user.sub,
 				email: user.email,
 				name: user.name ?? undefined,
