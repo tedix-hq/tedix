@@ -128,6 +128,7 @@ async function runHook(
 		stdin,
 		gateway = {},
 		timeoutMs,
+		codexTranscript = async () => "/fixture/stored-thread.jsonl",
 	}: {
 		env?: Record<string, string>;
 		duringCreate?: () => void;
@@ -136,6 +137,10 @@ async function runHook(
 		/** Code Mode callables; a missing one fails like an undeployed tool. */
 		gateway?: Gateway;
 		timeoutMs?: number;
+		codexTranscript?: (
+			session: string,
+			env: NodeJS.ProcessEnv,
+		) => Promise<string | undefined>;
 	} = {},
 ): Promise<string[][]> {
 	const calls: string[][] = [];
@@ -262,6 +267,7 @@ async function runHook(
 						detailTimeoutMs: timeoutMs,
 					}
 				: {}),
+			codexTranscript,
 		},
 	);
 	return calls;
@@ -444,6 +450,71 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			[BINDING, AUTH],
 		);
 		expect(payloads).toEqual([]);
+	});
+
+	test("an unavailable Codex chat creates no question or automatic draft", async () => {
+		let checked = "";
+		await runHook(
+			"stop",
+			{ last_assistant_message: "May I continue?", turn_id: "turn-1" },
+			[BINDING, AUTH, CREATED],
+			{
+				codexTranscript: async (session) => {
+					checked = session;
+					return undefined;
+				},
+			},
+		);
+		expect(checked).toBe(SESSION);
+		expect(payloads).toEqual([]);
+		expect(gatewayCalls).toEqual([]);
+		expect(existsSync(state())).toBe(false);
+		expect(existsSync(questionPath(state()))).toBe(false);
+	});
+
+	test("a stored Codex chat keeps its exact question identity", async () => {
+		let checked = "";
+		await runHook(
+			"stop",
+			{ last_assistant_message: "May I continue?", turn_id: "turn-1" },
+			[BINDING, AUTH, CREATED],
+			{
+				codexTranscript: async (session) => {
+					checked = session;
+					return "/fixture/thread.jsonl";
+				},
+			},
+		);
+		expect(checked).toBe(SESSION);
+		expect(payloads[0]?.[1].metadata.sessionId).toBe(SESSION);
+		expect(peek(state())?.requestId).toBe(REQUEST);
+	});
+
+	test("an unavailable or failed host lookup preserves the previous question", async () => {
+		await runHook("stop", { last_assistant_message: "First question?" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		const previous = readFileSync(state(), "utf8");
+		const question = readFileSync(questionPath(state()), "utf8");
+		const created = payloads.length;
+		for (const fail of [false, true]) {
+			await runHook(
+				"stop",
+				{ last_assistant_message: "Next question?", turn_id: "turn-2" },
+				[BINDING, AUTH],
+				{
+					codexTranscript: async () => {
+						if (fail) throw new Error("host unavailable");
+						return undefined;
+					},
+				},
+			);
+			expect(readFileSync(state(), "utf8")).toBe(previous);
+			expect(readFileSync(questionPath(state()), "utf8")).toBe(question);
+			expect(payloads.length).toBe(created);
+		}
 	});
 
 	test("an unanswered turn is left to expire when the next one ends", async () => {

@@ -42,6 +42,9 @@ and durable answer settlement.
   `tedix work agent-reply-label` (3 s). Quiet draft requests use
   `tedix work agent-reply-draft-request` (6 s). All three resolve current
   authorized native descriptors; none executes a JavaScript wrapper.
+  Codex capture checks the host's exact stored thread before opening a question.
+  An unavailable, ephemeral or archived target creates no automatic request;
+  the original message remains in its chat.
 
 - **Session supervisor** (`supervise.ts`) — `tedix supervise` delivers a tedi
   auto reply that arrives after a Codex session's `await-draft` stopped waiting:
