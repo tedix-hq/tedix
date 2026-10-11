@@ -33,7 +33,20 @@ export type ReadJson = (
 	args: string[],
 	timeoutMs: number,
 	input?: string,
+	options?: ReadOptions,
 ) => Promise<JsonObject>;
+
+export interface ReadOptions {
+	/**
+	 * The directory the read resolves its context from (the child's working
+	 * directory). The caller's own working directory never changes: a
+	 * `process.chdir` round trip made `getcwd` fail with EINTR under launchd.
+	 */
+	cwd?: string;
+}
+
+/** Bytes of the child's stderr a read failure message carries. */
+export const HOOK_READ_STDERR_TAIL = 300;
 
 export interface HookDeps {
 	env: NodeJS.ProcessEnv;
@@ -194,18 +207,28 @@ export function readJsonChild(
 	args: string[],
 	timeoutMs: number,
 	input?: string,
+	options: ReadOptions = {},
 ): Promise<JsonObject> {
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
 		return Promise.reject(new Error("Invalid CLI read timeout"));
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
 			env: { ...process.env },
+			...(options.cwd ? { cwd: options.cwd } : {}),
 			detached: process.platform !== "win32",
-			stdio: [input === undefined ? "ignore" : "pipe", "pipe", "ignore"],
+			stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 		});
 		let terminal = false,
-			bytes = 0;
+			bytes = 0,
+			stderr = Buffer.alloc(0);
 		const chunks: Buffer[] = [];
+		/** "Tedix CLI read failed (exit 1): <last stderr bytes>" */
+		const failure = (how: string) => {
+			const tail = stderr.toString("utf8").trim().replace(/\s+/g, " ");
+			return new Error(
+				`Tedix CLI read failed (${how})${tail ? `: ${tail}` : ""}`,
+			);
+		};
 		const kill = (signal: NodeJS.Signals) => {
 			try {
 				if (process.platform !== "win32" && child.pid)
@@ -246,11 +269,15 @@ export function readJsonChild(
 		child.stdout!.on("error", () =>
 			fail(new Error("Tedix CLI read stream failed")),
 		);
-		child.on("error", () => fail(new Error("Tedix CLI read failed")));
+		child.stderr?.on("data", (chunk: Buffer) => {
+			stderr = Buffer.concat([stderr, chunk]).subarray(-HOOK_READ_STDERR_TAIL);
+		});
+		child.stderr?.on("error", () => {});
+		child.on("error", (error) => fail(failure(error.message)));
 		child.on("close", (code, signal) => {
 			if (terminal) return;
 			if (code !== 0 || signal !== null) {
-				fail(new Error("Tedix CLI read failed"));
+				fail(failure(signal ? `signal ${signal}` : `exit ${code}`));
 				return;
 			}
 			try {
@@ -274,9 +301,16 @@ function spawnJson(
 	args: string[],
 	timeoutMs: number,
 	input?: string,
+	options?: ReadOptions,
 ): Promise<JsonObject> {
 	const [command, prefix] = selfCommand();
-	return readJsonChild(command, [...prefix, ...args], timeoutMs, input);
+	return readJsonChild(
+		command,
+		[...prefix, ...args],
+		timeoutMs,
+		input,
+		options,
+	);
 }
 
 function plain(value: unknown): JsonObject {
@@ -288,13 +322,16 @@ function plain(value: unknown): JsonObject {
  * result as its `--json` command; every other read runs this CLI as a child so
  * it keeps its complete auth, profile and organization routing.
  */
-export const cliRead: ReadJson = async (args, timeoutMs, input) => {
+export const cliRead: ReadJson = async (args, timeoutMs, input, options) => {
 	if (
 		args.slice(0, 5).join(" ") === "setup agents context show --json" &&
 		(args.length === 5 || (args.length === 7 && args[5] === "--session"))
 	)
 		return plain(
-			resolveAgentContext(args[6] ? { sessionId: args[6] } : undefined),
+			resolveAgentContext({
+				...(options?.cwd ? { cwd: options.cwd } : {}),
+				...(args[6] ? { sessionId: args[6] } : {}),
+			}),
 		);
-	return spawnJson(args, timeoutMs, input);
+	return spawnJson(args, timeoutMs, input, options);
 };
