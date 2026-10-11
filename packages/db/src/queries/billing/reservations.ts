@@ -445,6 +445,22 @@ export async function reserveBillingUsage(
 				account.organization_id,
 				plan.id AS plan_version_id,
 				(json_extract(plan.metadata, '$.monetaryInference.version') = 1) AS is_monetary,
+				json_extract(plan.metadata, '$.monetaryInference.perRunBudgetMicros') AS run_budget_micros,
+				COALESCE((
+					SELECT SUM(charge.credit_applied_micros)
+					FROM billing_usage_charges AS charge
+					JOIN billing_usage_reservations AS held ON held.id = charge.reservation_id
+					WHERE held.organization_id = ${input.organizationId}
+						AND held.run_id = ${input.runId ?? null}
+						AND json_extract(charge.metadata, '$.monetaryQuote.schemaVersion') = 1
+				), 0) AS run_spent_micros,
+				COALESCE((
+					SELECT SUM(held.estimated_charge_micros)
+					FROM billing_usage_reservations AS held
+					WHERE held.organization_id = ${input.organizationId}
+						AND held.run_id = ${input.runId ?? null}
+						AND held.status = 'reserved' AND held.expires_at > ${input.now}
+				), 0) AS run_reserved_micros,
 				account.status,
 				account.billing_mode,
 				(json_extract(account.metadata, '$.providerCustomerKey') IS NOT NULL
@@ -627,12 +643,12 @@ export async function reserveBillingUsage(
 		FROM admission
 		WHERE plan_version_id = ${plan?.id ?? null}
 			AND (COALESCE(is_monetary,0) = 0 OR ${monetaryQuote !== null ? 1 : 0} = 1)
- AND (is_monetary <> 1 OR json_extract((SELECT metadata FROM billing_plan_versions WHERE id=plan_version_id),'$.monetaryInference.perRunBudgetMicros') IS NULL OR (
- COALESCE((SELECT SUM(charge.credit_applied_micros) FROM billing_usage_charges charge JOIN billing_usage_reservations held ON held.id=charge.reservation_id WHERE held.organization_id=admission.organization_id AND held.run_id=${input.runId ?? null} AND json_extract(charge.metadata,'$.monetaryQuote.schemaVersion')=1),0)
- + COALESCE((SELECT SUM(held.estimated_charge_micros) FROM billing_usage_reservations held WHERE held.organization_id=admission.organization_id AND held.run_id=${input.runId ?? null} AND held.status='reserved' AND held.expires_at>${input.now}),0) + estimated_charge_micros
- <= json_extract((SELECT metadata FROM billing_plan_versions WHERE id=plan_version_id),'$.monetaryInference.perRunBudgetMicros')))
+			AND (
+				COALESCE(is_monetary, 0) = 0 OR run_budget_micros IS NULL
+				OR run_spent_micros + run_reserved_micros + estimated_charge_micros <= run_budget_micros
+			)
 			AND datetime(${input.expiresAt}) > datetime(${input.now})
-			AND ${executionPredicate} AND status IN ('trial', 'active')
+			AND status IN ('trial', 'active')
 			AND (
 				billing_mode <> 'stripe'
 				OR account_stripe_environment = ${input.stripeEnvironment ?? "live"}
@@ -708,6 +724,7 @@ export async function reserveBillingUsage(
 					${input.aiGatewayLimits?.tediDailySpendLimitMicros ?? null} +
 					MAX(organization_day_capacity_spend_micros, 0)
 			)
+			AND ${executionPredicate}
 		ON CONFLICT(idempotency_key) DO NOTHING
 		RETURNING
 			id,
