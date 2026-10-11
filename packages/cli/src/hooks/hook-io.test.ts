@@ -9,7 +9,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveAgentContext, runAgentContext } from "../agent-context";
+import { writeWorkspaceCredentials } from "../credential-store";
 import {
+	cliRead,
 	readJsonChild,
 	HOOK_READ_STDERR_TAIL,
 	HOOK_READ_STDOUT_LIMIT,
@@ -17,6 +20,87 @@ import {
 } from "./hook-io";
 const run = (source: string, timeout = 1000) =>
 	readJsonChild(process.execPath, ["-e", source], timeout);
+describe("local context reads", () => {
+	test("the supervisor command resolves its default and exact session without a child", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-local-read-"));
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		const sessionId = "11111111-1111-4111-8111-111111111111";
+		try {
+			process.env.TEDIX_CONFIG_DIR = dir;
+			writeWorkspaceCredentials(
+				"fixture",
+				{
+					loginId: "fixture-owner",
+					org: "org_fixture",
+					mcpUrl: "https://fixture.example.invalid/mcp",
+				},
+				{ configDir: dir },
+			);
+			runAgentContext(
+				["set-default-organization", "fixture", "--workspace", "fixture"],
+				{ cwd: dir, configDir: dir, env: {} },
+			);
+			const expected = resolveAgentContext({
+				cwd: dir,
+				allowDefault: true,
+				sessionId,
+			});
+			expect(expected.status).toBe("bound");
+			// A child read rejects a zero deadline, so success proves local routing.
+			expect(
+				await cliRead(
+					[
+						"setup",
+						"agents",
+						"context",
+						"show",
+						"--json",
+						"--allow-default",
+						"--session",
+						sessionId,
+					],
+					0,
+					undefined,
+					{ cwd: dir },
+				),
+			).toEqual(JSON.parse(JSON.stringify(expected)));
+			expect(
+				await cliRead(
+					[
+						"setup",
+						"agents",
+						"context",
+						"show",
+						"--json",
+						"--session",
+						sessionId,
+					],
+					0,
+					undefined,
+					{ cwd: dir },
+				),
+			).toEqual({ status: "unbound" });
+			await expect(
+				cliRead(
+					[
+						"setup",
+						"agents",
+						"context",
+						"show",
+						"--json",
+						"--allow-default",
+						"--unknown",
+					],
+					0,
+				),
+			).rejects.toThrow("Invalid CLI read timeout");
+		} finally {
+			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
 describe("owning raw hook child collector", () => {
 	test("streamed split UTF-8 decodes only after complete bounded raw output", async () => {
 		expect(
