@@ -4283,45 +4283,89 @@ const CODEMODE_BUILTIN_GLOBALS = new Set([
 	"globalThis",
 ]);
 
-export function extractCodeModeProviderNamespacesFromCode(
-	code: string,
-): Set<string> | null {
-	if (/\bdiscover\s*\./.test(code)) {
-		// Recognize only a complete, single discovery expression with JSON
-		// literal input. JSON.parse rejects executable/mutable arguments and
-		// additional statements. General programs retain full hydration; this
-		// changes loading, never the selected organizations or dispatch gates.
-		const literalCall = code
-			.trim()
-			.match(
-				/^async\s*\(\s*\)\s*=>\s*(?:await\s+)?discover\s*\.\s*(search|describe)\s*\(([\s\S]*)\)\s*;?$/,
-			);
-		if (!literalCall) return null;
+/**
+ * Namespaces named by the program's `discover` calls, or null when any call
+ * cannot be bounded statically. A program without discovery yields an empty set.
+ */
+function literalDiscoveryNamespaces(code: string): Set<string> | null {
+	const namespaces = new Set<string>();
+	const callStart = /\bdiscover\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
+	let match = callStart.exec(code);
+	while (match !== null) {
+		const method = match[1];
+		const argument = balancedArgument(code, callStart.lastIndex);
+		if (argument === null) return null;
+		let input: unknown;
 		try {
-			const input: unknown = JSON.parse(literalCall[2]!);
-			if (literalCall[1] === "search") {
-				const namespace = isRecord(input) ? input.namespace : undefined;
-				return typeof namespace === "string" &&
-					/^[A-Za-z_$][\w$]*$/.test(namespace)
-					? new Set([namespace])
-					: null;
+			input = JSON.parse(argument);
+		} catch {
+			return null;
+		}
+		if (method === "search") {
+			const namespace = isRecord(input) ? input.namespace : undefined;
+			if (
+				typeof namespace !== "string" ||
+				!/^[A-Za-z_$][\w$]*$/.test(namespace)
+			) {
+				return null;
 			}
+			namespaces.add(namespace);
+		} else if (method === "describe") {
 			const callable =
 				typeof input === "string"
 					? input
 					: isRecord(input)
 						? input.callable
 						: undefined;
-			const match =
+			const named =
 				typeof callable === "string"
 					? /^([A-Za-z_$][\w$]*)\.[A-Za-z_$][\w$]*$/.exec(callable)
 					: null;
-			return match ? new Set([match[1]!]) : null;
-		} catch {
+			if (!named) return null;
+			namespaces.add(named[1]!);
+		} else {
 			return null;
 		}
+		match = callStart.exec(code);
 	}
+	// A `discover` reference that is not a call (aliasing, passing it around)
+	// cannot be bounded.
+	const references = code.match(/\bdiscover\b/g)?.length ?? 0;
+	const calls =
+		code.match(/\bdiscover\s*\.\s*[A-Za-z_$][\w$]*\s*\(/g)?.length ?? 0;
+	return references === calls ? namespaces : null;
+}
 
+/** Text between an opening parenthesis (already consumed) and its match. */
+function balancedArgument(code: string, from: number): string | null {
+	let depth = 1;
+	let quote: string | null = null;
+	for (let index = from; index < code.length; index++) {
+		const char = code[index]!;
+		if (quote) {
+			if (char === "\\") index++;
+			else if (char === quote) quote = null;
+			continue;
+		}
+		if (char === '"' || char === "'" || char === "`") quote = char;
+		else if (char === "(") depth++;
+		else if (char === ")" && --depth === 0) return code.slice(from, index);
+	}
+	return null;
+}
+
+export function extractCodeModeProviderNamespacesFromCode(
+	code: string,
+): Set<string> | null {
+	// Discovery normally needs the whole catalog. When every `discover` call in
+	// the program names its target with a JSON literal (describe("ns.tool"),
+	// search({namespace})), only those namespaces plus the ones the program calls
+	// directly are hydrated. On Connect an unbounded program loads every selected
+	// organization (13k+ tools) and can exhaust the Worker CPU limit. Anything
+	// else — dynamic arguments, list_namespaces, a namespace-less search — keeps
+	// the full catalog. This changes loading, never selection or dispatch gates.
+	const discoveryNamespaces = literalDiscoveryNamespaces(code);
+	if (discoveryNamespaces === null) return null;
 	const namespaces = new Set<string>();
 	const callPattern =
 		/(?:^|[^A-Za-z0-9_$])([A-Za-z_$][\w$]*)\s*(?:\.\s*[A-Za-z_$][\w$]*|\[\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*\])\s*\(/g;
@@ -4333,6 +4377,8 @@ export function extractCodeModeProviderNamespacesFromCode(
 		}
 		match = callPattern.exec(code);
 	}
+	namespaces.delete("discover");
+	for (const namespace of discoveryNamespaces) namespaces.add(namespace);
 	// The built-in `flow.*` provider dispatches through other namespaces at
 	// execute time (skills.record_skills + <tedi>.run_skill_workflow/status/
 	// inspect), which this pre-execution scan cannot see — a snippet like
