@@ -1,7 +1,7 @@
-diff --git a/dist/agent-routing-0DR0Tk2v.d.ts b/dist/agent-routing-0DR0Tk2v.d.ts
-index 98424289e6f56a167df44e4bee32c6cf8ac9db41..47f70d8aaacb2f6086d92a0c9c0222388239a903 100644
---- a/dist/agent-routing-0DR0Tk2v.d.ts
-+++ b/dist/agent-routing-0DR0Tk2v.d.ts
+diff --git a/dist/agent-routing-QDcchcQP.d.ts b/dist/agent-routing-QDcchcQP.d.ts
+index b726976b2e327fcd5bc73f3eef26d01acabd2b34..37572f7e8b220425a96172d14c4deebe104c3173 100644
+--- a/dist/agent-routing-QDcchcQP.d.ts
++++ b/dist/agent-routing-QDcchcQP.d.ts
 @@ -5084,6 +5084,11 @@ declare class Agent<
      target: LifecycleRouteAddress | undefined,
      envelope: LifecycleRouteEnvelope
@@ -14,10 +14,10 @@ index 98424289e6f56a167df44e4bee32c6cf8ac9db41..47f70d8aaacb2f6086d92a0c9c022238
    private _rootAlarmOwner;
    /**
     * Clean root-owned bookkeeping for a sub-tree of facets. This
-diff --git a/dist/lifecycle-CFu6OV03.js b/dist/lifecycle-CFu6OV03.js
-index 5139f1ab16f05c97f693becbb9c374ea2ae001bb..3fa389333c176e76a4a43e2de6c975c8afb7b138 100644
---- a/dist/lifecycle-CFu6OV03.js
-+++ b/dist/lifecycle-CFu6OV03.js
+diff --git a/dist/lifecycle-DGorpAmA.js b/dist/lifecycle-DGorpAmA.js
+index c4e9e0dfaaad96d35b72e14fad71834125659d16..04ebfcb17a481b5bd191354ffc7e5240eea158fe 100644
+--- a/dist/lifecycle-DGorpAmA.js
++++ b/dist/lifecycle-DGorpAmA.js
 @@ -564,7 +564,7 @@ async function _driveDueJobs() {
  	const due = _classPrivateFieldGet2(_options, this).queue.due(nowMs);
  	if (due.length === 0) return;
@@ -37,7 +37,7 @@ index 5139f1ab16f05c97f693becbb9c374ea2ae001bb..3fa389333c176e76a4a43e2de6c975c8
  const lifecycleRouteTransports = /* @__PURE__ */ new WeakMap();
  const lifecycleHostInvokers = /* @__PURE__ */ new WeakMap();
  /** Lifecycles whose startup the current async context is running inside. */
-@@ -893,6 +896,7 @@ var Lifecycle = class Lifecycle {
+@@ -891,6 +894,7 @@ var Lifecycle = class Lifecycle {
  		_classPrivateFieldSet2(_jobDriver, this, new JobDriver({
  			queue: _classPrivateFieldGet2(_jobQueue, this),
  			storage: _classPrivateFieldGet2(_ctx, this).storage,
@@ -45,7 +45,7 @@ index 5139f1ab16f05c97f693becbb9c374ea2ae001bb..3fa389333c176e76a4a43e2de6c975c8
  			disabled: () => _classPrivateFieldGet2(_alarmsDisabled, this),
  			resolveDispatch: (owner) => _assertClassBrand(_Lifecycle_brand, this, _resolveJobDispatch).call(this, owner),
  			maxMemoryLimitStrikes: () => options?.maxAlarmMemoryLimitStrikes,
-@@ -1120,8 +1124,8 @@ var Lifecycle = class Lifecycle {
+@@ -1118,8 +1122,8 @@ var Lifecycle = class Lifecycle {
  		const next = _classPrivateFieldGet2(_alarmRearmQueue, this).catch(() => {}).then(async () => {
  			if (_classPrivateFieldGet2(_alarmsDisabled, this)) return;
  			const alarm = _classPrivateFieldGet2(_jobQueue, this).nextAlarmTime(Date.now());
@@ -56,7 +56,7 @@ index 5139f1ab16f05c97f693becbb9c374ea2ae001bb..3fa389333c176e76a4a43e2de6c975c8
  		});
  		_classPrivateFieldSet2(_alarmRearmQueue, this, next);
  		await next;
-@@ -1144,7 +1148,7 @@ var Lifecycle = class Lifecycle {
+@@ -1142,7 +1146,7 @@ var Lifecycle = class Lifecycle {
  	async disableAlarms() {
  		_classPrivateFieldSet2(_alarmsDisabled, this, true);
  		await _classPrivateFieldGet2(_alarmRearmQueue, this).catch(() => {});
@@ -65,28 +65,28 @@ index 5139f1ab16f05c97f693becbb9c374ea2ae001bb..3fa389333c176e76a4a43e2de6c975c8
  	}
  	/**
  	* Run one alarm invocation. The job driver owns the event loop — deadman
-@@ -1338,6 +1342,6 @@ async function _resolveJobDispatch(owner) {
+@@ -1336,6 +1340,6 @@ async function _resolveJobDispatch(owner) {
  	};
  }
  //#endregion
 -export { abortWithoutAlarmRetry as a, setLifecycleRouteTransport as i, setLifecycleEventSink as n, setLifecycleHostInvoker as r, Lifecycle as t };
 +export { setLifecycleAlarmTransport as s, abortWithoutAlarmRetry as a, setLifecycleRouteTransport as i, setLifecycleEventSink as n, setLifecycleHostInvoker as r, Lifecycle as t };
  
- //# sourceMappingURL=lifecycle-CFu6OV03.js.map
+ //# sourceMappingURL=lifecycle-DGorpAmA.js.map
 \ No newline at end of file
-diff --git a/dist/src-BZeu-SCD.js b/dist/src-BZeu-SCD.js
-index 84c6dbf137d77c4ee2b974e78b522dafe3f730b5..2efa901dfdc90dc2da64c9027e5f25ee62d7909c 100644
---- a/dist/src-BZeu-SCD.js
-+++ b/dist/src-BZeu-SCD.js
+diff --git a/dist/src-CQxJFv4l.js b/dist/src-CQxJFv4l.js
+index 8176b639d91826370e1892df6c3e359265b72f6b..0162f25efa704c600d150ecdff5bb27395ad73d5 100644
+--- a/dist/src-CQxJFv4l.js
++++ b/dist/src-CQxJFv4l.js
 @@ -13,7 +13,7 @@ import { n as withInvocationScope, r as writeSpanAttributes, t as tracer } from
  import { parseSubAgentPath } from "./sub-routing.js";
- import { a as getConnectionFlag, c as isConnectionReadonly, d as setConnectionProtocolEnabled, f as setConnectionReadonly, i as ensureConnectionWrapped, l as registerInternalConnectionKeys, o as getConnectionRawState, s as isConnectionProtocolEnabled, t as WebSockets, u as setConnectionFlag } from "./websockets-Ci-LZFHH.js";
- import { t as LifecycleCapability } from "./capability-B4WbF81e.js";
--import { a as abortWithoutAlarmRetry, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-CFu6OV03.js";
-+import { a as abortWithoutAlarmRetry, s as setLifecycleAlarmTransport, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-CFu6OV03.js";
+ import { a as getConnectionFlag, c as isConnectionReadonly, d as setConnectionProtocolEnabled, f as setConnectionReadonly, i as ensureConnectionWrapped, l as registerInternalConnectionKeys, o as getConnectionRawState, s as isConnectionProtocolEnabled, t as WebSockets, u as setConnectionFlag } from "./websockets-C3zy8YR0.js";
+ import { t as LifecycleCapability } from "./capability-DBAKc6UZ.js";
+-import { a as abortWithoutAlarmRetry, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-DGorpAmA.js";
++import { a as abortWithoutAlarmRetry, s as setLifecycleAlarmTransport, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-DGorpAmA.js";
  import { isErrorRetryable, tryN, validateRetryOptions } from "./retries.js";
  import { SqlError } from "./sql-error.js";
- import { a as ensureMcpServerTable, d as DisposableStore, i as normalizeServerId, l as RPC_DO_PREFIX, o as MCPConnectionState, t as MCPClientManager } from "./client-fyQrLGkD.js";
+ import { a as ensureMcpServerTable, d as DisposableStore, i as normalizeServerId, l as RPC_DO_PREFIX, o as MCPConnectionState, t as MCPClientManager } from "./client-BnYbNT3z.js";
 @@ -380,6 +380,37 @@ var DynamicAgentsInternal = class extends LifecycleCapability {
  			execRawSql: (sql) => void host.ctx.storage.sql.exec(sql)
  		});
