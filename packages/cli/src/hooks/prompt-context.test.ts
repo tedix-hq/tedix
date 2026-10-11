@@ -105,7 +105,11 @@ async function run(
 	const lines: string[] = [];
 	// Prompt text is discarded; only host metadata may enter CLI arguments.
 	await runPromptContext({
-		env: { ...env },
+		// Each run starts with an empty local cache unless the test shares one.
+		env: {
+			TEDIX_CONFIG_DIR: mkdtempSync(join(tmpdir(), "tedix-prompt-cache-")),
+			...env,
+		},
 		stdin: JSON.stringify(event),
 		cwd: process.cwd(),
 		write: (line) => lines.push(line),
@@ -456,7 +460,8 @@ describe("tedix hooks prompt-context", () => {
 		expect(calls).toHaveLength(2);
 		({ out, calls } = await run([binding, auth, { organizationId: null }]));
 		expect(out).toContain("unavailable");
-		expect(calls).toHaveLength(3);
+		// The probe and the gateway read run together; a failed probe still hides everything.
+		expect(calls).toHaveLength(4);
 	});
 
 	test("host session metadata reaches the resolver without prompt text", async () => {
@@ -513,10 +518,9 @@ describe("tedix hooks prompt-context", () => {
 		const { contextOutputId: _o, osWorkspaceId: _w, ...empty } = BINDING;
 		({ out, calls } = await run([empty, AUTH, NO_LESSONS]));
 		expect([out, calls.length]).toEqual(["", 3]);
-		// The gateway read gets what the hook's budget leaves, never less than 8s.
+		// The gateway read is bounded so the hook stays well inside the host timeout.
 		const fast = await run([BINDING, AUTH, DATA]);
-		expect(fast.timeouts.at(-1)!).toBeGreaterThan(12_000);
-		expect(fast.timeouts.at(-1)!).toBeLessThanOrEqual(13_500);
+		expect(fast.timeouts.at(-1)).toBe(6500);
 		// Beside a document, an empty lessons read is named rather than silent.
 		({ out } = await run([BINDING, AUTH, { ...DATA, ...NO_LESSONS }]));
 		expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain(
@@ -1073,7 +1077,8 @@ describe("tedix hooks prompt-context", () => {
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect([out, calls.length]).toEqual(["", 3]);
+				// The first run cached the empty lessons read: no gateway call now.
+				expect([out, calls.length]).toEqual(["", 2]);
 				({ out } = await run(
 					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1086,7 +1091,7 @@ describe("tedix hooks prompt-context", () => {
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect([out, calls.length]).toEqual(["", 3]);
+				expect([out, calls.length]).toEqual(["", 2]);
 			}));
 
 		test("an OS answer follows the selected shared context", () =>
@@ -1279,5 +1284,260 @@ describe("prompt-context open delegations", () => {
 		expect(
 			gatewayCode(binding, undefined, [tasks[0]!.id, "not-a-uuid"]),
 		).toContain(`"delegations":["${tasks[0]!.id}"]`);
+	});
+});
+
+describe("prompt-context latency: parallel reads and the local cache", () => {
+	const PREFERENCE_OUTPUT = "88888888-8888-4888-8888-888888888888";
+	const SESSION = "99999999-9999-4999-8999-999999999999";
+	const { contextOutputId: _o, osWorkspaceId: _w, ...withoutTask } = BINDING;
+	const binding: JsonObject = {
+		...withoutTask,
+		workspace: "connect",
+		org: "org_target",
+		organization: "org_target",
+		mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+		preferencesWorkspaceId: WORKSPACE,
+		preferencesOutputId: PREFERENCE_OUTPUT,
+		decisionCapture: true,
+	};
+	const auth: JsonObject = {
+		wouldUse: "stored-login",
+		workspace: "connect",
+		mcpUrl: binding.mcpUrl,
+		storedLogin: {
+			org: "org_target",
+			loginId: "U-me",
+			accessToken: { selectedOrganizations: ["org_target"] },
+		},
+	};
+	const preferences = (): JsonObject => {
+		const document = copy(DATA.shared);
+		document.output.id = PREFERENCE_OUTPUT;
+		document.revision.outputId = PREFERENCE_OUTPUT;
+		document.text = "Handle authorized routine choices.";
+		return document;
+	};
+	const lesson = { shortId: "abcd1234", text: "Pushes race on main." };
+	const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+	const additional = (lines: string[]): string =>
+		lines.length
+			? JSON.parse(lines.join("\n")).hookSpecificOutput.additionalContext
+			: "";
+
+	/** One hook run against a scripted gateway; `delay` slows every live read. */
+	async function turn(options: {
+		config: string;
+		now: Date;
+		delay?: number;
+		question?: boolean;
+		binding?: JsonObject;
+		gateway?: (code: string) => JsonObject | Promise<JsonObject>;
+		probe?: () => JsonObject;
+	}): Promise<{ text: string; steps: string[]; timeouts: number[] }> {
+		const steps: string[] = [];
+		const timeouts: number[] = [];
+		const lines: string[] = [];
+		const env = { TEDIX_CONFIG_DIR: options.config };
+		const stateDir = join(options.config, "decision-capture");
+		mkdirSync(stateDir, { recursive: true });
+		const question = join(stateDir, `${SESSION}.question.json`);
+		if (options.question)
+			writeFileSync(
+				question,
+				JSON.stringify({ requestId: WORK, token: "t", host: "claude-code" }),
+			);
+		else rmSync(question, { force: true });
+		await runPromptContext({
+			env,
+			stdin: JSON.stringify({ session_id: SESSION, prompt: "PRIVATE" }),
+			cwd: process.cwd(),
+			now: () => options.now,
+			write: (line) => lines.push(line),
+			read: async (args, timeout) => {
+				timeouts.push(timeout);
+				if (args[0] === "setup") return copy(options.binding ?? binding);
+				if (args.includes("auth")) return copy(auth);
+				await sleep(options.delay ?? 0);
+				if (args.includes("interaction-undelivered")) {
+					steps.push("answers");
+					return {
+						data: [
+							{
+								responseId: WORK,
+								requestId: WORK,
+								subject: "repo · claude waiting: proceed?",
+								body: "Yes, proceed.",
+								respondedAt: "2026-10-11T09:00:00.000Z",
+								sessionId: SESSION,
+								host: null,
+								workItemId: null,
+								projectId: null,
+							},
+						],
+						observedAt: "2026-10-11T09:00:01.000Z",
+					};
+				}
+				if (args.includes("interaction-ack")) return { data: [] };
+				const code = String(args.at(-1));
+				if (code.includes("codemode.__runtime")) {
+					steps.push("organization");
+					return (options.probe ?? (() => ({ organizationId: ORG })))();
+				}
+				steps.push("gateway");
+				return (
+					options.gateway ??
+					(() => ({ preferences: preferences(), ...lessonsData([lesson]) }))
+				)(code);
+			},
+		});
+		return { text: additional(lines), steps, timeouts };
+	}
+
+	test("the organization probe, the answer reads and the gateway read run together", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-parallel-"));
+		const started = Date.now();
+		const { text, steps } = await turn({
+			config,
+			now: new Date(),
+			delay: 150,
+			question: true,
+		});
+		const elapsed = Date.now() - started;
+		expect(steps.sort()).toEqual(["answers", "gateway", "organization"]);
+		// Three 150ms reads in sequence would take 450ms; together, about one.
+		expect(elapsed).toBeLessThan(400);
+		expect(text).toContain("Handle authorized routine choices");
+		expect(text).toContain("Pushes race on main");
+		expect(text).toContain("The user replied in Tedix OS");
+		rmSync(config, { recursive: true, force: true });
+	});
+
+	test("preferences, lessons and the organization id are cached for ten minutes per organization and user", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-cache-"));
+		const start = new Date("2026-10-11T09:00:00Z");
+		const first = await turn({ config, now: start });
+		expect(first.steps.sort()).toEqual(["gateway", "organization"]);
+		expect(first.text).toContain("Handle authorized routine choices");
+		// Within the TTL nothing is read live, and the context is unchanged.
+		const hit = await turn({
+			config,
+			now: new Date(start.getTime() + 9 * 60_000),
+			gateway: () => {
+				throw new Error("must not be called");
+			},
+			probe: () => {
+				throw new Error("must not be called");
+			},
+		});
+		expect(hit.steps).toEqual([]);
+		expect(hit.text.replace(/checked [^;]+;/, "")).toBe(
+			first.text.replace(/checked [^;]+;/, ""),
+		);
+		// Past the TTL every source is read live again and the cache refreshed.
+		const changed = preferences();
+		changed.text = "Prefer short answers.";
+		const miss = await turn({
+			config,
+			now: new Date(start.getTime() + 11 * 60_000),
+			gateway: (code) => {
+				expect(code).toContain(PREFERENCE_OUTPUT);
+				expect(code).toContain('"lessons":{"harness"');
+				return { preferences: changed, ...lessonsData([lesson]) };
+			},
+		});
+		expect(miss.steps.sort()).toEqual(["gateway", "organization"]);
+		expect(miss.text).toContain("Prefer short answers");
+		expect(miss.text).not.toContain("Handle authorized routine choices");
+		// The refreshed copy serves the next turn.
+		const again = await turn({
+			config,
+			now: new Date(start.getTime() + 12 * 60_000),
+		});
+		expect(again.steps).toEqual([]);
+		expect(again.text).toContain("Prefer short answers");
+		// A cached source leaves the gateway script when another source still needs a read.
+		const withTask = await turn({
+			config,
+			now: new Date(start.getTime() + 13 * 60_000),
+			binding: { ...binding, workItemId: WORK },
+			gateway: (code) => {
+				expect(code).not.toContain(PREFERENCE_OUTPUT);
+				expect(code).not.toContain('"lessons":{"harness"');
+				return { work: { unavailable: true } };
+			},
+		});
+		expect(withTask.steps).toEqual(["gateway"]);
+		expect(withTask.text).toContain("Prefer short answers");
+		expect(withTask.text).toContain(`Selected Work=${WORK} unavailable`);
+		// Another user of the same profile never sees this user's copy.
+		const other = mkdtempSync(join(tmpdir(), "tedix-prompt-cache-other-"));
+		const cold = await turn({ config: other, now: start });
+		expect(cold.steps.sort()).toEqual(["gateway", "organization"]);
+		for (const dir of [config, other])
+			rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("each read fails on its own: a dead gateway keeps cached sources and names the rest unavailable", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-failsoft-"));
+		const start = new Date("2026-10-11T09:00:00Z");
+		const timedOut = () => {
+			throw new Error("Tedix CLI read deadline elapsed");
+		};
+		// Seed the cache with a successful turn.
+		const seeded = await turn({ config, now: start });
+		expect(seeded.text).toContain("Handle authorized routine choices");
+		// A timed-out gateway read beyond the TTL: the stale copies cover it.
+		const dead = await turn({
+			config,
+			now: new Date(start.getTime() + 20 * 60_000),
+			gateway: timedOut,
+		});
+		expect(dead.text).toContain("Handle authorized routine choices");
+		expect(dead.text).toContain("Pushes race on main");
+		expect(dead.text).not.toContain("Tedix shared context unavailable");
+		// Per-turn sources are named unavailable rather than silently dropped.
+		const partial = await turn({
+			config,
+			now: new Date(start.getTime() + 21 * 60_000),
+			binding: {
+				...binding,
+				workItemId: WORK,
+				osWorkspaceId: WORKSPACE,
+				contextOutputId: OUTPUT,
+			},
+			gateway: timedOut,
+		});
+		expect(partial.text).toContain("Handle authorized routine choices");
+		expect(partial.text).toContain(`Selected Work=${WORK} unavailable`);
+		expect(partial.text).toContain("Shared decisions unavailable");
+		// Older than an hour, a copy no longer covers a failed read.
+		const expired = await turn({
+			config,
+			now: new Date(start.getTime() + 90 * 60_000),
+			gateway: timedOut,
+		});
+		expect(expired.text).toContain("Tedix shared context unavailable");
+		// A failed organization probe (its own copy past the TTL) still hides everything: a fence, not a source.
+		const unverified = await turn({
+			config,
+			now: new Date(start.getTime() + 105 * 60_000),
+			probe: timedOut,
+		});
+		expect(unverified.text).toContain("Tedix shared context unavailable");
+		rmSync(config, { recursive: true, force: true });
+	});
+
+	test("per-turn reads keep tight timeouts", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-timeouts-"));
+		const { timeouts } = await turn({
+			config,
+			now: new Date(),
+			question: true,
+		});
+		// Context, auth, probe, undelivered answers, ack, gateway: none over 6.5s.
+		expect(Math.max(...timeouts)).toBeLessThanOrEqual(6500);
+		expect(timeouts.filter((t) => t === 3000).length).toBeGreaterThanOrEqual(2);
+		rmSync(config, { recursive: true, force: true });
 	});
 });

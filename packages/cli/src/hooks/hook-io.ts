@@ -160,6 +160,34 @@ export function captureOwnsStop(raw: string, env: NodeJS.ProcessEnv): boolean {
 	}
 }
 
+/**
+ * Per-step timings on stderr when TEDIX_HOOK_TRACE is set (any non-empty
+ * value), for profiling a hook against its host timeout. Names only, never
+ * prompt text or read results.
+ */
+export function hookTrace(
+	env: NodeJS.ProcessEnv,
+	hook: string,
+): <T>(step: string, work: Promise<T> | (() => Promise<T>)) => Promise<T> {
+	const enabled = Boolean(env.TEDIX_HOOK_TRACE);
+	const origin = Date.now();
+	return async (step, work) => {
+		const started = Date.now();
+		let outcome = "ok";
+		try {
+			return await (typeof work === "function" ? work() : work);
+		} catch (error) {
+			outcome = `failed: ${String((error as Error).message ?? error).slice(0, 80)}`;
+			throw error;
+		} finally {
+			if (enabled)
+				process.stderr.write(
+					`tedix hooks ${hook} trace: ${step} ${Date.now() - started}ms (at +${started - origin}ms) ${outcome}\n`,
+				);
+		}
+	};
+}
+
 /** ISO-8601 UTC with second precision and an explicit offset. */
 export function isoSeconds(date: Date, zulu = false): string {
 	return date.toISOString().replace(/\.\d{3}Z$/, zulu ? "Z" : "+00:00");
