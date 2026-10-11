@@ -166,8 +166,11 @@ export function buildUserPrompt(
 const RECITATION_HISTORY_THRESHOLD = 8;
 const RECITATION_WORK_ITEMS_CAP = 5;
 
+// The field order matters on the streaming path: answer text is held back
+// until routeKind is known, so a model that writes answer first delays the
+// operator's first token by the whole answer.
 const ROUTE_INSTRUCTION =
-	"Choose exactly one routeKind and fill the route-specific fields. For answer_in_home, answer holds the complete final answer to the operator. Respond with the typed route decision only.";
+	"Choose exactly one routeKind and fill the route-specific fields. For answer_in_home, answer holds the complete final answer to the operator. Write routeKind first, then answer, then the remaining fields. Respond with the typed route decision only.";
 
 // Tail instruction for the tool-free answer pass. It shares SYSTEM_PROMPT and
 // the whole user prompt prefix with the route pass, so the provider's prefix
@@ -360,12 +363,13 @@ export function shapeRouteUsage(
 /**
  * Arguments for {@link planKernelRoute}.
  *
- * For fixed models, `onAnswerDelta` uses a single `streamObject` pass:
- * answer-field deltas are emitted incrementally as the model produces them,
- * and the final validated decision is obtained via `await result.object`. Any
- * stream error propagates without another model pass. Auto Router validates a
- * buffered route whose `answer` already holds the complete final answer; that
- * answer is delivered through `onAnswerDelta` in one piece. A tool-free answer
+ * With `onAnswerDelta`, every model uses a single `streamObject` pass:
+ * answer-field deltas are emitted incrementally as the model produces them
+ * (held back until routeKind is known), and the final validated decision is
+ * obtained via `await result.object`. Any stream error propagates without
+ * another model pass, with one exception: an Auto Router stream that yields no
+ * object at all (a routed model ignoring the forced tool) falls back to the
+ * buffered pass once and delivers that answer in one piece. A tool-free answer
  * stream runs only when the deterministic guard downgraded another route to
  * answer_in_home or the route answer is empty; both calls are then metered.
  *
@@ -386,9 +390,9 @@ export type PlanKernelRouteArgs = {
 	/** Worker configuration for caller attribution. */
 	env?: KernelEnv | null;
 	/**
-	 * Token-delta sink. Fixed models use the single `streamObject` pass; Auto
-	 * Router delivers its validated route answer in one delta, or streams a
-	 * tool-free answer when the route pass produced none.
+	 * Token-delta sink for the single `streamObject` pass, on fixed models and
+	 * the Auto Router alike. The Auto Router streams a tool-free answer only
+	 * when the route pass produced none.
 	 * Fail-soft: a sink error never breaks the provider stream.
 	 */
 	onAnswerDelta?: (delta: string) => void;
@@ -454,21 +458,26 @@ export async function planKernelRoute(
 	const responseOnly =
 		requestsAcknowledgmentOnly(operatorContent) ||
 		prohibitsDelegation(operatorContent);
-	// The Auto Router answers through the buffered route pass; its answer is
-	// delivered after the guard instead of streamed from a structured-output
-	// stream.
-	const bufferedAnswer = Boolean(
-		!responseOnly &&
-		args.onAnswerDelta &&
+	const autoRouter = Boolean(
 		model &&
 		typeof model.model !== "string" &&
 		model.model.modelId === "cloudflare/auto",
 	);
+	// Whether the route pass itself streamed answer text. The Auto Router may
+	// fall back to a buffered pass (see planKernelRouteUnguarded), in which case
+	// its answer still has to be delivered after the guard.
+	let streamedAnswer = false;
+	const onAnswerDelta =
+		responseOnly || !args.onAnswerDelta
+			? undefined
+			: (delta: string) => {
+					streamedAnswer = true;
+					args.onAnswerDelta?.(delta);
+				};
 	try {
 		const planned = await planKernelRouteUnguarded({
 			...args,
-			onAnswerDelta:
-				bufferedAnswer || responseOnly ? undefined : args.onAnswerDelta,
+			onAnswerDelta,
 			onRationaleDelta: responseOnly ? undefined : args.onRationaleDelta,
 			model,
 			gatewayContext: {
@@ -491,19 +500,27 @@ export async function planKernelRoute(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
-		if (bufferedAnswer && guarded.routeKind === "answer_in_home" && model) {
-			// One pass: the route pass already wrote the final answer. A second,
-			// tool-free pass is needed only when the guard downgraded another route
-			// (its answer, if any, was a preview of that route) or the model left
-			// the answer empty.
+		if (
+			autoRouter &&
+			onAnswerDelta &&
+			guarded.routeKind === "answer_in_home" &&
+			model
+		) {
+			// One pass: the route pass already wrote the final answer, streamed as
+			// it grew. A second, tool-free pass is needed only when the guard
+			// downgraded another route (its answer, if any, was a preview of that
+			// route, and nothing was streamed) or the model left the answer empty.
 			const routeAnswer =
 				planned.routeKind === "answer_in_home" ? guarded.answer?.trim() : "";
 			if (routeAnswer) {
-				guarded.answer = routeAnswer;
-				try {
-					args.onAnswerDelta?.(routeAnswer);
-				} catch {
-					/* Advisory delivery only. */
+				if (!streamedAnswer) {
+					// The buffered fallback pass produced the answer in one piece.
+					guarded.answer = routeAnswer;
+					try {
+						onAnswerDelta(routeAnswer);
+					} catch {
+						/* Advisory delivery only. */
+					}
 				}
 			} else {
 				await streamHomeAnswer(args, model, guarded);
@@ -571,7 +588,26 @@ async function planKernelRouteUnguarded(
 			});
 		} catch (error) {
 			if (abortSignal?.aborted) return null;
-			throw error;
+			// The Auto Router streams its structured output as a forced tool call
+			// (packages/workers-ai model-select). A routed model that ignores the
+			// forced tool yields no object at all; that one provider quirk falls
+			// back to the buffered pass, once. Stalls and partial streams do not:
+			// they keep the fixed-model contract of no second dispatch.
+			if (
+				error instanceof EmptyRouteStreamError &&
+				!idle.timedOut &&
+				typeof model.model !== "string" &&
+				model.model.modelId === "cloudflare/auto"
+			) {
+				console.warn({
+					component: "kernel.route_planner",
+					event: "auto_router_stream_empty_fallback",
+					reason: error.cause instanceof Error ? error.cause.message : null,
+				});
+			} else if (error instanceof EmptyRouteStreamError) {
+				// Callers classify the provider's own error; the marker is internal.
+				throw error.cause;
+			} else throw error;
 		} finally {
 			idle.clear();
 		}
@@ -628,6 +664,13 @@ async function planKernelRouteUnguarded(
 }
 
 const STREAM_SETTLE_BOUND_MS = 2_000;
+
+/** The route stream ended without a single partial object. */
+class EmptyRouteStreamError extends Error {
+	constructor(cause: unknown) {
+		super("[kernel] route stream produced no object", { cause });
+	}
+}
 
 async function awaitWithSettleBound<T>(
 	promise: PromiseLike<T>,
@@ -709,8 +752,10 @@ async function streamRoutePlan(args: {
 	// run_workflow, ask_human) this is the only thing that reaches the operator
 	// while the planner thinks. Display only — the settled route supersedes it.
 	let emittedRationalePrefix = "";
+	let partials = 0;
 
 	for await (const partial of result.partialObjectStream) {
+		partials += 1;
 		// Forward progress — re-arm the idle deadline so a healthy slow stream
 		// never aborts; only a stalled one does.
 		idle.reset();
@@ -731,12 +776,18 @@ async function streamRoutePlan(args: {
 				}
 			}
 		}
+		// Answer text is held back until routeKind reads answer_in_home. Some
+		// models write answer before routeKind; the text accumulates in the
+		// partial and flushes as one suffix once the route is known, and a
+		// delegation preview never reaches the operator.
 		const answer =
 			partial.routeKind === "answer_in_home" &&
 			typeof partial.answer === "string"
 				? partial.answer
 				: null;
-		if (!answer || answer.length <= emittedPrefix.length) continue;
+		// Whitespace-only text is not an answer yet (an empty route answer gets
+		// the tool-free pass instead); wait for content.
+		if (!answer?.trim() || answer.length <= emittedPrefix.length) continue;
 		if (!answer.startsWith(emittedPrefix)) continue;
 
 		const suffix = answer.slice(emittedPrefix.length);
@@ -756,10 +807,16 @@ async function streamRoutePlan(args: {
 	// stream is complete at this point, so the object either settles promptly or
 	// never will; bound the wait and let the bound reject as a stream-content
 	// failure rather than leaving the turn running indefinitely.
-	const object = await awaitWithSettleBound(
-		result.object,
-		"[kernel] route streamObject object never settled after stream end",
-	);
+	let object: Awaited<typeof result.object>;
+	try {
+		object = await awaitWithSettleBound(
+			result.object,
+			"[kernel] route streamObject object never settled after stream end",
+		);
+	} catch (error) {
+		if (partials === 0) throw new EmptyRouteStreamError(error);
+		throw error;
+	}
 	// Usage is advisory — if its promise shares the unsettled fate, degrade to
 	// undefined (shapeRouteUsage tolerates it) rather than discarding the plan.
 	const [usage, routerVersion] = await Promise.all([

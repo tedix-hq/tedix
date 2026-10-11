@@ -1696,9 +1696,43 @@ describe("planKernelRoute — billing-policy denial propagation", () => {
 });
 
 describe("Auto Router Home answer", () => {
+	const usage = {
+		inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+		outputTokens: { total: 20, text: 20, reasoning: 0 },
+	};
+	function jsonChunks(value: unknown, size = 8): string[] {
+		const json = JSON.stringify(normalizeRouteDecisionCandidate(value));
+		const chunks: string[] = [];
+		for (let i = 0; i < json.length; i += size)
+			chunks.push(json.slice(i, i + size));
+		return chunks;
+	}
+	function routeStream(chunks: string[]) {
+		return simulateReadableStream({
+			initialDelayInMs: null,
+			chunkDelayInMs: null,
+			chunks: [
+				{ type: "stream-start", warnings: [] },
+				...(chunks.length > 0 ? [{ type: "text-start", id: "obj-0" }] : []),
+				...chunks.map((delta) => ({ type: "text-delta", id: "obj-0", delta })),
+				...(chunks.length > 0 ? [{ type: "text-end", id: "obj-0" }] : []),
+				{
+					type: "finish",
+					finishReason: { unified: "stop", raw: "stop" },
+					usage,
+				},
+			],
+		});
+	}
+	/**
+	 * The route pass streams the typed decision (the adapter replays the forced
+	 * tool's arguments as text); a non-JSON stream request is the tool-free
+	 * answer pass; doGenerate is the buffered fallback.
+	 */
 	function autoModel(
 		decision: KernelRouteDecision,
-		stream: ReadableStream<any>,
+		answerStream: ReadableStream<any>,
+		routeChunks: string[] = jsonChunks(decision),
 	) {
 		return new MockLanguageModelV3({
 			modelId: "cloudflare/auto",
@@ -1707,15 +1741,7 @@ describe("Auto Router Home answer", () => {
 				expect(system?.content).toBe(SYSTEM_PROMPT);
 				return {
 					finishReason: { unified: "stop", raw: "stop" },
-					usage: {
-						inputTokens: {
-							total: 10,
-							noCache: 10,
-							cacheRead: 0,
-							cacheWrite: 0,
-						},
-						outputTokens: { total: 20, text: 20, reasoning: 0 },
-					},
+					usage,
 					warnings: [],
 					content: [
 						{
@@ -1726,13 +1752,16 @@ describe("Auto Router Home answer", () => {
 				};
 			},
 			doStream: async (call) => {
-				expect(call.responseFormat?.type).not.toBe("json");
-				expect(call.tools?.length ?? 0).toBe(0);
-				// Same system prompt as the route pass, so the prefix cache covers
-				// both; only the tail instruction of the user prompt differs.
+				// Same system prompt on every pass, so the prefix cache covers all of
+				// them; only the tail instruction of the user prompt differs.
 				const system = call.prompt.find((m) => m.role === "system");
 				expect(system?.content).toBe(SYSTEM_PROMPT);
-				return { stream };
+				if (call.responseFormat?.type === "json") {
+					expect(call.responseFormat.schema).toBeDefined();
+					return { stream: routeStream(routeChunks) };
+				}
+				expect(call.tools?.length ?? 0).toBe(0);
+				return { stream: answerStream };
 			},
 		});
 	}
@@ -1757,10 +1786,43 @@ describe("Auto Router Home answer", () => {
 			],
 		});
 	}
-	it("answers in one pass: the route answer is delivered as one delta, no answer stream, one usage record", async () => {
+	it("answers in one pass: the route answer streams as it grows, no answer pass, one usage record", async () => {
+		const answer = "Rain is water falling from clouds, condensed from vapour.";
 		const model = autoModel(
-			{ ...FALLBACK_DECISION, answer: "Rain is water falling from clouds." },
+			{ ...FALLBACK_DECISION, answer },
 			textStream("never"),
+		);
+		const deltas: string[] = [];
+		let settled = false;
+		let firstDeltaBeforeSettle = false;
+		const pending = planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "Explain rain",
+			onAnswerDelta: (d) => {
+				if (deltas.length === 0) firstDeltaBeforeSettle = !settled;
+				deltas.push(d);
+			},
+		});
+		const result = await pending.finally(() => {
+			settled = true;
+		});
+		expect(result?.answer).toBe(answer);
+		expect(deltas.join("")).toBe(answer);
+		expect(deltas.length).toBeGreaterThan(1);
+		expect(firstDeltaBeforeSettle).toBe(true);
+		expect(model.doGenerateCalls).toHaveLength(0);
+		expect(model.doStreamCalls).toHaveLength(1);
+		expect(result?.usage).toMatchObject({ inputTokens: 10, outputTokens: 20 });
+	});
+	it("holds answer text until routeKind is known, then flushes it as one suffix", async () => {
+		// The observed Auto Router order: answer first, routeKind after it.
+		const answer = "Rain is water falling from clouds.";
+		const { routeKind, ...rest } = { ...FALLBACK_DECISION, answer };
+		const model = autoModel(
+			{ ...FALLBACK_DECISION, answer },
+			textStream("never"),
+			jsonChunks({ answer, ...rest, routeKind }),
 		);
 		const deltas: string[] = [];
 		const result = await planKernelRoute({
@@ -1769,13 +1831,37 @@ describe("Auto Router Home answer", () => {
 			content: "Explain rain",
 			onAnswerDelta: (d) => deltas.push(d),
 		});
-		expect(result?.answer).toBe("Rain is water falling from clouds.");
-		expect(deltas).toEqual(["Rain is water falling from clouds."]);
-		expect(model.doGenerateCalls).toHaveLength(1);
-		expect(model.doStreamCalls).toHaveLength(0);
-		expect(result?.usage).toMatchObject({ inputTokens: 10, outputTokens: 20 });
+		expect(result?.answer).toBe(answer);
+		expect(deltas[0]).toBe(answer);
+		expect(deltas.join("")).toBe(answer);
+		expect(model.doStreamCalls).toHaveLength(1);
 	});
-	it("asks the route pass for the complete answer, not an outline", async () => {
+	it("never streams a delegation's preview text, whichever field the model writes first", async () => {
+		const decision: KernelRouteDecision = {
+			...FALLBACK_DECISION,
+			answer: "I'll ask the GitHub tedi to fetch them.",
+			routeKind: "delegate_tedi",
+			targetTediId: "tedi-1",
+			targetTediLabel: "CTO",
+			risk: "medium",
+		};
+		const model = autoModel(
+			decision,
+			new ReadableStream(),
+			jsonChunks({ answer: decision.answer, ...decision }),
+		);
+		const delta = vi.fn();
+		const result = await planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "give me recent commits",
+			onAnswerDelta: delta,
+		});
+		expect(result?.routeKind).toBe("delegate_tedi");
+		expect(delta).not.toHaveBeenCalled();
+		expect(model.doStreamCalls).toHaveLength(1);
+	});
+	it("asks the route pass for the complete answer, routeKind first, not an outline", async () => {
 		const model = autoModel(FALLBACK_DECISION, textStream("never"));
 		await planKernelRoute({
 			model,
@@ -1783,14 +1869,59 @@ describe("Auto Router Home answer", () => {
 			content: "Explain rain",
 			onAnswerDelta: () => {},
 		});
-		const user = model.doGenerateCalls[0]!.prompt.find(
-			(m) => m.role === "user",
-		);
+		const user = model.doStreamCalls[0]!.prompt.find((m) => m.role === "user");
 		const text = Array.isArray(user?.content)
 			? user!.content.map((part) => ("text" in part ? part.text : "")).join("")
 			: "";
 		expect(text).toContain("answer holds the complete final answer");
+		expect(text).toContain("routeKind first");
 		expect(text).not.toContain("outline");
+	});
+	it("falls back to the buffered pass once when the route stream yields no object", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const model = autoModel(
+				{ ...FALLBACK_DECISION, answer: "Rain is water falling from clouds." },
+				textStream("never"),
+				[],
+			);
+			const deltas: string[] = [];
+			const result = await planKernelRoute({
+				model,
+				context: EMPTY_CONTEXT,
+				content: "Explain rain",
+				onAnswerDelta: (d) => deltas.push(d),
+			});
+			expect(result?.answer).toBe("Rain is water falling from clouds.");
+			expect(deltas).toEqual(["Rain is water falling from clouds."]);
+			expect(model.doStreamCalls).toHaveLength(1);
+			expect(model.doGenerateCalls).toHaveLength(1);
+			expect(warn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event: "auto_router_stream_empty_fallback",
+				}),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+	it("a fixed model whose stream yields no object does not fall back", async () => {
+		const model = new MockLanguageModelV3({
+			modelId: "gpt-5",
+			doStream: async () => ({ stream: routeStream([]) }),
+			doGenerate: async () => {
+				throw new Error("must not run");
+			},
+		});
+		await expect(
+			planKernelRoute({
+				model,
+				context: EMPTY_CONTEXT,
+				content: "Explain rain",
+				onAnswerDelta: () => {},
+			}),
+		).rejects.toThrow();
+		expect(model.doGenerateCalls).toHaveLength(0);
 	});
 	it("streams a tool-free answer only when the route answer is empty, summing both usage records", async () => {
 		const model = autoModel(
@@ -1806,7 +1937,8 @@ describe("Auto Router Home answer", () => {
 		});
 		expect(result?.answer).toBe("Early answer");
 		expect(deltas).toEqual(["Early", " answer"]);
-		expect(model.doStreamCalls).toHaveLength(1);
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(model.doGenerateCalls).toHaveLength(0);
 		expect(result?.usage).toMatchObject({ inputTokens: 15, outputTokens: 22 });
 	});
 	it("streams a fresh answer when the guard downgraded a delegation, instead of reusing its preview", async () => {
@@ -1830,7 +1962,7 @@ describe("Auto Router Home answer", () => {
 		expect(result?.routeKind).toBe("answer_in_home");
 		expect(result?.answer).toBe("You have two work items.");
 		expect(deltas).toEqual(["You have two work items."]);
-		expect(model.doStreamCalls).toHaveLength(1);
+		expect(model.doStreamCalls).toHaveLength(2);
 	});
 	it("does not start an answer pass for an action route", async () => {
 		const model = autoModel(
@@ -1850,7 +1982,7 @@ describe("Auto Router Home answer", () => {
 			onAnswerDelta: delta,
 		});
 		expect(result?.routeKind).toBe("propose_tool_write");
-		expect(model.doStreamCalls).toHaveLength(0);
+		expect(model.doStreamCalls).toHaveLength(1);
 		expect(delta).not.toHaveBeenCalled();
 	});
 	it("rejects a failed partial answer stream without falling back to the empty route answer", async () => {
@@ -1875,7 +2007,8 @@ describe("Auto Router Home answer", () => {
 			}),
 		).rejects.toThrow("provider failed");
 		expect(delta).toHaveBeenCalledWith("Partial");
-		expect(model.doGenerateCalls).toHaveLength(1);
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(model.doGenerateCalls).toHaveLength(0);
 	});
 	it("returns cancellation when aborted during the answer stream without another dispatch", async () => {
 		const abort = new AbortController();
@@ -1891,8 +2024,8 @@ describe("Auto Router Home answer", () => {
 			onAnswerDelta: () => abort.abort(),
 		});
 		expect(result).toBeNull();
-		expect(model.doGenerateCalls).toHaveLength(1);
-		expect(model.doStreamCalls).toHaveLength(1);
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(model.doGenerateCalls).toHaveLength(0);
 	});
 });
 
