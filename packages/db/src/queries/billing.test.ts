@@ -87,6 +87,7 @@ function setup() {
 			stripe_cancel_at_period_end INTEGER,
 			period_start TEXT NOT NULL,
 			period_end TEXT NOT NULL,
+			overage_enabled INTEGER NOT NULL DEFAULT 0,
 			hard_spend_limit_micros INTEGER,
 			credit_balance_micros INTEGER NOT NULL DEFAULT 0,
 			grace_ends_at TEXT,
@@ -339,9 +340,9 @@ function setup() {
 		.prepare(
 			`INSERT INTO billing_accounts (
 				organization_id, plan_version_id, status, billing_mode,
-				stripe_environment, stripe_customer_id,
+				stripe_environment, stripe_customer_id, overage_enabled,
 				period_start, period_end, created_at, updated_at
-			) VALUES ('org-1','growth-v1','active','stripe','live','cus_1',?,?,?,?)`,
+			) VALUES ('org-1','growth-v1','active','stripe','live','cus_1',1,?,?,?,?)`,
 		)
 		.run("2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", now, now);
 	return { db: createDbClient(createD1Facade(sqlite)), sqlite, now };
@@ -831,6 +832,38 @@ describe("billing admission and settlement", () => {
 			now,
 		});
 		expect(draftDecision.allowed).toBe(false);
+	});
+
+	it("absorbs an overshoot instead of metering it while overage is not opted in", async () => {
+		const { db, sqlite, now } = setup();
+		insertReservation(sqlite, { id: "reservation-opt-out", now });
+		sqlite.exec("UPDATE billing_accounts SET overage_enabled=0");
+		const charge = await settleBillingUsage(db, {
+			id: "charge-opt-out",
+			organizationId: "org-1",
+			reservationId: "reservation-opt-out",
+			gatewayLogId: "gateway-opt-out",
+			provider: "azure-openai",
+			model: "gpt-5.6-terra",
+			source: "operator",
+			inputTokens: 1_500,
+			outputTokens: 500,
+			providerCostMicros: 2_000,
+			usageQuality: "gateway_reported",
+			providerCostQuality: "estimated",
+			meteringReady: true,
+			occurredAt: now,
+			now,
+		});
+		expect(charge).toMatchObject({
+			includedTokensApplied: 1_000,
+			meteredOverageTokens: 0,
+			customerChargeMicros: 0,
+			creditAppliedMicros: 0,
+		});
+		expect(
+			sqlite.prepare("SELECT COUNT(*) AS n FROM stripe_meter_outbox").get(),
+		).toEqual({ n: 0 });
 	});
 
 	it("applies credits before emitting idempotent Stripe overage", async () => {

@@ -21,6 +21,7 @@ import {
 	type BillingBalanceSnapshot,
 	getBillingBalanceSnapshot,
 } from "./credits";
+import { effectiveAllowOverageSql } from "./overage";
 import { reservationUsedTokensSql } from "./usage-tokens";
 
 const ACTIVE_BILLING_STATUSES: BillingAccountStatus[] = ["trial", "active"];
@@ -394,7 +395,7 @@ export async function reserveBillingUsage(
 				account.stripe_customer_id,
 				account.stripe_environment,
 				plan.included_monthly_tokens,
-				plan.allow_overage,
+				${sql.raw(effectiveAllowOverageSql("plan", "account"))} AS allow_overage,
 				plan.overage_unit_tokens,
 				plan.overage_unit_price_micros,
 				COALESCE(period.used_input_tokens + period.used_output_tokens, 0)
@@ -688,9 +689,21 @@ export async function reserveBillingUsage(
 			snapshot,
 		};
 	}
+	// Same arithmetic as the INSERT's hard-spend predicate: the request's own
+	// incremental charge counts, so a cap hit is named before the ladder falls
+	// through to the `payment_required` guess.
 	if (
 		snapshot.hardSpendLimitMicros !== null &&
-		snapshot.customerChargeMicros + snapshot.reservedChargeMicros >=
+		snapshot.customerChargeMicros +
+			snapshot.reservedChargeMicros +
+			incrementalOverageChargeMicros({
+				includedTokens: snapshot.includedTokens,
+				usedTokens: snapshot.usedTokens,
+				reservedTokens: snapshot.reservedTokens,
+				estimatedTokens,
+				overageUnitTokens: snapshot.overageUnitTokens,
+				overageUnitPriceMicros: snapshot.overageUnitPriceMicros,
+			}) >
 			snapshot.hardSpendLimitMicros
 	) {
 		return { allowed: false, code: "hard_spend_limit", snapshot };

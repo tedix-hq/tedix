@@ -272,6 +272,7 @@
 		"./queries/billing/inference-policies": "./src/queries/billing/inference-policies.ts",
 		"./queries/billing/health": "./src/queries/billing/health.ts",
 		"./queries/billing/meter-outbox": "./src/queries/billing/meter-outbox.ts",
+		"./queries/billing/overage": "./src/queries/billing/overage.ts",
 		"./queries/billing/plans": "./src/queries/billing/plans.ts",
 		"./queries/billing/provider-usage": "./src/queries/billing/provider-usage.ts",
 		"./queries/billing/reservations": "./src/queries/billing/reservations.ts",

@@ -59,6 +59,7 @@ function setup() {
 			stripe_cancel_at_period_end INTEGER,
 			period_start TEXT NOT NULL,
 			period_end TEXT NOT NULL,
+			overage_enabled INTEGER NOT NULL DEFAULT 0,
 			hard_spend_limit_micros INTEGER,
 			credit_balance_micros INTEGER NOT NULL DEFAULT 0,
 			grace_ends_at TEXT,

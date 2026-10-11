@@ -4,7 +4,12 @@
 	"namespaces": {
 		"billing": {
 			"guard": "namespace",
-			"tenantExceptions": ["restoreDailyCapacity", "setServiceCreditControls"]
+			"tenantExceptions": [
+				"getOverageSettings",
+				"restoreDailyCapacity",
+				"setOverageSettings",
+				"setServiceCreditControls"
+			]
 		},
 		"catalog": {
 			"guard": "namespace",

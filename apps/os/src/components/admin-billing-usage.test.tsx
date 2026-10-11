@@ -18,6 +18,15 @@ const org = "fictional-organization";
 function overview(): BillingOverview {
 	return BillingOverviewSchema.parse({
 		stripeEnvironment: "test",
+		overage: {
+			enabled: false,
+			monthlyCapMicros: null,
+			currency: "usd",
+			planSellsOverage: true,
+			monthToDateChargeMicros: 0,
+			reservedChargeMicros: 0,
+			capReached: false,
+		},
 		workstationCostCoverage: {
 			periodStart: "2026-09-01T00:00:00.000Z",
 			periodEnd: "2026-10-01T00:00:00.000Z",

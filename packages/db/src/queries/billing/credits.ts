@@ -11,6 +11,7 @@ import {
 	billingAccounts,
 	billingCreditEntries,
 } from "../../schema/billing";
+import { effectiveAllowOverageSql } from "./overage";
 
 export async function expireBillingCredits(
 	db: DbClient,
@@ -76,6 +77,8 @@ export interface BillingBalanceSnapshot {
 	periodStart: string;
 	periodEnd: string;
 	includedTokens: number;
+	overageUnitTokens: number;
+	overageUnitPriceMicros: number;
 	usedTokens: number;
 	reservedTokens: number;
 	remainingIncludedTokens: number;
@@ -86,7 +89,10 @@ export interface BillingBalanceSnapshot {
 	availableCreditMicros: number;
 	customerChargeMicros: number;
 	hardSpendLimitMicros: number | null;
+	/** Plan permission combined with the admin opt-in for priced overage. */
 	allowOverage: boolean;
+	/** The admin opt-in itself, regardless of whether the plan sells overage. */
+	overageEnabled: boolean;
 	stripeCustomerId: string | null;
 	isSponsoredCustomer: boolean;
 }
@@ -107,6 +113,8 @@ export async function getBillingBalanceSnapshot(
 			account.period_start AS periodStart,
 			account.period_end AS periodEnd,
 			plan.included_monthly_tokens AS includedTokens,
+			plan.overage_unit_tokens AS overageUnitTokens,
+			plan.overage_unit_price_micros AS overageUnitPriceMicros,
    (plan.included_monthly_tokens < 0 OR (
     plan.included_monthly_tokens = 0 AND plan.allow_overage = 1
     AND plan.overage_unit_price_micros = 0
@@ -169,7 +177,8 @@ export async function getBillingBalanceSnapshot(
 			) AS availableCreditMicros,
 			COALESCE(period.customer_charge_micros, 0) AS customerChargeMicros,
 			account.hard_spend_limit_micros AS hardSpendLimitMicros,
-			plan.allow_overage AS allowOverage,
+			${sql.raw(effectiveAllowOverageSql("plan", "account"))} AS allowOverage,
+			account.overage_enabled AS overageEnabled,
 			account.stripe_customer_id AS stripeCustomerId,
 			(json_extract(account.metadata, '$.providerCustomerKey') IS NOT NULL
 				OR EXISTS (
@@ -199,6 +208,8 @@ export async function getBillingBalanceSnapshot(
 		periodStart: String(row.periodStart),
 		periodEnd: String(row.periodEnd),
 		includedTokens: Number(row.includedTokens),
+		overageUnitTokens: Number(row.overageUnitTokens),
+		overageUnitPriceMicros: Number(row.overageUnitPriceMicros),
 		usedTokens: Number(row.usedTokens),
 		reservedTokens: Number(row.reservedTokens),
 		remainingIncludedTokens: Number(row.remainingIncludedTokens),
@@ -212,6 +223,7 @@ export async function getBillingBalanceSnapshot(
 				? null
 				: Number(row.hardSpendLimitMicros),
 		allowOverage: Boolean(row.allowOverage),
+		overageEnabled: Boolean(row.overageEnabled),
 		stripeCustomerId:
 			row.stripeCustomerId === null ? null : String(row.stripeCustomerId),
 		isSponsoredCustomer: Boolean(row.isSponsoredCustomer),

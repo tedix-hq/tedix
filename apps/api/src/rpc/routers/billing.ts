@@ -40,6 +40,7 @@ import {
 	getBillingUsagePeriod,
 	recordBillingProviderReconciliation,
 } from "@tedix/db/queries/billing/health";
+import { setBillingOverageSettings } from "@tedix/db/queries/billing/overage";
 import {
 	listProviderCapacitySponsorships,
 	setProviderCapacitySponsorship,
@@ -54,6 +55,9 @@ import {
 	grantBillingServiceCredits,
 	setBillingServiceCreditControls,
 } from "@tedix/db/queries/billing-service-credits";
+import type { BillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
+import type { BillingPlanVersion } from "@tedix/db/schema/billing";
+import type { BillingOverageSettings } from "@tedix/api-contract/schemas/billing";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { buildBillingSettingsUrl } from "../../lib/billing-urls";
 import { resolveBillingSettlementMode } from "../../lib/billing-settlement-mode";
@@ -371,7 +375,7 @@ const createInferenceCapacityCheckoutContract =
 			if (
 				usesMonthlyInferenceCapacity({
 					status: entitlement.account.status,
-					allowOverage: entitlement.plan.allowOverage,
+					allowOverage: balance?.allowOverage ?? false,
 					billingMode: entitlement.account.billingMode,
 					isSponsoredCustomer: balance?.isSponsoredCustomer ?? false,
 					stripeCustomerId:
@@ -583,6 +587,86 @@ const setProviderCapacitySponsorshipContract = os.setProviderCapacitySponsorship
 		return sponsorship;
 	});
 
+/**
+ * The admin-facing overage state. `capReached` mirrors the admission gate's
+ * `hard_spend_limit` rule: settled plus held charge has consumed the cap.
+ */
+function billingOverageSettings(
+	snapshot: BillingBalanceSnapshot,
+	plan: Pick<
+		BillingPlanVersion,
+		"currency" | "allowOverage" | "overageUnitPriceMicros"
+	>,
+): BillingOverageSettings {
+	const planSellsOverage = planSellsStripeOverage(plan);
+	const monthlyCapMicros = snapshot.hardSpendLimitMicros;
+	return {
+		enabled: snapshot.overageEnabled,
+		monthlyCapMicros,
+		currency: plan.currency,
+		planSellsOverage,
+		monthToDateChargeMicros: snapshot.customerChargeMicros,
+		reservedChargeMicros: snapshot.reservedChargeMicros,
+		capReached:
+			planSellsOverage &&
+			snapshot.overageEnabled &&
+			monthlyCapMicros !== null &&
+			snapshot.customerChargeMicros + snapshot.reservedChargeMicros >=
+				monthlyCapMicros,
+	};
+}
+
+async function readBillingOverageSettings(
+	context: BaseContext,
+	organizationId: string,
+): Promise<BillingOverageSettings> {
+	const now = new Date().toISOString();
+	const [entitlement, snapshot] = await Promise.all([
+		getBillingEntitlement(context.db, organizationId),
+		getBillingBalanceSnapshot(context.db, organizationId, now),
+	]);
+	if (!entitlement || !snapshot) {
+		throw new ORPCError("NOT_FOUND", {
+			message: "Billing account is not configured",
+		});
+	}
+	return billingOverageSettings(snapshot, entitlement.plan);
+}
+
+const getOverageSettingsContract = os.getOverageSettings
+	.use(withAuth)
+	.use(withAuthorization("billing:read", "billing:read"))
+	.handler(async ({ context }) => {
+		const { organizationId } = context;
+		if (!organizationId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+		}
+		return readBillingOverageSettings(context, organizationId);
+	});
+
+const setOverageSettingsContract = os.setOverageSettings
+	.use(withAuth)
+	.use(withAuthorization("billing:manage", "billing:write"))
+	.handler(async ({ context, input }) => {
+		const { organizationId } = context;
+		if (!organizationId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+		}
+		requireOrganizationBillingAuthority(context);
+		const updated = await setBillingOverageSettings(context.db, {
+			organizationId,
+			enabled: input.enabled,
+			monthlyCapMicros: input.monthlyCapMicros,
+			now: new Date().toISOString(),
+		});
+		if (!updated) {
+			throw new ORPCError("NOT_FOUND", {
+				message: "Billing account is not configured",
+			});
+		}
+		return readBillingOverageSettings(context, organizationId);
+	});
+
 const getOverviewContract = os.getOverview
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -709,6 +793,7 @@ const getOverviewContract = os.getOverview
 		return {
 			stripeEnvironment,
 			workstationCostCoverage,
+			overage: billingOverageSettings(snapshot, entitlement.plan),
 			snapshot: {
 				status: snapshot.status,
 				billingMode: snapshot.billingMode,
@@ -1186,6 +1271,8 @@ export const billingContractRouter = os.router({
 	setProviderCapacitySponsorship: setProviderCapacitySponsorshipContract,
 	createPortal: createPortalContract,
 	getOverview: getOverviewContract,
+	getOverageSettings: getOverageSettingsContract,
+	setOverageSettings: setOverageSettingsContract,
 	listPlans: listPlansContract,
 	recordVoiceProviderUsage: recordVoiceProviderUsageContract,
 	grantCredit: grantCreditContract,

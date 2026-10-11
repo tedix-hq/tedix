@@ -118,6 +118,7 @@ describe("workstation coverage in existing canonical billing overview", () => {
 			customerChargeMicros: 0,
 			hardSpendLimitMicros: null,
 			allowOverage: false,
+			overageEnabled: false,
 			stripeCustomerId: null,
 		});
 		storage.entitlement.mockResolvedValue({
@@ -130,6 +131,7 @@ describe("workstation coverage in existing canonical billing overview", () => {
 				includedMonthlyCreditMicros: 0,
 				overageUnitTokens: 1000000,
 				overageUnitPriceMicros: 0,
+				allowOverage: false,
 				maxTedis: 1,
 				maxCronJobsPerTedi: 1,
 				maxIterationsPerTask: 10,

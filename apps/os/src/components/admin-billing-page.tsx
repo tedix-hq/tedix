@@ -69,6 +69,12 @@ const BillingDocumentsSection = lazy(() =>
 	})),
 );
 
+const BillingOverageSection = lazy(() =>
+	import("@/components/billing-overage-section").then((mod) => ({
+		default: mod.BillingOverageSection,
+	})),
+);
+
 const BillingInferenceCapacitySection = lazy(() =>
 	import("@/components/billing-inference-capacity-section").then((mod) => ({
 		default: mod.BillingInferenceCapacitySection,
@@ -258,10 +264,13 @@ function AdminBillingBody({
 					</Suspense>
 				</TabsContent>
 
-				<TabsContent value="subscription" className="pt-4">
+				<TabsContent value="subscription" className="space-y-6 pt-4">
 					{/* Checkout CONFLICTs render inside the section's mutation error. */}
 					<Suspense fallback={<SectionSkeleton />}>
 						<SubscriptionSection />
+					</Suspense>
+					<Suspense fallback={<SectionSkeleton />}>
+						<BillingOverageSection />
 					</Suspense>
 				</TabsContent>
 

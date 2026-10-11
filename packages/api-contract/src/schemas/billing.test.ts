@@ -131,6 +131,15 @@ describe("daily inference capacity schemas", () => {
 				pending: { rowCount: 1, leaseSeconds: 100 },
 				unproven: { rowCount: 1, leaseSeconds: 100 },
 			},
+			overage: {
+				enabled: false,
+				monthlyCapMicros: null,
+				currency: "usd",
+				planSellsOverage: true,
+				monthToDateChargeMicros: 0,
+				reservedChargeMicros: 0,
+				capReached: false,
+			},
 			snapshot: {
 				status: "active",
 				billingMode: "stripe",

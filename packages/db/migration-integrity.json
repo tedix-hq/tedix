@@ -828,6 +828,10 @@
 		{
 			"name": "20261010144722_auto_reply_resolves_question/migration.sql",
 			"sha256": "b46a8aeb4c4f93d0b80733c36c4514547c21f6e1729857dc5089ba36e1c8cdbd"
+		},
+		{
+			"name": "20261011080845_billing_account_overage_opt_in/migration.sql",
+			"sha256": "7f59a43cb634c652706f0da01969074379bfa2603e271a0082b977c7947ecbeb"
 		}
 	]
 }

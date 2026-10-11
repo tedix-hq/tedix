@@ -298,6 +298,52 @@ export type SetBillingServiceCreditControlsInput = z.infer<
 	typeof SetBillingServiceCreditControlsInputSchema
 >;
 
+/** 1,000,000 currency units; mirrors BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS. */
+export const BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS = 1_000_000_000_000;
+
+export const SetBillingOverageSettingsInputSchema = z
+	.object({
+		enabled: z.boolean(),
+		monthlyCapMicros: z
+			.number()
+			.int()
+			.positive()
+			.max(BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS)
+			.nullable()
+			.describe(
+				"Hard monthly ceiling on overage charges in the plan currency; required while enabled",
+			),
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		if (value.enabled && value.monthlyCapMicros === null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["monthlyCapMicros"],
+				message: "A monthly cap is required when overage is enabled",
+			});
+		}
+	});
+export type SetBillingOverageSettingsInput = z.infer<
+	typeof SetBillingOverageSettingsInputSchema
+>;
+
+export const BillingOverageSettingsSchema = z.object({
+	enabled: z.boolean(),
+	monthlyCapMicros: z.number().int().nullable(),
+	currency: z.string(),
+	/** Whether the current plan sells priced overage at all. */
+	planSellsOverage: z.boolean(),
+	/** Settled overage charges this period, net of applied credit. */
+	monthToDateChargeMicros: z.number().int(),
+	/** Estimated charge held by in-flight reservations this period. */
+	reservedChargeMicros: z.number().int(),
+	capReached: z.boolean(),
+});
+export type BillingOverageSettings = z.infer<
+	typeof BillingOverageSettingsSchema
+>;
+
 export const SetBillingServiceCreditControlsResponseSchema = z.object({
 	snapshot: BillingServiceCreditSnapshotSchema,
 });
@@ -358,6 +404,7 @@ export const WorkstationCostCoverageSchema = z
 
 const BillingOverviewFieldsSchema = z.object({
 	workstationCostCoverage: WorkstationCostCoverageSchema,
+	overage: BillingOverageSettingsSchema,
 	stripeEnvironment: StripeEnvironmentSchema,
 	snapshot: BillingBalanceSnapshotSchema,
 	plan: z.object({

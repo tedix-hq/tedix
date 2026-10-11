@@ -7,6 +7,10 @@ vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
 	listProviderModelRates: rateStorage.list,
 	publishProviderModelRate: rateStorage.publish,
 }));
+const overageStorage = vi.hoisted(() => ({ set: vi.fn() }));
+vi.mock("@tedix/db/queries/billing/overage", () => ({
+	setBillingOverageSettings: overageStorage.set,
+}));
 const resolveEnvironment = vi.hoisted(() => vi.fn());
 vi.mock("../../lib/stripe-environment", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../lib/stripe-environment")>()),
@@ -80,6 +84,65 @@ describe("own-organization billing authorization", () => {
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(resolveEnvironment).not.toHaveBeenCalled();
+	});
+});
+
+describe("overage opt-in authority", () => {
+	beforeEach(() => {
+		overageStorage.set.mockReset();
+	});
+	it("refuses a member without billing:manage", async () => {
+		const ctx = { ...context(["billing:manage"], true), userRole: "member" };
+		const client = createRouterClient(billingContractRouter, {
+			context: ctx as BaseContext,
+		});
+		await expect(
+			client.setOverageSettings({ enabled: true, monthlyCapMicros: 1 }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(overageStorage.set).not.toHaveBeenCalled();
+	});
+	it("refuses an API key without billing:write", async () => {
+		const client = createRouterClient(billingContractRouter, {
+			context: context(["billing:read"]),
+		});
+		await expect(
+			client.setOverageSettings({ enabled: true, monthlyCapMicros: 1 }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(overageStorage.set).not.toHaveBeenCalled();
+	});
+	it("refuses reading overage settings without billing:read", async () => {
+		const client = createRouterClient(billingContractRouter, {
+			context: context([]),
+		});
+		await expect(client.getOverageSettings()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+	it("rejects enabling without a cap before touching storage", async () => {
+		const client = createRouterClient(billingContractRouter, {
+			context: context(["billing:manage"], true),
+		});
+		await expect(
+			client.setOverageSettings({ enabled: true, monthlyCapMicros: null }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(overageStorage.set).not.toHaveBeenCalled();
+	});
+	it("reports an unconfigured billing account for an owner", async () => {
+		overageStorage.set.mockResolvedValue(false);
+		const client = createRouterClient(billingContractRouter, {
+			context: context(["billing:manage"], true),
+		});
+		await expect(
+			client.setOverageSettings({ enabled: true, monthlyCapMicros: 5 }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(overageStorage.set).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				organizationId,
+				enabled: true,
+				monthlyCapMicros: 5,
+			}),
+		);
 	});
 });
 
