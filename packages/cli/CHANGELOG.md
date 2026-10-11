@@ -3,6 +3,20 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.5 — 2026-10-11
+
+### Fixed
+
+- Answers stay with the chat that asked. The supervisor no longer creates
+  another Work Item or chooses another chat after two hours of waiting.
+- Codex answers use the transcript identified by the host, rather than a
+  guessed filename. Missing or unavailable chats wait without a false
+  delivery acknowledgment.
+- Uncertain Codex queue deliveries survive retries and restarts without
+  starting a duplicate turn when withdrawing the queued message fails.
+- `work interaction-respond --no-deliver` closes a status update without
+  waking the asking chat. The Office labels it "Closed (no delivery)".
+
 ## 0.8.4 — 2026-10-11
 
 ### Fixed
