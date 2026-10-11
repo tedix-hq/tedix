@@ -168,7 +168,9 @@ instead of a login redirect. Never paste that token into a Docs MCP argument.
 ## Safety model and current non-guarantees
 
 Docs builds a locked platform-owned documentation template. It copies documentation
-content but never runs the repository's package scripts. Private clone
+content but never runs the repository's package scripts. The template carries
+the Tedix mark and favicon on every site; a per-site logo is not configurable
+yet. Private clone
 credentials are build-scoped and are not stored in site configuration, build
 records, Workflow parameters, release objects, or output.
 
