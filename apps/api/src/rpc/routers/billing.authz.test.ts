@@ -2,6 +2,11 @@ import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 
+const activationStorage = vi.hoisted(() => vi.fn());
+vi.mock("./billing/credit-activation", () => ({
+	configureCreditBillingHandler: activationStorage,
+}));
+
 const rateStorage = vi.hoisted(() => ({ list: vi.fn(), publish: vi.fn() }));
 vi.mock("@tedix/db/queries/billing/provider-model-rates", () => ({
 	listProviderModelRates: rateStorage.list,
@@ -88,28 +93,95 @@ describe("own-organization billing authorization", () => {
 });
 
 describe("credit activation authority", () => {
-	it("refuses tenant owners even when they manage their own billing", async () => {
-		const client = createRouterClient(billingContractRouter, {
-			context: context(["billing:manage"], true),
+	const input = {
+		organizationId,
+		expectedEntitlementVersion: 1,
+		idempotencyKey: "activation-authority",
+		reason: "authorized test",
+		includedMonthlyCreditMicros: 100000000,
+		monthlyCapMicros: 100000000,
+		perRunBudgetMicros: 5000000,
+		rateBindings: [
+			{
+				rateVersionId: "published",
+				inputConvention: "inclusive" as const,
+				requestModelAliases: [],
+			},
+		],
+	};
+	beforeEach(() => {
+		activationStorage.mockReset();
+		activationStorage.mockResolvedValue({
+			organizationId,
+			planVersionId: "private-plan",
+			entitlementVersion: 2,
+			creditBalanceMicros: 100000000,
+			periodStart: "2026-10-01T00:00:00.000Z",
+			periodEnd: "2026-11-01T00:00:00.000Z",
+			includedCreditCarryForward: true,
+			alreadyConfigured: false,
 		});
+	});
+	it("accepts platform OAuth scope on a human JWT without tenant permissions", async () => {
+		const ctx = context([], true);
+		ctx.user = {
+			sub: "platform-human",
+			scopes: ["platform:admin"],
+			permissions: [],
+			roles: [],
+		};
+		await createRouterClient(billingContractRouter, {
+			context: ctx,
+		}).configureCreditBilling(input);
+		expect(activationStorage).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ authType: "user", user: ctx.user }),
+			input,
+			"platform-human",
+		);
+	});
+	it("refuses tenant owners even when they manage their own billing", async () => {
 		await expect(
-			client.configureCreditBilling({
-				organizationId,
-				expectedEntitlementVersion: 1,
-				idempotencyKey: "activation-denied",
-				reason: "must not mint funds",
-				includedMonthlyCreditMicros: 100000000,
-				monthlyCapMicros: 100000000,
-				perRunBudgetMicros: 5000000,
-				rateBindings: [
-					{
-						rateVersionId: "published",
-						inputConvention: "inclusive",
-						requestModelAliases: [],
-					},
-				],
-			}),
+			createRouterClient(billingContractRouter, {
+				context: context(["billing:manage"], true),
+			}).configureCreditBilling(input),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(activationStorage).not.toHaveBeenCalled();
+	});
+	it("accepts an operator API key with platform authority", async () => {
+		const ctx = context(["platform:admin"]);
+		await createRouterClient(billingContractRouter, {
+			context: ctx,
+		}).configureCreditBilling(input);
+		expect(activationStorage).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ authType: "apikey" }),
+			input,
+			"key",
+		);
+	});
+	it("refuses a tedi even when its token carries platform authority", async () => {
+		const ctx = {
+			...context([]),
+			authType: "tedi",
+			apiKey: undefined,
+			// Already-authenticated context fixture; its principal type remains tedi.
+			user: {
+				sub: "tedi-principal",
+				scopes: ["platform:admin"],
+				permissions: [],
+				roles: [],
+			},
+			tediScopes: ["platform:admin"],
+			tediId: "d3b0f0a2-51f6-4a7e-9a36-2a8f1f0b1f11",
+		} as BaseContext;
+		await expect(
+			createRouterClient(billingContractRouter, {
+				context: ctx,
+			}).configureCreditBilling(input),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("never held by a tedi principal"),
+		});
+		expect(activationStorage).not.toHaveBeenCalled();
 	});
 });
 
