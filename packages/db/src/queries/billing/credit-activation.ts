@@ -1,59 +1,13 @@
 /** Account-scoped credit pricing activation. Never publishes a catalog default. */
 import type { ConfigureCreditBillingInput } from "@tedix/api-contract/schemas/credit-billing-activation";
 import { MonetaryInferenceConfigSchema } from "@tedix/api-contract/schemas/billing";
-import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
+import { and, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import {
-	billingAccounts,
-	billingCreditEntries,
-	billingPlanVersions,
-} from "../../schema/billing";
+import { billingAccounts, billingPlanVersions } from "../../schema/billing";
 import { providerModelRateVersions } from "../../schema/provider-model-rates";
 import { getBillingEntitlement } from "./plans";
 
-export function includedCreditPeriodKey(
-	organizationId: string,
-	periodStart: string,
-	periodEnd: string,
-) {
-	return `included-credit:${organizationId}:${periodStart}:${periodEnd}`;
-}
-
-/** The SELECT fences the journal insert on the canonical account, including CAS activation. */
-export function buildIncludedCreditPeriodGrant(
-	db: DbClient,
-	input: {
-		organizationId: string;
-		planVersionId: string;
-		periodStart: string;
-		periodEnd: string;
-		amountMicros: number;
-		now: string;
-		metadata?: Record<string, unknown>;
-	},
-) {
-	const key = includedCreditPeriodKey(
-		input.organizationId,
-		input.periodStart,
-		input.periodEnd,
-	);
-	const metadata = JSON.stringify({
-		...input.metadata,
-		planVersionId: input.planVersionId,
-		periodStart: input.periodStart,
-		periodEnd: input.periodEnd,
-		includedCreditCarryForward: true,
-	});
-	return db
-		.insert(billingCreditEntries)
-		.select(sql`SELECT
-  ${key}, organization_id, 'grant', ${input.amountMicros}, 'plan_period', ${input.periodStart},
-  NULL, ${key}, NULL, 'Included monthly credits (carry forward)', ${metadata}, ${input.now}
-  FROM billing_accounts WHERE organization_id = ${input.organizationId}
-  AND plan_version_id = ${input.planVersionId} AND period_start = ${input.periodStart}
-  AND period_end = ${input.periodEnd} AND status = 'active'`)
-		.onConflictDoNothing({ target: billingCreditEntries.idempotencyKey });
-}
+import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 
 export async function configureCreditBilling(
 	db: DbClient,
@@ -100,6 +54,12 @@ export async function configureCreditBilling(
 		Date.parse(account.periodEnd) <= Date.parse(now)
 	)
 		throw new Error("Billing period must be current before activation");
+	const monthlyEnd = new Date(account.periodStart);
+	monthlyEnd.setUTCMonth(monthlyEnd.getUTCMonth() + 1);
+	if (Date.parse(account.periodEnd) > monthlyEnd.getTime())
+		throw new Error(
+			"Credit billing requires a monthly accounting window; correct the period first",
+		);
 	if (input.perRunBudgetMicros > input.monthlyCapMicros)
 		throw new Error("Run budget exceeds monthly cap");
 	const ids = input.rateBindings.map((binding) => binding.rateVersionId);
@@ -108,6 +68,7 @@ export async function configureCreditBilling(
 	const rows = await db
 		.select()
 		.from(providerModelRateVersions)
+		// bound-params: the public contract limits rateBindings to 30 receipts.
 		.where(inArray(providerModelRateVersions.id, ids));
 	const config = MonetaryInferenceConfigSchema.parse({
 		version: 1,
@@ -156,6 +117,7 @@ export async function configureCreditBilling(
 	const [superseding] = await db
 		.select({ id: providerModelRateVersions.id })
 		.from(providerModelRateVersions)
+		// bound-params: the public contract limits rateBindings to 30 receipts.
 		.where(inArray(providerModelRateVersions.supersedesRateVersionId, ids))
 		.limit(1);
 	if (superseding) throw new Error("Pricing receipt has been superseded");
@@ -194,12 +156,10 @@ export async function configureCreditBilling(
 	};
 	// The plan insert and account CAS share a fence inside one atomic D1 batch.
 	// A stale activation cannot leave an orphan private plan that poisons retries.
-	const values = Object.keys(getTableColumns(billingPlanVersions)).map(
-		(key) => {
-			const value = clone[key as keyof typeof clone];
-			return sql`${typeof value === "object" && value !== null ? JSON.stringify(value) : typeof value === "boolean" ? Number(value) : value}`;
-		},
-	);
+	const values = Object.keys(getColumns(billingPlanVersions)).map((key) => {
+		const value = clone[key as keyof typeof clone];
+		return sql`${typeof value === "object" && value !== null ? JSON.stringify(value) : typeof value === "boolean" ? Number(value) : value}`;
+	});
 	const fence = sql`organization_id = ${input.organizationId} AND entitlement_version = ${account.entitlementVersion}
   AND NOT EXISTS (SELECT 1 FROM billing_usage_reservations WHERE organization_id = ${input.organizationId} AND status = 'reserved' AND expires_at > ${now})`;
 	await db.batch([
@@ -246,4 +206,68 @@ export async function configureCreditBilling(
 		entitlementVersion: updated.account.entitlementVersion,
 		creditBalanceMicros: updated.account.creditBalanceMicros,
 	};
+}
+
+/** Paid service coverage is never inferred from an active subscription status. */
+export async function recordPaidCreditCoverage(
+	db: DbClient,
+	organizationId: string,
+	coverage: {
+		subscriptionId: string;
+		invoiceId: string;
+		periodStart: string;
+		periodEnd: string;
+	},
+	now: string,
+) {
+	const entitlement = await getBillingEntitlement(db, organizationId);
+	if (
+		!entitlement?.plan.metadata.monetaryInference ||
+		entitlement.account.stripeSubscriptionId !== coverage.subscriptionId
+	)
+		return;
+	const { account, plan } = entitlement;
+	// A late old invoice must not create credit for the current or next period.
+	if (
+		coverage.periodStart > account.periodStart ||
+		coverage.periodEnd < account.periodEnd
+	)
+		return;
+	const previous = account.metadata.paidCreditCoverage as
+		| typeof coverage
+		| undefined;
+	if (
+		previous &&
+		previous.subscriptionId === coverage.subscriptionId &&
+		previous.periodEnd > coverage.periodEnd
+	)
+		return;
+	const [result] = await db.batch([
+		db
+			.update(billingAccounts)
+			.set({
+				metadata: { ...account.metadata, paidCreditCoverage: coverage },
+				entitlementVersion: account.entitlementVersion + 1,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(billingAccounts.organizationId, organizationId),
+					eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+				),
+			)
+			.returning({ organizationId: billingAccounts.organizationId }),
+		buildIncludedCreditPeriodGrant(db, {
+			organizationId,
+			planVersionId: plan.id,
+			periodStart: account.periodStart,
+			periodEnd: account.periodEnd,
+			amountMicros: plan.includedMonthlyCreditMicros,
+			now,
+			metadata: { stripeInvoiceId: coverage.invoiceId },
+			expectedEntitlementVersion: account.entitlementVersion + 1,
+		}),
+	]);
+	if (!result.length)
+		throw new Error("Paid coverage lost entitlement fence; retry invoice");
 }

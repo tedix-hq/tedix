@@ -12,7 +12,7 @@
 
 import { createDbClient } from "@tedix/db/client";
 import { grantBillingCredit } from "@tedix/db/queries/billing/credits";
-import { buildIncludedCreditPeriodGrant } from "@tedix/db/queries/billing/credit-activation";
+import { recordPaidCreditCoverage } from "@tedix/db/queries/billing/credit-activation";
 import {
 	findCapacityAllocationByPaymentIntent,
 	reconcileCapacityRefund,
@@ -41,6 +41,7 @@ import {
 	resolveFleetAuthorityBinding,
 } from "../lib/fleet-authority";
 import { getStripe } from "../lib/stripe";
+import { stripeCreditCoverage } from "../lib/stripe-credit-coverage";
 import {
 	getStripeEnvironmentConfig,
 	resolveStripeEnvironment,
@@ -581,6 +582,24 @@ async function syncSubscriptionState(
 	}
 	const organizationId = entitlement.account.organizationId;
 	const period = stripeSubscriptionPeriod(planItem);
+	// An annual provider subscription still has monthly included-credit windows.
+	if (
+		entitlement.plan.metadata.monetaryInference &&
+		planItem?.price.recurring?.interval === "year"
+	) {
+		if (
+			entitlement.account.periodStart >= period.start &&
+			entitlement.account.periodEnd <= period.end
+		) {
+			period.start = entitlement.account.periodStart;
+			period.end = entitlement.account.periodEnd;
+		} else {
+			const monthlyEnd = new Date(period.start);
+			monthlyEnd.setUTCMonth(monthlyEnd.getUTCMonth() + 1);
+			period.end = monthlyEnd.toISOString();
+		}
+	}
+
 	await applyOrganizationPlanFeatures(db, organizationId, tier);
 	await provisionBillingAccount(db, {
 		organizationId,
@@ -752,9 +771,13 @@ async function handleInvoicePaid(
 		customerId,
 		stripeEnvironment,
 	);
-	const subscriptionId =
-		stripeInvoiceSubscriptionId(invoice) ??
-		currentEntitlement?.account.stripeSubscriptionId;
+	const subscriptionId = stripeInvoiceSubscriptionId(invoice);
+	// Never treat a top-up/one-off invoice as the current subscription invoice.
+	if (
+		currentEntitlement?.account.stripeSubscriptionId &&
+		subscriptionId !== currentEntitlement.account.stripeSubscriptionId
+	)
+		return;
 	if (!subscriptionId) return;
 	const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 	// A final zero-dollar or prorated invoice can be paid after
@@ -783,17 +806,18 @@ async function handleInvoicePaid(
 	const entitlement = await getBillingEntitlement(db, organizationId);
 	const includedCredits = entitlement?.plan.includedMonthlyCreditMicros ?? 0;
 	if (includedCredits > 0 && entitlement?.plan.metadata.monetaryInference) {
-		await db.batch([
-			buildIncludedCreditPeriodGrant(db, {
+		const coverage = stripeCreditCoverage(
+			invoice,
+			subscription.id,
+			resolved.item.id,
+		);
+		if (coverage)
+			await recordPaidCreditCoverage(
+				db,
 				organizationId,
-				planVersionId: entitlement.plan.id,
-				periodStart: entitlement.account.periodStart,
-				periodEnd: entitlement.account.periodEnd,
-				amountMicros: includedCredits,
-				now: new Date().toISOString(),
-				metadata: { stripeInvoiceId: invoice.id, stripeEnvironment },
-			}),
-		]);
+				coverage,
+				new Date().toISOString(),
+			);
 	} else if (includedCredits > 0) {
 		await grantBillingCredit(db, {
 			id: crypto.randomUUID(),
