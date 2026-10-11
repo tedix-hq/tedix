@@ -258,6 +258,45 @@ describe("templated and endpoint-less imports", () => {
 		]);
 	});
 
+	it("keeps the runnable endpoint when a merged template listing is imported again", async () => {
+		const template = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_quillbase_template",
+			name: "Quillbase",
+			connectorType: "MCP",
+			baseUrl: "{url}",
+			website: "https://quillbase.example",
+		});
+		const runnable = await syncCatalogAppFromStore(db, {
+			source: "chatgpt",
+			sourceAppId: "asdk_app_quillbase",
+			name: "Quillbase",
+			connectorType: "MCP",
+			baseUrl: "https://mcp.quillbase.example/mcp",
+			website: "https://quillbase.example",
+		});
+		await mergeCatalogApps(db, {
+			fromCatalogAppId: template!.app.id,
+			intoCatalogAppId: runnable!.app.id,
+		});
+
+		const replay = await syncCatalogAppFromStore(db, {
+			source: "claude",
+			sourceAppId: "claude_dir_quillbase_template",
+			name: "Quillbase",
+			connectorType: "MCP",
+			baseUrl: "{url}",
+			website: "https://quillbase.example",
+		});
+
+		expect(replay?.app.id).toBe(runnable?.app.id);
+		const kept = await getCatalogAppById(db, runnable!.app.id);
+		expect(kept?.baseUrl).toBe("https://mcp.quillbase.example/mcp");
+		expect(kept?.mcpEndpointNormalized).toBe(
+			"https://mcp.quillbase.example/mcp",
+		);
+	});
+
 	it("keeps per-store endpoint variants of one vendor as separate rows", async () => {
 		const openai = await syncCatalogAppFromStore(db, {
 			source: "chatgpt",
