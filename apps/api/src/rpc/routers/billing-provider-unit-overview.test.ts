@@ -124,6 +124,7 @@ describe("workstation coverage in existing canonical billing overview", () => {
 		storage.entitlement.mockResolvedValue({
 			account: { stripeEnvironment: "test" },
 			plan: {
+				metadata: {},
 				name: "Growth",
 				currency: "usd",
 				monthlyPriceMicros: 0,
