@@ -17,7 +17,12 @@ import {
 	nextDelay,
 	runAwaitReply,
 } from "./await-reply";
-import { autoDeliveryPath, peek, questionPath } from "./decision-capture";
+import {
+	autoDeliveryPath,
+	draftStatusPath,
+	peek,
+	questionPath,
+} from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
 /** Checks for the Claude Code rewake: only the user's own OS answer wakes the session. */
@@ -425,6 +430,25 @@ describe("tedix hooks await-reply", () => {
 		expect(detailReads).toBe(0);
 	});
 
+	test("a question the server acknowledged as FYI ends the wait without a read or a wake", async () => {
+		const { result, detailReads, acks } = await run([], {
+			onSleep: (count) => {
+				if (count !== 1) return;
+				open();
+				writeFileSync(
+					draftStatusPath(state()),
+					JSON.stringify({ requestId: REQUEST, status: "acknowledged" }),
+				);
+			},
+			undelivered: [{ data: [], observedAt: "2026-10-09T10:00:00.000Z" }],
+		});
+		expect(result).toEqual({ code: 0 });
+		expect(detailReads).toBe(0);
+		expect(acks).toEqual([]);
+		// The question stays claimed by the turn: nothing answered it.
+		expect(peek(state())?.requestId).toBe(REQUEST);
+	});
+
 	test("an older unanswered question is not mistaken for this turn's", async () => {
 		open("old");
 		const { result, detailReads } = await run([]);
@@ -459,6 +483,16 @@ describe("tedix hooks await-reply", () => {
 					respondedByType: "user",
 					respondedById: USER,
 					metadata: { source: "user-reply", sessionId: SESSION },
+				},
+			),
+			// A closure with no delivery (triage's FYI acknowledgement): not an answer.
+			interaction(
+				{},
+				{
+					body: "Acknowledged (fyi)",
+					respondedByType: "user",
+					respondedById: USER,
+					metadata: { source: "triage-fyi", delivery: "none" },
 				},
 			),
 			interaction({ effectiveState: "cancelled" }),

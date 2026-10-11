@@ -487,6 +487,7 @@ describe("policy", () => {
 			drafting: { enabled: false, examples: { enabled: true, count: 5 } },
 			eligibility: { minRate: 0.9, minDrafts: 50 },
 			autoSend: { enabled: false, maxConsecutive: 3 },
+			fyi: { autoAcknowledge: true },
 			version: 2,
 		});
 

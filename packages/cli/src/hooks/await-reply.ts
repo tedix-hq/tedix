@@ -7,9 +7,11 @@
  * with backoff until the signed-in user has answered any of this session's
  * questions in Tedix OS (exit 2 with every pending answer, recorded as
  * delivered), the server auto-delivers a tedi draft for the newest one (exit 2
- * with the framed draft), it closes otherwise, a reply typed in the chat or a
- * newer turn claims it, or four hours pass (exit 0); the supervisor takes over
- * from there. Against a server without the delivery ledger it reads only the
+ * with the framed draft), it closes otherwise (including the server's
+ * immediate FYI acknowledgement of a turn that asked nothing), a reply typed
+ * in the chat or a newer turn claims it, or four hours pass (exit 0); the
+ * supervisor takes over from there. Against a server without the delivery
+ * ledger it reads only the
  * newest question, as before. A draft marked
  * `delivery: "review"` (or with no delivery, from older servers) never wakes
  * the session: it waits for the user in Tedix OS.
@@ -269,6 +271,14 @@ async function poll(
 		if (timing.clock() + delay > timing.deadline) return { code: 0 };
 		await timing.sleep(delay);
 		if (!stillWaiting(state, question.token)) return { code: 0 };
+		// The server closed the question because the turn asked nothing: no
+		// answer or draft will come and the session is not woken for it.
+		const drafted = peek(draftStatusPath(state));
+		if (
+			drafted?.requestId === question.requestId &&
+			drafted.status === "acknowledged"
+		)
+			return { code: 0 };
 		const answers = await undeliveredAnswers(
 			deps,
 			binding,
@@ -287,7 +297,6 @@ async function poll(
 			}
 			// Answers come from the list; the newest question is read only for
 			// a queued tedi draft.
-			const drafted = peek(draftStatusPath(state));
 			if (
 				drafted?.requestId !== question.requestId ||
 				drafted.status !== "queued"

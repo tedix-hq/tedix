@@ -59,6 +59,7 @@ describe("agentTurnTriageContract", () => {
 		).toEqual({ enabled: true, count: 5 });
 		expect(stored.eligibility).toEqual({ minRate: 0.9, minDrafts: 50 });
 		expect(stored.autoSend).toEqual({ enabled: false, maxConsecutive: 3 });
+		expect(stored.fyi).toEqual({ autoAcknowledge: true });
 		const base = {
 			enabled: true,
 			model: "@cf/cloudflare/clef-flash",

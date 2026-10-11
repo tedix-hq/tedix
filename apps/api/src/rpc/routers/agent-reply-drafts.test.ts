@@ -444,6 +444,108 @@ describe("requestReplyDraft", () => {
 	});
 });
 
+describe("requestReplyDraft FYI acknowledgement", () => {
+	const fyi = (labels: Record<string, number>) => ({
+		...QUIET,
+		sessionId: "s1",
+		host: "claude-code",
+		triage: { ...QUIET.triage, labels },
+	});
+
+	it("closes a turn that asks nothing with no draft and no delivery", async () => {
+		const f = fixture();
+		await f.configure();
+		directDispatch.handle.mockClear();
+		const requestId = f.question(fyi({ asks_user: 0.05, risky_action: 0.1 }));
+		await expect(f.target.requestReplyDraft({ requestId })).resolves.toEqual({
+			status: "acknowledged",
+		});
+		expect(f.send).not.toHaveBeenCalled();
+		expect(directDispatch.handle).not.toHaveBeenCalled();
+		const response = f.sqlite
+			.prepare(
+				"SELECT responder_type, responder_id, resolves_request, metadata FROM work_interaction_responses WHERE interaction_id=?",
+			)
+			.get(requestId) as {
+			responder_type: string;
+			responder_id: string;
+			resolves_request: number;
+			metadata: string;
+		};
+		expect(response.responder_type).toBe("user");
+		expect(response.responder_id).toBe("target-id");
+		expect(response.resolves_request).toBe(1);
+		expect(JSON.parse(response.metadata)).toEqual({
+			source: "triage-fyi",
+			delivery: "none",
+			sessionId: "s1",
+			host: "claude-code",
+		});
+		// Ledgered as settled with no channel: nothing wakes or hands off for it.
+		const delivery = f.sqlite
+			.prepare(
+				"SELECT delivered_via, delivered_at FROM work_interaction_deliveries WHERE interaction_id=?",
+			)
+			.get(requestId) as { delivered_via: string | null; delivered_at: string };
+		expect(delivery.delivered_via).toBeNull();
+		expect(delivery.delivered_at).toBeTruthy();
+		// No draft exists, so the leaderboard counts nothing as answered or auto-sent.
+		const { tedis } = await f.target.getReplyDraftLeaderboard({
+			since: "2000-01-01T00:00:00.000Z",
+			todaySince: "2000-01-01T00:00:00.000Z",
+		});
+		expect(tedis).toEqual([]);
+		// In D1 the response-apply trigger resolves the question on insert; the
+		// table-only fixture has no triggers, so apply its effect by hand.
+		f.sqlite
+			.prepare(
+				"UPDATE work_interactions SET status='resolved', resolved_at=?, version=version+1 WHERE id=?",
+			)
+			.run("2026-08-21T00:01:00.000Z", requestId);
+		// A repeat request finds the question closed.
+		await expect(f.target.requestReplyDraft({ requestId })).resolves.toEqual({
+			status: "ineligible",
+			reason: "not_open",
+		});
+	});
+
+	it("still drafts a real ask, a flagged FYI turn, and when the knob is off", async () => {
+		const f = fixture();
+		await f.configure();
+		const asks = f.question(fyi({ asks_user: 0.9 }));
+		await expect(
+			f.target.requestReplyDraft({ requestId: asks }),
+		).resolves.toEqual({ status: "queued" });
+		// scoreTriage reports an FYI turn `later` whatever its other labels
+		// said; a blocker above its urgent threshold keeps the draft.
+		const blocked = f.question(
+			fyi({ asks_user: 0.05, blocker_or_failure: 0.95 }),
+		);
+		await expect(
+			f.target.requestReplyDraft({ requestId: blocked }),
+		).resolves.toEqual({ status: "queued" });
+		await f.configure({ fyi: { autoAcknowledge: false } });
+		const quiet = f.question(fyi({ asks_user: 0.05 }));
+		await expect(
+			f.target.requestReplyDraft({ requestId: quiet }),
+		).resolves.toEqual({ status: "queued" });
+		for (const id of [asks, blocked, quiet]) {
+			const row = f.sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id=?")
+				.get(id) as { status: string };
+			expect(row.status).toBe("open");
+		}
+	});
+
+	it("acknowledges before the drafting checks, so a tenant without drafting is quiet too", async () => {
+		const f = fixture();
+		const requestId = f.question(fyi({ asks_user: 0.02 }));
+		await expect(f.target.requestReplyDraft({ requestId })).resolves.toEqual({
+			status: "acknowledged",
+		});
+	});
+});
+
 describe("requestReplyDraft board context", () => {
 	it("inlines the linked item, the project's accepted items, and the skill", async () => {
 		const f = fixture();
@@ -1383,7 +1485,8 @@ describe("turn attention", () => {
 
 	it("tells the drafter an update only needs a carry-on acknowledgement", async () => {
 		const f = fixture();
-		await f.configure();
+		// With FYI auto-acknowledgement off, an update is still drafted.
+		await f.configure({ fyi: { autoAcknowledge: false } });
 		const requestId = f.question(withAsk(0.1));
 		await f.target.requestReplyDraft({ requestId });
 		const [event] = f.send.mock.calls[0] as [Record<string, unknown>];
@@ -1558,7 +1661,8 @@ describe("wrong-turn steering", () => {
 
 	it("keeps an on-track turn a normal continue", async () => {
 		const f = fixture();
-		await f.configure(AUTO_SEND);
+		// The turn asks nothing: FYI auto-acknowledgement is off to reach the draft.
+		await f.configure({ ...AUTO_SEND, fyi: { autoAcknowledge: false } });
 		const requestId = turn(f, "Tests pass; pushed to main.", offTrack(0.2), 1);
 		await f.target.requestReplyDraft({ requestId });
 		const [event] = f.send.mock.calls[0] as [Record<string, unknown>];

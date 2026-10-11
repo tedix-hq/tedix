@@ -135,6 +135,23 @@ export type AgentReplyAutoSendPolicy = z.infer<
 >;
 
 /**
+ * What happens to a captured turn that asks the user for nothing (attention
+ * `fyi`: the `asks_user` label below the needs-you threshold, no urgent label,
+ * not off track). With `autoAcknowledge`, `request_agent_reply_draft` closes
+ * such a question at once as acknowledged (answer metadata
+ * `source: "triage-fyi"`, `delivery: "none"`) instead of drafting a reply:
+ * it never reaches the user's inbox and never wakes the asking session.
+ */
+export const AgentTurnFyiPolicySchema = z.strictObject({
+	autoAcknowledge: z
+		.boolean()
+		.describe(
+			"When true, a question whose turn asks nothing is closed as acknowledged instead of drafted; when false, it stays open and may be drafted",
+		),
+});
+export type AgentTurnFyiPolicy = z.infer<typeof AgentTurnFyiPolicySchema>;
+
+/**
  * One yes/no check of the auto-send delivery gate. Clef scores it over the
  * agent's message and the drafted reply; the check passes when the
  * probability is ≥ `autoWhen.gte` or ≤ `autoWhen.lte`.
@@ -303,6 +320,9 @@ export const DEFAULT_AGENT_REPLY_AUTO_SEND: AgentReplyAutoSendPolicy = {
 	enabled: false,
 	maxConsecutive: 3,
 };
+export const DEFAULT_AGENT_TURN_FYI: AgentTurnFyiPolicy = {
+	autoAcknowledge: true,
+};
 
 const policyFields = {
 	enabled: z
@@ -338,6 +358,9 @@ const policyFields = {
 	),
 	deliveryGate: AgentReplyDeliveryGatePolicySchema.optional().describe(
 		"Clef checks every auto-send candidate must pass; absent, the shipped default gate applies",
+	),
+	fyi: AgentTurnFyiPolicySchema.default(DEFAULT_AGENT_TURN_FYI).describe(
+		"Turns that ask the user for nothing: closed as acknowledged by default",
 	),
 	steering: AgentTurnSteeringPolicySchema.optional().describe(
 		"The wrong-turn check and its steering replies; absent, the shipped default applies",
@@ -496,9 +519,9 @@ export type AgentReplyDraftIneligibleReason = z.infer<
 
 export const RequestAgentReplyDraftResultSchema = z.object({
 	status: z
-		.enum(["queued", "ineligible"])
+		.enum(["queued", "acknowledged", "ineligible"])
 		.describe(
-			"`queued`: a drafting turn was started, or one is in flight or already drafted (repeat requests are no-ops); `ineligible`: nothing was started",
+			"`queued`: a drafting turn was started, or one is in flight or already drafted (repeat requests are no-ops); `acknowledged`: the turn asked nothing, so the question was closed as acknowledged (policy fyi.autoAcknowledge) and no draft was started; `ineligible`: nothing was started",
 		),
 	reason: AgentReplyDraftIneligibleReasonSchema.optional().describe(
 		"Why the question cannot be drafted; present only when ineligible",
