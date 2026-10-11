@@ -71,6 +71,15 @@ test("driver checks delivery in the canonical file rather than an older filename
 	expect(queued).toEqual({ id: "queue-1", offset: 2 });
 	expect(driver.received(THREAD, "old reply", 0)).toBe(false);
 	writeFileSync(path, '{}\n"fresh reply"');
+	expect(driver.received(THREAD, "fresh reply", queued!.offset)).toBe(false);
+	writeFileSync(
+		path,
+		"{}\n" +
+			JSON.stringify({
+				type: "event_msg",
+				payload: { type: "user_message", message: "fresh reply" },
+			}),
+	);
 	expect(driver.received(THREAD, "fresh reply", queued!.offset)).toBe(true);
 	const restarted = codexDriver(env);
 	expect(await restarted.resolveTranscript!(THREAD)).toBe(true);

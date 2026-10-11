@@ -888,6 +888,49 @@ export class Supervisor {
 }
 
 /** Real Codex CLI and queue store. */
+export function codexMessageReceived(
+	transcript: string,
+	message: string,
+): boolean {
+	for (const line of transcript.split("\n")) {
+		let row;
+		try {
+			row = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		const payload = row?.payload;
+		if (row?.type === "event_msg" && payload?.type === "user_message") {
+			if (
+				typeof payload.message === "string" &&
+				payload.message.includes(message)
+			)
+				return true;
+		}
+		if (
+			row?.type === "response_item" &&
+			payload?.type === "message" &&
+			payload.role === "user" &&
+			Array.isArray(payload.content)
+		) {
+			if (
+				payload.content.some(
+					(part: unknown) =>
+						typeof part === "object" &&
+						part !== null &&
+						"type" in part &&
+						part.type === "input_text" &&
+						"text" in part &&
+						typeof part.text === "string" &&
+						part.text.includes(message),
+				)
+			)
+				return true;
+		}
+	}
+	return false;
+}
+
 export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 	const codexHome = env.CODEX_HOME || join(homedir(), ".codex");
 	const queueDb = join(codexHome, "queue_1.sqlite");
@@ -951,10 +994,7 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 					if (length <= 0) return false;
 					const buffer = Buffer.alloc(length);
 					readSync(fd, buffer, 0, length, offset);
-					// The transcript stores the text JSON-escaped, as JSON.stringify does.
-					return buffer
-						.toString("utf8")
-						.includes(JSON.stringify(message).slice(1, 120));
+					return codexMessageReceived(buffer.toString("utf8"), message);
 				} finally {
 					closeSync(fd);
 				}
