@@ -3,6 +3,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { buildIncludedCreditPeriodGrant } from "./credit-activation";
 import {
 	type BillingAccount,
 	type BillingAccountStatus,
@@ -204,9 +205,21 @@ export async function provisionBillingAccount(
 		metadata?: Record<string, JsonValue>;
 	},
 ): Promise<BillingAccount> {
-	const plan = await requireActiveBillingPlan(db, input.planKey, input.now);
+	const current = await getBillingEntitlement(db, input.organizationId);
+	// A private opt-in tariff remains pinned while Stripe renews the same product.
+	// A product change/cancellation resolves the catalog normally.
+	const preserveCreditPlan = Boolean(
+		current?.plan.metadata.monetaryInference &&
+		current.plan.planKey === input.planKey,
+	);
+	const plan = preserveCreditPlan
+		? current!.plan
+		: await requireActiveBillingPlan(db, input.planKey, input.now);
 	const [account] = await buildProvisionBillingAccountStatement(db, {
 		...input,
+		metadata: preserveCreditPlan
+			? { ...current!.account.metadata, ...input.metadata }
+			: input.metadata,
 		planVersionId: plan.id,
 	});
 	if (!account) throw new Error("Failed to provision billing account");
@@ -349,7 +362,7 @@ export async function rollBillingPeriods(
 		const nextStart = account.periodEnd;
 		const nextEndDate = new Date(nextStart);
 		nextEndDate.setUTCMonth(nextEndDate.getUTCMonth() + 1);
-		await db
+		const advance = db
 			.update(billingAccounts)
 			.set({
 				periodStart: nextStart,
@@ -363,6 +376,27 @@ export async function rollBillingPeriods(
 					eq(billingAccounts.entitlementVersion, account.entitlementVersion),
 				),
 			);
+		const entitlement = await getBillingEntitlement(db, account.organizationId);
+		// Stripe grants only on a paid invoice. Internal accounts renew their funded
+		// allowance atomically; purchased balances are never reset or expired.
+		if (
+			account.billingMode === "internal" &&
+			entitlement?.plan.metadata.monetaryInference &&
+			entitlement.plan.includedMonthlyCreditMicros > 0
+		) {
+			await db.batch([
+				advance,
+				buildIncludedCreditPeriodGrant(db, {
+					organizationId: account.organizationId,
+					planVersionId: entitlement.plan.id,
+					periodStart: nextStart,
+					periodEnd: nextEndDate.toISOString(),
+					amountMicros: entitlement.plan.includedMonthlyCreditMicros,
+					now,
+				}),
+			]);
+		} else await advance;
+
 		renewed++;
 	}
 	return { renewed, suspendedTrials };
