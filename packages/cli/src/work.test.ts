@@ -1010,6 +1010,29 @@ describe("artifact-neutral factory control verbs", () => {
 		}
 	});
 
+	test("interaction-respond --no-deliver marks the answer as needing no delivery", async () => {
+		const input = {
+			expectedRequestVersion: 2,
+			responseKind: "answer",
+			body: "Status update, not an ask — closed",
+			resolvesRequest: true,
+			metadata: { source: "tedix-cli" },
+		};
+		const closed = makeContext({
+			input: JSON.stringify(input),
+			noDeliver: true,
+		});
+		expect(await runWork(`interaction-respond ${ITEM}`, closed.ctx)).toBe(0);
+		expect(closed.sources[0]).toContain("work.respond_work_interaction");
+		expect(closed.sources[0]).toContain(
+			'"metadata":{"source":"tedix-cli","delivery":"none"}',
+		);
+		const plain = makeContext({ input: JSON.stringify(input) });
+		expect(await runWork(`interaction-respond ${ITEM}`, plain.ctx)).toBe(0);
+		expect(plain.sources[0]).not.toContain('"delivery":"none"');
+		expect(workUsage()).toContain("--no-deliver");
+	});
+
 	test("exposes every first-class operator domain without legacy board verbs", () => {
 		const verbs = workVerbNames();
 		for (const verb of [

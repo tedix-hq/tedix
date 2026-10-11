@@ -265,6 +265,54 @@ describe("question delegation", () => {
 		tediId: "worker",
 		now: NOW,
 	};
+	it("ledgers an answer sent with delivery none as needing no delivery", async () => {
+		const { db, sqlite } = question();
+		const response = await respondToWorkInteraction(db, {
+			id: "closure",
+			orgId: "org",
+			interactionId: "mine",
+			expectedVersion: 1,
+			responder: input.actor,
+			responseKind: "answer",
+			body: "Status update, not an ask — closed",
+			resolvesRequest: true,
+			metadata: { delivery: "none" },
+			now: NOW,
+		});
+		expect(response.metadata).toEqual({ delivery: "none" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT delivered_at, delivered_via, acknowledged_at FROM work_interaction_deliveries WHERE response_id='closure'",
+				)
+				.get(),
+		).toEqual({
+			delivered_at: NOW,
+			delivered_via: null,
+			acknowledged_at: null,
+		});
+	});
+	it("ledgers nothing for an ordinary answer", async () => {
+		const { db, sqlite } = question();
+		await respondToWorkInteraction(db, {
+			id: "plain",
+			orgId: "org",
+			interactionId: "mine",
+			expectedVersion: 1,
+			responder: input.actor,
+			responseKind: "answer",
+			body: "Yes",
+			resolvesRequest: true,
+			now: NOW,
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT 1 FROM work_interaction_deliveries WHERE response_id='plain'",
+				)
+				.get(),
+		).toBeUndefined();
+	});
 	it("keeps the question identity and attributes the actual tedi reply", async () => {
 		const { db } = question();
 		const delegated = await delegateWorkInteraction(db, input);

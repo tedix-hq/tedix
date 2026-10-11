@@ -95,6 +95,18 @@ function fixture() {
 		JSON.stringify({ source: "user-reply", sessionId: SESSION }),
 		"2026-10-09T10:10:00.000Z",
 	);
+	// A closure (metadata.delivery "none"): nothing to deliver or hand off.
+	question.run("q-closed", "Status update", USER.id, USER.id, meta(SESSION));
+	answer.run(
+		"r-closed",
+		"q-closed",
+		"user",
+		USER.id,
+		"Status update, not an ask — closed by end-of-day triage",
+		1,
+		JSON.stringify({ source: "tedix-cli", delivery: "none" }),
+		"2026-10-09T10:02:00.000Z",
+	);
 	// Not a session question, someone else's, and too old.
 	question.run("q-plain", "Plain", USER.id, USER.id, meta(null));
 	answer.run(
@@ -187,6 +199,30 @@ describe("Work interaction delivery ledger", () => {
 			host: "codex",
 		});
 		expect(forSession.map((row) => row.responseId)).toEqual(["r-codex"]);
+	});
+
+	it("never lists a closure that asked for no delivery, ledgered or not", async () => {
+		const { db } = fixture();
+		const ids = async () =>
+			(
+				await listUndeliveredWorkInteractionResponses(db, {
+					orgId: "org",
+					actor: USER,
+					respondedAfter: AFTER,
+					sessionId: SESSION,
+				})
+			).map((row) => row.responseId);
+		expect(await ids()).not.toContain("r-closed");
+		const ledgered = await recordWorkInteractionDeliveries(db, {
+			orgId: "org",
+			actor: USER,
+			responseIds: ["r-closed"],
+			via: "hook",
+			acknowledged: false,
+			now: "2026-10-09T11:00:00.000Z",
+		});
+		expect(ledgered).toHaveLength(1);
+		expect(await ids()).not.toContain("r-closed");
 	});
 
 	it("records delivery once, then acknowledgement, and drops it from the list", async () => {

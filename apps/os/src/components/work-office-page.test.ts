@@ -75,6 +75,10 @@ describe("office helpers", () => {
 			})?.text,
 		).toBe("Delivered to your session 18:21");
 		expect(line({ state: "acknowledged" })?.text).toBe("Acknowledged");
+		expect(line({ state: "not_needed", via: "none" })).toEqual({
+			text: "Closed (no delivery)",
+			pending: false,
+		});
 		expect(line({ state: "handed_off", handoffTo: "LEARN" })).toEqual({
 			text: "Couldn't reach the session — handed to LEARN",
 			pending: true,

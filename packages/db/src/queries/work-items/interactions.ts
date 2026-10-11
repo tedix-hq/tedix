@@ -314,10 +314,11 @@ export async function respondToWorkInteraction(
 				),
 		)
 		.returning();
+	let response: WorkInteractionResponse;
 	try {
 		const responses = await responseInsert;
 		if (!responses[0]) throw new Error("lost race");
-		return responses[0];
+		response = responses[0];
 	} catch (error) {
 		const cause = error instanceof Error ? error.message : String(error);
 		throw new WorkControlError(
@@ -327,6 +328,23 @@ export async function respondToWorkInteraction(
 				: `Interaction response was rejected: ${cause}`,
 		);
 	}
+	// A closure that asks for no delivery (`metadata.delivery: "none"`) is
+	// ledgered with the answer as already settled (no channel), so no client
+	// wakes or hands off for it; the overlay reads the marker from the answer.
+	if (metadata.delivery === "none")
+		await db
+			.insert(workInteractionDeliveries)
+			.values({
+				orgId: p.orgId,
+				responseId: response.id,
+				interactionId: response.interactionId,
+				deliveredAt: p.now,
+				deliveredVia: null,
+				acknowledgedAt: null,
+				updatedAt: p.now,
+			})
+			.onConflictDoNothing();
+	return response;
 }
 /** One explicit handoff by the human currently asked to answer, never impersonation. */
 export async function delegateWorkInteraction(
@@ -665,6 +683,11 @@ export async function listWorkInteractionInbox(
 					string | null
 				>`json_extract(${resolution.metadata},'$.sessionId')`.as(
 					"work_interaction_resolution_session_id",
+				),
+				delivery: sql<
+					string | null
+				>`json_extract(${resolution.metadata},'$.delivery')`.as(
+					"work_interaction_resolution_delivery",
 				),
 				deliveredAt: sql<
 					string | null

@@ -122,6 +122,8 @@ export interface CliOptions {
 	workEvidenceMediaType?: string;
 	workEvidenceLabel?: string;
 	workEvidenceMetadata?: string;
+	/** `work interaction-respond --no-deliver`: a closure the session need not see. */
+	workNoDeliver?: boolean;
 	// `tedix work create` guided-creation flags.
 	workDesc?: string;
 	workKind?: string;

@@ -53,7 +53,8 @@ export interface ListUndeliveredWorkInteractionResponsesParams {
  * The caller's answered-but-undelivered session questions, oldest first: a
  * resolving answer by the asked user to a question that names its session,
  * or their later correction of a tedi's auto reply (`metadata.corrects`),
- * except a reply typed in that same session (it is already there).
+ * except a reply typed in that same session (it is already there) or a
+ * closure that asks for no delivery (`metadata.delivery` = "none").
  */
 export async function listUndeliveredWorkInteractionResponses(
 	db: DbQueryClient,
@@ -105,6 +106,7 @@ export async function listUndeliveredWorkInteractionResponses(
 					? sql`json_extract(${workInteractions.metadata},'$.host')=${p.host}`
 					: undefined,
 				sql`NOT (COALESCE(json_extract(${workInteractionResponses.metadata},'$.source'),'')='user-reply' AND json_extract(${workInteractionResponses.metadata},'$.sessionId') IS ${sessionOf})`,
+				sql`COALESCE(json_extract(${workInteractionResponses.metadata},'$.delivery'),'')<>'none'`,
 			),
 		)
 		.orderBy(workInteractionResponses.respondedAt, workInteractionResponses.id)
