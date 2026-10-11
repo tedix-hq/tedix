@@ -38,6 +38,9 @@
 			"enabled": false,
 			"maxConsecutive": 3
 		},
+		"fyi": {
+			"autoAcknowledge": true
+		},
 		"deliveryGate": {
 			"model": "@cf/cloudflare/clef-flash",
 			"questions": [

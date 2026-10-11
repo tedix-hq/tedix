@@ -1131,6 +1131,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		const later = { ...TRIAGE_OK, urgency: "later", urgentLabels: [] };
 		for (const [draft, status] of [
 			[() => ({ status: "queued" }), "queued"],
+			[() => ({ status: "acknowledged" }), "acknowledged"],
 			[() => ({ status: "ineligible" }), "none"],
 		] as const) {
 			await runHook(

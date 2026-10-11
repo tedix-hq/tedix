@@ -73,6 +73,7 @@ import {
 	expireWorkInteraction,
 	getWorkInteraction,
 	listWorkInteractionInbox,
+	respondToWorkInteraction,
 	setWorkInteractionAttention,
 } from "@tedix/db/queries/work-items/interactions";
 import {
@@ -87,6 +88,7 @@ import { getCaptureHealth } from "@tedix/db/queries/work-items/capture-health";
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
+import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
 import { readReplyDraftLevels } from "../../services/reply-draft-career";
 import { buildReplyDraftExamplesBlock } from "../../services/reply-draft-examples";
 import { evaluateReplyDraftGate } from "../../services/reply-draft-gate";
@@ -684,6 +686,80 @@ export function replyDraftQuestionIneligibility(
 	return null;
 }
 
+/** Answer metadata `source` of a question triage closed as acknowledged. */
+const TRIAGE_FYI_SOURCE = "triage-fyi";
+const TRIAGE_FYI_BODY =
+	"Acknowledged (fyi): a status update that asks nothing; closed by triage.";
+
+/**
+ * True for a quiet question whose captured turn asked the user for nothing:
+ * triage recorded an `asks_user` probability below the needs-you threshold
+ * and no policy label (blocker, human-only step, risky action) reached its
+ * urgent threshold. `scoreTriage` reports such a turn `later` with no urgent
+ * labels whatever the other labels said, so they are read again here: a
+ * flagged turn keeps its draft. A turn without a recorded ask is not FYI.
+ */
+function isFyiTurn(policy: AgentTurnTriagePolicy, metadata: unknown): boolean {
+	const asks = recordedAskProbability(metadata);
+	if (asks === null || attentionKindOf(asks) !== "fyi") return false;
+	return policy.questions.every(
+		(question) =>
+			(recordedLabel(metadata, question.id) ?? 0) < question.urgentWhen.gte,
+	);
+}
+
+/**
+ * Close an FYI question at once as acknowledged, in the asked user's name
+ * (the response insert guard admits only the target user, or a tedi's auto
+ * draft) and traced to triage (`source: "triage-fyi"`). The answer carries
+ * `delivery: "none"`, so it is ledgered as settled with no channel: the
+ * asking session is never woken for it and it never reaches the inbox.
+ * Not a draft: the leaderboard and acceptance counts never see it. False
+ * when the question was answered or closed meanwhile.
+ */
+async function acknowledgeFyiQuestion(
+	context: BaseContext,
+	actor: { type: "user"; id: string },
+	request: InteractionRow,
+	now: string,
+): Promise<boolean> {
+	const metadata = request.metadata as Record<string, unknown>;
+	try {
+		const response = await respondToWorkInteraction(context.db, {
+			id: crypto.randomUUID(),
+			orgId: request.orgId,
+			interactionId: request.id,
+			expectedVersion: request.version,
+			responder: actor,
+			responseKind: "answer",
+			body: TRIAGE_FYI_BODY,
+			resolvesRequest: true,
+			metadata: {
+				source: TRIAGE_FYI_SOURCE,
+				delivery: "none",
+				...(typeof metadata.sessionId === "string"
+					? { sessionId: metadata.sessionId }
+					: {}),
+				...(typeof metadata.host === "string" ? { host: metadata.host } : {}),
+			},
+			now,
+		});
+		await publishMcpInteractionResponse(context.env, {
+			organizationId: request.orgId,
+			requestId: request.id,
+			responseId: response.id,
+			respondedAt: response.respondedAt,
+		});
+		return true;
+	} catch (error) {
+		console.warn("triage-fyi acknowledge skipped", {
+			requestId: request.id,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return false;
+	}
+}
+
 async function activeDraftingTedi(
 	context: BaseContext,
 	policy: AgentTurnTriagePolicy,
@@ -1230,12 +1306,23 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		const questionReason = replyDraftQuestionIneligibility(request, observedAt);
 		if (questionReason) return { status: "ineligible", reason: questionReason };
 		const { policy } = await readPolicyStateFor(context, actor.id, orgId);
+		const steer = await steeringVerdict(context, policy, request);
+		// A turn that asks nothing and is on track is acknowledged, not drafted:
+		// a drafted "carry on" would wake the session for another empty turn.
+		if (
+			policy.fyi.autoAcknowledge &&
+			steer === "none" &&
+			isFyiTurn(policy, request.metadata)
+		) {
+			if (await acknowledgeFyiQuestion(context, actor, request, observedAt))
+				return { status: "acknowledged" };
+			return { status: "ineligible", reason: "not_open" };
+		}
 		if (!policy.drafting.enabled)
 			return { status: "ineligible", reason: "drafting_disabled" };
 		const drafter = await activeDraftingTedi(context, policy, orgId);
 		if (!drafter) return { status: "ineligible", reason: "no_drafting_tedi" };
 		const tediId = drafter.id;
-		const steer = await steeringVerdict(context, policy, request);
 		if (steer === "escalate")
 			return { status: "ineligible", reason: "steering_repeated" };
 

@@ -468,6 +468,8 @@ export interface InteractionDetail {
 		byId: string;
 		source: string | null;
 		sessionId: string | null;
+		/** The answer's `metadata.delivery`; "none" closes without delivery. */
+		delivery: string | null;
 	} | null;
 	/** The request's newest tedi draft and its current delivery policy. */
 	draft: {
@@ -506,6 +508,7 @@ function nativeDetail(
 						byId: bounded(x.respondedById, 300),
 						source: bounded(x.metadata?.source, 100),
 						sessionId: bounded(x.metadata?.sessionId, 100),
+						delivery: bounded(x.metadata?.delivery, 20),
 					}
 				: null,
 			draft: d
@@ -549,6 +552,8 @@ function detailOf(
 					source: typeof resolved.source === "string" ? resolved.source : null,
 					sessionId:
 						typeof resolved.sessionId === "string" ? resolved.sessionId : null,
+					delivery:
+						typeof resolved.delivery === "string" ? resolved.delivery : null,
 				}
 			: null;
 	const drafted = value.draft;
@@ -628,6 +633,9 @@ export function answeredElsewhere(
 		resolution &&
 		resolution.byType === "user" &&
 		resolution.byId === user &&
+		// A closure that asks for no delivery (triage's FYI acknowledgement, the
+		// lead's `--no-deliver`) is not an answer for the session.
+		resolution.delivery !== "none" &&
 		!(resolution.source === "user-reply" && resolution.sessionId === session),
 	);
 }
@@ -1104,28 +1112,30 @@ async function onStop(
 	} catch {
 		// Best effort; kept for the next turn end.
 	}
-	// Only a question still waiting on the user gets a tedi-drafted reply.
-	const queued =
-		triage.urgency === "later" &&
-		peek(state)?.requestId === request.id &&
-		(await requestDraft(deps, binding, request.id, options));
-	writeState(draftStatusPath(state), {
-		requestId: request.id,
-		status: queued ? "queued" : "none",
-	});
+	// Only a question still waiting on the user gets a tedi-drafted reply; the
+	// server closes one whose turn asked nothing instead (`acknowledged`).
+	const status =
+		triage.urgency === "later" && peek(state)?.requestId === request.id
+			? await requestDraft(deps, binding, request.id, options)
+			: "none";
+	writeState(draftStatusPath(state), { requestId: request.id, status });
 }
 
+/** What the turn's draft request did; read by the await hooks and the supervisor. */
+type DraftStatus = "queued" | "acknowledged" | "none";
+
 /**
- * Ask a tedi to draft a reply; true when one was queued. The server decides
- * whether the draft is reviewed in Tedix OS or auto-delivered to the agent.
- * Not deployed, ineligible or slow: nothing happens.
+ * Ask a tedi to draft a reply. `queued`: the server decides whether the draft
+ * is reviewed in Tedix OS or auto-delivered to the agent. `acknowledged`: the
+ * turn asked nothing, so the server closed the question with no delivery and
+ * nothing waits on it. Not deployed, ineligible or slow: `none`.
  */
 async function requestDraft(
 	deps: HookDeps,
 	binding: Binding,
 	requestId: string,
 	options: CaptureOptions,
-): Promise<boolean> {
+): Promise<DraftStatus> {
 	try {
 		const result = await call(
 			deps,
@@ -1135,10 +1145,12 @@ async function requestDraft(
 			undefined,
 			options.draftTimeoutMs ?? DRAFT_TIMEOUT_MS,
 		);
-		return result.status === "queued";
+		return result.status === "queued" || result.status === "acknowledged"
+			? result.status
+			: "none";
 	} catch {
 		// Silent: the question stands without a draft.
-		return false;
+		return "none";
 	}
 }
 
