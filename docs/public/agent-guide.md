@@ -62,9 +62,12 @@ The Tedix plugin gives the host a remote MCP connection to
 `tedix-workspace-output` and `tedix-guardian-session`. In Claude chat and
 Cowork, the same URL is added as a custom connector, which carries the tools
 but not the skills. The human installs it and signs in once through the host's
-own OAuth flow: a browser opens, the owner signs in, selects an organization
-and reviews the requested access. The host stores the grant; do not ask for a
-password, browser cookie, or token. The human steps, per host, are in
+own OAuth flow: a browser opens, the owner signs in, selects one or more
+organizations in the organization picker and reviews the requested access. The
+human completes this consent; the agent cannot. The host stores the grant, and
+each host and device keeps its own grant, so signing in elsewhere does not
+invalidate it; do not ask for a password, browser cookie, or token. The human
+steps, per host, are in
 [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md); the
 packaged skills and host guides are in the
 [plugin README](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/README.md),
@@ -91,11 +94,13 @@ owner.
 
 For a local coding harness that needs the opt-in session hooks or a
 repository's Tedix policy, install the [CLI](./cli.md) and run `tedix login`.
-The command opens Tedix OS in a browser. Pause while the owner signs in,
-accepts any invitation or consent request, and creates or selects an
-organization. After the owner selects an organization, the CLI saves a local
-connection profile and receives its grant through OAuth; do not ask for a
-password, browser cookie, or token. An approved new owner can create their own
+The command opens the Tedix consent screen in a browser. Pause while the owner
+signs in, accepts any invitation or consent request, and creates or selects an
+organization in the organization picker (`tedix login ORG_SLUG` preselects
+one). For each selected organization, the CLI saves a local connection profile
+and receives its own tenant-bound grant through OAuth; a login on another
+machine or host keeps a separate grant and does not disturb this one. Do not
+ask for a password, browser cookie, or token. An approved new owner can create their own
 organization without joining the inviter's organization. If beta approval is
 pending, the owner may need to rerun `tedix login` after admission. If an
 invited organization is missing, ask the inviter to confirm access. The CLI

@@ -113,6 +113,16 @@ A self-hosted installation runs with the fleet-commercial features off
 before touching storage, commercial schedules do not run, and payment webhooks
 reject. Tests enforce this for every procedure.
 
+### Usage limits and overage
+
+A Tedix Cloud plan includes a monthly usage allowance. Priced overage is off
+by default: while it is off, work stops when the organization reaches the
+included allowance, and nothing is metered to Stripe. An organization owner or
+admin can turn overage on in the billing settings of Tedix OS and must set a
+monthly cap in the plan currency; while it is on, work stops at that cap
+instead. The billing overview shows whether overage is on and marks the period
+as "Cap reached" once the cap is hit.
+
 ## Choosing
 
 Choose **Tedix Cloud** if you want the product without operating it. Choose

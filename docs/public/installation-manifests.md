@@ -49,7 +49,9 @@ matching `TEDIX_STRIPE_MODE`) needs an active price for each key:
   `tedix_inference_capacity_daily_50m_v1`.
 
 `apps/api/scripts/billing/reconcile-stripe.ts --apply` creates the plan,
-overage, and `daily_5m` prices.
+overage, and `daily_5m` prices. The overage price is metered only for
+organizations whose owner or admin has turned overage on with a monthly cap;
+see [Usage limits and overage](./self-hosted-boundary.md#usage-limits-and-overage).
 
 `fleetAuthority.mode` is also required and is emitted as
 `TEDIX_FLEET_AUTHORITY_MODE`. The sanitized developer/OSS manifest uses

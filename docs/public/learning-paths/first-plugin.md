@@ -105,15 +105,17 @@ tedix login
 ```
 
 `tedix setup agents` then installs the same plugin into Claude Code and Codex.
-The CLI login and the host's Tedix sign-in are separate; signing in to one does
-not sign you in to the other.
+The CLI login and the host's Tedix sign-in are separate credentials; signing in
+to one does not sign you in to the other.
 
 ## 2. Sign in and choose your organization
 
 When the host asks you to sign in, a browser window opens. Sign in to Tedix,
-pick the organization you want to use, and review the consent screen. It starts
-with read access selected; add more only if you need it. You can reconnect later
-to change this.
+pick one or more organizations in the organization picker, and review the
+consent screen. It starts with read access selected; add more only if you need
+it. You can reconnect later to change this. Each host and device keeps its own
+sign-in: signing in on a second computer or in another host does not break the
+first.
 
 **Expected result:** the browser confirms the connection and you return to the
 host. Nothing has been changed in your organization.

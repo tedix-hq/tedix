@@ -30,13 +30,15 @@ work. The compute is disposable; the identity, permissions, and record are not.
 
 ## Work and execution
 
-| Term        | Meaning                                                                                                                                              |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                           |
-| Run         | The saved record of one piece of work: status, events, rationale, artifacts, and result.                                                             |
-| Work Item   | A bounded outcome with an owner, a risk level, a budget, a time-limited claim, discussion, and a recorded result.                                    |
-| Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                      |
-| Workstation | Bounded Sandbox lease for jobs that need files, processes, a repository, or operating-system tools. It is additive compute, not the tedi's identity. |
+| Term        | Meaning                                                                                                                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                                                                                          |
+| Run         | The saved record of one piece of work: status, events, rationale, artifacts, and result.                                                                                                                            |
+| Work Item   | A bounded outcome with an owner, a risk level, a budget, a time-limited claim, discussion, and a recorded result.                                                                                                   |
+| Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                                                                                     |
+| Interaction | A question or request a session or tedi raises on a Work Item. An answer given in Tedix OS reaches the session that asked; a tedi may answer in its own name, and a later human answer is recorded as a correction. |
+| Delegation  | A lead session's hand-off of work to a subagent or another session, registered as an accepted Work Item and completed with a recorded outcome.                                                                      |
+| Workstation | Bounded Sandbox lease for jobs that need files, processes, a repository, or operating-system tools. It is additive compute, not the tedi's identity.                                                                |
 
 ## Capabilities
 
