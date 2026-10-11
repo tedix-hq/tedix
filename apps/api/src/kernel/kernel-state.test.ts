@@ -201,6 +201,7 @@ describe("durable kernel turn lifecycle", () => {
 			},
 			abortIfStaleCode: vi.fn(),
 			startIngressRecall: () => undefined,
+			readPreviousRelevanceRecall: async () => null,
 			schedule: vi.fn(async () => ({ id: "watchdog" })),
 			turnContext: async () => ({}),
 			startTurnProgress: () => ({
@@ -250,12 +251,133 @@ describe("durable kernel turn lifecycle", () => {
 });
 
 const lifecycleWork = vi.hoisted(() => vi.fn());
+const ingressRecall = vi.hoisted(() => vi.fn());
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
 vi.mock("agents", () => ({ isDurableObjectMemoryLimitReset: () => false }));
 vi.mock("@tedix/provisioning", () => ({ injectAgentMessage: vi.fn() }));
+vi.mock("../integrations/cloudflare/agent-memory", () => ({
+	HOME_RELEVANCE_RECALL_CANDIDATE_LIMIT: 12,
+	startRelevanceRecall: ingressRecall,
+}));
 vi.mock("./kernel-lazy", () => ({
 	loadTurnWork: async () => ({ runKernelTurnWork: lifecycleWork }),
 	loadKernelTurnDelegation: async () => ({
 		buildKernelTurnWorkDeps: () => ({}),
 	}),
 }));
+
+describe("relevance recall hand-off between turns", () => {
+	type Candidates = Array<{ factId: string; score: number }>;
+	function fakeDo() {
+		const pending: Promise<unknown>[] = [];
+		const stored = new Map<string, unknown>();
+		return {
+			pending,
+			stored,
+			env: { AGENT_MEMORY: {} },
+			ctx: {
+				waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+				storage: {
+					get: vi.fn(async (key: string) => stored.get(key)),
+					put: vi.fn(async (key: string, value: unknown) => {
+						stored.set(key, value);
+					}),
+				},
+			},
+		};
+	}
+	type Fake = ReturnType<typeof fakeDo>;
+	const input = {
+		organizationId: "org-1",
+		runId: "run-1",
+		conversationId: CONVERSATION_ID,
+		runRowMetadata: {},
+		content: "which vendor did we pick",
+	};
+	async function methods() {
+		const { KernelDOv4 } = await import("./kernel-do");
+		return KernelDOv4.prototype as unknown as {
+			startIngressRecall: (
+				this: Fake,
+				turn: typeof input,
+			) => Promise<Candidates> | undefined;
+			readPreviousRelevanceRecall: (
+				this: Fake,
+				conversationId: string,
+			) => Promise<unknown>;
+		};
+	}
+
+	it("stores a late-completing ingress recall for the next turn, never for the current one", async () => {
+		const { startIngressRecall, readPreviousRelevanceRecall } = await methods();
+		let release!: (value: Candidates) => void;
+		ingressRecall.mockReturnValueOnce(
+			new Promise<Candidates>((resolve) => {
+				release = resolve;
+			}),
+		);
+		const { KernelDOv4 } = await import("./kernel-do");
+		// Prototype-backed so the private `storeCompletedRecall` helper resolves.
+		const fake = Object.assign(
+			Object.create(KernelDOv4.prototype) as Fake,
+			fakeDo(),
+		);
+
+		const candidates = startIngressRecall.call(fake, input);
+		expect(candidates).toBeInstanceOf(Promise);
+		expect(ingressRecall).toHaveBeenCalledWith(fake.env.AGENT_MEMORY, {
+			orgId: "org-1",
+			query: input.content,
+			limit: 12,
+		});
+		// This turn builds its prompt while the recall is still in flight: the
+		// store holds nothing yet, so the turn reads no previous recall.
+		await expect(
+			readPreviousRelevanceRecall.call(fake, CONVERSATION_ID),
+		).resolves.toBeNull();
+		expect(fake.ctx.storage.put).not.toHaveBeenCalled();
+
+		release([{ factId: "fact-1", score: 0.9 }]);
+		await Promise.all(fake.pending);
+		expect(fake.ctx.storage.put).toHaveBeenCalledWith(
+			`relevance-recall:${CONVERSATION_ID}`,
+			expect.objectContaining({
+				v: 1,
+				conversationId: CONVERSATION_ID,
+				query: input.content,
+				candidates: [{ factId: "fact-1", score: 0.9 }],
+			}),
+		);
+		// The NEXT turn sees it.
+		await expect(
+			readPreviousRelevanceRecall.call(fake, CONVERSATION_ID),
+		).resolves.toMatchObject({
+			candidates: [{ factId: "fact-1", score: 0.9 }],
+		});
+	});
+
+	it("ignores an expired or foreign stored recall", async () => {
+		const { readPreviousRelevanceRecall } = await methods();
+		const fake = fakeDo();
+		fake.stored.set(`relevance-recall:${CONVERSATION_ID}`, {
+			v: 1,
+			conversationId: CONVERSATION_ID,
+			query: "old",
+			completedAt: Date.now() - 31 * 60_000,
+			candidates: [{ factId: "fact-1", score: 0.9 }],
+		});
+		await expect(
+			readPreviousRelevanceRecall.call(fake, CONVERSATION_ID),
+		).resolves.toBeNull();
+		fake.stored.set(`relevance-recall:${CONVERSATION_ID}`, {
+			v: 1,
+			conversationId: "home:other",
+			query: "other",
+			completedAt: Date.now(),
+			candidates: [{ factId: "fact-1", score: 0.9 }],
+		});
+		await expect(
+			readPreviousRelevanceRecall.call(fake, CONVERSATION_ID),
+		).resolves.toBeNull();
+	});
+});

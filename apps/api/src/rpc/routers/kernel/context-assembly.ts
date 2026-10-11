@@ -79,6 +79,10 @@ import {
 	startRelevanceRecall,
 } from "../../../integrations/cloudflare/agent-memory";
 import { isMemorySearchFactEligible } from "../../../services/memory-search-filter";
+import type {
+	RelevanceRecallOutcome,
+	StoredRelevanceRecall,
+} from "../../../kernel/relevance-recall-store";
 
 // ============================================================================
 // Public types
@@ -213,6 +217,12 @@ export interface KernelContext {
 	 * the caller can re-check pressure after it appends to the prompt.
 	 */
 	promptCharsEstimate?: number;
+	/**
+	 * How this turn's relevance facts were sourced (`fresh` in-flight recall,
+	 * the conversation's `previous` completed recall, or `static` top-N only).
+	 * Observability only; stamped into `contextManifest.recall`.
+	 */
+	relevanceRecall?: RelevanceRecallOutcome;
 	/** The per-step verdict this assembly pass measured. Observability only. */
 	stepPressure?: StepPressure;
 	/**
@@ -781,42 +791,96 @@ async function fetchConversationHistory(
 const RELEVANCE_RECALL_TOP_K = 6;
 const RELEVANCE_RECALL_MIN_CONFIDENCE = 0.3;
 /**
- * How long assembly waits for semantic recall before proceeding with the
- * static top-N facts alone. An org-profile recall synthesizes an answer with a
- * model call and can take several seconds, while the whole D1 wave beside it
- * finishes in about a second — unbounded, recall alone would dominate the
- * `planning → preparing_context` stage on every Home turn. The budget
- * is measured from assembly entry; a recall started earlier at DO ingress
- * (`KernelDO.processTurn`) has already been running for the whole pre-planning
- * gap and lands inside it more often. A late recall degrades to today's
- * documented fail-soft (static facts), never to a failed turn.
+ * How long assembly waits for the in-flight semantic recall before it falls
+ * back to the previous completed recall of this conversation (see
+ * `kernel/relevance-recall-store.ts`) or the static top-N facts.
+ *
+ * Default 0: the recall is never in time. Production over 3 h (n=50,
+ * 2026-10-11) measured `[MemoryGraph.search] complete` totalMs min 3074 / p50
+ * 5436 / p95 12334 (agentMemoryMs p50 4576), while the previous 2 s budget
+ * expired on every turn and then fell back to static facts anyway — the wait
+ * was ~2 s of the 3.1–3.5 s workStarted→plannerFirstProgress gap for nothing.
+ * With 0 an already-settled recall (one microtask) still wins the race; an
+ * unsettled one is handed to the next turn through DO storage.
+ * `KERNEL_RELEVANCE_RECALL_BUDGET_MS` overrides it per deployment.
  */
-export const RELEVANCE_RECALL_BUDGET_MS = 2_000;
+export const RELEVANCE_RECALL_BUDGET_MS = 0;
 const CONVERSATION_CAPABILITIES_LIMIT = 20;
 
 /**
- * Resolve `candidates` or, once `budgetMs` elapses, an empty list — whichever
- * comes first. The underlying recall keeps running and settles on its own; only
- * this turn stops waiting for it.
+ * Resolve `candidates` or, once `budgetMs` elapses, `null` — whichever comes
+ * first. The underlying recall keeps running and settles on its own; only this
+ * turn stops waiting for it. With `budgetMs` 0 the deadline is one macrotask
+ * away, so a recall that has already settled still resolves first.
  */
 export function boundRelevanceRecall(
 	candidates: Promise<AgentMemoryCandidate[]>,
 	budgetMs: number,
-): Promise<AgentMemoryCandidate[]> {
+): Promise<AgentMemoryCandidate[] | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	const deadline = new Promise<AgentMemoryCandidate[]>((resolve) => {
+	const deadline = new Promise<null>((resolve) => {
 		timer = setTimeout(() => {
-			console.warn({
-				component: "kernel.context",
-				event: "recall_budget_exceeded",
-				budgetMs,
-			});
-			resolve([]);
+			if (budgetMs > 0) {
+				console.warn({
+					component: "kernel.context",
+					event: "recall_budget_exceeded",
+					budgetMs,
+				});
+			}
+			resolve(null);
 		}, budgetMs);
 	});
 	return Promise.race([candidates, deadline]).finally(() => {
 		if (timer !== undefined) clearTimeout(timer);
 	});
+}
+
+/**
+ * Pick this turn's relevance candidates: the in-flight recall if it settles
+ * inside the budget (`fresh`), else the conversation's last completed recall
+ * (`previous`), else none (`static`). A settled-but-empty fresh recall is a
+ * real answer and still counts as `fresh`.
+ */
+export async function resolveRelevanceCandidates(input: {
+	inFlight: Promise<AgentMemoryCandidate[]> | null;
+	previous: StoredRelevanceRecall | null | undefined;
+	budgetMs: number;
+	now: () => number;
+}): Promise<{
+	candidates: AgentMemoryCandidate[];
+	outcome: RelevanceRecallOutcome;
+}> {
+	const startedAt = input.now();
+	const fresh = input.inFlight
+		? await boundRelevanceRecall(input.inFlight, input.budgetMs)
+		: null;
+	const waitedMs = Math.max(0, input.now() - startedAt);
+	if (fresh) {
+		return {
+			candidates: fresh,
+			outcome: {
+				source: "fresh",
+				ageMs: 0,
+				candidates: fresh.length,
+				waitedMs,
+			},
+		};
+	}
+	if (input.previous) {
+		return {
+			candidates: input.previous.candidates,
+			outcome: {
+				source: "previous",
+				ageMs: Math.max(0, input.now() - input.previous.completedAt),
+				candidates: input.previous.candidates.length,
+				waitedMs,
+			},
+		};
+	}
+	return {
+		candidates: [],
+		outcome: { source: "static", ageMs: null, candidates: 0, waitedMs },
+	};
 }
 
 async function fetchActiveConversationCapabilities(
@@ -982,8 +1046,16 @@ export async function assembleHomeContext(
 		 * starting here. Must never reject (see `startRelevanceRecall`).
 		 */
 		relevanceCandidates?: Promise<AgentMemoryCandidate[]>;
-		/** Override of {@link RELEVANCE_RECALL_BUDGET_MS} (tests). */
+		/**
+		 * The conversation's last completed recall (KernelDO storage), already
+		 * validated against the age cap. Blended when the in-flight recall is not
+		 * settled inside the budget.
+		 */
+		previousRelevanceRecall?: StoredRelevanceRecall | null;
+		/** Override of {@link RELEVANCE_RECALL_BUDGET_MS} (env / tests). */
 		relevanceRecallBudgetMs?: number;
+		/** Injectable epoch-ms clock for recall age/wait accounting (tests). */
+		now?: () => number;
 		/**
 		 * The current operator's message text. Used as the query for semantic
 		 * relevance recall when {@link agentMemory} is present.
@@ -1056,7 +1128,8 @@ export async function assembleHomeContext(
 	// and filters every candidate before any content reaches the prompt.
 	// The recall itself is model-backed and multi-second (see
 	// RELEVANCE_RECALL_BUDGET_MS); prefer one started at DO ingress, else start
-	// it here, and in either case stop waiting at the budget.
+	// it here. Whatever has not settled inside the budget is replaced by the
+	// conversation's previous completed recall, else static facts.
 	const candidatesInFlight: Promise<AgentMemoryCandidate[]> | null =
 		opts?.relevanceCandidates ??
 		(agentMemory && operatorMessage?.trim()
@@ -1066,44 +1139,56 @@ export async function assembleHomeContext(
 					limit: HOME_RELEVANCE_RECALL_CANDIDATE_LIMIT,
 				})
 			: null);
-	const relevanceFactsPromise: Promise<FlatFact[]> = candidatesInFlight
-		? (async () => {
-				try {
-					const candidates = await boundRelevanceRecall(
-						candidatesInFlight,
-						opts?.relevanceRecallBudgetMs ?? RELEVANCE_RECALL_BUDGET_MS,
-					);
-					if (candidates.length === 0) return [];
-					const hydrated = await getFactsByIds(
-						db,
-						candidates.map((candidate) => candidate.factId),
-					);
-					const byId = new Map(hydrated.map((fact) => [fact.id, fact]));
-					return candidates
-						.map((candidate) => byId.get(candidate.factId))
-						.filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
-						.filter((fact) =>
-							isMemorySearchFactEligible(fact, {
-								orgId: organizationId,
-								minConfidence: RELEVANCE_RECALL_MIN_CONFIDENCE,
-							}),
-						)
-						.slice(0, RELEVANCE_RECALL_TOP_K)
-						.map((fact) => ({
-							id: fact.id,
-							text: fact.content,
-							confidence: fact.confidence,
-						}));
-				} catch (error) {
-					console.error({
-						component: "kernel.context",
-						event: "memory_hydration_failed",
-						exception: safeExceptionTopology(error),
-					});
-					return [];
-				}
-			})()
-		: Promise.resolve([]);
+	let relevanceRecall: RelevanceRecallOutcome = {
+		source: "static",
+		ageMs: null,
+		candidates: 0,
+		waitedMs: 0,
+	};
+	const relevanceFactsPromise: Promise<FlatFact[]> =
+		candidatesInFlight || opts?.previousRelevanceRecall
+			? (async () => {
+					try {
+						const resolved = await resolveRelevanceCandidates({
+							inFlight: candidatesInFlight,
+							previous: opts?.previousRelevanceRecall,
+							budgetMs:
+								opts?.relevanceRecallBudgetMs ?? RELEVANCE_RECALL_BUDGET_MS,
+							now: opts?.now ?? Date.now,
+						});
+						relevanceRecall = resolved.outcome;
+						const candidates = resolved.candidates;
+						if (candidates.length === 0) return [];
+						const hydrated = await getFactsByIds(
+							db,
+							candidates.map((candidate) => candidate.factId),
+						);
+						const byId = new Map(hydrated.map((fact) => [fact.id, fact]));
+						return candidates
+							.map((candidate) => byId.get(candidate.factId))
+							.filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
+							.filter((fact) =>
+								isMemorySearchFactEligible(fact, {
+									orgId: organizationId,
+									minConfidence: RELEVANCE_RECALL_MIN_CONFIDENCE,
+								}),
+							)
+							.slice(0, RELEVANCE_RECALL_TOP_K)
+							.map((fact) => ({
+								id: fact.id,
+								text: fact.content,
+								confidence: fact.confidence,
+							}));
+					} catch (error) {
+						console.error({
+							component: "kernel.context",
+							event: "memory_hydration_failed",
+							exception: safeExceptionTopology(error),
+						});
+						return [];
+					}
+				})()
+			: Promise.resolve([]);
 
 	// Operator skill references (`/skill <slug>`). Bounded by the shared top-K
 	// ceiling so a pasted wall of references cannot turn one turn into an
@@ -1430,7 +1515,7 @@ export async function assembleHomeContext(
 	// canonical D1/Agent Memory ordering unless finite prompt slots would drop
 	// candidates; the model can only permute facts that passed D1 hydration and
 	// rationale from this organization's read. A failed/denied judgment keeps
-	// those exact source orders. Recall's 2 s deadline is already resolved above
+	// those exact source orders. The recall budget is already resolved above
 	// and is never extended by this independent, concurrent ranking pass.
 	const memoryCandidates = [
 		...(blendedFacts.length > RENDER_FACTS_CAP
@@ -1642,6 +1727,7 @@ export async function assembleHomeContext(
 			lastStepPromptTokens: measuredPromptTokens,
 			promptCharsEstimate: estimateContextChars(ctx),
 			stepPressure,
+			relevanceRecall,
 		};
 	}
 

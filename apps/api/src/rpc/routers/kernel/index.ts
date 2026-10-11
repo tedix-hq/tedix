@@ -39,6 +39,10 @@ import type { KernelExecutionAttempt } from "./gateway-attribution";
 import { isContextOverflowError } from "@tedix/context-core/context-overflow";
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import type { AgentMemoryCandidate } from "../../../integrations/cloudflare/agent-memory";
+import type {
+	RelevanceRecallSource,
+	StoredRelevanceRecall,
+} from "../../../kernel/relevance-recall-store";
 import { kernelServesWorkersAiLane } from "./llm";
 import type { DbClient } from "@tedix/db/client";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -118,6 +122,11 @@ export interface KernelResult {
 			retainedMessages: number;
 			source: "model" | "extractive";
 		};
+		/** How the relevance facts were sourced this turn (live-probe evidence). */
+		recall: RelevanceRecallSource;
+		recallAgeMs: number | null;
+		recallCandidates: number;
+		recallWaitedMs: number;
 	};
 	/** Model-facing request text and media shape, held only for the fail-closed
 	 * redacted Kernel trace writer. Never persist this object in D1 metadata. */
@@ -143,6 +152,21 @@ type KernelTediRosterEntry = {
 	slug: string;
 	name: string;
 };
+
+/**
+ * Per-deployment override of the in-flight recall wait
+ * (`KERNEL_RELEVANCE_RECALL_BUDGET_MS`, non-negative integer ms). Undefined
+ * keeps `RELEVANCE_RECALL_BUDGET_MS`.
+ */
+function kernelRelevanceRecallBudgetMs(env: unknown): number | undefined {
+	const raw = (env as Record<string, unknown>)
+		.KERNEL_RELEVANCE_RECALL_BUDGET_MS;
+	if (typeof raw !== "string" || raw.trim() === "") return undefined;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) && parsed >= 0
+		? Math.floor(parsed)
+		: undefined;
+}
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -443,6 +467,11 @@ export async function runKernel(args: {
 	 * Absent ⇒ context assembly starts its own. See `RELEVANCE_RECALL_BUDGET_MS`.
 	 */
 	relevanceCandidates?: Promise<AgentMemoryCandidate[]>;
+	/**
+	 * The conversation's last completed recall (KernelDO storage, age-checked),
+	 * blended when the in-flight one has not settled inside the budget.
+	 */
+	previousRelevanceRecall?: StoredRelevanceRecall | null;
 }): Promise<KernelResult | null> {
 	const {
 		db,
@@ -464,7 +493,9 @@ export async function runKernel(args: {
 		requesterTediId,
 		workspaceContext,
 		relevanceCandidates,
+		previousRelevanceRecall,
 	} = args;
+	const relevanceRecallBudgetMs = kernelRelevanceRecallBudgetMs(env);
 	const { text: content, images } = homeAttachmentContent(
 		inputContent,
 		args.attachments,
@@ -564,9 +595,13 @@ export async function runKernel(args: {
 			operatorMessage: content,
 			candidateRanker,
 			agentMemory: env.AGENT_MEMORY,
-			// The ingress recall has settled by now; reusing it costs nothing and
-			// avoids a second multi-second model-backed call on a later pass.
+			// Reusing the ingress recall avoids a second multi-second model-backed
+			// call on a later pass; if it has settled by then, that pass is `fresh`.
 			...(relevanceCandidates ? { relevanceCandidates } : {}),
+			...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
+			...(relevanceRecallBudgetMs !== undefined
+				? { relevanceRecallBudgetMs }
+				: {}),
 			workspaceContext,
 			maxPromptTokens: pass.maxPromptTokens,
 			selectedWorkspaceDocument: args.selectedWorkspaceDocument,
@@ -620,6 +655,10 @@ export async function runKernel(args: {
 						source: ctx.historyCheckpoint.source,
 					}
 				: null,
+			recall: ctx.relevanceRecall?.source ?? "static",
+			recallAgeMs: ctx.relevanceRecall?.ageMs ?? null,
+			recallCandidates: ctx.relevanceRecall?.candidates ?? 0,
+			recallWaitedMs: ctx.relevanceRecall?.waitedMs ?? 0,
 		};
 	}
 
