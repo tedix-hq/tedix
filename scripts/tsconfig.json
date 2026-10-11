@@ -26,6 +26,7 @@
 		"oxc-ast.ts",
 		"oss/dependency-licenses.ts",
 		"oss/secret-scan.ts",
+		"secrets/rotate-master-key.ts",
 		"mcp/sync-tool-schemas.ts"
 	],
 	"exclude": ["node_modules"]
