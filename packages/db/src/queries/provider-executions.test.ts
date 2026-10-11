@@ -1,6 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
-import { execFileSync } from "node:child_process";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import {
 	FiniteExecutionAuthorizationSchema,
 	HistoricalExposureSchema,
@@ -1038,27 +1037,22 @@ it.each(["gen0", "root", "leaf"] as const)(
 			.all()
 			.map((row) => (row as { sql: string }).sql)
 			.join(";\n");
-		// Disable Python's statement cache: changing the SQLite limit must force a fresh
-		// preparation, otherwise a cached EXPLAIN can conceal the production regression.
-		const result = execFileSync(
-			"python3",
-			[
-				"-c",
-				`
-import json,sqlite3,sys
-fixture=json.load(sys.stdin)
-db=sqlite3.connect(':memory:',cached_statements=0)
-db.executescript(fixture['schema'])
-db.execute('CREATE TABLE IF NOT EXISTS organization_members(organization_id TEXT,descope_user_id TEXT,user_id TEXT,status TEXT,role TEXT)')
-db.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH,100)
-for query in fixture['queries']:
- db.execute('EXPLAIN '+query['sql'],query['params']).fetchall()
-print(len(fixture['queries']))
-`,
-			],
-			{ input: JSON.stringify({ schema, queries }), encoding: "utf8" },
+		// D1 caps SQLite expression depth at 100. node:sqlite has no statement
+		// cache, so each EXPLAIN is prepared fresh under that limit.
+		const d1 = new DatabaseSync(":memory:", { limits: { exprDepth: 100 } });
+		expect(d1.limits.exprDepth).toBe(100);
+		expect(() =>
+			d1.prepare(`EXPLAIN SELECT ${Array(120).fill("?").join(" OR ")}`),
+		).toThrow(/maximum depth 100/);
+		d1.exec(schema);
+		d1.exec(
+			"CREATE TABLE IF NOT EXISTS organization_members(organization_id TEXT,descope_user_id TEXT,user_id TEXT,status TEXT,role TEXT)",
 		);
-		expect(result.trim()).toBe("4");
+		for (const query of queries)
+			d1.prepare(`EXPLAIN ${query.sql}`).all(
+				...(query.params as SQLInputValue[]),
+			);
+		d1.close();
 		expect(
 			fixture.sqlite
 				.prepare("SELECT count(*) n FROM provider_execution_attempts")
