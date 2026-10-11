@@ -92,6 +92,36 @@ describe("skill schedule budget state", () => {
 		]);
 	});
 
+	it("matches a query longer than D1's 50-byte LIKE pattern cap", async () => {
+		// The LIKE this replaced turned any 48+ character search into a D1_ERROR.
+		const description =
+			"Sends the weekly customer report to every regional account manager";
+		sqlite.exec(`
+			INSERT INTO skill_entries (
+				id, organization_id, tedi_id, slug, title, description
+			) VALUES (
+				'skill-2', 'org-1', 'tedi-1', 'weekly-digest', 'Weekly digest',
+				'${description}'
+			);
+			INSERT INTO skill_schedules (
+				id, organization_id, skill_id, tedi_id, cron, params, enabled,
+				next_fire_at
+			) VALUES (
+				'schedule-2', 'org-1', 'skill-2', 'tedi-1', '0 9 * * 1', '{}', 1,
+				'2026-07-28T09:00:00.000Z'
+			);
+		`);
+
+		const result = await listSkillSchedulesPage(db, "org-1", {
+			query: description.toUpperCase(),
+		});
+
+		expect(result.total).toBe(1);
+		expect(result.schedules.map((schedule) => schedule.id)).toEqual([
+			"schedule-2",
+		]);
+	});
+
 	it("records a structured non-error block and clears it on dispatch", async () => {
 		await recordSkillScheduleSuppressed(db, {
 			scheduleId: "schedule-1",

@@ -3,7 +3,7 @@
  */
 
 import type { SQL } from "drizzle-orm";
-import { and, desc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
 import { toJsonRecord } from "../../utils/json";
@@ -84,11 +84,10 @@ export async function listTediEmailThreads(
 		conditions.push(sql`${tediEmailThreads.lastMessageAt} < ${input.cursor}`);
 	}
 	if (input.query?.trim()) {
+		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+		// character subject search failed as a D1_ERROR.
 		conditions.push(
-			like(
-				tediEmailThreads.subjectNorm,
-				`%${normalizeEmailSubject(input.query)}%`,
-			),
+			sql`instr(lower(${tediEmailThreads.subjectNorm}), lower(${normalizeEmailSubject(input.query)})) > 0`,
 		);
 	}
 
@@ -178,7 +177,10 @@ export async function searchTediEmail(
 	}>
 > {
 	const limit = clampLimit(input.limit);
-	const q = `%${input.query.trim().toLowerCase()}%`;
+	// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+	// character search (a pasted subject line) failed as a D1_ERROR.
+	const q = input.query.trim().toLowerCase();
+	const contains = (column: SQL) => sql`instr(lower(${column}), ${q}) > 0`;
 	// `prefixedColumns`, not the bare tables: selecting both under distinct TS
 	// keys still emits their raw column names, so `id`, `organization_id`,
 	// `tedi_id`, `status`, `created_at` and `updated_at` appeared twice and D1
@@ -200,14 +202,14 @@ export async function searchTediEmail(
 				eq(tediEmailMessages.tediId, input.tediId),
 				eq(tediEmailMessages.organizationId, input.organizationId),
 				or(
-					like(sql`lower(${tediEmailMessages.fromAddr})`, q),
-					like(sql`lower(${tediEmailMessages.from})`, q),
-					like(sql`lower(${tediEmailMessages.to})`, q),
-					like(sql`lower(${tediEmailMessages.cc})`, q),
-					like(sql`lower(${tediEmailMessages.bcc})`, q),
-					like(sql`lower(${tediEmailMessages.subject})`, q),
-					like(sql`lower(${tediEmailMessages.bodyPreview})`, q),
-					like(sql`lower(${tediEmailMessages.textBody})`, q),
+					contains(sql`${tediEmailMessages.fromAddr}`),
+					contains(sql`${tediEmailMessages.from}`),
+					contains(sql`${tediEmailMessages.to}`),
+					contains(sql`${tediEmailMessages.cc}`),
+					contains(sql`${tediEmailMessages.bcc}`),
+					contains(sql`${tediEmailMessages.subject}`),
+					contains(sql`${tediEmailMessages.bodyPreview}`),
+					contains(sql`${tediEmailMessages.textBody}`),
 				)!,
 			),
 		)
