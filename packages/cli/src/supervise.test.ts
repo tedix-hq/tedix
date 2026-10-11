@@ -181,6 +181,99 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 	return { runner, seen, lines, drafted, reads: () => reads };
 }
 
+describe("existing-chat handoff delivery", () => {
+	test("a confirmed handoff is not queued again after restart", async () => {
+		const first = supervisor([]);
+		expect(
+			await first.runner.toCodex(
+				SESSION,
+				"accepted Work brief",
+				config,
+				undefined,
+				"work-1",
+			),
+		).toBe("codex_queue");
+		const restarted = supervisor([]);
+		expect(
+			await restarted.runner.toCodex(
+				SESSION,
+				"accepted Work brief",
+				config,
+				undefined,
+				"work-1",
+			),
+		).toBe("codex_queue");
+		expect(restarted.seen.queued).toEqual([]);
+		expect(restarted.seen.resumed).toEqual([]);
+		expect(
+			await restarted.runner.toCodex(
+				SESSION,
+				"changed brief",
+				config,
+				undefined,
+				"work-1",
+			),
+		).toBe("queue-pending");
+	});
+
+	test("an uncertain handoff keeps the original queue across restart", async () => {
+		const first = supervisor([], {
+			received: () => false,
+			withdrawResult: false,
+		});
+		expect(
+			await first.runner.toCodex(
+				SESSION,
+				"accepted Work brief",
+				config,
+				undefined,
+				"work-1",
+			),
+		).toBe("queue-pending");
+		const restarted = supervisor([]);
+		expect(
+			await restarted.runner.toCodex(
+				SESSION,
+				"accepted Work brief",
+				config,
+				undefined,
+				"work-1",
+			),
+		).toBe("codex_queue");
+		expect(restarted.seen.queued).toEqual([]);
+		expect(restarted.seen.resumed).toEqual([]);
+	});
+
+	test("parallel delivery cannot enqueue into a chat already being dispatched", async () => {
+		let release!: () => void;
+		const waiting = new Promise<void>((done) => {
+			release = done;
+		});
+		let queues = 0;
+		const runner = new Supervisor({
+			env: { TEDIX_CONFIG_DIR: config },
+			read: async () => ({}),
+			codex: {
+				queue: async () => {
+					queues++;
+					await waiting;
+					return { id: "q", offset: 0 };
+				},
+				received: () => true,
+				withdraw: () => true,
+				resume: async () => true,
+			},
+		});
+		const first = runner.toCodex(SESSION, "handoff", config);
+		expect(await runner.toCodex(SESSION, "reply", config)).toBe(
+			"queue-pending",
+		);
+		release();
+		expect(await first).toBe("codex_queue");
+		expect(queues).toBe(1);
+	});
+});
+
 describe("tedix supervise", () => {
 	test("queues a late auto draft for an open Codex session and records it", async () => {
 		waiting("codex", CODEX_IDLE_MS + 1000);

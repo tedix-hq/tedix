@@ -57,6 +57,11 @@ and durable answer settlement.
   open in a terminal; Codex reuses queue/resume. An unavailable originating
   chat leaves its answer undelivered; no other chat or new Work Item is chosen.
   Delegation remains an explicit `tedix work delegate` action.
+  `tedix work handoff <id> --host codex --target-chat <UUID>` previews delivery
+  to an existing chat bound to the same profile and project in the current
+  checkout. Add `--launch` to reuse queue/resume; a confirmed handoff is not
+  delivered again. Failed delivery can be retried by the existing bounded
+  recovery; this command installs no watcher and transfers no executor fence.
   If Codex queue withdrawal fails, the supervisor keeps a private receipt
   across retries and restarts and starts no headless turn. Delivery remains
   unconfirmed until the transcript shows the reply or withdrawal succeeds.

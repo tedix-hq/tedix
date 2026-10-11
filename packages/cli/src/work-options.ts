@@ -35,6 +35,7 @@ const valueOptions = {
 	"--to": "workTo",
 	"--done": "workDone",
 	"--host": "workHost",
+	"--target-chat": "workTargetChat",
 	// `tedix who`: which files to check, and how far back.
 	"--paths": "whoPaths",
 	"--hours": "whoHours",
