@@ -24,6 +24,7 @@ import {
 	type ClaudeDriver,
 	CODEX_IDLE_MS,
 	type CodexDriver,
+	codexMessageReceived,
 	launchAgentPlist,
 	loadLaunchAgent,
 	OPEN_SESSION_GRACE_MS,
@@ -867,6 +868,47 @@ exit 64
 			expect(error).toContain("exit 5");
 			expect(error).toContain("Input/output error");
 		});
+	});
+});
+
+describe("Codex transcript acknowledgment", () => {
+	const message = "Explicit Work handoff fixture: a complete unique message";
+	test("requires the complete message in a received user record", () => {
+		for (const row of [
+			{ type: "event_msg", payload: { type: "user_message", message } },
+			{
+				type: "response_item",
+				payload: {
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: message }],
+				},
+			},
+		])
+			expect(codexMessageReceived(JSON.stringify(row), message)).toBe(true);
+	});
+	test("rejects diagnostic echoes, assistant text and incomplete records", () => {
+		for (const row of [
+			{
+				type: "response_item",
+				payload: { type: "custom_tool_call", input: message },
+			},
+			{ type: "event_msg", payload: { type: "item_completed", message } },
+			{
+				type: "response_item",
+				payload: {
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: message }],
+				},
+			},
+			{
+				type: "event_msg",
+				payload: { type: "user_message", message: message.slice(0, 20) },
+			},
+		])
+			expect(codexMessageReceived(JSON.stringify(row), message)).toBe(false);
+		expect(codexMessageReceived('{"type":"event_msg",', message)).toBe(false);
 	});
 });
 
