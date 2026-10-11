@@ -102,6 +102,8 @@ export const RuntimeEntitlementDenialCodeSchema = z.enum([
 	"subscription_inactive",
 	"billing_period_inactive",
 	"monthly_allowance_exhausted",
+	"credit_allowance_exhausted",
+	"pricing_unavailable",
 	"payment_required",
 	"hard_spend_limit",
 	"inference_capacity_exhausted",

@@ -193,6 +193,7 @@
 		"./utils/contract-routers": "./src/utils/contract-routers.ts",
 		"./utils/execution-requirement": "./src/utils/execution-requirement.ts",
 		"./utils/fact-evidence": "./src/utils/fact-evidence.ts",
+		"./utils/inference-credit-quote": "./src/utils/inference-credit-quote.ts",
 		"./utils/is-record": "./src/utils/is-record.ts",
 		"./utils/markdown-plain-text": "./src/utils/markdown-plain-text.ts",
 		"./utils/governed-learning": "./src/utils/governed-learning.ts",

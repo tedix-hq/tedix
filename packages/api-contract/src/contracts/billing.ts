@@ -27,6 +27,7 @@ import {
 	ProviderCapacityPolicySchema,
 	BillingOverageSettingsSchema,
 	BillingOverviewSchema,
+	BillingCreditOverviewSchema,
 	BillingPlanCatalogSchema,
 	CheckoutInputSchema,
 	CheckoutResponseSchema,
@@ -282,6 +283,26 @@ export const billingContract = oc
 			.output(BillingOverageSettingsSchema),
 
 		/** Internal direct ledger path for Gateway-blind voice provider units. */
+		setCreditBudget: oc
+			.route({
+				method: "PUT",
+				path: "/credit-budget",
+				summary: "Set monthly credit spending cap",
+				description:
+					"Set an opt-in monetary wallet's monthly spending cap without enabling cash overage.",
+			})
+			.input(
+				z.object({
+					monthlyCapMicros: z
+						.number()
+						.int()
+						.positive()
+						.max(1_000_000_000_000)
+						.nullable(),
+				}),
+			)
+			.output(BillingCreditOverviewSchema),
+
 		recordVoiceProviderUsage: oc
 			.route({
 				method: "POST",

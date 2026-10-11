@@ -11,6 +11,70 @@ import { CutoverInspectionHopSchema, type CutoverInspectionHop } from "./tedi";
 // BILLING SCHEMAS
 // =============================================================================
 
+const MonetaryTokenRatesSchema = z.object({
+	uncachedInput: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+	cacheRead: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+	cacheWrite: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+	output: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
+
+/** Opt-in plan-version configuration; existing token plans remain unchanged. */
+export const MonetaryInferenceConfigSchema = z.object({
+	version: z.literal(1),
+	currency: z.literal("USD"),
+	creditValueMicros: z.literal(10_000),
+	pricing: z.literal("provider_pass_through"),
+	perRunBudgetMicros: z.number().int().positive().safe().optional(),
+	rates: z
+		.array(
+			z.object({
+				schemaVersion: z.literal(1),
+				id: z.string().min(1),
+				version: z.number().int().positive(),
+				provider: z.string().min(1),
+				model: z.string().min(1),
+				currency: z.literal("USD"),
+				funding: z.literal("managed"),
+				effectiveFrom: z.iso.datetime(),
+				effectiveUntil: z.iso.datetime().nullable(),
+				sourceReceipt: z.string().min(1),
+				providerRates: MonetaryTokenRatesSchema,
+				customerRates: MonetaryTokenRatesSchema,
+				creditValueMicros: z.literal(10_000),
+				inputConvention: z.enum(["inclusive", "exclusive"]),
+				requestModelAliases: z.array(z.string().min(1)).max(20).default([]),
+				inputTokenMin: z.number().int().nonnegative().safe().default(0),
+				inputTokenMax: z
+					.number()
+					.int()
+					.positive()
+					.safe()
+					.nullable()
+					.default(null),
+			}),
+		)
+		.min(1)
+		.max(100),
+});
+export type MonetaryInferenceConfig = z.infer<
+	typeof MonetaryInferenceConfigSchema
+>;
+
+export const BillingCreditOverviewSchema = z.object({
+	billingMode: z.enum(["monetary", "tokens"]),
+	currency: z.literal("usd"),
+	creditValueMicros: z.literal(10_000),
+	includedMicros: z.number().int().nonnegative(),
+	usedIncludedMicros: z.number().int().nonnegative(),
+	remainingIncludedMicros: z.number().int().nonnegative(),
+	walletBalanceMicros: z.number().int(),
+	reservedMicros: z.number().int().nonnegative(),
+	availableMicros: z.number().int().nonnegative(),
+	spentMicros: z.number().int().nonnegative(),
+	monthlyCapMicros: z.number().int().positive().nullable(),
+});
+export type BillingCreditOverview = z.infer<typeof BillingCreditOverviewSchema>;
+
 export const ProviderCapacityPolicySchema = z.object({
 	enabled: z.boolean(),
 	budgetRevision: z.number().int().positive().max(1_000_000),
@@ -403,6 +467,7 @@ export const WorkstationCostCoverageSchema = z
 	});
 
 const BillingOverviewFieldsSchema = z.object({
+	credits: BillingCreditOverviewSchema.optional(),
 	workstationCostCoverage: WorkstationCostCoverageSchema,
 	overage: BillingOverageSettingsSchema,
 	stripeEnvironment: StripeEnvironmentSchema,
@@ -439,6 +504,8 @@ const BillingOverviewFieldsSchema = z.object({
 				"subscription_inactive",
 				"billing_period_inactive",
 				"monthly_allowance_exhausted",
+				"credit_allowance_exhausted",
+				"pricing_unavailable",
 				"payment_required",
 				"hard_spend_limit",
 				"inference_capacity_exhausted",
