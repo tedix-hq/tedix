@@ -26,6 +26,12 @@
  *    in this package shipped with that defect; all of them had tests, and none
  *    of those tests could see it.
  *
+ * 4. **A LIKE or GLOB pattern longer than 50 bytes is rejected.** D1 caps the
+ *    pattern (literal or bound) at 50 bytes; raw SQLite allows 50,000. A
+ *    substring search that interpolates caller text into `%...%` passes every
+ *    short-fixture test and fails in production on the first long title.
+ *    Match a substring of unbounded length with `instr(column, ?) > 0`.
+ *
  * Prefer this over a hand-rolled facade: a per-file double drifts toward
  * whatever makes the local test pass, which is how a `db.transaction()` call
  * reached production undetected.
@@ -55,6 +61,49 @@ export interface SyncSqliteDatabase {
 /** D1 rejects these outright; `db.batch()` is the transaction primitive. */
 const EXPLICIT_TRANSACTION_CONTROL =
 	/^\s*(begin|commit|rollback|savepoint|release)\b/i;
+
+/** D1's ceiling on a LIKE/GLOB pattern, in bytes (SQLite's own is 50,000). */
+export const D1_MAX_LIKE_PATTERN_BYTES = 50;
+
+/** A LIKE/GLOB operand: a `?` placeholder or a single-quoted literal. */
+const LIKE_OPERAND = /\b(?:like|glob)\s+(\?|'(?:[^']|'')*')/gi;
+
+const utf8 = new TextEncoder();
+
+/**
+ * Placeholder ordinals (0-based, counting every `?` in the statement) that
+ * feed a LIKE/GLOB pattern, plus any literal pattern already over the cap.
+ */
+function likePatterns(query: string): {
+	boundOrdinals: number[];
+	oversizedLiterals: string[];
+} {
+	const boundOrdinals: number[] = [];
+	const oversizedLiterals: string[] = [];
+	for (const match of query.matchAll(LIKE_OPERAND)) {
+		const operand = match[1] ?? "";
+		const operandStart = match.index + match[0].length - operand.length;
+		if (operand === "?") {
+			let ordinal = 0;
+			for (let i = 0; i < operandStart; i += 1)
+				if (query[i] === "?") ordinal += 1;
+			boundOrdinals.push(ordinal);
+			continue;
+		}
+		const literal = operand.slice(1, -1).replaceAll("''", "'");
+		if (utf8.encode(literal).length > D1_MAX_LIKE_PATTERN_BYTES)
+			oversizedLiterals.push(literal);
+	}
+	return { boundOrdinals, oversizedLiterals };
+}
+
+function oversizedLikePatternError(pattern: string, query: string): Error {
+	return new Error(
+		`D1_ERROR: LIKE or GLOB pattern too complex: ${utf8.encode(pattern).length} bytes exceeds ` +
+			`D1's ${D1_MAX_LIKE_PATTERN_BYTES}-byte cap. Match a substring of any length with ` +
+			`instr(column, ?) > 0 instead.\nSQL: ${query}`,
+	);
+}
 
 export interface D1FacadeOptions {
 	/**
@@ -120,6 +169,10 @@ export function createD1Facade(
 				);
 			}
 		}
+		const patterns = likePatterns(query);
+		const oversizedLiteral = patterns.oversizedLiterals[0];
+		if (oversizedLiteral !== undefined)
+			throw oversizedLikePatternError(oversizedLiteral, query);
 		options.onPrepare?.(query, db);
 		const statement = db.prepare(query);
 		let bound: unknown[] = [];
@@ -130,6 +183,14 @@ export function createD1Facade(
 						`D1_ERROR: too many SQL variables (${values.length} > ${maxBoundParams}). ` +
 							"Chunk the values — see chunkForBoundParams in ../utils/batch.",
 					);
+				}
+				for (const ordinal of patterns.boundOrdinals) {
+					const pattern = values[ordinal];
+					if (
+						typeof pattern === "string" &&
+						utf8.encode(pattern).length > D1_MAX_LIKE_PATTERN_BYTES
+					)
+						throw oversizedLikePatternError(pattern, query);
 				}
 				bound = values;
 				return prepared;
