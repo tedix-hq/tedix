@@ -21,6 +21,12 @@ import {
 	startRelevanceRecall,
 } from "../integrations/cloudflare/agent-memory";
 import { ensureKernelWakeSchedule } from "./kernel-wake-schedule";
+import {
+	relevanceRecallStorageKey,
+	type StoredRelevanceRecall,
+	toStoredRelevanceRecall,
+	usablePreviousRelevanceRecall,
+} from "./relevance-recall-store";
 import { createAnswerDeltaBatcher } from "./answer-delta-batcher";
 
 import {
@@ -677,8 +683,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// imports, `turnContext()`, the intercept reads and everything else on the
 		// way to context assembly. One recall can take seconds; started inside
 		// assembly it becomes the whole `planning → preparing_context` stage.
-		// Started here it overlaps the enqueue→work gap and
-		// assembly bounds the remaining wait (RELEVANCE_RECALL_BUDGET_MS). The
+		// Started here it overlaps the enqueue→work gap; assembly takes it only
+		// if it has settled (RELEVANCE_RECALL_BUDGET_MS, default 0) and otherwise
+		// blends the conversation's previous stored recall. The
 		// helper never rejects, and `agent-memory.ts` is a dependency-free leaf,
 		// so this adds nothing to the DO's eager module graph. Ids only: canonical
 		// D1 still hydrates and authorizes every candidate before prompt assembly.
@@ -706,6 +713,12 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * Kick off this turn's Agent Memory recall from the raw operator message.
 	 * Returns `undefined` (assembly starts its own recall) when the binding or
 	 * the message is absent. Never rejects.
+	 *
+	 * The recall takes seconds (p50 ~5.4 s measured) and assembly no longer
+	 * waits for it, so its result is stored per conversation when it settles
+	 * and the NEXT turn blends it (`previousRelevanceRecall`). The store runs
+	 * under `waitUntil`, after this turn's prompt is built or long after the
+	 * turn settled; it never writes into the turn that started it.
 	 */
 	private startIngressRecall(
 		input: KernelTurnWorkInput,
@@ -713,11 +726,69 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		const agentMemory = (this.env as { AGENT_MEMORY?: AgentMemoryNamespace })
 			.AGENT_MEMORY;
 		if (!agentMemory || !input.content.trim()) return undefined;
-		return startRelevanceRecall(agentMemory, {
+		const candidates = startRelevanceRecall(agentMemory, {
 			orgId: input.organizationId,
 			query: input.content,
 			limit: HOME_RELEVANCE_RECALL_CANDIDATE_LIMIT,
 		});
+		this.ctx.waitUntil(
+			this.storeCompletedRecall(
+				input.conversationId,
+				input.content,
+				candidates,
+			),
+		);
+		return candidates;
+	}
+
+	/** Persist a settled recall for the conversation's next turn. Fail-soft. */
+	private async storeCompletedRecall(
+		conversationId: string,
+		query: string,
+		candidates: Promise<AgentMemoryCandidate[]>,
+	): Promise<void> {
+		try {
+			const row = toStoredRelevanceRecall({
+				conversationId,
+				query,
+				candidates: await candidates,
+				completedAt: Date.now(),
+			});
+			if (!row) return;
+			await this.ctx.storage.put(
+				relevanceRecallStorageKey(conversationId),
+				row,
+			);
+		} catch (error) {
+			console.warn(
+				"[kernel] relevance recall store failed (next turn uses static facts)",
+				kernelErrorMessage(error),
+			);
+		}
+	}
+
+	/**
+	 * The conversation's last completed recall, or null when absent, expired
+	 * (30 min cap) or unreadable. Fail-soft: assembly then uses static facts.
+	 */
+	private async readPreviousRelevanceRecall(
+		conversationId: string,
+	): Promise<StoredRelevanceRecall | null> {
+		try {
+			const stored = await this.ctx.storage.get<unknown>(
+				relevanceRecallStorageKey(conversationId),
+			);
+			return usablePreviousRelevanceRecall(stored, {
+				conversationId,
+				now: Date.now(),
+			});
+		} catch (error) {
+			console.warn(
+				"[kernel] relevance recall read failed (static facts this turn)",
+				kernelErrorMessage(error),
+			);
+			return null;
+		}
 	}
 
 	/**
@@ -735,7 +806,14 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		relevanceCandidates?: Promise<AgentMemoryCandidate[]>,
 	): Promise<KernelTurnWorkResult> {
 		this.setState({ ...this.state, organizationId: input.organizationId });
-		const context = await this.turnContext();
+		// The scheduled (alarm) path has no ingress recall: start one here so its
+		// late result still lands in storage for the conversation's next turn.
+		const candidatesInFlight =
+			relevanceCandidates ?? this.startIngressRecall(input);
+		const [context, previousRelevanceRecall] = await Promise.all([
+			this.turnContext(),
+			this.readPreviousRelevanceRecall(input.conversationId),
+		]);
 		// One stage-timing collector per turn, shared between the turn body (which
 		// marks the serial stage boundaries and attaches the snapshot to the run's
 		// terminal metadata write) and the progress seam's answer-delta batcher
@@ -792,7 +870,10 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					flushStreamedProgress: progress.flush,
 					holdAfterSettle: progress.holdAfterSettle,
 					plannerAbortSignal: abortController.signal,
-					...(relevanceCandidates ? { relevanceCandidates } : {}),
+					...(candidatesInFlight
+						? { relevanceCandidates: candidatesInFlight }
+						: {}),
+					...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
 					stageTimings,
 				},
 				input,

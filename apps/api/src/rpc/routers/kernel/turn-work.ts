@@ -27,6 +27,7 @@ import {
 	kernelSpanContext,
 } from "./gateway-attribution";
 import type { AgentMemoryCandidate } from "../../../integrations/cloudflare/agent-memory";
+import type { StoredRelevanceRecall } from "../../../kernel/relevance-recall-store";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { BodyExecutionResult } from "@tedix/api-contract/schemas/body-certification";
 import type { KernelTraceBundleEvidence } from "./kernel-trace-bundle-writer";
@@ -227,6 +228,11 @@ export interface KernelTurnWorkDeps {
 	 * (non-DO) path, where assembly starts its own.
 	 */
 	relevanceCandidates?: Promise<AgentMemoryCandidate[]>;
+	/**
+	 * The conversation's last completed recall read from KernelDO storage at
+	 * turn start (age-checked there). Forwarded to `runKernel`.
+	 */
+	previousRelevanceRecall?: StoredRelevanceRecall | null;
 	writeProposalPlanner: typeof planKernelWriteProposal;
 	insertKernelRuntimeEvent: (
 		input: HomeTurnRuntimeEventInput,
@@ -2034,6 +2040,9 @@ export async function runKernelTurnWork(
 			attachments: input.attachments,
 			...(deps.relevanceCandidates
 				? { relevanceCandidates: deps.relevanceCandidates }
+				: {}),
+			...(deps.previousRelevanceRecall
+				? { previousRelevanceRecall: deps.previousRelevanceRecall }
 				: {}),
 			db: deps.db,
 			env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],

@@ -2088,6 +2088,99 @@ describe("assembleHomeContext Agent Memory recall", () => {
 			vi.useRealTimers();
 		}
 	});
+
+	describe("recall source selection (budget 0)", () => {
+		const relevant = makeFact({
+			id: "55555555-5555-4555-8555-555555555555",
+			content: "recalled fact",
+		});
+		const staticFact = makeFact({
+			id: "66666666-6666-4666-8666-666666666666",
+			content: "static top fact",
+		});
+		const never = new Promise<{ factId: string; score: number }[]>(() => {});
+		const previous = {
+			v: 1 as const,
+			conversationId: "home:main",
+			query: "last turn",
+			completedAt: 1_000_000,
+			candidates: [{ factId: relevant.id, score: 0.8 }],
+		};
+
+		it("fresh: an already-settled in-flight recall is blended without waiting", async () => {
+			const context = await assembleHomeContext(
+				createFactsDb({ factsById: [relevant], topFacts: [staticFact] }),
+				ORG_ID,
+				{
+					operatorMessage: "now",
+					relevanceCandidates: Promise.resolve([
+						{ factId: relevant.id, score: 0.9 },
+					]),
+					previousRelevanceRecall: previous,
+					relevanceRecallBudgetMs: 0,
+					now: () => 1_060_000,
+				},
+			);
+			expect(context.facts.map((fact) => fact.text)).toEqual([
+				"recalled fact",
+				"static top fact",
+			]);
+			expect(context.relevanceRecall).toMatchObject({
+				source: "fresh",
+				ageMs: 0,
+				candidates: 1,
+			});
+		});
+
+		it("previous: an unsettled recall falls back to the stored one with its age", async () => {
+			const context = await assembleHomeContext(
+				createFactsDb({ factsById: [relevant], topFacts: [staticFact] }),
+				ORG_ID,
+				{
+					operatorMessage: "now",
+					relevanceCandidates: never,
+					previousRelevanceRecall: previous,
+					relevanceRecallBudgetMs: 0,
+					now: () => 1_060_000,
+				},
+			);
+			expect(context.facts.map((fact) => fact.text)).toEqual([
+				"recalled fact",
+				"static top fact",
+			]);
+			expect(context.relevanceRecall).toMatchObject({
+				source: "previous",
+				ageMs: 60_000,
+				candidates: 1,
+			});
+		});
+
+		it("static: no settled and no stored recall keeps the static facts path", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const context = await assembleHomeContext(
+				createFactsDb({ factsById: [relevant], topFacts: [staticFact] }),
+				ORG_ID,
+				{
+					operatorMessage: "now",
+					relevanceCandidates: never,
+					relevanceRecallBudgetMs: 0,
+				},
+			);
+			expect(context.facts.map((fact) => fact.text)).toEqual([
+				"static top fact",
+			]);
+			expect(context.relevanceRecall).toMatchObject({
+				source: "static",
+				ageMs: null,
+				candidates: 0,
+			});
+			// A 0 budget is the steady state, not an anomaly: no warning per turn.
+			expect(warn).not.toHaveBeenCalledWith(
+				expect.objectContaining({ event: "recall_budget_exceeded" }),
+			);
+			warn.mockRestore();
+		});
+	});
 });
 
 describe("dedupeConversationHistory — runId dedup", () => {
