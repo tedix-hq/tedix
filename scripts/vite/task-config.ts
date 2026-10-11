@@ -36,8 +36,7 @@ export type TrackingGlob = string | { auto: boolean } | GlobWithBase;
 /** The subset of a Vite+ task this factory produces. */
 export type VitestTask = {
 	command: string | string[];
-	input: TrackingGlob[];
-	output: TrackingGlob[];
+	cache: { input: TrackingGlob[]; output: TrackingGlob[] };
 };
 
 /**
@@ -95,8 +94,10 @@ export function vitestTask(
 	const exclusions = [...VITEST_SCRATCH_EXCLUSIONS, ...extraExclusions];
 	return {
 		command,
-		input: [{ auto: true }, ...exclusions],
-		output: [{ auto: true }, ...exclusions],
+		cache: {
+			input: [{ auto: true }, ...exclusions],
+			output: [{ auto: true }, ...exclusions],
+		},
 	};
 }
 

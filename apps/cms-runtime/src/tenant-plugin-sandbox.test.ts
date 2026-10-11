@@ -782,7 +782,7 @@ describe("tenant plugin Worker Loader transport", () => {
 	}, 15_000);
 });
 
-describe.sequential("plugin request-context boundary", () => {
+describe("plugin request-context boundary", { concurrent: false }, () => {
 	const host = env as unknown as PluginHostEnv;
 	const scope: TenantPluginScope = {
 		tenantSlug: `plugin-context-${crypto.randomUUID().slice(0, 12)}`,

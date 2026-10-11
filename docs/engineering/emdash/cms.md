@@ -27,7 +27,7 @@ Site Builder are in `apps/cms/AGENTS.md`; the user guide is
   may have `sourceRevision: null`; never infer one.
 - **Durable Object SQLite is the tenant database.** Starters use the
   Worker-Loader-safe `durableObjects({ binding: "DB_DO", name:
-process.env.ORG_SLUG, session: "auto" })` descriptor; the parent declares
+  process.env.ORG_SLUG, session: "auto" })` descriptor; the parent declares
   `EmDashDB` and injects `DB_DO` as a serializable RPC stub. Activation checks
   the compiled adapter; rollback refuses a bundle built for another adapter.
   Postgres/Hyperdrive is unsupported: it lacks cron, scheduled publishing,

@@ -25,7 +25,7 @@ Keep the first answer short: **current state → evidence → next useful action
    for another organization. If access fails, use `tedix-connect`.
    Local context recovery is optional: on a CLI-required coding path, when no
    fresh hook brief or target is present, run `tedix setup agents context show
---json`. A bound result supplies the profile/project and optional Work ID.
+   --json`. A bound result supplies the profile/project and optional Work ID.
    An invalid binding needs repair; an unbound result grants no target. Explicit
    user and repository targets take precedence. Binding is not admission.
 2. For an exact Work Item ID, read its current context, newest bounded
@@ -42,7 +42,7 @@ Keep the first answer short: **current state → evidence → next useful action
    request and actual receipts when possible; ask only if the target remains
    ambiguous.
    For a bound project, use `tedix -w <workspace> work find "<terms>"
---project <project-id> --limit 10 --json` and show at most three candidates.
+   --project <project-id> --limit 10 --json` and show at most three candidates.
    Start candidate search inside the bound project; do not choose an item merely
    because it is the newest. Read the relevant owning docs and exact affected
    paths, then use bounded Git history and Work-Item commit receipts to find

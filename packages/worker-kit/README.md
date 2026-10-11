@@ -80,7 +80,7 @@ does an ad-hoc `Record<string, unknown>` leak in:
 // apps/mcp/src/log.ts
 export type McpLogFields = {
 	appSlug: string;
-	outcome: "ok" | "denied"; /* ... */
+	outcome: "ok" | "denied" /* ... */;
 };
 export const createMcpLogger = (component: string) =>
 	createLogger<McpLogFields>({ component });
