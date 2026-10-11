@@ -280,6 +280,21 @@ describe("calendar coordinator asset installation", () => {
 			expect(h.calls).toEqual([]);
 		}
 	});
+	it("rejects provider scopes that merely contain or extend the Google calendar root", async () => {
+		const root = "https://www.googleapis.com/auth/calendar";
+		for (const lookalike of [
+			`${root}.evil.example`,
+			`https://evil.example.com/${root}`,
+			"https://www.googleapis.com.evil.example/auth/calendar",
+		]) {
+			const h = harness();
+			h.provider.availableScopes = [lookalike];
+			await expect(installAssets(h.options, assets, h.client)).rejects.toThrow(
+				"lacks required calendar scopes",
+			);
+			expect(h.calls).toEqual([]);
+		}
+	});
 	it("stops before activation for unexpected created ownership or workflow source", async () => {
 		for (const mode of ["owner", "source"] as const) {
 			const h = harness();

@@ -106,3 +106,19 @@ it("recognizes exact provider scope implications without upgrading readonly gran
 		),
 	).toBe(false);
 });
+
+it("rejects lookalike scopes that only contain or extend the Google root", () => {
+	const root = "https://www.googleapis.com/auth/calendar";
+	for (const lookalike of [
+		`${root}.evil.example`,
+		"https://evil.example.com/https://www.googleapis.com/auth/calendar",
+		"https://www.googleapis.com.evil.example/auth/calendar",
+		`${root}/../drive`,
+	]) {
+		expect(personalResourceScopesCover([root], [lookalike])).toBe(false);
+		expect(personalResourceScopesCover([lookalike], [root])).toBe(false);
+		expect(personalResourceScopesCover([lookalike], [`${root}.readonly`])).toBe(
+			false,
+		);
+	}
+});

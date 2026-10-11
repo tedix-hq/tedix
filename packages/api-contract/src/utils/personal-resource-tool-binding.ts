@@ -71,29 +71,32 @@ export function personalResourceScopesCover(
 	granted: readonly string[],
 	required: readonly string[],
 ): boolean {
-	const googleRoot = "https://www.googleapis.com/auth/calendar";
-	const googleFamily = new Set([
-		googleRoot,
-		`${googleRoot}.readonly`,
-		`${googleRoot}.events`,
-		`${googleRoot}.events.readonly`,
-		`${googleRoot}.calendarlist.readonly`,
-	]);
+	// Whole-scope identity only: a scope is an opaque provider string, never a
+	// URL whose host or path we trust by prefix.
+	const has = new Set(granted);
+	const googleRoot = GOOGLE_CALENDAR_SCOPE_ROOT;
 	return required.every(
 		(scope) =>
-			granted.includes(scope) ||
-			(googleFamily.has(scope) && granted.includes(googleRoot)) ||
+			has.has(scope) ||
+			(GOOGLE_CALENDAR_SCOPE_FAMILY.has(scope) && has.has(googleRoot)) ||
 			(scope === `${googleRoot}.events.readonly` &&
-				granted.includes(`${googleRoot}.events`)) ||
+				has.has(`${googleRoot}.events`)) ||
 			((scope === `${googleRoot}.calendarlist.readonly` ||
 				scope === `${googleRoot}.events.readonly`) &&
-				granted.includes(`${googleRoot}.readonly`)) ||
+				has.has(`${googleRoot}.readonly`)) ||
 			((scope === "Calendars.Read" ||
 				scope === "https://graph.microsoft.com/Calendars.Read") &&
-				granted.some(
-					(value) =>
-						value === "Calendars.ReadWrite" ||
-						value === "https://graph.microsoft.com/Calendars.ReadWrite",
-				)),
+				(has.has("Calendars.ReadWrite") ||
+					has.has("https://graph.microsoft.com/Calendars.ReadWrite"))),
 	);
 }
+export const GOOGLE_CALENDAR_SCOPE_ROOT =
+	"https://www.googleapis.com/auth/calendar";
+/** Every Google Calendar scope the root scope implies, by exact identity. */
+export const GOOGLE_CALENDAR_SCOPE_FAMILY: ReadonlySet<string> = new Set([
+	GOOGLE_CALENDAR_SCOPE_ROOT,
+	`${GOOGLE_CALENDAR_SCOPE_ROOT}.readonly`,
+	`${GOOGLE_CALENDAR_SCOPE_ROOT}.events`,
+	`${GOOGLE_CALENDAR_SCOPE_ROOT}.events.readonly`,
+	`${GOOGLE_CALENDAR_SCOPE_ROOT}.calendarlist.readonly`,
+]);
