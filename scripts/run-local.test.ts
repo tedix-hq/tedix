@@ -140,6 +140,7 @@ describe("run-local options", () => {
 			aiGatewayId: null,
 			restartSmoke: false,
 			demo: false,
+			verbose: false,
 		});
 	});
 
@@ -153,6 +154,7 @@ describe("run-local options", () => {
 			aiGatewayId: null,
 			restartSmoke: false,
 			demo: false,
+			verbose: false,
 		});
 		expect(localInferenceEnvironment(options)).toEqual({
 			TEDIX_LOCAL_INFERENCE_ENABLED: "false",
@@ -197,6 +199,7 @@ describe("run-local options", () => {
 			aiGatewayId: null,
 			restartSmoke: false,
 			demo: false,
+			verbose: false,
 		});
 	});
 
@@ -243,6 +246,7 @@ describe("run-local options", () => {
 			aiGatewayId: null,
 			restartSmoke: true,
 			demo: false,
+			verbose: false,
 		});
 		expect(localInferenceEnvironment(options)).toEqual({
 			TEDIX_LOCAL_INFERENCE_ENABLED: "false",
@@ -274,6 +278,7 @@ describe("run-local options", () => {
 			aiGatewayId: null,
 			restartSmoke: false,
 			demo: true,
+			verbose: false,
 		});
 		expect(defaultLocalRunState(false, "/repo")).toBe(
 			"/repo/.wrangler/run-local",

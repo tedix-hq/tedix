@@ -44,6 +44,7 @@ contacts a Cloudflare account.
 | `--demo`                              | Loads sample data, kept separately in `.wrangler/run-local-demo`.       |
 | `--inference --workers-ai-account=ID` | Turns on model calls through Workers AI on your own Cloudflare account. |
 | `--ai-gateway=ID`                     | Uses a named AI Gateway instead of your account's default gateway.      |
+| `--verbose`                           | Streams every server log to the terminal instead of `server.log`.       |
 | `--help`                              | Lists every option without starting anything.                           |
 
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a

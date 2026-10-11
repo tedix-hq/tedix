@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Coins } from "@phosphor-icons/react";
 import { hasUnlimitedTokenUsage } from "@/lib/billing-display";
+import { isLocalSession } from "@/lib/local-inference";
 import { billingOverviewQueryOptions } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
@@ -14,12 +15,16 @@ const usd = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 });
 
-/** Billing amounts are owner-only; other members never request this endpoint. */
+/**
+ * Billing amounts are owner-only; other members never request this endpoint.
+ * Local sessions (`bun run-local`) have no billing, so nothing is shown.
+ */
 export function OsSidebarBillingStatus() {
 	const { state } = useSidebar();
 	const context = useOsOperationalContext();
 	const canManageBilling =
-		context.data?.authority.permissions.includes("billing:manage") ?? false;
+		!isLocalSession() &&
+		(context.data?.authority.permissions.includes("billing:manage") ?? false);
 	const overview = useQuery({
 		...billingOverviewQueryOptions(),
 		enabled: canManageBilling,
