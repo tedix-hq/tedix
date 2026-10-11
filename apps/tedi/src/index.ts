@@ -35,6 +35,7 @@ import { canAccessInactiveWorkstation } from "./workstation/inactive-lease-acces
 import { health } from "./routes/health";
 import { workstationReaper } from "./routes/workstation-reaper";
 import { githubCredentialAuthority } from "./routes/github-credential-authority";
+import { masterKeyFingerprint } from "./routes/master-key-fingerprint";
 import {
 	attachBodyGenerationHeaders,
 	CloudflareAgentBodyLauncher,
@@ -241,6 +242,7 @@ app.route("/", health);
 // resolve, and resolving one would scope it to a single tenant.
 app.route("/", workstationReaper);
 app.route("/", githubCredentialAuthority);
+app.route("/", masterKeyFingerprint);
 
 // =============================================================================
 // MIDDLEWARE: Resolve tedi from subdomain + initialize sandbox

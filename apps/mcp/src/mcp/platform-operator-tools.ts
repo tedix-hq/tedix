@@ -1470,6 +1470,13 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		description:
 			"Platform operator view of which organizations set an embedded widget turn quota; null means that ceiling was never set.",
 	},
+	{
+		toolId: "get_master_key_fingerprints",
+		endpoint: "secrets/masterKeyFingerprints",
+		kind: "read",
+		description:
+			"Platform operator check that every Worker holds the same SECRETS_MASTER_KEY: a non-reversible fingerprint per rotation-window key per Worker, and whether the fleet agrees on the encrypting key. Never returns key material.",
+	},
 
 	// Tedi email provisioning.
 	{

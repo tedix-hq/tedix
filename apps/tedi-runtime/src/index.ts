@@ -49,6 +49,10 @@ import {
 	pickEchoableSubprotocol,
 } from "@tedix/worker-kit/request-auth";
 import {
+	handleMasterKeyFingerprint,
+	MASTER_KEY_FINGERPRINT_PATH,
+} from "./master-key-fingerprint";
+import {
 	getTediRuntimeBodyGeneration,
 	getTediRuntimeRouteBySlug,
 	markTediRuntimeBodyGenerationReady,
@@ -1550,6 +1554,16 @@ export default {
 				deployedSha: String(env.GIT_SHA || "unknown"),
 				timestamp: new Date().toISOString(),
 			});
+		}
+
+		// Fleet-scoped: answers for this Worker, not a tedi, so it sits before
+		// slug resolution. A public caller falls through to the ordinary 404.
+		if (
+			url.pathname === MASTER_KEY_FINGERPRINT_PATH &&
+			request.method === "GET" &&
+			isServiceBinding(request.headers)
+		) {
+			return handleMasterKeyFingerprint(env);
 		}
 
 		// The hostname is authoritative. The `?slug=` query fallback is honored

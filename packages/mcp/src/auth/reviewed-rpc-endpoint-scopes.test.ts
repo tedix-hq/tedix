@@ -59,6 +59,8 @@ describe("reviewed RPC endpoint scopes", () => {
 			// Decrypted secret reads.
 			"secrets/get",
 			"appSecrets/get",
+			// Fleet master-key agreement: operator information only.
+			"secrets/masterKeyFingerprints",
 		]) {
 			expect(resolve(endpoint, {})).toEqual(["platform:admin"]);
 		}

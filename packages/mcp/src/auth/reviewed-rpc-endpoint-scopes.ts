@@ -539,6 +539,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"secrets/delete": "mcp:settings.admin",
 	"secrets/get": "platform:admin",
 	"secrets/list": "mcp:settings.read",
+	"secrets/masterKeyFingerprints": "platform:admin",
 	"secrets/set": "mcp:settings.write",
 	"seo/configure": "mcp:apps.write",
 	"seo/deleteGoogleProperty": "mcp:apps.admin",
