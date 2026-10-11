@@ -16,22 +16,32 @@ export function markdownLineToPlainText(line: string): string {
 	let text = line.replace(/\s+/g, " ").trim();
 	while (leading.test(text)) text = text.replace(leading, "");
 	// Code spans keep their text verbatim; emphasis is only stripped outside them.
-	return text
+	const joined = text
 		.replace(/ #+$/, "")
 		.split(/(`+[^`]*`+)/)
 		.map((part, index) =>
 			index % 2
 				? part.replace(/`+/g, "")
 				: stripAutolinks(stripLinks(part))
-						.replace(/(^|\W)__(?=\S)(.*?\S)__(?=\W|$)/g, "$1$2")
+						.replace(/(^|\W)__(?=\S)([^_]*?\S)__(?=\W|$)/g, "$1$2")
 						.replace(/\*\*|~~|`+/g, "")
 						.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?=[^\w*]|$)/g, "$1$2")
 						.replace(/(^|\W)_(?=\S)([^_]*?\S)_(?=\W|$)/g, "$1$2"),
 		)
 		.join("")
-		.replace(/^[\s*_#>-]+|[\s*_#>-]+$/g, "")
 		.replace(/\s+/g, " ")
 		.trim();
+	return trimDecoration(joined);
+}
+
+/** Strips leading and trailing decoration characters in one pass, with no anchored regex to rescan a long run. */
+function trimDecoration(text: string): string {
+	const decoration = " *_#>-";
+	let start = 0;
+	let end = text.length;
+	while (start < end && decoration.includes(text[start]!)) start += 1;
+	while (end > start && decoration.includes(text[end - 1]!)) end -= 1;
+	return text.slice(start, end);
 }
 
 /** `[text](target)` and `![alt](target)` become `text`; the same matches as `/!?\[([^\]]*)\]\([^)]*\)/g`, found in one pass. */
