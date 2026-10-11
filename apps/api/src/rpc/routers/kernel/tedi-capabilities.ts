@@ -40,6 +40,10 @@ import {
 	resolveTediScopes,
 } from "@tedix/auth/app-assignment-policy";
 import type { DbClient } from "@tedix/db/client";
+import type {
+	CacheTrace,
+	KernelContextCache,
+} from "../../../kernel/context-cache";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
@@ -354,7 +358,16 @@ export function deriveRequiresApproval(
 export async function getTediCapabilityCards(
 	db: DbClient,
 	organizationId: string,
-	opts?: { tedis?: Tedi[]; apps?: App[] },
+	opts?: {
+		tedis?: Tedi[];
+		apps?: App[];
+		/**
+		 * Per-org cache for the slow-changing card pieces (skill labels, policy
+		 * packs, learned capabilities). Workstation readiness and entrustments
+		 * are liveness/expiry reads and always go to D1.
+		 */
+		cache?: { cache: KernelContextCache; trace?: CacheTrace };
+	},
 ): Promise<TediCapabilityCard[]> {
 	const [allTediRows, appRows] = await Promise.all([
 		opts?.tedis ?? getTedisByOrganization(db, organizationId),
@@ -365,6 +378,18 @@ export async function getTediCapabilityCards(
 	if (tediRows.length === 0) return [];
 
 	const tediIds = tediRows.map((t) => t.id);
+	// Keyed by the roster the pieces were read for, so a roster change can
+	// never pair cached pieces with tedis they were not read for.
+	const rosterKey = [...tediIds].sort().join(",");
+	const cached = <T>(name: string, read: () => Promise<T>): Promise<T> =>
+		opts?.cache
+			? opts.cache.cache.read(
+					organizationId,
+					`${name}:${rosterKey}`,
+					read,
+					opts.cache.trace,
+				)
+			: read();
 
 	// One batched read each for skills + policy packs (both org+key indexed) plus
 	// the bounded org-scoped workstation readiness map (TWO indexed reads, no
@@ -383,11 +408,14 @@ export async function getTediCapabilityCards(
 		delegationEntrustmentsByTedi,
 	] = await Promise.all([
 		safeBatch(
-			() => listSkillLabelsByTediIds(db, organizationId, tediIds),
+			() =>
+				cached("skillLabels", () =>
+					listSkillLabelsByTediIds(db, organizationId, tediIds),
+				),
 			[] as { tediId: string | null; slug: string | null; title: string }[],
 		),
 		safeBatch(
-			() => loadPolicyPacks(db, tediRows),
+			() => cached("policyPacks", () => loadPolicyPacks(db, tediRows)),
 			new Map<string, Record<string, unknown> | null>(),
 		),
 		safeBatch(
@@ -395,7 +423,10 @@ export async function getTediCapabilityCards(
 			new Map<string, WorkstationReadiness>(),
 		),
 		safeBatch(
-			() => getTediLearnedCapabilities(db, organizationId, tediIds),
+			() =>
+				cached("learnedCapabilities", () =>
+					getTediLearnedCapabilities(db, organizationId, tediIds),
+				),
 			new Map<string, TediLearnedCapability>(),
 		),
 		safeBatch(async () => {
@@ -602,12 +633,14 @@ async function loadPolicyPacks(
 export async function readOrgDispatchPolicyLayer(
 	db: DbClient,
 	organizationId: string,
+	cache?: { cache: KernelContextCache; trace?: CacheTrace },
 ): Promise<DispatchPolicyLayer | null> {
 	try {
-		const definition = await getActiveOrganizationPolicyPackDefinition(
-			db,
-			organizationId,
-		);
+		const read = () =>
+			getActiveOrganizationPolicyPackDefinition(db, organizationId);
+		const definition = await (cache
+			? cache.cache.read(organizationId, "orgPolicyPack", read, cache.trace)
+			: read());
 		return parseDispatchPolicyLayer(definition?.gatingPolicy);
 	} catch {
 		return null;

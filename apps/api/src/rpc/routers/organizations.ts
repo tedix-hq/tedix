@@ -64,6 +64,7 @@ import {
 	retireOrganization,
 	updateOrganization,
 } from "@tedix/db/queries/organizations";
+import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { upsertUserForExternalIdentity } from "@tedix/db/queries/users";
 import { DEFAULT_ORGANIZATION_FEATURES_BY_PLAN } from "@tedix/db/schema/organizations";
 import { parseJsonField } from "@tedix/db/utils/json";
@@ -882,6 +883,12 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 				? { metadata: { ...(existing.metadata ?? {}), ...updates.metadata } }
 				: {}),
 		});
+
+		invalidateKernelContextCache(
+			context,
+			organizationId,
+			"organization.updated",
+		);
 
 		// Sync name to Descope tenant (non-blocking)
 		if (existing.descopeTenantId && updates.name) {

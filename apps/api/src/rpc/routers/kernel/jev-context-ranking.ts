@@ -1,6 +1,7 @@
 import { parseJevSettings } from "@tedix/api-contract/schemas/jev";
 import type { DbClient } from "@tedix/db/client";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
+import type { KernelContextCache } from "../../../kernel/context-cache";
 import { executeJevJudgment } from "../../../services/jev-judgment";
 import type {
 	KernelGatewayContext,
@@ -164,8 +165,15 @@ export function createJevContextRanker(
 	signal?: AbortSignal,
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void,
 	purpose: "contextRanking" | "skillRanking" = "contextRanking",
+	contextCache?: KernelContextCache,
 ): ContextCandidateRanker {
-	const settings = getOrganizationById(db, context.organizationId!)
+	const organizationId = context.organizationId!;
+	const readOrganization = () => getOrganizationById(db, organizationId);
+	const settings = (
+		contextCache
+			? contextCache.read(organizationId, "organization", readOrganization)
+			: readOrganization()
+	)
 		.then((org) => (org ? parseJevSettings(org.metadata) : null))
 		.catch(() => null);
 	const cache = new Map<string, Promise<string[] | null>>();

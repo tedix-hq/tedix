@@ -69,6 +69,11 @@ import {
 	type StepPressure,
 } from "./context-compaction";
 import {
+	type CacheTrace,
+	createCacheTrace,
+	type KernelContextCache,
+} from "../../../kernel/context-cache";
+import {
 	getTediCapabilityCards,
 	isKernelVisibleTedi,
 	type TediCapabilityCard,
@@ -241,6 +246,12 @@ export interface KernelContext {
 		matches: RetrievedSkillMatch[];
 		unresolved: string[];
 	};
+	/**
+	 * Which slow-changing inputs this pass served from the per-org cache
+	 * (`context-cache.ts`). Stamped into `contextManifest.cache`; never
+	 * rendered into the prompt. Absent when assembly ran without a cache.
+	 */
+	cache?: CacheTrace;
 }
 
 // ============================================================================
@@ -1070,9 +1081,26 @@ export async function assembleHomeContext(
 			workpiece?: { kind: "gadget" | "output"; id: string; name: string };
 		};
 		selectedWorkspaceDocument?: string | null;
+		/**
+		 * Per-org TTL cache for the slow-changing inputs (roster, apps, workflow
+		 * catalogue, priors, member row, workspace resources, capability-card
+		 * pieces). Supplied by the org `KernelDO`; absent (tests, the inline
+		 * fallback path) every read goes to D1 as before. Per-turn inputs —
+		 * history, work items, facts, recall, conversation state, referenced
+		 * skills, the selected document — are never cached.
+		 */
+		contextCache?: KernelContextCache;
 	},
 ): Promise<KernelContext> {
 	const descopeUserId = opts?.descopeUserId;
+	const contextCache = opts?.contextCache;
+	const cacheTrace = contextCache ? createCacheTrace() : undefined;
+	// Cached entries resolve immediately inside the same parallel wave; a miss
+	// runs the very same query the uncached path runs.
+	const cached = <T>(key: string, read: () => Promise<T>): Promise<T> =>
+		contextCache
+			? contextCache.read(organizationId, key, read, cacheTrace)
+			: read();
 	const conversationId = opts?.conversationId;
 	const maxPromptTokens = opts?.maxPromptTokens ?? DEFAULT_MAX_PROMPT_TOKENS;
 	const extraPromptChars = Math.max(0, opts?.extraPromptChars ?? 0);
@@ -1095,12 +1123,12 @@ export async function assembleHomeContext(
 	// until the roster arrives. Production stage timings showed that the former
 	// two-wave barrier cost 4.2s before the planner could start.
 	const tediRowsPromise = safeRead(
-		() => getTedisByOrganization(db, organizationId),
+		() => cached("tedis", () => getTedisByOrganization(db, organizationId)),
 		[],
 		"tedis",
 	);
 	const appRowsPromise = safeRead(
-		() => getAppsByOrganization(db, organizationId),
+		() => cached("apps", () => getAppsByOrganization(db, organizationId)),
 		[],
 		"apps",
 	);
@@ -1114,7 +1142,14 @@ export async function assembleHomeContext(
 		appRowsPromise,
 	]).then(([tedis, apps]) =>
 		safeRead(
-			() => getTediCapabilityCards(db, organizationId, { tedis, apps }),
+			() =>
+				getTediCapabilityCards(db, organizationId, {
+					tedis,
+					apps,
+					...(contextCache
+						? { cache: { cache: contextCache, trace: cacheTrace } }
+						: {}),
+				}),
 			[] as TediCapabilityCard[],
 			"tediCapabilities",
 		),
@@ -1252,17 +1287,24 @@ export async function assembleHomeContext(
 		),
 		safeRead(
 			() =>
-				listKernelWorkflowCatalog(db, organizationId, {
-					// Wider pool than the render cap — ranked down to
-					// WORKFLOW_CATALOG_LIMIT by relevance to the operator message below.
-					limit: WORKFLOW_CATALOG_POOL,
-				}),
+				cached("workflows", () =>
+					listKernelWorkflowCatalog(db, organizationId, {
+						// Wider pool than the render cap — ranked down to
+						// WORKFLOW_CATALOG_LIMIT by relevance to the operator message below.
+						limit: WORKFLOW_CATALOG_POOL,
+					}),
+				),
 			[] as { slug: string; title: string }[],
 			"workflows",
 		),
 		descopeUserId
 			? safeRead(
-					() => getMemberByUserId(db, organizationId, descopeUserId),
+					// The member row is a lookup by user id, not an authorization
+					// result; keyed per user so one speaker never serves another.
+					() =>
+						cached(`speaker:${descopeUserId}`, () =>
+							getMemberByUserId(db, organizationId, descopeUserId),
+						),
 					undefined,
 					"speaker",
 				)
@@ -1290,7 +1332,10 @@ export async function assembleHomeContext(
 		// KERNEL_SELECTION_PRIORS; fail-soft → empty Map leaves the roster as-is.
 		selectionPriorsEnabled()
 			? safeRead(
-					() => summarizeTediSelectionPriors(db, { orgId: organizationId }),
+					() =>
+						cached("selectionPriors", () =>
+							summarizeTediSelectionPriors(db, { orgId: organizationId }),
+						),
 					new Map<string, TediSelectionPrior>(),
 					"selectionPriors",
 				)
@@ -1323,12 +1368,14 @@ export async function assembleHomeContext(
 		selectedWorkspaceId
 			? safeRead(
 					() =>
-						listOsWorkspaceResources(db, {
-							organizationId,
-							workspaceId: selectedWorkspaceId,
-							status: "active",
-							limit: 13,
-						}),
+						cached(`workspaceResources:${selectedWorkspaceId}`, () =>
+							listOsWorkspaceResources(db, {
+								organizationId,
+								workspaceId: selectedWorkspaceId,
+								status: "active",
+								limit: 13,
+							}),
+						),
 					[],
 					"workspaceResources",
 				)
@@ -1599,6 +1646,7 @@ export async function assembleHomeContext(
 	const draftCtx: KernelContext = {
 		selectedWorkspaceDocument: opts?.selectedWorkspaceDocument ?? null,
 		delegationAvailable: opts?.delegationAvailable,
+		...(cacheTrace ? { cache: cacheTrace } : {}),
 		workspace,
 		tedis: rankedTedis,
 		apps,

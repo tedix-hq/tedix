@@ -52,6 +52,10 @@ import {
 	type HomeAttachmentResolver,
 } from "./attachment-content";
 import { chunkAnswerForDelivery } from "./answer-delivery";
+import type {
+	CacheTrace,
+	KernelContextCache,
+} from "../../../kernel/context-cache";
 import {
 	assembleHomeContext,
 	DEFAULT_MAX_PROMPT_TOKENS,
@@ -127,6 +131,12 @@ export interface KernelResult {
 		recallAgeMs: number | null;
 		recallCandidates: number;
 		recallWaitedMs: number;
+		/**
+		 * Which slow-changing inputs the per-org context cache served this
+		 * turn (`context-cache.ts`). Absent when the turn ran without a cache
+		 * (inline fallback path); a live probe reads it to prove a hit.
+		 */
+		cache?: CacheTrace;
 	};
 	/** Model-facing request text and media shape, held only for the fail-closed
 	 * redacted Kernel trace writer. Never persist this object in D1 metadata. */
@@ -472,11 +482,18 @@ export async function runKernel(args: {
 	 * blended when the in-flight one has not settled inside the budget.
 	 */
 	previousRelevanceRecall?: StoredRelevanceRecall | null;
+	/**
+	 * Per-org TTL cache for the slow-changing context inputs, owned by the org
+	 * `KernelDO` (`context-cache.ts`). Absent on the inline fallback path, where
+	 * no invalidation could reach it, so every read goes to D1.
+	 */
+	contextCache?: KernelContextCache;
 }): Promise<KernelResult | null> {
 	const {
 		db,
 		env,
 		organizationId,
+		contextCache,
 		descopeUserId,
 		content: inputContent,
 		modelRef,
@@ -556,6 +573,8 @@ export async function runKernel(args: {
 		gatewayContext,
 		abortSignal,
 		args.onExecutionAttempts,
+		"contextRanking",
+		contextCache,
 	);
 	const delegationCandidateRanker = createJevDelegationRanker(
 		db,
@@ -563,6 +582,7 @@ export async function runKernel(args: {
 		gatewayContext,
 		abortSignal,
 		args.onExecutionAttempts,
+		contextCache,
 	);
 	// Size the selected provider without an outage-driven provider switch.
 	const laneBudget = (): number =>
@@ -605,6 +625,7 @@ export async function runKernel(args: {
 			workspaceContext,
 			maxPromptTokens: pass.maxPromptTokens,
 			selectedWorkspaceDocument: args.selectedWorkspaceDocument,
+			...(contextCache ? { contextCache } : {}),
 			...(summarizeHistory ? { summarizeHistory } : {}),
 			...(pass.forceCompaction ? { forceCompaction: true } : {}),
 			...(pass.extraPromptChars
@@ -659,6 +680,9 @@ export async function runKernel(args: {
 			recallAgeMs: ctx.relevanceRecall?.ageMs ?? null,
 			recallCandidates: ctx.relevanceRecall?.candidates ?? 0,
 			recallWaitedMs: ctx.relevanceRecall?.waitedMs ?? 0,
+			// The same trace object assembly recorded into, so a cached read that
+			// lands after this manifest is built (the org policy layer) still shows.
+			...(ctx.cache ? { cache: ctx.cache } : {}),
 		};
 	}
 
@@ -892,7 +916,11 @@ export async function runKernel(args: {
 		//              the same query shape as `readOrgGovernancePolicy`.
 		// All three are null/absent unless a `gatingPolicy` is configured, so a
 		// deployment with none keeps the pre-existing two-layer behavior.
-		const orgPolicy = await readOrgDispatchPolicyLayer(db, organizationId);
+		const orgPolicy = await readOrgDispatchPolicyLayer(
+			db,
+			organizationId,
+			contextCache ? { cache: contextCache, trace: context.cache } : undefined,
+		);
 		const executionRequirement = deriveExecutionRequirement(content, route);
 		const executionEnvironment =
 			(env as unknown as { ENVIRONMENT?: string }).ENVIRONMENT ?? "development";

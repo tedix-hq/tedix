@@ -64,6 +64,7 @@ import {
 	retireTedi,
 	updateTedi,
 } from "@tedix/db/queries/tedis";
+import { invalidateKernelContextCache } from "../../../kernel/context-cache";
 import {} from "@tedix/db/schema/control-plane";
 import { TEDI_RUNTIME_ACCESS_TOKEN_SECRET_NAME } from "@tedix/db/schema/tedi-secrets";
 import type { McpCapabilityProfile } from "@tedix/db/schema/tedis";
@@ -757,6 +758,7 @@ async function createTediResources(
 		);
 	});
 
+	invalidateKernelContextCache(context, tedi.organizationId, "tedi.created");
 	return toTediDto(tedi, {
 		overrides: {
 			toolPolicy: null,
@@ -998,6 +1000,12 @@ export const updateTediProcedure = authedTedisOs.update
 		}
 
 		const tedi = await updateTedi(context.db, tediId, updateData);
+		if (tedi)
+			invalidateKernelContextCache(
+				context,
+				tedi.organizationId,
+				"tedi.updated",
+			);
 
 		if (!tedi) {
 			throw createError(
@@ -1550,6 +1558,11 @@ export const updateTediGovernanceProcedure = authedTedisOs.updateGovernance
 		const updated = await updateTedi(context.db, tedi.id, {
 			governanceOverride: override,
 		});
+		invalidateKernelContextCache(
+			context,
+			tedi.organizationId,
+			"tedi.governance_updated",
+		);
 
 		if (!updated) {
 			throw createError(
@@ -2388,7 +2401,10 @@ export const decommissionTediProcedure = authedTedisOs.decommission
 						detail: json?.profile ?? `runtime returned status ${res.status}`,
 					};
 				},
-				deleteRow: () => deleteTedi(context.db, tedi.id),
+				deleteRow: async () => {
+					await deleteTedi(context.db, tedi.id);
+					invalidateKernelContextCache(context, orgId, "tedi.deleted");
+				},
 				// Always-emit audit hook: fires on success and on a mid-orchestration
 				// thrown failure (with the partial stage outcomes) before the throw
 				// propagates. Fail-soft — never let audit I/O mask the real outcome.

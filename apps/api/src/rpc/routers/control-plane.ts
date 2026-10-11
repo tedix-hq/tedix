@@ -49,6 +49,7 @@ import {
 	rollbackRuntimeProfileRevision,
 	rollbackWorkspaceTemplateSetRevision,
 } from "@tedix/db/queries/control-plane/revisions";
+import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { listPlatformCronExecutionSummaries } from "@tedix/db/queries/platform-cron-executions";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type {
@@ -477,6 +478,11 @@ const createPolicyPackProcedure = authedOs.createPolicyPack
 			publishedBy: publishedBy(context),
 			changeSummary: "Initial revision",
 		});
+		invalidateKernelContextCache(
+			context,
+			input.organizationId ?? orgId,
+			"policy_pack.created",
+		);
 		return pack;
 	});
 
@@ -575,6 +581,11 @@ const activatePolicyPackRevisionProcedure = authedOs.activatePolicyPackRevision
 				tediId: input.tediId,
 			});
 		}
+		invalidateKernelContextCache(
+			context,
+			input.organizationId,
+			"policy_pack.activated",
+		);
 		return {
 			bindingApplied: true as const,
 			revisionId: input.id,
@@ -598,10 +609,10 @@ const listPolicyPackRevisionsProcedure = authedOs.listPolicyPackRevisions
 const publishPolicyPackRevisionProcedure = authedOs.publishPolicyPackRevision
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
-		requireOrgId(context);
+		const orgId = requireOrgId(context);
 		const existing = await getPolicyPackById(context.db, input.id);
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
-		return unwrapRevision(
+		const revised = unwrapRevision(
 			await publishPolicyPackRevision(context.db, {
 				revisionId: input.id,
 				expectedVersion: input.expectedVersion,
@@ -614,6 +625,12 @@ const publishPolicyPackRevisionProcedure = authedOs.publishPolicyPackRevision
 			}),
 			"Policy pack not found",
 		);
+		invalidateKernelContextCache(
+			context,
+			existing?.organizationId ?? orgId,
+			"policy_pack.revised",
+		);
+		return revised;
 	});
 
 const diffPolicyPackRevisionsProcedure = authedOs.diffPolicyPackRevisions
@@ -653,7 +670,7 @@ const rollbackPolicyPackRevisionProcedure = authedOs.rollbackPolicyPackRevision
 		]);
 		assertOwnedControlPlaneRecord(context, current, "Policy pack not found");
 		assertOwnedControlPlaneRecord(context, target, "Policy pack not found");
-		return unwrapRevision(
+		const rolledBack = unwrapRevision(
 			await rollbackPolicyPackRevision(context.db, {
 				organizationId,
 				tediId: input.tediId,
@@ -665,12 +682,18 @@ const rollbackPolicyPackRevisionProcedure = authedOs.rollbackPolicyPackRevision
 			}),
 			"Policy pack not found",
 		);
+		invalidateKernelContextCache(
+			context,
+			organizationId,
+			"policy_pack.rolled_back",
+		);
+		return rolledBack;
 	});
 
 const deletePolicyPackProcedure = authedOs.deletePolicyPack
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
-		requireOrgId(context);
+		const orgId = requireOrgId(context);
 		const existing = await getPolicyPackById(context.db, input.id);
 		assertOwnedControlPlaneRecord(context, existing, "Policy pack not found");
 		unwrapRevision(
@@ -681,6 +704,11 @@ const deletePolicyPackProcedure = authedOs.deletePolicyPack
 				publishedBy: publishedBy(context),
 			}),
 			"Policy pack not found",
+		);
+		invalidateKernelContextCache(
+			context,
+			existing?.organizationId ?? orgId,
+			"policy_pack.archived",
 		);
 		return { success: true as const };
 	});

@@ -1,6 +1,7 @@
 import { parseJevSettings } from "@tedix/api-contract/schemas/jev";
 import type { DbClient } from "@tedix/db/client";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
+import type { KernelContextCache } from "../../../kernel/context-cache";
 import type { JevEnv } from "@tedix/workers-ai/jev";
 import {
 	executeJevJudgment,
@@ -31,9 +32,15 @@ export function createJevDelegationRanker(
 	context: KernelGatewayContext,
 	signal?: AbortSignal,
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void,
+	contextCache?: KernelContextCache,
 ): ContextCandidateRanker {
-	const settings = context.organizationId
-		? getOrganizationById(db, context.organizationId)
+	const organizationId = context.organizationId;
+	const readOrganization = () => getOrganizationById(db, organizationId!);
+	const settings = organizationId
+		? (contextCache
+				? contextCache.read(organizationId, "organization", readOrganization)
+				: readOrganization()
+			)
 				.then((org) =>
 					org
 						? parseJevSettings(org.metadata)
