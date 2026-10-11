@@ -424,8 +424,14 @@ export async function syncCatalogAppFromStore(
 				safetyStatus: input.safetyStatus ?? existingApp.safetyStatus,
 				sourceCreatedAt: mergedSourceCreatedAt,
 				// Update endpoint fields (prefer input if provided, keep existing otherwise)
-				// This ensures endpoint data stays current as stores update their URLs
-				baseUrl: input.baseUrl ?? existingApp.baseUrl,
+				// This ensures endpoint data stays current as stores update their URLs.
+				// A `{url}` template never replaces a concrete endpoint: a template
+				// listing merged onto its runnable vendor row matches that row by
+				// listing, and must not break it on every import.
+				baseUrl:
+					isTemplatedMcpEndpoint(input.baseUrl) && existingApp.mcpEndpointHash
+						? existingApp.baseUrl
+						: (input.baseUrl ?? existingApp.baseUrl),
 				mcpEndpointNormalized:
 					mcpEndpointNormalized ?? existingApp.mcpEndpointNormalized,
 				mcpEndpointHash: mcpEndpointHash ?? existingApp.mcpEndpointHash,
