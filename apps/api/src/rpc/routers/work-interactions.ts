@@ -77,6 +77,8 @@ export interface ResolutionDelivery {
 	responderType: string | null;
 	source: string | null;
 	sessionId: string | null;
+	/** The answer's own `metadata.delivery` ("none": a closure, never delivered). */
+	delivery?: string | null;
 	deliveredAt: string | null;
 	deliveredVia: string | null;
 	acknowledgedAt: string | null;
@@ -110,6 +112,14 @@ export function deliveryOverlay(
 	)
 		return null;
 	if (resolution.deliveredVia === "legacy") return null;
+	if (resolution.delivery === "none")
+		return {
+			state: "not_needed" as const,
+			via: "none" as const,
+			deliveredAt: resolution.deliveredAt,
+			acknowledgedAt: resolution.acknowledgedAt,
+			handoffTo: null,
+		};
 	const via =
 		resolution.deliveredVia && DELIVERY_VIAS.has(resolution.deliveredVia)
 			? resolution.deliveredVia

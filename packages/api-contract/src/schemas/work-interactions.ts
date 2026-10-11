@@ -240,7 +240,7 @@ export const RespondToWorkInteractionInputSchema = z
 		metadata: metadataSchema
 			.default({})
 			.describe(
-				"Bounded response metadata. An answer that started from the request's latestDraft cites it as {draftId, draftOutcome: accepted|edited|replaced, editRatio: 0..1}; draft acceptance is measured from these keys.",
+				'Bounded response metadata. An answer that started from the request\'s latestDraft cites it as {draftId, draftOutcome: accepted|edited|replaced, editRatio: 0..1}; draft acceptance is measured from these keys. `delivery: "none"` marks a closure (a status update acknowledged, not a question answered) that must not be delivered to the asking session or handed off: it never appears in list_undelivered_work_interaction_responses and is ledgered as not needed.',
 			),
 	})
 	.superRefine((value, context) => {
@@ -462,11 +462,18 @@ export const WorkInteractionDeliveryViaSchema = z.enum([
 /**
  * Where a session question's answer stands, shown as `metadata.delivery` on
  * the request: saved (not yet in the session), delivered, acknowledged (the
- * session ran a turn on it), or handed off to the user's lead session.
+ * session ran a turn on it), handed off to the user's lead session, or not
+ * needed (the answer was a closure sent with `metadata.delivery: "none"`).
  */
 export const WorkInteractionDeliveryOverlaySchema = z.object({
-	state: z.enum(["saved", "delivered", "acknowledged", "handed_off"]),
-	via: WorkInteractionDeliveryViaSchema.nullable(),
+	state: z.enum([
+		"saved",
+		"delivered",
+		"acknowledged",
+		"handed_off",
+		"not_needed",
+	]),
+	via: WorkInteractionDeliveryViaSchema.or(z.literal("none")).nullable(),
 	deliveredAt: z.string().nullable(),
 	acknowledgedAt: z.string().nullable(),
 	handoffTo: z.string().nullable(),

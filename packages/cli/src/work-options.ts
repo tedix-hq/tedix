@@ -57,6 +57,10 @@ export function parseWorkOption(
 		case "--mine":
 			options.workMine = true;
 			break;
+		// `work interaction-respond`: a closure, never delivered to the session.
+		case "--no-deliver":
+			options.workNoDeliver = true;
+			break;
 		// Literal paths remain separate, including embedded spaces.
 		case "--path":
 			(options.workPaths ??= []).push(requireValue(arg, args[++index]));

@@ -114,7 +114,7 @@ export const workInteractionsContract = oc
 				path: "/responses/undelivered",
 				summary: "List the caller's answers not yet delivered to their session",
 				description:
-					"The caller's own answers to agent-session questions (metadata.sessionId) that no client has recorded as delivered, oldest first. A reply typed in the asking session itself is never listed. Clients deliver each one to its session, then call ack_work_interaction_delivery.",
+					'The caller\'s own answers to agent-session questions (metadata.sessionId) that no client has recorded as delivered, oldest first. A reply typed in the asking session itself, or a closure answered with metadata.delivery="none", is never listed. Clients deliver each one to its session, then call ack_work_interaction_delivery.',
 			})
 			.input(ListUndeliveredWorkInteractionResponsesInputSchema)
 			.output(ListUndeliveredWorkInteractionResponsesResultSchema),

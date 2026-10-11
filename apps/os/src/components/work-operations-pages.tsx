@@ -1548,6 +1548,8 @@ export function answerDeliveryLine(
 		}
 		case "acknowledged":
 			return { text: "Acknowledged", pending: false };
+		case "not_needed":
+			return { text: "Closed (no delivery)", pending: false };
 		case "handed_off":
 			return {
 				text: `Couldn't reach the session — handed to ${delivery.handoffTo ?? "your lead session"}`,

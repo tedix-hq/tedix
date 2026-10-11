@@ -1147,6 +1147,7 @@ async function main() {
 					...(options.workEvidenceMetadata
 						? { evidenceMetadata: options.workEvidenceMetadata }
 						: {}),
+					...(options.workNoDeliver ? { noDeliver: true } : {}),
 					...(options.idempotencyKey
 						? { idempotencyKey: options.idempotencyKey }
 						: {}),

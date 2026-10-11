@@ -136,6 +136,11 @@ export interface WorkOptions {
 	evidenceLabel?: string;
 	/** `submit-evidence`: inline JSON or @path metadata object. */
 	evidenceMetadata?: string;
+	/**
+	 * `interaction-respond --no-deliver`: the answer closes a status update,
+	 * so it is never delivered to the asking session or handed off.
+	 */
+	noDeliver?: boolean;
 	/** Agent SESSION id (`--session`); traces a board write to one harness run. */
 	session?: string;
 	/** `delegate`: subagent|session — how the brief reaches its executor. */
@@ -2725,6 +2730,8 @@ Factory controls (--input accepts inline JSON or @path):
   milestone-list|create|update|attach|dependency-add · health-list|record
   approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
   interaction-list|interaction-outbox-list|interaction-audit-list|interaction-get|interaction-create|interaction-respond|interaction-cancel
+  interaction-respond <id> --input '{…}' [--no-deliver] (closing a status update, not answering an ask:
+    sets response metadata.delivery="none"; never delivered to the asking session nor handed off)
   interaction-undelivered|interaction-ack (your answers not yet delivered to the asking session; record delivery)
   interaction-draft-delivered <id> --input '{"draftId":…,"via":"hook"}' (an auto draft reached the session: answer in the tedi's name)
   claim-files <id> --repo-key <stable-repo-key> --path <relative-file> [--path ...]
@@ -2762,7 +2769,10 @@ interface StructuredFactoryVerb {
 	write: boolean;
 	pathField?: string;
 	defaultInput?: (ctx: WorkContext) => Record<string, unknown>;
-	transform?: (input: Record<string, unknown>) => Record<string, unknown>;
+	transform?: (
+		input: Record<string, unknown>,
+		ctx: WorkContext,
+	) => Record<string, unknown>;
 }
 
 const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
@@ -2889,6 +2899,18 @@ const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		tool: "respond_work_interaction",
 		write: true,
 		pathField: "requestId",
+		// --no-deliver: response metadata.delivery="none" (a closure the
+		// asking session need not see; never listed as undelivered).
+		transform: (input, ctx) =>
+			ctx.work.noDeliver
+				? {
+						...input,
+						metadata: {
+							...(isRecord(input.metadata) ? input.metadata : {}),
+							delivery: "none",
+						},
+					}
+				: input,
 	},
 	"interaction-cancel": {
 		tool: "cancel_work_interaction",
@@ -2966,14 +2988,14 @@ function structuredFactoryInput(
 				spec.pathField && pathId
 					? { ...defaults, [spec.pathField]: pathId }
 					: defaults;
-			return spec.transform?.(withPath) ?? withPath;
+			return spec.transform?.(withPath, ctx) ?? withPath;
 		}
 		throw new Error(`work ${verb} requires --input <json|@path>`);
 	}
 	const parsed = parseObjectArgument(raw, "--input");
 	const input =
 		spec.pathField && pathId ? { ...parsed, [spec.pathField]: pathId } : parsed;
-	return spec.transform?.(input) ?? input;
+	return spec.transform?.(input, ctx) ?? input;
 }
 
 async function workStructuredFactory(
