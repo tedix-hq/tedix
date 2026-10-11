@@ -194,6 +194,77 @@ function autoRouterToolChoice(choice: CallOptions["toolChoice"]): unknown {
 		: choice.type;
 }
 
+interface StructuredOutputTool {
+	type: "function";
+	function: { name: string; description?: string; parameters: unknown };
+}
+
+/**
+ * A schema'd JSON stream (`streamObject`) becomes one forced tool whose
+ * parameters are the schema. Only streams qualify: a non-streaming request
+ * keeps `response_format: json_schema`, and a schemaless `json_object` request
+ * has no parameters to force.
+ */
+function streamedStructuredTool(
+	call: CallOptions,
+): StructuredOutputTool | null {
+	const format = call.responseFormat;
+	if (format?.type !== "json" || !format.schema) return null;
+	if ((call.tools?.length ?? 0) > 0) return null;
+	return {
+		type: "function",
+		function: {
+			name: format.name ?? "response",
+			...(format.description ? { description: format.description } : {}),
+			parameters: format.schema,
+		},
+	};
+}
+
+/**
+ * Replay the forced tool's streamed arguments as the text deltas
+ * `streamObject` parses. Assistant text is dropped (a model that answered in
+ * prose instead of calling the tool yields no object, which the caller treats
+ * as an empty stream); reasoning passes through; the tool-calls finish reason
+ * reads as a normal stop.
+ */
+function structuredToolAsText(
+	stream: ReadableStream<StreamPart>,
+): ReadableStream<StreamPart> {
+	const id = "obj-0";
+	return stream.pipeThrough(
+		new TransformStream<StreamPart, StreamPart>({
+			transform(part, controller) {
+				switch (part.type) {
+					case "tool-input-start":
+						controller.enqueue({ type: "text-start", id });
+						return;
+					case "tool-input-delta":
+						controller.enqueue({ type: "text-delta", id, delta: part.delta });
+						return;
+					case "tool-input-end":
+						controller.enqueue({ type: "text-end", id });
+						return;
+					case "tool-call":
+					case "text-start":
+					case "text-delta":
+					case "text-end":
+						return;
+					case "finish":
+						controller.enqueue({
+							...part,
+							finishReason:
+								part.finishReason === "tool-calls" ? "stop" : part.finishReason,
+						});
+						return;
+					default:
+						controller.enqueue(part);
+				}
+			},
+		}),
+	);
+}
+
 interface AutoRouterWireResponse {
 	choices?: Array<{
 		finish_reason?: string;
@@ -250,7 +321,17 @@ export function cloudflareAutoRouterModel(
 		if (call.maxOutputTokens !== undefined)
 			body.max_completion_tokens = call.maxOutputTokens;
 		if (call.temperature !== undefined) body.temperature = call.temperature;
-		if (call.responseFormat?.type === "json") {
+		const structuredTool = stream ? streamedStructuredTool(call) : null;
+		if (structuredTool) {
+			// Streamed structured output rides a forced tool call: the compat
+			// endpoint buffers `response_format: json_schema` streams (zero content
+			// deltas) but streams tool arguments incrementally.
+			body.tools = [structuredTool];
+			body.tool_choice = {
+				type: "function",
+				function: { name: structuredTool.function.name },
+			};
+		} else if (call.responseFormat?.type === "json") {
 			const format = call.responseFormat;
 			body.response_format = format.schema
 				? {
@@ -378,7 +459,8 @@ export function cloudflareAutoRouterModel(
 		supportedUrls: {},
 		doGenerate: generate,
 		async doStream(call) {
-			if (call.responseFormat?.type !== "json") {
+			const structured = streamedStructuredTool(call) !== null;
+			if (structured || call.responseFormat?.type !== "json") {
 				const response = await dispatch(call, true);
 				if (
 					!response.body ||
@@ -387,14 +469,13 @@ export function cloudflareAutoRouterModel(
 					await response.body?.cancel();
 					throw new Error("Auto Router did not return an event stream");
 				}
-				return {
-					stream: autoRouterSdkStream(
-						response.body,
-						responseMetadata(response),
-					),
-				};
+				const stream = autoRouterSdkStream(
+					response.body,
+					responseMetadata(response),
+				);
+				return { stream: structured ? structuredToolAsText(stream) : stream };
 			}
-			// Workers AI structured JSON requires a complete validated response.
+			// Schemaless JSON mode requires a complete validated response.
 			const result = await generate(call);
 			const stream = new ReadableStream<StreamPart>({
 				start(controller) {

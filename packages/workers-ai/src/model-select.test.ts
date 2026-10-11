@@ -27,8 +27,74 @@ describe("Auto Router structured output contract", () => {
 	it.each(["generate", "stream"] as const)(
 		"preserves the SDK %s schema",
 		async (mode) => {
+			const encode = (value: unknown) =>
+				new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
 			const fetchMock = vi.fn(async (_url, init: RequestInit) => {
 				const body = JSON.parse(init.body as string);
+				if (mode === "stream") {
+					// A streamed schema rides a forced tool call: the compat endpoint
+					// buffers json_schema streams but streams tool arguments.
+					expect(body.response_format).toBeUndefined();
+					expect(body.tools).toEqual([
+						{
+							type: "function",
+							function: {
+								name: "home_route",
+								description: "Complete routing decision",
+								parameters: schema.jsonSchema,
+							},
+						},
+					]);
+					expect(body.tool_choice).toEqual({
+						type: "function",
+						function: { name: "home_route" },
+					});
+					const frames = [
+						{
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_1",
+												function: {
+													name: "home_route",
+													arguments: '{"answer":',
+												},
+											},
+										],
+									},
+								},
+							],
+						},
+						{
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												function: { arguments: '"4","targetTediId":null}' },
+											},
+										],
+									},
+									finish_reason: "tool_calls",
+								},
+							],
+							usage: { prompt_tokens: 12, completion_tokens: 10 },
+						},
+					];
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								for (const frame of frames) controller.enqueue(encode(frame));
+								controller.close();
+							},
+						}),
+						{ headers: { "content-type": "text/event-stream" } },
+					);
+				}
 				expect(body.response_format).toEqual({
 					type: "json_schema",
 					json_schema: {
@@ -75,12 +141,20 @@ describe("Auto Router structured output contract", () => {
 					});
 				} else {
 					const result = streamObject(options);
-					for await (const _partial of result.partialObjectStream) {
-						/* drain */
-					}
+					const partials = [];
+					for await (const partial of result.partialObjectStream)
+						partials.push(partial);
+					// Partials arrive from the streamed arguments, not one final blob.
+					expect(partials.length).toBeGreaterThan(1);
+					expect(partials.at(-1)).toEqual({ answer: "4", targetTediId: null });
 					expect(await result.object).toEqual({
 						answer: "4",
 						targetTediId: null,
+					});
+					expect(await result.finishReason).toBe("stop");
+					expect(await result.usage).toMatchObject({
+						inputTokens: 12,
+						outputTokens: 10,
 					});
 				}
 				expect(fetchMock).toHaveBeenCalledTimes(1);
