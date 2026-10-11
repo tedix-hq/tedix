@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.3 — 2026-10-11
+
+### Fixed
+
+- `tedix supervise` no longer changes its own working directory to read a
+  session's context; under launchd that failed every check with a `getcwd`
+  error, so no answers were delivered overnight. Reads now run in the
+  session's checkout directly.
+- A failed CLI read names the exit code or signal and the end of the child's
+  error output, and the supervisor log says why undelivered answers could not
+  be read.
+
 ## 0.8.2 — 2026-10-10
 
 ### Fixed
