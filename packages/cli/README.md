@@ -53,6 +53,9 @@ and durable answer settlement.
   closed Claude Code session is resumed with `claude -p --resume`, never one
   open in a terminal; Codex reuses queue/resume; after two hours the answer
   becomes a delegated Work Item for the lead session.
+  If Codex queue withdrawal fails, the supervisor keeps a private receipt
+  across retries and restarts and starts no headless turn. Delivery remains
+  unconfirmed until the transcript shows the reply or withdrawal succeeds.
 
 - **MCP Home client** (`home-client.ts`) — `TedixHomeClient` wraps
   `@modelcontextprotocol/client`'s `StreamableHTTPClientTransport` and calls
