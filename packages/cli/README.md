@@ -51,8 +51,9 @@ and durable answer settlement.
   also drains the user's own OS answers no hook delivered
   (`work interaction-undelivered`, recorded with `work interaction-ack`): a
   closed Claude Code session is resumed with `claude -p --resume`, never one
-  open in a terminal; Codex reuses queue/resume; after two hours the answer
-  becomes a delegated Work Item for the lead session.
+  open in a terminal; Codex reuses queue/resume. An unavailable originating
+  chat leaves its answer undelivered; no other chat or new Work Item is chosen.
+  Delegation remains an explicit `tedix work delegate` action.
   If Codex queue withdrawal fails, the supervisor keeps a private receipt
   across retries and restarts and starts no headless turn. Delivery remains
   unconfirmed until the transcript shows the reply or withdrawal succeeds.

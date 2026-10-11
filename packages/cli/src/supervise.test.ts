@@ -24,7 +24,6 @@ import {
 	type ClaudeDriver,
 	CODEX_IDLE_MS,
 	type CodexDriver,
-	HANDOFF_AFTER_MS,
 	launchAgentPlist,
 	loadLaunchAgent,
 	OPEN_SESSION_GRACE_MS,
@@ -306,7 +305,6 @@ describe("tedix supervise", () => {
 	describe("undelivered OS answers", () => {
 		const CLAUDE = "11111111-1111-4111-8111-111111111111";
 		const CODEX = "22222222-2222-4222-8222-222222222222";
-		const LEAD = "33333333-3333-4333-8333-333333333333";
 		const WORK = "44444444-4444-4444-8444-444444444444";
 		const answer = (
 			session: string,
@@ -338,14 +336,12 @@ describe("tedix supervise", () => {
 			{
 				open = false,
 				started = true,
-				lead = LEAD as string | null,
 				received = true,
 				withdrawn = true,
 				undeliveredError,
 			}: {
 				open?: boolean | undefined;
 				started?: boolean;
-				lead?: string | null;
 				received?: boolean;
 				withdrawn?: boolean;
 				undeliveredError?: Error;
@@ -361,7 +357,6 @@ describe("tedix supervise", () => {
 			let finish: (ok: boolean) => void = () => {};
 			const claude: ClaudeDriver = {
 				open: () => open,
-				name: (session) => (session === LEAD ? "LEARN" : undefined),
 				resume: async (session, message, cwd) => {
 					resumed.push([session, message, cwd]);
 					return {
@@ -389,7 +384,6 @@ describe("tedix supervise", () => {
 				env: { TEDIX_CONFIG_DIR: config },
 				codex,
 				claude,
-				lead: () => lead ?? undefined,
 				now: () => clock,
 				sleep: async (ms) => {
 					clock += ms;
@@ -510,7 +504,7 @@ describe("tedix supervise", () => {
 		test("reads resolve from the session's checkout without changing this process's directory", async () => {
 			sessions([CLAUDE, "claude-code"]);
 			const home = process.cwd();
-			const run = drain([answer(CLAUDE, "claude-code", HANDOFF_AFTER_MS)]);
+			const run = drain([answer(CLAUDE, "claude-code", 3 * 60 * 60 * 1000)]);
 			expect(await run.runner.tick()).toBe(1);
 			expect(process.cwd()).toBe(home);
 			expect(run.cwds.filter(([word]) => word === "setup")).toEqual([
@@ -518,7 +512,7 @@ describe("tedix supervise", () => {
 			]);
 			expect(
 				run.cwds.filter(([, cwd]) => cwd === config).map(([word]) => word),
-			).toEqual(["setup", "-w", "-w", "-w"]);
+			).toEqual(["setup", "-w", "-w"]);
 		});
 
 		test("an unreadable answer list logs the read failure's reason once", async () => {
@@ -582,11 +576,11 @@ describe("tedix supervise", () => {
 				expect(
 					answerAction({
 						host,
-						ageMs: HANDOFF_AFTER_MS,
+						ageMs: 3 * 60 * 60 * 1000,
 						open: true,
 						working: true,
 					}).kind,
-				).toBe("handoff");
+				).toBe("wait");
 		});
 
 		test("resumes a closed Claude Code session headless, then records delivery and acknowledgement", async () => {
@@ -657,44 +651,40 @@ describe("tedix supervise", () => {
 			]);
 		});
 
-		test("hands an answer undelivered for 2 hours to the lead session", async () => {
+		test("an overdue answer stays with an open originating session without new Work", async () => {
 			sessions([CLAUDE, "claude-code"]);
-			const run = drain([answer(CLAUDE, "claude-code", HANDOFF_AFTER_MS)], {
+			const run = drain([answer(CLAUDE, "claude-code", 3 * 60 * 60 * 1000)], {
 				open: true,
 			});
-			expect(await run.runner.tick()).toBe(1);
-			expect(run.resumed).toEqual([]);
-			const [delegate, comment] = run.board;
-			expect(delegate).toContain(`claude-code:${LEAD}`);
-			expect(delegate).toContain(PROJECT);
-			expect(comment!.join(" ")).toContain(
-				`The user's own answer (not a tedi draft): "Yes, ship it."`,
-			);
-			expect(run.acks).toEqual([
-				{
-					responseIds: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
-					via: "handoff",
-					handoffTo: "LEARN",
-					handoffRef: WORK,
-				},
-			]);
-		});
-
-		test("without a lead session an overdue answer is logged and left", async () => {
-			sessions([CLAUDE, "claude-code"]);
-			const run = drain([answer(CLAUDE, "claude-code", HANDOFF_AFTER_MS)], {
-				lead: null,
-			});
 			expect(await run.runner.tick()).toBe(0);
+			expect(await run.runner.tick()).toBe(0);
+			expect(run.resumed).toEqual([]);
 			expect(run.board).toEqual([]);
-			expect(run.lines.join("\n")).toContain("no lead session");
+			expect(run.acks).toEqual([]);
+			expect(run.lines).toHaveLength(1);
+			expect(run.lines[0]).toContain("left undelivered");
 		});
 
-		test("an answer for a session on another machine waits for the hand-off", async () => {
+		test("an overdue answer resumes only its available originating session", async () => {
 			sessions([CLAUDE, "claude-code"]);
-			const run = drain([answer(CODEX, "codex", 60_000)]);
+			const run = drain([answer(CLAUDE, "claude-code", 3 * 60 * 60 * 1000)]);
+			expect(await run.runner.tick()).toBe(1);
+			expect(run.resumed[0]?.[0]).toBe(CLAUDE);
+			expect(run.board).toEqual([]);
+			expect(run.acks[0]).toMatchObject({
+				via: "supervisor_resume",
+				acknowledged: false,
+			});
+		});
+
+		test("an overdue answer with a missing target remains undelivered", async () => {
+			sessions([CLAUDE, "claude-code"]);
+			const run = drain([answer(CODEX, "codex", 3 * 60 * 60 * 1000)]);
 			expect(await run.runner.tick()).toBe(0);
 			expect(run.queued).toEqual([]);
+			expect(run.resumed).toEqual([]);
+			expect(run.board).toEqual([]);
+			expect(run.acks).toEqual([]);
 			expect(run.lines.join("\n")).toContain("not on this machine");
 		});
 	});

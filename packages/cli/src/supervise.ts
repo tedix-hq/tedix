@@ -21,10 +21,9 @@
  * (`work interaction-undelivered`) for sessions on this machine: a closed
  * Claude Code session is resumed headless with `claude -p --resume` in its
  * directory (never one open in a terminal: its hooks deliver there), a Codex
- * session gets the same queue-or-resume as a draft, and an answer still
- * undelivered after two hours is handed to the lead session (the one that
- * registers delegations) as a delegated Work Item carrying the question and
- * answer. Each delivery is recorded on the server; every skip is logged once
+ * session gets the same queue-or-resume as a draft. Missing or unavailable
+ * sessions leave the answer undelivered; no other chat or Work Item is chosen.
+ * Each delivery is recorded on the server; every skip is logged once
  * per answer. Activity goes to `~/.tedix/supervisor.log`.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -52,7 +51,6 @@ import { pruneStatusFiles, statusEnded } from "./hooks/agent-status";
 import {
 	answersMessage,
 	type PendingAnswer,
-	questionOf,
 	undeliveredAnswers,
 } from "./hooks/answer-delivery";
 import { AWAIT_DRAFT_MAX_MS } from "./hooks/await-draft";
@@ -121,14 +119,11 @@ export interface CodexDriver {
 	resume(thread: string, message: string, cwd: string): Promise<boolean>;
 }
 
-/** An answer no client delivered within this long goes to the lead session. */
-export const HANDOFF_AFTER_MS = 2 * 60 * 60 * 1000;
 /** How long an open Claude Code session's own hooks get before it is logged. */
 export const OPEN_SESSION_GRACE_MS = 15 * 60 * 1000;
 /** A failed delivery is retried after this long. */
 const DELIVERY_RETRY_MS = 10 * 60 * 1000;
 const BINDING_TTL_MS = 10 * 60 * 1000;
-const HANDOFF_TIMEOUT_MS = 90_000;
 
 /** The Claude Code operations the supervisor needs; tests replace them with fakes. */
 export interface ClaudeDriver {
@@ -147,8 +142,6 @@ export interface ClaudeDriver {
 		message: string,
 		cwd: string,
 	): Promise<{ started: boolean; done: Promise<boolean> }>;
-	/** The session's name ("LEARN") while it runs, if Claude Code knows one. */
-	name(session: string): string | undefined;
 }
 
 export interface SuperviseDeps {
@@ -157,8 +150,6 @@ export interface SuperviseDeps {
 	codex: CodexDriver;
 	/** Defaults to the real `claude` CLI and its session registry. */
 	claude?: ClaudeDriver;
-	/** The lead session's id; defaults to `leadSession`. */
-	lead?: () => string | undefined;
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (line: string) => void;
@@ -307,15 +298,13 @@ export function localSessions(
 }
 
 export type AnswerAction =
-	| { kind: "handoff" }
 	| { kind: "claude-resume" }
 	| { kind: "codex" }
 	| { kind: "wait"; reason: string };
 
 /**
- * What to do with a session's undelivered answers: hand the overdue ones to
- * the lead session, resume a closed Claude Code session, queue or resume a
- * Codex one, or wait for the session's own hooks.
+ * Deliver only to the originating chat: resume a closed Claude Code session,
+ * queue or resume Codex, or wait for the session's own hooks.
  */
 export function answerAction(input: {
 	host: "claude-code" | "codex";
@@ -325,7 +314,6 @@ export function answerAction(input: {
 	/** Its status says it is running a turn right now. */
 	working: boolean;
 }): AnswerAction {
-	if (input.ageMs >= HANDOFF_AFTER_MS) return { kind: "handoff" };
 	if (input.host === "codex")
 		return input.working
 			? {
@@ -338,37 +326,16 @@ export function answerAction(input: {
 		return {
 			kind: "wait",
 			reason:
-				"cannot tell whether the Claude Code session is open, so it is never resumed; left for the hand-off at 2 hours",
+				"cannot tell whether the Claude Code session is open, so it is never resumed; left undelivered",
 		};
 	if (!input.open) return { kind: "claude-resume" };
 	return {
 		kind: "wait",
 		reason:
 			input.ageMs >= OPEN_SESSION_GRACE_MS
-				? "the Claude Code session is open in a terminal but its hooks have not delivered it after 15 minutes; left for the hand-off at 2 hours"
+				? "the Claude Code session is open in a terminal but its hooks have not delivered it after 15 minutes; left undelivered"
 				: "the Claude Code session is open in a terminal; its hooks deliver it",
 	};
-}
-
-/**
- * The lead session: the one that most recently registered a delegation on
- * this machine (`~/.tedix/delegations/<session>.json`), so its prompt context
- * names every hand-off until it is settled.
- */
-export function leadSession(env: NodeJS.ProcessEnv): string | undefined {
-	const directory = join(configDir(env), "delegations");
-	let best: { session: string; at: number } | undefined;
-	try {
-		for (const name of readdirSync(directory)) {
-			const session = name.replace(/\.json$/, "");
-			if (!name.endsWith(".json") || !UUID.test(session)) continue;
-			const at = statSync(join(directory, name)).mtimeMs;
-			if (!best || at > best.at) best = { session, at };
-		}
-	} catch {
-		return undefined;
-	}
-	return best?.session;
 }
 
 /** One pass with per-question backoff; `supervise --once` runs a fresh one. */
@@ -653,7 +620,7 @@ export class Supervisor {
 
 	/**
 	 * Deliver the user's undelivered answers for this machine's sessions.
-	 * Returns the number of answers delivered or handed off in this pass.
+	 * Returns the number of answers delivered in this pass.
 	 */
 	async drainAnswers(now: number): Promise<number> {
 		const groups = new Map<
@@ -701,7 +668,6 @@ export class Supervisor {
 			for (const [session, list] of bySession)
 				delivered += await this.deliverSession(
 					group.binding,
-					group.cwd,
 					group.sessions.get(session),
 					list,
 					now,
@@ -712,7 +678,6 @@ export class Supervisor {
 
 	private async deliverSession(
 		binding: Binding,
-		groupCwd: string,
 		local: LocalSession | undefined,
 		answers: PendingAnswer[],
 		now: number,
@@ -725,26 +690,20 @@ export class Supervisor {
 				this.note(answer, "the last delivery failed; retrying later");
 		const age = (answer: PendingAnswer) =>
 			now - (Date.parse(answer.respondedAt) || now);
-		const overdue = ready.filter((answer) => age(answer) >= HANDOFF_AFTER_MS);
-		const fresh = ready.filter((answer) => age(answer) < HANDOFF_AFTER_MS);
-		let delivered = 0;
-		for (const answer of overdue)
-			if (await this.handOff(binding, local?.cwd ?? groupCwd, answer))
-				delivered++;
-		if (!fresh.length) return delivered;
+		if (!ready.length) return 0;
 		if (!local) {
-			for (const answer of fresh)
+			for (const answer of ready)
 				this.note(
 					answer,
-					"its session is not on this machine; left for that machine's hooks or the hand-off at 2 hours",
+					"its originating session is not on this machine; left undelivered for that session's hooks",
 				);
-			return delivered;
+			return 0;
 		}
 		const working =
 			local.status?.state === "working" && !statusEnded(local.status, now);
 		const action = answerAction({
 			host: local.host,
-			ageMs: Math.max(...fresh.map(age)),
+			ageMs: Math.max(...ready.map(age)),
 			open:
 				local.host === "claude-code"
 					? this.claude.open(local.session)
@@ -752,21 +711,21 @@ export class Supervisor {
 			working,
 		});
 		if (action.kind === "wait") {
-			for (const answer of fresh) this.note(answer, action.reason);
-			return delivered;
+			for (const answer of ready) this.note(answer, action.reason);
+			return 0;
 		}
-		const ids = fresh.map((answer) => answer.responseId);
-		const message = answersMessage(fresh);
+		const ids = ready.map((answer) => answer.responseId);
+		const message = answersMessage(ready);
 		const record = (via: DeliveryVia, acknowledged = false) =>
 			ackAnswers(this.deps, binding, ids, via, DETAIL_TIMEOUT_MS, {
 				acknowledged,
 			});
 		const failed = (reason: string) => {
-			for (const answer of fresh) {
+			for (const answer of ready) {
 				this.retryAt.set(answer.responseId, now + DELIVERY_RETRY_MS);
 				this.note(answer, reason);
 			}
-			return delivered;
+			return 0;
 		};
 		if (action.kind === "codex") {
 			const outcome = await this.toCodex(local.session, message, local.cwd);
@@ -779,22 +738,17 @@ export class Supervisor {
 							: "headless codex resume failed; not delivered",
 				);
 			const acked = await record(outcome);
-			for (const answer of fresh)
+			for (const answer of ready)
 				this.note(
 					answer,
 					`delivered to the Codex session (${outcome === "codex_queue" ? "open window" : "headless resume"})${acked ? "" : "; recording it failed"}`,
 				);
-			return delivered + fresh.length;
-		}
-		if (action.kind === "handoff") {
-			for (const answer of fresh)
-				if (await this.handOff(binding, local.cwd, answer)) delivered++;
-			return delivered;
+			return ready.length;
 		}
 		if (this.resuming.has(local.session)) {
-			for (const answer of fresh)
+			for (const answer of ready)
 				this.note(answer, "a headless resume of this session is still running");
-			return delivered;
+			return 0;
 		}
 		const run = await this.claude.resume(local.session, message, local.cwd);
 		if (!run.started)
@@ -802,7 +756,7 @@ export class Supervisor {
 				"claude -p --resume did not confirm this session; not delivered",
 			);
 		const acked = await record("supervisor_resume");
-		for (const answer of fresh)
+		for (const answer of ready)
 			this.note(
 				answer,
 				`delivered by resuming the closed Claude Code session headless${acked ? "" : "; recording it failed"}`,
@@ -815,97 +769,7 @@ export class Supervisor {
 				`claude-code ${local.session}: headless turn on ${ids.length} answer${ids.length === 1 ? "" : "s"} ${ok ? "finished (acknowledged)" : "failed"}`,
 			);
 		});
-		return delivered + fresh.length;
-	}
-
-	/**
-	 * Hand an answer no session took to the lead session: a delegated Work
-	 * Item (its prompt context names it every turn until settled) with the
-	 * question and the answer as a comment, then record the hand-off.
-	 */
-	private async handOff(
-		binding: Binding,
-		cwd: string,
-		answer: PendingAnswer,
-	): Promise<boolean> {
-		const lead = this.deps.lead ? this.deps.lead() : leadSession(this.deps.env);
-		if (!lead) {
-			this.note(
-				answer,
-				"undelivered after 2 hours, but no lead session registered a delegation on this machine (tedix work delegate); left undelivered",
-			);
-			return false;
-		}
-		const question = questionOf(answer.subject);
-		const host = answer.host === "codex" ? "codex" : "claude-code";
-		const leadHost = existsSync(
-			join(configDir(this.deps.env), "agent-status", `codex-${lead}.json`),
-		)
-			? "codex"
-			: "claude-code";
-		try {
-			const created = await this.reader(cwd)(
-				[
-					...binding.command,
-					"work",
-					"delegate",
-					`Undelivered answer ${answer.requestId.slice(0, 8)}: ${question}`.slice(
-						0,
-						200,
-					),
-					"--done-when",
-					"The user's answer is acted on, here or in the session that asked",
-					"--via",
-					"session",
-					"--to",
-					`${host} session ${answer.sessionId}`,
-					"--session",
-					`${leadHost}:${lead}`,
-					...(answer.projectId ? ["--project", answer.projectId] : []),
-					"--json",
-				],
-				HANDOFF_TIMEOUT_MS,
-			);
-			const id = typeof created.id === "string" ? created.id : "";
-			if (!UUID.test(id)) throw new Error("the board returned no Work Item id");
-			await this.deps.read(
-				[
-					...binding.command,
-					"work",
-					"comment",
-					id,
-					[
-						`The user answered in Tedix OS, but no session took it (${host} session ${answer.sessionId}, question ${answer.requestId}, answered ${answer.respondedAt}).`,
-						`Question: ${JSON.stringify(question)}`,
-						`The user's own answer (not a tedi draft): ${JSON.stringify(answer.body)}`,
-						`Act on it here, or resume that session with it (${host === "codex" ? `codex resume ${answer.sessionId}` : `claude --resume ${answer.sessionId}`}).`,
-					].join("\n"),
-					"--json",
-				],
-				HANDOFF_TIMEOUT_MS,
-			);
-			const name = this.claude.name(lead) ?? "your lead session";
-			const acked = await ackAnswers(
-				this.deps,
-				binding,
-				[answer.responseId],
-				"handoff",
-				DETAIL_TIMEOUT_MS,
-				{ handoffTo: name.slice(0, 80), handoffRef: id },
-			);
-			this.note(
-				answer,
-				`undelivered after 2 hours; handed to ${name} as Work Item ${id}${acked ? "" : "; recording it failed"}`,
-			);
-			return true;
-		} catch (error) {
-			this.retryAt.set(answer.responseId, this.now() + DELIVERY_RETRY_MS);
-			this.note(
-				answer,
-				`hand-off failed: ${(error as Error).message?.slice(0, 200)}`,
-			);
-			return false;
-		}
+		return ready.length;
 	}
 }
 
@@ -1083,14 +947,6 @@ export function claudeDriver(env: NodeJS.ProcessEnv): ClaudeDriver {
 			if ((ps.stdout ?? "").toLowerCase().includes(session)) return true;
 			return existsSync(registry) ? false : undefined;
 		},
-		name(session) {
-			const entry = running(session);
-			return entry?.nameSource !== "derived" &&
-				typeof entry?.name === "string" &&
-				entry.name.trim()
-				? entry.name.trim()
-				: undefined;
-		},
 		async resume(session, message, cwd) {
 			const directory = join(configDir(env), "supervisor");
 			mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -1205,9 +1061,9 @@ only logged.
 It also delivers your own Tedix OS answers that no hook delivered: a closed
 Claude Code session is resumed headless with claude -p --resume in its
 directory (a session open in a terminal never is; its hooks deliver there), a
-Codex session gets codex queue or codex exec resume, and an answer still
-undelivered after two hours becomes a delegated Work Item for your lead
-session (the one that registered delegations with tedix work delegate).
+Codex session gets codex queue or codex exec resume. Missing or unavailable
+sessions leave the answer undelivered for its originating chat. The supervisor
+never creates a Work Item or chooses another chat; delegation remains explicit.
 Requires decision capture. Log: ~/.tedix/supervisor.log.`;
 
 function launchAgentPath(): string {
