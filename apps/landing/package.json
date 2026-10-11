@@ -31,8 +31,8 @@
 		"@tedix/widget-ui": "workspace:*",
 		"astro": "^7.3.8",
 		"clsx": "^2.1.1",
-		"lucide-react": "^1.54.0",
-		"motion": "^14.0.0",
+		"lucide-react": "^1.55.0",
+		"motion": "^14.1.0",
 		"react": "catalog:",
 		"react-dom": "catalog:",
 		"tailwind-merge": "^3.7.0"
