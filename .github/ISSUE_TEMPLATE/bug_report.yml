@@ -48,6 +48,7 @@ body:
         - Local demo (bun run-local)
         - Self-hosted Cloudflare account
         - Tedix CLI
+        - Agent plugin (Claude, Codex or ChatGPT)
         - Other
     validations:
       required: true

@@ -123,10 +123,11 @@ export default defineConfig(({ mode }) => {
 				PROVIDER_COHORT_EXTERNAL_TENANT_ID: bindings.text(
 					"configured-via-private-overlay",
 				),
-				TEDIX_PROVIDER_COHORT_API_KEY: bindings.secret(),
+				// Optional: without it the provider cohort answers 503. Local runs
+				// never use it, so it is not declared there (no missing-secret warning).
 				...(local
 					? { TEDIX_LOCAL_DEMO_ENABLED: bindings.text(localLane.demoEnabled) }
-					: {}),
+					: { TEDIX_PROVIDER_COHORT_API_KEY: bindings.secret() }),
 				GIT_SHA: bindings.text(releaseSha),
 			},
 		}),

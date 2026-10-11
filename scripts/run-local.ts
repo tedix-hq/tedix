@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { createWriteStream, mkdirSync, mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,6 +25,7 @@ Requires Bun and genuine Node.js 22+ on PATH for Wrangler.
   --restart-smoke                   Validate persistence across two offline boots
   --ai-gateway=<id>                 Use a named gateway instead of Cloudflare's default
   --no-install                      Skip installing locked dependencies
+  --verbose                         Stream every server log to this terminal
   --help                            Print this help without starting anything
 
 For AI: bunx wrangler login, then bunx wrangler whoami to find your account ID.
@@ -83,6 +84,7 @@ export interface RunLocalOptions {
 	aiGatewayId: string | null;
 	restartSmoke: boolean;
 	demo: boolean;
+	verbose: boolean;
 }
 
 export function parseRunLocalOptions(arguments_: string[]): RunLocalOptions {
@@ -92,6 +94,7 @@ export function parseRunLocalOptions(arguments_: string[]): RunLocalOptions {
 		"--inference",
 		"--restart-smoke",
 		"--demo",
+		"--verbose",
 	]);
 	const unknown = arguments_.filter(
 		(argument) =>
@@ -162,6 +165,7 @@ export function parseRunLocalOptions(arguments_: string[]): RunLocalOptions {
 		aiGatewayId,
 		restartSmoke: arguments_.includes("--restart-smoke"),
 		demo: arguments_.includes("--demo"),
+		verbose: arguments_.includes("--verbose"),
 	};
 	if (
 		options.restartSmoke &&
@@ -392,17 +396,26 @@ async function main(): Promise<void> {
 	console.log("→ Starting the API, MCP gateway and Tedix OS");
 
 	const stack = spawn("bun", ["run", "dev:local:demo-stack"], {
-		stdio: options.smoke
-			? ["ignore", "pipe", "pipe"]
-			: ["ignore", "inherit", "inherit"],
+		stdio: options.verbose
+			? ["ignore", "inherit", "inherit"]
+			: ["ignore", "pipe", "pipe"],
 		detached: true,
 		env: {
 			...process.env,
 			...localEnvironment,
 		},
 	});
+	// Three servers print hundreds of lines; keep them in a file so the ready
+	// lines stay visible. --verbose streams them here instead.
+	const serverLogPath = options.smoke ? null : join(statePath, "server.log");
+	if (serverLogPath) mkdirSync(statePath, { recursive: true });
+	const serverLog =
+		serverLogPath && !options.verbose
+			? createWriteStream(serverLogPath, { flags: "a" })
+			: null;
 	let capturedOutput = "";
 	const capture = (chunk: Buffer) => {
+		serverLog?.write(chunk);
 		capturedOutput = `${capturedOutput}${chunk.toString()}`.slice(-64_000);
 	};
 	stack.stdout?.on("data", capture);
@@ -439,6 +452,10 @@ async function main(): Promise<void> {
 				? `  Data stays in ${statePath}; model turns use opt-in Workers AI inference.\n`
 				: `  Data stays in ${statePath} and no cloud account is used.\n`,
 		);
+		if (serverLog)
+			console.log(
+				`  Server logs: ${serverLogPath} (add --verbose to stream them here)\n`,
+			);
 
 		if (!options.smoke && process.env.TEDIX_LOCAL_OPEN_BROWSER === "1") {
 			const browserCommand =
