@@ -274,8 +274,9 @@ function resolveEventTraceId(value: NewKernelRuntimeEvent): string | undefined {
  * Unexecuted idempotent insert of a cause-less event, for `db.batch()`
  * composition. An empty `returning()` result means the id already existed;
  * the caller resolves the replay row with {@link insertKernelRuntimeEventIfAbsent}.
- * Events that bind a `causeEventId` need the INSERT…SELECT form and cannot
- * be composed through this statement.
+ * Events that bind a `causeEventId` go through
+ * {@link buildInsertKernelRuntimeEventStatement}, whose INSERT…SELECT form
+ * also leaves `returning()` empty when the cause row is missing.
  */
 export function buildInsertKernelRuntimeEventIfAbsentStatement(
 	db: DbClient,
@@ -292,84 +293,111 @@ export function buildInsertKernelRuntimeEventIfAbsentStatement(
 		.returning();
 }
 
+/**
+ * Unexecuted idempotent insert of one event, cause-bound or not. A cause-bound
+ * event is an INSERT…SELECT from its cause row, so inside a `db.batch()` the
+ * cause may be an earlier statement of the same batch (D1 batches run
+ * sequentially in one transaction). An empty `returning()` result means EITHER
+ * the id already existed OR the cause row is missing; the caller resolves which
+ * with {@link insertKernelRuntimeEventIfAbsent}, which raises
+ * {@link KernelRuntimeEventConflictError} for the missing-cause case.
+ */
+export function buildInsertKernelRuntimeEventStatement(
+	db: DbClient,
+	value: NewKernelRuntimeEvent,
+) {
+	if (value.causeEventId === undefined || value.causeEventId === null)
+		return buildInsertKernelRuntimeEventIfAbsentStatement(db, value);
+	if (value.causeEventId.length === 0)
+		throw new KernelRuntimeEventConflictError();
+	const traceId = resolveEventTraceId(value);
+	const cause = alias(kernelRuntimeEvents, "cause");
+	return db
+		.insert(kernelRuntimeEvents)
+		.select(
+			db
+				.select({
+					id: sql<string>`${value.id}`.as("id"),
+					organizationId: sql<string>`${value.organizationId}`.as(
+						"organization_id",
+					),
+					kind: sql<NewKernelRuntimeEvent["kind"]>`${value.kind}`.as("kind"),
+					conversationId: sql<string>`${value.conversationId}`.as(
+						"conversation_id",
+					),
+					runId: sql<string | null>`${value.runId ?? null}`.as("run_id"),
+					messageId: sql<string | null>`${value.messageId ?? null}`.as(
+						"message_id",
+					),
+					causeEventId: sql<string>`${cause.id}`.as("cause_event_id"),
+					delegatedTediId: sql<
+						string | null
+					>`${value.delegatedTediId ?? null}`.as("delegated_tedi_id"),
+					childRunId: sql<string | null>`${value.childRunId ?? null}`.as(
+						"child_run_id",
+					),
+					sequence: sql<number | null>`${value.sequence ?? null}`.as(
+						"sequence",
+					),
+					delta: sql<string | null>`${value.delta ?? null}`.as("delta"),
+					payload: sql<
+						NewKernelRuntimeEvent["payload"]
+					>`${value.payload === undefined ? null : JSON.stringify(value.payload)}`.as(
+						"payload",
+					),
+					runtimeBackend: sql<
+						NonNullable<NewKernelRuntimeEvent["runtimeBackend"]>
+					>`${value.runtimeBackend ?? "custom"}`.as("runtime_backend"),
+					runtimeExternalId: sql<
+						string | null
+					>`${value.runtimeExternalId ?? null}`.as("runtime_external_id"),
+					runtimeExternalUrl: sql<
+						string | null
+					>`${value.runtimeExternalUrl ?? null}`.as("runtime_external_url"),
+					runtimeMetadata: sql<
+						NewKernelRuntimeEvent["runtimeMetadata"]
+					>`${value.runtimeMetadata === undefined ? null : JSON.stringify(value.runtimeMetadata)}`.as(
+						"runtime_metadata",
+					),
+					traceId: sql<string | null>`${traceId ?? null}`.as("trace_id"),
+					createdAt:
+						sql<string>`${value.createdAt ?? new Date().toISOString()}`.as(
+							"created_at",
+						),
+				})
+				.from(cause)
+				.where(
+					and(
+						eq(cause.id, value.causeEventId),
+						eq(cause.organizationId, value.organizationId),
+						sql`${cause.id} <> ${value.id}`,
+					),
+				),
+		)
+		.onConflictDoNothing({ target: kernelRuntimeEvents.id })
+		.returning();
+}
+
 export async function insertKernelRuntimeEventIfAbsent(
 	db: DbClient,
 	value: NewKernelRuntimeEvent,
 ): Promise<{ row: KernelRuntimeEvent | undefined; inserted: boolean }> {
-	const traceId = resolveEventTraceId(value);
-	let rows: KernelRuntimeEvent[] = [];
-	if (value.causeEventId !== undefined && value.causeEventId !== null) {
-		if (value.causeEventId.length === 0)
-			throw new KernelRuntimeEventConflictError();
-		const cause = alias(kernelRuntimeEvents, "cause");
-		rows = await db
-			.insert(kernelRuntimeEvents)
-			.select(
-				db
-					.select({
-						id: sql<string>`${value.id}`.as("id"),
-						organizationId: sql<string>`${value.organizationId}`.as(
-							"organization_id",
-						),
-						kind: sql<NewKernelRuntimeEvent["kind"]>`${value.kind}`.as("kind"),
-						conversationId: sql<string>`${value.conversationId}`.as(
-							"conversation_id",
-						),
-						runId: sql<string | null>`${value.runId ?? null}`.as("run_id"),
-						messageId: sql<string | null>`${value.messageId ?? null}`.as(
-							"message_id",
-						),
-						causeEventId: sql<string>`${cause.id}`.as("cause_event_id"),
-						delegatedTediId: sql<
-							string | null
-						>`${value.delegatedTediId ?? null}`.as("delegated_tedi_id"),
-						childRunId: sql<string | null>`${value.childRunId ?? null}`.as(
-							"child_run_id",
-						),
-						sequence: sql<number | null>`${value.sequence ?? null}`.as(
-							"sequence",
-						),
-						delta: sql<string | null>`${value.delta ?? null}`.as("delta"),
-						payload: sql<
-							NewKernelRuntimeEvent["payload"]
-						>`${value.payload === undefined ? null : JSON.stringify(value.payload)}`.as(
-							"payload",
-						),
-						runtimeBackend: sql<
-							NonNullable<NewKernelRuntimeEvent["runtimeBackend"]>
-						>`${value.runtimeBackend ?? "custom"}`.as("runtime_backend"),
-						runtimeExternalId: sql<
-							string | null
-						>`${value.runtimeExternalId ?? null}`.as("runtime_external_id"),
-						runtimeExternalUrl: sql<
-							string | null
-						>`${value.runtimeExternalUrl ?? null}`.as("runtime_external_url"),
-						runtimeMetadata: sql<
-							NewKernelRuntimeEvent["runtimeMetadata"]
-						>`${value.runtimeMetadata === undefined ? null : JSON.stringify(value.runtimeMetadata)}`.as(
-							"runtime_metadata",
-						),
-						traceId: sql<string | null>`${traceId ?? null}`.as("trace_id"),
-						createdAt:
-							sql<string>`${value.createdAt ?? new Date().toISOString()}`.as(
-								"created_at",
-							),
-					})
-					.from(cause)
-					.where(
-						and(
-							eq(cause.id, value.causeEventId),
-							eq(cause.organizationId, value.organizationId),
-							sql`${cause.id} <> ${value.id}`,
-						),
-					),
-			)
-			.onConflictDoNothing({ target: kernelRuntimeEvents.id })
-			.returning();
-	} else {
-		rows = await buildInsertKernelRuntimeEventIfAbsentStatement(db, value);
-	}
+	const rows: KernelRuntimeEvent[] =
+		await buildInsertKernelRuntimeEventStatement(db, value);
 	if (rows[0]) return { row: rows[0], inserted: true };
+	return resolveReplayedKernelRuntimeEvent(db, value);
+}
+
+/**
+ * Resolve an idempotent insert whose `returning()` came back empty: the
+ * existing row for a replay, or a conflict when the row is missing (a
+ * cause-bound insert whose cause does not exist) or belongs to another
+ * organization or cause.
+ */
+export async function resolveReplayedKernelRuntimeEvent(
+	db: DbClient,
+	value: NewKernelRuntimeEvent,
+): Promise<{ row: KernelRuntimeEvent | undefined; inserted: boolean }> {
 	const [existing] = await db
 		.select()
 		.from(kernelRuntimeEvents)

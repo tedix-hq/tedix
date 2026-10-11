@@ -20,7 +20,7 @@ import {
 	ensureHomeConversationAccess,
 	existingRunStartedCause,
 	insertKernelRuntimeEvent,
-	insertKernelRuntimeRun,
+	persistKernelTurnStart,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
 import type { KernelDO } from "../../../kernel/kernel-do";
@@ -223,21 +223,27 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// (Planning re-checks the same predicate as the backstop for a skill
 		// archived between this call and the turn; see the unresolved notice in
 		// `serializeRetrievedSkills`.)
-		const unresolvedSkills = await unresolvedSkillReferences(
-			context.db,
-			organizationId,
-			input.content,
-		);
+		// Independent reads after the access check run together: the skill
+		// reference check, the conversation row and — when the caller pins the
+		// Workspace — its context. One primary round trip of wall time, not three.
+		const [unresolvedSkills, existingConversation, pinnedWorkspaceContext] =
+			await Promise.all([
+				unresolvedSkillReferences(context.db, organizationId, input.content),
+				getKernelConversation(context.db, { organizationId, conversationId }),
+				input.workspaceContext
+					? resolveWorkspaceContext(
+							context.db,
+							organizationId,
+							input.workspaceContext,
+						)
+					: null,
+			]);
 		if (unresolvedSkills.length > 0) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				`${unresolvedSkills.map((slug) => `"/skill ${slug}"`).join(", ")} did not resolve to a usable skill, so this message was NOT sent. A referenced skill must exist in this organization, be readable here (org-level and not private to one tedi), and be active, proven, or crystallized — a draft, stale, or archived skill cannot steer a turn. Remove the reference or correct the slug.`,
 			);
 		}
-		const existingConversation = await getKernelConversation(context.db, {
-			organizationId,
-			conversationId,
-		});
 		if (
 			input.workspaceContext &&
 			existingConversation?.workspaceId &&
@@ -248,14 +254,15 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				"Conversation belongs to a different Workspace",
 			);
 		}
-		const workspaceContext = await resolveWorkspaceContext(
-			context.db,
-			organizationId,
-			input.workspaceContext ??
-				(existingConversation?.workspaceId
+		const workspaceContext =
+			pinnedWorkspaceContext ??
+			(await resolveWorkspaceContext(
+				context.db,
+				organizationId,
+				existingConversation?.workspaceId
 					? { workspaceId: existingConversation.workspaceId }
-					: undefined),
-		);
+					: undefined,
+			));
 		const selectedWorkspaceDocument = await authorizedWorkspaceDocumentContext(
 			context,
 			organizationId,
@@ -371,8 +378,30 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		const approvalRequestId = workstationAttach
 			? delegationWorkOrderApprovalRequestId(runId)
 			: null;
+		// Reads the turn needs before its first write, none depending on another
+		// or on the claim below: governance policy (approval TTL, fan-out cap),
+		// the session write allowlist, and the replay probe for this turn's
+		// `run.started`. Started here so they overlap the claim, transcription
+		// and planning; awaited once where they are consumed. The two policy
+		// reads never reject; the replay probe's outcome is captured so a reject
+		// surfaces at its original site (inside the persist try/catch) instead
+		// of as an unhandled rejection while the claim settles.
+		const ingressReads = Promise.all([
+			readOrgGovernancePolicy(context, organizationId),
+			readSessionWriteAllowlist(context, { organizationId, conversationId }),
+			existingRunStartedCause(context, {
+				organizationId,
+				conversationId,
+				runId,
+				messageId: userMessageId,
+			}).then(
+				(value) => ({ ok: true as const, value }),
+				(error: unknown) => ({ ok: false as const, error }),
+			),
+		]);
+		let claimedSubmission;
 		try {
-			await claimKernelExecutionPolicy(context.db, {
+			claimedSubmission = await claimKernelExecutionPolicy(context.db, {
 				runId,
 				organizationId,
 				conversationId,
@@ -441,14 +470,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// Governance policy: read once per turn for the org (fail-soft — null
 		// when no active policy pack exists). Used for approval TTL and fan-out
 		// cap; defaults apply when absent.
-		const governancePolicy = await readOrgGovernancePolicy(
-			context,
-			organizationId,
-		);
-		const sessionWriteAllowlist = await readSessionWriteAllowlist(context, {
-			organizationId,
-			conversationId,
-		});
+		const [governancePolicy, sessionWriteAllowlist, priorCauseRead] =
+			await ingressReads;
 		// Kernel turns are persisted BEFORE the kernel runs and the kernel work
 		// is registered with `context.waitUntil` (see `turnWork` below): a
 		// caller that disconnects mid-kernel (e.g. an MCP client's inner
@@ -758,82 +781,87 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			},
 		};
 		try {
-			const priorCause = await existingRunStartedCause(context, {
-				organizationId,
-				conversationId,
-				runId,
-				messageId: userMessageId,
-			});
-			const inputEvent = await insertKernelRuntimeEvent(context, {
-				organizationId,
-				kind: "message.received",
-				conversationId,
-				runId,
-				messageId: userMessageId,
-				delegatedTediId: input.delegateToTediId,
-				childRunId: childRunId ?? undefined,
-				payload: {
-					role: "user",
-					content: turnContent,
-					attachments,
-					channel: "home",
-					metadata: turnMetadata,
-				},
-				runtimeMetadata,
-				createdAt,
-			});
-			await insertKernelRuntimeEvent(context, {
-				organizationId,
-				kind: "run.started",
-				conversationId,
-				runId,
-				messageId: userMessageId,
-				causeEventId: priorCause === undefined ? inputEvent.id : priorCause,
-				delegatedTediId: input.delegateToTediId,
-				childRunId: childRunId ?? undefined,
-				payload: {
-					status: workstationAttach
-						? autoApprovedAttach
-							? "queued"
-							: "requires_approval"
-						: input.delegateToTediId
-							? "queued"
-							: "needs_delegation",
-					inputMessageId: userMessageId,
-				},
-				runtimeMetadata,
-				createdAt,
-			});
-			await insertKernelRuntimeRun(context, {
-				id: runId,
-				organizationId,
-				conversationId,
-				status: initialRunStatus,
-				inputMessageId: userMessageId,
-				outputMessageId: assistantMessageId,
-				delegatedTediId: input.delegateToTediId,
-				childRunId: childRunId ?? undefined,
-				childConversationId: isolateDelegation ? "agent:main:main" : null,
-				progress: homeRunProgress({
-					eventCount: 0,
+			if (!priorCauseRead.ok) throw priorCauseRead.error;
+			const priorCause = priorCauseRead.value;
+			// `message.received`, its cause-bound `run.started`, the run row and
+			// the conversation-index bump land in ONE D1 batch; the submission
+			// ledger admit reuses the claim above. Event order and ids are the
+			// ones the former sequential inserts produced.
+			await persistKernelTurnStart(context, {
+				priorCause,
+				submission: claimedSubmission,
+				events: [
+					{
+						organizationId,
+						kind: "message.received",
+						conversationId,
+						runId,
+						messageId: userMessageId,
+						delegatedTediId: input.delegateToTediId,
+						childRunId: childRunId ?? undefined,
+						payload: {
+							role: "user",
+							content: turnContent,
+							attachments,
+							channel: "home",
+							metadata: turnMetadata,
+						},
+						runtimeMetadata,
+						createdAt,
+					},
+					{
+						organizationId,
+						kind: "run.started",
+						conversationId,
+						runId,
+						messageId: userMessageId,
+						delegatedTediId: input.delegateToTediId,
+						childRunId: childRunId ?? undefined,
+						payload: {
+							status: workstationAttach
+								? autoApprovedAttach
+									? "queued"
+									: "requires_approval"
+								: input.delegateToTediId
+									? "queued"
+									: "needs_delegation",
+							inputMessageId: userMessageId,
+						},
+						runtimeMetadata,
+						createdAt,
+					},
+				],
+				run: {
+					id: runId,
+					organizationId,
+					conversationId,
 					status: initialRunStatus,
-				}),
-				metadata: {
-					...runRowMetadata,
-					kernelRoute: directedKernelRoute,
-					kernelEvidence: null,
+					inputMessageId: userMessageId,
+					outputMessageId: assistantMessageId,
+					delegatedTediId: input.delegateToTediId,
+					childRunId: childRunId ?? undefined,
+					childConversationId: isolateDelegation ? "agent:main:main" : null,
+					progress: homeRunProgress({
+						eventCount: 0,
+						status: initialRunStatus,
+					}),
+					metadata: {
+						...runRowMetadata,
+						kernelRoute: directedKernelRoute,
+						kernelEvidence: null,
+					},
+					runtimeMetadata,
+					startedAt: createdAt,
+					completedAt:
+						input.delegateToTediId || workstationAttach || kernelEligible
+							? null
+							: completedAt,
+					createdAt,
+					updatedAt:
+						input.delegateToTediId || workstationAttach || kernelEligible
+							? createdAt
+							: completedAt,
 				},
-				runtimeMetadata,
-				startedAt: createdAt,
-				completedAt:
-					input.delegateToTediId || workstationAttach || kernelEligible
-						? null
-						: completedAt,
-				createdAt,
-				updatedAt:
-					input.delegateToTediId || workstationAttach || kernelEligible
-						? createdAt
-						: completedAt,
 			});
 			if (kernelCorrection) {
 				await insertKernelRuntimeEvent(context, {
@@ -1489,7 +1517,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// Normal kernel turns settle in turn-work.ts; delegation/workstation runs
 		// stay in-flight (queued/requires_approval) and are settled by reconciliation
 		// or a later turn. Plan-producing turns complete immediately (status="completed"
-		// or "failed") but were admitted by insertKernelRuntimeRun above and bypassed
+		// or "failed") but were admitted by persistKernelTurnStart above and bypassed
 		// turn-work entirely, leaving the submission stuck at "running" until the
 		// kernel-do reconciliation sweep. settleKernelSubmission is idempotent
 		// (exactly-once conditional UPDATE) so a late reconciliation sweep is safe.

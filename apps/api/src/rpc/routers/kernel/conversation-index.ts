@@ -26,6 +26,7 @@
 import {
 	type KernelConversationRow,
 	listKernelConversationPage,
+	type RecordKernelConversationMessageParams,
 	recordKernelConversationArchived,
 	recordKernelConversationDeleted,
 	recordKernelConversationMessage,
@@ -266,6 +267,51 @@ function titleSourceFromEventPayload(
 }
 
 /**
+ * The conversation-index bump a `message.received` / `message.completed`
+ * event produces, or `null` for every other kind. Pure: callers either apply
+ * it through {@link applyKernelConversationEvent} or compose it into the
+ * turn-ingress batch (`persistKernelTurnStart`).
+ */
+export function kernelConversationMessageParams(
+	event: KernelRuntimeEvent,
+): RecordKernelConversationMessageParams | null {
+	if (!MESSAGE_EVENT_KINDS.has(event.kind)) return null;
+	const payload = nonNullRecord(event.payload);
+	const workspaceContext = workspaceContextFromEventPayload(payload);
+	const channel = stringFromPayload(payload?.channel) ?? null;
+	// Instant provisional title: the FIRST user message of an untitled
+	// topical Home conversation labels the sidebar synchronously (no LLM,
+	// same statement as the recency/count bump) so a reload in the first
+	// seconds never shows "New chat". `title_source='provisional'` is the
+	// weakest source — the post-settle auto-title overwrites it, a rename
+	// beats both. Projection-only by design: no `conversation.updated`
+	// event, so the auto-title guard (which counts those events) is not
+	// blocked and a ledger rebuild simply drops the placeholder.
+	const provisionalTitle =
+		event.kind === "message.received" &&
+		stringFromPayload(payload?.role) === "user" &&
+		event.conversationId !== HOME_MAIN_CONVERSATION_ID &&
+		!isEphemeralHomeConversation(event.conversationId)
+			? fallbackConversationTitle(stringFromPayload(payload?.content) ?? "")
+			: null;
+	return {
+		organizationId: event.organizationId,
+		conversationId: event.conversationId,
+		channel,
+		createdAt: event.createdAt,
+		provisionalTitle,
+		// Only the turn-ingress event carries a stamp (run-store.ts
+		// `stampConversationOrigin`). `null` here means "this event says
+		// nothing about origin" — the query leaves the column untouched
+		// rather than writing a default, so a `message.completed` can never
+		// reclassify a conversation and a ledger rebuild (which replays
+		// unstamped historical events) leaves every legacy row human.
+		origin: kernelConversationOriginFromPayload(payload),
+		...workspaceContext,
+	};
+}
+
+/**
  * Write-through from the kernel event choke point. Cost per event:
  * - `message.received` / `message.completed`: ONE upsert (bump
  *   `last_message_at` monotonically, `message_count + 1`).
@@ -280,40 +326,9 @@ export async function applyKernelConversationEvent(
 	event: KernelRuntimeEvent,
 ): Promise<void> {
 	try {
-		if (MESSAGE_EVENT_KINDS.has(event.kind)) {
-			const payload = nonNullRecord(event.payload);
-			const workspaceContext = workspaceContextFromEventPayload(payload);
-			const channel = stringFromPayload(payload?.channel) ?? null;
-			// Instant provisional title: the FIRST user message of an untitled
-			// topical Home conversation labels the sidebar synchronously (no LLM,
-			// same statement as the recency/count bump) so a reload in the first
-			// seconds never shows "New chat". `title_source='provisional'` is the
-			// weakest source — the post-settle auto-title overwrites it, a rename
-			// beats both. Projection-only by design: no `conversation.updated`
-			// event, so the auto-title guard (which counts those events) is not
-			// blocked and a ledger rebuild simply drops the placeholder.
-			const provisionalTitle =
-				event.kind === "message.received" &&
-				stringFromPayload(payload?.role) === "user" &&
-				event.conversationId !== HOME_MAIN_CONVERSATION_ID &&
-				!isEphemeralHomeConversation(event.conversationId)
-					? fallbackConversationTitle(stringFromPayload(payload?.content) ?? "")
-					: null;
-			await recordKernelConversationMessage(db, {
-				organizationId: event.organizationId,
-				conversationId: event.conversationId,
-				channel,
-				createdAt: event.createdAt,
-				provisionalTitle,
-				// Only the turn-ingress event carries a stamp (run-store.ts
-				// `stampConversationOrigin`). `null` here means "this event says
-				// nothing about origin" — the query leaves the column untouched
-				// rather than writing a default, so a `message.completed` can never
-				// reclassify a conversation and a ledger rebuild (which replays
-				// unstamped historical events) leaves every legacy row human.
-				origin: kernelConversationOriginFromPayload(payload),
-				...workspaceContext,
-			});
+		const message = kernelConversationMessageParams(event);
+		if (message) {
+			await recordKernelConversationMessage(db, message);
 			return;
 		}
 		if (event.kind === "conversation.updated") {

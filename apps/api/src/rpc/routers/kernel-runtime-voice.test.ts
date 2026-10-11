@@ -165,8 +165,16 @@ function createVoiceTestDb() {
 					onConflictDoNothing() {
 						return this;
 					},
+					onConflictDoUpdate() {
+						return this;
+					},
 					returning() {
 						return Promise.resolve([]);
+					},
+					then<TResult = unknown[]>(
+						onfulfilled?: ((value: unknown[]) => TResult) | null,
+					) {
+						return Promise.resolve([]).then(onfulfilled);
 					},
 				};
 			}
@@ -231,32 +239,33 @@ function createVoiceTestDb() {
 				| typeof tediApprovalRequests.$inferSelect
 				| typeof runtimeSubmissions.$inferSelect
 				| (typeof tediRows)[number];
-			let selectedRows: AnyRow[] = [];
 			let whereClause: unknown;
 			let orderByClause: unknown;
 			let rowLimit: number | undefined;
 			let selectedTable: unknown;
+			// Rows are read at EXECUTE time, not when `from()` is called: a D1
+			// batch builds every statement first and runs them in order, so a
+			// cause-bound INSERT…SELECT must see the row an earlier statement of
+			// the same batch inserted.
+			const selectedRows = (): AnyRow[] => {
+				const table = selectedTable;
+				const isKernelEventAlias = Object.getOwnPropertySymbols(
+					table as object,
+				).some(
+					(symbol) =>
+						(table as Record<symbol, unknown>)[symbol] ===
+						"kernel_runtime_events",
+				);
+				if (table === kernelRuntimeEvents || isKernelEventAlias)
+					return [...events] as AnyRow[];
+				if (table === kernelRuntimeRuns) return [...runs] as AnyRow[];
+				if (table === tedis) return [...tediRows] as AnyRow[];
+				if (table === runtimeSubmissions) return [...submissions] as AnyRow[];
+				return [];
+			};
 			return {
 				from(table: unknown) {
 					selectedTable = table;
-					const isKernelEventAlias = Object.getOwnPropertySymbols(
-						table as object,
-					).some(
-						(symbol) =>
-							(table as Record<symbol, unknown>)[symbol] ===
-							"kernel_runtime_events",
-					);
-					if (table === kernelRuntimeEvents || isKernelEventAlias) {
-						selectedRows = [...events] as AnyRow[];
-					} else if (table === kernelRuntimeRuns) {
-						selectedRows = [...runs] as AnyRow[];
-					} else if (table === tedis) {
-						selectedRows = [...tediRows] as AnyRow[];
-					} else if (table === runtimeSubmissions) {
-						selectedRows = [...submissions] as AnyRow[];
-					} else {
-						selectedRows = [];
-					}
 					return this;
 				},
 				where(value: unknown) {
@@ -279,7 +288,7 @@ function createVoiceTestDb() {
 						"causeEventId" in selection &&
 						selectedTable !== kernelRuntimeEvents
 					) {
-						const source = selectedRows[0] as
+						const source = selectedRows()[0] as
 							| Record<string, unknown>
 							| undefined;
 						if (!source) return [];
@@ -302,10 +311,8 @@ function createVoiceTestDb() {
 							),
 						] as AnyRow[];
 					}
-					const out =
-						rowLimit !== undefined
-							? selectedRows.slice(0, rowLimit)
-							: selectedRows;
+					const rows = selectedRows();
+					const out = rowLimit !== undefined ? rows.slice(0, rowLimit) : rows;
 					return out;
 				},
 				// Drizzle query builders are awaitable.

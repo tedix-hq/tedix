@@ -234,6 +234,11 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * not the normal recovery path.
 	 */
 	override async onStart(): Promise<void> {
+		// Warm the turn-context module on every cold activation so the first
+		// `processTurn` on this instance does not pay the dynamic import between
+		// `enqueuedAt` and `workStartedAt`. Not awaited: the import is memoized
+		// and `turnContext()` joins it.
+		void this.turnContextModule().catch(() => {});
 		const organizationId =
 			this.state.organizationId ?? this.ctx.id.name ?? null;
 		if (!organizationId) return;
@@ -292,8 +297,25 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * not thread `this.ctx.waitUntil` in.
 	 */
 	private async turnContext(): Promise<BaseContext> {
-		const { createContext } = await import("../rpc/context");
+		const { createContext } = await this.turnContextModule();
 		return createContext(new Request("https://kernel.internal/turn"), this.env);
+	}
+
+	/**
+	 * The `../rpc/context` module, imported once per isolate. Kept dynamic so
+	 * the DO's eager module graph stays small; memoized so only the first
+	 * caller (normally `onStart`) pays the import and every turn after it
+	 * resolves on a settled promise. A failed import is dropped so the next
+	 * caller retries instead of inheriting a poisoned promise.
+	 */
+	private contextModule: Promise<typeof import("../rpc/context")> | null = null;
+
+	private turnContextModule(): Promise<typeof import("../rpc/context")> {
+		this.contextModule ??= import("../rpc/context").catch((error: unknown) => {
+			this.contextModule = null;
+			throw error;
+		});
+		return this.contextModule;
 	}
 
 	/**

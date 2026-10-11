@@ -206,29 +206,43 @@ function originConflictValue(origin: KernelConversationOrigin) {
 	return sql`CASE WHEN ${kernelConversations.origin} IS NOT NULL THEN ${kernelConversations.origin} WHEN ${kernelConversations.messageCount} = 0 THEN 'agent' ELSE NULL END`;
 }
 
+export interface RecordKernelConversationMessageParams {
+	organizationId: string;
+	conversationId: string;
+	channel: string | null;
+	createdAt: string;
+	provisionalTitle: string | null;
+	/**
+	 * Origin of the turn that produced this event, or `null` when the event
+	 * carries no stamp (assistant completions and replayed events). A
+	 * `null` origin leaves the column exactly as it is — it never writes a
+	 * default, because an unstamped column already reads as human.
+	 */
+	origin?: KernelConversationOrigin | null;
+	workspaceId?: string | null;
+	workpieceKind?: "gadget" | "output" | null;
+	workpieceId?: string | null;
+}
+
 export async function recordKernelConversationMessage(
 	db: DbClient,
-	input: {
-		organizationId: string;
-		conversationId: string;
-		channel: string | null;
-		createdAt: string;
-		provisionalTitle: string | null;
-		/**
-		 * Origin of the turn that produced this event, or `null` when the event
-		 * carries no stamp (assistant completions and replayed events). A
-		 * `null` origin leaves the column exactly as it is — it never writes a
-		 * default, because an unstamped column already reads as human.
-		 */
-		origin?: KernelConversationOrigin | null;
-		workspaceId?: string | null;
-		workpieceKind?: "gadget" | "output" | null;
-		workpieceId?: string | null;
-	},
+	input: RecordKernelConversationMessageParams,
 ): Promise<void> {
+	await buildRecordKernelConversationMessageStatement(db, input);
+}
+
+/**
+ * Unexecuted recency/count bump for one message event, for `db.batch()`
+ * composition. Not idempotent: the caller composes it only for an event it
+ * knows is being inserted for the first time.
+ */
+export function buildRecordKernelConversationMessageStatement(
+	db: DbClient,
+	input: RecordKernelConversationMessageParams,
+) {
 	const updatedAt = new Date().toISOString();
 	const origin = input.origin ?? null;
-	await db
+	return db
 		.insert(kernelConversations)
 		.values({
 			id: rowId(input.organizationId, input.conversationId),

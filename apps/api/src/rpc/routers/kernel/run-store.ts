@@ -36,10 +36,13 @@ import {
 	hasUnacceptedChatDispatch,
 	insertKernelRuntimeRunIfAbsent,
 	type KernelRuntimeRun,
+	type NewKernelRuntimeRun,
+	openKernelRuntimeTurn,
 	settleKernelRuntimeTurn,
 	type TransitionKernelRuntimeRunStatusParams,
 	updateKernelRuntimeRunForOrg,
 } from "@tedix/db/queries/kernel-runtime-runs";
+import type { RuntimeSubmission } from "@tedix/db/queries/runtime-submissions/read-models";
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
 import {
 	listWorkItemAttempts,
@@ -63,7 +66,10 @@ import {
 	readChildRunFullResult,
 	readSingleChildRunSummary,
 } from "./child-run-reads";
-import { applyKernelConversationEvent } from "./conversation-index";
+import {
+	applyKernelConversationEvent,
+	kernelConversationMessageParams,
+} from "./conversation-index";
 import {
 	type DelegatedStopClassification,
 	delegatedStopFromSummary,
@@ -2297,27 +2303,29 @@ export async function insertKernelRuntimeEvent(
 	return (await insertKernelRuntimeEventWithStatus(context, input)).event;
 }
 
-export async function insertKernelRuntimeRun(
-	context: BaseContext,
-	input: {
-		id: string;
-		organizationId: string;
-		conversationId: string;
-		status: TediRunStatus;
-		inputMessageId?: string;
-		outputMessageId?: string;
-		delegatedTediId?: string;
-		childRunId?: string;
-		childConversationId?: string | null;
-		progress?: ReturnType<typeof homeRunProgress>;
-		metadata?: Record<string, unknown>;
-		runtimeMetadata?: Record<string, unknown>;
-		startedAt?: string;
-		completedAt?: string | null;
-		createdAt?: string;
-		updatedAt?: string;
-	},
-): Promise<void> {
+export interface KernelRuntimeRunInsertInput {
+	id: string;
+	organizationId: string;
+	conversationId: string;
+	status: TediRunStatus;
+	inputMessageId?: string;
+	outputMessageId?: string;
+	delegatedTediId?: string;
+	childRunId?: string;
+	childConversationId?: string | null;
+	progress?: ReturnType<typeof homeRunProgress>;
+	metadata?: Record<string, unknown>;
+	runtimeMetadata?: Record<string, unknown>;
+	startedAt?: string;
+	completedAt?: string | null;
+	createdAt?: string;
+	updatedAt?: string;
+}
+
+/** The persistable row for one kernel runtime run input. */
+function buildKernelRuntimeRunRow(
+	input: KernelRuntimeRunInsertInput,
+): NewKernelRuntimeRun {
 	const createdAt = input.createdAt ?? nowIso();
 	const progress =
 		input.progress ??
@@ -2325,7 +2333,7 @@ export async function insertKernelRuntimeRun(
 			eventCount: 0,
 			status: input.status,
 		});
-	await insertKernelRuntimeRunIfAbsent(context.db, {
+	return {
 		id: input.id,
 		organizationId: input.organizationId,
 		conversationId: input.conversationId,
@@ -2350,15 +2358,24 @@ export async function insertKernelRuntimeRun(
 		completedAt: input.completedAt ?? undefined,
 		createdAt,
 		updatedAt: input.updatedAt ?? input.completedAt ?? createdAt,
-	});
-	// Durable submission ledger: admit + open the first attempt for this kernel
-	// run. Idempotent (deterministic submission id), additive, never throws.
-	// Awaited, never offloaded: this row is what the crash sweep reconciles
-	// from, so admitting it on a background task made the recovery plane
-	// conditional on the same isolate that the failure kills: an eviction would
-	// take the dispatch and its admission together, leaving the sweep nothing
-	// to recover. The cost is one D1 write on the
-	// run-insert receipt; `.catch` keeps a ledger fault from failing the run.
+	};
+}
+
+/**
+ * Durable submission ledger: admit + open the first attempt for this kernel
+ * run. Idempotent (deterministic submission id), additive, never throws.
+ * Awaited, never offloaded: this row is what the crash sweep reconciles
+ * from, so admitting it on a background task made the recovery plane
+ * conditional on the same isolate that the failure kills: an eviction would
+ * take the dispatch and its admission together, leaving the sweep nothing
+ * to recover. The cost is one D1 write on the run-insert receipt; `.catch`
+ * keeps a ledger fault from failing the run.
+ */
+async function admitKernelRunSubmission(
+	context: BaseContext,
+	input: KernelRuntimeRunInsertInput,
+	admitted?: RuntimeSubmission,
+): Promise<void> {
 	await recordKernelSubmissionStarted(context.db, {
 		runId: input.id,
 		organizationId: input.organizationId,
@@ -2368,8 +2385,130 @@ export async function insertKernelRuntimeRun(
 				? input.metadata.idempotencyKey
 				: input.id,
 		delegatedTediId: input.delegatedTediId ?? null,
-		createdAt,
+		createdAt: input.createdAt ?? nowIso(),
+		admitted,
 	}).catch(() => {});
+}
+
+export async function insertKernelRuntimeRun(
+	context: BaseContext,
+	input: KernelRuntimeRunInsertInput,
+): Promise<void> {
+	await insertKernelRuntimeRunIfAbsent(
+		context.db,
+		buildKernelRuntimeRunRow(input),
+	);
+	await admitKernelRunSubmission(context, input);
+}
+
+/** Input of {@link persistKernelTurnStart}. */
+export interface KernelTurnStartInput {
+	run: KernelRuntimeRunInsertInput;
+	/**
+	 * `message.received` first, `run.started` second. The second's
+	 * `causeEventId` is the first's id on a first delivery.
+	 */
+	events: readonly [
+		received: KernelRuntimeEventInsertInput,
+		started: Omit<KernelRuntimeEventInsertInput, "causeEventId">,
+	];
+	/**
+	 * The `run.started` cause of a previously persisted delivery of this turn
+	 * (`existingRunStartedCause`): `undefined` for a first delivery, otherwise
+	 * the stored cause. A replay skips the conversation-index bump so it is
+	 * never double-counted.
+	 */
+	priorCause: string | null | undefined;
+	/** The submission `claimKernelExecutionPolicy` already admitted for this run. */
+	submission?: RuntimeSubmission;
+}
+
+/**
+ * Land a turn's ingress — the `message.received` row, its cause-bound
+ * `run.started`, the run row and the conversation-index bump — in one D1
+ * batch (`openKernelRuntimeTurn`), then admit the submission ledger. Same
+ * durability, ordering and idempotency as the former sequential
+ * {@link insertKernelRuntimeEvent} ×2 + {@link insertKernelRuntimeRun} calls,
+ * with one primary round trip instead of four.
+ */
+export async function persistKernelTurnStart(
+	context: BaseContext,
+	input: KernelTurnStartInput,
+): Promise<{
+	receivedEvent: KernelRuntimeEvent;
+	startedEvent: KernelRuntimeEvent;
+}> {
+	const received = buildKernelRuntimeEventRow(context, input.events[0]);
+	const started = buildKernelRuntimeEventRow(context, {
+		...input.events[1],
+		causeEventId:
+			input.priorCause === undefined ? received.id : input.priorCause,
+	});
+	const run = buildKernelRuntimeRunRow(input.run);
+	// The projection reads only the fields the insert value shares with the
+	// stored row.
+	const conversation =
+		input.priorCause === undefined
+			? kernelConversationMessageParams(received as KernelRuntimeEventRow)
+			: null;
+	let opened: Awaited<ReturnType<typeof openKernelRuntimeTurn>>;
+	let indexBumped = conversation !== null;
+	try {
+		try {
+			opened = await openKernelRuntimeTurn(context.db, {
+				run,
+				events: [received, started],
+				conversation,
+			});
+		} catch (error) {
+			// The index is a rebuildable read model and its write-through has
+			// always been fail-soft; a batch is atomic, so a failed one wrote
+			// nothing and the ingress rows land again without the bump, which then
+			// takes the write-through below (fail-soft there too).
+			if (!conversation || error instanceof KernelRuntimeEventConflictError)
+				throw error;
+			console.warn(
+				"[kernelRuntime] turn-start batch failed with the conversation-index bump; retrying without it",
+				errorMessage(error),
+			);
+			indexBumped = false;
+			opened = await openKernelRuntimeTurn(context.db, {
+				run,
+				events: [received, started],
+				conversation: null,
+			});
+		}
+	} catch (error) {
+		if (error instanceof KernelRuntimeEventConflictError)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Kernel runtime event conflicts with immutable causal identity",
+			);
+		throw error;
+	}
+	const [receivedPersisted, startedPersisted] = opened.events;
+	if (!receivedPersisted || !startedPersisted)
+		throw createError(
+			ErrorCodes.INTERNAL_SERVER_ERROR,
+			"kernel turn start batch returned fewer events than it wrote",
+		);
+	// A first delivery bumped the index inside the batch. A replay that still
+	// inserted (a legacy partial write) takes the write-through instead.
+	const receivedEvent = indexBumped
+		? {
+				event: normalizeHomeEvent(receivedPersisted.row),
+				inserted: receivedPersisted.inserted,
+			}
+		: await finishPersistedKernelRuntimeEvent(context, receivedPersisted);
+	const startedEvent = await finishPersistedKernelRuntimeEvent(
+		context,
+		startedPersisted,
+	);
+	await admitKernelRunSubmission(context, input.run, input.submission);
+	return {
+		receivedEvent: receivedEvent.event,
+		startedEvent: startedEvent.event,
+	};
 }
 
 /**
