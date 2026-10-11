@@ -47,6 +47,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { codexThreadPath } from "./codex-thread";
 import { pruneStatusFiles, statusEnded } from "./hooks/agent-status";
 import {
 	answersMessage,
@@ -102,6 +103,8 @@ export const LAUNCH_AGENT_LABEL = "dev.tedix.supervisor";
 
 /** The Codex operations the supervisor needs; tests replace them with fakes. */
 export interface CodexDriver {
+	/** Refresh the canonical transcript before a delivery or retained-queue retry. */
+	resolveTranscript?(thread: string): Promise<boolean>;
 	/**
 	 * Queue a message for a thread: the queued item ID and the transcript size
 	 * before it, or undefined on failure.
@@ -535,6 +538,11 @@ export class Supervisor {
 		const receipt = join(directory, `${key}.json`);
 		const saved = peek(receipt);
 		if (
+			this.deps.codex.resolveTranscript &&
+			!(await this.deps.codex.resolveTranscript(session))
+		)
+			return "queue-failed";
+		if (
 			existsSync(receipt) &&
 			(!saved ||
 				saved.messageHash !== messageHash ||
@@ -906,22 +914,14 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 	const codexHome = env.CODEX_HOME || join(homedir(), ".codex");
 	const queueDb = join(codexHome, "queue_1.sqlite");
 	const transcripts = new Map<string, string>();
-	/** The thread's rollout under $CODEX_HOME/sessions/YYYY/MM/DD. */
-	const transcript = (thread: string): string | undefined => {
-		const known = transcripts.get(thread);
-		if (known && existsSync(known)) return known;
-		const root = join(codexHome, "sessions");
-		try {
-			for (const relative of readdirSync(root, { recursive: true }) as string[])
-				if (relative.endsWith(`-${thread}.jsonl`)) {
-					const path = join(root, relative);
-					transcripts.set(thread, path);
-					return path;
-				}
-		} catch {
-			// No sessions directory.
+	const resolveTranscript = async (thread: string): Promise<boolean> => {
+		const path = await codexThreadPath(thread, env);
+		if (!path) {
+			transcripts.delete(thread);
+			return false;
 		}
-		return undefined;
+		transcripts.set(thread, path);
+		return true;
 	};
 	const withDb = <T>(operation: (db: Database) => T): T | undefined => {
 		if (!existsSync(queueDb)) return undefined;
@@ -936,14 +936,18 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 		}
 	};
 	return {
+		resolveTranscript,
 		async queue(thread, message) {
-			const path = transcript(thread);
+			if (!transcripts.has(thread) && !(await resolveTranscript(thread)))
+				return undefined;
+			const path = transcripts.get(thread);
 			if (!path) return undefined;
 			const offset = statSync(path).size;
 			const result = spawnSync(
 				"codex",
 				["queue", "--thread", thread, "--message", message],
 				{
+					env,
 					encoding: "utf8",
 					timeout: 60_000,
 					stdio: ["ignore", "pipe", "pipe"],
@@ -959,7 +963,7 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 				: undefined;
 		},
 		received(thread, message, offset) {
-			const path = transcript(thread);
+			const path = transcripts.get(thread);
 			if (!path) return false;
 			try {
 				const fd = openSync(path, "r");
@@ -1005,6 +1009,7 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 				"codex",
 				["exec", "--skip-git-repo-check", "--json", "resume", thread, "-"],
 				{
+					env,
 					cwd: existsSync(cwd) ? cwd : homedir(),
 					detached: true,
 					stdio,
