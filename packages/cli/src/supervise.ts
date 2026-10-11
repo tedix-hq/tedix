@@ -48,6 +48,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { codexThreadPath } from "./codex-thread";
 import { beginFileLock } from "./local-file-lock";
+import { readDelegations, recordDelegation } from "./delegation-ledger";
 import { pruneStatusFiles, statusEnded } from "./hooks/agent-status";
 import {
 	answersMessage,
@@ -396,11 +397,80 @@ export class Supervisor {
 			}
 		}
 		try {
+			delivered += await this.pickupWork();
+		} catch (error) {
+			this.log(
+				`Work delivery failed: ${(error as Error).message?.slice(0, 200)}`,
+			);
+		}
+		try {
 			delivered += await this.drainAnswers(now);
 		} catch (error) {
 			this.log(
 				`answer delivery failed: ${(error as Error).message?.slice(0, 200)}`,
 			);
+		}
+		return delivered;
+	}
+
+	/** Only explicitly registered, exact-chat handoffs; never scan the Work board. */
+	async pickupWork(session?: string): Promise<number> {
+		const now = this.now();
+		let delivered = 0;
+		for (const local of localSessions(this.deps.env, now)) {
+			if (session && local.session !== session) continue;
+			if (local.host !== "codex") continue;
+			if (local.status?.state === "working") continue;
+			for (const entry of readDelegations(this.deps.env, local.session)) {
+				if (
+					!entry.launch ||
+					entry.deliveredAt ||
+					entry.to !== `codex:${local.session}`
+				)
+					continue;
+				const key = `work:${local.session}:${entry.id}`;
+				if ((this.retryAt.get(key) ?? 0) > now) continue;
+				this.retryAt.set(key, now + DELIVERY_RETRY_MS);
+				const binding = await this.bindingOf(local, now);
+				if (
+					!binding ||
+					binding.workspace !== entry.workspace ||
+					binding.projectId !== entry.projectId ||
+					binding.organization !== entry.organization
+				)
+					continue;
+				const ready = await this.reader(local.cwd)(
+					[...binding.command, "work", "readiness", entry.id, "--json"],
+					DETAIL_TIMEOUT_MS,
+				);
+				if (ready?.workItemId !== entry.id || ready.ready !== true) continue;
+				const message = `Explicit Tedix Work handoff ${entry.id} to codex:${local.session}. Read current context and readiness using tedix -w ${entry.workspace}. Establish your own verified Agent-Session and obtain fresh Work admission before executing. Preserve peer Attempts. This is new delegated Work, not an answer to a question. Return exact outcome evidence to this originating chat.`;
+				const outcome = await this.toCodex(
+					local.session,
+					message,
+					local.cwd,
+					undefined,
+					`${entry.orgId}:${entry.id}`,
+				);
+				if (outcome === "codex_queue" || outcome === "codex_resume") {
+					const current = readDelegations(this.deps.env, local.session).find(
+						(e) => e.id === entry.id,
+					);
+					if (
+						current?.launch &&
+						current.to === entry.to &&
+						!current.deliveredAt
+					)
+						recordDelegation(this.deps.env, local.session, {
+							...current,
+							deliveredAt: new Date(now).toISOString(),
+						});
+					delivered++;
+				}
+				this.log(
+					`codex ${local.session}: Work ${entry.id} ${outcome}; launch is not execution completion`,
+				);
+			}
 		}
 		return delivered;
 	}

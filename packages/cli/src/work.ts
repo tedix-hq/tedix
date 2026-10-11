@@ -49,12 +49,13 @@ import {
 } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { Supervisor, codexDriver } from "./supervise";
+import { recordLocalSession } from "./hooks/decision-capture";
 import { resolveAgentContext, type AgentContextResult } from "./agent-context";
 import { claimFiles, fileResourceKeys } from "./work-claim-files";
 import {
 	delegationKey,
 	forgetDelegations,
+	readDelegations,
 	recordDelegation,
 } from "./delegation-ledger";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -154,8 +155,6 @@ export interface WorkOptions {
 	host?: string;
 	/** `handoff`: launch the host after reading the accepted item. */
 	launch?: boolean;
-	/** `handoff`: explicitly continue this existing Codex chat. */
-	targetChat?: string;
 	/**
 	 * `--contradicts`: this principal asserts the settled claim is FALSE, rather
 	 * than independently reproducing it. The ledger began as duplicate
@@ -205,13 +204,6 @@ export interface WorkContext {
 		args: string[],
 		env: NodeJS.ProcessEnv,
 	) => number;
-	deliverHandoff?: (
-		session: string,
-		message: string,
-		cwd: string,
-		env: NodeJS.ProcessEnv,
-		key: string,
-	) => Promise<string>;
 	work: WorkOptions;
 }
 
@@ -2324,10 +2316,14 @@ async function workHandoff(
 	const host = ctx.work.host;
 	if (host !== "codex" && host !== "claude")
 		throw new Error("work handoff requires --host codex|claude");
-	const targetChat = ctx.work.targetChat?.trim().toLowerCase();
-	if (targetChat && (host !== "codex" || !UUID_RE.test(targetChat)))
+	const target = ctx.work.to?.trim().toLowerCase();
+	const targetChat = target?.startsWith("codex:") ? target.slice(6) : undefined;
+	if (
+		ctx.work.to !== undefined &&
+		(host !== "codex" || !targetChat || !UUID_RE.test(targetChat))
+	)
 		throw new Error(
-			"--target-chat requires --host codex and an exact chat UUID",
+			"handoff --to requires --host codex and an exact codex:<chat UUID>",
 		);
 	if (!/^[a-zA-Z0-9_-]+$/.test(ctx.workspace))
 		throw new Error("work handoff requires a named CLI workspace");
@@ -2343,8 +2339,9 @@ async function workHandoff(
 		throw new Error(
 			`work handoff requires an accepted Work Item; inspect ${id} with work context`,
 		);
-	const prompt = `Continue Tedix Work Item ${id} in CLI workspace ${ctx.workspace}${item.orgId ? `, organization ${item.orgId}` : ""}. Read its current context and readiness through tedix first. Establish your own verified external-agent identity and Agent-Session before any Work mutation. Start or resume only your own admitted Attempt, then heartbeat, settle, and complete it under the Work protocol. The launcher did not transfer an Attempt, credential, or permission to act.`;
+	const prompt = `Continue Tedix Work Item ${id} in CLI workspace ${ctx.workspace}. Read its current context and readiness through tedix first. Establish your own verified external-agent identity and Agent-Session before any Work mutation. Start or resume only your own admitted Attempt, then heartbeat, settle, and complete it under the Work protocol. The launcher did not transfer an Attempt, credential, or permission to act.`;
 	if (targetChat) {
+		const target = `codex:${targetChat}`;
 		const binding = ctx.resolveContext
 			? ctx.resolveContext(targetChat)
 			: resolveAgentContext({ sessionId: targetChat });
@@ -2355,49 +2352,51 @@ async function workHandoff(
 			binding.workspace !== ctx.workspace ||
 			!ctx.mcpUrl ||
 			binding.mcpUrl !== ctx.mcpUrl ||
-			binding.projectId !== item.projectId
+			binding.projectId !== item.projectId ||
+			(ctx.organizationId !== undefined &&
+				binding.organization !== ctx.organizationId)
 		)
 			throw new Error(
 				"Target chat must be explicitly bound to this profile and Work project in this checkout",
 			);
-		if (!ctx.work.launch) {
-			console.log(
-				JSON.stringify({
-					workItemId: id,
-					targetChat,
-					workspace: ctx.workspace,
-					command: `tedix -w ${shellQuote(ctx.workspace)} work handoff ${id} --host codex --target-chat ${targetChat} --launch`,
-					note: "Read-only preview. Launch delivers to this existing chat; it must obtain its own Attempt.",
-				}),
-			);
-			return 0;
-		}
-		const env: NodeJS.ProcessEnv = {
-			...process.env,
-			TEDIX_PLUGIN_PREFLIGHT: "1",
-			TEDIX_WORKSPACE: ctx.workspace,
-			...(binding.organization
-				? { TEDIX_ORGANIZATION: binding.organization }
-				: {}),
-		};
-		for (const name of HANDOFF_ENV_TO_CLEAR) delete env[name];
-		const delivery =
-			ctx.deliverHandoff ??
-			((session, message, cwd, env, key) =>
-				new Supervisor({
-					env,
-					read: async () => ({}),
-					codex: codexDriver(env),
-				}).toCodex(session, message, cwd, undefined, key));
-		const via = await delivery(
-			targetChat,
-			prompt,
-			process.cwd(),
-			env,
-			`${item.orgId}:${id}`,
+		const prior = readDelegations(process.env, target).find((e) => e.id === id);
+		if (
+			ctx.work.launch &&
+			!(
+				prior?.launch &&
+				prior.to === target &&
+				prior.projectId === item.projectId &&
+				prior.organization === binding.organization
+			)
+		)
+			recordDelegation(process.env, target, {
+				id,
+				title: String(item.title ?? id),
+				via: "session",
+				to: target,
+				workspace: ctx.workspace,
+				createdAt: new Date().toISOString(),
+				launch: true,
+				projectId: String(item.projectId),
+				organization: binding.organization,
+				orgId: String(item.orgId),
+				...(prior?.deliveredAt ? { deliveredAt: prior.deliveredAt } : {}),
+			});
+		if (ctx.work.launch)
+			recordLocalSession(process.env, targetChat, "codex", process.cwd());
+		return ok(
+			ctx,
+			{
+				workItemId: id,
+				target,
+				registered: !!ctx.work.launch,
+				note: "Exact-chat supervisor handoff; the recipient must obtain its own admission.",
+			},
+			() =>
+				console.log(
+					`${ctx.work.launch ? "Registered" : "Preview"} ${id} for ${target}`,
+				),
 		);
-		console.log(JSON.stringify({ workItemId: id, targetChat, delivery: via }));
-		return via === "codex_queue" || via === "codex_resume" ? 0 : WORK_EXIT_FAIL;
 	}
 	// The shared Codex daemon can retain a session without dispatching the
 	// plugin SessionStart hook. A fresh host process delivers this opt-in brief.
@@ -2756,7 +2755,7 @@ Lifecycle:
   accept <id> --done-when "<what done looks like>"
   readiness <id>
   start <id> [--worktree [--worktree-root <outside-repo-path>]]
-  handoff <id> --host codex|claude [--target-chat <Codex-chat-UUID>] [--launch]
+  handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
   heartbeat <id> [--watch [seconds]]
   settle <id> --outcome succeeded|failed|cancelled|expired [--note <summary>]
               [--commit <sha> ...]
@@ -3590,13 +3589,8 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 			"--worktree and --worktree-root are only valid with work start",
 		);
 	}
-	if (
-		(ctx.work.host || ctx.work.launch || ctx.work.targetChat) &&
-		verb !== "handoff"
-	)
-		throw new Error(
-			"--host, --target-chat and --launch are only valid with work handoff",
-		);
+	if ((ctx.work.host || ctx.work.launch) && verb !== "handoff")
+		throw new Error("--host and --launch are only valid with work handoff");
 	if (ctx.work.worktreeRoot && !ctx.work.worktree) {
 		throw new Error("--worktree-root requires --worktree");
 	}

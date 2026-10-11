@@ -869,3 +869,70 @@ exit 64
 		});
 	});
 });
+
+describe("explicit exact-chat Work pickup", () => {
+	const WORK = "77777777-7777-4777-8777-777777777777";
+	test("retains offline Work, delivers on reconnect, and suppresses repeats across restart", async () => {
+		const { recordDelegation, readDelegations } =
+			await import("./delegation-ledger");
+		const env = { TEDIX_CONFIG_DIR: config };
+		writeFileSync(
+			join(config, "decision-capture", `${SESSION}.session.json`),
+			JSON.stringify({ host: "codex", cwd: config }),
+		);
+		recordDelegation(env, SESSION, {
+			id: WORK,
+			title: "Fixture Work",
+			via: "session",
+			to: `codex:${SESSION}`,
+			workspace: "fixture",
+			createdAt: new Date().toISOString(),
+			launch: true,
+			projectId: PROJECT,
+			orgId: PROJECT,
+		});
+		let online = false;
+		let calls = 0;
+		const codex: CodexDriver = {
+			resolveTranscript: async () => online,
+			queue: async (thread) => {
+				expect(thread).toBe(SESSION);
+				calls++;
+				return { id: "queued-work", offset: 0 };
+			},
+			received: () => true,
+			withdraw: () => {
+				throw new Error("must not resume a confirmed queue");
+			},
+			resume: async () => {
+				throw new Error("must not create a second turn");
+			},
+		};
+		let clock = Date.now();
+		const deps = {
+			env,
+			codex,
+			now: () => clock,
+			log: () => {},
+			read: async (args: string[]) => {
+				if (args.includes("context")) return structuredClone(BINDING);
+				if (args.includes("auth")) return structuredClone(AUTH);
+				if (args.includes("readiness"))
+					return { workItemId: WORK, ready: true };
+				if (args.includes("interaction-undelivered"))
+					return { data: [], observedAt: new Date().toISOString() };
+				throw new Error(args.join(" "));
+			},
+		};
+		const runner = new Supervisor(deps);
+		expect(await runner.tick()).toBe(0);
+		expect(calls).toBe(0);
+		expect(readDelegations(env, SESSION)[0]?.deliveredAt).toBeUndefined();
+		online = true;
+		clock += 11 * 60_000;
+		expect(await runner.tick()).toBe(1);
+		expect(readDelegations(env, SESSION)[0]?.deliveredAt).toBeDefined();
+		expect(await new Supervisor(deps).tick()).toBe(0);
+		expect(calls).toBe(1);
+	});
+});

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { withCompletionEvidence } from "@tedix/api-contract/schemas/execution-evidence";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDelegations } from "./delegation-ledger";
@@ -146,84 +146,6 @@ function nativeBootstrapFixture() {
 }
 
 describe("coding-host Work handoff", () => {
-	test("an explicit existing chat receives the brief without a fresh host launch", async () => {
-		const targetChat = "44444444-4444-4444-8444-444444444444";
-		const { ctx } = makeContext(
-			{ host: "codex", launch: true, targetChat },
-			undefined,
-			() => ({
-				workItem: {
-					id: ITEM,
-					disposition: "accepted",
-					orgId: TEST_ORG,
-					projectId: ATTEMPT,
-				},
-			}),
-		);
-		ctx.mcpUrl = "https://fixture.example.invalid/mcp";
-		ctx.resolveContext = (session) => ({
-			status: "bound",
-			contextSource: "chat",
-			contextSessionId: session,
-			workspace: "test",
-			mcpUrl: ctx.mcpUrl,
-			projectId: ATTEMPT,
-			organization: TEST_ORG,
-		});
-		ctx.launchHost = () => {
-			throw new Error("must not open a new chat");
-		};
-		ctx.deliverHandoff = async (session, message, cwd, env, key) => {
-			expect(session).toBe(targetChat);
-			expect(message).toContain(ITEM);
-			expect(message).toContain(TEST_ORG);
-			expect(message).toContain("own admitted Attempt");
-			expect(env.TEDIX_ORGANIZATION).toBe(TEST_ORG);
-			expect(env.TEDIX_AGENT_SESSION).toBeUndefined();
-			expect(key).toBe(`${TEST_ORG}:${ITEM}`);
-			return "codex_resume";
-		};
-		expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
-		ctx.resolveContext = () => ({ status: "bound", contextSource: "default" });
-		await expect(runWork(`handoff ${ITEM}`, ctx)).rejects.toThrow(
-			"explicitly bound",
-		);
-	});
-
-	test("target preview has no delivery; failed delivery is not a successful handoff", async () => {
-		const targetChat = "44444444-4444-4444-8444-444444444444";
-		const { ctx } = makeContext(
-			{ host: "codex", targetChat },
-			undefined,
-			() => ({
-				workItem: { id: ITEM, disposition: "accepted", projectId: ATTEMPT },
-			}),
-		);
-		ctx.mcpUrl = "https://fixture.example.invalid/mcp";
-		ctx.resolveContext = () => ({
-			status: "bound",
-			contextSource: "chat",
-			contextSessionId: targetChat,
-			workspace: "test",
-			mcpUrl: ctx.mcpUrl,
-			projectId: ATTEMPT,
-		});
-		let deliveries = 0;
-		ctx.deliverHandoff = async () => {
-			deliveries++;
-			return "queue-pending";
-		};
-		expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
-		expect(deliveries).toBe(0);
-		ctx.work.launch = true;
-		expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
-		expect(deliveries).toBe(1);
-		ctx.work.host = "claude";
-		await expect(runWork(`handoff ${ITEM}`, ctx)).rejects.toThrow(
-			"requires --host codex",
-		);
-	});
-
 	test("previews an accepted item without launching or mutating Work", async () => {
 		const { ctx, sources } = makeContext({ host: "codex" }, undefined, () => ({
 			workItem: { id: ITEM, disposition: "accepted" },
@@ -3288,5 +3210,85 @@ describe("delegation ledger", () => {
 		await expect(
 			runWork("delegate", makeContext({ done: ITEM }).ctx),
 		).rejects.toThrow(/--note/);
+	});
+});
+
+describe("exact-chat Work handoff registration", () => {
+	test("preview writes nothing and repeated registration preserves its receipt", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-work-launch-"));
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = dir;
+		const target = "codex:88888888-8888-4888-8888-888888888888";
+		try {
+			const { ctx } = makeContext(
+				{ host: "codex", to: target },
+				undefined,
+				() => ({
+					workItem: {
+						id: ITEM,
+						title: "Fixture Work",
+						disposition: "accepted",
+						projectId: ATTEMPT,
+						orgId: TEST_ORG,
+					},
+				}),
+			);
+			ctx.mcpUrl = "https://fixture.example.invalid/mcp";
+			ctx.organizationId = TEST_ORG;
+			const binding = {
+				status: "bound" as const,
+				contextSource: "chat" as const,
+				contextSessionId: target.slice(6),
+				workspace: "test",
+				mcpUrl: ctx.mcpUrl,
+				projectId: ATTEMPT,
+				organization: TEST_ORG,
+			};
+			ctx.resolveContext = () => binding;
+			for (const mismatch of [
+				{ contextSource: "default" as const },
+				{ workspace: "other" },
+				{ organization: "other" },
+				{ projectId: ITEM },
+				{ mcpUrl: "https://other.example.invalid/mcp" },
+			]) {
+				ctx.resolveContext = () => ({ ...binding, ...mismatch });
+				await expect(runWork(`handoff ${ITEM}`, ctx)).rejects.toThrow(
+					"explicitly bound",
+				);
+				expect(readDelegations(process.env, target)).toHaveLength(0);
+			}
+			ctx.resolveContext = () => binding;
+			expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
+			expect(readDelegations(process.env, target)).toHaveLength(0);
+			ctx.work.launch = true;
+			expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
+			expect(
+				JSON.parse(
+					readFileSync(
+						join(dir, "decision-capture", `${target.slice(6)}.session.json`),
+						"utf8",
+					),
+				),
+			).toEqual({ host: "codex", cwd: process.cwd() });
+			const { recordDelegation } = await import("./delegation-ledger");
+			const entry = readDelegations(process.env, target)[0]!;
+			recordDelegation(process.env, target, {
+				...entry,
+				deliveredAt: "2026-10-11T20:00:00Z",
+			});
+			expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
+			expect(readDelegations(process.env, target)[0]?.deliveredAt).toBe(
+				"2026-10-11T20:00:00Z",
+			);
+			ctx.work.to = "another-chat";
+			await expect(runWork(`handoff ${ITEM}`, ctx)).rejects.toThrow(
+				/exact codex/,
+			);
+		} finally {
+			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

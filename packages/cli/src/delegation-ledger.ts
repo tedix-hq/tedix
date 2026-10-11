@@ -19,6 +19,12 @@ export interface Delegation {
 	to?: string;
 	workspace: string;
 	createdAt: string;
+	/** Explicit handoff to this existing Codex chat, delivered by the supervisor. */
+	launch?: boolean;
+	deliveredAt?: string;
+	projectId?: string;
+	organization?: string;
+	orgId?: string;
 }
 
 const KEY = /^[0-9a-z._-]{1,128}$/;
@@ -50,7 +56,13 @@ function valid(entry: unknown): entry is Delegation {
 		(e.via === "subagent" || e.via === "session") &&
 		(e.to === undefined || typeof e.to === "string") &&
 		typeof e.workspace === "string" &&
-		typeof e.createdAt === "string"
+		typeof e.createdAt === "string" &&
+		(e.launch === undefined || typeof e.launch === "boolean") &&
+		(e.deliveredAt === undefined || typeof e.deliveredAt === "string") &&
+		(e.projectId === undefined ||
+			(typeof e.projectId === "string" && UUID.test(e.projectId))) &&
+		(e.orgId === undefined || typeof e.orgId === "string") &&
+		(e.organization === undefined || typeof e.organization === "string")
 	);
 }
 

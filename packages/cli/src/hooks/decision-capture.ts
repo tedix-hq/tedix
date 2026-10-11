@@ -764,6 +764,15 @@ export function sessionPath(state: string): string {
 	return state.replace(/\.json$/, ".session.json");
 }
 
+export function recordLocalSession(
+	env: NodeJS.ProcessEnv,
+	session: string,
+	host: string,
+	cwd: string,
+): void {
+	writeState(sessionPath(captureStatePath(env, session)), { host, cwd });
+}
+
 /** Record answers as delivered (or acknowledged); false on any failure. */
 export async function ackAnswers(
 	deps: Pick<HookDeps, "read">,
@@ -1036,7 +1045,7 @@ async function onStop(
 	// the question is still being created is kept instead of lost.
 	const token = randomUUID().replaceAll("-", "");
 	const cwd = typeof event.cwd === "string" ? event.cwd : deps.cwd;
-	writeState(sessionPath(state), { host, cwd });
+	recordLocalSession(deps.env, session, host, cwd);
 	rmSync(early(state), { force: true });
 	rmSync(questionPath(state), { force: true });
 	rmSync(draftStatusPath(state), { force: true });
