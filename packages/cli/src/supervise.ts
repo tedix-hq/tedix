@@ -47,6 +47,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { codexThreadPath } from "./codex-thread";
+import { beginFileLock } from "./local-file-lock";
 import { pruneStatusFiles, statusEnded } from "./hooks/agent-status";
 import {
 	answersMessage,
@@ -483,7 +484,50 @@ export class Supervisor {
 	 * transcript confirms), else the queued copy is withdrawn and the thread
 	 * resumes headless. `onQueued` runs once the queue accepted it.
 	 */
-	private async toCodex(
+	async toCodex(
+		session: string,
+		message: string,
+		cwd: string,
+		onQueued?: () => void,
+		deliveryKey?: string,
+	) {
+		const key = createHash("sha256").update(session).digest("hex");
+		const directory = join(
+			configDir(this.deps.env),
+			"supervisor",
+			"codex-queue",
+		);
+		const lock = beginFileLock(
+			join(configDir(this.deps.env), "supervisor", "codex-locks", key),
+		);
+		try {
+			if (!lock.ready()) return "queue-pending" as const;
+			const receipt = deliveryKey
+				? join(
+						directory,
+						`${createHash("sha256").update(`${session}:${deliveryKey}`).digest("hex")}.delivered.json`,
+					)
+				: undefined;
+			const messageHash = createHash("sha256").update(message).digest("hex");
+			if (receipt && existsSync(receipt)) {
+				const saved = peek(receipt);
+				if (saved?.messageHash !== messageHash) return "queue-pending" as const;
+				if (saved.via === "codex_queue" || saved.via === "codex_resume")
+					return saved.via;
+				return "queue-pending" as const;
+			}
+			const outcome = await this.dispatchCodex(session, message, cwd, onQueued);
+			if (receipt && (outcome === "codex_queue" || outcome === "codex_resume"))
+				writeFileSync(receipt, JSON.stringify({ messageHash, via: outcome }), {
+					mode: 0o600,
+				});
+			return outcome;
+		} finally {
+			lock.release();
+		}
+	}
+
+	private async dispatchCodex(
 		session: string,
 		message: string,
 		cwd: string,

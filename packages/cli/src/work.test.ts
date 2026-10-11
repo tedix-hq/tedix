@@ -146,6 +146,84 @@ function nativeBootstrapFixture() {
 }
 
 describe("coding-host Work handoff", () => {
+	test("an explicit existing chat receives the brief without a fresh host launch", async () => {
+		const targetChat = "44444444-4444-4444-8444-444444444444";
+		const { ctx } = makeContext(
+			{ host: "codex", launch: true, targetChat },
+			undefined,
+			() => ({
+				workItem: {
+					id: ITEM,
+					disposition: "accepted",
+					orgId: TEST_ORG,
+					projectId: ATTEMPT,
+				},
+			}),
+		);
+		ctx.mcpUrl = "https://fixture.example.invalid/mcp";
+		ctx.resolveContext = (session) => ({
+			status: "bound",
+			contextSource: "chat",
+			contextSessionId: session,
+			workspace: "test",
+			mcpUrl: ctx.mcpUrl,
+			projectId: ATTEMPT,
+			organization: TEST_ORG,
+		});
+		ctx.launchHost = () => {
+			throw new Error("must not open a new chat");
+		};
+		ctx.deliverHandoff = async (session, message, cwd, env, key) => {
+			expect(session).toBe(targetChat);
+			expect(message).toContain(ITEM);
+			expect(message).toContain(TEST_ORG);
+			expect(message).toContain("own admitted Attempt");
+			expect(env.TEDIX_ORGANIZATION).toBe(TEST_ORG);
+			expect(env.TEDIX_AGENT_SESSION).toBeUndefined();
+			expect(key).toBe(`${TEST_ORG}:${ITEM}`);
+			return "codex_resume";
+		};
+		expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
+		ctx.resolveContext = () => ({ status: "bound", contextSource: "default" });
+		await expect(runWork(`handoff ${ITEM}`, ctx)).rejects.toThrow(
+			"explicitly bound",
+		);
+	});
+
+	test("target preview has no delivery; failed delivery is not a successful handoff", async () => {
+		const targetChat = "44444444-4444-4444-8444-444444444444";
+		const { ctx } = makeContext(
+			{ host: "codex", targetChat },
+			undefined,
+			() => ({
+				workItem: { id: ITEM, disposition: "accepted", projectId: ATTEMPT },
+			}),
+		);
+		ctx.mcpUrl = "https://fixture.example.invalid/mcp";
+		ctx.resolveContext = () => ({
+			status: "bound",
+			contextSource: "chat",
+			contextSessionId: targetChat,
+			workspace: "test",
+			mcpUrl: ctx.mcpUrl,
+			projectId: ATTEMPT,
+		});
+		let deliveries = 0;
+		ctx.deliverHandoff = async () => {
+			deliveries++;
+			return "queue-pending";
+		};
+		expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(0);
+		expect(deliveries).toBe(0);
+		ctx.work.launch = true;
+		expect((await capture(`handoff ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
+		expect(deliveries).toBe(1);
+		ctx.work.host = "claude";
+		await expect(runWork(`handoff ${ITEM}`, ctx)).rejects.toThrow(
+			"requires --host codex",
+		);
+	});
+
 	test("previews an accepted item without launching or mutating Work", async () => {
 		const { ctx, sources } = makeContext({ host: "codex" }, undefined, () => ({
 			workItem: { id: ITEM, disposition: "accepted" },
