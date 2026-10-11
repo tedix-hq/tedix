@@ -3,6 +3,21 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.6 — 2026-10-11
+
+### Fixed
+
+- A turn that asks you for nothing is closed by the server as acknowledged
+  instead of waiting for a tedi "carry on" reply, so sessions stop
+  ping-ponging over status lines. The `await-reply` hook stops waiting on
+  such a question without waking the session, and a closure recorded with no
+  delivery is never read back as your answer.
+- The supervisor resolves a session's local context in-process, keeping the
+  originating chat and organization selection.
+- Automatic Codex continuation requests open only for stored chats that can
+  receive an answer; unavailable or archived chats keep their message in the
+  chat without a question or draft.
+
 ## 0.8.5 — 2026-10-11
 
 ### Fixed
