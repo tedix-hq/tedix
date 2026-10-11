@@ -5,6 +5,7 @@ import {
 	encryptSecret,
 	encryptTediSecret,
 	generateMasterKey,
+	masterKeyFingerprints,
 	splitMasterKeys,
 } from "./secrets-encryption.ts";
 
@@ -28,6 +29,41 @@ describe("master key list", () => {
 
 	it("rejects an empty value rather than deriving from nothing", () => {
 		expect(() => splitMasterKeys("  ,  ")).toThrow(/empty/i);
+	});
+});
+
+describe("master key fingerprints", () => {
+	it("is stable for the same value and keeps window order", async () => {
+		const next = generateMasterKey();
+		const previous = generateMasterKey();
+		const window = `${next},${previous}`;
+
+		const first = await masterKeyFingerprints(window);
+		expect(first).toEqual(await masterKeyFingerprints(window));
+		expect(first).toHaveLength(2);
+		for (const fingerprint of first)
+			expect(fingerprint).toMatch(/^[0-9a-f]{12}$/);
+		expect(first[0]).toBe((await masterKeyFingerprints(next))[0]);
+		expect(first[1]).toBe((await masterKeyFingerprints(previous))[0]);
+		expect(first[0]).not.toBe(first[1]);
+	});
+
+	it("tells two different keys apart without exposing either", async () => {
+		const a = generateMasterKey();
+		const b = generateMasterKey();
+		const [fa] = await masterKeyFingerprints(a);
+		const [fb] = await masterKeyFingerprints(b);
+		expect(fa).not.toBe(fb);
+		expect(a).not.toContain(fa);
+	});
+
+	it("rejects a malformed key with the decrypt path's error", async () => {
+		await expect(masterKeyFingerprints("not-base64!")).rejects.toThrow(
+			/not valid base64/,
+		);
+		await expect(masterKeyFingerprints(btoa("short"))).rejects.toThrow(
+			/must be 32 bytes/,
+		);
 	});
 });
 

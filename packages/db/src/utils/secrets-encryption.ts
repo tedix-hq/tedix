@@ -94,10 +94,36 @@ export function splitMasterKeys(masterKeyBase64: string): string[] {
 	return keys;
 }
 
+/** Hex characters of SHA-256 kept per key: enough to tell two keys apart, far too few to recover one. */
+const MASTER_KEY_FINGERPRINT_HEX_CHARS = 12;
+
 /**
- * Import master key from base64 string for HKDF derivation
+ * Non-reversible fingerprint of every key in a `SECRETS_MASTER_KEY` window,
+ * in window order (index 0 is the key that encrypts). Two Workers that hold
+ * the same value produce the same list, so an operator can confirm the fleet
+ * agrees without reading the secret anywhere. A key that is not valid base64
+ * or not 32 bytes throws the same error the decrypt path would.
  */
-async function importMasterKey(masterKeyBase64: string): Promise<CryptoKey> {
+export async function masterKeyFingerprints(
+	masterKeyValue: string,
+): Promise<string[]> {
+	const fingerprints: string[] = [];
+	for (const key of splitMasterKeys(masterKeyValue)) {
+		const keyBytes = decodeMasterKeyBytes(key);
+		const digest = new Uint8Array(
+			await crypto.subtle.digest("SHA-256", keyBytes),
+		);
+		fingerprints.push(
+			Array.from(digest, (byte) => byte.toString(16).padStart(2, "0"))
+				.join("")
+				.slice(0, MASTER_KEY_FINGERPRINT_HEX_CHARS),
+		);
+	}
+	return fingerprints;
+}
+
+/** Decode one base64 master key into a fresh 32-byte buffer, rejecting any other shape. */
+function decodeMasterKeyBytes(masterKeyBase64: string): ArrayBuffer {
 	let keyBytes: Uint8Array;
 	try {
 		keyBytes = base64ToBytes(masterKeyBase64);
@@ -120,9 +146,20 @@ async function importMasterKey(masterKeyBase64: string): Promise<CryptoKey> {
 	// Create a proper ArrayBuffer copy to satisfy Web Crypto API types
 	const keyBuffer = new ArrayBuffer(keyBytes.length);
 	new Uint8Array(keyBuffer).set(keyBytes);
-	return crypto.subtle.importKey("raw", keyBuffer, "HKDF", false, [
-		"deriveKey",
-	]);
+	return keyBuffer;
+}
+
+/**
+ * Import master key from base64 string for HKDF derivation
+ */
+async function importMasterKey(masterKeyBase64: string): Promise<CryptoKey> {
+	return crypto.subtle.importKey(
+		"raw",
+		decodeMasterKeyBytes(masterKeyBase64),
+		"HKDF",
+		false,
+		["deriveKey"],
+	);
 }
 
 /**

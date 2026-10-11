@@ -13,10 +13,7 @@
  */
 
 import { implement } from "@orpc/server";
-import {
-	organizationSecretsContract,
-	SecretIdParamSchema,
-} from "@tedix/api-contract/contracts/secrets";
+import { organizationSecretsContract } from "@tedix/api-contract/contracts/secrets";
 import {
 	createOrgSecret,
 	deleteOrgSecret as deleteOrgSecretQuery,
@@ -30,10 +27,10 @@ import {
 	encryptSecret,
 	generateSecretHint,
 } from "@tedix/db/utils/secrets-encryption";
+import { collectMasterKeyFingerprints } from "../../services/master-key-fingerprints";
 import {
 	AUTHZ,
 	type BaseContext,
-	base,
 	createError,
 	ErrorCodes,
 	withAuth,
@@ -227,6 +224,15 @@ export const deleteOrgSecretProcedure = authedOrganizationSecretsOs.delete
 	});
 
 /**
+ * Platform-operator fleet check: does every Worker hold the same
+ * `SECRETS_MASTER_KEY`? Returns fingerprints only, never key material.
+ */
+export const masterKeyFingerprintsProcedure =
+	authedOrganizationSecretsOs.masterKeyFingerprints
+		.use(AUTHZ.platformAdmin)
+		.handler(async ({ context }) => collectMasterKeyFingerprints(context.env));
+
+/**
  * Contract-based router using os.router() pattern
  */
 export const organizationSecretsContractRouter =
@@ -235,6 +241,7 @@ export const organizationSecretsContractRouter =
 		get: getOrgSecretProcedure,
 		set: setOrgSecretProcedure,
 		delete: deleteOrgSecretProcedure,
+		masterKeyFingerprints: masterKeyFingerprintsProcedure,
 	});
 
 /**

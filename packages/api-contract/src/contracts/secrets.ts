@@ -86,6 +86,28 @@ export const SecretDeleteResponseSchema = z.object({
 // TYPE EXPORTS
 // =============================================================================
 
+/** One Worker's view of its `SECRETS_MASTER_KEY` rotation window; never key material. */
+export const WorkerMasterKeyFingerprintSchema = z.object({
+	worker: z.string(),
+	/** First 12 hex chars of SHA-256 per key, in window order (index 0 encrypts). */
+	fingerprints: z.array(z.string()),
+	/** Set when the Worker could not report: `unset`, `unreachable`, `timeout`, ... */
+	error: z.string().optional(),
+});
+
+export const MasterKeyFingerprintsResponseSchema = z.object({
+	workers: z.array(WorkerMasterKeyFingerprintSchema),
+	/** True when every Worker reported and all agree on the encrypting key. */
+	consistent: z.boolean(),
+});
+
+export type WorkerMasterKeyFingerprint = z.infer<
+	typeof WorkerMasterKeyFingerprintSchema
+>;
+export type MasterKeyFingerprintsResponse = z.infer<
+	typeof MasterKeyFingerprintsResponseSchema
+>;
+
 export type SecretIdParam = z.infer<typeof SecretIdParamSchema>;
 export type SecretName = z.infer<typeof SecretNameSchema>;
 export type SecretListItem = z.infer<typeof SecretListItemSchema>;
@@ -163,6 +185,25 @@ export const organizationSecretsContract = {
 		})
 		.input(OrgIdParamSchema.extend(SecretIdParamSchema.shape))
 		.output(SecretDeleteResponseSchema),
+
+	/**
+	 * GET /secrets/master-key-fingerprints - Platform-operator fleet check.
+	 *
+	 * `SECRETS_MASTER_KEY` is set by hand per Worker; a divergent copy makes
+	 * every secret on that Worker silently fail to decrypt. Each Worker reports
+	 * a non-reversible fingerprint per key in its rotation window.
+	 */
+	masterKeyFingerprints: oc
+		.route({
+			method: "GET",
+			path: "/secrets/master-key-fingerprints",
+			tags: ["organization-secrets", "internal"],
+			summary: "Compare master key fingerprints across Workers",
+			description:
+				"Platform operator read: a non-reversible fingerprint of each SECRETS_MASTER_KEY rotation-window entry per Worker, and whether the fleet agrees on the encrypting key.",
+		})
+		.input(z.object({}).strict())
+		.output(MasterKeyFingerprintsResponseSchema),
 };
 
 export type OrganizationSecretsContract = typeof organizationSecretsContract;

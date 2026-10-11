@@ -85,6 +85,7 @@ describe("platform operator tool definitions", () => {
 		expect(ids).toContain("run_tedi_mcp_access_health_workflow");
 		expect(ids).toContain("list_tedi_email_address_requests");
 		expect(ids).toContain("list_organization_widget_quotas");
+		expect(ids).toContain("get_master_key_fingerprints");
 		expect(ids).toContain("provision_tedi_email_address");
 		expect(ids).toContain("list_workflow_definitions");
 		expect(ids).toContain("list_workflow_definition_health");
@@ -123,6 +124,10 @@ describe("platform operator tool definitions", () => {
 		expect(definition("get_catalog_stats").kind).toBe("read");
 		expect(definition("list_organization_widget_quotas")).toMatchObject({
 			endpoint: "organizations/listWidgetQuotaStatus",
+			kind: "read",
+		});
+		expect(definition("get_master_key_fingerprints")).toMatchObject({
+			endpoint: "secrets/masterKeyFingerprints",
 			kind: "read",
 		});
 		expect(definition("run_openapi_import").kind).toBe("write");
