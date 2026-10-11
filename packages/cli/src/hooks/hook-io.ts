@@ -351,14 +351,17 @@ function plain(value: unknown): JsonObject {
  * it keeps its complete auth, profile and organization routing.
  */
 export const cliRead: ReadJson = async (args, timeoutMs, input, options) => {
+	const allowDefault = args[5] === "--allow-default";
+	const tail = args.slice(allowDefault ? 6 : 5);
 	if (
 		args.slice(0, 5).join(" ") === "setup agents context show --json" &&
-		(args.length === 5 || (args.length === 7 && args[5] === "--session"))
+		(tail.length === 0 || (tail.length === 2 && tail[0] === "--session"))
 	)
 		return plain(
 			resolveAgentContext({
 				...(options?.cwd ? { cwd: options.cwd } : {}),
-				...(args[6] ? { sessionId: args[6] } : {}),
+				...(allowDefault ? { allowDefault: true } : {}),
+				...(tail[1] ? { sessionId: tail[1] } : {}),
 			}),
 		);
 	return spawnJson(args, timeoutMs, input, options);
