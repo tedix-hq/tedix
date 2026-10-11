@@ -49,7 +49,8 @@ https://connect.mcp.tedix.dev/mcp
 Open Claude's settings, go to **Connectors**, add a custom connector named
 **Tedix**, and paste the address above. This gives Claude the Tedix tools; the bundled skills are
 not included. Cowork runs in its own environment, so it cannot reach anything
-on your laptop, such as a local Tedix.
+on your laptop, such as a local Tedix. The Tedix plugin (0.2.0) is under review
+for the Claude directory; once listed, you can add it from there instead.
 
 **Expected result:** Tedix appears in Claude's list of connectors and offers to
 sign in.
@@ -90,9 +91,22 @@ desktop app, a new Work chat offers the Tedix plugin.
 
 ### ChatGPT on the web
 
-Not supported yet. The Tedix plugin is not in the ChatGPT plugin directory, and
-a developer-mode custom connector is not a tested path. Use the ChatGPT desktop
-app or Codex instead.
+Not supported yet. The Tedix plugin (0.2.0) is under review for the OpenAI
+plugin directory, and a developer-mode custom connector is not a tested path.
+Until it is listed, use the ChatGPT desktop app or Codex instead.
+
+### Developers: the CLI
+
+If you work in a terminal, the [Tedix CLI](../cli.md) is the direct route:
+
+```sh
+curl -fsSL https://downloads.tedix.dev/install.sh | sh
+tedix login
+```
+
+`tedix setup agents` then installs the same plugin into Claude Code and Codex.
+The CLI login and the host's Tedix sign-in are separate; signing in to one does
+not sign you in to the other.
 
 ## 2. Sign in and choose your organization
 
@@ -103,6 +117,15 @@ to change this.
 
 **Expected result:** the browser confirms the connection and you return to the
 host. Nothing has been changed in your organization.
+
+### What Tedix can see
+
+The consent screen lists exactly what your assistant may do, per organization.
+With the default read access it can list Work, tedis and Workspaces you are
+already allowed to see; it cannot create, change or run anything. Your chat
+with the assistant stays with the assistant's provider; Tedix only receives the
+tool calls the assistant makes, and each one follows your organization's
+policy. To disconnect, remove the plugin or connector in the host.
 
 ## 3. Say hello
 
@@ -125,13 +148,10 @@ Tedix OS. If it needs an organization or destination you did not name, it asks.
 
 ## Optional: local hooks with the CLI
 
-If you already use the [Tedix CLI](../cli.md), `tedix setup agents` installs
-the same plugin into Claude Code and Codex and adds opt-in local hooks that
+With the CLI installed, `tedix setup agents` also adds opt-in local hooks that
 bring your repository's Tedix context into each session. Every hook stays
 silent until you turn it on; the
-[CLI guide](../cli.md#set-up-codex-and-claude-code) lists each one. The CLI
-login and the host's Tedix sign-in are separate; signing in to one does not
-sign you in to the other.
+[CLI guide](../cli.md#set-up-codex-and-claude-code) lists each one.
 
 ## If it does not work
 
