@@ -256,3 +256,52 @@ export async function setMonetaryCreditBudget(
 		)
 		.returning({ organizationId: billingAccounts.organizationId });
 }
+
+/** Dispatch readiness only: paid calls still require their own exact execution scope. */
+export async function preflightMonetaryInference(
+	db: DbClient,
+	plan: BillingPlanVersion,
+	snapshot: BillingBalanceSnapshot,
+	input: {
+		provider: string;
+		model: string;
+		estimatedInputTokens: number;
+		estimatedOutputTokens: number;
+		now: string;
+	},
+) {
+	const config = monetaryInferenceConfig(plan);
+	if (!config) return null;
+	if (!["active", "trial"].includes(snapshot.status))
+		return { allowed: false as const, code: "subscription_inactive" as const };
+	if (input.now < snapshot.periodStart || input.now >= snapshot.periodEnd)
+		return {
+			allowed: false as const,
+			code: "billing_period_inactive" as const,
+		};
+	try {
+		const quote = estimateMonetaryInference(config, input);
+		await verifyMonetaryQuoteReceipt(db, quote);
+		if (snapshot.availableCreditMicros < quote.customerChargeMicros)
+			return {
+				allowed: false as const,
+				code: "credit_allowance_exhausted" as const,
+			};
+		if (
+			(snapshot.hardSpendLimitMicros !== null &&
+				(snapshot.monetarySpentMicros ?? 0) +
+					snapshot.reservedChargeMicros +
+					quote.customerChargeMicros >
+					snapshot.hardSpendLimitMicros) ||
+			(config.perRunBudgetMicros !== undefined &&
+				quote.customerChargeMicros > config.perRunBudgetMicros)
+		)
+			return { allowed: false as const, code: "hard_spend_limit" as const };
+		return {
+			allowed: true as const,
+			estimatedChargeMicros: quote.customerChargeMicros,
+		};
+	} catch {
+		return { allowed: false as const, code: "pricing_unavailable" as const };
+	}
+}

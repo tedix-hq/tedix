@@ -17,6 +17,8 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { reserveBillingUsage } from "./reservations";
 import { settleBillingUsage } from "./settlement";
+import { preflightMonetaryInference } from "./monetary-inference";
+import { getBillingEntitlement } from "./plans";
 import { getBillingBalanceSnapshot } from "./credits";
 
 const now = "2026-10-11T12:00:00.000Z";
@@ -309,6 +311,27 @@ describe("opt-in monetary inference", () => {
 				aiGatewayLimits: { organizationDailySpendLimitMicros: 1000 },
 			}),
 		).toMatchObject({ allowed: false });
+	});
+	it("funded gadget preflight is read-only and leaves exact provider reservations to execution", async () => {
+		const { db, sqlite } = setup();
+		const billing = (await getBillingEntitlement(db, "org"))!;
+		const balance = (await getBillingBalanceSnapshot(db, "org", now))!;
+		expect(
+			await preflightMonetaryInference(db, billing.plan, balance, {
+				...reservation("dispatch"),
+			}),
+		).toMatchObject({ allowed: true });
+		expect(
+			sqlite
+				.prepare("SELECT COUNT(*) AS n FROM billing_usage_reservations")
+				.get(),
+		).toMatchObject({ n: 0 });
+		expect(
+			await reserveBillingUsage(db, {
+				...reservation("actual"),
+				deploymentScope: undefined,
+			}),
+		).toMatchObject({ allowed: false, code: "pricing_unavailable" });
 	});
 	it("a mismatched actual price receipt cannot debit the wallet", async () => {
 		const { db } = setup();
