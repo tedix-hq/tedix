@@ -1029,7 +1029,14 @@ it.each(["gen0", "root", "leaf"] as const)(
 				executionGuard: p.guard,
 			}),
 		).rejects.toBe(stop);
-		expect(queries).toHaveLength(4);
+		// Includes the pricing-mode lookup added before reserving funds. Every
+		// captured statement below is still prepared under D1's depth limit.
+		expect(queries).toHaveLength(5);
+		expect(
+			queries.filter((query) =>
+				/inner join "billing_plan_versions"/i.test(query.sql),
+			),
+		).toHaveLength(1);
 		const schema = fixture.sqlite
 			.prepare(
 				"SELECT sql FROM sqlite_master WHERE type IN ('table','index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END",
@@ -1048,10 +1055,18 @@ it.each(["gen0", "root", "leaf"] as const)(
 		d1.exec(
 			"CREATE TABLE IF NOT EXISTS organization_members(organization_id TEXT,descope_user_id TEXT,user_id TEXT,status TEXT,role TEXT)",
 		);
-		for (const query of queries)
-			d1.prepare(`EXPLAIN ${query.sql}`).all(
-				...(query.params as SQLInputValue[]),
-			);
+		for (const [index, query] of queries.entries()) {
+			try {
+				d1.prepare(`EXPLAIN ${query.sql}`).all(
+					...(query.params as SQLInputValue[]),
+				);
+			} catch (error) {
+				throw new Error(
+					`Admission statement ${index + 1}: ${query.sql.slice(0, 80)}`,
+					{ cause: error },
+				);
+			}
+		}
 		d1.close();
 		expect(
 			fixture.sqlite
