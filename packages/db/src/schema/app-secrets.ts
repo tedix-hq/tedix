@@ -41,10 +41,11 @@ export const appSecrets = sqliteTable(
 
 		// Value revision counter — NOT a key version, despite the historic name.
 		// `deriveOrgKey`/`deriveAppKey`/`deriveTediKey` in
-		// `packages/db/src/utils/secrets-encryption.ts` derive from the row id as
-		// HKDF salt plus a STATIC info constant; this column never enters the KDF.
-		// It is bumped on every value update. There is no SECRETS_MASTER_KEY
-		// rotation path, so do not plan a key rotation around this field.
+		// `packages/db/src/utils/secrets-encryption.ts` derive from the owning
+		// organization/app/tedi id as HKDF salt plus a STATIC info constant; this column never enters the KDF.
+		// It is bumped on every value update. Master-key rotation is a
+		// comma-separated window in SECRETS_MASTER_KEY drained by
+		// scripts/secrets/rotate-master-key.ts; it never touches this field.
 		keyVersion: integer("key_version").notNull().default(1),
 
 		// Audit trail
