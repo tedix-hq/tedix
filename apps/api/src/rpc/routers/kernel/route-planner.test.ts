@@ -2495,15 +2495,15 @@ describe("planKernelRoute — route-pass hedge", () => {
 		expect(result?.hedge).toMatchObject({ fired: false, afterMs: 0 });
 	});
 
-	it("resolves the deadline from env: unset → 5000, invalid → 5000, 0 → 0", () => {
-		expect(resolveRouteHedgeAfterMs(undefined)).toBe(5_000);
-		expect(resolveRouteHedgeAfterMs({})).toBe(5_000);
+	it("resolves the deadline from env: unset → 3000, invalid → 3000, 0 → 0", () => {
+		expect(resolveRouteHedgeAfterMs(undefined)).toBe(3_000);
+		expect(resolveRouteHedgeAfterMs({})).toBe(3_000);
 		expect(resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: "x" })).toBe(
-			5_000,
+			3_000,
 		);
 		expect(
 			resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: "-3" }),
-		).toBe(5_000);
+		).toBe(3_000);
 		expect(resolveRouteHedgeAfterMs({ KERNEL_ROUTE_HEDGE_AFTER_MS: "0" })).toBe(
 			0,
 		);

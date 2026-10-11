@@ -260,8 +260,14 @@ export interface KernelRouteHedge {
 	hedgeFirstPartialMs: number | null;
 }
 
-/** Default first-partial deadline before the second identical request starts. */
-export const KERNEL_ROUTE_HEDGE_AFTER_MS_DEFAULT = 5_000;
+/**
+ * Default first-partial deadline before the second identical request starts.
+ * Live 2026-10-11: the primary's first partial arrived at 2.8-8.6 s and a
+ * hedge needs ~3 s of its own, so a 5 s deadline fired four times and lost
+ * four times. 3 s lets the hedge beat a slow primary; prompt caching makes
+ * the duplicate cheap.
+ */
+export const KERNEL_ROUTE_HEDGE_AFTER_MS_DEFAULT = 3_000;
 
 /**
  * `KERNEL_ROUTE_HEDGE_AFTER_MS`: ms without a first partial before one
