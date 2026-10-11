@@ -1299,12 +1299,8 @@ export async function assembleHomeContext(
 		),
 		descopeUserId
 			? safeRead(
-					// The member row is a lookup by user id, not an authorization
-					// result; keyed per user so one speaker never serves another.
-					() =>
-						cached(`speaker:${descopeUserId}`, () =>
-							getMemberByUserId(db, organizationId, descopeUserId),
-						),
+					// This role grants delegation approval; never reuse cached authority.
+					() => getMemberByUserId(db, organizationId, descopeUserId),
 					undefined,
 					"speaker",
 				)

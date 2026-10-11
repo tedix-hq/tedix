@@ -24,6 +24,7 @@ import * as conversationCapabilityQueries from "@tedix/db/queries/conversation-c
 import * as skillCrudQueries from "@tedix/db/queries/cognitive/skill-crud";
 import * as tediQueries from "@tedix/db/queries/tedis";
 import * as workItemQueries from "@tedix/db/queries/work-items/crud";
+import * as memberQueries from "@tedix/db/queries/organization-members";
 import * as workspaceResourceQueries from "@tedix/db/queries/os-workspaces/resources";
 import * as rationaleQueries from "@tedix/db/queries/rationale-records";
 import { kernelRuntimeEvents, memoryFacts } from "@tedix/db/schema";
@@ -294,6 +295,72 @@ describe("assembleHomeContext per-org context cache", () => {
 		);
 		expect(second.cache?.misses).toEqual([]);
 		expect(second.cache?.hits).not.toContain("workItems");
+		vi.restoreAllMocks();
+	});
+
+	it.each(["member", undefined])(
+		"does not retain admin approval authority after membership changes to %s",
+		async (role) => {
+			const spies = spyInventory();
+			const contextCache = new KernelContextCache();
+			const member = vi
+				.spyOn(memberQueries, "getMemberByUserId")
+				.mockResolvedValueOnce({ role: "admin" } as never)
+				.mockResolvedValueOnce(role ? ({ role } as never) : undefined);
+			const options = { contextCache, descopeUserId: "operator-1" };
+
+			const first = await assembleHomeContext(
+				createEventsDb([]),
+				ORG_ID,
+				options,
+			);
+			const second = await assembleHomeContext(
+				createEventsDb([]),
+				ORG_ID,
+				options,
+			);
+
+			expect(first.speaker?.approvalAuthority).toBe(true);
+			expect(second.speaker?.approvalAuthority ?? false).toBe(false);
+			expect(member).toHaveBeenCalledTimes(2);
+			expect(member).toHaveBeenLastCalledWith(
+				expect.anything(),
+				ORG_ID,
+				"operator-1",
+			);
+			expect(spies.tedis).toHaveBeenCalledTimes(1);
+			expect(second.cache?.hits).toContain("tedis");
+			vi.restoreAllMocks();
+		},
+	);
+
+	it("withholds approval authority when a fresh member read fails after the cache TTL", async () => {
+		spyInventory();
+		let now = 10_000_000;
+		const contextCache = new KernelContextCache({ now: () => now });
+		const member = vi
+			.spyOn(memberQueries, "getMemberByUserId")
+			.mockResolvedValueOnce({ role: "admin" } as never)
+			.mockRejectedValueOnce(new Error("D1 unavailable"));
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const options = { contextCache, descopeUserId: "operator-1" };
+
+		const first = await assembleHomeContext(
+			createEventsDb([]),
+			ORG_ID,
+			options,
+		);
+		now += CONTEXT_CACHE_TTL_MS + 1;
+		const second = await assembleHomeContext(
+			createEventsDb([]),
+			ORG_ID,
+			options,
+		);
+
+		expect(first.speaker?.approvalAuthority).toBe(true);
+		expect(second.speaker).toBeNull();
+		expect(member).toHaveBeenCalledTimes(2);
+		expect(second.cache?.stale).not.toContain("speaker:operator-1");
 		vi.restoreAllMocks();
 	});
 
