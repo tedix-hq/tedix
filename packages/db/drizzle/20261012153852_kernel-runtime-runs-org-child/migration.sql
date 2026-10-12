@@ -1,0 +1,1 @@
+CREATE INDEX `idx_kernel_runtime_runs_org_child` ON `kernel_runtime_runs` (`organization_id`,`child_run_id`);
