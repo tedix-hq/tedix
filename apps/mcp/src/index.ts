@@ -3121,6 +3121,15 @@ export async function handleMcpRequest(
 		requestedToolName === "code"
 			? await extractRequestedCodeModeNamespaces(request)
 			: null;
+	// Code Mode names its namespaces in the program; a direct call names them in
+	// the tool name or its catalog arguments. Only these are hydrated.
+	const aggregateNamespaces =
+		requestedCodeModeNamespaces ??
+		directToolCallNamespaces(
+			requestedToolName,
+			requestedToolName ? await extractDirectToolCallArguments(request) : {},
+			cachedData.tools,
+		);
 	// A programmatic direct call to a first-class home/kernel surface tool — e.g. a
 	// skill-runtime goal-loop calling `ask` through the env.MCP bridge —
 	// does not need the aggregate-app fan-out (the home surface is mounted
@@ -3207,7 +3216,7 @@ export async function handleMcpRequest(
 			);
 	const filteredAggregateApps = filterAggregateAppsForCodeNamespaces(
 		aggregateApps,
-		requestedCodeModeNamespaces,
+		aggregateNamespaces,
 		cachedData?.metadata?.mcpConfig?.codeModeNamespaces as
 			| Record<string, string>
 			| undefined,
@@ -3224,7 +3233,7 @@ export async function handleMcpRequest(
 		);
 		for (
 			let attempt = 1;
-			requestedCodeModeNamespaces &&
+			aggregateNamespaces &&
 			aggregatedSurface.degraded &&
 			attempt < SELECTIVE_AGGREGATE_HYDRATION_ATTEMPTS;
 			attempt++
@@ -3298,7 +3307,7 @@ export async function handleMcpRequest(
 			: (cachedData?.metadata?.mcpConfig?.aggregateTedis as
 					| AggregateTediEntry[]
 					| undefined),
-		requestedCodeModeNamespaces,
+		aggregateNamespaces,
 	);
 	// Hydrated aggregate tedis (D1 tediId + runtime kind). Captured here so the
 	// completion/complete handler (below) can complete tedi-targeting arguments
@@ -4410,6 +4419,48 @@ async function extractRequestedCodeModeNamespaces(
 	const code = typeof args.code === "string" ? args.code : "";
 	if (!code) return new Set();
 	return extractCodeModeProviderNamespacesFromCode(code);
+}
+
+/**
+ * Aggregate namespaces a direct (non-`code`) tools/call needs, or null for the
+ * full catalog. A root-app API (rpc) tool needs none; the native catalog
+ * search/describe tools need only the namespace they name; a prefixed aggregate
+ * tool (`ns__tool`) needs its own namespace. Anything else keeps the full
+ * catalog.
+ */
+export function directToolCallNamespaces(
+	toolName: string | undefined,
+	args: Record<string, unknown>,
+	rootTools: ReadonlyArray<{
+		toolId: string;
+		config?: Record<string, unknown> | null;
+	}>,
+): Set<string> | null {
+	if (!toolName || toolName === "code") return null;
+	const root = rootTools.find((tool) => tool.toolId === toolName);
+	if (root) {
+		const transport = root.config?.transport ?? "rpc";
+		// An API call needs no catalog; other transports may read loaded tools.
+		if (transport === "rpc") return new Set();
+		if (transport !== "catalog") return null;
+		if (root.config?.endpoint === "catalog/search")
+			return typeof args.namespace === "string" && args.namespace
+				? new Set([args.namespace])
+				: null;
+		const callable = typeof args.callable === "string" ? args.callable : "";
+		const dot = callable.indexOf(".");
+		return dot > 0 ? new Set([callable.slice(0, dot)]) : null;
+	}
+	const separator = toolName.indexOf("__");
+	return separator > 0 ? new Set([toolName.slice(0, separator)]) : null;
+}
+
+async function extractDirectToolCallArguments(
+	request: Request,
+): Promise<Record<string, unknown>> {
+	const body = await readJsonRpcBody(request);
+	const params = isRecord(body?.params) ? body.params : {};
+	return isRecord(params.arguments) ? params.arguments : {};
 }
 
 export function filterAggregateAppsForCodeNamespaces(
