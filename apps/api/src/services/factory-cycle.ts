@@ -1,6 +1,6 @@
 import * as z from "zod";
 import { type FactoryBlueprint } from "@tedix/api-contract/schemas/factory-blueprints";
-import { OsBlueprintDefinitionSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { parseStoredOsBlueprintDefinition } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	type CreateWorkItemInput,
 	WorkAdmissionSpecificationSchema,
@@ -201,9 +201,7 @@ export async function prepareFactoryCycle(
 			"Pinned factory revision is unavailable",
 		);
 	}
-	const definition = OsBlueprintDefinitionSchema.parse(
-		JSON.parse(revision.definition),
-	);
+	const definition = parseStoredOsBlueprintDefinition(revision.definition);
 	if (!definition.factory)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,

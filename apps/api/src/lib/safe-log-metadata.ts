@@ -166,7 +166,7 @@ export async function safeErrorMetadata(
 		data?: unknown;
 	};
 	const cause = detailed.cause;
-	const source = [detailed.data, cause].find(
+	const source = [detailed, detailed.data, cause].find(
 		(value) => value && typeof value === "object" && "issues" in value,
 	) as { issues?: unknown } | undefined;
 	const fieldPaths = Array.isArray(source?.issues)
