@@ -1673,7 +1673,10 @@ describe("Durable Object database runtime", () => {
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
-					get: () => ({ query, batchQuery }),
+					get: () => ({
+						queryWithRestorePermit: query,
+						batchQueryWithRestorePermit: batchQuery,
+					}),
 					idFromName: (name: string) => name,
 				},
 			},

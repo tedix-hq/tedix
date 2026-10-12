@@ -239,9 +239,9 @@ export function digestCmsRecoverySqlite(
 /** Tenant data is the whole slug-named object. Delete its storage atomically
  * through the platform API; dropping tables individually violates foreign keys. */
 export class EmDashDB extends EmdashSqlDB {
-	private readPermits = new PublicRestorePermits();
+	private databasePermits = new PublicRestorePermits();
 
-	private async withReadPermit<T>(
+	private async withDatabasePermit<T>(
 		identity: CmsRestoreFenceIdentity,
 		run: () => Promise<T>,
 	): Promise<T> {
@@ -254,7 +254,7 @@ export class EmDashDB extends EmdashSqlDB {
 			createDbQueryClient(env.PLATFORM_DB),
 			identity,
 			run,
-			this.readPermits.forRequest((task) => this.ctx.waitUntil(task)),
+			this.databasePermits.forRequest((task) => this.ctx.waitUntil(task)),
 		);
 		if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
 		return result.value;
@@ -266,14 +266,12 @@ export class EmDashDB extends EmdashSqlDB {
 		params?: unknown[],
 		opts?: { bookmark?: string },
 	): Promise<DoQueryResult> {
-		if (!PLAIN_SELECT_PATTERN.test(sql) || sql.includes(";"))
-			throw new Error("Shared read reservation requires a single SELECT");
 		const primary = (
 			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
 		).primary;
 		if (primary)
 			return await primary.queryWithRestorePermit(identity, sql, params, opts);
-		return await this.withReadPermit(identity, () =>
+		return await this.withDatabasePermit(identity, () =>
 			super.query(sql, params, opts),
 		);
 	}
@@ -283,14 +281,6 @@ export class EmDashDB extends EmdashSqlDB {
 		statements: DoQueryStatement[],
 		opts?: { bookmark?: string },
 	): Promise<DoQueryResult[]> {
-		if (
-			!statements.every(
-				(statement) =>
-					PLAIN_SELECT_PATTERN.test(statement.sql) &&
-					!statement.sql.includes(";"),
-			)
-		)
-			throw new Error("Shared read reservation requires single SELECTs");
 		const primary = (
 			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
 		).primary;
@@ -300,7 +290,7 @@ export class EmDashDB extends EmdashSqlDB {
 				statements,
 				opts,
 			);
-		return await this.withReadPermit(identity, () =>
+		return await this.withDatabasePermit(identity, () =>
 			super.batchQuery(statements, opts),
 		);
 	}
@@ -2436,7 +2426,12 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 					"SELECT RPC",
 					this.ctx.props.name,
 				)
-			: await this.withPermit(() => this.stub().query(sql, params, opts));
+			: await this.stub().queryWithRestorePermit(
+					this.ctx.props,
+					sql,
+					params,
+					opts,
+				);
 		console.info("[cms-runtime] tenant database query resolved", {
 			tenant: this.ctx.props.name,
 			selectOnly,
@@ -2471,7 +2466,11 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 					"SELECT batch RPC",
 					this.ctx.props.name,
 				)
-			: await this.withPermit(() => this.stub().batchQuery(statements, opts));
+			: await this.stub().batchQueryWithRestorePermit(
+					this.ctx.props,
+					statements,
+					opts,
+				);
 		console.info("[cms-runtime] tenant database batch resolved", {
 			tenant: this.ctx.props.name,
 			selectOnly,

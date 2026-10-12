@@ -20,7 +20,7 @@ interface Reservation {
 	retired: boolean;
 }
 
-/** The TTL limits reuse, never the lifetime of an active read. D1 retains the
+/** The TTL limits reuse, never the lifetime of an active operation. D1 retains the
  * claim through every borrower; nested claims remain protected from outer reclaim. */
 export class PublicRestorePermits {
 	private reservations = new Map<string, Reservation>();

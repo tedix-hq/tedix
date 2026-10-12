@@ -63,14 +63,16 @@ Isolate loss leaves a durable outer row for the existing restore reconciliation.
 Only admission is shared: authentication and the response handler still run for
 each request, including authenticated reads. Every body pull checks the pinned
 epoch before reading and retains its borrower through completion or cancellation.
-Single SELECTs and batches containing only single SELECTs share a separate nested
-reservation in the site's existing database Durable Object. Replicas forward these
-reads to the primary, which coordinates readers across serving isolates and returns
-its current bookmark. This can add latency for readers far from the primary.
+SQL statements and batches share a separate nested reservation in the site's
+existing database Durable Object. Replicas forward these operations to the
+primary, which coordinates callers across serving isolates and returns its
+current bookmark. This can add latency for readers far from the primary.
 Restore reconciliation cannot reclaim the nested row as an abandoned outer
-response. Every SQL read checks current admission and holds a borrower until its
-RPC finishes. Writes keep exact per-operation permits. No database migration or
-new namespace is required. Tenant Worker Loader keys include the runtime release
+response. Every SQL operation checks current admission and holds a borrower
+until its actual RPC finishes, even when the caller times out. Only plain SELECTs
+are retried; writes execute once. R2, session and other external mutations keep
+exact per-operation permits. No database migration or new namespace is required.
+Tenant Worker Loader keys include the runtime release
 so a deployment refreshes injected database RPC methods. The installation's D1
 analytics must establish the actual reduction after release.
 
