@@ -5,6 +5,11 @@ import {
 	imageRepresentationEtag,
 	validateImageSourceRevision,
 } from "./tenant-public-cache";
+import {
+	cachedTenantPage,
+	pageCacheEligible,
+	pageCacheKey,
+} from "./tenant-page-cache";
 import { staticAssetResponse } from "./static-assets";
 import {
 	isMarketingHost,
@@ -4769,8 +4774,26 @@ async function fetchCmsSite(
 		let loaderResponse: Response;
 		try {
 			spans["tenant.preDispatch"] = Date.now() - preDispatchStarted;
+			const pageKey = pageCacheEligible(request, tenantUrl.pathname)
+				? await pageCacheKey(request, tenantUrl, {
+						siteId: org.siteId,
+						slug,
+						restoreEpoch,
+						bundleEtag: bundle.etag,
+						bundleVersion: bundle.version,
+					})
+				: null;
 			loaderResponse = await span(spans, "loader.fetch", () =>
-				fetchTenant(tenantRequest),
+				pageKey
+					? cachedTenantPage({
+							// Emdash's types pull in lib.dom, whose CacheStorage lacks `default`.
+							cache: (caches as unknown as { default: Cache }).default,
+							key: pageKey,
+							templateSlug: org.templateSlug,
+							waitUntil: (promise) => ctx.waitUntil(promise),
+							render: () => fetchTenant(tenantRequest),
+						})
+					: fetchTenant(tenantRequest),
 			);
 			if (isSoftNotFound(loaderResponse, tenantRequest)) {
 				loaderResponse = await span(spans, "loader.notFoundFetch", () =>
