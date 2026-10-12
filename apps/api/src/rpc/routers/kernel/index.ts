@@ -71,6 +71,10 @@ import {
 	getHistoryTokenLimits,
 	historyReplayChars,
 	type KernelHistoryCheckpoint,
+	routeAttemptPromptTokens,
+	composePersistedCheckpoint,
+	compactKernelHistory,
+	shouldCompactHistory,
 } from "./context-compaction";
 import {
 	buildDelegationWorkOrder,
@@ -127,6 +131,8 @@ export interface KernelResult {
 	routeUsage?: KernelRouteUsage | null;
 	/** Single-hedge record of the streamed route pass (`route-planner.ts`); null when the pass was buffered. */
 	routeHedge?: KernelRouteHedge | null;
+	/** Fold to run AFTER settle (held on the DO); null when nothing to fold. */
+	deferredHistoryCompaction?: (() => Promise<void>) | null;
 	contextManifest: {
 		version: 1;
 		budgetTokens: number;
@@ -418,6 +424,13 @@ export async function runKernel(args: {
 	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
 	/** Receives a NEW compaction checkpoint so the caller can persist it. */
 	onHistoryCheckpoint?: (checkpoint: KernelHistoryCheckpoint) => void;
+	/**
+	 * Per-request prompt budget (tokens) for the DEFERRED fold: when the route
+	 * call's own prompt is over this budget's trigger, the turn hands back a
+	 * fold to run after settle, so the NEXT turn starts from the checkpoint.
+	 * Assembly before planning keeps the lane budget. Dormant unless set.
+	 */
+	promptTokenBudget?: number;
 	attachments?: TediMessageAttachment[];
 	resolveAttachments?: HomeAttachmentResolver;
 	db: DbClient;
@@ -923,6 +936,42 @@ export async function runKernel(args: {
 		];
 		routeUsage.attemptCount = routeUsage.attempts.length;
 	}
+	// Deferred fold (dormant without `promptTokenBudget`): decide from the route
+	// call's measured prompt, run after settle, never in front of an answer.
+	let deferredHistoryCompaction: (() => Promise<void>) | null = null;
+	const foldBudget =
+		typeof args.promptTokenBudget === "number" &&
+		Number.isFinite(args.promptTokenBudget) &&
+		args.promptTokenBudget >= 4_000
+			? Math.min(Math.floor(args.promptTokenBudget), maxPromptTokens)
+			: null;
+	const routePromptTokens = routeAttemptPromptTokens(
+		routeUsage?.attempts ?? [],
+	);
+	if (foldBudget && routePromptTokens && context.history.length > 1) {
+		const promptChars = routePromptTokens * 4;
+		const limits = getHistoryTokenLimits(
+			foldBudget,
+			Math.max(0, promptChars - historyReplayChars(context.history)),
+		);
+		if (shouldCompactHistory(promptChars, limits.inputBudgetChars)) {
+			const history = context.history;
+			const previous = context.historyCheckpoint ?? null;
+			deferredHistoryCompaction = async () => {
+				const compacted = await compactKernelHistory(history, {
+					historyBudgetChars: limits.historyBudgetChars,
+					retainTargetChars: limits.retainTargetChars,
+					...(summarizeHistory ? { summarize: summarizeHistory } : {}),
+				});
+				if (!compacted) return;
+				const checkpoint = composePersistedCheckpoint(
+					previous,
+					compacted.checkpoint,
+				);
+				if (checkpoint) args.onHistoryCheckpoint?.(checkpoint);
+			};
+		}
+	}
 	let route = plannedRoute;
 
 	route = finalizeKernelRouteDecision(
@@ -1078,5 +1127,6 @@ export async function runKernel(args: {
 		assistantContent,
 		contextManifest,
 		traceInput,
+		deferredHistoryCompaction,
 	};
 }

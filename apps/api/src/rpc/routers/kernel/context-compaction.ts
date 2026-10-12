@@ -120,6 +120,51 @@ export function historyMessageFingerprint(message: TediSessionMessage): string {
 }
 
 /**
+ * The prompt size of the ROUTE call among a step's execution attempts: the
+ * largest non-ranking request. A step's aggregated usage sums every attempt
+ * (route call + Jev rankings + a summarizer), which is not the prompt that
+ * will be sent next; measuring pressure from that sum made every budget under
+ * the sum trip on every turn.
+ */
+export function routeAttemptPromptTokens(
+	attempts: ReadonlyArray<{
+		identity?: { provider?: string } | null;
+		usage?: { inputTokens?: number | null } | null;
+	}>,
+): number | null {
+	let best: number | null = null;
+	let bestAny: number | null = null;
+	for (const attempt of attempts) {
+		const tokens = attempt.usage?.inputTokens;
+		if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens <= 0)
+			continue;
+		bestAny = bestAny === null ? tokens : Math.max(bestAny, tokens);
+		if (attempt.identity?.provider === "typesafe") continue;
+		best = best === null ? tokens : Math.max(best, tokens);
+	}
+	return best ?? bestAny;
+}
+
+/**
+ * A fold computed over a replay that already started with a persisted
+ * checkpoint message counts that message as one folded entry. Express the new
+ * checkpoint against the canonical ledger instead: the previous fold's span
+ * plus the canonical messages folded this time. `null` when nothing canonical
+ * was folded (the previous checkpoint stands).
+ */
+export function composePersistedCheckpoint(
+	previous: KernelHistoryCheckpoint | null | undefined,
+	next: KernelHistoryCheckpoint,
+): KernelHistoryCheckpoint | null {
+	if (!previous) return next;
+	if (next.compactedMessages < 2) return null;
+	return {
+		...next,
+		compactedMessages: previous.compactedMessages + next.compactedMessages - 1,
+	};
+}
+
+/**
  * Replay a persisted checkpoint over the canonical history: the checkpoint
  * message followed by every message after the fold boundary. `null` when the
  * checkpoint no longer lines up (history shorter than the fold, or the message
