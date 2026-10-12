@@ -92,6 +92,56 @@ describe("own-organization billing authorization", () => {
 	});
 });
 
+describe("checkout and customer portal authority", () => {
+	beforeEach(() => {
+		resolveEnvironment.mockReset();
+		resolveEnvironment.mockImplementation(() => {
+			throw new Error("authorized call reached Stripe");
+		});
+	});
+	const tedi = {
+		...context(["billing:read", "billing:write"]),
+		authType: "tedi",
+		apiKey: undefined,
+		userRole: undefined,
+		user: {
+			sub: "tedi-principal",
+			scopes: ["billing:read", "billing:write"],
+			permissions: [],
+			roles: [],
+		},
+		tediScopes: ["billing:read", "billing:write"],
+		tediId: "d3b0f0a2-51f6-4a7e-9a36-2a8f1f0b1f11",
+	} as BaseContext;
+	const denied: Array<[string, BaseContext]> = [
+		["a member without billing authority", context([], true)],
+		["an API key without billing:write", context(["billing:read"])],
+		["a tedi", tedi],
+	];
+	for (const [who, ctx] of denied) {
+		it(`refuses ${who}`, async () => {
+			const client = createRouterClient(billingContractRouter, {
+				context: ctx,
+			});
+			await expect(
+				client.createPortal({ returnUrl: "https://os.tedix.test/billing" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				client.createCheckout({ tier: "growth" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(resolveEnvironment).not.toHaveBeenCalled();
+		});
+	}
+	it("admits an owner with billing:manage", async () => {
+		const client = createRouterClient(billingContractRouter, {
+			context: context(["billing:read", "billing:manage"], true),
+		});
+		await expect(
+			client.createPortal({ returnUrl: "https://os.tedix.test/billing" }),
+		).rejects.toThrow("authorized call reached Stripe");
+	});
+});
+
 describe("credit activation authority", () => {
 	const input = {
 		organizationId,

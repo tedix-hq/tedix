@@ -209,8 +209,10 @@ function requireOrganizationBillingAuthority(context: BaseContext): string {
 const createCheckoutContract = os.createCheckout
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
 	.handler(async ({ context, input }) => {
 		requireManagedSettlement(context);
+		requireOrganizationBillingAuthority(context);
 		const { env, organizationId } = context;
 		if (!organizationId) {
 			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
@@ -481,8 +483,10 @@ const createInferenceCapacityCheckoutContract =
 const createPortalContract = os.createPortal
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(withAuthorization("billing:manage", "billing:write"))
 	.handler(async ({ context, input }) => {
 		requireManagedSettlement(context);
+		requireOrganizationBillingAuthority(context);
 		const { env, organizationId } = context;
 		if (!organizationId) {
 			throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
