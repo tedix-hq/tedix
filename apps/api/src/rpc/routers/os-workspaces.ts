@@ -13,7 +13,7 @@ import {
 	type OsBlueprintResourceBinding,
 	type OsBlueprintUpgradeReport,
 	type OsWorkspaceBlueprintDecision,
-	OsBlueprintDefinitionSchema,
+	parseStoredOsBlueprintDefinition,
 	OsDerivedAccessEnvelopeSchema,
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
@@ -1383,9 +1383,7 @@ const blueprintsPreflight = readOs.blueprints.preflight.handler(
 				"Current blueprint revision was not readable",
 			);
 		}
-		const definition = OsBlueprintDefinitionSchema.parse(
-			JSON.parse(revisionRow.definition),
-		);
+		const definition = parseStoredOsBlueprintDefinition(revisionRow.definition);
 		return {
 			preflight: await resolveBlueprintPreflight(
 				context,
@@ -1419,9 +1417,7 @@ const blueprintsInstantiate = publishOs.blueprints.instantiate.handler(
 				"Published blueprint revision was not readable",
 			);
 		}
-		const definition = OsBlueprintDefinitionSchema.parse(
-			JSON.parse(revisionRow.definition),
-		);
+		const definition = parseStoredOsBlueprintDefinition(revisionRow.definition);
 		const preflight = await resolveBlueprintPreflight(
 			context,
 			blueprint.organizationId,
@@ -1519,8 +1515,8 @@ const blueprintsInstantiateFromGallery =
 					"Gallery blueprint revision was not readable",
 				);
 			}
-			const definition = OsBlueprintDefinitionSchema.parse(
-				JSON.parse(sourceRevision.definition),
+			const definition = parseStoredOsBlueprintDefinition(
+				sourceRevision.definition,
 			);
 			const creator = resolveCreator(context);
 			const now = new Date().toISOString();
@@ -1693,9 +1689,7 @@ const blueprintsExport = readOs.blueprints.export.handler(
 				revision: revisionRow,
 				// The PARSED definition: the envelope carries the declared schema, not
 				// whatever bytes the column happens to hold.
-				definition: OsBlueprintDefinitionSchema.parse(
-					JSON.parse(revisionRow.definition),
-				),
+				definition: parseStoredOsBlueprintDefinition(revisionRow.definition),
 				organizationName:
 					(await getOrganizationDisplayName(
 						context.db,
@@ -1850,11 +1844,11 @@ async function resolveWorkspaceUpgrade(
 		blueprint,
 		input.candidateRevisionId ?? blueprint.currentRevisionId,
 	);
-	const pinnedDefinition = OsBlueprintDefinitionSchema.parse(
-		JSON.parse(pinnedRevision.definition),
+	const pinnedDefinition = parseStoredOsBlueprintDefinition(
+		pinnedRevision.definition,
 	);
-	const candidateDefinition = OsBlueprintDefinitionSchema.parse(
-		JSON.parse(candidateRevision.definition),
+	const candidateDefinition = parseStoredOsBlueprintDefinition(
+		candidateRevision.definition,
 	);
 	const report = await resolveOsBlueprintUpgradeReport({
 		db: context.db,

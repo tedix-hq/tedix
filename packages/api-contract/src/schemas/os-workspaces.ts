@@ -1825,6 +1825,30 @@ export const OsBlueprintDefinitionSchema = z.object({
 		),
 });
 
+/**
+ * Parses the stored `os_blueprint_revisions.definition` text. Factory revisions
+ * written before 2026-09-10 carry the retired `claims[]` key on each template's
+ * acceptance contract; the strict contract schema rejects it, so it is dropped
+ * on read exactly as Work Item rows drop it. The stored row is never rewritten,
+ * and new writes still validate against the strict schema.
+ */
+export function parseStoredOsBlueprintDefinition(
+	text: string,
+): OsBlueprintDefinition {
+	const stored = JSON.parse(text) as { factory?: { templates?: unknown } };
+	const templates = stored?.factory?.templates;
+	if (Array.isArray(templates)) {
+		for (const template of templates) {
+			const contract = (template as { acceptanceContract?: unknown })
+				?.acceptanceContract;
+			if (contract && typeof contract === "object") {
+				delete (contract as { claims?: unknown }).claims;
+			}
+		}
+	}
+	return OsBlueprintDefinitionSchema.parse(stored);
+}
+
 /** One immutable blueprint revision; `revision` is a per-blueprint 1-based counter. */
 export const OsBlueprintRevisionSchema = z.object({
 	id: z.string().uuid(),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import * as z from "zod";
 import {
 	safeErrorClassification,
 	safeErrorMetadata,
@@ -75,6 +76,15 @@ describe("safeErrorMetadata", () => {
 		]);
 		expect(JSON.stringify(metadata)).not.toContain("secret-token");
 		expect(JSON.stringify(metadata)).not.toContain("secret-query");
+	});
+
+	it("records field paths of a bare ZodError without its values", async () => {
+		const result = z
+			.object({ contract: z.object({ version: z.literal(1) }).strict() })
+			.safeParse({ contract: { version: 1, secretKey: "sk_live_abc" } });
+		const metadata = await safeErrorMetadata(result.error);
+		expect(metadata.fieldPaths).toEqual(["contract"]);
+		expect(JSON.stringify(metadata)).not.toContain("sk_live_abc");
 	});
 
 	it("omits messageClass when no fixed phrase matches", async () => {
