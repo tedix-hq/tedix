@@ -284,6 +284,7 @@ test("a mapped Code Mode app with no prefixed match still falls back to the aggr
 	assert.deepEqual(calls, [
 		"firecrawl-tedix.mcp.tedix.dev tools/call firecrawl_search",
 		"firecrawl-tedix.mcp.tedix.dev tools/list ",
+		"firecrawl-tedix.mcp.tedix.dev tools/call code",
 		"tedix-unified.mcp.tedix.dev tools/call code",
 	]);
 });
@@ -393,6 +394,7 @@ test("a mapped app without the tool names the app, not just the namespace", asyn
 	assert.deepEqual(calls, [
 		"resend-acme.mcp.tedix.dev tools/call list-emails",
 		"resend-acme.mcp.tedix.dev tools/list ",
+		"resend-acme.mcp.tedix.dev tools/call code",
 		"tedix-unified.mcp.tedix.dev tools/call code",
 	]);
 });
