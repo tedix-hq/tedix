@@ -2492,17 +2492,19 @@ export async function persistKernelTurnStart(
 		);
 	// A first delivery bumped the index inside the batch. A replay that still
 	// inserted (a legacy partial write) takes the write-through instead.
-	const receivedEvent = indexBumped
-		? {
-				event: normalizeHomeEvent(receivedPersisted.row),
-				inserted: receivedPersisted.inserted,
-			}
-		: await finishPersistedKernelRuntimeEvent(context, receivedPersisted);
-	const startedEvent = await finishPersistedKernelRuntimeEvent(
-		context,
-		startedPersisted,
-	);
-	await admitKernelRunSubmission(context, input.run, input.submission);
+	// The index write-through(s) and the submission admit touch different
+	// rows; serial they were up to three D1 round trips between the run row
+	// landing and the KernelDO starting work (enqueue→work 0.5-0.8 s).
+	const [receivedEvent, startedEvent] = await Promise.all([
+		indexBumped
+			? Promise.resolve({
+					event: normalizeHomeEvent(receivedPersisted.row),
+					inserted: receivedPersisted.inserted,
+				})
+			: finishPersistedKernelRuntimeEvent(context, receivedPersisted),
+		finishPersistedKernelRuntimeEvent(context, startedPersisted),
+		admitKernelRunSubmission(context, input.run, input.submission),
+	]);
 	return {
 		receivedEvent: receivedEvent.event,
 		startedEvent: startedEvent.event,
