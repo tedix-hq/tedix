@@ -24,6 +24,14 @@ const savedEnv = {
 	session: process.env.TEDIX_AGENT_SESSION,
 	organization: process.env.TEDIX_ORGANIZATION,
 };
+const nativeSessionEnv = Object.fromEntries(
+	[
+		"CLAUDE_CODE_SESSION_ID",
+		"CODEX_SESSION_ID",
+		"CODEX_THREAD_ID",
+		"CURSOR_TRACE_ID",
+	].map((key) => [key, process.env[key]]),
+);
 
 afterEach(() => {
 	for (const dir of dirs.splice(0))
@@ -35,6 +43,10 @@ afterEach(() => {
 	if (savedEnv.organization === undefined)
 		delete process.env.TEDIX_ORGANIZATION;
 	else process.env.TEDIX_ORGANIZATION = savedEnv.organization;
+	for (const [key, value] of Object.entries(nativeSessionEnv)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
 });
 
 function exchangeResponse(): Response {
@@ -1130,6 +1142,94 @@ describe("one profile shared by parallel harness sessions", () => {
 			{ status: 201 },
 		);
 	};
+
+	test.each([
+		["codex", "CODEX_THREAD_ID"],
+		["codex", "CODEX_SESSION_ID"],
+		["claude-code", "CLAUDE_CODE_SESSION_ID"],
+		["cursor", "CURSOR_TRACE_ID"],
+	])(
+		"explicit %s harness selects %s among inherited session ids",
+		async (harness, nativeKey) => {
+			const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+			dirs.push(configDir);
+			process.env.TEDIX_CONFIG_DIR = configDir;
+			delete process.env.TEDIX_AGENT_SESSION;
+			process.env.CLAUDE_CODE_SESSION_ID = "launcher-claude";
+			process.env.CODEX_THREAD_ID = "launcher-codex";
+			delete process.env.CODEX_SESSION_ID;
+			process.env.CURSOR_TRACE_ID = "launcher-cursor";
+			process.env[nativeKey] = "own-session";
+			const started = await startExternalAgentSession({
+				...owner,
+				harness,
+				fetch: echoExchange,
+				createClient: bootstrapClient([]),
+			});
+			expect(started.session.externalSessionKey).toBe(`${harness}:own-session`);
+			expect(started.session.harness).toBe(harness);
+			expect(Object.keys(started.profile.sessions)).toEqual([
+				`${harness}:own-session`,
+			]);
+		},
+	);
+
+	test.each(["codex:explicit-session", "explicit-session"])(
+		"explicit session %s takes precedence over a native session",
+		async (session) => {
+			const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+			dirs.push(configDir);
+			process.env.TEDIX_CONFIG_DIR = configDir;
+			process.env.TEDIX_AGENT_SESSION = session;
+			process.env.CLAUDE_CODE_SESSION_ID = "launcher-claude";
+			process.env.CODEX_THREAD_ID = "native-codex";
+			const started = await startExternalAgentSession({
+				...owner,
+				harness: "codex",
+				fetch: echoExchange,
+				createClient: bootstrapClient([]),
+			});
+			expect(started.session.externalSessionKey).toBe("codex:explicit-session");
+		},
+	);
+
+	test.each(["missing", "conflicting", "unknown", "ambiguous"])(
+		"%s requested-harness identity refuses before bootstrap or exchange",
+		async (scenario) => {
+			const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+			dirs.push(configDir);
+			process.env.TEDIX_CONFIG_DIR = configDir;
+			delete process.env.CODEX_SESSION_ID;
+			delete process.env.CODEX_THREAD_ID;
+			process.env.CLAUDE_CODE_SESSION_ID = "launcher-claude";
+			if (scenario === "conflicting")
+				process.env.TEDIX_AGENT_SESSION = "claude-code:explicit-session";
+			else if (scenario === "unknown")
+				process.env.TEDIX_AGENT_SESSION = "unknown:explicit-session";
+			else delete process.env.TEDIX_AGENT_SESSION;
+			if (scenario === "ambiguous") process.env.CODEX_THREAD_ID = "own-session";
+			const calls: string[] = [];
+			await expect(
+				startExternalAgentSession({
+					...owner,
+					harness: scenario === "ambiguous" ? undefined : "codex",
+					fetch: async () => {
+						calls.push("exchange");
+						return exchangeResponse();
+					},
+					createClient: bootstrapClient(calls),
+				}),
+			).rejects.toThrow(
+				scenario === "missing"
+					? 'No native Agent-Session for harness "codex"'
+					: scenario === "ambiguous"
+						? "Multiple harness session IDs are present"
+						: `TEDIX_AGENT_SESSION belongs to harness "${scenario === "unknown" ? "unknown" : "claude-code"}", not "codex"`,
+			);
+			expect(calls).toEqual([]);
+			expect(externalAgentStatus("connect").configured).toBe(false);
+		},
+	);
 
 	test("names a new principal for the machine and user when no key is given", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));

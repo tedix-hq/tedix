@@ -119,8 +119,15 @@ That login authenticates the **owner**, not the agent. For continuing work under
 an attributable agent identity, use `tedix agent start --help`, then start an
 external-agent session from the owner's authorized workspace. The CLI reads the
 harness session id (`CLAUDE_CODE_SESSION_ID` or the Codex chat id); set
-`TEDIX_AGENT_SESSION` only when the harness supplies none. The first bootstrap
-names the profile's principal for the machine and user
+`--agent-harness` to select the matching native id when a launcher supplies
+another harness's environment too. An explicit `TEDIX_AGENT_SESSION` override
+takes precedence; its prefix must match the requested harness. A missing
+matching id or conflicting prefix stops bootstrap before credential exchange.
+With multiple native harness ids and no explicit selection, bootstrap asks you
+to choose rather than attributing the worker to its launcher.
+Set `TEDIX_AGENT_SESSION` to the returned full session key for subsequent calls
+when the environment contains multiple harnesses, or when no native id exists.
+The first bootstrap names the profile's principal for the machine and user
 (`local-<user>-<machine>`) unless you pass `--agent-key`; every later Claude
 Code or Codex session on that profile gets its own Agent-Session under the same
 principal. On the first bootstrap, pass `--agent-scopes` with only the MCP
