@@ -78,19 +78,30 @@ export function applyProductionMigrations(
 		`Captured pre-migration Time Travel bookmark ${bookmark} for ${before.pending.length} migration(s)`,
 	);
 
-	const applyOutput = run(
-		[
-			"d1",
-			"migrations",
-			"apply",
-			D1_DATABASE_NAME,
-			"--remote",
-			"--config",
-			"wrangler.jsonc",
-		],
-		{ env: { CI: "1" } },
-	);
-	if (applyOutput) console.log(applyOutput);
+	try {
+		const applyOutput = run(
+			[
+				"d1",
+				"migrations",
+				"apply",
+				D1_DATABASE_NAME,
+				"--remote",
+				"--config",
+				"wrangler.jsonc",
+			],
+			{ env: { CI: "1" } },
+		);
+		if (applyOutput) console.log(applyOutput);
+	} catch (error) {
+		// A retried D1 request can re-run a batch that already committed: on
+		// 2026-10-12 the ledger row landed at 09:15:24 and the retry then failed
+		// with "duplicate column". Trust the ledger, not the exit code.
+		const recheck = checkLiveMigrationLedger({ allowPending: true, run });
+		if (recheck.pending.length > 0) throw error;
+		console.log(
+			`wrangler reported a failure but all ${before.pending.length} pending migration(s) are recorded; continuing`,
+		);
+	}
 
 	const optimize = parseWranglerJson(
 		run([
