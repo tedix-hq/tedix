@@ -45,6 +45,61 @@ describe("captureKernelAttemptUsage", () => {
 			routingDecisionId: "decision-1",
 			requestId: "request-1",
 		});
+		// Priced by the model that served the call, not the router alias.
+		expect(attempts[0]?.identity.requestModel).toBe("openai/gpt-5.6-luna");
+	});
+
+	it("keeps a fixed model identity when the receipt is a routed Workers AI model", () => {
+		const attempts: Parameters<typeof captureKernelAttemptUsage>[0] = [
+			{
+				identity: {
+					provider: "workers-ai",
+					requestModel: "cloudflare/auto",
+					gatewayAccountId: "account",
+					gatewayId: "gateway",
+					transportKind: "gateway-https",
+					apiKind: "workers-ai-chat",
+					providerResource: null,
+					providerOrigin: null,
+					deployment: null,
+				},
+				occurredAt: "2026-10-01T00:00:00.000Z",
+				executionId: "execution-1",
+			},
+			{
+				identity: {
+					provider: "azure-openai",
+					requestModel: "gpt-6.1-sol",
+					gatewayAccountId: "account",
+					gatewayId: "gateway",
+					transportKind: "gateway-https",
+					apiKind: "azure-responses",
+					providerResource: "tedix-resource",
+					providerOrigin: null,
+					deployment: "gpt-6.1-sol",
+				},
+				occurredAt: "2026-10-01T00:00:01.000Z",
+				executionId: "execution-2",
+			},
+		];
+		captureKernelAttemptUsage(
+			[attempts[0]!],
+			{ inputTokens: 3, outputTokens: 1 },
+			{
+				cloudflareAutoRouter: {
+					routedModel: "workers-ai/@cf/moonshotai/kimi-k2.7-code",
+				},
+			},
+		);
+		expect(attempts[0]?.identity.requestModel).toBe(
+			"@cf/moonshotai/kimi-k2.7-code",
+		);
+		captureKernelAttemptUsage(
+			[attempts[1]!],
+			{ inputTokens: 3, outputTokens: 1 },
+			{ cloudflareAutoRouter: { routedModel: "openai/gpt-5.6-luna" } },
+		);
+		expect(attempts[1]?.identity.requestModel).toBe("gpt-6.1-sol");
 	});
 });
 
