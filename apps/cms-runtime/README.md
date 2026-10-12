@@ -64,11 +64,15 @@ Only admission is shared: authentication and the response handler still run for
 each request, including authenticated reads. Every body pull checks the pinned
 epoch before reading and retains its borrower through completion or cancellation.
 Single SELECTs and batches containing only single SELECTs share a separate nested
-reservation. Restore reconciliation cannot reclaim that row as an abandoned outer
-response. Every SQL read checks current admission and holds a borrower through its
-entire RPC, including retries. Writes keep exact per-operation permits. No database
-migration is required. Traffic spread across many cold isolates can reduce sharing, so the
-installation's D1 analytics must establish the actual reduction after release.
+reservation in the site's existing database Durable Object. Replicas forward these
+reads to the primary, which coordinates readers across serving isolates and returns
+its current bookmark. This can add latency for readers far from the primary.
+Restore reconciliation cannot reclaim the nested row as an abandoned outer
+response. Every SQL read checks current admission and holds a borrower until its
+RPC finishes. Writes keep exact per-operation permits. No database migration or
+new namespace is required. Tenant Worker Loader keys include the runtime release
+so a deployment refreshes injected database RPC methods. The installation's D1
+analytics must establish the actual reduction after release.
 
 ## Deploy
 

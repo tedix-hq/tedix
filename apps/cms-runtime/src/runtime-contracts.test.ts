@@ -1514,6 +1514,14 @@ describe("Durable Object database runtime", () => {
 	test("TenantEmDashDB exposes direct RPC methods", async () => {
 		const calls: string[] = [];
 		const stub = {
+			async queryWithRestorePermit() {
+				calls.push("query");
+				return { rows: [] };
+			},
+			async batchQueryWithRestorePermit() {
+				calls.push("batchQuery");
+				return [];
+			},
 			async batchQuery() {
 				calls.push("batchQuery");
 				return [];
@@ -1562,7 +1570,7 @@ describe("Durable Object database runtime", () => {
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
-					get: () => ({ query: async () => ({ rows: [] }) }),
+					get: () => ({ queryWithRestorePermit: async () => ({ rows: [] }) }),
 					idFromName: (name: string) => name,
 				},
 			},
@@ -1600,7 +1608,10 @@ describe("Durable Object database runtime", () => {
 			},
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
-				DB_DO: { get: () => ({ query }), idFromName: (name: string) => name },
+				DB_DO: {
+					get: () => ({ queryWithRestorePermit: query }),
+					idFromName: (name: string) => name,
+				},
 			},
 		}) as TenantEmDashDB;
 
@@ -1629,7 +1640,7 @@ describe("Durable Object database runtime", () => {
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
-					get: () => ({ batchQuery }),
+					get: () => ({ batchQueryWithRestorePermit: batchQuery }),
 					idFromName: (name: string) => name,
 				},
 			},
