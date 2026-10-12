@@ -75,6 +75,8 @@ bucket, fall under "Other". Placeholder briefs read as empty.
 - Contributors list sessions, not people. A session key is
   `<harness>:<host session id>`.
 - Idle, and ended after 12 silent hours, are derived from age when read; nothing is swept.
+  On a project page, a contributor with no report or Attempt heartbeat for 24
+  hours reads as ended, whatever it last reported.
 
 Related: [Factories, Workspaces and Projects](./factories-workspaces-projects.md),
 [Core concepts](./concepts.md).

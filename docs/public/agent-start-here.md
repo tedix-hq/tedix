@@ -46,6 +46,8 @@ In a repository, bind the checkout to its Work project once with
 short brief to each session, `prompt-context` adds the selected Work Item's
 latest comments, and the status hook reports this session under that project
 in Tedix OS. Select one Work Item with `tedix setup agents context select <id>`.
+`tedix work context <id> --json` returns the item with its project's name and
+brief, so a fresh session can read what the project is for before it starts.
 
 Binding is correlation, not authority. A bound session still needs an admitted
 Attempt before it may change a Work Item.
