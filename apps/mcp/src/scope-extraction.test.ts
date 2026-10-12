@@ -6,6 +6,7 @@ import {
 	shouldEnforceMcpToolScopes,
 } from "./auth-helpers";
 import {
+	directToolCallNamespaces,
 	extractCodeModeProviderNamespacesFromCode,
 	filterAggregateAppsForCodeNamespaces,
 	filterAggregateTedisForCodeNamespaces,
@@ -529,5 +530,72 @@ describe("targeted Code Mode surface extraction", () => {
 		// Peer alias peers must also be present (SEAM C).
 		expect(PLATFORM_OPERATOR_CODE_MODE_NAMESPACES).toContain("tedi");
 		expect(PLATFORM_OPERATOR_CODE_MODE_NAMESPACES).toContain("app");
+	});
+});
+
+describe("directToolCallNamespaces", () => {
+	const rootTools = [
+		{ toolId: "list_apps", config: { endpoint: "apps/list" } },
+		{
+			toolId: "search_native_tools",
+			config: { transport: "catalog", endpoint: "catalog/search" },
+		},
+		{
+			toolId: "get_native_tool_schema",
+			config: { transport: "catalog", endpoint: "catalog/describe" },
+		},
+		{ toolId: "run_stored_code", config: { transport: "code" } },
+	];
+
+	it("needs no aggregate for a root API tool", () => {
+		expect(directToolCallNamespaces("list_apps", {}, rootTools)).toEqual(
+			new Set(),
+		);
+	});
+
+	it("hydrates only the namespace a catalog search or describe names", () => {
+		expect(
+			directToolCallNamespaces(
+				"search_native_tools",
+				{ query: "list_work", namespace: "acme" },
+				rootTools,
+			),
+		).toEqual(new Set(["acme"]));
+		expect(
+			directToolCallNamespaces(
+				"get_native_tool_schema",
+				{ callable: "acme.list_work" },
+				rootTools,
+			),
+		).toEqual(new Set(["acme"]));
+	});
+
+	it("keeps the full catalog when the namespace is unknown", () => {
+		expect(
+			directToolCallNamespaces(
+				"search_native_tools",
+				{ query: "x" },
+				rootTools,
+			),
+		).toBeNull();
+		expect(
+			directToolCallNamespaces(
+				"get_native_tool_schema",
+				{ callable: "nodot" },
+				rootTools,
+			),
+		).toBeNull();
+		expect(
+			directToolCallNamespaces("run_stored_code", {}, rootTools),
+		).toBeNull();
+		expect(directToolCallNamespaces("unprefixed", {}, rootTools)).toBeNull();
+		expect(directToolCallNamespaces("code", {}, rootTools)).toBeNull();
+		expect(directToolCallNamespaces(undefined, {}, rootTools)).toBeNull();
+	});
+
+	it("hydrates a prefixed aggregate tool's own namespace", () => {
+		expect(
+			directToolCallNamespaces("acme__list_work_item_cli_rows", {}, rootTools),
+		).toEqual(new Set(["acme"]));
 	});
 });
