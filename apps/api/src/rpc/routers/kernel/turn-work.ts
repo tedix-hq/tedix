@@ -2066,6 +2066,9 @@ export async function runKernelTurnWork(
 			...(typeof input.runRowMetadata.promptTokenBudget === "number"
 				? { promptTokenBudget: input.runRowMetadata.promptTokenBudget }
 				: {}),
+			...(typeof input.runRowMetadata.rankingBudgetMs === "number"
+				? { rankingBudgetMs: input.runRowMetadata.rankingBudgetMs }
+				: {}),
 			...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
 			db: deps.db,
 			env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],

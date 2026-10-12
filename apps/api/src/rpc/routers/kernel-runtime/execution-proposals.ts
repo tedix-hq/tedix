@@ -724,11 +724,16 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// use sites (null at insert time, kernel results in the completion
 		// patch).
 		const promptTokenBudget = metadata.promptTokenBudget;
+		const rankingBudgetMs = metadata.rankingBudgetMs;
 		const runRowMetadata = {
 			source: "kernelRuntime.enqueueMessage",
 			...(typeof promptTokenBudget === "number" &&
 			Number.isFinite(promptTokenBudget)
 				? { promptTokenBudget }
+				: {}),
+			...(typeof rankingBudgetMs === "number" &&
+			Number.isFinite(rankingBudgetMs)
+				? { rankingBudgetMs }
 				: {}),
 			contentLength: turnContent.length,
 			attachmentCount: attachments?.length ?? 0,
