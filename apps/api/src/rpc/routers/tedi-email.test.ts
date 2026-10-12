@@ -124,6 +124,7 @@ describe("inbound email mailbox acknowledgement", () => {
 				organizationId: "org-1",
 				to: input.to,
 				textBody: input.body,
+				senderTrust: "untrusted",
 			}),
 		);
 		expect(queries.mark).not.toHaveBeenCalled();

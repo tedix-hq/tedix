@@ -487,6 +487,7 @@ const inboundEmail = serviceAuthed.inboundEmail.handler(
 			replyTo: input.replyTo,
 			subject,
 			textBody: body,
+			senderTrust,
 			rawR2Key: input.rawR2Key,
 			htmlR2Key: input.htmlR2Key,
 			rawSize: input.rawSize,

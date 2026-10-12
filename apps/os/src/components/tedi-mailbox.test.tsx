@@ -78,6 +78,7 @@ const thread = (
 		id: string;
 		status: "open" | "archived" | "spam";
 		unreadCount: number;
+		senderTrust: "trusted" | "untrusted";
 	}> = {},
 ) => {
 	const id = overrides.id ?? THREAD_ID;
@@ -91,6 +92,7 @@ const thread = (
 		status: overrides.status ?? "open",
 		labels: null,
 		unreadCount: overrides.unreadCount ?? 1,
+		senderTrust: overrides.senderTrust ?? "trusted",
 		createdAt: T,
 		updatedAt: T,
 		latestMessage: {
@@ -355,6 +357,27 @@ describe("TediMailbox", () => {
 			addressId: ADDRESS_ID,
 			status: "paused",
 		});
+	});
+
+	it("marks a thread from an unverified sender and no other", async () => {
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+		tediEmailApi.listInbox.mockResolvedValue({
+			threads: [
+				thread(),
+				thread({
+					id: "55555555-5555-4555-8555-555555555555",
+					senderTrust: "untrusted",
+				}),
+			],
+			nextCursor: null,
+		});
+		const container = render();
+		await settle();
+
+		const rows = container.querySelectorAll("[data-thread-id]");
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.textContent).not.toContain("Unverified sender");
+		expect(rows[1]?.textContent).toContain("Unverified sender");
 	});
 
 	it("renders inbox threads and mark actions call the mutation", async () => {

@@ -840,6 +840,10 @@
 		{
 			"name": "20261012090144_work-agent-session-project/migration.sql",
 			"sha256": "208f500c1e914348dfc57ac59e580383862082203f210f56b5933734988ae50e"
+		},
+		{
+			"name": "20261012125853_tedi_email_thread_sender_trust/migration.sql",
+			"sha256": "4ccc60917a3f7c6ead5bfb0ac9b6506fc48a8b20ae589476dae9e432344c73d8"
 		}
 	]
 }

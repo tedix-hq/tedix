@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
+	type TediEmailSenderTrust,
 	type TediEmailThread,
 	tediEmailAttachments,
 	tediEmailMessages,
@@ -26,11 +27,17 @@ import {
 } from "./storage-normalization";
 import { getTediEmailThread } from "./threads";
 
+/**
+ * In-Reply-To, References and the subject are all written by the sender, so
+ * the lookup is scoped to threads of the sender's own trust: a stranger can
+ * name a verified correspondent's thread and still never land in it.
+ */
 async function findThreadForInbound(
 	db: DbClient,
 	input: {
 		tediId: string;
 		subject: string;
+		senderTrust: TediEmailSenderTrust;
 		inReplyTo?: string | null;
 		references?: string[] | null;
 	},
@@ -50,6 +57,7 @@ async function findThreadForInbound(
 			.where(
 				and(
 					eq(tediEmailMessages.tediId, input.tediId),
+					eq(tediEmailThreads.senderTrust, input.senderTrust),
 					// bound-params: In-Reply-To/References header ids of ONE inbound
 					// email (header-size bounded)
 					inArray(tediEmailMessages.messageIdHeader, referenceIds),
@@ -68,6 +76,7 @@ async function findThreadForInbound(
 			and(
 				eq(tediEmailThreads.tediId, input.tediId),
 				eq(tediEmailThreads.subjectNorm, subjectNorm),
+				eq(tediEmailThreads.senderTrust, input.senderTrust),
 				eq(tediEmailThreads.status, "open"),
 			),
 		)
@@ -85,6 +94,7 @@ async function createThread(
 		participants: TediEmailRecipientInput[];
 		lastMessageAt: string;
 		unreadCount?: number;
+		senderTrust?: TediEmailSenderTrust;
 	},
 ): Promise<NormalizedTediEmailThread> {
 	const rows = await db
@@ -99,6 +109,7 @@ async function createThread(
 			status: "open",
 			labels: [],
 			unreadCount: input.unreadCount ?? 0,
+			senderTrust: input.senderTrust ?? "trusted",
 		})
 		.returning();
 	return normalizeStoredThread(rows[0]!);
@@ -116,6 +127,8 @@ export async function ingestInboundTediEmail(
 		replyTo?: TediEmailRecipientInput | null;
 		subject: string;
 		textBody: string;
+		/** The apps/api sender verdict; selects and marks the thread. */
+		senderTrust: TediEmailSenderTrust;
 		rawR2Key?: string | null;
 		htmlR2Key?: string | null;
 		rawSize?: number | null;
@@ -153,6 +166,7 @@ export async function ingestInboundTediEmail(
 			participants,
 			lastMessageAt: receivedAt,
 			unreadCount: 1,
+			senderTrust: input.senderTrust,
 		});
 	} else {
 		await db
