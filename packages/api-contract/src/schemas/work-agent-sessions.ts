@@ -40,7 +40,21 @@ export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
 		.string()
 		.trim()
 		.max(120)
-		.describe("Short human label, such as the repository folder and branch."),
+		.describe(
+			"Short human label: the session's name, else the repository folder and branch.",
+		),
+	projectId: z
+		.uuid()
+		.optional()
+		.describe(
+			"Work project the session's checkout is bound to; ignored unless it belongs to the caller's organization.",
+		),
+	workItemId: z
+		.uuid()
+		.optional()
+		.describe(
+			"Work Item the session has selected; ignored unless it belongs to the caller's organization.",
+		),
 });
 
 export const WorkAgentSessionStatusSchema = z.strictObject({
@@ -51,6 +65,14 @@ export const WorkAgentSessionStatusSchema = z.strictObject({
 	state: WorkAgentSessionStateSchema,
 	effectiveState: WorkAgentSessionEffectiveStateSchema,
 	summary: z.string(),
+	projectId: z
+		.string()
+		.nullable()
+		.describe("Null when the session is not bound to a Work project."),
+	workItemId: z
+		.string()
+		.nullable()
+		.describe("Null when the session has no selected Work Item."),
 	stateSince: z.iso.datetime(),
 	lastEventAt: z.iso.datetime(),
 });
@@ -73,4 +95,49 @@ export const ListWorkAgentSessionsResultSchema = z.strictObject({
 			"The caller's own sessions, most urgent first: needs_you, error, done, working, idle, ended.",
 		),
 	counts: z.record(WorkAgentSessionEffectiveStateSchema, z.number().int()),
+});
+
+/** Contributor state: a board state, or `unknown` when only Attempts are known. */
+export const WorkProjectContributorStateSchema = z.enum([
+	...WorkAgentSessionEffectiveStateSchema.options,
+	"unknown",
+]);
+
+export const ListWorkProjectContributorsInputSchema = z.strictObject({
+	projectId: z.uuid(),
+});
+
+export const WorkProjectContributorSchema = z.strictObject({
+	sessionKey: z
+		.string()
+		.describe("`<harness>:<host session id>`, as Work Attempts store it."),
+	harness: z.string(),
+	name: z
+		.string()
+		.describe(
+			"Session name or folder and branch; the session key when unreported.",
+		),
+	state: WorkProjectContributorStateSchema,
+	summary: z.string(),
+	lastActivityAt: z.iso.datetime(),
+	workItemId: z
+		.string()
+		.nullable()
+		.describe("Null when no current or recent Work Item is known."),
+	workItemTitle: z
+		.string()
+		.nullable()
+		.describe("Null when no current or recent Work Item is known."),
+	attempts: z
+		.number()
+		.int()
+		.describe("Attempts this session held on the project's Work Items."),
+});
+
+export const ListWorkProjectContributorsResultSchema = z.strictObject({
+	contributors: z
+		.array(WorkProjectContributorSchema)
+		.describe(
+			"Every Claude Code and Codex session that reported into the project or held an Attempt on its Work Items, active first, then by last activity.",
+		),
 });

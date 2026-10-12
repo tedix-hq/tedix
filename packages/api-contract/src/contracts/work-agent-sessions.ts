@@ -4,6 +4,8 @@ import { baseErrors } from "../errors";
 import {
 	ListWorkAgentSessionsInputSchema,
 	ListWorkAgentSessionsResultSchema,
+	ListWorkProjectContributorsInputSchema,
+	ListWorkProjectContributorsResultSchema,
 	ReportWorkAgentSessionStatusInputSchema,
 	ReportWorkAgentSessionStatusResultSchema,
 } from "../schemas/work-agent-sessions";
@@ -28,6 +30,14 @@ export const workAgentSessionsContract = oc
 			})
 			.input(ListWorkAgentSessionsInputSchema)
 			.output(ListWorkAgentSessionsResultSchema),
+		contributors: oc
+			.route({
+				method: "GET",
+				path: "/contributors",
+				summary: "List every agent session that contributed to a Work project",
+			})
+			.input(ListWorkProjectContributorsInputSchema)
+			.output(ListWorkProjectContributorsResultSchema),
 	});
 
 export type WorkAgentSessionsContract = typeof workAgentSessionsContract;

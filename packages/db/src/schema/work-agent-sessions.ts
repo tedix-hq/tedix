@@ -5,7 +5,8 @@
  * runs on their own machine. The Tedix plugin reports the session's state at
  * each turn boundary so the human can see which sessions need them. Rows are
  * private to the reporting user inside one organization; the board derives
- * `idle` from age when it is read, so nothing here is swept.
+ * `idle` from age when it is read, so nothing here is swept. A session bound to
+ * a Work project is also listed among that project's contributors.
  */
 
 import { sql } from "drizzle-orm";
@@ -44,6 +45,14 @@ export const workAgentSessions = sqliteTable(
 		/** The host's own session id, such as Claude Code `session_id`. */
 		sessionKey: text("session_key").notNull(),
 		label: text("label").notNull().default(""),
+		/**
+		 * Work project the session's checkout is bound to, if any. A plain column,
+		 * not a foreign key: adding one would rebuild this existing table. The
+		 * report handler accepts only a project of the session's organization.
+		 */
+		projectId: text("project_id"),
+		/** Work Item the session has selected, if any (same rule). */
+		workItemId: text("work_item_id"),
 		state: text("state", { enum: WORK_AGENT_SESSION_STATE_VALUES }).notNull(),
 		summary: text("summary").notNull().default(""),
 		/** When the stored state last changed (ISO 8601). */
@@ -68,6 +77,10 @@ export const workAgentSessions = sqliteTable(
 			table.organizationId,
 			table.userId,
 			table.lastEventAt,
+		),
+		index("idx_work_agent_sessions_org_project").on(
+			table.organizationId,
+			table.projectId,
 		),
 	],
 );

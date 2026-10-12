@@ -3536,6 +3536,8 @@ function localAgentSessions(includeEnded: boolean | undefined) {
 		state: row.state,
 		effectiveState: row.effectiveState,
 		summary: row.summary,
+		projectId: null,
+		workItemId: null,
 		stateSince: at(row.minutesAgo),
 		lastEventAt: at(row.minutesAgo),
 	}));

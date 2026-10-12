@@ -18,6 +18,8 @@ function session(n: number, effectiveState: State, summary: string) {
 		state: effectiveState === "idle" ? ("done" as const) : effectiveState,
 		effectiveState,
 		summary,
+		projectId: null,
+		workItemId: null,
 		stateSince: ago(n * 5),
 		lastEventAt: ago(n * 5),
 	};

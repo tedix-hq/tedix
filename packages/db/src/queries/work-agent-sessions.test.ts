@@ -1,11 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
+import { projects } from "../schema/projects";
 import { workAgentSessions } from "../schema/work-agent-sessions";
+import { workAttempts, workItems } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	listWorkAgentSessions,
+	listWorkProjectContributorSources,
 	reportWorkAgentSessionStatus,
 	WORK_AGENT_SESSION_LIST_LIMIT,
 } from "./work-agent-sessions";
@@ -152,5 +155,134 @@ describe("listWorkAgentSessions", () => {
 			now: T2,
 		});
 		expect(rows).toHaveLength(WORK_AGENT_SESSION_LIST_LIMIT);
+	});
+});
+
+describe("project contributors", () => {
+	const PROJECT = "11111111-1111-4111-8111-111111111111";
+	const OTHER_PROJECT = "22222222-2222-4222-8222-222222222222";
+	const ITEM = "33333333-3333-4333-8333-333333333333";
+	const OTHER_ITEM = "44444444-4444-4444-8444-444444444444";
+	const SECOND_ITEM = "55555555-5555-4555-8555-555555555555";
+
+	function projectFixture() {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF;");
+		for (const table of [workAgentSessions, projects, workItems, workAttempts])
+			sqlite.exec(schemaDdl(table));
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		return { sqlite, db };
+	}
+
+	async function seed(db: ReturnType<typeof fixture>) {
+		await db.insert(projects).values([
+			{ id: PROJECT, orgId: ORG, key: "ALPHA", name: "Alpha", createdAt: T0 },
+			{
+				id: OTHER_PROJECT,
+				orgId: OTHER_ORG,
+				key: "BETA",
+				name: "Beta",
+				createdAt: T0,
+			},
+		]);
+		await db.insert(workItems).values([
+			{
+				id: ITEM,
+				orgId: ORG,
+				title: "Ship alpha",
+				projectId: PROJECT,
+				createdAt: T0,
+			},
+			{
+				id: SECOND_ITEM,
+				orgId: ORG,
+				title: "Review alpha",
+				projectId: PROJECT,
+				createdAt: T0,
+			},
+			{ id: OTHER_ITEM, orgId: OTHER_ORG, title: "Elsewhere", createdAt: T0 },
+		] as never);
+	}
+
+	it("binds a session only to its own organization's project and item", async () => {
+		const { db } = projectFixture();
+		await seed(db);
+		const bound = await report(db, { projectId: PROJECT, workItemId: ITEM });
+		expect(bound.row).toMatchObject({ projectId: PROJECT, workItemId: ITEM });
+
+		const foreign = await report(db, {
+			sessionKey: "session-2",
+			projectId: OTHER_PROJECT,
+			workItemId: OTHER_ITEM,
+		});
+		expect(foreign.row).toMatchObject({ projectId: null, workItemId: null });
+
+		const unbound = await report(db, { now: T1, state: "done" });
+		expect(unbound.row).toMatchObject({ projectId: PROJECT, workItemId: ITEM });
+	});
+
+	it("lists bound reports, Attempt sessions and their reports, including ended ones", async () => {
+		const { db } = projectFixture();
+		await seed(db);
+		await report(db, { projectId: PROJECT, state: "ended", now: T0 });
+		await report(db, {
+			userId: OTHER_USER,
+			harness: "codex",
+			sessionKey: "thread-9",
+			label: "Reviewer",
+		});
+		await report(db, { sessionKey: "unrelated" });
+		await db.insert(workAttempts).values([
+			{
+				id: "attempt-1",
+				workItemId: ITEM,
+				orgId: ORG,
+				executorType: "external_agent",
+				executorId: "principal-1",
+				executorSessionId: "session-row-1",
+				externalSessionKey: "codex:thread-9",
+				attemptNumber: 1,
+				startedAt: T0,
+				heartbeatAt: T2,
+				runtimeState: "expired",
+				outcome: "expired",
+				finishedAt: T2,
+			},
+			{
+				id: "attempt-2",
+				workItemId: SECOND_ITEM,
+				orgId: ORG,
+				executorType: "external_agent",
+				executorId: "principal-1",
+				executorSessionId: "session-row-2",
+				externalSessionKey: "claude-code:only-attempts",
+				attemptNumber: 1,
+				startedAt: T0,
+				heartbeatAt: T1,
+				runtimeState: "finished",
+				outcome: "succeeded",
+				finishedAt: T1,
+			},
+		] as never);
+
+		const { reports, attempts } = await listWorkProjectContributorSources(db, {
+			organizationId: ORG,
+			projectId: PROJECT,
+		});
+		expect(reports.map((row) => row.sessionKey).sort()).toEqual([
+			"session-1",
+			"thread-9",
+		]);
+		expect(attempts.map((row) => row.externalSessionKey)).toEqual([
+			"codex:thread-9",
+			"claude-code:only-attempts",
+		]);
+		expect(attempts[0]).toMatchObject({ workItemTitle: "Ship alpha" });
+
+		const foreign = await listWorkProjectContributorSources(db, {
+			organizationId: OTHER_ORG,
+			projectId: PROJECT,
+		});
+		expect(foreign).toEqual({ reports: [], attempts: [] });
 	});
 });

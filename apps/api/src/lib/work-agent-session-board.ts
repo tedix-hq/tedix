@@ -117,3 +117,101 @@ export function sanitizeWorkAgentSessionText(
 		.slice(0, maxLength)
 		.trim();
 }
+
+export interface WorkProjectContributor {
+	sessionKey: string;
+	harness: string;
+	name: string;
+	state: WorkAgentSessionEffectiveState | "unknown";
+	summary: string;
+	lastActivityAt: string;
+	workItemId: string | null;
+	workItemTitle: string | null;
+	attempts: number;
+}
+
+interface ContributorReport {
+	harness: string;
+	sessionKey: string;
+	label: string;
+	state: StoredState;
+	summary: string;
+	workItemId: string | null;
+	workItemTitle: string | null;
+	lastEventAt: string;
+}
+
+interface ContributorAttempt {
+	externalSessionKey: string;
+	workItemId: string;
+	workItemTitle: string;
+	heartbeatAt: string;
+}
+
+const latest = (a: string, b: string) => (a.localeCompare(b) >= 0 ? a : b);
+
+/**
+ * One row per session that worked on a project, keyed `<harness>:<id>` like
+ * Work Attempts. A session report supplies name, state and current item; a
+ * session known only from Attempts reads `unknown` with its latest Attempt's
+ * item. Sessions that may still be active come first, then newest activity.
+ */
+export function buildWorkProjectContributors(
+	reports: readonly ContributorReport[],
+	attempts: readonly ContributorAttempt[],
+	now: string,
+): WorkProjectContributor[] {
+	const contributors = new Map<string, WorkProjectContributor>();
+	for (const report of reports) {
+		const sessionKey = `${report.harness}:${report.sessionKey}`;
+		const current = contributors.get(sessionKey);
+		// Two people cannot share a host session id; keep the newest report.
+		if (current && current.lastActivityAt >= report.lastEventAt) continue;
+		contributors.set(sessionKey, {
+			sessionKey,
+			harness: report.harness,
+			name: report.label || sessionKey,
+			state: deriveWorkAgentSessionEffectiveState(report, now),
+			summary: report.summary,
+			lastActivityAt: report.lastEventAt,
+			workItemId: report.workItemId,
+			workItemTitle: report.workItemTitle,
+			attempts: 0,
+		});
+	}
+	// Attempts arrive newest heartbeat first.
+	for (const attempt of attempts) {
+		const sessionKey = attempt.externalSessionKey;
+		const current = contributors.get(sessionKey);
+		if (current) {
+			current.attempts += 1;
+			current.lastActivityAt = latest(
+				current.lastActivityAt,
+				attempt.heartbeatAt,
+			);
+			if (!current.workItemId) {
+				current.workItemId = attempt.workItemId;
+				current.workItemTitle = attempt.workItemTitle;
+			}
+			continue;
+		}
+		contributors.set(sessionKey, {
+			sessionKey,
+			harness: sessionKey.split(":")[0] ?? "",
+			name: sessionKey,
+			state: "unknown",
+			summary: "",
+			lastActivityAt: attempt.heartbeatAt,
+			workItemId: attempt.workItemId,
+			workItemTitle: attempt.workItemTitle,
+			attempts: 1,
+		});
+	}
+	const settled = new Set(["ended", "unknown"]);
+	return [...contributors.values()].sort((a, b) => {
+		const bySettled =
+			Number(settled.has(a.state)) - Number(settled.has(b.state));
+		if (bySettled !== 0) return bySettled;
+		return b.lastActivityAt.localeCompare(a.lastActivityAt);
+	});
+}
