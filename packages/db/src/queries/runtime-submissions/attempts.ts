@@ -107,6 +107,54 @@ export async function startAttempt(
 	return { submission, attempt };
 }
 
+export interface BuildStartFirstAttemptParams {
+	submissionId: string;
+	organizationId: string;
+	attemptId: string;
+}
+
+/**
+ * Unexecuted {@link startAttempt} for a submission the caller has just seen
+ * freshly admitted (`attemptCount` 0), for composition into a `db.batch()`
+ * without the read. The update moves the submission to `running` only while
+ * it is still unattempted and this batch's attempt row exists, so a
+ * concurrent first start that won attempt 1 leaves both statements inert.
+ */
+export function buildStartFirstAttemptStatements(
+	db: DbClient,
+	params: BuildStartFirstAttemptParams,
+) {
+	return [
+		db
+			.insert(runtimeSubmissionAttempts)
+			.values({
+				id: params.attemptId,
+				submissionId: params.submissionId,
+				organizationId: params.organizationId,
+				attemptNo: 1,
+				status: "started",
+			})
+			.onConflictDoNothing(),
+		db
+			.update(runtimeSubmissions)
+			.set({
+				status: "running",
+				currentAttemptId: params.attemptId,
+				attemptCount: 1,
+				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			})
+			.where(
+				and(
+					eq(runtimeSubmissions.id, params.submissionId),
+					eq(runtimeSubmissions.organizationId, params.organizationId),
+					eq(runtimeSubmissions.status, "admitted"),
+					eq(runtimeSubmissions.attemptCount, 0),
+					sql`exists (select 1 from runtime_submission_attempts as opened where opened.id = ${params.attemptId})`,
+				),
+			),
+	] as const;
+}
+
 /**
  * Open a new operator-restart epoch for an already-settled submission.
  *

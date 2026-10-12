@@ -6,6 +6,10 @@ import {
 	kernelRuntimeEvents,
 	kernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
+import {
+	runtimeSubmissionAttempts,
+	runtimeSubmissions,
+} from "../schema/runtime-submissions";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { getKernelConversation } from "./kernel-conversations";
@@ -17,6 +21,9 @@ import {
 	getKernelRuntimeRun,
 	openKernelRuntimeTurn,
 } from "./kernel-runtime-runs";
+import { admitSubmission } from "./runtime-submissions/admission";
+import { startAttempt } from "./runtime-submissions/attempts";
+import { getSubmissionById } from "./runtime-submissions/read-models";
 
 const CREATED_AT = "2026-10-11T10:00:00.000Z";
 
@@ -24,12 +31,22 @@ function setup() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
-		schemaDdl(kernelRuntimeRuns, kernelRuntimeEvents, kernelConversations),
+		schemaDdl(
+			kernelRuntimeRuns,
+			kernelRuntimeEvents,
+			kernelConversations,
+			runtimeSubmissions,
+			runtimeSubmissionAttempts,
+		),
 	);
 	return createDbClient(createD1Facade(sqlite));
 }
 
-function turnParams(options?: { causeEventId?: string; replay?: boolean }) {
+function turnParams(options?: {
+	causeEventId?: string;
+	replay?: boolean;
+	attemptId?: string;
+}) {
 	return {
 		run: {
 			id: "run-1",
@@ -71,7 +88,37 @@ function turnParams(options?: { causeEventId?: string; replay?: boolean }) {
 					createdAt: CREATED_AT,
 					provisionalTitle: "hello",
 				},
+		submission: options?.attemptId
+			? {
+					attempt: {
+						submissionId: "sub:run-1",
+						organizationId: "org-1",
+						attemptId: options.attemptId,
+					},
+					admittedEvent: {
+						id: "evt-submission-admitted",
+						organizationId: "org-1",
+						kind: "submission.admitted" as const,
+						conversationId: "home:topic",
+						runId: "run-1",
+						payload: { submissionId: "sub:run-1" },
+						createdAt: CREATED_AT,
+					},
+				}
+			: null,
 	};
+}
+
+function admitRunSubmission(db: ReturnType<typeof setup>) {
+	return admitSubmission(db, {
+		id: "sub:run-1",
+		organizationId: "org-1",
+		subjectKind: "kernel",
+		subjectId: "kernel:org-1",
+		sourceKind: "home",
+		conversationId: "home:topic",
+		runId: "run-1",
+	});
 }
 
 describe("openKernelRuntimeTurn", () => {
@@ -128,5 +175,39 @@ describe("openKernelRuntimeTurn", () => {
 		await expect(
 			openKernelRuntimeTurn(db, turnParams({ causeEventId: "evt-missing" })),
 		).rejects.toBeInstanceOf(KernelRuntimeEventConflictError);
+	});
+
+	it("opens the first submission attempt and its receipt in the same batch", async () => {
+		const db = setup();
+		await admitRunSubmission(db);
+		await openKernelRuntimeTurn(db, turnParams({ attemptId: "attempt-1" }));
+		const submission = await getSubmissionById(db, "sub:run-1", "org-1");
+		expect(submission).toMatchObject({
+			status: "running",
+			attemptCount: 1,
+			currentAttemptId: "attempt-1",
+		});
+		const kinds = (await listKernelRuntimeEvents(db, { runId: "run-1" })).map(
+			(row) => row.kind,
+		);
+		expect(kinds).toContain("submission.admitted");
+	});
+
+	it("leaves a submission another start already attempted untouched", async () => {
+		const db = setup();
+		await admitRunSubmission(db);
+		const winner = await startAttempt(db, {
+			submissionId: "sub:run-1",
+			organizationId: "org-1",
+		});
+		await openKernelRuntimeTurn(db, turnParams({ attemptId: "attempt-late" }));
+		const submission = await getSubmissionById(db, "sub:run-1", "org-1");
+		expect(submission).toMatchObject({
+			status: "running",
+			attemptCount: 1,
+			currentAttemptId: winner.attempt?.id,
+		});
+		const attempts = await db.select().from(runtimeSubmissionAttempts);
+		expect(attempts.map((attempt) => attempt.id)).toEqual([winner.attempt?.id]);
 	});
 });

@@ -13,7 +13,11 @@
  */
 
 import type { DbClient } from "@tedix/db/client";
-import { insertKernelRuntimeEventIfAbsent } from "@tedix/db/queries/kernel-runtime-events";
+import {
+	insertKernelRuntimeEventIfAbsent,
+	type NewKernelRuntimeEvent,
+} from "@tedix/db/queries/kernel-runtime-events";
+import type { OpenKernelRuntimeTurnParams } from "@tedix/db/queries/kernel-runtime-runs";
 import { getTediSubmissionInputEvent } from "@tedix/db/queries/runtime-submission-bridge";
 import { admitSubmission } from "@tedix/db/queries/runtime-submissions/admission";
 import {
@@ -153,6 +157,60 @@ function submissionEventId(
 	].join(":");
 }
 
+function submissionAdmittedEvent(args: {
+	runId: string;
+	organizationId: string;
+	conversationId: string;
+	createdAt?: string;
+}): NewKernelRuntimeEvent {
+	return {
+		id: submissionEventId(
+			args.organizationId,
+			"submission.admitted",
+			args.conversationId,
+			args.runId,
+		),
+		organizationId: args.organizationId,
+		kind: "submission.admitted",
+		conversationId: args.conversationId,
+		runId: args.runId,
+		payload: { submissionId: kernelSubmissionId(args.runId) },
+		runtimeExternalId: args.runId,
+		createdAt: args.createdAt ?? new Date().toISOString(),
+	};
+}
+
+/**
+ * The first attempt and `submission.admitted` receipt of a run whose
+ * submission `claimKernelExecutionPolicy` has just admitted, for the turn-start
+ * batch (`openKernelRuntimeTurn`). `null` when the submission was already
+ * attempted (a re-sent run) or belongs to another run: the caller then takes
+ * {@link recordKernelSubmissionStarted}.
+ */
+export function kernelFirstAttemptBatch(args: {
+	runId: string;
+	organizationId: string;
+	conversationId: string;
+	createdAt?: string;
+	admitted: RuntimeSubmission;
+}): OpenKernelRuntimeTurnParams["submission"] {
+	const submissionId = kernelSubmissionId(args.runId);
+	if (
+		args.admitted.id !== submissionId ||
+		args.admitted.attemptCount !== 0 ||
+		args.admitted.status !== "admitted"
+	)
+		return null;
+	return {
+		attempt: {
+			submissionId,
+			organizationId: args.organizationId,
+			attemptId: crypto.randomUUID(),
+		},
+		admittedEvent: submissionAdmittedEvent(args),
+	};
+}
+
 /**
  * Admit a submission + open its first attempt for a freshly created kernel run.
  * Idempotent: a re-sent run (same runId) returns the existing submission and
@@ -198,21 +256,7 @@ export async function recordKernelSubmissionStarted(
 				organizationId: args.organizationId,
 			});
 		}
-		await insertKernelRuntimeEventIfAbsent(db, {
-			id: submissionEventId(
-				args.organizationId,
-				"submission.admitted",
-				args.conversationId,
-				args.runId,
-			),
-			organizationId: args.organizationId,
-			kind: "submission.admitted",
-			conversationId: args.conversationId,
-			runId: args.runId,
-			payload: { submissionId },
-			runtimeExternalId: args.runId,
-			createdAt: args.createdAt ?? new Date().toISOString(),
-		});
+		await insertKernelRuntimeEventIfAbsent(db, submissionAdmittedEvent(args));
 	} catch (error) {
 		console.warn(
 			"[kernel] submission admit failed",
