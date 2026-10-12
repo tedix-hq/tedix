@@ -39,6 +39,9 @@ export const ANSWERS_LIMIT = 6000;
  * or undefined when they cannot be read (offline, signed out, older server).
  * `failed` receives why, when a caller logs failures.
  */
+export const UNDELIVERED_CALLABLE =
+	"list_undelivered_work_interaction_responses";
+
 export async function undeliveredAnswers(
 	deps: Pick<HookDeps, "read">,
 	binding: Binding,
@@ -47,14 +50,13 @@ export async function undeliveredAnswers(
 	failed?: (reason: string) => void,
 ): Promise<PendingAnswer[] | undefined> {
 	try {
+		// Code Mode answers in about 2 s; the native `work interaction-undelivered`
+		// verb took 5-14 s and missed the supervisor's 15 s budget under load.
 		const value = await deps.read(
 			[
 				...binding.command,
-				"work",
-				"interaction-undelivered",
-				"--input",
-				JSON.stringify({ ...filter, limit: 50 }),
-				"--json",
+				"code",
+				`async () => { const r = await work.${UNDELIVERED_CALLABLE}(${JSON.stringify({ ...filter, limit: 50 })}); return { data: r.data, observedAt: r.observedAt }; }`,
 			],
 			timeoutMs,
 		);
