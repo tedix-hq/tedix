@@ -276,50 +276,52 @@ describe("OS route loaders", () => {
 			local.mockRestore();
 		}
 	});
-	it("warms the Portfolio component's first page and deduplicates its following read", async () => {
+	it("warms the Portfolio project list and rollups for its cards only", async () => {
 		const queryClient = client();
-		const projects = Array.from({ length: 20 }, (_, index) => ({
-			id: `project-${index}`,
-		}));
+		const card = (id: string, bucket: string, status = "active") => ({
+			id,
+			status,
+			metadata: { portfolioBucket: bucket },
+		});
+		const projects = [
+			card("project-a", "Projects"),
+			card("project-b", " leads "),
+			card("project-archived", "Projects", "archived"),
+			card("project-done", "Side", "done"),
+			{ id: "project-unbucketed", status: "active", metadata: null },
+		];
 		api.listProjects.mockResolvedValue({
 			data: projects,
-			pagination: { limit: 20, offset: 0, total: 72, hasMore: true },
+			pagination: { limit: 100, offset: 0, total: 5, hasMore: false },
 		});
 		await prefetchWorkPortfolioRoute(queryClient);
 		expect(api.listProjects).toHaveBeenCalledWith(
-			{ limit: 20, offset: 0 },
+			{ limit: 100 },
 			expect.anything(),
 		);
 		expect(
-			queryClient.getQueryData(
-				projectListQueryOptions(20, { offset: 0 }).queryKey,
-			),
-		).toMatchObject({ data: projects });
-		expect(
 			queryClient.getQueryData(projectListQueryOptions(100).queryKey),
-		).toBeUndefined();
-		await queryClient.ensureQueryData(
-			projectListQueryOptions(20, { offset: 0 }),
-		);
+		).toMatchObject({ data: projects });
+		await queryClient.ensureQueryData(projectListQueryOptions(100));
 		expect(api.listProjects).toHaveBeenCalledTimes(1);
-		expect(api.getProjectRollup).toHaveBeenCalledTimes(20);
-		for (const project of projects)
+		expect(api.getProjectRollup).toHaveBeenCalledTimes(2);
+		for (const id of ["project-a", "project-b"])
 			expect(
-				queryClient.getQueryData(
-					projectRollupQueryOptions(project.id).queryKey,
-				),
+				queryClient.getQueryData(projectRollupQueryOptions(id).queryKey),
 			).toBeDefined();
 	});
 	it("bounds Portfolio rollups even if a server returns beyond the requested page", async () => {
 		api.listProjects.mockResolvedValue({
-			data: Array.from({ length: 72 }, (_, index) => ({
+			data: Array.from({ length: 172 }, (_, index) => ({
 				id: `project-${index}`,
+				status: "active",
+				metadata: { portfolioBucket: "Active" },
 			})),
 		});
 		await prefetchWorkPortfolioRoute(client());
-		expect(api.getProjectRollup).toHaveBeenCalledTimes(20);
+		expect(api.getProjectRollup).toHaveBeenCalledTimes(100);
 		expect(api.getProjectRollup).not.toHaveBeenCalledWith(
-			{ id: "project-20" },
+			{ id: "project-100" },
 			expect.anything(),
 		);
 	});
@@ -331,7 +333,18 @@ describe("OS route loaders", () => {
 	it("retains Portfolio projects and other rollups when one rollup fails", async () => {
 		const queryClient = client();
 		api.listProjects.mockResolvedValue({
-			data: [{ id: "failed" }, { id: "healthy" }],
+			data: [
+				{
+					id: "failed",
+					status: "active",
+					metadata: { portfolioBucket: "Side" },
+				},
+				{
+					id: "healthy",
+					status: "active",
+					metadata: { portfolioBucket: "Side" },
+				},
+			],
 		});
 		api.getProjectRollup.mockImplementation(({ id }) =>
 			id === "failed"
@@ -342,9 +355,7 @@ describe("OS route loaders", () => {
 			prefetchWorkPortfolioRoute(queryClient),
 		).resolves.toBeUndefined();
 		expect(
-			queryClient.getQueryData(
-				projectListQueryOptions(20, { offset: 0 }).queryKey,
-			),
+			queryClient.getQueryData(projectListQueryOptions(100).queryKey),
 		).toBeDefined();
 		expect(
 			queryClient.getQueryData(projectRollupQueryOptions("healthy").queryKey),
@@ -357,7 +368,15 @@ describe("OS route loaders", () => {
 			try {
 				const queryClient = client();
 				let rejectRead!: (error: Error) => void;
-				api.listProjects.mockResolvedValue({ data: [{ id: "project-1" }] });
+				api.listProjects.mockResolvedValue({
+					data: [
+						{
+							id: "project-1",
+							status: "active",
+							metadata: { portfolioBucket: "Projects" },
+						},
+					],
+				});
 				const stalled =
 					stage === "list" ? api.listProjects : api.getProjectRollup;
 				stalled.mockImplementation(

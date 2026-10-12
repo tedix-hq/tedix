@@ -2266,7 +2266,7 @@ const workItem = (
 	objectiveId: null,
 	workClass: "objective" as const,
 	purposeExceptionExpiresAt: null,
-	projectId: projectKey === "GROWTH" ? fid("76", 2) : fid("76", 1),
+	projectId: fid("76", PROJECT_NUMBER_BY_KEY[projectKey] ?? 1),
 	parentWorkItemId: null,
 	sourceSessionKey: null,
 	sourceIntentId: null,
@@ -2284,6 +2284,15 @@ const workItem = (
 	cancelledAt: status === "cancelled" ? T4 : null,
 	version: 1,
 });
+
+/** Fixture project number (`fid("76", n)`) for each work item project key. */
+const PROJECT_NUMBER_BY_KEY: Record<string, number> = {
+	OPS: 1,
+	GROWTH: 2,
+	PILOT: 4,
+	NOTES: 5,
+	GUILD: 6,
+};
 
 const WORK_ITEMS = [
 	workItem(
@@ -2347,6 +2356,33 @@ const WORK_ITEMS = [
 		T5,
 		"GROWTH",
 	),
+	workItem(
+		9,
+		"Send the bakery pilot proposal",
+		"todo",
+		TEDI_NOVA,
+		"medium",
+		T4,
+		"PILOT",
+	),
+	workItem(
+		10,
+		"Sort the field notes into topics",
+		"todo",
+		null,
+		"low",
+		T2,
+		"NOTES",
+	),
+	workItem(
+		11,
+		"Plan the next makers meetup",
+		"in_progress",
+		TEDI_NOVA,
+		"medium",
+		T5,
+		"GUILD",
+	),
 ];
 
 const workItemId = (n: number) => fid("70", n);
@@ -2365,6 +2401,10 @@ const project = (
 	status: "active" | "paused" | "archived" | "done",
 	archivedAt: string | null = null,
 	description: string | null = null,
+	extra: {
+		metadata?: Record<string, string>;
+		leadTediId?: string;
+	} = {},
 ) => ({
 	id: fid("76", n),
 	orgId: ORG_ID,
@@ -2372,16 +2412,17 @@ const project = (
 	name,
 	description,
 	status,
-	leadTediId: null,
+	leadTediId: extra.leadTediId ?? null,
 	ownerUserId: null,
 	objectiveId: null,
 	targetDate: null,
-	metadata: null,
+	metadata: extra.metadata ?? null,
 	createdAt: T0,
 	updatedAt: T4,
 	archivedAt,
 });
 
+/** `metadata.portfolioBucket`/`portfolioTitle` place a project on the Portfolio home. */
 const PROJECTS = [
 	project(
 		1,
@@ -2390,9 +2431,45 @@ const PROJECTS = [
 		"active",
 		null,
 		"Keep the reporting stack fast and boring.\nGoal: churn cohort and revenue summaries refresh before the Monday owner sync.\nOut of scope: new dashboards.",
+		{
+			metadata: {
+				portfolioBucket: "Projects",
+				portfolioTitle: "Reporting platform",
+			},
+			leadTediId: TEDI_MILES,
+		},
 	),
-	project(2, "GROWTH", "Growth experiments", "active"),
-	project(3, "LEGACY", "Wind-down", "archived", T1),
+	project(2, "GROWTH", "Growth experiments", "active", null, null, {
+		metadata: { portfolioBucket: "Active" },
+	}),
+	project(3, "LEGACY", "Wind-down", "archived", T1, null, {
+		metadata: { portfolioBucket: "Side" },
+	}),
+	project(
+		4,
+		"PILOT",
+		"Corner bakery pilot",
+		"active",
+		null,
+		"No records yet; owner to define",
+		{
+			metadata: {
+				portfolioBucket: " leads ",
+				portfolioTitle: "Bakery pilot",
+				portfolioOrg: "acme-demo",
+			},
+		},
+	),
+	project(5, "NOTES", "Field notes", "paused"),
+	project(
+		6,
+		"GUILD",
+		"Makers guild",
+		"active",
+		null,
+		"Monthly meetups for local makers.",
+		{ metadata: { portfolioBucket: "Communities" }, leadTediId: TEDI_NOVA },
+	),
 ];
 
 function localProject(id: string) {
@@ -4604,15 +4681,23 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"projects/getRollup": (input: { id: string }) => {
 		const items = workItemsInScope(localProject(input.id).id);
 		const done = items.filter((row) => row.disposition === "completed").length;
+		const byDisposition: Record<string, number> = {};
+		for (const row of items)
+			byDisposition[row.disposition] =
+				(byDisposition[row.disposition] ?? 0) + 1;
 		return {
 			projectId: input.id,
 			total: items.length,
-			byDisposition: {},
+			byDisposition,
 			byWorkKind: {},
 			percentDone: items.length ? done / items.length : 0,
 			aggregateDisposition: items.length ? "accepted" : "empty",
 			distinctExecutors: [],
-			topLevelItems: [],
+			topLevelItems: items.map(({ id, title, disposition }) => ({
+				id,
+				title,
+				disposition,
+			})),
 			truncated: false,
 		};
 	},

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkPortfolioPage } from "@/components/work-factory-pages";
+import { WorkPortfolioPage } from "@/components/work-portfolio-page";
 import { prefetchWorkPortfolioRoute } from "@/lib/os-route-loaders";
 import { ListPending } from "@/routes/-pending";
 

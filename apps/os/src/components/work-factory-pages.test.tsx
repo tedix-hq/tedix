@@ -1,13 +1,10 @@
 import type { WorkItem } from "@tedix/api-contract/schemas/work-items";
-import type { Project } from "@tedix/api-contract/contracts/projects";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
-	projectListQueryOptions,
-	projectRollupQueryOptions,
 	workReadinessProjectionQueryOptions,
 	workFleetQueryOptions,
 	workAttemptProjectionQueryOptions,
@@ -23,7 +20,6 @@ import {
 	EvidencePreviewResult,
 	compactEvidenceUri,
 	milestoneLifecycleUpdateInput,
-	PortfolioProjectList,
 	ProjectBrief,
 	ProjectSummary,
 	WorkItemStatusSummary,
@@ -33,7 +29,6 @@ import {
 	recordedSettlementCommits,
 	WorkItemInspectorPage,
 	WorkItemReadOnlyLedgers,
-	WorkPortfolioPage,
 	WorkQueuePage,
 	WorkGraphLedger,
 	WorkRecoveryLedger,
@@ -50,23 +45,6 @@ import {
 import { workPrincipalLabel } from "@/lib/work-display";
 
 const ITEM_ID = "11111111-1111-4111-8111-111111111111";
-
-const project: Project = {
-	id: "33333333-3333-4333-8333-333333333333",
-	orgId: "22222222-2222-4222-8222-222222222222",
-	key: "QUIET-OS",
-	name: "Quiet command center",
-	description: null,
-	status: "active",
-	leadTediId: null,
-	ownerUserId: "owner-1",
-	objectiveId: null,
-	targetDate: "2026-09-01",
-	metadata: null,
-	createdAt: "2026-08-20T00:00:00.000Z",
-	updatedAt: null,
-	archivedAt: null,
-};
 
 const item: WorkItem = {
 	id: ITEM_ID,
@@ -486,209 +464,6 @@ describe("Work recovery collection", () => {
 		expect(html).toContain("Dependencies blocked");
 		expect(html).toContain("2 blocked · Finished · Failed");
 		expect(html).not.toContain('data-slot="card"');
-	});
-});
-
-describe("Work portfolio", () => {
-	it("keys each server page and search separately", () => {
-		expect(
-			projectListQueryOptions(20, { offset: 20, search: "quiet" }).queryKey,
-		).not.toEqual(projectListQueryOptions(20, { offset: 0 }).queryKey);
-	});
-
-	it("renders a compact desktop table and a dedicated mobile list", () => {
-		const html = renderToStaticMarkup(
-			<PortfolioProjectList
-				projects={[project]}
-				rollups={[{ percentDone: 0.625, aggregateDisposition: "accepted" }]}
-			/>,
-		);
-
-		expect(html).toContain('aria-label="Projects"');
-		expect(html).toContain("lg:hidden");
-		expect(html).toContain("hidden lg:block");
-		expect(html).toContain(`/work/projects/${project.id}`);
-		expect(html).toContain("62.5%");
-		expect(html).toContain("Accepted");
-		expect(html).toContain('data-slot="collection"');
-		expect(html).toContain("data-mobile-project-row");
-		expect(html).toContain("data-mobile-project-progress");
-		expect(html).toContain("data-mobile-project-owner");
-		expect(html).toContain("data-mobile-project-horizon");
-		expect(html).toContain(
-			'<span class="line-clamp-2">Quiet command center</span>',
-		);
-		expect(html).not.toContain("min-w-0 truncate font-medium leading-snug");
-		expect(html).not.toContain("<dt");
-	});
-
-	it("quiets opaque project owner ids without discarding canonical truth", () => {
-		const ownerId = "5eed0028-0000-4000-8000-000000000028";
-		const html = renderToStaticMarkup(
-			<PortfolioProjectList
-				projects={[{ ...project, ownerUserId: ownerId }]}
-				rollups={[{ percentDone: 0.625, aggregateDisposition: "accepted" }]}
-			/>,
-		);
-
-		expect(html.match(/5eed0028…/g)).toHaveLength(2);
-		expect(html.match(new RegExp(`title="${ownerId}"`, "g"))).toHaveLength(2);
-		expect(html).not.toContain(`Owner: ${ownerId}`);
-	});
-
-	it("shows the server total beyond the loaded page and bounds project rows", () => {
-		const projects = Array.from({ length: 25 }, (_, index) => ({
-			...project,
-			id: `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`,
-			key: `QUIET-${index}`,
-			name: `Quiet command center ${index}`,
-		}));
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false } },
-		});
-		queryClient.setQueryData(
-			projectListQueryOptions(20, { offset: 0, search: undefined }).queryKey,
-			{
-				data: projects.slice(0, 20),
-				pagination: {
-					limit: 20,
-					offset: 0,
-					total: 125,
-					hasMore: true,
-				},
-			},
-		);
-		for (const visibleProject of projects.slice(0, 20)) {
-			queryClient.setQueryData(
-				projectRollupQueryOptions(visibleProject.id).queryKey,
-				{
-					projectId: visibleProject.id,
-					total: 2,
-					byDisposition: { accepted: 2 },
-					byWorkKind: { coding: 2 },
-					percentDone: 0.5,
-					aggregateDisposition: "accepted",
-					distinctExecutors: [],
-					topLevelItems: [],
-					truncated: false,
-				},
-			);
-		}
-
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={queryClient}>
-				<WorkPortfolioPage />
-			</QueryClientProvider>,
-		);
-
-		expect(html.match(/href="\/work\/projects\//g)).toHaveLength(40);
-		expect(html).toContain("Showing 1–20 of 125 projects");
-		expect(html).toContain("Next page");
-		expect(html).not.toContain("Quiet command center 20");
-	});
-
-	it("pages to projects beyond the first server page", async () => {
-		const projects = Array.from({ length: 25 }, (_, index) => ({
-			...project,
-			id: `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`,
-			key: `QUIET-${index}`,
-			name:
-				index === 24
-					? "Keystone command center"
-					: `Quiet command center ${index}`,
-		}));
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-		});
-		for (const page of [0, 1]) {
-			queryClient.setQueryData(
-				projectListQueryOptions(20, {
-					offset: page * 20,
-					search: undefined,
-				}).queryKey,
-				{
-					data: projects.slice(page * 20, page * 20 + 20),
-					pagination: {
-						limit: 20,
-						offset: page * 20,
-						total: 25,
-						hasMore: page === 0,
-					},
-				},
-			);
-		}
-		for (const row of projects) {
-			queryClient.setQueryData(projectRollupQueryOptions(row.id).queryKey, {
-				projectId: row.id,
-				total: 0,
-				byDisposition: {},
-				byWorkKind: {},
-				percentDone: 0,
-				aggregateDisposition: "proposed",
-				distinctExecutors: [],
-				topLevelItems: [],
-				truncated: false,
-			});
-		}
-		queryClient.setQueryData(
-			projectListQueryOptions(20, { offset: 0, search: "keystone" }).queryKey,
-			{
-				data: [projects[24]!],
-				pagination: { limit: 20, offset: 0, total: 1, hasMore: false },
-			},
-		);
-		const host = document.createElement("div");
-		document.body.append(host);
-		const root = createRoot(host);
-		try {
-			await act(async () =>
-				root.render(
-					<QueryClientProvider client={queryClient}>
-						<WorkPortfolioPage />
-					</QueryClientProvider>,
-				),
-			);
-			expect(host.textContent).toContain("Quiet command center 0");
-			const next = [...host.querySelectorAll("button")].find(
-				(button) => button.textContent?.trim() === "Next page",
-			);
-			if (!next) throw new Error("Next page button missing");
-			await act(async () => next.click());
-			expect(host.textContent).toContain("Quiet command center 20");
-			expect(host.textContent).not.toContain("Quiet command center 0");
-			expect(host.textContent).toContain("Showing 21–25 of 25 projects");
-			const search = host.querySelector<HTMLInputElement>(
-				'[aria-label="Search projects"]',
-			);
-			if (!search) throw new Error("Search projects input missing");
-			await act(async () => {
-				Object.getOwnPropertyDescriptor(
-					HTMLInputElement.prototype,
-					"value",
-				)?.set?.call(search, "keystone");
-				search.dispatchEvent(new Event("input", { bubbles: true }));
-				await new Promise((resolve) => setTimeout(resolve, 275));
-			});
-			expect(host.textContent).toContain("Keystone command center");
-			expect(host.textContent).toContain("1 matching projects");
-			expect(host.textContent).not.toContain("Quiet command center 20");
-		} finally {
-			await act(async () => root.unmount());
-			host.remove();
-			queryClient.clear();
-		}
-	});
-
-	it("omits empty mobile horizons while the desktop table keeps the explicit state", () => {
-		const html = renderToStaticMarkup(
-			<PortfolioProjectList
-				projects={[{ ...project, targetDate: null }]}
-				rollups={[{ percentDone: 0.625, aggregateDisposition: "accepted" }]}
-			/>,
-		);
-
-		expect(html).not.toContain("data-mobile-project-horizon");
-		expect(html).toContain("Not recorded");
 	});
 });
 
@@ -1207,27 +982,6 @@ describe("Recorded Work outcomes and activity", () => {
 			act(() => root.unmount());
 			host.remove();
 		}
-	});
-	it("shows actionable serialized Portfolio failure messages", () => {
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false, retryOnMount: false } },
-		});
-		const options = projectListQueryOptions(20, {
-			offset: 0,
-			search: undefined,
-		});
-		const query = queryClient.getQueryCache().build(queryClient, options);
-		query.setState({
-			status: "error",
-			error: { message: "Project access denied. Sign in again." } as Error,
-		});
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={queryClient}>
-				<WorkPortfolioPage />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain("Portfolio unavailable");
-		expect(html).toContain("Project access denied. Sign in again.");
 	});
 });
 

@@ -23,8 +23,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { useWorkWebMcpTools } from "@/components/work-webmcp-tools";
 
 export const WORK_SECTIONS = [
-	["Office", "/work/office"],
 	["Portfolio", "/work/portfolio"],
+	["Office", "/work/office"],
 	["Cases", "/work/cases"],
 	["Graph", "/work/graph"],
 	["Clusters", "/work/clusters"],
@@ -41,8 +41,8 @@ export const WORK_SECTIONS = [
 
 export const PRIMARY_WORK_SECTIONS = [
 	WORK_SECTIONS[0],
-	WORK_SECTIONS[13],
 	WORK_SECTIONS[1],
+	WORK_SECTIONS[13],
 	WORK_SECTIONS[10],
 	WORK_SECTIONS[12],
 	WORK_SECTIONS[6],
@@ -61,7 +61,7 @@ export const ADVANCED_WORK_SECTIONS = [
 type WorkSectionPath = (typeof WORK_SECTIONS)[number][1];
 
 export function workSectionForPathname(pathname: string) {
-	if (pathname.startsWith("/work/projects/")) return WORK_SECTIONS[1];
+	if (pathname.startsWith("/work/projects/")) return WORK_SECTIONS[0];
 	return (
 		WORK_SECTIONS.find(([, href]) => pathname.startsWith(href)) ??
 		WORK_SECTIONS[0]

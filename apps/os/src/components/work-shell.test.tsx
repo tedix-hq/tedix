@@ -28,9 +28,9 @@ vi.mock("@tanstack/react-router", () => ({
 describe("Work shell navigation", () => {
 	it("keeps frequent destinations visible and advanced controls in overflow", () => {
 		expect(PRIMARY_WORK_SECTIONS.map(([label]) => label)).toEqual([
+			"Portfolio",
 			"Office",
 			"Queue",
-			"Portfolio",
 			"Attention",
 			"Agents",
 			"Attempts",
@@ -92,7 +92,14 @@ describe("WorkShell routed tabs", () => {
 	});
 
 	it("maps nested Work routes to the correct mobile selection", () => {
-		expect(workSectionForPathname("/work")).toEqual(["Office", "/work/office"]);
+		expect(workSectionForPathname("/work")).toEqual([
+			"Portfolio",
+			"/work/portfolio",
+		]);
+		expect(workSectionForPathname("/work/office")).toEqual([
+			"Office",
+			"/work/office",
+		]);
 		expect(workSectionForPathname("/work/queue")).toEqual([
 			"Queue",
 			"/work/queue",
