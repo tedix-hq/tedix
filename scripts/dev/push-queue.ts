@@ -14,6 +14,10 @@
  * A lock whose process is gone, or that is older than STALE_MS, is removed, as
  * is a queue ticket whose process is gone. No daemon.
  *
+ * A successful push also asks tedix-cloud-ops to run Ship now (fail-soft, via
+ * `gh`), so a change goes live in minutes instead of waiting for the
+ * quarter-hourly schedule, which stays as the fallback for other pushes.
+ *
  * At most once a week, a successful push also starts `worktree:gc --apply` in
  * the background (log in <git-common-dir>/worktree-gc.log), so finished
  * worktrees are removed without anyone scheduling it. That command only
@@ -168,6 +172,22 @@ export function gcDue(stampFile: string, now = Date.now()): boolean {
 	}
 }
 
+function requestShip() {
+	const run = spawnSync(
+		"gh",
+		["workflow", "run", "ship.yml", "--repo", "tedix-hq/tedix-cloud-ops"],
+		{
+			encoding: "utf8",
+			timeout: 20_000,
+		},
+	);
+	console.log(
+		run.status === 0
+			? "push: asked Ship to deploy now."
+			: "push: could not start Ship (gh); the schedule will deploy this.",
+	);
+}
+
 function startWeeklyWorktreeGc(commonDir: string) {
 	const stamp = join(commonDir, "worktree-gc.stamp");
 	if (!gcDue(stamp)) return;
@@ -232,7 +252,10 @@ async function main() {
 					? "push: dry run passed; nothing pushed."
 					: "push: pushed to main.",
 			);
-			if (!dryRun) startWeeklyWorktreeGc(commonDir);
+			if (!dryRun) {
+				requestShip();
+				startWeeklyWorktreeGc(commonDir);
+			}
 			process.exit(0);
 		}
 		if (outcome === "failed") {
