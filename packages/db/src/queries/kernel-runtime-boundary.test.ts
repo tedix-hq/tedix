@@ -330,38 +330,40 @@ describe("Home output authoring lookup", () => {
 		outputId: "output-1",
 		revisionId: "revision-1",
 	};
-	const evidence = {
+	const receipt = {
 		kernelEvidence: {
 			toolName: "os.create_os_output",
-			data: {
-				output: { id: "output-1" },
-				revision: { id: "revision-1", outputId: "output-1" },
-			},
+			data: { truncated: true },
 		},
+		kernelOutputReceipt: { outputId: "output-1", revisionId: "revision-1" },
 	};
 	function seed(
 		sqlite: DatabaseSync,
 		id: string,
 		metadata: unknown,
-		status = "completed",
+		{
+			status = "completed",
+			outputRevisionId = "revision-1" as string | null,
+		} = {},
 	) {
 		sqlite
 			.prepare(
-				"INSERT INTO kernel_runtime_runs(id, organization_id, conversation_id, status, metadata, created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
+				"INSERT INTO kernel_runtime_runs(id, organization_id, conversation_id, status, metadata, output_revision_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
 			)
 			.run(
 				id,
 				"org-1",
 				"conversation-1",
 				status,
-				typeof metadata === "string" ? metadata : JSON.stringify(metadata),
+				JSON.stringify(metadata),
+				outputRevisionId,
 				"2026-09-20",
 				"2026-09-20",
 			);
 	}
-	it("matches exact historical evidence, scopes tenants and revisions, rejects ambiguity", async () => {
+	it("matches the recorded revision, scopes tenants and revisions, rejects ambiguity", async () => {
 		const { db, sqlite } = fixture();
-		seed(sqlite, "run-1", evidence);
+		seed(sqlite, "run-1", receipt);
 		expect(await findKernelRuntimeRunForOutputRevision(db, target)).toEqual({
 			id: "run-1",
 			conversationId: "conversation-1",
@@ -378,55 +380,28 @@ describe("Home output authoring lookup", () => {
 				revisionId: "other",
 			}),
 		).toBeNull();
-		seed(sqlite, "run-2", evidence);
+		seed(sqlite, "run-2", receipt);
 		expect(await findKernelRuntimeRunForOutputRevision(db, target)).toBeNull();
 		sqlite.close();
 	});
-	it("retains identity after evidence truncation", async () => {
+	it("rejects a receipt for another output", async () => {
 		const { db, sqlite } = fixture();
 		seed(sqlite, "run-1", {
-			kernelEvidence: {
-				toolName: "os__create_os_output",
-				data: { truncated: true },
-			},
-			kernelOutputReceipt: { outputId: "output-1", revisionId: "revision-1" },
+			...receipt,
+			kernelOutputReceipt: { outputId: "other", revisionId: "revision-1" },
 		});
-		expect(
-			await findKernelRuntimeRunForOutputRevision(db, target),
-		).toMatchObject({ id: "run-1" });
+		expect(await findKernelRuntimeRunForOutputRevision(db, target)).toBeNull();
 		sqlite.close();
 	});
-	it.each([
-		"invalid json",
-		{},
-		{
-			kernelEvidence: { ...evidence.kernelEvidence, toolName: "other.create" },
-		},
-		{
-			kernelEvidence: { ...evidence.kernelEvidence, data: { truncated: true } },
-		},
-		{
-			...evidence,
-			kernelOutputReceipt: { outputId: "other", revisionId: "revision-1" },
-		},
-		{
-			kernelEvidence: {
-				...evidence.kernelEvidence,
-				data: {
-					...evidence.kernelEvidence.data,
-					revision: { id: "revision-1", outputId: "other" },
-				},
-			},
-		},
-	])("rejects malformed or conflicting evidence", async (metadata) => {
+	it("ignores runs without the indexed revision column", async () => {
 		const { db, sqlite } = fixture();
-		seed(sqlite, "run-1", metadata);
+		seed(sqlite, "run-1", receipt, { outputRevisionId: null });
 		expect(await findKernelRuntimeRunForOutputRevision(db, target)).toBeNull();
 		sqlite.close();
 	});
 	it("rejects failed runs", async () => {
 		const { db, sqlite } = fixture();
-		seed(sqlite, "run-1", evidence, "failed");
+		seed(sqlite, "run-1", receipt, { status: "failed" });
 		expect(await findKernelRuntimeRunForOutputRevision(db, target)).toBeNull();
 		sqlite.close();
 	});

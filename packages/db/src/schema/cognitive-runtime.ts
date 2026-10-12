@@ -376,6 +376,12 @@ export const kernelRuntimeRuns = sqliteTable(
 		updatedAt: text("updated_at")
 			.notNull()
 			.default(sql`(CURRENT_TIMESTAMP)`),
+		/**
+		 * The OS output revision this run saved, copied from
+		 * `metadata.kernelOutputReceipt` so the authoring-run lookup is an index
+		 * hit instead of a JSON scan of every run in the org.
+		 */
+		outputRevisionId: text("output_revision_id"),
 	},
 	(table) => [
 		index("idx_kernel_runtime_runs_conversation_updated").on(
@@ -397,6 +403,10 @@ export const kernelRuntimeRuns = sqliteTable(
 		index("idx_kernel_runtime_runs_org_child").on(
 			table.organizationId,
 			table.childRunId,
+		),
+		index("idx_kernel_runtime_runs_org_output_revision").on(
+			table.organizationId,
+			table.outputRevisionId,
 		),
 	],
 );

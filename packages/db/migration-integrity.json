@@ -848,6 +848,10 @@
 		{
 			"name": "20261012153852_kernel-runtime-runs-org-child/migration.sql",
 			"sha256": "47474c8a95036cc189eca0d4c0e29168df5cd49eaa1f7354b6f1b22c69af679f"
+		},
+		{
+			"name": "20261012182129_kernel-runtime-runs-output-revision/migration.sql",
+			"sha256": "98400ad23ed699b88608961e1c5a1909fed71d3c9a589ec987c92085755cabda"
 		}
 	]
 }

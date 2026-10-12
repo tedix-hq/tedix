@@ -482,7 +482,6 @@ export async function findKernelRuntimeRunForOutputRevision(
 	db: DbQueryClient,
 	input: { organizationId: string; outputId: string; revisionId: string },
 ): Promise<{ id: string; conversationId: string } | null> {
-	const metadata = sql`CASE WHEN json_valid(${kernelRuntimeRuns.metadata}) THEN ${kernelRuntimeRuns.metadata} ELSE '{}' END`;
 	const rows = await db
 		.select({
 			id: kernelRuntimeRuns.id,
@@ -492,14 +491,9 @@ export async function findKernelRuntimeRunForOutputRevision(
 		.where(
 			and(
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.outputRevisionId, input.revisionId),
 				eq(kernelRuntimeRuns.status, "completed"),
-				sql`json_extract(${metadata}, '$.kernelEvidence.toolName') IN ('os.create_os_output', 'os__create_os_output')`,
-				sql`((json_extract(${metadata}, '$.kernelOutputReceipt.outputId') = ${input.outputId}
- AND json_extract(${metadata}, '$.kernelOutputReceipt.revisionId') = ${input.revisionId}) OR
- (json_type(${metadata}, '$.kernelOutputReceipt') IS NULL
- AND json_extract(${metadata}, '$.kernelEvidence.data.output.id') = ${input.outputId}
- AND json_extract(${metadata}, '$.kernelEvidence.data.revision.id') = ${input.revisionId}
- AND json_extract(${metadata}, '$.kernelEvidence.data.revision.outputId') = ${input.outputId}))`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.kernelOutputReceipt.outputId') = ${input.outputId}`,
 			),
 		)
 		.limit(2);
