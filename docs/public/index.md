@@ -44,6 +44,7 @@ is available today.
 | Install the Tedix CLI                            | [Install the Tedix CLI](./cli.md)                                       |
 | Connect this computer to a Cloud organization    | [First connection to Tedix Cloud](./learning-paths/first-connection.md) |
 | Run Tedix locally without a Cloud account        | [Getting started locally](./getting-started.md)                         |
+| Start a new agent session with no context        | [Start here as an agent](./agent-start-here.md)                         |
 | Give an agent reliable Tedix context             | [Agent guide](./agent-guide.md)                                         |
 | Build or inspect a Workspace factory             | [Factory guide for agents](./factory-agent-guide.md)                    |
 | Connect applications and tools                   | [MCP app platform](./mcp-app-platform.md)                               |

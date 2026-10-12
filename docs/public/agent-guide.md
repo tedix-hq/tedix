@@ -15,6 +15,9 @@ visibility: public
 
 # Agent guide
 
+New session with no context? Follow [Start here as an agent](./agent-start-here.md)
+first; it orders the steps and points back here for detail.
+
 Start here when an agent needs to research Tedix or operate a Tedix
 organization. Choose the path that matches the task:
 
