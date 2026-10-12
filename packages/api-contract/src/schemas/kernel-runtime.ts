@@ -718,7 +718,13 @@ export type EnqueueHomeMessageInput = z.input<
 export const EnqueueHomeMessageOutputSchema = z.object({
 	idempotencyKey: z.string(),
 	conversationId: z.string(),
-	status: z.enum(["queued", "failed", "needs_delegation", "requires_approval"]),
+	status: z.enum([
+		"queued",
+		"failed",
+		"needs_delegation",
+		"requires_approval",
+		"completed",
+	]),
 	run: HomeRunSchema,
 	homePlan: HomePlanSchema.optional(),
 	assistantMessage: HomeMessageSchema.optional(),

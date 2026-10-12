@@ -332,7 +332,7 @@ describe("runKernelTurnWork progress seam", () => {
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
 		expect(recorder.stages).toEqual(["Planning route", "Finalizing"]);
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(result.assistantMessage.content).toBe("All quiet.");
 	});
 
@@ -629,7 +629,7 @@ describe("runKernelTurnWork progress seam", () => {
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
 		expect(attempts).toBeGreaterThanOrEqual(2); // it kept emitting, swallowed each throw
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(result.assistantMessage.content).toBe("ok");
 	});
 
@@ -903,7 +903,7 @@ describe("runKernelTurnWork progress seam", () => {
 			}),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 	});
 });
 
@@ -2469,7 +2469,7 @@ describe("runKernelTurnWork conversation auto-title dispatch", () => {
 			},
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(calls).toEqual([
 			{
 				organizationId: "org-1",
@@ -2510,7 +2510,7 @@ describe("runKernelTurnWork conversation auto-title dispatch", () => {
 				...turnInput(),
 				content: privateText,
 			});
-			expect(result.status).toBe("needs_delegation");
+			expect(result.status).toBe("completed");
 			expect(result.assistantMessage.content).toBe("All quiet.");
 			expect(warnSpy).toHaveBeenCalledWith({
 				component: "kernel.turn_work",
@@ -2532,7 +2532,7 @@ describe("runKernelTurnWork conversation auto-title dispatch", () => {
 			}),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 	});
 
 	it("dep returns a promise (waitUntil-less context) → the turn work AWAITS it before resolving", async () => {
@@ -2557,7 +2557,7 @@ describe("runKernelTurnWork conversation auto-title dispatch", () => {
 				}),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(titleCompleted).toBe(true);
 	});
 
@@ -2581,7 +2581,7 @@ describe("runKernelTurnWork conversation auto-title dispatch", () => {
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
 		expect(backgroundStarted).toBe(true);
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(result.assistantMessage.content).toBe("All quiet.");
 	});
 
@@ -2598,7 +2598,7 @@ describe("runKernelTurnWork conversation auto-title dispatch", () => {
 				Promise.reject(new Error("title promise exploded")),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(result.assistantMessage.content).toBe("All quiet.");
 	});
 });
@@ -3542,7 +3542,7 @@ describe("runKernelTurnWork settle critical path", () => {
 				new Date(Date.parse(baseIso) + offsetMs).toISOString(),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(persistTurnSettlement).toHaveBeenCalledTimes(1);
 		const call = persistTurnSettlement.mock.calls[0]?.[0];
 		expect(call?.run.fromStatus).toBe("running");
@@ -3581,7 +3581,7 @@ describe("runKernelTurnWork settle critical path", () => {
 				}),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(titleCompleted).toBe(false);
 		expect(held).toHaveLength(1);
 		releaseTitle();
@@ -3600,7 +3600,7 @@ describe("runKernelTurnWork settle critical path", () => {
 				Promise.reject(new Error("title exploded")),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		expect(result.status).toBe("needs_delegation");
+		expect(result.status).toBe("completed");
 		expect(held).toHaveLength(1);
 		await expect(held[0]).resolves.toBeUndefined();
 	});

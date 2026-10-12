@@ -3181,7 +3181,7 @@ describe("kernel runtime router", () => {
 
 		expect(result).toMatchObject({
 			conversationId: "home:test",
-			status: "needs_delegation",
+			status: "completed",
 			run: {
 				delegatedTediId: null,
 				runtime: {
