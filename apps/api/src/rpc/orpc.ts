@@ -519,13 +519,15 @@ async function authenticateForwardedMcpUserJwt(
 		context.user.scopes = [...new Set([...tokenScopes, ...edgeScopes])];
 	}
 	context.authType = "user";
-	context.userId = await measureMiningPhase(context, "auth.user", () =>
-		resolveCanonicalUserId(context, payload),
-	);
-
-	const targetOrg = await measureMiningPhase(context, "auth.organization", () =>
-		resolveForwardedMcpUserOrganization(context),
-	);
+	const [userId, targetOrg] = await Promise.all([
+		measureMiningPhase(context, "auth.user", () =>
+			resolveCanonicalUserId(context, payload),
+		),
+		measureMiningPhase(context, "auth.organization", () =>
+			resolveForwardedMcpUserOrganization(context),
+		),
+	]);
+	context.userId = userId;
 	if (!targetOrg) {
 		if (context.headers.get(OWNER_HOST_SESSION_HEADER)) {
 			throw createError(

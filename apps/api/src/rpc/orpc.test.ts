@@ -418,11 +418,13 @@ describe("forwarded MCP authentication failures", () => {
 		).toEqual([
 			["auth.forwarded", "started"],
 			["auth.user", "started"],
+			["auth.organization", "started"],
 		]);
 		expect(
 			errorLog.mock.calls.map(([event]) => [event.phase, event.status]),
 		).toEqual([
 			["auth.user", "failed"],
+			["auth.organization", "failed"],
 			["auth.forwarded", "failed"],
 		]);
 		expect(

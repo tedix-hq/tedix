@@ -351,6 +351,39 @@ async function verifyHumanMcpGrantStages(
 		return deny("membership_missing");
 	mark("resource");
 
+	const key = {
+		descopeUserId: input.descopeUserId,
+		mcpServerId: input.mcpServerId,
+		clientId: input.clientId,
+	};
+	const grantKey = { ...key, revision: input.consentRevision };
+	// The ledger reads do not depend on the provider answers, so they run while
+	// Descope is asked. Every result is still judged after the provider checks,
+	// in the same order, and the active grant is re-read before allowing.
+	const ledgerReads = Promise.all([
+		getMcpConsentGrant(db, grantKey),
+		getMcpConsentPending(db, grantKey),
+		getMembershipsByDescopeTenants(
+			db,
+			input.selectedTenantIds,
+			input.descopeUserId,
+		).then(async (memberships) => ({
+			memberships,
+			gateways: await getOrganizationAggregatorGateways(
+				db,
+				memberships.map((row) => row.organizationId),
+			),
+		})),
+	]).then(
+		([current, pending, membership]) => ({
+			ok: true as const,
+			current,
+			pending,
+			...membership,
+		}),
+		() => ({ ok: false as const }),
+	);
+
 	let liveTenants: Set<string>;
 	let appId: string;
 	try {
@@ -459,12 +492,8 @@ async function verifyHumanMcpGrantStages(
 		return deny("provider_unavailable");
 	}
 
-	const key = {
-		descopeUserId: input.descopeUserId,
-		mcpServerId: input.mcpServerId,
-		clientId: input.clientId,
-	};
-	const grantKey = { ...key, revision: input.consentRevision };
+	const ledger = await ledgerReads;
+	if (!ledger.ok) return deny("provider_unavailable");
 	// Several installs of one OAuth client may each hold an active grant; the
 	// signed revision selects exactly one, whose authority must match exactly.
 	const matchesActive = (
@@ -474,26 +503,16 @@ async function verifyHumanMcpGrantStages(
 		grant.revision === input.consentRevision &&
 		sameCanonicalSet(grant.selectedTenantIds, input.selectedTenantIds) &&
 		sameCanonicalSet(grant.approvedScopes, input.tokenScopes);
-	let pending: Awaited<ReturnType<typeof getMcpConsentPending>> = null;
-	try {
-		const current = await getMcpConsentGrant(db, grantKey);
-		if (!matchesActive(current)) {
-			pending = await getMcpConsentPending(db, {
-				...key,
-				revision: input.consentRevision,
-			});
-			if (
-				!pending ||
-				pending.appId !== appId ||
-				pending.expiresAt <= new Date().toISOString() ||
-				!sameCanonicalSet(pending.selectedTenantIds, input.selectedTenantIds) ||
-				!sameCanonicalSet(pending.approvedScopes, input.tokenScopes)
-			) {
-				return deny("selection_replaced");
-			}
-		}
-	} catch {
-		return deny("provider_unavailable");
+	const pending = matchesActive(ledger.current) ? null : ledger.pending;
+	if (
+		!matchesActive(ledger.current) &&
+		(!pending ||
+			pending.appId !== appId ||
+			pending.expiresAt <= new Date().toISOString() ||
+			!sameCanonicalSet(pending.selectedTenantIds, input.selectedTenantIds) ||
+			!sameCanonicalSet(pending.approvedScopes, input.tokenScopes))
+	) {
+		return deny("selection_replaced");
 	}
 
 	mark("selection");
@@ -501,37 +520,20 @@ async function verifyHumanMcpGrantStages(
 		return deny("membership_missing");
 	}
 
-	let organizations: SelectedMcpOrganization[];
-	try {
-		const memberships = await getMembershipsByDescopeTenants(
-			db,
-			input.selectedTenantIds,
-			input.descopeUserId,
+	const organizations: SelectedMcpOrganization[] = [];
+	for (const descopeTenantId of input.selectedTenantIds) {
+		const row = ledger.memberships.find(
+			(membership) => membership.descopeTenantId === descopeTenantId,
 		);
-		const activeRows: Array<{
-			organizationId: string;
-			descopeTenantId: string;
-		}> = [];
-		for (const descopeTenantId of input.selectedTenantIds) {
-			const row = memberships.find(
-				(membership) => membership.descopeTenantId === descopeTenantId,
-			);
-			if (row?.status !== "active") return deny("membership_missing");
-			activeRows.push({ organizationId: row.organizationId, descopeTenantId });
-		}
-		const gateways = await getOrganizationAggregatorGateways(
-			db,
-			activeRows.map((row) => row.organizationId),
-		);
-		organizations = activeRows.map((row) => ({
-			...row,
+		if (row?.status !== "active") return deny("membership_missing");
+		organizations.push({
+			organizationId: row.organizationId,
+			descopeTenantId,
 			gatewaySlug:
 				resource.metadata?.mcpConfig?.multiOrgConsent === true
-					? (gateways.get(row.organizationId)?.slug ?? "")
+					? (ledger.gateways.get(row.organizationId)?.slug ?? "")
 					: resource.slug,
-		}));
-	} catch {
-		return deny("provider_unavailable");
+		});
 	}
 	mark("membership");
 	if (organizations.some((org) => !org.gatewaySlug)) {
