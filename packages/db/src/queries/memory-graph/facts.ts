@@ -163,16 +163,16 @@ export async function getFactsByIds(
 	options?: { includeGraphAnchors?: boolean },
 ): Promise<MemoryFact[]> {
 	if (factIds.length === 0) return [];
-	const baseConditions = [
-		isNull(memoryFacts.archivedAt),
-		isNull(memoryFacts.validTo),
-	];
-	if (!options?.includeGraphAnchors) {
-		baseConditions.push(
-			not(eq(memoryFacts.memoryScope, "graph")),
-			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically")),
-		);
-	}
+	// Select by primary key only and filter here: with the archived/valid_to/
+	// scope predicates in SQL, D1's planner picked idx_memory_facts_valid_to
+	// (nearly every row is valid_to IS NULL) and scanned ~62k rows, ~160 ms per
+	// call (2026-10-12).
+	const visible = (fact: MemoryFact) =>
+		fact.archivedAt == null &&
+		fact.validTo == null &&
+		(options?.includeGraphAnchors ||
+			(fact.memoryScope !== "graph" &&
+				fact.usePolicy !== "do_not_inject_automatically"));
 	const CHUNK = 80; // D1 bound-parameter cap headroom (~100)
 	const facts: MemoryFact[] = [];
 	for (let i = 0; i < factIds.length; i += CHUNK) {
@@ -180,8 +180,8 @@ export async function getFactsByIds(
 		const rows = await db
 			.select()
 			.from(memoryFacts)
-			.where(and(inArray(memoryFacts.id, batch), ...baseConditions));
-		facts.push(...rows);
+			.where(inArray(memoryFacts.id, batch));
+		facts.push(...rows.filter(visible));
 	}
 	return facts;
 }
