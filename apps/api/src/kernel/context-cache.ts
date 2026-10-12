@@ -15,8 +15,8 @@
  *     the next turn misses. A config change is therefore visible on the next
  *     turn, not after the TTL.
  *   - On a read failure a stale entry is served for up to {@link STALE_MAX_MS}
- *     (same shape as the CLI context cache); older than that, the error
- *     propagates so the caller's fail-soft fallback applies.
+ *     only if no write invalidated it. Otherwise the error propagates so the
+ *     caller's fail-soft fallback applies.
  *   - Nothing derived from the caller's identity or authorization is cached;
  *     callers key per-user/per-workspace rows explicitly and never cache
  *     authorized documents.
@@ -115,9 +115,11 @@ export class KernelContextCache {
 			return existing.inFlight as Promise<T>;
 		}
 		const version = org.version;
-		const entry: Entry = existing ?? {
-			value: undefined,
-			fetchedAt: 0,
+		// Each refresh owns its entry: a pre-invalidation read must never replace
+		// or clear a newer generation's value or in-flight promise.
+		const entry: Entry = {
+			value: existing?.version === version ? existing.value : undefined,
+			fetchedAt: existing?.version === version ? existing.fetchedAt : 0,
 			version,
 		};
 		org.entries.set(key, entry);
@@ -126,12 +128,13 @@ export class KernelContextCache {
 				const value = await fetch();
 				entry.value = value;
 				entry.fetchedAt = this.now();
-				// A write landed while this read was in flight: keep the value for
-				// the stale fallback but do not mark it current.
-				entry.version = org.version === version ? version : -1;
 				return value;
 			} catch (error) {
-				if (entry.fetchedAt > 0 && this.now() - entry.fetchedAt < staleMax) {
+				if (
+					entry.version === org.version &&
+					entry.fetchedAt > 0 &&
+					this.now() - entry.fetchedAt < staleMax
+				) {
 					trace?.stale.push(key);
 					return entry.value as T;
 				}
@@ -143,7 +146,7 @@ export class KernelContextCache {
 		return entry.inFlight as Promise<T>;
 	}
 
-	/** Make every entry of the org miss on its next read; stale fallback is kept. */
+	/** Make every entry of the org miss and disallow its stale fallback. */
 	invalidate(organizationId: string): void {
 		const org = this.orgs.get(organizationId);
 		if (org) org.version += 1;

@@ -85,7 +85,7 @@ describe("KernelContextCache", () => {
 		);
 	});
 
-	it("serves stale after invalidation when the re-read fails", async () => {
+	it("rejects an invalidated value when the re-read fails", async () => {
 		const { cache } = clockedCache();
 		const read = vi
 			.fn<() => Promise<number>>()
@@ -94,8 +94,8 @@ describe("KernelContextCache", () => {
 		await cache.read(ORG, "k", read);
 		cache.invalidate(ORG);
 		const trace = createCacheTrace();
-		expect(await cache.read(ORG, "k", read, trace)).toBe(1);
-		expect(trace.stale).toEqual(["k"]);
+		await expect(cache.read(ORG, "k", read, trace)).rejects.toThrow("boom");
+		expect(trace.stale).toEqual([]);
 	});
 
 	it("does not cache a failed first read", async () => {
@@ -142,6 +142,68 @@ describe("KernelContextCache", () => {
 		release("before-write");
 		expect(await pending).toBe("before-write");
 		expect(await cache.read(ORG, "k", read)).toBe("after-write");
+	});
+
+	it("keeps a completed post-write value when the older read finishes last", async () => {
+		const { cache } = clockedCache();
+		let releaseOld!: (value: string) => void;
+		const old = cache.read(
+			ORG,
+			"k",
+			() => new Promise<string>((resolve) => (releaseOld = resolve)),
+		);
+		cache.invalidate(ORG);
+		const readNew = vi.fn(async () => "after-write");
+		expect(await cache.read(ORG, "k", readNew)).toBe("after-write");
+		releaseOld("before-write");
+		await old;
+		const trace = createCacheTrace();
+		expect(await cache.read(ORG, "k", readNew, trace)).toBe("after-write");
+		expect(readNew).toHaveBeenCalledTimes(1);
+		expect(trace.hits).toEqual(["k"]);
+	});
+
+	it("deduplicates post-write readers after an older in-flight read finishes", async () => {
+		const { cache } = clockedCache();
+		let releaseOld!: (value: string) => void;
+		let releaseNew!: (value: string) => void;
+		const old = cache.read(
+			ORG,
+			"k",
+			() => new Promise<string>((resolve) => (releaseOld = resolve)),
+		);
+		cache.invalidate(ORG);
+		const readNew = vi.fn(
+			() => new Promise<string>((resolve) => (releaseNew = resolve)),
+		);
+		const fresh = cache.read(ORG, "k", readNew);
+		releaseOld("before-write");
+		await old;
+		const concurrent = cache.read(ORG, "k", readNew);
+		expect(readNew).toHaveBeenCalledTimes(1);
+		releaseNew("after-write");
+		expect(await Promise.all([fresh, concurrent])).toEqual([
+			"after-write",
+			"after-write",
+		]);
+	});
+
+	it("rejects stale fallback when invalidation lands during a failing refresh", async () => {
+		const { cache, advance } = clockedCache();
+		await cache.read(ORG, "k", async () => "before-write");
+		advance(CONTEXT_CACHE_TTL_MS + 1);
+		let rejectRefresh!: (reason: Error) => void;
+		const trace = createCacheTrace();
+		const pending = cache.read(
+			ORG,
+			"k",
+			() => new Promise<string>((_, reject) => (rejectRefresh = reject)),
+			trace,
+		);
+		cache.invalidate(ORG);
+		rejectRefresh(new Error("D1 unavailable"));
+		await expect(pending).rejects.toThrow("D1 unavailable");
+		expect(trace.stale).toEqual([]);
 	});
 });
 
