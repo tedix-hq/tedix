@@ -860,6 +860,10 @@
 		{
 			"name": "20261012183306_app-catalog-vendor-key/migration.sql",
 			"sha256": "24a9780b3b98deea55344b5f8a6e42d1fce383e1cf15b29e5a0e7b47d36d9d4a"
+		},
+		{
+			"name": "20261012205814_backfill-legacy-output-access-envelopes/migration.sql",
+			"sha256": "ae834804501d989de8ffaec19d2b72ea0496e5ebdfe700ea7f39a5cda6b6527f"
 		}
 	]
 }
