@@ -140,8 +140,6 @@ import {
 	ParentMaintenanceServices,
 	PiTelegram,
 	consumeTelegramTurnStream,
-	assertLegacyThinkTasksSettled,
-	assertLegacyThinkReceiptsSettled,
 	type MaintenancePayload,
 	type ParentServiceOperation,
 	type ParentServiceClaim,
@@ -1467,11 +1465,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		// A non-admitted or sealed object never runs Agent or Pi code.
 		if (requiresInertReceiver(ctx.storage, ctx.id.toString()))
 			return new InertRuntimeDO(ctx, env) as unknown as AgentTediDO;
-		assertLegacyThinkTasksSettled(ctx.storage);
 		super(ctx, env);
 	}
 	override async onStart(): Promise<void> {
-		await assertLegacyThinkReceiptsSettled(this.ctx.storage);
 		await this.ensureIdentity();
 		await this.maintenance.ensure();
 		const telegram = await this.nativeTelegram();
