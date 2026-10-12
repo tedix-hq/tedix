@@ -23,9 +23,13 @@ const run = (source: string, timeout = 1000) =>
 describe("local context reads", () => {
 	test("the supervisor command resolves its default and exact session without a child", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-local-read-"));
-		const previous = process.env.TEDIX_CONFIG_DIR;
+		// A session launched for Tedix work exports its workspace and organization.
+		const keys = ["TEDIX_CONFIG_DIR", "TEDIX_WORKSPACE", "TEDIX_ORGANIZATION"];
+		const previous = keys.map((key) => process.env[key]);
 		const sessionId = "11111111-1111-4111-8111-111111111111";
 		try {
+			delete process.env.TEDIX_WORKSPACE;
+			delete process.env.TEDIX_ORGANIZATION;
 			process.env.TEDIX_CONFIG_DIR = dir;
 			writeWorkspaceCredentials(
 				"fixture",
@@ -95,8 +99,10 @@ describe("local context reads", () => {
 				),
 			).rejects.toThrow("Invalid CLI read timeout");
 		} finally {
-			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
-			else process.env.TEDIX_CONFIG_DIR = previous;
+			keys.forEach((key, i) => {
+				if (previous[i] === undefined) delete process.env[key];
+				else process.env[key] = previous[i];
+			});
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
