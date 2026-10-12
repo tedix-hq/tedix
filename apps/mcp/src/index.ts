@@ -5375,6 +5375,16 @@ const worker = {
 		let earlyAuthMode: string | undefined;
 		let oauthJwtPayload: Record<string, unknown> | undefined;
 		let multiOrgSelection: MultiOrgMcpSelection | null = null;
+		// Content-free auth stage timing, logged once for a human principal:
+		// fixed stage names and durations only.
+		const authStages: Record<string, number> = {};
+		let authLast = Date.now();
+		const authStarted = authLast;
+		const markAuth = (stage: string) => {
+			const now = Date.now();
+			authStages[`${stage}_ms`] = now - authLast;
+			authLast = now;
+		};
 		if (
 			isMcpPath &&
 			hasAnyAuth &&
@@ -5382,6 +5392,7 @@ const worker = {
 		) {
 			try {
 				earlyResolvedApp = await resolveAppFromHostname(hostnameInfo, env);
+				markAuth("resolve");
 				earlyAuthMode = earlyResolvedApp?.metadata?.mcpConfig?.authMode as
 					| string
 					| undefined;
@@ -5444,6 +5455,7 @@ const worker = {
 						? earlyResolvedApp.metadata.mcpConfig.descopeResourceId
 						: undefined,
 			});
+			markAuth("token");
 
 			if (authResult instanceof Response) {
 				if (earlyResolvedApp) {
@@ -5613,6 +5625,7 @@ const worker = {
 								},
 							)
 						: null;
+					markAuth("client");
 					const { claims: tediClaims, error: tediClaimError } =
 						extractTediJwtClaims(authResult.payload);
 
@@ -5644,6 +5657,7 @@ const worker = {
 								multiOrganization: config?.multiOrgConsent === true,
 							},
 						);
+						markAuth("grant");
 						if (!resolved.ok) return humanMcpGrantFailureResponse(resolved);
 						const selection = resolved.selection;
 						if (config?.multiOrgConsent === true) multiOrgSelection = selection;
@@ -5984,6 +5998,14 @@ const worker = {
 			) {
 				console.log(
 					`[MCP Auth] Human principal (bindHumanToTedi=false): user=${request.headers.get("x-tedix-auth-user-id")} acts as themselves on ${app.slug}`,
+				);
+				markAuth("access");
+				console.log(
+					JSON.stringify({
+						_tr: "mcp_auth_timing",
+						total_ms: Date.now() - authStarted,
+						...authStages,
+					}),
 				);
 			}
 

@@ -1138,6 +1138,22 @@ describe("invalidateAihM2mClientScopeCache", () => {
 		expect(env.API_SERVICE.fetch).toHaveBeenCalledTimes(2);
 	});
 
+	it("skips the client lookup for a human consent token", async () => {
+		const env = envWithClients([]);
+		const context = await resolveAihM2mClientScopeContext(
+			env,
+			{
+				sub: "user-1",
+				azp: "https://os.example.test/.well-known/oauth-client/cli.json",
+				dci: "consent-1",
+				tedixConsentRevision: "revision-1",
+			},
+			"server-human",
+		);
+		expect(context).toBeNull();
+		expect(env.API_SERVICE.fetch).not.toHaveBeenCalled();
+	});
+
 	it("does not affect entries for a different mcpServerId", async () => {
 		const envA = envWithClients([
 			{
