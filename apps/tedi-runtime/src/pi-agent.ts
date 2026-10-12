@@ -53,10 +53,7 @@ import type {
  * Deliberately does not pretend Think's beforeStep/TurnConfig hooks are Pi hooks.
  */
 import { Agent } from "agents";
-import {
-	assertLegacyThinkTasksSettled,
-	assertLegacyThinkReceiptsSettled,
-} from "./pi-parent-services";
+import {} from "./pi-parent-services";
 import {
 	Sessions,
 	type SessionMessage,
@@ -145,7 +142,6 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		// A non-admitted or sealed object never runs Agent or Pi code.
 		if (requiresInertReceiver(ctx.storage, ctx.id.toString()))
 			return new InertRuntimeDO(ctx, env) as unknown as PiAgent<Env, State>;
-		assertLegacyThinkTasksSettled(ctx.storage);
 		super(ctx, env);
 		// Legacy storage goes first. PiHarness's onStart supplies durable wake/recovery.
 		this.lifecycle.use(this.legacySessions).use(this.piHarness);
@@ -922,7 +918,6 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		}));
 	}
 	private async performLegacyImport(): Promise<void> {
-		await assertLegacyThinkReceiptsSettled(this.ctx.storage);
 		if (await this.ctx.storage.get<boolean>("pi:legacy-imported:v1")) {
 			await this.refreshMessages();
 			return;
@@ -1223,7 +1218,6 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		options: ChatOptions & { submissionId?: string } = {},
 	): Promise<{ submissionId: string }> {
 		await this.assertFacetRuntimeDispatch();
-		await assertLegacyThinkReceiptsSettled(this.ctx.storage);
 		// Existing durable facet callers submit exactly one user row per operation.
 		if (messages.length !== 1 || messages[0]?.role !== "user") {
 			throw new Error("Pi submission requires exactly one user message");
