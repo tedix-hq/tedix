@@ -2597,6 +2597,11 @@ export async function runKernelTurnWork(
 			? null
 			: settledAt;
 	const dispatchWorkOrder = autoDelegation?.workOrder ?? delegationWorkOrder;
+	// A Home answer is a finished turn: nothing is queued, parked or waiting on
+	// a delegation choice. Every other settled-but-undispatched route (a
+	// delegate recommendation the router could not dispatch, a handoff
+	// suggestion, a human question) keeps the needs_delegation sentinel.
+	const answeredInHome = kernelResult?.route?.routeKind === "answer_in_home";
 	const terminalPayloadStatus = modelUnavailable
 		? "failed"
 		: observeOnly
@@ -2607,7 +2612,9 @@ export async function runKernelTurnWork(
 					? "queued"
 					: autoDispatchFailed
 						? "failed"
-						: "needs_delegation";
+						: answeredInHome
+							? "completed"
+							: "needs_delegation";
 	// Three independent reads the terminal metadata needs, in flight together:
 	// the harness version (started after the kernel returned), the usage price
 	// (D1 rate lookups per attempt) and the current run row (metadata merge +
@@ -3270,7 +3277,9 @@ export async function runKernelTurnWork(
 					? ("queued" as const)
 					: autoDispatchFailed
 						? ("failed" as const)
-						: ("needs_delegation" as const),
+						: answeredInHome
+							? ("completed" as const)
+							: ("needs_delegation" as const),
 		run,
 		homePlan: undefined,
 		assistantMessage: {
