@@ -20,6 +20,8 @@ import {
 	type CapabilityManifest,
 	isMethodAllowed,
 } from "@tedix/api-contract/utils/skill-manifest";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { buildMcpParamHeaders } from "@tedix/mcp-shared/mcp-param-headers";
 import { pollMcpTask } from "@tedix/mcp-shared/task-polling";
 import { extractMcpTaskId } from "@tedix/mcp-shared/tasks";
 import { logSkillRuntimeWarning } from "./control-log";
@@ -114,6 +116,22 @@ export class CapabilityNotDeclaredError extends Error {
 			`CAPABILITY_NOT_DECLARED: ${namespace}.${method} is not declared in the skill's capability manifest`,
 		);
 	}
+}
+
+/**
+ * Tool input schemas learned from a HeaderMismatch rejection, per server URL and
+ * tool, so later calls in this isolate send their `Mcp-Param-*` headers first.
+ */
+const mcpParamSchemas = new Map<string, Record<string, unknown>>();
+const MCP_PARAM_SCHEMA_LIMIT = 500;
+
+/** A 2026-07-28 server rejected the call for missing or wrong `Mcp-Param-*` headers. */
+function isHeaderMismatch(error: unknown): boolean {
+	return (
+		error instanceof McpUpstreamError &&
+		error.status === 400 &&
+		/-32020/.test(error.bodyText)
+	);
 }
 
 export class McpUpstreamError extends Error {
@@ -400,6 +418,8 @@ async function executeMcpTool(
 		Authorization: `Bearer ${props.serviceToken}`,
 	};
 
+	// SEP-2243: a tool whose schema binds arguments to headers needs them mirrored.
+	let paramHeaders: Record<string, string> = {};
 	const postJsonRpc = async (
 		body: unknown,
 		targetUrl: string = url,
@@ -413,6 +433,7 @@ async function executeMcpTool(
 				method: "POST",
 				headers: {
 					...headers,
+					...paramHeaders,
 					...modernRequest.headers,
 					...(pendingTediTaskId
 						? { "X-Tedix-Workflow-Tedi-Task-Id": pendingTediTaskId }
@@ -563,8 +584,51 @@ async function executeMcpTool(
 		);
 	};
 
+	const toolArgs = isRecord(params.arguments) ? params.arguments : {};
+	const loadParamSchema = async (name: string) => {
+		let cursor: unknown;
+		for (let page = 0; page < 5; page++) {
+			const { text, contentType } = await postJsonRpc({
+				jsonrpc: "2.0" as const,
+				id: crypto.randomUUID(),
+				method: "tools/list",
+				params: cursor ? { cursor } : {},
+			});
+			const listed = parseToolResult(unwrapMcpResponseBody(text, contentType));
+			const record = isRecord(listed) ? listed : {};
+			const tools = Array.isArray(record.tools) ? record.tools : [];
+			const tool = tools.find(
+				(entry): entry is Record<string, unknown> =>
+					isRecord(entry) && entry.name === name,
+			);
+			if (tool && isRecord(tool.inputSchema)) return tool.inputSchema;
+			cursor = record.nextCursor;
+			if (!cursor) return undefined;
+		}
+		return undefined;
+	};
+	const callWithParamHeaders = async (name: string) => {
+		const key = `${url}#${name}`;
+		const known = mcpParamSchemas.get(key);
+		paramHeaders = known ? buildMcpParamHeaders(known, toolArgs) : {};
+		try {
+			return await postJsonRpc(buildCallBody(name));
+		} catch (error) {
+			if (known || !isHeaderMismatch(error)) throw error;
+			const schema = await loadParamSchema(name);
+			if (!schema) throw error;
+			if (mcpParamSchemas.size >= MCP_PARAM_SCHEMA_LIMIT)
+				mcpParamSchemas.clear();
+			mcpParamSchemas.set(key, schema);
+			paramHeaders = buildMcpParamHeaders(schema, toolArgs);
+			return await postJsonRpc(buildCallBody(name));
+		} finally {
+			paramHeaders = {};
+		}
+	};
+
 	const invokeTool = async (name: string) => {
-		const { text, contentType } = await postJsonRpc(buildCallBody(name));
+		const { text, contentType } = await callWithParamHeaders(name);
 		const body = unwrapMcpResponseBody(text, contentType);
 		const result = parseToolResult(body);
 		// Protocol-native async task (config-driven _asyncTask) → always await.
