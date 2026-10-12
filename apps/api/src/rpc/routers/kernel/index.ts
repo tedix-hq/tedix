@@ -147,6 +147,11 @@ export interface KernelResult {
 		recallAgeMs: number | null;
 		recallCandidates: number;
 		recallWaitedMs: number;
+		assembly?: {
+			contextReadsMs: number;
+			rankingMs: number;
+			rankingTimedOut: boolean;
+		};
 		/**
 		 * Which slow-changing inputs the per-org context cache served this
 		 * turn (`context-cache.ts`). Absent when the turn ran without a cache
@@ -735,6 +740,7 @@ export async function runKernel(args: {
 			recallAgeMs: ctx.relevanceRecall?.ageMs ?? null,
 			recallCandidates: ctx.relevanceRecall?.candidates ?? 0,
 			recallWaitedMs: ctx.relevanceRecall?.waitedMs ?? 0,
+			...(ctx.assemblyTimings ? { assembly: ctx.assemblyTimings } : {}),
 			// The same trace object assembly recorded into, so a cached read that
 			// lands after this manifest is built (the org policy layer) still shows.
 			...(ctx.cache ? { cache: ctx.cache } : {}),

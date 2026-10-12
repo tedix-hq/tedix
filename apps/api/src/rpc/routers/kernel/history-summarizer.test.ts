@@ -28,6 +28,7 @@ vi.mock("../../../lib/traced-ai", () => ({
 
 const mockKernelModel = vi.fn();
 vi.mock("./llm", () => ({
+	KERNEL_ROUTE_MODEL_REF_DEFAULT: "azure-openai/gpt-6.1-sol",
 	kernelModel: (...args: unknown[]) => mockKernelModel(...args),
 }));
 

@@ -203,6 +203,12 @@ export interface KernelContext {
 	 * rows are never touched, so the UI still pages back through every turn.
 	 */
 	history: TediSessionMessage[];
+	/** Wall time of the assembly waves (stamped on the context manifest). */
+	assemblyTimings?: {
+		contextReadsMs: number;
+		rankingMs: number;
+		rankingTimedOut: boolean;
+	};
 	/**
 	 * Present when this turn's replay history was compacted: what the leading
 	 * checkpoint message stands in for. Observability only — the checkpoint text
@@ -846,6 +852,31 @@ const RELEVANCE_RECALL_MIN_CONFIDENCE = 0.3;
  * `KERNEL_RELEVANCE_RECALL_BUDGET_MS` overrides it per deployment.
  */
 export const RELEVANCE_RECALL_BUDGET_MS = 0;
+
+/**
+ * Hard bound on the candidate-ranking wave (workflows, tedis, memory). The Jev
+ * call itself is bounded at 2 s, but anything feeding or wrapping it that
+ * hangs would stall the turn before its route call; past this budget the
+ * lexical orders are used and the overrun is logged.
+ */
+export const CONTEXT_RANKING_BUDGET_MS = 3_000;
+
+/** Resolve `work` or, after `budgetMs`, `fallback()`; the work keeps running. */
+export async function withRankingBudget<T>(
+	work: Promise<T>,
+	budgetMs: number,
+	fallback: () => T,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<T>((resolve) => {
+		timer = setTimeout(() => resolve(fallback()), budgetMs);
+	});
+	try {
+		return await Promise.race([work, timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
 const CONVERSATION_CAPABILITIES_LIMIT = 20;
 
 /**
@@ -1281,6 +1312,7 @@ export async function assembleHomeContext(
 				)
 			: Promise.resolve([]);
 
+	const readsStartedAtMs = Date.now();
 	const [
 		visibleTediRows,
 		appRows,
@@ -1415,6 +1447,7 @@ export async function assembleHomeContext(
 					[] as Awaited<ReturnType<typeof listOsWorkspaceResources>>,
 				),
 	]);
+	const contextReadsMs = Date.now() - readsStartedAtMs;
 	if (workspace) {
 		workspace.resources = workspaceResourceRows
 			.slice(0, 12)
@@ -1616,44 +1649,62 @@ export async function assembleHomeContext(
 			: []),
 	];
 
-	const [workflowOrder, rankedTedis, rankedMemory] = await Promise.all([
-		lexicalWorkflows.length > WORKFLOW_CATALOG_LIMIT
-			? rerankContextCandidates(
-					lexicalWorkflows,
-					operatorMessage,
-					"workflow",
-					(workflow) => ({
-						id: workflow.slug,
-						description: `${workflow.slug} ${workflow.title}`,
-					}),
-					opts?.candidateRanker,
-				)
-			: Promise.resolve(lexicalWorkflows),
-		tedis.length > RENDER_TEDIS_CAP
-			? rerankContextCandidates(
-					lexicalTedis,
-					operatorMessage,
-					"tedi",
-					(tedi) => ({
-						id: tedi.id,
-						description: `${tedi.slug} ${tedi.name} ${tedi.role ?? ""} ${tedi.capability?.skills.join(" ") ?? ""}`,
-					}),
-					opts?.candidateRanker,
-				)
-			: Promise.resolve(lexicalTedis),
-		memoryCandidates.length > 1
-			? rerankContextCandidates(
-					memoryCandidates,
-					operatorMessage,
-					"memory",
-					(candidate) => ({
-						id: candidate.id,
-						description: candidate.description,
-					}),
-					opts?.candidateRanker,
-				)
-			: Promise.resolve(memoryCandidates),
-	]);
+	// Ranking is an enrichment, never a dependency: the whole wave gets a hard
+	// bound and falls back to the lexical orders. One stalled turn waited 56 s
+	// here before its route call (Work f9861b56).
+	const rankingStartedAtMs = Date.now();
+	let rankingTimedOut = false;
+	const [workflowOrder, rankedTedis, rankedMemory] = await withRankingBudget(
+		Promise.all([
+			lexicalWorkflows.length > WORKFLOW_CATALOG_LIMIT
+				? rerankContextCandidates(
+						lexicalWorkflows,
+						operatorMessage,
+						"workflow",
+						(workflow) => ({
+							id: workflow.slug,
+							description: `${workflow.slug} ${workflow.title}`,
+						}),
+						opts?.candidateRanker,
+					)
+				: Promise.resolve(lexicalWorkflows),
+			tedis.length > RENDER_TEDIS_CAP
+				? rerankContextCandidates(
+						lexicalTedis,
+						operatorMessage,
+						"tedi",
+						(tedi) => ({
+							id: tedi.id,
+							description: `${tedi.slug} ${tedi.name} ${tedi.role ?? ""} ${tedi.capability?.skills.join(" ") ?? ""}`,
+						}),
+						opts?.candidateRanker,
+					)
+				: Promise.resolve(lexicalTedis),
+			memoryCandidates.length > 1
+				? rerankContextCandidates(
+						memoryCandidates,
+						operatorMessage,
+						"memory",
+						(candidate) => ({
+							id: candidate.id,
+							description: candidate.description,
+						}),
+						opts?.candidateRanker,
+					)
+				: Promise.resolve(memoryCandidates),
+		]),
+		CONTEXT_RANKING_BUDGET_MS,
+		() => {
+			rankingTimedOut = true;
+			console.warn({
+				component: "kernel.context",
+				event: "ranking_budget_exceeded",
+				budgetMs: CONTEXT_RANKING_BUDGET_MS,
+			});
+			return [lexicalWorkflows, lexicalTedis, memoryCandidates] as const;
+		},
+	);
+	const rankingMs = Date.now() - rankingStartedAtMs;
 	const rankedWorkflows = workflowOrder.slice(0, WORKFLOW_CATALOG_LIMIT);
 	const rankedFacts =
 		blendedFacts.length > RENDER_FACTS_CAP
@@ -1699,6 +1750,7 @@ export async function assembleHomeContext(
 		facts,
 		rationale: rankedRationale,
 		speaker,
+		assemblyTimings: { contextReadsMs, rankingMs, rankingTimedOut },
 		history: persistedReplay ?? historyRead.messages,
 		...(persistedReplay && opts?.previousHistoryCheckpoint
 			? { historyCheckpoint: opts.previousHistoryCheckpoint }

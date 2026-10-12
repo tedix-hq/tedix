@@ -46,6 +46,7 @@ import {
 	rankByQueryRelevance,
 	renderHomeContextPrompt,
 	unresolvedSkillReferences,
+	withRankingBudget,
 } from "./context-assembly";
 import { selectSkillsForTurn } from "@tedix/context-core/skill-retrieval";
 import type { ContextCandidateRanker } from "./jev-context-ranking";
@@ -3125,5 +3126,21 @@ describe("stripLocalTerminalContext", () => {
 	});
 	it("leaves messages without the block untouched", () => {
 		expect(stripLocalTerminalContext("plain words")).toBe("plain words");
+	});
+});
+
+describe("withRankingBudget", () => {
+	it("returns the ranking when it lands inside the budget", async () => {
+		await expect(
+			withRankingBudget(Promise.resolve("ranked"), 50, () => "lexical"),
+		).resolves.toBe("ranked");
+	});
+	it("falls back to the lexical order once the budget is spent", async () => {
+		const slow = new Promise<string>((resolve) =>
+			setTimeout(() => resolve("ranked"), 200),
+		);
+		await expect(withRankingBudget(slow, 20, () => "lexical")).resolves.toBe(
+			"lexical",
+		);
 	});
 });
