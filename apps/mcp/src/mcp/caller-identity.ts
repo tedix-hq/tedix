@@ -115,6 +115,36 @@ export function shouldBypassCodeModeForCaller(
 	return requestedToolName !== "code";
 }
 
+/**
+ * True when a direct tool call reaches only the Home/kernel surface, so the
+ * aggregate-app and tedi fan-out (a multi-second catalog build) can be skipped.
+ * `home__*`/`kernel__*` tools are mounted from the Home surface, never from the
+ * aggregate. Programmatic callers may call any of them directly; a signed-in
+ * human's compact Code Mode surface exposes only the session-native `ask`, so
+ * that is the one human direct call that skips the fan-out.
+ */
+export function isDirectHomeKernelCall(
+	caller:
+		| Pick<CallerIdentity, "authType" | "credentialMode" | "forceCodeMode">
+		| undefined,
+	requestedToolName: string | undefined,
+): boolean {
+	if (!requestedToolName) return false;
+	if (
+		requestedToolName !== "ask" &&
+		!requestedToolName.startsWith("home__") &&
+		!requestedToolName.startsWith("kernel__")
+	)
+		return false;
+	if (shouldBypassCodeModeForCaller(caller, requestedToolName)) return true;
+	return (
+		requestedToolName === "ask" &&
+		!!caller &&
+		!caller.forceCodeMode &&
+		caller.authType !== "anonymous"
+	);
+}
+
 export interface NormalizedCallerIdentity {
 	authType: CallerAuthType;
 	actorId: string;

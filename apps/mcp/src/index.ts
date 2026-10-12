@@ -163,7 +163,7 @@ import {
 // request actually aggregates tedi surfaces, so it must not be on the startup
 // path. Same reasoning as the `registerCodeModeTools` dynamic import.
 import type { AggregateTediEntry } from "./mcp/aggregate-tedis";
-import { shouldBypassCodeModeForCaller } from "./mcp/caller-identity";
+import { isDirectHomeKernelCall } from "./mcp/caller-identity";
 import { buildAggregateCompletionHandler } from "./mcp/completions";
 import {
 	buildHomeSurfaceTools,
@@ -3128,12 +3128,10 @@ export async function handleMcpRequest(
 	// aggregate). Skipping the fan-out removes the cold multi-second aggregate build
 	// from the hot path for those direct calls. Operator/Code Mode/oauth callers and
 	// aggregate-tool calls are unaffected (they don't satisfy the bypass).
-	const directHomeKernelCall =
-		!!requestedToolName &&
-		(requestedToolName === "ask" ||
-			requestedToolName.startsWith("home__") ||
-			requestedToolName.startsWith("kernel__")) &&
-		shouldBypassCodeModeForCaller(callerIdentity, requestedToolName);
+	const directHomeKernelCall = isDirectHomeKernelCall(
+		callerIdentity,
+		requestedToolName,
+	);
 	// Prefer inbound W3C trace context (HTTP header first, then SEP-414
 	// `params._meta.traceparent`) so a caller's distributed trace continues through
 	// Tedix; fall back to legacy `X-Trace-Id`, then a fresh UUID.
