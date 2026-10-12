@@ -154,6 +154,8 @@ export interface LessonRouting {
 	status: "routed" | "personal" | "unavailable";
 	tediId: string | null;
 	probability: number | null;
+	/** The tedi Clef chose, even below the threshold; null for "none". */
+	choiceTediId: string | null;
 	model: ClefModelId;
 }
 
@@ -414,13 +416,26 @@ export function routingFromChoice(
 			status: "unavailable",
 			tediId: null,
 			probability: null,
+			choiceTediId: null,
 			model: ROUTE_MODEL,
 		};
 	const probability = choice.probabilities[choice.choice] ?? 0;
 	const tediId = optionToTedi.get(choice.choice) ?? null;
 	return tediId && probability >= ROUTE_THRESHOLD
-		? { status: "routed", tediId, probability, model: ROUTE_MODEL }
-		: { status: "personal", tediId: null, probability, model: ROUTE_MODEL };
+		? {
+				status: "routed",
+				tediId,
+				probability,
+				choiceTediId: tediId,
+				model: ROUTE_MODEL,
+			}
+		: {
+				status: "personal",
+				tediId: null,
+				probability,
+				choiceTediId: tediId,
+				model: ROUTE_MODEL,
+			};
 }
 
 /**

@@ -1101,7 +1101,11 @@ async function owningDraftTediId(
 		drafterTediId: string;
 		request: InteractionRow;
 	},
-): Promise<{ tediId: string | null; probability: number | null }> {
+): Promise<{
+	tediId: string | null;
+	probability: number | null;
+	choiceTediId: string | null;
+}> {
 	try {
 		const { routeCandidates, routeToOwningTedi } =
 			await import("../../services/learning-feed-miner");
@@ -1119,7 +1123,8 @@ async function owningDraftTediId(
 			params.orgId,
 			params.targetUserId,
 		);
-		if (candidates.length === 0) return { tediId: null, probability: null };
+		if (candidates.length === 0)
+			return { tediId: null, probability: null, choiceTediId: null };
 		const metadata = params.request.metadata as Record<string, unknown>;
 		const routing = await routeToOwningTedi(context.env, {
 			tedis: candidates,
@@ -1138,13 +1143,14 @@ async function owningDraftTediId(
 		return {
 			tediId: routing.status === "routed" ? routing.tediId : null,
 			probability: routing.probability,
+			choiceTediId: routing.choiceTediId,
 		};
 	} catch (error) {
 		console.warn("reply-draft routing unavailable", {
 			requestId: params.request.id,
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return { tediId: null, probability: null };
+		return { tediId: null, probability: null, choiceTediId: null };
 	}
 }
 
@@ -1360,7 +1366,11 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 								drafterTediId: tediId,
 								request,
 							})
-						: Promise.resolve({ tediId: null, probability: null }),
+						: Promise.resolve({
+								tediId: null,
+								probability: null,
+								choiceTediId: null,
+							}),
 					next.attempt === 1
 						? drafterTurnModel(context, drafter)
 						: Promise.resolve(null),
@@ -1388,6 +1398,8 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				tediId: owner.tediId ?? tediId,
 				routed: owner.tediId !== null,
 				probability: owner.probability,
+				// The classifier's pick before the threshold: a tedi id, or none.
+				choice: owner.choiceTediId ?? "none",
 			});
 			// The owner keeps its memory, persona and tools but drafts on the
 			// drafter's fast model for this one turn.
