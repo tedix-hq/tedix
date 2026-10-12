@@ -55,6 +55,7 @@ import {
 } from "../../../kernel/conversation-access";
 import { extractRunUsage } from "../../../kernel/kernel-state";
 import {
+	kernelFirstAttemptBatch,
 	kernelRunStatusToSubmissionOutcome,
 	recordKernelSubmissionStarted,
 	settleKernelSubmission,
@@ -2449,6 +2450,18 @@ export async function persistKernelTurnStart(
 		input.priorCause === undefined
 			? kernelConversationMessageParams(received as KernelRuntimeEventRow)
 			: null;
+	// A freshly admitted submission opens its first attempt inside the batch,
+	// so nothing but the index write-through stands between the run row landing
+	// and the KernelDO call; a re-sent run takes the separate admit below.
+	const submission = input.submission
+		? kernelFirstAttemptBatch({
+				runId: input.run.id,
+				organizationId: input.run.organizationId,
+				conversationId: input.run.conversationId,
+				createdAt: input.run.createdAt,
+				admitted: input.submission,
+			})
+		: null;
 	let opened: Awaited<ReturnType<typeof openKernelRuntimeTurn>>;
 	let indexBumped = conversation !== null;
 	try {
@@ -2457,6 +2470,7 @@ export async function persistKernelTurnStart(
 				run,
 				events: [received, started],
 				conversation,
+				submission,
 			});
 		} catch (error) {
 			// The index is a rebuildable read model and its write-through has
@@ -2474,6 +2488,7 @@ export async function persistKernelTurnStart(
 				run,
 				events: [received, started],
 				conversation: null,
+				submission,
 			});
 		}
 	} catch (error) {
@@ -2492,9 +2507,8 @@ export async function persistKernelTurnStart(
 		);
 	// A first delivery bumped the index inside the batch. A replay that still
 	// inserted (a legacy partial write) takes the write-through instead.
-	// The index write-through(s) and the submission admit touch different
-	// rows; serial they were up to three D1 round trips between the run row
-	// landing and the KernelDO starting work (enqueue→work 0.5-0.8 s).
+	// The index write-through(s) and a separate submission admit touch
+	// different rows, so they go out together.
 	const [receivedEvent, startedEvent] = await Promise.all([
 		indexBumped
 			? Promise.resolve({
@@ -2503,7 +2517,9 @@ export async function persistKernelTurnStart(
 				})
 			: finishPersistedKernelRuntimeEvent(context, receivedPersisted),
 		finishPersistedKernelRuntimeEvent(context, startedPersisted),
-		admitKernelRunSubmission(context, input.run, input.submission),
+		submission
+			? undefined
+			: admitKernelRunSubmission(context, input.run, input.submission),
 	]);
 	return {
 		receivedEvent: receivedEvent.event,

@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
@@ -10,6 +11,10 @@ import {
 	buildRecordKernelConversationMessageStatement,
 	type RecordKernelConversationMessageParams,
 } from "./kernel-conversations";
+import {
+	type BuildStartFirstAttemptParams,
+	buildStartFirstAttemptStatements,
+} from "./runtime-submissions/attempts";
 import {
 	buildInsertKernelRuntimeEventIfAbsentStatement,
 	buildInsertKernelRuntimeEventStatement,
@@ -347,6 +352,15 @@ export interface OpenKernelRuntimeTurnParams {
 	 * this turn). `null` skips it — a replay must not double-count.
 	 */
 	conversation: RecordKernelConversationMessageParams | null;
+	/**
+	 * The run's first submission attempt and its `submission.admitted` receipt,
+	 * composed only when the caller saw the submission freshly admitted. `null`
+	 * leaves both to the caller.
+	 */
+	submission: {
+		attempt: BuildStartFirstAttemptParams;
+		admittedEvent: NewKernelRuntimeEvent;
+	} | null;
 }
 
 export interface OpenKernelRuntimeTurnResult {
@@ -356,12 +370,13 @@ export interface OpenKernelRuntimeTurnResult {
 
 /**
  * Land a Home turn's ingress rows — the conversation-index bump, the
- * `message.received` and `run.started` events and the run row — in one D1
- * batch instead of one round trip per row. Every statement is idempotent or
- * caller-gated, so the batch is equivalent to the former sequential writes;
- * a replayed event (empty `returning()`) is resolved to its existing row
- * afterwards, and a `run.started` whose cause is missing raises
- * `KernelRuntimeEventConflictError` exactly as the single insert did.
+ * `message.received` and `run.started` events, the run row and its first
+ * submission attempt — in one D1 batch instead of one round trip per row.
+ * Every statement is idempotent or caller-gated, so the batch is equivalent
+ * to the former sequential writes; a replayed event (empty `returning()`) is
+ * resolved to its existing row afterwards, and a `run.started` whose cause is
+ * missing raises `KernelRuntimeEventConflictError` exactly as the single
+ * insert did.
  */
 export async function openKernelRuntimeTurn(
 	db: DbClient,
@@ -377,18 +392,29 @@ export async function openKernelRuntimeTurn(
 		.values(params.run)
 		.onConflictDoNothing({ target: kernelRuntimeRuns.id })
 		.returning({ id: kernelRuntimeRuns.id });
-	const results = params.conversation
-		? (
-				await db.batch([
-					buildRecordKernelConversationMessageStatement(
-						db,
-						params.conversation,
-					),
-					...eventStatements,
-					runStatement,
-				])
-			).slice(1, 3)
-		: (await db.batch([...eventStatements, runStatement])).slice(0, 2);
+	const conversationStatements = params.conversation
+		? [buildRecordKernelConversationMessageStatement(db, params.conversation)]
+		: [];
+	const submissionStatements = params.submission
+		? [
+				...buildStartFirstAttemptStatements(db, params.submission.attempt),
+				buildInsertKernelRuntimeEventIfAbsentStatement(
+					db,
+					params.submission.admittedEvent,
+				),
+			]
+		: [];
+	const statements: BatchItem<"sqlite">[] = [
+		...conversationStatements,
+		...eventStatements,
+		runStatement,
+		...submissionStatements,
+	];
+	const results = (
+		await db.batch(
+			statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+		)
+	).slice(conversationStatements.length, conversationStatements.length + 2);
 	const events: OpenKernelRuntimeTurnResult["events"] = [];
 	for (const [index, value] of params.events.entries()) {
 		const inserted = (results[index] as KernelRuntimeEvent[] | undefined)?.[0];
