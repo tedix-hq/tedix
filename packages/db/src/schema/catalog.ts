@@ -486,9 +486,17 @@ export const appCatalog = sqliteTable(
 		// ========================================
 		createdAt: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 		updatedAt: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+		/**
+		 * Stored `catalogVendorKeySql` (`domain|name`), refreshed with
+		 * `explore_shadowed` by every write batch that can change it, so the
+		 * vendor-variant lookup is an index hit instead of computing the key for
+		 * every catalog row (~100 ms per detail view on 2026-10-12).
+		 */
+		vendorKey: text("vendor_key"),
 	},
 	(table) => [
 		index("app_catalog_name_idx").on(table.name),
+		index("app_catalog_vendor_key_idx").on(table.vendorKey),
 		index("app_catalog_slug_idx").on(table.slug),
 		index("app_catalog_connector_type_idx").on(table.connectorType),
 		index("app_catalog_category_idx").on(table.category),
@@ -555,6 +563,9 @@ export const appCatalogStoreListings = sqliteTable(
 			table.source,
 			table.sourceAppId,
 		),
+		// Listing hydration and the primary-source subquery look up by app; without
+		// this every lookup scanned all ~10.6k listings (2026-10-12).
+		index("store_listings_catalog_app_idx").on(table.catalogAppId),
 	],
 );
 

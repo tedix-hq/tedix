@@ -190,10 +190,11 @@ export interface RefreshCatalogShadowedVariantsResult {
 }
 
 /**
- * The two unexecuted statements that recompute `explore_shadowed` against
+ * The unexecuted statements that recompute `explore_shadowed` against
  * public visibility: flag newly shadowed rows, then clear rows that are no
- * longer shadowed. Only rows whose flag changes are written, and `updated_at`
- * is left alone: the flag is derived list state, not an app edit. Append them
+ * longer shadowed; then store each row's vendor key. Only rows whose value
+ * changes are written, and `updated_at` is left alone: both are derived list
+ * state, not an app edit. Append them
  * to a write batch that changes vendor grouping, runnability, inventory or
  * visibility so the flag commits with the write.
  */
@@ -218,7 +219,12 @@ export function buildRefreshCatalogShadowedVariantsStatements(db: Database) {
 			),
 		)
 		.returning({ id: appCatalog.id });
-	return [flag, clear] as const;
+	const vendorKey = catalogVendorKeySql(appCatalog);
+	const keys = db
+		.update(appCatalog)
+		.set({ vendorKey })
+		.where(sql`${appCatalog.vendorKey} IS NOT ${vendorKey}`);
+	return [flag, clear, keys] as const;
 }
 
 /**
@@ -253,8 +259,8 @@ const VARIANT_LIMIT = 20;
 
 /**
  * Publicly visible same-vendor siblings of one catalog app (excluding the app
- * itself). One statement; the vendor key of the anchor row is resolved in a
- * scalar subquery so detail and list use the identical identity expression.
+ * itself). One statement over the stored `vendor_key`, which the shadowed
+ * refresh keeps equal to `catalogVendorKeySql`, so detail and list agree.
  */
 export async function listCatalogVendorVariants(
 	db: Database,
@@ -263,9 +269,7 @@ export async function listCatalogVendorVariants(
 ): Promise<CatalogVendorVariantRow[]> {
 	const anchor = alias(appCatalog, "vendor_anchor");
 	const anchorKey = db
-		.select({
-			vendorKey: sql<string>`${catalogVendorKeySql(anchor)}`.as("vendor_key"),
-		})
+		.select({ vendorKey: anchor.vendorKey })
 		.from(anchor)
 		.where(eq(anchor.id, catalogAppId))
 		.limit(1);
@@ -299,7 +303,7 @@ export async function listCatalogVendorVariants(
 			and(
 				ne(appCatalog.id, catalogAppId),
 				...catalogVisibilityConditions(appCatalog, options),
-				sql`${catalogVendorKeySql(appCatalog)} = (${anchorKey})`,
+				sql`${appCatalog.vendorKey} = (${anchorKey})`,
 			),
 		)
 		.orderBy(
