@@ -250,19 +250,27 @@ describe("routing", () => {
 				{ choice: "t1", probabilities: { t1: ROUTE_THRESHOLD } },
 				options,
 			),
-		).toMatchObject({ status: "routed", tediId: "tedi-eng" });
+		).toMatchObject({
+			status: "routed",
+			tediId: "tedi-eng",
+			choiceTediId: "tedi-eng",
+		});
 		expect(
 			routingFromChoice(
 				{ choice: "t1", probabilities: { t1: ROUTE_THRESHOLD - 0.01 } },
 				options,
 			),
-		).toMatchObject({ status: "personal", tediId: null });
+		).toMatchObject({
+			status: "personal",
+			tediId: null,
+			choiceTediId: "tedi-eng",
+		});
 		expect(
 			routingFromChoice(
 				{ choice: "none", probabilities: { none: 0.99 } },
 				options,
 			),
-		).toMatchObject({ status: "personal", tediId: null });
+		).toMatchObject({ status: "personal", tediId: null, choiceTediId: null });
 		expect(routingFromChoice(null, options)).toMatchObject({
 			status: "unavailable",
 			tediId: null,
