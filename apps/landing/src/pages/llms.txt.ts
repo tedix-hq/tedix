@@ -8,7 +8,7 @@ export const GET: APIRoute = () => {
 	lines.push(`# ${meta.title}`);
 	lines.push("");
 	lines.push(
-		`> ${meta.description} Every run records what was done, with which tools, and who approved it. Open source, runs on Cloudflare.`,
+		`> ${meta.description} That record says what was done, with which tools, and who approved it. Open source, runs on Cloudflare.`,
 	);
 	lines.push("");
 	lines.push(
