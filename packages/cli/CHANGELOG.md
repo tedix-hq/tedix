@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.14
+
+### Patch Changes
+
+- 108570a: A failed tool call no longer clears the saved gateway discovery answer unless the failure shows the gateway's protocol changed. Commands such as `tedix ask` stop paying an extra 1-2 s discovery round trip after an unrelated error in another `tedix` process on the same machine.
+- 201062b: Reading your undelivered Tedix OS answers now uses Code Mode, which takes about 2 s instead of 5 to 14 s. The background supervisor no longer misses its 15-second deadline and skips delivery when the gateway is busy.
+
 ## 0.8.13
 
 ### Patch Changes
