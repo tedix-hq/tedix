@@ -26,6 +26,10 @@ organization. Choose the path that matches the task:
 | Run a Cloud worker               | Sign in to an invited beta organization, then follow [Your first digital worker](./learning-paths/first-worker.md).           |
 | Change the source repository     | Read the root and nearest scoped `AGENTS.md` files before editing.                                                            |
 
+For a factory request, use [Build and inspect a factory as an agent](./factory-agent-guide.md).
+It maps canonical resources and tool families, then gives one bounded
+read-only inspection before setup or execution.
+
 ## Documentation endpoints
 
 Start with the smallest sufficient source:

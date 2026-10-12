@@ -45,6 +45,7 @@ is available today.
 | Connect this computer to a Cloud organization    | [First connection to Tedix Cloud](./learning-paths/first-connection.md) |
 | Run Tedix locally without a Cloud account        | [Getting started locally](./getting-started.md)                         |
 | Give an agent reliable Tedix context             | [Agent guide](./agent-guide.md)                                         |
+| Build or inspect a Workspace factory             | [Factory guide for agents](./factory-agent-guide.md)                    |
 | Connect applications and tools                   | [MCP app platform](./mcp-app-platform.md)                               |
 | Publish public or organization-only product docs | [Documentation sites](./docs-sites.md)                                  |
 | Edit and publish website content                 | [Websites and CMS](./cms.md)                                            |

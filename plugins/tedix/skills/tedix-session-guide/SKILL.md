@@ -126,6 +126,17 @@ that a local prompt hook can wake an idle chat.
 
 ## Route the requested job
 
+For “build a factory” or “is this factory healthy?”, read
+<https://docs.tedix.dev/factory-agent-guide> before choosing setup or recovery.
+Use its bounded read-only inspection over the selected Workspace's structured
+project links, resources, Work/Attempts, Gadgets and Output access. A project
+mentioned in prose is a candidate, not a canonical link. Inspect each workflow's
+declared tool IDs and exact schemas; do not assemble a tool bundle from its name.
+Keep configuration, automation activation, successful execution and verified
+publication separate. Archived skills and old receipts do not authorize a
+restart. Continue to the matching execution or Output skill only for the
+authorized next action; this inspection creates no Work and grants no authority.
+
 | User need                                                           | Tedix path                                                                                                                                                             |
 | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | One bounded tool read or operation                                  | Use the native plugin tool; use `tedix code` when the user or repository requires the CLI. Discover the exact schema when unknown; do not invent a local tool catalog. |
