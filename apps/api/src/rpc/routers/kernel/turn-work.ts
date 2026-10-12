@@ -21,6 +21,8 @@
  *    module, so a value import back would create a cycle.
  */
 
+import type { KernelHistoryCheckpoint } from "./context-compaction";
+
 import { aggregateTurnUsage } from "./turn-usage";
 import {
 	type KernelExecutionAttempt,
@@ -234,6 +236,10 @@ export interface KernelTurnWorkDeps {
 	 * turn start (age-checked there). Forwarded to `runKernel`.
 	 */
 	previousRelevanceRecall?: StoredRelevanceRecall | null;
+	/** The conversation's persisted compaction checkpoint (KernelDO storage). */
+	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
+	/** Receives a NEW compaction checkpoint so the DO can persist it. */
+	onHistoryCheckpoint?: (checkpoint: KernelHistoryCheckpoint) => void;
 	/**
 	 * Per-org TTL cache for the slow-changing context inputs
 	 * (`context-cache.ts`). Supplied by the org `KernelDO`, which is also where
@@ -2050,6 +2056,12 @@ export async function runKernelTurnWork(
 				: {}),
 			...(deps.previousRelevanceRecall
 				? { previousRelevanceRecall: deps.previousRelevanceRecall }
+				: {}),
+			...(deps.previousHistoryCheckpoint
+				? { previousHistoryCheckpoint: deps.previousHistoryCheckpoint }
+				: {}),
+			...(deps.onHistoryCheckpoint
+				? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
 				: {}),
 			...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
 			db: deps.db,

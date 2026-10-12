@@ -100,6 +100,46 @@ export interface KernelHistoryCheckpoint {
 	boundaryIndex: number;
 	/** `model` when the summarizer produced it, `extractive` on the fallback. */
 	source: "model" | "extractive";
+	/**
+	 * Fingerprint of the LAST compacted canonical message. A persisted
+	 * checkpoint is reused on a later turn only when the canonical history
+	 * still has that message at `compactedMessages - 1`; the ledger is
+	 * append-only, so a match means the fold still lines up.
+	 */
+	boundaryFingerprint?: string;
+}
+
+/** Small, stable, dependency-free fingerprint of one replay message. */
+export function historyMessageFingerprint(message: TediSessionMessage): string {
+	const text = `${message.role}\u0000${message.content}`;
+	let hash = 5381;
+	for (let i = 0; i < text.length; i += 1) {
+		hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+	}
+	return `${text.length.toString(36)}:${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * Replay a persisted checkpoint over the canonical history: the checkpoint
+ * message followed by every message after the fold boundary. `null` when the
+ * checkpoint no longer lines up (history shorter than the fold, or the message
+ * at the boundary changed), in which case the caller replays the full history
+ * and compaction starts over. Without this, a fold had to be recomputed —
+ * summarizer call included — on every later turn of the conversation.
+ */
+export function applyPersistedHistoryCheckpoint(
+	history: readonly TediSessionMessage[],
+	checkpoint: KernelHistoryCheckpoint,
+): TediSessionMessage[] | null {
+	const folded = checkpoint.compactedMessages;
+	if (!checkpoint.boundaryFingerprint || folded < 1) return null;
+	const last = history[folded - 1];
+	if (
+		!last ||
+		historyMessageFingerprint(last) !== checkpoint.boundaryFingerprint
+	)
+		return null;
+	return [renderCheckpointMessage(checkpoint), ...history.slice(folded)];
 }
 
 /** Result of a successful compaction pass. Input arrays are never mutated. */
@@ -393,6 +433,7 @@ export async function compactKernelHistory(
 		compactedMessages: prefix.length,
 		boundaryIndex,
 		source,
+		boundaryFingerprint: historyMessageFingerprint(prefix[prefix.length - 1]!),
 	};
 
 	return {

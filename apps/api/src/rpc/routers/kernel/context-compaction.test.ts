@@ -27,6 +27,8 @@ import {
 	historyReplayChars,
 	selectKernelRetainIndex,
 	shouldCompactHistory,
+	applyPersistedHistoryCheckpoint,
+	historyMessageFingerprint,
 } from "./context-compaction";
 
 const ORG_ID = "org-compaction";
@@ -527,5 +529,46 @@ describe("historyReplayChars", () => {
 			]),
 		).toBe(3 + 20 + 2 + 20);
 		expect(historyReplayChars([])).toBe(0);
+	});
+});
+
+describe("applyPersistedHistoryCheckpoint", () => {
+	const history = [
+		{ role: "user" as const, content: "one" },
+		{ role: "assistant" as const, content: "two" },
+		{ role: "user" as const, content: "three" },
+		{ role: "assistant" as const, content: "four" },
+	];
+	it("replays the checkpoint message plus the messages after the fold", () => {
+		const checkpoint = {
+			summary: "earlier",
+			compactedMessages: 2,
+			boundaryIndex: 2,
+			source: "extractive" as const,
+			boundaryFingerprint: historyMessageFingerprint(history[1]!),
+		};
+		const replay = applyPersistedHistoryCheckpoint(history, checkpoint);
+		expect(replay?.length).toBe(3);
+		expect(replay?.[0]?.content).toContain("earlier");
+		expect(replay?.[1]?.content).toBe("three");
+	});
+	it("refuses a checkpoint that no longer lines up with the history", () => {
+		const stale = {
+			summary: "earlier",
+			compactedMessages: 2,
+			boundaryIndex: 2,
+			source: "extractive" as const,
+			boundaryFingerprint: historyMessageFingerprint({
+				role: "assistant",
+				content: "different",
+			}),
+		};
+		expect(applyPersistedHistoryCheckpoint(history, stale)).toBeNull();
+		expect(
+			applyPersistedHistoryCheckpoint(history.slice(0, 1), {
+				...stale,
+				boundaryFingerprint: historyMessageFingerprint(history[1]!),
+			}),
+		).toBeNull();
 	});
 });

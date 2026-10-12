@@ -1,6 +1,7 @@
 /** Org-scoped durable kernel execution, reconciliation, progress and wake recovery. */
 // Database queries, context, and their consumers load inside async operations.
 // A static import here evaluates the full D1 schema on every Worker startup.
+import type { KernelHistoryCheckpoint } from "../rpc/routers/kernel/context-compaction";
 import { AIChatAgent } from "@cloudflare/ai-chat";
 
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
@@ -220,6 +221,10 @@ function kernelErrorMessage(value: unknown): string {
  * next `idFromName(org)` boots a fresh DO (new code) over the migrated storage.
  */
 export type KernelDO = KernelDOv4;
+
+function historyCheckpointStorageKey(conversationId: string): string {
+	return `history-checkpoint:${conversationId}`;
+}
 
 export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	override initialState: KernelState = INITIAL_KERNEL_STATE;
@@ -794,6 +799,45 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	}
 
 	/**
+	 * The conversation's persisted compaction checkpoint, or null. Fail-soft:
+	 * assembly then replays the full history and compaction starts over.
+	 */
+	private async readPersistedHistoryCheckpoint(
+		conversationId: string,
+	): Promise<KernelHistoryCheckpoint | null> {
+		try {
+			const stored = await this.ctx.storage.get<KernelHistoryCheckpoint>(
+				historyCheckpointStorageKey(conversationId),
+			);
+			return stored && typeof stored.summary === "string" ? stored : null;
+		} catch (error) {
+			console.warn(
+				"[kernel] history checkpoint read failed (full replay this turn)",
+				kernelErrorMessage(error),
+			);
+			return null;
+		}
+	}
+
+	/** Persist a new compaction checkpoint for the conversation's next turn. */
+	private async storePersistedHistoryCheckpoint(
+		conversationId: string,
+		checkpoint: KernelHistoryCheckpoint,
+	): Promise<void> {
+		try {
+			await this.ctx.storage.put(
+				historyCheckpointStorageKey(conversationId),
+				checkpoint,
+			);
+		} catch (error) {
+			console.warn(
+				"[kernel] history checkpoint store failed (next turn refolds)",
+				kernelErrorMessage(error),
+			);
+		}
+	}
+
+	/**
 	 * The conversation's last completed recall, or null when absent, expired
 	 * (30 min cap) or unreadable. Fail-soft: assembly then uses static facts.
 	 */
@@ -838,10 +882,12 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// late result still lands in storage for the conversation's next turn.
 		const candidatesInFlight =
 			relevanceCandidates ?? this.startIngressRecall(input);
-		const [context, previousRelevanceRecall] = await Promise.all([
-			this.turnContext(),
-			this.readPreviousRelevanceRecall(input.conversationId),
-		]);
+		const [context, previousRelevanceRecall, previousHistoryCheckpoint] =
+			await Promise.all([
+				this.turnContext(),
+				this.readPreviousRelevanceRecall(input.conversationId),
+				this.readPersistedHistoryCheckpoint(input.conversationId),
+			]);
 		// One stage-timing collector per turn, shared between the turn body (which
 		// marks the serial stage boundaries and attaches the snapshot to the run's
 		// terminal metadata write) and the progress seam's answer-delta batcher
@@ -918,6 +964,14 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 						? { relevanceCandidates: candidatesInFlight }
 						: {}),
 					...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
+					...(previousHistoryCheckpoint ? { previousHistoryCheckpoint } : {}),
+					onHistoryCheckpoint: (checkpoint) =>
+						this.ctx.waitUntil(
+							this.storePersistedHistoryCheckpoint(
+								input.conversationId,
+								checkpoint,
+							),
+						),
 					// This DO is the org's single kernel instance, so the cache it
 					// reads through is the one `invalidateContextCache` reaches.
 					contextCache: getKernelContextCache(),
