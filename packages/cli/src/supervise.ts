@@ -108,6 +108,21 @@ export function privacyProtected(
 		.some((folder) => path === folder || path.startsWith(folder + sep));
 }
 
+/**
+ * Why a headless resume in `cwd` cannot run, or undefined when it can. Codex
+ * and Claude Code started there by the launchd supervisor fail with EINTR
+ * ("Interrupted system call"), and no route around macOS privacy protection
+ * reaches the checkout, so the resume is skipped with the grant that fixes it.
+ */
+export function protectedResumeReason(
+	cwd: string,
+	env: NodeJS.ProcessEnv,
+	platform: NodeJS.Platform = process.platform,
+): string | undefined {
+	if (!privacyProtected(cwd, env.HOME || homedir(), platform)) return undefined;
+	return `not resumed headless: ${cwd} is in a macOS privacy-protected folder the background supervisor cannot open; grant it in System Settings > Privacy & Security > Full Disk Access (add ${process.execPath}), or keep the checkout outside Documents, Desktop and Downloads`;
+}
+
 export const SUPERVISE_INTERVAL_MS = 30_000;
 /** After `await-draft` gave up, with a minute of grace for its last read. */
 export const CODEX_IDLE_MS = AWAIT_DRAFT_MAX_MS + 60_000;
@@ -1039,6 +1054,11 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 			);
 		},
 		async resume(thread, message, cwd) {
+			const blocked = protectedResumeReason(cwd, env);
+			if (blocked) {
+				supervisorLog(env, `codex ${thread}: ${blocked}`);
+				return false;
+			}
 			const directory = join(configDir(env), "supervisor");
 			mkdirSync(directory, { recursive: true, mode: 0o700 });
 			const output = join(directory, `resume-${thread}.jsonl`);
@@ -1129,6 +1149,11 @@ export function claudeDriver(env: NodeJS.ProcessEnv): ClaudeDriver {
 			return existsSync(registry) ? false : undefined;
 		},
 		async resume(session, message, cwd) {
+			const blocked = protectedResumeReason(cwd, env);
+			if (blocked) {
+				supervisorLog(env, `claude-code ${session}: ${blocked}`);
+				return { started: false, done: Promise.resolve(false) };
+			}
 			const directory = join(configDir(env), "supervisor");
 			mkdirSync(directory, { recursive: true, mode: 0o700 });
 			const output = join(directory, `claude-resume-${session}.jsonl`);

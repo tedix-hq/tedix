@@ -21,14 +21,17 @@ import {
 import type { JsonObject } from "./hooks/hook-io";
 import {
 	answerAction,
+	claudeDriver,
 	type ClaudeDriver,
 	CODEX_IDLE_MS,
 	type CodexDriver,
+	codexDriver,
 	codexMessageReceived,
 	launchAgentPlist,
 	loadLaunchAgent,
 	OPEN_SESSION_GRACE_MS,
 	privacyProtected,
+	protectedResumeReason,
 	Supervisor,
 	systemLaunchctl,
 } from "./supervise";
@@ -1000,5 +1003,36 @@ describe("privacyProtected", () => {
 		expect(privacyProtected("/Users/ada/Documents/acme", home, "linux")).toBe(
 			false,
 		);
+	});
+});
+
+describe("protectedResumeReason", () => {
+	test("names the Full Disk Access grant for a protected checkout", () => {
+		const env = { HOME: "/Users/ada" };
+		expect(
+			protectedResumeReason("/Users/ada/Documents/acme", env, "darwin"),
+		).toContain("Privacy & Security > Full Disk Access");
+		expect(
+			protectedResumeReason("/Users/ada/code/acme", env, "darwin"),
+		).toBeUndefined();
+		expect(
+			protectedResumeReason("/Users/ada/Documents/acme", env, "linux"),
+		).toBeUndefined();
+	});
+
+	test("a protected checkout is not resumed headless", async () => {
+		if (process.platform !== "darwin") return;
+		const home = mkdtempSync(join(tmpdir(), "tedix-tcc-"));
+		const cwd = join(home, "Documents", "acme");
+		mkdirSync(cwd, { recursive: true });
+		const env = { HOME: home, TEDIX_CONFIG_DIR: join(home, ".tedix") };
+		try {
+			expect(await codexDriver(env).resume("thread", "hi", cwd)).toBe(false);
+			const run = await claudeDriver(env).resume("session", "hi", cwd);
+			expect(run.started).toBe(false);
+			expect(await run.done).toBe(false);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 });
