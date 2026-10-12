@@ -134,7 +134,7 @@ export async function releaseCmsCaptureCronPause(
 	return remaining.length === 0;
 }
 
-/** Reuse only an existing outer reservation in its still-open admission epoch. */
+/** Reuse a read reservation only in its still-open admission epoch and kind. */
 export async function canReuseCmsRestorePermit(
 	db: DbQueryClient,
 	input: CmsRestorePermitParams,
@@ -146,7 +146,8 @@ export async function canReuseCmsRestorePermit(
 			AND permit.site_id = ${input.siteId}
 			AND permit.slug = ${input.slug}
 			AND permit.restore_epoch = ${input.restoreEpoch}
-			AND permit.kind = 'outer'
+			AND permit.kind = ${input.kind}
+			AND permit.kind IN ('outer', 'nested')
 			AND site.slug = permit.slug
 			AND site.restore_epoch = permit.restore_epoch
 			AND site.status = 'active'

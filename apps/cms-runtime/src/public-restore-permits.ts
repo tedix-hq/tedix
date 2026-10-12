@@ -20,8 +20,8 @@ interface Reservation {
 	retired: boolean;
 }
 
-/** The TTL limits reuse, never the lifetime of an active render. D1 retains
- * the reservation through every borrower; isolate loss uses outer reconciliation. */
+/** The TTL limits reuse, never the lifetime of an active read. D1 retains the
+ * claim through every borrower; nested claims remain protected from outer reclaim. */
 export class PublicRestorePermits {
 	private reservations = new Map<string, Reservation>();
 
@@ -49,6 +49,7 @@ export class PublicRestorePermits {
 					permit.siteId,
 					permit.slug,
 					permit.restoreEpoch,
+					permit.kind,
 				]);
 				const reservation = this.reservations.get(key);
 				if (reservation && Date.now() < reservation.expiresAt) {

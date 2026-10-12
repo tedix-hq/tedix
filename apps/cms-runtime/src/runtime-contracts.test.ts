@@ -1524,7 +1524,15 @@ describe("Durable Object database runtime", () => {
 			},
 		};
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
-			ctx: { props: { name: "tenant", siteId: "site-1", slug: "tenant" } },
+			ctx: {
+				props: {
+					name: "tenant",
+					siteId: "site-1",
+					slug: "tenant",
+					restoreEpoch: 0,
+				},
+				waitUntil: vi.fn(),
+			},
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
@@ -1542,7 +1550,15 @@ describe("Durable Object database runtime", () => {
 	test("TenantEmDashDB logs only a fixed table group for incident traces", async () => {
 		const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
-			ctx: { props: { name: "tenant", siteId: "site-1", slug: "tenant" } },
+			ctx: {
+				props: {
+					name: "tenant",
+					siteId: "site-1",
+					slug: "tenant",
+					restoreEpoch: 0,
+				},
+				waitUntil: vi.fn(),
+			},
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
@@ -1573,7 +1589,15 @@ describe("Durable Object database runtime", () => {
 			.mockImplementationOnce(() => new Promise(() => undefined))
 			.mockResolvedValue({ rows: [{ value: 1 }] });
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
-			ctx: { props: { name: "tenant", siteId: "site-1", slug: "tenant" } },
+			ctx: {
+				props: {
+					name: "tenant",
+					siteId: "site-1",
+					slug: "tenant",
+					restoreEpoch: 0,
+				},
+				waitUntil: vi.fn(),
+			},
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: { get: () => ({ query }), idFromName: (name: string) => name },
@@ -1593,7 +1617,15 @@ describe("Durable Object database runtime", () => {
 			.fn()
 			.mockImplementation(() => new Promise(() => undefined));
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
-			ctx: { props: { name: "tenant", siteId: "site-1", slug: "tenant" } },
+			ctx: {
+				props: {
+					name: "tenant",
+					siteId: "site-1",
+					slug: "tenant",
+					restoreEpoch: 0,
+				},
+				waitUntil: vi.fn(),
+			},
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
@@ -1618,7 +1650,15 @@ describe("Durable Object database runtime", () => {
 		const query = vi.fn().mockRejectedValue(new Error("write failed"));
 		const batchQuery = vi.fn().mockRejectedValue(new Error("batch failed"));
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
-			ctx: { props: { name: "tenant", siteId: "site-1", slug: "tenant" } },
+			ctx: {
+				props: {
+					name: "tenant",
+					siteId: "site-1",
+					slug: "tenant",
+					restoreEpoch: 0,
+				},
+				waitUntil: vi.fn(),
+			},
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {

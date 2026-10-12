@@ -63,7 +63,10 @@ Isolate loss leaves a durable outer row for the existing restore reconciliation.
 Only admission is shared: authentication and the response handler still run for
 each request, including authenticated reads. Every body pull checks the pinned
 epoch before reading and retains its borrower through completion or cancellation.
-Writes and nested storage operations keep exact per-operation permits. No database
+Single SELECTs and batches containing only single SELECTs share a separate nested
+reservation. Restore reconciliation cannot reclaim that row as an abandoned outer
+response. Every SQL read checks current admission and holds a borrower through its
+entire RPC, including retries. Writes keep exact per-operation permits. No database
 migration is required. Traffic spread across many cold isolates can reduce sharing, so the
 installation's D1 analytics must establish the actual reduction after release.
 
