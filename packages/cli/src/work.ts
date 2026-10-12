@@ -72,6 +72,7 @@ import {
 	isRateLimitError,
 	rateLimitRetryAfterMs,
 } from "./home-client";
+import type { NativeBootstrapCache } from "./native-bootstrap-cache";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
 	provisionAttemptWorktree,
@@ -186,6 +187,8 @@ export interface WorkContext {
 		TedixHomeClient,
 		"callTool" | "callToolWithDestructiveApproval" | "getTimeoutMs"
 	>;
+	/** Reuses the gateway's native bootstrap and tool names across commands. */
+	bootstrapCache?: NativeBootstrapCache;
 	/** Optional cancellation from the invoking host. */
 	signal?: AbortSignal;
 	color: ColorMode;
@@ -482,6 +485,10 @@ interface NativeCommand {
 	deadlineAt: number;
 	callDeadlineAt?: number;
 	context?: z.infer<typeof McpNativeBootstrapSchema>;
+	/** The bootstrap came from the local cache, not this command's get_info. */
+	contextFromCache?: boolean;
+	/** Native tool names recorded with the cached bootstrap. */
+	tools?: Record<string, string>;
 }
 const nativeCommands = new WeakMap<WorkContext, NativeCommand>();
 const WORK_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -627,13 +634,13 @@ function usableDescriptor(value: unknown) {
 	return descriptor;
 }
 
-async function nativeBootstrap(ctx: WorkContext) {
-	const state = nativeCommands.get(ctx)!;
-	if (state.context) return state.context;
-	if (!ctx.mcpUrl)
-		throw new Error("Work native transport requires the selected gateway");
-	const info = await ctx.client.callTool("get_info", {}, nativeOptions(ctx));
-	if (!isRecord(info)) throw new Error("Malformed native gateway bootstrap");
+function bootstrapCacheKey(ctx: WorkContext): string | undefined {
+	if (!ctx.bootstrapCache || !ctx.mcpUrl) return undefined;
+	return [ctx.mcpUrl, ctx.workspace, ctx.organizationId ?? ""].join("|");
+}
+
+/** Validate a gateway bootstrap answer, fresh or cached, for this command. */
+function checkedBootstrap(ctx: WorkContext, info: Record<string, unknown>) {
 	const bootstrap = McpNativeBootstrapSchema.parse({
 		nativeContext: info.nativeContext,
 		nativeCatalog: info.nativeCatalog,
@@ -654,8 +661,62 @@ async function nativeBootstrap(ctx: WorkContext) {
 			"catalog/describe"
 	)
 		throw new Error("Native catalog endpoint mismatch");
-	state.context = bootstrap;
 	return bootstrap;
+}
+
+async function nativeBootstrap(ctx: WorkContext) {
+	const state = nativeCommands.get(ctx)!;
+	if (state.context) return state.context;
+	if (!ctx.mcpUrl)
+		throw new Error("Work native transport requires the selected gateway");
+	const key = bootstrapCacheKey(ctx);
+	const cached = key ? ctx.bootstrapCache!.read(key) : undefined;
+	if (cached) {
+		try {
+			state.context = checkedBootstrap(ctx, cached.bootstrap);
+			state.contextFromCache = true;
+			state.tools = cached.tools;
+			return state.context;
+		} catch {
+			ctx.bootstrapCache!.forget(key!);
+		}
+	}
+	const info = await ctx.client.callTool("get_info", {}, nativeOptions(ctx));
+	if (!isRecord(info)) throw new Error("Malformed native gateway bootstrap");
+	state.context = checkedBootstrap(ctx, info);
+	state.contextFromCache = false;
+	state.tools = {};
+	if (key)
+		ctx.bootstrapCache!.write(key, {
+			bootstrap: {
+				nativeContext: info.nativeContext,
+				nativeCatalog: info.nativeCatalog,
+			},
+			tools: {},
+		});
+	return state.context;
+}
+
+/** Remember the native tool a callable resolved to, beside the cached bootstrap. */
+function recordNativeTool(ctx: WorkContext, callable: string, name: string) {
+	const state = nativeCommands.get(ctx)!;
+	const key = bootstrapCacheKey(ctx);
+	if (!key || !state.context || state.tools?.[callable] === name) return;
+	state.tools = { ...state.tools, [callable]: name };
+	const cached = ctx.bootstrapCache!.read(key);
+	if (cached) ctx.bootstrapCache!.write(key, { ...cached, tools: state.tools });
+}
+
+/** Drop a cached bootstrap that failed to resolve; the next read fetches it fresh. */
+function forgetCachedBootstrap(ctx: WorkContext): boolean {
+	const state = nativeCommands.get(ctx)!;
+	const key = bootstrapCacheKey(ctx);
+	if (!state.contextFromCache || !key) return false;
+	ctx.bootstrapCache!.forget(key);
+	state.context = undefined;
+	state.contextFromCache = false;
+	state.tools = {};
+	return true;
 }
 
 /** Validate the returned configured JSON schema before retaining or publishing data. */
@@ -715,81 +776,115 @@ async function boardCall(
 		if (!expectedEndpoint) throw new Error("Unknown typed Work endpoint");
 		const projectionSchema = CLI_PROJECTION_SCHEMAS[expectedEndpoint];
 		projectionSchema?.input.parse(input);
-		const bootstrap = await nativeBootstrap(ctx);
-		const search = usableDescriptor(bootstrap.nativeCatalog.search);
-		const describe = usableDescriptor(bootstrap.nativeCatalog.describe);
 		const dot = callable.indexOf(".");
-		// Search and describe are independent reads; the checks below still
-		// require both to agree before the call.
-		const [result, detail] = await Promise.all([
-			ctx.client.callTool(
-				search.name,
-				{
-					query: callable.slice(dot + 1),
-					namespace: callable.slice(0, dot),
-					limit: 100,
-				},
-				nativeOptions(ctx),
-			),
-			ctx.client.callTool(describe.name, { callable }, nativeOptions(ctx)),
-		]);
-		if (!isRecord(result) || !Array.isArray(result.results))
-			throw new Error("Malformed native Work catalog search");
-		const matches = result.results.filter(
-			(row: unknown) => isRecord(row) && row.callable === callable,
-		);
-		if (matches.length !== 1)
-			throw new Error(
-				`Native Work callable ${callable} is absent or ambiguous`,
-			);
-		const row = matches[0];
-		if (!isRecord(row) || row.aliasOf || row.authorized !== true)
-			throw new Error(catalogRowRefusal(ctx, callable, row));
-		const selected = usableDescriptor(row.native);
-		if (!expectedEndpoint || selected.endpoint !== expectedEndpoint)
-			throw new Error("Native Work endpoint mismatch");
-		if (
-			!isRecord(detail) ||
-			detail.callable !== callable ||
-			detail.aliasOf ||
-			detail.authorized !== true
-		)
-			throw new Error("Native Work catalog description mismatch");
-		const descriptor = usableDescriptor(detail.native);
-		if (JSON.stringify(selected) !== JSON.stringify(descriptor))
-			throw new Error("Native Work descriptor changed during resolution");
-		if (
-			!isRecord(detail.schemaFreshness) ||
-			detail.schemaFreshness.source !== descriptor.schemaFreshness.source ||
-			detail.schemaFreshness.sourceHash !==
-				descriptor.schemaFreshness.sourceHash ||
-			detail.schemaFreshness.sourceRef !==
-				descriptor.schemaFreshness.sourceRef ||
-			detail.schemaFreshness.syncedAt !== descriptor.schemaFreshness.syncedAt
-		)
-			throw new Error("Native Work described schema provenance mismatch");
-		if (
-			typeof detail.schemaFreshness.toolUpdatedAt === "string" &&
-			(!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
-				Date.parse(detail.schemaFreshness.toolUpdatedAt) >
-					Date.parse(descriptor.schemaFreshness.syncedAt!))
-		)
-			throw new Error(
-				"Native Work schema is stale relative to the configured tool",
-			);
-		validateNativeSchema(detail.parameters, input);
-		// Prove the output schema is supported before invoking a mutation.
-		if (!isRecord(detail.outputSchema))
-			throw new Error("Native Work output schema is absent");
-		z.fromJSONSchema(detail.outputSchema);
-		const value = destructiveApprovalReason
-			? await ctx.client.callToolWithDestructiveApproval(
-					descriptor.name,
-					input,
-					destructiveApprovalReason,
+		// A read can start with the tool name this callable resolved to last
+		// time. Its answer is used only if the checks below resolve the same
+		// tool; the catalog checks never move after a mutation.
+		const readOnly =
+			!destructiveApprovalReason &&
+			/^(get|list)_/.test(callable.slice(dot + 1));
+		let early: Promise<{ value?: unknown; error?: unknown }> | undefined;
+		let earlyName: string | undefined;
+		const resolve = async () => {
+			const bootstrap = await nativeBootstrap(ctx);
+			const guess = readOnly ? state.tools?.[callable] : undefined;
+			if (guess && !early) {
+				earlyName = guess;
+				early = ctx.client.callTool(guess, input, nativeOptions(ctx)).then(
+					(value) => ({ value }),
+					(error: unknown) => ({ error }),
+				);
+			}
+			const search = usableDescriptor(bootstrap.nativeCatalog.search);
+			const describe = usableDescriptor(bootstrap.nativeCatalog.describe);
+			// Search and describe are independent reads; the checks below still
+			// require both to agree before the call.
+			const [result, detail] = await Promise.all([
+				ctx.client.callTool(
+					search.name,
+					{
+						query: callable.slice(dot + 1),
+						namespace: callable.slice(0, dot),
+						limit: 100,
+					},
 					nativeOptions(ctx),
-				)
-			: await ctx.client.callTool(descriptor.name, input, nativeOptions(ctx));
+				),
+				ctx.client.callTool(describe.name, { callable }, nativeOptions(ctx)),
+			]);
+			if (!isRecord(result) || !Array.isArray(result.results))
+				throw new Error("Malformed native Work catalog search");
+			const matches = result.results.filter(
+				(row: unknown) => isRecord(row) && row.callable === callable,
+			);
+			if (matches.length !== 1)
+				throw new Error(
+					`Native Work callable ${callable} is absent or ambiguous`,
+				);
+			const row = matches[0];
+			if (!isRecord(row) || row.aliasOf || row.authorized !== true)
+				throw new Error(catalogRowRefusal(ctx, callable, row));
+			const selected = usableDescriptor(row.native);
+			if (!expectedEndpoint || selected.endpoint !== expectedEndpoint)
+				throw new Error("Native Work endpoint mismatch");
+			if (
+				!isRecord(detail) ||
+				detail.callable !== callable ||
+				detail.aliasOf ||
+				detail.authorized !== true
+			)
+				throw new Error("Native Work catalog description mismatch");
+			const descriptor = usableDescriptor(detail.native);
+			if (JSON.stringify(selected) !== JSON.stringify(descriptor))
+				throw new Error("Native Work descriptor changed during resolution");
+			if (
+				!isRecord(detail.schemaFreshness) ||
+				detail.schemaFreshness.source !== descriptor.schemaFreshness.source ||
+				detail.schemaFreshness.sourceHash !==
+					descriptor.schemaFreshness.sourceHash ||
+				detail.schemaFreshness.sourceRef !==
+					descriptor.schemaFreshness.sourceRef ||
+				detail.schemaFreshness.syncedAt !== descriptor.schemaFreshness.syncedAt
+			)
+				throw new Error("Native Work described schema provenance mismatch");
+			if (
+				typeof detail.schemaFreshness.toolUpdatedAt === "string" &&
+				(!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
+					Date.parse(detail.schemaFreshness.toolUpdatedAt) >
+						Date.parse(descriptor.schemaFreshness.syncedAt!))
+			)
+				throw new Error(
+					"Native Work schema is stale relative to the configured tool",
+				);
+			validateNativeSchema(detail.parameters, input);
+			// Prove the output schema is supported before invoking a mutation.
+			if (!isRecord(detail.outputSchema))
+				throw new Error("Native Work output schema is absent");
+			z.fromJSONSchema(detail.outputSchema);
+			return { descriptor, detail };
+		};
+		let resolved: Awaited<ReturnType<typeof resolve>>;
+		try {
+			resolved = await resolve();
+		} catch (error) {
+			// A cached bootstrap may be stale: fetch it fresh and resolve once more.
+			if (!forgetCachedBootstrap(ctx)) throw error;
+			resolved = await resolve();
+		}
+		const { descriptor, detail } = resolved;
+		recordNativeTool(ctx, callable, descriptor.name);
+		const reused =
+			early && earlyName === descriptor.name ? await early : undefined;
+		if (reused && "error" in reused) throw reused.error;
+		const value = reused
+			? reused.value
+			: destructiveApprovalReason
+				? await ctx.client.callToolWithDestructiveApproval(
+						descriptor.name,
+						input,
+						destructiveApprovalReason,
+						nativeOptions(ctx),
+					)
+				: await ctx.client.callTool(descriptor.name, input, nativeOptions(ctx));
 		if (isRecord(value) && value.__tedix_truncated === true)
 			return {
 				value: undefined,
