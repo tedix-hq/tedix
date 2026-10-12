@@ -281,12 +281,24 @@ it("passively imports populated legacy tools and URL/private images across later
 		history.find((message) => message.id === "legacy-answer"),
 	).toBeDefined();
 });
-it("blocks activation for an actual pending legacy submission", async () => {
+it("blocks legacy transcript migration for an actual pending legacy submission", async () => {
 	const name = crypto.randomUUID();
 	const agent = await fixture(name);
 	await agent.seedLegacyPending();
 	await abortAllDurableObjects();
-	await expect(fixture(name)).rejects.toThrow(/Legacy Think|Pending Think/);
+	const restarted = await fixture(name);
+	await runInDurableObject(restarted, async (actual, state) => {
+		await expect(actual.importLegacyHistory()).rejects.toThrow(
+			"Pending Think submission prevents Pi transcript migration",
+		);
+		expect(await state.storage.get("pi:legacy-imported:v1")).toBeUndefined();
+		expect([
+			...state.storage.sql.exec(
+				"SELECT status FROM cf_think_submissions WHERE submission_id = 'legacy-pending'",
+			),
+		]).toEqual([{ status: "running" }]);
+	});
+	expect((await inspect(restarted)).stats.requests).toBe(0);
 });
 
 it("denies a fourth cold resumption of the same unfinished native tool without real progress", async () => {
