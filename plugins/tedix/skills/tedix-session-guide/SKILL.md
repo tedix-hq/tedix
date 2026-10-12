@@ -136,6 +136,12 @@ Keep configuration, automation activation, successful execution and verified
 publication separate. Archived skills and old receipts do not authorize a
 restart. Continue to the matching execution or Output skill only for the
 authorized next action; this inspection creates no Work and grants no authority.
+For a setup goal, follow the guide's goal-to-proposal procedure: reuse first,
+resolve exact published Blueprint pins and selected resource bindings through
+read-only preflight, then propose only missing changes with a checkable outcome.
+A failed preflight leaves dependencies unknown. Configure and activate only
+after the required acceptance and admission; instantiation copies no credentials
+and does not prove execution or publication.
 
 | User need                                                           | Tedix path                                                                                                                                                             |
 | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

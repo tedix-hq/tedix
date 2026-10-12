@@ -113,14 +113,68 @@ permission to reactivate a retired program.
 
 ## From inspection to an operating factory
 
-Reuse a matching Workspace and canonical project when verified. Preview the
-smallest missing setup with Blueprint preflight and explicit resource
-selection. Report denied, missing, incompatible and consent-required
-dependencies as returned; human consent stays with the human.
+For “build a factory that keeps our documentation accurate,” return a setup
+proposal before changing anything. Keep the inspection above and this preview
+within the same 20-read first-pass budget; report what needs another pass.
 
-Configure only the authorized changes, then activate the intended execution
-path under current admission. Prove one run and its durable result before
-calling the factory operating. If the goal includes publishing, verify that
-destination too. Preserve the same Work, Attempt and Output identities across
-these steps so an agent or human can follow what was configured, what ran and
-what actually shipped.
+1. State the requested source, durable result and publication destination.
+   Reuse a matching Workspace and its verified project links. An archived
+   workflow remains retired even if its Blueprint is still published.
+2. Discover `list_os_blueprints` and `get_os_blueprint` in the selected
+   namespace. Inspect one relevant published Blueprint's current revision,
+   declared Gadgets and requirements. If no suitable match is observed, report
+   that limitation and propose the missing definition; do not instantiate an
+   unrelated template. A bounded page is not the entire catalog.
+3. Match each declared resource slot to an existing selected resource. Keep
+   the provider, tenant/user connection scope, resource type, provider resource
+   ID and required scopes. Discover the binding schema before constructing
+   `resourceBindings`; a display name is not a resource identity. Do not invent
+   a connection or put credentials in a Blueprint.
+4. Call `preflight_os_blueprint` with the exact Blueprint ID and those bindings.
+   Supply the intended tedi when runtime requirements need its model profile;
+   without it, runtime compatibility is reported missing. Preflight resolves
+   the current revision against the caller's organization, without creating
+   anything or granting authority. Record its revision and every returned
+   dependency decision using the table below.
+5. Return the smallest proposed change: reuse the existing factory, add only
+   missing authorized configuration, or instantiate the named published
+   Blueprint. Name the canonical project and Work outcome separately; do not
+   assume instantiation creates a project link or accepts Work. Include the
+   intended executor, unresolved dependencies and a checkable done-when.
+
+| Preflight decision             | Meaning and next step                                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `allowed`                      | The declared pin resolved. This is availability, not execution authority.                                            |
+| `missing`                      | A declared dependency could not be resolved. Name it and propose its setup or selection.                             |
+| `denied`                       | Access was refused. Report the exact result and the required authority.                                              |
+| `incompatible`                 | The resolved revision, version or runtime does not satisfy the requirement. Propose a compatible selection.          |
+| `consent_required`             | The connection requires a user-present consent flow. Keep that step with the human.                                  |
+| No decision for a kind         | That kind was not declared; do not interpret silence as a passed check.                                              |
+| Failed or unreadable preflight | Dependency status is unknown. Preserve the error; do not reinterpret it as missing access or continue to activation. |
+
+The proposal should be small enough to accept as one Work outcome:
+
+| Proposal field        | Required detail                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Goal                  | Selected source, expected durable result and destination if publication is requested                 |
+| Reuse or create       | Existing Workspace/project IDs, or exact Blueprint revision to instantiate                           |
+| Bindings and blockers | Selected resource identities, returned dependency decisions and unreadable evidence                  |
+| Changes               | Only missing configuration and explicit project linkage, with the required scopes                    |
+| Activation            | Intended executor and execution path, authority, budget and any separate approval or scheduling step |
+| Done when             | One observable run, its exact Output revision, and destination evidence when required                |
+
+After acceptance and admission for the requested changes, discover the exact
+instantiation callable. Instantiation rechecks dependencies and requires a
+published Blueprint; it records the revision ID and number, preflight
+envelope, resource bindings and Gadget revisions on the new Workspace.
+It copies no credentials. Unresolved connections may leave the configured
+Workspace needing consent even when instantiation succeeds. Compare the
+recorded revision with the proposal if the Blueprint changed meanwhile.
+
+Configuration does not start the intended loop. Activate only the execution
+or scheduling path covered by the request and current authority. Follow its
+receipt rather than replaying the mutation: denied, awaiting approval,
+queued, running and terminal outcomes mean different things. Prove one run
+and its durable result before calling the factory operating. If the goal
+includes publishing, verify that destination too. Preserve the Work, Attempt,
+Workspace and Output identities so the next agent can follow the result.
