@@ -1,3 +1,20 @@
+const STATIC_CONTENT_TYPES: Record<string, string> = {
+	woff2: "font/woff2",
+	woff: "font/woff",
+	ttf: "font/ttf",
+	css: "text/css; charset=utf-8",
+	js: "application/javascript; charset=utf-8",
+	mjs: "application/javascript; charset=utf-8",
+	svg: "image/svg+xml",
+	png: "image/png",
+	webp: "image/webp",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	avif: "image/avif",
+	gif: "image/gif",
+	ico: "image/x-icon",
+};
+
 /** Public immutable Astro assets; the key remains isolated by tenant slug. */
 export async function staticAssetResponse(
 	request: Request,
@@ -27,17 +44,7 @@ export async function staticAssetResponse(
 	if (!object) return null;
 	const ext = filename.split(".").pop()?.toLowerCase();
 	const contentType =
-		ext === "woff2"
-			? "font/woff2"
-			: ext === "woff"
-				? "font/woff"
-				: ext === "ttf"
-					? "font/ttf"
-					: ext === "css"
-						? "text/css; charset=utf-8"
-						: ext === "js" || ext === "mjs"
-							? "application/javascript; charset=utf-8"
-							: "application/octet-stream";
+		(ext ? STATIC_CONTENT_TYPES[ext] : undefined) ?? "application/octet-stream";
 	const headers = new Headers({
 		"Content-Type": contentType,
 		"Cache-Control": "public, max-age=31536000, immutable",

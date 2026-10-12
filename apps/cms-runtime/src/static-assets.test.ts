@@ -23,6 +23,29 @@ describe("immutable tenant static assets", () => {
 		expect(response!.headers.get("content-length")).toBe("5");
 		expect(await response!.text()).toBe("hello");
 	});
+	it("labels image and font assets so browsers render them", async () => {
+		const get = vi.fn().mockResolvedValue({ ...metadata, body: null });
+		const bucket = { get } as unknown as R2Bucket;
+		const types: Record<string, string> = {
+			"logo.hash.svg": "image/svg+xml",
+			"photo.hash.webp": "image/webp",
+			"seal.hash.png": "image/png",
+			"unknown.hash.bin": "application/octet-stream",
+		};
+		for (const [name, type] of Object.entries(types)) {
+			const response = await staticAssetResponse(
+				new Request(`https://site/_astro/${name}`, { method: "HEAD" }),
+				{
+					head: vi.fn().mockResolvedValue(metadata),
+					get,
+				} as unknown as R2Bucket,
+				"a",
+				`/_astro/${name}`,
+			);
+			expect(response!.headers.get("content-type")).toBe(type);
+		}
+		expect(bucket).toBeDefined();
+	});
 	it("HEAD reads metadata only and weak/list validators produce a bodyless 304", async () => {
 		const head = vi.fn().mockResolvedValue(metadata);
 		const get = vi.fn();
