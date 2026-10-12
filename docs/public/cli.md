@@ -102,7 +102,7 @@ Every hook does nothing until you opt in to its feature:
 | `capture-reply`        | Each submitted prompt (background)                                                                 | Sends your reply to that question, redacted and bounded the same way.                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
 | `await-reply`          | End of each turn; Claude Code only, background, up to four hours                                   | Wakes the session with every answer you gave in Tedix OS to its questions (not only the newest), or a tedi automatic reply, and records each delivery once.                                                                                                                                                                                                                                                                                                                                                              | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
 | `await-draft`          | End of each turn; Codex only, may hold the turn up to 5 minutes                                    | Continues the turn with your pending Tedix OS answers to the session's questions, or an automatic tedi reply, and records each delivery once.                                                                                                                                                                                                                                                                                                                                                                            | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
-| `status`               | Prompt submit, tool use, permission request, notification, stop, failure, session end (background) | Records a local status line and macOS notification; with a profile, sends the state, session ID, repo/branch and a 160-character summary.                                                                                                                                                                                                                                                                                                                                                                                | `~/.tedix/agent-status.json` with `"enabled": true`, or `TEDIX_AGENT_STATUS=1`                                                                                                                                                                                                                          |
+| `status`               | Prompt submit, tool use, permission request, notification, stop, failure, session end (background) | Records a local status line and macOS notification; with a profile, sends the state, session ID, the session's name (its Claude Code `/rename` title or Codex thread name, else folder · branch), the bound project and Work Item, and a 160-character summary.                                                                                                                                                                                                                                                          | `~/.tedix/agent-status.json` with `"enabled": true`, or `TEDIX_AGENT_STATUS=1`                                                                                                                                                                                                                          |
 
 A tedi auto reply that lands after a Codex session's `await-draft` stopped
 waiting reaches nobody, so the session idles. `tedix supervise` checks every
@@ -131,7 +131,17 @@ status files untouched for 7 days. `tedix supervise --once` runs one check;
 `tedix supervise install` runs it at login as a user LaunchAgent on macOS
 (no `sudo`) and reinstalls over a loaded agent by waiting for the old job to
 unload and confirming the new one, and `tedix supervise uninstall` removes
-it. Activity goes to `~/.tedix/supervisor.log`.
+it. Activity goes to `~/.tedix/supervisor.log`. On macOS the supervisor skips a
+headless resume in a privacy-protected folder (Documents, Desktop, Downloads)
+and logs why; [Full Disk Access for the supervisor](./supervisor-full-disk-access.md)
+lifts that.
+
+To hand accepted Work to an existing Codex chat, run
+`tedix work handoff <id> --host codex --to codex:<chat-id> --launch`. The chat
+must be bound to the same profile, organization and Work project; the
+supervisor delivers the item once the chat is idle and the Work is ready.
+Repeating the command keeps the delivery receipt. The chat still starts its
+own Attempt; a handoff completes nothing.
 
 ### Answer delivery
 
@@ -150,6 +160,10 @@ run yourself:
   registers a lead session's hand-off as an accepted Work Item;
   `tedix work delegate --done <id> --note "…"` records the outcome and
   completes it.
+
+`tedix work interaction-respond <id> --input "…" --no-deliver` answers a
+question without delivering it to the asking session, for closures such as
+"status update, not an ask". The question page shows "Closed (no delivery)".
 
 `tedix agent rename` names a profile's agent after this machine and user (or
 `--display-name`), so sessions on this machine no longer appear as whichever
