@@ -9,7 +9,7 @@ vi.mock("./lib/api-client", () => ({
 	getApiClient: () => ({ apps: api }),
 }));
 
-import { CACHE_TIER_BUDGET_MS } from "./lib/step-budget";
+import { CACHE_TIER_BUDGET_MS, JOINED_LOAD_BUDGET_MS } from "./lib/step-budget";
 import {
 	purgeAppResolutionCacheKeys,
 	resolveAppFromHostname,
@@ -71,6 +71,81 @@ describe("resolveAppFromHostname single-flight recovery", () => {
 			app: { id: "app-recovered", slug: hostname.appSlug },
 		});
 		expect(api.getBySlugWithTools).toHaveBeenCalledTimes(3);
+	});
+
+	/**
+	 * 2026-10-12: a request that owned the shared resolver ended, so its timers
+	 * never fired and its promise never settled. Every request that joined it
+	 * waited the full 30s wedge bound and answered 500.
+	 */
+	it("bounds each joiner of a stalled resolver by its own budget, not the owner's", async () => {
+		vi.useFakeTimers();
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const slug = "stalled-join-test";
+		api.getBySlugWithTools.mockImplementation(
+			() => new Promise<never>(() => {}),
+		);
+		const store = new Map<string, string>([
+			[
+				`app-resolution/v1/${encodeURIComponent(`mcp-subdomain:${slug}`)}`,
+				JSON.stringify({
+					cachedAt: Date.now() - 3_600_000,
+					app: {
+						app: { id: "app-stale", name: "Stale", slug, domain: null },
+						metadata: null,
+						tools: [],
+					},
+					epoch: null,
+				}),
+			],
+		]);
+		const env = {
+			API_URL: "https://api.tedix.dev",
+			API_SERVICE: {} as Fetcher,
+			AGGREGATE_CACHE: {
+				get: async (key: string) => {
+					const value = store.get(key);
+					return value ? { json: async () => JSON.parse(value) } : null;
+				},
+				put: async () => {},
+			},
+		} as unknown as CloudflareEnv;
+		const hostname = { type: "subdomain" as const, appSlug: slug };
+
+		const owner = resolveAppFromHostname(hostname, env).catch(
+			(error: unknown) => error,
+		);
+		await vi.waitFor(() =>
+			expect(api.getBySlugWithTools).toHaveBeenCalledTimes(1),
+		);
+		const settled: string[] = [];
+		const joiners = [1, 2, 3].map((index) =>
+			resolveAppFromHostname(hostname, env).then((value) => {
+				settled.push(`joiner-${index}`);
+				return value;
+			}),
+		);
+
+		await vi.advanceTimersByTimeAsync(JOINED_LOAD_BUDGET_MS + 100);
+		// Every joiner fell back to the stale durable copy for its own request,
+		// well before the owner's first upstream attempt could time out.
+		expect(JOINED_LOAD_BUDGET_MS).toBeLessThan(UPSTREAM_ATTEMPT_TIMEOUT_MS);
+		expect(settled).toHaveLength(3);
+		for (const joined of await Promise.all(joiners)) {
+			expect(joined).toMatchObject({ app: { id: "app-stale" } });
+		}
+
+		// The stalled load was evicted: the next uncached caller starts its own.
+		await purgeAppResolutionCacheKeys({} as CloudflareEnv, [
+			`mcp-subdomain:${slug}`,
+		]).catch(() => undefined);
+		void resolveAppFromHostname(hostname, env).catch(() => undefined);
+		await vi.advanceTimersByTimeAsync(10);
+		expect(api.getBySlugWithTools).toHaveBeenCalledTimes(2);
+
+		await vi.advanceTimersByTimeAsync(UPSTREAM_ATTEMPT_TIMEOUT_MS * 2 + 1_000);
+		await owner;
 	});
 
 	/**

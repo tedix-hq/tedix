@@ -38,6 +38,19 @@ const log = createMcpLogger("mcp.step_budget");
  */
 export const CACHE_TIER_BUDGET_MS = 2_500;
 
+/**
+ * Budget for a request that JOINS a shared in-flight load another request
+ * started. The owner's inner budgets run on the owner's timers, and Workers
+ * stops those timers and drops its pending I/O when the owning request ends
+ * (for example a client that disconnected). A joiner of that orphaned load
+ * would otherwise wait out the whole wedge bound: on 2026-10-12 one cancelled
+ * request left `app_resolution_join` callers hanging 30s each. A healthy load
+ * settles in well under a second, so past this budget the joiner evicts the
+ * load and falls back or fails for its own request only; the next request
+ * starts a fresh load in its own context.
+ */
+export const JOINED_LOAD_BUDGET_MS = 8_000;
+
 export class StepBudgetExceededError extends Error {
 	readonly code = "STEP_BUDGET_EXCEEDED";
 	readonly step: string;
