@@ -583,13 +583,32 @@ export function deriveApprovalAuthority(
  * `kernelRuntime.readMessages`; `ts` is the row's `createdAt` — the stable join
  * key the harness reconciles on (never content).
  */
+/**
+ * The CLI appends a "Local terminal context" block (cwd, git root, status) to
+ * every message it sends. It matters for the turn it was sent with — that turn
+ * receives it in the operator message, not here — and is pure repetition when
+ * replayed as history: one probe conversation carried 71 copies (~3 000 of
+ * ~4 700 history tokens). Replay keeps the operator's words only.
+ */
+const LOCAL_TERMINAL_CONTEXT_BLOCK =
+	/\n\nLocal terminal context:\n(?:- [^\n]*(?:\n {2}[^\n]*)*(?:\n|$))+/g;
+
+export function stripLocalTerminalContext(content: string): string {
+	if (!content.includes("Local terminal context:")) return content;
+	return content.replace(LOCAL_TERMINAL_CONTEXT_BLOCK, "\n").trimEnd();
+}
+
 function homeEventRowToTurn(row: {
 	kind: string;
 	conversationId: string;
 	payload: Record<string, unknown> | null;
 	createdAt: string;
 }): TediSessionTurn {
-	const content = row.payload?.content;
+	const rawContent = row.payload?.content;
+	const content =
+		row.kind === "message.received" && typeof rawContent === "string"
+			? stripLocalTerminalContext(rawContent)
+			: rawContent;
 	const attachments =
 		row.kind === "message.received" && Array.isArray(row.payload?.attachments)
 			? row.payload.attachments.flatMap((value) => {
