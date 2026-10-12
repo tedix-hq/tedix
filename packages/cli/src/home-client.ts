@@ -38,7 +38,7 @@ import {
 } from "@tedix/mcp-shared/task-polling";
 import type { McpTaskState } from "@tedix/mcp-shared/tasks";
 import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
-import type { DiscoveryCache } from "./discovery-cache";
+import { type DiscoveryCache, isStaleDiscoveryError } from "./discovery-cache";
 import { isConnectionError } from "./operator/runtime-errors";
 import type { SessionRefreshOutcome } from "./oauth-provider";
 import { CLI_VERSION } from "./shared";
@@ -1682,7 +1682,7 @@ export class TedixHomeClient {
 			);
 		} catch (error) {
 			// A reused discovery answer may be stale: rediscover on the next command.
-			if (this.#discoveryFromCache)
+			if (this.#discoveryFromCache && isStaleDiscoveryError(error))
 				this.#discoveryCache?.forget(this.#options.url);
 			throw error;
 		}

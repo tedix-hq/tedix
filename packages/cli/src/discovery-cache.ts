@@ -81,3 +81,16 @@ export function fileDiscoveryCache(
 		},
 	};
 }
+
+/**
+ * True when a failed call suggests the gateway's protocol changed since the
+ * cached discovery. Ordinary tool, auth or network failures keep the entry:
+ * the cache is shared by every CLI process on the machine, so dropping it on
+ * any error would make unrelated failures cost the next command a round trip.
+ */
+export function isStaleDiscoveryError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /unsupported (mcp )?protocol version|without advertising|"code":-32601/i.test(
+		message,
+	);
+}

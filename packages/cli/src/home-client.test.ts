@@ -2699,7 +2699,19 @@ describe("discovery cache", () => {
 		expect(events).toEqual(["write:false"]);
 	});
 
-	test("forgets a cached answer when the call fails", async () => {
+	test("keeps a cached answer when a tool call fails for another reason", async () => {
+		const { client, events } = cachingClient({ supportsTasks: false }, (id) =>
+			Response.json({
+				jsonrpc: "2.0",
+				id,
+				error: { code: -32602, message: "Work item not found" },
+			}),
+		);
+		await expect(client.callTool("probe", {})).rejects.toThrow();
+		expect(events).toEqual([]);
+	});
+
+	test("forgets a cached answer when the protocol changed", async () => {
 		const { client, events } = cachingClient({ supportsTasks: false }, (id) =>
 			Response.json({
 				jsonrpc: "2.0",
