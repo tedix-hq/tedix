@@ -21,6 +21,8 @@ export const EDGE_CACHE_EXCLUDED_PREFIXES = [
  * must override upstream cache policy with `private, no-store`.
  *
  * `Vary: Host` remains defense in depth, but is not an isolation boundary.
+ * Anonymous pages are cached inside the Worker under an explicit tenant key
+ * instead; see ./tenant-page-cache.
  */
 const DISABLED_CACHE_CONTROL = "private, no-store";
 
