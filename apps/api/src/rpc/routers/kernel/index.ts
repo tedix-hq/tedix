@@ -418,6 +418,16 @@ export function renderRouteResponse(
  * available (Azure + Workers AI both failed); the caller then settles the turn
  * `failed` (model unavailable) — there is no heuristic responder.
  */
+/**
+ * Default budget for the DEFERRED history fold on the Azure lane. Measured
+ * 2026-10-12 (Work 25491c8a) on a 190-message conversation with the
+ * per-request override at this value: one fold after the first answers, then
+ * every turn replays checkpoint + tail; first token p50 6.0 / p95 8.0 s (not
+ * worse than the 5.4-8.4 s baseline), cost per turn -12%. The fold never runs
+ * before planning (the two earlier budget attempts that did were reverted).
+ */
+const HOME_DEFERRED_FOLD_TOKEN_BUDGET = 10_000;
+
 export async function runKernel(args: {
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
 	/** The conversation's persisted compaction checkpoint (KernelDO storage). */
@@ -939,12 +949,18 @@ export async function runKernel(args: {
 	// Deferred fold (dormant without `promptTokenBudget`): decide from the route
 	// call's measured prompt, run after settle, never in front of an answer.
 	let deferredHistoryCompaction: (() => Promise<void>) | null = null;
-	const foldBudget =
+	const requestedFoldBudget =
 		typeof args.promptTokenBudget === "number" &&
 		Number.isFinite(args.promptTokenBudget) &&
 		args.promptTokenBudget >= 4_000
-			? Math.min(Math.floor(args.promptTokenBudget), maxPromptTokens)
-			: null;
+			? Math.floor(args.promptTokenBudget)
+			: kernelServesWorkersAiLane(model)
+				? null
+				: HOME_DEFERRED_FOLD_TOKEN_BUDGET;
+	const foldBudget =
+		requestedFoldBudget === null
+			? null
+			: Math.min(requestedFoldBudget, maxPromptTokens);
 	const routePromptTokens = routeAttemptPromptTokens(
 		routeUsage?.attempts ?? [],
 	);
