@@ -3076,22 +3076,12 @@ export async function runKernelTurnWork(
 	// so it stays last in the stream) and can contend on D1; it must never
 	// hold the answer behind it. Non-terminal kernel statuses leave the
 	// submission in flight as before.
-	const submissionOutcome =
-		kernelRunStatusToSubmissionOutcome(dispatchAwareStatus);
-	if (submissionOutcome) {
-		await settleKernelSubmission(deps.db, {
-			runId,
-			organizationId,
-			conversationId,
-			outcome: submissionOutcome,
-		});
-	}
 	// Post-settlement work that must not delay the settled answer. `holdAfterSettle`
-	// (inline path: `context.waitUntil`; KernelDO: a tracker drained after the
-	// live turn state clears) keeps each promise alive; without a holder the
-	// turn body awaits them before resolving, so nothing is ever detached in a
-	// context that could drop it. Every held promise is caught: a lost title or
-	// trace bundle is logged, never a broken settle.
+	// (inline path: `context.waitUntil`; KernelDO: a tracker parked on the DO's
+	// waitUntil once the live turn state clears) keeps each promise alive;
+	// without a holder the turn body awaits them before resolving, so nothing
+	// is ever detached in a context that could drop it. Every held promise is
+	// caught: a lost title or trace bundle is logged, never a broken settle.
 	const heldAfterSettle: Promise<void>[] = [];
 	const holdAfterSettle = (event: string, work: Promise<unknown>): void => {
 		const safe = work.then(
@@ -3217,6 +3207,24 @@ export async function runKernelTurnWork(
 			contextManifest: turnRunMetadata.contextManifest ?? {},
 		});
 		holdAfterSettle("trace_evidence_record_failed", traceWork);
+	}
+	const submissionOutcome =
+		kernelRunStatusToSubmissionOutcome(dispatchAwareStatus);
+	if (submissionOutcome) {
+		// Held, not awaited: the multi-step submission settle measured 0.7-0.8 s
+		// of D1 round trips between the terminal write and the answer leaving
+		// (stage marks settleWriteEnded → turnEnded). The run row and the
+		// transcript are already terminal; `submission.settled` still lands
+		// last because it starts after them.
+		holdAfterSettle(
+			"submission_settle_failed",
+			settleKernelSubmission(deps.db, {
+				runId,
+				organizationId,
+				conversationId,
+				outcome: submissionOutcome,
+			}),
+		);
 	}
 	// No holder was injected: the turn body itself keeps the post-settlement
 	// work alive (each promise is already caught above).
