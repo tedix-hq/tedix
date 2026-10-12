@@ -255,8 +255,45 @@ function resolveSessionTuple(input: {
 	modelId?: string;
 	modelVersion?: string;
 }): ExternalAgentSessionTuple {
-	const detected = resolveExplicitAgentSession();
-	const harness = input.harness?.trim() || detected.harness;
+	const requestedHarness = input.harness?.trim();
+	const explicitSession = process.env.TEDIX_AGENT_SESSION?.trim();
+	const nativeSessions: Record<string, string | undefined> = {
+		codex:
+			process.env.CODEX_SESSION_ID?.trim() ||
+			process.env.CODEX_THREAD_ID?.trim(),
+		"claude-code": process.env.CLAUDE_CODE_SESSION_ID?.trim(),
+		cursor: process.env.CURSOR_TRACE_ID?.trim(),
+	};
+	if (
+		!requestedHarness &&
+		!explicitSession &&
+		Object.values(nativeSessions).filter(Boolean).length > 1
+	) {
+		throw new Error(
+			"Multiple harness session IDs are present. Choose --agent-harness or set TEDIX_AGENT_SESSION to your own immutable <harness>:<session-id> before starting.",
+		);
+	}
+	const nativeSession = requestedHarness
+		? nativeSessions[requestedHarness]
+		: undefined;
+	if (requestedHarness && !explicitSession && !nativeSession) {
+		throw new Error(
+			`No native Agent-Session for harness "${requestedHarness}". Set TEDIX_AGENT_SESSION to your own immutable <harness>:<session-id> before starting; another harness's session cannot be reused.`,
+		);
+	}
+	const selectedSession = explicitSession || nativeSession;
+	const detected = resolveExplicitAgentSession(
+		requestedHarness && selectedSession && !selectedSession.includes(":")
+			? `${requestedHarness}:${selectedSession}`
+			: selectedSession,
+	);
+	const harness = requestedHarness || detected.harness;
+	const sessionHarness = detected.session.split(":", 1)[0];
+	if (requestedHarness && sessionHarness !== requestedHarness) {
+		throw new Error(
+			`TEDIX_AGENT_SESSION belongs to harness "${sessionHarness}", not "${requestedHarness}". Set it to your own immutable ${requestedHarness}:<session-id>; the existing session is unchanged.`,
+		);
+	}
 	const harnessVersion =
 		input.harnessVersion?.trim() ||
 		process.env.TEDIX_AGENT_HARNESS_VERSION?.trim();
@@ -280,13 +317,8 @@ function resolveSessionTuple(input: {
 			`External-agent credit requires immutable harness/model versions. Missing: ${missing.join(", ")}.`,
 		);
 	}
-	const explicitSession = process.env.TEDIX_AGENT_SESSION?.trim();
-	const externalSessionKey =
-		explicitSession && !explicitSession.includes(":")
-			? `${harness}:${explicitSession}`
-			: detected.session;
 	return {
-		externalSessionKey,
+		externalSessionKey: detected.session,
 		harness,
 		harnessVersion: harnessVersion as string,
 		modelProvider: modelProvider as string,
@@ -295,10 +327,10 @@ function resolveSessionTuple(input: {
 	};
 }
 
-function resolveExplicitAgentSession(): NonNullable<
-	ReturnType<typeof resolveAgentSession>
-> & { derived: false } {
-	const detected = resolveAgentSession();
+function resolveExplicitAgentSession(
+	explicit?: string,
+): NonNullable<ReturnType<typeof resolveAgentSession>> & { derived: false } {
+	const detected = resolveAgentSession(explicit);
 	if (!detected || detected.derived) {
 		throw new Error(
 			"External-agent credit requires an explicit Agent-Session. Set TEDIX_AGENT_SESSION (or a native Codex/Claude/Cursor session id) before `tedix agent start`.",
