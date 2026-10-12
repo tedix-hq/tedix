@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	buildCallerAuditMetadata,
+	isDirectHomeKernelCall,
 	normalizeCallerIdentity,
 	shouldBypassCodeModeForCaller,
 } from "./caller-identity";
@@ -302,4 +303,37 @@ describe("configured tool dispatch", () => {
 			);
 		},
 	);
+});
+
+describe("isDirectHomeKernelCall", () => {
+	const human = { authType: "oauth" as const };
+	const service = { authType: "service" as const };
+
+	it("skips the aggregate fan-out for a signed-in human's direct ask", () => {
+		expect(isDirectHomeKernelCall(human, "ask")).toBe(true);
+		expect(isDirectHomeKernelCall({ authType: "user" }, "ask")).toBe(true);
+	});
+
+	it("keeps the fan-out for anything a human reaches through Code Mode", () => {
+		expect(isDirectHomeKernelCall(human, "code")).toBe(false);
+		expect(isDirectHomeKernelCall(human, "home__read_home_run")).toBe(false);
+		expect(isDirectHomeKernelCall(human, "list_apps")).toBe(false);
+		expect(isDirectHomeKernelCall(human, undefined)).toBe(false);
+	});
+
+	it("keeps the fan-out for anonymous and forced Code Mode callers", () => {
+		expect(isDirectHomeKernelCall({ authType: "anonymous" }, "ask")).toBe(
+			false,
+		);
+		expect(
+			isDirectHomeKernelCall({ ...human, forceCodeMode: true }, "ask"),
+		).toBe(false);
+		expect(isDirectHomeKernelCall(undefined, "ask")).toBe(false);
+	});
+
+	it("lets programmatic callers reach every Home and kernel tool directly", () => {
+		expect(isDirectHomeKernelCall(service, "home__read_home_run")).toBe(true);
+		expect(isDirectHomeKernelCall(service, "kernel__enqueue")).toBe(true);
+		expect(isDirectHomeKernelCall(service, "list_apps")).toBe(false);
+	});
 });
