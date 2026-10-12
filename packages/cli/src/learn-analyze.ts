@@ -82,6 +82,9 @@ const DENIED =
 /** Tools whose duration is someone waiting on purpose, not a stall. */
 const WAITS =
 	/^(?:sleep|wait|wait_agent|wait_threads|write_stdin|Monitor|TaskOutput|ScheduleWakeup|AskUserQuestion|request_user_input\w*|spawn_agent|Agent|Task|mcp__\w*wait\w*)$/i;
+/** Shell commands that poll on purpose: a loop that sleeps, or a watch. */
+const POLLS =
+	/\b(?:until|while|for)\b[\s\S]*\bsleep\b|\bgh run watch\b|\s--watch\b/;
 const STALL_MS = 5 * 60_000;
 /** Flags whose next word is their value, not a subcommand. */
 const VALUE_FLAGS = new Set([
@@ -106,7 +109,10 @@ export function commandHead(command: string): string {
 		.filter(Boolean);
 	const segment =
 		segments.find(
-			(s) => !/^(?:cd|export|set|source|sleep|echo|printf|true|:)\b/.test(s),
+			(s) =>
+				!/^(?:cd|export|set|source|sleep|echo|printf|true|:)\b|^(?:\w+=\S*\s*)+$/.test(
+					s,
+				),
 		) ??
 		segments[0] ??
 		"";
@@ -187,7 +193,10 @@ function toolEvent(
 		error,
 		at: typeof end === "string" ? end : String(start ?? ""),
 		ms:
-			WAITS.test(name) || Number.isNaN(begun) || Number.isNaN(ended)
+			WAITS.test(name) ||
+			POLLS.test(command) ||
+			Number.isNaN(begun) ||
+			Number.isNaN(ended)
 				? null
 				: Math.max(0, ended - begun),
 	};

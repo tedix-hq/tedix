@@ -108,6 +108,9 @@ describe("commandHead", () => {
 			"curl api.example.test",
 		);
 		expect(commandHead('rg -n "needle" src')).toBe("rg");
+		expect(commandHead("F=/tmp/out.txt; bun run build > $F")).toBe(
+			"bun run build",
+		);
 	});
 });
 
@@ -188,6 +191,47 @@ describe("claudeSignals", () => {
 		expect(build!.error).toBe("error: cannot find module <path>");
 		expect(deploy!.denied).toBe(true);
 		expect(deploy!.ms).toBe(8 * 60_000);
+	});
+
+	it("does not time a polling loop or a watch as a stall", () => {
+		const commands = [
+			"until grep -q done out.txt; do sleep 5; done",
+			"F=out.txt; for i in $(seq 1 40); do sleep 20; done",
+			"gh run watch 123 --exit-status",
+		];
+		const rows = [
+			{
+				type: "assistant",
+				sessionId: "c-2",
+				cwd: "/work/acme",
+				timestamp: T(3),
+				message: {
+					content: commands.map((command, i) => ({
+						type: "tool_use",
+						id: `p${i}`,
+						name: "Bash",
+						input: { command },
+					})),
+				},
+			},
+			{
+				type: "user",
+				timestamp: T(3, 10),
+				message: {
+					role: "user",
+					content: commands.map((_, i) => ({
+						type: "tool_result",
+						tool_use_id: `p${i}`,
+						content: "done",
+					})),
+				},
+			},
+		];
+		expect(claudeSignals(rows)!.tools.map((t) => t.ms)).toEqual([
+			null,
+			null,
+			null,
+		]);
 	});
 });
 
