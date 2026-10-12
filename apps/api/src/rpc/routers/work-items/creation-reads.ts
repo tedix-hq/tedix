@@ -6,6 +6,7 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
 import { getOrgGraphHealth } from "@tedix/db/queries/org-graph-health";
+import { getProjectById } from "@tedix/db/queries/projects";
 import {
 	getWorkGraphHealth,
 	runWorkGraphSteward,
@@ -190,7 +191,7 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 export const getByIdProcedure = authOs.getById.handler(
 	async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		const [comments, evidencePage, projections] = await Promise.all([
+		const [comments, evidencePage, projections, project] = await Promise.all([
 			listWorkItemComments(context.db, input.id),
 			listWorkItemEvidence(context.db, {
 				orgId: workItem.orgId,
@@ -198,9 +199,20 @@ export const getByIdProcedure = authOs.getById.handler(
 				limit: 100,
 			}),
 			listWorkItemProjections(context.db, input.id),
+			workItem.projectId
+				? getProjectById(context.db, workItem.projectId)
+				: undefined,
 		]);
 		return {
 			workItem,
+			project:
+				project && project.orgId === workItem.orgId
+					? {
+							id: project.id,
+							name: project.name,
+							description: project.description,
+						}
+					: null,
 			comments,
 			evidence: await Promise.all(
 				evidencePage.data.map((row) => resolveWorkEvidenceRow(context, row)),

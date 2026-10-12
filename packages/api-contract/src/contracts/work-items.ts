@@ -504,6 +504,16 @@ export const workItemsContract = oc
 			.output(
 				z.object({
 					workItem: WorkItemSchema,
+					project: z
+						.object({
+							id: z.string(),
+							name: z.string(),
+							description: z.string().nullable(),
+						})
+						.nullable()
+						.describe(
+							"The Work Item's project brief (projects.description), so a fresh session reads its purpose without a search. Null when the item has no project.",
+						),
 					comments: z.array(WorkItemCommentSchema),
 					evidence: z.array(ResolvedWorkEvidenceSchema),
 					evidenceNextCursor:

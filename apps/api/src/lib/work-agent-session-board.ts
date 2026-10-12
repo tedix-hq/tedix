@@ -148,13 +148,19 @@ interface ContributorAttempt {
 	heartbeatAt: string;
 }
 
+/** A contributor silent this long has ended, whatever it last reported. */
+const CONTRIBUTOR_ENDED_AFTER_MS = 24 * HOUR_MS;
+
 const latest = (a: string, b: string) => (a.localeCompare(b) >= 0 ? a : b);
 
 /**
  * One row per session that worked on a project, keyed `<harness>:<id>` like
  * Work Attempts. A session report supplies name, state and current item; a
  * session known only from Attempts reads `unknown` with its latest Attempt's
- * item. Sessions that may still be active come first, then newest activity.
+ * item. A live Attempt keeps heartbeating, so a session with no report or
+ * heartbeat for 24 hours reads `ended` even if it last said `idle` or was
+ * only ever seen through Attempts. Sessions that may still be active come
+ * first, then newest activity.
  */
 export function buildWorkProjectContributors(
 	reports: readonly ContributorReport[],
@@ -206,6 +212,14 @@ export function buildWorkProjectContributors(
 			workItemTitle: attempt.workItemTitle,
 			attempts: 1,
 		});
+	}
+	for (const contributor of contributors.values()) {
+		if (
+			Date.parse(now) - Date.parse(contributor.lastActivityAt) >
+			CONTRIBUTOR_ENDED_AFTER_MS
+		) {
+			contributor.state = "ended";
+		}
 	}
 	const settled = new Set(["ended", "unknown"]);
 	return [...contributors.values()].sort((a, b) => {

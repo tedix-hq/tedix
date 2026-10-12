@@ -123,6 +123,22 @@ describe("buildWorkProjectContributors", () => {
 		heartbeatAt: "2026-10-06T11:50:00.000Z",
 	};
 
+	it("reads a contributor silent for over 24 hours as ended", () => {
+		const old = "2026-10-05T11:00:00.000Z";
+		const rows = buildWorkProjectContributors(
+			[{ ...report, state: "idle" as const, lastEventAt: old }],
+			[
+				{
+					...attempt,
+					externalSessionKey: "claude-code:attempt-only",
+					heartbeatAt: old,
+				},
+			],
+			NOW,
+		);
+		expect(rows.map((row) => row.state)).toEqual(["ended", "ended"]);
+	});
+
 	it("merges a session's report and Attempts into one row", () => {
 		const [row, ...rest] = buildWorkProjectContributors(
 			[report],
