@@ -48,7 +48,7 @@ export function SettledSpendingRows({
 					<TableBody>
 						{groupSettledCreditCharges(data.rows).map((group) => (
 							<TableRow key={group.runId ?? "unlinked"}>
-								<TableCell>
+								<TableCell className="max-w-md whitespace-normal">
 									{group.runId ? (
 										<a
 											className="text-kumo-brand underline underline-offset-2"
