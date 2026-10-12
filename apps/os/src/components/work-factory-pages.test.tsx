@@ -24,6 +24,7 @@ import {
 	compactEvidenceUri,
 	milestoneLifecycleUpdateInput,
 	PortfolioProjectList,
+	ProjectBrief,
 	ProjectSummary,
 	WorkItemStatusSummary,
 	WorkItemPage,
@@ -707,6 +708,29 @@ describe("Work project summary", () => {
 		expect(html).toContain("86%");
 		expect(html).toContain("Not recorded");
 		expect(html).not.toContain('data-slot="card"');
+	});
+});
+
+describe("Work project brief", () => {
+	it("shows the description with its line breaks", () => {
+		const doc = new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<ProjectBrief description={"First line\nSecond line"} />,
+			),
+			"text/html",
+		);
+		const brief = doc.querySelector('section[aria-label="Brief"] p');
+		expect(brief?.textContent).toBe("First line\nSecond line");
+		expect(brief?.className).toContain("whitespace-pre-line");
+	});
+
+	it("shows a muted hint when the brief is empty", () => {
+		for (const description of [null, "   "]) {
+			const html = renderToStaticMarkup(
+				<ProjectBrief description={description} />,
+			);
+			expect(html).toContain("This project has no brief yet.");
+		}
 	});
 });
 

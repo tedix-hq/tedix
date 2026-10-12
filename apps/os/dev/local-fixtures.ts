@@ -2364,12 +2364,13 @@ const project = (
 	name: string,
 	status: "active" | "paused" | "archived" | "done",
 	archivedAt: string | null = null,
+	description: string | null = null,
 ) => ({
 	id: fid("76", n),
 	orgId: ORG_ID,
 	key,
 	name,
-	description: null,
+	description,
 	status,
 	leadTediId: null,
 	ownerUserId: null,
@@ -2382,10 +2383,23 @@ const project = (
 });
 
 const PROJECTS = [
-	project(1, "OPS", "Platform operations", "active"),
+	project(
+		1,
+		"OPS",
+		"Platform operations",
+		"active",
+		null,
+		"Keep the reporting stack fast and boring.\nGoal: churn cohort and revenue summaries refresh before the Monday owner sync.\nOut of scope: new dashboards.",
+	),
 	project(2, "GROWTH", "Growth experiments", "active"),
 	project(3, "LEGACY", "Wind-down", "archived", T1),
 ];
+
+function localProject(id: string) {
+	const row = PROJECTS.find((project) => project.id === id);
+	if (!row) throw new RpcError("NOT_FOUND", "Project not found");
+	return row;
+}
 
 const relation = (
 	n: number,
@@ -3447,6 +3461,10 @@ const LOCAL_AGENT_SESSIONS: readonly {
 	effectiveState: LocalAgentSessionState;
 	summary: string;
 	minutesAgo: number;
+	/** Fixture project number (`fid("76", n)`). */
+	project?: number;
+	/** Fixture Work Item number (`workItemId(n)`). */
+	workItem?: number;
 }[] = [
 	{
 		n: 1,
@@ -3457,6 +3475,8 @@ const LOCAL_AGENT_SESSIONS: readonly {
 		summary:
 			"Waiting for approval to run the D1 migration against the local database before continuing with the board.",
 		minutesAgo: 3,
+		project: 1,
+		workItem: 1,
 	},
 	{
 		n: 2,
@@ -3475,6 +3495,7 @@ const LOCAL_AGENT_SESSIONS: readonly {
 		effectiveState: "error",
 		summary: "Type-check failed in apps/tedi-runtime after the retry refactor.",
 		minutesAgo: 7,
+		project: 1,
 	},
 	{
 		n: 4,
@@ -3484,6 +3505,8 @@ const LOCAL_AGENT_SESSIONS: readonly {
 		effectiveState: "done",
 		summary: "Rewrote the hero copy and pushed to main.",
 		minutesAgo: 18,
+		project: 2,
+		workItem: 5,
 	},
 	{
 		n: 5,
@@ -3493,6 +3516,8 @@ const LOCAL_AGENT_SESSIONS: readonly {
 		effectiveState: "working",
 		summary: "Running the MCP conformance suite.",
 		minutesAgo: 1,
+		project: 1,
+		workItem: 7,
 	},
 	{
 		n: 6,
@@ -3511,6 +3536,7 @@ const LOCAL_AGENT_SESSIONS: readonly {
 		effectiveState: "idle",
 		summary: "Finished the theme token audit.",
 		minutesAgo: 190,
+		project: 1,
 	},
 	{
 		n: 8,
@@ -3520,6 +3546,8 @@ const LOCAL_AGENT_SESSIONS: readonly {
 		effectiveState: "ended",
 		summary: "Session closed.",
 		minutesAgo: 600,
+		project: 1,
+		workItem: 4,
 	},
 ];
 
@@ -3536,8 +3564,8 @@ function localAgentSessions(includeEnded: boolean | undefined) {
 		state: row.state,
 		effectiveState: row.effectiveState,
 		summary: row.summary,
-		projectId: null,
-		workItemId: null,
+		projectId: row.project ? fid("76", row.project) : null,
+		workItemId: row.workItem ? workItemId(row.workItem) : null,
 		stateSince: at(row.minutesAgo),
 		lastEventAt: at(row.minutesAgo),
 	}));
@@ -3551,6 +3579,58 @@ function localAgentSessions(includeEnded: boolean | undefined) {
 	};
 	for (const row of sessions) counts[row.effectiveState] += 1;
 	return { sessions, counts };
+}
+
+/** Contributor attempt counts per fixture session; one attempt-only session has no report. */
+const LOCAL_CONTRIBUTOR_ATTEMPTS: Readonly<Record<number, number>> = {
+	1: 2,
+	5: 1,
+	8: 3,
+};
+
+function localProjectContributors(projectId: string) {
+	const at = (minutesAgo: number) =>
+		new Date(Date.now() - minutesAgo * 60_000).toISOString();
+	const titleOf = (n: number | undefined) =>
+		n
+			? (WORK_ITEMS.find((item) => item.id === workItemId(n))?.title ?? null)
+			: null;
+	const active = new Set(["needs_you", "error", "working"]);
+	const reported = LOCAL_AGENT_SESSIONS.filter(
+		(row) => row.project && fid("76", row.project) === projectId,
+	).map((row) => ({
+		sessionKey: `${row.harness}:local-session-${row.n}`,
+		harness: row.harness,
+		name: row.label,
+		state: row.effectiveState as string,
+		summary: row.summary,
+		lastActivityAt: at(row.minutesAgo),
+		workItemId: row.workItem ? workItemId(row.workItem) : null,
+		workItemTitle: titleOf(row.workItem),
+		attempts: LOCAL_CONTRIBUTOR_ATTEMPTS[row.n] ?? 0,
+	}));
+	const attemptOnly =
+		projectId === fid("76", 1)
+			? [
+					{
+						sessionKey: "codex:local-session-attempt-only",
+						harness: "codex",
+						name: "codex:local-session-attempt-only",
+						state: "unknown",
+						summary: "",
+						lastActivityAt: at(60 * 30),
+						workItemId: workItemId(6),
+						workItemTitle: titleOf(6),
+						attempts: 1,
+					},
+				]
+			: [];
+	const contributors = [...reported, ...attemptOnly].sort(
+		(a, b) =>
+			Number(active.has(b.state)) - Number(active.has(a.state)) ||
+			b.lastActivityAt.localeCompare(a.lastActivityAt),
+	);
+	return { contributors };
 }
 
 // --- Office (/work/office): knocks, auto-sent replies and the notebook ---
@@ -3720,6 +3800,8 @@ const LOCAL_LESSONS = [
 const handlers: Record<string, (input: never) => unknown> = {
 	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
 		localAgentSessions(input?.includeEnded),
+	"workAgentSessions/contributors": (input: { projectId: string }) =>
+		localProjectContributors(input.projectId),
 	"workInteractions/listInbox": (
 		input: { states?: string[]; urgency?: string } | undefined,
 	) => ({
@@ -4518,6 +4600,30 @@ const handlers: Record<string, (input: never) => unknown> = {
 			input,
 		),
 	"projects/list": (input: Pagination | undefined) => paginate(PROJECTS, input),
+	"projects/get": (input: { id: string }) => localProject(input.id),
+	"projects/getRollup": (input: { id: string }) => {
+		const items = workItemsInScope(localProject(input.id).id);
+		const done = items.filter((row) => row.disposition === "completed").length;
+		return {
+			projectId: input.id,
+			total: items.length,
+			byDisposition: {},
+			byWorkKind: {},
+			percentDone: items.length ? done / items.length : 0,
+			aggregateDisposition: items.length ? "accepted" : "empty",
+			distinctExecutors: [],
+			topLevelItems: [],
+			truncated: false,
+		};
+	},
+	"projects/listMilestones": (input: { id: string }) => {
+		localProject(input.id);
+		return { data: [], nextCursor: null };
+	},
+	"projects/listHealthJudgments": (input: { id: string }) => {
+		localProject(input.id);
+		return [];
+	},
 
 	// --- work graph diagnostics ---
 	"workItems/listRelations": (

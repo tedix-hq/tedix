@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import type {
 	ListWorkAgentSessionsResultSchema,
 	WorkAgentSessionEffectiveStateSchema,
+	WorkProjectContributorStateSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
+import { useMemo } from "react";
 import type * as z from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -31,7 +33,10 @@ import {
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
-import { workAgentSessionsQueryOptions } from "@/lib/os-query-options";
+import {
+	projectListQueryOptions,
+	workAgentSessionsQueryOptions,
+} from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn } from "@/lib/utils";
@@ -56,10 +61,38 @@ export const AGENT_BOARD_SECTIONS: readonly {
 	{ state: "idle", title: "Idle", count: "Idle" },
 ];
 
-const HARNESS_LABEL: Record<AgentSession["harness"], string> = {
-	"claude-code": "Claude",
+export const AGENT_HARNESS_LABEL: Record<string, string> = {
+	"claude-code": "Claude Code",
 	codex: "Codex",
 };
+
+type AgentStateBadgeState = z.output<typeof WorkProjectContributorStateSchema>;
+
+const STATE_BADGE: Record<
+	AgentStateBadgeState,
+	{
+		label: string;
+		variant: "warning" | "error" | "success" | "info" | "secondary";
+	}
+> = {
+	needs_you: { label: "Needs you", variant: "warning" },
+	error: { label: "Error", variant: "error" },
+	done: { label: "Done", variant: "success" },
+	working: { label: "Working", variant: "info" },
+	idle: { label: "Idle", variant: "secondary" },
+	ended: { label: "Ended", variant: "secondary" },
+	unknown: { label: "Unknown", variant: "secondary" },
+};
+
+/** One state badge for agent sessions, shared by the board and project contributors. */
+export function AgentStateBadge({ state }: { state: AgentStateBadgeState }) {
+	const badge = STATE_BADGE[state];
+	return (
+		<Badge variant={badge.variant} className="shrink-0">
+			{badge.label}
+		</Badge>
+	);
+}
 
 /** Only the two states that ask for a glance get colour; the rest stay neutral. */
 const ROW_TINT: Partial<Record<BoardState, string>> = {
@@ -67,18 +100,61 @@ const ROW_TINT: Partial<Record<BoardState, string>> = {
 	done: "bg-kumo-success-tint",
 };
 
-export function groupAgentSessions(sessions: readonly AgentSession[]) {
-	const groups = new Map<BoardState, AgentSession[]>();
-	for (const session of sessions) {
-		if (session.effectiveState === "ended") continue;
-		const group = groups.get(session.effectiveState) ?? [];
-		group.push(session);
-		groups.set(session.effectiveState, group);
+const URGENCY = new Map(
+	AGENT_BOARD_SECTIONS.map((section, index) => [section.state, index]),
+);
+
+export const NO_PROJECT_TITLE = "No project";
+
+export type AgentProjectGroup = {
+	projectId: string | null;
+	title: string;
+	sessions: AgentSession[];
+	idle: AgentSession[];
+};
+
+/**
+ * Board groups: one per project, ordered by each project's most urgent
+ * session, with unbound sessions last. Rows keep the urgency order inside a
+ * group; idle rows are split out so the board can collapse them.
+ */
+export function groupAgentSessions(
+	sessions: readonly AgentSession[],
+	projectNames: ReadonlyMap<string, string> = new Map(),
+): AgentProjectGroup[] {
+	const ordered = sessions
+		.filter((session) => session.effectiveState !== "ended")
+		.map((session, index) => ({ session, index }))
+		.sort(
+			(a, b) =>
+				(URGENCY.get(a.session.effectiveState as BoardState) ?? 0) -
+					(URGENCY.get(b.session.effectiveState as BoardState) ?? 0) ||
+				a.index - b.index,
+		)
+		.map(({ session }) => session);
+	const groups = new Map<string | null, AgentProjectGroup>();
+	for (const session of ordered) {
+		const projectId = session.projectId;
+		let group = groups.get(projectId);
+		if (!group) {
+			group = {
+				projectId,
+				title:
+					projectId === null
+						? NO_PROJECT_TITLE
+						: (projectNames.get(projectId) ?? projectId.slice(0, 8)),
+				sessions: [],
+				idle: [],
+			};
+			groups.set(projectId, group);
+		}
+		(session.effectiveState === "idle" ? group.idle : group.sessions).push(
+			session,
+		);
 	}
-	return AGENT_BOARD_SECTIONS.flatMap((section) => {
-		const rows = groups.get(section.state);
-		return rows?.length ? [{ ...section, sessions: rows }] : [];
-	});
+	const unbound = groups.get(null);
+	groups.delete(null);
+	return unbound ? [...groups.values(), unbound] : [...groups.values()];
 }
 
 function AgentSessionRow({
@@ -98,8 +174,9 @@ function AgentSessionRow({
 			)}
 		>
 			<Badge variant="outline" className="shrink-0">
-				{HARNESS_LABEL[session.harness]}
+				{AGENT_HARNESS_LABEL[session.harness] ?? session.harness}
 			</Badge>
+			<AgentStateBadge state={state} />
 			<Text
 				as="span"
 				role="body"
@@ -152,13 +229,15 @@ function AgentCountStrip({ counts }: { counts: AgentSessionList["counts"] }) {
 
 export function WorkAgentsBoard({
 	data,
+	projectNames,
 	now = new Date(),
 }: {
 	data: AgentSessionList;
+	projectNames?: ReadonlyMap<string, string>;
 	now?: Date;
 }) {
-	const sections = groupAgentSessions(data.sessions);
-	if (!sections.length) {
+	const groups = groupAgentSessions(data.sessions, projectNames);
+	if (!groups.length) {
 		return (
 			<Empty appearance="quiet">
 				<EmptyHeader>
@@ -179,39 +258,42 @@ export function WorkAgentsBoard({
 	return (
 		<>
 			<AgentCountStrip counts={data.counts} />
-			{sections.map((section) => {
-				const rows = (
-					<Collection aria-label={section.title}>
-						{section.sessions.map((session) => (
-							<AgentSessionRow key={session.id} session={session} now={now} />
-						))}
-					</Collection>
-				);
-				if (section.state === "idle") {
-					return (
-						<PageSection key={section.state} aria-label={section.title}>
-							<Collapsible>
-								<CollapsibleTrigger>
-									{section.title} ({section.sessions.length})
-								</CollapsibleTrigger>
-								<CollapsibleContent>{rows}</CollapsibleContent>
-							</Collapsible>
-						</PageSection>
-					);
-				}
-				return (
-					<PageSection key={section.state} aria-label={section.title}>
-						<SectionHeader>
-							<SectionHeading>
-								<SectionTitle>
-									{section.title} ({section.sessions.length})
-								</SectionTitle>
-							</SectionHeading>
-						</SectionHeader>
-						{rows}
-					</PageSection>
-				);
-			})}
+			{groups.map((group) => (
+				<PageSection key={group.projectId ?? "none"} aria-label={group.title}>
+					<SectionHeader>
+						<SectionHeading>
+							<SectionTitle>
+								{group.title} ({group.sessions.length + group.idle.length})
+							</SectionTitle>
+						</SectionHeading>
+					</SectionHeader>
+					{group.sessions.length ? (
+						<Collection aria-label={`${group.title} sessions`}>
+							{group.sessions.map((session) => (
+								<AgentSessionRow key={session.id} session={session} now={now} />
+							))}
+						</Collection>
+					) : null}
+					{group.idle.length ? (
+						<Collapsible>
+							<CollapsibleTrigger>
+								Idle ({group.idle.length})
+							</CollapsibleTrigger>
+							<CollapsibleContent>
+								<Collection aria-label={`${group.title} idle sessions`}>
+									{group.idle.map((session) => (
+										<AgentSessionRow
+											key={session.id}
+											session={session}
+											now={now}
+										/>
+									))}
+								</Collection>
+							</CollapsibleContent>
+						</Collapsible>
+					) : null}
+				</PageSection>
+			))}
 		</>
 	);
 }
@@ -219,18 +301,30 @@ export function WorkAgentsBoard({
 export function WorkAgentsPage() {
 	useDocumentTitle("Agents · Work");
 	const query = useQuery(workAgentSessionsQueryOptions());
+	const projects = useQuery(projectListQueryOptions(100));
+	const projectNames = useMemo(
+		() =>
+			new Map(
+				(projects.data?.data ?? []).map((project) => [
+					project.id,
+					project.name,
+				]),
+			),
+		[projects.data],
+	);
 	return (
 		<Page width="xl">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>Agents</PageTitle>
 					<PageDescription>
-						Your local Claude Code and Codex sessions, most urgent first.
+						Your local Claude Code and Codex sessions by project, most urgent
+						first.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
 			{query.data ? (
-				<WorkAgentsBoard data={query.data} />
+				<WorkAgentsBoard data={query.data} projectNames={projectNames} />
 			) : query.isError ? (
 				<Alert variant="destructive">
 					<AlertTitle>Agent sessions unavailable</AlertTitle>

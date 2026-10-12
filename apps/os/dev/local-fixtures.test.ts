@@ -238,6 +238,9 @@ const CALLS: Record<string, unknown> = {
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
 	"workAgentSessions/list": {},
+	"workAgentSessions/contributors": {
+		projectId: "00000076-0000-4000-8000-000000000001",
+	},
 	"workInteractions/listInbox": { limit: 100 },
 	"workInteractions/get": { requestId: "000000a7-0000-4000-8000-000000000001" },
 	"agentTurnTriage/getReplyDraftAcceptance": {
@@ -250,6 +253,12 @@ const CALLS: Record<string, unknown> = {
 	},
 	"agentTurnTriage/listLessons": { limit: 50 },
 	"projects/list": { limit: 100 },
+	"projects/get": { id: "00000076-0000-4000-8000-000000000001" },
+	"projects/getRollup": { id: "00000076-0000-4000-8000-000000000001" },
+	"projects/listMilestones": { id: "00000076-0000-4000-8000-000000000001" },
+	"projects/listHealthJudgments": {
+		id: "00000076-0000-4000-8000-000000000001",
+	},
 	"workItems/listRelations": { limit: 500 },
 	"workItems/getOrgGraphHealth": { limit: 20 },
 	"workItems/getWorkGraphHealth": {
