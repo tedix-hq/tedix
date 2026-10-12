@@ -42,7 +42,9 @@ import {
 	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 	nextReplyDraftAttempt,
 	REPLY_DRAFT_OWNER_TIMEOUT_S,
+	REPLY_DRAFT_ROUTE_THRESHOLD,
 	replyDraftFallbackDelaySeconds,
+	replyDraftOwnerFrom,
 } from "./agent-turn-triage";
 
 // A gate on the sessions read lets a test hold the prompt's reads open.
@@ -876,8 +878,8 @@ describe("requestReplyDraft owner routing", () => {
 		}
 	});
 
-	it("keeps the drafter below the routing threshold", async () => {
-		const f = routedFixture(0.6);
+	it("keeps the drafter below the reply-draft threshold", async () => {
+		const f = routedFixture(REPLY_DRAFT_ROUTE_THRESHOLD - 0.05);
 		await f.configure();
 		const requestId = f.question();
 		await f.target.requestReplyDraft({ requestId });
@@ -885,6 +887,32 @@ describe("requestReplyDraft owner routing", () => {
 		expect(
 			(f.send.mock.calls[0] as [Record<string, unknown>])[0],
 		).toMatchObject({ tediId: DRAFTER_ID, source: "reply-draft:v8" });
+	});
+
+	it("routes an owner below lesson routing's threshold", async () => {
+		const f = routedFixture(0.6);
+		await f.configure();
+		const requestId = f.question();
+		await f.target.requestReplyDraft({ requestId });
+		expect(f.send).toHaveBeenCalledTimes(2);
+		expect(
+			(f.send.mock.calls[1] as [Record<string, unknown>])[0],
+		).toMatchObject({ tediId: OTHER_TEDI_ID, source: "reply-draft:v8:owner" });
+	});
+
+	it("takes the classifier's pick only when it is a tedi and sure enough", () => {
+		expect(replyDraftOwnerFrom({ choiceTediId: "cto", probability: 0.6 })).toBe(
+			"cto",
+		);
+		expect(
+			replyDraftOwnerFrom({ choiceTediId: "cto", probability: 0.45 }),
+		).toBeNull();
+		expect(
+			replyDraftOwnerFrom({ choiceTediId: null, probability: 0.9 }),
+		).toBeNull();
+		expect(
+			replyDraftOwnerFrom({ choiceTediId: "cto", probability: null }),
+		).toBeNull();
 	});
 
 	it("lets the dispatched owner propose once; the late drafter is refused", async () => {
