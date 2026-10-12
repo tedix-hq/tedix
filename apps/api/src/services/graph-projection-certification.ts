@@ -72,19 +72,41 @@ const EMPTY_MANAGED_COUNTS: GraphProjectionManagedCounts = {
 	entityResolutions: 0,
 };
 
+/**
+ * The exact managed-count inventory reads every canonical row of the org
+ * (34k rationale records and 30k facts per check for the largest org on
+ * 2026-10-12), so the drain's per-tick certification runs it once per UTC
+ * hour. A failed count leaves `lastCertifiedAt` in the earlier hour, so the
+ * next tick counts again until parity passes.
+ */
+export function managedCountsDue(
+	lastCertifiedAt: string | null | undefined,
+	checkedAt: string,
+): boolean {
+	return lastCertifiedAt?.slice(0, 13) !== checkedAt.slice(0, 13);
+}
+
 export async function inspectGraphProjection(input: {
 	db: DbClient;
 	env: CloudflareEnv;
 	organizationId: string;
 	checkedAt?: string;
+	/** "hourly" skips the exact inventory when this hour already certified. */
+	managedCounts?: "exact" | "hourly";
 }): Promise<GraphProjectionInspection> {
 	const checkedAt = input.checkedAt ?? new Date().toISOString();
+	const readiness = await getGraphProjectionReadState(
+		input.db,
+		input.organizationId,
+	);
+	const countManaged =
+		input.managedCounts !== "hourly" ||
+		managedCountsDue(readiness?.lastCertifiedAt, checkedAt);
 	const [
 		canonicalFacts,
 		canonicalEdges,
 		canonicalLifecycle,
 		canonicalManagedCounts,
-		readiness,
 		backlog,
 	] = await Promise.all([
 		getGraphProjectionCanonicalSample(
@@ -102,8 +124,9 @@ export async function inspectGraphProjection(input: {
 			input.organizationId,
 			GRAPH_PROJECTION_LIFECYCLE_SAMPLE_LIMIT,
 		),
-		getGraphProjectionCanonicalManagedCounts(input.db, input.organizationId),
-		getGraphProjectionReadState(input.db, input.organizationId),
+		countManaged
+			? getGraphProjectionCanonicalManagedCounts(input.db, input.organizationId)
+			: EMPTY_MANAGED_COUNTS,
 		getGraphProjectionBacklogStats(input.db, input.organizationId),
 	]);
 	const graphClient = getGraphClient(input.env);
@@ -147,7 +170,9 @@ export async function inspectGraphProjection(input: {
 					input.organizationId,
 					canonicalEdges,
 				),
-				readGraphProjectionManagedCounts(input.env, input.organizationId),
+				countManaged
+					? readGraphProjectionManagedCounts(input.env, input.organizationId)
+					: EMPTY_MANAGED_COUNTS,
 				readGraphProjectionSchemaState(input.env),
 			]);
 		} catch (error) {
@@ -203,6 +228,7 @@ export async function certifyGraphProjection(input: {
 	env: CloudflareEnv;
 	organizationId: string;
 	checkedAt?: string;
+	managedCounts?: "exact" | "hourly";
 }): Promise<GraphProjectionInspection> {
 	const inspection = await inspectGraphProjection(input);
 	const { backlog } = inspection;

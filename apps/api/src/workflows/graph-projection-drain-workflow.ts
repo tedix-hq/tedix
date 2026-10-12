@@ -697,6 +697,7 @@ export class GraphProjectionDrainWorkflow extends WorkflowEntrypoint<
 					db,
 					env: this.env,
 					organizationId,
+					managedCounts: "hourly",
 				});
 				return JSON.stringify({
 					state: inspection.readiness?.state ?? "catching_up",

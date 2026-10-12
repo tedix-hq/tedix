@@ -82,6 +82,25 @@ import {
 	recallCanonicalMemoryCandidates,
 } from "../../../integrations/cloudflare/agent-memory";
 
+// `totalFacts` on a search result is informational, but counting it reads every
+// active fact of the org (29k rows, ~100 ms per search on 2026-10-12). Searches
+// arrive in bursts, so an isolate reuses one count for a minute.
+const FACT_COUNT_TTL_MS = 60_000;
+const factCounts = new Map<string, { value: number; expiresAt: number }>();
+
+async function recentFactCount(
+	db: Parameters<typeof countFacts>[0],
+	orgId: string,
+): Promise<number> {
+	const now = Date.now();
+	const cached = factCounts.get(orgId);
+	if (cached && cached.expiresAt > now) return cached.value;
+	const value = await countFacts(db, orgId);
+	if (factCounts.size >= 500) factCounts.clear();
+	factCounts.set(orgId, { value, expiresAt: now + FACT_COUNT_TTL_MS });
+	return value;
+}
+
 export // =============================================================================
 // SEARCH
 // =============================================================================
@@ -247,7 +266,7 @@ const search = authed.search
 			]),
 		);
 		const total = await measureSearchPhase(timings, "countFactsMs", () =>
-			countFacts(context.db, orgId),
+			recentFactCount(context.db, orgId),
 		);
 		logMemorySearch(context, "complete", {
 			traceId,

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { graphProjectionReadAdmission } from "./graph-projection-certification";
+import {
+	graphProjectionReadAdmission,
+	managedCountsDue,
+} from "./graph-projection-certification";
 
 const checkedAt = "2026-07-27T06:00:00.000Z";
 
@@ -159,5 +162,17 @@ describe("graph projection read admission", () => {
 				},
 			}),
 		).toEqual({ allowed: false, reason: "baseline_repair_incomplete" });
+	});
+});
+
+describe("managed-count cadence", () => {
+	it("counts once per UTC hour and whenever no certification exists", () => {
+		expect(managedCountsDue(null, checkedAt)).toBe(true);
+		expect(managedCountsDue("2026-07-27T05:59:00.000Z", checkedAt)).toBe(true);
+		expect(managedCountsDue("2026-07-27T06:00:00.000Z", checkedAt)).toBe(false);
+		expect(
+			managedCountsDue("2026-07-27T06:58:00.000Z", "2026-07-27T06:59:00.000Z"),
+		).toBe(false);
+		expect(managedCountsDue("2026-07-26T06:30:00.000Z", checkedAt)).toBe(true);
 	});
 });
