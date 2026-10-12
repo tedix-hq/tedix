@@ -1,12 +1,14 @@
 /** Site overview for /llms.txt. */
 import type { APIRoute } from "astro";
+import { defaultLocale, getLocaleContent } from "../i18n/content";
 export const GET: APIRoute = () => {
+	const { meta } = getLocaleContent(defaultLocale);
 	const lines: string[] = [];
 
-	lines.push("# Tedix");
+	lines.push(`# ${meta.title}`);
 	lines.push("");
 	lines.push(
-		"> AI coworkers that show their work. Tedix gives teams AI coworkers (tedis) for recurring work: they ask before risky steps, and every run leaves a record of what was done, with which tools, and who approved it. Open source, runs on Cloudflare.",
+		`> ${meta.description} Every run records what was done, with which tools, and who approved it. Open source, runs on Cloudflare.`,
 	);
 	lines.push("");
 	lines.push(
@@ -27,6 +29,22 @@ export const GET: APIRoute = () => {
 	);
 	lines.push(
 		"- Local mode: `git clone https://github.com/tedix-hq/tedix.git && cd tedix && bun run-local`",
+	);
+	lines.push("");
+
+	lines.push("## For agents");
+	lines.push("");
+	lines.push(
+		"- [Start here as an agent](https://docs.tedix.dev/agent-start-here/): Connect, bind a project, work a Work Item, deliver an Output",
+	);
+	lines.push(
+		"- [Factories, Workspaces and Projects](https://docs.tedix.dev/factories-workspaces-projects/): Which record holds what",
+	);
+	lines.push(
+		"- [Track sessions per project](https://docs.tedix.dev/sessions-per-project/): Where Claude Code and Codex sessions show up in Tedix OS",
+	);
+	lines.push(
+		"- [Documentation index for agents](https://docs.tedix.dev/llms.txt): Every public docs page, one line each",
 	);
 	lines.push("");
 
