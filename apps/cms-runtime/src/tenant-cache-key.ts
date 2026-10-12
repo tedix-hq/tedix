@@ -24,6 +24,7 @@ export interface TenantRuntimeEnvHashEnv {
 	EMDASH_ENCRYPTION_KEY?: string;
 	DESCOPE_PROJECT_ID?: string;
 	ENVIRONMENT: string;
+	GIT_SHA?: string;
 	PLATFORM_API_URL?: string;
 }
 
@@ -106,6 +107,7 @@ export function tenantRuntimeCacheKey(
 	return [
 		slug,
 		`loader:${TENANT_RUNTIME_LOADER_POLICY_VERSION}`,
+		`runtime:${env.GIT_SHA ?? "local"}`,
 		String(bundle.version),
 		tenantRuntimeBundleHash(bundle),
 		tenantRuntimeEnvHash(org, env),
