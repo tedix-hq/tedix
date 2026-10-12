@@ -134,6 +134,29 @@ export async function releaseCmsCaptureCronPause(
 	return remaining.length === 0;
 }
 
+/** Reuse only an existing outer reservation in its still-open admission epoch. */
+export async function canReuseCmsRestorePermit(
+	db: DbQueryClient,
+	input: CmsRestorePermitParams,
+): Promise<boolean> {
+	const rows = await db.all(sql`
+		SELECT permit.id AS permit_id FROM cms_restore_permits AS permit
+		JOIN cms_sites AS site ON site.id = permit.site_id
+		WHERE permit.id = ${input.permitId}
+			AND permit.site_id = ${input.siteId}
+			AND permit.slug = ${input.slug}
+			AND permit.restore_epoch = ${input.restoreEpoch}
+			AND permit.kind = 'outer'
+			AND site.slug = permit.slug
+			AND site.restore_epoch = permit.restore_epoch
+			AND site.status = 'active'
+			AND NOT EXISTS (SELECT 1 FROM cms_restore_fences AS fence WHERE fence.site_id = site.id)
+			AND NOT EXISTS (SELECT 1 FROM cms_deprovision_operations AS operation WHERE operation.id = site.id)
+		LIMIT 1
+	`);
+	return rows.length === 1;
+}
+
 /**
  * The single D1 write is the admission point. Closing the fence and admitting
  * a permit are serialized writes, so a close cannot miss an admitted request.

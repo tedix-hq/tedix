@@ -5,6 +5,7 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	abortCmsCaptureCronPause,
 	assertCmsCaptureCronPause,
+	canReuseCmsRestorePermit,
 	claimCmsCaptureCronPause,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
@@ -84,6 +85,32 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("reuses only the exact durable reservation while its site admission is open", async () => {
+		const { db, sqlite } = fixture();
+		const permit = { ...one, permitId: "public-reservation" };
+		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
+		expect(await enterCmsRestorePermit(db, permit)).toBe(true);
+		expect(await canReuseCmsRestorePermit(db, permit)).toBe(true);
+		for (const mismatch of [
+			{ siteId: two.siteId },
+			{ slug: two.slug },
+			{ restoreEpoch: 1 },
+		])
+			expect(
+				await canReuseCmsRestorePermit(db, { ...permit, ...mismatch }),
+			).toBe(false);
+		sqlite.exec("UPDATE cms_sites SET status = 'paused' WHERE id = 'site-1'");
+		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
+		sqlite.exec("UPDATE cms_sites SET status = 'active' WHERE id = 'site-1'");
+		sqlite.exec(
+			"INSERT INTO cms_deprovision_operations (id, organization_id, slug) VALUES ('site-1', 'org-one', 'one')",
+		);
+		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
+		sqlite.exec("DELETE FROM cms_deprovision_operations");
+		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
+		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
+	});
+
 	it("never reconciles an in-flight scheduled permit as an abandoned response", async () => {
 		const { db } = fixture();
 		const scheduled = { ...one, kind: "scheduled" as const, permitId: "cron" };

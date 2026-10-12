@@ -12,6 +12,10 @@ import {
 } from "./tenant-page-cache";
 import { staticAssetResponse } from "./static-assets";
 import {
+	publicRestorePermitEligible,
+	publicRestorePermitQueries,
+} from "./public-restore-permits";
+import {
 	isMarketingHost,
 	isMarketingContactPath,
 	marketingResponse,
@@ -5038,6 +5042,12 @@ export default {
 					const contact = await withCmsRestorePermit(db, identity, run);
 					return contact.admitted ? contact.value : cmsRestoreFenceResponse();
 				},
+				undefined,
+				publicRestorePermitEligible(request)
+					? publicRestorePermitQueries(env.PLATFORM_DB, (task) =>
+							ctx.waitUntil(task),
+						)
+					: undefined,
 			);
 			return permitted.admitted ? permitted.value : cmsRestoreFenceResponse();
 		} catch (error) {
