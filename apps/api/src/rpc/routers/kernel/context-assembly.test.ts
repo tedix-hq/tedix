@@ -38,6 +38,7 @@ import {
 } from "../kernel-runtime/attachment-storage";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+	stripLocalTerminalContext,
 	assembleHomeContext,
 	dedupeConversationHistory,
 	deriveAppCapabilities,
@@ -3106,5 +3107,23 @@ describe("optional context judgments", () => {
 		expect(context.facts.map((fact) => fact.text)).toEqual(
 			visible.map((fact) => fact.content),
 		);
+	});
+});
+
+describe("stripLocalTerminalContext", () => {
+	it("removes the CLI terminal block from a replayed message and keeps the words", () => {
+		expect(
+			stripLocalTerminalContext(
+				"Reply with the single word OK.\n\nLocal terminal context:\n- cwd: /tmp/x\n- git: not inside a git worktree",
+			),
+		).toBe("Reply with the single word OK.");
+		expect(
+			stripLocalTerminalContext(
+				"Fix it\n\nLocal terminal context:\n- cwd: /a\n- gitRoot: /a\n- origin: https://x\n- head: abc\n- gitStatus:\n  ## main\n   M file.ts",
+			),
+		).toBe("Fix it");
+	});
+	it("leaves messages without the block untouched", () => {
+		expect(stripLocalTerminalContext("plain words")).toBe("plain words");
 	});
 });
