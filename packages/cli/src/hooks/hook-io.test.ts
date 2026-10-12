@@ -263,12 +263,13 @@ describe("unattendedRun", () => {
 			);
 			expect(unattendedRun(codex(rollout("exec")), {})).toBe(true);
 			expect(unattendedRun(codex(rollout("cli")), {})).toBe(false);
+			// A Codex side thread it never saves has no transcript.
+			expect(unattendedRun(codex(null), {})).toBe(true);
 			expect(unattendedRun(codex(rollout({ subagent: "x" })), {})).toBe(false);
 			// Not Codex, missing or unreadable transcripts: attended.
 			expect(unattendedRun({ transcript_path: rollout("exec") }, {})).toBe(
 				false,
 			);
-			expect(unattendedRun(codex(null), {})).toBe(false);
 			expect(unattendedRun(codex(join(dir, "missing.jsonl")), {})).toBe(false);
 			expect(unattendedRun(codex("relative.jsonl"), {})).toBe(false);
 		} finally {
