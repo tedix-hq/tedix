@@ -672,6 +672,13 @@ export const workAgentSessionsQueryOptions = () =>
 		refetchOnWindowFocus: true,
 	});
 
+export const workProjectContributorsQueryOptions = (projectId: string) =>
+	osQuery.workAgentSessions.contributors.queryOptions({
+		input: { projectId },
+		refetchInterval: WORK_AGENT_SESSIONS_REFETCH_MS,
+		refetchOnWindowFocus: true,
+	});
+
 export const workSchedulerQueryOptions = () =>
 	osQuery.workScheduler.listReady.queryOptions({
 		input: { limit: 50, candidateLimit: 200 },

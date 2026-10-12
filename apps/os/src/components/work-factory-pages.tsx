@@ -66,6 +66,7 @@ import {
 } from "@/components/kumo/table";
 import { useWorkItemWebMcpTools } from "@/components/work-item-webmcp-tools";
 import { WorkAttentionSummary } from "@/components/work-attention-summary";
+import { WorkProjectContributors } from "@/components/work-project-contributors";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { formatRatioPercent, sentenceCase } from "@/lib/format";
 import {
@@ -1188,6 +1189,27 @@ export function milestoneLifecycleUpdateInput({
 	};
 }
 
+/** The project's brief: its description, shown verbatim with line breaks. */
+export function ProjectBrief({ description }: { description: string | null }) {
+	const brief = description?.trim();
+	return (
+		<section aria-label="Brief" className="grid gap-1">
+			<Text as="h2" role="label" tone="secondary">
+				Brief
+			</Text>
+			{brief ? (
+				<Text as="p" role="body" className="m-0 whitespace-pre-line">
+					{brief}
+				</Text>
+			) : (
+				<Text as="p" role="body" tone="secondary" className="m-0">
+					This project has no brief yet.
+				</Text>
+			)}
+		</section>
+	);
+}
+
 export function ProjectSummary({
 	status,
 	percentDone,
@@ -1481,12 +1503,14 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				title={project.data.name}
 				description={`${project.data.key} · accountable portfolio container`}
 			/>
+			<ProjectBrief description={project.data.description} />
 			<ProjectSummary
 				status={project.data.status}
 				percentDone={rollup.data?.percentDone}
 				aggregateDisposition={rollup.data?.aggregateDisposition}
 				targetDate={project.data.targetDate}
 			/>
+			<WorkProjectContributors projectId={projectId} />
 			<div className="grid gap-3 lg:grid-cols-2">
 				<Card>
 					<CardHeader>
