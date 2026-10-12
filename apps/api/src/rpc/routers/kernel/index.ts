@@ -43,7 +43,10 @@ import type {
 	RelevanceRecallSource,
 	StoredRelevanceRecall,
 } from "../../../kernel/relevance-recall-store";
-import { kernelServesWorkersAiLane } from "./llm";
+import {
+	KERNEL_ROUTE_MODEL_REF_DEFAULT,
+	kernelServesWorkersAiLane,
+} from "./llm";
 import type { DbClient } from "@tedix/db/client";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
@@ -534,11 +537,19 @@ export async function runKernel(args: {
 		sessionKey: conversationId,
 		source: inferenceSource ?? "kernel:route",
 	};
-	const model = kernelModel(env, modelRef ? { modelRef } : undefined, {
+	const routeGatewayContext = {
 		...gatewayContext,
 		// Keep a stable purpose label for live routing attribution.
 		source: "kernel:route-plan",
-	});
+	};
+	// First-round model: the per-turn override, else the measured route-pass
+	// default, else the role default when that model is not configured here.
+	const model =
+		kernelModel(
+			env,
+			{ modelRef: modelRef ?? KERNEL_ROUTE_MODEL_REF_DEFAULT },
+			routeGatewayContext,
+		) ?? (modelRef ? null : kernelModel(env, undefined, routeGatewayContext));
 	// The selected model is the only inference path for this turn.
 	if (!model) {
 		console.warn(
