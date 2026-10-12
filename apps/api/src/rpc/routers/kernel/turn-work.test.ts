@@ -3583,7 +3583,8 @@ describe("runKernelTurnWork settle critical path", () => {
 		const result = await runKernelTurnWork(deps, turnInput());
 		expect(result.status).toBe("completed");
 		expect(titleCompleted).toBe(false);
-		expect(held).toHaveLength(1);
+		// Title first, then the held submission settle.
+		expect(held).toHaveLength(2);
 		releaseTitle();
 		await held[0];
 		expect(titleCompleted).toBe(true);
@@ -3601,7 +3602,8 @@ describe("runKernelTurnWork settle critical path", () => {
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
 		expect(result.status).toBe("completed");
-		expect(held).toHaveLength(1);
+		expect(held).toHaveLength(2);
 		await expect(held[0]).resolves.toBeUndefined();
+		await expect(held[1]).resolves.toBeUndefined();
 	});
 });
