@@ -36,6 +36,39 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("public restore reservations", () => {
+	it("runs authentication and creates the response separately for each borrower", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const authenticate = vi
+			.fn()
+			.mockReturnValueOnce(true)
+			.mockReturnValueOnce(false);
+		for (const expected of [
+			{ status: 200, body: "private page" },
+			{ status: 401, body: "Unauthorized" },
+		]) {
+			const result = await withCmsRestoreResponsePermit(
+				db,
+				identity,
+				async () => {
+					const allowed = authenticate();
+					return new Response(allowed ? "private page" : "Unauthorized", {
+						status: allowed ? 200 : 401,
+						headers: { "Content-Type": "text/html" },
+					});
+				},
+				queries,
+				forRequest(),
+			);
+			if (!result.admitted) throw new Error("expected site admission");
+			expect(result.value.status).toBe(expected.status);
+			expect(await result.value.text()).toBe(expected.body);
+		}
+		expect(authenticate).toHaveBeenCalledTimes(2);
+		expect(queries.enter).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
+	});
+
 	it("keeps concurrent cold admissions independent", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		let admitFirst!: (allowed: boolean) => void;
@@ -198,12 +231,16 @@ describe("public restore reservations", () => {
 		["GET", "/", {}, true],
 		["HEAD", "/", {}, true],
 		["POST", "/", {}, false],
-		["GET", "/api/read", {}, false],
-		["GET", "/_emdash/admin", {}, false],
-		["GET", "/_tedix/private", {}, false],
-		["GET", "/?_preview=1", {}, false],
-		["GET", "/", { cookie: "session=one" }, false],
-		["GET", "/", { authorization: "Bearer fictional" }, false],
+		["PUT", "/", {}, false],
+		["PATCH", "/", {}, false],
+		["DELETE", "/", {}, false],
+		["GET", "/api/read", {}, true],
+		["GET", "/_emdash/admin", {}, true],
+		["GET", "/_tedix/private", {}, true],
+		["GET", "/_astro/site.js", {}, true],
+		["GET", "/?_preview=1", {}, true],
+		["GET", "/", { cookie: "session=one" }, true],
+		["GET", "/", { authorization: "Bearer fictional" }, true],
 	] as const)(
 		"selects %s %s with headers %j",
 		(method, path, headers, eligible) => {

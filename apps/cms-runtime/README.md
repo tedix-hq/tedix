@@ -53,16 +53,17 @@ been upgraded.
 
 ## Public restore reservations
 
-Anonymous public GET/HEAD responses share an outer D1 reservation within one
+GET/HEAD response creation shares an outer D1 reservation within one
 serving isolate for ten seconds. Every reuse reads the exact reservation and
 checks the site's status, epoch, restore fence and deprovision reservation.
 The reuse window expires even under continuous traffic; active renders retain
 the row until their last borrower finishes. Idle cleanup runs in `waitUntil`.
 Isolate loss leaves a durable outer row for the existing restore reconciliation.
 
-Authenticated requests, internal paths, writes, nested storage operations and
-streamed body pulls keep exact per-operation permits. No database migration is
-required. Traffic spread across many cold isolates can reduce sharing, so the
+Only admission is shared: authentication and the response handler still run for
+each request, including authenticated reads. Writes, nested storage operations
+and streamed body pulls keep exact per-operation permits. No database migration
+is required. Traffic spread across many cold isolates can reduce sharing, so the
 installation's D1 analytics must establish the actual reduction after release.
 
 ## Deploy
