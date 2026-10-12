@@ -14,6 +14,10 @@ visibility: public
 
 # Give the supervisor Full Disk Access on macOS
 
+You need this only when a session's checkout is under a macOS-protected
+location: Documents, Desktop, Downloads or iCloud Drive. For checkouts
+anywhere else, skip this page.
+
 `tedix supervise install` runs the supervisor as a macOS background service.
 macOS privacy protection keeps background services out of Documents, Desktop,
 Downloads and iCloud Drive. The supervisor still delivers answers to open
