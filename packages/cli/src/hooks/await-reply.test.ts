@@ -22,6 +22,7 @@ import {
 	draftStatusPath,
 	peek,
 	questionPath,
+	workToolCall,
 } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
@@ -157,34 +158,25 @@ async function run(
 				throw new Error("await-reply never writes to stdout");
 			},
 			read: async (args, _timeout, input) => {
-				if (
-					args.some((arg) =>
-						arg.includes("list_undelivered_work_interaction_responses"),
-					)
-				) {
+				const tool = workToolCall(args);
+				if (tool?.name === "list_undelivered_work_interaction_responses") {
 					const page = undelivered?.shift();
 					if (!page) throw new Error("Unknown native tool");
 					return structuredClone(page) as JsonObject;
 				}
-				if (args.includes("interaction-ack")) {
-					acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+				if (tool?.name === "ack_work_interaction_delivery") {
+					acks.push(tool.input);
 					return { data: [] };
 				}
-				if (args.includes("interaction-draft-delivered")) {
-					const at = args.indexOf("interaction-draft-delivered");
-					drafted.push([args[at + 1]!, JSON.parse(args[at + 3]!)]);
+				if (tool?.name === "record_reply_draft_delivery") {
+					const { requestId, ...rest } = tool.input;
+					drafted.push([String(requestId), rest]);
 					return { request: nativeRequest(), response: nativeResponse({}) };
 				}
-				if (args.includes("interaction-get")) {
+				if (tool?.name === "get_work_interaction") {
 					detailReads++;
 					expect(input).toBeUndefined();
-					expect(args.slice(-5)).toEqual([
-						"work",
-						"interaction-get",
-						REQUEST,
-						"--input",
-						JSON.stringify({ responseLimit: 5 }),
-					]);
+					expect(tool.input).toEqual({ requestId: REQUEST, responseLimit: 5 });
 					const next = details.shift();
 					if (next === undefined || next instanceof Error)
 						throw next ?? new Error("Unknown native tool");

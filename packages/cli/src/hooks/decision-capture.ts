@@ -293,6 +293,41 @@ const AGENT_CODE_CALLABLES: Record<string, string> = {
 	"agent-reply-draft-request": "agent.request_agent_reply_draft",
 };
 
+/**
+ * Call a Work tool through Code Mode. The native `work interaction-*` verbs
+ * measured 5-14 s against hook budgets of 3-15 s, while the same tool through
+ * `tedix code` takes about 2 s. `completionEvidence` is dropped so the strict
+ * result schemas still parse.
+ */
+export function workTool(
+	deps: Pick<HookDeps, "read">,
+	binding: Binding,
+	tool: string,
+	input: JsonObject,
+	timeoutMs: number,
+): Promise<JsonObject> {
+	return deps.read(
+		[
+			...binding.command,
+			"code",
+			`async () => { const { completionEvidence, ...result } = await work.${tool}(${asciiJson(input)}); return result; }`,
+		],
+		timeoutMs,
+	);
+}
+
+/** The tool and input of a recorded `workTool` read; the inverse of its args. */
+export function workToolCall(
+	args: string[],
+): { name: string; input: JsonObject } | undefined {
+	if (args.at(-2) !== "code") return undefined;
+	const match =
+		/^async \(\) => \{ const \{ completionEvidence, \.\.\.result \} = await work\.([a-z_]+)\(([\s\S]*)\); return result; \}$/.exec(
+			args.at(-1) ?? "",
+		);
+	return match ? { name: match[1]!, input: JSON.parse(match[2]!) } : undefined;
+}
+
 async function call(
 	deps: HookDeps,
 	binding: Binding,
@@ -600,15 +635,11 @@ export async function interactionDetail(
 	try {
 		if (!UUID.test(requestId)) return undefined;
 		return nativeDetail(
-			await deps.read(
-				[
-					...binding.command,
-					"work",
-					"interaction-get",
-					requestId,
-					"--input",
-					JSON.stringify({ responseLimit: 5 }),
-				],
+			await workTool(
+				deps,
+				binding,
+				"get_work_interaction",
+				{ requestId, responseLimit: 5 },
 				timeoutMs,
 			),
 			requestId,
@@ -789,15 +820,11 @@ export async function ackAnswers(
 	const ids = responseIds.filter((id) => UUID.test(id)).slice(0, 50);
 	if (!ids.length) return true;
 	try {
-		const value = await deps.read(
-			[
-				...binding.command,
-				"work",
-				"interaction-ack",
-				"--input",
-				JSON.stringify({ responseIds: ids, via, ...extra }),
-				"--json",
-			],
+		const value = await workTool(
+			deps,
+			binding,
+			"ack_work_interaction_delivery",
+			{ responseIds: ids, via, ...extra },
 			timeoutMs,
 		);
 		return isObject(value) && Array.isArray(value.data);
@@ -821,16 +848,11 @@ export async function recordDraftDelivered(
 ): Promise<boolean> {
 	if (!UUID.test(requestId) || !UUID.test(draftId)) return false;
 	try {
-		const value = await deps.read(
-			[
-				...binding.command,
-				"work",
-				"interaction-draft-delivered",
-				requestId,
-				"--input",
-				JSON.stringify({ draftId, via }),
-				"--json",
-			],
+		const value = await workTool(
+			deps,
+			binding,
+			"record_reply_draft_delivery",
+			{ requestId, draftId, via },
 			timeoutMs,
 		);
 		return isObject(value) && isObject(value.response);

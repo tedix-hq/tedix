@@ -9,7 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AWAIT_DRAFT_MAX_MS, runAwaitDraft } from "./await-draft";
-import { autoDeliveryPath, draftStatusPath, peek } from "./decision-capture";
+import {
+	autoDeliveryPath,
+	draftStatusPath,
+	peek,
+	workToolCall,
+} from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
 /** Checks for the Codex Stop continuation: only an explicit auto draft continues the turn. */
@@ -127,31 +132,22 @@ async function run(
 				throw new Error("the command prints the continuation");
 			},
 			read: async (args, _timeout, input) => {
-				if (
-					args.some((arg) =>
-						arg.includes("list_undelivered_work_interaction_responses"),
-					)
-				) {
+				const tool = workToolCall(args);
+				if (tool?.name === "list_undelivered_work_interaction_responses") {
 					const page = undelivered?.shift();
 					if (!page) throw new Error("Unknown native tool");
 					return structuredClone(page) as JsonObject;
 				}
-				if (args.includes("interaction-ack")) return { data: [] };
-				if (args.includes("interaction-draft-delivered")) {
-					const at = args.indexOf("interaction-draft-delivered");
-					drafted.push([args[at + 1]!, JSON.parse(args[at + 3]!)]);
+				if (tool?.name === "ack_work_interaction_delivery") return { data: [] };
+				if (tool?.name === "record_reply_draft_delivery") {
+					const { requestId, ...rest } = tool.input;
+					drafted.push([String(requestId), rest]);
 					return { request: {}, response: {} };
 				}
-				if (args.includes("interaction-get")) {
+				if (tool?.name === "get_work_interaction") {
 					detailReads++;
 					expect(input).toBeUndefined();
-					expect(args.slice(-5)).toEqual([
-						"work",
-						"interaction-get",
-						REQUEST,
-						"--input",
-						JSON.stringify({ responseLimit: 5 }),
-					]);
+					expect(tool.input).toEqual({ requestId: REQUEST, responseLimit: 5 });
 					const next = details.shift();
 					if (next === undefined) throw new Error("Unknown native tool");
 					return structuredClone(next) as JsonObject;
