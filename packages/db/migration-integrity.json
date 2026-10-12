@@ -852,6 +852,14 @@
 		{
 			"name": "20261012182129_kernel-runtime-runs-output-revision/migration.sql",
 			"sha256": "98400ad23ed699b88608961e1c5a1909fed71d3c9a589ec987c92085755cabda"
+		},
+		{
+			"name": "20261012183007_store-listings-catalog-app/migration.sql",
+			"sha256": "a57d91b9c8084dc4b47376a72b6012d1e52e103cc3100c58b458eccc01596c02"
+		},
+		{
+			"name": "20261012183306_app-catalog-vendor-key/migration.sql",
+			"sha256": "24a9780b3b98deea55344b5f8a6e42d1fce383e1cf15b29e5a0e7b47d36d9d4a"
 		}
 	]
 }

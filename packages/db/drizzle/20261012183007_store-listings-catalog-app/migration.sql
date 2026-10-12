@@ -1,0 +1,1 @@
+CREATE INDEX `store_listings_catalog_app_idx` ON `app_catalog_store_listings` (`catalog_app_id`);
