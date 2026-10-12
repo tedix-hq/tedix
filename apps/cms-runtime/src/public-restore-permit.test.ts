@@ -17,12 +17,14 @@ vi.mock("./tenant-restore-fence", async (importOriginal) => ({
 }));
 
 import cmsRuntime from "./index";
+import { publicRestorePermitEligible } from "./public-restore-permits";
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.getSiteBySlug.mockResolvedValue({
 		id: "site-1",
 		slug: "tedix-landing",
+		restoreEpoch: 7,
 	});
 	mocks.getSiteByAlias.mockResolvedValue(null);
 	mocks.permit.mockResolvedValue({ admitted: false });
@@ -49,8 +51,15 @@ describe("early public restore gate", () => {
 		expect(response.status).toBe(503);
 		expect(mocks.permit).toHaveBeenCalledWith(
 			expect.anything(),
-			{ siteId: "site-1", slug: "tedix-landing" },
+			{ siteId: "site-1", slug: "tedix-landing", restoreEpoch: 7 },
 			expect.any(Function),
+			undefined,
+			publicRestorePermitEligible(new Request(`https://tedix.dev${path}`))
+				? expect.objectContaining({
+						enter: expect.any(Function),
+						leave: expect.any(Function),
+					})
+				: undefined,
 		);
 	});
 

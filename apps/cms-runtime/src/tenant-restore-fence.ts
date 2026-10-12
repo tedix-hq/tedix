@@ -75,14 +75,15 @@ export async function withCmsRestorePermit<T>(
 	}
 }
 
-/** Response creation and each body pull have separate outer permits pinned to
- * one epoch. An abandoned, unread body leaves no permit row; a later pull after
- * a restore close or epoch rotation fails admission. */
+/** Response creation and each body pull use outer permits pinned to one epoch.
+ * Public response creation may borrow a short-lived reservation; unread bodies
+ * never retain a borrower. Later pulls always acquire their own exact permit. */
 export async function withCmsRestoreResponsePermit(
 	db: DbQueryClient,
 	identity: CmsRestoreFenceIdentity,
 	run: () => Promise<Response>,
 	queries: CmsRestorePermitQueries = defaultQueries,
+	initialQueries: CmsRestorePermitQueries = queries,
 ): Promise<{ admitted: false } | { admitted: true; value: Response }> {
 	const pinnedIdentity = { ...identity };
 	const initialPermit: CmsRestorePermitParams = {
@@ -90,7 +91,7 @@ export async function withCmsRestoreResponsePermit(
 		permitId: crypto.randomUUID(),
 		kind: "outer",
 	};
-	if (!(await enterPermit(db, initialPermit, queries)))
+	if (!(await enterPermit(db, initialPermit, initialQueries)))
 		return { admitted: false };
 
 	let response: Response;
@@ -172,7 +173,7 @@ export async function withCmsRestoreResponsePermit(
 			});
 		}
 	} finally {
-		await leavePermit(db, initialPermit, queries);
+		await leavePermit(db, initialPermit, initialQueries);
 	}
 	return { admitted: true, value: response };
 }

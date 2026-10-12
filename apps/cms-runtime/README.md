@@ -44,12 +44,26 @@ been upgraded.
 - `LOADER` (worker_loaders) — Dynamic Worker isolate factory
 - `DB_DO` (durable_objects) — Emdash Durable Object SQLite namespace
 - `TENANT_BUNDLES` (R2) — per-tenant bundle blobs
-- `PLATFORM_DB` (D1, read-only) — slug → org + active bundle lookup
+- `PLATFORM_DB` (D1) — site and bundle lookup, restore admission and permits
 - `SESSION` (KV) — shared session storage (per-tenant prefixed)
 - `CMS_SESSION_BROKER` (Service Binding, production) — named auth-host broker
   entrypoint used by `dual`/`on` session modes
 - `CF_ACCOUNT_ID` (var)
 - `CLOUDFLARE_R2_API_TOKEN` (secret) — tenant media R2 REST access
+
+## Public restore reservations
+
+Anonymous public GET/HEAD responses share an outer D1 reservation within one
+serving isolate for ten seconds. Every reuse reads the exact reservation and
+checks the site's status, epoch, restore fence and deprovision reservation.
+The reuse window expires even under continuous traffic; active renders retain
+the row until their last borrower finishes. Idle cleanup runs in `waitUntil`.
+Isolate loss leaves a durable outer row for the existing restore reconciliation.
+
+Authenticated requests, internal paths, writes, nested storage operations and
+streamed body pulls keep exact per-operation permits. No database migration is
+required. Traffic spread across many cold isolates can reduce sharing, so the
+installation's D1 analytics must establish the actual reduction after release.
 
 ## Deploy
 
