@@ -12,11 +12,13 @@ import { implement } from "@orpc/server";
 import { workAgentSessionsContract } from "@tedix/api-contract/contracts/work-agent-sessions";
 import {
 	listWorkAgentSessions,
+	listWorkProjectContributorSources,
 	reportWorkAgentSessionStatus,
 } from "@tedix/db/queries/work-agent-sessions";
 import type { WorkAgentSessionRow } from "@tedix/db/schema/work-agent-sessions";
 import {
 	buildWorkAgentSessionBoard,
+	buildWorkProjectContributors,
 	deriveWorkAgentSessionEffectiveState,
 	sanitizeWorkAgentSessionText,
 } from "../../lib/work-agent-session-board";
@@ -49,6 +51,15 @@ const readOs = authenticatedOs.use(
 		"mcp:work.read",
 	),
 );
+const projectReadOs = authenticatedOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Project contributors are read-only Work rows scoped to the caller's organization",
+		},
+		"mcp:work.read",
+	),
+);
 
 /** The caller's organization and canonical user id, or FORBIDDEN. */
 export function requireBoardOwner(context: BaseContext): {
@@ -72,6 +83,8 @@ function sessionOutput(row: WorkAgentSessionRow) {
 		label: row.label,
 		state: row.state,
 		summary: row.summary,
+		projectId: row.projectId,
+		workItemId: row.workItemId,
 		stateSince: row.stateSince,
 		lastEventAt: row.lastEventAt,
 	};
@@ -87,6 +100,8 @@ const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 		state: input.state,
 		summary: sanitizeWorkAgentSessionText(input.summary, 200),
 		label: sanitizeWorkAgentSessionText(input.label, 120),
+		projectId: input.projectId,
+		workItemId: input.workItemId,
 		now,
 	});
 	return {
@@ -109,7 +124,24 @@ const listProcedure = readOs.list.handler(async ({ input, context }) => {
 	return buildWorkAgentSessionBoard(rows.map(sessionOutput), now);
 });
 
+const contributorsProcedure = projectReadOs.contributors.handler(
+	async ({ input, context }) => {
+		const { reports, attempts } = await listWorkProjectContributorSources(
+			context.db,
+			{ organizationId: requireOrgId(context), projectId: input.projectId },
+		);
+		return {
+			contributors: buildWorkProjectContributors(
+				reports,
+				attempts,
+				new Date().toISOString(),
+			),
+		};
+	},
+);
+
 export const workAgentSessionsContractRouter = sessionsOs.router({
 	report: reportProcedure,
 	list: listProcedure,
+	contributors: contributorsProcedure,
 });

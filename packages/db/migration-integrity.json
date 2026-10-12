@@ -836,6 +836,10 @@
 		{
 			"name": "20261011111031_app_tools_contract_hash/migration.sql",
 			"sha256": "71499d72b2574f03e06eeb129daa076dfda1454daf54474eeaf1ee31087795bd"
+		},
+		{
+			"name": "20261012090144_work-agent-session-project/migration.sql",
+			"sha256": "208f500c1e914348dfc57ac59e580383862082203f210f56b5933734988ae50e"
 		}
 	]
 }

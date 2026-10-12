@@ -269,6 +269,10 @@ describe("plan-wide tool id resolution", () => {
 			"workFleet/getControlTower": ["get_work_fleet_control_tower", "read"],
 			"workAgentSessions/report": ["report_work_agent_session_status", "write"],
 			"workAgentSessions/list": ["list_work_agent_sessions", "read"],
+			"workAgentSessions/contributors": [
+				"list_work_project_contributors",
+				"read",
+			],
 			"workScheduler/listReady": ["list_ready_work", "read"],
 			"workScheduler/planClusters": ["plan_work_execution_clusters", "read"],
 		} as const;

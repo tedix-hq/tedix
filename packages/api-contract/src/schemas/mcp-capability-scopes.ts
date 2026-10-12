@@ -166,6 +166,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// The local agent session board names its own resource, outside WORK_TOOL_RE.
 	report_work_agent_session_status: "mcp:work",
 	list_work_agent_sessions: "mcp:work",
+	list_work_project_contributors: "mcp:work",
 	// Verb-first catalog operator tools miss the `catalog_` prefix rule. The API
 	// keeps requireCatalogOperatorAccess on every catalog mutation; this gate
 	// only names the capability family so the tools stop failing closed.
