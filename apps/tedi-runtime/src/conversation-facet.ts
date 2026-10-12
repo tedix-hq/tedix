@@ -1,3 +1,4 @@
+import { selectRetainIndex } from "@tedix/context-core/compaction-boundary";
 import { recoverDurableObjectDeploymentReset } from "./durable-object-recovery";
 import { classifyTediContextOverflow } from "./context-overflow";
 import { resolveModelInputBudgetTokens } from "./model-input-budget";
@@ -979,8 +980,20 @@ export class ConversationFacet extends PiAgent<
 										entry.model?.some((message) => message.role !== "system"),
 								),
 							];
+							const retainFrom =
+								selectRetainIndex(
+									virtualEntries.map((entry) => ({
+										role: entry.model?.some(
+											(message) => message.role === "user",
+										)
+											? "user"
+											: "assistant",
+										weight: 1,
+									})),
+									20,
+								)?.retainFrom ?? 0;
 							const tailIds = new Set(
-								virtualEntries.slice(-20).map((entry) => entry.id),
+								virtualEntries.slice(retainFrom).map((entry) => entry.id),
 							);
 							const headIds = new Set(
 								(await this.ctx.storage.get<number[]>(
