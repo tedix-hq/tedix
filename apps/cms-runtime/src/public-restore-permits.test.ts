@@ -36,6 +36,24 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("public restore reservations", () => {
+	it("never shares an outer response reservation with a nested read", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const outer = forRequest();
+		await outer.enter(db, permit);
+		await outer.leave(db, permit);
+		const nested = forRequest();
+		await nested.enter(db, {
+			...permit,
+			kind: "nested",
+			permitId: "nested-read",
+		});
+		await nested.leave(db, permit);
+		expect(queries.enter).toHaveBeenCalledTimes(2);
+		expect(queries.reuse).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
+	});
+
 	it("reads 100 stream chunks with one row while checking every pull", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const source = new ReadableStream<Uint8Array>({

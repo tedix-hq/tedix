@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import {
 	beforeAll,
+	beforeEach,
 	afterEach,
 	describe,
 	expect,
@@ -13,6 +14,7 @@ import {
 	getCmsRestoreEpoch,
 	getCmsRestoreFenceState,
 	releaseCmsRestoreFence,
+	reconcileCmsRestoreOuterPermits,
 } from "@tedix/db/queries/cms-restore-fences";
 
 import { TenantEmDashDB, TenantR2, TenantSession } from "./index";
@@ -49,7 +51,12 @@ beforeAll(async () => {
 		.run();
 });
 
-afterEach(() => {
+const idleCleanup: Promise<unknown>[] = [];
+beforeEach(() => vi.useFakeTimers());
+afterEach(async () => {
+	await vi.advanceTimersByTimeAsync(10_000);
+	await Promise.all(idleCleanup.splice(0));
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
 
@@ -68,7 +75,10 @@ function tenantDb(
 	stub: Record<string, unknown>,
 ): TenantEmDashDB {
 	return Object.assign(Object.create(TenantEmDashDB.prototype), {
-		ctx: { props: { name: identity.slug, ...identity } },
+		ctx: {
+			props: { name: identity.slug, ...identity },
+			waitUntil: (task: Promise<unknown>) => idleCleanup.push(task),
+		},
 		env: {
 			PLATFORM_DB: platformD1,
 			DB_DO: { idFromName: (name: string) => name, get: () => stub },
@@ -105,6 +115,62 @@ function tenantSession(
 }
 
 describe("nested tenant storage restore permits", () => {
+	test("shares SQL reads as nested claims that restore reconciliation cannot reclaim", async () => {
+		const identity = await site();
+		const query = vi.fn().mockResolvedValue({ rows: [] });
+		const entrypoint = tenantDb(identity, { query });
+		for (let i = 0; i < 100; i++) await entrypoint.query("SELECT 1");
+		const permits = await platformD1
+			.prepare(
+				"SELECT kind, COUNT(*) AS n FROM cms_restore_permits WHERE site_id = ? GROUP BY kind",
+			)
+			.bind(identity.siteId)
+			.all();
+		expect(permits.results).toEqual([{ kind: "nested", n: 1 }]);
+		const fence = {
+			...identity,
+			generation: "shared-read",
+			captureId: "read-capture",
+		};
+		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
+		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		await expect(entrypoint.query("SELECT 1")).rejects.toThrow(
+			"fence unavailable",
+		);
+		expect(query).toHaveBeenCalledTimes(100);
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(idleCleanup.splice(0));
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
+	});
+
+	test.each([
+		"UPDATE content SET title = 'new'",
+		"SELECT 1; DELETE FROM content",
+		"WITH rows AS (SELECT 1) SELECT * FROM rows",
+	])("keeps an exact claim for unshared SQL %s", async (sql) => {
+		const identity = await site();
+		const query = vi.fn().mockResolvedValue({ rows: [] });
+		await tenantDb(identity, { query }).query(sql);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
+		expect(idleCleanup).toHaveLength(0);
+	});
+
+	test("shares read-only batches but leaves mixed batches on exact claims", async () => {
+		const identity = await site();
+		const batchQuery = vi.fn().mockResolvedValue([]);
+		const entrypoint = tenantDb(identity, { batchQuery });
+		await entrypoint.batchQuery([{ sql: "SELECT 1" }]);
+		await entrypoint.batchQuery([{ sql: "SELECT 2" }]);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
+		await entrypoint.batchQuery([
+			{ sql: "SELECT 1" },
+			{ sql: "DELETE FROM content" },
+		]);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
+		expect(batchQuery).toHaveBeenCalledTimes(3);
+	});
+
 	test("a close drains an in-flight DB RPC and denies the next one", async () => {
 		const identity = await site();
 		let finish!: (value: { rows: [] }) => void;

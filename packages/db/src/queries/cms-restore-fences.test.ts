@@ -85,6 +85,21 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it.each(["nested", "scheduled"] as const)(
+		"reuses only eligible claims of the exact %s kind",
+		async (kind) => {
+			const { db } = fixture();
+			const permit = { ...one, kind, permitId: "typed-reservation" };
+			expect(await enterCmsRestorePermit(db, permit)).toBe(true);
+			expect(await canReuseCmsRestorePermit(db, permit)).toBe(
+				kind === "nested",
+			);
+			expect(
+				await canReuseCmsRestorePermit(db, { ...permit, kind: "outer" }),
+			).toBe(false);
+		},
+	);
+
 	it("reuses only the exact durable reservation while its site admission is open", async () => {
 		const { db, sqlite } = fixture();
 		const permit = { ...one, permitId: "public-reservation" };

@@ -2301,11 +2301,13 @@ async function withTenantStoragePermit<T>(
 	env: Env,
 	identity: { siteId: string; slug: string; restoreEpoch: number },
 	run: () => Promise<T>,
+	readQueries?: ReturnType<typeof publicRestorePermitQueries>,
 ): Promise<T> {
 	const result = await withCmsRestorePermit(
 		createDbQueryClient(env.PLATFORM_DB),
 		identity,
 		run,
+		readQueries,
 	);
 	if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
 	return result.value;
@@ -2315,8 +2317,15 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 	Env,
 	{ name: string; siteId: string; slug: string; restoreEpoch: number }
 > {
-	private withPermit<T>(run: () => Promise<T>): Promise<T> {
-		return withTenantStoragePermit(this.env, this.ctx.props, run);
+	private withPermit<T>(run: () => Promise<T>, readOnly = false): Promise<T> {
+		return withTenantStoragePermit(
+			this.env,
+			this.ctx.props,
+			run,
+			readOnly
+				? publicRestorePermitQueries((task) => this.ctx.waitUntil(task))
+				: undefined,
+		);
 	}
 
 	private stub(): EmDashDBStub {
@@ -2337,7 +2346,7 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 		params?: unknown[],
 		opts?: { bookmark?: string },
 	): Promise<DoQueryResult> {
-		const selectOnly = PLAIN_SELECT_PATTERN.test(sql);
+		const selectOnly = PLAIN_SELECT_PATTERN.test(sql) && !sql.includes(";");
 		// Diagnostic trace: identify the statement class and nested RPC
 		// boundary without recording SQL or parameter values.
 		console.info("[cms-runtime] tenant database query entered", {
@@ -2346,14 +2355,16 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 			tableGroup: tenantDbQueryFamily(sql),
 		});
 		// Keep this WorkerEntrypoint invocation pending until the nested DO RPC settles.
-		const result = await this.withPermit(() =>
-			selectOnly
-				? retryTenantDbRead(
-						() => this.stub().query(sql, params, opts),
-						"SELECT RPC",
-						this.ctx.props.name,
-					)
-				: this.stub().query(sql, params, opts),
+		const result = await this.withPermit(
+			() =>
+				selectOnly
+					? retryTenantDbRead(
+							() => this.stub().query(sql, params, opts),
+							"SELECT RPC",
+							this.ctx.props.name,
+						)
+					: this.stub().query(sql, params, opts),
+			selectOnly,
 		);
 		console.info("[cms-runtime] tenant database query resolved", {
 			tenant: this.ctx.props.name,
@@ -2366,8 +2377,10 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 		statements: DoQueryStatement[],
 		opts?: { bookmark?: string },
 	): Promise<DoQueryResult[]> {
-		const selectOnly = statements.every((statement) =>
-			PLAIN_SELECT_PATTERN.test(statement.sql),
+		const selectOnly = statements.every(
+			(statement) =>
+				PLAIN_SELECT_PATTERN.test(statement.sql) &&
+				!statement.sql.includes(";"),
 		);
 		// Diagnostic trace: Logpush keeps these lines in the same RPC
 		// invocation as a hang, without recording SQL or parameter values.
@@ -2376,14 +2389,16 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 			selectOnly,
 			count: statements.length,
 		});
-		const result = await this.withPermit(() =>
-			selectOnly
-				? retryTenantDbRead(
-						() => this.stub().batchQuery(statements, opts),
-						"SELECT batch RPC",
-						this.ctx.props.name,
-					)
-				: this.stub().batchQuery(statements, opts),
+		const result = await this.withPermit(
+			() =>
+				selectOnly
+					? retryTenantDbRead(
+							() => this.stub().batchQuery(statements, opts),
+							"SELECT batch RPC",
+							this.ctx.props.name,
+						)
+					: this.stub().batchQuery(statements, opts),
+			selectOnly,
 		);
 		console.info("[cms-runtime] tenant database batch resolved", {
 			tenant: this.ctx.props.name,
