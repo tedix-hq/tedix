@@ -17,7 +17,7 @@
  * `getReplyDraftAcceptance`): the target user of a quiet (`later`, no urgent
  * labels) decision-capture question may ask for a tedi-drafted reply
  * proposal. The first attempt goes to the organization tedi that clearly owns
- * the question's subject (lesson routing's Clef classifier and threshold), the
+ * the question's subject (lesson routing's Clef classifier, with a lower threshold), the
  * policy's drafting tedi otherwise; a routed attempt queues a delayed drafter
  * fallback that runs only if no draft landed in time. The request starts one
  * `tedi_turn` per attempt (dispatched
@@ -646,6 +646,25 @@ export const REPLY_DRAFT_RETRY_AFTER_MS = 2 * 60_000;
  * The owner drafts on the drafter's fast model, so this rarely fires.
  */
 export const REPLY_DRAFT_OWNER_TIMEOUT_S = 25;
+/**
+ * The owner classifier's pick drafts the reply at or above this probability.
+ * Lower than lesson routing's ROUTE_THRESHOLD: a wrong owner here only drafts
+ * a reply the user still reviews or the gate checks, while a wrong lesson
+ * owner writes into that tedi's memory. "No owner" is one of the options, so
+ * a tedi picked over it with a majority is a fair owner.
+ */
+export const REPLY_DRAFT_ROUTE_THRESHOLD = 0.5;
+
+/** The tedi that drafts first: the classifier's pick, when sure enough. */
+export function replyDraftOwnerFrom(routing: {
+	choiceTediId: string | null;
+	probability: number | null;
+}): string | null {
+	return routing.choiceTediId &&
+		(routing.probability ?? 0) >= REPLY_DRAFT_ROUTE_THRESHOLD
+		? routing.choiceTediId
+		: null;
+}
 
 type InteractionRow = NonNullable<
 	Awaited<ReturnType<typeof getWorkInteraction>>
@@ -1089,9 +1108,9 @@ async function tedisDeniedReplyDraftWrite(
 /**
  * The tedi that owns a question's subject (CTO for code and deploys, CMO for
  * go-to-market, ...), chosen from the organization's own tedis by the same
- * Clef classifier and threshold that routes lessons into tedi brains. Null
- * when no tedi clearly owns it, routing failed, or the owner is the drafter:
- * the configured drafter then drafts.
+ * Clef classifier that routes lessons into tedi brains, at the lower
+ * REPLY_DRAFT_ROUTE_THRESHOLD. Null when no tedi owns it, routing failed, or
+ * the owner is the drafter: the configured drafter then drafts.
  */
 async function owningDraftTediId(
 	context: BaseContext,
@@ -1141,7 +1160,7 @@ async function owningDraftTediId(
 			surface: "reply-draft-routing",
 		});
 		return {
-			tediId: routing.status === "routed" ? routing.tediId : null,
+			tediId: replyDraftOwnerFrom(routing),
 			probability: routing.probability,
 			choiceTediId: routing.choiceTediId,
 		};
