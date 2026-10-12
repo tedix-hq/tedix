@@ -181,6 +181,7 @@ function render(
 			availableMicros: 83_000_000,
 			spentMicros: 15_000_000,
 			monthlyCapMicros: 90_000_000,
+			perRunBudgetMicros: 5_000_000,
 		};
 	if (opts.paused) {
 		bill.inferenceCapacity.available = false;
@@ -360,7 +361,11 @@ it("leads monetary plans with available credits and exact wallet holds", () => {
 	expect(html).toContain("Ready to run");
 	expect(html).toContain("Advanced usage and billing details");
 	expect(html).toContain("Some usage is waiting for a price");
-	expect(html).toContain("Recorded model costs by run");
+	expect(html).toContain("Spending by run");
+	expect(html).toContain("Maximum per run:");
+	expect(html).toContain("500 credits");
+	expect(html).toContain("Included allowance remaining:");
+	expect(html).toContain("Coverage forecast unavailable");
 	expect(html).not.toContain("0 records have no confirmed price");
 });
 it("does not imply a funded wallet bypasses a canonical spending block", () => {

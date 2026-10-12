@@ -216,7 +216,8 @@ export function monetaryCreditOverview(
 	snapshot: BillingBalanceSnapshot,
 	period: BillingUsagePeriod | null,
 ) {
-	if (!monetaryInferenceConfig(plan)) return undefined;
+	const config = monetaryInferenceConfig(plan);
+	if (!config) return undefined;
 	const used = snapshot.monetarySpentMicros ?? 0;
 	return {
 		billingMode: "monetary" as const,
@@ -233,6 +234,9 @@ export function monetaryCreditOverview(
 		availableMicros: snapshot.availableCreditMicros,
 		spentMicros: used,
 		monthlyCapMicros: snapshot.hardSpendLimitMicros,
+		...(config.perRunBudgetMicros !== undefined
+			? { perRunBudgetMicros: config.perRunBudgetMicros }
+			: {}),
 	};
 }
 

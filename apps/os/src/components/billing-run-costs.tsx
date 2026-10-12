@@ -20,6 +20,7 @@ import {
 } from "@/components/kumo/table";
 import { groupRecordedRunCosts } from "@/lib/billing-run-costs";
 import { osQuery } from "@/lib/os-query-options";
+import { BillingSettledSpending } from "./billing-settled-spending";
 
 export function BillingRunCosts({
 	organizationId,
@@ -42,7 +43,7 @@ export function BillingRunCosts({
 		<Card tone="raised">
 			<CardHeader className="sm:grid-cols-[minmax(0,1fr)_auto]">
 				<div className="space-y-1">
-					<CardTitle>Recorded model costs by run</CardTitle>
+					<CardTitle>Spending by run</CardTitle>
 					<Text tone="secondary">
 						See which runs used model resources, then open a run to inspect its
 						steps.
@@ -59,6 +60,7 @@ export function BillingRunCosts({
 			</CardHeader>
 			{expanded && (
 				<CardContent className="space-y-3">
+					<BillingSettledSpending />
 					{ledger.isPending ? (
 						<Skeleton className="h-24" aria-label="Loading recorded costs" />
 					) : ledger.isError || !ledger.data ? (

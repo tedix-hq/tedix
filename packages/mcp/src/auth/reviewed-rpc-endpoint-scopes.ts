@@ -98,6 +98,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"billing/createInferenceCapacityCheckout": "platform:admin",
 	"billing/createPortal": "platform:admin",
 	"billing/getOverageSettings": "platform:admin",
+	"billing/getInferenceSpending": "mcp:settings.read",
 	"billing/grantCredit": "platform:admin",
 	"billing/configureCreditBilling": "platform:admin",
 	"billing/grantInferenceCapacity": "platform:admin",

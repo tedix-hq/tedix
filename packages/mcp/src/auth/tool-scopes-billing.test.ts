@@ -47,6 +47,21 @@ describe("provider capacity sponsorship scope resolution", () => {
 			resolve("grant_inference_capacity", { readOnlyHint: false }),
 		).toEqual(["platform:admin"]);
 	});
+	it("permits only the reviewed own-org spending read without platform authority", () => {
+		expect(
+			resolveMcpToolRequiredScopes(
+				{
+					toolId: "tedix_unified__get_inference_spending",
+					toolTypeId: "rpc",
+					authRequired: true,
+					config: { endpoint: "billing/getInferenceSpending" },
+					annotations: { readOnlyHint: true },
+				},
+				"tedix_unified",
+				tenantAggregateConfig,
+			),
+		).toEqual(["mcp:settings.read"]);
+	});
 	it("requires platform authority for reviewed provider estimates, even with read hints", () => {
 		for (const readOnlyHint of [true, false])
 			expect(
