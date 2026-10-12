@@ -719,15 +719,20 @@ async function boardCall(
 		const search = usableDescriptor(bootstrap.nativeCatalog.search);
 		const describe = usableDescriptor(bootstrap.nativeCatalog.describe);
 		const dot = callable.indexOf(".");
-		const result = await ctx.client.callTool(
-			search.name,
-			{
-				query: callable.slice(dot + 1),
-				namespace: callable.slice(0, dot),
-				limit: 100,
-			},
-			nativeOptions(ctx),
-		);
+		// Search and describe are independent reads; the checks below still
+		// require both to agree before the call.
+		const [result, detail] = await Promise.all([
+			ctx.client.callTool(
+				search.name,
+				{
+					query: callable.slice(dot + 1),
+					namespace: callable.slice(0, dot),
+					limit: 100,
+				},
+				nativeOptions(ctx),
+			),
+			ctx.client.callTool(describe.name, { callable }, nativeOptions(ctx)),
+		]);
 		if (!isRecord(result) || !Array.isArray(result.results))
 			throw new Error("Malformed native Work catalog search");
 		const matches = result.results.filter(
@@ -743,11 +748,6 @@ async function boardCall(
 		const selected = usableDescriptor(row.native);
 		if (!expectedEndpoint || selected.endpoint !== expectedEndpoint)
 			throw new Error("Native Work endpoint mismatch");
-		const detail = await ctx.client.callTool(
-			describe.name,
-			{ callable },
-			nativeOptions(ctx),
-		);
 		if (
 			!isRecord(detail) ||
 			detail.callable !== callable ||
