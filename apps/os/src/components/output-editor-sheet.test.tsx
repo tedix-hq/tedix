@@ -221,6 +221,61 @@ describe("SheetEditor", () => {
 		mounted.cleanup();
 	});
 
+	it("switches tabs as view state without editing the document, then edits the open tab", () => {
+		const sheetOf = (id: string, name: string, first: string) => ({
+			id,
+			name,
+			columns: [{ id: `${id}-a`, label: "A", width: 120 }],
+			rows: [[{ input: first, value: first }]],
+			frozenRows: 0,
+			frozenColumns: 0,
+		});
+		const value = {
+			kind: "sheet",
+			columns: ["A"],
+			rows: [["first"]],
+			workbook: {
+				activeSheetId: "one",
+				sheets: [
+					sheetOf("one", "One", "first"),
+					sheetOf("two", "Two", "second"),
+				],
+			},
+		} as unknown as SheetContent;
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		const onChange = vi.fn();
+		act(() => root.render(<SheetEditor value={value} onChange={onChange} />));
+		const tab = (name: string) =>
+			Array.from(
+				container.querySelectorAll<HTMLButtonElement>(
+					".sheet-editor-tabs button",
+				),
+			).find((button) => button.textContent === name);
+		act(() => tab("Two")?.click());
+		// Opening a tab is not a document change: no revision, undo step or sync.
+		expect(onChange).not.toHaveBeenCalled();
+		expect(tab("Two")?.getAttribute("aria-pressed")).toBe("true");
+		expect(
+			container.querySelector<HTMLInputElement>('[aria-label="Formula bar"]')
+				?.value,
+		).toBe("second");
+		act(() =>
+			container
+				.querySelector<HTMLButtonElement>('[aria-label="Bold"]')
+				?.click(),
+		);
+		const next = onChange.mock.calls.at(-1)?.[0] as SheetContent | undefined;
+		expect(next?.workbook?.activeSheetId).toBe("two");
+		expect(next?.workbook?.sheets[1]?.rows[0]?.[0]?.format?.bold).toBe(true);
+		expect(
+			next?.workbook?.sheets[0]?.rows[0]?.[0]?.format?.bold,
+		).toBeUndefined();
+		act(() => root.unmount());
+		container.remove();
+	});
+
 	it("formats the selected cell and emits rich workbook state", () => {
 		const mounted = renderEditor();
 		act(() =>
