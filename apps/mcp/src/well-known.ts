@@ -80,6 +80,7 @@ export async function lookupAppByHostname(
 							domain: slugResult.app.primaryDomain,
 							organizationId: slugResult.app.organizationId,
 							visibility: slugResult.app.visibility,
+							logoUrl: slugResult.app.logoUrl,
 							openaiChallengeToken: slugResult.app.openaiChallengeToken,
 						},
 						challengeToken: slugResult.app.openaiChallengeToken ?? null,
@@ -102,6 +103,7 @@ export async function lookupAppByHostname(
 						domain: result.app.primaryDomain,
 						organizationId: result.app.organizationId,
 						visibility: result.app.visibility,
+						logoUrl: result.app.logoUrl,
 						openaiChallengeToken: result.app.openaiChallengeToken,
 					},
 					challengeToken: result.app.openaiChallengeToken ?? null,
@@ -125,6 +127,7 @@ export async function lookupAppByHostname(
 						domain: domainResult.app.domain,
 						organizationId: domainResult.app.organizationId,
 						visibility: domainResult.app.visibility,
+						logoUrl: slugResult.app?.logoUrl ?? null,
 						openaiChallengeToken: slugResult.app?.openaiChallengeToken,
 					},
 					challengeToken: slugResult.app?.openaiChallengeToken ?? null,
@@ -370,6 +373,38 @@ async function handleOpenAIChallenge(
 		headers: {
 			"Content-Type": "text/plain",
 			"Cache-Control": "public, max-age=300",
+			"Cache-Tag": `app:${app.id}`,
+		},
+	});
+}
+
+/**
+ * Directory listings (the Claude connector directory, favicon crawlers) show
+ * the favicon of the server URL's host. Redirect to the app's configured logo
+ * so each MCP host shows its app's icon; apps without one keep the 404.
+ */
+export async function handleFavicon(
+	hostname: string,
+	env: CloudflareEnv,
+): Promise<Response> {
+	const { app, upstreamUnavailable } = await lookupAppByHostname(
+		extractAppFromHostname(hostname, env),
+		hostname,
+		env,
+	);
+	if (!app && upstreamUnavailable) return upstreamUnavailableResponse();
+	const logoUrl = app?.logoUrl;
+	if (!app || !logoUrl?.startsWith("https://")) {
+		return new Response("Not found", {
+			status: 404,
+			headers: { "Cache-Control": "private, no-store" },
+		});
+	}
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: logoUrl,
+			"Cache-Control": "public, max-age=3600",
 			"Cache-Tag": `app:${app.id}`,
 		},
 	});

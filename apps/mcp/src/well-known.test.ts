@@ -22,7 +22,11 @@ import {
 	PLATFORM_OPERATOR_SCOPE,
 	PLATFORM_SCOPES,
 } from "@tedix/mcp-shared/auth/scopes";
-import { handleWellKnown, normalizeAdvertisedScopeNames } from "./well-known";
+import {
+	handleFavicon,
+	handleWellKnown,
+	normalizeAdvertisedScopeNames,
+} from "./well-known";
 
 function createEnv() {
 	return {
@@ -182,6 +186,37 @@ describe("well-known transient upstream handling", () => {
 		getBySlugWithTools.mockResolvedValue({ app: null, tools: [] });
 		const res = await handleWellKnown(challengeUrl, HOST, createEnv());
 		expect(res?.status).toBe(404);
+	});
+});
+
+describe("host favicon", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("redirects to the app's logo", async () => {
+		getBySlugWithTools.mockResolvedValue({
+			app: { id: "app-1", slug: "acme", logoUrl: "https://acme.test/logo.png" },
+			tools: [],
+		});
+		const res = await handleFavicon(HOST, createEnv());
+		expect(res.status).toBe(302);
+		expect(res.headers.get("Location")).toBe("https://acme.test/logo.png");
+	});
+
+	it("returns 404 when the app has no https logo", async () => {
+		for (const logoUrl of [null, "http://acme.test/logo.png"]) {
+			getBySlugWithTools.mockResolvedValue({
+				app: { id: "app-1", slug: "acme", logoUrl },
+				tools: [],
+			});
+			expect((await handleFavicon(HOST, createEnv())).status).toBe(404);
+		}
+	});
+
+	it("returns 503 when apps/api is transiently down", async () => {
+		getBySlugWithTools.mockRejectedValue(transient());
+		expect((await handleFavicon(HOST, createEnv())).status).toBe(503);
 	});
 });
 
