@@ -22,6 +22,7 @@ const {
 import type { SessionMessage } from "agents/sessions";
 import { conversationCompactionSettings } from "./pi-compaction";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { EntryRecord } from "@earendil-works/pi-durable";
 
 for (const cancelledAt of ["ingress", "dispatch", "never"] as const) {
 	const storage = memoryStorage();
@@ -233,6 +234,68 @@ assert.equal(
 	0,
 	"retained snapshot cannot duplicate already emitted text",
 );
+// Native committed batches can retain a whole block and its append operations.
+for (const type of ["text", "thinking"] as const) {
+	for (const deltaFirst of [false, true]) {
+		const projection = createPiEventProjection();
+		const block = (value: string) =>
+			type === "text"
+				? { type: "text" as const, text: value }
+				: { type: "thinking" as const, thinking: value };
+		const start = projection({
+			type: "message_start",
+			message: { ...partial, content: [block("prefix")] },
+		});
+		const full = {
+			type:
+				type === "text" ? ("text_start" as const) : ("thinking_start" as const),
+			contentIndex: 0,
+			block: block("prefix tail"),
+		};
+		const append = {
+			type:
+				type === "text" ? ("text_delta" as const) : ("thinking_delta" as const),
+			contentIndex: 0,
+			delta: " tail",
+		};
+		const update = projection({
+			type: "message_update",
+			usage,
+			changes: deltaFirst ? [append, full] : [full, append],
+		});
+		const end = projection({
+			type: "message_end",
+			entry: {
+				id: 1 as EntryRecord["id"],
+				conversationId: 1 as EntryRecord["conversationId"],
+				kind: "assistant",
+				model: [{ ...partial, content: [block("prefix tail")] }],
+			},
+		});
+		assert.equal(
+			[...start, ...update, ...end]
+				.filter(
+					(frame) =>
+						frame.type === (type === "text" ? "text-delta" : "reasoning-delta"),
+				)
+				.map((frame) => frame.delta)
+				.join(""),
+			"prefix tail",
+		);
+		assert.equal(end.at(-1)?.type, "finish-step");
+		assert.throws(
+			() =>
+				projection({
+					type: "message_update",
+					usage,
+					changes: [
+						{ type: "block", contentIndex: 0, block: block("rewritten") },
+					],
+				}),
+			/rewrote an emitted content block/,
+		);
+	}
+}
 console.log("conversation-facet native projection OK");
 
 // Payload verification only: native registry/admission and wake semantics live in Worker fixtures.

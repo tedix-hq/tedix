@@ -1654,7 +1654,12 @@ export function createPiEventProjection(
 		if (event.type === "message_start" && event.message.role === "assistant") {
 			messageId++;
 			blocks.clear();
-			return [{ type: "start-step" }];
+			return [
+				{ type: "start-step" },
+				...event.message.content.flatMap((block, index) =>
+					block.type === "toolCall" ? [] : projectBlock(index, block),
+				),
+			];
 		}
 		if (event.type === "snapshot") {
 			const partial = event.generation?.message;
@@ -1701,6 +1706,18 @@ export function createPiEventProjection(
 		}
 		if (event.type === "message_update") {
 			const frames: Record<string, unknown>[] = [];
+			// Whole blocks already contain every append in this committed batch.
+			const completeBlocks = new Set(
+				event.changes.flatMap((change) =>
+					change.type === "message"
+						? change.message.content.map((_, index) => index)
+						: change.type === "block" ||
+							  change.type === "text_start" ||
+							  change.type === "thinking_start"
+							? [change.contentIndex]
+							: [],
+				),
+			);
 			for (const change of event.changes) {
 				if (change.type === "message")
 					change.message.content.forEach((block, index) =>
@@ -1716,6 +1733,7 @@ export function createPiEventProjection(
 					change.type === "text_delta" ||
 					change.type === "thinking_delta"
 				) {
+					if (completeBlocks.has(change.contentIndex)) continue;
 					const prior = blocks.get(change.contentIndex);
 					const type = change.type === "text_delta" ? "text" : "thinking";
 					frames.push(
