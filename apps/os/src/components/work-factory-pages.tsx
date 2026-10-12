@@ -3,13 +3,8 @@ import type {
 	WorkItemRelationEdge,
 } from "@tedix/api-contract/schemas/work-items";
 import type { Project } from "@tedix/api-contract/contracts/projects";
-import {
-	useMutation,
-	useQueries,
-	useQuery,
-	useQueryClient,
-} from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ReactNode, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
@@ -53,7 +48,6 @@ import {
 } from "@/components/kumo/page";
 import { Surface } from "@/components/kumo/surface";
 import { Skeleton } from "@/components/kumo/skeleton";
-import { SearchInput } from "@/components/kumo/search-input";
 import { SelectItem } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import {
@@ -71,7 +65,6 @@ import { WorkstationInspectionPanel } from "@/components/workstation-inspection-
 import { formatRatioPercent, sentenceCase } from "@/lib/format";
 import {
 	projectDetailQueryOptions,
-	projectListQueryOptions,
 	projectRollupQueryOptions,
 	projectHealthJudgmentsQueryOptions,
 	projectMilestonesQueryOptions,
@@ -98,7 +91,6 @@ import { workPrincipalLabel } from "@/lib/work-display";
 import { PageControls, useCursorPaging } from "./work-operations-pages";
 
 const WORK_LIST_LIMIT = 100;
-const PORTFOLIO_PAGE_SIZE = 20;
 
 function FactoryPageHeader({
 	title,
@@ -890,276 +882,6 @@ export function WorkQueuePage() {
 						paging.next(queueQuery.data.nextCursor);
 				}}
 			/>
-		</Page>
-	);
-}
-
-type PortfolioRollup = {
-	percentDone: number;
-	aggregateDisposition: string;
-};
-
-function projectStatusVariant(status: Project["status"]) {
-	if (status === "active") return "success" as const;
-	if (status === "paused") return "warning" as const;
-	if (status === "done") return "secondary" as const;
-	return "outline" as const;
-}
-
-export function PortfolioProjectList({
-	projects,
-	rollups,
-}: {
-	projects: Project[];
-	rollups: Array<PortfolioRollup | undefined>;
-}) {
-	return (
-		<>
-			<Collection aria-label="Projects" className="lg:hidden">
-				{projects.map((project, index) => {
-					const rollup = rollups[index];
-					return (
-						<li
-							className="min-w-0 space-y-1.5 px-3 py-3"
-							data-mobile-project-row
-							key={project.id}
-						>
-							<div className="flex min-w-0 items-start justify-between gap-3">
-								<Link
-									variant="record"
-									href={`/work/projects/${project.id}`}
-									className="min-w-0 font-medium leading-snug"
-								>
-									<span className="line-clamp-2">{project.name}</span>
-								</Link>
-								<Badge variant={projectStatusVariant(project.status)}>
-									{sentenceCase(project.status)}
-								</Badge>
-							</div>
-							<div className="grid min-w-0 gap-1">
-								<div className="flex min-w-0 items-center justify-between gap-2">
-									<Text
-										as="span"
-										role="label"
-										tone="mono-secondary"
-										className="min-w-0 truncate"
-									>
-										{project.key}
-									</Text>
-									<Text
-										as="span"
-										role="label"
-										tone="secondary"
-										className="shrink-0 tabular-nums"
-										data-mobile-project-progress
-									>
-										{rollup
-											? `${formatRatioPercent(rollup.percentDone)} · ${sentenceCase(rollup.aggregateDisposition)}`
-											: "Loading progress…"}
-									</Text>
-								</div>
-								<div className="flex min-w-0 items-center justify-between gap-2">
-									<Text
-										as="span"
-										role="label"
-										tone="secondary"
-										className="min-w-0 truncate"
-										title={
-											project.ownerUserId ?? project.leadTediId ?? "Unassigned"
-										}
-										data-mobile-project-owner
-									>
-										Owner:{" "}
-										{workPrincipalLabel(
-											project.ownerUserId ?? project.leadTediId,
-										)}
-									</Text>
-									{project.targetDate ? (
-										<Text
-											as="span"
-											role="label"
-											tone="secondary"
-											className="shrink-0 tabular-nums"
-											data-mobile-project-horizon
-										>
-											{project.targetDate}
-										</Text>
-									) : null}
-								</div>
-							</div>
-						</li>
-					);
-				})}
-			</Collection>
-			<Table scrollLabel="Projects" containerClassName="hidden lg:block">
-				<TableHeader>
-					<TableRow>
-						<TableHead>Project</TableHead>
-						<TableHead>Status</TableHead>
-						<TableHead>Owner</TableHead>
-						<TableHead>Horizon</TableHead>
-						<TableHead>Outcome progress</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{projects.map((project, index) => {
-						const rollup = rollups[index];
-						return (
-							<TableRow key={project.id}>
-								<TableCell className="max-w-md whitespace-normal">
-									<Link
-										variant="record"
-										href={`/work/projects/${project.id}`}
-										className="font-medium"
-									>
-										{project.name}
-									</Link>
-									<Text as="p" role="label" tone="mono-secondary">
-										{project.key}
-									</Text>
-								</TableCell>
-								<TableCell>
-									<Badge variant={projectStatusVariant(project.status)}>
-										{sentenceCase(project.status)}
-									</Badge>
-								</TableCell>
-								<TableCell
-									className="max-w-44 truncate"
-									title={
-										project.ownerUserId ?? project.leadTediId ?? "Unassigned"
-									}
-								>
-									{workPrincipalLabel(
-										project.ownerUserId ?? project.leadTediId,
-									)}
-								</TableCell>
-								<TableCell>{project.targetDate ?? "Not recorded"}</TableCell>
-								<TableCell className="tabular-nums">
-									{rollup
-										? `${formatRatioPercent(rollup.percentDone)} · ${sentenceCase(rollup.aggregateDisposition)}`
-										: "Loading…"}
-								</TableCell>
-							</TableRow>
-						);
-					})}
-				</TableBody>
-			</Table>
-		</>
-	);
-}
-
-export function WorkPortfolioPage() {
-	const [search, setSearch] = useState("");
-	const [debouncedSearch, setDebouncedSearch] = useState("");
-	const [page, setPage] = useState(0);
-	useEffect(() => {
-		const timeout = window.setTimeout(() => setDebouncedSearch(search), 250);
-		return () => window.clearTimeout(timeout);
-	}, [search]);
-	const normalizedSearch = debouncedSearch.trim() || undefined;
-	const searchIsPending = search.trim() !== debouncedSearch.trim();
-	const offset = page * PORTFOLIO_PAGE_SIZE;
-	const projectsQuery = useQuery(
-		projectListQueryOptions(PORTFOLIO_PAGE_SIZE, {
-			offset,
-			search: normalizedSearch,
-		}),
-	);
-	const projects = projectsQuery.data?.data ?? [];
-	const total = projectsQuery.data?.pagination.total ?? 0;
-	useEffect(() => {
-		if (projectsQuery.data && page > 0 && offset >= total) {
-			setPage(Math.max(0, Math.ceil(total / PORTFOLIO_PAGE_SIZE) - 1));
-		}
-	}, [projectsQuery.data, page, offset, total]);
-	const rollups = useQueries({
-		queries: projects.map((project) => projectRollupQueryOptions(project.id)),
-	});
-	return (
-		<Page width="full">
-			<FactoryPageHeader
-				title="Portfolio and projects"
-				description="Project health, ownership, horizon, and outcome progress stay separate from attempt runtime state."
-			/>
-			{total > 0 || search ? (
-				<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-					<SearchInput
-						aria-label="Search projects"
-						containerClassName="w-full sm:max-w-md"
-						maxLength={200}
-						placeholder="Search projects"
-						value={search}
-						onChange={(event) => {
-							setSearch(event.target.value);
-							setPage(0);
-						}}
-					/>
-					<Text
-						as="span"
-						role="label"
-						tone="secondary"
-						className="tabular-nums"
-					>
-						{searchIsPending || projectsQuery.isPending
-							? "Searching…"
-							: `${total} ${normalizedSearch ? "matching " : ""}projects`}
-					</Text>
-				</div>
-			) : null}
-			{searchIsPending || projectsQuery.isPending ? (
-				<LoadingTable />
-			) : projectsQuery.isError ? (
-				<QueryFailure
-					title="Portfolio unavailable"
-					error={projectsQuery.error}
-				/>
-			) : total === 0 && !normalizedSearch ? (
-				<EmptyState
-					title="No projects yet"
-					description="Group related work under one goal and owner."
-				/>
-			) : projects.length === 0 ? (
-				<EmptyState
-					title="No matching projects"
-					description="Try a project name, key, status, or owner."
-				/>
-			) : (
-				<>
-					<PortfolioProjectList
-						projects={projects}
-						rollups={rollups.map((rollup) => rollup.data)}
-					/>
-					{total > PORTFOLIO_PAGE_SIZE ? (
-						<div
-							aria-live="polite"
-							className="flex flex-col items-center justify-between gap-2 sm:flex-row"
-						>
-							<Text as="p" role="label" tone="secondary">
-								Showing {offset + 1}–{offset + projects.length} of {total}{" "}
-								projects
-							</Text>
-							<div className="flex w-full gap-2 sm:w-auto">
-								<Button
-									className="flex-1 sm:flex-none"
-									disabled={page === 0}
-									onClick={() => setPage((current) => current - 1)}
-									variant="outline"
-								>
-									Previous page
-								</Button>
-								<Button
-									className="flex-1 sm:flex-none"
-									disabled={!projectsQuery.data?.pagination.hasMore}
-									onClick={() => setPage((current) => current + 1)}
-									variant="outline"
-								>
-									Next page
-								</Button>
-							</div>
-						</div>
-					) : null}
-				</>
-			)}
 		</Page>
 	);
 }
