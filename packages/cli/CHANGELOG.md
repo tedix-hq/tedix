@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.10
+
+### Patch Changes
+
+- c720870: The status and decision-capture hooks now ignore Codex side threads that Codex never saves, such as prompt suggestions and memory consolidation. These threads no longer appear on the Agents board as separate sessions or post raw JSON summaries.
+
 ## 0.8.9
 
 ### Patch Changes
