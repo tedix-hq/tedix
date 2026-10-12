@@ -38,6 +38,7 @@ import {
 } from "@tedix/mcp-shared/task-polling";
 import type { McpTaskState } from "@tedix/mcp-shared/tasks";
 import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
+import type { DiscoveryCache } from "./discovery-cache";
 import { isConnectionError } from "./operator/runtime-errors";
 import type { SessionRefreshOutcome } from "./oauth-provider";
 import { CLI_VERSION } from "./shared";
@@ -233,6 +234,8 @@ export interface TedixHomeClientOptions {
 	};
 	timeoutMs?: number;
 	url: string;
+	/** Reuse a recent `server/discover` answer across CLI processes. */
+	discoveryCache?: DiscoveryCache;
 }
 
 /** One bounded typed call; never shared by unrelated callers or renewed by progress. */
@@ -1214,6 +1217,8 @@ export class TedixHomeClient {
 		{ resolve: (payload: { error?: unknown; result?: unknown }) => void }
 	>();
 	#modernDiscovery: Promise<{ supportsTasks: boolean }> | undefined;
+	#discoveryCache: DiscoveryCache | undefined;
+	#discoveryFromCache = false;
 	#nativeProtocols = new WeakMap<object, { supportsTasks: boolean }>();
 	#destructiveApprovalReason: string | undefined;
 	#destructiveCallTail: Promise<void> = Promise.resolve();
@@ -1243,6 +1248,7 @@ export class TedixHomeClient {
 			url: options.url,
 		};
 		this.#fetch = options.fetch ?? fetch;
+		this.#discoveryCache = options.discoveryCache;
 		this.#oauthProvider = options.oauthProvider;
 		this.#transport = options.oauthProvider
 			? new StreamableHTTPClientTransport(new URL(this.#options.url), {
@@ -1605,6 +1611,11 @@ export class TedixHomeClient {
 		sequence?: object,
 	): Promise<{ supportsTasks: boolean }> {
 		const discover = async () => {
+			const cached = this.#discoveryCache?.read(this.#options.url);
+			if (cached) {
+				this.#discoveryFromCache = true;
+				return cached;
+			}
 			const result = await this.#rawModernRequest(
 				"server/discover",
 				{},
@@ -1624,10 +1635,12 @@ export class TedixHomeClient {
 			const extensions = isRecord(capabilities)
 				? capabilities.extensions
 				: undefined;
-			return {
+			const protocol = {
 				supportsTasks:
 					isRecord(extensions) && MCP_TASKS_EXTENSION in extensions,
 			};
+			this.#discoveryCache?.write(this.#options.url, protocol);
+			return protocol;
 		};
 		if (scope) {
 			scope.guard();
@@ -1659,6 +1672,29 @@ export class TedixHomeClient {
 			scope,
 			options.protocolSequence,
 		);
+		try {
+			return await this.#modernToolCallRounds(
+				toolName,
+				args,
+				options,
+				protocol,
+				scope,
+			);
+		} catch (error) {
+			// A reused discovery answer may be stale: rediscover on the next command.
+			if (this.#discoveryFromCache)
+				this.#discoveryCache?.forget(this.#options.url);
+			throw error;
+		}
+	}
+
+	async #modernToolCallRounds(
+		toolName: string,
+		args: Record<string, unknown>,
+		options: McpCallOptions,
+		protocol: { supportsTasks: boolean },
+		scope?: NativeCallScope,
+	): Promise<unknown> {
 		let params: Record<string, unknown> = {
 			name: toolName,
 			arguments: args,

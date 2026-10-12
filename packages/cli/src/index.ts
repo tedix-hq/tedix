@@ -57,6 +57,7 @@ import {
 } from "./external-agent";
 import { runFlowCommand } from "./flow";
 import { errorText, resolveColorMode } from "./format";
+import { fileDiscoveryCache } from "./discovery-cache";
 import { DEFAULT_TEDIX_MCP_URL, TedixHomeClient } from "./home-client";
 import { runLocalInstallation } from "./local-installation";
 import { resetTerminalModes } from "./interrupt";
@@ -940,6 +941,7 @@ async function main() {
 			headers: { ...auth.headers, ...organizationContext.headers },
 			oauthProvider: auth.oauthProvider,
 			url: options.url,
+			discoveryCache: fileDiscoveryCache(),
 		});
 		options.organization = organizationContext.organization;
 		if (options.thread || command === "threads") {
