@@ -13,6 +13,12 @@
  * A binding is stored only for an app the skill's organization owns or a
  * public app, so a binding never grants routing that slug matching would
  * not; anything else stays on slug matching.
+ *
+ * When several apps match a namespace, the one the organization's unified
+ * gateway aggregates wins, so a skill reaches the same app as a Code Mode
+ * caller (`github` is the org's `github-tedix` install, not the catalog base
+ * app `github`). A binding to an app the gateway does not aggregate gives way
+ * to a gateway app that matches the namespace.
  */
 
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -103,12 +109,57 @@ function bindableNamespaces(namespaces: Iterable<string>): string[] {
 function matchBySlug(
 	namespace: string,
 	bySlug: Map<string, BindableApp>,
+	gatewayAppIds: ReadonlySet<string> = new Set(),
 ): BindableApp | undefined {
-	for (const candidate of mcpNamespaceSlugCandidates(namespace)) {
-		const app = bySlug.get(candidate);
-		if (app) return app;
+	const candidates = mcpNamespaceSlugCandidates(namespace)
+		.map((slug) => bySlug.get(slug))
+		.filter((app): app is BindableApp => Boolean(app));
+	return candidates.find((app) => gatewayAppIds.has(app.id)) ?? candidates[0];
+}
+
+/** App ids the organization's unified gateway aggregates (`mcpConfig.aggregateApps`). */
+export async function listOrganizationGatewayAppIds(
+	db: DbClient,
+	organizationId: string,
+): Promise<Set<string>> {
+	const rows = await db
+		.select({ metadata: apps.metadata })
+		.from(apps)
+		.where(
+			and(
+				eq(apps.organizationId, organizationId),
+				sql`json_extract(${apps.metadata}, '$.mcpConfig.aggregateApps') IS NOT NULL`,
+			),
+		);
+	const ids = new Set<string>();
+	for (const row of rows) {
+		const metadata = row.metadata as {
+			mcpConfig?: { aggregateApps?: unknown };
+		};
+		const entries = metadata?.mcpConfig?.aggregateApps;
+		if (!Array.isArray(entries)) continue;
+		for (const entry of entries)
+			if (entry && typeof entry.appId === "string") ids.add(entry.appId);
 	}
-	return undefined;
+	return ids;
+}
+
+/**
+ * The app a namespace resolves to: its bound app, unless the gateway
+ * aggregates a different app that matches the namespace and the bound one is
+ * not aggregated (a stale binding).
+ */
+function preferGatewayApp(
+	namespace: string,
+	bound: BindableApp | undefined,
+	bySlug: Map<string, BindableApp>,
+	gatewayAppIds: ReadonlySet<string>,
+): BindableApp | undefined {
+	const matched = matchBySlug(namespace, bySlug, gatewayAppIds);
+	if (!bound) return matched;
+	if (gatewayAppIds.has(bound.id) || !matched || !gatewayAppIds.has(matched.id))
+		return bound;
+	return matched;
 }
 
 function readBindings(value: unknown): SkillMcpAppBindings {
@@ -149,26 +200,26 @@ export async function resolveSkillMcpAppBindings(
 		]),
 	);
 	const out: SkillMcpAppBindings = {};
-	const unresolved: string[] = [];
+	const gatewayAppIds = await listOrganizationGatewayAppIds(
+		db,
+		params.organizationId,
+	);
+	const bySlug = new Map(
+		(
+			await listAppsBySlugs(db, namespaces.flatMap(mcpNamespaceSlugCandidates))
+		).map((app) => [app.slug, app]),
+	);
 	for (const namespace of namespaces) {
-		const app = existing[namespace] ? byId.get(existing[namespace]) : undefined;
-		if (app && isBindable(app, params.organizationId)) out[namespace] = app.id;
-		else unresolved.push(namespace);
-	}
-	if (unresolved.length) {
-		const bySlug = new Map(
-			(
-				await listAppsBySlugs(
-					db,
-					unresolved.flatMap(mcpNamespaceSlugCandidates),
-				)
-			).map((app) => [app.slug, app]),
+		const bound = existing[namespace]
+			? byId.get(existing[namespace])
+			: undefined;
+		const app = preferGatewayApp(
+			namespace,
+			bound && isBindable(bound, params.organizationId) ? bound : undefined,
+			bySlug,
+			gatewayAppIds,
 		);
-		for (const namespace of unresolved) {
-			const app = matchBySlug(namespace, bySlug);
-			if (app && isBindable(app, params.organizationId))
-				out[namespace] = app.id;
-		}
+		if (app && isBindable(app, params.organizationId)) out[namespace] = app.id;
 	}
 	return Object.keys(out).length ? out : null;
 }
@@ -193,11 +244,13 @@ export async function resolveSkillMcpNamespaceSlugs(
 ): Promise<{
 	namespaceToSlug: Record<string, string>;
 	backfill: SkillMcpAppBindings;
+	repair: SkillMcpAppBindings;
 }> {
 	const namespaces = [...new Set(params.namespaces)];
 	const namespaceToSlug: Record<string, string> = {};
 	const backfill: SkillMcpAppBindings = {};
-	if (!namespaces.length) return { namespaceToSlug, backfill };
+	const repair: SkillMcpAppBindings = {};
+	if (!namespaces.length) return { namespaceToSlug, backfill, repair };
 
 	const [row] = await db
 		.select({ mcpAppBindings: skillEntries.mcpAppBindings })
@@ -222,39 +275,39 @@ export async function resolveSkillMcpNamespaceSlugs(
 			: []
 		).map((app) => [app.id, app]),
 	);
-	const unresolved: string[] = [];
+	const gatewayAppIds = await listOrganizationGatewayAppIds(
+		db,
+		params.organizationId,
+	);
+	const bySlug = new Map(
+		(
+			await listAppsBySlugs(db, namespaces.flatMap(mcpNamespaceSlugCandidates))
+		).map((app) => [app.slug, app]),
+	);
 	for (const namespace of namespaces) {
-		const app = bound.includes(namespace)
+		const boundApp = bound.includes(namespace)
 			? byId.get(bindings[namespace]!)
 			: undefined;
-		if (app && isBindable(app, params.organizationId))
-			namespaceToSlug[namespace] = app.slug;
-		else unresolved.push(namespace);
-	}
-	if (unresolved.length) {
-		const bySlug = new Map(
-			(
-				await listAppsBySlugs(
-					db,
-					unresolved.flatMap(mcpNamespaceSlugCandidates),
-				)
-			).map((app) => [app.slug, app]),
+		const app = preferGatewayApp(
+			namespace,
+			boundApp && isBindable(boundApp, params.organizationId)
+				? boundApp
+				: undefined,
+			bySlug,
+			gatewayAppIds,
 		);
-		for (const namespace of unresolved) {
-			const app = matchBySlug(namespace, bySlug);
-			if (!app) continue;
-			namespaceToSlug[namespace] = app.slug;
-			if (
-				!UNBOUND_NAMESPACES.has(namespace) &&
-				!bindings[namespace] &&
-				row &&
-				isBindable(app, params.organizationId)
-			) {
-				backfill[namespace] = app.id;
-			}
-		}
+		if (!app) continue;
+		namespaceToSlug[namespace] = app.slug;
+		if (
+			UNBOUND_NAMESPACES.has(namespace) ||
+			!row ||
+			!isBindable(app, params.organizationId)
+		)
+			continue;
+		if (!bindings[namespace]) backfill[namespace] = app.id;
+		else if (bindings[namespace] !== app.id) repair[namespace] = app.id;
 	}
-	return { namespaceToSlug, backfill };
+	return { namespaceToSlug, backfill, repair };
 }
 
 /**
@@ -276,6 +329,32 @@ export async function recordMissingSkillMcpAppBindings(
 		.update(skillEntries)
 		.set({
 			mcpAppBindings: sql`json_patch(${JSON.stringify(params.bindings)}, coalesce(${skillEntries.mcpAppBindings}, '{}'))`,
+		})
+		.where(
+			and(
+				eq(skillEntries.id, params.skillId),
+				eq(skillEntries.organizationId, params.organizationId),
+			),
+		);
+}
+
+/**
+ * Replace stale bindings: namespaces whose bound app gave way to the app the
+ * organization's gateway aggregates. New keys win (`json_patch(existing, new)`).
+ */
+export async function repairSkillMcpAppBindings(
+	db: DbClient,
+	params: {
+		organizationId: string;
+		skillId: string;
+		bindings: SkillMcpAppBindings;
+	},
+): Promise<void> {
+	if (!Object.keys(params.bindings).length) return;
+	await db
+		.update(skillEntries)
+		.set({
+			mcpAppBindings: sql`json_patch(coalesce(${skillEntries.mcpAppBindings}, '{}'), ${JSON.stringify(params.bindings)})`,
 		})
 		.where(
 			and(

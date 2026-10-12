@@ -9,6 +9,7 @@ import { schemaDdl } from "../../test/schema-ddl";
 import { createSkillEntry, updateSkillEntry } from "./skill-crud";
 import {
 	recordMissingSkillMcpAppBindings,
+	repairSkillMcpAppBindings,
 	resolveSkillMcpNamespaceSlugs,
 } from "./skill-mcp-bindings";
 import { validateSkillInput } from "./skill-validation";
@@ -300,6 +301,109 @@ describe("skill MCP app bindings", () => {
 		expect(namespaceToSlug).toEqual({ acme_mail: "acme-mail" });
 		// A stale binding is replaced on the next content write, not by backfill.
 		expect(backfill).toEqual({});
+	});
+});
+
+describe("skill MCP bindings follow the organization gateway", () => {
+	function gateway(sqlite: DatabaseSync, appIds: string[]) {
+		sqlite
+			.prepare(
+				"INSERT INTO apps (id, organization_id, name, slug, visibility, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				"app-gateway",
+				ACME_ORG,
+				"acme-unified",
+				"acme-unified",
+				"private",
+				JSON.stringify({
+					mcpConfig: {
+						aggregateApps: appIds.map((appId) => ({ slug: appId, appId })),
+					},
+				}),
+			);
+	}
+
+	it("routes a namespace to the gateway's install, not a same-named base app", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, {
+			id: "app-base",
+			organizationId: ACME_ORG,
+			slug: "codehost",
+		});
+		insertApp(sqlite, {
+			id: "app-install",
+			organizationId: ACME_ORG,
+			slug: "codehost-tedix",
+		});
+		gateway(sqlite, ["app-install"]);
+		const skill = await recordSkill(db, { codehost: ["get_commit"] });
+		expect(bindingsOf(sqlite, skill.id)).toEqual({ codehost: "app-install" });
+		const { namespaceToSlug } = await resolveSkillMcpNamespaceSlugs(db, {
+			organizationId: ACME_ORG,
+			skillId: skill.id,
+			namespaces: ["codehost"],
+		});
+		expect(namespaceToSlug).toEqual({ codehost: "codehost-tedix" });
+	});
+
+	it("repairs a binding to an app the gateway does not aggregate", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, {
+			id: "app-base",
+			organizationId: ACME_ORG,
+			slug: "codehost",
+		});
+		const skill = await recordSkill(db, { codehost: ["get_commit"] });
+		expect(bindingsOf(sqlite, skill.id)).toEqual({ codehost: "app-base" });
+		insertApp(sqlite, {
+			id: "app-install",
+			organizationId: ACME_ORG,
+			slug: "codehost-tedix",
+		});
+		gateway(sqlite, ["app-install"]);
+		const { namespaceToSlug, repair } = await resolveSkillMcpNamespaceSlugs(
+			db,
+			{
+				organizationId: ACME_ORG,
+				skillId: skill.id,
+				namespaces: ["codehost"],
+			},
+		);
+		expect(namespaceToSlug).toEqual({ codehost: "codehost-tedix" });
+		expect(repair).toEqual({ codehost: "app-install" });
+		await repairSkillMcpAppBindings(db, {
+			organizationId: ACME_ORG,
+			skillId: skill.id,
+			bindings: repair,
+		});
+		expect(bindingsOf(sqlite, skill.id)).toEqual({ codehost: "app-install" });
+	});
+
+	it("keeps a binding the gateway aggregates, even when another slug matches", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, {
+			id: "app-base",
+			organizationId: ACME_ORG,
+			slug: "codehost",
+		});
+		gateway(sqlite, ["app-base"]);
+		const skill = await recordSkill(db, { codehost: ["get_commit"] });
+		insertApp(sqlite, {
+			id: "app-install",
+			organizationId: ACME_ORG,
+			slug: "codehost-tedix",
+		});
+		const { namespaceToSlug, repair } = await resolveSkillMcpNamespaceSlugs(
+			db,
+			{
+				organizationId: ACME_ORG,
+				skillId: skill.id,
+				namespaces: ["codehost"],
+			},
+		);
+		expect(namespaceToSlug).toEqual({ codehost: "codehost" });
+		expect(repair).toEqual({});
 	});
 });
 

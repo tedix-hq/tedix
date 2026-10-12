@@ -12,6 +12,7 @@ import { createDbClient } from "@tedix/db/client";
 import { reconcileSkillWorkflowDispatchRationale } from "@tedix/db/queries/rationale-records";
 import {
 	recordMissingSkillMcpAppBindings,
+	repairSkillMcpAppBindings,
 	resolveSkillMcpNamespaceSlugs,
 } from "@tedix/db/queries/cognitive/skill-mcp-bindings";
 import { recordSkillRunOutcome } from "@tedix/db/queries/skill-usage";
@@ -649,6 +650,21 @@ export async function resolveSkillNamespaceSlugs(
 		} catch (error) {
 			logRuntimeFailure(
 				"workflow.mcp_app_binding_backfill.failed",
+				error,
+				params.runId,
+			);
+		}
+	}
+	if (Object.keys(resolved.repair).length > 0) {
+		try {
+			await repairSkillMcpAppBindings(client, {
+				organizationId: params.orgId,
+				skillId: params.skillId,
+				bindings: resolved.repair,
+			});
+		} catch (error) {
+			logRuntimeFailure(
+				"workflow.mcp_app_binding_repair.failed",
 				error,
 				params.runId,
 			);
