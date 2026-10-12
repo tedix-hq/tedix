@@ -132,6 +132,7 @@ import {
 import {
 	CACHE_TIER_BUDGET_MS,
 	StepBudgetExceededError,
+	JOINED_LOAD_BUDGET_MS,
 	joinInFlightLoad,
 	trackInFlightLoad,
 	withStepBudget,
@@ -1042,7 +1043,7 @@ async function resolveUpstreamToolsInternally(
 	if (inFlight)
 		return joinInFlightLoad(internalToolInFlight, cacheKey, inFlight, {
 			step: "internal_tool_join",
-			budgetMs: INTERNAL_TOOL_WEDGE_EVICT_MS,
+			budgetMs: JOINED_LOAD_BUDGET_MS,
 			resource: upstreamSlug,
 		});
 

@@ -22,7 +22,7 @@ import type { McpResultCacheHint } from "@tedix/mcp-shared/transport";
 import { createMcpLogger } from "../log";
 import { type ApiClient, getApiClient } from "../lib/api-client";
 import { setBoundedCacheEntry } from "../lib/bounded-cache";
-import { joinInFlightLoad } from "../lib/step-budget";
+import { JOINED_LOAD_BUDGET_MS, joinInFlightLoad } from "../lib/step-budget";
 import { withUpstreamRetry } from "../upstream";
 import {
 	type CallerAuthType,
@@ -283,7 +283,7 @@ export async function getAppContext(
 	if (inFlight)
 		return joinInFlightLoad(appContextInFlight, appId, inFlight, {
 			step: "app_context_join",
-			budgetMs: 30_000,
+			budgetMs: JOINED_LOAD_BUDGET_MS,
 			resource: appSlug,
 		});
 

@@ -9,6 +9,7 @@ import { setBoundedCacheEntry } from "./lib/bounded-cache";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 import {
 	CACHE_TIER_BUDGET_MS,
+	JOINED_LOAD_BUDGET_MS,
 	StepBudgetExceededError,
 	joinInFlightLoad,
 	trackInFlightLoad,
@@ -316,6 +317,49 @@ function setCachedResolvedApp(
 	);
 }
 
+/**
+ * apps/api is unreachable or too slow. A stale surface beats no surface:
+ * without this the MCP handshake fails outright. Bounded by the hard TTL, and
+ * cached only briefly so recovery is picked up quickly.
+ */
+async function serveStaleResolutionOrThrow(
+	env: CloudflareEnv,
+	cacheKey: string,
+	epoch: string | null | undefined,
+	error: unknown,
+): Promise<ResolvedApp> {
+	const fallback =
+		epoch !== undefined
+			? await readAppResolutionR2(env, cacheKey, epoch, {
+					allowExpired: true,
+				})
+			: null;
+	if (fallback) {
+		log.warn("Serving stale app resolution", {
+			event: "resolution.stale_fallback",
+			error: contentFreeMcpException(error),
+			outcome: "unavailable",
+		});
+		setBoundedCacheEntry(
+			appResolutionCache,
+			cacheKey,
+			{
+				value: fallback.value,
+				expiresAt: Date.now() + APP_RESOLUTION_NEGATIVE_TTL_MS,
+				epoch: epoch ?? null,
+			},
+			MAX_APP_RESOLUTION_CACHE_ENTRIES,
+		);
+		return fallback.value;
+	}
+	log.error("Failed to resolve app", {
+		event: "resolution.app_lookup_failed",
+		error: contentFreeMcpException(error),
+		outcome: "unavailable",
+	});
+	throw error;
+}
+
 export async function resolveAppFromHostname(
 	hostnameInfo: HostnameInfo,
 	env: CloudflareEnv,
@@ -339,12 +383,20 @@ export async function resolveAppFromHostname(
 		: `${cacheKey}\nepoch-unavailable:${crypto.randomUUID()}`;
 
 	const inFlight = appResolutionInFlight.get(loadKey);
-	if (inFlight)
-		return joinInFlightLoad(appResolutionInFlight, loadKey, inFlight, {
-			step: "app_resolution_join",
-			budgetMs: APP_RESOLUTION_WEDGE_EVICT_MS,
-			resource: cacheKey,
-		});
+	if (inFlight) {
+		// Another request owns this load. Bound our wait by the joiner budget,
+		// not the owner's wedge bound: if the owner's request has ended, its
+		// timers never fire and the shared promise never settles.
+		try {
+			return await joinInFlightLoad(appResolutionInFlight, loadKey, inFlight, {
+				step: "app_resolution_join",
+				budgetMs: JOINED_LOAD_BUDGET_MS,
+				resource: cacheKey,
+			});
+		} catch (error) {
+			return serveStaleResolutionOrThrow(env, cacheKey, epoch, error);
+		}
+	}
 
 	// Everything below — including the L2 read — must sit inside the promise that
 	// gets registered in `appResolutionInFlight`, and that registration must
@@ -495,38 +547,7 @@ export async function resolveAppFromHostname(
 		}
 		return resolved;
 	} catch (error) {
-		// apps/api is unreachable or too slow. A stale surface beats no surface:
-		// without this the MCP handshake fails outright. Bounded by the hard TTL,
-		// and cached only briefly so recovery is picked up quickly.
-		const fallback = canUseCache
-			? await readAppResolutionR2(env, cacheKey, epoch, {
-					allowExpired: true,
-				})
-			: null;
-		if (fallback) {
-			log.warn("Serving stale app resolution", {
-				event: "resolution.stale_fallback",
-				error: contentFreeMcpException(error),
-				outcome: "unavailable",
-			});
-			setBoundedCacheEntry(
-				appResolutionCache,
-				cacheKey,
-				{
-					value: fallback.value,
-					expiresAt: Date.now() + APP_RESOLUTION_NEGATIVE_TTL_MS,
-					epoch: epoch ?? null,
-				},
-				MAX_APP_RESOLUTION_CACHE_ENTRIES,
-			);
-			return fallback.value;
-		}
-		log.error("Failed to resolve app", {
-			event: "resolution.app_lookup_failed",
-			error: contentFreeMcpException(error),
-			outcome: "unavailable",
-		});
-		throw error;
+		return serveStaleResolutionOrThrow(env, cacheKey, epoch, error);
 	}
 	// No finally-delete here: trackInFlightLoad owns eviction (on settle and on
 	// wedge timeout).
