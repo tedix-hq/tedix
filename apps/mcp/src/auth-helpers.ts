@@ -447,6 +447,15 @@ function shouldAttemptAihM2mScopeHydration(
 	// project id, so the raw `/v1/apps/agentic/.../{mcpServerId}` issuer is not a
 	// reliable post-validation signal. The authoritative check is the registered
 	// AIH client lookup below, keyed by the validated token's client id.
+	// A human consent token (consent id plus Tedix consent revision) is never an
+	// AIH client credential, and the lookup would only cost a Descope round trip
+	// per request. Skipping it fails closed: such a token must pass the human
+	// grant check instead.
+	if (
+		getPayloadString(payload, "dci") &&
+		getPayloadString(payload, "tedixConsentRevision")
+	)
+		return false;
 	const hasClientId =
 		Boolean(getPayloadString(payload, "client_id")) ||
 		Boolean(getPayloadString(payload, "azp"));
