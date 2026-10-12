@@ -15,6 +15,7 @@ import { staticAssetResponse } from "./static-assets";
 import {
 	publicRestorePermitEligible,
 	publicRestorePermitQueries,
+	PublicRestorePermits,
 } from "./public-restore-permits";
 import {
 	isMarketingHost,
@@ -238,6 +239,72 @@ export function digestCmsRecoverySqlite(
 /** Tenant data is the whole slug-named object. Delete its storage atomically
  * through the platform API; dropping tables individually violates foreign keys. */
 export class EmDashDB extends EmdashSqlDB {
+	private readPermits = new PublicRestorePermits();
+
+	private async withReadPermit<T>(
+		identity: CmsRestoreFenceIdentity,
+		run: () => Promise<T>,
+	): Promise<T> {
+		const env = this.siteDrillEnv();
+		if (
+			this.ctx.id.toString() !== env.DB_DO.idFromName(identity.slug).toString()
+		)
+			throw new CmsRestoreFenceUnavailableError();
+		const result = await withCmsRestorePermit(
+			createDbQueryClient(env.PLATFORM_DB),
+			identity,
+			run,
+			this.readPermits.forRequest((task) => this.ctx.waitUntil(task)),
+		);
+		if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
+		return result.value;
+	}
+
+	async queryWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		sql: string,
+		params?: unknown[],
+		opts?: { bookmark?: string },
+	): Promise<DoQueryResult> {
+		if (!PLAIN_SELECT_PATTERN.test(sql) || sql.includes(";"))
+			throw new Error("Shared read reservation requires a single SELECT");
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
+		).primary;
+		if (primary)
+			return await primary.queryWithRestorePermit(identity, sql, params, opts);
+		return await this.withReadPermit(identity, () =>
+			super.query(sql, params, opts),
+		);
+	}
+
+	async batchQueryWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		statements: DoQueryStatement[],
+		opts?: { bookmark?: string },
+	): Promise<DoQueryResult[]> {
+		if (
+			!statements.every(
+				(statement) =>
+					PLAIN_SELECT_PATTERN.test(statement.sql) &&
+					!statement.sql.includes(";"),
+			)
+		)
+			throw new Error("Shared read reservation requires single SELECTs");
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
+		).primary;
+		if (primary)
+			return await primary.batchQueryWithRestorePermit(
+				identity,
+				statements,
+				opts,
+			);
+		return await this.withReadPermit(identity, () =>
+			super.batchQuery(statements, opts),
+		);
+	}
+
 	private siteDrillEnv(): Pick<
 		Env,
 		"DB_DO" | "RECOVERY_STORAGE" | "PLATFORM_DB" | "TENANT_BUNDLES"
@@ -2202,6 +2269,17 @@ interface DoQueryStatement {
 }
 
 interface EmDashDBStub {
+	queryWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		sql: string,
+		params?: unknown[],
+		opts?: { bookmark?: string },
+	): Promise<DoQueryResult>;
+	batchQueryWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		statements: DoQueryStatement[],
+		opts?: { bookmark?: string },
+	): Promise<DoQueryResult[]>;
 	deleteTenantData(): Promise<void>;
 	captureRecoveryBookmark(): Promise<string | null>;
 	readSiteDrillProof(): Promise<CmsSiteDrillDigestProof>;
@@ -2301,13 +2379,11 @@ async function withTenantStoragePermit<T>(
 	env: Env,
 	identity: { siteId: string; slug: string; restoreEpoch: number },
 	run: () => Promise<T>,
-	readQueries?: ReturnType<typeof publicRestorePermitQueries>,
 ): Promise<T> {
 	const result = await withCmsRestorePermit(
 		createDbQueryClient(env.PLATFORM_DB),
 		identity,
 		run,
-		readQueries,
 	);
 	if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
 	return result.value;
@@ -2317,15 +2393,8 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 	Env,
 	{ name: string; siteId: string; slug: string; restoreEpoch: number }
 > {
-	private withPermit<T>(run: () => Promise<T>, readOnly = false): Promise<T> {
-		return withTenantStoragePermit(
-			this.env,
-			this.ctx.props,
-			run,
-			readOnly
-				? publicRestorePermitQueries((task) => this.ctx.waitUntil(task))
-				: undefined,
-		);
+	private withPermit<T>(run: () => Promise<T>): Promise<T> {
+		return withTenantStoragePermit(this.env, this.ctx.props, run);
 	}
 
 	private stub(): EmDashDBStub {
@@ -2355,17 +2424,19 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 			tableGroup: tenantDbQueryFamily(sql),
 		});
 		// Keep this WorkerEntrypoint invocation pending until the nested DO RPC settles.
-		const result = await this.withPermit(
-			() =>
-				selectOnly
-					? retryTenantDbRead(
-							() => this.stub().query(sql, params, opts),
-							"SELECT RPC",
-							this.ctx.props.name,
-						)
-					: this.stub().query(sql, params, opts),
-			selectOnly,
-		);
+		const result = selectOnly
+			? await retryTenantDbRead(
+					() =>
+						this.stub().queryWithRestorePermit(
+							this.ctx.props,
+							sql,
+							params,
+							opts,
+						),
+					"SELECT RPC",
+					this.ctx.props.name,
+				)
+			: await this.withPermit(() => this.stub().query(sql, params, opts));
 		console.info("[cms-runtime] tenant database query resolved", {
 			tenant: this.ctx.props.name,
 			selectOnly,
@@ -2389,17 +2460,18 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 			selectOnly,
 			count: statements.length,
 		});
-		const result = await this.withPermit(
-			() =>
-				selectOnly
-					? retryTenantDbRead(
-							() => this.stub().batchQuery(statements, opts),
-							"SELECT batch RPC",
-							this.ctx.props.name,
-						)
-					: this.stub().batchQuery(statements, opts),
-			selectOnly,
-		);
+		const result = selectOnly
+			? await retryTenantDbRead(
+					() =>
+						this.stub().batchQueryWithRestorePermit(
+							this.ctx.props,
+							statements,
+							opts,
+						),
+					"SELECT batch RPC",
+					this.ctx.props.name,
+				)
+			: await this.withPermit(() => this.stub().batchQuery(statements, opts));
 		console.info("[cms-runtime] tenant database batch resolved", {
 			tenant: this.ctx.props.name,
 			selectOnly,
