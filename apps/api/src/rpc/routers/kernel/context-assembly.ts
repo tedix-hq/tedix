@@ -1514,13 +1514,14 @@ export async function assembleHomeContext(
 		}),
 	);
 
-	const speaker: KernelContext["speaker"] = member
-		? {
-				...(member.role ? { role: member.role } : {}),
-				...(member.email ? { email: member.email } : {}),
-				approvalAuthority: deriveApprovalAuthority(member.role),
-			}
-		: null;
+	const speaker: KernelContext["speaker"] =
+		member?.status === "active"
+			? {
+					...(member.role ? { role: member.role } : {}),
+					...(member.email ? { email: member.email } : {}),
+					approvalAuthority: deriveApprovalAuthority(member.role),
+				}
+			: null;
 
 	// ── Token-budget guard ────────────────────────────────────────────────────
 	// Assemble a draft context, render it, then check whether we are over the
