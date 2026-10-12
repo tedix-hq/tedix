@@ -751,6 +751,11 @@ export function InboxCard({ tediId }: { tediId: string }) {
 													>
 														{thread.status}
 													</Badge>
+													{thread.senderTrust === "untrusted" && (
+														<Badge variant="destructive">
+															Unverified sender
+														</Badge>
+													)}
 												</div>
 												<Text role="caption" tone="secondary">
 													{sender}

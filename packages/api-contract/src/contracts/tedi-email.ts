@@ -97,6 +97,8 @@ const EmailThreadSchema = z.object({
 	status: z.enum(["open", "archived", "spam"]),
 	labels: z.array(z.string()).nullable().optional(),
 	unreadCount: z.number(),
+	/** Verified-sender threads and unverified-sender threads never mix. */
+	senderTrust: z.enum(["trusted", "untrusted"]),
 	createdAt: z.string().nullable().optional(),
 	updatedAt: z.string().nullable().optional(),
 });

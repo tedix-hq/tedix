@@ -44,6 +44,15 @@ export const TEDI_EMAIL_THREAD_STATUS_VALUES = [
 export type TediEmailThreadStatus =
 	(typeof TEDI_EMAIL_THREAD_STATUS_VALUES)[number];
 
+/**
+ * Who a thread's inbound mail comes from, as apps/api verified it at ingress.
+ * Threads never mix: a stranger naming a verified correspondent's thread in
+ * In-Reply-To gets a thread of its own, marked so the mailbox can say so.
+ */
+export const TEDI_EMAIL_SENDER_TRUST_VALUES = ["trusted", "untrusted"] as const;
+export type TediEmailSenderTrust =
+	(typeof TEDI_EMAIL_SENDER_TRUST_VALUES)[number];
+
 export const TEDI_EMAIL_DIRECTION_VALUES = ["inbound", "outbound"] as const;
 export type TediEmailDirection = (typeof TEDI_EMAIL_DIRECTION_VALUES)[number];
 
@@ -122,6 +131,11 @@ export const tediEmailThreads = sqliteTable(
 			.default("open"),
 		labels: text("labels_json", { mode: "json" }).$type<string[]>(),
 		unreadCount: integer("unread_count").notNull().default(0),
+		senderTrust: text("sender_trust", {
+			enum: [...TEDI_EMAIL_SENDER_TRUST_VALUES],
+		})
+			.notNull()
+			.default("trusted"),
 		createdAt: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 		updatedAt: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 	},

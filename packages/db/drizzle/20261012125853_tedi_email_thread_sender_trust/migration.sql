@@ -1,0 +1,1 @@
+ALTER TABLE `tedi_email_threads` ADD `sender_trust` text DEFAULT 'trusted' NOT NULL;
