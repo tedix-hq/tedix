@@ -55,13 +55,15 @@ is available today.
 
 **Understand Tedix**
 
-| You want to…                                        | Start with                                                          |
-| --------------------------------------------------- | ------------------------------------------------------------------- |
-| Learn the vocabulary                                | [Core concepts](./concepts.md)                                      |
-| Understand worker permissions and approvals         | [Worker permissions and governance](./workers-and-governance.md)    |
-| Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md) |
-| Check what is available today                       | [Release status](./release-status.md)                               |
-| Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                        |
+| You want to…                                        | Start with                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| Learn the vocabulary                                | [Core concepts](./concepts.md)                                           |
+| Organize initiatives into projects and factories    | [Factories, Workspaces and Projects](./factories-workspaces-projects.md) |
+| See which sessions work on which project            | [Track sessions per project](./sessions-per-project.md)                  |
+| Understand worker permissions and approvals         | [Worker permissions and governance](./workers-and-governance.md)         |
+| Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)      |
+| Check what is available today                       | [Release status](./release-status.md)                                    |
+| Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                             |
 
 ## Read these docs as an agent
 
