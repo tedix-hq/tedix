@@ -96,12 +96,13 @@ export async function withCmsRestoreResponsePermit(
 	let response: Response;
 	try {
 		response = await run();
-		if (response.body && isFiniteHtmlResponse(response)) {
-			// A rendered page is finite and usually arrives in many small chunks.
-			// Admitting each chunk separately costs one ledger round trip per
-			// chunk (about 90 ms), which made a 190 KB page take six seconds.
-			// Reading the whole page under the initial permit is stricter, not
-			// looser: a restore close cannot interleave with the read.
+		if (response.body && isBufferableResponse(response)) {
+			// A finite body usually arrives in many small chunks. Admitting each
+			// chunk separately costs one ledger round trip per chunk (about
+			// 90 ms), which made a 190 KB page take six seconds and a 1.4 MB
+			// image more than a minute. Reading the whole body under the initial
+			// permit is stricter, not looser: a restore close cannot interleave
+			// with the read.
 			const bytes = await response.arrayBuffer();
 			response = new Response(bytes, {
 				status: response.status,
@@ -176,10 +177,22 @@ export async function withCmsRestoreResponsePermit(
 	return { admitted: true, value: response };
 }
 
-/** Rendered HTML only; streams such as event streams keep per-pull admission. */
-function isFiniteHtmlResponse(response: Response): boolean {
+/** Largest known-length body read under the initial permit. */
+const BUFFERED_RESPONSE_LIMIT_BYTES = 8 * 1024 * 1024;
+
+/** Rendered HTML, and any other body with a known length under the limit
+ * (stylesheets, scripts, images). Event streams and unbounded or very large
+ * bodies keep per-pull admission. */
+function isBufferableResponse(response: Response): boolean {
 	const type = response.headers.get("content-type")?.toLowerCase() ?? "";
-	return type.startsWith("text/html");
+	if (type.startsWith("text/html")) return true;
+	if (type.startsWith("text/event-stream")) return false;
+	const length = Number(response.headers.get("content-length"));
+	return (
+		Number.isInteger(length) &&
+		length > 0 &&
+		length <= BUFFERED_RESPONSE_LIMIT_BYTES
+	);
 }
 
 export function cmsRestoreFenceResponse(): Response {

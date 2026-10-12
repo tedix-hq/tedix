@@ -183,6 +183,60 @@ describe("CMS public response restore permit", () => {
 		expect(ledger.enter).toHaveBeenCalledOnce();
 	});
 
+	test("reads a bounded known-length asset under the initial permit", async () => {
+		const ledger = queries();
+		const bytes = new Uint8Array(70000).fill(7);
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (let i = 0; i < bytes.length; i += 16384)
+					controller.enqueue(bytes.slice(i, i + 16384));
+				controller.close();
+			},
+		});
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(source, {
+					headers: {
+						"content-type": "image/png",
+						"content-length": String(bytes.length),
+					},
+				}),
+			ledger,
+		);
+		if (!result.admitted) throw new Error("expected public read admission");
+		expect((await result.value.arrayBuffer()).byteLength).toBe(bytes.length);
+		expect(ledger.enter).toHaveBeenCalledOnce();
+		expect(ledger.leave).toHaveBeenCalledOnce();
+	});
+
+	test("keeps per-pull admission for oversized or unsized bodies", async () => {
+		const ledger = queries();
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new Uint8Array(4));
+				controller.close();
+			},
+		});
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(source, {
+					headers: {
+						"content-type": "application/zip",
+						"content-length": String(9 * 1024 * 1024),
+					},
+				}),
+			ledger,
+		);
+		if (!result.admitted) throw new Error("expected public read admission");
+		const reader = result.value.body!.getReader();
+		await reader.read();
+		expect(ledger.enter.mock.calls.length).toBeGreaterThan(1);
+	});
+
 	test("keeps per-pull admission for non-HTML streams", async () => {
 		const ledger = queries();
 		const source = new ReadableStream<Uint8Array>({
