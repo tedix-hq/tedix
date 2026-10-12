@@ -248,6 +248,22 @@ const getRollupProcedure = authOs.getRollup
 		};
 	});
 
+/**
+ * A judgment's target as an ISO datetime. It inherits the project's free-text
+ * targetDate, so "2026-08-31" (stored for TEDIX-UNIFIED-OS) became a row the
+ * output schema rejected: the write committed and the caller got a 500, and
+ * every later list of that project failed too. A bare date means midnight UTC;
+ * anything else unparseable has no target.
+ */
+export function judgmentTargetAt(
+	value: string | null | undefined,
+): string | null {
+	if (!value) return null;
+	if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T00:00:00.000Z`;
+	const time = Date.parse(value);
+	return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
 function rethrowMilestoneError(error: unknown): never {
 	return rethrowWorkControlError(error, { transitionConflict: true });
 }
@@ -523,7 +539,7 @@ const recordHealthJudgmentProcedure = authOs.recordHealthJudgment
 				actorSessionId: actor.sessionId,
 				externalSessionKey: actor.externalSessionKey,
 				observedAt: new Date().toISOString(),
-				targetAt: input.targetAt ?? project.targetDate,
+				targetAt: input.targetAt ?? judgmentTargetAt(project.targetDate),
 			});
 		} catch (error) {
 			rethrowWorkControlError(error, { invalidPrincipal: "forbidden" });
@@ -537,7 +553,7 @@ const recordHealthJudgmentProcedure = authOs.recordHealthJudgment
 			judgedByType: row.actorType,
 			judgedById: row.actorId,
 			observedAt: row.observedAt,
-			targetAt: row.targetAt,
+			targetAt: judgmentTargetAt(row.targetAt),
 		});
 	});
 
@@ -560,7 +576,7 @@ const listHealthJudgmentsProcedure = authOs.listHealthJudgments
 				judgedByType: row.actorType,
 				judgedById: row.actorId,
 				observedAt: row.observedAt,
-				targetAt: row.targetAt,
+				targetAt: judgmentTargetAt(row.targetAt),
 			}),
 		);
 	});
