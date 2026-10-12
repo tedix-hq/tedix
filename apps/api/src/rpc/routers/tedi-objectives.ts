@@ -291,8 +291,8 @@ const updateProcedure = authOs.update
 		return updated;
 	});
 
-const deleteProcedure = objectivesOs.delete
-	.use(withAuth)
+const deleteProcedure = authOs.delete
+	.use(AUTHZ.objectiveWrite)
 	.handler(async ({ input, context }) => {
 		await assertObjectiveAccess(context, input.id);
 
