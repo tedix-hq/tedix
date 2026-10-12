@@ -210,7 +210,7 @@ import {
 	UPSTREAM_ATTEMPT_TIMEOUT_MS,
 	upstreamUnavailableResponse,
 } from "./upstream";
-import { handleWellKnown } from "./well-known";
+import { handleFavicon, handleWellKnown } from "./well-known";
 import { handleExternalAgentSessionExchange } from "./external-agent-session";
 import {
 	externalAgentValidationFailureResponse,
@@ -5205,6 +5205,14 @@ const worker = {
 					headers: { "Content-Type": "application/json" },
 				},
 			);
+		}
+
+		// authz: public — the host's icon for directory listings.
+		if (
+			url.pathname === "/favicon.ico" &&
+			(request.method === "GET" || request.method === "HEAD")
+		) {
+			return handleFavicon(hostname, env);
 		}
 
 		// Step 1: Handle .well-known routes
