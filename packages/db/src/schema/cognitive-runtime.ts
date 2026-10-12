@@ -392,6 +392,12 @@ export const kernelRuntimeRuns = sqliteTable(
 			table.delegatedTediId,
 			table.childRunId,
 		),
+		// findDirectKernelParentRun has no delegated tedi; without this it walked
+		// the org's status index (~7.9k rows, ~21 ms per call, 2026-10-12).
+		index("idx_kernel_runtime_runs_org_child").on(
+			table.organizationId,
+			table.childRunId,
+		),
 	],
 );
 

@@ -844,6 +844,10 @@
 		{
 			"name": "20261012125853_tedi_email_thread_sender_trust/migration.sql",
 			"sha256": "4ccc60917a3f7c6ead5bfb0ac9b6506fc48a8b20ae589476dae9e432344c73d8"
+		},
+		{
+			"name": "20261012153852_kernel-runtime-runs-org-child/migration.sql",
+			"sha256": "47474c8a95036cc189eca0d4c0e29168df5cd49eaa1f7354b6f1b22c69af679f"
 		}
 	]
 }
