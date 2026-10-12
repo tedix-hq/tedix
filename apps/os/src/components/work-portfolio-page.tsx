@@ -403,9 +403,17 @@ function PortfolioCard({
 					</Text>
 				)}
 				{next ? (
-					<Text as="p" role="label" className="truncate">
-						Next:{" "}
-						<Link variant="record" href={`/work/items/${next.id}`}>
+					<Text
+						as="p"
+						role="label"
+						className="flex min-w-0 items-baseline gap-1"
+					>
+						<span className="shrink-0">Next:</span>
+						<Link
+							variant="record"
+							href={`/work/items/${next.id}`}
+							className="min-w-0 truncate"
+						>
 							{next.title}
 						</Link>
 					</Text>
