@@ -58,6 +58,7 @@ import {
 import { runFlowCommand } from "./flow";
 import { errorText, resolveColorMode } from "./format";
 import { fileDiscoveryCache } from "./discovery-cache";
+import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
 import { DEFAULT_TEDIX_MCP_URL, TedixHomeClient } from "./home-client";
 import { runLocalInstallation } from "./local-installation";
 import { resetTerminalModes } from "./interrupt";
@@ -1096,6 +1097,7 @@ async function main() {
 				workspace: workspaceName,
 				authSource: auth.source,
 				mcpUrl: options.url,
+				bootstrapCache: fileNativeBootstrapCache(),
 				signal: commandAbort.signal,
 				attemptStore: organizationScopedAttemptStore(
 					createFileWorkAttemptStore(),

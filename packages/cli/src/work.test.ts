@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type {
+	NativeBootstrapCache,
+	NativeBootstrapEntry,
+} from "./native-bootstrap-cache";
 import { withCompletionEvidence } from "@tedix/api-contract/schemas/execution-evidence";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2500,6 +2504,85 @@ function modernContext(
 	fixture.ctx.client = client;
 	return { ...fixture, wire, client };
 }
+
+describe("native Work bootstrap cache", () => {
+	function memoryCache() {
+		const entries = new Map<string, NativeBootstrapEntry>();
+		const cache: NativeBootstrapCache = {
+			read: (key) => entries.get(key),
+			write: (key, entry) => void entries.set(key, entry),
+			forget: (key) => void entries.delete(key),
+		};
+		return { cache, entries };
+	}
+	const names = (calls: Array<{ name: string }>) => calls.map((c) => c.name);
+
+	test("a later read skips get_info and reuses the resolved tool's answer", async () => {
+		const { cache } = memoryCache();
+		const fixture = makeContext({}, undefined, () => ({ data: [] }));
+		fixture.ctx.bootstrapCache = cache;
+		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+			0,
+		);
+		expect(names(fixture.nativeCalls)).toEqual([
+			"get_info",
+			"catalog_search",
+			"catalog_describe",
+			"configured_work__list_undelivered_work_interaction_responses",
+		]);
+		fixture.nativeCalls.length = 0;
+		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+			0,
+		);
+		expect(names(fixture.nativeCalls).sort()).toEqual(
+			[
+				"catalog_describe",
+				"catalog_search",
+				"configured_work__list_undelivered_work_interaction_responses",
+			].sort(),
+		);
+	});
+
+	test("a stale cached tool name is discarded and the resolved tool is called", async () => {
+		const { cache, entries } = memoryCache();
+		const fixture = makeContext({}, undefined, () => ({ data: [] }));
+		fixture.ctx.bootstrapCache = cache;
+		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+			0,
+		);
+		for (const entry of entries.values())
+			entry.tools["work.list_undelivered_work_interaction_responses"] =
+				"configured_retired";
+		fixture.nativeCalls.length = 0;
+		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+			0,
+		);
+		expect(names(fixture.nativeCalls)).toContain("configured_retired");
+		expect(names(fixture.nativeCalls).at(-1)).toBe(
+			"configured_work__list_undelivered_work_interaction_responses",
+		);
+	});
+
+	test("a cached bootstrap that fails to resolve is refetched once", async () => {
+		const { cache, entries } = memoryCache();
+		const fixture = makeContext({}, undefined, () => ({ data: [] }));
+		fixture.ctx.bootstrapCache = cache;
+		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+			0,
+		);
+		for (const entry of entries.values()) {
+			const catalog = entry.bootstrap.nativeCatalog as {
+				search: { name: string };
+			};
+			catalog.search = { ...catalog.search, name: "catalog_retired" };
+		}
+		fixture.nativeCalls.length = 0;
+		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+			0,
+		);
+		expect(names(fixture.nativeCalls)).toContain("get_info");
+	});
+});
 
 describe("native Work transport", () => {
 	test("uses returned configured names on the modern protocol and preserves full interaction delivery", async () => {
