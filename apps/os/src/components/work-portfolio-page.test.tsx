@@ -21,6 +21,7 @@ import {
 	WorkPortfolioPage,
 	crossOrgPortfolioUrl,
 	groupPortfolio,
+	isPlaceholderBrief,
 	needsYouRows,
 	projectBriefLine,
 } from "./work-portfolio-page";
@@ -389,6 +390,20 @@ describe("Work landing", () => {
 		const result = thrown({ disposition: "proposed" });
 		expect((result as { options: { to: string } }).options.to).toBe(
 			"/work/queue",
+		);
+	});
+});
+
+describe("isPlaceholderBrief", () => {
+	it("treats a brief that mentions the placeholder phrase as empty", () => {
+		expect(isPlaceholderBrief("No records yet; owner to define")).toBe(true);
+		expect(
+			isPlaceholderBrief(
+				"Portfolio bucket: Leads. No records yet; owner to define purpose.",
+			),
+		).toBe(true);
+		expect(isPlaceholderBrief("Weekly winners report for the shop team.")).toBe(
+			false,
 		);
 	});
 });

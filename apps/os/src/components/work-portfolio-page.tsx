@@ -127,9 +127,9 @@ export function projectBriefLine(description: string | null): string | null {
 	return null;
 }
 
-/** Placeholder briefs ("No records yet; owner to define") read as empty. */
+/** Placeholder briefs (containing "No records yet; owner to define") read as empty. */
 export function isPlaceholderBrief(brief: string): boolean {
-	return /^no records yet\b/i.test(brief);
+	return /\bno records yet\b/i.test(brief);
 }
 
 /** Newest of the given timestamps (D1 or ISO), or null. */
