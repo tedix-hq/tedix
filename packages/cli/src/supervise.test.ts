@@ -28,6 +28,7 @@ import {
 	launchAgentPlist,
 	loadLaunchAgent,
 	OPEN_SESSION_GRACE_MS,
+	privacyProtected,
 	Supervisor,
 	systemLaunchctl,
 } from "./supervise";
@@ -976,5 +977,28 @@ describe("explicit exact-chat Work pickup", () => {
 		expect(readDelegations(env, SESSION)[0]?.deliveredAt).toBeDefined();
 		expect(await new Supervisor(deps).tick()).toBe(0);
 		expect(calls).toBe(1);
+	});
+});
+
+describe("privacyProtected", () => {
+	test("names the macOS folders the launchd supervisor cannot read", () => {
+		const home = "/Users/ada";
+		for (const path of [
+			"/Users/ada/Documents",
+			"/Users/ada/Documents/GitHub/acme",
+			"/Users/ada/Desktop/x",
+			"/Users/ada/Downloads/x",
+			"/Users/ada/Library/Mobile Documents/com~apple~CloudDocs/x",
+		])
+			expect(privacyProtected(path, home, "darwin")).toBe(true);
+		for (const path of [
+			"/Users/ada/.codex/worktrees/b515/acme",
+			"/Users/ada/DocumentsArchive/acme",
+			"/tmp/acme",
+		])
+			expect(privacyProtected(path, home, "darwin")).toBe(false);
+		expect(privacyProtected("/Users/ada/Documents/acme", home, "linux")).toBe(
+			false,
+		);
 	});
 });

@@ -44,7 +44,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { Database } from "bun:sqlite";
 import { codexThreadPath } from "./codex-thread";
 import { beginFileLock } from "./local-file-lock";
@@ -84,6 +84,29 @@ import {
 	selfCommand,
 	UUID,
 } from "./hooks/hook-io";
+
+/**
+ * True for a path in a folder macOS privacy protection (TCC) guards. The
+ * launchd supervisor has no access there: listing such a folder fails with
+ * EINTR, which Bun retries until the read's deadline, so every delivery check
+ * for a session checked out there timed out. Started elsewhere, the same read
+ * resolves the session's default binding in well under a second.
+ */
+export function privacyProtected(
+	path: string,
+	home: string,
+	platform: NodeJS.Platform = process.platform,
+): boolean {
+	if (platform !== "darwin") return false;
+	return [
+		"Desktop",
+		"Documents",
+		"Downloads",
+		join("Library", "Mobile Documents"),
+	]
+		.map((folder) => join(home, folder))
+		.some((folder) => path === folder || path.startsWith(folder + sep));
+}
 
 export const SUPERVISE_INTERVAL_MS = 30_000;
 /** After `await-draft` gave up, with a minute of grace for its last read. */
@@ -695,9 +718,13 @@ export class Supervisor {
 	 * Reads that resolve their context from the session's checkout, as in its
 	 * hooks. The read gets `cwd` instead of this process changing directory:
 	 * `process.chdir` round trips made `getcwd` fail with EINTR under launchd.
+	 * A checkout in a privacy-protected folder is never used (`privacyProtected`).
 	 */
 	private reader(cwd: string): ReadJson {
-		const options = existsSync(cwd) ? { cwd } : {};
+		const options =
+			existsSync(cwd) && !privacyProtected(cwd, this.deps.env.HOME || homedir())
+				? { cwd }
+				: {};
 		return (args, timeoutMs, input) =>
 			this.deps.read(args, timeoutMs, input, options);
 	}
