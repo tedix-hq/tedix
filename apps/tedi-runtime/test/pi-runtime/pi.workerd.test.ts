@@ -173,6 +173,33 @@ it("native compaction preserves exact protected head tool groups, last20 and rep
 	expect(fresh).not.toContain("fixture-call:head");
 	expect(fresh).toContain("input fresh");
 });
+it("native generation compacts oversized imported history before provider dispatch", async () => {
+	const agent = await fixture(crypto.randomUUID());
+	await agent.turn("head");
+	await agent.seedCompactionEntries(256);
+	const result = await agent.turn("after-long-history");
+	expect(result.result.assistantText).toContain("owned answer");
+	const prompt = JSON.stringify((await inspect(agent)).stats.prompts.at(-1));
+	expect(prompt.includes("retained-row-5:")).toBe(false);
+	expect(prompt.includes("retained-row-255:")).toBe(true);
+	expect(prompt.includes("Fixture retained summary")).toBe(true);
+});
+it("native compaction retains the whole tool turn crossing the last20 boundary", async () => {
+	const agent = await fixture(crypto.randomUUID());
+	await agent.setup("tool");
+	await agent.enableFacetTool();
+	await agent.turn("head");
+	await agent.setup("text");
+	await agent.seedCompactionEntries(32, 0, true);
+	await agent.compactFixture();
+	await agent.turn("after-boundary");
+	const prompt = JSON.stringify((await inspect(agent)).stats.prompts.at(-1));
+	expect(prompt).toContain("retained-row-10:");
+	expect(prompt.split("boundary-call").length - 1).toBe(2);
+	const summary = await agent.summaryFixture();
+	expect(summary).not.toContain("boundary-call");
+	expect(summary).not.toContain("retained-row-10:");
+});
 it("resumed native snapshot observes approval and drains the owned receipt", async () => {
 	const agent = await fixture(crypto.randomUUID());
 	await agent.setup("tool");

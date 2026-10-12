@@ -48,6 +48,7 @@ import {
 	Type,
 	type Api,
 	type Model,
+	type Message,
 } from "@earendil-works/pi-ai";
 import { createTedixPiProvider } from "../../src/pi-model";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
@@ -520,27 +521,58 @@ export class PiConversationFixture extends ProductionConversationFacet {
 			await (await this.piHarness.pi()).waitForTask(task, context),
 		);
 	}
-	async seedCompactionEntries(count = 32, offset = 0) {
+	async seedCompactionEntries(
+		count = 32,
+		offset = 0,
+		crossingToolGroup = false,
+	) {
 		const context = {
 			abortSignal: undefined,
 			value: () => undefined,
 			toString: () => "native-compaction-seed",
 		};
 		const conversation = await this.nativeConversation();
+		const history = crossingToolGroup
+			? (await conversation.context(context)).entries.flatMap(
+					(entry) => entry.model ?? [],
+				)
+			: [];
+		const call = history.find(
+			(message) =>
+				message.role === "assistant" &&
+				message.content.some((block) => block.type === "toolCall"),
+		);
+		const result = history.find((message) => message.role === "toolResult");
 		for (let index = offset; index < offset + count; index++) {
+			let model: Message[] = [
+				{
+					role: "user",
+					content: `retained-row-${index}:` + "x".repeat(4000),
+					timestamp: index,
+				},
+			];
+			if (crossingToolGroup && index === 11 && call?.role === "assistant") {
+				model = [
+					{
+						...call,
+						content: call.content.map((block) =>
+							block.type === "toolCall"
+								? { ...block, id: "boundary-call" }
+								: block,
+						),
+					},
+				];
+			}
+			if (crossingToolGroup && index === 12 && result?.role === "toolResult") {
+				model = [{ ...result, toolCallId: "boundary-call" }];
+			}
 			const submitted = await conversation.submit(
 				{
 					type: "write",
 					requestId: `seed:${index}`,
 					entry: {
 						kind: "fixture.history",
-						model: [
-							{
-								role: "user",
-								content: `retained-row-${index}:` + "x".repeat(4000),
-								timestamp: index,
-							},
-						],
+						model,
 					},
 				},
 				context,
