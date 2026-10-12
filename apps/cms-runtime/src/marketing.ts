@@ -232,6 +232,7 @@ export interface MarketingEnv {
 	CLI_DOWNLOAD_HOST: string;
 	MARKETING_SITE_SLUG: string;
 	MARKETING_DOMAINS: string;
+	GIT_SHA?: string;
 	TEDIX_MARKETING_ORG_ID: string;
 	TEDIX_CMO_TEDI_ID: string;
 	TEDIX_DEMAND_OBJECTIVE_ID: string;
@@ -453,6 +454,13 @@ export async function marketingResponse(
 			},
 		});
 	}
+	// Same body apps/landing served, so deploy tooling that reads the apex
+	// /health keeps working once this runtime answers for it.
+	if (path === "/health")
+		return Response.json({
+			status: "ok",
+			deployedSha: String(env.GIT_SHA || "unknown"),
+		});
 	if (path === "/waitlist") return redirect("https://os.tedix.dev/", 308);
 	if (path === "/tedixpay-demo") return redirect("/tedixpay/");
 	if (path === "/eurolabs") return redirect("/EuroLabs");

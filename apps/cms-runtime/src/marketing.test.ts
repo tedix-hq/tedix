@@ -69,6 +69,20 @@ describe("public marketing adapters", () => {
 		expect(r?.headers.get("Content-Type")).toMatch(/^text\/plain/);
 		expect(await r?.text()).toContain("Contact: mailto:security@tedix.dev");
 	});
+	it("answers /health with the deployed sha on marketing hosts only", async () => {
+		const r = await marketingResponse(
+			new Request("https://landing.tedix.dev/health"),
+			{ ...env, GIT_SHA: "abc123" },
+		);
+		expect(r?.status).toBe(200);
+		expect(await r?.json()).toEqual({ status: "ok", deployedSha: "abc123" });
+		expect(
+			await marketingResponse(
+				new Request("https://customer.cms.tedix.dev/health"),
+				env,
+			),
+		).toBeNull();
+	});
 	it("does not expose services on other CMS tenant hosts", async () => {
 		expect(
 			await marketingResponse(
