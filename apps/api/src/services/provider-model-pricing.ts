@@ -126,21 +126,32 @@ export async function priceKernelUsage(
 	let pricedAttemptCount = 0;
 	let reason: string | null = null;
 	const versions = new Set<string>();
-	for (const attempt of attempts) {
-		if (!attempt.usage) {
+	// One rate lookup per attempt, in flight together: a Home turn carries
+	// three attempts (route call + two rankings) and the serial lookups were
+	// ~0.3-0.45 s of the settlement window. Aggregation below keeps attempt
+	// order, so the reported reason is unchanged.
+	const pricedAttempts = await Promise.all(
+		attempts.map((attempt) =>
+			attempt.usage
+				? priceProviderUsage(
+						env,
+						{
+							provider: attempt.identity.provider,
+							modelId: attempt.identity.requestModel,
+							deploymentScope: providerDeploymentScope(attempt.identity),
+							occurredAt: attempt.occurredAt,
+						},
+						attempt.usage,
+					)
+				: null,
+		),
+	);
+	for (const [index, attempt] of attempts.entries()) {
+		const priced = pricedAttempts[index];
+		if (!attempt.usage || !priced) {
 			reason ??= "missing_attempt_usage";
 			continue;
 		}
-		const priced = await priceProviderUsage(
-			env,
-			{
-				provider: attempt.identity.provider,
-				modelId: attempt.identity.requestModel,
-				deploymentScope: providerDeploymentScope(attempt.identity),
-				occurredAt: attempt.occurredAt,
-			},
-			attempt.usage,
-		);
 		if (priced.costUsd === null) {
 			reason ??= priced.reason;
 			continue;

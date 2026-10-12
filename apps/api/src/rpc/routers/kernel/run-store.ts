@@ -2281,14 +2281,12 @@ export async function persistKernelTurnSettlement(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
 			"kernel turn settlement batch returned fewer events than it wrote",
 		);
-	const assistantEvent = await finishPersistedKernelRuntimeEvent(
-		context,
-		assistant,
-	);
-	const terminalEvent = await finishPersistedKernelRuntimeEvent(
-		context,
-		terminal,
-	);
+	// Two independent conversation-index write-throughs; serial they were
+	// two D1 round trips on the answer's response path.
+	const [assistantEvent, terminalEvent] = await Promise.all([
+		finishPersistedKernelRuntimeEvent(context, assistant),
+		finishPersistedKernelRuntimeEvent(context, terminal),
+	]);
 	return {
 		runTransitioned: settled.runTransitioned,
 		assistantEvent: assistantEvent.event,
