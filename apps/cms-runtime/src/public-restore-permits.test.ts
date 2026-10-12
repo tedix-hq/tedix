@@ -36,6 +36,89 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("public restore reservations", () => {
+	it("reads 100 stream chunks with one row while checking every pull", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const source = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (let i = 0; i < 100; i++) controller.enqueue(new Uint8Array([i]));
+				controller.close();
+			},
+		});
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(source, {
+					headers: { "Content-Type": "text/event-stream" },
+				}),
+			queries,
+			forRequest(),
+			forRequest,
+		);
+		if (!result.admitted) throw new Error("expected admission");
+		expect((await result.value.arrayBuffer()).byteLength).toBe(100);
+		expect(queries.enter).toHaveBeenCalledOnce();
+		expect(queries.reuse).toHaveBeenCalledTimes(101);
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
+		expect(queries.leave).toHaveBeenCalledOnce();
+	});
+
+	it("rejects a delayed stream pull after the shared reservation's admission closes", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const pull = vi.fn();
+		const cancel = vi.fn();
+		const source = new ReadableStream<Uint8Array>(
+			{ pull, cancel },
+			{ highWaterMark: 0 },
+		);
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () => new Response(source),
+			queries,
+			forRequest(),
+			forRequest,
+		);
+		if (!result.admitted) throw new Error("expected admission");
+		queries.reuse.mockResolvedValue(false);
+		await expect(result.value.body!.getReader().read()).rejects.toThrow(
+			"fence unavailable",
+		);
+		expect(pull).not.toHaveBeenCalled();
+		expect(cancel).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
+	});
+
+	it("retains an active stream borrower through expiry and waits for cancellation", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const pull = vi.fn();
+		const cancel = vi.fn();
+		const result = await withCmsRestoreResponsePermit(
+			db,
+			identity,
+			async () =>
+				new Response(
+					new ReadableStream({ pull, cancel }, { highWaterMark: 0 }),
+				),
+			queries,
+			forRequest(),
+			forRequest,
+		);
+		if (!result.admitted) throw new Error("expected admission");
+		const reader = result.value.body!.getReader();
+		const pending = reader.read();
+		await vi.waitFor(() => expect(pull).toHaveBeenCalledOnce());
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(queries.leave).not.toHaveBeenCalled();
+		await reader.cancel("stop");
+		await pending;
+		await Promise.all(tasks);
+		expect(cancel).toHaveBeenCalledWith("stop");
+		expect(queries.leave).toHaveBeenCalledOnce();
+	});
+
 	it("runs authentication and creates the response separately for each borrower", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const authenticate = vi

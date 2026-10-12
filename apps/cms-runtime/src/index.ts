@@ -5031,6 +5031,9 @@ export default {
 			};
 			const run = () =>
 				fetchCmsSite(request, env, ctx, resolved, alias, site.restoreEpoch);
+			const restoreQueries = publicRestorePermitEligible(request)
+				? () => publicRestorePermitQueries((task) => ctx.waitUntil(task))
+				: undefined;
 			const permitted = await withCmsRestoreResponsePermit(
 				db,
 				identity,
@@ -5044,9 +5047,8 @@ export default {
 					return contact.admitted ? contact.value : cmsRestoreFenceResponse();
 				},
 				undefined,
-				publicRestorePermitEligible(request)
-					? publicRestorePermitQueries((task) => ctx.waitUntil(task))
-					: undefined,
+				restoreQueries?.(),
+				restoreQueries,
 			);
 			return permitted.admitted ? permitted.value : cmsRestoreFenceResponse();
 		} catch (error) {

@@ -76,14 +76,15 @@ export async function withCmsRestorePermit<T>(
 }
 
 /** Response creation and each body pull use outer permits pinned to one epoch.
- * Public response creation may borrow a short-lived reservation; unread bodies
- * never retain a borrower. Later pulls always acquire their own exact permit. */
+ * Public reads may borrow a short-lived reservation; unread bodies never retain
+ * a borrower. Every later pull still checks admission in the pinned epoch. */
 export async function withCmsRestoreResponsePermit(
 	db: DbQueryClient,
 	identity: CmsRestoreFenceIdentity,
 	run: () => Promise<Response>,
 	queries: CmsRestorePermitQueries = defaultQueries,
 	initialQueries: CmsRestorePermitQueries = queries,
+	createPullQueries?: () => CmsRestorePermitQueries,
 ): Promise<{ admitted: false } | { admitted: true; value: Response }> {
 	const pinnedIdentity = { ...identity };
 	const initialPermit: CmsRestorePermitParams = {
@@ -123,14 +124,15 @@ export async function withCmsRestoreResponsePermit(
 								permitId: crypto.randomUUID(),
 								kind: "outer",
 							};
+							const pullQueries = createPullQueries?.() ?? queries;
 							try {
-								if (!(await enterPermit(db, permit, queries)))
+								if (!(await enterPermit(db, permit, pullQueries)))
 									throw new CmsRestoreFenceUnavailableError();
 								let next: ReadableStreamReadResult<Uint8Array>;
 								try {
 									next = await reader.read();
 								} finally {
-									await leavePermit(db, permit, queries);
+									await leavePermit(db, permit, pullQueries);
 								}
 								if (cancelled) return;
 								if (next.done) controller.close();
