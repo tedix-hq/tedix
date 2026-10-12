@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	anonymousPageRequest,
 	cachedTenantPage,
 	MARKETING_PAGE_CACHE_CONTROL,
 	pageCacheEligible,
@@ -106,6 +107,16 @@ describe("tenant page cache key", () => {
 });
 
 describe("tenant page cache eligibility and policy", () => {
+	it("renders shared pages without the visitor's cookies", () => {
+		const request = new Request("https://a/blog", {
+			headers: { cookie: "theme=dark", "x-forwarded-host": "a" },
+		});
+		const anonymous = anonymousPageRequest(request);
+		expect(anonymous.headers.has("cookie")).toBe(false);
+		expect(anonymous.headers.get("x-forwarded-host")).toBe("a");
+		expect(request.headers.get("cookie")).toBe("theme=dark");
+	});
+
 	it("admits only anonymous GETs outside internal paths", () => {
 		expect(pageCacheEligible(new Request("https://a/blog"), "/blog")).toBe(
 			true,
@@ -122,6 +133,24 @@ describe("tenant page cache eligibility and policy", () => {
 				"/blog",
 			),
 		).toBe(false);
+		for (const cookie of [
+			"theme=dark",
+			"_ga=GA1.1.1; _ga_ABC123=GS1.1; theme=light",
+			"__cf_bm=x; cf_clearance=y",
+		])
+			expect(
+				pageCacheEligible(
+					new Request("https://a/blog", { headers: { cookie } }),
+					"/blog",
+				),
+			).toBe(true);
+		for (const cookie of ["theme=dark; DS=jwt", "_ga=1; DSR=jwt", "emdash=1"])
+			expect(
+				pageCacheEligible(
+					new Request("https://a/blog", { headers: { cookie } }),
+					"/blog",
+				),
+			).toBe(false);
 		expect(
 			pageCacheEligible(new Request("https://a/blog?_preview=x"), "/blog"),
 		).toBe(false);

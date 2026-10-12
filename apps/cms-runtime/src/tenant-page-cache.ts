@@ -47,6 +47,17 @@ export function pageCacheEligible(request: Request, pathname: string): boolean {
 	);
 }
 
+/**
+ * The render behind a shared page is cookie-free, so a client-only cookie the
+ * visitor happened to carry can never shape what other visitors receive.
+ */
+export function anonymousPageRequest(request: Request): Request {
+	if (!request.headers.has("cookie")) return request;
+	const anonymous = new Request(request);
+	anonymous.headers.delete("cookie");
+	return anonymous;
+}
+
 /** Headers the parent or tenant reads to decide the public host of a page. */
 const HOST_HEADERS = [
 	"X-Tedix-Public-Host",

@@ -1,10 +1,27 @@
+/**
+ * Cookies that only browser scripts or Cloudflare's edge read: the theme
+ * switch, Google Analytics after consent, and bot management. No tenant
+ * render reads them, so a request carrying only these is still anonymous.
+ */
+const CLIENT_ONLY_COOKIE =
+	/^(?:theme|_ga|_ga_[A-Za-z0-9]+|_gid|_gcl_au|__cf_bm|cf_clearance)$/;
+
+/** True when every cookie in the header is one no server render reads. */
+export function clientOnlyCookies(header: string | null): boolean {
+	return (header ?? "")
+		.split(";")
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.every((part) => CLIENT_ONLY_COOKIE.test(part.split("=", 1)[0]!.trim()));
+}
+
 /** Only anonymous public asset requests enter the native response cache. */
 export function publicAssetCacheEligible(request: Request): boolean {
 	const url = new URL(request.url);
 	return (
 		(request.method === "GET" || request.method === "HEAD") &&
+		clientOnlyCookies(request.headers.get("cookie")) &&
 		![
-			"cookie",
 			"authorization",
 			"range",
 			"if-match",

@@ -6,6 +6,7 @@ import {
 	validateImageSourceRevision,
 } from "./tenant-public-cache";
 import {
+	anonymousPageRequest,
 	cachedTenantPage,
 	pageCacheEligible,
 	pageCacheKey,
@@ -4795,7 +4796,7 @@ async function fetchCmsSite(
 							key: pageKey,
 							templateSlug: org.templateSlug,
 							waitUntil: (promise) => ctx.waitUntil(promise),
-							render: () => fetchTenant(tenantRequest),
+							render: () => fetchTenant(anonymousPageRequest(tenantRequest)),
 						})
 					: fetchTenant(tenantRequest),
 			);
