@@ -14702,7 +14702,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			receivedAt: new Date().toISOString(),
 		};
 
-		const sessionKey = `email:${payload.threadId}`;
+		// Thread headers are sender-written, so an unverified sender must never
+		// select the conversation a verified correspondent's turns live on: its
+		// turn runs on its own untrusted session for that thread, never hydrating
+		// or appending to the trusted one. Decided here from the ingress stamp.
+		const trust = inboundEmailTrust(email.headers);
+		const sessionKey =
+			trust === "trusted"
+				? `email:${payload.threadId}`
+				: `email:untrusted:${payload.threadId}`;
 		const channelPreamble = [
 			"[INBOUND EMAIL]",
 			`From: ${payload.from}`,
@@ -14755,7 +14763,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		// We need the email-channel system addendum on this turn only, so we
 		// temporarily compose a system prompt without persisting it. Mirrors the
 		// MCP runtime augmentation pattern shared by the chat paths.
-		const trust = inboundEmailTrust(email.headers);
 		const baseSystemPrompt = this.state.systemPrompt;
 		const augmentedSystem = `${baseSystemPrompt}${emailSystemAddendum}${emailTurnSystemAddendum(trust)}`;
 
