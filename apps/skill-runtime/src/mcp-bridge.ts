@@ -653,8 +653,8 @@ async function executeMcpTool(
 	// the call through Code Mode on the aggregate, where the inner tools appear
 	// under their gateway namespace (firecrawl_tedix.firecrawl_search). The
 	// (namespace, method) capability gate above already authorised it.
-	const invokeViaCodeMode = async () => {
-		const aggUrl = `https://${props.aggregateMcpSlug}.${props.mcpBaseHost}/mcp`;
+	const invokeViaCodeMode = async (gatewaySlug = props.aggregateMcpSlug) => {
+		const aggUrl = `https://${gatewaySlug}.${props.mcpBaseHost}/mcp`;
 		// The aggregate `code` tool evaluates an async ARROW FUNCTION source
 		// string (`async () => ...`) — a bare top-level `return` is a syntax
 		// error ("Unexpected token 'return'", found live by the kitchen-sink
@@ -726,6 +726,16 @@ async function executeMcpTool(
 		directFailure: "method_not_found" | "connection_missing",
 	) => {
 		try {
+			// A mapped app may itself be a Code Mode wrapper whose inner app keeps
+			// the skill's namespace (`github-tedix` serves `github.get_commit`
+			// with the organization's connection). Try it before the org gateway.
+			if (resolvedSlug !== props.aggregateMcpSlug) {
+				try {
+					return await invokeViaCodeMode(resolvedSlug);
+				} catch {
+					// Fall through to the organization gateway.
+				}
+			}
 			return await invokeViaCodeMode();
 		} catch (recoveryError) {
 			throw explainCodeModeNamespaceMiss(recoveryError, {
