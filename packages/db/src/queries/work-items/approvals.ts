@@ -1,9 +1,10 @@
 import { normalizeWorkItemRow } from "./normalization";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { WorkItemAcceptanceContractSchema } from "@tedix/api-contract/schemas/work-items";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prefixedColumns } from "../../utils/select";
-import { workItems } from "../../schema/work-items";
+import { workItems, workEvents, type WorkItem } from "../../schema/work-items";
 import {
 	workApprovalDecisions,
 	workApprovalProposals,
@@ -27,6 +28,8 @@ export interface ProposeWorkApprovalParams {
 	orgId: string;
 	workItemId: string;
 	workItemVersion: number;
+	action?: "admission" | "acceptance";
+	acceptanceContract?: { version: 1; doneLooksLike?: string };
 	authorityKey: string;
 	proposal: Record<string, JsonValue>;
 	requesterType: "user" | "tedi" | "external_agent" | "system";
@@ -46,6 +49,7 @@ export interface PendingTediWorkApproval {
 	workItemId: string;
 	workItemVersion: number;
 	workItemTitle: string;
+	action?: string;
 	authorityKey: string;
 	proposal: Record<string, JsonValue>;
 	requesterType: "user" | "tedi" | "external_agent" | "system";
@@ -69,6 +73,7 @@ export async function listPendingTediWorkApprovals(
 			workItemId: workApprovalProposals.workItemId,
 			workItemVersion: workApprovalProposals.workItemVersion,
 			workItemTitle: workItems.title,
+			action: workApprovalProposals.action,
 			authorityKey: workApprovalProposals.authorityKey,
 			proposal: workApprovalProposals.proposal,
 			requesterType: workApprovalProposals.requesterType,
@@ -98,6 +103,42 @@ export async function listPendingTediWorkApprovals(
 		.orderBy(desc(workApprovalProposals.createdAt))
 		.limit(limit);
 }
+function routineAcceptanceContract(
+	item: WorkItem,
+	approver: {
+		approverType: "user" | "tedi";
+		approverId: string;
+		authorityKey: string;
+	},
+	value: unknown,
+) {
+	const parsed = WorkItemAcceptanceContractSchema.safeParse(value);
+	if (
+		item.disposition !== "proposed" ||
+		!["low", "medium"].includes(item.riskLevel) ||
+		approver.approverType !== "tedi" ||
+		approver.authorityKey !== "work:accept" ||
+		!parsed.success ||
+		!parsed.data.doneLooksLike?.trim()
+	)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Routine acceptance requires proposed low/medium-risk Work, an independent tedi and a non-empty acceptance contract",
+		);
+	if (
+		item.accountableOwnerType === "tedi" &&
+		item.accountableOwnerId === approver.approverId
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"A tedi cannot accept its own Work Item",
+		);
+	return {
+		version: 1 as const,
+		doneLooksLike: parsed.data.doneLooksLike.trim(),
+	};
+}
+
 export async function proposeWorkApproval(
 	db: DbQueryClient,
 	p: ProposeWorkApprovalParams,
@@ -108,7 +149,20 @@ export async function proposeWorkApproval(
 			"CONFLICT",
 			"Approval proposal Work Item version is stale",
 		);
-	if (!requiredWorkAdmissionAuthorities(item).includes(p.authorityKey))
+	const action = p.action ?? WORK_ADMISSION_APPROVAL_ACTION;
+	const contract =
+		action === "acceptance"
+			? routineAcceptanceContract(item, p, p.acceptanceContract)
+			: undefined;
+	if (action !== "acceptance" && p.acceptanceContract)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Acceptance contracts require the acceptance action",
+		);
+	if (
+		action !== "acceptance" &&
+		!requiredWorkAdmissionAuthorities(item).includes(p.authorityKey)
+	)
 		throw new WorkControlError(
 			"NOT_ELIGIBLE",
 			`Authority ${p.authorityKey} is not required for Work Item admission`,
@@ -164,7 +218,7 @@ export async function proposeWorkApproval(
 				eq(workApprovalProposals.workItemId, p.workItemId),
 				eq(workApprovalProposals.workItemVersion, p.workItemVersion),
 				eq(workApprovalProposals.authorityKey, p.authorityKey),
-				eq(workApprovalProposals.action, WORK_ADMISSION_APPROVAL_ACTION),
+				eq(workApprovalProposals.action, action),
 				eq(workApprovalProposals.approverType, p.approverType),
 				eq(workApprovalProposals.approverId, p.approverId),
 				eq(workApprovalProposals.status, "pending"),
@@ -179,8 +233,10 @@ export async function proposeWorkApproval(
 			workItemId: p.workItemId,
 			workItemVersion: p.workItemVersion,
 			authorityKey: p.authorityKey,
-			action: WORK_ADMISSION_APPROVAL_ACTION,
-			proposal: p.proposal,
+			action,
+			proposal: contract
+				? { ...p.proposal, acceptanceContract: contract }
+				: p.proposal,
 			requesterType: p.requesterType,
 			requesterId: p.requesterId,
 			requesterSessionId: p.requesterSessionId,
@@ -258,6 +314,14 @@ export async function decideWorkApproval(
 			"INVALID_PRINCIPAL",
 			"Requester cannot decide its own proposal",
 		);
+	const contract =
+		proposal.action === "acceptance" && p.decision === "approved"
+			? routineAcceptanceContract(
+					await requireWorkItem(db, p.orgId, proposal.workItemId),
+					proposal,
+					proposal.proposal.acceptanceContract,
+				)
+			: undefined;
 	const resolvedVersion = p.expectedVersion + 1;
 	const decisionInsert = db
 		.insert(workApprovalDecisions)
@@ -286,12 +350,67 @@ export async function decideWorkApproval(
 						eq(workApprovalProposals.status, "pending"),
 						sql`${workApprovalProposals.resolutionFence} IS NULL`,
 						sql`${workApprovalProposals.expiresAt}>${p.now}`,
+						contract
+							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition}='proposed')`
+							: undefined,
 					),
 				),
 		)
 		.returning();
 	try {
-		const decisions = await decisionInsert;
+		let decisions: WorkApprovalDecision[];
+		if (contract) {
+			const recorded = sql`EXISTS (SELECT 1 FROM ${workApprovalDecisions} WHERE ${workApprovalDecisions.id}=${p.id} AND ${workApprovalDecisions.proposalId}=${proposal.id})`;
+			const acceptance = db
+				.update(workItems)
+				.set({
+					disposition: "accepted",
+					acceptanceContract: contract,
+					acceptedAt: p.now,
+					updatedAt: p.now,
+					version: sql`${workItems.version}+1`,
+				})
+				.where(
+					and(
+						eq(workItems.orgId, p.orgId),
+						eq(workItems.id, proposal.workItemId),
+						eq(workItems.version, proposal.workItemVersion),
+						eq(workItems.disposition, "proposed"),
+						recorded,
+					),
+				);
+			const event = db.insert(workEvents).select(
+				db
+					.select({
+						id: sql<string>`${crypto.randomUUID()}`.as("id"),
+						orgId: workItems.orgId,
+						workItemId: workItems.id,
+						attemptId: sql<null>`NULL`.as("attempt_id"),
+						eventType: sql<string>`'work.accepted'`.as("event_type"),
+						actorType: sql<"system">`'system'`.as("actor_type"),
+						actorId: sql<string>`'tedix'`.as("actor_id"),
+						actorSessionId: sql<null>`NULL`.as("actor_session_id"),
+						payload: sql<
+							Record<string, JsonValue>
+						>`${JSON.stringify({ executor: "api:work-acceptance", proposalId: proposal.id, decisionId: p.id, deciderType: p.deciderType, deciderId: p.deciderId })}`.as(
+							"payload",
+						),
+						occurredAt: sql<string>`${p.now}`.as("occurred_at"),
+					})
+					.from(workItems)
+					.where(
+						and(
+							eq(workItems.orgId, p.orgId),
+							eq(workItems.id, proposal.workItemId),
+							eq(workItems.version, proposal.workItemVersion + 1),
+							eq(workItems.disposition, "accepted"),
+							recorded,
+						),
+					),
+			);
+			// D1 executes the decision, acceptance and provenance as one transaction.
+			[decisions] = await db.batch([decisionInsert, acceptance, event]);
+		} else decisions = await decisionInsert;
 		if (!decisions[0]) throw new Error("lost race");
 		return decisions[0];
 	} catch {

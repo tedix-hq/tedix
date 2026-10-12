@@ -24,6 +24,26 @@ const candidate: PendingTediWorkApproval = {
 };
 
 describe("work approval redrive", () => {
+	it("asks for an independent acceptance decision without granting admission", async () => {
+		const request = buildWorkApprovalWakeRequest({
+			candidate: {
+				...candidate,
+				action: "acceptance",
+				authorityKey: "work:accept",
+				proposal: {
+					acceptanceContract: { version: 1, doneLooksLike: "Bounded result" },
+				},
+			},
+			tediSlug: "cto",
+			domain: "tedix.dev",
+			nowMs: 600_000,
+		});
+		const { text } = (await request.json()) as { text: string };
+		expect(text).toContain("routine Work acceptance, not Attempt admission");
+		expect(text).toContain("accepts this exact unchanged Work version");
+		expect(text).toContain("Reject your own Work");
+		expect(text).toContain("grants no Attempt admission");
+	});
 	it("scopes a Home delegation approval to one dispatch in the wake text", async () => {
 		const homeDelegation = buildWorkApprovalWakeRequest({
 			candidate: {

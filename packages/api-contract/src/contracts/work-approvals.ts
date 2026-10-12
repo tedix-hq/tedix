@@ -19,7 +19,7 @@ export const workApprovalsContract = oc
 			.route({
 				method: "POST",
 				path: "" as `/${string}`,
-				summary: "Propose Work admission approval",
+				summary: "Propose Work admission or routine acceptance approval",
 				successStatus: 201,
 			})
 			.input(CreateWorkApprovalProposalInputSchema)

@@ -10,6 +10,7 @@ import {
 	proposeWorkApproval,
 } from "@tedix/db/queries/work-items/approvals";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import { requireFactoryAcceptance } from "../../services/factory-cycle";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -117,12 +118,16 @@ const proposeProcedure = requestOs.propose.handler(
 			);
 		}
 		const actor = await verifiedActiveWorkActor(context, workItem.orgId);
+		if (input.action === "acceptance" && input.acceptanceContract)
+			requireFactoryAcceptance(workItem.metadata, input.acceptanceContract);
 		try {
 			const proposal = await proposeWorkApproval(context.db, {
 				id: crypto.randomUUID(),
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				workItemVersion: input.workItemVersion,
+				action: input.action,
+				acceptanceContract: input.acceptanceContract,
 				authorityKey: input.authorityKey,
 				proposal: input.proposal,
 				requesterType: actor.type,
@@ -144,6 +149,7 @@ const proposeProcedure = requestOs.propose.handler(
 							workItemId: proposal.workItemId,
 							workItemVersion: proposal.workItemVersion,
 							workItemTitle: workItem.title,
+							action: proposal.action,
 							authorityKey: proposal.authorityKey,
 							proposal: proposal.proposal,
 							requesterType: proposal.requesterType,
@@ -247,7 +253,7 @@ const decideProcedure = writeOs.decide.handler(async ({ input, context }) => {
 				"Work approval proposal not found",
 			);
 		}
-		if (actor.type === "tedi") {
+		if (actor.type === "tedi" && proposal.action === "admission") {
 			await carryOutHomeDelegationDecision(context, {
 				orgId,
 				proposal,
