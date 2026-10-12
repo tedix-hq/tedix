@@ -171,6 +171,14 @@ export async function runDirectCode(
 	}
 }
 
+/** Commands dispatched before gateway option parsing; they take only their own flags. */
+const LOCAL_COMMANDS = ["setup", "dev", "hooks", "supervise", "learn"];
+
+const localOptionsError = (command: string) =>
+	new Error(
+		`Put local options after the command: tedix ${command} --help. Workspace and gateway options do not apply to local commands.`,
+	);
+
 async function main() {
 	// Installation lifecycle commands are local and never resolve gateway auth.
 	const localCommand = process.argv[2];
@@ -207,7 +215,15 @@ async function main() {
 		process.on("exit", () => resetTerminalModes(write));
 	}
 
-	const { command, options } = parseOptions(process.argv.slice(2));
+	let parsed: ReturnType<typeof parseOptions>;
+	try {
+		parsed = parseOptions(process.argv.slice(2));
+	} catch (error) {
+		// `tedix -w acme learn --dry-run`: the local command's own flags fail here.
+		const local = LOCAL_COMMANDS.find((name) => process.argv.includes(name));
+		throw local ? localOptionsError(local) : error;
+	}
+	const { command, options } = parsed;
 	if (options.version) {
 		console.log(CLI_VERSION);
 		return;
@@ -239,16 +255,7 @@ async function main() {
 		console.log(commandMap());
 		return;
 	}
-	if (
-		command === "setup" ||
-		command === "dev" ||
-		command === "hooks" ||
-		command === "supervise"
-	) {
-		throw new Error(
-			`Put local options after the command: tedix ${command} --help. Workspace and gateway options do not apply to local installations.`,
-		);
-	}
+	if (LOCAL_COMMANDS.includes(command)) throw localOptionsError(command);
 	const spec = findCommand(command);
 	if (!spec && !findTopLevelCommand(command)) {
 		throw new Error(
