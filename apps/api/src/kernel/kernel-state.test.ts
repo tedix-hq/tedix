@@ -202,6 +202,8 @@ describe("durable kernel turn lifecycle", () => {
 			abortIfStaleCode: vi.fn(),
 			startIngressRecall: () => undefined,
 			readPreviousRelevanceRecall: async () => null,
+			readPersistedHistoryCheckpoint: async () => null,
+			storePersistedHistoryCheckpoint: async () => undefined,
 			schedule: vi.fn(async () => ({ id: "watchdog" })),
 			turnContext: async () => ({}),
 			startTurnProgress: () => ({

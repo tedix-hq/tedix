@@ -67,6 +67,7 @@ import {
 	type KernelHistoryCheckpoint,
 	shouldCompactHistory,
 	type StepPressure,
+	applyPersistedHistoryCheckpoint,
 } from "./context-compaction";
 import {
 	type CacheTrace,
@@ -1082,6 +1083,12 @@ export async function assembleHomeContext(
 		 * settled inside the budget.
 		 */
 		previousRelevanceRecall?: StoredRelevanceRecall | null;
+		/**
+		 * The conversation's last persisted compaction checkpoint (KernelDO
+		 * storage). Replayed in place of the messages it folded when it still
+		 * lines up with the canonical history; otherwise ignored.
+		 */
+		previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
 		/** Override of {@link RELEVANCE_RECALL_BUDGET_MS} (env / tests). */
 		relevanceRecallBudgetMs?: number;
 		/** Injectable epoch-ms clock for recall age/wait accounting (tests). */
@@ -1659,6 +1666,15 @@ export async function assembleHomeContext(
 		}),
 	);
 
+	// Persisted checkpoint first: the replay is the checkpoint message plus the
+	// messages after its fold, so a settled compaction stays settled across
+	// turns instead of being recomputed from the full ledger every time.
+	const persistedReplay = opts?.previousHistoryCheckpoint
+		? applyPersistedHistoryCheckpoint(
+				historyRead.messages,
+				opts.previousHistoryCheckpoint,
+			)
+		: null;
 	const draftCtx: KernelContext = {
 		selectedWorkspaceDocument: opts?.selectedWorkspaceDocument ?? null,
 		delegationAvailable: opts?.delegationAvailable,
@@ -1673,7 +1689,10 @@ export async function assembleHomeContext(
 		facts,
 		rationale: rankedRationale,
 		speaker,
-		history: historyRead.messages,
+		history: persistedReplay ?? historyRead.messages,
+		...(persistedReplay && opts?.previousHistoryCheckpoint
+			? { historyCheckpoint: opts.previousHistoryCheckpoint }
+			: {}),
 		// On draftCtx deliberately, so `estimateContextChars` — which renders the
 		// context — measures the injected procedure as part of the real prompt
 		// and the compaction trigger fires against it like any other section.

@@ -70,6 +70,7 @@ import {
 	assessStepPressure,
 	getHistoryTokenLimits,
 	historyReplayChars,
+	type KernelHistoryCheckpoint,
 } from "./context-compaction";
 import {
 	buildDelegationWorkOrder,
@@ -411,8 +412,27 @@ export function renderRouteResponse(
  * available (Azure + Workers AI both failed); the caller then settles the turn
  * `failed` (model unavailable) — there is no heuristic responder.
  */
+/**
+ * Prompt budget for a Home turn on the Azure lane. The model window (126k
+ * tokens) is the ceiling, not the target: a one-word Home answer measured
+ * 10.5k prompt tokens of which ~4.7k were replayed history, because
+ * compaction only fired at 85% of the window. Against this budget the
+ * existing fail-soft compaction (checkpoint summary + the most recent turns)
+ * trips once replayed history passes roughly 2.5k tokens, and — now that the
+ * checkpoint is persisted per conversation on the KernelDO — settles there
+ * instead of refolding every turn (the first attempt at this budget, without
+ * persistence, cost 20 s first tokens and was reverted in 038230f). The
+ * tedi/app/workflow inventories are not affected; the Workers AI lane keeps
+ * its window-derived budget.
+ */
+const HOME_ROUTE_PROMPT_TOKEN_BUDGET = 10_000;
+
 export async function runKernel(args: {
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
+	/** The conversation's persisted compaction checkpoint (KernelDO storage). */
+	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
+	/** Receives a NEW compaction checkpoint so the caller can persist it. */
+	onHistoryCheckpoint?: (checkpoint: KernelHistoryCheckpoint) => void;
 	attachments?: TediMessageAttachment[];
 	resolveAttachments?: HomeAttachmentResolver;
 	db: DbClient;
@@ -605,7 +625,7 @@ export async function runKernel(args: {
 	const laneBudget = (): number =>
 		kernelServesWorkersAiLane(model)
 			? maxPromptTokensForWindow(WORKERS_AI_CONTEXT_WINDOW_TOKENS)
-			: DEFAULT_MAX_PROMPT_TOKENS;
+			: Math.min(DEFAULT_MAX_PROMPT_TOKENS, HOME_ROUTE_PROMPT_TOKEN_BUDGET);
 	const maxPromptTokens = laneBudget();
 
 	// ── The assembly pass ─────────────────────────────────────────────────────
@@ -636,6 +656,9 @@ export async function runKernel(args: {
 			// call on a later pass; if it has settled by then, that pass is `fresh`.
 			...(relevanceCandidates ? { relevanceCandidates } : {}),
 			...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
+			...(args.previousHistoryCheckpoint
+				? { previousHistoryCheckpoint: args.previousHistoryCheckpoint }
+				: {}),
 			...(relevanceRecallBudgetMs !== undefined
 				? { relevanceRecallBudgetMs }
 				: {}),
@@ -652,6 +675,13 @@ export async function runKernel(args: {
 				? { measuredPromptTokens: pass.measuredPromptTokens }
 				: {}),
 		});
+		// A fold produced this turn (not the replayed persisted one) is handed
+		// to the caller to persist, so the next turn starts from it.
+		if (
+			assembled.historyCheckpoint &&
+			assembled.historyCheckpoint !== args.previousHistoryCheckpoint
+		)
+			args.onHistoryCheckpoint?.(assembled.historyCheckpoint);
 		const beforeHydration = historyReplayChars(assembled.history);
 		assembled.history = await hydrateHomeHistory(
 			assembled.history,
