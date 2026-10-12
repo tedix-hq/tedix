@@ -56,6 +56,9 @@ export const KERNEL_TURN_STAGE_ORDER = [
 	"writeProposalPlanEnded",
 	"dispatchStarted",
 	"dispatchEnded",
+	"settleWriteEnded",
+	"turnEnded",
+	"doEnded",
 ] as const;
 
 export type KernelTurnStage = (typeof KERNEL_TURN_STAGE_ORDER)[number];
@@ -113,6 +116,13 @@ export interface KernelTurnStageTimings {
 		settledAt: string;
 		turnType: KernelTurnType;
 	}): KernelTurnStageTimingsSnapshot;
+	/** Epoch ms of `workStarted` (the zero point for `stages`). */
+	readonly startedAtMs: number;
+	/** Every mark so far as `stages` offsets — for marks made AFTER the
+	 * terminal write took `snapshot()` (settleWriteEnded, turnEnded, doEnded),
+	 * which the KernelDO merges onto the in-memory result it returns. Those
+	 * offsets reach the enqueue response, never the run row. */
+	lateStages(): KernelTurnStageTimingsSnapshot["stages"];
 }
 
 /**
@@ -143,17 +153,23 @@ export function createKernelTurnStageTimings(options?: {
 	const marks = new Map<KernelTurnStage, number>([
 		["workStarted", startedAtMs],
 	]);
+	const stagesFromMarks = (): KernelTurnStageTimingsSnapshot["stages"] => {
+		const stages: KernelTurnStageTimingsSnapshot["stages"] = {};
+		for (const stage of KERNEL_TURN_STAGE_ORDER) {
+			if (stage === "workStarted") continue;
+			const at = marks.get(stage);
+			if (at !== undefined) stages[stage] = Math.max(0, at - startedAtMs);
+		}
+		return stages;
+	};
 	return {
+		startedAtMs,
 		mark(stage) {
 			if (!marks.has(stage)) marks.set(stage, now());
 		},
+		lateStages: stagesFromMarks,
 		snapshot({ enqueuedAt, settledAt, turnType }) {
-			const stages: KernelTurnStageTimingsSnapshot["stages"] = {};
-			for (const stage of KERNEL_TURN_STAGE_ORDER) {
-				if (stage === "workStarted") continue;
-				const at = marks.get(stage);
-				if (at !== undefined) stages[stage] = Math.max(0, at - startedAtMs);
-			}
+			const stages = stagesFromMarks();
 			const enqueueToWorkMs = (() => {
 				const enqueuedMs = Date.parse(enqueuedAt);
 				if (!Number.isFinite(enqueuedMs)) return null;

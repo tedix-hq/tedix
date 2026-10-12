@@ -3069,6 +3069,7 @@ export async function runKernelTurnWork(
 		assistantEvent = await deps.insertKernelRuntimeEvent(assistantEventInput);
 		terminalEvent = await deps.insertKernelRuntimeEvent(terminalEventInput);
 	}
+	stageTimings.mark("settleWriteEnded");
 	// Reconcile the auxiliary submission ledger only after the operator-visible
 	// transcript is durable. Submission settlement is fail-soft, multi-step
 	// (reserve → finalize → `submission.settled`, stamped with the wall clock,
@@ -3261,6 +3262,7 @@ export async function runKernelTurnWork(
 		metadata: mergedTurnRunMetadata,
 		progress: dispatchAwareProgress,
 	};
+	stageTimings.mark("turnEnded");
 	return {
 		idempotencyKey: runId,
 		conversationId,

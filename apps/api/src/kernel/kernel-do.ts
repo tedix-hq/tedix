@@ -699,6 +699,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * produces, so `enqueueMessage` can return it verbatim.
 	 */
 	async processTurn(input: KernelTurnWorkInput): Promise<KernelTurnWorkResult> {
+		const enteredAtMs = Date.now();
 		// Self-restart onto current code if a newer deployment is live (retires the
 		// DO-rename tax — see abortIfStaleCode). Must run before any work/persist so
 		// the reset is clean; the edge re-drives the turn on the fresh instance.
@@ -731,7 +732,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				[KERNEL_ASYNC_DISPATCH_MARKER]: true,
 			} as unknown as KernelTurnWorkResult;
 		}
-		return this.runPlannerStep(input, relevanceCandidates);
+		return this.runPlannerStep(input, relevanceCandidates, enteredAtMs);
 	}
 
 	/**
@@ -829,6 +830,8 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		/** Ingress-started recall from `processTurn`; absent on the scheduled
 		 * (async-planner / alarm) path, where assembly starts its own. */
 		relevanceCandidates?: Promise<AgentMemoryCandidate[]>,
+		/** `processTurn` entry clock: splits enqueue→work into edge→DO and DO→work. */
+		enteredAtMs?: number,
 	): Promise<KernelTurnWorkResult> {
 		this.setState({ ...this.state, organizationId: input.organizationId });
 		// The scheduled (alarm) path has no ingress recall: start one here so its
@@ -883,6 +886,22 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// combines it with its own internal timeout/idle signals.
 		const abortController = new AbortController();
 		this.turnAbortControllers.set(input.runId, abortController);
+		// Clear active progress and the stall watchdog exactly once, on success
+		// (before the late timing marks) and on failure (from `finally`).
+		let turnEnded = false;
+		const endTurn = async (): Promise<void> => {
+			if (turnEnded) return;
+			turnEnded = true;
+			await progress.end();
+			if (watchdogId) {
+				try {
+					await this.cancelSchedule(watchdogId);
+				} catch {
+					// Best-effort: if the cancel is missed, failStuckTurn's CAS no-ops
+					// a turn that already reached a terminal status.
+				}
+			}
+		};
 		try {
 			const result = await (
 				await loadTurnWork()
@@ -912,19 +931,35 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 			// arm the wake alarm so it fires shortly after the turn ends.
 			// onTurnEnded is fail-soft (never throws).
 			this.ctx.waitUntil(this.onTurnEnded(input.conversationId));
+			await endTurn();
+			// Late stage marks (after the terminal write took its snapshot) ride
+			// on the in-memory result only: the enqueue response shows where the
+			// time after `completedAt` went; the run row is never rewritten.
+			stageTimings.mark("doEnded");
+			const metadata = result?.run?.metadata;
+			const timings =
+				metadata && typeof metadata === "object"
+					? (metadata as Record<string, unknown>).kernelTurnTimings
+					: undefined;
+			if (timings && typeof timings === "object") {
+				const snapshot = timings as Record<string, unknown>;
+				result.run.metadata = {
+					...(metadata as Record<string, unknown>),
+					kernelTurnTimings: {
+						...snapshot,
+						stages: {
+							...(snapshot.stages as Record<string, number> | undefined),
+							...stageTimings.lateStages(),
+						},
+						...(enteredAtMs !== undefined
+							? { doEnterToWorkMs: stageTimings.startedAtMs - enteredAtMs }
+							: {}),
+					},
+				} as typeof result.run.metadata;
+			}
 			return result;
 		} finally {
-			// Clear active progress on success and failure.
-			await progress.end();
-			// Cancel the stall watchdog — the turn settled (success or thrown).
-			if (watchdogId) {
-				try {
-					await this.cancelSchedule(watchdogId);
-				} catch {
-					// Best-effort: if the cancel is missed, failStuckTurn's CAS no-ops
-					// a turn that already reached a terminal status.
-				}
-			}
+			await endTurn();
 			// Only remove our own controller — a redriven turn with the same runId
 			// (persist-first idempotency: same run row re-enters runPlannerStep)
 			// could otherwise delete a fresher controller registered by the new
