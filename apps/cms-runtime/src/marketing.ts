@@ -253,6 +253,19 @@ export function isMarketingHost(
 		.includes(host);
 }
 
+const ROOT_ICON_MEDIA =
+	"/_emdash/api/media/file/01M2Y796HX0X6EESZ2VGHTYE0D.png";
+const ROOT_ICON_PATHS = new Set([
+	"/favicon.ico",
+	"/favicon-16x16.png",
+	"/favicon-32x32.png",
+	"/apple-touch-icon.png",
+	"/android-chrome-192x192.png",
+	"/android-chrome-512x512.png",
+]);
+const SHARE_IMAGE_URL =
+	"https://raw.githubusercontent.com/tedix-hq/tedix/main/docs/public/assets/tedix-og-1200x630.jpg";
+
 /** RFC 9116. Renew `Expires` before it lapses. */
 const SECURITY_TXT = `Contact: mailto:security@tedix.dev
 Contact: https://github.com/tedix-hq/tedix/security/advisories/new
@@ -461,6 +474,12 @@ export async function marketingResponse(
 			status: "ok",
 			deployedSha: String(env.GIT_SHA || "unknown"),
 		});
+	// Root icon and share-image paths apps/landing served from its public/
+	// folder. The tenant already holds the brand mark as media, and the home
+	// page already advertises the GitHub-hosted share image.
+	if (ROOT_ICON_PATHS.has(path)) return redirect(ROOT_ICON_MEDIA, 302);
+	if (path === "/og-image.png" || path === "/og-image.jpg")
+		return redirect(SHARE_IMAGE_URL);
 	if (path === "/waitlist") return redirect("https://os.tedix.dev/", 308);
 	if (path === "/tedixpay-demo") return redirect("/tedixpay/");
 	if (path === "/eurolabs") return redirect("/EuroLabs");

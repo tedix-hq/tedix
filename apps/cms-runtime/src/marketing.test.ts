@@ -83,6 +83,22 @@ describe("public marketing adapters", () => {
 			),
 		).toBeNull();
 	});
+	it("redirects the root icon and share-image paths landing used to serve", async () => {
+		const icon = await marketingResponse(
+			new Request("https://landing.tedix.dev/favicon.ico"),
+			env,
+		);
+		expect(icon?.status).toBe(302);
+		expect(icon?.headers.get("Location")).toBe(
+			"https://landing.tedix.dev/_emdash/api/media/file/01M2Y796HX0X6EESZ2VGHTYE0D.png",
+		);
+		const og = await marketingResponse(
+			new Request("https://landing.tedix.dev/og-image.png"),
+			env,
+		);
+		expect(og?.status).toBe(301);
+		expect(og?.headers.get("Location")).toContain("tedix-og-1200x630.jpg");
+	});
 	it("does not expose services on other CMS tenant hosts", async () => {
 		expect(
 			await marketingResponse(
