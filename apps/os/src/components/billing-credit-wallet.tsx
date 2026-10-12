@@ -13,6 +13,7 @@ import {
 	formatCreditWorth,
 	formatUsageCredits,
 } from "@/lib/billing-credit-display";
+import { settledCreditCoverage } from "@/lib/billing-inference-spending";
 
 export function BillingCreditWallet({
 	overview,
@@ -21,6 +22,14 @@ export function BillingCreditWallet({
 }) {
 	const credits = overview.credits;
 	const monetary = credits?.billingMode === "monetary";
+	const coverageDays = credits
+		? settledCreditCoverage({
+				...credits,
+				periodStart: overview.snapshot.periodStart,
+				periodEnd: overview.snapshot.periodEnd,
+				nowMs: Date.now(),
+			})
+		: null;
 	const currency = monetary
 		? (credits?.currency ?? "usd")
 		: overview.plan.currency;
@@ -124,8 +133,30 @@ export function BillingCreditWallet({
 							Plan includes {label(credits.includedMicros)} (
 							{worth(credits.includedMicros)}) each month.
 						</Text>
+						<Text>
+							{credits.perRunBudgetMicros === undefined ? (
+								"No per-run inference cap is recorded."
+							) : (
+								<>
+									Maximum per run: {label(credits.perRunBudgetMicros)} (
+									{worth(credits.perRunBudgetMicros)}).
+								</>
+							)}{" "}
+							External tool fees are separate; a cap is not an estimate of the
+							full workflow cost.
+						</Text>
 						<Text tone="secondary">
-							Included, promotional and purchased credits share one balance.
+							Included allowance remaining:{" "}
+							{label(credits.remainingIncludedMicros)} (
+							{worth(credits.remainingIncludedMicros)}). Purchased and
+							promotional balances are not broken out separately.
+						</Text>
+						<Text tone="secondary">
+							{coverageDays === null
+								? "Coverage forecast unavailable for this period. It needs at least one day and some settled usage in an active billing period."
+								: `At the settled spending pace since this period began, your available credits and current cap cover about ${coverageDays} more days.`}{" "}
+							Pending calls, future prices and plan renewals can change this
+							estimate.
 						</Text>
 						{credits.monthlyCapMicros !== null && (
 							<>

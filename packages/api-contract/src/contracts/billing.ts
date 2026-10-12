@@ -18,6 +18,10 @@ import {
 import { baseErrors } from "../errors";
 import { creditBillingActivationContract } from "./credit-billing-activation";
 import {
+	BillingInferenceSpendingInputSchema,
+	BillingInferenceSpendingSchema,
+} from "../schemas/billing-spending";
+import {
 	FiniteExecutionRevocationInputSchema,
 	FiniteExecutionRevocationSchema,
 	HistoricalExposureListInputSchema,
@@ -90,6 +94,15 @@ export const billingContract = oc
 	.errors(baseErrors)
 	.router({
 		...creditBillingActivationContract,
+		getInferenceSpending: oc
+			.route({
+				method: "GET",
+				path: "/inference-spending",
+				description:
+					"Read the authenticated organization's newest settled USD inference-credit receipts from the last 30 days. Pagination and missing run/price attribution remain explicit; no financial mutation.",
+			})
+			.input(BillingInferenceSpendingInputSchema)
+			.output(BillingInferenceSpendingSchema),
 		listHistoricalExposures: oc
 			.route({
 				method: "GET",

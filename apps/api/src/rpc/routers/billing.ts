@@ -6,6 +6,7 @@ import {
 	setMonetaryCreditBudget,
 } from "@tedix/db/queries/billing/monetary-inference";
 import { getWorkstationCostCoverage } from "@tedix/db/queries/billing/provider-usage";
+import { listMonetaryInferenceSpending } from "@tedix/db/queries/billing/spending";
 /**
  * Billing Router
  * Stripe Checkout, Customer Portal, and canonical billing overview
@@ -1364,6 +1365,26 @@ const configureCreditBillingContract = os.configureCreditBilling
 		).configureCreditBillingHandler(context, input, actor);
 	});
 export const billingContractRouter = os.router({
+	getInferenceSpending: os.getInferenceSpending
+		.use(withAuth)
+		.use(withFleetAuthority)
+		.use(AUTHZ.billingRead)
+		.handler(async ({ context, input }) => {
+			if (!context.organizationId)
+				throw new ORPCError("UNAUTHORIZED", { message: "No organization" });
+			const to = new Date().toISOString();
+			const from = new Date(Date.parse(to) - 30 * 86_400_000).toISOString();
+			return {
+				from,
+				to,
+				...(await listMonetaryInferenceSpending(context.db, {
+					organizationId: context.organizationId,
+					from,
+					to,
+					limit: input.limit,
+				})),
+			};
+		}),
 	configureCreditBilling: configureCreditBillingContract,
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
 	listHistoricalExposures: listHistoricalExposuresContract,

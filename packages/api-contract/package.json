@@ -118,6 +118,7 @@
 		"./schemas/app-gating": "./src/schemas/app-gating.ts",
 		"./schemas/automation-events": "./src/schemas/automation-events.ts",
 		"./schemas/billing": "./src/schemas/billing.ts",
+		"./schemas/billing-spending": "./src/schemas/billing-spending.ts",
 		"./schemas/body-certification": "./src/schemas/body-certification.ts",
 		"./schemas/browser": "./src/schemas/browser.ts",
 		"./schemas/catalog": "./src/schemas/catalog.ts",

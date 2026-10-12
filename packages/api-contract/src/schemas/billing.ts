@@ -73,6 +73,7 @@ export const BillingCreditOverviewSchema = z.object({
 	availableMicros: z.number().int().nonnegative(),
 	spentMicros: z.number().int().nonnegative(),
 	monthlyCapMicros: z.number().int().nonnegative().nullable(),
+	perRunBudgetMicros: z.number().int().positive().safe().optional(),
 });
 export type BillingCreditOverview = z.infer<typeof BillingCreditOverviewSchema>;
 

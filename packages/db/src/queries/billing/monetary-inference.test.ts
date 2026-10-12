@@ -17,7 +17,10 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { reserveBillingUsage } from "./reservations";
 import { settleBillingUsage } from "./settlement";
-import { preflightMonetaryInference } from "./monetary-inference";
+import {
+	preflightMonetaryInference,
+	monetaryCreditOverview,
+} from "./monetary-inference";
 import { getBillingEntitlement } from "./plans";
 import { getBillingBalanceSnapshot } from "./credits";
 
@@ -295,6 +298,11 @@ describe("opt-in monetary inference", () => {
 		sqlite.exec(
 			"UPDATE billing_plan_versions SET metadata=json_set(metadata,'$.monetaryInference.perRunBudgetMicros',4000)",
 		);
+		const billing = (await getBillingEntitlement(db, "org"))!;
+		const balance = (await getBillingBalanceSnapshot(db, "org", now))!;
+		expect(monetaryCreditOverview(billing.plan, balance, null)).toMatchObject({
+			perRunBudgetMicros: 4000,
+		});
 		expect(await reserveBillingUsage(db, reservation("one"))).toMatchObject({
 			allowed: true,
 		});
