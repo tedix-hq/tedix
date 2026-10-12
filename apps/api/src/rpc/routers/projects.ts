@@ -13,6 +13,7 @@
  * GET    /projects              - List projects (flat, status-filtered)
  * GET    /projects/{id}         - Get project
  * GET    /projects/{id}/rollup  - Project rollup (status/type counts + headline items)
+ * GET    /projects/portfolio    - Every project with its card counts, next item, health
  */
 
 import { implement } from "@orpc/server";
@@ -45,6 +46,7 @@ import {
 	getProjectById,
 	getProjectByKey,
 	getProjectRollup,
+	listProjectPortfolio,
 	listProjects,
 	ProjectPurposeError,
 	updateProject,
@@ -246,6 +248,18 @@ const getRollupProcedure = authOs.getRollup
 				disposition: status,
 			})),
 		};
+	});
+
+/** Projects one Portfolio read returns; an owner keeps a few dozen. */
+export const PROJECT_PORTFOLIO_LIMIT = 100;
+
+const getPortfolioProcedure = authOs.getPortfolio
+	.use(AUTHZ.objectiveRead)
+	.handler(async ({ input, context }) => {
+		return listProjectPortfolio(context.db, {
+			orgId: requireOrgIdOrInput(context, input?.organizationId),
+			limit: PROJECT_PORTFOLIO_LIMIT,
+		});
 	});
 
 /**
@@ -588,6 +602,7 @@ export const projectsContractRouter = projectsOs.router({
 	list: skipOutputValidation(listProcedure),
 	get: getProcedure,
 	getRollup: skipOutputValidation(getRollupProcedure),
+	getPortfolio: skipOutputValidation(getPortfolioProcedure),
 	createMilestone: createMilestoneProcedure,
 	listMilestones: listMilestonesProcedure,
 	createSprint: createSprintProcedure,

@@ -4701,6 +4701,28 @@ const handlers: Record<string, (input: never) => unknown> = {
 			truncated: false,
 		};
 	},
+	"projects/getPortfolio": () => ({
+		data: PROJECTS.map((project) => {
+			const items = workItemsInScope(project.id);
+			const byDisposition: Record<string, number> = {};
+			for (const row of items)
+				byDisposition[row.disposition] =
+					(byDisposition[row.disposition] ?? 0) + 1;
+			const lead = TEDIS.find((tedi) => tedi.id === project.leadTediId);
+			const next =
+				items.find((row) => row.disposition === "accepted") ??
+				items.find((row) => row.disposition === "proposed");
+			return {
+				project,
+				leadTediName: lead ? lead.displayName || lead.name : null,
+				total: items.length,
+				byDisposition,
+				next: next ? { id: next.id, title: next.title } : null,
+				health: null,
+				lastActivityAt: null,
+			};
+		}),
+	}),
 	"projects/listMilestones": (input: { id: string }) => {
 		localProject(input.id);
 		return { data: [], nextCursor: null };

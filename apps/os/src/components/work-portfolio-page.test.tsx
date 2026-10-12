@@ -1,4 +1,7 @@
-import type { Project } from "@tedix/api-contract/contracts/projects";
+import type {
+	Project,
+	ProjectPortfolioEntry,
+} from "@tedix/api-contract/contracts/projects";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { isRedirect } from "@tanstack/react-router";
 import { act } from "react";
@@ -6,18 +9,13 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
-	projectHealthJudgmentsQueryOptions,
-	projectListQueryOptions,
-	projectRollupQueryOptions,
-	tediRosterQueryOptions,
+	projectPortfolioQueryOptions,
 	workApprovalsQueryOptions,
 	workOfficeKnocksQueryOptions,
-	workProjectContributorsQueryOptions,
 } from "@/lib/os-query-options";
 import { Route as WorkIndexRoute } from "@/routes/_session/_tenant/work.index";
 import {
 	PORTFOLIO_BUCKETS,
-	PORTFOLIO_PROJECT_LIMIT,
 	WorkPortfolioPage,
 	crossOrgPortfolioUrl,
 	groupPortfolio,
@@ -81,27 +79,33 @@ const PROJECTS = [
 	),
 ];
 
-function rollup(
-	projectId: string,
-	total: number,
-	topLevelItems: Array<{
-		id: string;
-		title: string;
-		disposition: "proposed" | "accepted" | "completed";
-	}> = [],
-) {
+function portfolioRow(
+	project: Project,
+	overrides: Partial<ProjectPortfolioEntry> = {},
+): ProjectPortfolioEntry {
 	return {
-		projectId,
-		total,
-		byDisposition: total ? { proposed: 2, accepted: 1 } : {},
-		byWorkKind: {},
-		percentDone: 0,
-		aggregateDisposition: total ? "accepted" : "empty",
-		distinctExecutors: [],
-		topLevelItems,
-		truncated: false,
+		project,
+		leadTediName: null,
+		total: 0,
+		byDisposition: {},
+		next: null,
+		health: null,
+		lastActivityAt: null,
+		...overrides,
 	};
 }
+
+const PORTFOLIO = PROJECTS.map((project) =>
+	project.id === PROJECTS[1]!.id
+		? portfolioRow(project, {
+				leadTediName: "Nova",
+				total: 3,
+				byDisposition: { proposed: 2, accepted: 1 },
+				next: { id: "item-accepted", title: "Book the boat" },
+				health: "at_risk",
+			})
+		: portfolioRow(project),
+);
 
 function interaction(n: number, state: "open" | "resolved" = "open") {
 	return {
@@ -126,48 +130,9 @@ function seededClient({
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
-	queryClient.setQueryData(
-		projectListQueryOptions(PORTFOLIO_PROJECT_LIMIT).queryKey,
-		{
-			data: PROJECTS,
-			pagination: {
-				limit: 100,
-				offset: 0,
-				total: PROJECTS.length,
-				hasMore: false,
-			},
-		},
-	);
-	const harbor = PROJECTS[1]!;
-	queryClient.setQueryData(
-		projectRollupQueryOptions(harbor.id).queryKey,
-		rollup(harbor.id, 3, [
-			{
-				id: "item-proposed",
-				title: "Price the tours",
-				disposition: "proposed",
-			},
-			{ id: "item-accepted", title: "Book the boat", disposition: "accepted" },
-		]) as never,
-	);
-	for (const row of [PROJECTS[0]!, PROJECTS[2]!, PROJECTS[5]!])
-		queryClient.setQueryData(
-			projectRollupQueryOptions(row.id).queryKey,
-			rollup(row.id, 0) as never,
-		);
-	for (const row of PROJECTS) {
-		queryClient.setQueryData(
-			projectHealthJudgmentsQueryOptions(row.id).queryKey,
-			[],
-		);
-		queryClient.setQueryData(
-			workProjectContributorsQueryOptions(row.id).queryKey,
-			{ contributors: [] },
-		);
-	}
-	queryClient.setQueryData(tediRosterQueryOptions(100).queryKey, {
-		data: [{ id: TEDI_ID, name: "nova", displayName: "Nova" }],
-	} as never);
+	queryClient.setQueryData(projectPortfolioQueryOptions().queryKey, {
+		data: PORTFOLIO,
+	});
 	queryClient.setQueryData(workOfficeKnocksQueryOptions().queryKey, {
 		data: interactions,
 		nextCursor: null,
@@ -193,7 +158,7 @@ function render(queryClient: QueryClient) {
 
 describe("Portfolio grouping", () => {
 	it("orders buckets canonically, matches names loosely, and sorts by title", () => {
-		const { buckets, other } = groupPortfolio(PROJECTS);
+		const { buckets, other } = groupPortfolio(PORTFOLIO);
 		expect(buckets.map((bucket) => bucket.name)).toEqual([
 			...PORTFOLIO_BUCKETS,
 		]);
@@ -282,8 +247,8 @@ describe("WorkPortfolioPage", () => {
 		expect(html).toContain("Run weekend harbor tours");
 		expect(html).toContain("Lead: Nova");
 		expect(html).toContain("2 open · 1 accepted");
+		expect(html).toContain("At risk");
 		expect(html).toContain('href="/work/items/item-accepted"');
-		expect(html).not.toContain('href="/work/items/item-proposed"');
 		expect(html).toContain("No records yet; owner to define");
 		expect(html).toContain("in acme-demo");
 		expect(html).toContain("https://acme-demo.os.tedix.dev/work/portfolio");
@@ -353,7 +318,7 @@ describe("WorkPortfolioPage", () => {
 		});
 		const query = queryClient
 			.getQueryCache()
-			.build(queryClient, projectListQueryOptions(PORTFOLIO_PROJECT_LIMIT));
+			.build(queryClient, projectPortfolioQueryOptions());
 		query.setState({
 			status: "error",
 			error: { message: "Project access denied. Sign in again." } as Error,

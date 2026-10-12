@@ -9,6 +9,7 @@ import {
 	getProjectById,
 	getProjectByKey,
 	getProjectRollup,
+	listProjectPortfolio,
 	listProjects,
 	ProjectPurposeError,
 	updateProject,
@@ -336,5 +337,91 @@ describe("getProjectRollup", () => {
 		expect(rollup.truncated).toBe(true);
 		// only the first `cap` rows feed the totals.
 		expect(rollup.total).toBe(CAP);
+	});
+});
+
+const PORTFOLIO_DDL = `
+CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT);
+CREATE TABLE work_attempts (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, heartbeat_at TEXT NOT NULL);
+CREATE TABLE work_project_health_judgments (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, project_id TEXT NOT NULL, status TEXT NOT NULL, observed_at TEXT NOT NULL);
+CREATE TABLE work_agent_sessions (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, project_id TEXT, last_event_at TEXT NOT NULL);
+`;
+
+describe("listProjectPortfolio", () => {
+	it("returns each project's card facts in one batch, scoped to the org", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(PORTFOLIO_DDL);
+		const project = (key: string, leadTediId: string | null = null) =>
+			createProject(db, {
+				id: nextId("proj"),
+				orgId: ORG,
+				key,
+				name: key,
+				leadTediId,
+				createdAt: NOW,
+			});
+		const tours = await project("TOURS", "tedi-nova");
+		const quiet = await project("QUIET");
+		await createProject(db, {
+			id: nextId("proj"),
+			orgId: "org-2",
+			key: "OTHER",
+			name: "Other org",
+			createdAt: NOW,
+		});
+		const item = async (
+			title: string,
+			disposition: "proposed" | "accepted" | "completed",
+			createdAt: string,
+			parentWorkItemId: string | null = null,
+		) => {
+			const id = nextId("wi");
+			await db.insert(workItems).values({
+				id,
+				orgId: ORG,
+				title,
+				disposition,
+				projectId: tours.id,
+				parentWorkItemId,
+				createdAt,
+			});
+			return id;
+		};
+		await item("Price the tours", "proposed", NOW);
+		const boat = await item("Book the boat", "accepted", LATER);
+		await item("Child step", "accepted", NOW, boat);
+		await item("Done", "completed", NOW);
+		sqlite.exec(`
+			INSERT INTO tedis VALUES ('tedi-nova', '${ORG}', 'nova', 'Nova');
+			INSERT INTO work_attempts VALUES ('a-1', '${ORG}', '${boat}', '2026-07-19T00:00:00.000Z');
+			INSERT INTO work_project_health_judgments VALUES
+				('h-1', '${ORG}', '${tours.id}', 'on_track', '${NOW}'),
+				('h-2', '${ORG}', '${tours.id}', 'at_risk', '${LATER}');
+			INSERT INTO work_agent_sessions VALUES
+				('s-1', '${ORG}', '${tours.id}', '2026-07-20T00:00:00.000Z'),
+				('s-2', 'org-2', '${tours.id}', '2026-07-30T00:00:00.000Z');
+		`);
+
+		const { data } = await listProjectPortfolio(db, { orgId: ORG, limit: 100 });
+
+		expect(data.map((row) => row.project.key)).toEqual(["QUIET", "TOURS"]);
+		expect(data[0]).toMatchObject({
+			project: { id: quiet.id },
+			leadTediName: null,
+			total: 0,
+			byDisposition: {},
+			next: null,
+			health: null,
+			lastActivityAt: null,
+		});
+		expect(data[1]).toMatchObject({
+			project: { id: tours.id, metadata: {} },
+			leadTediName: "Nova",
+			total: 4,
+			byDisposition: { proposed: 1, accepted: 2, completed: 1 },
+			next: { id: boat, title: "Book the boat" },
+			health: "at_risk",
+			lastActivityAt: "2026-07-20T00:00:00.000Z",
+		});
 	});
 });

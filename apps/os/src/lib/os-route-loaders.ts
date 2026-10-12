@@ -66,8 +66,7 @@ import {
 	organizationFeaturesQueryOptions,
 	outputDetailQueryOptions,
 	runtimeEventsQueryOptions,
-	projectListQueryOptions,
-	projectRollupQueryOptions,
+	projectPortfolioQueryOptions,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 	skillDetailQueryOptions,
@@ -722,43 +721,11 @@ export async function prefetchWorkQueueRoute(queryClient: QueryClient) {
 	);
 }
 
-/** Projects the Portfolio home reads in one page (`PORTFOLIO_PROJECT_LIMIT`). */
-const PORTFOLIO_PROJECT_LIMIT = 100;
-
-/** Rollups only for projects that render as cards: bucketed and still open. */
-function portfolioCardProject(project: {
-	status: string;
-	metadata: Record<string, unknown> | null;
-}) {
-	const bucket = project.metadata?.portfolioBucket;
-	return (
-		typeof bucket === "string" &&
-		bucket.trim() !== "" &&
-		project.status !== "archived" &&
-		project.status !== "done"
-	);
-}
-
 export async function prefetchWorkPortfolioRoute(queryClient: QueryClient) {
-	// Match WorkPortfolioPage's input exactly so it consumes this cache.
 	await withFirstPaintDeadline(
-		(async () => {
-			const projects = await queryClient
-				.ensureQueryData(projectListQueryOptions(PORTFOLIO_PROJECT_LIMIT))
-				.catch(() => null);
-			if (projects) {
-				await Promise.allSettled(
-					projects.data
-						.slice(0, PORTFOLIO_PROJECT_LIMIT)
-						.filter(portfolioCardProject)
-						.map((project) =>
-							queryClient.ensureQueryData(
-								projectRollupQueryOptions(project.id),
-							),
-						),
-				);
-			}
-		})(),
+		queryClient
+			.ensureQueryData(projectPortfolioQueryOptions())
+			.catch(() => undefined),
 	);
 }
 

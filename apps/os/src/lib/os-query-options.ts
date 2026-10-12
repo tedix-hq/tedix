@@ -953,6 +953,14 @@ export const projectListQueryOptions = (
 export const projectRollupQueryOptions = (id: string) =>
 	osQuery.projects.getRollup.queryOptions({ input: { id } });
 
+/** The whole Portfolio home in one read; a tab switch never refetches it. */
+export const projectPortfolioQueryOptions = () =>
+	osQuery.projects.getPortfolio.queryOptions({
+		input: {},
+		staleTime: 30_000,
+		refetchOnWindowFocus: false,
+	});
+
 export const projectDetailQueryOptions = (id: string) =>
 	osQuery.projects.get.queryOptions({ input: { id } });
 

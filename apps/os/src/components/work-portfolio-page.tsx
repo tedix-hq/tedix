@@ -1,4 +1,7 @@
-import type { Project } from "@tedix/api-contract/contracts/projects";
+import type {
+	Project,
+	ProjectPortfolioEntry,
+} from "@tedix/api-contract/contracts/projects";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -29,21 +32,14 @@ import { officeAsk } from "@/components/work-office-page";
 import { sentenceCase } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import {
-	projectHealthJudgmentsQueryOptions,
-	projectListQueryOptions,
-	projectRollupQueryOptions,
-	tediRosterQueryOptions,
+	projectPortfolioQueryOptions,
 	workApprovalsQueryOptions,
 	workOfficeKnocksQueryOptions,
-	workProjectContributorsQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
-
-/** One read holds the whole portfolio; the owner keeps a few dozen projects. */
-export const PORTFOLIO_PROJECT_LIMIT = 100;
 
 /** Portfolio buckets, in display order. `metadata.portfolioBucket` picks one. */
 export const PORTFOLIO_BUCKETS = [
@@ -62,6 +58,7 @@ export const NEEDS_YOU_LIMIT = 5;
 type PortfolioBucket = (typeof PORTFOLIO_BUCKETS)[number];
 
 export type PortfolioEntry = {
+	row: ProjectPortfolioEntry;
 	project: Project;
 	title: string;
 	org: string | null;
@@ -80,8 +77,10 @@ export function portfolioBucketOf(project: Project): PortfolioBucket | null {
 	);
 }
 
-function portfolioEntry(project: Project): PortfolioEntry {
+function portfolioEntry(row: ProjectPortfolioEntry): PortfolioEntry {
+	const { project } = row;
 	return {
+		row,
 		project,
 		title: metadataString(project, "portfolioTitle") ?? project.name,
 		org: metadataString(project, "portfolioOrg"),
@@ -95,7 +94,7 @@ const byTitle = (a: PortfolioEntry, b: PortfolioEntry) =>
  * Bucket projects in the fixed order. Archived and done projects, and projects
  * with no recognised bucket, fall into `other`.
  */
-export function groupPortfolio(projects: readonly Project[]): {
+export function groupPortfolio(rows: readonly ProjectPortfolioEntry[]): {
 	buckets: Array<{ name: PortfolioBucket; entries: PortfolioEntry[] }>;
 	other: PortfolioEntry[];
 } {
@@ -103,11 +102,12 @@ export function groupPortfolio(projects: readonly Project[]): {
 		PORTFOLIO_BUCKETS.map((bucket) => [bucket, []]),
 	);
 	const other: PortfolioEntry[] = [];
-	for (const project of projects) {
-		const bucket = portfolioBucketOf(project);
-		const closed = project.status === "archived" || project.status === "done";
-		if (!bucket || closed) other.push(portfolioEntry(project));
-		else grouped.get(bucket)?.push(portfolioEntry(project));
+	for (const row of rows) {
+		const bucket = portfolioBucketOf(row.project);
+		const closed =
+			row.project.status === "archived" || row.project.status === "done";
+		if (!bucket || closed) other.push(portfolioEntry(row));
+		else grouped.get(bucket)?.push(portfolioEntry(row));
 	}
 	return {
 		buckets: PORTFOLIO_BUCKETS.map((name) => ({
@@ -314,47 +314,23 @@ function CrossOrgLink({ slug }: { slug: string }) {
 
 function PortfolioCard({
 	entry,
-	tediNames,
 	openInteractions,
 }: {
 	entry: PortfolioEntry;
-	tediNames: ReadonlyMap<string, string>;
 	openInteractions: readonly InboxRow[];
 }) {
-	const { project, title, org } = entry;
-	const rollup = useQuery(projectRollupQueryOptions(project.id));
-	const health = useQuery({
-		...projectHealthJudgmentsQueryOptions(project.id),
-		retry: false,
-	});
-	const contributors = useQuery({
-		...workProjectContributorsQueryOptions(project.id),
-		refetchInterval: false,
-		retry: false,
-	});
+	const { row, project, title, org } = entry;
 	const brief = projectBriefLine(project.description);
-	const latestHealth = health.data?.[0]?.health;
-	const lead = project.leadTediId
-		? tediNames.get(project.leadTediId)
-		: undefined;
 	const lastActivity = latestActivity([
 		project.updatedAt,
 		project.createdAt,
-		...(contributors.data?.contributors ?? []).map((row) => row.lastActivityAt),
+		row.lastActivityAt,
 	]);
-	const data = rollup.data;
-	const topLevelIds = new Set(data?.topLevelItems.map((item) => item.id));
-	const needsYou = openInteractions.filter((row) => {
-		const workItemId = row.workItem?.id ?? row.request.workItemId;
-		return (
-			row.request.projectId === project.id ||
-			row.workItem?.projectId === project.id ||
-			(workItemId ? topLevelIds.has(workItemId) : false)
-		);
-	}).length;
-	const next =
-		data?.topLevelItems.find((item) => item.disposition === "accepted") ??
-		data?.topLevelItems.find((item) => item.disposition === "proposed");
+	const needsYou = openInteractions.filter(
+		(interaction) =>
+			interaction.request.projectId === project.id ||
+			interaction.workItem?.projectId === project.id,
+	).length;
 	return (
 		<Card size="sm" data-portfolio-card={project.id}>
 			<CardHeader className="grid gap-1">
@@ -367,9 +343,9 @@ function PortfolioCard({
 						{title}
 					</Link>
 					<div className="flex shrink-0 flex-wrap justify-end gap-1">
-						{latestHealth ? (
-							<Badge variant={HEALTH_VARIANT[latestHealth]}>
-								{sentenceCase(latestHealth)}
+						{row.health ? (
+							<Badge variant={HEALTH_VARIANT[row.health]}>
+								{sentenceCase(row.health)}
 							</Badge>
 						) : null}
 						<Badge variant={projectStatusVariant(project.status)}>
@@ -389,20 +365,16 @@ function PortfolioCard({
 				) : null}
 			</CardHeader>
 			<CardContent className="grid gap-1.5">
-				{rollup.isPending ? (
-					<Skeleton className="h-4 w-40" />
-				) : !data ? (
-					<Muted>Counts unavailable</Muted>
-				) : data.total === 0 ? (
+				{row.total === 0 ? (
 					<Muted>No records yet</Muted>
 				) : (
 					<Text as="p" role="label" className="tabular-nums">
-						{data.byDisposition.proposed ?? 0} open ·{" "}
-						{data.byDisposition.accepted ?? 0} accepted
+						{row.byDisposition.proposed ?? 0} open ·{" "}
+						{row.byDisposition.accepted ?? 0} accepted
 						{needsYou ? ` · ${needsYou} need you` : ""}
 					</Text>
 				)}
-				{next ? (
+				{row.next ? (
 					<Text
 						as="p"
 						role="label"
@@ -411,17 +383,17 @@ function PortfolioCard({
 						<span className="shrink-0">Next:</span>
 						<Link
 							variant="record"
-							href={`/work/items/${next.id}`}
+							href={`/work/items/${row.next.id}`}
 							className="min-w-0 truncate"
 						>
-							{next.title}
+							{row.next.title}
 						</Link>
 					</Text>
 				) : null}
 				<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-					{lead ? (
+					{row.leadTediName ? (
 						<Text as="span" role="label" tone="secondary">
-							Lead: {lead}
+							Lead: {row.leadTediName}
 						</Text>
 					) : null}
 					{lastActivity ? (
@@ -468,23 +440,19 @@ function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
 
 export function WorkPortfolioPage() {
 	useDocumentTitle("Portfolio · Work");
-	const projects = useQuery(projectListQueryOptions(PORTFOLIO_PROJECT_LIMIT));
-	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
-	const inbox = useQuery(workOfficeKnocksQueryOptions());
-	const approvals = useQuery({ ...workApprovalsQueryOptions(), retry: false });
+	const portfolio = useQuery(projectPortfolioQueryOptions());
+	const inbox = useQuery({
+		...workOfficeKnocksQueryOptions(),
+		refetchOnWindowFocus: false,
+	});
+	const approvals = useQuery({
+		...workApprovalsQueryOptions(),
+		refetchOnWindowFocus: false,
+		retry: false,
+	});
 	const grouped = useMemo(
-		() => groupPortfolio(projects.data?.data ?? []),
-		[projects.data],
-	);
-	const tediNames = useMemo(
-		() =>
-			new Map(
-				(tedis.data?.data ?? []).map((tedi) => [
-					tedi.id,
-					tedi.displayName || tedi.name,
-				]),
-			),
-		[tedis.data],
+		() => groupPortfolio(portfolio.data?.data ?? []),
+		[portfolio.data],
 	);
 	const openInteractions = useMemo(
 		() =>
@@ -506,17 +474,17 @@ export function WorkPortfolioPage() {
 				</PageHeading>
 			</PageHeader>
 			<NeedsYouStrip rows={needsYou} />
-			{projects.isPending ? (
+			{portfolio.isPending ? (
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 					<Skeleton className="h-36" />
 					<Skeleton className="h-36" />
 					<Skeleton className="h-36" />
 				</div>
-			) : projects.isError ? (
+			) : portfolio.isError ? (
 				<Alert variant="destructive">
 					<AlertTitle>Portfolio unavailable</AlertTitle>
 					<AlertDescription>
-						{errorMessage(projects.error, "Projects could not be loaded.")}
+						{errorMessage(portfolio.error, "Projects could not be loaded.")}
 					</AlertDescription>
 				</Alert>
 			) : (
@@ -540,7 +508,6 @@ export function WorkPortfolioPage() {
 										<PortfolioCard
 											key={entry.project.id}
 											entry={entry}
-											tediNames={tediNames}
 											openInteractions={openInteractions}
 										/>
 									))}

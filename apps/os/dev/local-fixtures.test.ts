@@ -255,6 +255,7 @@ const CALLS: Record<string, unknown> = {
 	"projects/list": { limit: 100 },
 	"projects/get": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/getRollup": { id: "00000076-0000-4000-8000-000000000001" },
+	"projects/getPortfolio": {},
 	"projects/listMilestones": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/listHealthJudgments": {
 		id: "00000076-0000-4000-8000-000000000001",

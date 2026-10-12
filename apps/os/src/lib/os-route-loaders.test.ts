@@ -39,8 +39,7 @@ const api = vi.hoisted(() => ({
 	listRecoveryProjection: vi.fn(),
 	listEvents: vi.fn(),
 	listRelations: vi.fn(),
-	listProjects: vi.fn(),
-	getProjectRollup: vi.fn(),
+	getProjectPortfolio: vi.fn(),
 	listSkillRuns: vi.fn(),
 	getWorkItem: vi.fn(),
 }));
@@ -86,7 +85,7 @@ vi.mock("@/lib/api", () => ({
 			listRelations: api.listRelations,
 		},
 		workFleet: { getControlTower: api.getControlTower },
-		projects: { list: api.listProjects, getRollup: api.getProjectRollup },
+		projects: { getPortfolio: api.getProjectPortfolio },
 		workflows: { listDefinitionHealth: api.listDefinitionHealth },
 		catalog: {
 			list: api.listCatalog,
@@ -153,8 +152,7 @@ import {
 	workflowDefinitionHealthQueryOptions,
 	workflowRunInspectQueryOptions,
 	workFleetQueryOptions,
-	projectListQueryOptions,
-	projectRollupQueryOptions,
+	projectPortfolioQueryOptions,
 	workReadinessProjectionQueryOptions,
 	workAttemptProjectionQueryOptions,
 	workRecoveryProjectionQueryOptions,
@@ -225,8 +223,7 @@ beforeEach(() => {
 		attention: { actions: [] },
 	});
 	api.listRelations.mockResolvedValue({ relations: [], truncated: false });
-	api.listProjects.mockResolvedValue({ data: [] });
-	api.getProjectRollup.mockResolvedValue({});
+	api.getProjectPortfolio.mockResolvedValue({ data: [] });
 	api.listSkillRuns.mockResolvedValue({ runs: [] });
 	api.getWorkItem.mockResolvedValue({
 		workItem: {},
@@ -276,127 +273,42 @@ describe("OS route loaders", () => {
 			local.mockRestore();
 		}
 	});
-	it("warms the Portfolio project list and rollups for its cards only", async () => {
+	it("warms the whole Portfolio with one read", async () => {
 		const queryClient = client();
-		const card = (id: string, bucket: string, status = "active") => ({
-			id,
-			status,
-			metadata: { portfolioBucket: bucket },
-		});
-		const projects = [
-			card("project-a", "Projects"),
-			card("project-b", " leads "),
-			card("project-archived", "Projects", "archived"),
-			card("project-done", "Side", "done"),
-			{ id: "project-unbucketed", status: "active", metadata: null },
-		];
-		api.listProjects.mockResolvedValue({
-			data: projects,
-			pagination: { limit: 100, offset: 0, total: 5, hasMore: false },
-		});
+		const portfolio = { data: [{ project: { id: "project-a" }, total: 3 }] };
+		api.getProjectPortfolio.mockResolvedValue(portfolio);
 		await prefetchWorkPortfolioRoute(queryClient);
-		expect(api.listProjects).toHaveBeenCalledWith(
-			{ limit: 100 },
-			expect.anything(),
-		);
+		expect(api.getProjectPortfolio).toHaveBeenCalledTimes(1);
 		expect(
-			queryClient.getQueryData(projectListQueryOptions(100).queryKey),
-		).toMatchObject({ data: projects });
-		await queryClient.ensureQueryData(projectListQueryOptions(100));
-		expect(api.listProjects).toHaveBeenCalledTimes(1);
-		expect(api.getProjectRollup).toHaveBeenCalledTimes(2);
-		for (const id of ["project-a", "project-b"])
-			expect(
-				queryClient.getQueryData(projectRollupQueryOptions(id).queryKey),
-			).toBeDefined();
+			queryClient.getQueryData(projectPortfolioQueryOptions().queryKey),
+		).toEqual(portfolio);
+		await queryClient.ensureQueryData(projectPortfolioQueryOptions());
+		expect(api.getProjectPortfolio).toHaveBeenCalledTimes(1);
 	});
-	it("bounds Portfolio rollups even if a server returns beyond the requested page", async () => {
-		api.listProjects.mockResolvedValue({
-			data: Array.from({ length: 172 }, (_, index) => ({
-				id: `project-${index}`,
-				status: "active",
-				metadata: { portfolioBucket: "Active" },
-			})),
-		});
-		await prefetchWorkPortfolioRoute(client());
-		expect(api.getProjectRollup).toHaveBeenCalledTimes(100);
-		expect(api.getProjectRollup).not.toHaveBeenCalledWith(
-			{ id: "project-100" },
-			expect.anything(),
-		);
-	});
-	it("lands Portfolio after a list failure without starting rollups", async () => {
-		api.listProjects.mockRejectedValue(new Error("List unavailable"));
+	it("lands Portfolio after a failed read", async () => {
+		api.getProjectPortfolio.mockRejectedValue(new Error("Unavailable"));
 		await expect(prefetchWorkPortfolioRoute(client())).resolves.toBeUndefined();
-		expect(api.getProjectRollup).not.toHaveBeenCalled();
 	});
-	it("retains Portfolio projects and other rollups when one rollup fails", async () => {
-		const queryClient = client();
-		api.listProjects.mockResolvedValue({
-			data: [
-				{
-					id: "failed",
-					status: "active",
-					metadata: { portfolioBucket: "Side" },
-				},
-				{
-					id: "healthy",
-					status: "active",
-					metadata: { portfolioBucket: "Side" },
-				},
-			],
-		});
-		api.getProjectRollup.mockImplementation(({ id }) =>
-			id === "failed"
-				? Promise.reject(new Error("Rollup unavailable"))
-				: Promise.resolve({ percentDone: 0.5 }),
-		);
-		await expect(
-			prefetchWorkPortfolioRoute(queryClient),
-		).resolves.toBeUndefined();
-		expect(
-			queryClient.getQueryData(projectListQueryOptions(100).queryKey),
-		).toBeDefined();
-		expect(
-			queryClient.getQueryData(projectRollupQueryOptions("healthy").queryKey),
-		).toEqual({ percentDone: 0.5 });
+	it("releases Portfolio by its first-paint deadline when the read stalls", async () => {
+		vi.useFakeTimers();
+		try {
+			let rejectRead!: (error: Error) => void;
+			api.getProjectPortfolio.mockImplementation(
+				() =>
+					new Promise((_, reject) => {
+						rejectRead = reject;
+					}),
+			);
+			const routeLoad = prefetchWorkPortfolioRoute(client());
+			const resolved = expect(routeLoad).resolves.toBeUndefined();
+			await vi.advanceTimersByTimeAsync(OS_LOADER_FIRST_PAINT_DEADLINE_MS);
+			await resolved;
+			rejectRead(new Error("Late failure"));
+			await vi.advanceTimersByTimeAsync(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
-	it.each(["list", "rollup"] as const)(
-		"releases Portfolio by its first-paint deadline when %s stalls",
-		async (stage) => {
-			vi.useFakeTimers();
-			try {
-				const queryClient = client();
-				let rejectRead!: (error: Error) => void;
-				api.listProjects.mockResolvedValue({
-					data: [
-						{
-							id: "project-1",
-							status: "active",
-							metadata: { portfolioBucket: "Projects" },
-						},
-					],
-				});
-				const stalled =
-					stage === "list" ? api.listProjects : api.getProjectRollup;
-				stalled.mockImplementation(
-					() =>
-						new Promise((_, reject) => {
-							rejectRead = reject;
-						}),
-				);
-				const routeLoad = prefetchWorkPortfolioRoute(queryClient);
-				const resolved = expect(routeLoad).resolves.toBeUndefined();
-				await vi.advanceTimersByTimeAsync(OS_LOADER_FIRST_PAINT_DEADLINE_MS);
-				await resolved;
-				rejectRead(new Error("Late failure"));
-				await vi.advanceTimersByTimeAsync(0);
-				expect(api.listProjects).toHaveBeenCalledTimes(1);
-			} finally {
-				vi.useRealTimers();
-			}
-		},
-	);
 	it("prefetches the bounded queue projection without per-item readiness fanout", async () => {
 		const queryClient = client();
 		await prefetchWorkQueueRoute(queryClient);
