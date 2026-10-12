@@ -10,6 +10,7 @@ import {
 import { and, asc, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import {
 	appCatalog,
+	appCatalogBrowseTotals,
 	appCatalogMcpTools,
 	type CatalogApp,
 	type Category,
@@ -18,6 +19,7 @@ import {
 	type HealthStatus,
 	type Source,
 } from "../../schema/catalog";
+import { prefixedColumns } from "../../utils/select";
 import type { Database } from "./tool-source-policy";
 import {
 	buildHideShadowedVariantsCondition,
@@ -318,16 +320,53 @@ export async function listCatalogApps(
 			];
 	}
 
-	// Get total count
-	const total = await db.$count(appCatalog, whereClause);
+	const unfilteredPublicBrowse =
+		!includeAll &&
+		!includeUnreleased &&
+		!normalizedSearch &&
+		!category &&
+		!connectorType &&
+		!developerType &&
+		!source &&
+		hasInteractive === undefined &&
+		hasWrites === undefined &&
+		!healthStatus &&
+		!region &&
+		!tag;
+	const total = unfilteredPublicBrowse
+		? await getPublicBrowseTotal(db, hideShadowedVariants)
+		: await db.$count(appCatalog, whereClause);
 
+	const browseTable =
+		unfilteredPublicBrowse && effectiveSortBy === "name"
+			? hideShadowedVariants
+				? sql`${appCatalog} INDEXED BY app_catalog_explore_name_idx`
+				: sql`${appCatalog} INDEXED BY app_catalog_public_browse_name_idx`
+			: appCatalog;
 	const apps = await db
-		.select()
-		.from(appCatalog)
+		.select(prefixedColumns(appCatalog, "catalog"))
+		.from(browseTable)
 		.where(whereClause)
 		.orderBy(...orderBy)
 		.limit(limit)
 		.offset(offset);
 
 	return { apps, total };
+}
+
+async function getPublicBrowseTotal(
+	db: Database,
+	hideShadowedVariants: boolean,
+): Promise<number> {
+	const [row] = await db
+		.select({
+			total: hideShadowedVariants
+				? appCatalogBrowseTotals.exploreTotal
+				: appCatalogBrowseTotals.total,
+		})
+		.from(appCatalogBrowseTotals)
+		.where(eq(appCatalogBrowseTotals.id, "public"))
+		.limit(1);
+	if (!row) throw new Error("Catalog browse totals migration is missing");
+	return row.total;
 }

@@ -95,17 +95,15 @@ export function catalogVisibilityConditions(
 ): SQL[] {
 	const conditions: SQL[] = [];
 	if (!options.includeAll) {
-		const trusted = or(
-			eq(table.developerType, "TRUSTED_PARTNER"),
-			eq(table.developerType, "OAI"),
-			eq(table.developerType, "THIRD_PARTY"),
+		// Fixed literals let SQLite match the public browse partial indexes.
+		conditions.push(
+			sql`${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY')`,
 		);
-		if (trusted) conditions.push(trusted);
-		conditions.push(eq(table.isDiscoverable, true));
-		conditions.push(eq(table.status, "ENABLED"));
+		conditions.push(sql`${table.isDiscoverable} = 1`);
+		conditions.push(sql`${table.status} = 'ENABLED'`);
 	}
 	if (!options.includeUnreleased) {
-		conditions.push(eq(table.reviewStatus, "RELEASED"));
+		conditions.push(sql`${table.reviewStatus} = 'RELEASED'`);
 	}
 	return conditions;
 }
@@ -177,7 +175,7 @@ export function buildHideShadowedVariantsCondition(
 	options: CatalogVisibilityOptions = {},
 ): SQL {
 	if (!options.includeAll && !options.includeUnreleased) {
-		return eq(appCatalog.exploreShadowed, false);
+		return sql`${appCatalog.exploreShadowed} = 0`;
 	}
 	return sql`${appCatalog.id} NOT IN ${shadowedCatalogIdsQuery(db, options)}`;
 }

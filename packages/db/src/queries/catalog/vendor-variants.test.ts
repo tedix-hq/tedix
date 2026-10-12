@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
@@ -135,6 +136,15 @@ function seededSqlite(): { sqlite: DatabaseSync; db: DbClient } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		schemaDdl(appCatalog, appCatalogStoreListings, appCatalogMcpTools),
+	);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../../drizzle/20261012225830_catalog-browse-totals/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		).replace(/CREATE INDEX[^;]+;/g, ""),
 	);
 	const insert = sqlite.prepare(
 		`INSERT INTO app_catalog (id, slug, name, website, connector_type, mcp_endpoint_normalized, mcp_tool_count, developer_type, is_discoverable, status, review_status, last_synced_at)

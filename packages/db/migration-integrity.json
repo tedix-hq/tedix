@@ -864,6 +864,10 @@
 		{
 			"name": "20261012205814_backfill-legacy-output-access-envelopes/migration.sql",
 			"sha256": "ae834804501d989de8ffaec19d2b72ea0496e5ebdfe700ea7f39a5cda6b6527f"
+		},
+		{
+			"name": "20261012225830_catalog-browse-totals/migration.sql",
+			"sha256": "6a13f43b1a227939aa909ad7251692f2789fe7a684b4b4aac66f20941ae42384"
 		}
 	]
 }

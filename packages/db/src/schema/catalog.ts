@@ -496,6 +496,16 @@ export const appCatalog = sqliteTable(
 	},
 	(table) => [
 		index("app_catalog_name_idx").on(table.name),
+		index("app_catalog_public_browse_name_idx")
+			.on(table.name)
+			.where(
+				sql`${table.isDiscoverable} = 1 AND ${table.status} = 'ENABLED' AND ${table.reviewStatus} = 'RELEASED' AND ${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY')`,
+			),
+		index("app_catalog_explore_name_idx")
+			.on(table.name)
+			.where(
+				sql`${table.isDiscoverable} = 1 AND ${table.status} = 'ENABLED' AND ${table.reviewStatus} = 'RELEASED' AND ${table.developerType} IN ('TRUSTED_PARTNER', 'OAI', 'THIRD_PARTY') AND ${table.exploreShadowed} = 0`,
+			),
 		index("app_catalog_vendor_key_idx").on(table.vendorKey),
 		index("app_catalog_slug_idx").on(table.slug),
 		index("app_catalog_connector_type_idx").on(table.connectorType),
@@ -512,6 +522,16 @@ export const appCatalog = sqliteTable(
 		),
 	],
 );
+
+// ============================================
+// Public browse totals, maintained atomically by catalog write triggers.
+// ============================================
+
+export const appCatalogBrowseTotals = sqliteTable("app_catalog_browse_totals", {
+	id: text("id").primaryKey(),
+	total: integer("total").notNull(),
+	exploreTotal: integer("explore_total").notNull(),
+});
 
 // ============================================
 // Store Listings Table (Per-Store Metadata)
