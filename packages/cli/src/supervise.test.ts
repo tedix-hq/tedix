@@ -17,6 +17,7 @@ import {
 	draftStatusPath,
 	peek,
 	questionPath,
+	workToolCall,
 } from "./hooks/decision-capture";
 import type { JsonObject } from "./hooks/hook-io";
 import {
@@ -169,14 +170,14 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 		log: (line) => lines.push(line),
 		read: async (args) => {
 			reads++;
-			if (args.includes("interaction-get")) {
+			if (args.some((arg) => arg.includes("get_work_interaction"))) {
 				const next = details.shift();
 				if (next === undefined) throw new Error("no detail");
 				return structuredClone(next) as JsonObject;
 			}
-			if (args.includes("interaction-draft-delivered")) {
-				const at = args.indexOf("interaction-draft-delivered");
-				drafted.push([args[at + 1]!, JSON.parse(args[at + 3]!)]);
+			if (args.some((arg) => arg.includes("record_reply_draft_delivery"))) {
+				const { requestId, ...rest } = workToolCall(args)!.input;
+				drafted.push([String(requestId), rest]);
 				return { request: {}, response: {} };
 			}
 			if (args.includes("context")) return structuredClone(BINDING);
@@ -501,8 +502,10 @@ describe("tedix supervise", () => {
 							observedAt: new Date().toISOString(),
 						} as JsonObject;
 					}
-					if (args.includes("interaction-ack")) {
-						acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+					if (
+						args.some((arg) => arg.includes("ack_work_interaction_delivery"))
+					) {
+						acks.push(workToolCall(args)!.input);
 						return { data: [] };
 					}
 					if (args.includes("delegate")) {

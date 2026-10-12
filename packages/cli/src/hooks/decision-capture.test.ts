@@ -21,6 +21,7 @@ import {
 	questionPath,
 	repositoryName,
 	runDecisionCapture,
+	workToolCall,
 } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 
@@ -165,25 +166,14 @@ async function runHook(
 				// Interactions are addressed to the signed-in user, never an agent identity.
 				expect(environment.TEDIX_EXTERNAL_AGENT).toBeUndefined();
 				expect(environment.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
-				if (args.includes("interaction-get")) {
+				const tool = workToolCall(args);
+				if (tool?.name === "get_work_interaction") {
 					expect(stdinInput).toBeUndefined();
-					expect(args.slice(-5)).toEqual([
-						"work",
-						"interaction-get",
-						REQUEST,
-						"--input",
-						JSON.stringify({ responseLimit: 5 }),
-					]);
+					expect(tool.input).toEqual({ requestId: REQUEST, responseLimit: 5 });
 					const handler = gateway[DETAIL_CALLABLE];
 					if (!handler) throw new Error("Unknown native tool");
-					gatewayCalls.push([
-						DETAIL_CALLABLE,
-						{ requestId: REQUEST, responseLimit: 5 },
-						args,
-					]);
-					return structuredClone(
-						await handler({ requestId: REQUEST, responseLimit: 5 }),
-					) as JsonObject;
+					gatewayCalls.push([DETAIL_CALLABLE, tool.input, args]);
+					return structuredClone(await handler(tool.input)) as JsonObject;
 				}
 				const codeAgent =
 					typeof stdinInput === "string" &&
@@ -225,8 +215,8 @@ async function runHook(
 					if (!handler) throw new Error("Unknown native agent tool");
 					return structuredClone(await handler(input)) as JsonObject;
 				}
-				if (args.includes("interaction-ack")) {
-					acks.push(JSON.parse(args[args.indexOf("--input") + 1]!));
+				if (tool?.name === "ack_work_interaction_delivery") {
+					acks.push(tool.input);
 					return { data: [] };
 				}
 				if (args.includes("code"))

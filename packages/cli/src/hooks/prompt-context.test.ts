@@ -15,6 +15,7 @@ import {
 	readDelegations,
 	recordDelegation,
 } from "../delegation-ledger";
+import { workToolCall } from "./decision-capture";
 import type { JsonObject } from "./hook-io";
 import {
 	branchTopics,
@@ -125,13 +126,11 @@ async function run(
 				if (!page) throw new Error("Unknown native tool");
 				return structuredClone(page) as JsonObject;
 			}
-			if (args.includes("interaction-ack")) return { data: [] };
-			if (args.includes("interaction-get")) {
+			if (args.some((arg) => arg.includes("ack_work_interaction_delivery")))
+				return { data: [] };
+			if (args.some((arg) => arg.includes("get_work_interaction"))) {
 				expect(input).toBeUndefined();
-				expect(args.slice(-2)).toEqual([
-					"--input",
-					JSON.stringify({ responseLimit: 5 }),
-				]);
+				expect(workToolCall(args)?.input.responseLimit).toBe(5);
 				const next = interactions.shift();
 				if (next === undefined || next instanceof Error)
 					throw next ?? new Error("Unknown native tool");
@@ -951,8 +950,10 @@ describe("tedix hooks prompt-context", () => {
 				expect(listed.at(-1)).toContain(
 					`(${JSON.stringify({ sessionId: SESSION, limit: 50 })})`,
 				);
-				const acked = calls.find((args) => args.includes("interaction-ack"))!;
-				expect(JSON.parse(acked[acked.indexOf("--input") + 1]!)).toEqual({
+				const acked = calls.find((args) =>
+					args.some((arg) => arg.includes("ack_work_interaction_delivery")),
+				)!;
+				expect(workToolCall(acked)?.input).toEqual({
 					responseIds: [
 						"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 						"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -961,9 +962,11 @@ describe("tedix hooks prompt-context", () => {
 				});
 				// The answered question is consumed; the interaction is never read by ID.
 				expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(false);
-				expect(calls.some((args) => args.includes("interaction-get"))).toBe(
-					false,
-				);
+				expect(
+					calls.some((args) =>
+						args.some((arg) => arg.includes("get_work_interaction")),
+					),
+				).toBe(false);
 			}));
 
 		test("an open question's tedi draft never reaches the session, even on ok", () =>
@@ -980,7 +983,8 @@ describe("tedix hooks prompt-context", () => {
 					expect(
 						calls.some(
 							(args) =>
-								args.includes("interaction-get") && args.includes(REQUEST),
+								workToolCall(args)?.name === "get_work_interaction" &&
+								workToolCall(args)?.input.requestId === REQUEST,
 						),
 					).toBe(true);
 					const files = readdirSync(dir)
@@ -1387,7 +1391,8 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 						observedAt: "2026-10-11T09:00:01.000Z",
 					};
 				}
-				if (args.includes("interaction-ack")) return { data: [] };
+				if (args.some((arg) => arg.includes("ack_work_interaction_delivery")))
+					return { data: [] };
 				const code = String(args.at(-1));
 				if (code.includes("codemode.__runtime")) {
 					steps.push("organization");
