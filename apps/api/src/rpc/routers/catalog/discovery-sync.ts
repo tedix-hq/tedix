@@ -102,7 +102,14 @@ export const listCatalog = fleetCatalogOs.list
 	.use(AUTHZ.appsRead)
 	.handler(async ({ input, context }) => {
 		const cache = catalogListCache(context, input);
+		const cacheStartedAt = Date.now();
 		const hit = await cache?.match();
+		if (cache) {
+			console.log("[Catalog Browse] cache", {
+				hit: Boolean(hit),
+				lookupMs: Date.now() - cacheStartedAt,
+			});
+		}
 		if (hit) return hit;
 		const { db } = context;
 		const limit = input.limit ?? 50;
