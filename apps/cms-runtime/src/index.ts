@@ -5045,9 +5045,7 @@ export default {
 				},
 				undefined,
 				publicRestorePermitEligible(request)
-					? publicRestorePermitQueries(env.PLATFORM_DB, (task) =>
-							ctx.waitUntil(task),
-						)
+					? publicRestorePermitQueries((task) => ctx.waitUntil(task))
 					: undefined,
 			);
 			return permitted.admitted ? permitted.value : cmsRestoreFenceResponse();

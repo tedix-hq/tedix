@@ -5,15 +5,9 @@ import {
 	leaveCmsRestorePermit,
 	type CmsRestorePermitParams,
 } from "@tedix/db/queries/cms-restore-fences";
-import { EDGE_CACHE_EXCLUDED_PREFIXES } from "./edge-cache-headers";
-import { publicAssetCacheEligible } from "./tenant-public-cache";
-
+/** Share admission only; authentication and response creation still run per request. */
 export function publicRestorePermitEligible(request: Request): boolean {
-	const pathname = new URL(request.url).pathname;
-	return (
-		publicAssetCacheEligible(request) &&
-		!EDGE_CACHE_EXCLUDED_PREFIXES.some((prefix) => pathname.startsWith(prefix))
-	);
+	return request.method === "GET" || request.method === "HEAD";
 }
 
 const REUSE_MS = 10_000;
@@ -107,16 +101,12 @@ export class PublicRestorePermits {
 	}
 }
 
-const pools = new WeakMap<D1Database, PublicRestorePermits>();
+// One PLATFORM_DB binding belongs to this serving Worker. Its JS wrapper's
+// identity is not a reservation key; every reuse validates the durable row.
+const pool = new PublicRestorePermits();
 
 export function publicRestorePermitQueries(
-	database: D1Database,
 	waitUntil: (task: Promise<unknown>) => void,
 ) {
-	let pool = pools.get(database);
-	if (!pool) {
-		pool = new PublicRestorePermits();
-		pools.set(database, pool);
-	}
 	return pool.forRequest(waitUntil);
 }
