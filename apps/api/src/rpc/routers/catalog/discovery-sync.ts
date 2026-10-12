@@ -1,5 +1,6 @@
 import { failRunningAppCatalogSyncLog } from "@tedix/db/queries/catalog/sync-logs";
 import { catalogSyncTerminalFailure } from "../../../lib/catalog-sync-recovery";
+import { catalogListCache } from "../../../lib/catalog-list-cache";
 import { AUTHZ } from "../../orpc";
 import { countAutoSyncBaseApps } from "@tedix/db/queries/apps";
 import {
@@ -100,6 +101,9 @@ async function mapCatalogVariants(
 export const listCatalog = fleetCatalogOs.list
 	.use(AUTHZ.appsRead)
 	.handler(async ({ input, context }) => {
+		const cache = catalogListCache(context, input);
+		const hit = await cache?.match();
+		if (hit) return hit;
 		const { db } = context;
 		const limit = input.limit ?? 50;
 		const offset = input.offset ?? 0;
@@ -236,7 +240,7 @@ export const listCatalog = fleetCatalogOs.list
 				updatedAt: app.updatedAt ?? null,
 			};
 		});
-		return {
+		const page = {
 			apps: appSummaries,
 			total,
 			pagination: {
@@ -245,6 +249,8 @@ export const listCatalog = fleetCatalogOs.list
 				hasMore: offset + limit < total,
 			},
 		};
+		cache?.put(page);
+		return page;
 	});
 
 /**
