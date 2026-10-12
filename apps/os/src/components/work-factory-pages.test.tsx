@@ -892,6 +892,7 @@ describe("Recorded Work outcomes and activity", () => {
 		});
 		queryClient.setQueryData(workItemDetailQueryOptions(item.id).queryKey, {
 			workItem: { ...item, disposition: "completed" },
+			project: null,
 			projections: [],
 			evidence: [],
 			evidenceNextCursor: null,
