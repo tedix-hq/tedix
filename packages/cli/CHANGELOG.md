@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.9
+
+### Patch Changes
+
+- dce7e02: Commands reuse the gateway's protocol discovery for six hours, so `tedix ask` and other commands skip one round trip before their real call.
+
 ## 0.8.8
 
 ### Patch Changes
