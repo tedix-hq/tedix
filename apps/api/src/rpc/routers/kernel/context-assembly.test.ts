@@ -298,6 +298,64 @@ describe("assembleHomeContext per-org context cache", () => {
 		vi.restoreAllMocks();
 	});
 
+	it.each([
+		["owner", true],
+		["admin", true],
+		["member", false],
+		["viewer", false],
+	])("preserves active %s speaker authority as %s", async (role, authority) => {
+		spyInventory();
+		vi.spyOn(memberQueries, "getMemberByUserId").mockResolvedValue({
+			role,
+			status: "active",
+		} as never);
+
+		const context = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			descopeUserId: "operator-1",
+		});
+
+		expect(context.speaker).toEqual({ role, approvalAuthority: authority });
+		vi.restoreAllMocks();
+	});
+
+	it.each(
+		["owner", "admin"].flatMap((role) =>
+			["invited", "deactivated", null, undefined, "unknown"].map((status) => ({
+				role,
+				status,
+			})),
+		),
+	)(
+		"withholds the $role speaker after status changes to $status",
+		async ({ role, status }) => {
+			spyInventory();
+			const member = vi
+				.spyOn(memberQueries, "getMemberByUserId")
+				.mockResolvedValueOnce({ role, status: "active" } as never)
+				.mockResolvedValueOnce({ role, status } as never);
+			const options = {
+				contextCache: new KernelContextCache(),
+				descopeUserId: "operator-1",
+			};
+
+			const first = await assembleHomeContext(
+				createEventsDb([]),
+				ORG_ID,
+				options,
+			);
+			const second = await assembleHomeContext(
+				createEventsDb([]),
+				ORG_ID,
+				options,
+			);
+
+			expect(first.speaker?.approvalAuthority).toBe(true);
+			expect(second.speaker).toBeNull();
+			expect(member).toHaveBeenCalledTimes(2);
+			vi.restoreAllMocks();
+		},
+	);
+
 	it.each(["member", undefined])(
 		"does not retain admin approval authority after membership changes to %s",
 		async (role) => {
@@ -305,8 +363,10 @@ describe("assembleHomeContext per-org context cache", () => {
 			const contextCache = new KernelContextCache();
 			const member = vi
 				.spyOn(memberQueries, "getMemberByUserId")
-				.mockResolvedValueOnce({ role: "admin" } as never)
-				.mockResolvedValueOnce(role ? ({ role } as never) : undefined);
+				.mockResolvedValueOnce({ role: "admin", status: "active" } as never)
+				.mockResolvedValueOnce(
+					role ? ({ role, status: "active" } as never) : undefined,
+				);
 			const options = { contextCache, descopeUserId: "operator-1" };
 
 			const first = await assembleHomeContext(
@@ -340,7 +400,7 @@ describe("assembleHomeContext per-org context cache", () => {
 		const contextCache = new KernelContextCache({ now: () => now });
 		const member = vi
 			.spyOn(memberQueries, "getMemberByUserId")
-			.mockResolvedValueOnce({ role: "admin" } as never)
+			.mockResolvedValueOnce({ role: "admin", status: "active" } as never)
 			.mockRejectedValueOnce(new Error("D1 unavailable"));
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		const options = { contextCache, descopeUserId: "operator-1" };
