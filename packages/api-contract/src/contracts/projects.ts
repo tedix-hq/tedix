@@ -193,6 +193,23 @@ export const ProjectHealthJudgmentSchema = z
 	})
 	.strict();
 
+export const ProjectPortfolioEntrySchema = z.object({
+	project: ProjectSchema,
+	leadTediName: z.string().nullable(),
+	total: z.number(),
+	byDisposition: z.record(z.string(), z.number()),
+	/** Oldest accepted top-level item, else the oldest proposed one. */
+	next: z.object({ id: z.string(), title: z.string() }).nullable(),
+	health: ProjectHealthSchema.nullable(),
+	/** Newest attempt heartbeat or agent-session report on the project. */
+	lastActivityAt: z.string().nullable(),
+});
+export type ProjectPortfolioEntry = z.infer<typeof ProjectPortfolioEntrySchema>;
+
+const ProjectPortfolioSchema = z.object({
+	data: z.array(ProjectPortfolioEntrySchema),
+});
+
 const ProjectRollupSchema = z.object({
 	projectId: z.string(),
 	total: z.number(),
@@ -326,6 +343,24 @@ export const projectsContract = oc
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(ProjectRollupSchema),
+
+		getPortfolio: oc
+			.route({
+				method: "GET",
+				path: "/portfolio",
+				summary: "Get project portfolio",
+				description:
+					"Every project with its Work counts, next item, latest health judgment and last activity, in one read.",
+			})
+			.input(
+				z
+					.object({
+						organizationId: z.string().optional(),
+					})
+					.strict()
+					.optional(),
+			)
+			.output(ProjectPortfolioSchema),
 
 		createMilestone: oc
 			.route({

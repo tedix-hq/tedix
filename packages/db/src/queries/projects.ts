@@ -9,17 +9,22 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
+import { workAgentSessions } from "../schema/work-agent-sessions";
+import { workProjectHealthJudgments } from "../schema/work-factory";
 import {
 	type NewProject,
 	type Project,
 	type ProjectStatus,
 	projects,
 } from "../schema/projects";
+import { tedis } from "../schema/tedis";
 import {
 	type WorkItemDisposition,
 	type WorkItemKind,
+	workAttempts,
 	workItems,
 } from "../schema/work-items";
 import {
@@ -281,4 +286,187 @@ export async function getProjectRollup(
 		}));
 
 	return { projectId: params.projectId, ...totals, topLevelItems, truncated };
+}
+
+/** One Portfolio card: the project plus its counts, next item, health and activity. */
+export interface ProjectPortfolioEntry {
+	project: Project;
+	leadTediName: string | null;
+	total: number;
+	byDisposition: Record<string, number>;
+	/** Oldest accepted top-level item, else the oldest proposed one. */
+	next: { id: string; title: string } | null;
+	health: (typeof workProjectHealthJudgments.$inferSelect)["status"] | null;
+	/** Newest attempt heartbeat or agent-session report on the project. */
+	lastActivityAt: string | null;
+}
+
+/**
+ * The whole Portfolio in one D1 round trip: projects ordered by key, each with
+ * what its card shows. Aggregates join through `projects` so every statement
+ * walks the per-project indexes instead of the organization's whole Work table.
+ */
+export async function listProjectPortfolio(
+	db: DbQueryClient,
+	params: { orgId: string; limit: number },
+): Promise<{ data: ProjectPortfolioEntry[] }> {
+	const orgProject = and(
+		eq(projects.id, workItems.projectId),
+		eq(projects.orgId, params.orgId),
+	);
+	const nextRanked = db
+		.select({
+			projectId: sql<string>`${workItems.projectId}`.as("next_project_id"),
+			id: sql<string>`${workItems.id}`.as("next_id"),
+			title: sql<string>`${workItems.title}`.as("next_title"),
+			rank: sql<number>`row_number() OVER (PARTITION BY ${workItems.projectId} ORDER BY (${workItems.disposition} = 'accepted') DESC, ${workItems.createdAt} ASC, ${workItems.id} ASC)`.as(
+				"next_rank",
+			),
+		})
+		.from(workItems)
+		.innerJoin(projects, orgProject)
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				isNull(workItems.parentWorkItemId),
+				inArray(workItems.disposition, ["accepted", "proposed"]),
+			),
+		)
+		.as("portfolio_next");
+	const healthRanked = db
+		.select({
+			projectId: sql<string>`${workProjectHealthJudgments.projectId}`.as(
+				"health_project_id",
+			),
+			status: sql<
+				ProjectPortfolioEntry["health"]
+			>`${workProjectHealthJudgments.status}`.as("health_status"),
+			rank: sql<number>`row_number() OVER (PARTITION BY ${workProjectHealthJudgments.projectId} ORDER BY ${workProjectHealthJudgments.observedAt} DESC, ${workProjectHealthJudgments.id} DESC)`.as(
+				"health_rank",
+			),
+		})
+		.from(workProjectHealthJudgments)
+		.where(eq(workProjectHealthJudgments.orgId, params.orgId))
+		.as("portfolio_health");
+
+	const [
+		projectRows,
+		countRows,
+		nextRows,
+		healthRows,
+		attemptRows,
+		reportRows,
+	] = await db.batch([
+		db
+			.select({
+				project: projects,
+				leadTediName: sql<
+					string | null
+				>`coalesce(nullif(${tedis.displayName}, ''), ${tedis.name})`.as(
+					"lead_tedi_name",
+				),
+			})
+			.from(projects)
+			.leftJoin(
+				tedis,
+				and(
+					eq(tedis.id, projects.leadTediId),
+					eq(tedis.organizationId, projects.orgId),
+				),
+			)
+			.where(eq(projects.orgId, params.orgId))
+			.orderBy(asc(projects.key))
+			.limit(params.limit),
+		db
+			.select({
+				projectId: sql<string>`${workItems.projectId}`.as("count_project_id"),
+				disposition: workItems.disposition,
+				count: sql<number>`count(*)`.as("item_count"),
+			})
+			.from(workItems)
+			.innerJoin(projects, orgProject)
+			.where(eq(workItems.orgId, params.orgId))
+			.groupBy(workItems.projectId, workItems.disposition),
+		db
+			.select({
+				projectId: nextRanked.projectId,
+				id: nextRanked.id,
+				title: nextRanked.title,
+			})
+			.from(nextRanked)
+			.where(eq(nextRanked.rank, 1)),
+		db
+			.select({
+				projectId: healthRanked.projectId,
+				status: healthRanked.status,
+			})
+			.from(healthRanked)
+			.where(eq(healthRanked.rank, 1)),
+		db
+			.select({
+				projectId: sql<string>`${workItems.projectId}`.as("attempt_project_id"),
+				at: sql<string | null>`max(${workAttempts.heartbeatAt})`.as(
+					"attempt_at",
+				),
+			})
+			.from(workAttempts)
+			.innerJoin(
+				workItems,
+				and(
+					eq(workItems.orgId, workAttempts.orgId),
+					eq(workItems.id, workAttempts.workItemId),
+				),
+			)
+			.innerJoin(projects, orgProject)
+			.where(eq(workAttempts.orgId, params.orgId))
+			.groupBy(workItems.projectId),
+		db
+			.select({
+				projectId: sql<string>`${workAgentSessions.projectId}`.as(
+					"report_project_id",
+				),
+				at: sql<string | null>`max(${workAgentSessions.lastEventAt})`.as(
+					"report_at",
+				),
+			})
+			.from(workAgentSessions)
+			.where(
+				and(
+					eq(workAgentSessions.organizationId, params.orgId),
+					sql`${workAgentSessions.projectId} IS NOT NULL`,
+				),
+			)
+			.groupBy(workAgentSessions.projectId),
+	]);
+
+	const counts = new Map<string, Record<string, number>>();
+	for (const row of countRows) {
+		const byDisposition = counts.get(row.projectId) ?? {};
+		byDisposition[row.disposition] = Number(row.count);
+		counts.set(row.projectId, byDisposition);
+	}
+	const next = new Map(
+		nextRows.map((row) => [row.projectId, { id: row.id, title: row.title }]),
+	);
+	const health = new Map(healthRows.map((row) => [row.projectId, row.status]));
+	const activity = new Map<string, string>();
+	for (const row of [...attemptRows, ...reportRows]) {
+		const current = activity.get(row.projectId);
+		if (row.at && (!current || row.at > current))
+			activity.set(row.projectId, row.at);
+	}
+	return {
+		data: projectRows.map(({ project, leadTediName }) => {
+			const byDisposition = counts.get(project.id) ?? {};
+			return {
+				project,
+				leadTediName: leadTediName ?? null,
+				total: Object.values(byDisposition).reduce((sum, n) => sum + n, 0),
+				byDisposition,
+				next: next.get(project.id) ?? null,
+				health: health.get(project.id) ?? null,
+				lastActivityAt: activity.get(project.id) ?? null,
+			};
+		}),
+	};
 }
