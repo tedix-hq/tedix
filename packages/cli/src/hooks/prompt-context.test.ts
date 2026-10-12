@@ -116,7 +116,11 @@ async function run(
 		read: async (args, timeout, input) => {
 			calls.push(args);
 			timeouts.push(timeout);
-			if (args.includes("interaction-undelivered")) {
+			if (
+				args.some((arg) =>
+					arg.includes("list_undelivered_work_interaction_responses"),
+				)
+			) {
 				const page = undelivered.shift();
 				if (!page) throw new Error("Unknown native tool");
 				return structuredClone(page) as JsonObject;
@@ -940,12 +944,13 @@ describe("tedix hooks prompt-context", () => {
 					].join("\n"),
 				);
 				const listed = calls.find((args) =>
-					args.includes("interaction-undelivered"),
+					args.some((arg) =>
+						arg.includes("list_undelivered_work_interaction_responses"),
+					),
 				)!;
-				expect(JSON.parse(listed[listed.indexOf("--input") + 1]!)).toEqual({
-					sessionId: SESSION,
-					limit: 50,
-				});
+				expect(listed.at(-1)).toContain(
+					`(${JSON.stringify({ sessionId: SESSION, limit: 50 })})`,
+				);
 				const acked = calls.find((args) => args.includes("interaction-ack"))!;
 				expect(JSON.parse(acked[acked.indexOf("--input") + 1]!)).toEqual({
 					responseIds: [
@@ -1359,7 +1364,11 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				if (args[0] === "setup") return copy(options.binding ?? binding);
 				if (args.includes("auth")) return copy(auth);
 				await sleep(options.delay ?? 0);
-				if (args.includes("interaction-undelivered")) {
+				if (
+					args.some((arg) =>
+						arg.includes("list_undelivered_work_interaction_responses"),
+					)
+				) {
 					steps.push("answers");
 					return {
 						data: [

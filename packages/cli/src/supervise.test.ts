@@ -490,7 +490,11 @@ describe("tedix supervise", () => {
 				log: (line) => lines.push(line),
 				read: async (args, _timeoutMs, _input, options) => {
 					cwds.push([args[0]!, options?.cwd]);
-					if (args.includes("interaction-undelivered")) {
+					if (
+						args.some((arg) =>
+							arg.includes("list_undelivered_work_interaction_responses"),
+						)
+					) {
 						if (undeliveredError) throw undeliveredError;
 						return {
 							data: structuredClone(answers),
@@ -966,7 +970,11 @@ describe("explicit exact-chat Work pickup", () => {
 				if (args.includes("auth")) return structuredClone(AUTH);
 				if (args.includes("readiness"))
 					return { workItemId: WORK, ready: true };
-				if (args.includes("interaction-undelivered"))
+				if (
+					args.some((arg) =>
+						arg.includes("list_undelivered_work_interaction_responses"),
+					)
+				)
 					return { data: [], observedAt: new Date().toISOString() };
 				throw new Error(args.join(" "));
 			},

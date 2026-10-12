@@ -157,7 +157,11 @@ async function run(
 				throw new Error("await-reply never writes to stdout");
 			},
 			read: async (args, _timeout, input) => {
-				if (args.includes("interaction-undelivered")) {
+				if (
+					args.some((arg) =>
+						arg.includes("list_undelivered_work_interaction_responses"),
+					)
+				) {
 					const page = undelivered?.shift();
 					if (!page) throw new Error("Unknown native tool");
 					return structuredClone(page) as JsonObject;
