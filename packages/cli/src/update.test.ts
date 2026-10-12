@@ -132,6 +132,8 @@ function fixture(options?: {
 		configDir,
 		installPath,
 		standalone: true,
+		// No local signing identity unless a test provides one.
+		signing: () => ({ status: 1, output: "" }),
 	};
 	return {
 		close() {
@@ -788,6 +790,118 @@ describe("CLI update lifecycle", () => {
 			expect(existsSync(`${test.installPath}.previous`)).toBe(false);
 		} finally {
 			test.close();
+		}
+	});
+});
+
+/**
+ * A keychain holding the local identity and a codesign that marks the file it
+ * signs, so a test can see which path was signed without the real tools.
+ */
+function fakeSigning() {
+	const signed: string[] = [];
+	const run = (command: string, args: string[]) => {
+		const path = args.at(-1)!;
+		if (command === "security")
+			return { status: 0, output: '  1) ABC "Tedix CLI (local)"\n' };
+		if (args[0] === "-d")
+			return {
+				status: 0,
+				output: readFileSync(path, "utf8").includes("# signed")
+					? 'designated => identifier "dev.tedix.cli" and certificate leaf = H"x"'
+					: 'designated => cdhash H"y"',
+			};
+		signed.push(path);
+		writeFileSync(path, `${readFileSync(path, "utf8")}# signed\n`);
+		return { status: 0, output: "" };
+	};
+	return { run, signed };
+}
+
+describe("local code signing", () => {
+	test("an update signs the downloaded binary before verifying and installing it", async () => {
+		const data = fixture();
+		const signing = fakeSigning();
+		try {
+			await runUpdateCommand(
+				{ check: false, force: false, json: true, version: data.version },
+				{ ...data.runtime, signing: signing.run, platform: "darwin" },
+			);
+			expect(signing.signed).toHaveLength(1);
+			expect(signing.signed[0]).toContain(".download-");
+			expect(readFileSync(data.installPath, "utf8")).toContain("# signed");
+			expect(
+				Bun.spawnSync([data.installPath, "--version"]).stdout.toString().trim(),
+			).toBe(data.version);
+		} finally {
+			data.close();
+		}
+	});
+
+	test("an up-to-date install is signed through a verified copy, once", async () => {
+		const data = fixture({ version: CLI_VERSION });
+		writeFileSync(data.installPath, script(CLI_VERSION), { mode: 0o755 });
+		const signing = fakeSigning();
+		const runtime = {
+			...data.runtime,
+			signing: signing.run,
+			platform: "darwin" as const,
+		};
+		const output = spyOn(console, "log").mockImplementation(() => {});
+		const notices = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await runUpdateCommand(
+				{ check: false, force: false, json: true },
+				runtime,
+			);
+			expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toMatchObject({
+				changed: false,
+				signed: true,
+			});
+			expect(signing.signed).toHaveLength(1);
+			expect(signing.signed[0]).toContain(".sign-");
+			expect(readFileSync(data.installPath, "utf8")).toContain("# signed");
+			expect(
+				readFileSync(`${data.installPath}.previous`, "utf8"),
+			).not.toContain("# signed");
+			await runUpdateCommand(
+				{ check: false, force: false, json: true },
+				runtime,
+			);
+			expect(signing.signed).toHaveLength(1);
+			expect(
+				JSON.parse(String(output.mock.calls.at(-1)![0])).signed,
+			).toBeUndefined();
+		} finally {
+			output.mockRestore();
+			notices.mockRestore();
+			data.close();
+		}
+	});
+
+	test("without the identity nothing is signed", async () => {
+		const data = fixture({ version: CLI_VERSION });
+		const calls: string[] = [];
+		const output = spyOn(console, "log").mockImplementation(() => {});
+		const notices = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await runUpdateCommand(
+				{ check: false, force: false, json: true },
+				{
+					...data.runtime,
+					platform: "darwin",
+					signing: (command) => {
+						calls.push(command);
+						return { status: 0, output: "0 valid identities found" };
+					},
+				},
+			);
+			expect(calls).toEqual(["security"]);
+			expect(existsSync(`${data.installPath}.previous`)).toBe(false);
+		} finally {
+			output.mockRestore();
+			notices.mockRestore();
+			data.close();
 		}
 	});
 });

@@ -18,6 +18,14 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import {
+	hasLocalSigningIdentity,
+	LOCAL_SIGNING_IDENTITY,
+	type SigningRun,
+	signedLocally,
+	signLocally,
+	systemSigningRun,
+} from "./local-signing";
 import { CLI_VERSION, IS_STANDALONE_BUILD } from "./shared";
 
 const DEFAULT_BASE_URL = "https://downloads.tedix.dev";
@@ -91,6 +99,9 @@ export interface UpdateRuntime {
 	now?: () => number;
 	spawnVersionProbe?: (path: string) => VersionProbe;
 	standalone?: boolean;
+	/** Runs `security`/`codesign` for optional local signing (`local-signing.ts`). */
+	signing?: SigningRun;
+	platform?: NodeJS.Platform;
 	// Runtime adapters can use shorter deadlines; these are not CLI options.
 	downloadIdleTimeoutMs?: number;
 	downloadTimeoutMs?: number;
@@ -686,6 +697,46 @@ function releaseAsset(manifest: ReleaseManifest): ReleaseAsset {
 	return asset;
 }
 
+/** The signing runner when the owner's local identity exists, else undefined. */
+function localSigning(runtime: UpdateRuntime): SigningRun | undefined {
+	const run = runtime.signing ?? systemSigningRun;
+	return hasLocalSigningIdentity(run, runtime.platform ?? process.platform)
+		? run
+		: undefined;
+}
+
+function signingWarning(error: unknown): string {
+	return `Warning: ${error instanceof Error ? error.message : String(error)}; keeping the release signature.`;
+}
+
+/**
+ * Re-sign an up-to-date install with the local identity: a signed copy is
+ * smoke-tested and swapped in atomically, never edited in place while running.
+ */
+async function signInstalled(
+	runtime: UpdateRuntime,
+	progress: boolean,
+): Promise<boolean> {
+	const signing = localSigning(runtime);
+	const target = targetPath(runtime);
+	if (!signing || signedLocally(target, signing)) return false;
+	const release = acquireInstallLock(target);
+	const temporary = `${target}.sign-${process.pid}-${Date.now()}`;
+	try {
+		durableCopy(target, temporary);
+		signLocally(temporary, signing);
+		await smokeVersion(temporary, runtime, CLI_VERSION);
+		activateAtomically(target, temporary);
+		return true;
+	} catch (error) {
+		if (progress) console.error(signingWarning(error));
+		return false;
+	} finally {
+		rmSync(temporary, { force: true });
+		release();
+	}
+}
+
 async function installVersion(
 	manifest: ReleaseManifest,
 	runtime: UpdateRuntime,
@@ -702,6 +753,16 @@ async function installVersion(
 				`Downloading Tedix (${(asset.size / 1024 / 1024).toFixed(1)} MiB)…`,
 			);
 		await downloadAsset(asset, temporary, runtime, progress);
+		const signing = localSigning(runtime);
+		let signed = false;
+		if (signing) {
+			try {
+				signLocally(temporary, signing);
+				signed = true;
+			} catch (error) {
+				if (progress) console.error(signingWarning(error));
+			}
+		}
 		if (progress) console.error("Verifying downloaded executable…");
 		await smokeVersion(temporary, runtime, manifest.version);
 		activateAtomically(target, temporary);
@@ -711,6 +772,7 @@ async function installVersion(
 			previous: true,
 			sourceSha: manifest.sourceSha,
 			version: manifest.version,
+			...(signed ? { signed: true } : {}),
 		};
 	} finally {
 		rmSync(temporary, { force: true });
@@ -799,11 +861,19 @@ export async function runUpdateCommand(
 		return 0;
 	}
 	if (!options.force && comparison === 0) {
-		const result = { changed: false, current: CLI_VERSION, target: version };
+		const signed = await signInstalled(runtime, !options.json);
+		const result = {
+			changed: false,
+			current: CLI_VERSION,
+			target: version,
+			...(signed ? { signed: true } : {}),
+		};
 		console.log(
 			options.json
 				? JSON.stringify(result)
-				: `Tedix is up to date (version ${CLI_VERSION}).`,
+				: signed
+					? `Tedix is up to date (version ${CLI_VERSION}) and is now signed with "${LOCAL_SIGNING_IDENTITY}".`
+					: `Tedix is up to date (version ${CLI_VERSION}).`,
 		);
 		return 0;
 	}

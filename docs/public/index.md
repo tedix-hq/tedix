@@ -61,6 +61,7 @@ is available today.
 | Learn the vocabulary                                | [Core concepts](./concepts.md)                                           |
 | Organize initiatives into projects and factories    | [Factories, Workspaces and Projects](./factories-workspaces-projects.md) |
 | See which sessions work on which project            | [Track sessions per project](./sessions-per-project.md)                  |
+| Let the supervisor resume sessions in Documents     | [Give the supervisor Full Disk Access](./supervisor-full-disk-access.md) |
 | Understand worker permissions and approvals         | [Worker permissions and governance](./workers-and-governance.md)         |
 | Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)      |
 | Check what is available today                       | [Release status](./release-status.md)                                    |

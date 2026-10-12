@@ -28,6 +28,7 @@ import {
 	codexDriver,
 	codexMessageReceived,
 	launchAgentPlist,
+	localSigningHint,
 	loadLaunchAgent,
 	OPEN_SESSION_GRACE_MS,
 	privacyProtected,
@@ -1034,5 +1035,33 @@ describe("protectedResumeReason", () => {
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("localSigningHint", () => {
+	test("points at the guide until the binary carries the local signature", () => {
+		const none = () => ({ status: 0, output: "0 valid identities found" });
+		expect(localSigningHint("/bin/tedix", none, "darwin")).toContain(
+			"supervisor-full-disk-access",
+		);
+		const unsigned = (command: string) => ({
+			status: 0,
+			output:
+				command === "security"
+					? '  1) AB "Tedix CLI (local)"'
+					: 'designated => cdhash H"x"',
+		});
+		expect(localSigningHint("/bin/tedix", unsigned, "darwin")).toContain(
+			"Run tedix update to sign /bin/tedix",
+		);
+		const signed = (command: string) => ({
+			status: 0,
+			output:
+				command === "security"
+					? '  1) AB "Tedix CLI (local)"'
+					: 'designated => identifier "dev.tedix.cli" and certificate leaf = H"x"',
+		});
+		expect(localSigningHint("/bin/tedix", signed, "darwin")).toBeUndefined();
+		expect(localSigningHint("/bin/tedix", none, "linux")).toBeUndefined();
 	});
 });
