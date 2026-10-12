@@ -51,12 +51,12 @@ beforeAll(async () => {
 		.run();
 });
 
-let lastCoordinatorReadAt = 0;
+let lastCoordinatorCallAt = 0;
 afterEach(async () => {
-	const remaining = lastCoordinatorReadAt + 10_100 - Date.now();
+	const remaining = lastCoordinatorCallAt + 10_100 - Date.now();
 	if (remaining > 0)
 		await new Promise((resolve) => setTimeout(resolve, remaining));
-	lastCoordinatorReadAt = 0;
+	lastCoordinatorCallAt = 0;
 	vi.unstubAllGlobals();
 }, 20_000);
 
@@ -67,6 +67,12 @@ async function site() {
 		.prepare("INSERT INTO cms_sites (id, slug, status) VALUES (?, ?, 'active')")
 		.bind(id, identity.slug)
 		.run();
+	const namespace = (
+		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+	).DB_DO;
+	await namespace
+		.get(namespace.idFromName(identity.slug))
+		.query("CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)");
 	return identity;
 }
 
@@ -83,13 +89,13 @@ function tenantDb(
 		queryWithRestorePermit: (
 			...args: Parameters<EmDashDB["queryWithRestorePermit"]>
 		) => {
-			lastCoordinatorReadAt = Date.now();
+			lastCoordinatorCallAt = Date.now();
 			return coordinator.queryWithRestorePermit(...args);
 		},
 		batchQueryWithRestorePermit: (
 			...args: Parameters<EmDashDB["batchQueryWithRestorePermit"]>
 		) => {
-			lastCoordinatorReadAt = Date.now();
+			lastCoordinatorCallAt = Date.now();
 			return coordinator.batchQueryWithRestorePermit(...args);
 		},
 	};
@@ -162,63 +168,67 @@ describe("nested tenant storage restore permits", () => {
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 	}, 20_000);
 
-	test.each([
-		"UPDATE content SET title = 'new'",
-		"SELECT 1; DELETE FROM content",
-		"WITH rows AS (SELECT 1) SELECT * FROM rows",
-	])("keeps an exact claim for unshared SQL %s", async (sql) => {
+	test("shares SQL mutation admission without sharing the mutations", async () => {
 		const identity = await site();
-		const query = vi.fn().mockResolvedValue({ rows: [] });
-		await tenantDb(identity, { query }).query(sql);
-		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
+		const entrypoint = tenantDb(identity, {});
+		for (let i = 0; i < 100; i++)
+			await entrypoint.query("INSERT INTO content (id, title) VALUES (?, ?)", [
+				i,
+				"original",
+			]);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
+		await expect(
+			entrypoint.query("SELECT COUNT(*) AS n FROM content"),
+		).resolves.toMatchObject({ rows: [{ n: 100 }] });
+		const fence = {
+			...identity,
+			generation: "writes",
+			captureId: "writes-capture",
+		};
+		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
+		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		await expect(
+			entrypoint.query("UPDATE content SET title = 'closed'"),
+		).rejects.toThrow("fence unavailable");
+		const namespace = (
+			env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+		).DB_DO;
+		await expect(
+			namespace
+				.get(namespace.idFromName(identity.slug))
+				.query("SELECT COUNT(*) AS n FROM content WHERE title = 'original'"),
+		).resolves.toMatchObject({ rows: [{ n: 100 }] });
 	});
 
-	test("coordinator rejects mismatched sites and SQL mutations before admission", async () => {
+	test("coordinator rejects a mismatched site before admission", async () => {
 		const identity = await site();
 		const namespace = (
 			env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
 		).DB_DO;
 		const coordinator = namespace.get(namespace.idFromName(identity.slug));
-		const errors = await runInDurableObject(
+		const error = await runInDurableObject(
 			coordinator,
 			async (instance: EmDashDB) => {
-				const calls = [
-					() =>
-						instance.queryWithRestorePermit(identity, "DELETE FROM content"),
-					() =>
-						instance.batchQueryWithRestorePermit(identity, [
-							{ sql: "SELECT 1" },
-							{ sql: "DELETE FROM content" },
-						]),
-					() =>
-						instance.queryWithRestorePermit(
-							{ ...identity, slug: "another-site" },
-							"SELECT 1",
-						),
-				];
-				const messages: (string | null)[] = [];
-				for (const call of calls) {
-					try {
-						await call();
-						messages.push(null);
-					} catch (error) {
-						messages.push(
-							error instanceof Error ? error.message : String(error),
-						);
-					}
+				try {
+					await instance.queryWithRestorePermit(
+						{ ...identity, slug: "another-site" },
+						"INSERT INTO content (id) VALUES (1)",
+					);
+					return null;
+				} catch (error) {
+					return error instanceof Error ? error.message : String(error);
 				}
-				return messages;
 			},
 		);
-		expect(errors).toEqual([
-			"Shared read reservation requires a single SELECT",
-			"Shared read reservation requires single SELECTs",
-			"CMS restore fence unavailable",
-		]);
+		expect(error).toBe("CMS restore fence unavailable");
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
+		await expect(
+			coordinator.query("SELECT COUNT(*) AS n FROM content"),
+		).resolves.toMatchObject({ rows: [{ n: 0 }] });
 	});
 
-	test("shares read-only batches but leaves mixed batches on exact claims", async () => {
+	test("shares admission for read-only and mixed SQL batches", async () => {
 		const identity = await site();
 		const batchQuery = vi.fn().mockResolvedValue([]);
 		const entrypoint = tenantDb(identity, { batchQuery });
@@ -227,26 +237,33 @@ describe("nested tenant storage restore permits", () => {
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
 		await entrypoint.batchQuery([
 			{ sql: "SELECT 1" },
-			{ sql: "DELETE FROM content" },
+			{ sql: "INSERT INTO content (id, title) VALUES (1, 'batch')" },
 		]);
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
-		expect(batchQuery).toHaveBeenCalledTimes(1);
+		await expect(
+			entrypoint.query("SELECT title FROM content"),
+		).resolves.toMatchObject({ rows: [{ title: "batch" }] });
+		expect(batchQuery).not.toHaveBeenCalled();
 	});
 
-	test("a close drains an in-flight DB RPC and denies the next one", async () => {
+	test("a close drains an in-flight guarded DB operation and denies the next one", async () => {
 		const identity = await site();
-		let finish!: (value: { rows: [] }) => void;
-		const query = vi
-			.fn()
-			.mockImplementationOnce(
-				() =>
-					new Promise<{ rows: [] }>((resolve) => {
-						finish = resolve;
-					}),
-			)
-			.mockResolvedValue({ rows: [] });
-		const entrypoint = tenantDb(identity, { query });
-		const pending = entrypoint.query("UPDATE content SET title = 'new'");
+		let finish!: (value: { outcome: "fenced" }) => void;
+		const executeCollectionDeletionGuard = vi.fn().mockImplementationOnce(
+			() =>
+				new Promise<{ outcome: "fenced" }>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		const entrypoint = tenantDb(identity, { executeCollectionDeletionGuard });
+		const input = {
+			action: "fence" as const,
+			collectionId: "id",
+			collectionSlug: "content",
+			leaseToken: "lease",
+			forceDelete: false,
+		};
+		const pending = entrypoint.executeCollectionDeletionGuard(input);
 		await vi.waitFor(async () => {
 			expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
 		});
@@ -254,11 +271,11 @@ describe("nested tenant storage restore permits", () => {
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
 		await expect(
-			entrypoint.query("DELETE FROM content"),
+			entrypoint.executeCollectionDeletionGuard(input),
 		).rejects.toBeInstanceOf(CmsRestoreFenceUnavailableError);
-		expect(query).toHaveBeenCalledTimes(1);
-		finish({ rows: [] });
-		await expect(pending).resolves.toEqual({ rows: [] });
+		expect(executeCollectionDeletionGuard).toHaveBeenCalledTimes(1);
+		finish({ outcome: "fenced" });
+		await expect(pending).resolves.toEqual({ outcome: "fenced" });
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(entrypoint.query("SELECT 1")).rejects.toThrow(
@@ -267,7 +284,7 @@ describe("nested tenant storage restore permits", () => {
 		const currentEpoch = await getCmsRestoreEpoch(db, identity);
 		expect(currentEpoch).toBe(1);
 		await expect(
-			tenantDb({ ...identity, restoreEpoch: currentEpoch! }, { query }).query(
+			tenantDb({ ...identity, restoreEpoch: currentEpoch! }, {}).query(
 				"SELECT 1",
 			),
 		).resolves.toMatchObject({ rows: [{ "1": 1 }] });
@@ -329,16 +346,15 @@ describe("nested tenant storage restore permits", () => {
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 	});
 
-	test("releases after a failed RPC and leaves another site usable", async () => {
+	test("releases a failed SQL reservation after expiry and leaves another site usable", async () => {
 		const closedSite = await site();
 		const openSite = await site();
 		const fence = { ...closedSite, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
-		const query = vi.fn().mockRejectedValue(new Error("DO failed"));
 		await expect(
-			tenantDb(openSite, { query }).query("INSERT INTO content VALUES (1)"),
-		).rejects.toThrow("DO failed");
-		expect((await getCmsRestoreFenceState(db, openSite)).inFlight).toBe(0);
+			tenantDb(openSite, {}).query("INSERT INTO missing_table VALUES (1)"),
+		).rejects.toThrow("no such table");
+		expect((await getCmsRestoreFenceState(db, openSite)).inFlight).toBe(1);
 		const put = vi.fn();
 		await tenantSession(openSite, { put }).put("key", "value");
 		expect(put).toHaveBeenCalledWith(
@@ -346,8 +362,10 @@ describe("nested tenant storage restore permits", () => {
 			"value",
 			undefined,
 		);
+		await new Promise((resolve) => setTimeout(resolve, 10_100));
+		expect((await getCmsRestoreFenceState(db, openSite)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
-	});
+	}, 20_000);
 
 	test("a D1 admission failure cannot dispatch a storage write", async () => {
 		const identity = await site();
