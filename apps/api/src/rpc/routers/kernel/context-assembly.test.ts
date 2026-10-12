@@ -2980,6 +2980,7 @@ describe("optional context judgments", () => {
 		const context = await assembleHomeContext(createEventsDb([]), ORG_ID, {
 			operatorMessage: "Handle issue",
 			candidateRanker: ranker,
+			rankingBudgetMs: 3_000,
 		});
 		expect(read).toHaveBeenCalledWith(
 			expect.anything(),
@@ -3007,6 +3008,7 @@ describe("optional context judgments", () => {
 			.spyOn(workflowQueries, "listKernelWorkflowCatalog")
 			.mockResolvedValue(workflows);
 		const context = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			rankingBudgetMs: 3_000,
 			operatorMessage: "Handle issue",
 			candidateRanker: async () => [
 				"foreign",
@@ -3026,6 +3028,7 @@ describe("optional context judgments", () => {
 		await assembleHomeContext(createEventsDb([]), ORG_ID, {
 			operatorMessage: "Handle issue",
 			candidateRanker: ranker,
+			rankingBudgetMs: 3_000,
 		});
 		expect(ranker).not.toHaveBeenCalled();
 		read.mockRestore();
@@ -3055,6 +3058,7 @@ describe("optional context judgments", () => {
 				{
 					operatorMessage: "What happened with this work?",
 					candidateRanker: ranker,
+					rankingBudgetMs: 3_000,
 				},
 			);
 			expect(ranker).toHaveBeenCalledOnce();
@@ -3098,7 +3102,11 @@ describe("optional context judgments", () => {
 		const context = await assembleHomeContext(
 			createFactsDb({ topFacts: [privateFact, blockedFact, ...visible] }),
 			ORG_ID,
-			{ operatorMessage: "Which fact applies?", candidateRanker: ranker },
+			{
+				operatorMessage: "Which fact applies?",
+				candidateRanker: ranker,
+				rankingBudgetMs: 3_000,
+			},
 		);
 		expect(ranker).toHaveBeenCalledOnce();
 		const sent = ranker.mock.calls[0]![0].candidates;

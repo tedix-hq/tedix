@@ -862,6 +862,18 @@ export const RELEVANCE_RECALL_BUDGET_MS = 0;
  */
 export const CONTEXT_RANKING_BUDGET_MS = 3_000;
 
+/**
+ * Default critical-path wait for the ranking wave on a Home route pass: `0`
+ * skips the Jev reranks (lexical candidate order). Measured 2026-10-12 (Work
+ * 4cd15490): with the reranks the wave cost 1.35-1.65 s per turn (two
+ * ~150 ms Jev requests wrapped in rate lookups, billing admission and cost
+ * writes); skipping them took server first token from p50 6-7.7 s to 4.7 s
+ * with identical answers and routes on the fixed question set. The tedi and
+ * workflow inventories are capped and slug-sorted anyway; only the memory
+ * tail order changes. A per-request `rankingBudgetMs` still turns it on.
+ */
+export const HOME_ROUTE_RANKING_BUDGET_MS = 0;
+
 /** Resolve `work` or, after `budgetMs`, `fallback()`; the work keeps running. */
 export async function withRankingBudget<T>(
 	work: Promise<T>,
@@ -1661,7 +1673,7 @@ export async function assembleHomeContext(
 	// here before its route call (Work f9861b56).
 	const rankingStartedAtMs = Date.now();
 	let rankingTimedOut = false;
-	const rankingBudgetMs = opts?.rankingBudgetMs ?? CONTEXT_RANKING_BUDGET_MS;
+	const rankingBudgetMs = opts?.rankingBudgetMs ?? HOME_ROUTE_RANKING_BUDGET_MS;
 	const rankingSkipped = rankingBudgetMs <= 0;
 	const [workflowOrder, rankedTedis, rankedMemory] = rankingSkipped
 		? [lexicalWorkflows, lexicalTedis, memoryCandidates]
