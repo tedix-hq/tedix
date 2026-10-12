@@ -401,6 +401,7 @@ describe("CLI update lifecycle", () => {
 							...fixtureData.runtime,
 							downloadIdleTimeoutMs: 150,
 							downloadTimeoutMs: stalled ? 2000 : 200,
+							retryDelaysMs: [1, 1],
 						},
 					),
 				).rejects.toThrow(stalled ? "stalled" : "exceeded");
@@ -440,6 +441,164 @@ describe("CLI update lifecycle", () => {
 		} finally {
 			fixtureData.close();
 		}
+	});
+
+	describe("transient network failures", () => {
+		type Fail = (url: string, call: number) => Response | Error | undefined;
+		function flaky(fail: Fail) {
+			const calls = new Map<string, number>();
+			const stub = Object.assign(
+				async (input: Request | string | URL, init?: RequestInit) => {
+					const url = String(input);
+					const key = new URL(url).pathname;
+					const call = (calls.get(key) ?? 0) + 1;
+					calls.set(key, call);
+					const failure = fail(key, call);
+					if (failure instanceof Error) throw failure;
+					if (failure) return failure;
+					return fetch(input, init);
+				},
+				{ preconnect: fetch.preconnect },
+			);
+			return { calls, stub };
+		}
+		const quick = { retryDelaysMs: [1, 1] };
+		const args = (_version: string) => ({
+			check: false,
+			force: false,
+			json: true,
+		});
+
+		test("retries a 5xx on metadata and the binary, then succeeds", async () => {
+			const fixtureData = fixture();
+			const output = spyOn(console, "log").mockImplementation(() => {});
+			try {
+				const { calls, stub } = flaky((path, call) =>
+					call <= 2 && (path === "/latest.json" || path.endsWith(".json"))
+						? new Response("busy", { status: 503 })
+						: path.includes("tedix-") && call === 1
+							? new Response("busy", { status: 502 })
+							: undefined,
+				);
+				await runUpdateCommand(args(fixtureData.version), {
+					...fixtureData.runtime,
+					...quick,
+					fetch: stub,
+				});
+				expect(readFileSync(fixtureData.installPath, "utf8")).toBe(
+					script(fixtureData.version),
+				);
+				expect(calls.get("/latest.json")).toBe(3);
+				const binary = [...calls].find(([path]) => path.includes("tedix-"));
+				expect(binary?.[1]).toBe(2);
+			} finally {
+				output.mockRestore();
+				fixtureData.close();
+			}
+		});
+
+		test("reports URL, class and next step after 3 failed attempts", async () => {
+			const cases: Array<[string, () => Response | Error, string]> = [
+				["HTTP 503", () => new Response("down", { status: 503 }), "HTTP 503"],
+				[
+					"connect",
+					() =>
+						new Error(
+							"Unable to connect. Is the computer able to access the url?",
+						),
+					"connection failed",
+				],
+				[
+					"DNS",
+					() =>
+						Object.assign(
+							new Error("getaddrinfo ENOTFOUND downloads.tedix.dev"),
+							{ code: "ENOTFOUND" },
+						),
+					"DNS lookup failed",
+				],
+				[
+					"timeout",
+					() => new DOMException("The operation timed out.", "TimeoutError"),
+					"timed out",
+				],
+			];
+			for (const [, make, expected] of cases) {
+				const fixtureData = fixture();
+				try {
+					const { calls, stub } = flaky(() => make());
+					const error = await runUpdateCommand(args(fixtureData.version), {
+						...fixtureData.runtime,
+						...quick,
+						fetch: stub,
+					}).then(
+						() => "",
+						(failure: Error) => failure.message,
+					);
+					expect(error).toContain("Release metadata could not be read");
+					expect(error).toContain(`${fixtureData.runtime.baseUrl}/latest.json`);
+					expect(error).toContain("after 3 attempts");
+					expect(error).toContain(expected);
+					expect(error).toContain("Next step:");
+					expect(error).not.toBe("Unable to connect");
+					expect(calls.get("/latest.json")).toBe(3);
+					expect(readdirSync(dirname(fixtureData.installPath))).toEqual([
+						"tedix",
+					]);
+				} finally {
+					fixtureData.close();
+				}
+			}
+		});
+
+		test("does not retry a 404 and retries then reports a failing binary download", async () => {
+			const missing = fixture();
+			try {
+				const { calls, stub } = flaky((path) =>
+					path === "/latest.json"
+						? new Response("nope", { status: 404 })
+						: undefined,
+				);
+				await expect(
+					runUpdateCommand(args(missing.version), {
+						...missing.runtime,
+						...quick,
+						fetch: stub,
+					}),
+				).rejects.toThrow("HTTP 404");
+				expect(calls.get("/latest.json")).toBe(1);
+			} finally {
+				missing.close();
+			}
+			const fixtureData = fixture();
+			try {
+				const { calls, stub } = flaky((path) =>
+					path.includes("tedix-") ? new Error("Unable to connect") : undefined,
+				);
+				const error = await runUpdateCommand(args(fixtureData.version), {
+					...fixtureData.runtime,
+					...quick,
+					fetch: stub,
+				}).then(
+					() => "",
+					(failure: Error) => failure.message,
+				);
+				expect(error).toContain("Release artifact could not be downloaded");
+				expect(error).toContain("connection failed");
+				expect(error).toContain("after 3 attempts");
+				expect([...calls].find(([path]) => path.includes("tedix-"))?.[1]).toBe(
+					3,
+				);
+				expect(readFileSync(fixtureData.installPath, "utf8")).toBe(
+					script("0.1.0"),
+				);
+				expect(readdirSync(dirname(fixtureData.installPath))).toEqual([
+					"tedix",
+				]);
+			} finally {
+				fixtureData.close();
+			}
+		});
 	});
 
 	test("terminates stuck and noisy downloaded version probes while preserving both binaries", async () => {
