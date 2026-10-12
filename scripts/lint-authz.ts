@@ -416,8 +416,9 @@ export function collectAuthzFindings(
 			if (!baseName) continue;
 
 			const base = resolveGuards(analysis, memo, file, baseName);
-			// Public procedures have no principal class to confine.
-			if (!base.authed) continue;
+			// Public procedures have no principal class to confine. An inline
+			// `.use(withAuth)` authenticates as much as the builder does.
+			if (!base.authed && !AUTHED_RE.test(chain)) continue;
 			procedures += 1;
 
 			const rbac = base.rbac || hasRbacGuard(chain);
