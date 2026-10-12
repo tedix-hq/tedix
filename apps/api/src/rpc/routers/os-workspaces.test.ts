@@ -1066,6 +1066,7 @@ describe("outputs", () => {
 					revisionId: created.revision.id,
 				},
 			},
+			outputRevisionId: created.revision.id,
 		});
 		expect(
 			(await reader.outputs.get({ outputId: created.output.id }))

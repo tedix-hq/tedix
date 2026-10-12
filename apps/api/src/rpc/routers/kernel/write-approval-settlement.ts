@@ -537,6 +537,10 @@ export async function settleHomeToolWriteApproval(
 				args: payload.args,
 				data: result.data,
 			});
+			const outputReceipt = kernelOutputReceipt({
+				toolName: payload.toolName,
+				data: result.data,
+			});
 			const content = renderKernelWriteReceipt({
 				toolName: payload.toolName,
 				appSlug: payload.appSlug,
@@ -561,12 +565,10 @@ export async function settleHomeToolWriteApproval(
 						...(retainedResult
 							? { kernelToolResultReference: retainedResult }
 							: {}),
-						kernelOutputReceipt: kernelOutputReceipt({
-							toolName: payload.toolName,
-							data: result.data,
-						}),
+						kernelOutputReceipt: outputReceipt,
 						...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
 					}),
+					outputRevisionId: outputReceipt?.revisionId ?? null,
 				},
 			});
 			await insertKernelRuntimeEvent(context, {
