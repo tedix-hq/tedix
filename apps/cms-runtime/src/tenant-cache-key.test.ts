@@ -24,6 +24,24 @@ const org = {
 const env = { ENVIRONMENT: "production" };
 
 describe("tenant Loader cache key", () => {
+	it("recreates injected RPC references when the parent runtime deploys", () => {
+		const before = tenantRuntimeCacheKey("example", bundle, org, {
+			...env,
+			GIT_SHA: "runtime-before",
+		});
+		const after = tenantRuntimeCacheKey("example", bundle, org, {
+			...env,
+			GIT_SHA: "runtime-after",
+		});
+		expect(after).not.toBe(before);
+		expect(
+			tenantRuntimeCacheKey("example", bundle, org, {
+				...env,
+				GIT_SHA: "runtime-after",
+			}),
+		).toBe(after);
+	});
+
 	it("invalidates when human assertion capability is activated or removed", () => {
 		const before = tenantRuntimeCacheKey("example", bundle, org, env);
 		const enabled = tenantRuntimeCacheKey(
