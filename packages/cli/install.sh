@@ -36,18 +36,36 @@ download() {
   attempt=1
   while [ "$attempt" -le 3 ]; do
     if [ "$cache_control" = "no-cache" ]; then
-      if curl -fsSL --connect-timeout 15 -H 'Cache-Control: no-cache' "$url" -o "$output"; then
-        return 0
-      fi
-    elif curl -fsSL --connect-timeout 15 "$url" -o "$output"; then
-      return 0
+      code=$(curl -sSL --connect-timeout 15 --max-time 300 -H 'Cache-Control: no-cache' -w '%{http_code}' "$url" -o "$output" 2>/dev/null) && rc=0 || rc=$?
+    else
+      code=$(curl -sSL --connect-timeout 15 --max-time 300 -w '%{http_code}' "$url" -o "$output" 2>/dev/null) && rc=0 || rc=$?
     fi
-    if [ "$attempt" -ge 3 ]; then
-      echo "Could not download $url after $attempt attempts" >&2
+    retryable=0
+    if [ "$rc" -eq 0 ]; then
+      case "$code" in
+        2??) return 0 ;;
+        5??) retryable=1; class="HTTP $code" ;;
+        *) retryable=0; class="HTTP $code" ;;
+      esac
+    else
+      case "$rc" in
+        6) retryable=1; class="DNS lookup failed" ;;
+        7|35|52|55|56) retryable=1; class="connect failed (curl exit $rc)" ;;
+        28) retryable=1; class="timeout" ;;
+        *) retryable=0; class="curl exit $rc" ;;
+      esac
+    fi
+    if [ "$retryable" -eq 0 ] || [ "$attempt" -ge 3 ]; then
+      echo "Could not download $url after $attempt attempt(s): $class" >&2
+      if [ "$retryable" -eq 1 ]; then
+        echo "Next step: check your network connection, then run the installer again." >&2
+      else
+        echo "Next step: check the URL or TEDIX_CLI_BASE_URL / TEDIX_CLI_VERSION, then run the installer again." >&2
+      fi
       return 1
     fi
     attempt=$((attempt + 1))
-    echo "Download failed; retrying ($attempt/3): $url" >&2
+    echo "Download failed ($class); retrying ($attempt/3): $url" >&2
     sleep "$RETRY_DELAY_SECONDS"
   done
 }

@@ -106,6 +106,8 @@ export interface UpdateRuntime {
 	downloadIdleTimeoutMs?: number;
 	downloadTimeoutMs?: number;
 	versionTimeoutMs?: number;
+	/** Backoff between the 3 attempts at a transient failure (default 500 then 1500 ms). */
+	retryDelaysMs?: number[];
 }
 
 function parseSemVer(version: string): SemVer {
@@ -230,13 +232,125 @@ function platformAsset(version: string): string {
 	return `tedix-${version}-${os}-${arch}`;
 }
 
+const FETCH_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAYS_MS = [500, 1500];
+
+type FailureClass = "DNS" | "connect" | "timeout" | "HTTP" | "other";
+
+/** A network-level failure with the class and URL a person needs to act on. */
+class TransientFetchError extends Error {
+	constructor(
+		message: string,
+		readonly failureClass: FailureClass,
+		readonly status?: number,
+	) {
+		super(message);
+	}
+	get retryable(): boolean {
+		return (
+			this.failureClass === "DNS" ||
+			this.failureClass === "connect" ||
+			this.failureClass === "timeout" ||
+			(this.failureClass === "HTTP" && (this.status ?? 0) >= 500)
+		);
+	}
+}
+
+function classifyFetchFailure(error: unknown): FailureClass {
+	if (error instanceof TransientFetchError) return error.failureClass;
+	const record = error as { name?: string; code?: string; message?: string };
+	const text = `${record?.name ?? ""} ${record?.code ?? ""} ${record?.message ?? ""}`;
+	if (
+		/TimeoutError|AbortError|ETIMEDOUT|timed out|stalled|exceeded \d+ seconds/i.test(
+			text,
+		)
+	)
+		return "timeout";
+	if (/ENOTFOUND|EAI_AGAIN|getaddrinfo|DNS|resolve/i.test(text)) return "DNS";
+	if (
+		/ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPIPE|Unable to connect|ConnectionRefused|ConnectionClosed|socket|connect|fetch failed/i.test(
+			text,
+		)
+	)
+		return "connect";
+	return "other";
+}
+
+function describeFailure(
+	failureClass: FailureClass,
+	status: number | undefined,
+	error: unknown,
+): string {
+	const detail = error instanceof Error ? ` (${error.message})` : "";
+	switch (failureClass) {
+		case "DNS":
+			return `DNS lookup failed${detail}`;
+		case "connect":
+			return `connection failed${detail}`;
+		case "timeout":
+			return `timed out${detail}`;
+		case "HTTP":
+			return `HTTP ${status}`;
+		default:
+			return error instanceof Error ? error.message : String(error);
+	}
+}
+
+function nextStep(failureClass: FailureClass, status?: number): string {
+	if (failureClass === "HTTP" && (status ?? 0) < 500)
+		return "Next step: check the URL or TEDIX_CLI_BASE_URL, then run `tedix update` again.";
+	return "Next step: check your network connection, then run `tedix update` again.";
+}
+
+/**
+ * Run one network operation up to 3 times, backing off on DNS, connect,
+ * timeout and 5xx failures. The final failure names the URL, the class and
+ * a next step; other errors (4xx, bad JSON, bad hash) are not retried.
+ */
+async function withFetchRetries<T>(
+	url: string,
+	runtime: UpdateRuntime,
+	label: string,
+	attempt: () => Promise<T>,
+	cleanup?: () => void,
+): Promise<T> {
+	const delays = runtime.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+	for (let n = 1; ; n++) {
+		try {
+			return await attempt();
+		} catch (error) {
+			const failureClass = classifyFetchFailure(error);
+			const status =
+				error instanceof TransientFetchError ? error.status : undefined;
+			const retryable =
+				error instanceof TransientFetchError
+					? error.retryable
+					: failureClass !== "other";
+			cleanup?.();
+			if (retryable && n < FETCH_ATTEMPTS) {
+				await Bun.sleep(delays[n - 1] ?? delays.at(-1) ?? 0);
+				continue;
+			}
+			const attempts = retryable ? ` after ${n} attempts` : "";
+			throw new Error(
+				`${label} from ${url}${attempts}: ${describeFailure(failureClass, status, error)}. ${nextStep(failureClass, status)}`,
+				{ cause: error },
+			);
+		}
+	}
+}
+
 async function readBoundedResponse(
 	response: Response,
 	limit: number,
 	label: string,
 ): Promise<Buffer> {
 	if (!response.ok) {
-		throw new Error(`${label} request failed (${response.status})`);
+		throw new TransientFetchError(
+			`${label} request failed (${response.status})`,
+			"HTTP",
+			response.status,
+		);
 	}
 	const contentLength = response.headers.get("content-length");
 	const declared = contentLength === null ? undefined : Number(contentLength);
@@ -272,26 +386,25 @@ async function fetchJson(
 	const requestUrl = options
 		? `${url}${url.includes("?") ? "&" : "?"}t=${options.mutableAliasAt}`
 		: url;
-	let bytes: Buffer;
-	try {
-		const response = await (runtime.fetch ?? fetch)(requestUrl, {
-			headers: {
-				Accept: "application/json",
-				...(options ? { "Cache-Control": "no-cache" } : {}),
-			},
-			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-		});
-		bytes = await readBoundedResponse(
-			response,
-			JSON_LIMIT_BYTES,
-			"Release metadata",
-		);
-	} catch (error) {
-		throw new Error(
-			`Release metadata could not be read from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-			{ cause: error },
-		);
-	}
+	const bytes = await withFetchRetries(
+		url,
+		runtime,
+		"Release metadata could not be read",
+		async () => {
+			const response = await (runtime.fetch ?? fetch)(requestUrl, {
+				headers: {
+					Accept: "application/json",
+					...(options ? { "Cache-Control": "no-cache" } : {}),
+				},
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+			});
+			return readBoundedResponse(
+				response,
+				JSON_LIMIT_BYTES,
+				"Release metadata",
+			);
+		},
+	);
 	try {
 		return JSON.parse(bytes.toString("utf8"));
 	} catch {
@@ -499,7 +612,11 @@ async function downloadAsset(
 			signal: controller.signal,
 		});
 		if (!response.ok)
-			throw new Error(`Artifact download failed (${response.status})`);
+			throw new TransientFetchError(
+				`Artifact download failed (${response.status})`,
+				"HTTP",
+				response.status,
+			);
 		const contentLength = response.headers.get("content-length");
 		const declared = contentLength === null ? undefined : Number(contentLength);
 		if (
@@ -561,9 +678,13 @@ async function downloadAsset(
 		chmodSync(temporary, 0o755);
 	} catch (error) {
 		const reason = controller.signal.aborted ? controller.signal.reason : error;
-		throw new Error(
+		const failureClass = classifyFetchFailure(reason);
+		throw new TransientFetchError(
 			`Could not download ${asset.name}: ${reason instanceof Error ? reason.message : String(reason)}`,
-			{ cause: error },
+			failureClass === "other" && error instanceof TransientFetchError
+				? error.failureClass
+				: failureClass,
+			error instanceof TransientFetchError ? error.status : undefined,
 		);
 	} finally {
 		clearTimeout(timer);
@@ -752,7 +873,13 @@ async function installVersion(
 			console.error(
 				`Downloading Tedix (${(asset.size / 1024 / 1024).toFixed(1)} MiB)…`,
 			);
-		await downloadAsset(asset, temporary, runtime, progress);
+		await withFetchRetries(
+			asset.url,
+			runtime,
+			"Release artifact could not be downloaded",
+			() => downloadAsset(asset, temporary, runtime, progress),
+			() => rmSync(temporary, { force: true }),
+		);
 		const signing = localSigning(runtime);
 		let signed = false;
 		if (signing) {
