@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.11
+
+### Patch Changes
+
+- b3e1c99: `tedix work` commands look up a Work tool's catalog entry and schema in parallel, saving one round trip per command.
+- fcb9512: The status hook now recognizes Codex side threads that carry their parent chat's transcript, such as prompt suggestions, and keeps them off the Agents board. A Codex session's end is now filed under Codex rather than Claude Code, so its board row closes instead of leaving a stray Claude Code entry.
+
 ## 0.8.10
 
 ### Patch Changes
