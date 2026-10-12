@@ -117,13 +117,18 @@ function matchBySlug(
 	return candidates.find((app) => gatewayAppIds.has(app.id)) ?? candidates[0];
 }
 
-/** App ids the organization's unified gateway aggregates (`mcpConfig.aggregateApps`). */
+/**
+ * App ids the organization's unified gateway aggregates
+ * (`mcpConfig.aggregateApps`). Only the Code Mode gateway counts (the same
+ * choice as `getOrganizationAggregatorGateways`): an app that itself wraps a
+ * base app (`github-tedix` over `github`) is not the gateway.
+ */
 export async function listOrganizationGatewayAppIds(
 	db: DbClient,
 	organizationId: string,
 ): Promise<Set<string>> {
 	const rows = await db
-		.select({ metadata: apps.metadata })
+		.select({ slug: apps.slug, metadata: apps.metadata })
 		.from(apps)
 		.where(
 			and(
@@ -131,16 +136,21 @@ export async function listOrganizationGatewayAppIds(
 				sql`json_extract(${apps.metadata}, '$.mcpConfig.aggregateApps') IS NOT NULL`,
 			),
 		);
+	const gateways = rows.filter((row) => {
+		const config = (
+			row.metadata as { mcpConfig?: Record<string, unknown> } | null
+		)?.mcpConfig;
+		return config?.codeMode === true && config.authMode === "authenticated";
+	});
+	const gateway =
+		gateways.find((row) => row.slug.endsWith("-unified")) ?? gateways[0];
+	const entries = (
+		gateway?.metadata as { mcpConfig?: { aggregateApps?: unknown } } | null
+	)?.mcpConfig?.aggregateApps;
 	const ids = new Set<string>();
-	for (const row of rows) {
-		const metadata = row.metadata as {
-			mcpConfig?: { aggregateApps?: unknown };
-		};
-		const entries = metadata?.mcpConfig?.aggregateApps;
-		if (!Array.isArray(entries)) continue;
+	if (Array.isArray(entries))
 		for (const entry of entries)
 			if (entry && typeof entry.appId === "string") ids.add(entry.appId);
-	}
 	return ids;
 }
 

@@ -318,6 +318,8 @@ describe("skill MCP bindings follow the organization gateway", () => {
 				"private",
 				JSON.stringify({
 					mcpConfig: {
+						codeMode: true,
+						authMode: "authenticated",
 						aggregateApps: appIds.map((appId) => ({ slug: appId, appId })),
 					},
 				}),
@@ -361,6 +363,13 @@ describe("skill MCP bindings follow the organization gateway", () => {
 			organizationId: ACME_ORG,
 			slug: "codehost-tedix",
 		});
+		// The install wraps the base app; only the Code Mode gateway counts.
+		sqlite.prepare("UPDATE apps SET metadata = ? WHERE id = ?").run(
+			JSON.stringify({
+				mcpConfig: { aggregateApps: [{ slug: "codehost", appId: "app-base" }] },
+			}),
+			"app-install",
+		);
 		gateway(sqlite, ["app-install"]);
 		const { namespaceToSlug, repair } = await resolveSkillMcpNamespaceSlugs(
 			db,
