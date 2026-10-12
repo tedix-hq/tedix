@@ -346,6 +346,7 @@ const createInferenceCapacityCheckoutContract =
 	os.createInferenceCapacityCheckout
 		.use(withAuth)
 		.use(withFleetAuthority)
+		.use(withAuthorization("billing:manage", "billing:write"))
 		.handler(async ({ context, input }) => {
 			requireManagedSettlement(context);
 			requireOrganizationBillingAuthority(context);
@@ -981,6 +982,15 @@ const getOverviewContract = os.getOverview
 const listPlansContract = os.listPlans
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The plan catalog is readable by every organization member",
+			},
+			"billing:read",
+		),
+	)
 	.handler(async ({ context }) => {
 		requireManagedSettlement(context);
 		const stripeEnvironment = resolveStripeEnvironment(context.env);
@@ -1025,6 +1035,7 @@ const recordVoiceProviderUsageContract = os.recordVoiceProviderUsage
 const grantCreditContract = os.grantCredit
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const actor = requirePlatformBillingAuthority(context);
 		const now = new Date().toISOString();
@@ -1058,6 +1069,15 @@ const grantCreditContract = os.grantCredit
 
 const restoreDailyCapacityContract = os.restoreDailyCapacity
 	.use(withAuth)
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Owner/admin billing authority is checked in the handler",
+			},
+			"billing:write",
+		),
+	)
 	.handler(async ({ context }) => {
 		const { organizationId } = context;
 		if (!organizationId) {
@@ -1123,6 +1143,7 @@ const restoreDailyCapacityContract = os.restoreDailyCapacity
 const correctBillingPeriodContract = os.correctBillingPeriod
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const actor = requirePlatformBillingAuthority(context);
 		const account = await correctBillingAccountPeriod(context.db, {
@@ -1143,6 +1164,7 @@ const correctBillingPeriodContract = os.correctBillingPeriod
 const grantInferenceCapacityContract = os.grantInferenceCapacity
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const actor = requirePlatformBillingAuthority(context);
 		const now = new Date().toISOString();
@@ -1176,6 +1198,7 @@ const grantInferenceCapacityContract = os.grantInferenceCapacity
 const grantServiceCreditsContract = os.grantServiceCredits
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const actor = requirePlatformBillingAuthority(context);
 		const now = new Date().toISOString();
@@ -1208,6 +1231,15 @@ const grantServiceCreditsContract = os.grantServiceCredits
 
 const setServiceCreditControlsContract = os.setServiceCreditControls
 	.use(withAuth)
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Owner/admin billing authority is checked in the handler",
+			},
+			"billing:write",
+		),
+	)
 	.handler(async ({ context, input }) => {
 		const { organizationId } = context;
 		if (!organizationId) {
@@ -1242,6 +1274,7 @@ const setServiceCreditControlsContract = os.setServiceCreditControls
 const recordProviderCostEvidenceContract = os.recordProviderCostEvidence
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		requirePlatformBillingAuthority(context);
 		const { recordProviderCostEvidence } =
@@ -1252,6 +1285,7 @@ const recordProviderCostEvidenceContract = os.recordProviderCostEvidence
 const recordProviderReconciliationContract = os.recordProviderReconciliation
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const actor = requirePlatformBillingAuthority(context);
 		const row = await recordBillingProviderReconciliation(
@@ -1291,6 +1325,7 @@ const recordProviderReconciliationContract = os.recordProviderReconciliation
 const listProviderModelRatesContract = os.listProviderModelRates
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		requirePlatformBillingAuthority(context);
 		return {
@@ -1303,6 +1338,7 @@ const listProviderModelRatesContract = os.listProviderModelRates
 const publishProviderModelRateContract = os.publishProviderModelRate
 	.use(withAuth)
 	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context, input }) => {
 		const publishedBy = requirePlatformBillingAuthority(context);
 		const row = await publishProviderModelRate(
