@@ -1,4 +1,5 @@
 import type { ProviderTokenUsage } from "@tedix/db/utils/model-pricing";
+import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 import {
 	type AiGatewayAttribution,
@@ -27,7 +28,24 @@ export function captureKernelAttemptUsage(
 	const attempt = attempts.at(-1);
 	if (!attempt) return;
 	const autoRouter = cloudflareAutoRouterReceipt(providerMetadata);
-	if (autoRouter) attempt.autoRouter = autoRouter;
+	if (autoRouter) {
+		attempt.autoRouter = autoRouter;
+		// Price the model that served the call, not the router alias: a
+		// `cloudflare/auto` identity has no rate row (every Auto Router turn was
+		// ledgered as missing_rate), while the routed model does.
+		const routedModel = autoRouter.routedModel
+			?.trim()
+			.replace(/^workers-ai\//, "");
+		if (
+			routedModel &&
+			attempt.identity.requestModel === CLOUDFLARE_AUTO_MODEL_REF
+		) {
+			attempt.identity = {
+				...attempt.identity,
+				requestModel: routedModel,
+			};
+		}
+	}
 	if (!raw || typeof raw !== "object") return;
 	const u = raw as Record<string, unknown>;
 	const count = (value: unknown): number | null =>
