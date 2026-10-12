@@ -205,6 +205,29 @@ describe("verifyHumanMcpGrant", () => {
 		});
 	});
 
+	it("reads the grant ledger and memberships while the provider is asked", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const server = await mocks.loadDescopeMcpServer();
+		mocks.loadDescopeMcpServer.mockClear();
+		let resolveServer!: (value: typeof server) => void;
+		mocks.loadDescopeMcpServer.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveServer = resolve;
+				}),
+		);
+		const verification = verifyHumanMcpGrant({} as never, env, input);
+		await vi.waitFor(() => {
+			expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(1);
+			expect(mocks.getMcpConsentPending).toHaveBeenCalledTimes(1);
+			expect(mocks.getOrganizationAggregatorGateways).toHaveBeenCalledTimes(1);
+		});
+		resolveServer(server);
+		expect((await verification).allowed).toBe(true);
+		// The active grant is re-read after every check before allowing.
+		expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(2);
+	});
+
 	it("starts live provider reads before registration returns and traces durations only", async () => {
 		const { verifyHumanMcpGrant } = await import("./mcp-grant");
 		const server = await mocks.loadDescopeMcpServer();
@@ -249,7 +272,7 @@ describe("verifyHumanMcpGrant", () => {
 			reason: "scope_missing",
 			organizations: [],
 		});
-		expect(mocks.getMcpConsentSelection).not.toHaveBeenCalled();
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
 	});
 
 	it("fails closed when registration rejects during the concurrent wave", async () => {
@@ -262,7 +285,7 @@ describe("verifyHumanMcpGrant", () => {
 			reason: "provider_unavailable",
 			organizations: [],
 		});
-		expect(mocks.getMcpConsentSelection).not.toHaveBeenCalled();
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
 	});
 
 	it("cannot authorize when timing instrumentation throws", async () => {
@@ -275,7 +298,7 @@ describe("verifyHumanMcpGrant", () => {
 			reason: "provider_unavailable",
 			organizations: [],
 		});
-		expect(mocks.getMcpConsentSelection).not.toHaveBeenCalled();
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
 	});
 
 	it("activates an exact pending token only after provider and membership checks", async () => {
@@ -364,10 +387,17 @@ describe("verifyHumanMcpGrant", () => {
 
 	it("does not require or reactivate an expired candidate for an already active token", async () => {
 		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		mocks.getMcpConsentPending.mockResolvedValue({
+			appId: "app-1",
+			revision: input.consentRevision,
+			expectedActiveRevision: "old",
+			selectedTenantIds: tenantIds,
+			approvedScopes: input.tokenScopes,
+			expiresAt: "2000-01-01T00:00:00.000Z",
+		});
 		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
 			allowed: true,
 		});
-		expect(mocks.getMcpConsentPending).not.toHaveBeenCalled();
 		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
 	});
 

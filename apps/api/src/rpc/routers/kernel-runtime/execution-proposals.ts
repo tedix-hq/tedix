@@ -197,11 +197,29 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// `home:main` thread — see defaultHomeConversationIdForCaller.
 		const conversationId =
 			input.conversationId ?? defaultHomeConversationIdForCaller(context);
-		await ensureHomeConversationAccess(context, {
+		// The access check gates everything below; the independent reads it
+		// guards start with it so they cost no extra round trip, and their
+		// results are used only once access is granted.
+		const access = ensureHomeConversationAccess(context, {
 			conversationId,
 			organizationId,
 			required: "edit",
 		});
+		// The skill reference check, the conversation row and — when the caller
+		// pins the Workspace — its context. One primary round trip of wall time.
+		const ingressContextReads = Promise.all([
+			unresolvedSkillReferences(context.db, organizationId, input.content),
+			getKernelConversation(context.db, { organizationId, conversationId }),
+			input.workspaceContext
+				? resolveWorkspaceContext(
+						context.db,
+						organizationId,
+						input.workspaceContext,
+					)
+				: null,
+		]);
+		ingressContextReads.catch(() => undefined);
+		await access;
 		if (input.executionPolicy === "observe_only" && input.delegateToTediId) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -223,21 +241,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// (Planning re-checks the same predicate as the backstop for a skill
 		// archived between this call and the turn; see the unresolved notice in
 		// `serializeRetrievedSkills`.)
-		// Independent reads after the access check run together: the skill
-		// reference check, the conversation row and — when the caller pins the
-		// Workspace — its context. One primary round trip of wall time, not three.
 		const [unresolvedSkills, existingConversation, pinnedWorkspaceContext] =
-			await Promise.all([
-				unresolvedSkillReferences(context.db, organizationId, input.content),
-				getKernelConversation(context.db, { organizationId, conversationId }),
-				input.workspaceContext
-					? resolveWorkspaceContext(
-							context.db,
-							organizationId,
-							input.workspaceContext,
-						)
-					: null,
-			]);
+			await ingressContextReads;
 		if (unresolvedSkills.length > 0) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
