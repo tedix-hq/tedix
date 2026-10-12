@@ -263,8 +263,14 @@ describe("unattendedRun", () => {
 			);
 			expect(unattendedRun(codex(rollout("exec")), {})).toBe(true);
 			expect(unattendedRun(codex(rollout("cli")), {})).toBe(false);
-			// A Codex side thread it never saves has no transcript.
+			// A Codex side thread names no transcript, or its parent's rollout.
 			expect(unattendedRun(codex(null), {})).toBe(true);
+			expect(
+				unattendedRun(
+					{ ...codex("/h/rollout-2026-x-parent.jsonl"), session_id: "fork" },
+					{},
+				),
+			).toBe(true);
 			expect(unattendedRun(codex(rollout({ subagent: "x" })), {})).toBe(false);
 			// Not Codex, missing or unreadable transcripts: attended.
 			expect(unattendedRun({ transcript_path: rollout("exec") }, {})).toBe(

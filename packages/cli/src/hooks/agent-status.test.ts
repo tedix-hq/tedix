@@ -386,17 +386,54 @@ describe("tedix hooks status", () => {
 		expect(state("claude-code")).toBeUndefined();
 		expect(harnessOf({}, {})).toBe("claude-code");
 		expect(harnessOf({}, { CODEX_THREAD_ID: SESSION })).toBe("codex");
+		// Codex SessionEnd has no turn_id; its transcript still tells.
+		expect(
+			harnessOf(
+				{
+					transcript_path: `/h/.codex/sessions/rollout-2026-x-${SESSION}.jsonl`,
+				},
+				{},
+			),
+		).toBe("codex");
+		expect(harnessOf({ transcript_path: null }, {})).toBe("codex");
+		expect(
+			harnessOf(
+				{ transcript_path: `/h/.claude/projects/p/${SESSION}.jsonl` },
+				{},
+			),
+		).toBe("claude-code");
+	});
+
+	test("a Codex SessionEnd ends the Codex session", async () => {
+		enable();
+		const transcript = join(base, `rollout-2026-x-${SESSION}.jsonl`);
+		await fire("UserPromptSubmit", {
+			turn_id: "turn-1",
+			transcript_path: transcript,
+		});
+		expect(state("codex")?.state).toBe("working");
+		await fire("SessionEnd", { transcript_path: transcript, reason: "other" });
+		expect(state("codex")).toBeUndefined();
+		expect(state("claude-code")).toBeUndefined();
+		expect(reports().map((report) => JSON.parse(report.at(-1)!).state)).toEqual(
+			["working", "ended"],
+		);
+		expect(JSON.parse(reports().at(-1)!.at(-1)!).harness).toBe("codex");
 	});
 
 	test("an unsaved Codex side thread is not a session", async () => {
 		enable();
-		for (const name of ["UserPromptSubmit", "Stop"])
-			await fire(name, {
-				turn_id: "turn-1",
-				transcript_path: null,
-				last_assistant_message: '{"suggestion":"Carry on"}',
-			});
+		// A suggestion fork names no transcript, or its parent's rollout.
+		const parent = "/h/.codex/sessions/rollout-2026-x-01a0eee2-parent.jsonl";
+		for (const transcript_path of [null, parent])
+			for (const name of ["UserPromptSubmit", "Stop", "SessionEnd"])
+				await fire(name, {
+					...(name === "SessionEnd" ? {} : { turn_id: "turn-1" }),
+					transcript_path,
+					last_assistant_message: '{"suggestion":"Carry on"}',
+				});
 		expect(state("codex")).toBeUndefined();
+		expect(state("claude-code")).toBeUndefined();
 		expect(reports()).toEqual([]);
 	});
 
