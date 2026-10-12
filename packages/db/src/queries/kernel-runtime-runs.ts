@@ -482,20 +482,30 @@ export async function findKernelRuntimeRunForOutputRevision(
 	db: DbQueryClient,
 	input: { organizationId: string; outputId: string; revisionId: string },
 ): Promise<{ id: string; conversationId: string } | null> {
+	// Status and output are checked here, not in SQL: with a status equality the
+	// planner prefers the (organization_id, status) index while most
+	// output_revision_id values are NULL, and reads every completed run.
 	const rows = await db
 		.select({
 			id: kernelRuntimeRuns.id,
 			conversationId: kernelRuntimeRuns.conversationId,
+			status: kernelRuntimeRuns.status,
+			outputId: sql<
+				string | null
+			>`json_extract(${kernelRuntimeRuns.metadata}, '$.kernelOutputReceipt.outputId')`,
 		})
 		.from(kernelRuntimeRuns)
 		.where(
 			and(
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.outputRevisionId, input.revisionId),
-				eq(kernelRuntimeRuns.status, "completed"),
-				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.kernelOutputReceipt.outputId') = ${input.outputId}`,
 			),
 		)
-		.limit(2);
-	return rows.length === 1 ? rows[0]! : null;
+		.limit(10);
+	const matches = rows.filter(
+		(row) => row.status === "completed" && row.outputId === input.outputId,
+	);
+	return matches.length === 1
+		? { id: matches[0]!.id, conversationId: matches[0]!.conversationId }
+		: null;
 }
