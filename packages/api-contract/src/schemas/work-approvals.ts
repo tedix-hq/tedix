@@ -2,6 +2,7 @@ import * as z from "zod";
 import { BoundedJsonObjectSchema } from "./bounded-json";
 import {
 	WorkItemSchema,
+	WorkItemAcceptanceContractSchema,
 	WorkAdmissionSpecificationReceiptSchema,
 	WorkFactoryProjectionCursorSchema,
 	WorkPrincipalTypeSchema,
@@ -89,6 +90,10 @@ export const WorkApprovalInboxRowSchema = z.strictObject({
 export const CreateWorkApprovalProposalInputSchema = z.strictObject({
 	workItemId: z.uuid(),
 	workItemVersion: z.number().int().positive(),
+	action: z.enum(["admission", "acceptance"]).default("admission"),
+	acceptanceContract: WorkItemAcceptanceContractSchema.extend({
+		doneLooksLike: z.string().trim().min(1).max(2_000),
+	}).optional(),
 	proposal: WorkApprovalProposalSchema.shape.proposal,
 	authorityKey: WorkApprovalProposalSchema.shape.authorityKey,
 	approverType: WorkApprovalProposalSchema.shape.approverType,

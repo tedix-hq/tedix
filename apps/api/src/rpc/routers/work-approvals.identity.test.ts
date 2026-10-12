@@ -7,6 +7,7 @@ import { createExternalAgentPrincipal } from "@tedix/db/queries/external-agent-i
 import { openExternalAgentSession } from "@tedix/db/queries/external-agent-identity/sessions";
 import { recordExternalAgentMcpCredential } from "@tedix/db/queries/external-agent-identity/mcp-credentials";
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
@@ -593,4 +594,298 @@ it("returns current canonical scope and admission resources to the designated re
 	expect((await client.listInbox({ proposalId: proposal.id })).data).toEqual(
 		[],
 	);
+});
+
+function routineAcceptanceFixture() {
+	const f = fixture();
+	// Use the installed migration guards, including the decision->proposal trigger.
+	const guards = readFileSync(
+		new URL(
+			"../../../../../packages/db/drizzle/20260821020828_work_factory_external_session_fences/migration.sql",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	for (const statement of guards.split("--> statement-breakpoint")) {
+		if (statement.trim().startsWith("CREATE TRIGGER `work_approval_"))
+			f.sqlite.exec(statement);
+	}
+	const request = {
+		workItemId: WORK_ITEM_ID,
+		workItemVersion: 1,
+		action: "acceptance" as const,
+		acceptanceContract: {
+			version: 1 as const,
+			doneLooksLike: "The bounded guide is published and checked.",
+		},
+		proposal: {
+			scope: "Read-only guide; no publication decision or credential changes.",
+		},
+		authorityKey: "work:accept",
+		approverType: "tedi" as const,
+		approverId: "tedi-approver-id",
+		requestRationale: "Independent routine acceptance",
+		expiresAt: "2099-01-01T00:00:00.000Z",
+	};
+	const decide = (
+		proposalId: string,
+		decision: "approved" | "rejected" = "approved",
+	) =>
+		f.clientForTedi("tedi-approver-id").decide({
+			proposalId,
+			expectedProposalVersion: 1,
+			decision,
+			rationale: "Independent scope and done-when review.",
+		});
+	const item = () =>
+		f.sqlite
+			.prepare(
+				"SELECT disposition,version,acceptance_contract FROM work_items WHERE id=?",
+			)
+			.get(WORK_ITEM_ID) as {
+			disposition: string;
+			version: number;
+			acceptance_contract: string | null;
+		};
+	return { ...f, request, decide, item };
+}
+
+describe("Independent tedi routine acceptance", () => {
+	it("records the tedi decision and authorized executor acceptance without tedi Work-write scopes", async () => {
+		const f = routineAcceptanceFixture();
+		const proposal = await f.client.propose(f.request);
+		expect(proposal.action).toBe("acceptance");
+		const result = await f.decide(proposal.id);
+		expect(result.proposal.status).toBe("approved");
+		expect(result.decision).toMatchObject({
+			deciderType: "tedi",
+			deciderId: "tedi-approver-id",
+		});
+		expect(f.item()).toMatchObject({ disposition: "accepted", version: 2 });
+		expect(JSON.parse(f.item().acceptance_contract!)).toEqual(
+			f.request.acceptanceContract,
+		);
+		const event = f.sqlite
+			.prepare(
+				"SELECT actor_type,actor_id,payload FROM work_events WHERE event_type='work.accepted'",
+			)
+			.get() as { actor_type: string; actor_id: string; payload: string };
+		expect(event).toMatchObject({ actor_type: "system", actor_id: "tedix" });
+		expect(JSON.parse(event.payload)).toMatchObject({
+			executor: "api:work-acceptance",
+			proposalId: proposal.id,
+			decisionId: result.decision.id,
+			deciderId: "tedi-approver-id",
+		});
+		await expect(f.decide(proposal.id)).rejects.toThrow(/no longer resolvable/);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_events WHERE event_type='work.accepted'",
+				)
+				.get(),
+		).toMatchObject({ n: 1 });
+		// Acceptance preserves the independent admission authority and its action.
+		expect(
+			f.sqlite
+				.prepare("SELECT required_authorities FROM work_items WHERE id=?")
+				.get(WORK_ITEM_ID),
+		).toMatchObject({
+			required_authorities: JSON.stringify(["deploy:production"]),
+		});
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_approval_proposals WHERE action='admission'",
+				)
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it("records rejection while leaving Work proposed", async () => {
+		const f = routineAcceptanceFixture();
+		const proposal = await f.client.propose(f.request);
+		expect((await f.decide(proposal.id, "rejected")).proposal.status).toBe(
+			"rejected",
+		);
+		expect(f.item()).toMatchObject({
+			disposition: "proposed",
+			version: 1,
+			acceptance_contract: null,
+		});
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM work_events").get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it("refuses changed Work revisions without persisting an approval", async () => {
+		const f = routineAcceptanceFixture();
+		const proposal = await f.client.propose(f.request);
+		f.sqlite
+			.prepare("UPDATE work_items SET title=?,version=version+1 WHERE id=?")
+			.run("Changed scope", WORK_ITEM_ID);
+		await expect(f.decide(proposal.id)).rejects.toThrow(/resolution race/);
+		expect(f.item().disposition).toBe("proposed");
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_approval_decisions")
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it("closes the Work revision race between validation and the D1 batch", async () => {
+		const f = routineAcceptanceFixture();
+		const proposal = await f.client.propose(f.request);
+		let changed = false;
+		f.context.db = createDbClient(
+			createD1Facade(f.sqlite, {
+				onPrepare(query) {
+					if (
+						!changed &&
+						query.startsWith('insert into "work_approval_decisions"')
+					) {
+						changed = true;
+						f.sqlite
+							.prepare("UPDATE work_items SET version=version+1 WHERE id=?")
+							.run(WORK_ITEM_ID);
+					}
+				},
+			}),
+		);
+		await expect(f.decide(proposal.id)).rejects.toThrow(/resolution race/);
+		expect(changed).toBe(true);
+		expect(f.item().disposition).toBe("proposed");
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_approval_decisions")
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it("rolls back decision and acceptance if provenance cannot be saved", async () => {
+		const f = routineAcceptanceFixture();
+		const proposal = await f.client.propose(f.request);
+		f.sqlite.exec(
+			"CREATE TRIGGER fail_acceptance_event BEFORE INSERT ON work_events BEGIN SELECT RAISE(ABORT,'provenance unavailable'); END",
+		);
+		await expect(f.decide(proposal.id)).rejects.toThrow(/resolution race/);
+		expect(f.item()).toMatchObject({
+			disposition: "proposed",
+			version: 1,
+			acceptance_contract: null,
+		});
+		expect(
+			f.sqlite.prepare("SELECT status FROM work_approval_proposals").get(),
+		).toMatchObject({ status: "pending" });
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_approval_decisions")
+				.get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	it.each(["high", "critical"])("refuses %s-risk Work", async (risk) => {
+		const f = routineAcceptanceFixture();
+		f.sqlite
+			.prepare("UPDATE work_items SET risk_level=? WHERE id=?")
+			.run(risk, WORK_ITEM_ID);
+		await expect(f.client.propose(f.request)).rejects.toThrow(
+			/Routine acceptance/,
+		);
+	});
+
+	it("refuses Work owned by the approver", async () => {
+		const f = routineAcceptanceFixture();
+		f.sqlite
+			.prepare(
+				"UPDATE work_items SET accountable_owner_type='tedi',accountable_owner_id=? WHERE id=?",
+			)
+			.run("tedi-approver-id", WORK_ITEM_ID);
+		await expect(f.client.propose(f.request)).rejects.toThrow(/own Work Item/);
+	});
+	it("refuses a tedi proposing acceptance to itself", async () => {
+		const f = routineAcceptanceFixture();
+		const { proposeWorkApproval } =
+			await import("@tedix/db/queries/work-items/approvals");
+		await expect(
+			proposeWorkApproval(f.context.db, {
+				...f.request,
+				id: crypto.randomUUID(),
+				orgId: ORG_ID,
+				requesterType: "tedi",
+				requesterId: "tedi-approver-id",
+				rationale: "Self request",
+				now: new Date().toISOString(),
+			}),
+		).rejects.toThrow(/own proposal/);
+		expect(f.item().disposition).toBe("proposed");
+	});
+
+	it("rejects an empty done-when and missing or mismatched acceptance authority", async () => {
+		const f = routineAcceptanceFixture();
+		await expect(
+			f.client.propose({
+				...f.request,
+				acceptanceContract: { version: 1, doneLooksLike: "  " },
+			}),
+		).rejects.toThrow();
+		await expect(
+			f.client.propose({ ...f.request, acceptanceContract: undefined }),
+		).rejects.toThrow(/Routine acceptance/);
+		await expect(
+			f.client.propose({ ...f.request, authorityKey: "deploy:production" }),
+		).rejects.toThrow(/Routine acceptance/);
+		await expect(
+			f.client.propose({ ...f.request, action: "admission" }),
+		).rejects.toThrow(/Acceptance contracts/);
+	});
+
+	it("rejects expired and wrong-actor decisions", async () => {
+		const f = routineAcceptanceFixture();
+		const proposal = await f.client.propose(f.request);
+		await expect(
+			f
+				.clientFor({
+					userId: "canonical-approver-id",
+					sub: "approver-provider-subject-id",
+					role: "admin",
+				})
+				.decide({
+					proposalId: proposal.id,
+					expectedProposalVersion: 1,
+					decision: "approved",
+					rationale: "Cannot impersonate tedi",
+				}),
+		).rejects.toThrow(/designated approver/);
+		const otherOrg = createRouterClient(workApprovalsContractRouter, {
+			context: {
+				...f.context,
+				organizationId: "00000000-0000-4000-8000-000000000099",
+			},
+		});
+		await expect(
+			otherOrg.decide({
+				proposalId: proposal.id,
+				expectedProposalVersion: 1,
+				decision: "approved",
+				rationale: "Wrong tenant",
+			}),
+		).rejects.toThrow();
+		const { decideWorkApproval } =
+			await import("@tedix/db/queries/work-items/approvals");
+		await expect(
+			decideWorkApproval(f.context.db, {
+				id: crypto.randomUUID(),
+				orgId: ORG_ID,
+				proposalId: proposal.id,
+				expectedVersion: 1,
+				decision: "approved",
+				deciderType: "tedi",
+				deciderId: "tedi-approver-id",
+				rationale: "Too late",
+				now: "2100-01-01T00:00:00.000Z",
+			}),
+		).rejects.toThrow(/no longer resolvable/);
+		expect(f.item().disposition).toBe("proposed");
+	});
 });
