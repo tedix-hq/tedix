@@ -2063,6 +2063,9 @@ export async function runKernelTurnWork(
 			...(deps.onHistoryCheckpoint
 				? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
 				: {}),
+			...(typeof input.runRowMetadata.promptTokenBudget === "number"
+				? { promptTokenBudget: input.runRowMetadata.promptTokenBudget }
+				: {}),
 			...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
 			db: deps.db,
 			env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],
@@ -3109,6 +3112,23 @@ export async function runKernelTurnWork(
 		if (deps.holdAfterSettle) deps.holdAfterSettle(safe);
 		else heldAfterSettle.push(safe);
 	};
+	// Deferred history fold (index.ts, dormant without a per-request budget):
+	// runs after the answer has left, held like the title and trace work, and
+	// persists the checkpoint the next turn starts from.
+	if (kernelResult?.deferredHistoryCompaction) {
+		try {
+			holdAfterSettle(
+				"history_compaction_failed",
+				kernelResult.deferredHistoryCompaction(),
+			);
+		} catch (error) {
+			console.warn({
+				component: "kernel.turn_work",
+				event: "history_compaction_failed",
+				error: safeExceptionTopology(error),
+			});
+		}
+	}
 	// Conversation auto-title (ChatGPT parity): when this settle completed the
 	// conversation's first exchange and no label exists yet, generate a short
 	// title from the exchange, after the terminal patch and transcript events

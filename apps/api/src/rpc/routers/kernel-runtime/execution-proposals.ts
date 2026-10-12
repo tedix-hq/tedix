@@ -723,8 +723,13 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// Shared run-row metadata; `kernelRoute`/`kernelEvidence` are added at the
 		// use sites (null at insert time, kernel results in the completion
 		// patch).
+		const promptTokenBudget = metadata.promptTokenBudget;
 		const runRowMetadata = {
 			source: "kernelRuntime.enqueueMessage",
+			...(typeof promptTokenBudget === "number" &&
+			Number.isFinite(promptTokenBudget)
+				? { promptTokenBudget }
+				: {}),
 			contentLength: turnContent.length,
 			attachmentCount: attachments?.length ?? 0,
 			idempotencyKey: runId,

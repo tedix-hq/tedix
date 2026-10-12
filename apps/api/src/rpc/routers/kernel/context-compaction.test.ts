@@ -29,6 +29,8 @@ import {
 	shouldCompactHistory,
 	applyPersistedHistoryCheckpoint,
 	historyMessageFingerprint,
+	routeAttemptPromptTokens,
+	composePersistedCheckpoint,
 } from "./context-compaction";
 
 const ORG_ID = "org-compaction";
@@ -569,6 +571,55 @@ describe("applyPersistedHistoryCheckpoint", () => {
 				...stale,
 				boundaryFingerprint: historyMessageFingerprint(history[1]!),
 			}),
+		).toBeNull();
+	});
+});
+
+describe("routeAttemptPromptTokens", () => {
+	it("measures the route call, not the step's sum over rankings", () => {
+		expect(
+			routeAttemptPromptTokens([
+				{ identity: { provider: "typesafe" }, usage: { inputTokens: 5341 } },
+				{ identity: { provider: "typesafe" }, usage: { inputTokens: 3971 } },
+				{
+					identity: { provider: "azure-openai" },
+					usage: { inputTokens: 8409 },
+				},
+			]),
+		).toBe(8409);
+		expect(
+			routeAttemptPromptTokens([
+				{ identity: { provider: "typesafe" }, usage: { inputTokens: 5341 } },
+			]),
+		).toBe(5341);
+		expect(routeAttemptPromptTokens([])).toBeNull();
+	});
+});
+
+describe("composePersistedCheckpoint", () => {
+	const next = {
+		summary: "s",
+		compactedMessages: 4,
+		boundaryIndex: 4,
+		source: "extractive" as const,
+		boundaryFingerprint: "f",
+	};
+	it("spans the previous fold plus the canonical messages folded now", () => {
+		expect(composePersistedCheckpoint(null, next)).toEqual(next);
+		expect(
+			composePersistedCheckpoint({ ...next, compactedMessages: 10 }, next)
+				?.compactedMessages,
+		).toBe(13);
+	});
+	it("keeps the previous checkpoint when only its own message was folded", () => {
+		expect(
+			composePersistedCheckpoint(
+				{ ...next, compactedMessages: 10 },
+				{
+					...next,
+					compactedMessages: 1,
+				},
+			),
 		).toBeNull();
 	});
 });

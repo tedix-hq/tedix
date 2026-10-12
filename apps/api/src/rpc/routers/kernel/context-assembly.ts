@@ -68,6 +68,7 @@ import {
 	shouldCompactHistory,
 	type StepPressure,
 	applyPersistedHistoryCheckpoint,
+	routeAttemptPromptTokens,
 } from "./context-compaction";
 import {
 	type CacheTrace,
@@ -770,6 +771,15 @@ export function readStepPromptTokens(
 		if (row.kind !== "message.completed") continue;
 		const usage = row.payload?.usage;
 		if (!usage || typeof usage !== "object") continue;
+		// Per-attempt usage is on the ledger: measure the route call, not the
+		// step's sum over route + rankings (+ summarizer).
+		const attempts = (usage as { attempts?: unknown }).attempts;
+		if (Array.isArray(attempts)) {
+			const routeTokens = routeAttemptPromptTokens(
+				attempts as Parameters<typeof routeAttemptPromptTokens>[0],
+			);
+			if (routeTokens !== null) return routeTokens;
+		}
 		const inputTokens = (usage as { inputTokens?: unknown }).inputTokens;
 		if (typeof inputTokens !== "number" || !Number.isFinite(inputTokens)) {
 			continue;
