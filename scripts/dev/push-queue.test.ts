@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isStale, liveTickets, STALE_MS, tryAcquire } from "./push-queue";
+import {
+	GC_EVERY_MS,
+	gcDue,
+	isStale,
+	liveTickets,
+	STALE_MS,
+	tryAcquire,
+} from "./push-queue";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "push-queue-"));
 const DEAD = 99999;
@@ -47,5 +54,21 @@ describe("push queue tickets", () => {
 		for (const name of ["300-1", `100-${DEAD}`, "200-2"])
 			writeFileSync(join(dir, name), "");
 		expect(liveTickets(dir, alive)).toEqual(["200-2", "300-1"]);
+	});
+});
+
+describe("weekly worktree gc", () => {
+	test("is due when the stamp is missing or a week old", () => {
+		const stamp = join(
+			mkdtempSync(join(tmpdir(), "push-gc-")),
+			"worktree-gc.stamp",
+		);
+		expect(gcDue(stamp)).toBe(true);
+		writeFileSync(stamp, "x");
+		const now = Date.now();
+		expect(gcDue(stamp, now)).toBe(false);
+		const old = (now - GC_EVERY_MS - 1000) / 1000;
+		utimesSync(stamp, old, old);
+		expect(gcDue(stamp, now)).toBe(true);
 	});
 });

@@ -14,16 +14,22 @@
  * A lock whose process is gone, or that is older than STALE_MS, is removed, as
  * is a queue ticket whose process is gone. No daemon.
  *
+ * At most once a week, a successful push also starts `worktree:gc --apply` in
+ * the background (log in <git-common-dir>/worktree-gc.log), so finished
+ * worktrees are removed without anyone scheduling it. That command only
+ * removes merged, clean, idle worktrees no process is using.
+ *
  *   bun run push              # queue, rebase, gate, push
  *   bun run push --dry-run    # same, but `git push --dry-run` (gates still run)
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	mkdirSync,
 	openSync,
 	readdirSync,
 	readFileSync,
+	writeFileSync,
 	rmSync,
 	statSync,
 	writeSync,
@@ -34,6 +40,7 @@ import { join, resolve } from "node:path";
 export const STALE_MS = 30 * 60 * 1000;
 const POLL_MS = 2000;
 const MAX_RETRIES = 2;
+export const GC_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type Holder = { pid: number; startedAt: number };
 
@@ -152,6 +159,35 @@ function pushOnce(dryRun: boolean): "pushed" | "main-moved" | "failed" {
 		: "main-moved";
 }
 
+/** True when the last weekly worktree gc (stamp mtime) is a week old or missing. */
+export function gcDue(stampFile: string, now = Date.now()): boolean {
+	try {
+		return now - statSync(stampFile).mtimeMs >= GC_EVERY_MS;
+	} catch {
+		return true;
+	}
+}
+
+function startWeeklyWorktreeGc(commonDir: string) {
+	const stamp = join(commonDir, "worktree-gc.stamp");
+	if (!gcDue(stamp)) return;
+	writeFileSync(stamp, `${new Date().toISOString()}\n`);
+	const log = openSync(join(commonDir, "worktree-gc.log"), "w");
+	const root = git(["rev-parse", "--show-toplevel"]).out;
+	spawn(
+		process.execPath,
+		["scripts/dev/worktree-gc.ts", "--apply", "--base", "origin/main"],
+		{
+			cwd: root,
+			detached: true,
+			stdio: ["ignore", log, log],
+		},
+	).unref();
+	console.log(
+		`push: weekly worktree gc started (log: ${join(commonDir, "worktree-gc.log")}).`,
+	);
+}
+
 async function main() {
 	const dryRun = process.argv.includes("--dry-run");
 	const commonDir = resolve(git(["rev-parse", "--git-common-dir"]).out);
@@ -196,6 +232,7 @@ async function main() {
 					? "push: dry run passed; nothing pushed."
 					: "push: pushed to main.",
 			);
+			if (!dryRun) startWeeklyWorktreeGc(commonDir);
 			process.exit(0);
 		}
 		if (outcome === "failed") {
