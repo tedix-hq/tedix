@@ -2,7 +2,7 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { ReadOnlyElement } from "@/components/output-slide-element";
@@ -230,7 +230,11 @@ function WorkbookView({
 }: {
 	content: Extract<OsOutputContent, { kind: "sheet" }>;
 }) {
-	const initial = evaluateWorkbook(normalizeSheetContent(content).workbook!);
+	// Evaluate formulas once per content, not on every tab click.
+	const initial = useMemo(
+		() => evaluateWorkbook(normalizeSheetContent(content).workbook!),
+		[content],
+	);
 	const [activeSheetId, setActiveSheetId] = useState(initial.activeSheetId);
 	const sheet =
 		initial.sheets.find((candidate) => candidate.id === activeSheetId) ??

@@ -187,10 +187,20 @@ export function SheetEditor({
 	onChange,
 	disabled = false,
 }: SheetEditorProps) {
-	const normalized = normalizeSheetContent(value);
-	const workbook = useMemo(
+	const normalized = useMemo(() => normalizeSheetContent(value), [value]);
+	const storedWorkbook = useMemo(
 		() => ensureGrid(normalized.workbook!),
 		[normalized.workbook],
+	);
+	// Which tab is open is view state, not a document edit: switching tabs must
+	// not recalculate, snapshot, diff or sync the whole workbook.
+	const [viewSheetId, setViewSheetId] = useState(storedWorkbook.activeSheetId);
+	const workbook = useMemo(
+		() =>
+			storedWorkbook.sheets.some((item) => item.id === viewSheetId)
+				? { ...storedWorkbook, activeSheetId: viewSheetId }
+				: storedWorkbook,
+		[storedWorkbook, viewSheetId],
 	);
 	const sheet = activeWorkbookSheet(workbook);
 	const [selection, setSelection] = useState<Selection>({
@@ -286,6 +296,7 @@ export function SheetEditor({
 			activeSheetId: id,
 			sheets: [...workbook.sheets, nextSheet],
 		});
+		setViewSheetId(id);
 		setSelection({
 			anchor: { row: 0, column: 0 },
 			focus: { row: 0, column: 0 },
@@ -708,9 +719,16 @@ export function SheetEditor({
 									variant={
 										tab.id === workbook.activeSheetId ? "secondary" : "ghost"
 									}
-									onClick={() =>
-										commitWorkbook({ ...workbook, activeSheetId: tab.id })
-									}
+									aria-pressed={tab.id === workbook.activeSheetId}
+									onClick={() => {
+										if (tab.id === workbook.activeSheetId) return;
+										setViewSheetId(tab.id);
+										setEditing(null);
+										setSelection({
+											anchor: { row: 0, column: 0 },
+											focus: { row: 0, column: 0 },
+										});
+									}}
 									onDoubleClick={() =>
 										setRenameTarget({
 											kind: "sheet",
@@ -748,6 +766,7 @@ export function SheetEditor({
 											sheets,
 											activeSheetId: sheets[0]!.id,
 										});
+										setViewSheetId(sheets[0]!.id);
 									}}
 								>
 									<Trash size={14} />

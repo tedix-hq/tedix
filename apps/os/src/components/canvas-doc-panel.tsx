@@ -11,7 +11,7 @@ import type {
 	OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
 import {
@@ -287,10 +287,16 @@ export function CanvasDocPanel({
 	}, [session]);
 
 	const outputKind = outputDetail.data?.output.kind;
-	const outputParsed =
-		!isGadget && outputKind && docText !== ""
-			? parseOutputDraft(docText, outputKind)
-			: null;
+	// Parse once per document text: re-parsing (and re-validating) a large
+	// workbook on every render also gave editors a fresh object each time,
+	// defeating their memoization.
+	const outputParsed = useMemo(
+		() =>
+			!isGadget && outputKind && docText !== ""
+				? parseOutputDraft(docText, outputKind)
+				: null,
+		[isGadget, outputKind, docText],
+	);
 	const outputDraft = outputParsed?.ok ? outputParsed.content : null;
 	const outputDraftIssue =
 		outputParsed && !outputParsed.ok ? outputParsed.issue : null;
