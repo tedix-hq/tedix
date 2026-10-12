@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { procedureOutputSchema } from "../utils/procedure-schemas";
 import { zodToStructuredOutputJsonSchema } from "../utils/tool-json-schema";
-import { docsContract } from "./docs";
+import { DocsSearchProjectionSchema, docsContract } from "./docs";
 
 describe("Docs MCP output contracts", () => {
 	it.each([
@@ -21,6 +21,14 @@ describe("Docs MCP output contracts", () => {
 				searchProjection: { anyOf: expect.any(Array) },
 			},
 		});
+	});
+
+	it.each([
+		{ status: "queued", workflowId: "search-release" },
+		{ status: "failed", error: "Workflow unavailable" },
+		null,
+	])("accepts the Docs Worker's search projection receipt %j", (projection) => {
+		expect(DocsSearchProjectionSchema.safeParse(projection).success).toBe(true);
 	});
 
 	it("projects validation as the two concrete runtime result variants", () => {

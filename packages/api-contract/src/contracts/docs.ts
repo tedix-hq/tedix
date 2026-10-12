@@ -90,12 +90,8 @@ export const DocsPolicyPresetSchema = z.object({
 });
 
 export const DocsSearchProjectionSchema = z.union([
-	z.object({
-		accepted: z.number().int().nonnegative(),
-		buildId: z.string().uuid(),
-		sourceRevision: z.string(),
-	}),
-	z.object({ accepted: z.literal(false), error: z.string() }),
+	z.object({ status: z.literal("queued"), workflowId: z.string() }),
+	z.object({ status: z.literal("failed"), error: z.string() }),
 	z.null(),
 ]);
 
