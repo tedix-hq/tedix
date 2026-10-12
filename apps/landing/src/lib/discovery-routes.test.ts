@@ -56,4 +56,14 @@ describe("landing crawler discovery routes", () => {
 		expect(text).toContain(`[Blog sitemap](${blogSitemap})`);
 		expect(text).not.toContain("blog.tedix.dev");
 	});
+
+	it("opens with the site tagline and links the agent docs", async () => {
+		const text = await (await llms(context("tedix.dev"))).text();
+		expect(
+			text.startsWith("# Tedix — AI coworkers that show their work\n"),
+		).toBe(true);
+		expect(text).toContain("> Tedix gives your team AI coworkers");
+		expect(text).toContain("https://docs.tedix.dev/agent-start-here/");
+		expect(text).toContain("https://docs.tedix.dev/sessions-per-project/");
+	});
 });
