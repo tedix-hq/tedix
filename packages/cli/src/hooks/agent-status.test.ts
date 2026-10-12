@@ -24,7 +24,9 @@ import {
 	reportInput,
 	runAgentStatus,
 	STATUS_ENDED_AFTER_MS,
+	type StatusDeps,
 	SUPERVISOR_CONTINUED_SUFFIX,
+	sessionName,
 	statusEnded,
 	type TriageResult,
 	transition,
@@ -58,8 +60,11 @@ async function fire(
 	env: Record<string, string> = {},
 	stdin?: string,
 	captureOwnsStop = false,
+	extra: Partial<StatusDeps> = {},
 ): Promise<void> {
 	await runAgentStatus({
+		binding: () => ({}),
+		sessionName: () => undefined,
 		captureOwnsStop: () => captureOwnsStop,
 		env: { TEDIX_CONFIG_DIR: base, ...env },
 		stdin:
@@ -75,6 +80,7 @@ async function fire(
 		which: (name) => `/usr/bin/${name}`,
 		spawn: (args, options) => spawned.push([args, options]),
 		label: () => "repo · main",
+		...extra,
 	});
 }
 
@@ -480,6 +486,8 @@ describe("tedix hooks status", () => {
 			spawn: (args: string[], options: DetachedOptions) =>
 				spawned.push([args, options]),
 			label: () => "repo · main",
+			binding: () => ({}),
+			sessionName: () => undefined,
 		};
 		const event = {
 			session_id: SESSION,
@@ -519,6 +527,8 @@ describe("tedix hooks status", () => {
 			spawn: (args: string[], options: DetachedOptions) =>
 				spawned.push([args, options]),
 			label: () => "repo · main",
+			binding: () => ({}),
+			sessionName: () => undefined,
 		};
 		const event = {
 			session_id: SESSION,
@@ -559,6 +569,134 @@ describe("tedix hooks status", () => {
 			undefined,
 		);
 		expect(state("codex")?.state).toBe("needs_you");
+	});
+});
+
+describe("session name and binding", () => {
+	const PROJECT = "22222222-2222-4222-8222-222222222222";
+	const WORK_ITEM = "33333333-3333-4333-8333-333333333333";
+	const lastReport = () => JSON.parse(reports().at(-1)!.at(-1)!);
+
+	test("a bound session reports its project and Work item", async () => {
+		enable();
+		const bound = {
+			binding: () => ({ projectId: PROJECT, workItemId: WORK_ITEM }),
+		};
+		await fire("UserPromptSubmit", {}, {}, undefined, false, bound);
+		expect(lastReport()).toMatchObject({
+			projectId: PROJECT,
+			workItemId: WORK_ITEM,
+		});
+		expect(state()).toMatchObject({
+			projectId: PROJECT,
+			workItemId: WORK_ITEM,
+		});
+		// The same state again is not reported; a new binding is.
+		await fire("UserPromptSubmit", {}, {}, undefined, false, bound);
+		expect(reports()).toHaveLength(1);
+		await fire("UserPromptSubmit", {}, {}, undefined, false, {
+			binding: () => ({ projectId: PROJECT, workItemId: "not-a-uuid" }),
+		});
+		expect(reports()).toHaveLength(2);
+		expect(lastReport()).toEqual(
+			expect.not.objectContaining({ workItemId: expect.anything() }),
+		);
+		expect(lastReport().projectId).toBe(PROJECT);
+	});
+
+	test("an unbound session reports no binding fields", async () => {
+		enable();
+		await fire("UserPromptSubmit");
+		const report = lastReport();
+		expect(report).not.toHaveProperty("projectId");
+		expect(report).not.toHaveProperty("workItemId");
+		expect(report.label).toBe("repo · main");
+	});
+
+	test("a session name replaces the folder label and a rename is reported", async () => {
+		enable();
+		await fire("UserPromptSubmit", {}, {}, undefined, false, {
+			sessionName: () => "Billing cleanup",
+		});
+		expect(lastReport().label).toBe("Billing cleanup");
+		await fire("UserPromptSubmit", {}, {}, undefined, false, {
+			sessionName: () => "Billing cleanup",
+		});
+		expect(reports()).toHaveLength(1);
+		await fire("UserPromptSubmit", {}, {}, undefined, false, {
+			sessionName: () => "Invoice export",
+		});
+		expect(reports()).toHaveLength(2);
+		expect(lastReport().label).toBe("Invoice export");
+	});
+
+	test("the Claude Code name is the last custom title in the transcript", () => {
+		const transcript = join(base, "transcript.jsonl");
+		const filler = JSON.stringify({ type: "user", text: "x".repeat(1000) });
+		writeFileSync(
+			transcript,
+			[
+				JSON.stringify({ type: "custom-title", customTitle: "Too old" }),
+				...Array.from({ length: 600 }, () => filler),
+				JSON.stringify({ type: "custom-title", customTitle: "First name" }),
+				filler,
+				JSON.stringify({
+					type: "custom-title",
+					customTitle: "Renamed",
+					sessionId: SESSION,
+				}),
+				filler,
+				"",
+			].join("\n"),
+		);
+		const event = { session_id: SESSION, transcript_path: transcript };
+		expect(sessionName(event, "claude-code", {})).toBe("Renamed");
+		writeFileSync(transcript, [filler, filler].join("\n"));
+		expect(sessionName(event, "claude-code", {})).toBeUndefined();
+		expect(
+			sessionName({ session_id: SESSION }, "claude-code", {}),
+		).toBeUndefined();
+		// Only the last 512 KB is read.
+		writeFileSync(
+			transcript,
+			[
+				JSON.stringify({ type: "custom-title", customTitle: "Too old" }),
+				...Array.from({ length: 600 }, () => filler),
+			].join("\n"),
+		);
+		expect(sessionName(event, "claude-code", {})).toBeUndefined();
+	});
+
+	test("the Codex name is the last thread name for the session in the index", () => {
+		const home = join(base, "codex");
+		mkdirSync(home);
+		const other = "44444444-4444-4444-8444-444444444444";
+		writeFileSync(
+			join(home, "session_index.jsonl"),
+			[
+				{ id: SESSION, thread_name: "Old name", updated_at: "2026-01-01" },
+				{ id: SESSION, thread_name: "Release notes", updated_at: "2026-01-02" },
+				{ id: other, thread_name: "Someone else", updated_at: "2026-01-03" },
+			]
+				.map((row) => JSON.stringify(row))
+				.join("\n"),
+		);
+		const env = { CODEX_HOME: home };
+		expect(sessionName({ session_id: SESSION }, "codex", env)).toBe(
+			"Release notes",
+		);
+		expect(
+			sessionName(
+				{ session_id: "55555555-5555-4555-8555-555555555555" },
+				"codex",
+				env,
+			),
+		).toBeUndefined();
+		expect(
+			sessionName({ session_id: SESSION }, "codex", {
+				CODEX_HOME: join(base, "missing"),
+			}),
+		).toBeUndefined();
 	});
 });
 

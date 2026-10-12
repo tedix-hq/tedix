@@ -12,10 +12,12 @@ import {
 	chmodSync,
 	closeSync,
 	existsSync,
+	fstatSync,
 	mkdirSync,
 	openSync,
 	readdirSync,
 	readFileSync,
+	readSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -23,6 +25,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
+import { resolveAgentContext } from "../agent-context";
+import { looksLikeUuid } from "../shared";
 import {
 	AGENT_IDENTITY_ENV,
 	captureOwnsStop,
@@ -48,6 +52,10 @@ const SUMMARY_LIMIT = 160;
 const LABEL_LIMIT = 120;
 export const STATUS_EVENT_LIMIT = 8 * 1024 * 1024;
 const LOG_LIMIT = 1024 * 1024;
+/** Tail of a Claude Code transcript searched for its latest `/rename` title. */
+const TRANSCRIPT_TAIL = 512 * 1024;
+/** Tail of the Codex session index searched for a thread name. */
+const CODEX_INDEX_TAIL = 1024 * 1024;
 const QUESTION =
 	/should i|do you want|would you like|want me to|which option|please (?:confirm|approve|choose)|let me know|need your|waiting for you/i;
 const SUBTITLES: Record<string, string> = {
@@ -133,6 +141,18 @@ export interface StatusDeps {
 	/** Start a detached child; `tedix` means this CLI. */
 	spawn?: (args: string[], options: DetachedOptions) => void;
 	label?: (cwd: unknown) => string;
+	/** The session's local project and Work item binding; empty when unbound. */
+	binding?: (
+		cwd: string,
+		sessionId: string,
+		env: NodeJS.ProcessEnv,
+	) => SessionBinding;
+	/** The name the owner gave the session in its host, or undefined. */
+	sessionName?: (
+		event: JsonObject,
+		harness: string,
+		env: NodeJS.ProcessEnv,
+	) => string | undefined;
 	now?: () => Date;
 	/**
 	 * True when `tedix hooks capture-stop` owns this chat's Stop status, so this
@@ -142,6 +162,12 @@ export interface StatusDeps {
 }
 
 type Outcome = [state: string, summary: string];
+
+/** Project and current Work item of a session, from the local binding. */
+export interface SessionBinding {
+	projectId?: string;
+	workItemId?: string;
+}
 
 /** Server urgency triage of one agent turn (`work.triage_agent_turn`). */
 export interface TriageResult {
@@ -450,6 +476,86 @@ function labelFor(cwd: unknown, fallback: string): string {
 	return oneLine(folder, LABEL_LIMIT);
 }
 
+/** The session's bound project and Work item; empty when unbound or unreadable. */
+export function sessionBinding(
+	cwd: string,
+	sessionId: string,
+	env: NodeJS.ProcessEnv,
+): SessionBinding {
+	if (!looksLikeUuid(sessionId)) return {};
+	try {
+		const context = resolveAgentContext({ cwd, sessionId, env });
+		if (context.status !== "bound") return {};
+		return { projectId: context.projectId, workItemId: context.workItemId };
+	} catch {
+		return {};
+	}
+}
+
+/** Lines of the last `limit` bytes of a file, newest first; [] when unreadable. */
+function tailLines(path: string, limit: number): string[] {
+	let fd: number | undefined;
+	try {
+		fd = openSync(path, "r");
+		const size = fstatSync(fd).size;
+		const length = Math.min(size, limit);
+		const buffer = Buffer.alloc(length);
+		readSync(fd, buffer, 0, length, size - length);
+		return buffer.toString("utf8").split(/\r?\n/).reverse();
+	} catch {
+		return [];
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
+}
+
+function lastJson(
+	lines: string[],
+	marker: string,
+	pick: (row: JsonObject) => unknown,
+): string | undefined {
+	for (const line of lines) {
+		if (!line.includes(marker)) continue;
+		try {
+			const row: unknown = JSON.parse(line);
+			const value = isObject(row) ? pick(row) : undefined;
+			if (typeof value === "string" && value.trim()) return value;
+		} catch {
+			// A partial first line of the tail or a malformed row.
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The session's name: the last `/rename` title in a Claude Code transcript, or
+ * the thread name in the Codex session index. Undefined when it has none.
+ */
+export function sessionName(
+	event: JsonObject,
+	harness: string,
+	env: NodeJS.ProcessEnv,
+): string | undefined {
+	if (harness === "codex") {
+		const index = join(
+			env.CODEX_HOME || join(homedir(), ".codex"),
+			"session_index.jsonl",
+		);
+		return lastJson(
+			tailLines(index, CODEX_INDEX_TAIL),
+			event.session_id,
+			(row) => (row.id === event.session_id ? row.thread_name : undefined),
+		);
+	}
+	if (typeof event.transcript_path !== "string" || !event.transcript_path)
+		return undefined;
+	return lastJson(
+		tailLines(event.transcript_path, TRANSCRIPT_TAIL),
+		"custom-title",
+		(row) => (row.type === "custom-title" ? row.customTitle : undefined),
+	);
+}
+
 function readState(path: string): JsonObject | undefined {
 	try {
 		const value: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -484,6 +590,12 @@ export function asciiJson(value: unknown): string {
 	);
 }
 
+function uuidField(key: string, value: unknown): Record<string, string> {
+	return typeof value === "string" && looksLikeUuid(value)
+		? { [key]: value }
+		: {};
+}
+
 /** The `--input` JSON for one report; throws on an invalid payload. */
 export function reportInput(payload: JsonObject): string {
 	if (
@@ -498,6 +610,8 @@ export function reportInput(payload: JsonObject): string {
 		state: payload.state,
 		summary: oneLine(payload.summary || "", SUMMARY_LIMIT),
 		label: oneLine(payload.label || "", LABEL_LIMIT),
+		...uuidField("projectId", payload.projectId),
+		...uuidField("workItemId", payload.workItemId),
 	};
 	return asciiJson(fields);
 }
@@ -633,20 +747,43 @@ function recordStatus(
 	const previous = readState(path);
 	pruneStatusFiles(env, (deps.now ?? (() => new Date()))().getTime());
 	const previousState = previous?.state;
+	const cwd = typeof event.cwd === "string" && event.cwd ? event.cwd : deps.cwd;
+	let bound: SessionBinding = {};
+	let name: string | undefined;
+	try {
+		bound = (deps.binding ?? sessionBinding)(cwd, sessionKey, env);
+	} catch {
+		// The binding is best effort.
+	}
+	try {
+		name = (deps.sessionName ?? sessionName)(event, harness, env);
+	} catch {
+		// The name is best effort.
+	}
+	const label = name
+		? oneLine(name, LABEL_LIMIT)
+		: (deps.label ?? ((value) => labelFor(value, deps.cwd)))(event.cwd);
+	const binding = {
+		...uuidField("projectId", bound.projectId),
+		...uuidField("workItemId", bound.workItemId),
+	};
 	const changed =
 		!previous ||
 		previousState !== state ||
-		(["done", "needs_you"].includes(state) && previous.summary !== summary);
+		(["done", "needs_you"].includes(state) && previous.summary !== summary) ||
+		previous.label !== label ||
+		previous.projectId !== binding.projectId ||
+		previous.workItemId !== binding.workItemId;
 	if (!changed) return;
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	chmodSync(directory, 0o700);
-	const label = (deps.label ?? ((cwd) => labelFor(cwd, deps.cwd)))(event.cwd);
 	const record = {
 		harness,
 		sessionKey,
 		state,
 		summary,
 		label,
+		...binding,
 		cwd: typeof event.cwd === "string" ? event.cwd : "",
 		updatedAt: isoSeconds((deps.now ?? (() => new Date()))(), true),
 	};
