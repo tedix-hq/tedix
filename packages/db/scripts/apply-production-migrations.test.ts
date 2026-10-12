@@ -61,6 +61,35 @@ describe("production D1 migration orchestration", () => {
 		}
 	});
 
+	it("accepts an apply failure only when the ledger shows every migration recorded", () => {
+		const names = readMigrationManifest().migrations.map(({ name }) => name);
+		const runWith = (recorded: boolean) => {
+			let ledgerReads = 0;
+			return (args: string[]) => {
+				if (
+					args.includes("SELECT name FROM tedix_drizzle_migrations ORDER BY id")
+				) {
+					const applied =
+						ledgerReads++ === 0 || !recorded ? names.slice(0, -1) : names;
+					return JSON.stringify([
+						{ success: true, results: applied.map((name) => ({ name })) },
+					]);
+				}
+				if (args[1] === "time-travel")
+					return JSON.stringify({ bookmark: "bookmark-1" });
+				if (args[2] === "apply")
+					throw new Error("duplicate column name: project_id");
+				return JSON.stringify([{ success: true, results: [] }]);
+			};
+		};
+		expect(() =>
+			applyProductionMigrations({ run: runWith(true) }),
+		).not.toThrow();
+		expect(() => applyProductionMigrations({ run: runWith(false) })).toThrow(
+			"duplicate column",
+		);
+	});
+
 	it("requires a Time Travel bookmark", () => {
 		expect(parseTimeTravelBookmark({ bookmark: "bookmark-1" })).toBe(
 			"bookmark-1",
