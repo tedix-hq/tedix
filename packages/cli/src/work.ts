@@ -2309,6 +2309,7 @@ export function contextBriefJson(value: Record<string, unknown>): unknown {
 	const projections = Array.isArray(value.projections)
 		? value.projections.filter(isRecord)
 		: [];
+	const project = isRecord(value.project) ? value.project : null;
 	return {
 		id: item.id ?? null,
 		orgId: item.orgId ?? null,
@@ -2318,6 +2319,11 @@ export function contextBriefJson(value: Record<string, unknown>): unknown {
 		priority: item.priority ?? null,
 		title: item.title ?? null,
 		projectId: item.projectId ?? null,
+		projectName: project?.name ?? null,
+		projectBrief:
+			typeof project?.description === "string"
+				? project.description.trim()
+				: null,
 		accountableOwnerId: item.accountableOwnerId ?? null,
 		stewardId: item.stewardId ?? null,
 		reviewerId: item.reviewerId ?? null,

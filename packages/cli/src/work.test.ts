@@ -1924,6 +1924,20 @@ describe("work context brief surfaces the reviewer lease", () => {
 		expect(brief.reviewerType).toBeNull();
 		expect(brief.reviewerLeaseExpiresAt).toBeNull();
 	});
+
+	test("carries the project brief so a fresh session need not search", () => {
+		const brief = contextBriefJson({
+			workItem: { id: "x", projectId: "p" },
+			project: { id: "p", name: "GATEWAY", description: " Purpose. " },
+		}) as Record<string, unknown>;
+		expect(brief.projectName).toBe("GATEWAY");
+		expect(brief.projectBrief).toBe("Purpose.");
+		const bare = contextBriefJson({ workItem: { id: "x" } }) as Record<
+			string,
+			unknown
+		>;
+		expect(bare.projectBrief).toBeNull();
+	});
 });
 
 describe("work attempts distinguishes sessions sharing one principal", () => {
