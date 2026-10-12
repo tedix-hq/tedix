@@ -154,7 +154,7 @@ export function BillingCreditWallet({
 						<Text tone="secondary">
 							{coverageDays === null
 								? "Coverage forecast unavailable for this period. It needs at least one day and some settled usage in an active billing period."
-								: `At the settled spending pace since this period began, your available credits and current cap cover about ${coverageDays} more days.`}{" "}
+								: `At the settled spending pace since this period began, your available credits and current cap cover up to ${coverageDays} more days within this billing period.`}{" "}
 							Pending calls, future prices and plan renewals can change this
 							estimate.
 						</Text>

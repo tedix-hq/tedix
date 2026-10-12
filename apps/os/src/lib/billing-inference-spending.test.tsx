@@ -82,7 +82,20 @@ describe("conditional settled spending pace", () => {
 		);
 		expect(settledCreditCoverage({ ...input, availableMicros: 10 })).toBe(0.2);
 	});
-	it("keeps zero usage, short observations and closed periods unknown", () => {
+	it("bounds sparse-spend coverage to the current period", () => {
+		expect(
+			settledCreditCoverage({
+				...input,
+				spentMicros: 1,
+				availableMicros: 100_000_000,
+				monthlyCapMicros: null,
+			}),
+		).toBe(29);
+	});
+	it("keeps zero usage, invalid dates, short observations and closed periods unknown", () => {
+		expect(
+			settledCreditCoverage({ ...input, periodEnd: "invalid" }),
+		).toBeNull();
 		expect(settledCreditCoverage({ ...input, spentMicros: 0 })).toBeNull();
 		expect(
 			settledCreditCoverage({ ...input, nowMs: Date.parse(input.periodStart) }),

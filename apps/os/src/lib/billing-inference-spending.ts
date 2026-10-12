@@ -48,10 +48,13 @@ export function settledCreditCoverage(input: {
 }): number | null {
 	const elapsedDays =
 		(input.nowMs - Date.parse(input.periodStart)) / 86_400_000;
+	const remainingDays =
+		(Date.parse(input.periodEnd) - input.nowMs) / 86_400_000;
 	if (
 		!Number.isFinite(elapsedDays) ||
+		!Number.isFinite(remainingDays) ||
 		elapsedDays < 1 ||
-		input.nowMs >= Date.parse(input.periodEnd) ||
+		remainingDays <= 0 ||
 		input.spentMicros <= 0
 	)
 		return null;
@@ -65,5 +68,7 @@ export function settledCreditCoverage(input: {
 		),
 	);
 	const days = (spendable / input.spentMicros) * elapsedDays;
-	return Number.isFinite(days) ? Math.floor(days * 10) / 10 : null;
+	return Number.isFinite(days)
+		? Math.floor(Math.min(days, remainingDays) * 10) / 10
+		: null;
 }
