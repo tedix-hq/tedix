@@ -411,20 +411,6 @@ export function renderRouteResponse(
  * available (Azure + Workers AI both failed); the caller then settles the turn
  * `failed` (model unavailable) — there is no heuristic responder.
  */
-/**
- * Prompt budget for a Home turn. The model window (126k tokens) is the
- * ceiling, not the target: a one-word Home answer measured 10.5k prompt
- * tokens of which ~4.7k were replayed history, because compaction only
- * fires at 85% of the window. Against this budget the existing compaction
- * (checkpoint summary + the most recent turns, fail-soft) trips once replayed
- * history passes roughly 2.5k tokens and keeps the route pass near 7-8k
- * tokens, which is both the first-token and the per-turn-cost lever on the
- * route model (Work a4de7b96). Delegation rounds use the same assembled
- * context; the tedi/app/workflow inventories are not affected by this budget.
- * The Workers AI lane keeps its own, already tight, window-derived budget.
- */
-const HOME_ROUTE_PROMPT_TOKEN_BUDGET = 10_000;
-
 export async function runKernel(args: {
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
 	attachments?: TediMessageAttachment[];
@@ -619,7 +605,7 @@ export async function runKernel(args: {
 	const laneBudget = (): number =>
 		kernelServesWorkersAiLane(model)
 			? maxPromptTokensForWindow(WORKERS_AI_CONTEXT_WINDOW_TOKENS)
-			: Math.min(DEFAULT_MAX_PROMPT_TOKENS, HOME_ROUTE_PROMPT_TOKEN_BUDGET);
+			: DEFAULT_MAX_PROMPT_TOKENS;
 	const maxPromptTokens = laneBudget();
 
 	// ── The assembly pass ─────────────────────────────────────────────────────
