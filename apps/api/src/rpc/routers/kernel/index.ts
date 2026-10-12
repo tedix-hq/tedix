@@ -151,6 +151,7 @@ export interface KernelResult {
 			contextReadsMs: number;
 			rankingMs: number;
 			rankingTimedOut: boolean;
+			rankingSkipped: boolean;
 		};
 		/**
 		 * Which slow-changing inputs the per-org context cache served this
@@ -446,6 +447,8 @@ export async function runKernel(args: {
 	 * Assembly before planning keeps the lane budget. Dormant unless set.
 	 */
 	promptTokenBudget?: number;
+	/** Critical-path wait for the ranking wave (ms); `0` skips the reranks. */
+	rankingBudgetMs?: number;
 	attachments?: TediMessageAttachment[];
 	resolveAttachments?: HomeAttachmentResolver;
 	db: DbClient;
@@ -671,6 +674,9 @@ export async function runKernel(args: {
 			...(previousRelevanceRecall ? { previousRelevanceRecall } : {}),
 			...(args.previousHistoryCheckpoint
 				? { previousHistoryCheckpoint: args.previousHistoryCheckpoint }
+				: {}),
+			...(typeof args.rankingBudgetMs === "number"
+				? { rankingBudgetMs: args.rankingBudgetMs }
 				: {}),
 			...(relevanceRecallBudgetMs !== undefined
 				? { relevanceRecallBudgetMs }

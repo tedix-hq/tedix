@@ -208,6 +208,7 @@ export interface KernelContext {
 		contextReadsMs: number;
 		rankingMs: number;
 		rankingTimedOut: boolean;
+		rankingSkipped: boolean;
 	};
 	/**
 	 * Present when this turn's replay history was compacted: what the leading
@@ -1130,6 +1131,12 @@ export async function assembleHomeContext(
 		 * lines up with the canonical history; otherwise ignored.
 		 */
 		previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
+		/**
+		 * Critical-path wait for the candidate-ranking wave, ms. Default
+		 * {@link CONTEXT_RANKING_BUDGET_MS}; `0` skips the reranks (lexical
+		 * orders, no Jev calls) for this turn.
+		 */
+		rankingBudgetMs?: number;
 		/** Override of {@link RELEVANCE_RECALL_BUDGET_MS} (env / tests). */
 		relevanceRecallBudgetMs?: number;
 		/** Injectable epoch-ms clock for recall age/wait accounting (tests). */
@@ -1654,56 +1661,60 @@ export async function assembleHomeContext(
 	// here before its route call (Work f9861b56).
 	const rankingStartedAtMs = Date.now();
 	let rankingTimedOut = false;
-	const [workflowOrder, rankedTedis, rankedMemory] = await withRankingBudget(
-		Promise.all([
-			lexicalWorkflows.length > WORKFLOW_CATALOG_LIMIT
-				? rerankContextCandidates(
-						lexicalWorkflows,
-						operatorMessage,
-						"workflow",
-						(workflow) => ({
-							id: workflow.slug,
-							description: `${workflow.slug} ${workflow.title}`,
-						}),
-						opts?.candidateRanker,
-					)
-				: Promise.resolve(lexicalWorkflows),
-			tedis.length > RENDER_TEDIS_CAP
-				? rerankContextCandidates(
-						lexicalTedis,
-						operatorMessage,
-						"tedi",
-						(tedi) => ({
-							id: tedi.id,
-							description: `${tedi.slug} ${tedi.name} ${tedi.role ?? ""} ${tedi.capability?.skills.join(" ") ?? ""}`,
-						}),
-						opts?.candidateRanker,
-					)
-				: Promise.resolve(lexicalTedis),
-			memoryCandidates.length > 1
-				? rerankContextCandidates(
-						memoryCandidates,
-						operatorMessage,
-						"memory",
-						(candidate) => ({
-							id: candidate.id,
-							description: candidate.description,
-						}),
-						opts?.candidateRanker,
-					)
-				: Promise.resolve(memoryCandidates),
-		]),
-		CONTEXT_RANKING_BUDGET_MS,
-		() => {
-			rankingTimedOut = true;
-			console.warn({
-				component: "kernel.context",
-				event: "ranking_budget_exceeded",
-				budgetMs: CONTEXT_RANKING_BUDGET_MS,
-			});
-			return [lexicalWorkflows, lexicalTedis, memoryCandidates] as const;
-		},
-	);
+	const rankingBudgetMs = opts?.rankingBudgetMs ?? CONTEXT_RANKING_BUDGET_MS;
+	const rankingSkipped = rankingBudgetMs <= 0;
+	const [workflowOrder, rankedTedis, rankedMemory] = rankingSkipped
+		? [lexicalWorkflows, lexicalTedis, memoryCandidates]
+		: await withRankingBudget(
+				Promise.all([
+					lexicalWorkflows.length > WORKFLOW_CATALOG_LIMIT
+						? rerankContextCandidates(
+								lexicalWorkflows,
+								operatorMessage,
+								"workflow",
+								(workflow) => ({
+									id: workflow.slug,
+									description: `${workflow.slug} ${workflow.title}`,
+								}),
+								opts?.candidateRanker,
+							)
+						: Promise.resolve(lexicalWorkflows),
+					tedis.length > RENDER_TEDIS_CAP
+						? rerankContextCandidates(
+								lexicalTedis,
+								operatorMessage,
+								"tedi",
+								(tedi) => ({
+									id: tedi.id,
+									description: `${tedi.slug} ${tedi.name} ${tedi.role ?? ""} ${tedi.capability?.skills.join(" ") ?? ""}`,
+								}),
+								opts?.candidateRanker,
+							)
+						: Promise.resolve(lexicalTedis),
+					memoryCandidates.length > 1
+						? rerankContextCandidates(
+								memoryCandidates,
+								operatorMessage,
+								"memory",
+								(candidate) => ({
+									id: candidate.id,
+									description: candidate.description,
+								}),
+								opts?.candidateRanker,
+							)
+						: Promise.resolve(memoryCandidates),
+				]),
+				rankingBudgetMs,
+				() => {
+					rankingTimedOut = true;
+					console.warn({
+						component: "kernel.context",
+						event: "ranking_budget_exceeded",
+						budgetMs: CONTEXT_RANKING_BUDGET_MS,
+					});
+					return [lexicalWorkflows, lexicalTedis, memoryCandidates] as const;
+				},
+			);
 	const rankingMs = Date.now() - rankingStartedAtMs;
 	const rankedWorkflows = workflowOrder.slice(0, WORKFLOW_CATALOG_LIMIT);
 	const rankedFacts =
@@ -1750,7 +1761,12 @@ export async function assembleHomeContext(
 		facts,
 		rationale: rankedRationale,
 		speaker,
-		assemblyTimings: { contextReadsMs, rankingMs, rankingTimedOut },
+		assemblyTimings: {
+			contextReadsMs,
+			rankingMs,
+			rankingTimedOut,
+			rankingSkipped,
+		},
 		history: persistedReplay ?? historyRead.messages,
 		...(persistedReplay && opts?.previousHistoryCheckpoint
 			? { historyCheckpoint: opts.previousHistoryCheckpoint }
