@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.12
+
+### Patch Changes
+
+- 9b0ffdb: The background supervisor no longer runs its delivery reads inside folders that macOS privacy protection guards, such as Documents, Desktop, Downloads and iCloud Drive. Those reads always timed out there, so answers and drafts were not delivered to sessions in a checkout under `~/Documents`. They now resolve at once from the session's default binding.
+
 ## 0.8.11
 
 ### Patch Changes
