@@ -2634,3 +2634,80 @@ describe("OAuth SDK request-bound SSE resumption", () => {
 		}
 	});
 });
+
+describe("discovery cache", () => {
+	function cachingClient(
+		cached: { supportsTasks: boolean } | undefined,
+		toolResponse: (id: unknown) => Response,
+	) {
+		const methods: string[] = [];
+		const events: string[] = [];
+		const client = new TedixHomeClient({
+			fetch: async (_input, init) => {
+				const body = JSON.parse(String(init?.body)) as {
+					id: unknown;
+					method: string;
+				};
+				methods.push(body.method);
+				if (body.method === "server/discover")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: {
+							resultType: "complete",
+							supportedVersions: ["2026-07-28"],
+							capabilities: { extensions: {} },
+						},
+					});
+				return toolResponse(body.id);
+			},
+			headers: { Authorization: "Bearer test" },
+			timeoutMs: 1_000,
+			url: "https://example.com/mcp",
+			discoveryCache: {
+				read: () => cached,
+				write: (_url, protocol) =>
+					events.push(`write:${protocol.supportsTasks}`),
+				forget: () => events.push("forget"),
+			},
+		});
+		return { client, methods, events };
+	}
+	const ok = (id: unknown) =>
+		Response.json({
+			jsonrpc: "2.0",
+			id,
+			result: { resultType: "complete", structuredContent: { ok: true } },
+		});
+
+	test("skips server/discover when a recent answer is cached", async () => {
+		const { client, methods, events } = cachingClient(
+			{ supportsTasks: false },
+			ok,
+		);
+		expect(await client.callTool<{ ok: boolean }>("probe", {})).toEqual({
+			ok: true,
+		});
+		expect(methods).toEqual(["tools/call"]);
+		expect(events).toEqual([]);
+	});
+
+	test("stores a fresh discovery answer", async () => {
+		const { client, methods, events } = cachingClient(undefined, ok);
+		await client.callTool("probe", {});
+		expect(methods).toEqual(["server/discover", "tools/call"]);
+		expect(events).toEqual(["write:false"]);
+	});
+
+	test("forgets a cached answer when the call fails", async () => {
+		const { client, events } = cachingClient({ supportsTasks: false }, (id) =>
+			Response.json({
+				jsonrpc: "2.0",
+				id,
+				result: { resultType: "task", taskId: "t", status: "working" },
+			}),
+		);
+		await expect(client.callTool("probe", {})).rejects.toThrow();
+		expect(events).toEqual(["forget"]);
+	});
+});
