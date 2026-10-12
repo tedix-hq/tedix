@@ -5,7 +5,7 @@
  */
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAgentContext } from "../agent-context";
 import { IS_STANDALONE_BUILD } from "../shared";
@@ -96,12 +96,26 @@ export function hostEvent(
 }
 
 /**
+ * True for a Codex side thread that Codex never saves: a prompt suggestion or
+ * memory consolidation forked from a chat. It names no transcript, or its
+ * parent's rollout, whose file name carries the parent's thread id rather
+ * than its own. Callers have already established the event is from Codex.
+ */
+export function codexSideThread(event: JsonObject): boolean {
+	const transcript = event.transcript_path;
+	if (transcript === null) return true;
+	if (typeof transcript !== "string" || typeof event.session_id !== "string")
+		return false;
+	const file = basename(transcript);
+	return file.startsWith("rollout-") && !file.includes(event.session_id);
+}
+
+/**
  * True for a run nobody is attending, so no question can be put to a person:
  * `claude -p` and the Agent SDK (CLAUDE_CODE_SESSION_ATTENDED=0), and
  * `codex exec`, whose rollout transcript opens with session_meta
  * `"source":"exec"` (Codex hooks carry no environment or payload flag for it),
- * and Codex side threads it never saves (prompt suggestions, memory
- * consolidation), whose transcript_path is null.
+ * and Codex side threads (`codexSideThread`).
  */
 export function unattendedRun(
 	event: JsonObject,
@@ -109,7 +123,7 @@ export function unattendedRun(
 ): boolean {
 	if (env.CLAUDE_CODE_SESSION_ATTENDED === "0") return true;
 	const transcript = event.transcript_path;
-	if (event.turn_id !== undefined && transcript === null) return true;
+	if (event.turn_id !== undefined && codexSideThread(event)) return true;
 	if (
 		event.turn_id === undefined ||
 		typeof transcript !== "string" ||

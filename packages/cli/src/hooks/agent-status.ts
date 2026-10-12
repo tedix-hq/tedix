@@ -30,6 +30,7 @@ import { looksLikeUuid } from "../shared";
 import {
 	AGENT_IDENTITY_ENV,
 	captureOwnsStop,
+	codexSideThread,
 	isObject,
 	isoSeconds,
 	type JsonObject,
@@ -448,9 +449,19 @@ export function transition(
 }
 
 export function harnessOf(event: JsonObject, env: NodeJS.ProcessEnv): string {
-	return (event.turn_id !== undefined && event.turn_id !== null) ||
+	if (
+		(event.turn_id !== undefined && event.turn_id !== null) ||
 		env.CODEX_THREAD_ID ||
 		env.CODEX_SESSION_ID
+	)
+		return "codex";
+	// Codex SessionEnd carries no turn_id. Its transcript is a `rollout-*.jsonl`
+	// file, or null for a side thread Codex never saves; Claude Code always
+	// names a `<session>.jsonl` transcript.
+	const transcript = event.transcript_path;
+	return transcript === null ||
+		(typeof transcript === "string" &&
+			/^rollout-.*\.jsonl$/.test(basename(transcript)))
 		? "codex"
 		: "claude-code";
 }
@@ -741,9 +752,9 @@ function recordStatus(
 	sessionKey: string,
 	[state, summary]: Outcome,
 ): void {
-	// Codex side threads it never saves (prompt suggestions, memory
-	// consolidation) carry a null transcript_path; they are not owner sessions.
-	if (harness === "codex" && event.transcript_path === null) return;
+	// Codex side threads (prompt suggestions, memory consolidation) are not
+	// sessions the owner started.
+	if (harness === "codex" && codexSideThread(event)) return;
 	const { env } = deps;
 	const directory = statusDir(env);
 	const path = join(directory, `${harness}-${sessionKey}.json`);
