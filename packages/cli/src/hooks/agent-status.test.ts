@@ -388,6 +388,18 @@ describe("tedix hooks status", () => {
 		expect(harnessOf({}, { CODEX_THREAD_ID: SESSION })).toBe("codex");
 	});
 
+	test("an unsaved Codex side thread is not a session", async () => {
+		enable();
+		for (const name of ["UserPromptSubmit", "Stop"])
+			await fire(name, {
+				turn_id: "turn-1",
+				transcript_path: null,
+				last_assistant_message: '{"suggestion":"Carry on"}',
+			});
+		expect(state("codex")).toBeUndefined();
+		expect(reports()).toEqual([]);
+	});
+
 	test("the hook command swallows failures silently", async () => {
 		enable();
 		const previous = process.env.TEDIX_CONFIG_DIR;

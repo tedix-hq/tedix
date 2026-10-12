@@ -741,6 +741,9 @@ function recordStatus(
 	sessionKey: string,
 	[state, summary]: Outcome,
 ): void {
+	// Codex side threads it never saves (prompt suggestions, memory
+	// consolidation) carry a null transcript_path; they are not owner sessions.
+	if (harness === "codex" && event.transcript_path === null) return;
 	const { env } = deps;
 	const directory = statusDir(env);
 	const path = join(directory, `${harness}-${sessionKey}.json`);

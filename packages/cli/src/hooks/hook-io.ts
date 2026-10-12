@@ -99,7 +99,9 @@ export function hostEvent(
  * True for a run nobody is attending, so no question can be put to a person:
  * `claude -p` and the Agent SDK (CLAUDE_CODE_SESSION_ATTENDED=0), and
  * `codex exec`, whose rollout transcript opens with session_meta
- * `"source":"exec"` (Codex hooks carry no environment or payload flag for it).
+ * `"source":"exec"` (Codex hooks carry no environment or payload flag for it),
+ * and Codex side threads it never saves (prompt suggestions, memory
+ * consolidation), whose transcript_path is null.
  */
 export function unattendedRun(
 	event: JsonObject,
@@ -107,6 +109,7 @@ export function unattendedRun(
 ): boolean {
 	if (env.CLAUDE_CODE_SESSION_ATTENDED === "0") return true;
 	const transcript = event.transcript_path;
+	if (event.turn_id !== undefined && transcript === null) return true;
 	if (
 		event.turn_id === undefined ||
 		typeof transcript !== "string" ||
