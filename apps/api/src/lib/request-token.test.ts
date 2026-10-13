@@ -10,7 +10,7 @@ describe("extractRequestToken", () => {
 		expect(extractRequestToken((name) => headers.get(name))).toBe("api-token");
 	});
 
-	it("uses the canonical DS cookie before the legacy id_token cookie", () => {
+	it("uses the canonical DS cookie when a legacy cookie is also present", () => {
 		const headers = new Headers({
 			Cookie: "id_token=legacy-token; DS=session-token",
 		});
@@ -19,12 +19,12 @@ describe("extractRequestToken", () => {
 		);
 	});
 
-	it("retains the legacy cookie only as an explicit compatibility input", () => {
+	it("rejects the legacy id_token cookie", () => {
 		expect(
 			extractRequestToken((name) =>
 				new Headers({ Cookie: "id_token=legacy-token" }).get(name),
 			),
-		).toBe("legacy-token");
+		).toBeNull();
 	});
 
 	it("rejects malformed and absent credentials", () => {

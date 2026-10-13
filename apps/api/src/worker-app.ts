@@ -850,7 +850,7 @@ app.get("/skill-media/:runId/:path{.+}", async (c) => {
  * Session-authed media read — the foundation for Tedix OS inline rendering
  * of generated media in durable transcripts. Same decoded-media streaming as
  * /skill-media, but gated by the user's Descope SESSION (Bearer JWT *or* the
- * `DS`/`id_token` cookie) + org-ownership of the run — NOT a bearer token.
+ * `DS` cookie) + org-ownership of the run — NOT a bearer token.
  *
  * Because it accepts the session cookie, a browser `<img>`/`<video>` tag can
  * point straight at this stable path and render it on every scrollback without
@@ -862,7 +862,7 @@ app.get("/skill-runs/:runId/media/:path{.+}", async (c) => {
 	const runId = c.req.param("runId");
 	const path = c.req.param("path");
 
-	// --- Session auth: Bearer JWT or browser session cookie (DS / id_token) ---
+	// --- Session auth: Bearer JWT or browser session cookie (DS) ---
 	const { extractRequestToken } = await import("./lib/request-token");
 	const { validateToken } = await import("@tedix/auth/jwt");
 	const token = extractRequestToken((name) => c.req.header(name));
@@ -945,7 +945,7 @@ app.get("/skill-runs/:runId/media/:path{.+}", async (c) => {
 /**
  * Tedix OS output exports: stream a governed PDF/PNG produced by
  * `osWorkspaces.outputs.export` from R2. Auth mirrors /skill-runs media above:
- * Bearer JWT or browser session cookie (DS / id_token), org resolved through
+ * Bearer JWT or browser session cookie (DS), org resolved through
  * the membership-gated `resolveMediaRouteOrgId`, and the output must belong to
  * the caller's org — a foreign output id is indistinguishable from "not
  * found". The R2 key embeds the resolved org id, so a caller can never address
