@@ -431,6 +431,26 @@ describe("callWorkersAi over the gateway", () => {
 		expect((error as Error).message).toContain("503 Service Unavailable");
 		expect((error as Error).message).not.toContain("sent body:");
 	});
+
+	it("names a rejected provider credential on 401 / code 2009", async () => {
+		globalThis.fetch = vi.fn(
+			async () =>
+				new Response(
+					'{"success":false,"errors":[{"code":2009,"message":"Unauthorized"}]}',
+					{ status: 401 },
+				),
+		) as unknown as typeof fetch;
+		const error = await callWorkersAi(
+			{ env: GATEWAY_ENV, authorize: passthrough },
+			"@cf/openai/gpt-oss-120b",
+			{ messages: [{ role: "user", content: "secret prompt" }] },
+		).catch((e: Error) => e);
+		expect((error as Error).message).toMatch(
+			/^workers-ai gateway @cf\/openai\/gpt-oss-120b: 401 .* — AI Gateway rejected the provider credential/,
+		);
+		expect((error as Error).message).toContain('"code":2009');
+		expect((error as Error).message).not.toContain("sent body:");
+	});
 });
 
 // ── binding fallback ─────────────────────────────────────────────────────────

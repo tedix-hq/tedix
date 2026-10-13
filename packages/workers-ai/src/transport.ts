@@ -43,6 +43,7 @@ import {
 import {
 	type AiGatewayTransport,
 	type ProviderBeforeDispatch,
+	aiGatewayHttpError,
 	assertProviderDispatchReady,
 	resolveAiGatewayTransport,
 } from "./gateway-transport";
@@ -350,13 +351,19 @@ async function callViaGateway(
 		// input" (8001) names nothing, and the same-shaped request succeeding
 		// from outside the Worker made a body-less error undiagnosable. The body
 		// is our own prompt + params — no credentials live in it.
+		// A rejected credential (401) is not the request's fault either.
 		const bodyHead =
-			response.status >= 400 && response.status < 500
+			response.status >= 400 && response.status < 500 && response.status !== 401
 				? ` — sent body: ${serialized.slice(0, 500)}`
 				: "";
-		throw new Error(
-			`workers-ai gateway ${modelId}: ${response.status} ${response.statusText}${detail ? ` — ${detail.slice(0, 300)}` : ""}${bodyHead}`,
+		const error = aiGatewayHttpError(
+			`workers-ai gateway ${modelId}`,
+			response.status,
+			response.statusText,
+			detail,
 		);
+		error.message += bodyHead;
+		throw error;
 	}
 	const data = (await response.json()) as OpenAiChatResponse;
 	const message = data.choices?.[0]?.message;

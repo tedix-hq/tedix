@@ -72,6 +72,9 @@ const NON_RETRYABLE_PATTERNS: ReadonlyArray<
 	[/\bpermission[_ ]denied\b/i, "auth"],
 	[/\bforbidden\b/i, "auth"],
 	[/\baccess denied\b/i, "auth"],
+	// AI Gateway provider-credential rejection (401 / Cloudflare code 2009)
+	[/\brejected the provider credential\b/i, "auth"],
+	[/"code"\s*:\s*2009\b/, "auth"],
 	// Deterministic request faults
 	[/\binvalid[_ ]request[_ ]error\b/i, "bad_request"],
 	[/\bunsupported[_ ](?:value|parameter)\b/i, "bad_request"],
