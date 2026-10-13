@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.16
+
+### Patch Changes
+
+- a2633c6: Use the requested agent harness's native session ID during agent bootstrap, preserving explicit session overrides and refusing mismatched or missing identities before credential exchange. A Codex worker launched from Claude no longer registers under the launcher's Claude session.
+- 7f1a27e: Renew a stored login in a detached process, so a command killed during renewal (for example by a hook deadline) no longer loses the rotated refresh token and logs out every session on the machine. The renewal deadline now also covers the response body.
+- bced0f9: `tedix learn analyze-sessions` no longer reports polling loops (`until … sleep`, `gh run watch`, `--watch`) as long stalls, and names a command that starts with a variable assignment by the command it runs instead of "shell". `tedix -w <workspace> learn …` now says to put options after `learn` instead of failing with "Unknown option".
+- c30b700: `tedix update` and `install.sh` now retry release metadata reads and binary downloads up to 3 times on connection, DNS, timeout and 5xx failures, and on final failure name the failing URL, the error class and a next step instead of "Unable to connect".
+- 17bb9db: `tedix work context --json` now includes the Work Item's project name and brief.
+
 ## 0.8.15
 
 ### Patch Changes
