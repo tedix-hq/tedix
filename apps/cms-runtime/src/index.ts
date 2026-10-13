@@ -250,11 +250,19 @@ export class EmDashDB extends EmdashSqlDB {
 			this.ctx.id.toString() !== env.DB_DO.idFromName(identity.slug).toString()
 		)
 			throw new CmsRestoreFenceUnavailableError();
+		const queries = this.databasePermits.forRequest((task) =>
+			this.ctx.waitUntil(task),
+		);
 		const result = await withCmsRestorePermit(
 			createDbQueryClient(env.PLATFORM_DB),
 			identity,
 			run,
-			this.databasePermits.forRequest((task) => this.ctx.waitUntil(task)),
+			{
+				// Publish the cold reservation before the next caller enters.
+				enter: (db, permit) =>
+					this.ctx.blockConcurrencyWhile(() => queries.enter(db, permit)),
+				leave: queries.leave,
+			},
 		);
 		if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
 		return result.value;

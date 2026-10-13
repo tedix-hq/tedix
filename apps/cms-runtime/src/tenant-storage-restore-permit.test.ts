@@ -201,6 +201,22 @@ describe("nested tenant storage restore permits", () => {
 		).resolves.toMatchObject({ rows: [{ n: 100 }] });
 	});
 
+	test("concurrent SQL mutations share one coordinator reservation", async () => {
+		const identity = await site();
+		await Promise.all(
+			Array.from({ length: 100 }, (_, i) =>
+				tenantDb(identity, {}).query(
+					"INSERT INTO content (id, title) VALUES (?, ?)",
+					[i, "burst"],
+				),
+			),
+		);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
+		await expect(
+			tenantDb(identity, {}).query("SELECT COUNT(*) AS n FROM content"),
+		).resolves.toMatchObject({ rows: [{ n: 100 }] });
+	});
+
 	test("coordinator rejects a mismatched site before admission", async () => {
 		const identity = await site();
 		const namespace = (
