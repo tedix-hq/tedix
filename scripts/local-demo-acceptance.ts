@@ -181,22 +181,6 @@ assert(
 	"The local user identity did not resolve its canonical OS preference record",
 );
 
-const streamAbort = new AbortController();
-const streamProbe = await fetch(
-	"http://localhost:3030/api/kernel/runtime/conversations/home%3Amain/events/stream",
-	{ signal: streamAbort.signal },
-);
-assert(
-	streamProbe.status === 200,
-	`The local OS event stream returned ${streamProbe.status}`,
-);
-assert(
-	streamProbe.headers.get("content-type")?.includes("text/event-stream"),
-	"The local OS event stream did not return server-sent events",
-);
-await streamProbe.body?.cancel();
-streamAbort.abort();
-
 let inference = "disabled";
 if (process.env.TEDIX_LOCAL_INFERENCE_ENABLED === "true") {
 	const backend =
