@@ -3,7 +3,8 @@
  * Audit or reconcile the complete Tedix Stripe Billing projection.
  *
  * Dry-run (default), from apps/api with STRIPE_TEST_SECRET_KEY (or
- * STRIPE_SECRET_KEY with --live) set in the environment:
+ * STRIPE_SECRET_KEY with --live) set in the environment, lists the plan prices
+ * an apply would create:
  *   bun run scripts/billing/reconcile-stripe.ts
  *
  * Apply missing resources/configuration:
@@ -55,11 +56,21 @@ const webhookUrl = `${apiUrl}/webhooks/stripe${stripeEnvironment === "test" ? "/
 const osUrl = requiredEnv("TEDIX_OS_URL");
 const meterEventName = "token_usage";
 const expectedStripeAccountId = requiredEnv("STRIPE_EXPECTED_ACCOUNT_ID");
-const catalogVersion = 3;
+const catalogVersion = 4;
+const planCurrency = "eur";
 const managedMetadata = {
 	tedix_managed: "true",
 	tedix_catalog_version: String(catalogVersion),
 };
+// The USD metered overage price predates catalog v4 and keeps its v3 key for
+// existing subscriptions; the EUR plans do not sell overage.
+const overageLookupKey = "tedix_token_overage_v3";
+const overageMetadata = {
+	tedix_managed: "true",
+	tedix_catalog_version: "3",
+	tedix_usage: "token_overage",
+};
+const missingPrices: string[] = [];
 const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
 	[
 		"checkout.session.completed",
@@ -71,27 +82,25 @@ const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
 		"invoice.payment_failed",
 	];
 
+// Annual = 10 months. Amounts are tax-exclusive euro cents.
 const plans = [
 	{
 		key: "growth",
 		name: "Tedix Growth",
-		monthlyAmount: 24_900,
-		annualAmount: 239_900,
-		overage: true,
+		monthlyAmount: 20_000,
+		annualAmount: 200_000,
 	},
 	{
 		key: "business",
 		name: "Tedix Business",
-		monthlyAmount: 49_900,
-		annualAmount: 479_900,
-		overage: true,
+		monthlyAmount: 50_000,
+		annualAmount: 500_000,
 	},
 	{
 		key: "enterprise",
 		name: "Tedix Enterprise",
-		monthlyAmount: 99_900,
-		annualAmount: 959_900,
-		overage: false,
+		monthlyAmount: 100_000,
+		annualAmount: 1_000_000,
 	},
 ] as const;
 
@@ -139,11 +148,7 @@ async function ensureProduct(
 			(key === "token_overage" && product.name === "Tedix Token Overage"),
 	);
 	if (existing) {
-		if (
-			existing.name !== name ||
-			existing.metadata.tedix_managed !== "true" ||
-			existing.metadata.tedix_catalog_version !== String(catalogVersion)
-		) {
+		if (existing.name !== name || existing.metadata.tedix_managed !== "true") {
 			if (!apply) {
 				throw new Error(`Stripe product needs reconciliation: ${existing.id}`);
 			}
@@ -171,7 +176,7 @@ async function ensureLicensedPrice(input: {
 	planKey: string;
 	interval: "month" | "year";
 	unitAmount: number;
-}): Promise<Stripe.Price> {
+}): Promise<Stripe.Price | null> {
 	const lookupKey = `tedix_${input.planKey}_${input.interval}_v${catalogVersion}`;
 	const prices = await stripe.prices.list({
 		product: input.productId,
@@ -183,15 +188,18 @@ async function ensureLicensedPrice(input: {
 			price.lookup_key === lookupKey ||
 			(price.recurring?.interval === input.interval &&
 				price.recurring.usage_type === "licensed" &&
-				price.currency === "usd" &&
+				price.currency === planCurrency &&
 				price.unit_amount === input.unitAmount),
 	);
 	if (existing) return existing;
-	if (!apply) throw new Error(`Missing Stripe price: ${lookupKey}`);
+	if (!apply) {
+		missingPrices.push(lookupKey);
+		return null;
+	}
 	return stripe.prices.create(
 		{
 			product: input.productId,
-			currency: "usd",
+			currency: planCurrency,
 			unit_amount: input.unitAmount,
 			recurring: { interval: input.interval, usage_type: "licensed" },
 			lookup_key: lookupKey,
@@ -283,26 +291,25 @@ async function ensureOveragePrice(
 				},
 				transform_quantity: { divide_by: 1_000, round: "up" },
 				nickname: "Tedix token overage - $0.05/1K tokens",
-				lookup_key: `tedix_token_overage_v${catalogVersion}`,
-				metadata: { ...managedMetadata, tedix_usage: "token_overage" },
+				lookup_key: overageLookupKey,
+				metadata: overageMetadata,
 			},
 			{
-				idempotencyKey: `tedix:billing:v${catalogVersion}:price:token_overage`,
+				idempotencyKey: "tedix:billing:v3:price:token_overage",
 			},
 		);
 	}
 	if (
-		existing.lookup_key !== `tedix_token_overage_v${catalogVersion}` ||
-		existing.metadata.tedix_managed !== "true" ||
-		existing.metadata.tedix_catalog_version !== String(catalogVersion)
+		existing.lookup_key !== overageLookupKey ||
+		existing.metadata.tedix_managed !== "true"
 	) {
 		if (!apply) {
 			throw new Error(`Stripe overage price needs metadata: ${existing.id}`);
 		}
 		return stripe.prices.update(existing.id, {
 			nickname: "Tedix token overage - $0.05/1K tokens",
-			lookup_key: `tedix_token_overage_v${catalogVersion}`,
-			metadata: { ...managedMetadata, tedix_usage: "token_overage" },
+			lookup_key: overageLookupKey,
+			metadata: overageMetadata,
 		});
 	}
 	return existing;
@@ -373,12 +380,7 @@ async function ensurePortalConfiguration(): Promise<Stripe.BillingPortal.Configu
 		metadata: managedMetadata,
 	};
 	if (existing) {
-		if (
-			existing.default_return_url === osUrl &&
-			existing.metadata.tedix_catalog_version === String(catalogVersion)
-		) {
-			return existing;
-		}
+		if (existing.default_return_url === osUrl) return existing;
 		if (!apply) {
 			throw new Error(`Stripe portal needs reconciliation: ${existing.id}`);
 		}
@@ -419,9 +421,8 @@ async function main() {
 		catalog.push({
 			planKey: plan.key,
 			productId: product.id,
-			monthlyPriceId: monthlyPrice.id,
-			annualPriceId: annualPrice.id,
-			overagePriceId: plan.overage ? overagePrice.id : null,
+			monthlyPriceId: monthlyPrice?.id ?? null,
+			annualPriceId: annualPrice?.id ?? null,
 		});
 	}
 	const capacityCatalog = [];
@@ -464,6 +465,7 @@ async function main() {
 				portalConfigurationId: portal.id,
 				catalog,
 				capacityCatalog,
+				missingPrices,
 			},
 			null,
 			2,

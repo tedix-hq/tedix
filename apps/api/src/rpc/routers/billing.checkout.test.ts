@@ -121,10 +121,10 @@ describe("subscription checkout", () => {
 			expect(result.stripeEnvironment).toBe(mode);
 			expect(
 				stripe.prices.list.mock.calls.map(([params]) => params.lookup_keys),
-			).toEqual([["tedix_growth_year_v3"], ["tedix_token_overage_v3"]]);
+			).toEqual([["tedix_growth_year_v4"], ["tedix_token_overage_v3"]]);
 			const [params] = stripe.checkout.sessions.create.mock.calls[0];
 			expect(params.line_items).toEqual([
-				{ price: "price_for_tedix_growth_year_v3", quantity: 1 },
+				{ price: "price_for_tedix_growth_year_v4", quantity: 1 },
 				{ price: "price_for_tedix_token_overage_v3" },
 			]);
 		});
@@ -156,10 +156,10 @@ describe("subscription checkout", () => {
 
 		expect(
 			stripe.prices.list.mock.calls.map(([params]) => params.lookup_keys),
-		).toEqual([["tedix_enterprise_month_v3"]]);
+		).toEqual([["tedix_enterprise_month_v4"]]);
 		const [params] = stripe.checkout.sessions.create.mock.calls[0];
 		expect(params.line_items).toEqual([
-			{ price: "price_for_tedix_enterprise_month_v3", quantity: 1 },
+			{ price: "price_for_tedix_enterprise_month_v4", quantity: 1 },
 		]);
 	});
 
@@ -173,7 +173,7 @@ describe("subscription checkout", () => {
 		await expect(
 			client.createCheckout({ tier: "business", interval: "month" }),
 		).rejects.toThrow(
-			"Stripe has no active price with lookup key tedix_business_month_v3",
+			"Stripe has no active price with lookup key tedix_business_month_v4",
 		);
 		expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
 	});
