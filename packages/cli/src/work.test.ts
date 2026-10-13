@@ -2428,7 +2428,33 @@ describe("heartbeat watch rate-pressure recovery", () => {
 		expect(sources).toHaveLength(2);
 		expect(attemptStore.get(key)).toBe("replacement");
 	});
-	test.each([403, 409, 503])(
+	test.each([
+		["HTTP 503", { code: "SERVICE_UNAVAILABLE", status: 503, message: "down" }],
+		["a call timeout", new Error("Native call deadline elapsed")],
+	])("retries %s after a confirmed renewal", async (_label, failure) => {
+		let now = 0,
+			calls = 0;
+		const waits: number[] = [];
+		const { ctx, sources } = makeContext({ watch: 100 }, ATTEMPT, () => {
+			if (++calls !== 2)
+				return { expiresAt: new Date(now + 300_000).toISOString() };
+			if (failure instanceof Error) throw failure;
+			return failure;
+		});
+		ctx.heartbeatClock = {
+			now: () => now,
+			wait: async (ms) => {
+				waits.push(ms);
+				now += ms;
+			},
+		};
+		const result = await capture(`heartbeat ${ITEM}`, ctx);
+		expect(result.code).toBe(0);
+		expect(waits).toEqual([30_000, 5_000, 30_000, 30_000, 5_000]);
+		expect(sources).toHaveLength(5);
+		expect(result.err.join("\n")).toContain("reached its 100 s horizon");
+	});
+	test.each([403, 409])(
 		"does not retry non-rate HTTP%s after a confirmed renewal",
 		async (status) => {
 			let now = 0,
