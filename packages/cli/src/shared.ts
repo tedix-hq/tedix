@@ -6,6 +6,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { InspectViewOptions } from "./format";
 import type { InteractiveOAuthScopeProfile } from "./oauth-provider";
@@ -28,6 +29,15 @@ export const CLI_VERSION = ((): string => {
 		return "0.0.0";
 	}
 })();
+
+/** This CLI as an executable plus leading arguments (source checkouts run through Bun). */
+export function selfCommand(): [string, string[]] {
+	if (IS_STANDALONE_BUILD) return [process.execPath, []];
+	return [
+		process.execPath,
+		[fileURLToPath(new URL("./index.ts", import.meta.url))],
+	];
+}
 
 export interface AuthResolution {
 	cleanup?: () => Promise<void>;

@@ -8,6 +8,7 @@ import { type AvailableWorkspace, listAvailableWorkspaces } from "./account";
 import { selectWorkspaceInBrowser } from "./browser-workspace-selection";
 import {
 	printAuthStatus,
+	renewStoredLogin,
 	requireExplicitTedixLoginTenant,
 	resolveAuth,
 	resolveLoginWorkspaceName,
@@ -285,6 +286,13 @@ async function main() {
 	// browser flow; auth status / workspaces inspect local state without printing
 	// secrets; use switches the current workspace.
 	if (command === "auth") {
+		// Internal: the detached renewer started by renewStoredSession.
+		if (options.prompt?.trim() === "renew") {
+			process.stdout.write(
+				`${await renewStoredLogin(resolveWorkspaceName(options))}\n`,
+			);
+			return;
+		}
 		if ((options.prompt ?? "status").trim() !== "status") {
 			throw new Error(
 				`Unknown auth command "${options.prompt}". Usage: tedix auth status`,

@@ -10,9 +10,9 @@ import {
 	scopesBeyondGrant,
 	validatedLoginTenant,
 } from "./oauth-tenant";
-import { CLI_VERSION } from "./shared";
+import { CLI_VERSION, selfCommand } from "./shared";
 import { decodeUnverifiedJwtClaims } from "@tedix/auth/web";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	auth,
 	discoverOAuthProtectedResourceMetadata,
@@ -709,7 +709,7 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 	 * concrete provider (see TedixHomeClient.callTool).
 	 */
 	async refreshSession(): Promise<SessionRefreshOutcome> {
-		return refreshStoredSession(this, { workspace: this.#options.workspace });
+		return renewStoredSession(this, { workspace: this.#options.workspace });
 	}
 
 	credential(): WorkspaceCredential {
@@ -860,6 +860,7 @@ export async function refreshStoredSession(
 	let outcome: SessionRefreshOutcome = "failed";
 	let correlationId: string | undefined;
 	let expectedCredential: WorkspaceCredential | undefined;
+	let timer: ReturnType<typeof setTimeout> | undefined;
 	const finish = (value: SessionRefreshOutcome) => {
 		outcome = value;
 		return value;
@@ -885,17 +886,19 @@ export async function refreshStoredSession(
 			return finish("unavailable");
 		const resource = provider.resourceUrl();
 		const fetchFn = options.fetchFn ?? fetch;
+		// One deadline for the whole exchange, response body included: a body that
+		// stalls after the server rotated the token must not hold the lock forever.
+		const controller = new AbortController();
+		timer = setTimeout(
+			() => controller.abort(new Error("OAuth session refresh timed out")),
+			options.timeoutMs ?? SESSION_REFRESH_TIMEOUT_MS,
+		);
 		const boundedFetch: FetchLike = async (input, init) => {
-			const controller = new AbortController();
 			const upstreamSignal = init?.signal;
 			const forwardAbort = () => controller.abort(upstreamSignal?.reason);
 			if (upstreamSignal?.aborted) forwardAbort();
 			else
 				upstreamSignal?.addEventListener("abort", forwardAbort, { once: true });
-			const timer = setTimeout(
-				() => controller.abort(new Error("OAuth session refresh timed out")),
-				options.timeoutMs ?? SESSION_REFRESH_TIMEOUT_MS,
-			);
 			try {
 				let body = init?.body;
 				// RFC 6749 permits a refresh request to narrow but never widen the
@@ -919,7 +922,6 @@ export async function refreshStoredSession(
 					correlationId = requestId;
 				return response;
 			} finally {
-				clearTimeout(timer);
 				upstreamSignal?.removeEventListener("abort", forwardAbort);
 			}
 		};
@@ -1021,6 +1023,7 @@ export async function refreshStoredSession(
 		}
 		return finish("failed");
 	} finally {
+		clearTimeout(timer);
 		lock?.release();
 		if (process.env.TEDIX_DEBUG)
 			console.error(
@@ -1036,4 +1039,80 @@ export async function refreshStoredSession(
 				}),
 			);
 	}
+}
+
+const SESSION_REFRESH_OUTCOMES = new Set<string>([
+	"refreshed",
+	"not-needed",
+	"unavailable",
+	"invalidated",
+	"scope-expanded",
+	"failed",
+]);
+
+/** Covers the renewer's lock wait, its bounded request and process start. */
+export const DETACHED_RENEWAL_WAIT_MS = 60_000;
+
+/**
+ * Renew in a detached `tedix auth renew` process, then adopt its result from
+ * disk. Hosts and hooks kill CLI process groups on deadlines (hook reads send
+ * SIGKILL 100 ms after SIGTERM). A process killed after the authorization
+ * server rotated the refresh token but before it saved the new one loses the
+ * only valid token; the next renewal presents the superseded one and the whole
+ * family is invalidated for every session on the machine. That is what logged
+ * out the night shift on 2026-10-13: a prompt-context hook was cancelled while
+ * renewing. The lock already serialises renewals; the renewer's own process
+ * group is what lets the rotation survive the caller.
+ */
+export async function renewStoredSession(
+	provider: WorkspaceOAuthProvider,
+	options: {
+		workspace?: string;
+		command?: [string, string[]];
+		waitMs?: number;
+	} = {},
+): Promise<SessionRefreshOutcome> {
+	const { workspace } = options;
+	if (!workspace) return refreshStoredSession(provider);
+	const [command, prefix] = options.command ?? selfCommand();
+	const child = spawn(
+		command,
+		[...prefix, "auth", "renew", "--workspace", workspace],
+		{
+			detached: process.platform !== "win32",
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
+	let stdout = "";
+	let stderr = "";
+	child.stdout.on("data", (chunk: Buffer) => {
+		stdout += chunk;
+	});
+	child.stderr.on("data", (chunk: Buffer) => {
+		stderr += chunk;
+	});
+	const exited = await new Promise<boolean>((resolve) => {
+		const timer = setTimeout(
+			() => resolve(false),
+			options.waitMs ?? DETACHED_RENEWAL_WAIT_MS,
+		);
+		child.once("error", () => {
+			clearTimeout(timer);
+			resolve(false);
+		});
+		child.once("close", () => {
+			clearTimeout(timer);
+			resolve(true);
+		});
+	});
+	// A renewer that outlives the wait keeps running and saves its result.
+	child.unref();
+	child.stdout.destroy();
+	child.stderr.destroy();
+	if (stderr) process.stderr.write(stderr);
+	const outcome = stdout.trim();
+	if (!exited || !SESSION_REFRESH_OUTCOMES.has(outcome)) return "failed";
+	if (outcome === "refreshed" || outcome === "not-needed")
+		provider.reloadCredential(readWorkspaceCredentials(workspace) ?? undefined);
+	return outcome as SessionRefreshOutcome;
 }

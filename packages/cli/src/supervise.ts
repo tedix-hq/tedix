@@ -88,9 +88,9 @@ import {
 	isoSeconds,
 	type JsonObject,
 	type ReadJson,
-	selfCommand,
 	UUID,
 } from "./hooks/hook-io";
+import { selfCommand } from "./shared";
 
 /**
  * True for a path in a folder macOS privacy protection (TCC) guards. The

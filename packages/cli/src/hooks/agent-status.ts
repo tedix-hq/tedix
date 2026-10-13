@@ -26,7 +26,7 @@ import {
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
 import { resolveAgentContext } from "../agent-context";
-import { looksLikeUuid } from "../shared";
+import { looksLikeUuid, selfCommand } from "../shared";
 import {
 	AGENT_IDENTITY_ENV,
 	captureOwnsStop,
@@ -35,7 +35,6 @@ import {
 	isoSeconds,
 	type JsonObject,
 	PROFILE,
-	selfCommand,
 } from "./hook-io";
 
 /**

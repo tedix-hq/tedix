@@ -24,6 +24,8 @@ import {
 	TEDIX_OAUTH_CLIENT_ID,
 	WorkspaceOAuthProvider,
 	refreshStoredSession,
+	renewStoredSession,
+	type SessionRefreshOutcome,
 	sessionNeedsRefresh,
 } from "./oauth-provider";
 import type { AuthResolution, CliOptions } from "./shared";
@@ -87,7 +89,7 @@ export async function resolveStoredLoginAuth(
 	workspace: string,
 	options: {
 		credential?: ReturnType<typeof readWorkspaceCredentials>;
-		refreshSession?: typeof refreshStoredSession;
+		refreshSession?: typeof renewStoredSession;
 	} = {},
 ): Promise<{
 	auth: AuthResolution | null;
@@ -143,7 +145,7 @@ export async function resolveStoredLoginAuth(
 	// rotate, and presenting one a sibling process already superseded is what
 	// invalidates the whole family.
 	if (sessionNeedsRefresh(cred)) {
-		const outcome = await (options.refreshSession ?? refreshStoredSession)(
+		const outcome = await (options.refreshSession ?? renewStoredSession)(
 			oauthProvider,
 			{ workspace },
 		);
@@ -169,6 +171,18 @@ export async function resolveStoredLoginAuth(
 			source: `stored-login:${workspace}`,
 		},
 	};
+}
+
+/** `tedix auth renew`: the detached renewer behind renewStoredSession. */
+export async function renewStoredLogin(
+	workspace: string,
+): Promise<SessionRefreshOutcome> {
+	let outcome: SessionRefreshOutcome = "not-needed";
+	const { auth } = await resolveStoredLoginAuth(workspace, {
+		refreshSession: async (provider, options) =>
+			(outcome = await refreshStoredSession(provider, options)),
+	});
+	return auth || outcome !== "not-needed" ? outcome : "unavailable";
 }
 
 /**
