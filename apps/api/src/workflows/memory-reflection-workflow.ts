@@ -44,7 +44,6 @@ import {
 import { searchFacts } from "@tedix/db/queries/memory-graph/fact-search";
 import { getFactById } from "@tedix/db/queries/memory-graph/facts";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
-import { type KernelEnv, kernelModel } from "../rpc/routers/kernel/llm";
 import { mineHomeOperatorDecisions } from "../services/home-reflection-producer";
 import {
 	clefLessonRouter,
@@ -52,7 +51,10 @@ import {
 } from "../services/learning-feed-miner";
 import { gradeRecentKernelRoutes } from "../services/kernel-route-eval";
 import { retireIneffectiveLessons } from "../services/lesson-effectiveness";
-import { modelLessonDistiller } from "../services/lesson-distiller";
+import {
+	modelLessonDistiller,
+	runDistillModel,
+} from "../services/lesson-distiller";
 import {
 	distillOwnerIncrementally,
 	distillPersonalLessons,
@@ -707,9 +709,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 	 *   5. One small LLM call per tedi (<= CAPABILITY_DISTILL_MAX_TEDIS_PER_RUN
 	 *      per cycle; input capped at CAPABILITY_DISTILL_EVIDENCE_ROW_CAP rows,
 	 *      objectives truncated to CAPABILITY_DISTILL_OBJECTIVE_CHARS chars)
-	 *      via the same provider-aware `kernelModel` path every secondary
-	 *      kernel LLM surface rides, then an idempotent upsert of the
-	 *      `tcap:{tediId}` knowledge_entries row.
+	 *      on the platform's distiller model, then an idempotent upsert of the
+	 *      `tcap:{tediId}` knowledge_entries row. This is platform maintenance,
+	 *      so it is not billed to the tenant (like the lesson distiller).
 	 *
 	 * Per-tedi failures are logged and skipped; the caller wraps the whole
 	 * method fail-soft, so this can never fail the reflection workflow.
@@ -762,22 +764,6 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			return { written: 0, trace: `${traceBase} due=0 (profiles fresh)` };
 		}
 
-		// Provider-aware model (Azure via AI Gateway / Workers AI under the force
-		// flag) — same resolution every secondary kernel LLM surface uses. No
-		// model configured → skip silently (the card simply keeps its prior text).
-		const model = kernelModel(
-			this.env as unknown as KernelEnv,
-			undefined,
-			organizationId,
-		);
-		if (!model) {
-			console.log(
-				"[CapabilityFlywheel] skip (no kernel model configured)",
-				organizationId,
-			);
-			return { written: 0, trace: `${traceBase} due=${due.length} model=none` };
-		}
-
 		// Display names for the prompt (<= MAX_TEDIS ids — one bounded read).
 		const tediRows = await listTediDisplayNamesByIds(db, {
 			organizationId,
@@ -816,7 +802,6 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			}
 		}
 
-		const { tracedAi } = await import("../lib/traced-ai");
 		let written = 0;
 		const perTediErrors: string[] = [];
 		for (const evidence of due) {
@@ -832,45 +817,21 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 				// No resolvable objectives → nothing meaningful to summarize.
 				if (lines.length === 0) continue;
 
-				const abortController = new AbortController();
-				const timeoutId = setTimeout(
-					() => abortController.abort(),
-					CAPABILITY_DISTILL_TIMEOUT_MS,
-				);
-				let raw: string | undefined;
-				try {
-					const result = await tracedAi.generateText({
-						model: model.model,
+				const raw = await runDistillModel(
+					this.env,
+					buildCapabilityDistillationPrompt({
+						tediName: nameById.get(evidence.tediId) ?? evidence.tediId,
+						passed: evidence.passed,
+						total: evidence.total,
+						lines,
+					}),
+					{
 						system: CAPABILITY_DISTILL_SYSTEM_PROMPT,
-						runtimeContext: {
-							agentId: "memory-reflection",
-							conversationId: evidence.tediId,
-							orgId: organizationId,
-							source: "capability_distill",
-						},
-						telemetry: { functionId: "memory.capability_distill" },
-						messages: [
-							{
-								role: "user",
-								content: buildCapabilityDistillationPrompt({
-									tediName: nameById.get(evidence.tediId) ?? evidence.tediId,
-									passed: evidence.passed,
-									total: evidence.total,
-									lines,
-								}),
-							},
-						],
-						// Generous for 2-3 sentences, but reasoning-capable Workers AI
-						// models spend output budget before the visible text — a tight
-						// cap truncates to empty (conversation-title lesson).
-						maxOutputTokens: 512,
-						abortSignal: abortController.signal,
-					});
-					raw = result.text;
-				} finally {
-					clearTimeout(timeoutId);
-				}
-
+						maxTokens: 512,
+						timeoutMs: CAPABILITY_DISTILL_TIMEOUT_MS,
+						surface: "capability-distill",
+					},
+				);
 				const description = sanitizeLearnedDescription(raw);
 				if (!description) continue;
 
