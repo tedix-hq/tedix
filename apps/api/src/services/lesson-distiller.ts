@@ -242,11 +242,13 @@ export async function runDistillModel(
 		timeoutMs = DISTILL_TIMEOUT_MS,
 		surface = "learning-feed-distill",
 		model = DISTILL_MODEL,
+		system,
 	}: {
 		maxTokens?: number;
 		timeoutMs?: number;
 		surface?: string;
 		model?: string;
+		system?: string;
 	} = {},
 ): Promise<string | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -254,7 +256,10 @@ export async function runDistillModel(
 		const call = env.AI.run(
 			model as keyof AiModels,
 			{
-				messages: [{ role: "user", content: prompt }],
+				messages: [
+					...(system ? [{ role: "system", content: system }] : []),
+					{ role: "user", content: prompt },
+				],
 				max_tokens: maxTokens,
 				temperature: 0,
 			} as never,

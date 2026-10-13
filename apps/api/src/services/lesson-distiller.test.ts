@@ -6,6 +6,7 @@ import {
 	mergeRules,
 	modelLessonDistiller,
 	parseCitedRules,
+	runDistillModel,
 	supportedRules,
 } from "./lesson-distiller";
 
@@ -154,5 +155,22 @@ describe("modelLessonDistiller", () => {
 		expect(
 			await modelLessonDistiller({ AI: { run } } as never)(input),
 		).toBeNull();
+	});
+});
+
+describe("runDistillModel", () => {
+	it("sends an optional system prompt on the platform AI binding", async () => {
+		const run = vi.fn().mockResolvedValue({ response: "ok" });
+		const text = await runDistillModel({ AI: { run } } as never, "summarize", {
+			system: "be brief",
+			surface: "capability-distill",
+		});
+		expect(text).toBe("ok");
+		expect(run.mock.calls[0]?.[1]).toMatchObject({
+			messages: [
+				{ role: "system", content: "be brief" },
+				{ role: "user", content: "summarize" },
+			],
+		});
 	});
 });
