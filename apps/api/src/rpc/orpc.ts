@@ -1527,8 +1527,7 @@ async function authenticateUserJwt(
 	const token =
 		tokenOverride ||
 		extractBearerToken(context.headers.get("Authorization")) ||
-		extractTokenFromCookie(context.headers.get("Cookie"), "DS") ||
-		extractTokenFromCookie(context.headers.get("Cookie"), "id_token");
+		extractTokenFromCookie(context.headers.get("Cookie"), "DS");
 
 	if (!token) {
 		throw new Error("Missing authorization token");

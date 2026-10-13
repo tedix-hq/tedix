@@ -7,7 +7,6 @@ export function extractRequestToken(
 ): string | null {
 	return (
 		extractBearerToken(header("Authorization")) ??
-		extractTokenFromCookie(header("Cookie"), "DS") ??
-		extractTokenFromCookie(header("Cookie"), "id_token")
+		extractTokenFromCookie(header("Cookie"), "DS")
 	);
 }
