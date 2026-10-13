@@ -7,7 +7,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks session-start",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; v=$(tedix --version 2>/dev/null); [ \"$(printf '%s\\n' 0.8.17 \"$v\" | sort -V | head -n 1)\" = 0.8.17 ] || { echo \"Tedix preflight: CLI ${v:-unknown} is older than 0.8.17, which this plugin needs; run tedix update.\"; exit 0; }; tedix hooks session-start",
 						"timeout": 15,
 						"additionalContextLimit": 600,
 						"statusMessage": "Checking opt-in Tedix context"
