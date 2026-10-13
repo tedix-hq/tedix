@@ -62,7 +62,6 @@ import {
 	TediChannelStatusResponseSchema,
 	TediCronSyncResponseSchema,
 	TediDeviceListSchema,
-	TediDreamsSchema,
 	TediIdParamSchema,
 	TediIngestProjectionResponseSchema,
 	TediInitiateConnectionResponseSchema,
@@ -748,17 +747,6 @@ export const tedisContract = oc
 				}),
 			)
 			.output(z.object({ success: z.boolean() })),
-
-		getDreams: oc
-			.route({
-				method: "GET",
-				path: "/{tediId}/dreams",
-				summary: "Removed legacy dream diary",
-				description:
-					"The dream diary endpoint was removed. Use Agent-runtime memory, rationale, and cognitive-runtime readback instead.",
-			})
-			.input(TediIdParamSchema)
-			.output(TediDreamsSchema),
 
 		// =====================================================================
 		// DEVICE MANAGEMENT

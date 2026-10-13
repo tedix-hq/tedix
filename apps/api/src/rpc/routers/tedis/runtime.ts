@@ -411,16 +411,6 @@ export const getChannelStatus = authedTedisOs.getChannelStatus
 		}
 	});
 
-export const getDreamsProcedure = authedTedisOs.getDreams
-	.use(AUTHZ.tedisAppsRead)
-	.handler(async ({ input, context }) => {
-		await requireTediAccess(context, input.tediId);
-		throw createError(
-			ErrorCodes.BAD_REQUEST,
-			"The runtime dream diary was removed with the container runtime. Use Agent-runtime memory, rationale, and cognitive-runtime readback instead.",
-		);
-	});
-
 // =============================================================================
 // CODE MODE SESSION AUTHORIZATION
 // =============================================================================
