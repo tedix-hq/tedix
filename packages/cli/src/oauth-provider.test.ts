@@ -1325,7 +1325,8 @@ describe("proactive session refresh", () => {
 					token_type: "Bearer",
 					refresh_token: "sibling-rotated-refresh",
 				},
-				oauthClientInformation: { client_id: "client-1" },
+				mcpUrl: MCP_URL,
+				oauthClientInformation: { client_id: TEDIX_OAUTH_CLIENT_ID },
 				oauthDiscoveryState: {
 					authorizationServerUrl: "https://auth.example.test",
 				},

@@ -6,9 +6,8 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readSync, realpathSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
-import { fileURLToPath } from "node:url";
 import { resolveAgentContext } from "../agent-context";
-import { IS_STANDALONE_BUILD } from "../shared";
+import { selfCommand } from "../shared";
 
 export const PROFILE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const UUID = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
@@ -233,15 +232,6 @@ export async function readBoundedStdin(limit: number): Promise<string> {
 		if (size > limit * 4) break;
 	}
 	return Buffer.concat(chunks).toString("utf8");
-}
-
-/** This CLI as an executable plus leading arguments (source checkouts run through Bun). */
-export function selfCommand(): [string, string[]] {
-	if (IS_STANDALONE_BUILD) return [process.execPath, []];
-	return [
-		process.execPath,
-		[fileURLToPath(new URL("../index.ts", import.meta.url))],
-	];
 }
 
 export const HOOK_READ_STDOUT_LIMIT = 4_194_304;
