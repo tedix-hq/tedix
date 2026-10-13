@@ -121,11 +121,11 @@ describe("subscription checkout", () => {
 			expect(result.stripeEnvironment).toBe(mode);
 			expect(
 				stripe.prices.list.mock.calls.map(([params]) => params.lookup_keys),
-			).toEqual([["tedix_growth_year_v4"], ["tedix_token_overage_v3"]]);
+			).toEqual([["tedix_growth_year_v4"], ["tedix_token_overage_v4"]]);
 			const [params] = stripe.checkout.sessions.create.mock.calls[0];
 			expect(params.line_items).toEqual([
 				{ price: "price_for_tedix_growth_year_v4", quantity: 1 },
-				{ price: "price_for_tedix_token_overage_v3" },
+				{ price: "price_for_tedix_token_overage_v4" },
 			]);
 		});
 	}

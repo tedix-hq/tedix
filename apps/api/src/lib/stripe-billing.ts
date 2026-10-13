@@ -12,8 +12,8 @@ import type Stripe from "stripe";
  */
 const STRIPE_CATALOG_VERSION = 4;
 
-/** The USD metered overage price; the EUR v4 plans do not sell overage. */
-export const STRIPE_TOKEN_OVERAGE_LOOKUP_KEY = "tedix_token_overage_v3";
+/** The metered overage price, sold only by a plan that prices overage. */
+export const STRIPE_TOKEN_OVERAGE_LOOKUP_KEY = "tedix_token_overage_v4";
 
 export function stripePlanPriceLookupKey(
 	planKey: BillingPlanKey,
@@ -57,15 +57,12 @@ export interface ResolvedStripePlan {
  */
 export async function resolveStripeSubscriptionPlan(
 	subscription: Stripe.Subscription,
-	findPlan: (
-		planKey: BillingPlanKey,
-		currency: string,
-	) => Promise<BillingPlanVersion | null>,
+	findPlan: (planKey: BillingPlanKey) => Promise<BillingPlanVersion | null>,
 ): Promise<ResolvedStripePlan | null> {
 	for (const item of subscription.items.data) {
 		const planKey = planKeyFromStripePriceLookupKey(item.price.lookup_key);
 		if (!planKey) continue;
-		const plan = await findPlan(planKey, item.price.currency);
+		const plan = await findPlan(planKey);
 		if (plan) return { plan, item };
 	}
 	return null;

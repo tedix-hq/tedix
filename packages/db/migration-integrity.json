@@ -872,6 +872,10 @@
 		{
 			"name": "20261013082701_eur-launch-plans-v4/migration.sql",
 			"sha256": "305c619534e359a0afeff057e2338ac22e5fde96ed6c55129d6781b932166a09"
+		},
+		{
+			"name": "20261013104756_eur-only-billing/migration.sql",
+			"sha256": "f51bcb8bcf9518f31833218335e26c23e1d6de8c0bb6c032abf77d6369889fb1"
 		}
 	]
 }

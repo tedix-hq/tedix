@@ -271,11 +271,8 @@ export function BillingInferenceCapacitySection() {
 									<Text weight="medium">{pack.name}</Text>
 									<Text role="label" tone="secondary" className="mt-1">
 										{formatTokens(pack.tokens)} tokens +{" "}
-										{formatBillingAmount(
-											pack.spendCapacityMicros,
-											pack.currency,
-										)}{" "}
-										spend capacity
+										{formatBillingAmount(pack.spendCapacityMicros, "usd")}{" "}
+										provider spend capacity
 									</Text>
 									<Button
 										className="mt-4 w-full"
