@@ -67,6 +67,8 @@ SQL statements and batches share a separate nested reservation in the site's
 existing database Durable Object. Replicas forward these operations to the
 primary, which coordinates callers across serving isolates and returns its
 current bookmark. This can add latency for readers far from the primary.
+Admission is serialized so simultaneous cold callers share the first published
+reservation; SQL execution remains outside that admission lock.
 Restore reconciliation cannot reclaim the nested row as an abandoned outer
 response. Every SQL operation checks current admission and holds a borrower
 until its actual RPC finishes, even when the caller times out. Only plain SELECTs
