@@ -57,12 +57,15 @@ export interface ResolvedStripePlan {
  */
 export async function resolveStripeSubscriptionPlan(
 	subscription: Stripe.Subscription,
-	findPlan: (planKey: BillingPlanKey) => Promise<BillingPlanVersion | null>,
+	findPlan: (
+		planKey: BillingPlanKey,
+		currency: string,
+	) => Promise<BillingPlanVersion | null>,
 ): Promise<ResolvedStripePlan | null> {
 	for (const item of subscription.items.data) {
 		const planKey = planKeyFromStripePriceLookupKey(item.price.lookup_key);
 		if (!planKey) continue;
-		const plan = await findPlan(planKey);
+		const plan = await findPlan(planKey, item.price.currency);
 		if (plan) return { plan, item };
 	}
 	return null;
