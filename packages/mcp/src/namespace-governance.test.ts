@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-	NAMESPACE_PEER_ALIASES,
 	namespaceGovernanceFor,
 	RESERVED_MCP_NAMESPACES,
 } from "./namespace-governance";
 
 describe("MCP namespace governance", () => {
-	it("keeps peer aliases symmetric and reserved", () => {
-		for (const [namespace, alias] of NAMESPACE_PEER_ALIASES) {
-			expect(NAMESPACE_PEER_ALIASES.get(alias)).toBe(namespace);
+	it("keeps reserved namespaces distinct without peer aliases", () => {
+		for (const namespace of ["app", "apps", "tedi", "tedis"]) {
 			expect(RESERVED_MCP_NAMESPACES.has(namespace)).toBe(true);
+			expect(namespaceGovernanceFor(namespace).aliases).toEqual([]);
 		}
 	});
 

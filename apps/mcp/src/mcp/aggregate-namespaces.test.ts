@@ -2,7 +2,7 @@
  * `configuredAggregateNamespaces` is the evidence that a missing Code Mode
  * binding is an upstream hydration failure rather than a typo. It must agree
  * with the namespaces `filterAggregateAppsForCodeNamespaces` hydrates for —
- * including the prefix/override/peer-alias forms and the platform-operator
+ * including the prefix/override forms and the platform-operator
  * admin app's endpoint-derived namespaces.
  */
 
@@ -41,10 +41,10 @@ describe("aggregateAppNamespaceCandidates", () => {
 		expect(candidates.has("seo")).toBe(true);
 	});
 
-	it("includes the peer alias so app/apps both hydrate the entry", () => {
+	it("does not hydrate an unconfigured singular management namespace", () => {
 		const candidates = aggregateAppNamespaceCandidates({ slug: "apps" });
 		expect(candidates.has("apps")).toBe(true);
-		expect(candidates.has("app")).toBe(true);
+		expect(candidates.has("app")).toBe(false);
 	});
 });
 
@@ -63,7 +63,7 @@ describe("configuredAggregateNamespaces", () => {
 		expect(configuredAggregateNamespaces({}).size).toBe(0);
 	});
 
-	it("collects app, tedi, override and alias namespaces", () => {
+	it("collects configured app, tedi and override namespaces", () => {
 		const namespaces = configuredAggregateNamespaces({
 			aggregateApps: [
 				{ slug: "descope-api-tedix", prefix: "descope_api_tedix" },
@@ -77,7 +77,7 @@ describe("configuredAggregateNamespaces", () => {
 		});
 		expect(namespaces.has("descope_api_tedix")).toBe(true);
 		expect(namespaces.has("apps")).toBe(true);
-		expect(namespaces.has("app")).toBe(true);
+		expect(namespaces.has("app")).toBe(false);
 		expect(namespaces.has("app_surface")).toBe(true);
 		expect(namespaces.has("cto")).toBe(true);
 		expect(namespaces.has("cro")).toBe(true);

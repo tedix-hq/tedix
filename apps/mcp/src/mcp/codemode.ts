@@ -74,10 +74,7 @@ import {
 	X402_PAYMENT_META_KEY,
 	X402_PAYMENT_RESPONSE_META_KEY,
 } from "@tedix/mcp-shared/payment";
-import {
-	NAMESPACE_PEER_ALIASES,
-	namespaceGovernanceFor,
-} from "@tedix/mcp-shared/namespace-governance";
+import { namespaceGovernanceFor } from "@tedix/mcp-shared/namespace-governance";
 import {
 	structuredResultIdentity,
 	structuredUiResultProjection,
@@ -1944,29 +1941,6 @@ function buildNamespaceGroups(
 					{}) as JsonSchemaToolDescriptors[string]["inputSchema"]["properties"],
 			},
 		};
-
-		// SEAM A — dual-mount: register the same closure under the peer alias
-		// namespace (e.g. "apps" ↔ "app", "tedis" ↔ "tedi") so a caller that
-		// uses either form reaches the same handler. Auth checks inside the
-		// closure log the primary namespace `ns`; the alias is transparent.
-		const aliasNs = NAMESPACE_PEER_ALIASES.get(ns);
-		if (aliasNs !== undefined) {
-			const aliasOwnerKey = `${aliasNs}.${safeName}`;
-			if (toolOwners.has(aliasOwnerKey)) {
-				console.warn(
-					`Code Mode alias slot ${aliasOwnerKey} already claimed by ${toolOwners.get(aliasOwnerKey)} — skipping alias for ${toolId}`,
-				);
-			} else {
-				toolOwners.set(aliasOwnerKey, toolId);
-				if (!groups.has(aliasNs)) {
-					groups.set(aliasNs, { fns: {}, schemas: {} });
-				}
-				const aliasGroup = groups.get(aliasNs)!;
-				// Shared closure — same function object, no copy.
-				aliasGroup.fns[safeName] = group.fns[safeName]!;
-				aliasGroup.schemas[safeName] = group.schemas[safeName]!;
-			}
-		}
 	}
 
 	return groups;
@@ -2343,33 +2317,6 @@ export function buildCatalogProvider(
 			...authz,
 		};
 		catalog[ns][safeName] = primaryEntry;
-
-		// SEAM B — dual-mount catalog entry under the peer alias namespace so
-		// discover.search and discover.list_namespaces surface both forms.
-		// The alias entry's `callable` field uses the alias namespace (e.g.
-		// "app.list_apps") so the LLM can invoke it directly from the catalog.
-		const catalogAliasNs = NAMESPACE_PEER_ALIASES.get(ns);
-		if (catalogAliasNs !== undefined) {
-			if (!catalog[catalogAliasNs]) catalog[catalogAliasNs] = {};
-			if (!catalog[catalogAliasNs]![safeName]) {
-				catalog[catalogAliasNs]![safeName] = {
-					...createCatalogToolEntry(catalogAliasNs, safeName, {
-						name: tool.title ?? toolId,
-						description: `${humanizeWeakDescription(tool.description, safeName)}${paymentDescription}`,
-						parameters: withDestructiveApprovalSchema(tool, wireAnnotations),
-						annotations: wireAnnotations,
-						outputSchema: tool.outputSchema as
-							| Record<string, unknown>
-							| null
-							| undefined,
-						schemaFreshness: schemaFreshnessFromTool(tool),
-					}),
-					...authz,
-					...(native ? { native } : {}),
-					aliasOf: ns,
-				};
-			}
-		}
 	}
 
 	catalog[UI_NAMESPACE] = Object.fromEntries(
@@ -5702,9 +5649,7 @@ export async function registerCodeModeTools(
 					namespaceOverrides,
 				);
 				return (
-					identity.safeName === toolName &&
-					(identity.namespace === namespace ||
-						NAMESPACE_PEER_ALIASES.get(identity.namespace) === namespace)
+					identity.safeName === toolName && identity.namespace === namespace
 				);
 			});
 			if (!owner)

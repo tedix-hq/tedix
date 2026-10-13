@@ -13,7 +13,6 @@
  */
 
 import type { AggregateTediEntry } from "./aggregate-tedis-shared";
-import { NAMESPACE_PEER_ALIASES } from "@tedix/mcp-shared/namespace-governance";
 import {
 	PLATFORM_OPERATOR_ADMIN_APP_SLUG,
 	PLATFORM_OPERATOR_CODE_MODE_NAMESPACES,
@@ -24,8 +23,7 @@ export type AggregateNamespaceEntry = { slug: string; prefix?: string };
 
 /**
  * Namespaces an aggregate app entry can mount: its sanitized prefix/slug, any
- * D1 `codeModeNamespaces` override, plus the peer alias so a body calling
- * either "app" or "apps" (or "tedi"/"tedis") hydrates the right entry.
+ * D1 `codeModeNamespaces` override.
  */
 export function aggregateAppNamespaceCandidates(
 	entry: AggregateNamespaceEntry,
@@ -38,12 +36,7 @@ export function aggregateAppNamespaceCandidates(
 		namespaceOverrides?.[entry.prefix ?? entry.slug],
 	].filter((value): value is string => Boolean(value));
 
-	const withAliases = new Set(primary);
-	for (const ns of primary) {
-		const aliasNs = NAMESPACE_PEER_ALIASES.get(ns);
-		if (aliasNs !== undefined) withAliases.add(aliasNs);
-	}
-	return withAliases;
+	return new Set(primary);
 }
 
 /**
