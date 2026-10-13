@@ -10,9 +10,10 @@ import type Stripe from "stripe";
  * installation only needs a Stripe account whose active prices carry these
  * keys (`scripts/billing/reconcile-stripe.ts` creates them).
  */
-const STRIPE_CATALOG_VERSION = 3;
+const STRIPE_CATALOG_VERSION = 4;
 
-export const STRIPE_TOKEN_OVERAGE_LOOKUP_KEY = `tedix_token_overage_v${STRIPE_CATALOG_VERSION}`;
+/** The USD metered overage price; the EUR v4 plans do not sell overage. */
+export const STRIPE_TOKEN_OVERAGE_LOOKUP_KEY = "tedix_token_overage_v3";
 
 export function stripePlanPriceLookupKey(
 	planKey: BillingPlanKey,

@@ -868,6 +868,10 @@
 		{
 			"name": "20261012225830_catalog-browse-totals/migration.sql",
 			"sha256": "6a13f43b1a227939aa909ad7251692f2789fe7a684b4b4aac66f20941ae42384"
+		},
+		{
+			"name": "20261013082701_eur-launch-plans-v4/migration.sql",
+			"sha256": "6d317e279f43cbb0b33d5cba153fddbb81741897822cf0c05f955491c8bd4bec"
 		}
 	]
 }

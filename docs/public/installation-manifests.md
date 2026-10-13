@@ -38,10 +38,10 @@ Managed settlement finds every Stripe price by lookup key; no Stripe product
 or price id is stored in the installation. The Stripe account (live or test,
 matching `TEDIX_STRIPE_MODE`) needs an active price for each key:
 
-- plans: `tedix_growth_month_v3`, `tedix_growth_year_v3`,
-  `tedix_business_month_v3`, `tedix_business_year_v3`,
-  `tedix_enterprise_month_v3`, `tedix_enterprise_year_v3`;
-- metered overage (growth and business): `tedix_token_overage_v3`;
+- plans (EUR): `tedix_growth_month_v4`, `tedix_growth_year_v4`,
+  `tedix_business_month_v4`, `tedix_business_year_v4`,
+  `tedix_enterprise_month_v4`, `tedix_enterprise_year_v4`;
+- metered overage (USD v3 plans only): `tedix_token_overage_v3`;
 - capacity packs: `tedix_inference_capacity_daily_1m_v1`,
   `tedix_inference_capacity_daily_5m_v1`,
   `tedix_inference_capacity_daily_10m_v1`,
