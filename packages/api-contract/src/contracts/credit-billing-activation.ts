@@ -10,7 +10,7 @@ export const creditBillingActivationContract = {
 			path: "/configure-credit-billing",
 			tags: ["internal"],
 			description:
-				"Platform billing authority: opt one account into verified USD credit pricing without changing its Stripe subscription. Included credits carry forward.",
+				"Platform billing authority: opt one account into EUR credit pricing (verified USD provider receipts converted at a named ECB rate) without changing its Stripe subscription. Included credits carry forward.",
 		})
 		.input(ConfigureCreditBillingInputSchema)
 		.output(ConfigureCreditBillingResponseSchema),
