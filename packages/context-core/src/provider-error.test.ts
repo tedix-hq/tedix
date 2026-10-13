@@ -12,6 +12,14 @@ describe("classifyProviderError — non-retryable families", () => {
 		["Error code: 401 - {'error': {'message': 'Unauthorized'}}", "auth"],
 		["permission_denied for this deployment", "auth"],
 		[
+			"workers-ai gateway @cf/m: 401  — AI Gateway rejected the provider credential; check the gateway's provider key and token",
+			"auth",
+		],
+		[
+			'cloudflare auto router: 503  — {"success":false,"errors":[{"code":2009,"message":"x"}]}',
+			"auth",
+		],
+		[
 			"The model `gpt-9` does not exist or you do not have access to it",
 			"not_found",
 		],

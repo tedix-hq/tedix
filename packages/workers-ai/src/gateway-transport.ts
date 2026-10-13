@@ -68,6 +68,26 @@ export function assertProviderDispatchReady(
 	}
 }
 
+/**
+ * AI Gateway answers a provider-rejected credential with 401 and Cloudflare
+ * error code 2009 (changelog 2026-10-06). Name it first so the capped turn
+ * error says what to fix and the provider-error classifier seals it.
+ */
+export function aiGatewayHttpError(
+	label: string,
+	status: number,
+	statusText: string,
+	detail: string,
+): Error {
+	const credential =
+		status === 401 || /"code"\s*:\s*2009\b/.test(detail)
+			? " — AI Gateway rejected the provider credential; check the gateway's provider key and token"
+			: "";
+	return new Error(
+		`${label}: ${status} ${statusText}${credential}${detail ? ` — ${detail.slice(0, 300)}` : ""}`,
+	);
+}
+
 /** AI Gateway provider path segments this deployment routes through. */
 export type AiGatewayProvider =
 	| "workers-ai"
@@ -259,8 +279,11 @@ export async function openCloudflareAutoRouterResponse(
 	);
 	if (!response.ok) {
 		const detail = await response.text().catch(() => "");
-		throw new Error(
-			`cloudflare auto router: ${response.status} ${response.statusText}${detail ? ` — ${detail.slice(0, 300)}` : ""}`,
+		throw aiGatewayHttpError(
+			"cloudflare auto router",
+			response.status,
+			response.statusText,
+			detail,
 		);
 	}
 	return response;
