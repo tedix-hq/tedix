@@ -3,8 +3,8 @@
  * Audit or reconcile the complete Tedix Stripe Billing projection.
  *
  * Dry-run (default), from apps/api with STRIPE_TEST_SECRET_KEY (or
- * STRIPE_SECRET_KEY with --live) set in the environment, lists the plan prices
- * an apply would create:
+ * STRIPE_SECRET_KEY with --live) set in the environment, lists the prices an
+ * apply would create:
  *   bun run scripts/billing/reconcile-stripe.ts
  *
  * Apply missing resources/configuration:
@@ -62,14 +62,11 @@ const managedMetadata = {
 	tedix_managed: "true",
 	tedix_catalog_version: String(catalogVersion),
 };
-// The USD metered overage price predates catalog v4 and keeps its v3 key for
-// existing subscriptions; the EUR plans do not sell overage.
-const overageLookupKey = "tedix_token_overage_v3";
-const overageMetadata = {
-	tedix_managed: "true",
-	tedix_catalog_version: "3",
-	tedix_usage: "token_overage",
-};
+// Metered overage is sold only by a plan that prices it; no v4 plan does yet.
+const overageLookupKey = `tedix_token_overage_v${catalogVersion}`;
+const overageUnitAmount = 2;
+const overageNickname = "Tedix token overage - €0.02/1K tokens";
+const overageMetadata = { ...managedMetadata, tedix_usage: "token_overage" };
 const missingPrices: string[] = [];
 const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
 	[
@@ -104,14 +101,33 @@ const plans = [
 	},
 ] as const;
 
+// Same round numbers as the retired USD packs, in euro cents.
 const inferenceCapacityPacks = [
+	{ key: "daily_1m", name: "Tedix 1M Daily Inference Boost", unitAmount: 500 },
 	{
 		key: "daily_5m",
 		name: "Tedix 5M Daily Inference Boost",
 		unitAmount: 2_500,
-		lookupKey: "tedix_inference_capacity_daily_5m_v1",
 	},
-] as const;
+	{
+		key: "daily_10m",
+		name: "Tedix 10M Daily Inference Boost",
+		unitAmount: 5_000,
+	},
+	{
+		key: "daily_25m",
+		name: "Tedix 25M Daily Inference Boost",
+		unitAmount: 12_500,
+	},
+	{
+		key: "daily_50m",
+		name: "Tedix 50M Daily Inference Boost",
+		unitAmount: 25_000,
+	},
+].map((pack) => ({
+	...pack,
+	lookupKey: `tedix_inference_capacity_${pack.key}_v2`,
+}));
 
 async function ensureMeter(): Promise<Stripe.Billing.Meter> {
 	const meters = await stripe.billing.meters
@@ -221,7 +237,7 @@ async function ensureInferenceCapacityPrice(input: {
 	packKey: string;
 	lookupKey: string;
 	unitAmount: number;
-}): Promise<Stripe.Price> {
+}): Promise<Stripe.Price | null> {
 	const prices = await stripe.prices.list({
 		product: input.productId,
 		active: true,
@@ -233,17 +249,20 @@ async function ensureInferenceCapacityPrice(input: {
 	if (
 		existing &&
 		(existing.type !== "one_time" ||
-			existing.currency !== "usd" ||
+			existing.currency !== planCurrency ||
 			existing.unit_amount !== input.unitAmount)
 	) {
 		throw new Error(`Stripe price configuration drift: ${input.lookupKey}`);
 	}
 	if (existing) return existing;
-	if (!apply) throw new Error(`Missing Stripe price: ${input.lookupKey}`);
+	if (!apply) {
+		missingPrices.push(input.lookupKey);
+		return null;
+	}
 	return stripe.prices.create(
 		{
 			product: input.productId,
-			currency: "usd",
+			currency: planCurrency,
 			unit_amount: input.unitAmount,
 			lookup_key: input.lookupKey,
 			nickname: `Tedix inference capacity ${input.packKey}`,
@@ -261,7 +280,7 @@ async function ensureInferenceCapacityPrice(input: {
 async function ensureOveragePrice(
 	productId: string,
 	meterId: string,
-): Promise<Stripe.Price> {
+): Promise<Stripe.Price | null> {
 	const prices = await stripe.prices.list({
 		product: productId,
 		active: true,
@@ -269,33 +288,36 @@ async function ensureOveragePrice(
 	});
 	const existing = prices.data.find(
 		(price) =>
-			price.currency === "usd" &&
-			price.unit_amount === 5 &&
+			price.currency === planCurrency &&
+			price.unit_amount === overageUnitAmount &&
 			price.recurring?.usage_type === "metered" &&
 			price.recurring.meter === meterId &&
 			price.transform_quantity?.divide_by === 1_000 &&
 			price.transform_quantity.round === "up",
 	);
 	if (!existing) {
-		if (!apply) throw new Error("Missing compatible Tedix overage price");
+		if (!apply) {
+			missingPrices.push(overageLookupKey);
+			return null;
+		}
 		return stripe.prices.create(
 			{
 				product: productId,
-				currency: "usd",
+				currency: planCurrency,
 				billing_scheme: "per_unit",
-				unit_amount: 5,
+				unit_amount: overageUnitAmount,
 				recurring: {
 					interval: "month",
 					meter: meterId,
 					usage_type: "metered",
 				},
 				transform_quantity: { divide_by: 1_000, round: "up" },
-				nickname: "Tedix token overage - $0.05/1K tokens",
+				nickname: overageNickname,
 				lookup_key: overageLookupKey,
 				metadata: overageMetadata,
 			},
 			{
-				idempotencyKey: "tedix:billing:v3:price:token_overage",
+				idempotencyKey: `tedix:billing:v${catalogVersion}:price:token_overage`,
 			},
 		);
 	}
@@ -307,7 +329,7 @@ async function ensureOveragePrice(
 			throw new Error(`Stripe overage price needs metadata: ${existing.id}`);
 		}
 		return stripe.prices.update(existing.id, {
-			nickname: "Tedix token overage - $0.05/1K tokens",
+			nickname: overageNickname,
 			lookup_key: overageLookupKey,
 			metadata: overageMetadata,
 		});
@@ -440,7 +462,7 @@ async function main() {
 		capacityCatalog.push({
 			packKey: pack.key,
 			productId: product.id,
-			priceId: price.id,
+			priceId: price?.id ?? null,
 			lookupKey: pack.lookupKey,
 		});
 	}
@@ -456,7 +478,7 @@ async function main() {
 				catalogVersion,
 				meterId: meter.id,
 				overageProductId: overageProduct.id,
-				overagePriceId: overagePrice.id,
+				overagePriceId: overagePrice?.id ?? null,
 				webhook: {
 					id: webhook.id,
 					url: webhook.url,

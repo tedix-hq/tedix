@@ -36,20 +36,20 @@ the manifest's entitlement grants through the non-secret
 
 Managed settlement finds every Stripe price by lookup key; no Stripe product
 or price id is stored in the installation. The Stripe account (live or test,
-matching `TEDIX_STRIPE_MODE`) needs an active price for each key:
+matching `TEDIX_STRIPE_MODE`) needs an active EUR price for each key:
 
-- plans (EUR): `tedix_growth_month_v4`, `tedix_growth_year_v4`,
+- plans: `tedix_growth_month_v4`, `tedix_growth_year_v4`,
   `tedix_business_month_v4`, `tedix_business_year_v4`,
   `tedix_enterprise_month_v4`, `tedix_enterprise_year_v4`;
-- metered overage (USD v3 plans only): `tedix_token_overage_v3`;
-- capacity packs: `tedix_inference_capacity_daily_1m_v1`,
-  `tedix_inference_capacity_daily_5m_v1`,
-  `tedix_inference_capacity_daily_10m_v1`,
-  `tedix_inference_capacity_daily_25m_v1`,
-  `tedix_inference_capacity_daily_50m_v1`.
+- metered overage: `tedix_token_overage_v4`;
+- capacity packs: `tedix_inference_capacity_daily_1m_v2`,
+  `tedix_inference_capacity_daily_5m_v2`,
+  `tedix_inference_capacity_daily_10m_v2`,
+  `tedix_inference_capacity_daily_25m_v2`,
+  `tedix_inference_capacity_daily_50m_v2`.
 
-`apps/api/scripts/billing/reconcile-stripe.ts --apply` creates the plan,
-overage, and `daily_5m` prices. The overage price is metered only for
+`apps/api/scripts/billing/reconcile-stripe.ts --apply` creates every one of
+these prices; without `--apply` it lists the missing ones. The overage price is metered only for
 organizations whose owner or admin has turned overage on with a monthly cap;
 see [Usage limits and overage](./self-hosted-boundary.md#usage-limits-and-overage).
 

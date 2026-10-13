@@ -26,7 +26,7 @@ function item(
 
 describe("Stripe billing helpers", () => {
 	it("resolves the licensed plan even when the metered item is first", async () => {
-		const metered = item("si_metered", "tedix_token_overage_v3", 1, 2);
+		const metered = item("si_metered", "tedix_token_overage_v4", 1, 2);
 		const licensed = item("si_plan", "tedix_growth_year_v3", 100, 200);
 		const subscription = {
 			items: { data: [metered, licensed] },
@@ -49,7 +49,7 @@ describe("Stripe billing helpers", () => {
 			"business",
 		);
 		expect(
-			planKeyFromStripePriceLookupKey("tedix_token_overage_v3"),
+			planKeyFromStripePriceLookupKey("tedix_token_overage_v4"),
 		).toBeNull();
 		expect(planKeyFromStripePriceLookupKey("tedix_growth_week_v3")).toBeNull();
 		expect(planKeyFromStripePriceLookupKey(null)).toBeNull();

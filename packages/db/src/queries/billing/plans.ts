@@ -17,12 +17,10 @@ export interface BillingEntitlement {
 	plan: BillingPlanVersion;
 }
 
-/** The newest active version of `planKey`, in `currency` when given. */
 export async function getActiveBillingPlanByKey(
 	db: DbClient,
 	planKey: BillingPlanVersion["planKey"],
 	now: string,
-	currency?: string,
 ): Promise<BillingPlanVersion | null> {
 	const [plan] = await db
 		.select()
@@ -32,7 +30,6 @@ export async function getActiveBillingPlanByKey(
 				eq(billingPlanVersions.planKey, planKey),
 				eq(billingPlanVersions.status, "active"),
 				lte(billingPlanVersions.effectiveAt, now),
-				currency ? eq(billingPlanVersions.currency, currency) : undefined,
 			),
 		)
 		.orderBy(desc(billingPlanVersions.version))
@@ -189,13 +186,10 @@ export async function requireActiveBillingPlan(
 	db: DbClient,
 	planKey: BillingPlanVersion["planKey"],
 	now: string,
-	currency?: string,
 ): Promise<BillingPlanVersion> {
-	const plan = await getActiveBillingPlanByKey(db, planKey, now, currency);
+	const plan = await getActiveBillingPlanByKey(db, planKey, now);
 	if (!plan) {
-		throw new Error(
-			`Active billing plan not found: ${planKey}${currency ? ` (${currency})` : ""}`,
-		);
+		throw new Error(`Active billing plan not found: ${planKey}`);
 	}
 	return plan;
 }
@@ -205,8 +199,6 @@ export async function provisionBillingAccount(
 	input: {
 		organizationId: string;
 		planKey: BillingPlanVersion["planKey"];
-		/** Currency of the price being paid; pins the plan to that currency. */
-		currency?: string;
 		status: BillingAccountStatus;
 		billingMode: BillingAccount["billingMode"];
 		stripeEnvironment?: "test" | "live" | null;
@@ -226,23 +218,9 @@ export async function provisionBillingAccount(
 		current?.plan.metadata.monetaryInference &&
 		current.plan.planKey === input.planKey,
 	);
-	// A renewal of the same plan in the same currency keeps the version it was
-	// sold under; a newer catalog row only applies to a plan the customer picks.
-	const preservePlan =
-		preserveCreditPlan ||
-		Boolean(
-			input.currency &&
-			current?.plan.planKey === input.planKey &&
-			current.plan.currency === input.currency,
-		);
-	const plan = preservePlan
+	const plan = preserveCreditPlan
 		? current!.plan
-		: await requireActiveBillingPlan(
-				db,
-				input.planKey,
-				input.now,
-				input.currency,
-			);
+		: await requireActiveBillingPlan(db, input.planKey, input.now);
 	const [account] = await buildProvisionBillingAccountStatement(db, {
 		...input,
 		metadata: preserveCreditPlan
