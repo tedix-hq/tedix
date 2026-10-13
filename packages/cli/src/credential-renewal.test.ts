@@ -97,6 +97,23 @@ function startCommand() {
 	return { child, exited };
 }
 
+/** Claude Code's timed-out hook kill: every descendant by parent PID. */
+function killDescendants(root: number) {
+	const children = new Map<number, number[]>();
+	const ps = Bun.spawnSync(["ps", "-A", "-o", "pid=", "-o", "ppid="]);
+	for (const line of ps.stdout.toString().split("\n")) {
+		const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+		if (pid && ppid) children.set(ppid, [...(children.get(ppid) ?? []), pid]);
+	}
+	const queue = [root];
+	for (let pid = queue.shift(); pid !== undefined; pid = queue.shift()) {
+		queue.push(...(children.get(pid) ?? []));
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {}
+	}
+}
+
 async function until(check: () => boolean, timeoutMs: number) {
 	const deadline = Date.now() + timeoutMs;
 	while (!check()) {
@@ -148,4 +165,34 @@ describe("stored login renewal across processes", () => {
 			else process.env.TEDIX_CONFIG_DIR = previous;
 		}
 	}, 60_000);
+
+	test("a command whose whole process tree is killed still saves the rotation", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-renewal-"));
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		const { server, state, requested } = rotatingServer(1_000);
+		const base = `http://127.0.0.1:${server.port}`;
+		try {
+			storeExpiredLogin(base, state.current);
+			// Claude Code kills a timed-out hook's descendants by parent PID, which
+			// reaches a renewer in its own process group too.
+			const command = startCommand();
+			await requested;
+			killDescendants(command.child.pid!);
+			await command.exited;
+			expect(
+				await until(
+					() =>
+						readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token ===
+						state.current,
+					15_000,
+				),
+			).toBe(true);
+			expect(state.rotations).toBe(1);
+		} finally {
+			server.stop(true);
+			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = previous;
+		}
+	}, 30_000);
 });
