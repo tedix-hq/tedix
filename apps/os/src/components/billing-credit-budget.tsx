@@ -60,14 +60,15 @@ export function BillingCreditBudget({
 					limit. Changing the cap never enables cash overage.
 				</Text>
 				<Text>
-					{formatUsageCredits(consumed)} ({formatCreditWorth(consumed)}) used or
-					reserved this period.
+					{formatUsageCredits(consumed)} (
+					{formatCreditWorth(consumed, credits.currency)}) used or reserved this
+					period.
 				</Text>
 				<div className="space-y-1">
-					<Label htmlFor="monthly-credit-budget">Monthly cap (USD)</Label>
+					<Label htmlFor="monthly-credit-budget">Monthly cap (EUR)</Label>
 					<Input
 						id="monthly-credit-budget"
-						aria-label="Monthly cap (USD)"
+						aria-label="Monthly cap (EUR)"
 						type="text"
 						inputMode="decimal"
 						placeholder="No extra monthly cap"
@@ -78,7 +79,7 @@ export function BillingCreditBudget({
 					/>
 					<Text tone={cap === undefined ? "error" : "secondary"}>
 						{cap === undefined
-							? "Enter a positive amount with at most two decimal places, up to $1,000,000."
+							? "Enter a positive amount with at most two decimal places, up to €1,000,000."
 							: cap === null
 								? "Leave blank to use the funded wallet as the spending limit."
 								: `${formatUsageCredits(cap)} of usage value each billing period.`}

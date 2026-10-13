@@ -15,7 +15,7 @@ const row: BillingInferenceSpending["rows"][number] = {
 	occurredAt: "2026-10-02T00:00:00.000Z",
 	creditAppliedMicros: 10000,
 	customerChargeMicros: 20000,
-	currency: "usd",
+	currency: "eur",
 	creditValueMicros: 10000,
 	rateVersionId: "price-1",
 };
@@ -52,7 +52,7 @@ describe("settled credit presentation", () => {
 			/>,
 		);
 		expect(html).toContain("3 credits");
-		expect(html).toContain("$0.03");
+		expect(html).toContain("€0.03");
 		expect(html).toContain("run subtotals are incomplete");
 		expect(html).toContain("Price version missing");
 		expect(html).toContain("Charges without a linked run");

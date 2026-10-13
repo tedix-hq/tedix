@@ -23,7 +23,18 @@ export function monetaryPeriodSpendSql() {
 	return sql`COALESCE((SELECT SUM(charge.credit_applied_micros + charge.customer_charge_micros)
 	FROM billing_usage_charges AS charge JOIN billing_usage_reservations AS held ON held.id=charge.reservation_id
 	WHERE charge.organization_id=account.organization_id AND held.period_start=account.period_start AND held.period_end=account.period_end
-	AND json_extract(charge.metadata,'$.monetaryQuote.schemaVersion')=1),0)`;
+	AND json_extract(charge.metadata,'$.monetaryQuote.schemaVersion')=1
+	AND json_extract(charge.metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR'),0)`;
+}
+
+/** Customer EUR micros for USD provider micros, rounded up once at the ECB rate. */
+export function eurMicrosFromUsd(usdMicros: number, microUsdPerEur: number) {
+	const eur =
+		(BigInt(usdMicros) * 1_000_000n + BigInt(microUsdPerEur) - 1n) /
+		BigInt(microUsdPerEur);
+	if (eur > BigInt(Number.MAX_SAFE_INTEGER))
+		throw new Error("Converted price exceeds safe monetary precision");
+	return Number(eur);
 }
 
 export async function verifyMonetaryQuoteReceipt(
@@ -66,10 +77,8 @@ export function monetaryInferenceConfig(
 	const raw = plan.metadata.monetaryInference;
 	if (raw === undefined) return null;
 	const config = MonetaryInferenceConfigSchema.parse(raw);
-	if (plan.currency.toLowerCase() !== "usd")
-		throw new Error(
-			"Monetary inference wallet requires USD; no implicit FX conversion",
-		);
+	if (plan.currency.toLowerCase() !== "eur")
+		throw new Error("Monetary inference wallet requires an EUR plan");
 	for (const rate of config.rates) {
 		for (const bucket of [
 			"uncachedInput",
@@ -77,9 +86,12 @@ export function monetaryInferenceConfig(
 			"cacheWrite",
 			"output",
 		] as const) {
-			if (rate.customerRates[bucket] !== rate.providerRates[bucket])
+			if (
+				rate.customerRates[bucket] !==
+				eurMicrosFromUsd(rate.providerRates[bucket], rate.fx.microUsdPerEur)
+			)
 				throw new Error(
-					"Pass-through rates must match published provider prices",
+					"Pass-through rates must match published provider prices at the pinned FX rate",
 				);
 		}
 	}
@@ -160,7 +172,7 @@ export function observedMonetaryInference(
 	const snapshot = raw.rateSnapshot;
 	const config = MonetaryInferenceConfigSchema.parse({
 		version: 1,
-		currency: "USD",
+		currency: "EUR",
 		creditValueMicros: 10_000,
 		pricing: "provider_pass_through",
 		rates: [
@@ -221,7 +233,7 @@ export function monetaryCreditOverview(
 	const used = snapshot.monetarySpentMicros ?? 0;
 	return {
 		billingMode: "monetary" as const,
-		currency: "usd" as const,
+		currency: "eur" as const,
 		creditValueMicros: 10_000 as const,
 		includedMicros: plan.includedMonthlyCreditMicros,
 		usedIncludedMicros: Math.min(used, plan.includedMonthlyCreditMicros),
@@ -255,7 +267,7 @@ export async function setMonetaryCreditBudget(
 		.where(
 			and(
 				eq(billingAccounts.organizationId, input.organizationId),
-				sql`EXISTS (SELECT 1 FROM billing_plan_versions WHERE id = ${billingAccounts.planVersionId} AND currency='usd' AND json_extract(metadata,'$.monetaryInference.version')=1)`,
+				sql`EXISTS (SELECT 1 FROM billing_plan_versions WHERE id = ${billingAccounts.planVersionId} AND currency='eur' AND json_extract(metadata,'$.monetaryInference.version')=1)`,
 			),
 		)
 		.returning({ organizationId: billingAccounts.organizationId });

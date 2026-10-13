@@ -75,7 +75,7 @@ export function SettledSpendingRows({
 													? formatCreditWorth(
 															call.creditAppliedMicros +
 																call.customerChargeMicros,
-															"usd",
+															"eur",
 														)
 													: "Amount unavailable"}{" "}
 												· receipt {call.id}
@@ -99,7 +99,7 @@ export function SettledSpendingRows({
 												</Text>
 											)}
 											<Text>
-												{formatCreditWorth(group.chargeMicros, "usd")}
+												{formatCreditWorth(group.chargeMicros, "eur")}
 											</Text>
 											{group.creditValueMicros === null && (
 												<Text tone="secondary">

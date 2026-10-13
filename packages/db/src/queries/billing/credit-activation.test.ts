@@ -32,6 +32,11 @@ const input = {
 	includedMonthlyCreditMicros: 100_000_000,
 	monthlyCapMicros: 100_000_000,
 	perRunBudgetMicros: 1_000_000,
+	fx: {
+		microUsdPerEur: 1_250_000,
+		source: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+		asOf: "2026-10-09",
+	},
 	rateBindings: [
 		{
 			rateVersionId: "receipt",
@@ -54,7 +59,7 @@ function setup() {
 		),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES ('org','Fictional','fictional');
- INSERT INTO billing_plan_versions(id,plan_key,version,status,name,included_monthly_tokens,monthly_price_micros,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at) VALUES ('plan','business',1,'active','Business',2000000,49000000,3,5,30,1,100,'2026-10-01T00:00:00.000Z','${now}');
+ INSERT INTO billing_plan_versions(id,plan_key,version,status,name,currency,included_monthly_tokens,monthly_price_micros,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at) VALUES ('plan','business',1,'active','Business','eur',2000000,49000000,3,5,30,1,100,'2026-10-01T00:00:00.000Z','${now}');
  INSERT INTO billing_accounts(organization_id,plan_version_id,status,billing_mode,stripe_environment,stripe_customer_id,stripe_subscription_id,period_start,period_end,credit_balance_micros,created_at,updated_at) VALUES ('org','plan','active','stripe','test','cus-fixture','sub-fixture','2026-10-01T00:00:00.000Z','2026-11-01T00:00:00.000Z',5000000,'${now}','${now}');
  INSERT INTO provider_model_rate_versions(id,provider,model_id,deployment_scope,effective_from,input_microusd_per_million,output_microusd_per_million,cache_read_microusd_per_million,cache_write_microusd_per_million,currency,evidence_uri,evidence_digest,verified_at,published_at,published_by,change_reason) VALUES ('receipt','fictional','fictional','fictional','2026-10-01T00:00:00.000Z',1000000,5000000,100000,2000000,'USD','receipt-url','digest','${now}','${now}','test','fixture');
  CREATE TRIGGER apply_credit AFTER INSERT ON billing_credit_entries BEGIN UPDATE billing_accounts SET credit_balance_micros=credit_balance_micros+NEW.amount_micros WHERE organization_id=NEW.organization_id; END;`);
@@ -106,6 +111,19 @@ describe("account-scoped credit billing activation", () => {
 		expect(current?.plan).toMatchObject({
 			status: "retired",
 			monthlyPriceMicros: 49000000,
+			metadata: {
+				monetaryInference: {
+					currency: "EUR",
+					rates: [
+						{
+							currency: "USD",
+							customerCurrency: "EUR",
+							providerRates: { uncachedInput: 1000000, output: 5000000 },
+							customerRates: { uncachedInput: 800000, output: 4000000 },
+						},
+					],
+				},
+			},
 		});
 		expect((await getActiveBillingPlanByKey(db, "business", now))?.id).toBe(
 			"plan",

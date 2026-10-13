@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { CreditFxRateSchema } from "./billing";
 
 export const ConfigureCreditBillingInputSchema = z.object({
 	organizationId: z.uuid(),
@@ -12,6 +13,8 @@ export const ConfigureCreditBillingInputSchema = z.object({
 		.max(1_000_000_000_000),
 	monthlyCapMicros: z.number().int().positive().max(1_000_000_000_000),
 	perRunBudgetMicros: z.number().int().positive().max(1_000_000_000_000),
+	/** Converts the USD provider receipts into EUR credit prices. */
+	fx: CreditFxRateSchema,
 	rateBindings: z
 		.array(
 			z.object({

@@ -1,5 +1,6 @@
 /** Monetary inference quotes: this module grants no entitlement and writes no ledger. */
-export const PROPOSED_USD_CREDIT_VALUE_MICROS = 10_000;
+/** 1 credit = EUR 0.01, in customer-currency micros. */
+export const CREDIT_VALUE_MICROS = 10_000;
 
 /** Normalized, disjoint buckets. Provider-inclusive input must be split upstream. */
 export interface InferenceTokenBuckets {
@@ -21,8 +22,9 @@ export interface InferenceRateSnapshot {
 	effectiveFrom: string;
 	effectiveUntil: string | null;
 	sourceReceipt: string;
-	/** Independent prices, in USD micros per million tokens; zero is known/free.
-	 * BYOK customer rates cover platform/service fees only, not external inference.
+	/** Independent prices in micros per million tokens; zero is known/free.
+	 * Provider rates are in the receipt currency (USD), customer rates in the
+	 * credit currency. BYOK customer rates cover platform/service fees only.
 	 */
 	providerRates: InferenceTokenBuckets;
 	customerRates: InferenceTokenBuckets;

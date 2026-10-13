@@ -21,7 +21,11 @@ function fixture() {
 	const quote = {
 		monetaryQuote: {
 			schemaVersion: 1,
-			rateSnapshot: { currency: "USD", creditValueMicros: 10000 },
+			rateSnapshot: {
+				currency: "USD",
+				customerCurrency: "EUR",
+				creditValueMicros: 10000,
+			},
 		},
 	};
 	function charge(

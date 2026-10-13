@@ -18,10 +18,22 @@ const MonetaryTokenRatesSchema = z.object({
 	output: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 });
 
-/** Opt-in plan-version configuration; existing token plans remain unchanged. */
+/** The published reference rate a credit price was converted at (ECB: USD per 1 EUR). */
+export const CreditFxRateSchema = z.object({
+	microUsdPerEur: z.number().int().positive().max(10_000_000),
+	source: z.url(),
+	asOf: z.iso.date(),
+});
+export type CreditFxRate = z.infer<typeof CreditFxRateSchema>;
+
+/**
+ * Opt-in plan-version configuration; existing token plans remain unchanged.
+ * Credits are EUR (1 credit = EUR 0.01). Provider rates stay in their receipt
+ * currency (USD); customer rates are those converted at the pinned FX rate.
+ */
 export const MonetaryInferenceConfigSchema = z.object({
 	version: z.literal(1),
-	currency: z.literal("USD"),
+	currency: z.literal("EUR"),
 	creditValueMicros: z.literal(10_000),
 	pricing: z.literal("provider_pass_through"),
 	perRunBudgetMicros: z.number().int().positive().safe().optional(),
@@ -35,6 +47,8 @@ export const MonetaryInferenceConfigSchema = z.object({
 				model: z.string().min(1),
 				deploymentScope: z.string().min(1),
 				currency: z.literal("USD"),
+				customerCurrency: z.literal("EUR"),
+				fx: CreditFxRateSchema,
 				funding: z.literal("managed"),
 				effectiveFrom: z.iso.datetime(),
 				effectiveUntil: z.iso.datetime().nullable(),
@@ -63,7 +77,7 @@ export type MonetaryInferenceConfig = z.infer<
 
 export const BillingCreditOverviewSchema = z.object({
 	billingMode: z.enum(["monetary", "tokens"]),
-	currency: z.literal("usd"),
+	currency: z.literal("eur"),
 	creditValueMicros: z.literal(10_000),
 	includedMicros: z.number().int().nonnegative(),
 	usedIncludedMicros: z.number().int().nonnegative(),

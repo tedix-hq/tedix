@@ -21,7 +21,7 @@ function overview(): BillingOverview {
 		overage: {
 			enabled: false,
 			monthlyCapMicros: null,
-			currency: "usd",
+			currency: "eur",
 			planSellsOverage: true,
 			monthToDateChargeMicros: 0,
 			reservedChargeMicros: 0,
@@ -61,7 +61,7 @@ function overview(): BillingOverview {
 		},
 		plan: {
 			name: "Growth",
-			currency: "usd",
+			currency: "eur",
 			monthlyPriceMicros: 25000000,
 			annualPriceMicros: 250000000,
 			includedMonthlyCreditMicros: 0,
@@ -171,7 +171,7 @@ function render(
 	if (opts.monetary)
 		bill.credits = {
 			billingMode: "monetary",
-			currency: "usd",
+			currency: "eur",
 			creditValueMicros: 10_000,
 			includedMicros: 100_000_000,
 			usedIncludedMicros: 15_000_000,
@@ -355,9 +355,9 @@ it("unknown workstation subtotal is never displayed as free zero", () => {
 it("leads monetary plans with available credits and exact wallet holds", () => {
 	const html = render(usage(), { monetary: true });
 	expect(html).toContain("8,300 credits");
-	expect(html).toContain("$83 of usage value");
+	expect(html).toContain("€83 of usage value");
 	expect(html).toContain("200 credits");
-	expect(html).toContain("$2 · released or settled");
+	expect(html).toContain("€2 · released or settled");
 	expect(html).toContain("Ready to run");
 	expect(html).toContain("Advanced usage and billing details");
 	expect(html).toContain("Some usage is waiting for a price");
@@ -380,10 +380,10 @@ it("keeps tiny settled model costs visible instead of displaying free zero", () 
 	expect(render(usage(), { tinyCost: true })).toContain("$0.000001");
 });
 
-it("preserves native legacy currency without inventing a EUR credit conversion", () => {
-	const html = render(usage(), { legacyCurrency: "eur" });
-	expect(html).toContain("Balance shown in EUR");
+it("preserves native legacy currency without inventing a credit conversion", () => {
+	const html = render(usage(), { legacyCurrency: "usd" });
+	expect(html).toContain("Balance shown in USD");
 	expect(html).toContain("exchange rate is applied");
-	expect(html).toContain("€0");
+	expect(html).toContain("$0");
 	expect(html).not.toContain("1 credit =");
 });
