@@ -1823,15 +1823,20 @@ async function workHeartbeat(ctx: WorkContext, id: string): Promise<number> {
 		}
 		const touch = await boardCall(ctx, callable, { id, attemptId });
 		if (touch.error) {
+			const { status, code } = touch.error;
 			const rateLimited =
-				touch.error.status === 429 ||
-				(touch.error.status === undefined &&
-					isRateLimitError(touch.error.message));
-			// Retry only an explicit rate denial, after a confirmed renewal. Neither
-			// a transport failure nor a guessed lease grants permission to keep trying.
+				status === 429 ||
+				(status === undefined && isRateLimitError(touch.error.message));
+			// A timeout, dropped connection or 5xx says nothing about the lease.
+			const transient =
+				status === 408 ||
+				(status !== undefined && status >= 500) ||
+				(status === undefined && code === undefined);
+			// Retry only after a confirmed renewal and inside that lease; a guessed
+			// lease never grants permission to keep trying.
 			if (
 				ctx.work.watch !== undefined &&
-				rateLimited &&
+				(rateLimited || transient) &&
 				confirmedLeaseExpiry !== undefined
 			) {
 				const hint =
@@ -1844,20 +1849,14 @@ async function workHeartbeat(ctx: WorkContext, id: string): Promise<number> {
 					Math.min(60_000, 5_000 * 2 ** Math.min(rateRetries, 4)),
 				);
 				const retryDeadline = Math.min(deadline, confirmedLeaseExpiry);
+				const reason = rateLimited ? "rate limited" : touch.error.message;
 				if (clock.now() + delay >= retryDeadline) {
-					return fail(
-						ctx,
-						{
-							...touch.error,
-							message:
-								"Rate-limited heartbeat cannot retry within the original watch horizon and confirmed lease; watch stopped.",
-						},
-						"Rate-limited heartbeat cannot retry within the original watch horizon and confirmed lease; watch stopped.",
-					);
+					const message = `Heartbeat failed (${reason}) and cannot retry within the original watch horizon and confirmed lease; watch stopped.`;
+					return fail(ctx, { ...touch.error, message }, message);
 				}
 				rateRetries++;
 				console.error(
-					`Heartbeat rate limited; retrying the same Attempt in ${delay / 1000}s.`,
+					`Heartbeat ${reason}; retrying the same Attempt in ${delay / 1000}s.`,
 				);
 				await clock.wait(delay);
 				if (clock.now() >= deadline)
@@ -1902,10 +1901,15 @@ async function workHeartbeat(ctx: WorkContext, id: string): Promise<number> {
 		confirmedLeaseExpiry = Date.parse(expiresAt!);
 		rateRetries = 0;
 		const remainingWatch = deadline - clock.now();
-		if (remainingWatch <= 0) return 0;
-		// Serial calls; leave most of the server-issued lease for request latency.
-		await clock.wait(Math.min(30_000, remainingLease / 3, remainingWatch));
-		if (clock.now() >= deadline) return 0;
+		if (remainingWatch > 0)
+			// Serial calls; leave most of the server-issued lease for request latency.
+			await clock.wait(Math.min(30_000, remainingLease / 3, remainingWatch));
+		if (clock.now() >= deadline) {
+			console.error(
+				`Heartbeat watch reached its ${ctx.work.watch} s horizon; the Attempt lease expires at ${expiresAt}. Run it again to keep renewing.`,
+			);
+			return 0;
+		}
 	}
 }
 
@@ -2919,9 +2923,12 @@ Settled means done: complete carries no evidence count and no review requirement
 claim is corrected with the confirm verb when noticed rather than prevented by pre-proof
 (decisions/minimal-gates-over-pre-proof.md).
 
-Heartbeat --watch renews only the original Attempt for 900 seconds by default
-(maximum 3600). It stops on errors, cache replacement, process exit, or the
-horizon. It does not settle, complete, or restart work. JSON output is NDJSON.
+Heartbeat --watch [seconds] keeps renewing only the original Attempt, about
+every 30 s, for a horizon of 900 seconds by default (maximum 3600); the number
+is the total run time, not the interval. Rate limits, timeouts and 5xx errors
+retry while the confirmed lease lasts. It stops, printing why, on any other
+error, cache replacement, process exit, or the horizon. It does not settle,
+complete, or restart work. JSON output is NDJSON.
 
 Exit codes: 0 success · 2 conflict, stale attempt, rejected evidence, or board error.
 `;
@@ -3643,9 +3650,9 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 	};
 	nativeCommands.set(ctx, {
 		protocolSequence: {},
+		// The last renewal at the watch horizon still gets a full call timeout.
 		deadlineAt:
-			Date.now() +
-			Math.max(ctx.client.getTimeoutMs(), (ctx.work.watch ?? 0) * 1000),
+			Date.now() + ctx.client.getTimeoutMs() + (ctx.work.watch ?? 0) * 1000,
 	});
 	const [verb, rest] = firstToken(args ?? "");
 	if (!verb || verb === "help") {
