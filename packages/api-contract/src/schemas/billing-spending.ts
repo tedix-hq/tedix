@@ -20,7 +20,7 @@ export const BillingInferenceSpendingSchema = z.object({
 			occurredAt: z.string(),
 			creditAppliedMicros: micros,
 			customerChargeMicros: micros,
-			currency: z.literal("usd"),
+			currency: z.literal("eur"),
 			creditValueMicros: z.number().int().positive().safe().nullable(),
 			rateVersionId: z.string().nullable(),
 		}),

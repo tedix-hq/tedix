@@ -90,7 +90,7 @@ export function OsSidebarBillingStatus() {
 				<p className="mt-0.5 text-kumo-subtle type-tedix-caption">
 					{monetary && credits
 						? `${formatCreditWorth(credits.availableMicros, credits.currency)} usage value`
-						: `${formatCreditWorth(snapshot.availableCreditMicros, plan?.currency ?? "usd")} credit available`}
+						: `${formatCreditWorth(snapshot.availableCreditMicros, plan?.currency ?? "eur")} credit available`}
 				</p>
 			) : null}
 		</div>

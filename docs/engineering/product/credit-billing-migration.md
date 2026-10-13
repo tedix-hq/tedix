@@ -4,15 +4,15 @@
 
 - A pure inference quote records a versioned customer rate and provider rate.
 - Usage has four separate buckets: uncached input, cache read, cache write and output.
-- Every amount uses integer USD micros. The complete event rounds up once to a micro; it does not round each token bucket or charge a whole credit per call.
-- Proposed display value: **1 credit = $0.01 of billed service value**. This is a proposal, not an active catalog change. The rate receipt carries the denomination.
+- Every amount uses integer micros: provider rates in their receipt currency (USD), customer rates and the wallet in EUR. The complete event rounds up once to a micro; it does not round each token bucket or charge a whole credit per call.
+- **1 credit = EUR 0.01 of billed service value.** The rate receipt carries the denomination.
 - Customer price and provider cost are independent. No automatic markup is defined.
 - BYOK removes Tedix's estimated provider liability. Its separately published customer rate may cover only platform/service fees; it must not charge again for inference the customer pays directly to the provider. A zero platform rate is valid. Each snapshot pins its funding mode; a managed rate cannot be reused for BYOK.
 - Unknown pricing cannot be quoted as zero. Estimates and observed usage are identified separately; neither proves a provider invoice.
 
 The opt-in engine now reserves monetary funds atomically, pins published provider receipts and settles the existing credit journal once. Monthly and per-run caps count only monetary usage, preserving legacy statements. Late receipts cannot consume another call's hold; usage beyond its reservation is absorbed and recorded. Accounts remain on their existing plan until explicitly configured. The quote helper itself changes no entitlement.
 
-The first wallet denomination is USD. New monthly grants carry forward without expiry; purchased/promotional splitting is not claimed. The overview separates the monthly allowance from the total wallet. The credit budget endpoint changes the monthly cap without enabling cash overage. Per-run caps apply across calls sharing a run ID; stage estimates and replayable completed stages remain subsequent work.
+The wallet is denominated in EUR. Activation converts each USD provider receipt into an EUR customer rate at a named ECB reference rate (USD per EUR, in micros), rounding up once per rate; the rate snapshot pins that FX rate, so every reservation and settlement records the provider cost in USD, the charge in EUR and the rate between them. New monthly grants carry forward without expiry; purchased/promotional splitting is not claimed. The overview separates the monthly allowance from the total wallet. The credit budget endpoint changes the monthly cap without enabling cash overage. Per-run caps apply across calls sharing a run ID; stage estimates and replayable completed stages remain subsequent work.
 
 ## Provider counter normalization
 
@@ -36,4 +36,4 @@ Current metering passes recorded input/output counters to legacy settlement and 
 - A complete workflow displays its estimate, reserved amount and final charge by stage.
 - A failed workflow explains charged work and released funds; a billing denial creates no provider call.
 - Tool/service credits use a declared conversion or remain visibly separate. The existing SEO credit journal is not silently merged with the monetary wallet.
-- Proposed product value is never presented as cash redeemability or as an automatic EUR conversion.
+- Product value is never presented as cash redeemability. FX is applied only at activation from the named rate, never implicitly at settlement.

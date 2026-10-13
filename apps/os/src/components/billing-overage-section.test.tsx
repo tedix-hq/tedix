@@ -84,7 +84,7 @@ describe("parseOverageCapMicros", () => {
 it("offers a monetary budget without enabling the legacy cash overage switch", () => {
 	const html = render(off, {
 		billingMode: "monetary",
-		currency: "usd",
+		currency: "eur",
 		creditValueMicros: 10_000,
 		includedMicros: 100_000_000,
 		usedIncludedMicros: 10_000_000,
@@ -96,7 +96,7 @@ it("offers a monetary budget without enabling the legacy cash overage switch", (
 		monthlyCapMicros: 50_000_000,
 	});
 	expect(html).toContain("Monthly credit spending cap");
-	expect(html).toContain("1,200 credits ($12) used or reserved");
-	expect(html).toContain("Monthly cap (USD)");
+	expect(html).toContain("1,200 credits (€12) used or reserved");
+	expect(html).toContain("Monthly cap (EUR)");
 	expect(html).not.toContain("Allow overage");
 });

@@ -151,6 +151,11 @@ describe("credit activation authority", () => {
 		includedMonthlyCreditMicros: 100000000,
 		monthlyCapMicros: 100000000,
 		perRunBudgetMicros: 5000000,
+		fx: {
+			microUsdPerEur: 1_084_300,
+			source: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+			asOf: "2026-10-09",
+		},
 		rateBindings: [
 			{
 				rateVersionId: "published",

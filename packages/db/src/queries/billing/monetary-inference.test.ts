@@ -19,6 +19,7 @@ import { reserveBillingUsage } from "./reservations";
 import { settleBillingUsage } from "./settlement";
 import {
 	preflightMonetaryInference,
+	eurMicrosFromUsd,
 	monetaryCreditOverview,
 } from "./monetary-inference";
 import { getBillingEntitlement } from "./plans";
@@ -33,6 +34,13 @@ const rate = {
 	model: "fictional-model",
 	deploymentScope: "fictional-scope",
 	currency: "USD",
+	customerCurrency: "EUR",
+	// Parity keeps the fixture's amounts readable; conversion is tested below.
+	fx: {
+		microUsdPerEur: 1_000_000,
+		source: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+		asOf: "2026-10-09",
+	},
 	funding: "managed",
 	effectiveFrom: "2026-10-01T00:00:00.000Z",
 	effectiveUntil: null,
@@ -72,14 +80,14 @@ function setup(balance = 10_000) {
 	sqlite.exec(`INSERT INTO provider_model_rate_versions(id,provider,model_id,deployment_scope,effective_from,input_microusd_per_million,output_microusd_per_million,cache_read_microusd_per_million,cache_write_microusd_per_million,currency,evidence_uri,evidence_digest,verified_at,published_at,published_by,change_reason)
  VALUES ('fictional-price-1','fictional','fictional-model','fictional-scope','2026-10-01T00:00:00.000Z',1000000,5000000,100000,2000000,'USD','fictional-receipt','digest','${now}','${now}','test','fixture');
  INSERT INTO organizations(id,name,slug) VALUES ('org','Fictional','fictional');
-	INSERT INTO billing_plan_versions(id,plan_key,version,status,name,included_monthly_tokens,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at)
-	VALUES ('plan','business',10,'active','Business',1,3,5,30,1,100,'2026-10-01T00:00:00.000Z','${now}');
+	INSERT INTO billing_plan_versions(id,plan_key,version,status,name,currency,included_monthly_tokens,max_tedis,max_cron_jobs_per_tedi,max_iterations_per_task,default_daily_token_limit,default_daily_message_limit,effective_at,created_at)
+	VALUES ('plan','business',10,'active','Business','eur',1,3,5,30,1,100,'2026-10-01T00:00:00.000Z','${now}');
 	INSERT INTO billing_accounts(organization_id,plan_version_id,status,billing_mode,period_start,period_end,credit_balance_micros,created_at,updated_at)
 	VALUES ('org','plan','active','internal','2026-10-01T00:00:00.000Z','2026-11-01T00:00:00.000Z',${balance},'${now}','${now}');
 	CREATE TRIGGER apply_credit AFTER INSERT ON billing_credit_entries BEGIN UPDATE billing_accounts SET credit_balance_micros=credit_balance_micros+NEW.amount_micros WHERE organization_id=NEW.organization_id; END;`);
 	const config = {
 		version: 1,
-		currency: "USD",
+		currency: "EUR",
 		creditValueMicros: 10_000,
 		pricing: "provider_pass_through",
 		rates: [rate],
@@ -128,6 +136,21 @@ function usage(reservationId: string, id = "charge") {
 	};
 }
 describe("opt-in monetary inference", () => {
+	it("converts USD provider prices to EUR credit prices, rounding up once", () => {
+		expect(eurMicrosFromUsd(5_000_000, 1_250_000)).toBe(4_000_000);
+		expect(eurMicrosFromUsd(1, 1_084_300)).toBe(1);
+		expect(eurMicrosFromUsd(0, 1_084_300)).toBe(0);
+	});
+	it("refuses customer rates that do not match the pinned FX rate", async () => {
+		const { db, sqlite } = setup();
+		sqlite.exec(
+			"UPDATE billing_plan_versions SET metadata=json_set(metadata,'$.monetaryInference.rates[0].fx.microUsdPerEur',1250000)",
+		);
+		expect(await reserveBillingUsage(db, reservation("one"))).toMatchObject({
+			allowed: false,
+			code: "pricing_unavailable",
+		});
+	});
 	it("reserves monetary funds, ignoring token allowance gates only for opt-in plans", async () => {
 		const { db } = setup();
 		expect(await reserveBillingUsage(db, reservation("one"))).toMatchObject({
@@ -169,7 +192,7 @@ describe("opt-in monetary inference", () => {
 				model: "unknown",
 			}),
 		).toMatchObject({ allowed: false, code: "pricing_unavailable" });
-		sqlite.exec("UPDATE billing_plan_versions SET currency='eur'");
+		sqlite.exec("UPDATE billing_plan_versions SET currency='usd'");
 		expect(await reserveBillingUsage(db, reservation("two"))).toMatchObject({
 			allowed: false,
 			code: "pricing_unavailable",

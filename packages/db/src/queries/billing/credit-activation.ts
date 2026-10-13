@@ -6,6 +6,7 @@ import type { DbClient } from "../../client";
 import { billingAccounts, billingPlanVersions } from "../../schema/billing";
 import { providerModelRateVersions } from "../../schema/provider-model-rates";
 import { getBillingEntitlement } from "./plans";
+import { eurMicrosFromUsd } from "./monetary-inference";
 
 import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 
@@ -45,10 +46,10 @@ export async function configureCreditBilling(
 		throw new Error("Billing entitlement changed; re-read before activation");
 	if (
 		account.status !== "active" ||
-		plan.currency.toUpperCase() !== "USD" ||
+		plan.currency.toUpperCase() !== "EUR" ||
 		plan.planKey === "starter"
 	)
-		throw new Error("Credit activation requires an active paid USD account");
+		throw new Error("Credit activation requires an active paid EUR account");
 	if (
 		Date.parse(account.periodStart) > Date.parse(now) ||
 		Date.parse(account.periodEnd) <= Date.parse(now)
@@ -72,7 +73,7 @@ export async function configureCreditBilling(
 		.where(inArray(providerModelRateVersions.id, ids));
 	const config = MonetaryInferenceConfigSchema.parse({
 		version: 1,
-		currency: "USD",
+		currency: "EUR",
 		creditValueMicros: 10_000,
 		pricing: "provider_pass_through",
 		perRunBudgetMicros: input.perRunBudgetMicros,
@@ -92,6 +93,8 @@ export async function configureCreditBilling(
 				cacheRead: row.cacheReadMicrousdPerMillion,
 				cacheWrite: row.cacheWriteMicrousdPerMillion,
 			};
+			const eur = (usd: number) =>
+				eurMicrosFromUsd(usd, input.fx.microUsdPerEur);
 			return {
 				schemaVersion: 1,
 				id: row.id,
@@ -100,12 +103,19 @@ export async function configureCreditBilling(
 				model: row.modelId,
 				deploymentScope: row.deploymentScope,
 				currency: row.currency,
+				customerCurrency: "EUR",
+				fx: input.fx,
 				funding: "managed",
 				effectiveFrom: row.effectiveFrom,
 				effectiveUntil: null,
 				sourceReceipt: row.evidenceUri,
 				providerRates: prices,
-				customerRates: prices,
+				customerRates: {
+					uncachedInput: eur(prices.uncachedInput),
+					output: eur(prices.output),
+					cacheRead: eur(prices.cacheRead),
+					cacheWrite: eur(prices.cacheWrite),
+				},
 				creditValueMicros: 10_000,
 				inputConvention: binding.inputConvention,
 				requestModelAliases: binding.requestModelAliases,

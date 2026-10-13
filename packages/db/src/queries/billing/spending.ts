@@ -20,7 +20,7 @@ export async function listMonetaryInferenceSpending(
 			occurredAt: billingUsageCharges.occurredAt,
 			creditAppliedMicros: billingUsageCharges.creditAppliedMicros,
 			customerChargeMicros: billingUsageCharges.customerChargeMicros,
-			currency: sql<"usd">`'usd'`,
+			currency: sql<"eur">`'eur'`,
 			creditValueMicros: sql<
 				number | null
 			>`json_extract(${billingUsageCharges.metadata}, '$.monetaryQuote.rateSnapshot.creditValueMicros')`,
@@ -43,7 +43,7 @@ export async function listMonetaryInferenceSpending(
 				gte(billingUsageCharges.occurredAt, input.from),
 				lt(billingUsageCharges.occurredAt, input.to),
 				sql`json_extract(${billingUsageCharges.metadata}, '$.monetaryQuote.schemaVersion') = 1`,
-				sql`json_extract(${billingUsageCharges.metadata}, '$.monetaryQuote.rateSnapshot.currency') = 'USD'`,
+				sql`json_extract(${billingUsageCharges.metadata}, '$.monetaryQuote.rateSnapshot.customerCurrency') = 'EUR'`,
 			),
 		)
 		.orderBy(desc(billingUsageCharges.occurredAt), desc(billingUsageCharges.id))

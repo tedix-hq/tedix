@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	quoteInferenceCredits,
-	PROPOSED_USD_CREDIT_VALUE_MICROS,
+	CREDIT_VALUE_MICROS,
 	type InferenceRateSnapshot,
 } from "./inference-credit-quote";
 
@@ -30,7 +30,7 @@ function fixture() {
 			cacheWrite: 3_000_000,
 			output: 8_000_000,
 		},
-		creditValueMicros: PROPOSED_USD_CREDIT_VALUE_MICROS,
+		creditValueMicros: CREDIT_VALUE_MICROS,
 	};
 	return {
 		rate,

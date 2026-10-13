@@ -31,9 +31,9 @@ export function BillingCreditWallet({
 			})
 		: null;
 	const currency = monetary
-		? (credits?.currency ?? "usd")
+		? (credits?.currency ?? "eur")
 		: overview.plan.currency;
-	const denominated = monetary || currency.toLowerCase() === "usd";
+	const denominated = monetary || currency.toLowerCase() === "eur";
 	const creditValue = credits?.creditValueMicros ?? 10_000;
 	const available =
 		credits?.availableMicros ?? overview.snapshot.availableCreditMicros;
@@ -180,7 +180,7 @@ export function BillingCreditWallet({
 				)}
 				<Text role="label" tone="secondary">
 					{denominated ? (
-						<>1 credit = {worth(creditValue)} of USD usage value. </>
+						<>1 credit = {worth(creditValue)} of usage value. </>
 					) : (
 						<>
 							Balance shown in {currency.toUpperCase()}; no credit conversion or
