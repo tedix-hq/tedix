@@ -653,7 +653,6 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tedis/detachEmbeddedConversationArtifactPin": "mcp:tedis.admin",
 	"tedis/detachEmbeddedConversationCapability": "mcp:tedis.admin",
 	"tedis/getChannelStatus": "mcp:tedis.read",
-	"tedis/getDreams": "mcp:tedis.read",
 	"tedis/getEmbeddedProviderAvailability": "platform:admin",
 	"tedis/getLogs": "mcp:tedis.read",
 	"tedis/getModelPolicy": "mcp:tedis.read",

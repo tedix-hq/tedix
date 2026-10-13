@@ -621,12 +621,6 @@ export const TediWriteStorageFileInputSchema = z.object({
 	content: z.string().max(1_048_576, "Content too large (max 1MB)"),
 });
 
-export const TediDreamsSchema = z.object({
-	content: z.string(),
-	found: z.boolean(),
-	path: z.string(),
-});
-
 export const TediWriteStorageFileResultSchema = z.object({
 	success: z.boolean(),
 	path: z.string(),
