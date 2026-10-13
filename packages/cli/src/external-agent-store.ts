@@ -31,6 +31,8 @@ export interface StoredExternalAgentSession {
 
 export interface StoredExternalAgentProfile {
 	organizationId: string;
+	/** Slug and tenant id that also name `organizationId` (e.g. `tedix`). */
+	organizationAliases?: string[];
 	principalId: string;
 	key: string;
 	displayName: string;
@@ -124,6 +126,10 @@ function coerceProfile(value: unknown): StoredExternalAgentProfile | null {
 	}
 	return {
 		organizationId: value.organizationId as string,
+		...(Array.isArray(value.organizationAliases) &&
+		value.organizationAliases.every((v) => typeof v === "string")
+			? { organizationAliases: value.organizationAliases as string[] }
+			: {}),
 		principalId: value.principalId as string,
 		key: value.key as string,
 		displayName: value.displayName as string,

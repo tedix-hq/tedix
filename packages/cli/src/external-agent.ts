@@ -346,7 +346,7 @@ async function resolveOrganization(options: {
 	mcpUrl: string;
 	client: Pick<GatewayClient, "runCode">;
 	listWorkspaces?: () => Promise<AvailableWorkspace[]>;
-}): Promise<{ id: string; mcpUrl: string }> {
+}): Promise<{ id: string; aliases: string[]; mcpUrl: string }> {
 	const organizations = options.listWorkspaces
 		? await options.listWorkspaces()
 		: await listAvailableWorkspaces({
@@ -369,7 +369,32 @@ async function resolveOrganization(options: {
 		);
 	}
 	const match = matches[0]!;
-	return { id: match.org, mcpUrl: match.gatewayUrl ?? options.mcpUrl };
+	return {
+		id: match.org,
+		aliases: [match.slug, match.descopeTenantId].filter(
+			(alias): alias is string => Boolean(alias),
+		),
+		mcpUrl: match.gatewayUrl ?? options.mcpUrl,
+	};
+}
+
+/** Whether the workspace's external-agent profile already knows this name. */
+export function externalAgentNamesOrganization(
+	workspace: string,
+	organization: string,
+): boolean {
+	const profile = readExternalAgentProfile(workspace);
+	return Boolean(profile && profileNamesOrganization(profile, organization));
+}
+
+function profileNamesOrganization(
+	profile: StoredExternalAgentProfile,
+	organization: string,
+): boolean {
+	return (
+		organization === profile.organizationId ||
+		(profile.organizationAliases ?? []).includes(organization)
+	);
 }
 
 function storedSession(
@@ -575,7 +600,7 @@ async function startExternalAgentSessionLocked(
 					accessToken: options.oauthBearer,
 				}).organization
 			: (options.organization ?? process.env.TEDIX_ORGANIZATION?.trim());
-		if (target && target !== profile.organizationId) {
+		if (target && !profileNamesOrganization(profile, target)) {
 			if (!options.oauthBearer || !options.workspaceCredential) {
 				throw new Error(
 					`This external-agent profile belongs to organization ${profile.organizationId}. Use --organization ${profile.organizationId}, or choose the profile for your intended organization.`,
@@ -605,6 +630,10 @@ async function startExternalAgentSessionLocked(
 						`This external-agent profile belongs to organization ${profile.organizationId}, not ${organization.id}. Choose the profile for your intended organization.`,
 					);
 				}
+				// Remember the slug so later worker calls with the same
+				// TEDIX_ORGANIZATION resolve without an owner login.
+				profile = { ...profile, organizationAliases: organization.aliases };
+				writeExternalAgentProfile(options.workspace, profile);
 			} finally {
 				await ownerClient.close();
 			}
@@ -742,6 +771,7 @@ async function startExternalAgentSessionLocked(
 			}
 			profile = {
 				organizationId: organization.id,
+				organizationAliases: organization.aliases,
 				principalId: requiredString(
 					principal.id,
 					"principal id",
@@ -869,7 +899,10 @@ export async function resolveExternalAgentAuth(options: {
 	createClient?: GatewayClientFactory;
 }): Promise<AuthResolution> {
 	const { profile, session: stored } = currentSessionContext(options.workspace);
-	if (options.organization && options.organization !== profile.organizationId) {
+	if (
+		options.organization &&
+		!profileNamesOrganization(profile, options.organization)
+	) {
 		throw new Error(
 			`This external-agent profile belongs to organization ${profile.organizationId}. Use --organization ${profile.organizationId}, or choose the profile for your intended organization.`,
 		);
