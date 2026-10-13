@@ -9,7 +9,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HOOK_BYTES } from "../src/hooks/prompt-context";
-import { build, HOOK_GUARD, packageFiles, ROOT } from "./package-plugin";
+import {
+	build,
+	CLI_GATE,
+	HOOK_GUARD,
+	hookName as commandHook,
+	MIN_CLI,
+	packageFiles,
+	ROOT,
+} from "./package-plugin";
 
 const decode = (files: Map<string, Uint8Array>, name: string) =>
 	JSON.parse(new TextDecoder().decode(files.get(name)!));
@@ -26,9 +34,7 @@ const EVENTS = new Set([
 
 /** The hook name after the missing-CLI guard, or undefined for another command. */
 const hookName = (handler: any): string | undefined =>
-	handler.command.startsWith(`${HOOK_GUARD}tedix hooks `)
-		? handler.command.slice(`${HOOK_GUARD}tedix hooks `.length)
-		: undefined;
+	commandHook(handler.command);
 
 function handlers(hooks: Record<string, any[]>): any[] {
 	return Object.values(hooks).flatMap((definitions) =>
@@ -274,6 +280,39 @@ describe("plugin packager", () => {
 				});
 				expect(present.exitCode).toBe(2);
 				expect(present.stderr.toString()).toBe("hooks await-reply\n");
+			}),
+	);
+
+	test("the README states the minimum CLI that session-start enforces", () => {
+		expect(readFileSync(join(ROOT, "README.md"), "utf8")).toContain(
+			`The local hooks need Tedix CLI ${MIN_CLI} or later.`,
+		);
+	});
+
+	test.skipIf(!Bun.which("sh") || !Bun.which("sort"))(
+		"session-start names an older CLI and runs the preflight on a current one",
+		() =>
+			withDirectory((directory) => {
+				const sh = Bun.which("sh")!;
+				const command = `${HOOK_GUARD}${CLI_GATE}tedix hooks session-start`;
+				const cli = join(directory, "tedix");
+				const run = (version: string) => {
+					writeFileSync(
+						cli,
+						`#!/bin/sh\n[ "$1" = --version ] && echo ${version} && exit 0\necho "$@"\n`,
+					);
+					chmodSync(cli, 0o755);
+					const result = Bun.spawnSync([sh, "-c", command], {
+						env: { PATH: `${directory}:/usr/bin:/bin` },
+					});
+					expect(result.exitCode).toBe(0);
+					return result.stdout.toString();
+				};
+				expect(run("0.8.15")).toBe(
+					`Tedix preflight: CLI 0.8.15 is older than ${MIN_CLI}, which this plugin needs; run tedix update.\n`,
+				);
+				for (const version of [MIN_CLI, "0.8.100", "0.10.0", "1.0.0"])
+					expect(run(version)).toBe("hooks session-start\n");
 			}),
 	);
 

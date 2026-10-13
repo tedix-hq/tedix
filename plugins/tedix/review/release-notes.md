@@ -1,3 +1,10 @@
+Tedix 0.2.2 — the session preflight needs Tedix CLI 0.8.17 or later.
+
+The opt-in `SessionStart` preflight now checks the installed CLI first. An
+older CLI gets one line naming its version and asking you to run
+`tedix update`, instead of running a preflight with the organization-slug and
+Work heartbeat bugs that CLI 0.8.17 fixed. The other hooks are unchanged.
+
 Tedix 0.2.1 — the prompt hook gets a 30-second safety net.
 
 The `UserPromptSubmit` context hook (`tedix hooks prompt-context`) now

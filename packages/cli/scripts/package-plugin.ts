@@ -24,8 +24,22 @@ export const ROOT = resolve(import.meta.dir, "../../../plugins/tedix");
 const ASSETS = ["icon.png", "icon-dark.png", "logo.png", "logo-dark.png"];
 /** A missing Tedix CLI makes every hook exit 0 with no output. */
 export const HOOK_GUARD = "command -v tedix >/dev/null 2>&1 || exit 0; ";
-const HOOK_COMMAND =
-	/^command -v tedix >\/dev\/null 2>&1 \|\| exit 0; tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|status)$/;
+/** The oldest Tedix CLI the hooks support (README states the same version). */
+export const MIN_CLI = "0.8.17";
+/** SessionStart preflight names an older CLI and stops instead of running it. */
+export const CLI_GATE = `v=$(tedix --version 2>/dev/null); [ "$(printf '%s\\n' ${MIN_CLI} "$v" | sort -V | head -n 1)" = ${MIN_CLI} ] || { echo "Tedix preflight: CLI \${v:-unknown} is older than ${MIN_CLI}, which this plugin needs; run tedix update."; exit 0; }; `;
+const HOOK_NAME =
+	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|status)$/;
+
+/** The hook a guarded command runs; only session-start carries the CLI gate. */
+export function hookName(command: string): string | undefined {
+	if (!command.startsWith(HOOK_GUARD)) return undefined;
+	let rest = command.slice(HOOK_GUARD.length);
+	const gated = rest.startsWith(CLI_GATE);
+	if (gated) rest = rest.slice(CLI_GATE.length);
+	const name = HOOK_NAME.exec(rest)?.[1];
+	return name && gated === (name === "session-start") ? name : undefined;
+}
 /** Hooks only Codex runs; Claude Code packages omit them. */
 const CODEX_ONLY_HOOKS = new Set(["await-draft"]);
 type Host = "openai" | "claude";
@@ -132,7 +146,7 @@ function localHooks(root: string, host: Host): any {
 	// Claude Code does not need: await-reply delivers the same replies there.
 	const shipped = (handler: any): boolean =>
 		host === "claude"
-			? !CODEX_ONLY_HOOKS.has(HOOK_COMMAND.exec(handler.command)?.[1] ?? "")
+			? !CODEX_ONLY_HOOKS.has(hookName(handler.command) ?? "")
 			: handler.asyncRewake !== true;
 	for (const [event, definitions] of Object.entries<any[]>(hooks.hooks)) {
 		for (const definition of definitions)
@@ -144,8 +158,7 @@ function localHooks(root: string, host: Host): any {
 	for (const definitions of Object.values<any[]>(hooks.hooks))
 		for (const definition of definitions)
 			for (const handler of definition.hooks) {
-				const command = HOOK_COMMAND.exec(handler.command);
-				if (!command)
+				if (!hookName(handler.command))
 					throw new Error(
 						"Unsupported hook command; review the host adapter before packaging",
 					);
