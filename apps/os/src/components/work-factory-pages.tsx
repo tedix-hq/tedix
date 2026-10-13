@@ -12,6 +12,7 @@ import { FormTextarea } from "@/components/forms/form-textarea";
 import { Link } from "@/components/kumo/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
@@ -2199,7 +2200,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	if (detail.isError || (!detail.isPending && !item))
 		return (
 			<WorkItemInspectorPage>
-				<QueryFailure title="Work item unavailable" error={detail.error} />
+				<DetailUnavailable resource="Work item" error={detail.error} />
 			</WorkItemInspectorPage>
 		);
 	if (

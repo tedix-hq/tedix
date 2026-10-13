@@ -13,6 +13,8 @@ import { errorMessage, isNotFoundError } from "@/lib/orpc-error";
  * - `NOT_FOUND` from the server is evidence of absence. Say so plainly, and
  *   without the destructive styling of an outage — a deleted resource is a
  *   normal state, not a fault.
+ * - A read that SUCCEEDED but returned no record (`error` is null) is the same
+ *   evidence of absence.
  * - Anything else — a timeout, an aborted request, an authorization refusal, a
  *   500 — is silence about existence. It must NEVER be reported as "not found";
  *   the resource may be perfectly intact behind a cold isolate.
@@ -28,7 +30,7 @@ export function DetailUnavailable({
 	resource: string;
 	error: unknown;
 }) {
-	if (isNotFoundError(error)) {
+	if (error == null || isNotFoundError(error)) {
 		return (
 			<Alert>
 				<AlertTitle>{resource} not found</AlertTitle>

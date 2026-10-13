@@ -213,6 +213,16 @@ describe("detail not-found ownership", () => {
 		}
 	});
 
+	it("reports a read that settled without a record as absence", () => {
+		for (const resource of ["Work item", "Skill"]) {
+			const html = renderToStaticMarkup(
+				<DetailUnavailable resource={resource} error={null} />,
+			);
+			expect(html).toContain(`${resource} not found`);
+			expect(html).toContain('data-variant="default"');
+		}
+	});
+
 	it("never reports a timeout or transport failure as not found", () => {
 		for (const resource of ["Output", "Run"]) {
 			const html = renderToStaticMarkup(
