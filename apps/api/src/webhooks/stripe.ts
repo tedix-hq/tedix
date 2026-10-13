@@ -504,8 +504,13 @@ async function handleCheckoutCompleted(
 	const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 	const resolved = await resolveStripeSubscriptionPlan(
 		subscription,
-		(planKey) =>
-			getActiveBillingPlanByKey(db, planKey, new Date().toISOString()),
+		(planKey, currency) =>
+			getActiveBillingPlanByKey(
+				db,
+				planKey,
+				new Date().toISOString(),
+				currency,
+			),
 	);
 	if (!resolved) {
 		throw new Error(`Checkout session ${session.id} has no Tedix plan price`);
@@ -604,6 +609,7 @@ async function syncSubscriptionState(
 	await provisionBillingAccount(db, {
 		organizationId,
 		planKey: tier,
+		currency: planItem?.price.currency,
 		status: billingSubscriptionStatus(subscription.status),
 		billingMode: "stripe",
 		stripeEnvironment,
@@ -633,8 +639,13 @@ async function handleSubscriptionUpdated(
 	const metadataOrgId = subscription.metadata.organizationId;
 	const resolved = await resolveStripeSubscriptionPlan(
 		subscription,
-		(planKey) =>
-			getActiveBillingPlanByKey(db, planKey, new Date().toISOString()),
+		(planKey, currency) =>
+			getActiveBillingPlanByKey(
+				db,
+				planKey,
+				new Date().toISOString(),
+				currency,
+			),
 	);
 	if (!resolved) {
 		if (metadataOrgId) {
@@ -738,6 +749,7 @@ async function handlePaymentFailed(
 		await provisionBillingAccount(db, {
 			organizationId: entitlement.account.organizationId,
 			planKey: entitlement.plan.planKey,
+			currency: entitlement.plan.currency,
 			status: "past_due",
 			billingMode: "stripe",
 			stripeEnvironment,
@@ -787,8 +799,13 @@ async function handleInvoicePaid(
 	if (!stripeSubscriptionHasActiveEntitlement(subscription.status)) return;
 	const resolved = await resolveStripeSubscriptionPlan(
 		subscription,
-		(planKey) =>
-			getActiveBillingPlanByKey(db, planKey, new Date().toISOString()),
+		(planKey, currency) =>
+			getActiveBillingPlanByKey(
+				db,
+				planKey,
+				new Date().toISOString(),
+				currency,
+			),
 	);
 	if (!resolved) {
 		throw new Error(`Paid Tedix invoice ${invoice.id} has no Tedix plan price`);
