@@ -13,6 +13,8 @@ import {
 import { CLI_VERSION, selfCommand } from "./shared";
 import { decodeUnverifiedJwtClaims } from "@tedix/auth/web";
 import { spawn, spawnSync } from "node:child_process";
+import { appendFileSync, renameSync, statSync } from "node:fs";
+import { join } from "node:path";
 import {
 	auth,
 	discoverOAuthProtectedResourceMetadata,
@@ -32,6 +34,7 @@ import {
 } from "@tedix/auth/oauth-client-registration";
 import { acquireCredentialLock, type CredentialLock } from "./credential-lock";
 import {
+	credentialDirectory,
 	readWorkspaceCredentials,
 	type WorkspaceCredential,
 	writeWorkspaceCredentials,
@@ -827,6 +830,42 @@ export type SessionRefreshOutcome =
 const REFRESH_FAMILY_INVALIDATED = /E064006|family ID invalidated/i;
 
 /**
+ * A sleeping Mac wakes in the dark (no display) every few minutes for about
+ * five seconds, and background agents keep running then. A renewal sent in
+ * that window can reach Descope, which rotates the token, and then freeze
+ * until the next full wake; by then the reply is gone, and the next renewal
+ * replays the superseded token. All three logouts on 2026-10-13 match this.
+ * Power assertions do not keep a battery-powered Mac in dark wake, so the
+ * renewal is not started there at all.
+ */
+function inDarkWake(): boolean {
+	if (process.platform !== "darwin") return false;
+	const state = spawnSync("/usr/bin/pmset", ["-g", "systemstate"], {
+		encoding: "utf8",
+		timeout: 2_000,
+	});
+	return state.status === 0 && !/\bGraphics\b/.test(state.stdout);
+}
+
+const RENEWAL_JOURNAL_BYTES = 1_000_000;
+
+/**
+ * One line per renewal in `renewals.log`, without secrets. The phase a failed
+ * renewal reached is what tells a lost rotation (`sent` or `received`) from a
+ * harmless one, and `caller` names the command that started it.
+ */
+function journalRenewal(entry: Record<string, unknown>): void {
+	try {
+		const path = join(credentialDirectory(), "renewals.log");
+		try {
+			if (statSync(path).size > RENEWAL_JOURNAL_BYTES)
+				renameSync(path, `${path}.1`);
+		} catch {}
+		appendFileSync(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+	} catch {}
+}
+
+/**
  * Renew the stored access token from the refresh token, without any browser
  * step. Uses the SDK's `refreshAuthorization` rather than `auth()` on purpose:
  * `auth()` falls back to a full authorization when refresh fails, which would
@@ -857,7 +896,8 @@ export async function refreshStoredSession(
 	let lock: CredentialLock | null = null;
 	const started = Date.now();
 	let lockWaitMs = 0;
-	let outcome: SessionRefreshOutcome = "failed";
+	let outcome = "failed" as SessionRefreshOutcome;
+	let phase: "lock" | "dark-wake" | "sent" | "received" | "saved" = "lock";
 	let correlationId: string | undefined;
 	let expectedCredential: WorkspaceCredential | undefined;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -884,6 +924,10 @@ export async function refreshStoredSession(
 			provider.discoveryState()?.authorizationServerUrl;
 		if (!refreshToken || !clientInformation || !authorizationServerUrl)
 			return finish("unavailable");
+		if (inDarkWake()) {
+			phase = "dark-wake";
+			return finish("failed");
+		}
 		const resource = provider.resourceUrl();
 		const fetchFn = options.fetchFn ?? fetch;
 		// One deadline for the whole exchange, response body included: a body that
@@ -910,11 +954,13 @@ export async function refreshStoredSession(
 						body.set("scope", grantedScope);
 					}
 				}
+				phase = "sent";
 				const response = await fetchFn(input, {
 					...init,
 					body,
 					signal: controller.signal,
 				});
+				phase = "received";
 				const requestId =
 					response.headers.get("x-descope-request-id") ??
 					response.headers.get("x-request-id");
@@ -1007,6 +1053,7 @@ export async function refreshStoredSession(
 			},
 			expectedCredential,
 		);
+		phase = "saved";
 		return finish("refreshed");
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
@@ -1025,19 +1072,22 @@ export async function refreshStoredSession(
 	} finally {
 		clearTimeout(timer);
 		lock?.release();
+		const entry = {
+			at: new Date().toISOString(),
+			version: CLI_VERSION,
+			pid: process.pid,
+			ppid: process.ppid,
+			workspace: options.workspace ?? null,
+			result: outcome,
+			phase,
+			lockWaitMs,
+			elapsedMs: Date.now() - started,
+			correlationId,
+			caller: process.env.TEDIX_RENEWAL_CALLER,
+		};
+		if (phase !== "lock" || outcome !== "not-needed") journalRenewal(entry);
 		if (process.env.TEDIX_DEBUG)
-			console.error(
-				"[tedix] OAuth refresh",
-				JSON.stringify({
-					version: CLI_VERSION,
-					pid: process.pid,
-					workspace: options.workspace ?? null,
-					result: outcome,
-					lockWaitMs,
-					elapsedMs: Date.now() - started,
-					correlationId,
-				}),
-			);
+			console.error("[tedix] OAuth refresh", JSON.stringify(entry));
 	}
 }
 
@@ -1063,6 +1113,10 @@ export const DETACHED_RENEWAL_WAIT_MS = 60_000;
  * out the night shift on 2026-10-13: a prompt-context hook was cancelled while
  * renewing. The lock already serialises renewals; the renewer's own process
  * group is what lets the rotation survive the caller.
+ *
+ * A process group is not enough on its own: Claude Code kills a timed-out
+ * hook's descendants by parent PID, whatever their group. A shell that
+ * backgrounds the renewer and exits at once hands it to launchd first.
  */
 export async function renewStoredSession(
 	provider: WorkspaceOAuthProvider,
@@ -1075,12 +1129,32 @@ export async function renewStoredSession(
 	const { workspace } = options;
 	if (!workspace) return refreshStoredSession(provider);
 	const [command, prefix] = options.command ?? selfCommand();
-	const child = spawn(
+	const renewer = [
 		command,
-		[...prefix, "auth", "renew", "--workspace", workspace],
+		...prefix,
+		"auth",
+		"renew",
+		"--workspace",
+		workspace,
+	];
+	const windows = process.platform === "win32";
+	const child = spawn(
+		windows ? command : "/bin/sh",
+		windows ? renewer.slice(1) : ["-c", '"$@" &', "sh", ...renewer],
 		{
-			detached: process.platform !== "win32",
+			detached: !windows,
 			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				...process.env,
+				TEDIX_RENEWAL_CALLER: [
+					process.pid,
+					...process.argv
+						.slice(2)
+						.filter((arg) => !arg.startsWith("-"))
+						.slice(0, 3)
+						.map((arg) => arg.slice(0, 32)),
+				].join(" "),
+			},
 		},
 	);
 	let stdout = "";
