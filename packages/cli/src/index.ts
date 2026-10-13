@@ -50,6 +50,7 @@ import {
 } from "./credential-store";
 import {
 	checkpointExternalAgentKnowledge,
+	externalAgentNamesOrganization,
 	externalAgentStatus,
 	finishExternalAgentSession,
 	listStaleExternalAgentKnowledgeSessions,
@@ -327,16 +328,26 @@ async function main() {
 		}
 		if (subcommand === "start") {
 			const configured = externalAgentStatus(workspace).configured === true;
-			const { auth, loginError } = configured
-				? { auth: null, loginError: undefined }
-				: await resolveStoredLoginAuth(workspace);
+			// An existing profile needs the owner once more only to learn a new
+			// organization name (e.g. the slug in TEDIX_ORGANIZATION).
+			const organization =
+				options.organization ?? process.env.TEDIX_ORGANIZATION?.trim();
+			const ownerNeeded =
+				!configured ||
+				Boolean(
+					organization &&
+					!externalAgentNamesOrganization(workspace, organization),
+				);
+			const { auth, loginError } = ownerNeeded
+				? await resolveStoredLoginAuth(workspace)
+				: { auth: null, loginError: undefined };
 			const oauthTokens = await auth?.oauthProvider?.tokens();
 			const bearer =
 				auth?.headers.Authorization?.replace(/^Bearer /, "") ??
 				oauthTokens?.access_token;
-			const workspaceCredential = configured
-				? undefined
-				: (readWorkspaceCredentials(workspace) ?? undefined);
+			const workspaceCredential = ownerNeeded
+				? (readWorkspaceCredentials(workspace) ?? undefined)
+				: undefined;
 			if (!configured && (!bearer || !workspaceCredential)) {
 				throw new Error(
 					loginError ??

@@ -12,7 +12,10 @@ import {
 	resolveExternalAgentAuth,
 	startExternalAgentSession,
 } from "./external-agent";
-import { writeExternalAgentProfile } from "./external-agent-store";
+import {
+	readExternalAgentProfile,
+	writeExternalAgentProfile,
+} from "./external-agent-store";
 import type { WorkAttemptStore } from "./work-attempt-store";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -804,6 +807,16 @@ describe("external-agent CLI session", () => {
 			expect(
 				code.find((source) => source.includes("organizations.create_api_key")),
 			).toContain(`"organizationId":"${ORG}"`);
+			// A launched worker names its organization by slug, not UUID.
+			for (const organization of ["tedix", "org_tedix", ORG]) {
+				const auth = await resolveExternalAgentAuth({
+					workspace: "connect",
+					selector: "codex-connect",
+					organization,
+					fetch: async () => exchangeResponse(),
+				});
+				expect(auth.headers).toEqual({ "X-API-Key": "short-lived-mcp-token" });
+			}
 			const before = code.length;
 			await expect(
 				startExternalAgentSession({
@@ -838,6 +851,24 @@ describe("external-agent CLI session", () => {
 				}),
 			).rejects.toThrow(`Use --organization ${ORG}`);
 			expect(code).toHaveLength(before);
+
+			// A profile saved before aliases existed learns them at the next start.
+			const { organizationAliases: _, ...legacy } =
+				readExternalAgentProfile("connect")!;
+			writeExternalAgentProfile("connect", legacy);
+			await startExternalAgentSession({
+				...bootstrapBase,
+				workspace: "connect",
+				mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+				oauthBearer,
+				organization: "tedix",
+				createClient: () => factory(),
+				fetch: async () => exchangeResponse(),
+			});
+			expect(readExternalAgentProfile("connect")?.organizationAliases).toEqual([
+				"tedix",
+				"org_tedix",
+			]);
 		},
 	);
 
