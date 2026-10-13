@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.17
+
+### Patch Changes
+
+- 4301f2c: External-agent sessions accept the organization slug (for example `TEDIX_ORGANIZATION=tedix`) as well as its UUID, so launched workers no longer need `--organization <uuid>`.
+- 9c7139d: `tedix work heartbeat --watch` now keeps renewing through a timeout, dropped connection or 5xx error while the confirmed lease lasts, and prints why it stopped, including when it reaches its horizon (the number is the total run time, not the interval).
+
 ## 0.8.16
 
 ### Patch Changes
