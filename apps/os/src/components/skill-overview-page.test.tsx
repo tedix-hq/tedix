@@ -82,10 +82,10 @@ describe("SkillOverviewPage missing record", () => {
 	it("separates loading from not-found instead of rendering nothing", () => {
 		const loading = renderPage();
 		expect(loading).not.toBe("");
-		expect(loading).not.toContain("Skill unavailable");
+		expect(loading).not.toContain("Skill not found");
 
 		const missing = renderPage({ entry: null });
-		expect(missing).toContain("Skill unavailable");
-		expect(missing).toContain("may have been removed");
+		expect(missing).toContain("Skill not found");
+		expect(missing).toContain("may have been");
 	});
 });

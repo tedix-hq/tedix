@@ -2,6 +2,7 @@ import { CaretDown } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { RunStatusChip } from "@/components/activity-runs";
+import { DetailUnavailable } from "@/components/detail-unavailable";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -41,16 +42,7 @@ export function SkillOverviewPage() {
 	 */
 	if (detail.isPending) return <ListSkeleton rows={6} />;
 	if (detail.isError || !skill)
-		return (
-			<Alert variant="destructive">
-				<AlertTitle>Skill unavailable</AlertTitle>
-				<AlertDescription>
-					{detail.error instanceof Error
-						? detail.error.message
-						: "This skill could not be loaded. It may have been removed, or the id in the link may be stale."}
-				</AlertDescription>
-			</Alert>
-		);
+		return <DetailUnavailable resource="Skill" error={detail.error} />;
 	const runEvidence = reliability.data;
 	const recentRuns = (runs.data?.runs ?? []).slice(0, 5);
 	return (
