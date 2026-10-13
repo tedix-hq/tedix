@@ -154,7 +154,9 @@ describe("Work factory queue", () => {
 		expect(html).toContain("Operations");
 		expect(html).toContain("Updated");
 		expect(html).toContain("min-w-[44rem] table-fixed xl:min-w-[54rem]");
-		expect(html).toContain("line-clamp-2 font-medium");
+		expect(html).toContain(
+			'<span class="line-clamp-2">Verify the customer export</span>',
+		);
 		expect(html).toContain("min-h-11 min-w-0 flex-col items-start");
 		expect(html).toContain("text-left");
 		expect(html).toContain("basis-full flex-wrap");

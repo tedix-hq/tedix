@@ -709,9 +709,9 @@ export function WorkItemsTable({
 									<Link
 										variant="record"
 										href={`/work/items/${item.id}`}
-										className="line-clamp-2 font-medium"
+										className="font-medium"
 									>
-										{item.title}
+										<span className="line-clamp-2">{item.title}</span>
 									</Link>
 									<div className="flex min-w-0 items-center gap-1.5">
 										<Text as="span" role="label" tone="mono-secondary">
@@ -2140,9 +2140,9 @@ export function WorkRecoveryLedger({
 								<Link
 									variant="record"
 									href={`/work/items/${record.id}`}
-									className="line-clamp-2 font-medium"
+									className="font-medium"
 								>
-									{record.title}
+									<span className="line-clamp-2">{record.title}</span>
 								</Link>
 								<Text as="p" role="label" tone="mono-secondary">
 									{record.id.slice(0, 8)}
