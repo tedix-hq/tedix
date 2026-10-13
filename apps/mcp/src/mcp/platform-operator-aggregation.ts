@@ -1,4 +1,3 @@
-import { NAMESPACE_PEER_ALIASES } from "@tedix/mcp-shared/namespace-governance";
 import {
 	PLATFORM_OPERATOR_APP_SLUG,
 	PLATFORM_OPERATOR_TOOL_DEFINITIONS,
@@ -86,11 +85,6 @@ function computePlatformOperatorCodeModeNamespaces(): ReadonlySet<string> {
 		if (endpointPrefix) {
 			const ns = extractCamelCaseRoot(endpointPrefix);
 			namespaces.add(ns);
-			// SEAM C — also add the peer alias so both forms trigger the admin app.
-			const aliasNs = NAMESPACE_PEER_ALIASES.get(ns);
-			if (aliasNs !== undefined) {
-				namespaces.add(aliasNs);
-			}
 		}
 	}
 	for (const namespace of D1_PLATFORM_OPERATOR_CODE_MODE_NAMESPACES) {

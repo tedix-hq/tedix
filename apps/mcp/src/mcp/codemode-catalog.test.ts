@@ -924,8 +924,8 @@ describe("Jev-backed Code Mode discovery", () => {
 	});
 });
 
-describe("dual-mount namespace aliases (app/apps + tedi/tedis)", () => {
-	it("(a) alias mirrors resolve under an explicit namespace filter but do not enumerate", async () => {
+describe("distinct management namespaces", () => {
+	it("does not expose an automatic singular alias", async () => {
 		const ctx = {
 			loadedTools: new Map<string, AppTool>([
 				[
@@ -949,17 +949,14 @@ describe("dual-mount namespace aliases (app/apps + tedi/tedis)", () => {
 		expect(appsEntry?.list_apps?.callable).toBe("apps.list_apps");
 		expect(namespaceTools(appsResult, "app")).toBeUndefined();
 
-		// The alias form still resolves under an explicit namespace filter,
-		// with its alias-namespace callable and provenance marker.
-		const aliasFiltered = await runSearch(provider, "list_apps", 10, {
-			namespace: "app",
-		});
-		const aliasEntry = namespaceTools(aliasFiltered, "app");
-		expect(aliasEntry?.list_apps?.callable).toBe("app.list_apps");
-		expect(aliasEntry?.list_apps?.aliasOf).toBe("apps");
+		await expect(
+			runSearch(provider, "list_apps", 10, {
+				namespace: "app",
+			}),
+		).rejects.toThrow("Unknown namespace");
 	});
 
-	it("(b) an explicit {apps:'app'} override enumerates only the canonical 'app' form", async () => {
+	it("honours an explicit namespace override without a reverse alias", async () => {
 		const ctx = {
 			loadedTools: new Map<string, AppTool>([
 				[
@@ -974,7 +971,6 @@ describe("dual-mount namespace aliases (app/apps + tedi/tedis)", () => {
 				],
 			]),
 		} as unknown as ServerContext;
-		// Explicit override: "apps" → "app" (the override renames; alias covers the reverse)
 		const provider = buildCatalogProvider(ctx, { apps: "app" });
 
 		const result = await runSearch(provider, "create_app");
@@ -984,13 +980,11 @@ describe("dual-mount namespace aliases (app/apps + tedi/tedis)", () => {
 		expect(appEntry?.create_app?.callable).toBe("app.create_app");
 		expect(namespaceTools(result, "apps")).toBeUndefined();
 
-		// The "apps" side still resolves when explicitly filtered.
-		const aliasFiltered = await runSearch(provider, "create_app", 10, {
-			namespace: "apps",
-		});
-		expect(namespaceTools(aliasFiltered, "apps")?.create_app?.callable).toBe(
-			"apps.create_app",
-		);
+		await expect(
+			runSearch(provider, "create_app", 10, {
+				namespace: "apps",
+			}),
+		).rejects.toThrow("Unknown namespace");
 	});
 
 	it("(c) a semantic-rename namespace does NOT gain a peer alias", async () => {
@@ -1017,7 +1011,7 @@ describe("dual-mount namespace aliases (app/apps + tedi/tedis)", () => {
 		expect(namespaceTools(result, "skill")).toBeUndefined();
 	});
 
-	it("discover.list_namespaces enumerates only the canonical form; aliases live in governance metadata", async () => {
+	it("discover.list_namespaces exposes no automatic alias", async () => {
 		const ctx = {
 			loadedTools: new Map<string, AppTool>([
 				[
@@ -1044,7 +1038,7 @@ describe("dual-mount namespace aliases (app/apps + tedi/tedis)", () => {
 		>;
 		expect(namespaces.tedis).toBeDefined();
 		expect(namespaces.tedis!.tools).toBeGreaterThan(0);
-		expect(namespaces.tedis!.governance?.aliases).toContain("tedi");
+		expect(namespaces.tedis!.governance?.aliases).toEqual([]);
 		// The pure-alias mirror namespace is not enumerated as its own entry.
 		expect(namespaces.tedi).toBeUndefined();
 	});
@@ -1385,16 +1379,14 @@ describe("discover.search results flat array", () => {
 			"exact namespace.tool",
 		);
 
-		for (const callable of ["app.delete_thing_0", "apps.delete_thing_0"]) {
-			expect(await describe({ callable })).toMatchObject({
-				parameters: {
-					properties: {
-						confirmDestructive: { type: "boolean" },
-						reason: { type: "string" },
-					},
+		expect(await describe({ callable: "app.delete_thing_0" })).toMatchObject({
+			parameters: {
+				properties: {
+					confirmDestructive: { type: "boolean" },
+					reason: { type: "string" },
 				},
-			});
-		}
+			},
+		});
 		const found = await runSearch(provider, "delete_thing_0", 5, {
 			includeParameters: true,
 		});

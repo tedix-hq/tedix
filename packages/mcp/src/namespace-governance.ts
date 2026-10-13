@@ -38,22 +38,9 @@ const RESERVED = {
 	]
 >;
 
-const ALIAS_PAIRS = [
-	["app", "apps"],
-	["tedi", "tedis"],
-] as const;
-
-export const NAMESPACE_PEER_ALIASES: ReadonlyMap<string, string> = new Map(
-	ALIAS_PAIRS.flatMap(([left, right]) => [
-		[left, right] as const,
-		[right, left] as const,
-	]),
+export const RESERVED_MCP_NAMESPACES: ReadonlySet<string> = new Set(
+	Object.keys(RESERVED),
 );
-
-export const RESERVED_MCP_NAMESPACES: ReadonlySet<string> = new Set([
-	...Object.keys(RESERVED),
-	...NAMESPACE_PEER_ALIASES.keys(),
-]);
 
 /** Metadata for discovery output and collision enforcement. */
 export function namespaceGovernanceFor(
@@ -64,9 +51,7 @@ export function namespaceGovernanceFor(
 		return {
 			owner: reserved[0],
 			class: reserved[1],
-			aliases: NAMESPACE_PEER_ALIASES.has(namespace)
-				? [NAMESPACE_PEER_ALIASES.get(namespace)!]
-				: [],
+			aliases: [],
 			requiredScopes: [],
 			visibility: reserved[2],
 			freshness: reserved[3],
@@ -76,9 +61,7 @@ export function namespaceGovernanceFor(
 	return {
 		owner: "app-config",
 		class: "tenant_app",
-		aliases: NAMESPACE_PEER_ALIASES.has(namespace)
-			? [NAMESPACE_PEER_ALIASES.get(namespace)!]
-			: [],
+		aliases: [],
 		requiredScopes: [],
 		visibility: "tenant",
 		freshness: "d1_config",
