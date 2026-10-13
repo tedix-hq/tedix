@@ -23,7 +23,7 @@
  * What is faked, and what that means:
  * - `API_SERVICE` is a scripted oRPC-wire fetcher. This test proves the OS
  *   worker ↔ browser contract; it does NOT prove apps/api's own behavior
- *   (that is `events-stream.test.ts` and the kernel-runtime router suites).
+ *   (that is the kernel-runtime router suites).
  *   The scripts below are shaped by `RuntimeStreamReadOutputSchema` and
  *   `HomeRunSetSchema`, which the session root parses for real, so a drift in
  *   those upstream contracts still fails here.

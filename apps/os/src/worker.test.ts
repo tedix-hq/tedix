@@ -1593,39 +1593,6 @@ describe("Tedix OS origin router", () => {
 		expect(proxied.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
 	});
 
-	it("passes SSE responses through the proxy as a stream with resume headers intact", async () => {
-		const body = 'id: home:main:0\ndata: {"kind":"run.started"}\n\n';
-		const env: OsRouterEnv = {
-			ASSETS: { fetch: async () => new Response("shell") },
-			API_SERVICE: {
-				fetch: async (proxied: Request) => {
-					expect(proxied.headers.get("Last-Event-ID")).toBe("home:main:4");
-					return new Response(body, {
-						headers: {
-							"Content-Type": "text/event-stream",
-							"Cache-Control": "no-store",
-						},
-					});
-				},
-			},
-		};
-		const response = await handleOsRequest(
-			new Request(
-				"https://acme.os.tedix.dev/api/kernel/runtime/conversations/home:main/events/stream",
-				{
-					headers: {
-						"Last-Event-ID": "home:main:4",
-						Cookie: `${OS_BROKER_SESSION_COOKIE}=${HOST_SESSION}`,
-					},
-				},
-			),
-			env,
-			provisioned,
-		);
-		expect(response.headers.get("Content-Type")).toBe("text/event-stream");
-		await expect(response.text()).resolves.toBe(body);
-	});
-
 	it("gates the proxy behind provisioning and refuses it on the local lane", async () => {
 		const env: OsRouterEnv = {
 			ASSETS: { fetch: async () => new Response("shell") },

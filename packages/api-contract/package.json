@@ -143,7 +143,6 @@
 		"./schemas/extraction-config": "./src/schemas/extraction-config.ts",
 		"./schemas/harness-version": "./src/schemas/harness-version.ts",
 		"./schemas/jev": "./src/schemas/jev.ts",
-		"./schemas/kernel-events-stream": "./src/schemas/kernel-events-stream.ts",
 		"./schemas/kernel-runtime": "./src/schemas/kernel-runtime.ts",
 		"./schemas/layout": "./src/schemas/layout.ts",
 		"./schemas/learning-feedback": "./src/schemas/learning-feedback.ts",

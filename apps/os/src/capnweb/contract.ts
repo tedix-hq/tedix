@@ -19,12 +19,10 @@
  * ---------------------------------------------------------------------------
  * DURABLE CURSOR SEMANTICS (the load-bearing part)
  * ---------------------------------------------------------------------------
- * The `/capn` lane projects `kernelRuntime.readRunEvents`, which is the
- * canonical durable replay verb (`kernel-events-stream.ts` says so in its own
- * header). Its offsets are RUN-LOCAL ordinals: consecutive indices starting at
- * `stream.offset` within ONE run, reset to 0 for the next run of the same
- * conversation. They are NOT the conversation-scoped array indices the SSE
- * frame ids carry, and treating them as such is what broke the pilot.
+ * The `/capn` lane projects the canonical durable replay verb,
+ * `kernelRuntime.readRunEvents`. Its offsets are RUN-LOCAL ordinals:
+ * consecutive indices starting at `stream.offset` within ONE run, reset to 0
+ * for the next run of the same conversation.
  *
  * So the cursor on this wire is explicitly a `(runId, offset)` pair:
  *
