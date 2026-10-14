@@ -1645,9 +1645,21 @@ export const CreateWorkItemInputSchema = z
 		stewardType: WorkItemOwnerTypeSchema.optional(),
 		stewardId: z.string().max(300).optional(),
 		priority: WorkItemPrioritySchema.default("medium"),
-		objectiveId: z.uuid().optional(),
-		workClass: WorkItemClassSchema.optional(),
-		purposeExceptionExpiresAt: z.iso.datetime().optional(),
+		objectiveId: z
+			.uuid()
+			.optional()
+			.describe(
+				"Purpose, one of: this objective; a projectId or parentWorkItemId already linked to an objective; or workClass with purposeExceptionExpiresAt.",
+			),
+		workClass: WorkItemClassSchema.optional().describe(
+			"maintenance, incident or hygiene for work without an objective; requires purposeExceptionExpiresAt.",
+		),
+		purposeExceptionExpiresAt: z.iso
+			.datetime()
+			.optional()
+			.describe(
+				"Expiry of an operational workClass: in the future and at most 30 days ahead.",
+			),
 		projectId: z.uuid().optional(),
 		parentWorkItemId: z.uuid().optional(),
 		sourceSessionKey: z.string().max(500).optional(),
