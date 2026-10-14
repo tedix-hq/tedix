@@ -89,6 +89,7 @@
 		"jsonc-parser": "3.3.1",
 		"knip": "^6.41.0",
 		"mdast-util-from-markdown": "^2.1.0",
+		"npm-check-updates": "^23.1.1",
 		"oxc-parser": "^0.154.0",
 		"sherif": "^1.13.0",
 		"typescript": "catalog:",
