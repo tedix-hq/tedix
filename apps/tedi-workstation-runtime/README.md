@@ -2,8 +2,9 @@
 
 This Worker owns the native Cloudflare Sandbox processes and filesystem for
 leased tedi Linux workstations. It uses the pinned Sandbox v1 SDK and
-matching image. Tini keeps the container alive; the entrypoint composes the
-Cloudflare HTTPS interception trust bundle before commands run.
+matching image. Tini keeps the container alive. Each container start installs
+the ephemeral Cloudflare HTTPS interception CA into the system trust bundle,
+because native exec processes do not inherit an entrypoint's environment.
 
 The Durable Object records a logical execution intent before dispatch, then
 persists its native process ID before returning success. Unknown launch outcomes
