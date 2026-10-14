@@ -522,7 +522,7 @@ function renderWriteToolCatalog(tools: McpTool[], exactSchema = false): string {
 		.slice(0, MAX_CATALOG_TOOLS)
 		.map((tool) => {
 			const props = Object.entries(tool.inputSchema?.properties ?? {})
-				.slice(0, 12)
+				.slice(0, 32)
 				.map(([key, value]) => {
 					const type =
 						value && typeof value === "object" && "type" in value
@@ -896,7 +896,7 @@ export async function planKernelWriteProposal(args: {
 			});
 			selected = catalog.some((tool) => tool.name === pick?.toolName)
 				? { toolName: pick!.toolName, reason: "planner_selected" }
-				: selected;
+				: { toolName: null, reason: `${selected.reason}, planner=none` };
 		}
 		if (!selected.toolName) {
 			// Jev declined, was uncertain, or was unavailable — previously the
