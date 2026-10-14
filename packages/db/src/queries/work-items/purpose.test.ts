@@ -247,6 +247,21 @@ describe("canonical Work Item purpose", () => {
 		});
 	});
 
+	it("files work into a project without an objective as bounded maintenance", async () => {
+		const { db } = fixture();
+		expect(
+			await resolveWorkItemPurpose(db, {
+				orgId: "org",
+				now: NOW,
+				project: { objectiveId: null },
+			}),
+		).toEqual({
+			objectiveId: null,
+			workClass: "maintenance",
+			purposeExceptionExpiresAt: FUTURE,
+		});
+	});
+
 	it("lets project objective context win over a fallback class", async () => {
 		const { db } = fixture();
 		expect(

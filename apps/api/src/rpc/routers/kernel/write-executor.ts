@@ -371,13 +371,20 @@ export async function executeApprovedKernelWrite(args: {
 				error: boundedError(result.content ?? result),
 			};
 		}
-		return {
-			ok: true,
-			data:
-				transport === "codemode"
-					? codeModeResultData(result)
-					: unwrapCallToolResult(result, payload.toolName),
-		};
+		const data =
+			transport === "codemode"
+				? codeModeResultData(result)
+				: unwrapCallToolResult(result, payload.toolName);
+		// Code Mode reports an inner tool failure as a successful `code` call
+		// whose value is `{ ok: false, error }`; that write did not happen.
+		const failure =
+			transport === "codemode" && data && typeof data === "object"
+				? (data as { ok?: unknown; error?: unknown })
+				: null;
+		if (failure?.ok === false) {
+			return { ok: false, error: boundedError(failure.error ?? data) };
+		}
+		return { ok: true, data };
 	} catch (error) {
 		return { ok: false, error: boundedError(errorMessage(error)) };
 	}

@@ -1652,7 +1652,7 @@ export const CreateWorkItemInputSchema = z
 				"Purpose, one of: this objective; a projectId or parentWorkItemId already linked to an objective; or workClass.",
 			),
 		workClass: WorkItemClassSchema.optional().describe(
-			"Set maintenance, incident or hygiene unless you pass objectiveId: it is the purpose when no objective applies and is ignored when the project or parent has one.",
+			"maintenance, incident or hygiene: the purpose when no objective applies; ignored when the project or parent has one. Defaults to maintenance in a projectId without an objective.",
 		),
 		purposeExceptionExpiresAt: z.iso
 			.datetime()
