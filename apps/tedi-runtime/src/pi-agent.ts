@@ -708,6 +708,21 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		if (initialResponse?.enabled === false) {
 			if (readStoredRuntimeAdmission(this.ctx.storage, this.ctx.id.toString()))
 				throw new Error("Admitted facet cannot revert to unselected rollout");
+			if (initialResponse.root && !initialResponse.custody)
+				throw new Error("Unselected facet lacks native custody");
+			if (
+				this.inferenceRoot &&
+				admissionJson(initialResponse.root) !==
+					admissionJson(this.inferenceRoot)
+			)
+				throw new Error("Facet original root custody changed");
+			// Cold recovery must recapture the parent's proof before selecting a wire adapter.
+			this.inferenceRoot = initialResponse.root
+				? structuredClone(initialResponse.root)
+				: undefined;
+			this.admissionCustody = initialResponse.custody
+				? structuredClone(initialResponse.custody)
+				: undefined;
 			return;
 		}
 		if (!runId || !sessionKey)
