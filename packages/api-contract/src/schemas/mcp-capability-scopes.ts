@@ -167,6 +167,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	report_work_agent_session_status: "mcp:work",
 	list_work_agent_sessions: "mcp:work",
 	list_work_project_contributors: "mcp:work",
+	// Factory output (runs, Outputs, closed Work) is a Work read.
+	get_factory_scoreboard: "mcp:work",
 	// Verb-first catalog operator tools miss the `catalog_` prefix rule. The API
 	// keeps requireCatalogOperatorAccess on every catalog mutation; this gate
 	// only names the capability family so the tools stop failing closed.

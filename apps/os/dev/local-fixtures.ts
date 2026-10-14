@@ -4723,6 +4723,26 @@ const handlers: Record<string, (input: never) => unknown> = {
 			};
 		}),
 	}),
+	"projects/getFactoryScoreboard": () => ({
+		data: [
+			{
+				kind: "skill_loop" as const,
+				id: SKILL_REVENUE,
+				name: "Weekly revenue report",
+				tediId: TEDI_MILES,
+				tediName: "Miles",
+				cron: "0 7 * * *",
+				runs: 7,
+				succeeded: 7,
+				lastRunAt: "2026-10-08 07:00:00",
+				outputs: 0,
+				workClosed: 0,
+				lastResult: null,
+				idle: true,
+			},
+		],
+		since: "2026-10-01T00:00:00.000Z",
+	}),
 	"projects/listMilestones": (input: { id: string }) => {
 		localProject(input.id);
 		return { data: [], nextCursor: null };
