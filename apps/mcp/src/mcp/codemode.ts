@@ -6051,20 +6051,27 @@ export async function registerCodeModeTools(
 				// programs return hand-built projections that swallow ok:false inner
 				// envelopes, so without this an audit has to stringify every inner
 				// result to find (e.g.) a scope denial.
-				const innerFailures = executionRefs.toolReceipts
-					.filter(
-						(receipt) =>
-							receipt.status === "failed" || receipt.status === "canceled",
-					)
-					.slice(0, 10)
-					.map((receipt) => ({
-						tool: receipt.operation,
-						...(receipt.error ? { error: receipt.error } : {}),
-					}));
+				const failedReceipts = executionRefs.toolReceipts.filter(
+					(receipt) =>
+						receipt.status === "failed" || receipt.status === "canceled",
+				);
+				const innerFailures = failedReceipts.slice(0, 10).map((receipt) => ({
+					tool: receipt.operation,
+					...(receipt.error ? { error: receipt.error } : {}),
+				}));
+				// A plausible-looking `result` read first hides failed inner calls
+				// (agents report "0 items" or success). Failures therefore precede
+				// the result, `partial` flags the run, and a run where every inner
+				// call failed is an MCP error.
+				const allInnerCallsFailed =
+					failedReceipts.length > 0 &&
+					failedReceipts.length === executionRefs.toolReceipts.length;
 				const output: Record<string, unknown> = {
 					executionId,
+					...(innerFailures.length > 0
+						? { partial: true, failures: innerFailures }
+						: {}),
 					result: modelResult ?? null,
-					...(innerFailures.length > 0 ? { failures: innerFailures } : {}),
 					...(resultIdentity ? { resultIdentity } : {}),
 					...(resultProjection ? { resultProjection } : {}),
 					...(executionReceipt ? { completionEvidence: executionReceipt } : {}),
@@ -6111,6 +6118,7 @@ export async function registerCodeModeTools(
 						},
 					],
 					structuredContent: output,
+					...(allInnerCallsFailed ? { isError: true } : {}),
 					...(Object.keys(resultMeta).length > 0 ? { _meta: resultMeta } : {}),
 				};
 			} catch (error) {

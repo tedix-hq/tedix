@@ -163,6 +163,15 @@ vi.mock("@cloudflare/codemode", async () => {
 					}
 					return { result, logs: [] };
 				}
+				if (code.includes("mixed_inner_calls")) {
+					const provider = providers.find((entry) => entry.name === "test");
+					const allowed = provider?.fns.allowed;
+					const softFail = provider?.fns.soft_fail;
+					if (!allowed || !softFail) throw new Error("test tools missing");
+					await allowed({});
+					await softFail({});
+					return { result: { items: [] }, logs: [] };
+				}
 				if (code.includes("repeated_soft_fail")) {
 					const provider = providers.find((entry) => entry.name === "test");
 					const tool = provider?.fns.soft_fail;
@@ -579,7 +588,9 @@ describe("Code Mode tail telemetry", () => {
 		});
 		expect(rpcLog?.executionId).toEqual(expect.any(String));
 		expect(execLog).toMatchObject({ _cm: "exec", success: true });
-		expect(response.isError).toBeUndefined();
+		// Every inner call failed: the run is an MCP error, not a quiet result.
+		expect(response.isError).toBe(true);
+		expect(response.structuredContent).toMatchObject({ partial: true });
 		expect(response.structuredContent?.result).toMatchObject({
 			error: "soft fail",
 			completionEvidence: {
@@ -603,6 +614,70 @@ describe("Code Mode tail telemetry", () => {
 			},
 		});
 		expect(JSON.stringify(codeSpan)).not.toContain("async () =>");
+	});
+
+	it("puts failures before the result and flags a partial run", async () => {
+		const registered = new Map<string, (args: unknown) => Promise<any>>();
+		const server = {
+			registerTool: (name: string, _config: unknown, handler: any) =>
+				registered.set(name, handler),
+		};
+		const ctx = makeServerCtx(
+			new Map([
+				["test__soft_fail", tool()],
+				["test__allowed", tool({ toolId: "test__allowed" })],
+			]),
+		);
+		ctx.appMetadata!.mcpConfig!.toolScopes = { soft_fail: [], allowed: [] };
+		executeToolMock.mockResolvedValueOnce({
+			content: [{ type: "text", text: "ok" }],
+			structuredContent: { ok: true },
+			_meta: {},
+			isError: false,
+		});
+		await registerCodeModeTools(server as never, ctx);
+		const response = await registered.get("code")!({
+			code: "async () => mixed_inner_calls",
+		});
+		expect(response.isError).toBeUndefined();
+		expect(response.structuredContent.partial).toBe(true);
+		expect(response.structuredContent.failures).toEqual([
+			{ tool: "test.soft_fail", error: expect.stringContaining("soft fail") },
+		]);
+		const keys = Object.keys(response.structuredContent);
+		expect(keys.slice(0, 4)).toEqual([
+			"executionId",
+			"partial",
+			"failures",
+			"result",
+		]);
+		const text = response.content[0].text as string;
+		expect(text.indexOf('"failures"')).toBeLessThan(text.indexOf('"result"'));
+	});
+
+	it("leaves an all-succeeded run unchanged", async () => {
+		const registered = new Map<string, (args: unknown) => Promise<any>>();
+		const server = {
+			registerTool: (name: string, _config: unknown, handler: any) =>
+				registered.set(name, handler),
+		};
+		executeToolMock.mockResolvedValue({
+			content: [{ type: "text", text: "ok" }],
+			structuredContent: { ok: true },
+			_meta: {},
+			isError: false,
+		});
+		await registerCodeModeTools(server as never, makeServerCtx());
+		const response = await registered.get("code")!({
+			code: "async () => test.soft_fail({})",
+		});
+		expect(response.isError).toBeUndefined();
+		expect(response.structuredContent).not.toHaveProperty("partial");
+		expect(response.structuredContent).not.toHaveProperty("failures");
+		expect(Object.keys(response.structuredContent).slice(0, 2)).toEqual([
+			"executionId",
+			"result",
+		]);
 	});
 
 	it("uses the shared tool-result normalizer for Code Mode values", async () => {
