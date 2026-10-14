@@ -5,7 +5,31 @@ import {
 } from "@tedix/api-contract/schemas/billing";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { BillingPlanStatus } from "./billing-plan-status";
+
+const createPortal = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", async (original) => {
+	const actual = await original<typeof import("@/lib/api")>();
+	return {
+		...actual,
+		osApi: new Proxy(actual.osApi, {
+			get(target, property) {
+				if (property === "billing")
+					return new Proxy(target.billing, {
+						get(billing, method) {
+							return method === "createPortal"
+								? createPortal
+								: Reflect.get(billing, method);
+						},
+					});
+				return Reflect.get(target, property);
+			},
+		}),
+	};
+});
 import {
 	billingOverviewQueryOptions,
 	billingPlansQueryOptions,
@@ -161,12 +185,24 @@ function render(
 		paused?: boolean;
 		tinyCost?: boolean;
 		legacyCurrency?: string;
+		status?: BillingOverview["snapshot"]["status"];
+		customer?: boolean;
+		overviewError?: boolean;
 	} = {},
 ) {
 	const client = new QueryClient({
-		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		defaultOptions: {
+			queries: {
+				retry: false,
+				staleTime: Infinity,
+				refetchOnMount: false,
+				retryOnMount: false,
+			},
+		},
 	});
 	const bill = overview();
+	if (opts.status) bill.snapshot.status = opts.status;
+	if (opts.customer) bill.snapshot.stripeCustomerId = "cus_fictional";
 	if (opts.legacyCurrency) bill.plan.currency = opts.legacyCurrency;
 	if (opts.monetary)
 		bill.credits = {
@@ -205,7 +241,15 @@ function render(
 		bill.plan.overageUnitPriceMicros = 0;
 		bill.period!.meteredOverageTokens = 80000;
 	}
-	client.setQueryData(billingOverviewQueryOptions().queryKey, bill);
+	if (opts.overviewError) {
+		const query = client
+			.getQueryCache()
+			.build(client, billingOverviewQueryOptions());
+		query.setState({
+			status: "error",
+			error: new Error("Billing unavailable"),
+		});
+	} else client.setQueryData(billingOverviewQueryOptions().queryKey, bill);
 	const query = orgUsageQueryOptions(org, ORG_USAGE_PERIOD, {
 		from: bill.snapshot.periodStart,
 		to: bill.snapshot.periodEnd,
@@ -386,4 +430,68 @@ it("preserves native legacy currency without inventing a credit conversion", () 
 	expect(html).toContain("exchange rate is applied");
 	expect(html).toContain("$0");
 	expect(html).not.toContain("1 credit =");
+});
+
+it.each(["active", "trial", "past_due", "suspended"] as const)(
+	"shows %s subscription recovery on the usage overview",
+	(status) => {
+		const html = render(usage(), { status, customer: true });
+		expect(html).toContain("Subscription status and recovery");
+		expect(html).toContain("Manage or upgrade plan");
+		expect(html.indexOf("Current plan")).toBeLessThan(
+			html.indexOf("Usage credits"),
+		);
+		if (status === "trial") expect(html).toContain("Trial ending");
+		if (status === "past_due")
+			expect(html).toContain("Payment needs attention");
+		if (status === "suspended")
+			expect(html).toContain("Subscription suspended");
+	},
+);
+
+it("offers plan selection without a Stripe customer", () => {
+	const html = render(usage(), { status: "suspended" });
+	expect(html).toContain('href="/admin/billing?section=subscription"');
+	expect(html).toContain("Choose a plan");
+	expect(html).not.toContain("Manage or upgrade plan");
+});
+
+it("shows a failed billing read even when dependent usage has never loaded", () => {
+	const html = render(usage(), { overviewError: true, pending: true });
+	expect(html).toContain("Billing usage could not be read");
+	expect(html).toContain("Billing unavailable");
+	expect(html).not.toContain('aria-label="Loading usage"');
+});
+
+it("opens the tenant billing portal only on click and reports a failed handoff", async () => {
+	createPortal.mockRejectedValueOnce(new Error("Portal unavailable"));
+	const bill = overview();
+	bill.snapshot.stripeCustomerId = "cus_fictional";
+	const client = new QueryClient({
+		defaultOptions: { mutations: { retry: false } },
+	});
+	const container = document.createElement("div");
+	const root = createRoot(container);
+	try {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<BillingPlanStatus overview={bill} />
+				</QueryClientProvider>,
+			),
+		);
+		expect(createPortal).not.toHaveBeenCalled();
+		await act(async () => {
+			container.querySelector("button")!.click();
+		});
+		await vi.waitFor(() =>
+			expect(container.textContent).toContain("Portal unavailable"),
+		);
+		expect(createPortal).toHaveBeenCalledExactlyOnceWith({
+			returnUrl: `${window.location.origin}/admin/billing?section=usage`,
+		});
+	} finally {
+		await act(async () => root.unmount());
+		client.clear();
+	}
 });

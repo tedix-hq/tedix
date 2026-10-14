@@ -22,6 +22,7 @@ import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Progress } from "@/components/kumo/progress";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
+import { BillingPlanStatus } from "@/components/billing-plan-status";
 import { BillingCreditWallet } from "@/components/billing-credit-wallet";
 import { BillingRunCosts } from "@/components/billing-run-costs";
 import { formatPlanLimit, hasUnlimitedTokenUsage } from "@/lib/billing-display";
@@ -97,7 +98,10 @@ export function BillingUsageOverview({
 		refetchInterval: 120_000,
 	});
 
-	if (usageQuery.isPending || overviewQuery.isPending) {
+	if (
+		overviewQuery.isPending ||
+		(usageQuery.isPending && !overviewQuery.isError)
+	) {
 		return (
 			<div className="space-y-4" aria-busy="true" aria-label="Loading usage">
 				<Skeleton className="h-64 w-full" />
@@ -160,6 +164,7 @@ export function BillingUsageOverview({
 
 	return (
 		<div className="space-y-5">
+			<BillingPlanStatus overview={overview} />
 			<BillingCreditWallet overview={overview} />
 			{usageQuery.data.totals.unpricedRowCount > 0 && (
 				<Alert variant="warning">
