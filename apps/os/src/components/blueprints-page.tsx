@@ -67,6 +67,7 @@ import { Input } from "@/components/kumo/input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
 import {
@@ -1419,24 +1420,10 @@ function GalleryExplore() {
 					</Text>
 				)}
 			</PageToolbar>
-			{gallery.isPending && <ListSkeleton />}
-			{gallery.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>The gallery is unavailable</AlertTitle>
-					<AlertDescription>
-						<span>{(gallery.error as Error).message}</span>
-						<Button
-							variant="outline"
-							size="sm"
-							className="mt-2 w-fit"
-							disabled={gallery.isFetching}
-							onClick={() => void gallery.refetch()}
-						>
-							{gallery.isFetching ? "Trying again…" : "Try again"}
-						</Button>
-					</AlertDescription>
-				</Alert>
-			)}
+			<ListQueryBoundary
+				query={gallery}
+				errorTitle="The gallery is unavailable"
+			/>
 			{gallery.data && gallery.data.items.length === 0 && <GalleryEmpty />}
 			{gallery.data &&
 				gallery.data.items.length > 0 &&
@@ -1729,24 +1716,10 @@ function MyBlueprints({
 					</Text>
 				)}
 			</PageToolbar>
-			{blueprints.isPending && <ListSkeleton />}
-			{blueprints.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Blueprints are unavailable</AlertTitle>
-					<AlertDescription>
-						<span>{(blueprints.error as Error).message}</span>
-						<Button
-							variant="outline"
-							size="sm"
-							className="mt-2 w-fit"
-							disabled={blueprints.isFetching}
-							onClick={() => void blueprints.refetch()}
-						>
-							{blueprints.isFetching ? "Trying again…" : "Try again"}
-						</Button>
-					</AlertDescription>
-				</Alert>
-			)}
+			<ListQueryBoundary
+				query={blueprints}
+				errorTitle="Blueprints are unavailable"
+			/>
 			{blueprints.data && blueprints.data.items.length === 0 && (
 				<BlueprintsEmpty />
 			)}

@@ -31,7 +31,6 @@ import { SearchInput } from "@/components/kumo/search-input";
 import { Pagination } from "@/components/kumo/pagination";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { type CardRunLinkProps, RunLinkChip } from "@/components/chat-cards";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import {
@@ -56,7 +55,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { useSkillsWebMcpTools } from "@/components/skills-webmcp-tools";
 import { Text } from "@/components/kumo/text";
 import { TriggersPanel } from "@/components/triggers-panel";
@@ -732,15 +731,10 @@ export function SkillsPage({
 							</SectionDescription>
 						</SectionHeading>
 					</SectionHeader>
-					{skills.isPending && <ListSkeleton />}
-					{skills.isError && (
-						<Alert variant="destructive">
-							<AlertTitle>Skills are unavailable</AlertTitle>
-							<AlertDescription>
-								{(skills.error as Error).message}
-							</AlertDescription>
-						</Alert>
-					)}
+					<ListQueryBoundary
+						query={skills}
+						errorTitle="Skills are unavailable"
+					/>
 					{skills.data &&
 						skillEntries.length === 0 &&
 						(search.q ? <Text>No matching skills.</Text> : <SkillsEmpty />)}
@@ -787,15 +781,10 @@ export function SkillsPage({
 							</SectionDescription>
 						</SectionHeading>
 					</SectionHeader>
-					{definitions.isPending && <ListSkeleton />}
-					{definitions.isError && (
-						<Alert variant="destructive">
-							<AlertTitle>Automations are unavailable</AlertTitle>
-							<AlertDescription>
-								{(definitions.error as Error).message}
-							</AlertDescription>
-						</Alert>
-					)}
+					<ListQueryBoundary
+						query={definitions}
+						errorTitle="Automations are unavailable"
+					/>
 					{definitions.data &&
 						workflowDefinitions.length === 0 &&
 						(search.q ? (

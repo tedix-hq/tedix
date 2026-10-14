@@ -49,6 +49,7 @@ import {
 } from "@/components/kumo/tabs";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { TeamMembersPanel } from "@/components/team-members";
 import { TeamRolesPanel } from "@/components/team-roles";
@@ -739,15 +740,10 @@ export function TediRosterPanel({
 						</SelectContent>
 					</Select>
 				</PageToolbar>
-				{tedis.isPending && <ListSkeleton />}
-				{tedis.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>The tedi roster is unavailable</AlertTitle>
-						<AlertDescription>
-							{(tedis.error as Error).message}
-						</AlertDescription>
-					</Alert>
-				)}
+				<ListQueryBoundary
+					query={tedis}
+					errorTitle="The tedi roster is unavailable"
+				/>
 				{tedis.data && total === 0 && !hasFilters && <TeamEmpty />}
 				{tedis.data && total === 0 && hasFilters ? (
 					<Empty

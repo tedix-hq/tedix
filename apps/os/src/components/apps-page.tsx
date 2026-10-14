@@ -17,7 +17,6 @@ import { Link } from "@tanstack/react-router";
 import { getOsSurface } from "@/lib/os-navigation";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
@@ -56,7 +55,7 @@ import {
 	DisconnectConnectionDialog,
 	type DisconnectConnectionTarget,
 } from "@/components/connections-disconnect-dialog";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { Text } from "@/components/kumo/text";
 import {
@@ -668,12 +667,12 @@ export function ConnectionsPanel({
 					{contextNote}
 				</Text>
 			) : null}
-			{connections.isPending && <ListSkeleton rows={2} />}
-			{connections.isError && (
-				<Text as="p" role="body" tone="secondary" className="m-0">
-					{connectionFailureMessage(Boolean(contextNote))}
-				</Text>
-			)}
+			<ListQueryBoundary
+				query={connections}
+				errorTitle="Connections are unavailable"
+				rows={2}
+				errorDescription={connectionFailureMessage(Boolean(contextNote))}
+			/>
 			{manage && disconnectMutation.isError && (
 				<Text as="p" role="body" tone="error" className="m-0">
 					The disconnect failed:{" "}
@@ -939,13 +938,7 @@ export function AppsPage({
 						) : null}
 					</>
 				) : null}
-				{apps.isPending && <ListSkeleton />}
-				{apps.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Apps are unavailable</AlertTitle>
-						<AlertDescription>{(apps.error as Error).message}</AlertDescription>
-					</Alert>
-				)}
+				<ListQueryBoundary query={apps} errorTitle="Apps are unavailable" />
 				{apps.data && installedApps.length === 0 && <AppsEmpty />}
 				{apps.data && installedApps.length > 0 && filteredApps.length === 0 ? (
 					<Empty appearance="quiet">
