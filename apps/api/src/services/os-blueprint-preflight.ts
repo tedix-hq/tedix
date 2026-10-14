@@ -36,7 +36,7 @@ import {
 	getPolicyPackBySlugForOrganization,
 	getRuntimeProfileById,
 } from "@tedix/db/queries/control-plane/definitions";
-import { getTediById } from "@tedix/db/queries/tedis";
+import { getTediById, getTediBySlug } from "@tedix/db/queries/tedis";
 import type { ModelPolicy } from "@tedix/db/schema/control-plane";
 // The same digest projection the skill-run and blueprint-export paths use.
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -252,6 +252,60 @@ async function resolvePolicyDecisions(input: {
 		});
 	}
 	return decisions;
+}
+
+/**
+ * The declared steward must be a live tedi in the caller's organization. A
+ * missing steward is a configuration gap, not a definitional one: another
+ * organization satisfies it by creating or renaming its own tedi.
+ */
+async function resolveStewardDecision(input: {
+	db: DbClient;
+	organizationId: string;
+	requirements: OsBlueprintRequirements;
+}): Promise<{ decision: Decision; tediId: string | null } | null> {
+	const steward = input.requirements.steward;
+	if (!steward) return null;
+	const subject = `steward:${steward.tediSlug}`;
+	const tedi = await getTediBySlug(
+		input.db,
+		input.organizationId,
+		steward.tediSlug,
+	);
+	if (!tedi) {
+		return {
+			decision: {
+				kind: "assignment",
+				subject,
+				verdict: "missing",
+				reason: `no tedi ${steward.tediSlug} exists in this organization to steward the blueprint`,
+			},
+			tediId: null,
+		};
+	}
+	const pin = { id: tedi.id, revision: null, digest: null };
+	if (tedi.status !== "active") {
+		return {
+			decision: {
+				kind: "assignment",
+				subject,
+				verdict: "denied",
+				reason: `steward tedi ${tedi.slug} is ${tedi.status ?? "not active"}`,
+				resolvedPin: pin,
+			},
+			tediId: tedi.id,
+		};
+	}
+	return {
+		decision: {
+			kind: "assignment",
+			subject,
+			verdict: "allowed",
+			reason: `tedi ${tedi.slug} is active in this organization and stewards the blueprint`,
+			resolvedPin: pin,
+		},
+		tediId: tedi.id,
+	};
 }
 
 async function resolveRuntimeDecision(input: {
@@ -597,7 +651,7 @@ export interface OsBlueprintPreflightInput {
 	revisionId: string;
 	revision: number;
 	definition: OsBlueprintDefinition;
-	/** Target tedi for model/runtime compatibility; null resolves that kind `missing`. */
+	/** Target tedi for model/runtime compatibility; defaults to the declared steward, else that kind resolves `missing`. */
 	tediId?: string | null;
 	/** User identity a user-scoped connection could belong to. */
 	ownerUserId?: string | null;
@@ -610,7 +664,6 @@ export async function resolveOsBlueprintPreflight(
 ): Promise<OsBlueprintPreflight> {
 	const resolvedAt = input.now ?? new Date().toISOString();
 	const requirements = input.definition.requirements;
-	const targetTediId = input.tediId ?? null;
 	if (!requirements) {
 		return {
 			blueprintId: input.blueprintId,
@@ -618,7 +671,7 @@ export async function resolveOsBlueprintPreflight(
 			revision: input.revision,
 			status: "not_configured",
 			instantiateAllowed: true,
-			targetTediId,
+			targetTediId: input.tediId ?? null,
 			requirements: null,
 			decisions: [],
 			blockingReasons: [],
@@ -628,6 +681,12 @@ export async function resolveOsBlueprintPreflight(
 		};
 	}
 
+	const steward = await resolveStewardDecision({
+		db: input.db,
+		organizationId: input.organizationId,
+		requirements,
+	});
+	const targetTediId = input.tediId ?? steward?.tediId ?? null;
 	const [
 		skillDecisions,
 		policyDecisions,
@@ -660,6 +719,7 @@ export async function resolveOsBlueprintPreflight(
 	]);
 
 	const decisions: Decision[] = [
+		...(steward ? [steward.decision] : []),
 		...skillDecisions,
 		...policyDecisions,
 		...(runtimeDecision ? [runtimeDecision] : []),
@@ -701,7 +761,8 @@ export async function resolveOsBlueprintPreflight(
 			decisions
 				.filter(
 					(decision) =>
-						decision.kind === "workspace_resource" &&
+						(decision.kind === "workspace_resource" ||
+							decision.kind === "assignment") &&
 						decision.verdict !== "allowed",
 				)
 				.map((decision) => decision.reason),
