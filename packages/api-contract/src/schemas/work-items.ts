@@ -1649,16 +1649,16 @@ export const CreateWorkItemInputSchema = z
 			.uuid()
 			.optional()
 			.describe(
-				"Purpose, one of: this objective; a projectId or parentWorkItemId already linked to an objective; or workClass with purposeExceptionExpiresAt.",
+				"Purpose, one of: this objective; a projectId or parentWorkItemId already linked to an objective; or workClass.",
 			),
 		workClass: WorkItemClassSchema.optional().describe(
-			"maintenance, incident or hygiene for work without an objective; requires purposeExceptionExpiresAt.",
+			"Set maintenance, incident or hygiene unless you pass objectiveId: it is the purpose when no objective applies and is ignored when the project or parent has one.",
 		),
 		purposeExceptionExpiresAt: z.iso
 			.datetime()
 			.optional()
 			.describe(
-				"Expiry of an operational workClass: in the future and at most 30 days ahead.",
+				"Expiry of an operational workClass: in the future and at most 30 days ahead. Defaults to 7 days.",
 			),
 		projectId: z.uuid().optional(),
 		parentWorkItemId: z.uuid().optional(),

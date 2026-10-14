@@ -232,6 +232,42 @@ describe("canonical Work Item purpose", () => {
 		});
 	});
 
+	it("defaults an operational exception to seven days", async () => {
+		const { db } = fixture();
+		expect(
+			await resolveWorkItemPurpose(db, {
+				orgId: "org",
+				now: NOW,
+				workClass: "maintenance",
+			}),
+		).toEqual({
+			objectiveId: null,
+			workClass: "maintenance",
+			purposeExceptionExpiresAt: FUTURE,
+		});
+	});
+
+	it("lets project objective context win over a fallback class", async () => {
+		const { db } = fixture();
+		expect(
+			await resolveWorkItemPurpose(db, {
+				orgId: "org",
+				now: NOW,
+				workClass: "maintenance",
+				project: { objectiveId: "objective" },
+			}),
+		).toMatchObject({ objectiveId: "objective", workClass: "objective" });
+		await expect(
+			resolveWorkItemPurpose(db, {
+				orgId: "org",
+				now: NOW,
+				workClass: "maintenance",
+				purposeExceptionExpiresAt: FUTURE,
+				project: { objectiveId: "objective" },
+			}),
+		).rejects.toMatchObject({ code: "context_conflict" });
+	});
+
 	it.each(["2026-08-20T11:00:00.000Z", "2026-10-20T12:00:00.000Z"])(
 		"rejects invalid operational expiry %s",
 		async (expiry) => {
