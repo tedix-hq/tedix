@@ -118,6 +118,10 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			// load.
 			...sharedTestConfig,
 			environment: "happy-dom",
+			// happy-dom 21 blocks iframe loads by default; widget frame tests need one.
+			environmentOptions: {
+				happyDOM: { settings: { enableIframePageLoading: true } },
+			},
 			// `scripts/**` carries the gate policy suites. This include list replaces
 			// vitest's default glob, so a co-located `scripts/*.test.ts` is invisible
 			// unless it is named here — which is how the bundle guard shipped a

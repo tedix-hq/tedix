@@ -1,8 +1,8 @@
-diff --git a/dist/agent-routing-QDcchcQP.d.ts b/dist/agent-routing-QDcchcQP.d.ts
-index b726976b2e327fcd5bc73f3eef26d01acabd2b34..37572f7e8b220425a96172d14c4deebe104c3173 100644
---- a/dist/agent-routing-QDcchcQP.d.ts
-+++ b/dist/agent-routing-QDcchcQP.d.ts
-@@ -5084,6 +5084,11 @@ declare class Agent<
+diff --git a/dist/agent-routing-BMvWTFEp.d.ts b/dist/agent-routing-BMvWTFEp.d.ts
+index 7e8a90a12afab6165355ae088c730b2a5cf7bf44..fce4810c4a1fa1f2d707326f7fdc8f7d617984dc 100644
+--- a/dist/agent-routing-BMvWTFEp.d.ts
++++ b/dist/agent-routing-BMvWTFEp.d.ts
+@@ -5095,6 +5095,11 @@ declare class Agent<
      target: LifecycleRouteAddress | undefined,
      envelope: LifecycleRouteEnvelope
    ): Promise<unknown>;

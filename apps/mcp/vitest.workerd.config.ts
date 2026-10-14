@@ -59,6 +59,8 @@ export default defineConfig({
 		}),
 	],
 	test: {
+		// workerd cannot read Vitest's on-disk module cache (default since 5.0.4).
+		fsModuleCache: false,
 		name: "workerd",
 		include: ["src/**/*.workerd.test.ts"],
 		testTimeout: 20_000,

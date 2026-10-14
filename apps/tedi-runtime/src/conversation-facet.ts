@@ -1773,21 +1773,21 @@ function nativeToolOutput(output: unknown): ToolExecutionResult {
 	if (output && typeof output === "object" && "type" in output) {
 		if (output.type === "json" && "value" in output)
 			return {
-				content: [{ type: "text", text: JSON.stringify(output.value) }],
+				output: [{ type: "text", text: JSON.stringify(output.value) }],
 			};
 		if (
 			output.type === "text" &&
 			"value" in output &&
 			typeof output.value === "string"
 		)
-			return { content: [{ type: "text", text: output.value }] };
+			return { output: [{ type: "text", text: output.value }] };
 		if (
 			output.type === "content" &&
 			"value" in output &&
 			Array.isArray(output.value)
 		)
 			return {
-				content: output.value.map((part: unknown) => {
+				output: output.value.map((part: unknown) => {
 					if (part && typeof part === "object" && "type" in part) {
 						if (
 							part.type === "text" &&
@@ -1817,7 +1817,7 @@ function nativeToolOutput(output: unknown): ToolExecutionResult {
 	const serialized = JSON.stringify(output);
 	if (serialized === undefined)
 		throw new Error("Tool result has no durable JSON representation");
-	return { content: [{ type: "text", text: serialized }] };
+	return { output: [{ type: "text", text: serialized }] };
 }
 
 interface ToolApproval {

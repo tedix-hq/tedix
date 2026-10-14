@@ -6,7 +6,7 @@ as "a patch to <package> <version>" (`bun run oss:check` enforces it).
 
 ## cloudflare-agents-facet-lifecycle-alarm-transport
 
-Includes a patch to agents 0.28.0 that routes private facet Lifecycle alarms through registered parent-owned native jobs while preserving original facet class and path identity, Copyright (c) 2025 Cloudflare, Inc., under the MIT License.
+Includes a patch to agents 0.28.1 that routes private facet Lifecycle alarms through registered parent-owned native jobs while preserving original facet class and path identity, Copyright (c) 2025 Cloudflare, Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/cloudflare-agents-MIT.txt`)
 

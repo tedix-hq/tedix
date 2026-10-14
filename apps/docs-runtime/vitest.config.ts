@@ -8,5 +8,9 @@ export default defineConfig({
 			remoteBindings: false,
 		}),
 	],
-	test: { include: ["src/**/*.test.ts"] },
+	test: {
+		include: ["src/**/*.test.ts"],
+		// workerd cannot read Vitest's on-disk module cache (default since 5.0.4).
+		fsModuleCache: false,
+	},
 });
