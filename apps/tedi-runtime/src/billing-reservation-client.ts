@@ -225,6 +225,28 @@ export function applyAuthorizedInferenceAttribution(
 	};
 }
 
+/**
+ * The run a reservation counts against for a per-run budget. An accepted
+ * root's run is authoritative. Otherwise the turn's own run id is used, so a
+ * monetary plan with a per-run budget, which refuses calls that have no run,
+ * can still admit ordinary turns. The `system:` fallback is not a run: it
+ * would add up every runless call of a tedi under one id, and the request
+ * schema caps a run id at 300 characters.
+ */
+function billingRunId(
+	origin: NonNullable<ReturnType<typeof readPrivateInferenceOrigin>>,
+	correlationRunId: string | undefined,
+): string | null {
+	if (origin.kind === "accepted_native") return origin.root.accepted.runId;
+	if (
+		!correlationRunId ||
+		correlationRunId.startsWith("system:") ||
+		correlationRunId.length > 300
+	)
+		return null;
+	return correlationRunId;
+}
+
 export interface AuthorizedInferenceRequest {
 	readonly attribution: Readonly<AigMetadata>;
 	readonly execution: Readonly<ProviderExecutionIdentity>;
@@ -298,8 +320,7 @@ export async function authorizeInferenceEntitlement(
 		workItemId: attribution?.workItemId ?? null,
 		estimatedInputTokens: estimate.inputTokens,
 		estimatedOutputTokens: estimate.outputTokens,
-		runId:
-			origin.kind === "accepted_native" ? origin.root.accepted.runId : null,
+		runId: billingRunId(origin, attribution?.runId),
 		traceId: input.metadata?.sessionKeyHash ?? null,
 		idempotencyKey,
 		metadata: {
