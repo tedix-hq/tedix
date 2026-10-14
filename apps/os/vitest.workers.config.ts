@@ -30,6 +30,8 @@ export default defineConfig(async () => ({
 		alias: { "@": path.resolve(__dirname, "src") },
 	},
 	test: {
+		// workerd cannot read Vitest's on-disk module cache (default since 5.0.4).
+		fsModuleCache: false,
 		include: ["src/**/*.workerd.test.ts"],
 	},
 }));

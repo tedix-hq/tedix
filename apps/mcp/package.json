@@ -25,7 +25,7 @@
 	"dependencies": {
 		"@cloudflare/codemode": "catalog:",
 		"@json-render/core": "catalog:",
-		"@json-render/yaml": "^0.21.0",
+		"@json-render/yaml": "^0.21.1",
 		"@modelcontextprotocol/client": "catalog:",
 		"@modelcontextprotocol/server": "catalog:",
 		"@tedix/api-client": "workspace:*",

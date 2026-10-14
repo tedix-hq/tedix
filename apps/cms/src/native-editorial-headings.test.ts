@@ -62,7 +62,7 @@ it('renders through installed Emdash PortableText list and mark normalization',a
 			config,
 			`import { getViteConfig } from ${JSON.stringify(path.join(template, "node_modules/astro/dist/config/entrypoint.js"))};
 const stubs=${JSON.stringify(stubs)};
-export default getViteConfig({plugins:[{name:'native-heading-fixtures',resolveId(id){return Object.hasOwn(stubs,id)?'\\0'+id:null},load(id){return stubs[id.startsWith('\\0')?id.slice(1):id]??null}}],ssr:{noExternal:['emdash','astro-portabletext']},test:{include:[${JSON.stringify(fixture)}],environment:'node'}},{root:${JSON.stringify(template)},configFile:false,image:{service:{entrypoint:'astro/assets/services/noop'}}});`,
+export default getViteConfig({plugins:[{name:'native-heading-fixtures',resolveId(id){return Object.hasOwn(stubs,id)?'\\0'+id:null},load(id){return stubs[id.startsWith('\\0')?id.slice(1):id]??null}}],ssr:{noExternal:['emdash','astro-portabletext']},test:{include:[${JSON.stringify(fixture)}],environment:'node',fsModuleCache:false}},{root:${JSON.stringify(template)},configFile:false,image:{service:{entrypoint:'astro/assets/services/noop'}}});`,
 		);
 		await execute(
 			path.join(repo, "node_modules/.bin/vp"),

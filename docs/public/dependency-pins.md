@@ -55,7 +55,7 @@ Cloudflare adapter; `bun.lock` records the same patch paths:
 - `patches/@emdash-cms/cloudflare@1.2.0.patch` implements the collection-deletion
   registry guard using D1 batches or Durable Object `transactionSync`, and
   relaxes the Kumo peer dependency to a compatible range.
-- `patches/agents@0.28.0.patch` routes facet Lifecycle alarms through registered
+- `patches/agents@0.28.1.patch` routes facet Lifecycle alarms through registered
   parent-owned native jobs, preserves facet class and path identity, and adds
   a policy hook before facet initialization and alarm dispatch.
 
