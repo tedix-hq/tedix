@@ -341,3 +341,46 @@ function fixtureOriginGuard(orgId = "org", recheck: () => void = () => {}) {
 console.log(
 	"PASS signed original root projection, preserved correlation, immutable receipt and narrow API window at actual wire",
 );
+
+// An unselected turn bills against its own run. A monetary plan with a
+// per-run budget refuses a runless call as hard_spend_limit, which blocked
+// every ordinary tedi turn on the credit wallet. A `system:` fallback stays
+// runless so unrelated calls never share one run budget.
+{
+	const { encodeAiGatewayAttribution } =
+		await import("@tedix/api-contract/schemas/ai-gateway-attribution");
+	for (const [correlation, expected] of [
+		["fixture-tedi:mcp:ordinary-turn", "fixture-tedi:mcp:ordinary-turn"],
+		["system:fixture-tedi:chat", null],
+	] as const) {
+		let sent: unknown = "unsent";
+		await authorizeInferenceEntitlement(
+			{
+				SECRETS_MASTER_KEY: "fixture-signing-secret",
+				TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+				API_SERVICE: {
+					fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+						const envelope = (await new Request(input, init).json()) as any;
+						sent = (envelope.json ?? envelope).runId;
+						return Response.json({ json: admission });
+					},
+				} as unknown as Fetcher,
+			},
+			{
+				metadata: {
+					orgId: "org-1",
+					tediId: "fixture-tedi",
+					attribution: encodeAiGatewayAttribution({
+						runId: correlation,
+						workItemId: "work",
+					}),
+				},
+				execution,
+				body: "{}",
+				beforeDispatch: fixtureOriginGuard("org-1"),
+			},
+		);
+		assert.equal(sent, expected, correlation);
+	}
+}
+console.log("PASS unselected turns bill against their own run id");
