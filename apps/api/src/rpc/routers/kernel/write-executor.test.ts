@@ -417,6 +417,57 @@ describe("executeApprovedKernelWrite", () => {
 		]);
 	});
 
+	it("fails an approved Code Mode write whose inner tool returned ok:false", async () => {
+		let codeCall = 0;
+		const service = mcpService((body) => {
+			if (body.method === "tools/list") {
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: { tools: [{ name: "code" }] },
+					},
+				};
+			}
+			codeCall += 1;
+			const result =
+				codeCall === 1
+					? JSON.stringify([
+							{
+								callable: "work.create_work_items",
+								annotations: { readOnlyHint: false },
+								parameters: {
+									properties: { title: { type: "string" } },
+									required: ["title"],
+								},
+							},
+						])
+					: { ok: false, error: "BAD_REQUEST: PURPOSE_REQUIRED: no purpose" };
+			return {
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: { structuredContent: { executionId: "exec-1", result } },
+				},
+			};
+		});
+
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload({
+				appSlug: "tedix-unified",
+				toolName: "work.create_work_items",
+				args: { title: "Release proof" },
+				transport: "codemode",
+			}),
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			error: "BAD_REQUEST: PURPOSE_REQUIRED: no purpose",
+		});
+	});
+
 	it("aborts (no tools/call) when the stored tool no longer exists upstream", async () => {
 		const service = mcpService((body) =>
 			body.method === "tools/list"

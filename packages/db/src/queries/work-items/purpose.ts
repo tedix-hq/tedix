@@ -245,7 +245,13 @@ export async function resolveWorkItemPurpose(
 			"PURPOSE_CONFLICT: a child operational class must agree with its parent",
 		);
 	}
-	const workClass = params.workClass ?? parentOperationalClass;
+	// A project without an objective is still a declared home for the work, so
+	// filing into it defaults to bounded maintenance rather than failing
+	// approval of a create that never named a class.
+	const workClass =
+		params.workClass ??
+		parentOperationalClass ??
+		(params.project ? "maintenance" : null);
 	const purposeExceptionExpiresAt =
 		params.purposeExceptionExpiresAt ??
 		params.parent?.purposeExceptionExpiresAt ??
