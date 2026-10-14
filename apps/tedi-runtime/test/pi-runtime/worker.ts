@@ -1,5 +1,6 @@
 import {
 	readPrivateInferenceOrigin,
+	requestInferenceOriginGuard,
 	type RuntimeInferenceOrigin,
 } from "../../src/runtime-inference-origin";
 import { assertProviderDispatchReady } from "@tedix/workers-ai/gateway-transport";
@@ -1308,11 +1309,14 @@ export class ConversationFacet extends PiConversationFixture {
 					const originals = keys.map(
 						(key) => [key, this.ctx.storage.kv.get(key)] as const,
 					);
-					const originalAdmission = this.ctx.storage.sql
-						.exec<{ record: string }>(
-							"SELECT record FROM runtime_admission WHERE id=1",
-						)
-						.toArray()[0]?.record;
+					const originalAdmission =
+						origin?.kind === "accepted_native"
+							? this.ctx.storage.sql
+									.exec<{ record: string }>(
+										"SELECT record FROM runtime_admission WHERE id=1",
+									)
+									.toArray()[0]?.record
+							: undefined;
 					const originalInput =
 						origin?.kind === "accepted_native"
 							? this.ctx.storage.sql
@@ -1400,6 +1404,12 @@ export class ConversationFacet extends PiConversationFixture {
 	async setOriginMutation(mutation: string) {
 		this.ctx.storage.kv.put("fixture:origin-mutation", mutation);
 	}
+	async captureRecoveredOrigin() {
+		await this.assertFacetRuntimeDispatch();
+		return readPrivateInferenceOrigin(
+			requestInferenceOriginGuard(this.facetBeforeDispatch()),
+		);
+	}
 	async privateOriginProbe() {
 		return {
 			origin: this.ctx.storage.kv.get<RuntimeInferenceOrigin>(
@@ -1477,6 +1487,7 @@ export class ConversationFacet extends PiConversationFixture {
 }
 export class PiAdmissionParentFixture extends Agent {
 	protected override async onBeforeFacetLifecycleAlarm() {
+		if (this.ctx.storage.kv.get("fixture:unselected")) return;
 		if (this.admission().read()?.state !== "active")
 			throw new Error("fixture root alarm admission denied");
 	}
@@ -1590,6 +1601,17 @@ export class PiAdmissionParentFixture extends Agent {
 			runId,
 		);
 	}
+	async unselectedTurn(runId: string) {
+		this.ctx.storage.kv.put("fixture:unselected", true);
+		return (await this.dynamicAgents.get(ConversationFacet, "admitted")).turn(
+			runId,
+		);
+	}
+	async captureRecoveredOrigin() {
+		return (
+			await this.dynamicAgents.get(ConversationFacet, "admitted")
+		).captureRecoveredOrigin();
+	}
 	async setOriginMutation(mutation: string) {
 		await (
 			await this.dynamicAgents.get(ConversationFacet, "admitted")
@@ -1622,11 +1644,13 @@ export class PiAdmissionParentFixture extends Agent {
 		sessionKey: string;
 	}): Promise<FacetAdmissionResponse> {
 		const adapter = this.admission();
-		const accepted = await adapter.assertAcceptedTurn({
-			runId: input.runId,
-			sessionKey: input.sessionKey,
-			principalId: "fixture-principal",
-		});
+		const accepted = this.ctx.storage.kv.get("fixture:unselected")
+			? undefined
+			: await adapter.assertAcceptedTurn({
+					runId: input.runId,
+					sessionKey: input.sessionKey,
+					principalId: "fixture-principal",
+				});
 		const row = this.ctx.storage.sql
 			.exec<{ identity_name: string }>(
 				"SELECT identity_name FROM cf_agents_sub_agents WHERE class=? AND name=?",
@@ -1645,6 +1669,23 @@ export class PiAdmissionParentFixture extends Agent {
 			ns.idFromName(row.identity_name).toString() !== input.objectId
 		)
 			throw new Error("unregistered child custody");
+		if (!accepted)
+			return {
+				enabled: false,
+				root: {
+					owner: adapter.owner,
+					objectName: this.name,
+					className: "AgentTediDO",
+					path: [],
+					generation: 0,
+				},
+				custody: {
+					parentPath: [...this.selfPath],
+					facetName: input.name,
+					identityName: row.identity_name,
+					objectId: input.objectId,
+				},
+			};
 		return {
 			root: {
 				owner: adapter.owner,

@@ -462,6 +462,18 @@ describe("registered facet admission", () => {
 			).PI_ADMISSION_PARENT,
 			name,
 		);
+	it("recaptures unselected native origin from its registered parent after eviction", async () => {
+		const name = crypto.randomUUID();
+		let parent = await selected(name);
+		await parent.unselectedTurn("unselected-origin");
+		const before = await parent.captureRecoveredOrigin();
+		expect(before?.kind).toBe("unselected_native");
+		await abortAllDurableObjects();
+		parent = await selected(name);
+		const recovered = await parent.captureRecoveredOrigin();
+		expect(recovered).toEqual(before);
+		expect(recovered?.root.owner.objectId).toBe(parent.id.toString());
+	});
 	it("retains actual original root and selected accepted leaf custody across native turn execution", async () => {
 		const parent = await selected(crypto.randomUUID());
 		await parent.admittedTurn("private-origin-positive");
