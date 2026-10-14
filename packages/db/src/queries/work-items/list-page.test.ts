@@ -37,13 +37,14 @@ function insert(row: {
 	workClass?: string | null;
 	objectiveId?: string | null;
 	projectId?: string | null;
+	accountableOwnerId?: string | null;
 	createdAt?: string;
 }) {
 	sqlite
 		.prepare(
 			`INSERT INTO work_items
-			 (id,org_id,title,disposition,work_kind,work_class,objective_id,project_id,created_at)
-			 VALUES (?,?,?,?,?,?,?,?,?)`,
+			 (id,org_id,title,disposition,work_kind,work_class,objective_id,project_id,accountable_owner_type,accountable_owner_id,created_at)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		)
 		.run(
 			row.id,
@@ -54,6 +55,8 @@ function insert(row: {
 			row.workClass ?? null,
 			row.objectiveId ?? null,
 			row.projectId ?? null,
+			row.accountableOwnerId ? "tedi" : null,
+			row.accountableOwnerId ?? null,
 			row.createdAt ?? "2026-08-20T00:00:00.000Z",
 		);
 }
@@ -245,6 +248,90 @@ describe("listWorkItemsPage filters and counts in SQL", () => {
 		});
 		expect(page.total).toBe(1);
 		expect(page.data[0]?.orgId).toBe(ORG);
+	});
+});
+
+describe("accountableOwnerId and objectiveLinked", () => {
+	/**
+	 * One owner holds most of an org's accepted work. A page read and then
+	 * filtered by owner client-side never reaches anyone else's items, so the
+	 * owner filter must select rows before the page is cut.
+	 */
+	function seedOwners() {
+		// 150 newer CTO items fill the first page completely.
+		for (let index = 0; index < 150; index += 1) {
+			insert({
+				id: idFor(1_000 + index),
+				disposition: "accepted",
+				accountableOwnerId: "tedi-cto",
+				objectiveId: OBJECTIVE,
+				createdAt: new Date(
+					Date.UTC(2026, 5, 1) + index * 60_000,
+				).toISOString(),
+			});
+		}
+		// Three older CEO items, one linked to an objective.
+		for (let index = 0; index < 3; index += 1) {
+			insert({
+				id: idFor(index),
+				disposition: "accepted",
+				accountableOwnerId: "tedi-ceo",
+				objectiveId: index === 0 ? OBJECTIVE : null,
+				createdAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString(),
+			});
+		}
+		insert({
+			id: idFor(9_000),
+			orgId: OTHER_ORG,
+			disposition: "accepted",
+			accountableOwnerId: "tedi-ceo",
+		});
+	}
+
+	it("returns only the owner's items even when 100+ other items come first", async () => {
+		seedOwners();
+		const page = await listWorkItemsPage(db, {
+			orgId: ORG,
+			disposition: "accepted",
+			accountableOwnerId: "tedi-ceo",
+			limit: 100,
+		});
+		expect(page.total).toBe(3);
+		expect(page.data.map((row) => row.id)).toEqual([
+			idFor(2),
+			idFor(1),
+			idFor(0),
+		]);
+	});
+
+	it("composes the owner filter with objectiveLinked", async () => {
+		seedOwners();
+		const linked = await listWorkItemsPage(db, {
+			orgId: ORG,
+			accountableOwnerId: "tedi-ceo",
+			objectiveLinked: true,
+		});
+		expect(linked.data.map((row) => row.id)).toEqual([idFor(0)]);
+		const unlinked = await listWorkItemsPage(db, {
+			orgId: ORG,
+			accountableOwnerId: "tedi-ceo",
+			objectiveLinked: false,
+		});
+		expect(unlinked.total).toBe(2);
+	});
+
+	it("leaves the first page unchanged when both filters are omitted", async () => {
+		seedOwners();
+		const page = await listWorkItemsPage(db, {
+			orgId: ORG,
+			disposition: "accepted",
+			limit: 100,
+		});
+		expect(page.total).toBe(153);
+		expect(page.data).toHaveLength(100);
+		expect(
+			page.data.every((row) => row.accountableOwnerId === "tedi-cto"),
+		).toBe(true);
 	});
 });
 
