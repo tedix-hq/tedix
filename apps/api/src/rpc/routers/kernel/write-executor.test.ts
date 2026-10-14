@@ -468,6 +468,103 @@ describe("executeApprovedKernelWrite", () => {
 		});
 	});
 
+	it("fails an approved Code Mode write whose inner tool returned success:false", async () => {
+		let codeCall = 0;
+		const service = mcpService((body) => {
+			if (body.method === "tools/list") {
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: { tools: [{ name: "code" }] },
+					},
+				};
+			}
+			codeCall += 1;
+			const result =
+				codeCall === 1
+					? JSON.stringify([
+							{
+								callable: "notion.update_page",
+								annotations: { readOnlyHint: false },
+							},
+						])
+					: { success: false, message: "Page is archived" };
+			return {
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						structuredContent: {
+							executionId: "exec-1",
+							result,
+							failures: [
+								{ tool: "notion.update_page", error: "Page is archived" },
+							],
+						},
+					},
+				},
+			};
+		});
+
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload({
+				appSlug: "tedix-unified",
+				toolName: "notion.update_page",
+				args: { pageId: "page-1" },
+				transport: "codemode",
+			}),
+		});
+
+		expect(result).toEqual({ ok: false, error: "Page is archived" });
+	});
+
+	it.each([
+		["ok:false", { ok: false, error: "Invoice locked" }],
+		["success:false", { success: false, error: "Invoice locked" }],
+		["a bare error", { error: "Invoice locked" }],
+	])(
+		"fails a direct write whose HTTP-200 result reports %s",
+		async (_label, body) => {
+			const service = mcpService((request) =>
+				request.method === "tools/list"
+					? LISTED
+					: {
+							json: {
+								jsonrpc: "2.0",
+								id: 1,
+								result: { structuredContent: body },
+							},
+						},
+			);
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload({ initiatedByUserId: null }),
+			});
+			expect(result).toEqual({ ok: false, error: "Invoice locked" });
+		},
+	);
+
+	it("executes a direct write whose result carries an empty error field", async () => {
+		const service = mcpService((request) =>
+			request.method === "tools/list"
+				? LISTED
+				: {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: { structuredContent: { id: "inv-1", error: null } },
+						},
+					},
+		);
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload({ initiatedByUserId: null }),
+		});
+		expect(result).toEqual({ ok: true, data: { id: "inv-1", error: null } });
+	});
+
 	it("aborts (no tools/call) when the stored tool no longer exists upstream", async () => {
 		const service = mcpService((body) =>
 			body.method === "tools/list"

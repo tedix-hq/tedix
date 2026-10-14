@@ -265,6 +265,29 @@ function boundedError(value: unknown): string {
 }
 
 /**
+ * The error a successful-looking tool result carries when the write did not
+ * happen, or null. Code Mode returns an inner tool failure as a successful
+ * `code` call whose value is `{ ok: false, error }`, and a provider can answer
+ * HTTP 200 with `{ success: false }` or a bare `{ error }` body; recording any
+ * of these as executed would report a false "Executed".
+ */
+function reportedWriteFailure(data: unknown): unknown {
+	if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+	const record = data as Record<string, unknown>;
+	const error = record.error ?? record.message ?? data;
+	if (
+		record.ok === false ||
+		record.success === false ||
+		record.isError === true
+	)
+		return error;
+	if (record.ok !== true && record.success !== true && record.error) {
+		return record.error;
+	}
+	return null;
+}
+
+/**
  * Execute the approved, server-stored write call exactly as recorded.
  * Never throws — every failure returns `{ok:false}` with a bounded error.
  */
@@ -375,15 +398,8 @@ export async function executeApprovedKernelWrite(args: {
 			transport === "codemode"
 				? codeModeResultData(result)
 				: unwrapCallToolResult(result, payload.toolName);
-		// Code Mode reports an inner tool failure as a successful `code` call
-		// whose value is `{ ok: false, error }`; that write did not happen.
-		const failure =
-			transport === "codemode" && data && typeof data === "object"
-				? (data as { ok?: unknown; error?: unknown })
-				: null;
-		if (failure?.ok === false) {
-			return { ok: false, error: boundedError(failure.error ?? data) };
-		}
+		const failure = reportedWriteFailure(data);
+		if (failure !== null) return { ok: false, error: boundedError(failure) };
 		return { ok: true, data };
 	} catch (error) {
 		return { ok: false, error: boundedError(errorMessage(error)) };
