@@ -112,6 +112,15 @@ describe("commandHead", () => {
 			"bun run build",
 		);
 	});
+
+	it("skips assignment-only segments in linear time", () => {
+		expect(commandHead("A=1 B=2; git status")).toBe("git status");
+		// The former single regex backtracked exponentially here: V8 hangs, and
+		// JavaScriptCore gives up after about 400 ms.
+		const started = performance.now();
+		expect(commandHead(`${"0=".repeat(1_000)} !`)).toBe("!");
+		expect(performance.now() - started).toBeLessThan(50);
+	});
 });
 
 describe("claudeSignals", () => {

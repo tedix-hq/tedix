@@ -1100,6 +1100,27 @@ const SESSION_REFRESH_OUTCOMES = new Set<string>([
 	"failed",
 ]);
 
+/** Marks the `auth renew` process that only hands the renewer to launchd. */
+export const RENEWAL_HANDOFF_ENV = "TEDIX_RENEWAL_HANDOFF";
+
+/**
+ * Start the real `auth renew` in its own process group and return, so this
+ * process can exit and leave the renewer without a parent to be killed
+ * through. It inherits stdout and stderr, so the caller of
+ * renewStoredSession still reads the outcome when the renewer finishes.
+ */
+export function handOffRenewal(workspace: string): void {
+	const [command, prefix] = selfCommand();
+	const { [RENEWAL_HANDOFF_ENV]: _handoff, ...env } = process.env;
+	const renewer = spawn(
+		command,
+		[...prefix, "auth", "renew", "--workspace", workspace],
+		{ detached: true, stdio: ["ignore", "inherit", "inherit"], env },
+	);
+	renewer.once("error", () => {});
+	renewer.unref();
+}
+
 /** Covers the renewer's lock wait, its bounded request and process start. */
 export const DETACHED_RENEWAL_WAIT_MS = 60_000;
 
@@ -1115,8 +1136,10 @@ export const DETACHED_RENEWAL_WAIT_MS = 60_000;
  * group is what lets the rotation survive the caller.
  *
  * A process group is not enough on its own: Claude Code kills a timed-out
- * hook's descendants by parent PID, whatever their group. A shell that
- * backgrounds the renewer and exits at once hands it to launchd first.
+ * hook's descendants by parent PID, whatever their group. The child started
+ * here is only a handoff (see handOffRenewal): it starts the real renewer and
+ * exits at once, which hands the renewer to launchd first. No shell is
+ * involved, so the command path and workspace stay plain arguments.
  */
 export async function renewStoredSession(
 	provider: WorkspaceOAuthProvider,
@@ -1129,23 +1152,16 @@ export async function renewStoredSession(
 	const { workspace } = options;
 	if (!workspace) return refreshStoredSession(provider);
 	const [command, prefix] = options.command ?? selfCommand();
-	const renewer = [
-		command,
-		...prefix,
-		"auth",
-		"renew",
-		"--workspace",
-		workspace,
-	];
 	const windows = process.platform === "win32";
 	const child = spawn(
-		windows ? command : "/bin/sh",
-		windows ? renewer.slice(1) : ["-c", '"$@" &', "sh", ...renewer],
+		command,
+		[...prefix, "auth", "renew", "--workspace", workspace],
 		{
 			detached: !windows,
 			stdio: ["ignore", "pipe", "pipe"],
 			env: {
 				...process.env,
+				...(windows ? {} : { [RENEWAL_HANDOFF_ENV]: "1" }),
 				TEDIX_RENEWAL_CALLER: [
 					process.pid,
 					...process.argv

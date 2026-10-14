@@ -110,9 +110,10 @@ export function commandHead(command: string): string {
 	const segment =
 		segments.find(
 			(s) =>
-				!/^(?:cd|export|set|source|sleep|echo|printf|true|:)\b|^(?:\w+=\S*\s*)+$/.test(
-					s,
-				),
+				!/^(?:cd|export|set|source|sleep|echo|printf|true|:)\b/.test(s) &&
+				// Not only assignments. Word by word: a single regex over the
+				// whole segment backtracks exponentially on "0=0=0=...".
+				!s.split(/\s+/).every((word) => /^\w+=/.test(word)),
 		) ??
 		segments[0] ??
 		"";
