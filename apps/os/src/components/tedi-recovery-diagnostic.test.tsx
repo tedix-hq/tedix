@@ -135,7 +135,10 @@ it("reads only after an explicit operator click and does not fetch while editing
 	expect(mocks.inspect).not.toHaveBeenCalled();
 	await act(async () => {
 		host.querySelector<HTMLButtonElement>("button")!.click();
-		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	await vi.waitFor(async () => {
+		await act(async () => {});
+		expect(host.textContent).toContain("Session state is unknown");
 	});
 	expect(mocks.inspect).toHaveBeenCalledOnce();
 	expect(mocks.inspect.mock.calls[0]?.[0]).toEqual({
@@ -149,7 +152,10 @@ it("reads only after an explicit operator click and does not fetch while editing
 	expect(host.textContent).not.toContain("Session state is unknown");
 	await act(async () => {
 		host.querySelector<HTMLButtonElement>("button")!.click();
-		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	await vi.waitFor(async () => {
+		await act(async () => {});
+		expect(host.textContent).toContain("Session state is unknown");
 	});
 	expect(mocks.inspect).toHaveBeenCalledTimes(2);
 	expect(mocks.inspect.mock.calls[1]?.[0]).toMatchObject({
