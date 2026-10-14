@@ -1,4 +1,5 @@
 import type {
+	FactoryScoreboardEntry,
 	Project,
 	ProjectPortfolioEntry,
 } from "@tedix/api-contract/contracts/projects";
@@ -22,6 +23,7 @@ import {
 	PageSection,
 	PageTitle,
 	SectionActions,
+	SectionDescription,
 	SectionHeader,
 	SectionHeading,
 	SectionTitle,
@@ -32,6 +34,7 @@ import { officeAsk } from "@/components/work-office-page";
 import { sentenceCase } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import {
+	factoryScoreboardQueryOptions,
 	projectPortfolioQueryOptions,
 	workApprovalsQueryOptions,
 	workOfficeKnocksQueryOptions,
@@ -299,6 +302,131 @@ function NeedsYouStrip({ rows }: { rows: NeedsYouRow[] }) {
 	);
 }
 
+export type FactoryGroup = {
+	tedi: string;
+	factories: FactoryScoreboardEntry[];
+};
+
+/** Factories grouped by tedi, in the server's order; unassigned ones last. */
+export function groupFactories(
+	rows: readonly FactoryScoreboardEntry[],
+): FactoryGroup[] {
+	const groups = new Map<string, FactoryScoreboardEntry[]>();
+	for (const row of rows) {
+		const tedi = row.tediName ?? "No tedi";
+		groups.set(tedi, [...(groups.get(tedi) ?? []), row]);
+	}
+	return [...groups].map(([tedi, factories]) => ({ tedi, factories }));
+}
+
+function factoryHref(row: FactoryScoreboardEntry): string {
+	return row.kind === "blueprint" ? "/blueprints" : `/skills/${row.id}/runs`;
+}
+
+function resultHref(result: NonNullable<FactoryScoreboardEntry["lastResult"]>) {
+	return result.kind === "output"
+		? `/outputs/${result.id}`
+		: `/work/items/${result.id}`;
+}
+
+function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
+	return (
+		<li
+			className="grid min-w-0 gap-1 px-4 py-3"
+			data-factory={`${row.kind}:${row.id}`}
+		>
+			<div className="flex min-w-0 items-start justify-between gap-2">
+				<Link
+					variant="record"
+					href={factoryHref(row)}
+					className="line-clamp-1 min-w-0 font-medium"
+				>
+					{row.name}
+				</Link>
+				<div className="flex shrink-0 flex-wrap justify-end gap-1">
+					{row.idle ? <Badge variant="warning">Running but idle</Badge> : null}
+					<Badge variant="outline">
+						{row.kind === "blueprint" ? "Blueprint" : "Loop"}
+					</Badge>
+				</div>
+			</div>
+			<Text as="p" role="label" className="tabular-nums">
+				{row.runs} runs ({row.succeeded} ok) · {row.outputs} Outputs ·{" "}
+				{row.workClosed} Work closed
+			</Text>
+			{row.lastResult ? (
+				<Text
+					as="p"
+					role="label"
+					tone="secondary"
+					className="flex min-w-0 items-baseline gap-1"
+				>
+					<span className="shrink-0">Last result:</span>
+					<Link
+						variant="record"
+						href={resultHref(row.lastResult)}
+						className="min-w-0 truncate"
+					>
+						{row.lastResult.title}
+					</Link>
+					<span className="shrink-0">
+						· <Time at={normalizeD1Timestamp(row.lastResult.at)} />
+					</span>
+				</Text>
+			) : (
+				<Muted>No real result in 30 days</Muted>
+			)}
+		</li>
+	);
+}
+
+function FactoryScoreboard() {
+	const scoreboard = useQuery(factoryScoreboardQueryOptions());
+	const groups = useMemo(
+		() => groupFactories(scoreboard.data?.data ?? []),
+		[scoreboard.data],
+	);
+	return (
+		<PageSection aria-labelledby="portfolio-factories-title">
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="portfolio-factories-title">Factories</SectionTitle>
+					<SectionDescription>
+						Each loop and Blueprint over the last 7 days.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
+			{scoreboard.isPending ? (
+				<Skeleton className="h-24" />
+			) : scoreboard.isError ? (
+				<Alert variant="destructive">
+					<AlertTitle>Factories unavailable</AlertTitle>
+					<AlertDescription>
+						{errorMessage(scoreboard.error, "Factories could not be loaded.")}
+					</AlertDescription>
+				</Alert>
+			) : groups.length ? (
+				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+					{groups.map((group) => (
+						<Collection key={group.tedi} aria-label={`${group.tedi} factories`}>
+							<li className="px-4 pt-3">
+								<Text as="p" role="label" tone="secondary">
+									{group.tedi}
+								</Text>
+							</li>
+							{group.factories.map((row) => (
+								<FactoryRow key={`${row.kind}:${row.id}`} row={row} />
+							))}
+						</Collection>
+					))}
+				</div>
+			) : (
+				<Muted>No scheduled loops or published Blueprints yet</Muted>
+			)}
+		</PageSection>
+	);
+}
+
 function CrossOrgLink({ slug }: { slug: string }) {
 	const href = crossOrgPortfolioUrl(slug);
 	return href ? (
@@ -474,6 +602,7 @@ export function WorkPortfolioPage() {
 				</PageHeading>
 			</PageHeader>
 			<NeedsYouStrip rows={needsYou} />
+			<FactoryScoreboard />
 			{portfolio.isPending ? (
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 					<Skeleton className="h-36" />

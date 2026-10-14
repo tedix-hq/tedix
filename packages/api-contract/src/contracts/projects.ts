@@ -210,6 +210,41 @@ const ProjectPortfolioSchema = z.object({
 	data: z.array(ProjectPortfolioEntrySchema),
 });
 
+export const FactoryScoreboardEntrySchema = z.object({
+	kind: z.enum(["skill_loop", "blueprint"]),
+	/** Skill id for a loop, Blueprint id for a Blueprint. */
+	id: z.string(),
+	name: z.string(),
+	tediId: z.string().nullable(),
+	tediName: z.string().nullable(),
+	cron: z.string().nullable(),
+	runs: z.number(),
+	succeeded: z.number(),
+	lastRunAt: z.string().nullable(),
+	/** Outputs created or revised by this factory's runs. */
+	outputs: z.number(),
+	workClosed: z.number(),
+	lastResult: z
+		.object({
+			kind: z.enum(["output", "work_item"]),
+			id: z.string(),
+			title: z.string(),
+			at: z.string(),
+		})
+		.nullable(),
+	/** Successful runs but no Output or closed Work in the window. */
+	idle: z.boolean(),
+});
+export type FactoryScoreboardEntry = z.infer<
+	typeof FactoryScoreboardEntrySchema
+>;
+
+const FactoryScoreboardSchema = z.object({
+	data: z.array(FactoryScoreboardEntrySchema),
+	/** Start of the 7-day window the counts cover. */
+	since: z.string(),
+});
+
 const ProjectRollupSchema = z.object({
 	projectId: z.string(),
 	total: z.number(),
@@ -361,6 +396,24 @@ export const projectsContract = oc
 					.optional(),
 			)
 			.output(ProjectPortfolioSchema),
+
+		getFactoryScoreboard: oc
+			.route({
+				method: "GET",
+				path: "/factory-scoreboard",
+				summary: "Get factory scoreboard",
+				description:
+					"Each scheduled skill loop and published Blueprint with its last 7 days of runs, Outputs and closed Work, its last real result, and whether it is running but idle, in one read.",
+			})
+			.input(
+				z
+					.object({
+						organizationId: z.string().optional(),
+					})
+					.strict()
+					.optional(),
+			)
+			.output(FactoryScoreboardSchema),
 
 		createMilestone: oc
 			.route({

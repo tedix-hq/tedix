@@ -14,6 +14,7 @@
  * GET    /projects/{id}         - Get project
  * GET    /projects/{id}/rollup  - Project rollup (status/type counts + headline items)
  * GET    /projects/portfolio    - Every project with its card counts, next item, health
+ * GET    /projects/factory-scoreboard - Each loop and Blueprint with 7-day runs, Outputs, Work
  */
 
 import { implement } from "@orpc/server";
@@ -40,6 +41,7 @@ import {
 	createWorkSprint,
 	listWorkSprints,
 } from "@tedix/db/queries/work-items/sprints";
+import { listFactoryScoreboard } from "@tedix/db/queries/factory-scoreboard";
 import {
 	archiveProject,
 	createProject,
@@ -259,6 +261,15 @@ const getPortfolioProcedure = authOs.getPortfolio
 		return listProjectPortfolio(context.db, {
 			orgId: requireOrgIdOrInput(context, input?.organizationId),
 			limit: PROJECT_PORTFOLIO_LIMIT,
+		});
+	});
+
+const getFactoryScoreboardProcedure = authOs.getFactoryScoreboard
+	.use(AUTHZ.objectiveRead)
+	.handler(async ({ input, context }) => {
+		return listFactoryScoreboard(context.db, {
+			orgId: requireOrgIdOrInput(context, input?.organizationId),
+			now: new Date(),
 		});
 	});
 
@@ -603,6 +614,7 @@ export const projectsContractRouter = projectsOs.router({
 	get: getProcedure,
 	getRollup: skipOutputValidation(getRollupProcedure),
 	getPortfolio: skipOutputValidation(getPortfolioProcedure),
+	getFactoryScoreboard: getFactoryScoreboardProcedure,
 	createMilestone: createMilestoneProcedure,
 	listMilestones: listMilestonesProcedure,
 	createSprint: createSprintProcedure,

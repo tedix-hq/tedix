@@ -961,6 +961,14 @@ export const projectPortfolioQueryOptions = () =>
 		refetchOnWindowFocus: false,
 	});
 
+/** Each factory's last 7 days, read once per Portfolio visit. */
+export const factoryScoreboardQueryOptions = () =>
+	osQuery.projects.getFactoryScoreboard.queryOptions({
+		input: {},
+		staleTime: 30_000,
+		refetchOnWindowFocus: false,
+	});
+
 export const projectDetailQueryOptions = (id: string) =>
 	osQuery.projects.get.queryOptions({ input: { id } });
 

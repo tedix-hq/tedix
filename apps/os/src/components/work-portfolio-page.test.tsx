@@ -1,4 +1,5 @@
 import type {
+	FactoryScoreboardEntry,
 	Project,
 	ProjectPortfolioEntry,
 } from "@tedix/api-contract/contracts/projects";
@@ -9,6 +10,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	factoryScoreboardQueryOptions,
 	projectPortfolioQueryOptions,
 	workApprovalsQueryOptions,
 	workOfficeKnocksQueryOptions,
@@ -18,6 +20,7 @@ import {
 	PORTFOLIO_BUCKETS,
 	WorkPortfolioPage,
 	crossOrgPortfolioUrl,
+	groupFactories,
 	groupPortfolio,
 	isPlaceholderBrief,
 	needsYouRows,
@@ -124,14 +127,61 @@ function interaction(n: number, state: "open" | "resolved" = "open") {
 	};
 }
 
+function factory(
+	overrides: Partial<FactoryScoreboardEntry> = {},
+): FactoryScoreboardEntry {
+	return {
+		kind: "skill_loop",
+		id: "skill-digest",
+		name: "Daily digest",
+		tediId: TEDI_ID,
+		tediName: "Nova",
+		cron: "0 7 * * *",
+		runs: 7,
+		succeeded: 6,
+		lastRunAt: "2026-09-09 07:00:00",
+		outputs: 2,
+		workClosed: 1,
+		lastResult: {
+			kind: "output",
+			id: "output-brief",
+			title: "Weekly brief",
+			at: "2026-09-09 07:05:00",
+		},
+		idle: false,
+		...overrides,
+	};
+}
+
+const FACTORIES = [
+	factory(),
+	factory({
+		kind: "blueprint",
+		id: "bp-crm",
+		name: "CRM factory",
+		tediId: null,
+		tediName: null,
+		cron: null,
+		outputs: 0,
+		workClosed: 0,
+		lastResult: null,
+		idle: true,
+	}),
+];
+
 function seededClient({
 	interactions = [] as ReturnType<typeof interaction>[],
+	factories = FACTORIES,
 } = {}) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	queryClient.setQueryData(projectPortfolioQueryOptions().queryKey, {
 		data: PORTFOLIO,
+	});
+	queryClient.setQueryData(factoryScoreboardQueryOptions().queryKey, {
+		data: factories,
+		since: "2026-09-03T00:00:00.000Z",
 	});
 	queryClient.setQueryData(workOfficeKnocksQueryOptions().queryKey, {
 		data: interactions,
@@ -305,6 +355,45 @@ describe("WorkPortfolioPage", () => {
 		expect(doc.querySelector('a[href="/work/office"]')?.textContent).toContain(
 			"See all",
 		);
+	});
+
+	it("scores each factory by tedi and flags one running but idle", () => {
+		const doc = new DOMParser().parseFromString(
+			render(seededClient()),
+			"text/html",
+		);
+		const nova = doc.querySelector('[aria-label="Nova factories"]');
+		const digest = nova?.querySelector(
+			'[data-factory="skill_loop:skill-digest"]',
+		);
+		expect(digest?.textContent).toContain(
+			"7 runs (6 ok) · 2 Outputs · 1 Work closed",
+		);
+		expect(
+			digest?.querySelector('a[href="/skills/skill-digest/runs"]'),
+		).not.toBeNull();
+		expect(
+			digest?.querySelector('a[href="/outputs/output-brief"]')?.textContent,
+		).toBe("Weekly brief");
+		expect(digest?.textContent).not.toContain("Running but idle");
+		const crm = doc.querySelector(
+			'[aria-label="No tedi factories"] [data-factory="blueprint:bp-crm"]',
+		);
+		expect(crm?.textContent).toContain("Running but idle");
+		expect(crm?.textContent).toContain("No real result in 30 days");
+		expect(crm?.querySelector('a[href="/blueprints"]')).not.toBeNull();
+	});
+
+	it("keeps tedis in server order with unassigned factories in their own group", () => {
+		expect(
+			groupFactories(FACTORIES).map((group) => [
+				group.tedi,
+				group.factories.map((row) => row.id),
+			]),
+		).toEqual([
+			["Nova", ["skill-digest"]],
+			["No tedi", ["bp-crm"]],
+		]);
 	});
 
 	it("hides the needs-you strip when nothing waits", () => {

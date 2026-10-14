@@ -234,6 +234,7 @@
 		"./queries/capabilities": "./src/queries/capabilities.ts",
 		"./schema/projects": "./src/schema/projects.ts",
 		"./queries/projects": "./src/queries/projects.ts",
+		"./queries/factory-scoreboard": "./src/queries/factory-scoreboard.ts",
 		"./queries/role-templates": "./src/queries/role-templates.ts",
 		"./schema/earned-delegation": "./src/schema/earned-delegation.ts",
 		"./queries/earned-delegation/activities": "./src/queries/earned-delegation/activities.ts",
