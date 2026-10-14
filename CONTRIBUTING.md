@@ -33,6 +33,10 @@ contributor agreement. Code from outside the maintainer team is not merged,
 and pull requests are disabled. You are free to fork and modify Tedix under
 its licenses.
 
+GitHub issues are for outside contributors. Maintainers and their agents track
+proposals, bugs and follow-ups as Tedix Work items and never open issues or
+pull requests themselves.
+
 The most useful contribution is a precise issue or Discussion: what you did,
 what you expected, what happened, and the smallest reproduction. When an idea
 is accepted, a maintainer re-authors it and credits you as described in

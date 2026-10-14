@@ -112,9 +112,10 @@ work, read `docs/public/agent-guide.md`, check `tedix auth status`, and discover
 the exact tool and schema before calling it. Consent, MFA, and user presence
 stay with the human; other approvals go to the designated approver.
 
-Maintainers commit directly to `main` after validation. Pull requests are
-disabled; agents must not create them. Proposals start as issues. See
-`CONTRIBUTING.md`. Never invent a Work Item or agent identity.
+Maintainers commit directly to `main` after validation. Agents never create
+GitHub issues or pull requests (pull requests are disabled). File proposals,
+bugs and follow-ups as Tedix Work items; GitHub issues are for outside
+contributors (`CONTRIBUTING.md`). Never invent a Work Item or agent identity.
 
 A user-visible CLI change adds a changeset (`bun changeset`) in the same
 commit. Never bump the CLI version, edit its `CHANGELOG.md`, or tag a release
