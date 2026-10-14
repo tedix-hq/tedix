@@ -1644,6 +1644,21 @@ export type OsBlueprintRuntimeRequirement = z.infer<
 	typeof OsBlueprintRuntimeRequirementSchema
 >;
 
+/**
+ * The tedi accountable for operating an instance of this blueprint, named by
+ * slug and resolved inside the CALLER's organization. Preflight also resolves
+ * the runtime requirement against this tedi when the caller names no other, so
+ * a factory's model constraint is checked against the worker that will run it.
+ */
+export const OsBlueprintStewardRequirementSchema = z
+	.object({
+		tediSlug: z.string().min(1).max(100),
+	})
+	.strict();
+export type OsBlueprintStewardRequirement = z.infer<
+	typeof OsBlueprintStewardRequirementSchema
+>;
+
 /** One gadget's placement on the blueprint's declared grid. */
 export const OsBlueprintLayoutPlacementSchema = z
 	.object({
@@ -1734,6 +1749,9 @@ export const OsBlueprintRequirementsSchema = z
 				"Null when the blueprint leaves surface layout to the instantiating workspace; preflight then emits no `layout` decision",
 			),
 		outputs: z.array(OsBlueprintOutputRequirementSchema).max(50).default([]),
+		steward: OsBlueprintStewardRequirementSchema.optional().describe(
+			"The steward tedi; absent on Blueprint revisions recorded before steward declarations existed",
+		),
 	})
 	.strict()
 	.superRefine((value, ctx) => {
@@ -1923,7 +1941,7 @@ export const OsBlueprintPreflightSchema = z.object({
 		.array(z.string())
 		.default([])
 		.describe(
-			"Missing or denied concrete resource selections that refuse instantiation",
+			"Missing or denied concrete resource selections or steward tedi that refuse instantiation",
 		),
 	resolvedAt: z.string(),
 });

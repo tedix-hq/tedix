@@ -123,6 +123,9 @@ export function requirementsSummaryText(
 			`${formatCount(requirements.resources?.length ?? 0)} resource slots`,
 		);
 	}
+	if (requirements.steward) {
+		parts.push(`steward ${requirements.steward.tediSlug}`);
+	}
 	if (requirements.runtime) parts.push("a runtime constraint");
 	if (requirements.layout) {
 		parts.push(

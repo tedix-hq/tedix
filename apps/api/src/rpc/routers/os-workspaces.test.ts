@@ -66,6 +66,7 @@ const mocks = vi.hoisted(() => ({
 	getSkillEntryBySlug: vi.fn(),
 	resolveConnectionAvailability: vi.fn(),
 	getTediById: vi.fn(),
+	getTediBySlug: vi.fn(),
 	getTediOrganizationId: vi.fn(),
 	getWorkItemById: vi.fn(),
 	resolveWorkItemExecutionPreflight: vi.fn(),
@@ -100,6 +101,7 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", async (importOriginal) => ({
 vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
 	getTediById: mocks.getTediById,
+	getTediBySlug: mocks.getTediBySlug,
 	getTediOrganizationId: mocks.getTediOrganizationId,
 }));
 vi.mock("@tedix/db/queries/approvals", async (importOriginal) => ({
@@ -2677,6 +2679,65 @@ describe("blueprint dependency preflight", () => {
 			tediId: TEDI_ID,
 		});
 		expect(unknown.preflight.decisions[0]?.verdict).toBe("missing");
+	});
+
+	it("resolves the declared steward tedi in the caller's organization and checks the model against it", async () => {
+		const blueprintId = await publishPinned(
+			requirements({
+				skills: [],
+				steward: { tediSlug: "cto" },
+				runtime: {
+					modelRef: null,
+					minTier: "frontier",
+					requiresReasoning: false,
+				},
+			}),
+		);
+
+		mocks.getTediBySlug.mockResolvedValue(undefined);
+		const absent = await c.org1.blueprints.preflight({ blueprintId });
+		expect(absent.preflight.decisions[0]).toMatchObject({
+			kind: "assignment",
+			subject: "steward:cto",
+			verdict: "missing",
+		});
+		expect(absent.preflight.configurationReasons).toContain(
+			"no tedi cto exists in this organization to steward the blueprint",
+		);
+		expect(mocks.getTediBySlug).toHaveBeenCalledWith(
+			expect.anything(),
+			"org-1",
+			"cto",
+		);
+
+		const steward = {
+			id: TEDI_ID,
+			organizationId: "org-1",
+			slug: "cto",
+			status: "active",
+			runtimeProfileId: RUNTIME_PROFILE_ID,
+		};
+		mocks.getTediBySlug.mockResolvedValue(steward);
+		mocks.getTediById.mockResolvedValue(steward);
+		mocks.getRuntimeProfileById.mockResolvedValue({
+			id: RUNTIME_PROFILE_ID,
+			slug: "frontier",
+			status: "active",
+			version: 3,
+			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-sol" } },
+		});
+		const ready = await c.org1.blueprints.preflight({ blueprintId });
+		expect(ready.preflight.status).toBe("ready");
+		expect(ready.preflight.targetTediId).toBe(TEDI_ID);
+		expect(ready.preflight.decisions.map((d) => [d.kind, d.verdict])).toEqual([
+			["assignment", "allowed"],
+			["model", "allowed"],
+		]);
+
+		mocks.getTediBySlug.mockResolvedValue({ ...steward, status: "paused" });
+		const paused = await c.org1.blueprints.preflight({ blueprintId });
+		expect(paused.preflight.decisions[0]?.verdict).toBe("denied");
+		expect(paused.preflight.status).toBe("needs_configuration");
 	});
 
 	it("checks layout and output declarations against the gadgets the same revision declares", async () => {
