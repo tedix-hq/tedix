@@ -7,7 +7,8 @@
  * surface `agent_session_import`, personal to the caller, in the same metadata
  * shape decision capture writes, so the reflection miner
  * (`learning-feed-miner.ts`) learns from both alike. Idempotent by
- * (harness, sessionId, turnId).
+ * (harness, sessionId, turnId), and a reply decision capture already recorded
+ * live is a duplicate, not a second piece of evidence.
  */
 
 import type {
@@ -15,9 +16,15 @@ import type {
 	ImportAgentSessionDecisionsResult,
 } from "@tedix/api-contract/schemas/agent-session-decisions";
 import type { DbClient } from "@tedix/db/client";
-import { recordLearningInteractionsBatch } from "@tedix/db/queries/learning-feedback";
+import {
+	listLearningEventTimesInThreads,
+	recordLearningInteractionsBatch,
+} from "@tedix/db/queries/learning-feedback";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { learningScopeSlug } from "./decision-learning-signal";
+import {
+	DECISION_CAPTURE_LEARNING_SURFACE,
+	learningScopeSlug,
+} from "./decision-learning-signal";
 import { observedLearningEventId } from "./learning-interaction-recorder";
 
 /** `learning_interaction_events.surface` of an imported historic session decision. */
@@ -27,6 +34,12 @@ export const AGENT_SESSION_IMPORT_LEARNING_SURFACE = "agent_session_import";
  * "any" slug, so a preference learned there reaches every session.
  */
 export const NO_REPOSITORY_SLUG = "general";
+/**
+ * Live capture records a reply when the hook answers, seconds after the
+ * transcript's timestamp; within this window, in the same chat, it is the
+ * same reply.
+ */
+const LIVE_CAPTURE_MATCH_MS = 120_000;
 
 export async function agentSessionDecisionRows(input: {
 	organizationId: string;
@@ -90,10 +103,59 @@ export async function importAgentSessionDecisions(
 	const unique = [
 		...new Map(rows.map((row) => [row.clientEventId, row])).values(),
 	];
-	const { recorded } = await recordLearningInteractionsBatch(db, unique);
+	const live = await capturedLive(db, input, unique);
+	const { recorded } = await recordLearningInteractionsBatch(
+		db,
+		unique.filter((row) => !live.has(row)),
+	);
 	return {
 		received: input.decisions.length,
 		recorded,
 		duplicates: input.decisions.length - recorded,
 	};
+}
+
+/**
+ * The rows decision capture already recorded live: each pairs with at most one
+ * live reply in the same chat, the nearest within `LIVE_CAPTURE_MATCH_MS`.
+ */
+async function capturedLive<
+	Row extends { threadId: string; occurredAt: string },
+>(
+	db: DbClient,
+	input: { organizationId: string; userId: string },
+	rows: Row[],
+): Promise<Set<Row>> {
+	if (rows.length === 0) return new Set();
+	const times = rows.map((row) => Date.parse(row.occurredAt));
+	const live = await listLearningEventTimesInThreads(db, {
+		organizationId: input.organizationId,
+		actorId: input.userId,
+		surface: DECISION_CAPTURE_LEARNING_SURFACE,
+		threadIds: [...new Set(rows.map((row) => row.threadId.toLowerCase()))],
+		from: new Date(Math.min(...times) - LIVE_CAPTURE_MATCH_MS).toISOString(),
+		to: new Date(Math.max(...times) + LIVE_CAPTURE_MATCH_MS).toISOString(),
+	});
+	const unused = live.map((event) => ({
+		threadId: event.threadId,
+		at: Date.parse(event.occurredAt),
+	}));
+	const matched = new Set<Row>();
+	rows.forEach((row, index) => {
+		let best = -1;
+		for (let i = 0; i < unused.length; i++) {
+			const event = unused[i]!;
+			const gap = Math.abs(event.at - times[index]!);
+			if (
+				event.threadId === row.threadId.toLowerCase() &&
+				gap <= LIVE_CAPTURE_MATCH_MS &&
+				(best < 0 || gap < Math.abs(unused[best]!.at - times[index]!))
+			)
+				best = i;
+		}
+		if (best < 0) return;
+		unused.splice(best, 1);
+		matched.add(row);
+	});
+	return matched;
 }

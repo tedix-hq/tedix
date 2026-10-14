@@ -350,8 +350,9 @@ describe("getSessionLessons procedure", () => {
 			factsWritten: 0,
 			factsArchived: 0,
 			budgetHit: false,
-			inProgress: true,
 		});
+		// The distillation Workflow runs on its own; the mining run is done.
+		expect(result.inProgress).toBeUndefined();
 		// Each person's whole history is distilled by its own Workflow instance.
 		expect(startWorkflow).toHaveBeenCalledWith(
 			expect.objectContaining({

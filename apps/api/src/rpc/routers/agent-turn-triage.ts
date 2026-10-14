@@ -1655,29 +1655,25 @@ const getLessonEffectivenessProcedure = readOs.getLessonEffectiveness.handler(
 /**
  * Run the learning-feed miner for the caller's organization now. Writes only
  * that organization's memory, under the same bounds as nightly reflection.
- * Each person's whole decision history is distilled by a Workflow instance
- * started here (many model calls, one durable step each): `inProgress`.
+ * Each person's whole decision history is also distilled by a Workflow
+ * instance started here (many model calls, one durable step each). That runs
+ * on its own schedule, so it never marks this run `inProgress`: a caller that
+ * re-asks while `inProgress` would otherwise never see the run finish.
  */
 const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 	async ({ context }) => {
 		const organizationId = requireOrgId(context);
-		let distilling = false;
 		// A person's own lessons build on their current ones (a minute or two);
 		// without a person, every person's whole history is distilled.
 		const actor = observedLearningActor(context);
 		if (actor.actorType === "user" && actor.actorId)
-			distilling = await startIncrementalLessons(
-				context.env,
-				organizationId,
-				actor.actorId,
-			);
+			await startIncrementalLessons(context.env, organizationId, actor.actorId);
 		else
 			try {
 				await context.env.MEMORY_REFLECTION_WORKFLOW.create({
 					id: `lessons-${organizationId}-${Date.now()}`,
 					params: { organizationId, scope: "lessons" as const },
 				});
-				distilling = true;
 			} catch (error) {
 				console.error(
 					"[learning-feed] lesson distillation start failed:",
@@ -1695,12 +1691,7 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 		});
 		// Code Mode stops waiting after 15 s; a large run keeps going in the
 		// background and the caller is told so instead of seeing a timeout.
-		if (!context.waitUntil)
-			return {
-				organizationId,
-				...(await run),
-				...(distilling ? { inProgress: true } : {}),
-			};
+		if (!context.waitUntil) return { organizationId, ...(await run) };
 		context.waitUntil(run.catch(() => undefined));
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const finished = await Promise.race([
@@ -1709,12 +1700,7 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 				timer = setTimeout(() => resolve(null), MINE_REPLY_WINDOW_MS);
 			}),
 		]).finally(() => clearTimeout(timer));
-		if (finished)
-			return {
-				organizationId,
-				...finished,
-				...(distilling ? { inProgress: true } : {}),
-			};
+		if (finished) return { organizationId, ...finished };
 		return {
 			organizationId,
 			decisionEventsScanned: 0,
