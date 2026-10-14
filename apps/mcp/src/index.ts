@@ -4452,8 +4452,12 @@ export function directToolCallNamespaces(
 		const dot = callable.indexOf(".");
 		return dot > 0 ? new Set([callable.slice(0, dot)]) : null;
 	}
+	// Aggregated tools keep the raw entry prefix (`acme-catalog__search`),
+	// while namespace matching compares the sanitized Code Mode namespace.
 	const separator = toolName.indexOf("__");
-	return separator > 0 ? new Set([toolName.slice(0, separator)]) : null;
+	return separator > 0
+		? new Set([toolName.slice(0, separator).replace(/[^a-zA-Z0-9_]/g, "_")])
+		: null;
 }
 
 async function extractDirectToolCallArguments(
