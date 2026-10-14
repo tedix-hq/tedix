@@ -452,6 +452,8 @@ const SYSTEM_PROMPT = `You are the Kernel's write-proposal planner. The operator
 
 Rules:
 - Pick the single tool that most directly performs the change the operator asked for. Prefer the narrowest matching write over broad/batch operations.
+- If the request needs two or more separate writes (e.g. rename a project AND create a Work item), return NONE: one proposal must never silently drop part of the request.
+- "Only stage it for approval" or "do nothing else" describes this review step; it does not negate the change.
 - Only use parameters the chosen tool declares. Omit optional parameters unless they clearly help.
 - When asked to draft or create content, compose the finished content inside the tool arguments. Follow the requested structure, durations, and other explicit constraints; do not paste the drafting instructions into the deliverable. Use supplied text verbatim only when the operator asks for that. Do not invent factual evidence, measurements, or completed actions. Before returning, check that every requested component is present in the draft; mentioning a requirement is not fulfilling it.
 - NEVER invent identifiers (invoiceId, contactId, threadId, accountId, ...). If a tool requires an identifier you do not know, do not pick that tool — prefer one whose required parameters you can fill from the request alone.
@@ -875,13 +877,13 @@ export async function planKernelWriteProposal(args: {
 					})),
 					timeoutMs,
 				});
-		// Jev splits its confidence across sibling tools on dense providers
-		// (create_work_items vs create_work_interaction vs …) and abstains on a
-		// plain single-action request. Only that abstention falls through to the
-		// write planner over the same bounded catalog; it can still answer NONE,
-		// and its pick is re-validated against the exact schema and approved by a
-		// human. "none" (no single action fits) and errors still decline.
-		if (selected.reason === "uncertain") {
+		// Jev is a fast path, not a gate: live it answered none, uncertain or
+		// unavailable for "create one Work item in project X" with
+		// create_work_items first in the catalog. Any abstention falls through to
+		// the write planner over the same bounded catalog; it can still answer
+		// NONE (including for several writes), and its pick is re-validated
+		// against the exact schema and approved by a human.
+		if (!selected.toolName && selected.reason !== "invalid_candidates") {
 			const pick = await planWriteCall({
 				workspaceContext: args.workspaceContext,
 				content,
@@ -894,7 +896,7 @@ export async function planKernelWriteProposal(args: {
 			});
 			selected = catalog.some((tool) => tool.name === pick?.toolName)
 				? { toolName: pick!.toolName, reason: "planner_selected" }
-				: { toolName: null, reason: "uncertain" };
+				: selected;
 		}
 		if (!selected.toolName) {
 			// Jev declined, was uncertain, or was unavailable — previously the
