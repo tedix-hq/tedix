@@ -110,17 +110,39 @@ export function codexSideThread(event: JsonObject): boolean {
 }
 
 /**
+ * True for a Claude Code background session (`claude agents`, `/bg`): it
+ * reports CLAUDE_CODE_SESSION_ATTENDED=0, yet a person attaches and replies.
+ * Its job directory is named after its own session id; a run launched from
+ * one inherits the parent's directory and stays unattended.
+ */
+function claudeBackgroundSession(
+	event: JsonObject,
+	env: NodeJS.ProcessEnv,
+): boolean {
+	const job = env.CLAUDE_JOB_DIR ? basename(env.CLAUDE_JOB_DIR) : "";
+	return (
+		job.length >= 8 &&
+		typeof event.session_id === "string" &&
+		event.session_id.toLowerCase().startsWith(job.toLowerCase())
+	);
+}
+
+/**
  * True for a run nobody is attending, so no question can be put to a person:
- * `claude -p` and the Agent SDK (CLAUDE_CODE_SESSION_ATTENDED=0), and
- * `codex exec`, whose rollout transcript opens with session_meta
- * `"source":"exec"` (Codex hooks carry no environment or payload flag for it),
- * and Codex side threads (`codexSideThread`).
+ * `claude -p` and the Agent SDK (CLAUDE_CODE_SESSION_ATTENDED=0, except a
+ * background session), and `codex exec`, whose rollout transcript opens with
+ * session_meta `"source":"exec"` (Codex hooks carry no environment or payload
+ * flag for it), and Codex side threads (`codexSideThread`).
  */
 export function unattendedRun(
 	event: JsonObject,
 	env: NodeJS.ProcessEnv,
 ): boolean {
-	if (env.CLAUDE_CODE_SESSION_ATTENDED === "0") return true;
+	if (
+		env.CLAUDE_CODE_SESSION_ATTENDED === "0" &&
+		!claudeBackgroundSession(event, env)
+	)
+		return true;
 	const transcript = event.transcript_path;
 	if (event.turn_id !== undefined && codexSideThread(event)) return true;
 	if (

@@ -542,6 +542,42 @@ export async function recordLearningInteractionsBatch(
 	};
 }
 
+/**
+ * When one person's events on `surface` happened in the given chats within
+ * [from, to], for matching another record of the same turns.
+ */
+export async function listLearningEventTimesInThreads(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		actorId: string;
+		surface: string;
+		threadIds: string[];
+		from: string;
+		to: string;
+	},
+): Promise<Array<{ threadId: string | null; occurredAt: string }>> {
+	if (input.threadIds.length === 0) return [];
+	return db
+		.select({
+			threadId: learningInteractionEvents.threadId,
+			occurredAt: learningInteractionEvents.occurredAt,
+		})
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				eq(learningInteractionEvents.actorId, input.actorId),
+				eq(learningInteractionEvents.surface, input.surface),
+				// bound-params: one import call carries at most 25 decisions
+				inArray(learningInteractionEvents.threadId, input.threadIds),
+				gte(learningInteractionEvents.occurredAt, input.from),
+				lte(learningInteractionEvents.occurredAt, input.to),
+			),
+		)
+		.limit(1000);
+}
+
 export async function getLearningInteractionsByIds(
 	db: DbClient,
 	organizationId: string,

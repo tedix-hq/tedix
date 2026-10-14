@@ -356,7 +356,9 @@ turn that ends with background work pending is not marked as waiting, and an
 unanswered turn is left open when the next one ends and expires after 24 hours;
 the agents board shows which sessions are waiting now. Unattended runs file no
 question: `claude -p` and the Agent SDK (`CLAUDE_CODE_SESSION_ATTENDED=0`) and
-`codex exec`, recognized by its transcript's `session_meta` source `exec`.
+`codex exec`, recognized by its transcript's `session_meta` source `exec`. A
+Claude Code background session (`claude agents`) reports itself unattended too,
+but a person attaches to it, so its turns are captured.
 
 Before the question is created, the redacted turn is triaged by the bound
 organization (`agent.triage_agent_turn`, at most 4 seconds) and the result is

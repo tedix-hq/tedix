@@ -267,6 +267,25 @@ describe("unattendedRun", () => {
 			expect(unattendedRun({}, { CLAUDE_CODE_SESSION_ATTENDED: "1" })).toBe(
 				false,
 			);
+			// A background session is attended; a run it launched is not.
+			const session_id = "59607ddc-74e1-44e0-aed3-f88156efd9fd";
+			const background = {
+				CLAUDE_CODE_SESSION_ATTENDED: "0",
+				CLAUDE_JOB_DIR: "/h/.claude/jobs/59607ddc",
+			};
+			expect(unattendedRun({ session_id }, background)).toBe(false);
+			expect(
+				unattendedRun(
+					{ session_id: "d59b4838-408a-462c-9bf0-f5767c67d376" },
+					background,
+				),
+			).toBe(true);
+			expect(
+				unattendedRun(
+					{ session_id },
+					{ ...background, CLAUDE_JOB_DIR: "/h/.claude/jobs/" },
+				),
+			).toBe(true);
 			expect(unattendedRun(codex(rollout("exec")), {})).toBe(true);
 			expect(unattendedRun(codex(rollout("cli")), {})).toBe(false);
 			// A Codex side thread names no transcript, or its parent's rollout.
