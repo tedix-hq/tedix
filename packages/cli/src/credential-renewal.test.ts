@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,11 @@ import {
 	readWorkspaceCredentials,
 	writeWorkspaceCredentials,
 } from "./credential-store";
+import {
+	RENEWAL_HANDOFF_ENV,
+	renewStoredSession,
+	type WorkspaceOAuthProvider,
+} from "./oauth-provider";
 
 const CLI = fileURLToPath(new URL("./index.ts", import.meta.url));
 const WORKSPACE = "acme";
@@ -195,4 +200,28 @@ describe("stored login renewal across processes", () => {
 			else process.env.TEDIX_CONFIG_DIR = previous;
 		}
 	}, 30_000);
+
+	test("the renewer is started without a shell, so metacharacters stay inert", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-renewal-$(touch x);`x`'\""));
+		const canary = join(dir, "injected");
+		const record = join(dir, "record.json");
+		const renewer = join(dir, "renewer;$(touch x).ts");
+		writeFileSync(
+			renewer,
+			`require("node:fs").writeFileSync(${JSON.stringify(record)}, JSON.stringify({ ppid: process.ppid, argv: process.argv.slice(2), handoff: process.env.${RENEWAL_HANDOFF_ENV} ?? null }));
+process.stdout.write("unavailable\\n");`,
+		);
+		const workspace = `acme; touch ${canary} $(touch ${canary}) \`touch ${canary}\``;
+		const outcome = await renewStoredSession({} as WorkspaceOAuthProvider, {
+			workspace,
+			command: [process.execPath, [renewer]],
+		});
+		expect(outcome).toBe("unavailable");
+		const seen = JSON.parse(readFileSync(record, "utf8"));
+		expect(seen.argv).toEqual(["auth", "renew", "--workspace", workspace]);
+		// Started directly: a shell in between would be the renewer's parent.
+		expect(seen.ppid).toBe(process.pid);
+		expect(seen.handoff).toBe(process.platform === "win32" ? null : "1");
+		expect(existsSync(canary)).toBe(false);
+	});
 });

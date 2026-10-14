@@ -70,7 +70,9 @@ import {
 	TEDIX_CONNECT_MCP_URL,
 	isMultiOrganizationMcpUrl,
 	isTedixHostedMcpUrl,
+	handOffRenewal,
 	openBrowser,
+	RENEWAL_HANDOFF_ENV,
 	TEDIX_OAUTH_CLIENT_ID,
 	WorkspaceOAuthProvider,
 } from "./oauth-provider";
@@ -289,6 +291,10 @@ async function main() {
 	if (command === "auth") {
 		// Internal: the detached renewer started by renewStoredSession.
 		if (options.prompt?.trim() === "renew") {
+			if (process.env[RENEWAL_HANDOFF_ENV]) {
+				handOffRenewal(resolveWorkspaceName(options));
+				return;
+			}
 			process.stdout.write(
 				`${await renewStoredLogin(resolveWorkspaceName(options))}\n`,
 			);
