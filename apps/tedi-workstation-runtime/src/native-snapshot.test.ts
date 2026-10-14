@@ -110,6 +110,34 @@ beforeEach(() => {
 		fn.mockClear();
 });
 
+describe("workstation HTTPS interception trust", () => {
+	it("installs the interception CA into the system bundle on configure", async () => {
+		await host().setOutboundPolicy(policy);
+		await host().readFile("/workspace");
+		const [argv] = fixture.container.exec.mock.calls.at(-1) as unknown as [
+			string[],
+		];
+		expect(argv[2]).toContain("update-ca-certificates");
+		expect(argv[2]).toContain(
+			"/etc/cloudflare/certs/cloudflare-containers-ca.crt",
+		);
+	});
+
+	it("fails the start when the CA cannot be trusted", async () => {
+		fixture.container.exec.mockImplementationOnce(async () => ({
+			output: async () => ({
+				exitCode: 1,
+				stdout: new ArrayBuffer(0),
+				stderr: new TextEncoder().encode("CA did not arrive")
+					.buffer as ArrayBuffer,
+			}),
+		}));
+		await expect(host().readFile("/workspace")).rejects.toThrow(
+			"CA did not arrive",
+		);
+	});
+});
+
 describe("native workstation snapshot resume", () => {
 	it("saves on idle and consumes the snapshot for the same lease", async () => {
 		const first = host();

@@ -28,10 +28,6 @@ RUN apt-get update \
     && npm install -g bun@1.4.2 \
     && test "$(bun --version)" = "1.4.2"
 
-# Compose runtime TLS trust before starting the native Sandbox server.
-COPY computer-entrypoint.sh /usr/local/bin/tedix-workstation-entrypoint
-RUN chmod 755 /usr/local/bin/tedix-workstation-entrypoint
-
 ENV HOME=/home/tedi
 ENV TEDIX_WORKSTATION_HOME=/home/tedi
 ENV TEDIX_WORKSTATION_DIR=/home/tedi/workstation
@@ -40,6 +36,9 @@ ENV GH_PROMPT_DISABLED=1
 ENV GCM_INTERACTIVE=Never
 ENV GIT_ASKPASS=/bin/false
 ENV GIT_TERMINAL_PROMPT=0
+# The runtime adds the HTTPS interception CA to this bundle after start.
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV BUN_INSTALL_CACHE_DIR=/home/tedi/workstation/cache/package-managers/bun
 
 RUN mkdir -p /home/tedi/.config/gh \
@@ -50,4 +49,4 @@ RUN mkdir -p /home/tedi/.config/gh \
 
 WORKDIR /home/tedi/workstation
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tedix-workstation-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "sleep", "infinity"]

@@ -26,6 +26,19 @@ import { emitSnapshotMetric } from "./snapshot-observability";
 
 const RESUME_SNAPSHOT_KEY = "native-resume-snapshot";
 const SNAPSHOT_ALARM_DELAY_MS = 9 * 60 * 1000;
+// A raw Container, unlike the Sandbox class, does not trust the ephemeral CA
+// that HTTPS interception mounts after start, and native exec processes do not
+// inherit an entrypoint's environment. Install the CA into the system bundle on
+// every configure (a restored snapshot carries the previous container's CA) so
+// Git, curl, Python and Node/Bun (via NODE_EXTRA_CA_CERTS in the image) verify.
+const TRUST_INTERCEPTION_CA = `
+ca=/etc/cloudflare/certs/cloudflare-containers-ca.crt
+i=0
+while [ ! -s "$ca" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+[ -s "$ca" ] || { echo "CA did not arrive at $ca" >&2; exit 1; }
+cp "$ca" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt
+update-ca-certificates --fresh >/dev/null
+`;
 
 export interface TediRuntimeEnv {
 	API_SERVICE?: Fetcher;
@@ -230,6 +243,13 @@ export class TediWorkstationRuntimeSandbox extends NativeContainerSandbox<TediRu
 		});
 		await this.container.interceptAllOutboundHttp(outbound);
 		await this.container.interceptOutboundHttps("*", outbound);
+		const trust = await (
+			await this.container.exec(["/bin/sh", "-c", TRUST_INTERCEPTION_CA])
+		).output();
+		if (trust.exitCode !== 0)
+			throw new Error(
+				`Workstation could not trust the HTTPS interception CA: ${new TextDecoder().decode(trust.stderr).trim()}`,
+			);
 	}
 
 	async setOutboundPolicy(params: unknown): Promise<void> {
