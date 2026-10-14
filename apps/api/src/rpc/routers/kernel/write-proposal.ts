@@ -742,7 +742,7 @@ export function renderWriteDeclined(
 		case "no_write_tools":
 			return `I can't make that change to ${app} from Home right now — ${app} isn't set up for writes here. Ask me to delegate this to a tedi that has ${app} connected.`;
 		case "planner_declined":
-			return `I found write-capable ${app} tooling, but couldn't safely map this request to one exact ${cap} call — nothing was created or sent. Ask the owning tedi to make the change directly, or try again with the exact tool/action you want Home to stage for approval.`;
+			return `I found write-capable ${app} tooling, but couldn't match this request to one exact ${capability ? `${capability} call` : "action"} — nothing was created or sent. Home stages one change per message: if you asked for several, send them one at a time; otherwise name the exact action you want staged for approval, or ask the owning tedi to make the change directly.`;
 		case "validation_failed":
 		case "missing_inputs":
 			return `I couldn't turn that into a concrete ${app} change I'd be confident proposing — nothing was created or sent. Tell me the specifics (what to ${cap}, and the exact values) so I can try again, or ask the owning tedi to make the change directly.`;
@@ -860,22 +860,42 @@ export async function planKernelWriteProposal(args: {
 			writes,
 			route.toolIntent?.capability,
 		);
-		const selected = preferred
-			? { toolName: preferred.name, reason: "selected" as const }
+		const catalog = orderWriteToolCatalog(writes).slice(0, MAX_CATALOG_TOOLS);
+		let selected: { toolName: string | null; reason: string } = preferred
+			? { toolName: preferred.name, reason: "selected" }
 			: await selectJevAction({
 					db,
 					env,
 					context: { ...args.gatewayContext, organizationId },
 					onExecutionAttempts: args.onExecutionAttempts,
 					content,
-					candidates: orderWriteToolCatalog(writes)
-						.slice(0, MAX_CATALOG_TOOLS)
-						.map((tool) => ({
-							id: tool.name,
-							description: renderWriteToolCatalog([tool]),
-						})),
+					candidates: catalog.map((tool) => ({
+						id: tool.name,
+						description: renderWriteToolCatalog([tool]),
+					})),
 					timeoutMs,
 				});
+		// Jev splits its confidence across sibling tools on dense providers
+		// (create_work_items vs create_work_interaction vs …) and abstains on a
+		// plain single-action request. Only that abstention falls through to the
+		// write planner over the same bounded catalog; it can still answer NONE,
+		// and its pick is re-validated against the exact schema and approved by a
+		// human. "none" (no single action fits) and errors still decline.
+		if (selected.reason === "uncertain") {
+			const pick = await planWriteCall({
+				workspaceContext: args.workspaceContext,
+				content,
+				capability: route.toolIntent?.capability ?? null,
+				tools: catalog,
+				model,
+				paramDefaults: provider.paramDefaults,
+				timeoutMs,
+				span: kernelSpanContext({ organizationId, source: "write_selection" }),
+			});
+			selected = catalog.some((tool) => tool.name === pick?.toolName)
+				? { toolName: pick!.toolName, reason: "planner_selected" }
+				: { toolName: null, reason: "uncertain" };
+		}
 		if (!selected.toolName) {
 			// Jev declined, was uncertain, or was unavailable — previously the
 			// only fully silent gate, which made live diagnosis tail-dependent.

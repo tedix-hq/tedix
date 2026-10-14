@@ -268,6 +268,7 @@ describe("renderWriteDeclined — each stage maps to an honest one-liner", () =>
 		expect(msg).toContain("globex");
 		expect(msg).toContain("write-capable");
 		expect(msg).toContain("exact create_invoice call");
+		expect(msg).toContain("one change per message");
 		expect(msg).toContain("nothing was created or sent");
 		expect(msg).not.toContain(OPTIMISTIC_PROMISE);
 	});
