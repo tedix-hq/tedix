@@ -180,11 +180,15 @@ export async function generateAndPersistHomeConversationTitle(
 			return;
 		}
 
-		const model = kernelModel(
-			context.env as unknown as KernelEnv,
-			undefined,
-			input.organizationId,
-		);
+		// The title is part of the settled run, and billing counts it there: a
+		// monetary plan with a per-run budget refuses a call without a run as
+		// hard_spend_limit, so an organization-only context never got a title.
+		const model = kernelModel(context.env as unknown as KernelEnv, undefined, {
+			organizationId: input.organizationId,
+			runId: input.runId,
+			sessionKey: input.conversationId,
+			source: "kernel:conversation_title",
+		});
 		let raw: string | undefined;
 		if (model) {
 			const abortController = new AbortController();

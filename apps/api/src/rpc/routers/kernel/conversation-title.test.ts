@@ -19,6 +19,18 @@ vi.mock("../../../lib/traced-ai", () => ({
 	},
 }));
 
+const kernelModelCalls: unknown[][] = [];
+vi.mock("./llm", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./llm")>();
+	return {
+		...actual,
+		kernelModel: (...args: Parameters<typeof actual.kernelModel>) => {
+			kernelModelCalls.push(args);
+			return actual.kernelModel(...args);
+		},
+	};
+});
+
 import type { BaseContext } from "../../orpc";
 import {
 	buildConversationTitlePrompt,
@@ -464,6 +476,28 @@ describe("generateAndPersistHomeConversationTitle", () => {
 			conversation: { title: "Globex Invoice Sync" },
 			title: "Globex Invoice Sync",
 			source: KERNEL_AUTO_TITLE_SOURCE,
+		});
+	});
+
+	it("bills the title call against the settled run, so a per-run budget admits it", async () => {
+		mockGenerateText.mockReset();
+		mockGenerateText.mockResolvedValue({ text: "Globex Invoice Sync" });
+		kernelModelCalls.length = 0;
+		const db = scriptedDb([
+			[{ kind: "message.completed", count: 1 }],
+			[insertedEventRow()],
+		]);
+
+		await generateAndPersistHomeConversationTitle(
+			contextWith(db, modelEnv()),
+			turnInput(),
+		);
+
+		expect(kernelModelCalls).toHaveLength(1);
+		expect(kernelModelCalls[0]?.[2]).toMatchObject({
+			organizationId: "org-1",
+			runId: "run-1",
+			sessionKey: "home:abc-123",
 		});
 	});
 
