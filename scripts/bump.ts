@@ -23,7 +23,8 @@ Default: update to latest releases, including majors, prepare, and validate.
 --interactive  Preselect patches and filter incompatible peer upgrades.
 --check        Show available updates without changing files.
 --verify       Prepare and validate existing changes without querying versions.
-Pinned GitHub Action SHAs in .github/ follow their latest release
+Pinned GitHub Action SHAs in .github/, root overrides and prerelease catalog
+pins follow their latest release
 (--interactive holds major updates). Requires an authenticated gh CLI.
 Other options (e.g. --filter, --target) are passed to NCU.
 Full logs and a JSON result are saved in the printed temporary directory.`);
@@ -389,6 +390,59 @@ async function updateActionPins(apply: boolean, sameMajorOnly: boolean) {
 	saveReport();
 }
 
+// NCU ignores root `overrides` and only moves a prerelease catalog pin to a
+// newer `latest`, so both would silently go stale. A prerelease pin follows
+// its own channel's dist-tag (e.g. `beta`) when `latest` is behind it.
+async function updateRootPins(apply: boolean, sameMajorOnly: boolean) {
+	const source = readFileSync(join(root, "package.json"), "utf8");
+	const manifest = JSON.parse(source) as Record<string, Record<string, string>>;
+	const pins = [
+		...Object.entries(manifest.overrides ?? {})
+			.filter(([name]) => !vitestFamily(name))
+			.map(([name, pinned]) => ["overrides", name, pinned] as const),
+		...Object.entries(manifest.catalog ?? {})
+			.filter(([, pinned]) => pinned.includes("-"))
+			.map(([name, pinned]) => ["catalog", name, pinned] as const),
+	].filter(([, , pinned]) => /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(pinned));
+	const changes: Record<string, string> = {};
+	let next = source;
+	const format = { formattingOptions: { insertSpaces: false, tabSize: 1 } };
+	await Promise.all(
+		pins.map(async ([section, name, pinned]) => {
+			const response = await fetch(
+				`https://registry.npmjs.org/-/package/${name}/dist-tags`,
+			);
+			if (!response.ok) {
+				console.log(`  ${name}: could not read dist-tags (${response.status})`);
+				return;
+			}
+			const tags = (await response.json()) as Record<string, string>;
+			const channel = pinned.split("-")[1]?.split(".")[0];
+			const ncuMovesIt =
+				section === "catalog" &&
+				Boolean(tags.latest) &&
+				Bun.semver.order(tags.latest!, pinned) > 0;
+			if (ncuMovesIt) return;
+			const target = [tags.latest, channel && tags[channel]]
+				.filter((version): version is string => Boolean(version))
+				.filter((version) => Bun.semver.order(version, pinned) > 0)
+				.sort((a, b) => Bun.semver.order(b, a))[0];
+			if (!target) return;
+			const held =
+				sameMajorOnly && target.split(".")[0] !== pinned.split(".")[0];
+			changes[`${section}.${name}`] =
+				`${pinned} → ${target}${held ? " (major; held, run bump:latest)" : ""}`;
+			if (apply && !held)
+				next = applyEdits(next, modify(next, [section, name], target, format));
+		}),
+	);
+	if (next !== source) writeFileSync(join(root, "package.json"), next);
+	report.updates["Root overrides and prerelease pins"] = changes;
+	for (const [key, change] of Object.entries(changes))
+		console.log(`  ${key}: ${change}`);
+	saveReport();
+}
+
 const originalManifests: Record<string, string> = {};
 // Reverts selections the repo cannot take yet and aligns the @vitest overrides
 // with the catalog Vitest. Returns the manifests it rewrote in this call, so a
@@ -616,6 +670,7 @@ try {
 	if (!check) deferIncompatibleSelections();
 	if (!verify) {
 		await updateActionPins(!check, interactive);
+		await updateRootPins(!check, interactive);
 		const holdEmdash = interactive && !emdashEncryptionWired();
 		// NCU evaluates peers within each manifest. The catalog's Vitest pin and
 		// the Worker pool declaration live in different manifests.
