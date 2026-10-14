@@ -39,7 +39,8 @@ type ToolCallResult = {
 const CALLABLE_RE = /^[A-Za-z_]\w*\.[A-Za-z_]\w*$/;
 const MAX_DISCOVERY_QUERY_LENGTH = 240;
 const MAX_DISCOVERY_RESULTS = 12;
-const MAX_DISCOVERY_PROPERTIES = 12;
+// Wide enough for create_work_items, whose projectId is its 16th property.
+const MAX_DISCOVERY_PROPERTIES = 32;
 const MAX_DISCOVERY_DESCRIPTION_LENGTH = 160;
 
 function recordFrom(value: unknown): Record<string, unknown> | null {
