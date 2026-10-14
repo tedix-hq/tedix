@@ -680,7 +680,18 @@ export const skillsGetForMcp = authedSkills.getForMcp
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const entry = await getSkillEntryForMcp(context.db, orgId, input);
+		// A tedi reads skills as itself: its own private skills are readable
+		// without restating its id, and it cannot read as another tedi.
+		if (context.tediId && input.tediId && input.tediId !== context.tediId) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"A tedi can only read skills as itself",
+			);
+		}
+		const entry = await getSkillEntryForMcp(context.db, orgId, {
+			...input,
+			tediId: input.tediId ?? context.tediId,
+		});
 		return { entry: entry ?? null };
 	});
 
