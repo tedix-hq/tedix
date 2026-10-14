@@ -99,7 +99,9 @@ export const KernelRouteDecisionSchema = z.object({
 			capability: z
 				.string()
 				.nullable()
-				.describe("e.g. gmail.read, globex.invoices.list; null if unknown"),
+				.describe(
+					"the one action as object.verb, e.g. gmail.read, globex.invoices.list, work_items.create, projects.update; always set for propose_tool_write, null if unknown",
+				),
 			connectionStatus: z
 				.enum(["connected", "not_connected", "unknown"])
 				.nullable()

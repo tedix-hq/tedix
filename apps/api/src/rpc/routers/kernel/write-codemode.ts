@@ -61,12 +61,22 @@ export function isCodeModeCatalog(tools: Array<{ name: string }>): boolean {
 	return tools.some((tool) => tool.name === CODE_MODE_TOOL_NAME);
 }
 
-/** Prefer the deterministic route capability; user text is only a fallback. */
+/**
+ * Prefer the deterministic route capability; user text is only a fallback.
+ * Quoted text and UUIDs in that text are argument values, not intent; a
+ * quoted Work title and a project id pushed create_work_items out of the
+ * planner's cut.
+ */
 export function writeDiscoveryQuery(args: {
 	capability: string | null;
 	content: string;
 }): string {
-	const source = args.capability?.trim() || args.content.trim();
+	const source =
+		args.capability?.trim() ||
+		args.content
+			.replace(/"[^"]*"|“[^”]*”/g, " ")
+			.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, " ")
+			.trim();
 	return source
 		.replace(/[._/-]+/g, " ")
 		.replace(/\s+/g, " ")
@@ -76,10 +86,12 @@ export function writeDiscoveryQuery(args: {
 export function codeModeDiscoveryParams(
 	query: string,
 ): Record<string, unknown> {
+	// Over-fetch: reads and skills are dropped before the planner's cut, so they
+	// cannot crowd the matching write out of it.
 	const input = {
 		query,
 		includeParameters: true,
-		limit: MAX_DISCOVERY_RESULTS,
+		limit: MAX_DISCOVERY_RESULTS * 4,
 	};
 	return {
 		name: CODE_MODE_TOOL_NAME,
@@ -87,7 +99,7 @@ export function codeModeDiscoveryParams(
 			// Return only the catalog fields consumed by the planner. Raw JSON Schema
 			// for dozens of tools exceeds Code Mode's model-output budget and becomes
 			// a deliberately truncated (therefore unparseable) string.
-			code: `async () => { const page = await discover.search(${JSON.stringify(input)}); const hits = Array.isArray(page) ? page : page.results; return hits.slice(0, ${MAX_DISCOVERY_RESULTS}).map((hit) => ({ callable: hit.callable, description: String(hit.description || "").slice(0, ${MAX_DISCOVERY_DESCRIPTION_LENGTH}), annotations: hit.annotations, parameters: hit.parameters ? { properties: Object.fromEntries(Object.entries(hit.parameters.properties || {}).slice(0, ${MAX_DISCOVERY_PROPERTIES}).map(([name, schema]) => [name, { type: schema && typeof schema === "object" && "type" in schema ? schema.type : "any" }])), required: Array.isArray(hit.parameters.required) ? hit.parameters.required.slice(0, ${MAX_DISCOVERY_PROPERTIES}) : [] } : undefined })); }`,
+			code: `async () => { const page = await discover.search(${JSON.stringify(input)}); const hits = Array.isArray(page) ? page : page.results; return hits.filter((hit) => hit.callable && hit.annotations?.readOnlyHint !== true).slice(0, ${MAX_DISCOVERY_RESULTS}).map((hit) => ({ callable: hit.callable, description: String(hit.description || "").slice(0, ${MAX_DISCOVERY_DESCRIPTION_LENGTH}), annotations: hit.annotations, parameters: hit.parameters ? { properties: Object.fromEntries(Object.entries(hit.parameters.properties || {}).slice(0, ${MAX_DISCOVERY_PROPERTIES}).map(([name, schema]) => [name, { type: schema && typeof schema === "object" && "type" in schema ? schema.type : "any" }])), required: Array.isArray(hit.parameters.required) ? hit.parameters.required.slice(0, ${MAX_DISCOVERY_PROPERTIES}) : [] } : undefined })); }`,
 		},
 	};
 }
