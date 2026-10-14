@@ -1407,7 +1407,7 @@ describe("exact output input schemas", () => {
 });
 
 describe("Jev action selection failure boundary", () => {
-	it.each(["none", "unavailable", "invalid_candidates"])(
+	it.each(["invalid_candidates"])(
 		"declines %s without generative selection or arguments",
 		async (reason) => {
 			mocks.selectJevAction.mockResolvedValue({ toolName: null, reason });
@@ -1438,32 +1438,32 @@ describe("Jev action selection failure boundary", () => {
 		},
 	);
 
-	it("lets the write planner pick from the same catalog when Jev is uncertain", async () => {
-		mocks.selectJevAction.mockResolvedValue({
-			toolName: null,
-			reason: "uncertain",
-		});
-		const model = objectModel({
-			toolName: "globex__create_invoice",
-			argsJson: '{"amount":1}',
-			reasoning: null,
-		});
-		const generate = vi.spyOn(model, "doGenerate");
-		const result = await planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(mcpService(globexProvider)),
-			organizationId: "org-1",
-			route: writeRoute(),
-			content: "create an invoice for 1",
-			model,
-		});
-		expect(result).toMatchObject({
-			toolName: "globex__create_invoice",
-			args: { amount: 1 },
-		});
-		// One selection pass over the catalog, one argument pass on the exact tool.
-		expect(generate).toHaveBeenCalledTimes(2);
-	});
+	it.each(["none", "uncertain", "unavailable"])(
+		"lets the write planner pick from the same catalog when Jev answers %s",
+		async (reason) => {
+			mocks.selectJevAction.mockResolvedValue({ toolName: null, reason });
+			const model = objectModel({
+				toolName: "globex__create_invoice",
+				argsJson: '{"amount":1}',
+				reasoning: null,
+			});
+			const generate = vi.spyOn(model, "doGenerate");
+			const result = await planKernelWriteProposal({
+				db: DB,
+				env: baseEnv(mcpService(globexProvider)),
+				organizationId: "org-1",
+				route: writeRoute(),
+				content: "create an invoice for 1",
+				model,
+			});
+			expect(result).toMatchObject({
+				toolName: "globex__create_invoice",
+				args: { amount: 1 },
+			});
+			// One selection pass over the catalog, one argument pass on the exact tool.
+			expect(generate).toHaveBeenCalledTimes(2);
+		},
+	);
 
 	it("still declines an uncertain request the write planner also rejects", async () => {
 		mocks.selectJevAction.mockResolvedValue({
