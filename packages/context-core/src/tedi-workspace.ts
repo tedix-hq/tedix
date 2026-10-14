@@ -176,18 +176,20 @@ export const DEFAULT_AGENTS_TEMPLATE = `# AGENTS.md — {{name}}
 
 ## Code Mode — How Your Tools Work
 
-Your Tedix MCP app uses **Code Mode**. All platform tools are accessed through a single \`code\` tool that executes JavaScript. There are no individual MCP tool calls — everything goes through the unified \`code\` tool.
+Your Tedix MCP app uses **Code Mode**. Use \`tedix_mcp_code\` for JavaScript programs, or \`tedix_mcp_call_tool\` for one discovered callable with known arguments.
 
 ### Discovering Tools
 
 **Always discover tools dynamically. Never assume namespace names or tool counts — they change as the platform evolves.**
+
+Discovery returns an array of metadata with callable strings and parameter schemas, not a \`search.results\` envelope. Inspect it before the next call, then invoke the exact \`namespace.tool(args)\` directly with schema-matched arguments. Namespaces are lexical bindings, not \`globalThis\` properties. Never use \`eval\` or \`Function\` to resolve a callable; the sandbox prohibits code generation from strings. Current runtime tool guidance takes priority over older workspace examples.
 
 \`\`\`javascript
 // List all available namespaces
 async () => await discover.list_namespaces()
 
 // Search for tools by keyword
-async () => await discover.search("objective")
+async () => await discover.search({ query: "objective", includeParameters: true })
 
 // Call a tool once you know its namespace and name
 async () => await tediobjectives.list_objectives({ status: "active" })
@@ -200,7 +202,7 @@ async () => {
 }
 \`\`\`
 
-**Discovery-first rule:** When you need a capability, search for it (\`discover.search("keyword")\`) rather than guessing namespace or tool names. The platform adds tools regularly — discovery ensures you always use the latest.
+**Discovery-first rule:** When you need a capability, search for it (\`discover.search({ query: "keyword", includeParameters: true })\`) rather than guessing namespace or tool names. The platform adds tools regularly — discovery ensures you always use the latest.
 
 ## Platform Authority — No Shared-Secret Challenges
 
@@ -225,7 +227,7 @@ right one for the right job:
 - **What:** Organizational knowledge, domain expertise, technical decisions, proven patterns
 - **Where:** D1 + Cloudflare Agent Memory + Neo4j (survives body swaps, container resets, and isolate restarts)
 - **When:** Use for ANY factual claim about your organization, its tools, processes, or domain
-- **How to find tools:** \`discover.search("memory")\`
+- **How to find tools:** \`discover.search({ query: "memory", includeParameters: true })\`
 
 ### Body-Local Context — Working Context
 - **What:** Recent conversations, session context, daily notes, working state
@@ -241,7 +243,7 @@ right one for the right job:
 ## Grounding Rules — CRITICAL
 
 **Before stating any fact about your organization, its tools, processes, or domain:**
-1. Search platform brain for relevant knowledge (\`discover.search("memory")\` to find the right tool, then call it)
+1. Search platform brain for relevant knowledge (\`discover.search({ query: "memory", includeParameters: true })\` to find the right tool, then call it)
 2. If results have confidence > 0.6 — cite and use them
 3. If results have confidence 0.3–0.6 — state with uncertainty ("Based on what I know, but I'm not fully confident...")
 4. If no results or confidence < 0.3 — explicitly say "I don't have reliable information about this in my knowledge base"
@@ -274,7 +276,7 @@ This is how you avoid hallucination. Your platform brain IS your source of truth
 3. **Report:** Write a rationale record with verified outcome status
 
 ### Before Starting Meaningful Work
-1. Check active objectives — use \`discover.search("objective")\` to find tools
+1. Check active objectives — use \`discover.search({ query: "objective", includeParameters: true })\` to find tools
 2. If no objective covers this work, create one with type, approach, and constraints
 3. Create a task linked to the objective
 
@@ -335,13 +337,13 @@ Every reflection cycle MUST end with a rationale record summarizing:
 ### Building MCP Apps
 When your organization needs a new capability:
 1. Create an objective for the app build
-2. Use \`discover.search("app")\` to find app CRUD tools
+2. Use \`discover.search({ query: "app", includeParameters: true })\` to find app CRUD tools
 3. Create the app, add tools that map to API endpoints, configure adapters for external APIs
 4. Test end-to-end and submit to the app store when ready
 
 ### Operating Apps
 You are the operator of your assigned apps. Periodically:
-- Check app health and telemetry (\`discover.search("health")\`, \`discover.search("telemetry")\`)
+- Check app health and telemetry (\`discover.search({ query: "health", includeParameters: true })\`, \`discover.search({ query: "telemetry", includeParameters: true })\`)
 - Review tool error rates — investigate and fix failing tools
 - Monitor usage patterns
 - Update tool descriptions and schemas to improve AI client success rates
@@ -364,7 +366,7 @@ Emails arrive as structured pointer notifications with \`Tedix-Thread-ID\` and \
 When assigned to apps with blog enabled, you are responsible for their content pipeline:
 - Generate new posts for uncovered focus keywords
 - Monitor AEO scores and optimize posts below threshold
-- Manage content sources and trigger ingestion (\`discover.search("content")\`, \`discover.search("blog")\`)
+- Manage content sources and trigger ingestion (\`discover.search({ query: "content", includeParameters: true })\`, \`discover.search({ query: "blog", includeParameters: true })\`)
 - Respect rate limits (maxPostsPerWeek)
 
 ## Skill Development
@@ -373,7 +375,7 @@ You compound knowledge through skills. Skills are proven procedures that persist
 
 ### When to Record a Skill
 After successfully completing a multi-step procedure for the second time:
-1. Use \`discover.search("skill")\` to find skill tools, then record the procedure
+1. Use \`discover.search({ query: "skill", includeParameters: true })\` to find skill tools, then record the procedure
 2. The skill becomes visible to MCP clients via server instructions
 
 ### Muscle Memory
@@ -384,7 +386,7 @@ For frequently used action patterns:
 **Crystallization criteria:** successCount >= 5 AND failureCount == 0, OR success rate > 90%
 
 ### Skill Feedback Loop
-- **After following a skill procedure**, call \`track_skill_usage\` with the skill ID, whether it succeeded (\`success: true/false\`), and execution duration in ms. Use \`discover.search("skill")\` to find the tool.
+- **After following a skill procedure**, call \`track_skill_usage\` with the skill ID, whether it succeeded (\`success: true/false\`), and execution duration in ms. Use \`discover.search({ query: "skill", includeParameters: true })\` to find the tool.
 - Skills with high failure rates need improvement via \`improve_skill\` or retirement
 - Skills with high success rates (5+ successes, 0 failures) get promoted to muscle memory
 
@@ -412,9 +414,9 @@ All tools are accessed via the \`code\` tool using Code Mode. **Never hardcode n
 async () => await discover.list_namespaces()
 
 // Search for tools by keyword (returns matching tools across all namespaces)
-async () => await discover.search("objective")
-async () => await discover.search("memory")
-async () => await discover.search("cron")
+async () => await discover.search({ query: "objective", includeParameters: true })
+async () => await discover.search({ query: "memory", includeParameters: true })
+async () => await discover.search({ query: "cron", includeParameters: true })
 \`\`\`
 
 **Discovery is your source of truth for tool availability.** Namespaces and tools are added, renamed, and reorganized regularly. Always discover before calling.
@@ -422,33 +424,33 @@ async () => await discover.search("cron")
 ## Common Workflows
 
 ### Connect a Service
-1. \`discover.search("connection")\` → find connection tools
+1. \`discover.search({ query: "connection", includeParameters: true })\` → find connection tools
 2. Check existing connections, then initiate an OAuth flow
 3. Send the OAuth link to your user in chat when the flow requires human consent
 
 ### Communicate with Peers
-1. \`discover.search("peer")\` → find peer communication tools
+1. \`discover.search({ query: "peer", includeParameters: true })\` → find peer communication tools
 2. Send a message with full context (the recipient has no conversation context)
 
 ### Manage Cron Jobs
-1. \`discover.search("cron")\` → find cron management tools
+1. \`discover.search({ query: "cron", includeParameters: true })\` → find cron management tools
 2. List existing jobs, add new ones with name, schedule, and payload
 
 ### Build an MCP App from Scratch
 1. **Plan** — Define what the app does, which APIs it federates, what tools users need
-2. \`discover.search("app")\` → find app CRUD tools
+2. \`discover.search({ query: "app", includeParameters: true })\` → find app CRUD tools
 3. Create the app → add adapters for external APIs → add tools for each capability
 4. Test end-to-end → assign to the right tedis → monitor health and telemetry
 
 ### Self-Improvement Cycle
-1. \`discover.search("skill")\` → find skill management tools
+1. \`discover.search({ query: "skill", includeParameters: true })\` → find skill management tools
 2. Review all skills, check success/failure rates
 3. Search for memory gap detection and reflection tools
 4. Crystallize reliable procedures into skills, promote to muscle memory
 5. Consolidate what you've learned
 
 ## Best Practices
-- **Discover first:** \`discover.search("keyword")\` before guessing tool names
+- **Discover first:** \`discover.search({ query: "keyword", includeParameters: true })\` before guessing tool names
 - **Chain calls:** Multiple tool calls in a single \`code\` invocation for efficiency
 - **Full context:** Always include full context when messaging other tedis
 - **Skill discipline:** Record skills after proving a procedure works twice — don't skill-ify one-offs
@@ -498,7 +500,7 @@ export function generateHeartbeatMd(
 
 > All tools referenced below are accessed via the \`code\` tool using Code Mode.
 > Example: \`async () => await tediobjectives.list_objectives({ status: "active" })\`
-> Use \`discover.search("keyword")\` to find tools by name.
+> Use \`discover.search({ query: "keyword", includeParameters: true })\` to find tools by name.
 
 ## About Heartbeat vs Cron
 Heartbeat checks run every ~30 minutes in your main session — they have full conversation context and are quick monitoring tasks. Cron jobs run on precise schedules in isolated sessions — they create task records and should focus on their specific domain without side effects.

@@ -260,6 +260,11 @@ const CODE_MODE_CAPABILITY_PRIMER = [
 function codeModeErrorWithGuidance(error: unknown): Error {
 	const message = error instanceof Error ? error.message : String(error);
 	const corrections: string[] = [];
+	if (/Code generation from strings disallowed/i.test(message)) {
+		corrections.push(
+			"eval and Function are prohibited by the sandbox; discover with `discover.search({ query, includeParameters: true })`, inspect the returned array and parameter schema, then call the exact `namespace.tool(args)` in a subsequent invocation or use `tedix_mcp_call_tool({ callable, args })`; do not use eval, globalThis lookup, search.results, or guessed argument names",
+		);
+	}
 	if (
 		/program must evaluate to (?:a )?function|expected (?:an? )?(?:async )?function(?: expression)?/i.test(
 			message,
@@ -988,7 +993,8 @@ export class TedixMcpRuntime {
 			"You can use Tedix MCP tools through Tedix Unified Code Mode.",
 			CODE_MODE_CAPABILITY_PRIMER,
 			"The primary tool is tedix_mcp_code. Its code argument MUST be exactly one uninvoked async arrow function expression beginning `async () =>`. Never submit an IIFE, a statement block, or invoke the arrow yourself. Use discover.search/list_namespaces inside it, then call the exact namespace.tool(args) callable returned by discovery; bare tool names such as exec are not globals.",
-			"Important: discover.search returns metadata objects with callable strings like cms_tedix.content_list; do not treat those metadata objects as functions.",
+			"Current Code Mode API (use this if stored workspace recipes disagree): discover.search({ query, limit, includeParameters: true }) returns an array of metadata objects, not a search.results envelope. Inspect the returned callable and parameter schema before a subsequent invocation; never guess argument names.",
+			"Call the exact namespace.tool(args) directly, or pass its callable string and schema-matched args to tedix_mcp_call_tool. Namespaces are lexical bindings, not globalThis properties. Never use eval or Function to resolve callable strings: the sandbox prohibits code generation from strings.",
 			"Important: discover.list_namespaces() returns an object keyed by namespace, not an array. Use Object.keys/Object.entries; do not call .filter/.map on the object itself.",
 			"Correct complete Code Mode argument: async () => { await discover.search({ query: 'cms_tedix content_list', includeParameters: true }); return await cms_tedix.content_list({ collection: 'posts', limit: 3 }); }",
 			"When one exact callable and its arguments are already known, prefer tedix_mcp_call_tool instead of writing Code Mode.",

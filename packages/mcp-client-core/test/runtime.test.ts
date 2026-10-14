@@ -458,6 +458,7 @@ describe("TedixMcpRuntime", () => {
 		const messages = [
 			"Code Mode program must evaluate to a function",
 			"exec is not defined",
+			"MCP tool error: Execution error: Code generation from strings disallowed for this context",
 		];
 		const runtime = new TedixMcpRuntime({
 			manager: makeManager(async () => ({
@@ -478,6 +479,13 @@ describe("TedixMcpRuntime", () => {
 				code: "async () => exec({ command: 'pwd' })",
 			}),
 		).rejects.toThrow("cto.exec(args)");
+		await expect(
+			runtime.executeTool("tedix_mcp_code", {
+				code: "async () => eval('work.get_work_items_by_id')({ work_item_id: 'x' })",
+			}),
+		).rejects.toThrow(
+			/Code generation from strings disallowed.*\nCode Mode correction: eval and Function are prohibited.*returned array and parameter schema.*tedix_mcp_call_tool/,
+		);
 	});
 
 	it("records started/completed and returns parsed Code Mode results", async () => {
