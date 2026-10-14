@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.18
+
+### Patch Changes
+
+- aeae574: Keep the shared login alive when a host kills a timed-out hook or the Mac drops back to sleep. Login renewal now runs outside the hook's process tree and does not start while a sleeping Mac is briefly awake in the background. Each renewal is recorded in `~/.tedix/renewals.log` without secrets, so a future logout names the process that caused it.
+
 ## 0.8.17
 
 ### Patch Changes
