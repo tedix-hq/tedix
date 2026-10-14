@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.8.19
+
+### Patch Changes
+
+- c6d9d40: Decision capture records turns and replies in Claude Code background sessions (`claude agents`). They report themselves unattended, so since 12 October no question or reply from them reached Tedix.
+
 ## 0.8.18
 
 ### Patch Changes
