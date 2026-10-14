@@ -30,18 +30,21 @@ import type { OsClientErrorReportV1 } from "@/lib/error-reporting/report";
 async function flush() {
 	await act(async () => {
 		for (let tick = 0; tick < 5; tick += 1) {
-			await new Promise((resolve) => setTimeout(resolve, 0));
+			await vi.advanceTimersByTimeAsync(0);
 		}
 	});
 }
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	(
 		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 	).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
 afterEach(() => {
+	vi.useRealTimers();
+	vi.restoreAllMocks();
 	document.body.replaceChildren();
 });
 
@@ -69,15 +72,15 @@ describe("OS route boundaries", () => {
 		const host = document.createElement("div");
 		document.body.append(host);
 		vi.spyOn(console, "error").mockImplementation(() => {});
-		await act(async () =>
-			createRoot(host).render(<OsRoutePending stallAfterMs={0} />),
-		);
+		const root = createRoot(host);
+		await act(async () => root.render(<OsRoutePending stallAfterMs={0} />));
 		await flush();
 		expect(host.textContent).toContain("taking too long to load");
 		expect(host.querySelector('[data-slot="empty"]')?.className).toBe(
 			kumoEmpty,
 		);
 		vi.mocked(console.error).mockRestore();
+		act(() => root.unmount());
 	});
 
 	it("announces the global pending state accessibly", () => {
@@ -135,7 +138,12 @@ describe("OS route boundaries", () => {
 		expect(container.textContent).toContain("Loading Tedix OS");
 
 		await act(async () => {
-			await new Promise((resolve) => setTimeout(resolve, 60));
+			await vi.advanceTimersByTimeAsync(24);
+		});
+		expect(container.textContent).toContain("Loading Tedix OS");
+		expect(sent).toHaveLength(0);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1);
 		});
 		await flush();
 
