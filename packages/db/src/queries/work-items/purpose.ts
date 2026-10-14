@@ -195,11 +195,10 @@ export async function resolveWorkItemPurpose(
 
 	const objectiveId = distinctObjectives[0] ?? null;
 	if (objectiveId) {
-		if (
-			parentOperationalClass ||
-			(params.workClass && params.workClass !== "objective") ||
-			params.purposeExceptionExpiresAt
-		) {
+		// An operational class without an explicit expiry is a fallback for when
+		// no objective applies, so a caller that cannot see the project's
+		// objective (Home's write planner) can always stage a valid create.
+		if (parentOperationalClass || params.purposeExceptionExpiresAt) {
 			throw new WorkItemPurposeError(
 				"context_conflict",
 				"PURPOSE_CONFLICT: objective-linked work cannot also carry an operational exception",
@@ -250,7 +249,11 @@ export async function resolveWorkItemPurpose(
 	const purposeExceptionExpiresAt =
 		params.purposeExceptionExpiresAt ??
 		params.parent?.purposeExceptionExpiresAt ??
-		null;
+		(workClass
+			? new Date(
+					Date.parse(params.now) + DEFAULT_PURPOSE_EXCEPTION_TTL_MS,
+				).toISOString()
+			: null);
 	if (!workClass || !purposeExceptionExpiresAt) {
 		throw new WorkItemPurposeError(
 			"context_required",
