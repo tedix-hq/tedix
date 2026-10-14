@@ -1,5 +1,16 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	ne,
+	sql,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItem,
@@ -225,6 +236,10 @@ export interface ListWorkItemsPageOptions {
 	workKind?: WorkItemKind;
 	objectiveId?: string;
 	workClass?: WorkItemClass;
+	/** Exact accountable owner identity, of any owner type. */
+	accountableOwnerId?: string;
+	/** true: only rows with an objective; false: only rows without one. */
+	objectiveLinked?: boolean;
 	/** Lowercase id fragment (6-36 chars of `[0-9a-f-]`), matched in SQL. */
 	idPrefix?: string;
 	/** Case-insensitive title substring; LIKE wildcards stay literal. */
@@ -284,6 +299,16 @@ export async function listWorkItemsPage(
 			? eq(workItems.objectiveId, options.objectiveId)
 			: undefined,
 		options.workClass ? eq(workItems.workClass, options.workClass) : undefined,
+		// The org's dominant owner otherwise fills every page, so an owner's
+		// items must be selected before paging, not filtered from a page.
+		options.accountableOwnerId
+			? eq(workItems.accountableOwnerId, options.accountableOwnerId)
+			: undefined,
+		options.objectiveLinked === undefined
+			? undefined
+			: options.objectiveLinked
+				? isNotNull(workItems.objectiveId)
+				: isNull(workItems.objectiveId),
 		// A complete id is an exact primary-key lookup; anything shorter is an
 		// index-backed range over the prefix. Neither depends on the row's age.
 		idPrefix

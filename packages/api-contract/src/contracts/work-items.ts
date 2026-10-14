@@ -222,6 +222,21 @@ export const workItemsContract = oc
 						objectiveId: z.uuid().optional(),
 						workClass: WorkItemClassSchema.optional(),
 						projectId: z.uuid().optional(),
+						accountableOwnerId: z
+							.string()
+							.trim()
+							.min(1)
+							.max(300)
+							.optional()
+							.describe(
+								"Server-side filter on the exact accountable owner identity (e.g. a tedi id), applied before paging so one owner's items are never hidden behind another owner's.",
+							),
+						objectiveLinked: z
+							.boolean()
+							.optional()
+							.describe(
+								"Server-side filter: true keeps only items linked to an objective, false only unlinked items.",
+							),
 						// Server-side id resolver: match ids starting with this lowercase
 						// uuid fragment. Composes with every other filter.
 						idPrefix: z
