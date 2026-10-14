@@ -598,4 +598,20 @@ describe("directToolCallNamespaces", () => {
 			directToolCallNamespaces("acme__list_work_item_cli_rows", {}, rootTools),
 		).toEqual(new Set(["acme"]));
 	});
+
+	it("keeps a dashed aggregate entry for its prefixed direct tool call", () => {
+		// A tenant wrapper app aggregates `acme-catalog`; its tools are
+		// registered as `acme-catalog__search_products`.
+		const namespaces = directToolCallNamespaces(
+			"acme-catalog__search_products",
+			{},
+			rootTools,
+		);
+		expect(
+			filterAggregateAppsForCodeNamespaces(
+				[{ slug: "acme-catalog" }, { slug: "gmail" }],
+				namespaces,
+			).map((entry) => entry.slug),
+		).toEqual(["acme-catalog"]);
+	});
 });
