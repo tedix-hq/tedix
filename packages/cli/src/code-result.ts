@@ -28,12 +28,52 @@ export interface NormalizedCodeResult {
 	resultIdentity?: unknown;
 	/** Bounded inner Code Mode logs returned by the gateway, when present. */
 	logs?: unknown;
+	/**
+	 * Inner tool calls that failed while the program still returned a value.
+	 * Inner calls return `{ ok: false }` instead of throwing, so a program's own
+	 * projection can hide them; only this list proves the run was partial.
+	 */
+	failures?: CodeCallFailure[];
 	value: unknown;
 	/** Set when the gateway truncated the result — `value` is NOT trustworthy. */
 	truncated?: boolean;
 	/** Estimated full result size in tokens, when the gateway reported it. */
 	approxTokens?: number;
 	truncationHint?: string;
+}
+
+export interface CodeCallFailure {
+	tool: string;
+	error?: string;
+}
+
+function innerFailures(raw: unknown): CodeCallFailure[] {
+	if (!isRecord(raw) || raw.partial !== true || !Array.isArray(raw.failures))
+		return [];
+	return raw.failures.flatMap((failure) =>
+		isRecord(failure) && typeof failure.tool === "string"
+			? [
+					{
+						tool: failure.tool,
+						...(typeof failure.error === "string"
+							? { error: failure.error }
+							: {}),
+					},
+				]
+			: [],
+	);
+}
+
+/** Stderr lines naming each failed inner call, so a partial run is never read as success. */
+export function innerFailureMessage(failures: CodeCallFailure[]): string {
+	const lines = failures.map(
+		(failure) =>
+			`  ${failure.tool}${failure.error ? `: ${failure.error}` : ""}`,
+	);
+	return [
+		`[tedix] ${failures.length} inner tool call(s) failed, whatever the result above shows:`,
+		...lines,
+	].join("\n");
 }
 
 /** Structured truncation envelope emitted by Tedix Code Mode gateways. */
@@ -98,6 +138,8 @@ export function normalizeCodeResult(raw: unknown): NormalizedCodeResult {
 			out.resultIdentity = raw.resultIdentity;
 		}
 		if (isRecord(raw) && "logs" in raw) out.logs = raw.logs;
+		const failures = innerFailures(raw);
+		if (failures.length > 0) out.failures = failures;
 		if (truncated) out.truncated = true;
 		if (approxTokens !== undefined) out.approxTokens = approxTokens;
 		if (truncationHint !== undefined) out.truncationHint = truncationHint;
@@ -126,6 +168,9 @@ export function codeOutputValue(
 			? { resultIdentity: normalized.resultIdentity }
 			: {}),
 		...(normalized.logs !== undefined ? { logs: normalized.logs } : {}),
+		...(normalized.failures
+			? { partial: true, failures: normalized.failures }
+			: {}),
 		...(normalized.truncated ? { truncated: true } : {}),
 		...(normalized.approxTokens !== undefined
 			? { approxTokens: normalized.approxTokens }

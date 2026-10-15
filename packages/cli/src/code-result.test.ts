@@ -3,6 +3,7 @@ import {
 	codeDiscoveryErrorMessage,
 	codeOutputValue,
 	formatCodeValue,
+	innerFailureMessage,
 	normalizeCodeResult,
 	truncationErrorMessage,
 } from "./code-result";
@@ -60,6 +61,50 @@ describe("normalizeCodeResult: envelope extraction", () => {
 	test("non-envelope raw value is used as the candidate", () => {
 		expect(normalizeCodeResult(42)).toEqual({ value: 42 });
 		expect(normalizeCodeResult(null)).toEqual({ value: null });
+	});
+});
+
+describe("normalizeCodeResult: partial runs", () => {
+	const partial = {
+		executionId: "exec-3",
+		partial: true,
+		failures: [
+			{
+				tool: "os.set_os_sheet_range",
+				error: "BAD_REQUEST: the sheet has 0 columns",
+			},
+			{ tool: "os.get_os_output" },
+		],
+		result: { doc: 2 },
+	};
+
+	test("keeps failed inner calls that the program's projection hid", () => {
+		const out = normalizeCodeResult(partial);
+		expect(out.value).toEqual({ doc: 2 });
+		expect(out.failures).toEqual([
+			{
+				tool: "os.set_os_sheet_range",
+				error: "BAD_REQUEST: the sheet has 0 columns",
+			},
+			{ tool: "os.get_os_output" },
+		]);
+		expect(codeOutputValue(out, true)).toMatchObject({
+			partial: true,
+			failures: out.failures,
+		});
+		expect(codeOutputValue(out, false)).toEqual({ doc: 2 });
+	});
+
+	test("names every failed call for stderr", () => {
+		const message = innerFailureMessage(normalizeCodeResult(partial).failures!);
+		expect(message).toContain("2 inner tool call(s) failed");
+		expect(message).toContain(
+			"os.set_os_sheet_range: BAD_REQUEST: the sheet has 0 columns",
+		);
+	});
+
+	test("a complete run carries no failures", () => {
+		expect(normalizeCodeResult({ result: 1 }).failures).toBeUndefined();
 	});
 });
 

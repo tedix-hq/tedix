@@ -49,6 +49,22 @@ describe("workflow commands", () => {
 		expect(status.calls[0]).toContain('"workflowId":"workflow-1"');
 	});
 
+	it("projects table rows in the gateway so a full page fits its result cap", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		const table = harness({ runs: [{ workflowId: "wf-1", status: "failed" }] });
+		table.ctx.json = false;
+		expect(await runWorkflowCommand("runs", table.ctx)).toBe(0);
+		expect(table.calls[0]).toContain('r?.["runs"]');
+		expect(table.calls[0]).toContain('"workflowType"');
+		expect(stdout.mock.calls[0]?.[0]).toContain("wf-1");
+		stdout.mockRestore();
+
+		// --json keeps whole rows.
+		const json = harness({ runs: [] });
+		expect(await runWorkflowCommand("runs", json.ctx)).toBe(0);
+		expect(json.calls[0]).not.toContain("Object.fromEntries");
+	});
+
 	it("rejects unknown verbs before a gateway call", async () => {
 		const stderr = spyOn(console, "error").mockImplementation(() => {});
 		const { calls, ctx } = harness({});

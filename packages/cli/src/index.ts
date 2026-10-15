@@ -20,6 +20,7 @@ import {
 import {
 	codeDiscoveryErrorMessage,
 	codeOutputValue,
+	innerFailureMessage,
 	formatCodeValue,
 	normalizeCodeResult,
 } from "./code-result";
@@ -187,10 +188,16 @@ export async function runDirectCode(
 /** Commands dispatched before gateway option parsing; they take only their own flags. */
 const LOCAL_COMMANDS = ["setup", "dev", "hooks", "supervise", "learn"];
 
+/** Names the corrected command: everything from the local command on, without the gateway options before it. */
+export function localOptionsMessage(command: string, argv: string[]): string {
+	const rest = argv.slice(Math.max(0, argv.indexOf(command)));
+	const quote = (arg: string) =>
+		/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`;
+	return `Workspace and gateway options do not apply to local commands. Run it without them: tedix ${rest.map(quote).join(" ")}`;
+}
+
 const localOptionsError = (command: string) =>
-	new Error(
-		`Put local options after the command: tedix ${command} --help. Workspace and gateway options do not apply to local commands.`,
-	);
+	new Error(localOptionsMessage(command, process.argv.slice(2)));
 
 async function main() {
 	// Installation lifecycle commands are local and never resolve gateway auth.
@@ -414,7 +421,7 @@ async function main() {
 					`  Granted scopes: ${started.profile.scopes.join(", ")}${options.agentScopes ? "" : " (default; override with --agent-scopes)"}`,
 				);
 				console.log(
-					`  Activate it for subsequent calls: export TEDIX_EXTERNAL_AGENT=${started.profile.key}`,
+					`  Activate it for subsequent calls: export TEDIX_EXTERNAL_AGENT=${started.profile.key}\n  (An agent shell that does not keep exports needs TEDIX_EXTERNAL_AGENT=${started.profile.key} before each \`tedix work\` command.)`,
 				);
 				console.log(
 					"  Dedicated credential saved with mode 0600 (secret redacted).",
@@ -1081,8 +1088,12 @@ async function main() {
 					json: options.json,
 				}),
 			);
-			const { truncationHint } = normalized;
+			const { truncationHint, failures } = normalized;
 			if (truncationHint) console.error(`\n[tedix] ${truncationHint}`);
+			if (failures) {
+				console.error(`\n${innerFailureMessage(failures)}`);
+				process.exitCode = 1;
+			}
 			return;
 		}
 		if (command === "channel") {

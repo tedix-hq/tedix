@@ -181,12 +181,21 @@ async function factoryStatus(
 		console.log(
 			`            last proof run: ${proof ? `${String(proof.status)} ${String(proof.runId)}` : "none"}`,
 		);
-		for (const run of rowsFrom(row.runs)) {
+		const runs = rowsFrom(row.runs);
+		for (const run of runs) {
 			const outputs = (run.outputs ?? {}) as Record<string, unknown>;
 			console.log(
-				`            ${String(run.firedAt ?? "?").padEnd(24)} ${String(run.status ?? "?").padEnd(10)} work ${String(outputs.workItemsCreated ?? 0)}, comments ${String(outputs.comments ?? 0)}, outputs ${String(outputs.outputRevisions ?? 0)}, scorecards ${String(outputs.scorecards ?? 0)}`,
+				`            ${String(run.firedAt ?? "?").padEnd(24)} ${String(run.status ?? "?").padEnd(10)} work ${String(outputs.workItemsCreated ?? 0)}, comments ${String(outputs.comments ?? 0)}, outputs ${String(outputs.outputRevisions ?? 0)}, scorecards ${String(outputs.scorecards ?? 0)}  ${String(run.runId ?? "")}`,
 			);
+			if (run.error)
+				console.log(
+					dim(`              error: ${String(run.error)}`, ctx.color),
+				);
 		}
+		if (runs.length > 0)
+			console.log(
+				dim("            read a run: tedix skill inspect <runId>", ctx.color),
+			);
 	}
 	if (!slug) {
 		const counts = new Map<string, number>();

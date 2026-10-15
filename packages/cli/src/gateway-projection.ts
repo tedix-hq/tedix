@@ -14,11 +14,13 @@ export async function readGatewayProjection(
 	callable: string,
 	input: Record<string, unknown>,
 	rowFields?: readonly string[],
+	rowKey = "data",
 ): Promise<unknown> {
 	const call = `await ${callable}(${JSON.stringify(input)})`;
+	const key = JSON.stringify(rowKey);
 	const raw = await client.runCode(
 		rowFields
-			? `async () => { const r = ${call}; const keys = ${JSON.stringify(rowFields)}; return Array.isArray(r?.data) ? { ...r, data: r.data.map((row) => Object.fromEntries(keys.map((k) => [k, row?.[k]]))) } : r; }`
+			? `async () => { const r = ${call}; const keys = ${JSON.stringify(rowFields)}; return Array.isArray(r?.[${key}]) ? { ...r, [${key}]: r[${key}].map((row) => Object.fromEntries(keys.map((k) => [k, row?.[k]]))) } : r; }`
 			: `async () => ${call}`,
 	);
 	const normalized = normalizeCodeResult(raw);

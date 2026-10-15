@@ -124,6 +124,37 @@ describe("factory commands", () => {
 		}
 	});
 
+	it("names each run and a failed run's error so it can be read next", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const { ctx } = harness({
+				data: [
+					{
+						slug: "docs",
+						verdict: "failing",
+						runs: [
+							{
+								runId: "run-failed-1",
+								status: "failed",
+								firedAt: "2026-10-08T02:00:11.936Z",
+								error: "Request timed out after 15000ms",
+								outputs: {},
+							},
+						],
+					},
+				],
+			});
+			ctx.json = false;
+			expect(await runFactoryCommand("status docs", ctx)).toBe(0);
+			const text = stdout.mock.calls.map(([line]) => String(line)).join("\n");
+			expect(text).toContain("run-failed-1");
+			expect(text).toContain("error: Request timed out after 15000ms");
+			expect(text).toContain("tedix skill inspect <runId>");
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
 	it("parses factory flags only for the factory command", () => {
 		const parsed = parseOptions([
 			"factory",

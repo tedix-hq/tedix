@@ -28,13 +28,35 @@ export function workflowUsage(): string {
 	].join("\n");
 }
 
+const TABLE_FIELDS = [
+	"workflowId",
+	"definitionId",
+	"id",
+	"status",
+	"healthStatus",
+	"health",
+	"lifecycleState",
+	"kind",
+	"name",
+	"skillSlug",
+	"workflowType",
+] as const;
+
 async function callAndPrint(
 	ctx: WorkflowContext,
 	callable: string,
 	input: Record<string, unknown>,
 	rowKey?: string,
 ): Promise<number> {
-	const value = await readGatewayProjection(ctx.client, callable, input);
+	// The table prints a few fields per row; fetching whole rows let a normal
+	// page (`runs --limit 30`) overflow the gateway's result cap.
+	const value = await readGatewayProjection(
+		ctx.client,
+		callable,
+		input,
+		ctx.json || !rowKey ? undefined : TABLE_FIELDS,
+		rowKey,
+	);
 	if (ctx.json || !rowKey) {
 		console.log(JSON.stringify(value, null, ctx.json ? 0 : 2));
 		return 0;

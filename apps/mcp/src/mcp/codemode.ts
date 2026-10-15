@@ -3194,6 +3194,16 @@ function scoreCatalogSearch(
 	}
 	if (matchedTerms.length === 0) return null;
 	score += Math.round((matchedTerms.length / terms.length) * 20);
+	// Every term can hit a high-weight field of a sibling tool too ("list tedis"
+	// scores tedis.list_addresses like tedis.list_tedis), so a query that IS
+	// the tool's name must outrank its namespace neighbours.
+	const namesTool = (text: string) => {
+		const tokens = new Set(normalizeSearchTerms(text));
+		return (
+			tokens.size === terms.length && terms.every((term) => tokens.has(term))
+		);
+	};
+	if (namesTool(toolName) || namesTool(meta.callable ?? "")) score += 20;
 	return { score, matchedTerms, unmatchedTerms };
 }
 

@@ -28,7 +28,12 @@ import {
 	type HomeRunSummary,
 	type TedixHomeClient,
 } from "./home-client";
-import { parseSlashPrompt, runDirectCode, slashCommandError } from "./index";
+import {
+	localOptionsMessage,
+	parseSlashPrompt,
+	runDirectCode,
+	slashCommandError,
+} from "./index";
 import { InFlightRegistry } from "./inflight";
 import { InkReplBridge } from "./ink-bridge";
 import type { ReplState } from "./ink-repl";
@@ -2597,5 +2602,23 @@ describe("one-shot slash-command prompts", () => {
 		const message = slashCommandError("definitelynotacommand");
 		expect(message).toContain("Unknown command");
 		expect(message).toContain("--help");
+	});
+});
+
+describe("localOptionsMessage", () => {
+	test("names the local command without the gateway options before it", () => {
+		expect(
+			localOptionsMessage("setup", [
+				"-w",
+				"connect",
+				"setup",
+				"agents",
+				"context",
+				"select",
+				"two words",
+			]),
+		).toContain(
+			"Run it without them: tedix setup agents context select 'two words'",
+		);
 	});
 });
