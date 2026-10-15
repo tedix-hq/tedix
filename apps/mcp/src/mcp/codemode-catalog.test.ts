@@ -772,6 +772,16 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 						config: { endpoint: "work/listWorkItems" },
 					}),
 				],
+				[
+					"skills__get_skills_for_mcp",
+					tool({
+						id: "row-skill-loader",
+						toolId: "skills__get_skills_for_mcp",
+						title: "Get skill",
+						description: "Load one recorded skill.",
+						config: { endpoint: "skills/getForMcp" },
+					}),
+				],
 			]),
 			apiClient: {
 				skills: {
@@ -814,7 +824,9 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			slug: "gateway-measurement-loop",
 			lifecycleState: "active",
 		});
-		expect(String(skillRow?.load)).toContain("get_skills_for_mcp");
+		expect(skillRow?.load).toBe(
+			'skills.get_skills_for_mcp({ slug: "gateway-measurement-loop" })',
+		);
 
 		// Archived skills never enumerate.
 		expect(
@@ -840,6 +852,64 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		);
 		const bareResults = await runSearch(bare, "measurement", 10);
 		expect(catalogToolEntries(bareResults)).toHaveLength(0);
+	});
+
+	it("points skill load expressions at the namespace that mounts the loader", async () => {
+		const loader = (namespace: string, organizationId: string) =>
+			tool({
+				id: `row-${namespace}`,
+				toolId: `${namespace}__get_skills_for_mcp`,
+				title: "Get skill",
+				description: "Load one recorded skill.",
+				config: {
+					_aggregateNamespace: namespace,
+					_multiOrgOrganizationId: organizationId,
+					endpoint: "skills/getForMcp",
+				},
+			});
+		const skillsApi = {
+			skills: {
+				listByOrg: async () => ({
+					entries: [
+						{
+							id: "s1",
+							slug: "gateway-measurement-loop",
+							title: "Gateway measurement loop",
+							description: "Run golden-task measurements.",
+							summary: null,
+							lifecycleState: "active",
+						},
+					],
+					total: 1,
+				}),
+			},
+		};
+		const skillRowsFor = async (loaders: AppTool[], organizationId: string) => {
+			const ctx = {
+				loadedTools: new Map(loaders.map((entry) => [entry.toolId, entry])),
+				apiClient: skillsApi,
+				callerIdentity: { authType: "service", scopes: [], organizationId },
+			} as unknown as ServerContext;
+			const results = await runSearch(
+				buildCatalogProvider(ctx, undefined),
+				"measurement loop",
+				10,
+			);
+			return catalogToolEntries(results).filter((row) => row.kind === "skill");
+		};
+		const aggregate = [
+			loader("acme_unified_tedix", "org-acme"),
+			loader("tedix_unified_tedix", "org-tedix"),
+		];
+
+		const [row] = await skillRowsFor(aggregate, "org-tedix");
+		expect(row?.load).toBe(
+			'tedix_unified_tedix.get_skills_for_mcp({ slug: "gateway-measurement-loop" })',
+		);
+
+		// No loader for the caller's organization: no row, never a broken load.
+		expect(await skillRowsFor(aggregate, "org-other")).toHaveLength(0);
+		expect(await skillRowsFor([], "org-tedix")).toHaveLength(0);
 	});
 
 	it("defaults schema-bearing searches to a small page; explicit limit wins", async () => {
@@ -1554,22 +1624,34 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 				},
 			},
 			callerIdentity: { authType: "oauth", scopes: ["mcp:apps.read"] },
-			loadedTools: new Map(
-				["get_item", "delete_item"].map((name) => [
-					"work__" + name,
+			loadedTools: new Map([
+				...["get_item", "delete_item"].map(
+					(name) =>
+						[
+							"work__" + name,
+							tool({
+								toolId: "work__" + name,
+								title: name,
+								description: "Manage work items",
+								schemaSyncedAt: "2025-12-31T00:00:00Z",
+								config: {
+									endpoint: "apps/get",
+									_aggregateNamespace: "work",
+									_aggregateTediRemoteName: name,
+								},
+							}),
+						] as const,
+				),
+				[
+					"skills__get_skills_for_mcp",
 					tool({
-						toolId: "work__" + name,
-						title: name,
-						description: "Manage work items",
-						schemaSyncedAt: "2025-12-31T00:00:00Z",
-						config: {
-							endpoint: "apps/get",
-							_aggregateNamespace: "work",
-							_aggregateTediRemoteName: name,
-						},
+						toolId: "skills__get_skills_for_mcp",
+						title: "Get skill",
+						description: "Load one recorded skill.",
+						config: { endpoint: "skills/getForMcp" },
 					}),
-				]),
-			),
+				],
+			]),
 			apiClient: {
 				cognitiveRuntime: { rankDiscovery },
 				skills: {

@@ -2100,7 +2100,6 @@ interface SkillDiscoveryRow {
 	description: string;
 	lifecycleState?: string;
 	successCount?: number;
-	load: string;
 }
 
 const skillDiscoveryRowsCache = new WeakMap<
@@ -2146,7 +2145,6 @@ function getSkillDiscoveryRows(
 					...(typeof entry.successCount === "number"
 						? { successCount: entry.successCount }
 						: {}),
-					load: `skills.get_skills_for_mcp({ slug: ${JSON.stringify(slug)} })`,
 				});
 			}
 			return rows;
@@ -2160,6 +2158,39 @@ function getSkillDiscoveryRows(
 	})();
 	skillDiscoveryRowsCache.set(serverCtx, loaded);
 	return loaded;
+}
+
+/**
+ * The mounted callable that loads a recorded skill, or undefined when none is
+ * executable here. A direct `skills` namespace wins. On an aggregate surface
+ * the loader lives under per-organization namespaces, so the one belonging to
+ * the organization whose skills were listed is used; a single loader with no
+ * conflicting organization is accepted too. Anything else is ambiguous.
+ */
+function skillLoaderCallable(
+	catalog: Record<string, Record<string, CatalogToolEntry>>,
+	namespaceOrganizations: ReadonlyMap<string, string>,
+	organizationId: string | undefined,
+): string | undefined {
+	const direct = catalog.skills?.get_skills_for_mcp;
+	if (direct) return direct.callable;
+	const owners = Object.entries(catalog)
+		.filter(([, tools]) => tools.get_skills_for_mcp)
+		.map(([ns, tools]) => ({
+			organization: namespaceOrganizations.get(ns),
+			callable: tools.get_skills_for_mcp!.callable,
+		}));
+	const sameOrg = owners.filter(
+		(owner) => organizationId && owner.organization === organizationId,
+	);
+	if (sameOrg.length === 1) return sameOrg[0]!.callable;
+	if (
+		owners.length === 1 &&
+		(!owners[0]!.organization || owners[0]!.organization === organizationId)
+	) {
+		return owners[0]!.callable;
+	}
+	return undefined;
 }
 
 /**
@@ -2403,7 +2434,7 @@ export function buildCatalogProvider(
 		name: "discover",
 		tools: {
 			search: {
-				description: `Search tool catalog across ${canonicalNamespaces.length} namespaces: ${namespaceSummary}. Returns { results, namespaces, meta }: ranked rows with callable, namespace, tool, display name, description, schemaFreshness, and _match evidence; meta carries pagination, freshness, and discovery hints. Rows carry caller-relative authorization: authorized: false with requiredScopes/missingScopes means discoverable but not executable for THIS caller — do not call it, and do not treat its absence from your grants as a platform outage. Results are compact by default: long descriptions are truncated (descriptionTruncated: true) and schemas are omitted. Pass { namespace } to restrict results to one namespace (an unknown namespace throws an error naming the nearest namespaces, never a silent no-op). Ranked results include RECORDED ORG SKILLS (kind: "skill") alongside tools — a skill row carries a skill:// uri and a load expression (e.g. skills.get_skills_for_mcp({ slug })) that fetches the full procedure; prefer a matching skill over reconstructing the procedure from raw tools. The cheap flow is: search with a small limit, then discover.describe(callable) for the ONE exact schema and full description you need, then call it — prefer that over includeParameters on a broad search (schema-bearing searches default to a page of ${SCHEMA_DISCOVERY_DEFAULT_LIMIT}). Execute the callable value exactly, for example namespace.tool(args).`,
+				description: `Search tool catalog across ${canonicalNamespaces.length} namespaces: ${namespaceSummary}. Returns { results, namespaces, meta }: ranked rows with callable, namespace, tool, display name, description, schemaFreshness, and _match evidence; meta carries pagination, freshness, and discovery hints. Rows carry caller-relative authorization: authorized: false with requiredScopes/missingScopes means discoverable but not executable for THIS caller — do not call it, and do not treat its absence from your grants as a platform outage. Results are compact by default: long descriptions are truncated (descriptionTruncated: true) and schemas are omitted. Pass { namespace } to restrict results to one namespace (an unknown namespace throws an error naming the nearest namespaces, never a silent no-op). Ranked results include RECORDED ORG SKILLS (kind: "skill") alongside tools — a skill row carries a skill:// uri and a load expression (e.g. <namespace>.get_skills_for_mcp({ slug }), naming the namespace that mounts the loader here) that fetches the full procedure — run it exactly as returned; prefer a matching skill over reconstructing the procedure from raw tools. The cheap flow is: search with a small limit, then discover.describe(callable) for the ONE exact schema and full description you need, then call it — prefer that over includeParameters on a broad search (schema-bearing searches default to a page of ${SCHEMA_DISCOVERY_DEFAULT_LIMIT}). Execute the callable value exactly, for example namespace.tool(args).`,
 				execute: async (query: unknown) => {
 					const {
 						includeParameters,
@@ -2517,11 +2548,21 @@ export function buildCatalogProvider(
 					const rankedEntries = [...rankedByCallable.values()];
 					// Recorded org skills rank alongside tools in unfiltered search:
 					// a task query surfaces the procedure, not just the verbs.
-					if (!namespaceFilter) {
+					// The listing is scoped to the caller's organization, so the load
+					// expression must name a loader mounted for that organization.
+					const skillLoader = namespaceFilter
+						? undefined
+						: skillLoaderCallable(
+								catalog,
+								namespaceOrganizations,
+								serverCtx.callerIdentity?.organizationId ||
+									serverCtx.app?.organizationId,
+							);
+					if (skillLoader) {
 						const skillRows = await getSkillDiscoveryRows(serverCtx);
 						for (const row of skillRows) {
 							const match = scoreCatalogSearch(terms, "skills", row.slug, {
-								callable: "skills.get_skills_for_mcp",
+								callable: skillLoader,
 								namespace: "skills",
 								tool: row.slug,
 								name: row.displayName,
@@ -2535,6 +2576,7 @@ export function buildCatalogProvider(
 								tool: row.slug,
 								meta: {
 									...row,
+									load: `${skillLoader}({ slug: ${JSON.stringify(row.slug)} })`,
 									_match: {
 										...match,
 										score:
