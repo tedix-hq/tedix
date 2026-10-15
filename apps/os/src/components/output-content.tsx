@@ -2,10 +2,17 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useMemo, useState } from "react";
+import { Play } from "@phosphor-icons/react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { ReadOnlyElement } from "@/components/output-slide-element";
+import {
+	bareKey,
+	ownsSlideKeys,
+	slideNavigationTarget,
+} from "@/components/slide-navigation";
+import { SlidePresenter } from "@/components/slide-presenter";
 import {
 	activeWorkbookSheet,
 	INDENT_STEP_PX,
@@ -17,14 +24,21 @@ import {
 } from "@/lib/output-models";
 import { evaluateWorkbook, formatWorkbookValue } from "@/lib/workbook-formulas";
 
-export function OutputContentView({ content }: { content: OsOutputContent }) {
+export function OutputContentView({
+	content,
+	onEdit,
+}: {
+	content: OsOutputContent;
+	/** Opens the editor; the deck view binds it to the E key. */
+	onEdit?: () => void;
+}) {
 	switch (content.kind) {
 		case "document":
 			return <RichDocumentView content={content} />;
 		case "sheet":
 			return <WorkbookView content={content} />;
 		case "presentation":
-			return <DeckView content={content} />;
+			return <DeckView content={content} onEdit={onEdit} />;
 		case "video":
 			return <VideoOutputView content={content} />;
 	}
@@ -325,14 +339,53 @@ function WorkbookView({
 
 function DeckView({
 	content,
+	onEdit,
 }: {
 	content: Extract<OsOutputContent, { kind: "presentation" }>;
+	onEdit?: () => void;
 }) {
 	const deck = normalizePresentationContent(content).deck!;
 	const [activeSlideId, setActiveSlideId] = useState(deck.activeSlideId);
+	const [presenting, setPresenting] = useState(false);
 	const slide =
 		deck.slides.find((candidate) => candidate.id === activeSlideId) ??
 		deck.slides[0];
+	const index = slide ? deck.slides.indexOf(slide) : -1;
+	// The read view has no focusable stage, so its keys listen on the page;
+	// present mode handles its own while it is open.
+	useEffect(() => {
+		if (presenting) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) return;
+			// A thumbnail keeps Space and Enter; arrows still browse from it.
+			const onThumbnail =
+				event.target instanceof HTMLElement &&
+				event.target.closest(".deck-read-thumb") !== null;
+			if (onThumbnail ? event.key === " " : ownsSlideKeys(event.target)) return;
+			const key = bareKey(event);
+			if (key === "f" && index >= 0) {
+				event.preventDefault();
+				setPresenting(true);
+				return;
+			}
+			if (key === "e" && onEdit) {
+				event.preventDefault();
+				onEdit();
+				return;
+			}
+			if (key === null) return;
+			const target = slideNavigationTarget(
+				event.key,
+				index,
+				deck.slides.length,
+			);
+			if (target === null) return;
+			event.preventDefault();
+			setActiveSlideId(deck.slides[target]!.id);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [presenting, index, deck.slides, onEdit]);
 	if (!slide)
 		return (
 			<Text role="body" tone="secondary">
@@ -394,12 +447,28 @@ function DeckView({
 						))}
 					</div>
 				</div>
-				{slide.notes && (
-					<Text role="body" tone="secondary" className="mt-3">
-						Notes: {slide.notes}
+				<div className="mt-3 flex items-start justify-between gap-3">
+					<Text role="body" tone="secondary">
+						{slide.notes ? `Notes: ${slide.notes}` : null}
 					</Text>
-				)}
+					<Button
+						size="sm"
+						variant="secondary"
+						title="Present (F)"
+						onClick={() => setPresenting(true)}
+					>
+						<Play size={14} /> Present
+					</Button>
+				</div>
 			</div>
+			{presenting && (
+				<SlidePresenter
+					deck={deck}
+					slideId={slide.id}
+					onNavigate={setActiveSlideId}
+					onExit={() => setPresenting(false)}
+				/>
+			)}
 		</div>
 	);
 }

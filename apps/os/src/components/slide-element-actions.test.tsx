@@ -71,8 +71,14 @@ function mountEditor() {
 		});
 	const button = (label: string) =>
 		query<HTMLButtonElement>(`[aria-label="${label}"]`)!;
-	const selectedX = () =>
-		Number(query<HTMLInputElement>('[aria-label="Element x"]')?.value);
+	// The selected element's x, read from the deck by the stage's selection.
+	const selectedX = () => {
+		const id = query<HTMLElement>(
+			".slides-editor-stage [data-slide-element][data-selected]",
+		)?.dataset.slideElement;
+		const element = slideElements().find((candidate) => candidate.id === id);
+		return element ? Math.round(element.x) : Number.NaN;
+	};
 	return {
 		container,
 		stageElements,

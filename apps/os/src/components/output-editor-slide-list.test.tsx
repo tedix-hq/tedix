@@ -293,7 +293,7 @@ describe("SlideList", () => {
 			await Promise.resolve();
 		});
 		const option = Array.from(
-			document.querySelectorAll('[role="option"]'),
+			document.querySelectorAll('[role="menuitem"]'),
 		).find((candidate) => candidate.textContent === "Title") as HTMLElement;
 		await act(async () => {
 			option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));

@@ -163,11 +163,17 @@ describe("slide component library", () => {
 			.elements()
 			.find((element) => element.type === "divider");
 		expect(divider).toMatchObject({ x: 250, y: 334, width: 700, height: 8 });
+		// The new element is the selection the inspector shows.
 		expect(
-			mounted.container.querySelector<HTMLInputElement>(
-				'[aria-label="Element x"]',
-			)?.value,
-		).toBe("250");
+			mounted.container.querySelector<HTMLElement>(
+				".slides-editor-stage [data-slide-element][data-selected]",
+			)?.dataset.slideElement,
+		).toBe(divider?.id);
+		expect(
+			mounted.container
+				.querySelector("[data-inspector-element]")
+				?.getAttribute("data-inspector-element"),
+		).toBe("divider");
 		expect(
 			document.querySelector('[aria-label="Component library"]'),
 		).toBeNull();

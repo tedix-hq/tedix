@@ -1727,9 +1727,95 @@ a:focus-visible {
 	grid-template-rows: minmax(0, 1fr) auto;
 }
 
+.slides-editor-layout[data-show-thumbnails][data-show-inspector] {
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .slides-editor-thumbnails[hidden],
 .slides-editor-inspector[hidden] {
 	display: none;
+}
+
+/* The inspector's fields scroll inside the panel; the element action row sits
+   below the scroll area, so it is reachable however long the field list is. */
+.slides-editor-inspector {
+	min-height: 0;
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails])
+	.slides-editor-inspector,
+.slides-editor-layout[data-show-thumbnails][data-show-inspector]
+	.slides-editor-inspector {
+	max-height: 40vh;
+}
+
+.slide-inspector-actions {
+	border-top: 1px solid oklch(0.84 0.004 95);
+}
+
+.slide-inspector-caret {
+	transition: transform 160ms ease;
+}
+
+.slide-inspector-caret[data-open] {
+	transform: rotate(90deg);
+}
+
+.slide-inspector-code {
+	font-family: ui-monospace, monospace;
+	font-size: 12px;
+}
+
+/* Hover marks an element that a press would pick up. */
+.slides-editor-canvas
+	[data-slide-element]:not([data-selected]):not([tabindex="-1"]):hover {
+	outline: 1px dashed color-mix(in srgb, #7c3aed 55%, transparent);
+	outline-offset: 2px;
+}
+
+/* Press feedback: controls shrink slightly while held. */
+@media (prefers-reduced-motion: no-preference) {
+	.slides-editor button,
+	.slides-present button,
+	.deck-read-thumb {
+		transition: transform 100ms ease;
+	}
+
+	.slides-editor button:not(:disabled):active,
+	.slides-present button:not(:disabled):active,
+	.deck-read-thumb:active {
+		transform: scale(0.96);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.slide-inspector-caret {
+		transition: none;
+	}
+}
+
+.slides-present-body {
+	display: grid;
+	min-height: 0;
+	grid-template-rows: minmax(0, 1fr);
+	gap: 1rem;
+}
+
+.slides-present[data-show-notes] .slides-present-body {
+	grid-template-rows: minmax(0, 1fr) minmax(6rem, 28%);
+}
+
+.slides-present-notes,
+.slides-present-jump {
+	background: color-mix(in srgb, currentColor 8%, transparent);
+	font-size: 1.125rem;
+	line-height: 1.5;
+}
+
+.slides-present-jump {
+	width: min(24rem, calc(100vw - 2rem));
+	backdrop-filter: blur(8px);
 }
 
 /*
@@ -1962,6 +2048,16 @@ a:focus-visible {
 	.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails]) {
 		grid-template-columns: minmax(0, 1fr) 14rem;
 		grid-template-rows: minmax(0, 1fr);
+	}
+
+	/* Rail and inspector side by side with the stage between them. */
+	.slides-editor-layout[data-show-thumbnails][data-show-inspector] {
+		grid-template-columns: 11rem minmax(0, 1fr) 15rem;
+		grid-template-rows: minmax(0, 1fr);
+	}
+
+	.slides-editor-layout[data-show-inspector] .slides-editor-inspector {
+		max-height: none;
 	}
 }
 
