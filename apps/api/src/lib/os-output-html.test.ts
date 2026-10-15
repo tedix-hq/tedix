@@ -346,6 +346,52 @@ describe("renderOsOutputHtml", () => {
 		expect(deck).not.toContain('<header class="export-header">');
 	});
 
+	it("renders uploaded SVG and PNG slide images from their data URIs", () => {
+		const sources = [
+			"data:image/png;base64,iVBORw0KGgo=",
+			"data:image/svg+xml;base64,PHN2Zy8+",
+		];
+		const deck = renderOsOutputHtml(
+			{ kind: "presentation", title: "Deck" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "presentation",
+					slides: [{ title: "Visuals", bullets: [] }],
+					deck: {
+						width: 1200,
+						height: 675,
+						activeSlideId: "one",
+						slides: [
+							{
+								id: "one",
+								name: "Visuals",
+								layout: "blank",
+								background: "#ffffff",
+								elements: sources.map((src, index) => ({
+									id: `visual-${index}`,
+									type: index ? ("svg" as const) : ("image" as const),
+									x: 0,
+									y: 0,
+									width: 100,
+									height: 100,
+									src,
+									style: {},
+								})),
+							},
+						],
+					},
+				},
+			},
+		);
+		for (const src of sources) expect(deck).toContain(`<img src="${src}"`);
+		expect(
+			OS_EXPORT_RESOURCE_WAIT.allowRequestPattern.some((pattern) =>
+				new RegExp(pattern).test(sources[1]!),
+			),
+		).toBe(true);
+	});
+
 	it("escapes user text in every position, including title, cells, and bullets", () => {
 		const hostile = `<img src=x onerror=alert(1)>`;
 		const documentHtml = renderOsOutputHtml(

@@ -70,6 +70,16 @@ import {
 	computeSnapTargets,
 	type SnapTargets,
 } from "@/components/slide-snap";
+import {
+	SlideImageUploadButton,
+	SlideInsertLibrary,
+} from "@/components/slide-insert-library";
+import {
+	centeredSlidePosition,
+	fileToSlideImageSource,
+	slideImageFile,
+	slidePointFromClient,
+} from "@/lib/slide-image-upload";
 
 const MAX_SLIDES = 200;
 /** Screen pixels a press travels before it drags rather than clicks. */
@@ -517,6 +527,7 @@ export function SlidesEditor({
 	const [assetElementType, setAssetElementType] = useState<
 		"image" | "svg" | null
 	>(null);
+	const [imageError, setImageError] = useState<string | null>(null);
 	const history = useEditorHistory(normalized, onChange);
 	const selectedElement =
 		activeSlide?.elements.find((element) => element.id === selectedElementId) ??
@@ -543,10 +554,17 @@ export function SlidesEditor({
 		commitDeck(insertSlideAfter(deck, slide, activeSlide?.id));
 		setSelectedElementId(slide.elements[0]?.id ?? null);
 	};
-	const insertElement = (type: OsPresentationElementType, src?: string) => {
+	const insertElement = (
+		type: OsPresentationElementType,
+		src?: string,
+		center = { x: PRESENTATION_WIDTH / 2, y: PRESENTATION_HEIGHT / 2 },
+		text?: string,
+	) => {
 		if (!activeSlide) return;
 		const element = createElement(type, activeSlide.elements.length);
+		Object.assign(element, centeredSlidePosition(center, element));
 		if (src) element.src = src;
+		if (text) element.text = text;
 		commitDeck(
 			replaceActiveSlide(deck, {
 				...activeSlide,
@@ -576,6 +594,30 @@ export function SlidesEditor({
 		}
 		insertElement(type);
 	};
+	const readImageFile = async (file: File) => {
+		setImageError(null);
+		try {
+			return await fileToSlideImageSource(file);
+		} catch (error) {
+			setImageError(
+				error instanceof Error ? error.message : "The image could not be read.",
+			);
+			return null;
+		}
+	};
+	const insertImageFile = async (
+		file: File,
+		center?: { x: number; y: number },
+	) => {
+		const src = await readImageFile(file);
+		if (src)
+			insertElement(
+				file.type === "image/svg+xml" ? "svg" : "image",
+				src,
+				center,
+				file.name.replace(/\.[^.]+$/, "").slice(0, 200) || undefined,
+			);
+	};
 
 	if (!activeSlide) {
 		return (
@@ -604,6 +646,19 @@ export function SlidesEditor({
 			style={{ containerType: "inline-size" }}
 			// Focus lands here after a keyboard delete so undo still reaches the editor.
 			tabIndex={-1}
+			onPaste={(event) => {
+				const target = event.target as HTMLElement;
+				if (
+					disabled ||
+					target.isContentEditable ||
+					["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+				)
+					return;
+				const file = slideImageFile(event.clipboardData);
+				if (!file) return;
+				event.preventDefault();
+				void insertImageFile(file);
+			}}
 			onKeyDown={(event) => {
 				const target = event.target as HTMLElement;
 				if (
@@ -727,28 +782,11 @@ export function SlidesEditor({
 						<SelectItem value="four-card">Four card</SelectItem>
 					</SelectContent>
 				</Select>
-				<Select
+				<SlideInsertLibrary
 					disabled={disabled}
-					value=""
-					onValueChange={(value) => {
-						if (value) addElement(value as OsPresentationElementType);
-					}}
-				>
-					<SelectTrigger
-						aria-label="Insert slide element"
-						className="w-28"
-						size="sm"
-					>
-						<SelectValue>{() => "Insert…"}</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						{PRESENTATION_ELEMENT_TYPES.map((type) => (
-							<SelectItem className="capitalize" key={type} value={type}>
-								{type}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+					onInsert={addElement}
+					onUploadImage={(file) => void insertImageFile(file)}
+				/>
 				<EditorToolbarDivider />
 				{/*
 				 * Pane toggles are icon targets like every other square control
@@ -786,6 +824,11 @@ export function SlidesEditor({
 					<Play size={14} /> Present
 				</Toolbar.Button>
 			</EditorToolbar>
+			{imageError && (
+				<p role="alert" className="m-0 px-2 py-1 text-kumo-danger text-xs">
+					{imageError}
+				</p>
+			)}
 			<div
 				className="slides-editor-layout grid min-h-0 gap-2"
 				data-show-inspector={showInspector || undefined}
@@ -810,7 +853,32 @@ export function SlidesEditor({
 						}}
 					/>
 				</aside>
-				<main className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6">
+				<main
+					className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6"
+					onDragOver={(event) => {
+						if (disabled || !event.dataTransfer.types.includes("Files")) return;
+						event.preventDefault();
+						event.dataTransfer.dropEffect = "copy";
+					}}
+					onDrop={(event) => {
+						const file = disabled ? null : slideImageFile(event.dataTransfer);
+						if (!file) return;
+						event.preventDefault();
+						const canvas = event.currentTarget.querySelector(
+							".slides-editor-canvas",
+						);
+						void insertImageFile(
+							file,
+							canvas
+								? slidePointFromClient(
+										event.clientX,
+										event.clientY,
+										canvas.getBoundingClientRect(),
+									)
+								: undefined,
+						);
+					}}
+				>
 					<SlideCanvas
 						slide={activeSlide}
 						selectedElementId={selectedElementId}
@@ -967,6 +1035,17 @@ export function SlidesEditor({
 									}
 								/>
 							</Text>
+							{(selectedElement.type === "image" ||
+								selectedElement.type === "svg") && (
+								<SlideImageUploadButton
+									label={selectedElement.src ? "Replace image" : "Upload image"}
+									disabled={disabled}
+									onFile={async (file) => {
+										const src = await readImageFile(file);
+										if (src) updateElement({ ...selectedElement, src });
+									}}
+								/>
+							)}
 							<div className="flex gap-1">
 								{(
 									[
