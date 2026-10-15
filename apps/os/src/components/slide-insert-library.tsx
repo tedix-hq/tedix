@@ -198,7 +198,9 @@ function SlideImageFileInput({
 			aria-label={label}
 			disabled={disabled}
 			accept={SLIDE_IMAGE_TYPES.join(",")}
-			className="sr-only"
+			// Kumo's Input is `w-full`, which outranks `sr-only`'s 1px box: the
+			// hidden input spanned the shell and let the page scroll sideways.
+			className="sr-only !size-px !min-w-0"
 			tabIndex={-1}
 			onChange={(event) => {
 				const file = event.target.files?.[0];

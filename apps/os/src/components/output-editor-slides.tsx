@@ -897,6 +897,8 @@ export function SlidesEditor({
 				</aside>
 				<main
 					className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6"
+					// Elements stop their own clicks, so this is a click on empty stage.
+					onClick={() => setSelectedElementId(null)}
 					onPointerDown={(event) => {
 						// A press on the empty stage hands the keyboard to the editor,
 						// so slide navigation and F work right after deselecting.
