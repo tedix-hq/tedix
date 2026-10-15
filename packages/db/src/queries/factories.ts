@@ -14,6 +14,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
 import {
 	and,
 	desc,
@@ -36,7 +37,7 @@ import { workItemComments, workItems } from "../schema/work-items";
 export const FACTORY_METADATA_KEY = "factory";
 /** How far back health reads look for runs and delivered results. */
 export const FACTORY_HEALTH_LOOKBACK_DAYS = 14;
-/** Every factory runs at least daily; a gap longer than this is not firing. */
+/** Silence limit when the schedule's cron cannot be read. */
 export const FACTORY_MAX_SILENCE_MS = 26 * 60 * 60 * 1000;
 /** A schedule this far past its due time did not fire. */
 export const FACTORY_OVERDUE_GRACE_MS = 60 * 60 * 1000;
@@ -218,6 +219,7 @@ export type FactoryVerdict =
 	| "idle"
 	| "failing"
 	| "not_firing"
+	| "paused"
 	| "pending";
 
 /** Proof runs (`{probe:true}`) are reported separately as `lastProofRun`. */
@@ -289,6 +291,7 @@ export interface FactoryVerdictInput {
 	lifecycleState: string | null;
 	schedule: {
 		enabled: boolean;
+		cron: string;
 		nextFireAt: string;
 		lastError: string | null;
 		createdAt: string | null;
@@ -300,6 +303,15 @@ export interface FactoryVerdictInput {
 			"runId" | "status" | "firedAt" | "error" | "delivered"
 		>
 	>;
+}
+
+/** The cron's next fire after `afterMs`, or null when the cron is unreadable. */
+function expectedFireAfter(cron: string, afterMs: number): string | null {
+	try {
+		return nextSkillScheduleFireAt(cron, afterMs);
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -323,7 +335,7 @@ export function factoryVerdict(input: FactoryVerdictInput): {
 		};
 	}
 	if (!schedule.enabled) {
-		return { verdict: "not_firing", reason: "The schedule is disabled." };
+		return { verdict: "paused", reason: "The schedule is turned off." };
 	}
 	const due = factoryTimestampMs(schedule.nextFireAt);
 	if (Number.isFinite(due) && due < now - FACTORY_OVERDUE_GRACE_MS) {
@@ -346,7 +358,16 @@ export function factoryVerdict(input: FactoryVerdictInput): {
 				};
 	}
 	const lastFired = factoryTimestampMs(latest.firedAt);
-	if (Number.isFinite(lastFired) && now - lastFired > FACTORY_MAX_SILENCE_MS) {
+	const expected = Number.isFinite(lastFired)
+		? expectedFireAfter(schedule.cron, lastFired)
+		: null;
+	if (expected && Date.parse(expected) < now - FACTORY_OVERDUE_GRACE_MS) {
+		return {
+			verdict: "not_firing",
+			reason: `The last run fired at ${latest.firedAt}; the next was due at ${expected} and did not fire.`,
+		};
+	}
+	if (!expected && now - lastFired > FACTORY_MAX_SILENCE_MS) {
 		return {
 			verdict: "not_firing",
 			reason: `The last run fired at ${latest.firedAt}, more than a day ago.`,
@@ -698,6 +719,7 @@ export async function listFactoryHealth(
 				lane.cron !== null && lane.nextFireAt !== null
 					? {
 							enabled: Boolean(lane.enabled),
+							cron: lane.cron,
 							nextFireAt: lane.nextFireAt,
 							lastError: lane.lastError,
 							createdAt: lane.scheduleCreatedAt,

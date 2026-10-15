@@ -67,7 +67,9 @@ tedix factory status docs-accuracy
   - `idle`: the run succeeded but delivered nothing; a scorecard alone does
     not count;
   - `failing`;
-  - `not_firing`: no schedule, an overdue schedule, or no run for over a day;
+  - `not_firing`: no schedule, an overdue schedule, or no run when the
+    schedule says one was due;
+  - `paused`: the schedule is turned off;
   - `pending`: the first run is not due yet.
 
   Without a slug, it lists every scheduled lane with its verdict.

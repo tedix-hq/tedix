@@ -148,6 +148,7 @@ function factory(
 			title: "Weekly brief",
 			at: "2026-09-09 07:05:00",
 		},
+		paused: false,
 		idle: false,
 		...overrides,
 	};
@@ -380,8 +381,47 @@ describe("WorkPortfolioPage", () => {
 			'[aria-label="No tedi factories"] [data-factory="blueprint:bp-crm"]',
 		);
 		expect(crm?.textContent).toContain("Running but idle");
-		expect(crm?.textContent).toContain("No real result in 30 days");
+		expect(crm?.textContent).toContain("No results in the last 30 days");
 		expect(crm?.querySelector('a[href="/blueprints"]')).not.toBeNull();
+	});
+
+	it("marks paused loops, counts in the singular and folds unused Blueprints into one link", () => {
+		const doc = new DOMParser().parseFromString(
+			render(
+				seededClient({
+					factories: [
+						factory({
+							id: "skill-off",
+							paused: true,
+							runs: 1,
+							succeeded: 1,
+							outputs: 1,
+						}),
+						factory({
+							kind: "blueprint",
+							id: "bp-unused",
+							name: "Unused template",
+							tediId: null,
+							tediName: null,
+							cron: null,
+							runs: 0,
+							succeeded: 0,
+							lastResult: null,
+						}),
+					],
+				}),
+			),
+			"text/html",
+		);
+		const paused = doc.querySelector('[data-factory="skill_loop:skill-off"]');
+		expect(paused?.textContent).toContain("Paused");
+		expect(paused?.textContent).toContain("1 run (1 ok) · 1 Output ·");
+		expect(
+			doc.querySelector('[data-factory="blueprint:bp-unused"]'),
+		).toBeNull();
+		expect(doc.querySelector('a[href="/blueprints"]')?.textContent).toBe(
+			"1 Blueprint with no runs",
+		);
 	});
 
 	it("keeps tedis in server order with unassigned factories in their own group", () => {
