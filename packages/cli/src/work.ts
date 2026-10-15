@@ -424,11 +424,11 @@ function oauthHarnessGuard(ctx: WorkContext): BoardError | undefined {
  * FORBIDDEN; name the owner login as the next step.
  */
 function ownerActionHint(ctx: WorkContext, error: BoardError): string {
-	if (
-		error.code !== "FORBIDDEN" ||
-		!ctx.authSource?.startsWith("external-agent:")
-	)
-		return "";
+	// Native transport surfaces the gateway refusal as text ("MCP tool error:
+	// FORBIDDEN: …"), not as a typed code.
+	const forbidden =
+		error.code === "FORBIDDEN" || /\bFORBIDDEN\b/.test(error.message);
+	if (!forbidden || !ctx.authSource?.startsWith("external-agent:")) return "";
 	return "\nThis is an owner action, and this call ran as the external agent. Rerun the same command with the owner login: prefix it with `env -u TEDIX_EXTERNAL_AGENT`.";
 }
 
