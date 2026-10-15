@@ -588,6 +588,27 @@ describe("planKernelWriteProposal — positive path", () => {
 		expect(proposal?.args).toEqual({ amount: 100 });
 	});
 
+	it("tells the argument pass which conversation is 'this conversation'", async () => {
+		const model = objectModel({
+			toolName: "globex__create_invoice",
+			args: { amount: 1 },
+			reasoning: null,
+		});
+		const generate = vi.spyOn(model, "doGenerate");
+		await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(globexProvider)),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "rename this conversation",
+			gatewayContext: { organizationId: "org-1", sessionKey: "home:os:abc" },
+			model,
+		});
+		expect(JSON.stringify(generate.mock.calls[0]?.[0].prompt)).toContain(
+			'CURRENT HOME CONVERSATION: \\"home:os:abc\\"',
+		);
+	});
+
 	it("keeps a tool schema's $defs resolvable when it nests under args", async () => {
 		const defs = { __schema0: { type: "string", maxLength: 20 } };
 		const provider = (body: { method: string }) =>
