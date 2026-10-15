@@ -6256,6 +6256,37 @@ const worker = {
 				);
 			}
 
+			if (app.slug === "connect" && request.method === "POST") {
+				const envelope = await readJsonRpcEnvelope(request);
+				if (envelope && !("tooLarge" in envelope)) {
+					const body = envelope.body;
+					if (
+						["initialize", "server/discover", "tools/list"].includes(
+							String(body.method),
+						)
+					) {
+						const params = isRecord(body.params) ? body.params : {};
+						const meta = isRecord(params._meta) ? params._meta : {};
+						const info =
+							params.clientInfo ?? meta["io.modelcontextprotocol/clientInfo"];
+						console.log(
+							JSON.stringify({
+								_tr: "connect_client_identity_probe",
+								method: body.method,
+								userAgent: request.headers.get("user-agent"),
+								origin: request.headers.get("origin"),
+								clientId:
+									request.headers.get("x-tedix-auth-client-id") ??
+									oauthJwtPayload?.azp ??
+									null,
+								clientName: isRecord(info) ? info.name : null,
+								clientVersion: isRecord(info) ? info.version : null,
+							}),
+						);
+					}
+				}
+			}
+
 			// Headless widget preview (after auth + rate limiting)
 			if (url.pathname === "/_preview") {
 				return handlePreviewRequest(request, url, app, env);
