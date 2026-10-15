@@ -353,6 +353,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"mcpEvents/pollWorkApprovalRequests": "mcp:work.read",
 	"mcpEvents/pollWorkComments": "mcp:work.read",
 	"mcpEvents/pollWorkInteractionRequests": "mcp:work.read",
+	"mcpEvents/pollWorkInteractionResponses": "mcp:messaging.read",
 	"mcpEvents/pollWorkStateChanges": "mcp:work.read",
 	"members/acceptInvitation": "mcp:settings.write",
 	"members/getMember": "mcp:settings.read",

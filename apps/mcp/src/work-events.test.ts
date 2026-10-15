@@ -71,6 +71,26 @@ function fakeApi(selectedOrg: string) {
 				after: { at: "2026-10-15T12:00:00.000Z", id: "i1" },
 				hasMore: false,
 			})),
+			pollWorkInteractionResponses: vi.fn(
+				async (input: { after: { at: string; id: string } | null }) => ({
+					events:
+						input.after === null
+							? []
+							: [
+									{
+										eventId: "evt_interaction_response_r2",
+										timestamp: "2026-10-16T12:00:00.000Z",
+										data: {
+											organization_id: selectedOrg,
+											request_id: ITEM,
+											response_id: "r2",
+										},
+									},
+								],
+					after: { at: "2026-10-15T12:00:00.000Z", id: "r1" },
+					hasMore: false,
+				}),
+			),
 			pollFailedSkillRuns,
 		},
 	};
@@ -338,4 +358,67 @@ it("validates every author and interaction kind and rejects foreign cursor prefi
 	expect(() =>
 		assertEventCursor("work.interaction.requested", "wcm1.WyIiLCIiXQ"),
 	).toThrow(InteractionEventError);
+});
+
+it("polls replies with messaging scopes, optional filters and a distinct cursor", async () => {
+	const name = "work.interaction.responded";
+	const args = {
+		organization_id: ORG_A,
+		request_id: ITEM,
+		work_item_id: ITEM,
+		responder_type: "external_agent",
+	};
+	const first = await poll({
+		name,
+		arguments: { organization_id: ORG_A },
+		cursor: null,
+	});
+	expect(first.cursor).toMatch(/^wrr1\./);
+	expect(api.mcpEvents.pollWorkInteractionResponses).toHaveBeenCalledWith({
+		after: null,
+		limit: 50,
+	});
+	const resumed = await poll({
+		name,
+		arguments: args,
+		cursor: first.cursor,
+		maxEvents: 1,
+	});
+	expect(resumed.events).toEqual([
+		{
+			name,
+			eventId: "evt_interaction_response_r2",
+			timestamp: "2026-10-16T12:00:00.000Z",
+			data: { organization_id: ORG_A, request_id: ITEM, response_id: "r2" },
+		},
+	]);
+	expect(api.mcpEvents.pollWorkInteractionResponses).toHaveBeenCalledWith({
+		after: { at: "2026-10-15T12:00:00.000Z", id: "r1" },
+		requestId: ITEM,
+		workItemId: ITEM,
+		responderType: "external_agent",
+		limit: 1,
+	});
+	expect(authorize.mock.calls[0]?.[2]).toEqual([
+		"mcp:messaging.read",
+		"mcp:messaging.write",
+		"mcp:messaging.admin",
+	]);
+	expect(() => assertEventCursor(name, "wir1.WyIiLCIiXQ")).toThrow(
+		InteractionEventError,
+	);
+});
+it.each([
+	{ responder_type: "system" },
+	{ responder_type: "USER" },
+	{ request_id: "invalid" },
+	{ body: "private" },
+])("rejects invalid reply filters %s", async (filters) => {
+	await expect(
+		poll({
+			name: "work.interaction.responded",
+			arguments: { organization_id: ORG_A, ...filters },
+		}),
+	).rejects.toMatchObject({ code: -32602 });
+	expect(authorize).not.toHaveBeenCalled();
 });

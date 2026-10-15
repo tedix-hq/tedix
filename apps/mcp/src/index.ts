@@ -4006,9 +4006,10 @@ export async function maybeHandleInteractionEvents(
 		return jsonRpcEnvelopeResponse(envelope, {
 			resultType: "complete",
 			events: [
-				interactionReplyEventDefinition,
 				...pollableEventDefinitions.map((event) =>
-					webhooksEnabled ? { ...event, delivery: ["poll", "webhook"] } : event,
+					webhooksEnabled && event.name !== interactionReplyEventDefinition.name
+						? { ...event, delivery: ["poll", "webhook"] }
+						: event,
 				),
 			],
 		});
@@ -4019,12 +4020,6 @@ export async function maybeHandleInteractionEvents(
 	resource.hash = "";
 	if (envelope.body.method === "events/poll") {
 		try {
-			if (params.name === interactionReplyEventDefinition.name)
-				throw new InteractionEventError(
-					-32026,
-					"This event is delivered by webhook only",
-					{ feature: "deliveryMode", value: "poll" },
-				);
 			if (!authorization?.startsWith("Bearer "))
 				throw new InteractionEventError(-32024, "Human OAuth required");
 			return jsonRpcEnvelopeResponse(envelope, {
@@ -4047,7 +4042,11 @@ export async function maybeHandleInteractionEvents(
 		}
 	}
 	const unsubscribing = envelope.body.method === "events/unsubscribe";
-	if (isPollableEvent(params.name) && (webhooksEnabled || unsubscribing)) {
+	if (
+		params.name !== interactionReplyEventDefinition.name &&
+		isPollableEvent(params.name) &&
+		(webhooksEnabled || unsubscribing)
+	) {
 		try {
 			if (!authorization?.startsWith("Bearer "))
 				throw new InteractionEventError(-32024, "Human OAuth required");
@@ -4069,7 +4068,10 @@ export async function maybeHandleInteractionEvents(
 			);
 		}
 	}
-	if (isPollableEvent(params.name))
+	if (
+		params.name !== interactionReplyEventDefinition.name &&
+		isPollableEvent(params.name)
+	)
 		return jsonRpcEnvelopeErrorResponse(
 			envelope,
 			-32026,

@@ -29,6 +29,8 @@ import {
 	listWorkStateChangeEvents,
 } from "@tedix/db/queries/work-items/events";
 import {
+	getLatestWorkInteractionResponsePosition,
+	listWorkInteractionResponseEvents,
 	getLatestWorkInteractionPosition,
 	listRequestedWorkInteractionEvents,
 } from "@tedix/db/queries/work-items/interactions";
@@ -59,6 +61,7 @@ const workReadOs = authenticatedOs.use(
 		"mcp:work.read",
 	),
 );
+const interactionReadOs = authenticatedOs.use(AUTHZ.messagingRead);
 const skillReadOs = authenticatedOs.use(AUTHZ.tedisRead);
 
 const EMPTY_POSITION = { at: "", id: "" };
@@ -234,6 +237,46 @@ const pollWorkInteractionRequestsProcedure =
 			hasMore: rows.length > input.limit,
 		};
 	});
+
+const pollWorkInteractionResponsesProcedure =
+	interactionReadOs.pollWorkInteractionResponses.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context, "MCP events");
+			if (input.after == null)
+				return {
+					events: [],
+					after:
+						(await getLatestWorkInteractionResponsePosition(
+							context.db,
+							orgId,
+						)) ?? EMPTY_POSITION,
+					hasMore: false,
+				};
+			const rows = await listWorkInteractionResponseEvents(context.db, {
+				orgId,
+				after: input.after,
+				requestId: input.requestId,
+				workItemId: input.workItemId,
+				responderType: input.responderType,
+				limit: input.limit + 1,
+			});
+			const page = rows.slice(0, input.limit);
+			const last = page.at(-1);
+			return {
+				events: page.map((row) => ({
+					eventId: `evt_interaction_response_${row.id}`,
+					timestamp: row.respondedAt,
+					data: {
+						organization_id: orgId,
+						request_id: row.interactionId,
+						response_id: row.id,
+					},
+				})),
+				after: last ? { at: last.respondedAt, id: last.id } : input.after,
+				hasMore: rows.length > input.limit,
+			};
+		},
+	);
 
 const pollFailedSkillRunsProcedure = skillReadOs.pollFailedSkillRuns.handler(
 	async ({ input, context }) => {
@@ -423,6 +466,7 @@ export const mcpEventsContractRouter = eventsOs.router({
 	pollWorkApprovalRequests: pollWorkApprovalRequestsProcedure,
 	pollWorkComments: pollWorkCommentsProcedure,
 	pollWorkInteractionRequests: pollWorkInteractionRequestsProcedure,
+	pollWorkInteractionResponses: pollWorkInteractionResponsesProcedure,
 	pollFailedSkillRuns: pollFailedSkillRunsProcedure,
 	upsertWebhookSubscription: upsertWebhookSubscriptionProcedure,
 	deleteWebhookSubscription: deleteWebhookSubscriptionProcedure,

@@ -17,15 +17,20 @@ const KEY_ROTATION_OVERLAP_MS = 5 * 60 * 1000;
 export const interactionReplyEventDefinition = {
 	name: INTERACTION_REPLY_EVENT,
 	description:
-		"A response was saved to one exact Tedix Interaction. Read the current request and response before continuing; this event grants no execution authority.",
-	delivery: ["webhook"],
+		"A response was saved to a Tedix Interaction. Poll the response ledger, or subscribe by webhook to one exact request. Read the current request and response before continuing; this event grants no execution authority.",
+	delivery: ["webhook", "poll"],
 	inputSchema: {
 		type: "object",
 		properties: {
 			organization_id: { type: "string", format: "uuid" },
 			request_id: { type: "string", format: "uuid" },
+			work_item_id: { type: "string", format: "uuid" },
+			responder_type: {
+				type: "string",
+				enum: ["user", "tedi", "external_agent"],
+			},
 		},
-		required: ["organization_id", "request_id"],
+		required: ["organization_id"],
 		additionalProperties: false,
 	},
 	payloadSchema: {

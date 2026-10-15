@@ -19,8 +19,9 @@ import { CLI_VERSION } from "./shared";
 
 export const channelUsage = (): string => `Tedix event channel
 
-Deliver Tedix events (Work comments, Interaction requests, Work state changes,
-approval requests, failed skill runs) into a local agent session.
+Deliver Tedix events (Work comments, Interaction requests and responses, Work
+state changes, approval requests, failed skill runs) into a local agent
+session.
 
 Usage:
   tedix channel claude [<event>...] [--param <key=value>]...
@@ -121,6 +122,9 @@ export function channelNotice(event: ChannelEvent): {
 			break;
 		case "work.interaction.requested":
 			content = `New ${String(d.kind ?? "")} Interaction ${String(d.request_id ?? "")} for ${String(d.target_type ?? "anyone")} ${String(d.target_id ?? "")}${item ? ` on ${item}` : ""}.`;
+			break;
+		case "work.interaction.responded":
+			content = `Interaction ${String(d.request_id ?? "")} has a new response ${String(d.response_id ?? "")} (read it with \`tedix work interaction-get ${String(d.request_id ?? "")}\`).`;
 			break;
 		case "work.item.state_changed":
 			content = `${item ?? "A Work Item"} changed: ${String(d.change ?? "")}${d.attempt_outcome ? ` (${String(d.attempt_outcome)})` : ""}.`;

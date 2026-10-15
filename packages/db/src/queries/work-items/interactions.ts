@@ -862,3 +862,76 @@ export async function getLatestWorkInteractionPosition(
 		.limit(1);
 	return row ?? null;
 }
+
+/** ID-only response feed; joined parent scope is required for Work Item filters. */
+export async function listWorkInteractionResponseEvents(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		after: { at: string; id: string } | null;
+		requestId?: string;
+		workItemId?: string;
+		responderType?: WorkInteractionTargetType;
+		limit: number;
+	},
+) {
+	return db
+		.select({
+			id: workInteractionResponses.id,
+			interactionId: workInteractionResponses.interactionId,
+			responderType: workInteractionResponses.responderType,
+			responderId: workInteractionResponses.responderId,
+			respondedAt: workInteractionResponses.respondedAt,
+			workItemId: workInteractions.workItemId,
+		})
+		.from(workInteractionResponses)
+		.innerJoin(
+			workInteractions,
+			and(
+				eq(workInteractions.orgId, workInteractionResponses.orgId),
+				eq(workInteractions.id, workInteractionResponses.interactionId),
+			),
+		)
+		.where(
+			and(
+				eq(workInteractionResponses.orgId, p.orgId),
+				p.requestId
+					? eq(workInteractionResponses.interactionId, p.requestId)
+					: undefined,
+				p.workItemId
+					? eq(workInteractions.workItemId, p.workItemId)
+					: undefined,
+				p.responderType
+					? eq(workInteractionResponses.responderType, p.responderType)
+					: undefined,
+				p.after
+					? sql`(${workInteractionResponses.respondedAt}>${p.after.at} OR (${workInteractionResponses.respondedAt}=${p.after.at} AND ${workInteractionResponses.id}>${p.after.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(
+			asc(workInteractionResponses.respondedAt),
+			asc(workInteractionResponses.id),
+		)
+		.limit(p.limit);
+}
+
+/** Newest response position in the org, used to poll "from now". */
+export async function getLatestWorkInteractionResponsePosition(
+	db: DbQueryClient,
+	orgId: string,
+): Promise<{ at: string; id: string } | null> {
+	const [row] = await db
+		.select({
+			at: workInteractionResponses.respondedAt,
+			id: workInteractionResponses.id,
+		})
+		.from(workInteractionResponses)
+		.where(eq(workInteractionResponses.orgId, orgId))
+		.orderBy(
+			desc(workInteractionResponses.respondedAt),
+			desc(workInteractionResponses.id),
+		)
+		.limit(1);
+	return row ?? null;
+}

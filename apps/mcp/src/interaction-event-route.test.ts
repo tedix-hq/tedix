@@ -49,8 +49,8 @@ it("lists the reply webhook event and the org-scoped poll events", async () => {
 			events: [
 				{
 					name: "work.interaction.responded",
-					delivery: ["webhook"],
-					inputSchema: { required: ["organization_id", "request_id"] },
+					delivery: ["webhook", "poll"],
+					inputSchema: { required: ["organization_id"] },
 				},
 				{
 					name: "work.item.state_changed",
@@ -78,7 +78,7 @@ it("advertises webhook delivery for ledger events only when the app opts in", as
 	expect(
 		Object.fromEntries(result.events.map((e) => [e.name, e.delivery])),
 	).toEqual({
-		"work.interaction.responded": ["webhook"],
+		"work.interaction.responded": ["webhook", "poll"],
 		"work.item.state_changed": ["poll", "webhook"],
 		"work.approval.requested": ["poll", "webhook"],
 		"work.item.commented": ["poll", "webhook"],
@@ -117,14 +117,14 @@ it("answers a delivery mode the event does not offer with Unsupported", async ()
 	const poll = await maybeHandleInteractionEvents(
 		request("events/poll", {
 			name: "work.interaction.responded",
-			arguments: { organization_id: ORG, request_id: REQUEST },
+			arguments: { organization_id: ORG, responder_type: "system" },
 			cursor: null,
 		}),
 		{} as CloudflareEnv,
 		true,
 	);
 	expect(await poll!.json()).toMatchObject({
-		error: { code: -32026, data: { value: "poll" } },
+		error: { code: -32602 },
 	});
 	const subscribe = await maybeHandleInteractionEvents(
 		request("events/subscribe", {
@@ -190,3 +190,40 @@ it("rejects an unscoped unsubscribe ID", async () => {
 	);
 	expect(await response!.json()).toMatchObject({ error: { code: -32602 } });
 });
+
+it.each(["events/subscribe", "events/unsubscribe"])(
+	"keeps %s on the exact-request path with webhook opt-in",
+	async (method) => {
+		const fetch = vi.fn(async () => Response.json({ id: "sub_reply" }));
+		const env = {
+			MCP_SUBSCRIPTIONS: {
+				idFromName: (name: string) => name,
+				get: () => ({ fetch }),
+			},
+		} as unknown as CloudflareEnv;
+		const response = await maybeHandleInteractionEvents(
+			request(method, {
+				name: "work.interaction.responded",
+				arguments: { organization_id: ORG, request_id: REQUEST },
+			}),
+			env,
+			true,
+			true,
+		);
+		expect(await response!.json()).toMatchObject({
+			result: { id: "sub_reply" },
+		});
+		expect(fetch).toHaveBeenCalledOnce();
+		const invalid = await maybeHandleInteractionEvents(
+			request(method, {
+				name: "work.interaction.responded",
+				arguments: { organization_id: ORG },
+			}),
+			env,
+			true,
+			true,
+		);
+		expect(await invalid!.json()).toMatchObject({ error: { code: -32602 } });
+		expect(fetch).toHaveBeenCalledOnce();
+	},
+);

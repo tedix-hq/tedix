@@ -3,7 +3,11 @@ import {
 	authorizeEventCaller,
 	type EventCallerCredential,
 } from "./interaction-event-auth";
-import { InteractionEventError } from "./interaction-events";
+import {
+	InteractionEventError,
+	INTERACTION_REPLY_EVENT,
+	interactionReplyEventDefinition,
+} from "./interaction-events";
 
 /**
  * Poll-mode MCP Events (SEP-3415) over the canonical Work and skill-run
@@ -238,6 +242,7 @@ export const workInteractionRequestedEventDefinition = {
 };
 
 export const pollableEventDefinitions = [
+	interactionReplyEventDefinition,
 	workStateChangedEventDefinition,
 	workApprovalRequestedEventDefinition,
 	workItemCommentedEventDefinition,
@@ -246,6 +251,7 @@ export const pollableEventDefinitions = [
 ];
 
 export type PollableEventName =
+	| typeof INTERACTION_REPLY_EVENT
 	| typeof WORK_STATE_CHANGED_EVENT
 	| typeof WORK_APPROVAL_REQUESTED_EVENT
 	| typeof WORK_ITEM_COMMENTED_EVENT
@@ -257,6 +263,12 @@ export function isPollableEvent(name: unknown): name is PollableEventName {
 }
 
 const ARGUMENT_KEYS = {
+	[INTERACTION_REPLY_EVENT]: [
+		"organization_id",
+		"request_id",
+		"work_item_id",
+		"responder_type",
+	],
 	[WORK_STATE_CHANGED_EVENT]: ["organization_id", "work_item_id"],
 	[WORK_APPROVAL_REQUESTED_EVENT]: [
 		"organization_id",
@@ -300,16 +312,22 @@ export function eventArguments(
 			typeof entry !== "string" ||
 			entry.length === 0 ||
 			entry.length > 128 ||
-			(key === "author_type"
-				? !["user", "tedi", "external_agent", "system"].includes(entry)
-				: key === "kind"
-					? !["question", "input", "handoff", "coordination"].includes(entry)
-					: key !== "approver_id" && key !== "target_id" && !UUID.test(entry))
+			(key === "responder_type"
+				? !["user", "tedi", "external_agent"].includes(entry)
+				: key === "author_type"
+					? !["user", "tedi", "external_agent", "system"].includes(entry)
+					: key === "kind"
+						? !["question", "input", "handoff", "coordination"].includes(entry)
+						: key !== "approver_id" && key !== "target_id" && !UUID.test(entry))
 		)
 			throw new InteractionEventError(-32602, `Invalid ${key}`);
-		result[key] = ["approver_id", "target_id", "author_type", "kind"].includes(
-			key,
-		)
+		result[key] = [
+			"approver_id",
+			"target_id",
+			"author_type",
+			"responder_type",
+			"kind",
+		].includes(key)
 			? entry
 			: entry.toLowerCase();
 	}
@@ -421,7 +439,11 @@ export async function pollEvent(
 
 /** The read scopes that already gate the tools behind one event. */
 export function eventReadScopes(name: PollableEventName): readonly string[] {
-	return name === SKILL_RUN_FAILED_EVENT ? SKILL_READ_SCOPES : WORK_READ_SCOPES;
+	return name === INTERACTION_REPLY_EVENT
+		? ["mcp:messaging.read", "mcp:messaging.write", "mcp:messaging.admin"]
+		: name === SKILL_RUN_FAILED_EVENT
+			? SKILL_READ_SCOPES
+			: WORK_READ_SCOPES;
 }
 
 /** Reject a cursor this event's feed did not issue, without reading it. */
@@ -429,13 +451,15 @@ export function assertEventCursor(name: PollableEventName, cursor: string) {
 	if (name === WORK_STATE_CHANGED_EVENT) decodeSequence(cursor);
 	else
 		decodeKeyset(
-			name === WORK_APPROVAL_REQUESTED_EVENT
-				? "war1"
-				: name === WORK_ITEM_COMMENTED_EVENT
-					? "wcm1"
-					: name === WORK_INTERACTION_REQUESTED_EVENT
-						? "wir1"
-						: "srf1",
+			name === INTERACTION_REPLY_EVENT
+				? "wrr1"
+				: name === WORK_APPROVAL_REQUESTED_EVENT
+					? "war1"
+					: name === WORK_ITEM_COMMENTED_EVENT
+						? "wcm1"
+						: name === WORK_INTERACTION_REQUESTED_EVENT
+							? "wir1"
+							: "srf1",
 			cursor,
 		);
 }
@@ -464,6 +488,24 @@ export async function readEventFeed(
 		}>,
 	) => events.map((event) => ({ ...event, name }));
 	try {
+		if (name === INTERACTION_REPLY_EVENT) {
+			const result = await client.mcpEvents.pollWorkInteractionResponses({
+				after: cursor === null ? null : decodeKeyset("wrr1", cursor),
+				requestId: args.request_id,
+				workItemId: args.work_item_id,
+				responderType: args.responder_type as
+					| "user"
+					| "tedi"
+					| "external_agent"
+					| undefined,
+				limit,
+			});
+			return {
+				events: named(result.events),
+				cursor: encodeKeyset("wrr1", result.after),
+				hasMore: result.hasMore,
+			};
+		}
 		if (name === WORK_STATE_CHANGED_EVENT) {
 			const result = await client.mcpEvents.pollWorkStateChanges({
 				afterSequence: cursor === null ? null : decodeSequence(cursor),
