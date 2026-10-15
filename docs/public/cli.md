@@ -182,6 +182,10 @@ Git marketplaces are refreshed through the host plugin manager. If a marketplace
 points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
+To bring a new member's history in, run `tedix learn onboard --dry-run`, then
+`tedix learn onboard` and `tedix learn review`. Onboarding runs the three steps
+below in order and creates nothing on the shared board until you accept it.
+
 To teach Tedix from sessions you already had, run
 `tedix learn import-sessions --dry-run`, review the counts and samples, then run
 it without `--dry-run`. It reads your local Claude Code and Codex history and
@@ -189,17 +193,29 @@ sends only redacted pairs of the agent's last message and your reply, never a
 whole transcript, to the organization each repository is bound to. Sessions
 outside a repository go to your default organization; anything else is
 skipped and counted. Re-running is safe. The pairs become personal lessons
-your later sessions receive.
+your later sessions receive. Preference notes your agents already keep (Claude
+Code memories of type `user` or `feedback`, and the preference section of
+Codex's memory summary) join them; project memories stay on your machine.
 
 `tedix learn analyze-sessions --dry-run` reads the same sessions whole and
 ranks three things per organization: requests you repeat (candidates for a
 skill or command), recurring friction such as failing commands, retry loops,
 denials and long stalls (candidates for automation or a hook), and decisions
 you stated, which your local `claude` CLI extracts (`--no-model` skips them).
-Without `--dry-run` it keeps one Work Item per list in each organization and
-updates the same items on every run; pass `--project <id>` the first time so
-they are filed under a project. Only counts and short redacted paraphrases are
-sent.
+Without `--dry-run` it keeps one Work Item per list in each organization; each
+person's run replaces only their own section of it. Pass `--project <id>` the
+first time so the items are filed under a project. Only counts and short
+redacted paraphrases are sent.
+
+`tedix learn context` finds the work your sessions show (tasks, goals and
+projects, from session titles, Codex goals and your first requests) and checks
+each against the organization's projects and Work, open and recently finished.
+Work already on the board is reported, not filed again. A task that fits a
+project but is not on the board becomes a proposal kept on your machine;
+`tedix learn review` asks about each one (or takes `--accept all`,
+`--accept 1,3`, `--reject 2`) and files only what you accept. A rejected
+proposal is never asked again, and running both commands again creates nothing
+twice. Only short paraphrased titles leave your machine.
 
 Plugin installation does not authorize Tedix access. Complete the OAuth flow
 in each host for the intended organization and scopes. Review the hooks in each

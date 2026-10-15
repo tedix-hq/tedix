@@ -175,6 +175,8 @@ export interface ParsedSession {
 	/** Git origin the host recorded, when it did. */
 	origin: string | null;
 	branch: string | null;
+	/** The host's own short session title (Claude Code ai-title or a custom title). */
+	title: string | null;
 	pairs: Array<{
 		turnId: string;
 		occurredAt: string;
@@ -207,13 +209,19 @@ export function parseClaudeSession(rows: Json[]): ParsedSession {
 		cwd: null,
 		origin: null,
 		branch: null,
+		title: null,
 		pairs: [],
 	};
 	let agent = "";
 	let agentId: unknown;
+	let customTitle: string | null = null;
 	for (const row of rows) {
 		if (typeof row.sessionId === "string" && !session.sessionId)
 			session.sessionId = row.sessionId;
+		if (row.type === "ai-title" && typeof row.aiTitle === "string")
+			session.title = row.aiTitle;
+		if (row.type === "custom-title" && typeof row.customTitle === "string")
+			customTitle = row.customTitle;
 		if (typeof row.cwd === "string") session.cwd = row.cwd;
 		if (typeof row.gitBranch === "string" && row.gitBranch)
 			session.branch = row.gitBranch;
@@ -246,6 +254,7 @@ export function parseClaudeSession(rows: Json[]): ParsedSession {
 		);
 		agent = "";
 	}
+	session.title ??= customTitle;
 	if (!session.sessionId) return { ...session, skipped: "empty" };
 	return session;
 }
@@ -258,6 +267,7 @@ export function parseCodexSession(rows: Json[]): ParsedSession {
 		cwd: null,
 		origin: null,
 		branch: null,
+		title: null,
 		pairs: [],
 	};
 	const meta = rows.find((row) => row.type === "session_meta")?.payload;
@@ -532,6 +542,12 @@ export function planImport(input: {
 
 export const learnUsage = `Teach Tedix from your past local agent sessions
 
+  tedix learn onboard [--dry-run] [--since <YYYY-MM-DD>] [--no-model]
+
+Runs import-sessions, analyze-sessions and context below, in that order: what
+a new member runs once. Nothing reaches the shared board until you accept it
+with tedix learn review.
+
   tedix learn import-sessions [--dry-run] [--since <YYYY-MM-DD>] [--limit <n>] [--no-mine] [--json]
 
 Reads your Claude Code transcripts (~/.claude/projects) and Codex sessions
@@ -543,6 +559,8 @@ logs, slash commands and sub-agent threads stay local; no transcript is uploaded
 A session in a repository goes to the organization that repository is bound
 to (tedix setup agents context bind); a session outside any repository goes to
 your default organization. Anything else is skipped and counted.
+Preference notes your agents keep (Claude Code user and feedback memories,
+the preference section of Codex's memory summary) are sent the same way.
 Re-running is safe: imported turns are recognized and not recorded twice.
 After the upload your decisions are mined into personal lessons (--no-mine
 skips that; the nightly reflection also mines them).
@@ -558,7 +576,18 @@ each of: repeated requests (skill or command candidates), friction hotspots
 counts and short redacted paraphrases are sent; a re-run updates the same three
 items. Decisions are extracted by your local claude CLI (--no-model skips them).
 --project files new items under that project; existing items are found and
-updated in place.`;
+updated in place. Each person's run replaces only their own section.
+
+  tedix learn context [--dry-run] [--since <YYYY-MM-DD>] [--no-model] [--json]
+  tedix learn review [--accept <numbers|all>] [--reject <numbers|all>] [--json]
+
+context finds the tasks, goals and projects your sessions show (session titles,
+Codex goals, your first requests; grouped by your local claude CLI unless
+--no-model) and matches each against the organization's projects and Work,
+read-only. Work already on the board is reported, never filed again; a task
+that fits a project becomes a proposal kept on this machine. review asks about
+each proposal and files only the ones you accept; a rejection is remembered.
+Re-running either command creates nothing twice.`;
 
 export interface LearnDeps {
 	home?: string;
@@ -635,6 +664,12 @@ export async function runLearnCommand(
 		const { runAnalyzeSessions } = await import("./learn-analyze");
 		return runAnalyzeSessions(args, deps);
 	}
+	if (action === "context" || action === "review" || action === "onboard") {
+		const learn = await import("./learn-context");
+		if (action === "context") return learn.runContext(args, deps);
+		if (action === "review") return learn.runReview(args, deps);
+		return learn.runOnboard(args, deps);
+	}
 	if (action !== "import-sessions") {
 		write(learnUsage);
 		return 2;
@@ -662,17 +697,34 @@ export async function runLearnCommand(
 	const dryRun = args.includes("--dry-run");
 	const json = args.includes("--json");
 
+	const targets = deps.targets ?? repositoryTargetsByOrigin();
+	const defaultTarget =
+		"defaultTarget" in deps ? deps.defaultTarget : defaultOrganizationTarget();
 	const plan = planImport({
 		files: sessionFiles(deps.home),
 		since: since?.toISOString(),
 		limit,
-		targets: deps.targets ?? repositoryTargetsByOrigin(),
-		defaultTarget:
-			"defaultTarget" in deps
-				? deps.defaultTarget
-				: defaultOrganizationTarget(),
+		targets,
+		defaultTarget,
 	});
-	const report: Json = { ...summary(plan) };
+	// Preference notes the person's agents already keep join as personal
+	// decisions; idempotent per note text like every other pair.
+	const { memoryNotes, planNotes } = await import("./learn-context");
+	const notes = planNotes({
+		notes: memoryNotes(deps.home),
+		targets,
+		defaultTarget,
+		locate: sessionLocator(),
+		unrouted: plan.unrouted,
+	});
+	let noteCount = 0;
+	for (const [key, { target, decisions }] of notes) {
+		const bucket = plan.byTarget.get(key) ?? { target, decisions: [] };
+		plan.byTarget.set(key, bucket);
+		bucket.decisions.push(...decisions);
+		noteCount += decisions.length;
+	}
+	const report: Json = { ...summary(plan), preferenceNotes: noteCount };
 	if (dryRun) {
 		report.samples = samples(plan, 5);
 		write(json ? JSON.stringify(report) : JSON.stringify(report, null, 2));
