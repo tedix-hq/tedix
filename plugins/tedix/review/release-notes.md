@@ -1,3 +1,11 @@
+Tedix 0.2.3 — the prompt hook can carry the full first-turn context.
+
+The `UserPromptSubmit` context hook (`tedix hooks prompt-context`) now allows
+up to 10,000 bytes of context instead of 6,500. With Tedix CLI 0.9.2 or later
+it injects your preferences and lessons once per session, then a one-line
+pointer while they are unchanged; older CLIs keep the smaller budget. The other
+hooks are unchanged.
+
 Tedix 0.2.2 — the session preflight needs Tedix CLI 0.8.17 or later.
 
 The opt-in `SessionStart` preflight now checks the installed CLI first. An
