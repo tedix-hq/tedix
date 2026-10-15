@@ -2815,3 +2815,9 @@ a:focus-visible {
 .slide-element-input:disabled {
 	cursor: default;
 }
+
+/* A press on an element drags it; a click on the selected one edits its text. */
+[data-slide-element]:not([data-selected]),
+[data-slide-element]:not([data-selected]) .slide-element-input:not(:disabled) {
+	cursor: move;
+}
