@@ -339,14 +339,23 @@ export function resolveAgentSession(
 	const codexSession =
 		envTrim("CODEX_SESSION_ID") ?? envTrim("CODEX_THREAD_ID");
 	const cursorSession = envTrim("CURSOR_TRACE_ID");
-	const harness =
-		claudeSession || envTrim("CLAUDECODE")
-			? "claude-code"
-			: codexSession || envTrim("CODEX_SANDBOX") || envTrim("CODEX_HOME")
-				? "codex"
-				: cursorSession || envTrim("CURSOR_AGENT")
-					? "cursor"
-					: "cli";
+	// A native session ID names its own harness. Codex launched from a Claude
+	// Code shell inherits CLAUDECODE but carries its own CODEX_THREAD_ID; the
+	// marker-only checks must not relabel that thread as a claude-code session
+	// (agent start keyed it codex:<id>, so status and finish then missed it).
+	const harness = claudeSession
+		? "claude-code"
+		: codexSession
+			? "codex"
+			: cursorSession
+				? "cursor"
+				: envTrim("CLAUDECODE")
+					? "claude-code"
+					: envTrim("CODEX_SANDBOX") || envTrim("CODEX_HOME")
+						? "codex"
+						: envTrim("CURSOR_AGENT")
+							? "cursor"
+							: "cli";
 
 	const explicitId = explicit?.trim();
 	if (explicitId) {
