@@ -1371,3 +1371,33 @@ describe("native catalog execution capability", () => {
 		expect(createGenericTaskMock).not.toHaveBeenCalled();
 	});
 });
+
+describe("Connect financial dispatch", () => {
+	it.each([
+		"billing/createInferenceCapacityCheckout",
+		"billing/grantCredit",
+		"billing/setProviderCapacitySponsorship",
+	])(
+		"rejects aliased financial targets before invoking any handler: %s",
+		async (endpoint) => {
+			const agent = {
+				...makeAgent({ status: 200, data: {} }),
+				appSlug: "connect",
+			};
+			const tool = {
+				...makeTool(),
+				toolId: "arbitrary_alias",
+				config: { transport: "rpc", endpoint },
+			};
+			await expect(
+				executeTool(
+					agent,
+					tool,
+					{},
+					{ adapterScope: "all", resultStrategy: "merge" },
+				),
+			).rejects.toThrow("unavailable through this connection");
+			expect(agent.toolHandler.execute).not.toHaveBeenCalled();
+		},
+	);
+});

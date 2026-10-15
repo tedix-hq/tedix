@@ -325,3 +325,49 @@ describe("checkToolPayment budget gate", () => {
 		expect(meta?.[X402_PAYMENT_ERROR_META_KEY]).toBeUndefined();
 	});
 });
+
+describe("Connect never pays", () => {
+	it.each([undefined, "encoded-proof", { mockPaid: true }])(
+		"denies paid calls before payment policy storage or facilitator access: %j",
+		async (proof) => {
+			const agent = {
+				...agentWithoutDb(),
+				appSlug: "connect",
+				env: {
+					DB: new Proxy(
+						{},
+						{
+							get() {
+								throw new Error("payment storage must not be accessed");
+							},
+						},
+					),
+				},
+			} as ServerContext;
+			const outcome = await checkToolPayment({
+				agent,
+				tool: paidTool(basePayment()),
+				args: {},
+				extra: { _meta: { "x402/payment": proof } },
+			});
+			expect(outcome.paid).toBe(false);
+			if (!outcome.paid) {
+				expect(outcome.result.isError).toBe(true);
+				expect(JSON.stringify(outcome.result)).toContain(
+					"unavailable through this connection",
+				);
+				expect(outcome.result._meta).toBeUndefined();
+			}
+		},
+	);
+	it("rejects inline metadata proofs even for an unpriced inner tool", async () => {
+		const agent = { ...agentWithoutDb(), appSlug: "connect" };
+		const outcome = await checkToolPayment({
+			agent,
+			tool: { config: null, meta: null } as AppTool,
+			args: {},
+			extra: { _meta: { "x402/payment": "proof" } },
+		});
+		expect(outcome.paid).toBe(false);
+	});
+});

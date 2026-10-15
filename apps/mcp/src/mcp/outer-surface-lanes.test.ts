@@ -26,6 +26,16 @@ function resolvedAppStub() {
 }
 
 describe("outer-surface lanes", () => {
+	it("omits payment from the actual Connect discovery schema", () => {
+		const [code] = compactCodeModeTools(
+			{ app: { slug: "connect", name: "Tedix" } } as never,
+			new Headers(),
+		);
+		expect(code!.inputSchema).toMatchObject({ additionalProperties: false });
+		expect(
+			(code!.inputSchema as { properties: object }).properties,
+		).not.toHaveProperty("payment");
+	});
 	it.each([
 		["public", [{ type: "noauth" }]],
 		["authenticated", [{ type: "oauth2", scopes: ["mcp:work.read"] }]],
