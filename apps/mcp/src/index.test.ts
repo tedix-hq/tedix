@@ -1485,3 +1485,81 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 		},
 	);
 });
+
+describe("ChatGPT Connect tools/list ingress", () => {
+	it.each(["ChatGPT", "Claude", "Codex"])(
+		"serves the %s surface after organization routing",
+		async (clientName) => {
+			const response = await handleMcpRequest(
+				new Request("https://connect.mcp.example.test/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"MCP-Protocol-Version": "2026-07-28",
+						"Mcp-Method": "tools/list",
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/list",
+						params: {
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientCapabilities": {},
+								"io.modelcontextprotocol/clientInfo": {
+									name: clientName,
+									version: "1",
+								},
+							},
+						},
+					}),
+				}),
+				{
+					app: {
+						id: "fictional-app",
+						slug: "fictional-gateway",
+						name: "Fictional",
+					},
+					metadata: {
+						mcpConfig: { codeMode: true, authMode: "authenticated" },
+					},
+					tools: [
+						{
+							toolId: "search_native_tools",
+							title: "Native search",
+							toolTypeId: "catalog",
+							config: { transport: "catalog", endpoint: "catalog/search" },
+							inputSchema: CatalogueSearchInputJsonSchema,
+							annotations: { readOnlyHint: true },
+							enabled: true,
+						},
+					],
+				} as never,
+				createEnv(),
+				{ waitUntil: vi.fn() } as unknown as ExecutionContext,
+				undefined,
+				false,
+				"connect",
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as {
+				result: {
+					tools: Array<{ name: string; inputSchema: { properties: object } }>;
+				};
+			};
+			expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(
+				clientName === "ChatGPT"
+					? ["code", "get_info", "get_profile", "search"]
+					: ["code", "get_info", "get_profile"],
+			);
+			expect(
+				Object.keys(
+					body.result.tools.find((tool) => tool.name === "code")!.inputSchema
+						.properties,
+				).sort(),
+			).toEqual(
+				clientName === "ChatGPT" ? ["code"] : ["agentSessionId", "code"],
+			);
+		},
+	);
+});

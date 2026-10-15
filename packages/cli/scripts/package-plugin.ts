@@ -239,7 +239,12 @@ export function packageFiles(
 		join(root, "review/release-notes.md"),
 		"utf8",
 	).trim();
-	const paths = ["mcp.json", ...skillPaths(root), ...assets];
+	const paths = [
+		"mcp.json",
+		"chatgpt-app-submission.json",
+		...skillPaths(root),
+		...assets,
+	];
 	if (local) {
 		extension.publication.release_notes =
 			extension.publication.release_notes.replace(

@@ -841,6 +841,7 @@ async function postRpcWithData(
 	cachedData: CachedAppData,
 	body: unknown,
 	callerIdentity?: CallerIdentity,
+	chatgpt = false,
 ) {
 	const requestedToolName =
 		!Array.isArray(body) &&
@@ -860,6 +861,10 @@ async function postRpcWithData(
 		undefined,
 		undefined,
 		requestedToolName,
+		undefined,
+		undefined,
+		chatgpt ? "connect" : undefined,
+		chatgpt,
 	);
 	const response = await mountMcp(
 		server,
@@ -2806,5 +2811,89 @@ describe("Code Mode payment-gated tools", () => {
 				table: "mcp_payment_events",
 			},
 		});
+	});
+});
+
+describe("ChatGPT Code Mode surface", () => {
+	it("lists the reduced executor and searches full operation schemas without executing them", async () => {
+		const api = createApiService();
+		const env = createEnv(api);
+		const ctx = createExecutionContext();
+		const data = createCachedData();
+		data.tools = [
+			{
+				...data.tools[0]!,
+				toolId: "list_documents",
+				title: "List documents",
+				description: "List Workspace documents without changes.",
+				config: { transport: "rpc", endpoint: "documents/list" },
+				annotations: {
+					readOnlyHint: true,
+					destructiveHint: false,
+					openWorldHint: false,
+				},
+			},
+		];
+		const listed = await readJsonRpcResponse<{
+			result: {
+				tools: Array<{
+					name: string;
+					description: string;
+					inputSchema: { properties: object };
+				}>;
+			};
+		}>(
+			await postRpcWithData(
+				env,
+				ctx,
+				data,
+				{ jsonrpc: "2.0", id: 1, method: "tools/list" },
+				undefined,
+				true,
+			),
+		);
+		expect(listed.result.tools.map((tool) => tool.name).sort()).toEqual([
+			"code",
+			"get_info",
+			"search",
+		]);
+		const code = listed.result.tools.find((tool) => tool.name === "code")!;
+		expect(Object.keys(code.inputSchema.properties)).toEqual(["code"]);
+		expect(code.description).toContain("First use the `search` tool");
+		const found = await readJsonRpcResponse<{
+			result: { isError?: boolean; content: Array<{ text: string }> };
+		}>(
+			await postRpcWithData(
+				env,
+				ctx,
+				data,
+				{
+					jsonrpc: "2.0",
+					id: 2,
+					method: "tools/call",
+					params: {
+						name: "search",
+						arguments: { query: "list documents", limit: 1 },
+					},
+				},
+				undefined,
+				true,
+			),
+		);
+		expect(found.result.isError).not.toBe(true);
+		const results = JSON.parse(found.result.content[0]!.text).results;
+		expect(results).toHaveLength(1);
+		expect(results[0]).toMatchObject({
+			description: expect.any(String),
+			parameters: { type: "object" },
+		});
+		expect(JSON.stringify(results)).toContain("documents.list_documents");
+		expect(
+			api.fetch.mock.calls.some(
+				([input]) =>
+					new URL(input instanceof Request ? input.url : String(input))
+						.pathname === "/rpc/documents/list",
+			),
+		).toBe(false);
 	});
 });

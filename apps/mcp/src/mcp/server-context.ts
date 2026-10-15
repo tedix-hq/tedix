@@ -191,6 +191,7 @@ export interface ServerContext {
 	readonly appSlug: string;
 	/** Original server-resolved connection surface, preserved across organization projection. */
 	readonly connectionAppSlug?: string;
+	readonly chatgpt?: boolean;
 	readonly app: McpApp;
 	readonly appMetadata: AppMetadata | null;
 	readonly appCapabilities: AppCapabilities;
