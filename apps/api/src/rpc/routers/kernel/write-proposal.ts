@@ -386,6 +386,9 @@ function preferredToolForCapability(
 	tools: McpTool[],
 	capability: string | null | undefined,
 ): McpTool | null {
+	if (capability === "work_items.create") {
+		return tools.find((tool) => tool.name === "work.create_work_items") ?? null;
+	}
 	if (capability !== "catalog.install") return null;
 	return (
 		tools.find((tool) => tool.name === "tenant.install_tenant_mcp_apps") ?? null
@@ -420,8 +423,7 @@ async function resolveProviderApp(
 
 // ── LLM argument pass (a bounded generateObject call;
 // kept self-contained for the same concurrent-iteration reason as the MCP
-// helpers above). GPT-5 strict structured output: every property required,
-// `.nullable()` not `.optional()`, args ride as a JSON string.
+// helpers above). Selection chooses a callable; arguments use its exact schema.
 
 /** Sentinel the model uses when no listed tool fits the request. */
 const NO_WRITE_TOOL = "NONE";
@@ -595,12 +597,25 @@ async function planWriteCall(args: {
 	/** GenAI span identity for this write pass (see `kernelSpanContext`). */
 	span?: Record<string, string>;
 	onFailure?: (reason: string) => void;
+	selectionOnly?: boolean;
 }): Promise<{
 	toolName: string;
 	args: Record<string, unknown>;
 	reasoning: string | null;
 } | null> {
 	const abortSignal = flatAbortSignal(args.timeoutMs);
+	const argumentSchema: Awaited<ReturnType<typeof jsonSchema>["jsonSchema"]> =
+		args.selectionOnly
+			? { type: "object", properties: {}, additionalProperties: false }
+			: {
+					...(args.tools[0]?.inputSchema as Awaited<
+						ReturnType<typeof jsonSchema>["jsonSchema"]
+					>),
+					type: "object",
+					required: args.tools[0]?.inputSchema?.required?.filter(
+						(key) => !(key in (args.paramDefaults ?? {})),
+					),
+				};
 	try {
 		const result = await tracedAi.generateObject({
 			model: args.model,
@@ -613,18 +628,7 @@ async function planWriteCall(args: {
 							enum: [...args.tools.map((tool) => tool.name), NO_WRITE_TOOL],
 						},
 						args: {
-							anyOf: [
-								{
-									...(args.tools[0]?.inputSchema as Awaited<
-										ReturnType<typeof jsonSchema>["jsonSchema"]
-									>),
-									type: "object",
-									required: args.tools[0]?.inputSchema?.required?.filter(
-										(key) => !(key in (args.paramDefaults ?? {})),
-									),
-								},
-								{ type: "null" },
-							],
+							anyOf: [argumentSchema, { type: "null" }],
 						},
 						reasoning: { type: ["string", "null"] },
 					},
@@ -640,7 +644,9 @@ async function planWriteCall(args: {
 					},
 				},
 			),
-			system: SYSTEM_PROMPT,
+			system: args.selectionOnly
+				? `${SYSTEM_PROMPT}\nThis pass selects the tool only. Return its toolName (or NONE), args: {}, and one short reason. Do not construct arguments yet; a separate pass uses the selected tool's complete schema.`
+				: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.write_proposal", args.span ?? {}),
 			prompt: buildUserPrompt({
 				workspaceContext: args.workspaceContext,
@@ -922,6 +928,7 @@ export async function planKernelWriteProposal(args: {
 				content,
 				capability: route.toolIntent?.capability ?? null,
 				tools: catalog,
+				selectionOnly: true,
 				model,
 				paramDefaults: provider.paramDefaults,
 				timeoutMs,
