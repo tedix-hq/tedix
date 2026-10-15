@@ -995,6 +995,165 @@ export function SlidesEditor({
 								tone="secondary"
 								className="grid gap-1"
 							>
+								Font weight
+								<Select
+									disabled={disabled}
+									value={selectedElement.style.fontWeight ?? "normal"}
+									onValueChange={(value) => {
+										if (value)
+											updateElement({
+												...selectedElement,
+												style: {
+													...selectedElement.style,
+													fontWeight: value as NonNullable<
+														OsPresentationElement["style"]["fontWeight"]
+													>,
+												},
+											});
+									}}
+								>
+									<SelectTrigger aria-label="Element font weight">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{(
+											["light", "normal", "medium", "semibold", "bold"] as const
+										).map((value) => (
+											<SelectItem
+												key={value}
+												value={value}
+												className="capitalize"
+											>
+												{value}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</Text>
+							<Text
+								as="label"
+								role="label"
+								tone="secondary"
+								className="grid gap-1"
+							>
+								Border style
+								<Select
+									disabled={disabled}
+									value={selectedElement.style.borderStyle ?? "solid"}
+									onValueChange={(value) => {
+										if (value)
+											updateElement({
+												...selectedElement,
+												style: {
+													...selectedElement.style,
+													borderStyle: value as NonNullable<
+														OsPresentationElement["style"]["borderStyle"]
+													>,
+												},
+											});
+									}}
+								>
+									<SelectTrigger aria-label="Element border style">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{(["solid", "dashed", "dotted"] as const).map((value) => (
+											<SelectItem
+												key={value}
+												value={value}
+												className="capitalize"
+											>
+												{value}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</Text>
+							{(
+								[
+									{
+										key: "lineHeight",
+										label: "Line height",
+										min: 0.1,
+										max: undefined,
+										step: 0.1,
+									},
+									{
+										key: "letterSpacing",
+										label: "Letter spacing (px)",
+										min: undefined,
+										max: undefined,
+										step: 0.1,
+									},
+									{
+										key: "borderWidth",
+										label: "Border width",
+										min: 0,
+										max: 24,
+										step: 1,
+									},
+								] as const
+							).map(({ key, label, min, max, step }) => (
+								<Text
+									as="label"
+									key={key}
+									role="label"
+									tone="secondary"
+									className="grid gap-1"
+								>
+									{label}
+									<Input
+										type="number"
+										aria-label={`Element ${label.toLowerCase()}`}
+										min={min}
+										max={max}
+										step={step}
+										value={selectedElement.style[key] ?? ""}
+										disabled={disabled}
+										onChange={(event) =>
+											updateElement({
+												...selectedElement,
+												style: {
+													...selectedElement.style,
+													[key]:
+														event.target.value === ""
+															? undefined
+															: Number(event.target.value),
+												},
+											})
+										}
+									/>
+								</Text>
+							))}
+							<Text
+								as="label"
+								role="label"
+								tone="secondary"
+								className="grid gap-1"
+							>
+								Border color
+								<Input
+									type="color"
+									aria-label="Element border color"
+									value={selectedElement.style.borderColor ?? "#222222"}
+									disabled={disabled}
+									onChange={(event) =>
+										updateElement({
+											...selectedElement,
+											style: {
+												...selectedElement.style,
+												borderColor: event.target.value,
+											},
+										})
+									}
+								/>
+							</Text>
+							<Text
+								as="label"
+								role="label"
+								tone="secondary"
+								className="grid gap-1"
+							>
 								Text color
 								<Input
 									type="color"

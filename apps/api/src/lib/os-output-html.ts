@@ -7,7 +7,11 @@
  * user text flows through `escapeHtml` before it reaches the markup.
  */
 
-import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
+import {
+	parseSlideText,
+	slideArrowPath,
+	slideElementStyle,
+} from "@tedix/api-contract/utils/presentation-style";
 import type {
 	OsDocumentBlock,
 	OsOutput,
@@ -323,7 +327,17 @@ function renderDeckElement(element: OsPresentationElement): string {
 		(element.type === "image" || element.type === "svg") &&
 		isExportImage(source)
 			? `<img src="${escapeHtml(source)}" alt="${escapeHtml(element.text ?? "Slide image")}">`
-			: escapeHtml(element.text ?? "");
+			: element.type === "arrow"
+				? `<svg width="100%" height="100%" viewBox="0 0 ${element.width} ${element.height}"><path d="${slideArrowPath(element)}" fill="none" stroke="currentColor" stroke-width="2"/></svg>`
+				: element.type === "divider" || element.type === "shape"
+					? ""
+					: parseSlideText(element.text ?? "")
+							.map((part) =>
+								part.bold
+									? `<strong style="font-weight:700">${escapeHtml(part.text)}</strong>`
+									: escapeHtml(part.text),
+							)
+							.join("");
 	return `<div style="${declarations}">${body}</div>`;
 }
 
@@ -456,13 +470,15 @@ function collectExportFonts(content: OsOutputContent) {
 	};
 	if (content.kind === "presentation") {
 		for (const slide of content.deck?.slides ?? []) {
-			for (const { style } of slide.elements) {
+			for (const { style, text } of slide.elements) {
 				add(
 					style.fontFamily,
-					{ normal: 400, medium: 500, semibold: 600, bold: 700 }[
+					{ light: 300, normal: 400, medium: 500, semibold: 600, bold: 700 }[
 						style.fontWeight ?? "normal"
 					],
 				);
+				if (parseSlideText(text ?? "").some((part) => part.bold))
+					add(style.fontFamily, 700);
 			}
 		}
 	} else if (content.kind === "document") {

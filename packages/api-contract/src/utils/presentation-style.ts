@@ -30,18 +30,23 @@ export function slideElementStyle(
 				: `${(element.height / 675) * 100}%`,
 		fontFamily: style.fontFamily,
 		fontSize: length(fontSize),
-		lineHeight: fontSize >= 40 ? 1.1 : 1.3,
+		lineHeight: style.lineHeight ?? (fontSize >= 40 ? 1.1 : 1.3),
 		fontWeight:
 			style.fontWeight === "semibold"
 				? 600
 				: style.fontWeight === "medium"
 					? 500
-					: (style.fontWeight ?? "normal"),
-		letterSpacing: "normal",
+					: style.fontWeight === "light"
+						? 300
+						: (style.fontWeight ?? "normal"),
+		letterSpacing:
+			style.letterSpacing === undefined
+				? "normal"
+				: length(style.letterSpacing),
 		color: style.color,
 		background: style.background,
 		borderColor: style.borderColor,
-		borderStyle: style.borderWidth ? "solid" : undefined,
+		borderStyle: style.borderWidth ? (style.borderStyle ?? "solid") : undefined,
 		borderWidth: style.borderWidth ? length(style.borderWidth) : undefined,
 		borderRadius: style.borderRadius ? length(style.borderRadius) : undefined,
 		textAlign: style.textAlign,
@@ -49,4 +54,24 @@ export function slideElementStyle(
 		transform: style.rotation ? `rotate(${style.rotation}deg)` : undefined,
 		padding: 0,
 	};
+}
+
+export function parseSlideText(text: string) {
+	return text
+		.split(/(\*\*[^*]+\*\*)/g)
+		.filter(Boolean)
+		.map((part) => {
+			const bold = /^\*\*[^*]+\*\*$/.test(part);
+			return { text: bold ? part.slice(2, -2) : part, bold };
+		});
+}
+
+/** Arrow geometry in the element's own canvas units; rotation belongs to its box. */
+export function slideArrowPath(element: OsPresentationElement): string {
+	const { width, height } = element;
+	const inset = 2;
+	const middle = height / 2;
+	const head = Math.min(height / 2 - inset, width / 4);
+	const tip = width - inset;
+	return `M ${inset} ${middle} H ${tip} M ${tip - head} ${middle - head} L ${tip} ${middle} L ${tip - head} ${middle + head}`;
 }

@@ -928,9 +928,22 @@ export const OsPresentationElementSchema = z.object({
 				.optional()
 				.describe("Font size override; omitted for the element-type default"),
 			fontWeight: z
-				.enum(["normal", "medium", "semibold", "bold"])
+				.enum(["light", "normal", "medium", "semibold", "bold"])
 				.optional()
 				.describe("Font weight override; omitted for the element-type default"),
+			lineHeight: z
+				.number()
+				.positive()
+				.optional()
+				.describe(
+					"Line height multiplier; omitted for the font-size-based default",
+				),
+			letterSpacing: z
+				.number()
+				.optional()
+				.describe(
+					"Letter spacing in pixels on the 1200-wide canvas; omitted for normal spacing",
+				),
 			color: z
 				.string()
 				.max(32)
@@ -952,6 +965,10 @@ export const OsPresentationElementSchema = z.object({
 				.max(24)
 				.optional()
 				.describe("Border width override; omitted when no border is drawn"),
+			borderStyle: z
+				.enum(["solid", "dashed", "dotted"])
+				.optional()
+				.describe("Border pattern; omitted for solid when a border is drawn"),
 			borderRadius: z
 				.number()
 				.min(0)

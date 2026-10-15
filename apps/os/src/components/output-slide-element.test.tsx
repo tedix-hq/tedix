@@ -169,4 +169,37 @@ describe("one slide renderer", () => {
 		expect(input?.getAttribute("style")).toBeNull();
 		editor.cleanup();
 	});
+
+	it("renders inline bold safely in the viewer and keeps raw markers in the editor", () => {
+		const styled = structuredClone(deck);
+		styled.deck!.slides[0]!.elements[0]!.text = "A **bold <tag>** title";
+		styled.deck!.slides[0]!.elements.push({
+			id: "arrow",
+			type: "arrow",
+			x: 50,
+			y: 500,
+			width: 200,
+			height: 40,
+			style: { color: "#ff0000", rotation: 15 },
+		});
+		const viewer = mount(<OutputContentView content={styled} />);
+		const editor = mount(<SlidesEditor value={styled} onChange={() => {}} />);
+		const title = viewer.container.querySelector(
+			'[data-slide-element="line-1"]',
+		);
+		expect(title?.querySelector("strong")?.textContent).toBe("bold <tag>");
+		expect(title?.querySelector("tag")).toBeNull();
+		expect(
+			editor.container.querySelector<HTMLTextAreaElement>(
+				'.slides-editor-stage [data-slide-element="line-1"] textarea',
+			)?.value,
+		).toBe("A **bold <tag>** title");
+		expect(
+			viewer.container
+				.querySelector('[data-slide-element="arrow"] path')
+				?.getAttribute("d"),
+		).toBe("M 2 20 H 198 M 180 2 L 198 20 L 180 38");
+		editor.cleanup();
+		viewer.cleanup();
+	});
 });
