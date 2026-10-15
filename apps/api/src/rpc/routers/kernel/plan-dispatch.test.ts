@@ -3,6 +3,25 @@ import { detectsHomePlanningRequest } from "./plan-dispatch";
 
 describe("Home planning request intent", () => {
 	it.each([
+		"",
+		"[[tedix-context:workspace:launch:Plan%20across%20owners]]\n\n",
+	])("uses the operator request after OS context references: %s", (prefix) => {
+		expect(
+			detectsHomePlanningRequest(
+				`${prefix}Create exactly one new Proposed work item. Description: Plan code and review across Research and Code Reviewer.`,
+			),
+		).toBe(false);
+		expect(detectsHomePlanningRequest(`${prefix}Summarize the page.`)).toBe(
+			false,
+		);
+		expect(
+			detectsHomePlanningRequest(
+				`${prefix}Plan across Research and Code Reviewer.`,
+			),
+		).toBe(true);
+	});
+
+	it.each([
 		"Create exactly one new Proposed work item",
 		"Please create a small test work item",
 		"Add a work-item",

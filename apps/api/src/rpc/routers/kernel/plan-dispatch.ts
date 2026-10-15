@@ -30,11 +30,16 @@ export function tediPlanningLabel(target: HomePlanningTarget): string {
 }
 
 export function detectsHomePlanningRequest(content: string): boolean {
+	// OS workspace references precede the operator's request on follow-up turns.
+	const operatorContent = content.replace(
+		/^(?:\s*\[\[tedix-context:[^\]\r\n]*\]\])+\s*/,
+		"",
+	);
 	// Creating a board record is a tool write. Its description can contain plans
 	// and tedi names without asking Home to dispatch those owners.
 	if (
 		/^\s*(?:please\s+)?(?:create|add|open|file)\s+(?:(?:exactly|a|an|one|new|proposed|small|test|\d+)\s+)*(?:work[\s-]+items?|work-board\s+issues?)\b/i.test(
-			content,
+			operatorContent,
 		)
 	) {
 		return false;
@@ -45,7 +50,7 @@ export function detectsHomePlanningRequest(content: string): boolean {
 	// so ANY multi-owner request parks a plan instead of collapsing to a single
 	// delegate_tedi. (kernel-evals: plan.multi_tedi_work_items.)
 	return /\b(plan|split|coordinate|parallel|multi[-\s]?step|multi[-\s]?owner|multiple|both|across|assign|assignment|delegate)\b/.test(
-		content.toLowerCase(),
+		operatorContent.toLowerCase(),
 	);
 }
 
