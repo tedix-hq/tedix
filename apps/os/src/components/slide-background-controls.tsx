@@ -33,6 +33,7 @@ export function SlideBackgroundControls({
 	onBackgroundImageFile: (file: File) => void;
 }) {
 	const [opacityDraft, setOpacityDraft] = useState<string | null>(null);
+	const [urlDraft, setUrlDraft] = useState<string | null>(null);
 	const image = slide.backgroundImage;
 	const linked = safeImageSource(image)?.startsWith("https://");
 	return (
@@ -86,8 +87,10 @@ export function SlideBackgroundControls({
 					maxLength={2_048}
 					disabled={disabled}
 					placeholder={image && !linked ? "Uploaded image" : "https://"}
-					value={linked ? image : ""}
+					value={urlDraft ?? (linked ? image : "")}
+					onBlur={() => setUrlDraft(null)}
 					onChange={(event) => {
+						setUrlDraft(event.target.value);
 						const src = event.target.value.trim();
 						// Keep the current image while a new address is still being typed.
 						if (src === "" || safeImageSource(src))

@@ -201,7 +201,7 @@ export function slideCss(
 			if (value === undefined) return [];
 			const text = String(value);
 			if (
-				!/^[a-zA-Z0-9 #.,%()'"+\-/]*$/.test(text) ||
+				!/^[a-zA-Z0-9 #.,%()'"*+\-/]*$/.test(text) ||
 				Array.from(text.matchAll(/([a-z-]+)\s*\(/gi)).some(
 					(match) =>
 						!/^(?:(?:repeating-)?(?:linear|radial|conic)-gradient|rgba?|hsla?|oklch|oklab|lab|lch|color|color-mix|calc|rotate)$/i.test(

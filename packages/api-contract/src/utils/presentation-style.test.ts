@@ -3,6 +3,8 @@ import { OsPresentationElementSchema } from "../schemas/os-workspaces";
 import {
 	parseSlideText,
 	slideArrowPath,
+	slideBackgroundMarkup,
+	slideCss,
 	slideElementStyle,
 } from "./presentation-style";
 
@@ -80,5 +82,23 @@ describe("slide styles", () => {
 		expect(slideArrowPath({ ...element, width: 200, height: 40 })).toBe(
 			"M 2 20 H 198 M 180 2 L 198 20 L 180 38",
 		);
+	});
+
+	it("keeps canvas-scaled lengths in serialized markup", () => {
+		expect(slideCss({ fontSize: "calc(19 * 100cqw / 1200)" })).toBe(
+			"font-size:calc(19 * 100cqw / 1200)",
+		);
+		expect(slideCss({ background: "url(https://x.test/a.png)" })).toBe("");
+		const markup = slideBackgroundMarkup({
+			id: "s",
+			name: "S",
+			layout: "blank",
+			background: "#ffffff",
+			elements: [],
+			dotGridOpacity: 0.5,
+			insetSurface: { color: "#ffffff", inset: 24, radius: 8 },
+		});
+		expect(markup).toContain("inset:calc(24 * 100cqw / 1200)");
+		expect(markup).toContain("background-size:calc(20 * 100cqw / 1200)");
 	});
 });
