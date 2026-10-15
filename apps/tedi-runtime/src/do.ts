@@ -1,3 +1,4 @@
+import { noFundsTurnTools, NO_FUNDS_TURN_MESSAGE } from "./no-funds-turn";
 import {
 	privateInferenceOriginGuard,
 	inferenceOriginHash,
@@ -9060,6 +9061,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * as on `beforeTurn`/the other facet paths, session-key-gated.
 	 */
 	private async prepareMcpFacetTurn(input: {
+		noFunds?: boolean;
 		sessionKey: string;
 		userMessage: string;
 		conversationId: string;
@@ -9212,7 +9214,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				`[isolate.do] operator-consent rendered: run=${input.operatorConsent.runId} createdBy=${input.operatorConsent.createdBy} turnRun=${input.runId}`,
 			);
 		}
-		return { tools, system, turnBinding };
+		return {
+			tools: noFundsTurnTools(tools, input.noFunds),
+			system: input.noFunds ? `${system}\n\n${NO_FUNDS_TURN_MESSAGE}` : system,
+			turnBinding,
+		};
 	}
 
 	private async runConversationFacetTurn(input: {
@@ -9757,6 +9763,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	/** Dispatch durable chat and acknowledge after its canonical task is pollable. */
 	private async runDurableChatTurn(input: {
+		noFunds?: boolean;
 		sessionKey: string;
 		text: string;
 		traceId?: string;
@@ -9863,8 +9870,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 						runId,
 						traceId: input.traceId,
 						clientRequestId: input.clientRequestId,
-						learningMode,
+						learningMode: input.noFunds ? "disabled" : learningMode,
 						callerTrust: input.callerTrust,
+						noFunds: input.noFunds,
 					},
 					// Same explicit binding as the async-inject dispatch: the binding
 					// can't be auto-detected from the class name in this context.
@@ -10379,6 +10387,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			: input.userText;
 		const trust = mcpTurnSurfaceTrust(input);
 		const setup = await this.prepareMcpFacetTurn({
+			noFunds: input.noFunds,
 			sessionKey: input.sessionKey,
 			userMessage: modelUserText,
 			trust,
@@ -15652,6 +15661,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				);
 			}
 			const callerTrust = callerTrustTierForRequest(request.headers);
+			const noFunds = request.headers.get("X-Tedix-No-Funds") === "true";
 			// Defense in depth: the gateway already strips these for non-members.
 			payload = stripMemberOnlyInjectFields(payload, callerTrust);
 			const text = (payload.text ?? payload.message ?? "").trim();
@@ -15930,7 +15940,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 									runId,
 									traceId,
 									clientRequestId,
-									learningMode,
+									learningMode: noFunds ? "disabled" : learningMode,
 									workItemId,
 									homeRunId,
 									executionSurface,
@@ -15940,6 +15950,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 									...(operatorConsent ? { operatorConsent } : {}),
 									trustedInstructionOrigin,
 									callerTrust,
+									noFunds,
 									...(turnModel ? { turnModel } : {}),
 								},
 								// Agent binding can't be auto-detected from the class name in
@@ -16033,6 +16044,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					attachments: sanitizeChatAttachments(payload.attachments),
 					learningMode: payload.learning_mode,
 					callerTrust,
+					noFunds,
 				};
 				const result = await this.runDurableChatTurn(turnInput);
 				return Response.json({ success: true, ...result });
@@ -16807,6 +16819,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 							clientRequestId: client_request_id,
 							attachments: sanitizeChatAttachments(attachments),
 							callerTrust: callerTrustTierForRequest(request.headers),
+							noFunds: request.headers.get("X-Tedix-No-Funds") === "true",
 						};
 						return this.runDurableChatTurn(turnInput);
 					},
