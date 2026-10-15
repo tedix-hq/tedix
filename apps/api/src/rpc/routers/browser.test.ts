@@ -38,6 +38,46 @@ describe("browser router", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it.each(["chromium", "kitesurf"] as const)(
+		"sends the selector object in the %s scrape request body",
+		async (engine) => {
+			const quickAction = vi.fn(async () => Response.json({ result: [] }));
+			const restFetch = vi.fn<typeof fetch>(async () =>
+				Response.json({ result: [] }),
+			);
+			vi.stubGlobal("fetch", restFetch);
+			const client = createClient(quickAction);
+
+			await client.scrapeElements({
+				url: "https://example.com",
+				selectors: ["h1"],
+				waitForSelector: "h1",
+				engine,
+			});
+
+			const payload = {
+				url: "https://example.com",
+				elements: [{ selector: "h1" }],
+				waitForSelector: { selector: "h1" },
+			};
+			if (engine === "chromium") {
+				expect(quickAction).toHaveBeenCalledWith("scrape", payload);
+				expect(restFetch).not.toHaveBeenCalled();
+			} else {
+				expect(quickAction).not.toHaveBeenCalled();
+				expect(restFetch).toHaveBeenCalledWith(
+					"https://api.cloudflare.com/client/v4/accounts/account-1/browser-run/scrape?browser=kitesurf",
+					expect.objectContaining({
+						method: "POST",
+					}),
+				);
+				expect(JSON.parse(String(restFetch.mock.calls[0]?.[1]?.body))).toEqual(
+					payload,
+				);
+			}
+		},
+	);
+
 	it("runs Markdown extraction through Browser Run quick actions", async () => {
 		const quickAction = vi.fn(
 			async (_action: string, _payload: unknown) =>
@@ -60,6 +100,7 @@ describe("browser router", () => {
 		const result = await client.extractMarkdown({
 			url: "https://example.com",
 			waitUntil: "domcontentloaded",
+			waitForSelector: "h1",
 			waitForTimeoutMs: 25,
 		});
 
@@ -77,6 +118,7 @@ describe("browser router", () => {
 			expect.objectContaining({
 				url: "https://example.com",
 				gotoOptions: { waitUntil: "domcontentloaded" },
+				waitForSelector: { selector: "h1" },
 				waitForTimeout: 25,
 			}),
 		);

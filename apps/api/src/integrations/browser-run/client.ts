@@ -138,7 +138,9 @@ function quickActionPayload(
 				: {}),
 		},
 		{
-			waitForSelector: options.waitForSelector,
+			waitForSelector: options.waitForSelector
+				? { selector: options.waitForSelector }
+				: undefined,
 			waitForTimeout: options.waitForTimeoutMs
 				? Math.min(options.waitForTimeoutMs, 60_000)
 				: undefined,
