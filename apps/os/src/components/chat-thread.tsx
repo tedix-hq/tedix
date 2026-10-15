@@ -1824,11 +1824,10 @@ export function ApprovalInputGate({ count }: { count: number }) {
 		>
 			<span className="min-w-0">
 				<Text as="strong" role="body" tone="strong" className="block">
-					Approval required before the conversation can continue
+					Waiting for your approval
 				</Text>
 				<Text as="span" role="label" tone="secondary" className="block">
-					Approve or reject the pending delegation above. Sending a new message
-					is paused so it cannot be mistaken for that decision.
+					Approve or reject the request above to continue.
 				</Text>
 			</span>
 			<Badge variant="outline" className="shrink-0">

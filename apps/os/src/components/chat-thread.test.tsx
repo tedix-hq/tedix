@@ -920,13 +920,11 @@ describe("RunningIndicator", () => {
 });
 
 describe("ApprovalInputGate", () => {
-	it("owns the input lane while a delegation decision is pending", () => {
+	it("owns the input lane while an approval is pending", () => {
 		const html = renderToStaticMarkup(<ApprovalInputGate count={2} />);
 		expect(html).toContain('data-slot="chat-approval-gate"');
-		expect(html).toContain(
-			"Approval required before the conversation can continue",
-		);
-		expect(html).toContain("cannot be mistaken for that decision");
+		expect(html).toContain("Waiting for your approval");
+		expect(html).toContain("Approve or reject the request above");
 		expect(html).toContain("2 pending");
 		expect(html).not.toContain("chat-composer");
 	});
