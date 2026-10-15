@@ -50,7 +50,7 @@ describe("directory no-funds classification", () => {
 			),
 		).toBe(true);
 	});
-	it("checks aliased targets and fails closed for missing or contradictory declarations", () => {
+	it("checks aliased financial targets while allowing ordinary writes", () => {
 		expect(
 			isNoFundsToolDenied(
 				tool({
@@ -60,7 +60,7 @@ describe("directory no-funds classification", () => {
 			),
 		).toBe(true);
 		for (const writeCapability of [undefined, "write", "destructive"] as const)
-			expect(isNoFundsToolDenied(tool({ writeCapability }))).toBe(true);
+			expect(isNoFundsToolDenied(tool({ writeCapability }))).toBe(false);
 		expect(
 			isNoFundsToolDenied(
 				tool({
@@ -68,12 +68,12 @@ describe("directory no-funds classification", () => {
 					annotations: { destructiveHint: true },
 				}),
 			),
-		).toBe(true);
+		).toBe(false);
 		expect(
 			isNoFundsToolDenied(
 				tool({ writeCapability: "write", annotations: { readOnlyHint: true } }),
 			),
-		).toBe(true);
+		).toBe(false);
 	});
 	it("allows explicit unrelated reads without matching substrings inside other words", () => {
 		expect(
@@ -112,6 +112,41 @@ describe("directory no-funds classification", () => {
 		expect(
 			isNoFundsToolDenied(
 				tool({ config: { ...config, mcpToolName: "execute" } }),
+			),
+		).toBe(false);
+	});
+	it.each([
+		"run_skill",
+		"run_skill_workflow",
+		"create_os_output",
+		"create_work_items",
+		"create_connection",
+		"submit_home_turn",
+	])("allows ordinary execution: %s", (toolId) => {
+		expect(
+			isNoFundsToolDenied(
+				tool({
+					toolId,
+					writeCapability: "write",
+					annotations: { readOnlyHint: false },
+				}),
+			),
+		).toBe(false);
+	});
+	it("denies x402 paid tools with ordinary names", () => {
+		expect(
+			isNoFundsToolDenied(
+				tool({
+					config: {
+						payment: {
+							enabled: true,
+							protocol: "x402",
+							amount: "1",
+							network: "eip155:8453",
+							recipient: "0x0000000000000000000000000000000000000001",
+						},
+					},
+				}),
 			),
 		).toBe(true);
 	});

@@ -8,6 +8,8 @@ const tools = Object.fromEntries(
 	[
 		"read_skill",
 		"create_payment",
+		"provider__StripeCharge",
+		"wallet-transfer",
 		"tedix_mcp_code",
 		"run_skill_workflow",
 		"browser",
@@ -16,7 +18,14 @@ const tools = Object.fromEntries(
 	].map((name) => [name, {}]),
 ) as ToolSet;
 assert.equal(noFundsTurnTools(tools), tools);
-assert.deepEqual(Object.keys(noFundsTurnTools(tools, true)), ["read_skill"]);
+assert.deepEqual(Object.keys(noFundsTurnTools(tools, true)), [
+	"read_skill",
+	"tedix_mcp_code",
+	"run_skill_workflow",
+	"browser",
+	"exec",
+	"new_tool",
+]);
 const input = buildFacetWorkflowTurnInput(
 	{
 		...MCP_FACET_TURN_INPUT,
@@ -39,7 +48,8 @@ const restricted = await probe.prepareMcpFacetTurn({
 	...MCP_FACET_TURN_INPUT,
 	noFunds: true,
 });
-assert.deepEqual(Object.keys(restricted.tools), ["read_skill"]);
+assert.ok("read_skill" in restricted.tools);
+assert.ok("workspaceAiTools" in restricted.tools);
 assert.match(restricted.system, /cannot move funds/);
 const normal = await probe.prepareMcpFacetTurn(MCP_FACET_TURN_INPUT);
 assert.ok("workspaceAiTools" in normal.tools);

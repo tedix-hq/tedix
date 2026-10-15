@@ -141,24 +141,22 @@ Installing the plugin does not purchase a subscription or authorize a payment.
 The server hides classified financial tools from discovery and rejects direct
 and Code Mode calls, including tenant-defined provider tools. Versioned rules
 check names, descriptions and configured targets for financial operations and
-payment providers. These matches override read annotations. Other tools require
-an explicit read declaration; writes and undeclared operations fail closed.
+payment providers. These matches override read annotations. Ordinary writes,
+unannotated tools, Home submissions and skill workflows remain available under
+the caller's existing permissions.
 
 Plugin-started tedi turns carry a server-stamped `noFunds` restriction through
-durable dispatch and retries. Their only executable tool is `read_skill`:
-provider calls, browser actions, code execution, scheduling, further delegation
-and skill execution are unavailable. Home orchestration and durable workflows
-are refused through this connection because they cannot yet preserve that
-restriction. No child skill run can be started to bypass it. Ordinary connections
-outside Connect retain their existing permissions. Normal service inference
-usage remains subject to the organization's plan; this restriction does not
-purchase credit, authorize overage or transfer funds.
+durable dispatch and retries. The runtime removes tools whose normalized names
+match the same financial terms and payment providers; other tools remain
+available. Normal service inference usage remains subject to the organization's
+plan; this restriction does not purchase credit, authorize overage or transfer
+funds.
 
 [Privacy policy](https://tedix.dev/privacy/) ·
 [Terms of service](https://tedix.dev/terms/)
 
-`tedix-session-guide` chooses the useful path. Home submissions from
-`tedix-delegate` are unavailable on this restricted connection. Neither
+`tedix-session-guide` chooses the useful path. `tedix-delegate` submits an
+explicitly requested task to Home and follows its durable run receipt. Neither
 skill silently creates Work, starts a local Attempt, or records unrelated chats.
 The CLI adds repository context recovery, shell automation and governed local
 execution. A repository policy can require that path.

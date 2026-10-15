@@ -5,7 +5,6 @@ import {
 	isNonPayingConnection,
 } from "./connect-payment-policy";
 import { getToolPaymentPolicy } from "./payments";
-import { resolveToolAnnotations } from "@tedix/api-contract/schemas/tools";
 
 const financialPattern = new RegExp(
 	`(?:^|_)(?:${[...policy.financialTerms, ...policy.paymentProviders].join("|")})[a-z]*(?:_|$)`,
@@ -29,14 +28,6 @@ export function isNoFundsToolDenied(tool: AppTool): boolean {
 	if (isFinancialBillingTool(tool) || getToolPaymentPolicy(tool)) return true;
 	if (policy.deniedTransports.includes(String(tool.config?.transport)))
 		return true;
-	// The native tedi ingress stamps a restricted turn; other execution and
-	// configuration writes cannot prove preservation of that ceiling.
-	if (
-		tool.config?.transport === "mcp" &&
-		(tool.config?._aggregateTediRemoteName ?? tool.config?.mcpToolName) ===
-			"run_tedi_turn"
-	)
-		return false;
 	const text = normalized(
 		[
 			tool.toolId,
@@ -45,15 +36,7 @@ export function isNoFundsToolDenied(tool: AppTool): boolean {
 			JSON.stringify(tool.config),
 		].join(" "),
 	);
-	if (financialPattern.test(text)) return true;
-	const annotations = resolveToolAnnotations(tool);
-	if (
-		annotations?.destructiveHint === true ||
-		annotations?.readOnlyHint === false
-	)
-		return true;
-	if (tool.writeCapability) return tool.writeCapability !== "read";
-	return annotations?.readOnlyHint !== true;
+	return financialPattern.test(text);
 }
 
 export function isToolDeniedForConnection(

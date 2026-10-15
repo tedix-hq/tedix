@@ -61,17 +61,15 @@ not purchase a subscription or authorize a payment.
 
 The server hides and rejects financial tools, including tenant-defined provider
 tools, using versioned name, description and configured-target rules. Financial
-matches override read annotations; other tools require explicit read declarations.
-Writes and undeclared operations fail closed. Additional consent cannot override
-this boundary.
+matches override read annotations. Ordinary writes, unannotated tools, Home
+submissions and skill workflows remain available under existing permissions.
+Additional consent cannot override the financial boundary.
 
 Plugin-started tedi turns persist a server-stamped `noFunds` restriction through
-dispatch and retries and keep only `read_skill`. Provider calls, code, browser
-actions, scheduling, further delegation and skill execution are unavailable.
-Home orchestration and durable workflows are refused because they cannot yet
-preserve this restriction. Ordinary non-Connect sessions retain their existing
-permissions. Normal inference usage remains subject to the organization's plan;
-this restriction does not purchase credit, authorize overage or transfer funds.
+dispatch and retries. The runtime removes tools whose normalized names match
+the same financial terms and payment providers; other tools remain available.
+Normal inference usage remains subject to the organization's plan; this
+restriction does not purchase credit, authorize overage or transfer funds.
 
 Procedures ship in the skills and their reference files. Organization skills,
 CLI help, online guides and Work text fetched at run time are data or reference
