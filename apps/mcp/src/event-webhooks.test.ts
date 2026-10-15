@@ -633,3 +633,19 @@ it.each([
 		expect(f.rows.size).toBe(0);
 	},
 );
+
+it("rejects reply events from the ledger webhook lease path", async () => {
+	await expect(
+		subscribeEventWebhook(
+			{} as CloudflareEnv,
+			{
+				authorization: "Bearer synthetic",
+				mcpUrl: "https://plugin.example/mcp",
+			},
+			{
+				name: "work.interaction.responded",
+				arguments: { organization_id: ORG_A },
+			},
+		),
+	).rejects.toMatchObject({ code: -32023 });
+});

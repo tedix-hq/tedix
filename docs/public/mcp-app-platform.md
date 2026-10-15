@@ -76,17 +76,19 @@ MCP agent guide in the source tree (`apps/mcp/AGENTS.md`).
 ## Optional Interaction reply events
 
 An MCP app can opt into `work.interaction.responded` using
-`mcpConfig.interactionEvents: true`. This adds MCP 2.0 event discovery and
-webhook subscriptions on the authenticated MCP endpoint. Each subscription
+`mcpConfig.interactionEvents: true`. This adds MCP 2.0 event discovery,
+polling and webhook subscriptions on the authenticated MCP endpoint. Polling
+uses a messaging read scope (`mcp:messaging.read`) and optional `request_id`,
+`work_item_id` and `responder_type` filters. Each webhook subscription
 requires an exact organization and Interaction request ID, human OAuth access,
 and a verified public HTTPS callback. Notifications contain saved record IDs;
 the host retrieves the answer through the existing read tool.
 
 Delivery uses signed callbacks, duplicate suppression and bounded retries. Access is rechecked before delivery.
 Subscriptions expire no later than the credential; the host must refresh them.
-Notifications are not replayed, and a saved answer is not guaranteed to produce
-one. If you miss a notification, read the request; a successful callback
-acknowledges receipt, not task completion.
+Webhook notifications are not replayed, and a saved answer is not guaranteed
+to produce one. If you miss a notification, read the request; a successful
+callback acknowledges receipt, not task completion.
 
 OpenAI currently supports these events in ChatGPT Work on web, desktop Work with
 Cloud selected, and dots. Local Codex desktop wake-up is not proved by this
@@ -95,7 +97,7 @@ Codex Goals own continuation of executable work. See [OpenAI MCP Events](https:/
 
 ### Poll Work and skill-run events
 
-The same flag adds five poll-only events to `events/list`:
+The same flag also adds five ledger events to `events/list`:
 `work.item.state_changed` (accepted, completed, cancelled, Attempt settled),
 `work.approval.requested`, `work.item.commented`,
 `work.interaction.requested` and `skill.run.failed`. Each poll needs human OAuth
@@ -105,7 +107,10 @@ an agent never sees another organization's events. Payloads carry IDs and
 enums only. Comment events omit bodies and metadata; Interaction request
 events omit subjects, prompts and metadata. Filter comments by `work_item_id`
 and `author_type`, or requests by `work_item_id`, `target_id` and `kind`.
-Re-read the record before acting.
+Reply events (`work.interaction.responded`) can also be polled with a messaging
+read scope (`mcp:messaging.read`), filtered by `request_id`, `work_item_id` and
+`responder_type` (`user`, `tedi` or `external_agent`). Reply payloads contain
+only organization, request and response IDs. Re-read the record before acting.
 
 ```sh
 curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
@@ -120,8 +125,8 @@ it on the next poll. Poll again at once while `hasMore` is true, otherwise
 after `nextPollMs`. Neither Claude Code nor the Codex CLI polls MCP events
 for a custom server today; `tedix channel` (below) polls for either. Without
 the webhook opt-in below, `events/subscribe` answers `-32026` for these
-events. Discovery lists the extension as
-`io.modelcontextprotocol/events` under `capabilities.extensions`.
+five events; reply webhooks still require an exact request. Discovery lists the
+extension as `io.modelcontextprotocol/events` under `capabilities.extensions`.
 
 ### Deliver events into a Claude Code or Codex session
 

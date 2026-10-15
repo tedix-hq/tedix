@@ -7,7 +7,10 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { skillRuns } from "../schema/cognitive";
-import { workInteractions } from "../schema/work-factory";
+import {
+	workInteractionResponses,
+	workInteractions,
+} from "../schema/work-factory";
 import { workEvents } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../test/schema-ddl";
@@ -24,6 +27,8 @@ import {
 	listWorkCommentEvents,
 } from "./work-items/comments";
 import {
+	getLatestWorkInteractionResponsePosition,
+	listWorkInteractionResponseEvents,
 	getLatestWorkInteractionPosition,
 	listRequestedWorkInteractionEvents,
 } from "./work-items/interactions";
@@ -45,7 +50,14 @@ const actor = { type: "user" as const, id: "user-1" };
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(canonicalWorkFactoryDdl());
-	sqlite.exec(schemaDdl(workEvents, skillRuns, workInteractions));
+	sqlite.exec(
+		schemaDdl(
+			workEvents,
+			skillRuns,
+			workInteractions,
+			workInteractionResponses,
+		),
+	);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	const seedItem = (id: string, org: string) =>
 		sqlite
@@ -414,6 +426,83 @@ describe("work.interaction.requested ledger feed", () => {
 		expect(await getLatestWorkInteractionPosition(db, ORG_A)).toEqual({
 			at: NOW,
 			id: "i2",
+		});
+	});
+});
+
+describe("work.interaction.responded ledger feed", () => {
+	it("pages timestamp ties, filters by parent and responder, and selects only public columns", async () => {
+		const { sqlite, db } = fixture();
+		expect(
+			await getLatestWorkInteractionResponsePosition(db, ORG_A),
+		).toBeNull();
+		const parent = sqlite.prepare(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,created_at) VALUES(?,?,?,'question','secret','secret','user','u',?)",
+		);
+		parent.run("i1", ORG_A, "w1", NOW);
+		parent.run("i2", ORG_A, "w2", NOW);
+		parent.run("i3", ORG_B, "w1", NOW);
+		const insert = sqlite.prepare(
+			"INSERT INTO work_interaction_responses(id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,metadata,artifact_ref,responded_at) VALUES(?,?,?,1,? ,?,'actor','secret','answer','{\"private\":\"secret\"}','secret',?)",
+		);
+		insert.run("r2", ORG_A, "i2", "f2", "tedi", NOW);
+		insert.run("r1", ORG_A, "i1", "f1", "user", NOW);
+		insert.run(
+			"r3",
+			ORG_A,
+			"i1",
+			"f3",
+			"external_agent",
+			"2026-10-16T00:00:00.000Z",
+		);
+		insert.run("r4", ORG_B, "i3", "f4", "user", "2026-10-17T00:00:00.000Z");
+		// A broken cross-org parent reference must not join by id alone.
+		insert.run("r5", ORG_A, "i3", "f5", "user", NOW);
+		const base = { orgId: ORG_A, after: null, limit: 50 };
+		const rows = await listWorkInteractionResponseEvents(db, base);
+		expect(rows.map((row) => row.id)).toEqual(["r1", "r2", "r3"]);
+		expect(rows[0]).toEqual({
+			id: "r1",
+			interactionId: "i1",
+			workItemId: "w1",
+			responderType: "user",
+			responderId: "actor",
+			respondedAt: NOW,
+		});
+		expect(JSON.stringify(rows)).not.toContain("secret");
+		expect(
+			(await listWorkInteractionResponseEvents(db, { ...base, limit: 1 })).map(
+				(row) => row.id,
+			),
+		).toEqual(["r1"]);
+		expect(
+			(
+				await listWorkInteractionResponseEvents(db, {
+					...base,
+					after: { at: NOW, id: "r1" },
+				})
+			).map((row) => row.id),
+		).toEqual(["r2", "r3"]);
+		expect(
+			(
+				await listWorkInteractionResponseEvents(db, {
+					...base,
+					requestId: "i1",
+					workItemId: "w1",
+					responderType: "external_agent",
+				})
+			).map((row) => row.id),
+		).toEqual(["r3"]);
+		expect(
+			await listWorkInteractionResponseEvents(db, {
+				...base,
+				workItemId: "w2",
+				responderType: "user",
+			}),
+		).toEqual([]);
+		expect(await getLatestWorkInteractionResponsePosition(db, ORG_A)).toEqual({
+			at: "2026-10-16T00:00:00.000Z",
+			id: "r3",
 		});
 	});
 });

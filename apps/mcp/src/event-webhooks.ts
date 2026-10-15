@@ -5,6 +5,7 @@ import {
 	type EventCallerCredential,
 } from "./interaction-event-auth";
 import {
+	INTERACTION_REPLY_EVENT,
 	InteractionEventError,
 	sendInteractionWebhook,
 	verifyWebhookCallback,
@@ -178,8 +179,13 @@ function sortedArguments(args: Record<string, string>): [string, string][] {
 // events/subscribe and events/unsubscribe
 // ---------------------------------------------------------------------------
 
-function eventName(params: Record<string, unknown>): PollableEventName {
-	if (!isPollableEvent(params.name))
+type LedgerWebhookEventName = Exclude<
+	PollableEventName,
+	typeof INTERACTION_REPLY_EVENT
+>;
+
+function eventName(params: Record<string, unknown>): LedgerWebhookEventName {
+	if (!isPollableEvent(params.name) || params.name === INTERACTION_REPLY_EVENT)
 		throw new InteractionEventError(-32023, "Unknown event", { kind: "event" });
 	return params.name;
 }
@@ -187,7 +193,7 @@ function eventName(params: Record<string, unknown>): PollableEventName {
 async function authorizeSubscriber(
 	env: CloudflareEnv,
 	caller: Omit<EventCallerCredential, "organizationId">,
-	name: PollableEventName,
+	name: LedgerWebhookEventName,
 	organizationId: string,
 	dependencies: EventWebhookDependencies,
 	requireWebhooks: boolean,
@@ -214,7 +220,7 @@ async function authorizeSubscriber(
 async function subscriptionIdFor(
 	owner: string,
 	caller: Omit<EventCallerCredential, "organizationId">,
-	name: PollableEventName,
+	name: LedgerWebhookEventName,
 	args: Record<string, string>,
 	url: string,
 ): Promise<string> {

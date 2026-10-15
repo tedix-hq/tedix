@@ -218,6 +218,7 @@ describe("exact Interaction reply webhook lifecycle", () => {
 			},
 			{ ...params, delivery: { ...params.delivery, secret: "whsec_eA==" } },
 			{ ...params, cursor: "old" },
+			{ ...params, arguments: { organization_id: ORG } },
 			{ ...params, arguments: { ...params.arguments, request_id: RESPONSE } },
 		]) {
 			const f = fixture();

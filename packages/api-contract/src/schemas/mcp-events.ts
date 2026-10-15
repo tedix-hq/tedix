@@ -245,3 +245,26 @@ export const RecordMcpEventWebhookDeliveryInputSchema = z.object({
 export const RecordMcpEventWebhookDeliveryResultSchema = z.object({
 	recorded: z.boolean(),
 });
+
+export const WorkInteractionRespondedEventSchema = z.object({
+	eventId: z.string(),
+	timestamp: z.string(),
+	data: z.object({
+		organization_id: z.string().uuid(),
+		request_id: z.string().uuid(),
+		response_id: z.string().uuid(),
+	}),
+});
+export const PollWorkInteractionResponsesInputSchema = z.object({
+	/** Omit (or null) to start from the ledger head without replay. */
+	after: McpEventKeysetCursorSchema.nullable().optional(),
+	requestId: z.string().uuid().optional(),
+	workItemId: z.string().uuid().optional(),
+	responderType: z.enum(["user", "tedi", "external_agent"]).optional(),
+	limit: PollLimitSchema,
+});
+export const PollWorkInteractionResponsesResultSchema = z.object({
+	events: z.array(WorkInteractionRespondedEventSchema),
+	after: McpEventKeysetCursorSchema,
+	hasMore: z.boolean(),
+});
