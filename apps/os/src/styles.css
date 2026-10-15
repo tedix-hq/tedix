@@ -1262,6 +1262,21 @@ a:focus-visible {
 	min-height: 0;
 }
 
+/* The workspace canvas hosts the same editor inside a scrolling stage. Without
+   a definite height the rail's full thumbnail list set the layout row (measured
+   1378px in a 763px pane), so the fitted slide was centred far below the fold.
+   Bound the shell to the pane, as the output workshop does above. */
+.canvas-document-shell:has(> .slides-editor) {
+	height: 100%;
+	min-height: 0;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.canvas-document-shell > .slides-editor {
+	min-height: 0;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
 .output-workshop-footer {
 	display: flex;
 	min-width: 0;
@@ -1789,6 +1804,7 @@ a:focus-visible {
 
 /* The rounded slide canvas separates white content from its pale stage without
  * a border, outline, or shadow. Documents and sheets retain square paper edges.
+ * Present mode squares the corners so the slide meets the screen edge.
  *
  * Fit-to-stage: the slide stays exactly 16:9 and is bounded by BOTH axes of its
  * stage. Width is the smaller of the stage's width and the width a 16:9 box may
@@ -1803,9 +1819,13 @@ a:focus-visible {
 	aspect-ratio: 16 / 9;
 }
 
+.slides-present-stage > .slides-editor-canvas {
+	border-radius: 0;
+}
+
 @container (min-width: 52rem) {
 	.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector]) {
-		grid-template-columns: 11rem minmax(0, 1fr);
+		grid-template-columns: 13rem minmax(0, 1fr);
 		grid-template-rows: minmax(0, 1fr);
 	}
 
