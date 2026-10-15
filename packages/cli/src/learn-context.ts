@@ -372,11 +372,11 @@ export function planContext(input: {
 		const title = goal
 			? goalTitle(goal)
 			: (signals.title ?? input.titles?.get(signals.sessionId) ?? null);
-		const firsts = asks
-			.map((ask) => ask.text)
-			.filter(substantive)
-			.slice(0, 3)
-			.map((text) => short(text, 200));
+		const said = asks.map((ask) => ask.text).filter(substantive);
+		const firsts = [
+			...said.slice(0, 2),
+			...(said.length > 2 ? [said[said.length - 1]!] : []),
+		].map((text) => short(text, 200));
 		if (!title && !firsts.length) continue;
 		const location = locate(signals);
 		const target = routedTarget(location, input, plan.unrouted, 1);
@@ -410,6 +410,8 @@ export interface Candidate {
 	from: string;
 	to: string;
 	goal: boolean;
+	/** The sessions show it finished: context only, never a new item. */
+	done?: boolean;
 	/** The cited sessions' own titles, which widen the board search. */
 	context?: string;
 }
@@ -449,7 +451,8 @@ List the durable work these sessions show:
 - "goal": an outcome pursued across several sessions;
 - "project": a named product area, client or body of work.
 Merge sessions only when they work on the same deliverable or outcome; related but different deliverables stay separate entries. Skip status checks, one-off questions, small talk, personal errands unrelated to their work, and tests or demos of the agent itself.
-Return ONLY a JSON array, no prose: [{"kind":"task|goal|project","title":"<at most 12 words; a task starts with a verb>","sessions":[<numbers>],"confidence":<0 to 1>}].
+Each summary ends with the last thing typed; mark "done" true when the sessions show the work finished (shipped, merged, closed, answered).
+Return ONLY a JSON array, no prose: [{"kind":"task|goal|project","title":"<at most 12 words; a task starts with a verb>","sessions":[<numbers>],"confidence":<0 to 1>,"done":<true|false>}].
 Paraphrase. Keep product, client and project names; never include people's names, email addresses, secrets, tokens or URLs.
 Return [] if nothing qualifies.
 
@@ -537,6 +540,7 @@ async function rawCandidates(
 					? Math.min(1, Math.max(0, confidence))
 					: 0.5,
 				sessions: cited.map((s) => s.sessionId),
+				...(entry.done === true ? { done: true } : {}),
 			});
 		}
 	});
@@ -597,6 +601,8 @@ export async function extractCandidates(
 			from: times[0] ?? "",
 			to: times[times.length - 1] ?? "",
 			goal,
+			// Finished only when every entry merged here says so.
+			...(cluster.items.every((i) => i.done) ? { done: true } : {}),
 			...(context ? { context } : {}),
 		});
 	}
@@ -719,7 +725,7 @@ export function boardMatchSource(input: {
 		const qWeight = weight(qw);
 		const top = (list, n) => list.map((x) => [x, Math.max(score(cw, cWeight, x), 0.9 * score(qw, qWeight, x))]).filter(([, s]) => s > 0.12).sort((a, b) => b[1] - a[1]).slice(0, n);
 		matches[c.k] = {
-			w: top(items, 8).map(([x, s]) => [x.id, x.t, x.p, x.d, x.par, Math.round(s * 100) / 100]),
+			w: top(items, 6).map(([x, s]) => [x.id, String(x.t).slice(0, 120), x.p, x.d, x.par, Math.round(s * 100) / 100]),
 			p: top(plist, 3).map(([x, s]) => [x.id, x.key, x.name, Math.round(s * 100) / 100]),
 		};
 	}
@@ -727,49 +733,66 @@ export function boardMatchSource(input: {
 }`;
 }
 
-/** Run the match in two programs so each stays inside the gateway's wait. */
+/**
+ * Candidates per program: the gateway truncates a Code Mode result past about
+ * six thousand tokens, and each candidate returns up to nine matches.
+ */
+const MATCH_CHUNK = 8;
+
+/**
+ * Run the match as programs over open and over finished Work, each inside the
+ * gateway's wait and under its result cap.
+ */
 export async function matchBoard(
 	candidates: Candidate[],
 	since: string,
 	call: (source: string) => Promise<Json>,
 ): Promise<BoardMatches> {
-	const list = candidates.map((c) => ({
-		k: c.key,
-		t: c.title,
-		...(c.context ? { q: c.context } : {}),
-	}));
-	const open = await call(
-		boardMatchSource({
-			candidates: list,
-			since,
-			dispositions: ["proposed", "accepted"],
-			projects: true,
-		}),
-	);
-	const closed = await call(
-		boardMatchSource({
-			candidates: list,
-			since,
-			dispositions: ["completed", "cancelled"],
-			projects: false,
-		}),
-	);
-	const matches: BoardMatches["matches"] = {};
+	const out: BoardMatches = { me: null, scanned: {}, matches: {} };
+	const open: Json = {};
+	const closed: Json = {};
+	for (let i = 0; i < candidates.length; i += MATCH_CHUNK) {
+		const list = candidates.slice(i, i + MATCH_CHUNK).map((c) => ({
+			k: c.key,
+			t: c.title,
+			...(c.context ? { q: c.context } : {}),
+		}));
+		const results = await Promise.all(
+			(
+				[
+					[["proposed", "accepted"], true],
+					[["completed", "cancelled"], false],
+				] as const
+			).map(([dispositions, projects]) =>
+				call(
+					boardMatchSource({
+						candidates: list,
+						since,
+						dispositions: [...dispositions],
+						projects,
+					}),
+				),
+			),
+		);
+		results.forEach((result, side) => {
+			if (!result.matches || typeof result.matches !== "object")
+				throw new Error("the board match returned no matches");
+			Object.assign(side === 0 ? open : closed, result.matches);
+			out.me ??= result.me ?? null;
+			Object.assign(out.scanned, result.scanned);
+		});
+	}
 	for (const c of candidates) {
-		const a = open.matches?.[c.key] ?? { w: [], p: [] };
-		const b = closed.matches?.[c.key] ?? { w: [], p: [] };
-		matches[c.key] = {
+		const a = open[c.key] ?? { w: [], p: [] };
+		const b = closed[c.key] ?? { w: [], p: [] };
+		out.matches[c.key] = {
 			w: [...a.w, ...b.w]
 				.sort((x: WorkMatch, y: WorkMatch) => y[5] - x[5])
 				.slice(0, 8),
 			p: a.p,
 		};
 	}
-	return {
-		me: open.me ?? closed.me ?? null,
-		scanned: { ...open.scanned, ...closed.scanned },
-		matches,
-	};
+	return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -901,14 +924,16 @@ function decide(
 			...(nearest ? { nearest } : {}),
 			reason: "no project on the board fits",
 		};
-	if (candidate.confidence < THRESHOLDS.propose)
+	if (candidate.confidence < THRESHOLDS.propose || candidate.done)
 		return {
 			...base,
 			action: "unplaced",
 			projectId,
 			projectKey: projectKeys.get(projectId),
 			...(nearest ? { nearest } : {}),
-			reason: "too uncertain to propose",
+			reason: candidate.done
+				? "finished in the sessions, not on the board"
+				: "too uncertain to propose",
 		};
 	return {
 		...base,
@@ -1009,7 +1034,8 @@ export function placeByProjects(
 		if (
 			p.action !== "unplaced" ||
 			c.kind !== "task" ||
-			c.confidence < THRESHOLDS.propose
+			c.confidence < THRESHOLDS.propose ||
+			c.done
 		)
 			return p;
 		const counts = new Map<Proposal, number>();

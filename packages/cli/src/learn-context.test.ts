@@ -8,6 +8,7 @@ import {
 	type Candidate,
 	extractCandidates,
 	judge,
+	matchBoard,
 	memoryNotes,
 	planContext,
 	planNotes,
@@ -378,6 +379,32 @@ describe("board match and judge", () => {
 			["tracked", "SITE"],
 			["unplaced", null],
 		]);
+	});
+
+	it("splits many candidates across programs so no result outgrows the gateway cap", async () => {
+		const board = new Board(PROJECTS);
+		board.items = [
+			{
+				id: "w-1",
+				title: "Topic 17 work",
+				projectId: "p-site",
+				disposition: "accepted",
+				parentWorkItemId: null,
+				createdAt: T(1),
+			},
+		];
+		const sources: string[] = [];
+		const many = Array.from({ length: 20 }, (_, i) =>
+			candidate(`Topic ${i} work`),
+		);
+		const result = await matchBoard(many, T(1), (source) => {
+			sources.push(source);
+			return board.run(source);
+		});
+		expect(sources).toHaveLength(6);
+		expect(Object.keys(result.matches)).toHaveLength(20);
+		expect(result.matches[many[17]!.key]!.w[0]![0]).toBe("w-1");
+		expect(result.me?.name).toBe("Ada Lovelace");
 	});
 
 	it("trusts the model's covering match and ignores references it did not offer", async () => {
