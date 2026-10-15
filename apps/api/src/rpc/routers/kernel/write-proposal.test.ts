@@ -779,7 +779,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			route: writeRoute({
 				toolIntent: {
 					appSlug: "tedix-unified",
-					capability: "create_work_item",
+					capability: "work_items.create",
 					connectionStatus: "connected",
 				},
 			}),
@@ -787,6 +787,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			content: `create the work item titled Release proof. Description: ${description}`,
 			model,
 		});
+		expect(mocks.selectJevAction).not.toHaveBeenCalled();
 
 		expect(proposal).toEqual({
 			appSlug: "tedix-unified",
@@ -804,7 +805,7 @@ describe("planKernelWriteProposal — positive path", () => {
 		expect(service.calls[1]?.params).toMatchObject({
 			name: "code",
 			arguments: {
-				code: expect.stringContaining('"query":"create work item"'),
+				code: expect.stringContaining('"query":"work items create"'),
 			},
 		});
 		expect(
@@ -1519,6 +1520,19 @@ describe("Jev action selection failure boundary", () => {
 			});
 			// One selection pass over the catalog, one argument pass on the exact tool.
 			expect(generate).toHaveBeenCalledTimes(2);
+			expect(generate.mock.calls[0]?.[0].responseFormat).toMatchObject({
+				type: "json",
+				schema: {
+					properties: {
+						args: {
+							anyOf: [
+								{ type: "object", properties: {}, additionalProperties: false },
+								{ type: "null" },
+							],
+						},
+					},
+				},
+			});
 		},
 	);
 
