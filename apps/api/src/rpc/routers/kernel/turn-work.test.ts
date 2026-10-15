@@ -2773,6 +2773,33 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 		expect(result.run.childRunId).toBe("tedi-cto:mcp:run-1_auto_tedi-cto");
 	});
 
+	it("replaces the optimistic delegation promise when dispatch fails", async () => {
+		const capturedEvents: Array<{
+			kind: string;
+			payload: Record<string, unknown> | undefined;
+		}> = [];
+		const deps = stubDeps({
+			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+			kernel: autoDelegateKernel(),
+			dispatchAutoDelegation: vi.fn(async () => ({
+				childRunId: "tedi-cto:mcp:run-1_auto_tedi-cto",
+				status: "failed" as const,
+				error: "Workflow image upload requires admitted custody",
+			})),
+			insertKernelRuntimeEvent: capturingPayloadInsert(capturedEvents),
+		});
+		const result = await runKernelTurnWork(deps, turnInput());
+
+		expect(result.status).toBe("failed");
+		expect(result.assistantMessage.content).toContain("failed during dispatch");
+		expect(result.assistantMessage.content).not.toContain("On it");
+		expect(result.assistantMessage.content).not.toContain("admitted custody");
+		expect(
+			capturedEvents.find((event) => event.kind === "message.completed")
+				?.payload?.content,
+		).toBe(result.assistantMessage.content);
+	});
+
 	it("creates and threads the auto-delegation Work Item before child dispatch", async () => {
 		const createDelegationWorkItem = vi.fn(async () => "work-item-1");
 		const predictAutoDelegationChildRunId = vi.fn(

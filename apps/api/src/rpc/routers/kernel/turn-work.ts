@@ -2567,6 +2567,9 @@ export async function runKernelTurnWork(
 	// null kernelResult but renders the honest billing-blocked notice — a policy
 	// denial must never impersonate a provider outage.
 	const modelUnavailable = !kernelResult;
+	const routedAssistantContent = autoDispatchFailed
+		? "The delegated request failed during dispatch. No completed result was received. Open the run details for the error, and check any changes before retrying."
+		: kernelResult?.assistantContent;
 	const assistantContent = observeOnly
 		? `Observation only: Kernel selected ${kernelResult?.route?.routeKind ?? "no route"}. No tools, workflows, approvals, writes, Work Items, or delegations were executed.`
 		: modelUnavailable
@@ -2589,8 +2592,7 @@ export async function runKernelTurnWork(
 									"the selected tedi",
 								null,
 							)
-						: (kernelResult?.assistantContent ??
-							KERNEL_MODEL_UNAVAILABLE_MESSAGE);
+						: (routedAssistantContent ?? KERNEL_MODEL_UNAVAILABLE_MESSAGE);
 	const dispatchAwareStatus: TediRunStatus = modelUnavailable
 		? "failed"
 		: writeProposalActive || delegationApprovalActive
