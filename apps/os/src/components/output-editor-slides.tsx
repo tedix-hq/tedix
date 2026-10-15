@@ -56,6 +56,11 @@ import {
 	safeImageSource,
 } from "@/lib/output-models";
 import { useEditorHistory } from "@/lib/use-editor-history";
+import {
+	applySlideElementAction,
+	type SlideElementAction,
+	slideElementShortcut,
+} from "@/components/slide-element-actions";
 
 const MAX_SLIDES = 200;
 const MAX_NOTES_LENGTH = 10_000;
@@ -556,6 +561,18 @@ export function SlidesEditor({
 		setShowInspector(true);
 		setShowThumbnails(false);
 	};
+	const runElementAction = (action: SlideElementAction) => {
+		if (!activeSlide) return false;
+		const result = applySlideElementAction(
+			action,
+			activeSlide,
+			selectedElement?.id ?? null,
+		);
+		if (!result) return false;
+		if (result.slide) commitDeck(replaceActiveSlide(deck, result.slide));
+		setSelectedElementId(result.selectedId);
+		return true;
+	};
 	const addElement = (type: OsPresentationElementType) => {
 		if (type === "image" || type === "svg") {
 			setAssetElementType(type);
@@ -608,6 +625,15 @@ export function SlidesEditor({
 					event.preventDefault();
 					if (key === "y" || event.shiftKey) history.redo();
 					else history.undo();
+					return;
+				}
+				const action = slideElementShortcut(event);
+				if (action) {
+					if (runElementAction(action)) {
+						event.preventDefault();
+						// Cut removes the focused element; keep focus in the editor.
+						if (action === "cut") event.currentTarget.focus();
+					}
 					return;
 				}
 				// Element keys act only on the focused, selected element, so arrows
@@ -1079,25 +1105,35 @@ export function SlidesEditor({
 									}
 								/>
 							</Text>
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								disabled={disabled}
-								onClick={() => {
-									commitDeck(
-										replaceActiveSlide(deck, {
-											...activeSlide,
-											elements: activeSlide.elements.filter(
-												(element) => element.id !== selectedElement.id,
-											),
-										}),
-									);
-									setSelectedElementId(null);
-								}}
-							>
-								<Trash size={14} /> Delete element
-							</Button>
+							<div className="flex gap-1">
+								{(
+									[
+										["duplicate", "Duplicate element", Copy],
+										["forward", "Bring forward", ArrowUp],
+										["backward", "Send backward", ArrowDown],
+										["delete", "Delete element", Trash],
+									] as const
+								).map(([action, label, Icon]) => (
+									<Button
+										key={action}
+										type="button"
+										size="icon-xs"
+										variant="ghost"
+										aria-label={label}
+										title={label}
+										disabled={
+											disabled ||
+											(action === "forward" &&
+												activeSlide.elements.at(-1) === selectedElement) ||
+											(action === "backward" &&
+												activeSlide.elements[0] === selectedElement)
+										}
+										onClick={() => runElementAction(action)}
+									>
+										<Icon size={13} />
+									</Button>
+								))}
+							</div>
 						</>
 					) : (
 						<Text role="label" tone="secondary" className="m-0">
