@@ -93,6 +93,30 @@ Cloud selected, and dots. Local Codex desktop wake-up is not proved by this
 integration. Local context hooks remain optional and require host trust; native
 Codex Goals own continuation of executable work. See [OpenAI MCP Events](https://developers.openai.com/plugins/build/mcp-events).
 
+### Poll Work and skill-run events
+
+The same flag adds three poll-only events to `events/list`:
+`work.item.state_changed` (accepted, completed, cancelled, Attempt settled),
+`work.approval.requested` and `skill.run.failed`. Each poll needs human OAuth
+that selects `organization_id`, plus a Work read scope (`mcp:work.*`) or, for
+skill runs, a skills scope. Reads come from the organization's own ledgers, so
+an agent never sees another organization's events. Payloads carry IDs and
+enums only. Re-read the record before acting.
+
+```sh
+curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: events/poll" -d '{"jsonrpc":"2.0","id":1,"method":"events/poll",
+  "params":{"name":"work.item.state_changed","cursor":null,
+  "arguments":{"organization_id":"00000000-0000-4000-8000-000000000001"}}}'
+```
+
+A `null` cursor starts from now and returns a fresh `cursor`. Store it and pass
+it on the next poll. Poll again at once while `hasMore` is true, otherwise
+after `nextPollMs`. A Claude or Codex host on MCP 2026-07-28 sends the same
+request from its events loop. These events do not use webhooks:
+`events/subscribe` answers `-32026`.
+
 ## Configured native catalog tools
 
 An app can configure tools with `transport: "catalog"` and the closed

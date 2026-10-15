@@ -24,7 +24,10 @@ vi.mock("@tedix/api-client/internal", () => ({
 	getInternalApiClient: mocks.getInternalApiClient,
 }));
 
-import { authorizeInteractionEvent } from "./interaction-event-auth";
+import {
+	authorizeEventCaller,
+	authorizeInteractionEvent,
+} from "./interaction-event-auth";
 
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001";
 const REQUEST_ID = "00000000-0000-4000-8000-000000000002";
@@ -205,5 +208,40 @@ describe("Interaction event live authorization", () => {
 		await expect(authorizeInteractionEvent(env, credential)).rejects.toThrow(
 			"Interaction scope mismatch",
 		);
+	});
+});
+
+describe("Org-scoped poll event authorization", () => {
+	const caller = {
+		authorization: credential.authorization,
+		mcpUrl: credential.mcpUrl,
+		organizationId: ORGANIZATION_ID,
+	};
+	const workScopes = ["mcp:work.read", "mcp:work.write", "mcp:work.admin"];
+
+	it("requires one of the scopes that gate the matching tools", async () => {
+		await expect(authorizeEventCaller(env, caller, workScopes)).rejects.toThrow(
+			"Event read consent required",
+		);
+		expect(mocks.validateHumanMcpSelection).not.toHaveBeenCalled();
+		mocks.validateAuth.mockResolvedValue({
+			...auth(),
+			scopes: ["mcp:work.read"],
+		});
+		await expect(
+			authorizeEventCaller(env, caller, workScopes),
+		).resolves.toMatchObject({ organizationId: ORGANIZATION_ID });
+	});
+
+	it("never binds a poll to an organization outside the live selection", async () => {
+		mocks.validateAuth.mockResolvedValue({
+			...auth(),
+			scopes: ["mcp:work.read"],
+		});
+		mocks.validateHumanMcpSelection.mockResolvedValue(selected(otherOrg));
+		await expect(
+			authorizeEventCaller(env, caller, workScopes),
+		).rejects.toThrow();
+		expect(mocks.getInternalApiClient).not.toHaveBeenCalled();
 	});
 });

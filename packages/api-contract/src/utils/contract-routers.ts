@@ -49,6 +49,7 @@ import { learningFeedbackContract } from "../contracts/learning-feedback";
 import { listingsContract } from "../contracts/listings";
 import { mcpCredentialsContract } from "../contracts/mcp-credentials";
 import { mcpEvalContract } from "../contracts/mcp-eval";
+import { mcpEventsContract } from "../contracts/mcp-events";
 import { mcpGovernanceContract } from "../contracts/mcp-governance";
 import { mcpHealthContract } from "../contracts/mcp-health";
 import { mcpNetworkSecurityContract } from "../contracts/mcp-network-security";
@@ -150,6 +151,7 @@ export const ROUTERS: Record<string, unknown> = {
 	listings: listingsContract,
 	mcpCredentials: mcpCredentialsContract,
 	mcpEval: mcpEvalContract,
+	mcpEvents: mcpEventsContract,
 	mcpGovernance: mcpGovernanceContract,
 	mcpNetworkSecurity: mcpNetworkSecurityContract,
 	mcpHealth: mcpHealthContract,

@@ -16,11 +16,23 @@ export type InteractionEventCredential = {
 	requestId: string;
 };
 
-/** Recheck the original credential, live grant and exact resource on EVERY delivery. */
-export async function authorizeInteractionEvent(
+export type EventCallerCredential = {
+	authorization: string;
+	mcpUrl: string;
+	organizationId: string;
+};
+
+/**
+ * Validate one human OAuth caller for an `events/*` request: the original
+ * bearer, its live consent, the selected organization, and one of the scopes
+ * that already gate the equivalent tools. Returns an API client bound to that
+ * organization and forwarding only that bearer.
+ */
+export async function authorizeEventCaller(
 	env: CloudflareEnv,
-	credential: InteractionEventCredential,
-): Promise<{ owner: string; expiresAt: number }> {
+	credential: EventCallerCredential,
+	requiredScopes: readonly string[],
+) {
 	const url = new URL(credential.mcpUrl);
 	if (
 		url.protocol !== "https:" ||
@@ -64,8 +76,9 @@ export async function authorizeInteractionEvent(
 		typeof auth.payload.exp !== "number"
 	)
 		throw new Error("Human OAuth required");
-	if (!auth.scopes?.includes("mcp:messaging.read"))
-		throw new Error("Messaging read consent required");
+	const scopes = auth.scopes ?? [];
+	if (!requiredScopes.some((scope) => scopes.includes(scope)))
+		throw new Error("Event read consent required");
 	const selection = await validateHumanMcpSelection(auth.payload, env, {
 		audience,
 		mcpServerId: config.descopeResourceId,
@@ -84,17 +97,32 @@ export async function authorizeInteractionEvent(
 		headers: {
 			"X-Forwarded-Authorization": credential.authorization,
 			"X-Tedix-Caller-Type": "mcp-edge-user",
-			"X-Tedix-Mcp-Caller-Scopes": auth.scopes.join(" "),
+			"X-Tedix-Mcp-Caller-Scopes": scopes.join(" "),
 		},
 	});
+	return {
+		client,
+		organizationId: org.organizationId,
+		owner: auth.payload.sub,
+		expiresAt: auth.payload.exp * 1000,
+	};
+}
+
+/** Recheck the original credential, live grant and exact resource on EVERY delivery. */
+export async function authorizeInteractionEvent(
+	env: CloudflareEnv,
+	credential: InteractionEventCredential,
+): Promise<{ owner: string; expiresAt: number }> {
+	const { client, organizationId, owner, expiresAt } =
+		await authorizeEventCaller(env, credential, ["mcp:messaging.read"]);
 	const result = await client.workInteractions.get({
 		requestId: credential.requestId,
 		responseLimit: 1,
 	});
 	if (
-		result.request.orgId !== org.organizationId ||
+		result.request.orgId !== organizationId ||
 		result.request.id !== credential.requestId
 	)
 		throw new Error("Interaction scope mismatch");
-	return { owner: auth.payload.sub, expiresAt: auth.payload.exp * 1000 };
+	return { owner, expiresAt };
 }

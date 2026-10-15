@@ -38,7 +38,7 @@ it("stays absent until explicitly enabled", async () => {
 		),
 	).toBeNull();
 });
-it("lists only the bounded reply event", async () => {
+it("lists the reply webhook event and the org-scoped poll events", async () => {
 	const response = await maybeHandleInteractionEvents(
 		request("events/list"),
 		{} as CloudflareEnv,
@@ -52,8 +52,40 @@ it("lists only the bounded reply event", async () => {
 					delivery: ["webhook"],
 					inputSchema: { required: ["organization_id", "request_id"] },
 				},
+				{
+					name: "work.item.state_changed",
+					delivery: ["poll"],
+					inputSchema: { required: ["organization_id"] },
+				},
+				{ name: "work.approval.requested", delivery: ["poll"] },
+				{ name: "skill.run.failed", delivery: ["poll"] },
 			],
 		},
+	});
+});
+it("answers a delivery mode the event does not offer with Unsupported", async () => {
+	const poll = await maybeHandleInteractionEvents(
+		request("events/poll", {
+			name: "work.interaction.responded",
+			arguments: { organization_id: ORG, request_id: REQUEST },
+			cursor: null,
+		}),
+		{} as CloudflareEnv,
+		true,
+	);
+	expect(await poll!.json()).toMatchObject({
+		error: { code: -32026, data: { value: "poll" } },
+	});
+	const subscribe = await maybeHandleInteractionEvents(
+		request("events/subscribe", {
+			name: "work.item.state_changed",
+			arguments: { organization_id: ORG },
+		}),
+		{} as CloudflareEnv,
+		true,
+	);
+	expect(await subscribe!.json()).toMatchObject({
+		error: { code: -32026, data: { value: "webhook" } },
 	});
 });
 it("rejects mismatched headers before subscribing", async () => {
