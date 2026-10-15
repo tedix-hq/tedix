@@ -9,6 +9,7 @@ import { Text } from "@/components/kumo/text";
 import {
 	ReadOnlyElement,
 	SlideBackground,
+	useSlideTextColor,
 } from "@/components/output-slide-element";
 import {
 	bareKey,
@@ -348,6 +349,7 @@ function DeckView({
 	onEdit?: () => void;
 }) {
 	const deck = normalizePresentationContent(content).deck!;
+	const color = useSlideTextColor();
 	const [activeSlideId, setActiveSlideId] = useState(deck.activeSlideId);
 	const [presenting, setPresenting] = useState(false);
 	const slide =
@@ -419,7 +421,7 @@ function DeckView({
 						>
 							<span
 								className="deck-read-thumb-canvas"
-								style={{ background: candidate.background }}
+								style={{ background: candidate.background, color }}
 							>
 								<SlideBackground slide={candidate} />
 								{candidate.elements.map((element) => (
@@ -443,6 +445,7 @@ function DeckView({
 						className="deck-read-canvas relative overflow-hidden rounded-md"
 						style={{
 							background: slide.background,
+							color,
 							containerType: "inline-size",
 						}}
 					>

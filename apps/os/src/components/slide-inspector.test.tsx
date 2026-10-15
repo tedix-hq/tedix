@@ -27,23 +27,26 @@ function mount(element: OsPresentationElement) {
 	const root = createRoot(container);
 	const changes: OsPresentationElement[] = [];
 	const slideChanges: OsPresentationCanvasSlide[] = [];
-	act(() =>
-		root.render(
-			<SlideInspector
-				slide={slide}
-				element={element}
-				canMoveForward
-				canMoveBackward
-				onChangeSlide={(next) => slideChanges.push(next)}
-				onChangeElement={(next) => changes.push(next)}
-				onAction={() => {}}
-				onImageFile={() => {}}
-				onBackgroundImageFile={() => {}}
-			/>,
-		),
-	);
+	const render = (next = element) =>
+		act(() =>
+			root.render(
+				<SlideInspector
+					slide={slide}
+					element={next}
+					canMoveForward
+					canMoveBackward
+					onChangeSlide={(next) => slideChanges.push(next)}
+					onChangeElement={(next) => changes.push(next)}
+					onAction={() => {}}
+					onImageFile={() => {}}
+					onBackgroundImageFile={() => {}}
+				/>,
+			),
+		);
+	render();
 	return {
 		container,
+		render,
 		changes,
 		slideChanges,
 		cleanup: () => {
@@ -104,7 +107,13 @@ describe("SlideInspector", () => {
 		)!;
 		type(url, "javascript:alert(1)");
 		expect(mounted.changes).toHaveLength(0);
+		for (const partial of ["h", "ht", "htt", "http", "https", "https:"]) {
+			type(url, partial);
+			expect(url.value).toBe(partial);
+			expect(mounted.changes).toHaveLength(0);
+		}
 		type(url, "https://example.com/a.png");
+		expect(url.value).toBe("https://example.com/a.png");
 		expect(mounted.changes.at(-1)?.src).toBe("https://example.com/a.png");
 		type(
 			mounted.container.querySelector<HTMLInputElement>(
@@ -132,6 +141,40 @@ describe("SlideInspector", () => {
 		expect(
 			mounted.container.querySelector('[aria-label="Element opacity"]'),
 		).not.toBeNull();
+		mounted.cleanup();
+	});
+
+	it("keeps the stored image on invalid blur, clears it on empty input and resets drafts when selecting another image", () => {
+		const image: OsPresentationElement = {
+			id: "i",
+			type: "image",
+			x: 0,
+			y: 0,
+			width: 200,
+			height: 100,
+			style: {},
+			src: "https://example.com/old.png",
+		};
+		const mounted = mount(image);
+		const query = () =>
+			mounted.container.querySelector<HTMLInputElement>(
+				'[aria-label="Element image URL"]',
+			)!;
+		type(query(), "https:");
+		expect(mounted.changes).toHaveLength(0);
+		act(() =>
+			query().dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
+		);
+		expect(query().value).toBe(image.src);
+		type(query(), "");
+		expect(mounted.changes.at(-1)?.src).toBeUndefined();
+		type(query(), "http");
+		mounted.render({
+			...image,
+			id: "other",
+			src: "https://example.com/other.png",
+		});
+		expect(query().value).toBe("https://example.com/other.png");
 		mounted.cleanup();
 	});
 

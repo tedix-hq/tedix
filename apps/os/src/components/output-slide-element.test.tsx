@@ -1,4 +1,6 @@
 import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
+import { DEFAULT_ORGANIZATION_OS_THEME } from "@tedix/api-contract/schemas/os-theme";
+import { setPresentationAppearance } from "@/lib/presentation-appearance";
 import type { PresentationContent } from "@/lib/output-models";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -114,6 +116,70 @@ function geometry(element: HTMLElement, canvasWidth: number) {
 }
 
 describe("one slide renderer", () => {
+	it.each([
+		[undefined, "#111111"],
+		[
+			{
+				...DEFAULT_ORGANIZATION_OS_THEME,
+				light: {
+					...DEFAULT_ORGANIZATION_OS_THEME.light,
+					foreground: "#223344",
+				},
+			},
+			"#223344",
+		],
+		[
+			{ ...DEFAULT_ORGANIZATION_OS_THEME, slideTones: { neutral: "#334455" } },
+			"#334455",
+		],
+	])(
+		"keeps slide text independent of dark app colours with theme %j",
+		(appearance, expected) => {
+			const light = structuredClone(deck);
+			const slide = light.deck!.slides[0]!;
+			slide.background = "#ffffff";
+			delete slide.elements[0]!.style.color;
+			slide.elements.push({
+				...slide.elements[1]!,
+				id: "bullets",
+				type: "bullet",
+				text: "One\nTwo",
+				style: {},
+			});
+			slide.elements[1]!.style.color = "#cc3300";
+			setPresentationAppearance({ appearance });
+			const mounted = mount(
+				<div className="dark" style={{ color: "#fafafa" }}>
+					<SlidesEditor value={light} onChange={() => {}} />
+					<SlidesEditor value={light} onChange={() => {}} disabled />
+					<OutputContentView content={light} />
+				</div>,
+			);
+			try {
+				const canvases = mounted.container.querySelectorAll<HTMLElement>(
+					".slides-editor-canvas, .slide-thumb-canvas, .deck-read-canvas, .deck-read-thumb-canvas",
+				);
+				expect(canvases.length).toBeGreaterThanOrEqual(4);
+				for (const canvas of canvases) {
+					expect(canvas.style.color).toBe(expected);
+					for (const id of ["line-1", "bullets"]) {
+						const element = canvas.querySelector<HTMLElement>(
+							`[data-slide-element="${id}"]`,
+						)!;
+						expect(getComputedStyle(element).color).toBe(expected);
+					}
+					expect(
+						canvas.querySelector<HTMLElement>('[data-slide-element="card"]')!
+							.style.color,
+					).toBe("#cc3300");
+				}
+			} finally {
+				mounted.cleanup();
+				setPresentationAppearance({});
+			}
+		},
+	);
+
 	it("gives the editor stage and the viewer the same element geometry at any scale", () => {
 		const editor = mount(<SlidesEditor value={deck} onChange={() => {}} />);
 		const viewer = mount(<OutputContentView content={deck} />);

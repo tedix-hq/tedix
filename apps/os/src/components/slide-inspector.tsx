@@ -219,6 +219,7 @@ function InspectorField({
 	disabled?: boolean;
 	onChange: (next: OsPresentationElement) => void;
 }) {
+	const [urlDraft, setUrlDraft] = useState<string | null>(null);
 	switch (field.kind) {
 		case "number":
 		case "prop-number":
@@ -376,8 +377,10 @@ function InspectorField({
 						maxLength={2_048}
 						disabled={disabled}
 						placeholder={element.src && !linked ? "Uploaded image" : "https://"}
-						value={linked ? element.src : ""}
+						value={urlDraft ?? (linked ? element.src : "")}
+						onBlur={() => setUrlDraft(null)}
 						onChange={(event) => {
+							setUrlDraft(event.target.value);
 							const src = event.target.value.trim();
 							// Only an https URL is a usable image; keep the current one
 							// while a new address is still being typed.
@@ -468,7 +471,7 @@ export function SlideInspector({
 						</Text>
 						{fields.basic.map((field) => (
 							<InspectorField
-								key={`${field.kind}-${field.label}`}
+								key={`${element.id}-${field.kind}-${field.label}`}
 								field={field}
 								element={element}
 								disabled={disabled}

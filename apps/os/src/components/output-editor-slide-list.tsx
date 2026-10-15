@@ -11,6 +11,7 @@ import { Text } from "@/components/kumo/text";
 import {
 	ReadOnlyElement,
 	SlideBackground,
+	useSlideTextColor,
 } from "@/components/output-slide-element";
 import { createOutputNodeId } from "@/lib/output-models";
 
@@ -281,6 +282,7 @@ export function SlideList({
 	onView,
 	onCommit,
 }: SlideListProps) {
+	const color = useSlideTextColor();
 	const [search, setSearch] = useState("");
 	const [dragId, setDragId] = useState<string | null>(null);
 	const [drop, setDrop] = useState<{ index: number; before: boolean } | null>(
@@ -442,7 +444,7 @@ export function SlideList({
 								</Text>
 								<div
 									className="slide-thumb-canvas"
-									style={{ background: slide.background }}
+									style={{ background: slide.background, color }}
 								>
 									<SlideBackground slide={slide} />
 									{slide.elements.map((element) => (
