@@ -37,8 +37,12 @@ export function isChatGptConnection(
 	const name =
 		info && typeof info === "object" && "name" in info ? info.name : undefined;
 	return (
-		(typeof name === "string" && /^chatgpt(?:[ /-]|$)/i.test(name)) ||
-		/^ChatGPT(?:[ /]|$)/i.test(headers.get("user-agent") ?? "")
+		/^https:\/\/chatgpt\.com\/oauth\/(?:[A-Za-z0-9_-]+\/)?client\.json$/.test(
+			headers.get("x-tedix-auth-client-id") ?? "",
+		) ||
+		(typeof name === "string" &&
+			/^(?:chatgpt|openai-mcp)(?:[ /-]|$)/i.test(name)) ||
+		/^(?:ChatGPT|openai-mcp)(?:[ /]|$)/i.test(headers.get("user-agent") ?? "")
 	);
 }
 
