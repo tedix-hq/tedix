@@ -1,12 +1,148 @@
 /**
  * Export HTML rendering: structural output per kind, escaping of every user
- * string, and self-containment (no external requests, no script).
+ * string, allowlisted resources, and readiness before capture.
  */
 
-import { describe, expect, it } from "vite-plus/test";
-import { escapeHtml, renderOsOutputHtml } from "./os-output-html";
+import { runInNewContext } from "node:vm";
+import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	escapeHtml,
+	renderOsOutputHtml,
+	OS_EXPORT_RESOURCE_WAIT,
+} from "./os-output-html";
 
 const revisionMeta = { revision: 3, createdAt: "2026-08-13T00:00:00.000Z" };
+
+describe("export resource loading", () => {
+	it("allows CMS raster assets and font hosts, rejecting arbitrary hosts and paths", () => {
+		const allowed = (url: string) =>
+			OS_EXPORT_RESOURCE_WAIT.allowRequestPattern.some((pattern) =>
+				new RegExp(pattern).test(url),
+			);
+		expect(
+			allowed("https://tedix.dev/_emdash/api/media/file/example.png"),
+		).toBe(true);
+		expect(allowed("https://fonts.googleapis.com/css2?family=DM+Sans")).toBe(
+			true,
+		);
+		expect(allowed("https://fonts.gstatic.com/s/dmsans/v1/font.woff2")).toBe(
+			true,
+		);
+		for (const url of [
+			"http://127.0.0.1/a.png",
+			"https://tedix.dev.evil.test/_emdash/api/media/file/a.png",
+			"https://tedix.dev/_emdash/api/media/file/a.svg",
+			"https://tedix.dev/admin",
+			"https://fonts.gstatic.com.evil.test/font.woff2",
+			"https://tedix.dev/_emdash/api/media/file/a.png?redirect=http://localhost",
+		])
+			expect(allowed(url)).toBe(false);
+	});
+
+	it.each(["success", "image failure", "font failure"])(
+		"waits for page load, font readiness and image decoding: %s",
+		async (outcome) => {
+			let loaded!: () => void;
+			let fontsReady!: () => void;
+			let decoded!: () => void;
+			let failed!: (error: Error) => void;
+			const fonts = Object.assign(
+				[{ status: outcome === "font failure" ? "error" : "loaded" }],
+				{
+					ready: new Promise<void>((resolve) => {
+						fontsReady = resolve;
+					}),
+				},
+			);
+			const decode = vi.fn(
+				() =>
+					new Promise<void>((resolve, reject) => {
+						decoded = resolve;
+						failed = reject;
+					}),
+			);
+			const document = {
+				readyState: "loading",
+				fonts,
+				images: [{ decode }],
+				body: { getBoundingClientRect: vi.fn() },
+				documentElement: { dataset: {} as Record<string, string> },
+			};
+			const result = runInNewContext(
+				OS_EXPORT_RESOURCE_WAIT.addScriptTag[0]!.content,
+				{
+					document,
+					window: {
+						addEventListener: (_: string, callback: () => void) => {
+							loaded = callback;
+						},
+					},
+				},
+			);
+			expect(decode).not.toHaveBeenCalled();
+			loaded();
+			await Promise.resolve();
+			expect(decode).toHaveBeenCalledOnce();
+			fontsReady();
+			await Promise.resolve();
+			expect(document.documentElement.dataset.exportReady).toBeUndefined();
+			if (outcome === "image failure") failed(new Error("broken image"));
+			else decoded();
+			await result;
+			expect(document.documentElement.dataset.exportReady).toBe(
+				outcome === "success" ? "true" : undefined,
+			);
+			expect(OS_EXPORT_RESOURCE_WAIT.waitForSelector.timeout).toBe(20_000);
+		},
+	);
+
+	it("renders allowlisted remote images and loads declared webfonts", () => {
+		const html = renderOsOutputHtml(
+			{ kind: "document", title: "Resources" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					blocks: [],
+					richText: {
+						type: "doc",
+						content: [
+							{
+								type: "paragraph",
+								content: [
+									{
+										type: "text",
+										text: "Hello",
+										marks: [
+											{
+												type: "textStyle",
+												attrs: { fontFamily: "DM Sans, sans-serif" },
+											},
+										],
+									},
+								],
+							},
+							{
+								type: "image",
+								attrs: {
+									src: "https://tedix.dev/_emdash/api/media/file/example.png",
+								},
+							},
+							{ type: "image", attrs: { src: "http://127.0.0.1/private.png" } },
+						],
+					},
+				},
+			},
+		);
+		expect(html).toContain(
+			'<img src="https://tedix.dev/_emdash/api/media/file/example.png"',
+		);
+		expect(html).toContain(
+			"https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700",
+		);
+		expect(html).not.toContain("private.png");
+	});
+});
 
 describe("escapeHtml", () => {
 	it("escapes every HTML-significant character and keeps the rest", () => {
