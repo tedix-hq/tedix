@@ -898,7 +898,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/revisions",
 					summary: "Record a new Tedix OS output revision",
 					description:
-						"Appends the next semantic body (max+1) and advances currentRevisionId in one D1 batch. Every append captures the current revision and compare-and-swap fences that exact base, preserving its source-access requirements together with any new producer requirements; editing or redacting content does not implicitly declassify those sources. The body's kind must match the output's kind. For assistant edits to an existing workspace document, prefer collaboration.create and updatePreview so the user can review and apply changes without advancing the saved version behind a live draft. Direct revision writes do not merge with live editor changes. Supply expectedRevision when the caller also requires the current revision to equal a previously read value; otherwise the server still rejects a concurrent change after its own base capture with typed CONFLICT.",
+						"Replaces the output's ENTIRE body with the supplied one as the next revision (max+1) and advances currentRevisionId in one D1 batch; content left out of the new body is removed. To add, change or delete part of a document use patchDocument, of a presentation patchSlides, of a sheet setSheetRange. Every append captures the current revision and compare-and-swap fences that exact base, preserving its source-access requirements together with any new producer requirements; editing or redacting content does not implicitly declassify those sources. The body's kind must match the output's kind. For assistant edits to an existing workspace document, prefer collaboration.create and updatePreview so the user can review and apply changes without advancing the saved version behind a live draft. Direct revision writes do not merge with live editor changes. Supply expectedRevision when the caller also requires the current revision to equal a previously read value; otherwise the server still rejects a concurrent change after its own base capture with typed CONFLICT.",
 				})
 				.input(
 					outputIdInput.extend({
@@ -931,7 +931,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/document/patch",
 					summary: "Patch a Tedix OS document output block-by-block",
 					description:
-						"Applies ordered insert/replace/delete block operations server-side against the current document revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Indices are bounds-checked against the evolving block list — an out-of-range index or a non-document output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing document in place — append, insert, update or delete paragraphs, headings and other blocks — without resending the rest of it. Applies ordered insert/replace/delete block operations server-side against the current document revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Indices are bounds-checked against the evolving block list — an out-of-range index or a non-document output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
 				})
 				.input(
 					outputIdInput.extend({
@@ -964,7 +964,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/slides/patch",
 					summary: "Patch a Tedix OS presentation output slide-by-slide",
 					description:
-						"Applies ordered insert/replace/delete/move slide operations server-side against the current presentation revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Each operation carries a slide OUTLINE — title, bullets, optional notes — and the router lays out the canvas slide, so an agent describes a slide rather than positioning 300 elements. The visual deck and its semantic projection are kept consistent: a deck is never dropped by a patch, and a presentation that has no deck yet gains one. Indices are bounds-checked against the evolving slide list — an out-of-range index or a non-presentation output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing presentation in place — add, change, reorder or remove slides (for example, turn slide 2 into a two-column layout) — without resending the rest of the deck. Applies ordered insert/replace/delete/move slide operations server-side against the current presentation revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Each operation carries a slide OUTLINE — title, bullets, optional notes — and the router lays out the canvas slide, so an agent describes a slide rather than positioning 300 elements. The visual deck and its semantic projection are kept consistent: a deck is never dropped by a patch, and a presentation that has no deck yet gains one. Indices are bounds-checked against the evolving slide list — an out-of-range index or a non-presentation output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
 				})
 				.input(
 					outputIdInput.extend({
@@ -997,7 +997,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/sheet/range",
 					summary: "Write a cell rectangle into a Tedix OS sheet output",
 					description:
-						"Writes the rectangle into the current sheet revision starting at (startRow, startColumn) and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Rows are extended null-filled up to the 1000-row cap; columns are added by editors, not by range writes, so the rectangle must fit the current column count (BAD_REQUEST otherwise, as is a non-sheet output). A concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing sheet in place — update cells or append rows such as a totals row — without resending the rest of it. Writes the rectangle into the current sheet revision starting at (startRow, startColumn) and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Rows are extended null-filled up to the 1000-row cap; columns are added by editors, not by range writes, so the rectangle must fit the current column count (BAD_REQUEST otherwise, as is a non-sheet output). A concurrent revision write fails as the typed CONFLICT error.",
 				})
 				.input(
 					outputIdInput.extend({
