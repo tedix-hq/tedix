@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { BrowserHostnamePatternSchema, ToolPolicySchema } from "./tedi";
+import {
+	BrowserHostnamePatternSchema,
+	BrowserSessionPolicySchema,
+	ToolPolicySchema,
+} from "./tedi";
 
 describe("tedi browser hostname policy", () => {
 	it("normalizes exact and leading-wildcard hostnames", () => {
@@ -33,5 +37,32 @@ describe("tedi browser hostname policy", () => {
 			allowedHostnames: ["docs.cloudflare.com"],
 			deniedHostnames: ["admin.example.com"],
 		});
+	});
+
+	it("bounds the persistent browser session keepalive", () => {
+		expect(ToolPolicySchema.parse({}).browserSession).toBeUndefined();
+		expect(BrowserSessionPolicySchema.parse({ mode: "persistent" })).toEqual({
+			mode: "persistent",
+			name: "default",
+			keepAliveMs: 600_000,
+		});
+		expect(
+			BrowserSessionPolicySchema.safeParse({
+				mode: "persistent",
+				keepAliveMs: 900_000,
+			}).success,
+		).toBe(false);
+		expect(
+			BrowserSessionPolicySchema.safeParse({
+				mode: "persistent",
+				keepAliveMs: 1_000,
+			}).success,
+		).toBe(false);
+		expect(
+			BrowserSessionPolicySchema.safeParse({
+				mode: "persistent",
+				name: "Not Valid",
+			}).success,
+		).toBe(false);
 	});
 });

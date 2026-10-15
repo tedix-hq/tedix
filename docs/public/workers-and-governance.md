@@ -53,6 +53,21 @@ A tedi acts under its own identity rather than signing in as the person who
 asked. The requester stays on the record, but their permissions are not
 copied to the tedi.
 
+## Persistent browser sessions
+
+To keep one browser's tabs, cookies and logins across a tedi's turns, set
+`browserSession` in its `toolPolicy` (`tedis.update` replaces the whole
+`toolPolicy`, so send its other fields too):
+
+```json
+{ "browserSession": { "mode": "persistent", "name": "research" } }
+```
+
+`keepAliveMs` (60000 to 600000, the default) is the idle time before Browser
+Run reclaims it. A lost browser is replaced on the next call, and the tedi is
+told it restarted and may need to sign in again. Budget, hostname, approval
+and human takeover policies still apply. Use `{ "mode": "dynamic" }` to stop.
+
 ## What Tedix records
 
 - who or what asked for the work;

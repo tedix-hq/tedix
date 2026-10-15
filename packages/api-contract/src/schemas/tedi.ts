@@ -63,6 +63,34 @@ export const BrowserHostnamePolicySchema = z.object({
 });
 export type BrowserHostnamePolicy = z.infer<typeof BrowserHostnamePolicySchema>;
 
+/** Browser Run's server-side `keep_alive` bounds for a tedi's persistent browser. */
+export const BROWSER_SESSION_KEEP_ALIVE_MIN_MS = 60_000;
+export const BROWSER_SESSION_KEEP_ALIVE_MAX_MS = 600_000;
+
+/**
+ * How a tedi's browser lives between turns. `dynamic` (the default) keeps a
+ * session only when the model promotes it; `persistent` keeps one named
+ * browser whose tabs, cookies and logins survive turns until it sits idle for
+ * `keepAliveMs`.
+ */
+export const BrowserSessionPolicySchema = z.discriminatedUnion("mode", [
+	z.object({ mode: z.literal("dynamic") }),
+	z.object({
+		mode: z.literal("persistent"),
+		name: z
+			.string()
+			.regex(/^[a-z0-9][a-z0-9-]{0,47}$/)
+			.default("default"),
+		keepAliveMs: z
+			.number()
+			.int()
+			.min(BROWSER_SESSION_KEEP_ALIVE_MIN_MS)
+			.max(BROWSER_SESSION_KEEP_ALIVE_MAX_MS)
+			.default(BROWSER_SESSION_KEEP_ALIVE_MAX_MS),
+	}),
+]);
+export type BrowserSessionPolicy = z.infer<typeof BrowserSessionPolicySchema>;
+
 export const AiGatewayModelTierSchema = z.enum([
 	"economy",
 	"balanced",
@@ -85,6 +113,7 @@ export const ToolPolicySchema = z.object({
 		.default("approve-first-then-allow"),
 	browser: z.enum(["always-allow", "always-approve"]).default("always-allow"),
 	browserEgress: BrowserHostnamePolicySchema.optional(),
+	browserSession: BrowserSessionPolicySchema.optional(),
 	github: z.enum(["always-allow", "always-approve"]).default("always-allow"),
 	deploy: z.enum(["always-allow", "always-approve"]).default("always-approve"),
 });

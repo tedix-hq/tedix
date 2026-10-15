@@ -226,8 +226,8 @@ console.log("durable-codemode OK");
 			},
 		};
 		const agent = tediDo({ ctx, env: { BROWSER: browser, LOADER: loader } });
-		const runtime = agent.getBrowserRuntime();
-		assert.equal(agent.getBrowserRuntime(), runtime);
+		const session = agent.getBrowserSession();
+		assert.equal(agent.getBrowserSession(), session);
 		assert.equal(captures.length, 1);
 		const options = captures[0]!;
 		assert.equal(options.ctx, agent.ctx);
@@ -264,7 +264,7 @@ console.log("durable-codemode OK");
 			(error) => error === nativeError,
 		);
 		const missing = tediDo({ ctx, env: { BROWSER: browser } });
-		missing.getBrowserRuntime();
+		missing.getBrowserSession();
 		assert.equal(captures[1]!.loader, undefined);
 		assert.equal(browserCalls, 0);
 		assert.equal(events.length, 8);
