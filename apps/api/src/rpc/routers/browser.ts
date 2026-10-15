@@ -127,7 +127,7 @@ function quickActionPayload(
 				}
 			: {}),
 		...(input.waitForSelector
-			? { waitForSelector: input.waitForSelector }
+			? { waitForSelector: { selector: input.waitForSelector } }
 			: {}),
 		...(input.waitForTimeoutMs
 			? { waitForTimeout: Math.min(input.waitForTimeoutMs, MAX_TIMEOUT_MS) }
