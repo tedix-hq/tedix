@@ -96,7 +96,16 @@ describe("structured editor undo", () => {
 		const formula = mounted.container.querySelector<HTMLInputElement>(
 			'[aria-label="Formula bar"]',
 		)!;
+		// Typing edits a draft; Enter commits it as one step.
+		act(() => formula.focus());
+		typeInto(formula, "2");
 		typeInto(formula, "21");
+		expect(mounted.value().rows[0]![0]).toBe(1);
+		act(() => {
+			formula.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+			);
+		});
 		expect(mounted.value().rows[0]!.slice(0, 2)).toEqual([21, 42]);
 		click(mounted.container.querySelector('[aria-label="Undo"]'));
 		expect(mounted.value().rows[0]!.slice(0, 2)).toEqual([1, 2]);

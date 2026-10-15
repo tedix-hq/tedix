@@ -32,6 +32,8 @@ const WORKBOOK_SUPPORTED_FORMULAS = [
 ];
 export const WORKBOOK_SUPPORTED_FORMULA_COUNT =
 	WORKBOOK_SUPPORTED_FORMULAS.length;
+export const WORKBOOK_FUNCTION_NAMES: readonly string[] =
+	WORKBOOK_SUPPORTED_FORMULAS;
 
 type FormulaValue = OsSheetCell | Error;
 

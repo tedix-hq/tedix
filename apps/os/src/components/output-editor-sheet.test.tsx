@@ -93,15 +93,15 @@ describe("SheetEditor", () => {
 		expect(formulaBar).toContain("type-tedix-caption");
 		expect(
 			mounted.container.querySelector(".sheet-editor-formula")?.className,
-		).toContain("grid-cols-[4rem_minmax(0,1fr)]");
+		).toContain("grid-cols-[6rem_minmax(0,1fr)]");
 		expect(
 			mounted.container.querySelector(".sheet-editor-grid table")?.className,
 		).toContain("type-tedix-control");
 		expect(
 			mounted.container.querySelector(
-				'.sheet-editor-grid input[aria-label="Deal row 1"]',
+				'[role="gridcell"][aria-label^="A2"] .sheet-editor-cell',
 			)?.className,
-		).toContain("h-7");
+		).toContain("sheet-editor-cell");
 		for (const name of [
 			"Auto sum",
 			"Bold",

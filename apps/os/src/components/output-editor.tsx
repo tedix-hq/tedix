@@ -3,7 +3,10 @@ import {
 	type DocumentCollab,
 	DocumentEditor,
 } from "@/components/output-editor-document";
-import { SheetEditor } from "@/components/output-editor-sheet";
+import {
+	SheetEditor,
+	type SheetEditorPresence,
+} from "@/components/output-editor-sheet";
 import { SlidesEditor } from "@/components/output-editor-slides";
 import { VideoOutputView } from "@/components/output-content";
 import type { RemoteCursor } from "@/lib/document-remote-cursors";
@@ -14,6 +17,7 @@ export function OutputEditor({
 	disabled,
 	documentCollab,
 	remoteCursors,
+	presence,
 }: {
 	value: OsOutputContent;
 	onChange: (next: OsOutputContent) => void;
@@ -21,6 +25,8 @@ export function OutputEditor({
 	/** Live co-editing for a document; other kinds ignore it. */
 	documentCollab?: DocumentCollab;
 	remoteCursors?: readonly RemoteCursor[];
+	/** Live collab presence for a sheet: peers' cell ranges in, ours out. */
+	presence?: SheetEditorPresence;
 }) {
 	switch (value.kind) {
 		case "document":
@@ -35,7 +41,12 @@ export function OutputEditor({
 			);
 		case "sheet":
 			return (
-				<SheetEditor value={value} onChange={onChange} disabled={disabled} />
+				<SheetEditor
+					value={value}
+					onChange={onChange}
+					disabled={disabled}
+					presence={presence}
+				/>
 			);
 		case "presentation":
 			return (
