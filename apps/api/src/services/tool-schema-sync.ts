@@ -1523,6 +1523,12 @@ const UNPROJECTABLE_ENDPOINTS = new Set([
 	"cognitiveRuntime/getArtifactReleaseReview",
 	"cognitiveRuntime/approveArtifactRelease",
 	"cognitiveRuntime/revokeArtifactRelease",
+	// SEP-3415 webhook leases: written only by the MCP edge's `events/subscribe`
+	// (which seals the credential) and read only by its service-bound deliverer.
+	"mcpEvents/upsertWebhookSubscription",
+	"mcpEvents/deleteWebhookSubscription",
+	"mcpEvents/claimDueWebhookSubscriptions",
+	"mcpEvents/recordWebhookDelivery",
 ]);
 
 function isProjectableRouter(router: string): boolean {

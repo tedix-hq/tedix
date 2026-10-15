@@ -8,6 +8,14 @@
  */
 import { implement } from "@orpc/server";
 import { mcpEventsContract } from "@tedix/api-contract/contracts/mcp-events";
+import { McpWebhookEventNameSchema } from "@tedix/api-contract/schemas/mcp-events";
+import {
+	claimDueMcpEventSubscriptions,
+	deleteMcpEventSubscription,
+	getMcpEventSubscription,
+	recordMcpEventDelivery,
+	upsertMcpEventSubscription,
+} from "@tedix/db/queries/mcp-event-subscriptions";
 import {
 	getLatestFailedSkillRunPosition,
 	listFailedSkillRunEvents,
@@ -21,7 +29,16 @@ import {
 	listWorkStateChangeEvents,
 } from "@tedix/db/queries/work-items/events";
 import { requireOrgId } from "../org-scope";
-import { AUTHZ, type BaseContext, withAuth, withAuthorization } from "../orpc";
+import {
+	AUTHZ,
+	type BaseContext,
+	createError,
+	ErrorCodes,
+	hasTedisReadAuthorization,
+	withAuth,
+	withAuthorization,
+	withServiceAuth,
+} from "../orpc";
 
 const eventsOs = implement(mcpEventsContract).$context<BaseContext>();
 const authenticatedOs = eventsOs.use(withAuth);
@@ -170,8 +187,155 @@ const pollFailedSkillRunsProcedure = skillReadOs.pollFailedSkillRuns.handler(
 	},
 );
 
+/**
+ * Webhook leases are owned by one human subject in one organization. Only the
+ * MCP edge's forwarded user call may write them: it has already validated the
+ * bearer, consent, organization selection and the event's read scope, and it
+ * revalidates all of them before every delivery.
+ */
+const subscriptionOwnerOs = authenticatedOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"A webhook lease is keyed to the forwarded caller's own subject and verified organization",
+		},
+		"mcp:work.read",
+	),
+);
+
+function subscriptionOwner(context: BaseContext): {
+	organizationId: string;
+	ownerSubject: string;
+} {
+	const organizationId = requireOrgId(context, "MCP event subscriptions");
+	const ownerSubject = context.user?.sub;
+	if (context.authType !== "user" || typeof ownerSubject !== "string")
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A human caller owns event subscriptions",
+		);
+	return { organizationId, ownerSubject };
+}
+
+const upsertWebhookSubscriptionProcedure =
+	subscriptionOwnerOs.upsertWebhookSubscription.handler(
+		async ({ input, context }) => {
+			const owner = subscriptionOwner(context);
+			if (
+				input.eventName === "skill.run.failed" &&
+				!hasTedisReadAuthorization(context)
+			)
+				throw createError(ErrorCodes.FORBIDDEN, "Skill run read required");
+			if (input.arguments.organization_id !== owner.organizationId)
+				throw createError(ErrorCodes.FORBIDDEN, "Organization mismatch");
+			const now = new Date().toISOString();
+			const existing = input.keepCursor
+				? await getMcpEventSubscription(context.db, {
+						id: input.id,
+						organizationId: owner.organizationId,
+						ownerSubject: owner.ownerSubject,
+					})
+				: null;
+			// A healthy renewal keeps its position so no event is skipped; an
+			// unhealthy lease restarts from the position the edge supplied.
+			const cursor =
+				existing && existing.status === "active"
+					? existing.cursor
+					: input.cursor;
+			const row = await upsertMcpEventSubscription(context.db, {
+				id: input.id,
+				...owner,
+				mcpUrl: input.mcpUrl,
+				eventName: input.eventName,
+				arguments: input.arguments,
+				callbackUrl: input.callbackUrl,
+				sealedCredential: input.sealedCredential,
+				cursor,
+				expiresAt: new Date(input.expiresAt).toISOString(),
+				now,
+			});
+			if (!row)
+				throw createError(
+					ErrorCodes.TOO_MANY_REQUESTS,
+					"Event subscription limit reached",
+				);
+			return { id: input.id, cursor: row.cursor, expiresAt: row.expiresAt };
+		},
+	);
+
+const deleteWebhookSubscriptionProcedure =
+	subscriptionOwnerOs.deleteWebhookSubscription.handler(
+		async ({ input, context }) => ({
+			deleted: await deleteMcpEventSubscription(context.db, {
+				id: input.id,
+				...subscriptionOwner(context),
+			}),
+		}),
+	);
+
+/** The deliverer is the MCP Worker itself, never a forwarded caller. */
+function assertDelivererCall(context: BaseContext): void {
+	if (
+		context.headers.get("X-Tedix-Caller-Type") ||
+		context.headers.get("X-Forwarded-Authorization")
+	)
+		throw createError(ErrorCodes.FORBIDDEN, "Service deliverer only");
+}
+
+const claimDueWebhookSubscriptionsProcedure =
+	eventsOs.claimDueWebhookSubscriptions
+		.use(withServiceAuth)
+		.handler(async ({ input, context }) => {
+			assertDelivererCall(context);
+			const now = Date.now();
+			const rows = await claimDueMcpEventSubscriptions(context.db, {
+				now: new Date(now).toISOString(),
+				leaseUntil: new Date(now + input.leaseMs).toISOString(),
+				limit: input.limit,
+			});
+			return {
+				subscriptions: rows.flatMap((row) => {
+					const eventName = McpWebhookEventNameSchema.safeParse(row.eventName);
+					if (!eventName.success) return [];
+					return [
+						{
+							id: row.id,
+							organizationId: row.organizationId,
+							ownerSubject: row.ownerSubject,
+							mcpUrl: row.mcpUrl,
+							eventName: eventName.data,
+							arguments: row.arguments,
+							callbackUrl: row.callbackUrl,
+							sealedCredential: row.sealedCredential,
+							cursor: row.cursor,
+							consecutiveFailures: row.consecutiveFailures,
+							rateWindowStartedAt: row.rateWindowStartedAt,
+							rateWindowCount: row.rateWindowCount,
+							expiresAt: row.expiresAt,
+						},
+					];
+				}),
+			};
+		});
+
+const recordWebhookDeliveryProcedure = eventsOs.recordWebhookDelivery
+	.use(withServiceAuth)
+	.handler(async ({ input, context }) => {
+		assertDelivererCall(context);
+		return {
+			recorded: await recordMcpEventDelivery(context.db, {
+				...input,
+				now: new Date().toISOString(),
+			}),
+		};
+	});
+
 export const mcpEventsContractRouter = eventsOs.router({
 	pollWorkStateChanges: pollWorkStateChangesProcedure,
 	pollWorkApprovalRequests: pollWorkApprovalRequestsProcedure,
 	pollFailedSkillRuns: pollFailedSkillRunsProcedure,
+	upsertWebhookSubscription: upsertWebhookSubscriptionProcedure,
+	deleteWebhookSubscription: deleteWebhookSubscriptionProcedure,
+	claimDueWebhookSubscriptions: claimDueWebhookSubscriptionsProcedure,
+	recordWebhookDelivery: recordWebhookDeliveryProcedure,
 });

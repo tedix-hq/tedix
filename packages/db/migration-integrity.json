@@ -880,6 +880,10 @@
 		{
 			"name": "20261015075248_mcp-events-provider-adapter/migration.sql",
 			"sha256": "e675426fd35a6d653f11a34315ce3134b15afe7cdba7088828c6312dec6a3822"
+		},
+		{
+			"name": "20261015081828_mcp-event-subscriptions/migration.sql",
+			"sha256": "1605369809a3e8f0784eb78f525c202b3bbc2d9226fe78e15853c828d9ad1ebd"
 		}
 	]
 }

@@ -114,8 +114,47 @@ curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
 A `null` cursor starts from now and returns a fresh `cursor`. Store it and pass
 it on the next poll. Poll again at once while `hasMore` is true, otherwise
 after `nextPollMs`. A Claude or Codex host on MCP 2026-07-28 sends the same
-request from its events loop. These events do not use webhooks:
-`events/subscribe` answers `-32026`.
+request from its events loop. Without the webhook opt-in below,
+`events/subscribe` answers `-32026` for these events.
+
+### Subscribe to Work and skill-run events by webhook
+
+Set `mcpConfig.eventWebhooks: true` next to `interactionEvents` to let hosts
+subscribe to the same three events instead of polling. `events/list` then
+shows `"delivery": ["poll", "webhook"]` for them. A subscription needs the
+same human OAuth grant and read scope as a poll, a public HTTPS callback that
+echoes the verification `challenge`, and a `whsec_` secret of 24 to 64 bytes:
+
+```sh
+curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: events/subscribe" -d '{"jsonrpc":"2.0","id":1,
+  "method":"events/subscribe","params":{"name":"work.item.state_changed",
+  "arguments":{"organization_id":"00000000-0000-4000-8000-000000000001"},
+  "delivery":{"mode":"webhook","url":"https://hooks.example.com/tedix",
+  "secret":"whsec_<base64 of 32 random bytes>"},"ttlMs":3600000}}'
+```
+
+The result carries `id`, `cursor` and `refreshBefore`. The lease lasts at most
+24 hours and never outlives the bearer. Send the same request with a fresh
+token before `refreshBefore` to renew it; renewal keeps the delivered
+position. Pass a `cursor` from `events/poll` to resume from it. Send
+`events/unsubscribe` with the same `name`, `arguments` and `delivery.url` to
+stop.
+
+Tedix checks for new events every two minutes. Before each pass it rechecks
+the token, consent, selected organization, read scope and the app opt-in;
+access that has ended stops delivery. Each event is a POST signed like the
+Interaction reply event (`webhook-id`, `webhook-timestamp`,
+`webhook-signature: v1,<base64 HMAC-SHA256 of id.timestamp.body>`). The body is
+`{eventId, name, timestamp, data, cursor}`.
+
+Delivery is at least once, so deduplicate on `webhook-id`. A failed page is
+retried with backoff from two to 30 minutes. After six failures in a row, or a
+`410`, the subscription is marked unhealthy and delivery stops. Events from
+that period are dropped; subscribe again to restart from now. Each
+subscription receives at most 300 events per hour, and later events wait for
+the next hour. A caller can hold 20 subscriptions per organization.
 
 ## Configured native catalog tools
 

@@ -154,7 +154,7 @@ export const pollableEventDefinitions = [
 	skillRunFailedEventDefinition,
 ];
 
-type PollableEventName =
+export type PollableEventName =
 	| typeof WORK_STATE_CHANGED_EVENT
 	| typeof WORK_APPROVAL_REQUESTED_EVENT
 	| typeof SKILL_RUN_FAILED_EVENT;
@@ -173,7 +173,7 @@ const ARGUMENT_KEYS = {
 	[SKILL_RUN_FAILED_EVENT]: ["organization_id", "tedi_id", "skill_id"],
 } as const satisfies Record<PollableEventName, readonly string[]>;
 
-function eventArguments(
+export function eventArguments(
 	name: PollableEventName,
 	value: unknown,
 ): Record<string, string> & { organization_id: string } {
@@ -289,7 +289,7 @@ export async function pollEvent(
 		authority = await dependencies.authorize(
 			env,
 			{ ...caller, organizationId: args.organization_id },
-			name === SKILL_RUN_FAILED_EVENT ? SKILL_READ_SCOPES : WORK_READ_SCOPES,
+			eventReadScopes(name),
 		);
 	} catch {
 		throw new InteractionEventError(
@@ -299,7 +299,45 @@ export async function pollEvent(
 	}
 	if (authority.organizationId !== args.organization_id)
 		throw new InteractionEventError(-32024, "Organization not selected");
-	const { client } = authority;
+	const page = await readEventFeed(authority.client, name, args, cursor, limit);
+	return {
+		...page,
+		truncated: false,
+		nextPollMs: NEXT_POLL_MS,
+	};
+}
+
+/** The read scopes that already gate the tools behind one event. */
+export function eventReadScopes(name: PollableEventName): readonly string[] {
+	return name === SKILL_RUN_FAILED_EVENT ? SKILL_READ_SCOPES : WORK_READ_SCOPES;
+}
+
+/** Reject a cursor this event's feed did not issue, without reading it. */
+export function assertEventCursor(name: PollableEventName, cursor: string) {
+	if (name === WORK_STATE_CHANGED_EVENT) decodeSequence(cursor);
+	else
+		decodeKeyset(
+			name === WORK_APPROVAL_REQUESTED_EVENT ? "war1" : "srf1",
+			cursor,
+		);
+}
+
+type EventFeedClient = Awaited<
+	ReturnType<typeof authorizeEventCaller>
+>["client"];
+
+/**
+ * Read one page of an event's organization-bound ledger feed after `cursor`
+ * (`null` returns no events and the current head). Shared by `events/poll`
+ * and webhook delivery so both resume from the same opaque positions.
+ */
+export async function readEventFeed(
+	client: Pick<EventFeedClient, "mcpEvents">,
+	name: PollableEventName,
+	args: Record<string, string>,
+	cursor: string | null,
+	limit: number,
+): Promise<Pick<EventPollResult, "events" | "cursor" | "hasMore">> {
 	const named = (
 		events: Array<{
 			eventId: string;
@@ -317,9 +355,7 @@ export async function pollEvent(
 			return {
 				events: named(result.events),
 				cursor: `wsc1.${result.afterSequence}`,
-				truncated: false,
 				hasMore: result.hasMore,
-				nextPollMs: NEXT_POLL_MS,
 			};
 		}
 		if (name === WORK_APPROVAL_REQUESTED_EVENT) {
@@ -332,9 +368,7 @@ export async function pollEvent(
 			return {
 				events: named(result.events),
 				cursor: encodeKeyset("war1", result.after),
-				truncated: false,
 				hasMore: result.hasMore,
-				nextPollMs: NEXT_POLL_MS,
 			};
 		}
 		const result = await client.mcpEvents.pollFailedSkillRuns({
@@ -346,9 +380,7 @@ export async function pollEvent(
 		return {
 			events: named(result.events),
 			cursor: encodeKeyset("srf1", result.after),
-			truncated: false,
 			hasMore: result.hasMore,
-			nextPollMs: NEXT_POLL_MS,
 		};
 	} catch (error) {
 		if (error instanceof InteractionEventError) throw error;

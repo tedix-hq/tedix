@@ -35,7 +35,7 @@ async function trackPlatformCronPath(
  * block comment they would close it.)
  * - Every 2 minutes → graph projection drain + GDS redrive, due skill
  *   schedules, always-on keepalive, orphan-run sweep, work-attempt lease
- *   sweep, work approval redrive
+ *   sweep, work approval redrive, MCP event webhook delivery
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
  *   workstation compute metering
@@ -170,6 +170,17 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./work-approval-redrive");
 			await trackPlatformCronPath(env, event, "work-approval-redrive", () =>
 				dispatchWorkApprovalRedrives(env, event.scheduledTime),
+			);
+		}
+
+		if (cron === "*/2 * * * *" && env.MCP_SERVICE) {
+			const { runMcpEventWebhookDelivery } =
+				await import("./mcp-event-webhooks");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"mcp-event-webhook-delivery",
+				() => runMcpEventWebhookDelivery(env),
 			);
 		}
 

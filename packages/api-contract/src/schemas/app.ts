@@ -523,6 +523,12 @@ export const McpConfigSchema = z
 		/** Exact Interaction reply webhook events for human OAuth hosts. Opt-in, not a background agent. */
 		interactionEvents: z.boolean().optional(),
 		/**
+		 * Webhook delivery (`events/subscribe`) for the ledger events
+		 * work.item.state_changed, work.approval.requested and skill.run.failed.
+		 * Requires `interactionEvents`; without it those events stay poll-only.
+		 */
+		eventWebhooks: z.boolean().optional(),
+		/**
 		 * Code Mode execution timeout in ms. When unset, the runtime default is
 		 * 330000 (apps/mcp/src/mcp/codemode.ts). The max must stay >= that default,
 		 * otherwise a configured value would silently cap execution BELOW the

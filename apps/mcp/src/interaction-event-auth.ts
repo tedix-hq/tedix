@@ -32,6 +32,7 @@ export async function authorizeEventCaller(
 	env: CloudflareEnv,
 	credential: EventCallerCredential,
 	requiredScopes: readonly string[],
+	options: { requireWebhooks?: boolean } = {},
 ) {
 	const url = new URL(credential.mcpUrl);
 	if (
@@ -49,6 +50,9 @@ export async function authorizeEventCaller(
 	const config = app?.metadata?.mcpConfig;
 	if (!app || config?.interactionEvents !== true || !config.descopeResourceId)
 		throw new Error("Interaction events unavailable");
+	// Webhook delivery is a separate per-app opt-in, rechecked on every pass.
+	if (options.requireWebhooks && config.eventWebhooks !== true)
+		throw new Error("Event webhooks unavailable");
 	const audience = resolveMcpExpectedAudience({
 		hostname: url.hostname,
 		authMode: config.authMode,

@@ -2,12 +2,20 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	ClaimDueMcpEventWebhooksInputSchema,
+	ClaimDueMcpEventWebhooksResultSchema,
+	DeleteMcpEventWebhookSubscriptionInputSchema,
+	DeleteMcpEventWebhookSubscriptionResultSchema,
 	PollFailedSkillRunsInputSchema,
 	PollFailedSkillRunsResultSchema,
 	PollWorkApprovalRequestsInputSchema,
 	PollWorkApprovalRequestsResultSchema,
 	PollWorkStateChangesInputSchema,
 	PollWorkStateChangesResultSchema,
+	RecordMcpEventWebhookDeliveryInputSchema,
+	RecordMcpEventWebhookDeliveryResultSchema,
+	UpsertMcpEventWebhookSubscriptionInputSchema,
+	UpsertMcpEventWebhookSubscriptionResultSchema,
 } from "../schemas/mcp-events";
 
 /** Org-scoped ledger feeds served to the MCP Worker's `events/poll`. */
@@ -39,4 +47,36 @@ export const mcpEventsContract = oc
 			})
 			.input(PollFailedSkillRunsInputSchema)
 			.output(PollFailedSkillRunsResultSchema),
+		upsertWebhookSubscription: oc
+			.route({
+				method: "POST",
+				path: "/webhook-subscriptions/upsert",
+				summary: "Create or renew the caller's event webhook subscription",
+			})
+			.input(UpsertMcpEventWebhookSubscriptionInputSchema)
+			.output(UpsertMcpEventWebhookSubscriptionResultSchema),
+		deleteWebhookSubscription: oc
+			.route({
+				method: "POST",
+				path: "/webhook-subscriptions/delete",
+				summary: "Delete the caller's event webhook subscription",
+			})
+			.input(DeleteMcpEventWebhookSubscriptionInputSchema)
+			.output(DeleteMcpEventWebhookSubscriptionResultSchema),
+		claimDueWebhookSubscriptions: oc
+			.route({
+				method: "POST",
+				path: "/webhook-subscriptions/claim-due",
+				summary: "Claim due event webhook subscriptions (service binding)",
+			})
+			.input(ClaimDueMcpEventWebhooksInputSchema)
+			.output(ClaimDueMcpEventWebhooksResultSchema),
+		recordWebhookDelivery: oc
+			.route({
+				method: "POST",
+				path: "/webhook-subscriptions/record-delivery",
+				summary: "Record one event webhook delivery pass (service binding)",
+			})
+			.input(RecordMcpEventWebhookDeliveryInputSchema)
+			.output(RecordMcpEventWebhookDeliveryResultSchema),
 	});
