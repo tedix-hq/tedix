@@ -331,6 +331,9 @@ export function CanvasDocPanel({
 		setDocText(serialized);
 	};
 	const [confirming, setConfirming] = useState(false);
+	// Discarding unsaved changes asks once before it reloads the saved version.
+	const [discarding, setDiscarding] = useState<"confirm" | "busy" | null>(null);
+	const [discardError, setDiscardError] = useState<string | null>(null);
 	const [note, setNote] = useState("");
 	const [draftError, setDraftError] = useState<string | null>(null);
 	const [committedRevision, setCommittedRevision] = useState<number | null>(
@@ -855,6 +858,63 @@ export function CanvasDocPanel({
 				<ListSkeleton rows={1} rowClassName="h-64" />
 			)}
 			<OutputWorkshopFooter className="canvas-document-footer justify-end">
+				{!isGadget &&
+					live &&
+					canonicalDoc &&
+					!draftMatchesSaved &&
+					!recoveryRequired &&
+					!outputDraftIssue &&
+					!confirming &&
+					!committing &&
+					(discarding === null ? (
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() => {
+								setDiscardError(null);
+								setDiscarding("confirm");
+							}}
+						>
+							Discard changes
+						</Button>
+					) : (
+						<>
+							<Text as="span" role="label" tone="secondary">
+								{`Discard your unsaved changes for everyone and reload v${canonicalDoc.revision}?`}
+							</Text>
+							<Button
+								size="sm"
+								variant="destructive"
+								disabled={discarding === "busy" || unacknowledged || unsynced}
+								onClick={async () => {
+									setDiscarding("busy");
+									const result = await replaceWithCanonical().catch(() => ({
+										ok: false as const,
+										message: `v${canonicalDoc.revision} did not load. Try again.`,
+									}));
+									setDiscarding(null);
+									if (!result.ok) setDiscardError(result.message);
+								}}
+							>
+								{discarding === "busy"
+									? `Loading v${canonicalDoc.revision}…`
+									: `Discard and reload v${canonicalDoc.revision}`}
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={discarding === "busy"}
+								onClick={() => setDiscarding(null)}
+							>
+								Cancel
+							</Button>
+						</>
+					))}
+				{discardError && (
+					<Text as="span" role="label" tone="secondary">
+						{discardError}
+					</Text>
+				)}
 				{unacknowledged && live && !recoveryRequired && (
 					<span className="text-kumo-subtle text-xs" data-canvas-commit-waiting>
 						{isGadget
