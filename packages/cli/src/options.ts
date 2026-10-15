@@ -12,6 +12,7 @@ import {
 } from "./option-values";
 import { parseWorkOption } from "./work-options";
 import { parseFlowOption } from "./flow-options";
+import { hasFactoryOptions, parseFactoryOption } from "./factory-options";
 import { parseAgentOption } from "./agent-options";
 
 // The local apps/mcp Worker (see docs/engineering/development.md). TedixHomeClient adds
@@ -62,6 +63,7 @@ export function parseOptions(argv: string[]): {
 		const consumed =
 			parseWorkOption(args, index, options) ??
 			parseFlowOption(args, index, options) ??
+			parseFactoryOption(args, index, options) ??
 			parseAgentOption(args, index, options);
 		if (consumed !== undefined) {
 			if (equals >= 0 && consumed === optionIndex) {
@@ -296,6 +298,11 @@ export function parseOptions(argv: string[]): {
 	) {
 		throw new Error(
 			"--meta and --approve-destructive are only valid with code",
+		);
+	}
+	if (parsedCommand !== "factory" && hasFactoryOptions(options)) {
+		throw new Error(
+			"--goal, --owner, --cadence, --template, --slug, --name, --max-proposals, --workspace-id and --dry-run are only valid with factory",
 		);
 	}
 	if (parsedCommand !== "mcp" && options.mcpHeader) {

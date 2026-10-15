@@ -20,6 +20,7 @@ import {
 } from "./usage";
 import { workUsage } from "./work";
 import { workflowUsage } from "./workflow";
+import { factoryUsage } from "./factory";
 
 export type CliCommandSurface =
 	| "gateway-direct"
@@ -201,6 +202,16 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		approval: "explicit",
 		output: HUMAN_JSON,
 		help: skillUsage,
+	},
+	{
+		name: "factory",
+		argHint: "<verb>",
+		surface: "gateway-recipe",
+		summary: "Build a factory from a goal and check that it delivers",
+		mutability: "mixed",
+		approval: "explicit",
+		output: HUMAN_JSON,
+		help: factoryUsage,
 	},
 	{
 		name: "workflow",
@@ -550,6 +561,7 @@ export function rootHelp(): string {
 		"  tedix flow run --file <plan.ts>      Run a one-off sequence of operations",
 		"  tedix skill <verb>                   Find or run a reusable organization skill",
 		"  tedix workflow <verb>                Inspect the execution engine behind automations",
+		"  tedix factory <verb>                 Build a factory from a goal; check its health",
 		"",
 		"Follow up:",
 		"  tedix run <id>                       Read a run result",
