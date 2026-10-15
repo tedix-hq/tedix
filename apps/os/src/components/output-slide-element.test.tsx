@@ -184,6 +184,9 @@ describe("one slide renderer", () => {
 		});
 		const viewer = mount(<OutputContentView content={styled} />);
 		const editor = mount(<SlidesEditor value={styled} onChange={() => {}} />);
+		const presenter = mount(
+			<SlidesEditor value={styled} onChange={() => {}} disabled />,
+		);
 		const title = viewer.container.querySelector(
 			'[data-slide-element="line-1"]',
 		);
@@ -199,6 +202,24 @@ describe("one slide renderer", () => {
 				.querySelector('[data-slide-element="arrow"] path')
 				?.getAttribute("d"),
 		).toBe("M 2 20 H 198 M 180 2 L 198 20 L 180 38");
+		for (const surface of [editor, presenter]) {
+			const arrow = surface.container.querySelector(
+				'.slides-editor-stage [data-slide-element="arrow"]',
+			);
+			expect(arrow?.querySelector("path")?.getAttribute("d")).toBe(
+				"M 2 20 H 198 M 180 2 L 198 20 L 180 38",
+			);
+			expect(arrow?.querySelector("textarea")).toBeNull();
+		}
+		const presentedTitle = presenter.container.querySelector(
+			'.slides-editor-stage [data-slide-element="line-1"]',
+		);
+		expect(presentedTitle?.querySelector("strong")?.textContent).toBe(
+			"bold <tag>",
+		);
+		expect(presentedTitle?.querySelector("tag")).toBeNull();
+		expect(presentedTitle?.querySelector("textarea")).toBeNull();
+		presenter.cleanup();
 		editor.cleanup();
 		viewer.cleanup();
 	});
