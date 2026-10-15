@@ -18,6 +18,7 @@ import {
 	CanvasGadgetExecutions,
 	gadgetExecutionToolResult,
 } from "@/components/canvas-gadget-executions";
+import { CanvasOutputTitle } from "@/components/canvas-output-title";
 import { CanvasPresence } from "@/components/canvas-presence";
 import { CanvasDocumentRecovery } from "@/components/canvas-document-recovery";
 import { CanvasProposals } from "@/components/canvas-proposals";
@@ -576,21 +577,23 @@ export function CanvasDocPanel({
 		>
 			<OutputWorkshopCommandBar className="canvas-document-header">
 				<OutputWorkshopIdentity className="canvas-document-identity">
-					{!focusMode && viewControls ? (
-						viewControls
-					) : (
-						<>
-							<Text
-								as="h2"
-								role="body"
-								tone="strong"
-								weight="semibold"
-								className="canvas-document-title m-0 truncate"
-								title={title ?? "Loading…"}
-							>
-								{title ?? "Loading…"}
-							</Text>
-						</>
+					{!focusMode && viewControls}
+					{!isGadget && outputDetail.data ? (
+						<CanvasOutputTitle
+							outputId={outputDetail.data.output.id}
+							title={outputDetail.data.output.title}
+						/>
+					) : !focusMode && viewControls ? null : (
+						<Text
+							as="h2"
+							role="body"
+							tone="strong"
+							weight="semibold"
+							className="canvas-document-title m-0 truncate"
+							title={title ?? "Loading…"}
+						>
+							{title ?? "Loading…"}
+						</Text>
 					)}
 
 					{doc.type === "output" && doc.linkedGadgetId && (

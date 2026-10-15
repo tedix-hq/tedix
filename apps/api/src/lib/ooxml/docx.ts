@@ -76,6 +76,8 @@ interface ParagraphOptions {
 	numId?: number;
 	level?: number;
 	alignment?: string;
+	/** Block indent level outside lists; 40 CSS px (600 twips) per level. */
+	indent?: number;
 }
 
 function paragraphXml(runs: string, options: ParagraphOptions = {}): string {
@@ -83,6 +85,9 @@ function paragraphXml(runs: string, options: ParagraphOptions = {}): string {
 		options.style ? `<w:pStyle w:val="${options.style}"/>` : "",
 		options.numId
 			? `<w:numPr><w:ilvl w:val="${options.level ?? 0}"/><w:numId w:val="${options.numId}"/></w:numPr>`
+			: "",
+		options.indent
+			? `<w:ind w:left="${Math.min(8, Math.trunc(options.indent)) * 600}"/>`
 			: "",
 		options.alignment
 			? `<w:jc w:val="${options.alignment === "justify" ? "both" : options.alignment}"/>`
@@ -251,13 +256,18 @@ function richTextParagraphs(
 		["left", "center", "right", "justify"].includes(alignment)
 	)
 		inherited = { ...inherited, alignment };
+	const indent = Number(node.attrs?.indent);
+	if (indent > 0) inherited = { ...inherited, indent };
 	switch (node.type) {
 		case "heading": {
 			const level = Number(node.attrs?.level ?? 1);
 			return [
 				paragraphXml(inlineRuns(node.content, assets), {
 					...inherited,
-					style: headingStyle(Number.isFinite(level) ? level : 1),
+					style:
+						level === 1 && node.attrs?.variant === "title"
+							? "Title"
+							: headingStyle(Number.isFinite(level) ? level : 1),
 				}),
 			];
 		}
@@ -271,7 +281,10 @@ function richTextParagraphs(
 			return (node.content ?? [])
 				.flatMap((child) => (child.text ?? "").split("\n"))
 				.map((line) =>
-					paragraphXml(runXml(line, { code: true }), { style: "CodeBlock" }),
+					paragraphXml(runXml(line, { code: true }), {
+						style: "CodeBlock",
+						...(inherited.indent ? { indent: inherited.indent } : {}),
+					}),
 				);
 		case "bulletList":
 		case "orderedList": {
@@ -376,6 +389,8 @@ const STYLES_XML =
 				`<w:rPr><w:b/><w:sz w:val="${36 - level * 4}"/></w:rPr></w:style>`,
 		)
 		.join("") +
+	'<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>' +
+	'<w:pPr><w:outlineLvl w:val="0"/><w:spacing w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="45"/></w:rPr></w:style>' +
 	'<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:qFormat/>' +
 	'<w:pPr><w:ind w:left="720"/></w:pPr><w:rPr><w:i/></w:rPr></w:style>' +
 	'<w:style w:type="paragraph" w:styleId="CodeBlock"><w:name w:val="Code Block"/><w:basedOn w:val="Normal"/><w:qFormat/>' +

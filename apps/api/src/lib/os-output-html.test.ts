@@ -265,6 +265,37 @@ describe("renderOsOutputHtml", () => {
 		);
 		expect(richDocument).toContain("<p><strong>Bold</strong></p>");
 
+		const styledDocument = renderOsOutputHtml(
+			{ kind: "document", title: "Styled" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "document",
+					blocks: [],
+					richText: {
+						type: "doc",
+						content: [
+							{
+								type: "heading",
+								attrs: { level: 1, variant: "title" },
+								content: [{ type: "text", text: "Plan" }],
+							},
+							{
+								type: "paragraph",
+								attrs: { textAlign: "center", indent: 2 },
+								content: [{ type: "text", text: "Indented" }],
+							},
+						],
+					},
+				},
+			},
+		);
+		expect(styledDocument).toContain('<h1 class="doc-title">Plan</h1>');
+		expect(styledDocument).toContain("article h1.doc-title");
+		expect(styledDocument).toContain(
+			'<p style="text-align:center;margin-left:80px">Indented</p>',
+		);
+
 		const workbook = renderOsOutputHtml(
 			{ kind: "sheet", title: "Book" },
 			{

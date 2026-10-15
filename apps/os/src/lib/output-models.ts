@@ -19,6 +19,10 @@ export type PresentationContent = Extract<
 	{ kind: "presentation" }
 >;
 
+/** Document block indent: pixels per level (as the browser's indent command) and the deepest level. */
+export const INDENT_STEP_PX = 40;
+export const MAX_INDENT = 8;
+
 export const PRESENTATION_WIDTH = 1200;
 export const PRESENTATION_HEIGHT = 675;
 

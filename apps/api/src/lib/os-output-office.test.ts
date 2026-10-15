@@ -645,6 +645,42 @@ describe("document rich formatting and images", () => {
 		expect(parts["word/media/image1.png"]).toBeTruthy();
 		expectRelationshipsResolve(file);
 	});
+	it("carries the Title style, point sizes and block indents", async () => {
+		const content: OsOutputContent = {
+			kind: "document",
+			blocks: [],
+			richText: {
+				type: "doc",
+				content: [
+					{
+						type: "heading",
+						attrs: { level: 1, variant: "title" },
+						content: [{ type: "text", text: "Plan" }],
+					},
+					{
+						type: "paragraph",
+						attrs: { indent: 2 },
+						content: [
+							{
+								type: "text",
+								text: "Eight point",
+								marks: [{ type: "textStyle", attrs: { fontSize: "10.67px" } }],
+							},
+						],
+					},
+				],
+			},
+		};
+		const file = await buildOsOutputOfficeExport("docx", content, "Plan");
+		const parts = unzipSync(file);
+		const xml = new TextDecoder().decode(parts["word/document.xml"]);
+		expect(xml).toContain('<w:pStyle w:val="Title"/>');
+		expect(xml).toContain('<w:ind w:left="1200"/>');
+		// 8 pt is 16 half-points.
+		expect(xml).toContain('w:sz w:val="16"');
+		const styles = new TextDecoder().decode(parts["word/styles.xml"]);
+		expect(styles).toContain('w:styleId="Title"');
+	});
 	it("reports unsupported images instead of exporting a successful-looking incomplete document", async () => {
 		await expect(
 			buildOsOutputOfficeExport(
