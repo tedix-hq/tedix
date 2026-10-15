@@ -260,6 +260,13 @@ describe("useCollabDoc", () => {
 		rendered.unmount();
 	});
 
+	it("reads as connecting, not disconnected, while the document is still loading", () => {
+		const rendered = renderCollabDoc(input({ canonical: null }));
+		expect(sockets).toHaveLength(0);
+		expect(rendered.result.current?.status).toBe("connecting");
+		rendered.unmount();
+	});
+
 	it("opens no socket while the surface is disabled, and closes one when it is", async () => {
 		const rendered = renderCollabDoc(input({ enabled: false }));
 		expect(sockets).toHaveLength(0);

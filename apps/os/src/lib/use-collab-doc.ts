@@ -882,7 +882,11 @@ class CollabSession implements OtEditSession {
 export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	const { workspaceId, docKey, enabled, canonical, location } = input;
 	const [session, setSession] = useState<CollabSession | null>(null);
-	const [status, setStatus] = useState<CollabDocStatus>("disconnected");
+	// An enabled room still waiting for its document is connecting, not
+	// disconnected: the first paint must not flash a red "Changes paused".
+	const [status, setStatus] = useState<CollabDocStatus>(
+		enabled ? "connecting" : "disconnected",
+	);
 	const [participants, setParticipants] = useState<CollabParticipant[]>([]);
 	const [blocked, setBlocked] = useState<OtBlockedState | null>(null);
 	const [unsynced, setUnsynced] = useState(false);

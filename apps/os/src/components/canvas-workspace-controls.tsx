@@ -116,7 +116,8 @@ function WorkspaceFormDialog({
 							{mode === "create" ? "Create workspace" : "Edit workspace"}
 						</DialogTitle>
 						<DialogDescription>
-							A workspace groups Gadgets and outputs inside this organization.
+							A workspace keeps related conversations, documents and Work
+							together.
 						</DialogDescription>
 					</DialogHeader>
 					<FormField form={form} name="name" label="Name">
