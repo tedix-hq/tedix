@@ -1,10 +1,12 @@
 import type { OsPresentationElement } from "@tedix/api-contract/schemas/os-workspaces";
+import { useEffect } from "react";
 import {
 	PRESENTATION_HEIGHT,
 	PRESENTATION_WIDTH,
 	presentationCanvasLength,
 	safeImageSource,
 } from "@/lib/output-models";
+import { ensureSlideFontLoaded } from "@/lib/slide-fonts";
 
 /**
  * The one read-only slide element renderer, shared by every surface that shows
@@ -31,6 +33,8 @@ export function ReadOnlyElement({
 	element: OsPresentationElement;
 }) {
 	const src = safeImageSource(element.src);
+	const fontFamily = element.style.fontFamily;
+	useEffect(() => ensureSlideFontLoaded(fontFamily), [fontFamily]);
 	return (
 		<div
 			className="absolute overflow-hidden whitespace-pre-line"
