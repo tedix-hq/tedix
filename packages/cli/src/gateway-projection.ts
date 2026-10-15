@@ -4,14 +4,22 @@ import type { TedixHomeClient } from "./home-client";
 
 export type GatewayProjectionClient = Pick<TedixHomeClient, "runCode">;
 
-/** Run one fixed, read-only gateway callable and reject clipped/error values. */
+/**
+ * Run one fixed, read-only gateway callable and reject clipped/error values.
+ * `rowFields` keeps only those fields of each `data` row inside the sandbox,
+ * so a long list fits under the gateway's result cap.
+ */
 export async function readGatewayProjection(
 	client: GatewayProjectionClient,
 	callable: string,
 	input: Record<string, unknown>,
+	rowFields?: readonly string[],
 ): Promise<unknown> {
+	const call = `await ${callable}(${JSON.stringify(input)})`;
 	const raw = await client.runCode(
-		`async () => await ${callable}(${JSON.stringify(input)})`,
+		rowFields
+			? `async () => { const r = ${call}; const keys = ${JSON.stringify(rowFields)}; return Array.isArray(r?.data) ? { ...r, data: r.data.map((row) => Object.fromEntries(keys.map((k) => [k, row?.[k]]))) } : r; }`
+			: `async () => ${call}`,
 	);
 	const normalized = normalizeCodeResult(raw);
 	if (normalized.truncated) throw new Error(truncationErrorMessage(normalized));

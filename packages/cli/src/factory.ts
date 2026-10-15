@@ -126,6 +126,15 @@ async function createFactory(ctx: FactoryContext): Promise<number> {
 	return 0;
 }
 
+const OVERVIEW_FIELDS = [
+	"slug",
+	"verdict",
+	"reason",
+	"ownerTediName",
+	"ranToday",
+	"nextFireAt",
+] as const;
+
 async function factoryStatus(
 	ctx: FactoryContext,
 	slug: string | undefined,
@@ -137,6 +146,9 @@ async function factoryStatus(
 			...(slug ? { factory: slug } : {}),
 			...(ctx.factory.runs ? { runs: ctx.factory.runs } : {}),
 		},
+		// Every factory with its runs outgrows the gateway's result cap, and
+		// the overview prints only these fields.
+		slug ? undefined : OVERVIEW_FIELDS,
 	);
 	if (ctx.json) {
 		console.log(JSON.stringify(value));
