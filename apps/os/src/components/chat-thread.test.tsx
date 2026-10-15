@@ -413,6 +413,37 @@ describe("chat response actions", () => {
 				{ id: "child-1", status: "completed" },
 			] as never),
 		).toBe("report");
+		// Nor under a rejected or failed write (its own run did not complete).
+		expect(
+			latestActionableAssistantMessageId(
+				[
+					{
+						...message({ id: "rejected", content: "Rejected." }),
+						runId: "w-1",
+					},
+				],
+				[{ id: "w-1", status: "canceled" }] as never,
+			),
+		).toBeNull();
+		expect(
+			latestActionableAssistantMessageId(
+				[
+					{
+						...message({ id: "declined", content: "Nothing was created." }),
+						runId: "w-2",
+					},
+				],
+				[
+					{
+						id: "w-2",
+						status: "completed",
+						metadata: {
+							kernelWriteProposalDeclined: { stage: "planner_declined" },
+						},
+					},
+				] as never,
+			),
+		).toBeNull();
 		// An in-flight child is not a failure either.
 		expect(
 			latestActionableAssistantMessageId([report], [
