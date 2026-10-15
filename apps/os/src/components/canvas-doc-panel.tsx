@@ -52,6 +52,7 @@ import {
 } from "@/lib/canvas-draft";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
+import { sameDraftText } from "@/collab/ot/draft-equivalence";
 import { sentenceCase } from "@/lib/format";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
 import {
@@ -467,11 +468,14 @@ export function CanvasDocPanel({
 			: null;
 	const draftParsed = parseDraft(docText);
 	const savedParsed = canonicalDoc ? parseDraft(canonicalDoc.text) : null;
+	// View state (a deck's `activeSlideId`) is not an unsaved change; the room
+	// applies the same rule when it decides whether a newer version may load.
 	const draftMatchesSaved =
 		draftParsed.ok &&
 		savedParsed?.ok &&
-		canonicalJsonText(draftParsed.value) ===
-			canonicalJsonText(savedParsed.value);
+		(canonicalJsonText(draftParsed.value) ===
+			canonicalJsonText(savedParsed.value) ||
+			sameDraftText(canonicalDoc!.text, docText));
 	const proposalMergeBlockedReason = !live
 		? "Reconnect before applying a proposal."
 		: recoveryRequired
