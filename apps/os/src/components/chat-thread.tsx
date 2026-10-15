@@ -312,7 +312,9 @@ export function latestActionableAssistantMessageId(
 		runs.flatMap((run) =>
 			run.id &&
 			!ACTIVE_RUN_STATUSES.has(run.status) &&
-			run.status !== "completed"
+			(run.status !== "completed" ||
+				// A write Home declined to stage completed without doing anything.
+				recordOrNull(run.metadata)?.kernelWriteProposalDeclined != null)
 				? [run.id]
 				: [],
 		),
@@ -324,6 +326,7 @@ export function latestActionableAssistantMessageId(
 			message?.role === "assistant" &&
 			message.status === "completed" &&
 			!(message.childRunId && failedRuns.has(message.childRunId)) &&
+			!(message.runId && failedRuns.has(message.runId)) &&
 			decodeChatContext(message.content).content.trim().length > 0
 		) {
 			return message.id;
