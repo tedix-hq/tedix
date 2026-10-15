@@ -15,7 +15,8 @@ export const providerEventsContract = oc
 			.route({
 				method: "POST",
 				path: "/subscriptions",
-				summary: "Register provider calendar notifications or explicit polling",
+				summary:
+					"Register calendar notifications or MCP event delivery for a tedi skill",
 			})
 			.input(ProviderEventRegisterSchema)
 			.output(ProviderEventStatusSchema),
@@ -23,7 +24,7 @@ export const providerEventsContract = oc
 			.route({
 				method: "GET",
 				path: "/subscriptions",
-				summary: "List calendar event subscriptions",
+				summary: "List provider event subscriptions",
 			})
 			.input(z.object({}).strict())
 			.output(z.array(ProviderEventStatusSchema)),
@@ -31,7 +32,7 @@ export const providerEventsContract = oc
 			.route({
 				method: "GET",
 				path: "/{id}",
-				summary: "Inspect calendar notification health",
+				summary: "Inspect provider event subscription health",
 			})
 			.input(ProviderEventIdSchema)
 			.output(ProviderEventStatusSchema),
@@ -39,7 +40,7 @@ export const providerEventsContract = oc
 			.route({
 				method: "POST",
 				path: "/{id}/disable",
-				summary: "Disable and unsubscribe calendar notifications",
+				summary: "Disable and unsubscribe provider event delivery",
 			})
 			.input(ProviderEventIdSchema)
 			.output(ProviderEventStatusSchema),

@@ -1,3 +1,4 @@
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { sqliteTable, text, index, integer } from "drizzle-orm/sqlite-core";
 export const providerEventSubscriptions = sqliteTable(
 	"provider_event_subscriptions",
@@ -5,11 +6,23 @@ export const providerEventSubscriptions = sqliteTable(
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id").notNull(),
 		adapter: text("adapter", {
-			enum: ["google_calendar", "microsoft_calendar"],
+			enum: ["google_calendar", "microsoft_calendar", "mcp_events"],
 		}).notNull(),
 		providerId: text("provider_id").notNull(),
 		connectionInstanceId: text("connection_instance_id"),
+		// Provider resource key: the calendar id, or the upstream event name for mcp_events.
 		calendarId: text("calendar_id").notNull(),
+		// mcp_events: the organization's connected upstream MCP app and its event filter.
+		mcpAppId: text("mcp_app_id"),
+		eventArguments: text("event_arguments", { mode: "json" }).$type<
+			Record<string, JsonValue>
+		>(),
+		// Opaque upstream events/poll cursor; advanced only after events are queued.
+		eventCursor: text("event_cursor"),
+		// Wake budget per rolling hour; null keeps the platform default.
+		maxWakesPerHour: integer("max_wakes_per_hour"),
+		wakeWindowStartedAt: text("wake_window_started_at"),
+		wakeWindowCount: integer("wake_window_count").notNull().default(0),
 		connectionScope: text("connection_scope", { enum: ["tenant", "user"] })
 			.notNull()
 			.default("tenant"),
@@ -51,6 +64,8 @@ export const providerEventChannels = sqliteTable(
 		subscriptionId: text("subscription_id").notNull(),
 		organizationId: text("organization_id").notNull(),
 		tokenHash: text("token_hash").notNull(),
+		// mcp_events webhooks: the whsec_ signing secret, AES-GCM encrypted per organization.
+		signingSecretCiphertext: text("signing_secret_ciphertext"),
 		providerChannelId: text("provider_channel_id"),
 		resourceId: text("resource_id"),
 		status: text("status", {
@@ -73,6 +88,10 @@ export const providerEventDeliveries = sqliteTable(
 			enum: ["pending", "sent", "discarded"],
 		}).notNull(),
 		attempts: integer("attempts").notNull().default(0),
+		// mcp_events: the received event, already wrapped as untrusted content.
+		payload: text("payload", { mode: "json" }).$type<
+			Record<string, JsonValue>
+		>(),
 		leaseUntil: text("lease_until"),
 		createdAt: text("created_at").notNull(),
 		sentAt: text("sent_at"),

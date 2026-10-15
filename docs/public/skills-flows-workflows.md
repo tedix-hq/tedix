@@ -122,6 +122,58 @@ tedix -w acme skill runs
 activation, and scheduling remain governed skill lifecycle decisions, not
 automatic consequences of a successful flow.
 
+## Start a skill from upstream MCP events
+
+A tedi skill can run when a connected MCP app emits an event. Tedix supports
+the draft MCP Events extension (SEP-3415). The extension is experimental, so
+its field names may still change. Each subscription is a row of organization
+data, created with `register_provider_event_subscription` (oRPC
+`providerEvents.register`). It needs `integrations:manage`.
+
+```json
+{
+	"adapter": "mcp_events",
+	"providerId": "PROVIDER_ID",
+	"connectionInstanceId": "CONNECTION_INSTANCE_UUID",
+	"tediId": "TEDI_UUID",
+	"skillId": "SKILL_UUID",
+	"skillRevision": 1,
+	"deliveryMode": "push",
+	"mcpEvents": {
+		"appId": "APP_UUID",
+		"eventName": "vendor.alert.example",
+		"arguments": {},
+		"maxWakesPerHour": 12
+	}
+}
+```
+
+- **App and credential.** `appId` must be an app your organization owns.
+  Tedix calls that app's own upstream MCP endpoint with the named organization
+  connection. One of the app's enabled tools must already use
+  `providerId` as its connection auth. Tedix never accepts an endpoint URL or
+  credential from the subscription itself.
+- **Admission.** Registration calls `events/list` with that credential. The
+  event must exist and must offer the delivery mode you chose.
+- **Delivery.** In `push` mode, Tedix calls `events/subscribe` with its own
+  webhook and a `whsec_` secret. It verifies each Standard Webhooks signature
+  within a five-minute timestamp window and renews the subscription before
+  `refreshBefore`. In `poll` mode, the maintenance tick calls `events/poll`
+  every two minutes from a stored cursor. The cursor moves forward only after
+  the events are queued.
+- **Safety.** Duplicate event IDs are dropped. Each subscription may wake the
+  skill at most `maxWakesPerHour` times in a rolling hour (default 12, maximum
+  120). Events over that budget are recorded as discarded, and `lastError`
+  says so.
+- **Untrusted content.** The skill run receives
+  `params.providerEvent.event`. Its `trust` is `"untrusted"`. The upstream
+  data is a bounded JSON string inside an `<untrusted_event_data>` fence. An
+  event never grants authority, so the skill or the turn it starts must check
+  current state with its own tools before acting.
+
+Use `get_provider_event_subscription` to check health, and
+`disable_provider_event_subscription` to stop and unsubscribe.
+
 ## Observe the engine
 
 The `tedix workflow` command is deliberately read-only. Its name is the

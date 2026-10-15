@@ -25,6 +25,7 @@ export async function maintainProviderEvents(
 	const now = new Date().toISOString();
 	let renewed = 0,
 		reconciled = 0,
+		polled = 0,
 		failed = 0;
 	for (const row of await dueProviderEventSubscriptions(context.db, now)) {
 		if (
@@ -43,6 +44,43 @@ export async function maintainProviderEvents(
 				row.organizationId,
 			);
 			const token = await resolveProviderEventCredential(internal, row);
+			if (row.adapter === "mcp_events") {
+				const {
+					pollMcpEvents,
+					MCP_EVENTS_POLL_INTERVAL_MS,
+					MCP_EVENTS_RENEW_BEFORE_MS,
+				} = await import("../services/provider-events/mcp-events");
+				let clearError = false;
+				if (row.deliveryMode === "poll") {
+					const counts = await pollMcpEvents(internal, row, token);
+					polled += counts.queued;
+					// Keep the wake-budget notice visible while events are being shed.
+					clearError = counts.rate_limited === 0;
+				} else if (
+					!row.expiresAt ||
+					Date.parse(row.expiresAt) < Date.now() + MCP_EVENTS_RENEW_BEFORE_MS
+				) {
+					await renewSubscription(internal, row, token);
+					renewed++;
+				}
+				await updateProviderEventSubscription(
+					context.db,
+					row.organizationId,
+					row.id,
+					{
+						status: "active",
+						...(clearError ? { lastError: null } : {}),
+						nextReconcileAt: new Date(
+							Date.now() +
+								(row.deliveryMode === "poll"
+									? MCP_EVENTS_POLL_INTERVAL_MS
+									: RECONCILE_INTERVAL_MS),
+						).toISOString(),
+						leaseUntil: null,
+					},
+				);
+				continue;
+			}
 			if (
 				row.deliveryMode === "push" &&
 				(!row.expiresAt ||
@@ -83,6 +121,7 @@ export async function maintainProviderEvents(
 		prunedDeliveries: pruned.deliveries,
 		renewed,
 		reconciled,
+		polled,
 		failed,
 		dispatched: await dispatchProviderEventDeliveries(context),
 	};

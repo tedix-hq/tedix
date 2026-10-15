@@ -13,11 +13,12 @@ import {
 	claimProviderEventSubscription,
 	pruneProviderEvents,
 	addProviderEventChannel,
+	claimProviderEventWake,
 } from "./provider-events";
 function fixture() {
 	const sql = new DatabaseSync(":memory:");
 	sql.exec(
-		`CREATE TABLE provider_event_subscriptions(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,adapter TEXT NOT NULL,provider_id TEXT NOT NULL,connection_instance_id TEXT,calendar_id TEXT NOT NULL,connection_scope TEXT NOT NULL DEFAULT 'tenant',personal_owner_user_id TEXT,workspace_id TEXT,workspace_resource_id TEXT,delegation_id TEXT,execution_tool_id TEXT,resource_delegation_ids TEXT NOT NULL DEFAULT '[]',tedi_id TEXT NOT NULL,skill_id TEXT NOT NULL,skill_revision INTEGER NOT NULL,delivery_mode TEXT NOT NULL,status TEXT NOT NULL,expires_at TEXT,next_reconcile_at TEXT NOT NULL,last_notification_at TEXT,last_dispatch_at TEXT,last_error TEXT,lease_until TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);CREATE TABLE provider_event_channels(id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,organization_id TEXT NOT NULL,token_hash TEXT NOT NULL,provider_channel_id TEXT,resource_id TEXT,status TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL);CREATE TABLE provider_event_deliveries(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,subscription_id TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,lease_until TEXT,created_at TEXT NOT NULL,sent_at TEXT);`,
+		`CREATE TABLE provider_event_subscriptions(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,adapter TEXT NOT NULL,provider_id TEXT NOT NULL,connection_instance_id TEXT,calendar_id TEXT NOT NULL,mcp_app_id TEXT,event_arguments TEXT,event_cursor TEXT,max_wakes_per_hour INTEGER,wake_window_started_at TEXT,wake_window_count INTEGER NOT NULL DEFAULT 0,connection_scope TEXT NOT NULL DEFAULT 'tenant',personal_owner_user_id TEXT,workspace_id TEXT,workspace_resource_id TEXT,delegation_id TEXT,execution_tool_id TEXT,resource_delegation_ids TEXT NOT NULL DEFAULT '[]',tedi_id TEXT NOT NULL,skill_id TEXT NOT NULL,skill_revision INTEGER NOT NULL,delivery_mode TEXT NOT NULL,status TEXT NOT NULL,expires_at TEXT,next_reconcile_at TEXT NOT NULL,last_notification_at TEXT,last_dispatch_at TEXT,last_error TEXT,lease_until TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);CREATE TABLE provider_event_channels(id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,organization_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret_ciphertext TEXT,provider_channel_id TEXT,resource_id TEXT,status TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL);CREATE TABLE provider_event_deliveries(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,subscription_id TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,payload TEXT,lease_until TEXT,created_at TEXT NOT NULL,sent_at TEXT);`,
 	);
 	return createDbQueryClient(createD1Facade(sql));
 }
@@ -127,6 +128,70 @@ describe("provider event D1 authority and outbox", () => {
 			[],
 		);
 	});
+});
+
+it("spends one hourly wake budget per subscription and organization, then resets with the window", async () => {
+	const db = fixture();
+	await createProviderEventSubscription(db, {
+		...row,
+		adapter: "mcp_events",
+		calendarId: "vendor.alert",
+	});
+	await createProviderEventSubscription(db, {
+		...row,
+		id: "sub-b",
+		organizationId: "org-b",
+		adapter: "mcp_events",
+		calendarId: "vendor.alert",
+	});
+	const wake = (org: string, id: string, now: string, windowStart: string) =>
+		claimProviderEventWake(db, org, id, now, windowStart, 2);
+	expect(await wake("org-a", "sub", "2026-01-02T00:00", "2026-01-01")).toBe(
+		true,
+	);
+	expect(await wake("org-a", "sub", "2026-01-02T00:01", "2026-01-01")).toBe(
+		true,
+	);
+	expect(await wake("org-a", "sub", "2026-01-02T00:02", "2026-01-01")).toBe(
+		false,
+	);
+	// Another organization's id never spends or reads this budget.
+	expect(await wake("org-b", "sub", "2026-01-02T00:02", "2026-01-01")).toBe(
+		false,
+	);
+	expect(await wake("org-b", "sub-b", "2026-01-02T00:02", "2026-01-01")).toBe(
+		true,
+	);
+	// A window that started before the new window start resets the count.
+	expect(
+		await wake("org-a", "sub", "2026-01-02T01:05", "2026-01-02T00:05"),
+	).toBe(true);
+	expect(await getProviderEventSubscription(db, "org-a", "sub")).toMatchObject({
+		wakeWindowStartedAt: "2026-01-02T01:05",
+		wakeWindowCount: 1,
+	});
+	await updateProviderEventSubscription(db, "org-a", "sub", {
+		status: "disabled",
+	});
+	expect(
+		await wake("org-a", "sub", "2026-01-03T00:00", "2026-01-02T23:00"),
+	).toBe(false);
+});
+
+it("stores a wrapped event payload once per event id", async () => {
+	const db = fixture();
+	const delivery = {
+		id: "evt-hash",
+		organizationId: "org-a",
+		subscriptionId: "sub",
+		status: "pending" as const,
+		createdAt: "2026-01-01",
+		payload: { trust: "untrusted", eventId: "e1" },
+	};
+	expect(await addProviderEventDelivery(db, delivery)).toMatchObject([
+		{ payload: { trust: "untrusted", eventId: "e1" } },
+	]);
+	expect(await addProviderEventDelivery(db, delivery)).toEqual([]);
 });
 
 it("prunes expired callback capabilities and completed deliveries while retaining pending retries", async () => {
