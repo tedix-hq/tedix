@@ -291,6 +291,9 @@ function renderDeckElement(element: OsPresentationElement): string {
 		`width:${element.width}px`,
 		`height:${element.height}px`,
 		`font-size:${style.fontSize ?? 24}px`,
+		// Same rule as `presentationLineHeight` in apps/os: display type sets
+		// tight, body copy opens up. Change both together.
+		`line-height:${(style.fontSize ?? 24) >= 40 ? 1.1 : 1.3}`,
 		style.fontFamily && /^[a-zA-Z0-9 ,'-]+$/.test(style.fontFamily)
 			? `font-family:${escapeHtml(style.fontFamily)}`
 			: "",
@@ -311,7 +314,8 @@ function renderDeckElement(element: OsPresentationElement): string {
 		style.textAlign ? `text-align:${style.textAlign}` : "",
 		style.opacity !== undefined ? `opacity:${style.opacity}` : "",
 		style.rotation ? `transform:rotate(${style.rotation}deg)` : "",
-		"white-space:pre-line",
+		"white-space:pre-wrap",
+		"overflow-wrap:break-word",
 		"overflow:hidden",
 	]
 		.filter(Boolean)

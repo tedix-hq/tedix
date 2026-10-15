@@ -88,11 +88,14 @@ describe("SlidesEditor", () => {
 			'[role="group"][data-element]',
 		)!;
 		await act(async () => group.click());
-		// Every native control comes from a Kumo adapter.
+		// Every native control comes from a Kumo adapter, except the slide's own
+		// text input: it is slide content, and a Kumo type role would force UI
+		// type onto it (see output-slide-element.test.tsx).
 		for (const control of mounted.container.querySelectorAll(
 			"button, input, select, textarea",
 		)) {
 			if (control.id.endsWith("-hidden-input")) continue;
+			if (control.classList.contains("slide-element-input")) continue;
 			expect(
 				control.hasAttribute("data-slot") ||
 					control.hasAttribute("data-kumo-component") ||
@@ -107,11 +110,12 @@ describe("SlidesEditor", () => {
 			".slides-editor-canvas",
 		)!;
 		expect(canvas.style.containerType).toBe("inline-size");
-		// Inline text editing is a borderless, transparent field on the slide.
+		// Inline text editing is a borderless, transparent field on the slide:
+		// `.slide-element-input` unsets every control style.
 		const field = group.querySelector("textarea");
-		expect(field).not.toBeNull();
-		for (const token of ["bg-transparent", "p-0", "shadow-none"])
-			expect(field!.classList.contains(token)).toBe(true);
+		expect(field?.className).toBe("slide-element-input");
+		const css = readFileSync("src/styles.css", "utf8");
+		expect(css).toMatch(/\.slide-element-input \{\n\tall: unset;/);
 		const stage = mounted.container.querySelector(".slides-editor-stage");
 		expect(stage).not.toBeNull();
 		expect(stage!.classList.contains("rounded-lg")).toBe(false);
