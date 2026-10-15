@@ -85,3 +85,82 @@ export function browserToolEgressDecision(
 	}
 	return { decision: "deny", hostname: null, reason: "uninspectable_html" };
 }
+
+/** True when every hostname `pattern` matches is matched by an entry of `list`. */
+function patternCoveredBy(pattern: string, list: readonly string[]): boolean {
+	if (list.includes("*")) return true;
+	if (pattern === "*") return false;
+	if (!pattern.startsWith("*.")) {
+		return list.some((entry) => matchesHostname(entry, pattern));
+	}
+	const suffix = pattern.slice(2);
+	return list.some(
+		(entry) =>
+			entry === pattern ||
+			(entry.startsWith("*.") && matchesHostname(entry, suffix)),
+	);
+}
+
+/** True when some hostname matches both patterns. */
+function patternsOverlap(a: string, b: string): boolean {
+	if (a === "*" || b === "*" || a === b) return true;
+	const aWild = a.startsWith("*.");
+	const bWild = b.startsWith("*.");
+	if (aWild && bWild)
+		return patternCoveredBy(a, [b]) || patternCoveredBy(b, [a]);
+	if (aWild) return matchesHostname(a, b);
+	if (bWild) return matchesHostname(b, a);
+	return false;
+}
+
+/**
+ * How the hostname policies apply to a persistent browser, whose CDP code
+ * cannot be inspected per call. Browser Run guardrails enforce an allowlist
+ * on every request the browser makes, between tool calls and after a
+ * restart, but cannot express a denylist. A policy is therefore enforceable
+ * when its allowlists intersect to a non-empty set and every denied pattern
+ * already falls outside that set.
+ */
+export type PersistentBrowserEgress =
+	| { enforceable: true; allowedDomains?: string[] }
+	| {
+			enforceable: false;
+			reason: "hostname_not_allowed" | "uninspectable_cdp";
+	  };
+
+export function persistentBrowserEgress(
+	policies: readonly (BrowserHostnamePolicy | undefined)[],
+): PersistentBrowserEgress {
+	let allowed: string[] | undefined;
+	for (const policy of policies) {
+		const list = policy?.allowedHostnames ?? [];
+		if (list.length === 0) continue;
+		const current = allowed;
+		allowed = current
+			? [
+					...new Set([
+						...current.filter((pattern) => patternCoveredBy(pattern, list)),
+						...list.filter((pattern) => patternCoveredBy(pattern, current)),
+					]),
+				]
+			: [...new Set(list)];
+	}
+	if (allowed?.includes("*")) allowed = undefined;
+	if (allowed?.length === 0) {
+		return { enforceable: false, reason: "hostname_not_allowed" };
+	}
+	const denied = policies.flatMap((policy) => policy?.deniedHostnames ?? []);
+	const effective = allowed;
+	if (
+		denied.some(
+			(pattern) =>
+				!effective ||
+				effective.some((entry) => patternsOverlap(entry, pattern)),
+		)
+	) {
+		return { enforceable: false, reason: "uninspectable_cdp" };
+	}
+	return effective
+		? { enforceable: true, allowedDomains: effective.sort() }
+		: { enforceable: true };
+}

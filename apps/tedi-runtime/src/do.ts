@@ -191,7 +191,9 @@ import {
 import { buildBodyExecutionResult } from "@tedix/api-contract/utils/body-execution-result";
 import {
 	createTediBrowserSession,
+	browserSessionRuntimeEvent,
 	browserSessionSignature,
+	browserSessionTools,
 	governBrowserTools,
 	type TediBrowserSession,
 } from "./browser-session";
@@ -6897,14 +6899,18 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const limit = this.state.budgets?.browserBudgetDaily ?? 50;
 		const approvalRequired =
 			(this.state.toolPolicy?.browser ?? "always-allow") === "always-approve";
+		const session = this.getBrowserSession();
 		const governed: ToolSet = {
 			...browserResultTools(resultFiles),
-			...governBrowserTools(this.getBrowserSession().tools, {
+			...browserSessionTools(
+				() => this.getBrowserSession(),
+				() => this.state.toolPolicy?.browserSession,
+				() => this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY).then(() => {}),
+			),
+			...governBrowserTools(session.tools, {
 				approvalRequired,
-				hostnamePolicies: [
-					this.state.organizationBrowserEgress,
-					this.state.toolPolicy?.browserEgress,
-				],
+				hostnamePolicies: this.browserHostnamePolicies(),
+				executeEgress: session.executeEgress,
 				enforceTakeover: (name) => this.enforceBrowserTakeoverGate(name),
 				onEgressDenied: (name, egress) =>
 					this.recordBrowserEgressDenial(name, egress, binding),
@@ -6952,9 +6958,20 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		return governed;
 	}
 
+	private browserHostnamePolicies() {
+		return [
+			this.state.organizationBrowserEgress,
+			this.state.toolPolicy?.browserEgress,
+		];
+	}
+
 	private getBrowserSession(): TediBrowserSession {
 		const policy = this.state.toolPolicy?.browserSession;
-		if (this.browserSession?.signature === browserSessionSignature(policy)) {
+		const hostnamePolicies = this.browserHostnamePolicies();
+		if (
+			this.browserSession?.signature ===
+			browserSessionSignature(policy, hostnamePolicies)
+		) {
 			return this.browserSession;
 		}
 		const loader = this.env.LOADER;
@@ -6968,8 +6985,17 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					})
 				: loader,
 			policy,
-			onRestarted: () =>
-				console.warn("[browser-session] persistent browser was restarted"),
+			hostnamePolicies,
+			onLifecycle: async (event) => {
+				const turn = await this.resolveTurnTelemetry({
+					warnLabel: "browser-session",
+				});
+				if (turn) {
+					await this.eventOutbox.publish(
+						browserSessionRuntimeEvent(event, turn),
+					);
+				}
+			},
 		});
 		return this.browserSession;
 	}
@@ -7126,7 +7152,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		}
 		const gateDecision = decideBrowserTakeoverGate({ gate, row, tediId });
 		if (gateDecision.action === "close") {
-			await this.getBrowserSession().close();
+			await this.getBrowserSession().close("takeover_closed");
 			await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
 			return {
 				approvalRequestId,
@@ -7180,7 +7206,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const decision = decideBrowserTakeoverGate({ gate, row, tediId });
 		if (decision.action !== "allow") {
 			if (decision.action === "close") {
-				await this.getBrowserSession().close();
+				await this.getBrowserSession().close("takeover_closed");
 				await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
 			}
 			throw new Error(

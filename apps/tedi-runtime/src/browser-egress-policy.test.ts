@@ -3,6 +3,7 @@ import {
 	browserEgressDecision,
 	browserToolEgressDecision,
 	hasBrowserHostnameRestrictions,
+	persistentBrowserEgress,
 } from "./browser-egress-policy";
 
 const org = {
@@ -61,11 +62,65 @@ function exerciseBrowserEgressPolicy(): void {
 	);
 }
 
+function exercisePersistentBrowserEgress(): void {
+	assert.deepEqual(persistentBrowserEgress([undefined, undefined]), {
+		enforceable: true,
+	});
+	// Org and tedi allowlists intersect; the org deny rule falls outside it.
+	assert.deepEqual(persistentBrowserEgress([org, tedi]), {
+		enforceable: true,
+		allowedDomains: ["docs.cloudflare.com", "research.example.com"],
+	});
+	// The deny rule overlaps the org's own wildcard, so CDP stays refused.
+	assert.deepEqual(persistentBrowserEgress([org]), {
+		enforceable: false,
+		reason: "uninspectable_cdp",
+	});
+	assert.deepEqual(
+		persistentBrowserEgress([
+			{ allowedHostnames: [], deniedHostnames: ["evil.test"] },
+		]),
+		{ enforceable: false, reason: "uninspectable_cdp" },
+	);
+	assert.deepEqual(
+		persistentBrowserEgress([
+			{ allowedHostnames: ["a.test"], deniedHostnames: [] },
+			{ allowedHostnames: ["b.test"], deniedHostnames: [] },
+		]),
+		{ enforceable: false, reason: "hostname_not_allowed" },
+	);
+	assert.deepEqual(
+		persistentBrowserEgress([
+			{ allowedHostnames: ["*"], deniedHostnames: [] },
+			{ allowedHostnames: ["*.example.com"], deniedHostnames: ["x.org"] },
+		]),
+		{ enforceable: true, allowedDomains: ["*.example.com"] },
+	);
+	assert.deepEqual(
+		persistentBrowserEgress([
+			{ allowedHostnames: ["*.example.com"], deniedHostnames: [] },
+			{
+				allowedHostnames: ["*.eu.example.com", "example.com"],
+				deniedHostnames: [],
+			},
+		]),
+		{ enforceable: true, allowedDomains: ["*.eu.example.com"] },
+	);
+	assert.deepEqual(
+		persistentBrowserEgress([{ allowedHostnames: ["*"], deniedHostnames: [] }]),
+		{ enforceable: true },
+	);
+}
+
 if (process.env.VITEST === "true") {
 	const { it } = await import("vite-plus/test");
 	it("composes organization and tedi browser hostname policy", () => {
 		exerciseBrowserEgressPolicy();
 	});
+	it("maps hostname policy to persistent browser guardrails", () => {
+		exercisePersistentBrowserEgress();
+	});
 } else {
 	exerciseBrowserEgressPolicy();
+	exercisePersistentBrowserEgress();
 }

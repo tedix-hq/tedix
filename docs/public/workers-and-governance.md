@@ -68,6 +68,19 @@ Run reclaims it. A lost browser is replaced on the next call, and the tedi is
 told it restarted and may need to sign in again. Budget, hostname, approval
 and human takeover policies still apply. Use `{ "mode": "dynamic" }` to stop.
 
+Hostname rules (`browserEgress` on the organization and the tedi) become
+Browser Run guardrails: the browser launches with the allowlist both rules
+share, so every page and request it makes is limited to those hostnames,
+between tool calls and after a restart. When the rules change, the next call
+closes the browser and launches a new one. Guardrails cannot express a
+denylist, so the tedi cannot run browser code while a denied hostname is
+reachable; list allowed hostnames instead.
+
+The run ledger records each browser as `browser.session.opened`, `reused`
+(once per run), `restarted` or `closed`. The tedi can read its session with
+`browser_session_status` and end it, discarding its logins, with
+`browser_session_close`.
+
 ## What Tedix records
 
 - who or what asked for the work;
