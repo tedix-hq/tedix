@@ -1,3 +1,13 @@
+Tedix 0.2.5 — fail-closed financial and delegated execution boundary.
+
+Connect hides and rejects financial tools and payment providers using versioned
+server rules. Other tools need explicit read declarations. Plugin-started tedi
+turns persist `noFunds` through dispatch and retries and keep only `read_skill`.
+Home, writes, browser/code execution, scheduling and skill execution are
+unavailable through this connection. Non-Connect sessions retain their existing
+permissions. This deliberately reduces plugin functionality while unsupported
+execution paths cannot preserve the restriction.
+
 Tedix 0.2.4 — procedures ship with the plugin; its connection cannot pay for tools.
 
 Work lifecycle and factory setup steps now ship beside the skills. Runtime

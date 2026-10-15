@@ -685,6 +685,8 @@ export async function resolveClientCredentialsToken(
  * Context passed to the handler during tool execution
  */
 export interface ToolExecutionContext<TConfig = unknown> {
+	/** Server-derived connection restriction; never read from tool arguments. */
+	noFunds?: boolean;
 	/** App ID */
 	appId: string;
 
@@ -2817,6 +2819,19 @@ export class ToolHandler {
 		const usesInternalTediServiceBinding = Boolean(
 			serviceBinding && managedTediHost,
 		);
+		if (
+			ctx.noFunds &&
+			(mcpToolName === "run_tedi_turn" ||
+				aggregateTediRemoteName === "run_tedi_turn") &&
+			!usesInternalTediServiceBinding
+		) {
+			return {
+				data: {
+					error: "Restricted tedi turns require the internal service binding",
+				},
+				status: 403,
+			};
+		}
 		const usesModernOnlyDocsServiceBinding = Boolean(
 			serviceBinding && serviceBinding === ctx.env.DOCS,
 		);
@@ -2849,6 +2864,7 @@ export class ToolHandler {
 			};
 		}
 		if (serviceBinding && managedTediHost) {
+			if (ctx.noFunds) headers["X-Tedix-No-Funds"] = "true";
 			headers["X-Tedix-Host"] = managedTediHost;
 			headers["X-Service-Binding"] = "true";
 			headers[CALLER_TRUST_HEADER] = callerTrustTier;

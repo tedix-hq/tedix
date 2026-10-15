@@ -1676,3 +1676,32 @@ describe("caller trust on the tedi inject hop", () => {
 		expect(body).not.toHaveProperty("learning_mode");
 	});
 });
+
+it.each([false, true])(
+	"stamps the server noFunds restriction on tedi ingress: %s",
+	async (noFunds) => {
+		const ctx = mcpCtx({
+			transport: "mcp",
+			mcpServerUrl: "https://cto.tedi.tedix.dev/mcp",
+			mcpToolName: "run_tedi_turn",
+			_aggregateTediId: "cto_tedi_1",
+			_aggregateTediOrgId: "org_1",
+		});
+		ctx.noFunds = noFunds;
+		const fetch = vi.fn(async () =>
+			Response.json(
+				{ accepted: true, run_id: "restricted-run" },
+				{ status: 202 },
+			),
+		);
+		ctx.env.TEDI_SERVICE = { fetch } as unknown as Fetcher;
+		await new ToolHandler().execute(
+			{ text: "Create a payment", noFunds: false },
+			ctx,
+		);
+		const [, init] = fetch.mock.calls[0]! as unknown as [string, RequestInit];
+		expect(new Headers(init.headers).get("X-Tedix-No-Funds")).toBe(
+			noFunds ? "true" : null,
+		);
+	},
+);

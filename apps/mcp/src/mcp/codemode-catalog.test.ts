@@ -2015,3 +2015,25 @@ it("search and describe keep literal native identity and independent eligibility
 		).results.find((x) => (x.native as { name: string })?.name === row.toolId),
 	).toMatchObject({ native: { eligible: false, authorized: false } });
 });
+
+it("hides classified tools only from the directory connection catalog", async () => {
+	const row = tool({
+		toolId: "provider__create_payment",
+		writeCapability: "read",
+	});
+	const normal = {
+		appSlug: "tenant",
+		loadedTools: new Map([[row.toolId, row]]),
+	} as unknown as ServerContext;
+	expect(
+		(
+			await runSearch(buildCatalogProvider(normal, undefined), "create_payment")
+		).results.some((row) => row.callable === "provider.create_payment"),
+	).toBe(true);
+	const plugin = { ...normal, connectionAppSlug: "connect" };
+	expect(
+		(
+			await runSearch(buildCatalogProvider(plugin, undefined), "create_payment")
+		).results.some((row) => row.callable === "provider.create_payment"),
+	).toBe(false);
+});

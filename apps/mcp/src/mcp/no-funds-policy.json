@@ -1,0 +1,29 @@
+{
+	"version": 1,
+	"financialTerms": [
+		"charge",
+		"payment",
+		"payout",
+		"refund",
+		"transfer",
+		"withdraw",
+		"send_money",
+		"create_checkout",
+		"purchase",
+		"subscribe",
+		"subscription",
+		"top_up",
+		"topup"
+	],
+	"paymentProviders": [
+		"stripe",
+		"paypal",
+		"adyen",
+		"wise",
+		"mollie",
+		"coinbase",
+		"crypto",
+		"wallet"
+	],
+	"deniedTransports": ["code"]
+}
