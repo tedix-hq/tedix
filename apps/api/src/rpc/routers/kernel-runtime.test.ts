@@ -10093,52 +10093,73 @@ describe("kernel DO integration (enqueueMessage kernel path)", () => {
 		expect(db.runs[0]?.status).toBe("running");
 	});
 
-	it("does not re-run inline (and surfaces no unhandled rejection) when the DO rejects after the deadline", async () => {
-		kernelRuntimeTestHooks.setKernelTurnSoftDeadlineForTest(25);
-		const db = createKernelRuntimeDb();
-		const context = createContext(db) as BaseContext & {
-			waitUntilPromises: Promise<unknown>[];
-		};
-		let rejectTurn!: (reason: unknown) => void;
-		const processTurn = vi.fn(
-			() =>
-				new Promise<ReturnType<typeof doTurnResult>>((_resolve, reject) => {
-					rejectTurn = reject;
-				}),
-		);
-		(context.env as Record<string, unknown>).KERNEL = {
-			idFromName: vi.fn(() => "do-id"),
-			get: vi.fn(() => ({ processTurn })),
-		};
-		const inlineKernel = vi.fn(async () => null);
-		kernelRuntimeTestHooks.setKernelForTest(inlineKernel);
+	it.each(["running", "completed", "canceled", "requires_approval"] as const)(
+		"settles a late DO rejection only while the run is active (%s), without replay",
+		async (statusAtRejection) => {
+			kernelRuntimeTestHooks.setKernelTurnSoftDeadlineForTest(25);
+			const db = createKernelRuntimeDb();
+			const context = createContext(db) as BaseContext & {
+				waitUntilPromises: Promise<unknown>[];
+			};
+			let rejectTurn!: (reason: unknown) => void;
+			const processTurn = vi.fn(
+				() =>
+					new Promise<ReturnType<typeof doTurnResult>>((_resolve, reject) => {
+						rejectTurn = reject;
+					}),
+			);
+			(context.env as Record<string, unknown>).KERNEL = {
+				idFromName: vi.fn(() => "do-id"),
+				get: vi.fn(() => ({ processTurn })),
+			};
+			const inlineKernel = vi.fn(async () => null);
+			kernelRuntimeTestHooks.setKernelForTest(inlineKernel);
 
-		const client = createKernelRuntimeClient(context);
-		const result = await client.enqueueMessage({
-			conversationId: "home:do",
-			content: "slow turn whose DO later fails",
-			idempotencyKey: "home-do-late-error-1",
-		});
+			const client = createKernelRuntimeClient(context);
+			const result = await client.enqueueMessage({
+				conversationId: "home:do",
+				content: "slow turn whose DO later fails",
+				idempotencyKey: "home-do-late-error-1",
+			});
 
-		expect(result.status).toBe("queued");
-		expect(result.run.id).toBe("home-do-late-error-1");
-		expect(inlineKernel).not.toHaveBeenCalled();
-		const eventCountAtAck = db.events.length;
+			expect(result.status).toBe("queued");
+			expect(result.run.id).toBe("home-do-late-error-1");
+			expect(inlineKernel).not.toHaveBeenCalled();
+			const eventCountAtAck = db.events.length;
+			db.runs[0]!.status = statusAtRejection;
 
-		// A late rejection (after the deadline ack) must not trigger the inline
-		// fallback — the ack already told the caller to poll, and the turn may
-		// have partially completed under the DO. The dangling promise is
-		// swallowed (vitest fails the test on unhandled rejections).
-		rejectTurn(new Error("late durable object failure"));
-		await Promise.all(context.waitUntilPromises);
-		await flushAsync();
-		expect(inlineKernel).not.toHaveBeenCalled();
-		expect(processTurn).toHaveBeenCalledTimes(1);
-		// Fake db untouched beyond the persist-first inserts captured at ack.
-		expect(db.events).toHaveLength(eventCountAtAck);
-		expect(db.runs).toHaveLength(1);
-		expect(db.runs[0]?.status).toBe("running");
-	});
+			// A late rejection (after the deadline ack) must not trigger the inline
+			// fallback — the ack already told the caller to poll, and the turn may
+			// have partially completed under the DO. Report interruption without replay.
+			rejectTurn(new Error("late durable object failure"));
+			await Promise.all(context.waitUntilPromises);
+			await flushAsync();
+			expect(inlineKernel).not.toHaveBeenCalled();
+			expect(processTurn).toHaveBeenCalledTimes(1);
+			expect(db.runs).toHaveLength(1);
+			if (statusAtRejection === "running") {
+				expect(db.runs[0]?.status).toBe("failed");
+				expect(db.runs[0]?.progressLabel).toBe("Interrupted");
+				expect(
+					db.events.slice(eventCountAtAck).map((event) => event.kind),
+				).toContain("run.failed");
+				expect(
+					db.events.slice(eventCountAtAck).map((event) => event.kind),
+				).toContain("message.completed");
+				expect(db.submissionSettleCalls).toContainEqual({
+					submissionId: "sub:home-do-late-error-1",
+					outcome: "failed",
+				});
+				expect(JSON.stringify(db.events.slice(eventCountAtAck))).not.toContain(
+					"late durable object failure",
+				);
+			} else {
+				expect(db.events).toHaveLength(eventCountAtAck);
+				expect(db.runs[0]?.status).toBe(statusAtRejection);
+				expect(db.submissionSettleCalls).toHaveLength(0);
+			}
+		},
+	);
 });
 
 describe("governance policy: fan-out cap and approval TTL", () => {
