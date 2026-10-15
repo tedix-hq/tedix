@@ -180,15 +180,12 @@ function renderSheetCell(cell: OsSheetCell): string {
 	return `<td>${escapeHtml(String(cell))}</td>`;
 }
 
-function renderSlide(slide: OsPresentationSlide, index: number): string {
+function renderSlide(slide: OsPresentationSlide): string {
 	const bullets =
 		slide.bullets.length > 0
 			? `<ul>${slide.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>`
 			: "";
-	const notes = slide.notes
-		? `<aside class="notes">${escapeHtml(slide.notes)}</aside>`
-		: "";
-	return `<section class="slide"><p class="slide-number">${index + 1}</p><h2>${escapeHtml(slide.title)}</h2>${bullets}${notes}</section>`;
+	return `<section class="slide"><h2>${escapeHtml(slide.title)}</h2>${bullets}</section>`;
 }
 
 function renderWorkbook(
@@ -256,6 +253,9 @@ function renderDeckElement(element: OsPresentationElement): string {
 		`width:${element.width}px`,
 		`height:${element.height}px`,
 		`font-size:${style.fontSize ?? 24}px`,
+		style.fontFamily && /^[a-zA-Z0-9 ,'-]+$/.test(style.fontFamily)
+			? `font-family:${escapeHtml(style.fontFamily)}`
+			: "",
 		style.fontWeight
 			? `font-weight:${style.fontWeight === "semibold" ? 600 : style.fontWeight === "medium" ? 500 : style.fontWeight}`
 			: "",
@@ -293,8 +293,8 @@ function renderDeck(
 	if (!content.deck) return content.slides.map(renderSlide).join("");
 	return content.deck.slides
 		.map(
-			(slide, index) =>
-				`<section class="canvas-slide" style="background:${safeCssColor(slide.background) ?? "#ffffff"}"><p class="slide-number">${index + 1}</p>${slide.elements.map(renderDeckElement).join("")}${slide.notes ? `<aside class="notes">${escapeHtml(slide.notes)}</aside>` : ""}</section>`,
+			(slide) =>
+				`<section class="canvas-slide" style="background:${safeCssColor(slide.background) ?? "#ffffff"}">${slide.elements.map(renderDeckElement).join("")}</section>`,
 		)
 		.join("");
 }
@@ -342,9 +342,16 @@ const INLINE_CSS = `
 	article h3 { font-size:17px; font-weight:600; }
 	article a { color:#1267c4; text-decoration:underline; }
 	section.slide h2 { margin: 0 0 0.75rem; font-size: 1.4rem; }
-	section.slide .slide-number { margin: 0; font-size: 0.75rem; color: #888888; }
-	aside.notes { margin-top: 1rem; padding: 0.6em 0.9em; background: #f7f7f7; border: 1px dashed #cccccc; font-size: 0.8rem; color: #555555; }
 	@page { margin: 1.5cm; }
+`;
+
+// Match the authored canvas rather than fitting a slide into a document page.
+const PRESENTATION_CSS = `
+	@page { size: 1200px 675px; margin: 0; }
+	html, body { width: 1200px; margin: 0; padding: 0; line-height: 1.5; }
+	section.slide, section.canvas-slide { width: 1200px; height: 675px; min-height: 0; border: 0; overflow: hidden; break-inside: avoid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+	section.slide { padding: 60px 70px; font-size: 28px; }
+	section.slide h2 { font-size: 44px; }
 `;
 
 /**
@@ -358,6 +365,7 @@ export function renderOsOutputHtml(
 	revision: Pick<OsOutputRevision, "revision" | "content" | "createdAt">,
 ): string {
 	const title = escapeHtml(output.title);
+	const isPresentation = revision.content.kind === "presentation";
 	const meta = escapeHtml(
 		`${output.kind} — revision ${revision.revision} — ${revision.createdAt}`,
 	);
@@ -366,10 +374,10 @@ export function renderOsOutputHtml(
 <head>
 <meta charset="utf-8">
 <title>${title}</title>
-<style>${INLINE_CSS}</style>
+<style>${INLINE_CSS}${isPresentation ? PRESENTATION_CSS : ""}</style>
 </head>
 <body>
-<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>
+${isPresentation ? "" : `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>`}
 ${renderBody(revision.content)}
 </body>
 </html>`;

@@ -72,7 +72,7 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toContain("<tr><td>Globex</td><td></td><td></td></tr>");
 	});
 
-	it("renders a presentation as page-broken sections with notes", () => {
+	it("renders audience slides at 16:9 without document chrome or speaker notes", () => {
 		const html = renderOsOutputHtml(
 			{ kind: "presentation", title: "Board deck" },
 			{
@@ -89,7 +89,10 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toContain('<section class="slide">');
 		expect(html).toContain("<h2>Q3</h2>");
 		expect(html).toContain("<ul><li>Revenue</li><li>Churn</li></ul>");
-		expect(html).toContain('<aside class="notes">smile</aside>');
+		expect(html).not.toContain("smile");
+		expect(html).not.toContain('<header class="export-header">');
+		expect(html).not.toContain('class="slide-number"');
+		expect(html).toContain("@page { size: 1200px 675px; margin: 0; }");
 		expect(html).toContain("<h2>Q4 plan</h2>");
 		expect(html).toContain("page-break-after: always");
 	});
@@ -183,7 +186,7 @@ describe("renderOsOutputHtml", () => {
 										width: 900,
 										height: 100,
 										text: "Launch",
-										style: { fontSize: 48 },
+										style: { fontSize: 48, fontFamily: "Georgia, serif" },
 									},
 								],
 							},
@@ -194,7 +197,9 @@ describe("renderOsOutputHtml", () => {
 		);
 		expect(deck).toContain('<section class="canvas-slide"');
 		expect(deck).toContain("position:absolute;left:70px;top:50px");
-		expect(deck).toContain('<aside class="notes">Pause</aside>');
+		expect(deck).toContain("font-family:Georgia, serif");
+		expect(deck).not.toContain("Pause");
+		expect(deck).not.toContain('<header class="export-header">');
 	});
 
 	it("escapes user text in every position, including title, cells, and bullets", () => {
@@ -306,4 +311,51 @@ it("exports rich links and styled resized images without external image requests
 	expect(html).toContain("font-family:Georgia, serif");
 	expect(html).toContain('width="320" height="160"');
 	expect(html).not.toContain('src="https:');
+});
+
+it.each([
+	["'Times New Roman', serif", "font-family:&#39;Times New Roman&#39;, serif"],
+	["serif; background:url(https://example.com)", null],
+	['serif\"><img src=x onerror=alert(1)>', null],
+] as const)("validates presentation font CSS: %s", (fontFamily, expected) => {
+	const html = renderOsOutputHtml(
+		{ kind: "presentation", title: "Fonts" },
+		{
+			...revisionMeta,
+			content: {
+				kind: "presentation",
+				slides: [],
+				deck: {
+					width: 1200,
+					height: 675,
+					activeSlideId: "one",
+					slides: [
+						{
+							id: "one",
+							name: "Font",
+							layout: "blank",
+							background: "#ff6633",
+							elements: [
+								{
+									id: "text",
+									type: "text",
+									x: 0,
+									y: 0,
+									width: 1200,
+									height: 675,
+									text: "Hello",
+									style: { fontFamily },
+								},
+							],
+						},
+					],
+				},
+			},
+		},
+	);
+	if (expected) expect(html).toContain(expected);
+	else expect(html).not.toContain(`font-family:${fontFamily}`);
+	expect(html).not.toContain("https://example.com");
+	expect(html).not.toContain("<img");
+	expect(html).toContain('style="background:#ff6633"');
 });
