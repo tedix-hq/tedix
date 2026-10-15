@@ -2280,6 +2280,20 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
+	it("does not restore a draft after a send with an unknown outcome", async () => {
+		transport.actions.enqueueMessage.mockReset();
+		transport.actions.enqueueMessage.mockRejectedValue(
+			new Error("Connection dropped"),
+		);
+		window.localStorage.setItem(chatDraftKey("home:test"), "Add a paragraph");
+		const { container } = mountThread({ conversationId: "home:test" });
+		await flush();
+		act(() => sendButton(container).click());
+		await flush();
+		expect(window.localStorage.getItem(chatDraftKey("home:test"))).toBeNull();
+		transport.actions.enqueueMessage.mockReset();
+	});
+
 	it("bounds long Workspace and model labels inside the narrow composer", async () => {
 		const { container } = mountThread({
 			context: {
