@@ -866,6 +866,11 @@ export function CanvasDocPanel({
 					disabled={!live}
 					documentCollab={documentCollab.collab}
 					remoteCursors={documentCollab.cursors}
+					presence={
+						outputKind === "sheet"
+							? { participants, onSelectionChange: setSelection }
+							: undefined
+					}
 				/>
 			) : (
 				<ListSkeleton rows={1} rowClassName="h-64" />
