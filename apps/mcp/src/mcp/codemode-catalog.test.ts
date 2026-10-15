@@ -885,10 +885,15 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 				}),
 			},
 		};
-		const skillRowsFor = async (loaders: AppTool[], organizationId: string) => {
+		const skillRowsFor = async (
+			loaders: AppTool[],
+			organizationId: string,
+			requestOrganizationId?: string,
+		) => {
 			const ctx = {
 				loadedTools: new Map(loaders.map((entry) => [entry.toolId, entry])),
 				apiClient: skillsApi,
+				app: { organizationId: requestOrganizationId },
 				callerIdentity: { authType: "service", scopes: [], organizationId },
 			} as unknown as ServerContext;
 			const results = await runSearch(
@@ -907,6 +912,32 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		expect(row?.load).toBe(
 			'tedix_unified_tedix.get_skills_for_mcp({ slug: "gateway-measurement-loop" })',
 		);
+
+		const [requestRow] = await skillRowsFor(aggregate, "org-acme", "org-tedix");
+		const requestLoader = vi.fn(async ({ slug }: { slug: string }) => ({
+			entry: { slug, organizationId: "org-tedix" },
+		}));
+		const loginLoader = vi.fn(async () => ({ entry: null }));
+		const load = new Function(
+			"acme_unified_tedix",
+			"tedix_unified_tedix",
+			`return ${requestRow?.load}`,
+		);
+		expect(
+			await load(
+				{ get_skills_for_mcp: loginLoader },
+				{ get_skills_for_mcp: requestLoader },
+			),
+		).toEqual({
+			entry: {
+				slug: "gateway-measurement-loop",
+				organizationId: "org-tedix",
+			},
+		});
+		expect(requestLoader).toHaveBeenCalledWith({
+			slug: "gateway-measurement-loop",
+		});
+		expect(loginLoader).not.toHaveBeenCalled();
 
 		// No loader for the caller's organization: no row, never a broken load.
 		expect(await skillRowsFor(aggregate, "org-other")).toHaveLength(0);
@@ -1230,62 +1261,77 @@ describe("discover.search on a multi-organization surface", () => {
 		]);
 	});
 
-	it("maps a human token's Descope tenant to the organization it selected", async () => {
-		const orgTool = (namespace: string, organizationId: string) =>
-			tool({
-				id: `row-${namespace}`,
-				toolId: `${namespace}__list_skills`,
-				title: "List skills",
-				description: "List recorded skills.",
-				config: {
-					_aggregateNamespace: namespace,
-					_multiOrgOrganizationId: organizationId,
-					endpoint: "skills/list",
+	it.each([
+		{
+			requestOrganizationId: "11111111-acme",
+			firstNamespace: "acme_unified_tedix",
+		},
+		{ requestOrganizationId: undefined, firstNamespace: "tedix_unified_tedix" },
+	])(
+		"prefers request org $requestOrganizationId over the login tenant, with fallback",
+		async ({ requestOrganizationId, firstNamespace }) => {
+			const orgTool = (namespace: string, organizationId: string) =>
+				tool({
+					id: `row-${namespace}`,
+					toolId: `${namespace}__list_skills`,
+					title: "List skills",
+					description: "List recorded skills.",
+					config: {
+						_aggregateNamespace: namespace,
+						_multiOrgOrganizationId: organizationId,
+						endpoint: "skills/list",
+					},
+				});
+			const loadedTools = new Map<string, AppTool>(
+				[
+					orgTool("acme_unified_tedix", "11111111-acme"),
+					orgTool("tedix_unified_tedix", "22222222-tedix"),
+				].map((entry) => [entry.toolId, entry]),
+			);
+			const verifiedMultiOrgOrganizations = [
+				{
+					organizationId: "11111111-acme",
+					descopeTenantId: "org_acme",
+					gatewaySlug: "acme-unified",
 				},
-			});
-		const loadedTools = new Map<string, AppTool>(
-			[
-				orgTool("acme_unified_tedix", "11111111-acme"),
-				orgTool("tedix_unified_tedix", "22222222-tedix"),
-			].map((entry) => [entry.toolId, entry]),
-		);
-		const verifiedMultiOrgOrganizations = [
-			{
-				organizationId: "11111111-acme",
-				descopeTenantId: "org_acme",
-				gatewaySlug: "acme-unified",
-			},
-			{
-				organizationId: "22222222-tedix",
-				descopeTenantId: "org_tedix",
-				gatewaySlug: "tedix-unified",
-			},
-		];
-		const ctx = {
-			loadedTools,
-			app: { organizationId: "11111111-acme" },
-			callerIdentity: {
-				authType: "oauth",
-				scopes: [],
-				organizationId: "org_tedix",
-				verifiedMultiOrgOrganizations,
-			},
-		} as unknown as ServerContext;
-		expect(currentCatalogOrganizationId(ctx)).toBe("22222222-tedix");
-		const results = await runSearch(
-			buildCatalogProvider(ctx, undefined),
-			"list skills",
-		);
-		expect(catalogToolEntries(results).map((row) => row.namespace)[0]).toBe(
-			"tedix_unified_tedix",
-		);
-		expect(
-			currentCatalogOrganizationId({
-				app: { organizationId: "11111111-acme" },
-				callerIdentity: undefined,
-			} as unknown as ServerContext),
-		).toBe("11111111-acme");
-	});
+				{
+					organizationId: "22222222-tedix",
+					descopeTenantId: "org_tedix",
+					gatewaySlug: "tedix-unified",
+				},
+			];
+			const ctx = {
+				loadedTools,
+				app: { organizationId: requestOrganizationId },
+				callerIdentity: {
+					authType: "oauth",
+					scopes: [],
+					organizationId: "org_tedix",
+					verifiedMultiOrgOrganizations,
+				},
+			} as unknown as ServerContext;
+			expect(currentCatalogOrganizationId(ctx)).toBe(
+				requestOrganizationId ?? "22222222-tedix",
+			);
+			const results = await runSearch(
+				buildCatalogProvider(ctx, undefined),
+				"list skills",
+			);
+			const namespaces = catalogToolEntries(results).map(
+				(row) => row.namespace,
+			);
+			expect(namespaces[0]).toBe(firstNamespace);
+			expect(namespaces).toEqual(
+				expect.arrayContaining(["acme_unified_tedix", "tedix_unified_tedix"]),
+			);
+			expect(
+				currentCatalogOrganizationId({
+					app: { organizationId: "11111111-acme" },
+					callerIdentity: undefined,
+				} as unknown as ServerContext),
+			).toBe("11111111-acme");
+		},
+	);
 });
 
 describe("enrichUnmountedNamespaceError (missing binding vs typo)", () => {
