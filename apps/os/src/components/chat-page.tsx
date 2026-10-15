@@ -47,8 +47,10 @@ export function ChatPage() {
 	const activeConversationId = search.conversation ?? null;
 	useChatWebMcpTools();
 	const [mobileListOpen, setMobileListOpen] = useState(false);
+	const [newConversationKey, setNewConversationKey] = useState(0);
 
 	const selectConversation = (conversationId: string | null) => {
+		if (conversationId === null) setNewConversationKey((key) => key + 1);
 		setMobileListOpen(false);
 		void navigate({
 			to: "/chat",
@@ -87,6 +89,7 @@ export function ChatPage() {
 					/>
 				</div>
 				<ChatThread
+					key={newConversationKey}
 					conversationId={activeConversationId}
 					prepareNewConversation={async (content) => {
 						const name = workspaceNameFromPrompt(content);

@@ -268,6 +268,16 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 		});
 	});
 
+	it("starts a fresh thread identity when New is chosen from an already new conversation", async () => {
+		const host = await mountPage();
+		const first = host.querySelector("[data-chat-thread]");
+		await act(async () => chatHarness.onSelect?.(null));
+		const second = host.querySelector("[data-chat-thread]");
+		expect(second).not.toBe(first);
+		await act(async () => chatHarness.onSelect?.(null));
+		expect(host.querySelector("[data-chat-thread]")).not.toBe(second);
+	});
+
 	it("opens the first send in its workspace with the conversation and no pane override", async () => {
 		await mountPage();
 		await act(async () =>
