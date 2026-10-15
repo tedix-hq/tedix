@@ -407,6 +407,41 @@ describe("board match and judge", () => {
 		expect(result.me?.name).toBe("Ada Lovelace");
 	});
 
+	it("takes a second, focused look before proposing something close to an item", async () => {
+		const candidates = [candidate("Stop the signup email abuse")];
+		const board = {
+			me: null,
+			scanned: {},
+			matches: {
+				[candidates[0]!.key]: {
+					w: [
+						[
+							"w-5",
+							"Email abuse response: signup monitor and send cap",
+							"p-billing",
+							"accepted",
+							null,
+							0.45,
+						] as any,
+					],
+					p: [["p-billing", "BILLING", "Billing and invoices", 0.3] as any],
+				},
+			},
+		};
+		const prompts: string[] = [];
+		const model = async (prompt: string) => {
+			prompts.push(prompt);
+			return prompt.startsWith("Is the new task")
+				? "1"
+				: '[{"c":1,"same":"","parent":"","project":"P1"}]';
+		};
+		const [proposal] = await judge(candidates, board, model, new Map());
+		expect(proposal).toMatchObject({ action: "tracked", workId: "w-5" });
+		expect(prompts.filter((p) => p.startsWith("Is the new task"))).toHaveLength(
+			1,
+		);
+	});
+
 	it("trusts the model's covering match and ignores references it did not offer", async () => {
 		const candidates = [candidate("Ship the invoice export")];
 		const board = {
@@ -574,6 +609,26 @@ describe("context and review", () => {
 		out.length = 0;
 		await runContext(["--no-model"], deps(board, stateDir, out));
 		expect(out.join("\n")).toContain("Decided earlier and not asked again: 1");
+	});
+
+	it("asks the model once per prompt across runs, so a re-run proposes the same", async () => {
+		const board = new Board(PROJECTS);
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		let calls = 0;
+		const runModel = async (prompt: string) => {
+			calls++;
+			return prompt.startsWith("Below are numbered")
+				? `[{"kind":"task","title":"Add pricing FAQ to the public website","sessions":[1,2],"confidence":${0.7 + calls / 100}}]`
+				: "[]";
+		};
+		const out: string[] = [];
+		await runContext([], { ...deps(board, stateDir, out), runModel });
+		const first = calls;
+		const firstText = out.join("\n");
+		out.length = 0;
+		await runContext([], { ...deps(board, stateDir, out), runModel });
+		expect(calls).toBe(first);
+		expect(out.join("\n")).toBe(firstText);
 	});
 
 	it("a dry run reads the board but saves and files nothing", async () => {

@@ -396,6 +396,12 @@ export function planContext(input: {
 			to: times[times.length - 1]!,
 		});
 	}
+	// Oldest first: sessions still being written land in the last model
+	// chunk, so the earlier chunks keep their cached answers on a re-run.
+	for (const bucket of plan.byTarget.values())
+		bucket.sessions.sort((a, b) =>
+			a.from < b.from ? -1 : a.from > b.from ? 1 : 0,
+		);
 	return plan;
 }
 
@@ -831,6 +837,8 @@ export const THRESHOLDS = {
 	project: 0.25,
 	/** Below this confidence a task is listed, never proposed. */
 	propose: 0.6,
+	/** A proposal this close to an existing item gets a second, focused look. */
+	confirm: 0.35,
 };
 
 export const JUDGE_PROMPT = `Each numbered candidate below is work one person did in coding-agent sessions. Under it are existing Work Items (W1..) and projects (P1..) on their team's board.
@@ -1008,12 +1016,60 @@ export async function judge(
 		}
 	});
 	// A candidate the model did not answer falls back to the thresholds.
-	return placeByProjects(
+	const proposals = placeByProjects(
 		candidates,
 		candidates.map((c) =>
 			decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
 		),
 	);
+	return confirmNew(proposals, board, runModel);
+}
+
+export const CONFIRM_PROMPT = `Is the new task below the same work as one of the existing Work Items listed under it: the same problem, fix or deliverable, even if worded differently?
+Answer with ONLY the number of the existing item, or 0 if none is the same.
+
+`;
+
+/**
+ * One focused question per proposal that has a close item on the board: a
+ * batch of ten candidates misses matches one pair at a time does not.
+ */
+async function confirmNew(
+	proposals: Proposal[],
+	board: BoardMatches,
+	runModel: RunModel,
+): Promise<Proposal[]> {
+	const out = [...proposals];
+	const doubtful = out
+		.map((p, i) => [p, i] as const)
+		.filter(
+			([p]) =>
+				p.action === "create" && (p.nearest?.score ?? 0) >= THRESHOLDS.confirm,
+		);
+	await inPool(doubtful, 4, async ([p, i]) => {
+		const options = (board.matches[p.key]?.w ?? []).slice(0, 3);
+		const prompt = `${CONFIRM_PROMPT}New task: ${p.title}\n${options
+			.map((w, j) => `${j + 1}. [${w[3]}] ${w[1]}`)
+			.join("\n")}`;
+		let raw: string;
+		try {
+			raw = await runModel(prompt);
+		} catch {
+			return;
+		}
+		const n = Number(/\d+/.exec(raw)?.[0] ?? 0);
+		const same = n >= 1 ? options[n - 1] : undefined;
+		if (!same) return;
+		out[i] = {
+			...p,
+			action: "tracked",
+			workId: same[0],
+			workTitle: same[1],
+			workDisposition: same[3],
+			reason: "the model matched an existing item on a second look",
+		};
+	});
+	return out;
 }
 
 /**
@@ -1097,6 +1153,48 @@ export function readState(path: string): ContextState | null {
 	} catch {
 		return null;
 	}
+}
+
+const CACHE_ENTRIES = 2000;
+
+/**
+ * The model's earlier answer to the same prompt, so a re-run over the same
+ * sessions proposes the same things instead of a fresh sample. Kept on this
+ * machine beside the proposals; a dry run reads it but never writes it.
+ */
+export function cachedModel(
+	runModel: RunModel,
+	path: string,
+	persist: boolean,
+): { run: RunModel; save: () => void } {
+	let cache: Record<string, string> = {};
+	try {
+		cache = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		/* First run. */
+	}
+	let dirty = false;
+	return {
+		run: async (prompt) => {
+			const key = createHash("sha256").update(prompt).digest("hex");
+			const hit = cache[key];
+			if (hit !== undefined) return hit;
+			const answer = await runModel(prompt);
+			cache[key] = answer;
+			dirty = true;
+			return answer;
+		},
+		save: () => {
+			if (!persist || !dirty) return;
+			const keys = Object.keys(cache);
+			for (const key of keys.slice(0, Math.max(0, keys.length - CACHE_ENTRIES)))
+				delete cache[key];
+			mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+			const temp = `${path}.${process.pid}.tmp`;
+			writeFileSync(temp, JSON.stringify(cache), { mode: 0o600 });
+			renameSync(temp, path);
+		},
+	};
 }
 
 export function writeState(path: string, state: ContextState) {
@@ -1304,9 +1402,16 @@ export async function runContext(
 		originOf: deps.originOf,
 		read: deps.readFile,
 	});
-	const runModel = options.noModel ? null : (deps.runModel ?? claudeModel);
 	const read = deps.read ?? cliRead;
 	const stateDir = deps.stateDir ?? stateDirectory();
+	const model = options.noModel
+		? null
+		: cachedModel(
+				deps.runModel ?? claudeModel,
+				join(stateDir, "model-cache.json"),
+				!options.dryRun,
+			);
+	const runModel = model?.run ?? null;
 	const report: Json = {
 		files: plan.files,
 		unrouted: plan.unrouted,
@@ -1363,6 +1468,7 @@ export async function runContext(
 			).slice(0, 300);
 		}
 	}
+	model?.save();
 	if (options.json) {
 		write(JSON.stringify(report));
 		return failed ? 2 : 0;
