@@ -1,3 +1,4 @@
+import { presentationCanvasLength } from "@tedix/api-contract/utils/presentation-style";
 import { validateCodeChangeSchema } from "@/collab/ot/code-change";
 import { MAX_MESSAGE_BYTES } from "@/collab/protocol";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
@@ -6,7 +7,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	blocksFromRichText,
 	normalizeOutputContent,
-	presentationCanvasLength,
 	projectDeck,
 	projectWorkbook,
 	richTextFromBlocks,

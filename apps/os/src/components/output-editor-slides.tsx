@@ -1,3 +1,4 @@
+import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
 import {
 	ArrowDown,
 	ArrowLeft,
@@ -36,7 +37,6 @@ import { Toolbar } from "@/components/kumo/toolbar";
 import {
 	ReadOnlyElement,
 	SLIDE_ELEMENT_CLASS,
-	slideElementStyle,
 	useSlideElementFont,
 } from "@/components/output-slide-element";
 import {

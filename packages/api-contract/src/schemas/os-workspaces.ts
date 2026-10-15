@@ -938,7 +938,7 @@ export const OsPresentationElementSchema = z.object({
 				.describe("Foreground color override; omitted for the slide default"),
 			background: z
 				.string()
-				.max(32)
+				.max(512)
 				.optional()
 				.describe("Element background override; omitted for transparent"),
 			borderColor: z
