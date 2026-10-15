@@ -818,8 +818,9 @@ describe("planKernelWriteProposal — positive path", () => {
 			"Creating the record does not execute or delegate the work it describes.",
 		);
 		expect(generate.mock.calls[0]?.[0].providerOptions).toMatchObject({
-			cloudflareAutoRouter: { strictJsonSchema: false },
+			cloudflareAutoRouter: { strictJsonSchema: false, reasoningEffort: "low" },
 		});
+		expect(generate.mock.calls[0]?.[0].maxOutputTokens).toBe(8192);
 		expect(generate.mock.calls[0]?.[0].responseFormat).toMatchObject({
 			type: "json",
 			schema: {
@@ -1196,6 +1197,34 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 			stage: "planner_declined",
 			detail,
 		});
+	});
+
+	it("identifies reasoning-only output-budget exhaustion without retaining reasoning text", async () => {
+		const onDecline = vi.fn();
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(globexProvider)),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "create an invoice",
+			model: new MockLanguageModelV3({
+				doGenerate: async () => ({
+					finishReason: { unified: "length", raw: "length" },
+					usage: { inputTokens: 100, outputTokens: 3000, totalTokens: 3100 },
+					warnings: [],
+					content: [{ type: "reasoning", text: "private model reasoning" }],
+				}),
+			}),
+			onDecline,
+		});
+		expect(proposal).toBeNull();
+		expect(onDecline).toHaveBeenCalledWith({
+			stage: "planner_declined",
+			detail: "Argument generation exhausted its output budget",
+		});
+		expect(JSON.stringify(onDecline.mock.calls)).not.toContain(
+			"private model reasoning",
+		);
 	});
 
 	it("reports no_provider when the routed app cannot be resolved", async () => {
