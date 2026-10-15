@@ -1717,7 +1717,10 @@ export async function fetchNamedConnection(
 					...selection,
 					tenantId: owner.tenantId,
 				});
-	if (!token) return null;
+	if (!token)
+		return "userId" in owner
+			? fetchAdoptedDefaultConnection(context, owner.userId, instance, scopes)
+			: null;
 	if (instance.tokenSub && token.tokenSub !== instance.tokenSub)
 		throw createError(
 			ErrorCodes.CONFLICT,
@@ -1741,6 +1744,52 @@ export async function fetchNamedConnection(
 			);
 	}
 	return token;
+}
+
+/**
+ * A slot adopted from the owner's unlabeled default login carries no vault
+ * selector. It serves only the exact default grant pinned at adoption: same
+ * Descope token id and provider subject. A reconnect mints a new grant and
+ * fails closed until the owner adopts it again; nothing is recorded here.
+ */
+async function fetchAdoptedDefaultConnection(
+	context: BaseContext,
+	userId: string,
+	instance: { providerId: string; tokenIds: string[]; tokenSub: string | null },
+	scopes?: string[],
+) {
+	if (!instance.tokenSub || !instance.tokenIds.length) return null;
+	const token = await fetchConnectionToken(
+		getDescopeManagement(context.env),
+		instance.providerId,
+		userId,
+	);
+	if (
+		!token?.id ||
+		!instance.tokenIds.includes(token.id) ||
+		token.tokenSub !== instance.tokenSub ||
+		!(scopes ?? []).every((scope) => token.scopes?.includes(scope))
+	)
+		return null;
+	return token;
+}
+
+/** Pin the owner's current default login into a new slot without a second OAuth round trip. */
+export async function adoptDefaultPersonalConnection(
+	context: BaseContext,
+	input: { userId: string; providerId: string },
+) {
+	const token = await fetchConnectionToken(
+		getDescopeManagement(context.env),
+		input.providerId,
+		input.userId,
+	);
+	if (!token?.id || !token.tokenSub)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"No verified default account is connected for this provider",
+		);
+	return { tokenId: token.id, tokenSub: token.tokenSub };
 }
 
 export async function resolveCredentialChain(

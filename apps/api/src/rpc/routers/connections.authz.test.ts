@@ -6,7 +6,10 @@ import * as instanceQueries from "@tedix/db/queries/connection-instances";
 import * as connectionAuth from "@tedix/auth/connections";
 import type { BaseContext } from "../orpc";
 import { connectionsContractRouter } from "./connections";
-import { fetchNamedConnection } from "./connections/policy-resolution";
+import {
+	adoptDefaultPersonalConnection,
+	fetchNamedConnection,
+} from "./connections/policy-resolution";
 
 const TEDI_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 
@@ -526,4 +529,150 @@ describe("named credential identity evidence", () => {
 			}
 		},
 	);
+});
+
+describe("adopted default personal account", () => {
+	const instance = {
+		id: TEDI_ID,
+		ownerUserId: "user-1",
+		organizationId: null as string | null,
+		providerId: "google-gmail",
+		label: "Default account",
+		tokenIds: ["default-grant"],
+		tokenSub: "identity-a" as string | null,
+		createdAt: "now",
+		updatedAt: "now",
+	};
+	function adoptedContext() {
+		const context = userContext(["integrations:manage"]);
+		context.env = {
+			ENVIRONMENT: "test",
+			DESCOPE_PROJECT_ID: "P-test",
+			DESCOPE_MANAGEMENT_KEY: "K-test",
+		} as unknown as CloudflareEnv;
+		return context;
+	}
+	type DefaultToken = Awaited<
+		ReturnType<typeof connectionAuth.fetchConnectionToken>
+	>;
+	function mocks(defaultToken: DefaultToken, slot = instance) {
+		return [
+			vi
+				.spyOn(instanceQueries, "getConnectionInstance")
+				.mockResolvedValue(slot),
+			vi.spyOn(instanceQueries, "recordConnectionGrant").mockResolvedValue([]),
+			vi
+				.spyOn(connectionAuth, "fetchPersonalConnectionToken")
+				.mockResolvedValue(null),
+			vi
+				.spyOn(connectionAuth, "fetchConnectionToken")
+				.mockResolvedValue(defaultToken),
+		] as const;
+	}
+	const pinned = {
+		id: "default-grant",
+		accessToken: "opaque",
+		tokenSub: "identity-a",
+		scopes: ["gmail.readonly"],
+	};
+
+	it("serves only the exact pinned default grant and never records a new one", async () => {
+		const spies = mocks(pinned);
+		try {
+			expect(
+				await fetchNamedConnection(
+					adoptedContext(),
+					{ userId: "user-1" },
+					"google-gmail",
+					TEDI_ID,
+					["gmail.readonly"],
+				),
+			).toMatchObject({ id: "default-grant" });
+			expect(spies[1]).not.toHaveBeenCalled();
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
+	});
+
+	it.each([
+		["a reconnect minted a new grant", { ...pinned, id: "new-grant" }],
+		["the provider identity changed", { ...pinned, tokenSub: "identity-b" }],
+		["the identity is unverified", { ...pinned, tokenSub: undefined }],
+		["the grant lacks a requested scope", { ...pinned, scopes: [] }],
+		["no default login exists", null],
+	] as const)("fails closed when %s", async (_case, token) => {
+		const spies = mocks(token as DefaultToken);
+		try {
+			expect(
+				await fetchNamedConnection(
+					adoptedContext(),
+					{ userId: "user-1" },
+					"google-gmail",
+					TEDI_ID,
+					["gmail.readonly"],
+				),
+			).toBeNull();
+			expect(spies[1]).not.toHaveBeenCalled();
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
+	});
+
+	it("never falls back to the default login for an unpinned slot or a tenant owner", async () => {
+		const spies = mocks(pinned, { ...instance, tokenIds: [], tokenSub: null });
+		const tenant = vi
+			.spyOn(connectionAuth, "fetchNamedTenantConnectionToken")
+			.mockResolvedValue(null);
+		try {
+			expect(
+				await fetchNamedConnection(
+					adoptedContext(),
+					{ userId: "user-1" },
+					"google-gmail",
+					TEDI_ID,
+				),
+			).toBeNull();
+			spies[0].mockResolvedValue({ ...instance, organizationId: "org-1" });
+			expect(
+				await fetchNamedConnection(
+					adoptedContext(),
+					{ organizationId: "org-1", tenantId: "org_descope_1" },
+					"google-gmail",
+					TEDI_ID,
+				),
+			).toBeNull();
+			expect(spies[3]).not.toHaveBeenCalled();
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+			tenant.mockRestore();
+		}
+	});
+
+	it("refuses to adopt a default login without a verified provider identity", async () => {
+		const fetch = vi
+			.spyOn(connectionAuth, "fetchConnectionToken")
+			.mockResolvedValue({ id: "default-grant", accessToken: "opaque" });
+		try {
+			await expect(
+				adoptDefaultPersonalConnection(adoptedContext(), {
+					userId: "user-1",
+					providerId: "google-gmail",
+				}),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			fetch.mockResolvedValue(pinned);
+			expect(
+				await adoptDefaultPersonalConnection(adoptedContext(), {
+					userId: "user-1",
+					providerId: "google-gmail",
+				}),
+			).toEqual({ tokenId: "default-grant", tokenSub: "identity-a" });
+			expect(fetch).toHaveBeenLastCalledWith(
+				expect.anything(),
+				"google-gmail",
+				"user-1",
+			);
+		} finally {
+			fetch.mockRestore();
+		}
+	});
 });

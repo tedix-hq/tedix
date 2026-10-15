@@ -1209,11 +1209,13 @@ export async function fetchConnectionToken(
 			return null;
 		}
 
+		const tokenSub = (token as unknown as Record<string, unknown>).tokenSub;
 		return {
 			id: token.id,
 			accessToken,
 			expiresAt: token.accessTokenExpiry,
 			scopes: token.scopes,
+			...(typeof tokenSub === "string" && tokenSub ? { tokenSub } : {}),
 		};
 	} catch (error) {
 		throw error instanceof ConnectionTokenLookupError

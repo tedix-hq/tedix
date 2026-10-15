@@ -47,10 +47,12 @@ import {
 	createConnectionInstance as createConnectionInstanceRecord,
 	getConnectionInstance,
 	listConnectionInstances,
+	recordConnectionGrant,
 	renameConnectionInstance as renameConnectionInstanceRecord,
 	clearConnectionGrants,
 } from "@tedix/db/queries/connection-instances";
 import {
+	adoptDefaultPersonalConnection,
 	CredentialPreference,
 	CredentialScope,
 	auditOutboundAppRecord,
@@ -191,8 +193,50 @@ export const createConnectionInstance = authedOs.createConnectionInstance
 				ErrorCodes.BAD_REQUEST,
 				"Provider does not support named OAuth accounts",
 			);
-		if ((await listConnectionInstances(context.db, owner)).length >= 100)
+		const existing = await listConnectionInstances(context.db, owner);
+		if (existing.length >= 100)
 			throw createError(ErrorCodes.BAD_REQUEST, "Account limit reached");
+		if (input.adoptDefault) {
+			if (input.scope !== "user")
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Only a personal default account can be adopted",
+				);
+			const grant = await adoptDefaultPersonalConnection(context, {
+				userId,
+				providerId: input.appId,
+			});
+			const adopted = existing.find(
+				(row) =>
+					row.providerId === input.appId &&
+					row.tokenIds.includes(grant.tokenId),
+			);
+			if (adopted)
+				return {
+					id: adopted.id,
+					appId: adopted.providerId,
+					label: adopted.label,
+				};
+			const slot = await createConnectionInstanceRecord(context.db, {
+				id: crypto.randomUUID(),
+				ownerUserId: userId,
+				providerId: input.appId,
+				label: input.label,
+			});
+			const recorded = await recordConnectionGrant(context.db, {
+				owner,
+				id: slot.id,
+				providerId: input.appId,
+				tokenId: grant.tokenId,
+				tokenSub: grant.tokenSub,
+			});
+			if (!recorded.length)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Account identity changed during adoption",
+				);
+			return { id: slot.id, appId: slot.providerId, label: slot.label };
+		}
 		const instance = await createConnectionInstanceRecord(context.db, {
 			id: crypto.randomUUID(),
 			ownerUserId: userId,
