@@ -65,7 +65,7 @@ import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
  * so backfilled titles use the EXACT prompt the live path uses.
  */
 export const TITLE_SYSTEM_PROMPT =
-	"Generate a 3-6 word title for this conversation. Reply with the title only — plain text, no quotes, no trailing punctuation.";
+	"Generate a 3-6 word title for this conversation that names what the user asked for — never the assistant's status (an approval request, an error, a refusal). Reply with the title only — plain text, no quotes, no trailing punctuation.";
 
 /** Per-side excerpt cap — keeps the prompt tiny (and the call cheap). */
 const TITLE_EXCERPT_CHARS = 500;
