@@ -90,6 +90,11 @@ ran. Demotion and archival always pass.
 - `force: true` is for signed-in humans and operator API keys; agent, M2M, and
   service callers are rejected
   ([capability-mutation gate](../../../decisions/agent-capability-mutation-gate.md)).
+- An edit (`improve_skills` with `content` or `files`) bumps `revision` and
+  never changes lifecycle. The `skill_schedules` row is keyed by skill id, so
+  it fires the new revision. A verified run that activates a draft writes its
+  declared schedule row; an edit of a skill demoted to `draft` by failures
+  keeps the row it already had. New drafts get none.
 - Pace layers (`innovation` / `differentiation` / `record`) are derived from
   lifecycle (`paceLayerForLifecycle()`). An agent update to a crystallized
   skill's `content`, `files`, `inputSchema`, or `agentSkillsFormat` fails with

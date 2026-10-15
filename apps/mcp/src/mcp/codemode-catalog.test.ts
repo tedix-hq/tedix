@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
 	buildCatalogProvider,
+	namespaceGlobalsPrelude,
 	shapeCodeModeResultForModel,
 	enrichToolNotFoundError,
 	enrichUnmountedNamespaceError,
@@ -1090,6 +1091,72 @@ describe("enrichToolNotFoundError (did-you-mean suggestions)", () => {
 		);
 		expect(enriched).not.toContain("Closest callables:");
 		expect(enriched).toContain("discover.search");
+	});
+});
+
+describe("namespaceGlobalsPrelude", () => {
+	it("resolves globalThis[ns] to the namespace binding on first access", () => {
+		const prelude = namespaceGlobalsPrelude([
+			"acme_unified_tedix",
+			"discover",
+			"not-an-identifier",
+		]);
+		const binding = { get_os_output: () => "output" };
+		const run = new Function(
+			"binding",
+			`const acme_unified_tedix = binding; const discover = {};
+${prelude}
+const key = "acme_unified_tedix";
+const api = globalThis[key];
+const result = [api === binding, globalThis.discover !== undefined, api.get_os_output()];
+delete globalThis.acme_unified_tedix;
+delete globalThis.discover;
+return result;`,
+		);
+		expect(run(binding)).toEqual([true, true, "output"]);
+		expect(prelude).not.toContain("not-an-identifier");
+	});
+});
+
+describe("discover.search on a multi-organization surface", () => {
+	it("ranks the caller's current organization first", async () => {
+		const orgTool = (namespace: string, organizationId: string) =>
+			tool({
+				id: `row-${namespace}`,
+				toolId: `${namespace}__get_os_output`,
+				title: "Get OS output",
+				description: "Read one OS output.",
+				config: {
+					_aggregateNamespace: namespace,
+					_multiOrgOrganizationId: organizationId,
+					endpoint: "outputs/get",
+				},
+			});
+		const loadedTools = new Map<string, AppTool>(
+			[
+				orgTool("acme_unified_tedix", "org-acme"),
+				orgTool("sample_unified_tedix", "org-sample"),
+				orgTool("tedix_unified_tedix", "org-tedix"),
+			].map((entry) => [entry.toolId, entry]),
+		);
+		const ctx = {
+			loadedTools,
+			callerIdentity: {
+				authType: "service",
+				scopes: [],
+				organizationId: "org-tedix",
+			},
+		} as unknown as ServerContext;
+		const results = await runSearch(
+			buildCatalogProvider(ctx, undefined),
+			"get os output",
+		);
+		const namespaces = catalogToolEntries(results).map((row) => row.namespace);
+		expect(namespaces.slice(0, 3)).toEqual([
+			"tedix_unified_tedix",
+			"acme_unified_tedix",
+			"sample_unified_tedix",
+		]);
 	});
 });
 

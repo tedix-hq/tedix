@@ -2175,6 +2175,27 @@ function skillLifecycleBoost(lifecycleState: string | undefined): number {
 }
 
 /**
+ * On a multi-organization surface, rows from the caller's current organization
+ * come first. Relevance order is kept inside each group, and rows that belong
+ * to no particular organization stay with the rest.
+ */
+function currentOrganizationFirst(
+	entries: CatalogPageEntry[],
+	namespaceOrganizations: ReadonlyMap<string, string>,
+	currentOrganizationId: string | undefined,
+): CatalogPageEntry[] {
+	if (!currentOrganizationId || namespaceOrganizations.size === 0) {
+		return entries;
+	}
+	const isCurrent = (entry: CatalogPageEntry) =>
+		namespaceOrganizations.get(entry.namespace) === currentOrganizationId;
+	return [
+		...entries.filter(isCurrent),
+		...entries.filter((entry) => !isCurrent(entry)),
+	];
+}
+
+/**
  * Top-level keys of a tool's result envelope, derived from its declared
  * outputSchema. A cold agent otherwise burns a call guessing the wrapper (e.g.
  * trying `items`/`rows` against a `{ data, pagination }` envelope). Names
@@ -2238,6 +2259,8 @@ export function buildCatalogProvider(
 		serverCtx,
 		namespaceOverrides,
 	);
+	// Connect mounts several organizations; each mounted tool records its own.
+	const namespaceOrganizations = new Map<string, string>();
 
 	for (const [toolId, tool] of serverCtx.loadedTools) {
 		const {
@@ -2247,6 +2270,10 @@ export function buildCatalogProvider(
 		} = projectedToolIdentity(toolId, tool, namespaceOverrides);
 		if (collisionKeys.has(ownerKey)) continue;
 		if (!catalog[ns]) catalog[ns] = {};
+		const toolOrganizationId = recordFrom(tool.config)?._multiOrgOrganizationId;
+		if (typeof toolOrganizationId === "string" && toolOrganizationId) {
+			namespaceOrganizations.set(ns, toolOrganizationId);
+		}
 		const paymentPolicy = getToolPaymentPolicy(tool);
 		// Declared write capability folded onto the catalog's annotations, so
 		// discover.search results classify the same way a raw tools/list entry
@@ -2544,7 +2571,11 @@ export function buildCatalogProvider(
 							: undefined,
 					);
 					return paginateCatalogEntries(
-						reranked.entries,
+						currentOrganizationFirst(
+							reranked.entries,
+							namespaceOrganizations,
+							serverCtx.callerIdentity?.organizationId,
+						),
 						limit,
 						offset,
 						includeParameters,
@@ -5441,6 +5472,27 @@ function withLegacyNamespaceAliases(
 }
 
 /**
+ * Sandbox code that exposes every provider namespace on `globalThis`. Each
+ * property is a getter that returns the namespace binding on first access, so
+ * `globalThis[ns]` and `const api = globalThis["ns"]` reach the same proxy as a
+ * literal `ns.tool()` call. Names are identifiers the executor has validated.
+ */
+export function namespaceGlobalsPrelude(names: readonly string[]): string {
+	const identifiers = [...new Set(names)].filter((name) =>
+		/^[A-Za-z_$][\w$]*$/.test(name),
+	);
+	if (identifiers.length === 0) return "";
+	const getters = identifiers
+		.map((name) => `[${JSON.stringify(name)}, () => ${name}]`)
+		.join(", ");
+	return `    for (const [__tedixName, __tedixGet] of [${getters}]) {
+      try {
+        Object.defineProperty(globalThis, __tedixName, { configurable: true, enumerable: false, get: __tedixGet });
+      } catch {}
+    }`;
+}
+
+/**
  * Convert namespace groups into resolved providers for the executor.
  */
 function buildProviders(
@@ -5667,12 +5719,28 @@ export async function registerCodeModeTools(
 	);
 
 	// All providers: catalog + built-ins + per-namespace tool providers
-	const allProviders: ResolvedProvider[] = [
+	const providersWithoutPrelude: ResolvedProvider[] = [
 		resolvedCatalog,
 		resolvedRuntimeProvider,
 		resolvedUiProvider,
 		resolvedFlowProvider,
 		...toolProviders,
+	];
+	// Namespace bindings are block-scoped constants in the sandbox, so
+	// `globalThis[ns]` would otherwise be undefined even for a mounted namespace.
+	const allProviders: ResolvedProvider[] = [
+		{
+			...resolvedCatalog,
+			prelude: [
+				resolvedCatalog.prelude,
+				namespaceGlobalsPrelude(
+					providersWithoutPrelude.map((provider) => provider.name),
+				),
+			]
+				.filter(Boolean)
+				.join("\n"),
+		},
+		...providersWithoutPrelude.slice(1),
 	];
 
 	// Full callable inventory ("ns.tool_name") — fuels tool-not-found

@@ -1,11 +1,17 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	nextSkillScheduleFireAt,
+	validateSkillSchedulePolicy,
+} from "@tedix/api-contract/utils/skill-schedule";
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
+	type SkillEntry,
 	type SkillSchedule,
 	skillEntries,
 	skillSchedules,
 } from "../schema/cognitive";
+import { toJsonRecord } from "../utils/json";
 
 export async function upsertSkillSchedule(
 	db: DbClient,
@@ -52,6 +58,41 @@ export async function upsertSkillSchedule(
 		.limit(1);
 	if (!row) throw new Error("skill schedule upsert did not return a row");
 	return row;
+}
+
+/**
+ * Write the schedule row a skill earns when verified runs promote it out of
+ * draft. Drafts get no row, so without this a skill activated by its own runs
+ * never fires until someone edits it. An existing row is left untouched, and a
+ * manifest without a valid schedule or a skill without an owning tedi writes
+ * nothing.
+ */
+export async function insertActivatedSkillSchedule(
+	db: DbClient,
+	entry: Pick<SkillEntry, "id" | "organizationId" | "tediId" | "content">,
+	now: number = Date.now(),
+): Promise<boolean> {
+	if (!entry.tediId) return false;
+	const { schedule, issues } = validateSkillSchedulePolicy(entry.content ?? "");
+	if (!schedule || issues.length > 0) return false;
+	const timestamp = new Date(now).toISOString();
+	const inserted = await db
+		.insert(skillSchedules)
+		.values({
+			id: crypto.randomUUID(),
+			organizationId: entry.organizationId,
+			skillId: entry.id,
+			tediId: entry.tediId,
+			cron: schedule.cron,
+			params: toJsonRecord(schedule.params),
+			enabled: schedule.enabled,
+			nextFireAt: nextSkillScheduleFireAt(schedule.cron, now),
+			createdAt: timestamp,
+			updatedAt: timestamp,
+		})
+		.onConflictDoNothing({ target: skillSchedules.skillId })
+		.returning({ id: skillSchedules.id });
+	return inserted.length > 0;
 }
 
 export async function deleteSkillSchedule(

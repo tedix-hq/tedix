@@ -47,6 +47,7 @@ import {
 	nextSkillLifecycleState,
 	paceLayerForLifecycle,
 } from "./skill-lifecycle";
+import { insertActivatedSkillSchedule } from "./skill-schedules";
 
 export type { SkillUsageEvent, SkillUsageOutcome, SkillUsageSource };
 
@@ -194,7 +195,7 @@ async function recordSkillUsageEventInternal(
 			// skill) between that read and this write must win — an unconditioned
 			// read-modify-write here could resurrect an archived skill. On miss,
 			// skip silently; the next recorded usage recomputes from current state.
-			await db
+			const applied = await db
 				.update(skillEntries)
 				.set(patch)
 				.where(
@@ -204,7 +205,16 @@ async function recordSkillUsageEventInternal(
 							? isNull(skillEntries.lifecycleState)
 							: eq(skillEntries.lifecycleState, updated.lifecycleState),
 					),
-				);
+				)
+				.returning({ id: skillEntries.id });
+			// Activation by verified runs starts the skill's declared schedule.
+			if (
+				applied.length > 0 &&
+				patch.lifecycleState === "active" &&
+				(updated.lifecycleState ?? "draft") === "draft"
+			) {
+				await insertActivatedSkillSchedule(db, updated);
+			}
 		}
 	}
 

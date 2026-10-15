@@ -4370,6 +4370,124 @@ const CODEMODE_BUILTIN_GLOBALS = new Set([
 	"globalThis",
 ]);
 
+const JS_RESERVED_WORDS = new Set(
+	(
+		"async await break case catch class const continue debugger default delete do " +
+		"else export extends false finally for function if import in instanceof let new " +
+		"null of return super switch this throw true try typeof undefined var void while " +
+		"with yield NaN Infinity arguments"
+	).split(" "),
+);
+
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/**
+ * The program with comments and string literals blanked out, plus the values
+ * of its plain string literals. Template literals are blanked whole.
+ */
+function maskCodeModeLiterals(code: string): {
+	masked: string;
+	strings: string[];
+} {
+	let masked = "";
+	const strings: string[] = [];
+	let index = 0;
+	while (index < code.length) {
+		const char = code[index]!;
+		const next = code[index + 1];
+		if (char === "/" && (next === "/" || next === "*")) {
+			const end =
+				next === "/"
+					? code.indexOf("\n", index)
+					: code.indexOf("*/", index + 2) + 2;
+			const stop = end <= index ? code.length : end;
+			masked += " ".repeat(stop - index);
+			index = stop;
+			continue;
+		}
+		if (char === '"' || char === "'" || char === "`") {
+			let cursor = index + 1;
+			let value = "";
+			while (cursor < code.length && code[cursor] !== char) {
+				if (code[cursor] === "\\") {
+					value += code[cursor + 1] ?? "";
+					cursor += 2;
+				} else {
+					value += code[cursor];
+					cursor++;
+				}
+			}
+			if (char !== "`") strings.push(value);
+			const stop = Math.min(cursor + 1, code.length);
+			masked += " ".repeat(stop - index);
+			index = stop;
+			continue;
+		}
+		masked += char;
+		index++;
+	}
+	return { masked, strings };
+}
+
+/**
+ * Namespaces a program reaches without a literal `ns.tool(` call site: a bare
+ * reference (`const api = acme_unified; api.list()`), `globalThis.ns`, or
+ * `globalThis[...]`. Locally declared names are left out. Over-inclusion is
+ * harmless: only names that match a configured aggregate entry hydrate.
+ */
+function referencedCodeModeNamespaces(code: string): Set<string> {
+	const { masked, strings } = maskCodeModeLiterals(code);
+	const declared = new Set<string>();
+	const addIdentifiers = (text: string) => {
+		for (const name of text.match(/[A-Za-z_$][\w$]*/g) ?? []) {
+			declared.add(name);
+		}
+	};
+	for (const match of masked.matchAll(
+		/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g,
+	)) {
+		declared.add(match[1]!);
+	}
+	for (const match of masked.matchAll(/\b(?:const|let|var)\s*([{[][^=]*)=/g)) {
+		addIdentifiers(match[1]!);
+	}
+	for (const match of masked.matchAll(/\(([^()]*)\)\s*=>/g)) {
+		addIdentifiers(match[1]!);
+	}
+	for (const match of masked.matchAll(/([A-Za-z_$][\w$]*)\s*=>/g)) {
+		declared.add(match[1]!);
+	}
+	for (const match of masked.matchAll(/\bcatch\s*\(\s*([A-Za-z_$][\w$]*)/g)) {
+		declared.add(match[1]!);
+	}
+
+	const namespaces = new Set<string>();
+	for (const match of masked.matchAll(
+		/(?<![\w$.])([A-Za-z_$][\w$]*)(?![\w$])(?!\s*:)/g,
+	)) {
+		const name = match[1]!;
+		if (
+			!declared.has(name) &&
+			!JS_RESERVED_WORDS.has(name) &&
+			!CODEMODE_BUILTIN_GLOBALS.has(name)
+		) {
+			namespaces.add(name);
+		}
+	}
+	for (const match of masked.matchAll(
+		/\bglobalThis\s*\.\s*([A-Za-z_$][\w$]*)/g,
+	)) {
+		namespaces.add(match[1]!);
+	}
+	if (/\bglobalThis\s*\[/.test(masked)) {
+		// The key may be any string the program holds; take every identifier-shaped one.
+		for (const value of strings) {
+			if (IDENTIFIER.test(value)) namespaces.add(value);
+		}
+	}
+	return namespaces;
+}
+
 /**
  * Namespaces named by the program's `discover` calls, or null when any call
  * cannot be bounded statically. A program without discovery yields an empty set.
@@ -4463,6 +4581,9 @@ export function extractCodeModeProviderNamespacesFromCode(
 			namespaces.add(namespace);
 		}
 		match = callPattern.exec(code);
+	}
+	for (const namespace of referencedCodeModeNamespaces(code)) {
+		namespaces.add(namespace);
 	}
 	namespaces.delete("discover");
 	for (const namespace of discoveryNamespaces) namespaces.add(namespace);

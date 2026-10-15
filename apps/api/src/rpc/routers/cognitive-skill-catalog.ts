@@ -957,6 +957,7 @@ export const skillsRepair = authedSkills.repair
 				after: expectedSkillScheduleProjection(
 					projectedEntry,
 					manifestSchedule,
+					Boolean(storedSchedule),
 				),
 				note: "reconciled from the canonical skill manifest",
 			});

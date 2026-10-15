@@ -244,24 +244,40 @@ export function validatedSkillSchedule(
 	return schedule;
 }
 
+/**
+ * Whether a skill's manifest schedule belongs in skill_schedules. Stale and
+ * archived skills never run on a schedule, and a new draft has not earned one.
+ * A draft that already holds a schedule row was active and was demoted by
+ * failed runs; the scheduler keeps firing it, so an edit (the way its owner
+ * repairs it) keeps the schedule instead of dropping it.
+ */
+function skillKeepsSchedule(
+	entry: SkillEntry,
+	schedule: SkillSchedulePolicy | null,
+	hasStoredSchedule: boolean,
+): schedule is SkillSchedulePolicy {
+	if (!schedule) return false;
+	if (entry.lifecycleState === "stale" || entry.lifecycleState === "archived") {
+		return false;
+	}
+	return entry.lifecycleState !== "draft" || hasStoredSchedule;
+}
+
 export async function syncSkillScheduleProjection(
 	context: BaseContext,
 	entry: SkillEntry,
 	schedule: SkillSchedulePolicy | null,
 ): Promise<void> {
-	if (
-		!schedule ||
-		entry.lifecycleState === "draft" ||
-		entry.lifecycleState === "stale" ||
-		entry.lifecycleState === "archived"
-	) {
+	const existing = schedule
+		? await getSkillSchedule(context.db, entry.id)
+		: undefined;
+	if (!skillKeepsSchedule(entry, schedule, Boolean(existing))) {
 		await deleteSkillSchedule(context.db, entry.id);
 		return;
 	}
 	if (!entry.tediId) {
 		throw new Error("scheduled skill lost its owning tedi identity");
 	}
-	const existing = await getSkillSchedule(context.db, entry.id);
 	const nextFireAt =
 		existing?.cron === schedule.cron &&
 		existing.nextFireAt > new Date().toISOString()
@@ -294,13 +310,9 @@ function canonicalJson(value: unknown): string {
 export function expectedSkillScheduleProjection(
 	entry: SkillEntry,
 	schedule: SkillSchedulePolicy | null,
+	hasStoredSchedule = false,
 ) {
-	if (
-		!schedule ||
-		entry.lifecycleState === "draft" ||
-		entry.lifecycleState === "stale" ||
-		entry.lifecycleState === "archived"
-	) {
+	if (!skillKeepsSchedule(entry, schedule, hasStoredSchedule)) {
 		return null;
 	}
 	return {
@@ -332,8 +344,13 @@ export function skillScheduleProjectionMatches(
 	storedSchedule: SkillSchedule | undefined,
 ): boolean {
 	return (
-		canonicalJson(expectedSkillScheduleProjection(entry, manifestSchedule)) ===
-		canonicalJson(storedSkillScheduleProjection(storedSchedule))
+		canonicalJson(
+			expectedSkillScheduleProjection(
+				entry,
+				manifestSchedule,
+				Boolean(storedSchedule),
+			),
+		) === canonicalJson(storedSkillScheduleProjection(storedSchedule))
 	);
 }
 
