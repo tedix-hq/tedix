@@ -30,6 +30,15 @@ export function tediPlanningLabel(target: HomePlanningTarget): string {
 }
 
 export function detectsHomePlanningRequest(content: string): boolean {
+	// Creating a board record is a tool write. Its description can contain plans
+	// and tedi names without asking Home to dispatch those owners.
+	if (
+		/^\s*(?:please\s+)?(?:create|add|open|file)\s+(?:(?:exactly|a|an|one|new|proposed|small|test|\d+)\s+)*(?:work[\s-]+items?|work-board\s+issues?)\b/i.test(
+			content,
+		)
+	) {
+		return false;
+	}
 	// Cheap pre-filter: the operator is asking to plan/split/coordinate work. The
 	// real gate is "≥2 named reachable tedis" (selectedHomePlanTargets, checked in
 	// maybeBuildHomePlan) — generalized from the original hardcoded CPO+Echo demo
