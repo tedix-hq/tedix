@@ -63,6 +63,13 @@ describe("Tedix embed loader", () => {
 		expect(loader.runtime()?.src).toBe("https://cdn.example/r.js");
 	});
 
+	it("still loads the runtime after the host removed the loader tag", async () => {
+		const loader = await runLoader({ dataset: { tedixPreload: "open" } });
+		loader.script.remove();
+		loader.Tedix.init({ tenant: "acme" });
+		expect(loader.runtime()?.isConnected).toBe(true);
+	});
+
 	it("boots static data-tenant embeds immediately", async () => {
 		const loader = await runLoader({ dataset: TENANT });
 		expect(loader.Tedix.q[0]).toEqual(["boot", { script: loader.script }]);

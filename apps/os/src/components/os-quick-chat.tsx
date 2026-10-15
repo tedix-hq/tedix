@@ -285,6 +285,10 @@ function applyLauncherSuppression(pathname: string): void {
  */
 export function OsQuickChat() {
 	const identity = useOsIdentity();
+	// Read at session time: re-running the effect when identity resolves tore
+	// the widget down mid-load and stranded its launcher in "loading".
+	const identityRef = useRef(identity);
+	identityRef.current = identity;
 	const portableRouteAdapterRef = useRef<OsPortableRouteAdapter | null>(null);
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
@@ -484,8 +488,8 @@ export function OsQuickChat() {
 							conversationId,
 							hostOrganizationId: context.organization.id,
 							hostOrganizationLabel: context.organization.name,
-							hostUserId: identity.email || identity.name,
-							hostUserLabel: identity.name,
+							hostUserId: identityRef.current.email || identityRef.current.name,
+							hostUserLabel: identityRef.current.name,
 							...(route
 								? {
 										portableRouteAssertion: {
@@ -514,7 +518,7 @@ export function OsQuickChat() {
 			window.Tedix?.shutdown();
 			script.remove();
 		};
-	}, [identity.email, identity.name]);
+	}, []);
 
 	return null;
 }
