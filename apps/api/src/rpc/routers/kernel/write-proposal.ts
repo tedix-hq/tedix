@@ -387,10 +387,27 @@ function effectiveToolParamDefaults(
  * accepts one or many queries, so it is the single canonical implementation of
  * `catalog.install` regardless of how many product names the operator supplied.
  */
-function preferredToolForCapability(
+/** Capabilities a Tedix output (document, sheet or presentation) satisfies. */
+const OUTPUT_CREATE_CAPABILITY_RE =
+	/^(?:documents?|docs?|sheets?|spreadsheets?|presentations?|slides?|decks?|outputs?)\.create$/;
+/** An operator who names an external office suite wants that provider. */
+const EXTERNAL_OFFICE_PROVIDER_RE =
+	/\b(?:google|gdrive|notion|excel|microsoft|office ?365|onedrive|sharepoint|airtable|dropbox)\b/i;
+
+export function preferredToolForCapability(
 	tools: McpTool[],
 	capability: string | null | undefined,
+	content = "",
 ): McpTool | null {
+	// "Create a sheet" with no named provider is a Tedix output, not a file in
+	// whichever connected drive Jev happens to rank first.
+	if (
+		capability &&
+		OUTPUT_CREATE_CAPABILITY_RE.test(capability) &&
+		!EXTERNAL_OFFICE_PROVIDER_RE.test(content)
+	) {
+		return tools.find((tool) => tool.name === "os.create_os_output") ?? null;
+	}
 	if (capability === "work_items.create") {
 		return tools.find((tool) => tool.name === "work.create_work_items") ?? null;
 	}
@@ -925,6 +942,7 @@ export async function planKernelWriteProposal(args: {
 		const preferred = preferredToolForCapability(
 			writes,
 			route.toolIntent?.capability,
+			content,
 		);
 		const catalog = orderWriteToolCatalog(writes).slice(0, MAX_CATALOG_TOOLS);
 		let selected: { toolName: string | null; reason: string } = preferred

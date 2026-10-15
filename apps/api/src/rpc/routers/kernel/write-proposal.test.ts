@@ -12,6 +12,7 @@ import {
 	isWriteCapable,
 	kernelWriteEnabled,
 	planKernelWriteProposal,
+	preferredToolForCapability,
 	WRITE_ONLY_VERBS,
 	type WriteProposalEnv,
 } from "./write-proposal";
@@ -529,6 +530,31 @@ describe("classifyWriteRisk fail-closed boundary", () => {
 		]) {
 			expect(classifyWriteRisk(tool)).toBe("high");
 		}
+	});
+});
+
+describe("preferredToolForCapability", () => {
+	const tools = [
+		{ name: "google_drive_tedix.create_file" },
+		{ name: "os.create_os_output" },
+	];
+	it("makes a doc, sheet or deck a Tedix output unless a provider is named", () => {
+		for (const capability of [
+			"sheets.create",
+			"documents.create",
+			"slides.create",
+		]) {
+			expect(
+				preferredToolForCapability(tools, capability, "create a sheet of costs")
+					?.name,
+			).toBe("os.create_os_output");
+		}
+		expect(
+			preferredToolForCapability(tools, "sheets.create", "make a Google Sheet"),
+		).toBeNull();
+		expect(
+			preferredToolForCapability(tools, "files.create", "a sheet"),
+		).toBeNull();
 	});
 });
 
