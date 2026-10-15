@@ -830,12 +830,11 @@ describe("canonical work lifecycle", () => {
 	});
 
 	test("an owner action refused for the external agent names the owner login", async () => {
+		// Native transport reports the refusal as text, not a typed code.
 		const forbidden = () => ({
-			defined: true,
-			code: "FORBIDDEN",
-			status: 403,
-			message:
-				"Work mutation requires an authenticated owner/admin user principal",
+			ok: false,
+			error:
+				"MCP tool error: FORBIDDEN: Work mutation requires an authenticated owner/admin user principal",
 		});
 		const agent = makeContext({}, undefined, forbidden, {
 			json: false,
