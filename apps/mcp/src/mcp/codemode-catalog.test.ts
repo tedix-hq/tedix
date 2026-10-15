@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
 	buildCatalogProvider,
+	currentCatalogOrganizationId,
 	namespaceGlobalsPrelude,
 	shapeCodeModeResultForModel,
 	enrichToolNotFoundError,
@@ -1227,6 +1228,63 @@ describe("discover.search on a multi-organization surface", () => {
 			"acme_unified_tedix",
 			"sample_unified_tedix",
 		]);
+	});
+
+	it("maps a human token's Descope tenant to the organization it selected", async () => {
+		const orgTool = (namespace: string, organizationId: string) =>
+			tool({
+				id: `row-${namespace}`,
+				toolId: `${namespace}__list_skills`,
+				title: "List skills",
+				description: "List recorded skills.",
+				config: {
+					_aggregateNamespace: namespace,
+					_multiOrgOrganizationId: organizationId,
+					endpoint: "skills/list",
+				},
+			});
+		const loadedTools = new Map<string, AppTool>(
+			[
+				orgTool("acme_unified_tedix", "11111111-acme"),
+				orgTool("tedix_unified_tedix", "22222222-tedix"),
+			].map((entry) => [entry.toolId, entry]),
+		);
+		const verifiedMultiOrgOrganizations = [
+			{
+				organizationId: "11111111-acme",
+				descopeTenantId: "org_acme",
+				gatewaySlug: "acme-unified",
+			},
+			{
+				organizationId: "22222222-tedix",
+				descopeTenantId: "org_tedix",
+				gatewaySlug: "tedix-unified",
+			},
+		];
+		const ctx = {
+			loadedTools,
+			app: { organizationId: "11111111-acme" },
+			callerIdentity: {
+				authType: "oauth",
+				scopes: [],
+				organizationId: "org_tedix",
+				verifiedMultiOrgOrganizations,
+			},
+		} as unknown as ServerContext;
+		expect(currentCatalogOrganizationId(ctx)).toBe("22222222-tedix");
+		const results = await runSearch(
+			buildCatalogProvider(ctx, undefined),
+			"list skills",
+		);
+		expect(catalogToolEntries(results).map((row) => row.namespace)[0]).toBe(
+			"tedix_unified_tedix",
+		);
+		expect(
+			currentCatalogOrganizationId({
+				app: { organizationId: "11111111-acme" },
+				callerIdentity: undefined,
+			} as unknown as ServerContext),
+		).toBe("11111111-acme");
 	});
 });
 

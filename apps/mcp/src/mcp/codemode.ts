@@ -2206,9 +2206,30 @@ function skillLifecycleBoost(lifecycleState: string | undefined): number {
 }
 
 /**
+ * The caller's current organization as a D1 organization id. A human OAuth
+ * token names its organization by Descope tenant (`org_tedix`), while mounted
+ * tools record the D1 id, so the tenant is mapped through the verified
+ * multi-organization grant. Without a caller organization the hosting app's
+ * organization is current.
+ */
+export function currentCatalogOrganizationId(
+	serverCtx: Pick<ServerContext, "callerIdentity" | "app">,
+): string | undefined {
+	const caller = serverCtx.callerIdentity?.organizationId;
+	const match = caller
+		? serverCtx.callerIdentity?.verifiedMultiOrgOrganizations?.find(
+				(org) =>
+					org.organizationId === caller || org.descopeTenantId === caller,
+			)
+		: undefined;
+	return match?.organizationId || caller || serverCtx.app?.organizationId;
+}
+
+/**
  * On a multi-organization surface, rows from the caller's current organization
  * come first. Relevance order is kept inside each group, and rows that belong
- * to no particular organization stay with the rest.
+ * to no particular organization stay with the rest. Recorded skill rows are
+ * listed for the caller's organization, so they count as current.
  */
 function currentOrganizationFirst(
 	entries: CatalogPageEntry[],
@@ -2219,6 +2240,7 @@ function currentOrganizationFirst(
 		return entries;
 	}
 	const isCurrent = (entry: CatalogPageEntry) =>
+		entry.namespace === "skills" ||
 		namespaceOrganizations.get(entry.namespace) === currentOrganizationId;
 	return [
 		...entries.filter(isCurrent),
@@ -2555,8 +2577,7 @@ export function buildCatalogProvider(
 						: skillLoaderCallable(
 								catalog,
 								namespaceOrganizations,
-								serverCtx.callerIdentity?.organizationId ||
-									serverCtx.app?.organizationId,
+								currentCatalogOrganizationId(serverCtx),
 							);
 					if (skillLoader) {
 						const skillRows = await getSkillDiscoveryRows(serverCtx);
@@ -2616,7 +2637,7 @@ export function buildCatalogProvider(
 						currentOrganizationFirst(
 							reranked.entries,
 							namespaceOrganizations,
-							serverCtx.callerIdentity?.organizationId,
+							currentCatalogOrganizationId(serverCtx),
 						),
 						limit,
 						offset,
