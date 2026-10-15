@@ -1055,3 +1055,36 @@ export async function callMcpTool(
 		await session?.close();
 	}
 }
+
+/**
+ * One request for a JSON-RPC method the SDK has no typed helper for, such as
+ * the draft SEP-3415 `events/*` extension methods. Throws on any failure; an
+ * auth refusal surfaces as {@link AuthRequiredError}. The result object is
+ * returned as sent and must be validated by the caller.
+ */
+export async function requestMcpMethod(
+	endpoint: string,
+	method: string,
+	params: Record<string, unknown>,
+	options: {
+		fetchFn: FetchFn;
+		headers?: Record<string, string>;
+		clientCapabilities?: Record<string, unknown>;
+		timeout?: number;
+	},
+): Promise<Record<string, unknown>> {
+	const timeout = options.timeout ?? 15_000;
+	const session = await createMcpSession(endpoint, {
+		fetchFn: options.fetchFn,
+		headers: options.headers,
+		clientCapabilities: options.clientCapabilities,
+	});
+	try {
+		await session.connect({ timeout });
+		return await session.run(() =>
+			session.client.request({ method, params }, RESULT_OBJECT, { timeout }),
+		);
+	} finally {
+		await session.close();
+	}
+}

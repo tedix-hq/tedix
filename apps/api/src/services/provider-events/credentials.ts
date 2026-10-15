@@ -89,8 +89,11 @@ export async function resolveProviderEventCredential(
 			"Calendar connection is missing, expired or lacks required scope",
 		);
 	const scopes = token.scopes ?? [];
+	// An MCP app's upstream authorizes its own event methods; admission there
+	// is the events/list check under this exact connection token.
 	const canRead =
-		subscription.adapter === "google_calendar"
+		subscription.adapter === "mcp_events" ||
+		(subscription.adapter === "google_calendar"
 			? scopes.some((s) =>
 					[
 						"https://www.googleapis.com/auth/calendar",
@@ -99,7 +102,7 @@ export async function resolveProviderEventCredential(
 						"https://www.googleapis.com/auth/calendar.events.readonly",
 					].includes(s),
 				)
-			: scopes.some((s) => /(^|\/)Calendars\.(Read|ReadWrite)$/i.test(s));
+			: scopes.some((s) => /(^|\/)Calendars\.(Read|ReadWrite)$/i.test(s)));
 	if (!canRead)
 		throw new Error("Calendar connection lacks event read permission");
 	const current = await getConnectionInstance(

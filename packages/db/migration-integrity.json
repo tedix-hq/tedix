@@ -876,6 +876,10 @@
 		{
 			"name": "20261013104756_eur-only-billing/migration.sql",
 			"sha256": "f51bcb8bcf9518f31833218335e26c23e1d6de8c0bb6c032abf77d6369889fb1"
+		},
+		{
+			"name": "20261015075248_mcp-events-provider-adapter/migration.sql",
+			"sha256": "e675426fd35a6d653f11a34315ce3134b15afe7cdba7088828c6312dec6a3822"
 		}
 	]
 }

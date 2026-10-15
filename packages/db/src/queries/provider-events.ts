@@ -53,6 +53,7 @@ export async function updateProviderEventSubscription(
 			| "lastDispatchAt"
 			| "lastError"
 			| "leaseUntil"
+			| "eventCursor"
 		>
 	>,
 ) {
@@ -69,6 +70,41 @@ export async function updateProviderEventSubscription(
 			),
 		)
 		.returning();
+}
+/**
+ * Atomically admit one wake against the subscription's hourly budget. SQLite
+ * evaluates every SET expression against the pre-update row, so the window
+ * reset and the count read the same snapshot. Returns false when the budget
+ * for the current window is spent or the subscription is disabled.
+ */
+export async function claimProviderEventWake(
+	db: DbQueryClient,
+	organizationId: string,
+	id: string,
+	now: string,
+	windowStart: string,
+	maxWakes: number,
+) {
+	const expired = sql`(${subscriptions.wakeWindowStartedAt} IS NULL OR ${subscriptions.wakeWindowStartedAt} < ${windowStart})`;
+	return (
+		(
+			await db
+				.update(subscriptions)
+				.set({
+					wakeWindowStartedAt: sql`CASE WHEN ${expired} THEN ${now} ELSE ${subscriptions.wakeWindowStartedAt} END`,
+					wakeWindowCount: sql`CASE WHEN ${expired} THEN 1 ELSE ${subscriptions.wakeWindowCount} + 1 END`,
+				})
+				.where(
+					and(
+						eq(subscriptions.id, id),
+						eq(subscriptions.organizationId, organizationId),
+						ne(subscriptions.status, "disabled"),
+						or(expired, lt(subscriptions.wakeWindowCount, maxWakes)),
+					),
+				)
+				.returning({ id: subscriptions.id })
+		).length > 0
+	);
 }
 export async function addProviderEventChannel(
 	db: DbQueryClient,

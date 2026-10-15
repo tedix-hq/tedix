@@ -18,6 +18,7 @@ import { buildInternalServiceBindingContext } from "../../rpc/routers/kernel/run
 import { resolveProviderEventCredential } from "./credentials";
 import { googleCalendarAdapter } from "./google-calendar";
 import { microsoftCalendarAdapter } from "./microsoft-calendar";
+import { generateWebhookSecret, mcpEventsAdapter } from "./mcp-events";
 import {
 	callbackTokenHash,
 	type Subscription,
@@ -28,8 +29,12 @@ export const RENEW_BEFORE_MS = 60 * 60_000;
 export function statusProjection(row: Subscription) {
 	return ProviderEventStatusSchema.parse(row);
 }
-export function adapterFor(adapter: Subscription["adapter"]): ProviderAdapter {
-	return adapter === "google_calendar"
+export function adapterFor(
+	context: BaseContext,
+	row: Subscription,
+): ProviderAdapter {
+	if (row.adapter === "mcp_events") return mcpEventsAdapter(context, row);
+	return row.adapter === "google_calendar"
 		? googleCalendarAdapter()
 		: microsoftCalendarAdapter();
 }
@@ -111,9 +116,24 @@ export async function registerSubscription(
 		throw new Error(
 			"Personal consent cannot be attached to an organization subscription",
 		);
-	const { personalDelegation, resourceDelegationIds, ...registration } = input;
+	const {
+		personalDelegation,
+		resourceDelegationIds,
+		mcpEvents,
+		calendarId,
+		...registration
+	} = input;
+	const resourceKey = mcpEvents?.eventName ?? calendarId;
+	if (!resourceKey) throw new Error("Provider resource required");
 	const row: Subscription = {
 		...registration,
+		calendarId: resourceKey,
+		mcpAppId: mcpEvents?.appId ?? null,
+		eventArguments: mcpEvents?.arguments ?? null,
+		eventCursor: null,
+		maxWakesPerHour: mcpEvents?.maxWakesPerHour ?? null,
+		wakeWindowStartedAt: null,
+		wakeWindowCount: 0,
 		connectionScope: personal ? "user" : "tenant",
 		personalOwnerUserId: personal ? context.user!.sub! : null,
 		workspaceId: personalDelegation?.workspaceId ?? null,
@@ -146,13 +166,13 @@ export async function registerSubscription(
 	let token: string;
 	if (!personal) {
 		token = await resolveProviderEventCredential(context, row);
-		await adapterFor(row.adapter).validateCalendar(token, row);
+		await adapterFor(context, row).validateCalendar(token, row);
 	}
 	await createProviderEventSubscription(context.db, row);
 	try {
 		if (personal) {
 			token = await resolveProviderEventCredential(context, row);
-			await adapterFor(row.adapter).validateCalendar(token, row);
+			await adapterFor(context, row).validateCalendar(token, row);
 		}
 		if (row.deliveryMode === "push")
 			await renewSubscription(context, row, token!);
@@ -165,7 +185,9 @@ export async function registerSubscription(
 				{ status: "active" },
 			);
 		}
-		await queueReconciliation(context, row, `initial:${row.id}`);
+		// An MCP event subscription dispatches only received events, never a bare signal.
+		if (row.adapter !== "mcp_events")
+			await queueReconciliation(context, row, `initial:${row.id}`);
 	} catch (error) {
 		await recordSubscriptionFailure(context, row, error);
 	}
@@ -213,13 +235,29 @@ export async function renewSubscription(
 	if (origin.protocol !== "https:")
 		throw new Error("Public HTTPS API origin required");
 	const channelId = crypto.randomUUID();
-	const secret = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+	// MCP events sign deliveries with a Standard Webhooks whsec_ secret, which
+	// verification needs back: it alone is stored encrypted beside its hash.
+	const mcp = row.adapter === "mcp_events";
+	const secret = mcp
+		? generateWebhookSecret()
+		: `${crypto.randomUUID()}${crypto.randomUUID()}`;
 	const now = new Date().toISOString();
 	await addProviderEventChannel(context.db, {
 		id: channelId,
 		subscriptionId: row.id,
 		organizationId: row.organizationId,
 		tokenHash: await callbackTokenHash(secret),
+		...(mcp
+			? {
+					signingSecretCiphertext: await (
+						await import("@tedix/db/utils/secrets-encryption")
+					).encryptSecret(
+						context.env.SECRETS_MASTER_KEY,
+						row.organizationId,
+						secret,
+					),
+				}
+			: {}),
 		status: "pending",
 		expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
 		createdAt: now,
@@ -228,7 +266,7 @@ export async function renewSubscription(
 		`/webhooks/provider-events/${row.adapter}/${channelId}`,
 		origin,
 	).href;
-	const result = await adapterFor(row.adapter).register(
+	const result = await adapterFor(context, row).register(
 		token,
 		row,
 		channelId,
@@ -238,7 +276,7 @@ export async function renewSubscription(
 	try {
 		await resolveProviderEventCredential(context, row);
 	} catch (error) {
-		const stopped = await adapterFor(row.adapter)
+		const stopped = await adapterFor(context, row)
 			.stop(token, result.providerChannelId, result.resourceId)
 			.then(
 				() => true,
@@ -255,7 +293,7 @@ export async function renewSubscription(
 	// Disabled while provider registration was in flight: stop instead of reviving.
 	const current = await loadSubscription(context, row.organizationId, row.id);
 	if (current.status === "disabled") {
-		await adapterFor(row.adapter).stop(
+		await adapterFor(context, row).stop(
 			token,
 			result.providerChannelId,
 			result.resourceId,
@@ -294,7 +332,7 @@ export async function cleanupChannels(
 	)) {
 		if (channel.id === keepId || channel.status === "stopped") continue;
 		if (channel.providerChannelId)
-			await adapterFor(row.adapter).stop(
+			await adapterFor(context, row).stop(
 				token,
 				channel.providerChannelId,
 				channel.resourceId,
@@ -347,6 +385,8 @@ export async function queueReconciliation(
 		row.id,
 	);
 	if (!current || current.status === "disabled") return false;
+	// MCP event deliveries carry their event; a bare reconcile signal has none.
+	if (current.adapter === "mcp_events") return false;
 	const id = await callbackTokenHash(`${row.organizationId}:${row.id}:${key}`);
 	const inserted = await addProviderEventDelivery(context.db, {
 		id,
@@ -357,7 +397,12 @@ export async function queueReconciliation(
 	});
 	return inserted.length > 0;
 }
-export function reconciliationEvent(row: Subscription, deliveryId: string) {
+export function reconciliationEvent(
+	row: Subscription,
+	deliveryId: string,
+	// mcp_events: the received event, already wrapped as untrusted data.
+	event?: Record<string, unknown> | null,
+) {
 	return {
 		kind: "skill_workflow" as const,
 		organizationId: row.organizationId,
@@ -374,6 +419,7 @@ export function reconciliationEvent(row: Subscription, deliveryId: string) {
 				connectionInstanceId: row.connectionInstanceId,
 				calendarId: row.calendarId,
 				skillRevision: row.skillRevision,
+				...(event ? { mcpAppId: row.mcpAppId, event } : {}),
 			},
 		},
 	};
@@ -464,7 +510,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 					{ runWorkflow: skillsRunWorkflow },
 					{ context: dispatchContext },
 				);
-				const event = reconciliationEvent(row, delivery.id);
+				const event = reconciliationEvent(row, delivery.id, delivery.payload);
 				await client.runWorkflow({
 					tediId: row.tediId,
 					skillId: row.skillId,
@@ -480,7 +526,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 					context: dispatchContext,
 				});
 				await client.emitAutomationEvent({
-					event: reconciliationEvent(row, delivery.id),
+					event: reconciliationEvent(row, delivery.id, delivery.payload),
 				});
 			}
 			await settleProviderEventDelivery(

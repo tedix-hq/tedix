@@ -50,6 +50,29 @@ export async function handleProviderEventWebhook(
 	);
 	if (!row || row.status === "disabled" || row.adapter !== adapter)
 		return c.text("Unknown channel", 404);
+	if (adapter === "mcp_events") {
+		if (Number(c.req.header("content-length") ?? 0) > 256_000)
+			return c.text("Payload too large", 413);
+		const body = await readNotificationBody(c.req.raw);
+		if (body === null) return c.text("Payload too large", 413);
+		const { receiveMcpEventWebhook } =
+			await import("../services/provider-events/mcp-events");
+		const result = await receiveMcpEventWebhook(context, row, channel, {
+			headers: c.req.raw.headers,
+			body,
+		});
+		if (result.status >= 400)
+			return c.text("Invalid notification", result.status as 400);
+		if (result.counts)
+			await updateProviderEventSubscription(
+				context.db,
+				row.organizationId,
+				row.id,
+				{ lastNotificationAt: new Date().toISOString() },
+			);
+		// Durable outbox committed before ACK; cron drains and retries independently.
+		return c.body(null, result.status as 202);
+	}
 	const challenge = c.req.query("validationToken");
 	if (adapter === "microsoft_calendar" && challenge !== undefined) {
 		if (channel.status !== "pending" || challenge.length > 4096)

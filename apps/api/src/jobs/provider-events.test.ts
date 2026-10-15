@@ -9,6 +9,12 @@ const mocks = vi.hoisted(() => ({
 	queue: vi.fn(),
 	dispatch: vi.fn(),
 	failure: vi.fn(),
+	poll: vi.fn(),
+}));
+vi.mock("../services/provider-events/mcp-events", () => ({
+	pollMcpEvents: mocks.poll,
+	MCP_EVENTS_POLL_INTERVAL_MS: 60_000,
+	MCP_EVENTS_RENEW_BEFORE_MS: 900_000,
 }));
 vi.mock("../rpc/orpc", () => ({ createContext: () => ({ db: {} }) }));
 vi.mock("@tedix/db/queries/provider-events", () => ({
@@ -76,5 +82,48 @@ describe("provider notification maintenance", () => {
 			dispatched: 1,
 		});
 		expect(mocks.failure).toHaveBeenCalled();
+	});
+	it("polls mcp_events from its cursor instead of queueing a bare reconcile signal", async () => {
+		mocks.due.mockResolvedValue([
+			{ ...row, adapter: "mcp_events", deliveryMode: "poll" },
+		]);
+		mocks.poll.mockResolvedValue({ queued: 2, rate_limited: 0 });
+		expect(await maintainProviderEvents({} as CloudflareEnv)).toMatchObject({
+			polled: 2,
+			reconciled: 0,
+		});
+		expect(mocks.poll).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ adapter: "mcp_events" }),
+			"vault",
+		);
+		expect(mocks.queue).not.toHaveBeenCalled();
+		expect(mocks.update).toHaveBeenCalledWith(
+			expect.anything(),
+			"org",
+			"sub",
+			expect.objectContaining({ status: "active", lastError: null }),
+		);
+	});
+	it("renews an mcp_events webhook only near its upstream refreshBefore", async () => {
+		mocks.due.mockResolvedValue([
+			{
+				...row,
+				adapter: "mcp_events",
+				expiresAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+			},
+		]);
+		await maintainProviderEvents({} as CloudflareEnv);
+		expect(mocks.renew).not.toHaveBeenCalled();
+		mocks.due.mockResolvedValue([
+			{
+				...row,
+				adapter: "mcp_events",
+				expiresAt: new Date(Date.now() + 60_000).toISOString(),
+			},
+		]);
+		await maintainProviderEvents({} as CloudflareEnv);
+		expect(mocks.renew).toHaveBeenCalledTimes(1);
+		expect(mocks.poll).not.toHaveBeenCalled();
 	});
 });
