@@ -811,6 +811,58 @@ describe("canonical work lifecycle", () => {
 		expect(line).toContain(`tedix work readiness ${ITEM}`);
 	});
 
+	test("start without an executor identity names `tedix agent start`", async () => {
+		const fixture = makeContext(
+			{},
+			undefined,
+			() => ({
+				defined: true,
+				code: "BAD_REQUEST",
+				status: 400,
+				message:
+					"Attempt execution requires a tedi identity or verified external-agent session",
+			}),
+			{ json: false },
+		);
+		const { code, err } = await capture(`start ${ITEM}`, fixture.ctx);
+		expect(code).toBe(WORK_EXIT_FAIL);
+		expect(err.join("\n")).toContain("tedix agent start");
+	});
+
+	test("an owner action refused for the external agent names the owner login", async () => {
+		const forbidden = () => ({
+			defined: true,
+			code: "FORBIDDEN",
+			status: 403,
+			message:
+				"Work mutation requires an authenticated owner/admin user principal",
+		});
+		const agent = makeContext({}, undefined, forbidden, {
+			json: false,
+			authSource: "external-agent:local-agent:session-1",
+		});
+		const refused = await capture(`complete ${ITEM}`, agent.ctx);
+		expect(refused.code).toBe(WORK_EXIT_FAIL);
+		expect(refused.err.join("\n")).toContain("env -u TEDIX_EXTERNAL_AGENT");
+		const owner = makeContext({}, undefined, forbidden, {
+			json: false,
+			authSource: "stored-login:user",
+		});
+		const ownerRefused = await capture(`complete ${ITEM}`, owner.ctx);
+		expect(ownerRefused.err.join("\n")).not.toContain("TEDIX_EXTERNAL_AGENT");
+	});
+
+	test("checkpoint without selected Work names how to select it", async () => {
+		const fixture = makeContext();
+		fixture.ctx.resolveContext = () =>
+			({ status: "bound" }) as ReturnType<
+				NonNullable<typeof fixture.ctx.resolveContext>
+			>;
+		await expect(runWork("checkpoint", fixture.ctx)).rejects.toThrow(
+			"tedix setup agents context select <id>",
+		);
+	});
+
 	test("rejects worktree flags outside start and requires the opt-in flag", async () => {
 		await expect(
 			runWork("context", makeContext({ worktree: true }).ctx),
@@ -2193,13 +2245,17 @@ describe("selected chat Work checkpoint", () => {
 	test("rejects absent chat identity before network", async () => {
 		const { ctx, sources } = fixture();
 		ctx.resolveContext = () => ({ ...binding, contextSessionId: undefined });
-		await expect(runWork("checkpoint", ctx)).rejects.toThrow("chat-scoped");
+		await expect(runWork("checkpoint", ctx)).rejects.toThrow(
+			"selected for this chat",
+		);
 		expect(sources).toHaveLength(0);
 	});
 	test("does not inherit a governed worktree marker just because chat identity is present", async () => {
 		const { ctx, sources } = fixture();
 		ctx.resolveContext = () => ({ ...binding, contextSource: "worktree" });
-		await expect(runWork("checkpoint", ctx)).rejects.toThrow("chat-scoped");
+		await expect(runWork("checkpoint", ctx)).rejects.toThrow(
+			"selected for this chat",
+		);
 		expect(sources).toHaveLength(0);
 	});
 	test("guidance interaction-get id syntax reads the canonical request without writes", async () => {

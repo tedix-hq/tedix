@@ -766,7 +766,7 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 		if (input.startColumn + width > columnCount) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`The rectangle spans columns ${input.startColumn}..${input.startColumn + width - 1} but the sheet has ${columnCount} columns; columns are added by editors, not by range writes`,
+				`The rectangle spans columns ${input.startColumn}..${input.startColumn + width - 1} but the sheet has ${columnCount} columns; columns are added by editors, not by range writes. Declare the column headers first with revise_os_output (content.columns), then write the cells`,
 			);
 		}
 		const endRow = input.startRow + input.cells.length;

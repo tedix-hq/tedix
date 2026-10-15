@@ -705,6 +705,32 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		expect(catalogToolEntries(cto)[0]?.callable).toBe("cto.run_tedi_turn");
 	});
 
+	it("ranks the tool a query names above its namespace neighbours", async () => {
+		const names = ["list_addresses", "list_devices", "list_tedis"];
+		const ctx = {
+			loadedTools: new Map<string, AppTool>(
+				names.map(
+					(name) =>
+						[
+							`tedis__${name}`,
+							tool({
+								id: `row-${name}`,
+								toolId: `tedis__${name}`,
+								title: name,
+								description: `Read ${name}.`,
+								config: { endpoint: `tedis/${name}` },
+							}),
+						] as [string, AppTool],
+				),
+			),
+		} as unknown as ServerContext;
+		const provider = buildCatalogProvider(ctx, undefined);
+		for (const query of ["list tedis", "list_tedis", "tedis.list_tedis"]) {
+			const rows = catalogToolEntries(await runSearch(provider, query, 3));
+			expect(rows[0]?.callable).toBe("tedis.list_tedis");
+		}
+	});
+
 	it("names the result envelope's top-level keys on describe", async () => {
 		const ctx = {
 			loadedTools: new Map<string, AppTool>([

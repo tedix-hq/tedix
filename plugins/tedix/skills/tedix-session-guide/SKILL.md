@@ -42,9 +42,11 @@ server admission and Attempt fences establish actual access and state.
    `tedix -w <workspace> work attempts <id> --limit 5` and
    `tedix -w <workspace> work readiness <id>`.
    If the user supplied title terms but no ID, use a bounded `work find`
-   query. For “what needs my attention,” read the authenticated actor's
-   `work inbox`; do not scan the entire organization or assume that an empty
-   page means there is no work. On the native plugin path, discover and call the
+   query. For “what needs my attention,” run `work checkpoint` when this chat
+   has selected Work, `tedix -w <workspace> status` for runs and approvals
+   waiting on you, and `work list --disposition proposed --project <id>` for
+   items awaiting acceptance; do not scan the entire organization or assume
+   that an empty page means there is no work. On the native plugin path, discover and call the
    equivalent scoped Work read tools. Show at most three candidates with
    their IDs, disposition, and source. Resolve the intended task from the user
    request and actual receipts when possible; ask only if the target remains
@@ -58,9 +60,10 @@ server admission and Attempt fences establish actual access and state.
    another project, read that exact item in the same authorized organization;
    the project filter is not a ban on relevant history. Do not scan unrelated
    projects or cross organization boundaries. Historical or completed Work is
-   context, not a task to reopen or an Attempt to inherit. `context select <id>` records an
-   explicit local choice for this checkout, branch and Codex chat. The CLI uses
-   the current Codex identity; an operator outside the chat can pass
+   context, not a task to reopen or an Attempt to inherit.
+   `tedix setup agents context select <id>` records an explicit local choice
+   for this checkout, branch and Codex chat. The CLI uses the current Codex
+   identity; an operator outside the chat can pass
    `--session <chat-UUID>`. When chat selections exist, never replace missing
    identity with another chat or checkout selection. Binding/selection is
    correlation, not an admitted Attempt.

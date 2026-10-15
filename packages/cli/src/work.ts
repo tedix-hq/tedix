@@ -22,6 +22,7 @@
  * scripts can branch.
  */
 
+import { readExternalAgentProfile } from "./external-agent-store";
 import {
 	WorkItemDispositionSchema,
 	ListWorkCliProjectionInputSchema,
@@ -415,6 +416,36 @@ function oauthHarnessGuard(ctx: WorkContext): BoardError | undefined {
 		};
 	}
 	return undefined;
+}
+
+/**
+ * Accept and complete are owner actions. A harness that exported
+ * TEDIX_EXTERNAL_AGENT for its Attempt calls them as that agent and gets a bare
+ * FORBIDDEN; name the owner login as the next step.
+ */
+function ownerActionHint(ctx: WorkContext, error: BoardError): string {
+	if (
+		error.code !== "FORBIDDEN" ||
+		!ctx.authSource?.startsWith("external-agent:")
+	)
+		return "";
+	return "\nThis is an owner action, and this call ran as the external agent. Rerun the same command with the owner login: prefix it with `env -u TEDIX_EXTERNAL_AGENT`.";
+}
+
+/** Next step when the server refuses an Attempt for a caller with no executor identity. */
+function executorIdentityHint(
+	ctx: WorkContext,
+	id: string,
+	error: BoardError,
+): string {
+	if (!/verified external-agent session/i.test(error.message)) return "";
+	let key: string | undefined;
+	try {
+		key = readExternalAgentProfile(ctx.workspace)?.key;
+	} catch {
+		// The hint degrades to a placeholder when the local store is unreadable.
+	}
+	return `\nThis call ran with the owner login. Start a verified session if this harness has none (\`tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> --model-version <version>\`), then rerun as it: \`TEDIX_EXTERNAL_AGENT=${key ?? "<principal-key>"} tedix work start ${id}\`.`;
 }
 
 /** Merge session provenance into a board-write arg object under `metadata`. */
@@ -1491,7 +1522,7 @@ async function workStart(ctx: WorkContext, id: string): Promise<number> {
 		return fail(
 			ctx,
 			call.error,
-			`Could not start attempt for ${id}: ${call.error.message}`,
+			`Could not start attempt for ${id}: ${call.error.message}${executorIdentityHint(ctx, id, call.error)}`,
 		);
 	}
 	const attempt = isRecord(call.value) ? call.value.attempt : undefined;
@@ -2006,7 +2037,7 @@ async function workAccept(ctx: WorkContext, id: string): Promise<number> {
 		return fail(
 			ctx,
 			call.error,
-			`Could not accept ${id}: ${call.error.message}`,
+			`Could not accept ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
 		);
 	return ok(ctx, call.value, () =>
 		console.log(`${green("Accepted", ctx.color)} ${id}.`),
@@ -2185,7 +2216,7 @@ async function workComplete(ctx: WorkContext, id: string): Promise<number> {
 		return fail(
 			ctx,
 			call.error,
-			`Could not complete ${id}: ${call.error.message}`,
+			`Could not complete ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
 		);
 	return ok(ctx, call.value, () =>
 		console.log(`${green("Completed", ctx.color)} ${id}.`),
@@ -3269,7 +3300,7 @@ async function workCheckpoint(
 		binding.contextSource !== "chat"
 	)
 		throw new Error(
-			"work checkpoint requires valid chat-scoped selected Work; inspect setup agents context show",
+			'work checkpoint needs Work selected for this chat, and none is. Find the item with `tedix work find "<title terms>"` (add --project <id> from `tedix setup agents context show`), then select it with `tedix setup agents context select <id>`.',
 		);
 	if (
 		binding.workspace !== ctx.workspace ||

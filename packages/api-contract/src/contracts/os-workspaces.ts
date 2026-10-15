@@ -847,7 +847,7 @@ export const osWorkspacesContract = oc
 							.optional()
 							.describe("Optional workspace to group the output under"),
 						content: OsOutputContentSchema.optional().describe(
-							"Optional initial body. Omit it to create an empty artifact of the declared kind — an empty document, sheet, or presentation — and fill it afterwards with patchDocument or setSheetRange. A video must supply its body, because a video without a renderId names nothing.",
+							"Optional initial body. Omit it to create an empty artifact of the declared kind — an empty document, sheet, or presentation — and fill it afterwards with patchDocument or patchSlides. An empty sheet has no columns, so give a sheet its columns here (or through revise) before writing cells with setSheetRange. A video must supply its body, because a video without a renderId names nothing.",
 						),
 						note: z
 							.string()

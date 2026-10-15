@@ -60,8 +60,8 @@ A Work Item is a bounded outcome with an owner, a "done when" and a recorded
 result. The flow, with the CLI verbs:
 
 1. Find it: `tedix work context <id>`, or `tedix work find "<terms>"` when you
-   have a title, or `tedix work inbox` for what needs the owner. Show at most
-   three candidates; never execute a proposed item.
+   have a title, or `tedix work list --disposition proposed` for what awaits
+   the owner. Show at most three candidates; never execute a proposed item.
 2. Check `tedix work readiness <id>`; it is a snapshot, not a grant.
 3. `tedix work start <id>` under a verified executor identity opens your
    Attempt. `tedix work heartbeat <id>` keeps the lease during long runs.
