@@ -15,6 +15,12 @@ export const MCP_SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo";
 
 export const MCP_TASKS_EXTENSION = "io.modelcontextprotocol/tasks";
 
+export function isModernMcpRequest(
+	meta: Record<string, unknown> | undefined,
+): boolean {
+	return meta?.[MCP_PROTOCOL_VERSION_META_KEY] === MCP_MODERN_PROTOCOL_VERSION;
+}
+
 /**
  * OAuth Client Credentials extension (SEP-1046 / ext-auth). Advertised in
  * `server/discover` capabilities when the app is backed by an OAuth
