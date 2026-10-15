@@ -6,7 +6,7 @@ import {
 	SquaresFour,
 } from "@phosphor-icons/react";
 import type { OsPresentationDeck } from "@tedix/api-contract/schemas/os-workspaces";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { ReadOnlyElement } from "@/components/output-slide-element";
 import { bareKey, slideNavigationTarget } from "@/components/slide-navigation";
@@ -42,9 +42,48 @@ export function SlidePresenter({
 		const next = deck.slides[target];
 		if (next) onNavigate(next.id);
 	};
+	const handleKey = (event: KeyboardEvent | React.KeyboardEvent) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			if (jumpOpen) setJumpOpen(false);
+			else if (hasSelection) onDeselect?.();
+			else onExit();
+			return;
+		}
+		if (bareKey(event) === "f") {
+			event.preventDefault();
+			onExit();
+			return;
+		}
+		// A focused control keeps Space and Enter for itself.
+		if (
+			event.key === " " &&
+			(event.target as HTMLElement | null)?.tagName === "BUTTON"
+		)
+			return;
+		const target = slideNavigationTarget(event.key, index, deck.slides.length);
+		if (target === null) return;
+		event.preventDefault();
+		go(target);
+	};
+	const handleKeyRef = useRef(handleKey);
+	handleKeyRef.current = handleKey;
+	const dialogRef = useRef<HTMLDivElement>(null);
+	// Clicking the slide, or a jump-menu button that then unmounts, leaves
+	// focus on the page body. Present mode is modal, so it still owns the keys.
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) return;
+			if (dialogRef.current?.contains(event.target as Node)) return;
+			handleKeyRef.current(event);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, []);
 	if (!slide) return null;
 	return (
 		<div
+			ref={dialogRef}
 			className="slides-present fixed inset-0 z-50 grid grid-rows-[minmax(0,1fr)_auto] gap-4 bg-(--tedix-presentation-stage) p-4 text-(--tedix-presentation-stage-text)"
 			role="dialog"
 			aria-modal="true"
@@ -52,32 +91,7 @@ export function SlidePresenter({
 			data-show-notes={showNotes || undefined}
 			onKeyDown={(event) => {
 				event.stopPropagation();
-				if (event.key === "Escape") {
-					event.preventDefault();
-					if (jumpOpen) setJumpOpen(false);
-					else if (hasSelection) onDeselect?.();
-					else onExit();
-					return;
-				}
-				if (bareKey(event) === "f") {
-					event.preventDefault();
-					onExit();
-					return;
-				}
-				// A focused control keeps Space and Enter for itself.
-				if (
-					event.key === " " &&
-					(event.target as HTMLElement).tagName === "BUTTON"
-				)
-					return;
-				const target = slideNavigationTarget(
-					event.key,
-					index,
-					deck.slides.length,
-				);
-				if (target === null) return;
-				event.preventDefault();
-				go(target);
+				handleKey(event);
 			}}
 		>
 			<div className="absolute top-4 right-4 z-10 flex gap-2">
