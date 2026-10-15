@@ -8,6 +8,7 @@ import type { SkillRunCostSummary } from "@tedix/api-contract/contracts/cognitiv
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	and,
+	asc,
 	desc,
 	eq,
 	gt,
@@ -640,4 +641,79 @@ export async function listSkillRunSnapshotsForSkill(
 		.where(and(...conditions))
 		.orderBy(desc(skillRuns.startedAt))
 		.limit(boundedRunLimit(options?.limit, 100));
+}
+
+export type FailedSkillRunEventRow = Pick<
+	SkillRun,
+	"id" | "skillId" | "tediId" | "workItemId" | "executionEpoch"
+> & {
+	completedAt: string;
+	errorClass: "admission" | "execution";
+};
+
+/**
+ * Org-scoped ascending keyset read of failed runs, projected as the
+ * `skill.run.failed` MCP event. Only a coarse error class leaves this query;
+ * the stored error message and stack never do.
+ */
+export async function listFailedSkillRunEvents(
+	db: DbClient,
+	p: {
+		organizationId: string;
+		after: { at: string; id: string } | null;
+		tediId?: string;
+		skillId?: string;
+		limit: number;
+	},
+): Promise<FailedSkillRunEventRow[]> {
+	const rows = await db
+		.select({
+			id: skillRuns.id,
+			skillId: skillRuns.skillId,
+			tediId: skillRuns.tediId,
+			workItemId: skillRuns.workItemId,
+			executionEpoch: skillRuns.executionEpoch,
+			completedAt: skillRuns.completedAt,
+			errorClass: sql<
+				"admission" | "execution"
+			>`CASE WHEN instr(coalesce(${skillRuns.error}, ''), 'WORKFLOW_ADMISSION_') = 1 THEN 'admission' ELSE 'execution' END`.as(
+				"error_class",
+			),
+		})
+		.from(skillRuns)
+		.where(
+			and(
+				eq(skillRuns.organizationId, p.organizationId),
+				eq(skillRuns.status, "failed"),
+				sql`${skillRuns.completedAt} IS NOT NULL`,
+				p.tediId ? eq(skillRuns.tediId, p.tediId) : undefined,
+				p.skillId ? eq(skillRuns.skillId, p.skillId) : undefined,
+				p.after
+					? sql`(${skillRuns.completedAt}>${p.after.at} OR (${skillRuns.completedAt}=${p.after.at} AND ${skillRuns.id}>${p.after.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(asc(skillRuns.completedAt), asc(skillRuns.id))
+		.limit(p.limit);
+	return rows.map((row) => ({ ...row, completedAt: row.completedAt ?? "" }));
+}
+
+/** Newest failed-run position in the org, used to poll "from now". */
+export async function getLatestFailedSkillRunPosition(
+	db: DbClient,
+	organizationId: string,
+): Promise<{ at: string; id: string } | null> {
+	const [row] = await db
+		.select({ at: skillRuns.completedAt, id: skillRuns.id })
+		.from(skillRuns)
+		.where(
+			and(
+				eq(skillRuns.organizationId, organizationId),
+				eq(skillRuns.status, "failed"),
+				sql`${skillRuns.completedAt} IS NOT NULL`,
+			),
+		)
+		.orderBy(desc(skillRuns.completedAt), desc(skillRuns.id))
+		.limit(1);
+	return row?.at ? { at: row.at, id: row.id } : null;
 }

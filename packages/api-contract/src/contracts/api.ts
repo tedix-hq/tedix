@@ -57,6 +57,7 @@ import { learningFeedbackContract } from "./learning-feedback";
 import { listingsContract } from "./listings";
 import { mcpCredentialsContract } from "./mcp-credentials";
 import { mcpEvalContract } from "./mcp-eval";
+import { mcpEventsContract } from "./mcp-events";
 import { mcpGovernanceContract } from "./mcp-governance";
 import { mcpHealthContract } from "./mcp-health";
 import { mcpNetworkSecurityContract } from "./mcp-network-security";
@@ -352,6 +353,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 
 	// MCP tool-approval grant resolution (internal, service-binding only —
 	// isolated grant layer for the destructive-tool approval gate)
+	mcpEvents: mcpEventsContract,
 	mcpGovernance: mcpGovernanceContract,
 
 	// Tedi runtime metrics from Analytics Engine

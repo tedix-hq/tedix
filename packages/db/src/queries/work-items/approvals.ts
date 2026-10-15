@@ -1,7 +1,7 @@
 import { normalizeWorkItemRow } from "./normalization";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { WorkItemAcceptanceContractSchema } from "@tedix/api-contract/schemas/work-items";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prefixedColumns } from "../../utils/select";
 import { workItems, workEvents, type WorkItem } from "../../schema/work-items";
@@ -534,4 +534,84 @@ export async function listWorkApprovalInbox(
 				: null,
 		observedAt: p.observedAt,
 	};
+}
+
+export type RequestedWorkApprovalEventRow = Pick<
+	WorkApprovalProposal,
+	| "id"
+	| "workItemId"
+	| "action"
+	| "authorityKey"
+	| "approverType"
+	| "approverId"
+	| "expiresAt"
+	| "createdAt"
+>;
+
+/**
+ * Org-scoped ascending keyset read of approval requests, projected as the
+ * `work.approval.requested` MCP event. The proposal body and rationale are
+ * deliberately not selected.
+ */
+export async function listRequestedWorkApprovalEvents(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		after: { at: string; id: string } | null;
+		workItemId?: string;
+		approverId?: string;
+		limit: number;
+	},
+): Promise<RequestedWorkApprovalEventRow[]> {
+	return db
+		.select({
+			id: workApprovalProposals.id,
+			workItemId: workApprovalProposals.workItemId,
+			action: workApprovalProposals.action,
+			authorityKey: workApprovalProposals.authorityKey,
+			approverType: workApprovalProposals.approverType,
+			approverId: workApprovalProposals.approverId,
+			expiresAt: workApprovalProposals.expiresAt,
+			createdAt: workApprovalProposals.createdAt,
+		})
+		.from(workApprovalProposals)
+		.where(
+			and(
+				eq(workApprovalProposals.orgId, p.orgId),
+				p.workItemId
+					? eq(workApprovalProposals.workItemId, p.workItemId)
+					: undefined,
+				p.approverId
+					? eq(workApprovalProposals.approverId, p.approverId)
+					: undefined,
+				p.after
+					? sql`(${workApprovalProposals.createdAt}>${p.after.at} OR (${workApprovalProposals.createdAt}=${p.after.at} AND ${workApprovalProposals.id}>${p.after.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(
+			asc(workApprovalProposals.createdAt),
+			asc(workApprovalProposals.id),
+		)
+		.limit(p.limit);
+}
+
+/** Newest approval request position in the org, used to poll "from now". */
+export async function getLatestWorkApprovalPosition(
+	db: DbQueryClient,
+	orgId: string,
+): Promise<{ at: string; id: string } | null> {
+	const [row] = await db
+		.select({
+			at: workApprovalProposals.createdAt,
+			id: workApprovalProposals.id,
+		})
+		.from(workApprovalProposals)
+		.where(eq(workApprovalProposals.orgId, orgId))
+		.orderBy(
+			desc(workApprovalProposals.createdAt),
+			desc(workApprovalProposals.id),
+		)
+		.limit(1);
+	return row ?? null;
 }

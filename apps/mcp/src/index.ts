@@ -101,6 +101,11 @@ import {
 	InteractionEventError,
 } from "./interaction-events";
 import {
+	isPollableEvent,
+	pollableEventDefinitions,
+	pollEvent,
+} from "./work-events";
+import {
 	organizationScopedRequest,
 	resolveConnectOrganization,
 	shouldBindHumanToTedi,
@@ -3959,9 +3964,12 @@ export async function maybeHandleInteractionEvents(
 	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
 	if (
 		!envelope ||
-		!["events/list", "events/subscribe", "events/unsubscribe"].includes(
-			String(envelope.body.method),
-		)
+		![
+			"events/list",
+			"events/poll",
+			"events/subscribe",
+			"events/unsubscribe",
+		].includes(String(envelope.body.method))
 	)
 		return null;
 	const violation = validateModernFastPathRequest(request, envelope);
@@ -3978,18 +3986,54 @@ export async function maybeHandleInteractionEvents(
 	if (envelope.body.method === "events/list")
 		return jsonRpcEnvelopeResponse(envelope, {
 			resultType: "complete",
-			events: [interactionReplyEventDefinition],
+			events: [interactionReplyEventDefinition, ...pollableEventDefinitions],
 		});
+	const authorization = request.headers.get("Authorization");
+	const resource = new URL(request.url);
+	resource.pathname = "/mcp";
+	resource.search = "";
+	resource.hash = "";
+	if (envelope.body.method === "events/poll") {
+		try {
+			if (params.name === interactionReplyEventDefinition.name)
+				throw new InteractionEventError(
+					-32026,
+					"This event is delivered by webhook only",
+					{ feature: "deliveryMode", value: "poll" },
+				);
+			if (!authorization?.startsWith("Bearer "))
+				throw new InteractionEventError(-32024, "Human OAuth required");
+			return jsonRpcEnvelopeResponse(envelope, {
+				resultType: "complete",
+				...(await pollEvent(
+					env,
+					{ authorization, mcpUrl: resource.toString() },
+					params,
+				)),
+			});
+		} catch (error) {
+			return jsonRpcEnvelopeErrorResponse(
+				envelope,
+				error instanceof InteractionEventError ? error.code : -32603,
+				error instanceof InteractionEventError
+					? error.message
+					: "Event operation unavailable",
+				error instanceof InteractionEventError ? error.data : undefined,
+			);
+		}
+	}
+	if (isPollableEvent(params.name))
+		return jsonRpcEnvelopeErrorResponse(
+			envelope,
+			-32026,
+			"This event is delivered by events/poll only",
+			{ feature: "deliveryMode", value: "webhook" },
+		);
 	try {
 		const unsubscribe = envelope.body.method === "events/unsubscribe";
 		const target = interactionEventTarget(params.arguments);
-		const authorization = request.headers.get("Authorization");
 		if (!authorization?.startsWith("Bearer "))
 			throw new InteractionEventError(-32003, "Human OAuth required");
-		const resource = new URL(request.url);
-		resource.pathname = "/mcp";
-		resource.search = "";
-		resource.hash = "";
 		const credential = {
 			authorization,
 			mcpUrl: resource.toString(),

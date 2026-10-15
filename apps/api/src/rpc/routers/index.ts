@@ -216,6 +216,9 @@ export const apiRouter = {
 	mcpEval: lazyRouter(() =>
 		import("./mcp-eval").then((m) => m.mcpEvalContractRouter),
 	),
+	mcpEvents: lazyRouter(() =>
+		import("./mcp-events").then((m) => m.mcpEventsContractRouter),
+	),
 	mcpGovernance: lazyRouter(() =>
 		import("./mcp-governance").then((m) => m.mcpGovernanceContractRouter),
 	),
