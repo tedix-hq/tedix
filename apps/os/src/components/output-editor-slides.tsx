@@ -8,7 +8,6 @@ import {
 	ArrowUp,
 	ArrowsOut,
 	Copy,
-	MagnifyingGlass,
 	Play,
 	Plus,
 	SidebarSimple,
@@ -21,8 +20,13 @@ import type {
 	OsPresentationElement,
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { EditorTextDialog } from "@/components/editor-text-dialog";
+import {
+	insertSlideAfter,
+	SlideList,
+	templateSlide,
+} from "@/components/output-editor-slide-list";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import {
@@ -179,71 +183,6 @@ function createElement(
 		x: 80 + (index % 5) * 24,
 		y: 80 + (index % 5) * 24,
 		...ELEMENT_DEFAULTS[type],
-	};
-}
-
-function templateSlide(
-	layout: OsPresentationCanvasSlide["layout"],
-	index: number,
-): OsPresentationCanvasSlide {
-	const id = createOutputNodeId("slide");
-	const elements: OsPresentationElement[] = [];
-	if (layout !== "blank")
-		elements.push({
-			...createElement("title", 0),
-			id: `${id}-title`,
-			x: 70,
-			y: 55,
-			width: 1060,
-			text: "Presentation title",
-		});
-	if (layout === "title-content")
-		elements.push({
-			...createElement("bullet", 1),
-			id: `${id}-content`,
-			x: 95,
-			y: 185,
-			width: 1010,
-			height: 360,
-		});
-	if (layout === "two-column") {
-		elements.push({
-			...createElement("text", 1),
-			id: `${id}-left`,
-			x: 75,
-			y: 190,
-			width: 500,
-			height: 360,
-			text: "Left column",
-		});
-		elements.push({
-			...createElement("text", 2),
-			id: `${id}-right`,
-			x: 625,
-			y: 190,
-			width: 500,
-			height: 360,
-			text: "Right column",
-		});
-	}
-	if (layout === "four-card") {
-		for (let card = 0; card < 4; card += 1)
-			elements.push({
-				...createElement("card", card),
-				id: `${id}-card-${card + 1}`,
-				x: 70 + (card % 2) * 555,
-				y: 180 + Math.floor(card / 2) * 215,
-				width: 505,
-				height: 180,
-				text: `Card ${card + 1}`,
-			});
-	}
-	return {
-		id,
-		name: `Slide ${index + 1}`,
-		layout,
-		background: "#ffffff",
-		elements,
 	};
 }
 
@@ -503,7 +442,6 @@ export function SlidesEditor({
 	const [selectedElementId, setSelectedElementId] = useState<string | null>(
 		null,
 	);
-	const [search, setSearch] = useState("");
 	const [presenting, setPresenting] = useState(false);
 	const [showThumbnails, setShowThumbnails] = useState(true);
 	const [showInspector, setShowInspector] = useState(false);
@@ -514,13 +452,6 @@ export function SlidesEditor({
 	const selectedElement =
 		activeSlide?.elements.find((element) => element.id === selectedElementId) ??
 		null;
-	const filteredSlides = useMemo(
-		() =>
-			deck.slides.filter((slide) =>
-				slide.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-			),
-		[deck.slides, search],
-	);
 	const commitDeck = (next: OsPresentationDeck) => {
 		if (next.activeSlideId !== deck.activeSlideId)
 			setViewedSlideId(next.activeSlideId);
@@ -540,11 +471,7 @@ export function SlidesEditor({
 	const addTemplate = (layout: OsPresentationCanvasSlide["layout"]) => {
 		if (deck.slides.length >= MAX_SLIDES) return;
 		const slide = templateSlide(layout, deck.slides.length);
-		commitDeck({
-			...deck,
-			activeSlideId: slide.id,
-			slides: [...deck.slides, slide],
-		});
+		commitDeck(insertSlideAfter(deck, slide, activeSlide?.id));
 		setSelectedElementId(slide.elements[0]?.id ?? null);
 	};
 	const insertElement = (type: OsPresentationElementType, src?: string) => {
@@ -799,154 +726,20 @@ export function SlidesEditor({
 					className="slides-editor-chrome slides-editor-thumbnails grid min-w-0 content-start gap-2 p-2"
 					hidden={!showThumbnails}
 				>
-					<div className="relative">
-						<MagnifyingGlass
-							size={14}
-							className="absolute top-2.5 left-2 text-kumo-subtle"
-						/>
-						<Input
-							aria-label="Search slides"
-							value={search}
-							onChange={(event) => setSearch(event.target.value)}
-							className="pl-7"
-						/>
-					</div>
-					<ol className="m-0 grid list-none content-start gap-1.5 overflow-y-auto p-0">
-						{filteredSlides.map((slide, index) => (
-							<li key={slide.id}>
-								<Button
-									aria-current={slide.id === activeSlide.id || undefined}
-									/*
-									 * Names the thumbnail explicitly, the same way the read
-									 * view rail does. Without it the accessible name is the
-									 * button's whole text content — which includes the
-									 * scale-model canvas below, so every slide's body copy
-									 * was read out twice and the title was duplicated
-									 * ("1. Tedix OS parityTedix OS parityCloudflare-native…").
-									 */
-									aria-label={`Slide ${index + 1}: ${slide.name}`}
-									className="deck-read-thumb w-full flex-col items-stretch gap-1 p-1 text-left"
-									multiline
-									size="sm"
-									variant={
-										slide.id === activeSlide.id ? "secondary" : "outline"
-									}
-									onClick={() => {
-										setViewedSlideId(slide.id);
-										setSelectedElementId(null);
-									}}
-								>
-									<Text
-										as="span"
-										className="block truncate text-kumo-subtle"
-										role="caption"
-									>
-										{index + 1}. {slide.name}
-									</Text>
-									{/*
-									 * The shared renderer, the same one the read view rail
-									 * and the committed canvas use. This used to be an
-									 * inline `text-[4px]` span carrying only background and
-									 * colour: it ignored weight, alignment, opacity,
-									 * rotation and borders, and dropped images entirely.
-									 */}
-									<div
-										className="slide-thumb-canvas"
-										style={{ background: slide.background }}
-									>
-										{slide.elements.map((element) => (
-											<ReadOnlyElement element={element} key={element.id} />
-										))}
-									</div>
-								</Button>
-							</li>
-						))}
-					</ol>
-					<div className="flex gap-1">
-						<Button
-							type="button"
-							size="icon-xs"
-							variant="ghost"
-							aria-label="Move slide up"
-							disabled={disabled || deck.slides.indexOf(activeSlide) === 0}
-							onClick={() => {
-								const index = deck.slides.indexOf(activeSlide);
-								const slides = [...deck.slides];
-								[slides[index - 1], slides[index]] = [
-									slides[index]!,
-									slides[index - 1]!,
-								];
-								commitDeck({ ...deck, slides });
-							}}
-						>
-							<ArrowUp size={13} />
-						</Button>
-						<Button
-							type="button"
-							size="icon-xs"
-							variant="ghost"
-							aria-label="Move slide down"
-							disabled={
-								disabled ||
-								deck.slides.indexOf(activeSlide) === deck.slides.length - 1
-							}
-							onClick={() => {
-								const index = deck.slides.indexOf(activeSlide);
-								const slides = [...deck.slides];
-								[slides[index], slides[index + 1]] = [
-									slides[index + 1]!,
-									slides[index]!,
-								];
-								commitDeck({ ...deck, slides });
-							}}
-						>
-							<ArrowDown size={13} />
-						</Button>
-						<Button
-							type="button"
-							size="icon-xs"
-							variant="ghost"
-							aria-label="Duplicate slide"
-							disabled={disabled || deck.slides.length >= MAX_SLIDES}
-							onClick={() => {
-								const duplicate = {
-									...activeSlide,
-									id: createOutputNodeId("slide"),
-									name: `${activeSlide.name} copy`,
-									elements: activeSlide.elements.map((element) => ({
-										...element,
-										id: createOutputNodeId(element.type),
-									})),
-								};
-								commitDeck({
-									...deck,
-									activeSlideId: duplicate.id,
-									slides: [...deck.slides, duplicate],
-								});
-							}}
-						>
-							<Copy size={13} />
-						</Button>
-						<Button
-							type="button"
-							size="icon-xs"
-							variant="ghost"
-							aria-label="Delete slide"
-							disabled={disabled}
-							onClick={() => {
-								const slides = deck.slides.filter(
-									(slide) => slide.id !== activeSlide.id,
-								);
-								commitDeck({
-									...deck,
-									slides,
-									activeSlideId: slides[0]?.id ?? "slide-1",
-								});
-							}}
-						>
-							<Trash size={13} />
-						</Button>
-					</div>
+					<SlideList
+						deck={deck}
+						activeSlideId={activeSlide.id}
+						disabled={disabled}
+						maxSlides={MAX_SLIDES}
+						onView={(id) => {
+							setViewedSlideId(id);
+							setSelectedElementId(null);
+						}}
+						onCommit={(next) => {
+							commitDeck(next);
+							setSelectedElementId(null);
+						}}
+					/>
 				</aside>
 				<main className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6">
 					<SlideCanvas

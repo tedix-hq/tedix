@@ -319,7 +319,7 @@ describe("SlidesEditor", () => {
 		const next = mounted.emitted.at(-1);
 		expect(next?.deck?.slides).toHaveLength(2);
 		expect(next?.deck?.slides[1]?.layout).toBe("four-card");
-		expect(next?.deck?.slides[1]?.elements).toHaveLength(5);
+		expect(next?.deck?.slides[1]?.elements).toHaveLength(7);
 		expect(
 			next?.deck?.slides[1]?.elements
 				.filter((element) => element.type === "card")
