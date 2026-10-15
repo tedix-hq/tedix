@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.9.0
+
+### Minor Changes
+
+- a25aba1: Add `tedix factory create --goal "..." --owner <tedi>` to build a factory in one call: a Work project and objective, a daily scheduled lane skill from the `report` template, and a standing health Work Item. Re-running it with the same slug changes nothing. Add `tedix factory status [<slug>]`, which gives each factory one verdict (healthy, idle, failing, not_firing or pending) with its recent runs and what each delivered.
+- 9602683: Add `tedix mcp call <method> [--params <json>] [--header <name=value>]` to send one raw MCP JSON-RPC request, such as `events/list` or `events/poll`, to the selected workspace's gateway with the stored login. The token stays inside the CLI and is never printed.
+
+### Patch Changes
+
+- f54abec: Start the detached login renewer without a shell, and keep `tedix learn` from stalling on commands made of repeated `0=` assignments.
+
 ## 0.8.19
 
 ### Patch Changes
