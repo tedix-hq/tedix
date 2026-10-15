@@ -613,6 +613,75 @@ describe("SlidesEditor", () => {
 		mounted.cleanup();
 	});
 
+	it("lets the element textarea take Enter, space and Escape", () => {
+		// The element wrapper selected on Enter/Space and prevented the default,
+		// and those keys bubble from the textarea: no line break or space typed.
+		const mounted = mountEditor();
+		const textarea = mounted.container.querySelector<HTMLTextAreaElement>(
+			".slides-editor-stage textarea",
+		)!;
+		for (const key of ["Enter", " "]) {
+			const event = new KeyboardEvent("keydown", {
+				key,
+				bubbles: true,
+				cancelable: true,
+			});
+			act(() => {
+				textarea.dispatchEvent(event);
+			});
+			expect(event.defaultPrevented).toBe(false);
+		}
+		const setValue = Object.getOwnPropertyDescriptor(
+			HTMLTextAreaElement.prototype,
+			"value",
+		)!.set!;
+		act(() => {
+			setValue.call(textarea, `${textarea.value}\nnext line`);
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		expect(textarea.value).toContain("\nnext line");
+		act(() => {
+			textarea.focus();
+			textarea.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+			);
+		});
+		expect(document.activeElement).toBe(textarea.parentElement);
+		mounted.cleanup();
+	});
+
+	it("keeps element shortcuts off menus and wires undo to the keyboard", () => {
+		const mounted = mountEditor();
+		const stage = mounted.container.querySelector(".slides-editor-stage")!;
+		const element = stage.querySelector<HTMLElement>("[data-slide-element]")!;
+		const press = (target: Element, init: KeyboardEventInit) => {
+			const event = new KeyboardEvent("keydown", {
+				bubbles: true,
+				cancelable: true,
+				...init,
+			});
+			act(() => {
+				target.dispatchEvent(event);
+			});
+			return event;
+		};
+		press(element, { key: "Enter" });
+		const count = () => stage.querySelectorAll("[data-slide-element]").length;
+		const before = count();
+		// Backspace on a toolbar control must not delete the selected element.
+		const undo = mounted.container.querySelector('[aria-label="Undo"]')!;
+		press(undo, { key: "Backspace" });
+		expect(count()).toBe(before);
+		press(element, { key: "Delete" });
+		expect(count()).toBe(before - 1);
+		press(mounted.container.querySelector(".slides-editor")!, {
+			key: "z",
+			ctrlKey: true,
+		});
+		expect(count()).toBe(before);
+		mounted.cleanup();
+	});
+
 	it("renders rail thumbnails through the one shared slide renderer", () => {
 		// There used to be two renderers for one artifact: the read view used
 		// `ReadOnlyElement` while this rail carried an inline `text-[4px]` span
