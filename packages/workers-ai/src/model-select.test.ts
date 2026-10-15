@@ -24,9 +24,13 @@ describe("Auto Router structured output contract", () => {
 		additionalProperties: false,
 	});
 
-	it.each(["generate", "stream"] as const)(
-		"preserves the SDK %s schema",
-		async (mode) => {
+	it.each([
+		{ mode: "generate", strict: true },
+		{ mode: "generate", strict: false },
+		{ mode: "stream", strict: true },
+	] as const)(
+		"preserves the SDK $mode schema (strict=$strict)",
+		async ({ mode, strict }) => {
 			const encode = (value: unknown) =>
 				new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
 			const fetchMock = vi.fn(async (_url, init: RequestInit) => {
@@ -101,7 +105,7 @@ describe("Auto Router structured output contract", () => {
 						name: "home_route",
 						description: "Complete routing decision",
 						schema: schema.jsonSchema,
-						strict: true,
+						strict,
 					},
 				});
 				return new Response(
@@ -133,6 +137,9 @@ describe("Auto Router structured output contract", () => {
 					schemaName: "home_route",
 					schemaDescription: "Complete routing decision",
 					prompt: "2 + 2?",
+					providerOptions: strict
+						? undefined
+						: { cloudflareAutoRouter: { strictJsonSchema: false } },
 				};
 				if (mode === "generate") {
 					expect((await generateObject(options)).object).toEqual({

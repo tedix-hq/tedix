@@ -47,7 +47,7 @@ import { selectJevAction, type JevActionEnv } from "./jev-action-selection";
 import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-policy";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
-import { jsonSchema, type LanguageModel } from "ai";
+import { APICallError, jsonSchema, type LanguageModel } from "ai";
 import { objectSpanTelemetry, tracedAi } from "../../../lib/traced-ai";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import * as z from "zod";
@@ -656,6 +656,13 @@ async function planWriteCall(args: {
 				paramDefaults: args.paramDefaults,
 			}),
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			// Provider strict schemas cannot express arbitrary MCP optional fields.
+			// The complete selected input contract is validated before any approval.
+			providerOptions: {
+				cloudflareAutoRouter: { strictJsonSchema: false },
+				openai: { strictJsonSchema: false },
+				azure: { strictJsonSchema: false },
+			},
 			// Flat abort: a stalled write pass never settles and never throws; the
 			// timeout makes it reject → the catch returns null (no heuristic write).
 			abortSignal,
@@ -688,7 +695,9 @@ async function planWriteCall(args: {
 		args.onFailure?.(
 			abortSignal.aborted
 				? "Argument generation timed out"
-				: "Argument generation failed",
+				: APICallError.isInstance(error) && error.statusCode
+					? `Argument generation failed (HTTP ${error.statusCode})`
+					: "Argument generation failed",
 		);
 		return null;
 	}
