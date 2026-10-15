@@ -1,7 +1,13 @@
 import { isGovernedLearningSkillSlug } from "@tedix/api-contract/utils/governed-learning";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import {
+	OsDerivedAccessEnvelopeSchema,
+	type OsDerivedAccessEnvelope,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { createDbClient } from "@tedix/db/client";
+import { listActiveSkillPersonalResourceDelegations } from "@tedix/db/queries/personal-resource-delegations";
+import type { PersonalResourceDelegationRow } from "@tedix/db/schema/personal-resource-delegations";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import {
 	listDueSkillSchedules,
@@ -11,6 +17,7 @@ import {
 } from "@tedix/db/queries/skill-schedules";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { recordTediSubmissionStarted } from "../kernel/runtime-submission-bridge";
+import { personalDelegationSource } from "./personal-resource-delegation-authority";
 
 export function scheduledSkillWorkflowIdempotencyKey(
 	skillId: string,
@@ -158,6 +165,17 @@ export async function makeTediBudgetProbe(
 	};
 }
 
+/** Scheduled runs carry the owner's active consents exactly as a manual run admits them. */
+export function scheduledPersonalResourceEnvelope(
+	rows: PersonalResourceDelegationRow[],
+): OsDerivedAccessEnvelope | undefined {
+	if (!rows.length) return undefined;
+	return OsDerivedAccessEnvelopeSchema.parse({
+		version: 1,
+		sources: rows.map(personalDelegationSource),
+	});
+}
+
 export async function dispatchDueSkillSchedules(
 	env: CloudflareEnv,
 	scheduledTime: number,
@@ -247,6 +265,19 @@ export async function dispatchDueSkillSchedules(
 			) {
 				throw new Error("skill schedule projection drifted from its manifest");
 			}
+			// Owner consent pins an exact worker and skill revision; the credential
+			// path re-validates every use, so the scheduler only carries it forward.
+			const resourceAccessEnvelope = scheduledPersonalResourceEnvelope(
+				skill.revision
+					? await listActiveSkillPersonalResourceDelegations(db, {
+							organizationId: schedule.organizationId,
+							tediId: schedule.tediId,
+							skillId: skill.id,
+							skillRevision: skill.revision,
+							now: observedAt,
+						})
+					: [],
+			);
 			const idempotencyKey = scheduledSkillWorkflowIdempotencyKey(
 				skill.id,
 				schedule.nextFireAt,
@@ -274,6 +305,7 @@ export async function dispatchDueSkillSchedules(
 						workflowSource,
 						skillDoc,
 						capabilityManifest: manifest,
+						...(resourceAccessEnvelope ? { resourceAccessEnvelope } : {}),
 						createdBy: "schedule",
 					}),
 				},

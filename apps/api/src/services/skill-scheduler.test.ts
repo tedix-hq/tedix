@@ -8,8 +8,53 @@ vi.mock("@tedix/db/queries/tedis", () => ({
 import {
 	makeTediBudgetProbe,
 	scheduledBudgetClassForSkillSlug,
+	scheduledPersonalResourceEnvelope,
 	scheduledSkillWorkflowIdempotencyKey,
 } from "./skill-scheduler";
+import type { PersonalResourceDelegationRow } from "@tedix/db/schema/personal-resource-delegations";
+
+describe("scheduled personal consent envelope", () => {
+	const row = {
+		id: "20000000-0000-4000-8000-000000000001",
+		organizationId: "org-1",
+		ownerUserId: "owner-1",
+		tediId: "20000000-0000-4000-8000-000000000002",
+		skillId: "20000000-0000-4000-8000-000000000003",
+		skillRevision: 5,
+		workspaceId: "20000000-0000-4000-8000-000000000004",
+		resourceId: "20000000-0000-4000-8000-000000000005",
+		connectionInstanceId: "20000000-0000-4000-8000-000000000006",
+		providerId: "google-gmail",
+		resourceType: "mailbox",
+		providerResourceId: "owner@example.test",
+		requiredScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+		operations: ["read"],
+		toolIds: ["search_threads"],
+		expiresAt: "2027-01-01T00:00:00.000Z",
+		createdAt: "2026-10-15T00:00:00.000Z",
+		revokedAt: null,
+	} as unknown as PersonalResourceDelegationRow;
+
+	it("admits no personal source without an active consent", () =>
+		expect(scheduledPersonalResourceEnvelope([])).toBeUndefined());
+
+	it("carries each consent forward as its exact pinned personal source", () =>
+		expect(scheduledPersonalResourceEnvelope([row])).toEqual({
+			version: 1,
+			sources: [
+				expect.objectContaining({
+					connectionScope: "user",
+					delegationId: row.id,
+					workspaceResourceId: row.resourceId,
+					personalOwnerUserId: row.ownerUserId,
+					connectionInstanceId: row.connectionInstanceId,
+					providerResourceId: row.providerResourceId,
+					operations: ["read"],
+					toolIds: ["search_threads"],
+				}),
+			],
+		}));
+});
 
 describe("skill scheduler", () => {
 	it("derives one stable admission identity per skill and scheduled fire", () => {

@@ -1,4 +1,7 @@
-import { PersonalResourceToolBindingSchema } from "../schemas/tools";
+import {
+	PersonalResourceToolBindingSchema,
+	type PersonalResourceToolBinding,
+} from "../schemas/tools";
 import type { OsDerivedAccessEnvelope } from "../schemas/os-workspaces";
 /** Unknown mappings, malformed arrays and cross-account batches are denied before credentials or transport. */
 export function constrainPersonalResourceToolArguments(input: {
@@ -38,22 +41,39 @@ export function constrainPersonalResourceToolArguments(input: {
 			return denied();
 		return values((value as Record<string, unknown>)[key], tail);
 	}
-	const ids = [
-		...new Set(binding.paths.flatMap((path) => values(input.arguments, path))),
-	];
-	const matches = ids.map((id) => {
-		const matching = input.sources.filter(
-			(source) =>
-				source.connectionScope === "user" &&
-				source.providerId === input.providerId &&
-				source.resourceType === binding.resourceType &&
-				source.providerResourceId === id &&
-				source.operations.includes(binding.operation) &&
-				source.toolIds?.includes(input.toolId),
-		);
-		if (matching.length !== 1) return denied();
-		return matching[0]!;
-	});
+	const admitted = (source: OsDerivedAccessEnvelope["sources"][number]) =>
+		source.connectionScope === "user" &&
+		source.providerId === input.providerId &&
+		source.resourceType === binding.resourceType &&
+		source.operations.includes(binding.operation) &&
+		Boolean(source.toolIds?.includes(input.toolId));
+	let matches: OsDerivedAccessEnvelope["sources"];
+	if ("target" in binding) {
+		// The tool names no resource: it acts on the connected account itself, so
+		// exactly one admitted account resource may back it.
+		if (
+			typeof input.arguments !== "object" ||
+			input.arguments === null ||
+			Array.isArray(input.arguments)
+		)
+			denied();
+		const matching = input.sources.filter(admitted);
+		if (matching.length !== 1) denied();
+		matches = matching;
+	} else {
+		const ids = [
+			...new Set(
+				binding.paths.flatMap((path) => values(input.arguments, path)),
+			),
+		];
+		matches = ids.map((id) => {
+			const matching = input.sources.filter(
+				(source) => admitted(source) && source.providerResourceId === id,
+			);
+			if (matching.length !== 1) return denied();
+			return matching[0]!;
+		});
+	}
 	const first = matches[0];
 	if (
 		!first ||
@@ -65,6 +85,33 @@ export function constrainPersonalResourceToolArguments(input: {
 	)
 		denied();
 	return { operation: binding.operation, sources: matches };
+}
+/**
+ * Server-reviewed bindings for provider tools that act on the connected account
+ * and take no resource argument. Read-only tools only: a consent can never reach
+ * a tool absent here, and nothing here mutates the provider.
+ */
+const REVIEWED_ACCOUNT_BINDINGS: Readonly<
+	Record<string, Readonly<Record<string, PersonalResourceToolBinding>>>
+> = {
+	"google-gmail": Object.fromEntries(
+		["search_threads", "get_thread", "get_message", "list_labels"].map(
+			(tool) => [
+				tool,
+				{ operation: "read", resourceType: "mailbox", target: "account" },
+			],
+		),
+	),
+};
+export function reviewedPersonalResourceBinding(
+	providerId: string,
+	providerToolName: unknown,
+): PersonalResourceToolBinding | undefined {
+	if (typeof providerToolName !== "string") return undefined;
+	const tools = REVIEWED_ACCOUNT_BINDINGS[providerId];
+	return tools && Object.hasOwn(tools, providerToolName)
+		? tools[providerToolName]
+		: undefined;
 }
 /** Provider-documented scope implications only; never turns a read grant into write authority. */
 export function personalResourceScopesCover(
