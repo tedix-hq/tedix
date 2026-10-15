@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.9.2
+
+### Patch Changes
+
+- a494e82: `tedix factory create` no longer requires `--owner`; without it the organization's default tedi owns the factory.
+- c4aeafb: Inject preferences and lessons once per session, refresh on content changes, and retry a failed lessons read once within the hook budget. Updated plugin hooks allow full initial context while retaining the smaller budget for older installed hooks.
+- 7564507: Skip draft waiting for unattended Codex exec runs and cap the default attended Stop wait at 90 seconds.
+
 ## 0.9.1
 
 ### Patch Changes
