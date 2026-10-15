@@ -222,6 +222,10 @@ describe("SlideInspector", () => {
 		});
 		type(query("Slide background image URL"), "http://insecure.test/a.png");
 		expect(mounted.slideChanges.at(-1)?.backgroundImage).toBeUndefined();
+		// A partly typed address stays in the field until it is usable.
+		expect(query("Slide background image URL").value).toBe(
+			"http://insecure.test/a.png",
+		);
 		type(query("Slide background image URL"), "https://example.com/bg.png");
 		expect(mounted.slideChanges.at(-1)?.backgroundImage).toBe(
 			"https://example.com/bg.png",
