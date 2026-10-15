@@ -338,9 +338,10 @@ export function transformCodeChange(
 /**
  * Computes the change that turns `before` into `after`:
  * `applyCodeChange(before, diffFiles(before, after))` equals `after`. Unchanged files contribute
- * nothing; added files become `set`, removed files `remove`, and changed files a minimal
- * character-level `edit` whose boundaries never split a UTF-16 surrogate pair. The result is
- * deterministic (same inputs, same change, same entry order).
+ * nothing; added files become `set`, removed files `remove`, and changed files an `edit` whose
+ * boundaries never split a UTF-16 surrogate pair -- character-level for small differences, coarser
+ * for large ones so the work stays bounded (see `boundedDiff`). The result is deterministic (same
+ * inputs, same change, same entry order).
  */
 export function diffFiles(before: CodeContent, after: CodeContent): CodeChange {
 	const files = new Map<string, FileChange>();
@@ -365,7 +366,7 @@ export function diffFiles(before: CodeContent, after: CodeContent): CodeChange {
 // boundaries always pass validateCodeChangeContent.
 function diffTextChange(before: string, after: string): TextChange {
 	const specs: { from: number; to: number; insert?: string }[] = [];
-	const diffs = fastDiff(before, after);
+	const diffs = boundedDiff(before, after);
 	let pos = 0;
 	for (let i = 0; i < diffs.length; i++) {
 		const [kind, text] = diffs[i]!;
@@ -390,6 +391,128 @@ function diffTextChange(before: string, after: string): TextChange {
 	// "\r" -- and the room stores text exactly, so a normalized separator desynchronizes every
 	// replica's offsets from the stored bytes.
 	return ChangeSet.of(specs, before.length, "\n").toJSON();
+}
+
+/**
+ * The most characters (or line tokens) one fast-diff call may compare. fast-diff is Myers'
+ * O((N+M)·D) without diff-match-patch's deadline, so two large, mostly different texts -- a saved
+ * deck with new images against an older draft -- ran for minutes; in the room that reset the
+ * Durable Object before it answered, and the recovery offer never got a reply.
+ */
+const DIFF_COMPARE_LIMIT = 10_000;
+
+type DiffRun = [number, string];
+
+/**
+ * fast-diff's edit script, with bounded work. The common prefix and suffix are kept; a small
+ * differing middle diffs by character as before. A large one diffs by line and refines each small
+ * replaced hunk by character, and a middle with too many lines is replaced whole. Every path is a
+ * correct script for (before, after) -- only minimality is traded -- and no boundary splits a
+ * surrogate pair: lines end at "\n", and a trimmed middle never starts or ends inside a pair.
+ */
+function boundedDiff(before: string, after: string): DiffRun[] {
+	const [prefix, removed, inserted, suffix] = splitAffixes(before, after);
+	const runs: DiffRun[] = [];
+	if (prefix) runs.push([fastDiff.EQUAL, prefix]);
+	runs.push(
+		...(removed.length + inserted.length <= DIFF_COMPARE_LIMIT
+			? fastDiff(removed, inserted)
+			: diffLines(removed, inserted)),
+	);
+	if (suffix) runs.push([fastDiff.EQUAL, suffix]);
+	return runs;
+}
+
+function diffLines(before: string, after: string): DiffRun[] {
+	const lines: string[] = [];
+	const codes = new Map<string, string>();
+	const encode = (text: string): string | null => {
+		let encoded = "";
+		for (const line of text.match(/[^\n]*\n|[^\n]+$/g) ?? []) {
+			let code = codes.get(line);
+			if (code === undefined) {
+				// One UTF-16 unit per distinct line, below the surrogate range.
+				if (lines.length >= 0xd800) return null;
+				code = String.fromCharCode(lines.length);
+				codes.set(line, code);
+				lines.push(line);
+			}
+			encoded += code;
+		}
+		return encoded;
+	};
+	const left = encode(before);
+	const right = left === null ? null : encode(after);
+	if (
+		left === null ||
+		right === null ||
+		left.length + right.length > DIFF_COMPARE_LIMIT
+	) {
+		return replacement(before, after);
+	}
+	const lineRuns = fastDiff(left, right).map(([kind, text]): DiffRun => [
+		kind,
+		Array.from(text, (code) => lines[code.charCodeAt(0)]!).join(""),
+	]);
+	const runs: DiffRun[] = [];
+	for (let i = 0; i < lineRuns.length; i++) {
+		const run = lineRuns[i]!;
+		const next = lineRuns[i + 1];
+		if (run[0] === fastDiff.DELETE && next?.[0] === fastDiff.INSERT) {
+			const [prefix, removed, inserted, suffix] = splitAffixes(run[1], next[1]);
+			if (prefix) runs.push([fastDiff.EQUAL, prefix]);
+			runs.push(
+				...(removed.length + inserted.length <= DIFF_COMPARE_LIMIT
+					? fastDiff(removed, inserted)
+					: replacement(removed, inserted)),
+			);
+			if (suffix) runs.push([fastDiff.EQUAL, suffix]);
+			i++;
+		} else {
+			runs.push(run);
+		}
+	}
+	return runs;
+}
+
+function replacement(removed: string, inserted: string): DiffRun[] {
+	const runs: DiffRun[] = [];
+	if (removed) runs.push([fastDiff.DELETE, removed]);
+	if (inserted) runs.push([fastDiff.INSERT, inserted]);
+	return runs;
+}
+
+/** [common prefix, before's middle, after's middle, common suffix], cut on code-point boundaries. */
+function splitAffixes(
+	before: string,
+	after: string,
+): [string, string, string, string] {
+	const shorter = Math.min(before.length, after.length);
+	let prefix = 0;
+	while (
+		prefix < shorter &&
+		before.charCodeAt(prefix) === after.charCodeAt(prefix)
+	) {
+		prefix++;
+	}
+	if (prefix > 0 && isHighSurrogate(before.charCodeAt(prefix - 1))) prefix--;
+	let suffix = 0;
+	while (
+		suffix < shorter - prefix &&
+		before.charCodeAt(before.length - 1 - suffix) ===
+			after.charCodeAt(after.length - 1 - suffix)
+	) {
+		suffix++;
+	}
+	if (suffix > 0 && isLowSurrogate(before.charCodeAt(before.length - suffix))) {
+		suffix--;
+	}
+	return [
+		before.slice(0, prefix),
+		before.slice(prefix, before.length - suffix),
+		after.slice(prefix, after.length - suffix),
+		before.slice(before.length - suffix),
+	];
 }
 
 // =======================================================================================

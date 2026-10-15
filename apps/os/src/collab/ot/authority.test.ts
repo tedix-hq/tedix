@@ -1610,6 +1610,36 @@ describe("OtAuthority.adoptCanonical", () => {
 		expect(h.broadcast.at(-1)?.revision).toBe(2);
 	});
 
+	it("answers a large, mostly different saved version promptly, refused and then forced", async () => {
+		// A deck saved three times through the API, gaining images, while a stale draft stayed open.
+		// The difference used to take minutes to compute; the room was reset before it answered, so
+		// the surface never learned it needed recovery and "Load" could never confirm.
+		let seed = 7;
+		const noise = (length: number) =>
+			Array.from({ length }, () => {
+				seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
+				return String.fromCharCode(65 + (seed % 58));
+			}).join("");
+		const draft = `${noise(60_000)}\n`;
+		const saved = `${noise(400_000)}\n`;
+		const h = await seeded(draft, canonicalAt(14));
+		await h.authority.submit(
+			submission({ change: edit(draft, `${draft}unsaved\n`) }),
+			ADA,
+		);
+		const started = performance.now();
+
+		expect(
+			await h.authority.adoptCanonical(offer(canonicalAt(17), saved)),
+		).toMatchObject({ ok: false, code: "edited" });
+		expect(
+			await h.authority.adoptCanonical(offer(canonicalAt(17), saved, true)),
+		).toMatchObject({ ok: true, effect: "adopted" });
+
+		expect(performance.now() - started).toBeLessThan(5_000);
+		expect(textOf(await h.authority.content())).toBe(saved);
+	});
+
 	it("explicitly restores the current saved version through the shared stream", async () => {
 		const h = await seeded("saved\n", canonicalAt(2));
 		await h.authority.submit(

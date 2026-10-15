@@ -425,6 +425,80 @@ describe("diffFiles", () => {
 		validateCodeChangeContent(change, before);
 		expect(toPlain(applyCodeChange(before, change))).toEqual(toPlain(after));
 	});
+
+	// A saved deck with new images against an older draft: fast-diff alone ran for minutes on this
+	// shape, and the room was reset before it could answer the recovery offer.
+	it("diffs large, mostly different documents in bounded time", () => {
+		const rng = makeRng(11);
+		const noise = (length: number) =>
+			Array.from({ length }, () =>
+				String.fromCharCode(65 + randomInt(rng, 58)),
+			).join("");
+		const deck = (version: number, images: boolean) =>
+			JSON.stringify(
+				{
+					deck: {
+						slides: Array.from({ length: 30 }, (_, index) => ({
+							id: `s${index}`,
+							title: `Slide ${index} v${version} 😀`,
+							body: noise(2_000),
+							...(images && index % 8 === 0
+								? { image: `data:image/png;base64,${noise(90_000)}` }
+								: {}),
+						})),
+					},
+				},
+				null,
+				2,
+			);
+		const cases = [
+			[deck(1, false), deck(2, true)],
+			// Too many distinct lines for line mode: the differing middle is replaced whole.
+			[noise(300_000).replace(/A/g, "\n"), noise(300_000).replace(/A/g, "\n")],
+			// One long line with a small edit in the middle stays a small edit.
+			[
+				`${"x".repeat(50_000)}😀${"y".repeat(50_000)}`,
+				`${"x".repeat(50_000)}🧠${"y".repeat(50_000)}`,
+			],
+		] as const;
+		const started = performance.now();
+		for (const [left, right] of cases) {
+			const before = content({ "f.txt": left });
+			const change = diffFiles(before, content({ "f.txt": right }));
+			validateCodeChangeSchema(change);
+			validateCodeChangeContent(change, before);
+			expect(applyCodeChange(before, change).get("f.txt")).toBe(right);
+		}
+		expect(performance.now() - started).toBeLessThan(5_000);
+		const [, small] = diffFiles(
+			content({ "f.txt": cases[2][0] }),
+			content({ "f.txt": cases[2][1] }),
+		)[0]!;
+		expect(JSON.stringify(small).length).toBeLessThan(100);
+	});
+
+	it("keeps large astral-heavy diffs boundary-clean on the line and replacement paths", () => {
+		const rng = makeRng(12);
+		const large = (pieces: number) =>
+			Array.from({ length: pieces }, () => randomText(rng, 40)).join("");
+		for (let i = 0; i < 20; i++) {
+			const before = content({ "f.txt": large(800) });
+			let after = before.get("f.txt")!;
+			for (let edits = randomInt(rng, 6); edits >= 0; edits--) {
+				const at = codePointBoundaries(after);
+				const from = pick(rng, at);
+				const to = pick(
+					rng,
+					at.filter((pos) => pos >= from),
+				);
+				after = `${after.slice(0, from)}${large(randomInt(rng, 300))}${after.slice(to)}`;
+			}
+			const change = diffFiles(before, content({ "f.txt": after }));
+			validateCodeChangeSchema(change);
+			validateCodeChangeContent(change, before);
+			expect(applyCodeChange(before, change).get("f.txt")).toBe(after);
+		}
+	});
 });
 
 // =======================================================================================
