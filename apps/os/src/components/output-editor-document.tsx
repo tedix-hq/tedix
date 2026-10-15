@@ -104,8 +104,12 @@ import {
 import { ensureSlideFontLoaded } from "@/lib/slide-fonts";
 import { useToolbarCollapse } from "@/components/use-toolbar-collapse";
 
-/** Toolbar widths (px) below which tiers 3, 2 and 1 fold into More. */
-const TOOLBAR_COLLAPSE_WIDTHS = [1180, 980, 780] as const;
+/**
+ * Toolbar widths (px) below which tiers 3, 2 and 1 fold into More, measured
+ * from the rendered toolbar: every group needs ~1360px, without tier 3
+ * ~1230px, and without tiers 2-3 ~760px.
+ */
+const TOOLBAR_COLLAPSE_WIDTHS = [1380, 1250, 790] as const;
 
 const imageFiles = (files: FileList | null | undefined) =>
 	[...(files ?? [])].filter((file) => file.type.startsWith("image/"));
@@ -313,7 +317,9 @@ export function DocumentEditor({
 
 	const insertImageFile = async (file: File): Promise<boolean> => {
 		if (disabled || !editor) return false;
-		const selection = editor.state.selection.from;
+		// The selection's end: after an inserted image the editor selects that
+		// image, so the next image of a batch lands after it, not before.
+		const selection = editor.state.selection.to;
 		try {
 			const image = await prepareDocumentImage(file);
 			if (editor.isDestroyed || !editor.isEditable) return false;
