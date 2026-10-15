@@ -1487,9 +1487,38 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 });
 
 describe("ChatGPT Connect tools/list ingress", () => {
-	it.each(["ChatGPT", "Claude", "Codex"])(
-		"serves the %s surface after organization routing",
-		async (clientName) => {
+	it.each<{
+		clientName: string;
+		headers: Record<string, string>;
+		chatgpt: boolean;
+	}>([
+		{ clientName: "ChatGPT", headers: {}, chatgpt: true },
+		{ clientName: "openai-mcp", headers: {}, chatgpt: true },
+		{ clientName: "Claude", headers: {}, chatgpt: false },
+		{ clientName: "Codex", headers: {}, chatgpt: false },
+		{
+			clientName: "generic-mcp-client",
+			headers: {
+				"x-tedix-auth-client-id": "https://chatgpt.com/oauth/client.json",
+			},
+			chatgpt: true,
+		},
+		{
+			clientName: "generic-mcp-client",
+			headers: {
+				"x-tedix-auth-client-id":
+					"https://chatgpt.com/oauth/fictional-connector/client.json",
+			},
+			chatgpt: true,
+		},
+		{
+			clientName: "generic-mcp-client",
+			headers: { "User-Agent": "openai-mcp/1.0.0" },
+			chatgpt: true,
+		},
+	])(
+		"serves the expected surface for $clientName with $headers after organization routing",
+		async ({ clientName, headers, chatgpt }) => {
 			const response = await handleMcpRequest(
 				new Request("https://connect.mcp.example.test/mcp", {
 					method: "POST",
@@ -1497,6 +1526,7 @@ describe("ChatGPT Connect tools/list ingress", () => {
 						"Content-Type": "application/json",
 						"MCP-Protocol-Version": "2026-07-28",
 						"Mcp-Method": "tools/list",
+						...headers,
 					},
 					body: JSON.stringify({
 						jsonrpc: "2.0",
@@ -1544,11 +1574,15 @@ describe("ChatGPT Connect tools/list ingress", () => {
 			expect(response.status).toBe(200);
 			const body = (await response.json()) as {
 				result: {
-					tools: Array<{ name: string; inputSchema: { properties: object } }>;
+					tools: Array<{
+						name: string;
+						description: string;
+						inputSchema: { properties: object };
+					}>;
 				};
 			};
 			expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(
-				clientName === "ChatGPT"
+				chatgpt
 					? ["code", "get_info", "get_profile", "search"]
 					: ["code", "get_info", "get_profile"],
 			);
@@ -1557,9 +1591,11 @@ describe("ChatGPT Connect tools/list ingress", () => {
 					body.result.tools.find((tool) => tool.name === "code")!.inputSchema
 						.properties,
 				).sort(),
-			).toEqual(
-				clientName === "ChatGPT" ? ["code"] : ["agentSessionId", "code"],
-			);
+			).toEqual(chatgpt ? ["code"] : ["agentSessionId", "code"]);
+			if (chatgpt)
+				expect(
+					body.result.tools.find((tool) => tool.name === "code")!.description,
+				).toMatch(/^Execute JavaScript to read or manage Work items/);
 		},
 	);
 });
