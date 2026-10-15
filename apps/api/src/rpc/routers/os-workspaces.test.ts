@@ -1991,6 +1991,18 @@ describe("output export", () => {
 		// The Browser Rendering payload is the escaped, self-contained document.
 		expect(html).toContain("Launch &lt;brief&gt;");
 		expect(html).toContain("Ship the Tedix OS.");
+		expect(calls[0]?.payload).toMatchObject({
+			allowRequestPattern: expect.arrayContaining([
+				expect.stringContaining("tedix"),
+			]),
+			addScriptTag: [
+				{ content: expect.stringContaining("document.fonts.ready") },
+			],
+			waitForSelector: {
+				selector: 'html[data-export-ready="true"]',
+				timeout: 20_000,
+			},
+		});
 		expect(puts).toEqual([
 			{
 				key: `os-exports/org-1/${output.id}/rev-1.pdf`,

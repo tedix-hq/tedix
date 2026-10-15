@@ -1,10 +1,10 @@
 /**
- * Self-contained, print-friendly HTML rendering for Tedix OS output exports.
+ * Print-friendly HTML rendering for Tedix OS output exports.
  *
  * The produced document is handed verbatim to Cloudflare Browser Rendering
- * (`pdf` / `screenshot` quick actions), so it must never trigger an external
- * request: all CSS is inline and every piece of user text flows through
- * `escapeHtml` before it reaches the markup.
+ * (`pdf` / `screenshot` quick actions). Remote resources are restricted by
+ * OS_EXPORT_REQUEST_PATTERNS, including redirect requests. Every piece of
+ * user text flows through `escapeHtml` before it reaches the markup.
  */
 
 import type {
@@ -17,6 +17,44 @@ import type {
 	OsRichTextNode,
 	OsSheetCell,
 } from "@tedix/api-contract/schemas/os-workspaces";
+
+// Keep the browser network boundary narrower than arbitrary tenant image URLs.
+const OS_EXPORT_REQUEST_PATTERNS = [
+	"^https://tedix\\.dev/_emdash/api/media/file/[A-Za-z0-9_-]+\\.(?:png|jpe?g|gif|webp)$",
+	"^https://fonts\\.googleapis\\.com/css2\\?",
+	"^https://fonts\\.gstatic\\.com/s/[A-Za-z0-9/_.-]+$",
+	"^data:image/(?:png|jpeg|gif|webp);",
+];
+
+export const OS_EXPORT_RESOURCE_WAIT = {
+	allowRequestPattern: OS_EXPORT_REQUEST_PATTERNS,
+	addScriptTag: [
+		{
+			content: `(async () => {
+  if (document.readyState !== "complete") await new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
+  document.body.getBoundingClientRect();
+  await Promise.all([
+    document.fonts.ready.then(() => {
+      if ([...document.fonts].some(font => font.status === "error")) throw new Error("Export font failed");
+    }),
+    ...Array.from(document.images, image => image.decode())
+  ]);
+  document.documentElement.dataset.exportReady = "true";
+})().catch(() => {});`,
+		},
+	],
+	waitForSelector: {
+		selector: 'html[data-export-ready="true"]',
+		timeout: 20_000,
+	},
+};
+
+function isExportImage(source: string): boolean {
+	return (
+		/^data:image\/(?:png|jpeg|gif|webp);/i.test(source) ||
+		new RegExp(OS_EXPORT_REQUEST_PATTERNS[0]!).test(source)
+	);
+}
 
 const HTML_ESCAPES: Record<string, string> = {
 	"&": "&amp;",
@@ -152,7 +190,7 @@ function renderRichTextNode(node: OsRichTextNode): string {
 			return "<hr>";
 		case "image": {
 			const source = typeof node.attrs?.src === "string" ? node.attrs.src : "";
-			if (!/^data:image\/(?:png|jpeg|gif|webp);/i.test(source)) return "";
+			if (!isExportImage(source)) return "";
 			const alt =
 				typeof node.attrs?.alt === "string" ? node.attrs.alt : "Document image";
 			const dimensions = ["width", "height"]
@@ -281,7 +319,7 @@ function renderDeckElement(element: OsPresentationElement): string {
 	const source = element.src ?? "";
 	const body =
 		(element.type === "image" || element.type === "svg") &&
-		/^data:image\/(?:png|jpeg|gif|webp);/i.test(source)
+		isExportImage(source)
 			? `<img src="${escapeHtml(source)}" alt="${escapeHtml(element.text ?? "Slide image")}">`
 			: escapeHtml(element.text ?? "");
 	return `<div style="${declarations}">${body}</div>`;
@@ -355,16 +393,23 @@ const PRESENTATION_CSS = `
 `;
 
 /**
- * Render an output's revision content as one self-contained HTML document
+ * Render an output's revision content as one HTML document
  * string — semantic structure per kind (document → article of blocks, sheet →
- * table, presentation → page-broken sections), inline CSS only, no external
- * requests, every user string HTML-escaped.
+ * table, presentation → page-broken sections), with allowlisted resources and
+ * every user string HTML-escaped.
  */
 export function renderOsOutputHtml(
 	output: Pick<OsOutput, "kind" | "title">,
 	revision: Pick<OsOutputRevision, "revision" | "content" | "createdAt">,
 ): string {
 	const title = escapeHtml(output.title);
+	const body = renderBody(revision.content);
+	const fontFamilies = ["DM Sans", "Space Grotesk"].filter((family) =>
+		body.includes(`font-family:${family}`),
+	);
+	const fontStylesheet = fontFamilies.length
+		? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?${fontFamilies.map((family) => `family=${family.replaceAll(" ", "+")}:wght@400;500;600;700`).join("&amp;")}&amp;display=block">`
+		: "";
 	const isPresentation = revision.content.kind === "presentation";
 	const meta = escapeHtml(
 		`${output.kind} — revision ${revision.revision} — ${revision.createdAt}`,
@@ -374,11 +419,12 @@ export function renderOsOutputHtml(
 <head>
 <meta charset="utf-8">
 <title>${title}</title>
+${fontStylesheet}
 <style>${INLINE_CSS}${isPresentation ? PRESENTATION_CSS : ""}</style>
 </head>
 <body>
 ${isPresentation ? "" : `<header class="export-header"><h1>${title}</h1><p class="meta">${meta}</p></header>`}
-${renderBody(revision.content)}
+${body}
 </body>
 </html>`;
 }

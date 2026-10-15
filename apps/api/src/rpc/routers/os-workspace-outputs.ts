@@ -36,7 +36,10 @@ import {
 	isUsableScreenshot,
 	runBrowserQuickAction,
 } from "../../integrations/browser-run/client";
-import { renderOsOutputHtml } from "../../lib/os-output-html";
+import {
+	OS_EXPORT_RESOURCE_WAIT,
+	renderOsOutputHtml,
+} from "../../lib/os-output-html";
 import {
 	buildOsOutputLibrary,
 	mapOsOutputRevisionRow,
@@ -857,6 +860,7 @@ async function renderExportBytes(
 		format === "pdf" ? "pdf" : "screenshot",
 		{
 			html,
+			...OS_EXPORT_RESOURCE_WAIT,
 			...(format === "pdf"
 				? { pdfOptions: { preferCSSPageSize: true, printBackground: true } }
 				: {}),
