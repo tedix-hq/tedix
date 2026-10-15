@@ -63,6 +63,7 @@ describe("export resource loading", () => {
 			);
 			const document = {
 				readyState: "loading",
+				querySelectorAll: () => [],
 				fonts,
 				images: [{ decode }],
 				body: { getBoundingClientRect: vi.fn() },
@@ -81,6 +82,8 @@ describe("export resource loading", () => {
 			);
 			expect(decode).not.toHaveBeenCalled();
 			loaded();
+			await Promise.resolve();
+			await Promise.resolve();
 			await Promise.resolve();
 			expect(decode).toHaveBeenCalledOnce();
 			fontsReady();
@@ -138,7 +141,7 @@ describe("export resource loading", () => {
 			'<img src="https://tedix.dev/_emdash/api/media/file/example.png"',
 		);
 		expect(html).toContain(
-			"https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700",
+			"https://fonts.googleapis.com/css2?family=DM+Sans:wght@400",
 		);
 		expect(html).not.toContain("private.png");
 	});
@@ -451,6 +454,16 @@ it("exports rich links and styled resized images without external image requests
 
 it.each([
 	["Raleway", "font-family:Raleway", "Raleway"],
+	["DM Mono", "font-family:DM Mono", "DM+Mono"],
+	[
+		'"Lexend", sans-serif',
+		"font-family:&quot;Lexend&quot;, sans-serif",
+		"Lexend",
+	],
+	["A".repeat(40), `font-family:${"A".repeat(40)}`, "A".repeat(40)],
+	["A".repeat(41), `font-family:${"A".repeat(41)}`, null],
+	["Font-Name", "font-family:Font-Name", null],
+	["Arial, system-ui", "font-family:Arial, system-ui", null],
 	["DM Sans, sans-serif", "font-family:DM Sans, sans-serif", "DM+Sans"],
 	["Space Grotesk", "font-family:Space Grotesk", "Space+Grotesk"],
 	[
@@ -459,7 +472,7 @@ it.each([
 		null,
 	],
 	["serif; background:url(https://example.com)", null, null],
-	['serif\"><img src=x onerror=alert(1)>', null, null],
+	['serif"><img src=x onerror=alert(1)>', null, null],
 ] as const)(
 	"validates presentation font CSS: %s",
 	(fontFamily, expected, webfont) => {
@@ -502,11 +515,114 @@ it.each([
 		else expect(html).not.toContain(`font-family:${fontFamily}`);
 		if (webfont)
 			expect(html).toContain(
-				`href="https://fonts.googleapis.com/css2?family=${webfont}:wght@400;500;600;700&amp;display=block"`,
+				`href="https://fonts.googleapis.com/css2?family=${webfont}:wght@400&amp;display=block"`,
 			);
 		else expect(html).not.toContain('rel="stylesheet"');
 		expect(html).not.toContain("https://example.com");
 		expect(html).not.toContain("<img");
 		expect(html).toContain('style="background:#ff6633"');
+	},
+);
+
+it("deduplicates families, merges declared weights in order, and caps a deck at six families", () => {
+	const families = [
+		"DM Mono",
+		"Lexend",
+		"dm mono",
+		"Lexend",
+		"Lexend",
+		"Oswald",
+		"Roboto",
+		"Lora",
+		"Anton",
+		"Bitter",
+	];
+	const weights = ["bold", "semibold", "normal", "medium", "normal"] as const;
+	const html = renderOsOutputHtml(
+		{ kind: "presentation", title: "Fonts" },
+		{
+			...revisionMeta,
+			content: {
+				kind: "presentation",
+				slides: [],
+				deck: {
+					width: 1200,
+					height: 675,
+					activeSlideId: "one",
+					slides: [
+						{
+							id: "one",
+							name: "Fonts",
+							layout: "blank",
+							background: "#ffffff",
+							elements: families.map((fontFamily, index) => ({
+								id: String(index),
+								type: "text",
+								text: fontFamily,
+								x: 0,
+								y: index * 40,
+								width: 600,
+								height: 40,
+								style: { fontFamily, fontWeight: weights[index] ?? "normal" },
+							})),
+						},
+					],
+				},
+			},
+		},
+	);
+	expect(html.match(/rel="stylesheet"/g)).toHaveLength(6);
+	expect(html).toContain('family=DM+Mono:wght@400;700&amp;display=block"');
+	expect(html).toContain('family=Lexend:wght@400;500;600&amp;display=block"');
+	expect(html).toContain(
+		'data-export-font-fallback="https://fonts.googleapis.com/css2?family=Lexend&amp;display=block"',
+	);
+	expect(html).not.toContain("family=Bitter");
+});
+
+it.each(["load", "error"])(
+	"retries a failed weighted stylesheet once and waits for fonts after fallback: %s",
+	async (outcome) => {
+		const listeners: Record<string, () => void> = {};
+		const link = {
+			sheet: null,
+			dataset: {
+				exportFontFallback:
+					"https://fonts.googleapis.com/css2?family=DM+Mono&display=block",
+			},
+			href: "https://fonts.googleapis.com/css2?family=DM+Mono:wght@600&display=block",
+			addEventListener: vi.fn((event: string, callback: () => void) => {
+				listeners[event] = callback;
+			}),
+		};
+		const loaded = { sheet: {}, addEventListener: vi.fn() };
+		let ready!: () => void;
+		const document = {
+			readyState: "complete",
+			querySelectorAll: () => [link, loaded],
+			fonts: Object.assign([], {
+				ready: new Promise<void>((resolve) => {
+					ready = resolve;
+				}),
+			}),
+			images: [],
+			body: { getBoundingClientRect: vi.fn() },
+			documentElement: { dataset: {} as Record<string, string> },
+		};
+		const result = runInNewContext(
+			OS_EXPORT_RESOURCE_WAIT.addScriptTag[0]!.content,
+			{ document },
+		);
+		expect(link.href).toBe(link.dataset.exportFontFallback);
+		expect(loaded.addEventListener).not.toHaveBeenCalled();
+		expect(document.body.getBoundingClientRect).not.toHaveBeenCalled();
+		listeners[outcome]!();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(document.documentElement.dataset.exportReady).toBeUndefined();
+		ready();
+		await result;
+		expect(link.addEventListener).toHaveBeenCalledTimes(2);
+		expect(document.documentElement.dataset.exportReady).toBe("true");
 	},
 );
