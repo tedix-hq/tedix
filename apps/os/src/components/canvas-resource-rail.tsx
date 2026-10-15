@@ -429,8 +429,9 @@ export function CanvasResourceRail({
 								variant="console"
 							/>
 							<Text as="p" role="label" tone="secondary" className="m-0">
-								Accounts and files workers can use with permission. Manage them
-								in an open file’s Connections tab.
+								Accounts and files that tedis in this workspace may use, with
+								your permission. Open a document and use its Connections tab to
+								manage them.
 							</Text>
 							{resources.isPending && (
 								<ListSkeleton rows={1} rowClassName="h-9" />
@@ -444,7 +445,7 @@ export function CanvasResourceRail({
 								<Text as="p" role="label" tone="secondary" className="m-0">
 									{normalizedQuery
 										? "No sources match your search."
-										: "No sources attached yet. Add one from a file’s Connections tab."}
+										: "No sources attached yet."}
 								</Text>
 							)}
 							{resources.data && shownResources.length > 0 && (
