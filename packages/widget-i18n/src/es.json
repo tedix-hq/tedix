@@ -21,6 +21,7 @@
 	"connecting_microphone": "Conectando micrófono",
 	"context": "Contexto:",
 	"conversation_history": "Historial de conversaciones",
+	"conversation_reference": "Referencia de conversación",
 	"copied": "Copiado",
 	"copy_code": "Copiar código",
 	"could_not_be_reached": "No se pudo consultar {{product}}",

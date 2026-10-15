@@ -647,7 +647,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 						<button class="tedix-send" type="submit" aria-label="${t("send")}" disabled>${icon(ICONS.send)}</button>
 					</form>
 					<div class="tedix-voice-error" role="alert" hidden><span></span><button type="button">${t("try_again")}</button></div>
-					<div class="tedix-footer">${t("tedi_can_make_mistakes_confirm_important")}</div>
+					<div class="tedix-footer">${t("tedi_can_make_mistakes_confirm_important")}<details class="tedix-conversation-reference"><summary>${t("conversation_reference")}</summary><code></code></details></div>
 				</footer>
 			</section>`;
 
@@ -825,6 +825,11 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		let suppressVoiceClick = false;
 		let webMcpReadinessTimer = null;
 		let conversationId = crypto.randomUUID();
+		const renderConversationReference = () => {
+			root.querySelector(".tedix-conversation-reference code").textContent =
+				conversationId;
+		};
+		renderConversationReference();
 		let activities = new Map();
 		let approvals = new Map();
 		let lastAssistantAnswer = "";
@@ -1215,6 +1220,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			if (id !== conversationId) captureConversation();
 			activeConversation = next;
 			conversationId = next.id;
+			renderConversationReference();
 			selectedTediId = next.tediId ?? null;
 			renderTediSelection();
 			embeddedSession = next.embeddedSession;
@@ -1370,6 +1376,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			selectedTediId = typeof nextTediId === "string" ? nextTediId : null;
 			renderTediSelection();
 			conversationId = crypto.randomUUID();
+			renderConversationReference();
 			embeddedClient = null;
 			embeddedSession = null;
 			approvalProjectionWatcher?.dispose();

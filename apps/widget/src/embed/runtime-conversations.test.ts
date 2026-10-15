@@ -357,6 +357,34 @@ describe("history", () => {
 });
 
 describe("restoring a conversation", () => {
+	it("exposes the active conversation reference across restoration, switching and a new chat", async () => {
+		const w = await bootWidget({
+			before: () => {
+				remembered()();
+				sessionStorage.setItem(ACTIVE_THREAD_KEY, ONE);
+			},
+			options: { history: previous },
+		});
+		await w.open();
+		const reference = () =>
+			w.$(".tedix-conversation-reference code")!.textContent;
+		expect(reference()).toBe(ONE);
+		await openHistory(w);
+		historyRow(w, "Second chat").click();
+		await settle();
+		expect(reference()).toBe(TWO);
+		w.$<HTMLButtonElement>(".tedix-new")!.click();
+		await settle();
+		const fresh = reference();
+		expect(fresh).not.toBe(ONE);
+		expect(fresh).not.toBe(TWO);
+		await w.say("Explain this page");
+		expect(w.session).toHaveBeenLastCalledWith(
+			expect.objectContaining({ conversationId: fresh }),
+		);
+		expect(fresh).not.toContain("session-token");
+	});
+
 	it("hydrates a reload reference through its own fresh signed session without resending messages", async () => {
 		const w = await bootWidget({
 			before: () => {
