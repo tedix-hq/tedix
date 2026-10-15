@@ -1246,6 +1246,16 @@ describe("CanvasPage listing", () => {
 			container.querySelector("[data-workspace-output-preview]"),
 		).not.toBeNull();
 		expect(container.textContent).toContain("Connected sources");
+		// A source is added from the Resources pane itself, with the same
+		// attach flow the document Connections tab uses.
+		click(findButton(container, "Add source"));
+		await flush();
+		expect(
+			document.body.querySelector(
+				`[data-workspace-resources-panel="${WORKSPACE_ID}"]`,
+			),
+		).not.toBeNull();
+		expect(document.body.textContent).toContain("Add a connected source");
 		// This workspace holds a single ungated document. It files under
 		// reference material, and the rail must NOT nag about a missing approved
 		// deliverable when nothing was ever submitted to the quality gate.

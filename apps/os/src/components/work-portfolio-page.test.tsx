@@ -150,6 +150,8 @@ function factory(
 		},
 		paused: false,
 		idle: false,
+		verdict: null,
+		verdictReason: null,
 		...overrides,
 	};
 }
@@ -421,6 +423,47 @@ describe("WorkPortfolioPage", () => {
 		).toBeNull();
 		expect(doc.querySelector('a[href="/blueprints"]')?.textContent).toBe(
 			"1 Blueprint with no runs",
+		);
+	});
+
+	it("shows a loop's health verdict, with failing and not firing called out", () => {
+		const doc = new DOMParser().parseFromString(
+			render(
+				seededClient({
+					factories: [
+						factory({
+							id: "skill-ok",
+							idle: true,
+							verdict: "healthy",
+							verdictReason: "Run r1 succeeded and delivered 1 result.",
+						}),
+						factory({
+							id: "skill-bad",
+							verdict: "failing",
+							verdictReason: "Run r2 failed: provider timeout",
+						}),
+						factory({
+							id: "skill-silent",
+							verdict: "not_firing",
+							verdictReason: "The schedule was due and did not fire.",
+						}),
+					],
+				}),
+			),
+			"text/html",
+		);
+		const ok = doc.querySelector('[data-factory="skill_loop:skill-ok"]');
+		expect(ok?.textContent).toContain("Healthy");
+		expect(ok?.textContent).not.toContain("Running but idle");
+		const bad = doc.querySelector('[data-factory="skill_loop:skill-bad"]');
+		expect(bad?.textContent).toContain("Failing");
+		expect(bad?.textContent).toContain("Run r2 failed: provider timeout");
+		const silent = doc.querySelector(
+			'[data-factory="skill_loop:skill-silent"]',
+		);
+		expect(silent?.textContent).toContain("Not firing");
+		expect(doc.querySelector("[data-factory-problems]")?.textContent).toBe(
+			"1 failing · 1 not firing",
 		);
 	});
 

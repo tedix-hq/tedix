@@ -30,6 +30,7 @@ import {
 import {
 	CreateFactoryInputSchema,
 	CreateFactoryResultSchema,
+	FactoryVerdictSchema,
 	InspectFactoryHealthInputSchema,
 	InspectFactoryHealthResultSchema,
 } from "../schemas/factories";
@@ -242,6 +243,12 @@ export const FactoryScoreboardEntrySchema = z.object({
 	paused: z.boolean(),
 	/** Successful runs but no Output or closed Work in the window; never paused. */
 	idle: z.boolean(),
+	/**
+	 * A loop's inspect_factory_health verdict and its reason, so the portfolio
+	 * and the CLI never disagree; null for a Blueprint.
+	 */
+	verdict: FactoryVerdictSchema.nullable(),
+	verdictReason: z.string().nullable(),
 });
 export type FactoryScoreboardEntry = z.infer<
 	typeof FactoryScoreboardEntrySchema
@@ -411,7 +418,7 @@ export const projectsContract = oc
 				path: "/factory-scoreboard",
 				summary: "Get factory scoreboard",
 				description:
-					"Each scheduled skill loop and published Blueprint with its last 7 days of runs, Outputs and closed Work, its last real result, and whether it is running but idle, in one read.",
+					"Each scheduled skill loop and published Blueprint with its last 7 days of runs, Outputs and closed Work, its last real result, and for each loop the same verdict inspect_factory_health gives (healthy, idle, failing, not_firing, paused, pending).",
 			})
 			.input(
 				z

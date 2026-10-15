@@ -1,6 +1,7 @@
 import {
 	ArrowCounterClockwise,
 	Brain,
+	CaretDown,
 	Check,
 	Package,
 	Prohibit,
@@ -31,6 +32,11 @@ import {
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import {
 	Card,
 	CardContent,
@@ -817,34 +823,6 @@ export function RunDetailPage() {
 
 					<PageSection>
 						<RunDetailSectionHeader
-							title="Cloudflare execution"
-							description="Engine binding, reconciliation, definition drift, and engine evidence."
-						/>
-						<RunReconciliationPanel
-							run={run}
-							definitionHealth={
-								definitionHealth.data
-									? findSkillDefinitionHealth(
-											definitionHealth.data.health,
-											run.skillId,
-										)
-									: undefined
-							}
-							definitionEvidenceTruncated={
-								definitionHealth.data?.truncated ?? false
-							}
-						/>
-						{definitionHealth.isError && (
-							<p className="text-kumo-subtle text-xs" role="alert">
-								Workflow definition health is unavailable, so no drift or
-								execution-surface evidence is shown:{" "}
-								{(definitionHealth.error as Error).message}
-							</p>
-						)}
-					</PageSection>
-
-					<PageSection>
-						<RunDetailSectionHeader
 							title="Steps"
 							description="Step receipts in execution order."
 							count={inspect.data.steps.length}
@@ -1023,6 +1001,43 @@ export function RunDetailPage() {
 								)}
 							</MetricGrid>
 						)}
+					</PageSection>
+					<PageSection>
+						<Collapsible>
+							<CollapsibleTrigger className="-mx-2 w-fit">
+								<CaretDown size={14} aria-hidden />
+								Technical details: Cloudflare execution
+							</CollapsibleTrigger>
+							<CollapsibleContent>
+								<div className="grid gap-2 pt-2">
+									<Text as="p" role="label" tone="secondary" className="m-0">
+										Which Cloudflare Workflow ran this, when its record was last
+										checked against Cloudflare, and whether the run used the
+										skill's current version.
+									</Text>
+									<RunReconciliationPanel
+										run={run}
+										definitionHealth={
+											definitionHealth.data
+												? findSkillDefinitionHealth(
+														definitionHealth.data.health,
+														run.skillId,
+													)
+												: undefined
+										}
+										definitionEvidenceTruncated={
+											definitionHealth.data?.truncated ?? false
+										}
+									/>
+									{definitionHealth.isError && (
+										<p className="text-kumo-subtle text-xs" role="alert">
+											The skill's version check is unavailable:{" "}
+											{(definitionHealth.error as Error).message}
+										</p>
+									)}
+								</div>
+							</CollapsibleContent>
+						</Collapsible>
 					</PageSection>
 				</>
 			)}

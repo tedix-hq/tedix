@@ -43,6 +43,8 @@ import {
 	createWorkSprint,
 	listWorkSprints,
 } from "@tedix/db/queries/work-items/sprints";
+import { FACTORY_HEALTH_DEFAULT_RUNS } from "@tedix/api-contract/schemas/factories";
+import { listFactoryHealth } from "@tedix/db/queries/factories";
 import { listFactoryScoreboard } from "@tedix/db/queries/factory-scoreboard";
 import {
 	archiveProject,
@@ -273,10 +275,31 @@ const getPortfolioProcedure = authOs.getPortfolio
 const getFactoryScoreboardProcedure = authOs.getFactoryScoreboard
 	.use(AUTHZ.objectiveRead)
 	.handler(async ({ input, context }) => {
-		return listFactoryScoreboard(context.db, {
-			orgId: requireOrgIdOrInput(context, input?.organizationId),
-			now: new Date(),
-		});
+		const orgId = requireOrgIdOrInput(context, input?.organizationId);
+		const now = new Date();
+		// Loops carry the inspect_factory_health verdict itself, computed over
+		// the same run window, so the portfolio and the CLI cannot disagree.
+		const [scoreboard, health] = await Promise.all([
+			listFactoryScoreboard(context.db, { orgId, now }),
+			listFactoryHealth(context.db, {
+				orgId,
+				now,
+				runLimit: FACTORY_HEALTH_DEFAULT_RUNS,
+			}),
+		]);
+		const verdicts = new Map(health.map((entry) => [entry.skillId, entry]));
+		return {
+			...scoreboard,
+			data: scoreboard.data.map((entry) => {
+				const loop =
+					entry.kind === "skill_loop" ? verdicts.get(entry.id) : undefined;
+				return {
+					...entry,
+					verdict: loop?.verdict ?? null,
+					verdictReason: loop?.reason ?? null,
+				};
+			}),
+		};
 	});
 
 /**

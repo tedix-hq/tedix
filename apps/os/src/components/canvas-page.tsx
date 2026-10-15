@@ -45,6 +45,13 @@ import {
 } from "@/components/kumo/empty";
 import { Button } from "@/components/kumo/button";
 import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/kumo/dialog";
+import {
 	Page,
 	PageActions,
 	PageHeader,
@@ -240,11 +247,43 @@ export function linkedOutputIdFromManifest(
  * policy, and explicit resource arguments for each tool call.
  */
 export function workspaceConnectionContext(
-	documentType: CanvasDocSelection["type"],
+	documentType: CanvasDocSelection["type"] | null,
 ): string {
+	if (documentType === null) {
+		return "Connect an app, then attach the resources this workspace needs. Tedis can use them only with the required permissions and approvals.";
+	}
 	return documentType === "gadget"
 		? "Connect an app, then attach the resources this workspace needs. This app can use them only with the required permissions and approvals."
 		: "This document does not access connected apps itself. Workers need the required permissions to read its sources or update it.";
+}
+
+/**
+ * Attach resources and manage connected apps for a workspace. The document
+ * Connections tab and the Resources pane's "Add source" dialog both render it,
+ * so the two entry points share one flow.
+ */
+function WorkspaceConnectionsBody({
+	workspaceId,
+	documentType,
+}: {
+	workspaceId: string;
+	documentType: CanvasDocSelection["type"] | null;
+}) {
+	return (
+		<>
+			<WorkspaceResourcesPanel workspaceId={workspaceId} />
+			<details className="canvas-account-connections">
+				<summary>Manage connected apps</summary>
+				<Text as="p" role="body" tone="secondary">
+					Connect an app here, then attach the resources you need above.
+				</Text>
+				<ConnectionsPanel
+					catalogAction
+					contextNote={workspaceConnectionContext(documentType)}
+				/>
+			</details>
+		</>
+	);
 }
 
 /**
@@ -350,6 +389,7 @@ export function CanvasPage({
 		workspaceId: string;
 		doc: CanvasDocSelection;
 	} | null>(null);
+	const [addSourceOpen, setAddSourceOpen] = useState(false);
 	const [resourceRailOpen, setResourceRailOpen] = useState(
 		(requestedPane ?? (requestedDoc ? "workpiece" : "chat")) === "resources",
 	);
@@ -1000,7 +1040,29 @@ export function CanvasPage({
 					selectedDoc={selectedDoc}
 					onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
 					onSelectOutput={selectOutput}
+					onAddSource={() => setAddSourceOpen(true)}
 				/>
+				{workspaceId !== null ? (
+					<Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
+						<DialogContent className="sm:max-w-2xl">
+							<DialogHeader>
+								<DialogTitle>Add a connected source</DialogTitle>
+								<DialogDescription>
+									Attach an account or file from a connected app. Tedis still
+									need permission and approval to use it.
+								</DialogDescription>
+							</DialogHeader>
+							{addSourceOpen ? (
+								<Suspense fallback={<CanvasStagePending />}>
+									<WorkspaceConnectionsBody
+										workspaceId={workspaceId}
+										documentType={null}
+									/>
+								</Suspense>
+							) : null}
+						</DialogContent>
+					</Dialog>
+				) : null}
 				<aside
 					aria-label="Workspace chat"
 					className="canvas-chat-pane"
@@ -1180,20 +1242,10 @@ export function CanvasPage({
 												</SectionDescription>
 											</SectionHeading>
 										</SectionHeader>
-										<WorkspaceResourcesPanel workspaceId={workspaceId} />
-										<details className="canvas-account-connections">
-											<summary>Manage connected apps</summary>
-											<Text as="p" role="body" tone="secondary">
-												Connect an app here, then attach the resources you need
-												above.
-											</Text>
-											<ConnectionsPanel
-												catalogAction
-												contextNote={workspaceConnectionContext(
-													selectedDoc.type,
-												)}
-											/>
-										</details>
+										<WorkspaceConnectionsBody
+											workspaceId={workspaceId}
+											documentType={selectedDoc.type}
+										/>
 									</div>
 								) : workpieceMode === "activity" ? (
 									<div className="canvas-secondary-view">
