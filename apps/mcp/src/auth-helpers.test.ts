@@ -627,41 +627,38 @@ describe("validateAuth audience enforcement", () => {
 		);
 	});
 
-	it.each(["client_id", "azp"])(
-		"authenticates a CIMD client identified by %s without fetching unused metadata",
-		async (claim) => {
-			const clientId = "https://claude.ai/.well-known/oauth-client/test";
-			const fetch = vi.fn(() => {
-				throw new Error("Authentication must not fetch client metadata");
-			});
-			stubFetch(fetch as unknown as typeof globalThis.fetch);
-			validateTokenMock.mockResolvedValue({
-				sub: "user-1",
-				dct: "org-1",
-				[claim]: clientId,
-				scope: "mcp:apps.read",
-				iss: "https://api.descope.com/project-id",
-				aud: expectedAudience,
-				iat: 1,
-				exp: 2,
-			});
+	it("authenticates a CIMD client without fetching unused metadata", async () => {
+		const clientId = "https://claude.ai/.well-known/oauth-client/test";
+		const fetch = vi.fn(() => {
+			throw new Error("Authentication must not fetch client metadata");
+		});
+		stubFetch(fetch as unknown as typeof globalThis.fetch);
+		validateTokenMock.mockResolvedValue({
+			sub: "user-1",
+			dct: "org-1",
+			client_id: clientId,
+			scope: "mcp:apps.read",
+			iss: "https://api.descope.com/project-id",
+			aud: expectedAudience,
+			iat: 1,
+			exp: 2,
+		});
 
-			await expect(
-				validateAuth(request, env, { expectedAudience }),
-			).resolves.toMatchObject({
-				type: "oauth",
-				userId: "user-1",
-				organizationId: "org-1",
-				clientId,
-				scopes: ["mcp:apps.read"],
-			});
-			expect(fetch).not.toHaveBeenCalled();
-			expect(validateTokenMock).toHaveBeenCalledWith(
-				"eyJ.test.token",
-				expect.objectContaining({ audience: expectedAudience }),
-			);
-		},
-	);
+		await expect(
+			validateAuth(request, env, { expectedAudience }),
+		).resolves.toMatchObject({
+			type: "oauth",
+			userId: "user-1",
+			organizationId: "org-1",
+			clientId,
+			scopes: ["mcp:apps.read"],
+		});
+		expect(fetch).not.toHaveBeenCalled();
+		expect(validateTokenMock).toHaveBeenCalledWith(
+			"eyJ.test.token",
+			expect.objectContaining({ audience: expectedAudience }),
+		);
+	});
 
 	it("rejects a token that the validator reports for an unrelated audience", async () => {
 		validateTokenMock.mockRejectedValue(

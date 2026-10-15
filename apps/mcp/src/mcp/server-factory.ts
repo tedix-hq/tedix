@@ -654,7 +654,6 @@ export function buildServerContext(
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
-	chatgpt = false,
 ): ServerContext {
 	const apiClient = getApiClient({
 		serviceFetch: env.API_SERVICE,
@@ -674,7 +673,6 @@ export function buildServerContext(
 		appId: cachedData.app.id,
 		appSlug: cachedData.app.slug,
 		connectionAppSlug: connectionAppSlug ?? cachedData.app.slug,
-		chatgpt,
 		app: cachedData.app,
 		appMetadata: cachedData.metadata,
 		appCapabilities: cachedData.capabilities,
@@ -896,7 +894,6 @@ export async function buildMcpServer(
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
-	chatgpt = false,
 ): Promise<McpServer> {
 	const startTime = Date.now();
 
@@ -950,7 +947,6 @@ export async function buildMcpServer(
 		requestMeta,
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
-		chatgpt,
 	);
 
 	// Pre-populate loadedTools from cached data.
@@ -1044,7 +1040,6 @@ export async function buildMcpServer(
 		await registerAppSkills(serverCtx);
 		await registerAppPrompts(serverCtx);
 		for (const tool of serverCtx.loadedTools.values()) {
-			if (serverCtx.chatgpt) continue;
 			if (
 				!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) &&
 				((tool.meta as Record<string, unknown> | null | undefined)?.source !==

@@ -67,9 +67,6 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import {
 	CODE_MODE_TOOL_ANNOTATIONS,
-	CHATGPT_CODE_DESCRIPTION,
-	CHATGPT_SEARCH_DESCRIPTION,
-	CHATGPT_SEARCH_ANNOTATIONS,
 	isCodeModeAvailable,
 } from "@tedix/mcp-shared/codemode";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
@@ -5899,60 +5896,15 @@ export async function registerCodeModeTools(
 		`[MCP] Code Mode description: preamble=${preamble.length} compactTypes=${compactTypes.length} compactTypesInlined=${shouldInlineCompactTypes} total=${description.length} budget=${MAX_CODEMODE_DESCRIPTION_CHARS} descriptionTruncated=${descriptionTruncated}`,
 	);
 
-	if (serverCtx.chatgpt) {
-		server.registerTool(
-			"search",
-			{
-				title: "Tedix operation search",
-				description: CHATGPT_SEARCH_DESCRIPTION,
-				annotations: CHATGPT_SEARCH_ANNOTATIONS,
-				_meta: codeModeSecurityMeta(mcpConfig),
-				inputSchema: z.strictObject({
-					query: z.string(),
-					limit: z.number().int().min(1).max(50).optional(),
-				}),
-			},
-			async (input) => {
-				const found = await resolvedCatalog.fns.search!({
-					...input,
-					includeParameters: true,
-				});
-				const rows = Array.isArray(found)
-					? found
-					: isRecord(found) && Array.isArray(found.results)
-						? found.results
-						: [];
-				const results = await Promise.all(
-					rows
-						.filter((row) => isRecord(row) && typeof row.callable === "string")
-						.map((row) =>
-							resolvedCatalog.fns.describe!({ callable: row.callable }).then(
-								(definition) => ({
-									...row,
-									...(isRecord(definition) ? definition : {}),
-								}),
-							),
-						),
-				);
-				return {
-					content: [
-						{ type: "text" as const, text: JSON.stringify({ results }) },
-					],
-				};
-			},
-		);
-	}
-
 	// Register single unified code tool
 	server.registerTool(
 		"code",
 		{
-			description: serverCtx.chatgpt ? CHATGPT_CODE_DESCRIPTION : description,
+			description,
 			annotations: CODE_MODE_TOOL_ANNOTATIONS,
 			_meta: codeModeSecurityMeta(mcpConfig),
 			inputSchema: codeModeInputSchema(
 				serverCtx.connectionAppSlug ?? serverCtx.appSlug,
-				serverCtx.chatgpt,
 			),
 		},
 		async ({ code, payment, agentSessionId }, ctx?: McpCtx) => {
@@ -6118,8 +6070,7 @@ export async function registerCodeModeTools(
 				try {
 					executionRefs.ownerHostSessionId =
 						await resolveCodeModeOwnerHostSession({
-							agentSessionId:
-								typeof agentSessionId === "string" ? agentSessionId : undefined,
+							agentSessionId,
 							caller: serverCtx.callerIdentity,
 							bearerToken: serverCtx.bearerToken,
 							env: serverCtx.env,
