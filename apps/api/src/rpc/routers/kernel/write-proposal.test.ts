@@ -724,7 +724,7 @@ describe("planKernelWriteProposal — positive path", () => {
 		);
 	});
 
-	it("discovers and plans an aggregate Code Mode callable", async () => {
+	it("preserves a long Work brief in an aggregate proposal without executing it", async () => {
 		const service = mcpService((body) => {
 			if (body.method === "tools/list") {
 				return {
@@ -764,6 +764,14 @@ describe("planKernelWriteProposal — positive path", () => {
 		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
 			slug === "tedix-unified" ? { slug } : null,
 		);
+		const description =
+			"Create a demo, source files and playback notes. ".repeat(60);
+		const model = objectModel({
+			toolName: "work.create_work_items",
+			argsJson: JSON.stringify({ title: "Release proof", description }),
+			reasoning: "create the requested work item",
+		});
+		const generate = vi.spyOn(model, "doGenerate");
 		const proposal = await planKernelWriteProposal({
 			db: DB,
 			env: baseEnv(service),
@@ -776,18 +784,14 @@ describe("planKernelWriteProposal — positive path", () => {
 				},
 			}),
 			actingUserId: "user-123",
-			content: "create the work item titled Release proof",
-			model: objectModel({
-				toolName: "work.create_work_items",
-				argsJson: '{"title":"Release proof","description":"live check"}',
-				reasoning: "create the requested work item",
-			}),
+			content: `create the work item titled Release proof. Description: ${description}`,
+			model,
 		});
 
 		expect(proposal).toEqual({
 			appSlug: "tedix-unified",
 			toolName: "work.create_work_items",
-			args: { title: "Release proof", description: "live check" },
+			args: { title: "Release proof", description },
 			reasoning: "create the requested work item",
 			riskTier: "high",
 			transport: "codemode",
@@ -808,6 +812,9 @@ describe("planKernelWriteProposal — positive path", () => {
 		).toContain("Object.fromEntries");
 		expect(JSON.stringify(service.calls[2]?.params)).toContain(
 			"discover.describe",
+		);
+		expect(JSON.stringify(generate.mock.calls[0]?.[0].prompt)).toContain(
+			"Creating the record does not execute or delegate the work it describes.",
 		);
 	});
 
@@ -938,7 +945,7 @@ describe("planKernelWriteProposal — validation (model never trusted)", () => {
 				toolName: "globex__create_invoice",
 				argsJson: JSON.stringify({
 					amount: 100,
-					customerName: "x".repeat(3000),
+					customerName: "x".repeat(20_000),
 				}),
 				reasoning: null,
 			}),
@@ -1119,6 +1126,9 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 			onDecline,
 		});
 		expect(declines.at(-1)?.stage).toBe("planner_declined");
+		expect(declines.at(-1)?.detail).toBe(
+			"Argument planner declined the selected tool",
+		);
 
 		await planKernelWriteProposal({
 			db: DB,
@@ -1136,6 +1146,34 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 		});
 		expect(declines.at(-1)?.stage).toBe("validation_failed");
 	});
+
+	it.each([
+		["not json", "Argument planner returned invalid JSON"],
+		["[]", "Argument planner did not return an object"],
+	])(
+		"records a bounded diagnostic for %s arguments",
+		async (argsJson, detail) => {
+			const onDecline = vi.fn();
+			const proposal = await planKernelWriteProposal({
+				db: DB,
+				env: baseEnv(mcpService(globexProvider)),
+				organizationId: "org-1",
+				route: writeRoute(),
+				content: "create an invoice",
+				model: objectModel({
+					toolName: "globex__create_invoice",
+					argsJson,
+					reasoning: null,
+				}),
+				onDecline,
+			});
+			expect(proposal).toBeNull();
+			expect(onDecline).toHaveBeenCalledWith({
+				stage: "planner_declined",
+				detail,
+			});
+		},
+	);
 
 	it("reports no_provider when the routed app cannot be resolved", async () => {
 		mocks.getAppBySlugForOrg.mockImplementation(async () => null);
