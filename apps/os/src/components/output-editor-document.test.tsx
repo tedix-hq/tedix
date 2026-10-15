@@ -504,7 +504,7 @@ describe("DocumentEditor", () => {
 		await act(async () => {
 			mounted.editor.commands.setContent({
 				type: "doc",
-				content: Array.from({ length: 15 }, () => ({
+				content: Array.from({ length: 26 }, () => ({
 					type: "paragraph",
 					content: [{ type: "text", text: "A".repeat(10_000) }],
 				})),
@@ -548,7 +548,7 @@ describe("DocumentEditor", () => {
 		mounted.onChange.mockClear();
 		await act(async () => {
 			mounted.editor.commands.insertContent(
-				`<img src="data:image/png;base64,${"A".repeat(600_000)}">`,
+				`<img src="data:image/png;base64,${"A".repeat(MAX_FILE_TEXT_LENGTH)}">`,
 			);
 			await Promise.resolve();
 		});
