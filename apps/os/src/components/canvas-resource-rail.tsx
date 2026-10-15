@@ -127,6 +127,7 @@ export function CanvasResourceRail({
 	selectedDoc,
 	onSelectGadget,
 	onSelectOutput,
+	onAddSource,
 }: {
 	workspaces: ResourceListQuery<{ id: string }>;
 	workspaceId: string | null;
@@ -141,6 +142,8 @@ export function CanvasResourceRail({
 	selectedDoc: CanvasDocSelection | null;
 	onSelectGadget: (gadgetId: string) => void;
 	onSelectOutput: (outputId: string) => void;
+	/** Opens the workspace's Connections view without opening a document. */
+	onAddSource?: () => void;
 }) {
 	const [query, setQuery] = useState("");
 	const [showHistory, setShowHistory] = useState(false);
@@ -427,11 +430,17 @@ export function CanvasResourceRail({
 								title="Connected sources"
 								count={shownResources.length}
 								variant="console"
+								actions={
+									onAddSource && workspaceId ? (
+										<Button size="sm" variant="secondary" onClick={onAddSource}>
+											Add source
+										</Button>
+									) : undefined
+								}
 							/>
 							<Text as="p" role="label" tone="secondary" className="m-0">
 								Accounts and files that tedis in this workspace may use, with
-								your permission. Open a document and use its Connections tab to
-								manage them.
+								your permission.
 							</Text>
 							{resources.isPending && (
 								<ListSkeleton rows={1} rowClassName="h-9" />

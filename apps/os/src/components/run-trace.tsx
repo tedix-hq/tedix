@@ -99,6 +99,70 @@ export function findSkillDefinitionHealth(
 	return health.find((entry) => entry.definitionId === definitionId);
 }
 
+const DEFINITION_HEALTH_LABELS: Record<
+	WorkflowDefinitionHealth["healthStatus"],
+	string
+> = {
+	healthy: "Healthy",
+	active: "Running now",
+	attention: "Needs a look",
+	unknown: "Not run yet",
+	degraded: "Not working",
+	dormant: "Not expected to run",
+};
+
+const DEFINITION_DRIFT_LABELS: Record<
+	WorkflowDefinitionHealth["driftStatus"],
+	string
+> = {
+	in_sync: "Latest run used the current version",
+	unobserved: "No run yet",
+	unexecuted_revision: "The current version has not run yet",
+	unknown_revision: "Version not recorded for the latest run",
+	revision_mismatch: "Latest run used a newer version than the saved one",
+	missing_execution_surface: "The runner is unavailable",
+	not_applicable: "Does not apply",
+};
+
+const DEFINITION_NOTE_LABELS: Record<string, string> = {
+	lifecycle_not_expected_to_run:
+		"This skill is paused or archived, so it is not expected to run.",
+	execution_surface_unavailable: "The runner for this skill is unavailable.",
+	lifecycle_requires_operator_review:
+		"This skill is a draft or out of date and needs your review.",
+	no_durable_run_evidence: "No finished run has been recorded yet.",
+	observed_revision_ahead_of_definition:
+		"The latest run used a newer version than the saved skill.",
+	current_revision_not_yet_observed:
+		"The current version of this skill has not run yet.",
+	legacy_run_missing_revision_evidence:
+		"An older run did not record which version it used.",
+	run_snapshot_is_non_terminal: "A run is still in progress.",
+	latest_current_evidence_completed:
+		"The latest run of the current version finished successfully.",
+	latest_terminal_outcome_needs_inspection:
+		"The latest run did not finish successfully; check its steps.",
+};
+
+/** Plain-English label for a definition-health status. */
+export function definitionHealthLabel(
+	status: WorkflowDefinitionHealth["healthStatus"],
+): string {
+	return DEFINITION_HEALTH_LABELS[status] ?? humanize(status);
+}
+
+/** Plain-English label for a definition version check. */
+export function definitionDriftLabel(
+	status: WorkflowDefinitionHealth["driftStatus"],
+): string {
+	return DEFINITION_DRIFT_LABELS[status] ?? humanize(status);
+}
+
+/** Notes are server codes; unknown ones still read as words, not snake_case. */
+export function definitionNoteLabel(note: string): string {
+	return DEFINITION_NOTE_LABELS[note] ?? note.replaceAll("_", " ");
+}
+
 export type ReconciliationTone = "done" | "active" | "warn" | "blocked";
 
 const RECONCILIATION_VARIANTS: Record<ReconciliationTone, BadgeVariant> = {
@@ -361,23 +425,28 @@ export function RunReconciliationPanel({
 			</ul>
 			{!definitionHealth && definitionEvidenceTruncated && (
 				<Text as="p" role="label" tone="secondary" className="m-0">
-					Definition drift evidence is outside the loaded health page — this
-					workspace has more workflow definitions than one page carries, so
-					absence here is not evidence of health.
+					The version check for this skill was not loaded: this workspace has
+					more skills than one page shows. A missing check does not mean the
+					skill is healthy.
 				</Text>
 			)}
 			{definitionHealth && (
 				<ul className="m-0 flex list-none flex-wrap gap-x-6 gap-y-1 p-0 text-kumo-subtle text-xs tabular-nums [&_strong]:font-medium [&_strong]:text-kumo-default">
 					<li>
-						Definition{" "}
-						<strong>{humanize(definitionHealth.healthStatus)}</strong>
+						Skill health{" "}
+						<strong>
+							{definitionHealthLabel(definitionHealth.healthStatus)}
+						</strong>
 					</li>
 					<li>
-						Drift <strong>{humanize(definitionHealth.driftStatus)}</strong>
+						Version{" "}
+						<strong>
+							{definitionDriftLabel(definitionHealth.driftStatus)}
+						</strong>
 					</li>
 					{surface && (
 						<li>
-							Execution surface{" "}
+							Runner{" "}
 							<strong>
 								{surface.binding}
 								{surface.available ? "" : " · unavailable"}
@@ -389,7 +458,7 @@ export function RunReconciliationPanel({
 			{definitionHealth?.notes.length ? (
 				<ul className="m-0 list-disc pl-4 text-kumo-subtle text-xs">
 					{definitionHealth.notes.map((note) => (
-						<li key={note}>{note}</li>
+						<li key={note}>{definitionNoteLabel(note)}</li>
 					))}
 				</ul>
 			) : null}

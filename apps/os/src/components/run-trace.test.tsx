@@ -375,13 +375,24 @@ describe("RunReconciliationPanel", () => {
 						checkedAt: "2026-08-12T08:31:00.000Z",
 					},
 					latestRun: null,
-					notes: ["Latest run executed revision 3"],
+					notes: [
+						"observed_revision_ahead_of_definition",
+						"Latest run executed revision 3",
+					],
 				}}
 			/>,
 		);
-		expect(html).toContain("revision mismatch");
+		expect(html).toContain("Needs a look");
+		expect(html).toContain(
+			"Latest run used a newer version than the saved one",
+		);
 		expect(html).toContain("SKILL_WORKFLOW");
 		expect(html).toContain("unavailable");
+		expect(html).toContain(
+			"The latest run used a newer version than the saved skill.",
+		);
+		expect(html).not.toContain("observed_revision_ahead_of_definition");
+		expect(html).not.toContain("drift");
 		expect(html).toContain("Latest run executed revision 3");
 	});
 });

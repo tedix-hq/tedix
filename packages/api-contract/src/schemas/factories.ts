@@ -179,6 +179,9 @@ export const FactoryHealthSchema = z.object({
 });
 export type FactoryHealth = z.infer<typeof FactoryHealthSchema>;
 
+/** Runs a health verdict looks back over; the scoreboard uses the same. */
+export const FACTORY_HEALTH_DEFAULT_RUNS = 7;
+
 export const InspectFactoryHealthInputSchema = z
 	.object({
 		organizationId: z.uuid().optional(),
@@ -191,7 +194,7 @@ export const InspectFactoryHealthInputSchema = z
 			.describe(
 				"Factory slug or lane skill id. Omit to list every factory with its verdict.",
 			),
-		runs: z.number().int().min(1).max(30).default(7),
+		runs: z.number().int().min(1).max(30).default(FACTORY_HEALTH_DEFAULT_RUNS),
 	})
 	.strict();
 

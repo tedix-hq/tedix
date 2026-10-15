@@ -4740,6 +4740,9 @@ const handlers: Record<string, (input: never) => unknown> = {
 				lastResult: null,
 				paused: false,
 				idle: true,
+				verdict: "idle" as const,
+				verdictReason:
+					"Run run-revenue-7 succeeded but created no Work, comments or Output revisions.",
 			},
 		],
 		since: "2026-10-01T00:00:00.000Z",

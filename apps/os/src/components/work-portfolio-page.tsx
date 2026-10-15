@@ -6,7 +6,7 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge } from "@/components/kumo/badge";
+import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Card, CardContent, CardHeader } from "@/components/kumo/card";
 import {
 	Collapsible,
@@ -338,7 +338,40 @@ function resultHref(result: NonNullable<FactoryScoreboardEntry["lastResult"]>) {
 		: `/work/items/${result.id}`;
 }
 
+type FactoryVerdict = NonNullable<FactoryScoreboardEntry["verdict"]>;
+
+const VERDICT_BADGES: Record<
+	FactoryVerdict,
+	{ label: string; variant: BadgeVariant }
+> = {
+	healthy: { label: "Healthy", variant: "success" },
+	idle: { label: "Running but idle", variant: "warning" },
+	failing: { label: "Failing", variant: "destructive" },
+	not_firing: { label: "Not firing", variant: "destructive" },
+	paused: { label: "Paused", variant: "outline" },
+	pending: { label: "Waiting for a run", variant: "secondary" },
+};
+
+/**
+ * A loop shows the inspect_factory_health verdict, the same one the CLI and
+ * MCP report. A Blueprint has no verdict, so it keeps the scoreboard's own
+ * idle flag.
+ */
+export function factoryStatus(
+	row: FactoryScoreboardEntry,
+): { label: string; variant: BadgeVariant } | null {
+	if (row.verdict) return VERDICT_BADGES[row.verdict];
+	if (row.paused) return VERDICT_BADGES.paused;
+	if (row.idle) return VERDICT_BADGES.idle;
+	return null;
+}
+
+function isBroken(row: FactoryScoreboardEntry): boolean {
+	return row.verdict === "failing" || row.verdict === "not_firing";
+}
+
 function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
+	const status = factoryStatus(row);
 	return (
 		<li
 			className="grid min-w-0 gap-1 px-4 py-3"
@@ -353,8 +386,14 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 					{row.name}
 				</Link>
 				<div className="flex shrink-0 flex-wrap justify-end gap-1">
-					{row.paused ? <Badge variant="outline">Paused</Badge> : null}
-					{row.idle ? <Badge variant="warning">Running but idle</Badge> : null}
+					{status ? (
+						<Badge
+							variant={status.variant}
+							title={row.verdictReason ?? undefined}
+						>
+							{status.label}
+						</Badge>
+					) : null}
 					<Badge variant="outline">
 						{row.kind === "blueprint" ? "Blueprint" : "Loop"}
 					</Badge>
@@ -364,6 +403,11 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 				{counted(row.runs, "run")} ({row.succeeded} ok) ·{" "}
 				{counted(row.outputs, "Output")} · {row.workClosed} Work closed
 			</Text>
+			{isBroken(row) && row.verdictReason ? (
+				<Text as="p" role="label" tone="error" className="line-clamp-2">
+					{row.verdictReason}
+				</Text>
+			) : null}
 			{row.lastResult ? (
 				<Text
 					as="p"
@@ -398,6 +442,9 @@ function FactoryScoreboard() {
 		[rows],
 	);
 	const unusedTemplates = rows?.filter(isIdleTemplate).length ?? 0;
+	const failing = rows?.filter((row) => row.verdict === "failing").length ?? 0;
+	const notFiring =
+		rows?.filter((row) => row.verdict === "not_firing").length ?? 0;
 	return (
 		<PageSection aria-labelledby="portfolio-factories-title">
 			<SectionHeader>
@@ -407,6 +454,16 @@ function FactoryScoreboard() {
 						Runs and results of each scheduled loop and Blueprint over the last
 						7 days.
 					</SectionDescription>
+					{failing || notFiring ? (
+						<Text as="p" role="label" tone="error" data-factory-problems="">
+							{[
+								failing ? `${failing} failing` : null,
+								notFiring ? `${notFiring} not firing` : null,
+							]
+								.filter(Boolean)
+								.join(" · ")}
+						</Text>
+					) : null}
 				</SectionHeading>
 				{unusedTemplates ? (
 					<SectionActions>
