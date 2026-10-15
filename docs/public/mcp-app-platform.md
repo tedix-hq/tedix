@@ -118,12 +118,12 @@ curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
 A `null` cursor starts from now and returns a fresh `cursor`. Store it and pass
 it on the next poll. Poll again at once while `hasMore` is true, otherwise
 after `nextPollMs`. Neither Claude Code nor the Codex CLI polls MCP events
-for a custom server today; `tedix channel claude` (below) polls for a Claude
-Code session. Without the webhook opt-in below, `events/subscribe` answers
-`-32026` for these events. Discovery lists the extension as
+for a custom server today; `tedix channel` (below) polls for either. Without
+the webhook opt-in below, `events/subscribe` answers `-32026` for these
+events. Discovery lists the extension as
 `io.modelcontextprotocol/events` under `capabilities.extensions`.
 
-### Deliver events into a Claude Code session
+### Deliver events into a Claude Code or Codex session
 
 Claude Code starts a turn on a channel message from a local stdio MCP server,
 not on an event from a remote server. `tedix channel claude` is that server: it
@@ -146,6 +146,13 @@ Start an interactive session with
 are a Claude Code research preview and do not load with `claude -p`. Name
 events after `claude` to limit them, and add `--param work_item_id=<uuid>` (or
 another `inputSchema` key) to filter.
+
+The Codex CLI has no inbound path for a local thread.
+`tedix channel codex <thread-id>` runs until interrupted and sends each batch
+of events to that thread through `codex queue`; when no Codex window takes it,
+the thread resumes headless with `codex exec resume` in the current directory.
+The same filters apply. ChatGPT Work receives these events by webhook instead
+(below).
 
 ### Subscribe to Work and skill-run events by webhook
 
