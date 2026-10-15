@@ -87,6 +87,7 @@ vi.mock("@/lib/use-capn-chat", () => ({
 		status: transport.status,
 		overlays: transport.overlays,
 		actions: transport.actions,
+		recordRendered: vi.fn(),
 	}),
 }));
 
@@ -2106,6 +2107,42 @@ function dragFiles(
 }
 
 describe("<ChatThread> attachment dropzone", () => {
+	it("renders a persisted failed-turn receipt instead of claiming the message was not sent", async () => {
+		transport.actions.enqueueMessage.mockReset();
+		transport.actions.enqueueMessage.mockImplementationOnce(async (input) => ({
+			idempotencyKey: input.idempotencyKey,
+			conversationId: input.conversationId,
+			status: "failed",
+			run: {
+				id: input.idempotencyKey,
+				organizationId: ORG_ID,
+				conversationId: input.conversationId,
+				status: "failed",
+				createdAt: "2026-10-03T10:00:00.000Z",
+			},
+			assistantMessage: message({
+				id: `${input.idempotencyKey}:assistant`,
+				runId: input.idempotencyKey,
+				conversationId: input.conversationId,
+				content: "The delegated request failed during dispatch.",
+			}),
+		}));
+		const { container } = mountThread();
+		await flush();
+		typeDraft(container, "Inspect the public logo");
+		act(() => sendButton(container).click());
+		await flush();
+		expect(container.textContent).toContain("failed during dispatch");
+		expect(container.textContent).not.toContain("Message not sent");
+		expect(
+			container.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label="Message"]',
+			)?.value,
+		).toBe("");
+		expect(transport.actions.enqueueMessage).toHaveBeenCalledOnce();
+		transport.actions.enqueueMessage.mockReset();
+	});
+
 	it("names local Workers AI without sending an ignored model selection", async () => {
 		const mode = vi
 			.spyOn(localInference, "isLocalWorkersAi")
