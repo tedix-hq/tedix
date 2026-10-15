@@ -12,6 +12,15 @@ declare module "hot-formula-parser" {
 
 	export class Parser {
 		parse(expression: string): FormulaParseResult;
+		setFunction(name: string, fn: (args: unknown[]) => unknown): void;
+		on(
+			event: "callFunction",
+			listener: (
+				name: string,
+				args: unknown[],
+				done: (value: unknown) => void,
+			) => void,
+		): void;
 		setVariable(name: string, value: unknown): void;
 		on(
 			event: "callCellValue",

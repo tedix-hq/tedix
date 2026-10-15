@@ -10,7 +10,30 @@ import {
 	type FormulaCoordinate,
 } from "hot-formula-parser";
 
-export const WORKBOOK_SUPPORTED_FORMULA_COUNT = SUPPORTED_FORMULAS.length;
+import { osSpreadsheetLocale } from "./format";
+import {
+	spreadsheetSerial,
+	formatWorkbookNumber,
+	type WorkbookNumberContext,
+} from "@tedix/api-contract/utils/workbook-number-format";
+import {
+	WORKBOOK_CUSTOM_FUNCTIONS,
+	WORKBOOK_LAZY_FUNCTIONS,
+	registerWorkbookFunctions,
+	parseWorkbookExpression,
+} from "./workbook-custom-functions";
+
+const WORKBOOK_SUPPORTED_FORMULAS = [
+	...new Set([
+		...SUPPORTED_FORMULAS,
+		...Object.keys(WORKBOOK_CUSTOM_FUNCTIONS),
+		...WORKBOOK_LAZY_FUNCTIONS,
+	]),
+];
+export const WORKBOOK_SUPPORTED_FORMULA_COUNT =
+	WORKBOOK_SUPPORTED_FORMULAS.length;
+
+type FormulaValue = OsSheetCell | Error;
 
 function literalValue(input: string): OsSheetCell {
 	const trimmed = input.trim();
@@ -26,7 +49,11 @@ function scalarResult(value: unknown): OsSheetCell {
 	if (typeof value === "string" || typeof value === "boolean") return value;
 	if (typeof value === "number")
 		return Number.isFinite(value) ? value : "#NUM!";
-	if (value instanceof Date) return value.toISOString();
+	if (value instanceof Error) return value.message;
+	if (value instanceof Date)
+		return spreadsheetSerial(
+			new Date(value.getTime() - value.getTimezoneOffset() * 60000),
+		);
 	return String(value);
 }
 
@@ -60,19 +87,19 @@ function columnIndex(label: string): number {
 
 function coordinateValue(
 	coordinate: FormulaCoordinate,
-	evaluate: (rowIndex: number, columnIndex: number) => OsSheetCell,
-): OsSheetCell {
+	evaluate: (rowIndex: number, columnIndex: number) => FormulaValue,
+): unknown {
 	return evaluate(coordinate.row.index, coordinate.column.index);
 }
 
 function rangeValue(
 	start: FormulaCoordinate,
 	end: FormulaCoordinate,
-	evaluate: (rowIndex: number, columnIndex: number) => OsSheetCell,
-): OsSheetCell[][] {
-	const rows: OsSheetCell[][] = [];
+	evaluate: (rowIndex: number, columnIndex: number) => FormulaValue,
+): FormulaValue[][] {
+	const rows: FormulaValue[][] = [];
 	for (let row = start.row.index; row <= end.row.index; row += 1) {
-		const values: OsSheetCell[] = [];
+		const values: FormulaValue[] = [];
 		for (
 			let column = start.column.index;
 			column <= end.column.index;
@@ -96,29 +123,31 @@ const CROSS_SHEET_CELL =
  * small preprocessor maps cross-sheet references to parser variables.
  */
 export function evaluateWorkbook(workbook: OsWorkbook): OsWorkbook {
-	const memo = new Map<string, OsSheetCell>();
+	const memo = new Map<string, FormulaValue>();
 	const evaluating = new Set<string>();
 
 	const evaluateCell = (
 		sheet: OsWorkbookSheet,
 		rowIndex: number,
 		columnIndex_: number,
-	): OsSheetCell => {
+	): FormulaValue => {
 		const key = `${sheet.id}:${rowIndex}:${columnIndex_}`;
 		const cached = memo.get(key);
 		if (cached !== undefined || memo.has(key)) return cached ?? null;
-		if (evaluating.has(key)) return "#CYCLE!";
+		if (evaluating.has(key)) return new Error("#CYCLE!");
 		evaluating.add(key);
 		const cell = cellAt(sheet, rowIndex, columnIndex_);
 		const input = cell?.input ?? "";
-		if (!input.startsWith("=")) {
-			const value = literalValue(input);
+		if (!input.startsWith("=") || cell?.format?.numberFormat === "text") {
+			const value =
+				cell?.format?.numberFormat === "text" ? input : literalValue(input);
 			memo.set(key, value);
 			evaluating.delete(key);
 			return value;
 		}
 
 		const parser = new Parser();
+		registerWorkbookFunctions(parser);
 		parser.on("callCellValue", (coordinate, done) => {
 			done(
 				coordinateValue(coordinate, (row, column) =>
@@ -149,10 +178,10 @@ export function evaluateWorkbook(workbook: OsWorkbook): OsWorkbook {
 			) => {
 				const variable = `TEDIX_RANGE_${variableIndex++}`;
 				const target = sheetByName(workbook, quotedName ?? plainName ?? "");
-				const values: OsSheetCell[][] = [];
+				const values: FormulaValue[][] = [];
 				if (target) {
 					for (let row = Number(startRow) - 1; row < Number(endRow); row += 1) {
-						const cells: OsSheetCell[] = [];
+						const cells: FormulaValue[] = [];
 						for (
 							let column = columnIndex(startColumn);
 							column <= columnIndex(endColumn);
@@ -176,14 +205,14 @@ export function evaluateWorkbook(workbook: OsWorkbook): OsWorkbook {
 					variable,
 					target
 						? evaluateCell(target, Number(row) - 1, columnIndex(column))
-						: "#REF!",
+						: new Error("#REF!"),
 				);
 				return variable;
 			},
 		);
 
-		const parsed = parser.parse(expression);
-		const value = parsed.error ?? scalarResult(parsed.result);
+		const parsed = parseWorkbookExpression(parser, expression);
+		const value = parsed instanceof Error ? parsed : scalarResult(parsed);
 		memo.set(key, value);
 		evaluating.delete(key);
 		return value;
@@ -198,7 +227,7 @@ export function evaluateWorkbook(workbook: OsWorkbook): OsWorkbook {
 					const current = row[columnIndex_] ?? { input: "", value: null };
 					return {
 						...current,
-						value: evaluateCell(sheet, rowIndex, columnIndex_),
+						value: scalarResult(evaluateCell(sheet, rowIndex, columnIndex_)),
 					};
 				}),
 			),
@@ -206,31 +235,12 @@ export function evaluateWorkbook(workbook: OsWorkbook): OsWorkbook {
 	};
 }
 
-export function formatWorkbookValue(cell: OsWorkbookCell | null): string {
-	const value = cell?.value ?? null;
-	if (value === null) return "";
-	const format = cell?.format?.numberFormat ?? "automatic";
-	if (typeof value !== "number") return String(value);
-	switch (format) {
-		case "currency":
-			return new Intl.NumberFormat(undefined, {
-				style: "currency",
-				currency: "USD",
-			}).format(value);
-		case "percent":
-			return new Intl.NumberFormat(undefined, {
-				style: "percent",
-				maximumFractionDigits: 2,
-			}).format(value);
-		case "scientific":
-			return value.toExponential(4);
-		case "date":
-			return new Date(value).toLocaleDateString();
-		case "time":
-			return new Date(value).toLocaleTimeString();
-		case "number":
-			return new Intl.NumberFormat().format(value);
-		default:
-			return String(value);
-	}
+export function formatWorkbookValue(
+	cell: OsWorkbookCell | null,
+	context: WorkbookNumberContext = {},
+): string {
+	return formatWorkbookNumber(cell, {
+		...context,
+		locale: context.locale ?? osSpreadsheetLocale(),
+	});
 }

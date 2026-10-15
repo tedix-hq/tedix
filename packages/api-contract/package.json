@@ -192,6 +192,7 @@
 		"./schemas/work-scheduler": "./src/schemas/work-scheduler.ts",
 		"./schemas/workstation": "./src/schemas/workstation.ts",
 		"./types": "./src/types.ts",
+		"./utils/workbook-number-format": "./src/utils/workbook-number-format.ts",
 		"./utils/presentation-style": "./src/utils/presentation-style.ts",
 		"./utils/approval-policy": "./src/utils/approval-policy.ts",
 		"./utils/body-execution-result": "./src/utils/body-execution-result.ts",

@@ -252,9 +252,12 @@ describe("xlsx export", () => {
 		expect(
 			fonts[Number(xfs[Number(boldCell["@s"])]!["@fontId"])],
 		).toHaveProperty("b");
-		// Currency reaches the file as the built-in numFmtId, not as text.
+		// Currency remains numeric, with its locale-aware format in the style table.
 		const currencyCell = totalRow.c[1]!;
-		expect(xfs[Number(currencyCell["@s"])]!["@numFmtId"]).toBe("44");
+		expect(
+			Number(xfs[Number(currencyCell["@s"])]!["@numFmtId"]),
+		).toBeGreaterThanOrEqual(164);
+		expect(styles.styleSheet.numFmts).toBeDefined();
 	});
 
 	it("exports a flat sheet body that never grew a workbook", async () => {

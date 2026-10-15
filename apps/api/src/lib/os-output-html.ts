@@ -7,6 +7,7 @@
  * user text flows through `escapeHtml` before it reaches the markup.
  */
 
+import { formatWorkbookNumber } from "@tedix/api-contract/utils/workbook-number-format";
 import {
 	parseSlideText,
 	slideArrowPath,
@@ -300,7 +301,7 @@ function renderWorkbook(
 									.join(";");
 								const className =
 									typeof value === "number" ? ' class="num"' : "";
-								return `<td${className}${declarations ? ` style="${declarations}"` : ""}>${escapeHtml(value === null ? "" : String(value))}</td>`;
+								return `<td${className}${declarations ? ` style="${declarations}"` : ""}>${escapeHtml(formatWorkbookNumber(cell ?? null, content.workbook))}</td>`;
 							})
 							.join("")}</tr>`,
 				)

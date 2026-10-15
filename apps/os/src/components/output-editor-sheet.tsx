@@ -2,7 +2,6 @@ import {
 	ArrowUDownLeft,
 	ArrowUDownRight,
 	Copy,
-	CurrencyDollar,
 	Function as FunctionIcon,
 	PaintBucket,
 	Plus,
@@ -46,13 +45,6 @@ import { isImeComposing } from "@/lib/keyboard";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
-import {
 	EditorHistoryNotice,
 	EditorToolbar,
 	EditorToolbarButton,
@@ -67,6 +59,8 @@ import {
 	type SheetContent,
 } from "@/lib/output-models";
 import { SHEET_HISTORY } from "@/lib/output-history";
+import { SheetNumberFormatToolbar } from "@/components/sheet-number-format-toolbar";
+import { osSpreadsheetLocale } from "@/lib/format";
 import { useEditorHistory } from "@/lib/use-editor-history";
 import {
 	evaluateWorkbook,
@@ -246,7 +240,17 @@ export function SheetEditor({
 		history.commit(projectWorkbook(evaluateWorkbook(next)));
 	};
 	const commitFormat = (format: Partial<OsWorkbookCellFormat>) =>
-		commitWorkbook(applyFormat(workbook, selection, format));
+		commitWorkbook(
+			applyFormat(
+				{
+					...workbook,
+					locale:
+						workbook.locale ?? osSpreadsheetLocale() ?? navigator.language,
+				},
+				selection,
+				format,
+			),
+		);
 	const setSelectedInput = (input: string) =>
 		commitWorkbook(workbookWithCell(workbook, selection.focus, input));
 	const applyRename = (value: string) => {
@@ -477,41 +481,12 @@ export function SheetEditor({
 					</EditorToolbarButton>
 				))}
 				<EditorToolbarDivider />
-				<Select
+				<SheetNumberFormatToolbar
+					context={workbook}
+					format={selectedCell.format}
 					disabled={disabled}
-					value={selectedCell.format?.numberFormat ?? "automatic"}
-					onValueChange={(value) =>
-						commitFormat({
-							numberFormat: value as OsWorkbookCellFormat["numberFormat"],
-						})
-					}
-				>
-					<SelectTrigger aria-label="Number format" className="w-32" size="sm">
-						<SelectValue>
-							{(value) =>
-								value
-									? `${String(value).charAt(0).toUpperCase()}${String(value).slice(1)}`
-									: "Automatic"
-							}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="automatic">Automatic</SelectItem>
-						<SelectItem value="number">Number</SelectItem>
-						<SelectItem value="currency">Currency</SelectItem>
-						<SelectItem value="percent">Percent</SelectItem>
-						<SelectItem value="scientific">Scientific</SelectItem>
-						<SelectItem value="date">Date</SelectItem>
-						<SelectItem value="time">Time</SelectItem>
-					</SelectContent>
-				</Select>
-				<EditorToolbarButton
-					label="Currency"
-					disabled={disabled}
-					onClick={() => commitFormat({ numberFormat: "currency" })}
-				>
-					<CurrencyDollar size={15} />
-				</EditorToolbarButton>
+					onChange={commitFormat}
+				/>
 				<EditorToolbarDivider />
 				<EditorToolbarButton
 					label="Auto sum"
@@ -740,7 +715,9 @@ export function SheetEditor({
 																: "nowrap",
 														}}
 														value={
-															isEditing ? cell.input : formatWorkbookValue(cell)
+															isEditing
+																? cell.input
+																: formatWorkbookValue(cell, workbook)
 														}
 														readOnly={!isEditing || disabled}
 														onClick={(event) => {
