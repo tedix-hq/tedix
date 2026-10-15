@@ -162,8 +162,10 @@ export interface CliOptions {
 	flowWatch?: number;
 	/** Repeatable `flow run --param k=v`. */
 	flowParam?: string[];
-	/** `flow run --params '<json>'`: whole params object at once. */
+	/** `flow run --params '<json>'` / `mcp call --params '<json>'`: whole params object. */
 	flowParams?: string;
+	/** Repeatable `mcp call --header name=value`. */
+	mcpHeader?: string[];
 	/** `flow run --title <text>`: override the manifest-derived skill title. */
 	flowTitle?: string;
 	/** `flow run --skill <uuid>`: run an existing executable skill. */

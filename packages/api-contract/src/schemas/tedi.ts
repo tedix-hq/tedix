@@ -1093,6 +1093,43 @@ export const TediSessionStateListSchema = z.object({
 });
 export type TediSessionStateList = z.infer<typeof TediSessionStateListSchema>;
 
+/**
+ * `sendMessage` receipt. The runtime drives every inject through the durable
+ * chat-turn workflow, so a first delivery usually comes back `pending` with no
+ * assistant yet; only a redelivered, settled turn carries the reply inline.
+ */
+export const TediSendMessageResponseSchema = z.object({
+	success: z.boolean(),
+	error: z.string().optional(),
+	runId: z
+		.string()
+		.optional()
+		.describe("Absent when the runtime rejects before creating a run."),
+	sessionKey: z
+		.string()
+		.optional()
+		.describe("Absent when the runtime does not resolve a session."),
+	pending: z
+		.boolean()
+		.optional()
+		.describe(
+			"True when the turn was accepted but has not settled yet; read the run by runId for the reply.",
+		),
+	assistant: z
+		.object({
+			role: z.literal("assistant"),
+			content: z.string(),
+			ts: z.number(),
+		})
+		.optional()
+		.describe(
+			"Present only when the turn had already settled; absent for pending, async or failed injects.",
+		),
+});
+export type TediSendMessageResponse = z.infer<
+	typeof TediSendMessageResponseSchema
+>;
+
 export const TediSessionDeleteResponseSchema = z.object({
 	success: z.boolean(),
 	sessionKey: TediSessionKeySchema,

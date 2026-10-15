@@ -7,6 +7,7 @@ import { learnUsage } from "./learn-import";
 import { skillUsage } from "./skill";
 import { superviseUsage } from "./supervise";
 import { localInstallationUsage } from "./local-installation";
+import { mcpUsage } from "./mcp-call";
 import { CLI_VERSION } from "./shared";
 import { tediUsage } from "./tedi";
 import {
@@ -160,6 +161,16 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		approval: "explicit",
 		output: HUMAN_JSON,
 		help: codeUsage,
+	},
+	{
+		name: "mcp",
+		argHint: "call <method>",
+		surface: "gateway-direct",
+		summary: "Send one raw MCP JSON-RPC request with the stored login",
+		mutability: "mixed",
+		approval: "explicit",
+		output: ["json"],
+		help: mcpUsage,
 	},
 	{
 		name: "work",
@@ -351,7 +362,7 @@ function commandDetails(
 	const targeting: CliTargeting =
 		name === "orgs"
 			? "account"
-			: name === "code"
+			: name === "code" || name === "mcp"
 				? "aggregate-or-organization"
 				: name === "tedi"
 					? "worker"
@@ -535,6 +546,7 @@ export function rootHelp(): string {
 		"  tedix work <verb>                    Coordinate Work Items",
 		"  tedix tedi <target> <verb>           Work with a specific digital worker",
 		'  tedix code "<js>"                    Run a direct MCP Gateway operation',
+		"  tedix mcp call <method>              Send one raw MCP JSON-RPC request",
 		"  tedix flow run --file <plan.ts>      Run a one-off sequence of operations",
 		"  tedix skill <verb>                   Find or run a reusable organization skill",
 		"  tedix workflow <verb>                Inspect the execution engine behind automations",

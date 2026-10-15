@@ -6,6 +6,7 @@ import type {
 	EmbeddedTurnQuotaPolicy,
 } from "@tedix/api-contract/schemas/embedded-widget-access";
 import type { HostDelegation } from "@tedix/api-contract/schemas/host-delegation";
+import type { TediSendMessageResponse } from "@tedix/api-contract/schemas/tedi";
 /**
  * Tedis Router - runtime messaging and peer discovery.
  */
@@ -71,6 +72,26 @@ export const listPeersProcedure = authedTedisOs.listPeers
 // MESSAGING
 // =============================================================================
 
+/**
+ * Map the runtime inject receipt onto the `sendMessage` contract. A durable
+ * turn that has not settled answers `assistant: null, pending: true`; the
+ * contract has no null, so a pending turn omits `assistant` and says `pending`.
+ */
+export function toSendMessageResponse(
+	result: Awaited<ReturnType<typeof injectAgentMessage>>,
+): TediSendMessageResponse {
+	return {
+		success: result.success,
+		...(result.error ? { error: result.error } : {}),
+		...(result.run_id ? { runId: result.run_id } : {}),
+		...(result.session_key ? { sessionKey: result.session_key } : {}),
+		...(result.pending || (result.accepted && !result.assistant)
+			? { pending: true }
+			: {}),
+		...(result.assistant ? { assistant: result.assistant } : {}),
+	};
+}
+
 export const sendMessageProcedure = authedTedisOs.sendMessage
 	.use(AUTHZ.tedisAppsWrite)
 	.handler(async ({ input, context }) => {
@@ -88,13 +109,7 @@ export const sendMessageProcedure = authedTedisOs.sendMessage
 				message: input.message,
 				session: input.session,
 			});
-			return {
-				success: result.success,
-				error: result.error,
-				runId: result.run_id,
-				sessionKey: result.session_key,
-				assistant: result.assistant,
-			};
+			return toSendMessageResponse(result);
 		} catch (error) {
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,

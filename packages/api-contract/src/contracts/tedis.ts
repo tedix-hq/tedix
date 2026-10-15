@@ -81,6 +81,7 @@ import {
 	TediRuntimeRecoveryDiagnosticResponseSchema,
 	TediSchema,
 	TediStatusSchema,
+	TediSendMessageResponseSchema,
 	TediSessionDeleteResponseSchema,
 	TediSessionKeySchema,
 	TediSessionStateListSchema,
@@ -941,30 +942,7 @@ export const tedisContract = oc
 					wait: z.boolean().optional(),
 				}),
 			)
-			.output(
-				z.object({
-					success: z.boolean(),
-					error: z.string().optional(),
-					runId: z
-						.string()
-						.optional()
-						.describe("Absent when the runtime rejects before creating a run."),
-					sessionKey: z
-						.string()
-						.optional()
-						.describe("Absent when the runtime does not resolve a session."),
-					assistant: z
-						.object({
-							role: z.literal("assistant"),
-							content: z.string(),
-							ts: z.number(),
-						})
-						.optional()
-						.describe(
-							"Absent for async or failed injects; synchronous successful turns include the assistant reply.",
-						),
-				}),
-			),
+			.output(TediSendMessageResponseSchema),
 
 		createEmbeddedSession: oc
 			.route({

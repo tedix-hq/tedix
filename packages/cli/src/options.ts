@@ -265,6 +265,9 @@ export function parseOptions(argv: string[]): {
 			case "--organization":
 				options.organization = requireValue(arg, args[++index]);
 				break;
+			case "--header":
+				(options.mcpHeader ??= []).push(requireValue(arg, args[++index]));
+				break;
 			case "--org":
 				// Tenant/org selector for `tedix login`; read directly from argv via
 				// readOrgFlag. Fix #1: consume its value guarded by requireValue.
@@ -294,6 +297,9 @@ export function parseOptions(argv: string[]): {
 		throw new Error(
 			"--meta and --approve-destructive are only valid with code",
 		);
+	}
+	if (parsedCommand !== "mcp" && options.mcpHeader) {
+		throw new Error("--header is only valid with mcp call");
 	}
 	if (
 		parsedCommand !== "update" &&
