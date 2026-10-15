@@ -13,6 +13,10 @@ import type {
 	OsWorkbookCell,
 	OsWorkbookCellFormat,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	workbookExcelNumberFormat,
+	type WorkbookNumberContext,
+} from "@tedix/api-contract/utils/workbook-number-format";
 import { createZip, relationships, xmlEscape, xmlPart } from "./zip";
 
 type SheetContent = Extract<OsOutputContent, { kind: "sheet" }>;
@@ -52,22 +56,13 @@ function argb(color: string | undefined): string | undefined {
 	return match ? `FF${match[1]!.toUpperCase()}` : undefined;
 }
 
-/** Built-in `numFmtId`s, so no custom `numFmts` table is needed. */
-const NUMBER_FORMAT_IDS: Record<string, number> = {
-	automatic: 0,
-	number: 2,
-	currency: 44,
-	percent: 10,
-	scientific: 11,
-	date: 14,
-	time: 21,
-};
-
 /**
  * The style table. Index 0 is the default cell and index 1 is the bold header
  * row; every distinct cell format in the workbook is interned after those.
  */
 class StyleTable {
+	constructor(private context: WorkbookNumberContext) {}
+	private numberFormats: string[] = [];
 	private fonts = [
 		'<font><sz val="11"/><color theme="1"/><name val="Calibri"/></font>',
 		'<font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/></font>',
@@ -97,6 +92,7 @@ class StyleTable {
 			format.horizontalAlign ?? "",
 			format.wrap ?? false,
 			format.numberFormat ?? "",
+			format.decimals ?? null,
 		]);
 		const existing = this.interned.get(key);
 		if (existing !== undefined) return existing;
@@ -120,7 +116,13 @@ class StyleTable {
 				) - 1
 			: 0;
 
-		const numFmtId = NUMBER_FORMAT_IDS[format.numberFormat ?? "automatic"] ?? 0;
+		const code = workbookExcelNumberFormat(format, this.context);
+		let numFmtId = 0;
+		if (code !== "General") {
+			let index = this.numberFormats.indexOf(code);
+			if (index < 0) index = this.numberFormats.push(code) - 1;
+			numFmtId = 164 + index;
+		}
 		const alignment =
 			format.horizontalAlign || format.wrap
 				? `<alignment${format.horizontalAlign ? ` horizontal="${format.horizontalAlign}"` : ""}${
@@ -151,6 +153,7 @@ class StyleTable {
 	render(): string {
 		return (
 			`<styleSheet xmlns="${MAIN_NS}">` +
+			`<numFmts count="${this.numberFormats.length}">${this.numberFormats.map((code, index) => `<numFmt numFmtId="${164 + index}" formatCode="${xmlEscape(code)}"/>`).join("")}</numFmts>` +
 			`<fonts count="${this.fonts.length}">${this.fonts.join("")}</fonts>` +
 			`<fills count="${this.fills.length}">${this.fills.join("")}</fills>` +
 			'<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
@@ -171,14 +174,18 @@ function cellXml(
 	if (!cell) return "";
 	const style = styleIndex > 0 ? ` s="${styleIndex}"` : "";
 	const input = cell.input ?? "";
-	if (input.startsWith("=")) {
+	if (input.startsWith("=") && cell.format?.numberFormat !== "text") {
 		const formula = xmlEscape(input.slice(1));
 		// The cached value is what a reader shows before it recalculates; a
 		// string result needs `t="str"` or Excel reads it as a number.
 		const cached = cachedValueXml(cell.value);
 		return `<c r="${reference}"${style}${cached.type}><f>${formula}</f>${cached.value}</c>`;
 	}
-	return literalCellXml(reference, style, cell.value);
+	return literalCellXml(
+		reference,
+		style,
+		cell.format?.numberFormat === "text" ? cell.input : cell.value,
+	);
 }
 
 function cachedValueXml(value: OsSheetCell): { type: string; value: string } {
@@ -330,7 +337,7 @@ function worksheetXml(sheet: NormalizedSheet, styles: StyleTable): string {
 /** Build the `.xlsx` bytes for a sheet output's current revision. */
 export async function buildXlsx(content: SheetContent): Promise<Uint8Array> {
 	const sheets = normalizeSheets(content);
-	const styles = new StyleTable();
+	const styles = new StyleTable(content.workbook ?? {});
 	const worksheets = sheets.map((sheet) => worksheetXml(sheet, styles));
 
 	const sheetOverrides = sheets

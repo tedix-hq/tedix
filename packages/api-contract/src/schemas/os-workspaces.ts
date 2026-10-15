@@ -15,6 +15,7 @@
  */
 
 import * as z from "zod";
+import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { ModelRefSchema } from "./model-catalog";
@@ -846,6 +847,9 @@ export const OsWorkbookCellFormatSchema = z.object({
 		.enum([
 			"automatic",
 			"number",
+			"integer",
+			"text",
+			"datetime",
 			"currency",
 			"percent",
 			"scientific",
@@ -854,6 +858,7 @@ export const OsWorkbookCellFormatSchema = z.object({
 		])
 		.optional()
 		.describe("Number presentation override; omitted for automatic formatting"),
+	decimals: z.number().int().min(0).max(15).optional(),
 });
 
 export const OsWorkbookCellSchema = z.object({
@@ -883,6 +888,11 @@ export const OsWorkbookSheetSchema = z.object({
 });
 
 export const OsWorkbookSchema = z.object({
+	locale: OsLocaleSchema.optional(),
+	currency: z
+		.string()
+		.regex(/^[A-Z]{3}$/)
+		.optional(),
 	activeSheetId: z.string().min(1).max(80),
 	sheets: z.array(OsWorkbookSheetSchema).min(1).max(32),
 });

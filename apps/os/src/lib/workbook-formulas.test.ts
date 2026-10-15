@@ -70,4 +70,22 @@ describe("workbook formulas", () => {
 			}),
 		).toBe("1.2000e+1");
 	});
+	it("retains literal input under plain text formatting", () => {
+		const book = workbook();
+		book.sheets[0]!.rows[0]![0] = {
+			input: "0012",
+			value: null,
+			format: { numberFormat: "text" },
+		};
+		book.sheets[0]!.rows[0]![1] = {
+			input: "=1+2",
+			value: null,
+			format: { numberFormat: "text" },
+		};
+		expect(
+			evaluateWorkbook(book)
+				.sheets[0]!.rows[0]!.slice(0, 2)
+				.map((cell) => cell?.value),
+		).toEqual(["0012", "=1+2"]);
+	});
 });

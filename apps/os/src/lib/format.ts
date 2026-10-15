@@ -14,6 +14,7 @@
  * ./time) and the platform default stays `en-US` until an operator opts in.
  */
 let resolvedLocale = "en-US";
+let preferredLocale: string | undefined;
 let resolvedTimeZone: string | undefined;
 
 export function setOsFormattingPreferences(preferences: {
@@ -21,7 +22,12 @@ export function setOsFormattingPreferences(preferences: {
 	timezone: string | null;
 }): void {
 	resolvedLocale = preferences.locale ?? "en-US";
+	preferredLocale = preferences.locale ?? undefined;
 	resolvedTimeZone = preferences.timezone ?? undefined;
+}
+
+export function osSpreadsheetLocale(): string | undefined {
+	return preferredLocale;
 }
 
 /** The locale every OS formatter uses. */
