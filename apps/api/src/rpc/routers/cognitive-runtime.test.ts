@@ -182,6 +182,9 @@ it("keeps API-contract and DB runtime event kind enums aligned", () => {
 		"workstation.egress.allow",
 		"workstation.egress.deny",
 		"browser.egress.deny",
+		"browser.session.opened",
+		"browser.session.restarted",
+		"browser.session.closed",
 	]) {
 		expect(TEDI_RUNTIME_EVENT_KIND_VALUES).toContain(kind);
 	}

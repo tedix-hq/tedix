@@ -39,6 +39,7 @@ const DIAGNOSTIC_KINDS = new Set([
 	"workstation.exec.failed",
 	"workstation.egress.deny",
 	"browser.egress.deny",
+	"browser.session.restarted",
 	"approval.requested",
 ]);
 

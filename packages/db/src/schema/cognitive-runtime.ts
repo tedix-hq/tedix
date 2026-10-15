@@ -78,6 +78,10 @@ export const TEDI_RUNTIME_EVENT_KIND_VALUES = [
 	"workstation.egress.allow",
 	"workstation.egress.deny",
 	"browser.egress.deny",
+	"browser.session.opened",
+	"browser.session.reused",
+	"browser.session.restarted",
+	"browser.session.closed",
 ] as const;
 
 export const TEDI_RUN_STATUS_VALUES = [

@@ -72,6 +72,10 @@ export const TediRuntimeEventKindSchema = z.enum([
 	"workstation.egress.allow",
 	"workstation.egress.deny",
 	"browser.egress.deny",
+	"browser.session.opened",
+	"browser.session.reused",
+	"browser.session.restarted",
+	"browser.session.closed",
 ]);
 export type TediRuntimeEventKind = z.infer<typeof TediRuntimeEventKindSchema>;
 
