@@ -1908,6 +1908,23 @@ export function shouldShowRunningIndicator(input: {
 	return input.showRunning && input.overlayCount === 0;
 }
 
+/**
+ * The run the Stop/Retry controls act on: this tab's own send, or else the
+ * newest active run, so a reloaded or second tab can still stop a turn.
+ */
+export function controllableRun(
+	runSet: Pick<HomeRunSet, "runs" | "activeRunIds"> | undefined,
+	pendingRunId: string | null,
+): HomeRunSet["runs"][number] | undefined {
+	if (!runSet) return undefined;
+	const own = runSet.runs.find((run) => run.id === pendingRunId);
+	if (own) return own;
+	const active = new Set(runSet.activeRunIds);
+	return runSet.runs
+		.filter((run) => active.has(run.id))
+		.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+}
+
 export function useIsRunActive(
 	conversationId: string | null,
 	forceActive = false,
@@ -3222,7 +3239,7 @@ export function ChatThread({
 	}, [skillTrigger]);
 
 	const showRunning = pendingRunId !== null || isActive;
-	const pendingRun = runSet?.runs.find((run) => run.id === pendingRunId);
+	const pendingRun = controllableRun(runSet, pendingRunId);
 	const provisionalSends = listProvisionalSends(
 		provisional,
 		conversationId,
