@@ -1,5 +1,5 @@
 import { FLOW_EXIT_FAIL } from "./flow";
-import { cyan, dim, errorText, green, yellow } from "./format";
+import { cyan, dim, errorText, green, red, yellow } from "./format";
 import {
 	readGatewayProjection,
 	rowsFrom,
@@ -44,8 +44,8 @@ export function factoryUsage(): string {
 		"other than :00 or :30.",
 		"",
 		"`status` gives each factory one verdict: healthy, idle (ran but delivered",
-		"nothing), failing, not_firing or pending. With a slug it lists the recent",
-		"runs and what each delivered.",
+		"nothing), failing, not_firing, paused (schedule turned off) or pending.",
+		"With a slug it lists the recent runs and what each delivered.",
 	].join("\n");
 }
 
@@ -55,7 +55,10 @@ const VERDICT_COLORS: Record<
 > = {
 	healthy: green,
 	pending: dim,
+	paused: dim,
 	idle: yellow,
+	failing: red,
+	not_firing: red,
 };
 
 function verdictLabel(verdict: string, color: { enabled: boolean }): string {

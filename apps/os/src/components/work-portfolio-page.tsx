@@ -319,6 +319,15 @@ export function groupFactories(
 	return [...groups].map(([tedi, factories]) => ({ tedi, factories }));
 }
 
+/** A published Blueprint nobody ran this week is a template, not a factory. */
+export function isIdleTemplate(row: FactoryScoreboardEntry): boolean {
+	return row.kind === "blueprint" && row.runs === 0;
+}
+
+function counted(count: number, noun: string): string {
+	return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function factoryHref(row: FactoryScoreboardEntry): string {
 	return row.kind === "blueprint" ? "/blueprints" : `/skills/${row.id}/runs`;
 }
@@ -344,6 +353,7 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 					{row.name}
 				</Link>
 				<div className="flex shrink-0 flex-wrap justify-end gap-1">
+					{row.paused ? <Badge variant="outline">Paused</Badge> : null}
 					{row.idle ? <Badge variant="warning">Running but idle</Badge> : null}
 					<Badge variant="outline">
 						{row.kind === "blueprint" ? "Blueprint" : "Loop"}
@@ -351,8 +361,8 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 				</div>
 			</div>
 			<Text as="p" role="label" className="tabular-nums">
-				{row.runs} runs ({row.succeeded} ok) · {row.outputs} Outputs ·{" "}
-				{row.workClosed} Work closed
+				{counted(row.runs, "run")} ({row.succeeded} ok) ·{" "}
+				{counted(row.outputs, "Output")} · {row.workClosed} Work closed
 			</Text>
 			{row.lastResult ? (
 				<Text
@@ -374,7 +384,7 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 					</span>
 				</Text>
 			) : (
-				<Muted>No real result in 30 days</Muted>
+				<Muted>No results in the last 30 days</Muted>
 			)}
 		</li>
 	);
@@ -382,19 +392,29 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 
 function FactoryScoreboard() {
 	const scoreboard = useQuery(factoryScoreboardQueryOptions());
+	const rows = scoreboard.data?.data;
 	const groups = useMemo(
-		() => groupFactories(scoreboard.data?.data ?? []),
-		[scoreboard.data],
+		() => groupFactories((rows ?? []).filter((row) => !isIdleTemplate(row))),
+		[rows],
 	);
+	const unusedTemplates = rows?.filter(isIdleTemplate).length ?? 0;
 	return (
 		<PageSection aria-labelledby="portfolio-factories-title">
 			<SectionHeader>
 				<SectionHeading>
 					<SectionTitle id="portfolio-factories-title">Factories</SectionTitle>
 					<SectionDescription>
-						Each loop and Blueprint over the last 7 days.
+						Runs and results of each scheduled loop and Blueprint over the last
+						7 days.
 					</SectionDescription>
 				</SectionHeading>
+				{unusedTemplates ? (
+					<SectionActions>
+						<Link variant="section" href="/blueprints">
+							{counted(unusedTemplates, "Blueprint")} with no runs
+						</Link>
+					</SectionActions>
+				) : null}
 			</SectionHeader>
 			{scoreboard.isPending ? (
 				<Skeleton className="h-24" />
@@ -421,7 +441,11 @@ function FactoryScoreboard() {
 					))}
 				</div>
 			) : (
-				<Muted>No scheduled loops or published Blueprints yet</Muted>
+				<Muted>
+					{unusedTemplates
+						? "No loop or Blueprint ran in the last 7 days"
+						: "No scheduled loops or published Blueprints yet"}
+				</Muted>
 			)}
 		</PageSection>
 	);

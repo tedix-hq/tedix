@@ -178,7 +178,7 @@ headers are refused.
 gateway's `create_factory` tool. It creates the Work project, objective, a
 daily scheduled lane skill and a standing health Work Item. `tedix factory
 status` gives each factory one verdict through `inspect_factory_health`:
-healthy, idle, failing, not_firing or pending.
+healthy, idle, failing, not_firing, paused or pending.
 
 ```sh
 tedix factory create --goal "Keep the public docs accurate" --owner Nova --dry-run

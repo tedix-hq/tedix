@@ -47,7 +47,9 @@ export interface FactoryScoreboardEntry {
 		title: string;
 		at: string;
 	} | null;
-	/** Successful runs but no Output or closed Work in the window. */
+	/** The loop's schedule is turned off; always false for a Blueprint. */
+	paused: boolean;
+	/** Successful runs but no Output or closed Work in the window; never paused. */
 	idle: boolean;
 }
 
@@ -291,7 +293,10 @@ export async function listFactoryScoreboard(
 
 	const entry = (
 		key: string,
-		base: Pick<FactoryScoreboardEntry, "kind" | "id" | "name" | "cron"> & {
+		base: Pick<
+			FactoryScoreboardEntry,
+			"kind" | "id" | "name" | "cron" | "paused"
+		> & {
 			tediId: string | null;
 		},
 	): FactoryScoreboardEntry => {
@@ -326,7 +331,8 @@ export async function listFactoryScoreboard(
 						at: newest.at,
 					}
 				: null,
-			idle: succeeded > 0 && outputCount === 0 && workClosed === 0,
+			idle:
+				!base.paused && succeeded > 0 && outputCount === 0 && workClosed === 0,
 		};
 	};
 
@@ -339,6 +345,7 @@ export async function listFactoryScoreboard(
 					id: row.skillId,
 					name: row.title,
 					cron: row.cron,
+					paused: !row.enabled,
 					tediId: row.tediId,
 				}),
 			),
@@ -348,6 +355,7 @@ export async function listFactoryScoreboard(
 				id: row.id,
 				name: row.name,
 				cron: null,
+				paused: false,
 				tediId: null,
 			}),
 		),

@@ -142,6 +142,7 @@ describe("listFactoryHealth", () => {
 describe("factoryVerdict", () => {
 	const schedule = {
 		enabled: true,
+		cron: "17 6 * * *",
 		nextFireAt: "2026-10-16T06:17:00.000Z",
 		lastError: null,
 		createdAt: "2026-10-01T00:00:00.000Z",
@@ -174,6 +175,45 @@ describe("factoryVerdict", () => {
 				runs: [run("completed", 3, "2026-10-13T06:17:00.000Z")],
 			}).verdict,
 		).toBe("not_firing");
+	});
+
+	it("judges a weekly factory between runs on its last run", () => {
+		const weekly = {
+			...schedule,
+			cron: "0 8 * * 1",
+			nextFireAt: "2026-10-19T08:00:00.000Z",
+		};
+		expect(
+			factoryVerdict({
+				now: NOW,
+				lifecycleState: "active",
+				schedule: weekly,
+				runs: [run("completed", 2, "2026-10-12T08:00:00.000Z")],
+			}).verdict,
+		).toBe("healthy");
+		expect(
+			factoryVerdict({
+				now: NOW,
+				lifecycleState: "active",
+				schedule: weekly,
+				runs: [run("completed", 2, "2026-10-05T08:00:00.000Z")],
+			}),
+		).toEqual({
+			verdict: "not_firing",
+			reason:
+				"The last run fired at 2026-10-05T08:00:00.000Z; the next was due at 2026-10-12T08:00:00.000Z and did not fire.",
+		});
+	});
+
+	it("reports a turned-off schedule as paused, not broken", () => {
+		expect(
+			factoryVerdict({
+				now: NOW,
+				lifecycleState: "active",
+				schedule: { ...schedule, enabled: false },
+				runs: [run("completed", 3, "2026-10-01T06:17:00.000Z")],
+			}).verdict,
+		).toBe("paused");
 	});
 
 	it("waits for a new factory's first run", () => {

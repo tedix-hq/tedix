@@ -126,6 +126,7 @@ export const FactoryVerdictSchema = z.enum([
 	"idle",
 	"failing",
 	"not_firing",
+	"paused",
 	"pending",
 ]);
 

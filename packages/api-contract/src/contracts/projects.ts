@@ -238,7 +238,9 @@ export const FactoryScoreboardEntrySchema = z.object({
 			at: z.string(),
 		})
 		.nullable(),
-	/** Successful runs but no Output or closed Work in the window. */
+	/** The loop's schedule is turned off; always false for a Blueprint. */
+	paused: z.boolean(),
+	/** Successful runs but no Output or closed Work in the window; never paused. */
 	idle: z.boolean(),
 });
 export type FactoryScoreboardEntry = z.infer<
@@ -438,7 +440,7 @@ export const projectsContract = oc
 				path: "/factory-health",
 				summary: "Inspect factory health",
 				description:
-					"One verdict per factory (healthy, idle, failing, not_firing, pending) with its last scheduled runs, what each delivered (Work created, comments, Output revisions), whether it ran today, its next fire time and its last proof run. Give a slug or skill id, or omit it to list every factory.",
+					"One verdict per factory (healthy, idle, failing, not_firing, paused, pending) with its last scheduled runs, what each delivered (Work created, comments, Output revisions), whether it ran today, its next fire time and its last proof run. Give a slug or skill id, or omit it to list every factory.",
 			})
 			.input(InspectFactoryHealthInputSchema)
 			.output(InspectFactoryHealthResultSchema),

@@ -4738,6 +4738,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				outputs: 0,
 				workClosed: 0,
 				lastResult: null,
+				paused: false,
 				idle: true,
 			},
 		],

@@ -112,5 +112,5 @@ Attempt, Workspace, Gadget and Output IDs for the next session.
 For a factory-health question, discover `inspect_factory_health` for the exact
 factory slug (or `tedix factory status <slug>`), then inspect its run/delivery
 receipts. Report its returned verdict with supporting evidence: `healthy`,
-`idle`, `failing`, `not_firing` or `pending`. A scorecard alone does not count as
+`idle`, `failing`, `not_firing`, `paused` or `pending`. A scorecard alone does not count as
 a delivered result. A successful run is not by itself publication proof.

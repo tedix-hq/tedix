@@ -45,6 +45,7 @@ describe("listFactoryScoreboard", () => {
 				('r-2', '${ORG}', 'skill-digest', 'tedi-nova', 'failed', '2026-10-12 07:00:00', NULL),
 				('r-old', '${ORG}', 'skill-digest', 'tedi-nova', 'completed', '2026-10-01 07:00:00', NULL),
 				('r-3', '${ORG}', 'skill-watch', 'tedi-miles', 'completed', '2026-10-13 10:00:00', NULL),
+				('r-5', '${ORG}', 'skill-off', 'tedi-miles', 'completed', '2026-10-09 01:00:00', NULL),
 				('r-4', '${ORG}', 'skill-gadget', 'tedi-nova', 'completed', '2026-10-13 11:00:00', NULL),
 				('r-x', 'org-2', 'skill-other', 'tedi-x', 'completed', '2026-10-13 11:00:00', NULL);
 			INSERT INTO os_gadget_executions VALUES ('ge-1', '${ORG}', 'ws-crm', 'r-4', '2026-10-13 11:00:00');
@@ -65,20 +66,30 @@ describe("listFactoryScoreboard", () => {
 
 		expect(since).toBe("2026-10-07T12:00:00.000Z");
 		expect(data.map((row) => [row.tediName, row.name])).toEqual([
+			["miles", "Retired loop"],
 			["miles", "Signup watch"],
 			["Nova", "CRM factory"],
 			["Nova", "Daily digest"],
 		]);
+		// A turned-off loop that still ran this week is paused, not idle.
 		expect(data[0]).toMatchObject({
+			kind: "skill_loop",
+			runs: 1,
+			succeeded: 1,
+			paused: true,
+			idle: false,
+		});
+		expect(data[1]).toMatchObject({
 			kind: "skill_loop",
 			runs: 1,
 			succeeded: 1,
 			outputs: 0,
 			workClosed: 0,
 			lastResult: null,
+			paused: false,
 			idle: true,
 		});
-		expect(data[2]).toMatchObject({
+		expect(data[3]).toMatchObject({
 			kind: "skill_loop",
 			id: "skill-digest",
 			cron: "0 7 * * *",
@@ -96,7 +107,7 @@ describe("listFactoryScoreboard", () => {
 			idle: false,
 		});
 		// The gadget run is the Blueprint's, so the tedi comes from the run.
-		expect(data[1]).toMatchObject({
+		expect(data[2]).toMatchObject({
 			kind: "blueprint",
 			id: "bp-crm",
 			tediId: "tedi-nova",
