@@ -989,10 +989,11 @@ const outputsExport = authorOs.outputs.export.handler(
 			// until an Office export is actually asked for.
 			const { buildOsOutputOfficeExport } =
 				await import("../../lib/os-output-office");
+			const { prepareOsPptxImages } = await import("../../lib/os-pptx-images");
 			bytes = await buildOsOutputOfficeExport(
 				input.format,
 				input.format === "pptx"
-					? await inlineOsExportImages(revision.content)
+					? await prepareOsPptxImages(revision.content, context.env.BROWSER)
 					: revision.content,
 				output.title,
 				organization,
