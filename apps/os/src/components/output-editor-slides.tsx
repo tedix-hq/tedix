@@ -332,6 +332,9 @@ function SlideElementView({
 		const elementNode = (event.currentTarget as HTMLElement).closest(
 			"[data-element]",
 		) as HTMLElement | null;
+		// The prevented pointerdown also prevents focus, so focus the element
+		// explicitly: keyboard nudge, delete and undo need it to follow the click.
+		elementNode?.focus({ preventScroll: true });
 		const canvasWidth =
 			elementNode?.parentElement?.getBoundingClientRect().width;
 		setGesture({
@@ -373,6 +376,9 @@ function SlideElementView({
 				onSelect();
 			}}
 			onKeyDown={(event) => {
+				// Keys typed in the element's textarea bubble here; selecting on them
+				// swallowed every line break and space.
+				if (event.target !== event.currentTarget) return;
 				if (event.key === "Enter" || event.key === " ") {
 					event.preventDefault();
 					onSelect();
@@ -401,6 +407,11 @@ function SlideElementView({
 					disabled={disabled}
 					value={current.text ?? ""}
 					onPointerDown={(event) => event.stopPropagation()}
+					onKeyDown={(event) => {
+						if (event.key !== "Escape") return;
+						event.preventDefault();
+						(event.currentTarget.parentElement as HTMLElement).focus();
+					}}
 					onChange={(event) =>
 						onChange({ ...element, text: event.target.value })
 					}
@@ -575,18 +586,45 @@ export function SlidesEditor({
 
 	return (
 		<div
-			className="slides-editor grid min-w-0 gap-0"
+			className="slides-editor grid min-w-0 gap-0 outline-none"
 			data-editor="presentation-canvas"
 			style={{ containerType: "inline-size" }}
+			// Focus lands here after a keyboard delete so undo still reaches the editor.
+			tabIndex={-1}
 			onKeyDown={(event) => {
+				const target = event.target as HTMLElement;
 				if (
-					!selectedElement ||
 					disabled ||
-					["INPUT", "TEXTAREA"].includes((event.target as HTMLElement).tagName)
+					target.isContentEditable ||
+					["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
 				)
 					return;
+				const key = event.key.toLowerCase();
+				if (
+					(event.metaKey || event.ctrlKey) &&
+					!event.altKey &&
+					(key === "z" || (key === "y" && !event.shiftKey))
+				) {
+					event.preventDefault();
+					if (key === "y" || event.shiftKey) history.redo();
+					else history.undo();
+					return;
+				}
+				// Element keys act only on the focused, selected element, so arrows
+				// and Backspace keep their meaning in menus, the rail and the toolbar.
+				if (
+					!selectedElement ||
+					target.dataset.slideElement !== selectedElement.id
+				)
+					return;
+				if (event.key === "Escape") {
+					event.preventDefault();
+					setSelectedElementId(null);
+					return;
+				}
 				if (event.key === "Delete" || event.key === "Backspace") {
 					event.preventDefault();
+					event.currentTarget.focus();
 					commitDeck(
 						replaceActiveSlide(deck, {
 							...activeSlide,
@@ -1092,6 +1130,28 @@ export function SlidesEditor({
 					role="dialog"
 					aria-modal="true"
 					aria-label="Presentation mode"
+					onKeyDown={(event) => {
+						event.stopPropagation();
+						const index = deck.slides.indexOf(activeSlide);
+						const target = {
+							ArrowRight: index + 1,
+							ArrowDown: index + 1,
+							PageDown: index + 1,
+							" ": index + 1,
+							ArrowLeft: index - 1,
+							ArrowUp: index - 1,
+							PageUp: index - 1,
+							Home: 0,
+							End: deck.slides.length - 1,
+						}[event.key];
+						if (event.key === "Escape") setPresenting(false);
+						else if (target === undefined) return;
+						else {
+							const slide = deck.slides[target];
+							if (slide) setViewedSlideId(slide.id);
+						}
+						event.preventDefault();
+					}}
 				>
 					<div className="absolute top-4 right-4 z-10 flex gap-2">
 						<Button
@@ -1102,6 +1162,7 @@ export function SlidesEditor({
 							<ArrowsOut size={14} /> Full screen
 						</Button>
 						<Button
+							autoFocus
 							size="sm"
 							variant="secondary"
 							onClick={() => setPresenting(false)}
