@@ -244,7 +244,11 @@ import { WIDGET_SDK_VERSION } from "./sdk-contract";
 				}),
 			);
 		});
-		current?.after(runtime);
+		// A host may remove the loader tag before configuring it (an SPA effect
+		// re-running); `after()` on a detached tag inserts nothing and the
+		// launcher would stay "loading" forever.
+		if (current?.isConnected) current.after(runtime);
+		else document.head.append(runtime);
 	};
 
 	const stub = {
