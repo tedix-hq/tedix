@@ -66,12 +66,15 @@ describe("factory commands", () => {
 		all.ctx.json = false;
 		expect(await runFactoryCommand("status", all.ctx)).toBe(0);
 		expect(all.calls[0]).toContain("projects.inspect_factory_health({})");
+		expect(all.calls[0]).toContain('"verdict"');
+		expect(all.calls[0]).not.toContain('"runs"');
 		expect(stdout.mock.calls[0]?.[0]).toContain("idle");
 
 		const one = harness({ data: [] }, { runs: 3 });
 		expect(await runFactoryCommand("status docs", one.ctx)).toBe(0);
 		expect(one.calls[0]).toContain('"factory":"docs"');
 		expect(one.calls[0]).toContain('"runs":3');
+		expect(one.calls[0]).not.toContain("data.map");
 		stdout.mockRestore();
 	});
 
