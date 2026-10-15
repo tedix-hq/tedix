@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { contextHash, readDelivery, writeDelivery } from "./context-delivery";
 import type { JsonObject } from "./hook-io";
 import { runSessionStart } from "./session-start";
 
@@ -364,4 +368,26 @@ describe("tedix hooks session-start", () => {
 		expect(output).toContain("local binding is invalid");
 		expect(calls).toHaveLength(1);
 	});
+});
+
+test("context-reset lifecycle events clear delivery receipts; resume preserves them", async () => {
+	const config = mkdtempSync(join(tmpdir(), "tedix-delivery-reset-"));
+	const env = { TEDIX_CONFIG_DIR: config, TEDIX_PLUGIN_PREFLIGHT: "1" };
+	const session = "99999999-9999-4999-8999-999999999999";
+	const scope = contextHash("fixture-scope");
+	const hashes = {
+		preferences: contextHash("fixture-preferences"),
+		lessons: contextHash("fixture-lessons"),
+	};
+	try {
+		for (const source of ["resume", "startup", "clear", "compact", "fork"]) {
+			writeDelivery(env, session, scope, hashes);
+			await run([], env, { session_id: session, source });
+			expect(readDelivery(env, session, scope)).toEqual(
+				source === "resume" ? hashes : {},
+			);
+		}
+	} finally {
+		rmSync(config, { recursive: true, force: true });
+	}
 });

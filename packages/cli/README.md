@@ -32,7 +32,13 @@ and durable answer settlement.
   runs the plugin's host lifecycle hooks from the event JSON on stdin, so the
   plugin ships no scripts. `scripts/package-plugin.ts` builds its review ZIPs.
   `prompt-context` runs its gateway, organization and answer reads together
-  and caches preferences, lessons and the organization id for ten minutes
+  and checks preferences and lessons each turn, injecting their text once per
+  session and again only on change. Other turns get a hash pointer. Local
+  session receipts contain only hashes; clear/compact resets delivery. Updated
+  plugin hooks opt into a 10 KB allowance for initial context; older hook
+  definitions retain 6.4 KB. A source trimmed to fit is retried on the next turn.
+  Lessons retry once after 150 ms, with a 3-second retry deadline. Cached sources cover
+  failed reads for up to an hour; the organization id is cached for ten minutes
   (`src/hooks/context-cache.ts`); `TEDIX_HOOK_TRACE=1` prints step timings.
   With decision capture enabled, `capture-stop` triages the redacted turn
   (`tedix work agent-turn-triage`, 4 s, silent fallback) into `metadata.triage` and

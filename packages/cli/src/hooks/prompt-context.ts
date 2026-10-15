@@ -54,6 +54,13 @@ import {
 } from "./decision-capture";
 import { readCache, writeCache } from "./context-cache";
 import {
+	contextHash,
+	deliveryHashes,
+	readDelivery,
+	writeDelivery,
+	type ContextDelivery,
+} from "./context-delivery";
+import {
 	type HookDeps,
 	type JsonObject,
 	hookTrace,
@@ -70,13 +77,15 @@ const TEXT_LIMIT = 3200;
 const COMMENT_LIMIT = 400;
 const LESSON_BYTES = 2800;
 /**
- * Whole-message budget, in UTF-8 bytes (never fewer than characters). The
- * Claude Code and Codex plugin hooks both declare additionalContextLimit 6500
- * for this hook (`plugins/tedix/hooks/hooks.json`); one budget with headroom
- * keeps every host under it. Over budget, render trims lessons beyond the top
- * TOP_LESSONS first, then document tails; it never drops lessons entirely.
+ * Legacy whole-message budget in UTF-8 bytes, below old hosts' 6500 limit.
+ * Updated hook definitions opt into EXPANDED_HOOK_BYTES with matching host
+ * headroom. Over budget, render trims lessons beyond TOP_LESSONS first, then
+ * document tails; a trimmed source is not marked delivered.
  */
 export const HOOK_BYTES = 6400;
+/** Only newer hook definitions opt into this larger first-delivery allowance. */
+export const EXPANDED_HOOK_BYTES = 10000;
+type DeliveredSources = Partial<Record<keyof ContextDelivery, boolean>>;
 /**
  * Lessons kept before document text is shortened. The gateway ranks standing
  * lessons first, then answer-style and core rules, so the top six keep the
@@ -246,21 +255,15 @@ export function gatewayCode(
 	binding: JsonObject,
 	lessons?: LessonsQuery,
 	delegationIds: readonly string[] = [],
-	/** Sources a fresh local cache supplies this turn; the gateway skips them. */
-	cached: { preferences?: boolean; lessons?: boolean } = {},
 ): string {
 	const target: JsonObject = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
 	);
-	if (cached.preferences) {
-		target.preferencesWorkspaceId = null;
-		target.preferencesOutputId = null;
-	}
 	const ids = delegationIds
 		.filter((id) => UUID.test(id))
 		.slice(0, DELEGATION_LIMIT);
 	if (ids.length) target.delegations = ids;
-	if (lessons && !cached.lessons)
+	if (lessons)
 		target.lessons = {
 			harness: lessons.harness,
 			...(lessons.repo ? { repo: lessons.repo } : {}),
@@ -313,6 +316,8 @@ export function render(
 	now: Date,
 	budget: number = HOOK_BYTES,
 	delegations: readonly Delegation[] = [],
+	unchanged: ContextDelivery = {},
+	delivered: DeliveredSources = {},
 ): string {
 	const available =
 		isObject(data.lessons) && Array.isArray(data.lessons.lessons)
@@ -323,9 +328,18 @@ export function render(
 	let lessonCap = available;
 	let textCap = TEXT_LIMIT;
 	for (;;) {
-		const text = compose(binding, data, now, lessonCap, textCap, [
-			...open.slice(0, taskCap),
-		]);
+		delete delivered.preferences;
+		delete delivered.lessons;
+		const text = compose(
+			binding,
+			data,
+			now,
+			lessonCap,
+			textCap,
+			[...open.slice(0, taskCap)],
+			unchanged,
+			delivered,
+		);
 		if (Buffer.byteLength(text, "utf8") <= budget) return text;
 		// Delegation lines rank below the top lessons and documents.
 		if (lessonCap > TOP_LESSONS) lessonCap--;
@@ -380,6 +394,8 @@ function compose(
 	lessonCap: number,
 	textCap: number,
 	tasks: readonly Delegation[] = [],
+	unchanged: ContextDelivery = {},
+	delivered: DeliveredSources = {},
 ): string {
 	const outside = binding.contextSource === "default";
 	const lines = [
@@ -441,6 +457,10 @@ function compose(
 			throw new Error("unexpected document");
 		const complete =
 			shared.complete === true && text.length <= Math.min(textCap, TEXT_LIMIT);
+		if (source === "preferences") {
+			delivered.preferences = Boolean(unchanged.preferences) || complete;
+			if (unchanged.preferences) continue;
+		}
 		lines.push(
 			`${label}: Output=${output.id}; Workspace=${workspace.id}; revision=${revision.revision}; revisionId=${revision.id}; complete=${complete}.`,
 		);
@@ -479,8 +499,10 @@ function compose(
 		});
 		// Ranked by the gateway: the budget keeps the first ones.
 		const items = all.slice(0, Math.max(lessonCap, 0));
-		if (!all.length) noLessons = true;
-		else {
+		delivered.lessons =
+			Boolean(unchanged.lessons) || items.length === all.length;
+		if (!all.length && !unchanged.lessons) noLessons = true;
+		else if (all.length && !unchanged.lessons) {
 			lines.push(
 				`Team lessons: ${items.length} of ${Number(lessons.matched) || all.length} approved for ${outside ? "this host, outside any repository" : "this repository and host"} (yours and your organization's; Tedix memory; [id] = fact id prefix)${lessons.truncated === true || items.length < all.length ? "; more were omitted for space" : ""}.`,
 			);
@@ -553,13 +575,33 @@ function compose(
 	// hook that never asked; alone it stays silent like any empty turn.
 	if (noLessons && lines.length > 1)
 		lines.push("Team lessons: none approved for this repository and host.");
-	if (lines.length > 1) lines.push(STATUS_HINT);
+	if (unchanged.preferences || unchanged.lessons) {
+		const pointers = [
+			unchanged.preferences
+				? `prefs rev ${data.preferences.revision.revision}`
+				: undefined,
+			unchanged.lessons
+				? `lessons hash ${unchanged.lessons.slice(0, 12)}`
+				: undefined,
+		].filter(Boolean);
+		lines.push(`Tedix context unchanged (${pointers.join(", ")}).`);
+	}
+	if (Array.isArray(data.cachedSources) && data.cachedSources.length)
+		lines.push(
+			`Live context refresh unavailable for ${data.cachedSources.join(", ")}; using cached content, which may be stale.`,
+		);
+	if (lines.length > 1 && !unchanged.preferences && !unchanged.lessons)
+		lines.push(STATUS_HINT);
 	return lines.join("\n");
 }
 
 export async function runPromptContext(deps: HookDeps): Promise<void> {
 	const { env, read } = deps;
-	const budget = HOOK_BYTES;
+	// Old installed plugins still cap model-visible context at 6500 bytes.
+	const budget =
+		env.TEDIX_HOOK_CONTEXT_BYTES === String(EXPANDED_HOOK_BYTES)
+			? EXPANDED_HOOK_BYTES
+			: HOOK_BYTES;
 	const send = (message: string) =>
 		deps.write(
 			JSON.stringify({
@@ -713,9 +755,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			topics: branchTopics(binding.branch),
 			sessionId: session,
 		};
-		// Slow-changing sources: a fresh local copy stands in for the read, an
-		// older one covers a failed read. The lessons key includes the chat, whose
-		// id selects the holdout and whose delivery the server records.
+		// The lessons key includes the chat, whose id selects the holdout and
+		// whose delivery the server records. Cached content covers failed reads.
 		const cacheKeys = {
 			preferences: binding.preferencesOutputId
 				? `${principal}|${binding.preferencesWorkspaceId}|${binding.preferencesOutputId}`
@@ -728,16 +769,10 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				: undefined,
 			lessons: readCache(env, "lessons", cacheKeys.lessons, now),
 		};
-		const fresh = {
-			preferences: cached.preferences?.fresh === true,
-			lessons: cached.lessons?.fresh === true,
-		};
 		const liveSources = [
 			binding.contextOutputId ? "shared" : undefined,
-			binding.preferencesOutputId && !fresh.preferences
-				? "preferences"
-				: undefined,
-			fresh.lessons ? undefined : "lessons",
+			binding.preferencesOutputId ? "preferences" : undefined,
+			"lessons",
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
 		].filter((name): name is string => name !== undefined);
@@ -754,7 +789,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 								binding,
 								lessons,
 								delegations.map((d) => d.id),
-								fresh,
 							),
 						],
 						GATEWAY_MS,
@@ -785,19 +819,45 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				: Promise.resolve([] as string[]),
 			gateway(),
 		]);
+		if (isObject(data.lessons) && data.lessons.unavailable === true) {
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			try {
+				const retry = await trace(
+					"lessons-retry",
+					read([...command, "code", gatewayCode({}, lessons)], 3000),
+				);
+				if (isObject(retry.lessons)) data.lessons = retry.lessons;
+			} catch {
+				/* Keep the original unavailable result; never attempt a third read. */
+			}
+		}
 		for (const name of ["preferences", "lessons"] as const) {
 			const live = data[name];
 			const copy = cached[name];
 			if (isObject(live) && live.unavailable !== true) {
 				const key = cacheKeys[name];
 				if (key) writeCache(env, name, key, live, now);
-			} else if (copy && (fresh[name] || live !== undefined)) {
-				// A fresh copy was never read live; a stale one covers a failed read.
+			} else if (copy && live !== undefined) {
 				data[name] = copy.value;
+				data.cachedSources = [...(data.cachedSources ?? []), name];
 			}
 		}
+		const scope = contextHash([
+			principal,
+			binding.mcpUrl,
+			binding.preferencesWorkspaceId,
+			binding.preferencesOutputId,
+			binding.credentialOrganizationId,
+		]);
+		const hashes = deliveryHashes(data);
+		const previous = session ? readDelivery(env, session, scope) : {};
+		const unchanged: ContextDelivery = {};
+		for (const name of ["preferences", "lessons"] as const)
+			if (hashes[name] && hashes[name] === previous[name])
+				unchanged[name] = hashes[name];
 		// A claimed OS answer is delivered even when the shared context fails.
 		let context: string;
+		const delivered: DeliveredSources = {};
 		try {
 			context = render(
 				binding,
@@ -810,6 +870,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 						0,
 					),
 				delegations,
+				unchanged,
+				delivered,
 			);
 			if (session) forgetDelegations(env, session, settledDelegationIds(data));
 			// Only the header: nothing selected and no lessons source was read.
@@ -818,7 +880,19 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			context = UNAVAILABLE;
 		}
 		const message = [context, ...captured].filter(Boolean).join("\n");
-		if (message) send(message);
+		if (message) {
+			send(message);
+			if (
+				session &&
+				context !== UNAVAILABLE &&
+				!boundedContext(message, budget).includes(TRUNCATION_NOTE)
+			) {
+				const receipt = { ...previous };
+				for (const name of ["preferences", "lessons"] as const)
+					if (delivered[name] && hashes[name]) receipt[name] = hashes[name];
+				writeDelivery(env, session, scope, receipt);
+			}
+		}
 	} catch {
 		send(UNAVAILABLE);
 	}

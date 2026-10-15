@@ -615,7 +615,7 @@ describe("tedix hooks prompt-context", () => {
 			.find((handler: JsonObject) =>
 				String(handler.command).endsWith("tedix hooks prompt-context"),
 			).additionalContextLimit;
-		expect(limit).toBe(6500);
+		expect(limit).toBe(10100);
 		const preferenceOutput = "88888888-8888-4888-8888-888888888888";
 		const binding = {
 			...BINDING,
@@ -1033,7 +1033,8 @@ describe("tedix hooks prompt-context", () => {
 					{ session_id: SESSION, prompt: "status?" },
 					[answered],
 				);
-				expect(again.out).toBe("");
+				expect(again.out).not.toContain("Hold the deploy");
+				expect(again.out).toContain("Tedix context unchanged");
 				expect(again.sources).toEqual([]);
 			}));
 
@@ -1086,8 +1087,8 @@ describe("tedix hooks prompt-context", () => {
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				// The first run cached the empty lessons read: no gateway call now.
-				expect([out, calls.length]).toEqual(["", 2]);
+				// Live lessons are checked even when the previous set was empty.
+				expect([out, calls.length]).toEqual(["", 3]);
 				({ out } = await run(
 					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1100,7 +1101,7 @@ describe("tedix hooks prompt-context", () => {
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect([out, calls.length]).toEqual(["", 2]);
+				expect([out, calls.length]).toEqual(["", 3]);
 			}));
 
 		test("an OS answer follows the selected shared context", () =>
@@ -1343,11 +1344,16 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		binding?: JsonObject;
 		gateway?: (code: string) => JsonObject | Promise<JsonObject>;
 		probe?: () => JsonObject;
+		session?: string;
+		contextBytes?: string;
 	}): Promise<{ text: string; steps: string[]; timeouts: number[] }> {
 		const steps: string[] = [];
 		const timeouts: number[] = [];
 		const lines: string[] = [];
-		const env = { TEDIX_CONFIG_DIR: options.config };
+		const env = {
+			TEDIX_CONFIG_DIR: options.config,
+			TEDIX_HOOK_CONTEXT_BYTES: options.contextBytes ?? "10000",
+		};
 		const stateDir = join(options.config, "decision-capture");
 		mkdirSync(stateDir, { recursive: true });
 		const question = join(stateDir, `${SESSION}.question.json`);
@@ -1359,7 +1365,10 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		else rmSync(question, { force: true });
 		await runPromptContext({
 			env,
-			stdin: JSON.stringify({ session_id: SESSION, prompt: "PRIVATE" }),
+			stdin: JSON.stringify({
+				session_id: options.session ?? SESSION,
+				prompt: "PRIVATE",
+			}),
 			cwd: process.cwd(),
 			now: () => options.now,
 			write: (line) => lines.push(line),
@@ -1427,69 +1436,155 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		rmSync(config, { recursive: true, force: true });
 	});
 
-	test("preferences, lessons and the organization id are cached for ten minutes per organization and user", async () => {
-		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-cache-"));
-		const start = new Date("2026-10-11T09:00:00Z");
-		const first = await turn({ config, now: start });
-		expect(first.steps.sort()).toEqual(["gateway", "organization"]);
-		expect(first.text).toContain("Handle authorized routine choices");
-		// Within the TTL nothing is read live, and the context is unchanged.
-		const hit = await turn({
-			config,
-			now: new Date(start.getTime() + 9 * 60_000),
-			gateway: () => {
-				throw new Error("must not be called");
-			},
-			probe: () => {
-				throw new Error("must not be called");
-			},
-		});
-		expect(hit.steps).toEqual([]);
-		expect(hit.text.replace(/checked [^;]+;/, "")).toBe(
-			first.text.replace(/checked [^;]+;/, ""),
+	test("session receipts suppress unchanged content and detect live revisions and lessons", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-context-delivery-"));
+		const now = new Date("2026-10-11T09:00:00Z");
+		try {
+			const first = await turn({ config, now });
+			expect(first.text).toContain("Handle authorized routine choices");
+			expect(first.text).toContain("Pushes race on main");
+			const second = await turn({ config, now });
+			expect(second.steps).toEqual(["gateway"]);
+			expect(second.text).toMatch(
+				/Tedix context unchanged \(prefs rev 2, lessons hash [a-f0-9]{12}\)\./,
+			);
+			expect(second.text).not.toContain("Handle authorized routine choices");
+			expect(second.text).not.toContain("Pushes race on main");
+			expect(second.text.split("\n")).toHaveLength(2);
+			const changed = preferences();
+			changed.revision.revision = 3;
+			const revision = await turn({
+				config,
+				now,
+				gateway: () => ({ preferences: changed, ...lessonsData([lesson]) }),
+			});
+			expect(revision.text).toContain("revision=3;");
+			expect(revision.text).toContain("Handle authorized routine choices");
+			expect(revision.text).not.toContain("Pushes race on main");
+			const newLesson = { ...lesson, text: "Verify the pushed commit." };
+			const lessons = await turn({
+				config,
+				now,
+				gateway: () => ({ preferences: changed, ...lessonsData([newLesson]) }),
+			});
+			expect(lessons.text).toContain(newLesson.text);
+			expect(lessons.text).not.toContain("Handle authorized routine choices");
+			const state = readdirSync(join(config, "hook-cache")).find((name) =>
+				name.startsWith("delivery-"),
+			)!;
+			const receipt = readFileSync(join(config, "hook-cache", state), "utf8");
+			expect(receipt.length).toBeLessThan(300);
+			expect(receipt).not.toContain("PRIVATE");
+			expect(receipt).not.toContain("Handle authorized");
+			writeFileSync(join(config, "hook-cache", state), "broken JSON");
+			const recovered = await turn({ config, now });
+			expect(recovered.text).toContain("Handle authorized routine choices");
+			expect(recovered.text).toContain("Pushes race on main");
+			const otherSession = await turn({ config, now, session: WORK });
+			expect(otherSession.text).toContain("Handle authorized routine choices");
+			const otherScope = await turn({
+				config,
+				now,
+				binding: { ...binding, projectId: WORK },
+			});
+			expect(otherScope.text).toContain("Tedix context unchanged");
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
+	});
+
+	test("trimmed first-turn sources are not marked delivered and fit in the expanded hook", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-delivery-trim-"));
+		const now = new Date();
+		const document = { ...preferences(), text: "p".repeat(3040) };
+		const fullLessons = lessonsData(
+			Array.from({ length: 7 }, (_, i) => ({
+				shortId: `lesson${i}`,
+				text: "l".repeat(440),
+			})),
 		);
-		// Past the TTL every source is read live again and the cache refreshed.
-		const changed = preferences();
-		changed.text = "Prefer short answers.";
-		const miss = await turn({
-			config,
-			now: new Date(start.getTime() + 11 * 60_000),
-			gateway: (code) => {
-				expect(code).toContain(PREFERENCE_OUTPUT);
-				expect(code).toContain('"lessons":{"harness"');
-				return { preferences: changed, ...lessonsData([lesson]) };
-			},
-		});
-		expect(miss.steps.sort()).toEqual(["gateway", "organization"]);
-		expect(miss.text).toContain("Prefer short answers");
-		expect(miss.text).not.toContain("Handle authorized routine choices");
-		// The refreshed copy serves the next turn.
-		const again = await turn({
-			config,
-			now: new Date(start.getTime() + 12 * 60_000),
-		});
-		expect(again.steps).toEqual([]);
-		expect(again.text).toContain("Prefer short answers");
-		// A cached source leaves the gateway script when another source still needs a read.
-		const withTask = await turn({
-			config,
-			now: new Date(start.getTime() + 13 * 60_000),
-			binding: { ...binding, workItemId: WORK },
-			gateway: (code) => {
-				expect(code).not.toContain(PREFERENCE_OUTPUT);
-				expect(code).not.toContain('"lessons":{"harness"');
-				return { work: { unavailable: true } };
-			},
-		});
-		expect(withTask.steps).toEqual(["gateway"]);
-		expect(withTask.text).toContain("Prefer short answers");
-		expect(withTask.text).toContain(`Selected Work=${WORK} unavailable`);
-		// Another user of the same profile never sees this user's copy.
-		const other = mkdtempSync(join(tmpdir(), "tedix-prompt-cache-other-"));
-		const cold = await turn({ config: other, now: start });
-		expect(cold.steps.sort()).toEqual(["gateway", "organization"]);
-		for (const dir of [config, other])
-			rmSync(dir, { recursive: true, force: true });
+		const gateway = () => ({ preferences: document, ...fullLessons });
+		try {
+			const trimmed = await turn({
+				config,
+				now,
+				gateway,
+				contextBytes: "6400",
+			});
+			expect(trimmed.text).toContain("complete=false");
+			expect(Buffer.byteLength(trimmed.text)).toBeLessThanOrEqual(6400);
+			const next = await turn({ config, now, gateway });
+			expect(next.text).toContain(document.text);
+			expect(next.text).toContain("complete=true");
+			const unchanged = await turn({ config, now, gateway });
+			expect(unchanged.text).toContain("Tedix context unchanged");
+			expect(unchanged.text).not.toContain(document.text);
+			rmSync(join(config, "hook-cache"), { recursive: true, force: true });
+			const expanded = await turn({ config, now, gateway });
+			expect(expanded.text).toContain(document.text);
+			expect(expanded.text).toContain("Team lessons: 7 of 7 approved");
+			expect(expanded.text).not.toContain("complete=false");
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
+	});
+
+	test("a cold lessons failure retries once with a short backoff and preserves preferences", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-lessons-retry-"));
+		const now = new Date();
+		let attempts = 0;
+		const started = Date.now();
+		try {
+			const recovered = await turn({
+				config,
+				now,
+				gateway: (code) => {
+					attempts++;
+					if (attempts === 1)
+						return {
+							preferences: preferences(),
+							lessons: { unavailable: true },
+						};
+					expect(code).not.toContain(PREFERENCE_OUTPUT);
+					return lessonsData([lesson]);
+				},
+			});
+			expect(attempts).toBe(2);
+			expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+			expect(recovered.timeouts.at(-1)).toBe(3000);
+			expect(recovered.text).toContain("Handle authorized routine choices");
+			expect(recovered.text).toContain(lesson.text);
+			expect(recovered.text).not.toContain("lessons unavailable");
+			expect((await turn({ config, now })).text).toContain(
+				"Tedix context unchanged",
+			);
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
+	});
+
+	test("persistent lessons failures stop after two reads and recover on a later turn", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-lessons-failed-"));
+		const now = new Date();
+		let attempts = 0;
+		try {
+			const failed = await turn({
+				config,
+				now,
+				gateway: () => {
+					attempts++;
+					return { preferences: preferences(), lessons: { unavailable: true } };
+				},
+			});
+			expect(attempts).toBe(2);
+			expect(failed.text).toContain("Team lessons unavailable");
+			expect(failed.text).toContain("Handle authorized routine choices");
+			const recovered = await turn({ config, now });
+			expect(recovered.text).toContain(lesson.text);
+			expect(recovered.text).not.toContain("Handle authorized routine choices");
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
 	});
 
 	test("each read fails on its own: a dead gateway keeps cached sources and names the rest unavailable", async () => {
@@ -1507,8 +1602,8 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			now: new Date(start.getTime() + 20 * 60_000),
 			gateway: timedOut,
 		});
-		expect(dead.text).toContain("Handle authorized routine choices");
-		expect(dead.text).toContain("Pushes race on main");
+		expect(dead.text).toContain("Tedix context unchanged");
+		expect(dead.steps.filter((step) => step === "gateway")).toHaveLength(2);
 		expect(dead.text).not.toContain("Tedix shared context unavailable");
 		// Per-turn sources are named unavailable rather than silently dropped.
 		const partial = await turn({
@@ -1522,7 +1617,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			},
 			gateway: timedOut,
 		});
-		expect(partial.text).toContain("Handle authorized routine choices");
+		expect(partial.text).toContain("Tedix context unchanged");
 		expect(partial.text).toContain(`Selected Work=${WORK} unavailable`);
 		expect(partial.text).toContain("Shared decisions unavailable");
 		// Older than an hour, a copy no longer covers a failed read.
