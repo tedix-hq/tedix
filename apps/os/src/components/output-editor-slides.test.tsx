@@ -650,6 +650,91 @@ describe("SlidesEditor", () => {
 		mounted.cleanup();
 	});
 
+	it("drags an element by its text, snaps it, and edits on a second click", () => {
+		// The textarea filled the element and stopped every press, so no text
+		// element could be dragged.
+		const mounted = mountEditor();
+		const stage = mounted.container.querySelector(".slides-editor-stage")!;
+		const title = stage.querySelector<HTMLElement>('[data-element="title"]')!;
+		const textarea = title.querySelector("textarea")!;
+		const pointer = (
+			type: string,
+			clientX: number,
+			clientY: number,
+			init: PointerEventInit = {},
+		) => {
+			const event = new PointerEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				button: 0,
+				pointerId: 1,
+				clientX,
+				clientY,
+				...init,
+			});
+			act(() => {
+				textarea.dispatchEvent(event);
+			});
+			return event;
+		};
+		const committedTitle = () =>
+			mounted.emitted.at(-1)?.deck?.slides[0]?.elements[0];
+
+		// A click selects without editing the document or focusing the text.
+		pointer("pointerdown", 10, 10);
+		pointer("pointerup", 10, 10);
+		expect(title.dataset.selected).toBe("true");
+		expect(document.activeElement).not.toBe(textarea);
+		expect(mounted.emitted).toEqual([]);
+
+		// Movement within the drag threshold is still a click: it edits the text.
+		const press = pointer("pointerdown", 10, 10);
+		expect(press.defaultPrevented).toBe(true);
+		pointer("pointermove", 12, 12);
+		pointer("pointerup", 12, 12);
+		expect(mounted.emitted).toEqual([]);
+		expect(document.activeElement).toBe(textarea);
+		// While editing, presses and spaces reach the textarea untouched.
+		expect(pointer("pointerdown", 10, 10).defaultPrevented).toBe(false);
+		pointer("pointerup", 10, 10);
+		const space = new KeyboardEvent("keydown", {
+			key: " ",
+			bubbles: true,
+			cancelable: true,
+		});
+		act(() => {
+			textarea.dispatchEvent(space);
+		});
+		expect(space.defaultPrevented).toBe(false);
+		act(() => {
+			textarea.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+			);
+		});
+
+		// A drag moves the title (72, 64) by the pointer delta.
+		pointer("pointerdown", 0, 0);
+		pointer("pointermove", 40, 37);
+		pointer("pointerup", 40, 37);
+		expect(committedTitle()).toMatchObject({ x: 112, y: 101 });
+
+		// Near the bullets' left edge (96) it snaps and draws a guide; Alt frees it.
+		pointer("pointerdown", 0, 0);
+		pointer("pointermove", -12, 0);
+		expect(
+			stage.querySelector<HTMLElement>('[data-snap-guide="vertical"]')?.style
+				.left,
+		).toBe(`${(96 / 1200) * 100}%`);
+		pointer("pointerup", -12, 0);
+		expect(committedTitle()).toMatchObject({ x: 96, y: 101 });
+		expect(stage.querySelector("[data-snap-guide]")).toBeNull();
+		pointer("pointerdown", 0, 0);
+		pointer("pointermove", 4, 0, { altKey: true });
+		pointer("pointerup", 4, 0, { altKey: true });
+		expect(committedTitle()).toMatchObject({ x: 100 });
+		mounted.cleanup();
+	});
+
 	it("keeps element shortcuts off menus and wires undo to the keyboard", () => {
 		const mounted = mountEditor();
 		const stage = mounted.container.querySelector(".slides-editor-stage")!;
