@@ -562,6 +562,60 @@ describe("planKernelWriteProposal — positive path", () => {
 		expect(proposal?.args).toEqual({ amount: 100 });
 	});
 
+	it("keeps a tool schema's $defs resolvable when it nests under args", async () => {
+		const defs = { __schema0: { type: "string", maxLength: 20 } };
+		const provider = (body: { method: string }) =>
+			body.method === "tools/list"
+				? {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								tools: [
+									{
+										name: "globex__create_invoice",
+										description: "Create a draft invoice",
+										annotations: { destructiveHint: true },
+										inputSchema: {
+											properties: {
+												amount: { type: "number" },
+												customerName: { $ref: "#/$defs/__schema0" },
+											},
+											required: ["amount"],
+											$defs: defs,
+										},
+									},
+								],
+							},
+						},
+					}
+				: globexProvider(body);
+		const model = objectModel({
+			toolName: "globex__create_invoice",
+			args: { amount: 100 },
+			reasoning: null,
+		});
+		const generate = vi.spyOn(model, "doGenerate");
+		await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(provider)),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "create an invoice",
+			model,
+		});
+		const format = generate.mock.calls.at(-1)?.[0].responseFormat as {
+			schema?: {
+				$defs?: unknown;
+				properties?: { args?: { anyOf?: Array<Record<string, unknown>> } };
+			};
+		};
+		expect(format.schema?.$defs).toEqual(defs);
+		expect(format.schema?.properties?.args?.anyOf?.[0]).not.toHaveProperty(
+			"$defs",
+		);
+	});
+
 	it("plans the write call: resolved provider slug, validated tool + args", async () => {
 		const service = mcpService(globexProvider);
 		const proposal = await planKernelWriteProposal({

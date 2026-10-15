@@ -611,13 +611,15 @@ async function planWriteCall(args: {
 	reasoning: string | null;
 } | null> {
 	const abortSignal = flatAbortSignal(args.timeoutMs);
+	// The tool schema nests under `args`, but its `#/$defs/...` refs point at
+	// the document root, so its `$defs` must move to the root with it.
+	const { $defs: toolDefs, ...toolSchema } = (args.tools[0]?.inputSchema ??
+		{}) as Awaited<ReturnType<typeof jsonSchema>["jsonSchema"]>;
 	const argumentSchema: Awaited<ReturnType<typeof jsonSchema>["jsonSchema"]> =
 		args.selectionOnly
 			? { type: "object", properties: {}, additionalProperties: false }
 			: {
-					...(args.tools[0]?.inputSchema as Awaited<
-						ReturnType<typeof jsonSchema>["jsonSchema"]
-					>),
+					...toolSchema,
 					type: "object",
 					required: args.tools[0]?.inputSchema?.required?.filter(
 						(key) => !(key in (args.paramDefaults ?? {})),
@@ -641,6 +643,7 @@ async function planWriteCall(args: {
 					},
 					required: ["toolName", "args", "reasoning"],
 					additionalProperties: false,
+					...(toolDefs && !args.selectionOnly ? { $defs: toolDefs } : {}),
 				},
 				{
 					validate: (value) => {
