@@ -341,6 +341,7 @@ export function SlideInspector({
 				<Text as="label" role="label" tone="secondary" className="grid gap-1">
 					Slide name
 					<Input
+						id="slide-name"
 						aria-label="Slide name"
 						value={slide.name}
 						disabled={disabled}
