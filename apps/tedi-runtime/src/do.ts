@@ -152,7 +152,6 @@ import {
 
 import { assertTediChatNotCanceled } from "./pi-recovery";
 
-import { createBrowserRuntime, type BrowserRuntime } from "agents/browser/ai";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import {
 	callRpc,
@@ -190,7 +189,12 @@ import {
 	ToolPolicySchema,
 } from "@tedix/api-contract/schemas/tedi";
 import { buildBodyExecutionResult } from "@tedix/api-contract/utils/body-execution-result";
-import { browserToolEgressDecision } from "./browser-egress-policy";
+import {
+	createTediBrowserSession,
+	browserSessionSignature,
+	governBrowserTools,
+	type TediBrowserSession,
+} from "./browser-session";
 import {
 	BROWSER_TAKEOVER_GATE_KEY,
 	type BrowserTakeoverGate,
@@ -1658,8 +1662,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private dedupStore: DoDedupStore | null = null;
 	/** Cached DO-SQLite-backed atomic Browser Run daily budget store. */
 	private browserBudgetStore: DoBrowserBudgetStore | null = null;
-	/** Cached Browser Run handle so tools and operator takeover share one session store. */
-	private browserRuntime: BrowserRuntime | null = null;
+	/** Cached browser session so tools and operator takeover share one session store. */
+	private browserSession: TediBrowserSession | null = null;
 	/** Cached DO-SQLite-backed atomic model-inference daily budget store. */
 	private inferenceBudgetStore: DoInferenceBudgetStore | null = null;
 
@@ -6893,43 +6897,21 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const limit = this.state.budgets?.browserBudgetDaily ?? 50;
 		const approvalRequired =
 			(this.state.toolPolicy?.browser ?? "always-allow") === "always-approve";
-		const runtime = this.getBrowserRuntime();
-		const sdkTools = runtime.tools;
-		const governed: ToolSet = { ...browserResultTools(resultFiles) };
-		const hostnamePolicies = [
-			this.state.organizationBrowserEgress,
-			this.state.toolPolicy?.browserEgress,
-		];
-		for (const [name, definition] of Object.entries(sdkTools)) {
-			const execute = definition.execute;
-			governed[name] = {
-				...definition,
-				...(approvalRequired ? { needsApproval: true } : {}),
-				...(execute
-					? {
-							execute: async (input: unknown, options: unknown) => {
-								await this.enforceBrowserTakeoverGate(name);
-								const egress = browserToolEgressDecision(
-									name,
-									input,
-									hostnamePolicies,
-								);
-								if (egress?.decision === "deny") {
-									await this.recordBrowserEgressDenial(name, egress, binding);
-									throw new Error(
-										`Browser egress denied (${egress.reason}${egress.hostname ? `: ${egress.hostname}` : ""})`,
-									);
-								}
-								this.getBrowserBudgetStore().consume(limit);
-								const result = await execute(input as never, options as never);
-								return name === "browser_execute"
-									? result
-									: retainBrowserResult(result, resultFiles);
-							},
-						}
-					: {}),
-			} as (typeof sdkTools)[string];
-		}
+		const governed: ToolSet = {
+			...browserResultTools(resultFiles),
+			...governBrowserTools(this.getBrowserSession().tools, {
+				approvalRequired,
+				hostnamePolicies: [
+					this.state.organizationBrowserEgress,
+					this.state.toolPolicy?.browserEgress,
+				],
+				enforceTakeover: (name) => this.enforceBrowserTakeoverGate(name),
+				onEgressDenied: (name, egress) =>
+					this.recordBrowserEgressDenial(name, egress, binding),
+				consumeBudget: () => this.getBrowserBudgetStore().consume(limit),
+				retain: (result) => retainBrowserResult(result, resultFiles),
+			}),
+		};
 		governed.browser_budget_status = tool({
 			description:
 				"Read today's governed Cloudflare Browser Run usage and remaining per-tedi daily calls. Does not consume budget.",
@@ -6946,7 +6928,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		});
 		governed.request_browser_takeover = tool({
 			description:
-				"Request human control of the current promoted Browser Run session for login, MFA, CAPTCHA, consent, or another operator-only step. First call cdp.startSession() inside browser_execute so the session is durable. This creates a Tedix OS approval with a short-lived interactive Live View; credentials never enter the model. After the operator completes the step and approves, call get_browser_takeover_status and continue with browser_execute in the same session. Does not consume browser budget.",
+				"Request human control of the current promoted Browser Run session for login, MFA, CAPTCHA, consent, or another operator-only step. First open the page with browser_execute; unless the browser is persistent, call cdp.startSession() there so the session is durable. This creates a Tedix OS approval with a short-lived interactive Live View; credentials never enter the model. After the operator completes the step and approves, call get_browser_takeover_status and continue with browser_execute in the same session. Does not consume browser budget.",
 			inputSchema: z.object({
 				reason: z.enum([
 					"login",
@@ -6970,10 +6952,13 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		return governed;
 	}
 
-	private getBrowserRuntime(): BrowserRuntime {
-		if (this.browserRuntime) return this.browserRuntime;
+	private getBrowserSession(): TediBrowserSession {
+		const policy = this.state.toolPolicy?.browserSession;
+		if (this.browserSession?.signature === browserSessionSignature(policy)) {
+			return this.browserSession;
+		}
 		const loader = this.env.LOADER;
-		this.browserRuntime = createBrowserRuntime({
+		this.browserSession = createTediBrowserSession({
 			ctx: this.ctx,
 			browser: this.env.BROWSER,
 			loader: loader
@@ -6982,11 +6967,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 						reason: "tedi_browser_authored_invocation",
 					})
 				: loader,
-			name: "tedi-native-browser",
-			quickActions: { maxChars: 0 },
-			session: { mode: "dynamic" },
+			policy,
+			onRestarted: () =>
+				console.warn("[browser-session] persistent browser was restarted"),
 		});
-		return this.browserRuntime;
+		return this.browserSession;
 	}
 
 	private async requestBrowserTakeover(
@@ -7012,12 +6997,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				`Browser takeover approval ${existingGate.approvalRequestId} is already gating this session. Check it with get_browser_takeover_status.`,
 			);
 		}
-		const liveView = await this.getBrowserRuntime().connector.liveView({
-			mode: "tab",
-		});
+		const liveView = await this.getBrowserSession().liveView();
 		if (!liveView || liveView.targets.length === 0) {
 			throw new Error(
-				"No promoted Browser Run session is active. Call cdp.startSession() inside browser_execute before requesting operator takeover.",
+				"No durable Browser Run session with an open tab is active. Open the page with browser_execute (and call cdp.startSession() unless the browser is persistent) before requesting operator takeover.",
 			);
 		}
 		const now = Date.now();
@@ -7143,7 +7126,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		}
 		const gateDecision = decideBrowserTakeoverGate({ gate, row, tediId });
 		if (gateDecision.action === "close") {
-			await this.getBrowserRuntime().connector.closeSession();
+			await this.getBrowserSession().close();
 			await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
 			return {
 				approvalRequestId,
@@ -7156,9 +7139,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				budget: this.getBrowserBudgetStore().status(limit),
 			};
 		}
-		const liveView = await this.getBrowserRuntime().connector.liveView({
-			mode: "tab",
-		});
+		const liveView = await this.getBrowserSession().liveView();
 		const sameSession =
 			liveView !== undefined && liveView.sessionId === payload.sessionId;
 		return {
@@ -7199,7 +7180,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const decision = decideBrowserTakeoverGate({ gate, row, tediId });
 		if (decision.action !== "allow") {
 			if (decision.action === "close") {
-				await this.getBrowserRuntime().connector.closeSession();
+				await this.getBrowserSession().close();
 				await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
 			}
 			throw new Error(
@@ -7208,8 +7189,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 					: `Browser takeover continuation closed (${decision.reason}).`,
 			);
 		}
-		const session = await this.getBrowserRuntime().connector.sessionInfo();
-		if (!session || session.sessionId !== gate.sessionId) {
+		const sessionId = await this.getBrowserSession().currentSessionId();
+		if (sessionId !== gate.sessionId) {
 			await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
 			throw new Error(
 				"Approved browser takeover cannot resume because the original Browser Run session is no longer available.",

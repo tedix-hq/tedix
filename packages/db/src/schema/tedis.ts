@@ -90,9 +90,14 @@ export interface ToolPolicy {
 	bash?: "always-allow" | "approve-first-then-allow" | "always-approve";
 	browser?: "always-allow" | "always-approve";
 	browserEgress?: BrowserHostnamePolicy;
+	browserSession?: BrowserSessionPolicy;
 	github?: "always-allow" | "always-approve";
 	deploy?: "always-allow" | "always-approve";
 }
+
+export type BrowserSessionPolicy =
+	| { mode: "dynamic" }
+	| { mode: "persistent"; name?: string; keepAliveMs?: number };
 
 export interface BrowserHostnamePolicy {
 	allowedHostnames?: string[];
