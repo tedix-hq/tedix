@@ -524,6 +524,23 @@ describe("tedix hooks await-reply", () => {
 		expect(total).toBeGreaterThan(4 * 60 * 60 * 1000 - 61_000);
 	});
 
+	test("a Claude background session whose job names itself still waits for drafts", async () => {
+		const { result, sleeps, detailReads, drafted } = await run(
+			[interaction({ latestDraft: { ...DRAFT, delivery: "auto" } })],
+			{
+				env: {
+					CLAUDE_CODE_SESSION_ATTENDED: "0",
+					CLAUDE_JOB_DIR: `/h/.claude/jobs/${SESSION.slice(0, 8)}`,
+				},
+				onSleep: (count) => count === 1 && open(),
+			},
+		);
+		expect(sleeps.length).toBeGreaterThan(0);
+		expect(detailReads).toBeGreaterThan(0);
+		expect(result.code).toBe(2);
+		expect(drafted).toEqual([[REQUEST, { draftId: DRAFT.id, via: "hook" }]]);
+	});
+
 	test("Codex, an unattended run, no opt-in and a bad event exit without reads", async () => {
 		open();
 		for (const options of [
