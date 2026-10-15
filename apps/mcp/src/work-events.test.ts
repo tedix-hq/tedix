@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { InteractionEventError } from "./interaction-events";
-import { pollEvent } from "./work-events";
+import { assertEventCursor, eventArguments, pollEvent } from "./work-events";
 
 const ORG_A = "10000000-0000-4000-8000-00000000000a";
 const ORG_B = "10000000-0000-4000-8000-00000000000b";
@@ -61,6 +61,16 @@ function fakeApi(selectedOrg: string) {
 		mcpEvents: {
 			pollWorkStateChanges,
 			pollWorkApprovalRequests,
+			pollWorkComments: vi.fn(async () => ({
+				events: [],
+				after: { at: "2026-10-15T12:00:00.000Z", id: "c1" },
+				hasMore: false,
+			})),
+			pollWorkInteractionRequests: vi.fn(async () => ({
+				events: [],
+				after: { at: "2026-10-15T12:00:00.000Z", id: "i1" },
+				hasMore: false,
+			})),
 			pollFailedSkillRuns,
 		},
 	};
@@ -221,4 +231,111 @@ describe("events/poll over the Work ledger", () => {
 		).rejects.toMatchObject({ code: -32602 });
 		expect(authorize).toHaveBeenCalledTimes(1);
 	});
+});
+
+it.each([
+	{
+		name: "work.item.commented",
+		prefix: "wcm1",
+		proc: "pollWorkComments" as const,
+		id: "c1",
+		filters: { author_type: "external_agent" },
+		expected: { authorType: "external_agent" },
+	},
+	{
+		name: "work.interaction.requested",
+		prefix: "wir1",
+		proc: "pollWorkInteractionRequests" as const,
+		id: "i1",
+		filters: { target_id: "Agent:CaseSensitive", kind: "coordination" },
+		expected: { targetId: "Agent:CaseSensitive", kind: "coordination" },
+	},
+])(
+	"round-trips $name cursors and forwards filters under Work read scopes",
+	async ({ name, prefix, proc, id, filters, expected }) => {
+		const args = { organization_id: ORG_A, work_item_id: ITEM, ...filters };
+		const first = await poll({ name, arguments: args, cursor: null });
+		expect(first.events).toEqual([]);
+		expect(first.cursor).toMatch(new RegExp(`^${prefix}\\.`));
+		expect(api.mcpEvents[proc]).toHaveBeenCalledWith({
+			after: null,
+			workItemId: ITEM,
+			...expected,
+			limit: 50,
+		});
+		await poll({ name, arguments: args, cursor: first.cursor, maxEvents: 1 });
+		expect(api.mcpEvents[proc]).toHaveBeenCalledWith({
+			after: { at: "2026-10-15T12:00:00.000Z", id },
+			workItemId: ITEM,
+			...expected,
+			limit: 1,
+		});
+		expect(authorize.mock.calls[0]?.[2]).toEqual([
+			"mcp:work.read",
+			"mcp:work.write",
+			"mcp:work.admin",
+		]);
+	},
+);
+
+it.each([
+	["work.item.commented", { author_type: "USER" }],
+	["work.item.commented", { author_type: "question" }],
+	["work.interaction.requested", { kind: "system" }],
+	["work.interaction.requested", { kind: "QUESTION" }],
+	["work.interaction.requested", { target_id: "" }],
+	["work.interaction.requested", { target_id: "x".repeat(129) }],
+	["work.item.commented", { work_item_id: "not-a-uuid" }],
+	["work.interaction.requested", { work_item_id: "not-a-uuid" }],
+	["work.item.commented", { metadata: "private" }],
+	["work.interaction.requested", { prompt: "private" }],
+])(
+	"rejects invalid arguments for %s before authorization",
+	async (name, filters) => {
+		await expect(
+			poll({
+				name,
+				arguments: { organization_id: ORG_A, ...filters },
+				cursor: null,
+			}),
+		).rejects.toMatchObject({ code: -32602 });
+		expect(authorize).not.toHaveBeenCalled();
+	},
+);
+
+it("validates every author and interaction kind and rejects foreign cursor prefixes", () => {
+	for (const author_type of ["user", "tedi", "external_agent", "system"])
+		expect(
+			eventArguments("work.item.commented", {
+				organization_id: ORG_A,
+				author_type,
+			}).author_type,
+		).toBe(author_type);
+	for (const kind of ["question", "input", "handoff", "coordination"])
+		expect(
+			eventArguments("work.interaction.requested", {
+				organization_id: ORG_A,
+				kind,
+			}).kind,
+		).toBe(kind);
+	for (const name of [
+		"work.item.commented",
+		"work.interaction.requested",
+	] as const) {
+		for (const cursor of [
+			"war1.WyIiLCIiXQ",
+			"srf1.WyIiLCIiXQ",
+			"wsc1.0",
+			"garbage",
+		])
+			expect(() => assertEventCursor(name, cursor)).toThrow(
+				InteractionEventError,
+			);
+	}
+	expect(() =>
+		assertEventCursor("work.item.commented", "wir1.WyIiLCIiXQ"),
+	).toThrow(InteractionEventError);
+	expect(() =>
+		assertEventCursor("work.interaction.requested", "wcm1.WyIiLCIiXQ"),
+	).toThrow(InteractionEventError);
 });

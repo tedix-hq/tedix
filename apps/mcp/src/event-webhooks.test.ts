@@ -14,6 +14,7 @@ import {
 	subscribeEventWebhook,
 	unsubscribeEventWebhook,
 } from "./event-webhooks";
+import type { PollableEventName } from "./work-events";
 import { sendInteractionWebhook } from "./interaction-events";
 
 const ORG_A = "10000000-0000-4000-8000-00000000000a";
@@ -34,7 +35,7 @@ type Row = {
 	organizationId: string;
 	ownerSubject: string;
 	mcpUrl: string;
-	eventName: "work.item.state_changed";
+	eventName: PollableEventName;
 	arguments: Record<string, string>;
 	callbackUrl: string;
 	sealedCredential: string;
@@ -56,6 +57,13 @@ function installation() {
 	let now = T0;
 	let sequence = 100;
 	const ledger: Array<{ org: string; sequence: number; change: string }> = [];
+	const keysetLedger: Array<{
+		name: PollableEventName;
+		org: string;
+		id: string;
+		at: string;
+		data: Record<string, unknown>;
+	}> = [];
 	const rows = new Map<string, Row>();
 	const tokens = new Map([
 		["Bearer alice", { owner: "alice", orgs: [ORG_A] }],
@@ -64,8 +72,56 @@ function installation() {
 	const received: Array<{ headers: Headers; body: string }> = [];
 	let receiverStatus = 200;
 
+	const keysetFeed = (organizationId: string, name: PollableEventName) =>
+		vi.fn(
+			async (input: {
+				after: { at: string; id: string } | null;
+				limit: number;
+				workItemId?: string;
+				authorType?: string;
+				targetId?: string;
+				kind?: string;
+			}) => {
+				const own = keysetLedger.filter(
+					(row) => row.org === organizationId && row.name === name,
+				);
+				if (input.after === null) {
+					const last = own.at(-1);
+					return {
+						events: [],
+						after: last ? { at: last.at, id: last.id } : { at: "", id: "" },
+						hasMore: false,
+					};
+				}
+				const after = own.filter(
+					(row) =>
+						(row.at > input.after!.at ||
+							(row.at === input.after!.at && row.id > input.after!.id)) &&
+						(!input.workItemId || row.data.work_item_id === input.workItemId) &&
+						(!input.authorType || row.data.author_type === input.authorType) &&
+						(!input.targetId || row.data.target_id === input.targetId) &&
+						(!input.kind || row.data.kind === input.kind),
+				);
+				const page = after.slice(0, input.limit);
+				const last = page.at(-1);
+				return {
+					events: page.map((row) => ({
+						eventId: `evt_${name === "work.item.commented" ? "comment" : "interaction"}_${row.id}`,
+						timestamp: row.at,
+						data: row.data,
+					})),
+					after: last ? { at: last.at, id: last.id } : input.after,
+					hasMore: after.length > page.length,
+				};
+			},
+		);
 	const client = (organizationId: string, owner: string) => ({
 		mcpEvents: {
+			pollWorkComments: keysetFeed(organizationId, "work.item.commented"),
+			pollWorkInteractionRequests: keysetFeed(
+				organizationId,
+				"work.interaction.requested",
+			),
 			pollWorkStateChanges: vi.fn(
 				async (input: { afterSequence?: number | null; limit: number }) => {
 					const own = ledger.filter((row) => row.org === organizationId);
@@ -96,7 +152,7 @@ function installation() {
 			upsertWebhookSubscription: vi.fn(
 				async (input: {
 					id: string;
-					eventName: "work.item.state_changed";
+					eventName: PollableEventName;
 					arguments: Record<string, string>;
 					mcpUrl: string;
 					callbackUrl: string;
@@ -210,6 +266,7 @@ function installation() {
 		now: () => now,
 	};
 	return {
+		keysetLedger,
 		rows,
 		tokens,
 		received,
@@ -483,3 +540,96 @@ describe("events/subscribe webhook delivery", () => {
 		expect(f.rows.size).toBe(0);
 	});
 });
+
+it.each([
+	{
+		name: "work.item.commented" as const,
+		prefix: "wcm1",
+		eventId: "evt_comment_c1",
+		id: "c1",
+		filters: { author_type: "system" },
+		data: {
+			organization_id: ORG_A,
+			work_item_id: ITEM,
+			comment_id: "c1",
+			author_type: "system",
+			author_id: null,
+		},
+	},
+	{
+		name: "work.interaction.requested" as const,
+		prefix: "wir1",
+		eventId: "evt_interaction_i1",
+		id: "i1",
+		filters: { target_id: "Agent:CaseSensitive", kind: "question" },
+		data: {
+			organization_id: ORG_A,
+			request_id: "i1",
+			work_item_id: ITEM,
+			project_id: null,
+			kind: "question",
+			target_type: "external_agent",
+			target_id: "Agent:CaseSensitive",
+			creator_type: "system",
+			due_at: null,
+		},
+	},
+])(
+	"delivers, renews and unsubscribes signed $name webhooks",
+	async ({ name, prefix, eventId, id, filters, data }) => {
+		const args = { organization_id: ORG_A, work_item_id: ITEM, ...filters };
+		const params = subscribeParams(ORG_A, { name, arguments: args });
+		const subscribed = await subscribeEventWebhook(
+			env,
+			alice,
+			params,
+			f.dependencies,
+		);
+		expect(subscribed.cursor).toMatch(new RegExp(`^${prefix}\\.`));
+		expect(await f.deliver()).toMatchObject({ idle: 1, delivered: 0 });
+		f.keysetLedger.push({
+			name,
+			org: ORG_B,
+			id: "foreign",
+			at: new Date(T0).toISOString(),
+			data: { ...data, organization_id: ORG_B },
+		});
+		f.keysetLedger.push({
+			name,
+			org: ORG_A,
+			id,
+			at: new Date(T0).toISOString(),
+			data,
+		});
+		expect(await f.deliver()).toMatchObject({ delivered: 1 });
+		const delivery = f.received[0]!;
+		expect(await verifySignature(delivery.headers, delivery.body)).toBe(true);
+		expect(delivery.headers.get("webhook-id")).toBe(eventId);
+		const body = JSON.parse(delivery.body);
+		expect(body).toEqual({
+			eventId,
+			name,
+			timestamp: new Date(T0).toISOString(),
+			data,
+			cursor: expect.stringMatching(new RegExp(`^${prefix}\\.`)),
+		});
+		expect(Object.keys(body.data).sort()).toEqual(Object.keys(data).sort());
+		const renewed = await subscribeEventWebhook(
+			env,
+			alice,
+			params,
+			f.dependencies,
+		);
+		expect(renewed.id).toBe(subscribed.id);
+		expect(renewed.cursor).toBe(body.cursor);
+		expect(await f.deliver()).toMatchObject({ idle: 1, delivered: 0 });
+		expect(f.received).toHaveLength(1);
+		await unsubscribeEventWebhook(
+			env,
+			alice,
+			{ name, arguments: args, delivery: { mode: "webhook", url: CALLBACK } },
+			f.dependencies,
+		);
+		expect(f.rows.size).toBe(0);
+	},
+);

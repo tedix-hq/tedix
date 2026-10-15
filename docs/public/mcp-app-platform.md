@@ -95,13 +95,17 @@ Codex Goals own continuation of executable work. See [OpenAI MCP Events](https:/
 
 ### Poll Work and skill-run events
 
-The same flag adds three poll-only events to `events/list`:
+The same flag adds five poll-only events to `events/list`:
 `work.item.state_changed` (accepted, completed, cancelled, Attempt settled),
-`work.approval.requested` and `skill.run.failed`. Each poll needs human OAuth
+`work.approval.requested`, `work.item.commented`,
+`work.interaction.requested` and `skill.run.failed`. Each poll needs human OAuth
 that selects `organization_id`, plus a Work read scope (`mcp:work.*`) or, for
 skill runs, a skills scope. Reads come from the organization's own ledgers, so
 an agent never sees another organization's events. Payloads carry IDs and
-enums only. Re-read the record before acting.
+enums only. Comment events omit bodies and metadata; Interaction request
+events omit subjects, prompts and metadata. Filter comments by `work_item_id`
+and `author_type`, or requests by `work_item_id`, `target_id` and `kind`.
+Re-read the record before acting.
 
 ```sh
 curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
@@ -113,14 +117,40 @@ curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
 
 A `null` cursor starts from now and returns a fresh `cursor`. Store it and pass
 it on the next poll. Poll again at once while `hasMore` is true, otherwise
-after `nextPollMs`. A Claude or Codex host on MCP 2026-07-28 sends the same
-request from its events loop. Without the webhook opt-in below,
-`events/subscribe` answers `-32026` for these events.
+after `nextPollMs`. Neither Claude Code nor the Codex CLI polls MCP events
+for a custom server today; `tedix channel claude` (below) polls for a Claude
+Code session. Without the webhook opt-in below, `events/subscribe` answers
+`-32026` for these events. Discovery lists the extension as
+`io.modelcontextprotocol/events` under `capabilities.extensions`.
+
+### Deliver events into a Claude Code session
+
+Claude Code starts a turn on a channel message from a local stdio MCP server,
+not on an event from a remote server. `tedix channel claude` is that server: it
+polls these events with your stored login and sends each one to the session
+as a short ID-only notice. Register it in `.mcp.json`:
+
+```json
+{
+	"mcpServers": {
+		"tedix-events": {
+			"command": "tedix",
+			"args": ["-w", "connect", "--organization", "<slug>", "channel", "claude"]
+		}
+	}
+}
+```
+
+Start an interactive session with
+`claude --dangerously-load-development-channels server:tedix-events`; channels
+are a Claude Code research preview and do not load with `claude -p`. Name
+events after `claude` to limit them, and add `--param work_item_id=<uuid>` (or
+another `inputSchema` key) to filter.
 
 ### Subscribe to Work and skill-run events by webhook
 
 Set `mcpConfig.eventWebhooks: true` next to `interactionEvents` to let hosts
-subscribe to the same three events instead of polling. `events/list` then
+subscribe to the same five events instead of polling. `events/list` then
 shows `"delivery": ["poll", "webhook"]` for them. A subscription needs the
 same human OAuth grant and read scope as a poll, a public HTTPS callback that
 echoes the verification `challenge`, and a `whsec_` secret of 24 to 64 bytes:

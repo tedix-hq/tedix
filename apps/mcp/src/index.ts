@@ -3564,6 +3564,9 @@ export async function handleMcpRequest(
 				extensions: {
 					"io.modelcontextprotocol/apps": {},
 					"io.modelcontextprotocol/ui": {},
+					// SEP-3415 names the events extension here; the top-level
+					// `events` key above stays for hosts that read the older shape.
+					...(interactionEventsEnabled ? { [MCP_EVENTS_EXTENSION]: {} } : {}),
 					"io.modelcontextprotocol/skills": directoryReadHandler
 						? { directoryRead: true }
 						: {},
@@ -3967,6 +3970,7 @@ function requestBodyTooLargeResponse(): Response {
 }
 
 const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
+const MCP_EVENTS_EXTENSION = "io.modelcontextprotocol/events";
 
 export async function maybeHandleInteractionEvents(
 	request: Request,
@@ -4971,6 +4975,7 @@ async function maybeHandleCodeModeCompactMcp(
 						"io.modelcontextprotocol/apps": {},
 						"io.modelcontextprotocol/ui": {},
 						"io.modelcontextprotocol/skills": {},
+						...(interactionEventsEnabled ? { [MCP_EVENTS_EXTENSION]: {} } : {}),
 						...(exposesHomeTasks ? { [MCP_TASKS_EXTENSION]: {} } : {}),
 					},
 				},

@@ -59,6 +59,12 @@ import {
 } from "./external-agent";
 import { runFlowCommand } from "./flow";
 import { parseMcpCallRequest, runMcpCall } from "./mcp-call";
+import {
+	channelUsage,
+	parseChannelFilters,
+	planSubscriptions,
+	runEventChannel,
+} from "./event-channel";
 import { errorText, resolveColorMode } from "./format";
 import { fileDiscoveryCache } from "./discovery-cache";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
@@ -1076,6 +1082,33 @@ async function main() {
 			);
 			const { truncationHint } = normalized;
 			if (truncationHint) console.error(`\n[tedix] ${truncationHint}`);
+			return;
+		}
+		if (command === "channel") {
+			// stdout belongs to the MCP stdio transport from here on.
+			const [host, ...eventNames] = (options.prompt ?? "")
+				.trim()
+				.split(/\s+/)
+				.filter(Boolean);
+			if (host !== "claude") throw new Error(channelUsage());
+			const filters = parseChannelFilters(options.flowParam);
+			const channelClient = client;
+			await runEventChannel({
+				client: channelClient,
+				resolveSubscriptions: async () =>
+					planSubscriptions({
+						listResult: await channelClient.rawRequest("events/list"),
+						organizationId: await resolveThreadOrganizationId(channelClient),
+						requested: eventNames,
+						filters,
+					}),
+				io: {
+					input: process.stdin,
+					write: (line) => process.stdout.write(`${line}\n`),
+					log: (line) => console.error(line),
+				},
+				signal: commandAbort.signal,
+			});
 			return;
 		}
 		if (mcpRequest) {
