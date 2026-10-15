@@ -3072,6 +3072,27 @@ describe("output commit", () => {
 		expect(container.textContent).toContain("Saved version 3.");
 	});
 
+	it("discards unsaved changes back to the saved version only after confirming", async () => {
+		const session = mockOutputDoc();
+		const container = await openDoc("Weekly report");
+		expect(() => findButton(container, "Discard changes")).toThrow();
+		act(() =>
+			session.remote(
+				JSON.stringify({
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "stray edit" }],
+				}),
+			),
+		);
+		await flush();
+		click(findButton(container, "Discard changes"));
+		expect(replaceWithCanonical).not.toHaveBeenCalled();
+		click(findButton(container, "Discard and reload v2"));
+		await flush();
+		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
+		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+	});
+
 	it("refuses a draft whose kind differs from the output's", async () => {
 		const session = mockOutputDoc();
 		const wrongKind = JSON.stringify({
