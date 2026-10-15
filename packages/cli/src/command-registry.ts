@@ -92,7 +92,8 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 	},
 	{
 		name: "learn",
-		argHint: "import-sessions|analyze-sessions [--dry-run]",
+		argHint:
+			"onboard|import-sessions|analyze-sessions|context|review [--dry-run]",
 		surface: "mixed",
 		summary: "Teach Tedix from your past local agent sessions",
 		mutability: "write",

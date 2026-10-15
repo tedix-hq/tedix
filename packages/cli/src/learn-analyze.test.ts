@@ -10,6 +10,7 @@ import {
 	decisionLog,
 	extractDecisions,
 	frictionHotspots,
+	categoryIntro,
 	projectFor,
 	renderDescription,
 	repeatedRequests,
@@ -495,64 +496,112 @@ describe("runAnalyzeSessions", () => {
 });
 
 describe("syncSource", () => {
-	/** Runs the Code Mode program against an in-memory board. */
+	/** Runs the Code Mode program against an in-memory board as one person. */
 	async function run(
 		source: string,
 		rows: any[] | { ok: false; error: string },
+		me: { id: string; name: string } | null = {
+			id: "Uaaaaaaa1xyz",
+			name: "Ada Lovelace",
+		},
 	) {
 		const calls: string[] = [];
+		const written: string[] = [];
 		const work = {
 			list_work_items: async (input: { titleContains: string }) => {
 				calls.push(`list:${input.titleContains}`);
 				return Array.isArray(rows) ? { data: rows } : rows;
 			},
-			update_work_item_specification: async (input: { id: string }) => {
+			update_work_item_specification: async (input: {
+				id: string;
+				description: string;
+			}) => {
 				calls.push(`update:${input.id}`);
+				written.push(input.description);
 				return {};
 			},
-			create_work_items: async (input: { sourceIntentId: string }) => {
+			create_work_items: async (input: {
+				sourceIntentId: string;
+				description: string;
+			}) => {
 				calls.push(`create:${input.sourceIntentId}`);
+				written.push(input.description);
 				return { id: "new" };
 			},
 		};
-		const program = new Function("work", `return (${source})();`);
-		return { result: await program(work), calls };
+		const user = {
+			get_mine: async () => me,
+		};
+		const program = new Function("work", "user", `return (${source})();`);
+		return { result: await program(work, user), calls, written };
 	}
 	const want = {
 		title: CATEGORIES.friction.title,
 		intent: CATEGORIES.friction.intent,
-		description: "list v2",
+		intro: categoryIntro("friction"),
+		section: "Source: 2 local sessions.\n\n1. Failing: x",
 		projectId: "11111111-2222-4333-8444-555555555555",
 		create: true,
 	};
+	const existing = {
+		id: "w-1",
+		title: want.title,
+		sourceIntentId: want.intent,
+		disposition: "proposed",
+	};
 
-	it("updates the existing item, leaves an identical one alone and creates once", async () => {
-		const existing = {
-			id: "w-1",
-			title: want.title,
-			sourceIntentId: want.intent,
-			disposition: "proposed",
-		};
-		expect(
-			await run(syncSource(want), [{ ...existing, description: "list v1" }]),
-		).toEqual({
-			result: { id: "w-1", action: "updated" },
-			calls: ["list:Session analysis", "update:w-1"],
-		});
-		expect(
-			(await run(syncSource(want), [{ ...existing, description: "list v2" }]))
-				.result,
-		).toEqual({
-			id: "w-1",
-			action: "unchanged",
-		});
-		expect((await run(syncSource(want), [])).calls).toEqual([
-			"list:Session analysis",
-			`create:${want.intent}`,
+	it("writes only the caller's own section and keeps everyone else's", async () => {
+		const other = `${want.intro}\n\n## Grace Hopper (Ubbbbbbb)\nSource: 9 local sessions.\n\n1. Failing: y`;
+		const first = await run(syncSource(want), [
+			{ ...existing, description: other },
 		]);
+		expect(first.result).toEqual({ id: "w-1", action: "updated" });
+		expect(first.written[0]).toContain("## Grace Hopper (Ubbbbbbb)\nSource: 9");
+		expect(first.written[0]).toContain(
+			"## Ada Lovelace (Uaaaaaaa)\nSource: 2 local sessions.",
+		);
+		// A re-run with the same list changes nothing.
+		expect(
+			(
+				await run(syncSource(want), [
+					{ ...existing, description: first.written[0] },
+				])
+			).result,
+		).toEqual({ id: "w-1", action: "unchanged" });
+		// Another person's run never touches this person's section.
+		const second = await run(
+			syncSource({ ...want, section: "Source: 3\n\n1. Failing: z" }),
+			[{ ...existing, description: first.written[0] }],
+			{ id: "Ubbbbbbb9", name: "Grace Hopper" },
+		);
+		expect(second.written[0]).toContain(
+			"## Ada Lovelace (Uaaaaaaa)\nSource: 2",
+		);
+		expect(second.written[0]).toContain(
+			"## Grace Hopper (Ubbbbbbb)\nSource: 3",
+		);
+		expect(second.written[0]).not.toContain("Failing: y");
 	});
 
-	it("never creates when the listing fails", async () => {
+	it("keeps a list from before sections as the earlier list", async () => {
+		const legacy = `${CATEGORIES.friction.intro}\n\nSource: 320 local sessions.\n\n1. Failing: old`;
+		const { written } = await run(syncSource(want), [
+			{ ...existing, description: legacy },
+		]);
+		expect(written[0]).toContain(
+			"## Earlier list\nSource: 320 local sessions.",
+		);
+		expect(written[0]).toContain("## Ada Lovelace (Uaaaaaaa)");
+	});
+
+	it("creates once, with the caller's section", async () => {
+		const { calls, written } = await run(syncSource(want), []);
+		expect(calls).toEqual(["list:Session analysis", `create:${want.intent}`]);
+		expect(written[0]).toStartWith(want.intro);
+	});
+
+	it("never writes without the caller's identity or when the listing fails", async () => {
+		expect((await run(syncSource(want), [], null)).result.ok).toBe(false);
 		const { result, calls } = await run(syncSource(want), {
 			ok: false,
 			error: "Internal Server Error",

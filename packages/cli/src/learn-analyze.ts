@@ -19,6 +19,7 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { basename } from "node:path";
 import {
 	defaultOrganizationTarget,
@@ -66,6 +67,8 @@ export interface SessionSignals {
 	sessionId: string;
 	cwd: string | null;
 	origin: string | null;
+	/** The host's short session title, when it kept one. */
+	title: string | null;
 	/** Everything the person typed, of any length. */
 	asks: Array<{ text: string; at: string }>;
 	tools: ToolEvent[];
@@ -216,6 +219,7 @@ export function claudeSignals(rows: Json[]): SessionSignals | null {
 		sessionId: base.sessionId,
 		cwd: base.cwd,
 		origin: base.origin,
+		title: base.title,
 		asks: [],
 		tools: [],
 	};
@@ -412,6 +416,7 @@ export function codexSignals(rows: Json[]): SessionSignals | null {
 		sessionId: base.sessionId,
 		cwd: base.cwd,
 		origin: base.origin,
+		title: base.title,
 		asks: [],
 		tools: [],
 	};
@@ -806,7 +811,11 @@ export function decisionLog(
 		.slice(0, top);
 }
 
-/** The person's own `claude` CLI, headless, without saving a session. */
+/**
+ * The person's own `claude` CLI, headless, without saving a session. It runs
+ * with no tools, outside any repository and without user settings, so no
+ * memory, project context or hook (decision capture included) joins the call.
+ */
 export const claudeModel: RunModel = (prompt) =>
 	new Promise((resolve, reject) => {
 		const child = spawn(
@@ -818,8 +827,12 @@ export const claudeModel: RunModel = (prompt) =>
 				"--no-session-persistence",
 				"--output-format",
 				"text",
+				"--tools",
+				"",
+				"--setting-sources",
+				"project",
 			],
-			{ stdio: ["pipe", "pipe", "ignore"] },
+			{ cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] },
 		);
 		let out = "";
 		const timer = setTimeout(() => child.kill(), 180_000);
@@ -954,18 +967,25 @@ export function planAnalysis(input: {
 
 const DESCRIPTION_LIMIT = 9500;
 
+/** The shared part of a category's item: what the list is and how it is kept. */
+export function categoryIntro(category: Category): string {
+	return [
+		CATEGORIES[category].intro,
+		"",
+		"Each person's tedix learn analyze-sessions run replaces only their own section below. Counts and short redacted paraphrases only; no transcript leaves the machine.",
+	].join("\n");
+}
+
+/** One person's section body: where it came from, then the ranked list. */
 export function renderDescription(
-	category: Category,
+	_category: Category,
 	analysis: Pick<TargetAnalysis, "sessions" | "from" | "to">,
 	entries: Ranked[],
+	limit = DESCRIPTION_LIMIT / 2,
 ): string {
-	const { intro } = CATEGORIES[category];
 	const total = analysis.sessions["claude-code"] + analysis.sessions.codex;
 	const header = [
-		intro,
-		"",
-		`Source: ${total} local sessions (${analysis.sessions["claude-code"]} Claude Code, ${analysis.sessions.codex} Codex), ${day(analysis.from)} to ${day(analysis.to)}. Counts and short redacted paraphrases only; no transcript leaves the machine.`,
-		"Maintained by tedix learn analyze-sessions: a re-run replaces this list.",
+		`Source: ${total} local sessions (${analysis.sessions["claude-code"]} Claude Code, ${analysis.sessions.codex} Codex), ${day(analysis.from)} to ${day(analysis.to)}.`,
 		"",
 	];
 	if (!entries.length)
@@ -974,11 +994,54 @@ export function renderDescription(
 	let size = header.join("\n").length;
 	entries.forEach((entry, i) => {
 		const line = `${i + 1}. ${entry.label} (${entry.count} times in ${entry.sessions} sessions, last ${entry.last}${entry.note ? `; ${entry.note}` : ""})`;
-		if (size + line.length + 1 > DESCRIPTION_LIMIT) return;
+		if (size + line.length + 1 > limit) return;
 		size += line.length + 1;
 		lines.push(line);
 	});
 	return [...header, ...lines].join("\n");
+}
+
+/**
+ * A shared list with one section per person: replace (or add) the caller's
+ * section and keep everyone else's as written. A list from before sections
+ * existed is kept as "Earlier list". Runs locally and, verbatim, inside the
+ * Code Mode program, so it is self-contained JavaScript.
+ */
+export function spliceSection(
+	previous: string,
+	intro: string,
+	heading: string,
+	section: string,
+	limit: number,
+): string {
+	const isHeading = (line: string) =>
+		/^## .+ \([A-Za-z0-9_-]{8}\)$/.test(line) || line === "## Earlier list";
+	const text = String(previous || "");
+	const lines = text.split("\n");
+	const first = lines.findIndex(isHeading);
+	const sections: string[][] = [];
+	if (first < 0) {
+		const body = text.split("\n\n").slice(1).join("\n\n").trim();
+		if (body) sections.push(["## Earlier list", body]);
+	} else {
+		for (const line of lines.slice(first)) {
+			if (isHeading(line)) sections.push([line]);
+			else sections[sections.length - 1]!.push(line);
+		}
+	}
+	const tag = heading.slice(heading.lastIndexOf("("));
+	const mine = (part: string[]) => part[0]!.endsWith(tag);
+	const others = sections.filter((part) => !mine(part));
+	const otherText = others.map((part) => part.join("\n").trim()).join("\n\n");
+	const room = limit - intro.length - otherText.length - 8;
+	let own = `${heading}\n${section}`;
+	if (own.length > room)
+		own = own.slice(0, Math.max(heading.length, room)).replace(/\n[^\n]*$/, "");
+	const parts = sections.map((part) =>
+		mine(part) ? own : part.join("\n").trim(),
+	);
+	if (!sections.some(mine)) parts.push(own);
+	return [intro, ...parts].join("\n\n");
 }
 
 export function rankAll(
@@ -995,30 +1058,41 @@ export function rankAll(
 /** Every category title starts with this; it stays under D1's 50-byte LIKE limit. */
 const TITLE_PREFIX = "Session analysis";
 
-/** Code Mode program: find the item by intent or title, then update or create it. */
+/**
+ * Code Mode program: find the shared item by intent or title, then write the
+ * caller's own section into it (or create it with that section).
+ */
 export function syncSource(want: {
 	title: string;
 	intent: string;
-	description: string;
+	intro: string;
+	section: string;
 	projectId: string | null;
 	create: boolean;
 }): string {
 	return `async () => {
 	const want = ${asciiJson(want)};
+	const spliceSection = ${spliceSection.toString()};
+	let me = null;
+	try { me = await user.get_mine({}); } catch {}
+	if (!me || !me.id) return { ok: false, error: "your profile could not be read; a section needs your identity" };
+	const heading = "## " + (String(me.name || "").trim() || "Member") + " (" + String(me.id).slice(0, 8) + ")";
+	const describe = (previous) => spliceSection(previous, want.intro, heading, want.section, ${DESCRIPTION_LIMIT});
 	const page = await work.list_work_items({ titleContains: ${JSON.stringify(TITLE_PREFIX)}, limit: 100 });
 	// A failed read must never fall through to a create.
 	if (page?.ok === false || !Array.isArray(page?.data)) return { ok: false, error: "listing Work Items failed: " + String(page?.error ?? "no data") };
 	const rows = page.data.filter((r) => r.sourceIntentId === want.intent || r.title === want.title);
 	const row = rows.find((r) => r.disposition !== "cancelled");
 	if (row) {
-		if (row.description === want.description) return { id: row.id, action: "unchanged" };
-		await work.update_work_item_specification({ id: row.id, description: want.description });
+		const description = describe(row.description);
+		if (row.description === description) return { id: row.id, action: "unchanged" };
+		await work.update_work_item_specification({ id: row.id, description });
 		return { id: row.id, action: "updated" };
 	}
 	if (rows.length) return { id: rows[0].id, action: "cancelled; left alone" };
 	if (!want.create) return { id: null, action: "nothing to report" };
 	if (!want.projectId) return { id: null, action: "needs --project" };
-	const made = await work.create_work_items({ title: want.title, description: want.description, workKind: "research", priority: "medium", projectId: want.projectId, sourceIntentId: want.intent });
+	const made = await work.create_work_items({ title: want.title, description: describe(""), workKind: "research", priority: "medium", projectId: want.projectId, sourceIntentId: want.intent });
 	return { id: made.id, action: "created" };
 }`;
 }
@@ -1138,7 +1212,8 @@ export async function runAnalyzeSessions(
 			const source = syncSource({
 				title: CATEGORIES[category].title,
 				intent: CATEGORIES[category].intent,
-				description: renderDescription(category, analysis, entries),
+				intro: categoryIntro(category),
+				section: renderDescription(category, analysis, entries),
 				projectId,
 				create: entries.length > 0,
 			});

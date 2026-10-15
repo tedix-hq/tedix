@@ -1,0 +1,562 @@
+import { describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { normalizeGitOrigin, type OrganizationTarget } from "./agent-context";
+import {
+	boardMatchSource,
+	type Candidate,
+	extractCandidates,
+	judge,
+	memoryNotes,
+	planContext,
+	planNotes,
+	runContext,
+	runReview,
+	type SessionDigest,
+} from "./learn-context";
+import { emptyUnrouted, sessionLocator } from "./learn-import";
+
+const ORIGIN = "git@github.com:acme/app.git";
+const TARGET: OrganizationTarget = {
+	status: "bound",
+	workspace: "acme",
+	org: "org_acme",
+	organization: "org_acme",
+	mcpUrl: "https://acme.example/mcp",
+} as OrganizationTarget;
+const T = (day: number, minute = 0) =>
+	`2026-03-${String(day).padStart(2, "0")}T10:${String(minute).padStart(2, "0")}:00.000Z`;
+
+function claudeSession(id: string, title: string, asks: string[], day: number) {
+	return [
+		{ type: "ai-title", aiTitle: title, sessionId: id },
+		...asks.flatMap((ask, i) => [
+			{
+				type: "user",
+				sessionId: id,
+				cwd: tmpdir(),
+				uuid: `${id}-${i}`,
+				timestamp: T(day, i * 2),
+				message: { role: "user", content: ask },
+			},
+			{
+				type: "assistant",
+				sessionId: id,
+				timestamp: T(day, i * 2 + 1),
+				message: {
+					id: `${id}-a${i}`,
+					content: [{ type: "text", text: "Done." }],
+				},
+			},
+		]),
+	];
+}
+
+function codexSession(id: string, asks: string[], day: number) {
+	return [
+		{
+			type: "session_meta",
+			timestamp: T(day),
+			payload: {
+				id,
+				cwd: "/x",
+				thread_source: "user",
+				git: { repository_url: ORIGIN },
+			},
+		},
+		...asks.map((ask, i) => ({
+			type: "response_item",
+			timestamp: T(day, i + 1),
+			payload: {
+				type: "message",
+				role: "user",
+				content: [{ type: "input_text", text: ask }],
+			},
+		})),
+	];
+}
+
+/** An in-memory board the Code Mode programs run against. */
+class Board {
+	items: any[] = [];
+	created: any[] = [];
+	constructor(
+		public projectRows: any[],
+		public me = { id: "Uada0000xyz", name: "Ada Lovelace" },
+	) {}
+	async run(source: string) {
+		const work = {
+			list_work_items: async (input: any) => {
+				let rows = this.items.filter(
+					(r) =>
+						(!input.disposition || r.disposition === input.disposition) &&
+						(!input.projectId || r.projectId === input.projectId) &&
+						(!input.titleContains ||
+							r.title
+								.toLowerCase()
+								.includes(input.titleContains.toLowerCase())),
+				);
+				const offset = input.offset ?? 0;
+				const page = rows.slice(offset, offset + input.limit);
+				rows = page;
+				return {
+					data: rows,
+					pagination: { hasMore: offset + input.limit < this.items.length },
+				};
+			},
+			create_work_items: async (input: any) => {
+				const row = {
+					id: `w-${this.items.length + 1}`,
+					disposition: "proposed",
+					parentWorkItemId: null,
+					createdAt: T(20),
+					...input,
+				};
+				this.items.push(row);
+				this.created.push(row);
+				return { id: row.id };
+			},
+		};
+		const projects = {
+			list_projects: async () => ({
+				data: this.projectRows,
+				pagination: { hasMore: false },
+			}),
+		};
+		const user = { get_mine: async () => this.me };
+		const program = new Function(
+			"work",
+			"projects",
+			"user",
+			`return (${source})();`,
+		);
+		return program(work, projects, user);
+	}
+}
+
+const PROJECTS = [
+	{
+		id: "p-site",
+		key: "SITE",
+		name: "Public website",
+		status: "active",
+		description: "Landing pages and docs",
+	},
+	{
+		id: "p-billing",
+		key: "BILLING",
+		name: "Billing and invoices",
+		status: "active",
+		description: null,
+	},
+];
+
+function digest(
+	id: string,
+	title: string,
+	extra: Partial<SessionDigest> = {},
+): SessionDigest {
+	return {
+		harness: "claude-code",
+		sessionId: id,
+		title,
+		goal: false,
+		asks: [],
+		repository: "app",
+		from: T(1),
+		to: T(1, 5),
+		...extra,
+	};
+}
+
+describe("memoryNotes", () => {
+	it("reads only preference memories and Codex preference bullets", () => {
+		const home = mkdtempSync(join(tmpdir(), "learn-notes-"));
+		const memory = join(home, ".claude", "projects", "-app", "memory");
+		mkdirSync(memory, { recursive: true });
+		writeFileSync(
+			join(memory, "short.md"),
+			'---\nname: short\ndescription: "Answer in short bullet points, never tables"\nmetadata:\n  type: feedback\n---\nbody',
+		);
+		writeFileSync(
+			join(memory, "client.md"),
+			'---\nname: client\ndescription: "The Acme contact is reachable at someone, project detail"\nmetadata:\n  type: project\n---\n',
+		);
+		writeFileSync(join(memory, "MEMORY.md"), "- [short](short.md)\n");
+		mkdirSync(join(home, ".codex", "memories"), { recursive: true });
+		writeFileSync(
+			join(home, ".codex", "memories", "memory_summary.md"),
+			"## User Profile\n\nWorks on billing.\n\n## User preferences\n\n- Draft external messages for review, never send them.\n- ok\n\n## General Tips\n\n- Use the queue for pushes, not raw push.\n",
+		);
+		const notes = memoryNotes(home);
+		expect(notes.map((n) => [n.harness, n.text])).toEqual([
+			["claude-code", "Answer in short bullet points, never tables"],
+			["codex", "Draft external messages for review, never send them."],
+		]);
+		const routed = planNotes({
+			notes,
+			targets: new Map(),
+			defaultTarget: TARGET,
+			locate: sessionLocator(),
+			cwdOf: () => null,
+			unrouted: emptyUnrouted(),
+		});
+		const decisions = routed.get("acme/org_acme")!.decisions;
+		expect(decisions).toHaveLength(2);
+		expect(decisions[0]).toMatchObject({
+			topic: "preference",
+			agentMessage: "",
+			repository: null,
+		});
+		// The same note always has the same turn id, so a re-import is a duplicate.
+		expect(
+			planNotes({
+				notes,
+				targets: new Map(),
+				defaultTarget: TARGET,
+				locate: sessionLocator(),
+				cwdOf: () => null,
+				unrouted: emptyUnrouted(),
+			}).get("acme/org_acme")!.decisions[0]!.turnId,
+		).toBe(decisions[0]!.turnId);
+	});
+});
+
+describe("planContext", () => {
+	it("digests each session by its title and real asks, routed like the importer", () => {
+		const rows: Record<string, any[]> = {
+			a: claudeSession(
+				"s-a",
+				"Fix invoice rounding",
+				["status now?", "fix the rounding of invoice totals to two decimals"],
+				2,
+			),
+			b: codexSession(
+				"s-b",
+				["the invoice totals still round wrong for EUR"],
+				3,
+			),
+		};
+		const plan = planContext({
+			files: [
+				{ harness: "claude-code", path: "a" },
+				{ harness: "codex", path: "b" },
+			],
+			targets: new Map([[normalizeGitOrigin(ORIGIN), TARGET]]),
+			defaultTarget: TARGET,
+			titles: new Map([["s-b", "Invoice rounding for EUR"]]),
+			goals: new Map([
+				[
+					"s-b",
+					"Make invoice totals correct in every currency. Then add tests.",
+				],
+			]),
+			read: (path) => rows[path]!,
+			originOf: () => null,
+		});
+		const sessions = plan.byTarget.get("acme/org_acme")!.sessions;
+		expect(sessions.map((s) => [s.title, s.goal, s.asks])).toEqual([
+			[
+				"Fix invoice rounding",
+				false,
+				["fix the rounding of invoice totals to two decimals"],
+			],
+			[
+				"Make invoice totals correct in every currency.",
+				true,
+				["the invoice totals still round wrong for EUR"],
+			],
+		]);
+	});
+});
+
+describe("extractCandidates", () => {
+	it("keeps topics two sessions share and drops one-offs, without a model", async () => {
+		const candidates = await extractCandidates(
+			[
+				digest("1", "Fix invoice rounding"),
+				digest("2", "Invoice rounding fix"),
+				digest("3", "Weather this weekend"),
+			],
+			null,
+		);
+		expect(candidates.map((c) => [c.title, c.sessions.length])).toEqual([
+			["Fix invoice rounding", 2],
+		]);
+	});
+
+	it("drops a broad entry its narrower entries already explain", async () => {
+		const model = async () =>
+			JSON.stringify([
+				{
+					kind: "goal",
+					title: "Grow the public website",
+					sessions: [1, 2, 3],
+					confidence: 0.8,
+				},
+				{
+					kind: "task",
+					title: "Rewrite landing page hero copy",
+					sessions: [1, 2],
+					confidence: 0.8,
+				},
+				{
+					kind: "task",
+					title: "Add pricing page FAQ section",
+					sessions: [3],
+					confidence: 0.9,
+				},
+			]);
+		const candidates = await extractCandidates(
+			[digest("1", "Hero"), digest("2", "Hero copy"), digest("3", "FAQ")],
+			model,
+		);
+		expect(candidates.map((c) => c.title)).toEqual([
+			"Rewrite landing page hero copy",
+			"Add pricing page FAQ section",
+		]);
+	});
+});
+
+function candidate(title: string, extra: Partial<Candidate> = {}): Candidate {
+	return {
+		key: title.toLowerCase().replace(/\W+/g, "-"),
+		kind: "task",
+		title,
+		confidence: 0.8,
+		sessions: ["1", "2"],
+		from: T(1),
+		to: T(2),
+		goal: false,
+		...extra,
+	};
+}
+
+describe("board match and judge", () => {
+	it("finds the covering item, places new work under a project and never files a goal", async () => {
+		const board = new Board(PROJECTS);
+		board.items = [
+			{
+				id: "w-old",
+				title: "Fix the rounding of invoice totals",
+				projectId: "p-billing",
+				disposition: "completed",
+				parentWorkItemId: null,
+				createdAt: T(1),
+			},
+			{
+				id: "w-open",
+				title: "Refresh the landing page",
+				projectId: "p-site",
+				disposition: "accepted",
+				parentWorkItemId: null,
+				createdAt: T(1),
+			},
+		];
+		const candidates = [
+			candidate("Fix invoice totals rounding"),
+			candidate("Add a pricing FAQ to the public website"),
+			candidate("Grow the public website", { kind: "goal", sessions: ["3"] }),
+			candidate("Plan a holiday trip", { sessions: ["4", "5"] }),
+		];
+		const matches = await board.run(
+			boardMatchSource({
+				candidates: candidates.map((c) => ({ k: c.key, t: c.title })),
+				since: T(1),
+				dispositions: ["proposed", "accepted", "completed"],
+				projects: true,
+			}),
+		);
+		expect(matches.me.id).toBe("Uada0000xyz");
+		const proposals = await judge(candidates, matches, null, new Map());
+		expect(
+			proposals.map((p) => [p.action, p.workId ?? p.projectKey ?? null]),
+		).toEqual([
+			["tracked", "w-old"],
+			["create", "SITE"],
+			["tracked", "SITE"],
+			["unplaced", null],
+		]);
+	});
+
+	it("trusts the model's covering match and ignores references it did not offer", async () => {
+		const candidates = [candidate("Ship the invoice export")];
+		const board = {
+			me: null,
+			scanned: {},
+			matches: {
+				[candidates[0]!.key]: {
+					w: [
+						[
+							"w-9",
+							"Export invoices as CSV",
+							"p-billing",
+							"accepted",
+							null,
+							0.3,
+						] as any,
+					],
+					p: [["p-billing", "BILLING", "Billing and invoices", 0.3] as any],
+				},
+			},
+		};
+		const same = await judge(
+			candidates,
+			board,
+			async () => '[{"c":1,"same":"W1","parent":"","project":"P1"}]',
+			new Map(),
+		);
+		expect(same[0]).toMatchObject({ action: "tracked", workId: "w-9" });
+		const bogus = await judge(
+			candidates,
+			board,
+			async () => '[{"c":1,"same":"W7","parent":"","project":"P1"}]',
+			new Map(),
+		);
+		expect(bogus[0]).toMatchObject({ action: "create", projectKey: "BILLING" });
+	});
+});
+
+describe("context and review", () => {
+	const rows: Record<string, any[]> = {
+		a: claudeSession(
+			"s-a",
+			"Add pricing FAQ to the public website",
+			["add a pricing FAQ section to the public website"],
+			2,
+		),
+		b: claudeSession(
+			"s-b",
+			"Pricing FAQ for the public website",
+			["the website pricing FAQ needs three more questions"],
+			3,
+		),
+		c: claudeSession(
+			"s-c",
+			"Fix invoice rounding",
+			["fix the rounding of invoice totals"],
+			4,
+		),
+		d: claudeSession(
+			"s-d",
+			"Invoice rounding again",
+			["invoice totals rounding is still off"],
+			5,
+		),
+	};
+	const files = Object.keys(rows).map((path) => ({
+		harness: "claude-code" as const,
+		path,
+	}));
+
+	function deps(board: Board, stateDir: string, out: string[]) {
+		return {
+			files,
+			readFile: (path: string) => rows[path]!,
+			home: "/nonexistent-home",
+			targets: new Map(),
+			defaultTarget: TARGET,
+			originOf: () => null,
+			stateDir,
+			write: (line: string) => out.push(line),
+			read: async (args: string[], _timeout: number, source?: string) => {
+				expect(args).toEqual([
+					"-w",
+					"acme",
+					"--organization",
+					"org_acme",
+					"code",
+				]);
+				return board.run(source!);
+			},
+		};
+	}
+
+	it("proposes first, files only what is accepted, and a re-run creates nothing new", async () => {
+		const board = new Board(PROJECTS);
+		board.items = [
+			{
+				id: "w-old",
+				title: "Fix the rounding of invoice totals",
+				projectId: "p-billing",
+				disposition: "completed",
+				parentWorkItemId: null,
+				createdAt: T(1),
+			},
+		];
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		const out: string[] = [];
+		expect(await runContext(["--no-model"], deps(board, stateDir, out))).toBe(
+			0,
+		);
+		expect(board.created).toHaveLength(0);
+		const text = out.join("\n");
+		expect(text).toContain("Already on the board (1)");
+		expect(text).toContain("1. Add pricing FAQ to the public website -> SITE");
+
+		out.length = 0;
+		expect(
+			await runReview(["--accept", "all"], deps(board, stateDir, out)),
+		).toBe(0);
+		expect(
+			board.created.map((r) => [
+				r.title,
+				r.projectId,
+				r.sourceIntentId.startsWith("learn-context:Uada0000xyz:"),
+			]),
+		).toEqual([["Add pricing FAQ to the public website", "p-site", true]]);
+		expect(board.created[0]!.description).toContain(
+			"Proposed from Ada's local agent sessions",
+		);
+
+		// Running again: the accepted item is on the board now; nothing to review.
+		out.length = 0;
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		expect(out.join("\n")).toContain("Nothing to review");
+		out.length = 0;
+		await runReview(["--accept", "all"], deps(board, stateDir, out));
+		expect(board.created).toHaveLength(1);
+
+		// A second member with the same work finds it on the board, not a duplicate.
+		const second = new Board(PROJECTS, {
+			id: "Ugrace000",
+			name: "Grace Hopper",
+		});
+		second.items = board.items;
+		const otherOut: string[] = [];
+		await runContext(
+			["--no-model"],
+			deps(second, mkdtempSync(join(tmpdir(), "learn-state-")), otherOut),
+		);
+		expect(otherOut.join("\n")).toContain("Nothing to review");
+		expect(second.created).toHaveLength(0);
+	});
+
+	it("remembers a rejection and never asks again", async () => {
+		const board = new Board(PROJECTS);
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		const out: string[] = [];
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		const answers = ["n"];
+		await runReview([], {
+			...deps(board, stateDir, out),
+			ask: async () => answers.shift() ?? "q",
+		});
+		expect(board.created).toHaveLength(0);
+		out.length = 0;
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		expect(out.join("\n")).toContain("Decided earlier and not asked again: 1");
+	});
+
+	it("a dry run reads the board but saves and files nothing", async () => {
+		const board = new Board(PROJECTS);
+		const stateDir = join(mkdtempSync(join(tmpdir(), "learn-state-")), "never");
+		const out: string[] = [];
+		await runContext(["--no-model", "--dry-run"], deps(board, stateDir, out));
+		expect(out.join("\n")).toContain("Dry run: nothing was saved or sent.");
+		out.length = 0;
+		await runReview([], deps(board, stateDir, out));
+		expect(out.join("\n")).toContain("No proposals to review");
+	});
+});
