@@ -71,9 +71,9 @@ export async function fetchOsExportImage(source: string): Promise<string> {
 	return `data:${type};base64,${Buffer.concat(chunks).toString("base64")}`;
 }
 
-export async function inlineOsExportImages(
-	content: OsOutputContent,
-): Promise<OsOutputContent> {
+export async function inlineOsExportImages<T extends OsOutputContent>(
+	content: T,
+): Promise<T> {
 	const copy = structuredClone(content);
 	const sources = new Map<string, string>();
 	const inline = async (source: string) => {

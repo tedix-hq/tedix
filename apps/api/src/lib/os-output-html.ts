@@ -114,7 +114,7 @@ function safeCssColor(value: string | undefined): string | undefined {
 		: undefined;
 }
 
-function renderRichTextNode(node: OsRichTextNode): string {
+export function renderRichTextNode(node: OsRichTextNode): string {
 	if (node.type === "text") {
 		let value = escapeHtml(node.text ?? "");
 		for (const mark of node.marks ?? []) {
@@ -191,8 +191,10 @@ function renderRichTextNode(node: OsRichTextNode): string {
 			return `<p${alignment}>${children}</p>`;
 		case "bulletList":
 			return `<ul>${children}</ul>`;
-		case "orderedList":
-			return `<ol>${children}</ol>`;
+		case "orderedList": {
+			const start = Number(node.attrs?.start);
+			return `<ol${Number.isSafeInteger(start) && start > 0 ? ` start="${start}"` : ""}>${children}</ol>`;
+		}
 		case "listItem":
 			return `<li>${children}</li>`;
 		case "blockquote":
@@ -201,6 +203,8 @@ function renderRichTextNode(node: OsRichTextNode): string {
 			return `<pre><code>${children}</code></pre>`;
 		case "horizontalRule":
 			return "<hr>";
+		case "hardBreak":
+			return "<br>";
 		case "image": {
 			const source = typeof node.attrs?.src === "string" ? node.attrs.src : "";
 			if (!isExportImage(source)) return "";

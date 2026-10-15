@@ -210,11 +210,9 @@ export function isUntrustedContentPath(pathname: string): boolean {
  * skill-media lanes (signed + session).
  *
  * `/os-exports/:outputId/:file` is deliberately absent: its filename regex
- * (`/^rev-(\d+)\.(pdf|png|xlsx|docx|pptx)$/`, worker-app.ts) constrains the
- * response to inert types the browser never renders as a document — the
- * Office three are additionally served `Content-Disposition: attachment` — and
- * `/os-shared/:token` returns JSON. Neither carries an agent-chosen content
- * type.
+ * in worker-app.ts constrains the content types; text, HTML, CSV, ZIP and
+ * Office files are served as attachments with a sandbox CSP and nosniff.
+ * `/os-shared/:token` returns JSON. Neither carries an agent-chosen content type.
  */
 export function isAgentAuthoredBytePath(pathname: string): boolean {
 	return (

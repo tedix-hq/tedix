@@ -1265,7 +1265,9 @@ app.post("/portable/tedis/:tediId/import/:section", async (c) => {
 app.get("/os-exports/:outputId/:file", async (c) => {
 	const outputId = c.req.param("outputId");
 	const file = c.req.param("file");
-	const match = /^rev-(\d+)\.(pdf|png|xlsx|docx|pptx)$/.exec(file);
+	const match = /^rev-(\d+)\.(pdf|png|xlsx|docx|pptx|md|html|csv|zip)$/.exec(
+		file,
+	);
 	if (!match) return c.text("Not found", 404);
 
 	const { extractRequestToken } = await import("./lib/request-token");
@@ -1334,10 +1336,23 @@ app.get("/os-exports/:outputId/:file", async (c) => {
 		`os-exports/${orgId}/${outputId}/${file}`,
 	);
 	if (!object) return c.text("Export not found", 404);
-	const extension = match[2] as "pdf" | "png" | "xlsx" | "docx" | "pptx";
+	const extension = match[2] as
+		| "pdf"
+		| "png"
+		| "xlsx"
+		| "docx"
+		| "pptx"
+		| "md"
+		| "html"
+		| "csv"
+		| "zip";
 	const fallbackTypes = {
 		pdf: "application/pdf",
 		png: "image/png",
+		md: "text/markdown; charset=utf-8",
+		html: "text/html; charset=utf-8",
+		csv: "text/csv; charset=utf-8",
+		zip: "application/zip",
 		xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 		docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -1356,6 +1371,13 @@ app.get("/os-exports/:outputId/:file", async (c) => {
 				`attachment; filename="rev-${match[1]}.${extension}"`;
 	return new Response(object.body, {
 		headers: {
+			"X-Content-Type-Options": "nosniff",
+			...(extension !== "pdf" && extension !== "png"
+				? {
+						"Content-Security-Policy":
+							"sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
+					}
+				: {}),
 			"Content-Type":
 				object.httpMetadata?.contentType ?? fallbackTypes[extension],
 			"Content-Length": String(object.size),

@@ -6,10 +6,8 @@
  * rendered, the revision body is written directly as OOXML, so a spreadsheet
  * arrives as cells and formulas rather than as an image of a grid.
  *
- * Everything under `./ooxml` is dependency-free and uses only platform APIs
- * (`TextEncoder`, `Blob`, `CompressionStream`), all of which workerd
- * implements — no Node `zlib`, `fs`, `Buffer` or stream shim is reachable from
- * this path.
+ * ZIP/XML generation uses platform APIs; remote PPTX images use the shared
+ * guarded export-image loader.
  */
 
 import type {
