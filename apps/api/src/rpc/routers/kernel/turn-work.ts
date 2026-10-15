@@ -1806,6 +1806,16 @@ async function planAndParkKernelWriteProposal(
 	let writeProposalDeclined: KernelWriteProposalDeclined | null = null;
 	if (kernelResult?.route?.routeKind === "propose_tool_write") {
 		emitProgress(deps, "Drafting write proposal");
+		const writeModel = kernelModel(
+			deps.env as unknown as KernelEnv,
+			undefined,
+			{
+				organizationId,
+				runId,
+				sessionKey: conversationId,
+				source: "kernel:write-proposal",
+			},
+		);
 		writeProposal = await deps
 			.writeProposalPlanner({
 				db: deps.db,
@@ -1817,12 +1827,7 @@ async function planAndParkKernelWriteProposal(
 				workspaceContext,
 				gatewayContext: { organizationId, runId, sessionKey: conversationId },
 				onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
-				model:
-					kernelModel(
-						deps.env as unknown as KernelEnv,
-						undefined,
-						organizationId,
-					)?.model ?? null,
+				model: writeModel?.model ?? null,
 				onDecline: (declined) => {
 					writeProposalDeclined = declined;
 				},
@@ -1839,6 +1844,7 @@ async function planAndParkKernelWriteProposal(
 				};
 				return null;
 			});
+		executionAttempts.push(...(writeModel?.attempts ?? []));
 	}
 	let writeApprovalRequestId: string | null = null;
 	if (writeProposal) {

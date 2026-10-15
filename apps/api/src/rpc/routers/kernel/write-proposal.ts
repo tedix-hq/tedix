@@ -47,11 +47,16 @@ import { selectJevAction, type JevActionEnv } from "./jev-action-selection";
 import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-policy";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
-import { APICallError, jsonSchema, type LanguageModel } from "ai";
+import {
+	APICallError,
+	jsonSchema,
+	type LanguageModel,
+	NoObjectGeneratedError,
+} from "ai";
 import { objectSpanTelemetry, tracedAi } from "../../../lib/traced-ai";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import * as z from "zod";
-import { flatAbortSignal, KERNEL_LLM_FLAT_TIMEOUT_MS } from "./llm-guard";
+import { flatAbortSignal } from "./llm-guard";
 import type { KernelRouteDecision } from "./route-schema";
 import {
 	codeModeDiscoveryParams,
@@ -428,7 +433,9 @@ async function resolveProviderApp(
 /** Sentinel the model uses when no listed tool fits the request. */
 const NO_WRITE_TOOL = "NONE";
 
-const MAX_OUTPUT_TOKENS = 3000;
+// Reasoning shares this budget with the argument object on reasoning models.
+const MAX_OUTPUT_TOKENS = 8192;
+const WRITE_GENERATION_TIMEOUT_MS = 120_000;
 const MAX_CATALOG_TOOLS = 40;
 /** Bounded room for record descriptions and drafts, including JSON overhead. */
 const MAX_ARGS_JSON_LENGTH = 16_384;
@@ -659,9 +666,12 @@ async function planWriteCall(args: {
 			// Provider strict schemas cannot express arbitrary MCP optional fields.
 			// The complete selected input contract is validated before any approval.
 			providerOptions: {
-				cloudflareAutoRouter: { strictJsonSchema: false },
-				openai: { strictJsonSchema: false },
-				azure: { strictJsonSchema: false },
+				cloudflareAutoRouter: {
+					strictJsonSchema: false,
+					reasoningEffort: "low",
+				},
+				openai: { strictJsonSchema: false, reasoningEffort: "low" },
+				azure: { strictJsonSchema: false, reasoningEffort: "low" },
 			},
 			// Flat abort: a stalled write pass never settles and never throws; the
 			// timeout makes it reject → the catch returns null (no heuristic write).
@@ -695,9 +705,12 @@ async function planWriteCall(args: {
 		args.onFailure?.(
 			abortSignal.aborted
 				? "Argument generation timed out"
-				: APICallError.isInstance(error) && error.statusCode
-					? `Argument generation failed (HTTP ${error.statusCode})`
-					: "Argument generation failed",
+				: NoObjectGeneratedError.isInstance(error) &&
+					  error.finishReason === "length"
+					? "Argument generation exhausted its output budget"
+					: APICallError.isInstance(error) && error.statusCode
+						? `Argument generation failed (HTTP ${error.statusCode})`
+						: "Argument generation failed",
 		);
 		return null;
 	}
@@ -840,7 +853,7 @@ export async function planKernelWriteProposal(args: {
 		actingUserId,
 		content,
 		model,
-		timeoutMs = KERNEL_LLM_FLAT_TIMEOUT_MS,
+		timeoutMs = WRITE_GENERATION_TIMEOUT_MS,
 	} = args;
 	const decline = (declined: KernelWriteProposalDeclined): null => {
 		args.onDecline?.(declined);
