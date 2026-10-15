@@ -1783,6 +1783,31 @@ a:focus-visible {
 	max-height: 100%;
 }
 
+/* Drag-reorder in the rail: the dragged row dims and a line marks the drop. */
+.slide-list-row[data-dragging] {
+	opacity: 0.4;
+}
+
+.slide-list-row[data-drop]::before {
+	content: "";
+	position: absolute;
+	right: 2px;
+	left: 2px;
+	z-index: 1;
+	height: 2px;
+	border-radius: 2px;
+	background: #7c3aed;
+	pointer-events: none;
+}
+
+.slide-list-row[data-drop="before"]::before {
+	top: -4px;
+}
+
+.slide-list-row[data-drop="after"]::before {
+	bottom: -4px;
+}
+
 /* Narrow/stacked: the rail sits above the stage, so cap it. */
 .slides-editor-layout[data-show-thumbnails]:not([data-show-inspector])
 	.slides-editor-thumbnails {
