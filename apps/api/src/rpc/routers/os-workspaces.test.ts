@@ -2124,6 +2124,14 @@ describe("output export", () => {
 		expect(html.match(/<section class="slide">/g)).toHaveLength(2);
 		expect(html).not.toContain("Private cue");
 		expect(html).not.toContain('<header class="export-header">');
+		await client.outputs.export({ outputId: output.id, format: "png" });
+		expect(calls[1]).toMatchObject({
+			action: "screenshot",
+			payload: {
+				viewport: { width: 1200, height: 675 },
+				screenshotOptions: { fullPage: true },
+			},
+		});
 	});
 
 	it("exports a PNG through the screenshot action with image validation", async () => {

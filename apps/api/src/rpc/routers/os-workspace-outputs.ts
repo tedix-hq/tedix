@@ -886,6 +886,12 @@ async function renderExportBytes(
 		{
 			html,
 			...OS_EXPORT_RESOURCE_WAIT,
+			...(format === "png" && content.kind === "presentation"
+				? {
+						viewport: { width: 1200, height: 675 },
+						screenshotOptions: { fullPage: true },
+					}
+				: {}),
 			...(format === "pdf"
 				? { pdfOptions: { preferCSSPageSize: true, printBackground: true } }
 				: {}),
