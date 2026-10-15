@@ -1,13 +1,10 @@
 import policy from "./no-funds-policy.json";
 import type { AppTool, ServerContext } from "./server-context";
-import {
-	isFinancialBillingTool,
-	isNonPayingConnection,
-} from "./connect-payment-policy";
+import { isNonPayingConnection } from "./connect-payment-policy";
 import { getToolPaymentPolicy } from "./payments";
 
 const financialPattern = new RegExp(
-	`(?:^|_)(?:${[...policy.financialTerms, ...policy.paymentProviders].join("|")})[a-z]*(?:_|$)`,
+	`(?:^|_)(?:${policy.moneyMovingOperations.join("|")})$`,
 );
 
 export function hasNoFundsRestriction(
@@ -23,20 +20,29 @@ function normalized(value: string): string {
 		.replace(/[^a-z0-9]+/g, "_");
 }
 
-/** A read declaration cannot override a financial name or target. */
+/** Match operation identifiers, not prose mentioning payment or a provider. */
 export function isNoFundsToolDenied(tool: AppTool): boolean {
-	if (isFinancialBillingTool(tool) || getToolPaymentPolicy(tool)) return true;
-	if (policy.deniedTransports.includes(String(tool.config?.transport)))
+	if (getToolPaymentPolicy(tool)) return true;
+	const targets = [
+		tool.toolId,
+		tool.config?.endpoint,
+		tool.config?.mcpToolName,
+	];
+	if (
+		targets.some(
+			(target) =>
+				typeof target === "string" && financialPattern.test(normalized(target)),
+		)
+	)
 		return true;
-	const text = normalized(
-		[
-			tool.toolId,
-			tool.title,
-			tool.description,
-			JSON.stringify(tool.config),
-		].join(" "),
+	return (
+		tool.config?.transport === "rest" &&
+		tool.config?.method === "POST" &&
+		typeof tool.config?.endpoint === "string" &&
+		/(?:^|_)(?:charges|payments|payment_intents|payouts|refunds|transfers|withdrawals)$/.test(
+			normalized(tool.config.endpoint),
+		)
 	);
-	return financialPattern.test(text);
 }
 
 export function isToolDeniedForConnection(
