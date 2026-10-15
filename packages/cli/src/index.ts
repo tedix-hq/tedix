@@ -92,6 +92,7 @@ import {
 	resolveOrganizationTarget,
 } from "./organization-target";
 import { runWorkflowCommand } from "./workflow";
+import { runFactoryCommand } from "./factory";
 import { resolvePublicCliWorkspace } from "./workspace-resolver";
 
 /** Parse `--org <tenant>` from argv for `tedix login` (`tedix` → `org_tedix`). */
@@ -1120,6 +1121,27 @@ async function main() {
 					...(options.flowParam ? { param: options.flowParam } : {}),
 					...(options.flowParams ? { params: options.flowParams } : {}),
 					...(options.workReason ? { reason: options.workReason } : {}),
+				},
+			});
+			return;
+		}
+		if (command === "factory") {
+			process.exitCode = await runFactoryCommand(options.prompt?.trim() ?? "", {
+				client,
+				color,
+				json: options.json,
+				factory: {
+					goal: options.factoryGoal,
+					owner: options.factoryOwner,
+					cadence: options.factoryCadence,
+					template: options.factoryTemplate,
+					slug: options.factorySlug,
+					name: options.factoryName,
+					maxProposals: options.factoryMaxProposals,
+					workspaceId: options.factoryWorkspaceId,
+					project: options.workProject,
+					dryRun: options.factoryDryRun,
+					runs: options.limit,
 				},
 			});
 			return;

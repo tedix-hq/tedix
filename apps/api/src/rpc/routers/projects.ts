@@ -15,6 +15,8 @@
  * GET    /projects/{id}/rollup  - Project rollup (status/type counts + headline items)
  * GET    /projects/portfolio    - Every project with its card counts, next item, health
  * GET    /projects/factory-scoreboard - Each loop and Blueprint with 7-day runs, Outputs, Work
+ * POST   /projects/factories     - Build a factory from a goal (project-factories.ts)
+ * GET    /projects/factory-health - One verdict per factory (project-factories.ts)
  */
 
 import { implement } from "@orpc/server";
@@ -55,6 +57,10 @@ import {
 } from "@tedix/db/queries/projects";
 import { getObjectiveById } from "@tedix/db/queries/tedi-objectives";
 import { getTediById } from "@tedix/db/queries/tedis";
+import {
+	createFactoryProcedure,
+	inspectFactoryHealthProcedure,
+} from "./project-factories";
 import type { Project } from "@tedix/db/schema/projects";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { requireOrgIdOrInput } from "../org-scope";
@@ -615,6 +621,8 @@ export const projectsContractRouter = projectsOs.router({
 	getRollup: skipOutputValidation(getRollupProcedure),
 	getPortfolio: skipOutputValidation(getPortfolioProcedure),
 	getFactoryScoreboard: getFactoryScoreboardProcedure,
+	createFactory: createFactoryProcedure,
+	inspectFactoryHealth: inspectFactoryHealthProcedure,
 	createMilestone: createMilestoneProcedure,
 	listMilestones: listMilestonesProcedure,
 	createSprint: createSprintProcedure,

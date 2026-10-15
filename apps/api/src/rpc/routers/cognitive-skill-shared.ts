@@ -359,6 +359,8 @@ export async function createSkillFromInput(
 	orgId: string,
 	input: {
 		title: string;
+		/** Explicit slug; omitted, the slug is minted from the title. */
+		slug?: string;
 		folderPath?: string;
 		description?: string;
 		content: string;
@@ -552,6 +554,7 @@ export async function createSkillFromInput(
 		tediId: input.tediId ?? null,
 		domainId: domain.id,
 		title: input.title,
+		...(input.slug ? { slug: input.slug } : {}),
 		folderPath: input.folderPath ?? null,
 		description: input.description ?? null,
 		content: input.content,

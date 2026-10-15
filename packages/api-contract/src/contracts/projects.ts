@@ -27,6 +27,12 @@ import {
 	WorkFactoryOwnerTypeSchema,
 	CredentialWorkActorTypeSchema,
 } from "../schemas/work-items";
+import {
+	CreateFactoryInputSchema,
+	CreateFactoryResultSchema,
+	InspectFactoryHealthInputSchema,
+	InspectFactoryHealthResultSchema,
+} from "../schemas/factories";
 
 // =============================================================================
 // SCHEMAS
@@ -414,6 +420,28 @@ export const projectsContract = oc
 					.optional(),
 			)
 			.output(FactoryScoreboardSchema),
+
+		createFactory: oc
+			.route({
+				method: "POST",
+				path: "/factories",
+				summary: "Create factory",
+				description:
+					"Build a factory from a goal in one call: the Work project and objective, a scheduled lane skill from a template (daily by default, off :00/:30), and a standing health Work Item. Idempotent by slug: re-running reuses what exists. A signed-in human or operator key activates the lane; an agent gets a draft plus the proof-run step.",
+			})
+			.input(CreateFactoryInputSchema)
+			.output(CreateFactoryResultSchema),
+
+		inspectFactoryHealth: oc
+			.route({
+				method: "GET",
+				path: "/factory-health",
+				summary: "Inspect factory health",
+				description:
+					"One verdict per factory (healthy, idle, failing, not_firing, pending) with its last scheduled runs, what each delivered (Work created, comments, Output revisions), whether it ran today, its next fire time and its last proof run. Give a slug or skill id, or omit it to list every factory.",
+			})
+			.input(InspectFactoryHealthInputSchema)
+			.output(InspectFactoryHealthResultSchema),
 
 		createMilestone: oc
 			.route({

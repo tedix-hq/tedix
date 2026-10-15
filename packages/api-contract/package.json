@@ -183,6 +183,7 @@
 		"./schemas/widget": "./src/schemas/widget.ts",
 		"./schemas/widget-theme": "./src/schemas/widget-theme.ts",
 		"./schemas/factory-blueprints": "./src/schemas/factory-blueprints.ts",
+		"./schemas/factories": "./src/schemas/factories.ts",
 		"./schemas/work-items": "./src/schemas/work-items.ts",
 		"./schemas/work-approvals": "./src/schemas/work-approvals.ts",
 		"./schemas/work-agent-sessions": "./src/schemas/work-agent-sessions.ts",

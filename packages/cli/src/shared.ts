@@ -170,6 +170,16 @@ export interface CliOptions {
 	flowTitle?: string;
 	/** `flow run --skill <uuid>`: run an existing executable skill. */
 	flowSkill?: string;
+	// `tedix factory` flags (parsed in factory-options.ts).
+	factoryGoal?: string;
+	factoryOwner?: string;
+	factoryCadence?: string;
+	factoryTemplate?: string;
+	factorySlug?: string;
+	factoryName?: string;
+	factoryMaxProposals?: string;
+	factoryWorkspaceId?: string;
+	factoryDryRun?: boolean;
 	// `tedix agent start` immutable executor/session provenance.
 	agentKey?: string;
 	agentDisplayName?: string;

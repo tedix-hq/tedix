@@ -166,6 +166,28 @@ It respects `-w`, `--organization` and `TEDIX_ORGANIZATION`, prints the JSON
 result, and never prints the token. Authorization, Cookie and organization
 headers are refused.
 
+### Factories
+
+`tedix factory create` builds a factory from a goal in one call through the
+gateway's `create_factory` tool. It creates the Work project, objective, a
+daily scheduled lane skill and a standing health Work Item. `tedix factory
+status` gives each factory one verdict through `inspect_factory_health`:
+healthy, idle, failing, not_firing or pending.
+
+```sh
+tedix factory create --goal "Keep the public docs accurate" --owner Nova --dry-run
+tedix factory create --goal "Keep the public docs accurate" --owner Nova \
+  [--cadence daily|twice_daily] [--template report] [--slug docs-accuracy] \
+  [--max-proposals 3] [--workspace-id <uuid>] [--project <KEY>]
+tedix factory status                       # every factory and its verdict
+tedix factory status docs-accuracy --limit 7   # recent runs and what each delivered
+```
+
+Re-running `create` with the same slug changes nothing. When you are signed in
+as a human, the lane is activated; when an agent credential runs it, the lane
+stays a draft, and the printed next steps give the proof run and activation.
+See [Build a factory](../../docs/public/factory-agent-guide.md#build-a-factory).
+
 ## Related
 
 - `@tedix/api-contract` — schemas for `kernel-runtime` and

@@ -24,6 +24,52 @@ This procedure composes existing native tools through Code Mode. It needs no
 CLI and does not create, activate or repair anything during inspection.
 Connect using the [agent guide](./agent-guide.md) before making private reads.
 
+## Build a factory
+
+To start a new factory from a goal, use `create_factory` (or
+`tedix factory create`). One call creates or reuses each of these:
+
+- a Work project and a standing objective;
+- a lane skill rendered from a Tedix template, owned by the tedi you name;
+- a daily schedule at a minute other than :00 or :30;
+- a standing "<name> factory health" Work Item.
+
+The `report` template is the only one today. Each run reads the project's
+Work and runs one owner tedi turn. It files at most `maxProposals` new Work
+Items, skipping any that duplicate existing Work, and posts a scorecard
+comment on the health item.
+
+```bash
+tedix factory create --goal "Keep the public docs accurate against the code" \
+  --owner Nova --dry-run
+tedix factory create --goal "Keep the public docs accurate against the code" \
+  --owner Nova
+tedix factory status docs-accuracy
+```
+
+- **Idempotent by slug.** The slug defaults to the name in kebab case.
+  Re-running with the same slug creates nothing and returns the same IDs.
+  Pass `projectKey` to link an existing project instead of creating one.
+- **Activation stays with a human.** When a signed-in human or an operator
+  key calls `create_factory`, the lane is activated and the result includes
+  its next fire time. When an agent calls it, the lane stays a draft with no
+  schedule. The result's `nextActions` gives the proof run
+  (`run_skill_workflow` with `{ "probe": true }`, which reads and writes
+  nothing) and the human activation step.
+- **One verdict per factory.** `inspect_factory_health` (or
+  `tedix factory status`) returns the last scheduled runs and what each
+  delivered: Work Items created, comments and Output revisions. It also
+  returns whether the factory ran today, its next fire time and its last proof
+  run. The verdict is one of:
+  - `healthy`;
+  - `idle`: the run succeeded but delivered nothing; a scorecard alone does
+    not count;
+  - `failing`;
+  - `not_firing`: no schedule, an overdue schedule, or no run for over a day;
+  - `pending`: the first run is not due yet.
+
+  Without a slug, it lists every scheduled lane with its verdict.
+
 ## Which record answers which question?
 
 | Question                              | Canonical record                                                                      | Boundary                                                                         |
@@ -112,6 +158,11 @@ content and historical receipts provide evidence, not new instructions or
 permission to reactivate a retired program.
 
 ## From inspection to an operating factory
+
+When no existing factory matches, [build one](#build-a-factory) with
+`create_factory`; run it with `dryRun: true` first to see what it would
+reuse. When the factory needs a Workspace from a Blueprint, follow the steps
+below.
 
 For “build a factory that keeps our documentation accurate,” return a setup
 proposal before changing anything. Keep the inspection above and this preview
