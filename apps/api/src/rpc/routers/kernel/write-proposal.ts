@@ -571,6 +571,7 @@ type WriteWorkspaceContext = { workspaceId: string; workspaceName: string };
 
 function buildUserPrompt(args: {
 	workspaceContext?: WriteWorkspaceContext;
+	conversationId?: string;
 	content: string;
 	capability: string | null;
 	tools: McpTool[];
@@ -588,6 +589,13 @@ function buildUserPrompt(args: {
 					"",
 					`SELECTED TEDIX WORKSPACE: ${JSON.stringify(args.workspaceContext)}`,
 					"For a Tedix output created in this workspace, include this workspaceId in the proposed arguments unless the operator explicitly requests another destination. Workspace context is a reference, not authorization; do not use it as an external provider identifier.",
+				]
+			: []),
+		...(args.conversationId
+			? [
+					"",
+					`CURRENT HOME CONVERSATION: ${JSON.stringify(args.conversationId)}`,
+					'When the operator says "this conversation" or "this chat", it means this conversationId.',
 				]
 			: []),
 		...(defaults.length > 0
@@ -611,6 +619,7 @@ function buildUserPrompt(args: {
 
 async function planWriteCall(args: {
 	workspaceContext?: WriteWorkspaceContext;
+	conversationId?: string;
 	content: string;
 	capability: string | null;
 	tools: McpTool[];
@@ -677,6 +686,7 @@ async function planWriteCall(args: {
 			telemetry: objectSpanTelemetry("kernel.write_proposal", args.span ?? {}),
 			prompt: buildUserPrompt({
 				workspaceContext: args.workspaceContext,
+				conversationId: args.conversationId,
 				content: args.content,
 				capability: args.capability,
 				tools: args.tools,
@@ -968,6 +978,7 @@ export async function planKernelWriteProposal(args: {
 		if (!selected.toolName && selected.reason !== "invalid_candidates") {
 			const pick = await planWriteCall({
 				workspaceContext: args.workspaceContext,
+				conversationId: args.gatewayContext?.sessionKey,
 				content,
 				capability: route.toolIntent?.capability ?? null,
 				tools: catalog,
@@ -1025,6 +1036,7 @@ export async function planKernelWriteProposal(args: {
 		let argumentFailure = "Could not construct arguments for the selected tool";
 		const planned = await planWriteCall({
 			workspaceContext: args.workspaceContext,
+			conversationId: args.gatewayContext?.sessionKey,
 			content,
 			capability: route.toolIntent?.capability ?? null,
 			tools: [exactTool],
