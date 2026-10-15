@@ -1,10 +1,15 @@
 import type {
 	OsPresentationElement,
+	OsPresentationElementProps,
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { slideArrowEndpoints } from "@tedix/api-contract/utils/presentation-style";
 import { PRESENTATION_HEIGHT, PRESENTATION_WIDTH } from "@/lib/output-models";
 
 type Style = OsPresentationElement["style"];
+type Props = OsPresentationElementProps;
+/** Arrow endpoint coordinates, one key per axis. */
+type ArrowPointKey = "fromX" | "fromY" | "toX" | "toY";
 
 /**
  * The inspector's field schema, per element type, after the reference slides
@@ -32,7 +37,35 @@ export type SlideInspectorField =
 	| { kind: "font"; label: string }
 	| { kind: "text"; key: "text"; label: string }
 	| { kind: "image-url"; label: string }
-	| { kind: "svg"; label: string };
+	| { kind: "svg"; label: string }
+	| {
+			kind: "prop-text";
+			key: "eyebrow" | "title" | "body" | "label";
+			label: string;
+			multiline?: boolean;
+	  }
+	| {
+			kind: "prop-number";
+			key: "strokeWidth" | "radius" | ArrowPointKey;
+			label: string;
+			min: number;
+			max: number;
+			step?: number;
+			placeholder?: number;
+	  }
+	| { kind: "prop-color"; key: "color"; label: string; fallback: string }
+	| {
+			kind: "prop-select";
+			key: "tone" | "kind";
+			label: string;
+			options: readonly string[];
+			fallback: string;
+	  }
+	| { kind: "prop-toggle"; key: "dashed" | "compact"; label: string }
+	/** Comma-separated words drawn in the accent tone. */
+	| { kind: "highlight"; label: string }
+	/** Bullet list items, one per line, stored as the element's text. */
+	| { kind: "items"; label: string };
 
 export type SlideInspectorEntry = SlideInspectorField & { advanced?: boolean };
 
@@ -183,6 +216,38 @@ export const SLIDE_GEOMETRY_FIELDS = advanced([
 	},
 ]);
 
+/** Clears the prop, so the renderer's own default applies. */
+export const DEFAULT_PROP_OPTION = "default";
+const tone: SlideInspectorEntry = {
+	kind: "prop-select",
+	key: "tone",
+	label: "Tone",
+	options: [
+		DEFAULT_PROP_OPTION,
+		"neutral",
+		"accent",
+		"success",
+		"warning",
+		"danger",
+		"info",
+	],
+	fallback: DEFAULT_PROP_OPTION,
+};
+const highlight: SlideInspectorEntry = {
+	kind: "highlight",
+	label: "Highlight words",
+};
+const parts: SlideInspectorEntry[] = [
+	{ kind: "prop-text", key: "eyebrow", label: "Eyebrow" },
+	{ kind: "prop-text", key: "title", label: "Title" },
+	{ kind: "prop-text", key: "body", label: "Body", multiline: true },
+];
+const point = (
+	key: ArrowPointKey,
+	label: string,
+	max: number,
+): SlideInspectorEntry => ({ kind: "prop-number", key, label, min: 0, max });
+
 const textElement: SlideInspectorEntry[] = [
 	{ kind: "font", label: "Font" },
 	fontSize,
@@ -200,13 +265,18 @@ const SLIDE_INSPECTOR_FIELDS: Record<
 	OsPresentationElementType,
 	SlideInspectorEntry[]
 > = {
-	title: textElement,
-	subtitle: textElement,
-	text: textElement,
-	bullet: textElement,
-	label: textElement,
-	card: textElement,
-	box: textElement,
+	title: [highlight, ...textElement],
+	subtitle: [highlight, ...textElement],
+	text: [highlight, ...textElement],
+	bullet: [
+		{ kind: "items", label: "Items" },
+		highlight,
+		{ kind: "prop-toggle", key: "compact", label: "Compact" },
+		...textElement,
+	],
+	label: [tone, highlight, ...textElement],
+	card: [...parts, tone, highlight, ...textElement],
+	box: [...parts, tone, highlight, ...textElement],
 	image: [
 		{ kind: "image-url", label: "Image URL" },
 		alt,
@@ -224,9 +294,52 @@ const SLIDE_INSPECTOR_FIELDS: Record<
 		{ ...radius, advanced: true },
 		...appearance,
 	],
-	shape: [fill, radius, ...border, ...appearance],
+	shape: [
+		{
+			kind: "prop-select",
+			key: "kind",
+			label: "Shape",
+			options: ["rectangle", "ellipse"],
+			fallback: "rectangle",
+		},
+		fill,
+		{
+			kind: "prop-number",
+			key: "radius",
+			label: "Corner radius",
+			min: 0,
+			max: 600,
+			step: 1,
+			placeholder: 0,
+		},
+		...border,
+		...appearance,
+	],
 	divider: [fill, ...appearance],
-	arrow: [textColor, ...appearance],
+	arrow: [
+		point("fromX", "From X", PRESENTATION_WIDTH),
+		point("fromY", "From Y", PRESENTATION_HEIGHT),
+		point("toX", "To X", PRESENTATION_WIDTH),
+		point("toY", "To Y", PRESENTATION_HEIGHT),
+		{ kind: "prop-text", key: "label", label: "Label" },
+		{ kind: "prop-toggle", key: "dashed", label: "Dashed" },
+		{
+			kind: "prop-number",
+			key: "strokeWidth",
+			label: "Line width",
+			min: 0.5,
+			max: 24,
+			step: 0.5,
+			placeholder: 2,
+		},
+		{
+			kind: "prop-color",
+			key: "color",
+			label: "Line color",
+			fallback: "#222222",
+		},
+		...appearance,
+	],
 	logo: [...appearance],
 };
 
@@ -247,6 +360,132 @@ export function readSlideField(
 	if (GEOMETRY_KEYS.has(key) || key === "text")
 		return element[key as "x" | "text"];
 	return element.style[key as keyof Style];
+}
+
+const ARROW_POINTS: Record<ArrowPointKey, ["from" | "to", "x" | "y"]> = {
+	fromX: ["from", "x"],
+	fromY: ["from", "y"],
+	toX: ["to", "x"],
+	toY: ["to", "y"],
+};
+
+/**
+ * The value a field shows, as the renderer draws it: arrow endpoints show
+ * their drawn position before they are stored, a shape's radius falls back
+ * to its style radius, and a card's title falls back to its text.
+ */
+export function slideFieldValue(
+	element: OsPresentationElement,
+	field: SlideInspectorField,
+): string | number | boolean | undefined {
+	const props: Props = element.props ?? {};
+	switch (field.kind) {
+		case "number":
+		case "color":
+		case "select":
+			return readSlideField(element, field.key) as string | number | undefined;
+		case "font":
+			return element.style.fontFamily;
+		case "text":
+		case "items":
+			return element.text;
+		case "prop-text":
+			return field.key === "title"
+				? (props.title ?? element.text)
+				: props[field.key];
+		case "prop-number": {
+			if (field.key === "radius")
+				return props.radius ?? element.style.borderRadius;
+			if (field.key === "strokeWidth") return props.strokeWidth;
+			const [end, axis] = ARROW_POINTS[field.key];
+			return slideArrowEndpoints(element)[end][axis];
+		}
+		case "prop-color":
+			return props.color ?? element.style.color;
+		case "prop-select":
+			return props[field.key];
+		case "prop-toggle":
+			return props[field.key] ?? false;
+		case "highlight":
+			return props.highlight?.join(", ");
+		default:
+			return undefined;
+	}
+}
+
+/** Merges props and drops cleared keys, so an element never stores `{}`. */
+function withProps(
+	element: OsPresentationElement,
+	patch: Partial<Props>,
+): OsPresentationElement {
+	const props = Object.fromEntries(
+		Object.entries({ ...element.props, ...patch }).filter(
+			([, value]) => value !== undefined,
+		),
+	) as Props;
+	return { ...element, props: Object.keys(props).length ? props : undefined };
+}
+
+/** Comma-separated words, trimmed and deduplicated, within the schema caps. */
+export function parseHighlightWords(raw: string): string[] | undefined {
+	const words = [
+		...new Set(
+			raw
+				.split(",")
+				.map((word) => word.trim().slice(0, 300))
+				.filter(Boolean),
+		),
+	].slice(0, 100);
+	return words.length ? words : undefined;
+}
+
+const clamp = (value: number, min: number, max: number) =>
+	Math.min(max, Math.max(min, value));
+
+function writeSlideProp(
+	element: OsPresentationElement,
+	field: SlideInspectorField,
+	raw: string,
+): OsPresentationElement {
+	switch (field.kind) {
+		case "items":
+			return { ...element, text: raw || undefined };
+		case "prop-text":
+			return withProps(element, { [field.key]: raw || undefined });
+		case "prop-color":
+			return withProps(element, { color: raw || undefined });
+		case "prop-select":
+			return withProps(element, {
+				[field.key]:
+					raw === "" || raw === DEFAULT_PROP_OPTION ? undefined : raw,
+			});
+		case "prop-toggle":
+			return withProps(element, { [field.key]: raw === "true" || undefined });
+		case "highlight":
+			return withProps(element, { highlight: parseHighlightWords(raw) });
+		case "prop-number": {
+			const number = Number(raw);
+			const valid = raw !== "" && Number.isFinite(number);
+			if (field.key === "radius" || field.key === "strokeWidth")
+				return withProps(element, {
+					[field.key]: valid ? clamp(number, field.min, field.max) : undefined,
+				});
+			if (!valid) return element;
+			// Both ends are stored together, so editing one coordinate never
+			// leaves the other end following the element's box.
+			const [end, axis] = ARROW_POINTS[field.key];
+			const endpoints = slideArrowEndpoints(element);
+			return withProps(element, {
+				...endpoints,
+				[end]: {
+					...endpoints[end],
+					[axis]: Math.round(clamp(number, field.min, field.max)),
+				},
+			});
+		}
+		default:
+			return element;
+	}
 }
 
 /**
@@ -291,5 +530,5 @@ export function writeSlideField(
 			...element,
 			style: { ...element.style, fontFamily: raw || undefined },
 		};
-	return element;
+	return writeSlideProp(element, field, raw);
 }

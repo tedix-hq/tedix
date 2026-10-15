@@ -17,6 +17,8 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
+import { Switch } from "@/components/kumo/switch";
+import { SlideBackgroundControls } from "@/components/slide-background-controls";
 import {
 	Select,
 	SelectContent,
@@ -29,8 +31,8 @@ import { Textarea } from "@/components/kumo/textarea";
 import type { SlideElementAction } from "@/components/slide-element-actions";
 import { SlideImageUploadButton } from "@/components/slide-insert-library";
 import {
-	readSlideField,
 	SLIDE_FONT_FAMILIES,
+	slideFieldValue,
 	type SlideInspectorField,
 	slideInspectorFields,
 	writeSlideField,
@@ -55,12 +57,12 @@ function NumberField({
 	disabled,
 	onChange,
 }: {
-	field: Extract<SlideInspectorField, { kind: "number" }>;
+	field: Extract<SlideInspectorField, { kind: "number" | "prop-number" }>;
 	element: OsPresentationElement;
 	disabled?: boolean;
 	onChange: (next: OsPresentationElement) => void;
 }) {
-	const stored = readSlideField(element, field.key);
+	const stored = slideFieldValue(element, field);
 	const [draft, setDraft] = useState<string | null>(null);
 	const value =
 		draft ??
@@ -103,6 +105,54 @@ function NumberField({
 						onChange(writeSlideField(element, field, draft));
 					setDraft(null);
 				}}
+			/>
+		</Text>
+	);
+}
+
+/**
+ * Element text kept as a draft while focused, so a parsed field such as the
+ * comma-separated highlight words does not rewrite what is being typed.
+ */
+function TextPropField({
+	field,
+	element,
+	disabled,
+	onChange,
+}: {
+	field: Extract<
+		SlideInspectorField,
+		{ kind: "prop-text" | "highlight" | "items" }
+	>;
+	element: OsPresentationElement;
+	disabled?: boolean;
+	onChange: (next: OsPresentationElement) => void;
+}) {
+	const [draft, setDraft] = useState<string | null>(null);
+	const multiline =
+		field.kind === "items" || (field.kind === "prop-text" && field.multiline);
+	const Control = multiline ? Textarea : Input;
+	return (
+		<Text as="label" role="label" tone="secondary" className="grid gap-1">
+			{field.label}
+			<Control
+				aria-label={fieldLabel(field)}
+				disabled={disabled}
+				placeholder={
+					field.kind === "highlight"
+						? "word, another phrase"
+						: field.kind === "items"
+							? "One item per line"
+							: undefined
+				}
+				value={draft ?? String(slideFieldValue(element, field) ?? "")}
+				onChange={(
+					event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+				) => {
+					setDraft(event.target.value);
+					onChange(writeSlideField(element, field, event.target.value));
+				}}
+				onBlur={() => setDraft(null)}
 			/>
 		</Text>
 	);
@@ -171,6 +221,7 @@ function InspectorField({
 }) {
 	switch (field.kind) {
 		case "number":
+		case "prop-number":
 			return (
 				<NumberField
 					field={field}
@@ -183,7 +234,39 @@ function InspectorField({
 			return (
 				<SvgField element={element} disabled={disabled} onChange={onChange} />
 			);
+		case "prop-toggle":
+			return (
+				<Text
+					as="span"
+					role="label"
+					tone="secondary"
+					className="flex items-center justify-between gap-2"
+				>
+					{field.label}
+					<Switch
+						size="sm"
+						aria-label={fieldLabel(field)}
+						disabled={disabled}
+						checked={slideFieldValue(element, field) === true}
+						onCheckedChange={(checked) =>
+							onChange(writeSlideField(element, field, String(checked)))
+						}
+					/>
+				</Text>
+			);
+		case "prop-text":
+		case "highlight":
+		case "items":
+			return (
+				<TextPropField
+					field={field}
+					element={element}
+					disabled={disabled}
+					onChange={onChange}
+				/>
+			);
 		case "color":
+		case "prop-color":
 			return (
 				<Text as="label" role="label" tone="secondary" className="grid gap-1">
 					{field.label}
@@ -192,7 +275,7 @@ function InspectorField({
 						aria-label={fieldLabel(field)}
 						disabled={disabled}
 						value={
-							(readSlideField(element, field.key) as string | undefined) ??
+							(slideFieldValue(element, field) as string | undefined) ??
 							field.fallback
 						}
 						onChange={(event) =>
@@ -202,6 +285,7 @@ function InspectorField({
 				</Text>
 			);
 		case "select":
+		case "prop-select":
 		case "font": {
 			const fontFamily = element.style.fontFamily;
 			const options: readonly (readonly [string, string])[] =
@@ -220,7 +304,7 @@ function InspectorField({
 			const value =
 				field.kind === "font"
 					? (fontFamily ?? DEFAULT_FONT)
-					: ((readSlideField(element, field.key) as string | undefined) ??
+					: ((slideFieldValue(element, field) as string | undefined) ??
 						field.fallback);
 			return (
 				<Text as="label" role="label" tone="secondary" className="grid gap-1">
@@ -322,6 +406,7 @@ export function SlideInspector({
 	onChangeElement,
 	onAction,
 	onImageFile,
+	onBackgroundImageFile,
 }: {
 	slide: OsPresentationCanvasSlide;
 	element: OsPresentationElement | null;
@@ -332,6 +417,7 @@ export function SlideInspector({
 	onChangeElement: (next: OsPresentationElement) => void;
 	onAction: (action: SlideElementAction) => void;
 	onImageFile: (file: File) => void;
+	onBackgroundImageFile: (file: File) => void;
 }) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const fields = element ? slideInspectorFields(element.type) : null;
@@ -365,6 +451,12 @@ export function SlideInspector({
 						}
 					/>
 				</Text>
+				<SlideBackgroundControls
+					slide={slide}
+					disabled={disabled}
+					onChangeSlide={onChangeSlide}
+					onBackgroundImageFile={onBackgroundImageFile}
+				/>
 				{element && fields ? (
 					<section
 						aria-label={`${element.type} element`}

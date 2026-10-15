@@ -1,6 +1,8 @@
 import type { OsPresentationElement } from "@tedix/api-contract/schemas/os-workspaces";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	parseHighlightWords,
+	slideFieldValue,
 	slideInspectorFields,
 	type SlideInspectorField,
 	writeSlideField,
@@ -82,6 +84,134 @@ describe("slide inspector fields", () => {
 		)!;
 		expect(writeSlideField(element(), x, "1150").x).toBe(800);
 		expect(writeSlideField(element(), x, "").x).toBe(100);
+	});
+
+	const find = (
+		type: OsPresentationElement["type"],
+		label: string,
+	): SlideInspectorField => {
+		const { basic, advanced } = slideInspectorFields(type);
+		return [...basic, ...advanced].find((field) => field.label === label)!;
+	};
+
+	it("maps the slide model's element props to basic controls", () => {
+		for (const type of ["card", "box"] as const)
+			expect(labels(slideInspectorFields(type).basic)).toEqual(
+				expect.arrayContaining([
+					"Eyebrow",
+					"Title",
+					"Body",
+					"Tone",
+					"Highlight words",
+				]),
+			);
+		expect(labels(slideInspectorFields("label").basic)).toContain("Tone");
+		expect(labels(slideInspectorFields("bullet").basic)).toEqual(
+			expect.arrayContaining(["Items", "Highlight words", "Compact"]),
+		);
+		expect(labels(slideInspectorFields("arrow").basic)).toEqual([
+			"From X",
+			"From Y",
+			"To X",
+			"To Y",
+			"Label",
+			"Dashed",
+			"Line width",
+			"Line color",
+		]);
+		expect(labels(slideInspectorFields("shape").basic)).toEqual([
+			"Shape",
+			"Fill color",
+			"Corner radius",
+		]);
+	});
+
+	it("writes card parts, tone and highlight words into props", () => {
+		const card = element({ type: "card", text: "Fallback" });
+		expect(slideFieldValue(card, find("card", "Title"))).toBe("Fallback");
+		let next = writeSlideField(card, find("card", "Eyebrow"), "Step");
+		next = writeSlideField(next, find("card", "Body"), "Line 1\nLine 2");
+		next = writeSlideField(next, find("card", "Tone"), "success");
+		next = writeSlideField(
+			next,
+			find("card", "Highlight words"),
+			" fast , fast,, cheap ",
+		);
+		expect(next.props).toEqual({
+			eyebrow: "Step",
+			body: "Line 1\nLine 2",
+			tone: "success",
+			highlight: ["fast", "cheap"],
+		});
+		expect(slideFieldValue(next, find("card", "Highlight words"))).toBe(
+			"fast, cheap",
+		);
+		next = writeSlideField(next, find("card", "Tone"), "default");
+		next = writeSlideField(next, find("card", "Highlight words"), " , ");
+		next = writeSlideField(next, find("card", "Eyebrow"), "");
+		next = writeSlideField(next, find("card", "Body"), "");
+		expect(next.props).toBeUndefined();
+	});
+
+	it("writes bullet items as lines of text and the compact toggle", () => {
+		const list = element({ type: "bullet", text: undefined });
+		const next = writeSlideField(list, find("bullet", "Items"), "A\nB");
+		expect(next.text).toBe("A\nB");
+		const compact = writeSlideField(next, find("bullet", "Compact"), "true");
+		expect(compact.props).toEqual({ compact: true });
+		expect(
+			writeSlideField(compact, find("bullet", "Compact"), "false").props,
+		).toBeUndefined();
+	});
+
+	it("stores both arrow endpoints when one coordinate changes", () => {
+		const arrow = element({
+			type: "arrow",
+			x: 100,
+			y: 100,
+			width: 300,
+			height: 60,
+		});
+		expect(slideFieldValue(arrow, find("arrow", "From X"))).toBe(102);
+		const next = writeSlideField(arrow, find("arrow", "To Y"), "900");
+		expect(next.props).toEqual({
+			from: { x: 102, y: 130 },
+			to: { x: 398, y: 675 },
+		});
+		let styled = writeSlideField(next, find("arrow", "Label"), "calls");
+		styled = writeSlideField(styled, find("arrow", "Dashed"), "true");
+		styled = writeSlideField(styled, find("arrow", "Line width"), "40");
+		styled = writeSlideField(styled, find("arrow", "Line color"), "#ff0000");
+		expect(styled.props).toMatchObject({
+			label: "calls",
+			dashed: true,
+			strokeWidth: 24,
+			color: "#ff0000",
+		});
+		expect(writeSlideField(styled, find("arrow", "From X"), "").props).toEqual(
+			styled.props,
+		);
+	});
+
+	it("writes shape kind and a radius that outranks the style radius", () => {
+		const shape = element({ type: "shape", style: { borderRadius: 2 } });
+		expect(slideFieldValue(shape, find("shape", "Corner radius"))).toBe(2);
+		expect(slideFieldValue(shape, find("shape", "Shape"))).toBeUndefined();
+		let next = writeSlideField(shape, find("shape", "Shape"), "ellipse");
+		next = writeSlideField(next, find("shape", "Corner radius"), "700");
+		expect(next.props).toEqual({ kind: "ellipse", radius: 600 });
+		expect(
+			writeSlideField(next, find("shape", "Corner radius"), "").props,
+		).toEqual({ kind: "ellipse" });
+	});
+
+	it("parses highlight words within the schema caps", () => {
+		expect(parseHighlightWords("")).toBeUndefined();
+		expect(
+			parseHighlightWords(
+				Array.from({ length: 120 }, (_, i) => `w${i}`).join(","),
+			),
+		).toHaveLength(100);
 	});
 
 	it("writes fonts, selects and alt text", () => {
