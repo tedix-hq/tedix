@@ -1288,7 +1288,8 @@ describe("Connect outer payment rejection", () => {
 		});
 		const ctx = {
 			...makeServerCtx(new Map([[paid.toolId, paid]])),
-			appSlug: "connect",
+			appSlug: "tenant-unified",
+			connectionAppSlug: "connect",
 		};
 		const registered = new Map<string, (...args: any[]) => Promise<any>>();
 		await registerCodeModeTools(
@@ -1305,7 +1306,11 @@ describe("Connect outer payment rejection", () => {
 		"rejects a %s proof before starting a sandbox",
 		async (kind) => {
 			const registered = new Map<string, (...args: any[]) => Promise<any>>();
-			const ctx = { ...makeServerCtx(), appSlug: "connect" };
+			const ctx = {
+				...makeServerCtx(),
+				appSlug: "tenant-unified",
+				connectionAppSlug: "connect",
+			};
 			await registerCodeModeTools(
 				{
 					registerTool: (name: string, _config: unknown, handler: any) =>

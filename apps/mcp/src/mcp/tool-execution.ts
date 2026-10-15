@@ -210,7 +210,7 @@ export async function executeTool(
 		};
 	}
 	if (
-		isNonPayingConnection(agent.appSlug) &&
+		isNonPayingConnection(agent.connectionAppSlug ?? agent.appSlug) &&
 		(isFinancialBillingTool(tool) || getToolPaymentPolicy(tool))
 	) {
 		throw new Error(CONNECT_PAYMENT_DENIED);

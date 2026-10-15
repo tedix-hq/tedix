@@ -653,6 +653,7 @@ export function buildServerContext(
 	bearerToken?: string,
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
+	connectionAppSlug?: string,
 ): ServerContext {
 	const apiClient = getApiClient({
 		serviceFetch: env.API_SERVICE,
@@ -671,6 +672,7 @@ export function buildServerContext(
 		ctx: execCtx,
 		appId: cachedData.app.id,
 		appSlug: cachedData.app.slug,
+		connectionAppSlug: connectionAppSlug ?? cachedData.app.slug,
 		app: cachedData.app,
 		appMetadata: cachedData.metadata,
 		appCapabilities: cachedData.capabilities,
@@ -891,6 +893,7 @@ export async function buildMcpServer(
 	requestedToolName?: string,
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
+	connectionAppSlug?: string,
 ): Promise<McpServer> {
 	const startTime = Date.now();
 
@@ -943,6 +946,7 @@ export async function buildMcpServer(
 		bearerToken,
 		requestMeta,
 		requestedCodeModeNamespaces,
+		connectionAppSlug,
 	);
 
 	// Pre-populate loadedTools from cached data.
