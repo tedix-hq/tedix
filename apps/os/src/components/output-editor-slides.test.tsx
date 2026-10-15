@@ -164,6 +164,24 @@ describe("SlidesEditor", () => {
 		mounted.cleanup();
 	});
 
+	// cqh is 0 unless every ancestor down to the stage has a definite height. In
+	// the workspace canvas the shell grew with the rail instead, so the slide was
+	// centred in a 1378px stage inside a 763px pane, mostly below the fold.
+	it("bounds the editor to its host pane in the workspace canvas", () => {
+		const styles = readFileSync("src/styles.css", "utf8");
+		expect(styles).toMatch(
+			/\.canvas-document-shell:has\(> \.slides-editor\) \{[^}]*height: 100%;[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto;/,
+		);
+		expect(styles).toMatch(
+			/\.canvas-document-shell > \.slides-editor \{[^}]*min-height: 0;[^}]*grid-template-rows: auto minmax\(0, 1fr\);/,
+		);
+		const mounted = mountEditor();
+		expect(
+			mounted.container.querySelector(".slides-editor-layout")?.className,
+		).not.toMatch(/min-h-\[/);
+		mounted.cleanup();
+	});
+
 	it("opens with the slide rail visible and keeps it an explicit toggle", () => {
 		const mounted = mountEditor();
 		// First render, no user interaction: the rail is on screen.

@@ -732,7 +732,7 @@ export function SlidesEditor({
 				</Toolbar.Button>
 			</EditorToolbar>
 			<div
-				className="slides-editor-layout grid min-h-[68vh] gap-2"
+				className="slides-editor-layout grid min-h-0 gap-2"
 				data-show-inspector={showInspector || undefined}
 				data-show-thumbnails={showThumbnails || undefined}
 			>
@@ -752,7 +752,7 @@ export function SlidesEditor({
 							className="pl-7"
 						/>
 					</div>
-					<ol className="m-0 grid list-none content-start gap-2 overflow-auto p-0">
+					<ol className="m-0 grid list-none content-start gap-1.5 overflow-y-auto p-0">
 						{filteredSlides.map((slide, index) => (
 							<li key={slide.id}>
 								<Button
@@ -779,7 +779,7 @@ export function SlidesEditor({
 								>
 									<Text
 										as="span"
-										className="mb-1 block text-kumo-subtle"
+										className="block truncate text-kumo-subtle"
 										role="caption"
 									>
 										{index + 1}. {slide.name}
@@ -889,7 +889,7 @@ export function SlidesEditor({
 						</Button>
 					</div>
 				</aside>
-				<main className="slides-editor-stage grid min-w-0 place-content-center p-3 sm:p-4">
+				<main className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6">
 					<SlideCanvas
 						slide={activeSlide}
 						selectedElementId={selectedElementId}
