@@ -2867,6 +2867,13 @@ export function ChatThread({
 					idempotencyKey: variables.idempotencyKey,
 					error: message,
 				});
+				// Nor may a reload bring the text back as a draft: the turn usually
+				// did land, and the restored draft merged with the next message.
+				try {
+					window.localStorage.removeItem(chatDraftKey(conversationId));
+				} catch {
+					// storage unavailability never blocks the send
+				}
 				return;
 			}
 			// The server answered and refused: nothing durable will ever appear, so
