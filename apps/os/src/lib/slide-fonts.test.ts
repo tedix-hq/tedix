@@ -38,7 +38,7 @@ describe("slide fonts", () => {
 
 	it("builds Google Fonts stylesheet URLs only", () => {
 		expect(googleFontsStylesheetUrl("Space Grotesk")).toBe(
-			"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap",
+			"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap",
 		);
 		expect(googleFontsStylesheetUrl("Bebas Neue", false)).toBe(
 			"https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap",

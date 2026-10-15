@@ -762,3 +762,69 @@ it.each([
 	);
 	expect(html).not.toContain(background);
 });
+
+it("exports light text, bold spans, tracking, border patterns and arrow geometry", () => {
+	const content = OsOutputContentSchema.parse({
+		kind: "presentation",
+		slides: [],
+		deck: {
+			width: 1200,
+			height: 675,
+			activeSlideId: "styles",
+			slides: [
+				{
+					id: "styles",
+					name: "Styles",
+					elements: [
+						{
+							id: "text",
+							type: "text",
+							x: 40,
+							y: 40,
+							width: 800,
+							height: 160,
+							text: "Light **bold <script>**\nTracked",
+							style: {
+								fontFamily: "Roboto",
+								fontWeight: "light",
+								lineHeight: 2,
+								letterSpacing: 3,
+								borderStyle: "dashed",
+								borderWidth: 2,
+							},
+						},
+						{
+							id: "arrow",
+							type: "arrow",
+							x: 40,
+							y: 250,
+							width: 200,
+							height: 40,
+							style: { color: "#ff0000", rotation: 20 },
+						},
+					],
+				},
+			],
+		},
+	});
+	const html = renderOsOutputHtml(
+		{ kind: "presentation", title: "Styles" },
+		{ ...revisionMeta, content },
+	);
+	for (const declaration of [
+		"font-weight:300",
+		"line-height:2",
+		"letter-spacing:3px",
+		"border-style:dashed",
+		"border-width:2px",
+		"rotate(20deg)",
+	])
+		expect(html).toContain(declaration);
+	expect(html).toContain(
+		'<strong style="font-weight:700">bold &lt;script&gt;</strong>',
+	);
+	expect(html).not.toContain("<script>");
+	expect(html).not.toContain("**");
+	expect(html).toContain("family=Roboto:wght@300;700&amp;display=block");
+	expect(html).toContain('d="M 2 20 H 198 M 180 2 L 198 20 L 180 38"');
+});

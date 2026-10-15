@@ -1,15 +1,50 @@
 import type { OsPresentationElement } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect } from "react";
 import { safeImageSource } from "@/lib/output-models";
-import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
+import {
+	parseSlideText,
+	slideArrowPath,
+	slideElementStyle,
+} from "@tedix/api-contract/utils/presentation-style";
 import { ensureSlideFontLoaded } from "@/lib/slide-fonts";
 
-/** Text wraps the way an editing textarea does, so editing never reflows. */
+/** Shared whitespace and wrapping for all slide surfaces. */
 export const SLIDE_ELEMENT_CLASS =
 	"absolute overflow-hidden whitespace-pre-wrap [overflow-wrap:break-word]";
 
 export function useSlideElementFont(fontFamily: string | undefined) {
 	useEffect(() => ensureSlideFontLoaded(fontFamily), [fontFamily]);
+}
+
+export function SlideText({ text }: { text: string }) {
+	return parseSlideText(text).map((part, index) =>
+		part.bold ? (
+			<strong key={index} style={{ fontWeight: 700 }}>
+				{part.text}
+			</strong>
+		) : (
+			part.text
+		),
+	);
+}
+
+export function SlideArrow({ element }: { element: OsPresentationElement }) {
+	return (
+		<svg
+			width="100%"
+			height="100%"
+			viewBox={`0 0 ${element.width} ${element.height}`}
+			aria-hidden="true"
+			style={{ pointerEvents: "none" }}
+		>
+			<path
+				d={slideArrowPath(element)}
+				fill="none"
+				stroke="currentColor"
+				strokeWidth={2}
+			/>
+		</svg>
+	);
 }
 
 /**
@@ -36,8 +71,10 @@ export function ReadOnlyElement({
 					alt={element.text ?? "Slide visual"}
 					className="h-full w-full object-contain"
 				/>
+			) : element.type === "arrow" ? (
+				<SlideArrow element={element} />
 			) : element.type === "divider" || element.type === "shape" ? null : (
-				element.text
+				<SlideText text={element.text ?? ""} />
 			)}
 		</div>
 	);

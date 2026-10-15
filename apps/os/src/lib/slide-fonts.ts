@@ -70,7 +70,7 @@ export function loadableSlideFontFamily(
 }
 
 /**
- * Stylesheet URL for one family. The weighted form covers the four weights the
+ * Stylesheet URL for one family. The weighted form covers the weights the
  * slide schema can ask for; `withWeights: false` is the fallback for a
  * single-weight family, which Google rejects when asked for other weights.
  */
@@ -79,7 +79,7 @@ export function googleFontsStylesheetUrl(
 	withWeights = true,
 ): string {
 	const name = family.trim().replace(/ +/g, "+");
-	const axis = withWeights ? ":wght@400;500;600;700" : "";
+	const axis = withWeights ? ":wght@300;400;500;600;700" : "";
 	return `${GOOGLE_FONTS_CSS}?family=${name}${axis}&display=swap`;
 }
 
