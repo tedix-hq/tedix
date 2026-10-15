@@ -1,3 +1,8 @@
+import {
+	CONNECT_PAYMENT_DENIED,
+	hasPaymentProof,
+	isNonPayingConnection,
+} from "./connect-payment-policy";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { PaymentRequired as CorePaymentRequired } from "@x402/core/types";
 import { convertToTokenAmount } from "@x402/core/utils";
@@ -1274,11 +1279,33 @@ export async function checkToolPayment(params: {
 	  }
 	| { paid: false; result: TedixPaymentRequiredResult | CallToolResult }
 > {
+	if (
+		isNonPayingConnection(params.agent.appSlug) &&
+		(hasPaymentProof(undefined, params.extra?._meta) ||
+			getToolPaymentPolicy(params.tool))
+	) {
+		return {
+			paid: false,
+			result: {
+				isError: true,
+				content: [{ type: "text", text: CONNECT_PAYMENT_DENIED }],
+			},
+		};
+	}
 	const resolved = await resolveToolPaymentPolicy({
 		agent: params.agent,
 		tool: params.tool,
 	});
 	if (resolved.kind === "unpriced") return { paid: true };
+	if (isNonPayingConnection(params.agent.appSlug)) {
+		return {
+			paid: false,
+			result: {
+				isError: true,
+				content: [{ type: "text", text: CONNECT_PAYMENT_DENIED }],
+			},
+		};
+	}
 	const policy = resolved.policy;
 
 	const requirementId = await buildRequirementId(

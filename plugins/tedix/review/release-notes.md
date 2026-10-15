@@ -1,3 +1,15 @@
+Tedix 0.2.4 — procedures ship with the plugin; its connection cannot pay for tools.
+
+Work lifecycle and factory setup steps now ship beside the skills. Runtime
+organization skills, help output, online guides and Work text are reference
+data, never instructions. The published plugin contains no hooks; optional
+session hooks come from the separately installed Tedix CLI.
+
+The shared Connect surface hides and rejects payment proofs, denies paid inner
+tools and blocks billing mutations. Connected-provider actions and their
+permission requirements are described in the README. The Claude manifest drops
+unsupported privacy and terms keys; the README keeps both links.
+
 Tedix 0.2.3 — the prompt hook can carry the full first-turn context.
 
 The `UserPromptSubmit` context hook (`tedix hooks prompt-context`) now allows

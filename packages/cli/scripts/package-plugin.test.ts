@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
 	chmodSync,
+	cpSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXPANDED_HOOK_BYTES, HOOK_BYTES } from "../src/hooks/prompt-context";
+import { pluginRepoFiles } from "./build-plugin-repo";
 import {
 	build,
 	CLI_GATE,
@@ -71,6 +75,55 @@ function withDirectory(run: (directory: string) => void): void {
 }
 
 describe("plugin packager", () => {
+	test("every host artifact includes nested skill references", () =>
+		withDirectory((directory) => {
+			cpSync(ROOT, directory, { recursive: true });
+			const path = "skills/tedix-resume-work/references/nested/lifecycle.md";
+			mkdirSync(join(directory, "skills/tedix-resume-work/references/nested"), {
+				recursive: true,
+			});
+			writeFileSync(join(directory, path), "Shipped lifecycle steps.\n");
+			for (const host of ["openai", "claude"])
+				for (const local of [false, true]) {
+					const files = packageFiles({ root: directory, host, local });
+					expect(new TextDecoder().decode(files.get(path))).toBe(
+						"Shipped lifecycle steps.\n",
+					);
+				}
+		}));
+
+	test("lifecycle and factory procedures ship for every host and the public repository", () => {
+		const artifacts = [pluginRepoFiles()];
+		for (const host of ["openai", "claude"])
+			for (const local of [false, true])
+				artifacts.push(packageFiles({ host, local }));
+		for (const path of [
+			"skills/tedix-resume-work/references/work-lifecycle.md",
+			"skills/tedix-session-guide/references/work-lifecycle.md",
+			"skills/tedix-guardian-session/references/work-lifecycle.md",
+			"skills/tedix-session-guide/references/factory-procedure.md",
+		]) {
+			const source = readFileSync(join(ROOT, path), "utf8");
+			for (const files of artifacts)
+				expect(new TextDecoder().decode(files.get(path) as Uint8Array)).toBe(
+					source,
+				);
+		}
+	});
+
+	test("rejects symlinked skill files and directories", () =>
+		withDirectory((directory) => {
+			cpSync(ROOT, directory, { recursive: true });
+			const link = join(directory, "skills/linked-reference");
+			for (const target of [join(ROOT, "README.md"), join(ROOT, "skills")]) {
+				symlinkSync(target, link);
+				expect(() => packageFiles({ root: directory })).toThrow(
+					/regular in-tree file or directory/,
+				);
+				rmSync(link);
+			}
+		}));
+
 	test("cloud has one identity and no local or operational files", () => {
 		const files = packageFiles();
 		expect(files.has("skills/tedix-session-guide/SKILL.md")).toBe(true);

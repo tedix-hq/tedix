@@ -9,7 +9,6 @@
  */
 import {
 	closeSync,
-	existsSync,
 	lstatSync,
 	openSync,
 	readdirSync,
@@ -113,10 +112,26 @@ function readJson(root: string, path: string): any {
 }
 
 function skillPaths(root: string): string[] {
-	return readdirSync(join(root, "skills"))
-		.map((name) => join("skills", name, "SKILL.md"))
-		.filter((path) => existsSync(join(root, path)))
-		.sort();
+	const paths: string[] = [];
+	const realRoot = realpathSync(root);
+	const visit = (path: string): void => {
+		const absolute = join(root, path);
+		const stat = lstatSync(absolute);
+		const real = realpathSync(absolute);
+		if (
+			stat.isSymbolicLink() ||
+			!real.startsWith(realRoot + sep) ||
+			!(stat.isDirectory() || stat.isFile())
+		)
+			throw new Error(
+				`Package source must be a regular in-tree file or directory: ${absolute}`,
+			);
+		if (stat.isDirectory()) {
+			for (const name of readdirSync(absolute).sort()) visit(join(path, name));
+		} else paths.push(path);
+	};
+	visit("skills");
+	return paths;
 }
 
 function addFiles(

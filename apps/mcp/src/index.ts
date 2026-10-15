@@ -1,3 +1,5 @@
+import { codeModeInputSchema } from "./mcp/connect-payment-policy";
+import { z } from "zod";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import {
 	buildBootstrapInfo,
@@ -4833,28 +4835,7 @@ export function compactCodeModeTools(
 			...codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
 			_meta: codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
 			description: compactCodeModeToolDescription(resolvedApp),
-			inputSchema: {
-				type: "object",
-				properties: {
-					code: {
-						type: "string",
-						description:
-							"JavaScript async arrow function. Example: async () => await codemode.__runtime()",
-					},
-					payment: {
-						anyOf: [{ type: "string", minLength: 1 }, { type: "object" }],
-						description:
-							'Optional x402 payment proof for paid inner tools. Accepts an encoded facilitator payment string or an object proof and forwards it as _meta["x402/payment"].',
-					},
-					agentSessionId: {
-						type: "string",
-						format: "uuid",
-						description:
-							"Optional owner-host Agent-Session id (session.id from start_external_agent_session_for_host). When the caller is a signed-in human, Tedix calls in this run act as that Agent-Session for Work admission; an invalid id fails the call. Ignored for machine credentials.",
-					},
-				},
-				required: ["code"],
-			},
+			inputSchema: z.toJSONSchema(codeModeInputSchema(resolvedApp.app.slug)),
 		},
 		{
 			name: "get_info",

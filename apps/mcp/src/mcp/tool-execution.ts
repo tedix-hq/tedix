@@ -1,3 +1,9 @@
+import { getToolPaymentPolicy } from "./payments";
+import {
+	CONNECT_PAYMENT_DENIED,
+	isFinancialBillingTool,
+	isNonPayingConnection,
+} from "./connect-payment-policy";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
@@ -202,6 +208,12 @@ export async function executeTool(
 				ownerHostSessionId: options.ownerHostSessionId,
 			},
 		};
+	}
+	if (
+		isNonPayingConnection(agent.appSlug) &&
+		(isFinancialBillingTool(tool) || getToolPaymentPolicy(tool))
+	) {
+		throw new Error(CONNECT_PAYMENT_DENIED);
 	}
 	const toolTypeId = tool.toolTypeId;
 	const toolConfig = tool.config;

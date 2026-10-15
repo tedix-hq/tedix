@@ -1272,3 +1272,61 @@ describe("production loader host wiring", () => {
 		expect(loaderEvents(spy)).toEqual([]);
 	});
 });
+
+describe("Connect outer payment rejection", () => {
+	it("cannot dispatch a paid inner tool without a proof", async () => {
+		const paid = tool({
+			config: {
+				endpoint: "test/softFail",
+				payment: {
+					enabled: true,
+					amount: "0.01",
+					network: "base",
+					recipient: "recipient",
+				},
+			},
+		});
+		const ctx = {
+			...makeServerCtx(new Map([[paid.toolId, paid]])),
+			appSlug: "connect",
+		};
+		const registered = new Map<string, (...args: any[]) => Promise<any>>();
+		await registerCodeModeTools(
+			{
+				registerTool: (name: string, _config: unknown, handler: any) =>
+					registered.set(name, handler),
+			} as never,
+			ctx,
+		);
+		await registered.get("code")!({ code: "async () => test.soft_fail({})" });
+		expect(executeTool).not.toHaveBeenCalled();
+	});
+	it.each(["argument", "metadata"])(
+		"rejects a %s proof before starting a sandbox",
+		async (kind) => {
+			const registered = new Map<string, (...args: any[]) => Promise<any>>();
+			const ctx = { ...makeServerCtx(), appSlug: "connect" };
+			await registerCodeModeTools(
+				{
+					registerTool: (name: string, _config: unknown, handler: any) =>
+						registered.set(name, handler),
+				} as never,
+				ctx,
+			);
+			const result = await registered.get("code")!(
+				{
+					code: "async () => __runtime",
+					...(kind === "argument" ? { payment: "proof" } : {}),
+				},
+				kind === "metadata"
+					? { mcpReq: { _meta: { "x402/payment": "proof" } } }
+					: undefined,
+			);
+			expect(result.isError).toBe(true);
+			expect(result.content[0].text).toContain(
+				"unavailable through this connection",
+			);
+			expect(executeTool).not.toHaveBeenCalled();
+		},
+	);
+});
