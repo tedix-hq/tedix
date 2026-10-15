@@ -1046,10 +1046,7 @@ export async function validateAuth(
 				userId: payload.sub,
 				organizationId: getTenantId(payload),
 				email: payload.email,
-				clientId:
-					getPayloadString(payload, "azp") ??
-					getPayloadString(payload, "client_id") ??
-					undefined,
+				clientId: payload.client_id,
 				scopes: scopes.length > 0 ? scopes : undefined,
 				payload,
 			};

@@ -27,10 +27,6 @@ export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 	const files = new Map<string, string | Uint8Array>(
 		packageFiles({ host: "claude" }),
 	);
-	files.set(
-		"chatgpt-app-submission.json",
-		readFileSync(join(ROOT, "chatgpt-app-submission.json"), "utf8"),
-	);
 	const claude = readJson(".claude-plugin/plugin.json");
 	const codex = readJson(".codex-plugin/plugin.json");
 	if (claude.version !== codex.version)

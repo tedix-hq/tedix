@@ -9,10 +9,10 @@ export function isNonPayingConnection(appSlug: string): boolean {
 export const CONNECT_PAYMENT_DENIED =
 	"Payment proofs, paid tools and money-moving operations are unavailable through this connection.";
 
-export function codeModeInputSchema(appSlug: string, chatgpt = false) {
+export function codeModeInputSchema(appSlug: string) {
 	return z.strictObject({
 		code: z.string().describe("JavaScript async arrow function."),
-		...(chatgpt || isNonPayingConnection(appSlug)
+		...(isNonPayingConnection(appSlug)
 			? {}
 			: {
 					payment: z
@@ -22,16 +22,12 @@ export function codeModeInputSchema(appSlug: string, chatgpt = false) {
 							'Optional x402 payment proof for paid inner tools, forwarded as _meta["x402/payment"].',
 						),
 				}),
-		...(chatgpt
-			? {}
-			: {
-					agentSessionId: z
-						.uuid()
-						.optional()
-						.describe(
-							"Optional verified owner-host Agent-Session id for Work admission. Ignored for machine credentials.",
-						),
-				}),
+		agentSessionId: z
+			.uuid()
+			.optional()
+			.describe(
+				"Optional verified owner-host Agent-Session id for Work admission. Ignored for machine credentials.",
+			),
 	});
 }
 

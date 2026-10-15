@@ -26,58 +26,26 @@ function resolvedAppStub() {
 }
 
 describe("outer-surface lanes", () => {
-	it.each([true, false])(
-		"ChatGPT detection works with metadata=%s after organization routing",
-		(metadata) => {
+	it.each([undefined, "openai-mcp/1.0.0", "Claude", "Codex"])(
+		"shares Connect tools and inputs with User-Agent %s",
+		(userAgent) => {
 			const tools = compactCodeModeTools(
 				resolvedAppStub(),
-				new Headers(metadata ? {} : { "User-Agent": "ChatGPT/1.0" }),
+				new Headers(userAgent ? { "User-Agent": userAgent } : {}),
 				"connect",
-				metadata
-					? { "io.modelcontextprotocol/clientInfo": { name: "ChatGPT" } }
-					: undefined,
 			);
-			expect(tools.map((tool) => tool.name).sort()).toEqual([
+			expect(tools.map((tool) => tool.name)).toEqual([
 				"code",
 				"get_info",
 				"get_profile",
-				"search",
 			]);
-			const code = tools.find((tool) => tool.name === "code")!;
-			expect(code.inputSchema).toMatchObject({
-				properties: { code: { type: "string" } },
-				additionalProperties: false,
-			});
 			expect(
-				Object.keys((code.inputSchema as { properties: object }).properties),
-			).toEqual(["code"]);
-			expect(code.description).toContain("First use the `search` tool");
-			expect(code.description).not.toContain("codemode.__runtime()");
-			expect(tools.find((tool) => tool.name === "search")).toMatchObject({
-				title: "Tedix operation search",
-				annotations: {
-					readOnlyHint: true,
-					destructiveHint: false,
-					openWorldHint: false,
-				},
-			});
+				Object.keys(
+					(tools[0]!.inputSchema as { properties: object }).properties,
+				).sort(),
+			).toEqual(["agentSessionId", "code"]);
 		},
 	);
-	it.each(["Claude", "Codex"])("keeps %s Connect inputs and tools", (name) => {
-		const tools = compactCodeModeTools(
-			resolvedAppStub(),
-			new Headers({ "User-Agent": name }),
-			"connect",
-		);
-		expect(tools.map((tool) => tool.name)).toEqual([
-			"code",
-			"get_info",
-			"get_profile",
-		]);
-		expect(
-			(tools[0]!.inputSchema as { properties: object }).properties,
-		).toHaveProperty("agentSessionId");
-	});
 
 	it("omits payment from the actual Connect discovery schema", () => {
 		const [code] = compactCodeModeTools(

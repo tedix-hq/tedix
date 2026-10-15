@@ -39,29 +39,6 @@ describe("public plugin repository", () => {
 		);
 	});
 
-	test("ships the ChatGPT submission tools, justifications and eight review cases", () => {
-		const submission = JSON.parse(
-			text(files.get("chatgpt-app-submission.json")),
-		);
-		expect(Object.keys(submission.tools).sort()).toEqual([
-			"code",
-			"get_info",
-			"get_profile",
-			"search",
-		]);
-		for (const tool of Object.values(submission.tools) as Array<{
-			justifications: object;
-		}>)
-			expect(Object.keys(tool.justifications)).toHaveLength(3);
-		expect(submission.test_cases).toHaveLength(5);
-		expect(submission.negative_test_cases).toHaveLength(3);
-		expect(
-			submission.test_cases.filter(
-				(item: { tools_triggered: string }) => item.tools_triggered,
-			),
-		).toHaveLength(5);
-	});
-
 	test("manifests agree on version and point at the plugin repository", () => {
 		const claude = JSON.parse(text(files.get(".claude-plugin/plugin.json")));
 		const codex = JSON.parse(text(files.get(".codex-plugin/plugin.json")));
