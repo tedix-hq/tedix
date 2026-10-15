@@ -85,7 +85,13 @@ import {
 	validateModernProtocolHeaders,
 } from "@tedix/mcp-shared/transport";
 import { collectAdvertisedScopes } from "@tedix/mcp-shared/well-known/oauth";
-import { CODE_MODE_TOOL_ANNOTATIONS } from "@tedix/mcp-shared/codemode";
+import {
+	CODE_MODE_TOOL_ANNOTATIONS,
+	CHATGPT_CODE_DESCRIPTION,
+	CHATGPT_SEARCH_DESCRIPTION,
+	CHATGPT_SEARCH_ANNOTATIONS,
+	isChatGptConnection,
+} from "@tedix/mcp-shared/codemode";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import {
 	applyInboundTrustHeaderHygiene,
@@ -3445,6 +3451,7 @@ export async function handleMcpRequest(
 		inboundTraceMeta,
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
+		isChatGptConnection(connectionAppSlug, request.headers, inboundTraceMeta),
 	);
 	const directoryReadHandler = (
 		server as unknown as {
@@ -4832,7 +4839,13 @@ export function compactCodeModeTools(
 	resolvedApp: ResolvedApp,
 	requestHeaders: Headers,
 	connectionAppSlug = resolvedApp.app.slug,
+	requestMeta?: Record<string, unknown>,
 ): Array<Record<string, unknown>> {
+	const chatgpt = isChatGptConnection(
+		connectionAppSlug,
+		requestHeaders,
+		requestMeta,
+	);
 	const appName = resolvedApp.app.name ?? "Tedix";
 	const tools: Array<Record<string, unknown>> = [
 		{
@@ -4841,8 +4854,12 @@ export function compactCodeModeTools(
 			annotations: CODE_MODE_TOOL_ANNOTATIONS,
 			...codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
 			_meta: codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
-			description: compactCodeModeToolDescription(resolvedApp),
-			inputSchema: z.toJSONSchema(codeModeInputSchema(connectionAppSlug)),
+			description: chatgpt
+				? CHATGPT_CODE_DESCRIPTION
+				: compactCodeModeToolDescription(resolvedApp),
+			inputSchema: z.toJSONSchema(
+				codeModeInputSchema(connectionAppSlug, chatgpt),
+			),
 		},
 		{
 			name: "get_info",
@@ -4860,12 +4877,28 @@ export function compactCodeModeTools(
 			: []),
 	];
 	const config = resolvedApp.metadata?.mcpConfig;
+	if (chatgpt)
+		tools.push({
+			name: "search",
+			title: "Tedix operation search",
+			description: CHATGPT_SEARCH_DESCRIPTION,
+			annotations: CHATGPT_SEARCH_ANNOTATIONS,
+			...codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
+			_meta: codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
+			inputSchema: z.toJSONSchema(
+				z.strictObject({
+					query: z.string(),
+					limit: z.number().int().min(1).max(50).optional(),
+				}),
+			),
+		});
+
 	const caller = parseMcpCallerFromHeaders(requestHeaders);
 	const overrides = config?.codeModeNamespaces as
 		| Record<string, string>
 		| undefined;
-	const rows = (resolvedApp.tools ?? []).filter((tool) =>
-		isConfiguredCatalogTool(tool, config),
+	const rows = (resolvedApp.tools ?? []).filter(
+		(tool) => !chatgpt && isConfiguredCatalogTool(tool, config),
 	);
 	const names = new Map<string, number>();
 	for (const tool of resolvedApp.tools ?? [])
@@ -4985,7 +5018,14 @@ async function maybeHandleCodeModeCompactMcp(
 		// mirrors the app-resolution cache backing the compact tool list
 		// (APP_RESOLUTION_TTL_MS in resolution.ts).
 		const page = paginateSortedToolsList(
-			compactCodeModeTools(resolvedApp, request.headers, connectionAppSlug),
+			compactCodeModeTools(
+				resolvedApp,
+				request.headers,
+				connectionAppSlug,
+				isRecord(body.params) && isRecord(body.params._meta)
+					? body.params._meta
+					: undefined,
+			),
 			isRecord(body.params) ? body.params.cursor : undefined,
 		);
 		if (!page.ok)
