@@ -180,6 +180,8 @@ export type UseCollabDocResult = {
 		revision: number,
 		revisionId: string | null,
 	) => void;
+	/** Publish this client's selection to peers; `null` withdraws it. */
+	setSelection: (selection: CollabSelection | null) => void;
 };
 
 /** Transport-level failure. `OtClient` retries these; everything else is hard. */
@@ -223,7 +225,12 @@ function selectionOf(state: unknown): CollabSelection | null {
 	return typeof candidate.path === "string" &&
 		typeof candidate.anchor === "number" &&
 		typeof candidate.head === "number"
-		? { path: candidate.path, anchor: candidate.anchor, head: candidate.head }
+		? {
+				path: candidate.path,
+				anchor: candidate.anchor,
+				head: candidate.head,
+				...(candidate.space === "rich-text" ? { space: "rich-text" } : {}),
+			}
 		: null;
 }
 
@@ -1001,6 +1008,11 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		[session],
 	);
 
+	const setSelection = useCallback(
+		(selection: CollabSelection | null) => session?.setSelection(selection),
+		[session],
+	);
+
 	return {
 		// Not gated on `status`: see the module header and `UseCollabDocResult.session`.
 		// A transient disconnect must not unmount the editor and destroy its view.
@@ -1017,5 +1029,6 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		replaceWithCanonical,
 		commitBasis,
 		groundCommit,
+		setSelection,
 	};
 }

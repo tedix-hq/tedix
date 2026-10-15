@@ -36,7 +36,7 @@ import { Plugin } from "@tiptap/pm/state";
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DocumentLinkPopover } from "@/components/document-link-popover";
 import { Button } from "@/components/kumo/button";
 import {
@@ -68,11 +68,32 @@ import {
 	normalizeDocumentContent,
 	type DocumentContent,
 } from "@/lib/output-models";
+import { incomingDocumentTransaction } from "@/lib/document-remote-merge";
+import {
+	REMOTE_CHANGE_META,
+	type RemoteCursor,
+	remoteCursorsPlugin,
+	setRemoteCursors,
+} from "@/lib/document-remote-cursors";
+
+/** Live co-editing hooks; absent when the document is edited alone. */
+export interface DocumentCollab {
+	/**
+	 * Subscribe to the shared document moving under a remote change. The
+	 * listener must run synchronously with the move, so the editor is never
+	 * behind the shared text when the next keystroke is published.
+	 */
+	subscribe(apply: (next: DocumentContent) => void): () => void;
+	/** Publish this editor's selection, in editor positions. */
+	publishSelection(selection: { anchor: number; head: number } | null): void;
+}
 
 export interface DocumentEditorProps {
 	value: DocumentContent;
 	onChange: (next: DocumentContent) => void;
 	disabled?: boolean;
+	collab?: DocumentCollab;
+	remoteCursors?: readonly RemoteCursor[];
 }
 
 // The local send margin must not prevent the editor from displaying an already
@@ -100,10 +121,38 @@ function documentEditError(
 	return null;
 }
 
+/**
+ * Move the editor to `richText` as one remote transaction: minimal steps, so the
+ * local selection and stored marks map across, outside local undo history, and
+ * not published back.
+ */
+function applyIncoming(
+	editor: NonNullable<ReturnType<typeof useEditor>>,
+	richText: DocumentContent["richText"],
+): void {
+	// Compare through the editor schema so default attrs do not manufacture
+	// a document replacement when an untouched saved version is opened.
+	const incoming = editor.schema.nodeFromJSON(richText as JSONContent);
+	const tr = incomingDocumentTransaction(editor.state, incoming);
+	if (!tr) return;
+	editor.view.dispatch(
+		tr
+			.setMeta("addToHistory", false)
+			.setMeta("preventUpdate", true)
+			.setMeta(INCOMING_DOCUMENT_META, true)
+			.setMeta(REMOTE_CHANGE_META, true),
+	);
+}
+
+const SELECTION_PUBLISH_MS = 60;
+const NO_CURSORS: readonly RemoteCursor[] = [];
+
 export function DocumentEditor({
 	value,
 	onChange,
 	disabled = false,
+	collab,
+	remoteCursors = NO_CURSORS,
 }: DocumentEditorProps) {
 	const normalized = normalizeDocumentContent(value);
 	const fileInput = useRef<HTMLInputElement>(null);
@@ -130,6 +179,10 @@ export function DocumentEditor({
 						}),
 					];
 				},
+			}),
+			Extension.create({
+				name: "remoteCursors",
+				addProseMirrorPlugins: () => [remoteCursorsPlugin()],
 			}),
 			StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
 			TextStyle,
@@ -181,19 +234,48 @@ export function DocumentEditor({
 
 	const richKey = JSON.stringify(normalized.richText);
 	useEffect(() => {
+		// Live remote changes arrive through `collab`, focused or not. This path
+		// only catches an unfocused editor up with a value it was handed, such as
+		// a newly opened saved version; while focused, the editor is the source.
 		if (!editor || editor.isFocused) return;
-		// Compare through the editor schema so default attrs do not manufacture
-		// a document replacement when an untouched saved version is opened.
-		const incoming = editor.schema.nodeFromJSON(normalized.richText);
-		if (!editor.state.doc.eq(incoming)) {
-			editor
-				.chain()
-				.setMeta("addToHistory", false)
-				.setMeta(INCOMING_DOCUMENT_META, true)
-				.setContent(normalized.richText as JSONContent, { emitUpdate: false })
-				.run();
-		}
+		applyIncoming(editor, normalized.richText);
 	}, [editor, richKey, normalized.richText]);
+
+	useEffect(() => {
+		if (!editor || !collab) return;
+		return collab.subscribe((next) => {
+			if (!editor.isDestroyed)
+				applyIncoming(editor, normalizeDocumentContent(next).richText);
+		});
+	}, [editor, collab]);
+
+	useEffect(() => {
+		if (!editor || !collab) return;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const publish = () => {
+			timer = null;
+			if (editor.isDestroyed) return;
+			const { anchor, head } = editor.state.selection;
+			collab.publishSelection({ anchor, head });
+		};
+		// Trailing, so a burst of typing sends one position, after the edit.
+		const schedule = () => {
+			if (timer === null) timer = setTimeout(publish, SELECTION_PUBLISH_MS);
+		};
+		editor.on("selectionUpdate", schedule);
+		editor.on("focus", schedule);
+		return () => {
+			editor.off("selectionUpdate", schedule);
+			editor.off("focus", schedule);
+			if (timer !== null) clearTimeout(timer);
+			collab.publishSelection(null);
+		};
+	}, [editor, collab]);
+
+	useLayoutEffect(() => {
+		if (!editor || editor.isDestroyed) return;
+		editor.view.dispatch(setRemoteCursors(editor.state.tr, remoteCursors));
+	}, [editor, remoteCursors]);
 
 	const insertImageFile = async (file: File) => {
 		if (disabled || !editor) return;

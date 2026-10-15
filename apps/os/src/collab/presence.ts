@@ -57,6 +57,14 @@ export interface CollabSelection {
 	path: string;
 	anchor: number;
 	head: number;
+	/**
+	 * Which coordinates `anchor` and `head` are in. Absent means UTF-16 offsets
+	 * into the file text, as above. `"rich-text"` means positions in the rich
+	 * document editor's tree (ProseMirror positions): they are NOT mapped through
+	 * text changes, because the publisher re-sends its selection whenever its own
+	 * editor maps it, and a JSON text offset says nothing about a tree position.
+	 */
+	space?: "rich-text";
 }
 
 export interface CollabParticipant extends CollabVerifiedIdentity {
@@ -162,9 +170,10 @@ function sanitizeSelection(value: unknown): CollabSelection | null {
 	const path = shortString(input.path, MAX_SELECTION_PATH_LENGTH);
 	const anchor = offset(input.anchor);
 	const head = offset(input.head);
-	return path !== null && anchor !== null && head !== null
-		? { path, anchor, head }
-		: null;
+	if (path === null || anchor === null || head === null) return null;
+	return input.space === "rich-text"
+		? { path, anchor, head, space: "rich-text" }
+		: { path, anchor, head };
 }
 
 /**
@@ -192,6 +201,9 @@ export function sanitizeCollabPresenceState(
 /**
  * Map one stored selection across a change that has just been applied.
  *
+ * A `"rich-text"` selection is returned unchanged: its publisher keeps it
+ * current (see `CollabSelection.space`).
+ *
  * Returns `null` when the selection cannot survive the change: the file was
  * replaced wholesale (`set`) or deleted (`remove`), so no offset in the old
  * text names a position in the new one. A caller drops that peer's caret rather
@@ -201,6 +213,7 @@ export function mapSelectionThroughChange(
 	selection: CollabSelection,
 	change: CodeChange,
 ): CollabSelection | null {
+	if (selection.space === "rich-text") return selection;
 	for (const [path, fileChange] of change) {
 		if (path !== selection.path) continue;
 		if (!("edit" in fileChange)) return null;

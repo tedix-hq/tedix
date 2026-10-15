@@ -157,6 +157,36 @@ describe("mapping positions through the change stream", () => {
 		).toEqual({ path: "other", anchor: 3, head: 3 });
 	});
 
+	it("keeps a rich-text selection's space and never maps it as text offsets", () => {
+		const selection = {
+			path: "document",
+			anchor: 3,
+			head: 5,
+			space: "rich-text" as const,
+		};
+		expect(
+			sanitizeCollabPresenceState(
+				{ selection: { ...selection, space: "rich-text" } },
+				identity,
+			),
+		).toEqual({ user: identity, selection });
+		expect(
+			sanitizeCollabPresenceState(
+				{ selection: { ...selection, space: "pixels" } },
+				identity,
+			),
+		).toEqual({
+			user: identity,
+			selection: { path: "document", anchor: 3, head: 5 },
+		});
+		expect(
+			mapSelectionThroughChange(selection, editChange("abc", "xxabc")),
+		).toBe(selection);
+		expect(
+			mapSelectionThroughChange(selection, [["document", { set: "new" }]]),
+		).toBe(selection);
+	});
+
 	it("drops a selection whose file was replaced or removed", () => {
 		const selection = { path: "document", anchor: 3, head: 3 };
 		expect(

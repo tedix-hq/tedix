@@ -1,22 +1,37 @@
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import { DocumentEditor } from "@/components/output-editor-document";
+import {
+	type DocumentCollab,
+	DocumentEditor,
+} from "@/components/output-editor-document";
 import { SheetEditor } from "@/components/output-editor-sheet";
 import { SlidesEditor } from "@/components/output-editor-slides";
 import { VideoOutputView } from "@/components/output-content";
+import type { RemoteCursor } from "@/lib/document-remote-cursors";
 
 export function OutputEditor({
 	value,
 	onChange,
 	disabled,
+	documentCollab,
+	remoteCursors,
 }: {
 	value: OsOutputContent;
 	onChange: (next: OsOutputContent) => void;
 	disabled?: boolean;
+	/** Live co-editing for a document; other kinds ignore it. */
+	documentCollab?: DocumentCollab;
+	remoteCursors?: readonly RemoteCursor[];
 }) {
 	switch (value.kind) {
 		case "document":
 			return (
-				<DocumentEditor value={value} onChange={onChange} disabled={disabled} />
+				<DocumentEditor
+					value={value}
+					onChange={onChange}
+					disabled={disabled}
+					collab={documentCollab}
+					remoteCursors={remoteCursors}
+				/>
 			);
 		case "sheet":
 			return (

@@ -2059,6 +2059,57 @@ a:focus-visible {
 	color: var(--foreground);
 }
 
+/* Collaborators' carets and selections in the rich document editor. Each
+ * caret is recreated when it moves, which restarts the idle fade. */
+.collab-caret {
+	position: relative;
+	margin-inline: -1px;
+	border-inline-start: 2px solid var(--collab-color);
+	pointer-events: none;
+	animation: collab-caret-idle 400ms ease 8s forwards;
+}
+
+.collab-caret-label {
+	position: absolute;
+	bottom: 100%;
+	left: -2px;
+	padding: 1px 5px;
+	border-radius: 4px 4px 4px 0;
+	background: var(--collab-color);
+	color: white;
+	font: 600 11px/1.4 var(--font-sans, system-ui, sans-serif);
+	white-space: nowrap;
+	user-select: none;
+	animation: collab-caret-label-idle 400ms ease 3s forwards;
+}
+
+.collab-selection {
+	background-color: color-mix(in srgb, var(--collab-color) 22%, transparent);
+	animation: collab-selection-idle 400ms ease 8s forwards;
+}
+
+@keyframes collab-caret-idle {
+	to {
+		border-inline-start-color: color-mix(
+			in srgb,
+			var(--collab-color) 35%,
+			transparent
+		);
+	}
+}
+
+@keyframes collab-caret-label-idle {
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes collab-selection-idle {
+	to {
+		background-color: color-mix(in srgb, var(--collab-color) 10%, transparent);
+	}
+}
+
 .canvas-presence-online {
 	position: absolute;
 	right: -1px;

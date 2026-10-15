@@ -66,6 +66,7 @@ import {
 	useCollabDoc,
 } from "@/lib/use-collab-doc";
 import { useReviseOutput } from "@/lib/use-revise-output";
+import { useDocumentCollab } from "@/lib/use-document-collab";
 
 /**
  * The Canvas document panel: the gadget-detail domain owner, the OutputEditor
@@ -261,6 +262,7 @@ export function CanvasDocPanel({
 		replaceWithCanonical,
 		commitBasis,
 		groundCommit,
+		setSelection,
 	} = useCollabDoc({
 		workspaceId,
 		docKey: canvasDocKey(doc),
@@ -299,6 +301,12 @@ export function CanvasDocPanel({
 		[isGadget, outputKind, docText],
 	);
 	const outputDraft = outputParsed?.ok ? outputParsed.content : null;
+	const documentCollab = useDocumentCollab({
+		session,
+		enabled: outputKind === "document",
+		participants,
+		setSelection,
+	});
 	const outputDraftIssue =
 		outputParsed && !outputParsed.ok ? outputParsed.issue : null;
 
@@ -853,6 +861,8 @@ export function CanvasDocPanel({
 					value={outputDraft}
 					onChange={updateSharedOutput}
 					disabled={!live}
+					documentCollab={documentCollab.collab}
+					remoteCursors={documentCollab.cursors}
 				/>
 			) : (
 				<ListSkeleton rows={1} rowClassName="h-64" />
