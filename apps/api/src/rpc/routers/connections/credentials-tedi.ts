@@ -1,7 +1,10 @@
 import { ORPCError } from "@orpc/server";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { constrainPersonalResourceToolArguments } from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import {
+	constrainPersonalResourceToolArguments,
+	reviewedPersonalResourceBinding,
+} from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getToolByAppAndToolIdForOrganization } from "@tedix/db/queries/tools";
 import {
@@ -119,7 +122,12 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 				let matched;
 				try {
 					matched = constrainPersonalResourceToolArguments({
-						binding: tool.config?.personalResourceBinding,
+						binding:
+							tool.config?.personalResourceBinding ??
+							reviewedPersonalResourceBinding(
+								input.providerId,
+								tool.config?.mcpToolName,
+							),
 						arguments: input.delegatedToolUse.arguments,
 						sources: personalSources,
 						providerId: input.providerId,

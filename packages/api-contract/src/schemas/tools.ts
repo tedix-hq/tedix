@@ -1252,17 +1252,30 @@ export interface AdapterToolConfig {
  * Enables fully config-driven MCP tools that call any API endpoint
  * without code changes. Input/output shape controlled entirely from D1.
  */
-/** Server-reviewed provider argument locations for a delegated resource operation. */
-export const PersonalResourceToolBindingSchema = z
-	.object({
-		operation: z.string().trim().min(1).max(160),
-		resourceType: z.string().trim().min(1).max(160),
-		paths: z
-			.array(z.array(z.string().min(1).max(100)).min(1).max(12))
-			.min(1)
-			.max(20),
-	})
-	.strict();
+/**
+ * Server-reviewed provider argument locations for a delegated resource operation.
+ * `target: "account"` binds a tool that names no resource argument (Gmail reads
+ * the connected mailbox itself): the admitted resource is the account.
+ */
+export const PersonalResourceToolBindingSchema = z.union([
+	z
+		.object({
+			operation: z.string().trim().min(1).max(160),
+			resourceType: z.string().trim().min(1).max(160),
+			paths: z
+				.array(z.array(z.string().min(1).max(100)).min(1).max(12))
+				.min(1)
+				.max(20),
+		})
+		.strict(),
+	z
+		.object({
+			operation: z.string().trim().min(1).max(160),
+			resourceType: z.string().trim().min(1).max(160),
+			target: z.literal("account"),
+		})
+		.strict(),
+]);
 export type PersonalResourceToolBinding = z.infer<
 	typeof PersonalResourceToolBindingSchema
 >;

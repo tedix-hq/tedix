@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
 	personalResourceDelegations,
@@ -51,6 +51,33 @@ export async function listPersonalResourceDelegations(
 			desc(personalResourceDelegations.id),
 		)
 		.limit(Math.min(100, Math.max(1, input.limit ?? 50)));
+}
+/** Unrevoked, unexpired consents pinned to this exact worker and skill revision. */
+export async function listActiveSkillPersonalResourceDelegations(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		tediId: string;
+		skillId: string;
+		skillRevision: number;
+		now: string;
+	},
+) {
+	return db
+		.select()
+		.from(personalResourceDelegations)
+		.where(
+			and(
+				eq(personalResourceDelegations.organizationId, input.organizationId),
+				eq(personalResourceDelegations.tediId, input.tediId),
+				eq(personalResourceDelegations.skillId, input.skillId),
+				eq(personalResourceDelegations.skillRevision, input.skillRevision),
+				isNull(personalResourceDelegations.revokedAt),
+				gt(personalResourceDelegations.expiresAt, input.now),
+			),
+		)
+		.orderBy(personalResourceDelegations.id)
+		.limit(20);
 }
 /** Revocation is monotonic and idempotent; no API restores consent. */
 export async function revokePersonalResourceDelegation(

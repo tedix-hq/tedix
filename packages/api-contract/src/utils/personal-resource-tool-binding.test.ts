@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	personalResourceScopesCover,
 	constrainPersonalResourceToolArguments as constrain,
+	reviewedPersonalResourceBinding,
 } from "./personal-resource-tool-binding";
 import type { OsDerivedAccessEnvelope } from "../schemas/os-workspaces";
 const source = {
@@ -121,4 +122,75 @@ it("rejects lookalike scopes that only contain or extend the Google root", () =>
 			false,
 		);
 	}
+});
+describe("account-target bindings (tools that name no resource)", () => {
+	const mailbox = {
+		...source,
+		providerId: "google-gmail",
+		resourceType: "mailbox",
+		providerResourceId: "owner@example.test",
+		toolIds: ["search_threads"],
+	} as OsDerivedAccessEnvelope["sources"][number];
+	const binding = reviewedPersonalResourceBinding(
+		"google-gmail",
+		"search_threads",
+	);
+	const account = {
+		binding,
+		arguments: { query: "in:inbox" },
+		sources: [mailbox],
+		providerId: "google-gmail",
+		toolId: "search_threads",
+	};
+	it("admits the single consented account for a reviewed read tool", () =>
+		expect(constrain(account)).toEqual({
+			operation: "read",
+			sources: [mailbox],
+		}));
+	it("denies unlisted tools, other providers, write operations and ambiguity", () => {
+		expect(() => constrain({ ...account, toolId: "trash_thread" })).toThrow();
+		expect(() => constrain({ ...account, providerId: "google" })).toThrow();
+		expect(() => constrain({ ...account, sources: [] })).toThrow();
+		expect(() =>
+			constrain({
+				...account,
+				sources: [mailbox, { ...mailbox, providerResourceId: "other" }],
+			}),
+		).toThrow();
+		expect(() =>
+			constrain({
+				...account,
+				sources: [{ ...mailbox, operations: ["write"] }],
+			}),
+		).toThrow();
+		expect(() => constrain({ ...account, arguments: [] })).toThrow();
+	});
+	it("reviews only Gmail read tools", () => {
+		for (const tool of [
+			"search_threads",
+			"get_thread",
+			"get_message",
+			"list_labels",
+		])
+			expect(reviewedPersonalResourceBinding("google-gmail", tool)).toEqual({
+				operation: "read",
+				resourceType: "mailbox",
+				target: "account",
+			});
+		for (const tool of [
+			"create_draft",
+			"trash_thread",
+			"label_thread",
+			"update_message_labels",
+			"__proto__",
+			"toString",
+		])
+			expect(
+				reviewedPersonalResourceBinding("google-gmail", tool),
+			).toBeUndefined();
+		expect(
+			reviewedPersonalResourceBinding("google", "search_threads"),
+		).toBeUndefined();
+		expect(reviewedPersonalResourceBinding("google-gmail", 1)).toBeUndefined();
+	});
 });
