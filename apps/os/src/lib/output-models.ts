@@ -22,11 +22,6 @@ export type PresentationContent = Extract<
 export const PRESENTATION_WIDTH = 1200;
 export const PRESENTATION_HEIGHT = 675;
 
-/**
- * Keep authored slide measurements in the canonical 1200px coordinate space
- * while rendering them at the width of the current slide canvas. The owning
- * canvas must establish an inline-size query container.
- */
 export function safeImageSource(source: unknown): string | undefined {
 	if (typeof source !== "string") return undefined;
 	return /^(https:\/\/|data:image\/(?:png|jpeg|gif|webp|svg\+xml);)/i.test(
@@ -34,20 +29,6 @@ export function safeImageSource(source: unknown): string | undefined {
 	)
 		? source
 		: undefined;
-}
-
-export function presentationCanvasLength(value: number): string {
-	return `calc(${value} * 100cqw / ${PRESENTATION_WIDTH})`;
-}
-
-/**
- * Slide elements carry no line height of their own, so it follows type size:
- * display type sets tight, body copy opens up. Unitless, so it scales with the
- * canvas. The API export (`apps/api/src/lib/os-output-html.ts`) applies the
- * same rule; change both together.
- */
-export function presentationLineHeight(fontSize: number): number {
-	return fontSize >= 40 ? 1.1 : 1.3;
 }
 
 export function createOutputNodeId(prefix: string): string {

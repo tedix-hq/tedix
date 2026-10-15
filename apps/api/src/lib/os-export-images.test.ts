@@ -1,0 +1,145 @@
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { fetchOsExportImage, inlineOsExportImages } from "./os-export-images";
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.useRealTimers();
+});
+
+describe("export image boundary", () => {
+	it("inlines public HTTPS raster bytes without forwarding credentials", async () => {
+		const fetcher = vi.fn().mockResolvedValue(
+			new Response("raster", {
+				headers: { "content-type": "image/jpeg; charset=binary" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetcher);
+		expect(
+			await fetchOsExportImage(
+				"https://tedix.dev/images/founders/example.jpeg",
+			),
+		).toBe("data:image/jpeg;base64,cmFzdGVy");
+		const init = fetcher.mock.calls[0]![1];
+		expect(init.redirect).toBe("manual");
+		expect(init.signal).toBeInstanceOf(AbortSignal);
+		expect(new Headers(init.headers).has("authorization")).toBe(false);
+		expect(new Headers(init.headers).has("cookie")).toBe(false);
+	});
+	it.each([
+		"http://example.com/a.png",
+		"https://127.0.0.1/a.png",
+		"https://[::1]/a.png",
+		"https://169.254.169.254/a",
+		"https://api.tedix.dev/a",
+		"https://foo.tedix.dev/a",
+		"https://user:pass@example.com/a",
+	])("blocks %s before fetching", async (url) => {
+		const fetcher = vi.fn();
+		vi.stubGlobal("fetch", fetcher);
+		await expect(fetchOsExportImage(url)).rejects.toThrow();
+		expect(fetcher).not.toHaveBeenCalled();
+	});
+	it.each([
+		"https://localhost/a",
+		"http://example.com/a",
+		"https://api.tedix.dev/a",
+	])("guards redirect to %s", async (url) => {
+		const fetcher = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(null, { status: 302, headers: { location: url } }),
+			);
+		vi.stubGlobal("fetch", fetcher);
+		await expect(fetchOsExportImage("https://example.com/a")).rejects.toThrow();
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+	it.each(["text/html", "image/svg+xml", "application/octet-stream"])(
+		"rejects content type %s",
+		async (type) => {
+			vi.stubGlobal(
+				"fetch",
+				vi
+					.fn()
+					.mockResolvedValue(
+						new Response("body", { headers: { "content-type": type } }),
+					),
+			);
+			await expect(fetchOsExportImage("https://example.com/a")).rejects.toThrow(
+				/raster/,
+			);
+		},
+	);
+	it.each([true, false])(
+		"caps bytes with declared length %s",
+		async (declared) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+						headers: {
+							"content-type": "image/png",
+							...(declared ? { "content-length": "10485761" } : {}),
+						},
+					}),
+				),
+			);
+			await expect(fetchOsExportImage("https://example.com/a")).rejects.toThrow(
+				/10 MB/,
+			);
+		},
+	);
+	it("times out a stalled body", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal("AbortSignal", {
+			timeout: () => {
+				const controller = new AbortController();
+				setTimeout(() => controller.abort(), 10_000);
+				return controller.signal;
+			},
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async (_url, init) =>
+					new Response(
+						new ReadableStream({
+							start(controller) {
+								init.signal.addEventListener("abort", () =>
+									controller.error(new Error("timeout")),
+								);
+							},
+						}),
+						{ headers: { "content-type": "image/png" } },
+					),
+			),
+		);
+		const result = expect(
+			fetchOsExportImage("https://example.com/a"),
+		).rejects.toThrow("timeout");
+		await vi.advanceTimersByTimeAsync(10_000);
+		await result;
+	});
+	it("deduplicates document images and preserves the revision", async () => {
+		const fetcher = vi
+			.fn()
+			.mockImplementation(() =>
+				Promise.resolve(
+					new Response("bytes", { headers: { "content-type": "image/png" } }),
+				),
+			);
+		vi.stubGlobal("fetch", fetcher);
+		const image = {
+			type: "image" as const,
+			attrs: { src: "https://example.com/a.png" },
+		};
+		const content = {
+			kind: "document" as const,
+			blocks: [],
+			richText: { type: "doc" as const, content: [image, image] },
+		};
+		const copy = await inlineOsExportImages(content);
+		expect(JSON.stringify(copy)).toContain("data:image/png;base64,");
+		expect(image.attrs.src).toBe("https://example.com/a.png");
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+});

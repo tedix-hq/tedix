@@ -7,6 +7,7 @@
  * user text flows through `escapeHtml` before it reaches the markup.
  */
 
+import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
 import type {
 	OsDocumentBlock,
 	OsOutput,
@@ -291,37 +292,26 @@ function renderWorkbook(
 }
 
 function renderDeckElement(element: OsPresentationElement): string {
-	const style = element.style;
 	const declarations = [
 		"position:absolute",
-		`left:${element.x}px`,
-		`top:${element.y}px`,
-		`width:${element.width}px`,
-		`height:${element.height}px`,
-		`font-size:${style.fontSize ?? 24}px`,
-		// Same rule as `presentationLineHeight` in apps/os: display type sets
-		// tight, body copy opens up. Change both together.
-		`line-height:${(style.fontSize ?? 24) >= 40 ? 1.1 : 1.3}`,
-		style.fontFamily && /^[a-zA-Z0-9 ,'"-]+$/.test(style.fontFamily)
-			? `font-family:${escapeHtml(style.fontFamily)}`
-			: "",
-		style.fontWeight
-			? `font-weight:${style.fontWeight === "semibold" ? 600 : style.fontWeight === "medium" ? 500 : style.fontWeight}`
-			: "",
-		safeCssColor(style.color) ? `color:${safeCssColor(style.color)}` : "",
-		safeCssColor(style.background)
-			? `background:${safeCssColor(style.background)}`
-			: "",
-		safeCssColor(style.borderColor)
-			? `border-color:${safeCssColor(style.borderColor)}`
-			: "",
-		style.borderWidth
-			? `border-style:solid;border-width:${style.borderWidth}px`
-			: "",
-		style.borderRadius ? `border-radius:${style.borderRadius}px` : "",
-		style.textAlign ? `text-align:${style.textAlign}` : "",
-		style.opacity !== undefined ? `opacity:${style.opacity}` : "",
-		style.rotation ? `transform:rotate(${style.rotation}deg)` : "",
+		...Object.entries(slideElementStyle(element, "pixels"))
+			.filter(([, value]) => value !== undefined)
+			.map(([key, value]) => {
+				const text = String(value);
+				// React assigns individual CSS properties. HTML serialization must also
+				// prevent declaration injection and CSS network loads (including escapes).
+				if (
+					!/^[a-zA-Z0-9 #.,%()'"+\-/]*$/.test(text) ||
+					Array.from(text.matchAll(/([a-z-]+)\s*\(/gi)).some(
+						(match) =>
+							!/^(?:(?:repeating-)?(?:linear|radial|conic)-gradient|rgba?|hsla?|oklch|oklab|lab|lch|color|color-mix|calc|rotate)$/i.test(
+								match[1]!,
+							),
+					)
+				)
+					return "";
+				return `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}:${escapeHtml(text)}`;
+			}),
 		"white-space:pre-wrap",
 		"overflow-wrap:break-word",
 		"overflow:hidden",

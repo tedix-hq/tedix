@@ -4,6 +4,11 @@
  */
 
 import { runInNewContext } from "node:vm";
+import {
+	OsOutputContentSchema,
+	type OsPresentationElement,
+} from "@tedix/api-contract/schemas/os-workspaces";
+import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	escapeHtml,
@@ -626,3 +631,88 @@ it.each(["load", "error"])(
 		expect(document.documentElement.dataset.exportReady).toBe("true");
 	},
 );
+
+it.each([
+	"radial-gradient(ellipse at center, #FFF45C 0%, transparent 70%)",
+	"linear-gradient(90deg, #fff, rgba(255, 244, 92, 0))",
+])("serializes the viewer gradient and opacity: %s", (background) => {
+	const element: OsPresentationElement = {
+		id: "glow",
+		type: "shape",
+		x: 40,
+		y: 50,
+		width: 400,
+		height: 400,
+		style: { background, opacity: 0.9 },
+	};
+	const content = OsOutputContentSchema.parse({
+		kind: "presentation",
+		slides: [],
+		deck: {
+			width: 1200,
+			height: 675,
+			activeSlideId: "one",
+			slides: [
+				{
+					id: "one",
+					name: "Glow",
+					layout: "blank",
+					background: "#121212",
+					notes: "",
+					elements: [element],
+				},
+			],
+		},
+	});
+	const html = renderOsOutputHtml(
+		{ kind: "presentation", title: "Glow" },
+		{ ...revisionMeta, content },
+	);
+	expect(slideElementStyle(element).background).toBe(background);
+	expect(html).toContain(`background:${background}`);
+	expect(html).toContain("opacity:0.9");
+	expect(html).toContain("padding:0");
+});
+
+it.each([
+	"red;position:fixed",
+	"url(https://example.com/a)",
+	'image-set("https://example.com/a" 1x)',
+	"u\\72l(https://example.com/a)",
+	"</style><script>alert(1)</script>",
+])("rejects CSS declaration and resource injection: %s", (background) => {
+	const content = {
+		kind: "presentation" as const,
+		slides: [],
+		deck: {
+			width: 1200 as const,
+			height: 675 as const,
+			activeSlideId: "one",
+			slides: [
+				{
+					id: "one",
+					name: "Safe",
+					layout: "blank" as const,
+					background: "#fff",
+					notes: "",
+					elements: [
+						{
+							id: "shape",
+							type: "shape" as const,
+							x: 0,
+							y: 0,
+							width: 100,
+							height: 100,
+							style: { background },
+						},
+					],
+				},
+			],
+		},
+	};
+	const html = renderOsOutputHtml(
+		{ kind: "presentation", title: "Safe" },
+		{ ...revisionMeta, content },
+	);
+	expect(html).not.toContain(background);
+});

@@ -36,6 +36,7 @@ import {
 	isUsableScreenshot,
 	runBrowserQuickAction,
 } from "../../integrations/browser-run/client";
+import { inlineOsExportImages } from "../../lib/os-export-images";
 import {
 	OS_EXPORT_RESOURCE_WAIT,
 	renderOsOutputHtml,
@@ -854,7 +855,11 @@ async function renderExportBytes(
 			"Output export requires Browser Rendering; the BROWSER binding is not configured",
 		);
 	}
-	const html = renderOsOutputHtml(mapOsOutputRow(output), revision);
+	const content = await inlineOsExportImages(revision.content);
+	const html = renderOsOutputHtml(mapOsOutputRow(output), {
+		...revision,
+		content,
+	});
 	const response = await runBrowserQuickAction(
 		context.env.BROWSER,
 		format === "pdf" ? "pdf" : "screenshot",

@@ -1,10 +1,10 @@
+import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
 import type { PresentationContent } from "@/lib/output-models";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vite-plus/test";
 import { SlidesEditor } from "./output-editor-slides";
 import { OutputContentView } from "./output-content";
-import { slideElementStyle } from "./output-slide-element";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
