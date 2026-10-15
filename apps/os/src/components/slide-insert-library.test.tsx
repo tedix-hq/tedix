@@ -318,12 +318,12 @@ describe("slide images", () => {
 		await until(() =>
 			Boolean(
 				mounted.container.querySelector(
-					'.slides-editor-inspector input[type="file"]',
+					'.slides-editor-inspector input[type="file"][aria-label="Replace image"]',
 				),
 			),
 		);
 		const inspectorInput = mounted.container.querySelector<HTMLInputElement>(
-			'.slides-editor-inspector input[type="file"]',
+			'.slides-editor-inspector input[type="file"][aria-label="Replace image"]',
 		)!;
 		expect(inspectorInput.getAttribute("aria-label")).toBe("Replace image");
 		const png = new File(["png"], "Chart.png", { type: "image/png" });

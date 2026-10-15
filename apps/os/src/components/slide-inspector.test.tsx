@@ -26,6 +26,7 @@ function mount(element: OsPresentationElement) {
 	document.body.appendChild(container);
 	const root = createRoot(container);
 	const changes: OsPresentationElement[] = [];
+	const slideChanges: OsPresentationCanvasSlide[] = [];
 	act(() =>
 		root.render(
 			<SlideInspector
@@ -33,16 +34,18 @@ function mount(element: OsPresentationElement) {
 				element={element}
 				canMoveForward
 				canMoveBackward
-				onChangeSlide={() => {}}
+				onChangeSlide={(next) => slideChanges.push(next)}
 				onChangeElement={(next) => changes.push(next)}
 				onAction={() => {}}
 				onImageFile={() => {}}
+				onBackgroundImageFile={() => {}}
 			/>,
 		),
 	);
 	return {
 		container,
 		changes,
+		slideChanges,
 		cleanup: () => {
 			act(() => root.unmount());
 			container.remove();
@@ -150,6 +153,84 @@ describe("SlideInspector", () => {
 		expect(mounted.changes).toHaveLength(0);
 		type(size, "16");
 		expect(mounted.changes.at(-1)?.style.fontSize).toBe(16);
+		mounted.cleanup();
+	});
+
+	it("edits card parts, highlight words and bullet items as text", () => {
+		const field = (container: HTMLElement, label: string) =>
+			container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+				`[aria-label="Element ${label}"]`,
+			)!;
+		const card = mount({
+			id: "c",
+			type: "card",
+			x: 0,
+			y: 0,
+			width: 300,
+			height: 200,
+			text: "Old",
+			style: {},
+		});
+		expect(field(card.container, "title").value).toBe("Old");
+		type(field(card.container, "eyebrow"), "Step 1");
+		expect(card.changes.at(-1)?.props).toEqual({ eyebrow: "Step 1" });
+		expect(field(card.container, "body").tagName).toBe("TEXTAREA");
+		const words = field(card.container, "highlight words");
+		type(words, "fast, ");
+		// The draft keeps the trailing separator while the stored list is clean.
+		expect(words.value).toBe("fast, ");
+		expect(card.changes.at(-1)?.props?.highlight).toEqual(["fast"]);
+		card.cleanup();
+
+		const list = mount({
+			id: "b",
+			type: "bullet",
+			x: 0,
+			y: 0,
+			width: 300,
+			height: 200,
+			style: {},
+		});
+		const items = field(list.container, "items");
+		expect(items.tagName).toBe("TEXTAREA");
+		type(items, "One\nTwo");
+		expect(list.changes.at(-1)?.text).toBe("One\nTwo");
+		list.cleanup();
+	});
+
+	it("sets slide background dots, inset surface and image", () => {
+		const mounted = mount({
+			id: "t",
+			type: "text",
+			x: 0,
+			y: 0,
+			width: 200,
+			height: 100,
+			style: {},
+		});
+		const query = (label: string) =>
+			mounted.container.querySelector<HTMLInputElement>(
+				`[aria-label="${label}"]`,
+			)!;
+		type(query("Slide dot grid opacity"), "0.4");
+		expect(mounted.slideChanges.at(-1)?.dotGridOpacity).toBe(0.4);
+		act(() => query("Slide inset surface").click());
+		expect(mounted.slideChanges.at(-1)?.insetSurface).toEqual({
+			color: "#ffffff",
+			inset: 24,
+			radius: 8,
+		});
+		type(query("Slide background image URL"), "http://insecure.test/a.png");
+		expect(mounted.slideChanges.at(-1)?.backgroundImage).toBeUndefined();
+		type(query("Slide background image URL"), "https://example.com/bg.png");
+		expect(mounted.slideChanges.at(-1)?.backgroundImage).toBe(
+			"https://example.com/bg.png",
+		);
+		expect(
+			mounted.container.querySelector(
+				'input[type="file"][aria-label="Upload background image"]',
+			),
+		).not.toBeNull();
 		mounted.cleanup();
 	});
 

@@ -982,6 +982,13 @@ export function SlidesEditor({
 							if (src && selectedElement)
 								updateElement({ ...selectedElement, src });
 						}}
+						onBackgroundImageFile={async (file) => {
+							const backgroundImage = await readImageFile(file);
+							if (backgroundImage)
+								commitDeck(
+									replaceActiveSlide(deck, { ...activeSlide, backgroundImage }),
+								);
+						}}
 					/>
 				</aside>
 			</div>

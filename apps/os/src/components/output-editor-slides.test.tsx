@@ -110,6 +110,8 @@ describe("SlidesEditor", () => {
 			"button, input, select, textarea",
 		)) {
 			if (control.id.endsWith("-hidden-input")) continue;
+			// A Kumo Switch's form input, hidden from the page and the tab order.
+			if (control.matches('input[aria-hidden="true"][tabindex="-1"]')) continue;
 			if (control.classList.contains("slide-element-input")) continue;
 			expect(
 				control.hasAttribute("data-slot") ||
