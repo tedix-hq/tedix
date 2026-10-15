@@ -368,7 +368,10 @@ export async function injectAgentMessage(
 	error?: string;
 	run_id?: string;
 	session_key?: string;
-	assistant?: { role: "assistant"; content: string; ts: number };
+	/** True when the durable turn was dispatched but has not settled yet. */
+	pending?: boolean;
+	/** `null` on a pending durable turn; set only once the turn settled. */
+	assistant?: { role: "assistant"; content: string; ts: number } | null;
 }> {
 	return runtimeFetch<{
 		success: boolean;
@@ -376,7 +379,8 @@ export async function injectAgentMessage(
 		error?: string;
 		run_id?: string;
 		session_key?: string;
-		assistant?: { role: "assistant"; content: string; ts: number };
+		pending?: boolean;
+		assistant?: { role: "assistant"; content: string; ts: number } | null;
 	}>(config, "/hooks/inject", {
 		method: "POST",
 		// The runtime fails closed on a missing caller-trust tier; the kernel

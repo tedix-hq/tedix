@@ -58,6 +58,7 @@ import {
 	startExternalAgentSession,
 } from "./external-agent";
 import { runFlowCommand } from "./flow";
+import { parseMcpCallRequest, runMcpCall } from "./mcp-call";
 import { errorText, resolveColorMode } from "./format";
 import { fileDiscoveryCache } from "./discovery-cache";
 import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
@@ -266,6 +267,15 @@ async function main() {
 			`Unknown command "${command}". Run \`tedix help --all\` for the command map.`,
 		);
 	}
+	// Validate before any login work so a usage error never touches credentials.
+	const mcpRequest =
+		command === "mcp"
+			? parseMcpCallRequest({
+					prompt: options.prompt,
+					params: options.flowParams,
+					headers: options.mcpHeader,
+				})
+			: undefined;
 	if (command === "update") {
 		process.exitCode = await runUpdateCommand({
 			check: options.updateCheck ?? false,
@@ -1065,6 +1075,13 @@ async function main() {
 			);
 			const { truncationHint } = normalized;
 			if (truncationHint) console.error(`\n[tedix] ${truncationHint}`);
+			return;
+		}
+		if (mcpRequest) {
+			// Raw JSON-RPC against the selected gateway. Auth stays inside the
+			// client, so a caller reaches new protocol methods (events/list,
+			// events/poll) without ever handling the token.
+			console.log(await runMcpCall(client, mcpRequest, commandAbort.signal));
 			return;
 		}
 		if (command === "flow") {

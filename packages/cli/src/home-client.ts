@@ -1415,17 +1415,11 @@ export class TedixHomeClient {
 	}
 
 	async #rawModernRequest(
-		method:
-			| "server/discover"
-			| "resources/list"
-			| "tools/call"
-			| "resources/read"
-			| "tasks/get"
-			| "tasks/update"
-			| "tasks/cancel",
+		method: string,
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
 		scope?: NativeCallScope,
+		extraHeaders: Record<string, string> = {},
 	): Promise<unknown> {
 		scope?.guard();
 		const target = mcpRequestTargetName(method, params);
@@ -1448,6 +1442,7 @@ export class TedixHomeClient {
 			},
 		};
 		const requestHeaders = {
+			...extraHeaders,
 			...trace.headers,
 			[MCP_METHOD_HEADER]: method,
 			...(target ? { [MCP_NAME_HEADER]: target } : {}),
@@ -2026,6 +2021,28 @@ export class TedixHomeClient {
 
 	async discoverProtocol(signal?: AbortSignal): Promise<unknown> {
 		return this.#rawModernRequest("server/discover", {}, signal);
+	}
+
+	/**
+	 * Send one JSON-RPC request, by method name, to the selected gateway and
+	 * return its result. Authentication comes from this client's stored login;
+	 * the caller never sees a credential.
+	 */
+	async rawRequest(
+		method: string,
+		params: Record<string, unknown> = {},
+		options: { headers?: Record<string, string>; signal?: AbortSignal } = {},
+	): Promise<unknown> {
+		if (method !== "server/discover") {
+			await this.#ensureModernProtocol(options.signal);
+		}
+		return this.#rawModernRequest(
+			method,
+			params,
+			options.signal,
+			undefined,
+			options.headers,
+		);
 	}
 
 	async readResource(uri: string, signal?: AbortSignal): Promise<unknown> {

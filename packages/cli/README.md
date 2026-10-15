@@ -153,6 +153,19 @@ output for scripting. Global options may appear before or after the command;
 run `tedix code --help` for the direct gateway execution contract and
 gateway-native discovery examples.
 
+To call an MCP protocol method that has no dedicated command, such as
+`events/list` or `events/poll`, send one raw JSON-RPC request with the stored
+login:
+
+```sh
+tedix -w acme mcp call events/poll --params '{"cursor":"abc"}'
+tedix mcp call events/list --organization acme --header X-Probe=1
+```
+
+It respects `-w`, `--organization` and `TEDIX_ORGANIZATION`, prints the JSON
+result, and never prints the token. Authorization, Cookie and organization
+headers are refused.
+
 ## Related
 
 - `@tedix/api-contract` — schemas for `kernel-runtime` and

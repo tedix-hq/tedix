@@ -1,12 +1,14 @@
 import { call, os } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { issueGatewayBrowserToken } from "@tedix/auth/gateway-browser-token";
+import { TediSendMessageResponseSchema } from "@tedix/api-contract/schemas/tedi";
 import type { BaseContext } from "../../orpc";
 import { withAuth } from "../../orpc";
 import {
 	embeddedActorCacheKey,
 	portableSessionCallables,
 	resolveOsPortableRoute,
+	toSendMessageResponse,
 	verifyOsPortableCallCapability,
 	verifyOsPortableUserSession,
 } from "./gateway";
@@ -348,5 +350,44 @@ describe("embedded session tenant fence", () => {
 				surface: "os",
 			}),
 		).rejects.not.toThrow(/together/);
+	});
+});
+
+describe("sendMessage receipt", () => {
+	it("returns a contract-valid receipt for a pending durable turn", () => {
+		// The runtime's sync inject answers this shape until the workflow settles.
+		const response = toSendMessageResponse({
+			success: true,
+			run_id: "run-one",
+			session_key: "agent:main:main",
+			assistant: null,
+			pending: true,
+		});
+		expect(TediSendMessageResponseSchema.parse(response)).toEqual({
+			success: true,
+			runId: "run-one",
+			sessionKey: "agent:main:main",
+			pending: true,
+		});
+	});
+
+	it("keeps a settled reply inline", () => {
+		const assistant = {
+			role: "assistant" as const,
+			content: "done",
+			ts: 1,
+		};
+		const response = toSendMessageResponse({
+			success: true,
+			run_id: "run-one",
+			session_key: "agent:main:main",
+			assistant,
+		});
+		expect(TediSendMessageResponseSchema.parse(response)).toEqual({
+			success: true,
+			runId: "run-one",
+			sessionKey: "agent:main:main",
+			assistant,
+		});
 	});
 });

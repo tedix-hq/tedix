@@ -27,8 +27,9 @@ export function resolveOrganizationTarget(input: {
 			input.environmentOrganization ?? process.env.TEDIX_ORGANIZATION
 		)?.trim() ||
 			undefined);
-	// Raw Code Mode retains its organization-qualified surface unless targeted.
-	if (input.command === "code" && !organization) {
+	// Raw Code Mode and raw MCP requests keep the organization-qualified
+	// surface unless targeted.
+	if ((input.command === "code" || input.command === "mcp") && !organization) {
 		return { headers: {}, workspace: input.workspace };
 	}
 	const selected = decodeJwtPayload(
