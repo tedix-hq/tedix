@@ -634,7 +634,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "list_conversations",
 		description:
-			"List the caller organization's Home conversations (the tenant operating threads), with optional search/channel filters.",
+			"List or search the caller organization's Home conversations (chats; the tenant operating threads), with optional search/channel filters.",
 		inputSchema: LIST_HOME_CONVERSATIONS_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "kernelRuntime/listConversations",
@@ -642,7 +642,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "rename_conversation",
 		description:
-			"Set the operator-facing title of a Home conversation (shows in Tedix OS and CLI session lists).",
+			"Rename a Home conversation (chat): update its operator-facing title, shown in Tedix OS and CLI session lists.",
 		inputSchema: RENAME_HOME_CONVERSATION_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "kernelRuntime/renameConversation",
@@ -650,7 +650,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "pin_conversation",
 		description:
-			"Pin or unpin a Home conversation. Pins are org-durable and shared across every surface (Tedix OS + CLI) — pinned conversations sort to the top of session lists.",
+			"Pin or unpin a Home conversation (chat). Pins are org-durable and shared across every surface (Tedix OS + CLI) — pinned conversations sort to the top of session lists.",
 		inputSchema: PIN_HOME_CONVERSATION_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "kernelRuntime/pinConversation",
@@ -658,7 +658,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "archive_conversation",
 		description:
-			"Archive or restore a Home conversation without deleting its runtime ledger. Archived conversations are hidden from ordinary lists; pass archived=false to restore one.",
+			"Archive or restore a Home conversation (chat) without deleting its runtime ledger. Archived conversations are hidden from ordinary lists; pass archived=false to restore one.",
 		inputSchema: ARCHIVE_HOME_CONVERSATION_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "kernelRuntime/archiveConversation",
@@ -666,7 +666,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "delete_conversation",
 		description:
-			"Permanently delete a Home conversation and its conversation-owned runtime content. Active parent and delegated child runs are canceled first; accepted Work Items and child-tedi ledgers remain. A content-free tombstone prevents late events from reviving the conversation. The org's main Home thread cannot be deleted.",
+			"Permanently delete a Home conversation (chat) and its conversation-owned runtime content. Active parent and delegated child runs are canceled first; accepted Work Items and child-tedi ledgers remain. A content-free tombstone prevents late events from reviving the conversation. The org's main Home thread cannot be deleted.",
 		inputSchema: DELETE_HOME_CONVERSATION_SCHEMA,
 		annotations: DESTRUCTIVE,
 		rpcEndpoint: "kernelRuntime/deleteConversation",
