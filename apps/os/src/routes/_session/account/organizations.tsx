@@ -7,9 +7,11 @@ import {
 	buildLocalLauncherWorkspaces,
 	buildTenantOsHandoffUrl,
 	collectAuthorizedReturnOrigins,
+	getLauncherNextPath,
 	getLauncherReturnTarget,
 	isReturnTargetAuthorized,
 	resolveOsPlatformDomain,
+	withLauncherNextPath,
 } from "@/account/launcher-routing";
 import { OrganizationLauncherContent } from "@/account/organization-launcher-page";
 import { useOsOnboardingState } from "@/account/use-os-onboarding-state";
@@ -72,12 +74,19 @@ function AccountOrganizationsRoute() {
 		}
 	}, [directoryReady, returnAuthorized, returnTarget]);
 
+	const nextPath = useMemo(
+		() => getLauncherNextPath(window.location.search),
+		[],
+	);
 	const workspaces = useMemo(
 		() =>
-			localEvaluation
-				? buildLocalLauncherWorkspaces(items, window.location.port)
-				: buildLauncherWorkspacesFromDirectory(records, osPlatformDomain),
-		[localEvaluation, items, osPlatformDomain, records],
+			withLauncherNextPath(
+				localEvaluation
+					? buildLocalLauncherWorkspaces(items, window.location.port)
+					: buildLauncherWorkspacesFromDirectory(records, osPlatformDomain),
+				nextPath,
+			),
+		[localEvaluation, items, nextPath, osPlatformDomain, records],
 	);
 
 	if (

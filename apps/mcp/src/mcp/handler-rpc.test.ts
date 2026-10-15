@@ -1275,6 +1275,38 @@ describe("ToolHandler result ergonomics", () => {
 			expect(structured).toEqual(data);
 		});
 
+		it("omits an empty oRPC error data object from error text", () => {
+			const text = handler.buildTextContent(
+				{
+					data: {
+						code: "BAD_REQUEST",
+						message: "Input validation failed: content.x: Too small",
+						data: {},
+					},
+					status: 400,
+				},
+				ctx({}),
+			);
+			expect(text).toBe(
+				"BAD_REQUEST: Input validation failed: content.x: Too small",
+			);
+		});
+
+		it("keeps non-empty oRPC error data in error text", () => {
+			const text = handler.buildTextContent(
+				{
+					data: {
+						code: "CONFLICT",
+						message: "Revision moved",
+						data: { current: 6 },
+					},
+					status: 409,
+				},
+				ctx({}),
+			);
+			expect(text).toBe('CONFLICT: Revision moved — {"current":6}');
+		});
+
 		it("does not apply to error results", () => {
 			const text = handler.buildTextContent(
 				{ data: { error: "boom" }, status: 500 },

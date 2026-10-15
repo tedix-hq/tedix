@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vite-plus/test";
 import {
+	buildLauncherHrefForDeepLink,
 	buildLauncherWorkspacesFromDirectory,
 	buildLocalLauncherWorkspaces,
 	buildLocalOsUrl,
@@ -8,12 +9,15 @@ import {
 	buildTenantOsUrl,
 	collectAuthorizedReturnOrigins,
 	type DirectoryWorkspaceRecord,
+	getLauncherNextPath,
 	getLauncherReturnTarget,
 	isReturnTargetAuthorized,
 	parseAuthorizedTenantReturnTarget,
+	parseLauncherNextPath,
 	parseSafeHttpsUrl,
 	resolveOsPlatformDomain,
 	suggestOsOrganizationSlug,
+	withLauncherNextPath,
 } from "./launcher-routing";
 
 describe("OS launcher routing", () => {
@@ -333,5 +337,84 @@ describe("launcher workspace projection", () => {
 				],
 			},
 		]);
+	});
+
+	describe("apex deep links", () => {
+		it("keeps the requested tenant path in the launcher redirect", () => {
+			expect(buildLauncherHrefForDeepLink("/outputs/abc?slide=2")).toBe(
+				"/account/organizations?next=%2Foutputs%2Fabc%3Fslide%3D2",
+			);
+			expect(buildLauncherHrefForDeepLink("/")).toBe("/account/organizations");
+		});
+
+		it.each([
+			"//evil.example/x",
+			"/\\evil.example",
+			"https://evil.example/",
+			"outputs/abc",
+			"/account/organizations",
+			"/auth/session-broker/start",
+			"/",
+		])("rejects %s as a next path", (value) => {
+			expect(parseLauncherNextPath(value)).toBeNull();
+		});
+
+		it("reads next from the launcher query", () => {
+			expect(getLauncherNextPath("?next=%2Foutputs%2Fabc")).toBe(
+				"/outputs/abc",
+			);
+			expect(getLauncherNextPath("")).toBeNull();
+		});
+
+		it("routes only OS entries to the requested path", () => {
+			const workspaces = withLauncherNextPath(
+				[
+					{
+						organizationId: "org-1",
+						name: "Acme",
+						slug: "acme",
+						provisioned: true,
+						surfaces: [
+							{
+								surface: "os",
+								href: "https://acme.os.tedix.dev/auth/session-broker/start?tenant_id=T1&redirect_to=%2F",
+								copyValue: null,
+							},
+							{
+								surface: "cms",
+								href: "https://acme.cms.tedix.dev/_emdash/api/auth/session-broker/start?redirect_to=%2F_emdash%2Fadmin",
+								copyValue: null,
+							},
+							{ surface: "mcp", href: null, copyValue: "https://mcp.example/" },
+						],
+					},
+					{
+						organizationId: "org-2",
+						name: "Local",
+						slug: "local",
+						provisioned: true,
+						surfaces: [
+							{
+								surface: "os",
+								href: "http://local.localhost:3030/",
+								copyValue: null,
+							},
+						],
+					},
+				],
+				"/outputs/abc",
+			);
+			const [acme, local] = workspaces;
+			expect(
+				new URL(acme?.surfaces[0]?.href ?? "").searchParams.get("redirect_to"),
+			).toBe("/outputs/abc");
+			expect(acme?.surfaces[1]?.href).toContain(
+				"redirect_to=%2F_emdash%2Fadmin",
+			);
+			expect(acme?.surfaces[2]?.href).toBeNull();
+			expect(local?.surfaces[0]?.href).toBe(
+				"http://local.localhost:3030/outputs/abc",
+			);
+		});
 	});
 });

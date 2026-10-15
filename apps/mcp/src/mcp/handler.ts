@@ -4202,8 +4202,12 @@ return __fn ? await __fn(args) : __mod;
 				}
 				// oRPC-style: { code: "BAD_REQUEST", message: "...", data?: {...} }
 				if ("code" in errorData && "message" in errorData) {
+					// Validation errors carry their issues in the message and an
+					// empty `data: {}`; appending that renders a meaningless " — {}".
 					const detail =
-						errorData.data && typeof errorData.data === "object"
+						errorData.data &&
+						typeof errorData.data === "object" &&
+						Object.keys(errorData.data).length > 0
 							? ` — ${JSON.stringify(errorData.data).slice(0, 300)}`
 							: "";
 					return `${errorData.code}: ${errorData.message}${detail}`;

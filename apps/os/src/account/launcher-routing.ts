@@ -97,6 +97,58 @@ export function getLauncherReturnTarget(search: string): URL | null {
 }
 
 /**
+ * The tenant path an apex deep link asked for, such as `/outputs/<id>`. The
+ * apex resolves no tenant, so it sends the visitor to the launcher with this
+ * path in `next`; the chosen workspace then opens on it instead of its root.
+ * Only an app-relative path is accepted: a scheme-relative or backslash path
+ * could name another origin, and launcher paths would loop.
+ */
+export function parseLauncherNextPath(
+	value: string | null | undefined,
+): string | null {
+	if (!value || !value.startsWith("/") || value === "/") return null;
+	if (value.startsWith("//") || value.includes("\\")) return null;
+	if (value.startsWith("/account/") || value.startsWith("/auth/")) return null;
+	return value;
+}
+
+export function getLauncherNextPath(search: string): string | null {
+	return parseLauncherNextPath(new URLSearchParams(search).get("next"));
+}
+
+/** The launcher URL an apex deep link redirects to, keeping its path. */
+export function buildLauncherHrefForDeepLink(href: string): string {
+	const next = parseLauncherNextPath(href);
+	return next
+		? `/account/organizations?${new URLSearchParams({ next })}`
+		: "/account/organizations";
+}
+
+/**
+ * Point every OS route-out at `nextPath`. A session-broker handoff carries the
+ * landing path in `redirect_to`, which the tenant broker validates again; a
+ * plain origin (the local lane) takes the path directly.
+ */
+export function withLauncherNextPath(
+	workspaces: LauncherWorkspace[],
+	nextPath: string | null,
+): LauncherWorkspace[] {
+	if (!nextPath) return workspaces;
+	return workspaces.map((workspace) => ({
+		...workspace,
+		surfaces: workspace.surfaces.map((entry) => {
+			if (entry.surface !== "os" || !entry.href) return entry;
+			const target = new URL(entry.href);
+			if (target.searchParams.has("redirect_to")) {
+				target.searchParams.set("redirect_to", nextPath);
+				return { ...entry, href: target.toString() };
+			}
+			return { ...entry, href: new URL(nextPath, target.origin).toString() };
+		}),
+	}));
+}
+
+/**
  * Build the set of origins a `returnTo` may redirect into: both the canonical
  * destination and broker-handoff origins of every PROVISIONED, session-routable
  * surface (os/cms) of a member org, drawn live from the directory.
