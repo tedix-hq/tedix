@@ -53,7 +53,12 @@ export function ApprovalNotifications({
 	const homeApprovals = runSet.data
 		? approvalsFromRunSet(runSet.data.runSet).filter(isActionableHomeApproval)
 		: [];
-	const runtimeApprovals = runtime.data?.data ?? [];
+	// A parked Home write is listed by both sources; show it once, as the
+	// Home card that names the tool and arguments.
+	const homeApprovalIds = new Set(homeApprovals.map((a) => a.approvalId));
+	const runtimeApprovals = (runtime.data?.data ?? []).filter(
+		(approval) => !homeApprovalIds.has(approval.id),
+	);
 	const count = approvalAttentionCount({
 		home: homeApprovals.length,
 		runtime: runtimeApprovals.length,

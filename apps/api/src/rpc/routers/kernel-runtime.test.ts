@@ -8490,6 +8490,41 @@ describe("home approved-write layer (v1)", () => {
 		expect(executor).not.toHaveBeenCalled();
 	});
 
+	it("a bare 'approve it' reply resolves the parked card once instead of proposing a second write", async () => {
+		const db = createKernelRuntimeDb();
+		const { client, planner } = await enqueueWriteProposalTurn(
+			db,
+			"home-write-chat",
+		);
+		const executor = vi.fn(async () => ({
+			ok: true as const,
+			data: { result: { id: "INV-9" } },
+		}));
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(
+			executor as unknown as Parameters<
+				typeof kernelRuntimeTestHooks.setKernelWriteExecutorForTest
+			>[0],
+		);
+
+		const reply = await client.enqueueMessage({
+			conversationId: "home:write",
+			content: "Approve it.",
+			idempotencyKey: "home-write-chat-reply",
+		});
+
+		expect(executor).toHaveBeenCalledTimes(1);
+		expect(planner).toHaveBeenCalledTimes(1);
+		expect(db.approvals).toHaveLength(1);
+		expect(db.approvals[0]?.status).toBe("approved");
+		expect(db.runs.find((row) => row.id === "home-write-chat")?.status).toBe(
+			"completed",
+		);
+		expect(reply.run.status).toBe("completed");
+		expect(reply.assistantMessage?.content).toBe(
+			"Approved and ran `globex__create_invoice`.",
+		);
+	});
+
 	// Trusted-write tier (plan item #2) — the audit row is always created; a
 	// trusted/low-risk write is just auto-resolved (resolvedBy:'policy') through
 	// the same latch instead of parking behind a human card.

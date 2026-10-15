@@ -12,8 +12,30 @@ import type { DbClient } from "@tedix/db/client";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	classifyAffirmative,
+	classifyApprovalReply,
 	readPendingWorkflowHint,
 } from "./workflow-confirm";
+
+describe("classifyApprovalReply", () => {
+	it("reads bare approve and reject replies", () => {
+		for (const yes of ["Approve it.", "approve", "yes", "go ahead!"]) {
+			expect(classifyApprovalReply(yes)).toBe("approve");
+		}
+		for (const no of ["no", "Reject it", "don't do it", "deny"]) {
+			expect(classifyApprovalReply(no)).toBe("reject");
+		}
+	});
+	it("leaves questions and new requests to the planner", () => {
+		for (const other of [
+			"approve?",
+			"approve it and also rename the doc",
+			"no, rename it to Q3 instead",
+			"",
+		]) {
+			expect(classifyApprovalReply(other)).toBeNull();
+		}
+	});
+});
 
 describe("classifyAffirmative", () => {
 	it("accepts clear, unambiguous affirmatives", () => {

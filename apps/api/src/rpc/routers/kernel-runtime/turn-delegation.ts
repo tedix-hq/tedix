@@ -9,12 +9,17 @@ import type {
 import {
 	type KernelRuntimeRun,
 	getKernelRuntimeRun,
+	readLatestRunAwaitingApproval,
 	updateKernelRuntimeRun,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import type {
+	ChatApprovalReply,
 	KernelTurnWorkDeps,
 	KernelTurnWorkInput,
 } from "../kernel/turn-work";
+import { getApprovalRequestById } from "@tedix/db/queries/approvals";
+import { parseHomeToolWritePayload } from "../kernel/write-executor";
+import { classifyApprovalReply } from "../kernel/workflow-confirm";
 import type { TediApprovalRequest } from "@tedix/db/schema/approvals";
 import type { WorkflowConfirmDispatcher } from "../kernel/workflow-confirm";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
@@ -805,6 +810,76 @@ async function respondKernelToolWriteApprovalCore(
 		run: normalizeHomeRunRecord(updatedRun ?? input.run),
 		assignments: [],
 	};
+}
+
+/**
+ * A bare "approve"/"reject" chat reply to the conversation's parked write
+ * card. Resolves it as the replying operator through the same core the card's
+ * buttons use (same authority: tedis write + conversation edit), so chat-only
+ * surfaces (`tedix chat`, the widget, MCP) can answer an approval. Returns
+ * null when the reply is not a decision or nothing is parked; the turn then
+ * plans normally.
+ */
+export async function resolveApprovalByChatReply(
+	context: BaseContext,
+	input: {
+		organizationId: string;
+		conversationId: string;
+		runId: string;
+		content: string;
+	},
+): Promise<ChatApprovalReply | null> {
+	const decision = classifyApprovalReply(input.content);
+	if (!decision) return null;
+	const pending = await readLatestRunAwaitingApproval(context.db, {
+		organizationId: input.organizationId,
+		conversationId: input.conversationId,
+		excludeRunId: input.runId,
+	});
+	if (!pending) return null;
+	const [approval, run] = await Promise.all([
+		getApprovalRequestById(context.db, pending.approvalRequestId),
+		getKernelRuntimeRun(context.db, {
+			id: pending.runId,
+			organizationId: input.organizationId,
+		}),
+	]);
+	const write = approval ? parseHomeToolWritePayload(approval.payload) : null;
+	if (
+		!approval ||
+		!write ||
+		!run ||
+		approval.status !== "pending" ||
+		write.conversationId !== input.conversationId ||
+		write.homeRunId !== run.id
+	) {
+		return null;
+	}
+	const tool = write.toolName;
+	try {
+		const resolved = await respondKernelToolWriteApprovalCore(context, {
+			approval,
+			decision,
+			note: `${decision === "approve" ? "Approved" : "Rejected"} by chat reply`,
+			organizationId: input.organizationId,
+			run,
+		});
+		return {
+			runId: run.id,
+			decision,
+			tool,
+			runStatus: resolved.run.status,
+			error: null,
+		};
+	} catch (error) {
+		return {
+			runId: run.id,
+			decision,
+			tool,
+			runStatus: null,
+			error: errorMessage(error).slice(0, 300),
+		};
+	}
 }
 
 export async function resolveDurableCodemodeAtRuntime(

@@ -52,6 +52,7 @@ vi.mock(
 
 import {
 	type HomeTurnRuntimeEventInput,
+	chatApprovalReplyContent,
 	type KernelTurnWorkDeps,
 	type KernelTurnWorkInput,
 	readDelegationDepth,
@@ -1321,6 +1322,83 @@ const PENDING_PRIOR_RUNS = [
 function affirmativeInput(): KernelTurnWorkInput {
 	return { ...turnInput(), content: "yes go ahead" };
 }
+
+describe("runKernelTurnWork chat approval reply intercept", () => {
+	const replyInput = (
+		chatApprovalReply: Record<string, unknown>,
+	): KernelTurnWorkInput => {
+		const input = turnInput();
+		return {
+			...input,
+			content: "approve it",
+			runtimeMetadata: { ...input.runtimeMetadata, chatApprovalReply },
+		};
+	};
+
+	it("settles with the resolved outcome and never plans a second write", async () => {
+		const kernel = vi.fn();
+		const result = await runKernelTurnWork(
+			stubDeps({ kernel }),
+			replyInput({
+				runId: "run-parked",
+				decision: "approve",
+				tool: "os.update_os_workspace",
+				runStatus: "completed",
+				error: null,
+			}),
+		);
+
+		expect(kernel).not.toHaveBeenCalled();
+		expect(result.run.status).toBe("completed");
+		expect(result.assistantMessage.content).toBe(
+			"Approved and ran `os.update_os_workspace`.",
+		);
+		expect(result.run.metadata).toMatchObject({
+			chatApprovalReply: { runId: "run-parked", decision: "approve" },
+		});
+	});
+
+	it("reports a resolution error as a failed turn", async () => {
+		const result = await runKernelTurnWork(
+			stubDeps({ kernel: vi.fn() }),
+			replyInput({
+				runId: "run-parked",
+				decision: "reject",
+				tool: "os.update_os_workspace",
+				runStatus: null,
+				error: "approval expired",
+			}),
+		);
+
+		expect(result.run.status).toBe("failed");
+		expect(result.assistantMessage.content).toBe(
+			"Couldn't reject `os.update_os_workspace`: approval expired",
+		);
+	});
+});
+
+describe("chatApprovalReplyContent", () => {
+	const reply = {
+		runId: "r",
+		tool: "os.x",
+		runStatus: "completed",
+		error: null,
+	} as const;
+	it("names the rejected tool and that nothing ran", () => {
+		expect(chatApprovalReplyContent({ ...reply, decision: "reject" })).toBe(
+			"Rejected `os.x`. Nothing ran.",
+		);
+	});
+	it("says when the approved write failed", () => {
+		expect(
+			chatApprovalReplyContent({
+				...reply,
+				decision: "approve",
+				runStatus: "failed",
+			}),
+		).toContain("but the write failed");
+	});
+});
 
 describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
 	it("observe-only never confirms a prior workflow and records no actionable route", async () => {
