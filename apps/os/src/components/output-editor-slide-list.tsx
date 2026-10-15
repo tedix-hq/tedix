@@ -337,7 +337,7 @@ export function SlideList({
 			</div>
 			<ol
 				ref={listRef}
-				className="m-0 grid list-none content-start gap-1.5 overflow-y-auto p-0"
+				className="m-0 grid list-none grid-cols-1 content-start gap-1.5 overflow-y-auto p-0"
 			>
 				{visible.length === 0 && (
 					<li>

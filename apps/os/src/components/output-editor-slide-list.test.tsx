@@ -117,6 +117,9 @@ describe("SlideList", () => {
 		const row = mounted.container.querySelector("[data-slide-row]")!;
 		expect(row.querySelector(".slide-thumb-canvas")).not.toBeNull();
 		expect(row.textContent).toContain("1");
+		// A long nowrap label widened an `auto` grid column past the rail and
+		// clipped the row's Delete button; the column is bounded instead.
+		expect(row.parentElement?.className).toContain("grid-cols-1");
 		expect(
 			slideLabel({
 				id: "s",
