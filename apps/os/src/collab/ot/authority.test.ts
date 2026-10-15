@@ -1541,6 +1541,56 @@ describe("OtAuthority.adoptCanonical", () => {
 		expect(textOf(await h.authority.content())).toBe("hello, unsaved\n");
 	});
 
+	it("adopts a room whose edits were all undone", async () => {
+		const h = await seeded("hello\n", canonicalAt(1));
+		await h.authority.submit(
+			submission({ change: edit("hello\n", "hello, typo\n") }),
+			ADA,
+		);
+		await h.authority.submit(
+			submission({
+				revision: 1,
+				seq: 2,
+				change: edit("hello, typo\n", "hello\n"),
+			}),
+			ADA,
+		);
+
+		expect(
+			await h.authority.adoptCanonical(offer(canonicalAt(2), "hello v2\n")),
+		).toMatchObject({ ok: true, effect: "adopted" });
+		expect(textOf(await h.authority.content())).toBe("hello v2\n");
+	});
+
+	it("adopts a deck whose only change is which slide was being viewed", async () => {
+		// Older editors wrote `deck.activeSlideId` on every slide click, so merely browsing a deck
+		// left the room "edited" and hid the next saved version behind a recovery prompt.
+		const deck = (active: string, title = "One") =>
+			`${JSON.stringify({ kind: "presentation", slides: [{ title }], deck: { activeSlideId: active, slides: [{ id: "a" }, { id: "b" }] } }, null, 2)}\n`;
+		const h = await seeded(deck("a"), canonicalAt(1));
+		await h.authority.submit(
+			submission({ change: edit(deck("a"), deck("b")) }),
+			ADA,
+		);
+
+		expect(
+			await h.authority.adoptCanonical(offer(canonicalAt(2), deck("a", "Two"))),
+		).toMatchObject({ ok: true, effect: "adopted" });
+		expect(textOf(await h.authority.content())).toBe(deck("a", "Two"));
+
+		// A real edit next to the view change is still refused.
+		const edited = await seeded(deck("a"), canonicalAt(1));
+		await edited.authority.submit(
+			submission({ change: edit(deck("a"), deck("b", "Mine")) }),
+			ADA,
+		);
+		expect(
+			await edited.authority.adoptCanonical(
+				offer(canonicalAt(2), deck("a", "Two")),
+			),
+		).toMatchObject({ ok: false, code: "edited" });
+	});
+
 	it("replaces an edited room only when the user explicitly forced it", async () => {
 		const h = await seeded("hello\n", canonicalAt(1));
 		await h.authority.submit(

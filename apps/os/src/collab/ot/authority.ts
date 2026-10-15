@@ -52,6 +52,7 @@ import {
 	type StreamPosition,
 } from "./wire";
 import type { CollabVerifiedIdentity } from "../presence";
+import { sameDraftContent } from "./draft-equivalence";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 // =======================================================================================
@@ -904,7 +905,8 @@ function groundSynchronously(
  *      concurrent offers idempotent, and the stamp never moves backwards.
  *   2. BYTE-identical — the room's content already equals the offered revision; the stamp moves
  *      alone, edited or not. This is the path a room takes after committing its own text.
- *   3. Different — an unedited room (`state.revision === state.canonical.atRevision`) adopts. An
+ *   3. Different — an unedited room (its draft still equals its grounding revision, view state
+ *      aside: `sameDraftContent`) adopts. An
  *      edited room is refused unless the caller forced it; the surface blocks Commit and offers the
  *      user an explicit, warned replacement.
  *
@@ -968,8 +970,14 @@ export function adoptCanonicalSynchronously(
 		return { ok: true, effect: "repaired", canonical: stamp() };
 	}
 
-	// (3) Different.
-	const edited = state.revision !== state.canonical.atRevision;
+	// (3) Different. Edited means the draft says something its saved revision did not: a stream
+	// that only moved through undone edits or view state (`sameDraftContent`) still adopts. A
+	// grounding position outside the retained window cannot be checked, so it counts as edited.
+	const grounded =
+		state.revision === state.canonical.atRevision
+			? content
+			: contentAtRevision(state, prefetched, state.canonical.atRevision);
+	const edited = grounded === null || !sameDraftContent(grounded, content);
 	if (edited && !prepared.force) {
 		return {
 			ok: false,

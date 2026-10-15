@@ -2350,8 +2350,10 @@ describe("gadget commit", () => {
 		const getCallsBefore = osWorkspacesApi.gadgets.get.mock.calls.length;
 		await commit(container);
 
-		expect(container.textContent).toContain("Someone saved a newer revision");
-		expect(container.textContent).toContain("Your draft is preserved");
+		expect(container.textContent).toContain("Someone saved a newer version");
+		expect(container.textContent).toContain(
+			"Your changes were not saved and are still here",
+		);
 		expect(osWorkspacesApi.gadgets.get.mock.calls.length).toBeGreaterThan(
 			getCallsBefore,
 		);
@@ -2392,8 +2394,10 @@ describe("commit pins the compare-and-swap to the ROOM, not the query", () => {
 		expect(osWorkspacesApi.gadgets.revise).toHaveBeenCalledWith(
 			expect.objectContaining({ expectedRevision: 5 }),
 		);
-		expect(container.textContent).toContain("Someone saved a newer revision");
-		expect(container.textContent).toContain("Your draft is preserved");
+		expect(container.textContent).toContain("Someone saved a newer version");
+		expect(container.textContent).toContain(
+			"Your changes were not saved and are still here",
+		);
 	});
 
 	it("pins an output commit to the room's revision when a newer one landed out of band", async () => {
@@ -2422,7 +2426,7 @@ describe("commit pins the compare-and-swap to the ROOM, not the query", () => {
 		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
 			expect.objectContaining({ expectedRevision: 5 }),
 		);
-		expect(container.textContent).toContain("Someone saved a newer revision");
+		expect(container.textContent).toContain("Someone saved a newer version");
 	});
 
 	it("commits the SESSION's text, not a copy the panel happens to be holding", async () => {
@@ -2815,18 +2819,21 @@ describe("adopting a newer canonical revision", () => {
 			}),
 		);
 		const container = await openDoc("Weekly report");
-		click(findButton(container, "Compare versions"));
-		click(findButton(container, "Load saved version 2"));
-		expect(findButton(container, "Restoring…").disabled).toBe(true);
-		expect(container.textContent).toContain("Your preserved draft");
+		click(findButton(container, "Load v2"));
+		click(findButton(container, "Discard my changes and load v2"));
+		expect(findButton(container, "Loading v2…").disabled).toBe(true);
 		await act(async () => {
 			answer({ ok: false, message: "Recovery was not confirmed" });
 		});
 		expect(container.querySelector('[role="alert"]')?.textContent).toContain(
 			"Recovery was not confirmed",
 		);
-		expect(findButton(container, "Download draft backup")).toBeDefined();
-		expect(findButton(container, "Load saved version 2").disabled).toBe(false);
+		expect(
+			findButton(container, "Download a copy of my changes"),
+		).toBeDefined();
+		expect(
+			findButton(container, "Discard my changes and load v2").disabled,
+		).toBe(false);
 	});
 
 	it("offers draft backup and explicit restore when invalid content cannot open at the current saved version", async () => {
@@ -2844,23 +2851,25 @@ describe("adopting a newer canonical revision", () => {
 			recoveryRequired: false,
 		});
 		const container = await openDoc("Weekly report");
-		expect(container.textContent).toContain("Recover this draft");
+		expect(container.textContent).toContain("This draft can't be opened");
 		expect(
 			container.querySelector(".canvas-document-status")?.textContent,
-		).toContain("Draft needs recovery");
+		).toContain("Draft can't be opened");
 		expect(
 			container.querySelector(".canvas-document-status")?.textContent,
 		).not.toContain("Draft synced · Save version");
-		expect(findButton(container, "Download draft backup")).toBeDefined();
+		expect(
+			findButton(container, "Download a copy of my changes"),
+		).toBeDefined();
+		expect(() => findButton(container, "Keep my changes")).toThrow();
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Compare versions"));
+		click(findButton(container, "Load v2"));
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		expect(container.textContent).toContain("Preview truncated");
-		click(findButton(container, "Load saved version 2"));
+		click(findButton(container, "Discard my changes and load v2"));
 		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
 	});
 
-	it("compares the preserved and saved document without replacing the draft", async () => {
+	it("downloads the changes and loads the newer version only after confirming", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.get.mockResolvedValue({
 			output: outputFixture(),
@@ -2875,11 +2884,12 @@ describe("adopting a newer canonical revision", () => {
 			recoveryRequired: true,
 		});
 		const container = await openDoc("Weekly report");
-		click(findButton(container, "Compare versions"));
-		expect(container.textContent).toContain("Your preserved draft");
-		expect(container.textContent).toContain("Saved version 6");
-		expect(container.textContent).toContain("Keep this draft text");
-		expect(findButton(container, "Download draft backup")).toBeDefined();
+		expect(container.textContent).toContain(
+			"A newer version (v6) was saved while you were editing",
+		);
+		expect(
+			container.querySelector("[data-canvas-newer-version]")?.textContent,
+		).toBe("Newer version saved (v6)");
 		const createUrl = vi
 			.spyOn(URL, "createObjectURL")
 			.mockReturnValue("blob:draft-backup");
@@ -2889,9 +2899,9 @@ describe("adopting a newer canonical revision", () => {
 			.mockImplementation(function (this: HTMLAnchorElement) {
 				downloadName = this.download;
 			});
-		click(findButton(container, "Download draft backup"));
+		click(findButton(container, "Download a copy of my changes"));
 		expect(createUrl).toHaveBeenCalledOnce();
-		expect(downloadName).toBe("preserved-document-draft.json");
+		expect(downloadName).toBe("my-changes.json");
 		const backupBlob = createUrl.mock.calls[0]?.[0];
 		if (!(backupBlob instanceof Blob))
 			throw new Error("Expected a full draft backup");
@@ -2900,7 +2910,11 @@ describe("adopting a newer canonical revision", () => {
 		createUrl.mockRestore();
 
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Load saved version 6"));
+		click(findButton(container, "Load v6"));
+		click(findButton(container, "Cancel"));
+		expect(replaceWithCanonical).not.toHaveBeenCalled();
+		click(findButton(container, "Load v6"));
+		click(findButton(container, "Discard my changes and load v6"));
 		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
 	});
 
@@ -2938,40 +2952,60 @@ describe("adopting a newer canonical revision", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(container.textContent).toContain("An updated version needs review");
+		expect(container.textContent).toContain(
+			"A newer version (v6) was saved while you were editing",
+		);
 		// The room's text is preserved and NOT committable on top of revision 6.
 		expect(findButton(container, "Commit").disabled).toBe(true);
 
 		// Two steps, and the destructive one is never the first thing on screen.
-		expect(() => findButton(container, "Replace with revision 6")).toThrow();
-		click(findButton(container, "Compare versions"));
+		expect(() =>
+			findButton(container, "Discard my changes and load v6"),
+		).toThrow();
+		click(findButton(container, "Load v6"));
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Replace with revision 6"));
+		click(findButton(container, "Discard my changes and load v6"));
 
 		// One user-driven replacement, which lands as an ordinary server-authored
 		// change so peers see the document converge rather than being reset.
 		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
 	});
 
-	it("lets the user keep the shared draft instead of replacing it", async () => {
+	it("keeps the user's changes and then saves them on top of the newer version", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.get.mockResolvedValue({
 			output: outputFixture(),
 			currentRevision: outputRevisionFixture({ revision: 6 }),
 		});
 		mockCollab({
-			initial: docJson(baseContent),
+			initial: docJson({
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "My unsaved change" }],
+			}),
 			canonicalRevision: 5,
 			recoveryRequired: true,
 		});
 
 		const container = await openDoc("Weekly report");
-		expect(container.textContent).toContain("An updated version needs review");
-		click(findButton(container, "Compare versions"));
-		click(findButton(container, "Keep the shared draft"));
+		// The save guard: while the choice is open, Save cannot write the stale
+		// draft over the newer version.
+		expect(findButton(container, "Save version").disabled).toBe(true);
+		click(findButton(container, "Keep my changes"));
 
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		expect(() => findButton(container, "Replace with revision 6")).toThrow();
+		expect(container.textContent).toContain("You're keeping your changes");
+		expect(findButton(container, "Load v6 instead")).toBeDefined();
+		// Now Save is explicit about what it writes and what it writes over.
+		osWorkspacesApi.outputs.revise.mockResolvedValue({
+			output: outputFixture(),
+			revision: outputRevisionFixture({ revision: 7 }),
+		});
+		click(findButton(container, "Save as v7"));
+		click(findButton(container, "Save as v7 now"));
+		await flush();
+		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
+			expect.objectContaining({ expectedRevision: 6 }),
+		);
 	});
 
 	it("keeps the editor mounted and read-only across a transient disconnect", async () => {
@@ -3085,8 +3119,10 @@ describe("output commit", () => {
 		session.remote(racingEdit);
 		await commit(container);
 
-		expect(container.textContent).toContain("Someone saved a newer revision");
-		expect(container.textContent).toContain("Your draft is preserved");
+		expect(container.textContent).toContain("Someone saved a newer version");
+		expect(container.textContent).toContain(
+			"Your changes were not saved and are still here",
+		);
 	});
 });
 

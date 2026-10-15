@@ -597,6 +597,22 @@ describe("SlidesEditor", () => {
 		mounted.cleanup();
 	});
 
+	it("browses slides without editing the document", () => {
+		// Writing `activeSlideId` on every click made browsing an edit, so a
+		// newer saved version could no longer load over an untouched draft.
+		const mounted = mountEditor();
+		act(() =>
+			mounted.container
+				.querySelector<HTMLButtonElement>('[aria-label="Slide 2: Q4"]')!
+				.click(),
+		);
+		expect(mounted.emitted).toEqual([]);
+		expect(
+			mounted.container.querySelector(".slides-editor-stage")?.textContent,
+		).toContain("Q4");
+		mounted.cleanup();
+	});
+
 	it("renders rail thumbnails through the one shared slide renderer", () => {
 		// There used to be two renderers for one artifact: the read view used
 		// `ReadOnlyElement` while this rail carried an inline `text-[4px]` span
