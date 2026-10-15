@@ -156,6 +156,21 @@ async function factoryStatus(
 		console.log(dim("no factories", ctx.color));
 		return 0;
 	}
+	if (!slug) {
+		const severity = [
+			"failing",
+			"not_firing",
+			"idle",
+			"pending",
+			"healthy",
+			"paused",
+		];
+		const rank = (verdict: unknown) => {
+			const index = severity.indexOf(String(verdict));
+			return index < 0 ? severity.length : index;
+		};
+		rows.sort((a, b) => rank(a.verdict) - rank(b.verdict));
+	}
 	for (const row of rows) {
 		console.log(
 			`${verdictLabel(String(row.verdict ?? "?"), ctx.color)} ${cyan(String(row.slug ?? "?"), ctx.color)}  ${String(row.ownerTediName ?? "")}  ran today: ${row.ranToday ? "yes" : "no"}  next: ${String(row.nextFireAt ?? "-")}`,
@@ -172,6 +187,19 @@ async function factoryStatus(
 				`            ${String(run.firedAt ?? "?").padEnd(24)} ${String(run.status ?? "?").padEnd(10)} work ${String(outputs.workItemsCreated ?? 0)}, comments ${String(outputs.comments ?? 0)}, outputs ${String(outputs.outputRevisions ?? 0)}, scorecards ${String(outputs.scorecards ?? 0)}`,
 			);
 		}
+	}
+	if (!slug) {
+		const counts = new Map<string, number>();
+		for (const row of rows) {
+			const verdict = String(row.verdict ?? "?");
+			counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
+		}
+		console.log(
+			dim(
+				`${rows.length} factories: ${Array.from(counts, ([verdict, count]) => `${count} ${verdict}`).join(", ")}`,
+				ctx.color,
+			),
+		);
 	}
 	return 0;
 }
