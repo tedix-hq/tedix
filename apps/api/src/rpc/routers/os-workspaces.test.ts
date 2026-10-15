@@ -2000,6 +2000,36 @@ describe("output export", () => {
 		]);
 	});
 
+	it("prints presentation pages with backgrounds and CSS sizing", async () => {
+		const { env, calls } = exportEnv({});
+		const client = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext(env, "org-1"),
+		});
+		const { output } = await client.outputs.create({
+			kind: "presentation",
+			title: "Conference",
+			content: {
+				kind: "presentation",
+				slides: [
+					{ title: "Opening", bullets: [], notes: "Private cue" },
+					{ title: "Closing", bullets: [] },
+				],
+			},
+		});
+		await client.outputs.export({ outputId: output.id, format: "pdf" });
+		expect(calls[0]).toMatchObject({
+			action: "pdf",
+			payload: {
+				pdfOptions: { preferCSSPageSize: true, printBackground: true },
+			},
+		});
+		const html = String(calls[0]?.payload.html);
+		expect(html).toContain("@page { size: 1200px 675px; margin: 0; }");
+		expect(html.match(/<section class="slide">/g)).toHaveLength(2);
+		expect(html).not.toContain("Private cue");
+		expect(html).not.toContain('<header class="export-header">');
+	});
+
 	it("exports a PNG through the screenshot action with image validation", async () => {
 		const { env, calls, puts } = exportEnv({});
 		const client = createRouterClient(osWorkspacesContractRouter, {

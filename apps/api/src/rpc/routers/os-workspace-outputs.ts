@@ -855,7 +855,12 @@ async function renderExportBytes(
 	const response = await runBrowserQuickAction(
 		context.env.BROWSER,
 		format === "pdf" ? "pdf" : "screenshot",
-		{ html },
+		{
+			html,
+			...(format === "pdf"
+				? { pdfOptions: { preferCSSPageSize: true, printBackground: true } }
+				: {}),
+		},
 	);
 	const bytes = new Uint8Array(await response.arrayBuffer());
 	if (format === "png") {
