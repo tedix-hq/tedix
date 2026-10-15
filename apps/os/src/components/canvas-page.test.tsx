@@ -1427,12 +1427,16 @@ describe("CanvasPage listing", () => {
 		// The list view keeps a live composer whose first send creates the
 		// conversation -- starting a chat is a send, not a button.
 		expect(container.querySelector('[data-chat-thread="new"]')).not.toBeNull();
+		const priorNewThread = container.querySelector('[data-chat-thread="new"]');
 		click(
 			[...container.querySelectorAll("button")].find(
 				(button) => button.textContent?.trim() === "New",
 			)!,
 		);
 		expect(container.querySelector('[data-chat-thread="new"]')).not.toBeNull();
+		expect(container.querySelector('[data-chat-thread="new"]')).not.toBe(
+			priorNewThread,
+		);
 
 		act(() => chatHarness.onConversationCreated?.("home:os:created"));
 		expect(

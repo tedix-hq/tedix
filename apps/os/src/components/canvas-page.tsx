@@ -354,6 +354,7 @@ export function CanvasPage({
 		(requestedPane ?? (requestedDoc ? "workpiece" : "chat")) === "resources",
 	);
 	const [chatCollapsed, setChatCollapsed] = useState(false);
+	const [newConversationKey, setNewConversationKey] = useState(0);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
 	const [mobilePane, setMobilePane] = useState<CanvasMobilePane>(
 		requestedPane ?? (requestedDoc ? "workpiece" : "chat"),
@@ -1025,6 +1026,8 @@ export function CanvasPage({
 								activeConversationId={activeConversationId}
 								workspaceId={workspaceId ?? undefined}
 								onSelect={(conversationId) => {
+									if (conversationId === null)
+										setNewConversationKey((key) => key + 1);
 									setActiveConversationId(conversationId);
 									setConversationListOpen(false);
 									writeCanvasSearch({
@@ -1044,6 +1047,7 @@ export function CanvasPage({
 						}
 					>
 						<ChatThread
+							key={newConversationKey}
 							composerOnly={conversationListOpen}
 							conversationId={
 								conversationListOpen ? null : activeConversationId
