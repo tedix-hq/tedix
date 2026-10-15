@@ -32,6 +32,14 @@ export const OS_EXPORT_RESOURCE_WAIT = {
 		{
 			content: `(async () => {
   if (document.readyState !== "complete") await new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
+  await Promise.all(Array.from(document.querySelectorAll("link[data-export-font-fallback]"), link => {
+    if (link.sheet) return;
+    return new Promise(resolve => {
+      link.addEventListener("load", resolve, { once: true });
+      link.addEventListener("error", resolve, { once: true });
+      link.href = link.dataset.exportFontFallback;
+    });
+  }));
   document.body.getBoundingClientRect();
   await Promise.all([
     document.fonts.ready.then(() => {
@@ -151,7 +159,7 @@ function renderRichTextNode(node: OsRichTextNode): string {
 						typeof size === "string" && /^\d+(?:\.\d+)?px$/.test(size)
 							? `font-size:${size}`
 							: "",
-						typeof family === "string" && /^[a-zA-Z0-9 ,'-]+$/.test(family)
+						typeof family === "string" && /^[a-zA-Z0-9 ,'"-]+$/.test(family)
 							? `font-family:${escapeHtml(family)}`
 							: "",
 					].filter(Boolean);
@@ -294,7 +302,7 @@ function renderDeckElement(element: OsPresentationElement): string {
 		// Same rule as `presentationLineHeight` in apps/os: display type sets
 		// tight, body copy opens up. Change both together.
 		`line-height:${(style.fontSize ?? 24) >= 40 ? 1.1 : 1.3}`,
-		style.fontFamily && /^[a-zA-Z0-9 ,'-]+$/.test(style.fontFamily)
+		style.fontFamily && /^[a-zA-Z0-9 ,'"-]+$/.test(style.fontFamily)
 			? `font-family:${escapeHtml(style.fontFamily)}`
 			: "",
 		style.fontWeight
@@ -396,6 +404,97 @@ const PRESENTATION_CSS = `
 	section.slide h2 { font-size: 44px; }
 `;
 
+// Keep this in step with the viewer's slide-fonts.ts system-family exclusions.
+const SYSTEM_FONTS = new Set([
+	"serif",
+	"sans-serif",
+	"monospace",
+	"cursive",
+	"fantasy",
+	"system-ui",
+	"ui-sans-serif",
+	"ui-serif",
+	"ui-monospace",
+	"ui-rounded",
+	"emoji",
+	"math",
+	"fangsong",
+	"inherit",
+	"initial",
+	"unset",
+	"-apple-system",
+	"blinkmacsystemfont",
+	"segoe ui",
+	"helvetica",
+	"helvetica neue",
+	"arial",
+	"times",
+	"times new roman",
+	"georgia",
+	"courier",
+	"courier new",
+	"verdana",
+	"menlo",
+	"monaco",
+	"consolas",
+	"sf mono",
+	"ft kunst grotesk",
+	"apercu mono pro",
+	"comfortaa variable",
+]);
+
+function collectExportFonts(content: OsOutputContent) {
+	const fonts = new Map<string, { family: string; weights: Set<number> }>();
+	const add = (stack: string | undefined, weight: number) => {
+		for (const part of stack?.split(",") ?? []) {
+			const family = part
+				.trim()
+				.replace(/^(['"])(.*)\1$/, "$2")
+				.trim()
+				.replace(/ +/g, " ");
+			if (!family || SYSTEM_FONTS.has(family.toLowerCase())) continue;
+			if (!/^[A-Za-z0-9 ]{1,40}$/.test(family)) return;
+			const key = family.toLowerCase();
+			let font = fonts.get(key);
+			if (!font && fonts.size < 6) {
+				font = { family, weights: new Set() };
+				fonts.set(key, font);
+			}
+			font?.weights.add(weight);
+			return;
+		}
+	};
+	if (content.kind === "presentation") {
+		for (const slide of content.deck?.slides ?? []) {
+			for (const { style } of slide.elements) {
+				add(
+					style.fontFamily,
+					{ normal: 400, medium: 500, semibold: 600, bold: 700 }[
+						style.fontWeight ?? "normal"
+					],
+				);
+			}
+		}
+	} else if (content.kind === "document") {
+		const visit = (node: OsRichTextNode) => {
+			for (const mark of node.marks ?? []) {
+				if (
+					mark.type === "textStyle" &&
+					typeof mark.attrs?.fontFamily === "string"
+				) {
+					add(
+						mark.attrs.fontFamily,
+						node.marks?.some((mark) => mark.type === "bold") ? 700 : 400,
+					);
+				}
+			}
+			node.content?.forEach(visit);
+		};
+		content.richText?.content.forEach(visit);
+	}
+	return [...fonts.values()];
+}
+
 /**
  * Render an output's revision content as one HTML document
  * string — semantic structure per kind (document → article of blocks, sheet →
@@ -408,12 +507,13 @@ export function renderOsOutputHtml(
 ): string {
 	const title = escapeHtml(output.title);
 	const body = renderBody(revision.content);
-	const fontFamilies = ["DM Sans", "Space Grotesk", "Raleway"].filter(
-		(family) => body.includes(`font-family:${family}`),
-	);
-	const fontStylesheet = fontFamilies.length
-		? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?${fontFamilies.map((family) => `family=${family.replaceAll(" ", "+")}:wght@400;500;600;700`).join("&amp;")}&amp;display=block">`
-		: "";
+	const fontStylesheet = collectExportFonts(revision.content)
+		.map(({ family, weights }) => {
+			const name = family.replaceAll(" ", "+");
+			const base = `https://fonts.googleapis.com/css2?family=${name}`;
+			return `<link rel="stylesheet" href="${base}:wght@${[...weights].sort((a, b) => a - b).join(";")}&amp;display=block" data-export-font-fallback="${base}&amp;display=block">`;
+		})
+		.join("\n");
 	const isPresentation = revision.content.kind === "presentation";
 	const meta = escapeHtml(
 		`${output.kind} — revision ${revision.revision} — ${revision.createdAt}`,
