@@ -497,6 +497,19 @@ describe("send result formatting", () => {
 			error.mockRestore();
 		}
 	});
+	test("a parked approval prints one approval hint, not a delegation one", () => {
+		const result = formatSendResult(
+			{
+				homeRunId: "parked",
+				status: "requires_approval",
+				assistantText: "Approval required before I change anything.",
+			} as HomeRunSummary,
+			{ json: false, color: { enabled: false }, poll: true },
+		);
+		const out = result.stdout.join("\n");
+		expect(out.match(/tedix approve parked/g)).toHaveLength(1);
+		expect(out).not.toContain("delegation");
+	});
 	test("declined writes remain failures even when the Home run completed", () => {
 		const result = formatSendResult(
 			{

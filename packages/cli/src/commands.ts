@@ -19,7 +19,6 @@ import type { HomeRunSummary, TedixHomeClient } from "./home-client";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	delegatedChildStopFromPayload,
-	isPendingHomeApproval,
 	isSettledHomeStatus,
 	summarizeHomePayload,
 } from "./home-client";
@@ -908,13 +907,6 @@ export function formatSendResult(
 			);
 		}
 		return { stdout, stderr, exitCode: 2 };
-	}
-	// A delegation that needs approval parks as a completed Home recommendation,
-	// not a raw approval row. Tell the operator how to act on the run metadata.
-	if (isPendingHomeApproval(summary) && !ctx.json) {
-		stdout.push(
-			`This delegation needs your approval before it dispatches — run: tedix approve ${summary.homeRunId}`,
-		);
 	}
 	if (!isSettledHomeStatus(summary.status)) {
 		// The run is still executing server-side (poll budget expired, or an
