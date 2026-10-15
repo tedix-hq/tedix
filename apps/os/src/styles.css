@@ -2056,7 +2056,10 @@ a:focus-visible {
 		grid-template-rows: minmax(0, 1fr);
 	}
 
-	.slides-editor-layout[data-show-inspector] .slides-editor-inspector {
+	.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails])
+		.slides-editor-inspector,
+	.slides-editor-layout[data-show-thumbnails][data-show-inspector]
+		.slides-editor-inspector {
 		max-height: none;
 	}
 }

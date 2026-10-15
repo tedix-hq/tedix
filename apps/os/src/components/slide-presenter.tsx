@@ -157,7 +157,7 @@ export function SlidePresenter({
 				{jumpOpen && (
 					<nav
 						aria-label="Slides"
-						className="slides-present-jump absolute bottom-full mb-2 grid max-h-[50vh] grid-cols-[repeat(auto-fill,2.5rem)] gap-1 overflow-y-auto rounded-lg p-2"
+						className="slides-present-jump absolute bottom-full left-1/2 mb-2 grid -translate-x-1/2 justify-center max-h-[50vh] grid-cols-[repeat(auto-fill,2.5rem)] gap-1 overflow-y-auto rounded-lg p-2"
 					>
 						{deck.slides.map((candidate, candidateIndex) => (
 							<Button

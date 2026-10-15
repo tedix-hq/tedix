@@ -883,6 +883,21 @@ describe("SlidesEditor", () => {
 		// Browsing never edited the document; the one edit is the nudge.
 		expect(mounted.emitted).toHaveLength(1);
 		expect(mounted.emitted[0]?.deck?.slides[0]?.elements[0]?.x).toBe(73);
+		// A click on the stage margin, outside the slide, clears the selection
+		// and hands the keys back to slide navigation.
+		const stage = mounted.container.querySelector<HTMLElement>(
+			".slides-editor-stage",
+		)!;
+		act(() => {
+			stage.dispatchEvent(
+				new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+			);
+			stage.click();
+		});
+		expect(element.dataset.selected).toBeUndefined();
+		expect(document.activeElement).toBe(root);
+		press(root, "ArrowRight");
+		expect(stageText()).toContain("Q4");
 		mounted.cleanup();
 	});
 
