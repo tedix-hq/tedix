@@ -21,6 +21,7 @@ import {
 	renderWorkEventsTable,
 	renderWorkEvidenceTable,
 	renderWorkItemsTable,
+	resolveAgentSession,
 	runWork,
 	WORK_EXIT_FAIL,
 	type WorkContext,
@@ -3467,6 +3468,37 @@ describe("exact-chat Work handoff registration", () => {
 			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 			else process.env.TEDIX_CONFIG_DIR = previous;
 			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("resolveAgentSession", () => {
+	const keys = [
+		"TEDIX_AGENT_SESSION",
+		"CLAUDE_CODE_SESSION_ID",
+		"CLAUDECODE",
+		"CODEX_SESSION_ID",
+		"CODEX_THREAD_ID",
+		"CURSOR_TRACE_ID",
+	] as const;
+
+	test("labels a Codex thread codex even inside a Claude Code shell", () => {
+		const saved = keys.map((key) => [key, process.env[key]] as const);
+		try {
+			for (const key of keys) delete process.env[key];
+			process.env.CLAUDECODE = "1";
+			process.env.CODEX_THREAD_ID = "01a141ed-e7cc-7852-8ae8-3bb06e42269d";
+			expect(resolveAgentSession()).toEqual({
+				session: "codex:01a141ed-e7cc-7852-8ae8-3bb06e42269d",
+				harness: "codex",
+				derived: false,
+			});
+			process.env.CLAUDE_CODE_SESSION_ID = "c1";
+			expect(resolveAgentSession()?.session).toBe("claude-code:c1");
+		} finally {
+			for (const [key, value] of saved)
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
 		}
 	});
 });

@@ -82,7 +82,7 @@ export function wrapStatelessCodeModeSource(code: string): string {
 	}
 	const __tedixUserCode = (${userCode});
 	if (typeof __tedixUserCode !== "function") {
-		throw new Error("Code Mode program must evaluate to a function");
+		throw new Error('Code Mode program must evaluate to a function. Wrap the statements: async () => { return await discover.search({ query: "...", limit: 3 }); }');
 	}
 	return await __tedixUserCode();
 }`;
