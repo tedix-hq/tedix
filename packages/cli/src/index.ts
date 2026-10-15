@@ -63,6 +63,7 @@ import {
 	channelUsage,
 	parseChannelFilters,
 	planSubscriptions,
+	runCodexEventChannel,
 	runEventChannel,
 } from "./event-channel";
 import { errorText, resolveColorMode } from "./format";
@@ -1090,18 +1091,34 @@ async function main() {
 				.trim()
 				.split(/\s+/)
 				.filter(Boolean);
-			if (host !== "claude") throw new Error(channelUsage());
 			const filters = parseChannelFilters(options.flowParam);
 			const channelClient = client;
+			const subscriptionsFor = (requested: string[]) => async () =>
+				planSubscriptions({
+					listResult: await channelClient.rawRequest("events/list"),
+					organizationId: await resolveThreadOrganizationId(channelClient),
+					requested,
+					filters,
+				});
+			if (host === "codex") {
+				const [thread, ...codexEvents] = eventNames;
+				if (!thread || !looksLikeUuid(thread)) throw new Error(channelUsage());
+				const { codexDriver } = await import("./supervise");
+				await runCodexEventChannel({
+					client: channelClient,
+					resolveSubscriptions: subscriptionsFor(codexEvents),
+					driver: codexDriver(process.env),
+					thread,
+					cwd: process.cwd(),
+					signal: commandAbort.signal,
+					log: (line) => console.error(line),
+				});
+				return;
+			}
+			if (host !== "claude") throw new Error(channelUsage());
 			await runEventChannel({
 				client: channelClient,
-				resolveSubscriptions: async () =>
-					planSubscriptions({
-						listResult: await channelClient.rawRequest("events/list"),
-						organizationId: await resolveThreadOrganizationId(channelClient),
-						requested: eventNames,
-						filters,
-					}),
+				resolveSubscriptions: subscriptionsFor(eventNames),
 				io: {
 					input: process.stdin,
 					write: (line) => process.stdout.write(`${line}\n`),

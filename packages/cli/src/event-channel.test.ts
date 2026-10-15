@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	channelNotice,
+	codexEventMessage,
+	deliverToCodex,
 	handleChannelMessage,
 	parseChannelFilters,
 	planSubscriptions,
@@ -281,5 +283,94 @@ test("runEventChannel answers stdio and pushes a channel notification per event"
 	expect(notice.params.meta).toMatchObject({
 		event: "skill.run.failed",
 		run_id: "r2",
+	});
+});
+
+describe("deliverToCodex", () => {
+	const message = codexEventMessage([
+		{
+			eventId: "e1",
+			name: "work.item.state_changed",
+			timestamp: "1",
+			data: { work_item_id: ITEM, change: "cancelled" },
+		},
+	]);
+
+	test("an open window that takes the queued copy needs no resume", async () => {
+		let resumed = false;
+		const via = await deliverToCodex({
+			driver: {
+				queue: async () => ({ id: "q1", offset: 0 }),
+				received: () => true,
+				withdraw: () => false,
+				resume: async () => (resumed = true),
+			},
+			thread: "t1",
+			message,
+			cwd: "/tmp",
+			sleep: async () => {},
+		});
+		expect(via).toBe("codex_queue");
+		expect(resumed).toBe(false);
+	});
+
+	test("an unclaimed queued copy is withdrawn and the thread resumes headless", async () => {
+		const resumes: string[] = [];
+		const via = await deliverToCodex({
+			driver: {
+				queue: async () => ({ id: "q1", offset: 0 }),
+				received: () => false,
+				withdraw: (id) => id === "q1",
+				resume: async (thread, text) => {
+					resumes.push(`${thread}:${text}`);
+					return true;
+				},
+			},
+			thread: "t1",
+			message,
+			cwd: "/tmp",
+			pickupMs: 0,
+			sleep: async () => {},
+		});
+		expect(via).toBe("codex_resume");
+		expect(resumes).toEqual([`t1:${message}`]);
+		expect(message).toContain(`Work Item ${ITEM} changed: cancelled.`);
+	});
+
+	test("a dropped queued copy resumes the thread; a late pickup does not", async () => {
+		let resumed = 0;
+		let pickedUp = false;
+		const driver = {
+			queue: async () => ({ id: "q1", offset: 0 }),
+			received: () => pickedUp,
+			withdraw: () => false,
+			resume: async () => {
+				resumed++;
+				return true;
+			},
+		};
+		expect(
+			await deliverToCodex({
+				driver,
+				thread: "t1",
+				message,
+				cwd: "/tmp",
+				pickupMs: 0,
+				sleep: async () => {},
+			}),
+		).toBe("codex_resume");
+		expect(
+			await deliverToCodex({
+				driver,
+				thread: "t1",
+				message,
+				cwd: "/tmp",
+				pickupMs: 0,
+				sleep: async () => {
+					pickedUp = true;
+				},
+			}),
+		).toBe("codex_queue");
+		expect(resumed).toBe(1);
 	});
 });

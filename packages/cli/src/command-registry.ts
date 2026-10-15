@@ -177,9 +177,9 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 	},
 	{
 		name: "channel",
-		argHint: "claude [<event>...]",
+		argHint: "claude|codex <thread> [<event>...]",
 		surface: "gateway-direct",
-		summary: "Deliver Tedix events into a Claude Code session",
+		summary: "Deliver Tedix events into a Claude Code or Codex session",
 		mutability: "read",
 		output: ["json"],
 		help: channelUsage,
