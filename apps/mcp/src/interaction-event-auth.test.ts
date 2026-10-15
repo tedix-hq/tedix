@@ -244,4 +244,29 @@ describe("Org-scoped poll event authorization", () => {
 		).rejects.toThrow();
 		expect(mocks.getInternalApiClient).not.toHaveBeenCalled();
 	});
+
+	it("requires mcpConfig.eventWebhooks for webhook subscribe and delivery", async () => {
+		mocks.validateAuth.mockResolvedValue({
+			...auth(),
+			scopes: ["mcp:work.read"],
+		});
+		await expect(
+			authorizeEventCaller(env, caller, workScopes, { requireWebhooks: true }),
+		).rejects.toThrow("Event webhooks unavailable");
+		expect(mocks.validateAuth).not.toHaveBeenCalled();
+		mocks.resolveAppFromHostname.mockResolvedValue({
+			app: { organizationId: otherOrg },
+			metadata: {
+				mcpConfig: {
+					interactionEvents: true,
+					eventWebhooks: true,
+					descopeResourceId: "resource-test",
+					multiOrgConsent: true,
+				},
+			},
+		});
+		await expect(
+			authorizeEventCaller(env, caller, workScopes, { requireWebhooks: true }),
+		).resolves.toMatchObject({ organizationId: ORGANIZATION_ID });
+	});
 });

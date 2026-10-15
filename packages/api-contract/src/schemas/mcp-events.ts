@@ -104,3 +104,89 @@ export const PollFailedSkillRunsResultSchema = z.object({
 	after: McpEventKeysetCursorSchema,
 	hasMore: z.boolean(),
 });
+
+/**
+ * `events/subscribe` webhook leases for the three ledger events. The MCP edge
+ * seals the caller's bearer and callback secret into `sealedCredential`; the
+ * API stores it opaquely and returns it only to the service-bound deliverer.
+ */
+export const McpWebhookEventNameSchema = z.enum([
+	"work.item.state_changed",
+	"work.approval.requested",
+	"skill.run.failed",
+]);
+
+const SubscriptionIdSchema = z
+	.string()
+	.regex(/^evsub_[0-9a-f]{64}$/, "Invalid subscription id");
+const EventCursorSchema = z.string().min(1).max(512);
+
+export const UpsertMcpEventWebhookSubscriptionInputSchema = z.object({
+	id: SubscriptionIdSchema,
+	eventName: McpWebhookEventNameSchema,
+	arguments: z.record(z.string().max(64), z.string().max(128)),
+	mcpUrl: z.string().url().max(2048),
+	callbackUrl: z.string().url().max(2048),
+	sealedCredential: z.string().min(1).max(16_384),
+	/** Starting feed position for a new lease or an explicit resume. */
+	cursor: EventCursorSchema,
+	/** Keep the stored position when renewing a healthy lease. */
+	keepCursor: z.boolean(),
+	expiresAt: z.string().datetime(),
+});
+
+export const UpsertMcpEventWebhookSubscriptionResultSchema = z.object({
+	id: SubscriptionIdSchema,
+	cursor: EventCursorSchema,
+	expiresAt: z.string(),
+});
+
+export const DeleteMcpEventWebhookSubscriptionInputSchema = z.object({
+	id: SubscriptionIdSchema,
+});
+
+export const DeleteMcpEventWebhookSubscriptionResultSchema = z.object({
+	deleted: z.boolean(),
+});
+
+export const ClaimDueMcpEventWebhooksInputSchema = z.object({
+	limit: z.number().int().min(1).max(50).default(25),
+	leaseMs: z.number().int().min(10_000).max(600_000).default(110_000),
+});
+
+export const McpEventWebhookSubscriptionSchema = z.object({
+	id: SubscriptionIdSchema,
+	organizationId: z.string(),
+	ownerSubject: z.string(),
+	mcpUrl: z.string(),
+	eventName: McpWebhookEventNameSchema,
+	arguments: z.record(z.string(), z.string()),
+	callbackUrl: z.string(),
+	sealedCredential: z.string(),
+	cursor: EventCursorSchema,
+	consecutiveFailures: z.number().int().min(0),
+	rateWindowStartedAt: z.string().nullable(),
+	rateWindowCount: z.number().int().min(0),
+	expiresAt: z.string(),
+});
+
+export const ClaimDueMcpEventWebhooksResultSchema = z.object({
+	subscriptions: z.array(McpEventWebhookSubscriptionSchema),
+});
+
+export const RecordMcpEventWebhookDeliveryInputSchema = z.object({
+	id: SubscriptionIdSchema,
+	organizationId: z.string().min(1).max(128),
+	cursor: EventCursorSchema,
+	status: z.enum(["active", "unhealthy"]),
+	consecutiveFailures: z.number().int().min(0).max(1000),
+	nextAttemptAt: z.string().datetime(),
+	rateWindowStartedAt: z.string().datetime().nullable(),
+	rateWindowCount: z.number().int().min(0),
+	lastDeliveredAt: z.string().datetime().nullable(),
+	lastStatus: z.number().int().min(0).max(999).nullable(),
+});
+
+export const RecordMcpEventWebhookDeliveryResultSchema = z.object({
+	recorded: z.boolean(),
+});

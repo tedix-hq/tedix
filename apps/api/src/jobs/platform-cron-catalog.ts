@@ -16,6 +16,7 @@ export const PLATFORM_CRON_IDS = [
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-approval-redrive",
+	"mcp-event-webhook-delivery",
 	"work-attempt-lease-sweep",
 	"always-on-keepalive",
 	"billing-and-gateway-cost",
@@ -47,7 +48,10 @@ interface PlatformCronDefinition {
 	cron: string;
 	intervalMinutes: number;
 	requiresFleet?: boolean;
-	requiresBinding?: "TEDI_SERVICE" | "TEDI_MCP_ACCESS_HEALTH_WORKFLOW";
+	requiresBinding?:
+		| "TEDI_SERVICE"
+		| "TEDI_MCP_ACCESS_HEALTH_WORKFLOW"
+		| "MCP_SERVICE";
 }
 
 const everyTwoMinuteIds = [
@@ -83,6 +87,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
 		requiresBinding: "TEDI_SERVICE",
+	},
+	{
+		id: "mcp-event-webhook-delivery",
+		cron: "*/2 * * * *",
+		intervalMinutes: 2,
+		requiresBinding: "MCP_SERVICE",
 	},
 	...(
 		[

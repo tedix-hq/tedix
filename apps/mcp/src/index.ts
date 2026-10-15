@@ -106,6 +106,11 @@ import {
 	pollEvent,
 } from "./work-events";
 import {
+	deliverDueEventWebhooks,
+	subscribeEventWebhook,
+	unsubscribeEventWebhook,
+} from "./event-webhooks";
+import {
 	organizationScopedRequest,
 	resolveConnectOrganization,
 	shouldBindHumanToTedi,
@@ -2980,6 +2985,7 @@ export async function handleMcpRequest(
 		request,
 		env,
 		interactionEventsEnabled,
+		resolvedApp.metadata?.mcpConfig?.eventWebhooks === true,
 	);
 	if (eventResponse) return eventResponse;
 	const callerIdentity = extractCallerIdentity(request);
@@ -3958,6 +3964,7 @@ export async function maybeHandleInteractionEvents(
 	request: Request,
 	env: CloudflareEnv,
 	enabled: boolean,
+	webhooksEnabled = false,
 ): Promise<Response | null> {
 	if (request.method !== "POST" || !enabled) return null;
 	const envelope = await readJsonRpcEnvelope(request);
@@ -3986,7 +3993,12 @@ export async function maybeHandleInteractionEvents(
 	if (envelope.body.method === "events/list")
 		return jsonRpcEnvelopeResponse(envelope, {
 			resultType: "complete",
-			events: [interactionReplyEventDefinition, ...pollableEventDefinitions],
+			events: [
+				interactionReplyEventDefinition,
+				...pollableEventDefinitions.map((event) =>
+					webhooksEnabled ? { ...event, delivery: ["poll", "webhook"] } : event,
+				),
+			],
 		});
 	const authorization = request.headers.get("Authorization");
 	const resource = new URL(request.url);
@@ -4010,6 +4022,29 @@ export async function maybeHandleInteractionEvents(
 					{ authorization, mcpUrl: resource.toString() },
 					params,
 				)),
+			});
+		} catch (error) {
+			return jsonRpcEnvelopeErrorResponse(
+				envelope,
+				error instanceof InteractionEventError ? error.code : -32603,
+				error instanceof InteractionEventError
+					? error.message
+					: "Event operation unavailable",
+				error instanceof InteractionEventError ? error.data : undefined,
+			);
+		}
+	}
+	const unsubscribing = envelope.body.method === "events/unsubscribe";
+	if (isPollableEvent(params.name) && (webhooksEnabled || unsubscribing)) {
+		try {
+			if (!authorization?.startsWith("Bearer "))
+				throw new InteractionEventError(-32024, "Human OAuth required");
+			const caller = { authorization, mcpUrl: resource.toString() };
+			return jsonRpcEnvelopeResponse(envelope, {
+				resultType: "complete",
+				...(unsubscribing
+					? await unsubscribeEventWebhook(env, caller, params)
+					: await subscribeEventWebhook(env, caller, params)),
 			});
 		} catch (error) {
 			return jsonRpcEnvelopeErrorResponse(
@@ -5239,6 +5274,19 @@ const worker = {
 			url.pathname === "/__internal/subscriptions/publish"
 		) {
 			return handleInternalSubscriptionPublish(request, env);
+		}
+
+		// The API's two-minute cron drives SEP-3415 webhook delivery here.
+		if (
+			request.method === "POST" &&
+			url.pathname === "/__internal/events/deliver"
+		) {
+			if (!isServiceBinding(request.headers))
+				return Response.json({ error: "Forbidden" }, { status: 403 });
+			return Response.json({
+				ok: true,
+				...(await deliverDueEventWebhooks(env)),
+			});
 		}
 
 		// MCP CORS preflight must answer before auth — OPTIONS carries no

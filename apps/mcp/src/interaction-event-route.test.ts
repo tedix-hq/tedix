@@ -63,6 +63,52 @@ it("lists the reply webhook event and the org-scoped poll events", async () => {
 		},
 	});
 });
+it("advertises webhook delivery for ledger events only when the app opts in", async () => {
+	const response = await maybeHandleInteractionEvents(
+		request("events/list"),
+		{} as CloudflareEnv,
+		true,
+		true,
+	);
+	const { result } = (await response!.json()) as {
+		result: { events: Array<{ name: string; delivery: string[] }> };
+	};
+	expect(
+		Object.fromEntries(result.events.map((e) => [e.name, e.delivery])),
+	).toEqual({
+		"work.interaction.responded": ["webhook"],
+		"work.item.state_changed": ["poll", "webhook"],
+		"work.approval.requested": ["poll", "webhook"],
+		"skill.run.failed": ["poll", "webhook"],
+	});
+	const subscribe = await maybeHandleInteractionEvents(
+		new Request("https://plugin.example/mcp", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"MCP-Protocol-Version": "2026-07-28",
+				"Mcp-Method": "events/subscribe",
+			},
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "events/subscribe",
+				params: {
+					name: "work.item.state_changed",
+					arguments: { organization_id: ORG },
+					_meta: {
+						"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+						"io.modelcontextprotocol/clientCapabilities": {},
+					},
+				},
+			}),
+		}),
+		{} as CloudflareEnv,
+		true,
+		true,
+	);
+	expect(await subscribe!.json()).toMatchObject({ error: { code: -32024 } });
+});
 it("answers a delivery mode the event does not offer with Unsupported", async () => {
 	const poll = await maybeHandleInteractionEvents(
 		request("events/poll", {

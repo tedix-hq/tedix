@@ -159,6 +159,68 @@ export async function sendInteractionWebhook(
 	);
 }
 
+/**
+ * Validate an `events/subscribe` webhook delivery block: a public HTTPS URL
+ * without credentials or fragment and, when `withSecret`, a `whsec_` secret.
+ */
+export function webhookDeliveryTarget(
+	delivery: unknown,
+	withSecret: boolean,
+): { url: string; secret: string } {
+	if (
+		!isRecord(delivery) ||
+		delivery.mode !== "webhook" ||
+		typeof delivery.url !== "string" ||
+		delivery.url.length > 2048
+	)
+		throw new InteractionEventError(-32602, "HTTPS webhook delivery required");
+	let url: URL;
+	try {
+		url = new URL(delivery.url);
+	} catch {
+		throw new InteractionEventError(-32602, "Invalid public webhook URL");
+	}
+	if (url.username || url.password || url.hash || validateUrl(url.toString()))
+		throw new InteractionEventError(-32602, "Invalid public webhook URL");
+	if (withSecret) decodeSecret(delivery.secret);
+	return {
+		url: url.toString(),
+		secret: withSecret ? (delivery.secret as string) : "",
+	};
+}
+
+/** Prove the subscriber controls the callback: it must echo a fresh challenge. */
+export async function verifyWebhookCallback(
+	send: typeof sendInteractionWebhook,
+	url: string,
+	secret: string,
+	subscriptionId: string,
+	previousSecret?: string,
+): Promise<void> {
+	const challenge = crypto.randomUUID();
+	try {
+		const response = await send(
+			url,
+			secret,
+			subscriptionId,
+			`verify_${crypto.randomUUID()}`,
+			{ type: "verification", challenge },
+			previousSecret,
+		);
+		const reply = response.ok ? await boundedChallengeReply(response) : null;
+		if (
+			!isRecord(reply) ||
+			typeof reply.challenge !== "string" ||
+			!constantTimeEqual(reply.challenge, challenge)
+		)
+			throw new Error("challenge");
+	} catch {
+		throw new InteractionEventError(-32015, "Callback verification failed", {
+			reason: "challenge_failed",
+		});
+	}
+}
+
 type Subscription = InteractionEventCredential & {
 	id: string;
 	owner: string;
@@ -217,27 +279,9 @@ export class InteractionEventSubscriptions {
 			target.requestId !== credential.requestId
 		)
 			throw new InteractionEventError(-32602, "Interaction filter mismatch");
-		const delivery = params.delivery;
-		if (
-			!isRecord(delivery) ||
-			delivery.mode !== "webhook" ||
-			typeof delivery.url !== "string" ||
-			delivery.url.length > 2048
-		)
-			throw new InteractionEventError(
-				-32602,
-				"HTTPS webhook delivery required",
-			);
-		let url: URL;
-		try {
-			url = new URL(delivery.url);
-		} catch {
-			throw new InteractionEventError(-32602, "Invalid public webhook URL");
-		}
-		if (url.username || url.password || url.hash || validateUrl(url.toString()))
-			throw new InteractionEventError(-32602, "Invalid public webhook URL");
-		decodeSecret(delivery.secret);
-		const secret = delivery.secret as string;
+		const callback = webhookDeliveryTarget(params.delivery, true);
+		const url = new URL(callback.url);
+		const secret = callback.secret;
 		if (
 			params.ttlMs != null &&
 			(typeof params.ttlMs !== "number" ||
@@ -292,34 +336,15 @@ export class InteractionEventSubscriptions {
 			previous.secret !== secret ||
 			previous.expiresAt <= Date.now()
 		) {
-			const challenge = crypto.randomUUID();
-			try {
-				const response = await this.dependencies.send(
-					url.toString(),
-					secret,
-					id,
-					`verify_${crypto.randomUUID()}`,
-					{ type: "verification", challenge },
-					previous && previous.expiresAt > Date.now()
-						? previous.secret
-						: undefined,
-				);
-				const reply = response.ok
-					? await boundedChallengeReply(response)
-					: null;
-				if (
-					!isRecord(reply) ||
-					typeof reply.challenge !== "string" ||
-					!constantTimeEqual(reply.challenge, challenge)
-				)
-					throw new Error("challenge");
-			} catch {
-				throw new InteractionEventError(
-					-32015,
-					"Callback verification failed",
-					{ reason: "challenge_failed" },
-				);
-			}
+			await verifyWebhookCallback(
+				this.dependencies.send,
+				url.toString(),
+				secret,
+				id,
+				previous && previous.expiresAt > Date.now()
+					? previous.secret
+					: undefined,
+			);
 		}
 		await this.storage.transaction(async (transaction) => {
 			const current = await transaction.list<Subscription>({
@@ -386,25 +411,9 @@ export class InteractionEventSubscriptions {
 			target.requestId !== input.credential.requestId
 		)
 			throw new InteractionEventError(-32602, "Interaction filter mismatch");
-		const delivery = input.params.delivery;
-		if (
-			!isRecord(delivery) ||
-			delivery.mode !== "webhook" ||
-			typeof delivery.url !== "string" ||
-			delivery.url.length > 2048
-		)
-			throw new InteractionEventError(
-				-32602,
-				"HTTPS webhook delivery required",
-			);
-		let url: URL;
-		try {
-			url = new URL(delivery.url);
-		} catch {
-			throw new InteractionEventError(-32602, "Invalid public webhook URL");
-		}
-		if (url.username || url.password || url.hash || validateUrl(url.toString()))
-			throw new InteractionEventError(-32602, "Invalid public webhook URL");
+		const url = new URL(
+			webhookDeliveryTarget(input.params.delivery, false).url,
+		);
 		let authority: Awaited<ReturnType<typeof authorizeInteractionEvent>>;
 		try {
 			authority = await this.dependencies.authorize(this.env, input.credential);
