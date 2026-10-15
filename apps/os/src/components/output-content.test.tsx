@@ -402,7 +402,21 @@ describe("deck read view keys", () => {
 		// Present mode navigates and leaves on Escape.
 		press("ArrowLeft", presenter()!);
 		expect(presenter()?.textContent).toContain("1 / 2");
-		press("Escape", presenter()!);
+		// A jump-menu pick unmounts the focused button, leaving focus on the
+		// body; present mode still owns the keys.
+		act(() =>
+			presenter()!
+				.querySelector<HTMLButtonElement>('[aria-label="Jump to slide"]')!
+				.click(),
+		);
+		act(() =>
+			presenter()!
+				.querySelector<HTMLButtonElement>('[aria-label="Slide 2: Roadmap"]')!
+				.click(),
+		);
+		press("ArrowLeft");
+		expect(presenter()?.textContent).toContain("1 / 2");
+		press("Escape");
 		expect(presenter()).toBeNull();
 		expect(current(mounted.container)).toBe("Slide 1: Launch");
 		mounted.cleanup();
