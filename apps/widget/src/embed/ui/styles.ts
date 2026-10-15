@@ -206,6 +206,8 @@ export function embeddedTediStyles(
 				.tedix-send:disabled { cursor: default; opacity: .28; transform: none; }
 				.tedix-send[aria-label="Detener"] svg { fill: currentColor; stroke: none; }
 				.tedix-footer { padding: 7px 4px 0; color: var(--tedix-muted); font-size: 10px; text-align: center; }
+				.tedix-conversation-reference summary { cursor: pointer; }
+				.tedix-conversation-reference code { display: block; overflow-wrap: anywhere; user-select: all; }
 				@media (prefers-color-scheme: dark) { :host:not([data-theme="light"]) { --tedix-accent: var(--tedix-accent-dark); --tedix-bg: #242424; --tedix-canvas: #202020; --tedix-text: #f4f4f5; --tedix-muted: #a1a1aa; --tedix-border: rgba(255,255,255,.11); --tedix-soft: rgba(255,255,255,.075); color-scheme: dark; } :host:not([data-theme="light"]) .tedix-brand-image:not([data-theme-dark]) { display: none; } :host:not([data-theme="light"]) .tedix-brand-image[data-theme-dark] { display: block; } }
 				:host([data-theme="dark"]) { --tedix-accent: var(--tedix-accent-dark); --tedix-bg: #242424; --tedix-canvas: #202020; --tedix-text: #f4f4f5; --tedix-muted: #a1a1aa; --tedix-border: rgba(255,255,255,.11); --tedix-soft: rgba(255,255,255,.075); color-scheme: dark; }
 				:host([data-theme="dark"]) .tedix-brand-image:not([data-theme-dark]) { display: none; }
