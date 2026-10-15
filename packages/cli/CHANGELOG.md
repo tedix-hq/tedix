@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.9.1
+
+### Patch Changes
+
+- 4bdf527: `tedix factory status` without a slug no longer fails with "result truncated by gateway" when an organization has many factories; the overview now fetches only the fields it prints.
+
 ## 0.9.0
 
 ### Minor Changes
