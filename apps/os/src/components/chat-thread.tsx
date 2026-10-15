@@ -2775,11 +2775,9 @@ export function ChatThread({
 				modelRef: input.modelRef,
 			}),
 		onSuccess: (output, variables) => {
-			if (output.status === "failed") {
-				// The kernel answered and refused: a known not-sent. Retire the
-				// provisional bubble (nothing durable exists to converge on) and put
-				// the text back in the composer, keeping the key so Retry re-sends
-				// the same run id.
+			if (output.status === "failed" && !output.assistantMessage) {
+				// A refusal without a receipt is not-sent. A persisted failure reply
+				// follows normal transcript reconciliation instead of restoring a draft.
 				dispatchProvisional({
 					type: "rejected",
 					idempotencyKey: variables.idempotencyKey,
