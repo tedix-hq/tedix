@@ -73,6 +73,21 @@ async function chooseSelectOption(
 	});
 }
 
+async function insertFromLibrary(container: HTMLElement, type: string) {
+	await act(async () => {
+		container
+			.querySelector<HTMLButtonElement>('[aria-label="Insert slide element"]')
+			?.click();
+		await Promise.resolve();
+	});
+	await act(async () => {
+		document
+			.querySelector<HTMLButtonElement>(`[data-slide-component="${type}"]`)
+			?.click();
+		await Promise.resolve();
+	});
+}
+
 /** The one fixed-light scope both slide sidebars opt into. */
 function chromeRule() {
 	const css = readFileSync("src/styles.css", "utf8");
@@ -258,7 +273,7 @@ describe("SlidesEditor", () => {
 			"shape",
 			"arrow",
 		]);
-		await chooseSelectOption(mounted.container, "Insert slide element", "text");
+		await insertFromLibrary(mounted.container, "text");
 		for (const panel of ["Slides", "Inspector"]) {
 			const toggle = Array.from(
 				mounted.container.querySelectorAll("button"),
@@ -281,7 +296,7 @@ describe("SlidesEditor", () => {
 
 	it("adds a selected text element and keeps the legacy slide projection", async () => {
 		const mounted = mountEditor(content([{ title: "Launch", bullets: [] }]));
-		await chooseSelectOption(mounted.container, "Insert slide element", "text");
+		await insertFromLibrary(mounted.container, "text");
 		const next = mounted.emitted.at(-1);
 		expect(
 			next?.deck?.slides[0]?.elements.some(

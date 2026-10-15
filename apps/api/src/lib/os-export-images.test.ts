@@ -119,6 +119,46 @@ describe("export image boundary", () => {
 		await vi.advanceTimersByTimeAsync(10_000);
 		await result;
 	});
+	it("keeps uploaded slide data URIs, SVG included, without fetching", async () => {
+		const fetcher = vi.fn();
+		vi.stubGlobal("fetch", fetcher);
+		const sources = [
+			"data:image/png;base64,iVBORw0KGgo=",
+			"data:image/svg+xml;base64,PHN2Zy8+",
+		];
+		const copy = await inlineOsExportImages({
+			kind: "presentation",
+			slides: [{ title: "Visuals", bullets: [] }],
+			deck: {
+				width: 1200,
+				height: 675,
+				activeSlideId: "one",
+				slides: [
+					{
+						id: "one",
+						name: "Visuals",
+						layout: "blank",
+						background: "#ffffff",
+						elements: sources.map((src, index) => ({
+							id: `visual-${index}`,
+							type: index ? ("svg" as const) : ("image" as const),
+							x: 0,
+							y: 0,
+							width: 100,
+							height: 100,
+							src,
+							style: {},
+						})),
+					},
+				],
+			},
+		});
+		expect(
+			copy.kind === "presentation" &&
+				copy.deck?.slides[0]?.elements.map((element) => element.src),
+		).toEqual(sources);
+		expect(fetcher).not.toHaveBeenCalled();
+	});
 	it("deduplicates document images and preserves the revision", async () => {
 		const fetcher = vi
 			.fn()

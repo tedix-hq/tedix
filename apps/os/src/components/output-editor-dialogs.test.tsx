@@ -97,12 +97,10 @@ describe("output editor text dialogs", () => {
 			insert.click();
 			await Promise.resolve();
 		});
-		const image = [
-			...document.querySelectorAll<HTMLElement>('[role="option"]'),
-		].find((option) => /image/i.test(option.textContent ?? ""))!;
+		const image = document.querySelector<HTMLElement>(
+			'[data-slide-component="image"]',
+		)!;
 		await act(async () => {
-			image.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-			image.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
 			image.click();
 			await Promise.resolve();
 		});

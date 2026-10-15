@@ -77,7 +77,8 @@ export async function inlineOsExportImages(
 	const copy = structuredClone(content);
 	const sources = new Map<string, string>();
 	const inline = async (source: string) => {
-		if (/^data:image\/(?:png|jpeg|gif|webp);/i.test(source)) return source;
+		if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);/i.test(source))
+			return source;
 		let result = sources.get(source);
 		if (!result) {
 			result = await fetchOsExportImage(source);

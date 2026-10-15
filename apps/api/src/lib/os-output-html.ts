@@ -24,7 +24,7 @@ const OS_EXPORT_REQUEST_PATTERNS = [
 	"^https://tedix\\.dev/_emdash/api/media/file/[A-Za-z0-9_-]+\\.(?:png|jpe?g|gif|webp)$",
 	"^https://fonts\\.googleapis\\.com/css2\\?",
 	"^https://fonts\\.gstatic\\.com/s/[A-Za-z0-9/_.-]+$",
-	"^data:image/(?:png|jpeg|gif|webp);",
+	"^data:image/(?:png|jpeg|gif|webp|svg\\+xml);",
 ];
 
 export const OS_EXPORT_RESOURCE_WAIT = {
@@ -60,7 +60,7 @@ export const OS_EXPORT_RESOURCE_WAIT = {
 
 function isExportImage(source: string): boolean {
 	return (
-		/^data:image\/(?:png|jpeg|gif|webp);/i.test(source) ||
+		/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);/i.test(source) ||
 		new RegExp(OS_EXPORT_REQUEST_PATTERNS[0]!).test(source)
 	);
 }
