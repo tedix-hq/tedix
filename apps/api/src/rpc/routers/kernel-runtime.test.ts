@@ -8525,6 +8525,46 @@ describe("home approved-write layer (v1)", () => {
 		);
 	});
 
+	it("a later bare 'reject' still answers the parked card after another turn", async () => {
+		const db = createKernelRuntimeDb();
+		const { client } = await enqueueWriteProposalTurn(db, "home-write-later");
+		const executor = vi.fn(async () => ({ ok: true as const, data: {} }));
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(
+			executor as unknown as Parameters<
+				typeof kernelRuntimeTestHooks.setKernelWriteExecutorForTest
+			>[0],
+		);
+		kernelRuntimeTestHooks.setKernelForTest(
+			vi.fn(async () => ({
+				assistantContent: "It is still waiting for you.",
+				route: {
+					routeKind: "answer_in_home" as const,
+					rationale: "Status question.",
+					risk: "low" as const,
+					confidence: 0.9,
+					answer: "It is still waiting for you.",
+				},
+			})),
+		);
+		await client.enqueueMessage({
+			conversationId: "home:write",
+			content: "what is it waiting for",
+			idempotencyKey: "home-write-later-question",
+		});
+
+		const reply = await client.enqueueMessage({
+			conversationId: "home:write",
+			content: "reject",
+			idempotencyKey: "home-write-later-reply",
+		});
+
+		expect(executor).not.toHaveBeenCalled();
+		expect(db.approvals[0]?.status).toBe("rejected");
+		expect(reply.assistantMessage?.content).toBe(
+			"Rejected `globex__create_invoice`. Nothing ran.",
+		);
+	});
+
 	// Trusted-write tier (plan item #2) — the audit row is always created; a
 	// trusted/low-risk write is just auto-resolved (resolvedBy:'policy') through
 	// the same latch instead of parking behind a human card.
