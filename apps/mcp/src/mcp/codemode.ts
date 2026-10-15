@@ -2206,15 +2206,14 @@ function skillLifecycleBoost(lifecycleState: string | undefined): number {
 }
 
 /**
- * The caller's current organization as a D1 organization id. A human OAuth
- * token names its organization by Descope tenant (`org_tedix`), while mounted
- * tools record the D1 id, so the tenant is mapped through the verified
- * multi-organization grant. Without a caller organization the hosting app's
- * organization is current.
+ * Prefer the request's hosting organization, which also scopes skill listing.
+ * Without it, map the login tenant through the verified multi-org grant to
+ * the D1 organization id recorded on mounted tools.
  */
 export function currentCatalogOrganizationId(
 	serverCtx: Pick<ServerContext, "callerIdentity" | "app">,
 ): string | undefined {
+	if (serverCtx.app?.organizationId) return serverCtx.app.organizationId;
 	const caller = serverCtx.callerIdentity?.organizationId;
 	const match = caller
 		? serverCtx.callerIdentity?.verifiedMultiOrgOrganizations?.find(
@@ -2222,7 +2221,7 @@ export function currentCatalogOrganizationId(
 					org.organizationId === caller || org.descopeTenantId === caller,
 			)
 		: undefined;
-	return match?.organizationId || caller || serverCtx.app?.organizationId;
+	return match?.organizationId || caller;
 }
 
 /**
