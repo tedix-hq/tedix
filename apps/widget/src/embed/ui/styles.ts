@@ -158,7 +158,6 @@ export function embeddedTediStyles(
 				.tedix-worklog-chevron { display: inline-flex; opacity: .7; transition: transform 140ms ease; }
 				.tedix-worklog-chevron svg { width: 13px; height: 13px; }
 				.tedix-worklog[open] .tedix-worklog-chevron { transform: rotate(180deg); }
-				.tedix-worklog-thinking { max-height: 88px; margin: 6px 0 0; padding: 0 0 0 13px; overflow: hidden; border-left: 1px solid var(--tedix-border); color: var(--tedix-muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; mask-image: linear-gradient(to bottom, transparent, #000 22px); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px); }
 				.tedix-worklog-steps { margin: 4px 0 0; padding: 0 0 0 13px; color: var(--tedix-muted); font-size: 12px; line-height: 1.5; list-style: none; border-left: 1px solid var(--tedix-border); }
 				.tedix-worklog-step { padding: 1px 0; }
 				.tedix-worklog-step[data-status="error"] { color: #dc2626; }
