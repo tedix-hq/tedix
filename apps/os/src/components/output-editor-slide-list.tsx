@@ -8,7 +8,10 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
-import { ReadOnlyElement } from "@/components/output-slide-element";
+import {
+	ReadOnlyElement,
+	SlideBackground,
+} from "@/components/output-slide-element";
 import { createOutputNodeId } from "@/lib/output-models";
 
 type SlideLayout = OsPresentationCanvasSlide["layout"];
@@ -135,22 +138,21 @@ export function templateSlide(
 	if (layout === "four-card") {
 		elements.push(...contentShell(id));
 		for (let card = 0; card < 4; card += 1)
-			elements.push(
-				templateText(
-					`${id}-card-${card + 1}`,
-					"card",
-					{ x: 70 + card * 270, y: 210, width: 250, height: 340 },
-					`0${card + 1}\nCard heading\nOne clear idea per card.`,
-					{
-						fontSize: 20,
-						color: BODY,
-						background: "#ffffff",
-						borderColor: "#d1d1d1",
-						borderWidth: 2,
-						borderRadius: 18,
-					},
-				),
-			);
+			elements.push({
+				id: `${id}-card-${card + 1}`,
+				type: "card",
+				x: 70 + card * 270,
+				y: 210,
+				width: 250,
+				height: 340,
+				props: {
+					eyebrow: `0${card + 1}`,
+					title: "Card heading",
+					body: "One clear idea per card.",
+					tone: "neutral",
+				},
+				style: {},
+			});
 		elements.push(footerBar(id));
 	}
 	return {
@@ -181,7 +183,16 @@ export function slideMatches(
 ): boolean {
 	const needle = query.trim().toLocaleLowerCase();
 	if (!needle) return true;
-	return [slide.name, ...slide.elements.map((element) => element.text ?? "")]
+	return [
+		slide.name,
+		...slide.elements.flatMap((element) => [
+			element.text,
+			element.props?.eyebrow,
+			element.props?.title,
+			element.props?.body,
+			element.props?.label,
+		]),
+	]
 		.join("\n")
 		.toLocaleLowerCase()
 		.includes(needle);
@@ -433,6 +444,7 @@ export function SlideList({
 									className="slide-thumb-canvas"
 									style={{ background: slide.background }}
 								>
+									<SlideBackground slide={slide} />
 									{slide.elements.map((element) => (
 										<ReadOnlyElement element={element} key={element.id} />
 									))}

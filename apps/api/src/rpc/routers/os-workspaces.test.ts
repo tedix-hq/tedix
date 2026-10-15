@@ -158,7 +158,7 @@ function createEnv(): CloudflareEnv {
 	);
 	sqlite.exec(`
 		INSERT INTO connection_instances (id,owner_user_id,provider_id,label,token_ids,token_sub,created_at,updated_at) VALUES ('00000000-0000-4000-8000-000000000003','user-1','google-drive','Personal','["grant"]','subject','2026-01-01','2026-01-01'), ('00000000-0000-4000-8000-000000000004','user-1','github','Personal','["grant"]','subject','2026-01-01','2026-01-01');
-		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
+		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'example', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT, metadata TEXT);
 		INSERT INTO organizations (id, name)
 			VALUES ('org-1', 'First Org'), ('org-2', 'Second Org');
 	`);
@@ -1332,6 +1332,90 @@ describe("outputs", () => {
 		await expect(
 			c.org2.outputs.rename({ outputId: document.output.id, title: "Nope" }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+	it("patches visual slide props and backgrounds while preserving CAS and semantic projection", async () => {
+		const created = await c.org1.outputs.create({
+			kind: "presentation",
+			title: "Visual parity",
+		});
+		const outputId = created.output.id;
+		const element = {
+			id: "card",
+			type: "card" as const,
+			x: 70,
+			y: 200,
+			width: 300,
+			height: 200,
+			style: {},
+			props: {
+				eyebrow: "A",
+				title: "Card",
+				body: "Body",
+				tone: "accent" as const,
+				highlight: ["Card"],
+			},
+		};
+		const inserted = await c.org1.outputs.patchSlides({
+			outputId,
+			expectedRevision: 1,
+			ops: [
+				{
+					op: "insert",
+					index: 0,
+					slide: {
+						title: "Visual",
+						canvas: {
+							background: "linear-gradient(120deg, #123456, #abcdef)",
+							dotGridOpacity: 0.2,
+							insetSurface: { color: "#ffffff", inset: 20, radius: 8 },
+							elements: [element],
+						},
+					},
+				},
+			],
+		});
+		expect(inserted.revision.content).toMatchObject({
+			slides: [{ title: "Visual" }],
+			deck: { slides: [{ dotGridOpacity: 0.2, elements: [element] }] },
+		});
+		const replaced = await c.org1.outputs.patchSlides({
+			outputId,
+			expectedRevision: 2,
+			ops: [
+				{
+					op: "replace",
+					index: 0,
+					slide: {
+						title: "Updated",
+						canvas: {
+							backgroundImage: "https://example.org/cover.png",
+							elements: [
+								{ ...element, props: { ...element.props, title: "Changed" } },
+							],
+						},
+					},
+				},
+			],
+		});
+		expect(replaced.revision.content).toMatchObject({
+			deck: {
+				slides: [
+					{
+						background: "linear-gradient(120deg, #123456, #abcdef)",
+						backgroundImage: "https://example.org/cover.png",
+						dotGridOpacity: 0.2,
+						elements: [{ props: { title: "Changed" } }],
+					},
+				],
+			},
+		});
+		await expect(
+			c.org1.outputs.patchSlides({
+				outputId,
+				expectedRevision: 2,
+				ops: [{ op: "delete", index: 0 }],
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 	it("patches a presentation slide by slide and never drops its deck", async () => {
 		const created = await c.org1.outputs.create({

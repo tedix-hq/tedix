@@ -11,9 +11,10 @@ const IMAGE_TYPES = new Set([
 	"image/jpeg",
 	"image/gif",
 	"image/webp",
+	"image/svg+xml",
 ]);
 
-/** Inline raster bytes so Browser Rendering never visits caller-chosen origins. */
+/** Inline image bytes so Browser Rendering never visits caller-chosen origins. */
 export async function fetchOsExportImage(source: string): Promise<string> {
 	const response = await guardedFetch(
 		source,
@@ -68,7 +69,31 @@ export async function fetchOsExportImage(source: string): Promise<string> {
 		await reader.cancel();
 	}
 	if (size === 0) throw new Error("Export image is empty");
-	return `data:${type};base64,${Buffer.concat(chunks).toString("base64")}`;
+	const bytes = Buffer.concat(chunks);
+	if (type === "image/svg+xml") {
+		const svg = bytes.toString("utf8");
+		if (
+			!/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(svg) ||
+			/<!DOCTYPE|<!ENTITY|<(?:script|foreignObject|iframe|object|embed)\b|\son\w+\s*=|javascript:|@import/i.test(
+				svg,
+			) ||
+			Array.from(svg.matchAll(/\b(?:href|src)\s*=\s*["']([^"']*)/gi)).some(
+				(match) => !match[1]!.startsWith("#"),
+			) ||
+			Array.from(svg.matchAll(/url\(([^)]*)\)/gi)).some(
+				(match) =>
+					!match[1]!
+						.trim()
+						.replace(/^["']|["']$/g, "")
+						.startsWith("#"),
+			)
+		) {
+			throw new Error(
+				"Export SVG must be a self-contained image without active content",
+			);
+		}
+	}
+	return `data:${type};base64,${bytes.toString("base64")}`;
 }
 
 export async function inlineOsExportImages<T extends OsOutputContent>(
@@ -88,6 +113,8 @@ export async function inlineOsExportImages<T extends OsOutputContent>(
 	};
 	if (copy.kind === "presentation") {
 		for (const slide of copy.deck?.slides ?? []) {
+			if (slide.backgroundImage)
+				slide.backgroundImage = await inline(slide.backgroundImage);
 			for (const element of slide.elements) {
 				if (
 					(element.type === "image" || element.type === "svg") &&

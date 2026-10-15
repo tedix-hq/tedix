@@ -910,7 +910,34 @@ export const OsPresentationElementTypeSchema = z.enum([
 	"divider",
 	"shape",
 	"arrow",
+	"logo",
 ]);
+
+export const OsPresentationElementPropsSchema = z.object({
+	eyebrow: z.string().max(300).optional(),
+	title: z.string().max(2_000).optional(),
+	body: z.string().max(20_000).optional(),
+	tone: z
+		.enum(["neutral", "accent", "success", "warning", "danger", "info"])
+		.optional(),
+	highlight: z.array(z.string().min(1).max(300)).max(100).optional(),
+	from: z
+		.object({ x: z.number().min(0).max(1_200), y: z.number().min(0).max(675) })
+		.optional(),
+	to: z
+		.object({ x: z.number().min(0).max(1_200), y: z.number().min(0).max(675) })
+		.optional(),
+	label: z.string().max(300).optional(),
+	dashed: z.boolean().optional(),
+	strokeWidth: z.number().min(0.5).max(24).optional(),
+	color: z.string().max(32).optional(),
+	kind: z.enum(["rectangle", "ellipse"]).default("rectangle").optional(),
+	radius: z.number().min(0).max(600).optional(),
+	compact: z.boolean().optional(),
+});
+export type OsPresentationElementProps = z.infer<
+	typeof OsPresentationElementPropsSchema
+>;
 
 export const OsPresentationElementSchema = z.object({
 	id: z.string().min(1).max(80),
@@ -931,6 +958,7 @@ export const OsPresentationElementSchema = z.object({
 		.max(1_500_000)
 		.optional()
 		.describe("Image source; omitted for non-image elements"),
+	props: OsPresentationElementPropsSchema.optional(),
 	style: z
 		.object({
 			fontFamily: z
@@ -1024,7 +1052,16 @@ export const OsPresentationCanvasSlideSchema = z.object({
 	layout: z
 		.enum(["blank", "title", "title-content", "two-column", "four-card"])
 		.default("blank"),
-	background: z.string().max(32).default("#ffffff"),
+	background: z.string().max(2_000).default("#ffffff"),
+	backgroundImage: z.string().max(1_500_000).optional(),
+	dotGridOpacity: z.number().min(0).max(1).optional(),
+	insetSurface: z
+		.object({
+			color: z.string().max(32).default("#ffffff"),
+			inset: z.number().min(0).max(200).default(24),
+			radius: z.number().min(0).max(200).default(8),
+		})
+		.optional(),
 	elements: z.array(OsPresentationElementSchema).max(300).default([]),
 	notes: z
 		.string()
@@ -1040,20 +1077,25 @@ export const OsPresentationDeckSchema = z.object({
 	slides: z.array(OsPresentationCanvasSlideSchema).max(200),
 });
 
-/**
- * The outline payload of one slide patch operation: a title, its bullets, and
- * optional speaker notes.
- *
- * Deliberately the SEMANTIC shape rather than the visual canvas slide. A canvas
- * slide carries up to 300 positioned elements, and a tool schema that large is
- * exactly what made `outputs.create` unusable from a chat turn — a model emits
- * the scalars and drops the field it cannot hold. The router builds the canvas
- * slide from this outline and keeps the deck and its projection consistent, so
- * an agent describes a slide and the platform lays it out.
- */
+/** An outline is laid out automatically unless the agent supplies canvas overrides. */
 export const OsPresentationSlideOutlineSchema = z.object({
 	title: z.string().min(1).max(300),
 	bullets: z.array(z.string().max(2_000)).max(30).default([]),
+	canvas: z
+		.object({
+			layout: OsPresentationCanvasSlideSchema.shape.layout.unwrap().optional(),
+			background: OsPresentationCanvasSlideSchema.shape.background
+				.unwrap()
+				.optional(),
+			backgroundImage: OsPresentationCanvasSlideSchema.shape.backgroundImage,
+			dotGridOpacity: OsPresentationCanvasSlideSchema.shape.dotGridOpacity,
+			insetSurface: OsPresentationCanvasSlideSchema.shape.insetSurface,
+			elements: z.array(OsPresentationElementSchema).max(300).optional(),
+		})
+		.optional()
+		.describe(
+			"Optional visual slide overrides, including elements and backgrounds; omitted for automatic outline layout",
+		),
 	notes: z
 		.string()
 		.max(10_000)

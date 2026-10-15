@@ -1,4 +1,7 @@
-import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
+import {
+	slideElementStyle,
+	slideElementGeometry,
+} from "@tedix/api-contract/utils/presentation-style";
 import {
 	ArrowUDownLeft,
 	ArrowUDownRight,
@@ -31,10 +34,9 @@ import {
 import { Surface } from "@/components/kumo/surface";
 import { Toolbar } from "@/components/kumo/toolbar";
 import {
-	SlideArrow,
-	SlideText,
+	SlideBackground,
+	SlideElementContent,
 	SLIDE_ELEMENT_CLASS,
-	slideImageFitClass,
 	useSlideElementFont,
 } from "@/components/output-slide-element";
 import {
@@ -57,10 +59,10 @@ import {
 	PRESENTATION_WIDTH,
 	projectDeck,
 	type PresentationContent,
-	safeImageSource,
 } from "@/lib/output-models";
 import { DECK_HISTORY } from "@/lib/output-history";
 import { useEditorHistory } from "@/lib/use-editor-history";
+import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import {
 	applySlideElementAction,
 	type SlideElementAction,
@@ -106,6 +108,7 @@ export const PRESENTATION_ELEMENT_TYPES = [
 	"divider",
 	"shape",
 	"arrow",
+	"logo",
 ] as const satisfies readonly OsPresentationElementType[];
 
 const ELEMENT_DEFAULTS: Record<
@@ -188,13 +191,18 @@ const ELEMENT_DEFAULTS: Record<
 	shape: {
 		width: 180,
 		height: 180,
-		style: { background: "#ff6b35", borderRadius: 90 },
+		style: { background: "#e5e5e5", borderRadius: 2 },
 	},
 	arrow: {
 		width: 300,
 		height: 40,
 		text: "→",
 		style: { fontSize: 56, color: "#222222", textAlign: "center" },
+	},
+	logo: {
+		width: 200,
+		height: 60,
+		style: { fontSize: 24, fontWeight: "semibold" },
 	},
 };
 
@@ -239,6 +247,8 @@ function SlideElementView({
 	onGeometryCommit: (next: OsPresentationElement) => void;
 }) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const [editing, setEditing] = useState(false);
+	const organization = usePresentationAppearance();
 	const [gesture, setGesture] = useState<null | {
 		mode: "move" | "resize";
 		startX: number;
@@ -272,7 +282,7 @@ function SlideElementView({
 					return { ...snapped, x: clampX(snapped.x), y: clampY(snapped.y) };
 				})()
 			: null;
-	const current =
+	const geometry =
 		gesture?.mode === "resize"
 			? {
 					...element,
@@ -294,8 +304,8 @@ function SlideElementView({
 			: moved
 				? { ...element, x: Math.round(moved.x), y: Math.round(moved.y) }
 				: element;
+	const current = slideElementGeometry(element, geometry);
 	useSlideElementFont(current.style.fontFamily);
-	const imageSource = safeImageSource(current.src);
 	const startGesture = (mode: "move" | "resize", event: React.PointerEvent) => {
 		if (disabled || event.button !== 0) return;
 		// Preventing the press also keeps the textarea from taking focus and
@@ -375,7 +385,7 @@ function SlideElementView({
 				data-slide-element={element.id}
 				data-selected={selected || undefined}
 				className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
-				style={slideElementStyle(current)}
+				style={slideElementStyle(current, "canvas", organization)}
 				onClick={(event) => {
 					event.stopPropagation();
 					onSelect();
@@ -402,39 +412,47 @@ function SlideElementView({
 				onPointerMove={moveGesture}
 				onPointerUp={endGesture}
 			>
-				{(current.type === "image" || current.type === "svg") && imageSource ? (
-					<img
-						src={imageSource}
-						alt={current.text ?? "Slide visual"}
-						className={`h-full w-full ${slideImageFitClass(current)}`}
-						draggable={false}
-					/>
-				) : current.type === "arrow" ? (
-					<SlideArrow element={current} />
-				) : current.type === "divider" ||
-				  current.type === "shape" ? null : disabled ? (
-					<SlideText text={current.text ?? ""} />
-				) : (
-					// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
-					// 14px size and a 20px line height with `!important`, so the stage drew
-					// every slide's text at UI size inside boxes scaled to the slide.
-					// `.slide-element-input` resets it to inherit the shared element style.
-					<textarea
-						ref={textareaRef}
-						aria-label={`${current.type} text`}
-						className="slide-element-input"
-						disabled={disabled}
-						value={current.text ?? ""}
-						onKeyDown={(event) => {
-							if (event.key !== "Escape") return;
-							event.preventDefault();
-							(event.currentTarget.parentElement as HTMLElement).focus();
-						}}
-						onChange={(event) =>
-							onChange({ ...element, text: event.target.value })
-						}
-					/>
-				)}
+				{!editing && <SlideElementContent element={current} />}
+				{!disabled &&
+					[
+						"title",
+						"subtitle",
+						"text",
+						"bullet",
+						"label",
+						"card",
+						"box",
+					].includes(current.type) &&
+					!current.props?.title &&
+					!current.props?.body && (
+						// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
+						// 14px size and a 20px line height with `!important`, so the stage drew
+						// every slide's text at UI size inside boxes scaled to the slide.
+						// `.slide-element-input` resets it to inherit the shared element style.
+						<textarea
+							ref={textareaRef}
+							aria-label={`${current.type} text`}
+							className="slide-element-input"
+							style={{
+								position: "absolute",
+								inset: 0,
+								opacity: editing ? 1 : 0,
+								padding: "inherit",
+							}}
+							onFocus={() => setEditing(true)}
+							onBlur={() => setEditing(false)}
+							disabled={disabled}
+							value={current.text ?? ""}
+							onKeyDown={(event) => {
+								if (event.key !== "Escape") return;
+								event.preventDefault();
+								(event.currentTarget.parentElement as HTMLElement).focus();
+							}}
+							onChange={(event) =>
+								onChange({ ...element, text: event.target.value })
+							}
+						/>
+					)}
 				{selected && !disabled && (
 					<Button
 						aria-label="Resize selected element"
@@ -491,6 +509,7 @@ function SlideCanvas({
 			}}
 			onClick={() => onSelect(null)}
 		>
+			<SlideBackground slide={slide} />
 			{slide.elements.map((element) => (
 				<SlideElementView
 					key={element.id}
@@ -556,7 +575,7 @@ export function SlidesEditor({
 		const nextDeck = replaceActiveSlide(deck, {
 			...activeSlide,
 			elements: activeSlide.elements.map((element) =>
-				element.id === next.id ? next : element,
+				element.id === next.id ? slideElementGeometry(element, next) : element,
 			),
 		});
 		commitDeck(nextDeck);

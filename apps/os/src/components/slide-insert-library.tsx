@@ -118,6 +118,12 @@ export const SLIDE_COMPONENT_CATEGORIES: readonly {
 		name: "Visual",
 		components: [
 			{
+				type: "logo",
+				name: "Organization logo",
+				description: "Published organization logo or name",
+				icon: ImageSquare,
+			},
+			{
 				type: "image",
 				name: "Image",
 				description: "Picture from a URL",

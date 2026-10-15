@@ -272,6 +272,7 @@ describe("SlidesEditor", () => {
 			"divider",
 			"shape",
 			"arrow",
+			"logo",
 		]);
 		await insertFromLibrary(mounted.container, "text");
 		for (const panel of ["Slides", "Inspector"]) {
@@ -361,7 +362,11 @@ describe("SlidesEditor", () => {
 		expect(
 			next?.deck?.slides[1]?.elements
 				.filter((element) => element.type === "card")
-				.every((element) => element.style.color === "#242424"),
+				.every(
+					(element) =>
+						element.props?.title === "Card heading" &&
+						element.props?.body === "One clear idea per card.",
+				),
 		).toBe(true);
 		mounted.cleanup();
 	});

@@ -53,7 +53,7 @@ describe("export image boundary", () => {
 		await expect(fetchOsExportImage("https://example.com/a")).rejects.toThrow();
 		expect(fetcher).toHaveBeenCalledTimes(1);
 	});
-	it.each(["text/html", "image/svg+xml", "application/octet-stream"])(
+	it.each(["text/html", "application/octet-stream"])(
 		"rejects content type %s",
 		async (type) => {
 			vi.stubGlobal(
@@ -182,4 +182,41 @@ describe("export image boundary", () => {
 		expect(image.attrs.src).toBe("https://example.com/a.png");
 		expect(fetcher).toHaveBeenCalledTimes(1);
 	});
+});
+
+it("inlines self-contained SVG logos through the guarded image boundary", async () => {
+	const svg =
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><path d="M0 0h100v40H0z" fill="#123456"/></svg>';
+	vi.stubGlobal(
+		"fetch",
+		vi
+			.fn()
+			.mockResolvedValue(
+				new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
+			),
+	);
+	expect(await fetchOsExportImage("https://example.org/logo.svg")).toContain(
+		"data:image/svg+xml;base64,",
+	);
+});
+
+it.each([
+	"body",
+	'<svg onload="alert(1)"/>',
+	"<svg><script>alert(1)</script></svg>",
+	'<svg><image href="https://example.org/a.png"/></svg>',
+	'<svg><style>@import "https://example.org/a.css";</style></svg>',
+	'<svg><rect fill="url(https://example.org/a.svg)"/></svg>',
+])("rejects active or externally referenced SVG: %s", async (svg) => {
+	vi.stubGlobal(
+		"fetch",
+		vi
+			.fn()
+			.mockResolvedValue(
+				new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
+			),
+	);
+	await expect(
+		fetchOsExportImage("https://example.org/logo.svg"),
+	).rejects.toThrow("self-contained");
 });

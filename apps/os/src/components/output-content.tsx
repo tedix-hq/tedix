@@ -6,7 +6,10 @@ import { Play } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
-import { ReadOnlyElement } from "@/components/output-slide-element";
+import {
+	ReadOnlyElement,
+	SlideBackground,
+} from "@/components/output-slide-element";
 import {
 	bareKey,
 	ownsSlideKeys,
@@ -418,6 +421,7 @@ function DeckView({
 								className="deck-read-thumb-canvas"
 								style={{ background: candidate.background }}
 							>
+								<SlideBackground slide={candidate} />
 								{candidate.elements.map((element) => (
 									<ReadOnlyElement element={element} key={element.id} />
 								))}
@@ -442,6 +446,7 @@ function DeckView({
 							containerType: "inline-size",
 						}}
 					>
+						<SlideBackground slide={slide} />
 						{slide.elements.map((element) => (
 							<ReadOnlyElement key={element.id} element={element} />
 						))}

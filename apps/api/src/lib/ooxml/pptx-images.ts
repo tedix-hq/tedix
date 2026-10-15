@@ -4,6 +4,10 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { fetchOsExportImage } from "../os-export-images";
 import { xmlEscape } from "./zip";
+import {
+	pptxImageFrame,
+	presentationImageDimensions,
+} from "./presentation-image";
 
 export interface PptxImage {
 	name: string;
@@ -46,12 +50,13 @@ export async function collectPptxImages(
 			const source = element.src.startsWith("data:")
 				? element.src
 				: await fetchOsExportImage(element.src);
-			const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=\s]+)$/i.exec(
-				source,
-			);
+			const match =
+				/^data:image\/(png|jpeg|svg\+xml|gif);base64,([A-Za-z0-9+/=\s]+)$/i.exec(
+					source,
+				);
 			if (!match)
 				throw new Error(
-					"PPTX images must be PNG or JPEG; SVG elements are omitted",
+					"PPTX images must be PNG, JPEG, GIF or self-contained SVG",
 				);
 			if (match[2]!.length > 14 * 1024 * 1024)
 				throw new Error("PPTX image exceeds 10 MB");
@@ -64,16 +69,20 @@ export async function collectPptxImages(
 					? ![137, 80, 78, 71, 13, 10, 26, 10].every(
 							(byte, index) => data[index] === byte,
 						)
-					: !(data[0] === 255 && data[1] === 216 && data[2] === 255)
+					: match[1]!.toLowerCase() === "jpeg" &&
+						!(data[0] === 255 && data[1] === 216 && data[2] === 255)
 			)
 				throw new Error("Invalid PPTX image bytes");
 			if (data.byteLength > 10 * 1024 * 1024)
 				throw new Error("PPTX image exceeds 10 MB");
-			const dimensions = imageDimensions(data, png);
-			if (dimensions.width <= 0 || dimensions.height <= 0)
+			const dimensions =
+				png || match[1]!.toLowerCase() === "jpeg"
+					? imageDimensions(data, png)
+					: presentationImageDimensions(source);
+			if (!dimensions || dimensions.width <= 0 || dimensions.height <= 0)
 				throw new Error("Invalid PPTX image dimensions");
 			images.set(element.src, {
-				name: `image${images.size + 1}.${png ? "png" : "jpeg"}`,
+				name: `image${images.size + 1}.${match[1]!.toLowerCase() === "svg+xml" ? "svg" : match[1]!.toLowerCase()}`,
 				data,
 				...dimensions,
 			});
@@ -88,16 +97,10 @@ export function pptxPicture(
 	relationshipId: string,
 	image: PptxImage,
 ): string {
-	const scale = Math.min(
-		element.width / image.width,
-		element.height / image.height,
-	);
-	const width = image.width * scale;
-	const height = image.height * scale;
-	const x = element.x + (element.width - width) / 2;
-	const y = element.y + (element.height - height) / 2;
+	const frame = pptxImageFrame(element, image);
+	const { x, y, width, height } = frame.element;
 	const rotation = element.style.rotation
 		? ` rot="${Math.round(element.style.rotation * 60000)}"`
 		: "";
-	return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${xmlEscape(element.id)}" descr="${xmlEscape(element.text ?? "")}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relationshipId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm${rotation}><a:off x="${Math.round(x * 10160)}" y="${Math.round(y * 10160)}"/><a:ext cx="${Math.max(1, Math.round(width * 10160))}" cy="${Math.max(1, Math.round(height * 10160))}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+	return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${xmlEscape(element.id)}" descr="${xmlEscape(element.text ?? "")}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relationshipId}"/>${frame.crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm${rotation}><a:off x="${Math.round(x * 10160)}" y="${Math.round(y * 10160)}"/><a:ext cx="${Math.max(1, Math.round(width * 10160))}" cy="${Math.max(1, Math.round(height * 10160))}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
 }

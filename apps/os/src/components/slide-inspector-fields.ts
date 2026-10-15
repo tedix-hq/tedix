@@ -227,6 +227,7 @@ const SLIDE_INSPECTOR_FIELDS: Record<
 	shape: [fill, radius, ...border, ...appearance],
 	divider: [fill, ...appearance],
 	arrow: [textColor, ...appearance],
+	logo: [...appearance],
 };
 
 export function slideInspectorFields(type: OsPresentationElementType) {

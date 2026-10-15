@@ -10,7 +10,10 @@
 import { formatWorkbookNumber } from "@tedix/api-contract/utils/workbook-number-format";
 import {
 	parseSlideText,
-	slideArrowPath,
+	slideElementMarkup,
+	slideBackgroundMarkup,
+	slideCss,
+	type PresentationAppearance,
 	slideElementStyle,
 } from "@tedix/api-contract/utils/presentation-style";
 import type {
@@ -311,72 +314,54 @@ function renderWorkbook(
 		.join("");
 }
 
-function renderDeckElement(element: OsPresentationElement): string {
-	const declarations = [
-		"position:absolute",
-		...Object.entries(slideElementStyle(element, "pixels"))
-			.filter(([, value]) => value !== undefined)
-			.map(([key, value]) => {
-				const text = String(value);
-				// React assigns individual CSS properties. HTML serialization must also
-				// prevent declaration injection and CSS network loads (including escapes).
-				if (
-					!/^[a-zA-Z0-9 #.,%()'"+\-/]*$/.test(text) ||
-					Array.from(text.matchAll(/([a-z-]+)\s*\(/gi)).some(
-						(match) =>
-							!/^(?:(?:repeating-)?(?:linear|radial|conic)-gradient|rgba?|hsla?|oklch|oklab|lab|lch|color|color-mix|calc|rotate)$/i.test(
-								match[1]!,
-							),
-					)
-				)
-					return "";
-				return `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}:${escapeHtml(text)}`;
-			}),
-		"white-space:pre-wrap",
-		"overflow-wrap:break-word",
-		"overflow:hidden",
-	]
-		.filter(Boolean)
-		.join(";");
-	const source = element.src ?? "";
-	const body =
-		(element.type === "image" || element.type === "svg") &&
-		isExportImage(source)
-			? `<img src="${escapeHtml(source)}" alt="${escapeHtml(element.text ?? "Slide image")}"${element.style.fit === "cover" ? ' style="object-fit:cover"' : ""}>`
-			: element.type === "arrow"
-				? `<svg width="100%" height="100%" viewBox="0 0 ${element.width} ${element.height}"><path d="${slideArrowPath(element)}" fill="none" stroke="currentColor" stroke-width="2"/></svg>`
-				: element.type === "divider" || element.type === "shape"
-					? ""
-					: parseSlideText(element.text ?? "")
-							.map((part) =>
-								part.bold
-									? `<strong style="font-weight:700">${escapeHtml(part.text)}</strong>`
-									: escapeHtml(part.text),
-							)
-							.join("");
-	return `<div style="${declarations}">${body}</div>`;
+function renderDeckElement(
+	element: OsPresentationElement,
+	organization: PresentationAppearance,
+): string {
+	const source = element.src;
+	const safe =
+		source && !isExportImage(source) ? { ...element, src: undefined } : element;
+	const declarations = slideCss({
+		position: "absolute",
+		...slideElementStyle(element, "pixels", organization),
+		whiteSpace: "pre-wrap",
+		overflowWrap: "break-word",
+		overflow: "hidden",
+	});
+	return `<div style="${declarations}">${slideElementMarkup(safe, "pixels", organization)}</div>`;
 }
 
 function renderDeck(
 	content: Extract<OsOutputContent, { kind: "presentation" }>,
+	organization: PresentationAppearance,
 ): string {
 	if (!content.deck) return content.slides.map(renderSlide).join("");
+	const safeOrganization = {
+		...organization,
+		logoUrl:
+			organization.logoUrl && isExportImage(organization.logoUrl)
+				? organization.logoUrl
+				: undefined,
+	};
 	return content.deck.slides
 		.map(
 			(slide) =>
-				`<section class="canvas-slide" style="background:${safeCssColor(slide.background) ?? "#ffffff"}">${slide.elements.map(renderDeckElement).join("")}</section>`,
+				`<section class="canvas-slide" style="${slideCss({ background: slide.background })}">${slideBackgroundMarkup({ ...slide, backgroundImage: slide.backgroundImage && isExportImage(slide.backgroundImage) ? slide.backgroundImage : undefined }, "pixels", safeOrganization)}${slide.elements.map((element) => renderDeckElement(element, safeOrganization)).join("")}</section>`,
 		)
 		.join("");
 }
 
-function renderBody(content: OsOutputContent): string {
+function renderBody(
+	content: OsOutputContent,
+	organization: PresentationAppearance,
+): string {
 	switch (content.kind) {
 		case "document":
 			return `<article>${content.richText ? content.richText.content.map(renderRichTextNode).join("") : content.blocks.map(renderDocumentBlock).join("")}</article>`;
 		case "sheet":
 			return renderWorkbook(content);
 		case "presentation":
-			return renderDeck(content);
+			return renderDeck(content, organization);
 		case "video":
 			return `<article><p>${escapeHtml(content.caption ?? "MP4 video output")}</p><p>Render ${escapeHtml(content.renderId)}</p></article>`;
 	}
@@ -487,14 +472,24 @@ function collectExportFonts(content: OsOutputContent) {
 	};
 	if (content.kind === "presentation") {
 		for (const slide of content.deck?.slides ?? []) {
-			for (const { style, text } of slide.elements) {
+			for (const { style, text, props, type } of slide.elements) {
 				add(
 					style.fontFamily,
 					{ light: 300, normal: 400, medium: 500, semibold: 600, bold: 700 }[
 						style.fontWeight ?? "normal"
 					],
 				);
-				if (parseSlideText(text ?? "").some((part) => part.bold))
+				if (type === "card" || type === "box") {
+					add(style.fontFamily, 600);
+					add(style.fontFamily, 400);
+				}
+				if (
+					parseSlideText(
+						[text, props?.title, props?.body, props?.eyebrow]
+							.filter(Boolean)
+							.join("\n"),
+					).some((part) => part.bold)
+				)
 					add(style.fontFamily, 700);
 			}
 		}
@@ -527,9 +522,10 @@ function collectExportFonts(content: OsOutputContent) {
 export function renderOsOutputHtml(
 	output: Pick<OsOutput, "kind" | "title">,
 	revision: Pick<OsOutputRevision, "revision" | "content" | "createdAt">,
+	organization: PresentationAppearance = {},
 ): string {
 	const title = escapeHtml(output.title);
-	const body = renderBody(revision.content);
+	const body = renderBody(revision.content, organization);
 	const fontStylesheet = collectExportFonts(revision.content)
 		.map(({ family, weights }) => {
 			const name = family.replaceAll(" ", "+");
