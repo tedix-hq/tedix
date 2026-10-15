@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Adapted and modified from Cloudflare OS under Apache-2.0; see THIRD_PARTY_NOTICES.md.
 import { deserialize, serialize } from "capnweb";
-import { describe, expect, it } from "vite-plus/test";
+import fastDiff from "fast-diff";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	applyCodeChange,
 	changedPaths,
@@ -18,6 +19,13 @@ import {
 	validateCodeChangeContent,
 	validateCodeChangeSchema,
 } from "./code-change";
+
+vi.mock("fast-diff", async (importOriginal) => {
+	const { default: diff } = await importOriginal<{
+		default: typeof fastDiff;
+	}>();
+	return { default: Object.assign(vi.fn(diff), diff) };
+});
 
 // The fuzz harnesses deliberately build TextChanges by hand (rather than importing
 // @codemirror/state, which is module-private to code-change.ts): sections tile the whole original
@@ -428,7 +436,7 @@ describe("diffFiles", () => {
 
 	// A saved deck with new images against an older draft: fast-diff alone ran for minutes on this
 	// shape, and the room was reset before it could answer the recovery offer.
-	it("diffs large, mostly different documents in bounded time", () => {
+	it("diffs large, mostly different documents with bounded comparison work", () => {
 		const rng = makeRng(11);
 		const noise = (length: number) =>
 			Array.from({ length }, () =>
@@ -461,7 +469,7 @@ describe("diffFiles", () => {
 				`${"x".repeat(50_000)}🧠${"y".repeat(50_000)}`,
 			],
 		] as const;
-		const started = performance.now();
+		vi.mocked(fastDiff).mockClear();
 		for (const [left, right] of cases) {
 			const before = content({ "f.txt": left });
 			const change = diffFiles(before, content({ "f.txt": right }));
@@ -469,7 +477,17 @@ describe("diffFiles", () => {
 			validateCodeChangeContent(change, before);
 			expect(applyCodeChange(before, change).get("f.txt")).toBe(right);
 		}
-		expect(performance.now() - started).toBeLessThan(5_000);
+		// Myers' O((N+M)·D) is at most O((N+M)²). Bound both each call and the
+		// aggregate work, so splitting an unbounded diff into many calls cannot evade the check.
+		let work = 0;
+		for (const [left, right] of vi.mocked(fastDiff).mock.calls) {
+			const size = left.length + right.length;
+			expect(size).toBeLessThanOrEqual(10_000);
+			work += size ** 2;
+		}
+		expect(work).toBeGreaterThan(0);
+		// The old whole-document comparisons have a squared-size bound above 10¹¹.
+		expect(work).toBeLessThan(1_000_000_000);
 		const [, small] = diffFiles(
 			content({ "f.txt": cases[2][0] }),
 			content({ "f.txt": cases[2][1] }),
