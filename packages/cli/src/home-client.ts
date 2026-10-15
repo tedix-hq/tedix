@@ -433,6 +433,8 @@ class NativeCallScope {
 }
 
 export interface McpCallOptions {
+	/** Explicit approval for this call's MRTR and Task input rounds only. */
+	destructiveApprovalReason?: string;
 	/** Fresh command-local identity; completed protocol capability only. */
 	protocolSequence?: object;
 	/** Raw bytes across every input/task response in this logical call. */
@@ -1718,7 +1720,7 @@ export class TedixHomeClient {
 				? result.inputRequests
 				: {};
 			const inputResponses = resolveCliTaskInputResponses(
-				this.#destructiveApprovalReason,
+				options.destructiveApprovalReason,
 				inputRequests,
 			);
 			if (!inputResponses || round === MAX_SYNC_INPUT_ROUNDS) return result;
@@ -1877,7 +1879,7 @@ export class TedixHomeClient {
 				: this.#options.timeoutMs,
 			resolveInput: ({ inputRequests }) =>
 				resolveCliTaskInputResponses(
-					this.#destructiveApprovalReason,
+					options.destructiveApprovalReason,
 					inputRequests,
 				),
 			// Ctrl-C already reports the abort; a failed courtesy cancel is noise.
@@ -1950,6 +1952,7 @@ export class TedixHomeClient {
 					this.callTool<T>(toolName, frozenArgs, {
 						...frozenOptions,
 						deadlineAt,
+						destructiveApprovalReason: reason,
 						retryable: false,
 					}),
 				queueScope,
@@ -2377,7 +2380,11 @@ export class TedixHomeClient {
 		reason: string,
 	): Promise<unknown> {
 		return this.#withDestructiveApproval(reason, () =>
-			this.callTool("code", { code: source }),
+			this.callTool(
+				"code",
+				{ code: source },
+				{ destructiveApprovalReason: reason },
+			),
 		);
 	}
 
@@ -2538,11 +2545,15 @@ export class TedixHomeClient {
 			throw new Error("A cancellation reason is required");
 		}
 		return this.#withDestructiveApproval(reason, () =>
-			this.#callHomeTool("cancel_home_run", {
-				confirmDestructive: true,
-				runId: input.homeRunId,
-				reason,
-			}),
+			this.#callHomeTool(
+				"cancel_home_run",
+				{
+					confirmDestructive: true,
+					runId: input.homeRunId,
+					reason,
+				},
+				{ destructiveApprovalReason: reason },
+			),
 		);
 	}
 

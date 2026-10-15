@@ -49,6 +49,16 @@ vi.mock("@cloudflare/codemode", async () => {
 						code,
 						providers as unknown as import("@cloudflare/codemode").ResolvedProvider[],
 					);
+				if (code.includes("destructive_mrtr")) {
+					const provider = providers.find((entry) => entry.name === "test")!;
+					if (code.includes("prior_dispatch")) await provider.fns.allowed!({});
+					await provider.fns.soft_fail!({
+						id: code.includes("changed_args") ? "other" : "scratch",
+					});
+					if (code.includes("caught_then_write"))
+						await provider.fns.allowed!({});
+					return { result: { ok: true }, logs: [] };
+				}
 				if (code.includes("scope_denial")) {
 					if (code.includes("prior_builtin")) {
 						try {
@@ -376,6 +386,136 @@ describe("Code Mode tail telemetry", () => {
 	afterEach(() => {
 		logSpy.mockRestore();
 		executeToolMock.mockReset();
+	});
+
+	it.each(["2026-07-28", "2025-11-25"])(
+		"confirms a Code Mode destructive tool on %s",
+		async (version) => {
+			const destructive = tool({ annotations: { destructiveHint: true } });
+			const ctx = makeServerCtx(
+				new Map([
+					[destructive.toolId, destructive],
+					[
+						"test__allowed",
+						tool({
+							toolId: "test__allowed",
+							annotations: { readOnlyHint: true },
+						}),
+					],
+				]),
+			);
+			ctx.appMetadata!.mcpConfig!.toolScopes = {
+				soft_fail: ["mcp:apps.write"],
+				allowed: ["mcp:apps.write"],
+			};
+			Object.assign(ctx, {
+				callerIdentity: {
+					authType: "oauth",
+					userId: "user-uuid",
+					scopes: ["mcp:apps.admin", "mcp:apps.write"],
+				},
+			});
+			const elicitInput = vi.fn(async () => ({
+				action: "accept",
+				content: { reason: "archive scratch" },
+			}));
+			Object.assign(ctx, { server: { server: { elicitInput } } });
+			const registerTool = vi.fn();
+			await registerCodeModeTools({ registerTool } as never, ctx);
+			const handler = registerTool.mock.calls.find(
+				([name]) => name === "code",
+			)![2];
+			const code = "async () => destructive_mrtr_caught_then_write";
+			const meta = {
+				"io.modelcontextprotocol/protocolVersion": version,
+				"io.modelcontextprotocol/clientCapabilities": {
+					elicitation: { form: {} },
+					extensions: { "io.modelcontextprotocol/tasks": {} },
+				},
+			};
+			const first = await handler({ code }, { mcpReq: { _meta: meta } });
+			if (version === "2025-11-25") {
+				expect(elicitInput).toHaveBeenCalledTimes(1);
+				expect(first._meta?.["tedix/inputRequired"]).toBeUndefined();
+				expect(executeToolMock).toHaveBeenCalledTimes(2);
+				return;
+			}
+			expect(elicitInput).not.toHaveBeenCalled();
+			expect(executeToolMock).not.toHaveBeenCalled();
+			const marker = first._meta["tedix/inputRequired"];
+			expect(marker.inputRequests.approval.method).toBe("elicitation/create");
+			const retryMeta = {
+				...meta,
+				"tedix/inputResponses": {
+					requestState: marker.requestState,
+					inputResponses: {
+						approval: {
+							action: "accept",
+							content: { reason: "archive scratch" },
+						},
+					},
+				},
+			};
+			const changed = await handler(
+				{ code: "async () => destructive_mrtr_changed_args" },
+				{ mcpReq: { _meta: retryMeta } },
+			);
+			expect(JSON.stringify(changed)).toContain("request_mismatch");
+			expect(executeToolMock).not.toHaveBeenCalled();
+			await handler({ code }, { mcpReq: { _meta: retryMeta } });
+			expect(executeToolMock).toHaveBeenCalledTimes(2);
+			expect(elicitInput).not.toHaveBeenCalled();
+		},
+	);
+
+	it("does not offer an MRTR replay after a Code Mode dispatch", async () => {
+		const destructive = tool({ annotations: { destructiveHint: true } });
+		const ctx = makeServerCtx(
+			new Map([
+				[destructive.toolId, destructive],
+				[
+					"test__allowed",
+					tool({
+						toolId: "test__allowed",
+						annotations: { readOnlyHint: true },
+					}),
+				],
+			]),
+		);
+		ctx.appMetadata!.mcpConfig!.toolScopes = {
+			soft_fail: ["mcp:apps.write"],
+			allowed: ["mcp:apps.write"],
+		};
+		Object.assign(ctx, {
+			callerIdentity: {
+				authType: "oauth",
+				userId: "user-uuid",
+				scopes: ["mcp:apps.admin", "mcp:apps.write"],
+			},
+		});
+		const elicitInput = vi.fn();
+		Object.assign(ctx, { server: { server: { elicitInput } } });
+		const registerTool = vi.fn();
+		await registerCodeModeTools({ registerTool } as never, ctx);
+		const handler = registerTool.mock.calls.find(
+			([name]) => name === "code",
+		)![2];
+		const result = await handler(
+			{ code: "async () => destructive_mrtr_prior_dispatch" },
+			{
+				mcpReq: {
+					_meta: {
+						"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+						"io.modelcontextprotocol/clientCapabilities": {
+							elicitation: { form: {} },
+						},
+					},
+				},
+			},
+		);
+		expect(result._meta?.["tedix/inputRequired"]).toBeUndefined();
+		expect(executeToolMock).toHaveBeenCalledTimes(1);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it.each(["scope_denial", "scope_denial_sdk_error", "scope_denial_caught"])(

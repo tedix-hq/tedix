@@ -1,4 +1,7 @@
 import { isToolDeniedForConnection } from "./no-funds-policy";
+import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
+import { INPUT_REQUIRED_META_KEY } from "./mrtr";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	codeModeInputSchema,
 	CONNECT_PAYMENT_DENIED,
@@ -42,6 +45,7 @@ import { autoFixSpec, isNonEmptySpec, validateSpec } from "@json-render/core";
 import type {
 	ServerContext as McpCtx,
 	McpServer,
+	CallToolResult,
 } from "@modelcontextprotocol/server";
 import {
 	buildCodeModeExecutionReceipt,
@@ -1017,6 +1021,9 @@ const CODEMODE_CATALOG_TOOLS = {
 
 interface CodeModeExecutionRefs {
 	authorizationDenial: CodeModeAuthorizationError | undefined;
+	approvalResult: CallToolResult | undefined;
+	approvalExtra: { _meta?: Record<string, unknown> } | undefined;
+	approvalSource: string | undefined;
 	replayUnsafeBuiltinCalls: number;
 	executionId: string | undefined;
 	paymentExtra: { _meta?: Record<string, unknown> } | undefined;
@@ -1674,6 +1681,8 @@ function buildNamespaceGroups(
 				);
 			}
 			const runTool = async () => {
+				if (executionRefs.approvalResult)
+					throw new Error("Destructive approval pending");
 				const { toolArgs, inlineExtra } = splitToolArgs(args);
 				if (
 					isNonPayingConnection(
@@ -1738,26 +1747,28 @@ function buildNamespaceGroups(
 					serverCtx,
 					tool,
 					declaredAnnotations,
-					// `allowSyncMrtr: false` is intentional and load-bearing — DO NOT flip
-					// it to inherit the top-level default. Sync-MRTR turns a provider
-					// approval requirement into an OUTER protocol `input_required`
-					// round-trip back to the client. An inner Code Mode call runs inside
-					// the sandbox script with no protocol channel to the originating
-					// client, so an inner provider result cannot translate into an outer
-					// `input_required` exchange. Enabling sync-MRTR here would emit an
-					// outer prompt the inner caller can never satisfy. Inner approval
-					// gaps therefore surface as an inline failure, not a sync round-trip.
-					//
-					// `autoConfirmAgent: true`: since sync-MRTR is unreachable here, a
-					// tedi running its own scope-permitted destructive tool would
-					// otherwise fail closed — breaking autonomous workflows. Governance
-					// auto-approves it (audited) only when the caller is a genuine agent;
-					// a human operator via Code Mode still confirms explicitly. Crown-jewel
-					// gates are enforced separately and unaffected. See the autoConfirmAgent
-					// doc on DestructiveApprovalOptions.
-					{ allowSyncMrtr: false, autoConfirmAgent: true, args: toolArgs },
+					{
+						// Replaying a partially executed program could repeat writes.
+						allowSyncMrtr:
+							isModernMcpRequest(executionRefs.approvalExtra?._meta) &&
+							executionRefs.rpcCallCount === 0 &&
+							executionRefs.replayUnsafeBuiltinCalls === 0,
+						autoConfirmAgent:
+							serverCtx.callerIdentity?.authType === "tedi" ||
+							serverCtx.callerIdentity?.authType === "service",
+						args: toolArgs,
+						extra: executionRefs.approvalExtra,
+						requestBinding: executionRefs.approvalSource
+							? await sha256Hex(
+									JSON.stringify([executionRefs.approvalSource, toolArgs]),
+								)
+							: undefined,
+					},
 				);
 				if (approvalFailure) {
+					if (approvalFailure._meta?.[INPUT_REQUIRED_META_KEY]) {
+						executionRefs.approvalResult = approvalFailure;
+					}
 					throw new Error(callToolResultText(approvalFailure));
 				}
 				const executionArgs = stripDestructiveApprovalArgs(tool, toolArgs);
@@ -1941,7 +1952,8 @@ function buildNamespaceGroups(
 					);
 				}
 			};
-			return isSideEffectfulTool(tool.annotations)
+			return isModernMcpRequest(executionRefs.approvalExtra?._meta) ||
+				isSideEffectfulTool(tool.annotations)
 				? runSerializedSideEffect(executionRefs, runWithEvidence)
 				: runWithEvidence();
 		};
@@ -5675,6 +5687,9 @@ export async function registerCodeModeTools(
 	// outer MCP payment proofs into inner Code Mode tool calls.
 	const executionRefs: CodeModeExecutionRefs = {
 		authorizationDenial: undefined,
+		approvalResult: undefined,
+		approvalExtra: undefined,
+		approvalSource: undefined,
 		replayUnsafeBuiltinCalls: 0,
 		executionId: undefined,
 		paymentExtra: undefined,
@@ -5748,10 +5763,13 @@ export async function registerCodeModeTools(
 	for (const name of ["create_view", "create_mcp_app", "create_health_sweep"]) {
 		const execute = resolvedUiProvider.fns[name];
 		if (!execute) continue;
-		resolvedUiProvider.fns[name] = async (...args: unknown[]) => {
-			executionRefs.replayUnsafeBuiltinCalls++;
-			return execute(...args);
-		};
+		resolvedUiProvider.fns[name] = (...args: unknown[]) =>
+			runSerializedSideEffect(executionRefs, async () => {
+				if (executionRefs.approvalResult)
+					throw new Error("Destructive approval pending");
+				executionRefs.replayUnsafeBuiltinCalls++;
+				return execute(...args);
+			});
 	}
 	const resolvedRuntimeProvider = resolveProvider(
 		buildRuntimeProvider(serverCtx, executionRefs, () => ({
@@ -6103,6 +6121,9 @@ export async function registerCodeModeTools(
 				executionRefs.authorizationDenial = undefined;
 				executionRefs.replayUnsafeBuiltinCalls = 0;
 				executionRefs.executionId = executionId;
+				executionRefs.approvalResult = undefined;
+				executionRefs.approvalExtra = extra;
+				executionRefs.approvalSource = code;
 				executionRefs.paymentExtra = buildPaymentExtra(extra, payment);
 				executionRefs.paymentResponses = [];
 				executionRefs.rpcCallCount = 0;
@@ -6130,6 +6151,7 @@ export async function registerCodeModeTools(
 						});
 					},
 				);
+				if (executionRefs.approvalResult) return executionRefs.approvalResult;
 				const scopeFailure = authorizationFailure();
 				if (scopeFailure) {
 					emitExecTelemetry(false, executionRefs.authorizationDenial!.message);
@@ -6281,6 +6303,7 @@ export async function registerCodeModeTools(
 					...(Object.keys(resultMeta).length > 0 ? { _meta: resultMeta } : {}),
 				};
 			} catch (error) {
+				if (executionRefs.approvalResult) return executionRefs.approvalResult;
 				const scopeFailure = authorizationFailure();
 				if (scopeFailure) {
 					emitExecTelemetry(false, executionRefs.authorizationDenial!.message);
@@ -6318,6 +6341,9 @@ export async function registerCodeModeTools(
 				);
 			} finally {
 				executionRefs.ownerHostSessionId = undefined;
+				executionRefs.approvalResult = undefined;
+				executionRefs.approvalExtra = undefined;
+				executionRefs.approvalSource = undefined;
 				executionRefs.authorizationDenial = undefined;
 				executionRefs.replayUnsafeBuiltinCalls = 0;
 				executionRefs.executionId = undefined;

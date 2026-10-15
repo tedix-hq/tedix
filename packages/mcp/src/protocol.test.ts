@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
 	bindModernMcpRequest,
+	isModernMcpRequest,
 	MCP_CLIENT_CAPABILITIES_META_KEY,
 	MCP_CLIENT_INFO_META_KEY,
 	MCP_METHOD_HEADER,
@@ -74,3 +75,12 @@ describe("bindModernMcpRequest", () => {
 		expect(bound.headers[MCP_NAME_HEADER]).toBe("task-1");
 	});
 });
+
+test.each(["2026-07-28", "2025-11-25"])(
+	"identifies request revision %s",
+	(version) => {
+		expect(
+			isModernMcpRequest({ [MCP_PROTOCOL_VERSION_META_KEY]: version }),
+		).toBe(version === "2026-07-28");
+	},
+);

@@ -49,6 +49,7 @@ interface RequestStatePayload {
 	org: string;
 	/** Canonical human subject. Omitted for machine callers and legacy states. */
 	user?: string;
+	binding?: string;
 }
 
 /**
@@ -115,12 +116,14 @@ export async function signRequestState(input: {
 	toolId: string;
 	organizationId: string;
 	subjectUserId?: string;
+	requestBinding?: string;
 	signingKey: string;
 }): Promise<string> {
 	return codecFor(input.signingKey).mint({
 		toolId: input.toolId,
 		org: input.organizationId,
 		...(input.subjectUserId ? { user: input.subjectUserId } : {}),
+		...(input.requestBinding ? { binding: input.requestBinding } : {}),
 	});
 }
 
@@ -137,6 +140,7 @@ export async function verifyRequestState(input: {
 	toolId: string;
 	organizationId: string;
 	subjectUserId?: string;
+	requestBinding?: string;
 	signingKey: string;
 }): Promise<VerifyRequestStateResult> {
 	if (typeof input.requestState !== "string" || !input.requestState) {
@@ -168,6 +172,9 @@ export async function verifyRequestState(input: {
 	}
 	if (payload.user !== undefined && payload.user !== input.subjectUserId) {
 		return { ok: false, reason: "user_mismatch" };
+	}
+	if (payload.binding !== input.requestBinding) {
+		return { ok: false, reason: "request_mismatch" };
 	}
 	return { ok: true, payload };
 }

@@ -7,7 +7,7 @@ import {
 import {
 	MCP_CLIENT_CAPABILITIES_META_KEY,
 	MCP_MODERN_PROTOCOL_VERSION,
-	MCP_PROTOCOL_VERSION_META_KEY,
+	isModernMcpRequest,
 } from "@tedix/mcp-shared/protocol";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
 import { normalizeCallerIdentity } from "./caller-identity";
@@ -557,10 +557,7 @@ function callerDeclaredElicitation(
 function servingConnectionIsModern(
 	extra: { _meta?: Record<string, unknown> } | undefined,
 ): boolean {
-	return (
-		extra?._meta?.[MCP_PROTOCOL_VERSION_META_KEY] ===
-		MCP_MODERN_PROTOCOL_VERSION
-	);
+	return isModernMcpRequest(extra?._meta);
 }
 
 /** Pull the agent's echoed input responses + requestState off the retry envelope. */
@@ -594,12 +591,14 @@ async function buildInputRequiredResult(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
 	displayName: string,
+	requestBinding?: string,
 ): Promise<CallToolResult> {
 	const organizationId = agent.app?.organizationId ?? "";
 	const requestState = await signRequestState({
 		toolId: tool.toolId,
 		organizationId,
 		subjectUserId: agent.callerIdentity?.userId,
+		requestBinding,
 		signingKey: resolveRequestStateKey(
 			agent.env as { PLATFORM_SERVICE_TOKEN?: string } | undefined,
 		),
@@ -622,15 +621,15 @@ async function buildInputRequiredResult(
 }
 
 export interface DestructiveApprovalOptions {
+	/** Bind a Code Mode retry to its source and inner arguments. */
+	requestBinding?: string;
 	/** Retry metadata. Canonical params are adapted by the stateless transport. */
 	extra?: { _meta?: Record<string, unknown> };
 	/** Parsed tool arguments; explicit dryRun=true previews are non-mutating. */
 	args?: Record<string, unknown>;
 	/**
-	 * Allow the synchronous-MRTR (`input_required`) path for agent callers.
-	 * Defaults to true. Code Mode inner sandbox calls pass `false`: the sandbox
-	 * cannot perform the retry round-trip, so they keep the legacy
-	 * proceed-under-auth behavior instead of halting on an unreachable prompt.
+	 * Allow synchronous MRTR. Code Mode enables it only before any dispatch,
+	 * when replaying the program cannot repeat a previous side effect.
 	 */
 	allowSyncMrtr?: boolean;
 	/**
@@ -823,10 +822,8 @@ export async function requireDestructiveToolApproval(
 	// requests are removed), so input_required is the only approval mechanism.
 	// The inputRequest is `elicitation/create`-typed, so a caller that declared
 	// clientCapabilities without elicitation must not receive it (MRTR spec);
-	// such callers fall through to the legacy path, which fails closed when the
-	// host cannot present the prompt. Code Mode inner calls set allowSyncMrtr
-	// false (the sandbox has no outer channel to round-trip) and rely on the
-	// tedi auto-confirm above or an explicit `confirmDestructive` arg.
+	// modern callers without that capability fail closed below. Code Mode
+	// permits this round-trip only before any tool has dispatched.
 	if (
 		allowSyncMrtr &&
 		callerDeclaredElicitation(extra) !== false &&
@@ -835,7 +832,12 @@ export async function requireDestructiveToolApproval(
 		const responses = readInputResponses(extra);
 		// First touch (no echoed state) → ask for approval via input_required.
 		if (!responses) {
-			return buildInputRequiredResult(agent, tool, displayName);
+			return buildInputRequiredResult(
+				agent,
+				tool,
+				displayName,
+				options?.requestBinding,
+			);
 		}
 		// Retry: the requestState MUST verify (integrity-tagged, bound to this
 		// tool + org, unexpired) before the gate opens.
@@ -844,6 +846,7 @@ export async function requireDestructiveToolApproval(
 			toolId: tool.toolId,
 			organizationId: agent.app?.organizationId ?? "",
 			subjectUserId: agent.callerIdentity?.userId,
+			requestBinding: options?.requestBinding,
 			signingKey: resolveRequestStateKey(
 				agent.env as { PLATFORM_SERVICE_TOKEN?: string } | undefined,
 			),
@@ -876,6 +879,12 @@ export async function requireDestructiveToolApproval(
 			`[governance] ${tool.toolId} approved via sync-MRTR with reason: ${reason}`,
 		);
 		return null;
+	}
+
+	if (servingConnectionIsModern(extra)) {
+		return approvalFailure(
+			`Action "${tool.toolId}" requires approval. Use an elicitation-capable client and a separate Code Mode call before any other tool dispatch. No side effect was executed.`,
+		);
 	}
 
 	// ── Human / bidirectional host: legacy in-band elicitInput() ──

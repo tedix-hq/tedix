@@ -437,6 +437,90 @@ describe("@tedix/cli home client helpers", () => {
 		});
 	});
 
+	test("an unapproved modern call cannot borrow a concurrent flagged call's reason", async () => {
+		let release!: () => void;
+		let started!: () => void;
+		const blocked = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const pending = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const calls: Record<string, unknown>[] = [];
+		const client = new TedixHomeClient({
+			fetch: async (_url, init) => {
+				const body = JSON.parse(String(init?.body));
+				if (body.method === "server/discover")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { supportedVersions: ["2026-07-28"] },
+					});
+				calls.push(body.params);
+				if (
+					body.params.arguments.code === "approved" &&
+					!body.params.inputResponses
+				) {
+					started();
+					await blocked;
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					result: body.params.inputResponses
+						? { structuredContent: { archived: true } }
+						: {
+								resultType: "input_required",
+								requestState: "signed-state",
+								inputRequests: {
+									approval: {
+										method: "elicitation/create",
+										params: {
+											mode: "form",
+											requestedSchema: {
+												properties: { reason: { type: "string" } },
+											},
+										},
+									},
+								},
+							},
+				});
+			},
+			headers: {},
+			url: "https://example.com/mcp",
+		});
+		try {
+			const approved = client.runCodeWithDestructiveApproval(
+				"approved",
+				"archive scratch",
+			);
+			await pending;
+			await expect(client.runCode("unapproved")).rejects.toThrow(
+				"MCP_INPUT_REQUIRED",
+			);
+			release();
+			await expect(approved).resolves.toEqual({ archived: true });
+			expect(
+				calls.filter(
+					(params) =>
+						(params.arguments as { code: string }).code === "unapproved",
+				),
+			).toHaveLength(1);
+			expect(calls[2]).toMatchObject({
+				requestState: "signed-state",
+				inputResponses: {
+					approval: {
+						action: "accept",
+						content: { reason: "archive scratch" },
+					},
+				},
+			});
+		} finally {
+			release();
+			await client.close();
+		}
+	});
+
 	test("fails closed when synchronous input_required cannot be answered", async () => {
 		const client = new TedixHomeClient({
 			connect: async () => ({
