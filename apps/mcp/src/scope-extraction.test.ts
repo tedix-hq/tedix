@@ -330,6 +330,61 @@ describe("targeted Code Mode surface extraction", () => {
 		);
 	});
 
+	it.each([
+		[
+			"an alias",
+			`async () => {
+				const api = acme_unified_tedix; // aliased once
+				return await api.get_os_output({ id: "o1" });
+			}`,
+		],
+		[
+			"globalThis with a literal key",
+			'async () => await globalThis["acme_unified_tedix"].get_os_output({})',
+		],
+		[
+			"globalThis with a variable key",
+			`async () => {
+				const ns = "acme_unified_tedix";
+				return await globalThis[ns].get_os_output({});
+			}`,
+		],
+		[
+			"a globalThis property",
+			"async () => await globalThis.acme_unified_tedix.get_os_output({})",
+		],
+	])("requests a namespace reached through %s", (_label, code) => {
+		const namespaces = extractCodeModeProviderNamespacesFromCode(code);
+		expect(namespaces).toContain("acme_unified_tedix");
+		expect(
+			filterAggregateAppsForCodeNamespaces(
+				[
+					{
+						slug: "acme-unified",
+						prefix: "acme_unified",
+						organizationMount: true,
+					},
+					{
+						slug: "sample-unified",
+						prefix: "sample_unified",
+						organizationMount: true,
+					},
+				],
+				namespaces,
+			).map((entry) => entry.slug),
+		).toContain("acme-unified");
+	});
+
+	it("does not request locals, keys, keywords, or names inside strings and comments", () => {
+		const namespaces = extractCodeModeProviderNamespacesFromCode(`async () => {
+			// sample_unified_tedix is only mentioned here
+			const { results } = await acme.list({ query: "sample_unified_tedix" });
+			return results.map((row) => ({ id: row.id }));
+		}`);
+		// `results.map(` is a call site, so the existing scan already requests it.
+		expect(namespaces).toEqual(new Set(["acme", "results"]));
+	});
+
 	it("falls back to the full aggregate surface when code uses discovery", () => {
 		expect(
 			extractCodeModeProviderNamespacesFromCode(

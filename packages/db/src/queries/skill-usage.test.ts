@@ -94,6 +94,26 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 		);
 		CREATE UNIQUE INDEX uniq_skill_usage_events_run
 			ON skill_usage_events (run_id, execution_epoch);
+		CREATE TABLE skill_schedules (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL,
+			skill_id TEXT NOT NULL,
+			tedi_id TEXT NOT NULL,
+			cron TEXT NOT NULL,
+			params TEXT NOT NULL,
+			enabled INTEGER NOT NULL,
+			next_fire_at TEXT NOT NULL,
+			last_fire_at TEXT,
+			last_run_id TEXT,
+			last_error TEXT,
+			last_budget_blocked_at TEXT,
+			last_budget_blocked_reason TEXT,
+			last_budget_reset_at TEXT,
+			last_budget_admission_class TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		);
+		CREATE UNIQUE INDEX uniq_skill_schedules_skill ON skill_schedules (skill_id);
 	`);
 
 	const insertSkill = (row: {
@@ -101,17 +121,19 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 		lifecycleState?: string;
 		successCount?: number;
 		failureCount?: number;
+		content?: string;
 	}) => {
 		sqlite
 			.prepare(
 				`INSERT INTO skill_entries (
 					id, organization_id, tedi_id, title, slug, content,
 					success_count, failure_count, lifecycle_state
-				) VALUES (?, 'org-1', 'tedi-1', 'Deploy reconciler', ?, '# Skill', ?, ?, ?)`,
+				) VALUES (?, 'org-1', 'tedi-1', 'Deploy reconciler', ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				row.id,
 				`slug-${row.id}`,
+				row.content ?? "# Skill",
 				row.successCount ?? 0,
 				row.failureCount ?? 0,
 				row.lifecycleState ?? "active",
@@ -240,6 +262,34 @@ describe("recordSkillRunOutcome", () => {
 			outcome: "success",
 			tediId: "tedi-1",
 		});
+	});
+
+	it("starts the declared schedule when a verified run activates a draft", async () => {
+		const { db, insertSkill, insertRun, skillRow, sqlite } = fixture();
+		insertSkill({
+			id: "skill-1",
+			lifecycleState: "draft",
+			content:
+				'---\nname: nightly\ncapabilities:\n  schedule:\n    cron: "0 2 * * *"\n---\n# Skill',
+		});
+		insertSkill({ id: "skill-2", lifecycleState: "draft" });
+		insertRun({ id: "run-1", skillId: "skill-1", status: "completed" });
+		insertRun({ id: "run-2", skillId: "skill-2", status: "completed" });
+
+		await recordSkillRunOutcome(db, "run-1");
+		await recordSkillRunOutcome(db, "run-2");
+
+		expect(skillRow("skill-1").lifecycleState).toBe("active");
+		expect(skillRow("skill-2").lifecycleState).toBe("active");
+		const schedules = sqlite
+			.prepare(
+				"SELECT skill_id as skillId, tedi_id as tediId, cron, enabled FROM skill_schedules",
+			)
+			.all();
+		// Only the skill whose manifest declares a schedule gets a row.
+		expect(schedules).toEqual([
+			{ skillId: "skill-1", tediId: "tedi-1", cron: "0 2 * * *", enabled: 1 },
+		]);
 	});
 
 	it("stamps a failed workflow run, increments failureCount, and keeps the failing runId retrievable", async () => {
