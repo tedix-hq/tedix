@@ -84,6 +84,8 @@ import {
 	workflowRunInspectQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, formatDurationMs } from "@/lib/time";
+import { useDocumentTitle } from "@/lib/use-document-title";
+import { useTediNames } from "@/lib/use-tedi-names";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -303,6 +305,9 @@ export function RunDetailPage() {
 	const run = inspect.data?.run;
 	const priorRunStatus = useRef<string | null>(null);
 	const tediId = run?.tediId;
+	const tediNames = useTediNames();
+	const skillLabel = inspect.data?.revision.skillSlug ?? run?.skillId;
+	useDocumentTitle(skillLabel ? `${skillLabel} · Run` : "Run");
 
 	const artifacts = useQuery(runArtifactsQueryOptions(runId));
 
@@ -491,7 +496,20 @@ export function RunDetailPage() {
 
 	return (
 		<Page width="lg">
-			<PageBack render={<Link to="/" />}>Activity</PageBack>
+			{run ? (
+				<PageBack
+					render={
+						<Link
+							to="/skills/$skillId/runs"
+							params={{ skillId: run.skillId }}
+						/>
+					}
+				>
+					Run history
+				</PageBack>
+			) : (
+				<PageBack render={<Link to="/" />}>Activity</PageBack>
+			)}
 
 			{inspect.isPending && (
 				<div className="grid gap-2" aria-hidden>
@@ -510,16 +528,14 @@ export function RunDetailPage() {
 				<>
 					<PageHeader>
 						<PageHeading>
-							<PageTitle>
-								{inspect.data.revision.skillSlug ?? run.skillId}
-							</PageTitle>
+							<PageTitle>{skillLabel}</PageTitle>
 							<PageMeta className="gap-x-5">
 								<li>
 									<RunStatusChip status={run.status} />
 								</li>
 								<li>
 									Actor <strong>{run.createdBy ?? "unattributed"}</strong> ·
-									tedi <strong>{run.tediId}</strong>
+									tedi <strong>{tediNames[run.tediId] ?? run.tediId}</strong>
 								</li>
 								{run.startedAt && (
 									<li>
