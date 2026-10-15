@@ -83,7 +83,7 @@ Usage:
   tedix agent status
   tedix agent rename [--display-name <name>]
   tedix agent checkpoint <work-item-id> --note <summary> --idempotency-key <key>
-  tedix agent finish [work-item-id] [--no-handoff-reason <reason>]
+  tedix agent finish [work-item-id] [--no-handoff-reason <reason> --idempotency-key <key>]
   tedix agent finish --zero-work-reason <reason> --idempotency-key <key>
   tedix agent reconcile [--stale-before <iso>]
 
