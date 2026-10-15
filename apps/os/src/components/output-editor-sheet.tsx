@@ -53,6 +53,7 @@ import {
 	SelectValue,
 } from "@/components/kumo/select";
 import {
+	EditorHistoryNotice,
 	EditorToolbar,
 	EditorToolbarButton,
 	EditorToolbarColorButton,
@@ -65,6 +66,7 @@ import {
 	projectWorkbook,
 	type SheetContent,
 } from "@/lib/output-models";
+import { SHEET_HISTORY } from "@/lib/output-history";
 import { useEditorHistory } from "@/lib/use-editor-history";
 import {
 	evaluateWorkbook,
@@ -223,7 +225,7 @@ export function SheetEditor({
 	});
 	const [editing, setEditing] = useState<Coordinate | null>(null);
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
-	const history = useEditorHistory(normalized, onChange);
+	const history = useEditorHistory(normalized, onChange, SHEET_HISTORY);
 	const bounds = selectedBounds(selection);
 	const selectedCell =
 		sheet.rows[selection.focus.row]?.[selection.focus.column] ?? emptyCell();
@@ -343,6 +345,8 @@ export function SheetEditor({
 		<div
 			className="sheet-editor grid min-w-0 gap-0"
 			data-editor="workbook"
+			// Leaving a cell or the formula bar ends its undo step.
+			onBlur={history.seal}
 			onPaste={(event) => {
 				if (!disabled) {
 					event.preventDefault();
@@ -394,6 +398,7 @@ export function SheetEditor({
 				>
 					<ArrowUDownRight size={15} />
 				</EditorToolbarButton>
+				<EditorHistoryNotice notice={history.notice} />
 				<EditorToolbarDivider />
 				<EditorToolbarButton
 					label="Bold"
