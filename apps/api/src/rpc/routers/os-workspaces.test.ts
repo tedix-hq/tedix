@@ -2078,6 +2078,108 @@ describe("output export", () => {
 		expect(broken.puts).toHaveLength(0);
 	});
 
+	it("exports stored richText as Markdown and HTML without Browser Rendering", async () => {
+		const { env, calls, bodies, puts } = exportEnv({ withBrowser: false });
+		const client = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext(env, "org-1"),
+		});
+		const { output } = await client.outputs.create({
+			kind: "document",
+			title: "Rich export",
+			content: {
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "old" }],
+				richText: {
+					type: "doc",
+					content: [
+						{
+							type: "heading",
+							attrs: { level: 2 },
+							content: [
+								{ type: "text", text: "Current", marks: [{ type: "bold" }] },
+							],
+						},
+					],
+				},
+			},
+		});
+		for (const format of ["markdown", "html"] as const) {
+			const result = await client.outputs.export({
+				outputId: output.id,
+				format,
+			});
+			const extension = format === "markdown" ? "md" : "html";
+			expect(result.url).toBe(
+				`https://api.tedix.test/os-exports/${output.id}/rev-1.${extension}`,
+			);
+			expect(new TextDecoder().decode(bodies.get(result.key)!)).toContain(
+				format === "markdown"
+					? "## **Current**"
+					: "<h2><strong>Current</strong></h2>",
+			);
+		}
+		expect(calls).toHaveLength(0);
+		expect(puts.map((put) => put.contentType)).toEqual([
+			"text/markdown; charset=utf-8",
+			"text/html; charset=utf-8",
+		]);
+	});
+
+	it("returns a CSV or an all-sheet ZIP under the existing export response", async () => {
+		const { env, bodies, puts, calls } = exportEnv({ withBrowser: false });
+		const client = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext(env, "org-1"),
+		});
+		const { output: single } = await client.outputs.create({
+			kind: "sheet",
+			title: "Single",
+			content: { kind: "sheet", columns: ["Value"], rows: [[42]] },
+		});
+		const result = await client.outputs.export({
+			outputId: single.id,
+			format: "csv",
+		});
+		expect(result.url).toMatch(/rev-1.csv$/);
+		expect(new TextDecoder().decode(bodies.get(result.key)!)).toBe(
+			"Value\r\n42\r\n",
+		);
+		const { output: multi } = await client.outputs.create({
+			kind: "sheet",
+			title: "Multi",
+			content: {
+				kind: "sheet",
+				columns: ["Value"],
+				rows: [],
+				workbook: {
+					activeSheetId: "a",
+					sheets: ["a", "b"].map((id) => ({
+						id,
+						name: id,
+						columns: [{ id: "v", label: "Value", width: 120 }],
+						rows: [[{ input: "42", value: 42 }]],
+						frozenRows: 0,
+						frozenColumns: 0,
+					})),
+				},
+			},
+		});
+		const zipped = await client.outputs.export({
+			outputId: multi.id,
+			format: "csv",
+		});
+		expect(zipped.format).toBe("csv");
+		expect(zipped.url).toMatch(/rev-1.zip$/);
+		expect(Object.keys(unzipSync(bodies.get(zipped.key)!))).toEqual([
+			"1-a.csv",
+			"2-b.csv",
+		]);
+		expect(puts.map((put) => put.contentType)).toEqual([
+			"text/csv; charset=utf-8",
+			"application/zip",
+		]);
+		expect(calls).toHaveLength(0);
+	});
+
 	it("writes a real xlsx from the sheet model, without Browser Rendering", async () => {
 		// No BROWSER binding at all: an Office export is generated from the
 		// content model, so it must not depend on the rendering path.

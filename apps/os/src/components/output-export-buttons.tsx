@@ -51,6 +51,9 @@ export function OutputExportButtons({
 		docx: "Word (.docx)",
 		xlsx: "Excel (.xlsx)",
 		pptx: "PowerPoint (.pptx)",
+		markdown: "Markdown (.md)",
+		html: "HTML (.html)",
+		csv: "CSV (all sheets)",
 	};
 	return (
 		<div className="flex items-center gap-2">

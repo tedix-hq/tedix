@@ -15,6 +15,7 @@ import type {
 	OsPresentationElement,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { createZip, relationships, xmlEscape, xmlPart } from "./zip";
+import { collectPptxImages, pptxPicture, type PptxImage } from "./pptx-images";
 
 type PresentationContent = Extract<OsOutputContent, { kind: "presentation" }>;
 
@@ -143,9 +144,7 @@ function shapeProperties(element: OsPresentationElement): string {
 
 /** One shape, or "" for an element this exporter deliberately drops. */
 function shapeXml(element: OsPresentationElement, id: number): string {
-	// Images and inline SVG are canvas-only: their `src` is a data URI the
-	// deck renders, and carrying it would mean embedding media parts. Dropping
-	// them is stated in the export docs rather than silently half-rendered.
+	// SVG needs a rasterizer; see the note included in the package.
 	if (element.type === "image" || element.type === "svg") return "";
 	const hasText = (element.text ?? "").length > 0;
 	if (!hasText && TEXT_TYPES.has(element.type)) return "";
@@ -163,10 +162,18 @@ function shapeXml(element: OsPresentationElement, id: number): string {
 	);
 }
 
-function slideXml(slide: OsPresentationCanvasSlide): string {
+function slideXml(
+	slide: OsPresentationCanvasSlide,
+	images: Map<string, PptxImage>,
+): string {
 	const background = srgb(slide.background) ?? "FFFFFF";
 	const shapes = slide.elements
-		.map((element, index) => shapeXml(element, index + 2))
+		.map((element, index) => {
+			const image = images.get(element.src ?? "");
+			return image
+				? pptxPicture(element, index + 2, `image${index}`, image)
+				: shapeXml(element, index + 2);
+		})
 		.join("");
 	return (
 		`<p:sld xmlns:a="${DRAWING_NS}" xmlns:r="${REL_NS}" xmlns:p="${PRESENTATION_NS}"><p:cSld>` +
@@ -299,7 +306,12 @@ export async function buildPptx(
 			? canvasSlides
 			: [canvasFromOutline({ title: "Untitled", bullets: [] }, 0)];
 
+	const images = await collectPptxImages(slides);
 	const parts = [
+		...Array.from(images.values(), (image) => ({
+			name: `ppt/media/${image.name}`,
+			data: image.data,
+		})),
 		xmlPart(
 			"_rels/.rels",
 			relationships([
@@ -346,7 +358,9 @@ export async function buildPptx(
 	const notesOverrides: string[] = [];
 	for (const [index, slide] of slides.entries()) {
 		const number = index + 1;
-		parts.push(xmlPart(`ppt/slides/slide${number}.xml`, slideXml(slide)));
+		parts.push(
+			xmlPart(`ppt/slides/slide${number}.xml`, slideXml(slide, images)),
+		);
 		const slideRels: Array<{ id: string; type: string; target: string }> = [
 			{
 				id: "rId1",
@@ -354,6 +368,15 @@ export async function buildPptx(
 				target: "../slideLayouts/slideLayout1.xml",
 			},
 		];
+		for (const [index, element] of slide.elements.entries()) {
+			const image = images.get(element.src ?? "");
+			if (image)
+				slideRels.push({
+					id: `image${index}`,
+					type: `${REL_NS}/image`,
+					target: `../media/${image.name}`,
+				});
+		}
 		if (slide.notes) {
 			slideRels.push({
 				id: "rId2",
@@ -441,6 +464,7 @@ export async function buildPptx(
 		'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
 		'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
 		'<Default Extension="xml" ContentType="application/xml"/>' +
+		'<Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="txt" ContentType="text/plain"/>' +
 		'<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>' +
 		'<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>' +
 		'<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>' +
@@ -455,5 +479,17 @@ export async function buildPptx(
 		notesOverrides.join("") +
 		"</Types>";
 
+	if (
+		slides.some((slide) =>
+			slide.elements.some((element) => element.type === "svg"),
+		)
+	) {
+		parts.push({
+			name: "export-notes.txt",
+			data: new TextEncoder().encode(
+				"SVG elements were omitted from this PPTX export. Use PNG or JPEG images, or export PDF/PNG to preserve SVG artwork.",
+			),
+		});
+	}
 	return createZip([xmlPart("[Content_Types].xml", contentTypes), ...parts]);
 }

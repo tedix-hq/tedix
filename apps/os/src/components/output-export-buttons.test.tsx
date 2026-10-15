@@ -76,6 +76,35 @@ afterEach(() => {
 });
 
 describe("OutputExportButtons", () => {
+	it.each([
+		["document", "Markdown (.md)", "markdown", "md"],
+		["document", "HTML (.html)", "html", "html"],
+		["sheet", "CSV (all sheets)", "csv", "zip"],
+	] as const)(
+		"downloads %s through %s",
+		async (kind, label, format, extension) => {
+			let downloaded = "";
+			vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+				function (this: HTMLAnchorElement) {
+					downloaded = this.href;
+				},
+			);
+			exportsApi.export.mockResolvedValue({
+				url: `https://api.example.test/os-exports/example/rev-2.${extension}`,
+			});
+			const container = renderButtons(kind);
+			await openMenu(container);
+			act(() => menuItem(label).click());
+			await flush();
+			expect(exportsApi.export).toHaveBeenCalledWith({
+				outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				format,
+			});
+			expect(downloaded).toBe(
+				`http://localhost:3030/api/os-exports/example/rev-2.${extension}`,
+			);
+		},
+	);
 	it("offers one menu and downloads Word through the session proxy", async () => {
 		let downloadedUrl: string | undefined;
 		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (

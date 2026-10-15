@@ -685,6 +685,9 @@ export const OsOutputExportFormatSchema = z.enum([
 	"xlsx",
 	"docx",
 	"pptx",
+	"markdown",
+	"html",
+	"csv",
 ]);
 
 /**
@@ -699,6 +702,9 @@ export const OS_OUTPUT_EXPORT_FORMAT_KINDS = {
 	xlsx: ["sheet"],
 	docx: ["document"],
 	pptx: ["presentation"],
+	markdown: ["document"],
+	html: ["document"],
+	csv: ["sheet"],
 } as const satisfies Record<
 	z.infer<typeof OsOutputExportFormatSchema>,
 	readonly OsOutputKind[]

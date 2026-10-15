@@ -833,6 +833,9 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 const EXPORT_CONTENT_TYPES = {
 	pdf: "application/pdf",
 	png: "image/png",
+	markdown: "text/markdown; charset=utf-8",
+	html: "text/html; charset=utf-8",
+	csv: "text/csv; charset=utf-8",
 	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -907,9 +910,35 @@ const outputsExport = authorOs.outputs.export.handler(
 		const revisionRow = await requireCurrentOutputRevision(context, output);
 		const revision = mapOsOutputRevisionRow(revisionRow);
 		let bytes: Uint8Array;
+		let extension: string = input.format === "markdown" ? "md" : input.format;
+		let contentType: string = EXPORT_CONTENT_TYPES[input.format];
 		if (input.format === "pdf" || input.format === "png") {
 			bytes = await renderExportBytes(context, output, revision, input.format);
-		} else {
+		} else if (input.format === "csv" && revision.content.kind === "sheet") {
+			const { buildOsSheetCsv } = await import("../../lib/os-output-csv");
+			({ bytes, extension, contentType } = await buildOsSheetCsv(
+				revision.content,
+			));
+		} else if (
+			(input.format === "markdown" || input.format === "html") &&
+			revision.content.kind === "document"
+		) {
+			const content = await inlineOsExportImages(revision.content);
+			const { renderOsDocumentMarkdown } =
+				await import("../../lib/os-output-markdown");
+			bytes = new TextEncoder().encode(
+				input.format === "markdown"
+					? renderOsDocumentMarkdown(content)
+					: renderOsOutputHtml(mapOsOutputRow(output), {
+							...revision,
+							content,
+						}),
+			);
+		} else if (
+			input.format === "xlsx" ||
+			input.format === "docx" ||
+			input.format === "pptx"
+		) {
 			// Deferred so the OOXML writers stay off the router's import graph
 			// until an Office export is actually asked for.
 			const { buildOsOutputOfficeExport } =
@@ -919,10 +948,15 @@ const outputsExport = authorOs.outputs.export.handler(
 				revision.content,
 				output.title,
 			);
+		} else {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Export format does not match stored content",
+			);
 		}
-		const key = `os-exports/${output.organizationId}/${output.id}/rev-${revision.revision}.${input.format}`;
+		const key = `os-exports/${output.organizationId}/${output.id}/rev-${revision.revision}.${extension}`;
 		await context.env.R2_BUCKET.put(key, bytes, {
-			httpMetadata: { contentType: EXPORT_CONTENT_TYPES[input.format] },
+			httpMetadata: { contentType },
 			customMetadata: {
 				organizationId: output.organizationId,
 				outputId: output.id,
@@ -939,7 +973,7 @@ const outputsExport = authorOs.outputs.export.handler(
 			// service-binding or OS-proxy call arrives as `https://api/...`,
 			// which no browser can open.
 			url: new URL(
-				`/os-exports/${output.id}/rev-${revision.revision}.${input.format}`,
+				`/os-exports/${output.id}/rev-${revision.revision}.${extension}`,
 				context.env.API_URL,
 			).toString(),
 		};

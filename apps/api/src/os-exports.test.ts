@@ -64,6 +64,32 @@ beforeEach(() => {
 	mocks.object.mockResolvedValue({ body: "docx-bytes", size: 10 });
 });
 describe("authenticated output exports", () => {
+	it.each([
+		["md", "text/markdown; charset=utf-8"],
+		["html", "text/html; charset=utf-8"],
+		["csv", "text/csv; charset=utf-8"],
+		["zip", "application/zip"],
+	])(
+		"serves %s only as a sandboxed authenticated attachment",
+		async (extension, mime) => {
+			const response = await worker.fetch(
+				new Request(`http://api/os-exports/output-1/rev-2.${extension}`, {
+					headers: { Authorization: "Bearer tedix-local-demo" },
+				}),
+				env as unknown as CloudflareEnv,
+				{} as ExecutionContext,
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toBe(mime);
+			expect(response.headers.get("Content-Disposition")).toBe(
+				`attachment; filename="rev-2.${extension}"`,
+			);
+			expect(response.headers.get("Content-Security-Policy")).toContain(
+				"sandbox;",
+			);
+			expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		},
+	);
 	it("serves the local owner's export through the internal OS proxy", async () => {
 		const response = await request();
 		expect(response.status).toBe(200);
