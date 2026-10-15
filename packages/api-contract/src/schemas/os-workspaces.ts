@@ -871,6 +871,7 @@ export const OsWorkbookSheetSchema = z.object({
 	name: z.string().min(1).max(120),
 	columns: z.array(OsWorkbookColumnSchema).min(1).max(64),
 	rows: z.array(z.array(OsWorkbookCellSchema.nullable()).max(64)).max(1_000),
+	rowHeights: z.array(z.number().int().min(20).max(600)).max(1_000).optional(),
 	frozenRows: z.number().int().min(0).max(1_000).default(0),
 	frozenColumns: z.number().int().min(0).max(64).default(0),
 });

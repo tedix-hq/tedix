@@ -1,8 +1,6 @@
 import {
-	ArrowDown,
 	ArrowUDownLeft,
 	ArrowUDownRight,
-	ArrowUp,
 	Copy,
 	CurrencyDollar,
 	Function as FunctionIcon,
@@ -27,6 +25,22 @@ import type {
 	OsWorkbookSheet,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMemo, useState } from "react";
+import {
+	WorkbookResizeHandle,
+	WorkbookStructureControls,
+} from "@/components/workbook-structure-controls";
+import {
+	autoSum,
+	deleteSheet,
+	duplicateSheet,
+	frozenCellStyle,
+	HEADER_HEIGHT,
+	DEFAULT_ROW_HEIGHT,
+	renameSheet,
+	resizeColumn,
+	resizeRow,
+	sortRange,
+} from "@/lib/workbook-structure";
 import { EditorTextDialog } from "@/components/editor-text-dialog";
 import { isImeComposing } from "@/lib/keyboard";
 import { Button } from "@/components/kumo/button";
@@ -58,7 +72,6 @@ import {
 	WORKBOOK_SUPPORTED_FORMULA_COUNT,
 } from "@/lib/workbook-formulas";
 
-const SHEET_MAX_COLUMNS = 64;
 const SHEET_MAX_ROWS = 1000;
 const SHEET_CELL_MAX_LENGTH = 4000;
 
@@ -189,8 +202,9 @@ export function SheetEditor({
 }: SheetEditorProps) {
 	const normalized = useMemo(() => normalizeSheetContent(value), [value]);
 	const storedWorkbook = useMemo(
-		() => ensureGrid(normalized.workbook!),
-		[normalized.workbook],
+		() =>
+			value.workbook ? normalized.workbook! : ensureGrid(normalized.workbook!),
+		[normalized.workbook, value.workbook],
 	);
 	// Which tab is open is view state, not a document edit: switching tabs must
 	// not recalculate, snapshot, diff or sync the whole workbook.
@@ -214,8 +228,21 @@ export function SheetEditor({
 	const selectedCell =
 		sheet.rows[selection.focus.row]?.[selection.focus.column] ?? emptyCell();
 
-	const commitWorkbook = (next: OsWorkbook) =>
+	const commitWorkbook = (next: OsWorkbook) => {
+		const active = activeWorkbookSheet(next);
+		const clamp = (coordinate: Coordinate) => ({
+			row: Math.max(0, Math.min(active.rows.length - 1, coordinate.row)),
+			column: Math.max(
+				0,
+				Math.min(active.columns.length - 1, coordinate.column),
+			),
+		});
+		setSelection((current) => ({
+			anchor: clamp(current.anchor),
+			focus: clamp(current.focus),
+		}));
 		history.commit(projectWorkbook(evaluateWorkbook(next)));
+	};
 	const commitFormat = (format: Partial<OsWorkbookCellFormat>) =>
 		commitWorkbook(applyFormat(workbook, selection, format));
 	const setSelectedInput = (input: string) =>
@@ -233,12 +260,7 @@ export function SheetEditor({
 			);
 			return;
 		}
-		commitWorkbook({
-			...workbook,
-			sheets: workbook.sheets.map((item) =>
-				item.id === renameTarget.id ? { ...item, name: value } : item,
-			),
-		});
+		commitWorkbook(renameSheet(workbook, renameTarget.id, value));
 	};
 
 	const copySelection = () => {
@@ -304,17 +326,18 @@ export function SheetEditor({
 	};
 
 	const sortRows = (direction: 1 | -1) => {
-		const column = selection.focus.column;
-		const rows = [...sheet.rows].sort(
-			(a, b) =>
-				String(a[column]?.value ?? "").localeCompare(
-					String(b[column]?.value ?? ""),
-					undefined,
-					{ numeric: true },
-				) * direction,
+		commitWorkbook(
+			sortRange(
+				workbook,
+				sheet.id,
+				bounds,
+				selection.focus.column,
+				direction === 1 ? "ascending" : "descending",
+				sortHasHeader,
+			),
 		);
-		commitWorkbook(replaceSheet(workbook, { ...sheet, rows }));
 	};
+	const [sortHasHeader, setSortHasHeader] = useState(false);
 
 	return (
 		<div
@@ -488,12 +511,7 @@ export function SheetEditor({
 				<EditorToolbarButton
 					label="Auto sum"
 					disabled={disabled}
-					onClick={() => {
-						const row = selection.focus.row;
-						setSelectedInput(
-							`=SUM(${columnLabel(selection.focus.column)}1:${columnLabel(selection.focus.column)}${Math.max(1, row)})`,
-						);
-					}}
+					onClick={() => commitWorkbook(autoSum(workbook, sheet.id, bounds))}
 				>
 					<FunctionIcon size={15} />
 				</EditorToolbarButton>
@@ -529,6 +547,23 @@ export function SheetEditor({
 			<div className="sheet-editor-desk">
 				<div className="sheet-page sheet-editor-page">
 					<div className="sheet-editor-formula grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-1">
+						<div className="col-span-full flex flex-wrap items-center gap-1">
+							<Button
+								size="xs"
+								variant="ghost"
+								disabled={disabled}
+								aria-pressed={sortHasHeader}
+								onClick={() => setSortHasHeader(!sortHasHeader)}
+							>
+								Selection has header
+							</Button>
+							<WorkbookStructureControls
+								workbook={workbook}
+								range={bounds}
+								disabled={disabled}
+								onChange={commitWorkbook}
+							/>
+						</div>
 						<Input
 							aria-label="Selected cell"
 							readOnly
@@ -562,14 +597,23 @@ export function SheetEditor({
 								),
 							}}
 						>
-							<thead className="sticky top-0 z-[2] bg-kumo-elevated">
-								<tr>
+							<thead className="sticky top-0 z-[5] bg-kumo-elevated">
+								<tr style={{ height: HEADER_HEIGHT }}>
 									<th className="sticky left-0 z-[3] w-11 border border-kumo-line bg-kumo-elevated" />
 									{sheet.columns.map((column, columnIndex) => (
 										<th
 											key={column.id}
 											className="relative border border-kumo-line px-2 py-1 font-medium"
-											style={{ width: column.width, minWidth: column.width }}
+											style={{
+												...frozenCellStyle(
+													sheet,
+													sheet.rows.length,
+													columnIndex,
+												),
+												width: column.width,
+												minWidth: column.width,
+												background: "var(--tedix-sheet-paper)",
+											}}
 										>
 											<Button
 												className="sheet-editor-column-button w-full justify-center px-1"
@@ -588,27 +632,19 @@ export function SheetEditor({
 													{columnLabel(columnIndex)} · {column.label}
 												</span>
 											</Button>
-											<Input
-												aria-label={`Column ${columnIndex + 1} width`}
-												type="range"
-												min="48"
-												max="600"
+											<WorkbookResizeHandle
+												label={`Column ${columnIndex + 1} width`}
+												axis="column"
 												value={column.width}
 												disabled={disabled}
-												className="absolute right-0 bottom-0 h-1 w-full rounded-none p-0 opacity-0 shadow-none ring-0 hover:opacity-100 focus:opacity-100"
-												onChange={(event) =>
+												onResize={(width) =>
 													commitWorkbook(
-														replaceSheet(workbook, {
-															...sheet,
-															columns: sheet.columns.map((item, index) =>
-																index === columnIndex
-																	? {
-																			...item,
-																			width: Number(event.target.value),
-																		}
-																	: item,
-															),
-														}),
+														resizeColumn(
+															workbook,
+															sheet.id,
+															columnIndex,
+															width,
+														),
 													)
 												}
 											/>
@@ -618,9 +654,38 @@ export function SheetEditor({
 							</thead>
 							<tbody>
 								{sheet.rows.map((row, rowIndex) => (
-									<tr key={`row-${rowIndex}`}>
-										<th className="sticky left-0 z-[1] border border-kumo-line bg-kumo-elevated px-2 text-right font-normal text-kumo-subtle">
+									<tr
+										key={`row-${rowIndex}`}
+										style={{
+											height:
+												sheet.rowHeights?.[rowIndex] ?? DEFAULT_ROW_HEIGHT,
+										}}
+									>
+										<th
+											className="sticky left-0 z-[3] border border-kumo-line bg-kumo-elevated px-2 text-right font-normal text-kumo-subtle"
+											style={{
+												top: frozenCellStyle(
+													sheet,
+													rowIndex,
+													sheet.columns.length,
+												).top,
+												zIndex: rowIndex < sheet.frozenRows ? 4 : 3,
+											}}
+										>
 											{rowIndex + 1}
+											<WorkbookResizeHandle
+												label={`Row ${rowIndex + 1} height`}
+												axis="row"
+												value={
+													sheet.rowHeights?.[rowIndex] ?? DEFAULT_ROW_HEIGHT
+												}
+												disabled={disabled}
+												onResize={(height) =>
+													commitWorkbook(
+														resizeRow(workbook, sheet.id, rowIndex, height),
+													)
+												}
+											/>
 										</th>
 										{sheet.columns.map((column, columnIndex) => {
 											const cell = row[columnIndex] ?? emptyCell();
@@ -637,9 +702,12 @@ export function SheetEditor({
 													key={`${rowIndex}-${columnIndex}`}
 													className={`border border-kumo-line p-0 ${selected ? "ring-2 ring-inset ring-kumo-focus" : ""}`}
 													style={{
+														...frozenCellStyle(sheet, rowIndex, columnIndex),
 														width: column.width,
 														minWidth: column.width,
-														background: cell.format?.fillColor,
+														background:
+															cell.format?.fillColor ??
+															"var(--tedix-sheet-paper)",
 														color: cell.format?.textColor,
 														textAlign: cell.format?.horizontalAlign,
 														fontWeight: cell.format?.bold ? 700 : undefined,
@@ -659,6 +727,9 @@ export function SheetEditor({
 														aria-label={`${column.label} row ${rowIndex + 1}`}
 														className="h-7 w-full rounded-none border-0 bg-transparent px-2 shadow-none ring-0 outline-none"
 														style={{
+															height:
+																(sheet.rowHeights?.[rowIndex] ??
+																	DEFAULT_ROW_HEIGHT) - 1,
 															whiteSpace: cell.format?.wrap
 																? "normal"
 																: "nowrap",
@@ -712,33 +783,61 @@ export function SheetEditor({
 					<div className="sheet-editor-tabs flex flex-wrap items-center justify-between gap-2">
 						<div className="flex min-w-0 flex-wrap items-center gap-1">
 							{workbook.sheets.map((tab) => (
-								<Button
-									key={tab.id}
-									type="button"
-									size="xs"
-									variant={
-										tab.id === workbook.activeSheetId ? "secondary" : "ghost"
-									}
-									aria-pressed={tab.id === workbook.activeSheetId}
-									onClick={() => {
-										if (tab.id === workbook.activeSheetId) return;
-										setViewSheetId(tab.id);
-										setEditing(null);
-										setSelection({
-											anchor: { row: 0, column: 0 },
-											focus: { row: 0, column: 0 },
-										});
-									}}
-									onDoubleClick={() =>
-										setRenameTarget({
-											kind: "sheet",
-											id: tab.id,
-											value: tab.name,
-										})
-									}
-								>
-									{tab.name}
-								</Button>
+								<div key={tab.id} className="flex items-center gap-0.5">
+									<Button
+										key={tab.id}
+										type="button"
+										size="xs"
+										variant={
+											tab.id === workbook.activeSheetId ? "secondary" : "ghost"
+										}
+										aria-pressed={tab.id === workbook.activeSheetId}
+										onClick={() => {
+											if (tab.id === workbook.activeSheetId) return;
+											setViewSheetId(tab.id);
+											setEditing(null);
+											setSelection({
+												anchor: { row: 0, column: 0 },
+												focus: { row: 0, column: 0 },
+											});
+										}}
+										onDoubleClick={() =>
+											setRenameTarget({
+												kind: "sheet",
+												id: tab.id,
+												value: tab.name,
+											})
+										}
+									>
+										{tab.name}
+									</Button>
+									<Button
+										size="icon-xs"
+										variant="ghost"
+										aria-label={`Duplicate ${tab.name}`}
+										disabled={disabled || workbook.sheets.length >= 32}
+										onClick={() => {
+											const next = duplicateSheet(workbook, tab.id);
+											commitWorkbook(next);
+											setViewSheetId(next.activeSheetId);
+										}}
+									>
+										<Copy size={13} />
+									</Button>
+									<Button
+										size="icon-xs"
+										variant="ghost"
+										aria-label={`Delete ${tab.name}`}
+										disabled={disabled || workbook.sheets.length <= 1}
+										onClick={() => {
+											const next = deleteSheet(workbook, tab.id);
+											commitWorkbook(next);
+											setViewSheetId(next.activeSheetId);
+										}}
+									>
+										<Trash size={13} />
+									</Button>
+								</div>
 							))}
 							<Button
 								type="button"
@@ -750,95 +849,11 @@ export function SheetEditor({
 							>
 								<Plus size={14} />
 							</Button>
-							{workbook.sheets.length > 1 && (
-								<Button
-									type="button"
-									size="icon-xs"
-									variant="ghost"
-									aria-label="Delete active sheet"
-									disabled={disabled}
-									onClick={() => {
-										const sheets = workbook.sheets.filter(
-											(item) => item.id !== sheet.id,
-										);
-										commitWorkbook({
-											...workbook,
-											sheets,
-											activeSheetId: sheets[0]!.id,
-										});
-										setViewSheetId(sheets[0]!.id);
-									}}
-								>
-									<Trash size={14} />
-								</Button>
-							)}
 						</div>
 						<div className="flex flex-wrap items-center gap-2 text-kumo-subtle type-tedix-label">
 							<span>
 								{WORKBOOK_SUPPORTED_FORMULA_COUNT}+ Excel-style functions
 							</span>
-							<Button
-								type="button"
-								size="xs"
-								variant="ghost"
-								disabled={disabled || sheet.rows.length >= SHEET_MAX_ROWS}
-								onClick={() =>
-									commitWorkbook(
-										replaceSheet(workbook, {
-											...sheet,
-											rows: [
-												...sheet.rows,
-												sheet.columns.map(() => emptyCell()),
-											],
-										}),
-									)
-								}
-							>
-								<ArrowDown size={13} /> Row
-							</Button>
-							<Button
-								type="button"
-								size="xs"
-								variant="ghost"
-								disabled={disabled || sheet.columns.length >= SHEET_MAX_COLUMNS}
-								onClick={() => {
-									const index = sheet.columns.length;
-									commitWorkbook(
-										replaceSheet(workbook, {
-											...sheet,
-											columns: [
-												...sheet.columns,
-												{
-													id: createOutputNodeId("column"),
-													label: columnLabel(index),
-													width: 120,
-												},
-											],
-											rows: sheet.rows.map((row) => [...row, emptyCell()]),
-										}),
-									);
-								}}
-							>
-								<Plus size={13} /> Column
-							</Button>
-							<Button
-								type="button"
-								size="xs"
-								variant="ghost"
-								disabled={disabled || sheet.rows.length <= 1}
-								onClick={() =>
-									commitWorkbook(
-										replaceSheet(workbook, {
-											...sheet,
-											rows: sheet.rows.filter(
-												(_, index) => index !== selection.focus.row,
-											),
-										}),
-									)
-								}
-							>
-								<ArrowUp size={13} /> Delete row
-							</Button>
 						</div>
 					</div>
 				</div>
