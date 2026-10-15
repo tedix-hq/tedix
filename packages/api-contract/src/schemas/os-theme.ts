@@ -69,6 +69,17 @@ export const OrganizationOsThemeSchema = z
 		dark: OsThemePaletteSchema,
 		uiFont: OsUiFontSchema,
 		codeFont: OsCodeFontSchema,
+		slideTones: z
+			.object({
+				neutral: HexColorSchema.optional(),
+				accent: HexColorSchema.optional(),
+				success: HexColorSchema.optional(),
+				warning: HexColorSchema.optional(),
+				danger: HexColorSchema.optional(),
+				info: HexColorSchema.optional(),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 export type OrganizationOsTheme = z.infer<typeof OrganizationOsThemeSchema>;

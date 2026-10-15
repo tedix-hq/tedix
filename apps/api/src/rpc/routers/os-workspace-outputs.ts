@@ -1,4 +1,9 @@
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
+import {
+	getOrganizationProfile,
+	getOrganizationOsTheme,
+} from "@tedix/db/queries/organizations";
+import type { PresentationAppearance } from "@tedix/api-contract/utils/presentation-style";
 import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
 import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
 import { implement } from "@orpc/server";
@@ -494,7 +499,12 @@ async function persistEditedOutputRevision(
 const SLIDE_TITLE_ID = () => `title-${crypto.randomUUID()}`;
 const SLIDE_BULLET_ID = () => `bullet-${crypto.randomUUID()}`;
 
-type SlideOutline = { title: string; bullets: string[]; notes?: string };
+type SlideOutline = {
+	title: string;
+	bullets: string[];
+	notes?: string;
+	canvas?: Partial<Omit<OsPresentationCanvasSlide, "id" | "name" | "notes">>;
+};
 
 /** Lay out one canvas slide from an outline, in the deck's own coordinates. */
 function canvasSlideFromOutline(
@@ -530,6 +540,7 @@ function canvasSlideFromOutline(
 		layout: outline.bullets.length > 0 ? "title-content" : "title",
 		background: "#ffffff",
 		elements,
+		...outline.canvas,
 		...(outline.notes ? { notes: outline.notes } : {}),
 	};
 }
@@ -547,6 +558,7 @@ function applyOutlineToCanvasSlide(
 		...slide,
 		name: outline.title.slice(0, 200),
 		elements: rebuilt.elements,
+		...outline.canvas,
 		...(outline.notes ? { notes: outline.notes } : { notes: undefined }),
 	};
 }
@@ -851,6 +863,7 @@ async function renderExportBytes(
 	output: OsOutputRow,
 	revision: OsOutputRevision,
 	format: "pdf" | "png",
+	organization: PresentationAppearance,
 ): Promise<Uint8Array> {
 	if (!context.env.BROWSER) {
 		throw createError(
@@ -859,10 +872,14 @@ async function renderExportBytes(
 		);
 	}
 	const content = await inlineOsExportImages(revision.content);
-	const html = renderOsOutputHtml(mapOsOutputRow(output), {
-		...revision,
-		content,
-	});
+	const html = renderOsOutputHtml(
+		mapOsOutputRow(output),
+		{
+			...revision,
+			content,
+		},
+		organization,
+	);
 	const response = await runBrowserQuickAction(
 		context.env.BROWSER,
 		format === "pdf" ? "pdf" : "screenshot",
@@ -909,11 +926,40 @@ const outputsExport = authorOs.outputs.export.handler(
 		}
 		const revisionRow = await requireCurrentOutputRevision(context, output);
 		const revision = mapOsOutputRevisionRow(revisionRow);
+		let organization: PresentationAppearance = {};
+		if (output.kind === "presentation") {
+			const [profile, appearance] = await Promise.all([
+				getOrganizationProfile(context.db, output.organizationId),
+				getOrganizationOsTheme(context.db, output.organizationId),
+			]);
+			organization = {
+				name: profile?.name,
+				logoUrl: profile?.logoUrl,
+				appearance,
+			};
+			if (revision.content.kind === "presentation") {
+				for (const slide of revision.content.deck?.slides ?? []) {
+					for (const element of slide.elements) {
+						if (element.type === "logo") {
+							element.type = organization.logoUrl ? "image" : "text";
+							element.src = organization.logoUrl ?? undefined;
+							element.text = organization.name ?? "";
+						}
+					}
+				}
+			}
+		}
 		let bytes: Uint8Array;
 		let extension: string = input.format === "markdown" ? "md" : input.format;
 		let contentType: string = EXPORT_CONTENT_TYPES[input.format];
 		if (input.format === "pdf" || input.format === "png") {
-			bytes = await renderExportBytes(context, output, revision, input.format);
+			bytes = await renderExportBytes(
+				context,
+				output,
+				revision,
+				input.format,
+				organization,
+			);
 		} else if (input.format === "csv" && revision.content.kind === "sheet") {
 			const { buildOsSheetCsv } = await import("../../lib/os-output-csv");
 			({ bytes, extension, contentType } = await buildOsSheetCsv(
@@ -945,8 +991,11 @@ const outputsExport = authorOs.outputs.export.handler(
 				await import("../../lib/os-output-office");
 			bytes = await buildOsOutputOfficeExport(
 				input.format,
-				revision.content,
+				input.format === "pptx"
+					? await inlineOsExportImages(revision.content)
+					: revision.content,
 				output.title,
+				organization,
 			);
 		} else {
 			throw createError(

@@ -18,6 +18,7 @@ const element = OsPresentationElementSchema.parse({
 describe("slide styles", () => {
 	it("preserves defaults and maps overrides at both canvas and export scale", () => {
 		expect(slideElementStyle(element)).toMatchObject({
+			fontFamily: "Arial, sans-serif",
 			fontWeight: "normal",
 			lineHeight: 1.3,
 			letterSpacing: "normal",

@@ -14,7 +14,20 @@ import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { createZip, relationships, xmlEscape, xmlPart } from "./zip";
+import {
+	createZip,
+	relationships,
+	xmlEscape,
+	xmlPart,
+	type ZipEntry,
+} from "./zip";
+import {
+	parseSlideText,
+	slideArrowEndpoints,
+	slideTone,
+	type PresentationAppearance,
+} from "@tedix/api-contract/utils/presentation-style";
+import { pptxSlideParts } from "./presentation-parts";
 import { collectPptxImages, pptxPicture, type PptxImage } from "./pptx-images";
 
 type PresentationContent = Extract<OsOutputContent, { kind: "presentation" }>;
@@ -78,12 +91,20 @@ function runProperties(element: OsPresentationElement): string {
 		? `<a:solidFill><a:srgbClr val="${color}"/></a:solidFill>`
 		: "";
 	const typeface = style.fontFamily
-		? `<a:latin typeface="${xmlEscape(style.fontFamily)}"/>`
-		: "";
+		? `<a:latin typeface="${xmlEscape(
+				style.fontFamily
+					.split(",")[0]!
+					.trim()
+					.replace(/^['"]|['"]$/g, ""),
+			)}"/>`
+		: '<a:latin typeface="Arial"/>';
 	return `<a:rPr lang="en-US" sz="${size}"${bold} dirty="0">${fill}${typeface}</a:rPr>`;
 }
 
-function paragraphs(element: OsPresentationElement): string {
+function paragraphs(
+	element: OsPresentationElement,
+	organization: PresentationAppearance,
+): string {
 	const style = element.style ?? {};
 	const align =
 		style.textAlign === "center"
@@ -91,66 +112,126 @@ function paragraphs(element: OsPresentationElement): string {
 			: style.textAlign === "right"
 				? ' algn="r"'
 				: "";
-	const bullet =
-		element.type === "bullet"
-			? '<a:buFont typeface="Arial"/><a:buChar char="•"/>'
-			: "<a:buNone/>";
+	const isBullet = element.type === "bullet";
+	const bulletColor = srgb(slideTone("accent", organization).color)!;
+	const bullet = isBullet
+		? `<a:buClr><a:srgbClr val="${bulletColor}"/></a:buClr><a:buSzPts val="480"/><a:buFont typeface="Arial"/><a:buChar char="•"/>`
+		: "<a:buNone/>";
 	const lines = (element.text ?? "").split("\n");
-	const properties = runProperties(element);
+	const size =
+		style.fontSize ?? (isBullet ? (element.props?.compact ? 17 : 19) : 24);
 	return lines
+		.filter((line) => !isBullet || line.trim())
 		.map((line) => {
-			const run =
-				line.length > 0
-					? `<a:r>${properties}<a:t>${xmlEscape(line)}</a:t></a:r>`
-					: `<a:endParaRPr lang="en-US"/>`;
-			return `<a:p><a:pPr${align}>${line.length > 0 ? bullet : "<a:buNone/>"}</a:pPr>${run}</a:p>`;
+			const runs = parseSlideText(line, element.props?.highlight)
+				.map(
+					(part) =>
+						`<a:r>${runProperties({ ...element, style: { ...style, fontSize: size, fontWeight: part.bold ? "bold" : style.fontWeight, color: part.highlight ? slideTone("accent", organization).color : style.color } })}<a:t${part.text.trim() !== part.text ? ' xml:space="preserve"' : ""}>${xmlEscape(part.text)}</a:t></a:r>`,
+				)
+				.join("");
+			const indent = isBullet
+				? ` marL="${18 * EMU_PER_PX}" indent="${-18 * EMU_PER_PX}"`
+				: "";
+			const lineHeight =
+				style.lineHeight ??
+				(isBullet
+					? element.props?.compact
+						? 1.45
+						: 1.5
+					: size >= 40
+						? 1.1
+						: 1.3);
+			const spacing = `<a:lnSpc><a:spcPct val="${Math.round(lineHeight * 100000)}"/></a:lnSpc>${isBullet ? `<a:spcAft><a:spcPts val="${(element.props?.compact ? 8 : 10) * 80}"/></a:spcAft>` : ""}`;
+			return `<a:p><a:pPr${align}${indent}>${spacing}${line.length ? bullet : "<a:buNone/>"}</a:pPr>${runs || '<a:endParaRPr lang="en-US"/>'}</a:p>`;
 		})
 		.join("");
 }
 
 function shapeProperties(element: OsPresentationElement): string {
-	const style = element.style ?? {};
+	const style = element.style;
+	const arrow = element.type === "arrow";
+	const endpoints = slideArrowEndpoints(element);
+	const box = arrow
+		? {
+				x: Math.min(endpoints.from.x, endpoints.to.x),
+				y: Math.min(endpoints.from.y, endpoints.to.y),
+				width: Math.abs(endpoints.to.x - endpoints.from.x),
+				height: Math.abs(endpoints.to.y - endpoints.from.y),
+			}
+		: element;
 	const rotation = style.rotation
 		? ` rot="${Math.round(style.rotation * 60_000)}"`
 		: "";
+	const flip = arrow
+		? `${endpoints.to.x < endpoints.from.x ? ' flipH="1"' : ""}${endpoints.to.y < endpoints.from.y ? ' flipV="1"' : ""}`
+		: "";
 	const geometry =
-		element.type === "divider" || element.type === "arrow" ? "line" : "rect";
-	const background = srgb(style.background);
-	const fill = background
-		? `<a:solidFill><a:srgbClr val="${background}"/></a:solidFill>`
-		: "<a:noFill/>";
-	const borderColor = srgb(style.borderColor);
-	const borderWidth = style.borderWidth ?? (borderColor ? 1 : 0);
+		arrow || element.type === "divider"
+			? "line"
+			: element.props?.kind === "ellipse"
+				? "ellipse"
+				: style.borderRadius
+					? "roundRect"
+					: "rect";
+	const fill = presentationFill(style.background, style.opacity);
+	const border = arrow
+		? (element.props?.color ?? style.color ?? "#333333")
+		: style.borderColor;
+	const borderWidth = arrow
+		? (element.props?.strokeWidth ?? style.borderWidth ?? 2)
+		: (style.borderWidth ?? (border ? 1 : 0));
 	const line =
-		borderColor && borderWidth > 0
-			? `<a:ln w="${Math.round(borderWidth * 12_700)}"><a:solidFill><a:srgbClr val="${borderColor}"/></a:solidFill></a:ln>`
-			: geometry === "line"
-				? '<a:ln w="12700"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:ln>'
-				: "";
+		border && borderWidth > 0
+			? `<a:ln w="${Math.round(borderWidth * EMU_PER_PX)}">${solidFill(border)}${element.props?.dashed || style.borderStyle === "dashed" ? '<a:prstDash val="dash"/>' : style.borderStyle === "dotted" ? '<a:prstDash val="dot"/>' : ""}${arrow ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ""}</a:ln>`
+			: "<a:ln><a:noFill/></a:ln>";
+	const radius = style.borderRadius ?? 0;
 	const adjust =
-		geometry === "rect" && style.borderRadius
-			? '<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>'
-			: `<a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom>`;
-	return (
-		`<p:spPr><a:xfrm${rotation}>` +
-		`<a:off x="${Math.round(element.x * EMU_PER_PX)}" y="${Math.round(element.y * EMU_PER_PX)}"/>` +
-		`<a:ext cx="${Math.max(1, Math.round(element.width * EMU_PER_PX))}" cy="${Math.max(
-			1,
-			Math.round(element.height * EMU_PER_PX),
-		)}"/>` +
-		`</a:xfrm>${adjust}${fill}${line}</p:spPr>`
+		geometry === "roundRect"
+			? `<a:gd name="adj" fmla="val ${Math.min(50000, Math.round((radius / Math.max(1, Math.min(box.width, box.height))) * 100000))}"/>`
+			: "";
+	return `<p:spPr><a:xfrm${rotation}${flip}><a:off x="${Math.round(box.x * EMU_PER_PX)}" y="${Math.round(box.y * EMU_PER_PX)}"/><a:ext cx="${Math.max(1, Math.round(box.width * EMU_PER_PX))}" cy="${Math.max(1, Math.round(box.height * EMU_PER_PX))}"/></a:xfrm><a:prstGeom prst="${geometry}"><a:avLst>${adjust}</a:avLst></a:prstGeom>${fill}${line}</p:spPr>`;
+}
+
+function solidFill(color: string | undefined, opacity = 1): string {
+	const rgba = /^#([0-9a-f]{6})([0-9a-f]{2})$/i.exec(color ?? "");
+	const rgb = rgba?.[1]?.toUpperCase() ?? srgb(color);
+	if (!rgb) return "<a:noFill/>";
+	const alpha = Math.round(
+		opacity * (rgba ? parseInt(rgba[2]!, 16) / 255 : 1) * 100000,
 	);
+	return `<a:solidFill><a:srgbClr val="${rgb}">${alpha < 100000 ? `<a:alpha val="${alpha}"/>` : ""}</a:srgbClr></a:solidFill>`;
+}
+
+function presentationFill(color: string | undefined, opacity = 1): string {
+	const gradient = /^(linear|radial)-gradient\((.*)\)$/i.exec(color ?? "");
+	if (!gradient) return solidFill(color, opacity);
+	const stops = Array.from(
+		gradient[2]!.matchAll(/(#[0-9a-f]{6}(?:[0-9a-f]{2})?)(?:\s+([\d.]+)%)?/gi),
+	);
+	if (stops.length < 2) return solidFill(undefined);
+	const list = stops
+		.map(
+			(stop, index) =>
+				`<a:gs pos="${Math.round((stop[2] === undefined ? index / (stops.length - 1) : Number(stop[2]) / 100) * 100000)}">${solidFill(stop[1], opacity).replace(/<\/?a:solidFill>/g, "")}</a:gs>`,
+		)
+		.join("");
+	const angle = Number(/^([\d.-]+)deg/.exec(gradient[2]!.trim())?.[1] ?? 180);
+	return `<a:gradFill rotWithShape="1"><a:gsLst>${list}</a:gsLst>${gradient[1] === "linear" ? `<a:lin ang="${Math.round(((angle + 270) % 360) * 60000)}" scaled="1"/>` : '<a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path>'}</a:gradFill>`;
 }
 
 /** One shape, or "" for an element this exporter deliberately drops. */
-function shapeXml(element: OsPresentationElement, id: number): string {
-	// SVG needs a rasterizer; see the note included in the package.
+function shapeXml(
+	element: OsPresentationElement,
+	id: number,
+	organization: PresentationAppearance,
+): string {
 	if (element.type === "image" || element.type === "svg") return "";
 	const hasText = (element.text ?? "").length > 0;
 	if (!hasText && TEXT_TYPES.has(element.type)) return "";
 	const body = hasText
-		? `<p:txBody><a:bodyPr wrap="square" lIns="45720" tIns="45720" rIns="45720" bIns="45720"><a:normAutofit/></a:bodyPr><a:lstStyle/>${paragraphs(
+		? `<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0"><a:normAutofit/></a:bodyPr><a:lstStyle/>${paragraphs(
 				element,
+				organization,
 			)}</p:txBody>`
 		: '<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>';
 	return (
@@ -164,20 +245,21 @@ function shapeXml(element: OsPresentationElement, id: number): string {
 
 function slideXml(
 	slide: OsPresentationCanvasSlide,
+	organization: PresentationAppearance,
 	images: Map<string, PptxImage>,
 ): string {
-	const background = srgb(slide.background) ?? "FFFFFF";
+	const background = presentationFill(slide.background);
 	const shapes = slide.elements
 		.map((element, index) => {
 			const image = images.get(element.src ?? "");
 			return image
 				? pptxPicture(element, index + 2, `image${index}`, image)
-				: shapeXml(element, index + 2);
+				: shapeXml(element, index + 2, organization);
 		})
 		.join("");
 	return (
 		`<p:sld xmlns:a="${DRAWING_NS}" xmlns:r="${REL_NS}" xmlns:p="${PRESENTATION_NS}"><p:cSld>` +
-		`<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${background}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>` +
+		`<p:bg><p:bgPr>${background}<a:effectLst/></p:bgPr></p:bg>` +
 		'<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>' +
 		'<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>' +
 		shapes +
@@ -294,6 +376,7 @@ const NOTES_MASTER_XML =
 /** Build the `.pptx` bytes for a presentation output's current revision. */
 export async function buildPptx(
 	content: PresentationContent,
+	organization: PresentationAppearance = {},
 ): Promise<Uint8Array> {
 	const canvasSlides: OsPresentationCanvasSlide[] =
 		content.deck && content.deck.slides.length > 0
@@ -301,13 +384,16 @@ export async function buildPptx(
 			: content.slides.map(canvasFromOutline);
 	// An empty deck still has to be a readable file, not a zero-slide package
 	// PowerPoint refuses to open.
-	const slides =
+	const slides = (
 		canvasSlides.length > 0
 			? canvasSlides
-			: [canvasFromOutline({ title: "Untitled", bullets: [] }, 0)];
-
+			: [canvasFromOutline({ title: "Untitled", bullets: [] }, 0)]
+	).map((slide) => ({
+		...slide,
+		elements: pptxSlideParts(slide, organization),
+	}));
 	const images = await collectPptxImages(slides);
-	const parts = [
+	const parts: ZipEntry[] = [
 		...Array.from(images.values(), (image) => ({
 			name: `ppt/media/${image.name}`,
 			data: image.data,
@@ -358,9 +444,6 @@ export async function buildPptx(
 	const notesOverrides: string[] = [];
 	for (const [index, slide] of slides.entries()) {
 		const number = index + 1;
-		parts.push(
-			xmlPart(`ppt/slides/slide${number}.xml`, slideXml(slide, images)),
-		);
 		const slideRels: Array<{ id: string; type: string; target: string }> = [
 			{
 				id: "rId1",
@@ -368,15 +451,22 @@ export async function buildPptx(
 				target: "../slideLayouts/slideLayout1.xml",
 			},
 		];
-		for (const [index, element] of slide.elements.entries()) {
+		for (const [elementIndex, element] of slide.elements.entries()) {
 			const image = images.get(element.src ?? "");
 			if (image)
 				slideRels.push({
-					id: `image${index}`,
+					id: `image${elementIndex}`,
 					type: `${REL_NS}/image`,
 					target: `../media/${image.name}`,
 				});
 		}
+		parts.push(
+			xmlPart(
+				`ppt/slides/slide${number}.xml`,
+				slideXml(slide, organization, images),
+			),
+		);
+
 		if (slide.notes) {
 			slideRels.push({
 				id: "rId2",
@@ -463,8 +553,13 @@ export async function buildPptx(
 	const contentTypes =
 		'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
 		'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
-		'<Default Extension="xml" ContentType="application/xml"/>' +
-		'<Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="txt" ContentType="text/plain"/>' +
+		'<Default Extension="xml" ContentType="application/xml"/><Default Extension="txt" ContentType="text/plain"/>' +
+		["png", "jpeg", "gif", "webp", "svg"]
+			.map(
+				(extension) =>
+					`<Default Extension="${extension}" ContentType="image/${extension === "svg" ? "svg+xml" : extension}"/>`,
+			)
+			.join("") +
 		'<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>' +
 		'<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>' +
 		'<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>' +
@@ -483,13 +578,12 @@ export async function buildPptx(
 		slides.some((slide) =>
 			slide.elements.some((element) => element.type === "svg"),
 		)
-	) {
+	)
 		parts.push({
 			name: "export-notes.txt",
 			data: new TextEncoder().encode(
 				"SVG elements were omitted from this PPTX export. Use PNG or JPEG images, or export PDF/PNG to preserve SVG artwork.",
 			),
 		});
-	}
 	return createZip([xmlPart("[Content_Types].xml", contentTypes), ...parts]);
 }

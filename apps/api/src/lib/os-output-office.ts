@@ -15,6 +15,7 @@ import type {
 	OsOutputExportFormat,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { buildDocx } from "./ooxml/docx";
+import type { PresentationAppearance } from "@tedix/api-contract/utils/presentation-style";
 import { buildPptx } from "./ooxml/pptx";
 import { buildXlsx } from "./ooxml/xlsx";
 
@@ -34,6 +35,7 @@ export async function buildOsOutputOfficeExport(
 	format: OsOfficeExportFormat,
 	content: OsOutputContent,
 	title: string,
+	organization: PresentationAppearance = {},
 ): Promise<Uint8Array> {
 	if (format === "xlsx") {
 		if (content.kind !== "sheet") {
@@ -52,5 +54,5 @@ export async function buildOsOutputOfficeExport(
 			`pptx export needs a presentation body, got ${content.kind}`,
 		);
 	}
-	return buildPptx(content);
+	return buildPptx(content, organization);
 }

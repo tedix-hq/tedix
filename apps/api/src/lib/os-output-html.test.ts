@@ -417,10 +417,12 @@ describe("renderOsOutputHtml", () => {
 			},
 		);
 		for (const src of sources) expect(deck).toContain(`<img src="${src}"`);
-		expect(deck).toContain(
-			`<img src="${sources[0]}" alt="Slide image" style="object-fit:cover">`,
-		);
-		expect(deck).toContain(`<img src="${sources[1]}" alt="Slide image">`);
+		const images = deck.match(/<img[^>]*>/g)!;
+		expect(images).toHaveLength(2);
+		expect(images[0]).toContain('alt="Slide visual"');
+		expect(images[0]).toContain("object-fit:cover");
+		expect(images[1]).toContain('alt="Slide visual"');
+		expect(images[1]).toContain("object-fit:contain");
 		expect(
 			OS_EXPORT_RESOURCE_WAIT.allowRequestPattern.some((pattern) =>
 				new RegExp(pattern).test(sources[1]!),

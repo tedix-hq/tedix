@@ -166,7 +166,8 @@ describe("one slide renderer", () => {
 		);
 		expect(input?.className).toBe("slide-element-input");
 		// No Kumo type role: `type-tedix-body` forced a 14px size with !important.
-		expect(input?.getAttribute("style")).toBeNull();
+		expect(input?.style.opacity).toBe("0");
+		expect(input?.style.padding).toBe("inherit");
 		editor.cleanup();
 	});
 

@@ -3,7 +3,11 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vite-plus/test";
 import { SlidesEditor } from "./output-editor-slides";
-import { slideLabel, templateSlide } from "./output-editor-slide-list";
+import {
+	slideLabel,
+	slideMatches,
+	templateSlide,
+} from "./output-editor-slide-list";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -250,6 +254,9 @@ describe("SlideList", () => {
 	});
 
 	it("builds editable, unbranded layouts", () => {
+		const cards = templateSlide("four-card", 0);
+		for (const query of ["01", "Card heading", "One clear idea"])
+			expect(slideMatches(cards, query)).toBe(true);
 		const title = templateSlide("title", 0);
 		expect(title.elements.map((element) => element.type)).toEqual([
 			"divider",

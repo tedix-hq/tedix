@@ -1,3 +1,4 @@
+import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-style";
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
@@ -30,7 +31,7 @@ export function clearSlideElementClipboard() {
 
 function offsetCopy(element: OsPresentationElement): OsPresentationElement {
 	const copy = structuredClone(element);
-	return {
+	return slideElementGeometry(copy, {
 		...copy,
 		id: createOutputNodeId(copy.type),
 		x: Math.max(
@@ -41,7 +42,7 @@ function offsetCopy(element: OsPresentationElement): OsPresentationElement {
 			0,
 			Math.min(PRESENTATION_HEIGHT - copy.height, copy.y + PASTE_OFFSET),
 		),
-	};
+	});
 }
 
 /**

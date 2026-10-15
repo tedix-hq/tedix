@@ -20,6 +20,7 @@ import { useEffect } from "react";
 import { osApi } from "@/lib/api";
 import { applyOsPreferences } from "@/lib/os-presentation";
 import { setOrganizationTheme } from "@/lib/organization-theme";
+import { setPresentationAppearance } from "@/lib/presentation-appearance";
 import {
 	operationalContextQueryOptions,
 	userPreferencesQueryOptions,
@@ -106,7 +107,10 @@ export function useOsOperationalContext() {
 export function useOsOrganizationTheme(): void {
 	const context = useOsOperationalContext();
 	useEffect(() => {
-		if (context.data)
+		if (context.data) {
 			setOrganizationTheme(context.data.organization.appearance);
+			setPresentationAppearance(context.data.organization);
+		}
+		return () => setPresentationAppearance({});
 	}, [context.data]);
 }
