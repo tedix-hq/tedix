@@ -169,6 +169,7 @@ import {
 	shouldHydrateRun,
 	shouldShowRunningIndicator,
 	userMessageFromEnqueue,
+	controllableRun,
 } from "./chat-thread";
 import type { ProvisionalSend } from "@/lib/provisional-send";
 import {
@@ -916,6 +917,32 @@ describe("RunningIndicator", () => {
 			<RunningIndicator label="Delegating to CTO" />,
 		);
 		expect(html).toContain("Delegating to CTO");
+	});
+});
+
+describe("controllableRun", () => {
+	const run = (id: string, createdAt: string) => ({
+		id,
+		organizationId: "org",
+		conversationId: "home:x",
+		status: "running" as const,
+		createdAt,
+	});
+	const runs = [
+		run("old", "2026-10-01T00:00:00.000Z"),
+		run("new", "2026-10-02T00:00:00.000Z"),
+		run("done", "2026-10-03T00:00:00.000Z"),
+	];
+	it("prefers this tab's own send", () => {
+		expect(controllableRun({ runs, activeRunIds: ["new"] }, "old")?.id).toBe(
+			"old",
+		);
+	});
+	it("falls back to the newest active run after a reload or in another tab", () => {
+		expect(
+			controllableRun({ runs, activeRunIds: ["old", "new"] }, null)?.id,
+		).toBe("new");
+		expect(controllableRun({ runs, activeRunIds: [] }, null)).toBeUndefined();
 	});
 });
 
