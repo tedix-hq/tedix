@@ -2982,6 +2982,8 @@ export async function handleMcpRequest(
 	interactionEventsEnabled = resolvedApp.metadata?.mcpConfig
 		?.interactionEvents === true &&
 		Boolean((env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS),
+	// Server-owned ingress identity: organization selection must not lift its restrictions.
+	connectionAppSlug = resolvedApp.app.slug,
 ): Promise<Response> {
 	const eventResponse = await maybeHandleInteractionEvents(
 		request,
@@ -3060,6 +3062,7 @@ export async function handleMcpRequest(
 			ctx,
 			undefined,
 			interactionEventsEnabled,
+			connectionAppSlug,
 		);
 	}
 	// Discovery must describe the same verified organization gateway as execution.
@@ -3070,6 +3073,7 @@ export async function handleMcpRequest(
 		resolvedApp,
 		env,
 		interactionEventsEnabled,
+		connectionAppSlug,
 	);
 	if (compactResponse) return compactResponse;
 	// Use let — tool merging below builds a per-request copy without mutating the cache.
@@ -3404,6 +3408,7 @@ export async function handleMcpRequest(
 			bearerToken,
 			inboundTraceMeta,
 			requestedCodeModeNamespaces,
+			connectionAppSlug,
 		);
 		for (const tool of cachedData.tools)
 			bootstrapContext.loadedTools.set(tool.toolId, tool);
@@ -3439,6 +3444,7 @@ export async function handleMcpRequest(
 		requestedToolName,
 		inboundTraceMeta,
 		requestedCodeModeNamespaces,
+		connectionAppSlug,
 	);
 	const directoryReadHandler = (
 		server as unknown as {
@@ -4825,6 +4831,7 @@ function modernDiscoverInstructions(
 export function compactCodeModeTools(
 	resolvedApp: ResolvedApp,
 	requestHeaders: Headers,
+	connectionAppSlug = resolvedApp.app.slug,
 ): Array<Record<string, unknown>> {
 	const appName = resolvedApp.app.name ?? "Tedix";
 	const tools: Array<Record<string, unknown>> = [
@@ -4835,7 +4842,7 @@ export function compactCodeModeTools(
 			...codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
 			_meta: codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
 			description: compactCodeModeToolDescription(resolvedApp),
-			inputSchema: z.toJSONSchema(codeModeInputSchema(resolvedApp.app.slug)),
+			inputSchema: z.toJSONSchema(codeModeInputSchema(connectionAppSlug)),
 		},
 		{
 			name: "get_info",
@@ -4921,6 +4928,7 @@ async function maybeHandleCodeModeCompactMcp(
 	resolvedApp: ResolvedApp,
 	env: CloudflareEnv,
 	interactionEventsEnabled = false,
+	connectionAppSlug = resolvedApp.app.slug,
 ): Promise<Response | null> {
 	if (request.method !== "POST") return null;
 	if (resolvedApp.metadata?.mcpConfig?.codeMode !== true) return null;
@@ -4977,7 +4985,7 @@ async function maybeHandleCodeModeCompactMcp(
 		// mirrors the app-resolution cache backing the compact tool list
 		// (APP_RESOLUTION_TTL_MS in resolution.ts).
 		const page = paginateSortedToolsList(
-			compactCodeModeTools(resolvedApp, request.headers),
+			compactCodeModeTools(resolvedApp, request.headers, connectionAppSlug),
 			isRecord(body.params) ? body.params.cursor : undefined,
 		);
 		if (!page.ok)

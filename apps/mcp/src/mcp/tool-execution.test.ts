@@ -1382,7 +1382,8 @@ describe("Connect financial dispatch", () => {
 		async (endpoint) => {
 			const agent = {
 				...makeAgent({ status: 200, data: {} }),
-				appSlug: "connect",
+				appSlug: "tenant-unified",
+				connectionAppSlug: "connect",
 			};
 			const tool = {
 				...makeTool(),

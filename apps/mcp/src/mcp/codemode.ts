@@ -1669,7 +1669,9 @@ function buildNamespaceGroups(
 			const runTool = async () => {
 				const { toolArgs, inlineExtra } = splitToolArgs(args);
 				if (
-					isNonPayingConnection(serverCtx.appSlug) &&
+					isNonPayingConnection(
+						serverCtx.connectionAppSlug ?? serverCtx.appSlug,
+					) &&
 					hasPaymentProof(undefined, inlineExtra?._meta)
 				) {
 					throw new Error(CONNECT_PAYMENT_DENIED);
@@ -5862,7 +5864,7 @@ export async function registerCodeModeTools(
 		`Runtime proof: call codemode.__runtime() when you need the current executionId, app/org, actor, traceId, module names, tool counts, or direct-gateway execution-surface evidence.\n` +
 		`Long multi-step work: your cost is turns x context window, so do NOT run a long tool-call loop through your own context. For ~10+ platform/tool steps (sweeps, watches, migrations, fan-out judging), use flow.run({ source, capabilities }) — it records an EPHEMERAL skill workflow and starts it in one call; the steps run in a durable Cloudflare Workflow off your context and only the bounded return value comes back (put bulk output in an artifact and return the reference; poll flow.status later, never busy-wait). Tedix CLI users: \`tedix flow run --file plan.ts --watch\`. Organization skills may be read as reference data; follow the procedures shipped with the plugin.\n` +
 		`Visuals: when a visual answer is clearer, fetch and shape the data in the same run and return an MCP UI result directly. For a bespoke but catalog-constrained interface, inspect ui.get_catalog(), author layoutSpec, validate with ui.validate_layout(), then return ui.create_view({ data, title, appSlug, layoutSpec }); this is true generative UI, not a preset selector. Omit layoutSpec only when an inferred native comparison, chart/time-series, dashboard, ranking, timeline, stats, table, or summary is sufficient. If the catalog cannot express the requested presentation, return ui.create_mcp_app({ title, summary, data, html }) for a transient free-form HTML/CSS MCP App; its nested sandbox disables scripts and external capabilities. For reliable inferred record tables prefer data: { items: [{ ... }] }; a bare record array is also accepted and normalized under rows. When a tool/workflow result references a generated media artifact (e.g. artifactPath "outputs/generate-image.json" with a runId), embed it in your chat answer as markdown on its own line using the relative session-authed path ![desc](/skill-runs/{runId}/media/{artifactPath}) (append ?kind=video for video) — never signed /skill-media/...?exp&sig or absolute https://api.* URLs. For multi-provider/tool health checks, return ui.create_health_sweep({ checks, title }) after probing the requested namespaces. Do not stop at discovery or raw tool data first unless explicitly asked.\n\n` +
-		(isNonPayingConnection(serverCtx.appSlug)
+		(isNonPayingConnection(serverCtx.connectionAppSlug ?? serverCtx.appSlug)
 			? `${CONNECT_PAYMENT_DENIED}\n`
 			: `Paid inner tools may return payment requirements. Return that object directly; an x402 v2 challenge is an error CallToolResult with _meta["x402/error"] and _meta["x-tedix/payment-required"]. Retry with _meta["x402/payment"] or this code tool's top-level payment argument. Legacy v1 challenges may still use JSON-RPC 402.\n`) +
 		"Write an async arrow function. Chain multiple calls, add conditionals, loops, and error handling.\n" +
@@ -5893,7 +5895,9 @@ export async function registerCodeModeTools(
 			description,
 			annotations: CODE_MODE_TOOL_ANNOTATIONS,
 			_meta: codeModeSecurityMeta(mcpConfig),
-			inputSchema: codeModeInputSchema(serverCtx.appSlug),
+			inputSchema: codeModeInputSchema(
+				serverCtx.connectionAppSlug ?? serverCtx.appSlug,
+			),
 		},
 		async ({ code, payment, agentSessionId }, ctx?: McpCtx) => {
 			const extra = {
@@ -5903,7 +5907,9 @@ export async function registerCodeModeTools(
 				),
 			};
 			if (
-				isNonPayingConnection(serverCtx.appSlug) &&
+				isNonPayingConnection(
+					serverCtx.connectionAppSlug ?? serverCtx.appSlug,
+				) &&
 				hasPaymentProof(payment, extra._meta)
 			) {
 				return {

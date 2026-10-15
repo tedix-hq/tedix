@@ -337,8 +337,17 @@ describe("Connect compact protocol organization routing", () => {
 			LOADER: { load: loads, get: loads },
 		});
 		try {
-			for (const command of ["tools/list", "tools/call", "get_info"]) {
-				const method = command === "get_info" ? "tools/call" : command;
+			for (const command of [
+				"tools/list",
+				"tools/call",
+				"get_info",
+				"code-payment",
+				"code-payment-meta",
+			]) {
+				const method =
+					command === "get_info" || command.startsWith("code-payment")
+						? "tools/call"
+						: command;
 				for (const target of ["tedix", "unselected"]) {
 					vi.mocked(validateAuth).mockResolvedValueOnce({
 						type: "oauth",
@@ -362,16 +371,36 @@ describe("Connect compact protocol organization routing", () => {
 					if (method === "tools/call")
 						headers.set(
 							"Mcp-Name",
-							command === "get_info" ? "get_info" : row.toolId,
+							command.startsWith("code-payment")
+								? "code"
+								: command === "get_info"
+									? "get_info"
+									: row.toolId,
 						);
 					const body = (await original.json()) as {
 						params: Record<string, unknown>;
 					};
 					if (method === "tools/call")
 						Object.assign(body.params, {
-							name: command === "get_info" ? "get_info" : row.toolId,
-							arguments: command === "get_info" ? {} : { query: "" },
+							name: command.startsWith("code-payment")
+								? "code"
+								: command === "get_info"
+									? "get_info"
+									: row.toolId,
+							arguments: command.startsWith("code-payment")
+								? {
+										code: "async () => 1",
+										...(command === "code-payment"
+											? { payment: "offline-rejection-probe" }
+											: {}),
+									}
+								: command === "get_info"
+									? {}
+									: { query: "" },
 						});
+					if (command === "code-payment-meta")
+						(body.params._meta as Record<string, unknown>)["x402/payment"] =
+							"offline-rejection-probe";
 					const previousContexts = contextSpy.mock.calls.length;
 					const response = await worker.fetch(
 						new Request(original.url, {
@@ -394,6 +423,14 @@ describe("Connect compact protocol organization routing", () => {
 						target === "tedix" ? 200 : 403,
 					);
 					if (target === "tedix") {
+						if (command.startsWith("code-payment")) {
+							expect(
+								value.result?.isError === true || value.error !== undefined,
+								JSON.stringify(value),
+							).toBe(true);
+							expect(JSON.stringify(value)).toMatch(/payment|Payments/);
+							continue;
+						}
 						if (command === "get_info")
 							expect(value).toMatchObject({
 								result: {
@@ -412,11 +449,15 @@ describe("Connect compact protocol organization routing", () => {
 								},
 							});
 						expect(value.result?.isError).not.toBe(true);
-						if (method === "tools/list")
+						if (method === "tools/list") {
 							expect(value.result?.tools?.map((tool) => tool.name)).toContain(
 								row.toolId,
 							);
-						else expect(value.result?.structuredContent).toBeDefined();
+							const code = value.result?.tools?.find(
+								(tool) => tool.name === "code",
+							) as unknown as { inputSchema: { properties: object } };
+							expect(code.inputSchema.properties).not.toHaveProperty("payment");
+						} else expect(value.result?.structuredContent).toBeDefined();
 					} else {
 						expect(value.error).toBe("organization_target_invalid");
 						expect(JSON.stringify(value)).not.toContain(row.toolId);

@@ -189,6 +189,8 @@ export interface ServerContext {
 	// App identity (from cache)
 	readonly appId: string;
 	readonly appSlug: string;
+	/** Original server-resolved connection surface, preserved across organization projection. */
+	readonly connectionAppSlug?: string;
 	readonly app: McpApp;
 	readonly appMetadata: AppMetadata | null;
 	readonly appCapabilities: AppCapabilities;

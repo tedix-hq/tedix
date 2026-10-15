@@ -361,7 +361,11 @@ describe("Connect never pays", () => {
 		},
 	);
 	it("rejects inline metadata proofs even for an unpriced inner tool", async () => {
-		const agent = { ...agentWithoutDb(), appSlug: "connect" };
+		const agent = {
+			...agentWithoutDb(),
+			appSlug: "tenant-unified",
+			connectionAppSlug: "connect",
+		};
 		const outcome = await checkToolPayment({
 			agent,
 			tool: { config: null, meta: null } as AppTool,

@@ -1280,7 +1280,9 @@ export async function checkToolPayment(params: {
 	| { paid: false; result: TedixPaymentRequiredResult | CallToolResult }
 > {
 	if (
-		isNonPayingConnection(params.agent.appSlug) &&
+		isNonPayingConnection(
+			params.agent.connectionAppSlug ?? params.agent.appSlug,
+		) &&
 		(hasPaymentProof(undefined, params.extra?._meta) ||
 			getToolPaymentPolicy(params.tool))
 	) {
@@ -1297,7 +1299,11 @@ export async function checkToolPayment(params: {
 		tool: params.tool,
 	});
 	if (resolved.kind === "unpriced") return { paid: true };
-	if (isNonPayingConnection(params.agent.appSlug)) {
+	if (
+		isNonPayingConnection(
+			params.agent.connectionAppSlug ?? params.agent.appSlug,
+		)
+	) {
 		return {
 			paid: false,
 			result: {
