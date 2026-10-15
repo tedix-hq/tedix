@@ -2566,8 +2566,10 @@ export function ChatThread({
 			queryClient.invalidateQueries({
 				queryKey: homeMessagesQueryKey(conversationId),
 			});
-			// An approved write may have renamed or edited the workspace.
+			// An approved write may have renamed or edited the workspace or an
+			// output open beside the chat.
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() });
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
 		},
 		onError: (error) => {
 			setApprovalError(
@@ -2771,8 +2773,10 @@ export function ChatThread({
 		queryClient.invalidateQueries({
 			queryKey: homeMessagesQueryKey(conversationId),
 		});
-		// A chat turn may have renamed or edited the workspace around it.
+		// A chat turn may have renamed or edited the workspace around it, or
+		// the output open beside it.
 		queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() });
+		queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
 	}, [pendingRunId, runSet, conversationId, queryClient]);
 
 	const send = useMutation({
