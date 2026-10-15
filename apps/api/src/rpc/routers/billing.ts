@@ -1404,6 +1404,16 @@ const configureCreditBillingContract = os.configureCreditBilling
 			await import("./billing/credit-activation")
 		).configureCreditBillingHandler(context, input, actor);
 	});
+const repriceCreditBillingContract = os.repriceCreditBilling
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context, input }) => {
+		const actor = requirePlatformBillingAuthority(context);
+		return (
+			await import("./billing/credit-activation")
+		).repriceCreditBillingHandler(context, input, actor);
+	});
 export const billingContractRouter = os.router({
 	getInferenceSpending: os.getInferenceSpending
 		.use(withAuth)
@@ -1426,6 +1436,7 @@ export const billingContractRouter = os.router({
 			};
 		}),
 	configureCreditBilling: configureCreditBillingContract,
+	repriceCreditBilling: repriceCreditBillingContract,
 	revokeHistoricalFreshExecution: revokeHistoricalFreshExecutionContract,
 	listHistoricalExposures: listHistoricalExposuresContract,
 	recordHistoricalFreshDecision: recordHistoricalFreshDecisionContract,

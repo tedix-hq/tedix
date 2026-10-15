@@ -1,12 +1,18 @@
 /** Account-scoped credit pricing activation. Never publishes a catalog default. */
-import type { ConfigureCreditBillingInput } from "@tedix/api-contract/schemas/credit-billing-activation";
+import type {
+	ConfigureCreditBillingInput,
+	RepriceCreditBillingInput,
+} from "@tedix/api-contract/schemas/credit-billing-activation";
 import { MonetaryInferenceConfigSchema } from "@tedix/api-contract/schemas/billing";
 import { and, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { billingAccounts, billingPlanVersions } from "../../schema/billing";
 import { providerModelRateVersions } from "../../schema/provider-model-rates";
 import { getBillingEntitlement } from "./plans";
-import { eurMicrosFromUsd } from "./monetary-inference";
+import {
+	eurMicrosFromUsd,
+	monetaryInferenceConfig,
+} from "./monetary-inference";
 
 import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 
@@ -63,74 +69,12 @@ export async function configureCreditBilling(
 		);
 	if (input.perRunBudgetMicros > input.monthlyCapMicros)
 		throw new Error("Run budget exceeds monthly cap");
-	const ids = input.rateBindings.map((binding) => binding.rateVersionId);
-	if (new Set(ids).size !== ids.length)
-		throw new Error("Duplicate rate binding");
-	const rows = await db
-		.select()
-		.from(providerModelRateVersions)
-		// bound-params: the public contract limits rateBindings to 30 receipts.
-		.where(inArray(providerModelRateVersions.id, ids));
-	const config = MonetaryInferenceConfigSchema.parse({
-		version: 1,
-		currency: "EUR",
-		creditValueMicros: 10_000,
-		pricing: "provider_pass_through",
-		perRunBudgetMicros: input.perRunBudgetMicros,
-		rates: input.rateBindings.map((binding) => {
-			const row = rows.find((value) => value.id === binding.rateVersionId);
-			if (!row || row.effectiveFrom > now || row.publishedAt > now)
-				throw new Error("Published current pricing receipt required");
-			if (
-				binding.requestModelAliases.some(
-					(alias) => alias !== `openai/${row.modelId}`,
-				)
-			)
-				throw new Error("Unsupported model alias");
-			const prices = {
-				uncachedInput: row.inputMicrousdPerMillion,
-				output: row.outputMicrousdPerMillion,
-				cacheRead: row.cacheReadMicrousdPerMillion,
-				cacheWrite: row.cacheWriteMicrousdPerMillion,
-			};
-			const eur = (usd: number) =>
-				eurMicrosFromUsd(usd, input.fx.microUsdPerEur);
-			return {
-				schemaVersion: 1,
-				id: row.id,
-				version: 1,
-				provider: row.provider,
-				model: row.modelId,
-				deploymentScope: row.deploymentScope,
-				currency: row.currency,
-				customerCurrency: "EUR",
-				fx: input.fx,
-				funding: "managed",
-				effectiveFrom: row.effectiveFrom,
-				effectiveUntil: null,
-				sourceReceipt: row.evidenceUri,
-				providerRates: prices,
-				customerRates: {
-					uncachedInput: eur(prices.uncachedInput),
-					output: eur(prices.output),
-					cacheRead: eur(prices.cacheRead),
-					cacheWrite: eur(prices.cacheWrite),
-				},
-				creditValueMicros: 10_000,
-				inputConvention: binding.inputConvention,
-				requestModelAliases: binding.requestModelAliases,
-				inputTokenMin: row.inputTokenMin,
-				inputTokenMax: row.inputTokenMax,
-			};
-		}),
-	});
-	const [superseding] = await db
-		.select({ id: providerModelRateVersions.id })
-		.from(providerModelRateVersions)
-		// bound-params: the public contract limits rateBindings to 30 receipts.
-		.where(inArray(providerModelRateVersions.supersedesRateVersionId, ids))
-		.limit(1);
-	if (superseding) throw new Error("Pricing receipt has been superseded");
+	const config = await buildCreditPricing(
+		db,
+		input,
+		input.perRunBudgetMicros,
+		now,
+	);
 	const [version] = await db
 		.select({ value: sql<number>`COALESCE(MAX(version), 0) + 1` })
 		.from(billingPlanVersions)
@@ -218,6 +162,117 @@ export async function configureCreditBilling(
 	};
 }
 
+/**
+ * Supersede a live wallet's rate snapshot. The new private plan version clones
+ * the current one, so balance, included credits, cap and run budget carry over
+ * unchanged; reservations already admitted keep their pinned quotes.
+ */
+export async function repriceCreditBilling(
+	db: DbClient,
+	input: RepriceCreditBillingInput,
+	actor: string,
+	now: string,
+) {
+	const entitlement = await getBillingEntitlement(db, input.organizationId);
+	if (!entitlement) throw new Error("Billing account not found");
+	const { account, plan } = entitlement;
+	const request = JSON.stringify(input);
+	const privateId = `credit-plan:${input.organizationId}:${input.idempotencyKey}`;
+	const previous = account.metadata.creditBillingRepricing as
+		| { key?: string; request?: string; previousPlanVersionId?: string }
+		| undefined;
+	const response = (
+		current: typeof account,
+		previousPlanVersionId: string,
+		alreadyRepriced: boolean,
+	) => ({
+		organizationId: current.organizationId,
+		planVersionId: current.planVersionId,
+		previousPlanVersionId,
+		entitlementVersion: current.entitlementVersion,
+		creditBalanceMicros: current.creditBalanceMicros,
+		rateVersionIds: input.rateBindings.map((binding) => binding.rateVersionId),
+		alreadyRepriced,
+	});
+	if (previous?.key === input.idempotencyKey) {
+		if (previous.request !== request)
+			throw new Error("Repricing key reused with different input");
+		return response(account, previous.previousPlanVersionId ?? "", true);
+	}
+	const current = monetaryInferenceConfig(plan);
+	if (!current)
+		throw new Error("Credit billing is not configured; activate it first");
+	if (account.entitlementVersion !== input.expectedEntitlementVersion)
+		throw new Error("Billing entitlement changed; re-read before repricing");
+	if (account.status !== "active")
+		throw new Error("Repricing requires an active billing account");
+	const config = await buildCreditPricing(
+		db,
+		input,
+		current.perRunBudgetMicros,
+		now,
+	);
+	const [version] = await db
+		.select({ value: sql<number>`COALESCE(MAX(version), 0) + 1` })
+		.from(billingPlanVersions)
+		.where(eq(billingPlanVersions.planKey, plan.planKey));
+	const clone = {
+		...plan,
+		id: privateId,
+		version: version!.value,
+		status: "retired",
+		metadata: {
+			...plan.metadata,
+			monetaryInference: config,
+			privateOptIn: true,
+			supersedesPlanVersionId: plan.id,
+		},
+		effectiveAt: now,
+		createdAt: now,
+	};
+	const values = Object.keys(getColumns(billingPlanVersions)).map((key) => {
+		const value = clone[key as keyof typeof clone];
+		return sql`${typeof value === "object" && value !== null ? JSON.stringify(value) : typeof value === "boolean" ? Number(value) : value}`;
+	});
+	// One atomic batch: the plan exists only if the account CAS can move to it.
+	await db.batch([
+		db
+			.insert(billingPlanVersions)
+			.select(
+				sql`SELECT ${sql.join(values, sql`, `)} FROM billing_accounts WHERE organization_id = ${input.organizationId} AND entitlement_version = ${account.entitlementVersion} AND plan_version_id = ${plan.id}`,
+			),
+		db
+			.update(billingAccounts)
+			.set({
+				planVersionId: privateId,
+				entitlementVersion: account.entitlementVersion + 1,
+				metadata: {
+					...account.metadata,
+					creditBillingRepricing: {
+						key: input.idempotencyKey,
+						request,
+						actor,
+						reason: input.reason,
+						previousPlanVersionId: plan.id,
+						repricedAt: now,
+					},
+				},
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(billingAccounts.organizationId, input.organizationId),
+					eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+					eq(billingAccounts.planVersionId, plan.id),
+				),
+			),
+	]);
+	const updated = await getBillingEntitlement(db, input.organizationId);
+	if (updated?.account.planVersionId !== privateId)
+		throw new Error("Repricing lost its entitlement fence; re-read and retry");
+	return response(updated.account, plan.id, false);
+}
+
 /** Paid service coverage is never inferred from an active subscription status. */
 export async function recordPaidCreditCoverage(
 	db: DbClient,
@@ -280,4 +335,84 @@ export async function recordPaidCreditCoverage(
 	]);
 	if (!result.length)
 		throw new Error("Paid coverage lost entitlement fence; retry invoice");
+}
+
+/** Binds published USD receipts into an EUR wallet rate snapshot at one FX rate. */
+async function buildCreditPricing(
+	db: DbClient,
+	input: Pick<ConfigureCreditBillingInput, "fx" | "rateBindings">,
+	perRunBudgetMicros: number | undefined,
+	now: string,
+) {
+	const ids = input.rateBindings.map((binding) => binding.rateVersionId);
+	if (new Set(ids).size !== ids.length)
+		throw new Error("Duplicate rate binding");
+	const rows = await db
+		.select()
+		.from(providerModelRateVersions)
+		// bound-params: the public contract limits rateBindings to 30 receipts.
+		.where(inArray(providerModelRateVersions.id, ids));
+	const config = MonetaryInferenceConfigSchema.parse({
+		version: 1,
+		currency: "EUR",
+		creditValueMicros: 10_000,
+		pricing: "provider_pass_through",
+		perRunBudgetMicros,
+		rates: input.rateBindings.map((binding) => {
+			const row = rows.find((value) => value.id === binding.rateVersionId);
+			if (!row || row.effectiveFrom > now || row.publishedAt > now)
+				throw new Error("Published current pricing receipt required");
+			if (
+				binding.requestModelAliases.some(
+					(alias) =>
+						alias !== `openai/${row.modelId}` &&
+						!(alias === "cloudflare/auto" && row.provider === "workers-ai"),
+				)
+			)
+				throw new Error("Unsupported model alias");
+			const prices = {
+				uncachedInput: row.inputMicrousdPerMillion,
+				output: row.outputMicrousdPerMillion,
+				cacheRead: row.cacheReadMicrousdPerMillion,
+				cacheWrite: row.cacheWriteMicrousdPerMillion,
+			};
+			const eur = (usd: number) =>
+				eurMicrosFromUsd(usd, input.fx.microUsdPerEur);
+			return {
+				schemaVersion: 1,
+				id: row.id,
+				version: 1,
+				provider: row.provider,
+				model: row.modelId,
+				deploymentScope: row.deploymentScope,
+				currency: row.currency,
+				customerCurrency: "EUR",
+				fx: input.fx,
+				funding: "managed",
+				effectiveFrom: row.effectiveFrom,
+				effectiveUntil: null,
+				sourceReceipt: row.evidenceUri,
+				providerRates: prices,
+				customerRates: {
+					uncachedInput: eur(prices.uncachedInput),
+					output: eur(prices.output),
+					cacheRead: eur(prices.cacheRead),
+					cacheWrite: eur(prices.cacheWrite),
+				},
+				creditValueMicros: 10_000,
+				inputConvention: binding.inputConvention,
+				requestModelAliases: binding.requestModelAliases,
+				inputTokenMin: row.inputTokenMin,
+				inputTokenMax: row.inputTokenMax,
+			};
+		}),
+	});
+	const [superseding] = await db
+		.select({ id: providerModelRateVersions.id })
+		.from(providerModelRateVersions)
+		// bound-params: the public contract limits rateBindings to 30 receipts.
+		.where(inArray(providerModelRateVersions.supersedesRateVersionId, ids))
+		.limit(1);
+	if (superseding) throw new Error("Pricing receipt has been superseded");
+	return config;
 }

@@ -23,6 +23,7 @@
 import { decodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import {
 	AutoRouterExecutionPolicySchema,
+	autoRoutedPricingIdentity,
 	readProviderExecutionIdentity,
 } from "@tedix/api-contract/schemas/provider-execution";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -599,13 +600,22 @@ async function ingestGateway(
 			))
 				? candidate
 				: null;
+			// Auto Router calls are priced by the model the Gateway routed to.
+			const routed =
+				execution && row.provider === "workers-ai"
+					? autoRoutedPricingIdentity(
+							readProviderExecutionIdentity(execution),
+							row.model,
+						)
+					: null;
 			const priced = execution
 				? await priceProviderUsage(
 						env,
 						{
 							provider: execution.provider,
-							modelId: execution.requestModel,
-							deploymentScope: execution.deploymentScope,
+							modelId: routed?.modelId ?? execution.requestModel,
+							deploymentScope:
+								routed?.deploymentScope ?? execution.deploymentScope,
 							occurredAt: row.created_at,
 						},
 						normalizeGatewayTokenUsage(row),

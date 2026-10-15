@@ -12,6 +12,9 @@ import {
 	stripeMeterOutbox,
 } from "../../schema/billing";
 import { providerModelRateVersions } from "../../schema/provider-model-rates";
+import { providerExecutionAttempts } from "../../schema/provider-executions";
+import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-execution";
+import { prepareKernelAutoRoutingAdmission } from "../provider-executions";
 import { organizations } from "../../schema/organizations";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -398,5 +401,112 @@ describe("opt-in monetary inference", () => {
 		await expect(
 			settleBillingUsage(db, usage("one", "different")),
 		).rejects.toThrow("cannot settle");
+	});
+});
+
+describe("Auto Router on a credit wallet", () => {
+	const routedRate = {
+		...rate,
+		id: "routed-price-1",
+		provider: "workers-ai",
+		model: "@cf/fictional/routed",
+		deploymentScope: JSON.stringify(["workers-ai", "account"]),
+		sourceReceipt: "routed-receipt",
+		requestModelAliases: ["cloudflare/auto"],
+	};
+	function autoSetup() {
+		const fixture = setup();
+		fixture.sqlite.exec(schemaDdl(providerExecutionAttempts));
+		fixture.sqlite
+			.exec(`INSERT INTO provider_model_rate_versions(id,provider,model_id,deployment_scope,effective_from,input_microusd_per_million,output_microusd_per_million,cache_read_microusd_per_million,cache_write_microusd_per_million,currency,evidence_uri,evidence_digest,verified_at,published_at,published_by,change_reason)
+ VALUES ('routed-price-1','workers-ai','@cf/fictional/routed','["workers-ai","account"]','2026-10-01T00:00:00.000Z',1000000,5000000,100000,2000000,'USD','routed-receipt','digest','${now}','${now}','test','fixture');`);
+		fixture.sqlite
+			.prepare("UPDATE billing_plan_versions SET metadata=? WHERE id='plan'")
+			.run(
+				JSON.stringify({
+					monetaryInference: {
+						version: 1,
+						currency: "EUR",
+						creditValueMicros: 10_000,
+						pricing: "provider_pass_through",
+						rates: [rate, routedRate],
+					},
+				}),
+			);
+		return fixture;
+	}
+	async function autoReservation(id: string, allowedModels: string[] | null) {
+		const identity = {
+			provider: "workers-ai" as const,
+			requestModel: "cloudflare/auto",
+			gatewayAccountId: "account",
+			gatewayId: "gateway",
+			transportKind: "gateway-https" as const,
+			apiKind: "workers-ai-chat" as const,
+			providerResource: null,
+			providerOrigin: null,
+			deployment: null,
+			autoRouting: {
+				version: 1 as const,
+				modality: "text" as const,
+				mode: allowedModels
+					? ("restricted" as const)
+					: ("unrestricted" as const),
+				allowedProviders: allowedModels ? ["workers-ai"] : null,
+				allowedModels,
+			},
+		};
+		const prepared = await prepareKernelAutoRoutingAdmission({
+			...identity,
+			id: `execution:${id}`,
+			organizationId: "org",
+			source: "kernel",
+			idempotencyKey: `key:${id}`,
+			settlementMode: "managed",
+			billingReservationId: id,
+			authorizedAt: now,
+			sendBefore: "2026-10-11T12:10:00.000Z",
+			deploymentScope: providerDeploymentScope(identity),
+		});
+		return {
+			...reservation(id),
+			provider: "workers-ai",
+			model: "cloudflare/auto",
+			deploymentScope: undefined,
+			execution: prepared.execution,
+			executionGuard: prepared.guard,
+		};
+	}
+	it("prices Auto at the one model its routing can reach and settles by the routed model", async () => {
+		const { db } = autoSetup();
+		expect(
+			await reserveBillingUsage(
+				db,
+				await autoReservation("auto", ["@cf/fictional/routed"]),
+			),
+		).toMatchObject({ allowed: true });
+		const charge = await settleBillingUsage(db, {
+			...usage("auto"),
+			provider: "workers-ai",
+			model: "@cf/fictional/routed",
+			rateCardVersion: "routed-price-1",
+		});
+		expect(charge.metadata).toMatchObject({
+			monetaryQuote: { rateSnapshot: { id: "routed-price-1" } },
+		});
+	});
+	it("refuses Auto when its routing could reach a model the wallet has not priced", async () => {
+		const { db } = autoSetup();
+		for (const [id, allowed] of [
+			["open", null],
+			["wide", ["@cf/fictional/routed", "@cf/fictional/other"]],
+			["other", ["@cf/fictional/other"]],
+		] as const)
+			expect(
+				await reserveBillingUsage(
+					db,
+					await autoReservation(id, allowed === null ? null : [...allowed]),
+				),
+			).toMatchObject({ allowed: false, code: "pricing_unavailable" });
 	});
 });

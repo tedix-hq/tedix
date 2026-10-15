@@ -14,7 +14,9 @@ import { schemaDdl } from "../../test/schema-ddl";
 import {
 	configureCreditBilling,
 	recordPaidCreditCoverage,
+	repriceCreditBilling,
 } from "./credit-activation";
+import { monetaryInferenceConfig } from "./monetary-inference";
 import { buildIncludedCreditPeriodGrant } from "./credit-periods";
 import {
 	getActiveBillingPlanByKey,
@@ -304,5 +306,107 @@ describe("account-scoped credit billing activation", () => {
 		expect(
 			sqlite.prepare("SELECT COUNT(*) n FROM billing_credit_entries").get(),
 		).toMatchObject({ n: 3 });
+	});
+});
+
+describe("live credit wallet repricing", () => {
+	const reprice = {
+		organizationId: "org",
+		expectedEntitlementVersion: 2,
+		idempotencyKey: "reprice-one",
+		reason: "Price the Auto Router model",
+		fx: input.fx,
+		rateBindings: [
+			...input.rateBindings,
+			{
+				rateVersionId: "routed",
+				inputConvention: "inclusive" as const,
+				requestModelAliases: ["cloudflare/auto"],
+			},
+		],
+	};
+	function withRoutedReceipt() {
+		const fixture = setup();
+		fixture.sqlite.exec(
+			`INSERT INTO provider_model_rate_versions(id,provider,model_id,deployment_scope,effective_from,input_microusd_per_million,output_microusd_per_million,cache_read_microusd_per_million,cache_write_microusd_per_million,currency,evidence_uri,evidence_digest,verified_at,published_at,published_by,change_reason) VALUES ('routed','workers-ai','@cf/fictional/routed','["workers-ai","acct"]','2026-10-01T00:00:00.000Z',950000,4000000,190000,0,'USD','routed-url','digest','${now}','${now}','test','fixture');`,
+		);
+		return fixture;
+	}
+	it("supersedes the rate snapshot without touching balance, cap, or budgets", async () => {
+		const { db } = withRoutedReceipt();
+		await configureCreditBilling(db, input, "owner", now);
+		const before = await getBillingEntitlement(db, "org");
+		const result = await repriceCreditBilling(db, reprice, "operator", now);
+		const after = await getBillingEntitlement(db, "org");
+		expect(result).toMatchObject({
+			previousPlanVersionId: before!.account.planVersionId,
+			planVersionId: "credit-plan:org:reprice-one",
+			entitlementVersion: 3,
+			creditBalanceMicros: before!.account.creditBalanceMicros,
+			alreadyRepriced: false,
+		});
+		expect(after!.account.hardSpendLimitMicros).toBe(
+			before!.account.hardSpendLimitMicros,
+		);
+		expect(after!.plan.includedMonthlyCreditMicros).toBe(
+			before!.plan.includedMonthlyCreditMicros,
+		);
+		const config = monetaryInferenceConfig(after!.plan)!;
+		expect(config.perRunBudgetMicros).toBe(input.perRunBudgetMicros);
+		expect(config.rates.map((rate) => rate.id)).toEqual(["receipt", "routed"]);
+		expect(after!.plan.metadata.supersedesPlanVersionId).toBe(
+			before!.account.planVersionId,
+		);
+		expect(
+			await repriceCreditBilling(db, reprice, "operator", now),
+		).toMatchObject({ alreadyRepriced: true, entitlementVersion: 3 });
+		await expect(
+			repriceCreditBilling(
+				db,
+				{ ...reprice, reason: "different" },
+				"operator",
+				now,
+			),
+		).rejects.toThrow("different input");
+	});
+	it("refuses an account without a wallet, a stale version, and a foreign alias", async () => {
+		const { db } = withRoutedReceipt();
+		await expect(
+			repriceCreditBilling(
+				db,
+				{ ...reprice, expectedEntitlementVersion: 1 },
+				"operator",
+				now,
+			),
+		).rejects.toThrow("not configured");
+		await configureCreditBilling(db, input, "owner", now);
+		await expect(
+			repriceCreditBilling(
+				db,
+				{ ...reprice, expectedEntitlementVersion: 1 },
+				"operator",
+				now,
+			),
+		).rejects.toThrow("re-read");
+		await expect(
+			repriceCreditBilling(
+				db,
+				{
+					...reprice,
+					rateBindings: [
+						{
+							rateVersionId: "receipt",
+							inputConvention: "inclusive",
+							requestModelAliases: ["cloudflare/auto"],
+						},
+					],
+				},
+				"operator",
+				now,
+			),
+		).rejects.toThrow("Unsupported model alias");
+		expect(
+			(await getBillingEntitlement(db, "org"))?.account.entitlementVersion,
+		).toBe(2);
 	});
 });
