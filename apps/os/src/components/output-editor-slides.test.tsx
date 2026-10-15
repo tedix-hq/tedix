@@ -304,9 +304,32 @@ describe("SlidesEditor", () => {
 			),
 		).toBe(true);
 		expect(next?.slides[0]?.title).toBe("Launch");
+		// Position and size sit behind the Advanced disclosure.
+		expect(
+			mounted.container.querySelector('[aria-label="Element x"]'),
+		).toBeNull();
+		const advanced = Array.from(
+			mounted.container.querySelectorAll("button"),
+		).find((button) => button.textContent?.trim() === "Advanced");
+		await act(async () => {
+			advanced?.click();
+			await Promise.resolve();
+		});
 		expect(
 			mounted.container.querySelector('[aria-label="Element x"]'),
 		).not.toBeNull();
+		mounted.cleanup();
+	});
+
+	it("adds the standard content slide in one click", () => {
+		const mounted = mountEditor(content([{ title: "Launch", bullets: [] }]));
+		const add = Array.from(mounted.container.querySelectorAll("button")).find(
+			(button) => button.textContent?.trim() === "Add slide",
+		);
+		act(() => add?.click());
+		const next = mounted.emitted.at(-1);
+		expect(next?.deck?.slides).toHaveLength(2);
+		expect(next?.deck?.slides[1]?.layout).toBe("title-content");
 		mounted.cleanup();
 	});
 
@@ -320,7 +343,7 @@ describe("SlidesEditor", () => {
 			await Promise.resolve();
 		});
 		const option = Array.from(
-			document.querySelectorAll('[role="option"]'),
+			document.querySelectorAll('[role="menuitem"]'),
 		).find((candidate) => candidate.textContent === "Four card") as
 			| HTMLElement
 			| undefined;
@@ -351,11 +374,18 @@ describe("SlidesEditor", () => {
 			).find((button) => button.textContent?.trim() === panel);
 			act(() => toggle?.click());
 		}
+		// The toolbar keeps disabled controls focusable, so the menu trigger
+		// reports aria-disabled rather than the native attribute.
 		expect(
-			mounted.container.querySelector<HTMLButtonElement>(
-				'[aria-label="New slide template"]',
-			)?.disabled,
-		).toBe(true);
+			mounted.container
+				.querySelector('[aria-label="New slide template"]')
+				?.getAttribute("aria-disabled"),
+		).toBe("true");
+		expect(
+			Array.from(mounted.container.querySelectorAll("button"))
+				.find((button) => button.textContent?.trim() === "Add slide")
+				?.getAttribute("aria-disabled"),
+		).toBe("true");
 		expect(
 			mounted.container.querySelector<HTMLTextAreaElement>(
 				'[aria-label="Speaker notes"]',
@@ -779,6 +809,147 @@ describe("SlidesEditor", () => {
 			ctrlKey: true,
 		});
 		expect(count()).toBe(before);
+		mounted.cleanup();
+	});
+
+	it("keeps the slide rail open while an element is inspected", () => {
+		const mounted = mountEditor();
+		const element = mounted.container.querySelector<HTMLElement>(
+			".slides-editor-stage [data-slide-element]",
+		)!;
+		act(() => element.click());
+		const layout = mounted.container.querySelector(".slides-editor-layout")!;
+		expect(layout.hasAttribute("data-show-thumbnails")).toBe(true);
+		expect(layout.hasAttribute("data-show-inspector")).toBe(true);
+		expect(
+			mounted.container.querySelector<HTMLElement>(".slides-editor-thumbnails")
+				?.hidden,
+		).toBe(false);
+		// Both panes at once have their own three-column track.
+		const css = readFileSync("src/styles.css", "utf8");
+		expect(css).toMatch(
+			/\.slides-editor-layout\[data-show-thumbnails\]\[data-show-inspector\] \{\n\t\tgrid-template-columns: 11rem minmax\(0, 1fr\) 15rem;/,
+		);
+		// The inspector scrolls inside its panel; the action row stays outside it.
+		expect(
+			mounted.container
+				.querySelector(".slide-inspector-scroll")
+				?.className.includes("overflow-y-auto"),
+		).toBe(true);
+		expect(
+			mounted.container.querySelector(
+				".slide-inspector-scroll [aria-label='Delete element']",
+			),
+		).toBeNull();
+		expect(
+			mounted.container.querySelector(
+				".slide-inspector-actions [aria-label='Delete element']",
+			),
+		).not.toBeNull();
+		mounted.cleanup();
+	});
+
+	it("changes slides with the keyboard only while nothing is selected", () => {
+		const mounted = mountEditor();
+		const root =
+			mounted.container.querySelector<HTMLElement>(".slides-editor")!;
+		const stageText = () =>
+			mounted.container.querySelector(".slides-editor-stage")?.textContent;
+		const press = (target: Element, key: string) =>
+			act(() => {
+				target.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			});
+		press(root, "ArrowRight");
+		expect(stageText()).toContain("Q4");
+		press(root, "Home");
+		expect(stageText()).toContain("Q3");
+		press(root, "End");
+		expect(stageText()).toContain("Q4");
+		press(root, "PageUp");
+		expect(stageText()).toContain("Q3");
+		// With an element selected the arrows nudge it instead.
+		const element = mounted.container.querySelector<HTMLElement>(
+			".slides-editor-stage [data-slide-element]",
+		)!;
+		press(element, "Enter");
+		press(element, "ArrowRight");
+		expect(stageText()).toContain("Q3");
+		// Browsing never edited the document; the one edit is the nudge.
+		expect(mounted.emitted).toHaveLength(1);
+		expect(mounted.emitted[0]?.deck?.slides[0]?.elements[0]?.x).toBe(73);
+		mounted.cleanup();
+	});
+
+	it("presents with F, jumps to a slide, shows notes, and unwinds Escape in order", () => {
+		const mounted = mountEditor();
+		const root =
+			mounted.container.querySelector<HTMLElement>(".slides-editor")!;
+		const key = (target: Element, value: string) =>
+			act(() => {
+				target.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key: value,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			});
+		// Select an element first, so Escape has a selection to clear.
+		const element = mounted.container.querySelector<HTMLElement>(
+			".slides-editor-stage [data-slide-element]",
+		)!;
+		act(() => element.click());
+		key(root, "f");
+		const dialog = () =>
+			document.querySelector<HTMLElement>('[aria-label="Presentation mode"]');
+		expect(dialog()).not.toBeNull();
+		// Notes toggle shows the current slide's notes.
+		const notes = Array.from(dialog()!.querySelectorAll("button")).find(
+			(button) => button.textContent?.includes("Notes"),
+		)!;
+		act(() => notes.click());
+		expect(
+			dialog()!.querySelector('[aria-label="Speaker notes"]')?.textContent,
+		).toBe("Pause");
+		// The jump menu goes straight to a slide.
+		act(() =>
+			dialog()!
+				.querySelector<HTMLButtonElement>('[aria-label="Jump to slide"]')!
+				.click(),
+		);
+		act(() =>
+			dialog()!
+				.querySelector<HTMLButtonElement>('[aria-label="Slide 2: Q4"]')!
+				.click(),
+		);
+		expect(dialog()!.textContent).toContain("2 / 2");
+		// Escape: menu, then selection, then exit.
+		act(() =>
+			dialog()!
+				.querySelector<HTMLButtonElement>('[aria-label="Jump to slide"]')!
+				.click(),
+		);
+		key(dialog()!, "Escape");
+		expect(dialog()!.querySelector('nav[aria-label="Slides"]')).toBeNull();
+		expect(element.dataset.selected).toBe("true");
+		key(dialog()!, "Escape");
+		expect(dialog()).not.toBeNull();
+		expect(
+			mounted.container.querySelector("[data-slide-element][data-selected]"),
+		).toBeNull();
+		key(dialog()!, "Escape");
+		expect(dialog()).toBeNull();
+		// F toggles it back off as well.
+		key(root, "f");
+		expect(dialog()).not.toBeNull();
+		key(dialog()!, "F");
+		expect(dialog()).toBeNull();
 		mounted.cleanup();
 	});
 

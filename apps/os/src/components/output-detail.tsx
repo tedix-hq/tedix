@@ -322,7 +322,12 @@ export function OutputDetailPage() {
 						</PageActions>
 					</PageHeader>
 					{saveFeedback}
-					<OutputContentView content={detail.data.currentRevision.content} />
+					<OutputContentView
+						content={detail.data.currentRevision.content}
+						onEdit={
+							detail.data.output.status === "active" ? startEditing : undefined
+						}
+					/>
 				</>
 			)}
 		</Page>

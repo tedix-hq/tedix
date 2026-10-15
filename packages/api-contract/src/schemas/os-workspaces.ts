@@ -998,6 +998,12 @@ export const OsPresentationElementSchema = z.object({
 				.max(360)
 				.optional()
 				.describe("Rotation in degrees; omitted for no rotation"),
+			fit: z
+				.enum(["contain", "cover"])
+				.optional()
+				.describe(
+					"How an image or SVG fills its box: cover crops to fill; omitted for contain",
+				),
 		})
 		.default({}),
 });

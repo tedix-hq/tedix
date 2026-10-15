@@ -12,6 +12,10 @@ import { ensureSlideFontLoaded } from "@/lib/slide-fonts";
 export const SLIDE_ELEMENT_CLASS =
 	"absolute overflow-hidden whitespace-pre-wrap [overflow-wrap:break-word]";
 
+export function slideImageFitClass(element: OsPresentationElement) {
+	return element.style.fit === "cover" ? "object-cover" : "object-contain";
+}
+
 export function useSlideElementFont(fontFamily: string | undefined) {
 	useEffect(() => ensureSlideFontLoaded(fontFamily), [fontFamily]);
 }
@@ -69,7 +73,7 @@ export function ReadOnlyElement({
 				<img
 					src={src}
 					alt={element.text ?? "Slide visual"}
-					className="h-full w-full object-contain"
+					className={`h-full w-full ${slideImageFitClass(element)}`}
 				/>
 			) : element.type === "arrow" ? (
 				<SlideArrow element={element} />

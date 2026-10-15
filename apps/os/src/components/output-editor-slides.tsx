@@ -1,18 +1,12 @@
 import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
 import {
-	ArrowDown,
-	ArrowLeft,
-	ArrowRight,
 	ArrowUDownLeft,
 	ArrowUDownRight,
-	ArrowUp,
-	ArrowsOut,
-	Copy,
+	CaretDown,
 	Play,
 	Plus,
 	SidebarSimple,
 	SlidersHorizontal,
-	Trash,
 } from "@phosphor-icons/react";
 import type {
 	OsPresentationCanvasSlide,
@@ -28,31 +22,34 @@ import {
 	templateSlide,
 } from "@/components/output-editor-slide-list";
 import { Button } from "@/components/kumo/button";
-import { Input } from "@/components/kumo/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
 import { Surface } from "@/components/kumo/surface";
 import { Toolbar } from "@/components/kumo/toolbar";
 import {
-	ReadOnlyElement,
 	SlideArrow,
 	SlideText,
 	SLIDE_ELEMENT_CLASS,
+	slideImageFitClass,
 	useSlideElementFont,
 } from "@/components/output-slide-element";
+import {
+	bareKey,
+	ownsSlideKeys,
+	slideNavigationTarget,
+} from "@/components/slide-navigation";
+import { SlideInspector } from "@/components/slide-inspector";
+import { SlidePresenter } from "@/components/slide-presenter";
 import {
 	EditorHistoryNotice,
 	EditorToolbar,
 	EditorToolbarButton,
 	EditorToolbarDivider,
 } from "@/components/output-editor-toolbar";
-import { Textarea } from "@/components/kumo/textarea";
-import { Text } from "@/components/kumo/text";
 import {
 	createOutputNodeId,
 	normalizePresentationContent,
@@ -74,10 +71,7 @@ import {
 	computeSnapTargets,
 	type SnapTargets,
 } from "@/components/slide-snap";
-import {
-	SlideImageUploadButton,
-	SlideInsertLibrary,
-} from "@/components/slide-insert-library";
+import { SlideInsertLibrary } from "@/components/slide-insert-library";
 import {
 	centeredSlidePosition,
 	fileToSlideImageSource,
@@ -88,7 +82,17 @@ import {
 const MAX_SLIDES = 200;
 /** Screen pixels a press travels before it drags rather than clicks. */
 const DRAG_THRESHOLD = 3;
-const MAX_NOTES_LENGTH = 10_000;
+/** The layouts the Add slide caret offers; the button itself adds the first. */
+const SLIDE_LAYOUTS = [
+	["title-content", "Title + content"],
+	["title", "Title"],
+	["two-column", "Two column"],
+	["four-card", "Four card"],
+	["blank", "Blank"],
+] as const satisfies readonly (readonly [
+	OsPresentationCanvasSlide["layout"],
+	string,
+])[];
 export const PRESENTATION_ELEMENT_TYPES = [
 	"title",
 	"subtitle",
@@ -402,7 +406,7 @@ function SlideElementView({
 					<img
 						src={imageSource}
 						alt={current.text ?? "Slide visual"}
-						className="h-full w-full object-contain"
+						className={`h-full w-full ${slideImageFitClass(current)}`}
 						draggable={false}
 					/>
 				) : current.type === "arrow" ? (
@@ -582,7 +586,6 @@ export function SlidesEditor({
 		);
 		setSelectedElementId(element.id);
 		setShowInspector(true);
-		setShowThumbnails(false);
 	};
 	const runElementAction = (action: SlideElementAction) => {
 		if (!activeSlide) return false;
@@ -672,6 +675,31 @@ export function SlidesEditor({
 			}}
 			onKeyDown={(event) => {
 				const target = event.target as HTMLElement;
+				// Slide keys apply when no element is selected and the key does not
+				// belong to a control: F presents, and the navigation keys change
+				// slides. With an element selected, the arrows nudge it instead.
+				if (!ownsSlideKeys(target)) {
+					if (bareKey(event) === "f") {
+						event.preventDefault();
+						setPresenting(true);
+						return;
+					}
+					const slideTarget =
+						selectedElement ||
+						event.key.startsWith("ArrowU") ||
+						event.key === "ArrowDown"
+							? null
+							: slideNavigationTarget(
+									event.key,
+									deck.slides.indexOf(activeSlide),
+									deck.slides.length,
+								);
+					if (slideTarget !== null) {
+						event.preventDefault();
+						setViewedSlideId(deck.slides[slideTarget]!.id);
+						return;
+					}
+				}
 				if (
 					disabled ||
 					target.isContentEditable ||
@@ -771,29 +799,37 @@ export function SlidesEditor({
 				</EditorToolbarButton>
 				<EditorHistoryNotice notice={history.notice} />
 				<EditorToolbarDivider />
-				<Select
-					disabled={disabled}
-					value=""
-					onValueChange={(value) => {
-						if (value)
-							addTemplate(value as OsPresentationCanvasSlide["layout"]);
-					}}
-				>
-					<SelectTrigger
-						aria-label="New slide template"
-						className="w-32"
-						size="sm"
+				{/* Split button: one click adds the standard content slide; the
+				    caret picks another layout. */}
+				<div className="slides-add-split flex items-center">
+					<Toolbar.Button
+						type="button"
+						disabled={disabled}
+						onClick={() => addTemplate("title-content")}
 					>
-						<SelectValue>{() => "Add slide…"}</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="blank">Blank</SelectItem>
-						<SelectItem value="title">Title</SelectItem>
-						<SelectItem value="title-content">Title + content</SelectItem>
-						<SelectItem value="two-column">Two column</SelectItem>
-						<SelectItem value="four-card">Four card</SelectItem>
-					</SelectContent>
-				</Select>
+						<Plus size={14} /> Add slide
+					</Toolbar.Button>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							disabled={disabled}
+							render={
+								<Toolbar.Button type="button" aria-label="New slide template" />
+							}
+						>
+							<CaretDown size={12} />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="start">
+							{SLIDE_LAYOUTS.map(([layout, label]) => (
+								<DropdownMenuItem
+									key={layout}
+									onClick={() => addTemplate(layout)}
+								>
+									{label}
+								</DropdownMenuItem>
+							))}
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
 				<SlideInsertLibrary
 					disabled={disabled}
 					onInsert={addElement}
@@ -810,20 +846,14 @@ export function SlidesEditor({
 				<EditorToolbarButton
 					label="Slide rail"
 					active={showThumbnails}
-					onClick={() => {
-						setShowThumbnails((visible) => !visible);
-						if (!showThumbnails) setShowInspector(false);
-					}}
+					onClick={() => setShowThumbnails((visible) => !visible)}
 				>
 					<SidebarSimple size={15} />
 				</EditorToolbarButton>
 				<EditorToolbarButton
 					label="Inspector"
 					active={showInspector}
-					onClick={() => {
-						setShowInspector((visible) => !visible);
-						if (!showInspector) setShowThumbnails(false);
-					}}
+					onClick={() => setShowInspector((visible) => !visible)}
 				>
 					<SlidersHorizontal size={15} />
 				</EditorToolbarButton>
@@ -867,6 +897,16 @@ export function SlidesEditor({
 				</aside>
 				<main
 					className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6"
+					onPointerDown={(event) => {
+						// A press on the empty stage hands the keyboard to the editor,
+						// so slide navigation and F work right after deselecting.
+						if (!(event.target as HTMLElement).closest("[data-slide-element]"))
+							(
+								event.currentTarget.closest(
+									'[data-editor="presentation-canvas"]',
+								) as HTMLElement | null
+							)?.focus({ preventScroll: true });
+					}}
 					onDragOver={(event) => {
 						if (disabled || !event.dataTransfer.types.includes("Files")) return;
 						event.preventDefault();
@@ -897,470 +937,42 @@ export function SlidesEditor({
 						disabled={disabled}
 						onSelect={(id) => {
 							setSelectedElementId(id);
-							if (id) {
-								setShowInspector(true);
-								setShowThumbnails(false);
-							}
+							if (id) setShowInspector(true);
 						}}
 						onChangeElement={(next) => updateElement(next)}
 						onGeometryCommit={(next) => updateElement(next)}
 					/>
 				</main>
 				<aside
-					className="slides-editor-chrome slides-editor-inspector grid min-w-0 content-start gap-3 p-3"
+					className="slides-editor-chrome slides-editor-inspector grid min-w-0"
 					hidden={!showInspector}
 				>
-					<div>
-						<label className="text-kumo-subtle text-xs" htmlFor="slide-name">
-							Slide name
-						</label>
-						<Input
-							id="slide-name"
-							aria-label="Slide name"
-							value={activeSlide.name}
-							disabled={disabled}
-							onChange={(event) =>
-								commitDeck(
-									replaceActiveSlide(deck, {
-										...activeSlide,
-										name: event.target.value.slice(0, 200),
-									}),
-								)
-							}
-						/>
-					</div>
-					<Text as="label" role="label" tone="secondary" className="grid gap-1">
-						Background
-						<Input
-							type="color"
-							aria-label="Slide background"
-							disabled={disabled}
-							value={activeSlide.background}
-							onChange={(event) =>
-								commitDeck(
-									replaceActiveSlide(deck, {
-										...activeSlide,
-										background: event.target.value,
-									}),
-								)
-							}
-						/>
-					</Text>
-					{selectedElement ? (
-						<>
-							<Text role="body" weight="medium" className="m-0 capitalize">
-								{selectedElement.type}
-							</Text>
-							<div className="grid grid-cols-2 gap-2">
-								{(["x", "y", "width", "height"] as const).map((key) => (
-									<Text
-										as="label"
-										key={key}
-										role="label"
-										tone="secondary"
-										className="grid gap-1"
-									>
-										<span className="uppercase">{key}</span>
-										<Input
-											type="number"
-											aria-label={`Element ${key}`}
-											value={Math.round(selectedElement[key])}
-											disabled={disabled}
-											onChange={(event) =>
-												updateElement({
-													...selectedElement,
-													[key]: Number(event.target.value),
-												})
-											}
-										/>
-									</Text>
-								))}
-							</div>
-							<Text
-								as="label"
-								role="label"
-								tone="secondary"
-								className="grid gap-1"
-							>
-								Font size
-								<Input
-									type="number"
-									aria-label="Element font size"
-									min={8}
-									max={180}
-									value={selectedElement.style.fontSize ?? 24}
-									disabled={disabled}
-									onChange={(event) =>
-										updateElement({
-											...selectedElement,
-											style: {
-												...selectedElement.style,
-												fontSize: Number(event.target.value),
-											},
-										})
-									}
-								/>
-							</Text>
-							<Text
-								as="label"
-								role="label"
-								tone="secondary"
-								className="grid gap-1"
-							>
-								Font weight
-								<Select
-									disabled={disabled}
-									value={selectedElement.style.fontWeight ?? "normal"}
-									onValueChange={(value) => {
-										if (value)
-											updateElement({
-												...selectedElement,
-												style: {
-													...selectedElement.style,
-													fontWeight: value as NonNullable<
-														OsPresentationElement["style"]["fontWeight"]
-													>,
-												},
-											});
-									}}
-								>
-									<SelectTrigger aria-label="Element font weight">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										{(
-											["light", "normal", "medium", "semibold", "bold"] as const
-										).map((value) => (
-											<SelectItem
-												key={value}
-												value={value}
-												className="capitalize"
-											>
-												{value}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</Text>
-							<Text
-								as="label"
-								role="label"
-								tone="secondary"
-								className="grid gap-1"
-							>
-								Border style
-								<Select
-									disabled={disabled}
-									value={selectedElement.style.borderStyle ?? "solid"}
-									onValueChange={(value) => {
-										if (value)
-											updateElement({
-												...selectedElement,
-												style: {
-													...selectedElement.style,
-													borderStyle: value as NonNullable<
-														OsPresentationElement["style"]["borderStyle"]
-													>,
-												},
-											});
-									}}
-								>
-									<SelectTrigger aria-label="Element border style">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										{(["solid", "dashed", "dotted"] as const).map((value) => (
-											<SelectItem
-												key={value}
-												value={value}
-												className="capitalize"
-											>
-												{value}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</Text>
-							{(
-								[
-									{
-										key: "lineHeight",
-										label: "Line height",
-										min: 0.1,
-										max: undefined,
-										step: 0.1,
-									},
-									{
-										key: "letterSpacing",
-										label: "Letter spacing (px)",
-										min: undefined,
-										max: undefined,
-										step: 0.1,
-									},
-									{
-										key: "borderWidth",
-										label: "Border width",
-										min: 0,
-										max: 24,
-										step: 1,
-									},
-								] as const
-							).map(({ key, label, min, max, step }) => (
-								<Text
-									as="label"
-									key={key}
-									role="label"
-									tone="secondary"
-									className="grid gap-1"
-								>
-									{label}
-									<Input
-										type="number"
-										aria-label={`Element ${label.toLowerCase()}`}
-										min={min}
-										max={max}
-										step={step}
-										value={selectedElement.style[key] ?? ""}
-										disabled={disabled}
-										onChange={(event) =>
-											updateElement({
-												...selectedElement,
-												style: {
-													...selectedElement.style,
-													[key]:
-														event.target.value === ""
-															? undefined
-															: Number(event.target.value),
-												},
-											})
-										}
-									/>
-								</Text>
-							))}
-							<Text
-								as="label"
-								role="label"
-								tone="secondary"
-								className="grid gap-1"
-							>
-								Border color
-								<Input
-									type="color"
-									aria-label="Element border color"
-									value={selectedElement.style.borderColor ?? "#222222"}
-									disabled={disabled}
-									onChange={(event) =>
-										updateElement({
-											...selectedElement,
-											style: {
-												...selectedElement.style,
-												borderColor: event.target.value,
-											},
-										})
-									}
-								/>
-							</Text>
-							<Text
-								as="label"
-								role="label"
-								tone="secondary"
-								className="grid gap-1"
-							>
-								Text color
-								<Input
-									type="color"
-									aria-label="Element text color"
-									disabled={disabled}
-									value={selectedElement.style.color ?? "#222222"}
-									onChange={(event) =>
-										updateElement({
-											...selectedElement,
-											style: {
-												...selectedElement.style,
-												color: event.target.value,
-											},
-										})
-									}
-								/>
-							</Text>
-							<Text
-								as="label"
-								role="label"
-								tone="secondary"
-								className="grid gap-1"
-							>
-								Fill color
-								<Input
-									type="color"
-									aria-label="Element fill color"
-									disabled={disabled}
-									value={selectedElement.style.background ?? "#ffffff"}
-									onChange={(event) =>
-										updateElement({
-											...selectedElement,
-											style: {
-												...selectedElement.style,
-												background: event.target.value,
-											},
-										})
-									}
-								/>
-							</Text>
-							{(selectedElement.type === "image" ||
-								selectedElement.type === "svg") && (
-								<SlideImageUploadButton
-									label={selectedElement.src ? "Replace image" : "Upload image"}
-									disabled={disabled}
-									onFile={async (file) => {
-										const src = await readImageFile(file);
-										if (src) updateElement({ ...selectedElement, src });
-									}}
-								/>
-							)}
-							<div className="flex gap-1">
-								{(
-									[
-										["duplicate", "Duplicate element", Copy],
-										["forward", "Bring forward", ArrowUp],
-										["backward", "Send backward", ArrowDown],
-										["delete", "Delete element", Trash],
-									] as const
-								).map(([action, label, Icon]) => (
-									<Button
-										key={action}
-										type="button"
-										size="icon-xs"
-										variant="ghost"
-										aria-label={label}
-										title={label}
-										disabled={
-											disabled ||
-											(action === "forward" &&
-												activeSlide.elements.at(-1) === selectedElement) ||
-											(action === "backward" &&
-												activeSlide.elements[0] === selectedElement)
-										}
-										onClick={() => runElementAction(action)}
-									>
-										<Icon size={13} />
-									</Button>
-								))}
-							</div>
-						</>
-					) : (
-						<Text role="label" tone="secondary" className="m-0">
-							Select an element to edit position, size, typography and color.
-							Arrow keys nudge; Shift moves 10 px.
-						</Text>
-					)}
-					<Text as="label" role="label" tone="secondary" className="grid gap-1">
-						Speaker notes
-						<Textarea
-							aria-label="Speaker notes"
-							value={activeSlide.notes ?? ""}
-							disabled={disabled}
-							maxLength={MAX_NOTES_LENGTH}
-							onChange={(event) =>
-								commitDeck(
-									replaceActiveSlide(deck, {
-										...activeSlide,
-										notes: event.target.value || undefined,
-									}),
-								)
-							}
-						/>
-					</Text>
+					<SlideInspector
+						slide={activeSlide}
+						element={selectedElement}
+						disabled={disabled}
+						canMoveForward={activeSlide.elements.at(-1) !== selectedElement}
+						canMoveBackward={activeSlide.elements[0] !== selectedElement}
+						onChangeSlide={(next) => commitDeck(replaceActiveSlide(deck, next))}
+						onChangeElement={(next) => updateElement(next)}
+						onAction={runElementAction}
+						onImageFile={async (file) => {
+							const src = await readImageFile(file);
+							if (src && selectedElement)
+								updateElement({ ...selectedElement, src });
+						}}
+					/>
 				</aside>
 			</div>
 			{presenting && (
-				<div
-					className="fixed inset-0 z-50 grid grid-rows-[minmax(0,1fr)_auto] gap-4 bg-(--tedix-presentation-stage) p-4 text-(--tedix-presentation-stage-text)"
-					role="dialog"
-					aria-modal="true"
-					aria-label="Presentation mode"
-					onKeyDown={(event) => {
-						event.stopPropagation();
-						const index = deck.slides.indexOf(activeSlide);
-						const target = {
-							ArrowRight: index + 1,
-							ArrowDown: index + 1,
-							PageDown: index + 1,
-							" ": index + 1,
-							ArrowLeft: index - 1,
-							ArrowUp: index - 1,
-							PageUp: index - 1,
-							Home: 0,
-							End: deck.slides.length - 1,
-						}[event.key];
-						if (event.key === "Escape") setPresenting(false);
-						else if (target === undefined) return;
-						else {
-							const slide = deck.slides[target];
-							if (slide) setViewedSlideId(slide.id);
-						}
-						event.preventDefault();
-					}}
-				>
-					<div className="absolute top-4 right-4 z-10 flex gap-2">
-						<Button
-							size="sm"
-							variant="secondary"
-							onClick={() => document.documentElement.requestFullscreen?.()}
-						>
-							<ArrowsOut size={14} /> Full screen
-						</Button>
-						<Button
-							autoFocus
-							size="sm"
-							variant="secondary"
-							onClick={() => setPresenting(false)}
-						>
-							Exit
-						</Button>
-					</div>
-					<div className="slides-present-stage">
-						<SlideCanvas
-							slide={activeSlide}
-							selectedElementId={null}
-							disabled
-							onSelect={() => {}}
-							onChangeElement={() => {}}
-							onGeometryCommit={() => {}}
-						/>
-					</div>
-					<div className="flex items-center justify-center gap-3">
-						<Button
-							size="sm"
-							variant="secondary"
-							aria-label="Previous slide"
-							disabled={deck.slides.indexOf(activeSlide) === 0}
-							onClick={() => {
-								const previous =
-									deck.slides[deck.slides.indexOf(activeSlide) - 1];
-								if (previous) setViewedSlideId(previous.id);
-							}}
-						>
-							<ArrowLeft size={16} />
-						</Button>
-						<span>
-							{deck.slides.indexOf(activeSlide) + 1} / {deck.slides.length}
-						</span>
-						<Button
-							size="sm"
-							variant="secondary"
-							aria-label="Next slide"
-							disabled={
-								deck.slides.indexOf(activeSlide) === deck.slides.length - 1
-							}
-							onClick={() => {
-								const next = deck.slides[deck.slides.indexOf(activeSlide) + 1];
-								if (next) setViewedSlideId(next.id);
-							}}
-						>
-							<ArrowRight size={16} />
-						</Button>
-					</div>
-				</div>
+				<SlidePresenter
+					deck={deck}
+					slideId={activeSlide.id}
+					onNavigate={setViewedSlideId}
+					onExit={() => setPresenting(false)}
+					hasSelection={selectedElementId !== null}
+					onDeselect={() => setSelectedElementId(null)}
+				/>
 			)}
 			<EditorTextDialog
 				open={assetElementType !== null}

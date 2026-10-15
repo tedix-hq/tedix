@@ -1,5 +1,7 @@
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { readFileSync } from "node:fs";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import { OutputContentView } from "./output-content";
@@ -340,5 +342,76 @@ describe("OutputContentView", () => {
 		// the main canvas's scale.
 		expect(thumb).toContain("container-type: inline-size");
 		expect(thumb).toContain("aspect-ratio: 16 / 9");
+	});
+});
+
+describe("deck read view keys", () => {
+	(
+		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+	).IS_REACT_ACT_ENVIRONMENT = true;
+
+	function mount(onEdit?: () => void) {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		act(() =>
+			root.render(<OutputContentView content={deckContent} onEdit={onEdit} />),
+		);
+		return {
+			container,
+			cleanup: () => {
+				act(() => root.unmount());
+				container.remove();
+			},
+		};
+	}
+	const press = (key: string, target: EventTarget = document.body) =>
+		act(() => {
+			target.dispatchEvent(
+				new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+			);
+		});
+	const current = (container: HTMLElement) =>
+		container
+			.querySelector('.deck-read-thumb[aria-current="true"]')
+			?.getAttribute("aria-label");
+	const presenter = () =>
+		document.querySelector<HTMLElement>('[aria-label="Presentation mode"]');
+
+	it("browses slides, presents with F and opens the editor with E", () => {
+		let edits = 0;
+		const mounted = mount(() => {
+			edits += 1;
+		});
+		press("ArrowRight");
+		expect(current(mounted.container)).toBe("Slide 2: Roadmap");
+		press("Home");
+		expect(current(mounted.container)).toBe("Slide 1: Launch");
+		press(" ");
+		expect(current(mounted.container)).toBe("Slide 2: Roadmap");
+		// Typing in a field keeps its keys.
+		const input = document.createElement("input");
+		document.body.appendChild(input);
+		press("ArrowLeft", input);
+		expect(current(mounted.container)).toBe("Slide 2: Roadmap");
+		input.remove();
+		press("e");
+		expect(edits).toBe(1);
+		press("f");
+		expect(presenter()?.textContent).toContain("2 / 2");
+		// Present mode navigates and leaves on Escape.
+		press("ArrowLeft", presenter()!);
+		expect(presenter()?.textContent).toContain("1 / 2");
+		press("Escape", presenter()!);
+		expect(presenter()).toBeNull();
+		expect(current(mounted.container)).toBe("Slide 1: Launch");
+		mounted.cleanup();
+	});
+
+	it("ignores E when there is no editor to open", () => {
+		const mounted = mount();
+		press("e");
+		expect(presenter()).toBeNull();
+		mounted.cleanup();
 	});
 });

@@ -407,7 +407,8 @@ describe("renderOsOutputHtml", () => {
 									width: 100,
 									height: 100,
 									src,
-									style: {},
+									// The image crops to fill; the SVG keeps the default contain.
+									style: index ? {} : { fit: "cover" as const },
 								})),
 							},
 						],
@@ -416,6 +417,10 @@ describe("renderOsOutputHtml", () => {
 			},
 		);
 		for (const src of sources) expect(deck).toContain(`<img src="${src}"`);
+		expect(deck).toContain(
+			`<img src="${sources[0]}" alt="Slide image" style="object-fit:cover">`,
+		);
+		expect(deck).toContain(`<img src="${sources[1]}" alt="Slide image">`);
 		expect(
 			OS_EXPORT_RESOURCE_WAIT.allowRequestPattern.some((pattern) =>
 				new RegExp(pattern).test(sources[1]!),

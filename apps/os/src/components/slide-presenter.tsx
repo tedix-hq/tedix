@@ -1,0 +1,183 @@
+import {
+	ArrowLeft,
+	ArrowRight,
+	ArrowsOut,
+	Notepad,
+	SquaresFour,
+} from "@phosphor-icons/react";
+import type { OsPresentationDeck } from "@tedix/api-contract/schemas/os-workspaces";
+import { useState } from "react";
+import { Button } from "@/components/kumo/button";
+import { ReadOnlyElement } from "@/components/output-slide-element";
+import { bareKey, slideNavigationTarget } from "@/components/slide-navigation";
+
+/**
+ * Present mode, shared by the editor and the read view. Keys: the slide
+ * navigation grammar, F to leave, and Escape in order — close the jump menu,
+ * then clear the editor's element selection, then exit.
+ */
+export function SlidePresenter({
+	deck,
+	slideId,
+	onNavigate,
+	onExit,
+	hasSelection = false,
+	onDeselect,
+}: {
+	deck: OsPresentationDeck;
+	slideId: string;
+	onNavigate: (slideId: string) => void;
+	onExit: () => void;
+	hasSelection?: boolean;
+	onDeselect?: () => void;
+}) {
+	const [jumpOpen, setJumpOpen] = useState(false);
+	const [showNotes, setShowNotes] = useState(false);
+	const index = Math.max(
+		0,
+		deck.slides.findIndex((slide) => slide.id === slideId),
+	);
+	const slide = deck.slides[index];
+	const go = (target: number) => {
+		const next = deck.slides[target];
+		if (next) onNavigate(next.id);
+	};
+	if (!slide) return null;
+	return (
+		<div
+			className="slides-present fixed inset-0 z-50 grid grid-rows-[minmax(0,1fr)_auto] gap-4 bg-(--tedix-presentation-stage) p-4 text-(--tedix-presentation-stage-text)"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Presentation mode"
+			data-show-notes={showNotes || undefined}
+			onKeyDown={(event) => {
+				event.stopPropagation();
+				if (event.key === "Escape") {
+					event.preventDefault();
+					if (jumpOpen) setJumpOpen(false);
+					else if (hasSelection) onDeselect?.();
+					else onExit();
+					return;
+				}
+				if (bareKey(event) === "f") {
+					event.preventDefault();
+					onExit();
+					return;
+				}
+				// A focused control keeps Space and Enter for itself.
+				if (
+					event.key === " " &&
+					(event.target as HTMLElement).tagName === "BUTTON"
+				)
+					return;
+				const target = slideNavigationTarget(
+					event.key,
+					index,
+					deck.slides.length,
+				);
+				if (target === null) return;
+				event.preventDefault();
+				go(target);
+			}}
+		>
+			<div className="absolute top-4 right-4 z-10 flex gap-2">
+				<Button
+					size="sm"
+					variant="secondary"
+					aria-pressed={showNotes}
+					onClick={() => setShowNotes((visible) => !visible)}
+				>
+					<Notepad size={14} /> Notes
+				</Button>
+				<Button
+					size="sm"
+					variant="secondary"
+					onClick={() => document.documentElement.requestFullscreen?.()}
+				>
+					<ArrowsOut size={14} /> Full screen
+				</Button>
+				<Button autoFocus size="sm" variant="secondary" onClick={onExit}>
+					Exit
+				</Button>
+			</div>
+			<div className="slides-present-body">
+				<div className="slides-present-stage">
+					<div
+						className="slides-editor-canvas relative overflow-hidden"
+						style={{
+							background: slide.background,
+							containerType: "inline-size",
+						}}
+					>
+						{slide.elements.map((element) => (
+							<ReadOnlyElement key={element.id} element={element} />
+						))}
+					</div>
+				</div>
+				{showNotes && (
+					<aside
+						aria-label="Speaker notes"
+						className="slides-present-notes overflow-y-auto whitespace-pre-wrap rounded-md p-4"
+					>
+						{slide.notes || "No speaker notes for this slide."}
+					</aside>
+				)}
+			</div>
+			<div className="relative flex items-center justify-center gap-3">
+				<Button
+					size="sm"
+					variant="secondary"
+					aria-label="Previous slide"
+					disabled={index === 0}
+					onClick={() => go(index - 1)}
+				>
+					<ArrowLeft size={16} />
+				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					aria-label="Jump to slide"
+					aria-expanded={jumpOpen}
+					onClick={() => setJumpOpen((open) => !open)}
+				>
+					<SquaresFour size={14} />
+					<span className="tabular-nums">
+						{index + 1} / {deck.slides.length}
+					</span>
+				</Button>
+				<Button
+					size="sm"
+					variant="secondary"
+					aria-label="Next slide"
+					disabled={index === deck.slides.length - 1}
+					onClick={() => go(index + 1)}
+				>
+					<ArrowRight size={16} />
+				</Button>
+				{jumpOpen && (
+					<nav
+						aria-label="Slides"
+						className="slides-present-jump absolute bottom-full mb-2 grid max-h-[50vh] grid-cols-[repeat(auto-fill,2.5rem)] gap-1 overflow-y-auto rounded-lg p-2"
+					>
+						{deck.slides.map((candidate, candidateIndex) => (
+							<Button
+								key={candidate.id}
+								size="sm"
+								variant={candidateIndex === index ? "default" : "ghost"}
+								aria-current={candidateIndex === index || undefined}
+								aria-label={`Slide ${candidateIndex + 1}: ${candidate.name}`}
+								className="tabular-nums"
+								onClick={() => {
+									go(candidateIndex);
+									setJumpOpen(false);
+								}}
+							>
+								{candidateIndex + 1}
+							</Button>
+						))}
+					</nav>
+				)}
+			</div>
+		</div>
+	);
+}

@@ -341,7 +341,7 @@ function renderDeckElement(element: OsPresentationElement): string {
 	const body =
 		(element.type === "image" || element.type === "svg") &&
 		isExportImage(source)
-			? `<img src="${escapeHtml(source)}" alt="${escapeHtml(element.text ?? "Slide image")}">`
+			? `<img src="${escapeHtml(source)}" alt="${escapeHtml(element.text ?? "Slide image")}"${element.style.fit === "cover" ? ' style="object-fit:cover"' : ""}>`
 			: element.type === "arrow"
 				? `<svg width="100%" height="100%" viewBox="0 0 ${element.width} ${element.height}"><path d="${slideArrowPath(element)}" fill="none" stroke="currentColor" stroke-width="2"/></svg>`
 				: element.type === "divider" || element.type === "shape"
