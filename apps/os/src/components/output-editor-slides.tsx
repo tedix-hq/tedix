@@ -40,6 +40,8 @@ import { Surface } from "@/components/kumo/surface";
 import { Toolbar } from "@/components/kumo/toolbar";
 import {
 	ReadOnlyElement,
+	SlideArrow,
+	SlideText,
 	SLIDE_ELEMENT_CLASS,
 	useSlideElementFont,
 } from "@/components/output-slide-element";
@@ -401,7 +403,12 @@ function SlideElementView({
 						className="h-full w-full object-contain"
 						draggable={false}
 					/>
-				) : current.type === "divider" || current.type === "shape" ? null : (
+				) : current.type === "arrow" ? (
+					<SlideArrow element={current} />
+				) : current.type === "divider" ||
+				  current.type === "shape" ? null : disabled ? (
+					<SlideText text={current.text ?? ""} />
+				) : (
 					// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
 					// 14px size and a 20px line height with `!important`, so the stage drew
 					// every slide's text at UI size inside boxes scaled to the slide.
