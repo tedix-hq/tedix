@@ -11,6 +11,13 @@ import {
 } from "@tedix/api-contract/utils/presentation-style";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
 
+export function useSlideTextColor() {
+	const { appearance } = usePresentationAppearance();
+	return (
+		appearance?.slideTones?.neutral ?? appearance?.light.foreground ?? "#111111"
+	);
+}
+
 export function SlideBackground({
 	slide,
 }: {

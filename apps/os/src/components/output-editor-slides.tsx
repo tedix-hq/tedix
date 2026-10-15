@@ -38,6 +38,7 @@ import {
 	SlideElementContent,
 	SLIDE_ELEMENT_CLASS,
 	useSlideElementFont,
+	useSlideTextColor,
 } from "@/components/output-slide-element";
 import {
 	bareKey,
@@ -500,11 +501,13 @@ function SlideCanvas({
 	onChangeElement: (next: OsPresentationElement) => void;
 	onGeometryCommit: (next: OsPresentationElement) => void;
 }) {
+	const color = useSlideTextColor();
 	return (
 		<div
 			className="slides-editor-canvas relative overflow-hidden"
 			style={{
 				background: slide.background,
+				color,
 				containerType: "inline-size",
 			}}
 			onClick={() => onSelect(null)}
