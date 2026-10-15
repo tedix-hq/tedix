@@ -117,7 +117,9 @@ function paragraphs(
 	const bullet = isBullet
 		? `<a:buClr><a:srgbClr val="${bulletColor}"/></a:buClr><a:buSzPts val="480"/><a:buFont typeface="Arial"/><a:buChar char="•"/>`
 		: "<a:buNone/>";
-	const lines = (element.text ?? "").split("\n");
+	const lines = (element.text ?? "")
+		.split("\n")
+		.map((line) => (isBullet ? line.trim() : line));
 	const size =
 		style.fontSize ?? (isBullet ? (element.props?.compact ? 17 : 19) : 24);
 	return lines

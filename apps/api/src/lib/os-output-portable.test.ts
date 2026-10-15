@@ -2,6 +2,7 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { slideElementMarkup } from "@tedix/api-contract/utils/presentation-style";
 import { unzipSync, strFromU8 } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { renderOsDocumentMarkdown } from "./os-output-markdown";
@@ -352,4 +353,44 @@ describe("PPTX images", () => {
 			buildPptx(deck(["data:image/png;base64,YmFk"])),
 		).rejects.toThrow("Invalid PPTX image bytes");
 	});
+});
+
+describe("PPTX bullet parity", () => {
+	it.each([false, true])(
+		"matches trimmed screen items and hanging spacing (compact=%s)",
+		async (compact) => {
+			const content = deck([]);
+			const bullet = {
+				id: "bullets",
+				type: "bullet" as const,
+				x: 20,
+				y: 30,
+				width: 800,
+				height: 300,
+				style: {},
+				props: { compact },
+				text: "  First  \n\n   Second   \n",
+			};
+			content.deck!.slides[0]!.elements.push(bullet, {
+				...bullet,
+				id: "plain",
+				type: "text",
+				text: "  preserve spaces  ",
+			});
+			const screen = slideElementMarkup(bullet, "pixels");
+			expect(screen.match(/role="listitem"/g)).toHaveLength(2);
+			expect(screen).toContain(">First</div>");
+			expect(screen).toContain(">Second</div>");
+			const files = unzipSync(await buildPptx(content));
+			const xml = strFromU8(files["ppt/slides/slide1.xml"]!);
+			expect(
+				[...xml.matchAll(/<a:t(?: [^>]*)?>(.*?)<\/a:t>/g)].map(
+					(match) => match[1],
+				),
+			).toEqual(["First", "Second", "  preserve spaces  "]);
+			expect(xml).toContain('marL="182880" indent="-182880"');
+			expect(xml).toContain(`<a:spcPts val="${compact ? 640 : 800}"/>`);
+			expect(xml).toContain(`<a:spcPct val="${compact ? 145000 : 150000}"/>`);
+		},
+	);
 });
