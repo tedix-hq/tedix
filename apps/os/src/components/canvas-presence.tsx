@@ -25,7 +25,8 @@ function initials(name: string): string {
 		.join("");
 }
 
-function colorFor(key: string): string {
+/** Stable per-collaborator colour, shared by avatars and document carets. */
+export function collabParticipantColor(key: string): string {
 	let value = 0;
 	for (const character of key)
 		value = (value * 31 + character.charCodeAt(0)) | 0;
@@ -50,7 +51,7 @@ function avatar(participant: CollabParticipant, size: "large" | "small") {
 					? "canvas-presence-avatar canvas-presence-avatar-small"
 					: "canvas-presence-avatar"
 			}
-			style={{ backgroundColor: colorFor(participant.key) }}
+			style={{ backgroundColor: collabParticipantColor(participant.key) }}
 			aria-hidden="true"
 		>
 			{initials(participant.displayName)}
