@@ -101,6 +101,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"billing/getInferenceSpending": "mcp:settings.read",
 	"billing/grantCredit": "platform:admin",
 	"billing/configureCreditBilling": "platform:admin",
+	"billing/repriceCreditBilling": "platform:admin",
 	"billing/grantInferenceCapacity": "platform:admin",
 	"billing/grantServiceCredits": "platform:admin",
 	"billing/listHistoricalExposures": "platform:admin",

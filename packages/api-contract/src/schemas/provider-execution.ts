@@ -190,6 +190,40 @@ export function providerDeploymentScope(
 				: JSON.stringify([identity.provider, identity.gatewayAccountId]);
 }
 
+/**
+ * The Workers AI receipt that prices an Auto Router call, or null.
+ *
+ * Auto Router admission happens before the router picks a model. Its price is
+ * known only when the routing it was admitted under can land on exactly one
+ * model; settlement prices by the routed model the Gateway reports, which must
+ * be one the admitted routing allowed.
+ */
+export function autoRoutedPricingIdentity(
+	identity: ProviderExecutionIdentity,
+	routedModel?: string,
+): { modelId: string; deploymentScope: string } | null {
+	const allowed = identity.autoRouting?.allowedModels ?? null;
+	if (identity.requestModel !== "cloudflare/auto" || !identity.autoRouting)
+		return null;
+	const modelId =
+		routedModel === undefined
+			? allowed?.length === 1
+				? allowed[0]!
+				: null
+			: allowed === null || allowed.includes(routedModel)
+				? routedModel
+				: null;
+	return modelId
+		? {
+				modelId,
+				deploymentScope: JSON.stringify([
+					"workers-ai",
+					identity.gatewayAccountId,
+				]),
+			}
+		: null;
+}
+
 /** Parse the final trusted transport URL, never gateway custom metadata. */
 export function azureExecutionIdentity(input: {
 	url: string;

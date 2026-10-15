@@ -8,6 +8,10 @@ import type { NewProviderExecutionAttemptRow } from "../../schema/provider-execu
 /** Canonical billing reservations queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	autoRoutedPricingIdentity,
+	readProviderExecutionIdentity,
+} from "@tedix/api-contract/schemas/provider-execution";
 import { and, eq, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -416,8 +420,22 @@ export async function reserveBillingUsage(
 					),
 				};
 			monetaryQuote = estimateMonetaryInference(config, input);
+			const autoRouted = input.execution
+				? autoRoutedPricingIdentity(
+						readProviderExecutionIdentity(input.execution),
+					)
+				: null;
+			// An Auto Router alias is priced only when its admitted routing can
+			// land on the one model whose receipt the wallet bound to it.
+			if (
+				input.model === "cloudflare/auto" &&
+				autoRouted?.modelId !== monetaryQuote.rateSnapshot.model
+			)
+				throw new Error("Auto routing can reach an unpriced model");
 			const deploymentScope =
-				input.execution?.deploymentScope ?? input.deploymentScope;
+				autoRouted?.deploymentScope ??
+				input.execution?.deploymentScope ??
+				input.deploymentScope;
 			if (!deploymentScope)
 				throw new Error(
 					"Monetary inference requires exact execution deployment scope",

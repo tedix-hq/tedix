@@ -1432,6 +1432,80 @@ describe("normalized LIST cache creation through ingestion", () => {
 		DB: {} as D1Database,
 		TEDIX_BILLING_SETTLEMENT_MODE: "managed",
 	};
+	it("prices an Auto Router row by the routed model's Workers AI receipt", async () => {
+		const policy = {
+			kind: "auto_router_v1" as const,
+			routing: {
+				version: 1 as const,
+				modality: "text" as const,
+				mode: "restricted" as const,
+				allowedProviders: ["workers-ai"],
+				allowedModels: ["@cf/example/model"],
+			},
+			finite: null,
+		};
+		cacheExecutions.mockResolvedValue([
+			{
+				...execution,
+				provider: "workers-ai",
+				requestModel: "cloudflare/auto",
+				apiKind: "workers-ai-chat",
+				providerResource: null,
+				providerOrigin: null,
+				deployment: null,
+				policy,
+				policyHash: await sha256Hex(JSON.stringify(policy)),
+			},
+		]);
+		cacheRates.mockResolvedValue([
+			{
+				id: "routed-rate",
+				inputMicrousdPerMillion: 1000000,
+				outputMicrousdPerMillion: 2000000,
+				cacheReadMicrousdPerMillion: 100000,
+				cacheWriteMicrousdPerMillion: 0,
+			},
+		]);
+		insertCallCosts.mockImplementation((_db, rows) => Promise.resolve(rows));
+		stubGatewayLogs([
+			{
+				...validLog(),
+				provider: "workers-ai",
+				model: "@cf/example/model",
+				path: "/run",
+				request_type: "run",
+				authentication: true,
+				cost: 0.00002,
+				usage_metadata: {
+					input_tokens: 10,
+					output_tokens: 2,
+					input_cached_tokens: 0,
+					input_cache_creation_tokens: 0,
+					total_tokens: 12,
+				},
+			},
+		]);
+		const state: CursorDbState = {
+			upserts: [],
+			cursor: { lastLogCreatedAt: "2026-09-20T00:00:00.000Z", lastLogId: "" },
+		};
+		await ingestGatewayLogCosts(cursorDb(state), ingestionEnv);
+		expect(cacheRates).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				provider: "workers-ai",
+				modelId: "@cf/example/model",
+				deploymentScope: JSON.stringify(["workers-ai", "account-1"]),
+			}),
+		);
+		expect(insertCallCosts).toHaveBeenLastCalledWith(expect.anything(), [
+			expect.objectContaining({
+				rateVersionId: "routed-rate",
+				estimatedCostUsd: 0.00002,
+				costBasis: "gateway_reported",
+			}),
+		]);
+	});
 	it.each([
 		["azure-responses", 4, false],
 		["azure-chat", 4, false],

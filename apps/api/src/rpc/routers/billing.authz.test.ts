@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 
 const activationStorage = vi.hoisted(() => vi.fn());
+const repricingStorage = vi.hoisted(() => vi.fn());
 vi.mock("./billing/credit-activation", () => ({
 	configureCreditBillingHandler: activationStorage,
+	repriceCreditBillingHandler: repricingStorage,
 }));
 
 const rateStorage = vi.hoisted(() => ({ list: vi.fn(), publish: vi.fn() }));
@@ -237,6 +239,40 @@ describe("credit activation authority", () => {
 			message: expect.stringContaining("never held by a tedi principal"),
 		});
 		expect(activationStorage).not.toHaveBeenCalled();
+	});
+	it("holds live wallet repricing to platform billing authority", async () => {
+		const rest = {
+			organizationId: input.organizationId,
+			expectedEntitlementVersion: input.expectedEntitlementVersion,
+			idempotencyKey: input.idempotencyKey,
+			reason: input.reason,
+			fx: input.fx,
+			rateBindings: input.rateBindings,
+		};
+		repricingStorage.mockReset();
+		repricingStorage.mockResolvedValue({
+			organizationId,
+			planVersionId: "private-plan-2",
+			previousPlanVersionId: "private-plan",
+			entitlementVersion: 3,
+			creditBalanceMicros: 100000000,
+			rateVersionIds: ["published"],
+			alreadyRepriced: false,
+		});
+		await expect(
+			createRouterClient(billingContractRouter, {
+				context: context(["billing:manage"], true),
+			}).repriceCreditBilling(rest),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(repricingStorage).not.toHaveBeenCalled();
+		await createRouterClient(billingContractRouter, {
+			context: context(["platform:admin"]),
+		}).repriceCreditBilling(rest);
+		expect(repricingStorage).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ authType: "apikey" }),
+			rest,
+			"key",
+		);
 	});
 });
 
