@@ -590,6 +590,43 @@ describe("approval builders", () => {
 		expect(cards[0]?.status).toBe("escalated");
 	});
 
+	it("projects a parked Home tool write into an in-thread card until it resolves", () => {
+		const write = {
+			id: RUN_ID,
+			organizationId: ORG_ID,
+			conversationId: "home:main",
+			status: "requires_approval" as const,
+			createdAt: "2026-08-13T10:00:00.000Z",
+			metadata: {
+				approvalRequestId: "appr-write",
+				kernelWriteProposal: {
+					appSlug: "tedix",
+					toolName: "os.update_os_workspace",
+					args: { name: "Scratch" },
+				},
+			},
+		};
+		expect(approvalsFromRunSet({ runs: [write], approvalMirrors: {} })).toEqual(
+			[
+				{
+					approvalId: "appr-write",
+					runId: RUN_ID,
+					summary: "Run os.update_os_workspace",
+					detail: '{"name":"Scratch"}',
+					status: "pending",
+					requestedAt: "2026-08-13T10:00:00.000Z",
+					sessionScopeKey: "write:tedix:os.update_os_workspace",
+				},
+			],
+		);
+		expect(
+			approvalsFromRunSet({
+				runs: [{ ...write, status: "completed" }],
+				approvalMirrors: {},
+			}),
+		).toEqual([]);
+	});
+
 	it("projects a run-scoped delegation recommendation into an actionable card", () => {
 		const cards = approvalsFromRunSet({
 			runs: [

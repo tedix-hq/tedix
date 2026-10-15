@@ -503,6 +503,44 @@ export async function readPendingWorkflowHint(
 	}
 }
 
+/**
+ * The conversation's most recent run when it is parked on an approval card
+ * (`requires_approval` with a stored `approvalRequestId`), so a bare "approve"
+ * or "reject" reply can resolve that card. Any newer run means the reply is
+ * not answering the card. Caller must separately authorize conversation access.
+ */
+export async function readLatestRunAwaitingApproval(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		conversationId: string;
+		excludeRunId: string;
+	},
+): Promise<{ runId: string; approvalRequestId: string } | null> {
+	const rows = await db
+		.select({
+			id: kernelRuntimeRuns.id,
+			status: kernelRuntimeRuns.status,
+			metadata: kernelRuntimeRuns.metadata,
+		})
+		.from(kernelRuntimeRuns)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.conversationId, input.conversationId),
+			),
+		)
+		.orderBy(desc(kernelRuntimeRuns.updatedAt))
+		.limit(2);
+	const latest = rows.find((row) => row.id !== input.excludeRunId);
+	if (!latest || latest.status !== "requires_approval") return null;
+	const approvalRequestId = (latest.metadata as Record<string, unknown> | null)
+		?.approvalRequestId;
+	return typeof approvalRequestId === "string" && approvalRequestId
+		? { runId: latest.id, approvalRequestId }
+		: null;
+}
+
 /** Exact evidence only; caller must separately authorize conversation access. */
 export async function findKernelRuntimeRunForOutputRevision(
 	db: DbQueryClient,

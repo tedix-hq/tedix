@@ -93,7 +93,10 @@ import {
 	failedKernelRun,
 	resolveKernelDelegateTarget,
 } from "./run-reads-streams";
-import { buildKernelTurnWorkDeps } from "./turn-delegation";
+import {
+	buildKernelTurnWorkDeps,
+	resolveApprovalByChatReply,
+} from "./turn-delegation";
 import { runWorkstationWorkOrderDispatch } from "./workstation-dispatch";
 import {
 	proposeCodemodeExecuteImpl,
@@ -483,6 +486,20 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// caller that disconnects mid-kernel (e.g. an MCP client's inner
 		// timeout) must not cancel the route decision or lose the turn.
 		const kernelEligible = !input.delegateToTediId && !homePlan;
+		// A bare "approve"/"reject" answering the parked write card resolves it
+		// here, as this operator, before the turn plans a duplicate write.
+		const chatApprovalReply =
+			kernelEligible &&
+			input.executionPolicy !== "observe_only" &&
+			!attachments?.length
+				? await resolveApprovalByChatReply(context, {
+						organizationId,
+						conversationId,
+						runId,
+						content: turnContent,
+					})
+				: null;
+		if (chatApprovalReply) metadata.chatApprovalReply = chatApprovalReply;
 		// Home-initiated workstation attachment security model (policy-gated):
 		// classify the workstation adapter dispatch. LOW risk =
 		// explicit human delegation by an authenticated operator to an

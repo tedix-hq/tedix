@@ -780,7 +780,31 @@ export function approvalsFromRunSet(
 			},
 		];
 	});
-	return [...mirrored, ...recommendations];
+	// Parked Home tool writes: the run holds the approval id and the exact
+	// proposed call, so the card can be answered in the thread.
+	const writes = runSet.runs.flatMap((run): ApprovalCardData[] => {
+		if (run.status !== "requires_approval") return [];
+		const metadata = asRecord(run.metadata);
+		const approvalId = asString(metadata?.approvalRequestId);
+		const proposal = asRecord(metadata?.kernelWriteProposal);
+		const toolName = asString(proposal?.toolName);
+		if (!approvalId || !toolName) return [];
+		const appSlug = asString(proposal?.appSlug);
+		const args =
+			proposal?.args === undefined ? null : JSON.stringify(proposal.args);
+		return [
+			{
+				approvalId,
+				runId: run.id,
+				summary: `Run ${toolName}`,
+				detail: args && args.length > 240 ? `${args.slice(0, 239)}…` : args,
+				status: "pending",
+				requestedAt: run.updatedAt ?? run.createdAt,
+				sessionScopeKey: `write:${appSlug ?? "?"}:${toolName}`,
+			},
+		];
+	});
+	return [...mirrored, ...recommendations, ...writes];
 }
 
 /**

@@ -86,6 +86,53 @@ export function classifyAffirmative(content: string): boolean {
 	return AFFIRMATIVE_EXACT.has(lower);
 }
 
+const APPROVE_EXACT = new Set([
+	"approve",
+	"approve it",
+	"approved",
+	"yes approve",
+	"yes approve it",
+	"ok approve",
+	"okay approve",
+	"ok approve it",
+	"okay approve it",
+]);
+
+const REJECT_EXACT = new Set([
+	"no",
+	"nope",
+	"no thanks",
+	"reject",
+	"reject it",
+	"deny",
+	"deny it",
+	"don't",
+	"don't do it",
+	"do not do it",
+	"cancel it",
+]);
+
+/**
+ * A bare reply to a pending approval card: "approve"/"yes" approves, "reject"/
+ * "no" rejects. Same conservative shape as {@link classifyAffirmative} — any
+ * question or longer message is a new request, not a decision.
+ */
+export function classifyApprovalReply(
+	content: string,
+): "approve" | "reject" | null {
+	if (classifyAffirmative(content)) return "approve";
+	const trimmed = content.trim();
+	if (!trimmed || trimmed.includes("?")) return null;
+	const lower = trimmed
+		.toLowerCase()
+		.replace(/[!.,]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (APPROVE_EXACT.has(lower)) return "approve";
+	if (REJECT_EXACT.has(lower)) return "reject";
+	return null;
+}
+
 // ─── Prior-run pending-workflow read ─────────────────────────────────────────
 
 /**
