@@ -1265,15 +1265,23 @@ a:focus-visible {
 /* The workspace canvas hosts the same editor inside a scrolling stage. Without
    a definite height the rail's full thumbnail list set the layout row (measured
    1378px in a 763px pane), so the fitted slide was centred far below the fold.
-   Bound the shell to the pane, as the output workshop does above. */
+   Bound the shell to the pane, as the output workshop does above. A column,
+   not a fixed row template: review and error banners render between the
+   header and the editor, so the editor's position in the shell varies. */
 .canvas-document-shell:has(> .slides-editor) {
+	display: flex;
 	height: 100%;
 	min-height: 0;
-	grid-template-rows: auto minmax(0, 1fr) auto;
+	flex-direction: column;
+}
+
+.canvas-document-shell:has(> .slides-editor) > * {
+	flex: none;
 }
 
 .canvas-document-shell > .slides-editor {
 	min-height: 0;
+	flex: 1 1 0;
 	grid-template-rows: auto minmax(0, 1fr);
 }
 

@@ -170,10 +170,11 @@ describe("SlidesEditor", () => {
 	it("bounds the editor to its host pane in the workspace canvas", () => {
 		const styles = readFileSync("src/styles.css", "utf8");
 		expect(styles).toMatch(
-			/\.canvas-document-shell:has\(> \.slides-editor\) \{[^}]*height: 100%;[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto;/,
+			/\.canvas-document-shell:has\(> \.slides-editor\) \{[^}]*display: flex;[^}]*height: 100%;[^}]*flex-direction: column;/,
 		);
+		// The editor absorbs the remaining height wherever banners put it.
 		expect(styles).toMatch(
-			/\.canvas-document-shell > \.slides-editor \{[^}]*min-height: 0;[^}]*grid-template-rows: auto minmax\(0, 1fr\);/,
+			/\.canvas-document-shell > \.slides-editor \{[^}]*min-height: 0;[^}]*flex: 1 1 0;/,
 		);
 		const mounted = mountEditor();
 		expect(
