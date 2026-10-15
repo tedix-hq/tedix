@@ -817,6 +817,9 @@ describe("planKernelWriteProposal — positive path", () => {
 		expect(JSON.stringify(generate.mock.calls[0]?.[0].prompt)).toContain(
 			"Creating the record does not execute or delegate the work it describes.",
 		);
+		expect(generate.mock.calls[0]?.[0].providerOptions).toMatchObject({
+			cloudflareAutoRouter: { strictJsonSchema: false },
+		});
 		expect(generate.mock.calls[0]?.[0].responseFormat).toMatchObject({
 			type: "json",
 			schema: {

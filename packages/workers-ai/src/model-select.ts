@@ -342,7 +342,9 @@ export function cloudflareAutoRouterModel(
 								? { description: format.description }
 								: {}),
 							schema: format.schema,
-							strict: true,
+							strict:
+								call.providerOptions?.cloudflareAutoRouter?.strictJsonSchema !==
+								false,
 						},
 					}
 				: { type: "json_object" };
