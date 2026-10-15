@@ -6,6 +6,7 @@ import {
 	slideImageFile,
 	slidePointFromClient,
 } from "./slide-image-upload";
+import { MAX_MESSAGE_BYTES } from "@/collab/protocol";
 
 function decodedImage(width: number, height: number) {
 	vi.stubGlobal(
@@ -84,7 +85,12 @@ describe("fileToSlideImageSource", () => {
 		expect(context.fillRect).not.toHaveBeenCalled();
 	});
 
-	it("shrinks until the encoding fits the schema's 1.5 MB source cap", async () => {
+	it("keeps the source budget under the collab frame and schema caps", () => {
+		expect(SLIDE_IMAGE_MAX_SOURCE).toBeLessThan(MAX_MESSAGE_BYTES);
+		expect(SLIDE_IMAGE_MAX_SOURCE).toBeLessThan(1_500_000);
+	});
+
+	it("shrinks until the encoding fits the source budget", async () => {
 		decodedImage(4000, 2000);
 		let calls = 0;
 		const { context } = mockCanvas(() =>

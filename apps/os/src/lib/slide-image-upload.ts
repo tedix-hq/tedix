@@ -1,7 +1,11 @@
 import { PRESENTATION_HEIGHT, PRESENTATION_WIDTH } from "@/lib/output-models";
 
-/** The presentation element schema caps `src` at 1.5 MB (packages/api-contract). */
-export const SLIDE_IMAGE_MAX_SOURCE = 1_500_000;
+/**
+ * The element schema allows a 1.5 MB `src`, but the edit that inserts it has
+ * to cross the collab socket, whose frames stop at 1 MiB (`MAX_MESSAGE_BYTES`
+ * in `src/collab/protocol.ts`). Leave room for the rest of the change.
+ */
+export const SLIDE_IMAGE_MAX_SOURCE = 900_000;
 const MAX_IMAGE_DIMENSION = 1920;
 export const SLIDE_IMAGE_TYPES = [
 	"image/png",
