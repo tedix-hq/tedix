@@ -35,7 +35,13 @@ const osWorkspacesApi = vi.hoisted(() => ({
 		touch: vi.fn(),
 	},
 	gadgets: { list: vi.fn(), get: vi.fn(), revise: vi.fn() },
-	outputs: { list: vi.fn(), library: vi.fn(), get: vi.fn(), revise: vi.fn() },
+	outputs: {
+		list: vi.fn(),
+		library: vi.fn(),
+		get: vi.fn(),
+		revise: vi.fn(),
+		rename: vi.fn(),
+	},
 	resources: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
 	collaboration: {
 		list: vi.fn(),

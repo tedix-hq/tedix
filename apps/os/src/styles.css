@@ -1139,6 +1139,19 @@ a:focus-visible {
 	max-width: 32rem;
 }
 
+/* The open output's name reads as a title until it is clicked to rename. */
+.canvas-document-title-input {
+	min-width: 6rem;
+	max-width: 24rem;
+	flex: 1 1 12rem;
+	font-weight: 600;
+}
+.canvas-document-title-input:not(:hover, :focus) {
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+}
+
 .canvas-document-status,
 .canvas-document-actions {
 	flex: none;
@@ -1483,6 +1496,85 @@ a:focus-visible {
 
 .document-prose :is(ul, ol) > li + li {
 	margin-block-start: 0.3em;
+}
+
+/* The Title paragraph style: a level-1 heading, set larger. */
+.document-page.document-prose h1.doc-title,
+.document-page .document-prose h1.doc-title {
+	font-size: 30px;
+	letter-spacing: -0.02em;
+}
+
+/* An empty page invites writing. Only a single empty paragraph qualifies. */
+.document-prose
+	> p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+	content: "Start writing…";
+	color: var(--tedix-document-ink);
+	opacity: 0.4;
+	pointer-events: none;
+	float: left;
+	height: 0;
+}
+
+/*
+ * Printing an open document prints the page alone: every element that is
+ * neither the paper, inside it, nor one of its ancestors is removed, and the
+ * ancestors lose the scroll boxes and grid tracks that would clip it.
+ */
+@page {
+	margin: 0.65in;
+}
+
+@media print {
+	html,
+	body {
+		height: auto !important;
+		overflow: visible !important;
+		background: #fff !important;
+	}
+	body:has(.document-editor-paper)
+		*:not(:has(.document-editor-paper)):not(.document-editor-paper):not(
+			.document-editor-paper *
+		) {
+		display: none !important;
+	}
+	body:has(.document-editor-paper) *:has(.document-editor-paper) {
+		display: block !important;
+		position: static !important;
+		overflow: visible !important;
+		height: auto !important;
+		min-height: 0 !important;
+		max-height: none !important;
+		width: auto !important;
+		padding: 0 !important;
+		margin: 0 !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		background: #fff !important;
+	}
+	.document-editor-paper {
+		max-width: none !important;
+		min-height: 0 !important;
+		padding: 0 !important;
+		box-shadow: none !important;
+		background: #fff !important;
+	}
+	.document-editor-paper .document-prose {
+		min-height: 0 !important;
+		max-width: none;
+	}
+	.document-prose :is(h1, h2, h3) {
+		break-after: avoid-page;
+	}
+	.document-prose :is(img, pre, blockquote, [data-resize-wrapper]) {
+		break-inside: avoid-page;
+	}
+	.document-prose
+		> p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before,
+	.document-prose [data-resize-handle] {
+		display: none;
+		content: none;
+	}
 }
 
 /*

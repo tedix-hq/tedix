@@ -8,6 +8,8 @@ import { Text } from "@/components/kumo/text";
 import { ReadOnlyElement } from "@/components/output-slide-element";
 import {
 	activeWorkbookSheet,
+	INDENT_STEP_PX,
+	MAX_INDENT,
 	normalizeDocumentContent,
 	normalizePresentationContent,
 	normalizeSheetContent,
@@ -147,12 +149,23 @@ function RichNode({
 			typeof node.attrs?.textAlign === "string"
 				? (node.attrs.textAlign as React.CSSProperties["textAlign"])
 				: undefined,
+		marginLeft:
+			Number(node.attrs?.indent) > 0
+				? Math.min(Number(node.attrs?.indent), MAX_INDENT) * INDENT_STEP_PX
+				: undefined,
 	};
 	switch (node.type) {
 		case "heading": {
 			const level = Math.min(4, Math.max(1, Number(node.attrs?.level) || 2));
 			const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4";
-			return <Tag style={style}>{children}</Tag>;
+			return (
+				<Tag
+					style={style}
+					className={node.attrs?.variant === "title" ? "doc-title" : undefined}
+				>
+					{children}
+				</Tag>
+			);
 		}
 		case "paragraph":
 			return <p style={style}>{children}</p>;
@@ -166,7 +179,7 @@ function RichNode({
 			return <blockquote>{children}</blockquote>;
 		case "codeBlock":
 			return (
-				<pre>
+				<pre style={style}>
 					<code>{children}</code>
 				</pre>
 			);

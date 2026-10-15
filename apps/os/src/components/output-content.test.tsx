@@ -122,6 +122,34 @@ describe("OutputContentView", () => {
 		expect(html).not.toContain("<script>");
 	});
 
+	it("shows the Title style and block indents the editor saved", () => {
+		const html = renderToStaticMarkup(
+			<OutputContentView
+				content={{
+					kind: "document",
+					blocks: [],
+					richText: {
+						type: "doc",
+						content: [
+							{
+								type: "heading",
+								attrs: { level: 1, variant: "title" },
+								content: [{ type: "text", text: "Plan" }],
+							},
+							{
+								type: "paragraph",
+								attrs: { indent: 3 },
+								content: [{ type: "text", text: "Nested" }],
+							},
+						],
+					},
+				}}
+			/>,
+		);
+		expect(html).toContain('<h1 class="doc-title">Plan</h1>');
+		expect(html).toContain('<p style="margin-left:120px">Nested</p>');
+	});
+
 	it("uses compact document paper spacing and heading scales on phones", () => {
 		const html = renderToStaticMarkup(
 			<OutputContentView

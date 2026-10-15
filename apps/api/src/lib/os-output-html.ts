@@ -177,15 +177,26 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 		return value;
 	}
 	const children = (node.content ?? []).map(renderRichTextNode).join("");
-	const alignment = ["left", "center", "right", "justify"].includes(
-		String(node.attrs?.textAlign),
-	)
-		? ` style="text-align:${String(node.attrs?.textAlign)}"`
+	const indent = Math.min(8, Math.trunc(Number(node.attrs?.indent) || 0));
+	const blockStyles = [
+		["left", "center", "right", "justify"].includes(
+			String(node.attrs?.textAlign),
+		)
+			? `text-align:${String(node.attrs?.textAlign)}`
+			: "",
+		indent > 0 ? `margin-left:${indent * 40}px` : "",
+	].filter(Boolean);
+	const alignment = blockStyles.length
+		? ` style="${blockStyles.join(";")}"`
 		: "";
 	switch (node.type) {
 		case "heading": {
 			const level = Math.min(4, Math.max(1, Number(node.attrs?.level) || 2));
-			return `<h${level}${alignment}>${children}</h${level}>`;
+			const title =
+				level === 1 && node.attrs?.variant === "title"
+					? ' class="doc-title"'
+					: "";
+			return `<h${level}${title}${alignment}>${children}</h${level}>`;
 		}
 		case "paragraph":
 			return `<p${alignment}>${children}</p>`;
@@ -200,7 +211,7 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 		case "blockquote":
 			return `<blockquote>${children}</blockquote>`;
 		case "codeBlock":
-			return `<pre><code>${children}</code></pre>`;
+			return `<pre${alignment}><code>${children}</code></pre>`;
 		case "horizontalRule":
 			return "<hr>";
 		case "hardBreak":
@@ -396,6 +407,7 @@ const INLINE_CSS = `
 	section.canvas-slide img { width: 100%; height: 100%; object-fit: contain; max-width: 100%; }
 	article img { max-width: 100%; height: auto; object-fit: contain; }
 	article h1 { font-size:26px; font-weight:600; }
+	article h1.doc-title { font-size:30px; letter-spacing:-0.02em; }
 	article h2 { font-size:21px; font-weight:600; }
 	article h3 { font-size:17px; font-weight:600; }
 	article a { color:#1267c4; text-decoration:underline; }
