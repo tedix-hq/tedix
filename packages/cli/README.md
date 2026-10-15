@@ -176,7 +176,7 @@ healthy, idle, failing, not_firing or pending.
 
 ```sh
 tedix factory create --goal "Keep the public docs accurate" --owner Nova --dry-run
-tedix factory create --goal "Keep the public docs accurate" --owner Nova \
+tedix factory create --goal "Keep the public docs accurate" [--owner Nova] \
   [--cadence daily|twice_daily] [--template report] [--slug docs-accuracy] \
   [--max-proposals 3] [--workspace-id <uuid>] [--project <KEY>]
 tedix factory status                       # every factory and its verdict

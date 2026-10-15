@@ -30,7 +30,9 @@ To start a new factory from a goal, use `create_factory` (or
 `tedix factory create`). One call creates or reuses each of these:
 
 - a Work project and a standing objective;
-- a lane skill rendered from a Tedix template, owned by the tedi you name;
+- a lane skill rendered from a Tedix template, owned by the tedi you name
+  (omit the owner, or pass `home` or `default`, for the organization's
+  default tedi);
 - a daily schedule at a minute other than :00 or :30;
 - a standing "<name> factory health" Work Item.
 

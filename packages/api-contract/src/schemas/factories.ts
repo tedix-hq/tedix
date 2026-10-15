@@ -53,7 +53,10 @@ export const CreateFactoryInputSchema = z
 			.trim()
 			.min(1)
 			.max(200)
-			.describe("Owner tedi id, slug or name. It runs the lane's one turn."),
+			.optional()
+			.describe(
+				'Owner tedi id, slug or name; it runs the lane\'s one turn. Omit it (or pass "home" or "default") for the organization\'s default tedi; when a tedi calls, omitting it means that tedi.',
+			),
 		cadence: FactoryCadenceSchema.default("daily"),
 		template: FactoryTemplateSchema.default("report").describe(
 			"report: gather the project's open Work, run one owner tedi turn, propose up to maxProposals deduplicated Work Items, then post a scorecard comment on the health item.",

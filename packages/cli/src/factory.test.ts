@@ -46,11 +46,11 @@ describe("factory commands", () => {
 		stdout.mockRestore();
 	});
 
-	it("requires a goal and an owner before any call", () => {
+	it("requires a goal before any call and leaves the owner to the server", () => {
 		expect(() => createFactoryInput({ owner: "Nova" })).toThrow(/--goal/);
-		expect(() => createFactoryInput({ goal: "Keep docs right." })).toThrow(
-			/--owner/,
-		);
+		expect(createFactoryInput({ goal: "Keep docs right." })).toEqual({
+			goal: "Keep docs right.",
+		});
 		expect(() =>
 			createFactoryInput({ goal: "x", owner: "y", maxProposals: "50" }),
 		).toThrow(/--max-proposals/);

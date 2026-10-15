@@ -22,11 +22,7 @@ import {
 } from "@tedix/db/queries/projects";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { createObjective } from "@tedix/db/queries/tedi-objectives";
-import {
-	getTediByIdForOrganization,
-	getTediBySlug,
-	getTedisByOrganization,
-} from "@tedix/db/queries/tedis";
+import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { createWorkItem } from "@tedix/db/queries/work-items/crud";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
@@ -54,35 +50,21 @@ const factoriesOs = implement(projectsContract)
 	.$context<BaseContext>()
 	.use(withAuth);
 
-const UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 	const db = context.db;
 	return {
 		canActivate: isLifecycleOverrideAuthority(context),
 		load: (params) => loadFactoryBuildState(db, { orgId, ...params }),
-		async resolveOwner(ref) {
-			const live = <T extends { retiredAt?: string | null }>(
-				tedi: T | undefined,
-			) => (tedi && !tedi.retiredAt ? tedi : undefined);
-			const byId = UUID_RE.test(ref)
-				? live(await getTediByIdForOrganization(db, ref, orgId))
-				: undefined;
-			const bySlug = byId ?? live(await getTediBySlug(db, orgId, ref));
-			if (bySlug) {
-				return { id: bySlug.id, name: bySlug.displayName || bySlug.name };
-			}
-			const wanted = ref.trim().toLowerCase();
-			const matches = (await getTedisByOrganization(db, orgId)).filter(
-				(tedi) =>
-					tedi.name.toLowerCase() === wanted ||
-					(tedi.displayName ?? "").toLowerCase() === wanted,
-			);
-			const [only] = matches;
-			return matches.length === 1 && only
-				? { id: only.id, name: only.displayName || only.name }
-				: null;
+		callerTediId: context.tediId ?? null,
+		async listOwnerCandidates() {
+			return (await getTedisByOrganization(db, orgId)).map((tedi) => ({
+				id: tedi.id,
+				slug: tedi.slug,
+				name: tedi.name,
+				displayName: tedi.displayName,
+				createdAt: tedi.createdAt,
+				operator: tedi.mcpCapabilityProfile === "org_admin",
+			}));
 		},
 		async workspaceExists(workspaceId) {
 			return Boolean(
