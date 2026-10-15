@@ -1640,6 +1640,36 @@ describe("OtAuthority.adoptCanonical", () => {
 		expect(textOf(await h.authority.content())).toBe(saved);
 	});
 
+	it("restores a saved deck with embedded images over 512K units, which used to be refused as malformed", async () => {
+		// v19 of a deck revised through the API: pretty-printed JSON carrying base64 image data URIs,
+		// 615,498 units. The room refused it as "file is too large" ("malformed"), so the stale draft
+		// could neither adopt it nor be discarded.
+		const image = (bytes: number) =>
+			`"data:image/png;base64,${"iVBORw0KGgoAAAANSUhEUgAA".repeat(Math.ceil(bytes / 24)).slice(0, bytes)}"`;
+		const deck = (text: string, images: number[]) =>
+			`{\n  "kind": "presentation",\n  "slides": [\n    { "text": "${text}" },\n${images
+				.map((bytes) => `    { "image": ${image(bytes)} }`)
+				.join(",\n")}\n  ]\n}\n`;
+		const draft = deck("Old slide three", [68_000, 20_000]);
+		const saved = deck(
+			"Move my delivery date to Saturday, and apply a voucher.",
+			[120_000, 240_000, 68_000, 68_000, 20_000, 99_000],
+		);
+		expect(saved.length).toBeGreaterThan(600_000);
+		expect(saved.length).toBeLessThan(MAX_FILE_TEXT_LENGTH);
+		const h = await seeded(draft, canonicalAt(14));
+		await h.authority.submit(
+			submission({ change: edit(draft, `${draft}unsaved\n`) }),
+			ADA,
+		);
+
+		expect(
+			await h.authority.adoptCanonical(offer(canonicalAt(19), saved, true)),
+		).toMatchObject({ ok: true, effect: "adopted" });
+		expect(textOf(await h.authority.content())).toBe(saved);
+		expect(await h.authority.canonical()).toMatchObject({ revision: 19 });
+	});
+
 	it("explicitly restores the current saved version through the shared stream", async () => {
 		const h = await seeded("saved\n", canonicalAt(2));
 		await h.authority.submit(
