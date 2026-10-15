@@ -157,6 +157,7 @@ import {
 	homeRunSetQueryOptions,
 	modelCatalogQueryOptions,
 	operationalContextQueryOptions,
+	osQueryKeys,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
@@ -2565,6 +2566,8 @@ export function ChatThread({
 			queryClient.invalidateQueries({
 				queryKey: homeMessagesQueryKey(conversationId),
 			});
+			// An approved write may have renamed or edited the workspace.
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() });
 		},
 		onError: (error) => {
 			setApprovalError(
@@ -2768,6 +2771,8 @@ export function ChatThread({
 		queryClient.invalidateQueries({
 			queryKey: homeMessagesQueryKey(conversationId),
 		});
+		// A chat turn may have renamed or edited the workspace around it.
+		queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() });
 	}, [pendingRunId, runSet, conversationId, queryClient]);
 
 	const send = useMutation({

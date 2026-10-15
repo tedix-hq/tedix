@@ -2311,6 +2311,45 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
+	it("answers a parked write from its in-thread card", async () => {
+		kernelRuntimeApi.readRunSet.mockResolvedValue(
+			runSetPayload({
+				activeRunIds: [RUN_ID],
+				runs: [
+					{
+						id: RUN_ID,
+						organizationId: ORG_ID,
+						conversationId: CONVERSATION_ID,
+						status: "requires_approval",
+						createdAt: "2026-10-16T00:00:00Z",
+						metadata: {
+							approvalRequestId: "appr-write",
+							kernelWriteProposal: {
+								appSlug: "tedix",
+								toolName: "os.update_os_workspace",
+								args: { name: "Renamed" },
+							},
+						},
+					},
+				],
+			}),
+		);
+		transport.actions.respondApproval.mockResolvedValue({});
+		const { container } = mountThread();
+		await flush();
+		expect(container.textContent).toContain("Run os.update_os_workspace");
+		const approve = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Approve",
+		);
+		expect(approve).toBeDefined();
+		act(() => approve!.click());
+		await flush();
+		expect(transport.actions.respondApproval).toHaveBeenCalledWith(
+			expect.objectContaining({ runId: RUN_ID, decision: "approve" }),
+		);
+		kernelRuntimeApi.readRunSet.mockResolvedValue(runSetPayload());
+	});
+
 	it("does not restore a draft after a send with an unknown outcome", async () => {
 		transport.actions.enqueueMessage.mockReset();
 		transport.actions.enqueueMessage.mockRejectedValue(
