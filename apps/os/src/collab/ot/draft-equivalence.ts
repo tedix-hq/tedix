@@ -20,12 +20,17 @@ export function sameDraftContent(
 	if (saved.size !== draft.size) return false;
 	for (const [path, savedText] of saved) {
 		const draftText = draft.get(path);
-		if (draftText === undefined) return false;
-		if (draftText === savedText) continue;
-		const left = withoutViewState(savedText);
-		if (left === null || left !== withoutViewState(draftText)) return false;
+		if (draftText === undefined || !sameDraftText(savedText, draftText))
+			return false;
 	}
 	return true;
+}
+
+/** One file of {@link sameDraftContent}: the surface's "is this draft saved?" check. */
+export function sameDraftText(saved: string, draft: string): boolean {
+	if (saved === draft) return true;
+	const left = withoutViewState(saved);
+	return left !== null && left === withoutViewState(draft);
 }
 
 function withoutViewState(text: string): string | null {
