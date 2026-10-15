@@ -2,10 +2,10 @@ import type { ToolSet } from "ai";
 import policy from "./no-funds-turn-policy.json";
 
 export const NO_FUNDS_TURN_MESSAGE =
-	"This turn cannot move funds. Payments and financial operations are unavailable through this connection.";
+	"This turn cannot move funds. Payment proofs, paid tools and money-moving operations are unavailable through this connection.";
 
 const financialPattern = new RegExp(
-	`(?:^|_)(?:${[...policy.financialTerms, ...policy.paymentProviders].join("|")})[a-z]*(?:_|$)`,
+	`(?:^|_)(?:${policy.moneyMovingOperations.join("|")})$`,
 );
 export function noFundsTurnTools(tools: ToolSet, noFunds?: boolean): ToolSet {
 	if (!noFunds) return tools;

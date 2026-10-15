@@ -428,7 +428,7 @@ describe("Connect compact protocol organization routing", () => {
 								value.result?.isError === true || value.error !== undefined,
 								JSON.stringify(value),
 							).toBe(true);
-							expect(JSON.stringify(value)).toMatch(/payment|Payments/);
+							expect(JSON.stringify(value)).toMatch(/payment/i);
 							continue;
 						}
 						if (command === "get_info")

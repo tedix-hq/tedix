@@ -1,3 +1,11 @@
+Tedix 0.2.6 — block only payments and money-moving operations.
+
+Connect rejects x402 payment proofs, paid tools and money-moving provider
+operations. Billing links, settings and admin grants, provider reads and ordinary
+code remain available under existing permissions. The tedi-turn filter uses the
+same operation list. Provider names and financial keywords alone no longer
+block tools.
+
 Tedix 0.2.5 — fail-closed financial and delegated execution boundary.
 
 Connect hides and rejects financial tools and payment providers using versioned

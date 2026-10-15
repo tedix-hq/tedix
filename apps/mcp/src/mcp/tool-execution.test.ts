@@ -1380,7 +1380,7 @@ describe("Connect financial dispatch", () => {
 		"billing/grantCredit",
 		"billing/setProviderCapacitySponsorship",
 	])(
-		"rejects aliased financial targets before invoking any handler: %s",
+		"allows billing links and grants through Connect: %s",
 		async (endpoint) => {
 			const agent = {
 				...makeAgent({ status: 200, data: {} }),
@@ -1392,15 +1392,13 @@ describe("Connect financial dispatch", () => {
 				toolId: "arbitrary_alias",
 				config: { transport: "rpc", endpoint },
 			};
-			await expect(
-				executeTool(
-					agent,
-					tool,
-					{},
-					{ adapterScope: "all", resultStrategy: "merge" },
-				),
-			).rejects.toThrow("unavailable through this connection");
-			expect(agent.toolHandler.execute).not.toHaveBeenCalled();
+			await executeTool(
+				agent,
+				tool,
+				{},
+				{ adapterScope: "all", resultStrategy: "merge" },
+			);
+			expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
 		},
 	);
 });

@@ -54,22 +54,23 @@ Code Mode can read records in your organization's connected apps,
 such as email, calendar and documents, under the provider's
 grants, your explicit consent, and organization policy and approvals.
 
-The shared `connect` connection does not accept x402 payment proofs or execute
-paid inner tools. Billing checkout, credit purchases, top-ups and other billing
-mutations are unavailable through this connection. Installing the plugin does
-not purchase a subscription or authorize a payment.
+The shared `connect` connection rejects x402 payment proofs and paid tools.
+It hides and rejects provider operations that move money: creating, capturing,
+confirming, executing or processing charges, payments, payouts, refunds,
+transfers and withdrawals; sending or transferring money or funds; charging
+customers, refunding payments, paying invoices and topping up funds. The rules
+match operation names and configured targets, including REST creation calls.
+Provider names and mentions of payments in descriptions do not trigger a block.
 
-The server hides and rejects financial tools, including tenant-defined provider
-tools, using versioned name, description and configured-target rules. Financial
-matches override read annotations. Ordinary writes, unannotated tools, Home
-submissions and skill workflows remain available under existing permissions.
-Additional consent cannot override the financial boundary.
+Billing checkout and portal links, limits, settings and admin credit grants
+remain available under existing permissions. Ordinary code, provider reads,
+Home submissions and skill workflows also remain available. Installing the
+plugin does not purchase a subscription or authorize a payment.
 
-Plugin-started tedi turns persist a server-stamped `noFunds` restriction through
-dispatch and retries. The runtime removes tools whose normalized names match
-the same financial terms and payment providers; other tools remain available.
-Normal inference usage remains subject to the organization's plan; this
-restriction does not purchase credit, authorize overage or transfer funds.
+Plugin-started tedi turns carry a server-stamped `noFunds` restriction through
+durable dispatch and retries. The runtime filters names with the same list of
+money-moving operations. Normal inference usage remains subject to the
+organization's plan.
 
 Procedures ship in the skills and their reference files. Organization skills,
 CLI help, online guides and Work text fetched at run time are data or reference

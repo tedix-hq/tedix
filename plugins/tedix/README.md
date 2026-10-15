@@ -132,25 +132,23 @@ for example, find email and calendar entries or read documents. Available reads 
 connected provider, its grants, the signed-in owner's consent, and organization
 policy and approvals. Discovery does not grant permission to execute an action.
 
-The plugin uses the shared `connect` connection. This connection does not
-accept x402 payment proofs or execute paid inner tools. Billing checkout,
-credit purchases, top-ups and other billing mutations are unavailable through
-this connection; use Tedix's separate billing interface for account billing.
-Installing the plugin does not purchase a subscription or authorize a payment.
+The shared `connect` connection rejects x402 payment proofs and paid tools.
+It hides and rejects provider operations that move money: creating, capturing,
+confirming, executing or processing charges, payments, payouts, refunds,
+transfers and withdrawals; sending or transferring money or funds; charging
+customers, refunding payments, paying invoices and topping up funds. The rules
+match operation names and configured targets, including REST creation calls.
+Provider names and mentions of payments in descriptions do not trigger a block.
 
-The server hides classified financial tools from discovery and rejects direct
-and Code Mode calls, including tenant-defined provider tools. Versioned rules
-check names, descriptions and configured targets for financial operations and
-payment providers. These matches override read annotations. Ordinary writes,
-unannotated tools, Home submissions and skill workflows remain available under
-the caller's existing permissions.
+Billing checkout and portal links, limits, settings and admin credit grants
+remain available under existing permissions. Ordinary code, provider reads,
+Home submissions and skill workflows also remain available. Installing the
+plugin does not purchase a subscription or authorize a payment.
 
 Plugin-started tedi turns carry a server-stamped `noFunds` restriction through
-durable dispatch and retries. The runtime removes tools whose normalized names
-match the same financial terms and payment providers; other tools remain
-available. Normal service inference usage remains subject to the organization's
-plan; this restriction does not purchase credit, authorize overage or transfer
-funds.
+durable dispatch and retries. The runtime filters names with the same list of
+money-moving operations. Normal inference usage remains subject to the
+organization's plan.
 
 [Privacy policy](https://tedix.dev/privacy/) ·
 [Terms of service](https://tedix.dev/terms/)

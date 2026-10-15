@@ -8,13 +8,18 @@ const tools = Object.fromEntries(
 	[
 		"read_skill",
 		"create_payment",
-		"provider__StripeCharge",
-		"wallet-transfer",
+		"provider__createCharge",
+		"wallet-transfer-funds",
 		"tedix_mcp_code",
 		"run_skill_workflow",
 		"browser",
 		"exec",
 		"new_tool",
+		"create_checkout",
+		"create_subscription",
+		"get_wallet",
+		"list_payments",
+		"create_payment_method",
 	].map((name) => [name, {}]),
 ) as ToolSet;
 assert.equal(noFundsTurnTools(tools), tools);
@@ -25,6 +30,11 @@ assert.deepEqual(Object.keys(noFundsTurnTools(tools, true)), [
 	"browser",
 	"exec",
 	"new_tool",
+	"create_checkout",
+	"create_subscription",
+	"get_wallet",
+	"list_payments",
+	"create_payment_method",
 ]);
 const input = buildFacetWorkflowTurnInput(
 	{

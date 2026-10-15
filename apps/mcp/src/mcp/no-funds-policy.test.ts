@@ -16,64 +16,123 @@ const tool = (overrides: Partial<AppTool>) =>
 
 describe("directory no-funds classification", () => {
 	it.each([
-		"charge",
-		"payment",
-		"payout",
-		"refund",
-		"transfer",
-		"withdraw",
+		"create_charge",
+		"capture_payment",
+		"confirm_payment_intent",
+		"create_payout",
+		"create_refund",
+		"create_transfer",
+		"create_withdrawal",
 		"send_money",
-		"create_checkout",
-		"purchase",
-		"subscribe",
-		"top_up",
-		"stripe",
-		"paypal",
-		"adyen",
-		"wise",
-		"mollie",
-		"coinbase",
-		"crypto",
-		"wallet",
-	])("denies %s despite a read declaration", (word) => {
+		"transfer_funds",
+		"withdraw_money",
+		"charge_customer",
+		"refund_payment",
+		"pay_invoice",
+		"top_up_funds",
+	])("denies money-moving operation %s even with read hints", (operation) => {
 		expect(
 			isNoFundsToolDenied(
-				tool({ toolId: `provider__${word}`, writeCapability: "read" }),
+				tool({ toolId: `provider__${operation}`, writeCapability: "read" }),
 			),
 		).toBe(true);
 		expect(
 			isNoFundsToolDenied(
-				tool({
-					description: `Perform ${word}`,
-					annotations: { readOnlyHint: true },
-				}),
+				tool({ config: { endpoint: `provider.${operation}` } }),
 			),
+		).toBe(true);
+		expect(
+			isNoFundsToolDenied(tool({ config: { mcpToolName: operation } })),
 		).toBe(true);
 	});
-	it("checks aliased financial targets while allowing ordinary writes", () => {
+	it.each([
+		"list_payments",
+		"list_topups",
+		"get_top_up",
+		"get_charge",
+		"list_refunds",
+		"get_transfer",
+		"get_wallet",
+		"list_crypto",
+		"create_subscription",
+		"subscribe",
+		"purchase",
+		"create_payment_method",
+		"create_payment_link",
+		"create_checkout",
+		"create_portal",
+		"update_subscription",
+		"stripe_list_customers",
+		"paypal_get_balance",
+		"adyen_list_records",
+		"wise_get_profile",
+		"mollie_list_customers",
+		"coinbase_get_wallet",
+		"transfer_file",
+		"create_work_comment",
+	])("allows operations that do not move money: %s", (toolId) => {
 		expect(
 			isNoFundsToolDenied(
 				tool({
-					config: { endpoint: "https://api.example.test/refunds" },
-					writeCapability: "read",
+					toolId,
+					description:
+						"Manage payment, charge, wallet and subscription records",
+					config: { transport: "code" },
 				}),
 			),
-		).toBe(true);
-		for (const writeCapability of [undefined, "write", "destructive"] as const)
-			expect(isNoFundsToolDenied(tool({ writeCapability }))).toBe(false);
+		).toBe(false);
+	});
+	it.each([
+		"createCheckout",
+		"createPortal",
+		"createInferenceCapacityCheckout",
+		"setOverageSettings",
+		"setCreditBudget",
+		"grantCredit",
+		"configureCreditBilling",
+		"getOverview",
+	])("allows Tedix billing links/settings/grants: %s", (method) => {
 		expect(
 			isNoFundsToolDenied(
 				tool({
-					writeCapability: "read",
-					annotations: { destructiveHint: true },
+					toolId: "billing_alias",
+					config: { transport: "rpc", endpoint: `billing/${method}` },
 				}),
 			),
 		).toBe(false);
-		expect(
-			isNoFundsToolDenied(
-				tool({ writeCapability: "write", annotations: { readOnlyHint: true } }),
-			),
-		).toBe(false);
+	});
+	it("distinguishes REST money creation from reads", () => {
+		for (const resource of [
+			"payments",
+			"charges",
+			"refunds",
+			"payouts",
+			"transfers",
+			"withdrawals",
+		]) {
+			expect(
+				isNoFundsToolDenied(
+					tool({
+						config: {
+							transport: "rest",
+							method: "POST",
+							endpoint: `https://api.example.test/${resource}`,
+						},
+					}),
+				),
+			).toBe(true);
+			expect(
+				isNoFundsToolDenied(
+					tool({
+						config: {
+							transport: "rest",
+							method: "GET",
+							endpoint: `https://api.example.test/${resource}`,
+						},
+					}),
+				),
+			).toBe(false);
+		}
 	});
 	it("allows explicit unrelated reads without matching substrings inside other words", () => {
 		expect(
