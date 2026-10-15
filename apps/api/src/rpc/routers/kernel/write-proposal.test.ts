@@ -536,7 +536,7 @@ describe("planKernelWriteProposal — positive path", () => {
 	it("carries workspace context through the remaining argument generation pass without injecting provider arguments", async () => {
 		const model = objectModel({
 			toolName: "globex__create_invoice",
-			argsJson: '{"amount":100}',
+			args: { amount: 100 },
 			reasoning: null,
 		});
 		const generate = vi.spyOn(model, "doGenerate");
@@ -573,7 +573,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			content: "create a globex invoice over 100 euros for ACME",
 			model: objectModel({
 				toolName: "globex__create_invoice",
-				argsJson: '{"amount":100,"customerName":"ACME","notAParam":"x"}',
+				args: { amount: 100, customerName: "ACME", notAParam: "x" },
 				reasoning: "create the requested invoice",
 			}),
 		});
@@ -616,7 +616,7 @@ describe("planKernelWriteProposal — positive path", () => {
 							type: "text",
 							text: JSON.stringify({
 								toolName: "globex__create_invoice",
-								argsJson: '{"amount":1}',
+								args: { amount: 1 },
 								reasoning: null,
 							}),
 						},
@@ -692,7 +692,7 @@ describe("planKernelWriteProposal — positive path", () => {
 							type: "text" as const,
 							text: JSON.stringify({
 								toolName: "globex__create_invoice",
-								argsJson: "{}",
+								args: {},
 								reasoning: null,
 							}),
 						},
@@ -768,7 +768,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			"Create a demo, source files and playback notes. ".repeat(60);
 		const model = objectModel({
 			toolName: "work.create_work_items",
-			argsJson: JSON.stringify({ title: "Release proof", description }),
+			args: { title: "Release proof", description },
 			reasoning: "create the requested work item",
 		});
 		const generate = vi.spyOn(model, "doGenerate");
@@ -816,6 +816,25 @@ describe("planKernelWriteProposal — positive path", () => {
 		expect(JSON.stringify(generate.mock.calls[0]?.[0].prompt)).toContain(
 			"Creating the record does not execute or delegate the work it describes.",
 		);
+		expect(generate.mock.calls[0]?.[0].responseFormat).toMatchObject({
+			type: "json",
+			schema: {
+				properties: {
+					args: {
+						anyOf: expect.arrayContaining([
+							{
+								type: "object",
+								properties: {
+									title: { type: "string" },
+									description: { type: "string" },
+								},
+								required: ["title"],
+							},
+						]),
+					},
+				},
+			},
+		});
 	});
 
 	it("pins catalog installs to the current gateway and real execution", async () => {
@@ -878,8 +897,11 @@ describe("planKernelWriteProposal — positive path", () => {
 			content: "install Google Calendar and Outlook from the catalog",
 			model: objectModel({
 				toolName: "tenant.install_tenant_mcp_apps",
-				argsJson:
-					'{"catalogAppQueries":["Google Calendar","Outlook"],"targetAggregatorSlug":"wrong","dryRun":true}',
+				args: {
+					catalogAppQueries: ["Google Calendar", "Outlook"],
+					targetAggregatorSlug: "wrong",
+					dryRun: true,
+				},
 				reasoning: "install both requested apps",
 			}),
 		});
@@ -909,7 +931,7 @@ describe("planKernelWriteProposal — validation (model never trusted)", () => {
 			content: "create an invoice",
 			model: objectModel({
 				toolName: "globex__get_invoices",
-				argsJson: "{}",
+				args: {},
 				reasoning: null,
 			}),
 		});
@@ -926,7 +948,7 @@ describe("planKernelWriteProposal — validation (model never trusted)", () => {
 			content: "create an invoice",
 			model: objectModel({
 				toolName: "globex__create_invoice",
-				argsJson: '{"customerName":"ACME"}', // missing required `amount`
+				args: { customerName: "ACME" }, // missing required `amount`
 				reasoning: null,
 			}),
 		});
@@ -943,10 +965,10 @@ describe("planKernelWriteProposal — validation (model never trusted)", () => {
 			content: "create an invoice",
 			model: objectModel({
 				toolName: "globex__create_invoice",
-				argsJson: JSON.stringify({
+				args: {
 					amount: 100,
 					customerName: "x".repeat(20_000),
-				}),
+				},
 				reasoning: null,
 			}),
 		});
@@ -983,7 +1005,7 @@ describe("planKernelWriteProposal — fail-soft gates", () => {
 		expect(service.calls).toHaveLength(0);
 	});
 
-	it("returns null for non-write routes, NONE picks, bad argsJson, model throw, no provider", async () => {
+	it("returns null for non-write routes, NONE picks, bad args, model throw, no provider", async () => {
 		const service = mcpService(globexProvider);
 		const env = baseEnv(service);
 		const base = {
@@ -1007,7 +1029,7 @@ describe("planKernelWriteProposal — fail-soft gates", () => {
 				route: writeRoute(),
 				model: objectModel({
 					toolName: "NONE",
-					argsJson: "{}",
+					args: {},
 					reasoning: null,
 				}),
 			}),
@@ -1019,7 +1041,7 @@ describe("planKernelWriteProposal — fail-soft gates", () => {
 				route: writeRoute(),
 				model: objectModel({
 					toolName: "globex__create_invoice",
-					argsJson: "not json",
+					args: "not json",
 					reasoning: null,
 				}),
 			}),
@@ -1045,7 +1067,7 @@ describe("planKernelWriteProposal — fail-soft gates", () => {
 				route: writeRoute(),
 				model: objectModel({
 					toolName: "globex__create_invoice",
-					argsJson: '{"amount":1}',
+					args: { amount: 1 },
 					reasoning: null,
 				}),
 			}),
@@ -1079,7 +1101,7 @@ describe("planKernelWriteProposal — fail-soft gates", () => {
 			content: "create an invoice",
 			model: objectModel({
 				toolName: "globex__get_invoices",
-				argsJson: "{}",
+				args: {},
 				reasoning: null,
 			}),
 		});
@@ -1122,7 +1144,7 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 			organizationId: "org-1",
 			route: writeRoute(),
 			content: "create an invoice",
-			model: objectModel({ toolName: "NONE", argsJson: "{}", reasoning: null }),
+			model: objectModel({ toolName: "NONE", args: {}, reasoning: null }),
 			onDecline,
 		});
 		expect(declines.at(-1)?.stage).toBe("planner_declined");
@@ -1139,7 +1161,7 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 			// invented tool name -> not in the write list -> validation fails
 			model: objectModel({
 				toolName: "globex__not_a_real_tool",
-				argsJson: "{}",
+				args: {},
 				reasoning: null,
 			}),
 			onDecline,
@@ -1148,32 +1170,29 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 	});
 
 	it.each([
-		["not json", "Argument planner returned invalid JSON"],
-		["[]", "Argument planner did not return an object"],
-	])(
-		"records a bounded diagnostic for %s arguments",
-		async (argsJson, detail) => {
-			const onDecline = vi.fn();
-			const proposal = await planKernelWriteProposal({
-				db: DB,
-				env: baseEnv(mcpService(globexProvider)),
-				organizationId: "org-1",
-				route: writeRoute(),
-				content: "create an invoice",
-				model: objectModel({
-					toolName: "globex__create_invoice",
-					argsJson,
-					reasoning: null,
-				}),
-				onDecline,
-			});
-			expect(proposal).toBeNull();
-			expect(onDecline).toHaveBeenCalledWith({
-				stage: "planner_declined",
-				detail,
-			});
-		},
-	);
+		["not json", "Argument planner did not return an object"],
+		[[], "Argument planner did not return an object"],
+	])("records a bounded diagnostic for %s arguments", async (args, detail) => {
+		const onDecline = vi.fn();
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(globexProvider)),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "create an invoice",
+			model: objectModel({
+				toolName: "globex__create_invoice",
+				args,
+				reasoning: null,
+			}),
+			onDecline,
+		});
+		expect(proposal).toBeNull();
+		expect(onDecline).toHaveBeenCalledWith({
+			stage: "planner_declined",
+			detail,
+		});
+	});
 
 	it("reports no_provider when the routed app cannot be resolved", async () => {
 		mocks.getAppBySlugForOrg.mockImplementation(async () => null);
@@ -1203,7 +1222,7 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 			content: "create an invoice for ACME",
 			model: objectModel({
 				toolName: "globex__create_invoice",
-				argsJson: '{"amount":100,"customerName":"ACME"}',
+				args: { amount: 100, customerName: "ACME" },
 				reasoning: "create the requested invoice",
 			}),
 			onDecline: (d) => declines.push(d),
@@ -1284,7 +1303,7 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 				content: "create an invoice",
 				model: objectModel({
 					toolName: "globex__create_invoice",
-					argsJson: '{"amount":1}',
+					args: { amount: 1 },
 					reasoning: null,
 				}),
 				onDecline: (d) => declines.push(d),
@@ -1413,11 +1432,11 @@ describe("exact output input schemas", () => {
 							type: "text",
 							text: JSON.stringify({
 								toolName: "create_os_output",
-								argsJson: JSON.stringify({
+								args: {
 									kind: "document",
 									title: "Test",
 									content,
-								}),
+								},
 								reasoning: null,
 							}),
 						},
@@ -1451,7 +1470,7 @@ describe("Jev action selection failure boundary", () => {
 			mocks.selectJevAction.mockResolvedValue({ toolName: null, reason });
 			const model = objectModel({
 				toolName: "globex__create_invoice",
-				argsJson: '{"amount":1}',
+				args: { amount: 1 },
 				reasoning: null,
 			});
 			const generate = vi.spyOn(model, "doGenerate");
@@ -1482,7 +1501,7 @@ describe("Jev action selection failure boundary", () => {
 			mocks.selectJevAction.mockResolvedValue({ toolName: null, reason });
 			const model = objectModel({
 				toolName: "globex__create_invoice",
-				argsJson: '{"amount":1}',
+				args: { amount: 1 },
 				reasoning: null,
 			});
 			const generate = vi.spyOn(model, "doGenerate");
@@ -1517,7 +1536,7 @@ describe("Jev action selection failure boundary", () => {
 			content: "create invoice",
 			model: objectModel({
 				toolName: "globex__get_invoices",
-				argsJson: "{}",
+				args: {},
 				reasoning: null,
 			}),
 			onDecline,

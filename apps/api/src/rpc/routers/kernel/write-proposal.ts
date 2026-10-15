@@ -47,7 +47,7 @@ import { selectJevAction, type JevActionEnv } from "./jev-action-selection";
 import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-policy";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
-import type { LanguageModel } from "ai";
+import { jsonSchema, type LanguageModel } from "ai";
 import { objectSpanTelemetry, tracedAi } from "../../../lib/traced-ai";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import * as z from "zod";
@@ -437,11 +437,7 @@ const WriteCallPlanSchema = z.object({
 		.describe(
 			`Exactly one tool name from the catalog, or "${NO_WRITE_TOOL}" if none fits.`,
 		),
-	argsJson: z
-		.string()
-		.describe(
-			'The tool arguments as a JSON object string (e.g. {"subject":"Invoice","amount":100}). "{}" when no arguments are needed.',
-		),
+	args: z.unknown(),
 	reasoning: z
 		.string()
 		.nullable()
@@ -459,7 +455,7 @@ Rules:
 - When asked to draft or create content, compose the finished content inside the tool arguments. Follow the requested structure, durations, and other explicit constraints; do not paste the drafting instructions into the deliverable. Use supplied text verbatim only when the operator asks for that. Do not invent factual evidence, measurements, or completed actions. Before returning, check that every requested component is present in the draft; mentioning a requirement is not fulfilling it.
 - NEVER invent identifiers (invoiceId, contactId, threadId, accountId, ...). If a tool requires an identifier you do not know, do not pick that tool — prefer one whose required parameters you can fill from the request alone.
 - SUBSTITUTION over surrender: when the IDEAL tool needs an identifier you do not know (no tenant default, not given in the request), pick the closest write tool that fulfills the operator's intent WITHOUT that identifier — e.g. a fresh draft addressed to the recipient instead of a reply-draft when the thread id is unknown — and state the substitution in reasoning. Only return NONE when no write tool can express the intent at all.
-- EXCEPTION — tenant defaults: when a <tenant_defaults> section is present, the platform has VERIFIED values for those parameters and injects them automatically after your pick. Treat a tool whose unknown identifiers are all covered by tenant defaults as fully callable; you may omit those parameters from argsJson. Defaults never extend to parameters not listed there.
+- EXCEPTION — tenant defaults: when a <tenant_defaults> section is present, the platform has VERIFIED values for those parameters and injects them automatically after your pick. Treat a tool whose unknown identifiers are all covered by tenant defaults as fully callable; you may omit those parameters from args. Defaults never extend to parameters not listed there.
 - Dates/time windows: NEVER invent absolute dates — you do not know today's date. Omit date parameters unless the request names a specific date verbatim.
 - Catalog installation: when the operator names more than one app, choose tenant.install_tenant_mcp_apps and preserve every requested product name in catalogAppQueries. Use tenant.install_tenant_mcp_app only for one app. The platform supplies the target aggregator and real-execution flag; never ask the operator for those implementation details.
 - A tool marked [unverified] has no provider classification, so it may not mutate anything at all. Prefer an unmarked tool whenever one fits the request equally well.
@@ -583,7 +579,7 @@ function buildUserPrompt(args: {
 		renderWriteToolCatalog(args.tools, true),
 		"</tool_catalog>",
 		"",
-		"Use the exact input JSON Schema to construct argsJson for this selected tool. Preserve object/array structure, enums and required fields. Return NONE if the request cannot satisfy it.",
+		"Use the exact input JSON Schema to construct the args object for this selected tool. Do not encode the arguments as a JSON string. Preserve object/array structure, enums and required fields. Return NONE if the request cannot satisfy it.",
 	].join("\n");
 }
 
@@ -608,7 +604,42 @@ async function planWriteCall(args: {
 	try {
 		const result = await tracedAi.generateObject({
 			model: args.model,
-			schema: WriteCallPlanSchema,
+			schema: jsonSchema<z.infer<typeof WriteCallPlanSchema>>(
+				{
+					type: "object",
+					properties: {
+						toolName: {
+							type: "string",
+							enum: [...args.tools.map((tool) => tool.name), NO_WRITE_TOOL],
+						},
+						args: {
+							anyOf: [
+								{
+									...(args.tools[0]?.inputSchema as Awaited<
+										ReturnType<typeof jsonSchema>["jsonSchema"]
+									>),
+									type: "object",
+									required: args.tools[0]?.inputSchema?.required?.filter(
+										(key) => !(key in (args.paramDefaults ?? {})),
+									),
+								},
+								{ type: "null" },
+							],
+						},
+						reasoning: { type: ["string", "null"] },
+					},
+					required: ["toolName", "args", "reasoning"],
+					additionalProperties: false,
+				},
+				{
+					validate: (value) => {
+						const result = WriteCallPlanSchema.safeParse(value);
+						return result.success
+							? { success: true, value: result.data }
+							: { success: false, error: result.error };
+					},
+				},
+			),
 			system: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.write_proposal", args.span ?? {}),
 			prompt: buildUserPrompt({
@@ -630,18 +661,7 @@ async function planWriteCall(args: {
 			args.onFailure?.("Argument planner declined the selected tool");
 			return null;
 		}
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(
-				("argsJson" in plan ? String(plan.argsJson) : "") || "{}",
-			);
-		} catch {
-			console.warn("[kernel.writeProposal] argsJson unparseable", {
-				toolName: plan.toolName,
-			});
-			args.onFailure?.("Argument planner returned invalid JSON");
-			return null;
-		}
+		const parsed = plan.args;
 		if (
 			parsed === null ||
 			typeof parsed !== "object" ||
