@@ -24,6 +24,7 @@ import {
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
 import type { KernelDO } from "../../../kernel/kernel-do";
+import { recordDetachedKernelFailure } from "../kernel/detached-turn-failure";
 import {
 	type KernelTurnWorkInput,
 	type KernelTurnWorkResult,
@@ -1095,10 +1096,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					//   - "deadline" → return the ack below and NEVER reach the
 					//     inline path again: the DO keeps running the turn in its own
 					//     execution context (live-proven detachment), so a LATE error
-					//     resolves an already-raced promise nobody reads — it cannot
-					//     trigger an inline re-run and the turn may have partially
-					//     completed under the DO anyway. The ack already told the
-					//     caller to poll (task.id = run.id).
+					//     terminalizes a still-running run without an inline re-run:
+					//     the turn may have partially completed under the DO.
+					//     The caller already has the run id to poll.
 					type KernelTurnOutcome =
 						| {
 								kind: "result";
@@ -1163,7 +1163,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						if (outcome.kind === "deadline") {
 							const dangling = doTurn.then(
 								() => undefined,
-								() => undefined,
+								() => recordDetachedKernelFailure(context, turnInput),
 							);
 							if (context.waitUntil) {
 								context.waitUntil(dangling);
