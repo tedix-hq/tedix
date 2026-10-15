@@ -1479,8 +1479,8 @@ describe("normalized LIST cache creation through ingestion", () => {
 				usage_metadata: {
 					input_tokens: 10,
 					output_tokens: 2,
+					// Workers AI logs report cache reads but no cache-creation counter.
 					input_cached_tokens: 0,
-					input_cache_creation_tokens: 0,
 					total_tokens: 12,
 				},
 			},

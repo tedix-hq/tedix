@@ -119,7 +119,12 @@ function normalizeGatewayTokenUsage(row: AiGatewayLogRow) {
 		inputTokens: count(row.usage_metadata?.input_tokens ?? row.tokens_in),
 		outputTokens: count(row.usage_metadata?.output_tokens ?? row.tokens_out),
 		cacheReadTokens: count(row.usage_metadata?.input_cached_tokens),
-		cacheWriteTokens: count(row.usage_metadata?.input_cache_creation_tokens),
+		// Workers AI has no prompt-cache write and its logs omit the counter.
+		cacheWriteTokens: count(
+			row.provider === "workers-ai"
+				? (row.usage_metadata?.input_cache_creation_tokens ?? 0)
+				: row.usage_metadata?.input_cache_creation_tokens,
+		),
 	};
 }
 
