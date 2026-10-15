@@ -13,6 +13,7 @@ import {
 	kernelWriteEnabled,
 	planKernelWriteProposal,
 	preferredToolForCapability,
+	readEditTargetOutput,
 	WRITE_ONLY_VERBS,
 	type WriteProposalEnv,
 } from "./write-proposal";
@@ -29,6 +30,12 @@ import {
 const mocks = vi.hoisted(() => ({
 	getAppBySlugForOrg: vi.fn(),
 	selectJevAction: vi.fn(),
+	getOsOutput: vi.fn(async () => undefined),
+	getOsOutputRevision: vi.fn(async () => undefined),
+}));
+vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
+	getOsOutput: mocks.getOsOutput,
+	getOsOutputRevision: mocks.getOsOutputRevision,
 }));
 vi.mock("./jev-action-selection", () => ({
 	selectJevAction: mocks.selectJevAction,
@@ -554,6 +561,53 @@ describe("preferredToolForCapability", () => {
 		).toBeNull();
 		expect(
 			preferredToolForCapability(tools, "files.create", "a sheet"),
+		).toBeNull();
+	});
+});
+
+describe("readEditTargetOutput", () => {
+	const OUTPUT_ID = "f62dc07f-4be7-488d-9968-2c3d8d395560";
+	const output = {
+		id: OUTPUT_ID,
+		kind: "document",
+		title: "Plan",
+		status: "active",
+		currentRevisionId: "rev-1",
+	};
+	const revision = (sources: unknown[]) => ({
+		id: "rev-1",
+		outputId: OUTPUT_ID,
+		revision: 3,
+		content:
+			'{"kind":"document","blocks":[{"type":"paragraph","text":"First draft."}]}',
+		accessEnvelope: JSON.stringify({ version: 1, sources }),
+	});
+	it("returns the current body of the output the request names", async () => {
+		mocks.getOsOutput.mockResolvedValueOnce(output as never);
+		mocks.getOsOutputRevision.mockResolvedValueOnce(revision([]) as never);
+		const target = await readEditTargetOutput({
+			db: DB,
+			organizationId: "org-1",
+			texts: [`append a paragraph to ${OUTPUT_ID}`],
+		});
+		expect(JSON.parse(target ?? "null")).toMatchObject({
+			outputId: OUTPUT_ID,
+			kind: "document",
+			revision: 3,
+			content: expect.stringContaining("First draft."),
+		});
+	});
+	it("never reads a protected revision", async () => {
+		mocks.getOsOutput.mockResolvedValueOnce(output as never);
+		mocks.getOsOutputRevision.mockResolvedValueOnce(
+			revision([{ kind: "resource" }]) as never,
+		);
+		expect(
+			await readEditTargetOutput({
+				db: DB,
+				organizationId: "org-1",
+				texts: [OUTPUT_ID],
+			}),
 		).toBeNull();
 	});
 });
