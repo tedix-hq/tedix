@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HOOK_BYTES } from "../src/hooks/prompt-context";
+import { EXPANDED_HOOK_BYTES, HOOK_BYTES } from "../src/hooks/prompt-context";
 import {
 	build,
 	CLI_GATE,
@@ -134,8 +134,18 @@ describe("plugin packager", () => {
 				.filter((handler) => hookName(handler) === "prompt-context")
 				.map((handler) => handler.additionalContextLimit),
 		);
-		expect(declared).toEqual([[6500], [6500]]);
+		expect(declared).toEqual([[10100], [10100]]);
 		expect(HOOK_BYTES).toBeLessThan(6500);
+		expect(EXPANDED_HOOK_BYTES).toBeLessThan(10100);
+		for (const hooks of [
+			JSON.parse(readFileSync(join(ROOT, "hooks/hooks.json"), "utf8")).hooks,
+			decode(packageFiles({ local: true }), "hooks/hooks.json").hooks,
+		])
+			expect(
+				handlers(hooks).find(
+					(handler) => hookName(handler) === "prompt-context",
+				).command,
+			).toContain(`TEDIX_HOOK_CONTEXT_BYTES=${EXPANDED_HOOK_BYTES}`);
 	});
 
 	test("reproducible and does not overwrite", () =>

@@ -37,6 +37,11 @@ export function hookName(command: string): string | undefined {
 	let rest = command.slice(HOOK_GUARD.length);
 	const gated = rest.startsWith(CLI_GATE);
 	if (gated) rest = rest.slice(CLI_GATE.length);
+	if (
+		!gated &&
+		rest === "TEDIX_HOOK_CONTEXT_BYTES=10000 tedix hooks prompt-context"
+	)
+		return "prompt-context";
 	const name = HOOK_NAME.exec(rest)?.[1];
 	return name && gated === (name === "session-start") ? name : undefined;
 }

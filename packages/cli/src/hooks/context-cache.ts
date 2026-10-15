@@ -5,12 +5,10 @@
  * `~/.tedix/hook-cache/`, named by a hash of its key (profile, organization,
  * signed-in user and the read's own identifiers; never a token or prompt text).
  *
- * A fresh entry (within CACHE_TTL_MS) replaces the live read for that turn. An
- * older one up to CACHE_MAX_AGE_MS is still handed over when the live read it
- * sits beside fails or is reported unavailable, so a slow gateway costs the
- * session nothing it saw ten minutes ago. Anything older is ignored. Age comes
- * from the entry's own write time, in the hook's clock. Reads and writes never
- * throw: a cache fault behaves like an empty cache.
+ * A fresh organization entry (within CACHE_TTL_MS) replaces its live probe.
+ * Preferences and lessons are checked live each turn so changes are visible;
+ * a copy up to CACHE_MAX_AGE_MS covers a failed read. Anything older is ignored.
+ * Age comes from the entry's own write time. Cache faults behave like misses.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";

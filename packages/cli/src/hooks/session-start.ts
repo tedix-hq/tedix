@@ -1,4 +1,5 @@
 /** Read-only, opt-in Tedix preflight for local Codex and Claude sessions. */
+import { clearDelivery } from "./context-delivery";
 import {
 	type HookDeps,
 	type JsonObject,
@@ -49,6 +50,9 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 		);
 		return;
 	}
+
+	if (session && ["startup", "clear", "compact", "fork"].includes(sourceEvent))
+		clearDelivery(env, session);
 
 	let binding: JsonObject = {};
 	let workId = env.TEDIX_WORK_ITEM_ID ?? "";

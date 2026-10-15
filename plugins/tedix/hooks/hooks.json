@@ -20,9 +20,9 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks prompt-context",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; TEDIX_HOOK_CONTEXT_BYTES=10000 tedix hooks prompt-context",
 						"timeout": 30,
-						"additionalContextLimit": 6500,
+						"additionalContextLimit": 10100,
 						"statusMessage": "Reading selected Tedix decisions and Work updates"
 					},
 					{
