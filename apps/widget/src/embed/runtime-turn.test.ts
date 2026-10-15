@@ -182,7 +182,8 @@ describe("a turn", () => {
 		stream.frame(tool("tool-output-available", { output: { total: 2 } }));
 		stream.frame({ kind: "delta", text: "Two orders are open." });
 		await settle();
-		expect(worklog.querySelector(".tedix-worklog-thinking")?.textContent).toBe(
+		expect(worklog.querySelector(".tedix-worklog-thinking")).toBeNull();
+		expect(w.$(".tedix-message-assistant")?.textContent).not.toContain(
 			"Comparing the two orders",
 		);
 		expect(step.dataset.status).toBe("completed");

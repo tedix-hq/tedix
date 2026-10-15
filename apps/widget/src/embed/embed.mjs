@@ -1513,33 +1513,6 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			container.append(worklog);
 			return worklog;
 		};
-		/**
-		 * The model's own reasoning, which the transcript reducer has always
-		 * accumulated and the panel has always thrown away.
-		 *
-		 * With a reasoning model most of the wait is the reasoning, so dropping it
-		 * left a shimmer standing still for twenty seconds. It lives inside the
-		 * worklog disclosure, collapsed, because it is the assistant thinking out
-		 * loud rather than part of the answer.
-		 */
-		const setWorklogThinking = (pending, reasoning) => {
-			const worklog = pending?.activities?.querySelector(".tedix-worklog");
-			if (!worklog) return;
-			let node = worklog.querySelector(".tedix-worklog-thinking");
-			if (!reasoning) {
-				node?.remove();
-				return;
-			}
-			if (!node) {
-				node = document.createElement("p");
-				node.className = "tedix-worklog-thinking";
-				worklog.append(node);
-			}
-			// The tail is what is happening now; the whole transcript of thought is
-			// neither useful nor kind to a panel this size.
-			node.textContent = reasoning.slice(-600);
-			node.scrollTop = node.scrollHeight;
-		};
 		const setWorklogLabel = (pending, label) => {
 			const worklog = pending?.activities?.querySelector(".tedix-worklog");
 			if (!worklog) return;
@@ -2323,7 +2296,6 @@ import { createInFlightRequestCoalescer } from "./session-request";
 											: progressLabel,
 									),
 						);
-						setWorklogThinking(pending, turn.finalized ? "" : turn.reasoning);
 					}
 					if (turn.text && turn.text !== renderedAnswer) {
 						renderedAnswer = turn.text;
