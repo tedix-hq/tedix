@@ -46,6 +46,8 @@ export const connectionsContract = oc
 					appId: z.string().min(1),
 					scope: z.enum(["tenant", "user"]).default("user"),
 					label: z.string().trim().min(1).max(100),
+					/** Pin the owner's current default login instead of adding a new one. */
+					adoptDefault: z.boolean().optional(),
 				}),
 			)
 			.output(z.object({ id: z.uuid(), appId: z.string(), label: z.string() })),
