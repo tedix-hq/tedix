@@ -9,6 +9,7 @@
  * @module @tedix/mcp/mcp/tool-registration
  */
 
+import { isToolDeniedForConnection } from "./no-funds-policy";
 import type {
 	CallToolResult,
 	StandardSchemaWithJSON,
@@ -603,6 +604,7 @@ export async function registerDynamicTool(
 	tool: AppTool,
 	registeredResourceUris?: Set<string>,
 ): Promise<void> {
+	if (isToolDeniedForConnection(agent, tool)) return;
 	const widgetVersion = getWidgetVersion(agent.env);
 
 	// Prompt tools are handled separately by registerAppPrompts

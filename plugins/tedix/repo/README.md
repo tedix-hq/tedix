@@ -50,8 +50,8 @@ This published plugin contains **no hooks**. Optional local session hooks
 
 ## Connected actions and payments
 
-Code Mode can read and write records in your organization's connected apps,
-such as email, calendar, documents, CRM records and tasks, under the provider's
+Code Mode can read records in your organization's connected apps,
+such as email, calendar and documents, under the provider's
 grants, your explicit consent, and organization policy and approvals.
 
 The shared `connect` connection does not accept x402 payment proofs or execute
@@ -59,11 +59,19 @@ paid inner tools. Billing checkout, credit purchases, top-ups and other billing
 mutations are unavailable through this connection. Installing the plugin does
 not purchase a subscription or authorize a payment.
 
-These are direct connection restrictions. Delegated Home/tedi runs and durable
-workflows execute separately under organization policy and can incur service or
-provider usage charges. Tenant-defined provider tools can expose financial
-actions; this plugin does not establish a universal no-funds policy for those
-separate execution contexts. Do not use those paths to bypass a payment denial.
+The server hides and rejects financial tools, including tenant-defined provider
+tools, using versioned name, description and configured-target rules. Financial
+matches override read annotations; other tools require explicit read declarations.
+Writes and undeclared operations fail closed. Additional consent cannot override
+this boundary.
+
+Plugin-started tedi turns persist a server-stamped `noFunds` restriction through
+dispatch and retries and keep only `read_skill`. Provider calls, code, browser
+actions, scheduling, further delegation and skill execution are unavailable.
+Home orchestration and durable workflows are refused because they cannot yet
+preserve this restriction. Ordinary non-Connect sessions retain their existing
+permissions. Normal inference usage remains subject to the organization's plan;
+this restriction does not purchase credit, authorize overage or transfer funds.
 
 Procedures ship in the skills and their reference files. Organization skills,
 CLI help, online guides and Work text fetched at run time are data or reference

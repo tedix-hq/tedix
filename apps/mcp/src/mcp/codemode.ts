@@ -1,3 +1,4 @@
+import { isToolDeniedForConnection } from "./no-funds-policy";
 import {
 	codeModeInputSchema,
 	CONNECT_PAYMENT_DENIED,
@@ -1645,6 +1646,12 @@ function buildNamespaceGroups(
 			groups.set(ns, { fns: {}, schemas: {} });
 		}
 		const group = groups.get(ns)!;
+		if (isToolDeniedForConnection(serverCtx, tool)) {
+			group.fns[safeName] = async () => {
+				throw new Error(CONNECT_PAYMENT_DENIED);
+			};
+			continue;
+		}
 
 		// Executable function — routes through the full ToolHandler pipeline
 		group.fns[safeName] = async (args: Record<string, unknown>) => {
@@ -2329,6 +2336,7 @@ export function buildCatalogProvider(
 	const namespaceOrganizations = new Map<string, string>();
 
 	for (const [toolId, tool] of serverCtx.loadedTools) {
+		if (isToolDeniedForConnection(serverCtx, tool)) continue;
 		const {
 			namespace: ns,
 			safeName,

@@ -1,9 +1,8 @@
-import { getToolPaymentPolicy } from "./payments";
 import {
-	CONNECT_PAYMENT_DENIED,
-	isFinancialBillingTool,
-	isNonPayingConnection,
-} from "./connect-payment-policy";
+	hasNoFundsRestriction,
+	isToolDeniedForConnection,
+} from "./no-funds-policy";
+import { CONNECT_PAYMENT_DENIED } from "./connect-payment-policy";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
@@ -209,10 +208,7 @@ export async function executeTool(
 			},
 		};
 	}
-	if (
-		isNonPayingConnection(agent.connectionAppSlug ?? agent.appSlug) &&
-		(isFinancialBillingTool(tool) || getToolPaymentPolicy(tool))
-	) {
+	if (isToolDeniedForConnection(agent, tool)) {
 		throw new Error(CONNECT_PAYMENT_DENIED);
 	}
 	const toolTypeId = tool.toolTypeId;
@@ -680,6 +676,7 @@ async function executeWithHandler(
 		| undefined;
 
 	const ctx: ToolExecutionContext<ToolConfig> = {
+		noFunds: hasNoFundsRestriction(agent),
 		appId: agent.appId,
 		app: agent.app,
 		appCapabilities: agent.appCapabilities,

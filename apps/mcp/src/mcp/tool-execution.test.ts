@@ -341,6 +341,7 @@ it("routes a selected organization through its own caller context and rejects ot
 	const tool = {
 		...makeTool(),
 		toolId: "sample__fetch_report",
+		writeCapability: "read" as const,
 		config: {
 			transport: "rpc",
 			endpoint: "reports/fetch",
@@ -1064,9 +1065,10 @@ describe("executeTool generic async task gate (_asyncTask + clientSupportsTasks)
 		const tool = {
 			...makeAsyncTool(),
 			toolId: "tedix__long_running_job",
+			writeCapability: "read" as const,
 			config: {
 				transport: "rpc",
-				endpoint: "jobs/run",
+				endpoint: "reports/readSlowReport",
 				_asyncTask: true,
 				_multiOrgOrganizationId: "org-1",
 			},
@@ -1401,4 +1403,27 @@ describe("Connect financial dispatch", () => {
 			expect(agent.toolHandler.execute).not.toHaveBeenCalled();
 		},
 	);
+});
+
+it("rejects classified provider dispatch from Connect before any upstream call", async () => {
+	const tool = {
+		...makeTool(),
+		toolId: "provider__create_payment",
+		writeCapability: "read" as const,
+	};
+	const normal = makeAgent({ status: 200, data: { ok: true } });
+	const options = {
+		adapterScope: "all" as const,
+		resultStrategy: "merge" as const,
+	};
+	await executeTool(normal, tool, {}, options);
+	expect(normal.toolHandler.execute).toHaveBeenCalledTimes(1);
+	const plugin = {
+		...makeAgent({ status: 200, data: {} }),
+		connectionAppSlug: "connect",
+	};
+	await expect(executeTool(plugin, tool, {}, options)).rejects.toThrow(
+		"unavailable through this connection",
+	);
+	expect(plugin.toolHandler.execute).not.toHaveBeenCalled();
 });

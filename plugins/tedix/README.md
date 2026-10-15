@@ -118,18 +118,17 @@ The host skill format follows the
 
 Connect the plugin through the host's OAuth flow, select your organizations,
 and start with the task you want done. The native connection and bundled skills
-support Work reads, scoped tools, tedi delegation, and Workspace Outputs without
+support Work reads, scoped read tools, and restricted tedi turns without
 a local CLI, subject to the actual grant and organization policy. The repository
 connection offers the shared human Connect permission catalog, with reads selected
 initially in browser consent. Writes and destructive actions require explicit
 selection. Review the scopes in the host consent screen; `.mcp.json` declares
 only the server type and URL.
 `connections.read` permits reviewed reads through verified provider connections.
-Provider writes require explicit `connections.execute` consent; destructive actions require `connections.admin`. Platform writes still need their relevant consent.
+Additional consent cannot override the connection's no-funds restriction.
 
-Code Mode can read and change records in the organization's connected apps:
-for example, find email and calendar entries, read documents, update CRM records,
-or create requested documents and tasks. The available actions depend on the
+Code Mode can read records in the organization's connected apps:
+for example, find email and calendar entries or read documents. Available reads depend on the
 connected provider, its grants, the signed-in owner's consent, and organization
 policy and approvals. Discovery does not grant permission to execute an action.
 
@@ -139,17 +138,27 @@ credit purchases, top-ups and other billing mutations are unavailable through
 this connection; use Tedix's separate billing interface for account billing.
 Installing the plugin does not purchase a subscription or authorize a payment.
 
-These are direct connection restrictions. Delegated Home/tedi runs and durable
-workflows execute separately under organization policy and can incur service or
-provider usage charges. Tenant-defined provider tools can expose financial
-actions; this plugin does not establish a universal no-funds policy for those
-separate execution contexts. Do not use those paths to bypass a payment denial.
+The server hides classified financial tools from discovery and rejects direct
+and Code Mode calls, including tenant-defined provider tools. Versioned rules
+check names, descriptions and configured targets for financial operations and
+payment providers. These matches override read annotations. Other tools require
+an explicit read declaration; writes and undeclared operations fail closed.
+
+Plugin-started tedi turns carry a server-stamped `noFunds` restriction through
+durable dispatch and retries. Their only executable tool is `read_skill`:
+provider calls, browser actions, code execution, scheduling, further delegation
+and skill execution are unavailable. Home orchestration and durable workflows
+are refused through this connection because they cannot yet preserve that
+restriction. No child skill run can be started to bypass it. Ordinary connections
+outside Connect retain their existing permissions. Normal service inference
+usage remains subject to the organization's plan; this restriction does not
+purchase credit, authorize overage or transfer funds.
 
 [Privacy policy](https://tedix.dev/privacy/) ·
 [Terms of service](https://tedix.dev/terms/)
 
-`tedix-session-guide` chooses the useful path. `tedix-delegate` submits an
-explicitly requested task to Home and follows its durable run receipt. Neither
+`tedix-session-guide` chooses the useful path. Home submissions from
+`tedix-delegate` are unavailable on this restricted connection. Neither
 skill silently creates Work, starts a local Attempt, or records unrelated chats.
 The CLI adds repository context recovery, shell automation and governed local
 execution. A repository policy can require that path.
