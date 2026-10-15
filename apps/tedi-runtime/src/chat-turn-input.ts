@@ -62,6 +62,8 @@ export interface ChatTurnParams {
 	 * `foreign` runs a plain turn untrusted; a Home delegation ignores it.
 	 */
 	callerTrust?: CallerTrustTier;
+	/** Trusted gateway restriction persisted with this turn and every retry. */
+	noFunds?: boolean;
 	/**
 	 * This turn's model in place of the tedi's chat policy (`turnModelForInject`:
 	 * reply-draft turns only). Memory, persona and tools are unchanged.

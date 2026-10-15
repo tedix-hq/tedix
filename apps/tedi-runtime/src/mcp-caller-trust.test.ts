@@ -211,6 +211,7 @@ function injectProbe() {
 async function inject(
 	tier: string | null,
 	body: Record<string, unknown>,
+	noFunds = false,
 ): Promise<{
 	status: number;
 	durable: Record<string, unknown> | undefined;
@@ -219,6 +220,7 @@ async function inject(
 	const probe = injectProbe();
 	const headers = new Headers({ "Content-Type": "application/json" });
 	if (tier !== null) headers.set(CALLER_TRUST_HEADER, tier);
+	if (noFunds) headers.set("X-Tedix-No-Funds", "true");
 	const response = await probe.agent.onRequest(
 		new Request("https://do.internal/__internal/inject", {
 			method: "POST",
@@ -332,3 +334,25 @@ console.log("PASS: async inject caller trust");
 	assert.equal(probe.durable[0]?.callerTrust, "foreign");
 }
 console.log("PASS: mcp run_tedi_turn caller trust");
+
+for (const async of [false, true]) {
+	const result = await inject(
+		"member",
+		{ text: "Create a Stripe payment", async, noFunds: false },
+		true,
+	);
+	assert.equal(result.status, async ? 202 : 200);
+	assert.equal(
+		(async ? result.dispatched : result.durable)?.noFunds,
+		true,
+		"arguments cannot remove the server restriction",
+	);
+}
+const restrictedWorkflow = await workflowTurn({
+	callerTrust: "member",
+	noFunds: true,
+});
+assert.equal(restrictedWorkflow.prepared.noFunds, true);
+console.log(
+	"PASS: gateway noFunds persists through inject and workflow preparation",
+);
