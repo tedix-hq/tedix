@@ -78,6 +78,52 @@ describe("factory commands", () => {
 		stdout.mockRestore();
 	});
 
+	it("orders the overview by severity and summarizes verdict counts", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const reply = {
+				data: [
+					{ slug: "a-paused", verdict: "paused" },
+					{ slug: "b-idle", verdict: "idle" },
+					{ slug: "c-unknown", verdict: "unknown" },
+					{ slug: "d-healthy", verdict: "healthy" },
+					{ slug: "e-pending", verdict: "pending" },
+					{ slug: "f-idle", verdict: "idle" },
+					{ slug: "g-not-firing", verdict: "not_firing" },
+					{ slug: "h-failing", verdict: "failing" },
+				],
+			};
+			const { ctx } = harness(reply);
+			ctx.json = false;
+			expect(await runFactoryCommand("status", ctx)).toBe(0);
+			const lines = stdout.mock.calls.map(([line]) => String(line));
+			expect(
+				lines
+					.filter((_, index) => index < 16 && index % 2 === 0)
+					.map((line) => line.split(/\s+/)[1]),
+			).toEqual([
+				"h-failing",
+				"g-not-firing",
+				"b-idle",
+				"f-idle",
+				"e-pending",
+				"d-healthy",
+				"a-paused",
+				"c-unknown",
+			]);
+			expect(lines).toHaveLength(17);
+			expect(lines.at(-1)).toBe(
+				"8 factories: 1 failing, 1 not_firing, 2 idle, 1 pending, 1 healthy, 1 paused, 1 unknown",
+			);
+			stdout.mockClear();
+			ctx.json = true;
+			expect(await runFactoryCommand("status", ctx)).toBe(0);
+			expect(stdout.mock.calls).toEqual([[JSON.stringify(reply)]]);
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
 	it("parses factory flags only for the factory command", () => {
 		const parsed = parseOptions([
 			"factory",
