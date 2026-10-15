@@ -165,9 +165,9 @@ describe("DocumentEditor", () => {
 	it("folds lower-priority groups into More only as the toolbar narrows", async () => {
 		const width = vi
 			.spyOn(HTMLElement.prototype, "clientWidth", "get")
-			.mockReturnValue(1000);
+			.mockReturnValue(1300);
 		const mounted = await mountEditor();
-		// 1000px folds only tier 3: indent, inline code, rule and clear.
+		// 1300px folds only tier 3: indent, inline code, rule and clear.
 		expect(button("Font family", mounted.container)).not.toBeNull();
 		expect(button("Align center", mounted.container)).not.toBeNull();
 		expect(button("Increase indent", mounted.container)).toBeNull();
@@ -284,6 +284,11 @@ describe("DocumentEditor", () => {
 
 	it("inserts every image picked at once, showing progress while they are prepared", async () => {
 		const mounted = await mountEditor();
+		// An empty page: each image must land after the one before it.
+		await act(async () => {
+			mounted.editor.commands.setContent("<p></p>");
+			mounted.editor.commands.setTextSelection(1);
+		});
 		let release: () => void = () => {};
 		const gate = new Promise<void>((resolve) => {
 			release = resolve;
