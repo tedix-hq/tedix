@@ -428,8 +428,8 @@ const NO_WRITE_TOOL = "NONE";
 
 const MAX_OUTPUT_TOKENS = 3000;
 const MAX_CATALOG_TOOLS = 40;
-/** Backstop on the serialized argument payload. */
-const MAX_ARGS_JSON_LENGTH = 2000;
+/** Bounded room for record descriptions and drafts, including JSON overhead. */
+const MAX_ARGS_JSON_LENGTH = 16_384;
 
 const WriteCallPlanSchema = z.object({
 	toolName: z
@@ -453,6 +453,7 @@ const SYSTEM_PROMPT = `You are the Kernel's write-proposal planner. The operator
 Rules:
 - Pick the single tool that most directly performs the change the operator asked for. Prefer the narrowest matching write over broad/batch operations.
 - If the request needs two or more separate writes (e.g. rename a project AND create a Work item), return NONE: one proposal must never silently drop part of the request.
+- For Work items, issues and tasks, the supplied description and acceptance criteria are record content about future work. Store that brief without performing it or counting its steps as additional writes. Creating the record does not execute or delegate the work it describes.
 - "Only stage it for approval" or "do nothing else" describes this review step; it does not negate the change.
 - Only use parameters the chosen tool declares. Omit optional parameters unless they clearly help.
 - When asked to draft or create content, compose the finished content inside the tool arguments. Follow the requested structure, durations, and other explicit constraints; do not paste the drafting instructions into the deliverable. Use supplied text verbatim only when the operator asks for that. Do not invent factual evidence, measurements, or completed actions. Before returning, check that every requested component is present in the draft; mentioning a requirement is not fulfilling it.
@@ -597,11 +598,13 @@ async function planWriteCall(args: {
 	timeoutMs: number;
 	/** GenAI span identity for this write pass (see `kernelSpanContext`). */
 	span?: Record<string, string>;
+	onFailure?: (reason: string) => void;
 }): Promise<{
 	toolName: string;
 	args: Record<string, unknown>;
 	reasoning: string | null;
 } | null> {
+	const abortSignal = flatAbortSignal(args.timeoutMs);
 	try {
 		const result = await tracedAi.generateObject({
 			model: args.model,
@@ -618,12 +621,15 @@ async function planWriteCall(args: {
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			// Flat abort: a stalled write pass never settles and never throws; the
 			// timeout makes it reject → the catch returns null (no heuristic write).
-			abortSignal: flatAbortSignal(args.timeoutMs),
+			abortSignal,
 			maxRetries: 1,
 			// GPT-5 reasoning models do not support temperature; omit.
 		});
 		const plan = result.object;
-		if (!plan.toolName || plan.toolName === NO_WRITE_TOOL) return null;
+		if (!plan.toolName || plan.toolName === NO_WRITE_TOOL) {
+			args.onFailure?.("Argument planner declined the selected tool");
+			return null;
+		}
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(
@@ -633,6 +639,7 @@ async function planWriteCall(args: {
 			console.warn("[kernel.writeProposal] argsJson unparseable", {
 				toolName: plan.toolName,
 			});
+			args.onFailure?.("Argument planner returned invalid JSON");
 			return null;
 		}
 		if (
@@ -640,6 +647,7 @@ async function planWriteCall(args: {
 			typeof parsed !== "object" ||
 			Array.isArray(parsed)
 		) {
+			args.onFailure?.("Argument planner did not return an object");
 			return null;
 		}
 		return {
@@ -651,6 +659,11 @@ async function planWriteCall(args: {
 		console.warn("[kernel.writeProposal] planWriteCall failed", {
 			exception: safeExceptionTopology(error),
 		});
+		args.onFailure?.(
+			abortSignal.aborted
+				? "Argument generation timed out"
+				: "Argument generation failed",
+		);
 		return null;
 	}
 }
@@ -939,6 +952,7 @@ export async function planKernelWriteProposal(args: {
 			provider.slug,
 			provider.paramDefaults,
 		);
+		let argumentFailure = "Could not construct arguments for the selected tool";
 		const planned = await planWriteCall({
 			workspaceContext: args.workspaceContext,
 			content,
@@ -948,11 +962,14 @@ export async function planKernelWriteProposal(args: {
 			paramDefaults,
 			timeoutMs,
 			span: kernelSpanContext({ organizationId, source: "write_proposal" }),
+			onFailure: (reason) => {
+				argumentFailure = reason;
+			},
 		});
 		if (!planned)
 			return decline({
 				stage: "planner_declined",
-				detail: "Could not construct arguments for the selected tool",
+				detail: argumentFailure,
 			});
 		const validated = validateProposedCall(planned, [exactTool], paramDefaults);
 		if (!validated) {
