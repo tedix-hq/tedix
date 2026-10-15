@@ -343,6 +343,20 @@ export function CanvasDocPanel({
 		useState<OsGadgetExecution | null>(null);
 
 	const reviseOutput = useReviseOutput(isGadget ? "" : doc.id);
+	// The newer saved version the user chose to save their changes on top of.
+	// Only that exact version: a later one reopens the choice.
+	const [keptChangesOver, setKeptChangesOver] = useState<number | null>(null);
+	const keepingChanges =
+		recoveryRequired &&
+		canonicalDoc !== null &&
+		keptChangesOver === canonicalDoc.revision;
+	// The room's stamp, not the query's (see this module's header) -- unless the
+	// user explicitly chose to keep their changes over the newer version, which
+	// is then the version this save must replace.
+	const expectedRevision =
+		keepingChanges && canonicalDoc
+			? canonicalDoc.revision
+			: (roomCanonical?.revision ?? 0);
 
 	const gadgetCommit = useMutation({
 		mutationFn: (variables: {
@@ -353,8 +367,7 @@ export function CanvasDocPanel({
 				workspaceId,
 				gadgetId: doc.id,
 				manifest: variables.manifest,
-				// The room'S stamp, not the query's: see this module's header.
-				expectedRevision: roomCanonical?.revision ?? 0,
+				expectedRevision,
 			}),
 		onSuccess: ({ revision }, variables) => {
 			// Re-ground the room on the revision this commit just produced, at the
@@ -429,8 +442,7 @@ export function CanvasDocPanel({
 		const result = await reviseOutput.save({
 			content: parsed.value as OsOutputContent,
 			baseContent: loaded.currentRevision.content,
-			// The room'S stamp, not the query's: see this module's header.
-			expectedRevision: roomCanonical?.revision ?? 0,
+			expectedRevision,
 			note,
 		});
 		if (result.kind === "saved") {
@@ -463,7 +475,7 @@ export function CanvasDocPanel({
 	const proposalMergeBlockedReason = !live
 		? "Reconnect before applying a proposal."
 		: recoveryRequired
-			? "Review the updated version before applying a proposal."
+			? "A newer version was saved. Load it or keep your changes first."
 			: unsynced || unacknowledged || committing
 				? "Wait for your changes to finish syncing and saving."
 				: !draftMatchesSaved
@@ -473,10 +485,10 @@ export function CanvasDocPanel({
 		? status === "connecting"
 			? "Connecting…"
 			: "Disconnected · Changes paused"
-		: recoveryRequired
-			? "Updated version available · Review"
+		: recoveryRequired && canonicalDoc
+			? `Newer version saved (v${canonicalDoc.revision})`
 			: outputDraftIssue
-				? "Draft needs recovery"
+				? "Draft can't be opened"
 				: committing
 					? "Saving version…"
 					: unsynced || unacknowledged
@@ -529,7 +541,7 @@ export function CanvasDocPanel({
 		!session ||
 		!live ||
 		roomCanonical === null ||
-		recoveryRequired ||
+		(recoveryRequired && !keepingChanges) ||
 		unacknowledged ||
 		outputDraftIssue !== null;
 
@@ -578,21 +590,36 @@ export function CanvasDocPanel({
 					<span className="sr-only" data-canvas-revision-status>
 						{revisionLabel}
 					</span>
-					<Badge
-						className={
-							documentSaveStatus === "Saved" && !isGadget
-								? "canvas-saved-status"
-								: undefined
-						}
-						variant={unsynced ? "warning" : "info"}
-						title={`${revisionLabel ?? "No canonical revision"}. Changes sync with connected editors. Save version records them in version history.`}
-					>
-						{isGadget
-							? unsynced
-								? "Live draft · Syncing…"
-								: "Live draft · Commit to save"
-							: documentSaveStatus}
-					</Badge>
+					{recoveryRequired && canonicalDoc && live ? (
+						<Button
+							size="xs"
+							variant="outline"
+							data-canvas-newer-version
+							onClick={() =>
+								document
+									.querySelector<HTMLElement>("[data-canonical-recovery]")
+									?.focus()
+							}
+						>
+							{documentSaveStatus}
+						</Button>
+					) : (
+						<Badge
+							className={
+								documentSaveStatus === "Saved" && !isGadget
+									? "canvas-saved-status"
+									: undefined
+							}
+							variant={unsynced ? "warning" : "info"}
+							title={`${revisionLabel ?? "No canonical revision"}. Changes sync with connected editors. Save version records them in version history.`}
+						>
+							{isGadget
+								? unsynced
+									? "Live draft · Syncing…"
+									: "Live draft · Commit to save"
+								: documentSaveStatus}
+						</Badge>
+					)}
 				</OutputWorkshopStatus>
 				<OutputWorkshopActions className="canvas-document-actions">
 					{isGadget && gadgetDetail.data && (
@@ -661,13 +688,12 @@ export function CanvasDocPanel({
 				roomCanonical && (
 					<CanvasDocumentRecovery
 						draftText={docText}
-						savedText={canonicalDoc.text}
 						revision={canonicalDoc.revision}
-						outputKind={outputKind}
-						isGadget={isGadget}
 						invalidDraft={!!outputDraftIssue}
+						keptChanges={keepingChanges}
 						disabled={!live || unacknowledged || unsynced}
 						onReplace={replaceWithCanonical}
+						onKeepChanges={() => setKeptChangesOver(canonicalDoc.revision)}
 					/>
 				)}
 			{discarded > 0 && (
@@ -690,9 +716,8 @@ export function CanvasDocPanel({
 								: `The shared ${outputKindLabel.toLowerCase()} draft cannot be opened`}
 					</AlertTitle>
 					<AlertDescription>
-						This draft contains content the editor cannot open. The saved
-						version is unchanged. Use the recovery controls above to download
-						the draft and restore the saved version.
+						The editor cannot open this draft. The saved version is unchanged:
+						use the choices above to download a copy or load it.
 					</AlertDescription>
 				</Alert>
 			)}
@@ -845,7 +870,12 @@ export function CanvasDocPanel({
 							setConfirming(true);
 						}}
 					>
-						<FloppyDisk size={14} /> {isGadget ? "Commit" : "Save version"}
+						<FloppyDisk size={14} />{" "}
+						{keepingChanges && canonicalDoc
+							? `Save as v${canonicalDoc.revision + 1}`
+							: isGadget
+								? "Commit"
+								: "Save version"}
 					</Button>
 				) : (
 					<>
@@ -867,9 +897,11 @@ export function CanvasDocPanel({
 							<FloppyDisk size={14} />{" "}
 							{committing
 								? "Saving…"
-								: isGadget
-									? "Commit revision"
-									: "Save version now"}
+								: keepingChanges && canonicalDoc
+									? `Save as v${canonicalDoc.revision + 1} now`
+									: isGadget
+										? "Commit revision"
+										: "Save version now"}
 						</Button>
 						<Button
 							variant="ghost"
@@ -899,10 +931,9 @@ export function CanvasDocPanel({
 			)}
 			{conflicted && (
 				<Alert variant="destructive">
-					<AlertTitle>Someone saved a newer revision</AlertTitle>
+					<AlertTitle>Someone saved a newer version</AlertTitle>
 					<AlertDescription>
-						Your draft is preserved. Review the updated version before saving
-						again.
+						Your changes were not saved and are still here.
 					</AlertDescription>
 				</Alert>
 			)}

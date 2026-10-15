@@ -112,8 +112,11 @@ commit's compare-and-swap to that stamp. Pinning to whatever the canonical store
 reports at commit time would lose data: a revision committed out of band would
 satisfy the CAS while the room still held older text.
 
-`atRevision` is the edited flag in stream terms: `state.revision ===
-atRevision` means nothing was accepted since grounding. The stamp is kept
+`atRevision` names the position the room was grounded at. A room is edited when
+its content differs from the content at that position, not when the stream has
+merely moved: edits that were undone, and view state such as a deck's
+`activeSlideId`, leave it unedited (`sameDraftContent`). A position outside the
+retained window cannot be checked and counts as edited. The stamp is kept
 separate from `StoredBase` so adoption can move it without rewriting the base.
 
 **Adoption is one server-authored row, not a base swap.** Swapping the base
@@ -128,8 +131,10 @@ Outcomes, in order:
 2. **Byte-identical** — the room's content already equals the offer; the stamp
    moves alone. This is the path after a room commits its own text.
 3. **Different** — an unedited room adopts; an edited room is refused unless the
-   caller forces it. The surface blocks Commit and offers an explicit, warned
-   replacement rather than silently discarding a colleague's unsaved work.
+   caller forces it. The surface blocks Save and asks the user to load the newer
+   version (confirmed, since it discards the draft) or keep their changes and
+   save them on top of it, rather than silently discarding a colleague's
+   unsaved work.
 
 **Grounding is a separate verb.** A commit makes the room's text at stream
 position P canonical revision N, but by the time the surface learns N exists the

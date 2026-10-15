@@ -473,7 +473,14 @@ export function SlidesEditor({
 }: SlidesEditorProps) {
 	const normalized = normalizePresentationContent(value);
 	const deck = normalized.deck!;
+	// Which slide is on the stage is this viewer's state, not the document's.
+	// Writing `activeSlideId` on every click made browsing a deck an edit: the
+	// draft no longer matched its saved version, so the next saved version was
+	// held behind a recovery prompt. Only structural edits (add, duplicate,
+	// delete) still record it.
+	const [viewedSlideId, setViewedSlideId] = useState<string | null>(null);
 	const activeSlide =
+		deck.slides.find((slide) => slide.id === viewedSlideId) ??
 		deck.slides.find((slide) => slide.id === deck.activeSlideId) ??
 		deck.slides[0] ??
 		null;
@@ -498,8 +505,11 @@ export function SlidesEditor({
 			),
 		[deck.slides, search],
 	);
-	const commitDeck = (next: OsPresentationDeck) =>
+	const commitDeck = (next: OsPresentationDeck) => {
+		if (next.activeSlideId !== deck.activeSlideId)
+			setViewedSlideId(next.activeSlideId);
 		history.commit(projectDeck(next));
+	};
 	const updateElement = (next: OsPresentationElement, record = true) => {
 		if (!activeSlide) return;
 		const nextDeck = replaceActiveSlide(deck, {
@@ -758,7 +768,7 @@ export function SlidesEditor({
 										slide.id === activeSlide.id ? "secondary" : "outline"
 									}
 									onClick={() => {
-										commitDeck({ ...deck, activeSlideId: slide.id });
+										setViewedSlideId(slide.id);
 										setSelectedElementId(null);
 									}}
 								>
@@ -1118,8 +1128,7 @@ export function SlidesEditor({
 							onClick={() => {
 								const previous =
 									deck.slides[deck.slides.indexOf(activeSlide) - 1];
-								if (previous)
-									commitDeck({ ...deck, activeSlideId: previous.id });
+								if (previous) setViewedSlideId(previous.id);
 							}}
 						>
 							<ArrowLeft size={16} />
@@ -1136,7 +1145,7 @@ export function SlidesEditor({
 							}
 							onClick={() => {
 								const next = deck.slides[deck.slides.indexOf(activeSlide) + 1];
-								if (next) commitDeck({ ...deck, activeSlideId: next.id });
+								if (next) setViewedSlideId(next.id);
 							}}
 						>
 							<ArrowRight size={16} />
