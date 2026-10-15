@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import { workItems } from "../../schema/work-items";
@@ -791,4 +791,74 @@ export async function listWorkInteractionInbox(
 				: null,
 		observedAt: p.observedAt,
 	};
+}
+
+/** Identifier-only projection for the MCP interaction event feed. */
+export type RequestedWorkInteractionEventRow = Pick<
+	WorkInteraction,
+	| "id"
+	| "workItemId"
+	| "projectId"
+	| "kind"
+	| "targetType"
+	| "targetId"
+	| "creatorType"
+	| "dueAt"
+	| "createdAt"
+>;
+
+/** Org-scoped ascending keyset read; private content is never selected. */
+export async function listRequestedWorkInteractionEvents(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		after: { at: string; id: string } | null;
+		workItemId?: string;
+		targetId?: string;
+		kind?: WorkInteractionKind;
+		limit: number;
+	},
+): Promise<RequestedWorkInteractionEventRow[]> {
+	return db
+		.select({
+			id: workInteractions.id,
+			workItemId: workInteractions.workItemId,
+			projectId: workInteractions.projectId,
+			kind: workInteractions.kind,
+			targetType: workInteractions.targetType,
+			targetId: workInteractions.targetId,
+			creatorType: workInteractions.creatorType,
+			dueAt: workInteractions.dueAt,
+			createdAt: workInteractions.createdAt,
+		})
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				p.workItemId
+					? eq(workInteractions.workItemId, p.workItemId)
+					: undefined,
+				p.targetId ? eq(workInteractions.targetId, p.targetId) : undefined,
+				p.kind ? eq(workInteractions.kind, p.kind) : undefined,
+				p.after
+					? sql`(${workInteractions.createdAt}>${p.after.at} OR (${workInteractions.createdAt}=${p.after.at} AND ${workInteractions.id}>${p.after.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
+		.limit(p.limit);
+}
+
+/** Newest interaction position in the org, used to poll "from now". */
+export async function getLatestWorkInteractionPosition(
+	db: DbQueryClient,
+	orgId: string,
+): Promise<{ at: string; id: string } | null> {
+	const [row] = await db
+		.select({ at: workInteractions.createdAt, id: workInteractions.id })
+		.from(workInteractions)
+		.where(eq(workInteractions.orgId, orgId))
+		.orderBy(desc(workInteractions.createdAt), desc(workInteractions.id))
+		.limit(1);
+	return row ?? null;
 }

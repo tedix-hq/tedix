@@ -8,6 +8,7 @@ import { skillUsage } from "./skill";
 import { superviseUsage } from "./supervise";
 import { localInstallationUsage } from "./local-installation";
 import { mcpUsage } from "./mcp-call";
+import { channelUsage } from "./event-channel";
 import { CLI_VERSION } from "./shared";
 import { tediUsage } from "./tedi";
 import {
@@ -172,6 +173,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		approval: "explicit",
 		output: ["json"],
 		help: mcpUsage,
+	},
+	{
+		name: "channel",
+		argHint: "claude [<event>...]",
+		surface: "gateway-direct",
+		summary: "Deliver Tedix events into a Claude Code session",
+		mutability: "read",
+		output: ["json"],
+		help: channelUsage,
 	},
 	{
 		name: "work",

@@ -6,6 +6,10 @@ import {
 	ClaimDueMcpEventWebhooksResultSchema,
 	DeleteMcpEventWebhookSubscriptionInputSchema,
 	DeleteMcpEventWebhookSubscriptionResultSchema,
+	PollWorkCommentsInputSchema,
+	PollWorkCommentsResultSchema,
+	PollWorkInteractionRequestsInputSchema,
+	PollWorkInteractionRequestsResultSchema,
 	PollFailedSkillRunsInputSchema,
 	PollFailedSkillRunsResultSchema,
 	PollWorkApprovalRequestsInputSchema,
@@ -39,6 +43,22 @@ export const mcpEventsContract = oc
 			})
 			.input(PollWorkApprovalRequestsInputSchema)
 			.output(PollWorkApprovalRequestsResultSchema),
+		pollWorkComments: oc
+			.route({
+				method: "POST",
+				path: "/work-comments/poll",
+				summary: "Poll Work comments after a keyset cursor",
+			})
+			.input(PollWorkCommentsInputSchema)
+			.output(PollWorkCommentsResultSchema),
+		pollWorkInteractionRequests: oc
+			.route({
+				method: "POST",
+				path: "/work-interaction-requests/poll",
+				summary: "Poll Work interaction-requests after a keyset cursor",
+			})
+			.input(PollWorkInteractionRequestsInputSchema)
+			.output(PollWorkInteractionRequestsResultSchema),
 		pollFailedSkillRuns: oc
 			.route({
 				method: "POST",

@@ -28,6 +28,14 @@ import {
 	getWorkEventHeadSequence,
 	listWorkStateChangeEvents,
 } from "@tedix/db/queries/work-items/events";
+import {
+	getLatestWorkInteractionPosition,
+	listRequestedWorkInteractionEvents,
+} from "@tedix/db/queries/work-items/interactions";
+import {
+	getLatestWorkCommentPosition,
+	listWorkCommentEvents,
+} from "@tedix/db/queries/work-items/comments";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -140,6 +148,86 @@ const pollWorkApprovalRequestsProcedure =
 					approver_type: row.approverType,
 					approver_id: row.approverId,
 					expires_at: row.expiresAt,
+				},
+			})),
+			after: last ? { at: last.createdAt, id: last.id } : input.after,
+			hasMore: rows.length > input.limit,
+		};
+	});
+
+const pollWorkCommentsProcedure = workReadOs.pollWorkComments.handler(
+	async ({ input, context }) => {
+		const orgId = requireOrgId(context, "MCP events");
+		if (input.after == null)
+			return {
+				events: [],
+				after:
+					(await getLatestWorkCommentPosition(context.db, orgId)) ??
+					EMPTY_POSITION,
+				hasMore: false,
+			};
+		const rows = await listWorkCommentEvents(context.db, {
+			orgId,
+			after: input.after,
+			workItemId: input.workItemId,
+			authorType: input.authorType,
+			limit: input.limit + 1,
+		});
+		const page = rows.slice(0, input.limit);
+		const last = page.at(-1);
+		return {
+			events: page.map((row) => ({
+				eventId: `evt_comment_${row.id}`,
+				timestamp: row.createdAt,
+				data: {
+					organization_id: orgId,
+					work_item_id: row.workItemId,
+					comment_id: row.id,
+					author_type: row.authorType,
+					author_id: row.authorId,
+				},
+			})),
+			after: last ? { at: last.createdAt, id: last.id } : input.after,
+			hasMore: rows.length > input.limit,
+		};
+	},
+);
+
+const pollWorkInteractionRequestsProcedure =
+	workReadOs.pollWorkInteractionRequests.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context, "MCP events");
+		if (input.after == null)
+			return {
+				events: [],
+				after:
+					(await getLatestWorkInteractionPosition(context.db, orgId)) ??
+					EMPTY_POSITION,
+				hasMore: false,
+			};
+		const rows = await listRequestedWorkInteractionEvents(context.db, {
+			orgId,
+			after: input.after,
+			workItemId: input.workItemId,
+			targetId: input.targetId,
+			kind: input.kind,
+			limit: input.limit + 1,
+		});
+		const page = rows.slice(0, input.limit);
+		const last = page.at(-1);
+		return {
+			events: page.map((row) => ({
+				eventId: `evt_interaction_${row.id}`,
+				timestamp: row.createdAt,
+				data: {
+					organization_id: orgId,
+					request_id: row.id,
+					work_item_id: row.workItemId,
+					project_id: row.projectId,
+					kind: row.kind,
+					target_type: row.targetType,
+					target_id: row.targetId,
+					creator_type: row.creatorType,
+					due_at: row.dueAt,
 				},
 			})),
 			after: last ? { at: last.createdAt, id: last.id } : input.after,
@@ -333,6 +421,8 @@ const recordWebhookDeliveryProcedure = eventsOs.recordWebhookDelivery
 export const mcpEventsContractRouter = eventsOs.router({
 	pollWorkStateChanges: pollWorkStateChangesProcedure,
 	pollWorkApprovalRequests: pollWorkApprovalRequestsProcedure,
+	pollWorkComments: pollWorkCommentsProcedure,
+	pollWorkInteractionRequests: pollWorkInteractionRequestsProcedure,
 	pollFailedSkillRuns: pollFailedSkillRunsProcedure,
 	upsertWebhookSubscription: upsertWebhookSubscriptionProcedure,
 	deleteWebhookSubscription: deleteWebhookSubscriptionProcedure,

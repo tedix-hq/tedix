@@ -58,6 +58,8 @@ it("lists the reply webhook event and the org-scoped poll events", async () => {
 					inputSchema: { required: ["organization_id"] },
 				},
 				{ name: "work.approval.requested", delivery: ["poll"] },
+				{ name: "work.item.commented", delivery: ["poll"] },
+				{ name: "work.interaction.requested", delivery: ["poll"] },
 				{ name: "skill.run.failed", delivery: ["poll"] },
 			],
 		},
@@ -79,6 +81,8 @@ it("advertises webhook delivery for ledger events only when the app opts in", as
 		"work.interaction.responded": ["webhook"],
 		"work.item.state_changed": ["poll", "webhook"],
 		"work.approval.requested": ["poll", "webhook"],
+		"work.item.commented": ["poll", "webhook"],
+		"work.interaction.requested": ["poll", "webhook"],
 		"skill.run.failed": ["poll", "webhook"],
 	});
 	const subscribe = await maybeHandleInteractionEvents(

@@ -78,6 +78,59 @@ export const PollWorkApprovalRequestsResultSchema = z.object({
 	hasMore: z.boolean(),
 });
 
+export const WorkItemCommentedEventSchema = z.object({
+	eventId: z.string(),
+	timestamp: z.string(),
+	data: z.object({
+		organization_id: z.string(),
+		work_item_id: z.string(),
+		comment_id: z.string(),
+		author_type: z.enum(["user", "tedi", "external_agent", "system"]),
+		author_id: z.string().nullable(),
+	}),
+});
+export const PollWorkCommentsInputSchema = z.object({
+	/** Omit (or null) to start from the ledger head without replay. */
+	after: McpEventKeysetCursorSchema.nullable().optional(),
+	workItemId: z.string().uuid().optional(),
+	authorType: z.enum(["user", "tedi", "external_agent", "system"]).optional(),
+	limit: PollLimitSchema,
+});
+export const PollWorkCommentsResultSchema = z.object({
+	events: z.array(WorkItemCommentedEventSchema),
+	after: McpEventKeysetCursorSchema,
+	hasMore: z.boolean(),
+});
+
+export const WorkInteractionRequestedEventSchema = z.object({
+	eventId: z.string(),
+	timestamp: z.string(),
+	data: z.object({
+		organization_id: z.string(),
+		request_id: z.string(),
+		work_item_id: z.string().nullable(),
+		project_id: z.string().nullable(),
+		kind: z.enum(["question", "input", "handoff", "coordination"]),
+		target_type: z.enum(["user", "tedi", "external_agent"]).nullable(),
+		target_id: z.string().nullable(),
+		creator_type: z.enum(["user", "tedi", "external_agent", "system"]),
+		due_at: z.string().nullable(),
+	}),
+});
+export const PollWorkInteractionRequestsInputSchema = z.object({
+	/** Omit (or null) to start from the ledger head without replay. */
+	after: McpEventKeysetCursorSchema.nullable().optional(),
+	workItemId: z.string().uuid().optional(),
+	targetId: OptionalIdSchema,
+	kind: z.enum(["question", "input", "handoff", "coordination"]).optional(),
+	limit: PollLimitSchema,
+});
+export const PollWorkInteractionRequestsResultSchema = z.object({
+	events: z.array(WorkInteractionRequestedEventSchema),
+	after: McpEventKeysetCursorSchema,
+	hasMore: z.boolean(),
+});
+
 export const SkillRunFailedEventSchema = z.object({
 	eventId: z.string(),
 	timestamp: z.string(),
@@ -106,13 +159,15 @@ export const PollFailedSkillRunsResultSchema = z.object({
 });
 
 /**
- * `events/subscribe` webhook leases for the three ledger events. The MCP edge
+ * `events/subscribe` webhook leases for the ledger events. The MCP edge
  * seals the caller's bearer and callback secret into `sealedCredential`; the
  * API stores it opaquely and returns it only to the service-bound deliverer.
  */
 export const McpWebhookEventNameSchema = z.enum([
 	"work.item.state_changed",
 	"work.approval.requested",
+	"work.item.commented",
+	"work.interaction.requested",
 	"skill.run.failed",
 ]);
 

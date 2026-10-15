@@ -15,6 +15,8 @@ import { InteractionEventError } from "./interaction-events";
 
 export const WORK_STATE_CHANGED_EVENT = "work.item.state_changed";
 export const WORK_APPROVAL_REQUESTED_EVENT = "work.approval.requested";
+export const WORK_ITEM_COMMENTED_EVENT = "work.item.commented";
+export const WORK_INTERACTION_REQUESTED_EVENT = "work.interaction.requested";
 export const SKILL_RUN_FAILED_EVENT = "skill.run.failed";
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -148,15 +150,106 @@ export const skillRunFailedEventDefinition = {
 	),
 };
 
+export const workItemCommentedEventDefinition = {
+	name: WORK_ITEM_COMMENTED_EVENT,
+	description: `A comment was added to a Work Item. The body and metadata are never included. ${NOTICE}`,
+	delivery: ["poll"],
+	inputSchema: objectSchema(
+		{
+			organization_id: organizationProperty,
+			work_item_id: idProperty,
+			author_type: {
+				type: "string",
+				enum: ["user", "tedi", "external_agent", "system"],
+			},
+		},
+		["organization_id"],
+	),
+	payloadSchema: objectSchema(
+		{
+			organization_id: organizationProperty,
+			work_item_id: idProperty,
+			comment_id: idProperty,
+			author_type: {
+				type: "string",
+				enum: ["user", "tedi", "external_agent", "system"],
+			},
+			author_id: { type: ["string", "null"] },
+		},
+		[
+			"organization_id",
+			"work_item_id",
+			"comment_id",
+			"author_type",
+			"author_id",
+		],
+	),
+};
+
+export const workInteractionRequestedEventDefinition = {
+	name: WORK_INTERACTION_REQUESTED_EVENT,
+	description: `A Work Interaction was opened. The subject, prompt and metadata are never included. ${NOTICE}`,
+	delivery: ["poll"],
+	inputSchema: objectSchema(
+		{
+			organization_id: organizationProperty,
+			work_item_id: idProperty,
+			target_id: { type: "string", minLength: 1, maxLength: 128 },
+			kind: {
+				type: "string",
+				enum: ["question", "input", "handoff", "coordination"],
+			},
+		},
+		["organization_id"],
+	),
+	payloadSchema: objectSchema(
+		{
+			organization_id: organizationProperty,
+			request_id: idProperty,
+			work_item_id: { type: ["string", "null"] },
+			project_id: { type: ["string", "null"] },
+			kind: {
+				type: "string",
+				enum: ["question", "input", "handoff", "coordination"],
+			},
+			target_type: {
+				type: ["string", "null"],
+				enum: ["user", "tedi", "external_agent", null],
+			},
+			target_id: { type: ["string", "null"] },
+			creator_type: {
+				type: "string",
+				enum: ["user", "tedi", "external_agent", "system"],
+			},
+			due_at: { type: ["string", "null"] },
+		},
+		[
+			"organization_id",
+			"request_id",
+			"work_item_id",
+			"project_id",
+			"kind",
+			"target_type",
+			"target_id",
+			"creator_type",
+			"due_at",
+		],
+	),
+};
+
 export const pollableEventDefinitions = [
 	workStateChangedEventDefinition,
 	workApprovalRequestedEventDefinition,
+	workItemCommentedEventDefinition,
+	workInteractionRequestedEventDefinition,
 	skillRunFailedEventDefinition,
 ];
 
 export type PollableEventName =
 	| typeof WORK_STATE_CHANGED_EVENT
 	| typeof WORK_APPROVAL_REQUESTED_EVENT
+	| typeof WORK_ITEM_COMMENTED_EVENT
+	| typeof WORK_INTERACTION_REQUESTED_EVENT
 	| typeof SKILL_RUN_FAILED_EVENT;
 
 export function isPollableEvent(name: unknown): name is PollableEventName {
@@ -169,6 +262,17 @@ const ARGUMENT_KEYS = {
 		"organization_id",
 		"work_item_id",
 		"approver_id",
+	],
+	[WORK_ITEM_COMMENTED_EVENT]: [
+		"organization_id",
+		"work_item_id",
+		"author_type",
+	],
+	[WORK_INTERACTION_REQUESTED_EVENT]: [
+		"organization_id",
+		"work_item_id",
+		"target_id",
+		"kind",
 	],
 	[SKILL_RUN_FAILED_EVENT]: ["organization_id", "tedi_id", "skill_id"],
 } as const satisfies Record<PollableEventName, readonly string[]>;
@@ -196,10 +300,18 @@ export function eventArguments(
 			typeof entry !== "string" ||
 			entry.length === 0 ||
 			entry.length > 128 ||
-			(key !== "approver_id" && !UUID.test(entry))
+			(key === "author_type"
+				? !["user", "tedi", "external_agent", "system"].includes(entry)
+				: key === "kind"
+					? !["question", "input", "handoff", "coordination"].includes(entry)
+					: key !== "approver_id" && key !== "target_id" && !UUID.test(entry))
 		)
 			throw new InteractionEventError(-32602, `Invalid ${key}`);
-		result[key] = key === "approver_id" ? entry : entry.toLowerCase();
+		result[key] = ["approver_id", "target_id", "author_type", "kind"].includes(
+			key,
+		)
+			? entry
+			: entry.toLowerCase();
 	}
 	return result as Record<string, string> & { organization_id: string };
 }
@@ -317,7 +429,13 @@ export function assertEventCursor(name: PollableEventName, cursor: string) {
 	if (name === WORK_STATE_CHANGED_EVENT) decodeSequence(cursor);
 	else
 		decodeKeyset(
-			name === WORK_APPROVAL_REQUESTED_EVENT ? "war1" : "srf1",
+			name === WORK_APPROVAL_REQUESTED_EVENT
+				? "war1"
+				: name === WORK_ITEM_COMMENTED_EVENT
+					? "wcm1"
+					: name === WORK_INTERACTION_REQUESTED_EVENT
+						? "wir1"
+						: "srf1",
 			cursor,
 		);
 }
@@ -368,6 +486,43 @@ export async function readEventFeed(
 			return {
 				events: named(result.events),
 				cursor: encodeKeyset("war1", result.after),
+				hasMore: result.hasMore,
+			};
+		}
+		if (name === WORK_ITEM_COMMENTED_EVENT) {
+			const result = await client.mcpEvents.pollWorkComments({
+				after: cursor === null ? null : decodeKeyset("wcm1", cursor),
+				workItemId: args.work_item_id,
+				authorType: args.author_type as
+					| "user"
+					| "tedi"
+					| "external_agent"
+					| "system"
+					| undefined,
+				limit,
+			});
+			return {
+				events: named(result.events),
+				cursor: encodeKeyset("wcm1", result.after),
+				hasMore: result.hasMore,
+			};
+		}
+		if (name === WORK_INTERACTION_REQUESTED_EVENT) {
+			const result = await client.mcpEvents.pollWorkInteractionRequests({
+				after: cursor === null ? null : decodeKeyset("wir1", cursor),
+				workItemId: args.work_item_id,
+				targetId: args.target_id,
+				kind: args.kind as
+					| "question"
+					| "input"
+					| "handoff"
+					| "coordination"
+					| undefined,
+				limit,
+			});
+			return {
+				events: named(result.events),
+				cursor: encodeKeyset("wir1", result.after),
 				hasMore: result.hasMore,
 			};
 		}

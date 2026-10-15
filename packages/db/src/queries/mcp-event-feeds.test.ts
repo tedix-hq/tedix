@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { skillRuns } from "../schema/cognitive";
+import { workInteractions } from "../schema/work-factory";
 import { workEvents } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../test/schema-ddl";
@@ -18,6 +19,14 @@ import {
 	getLatestWorkApprovalPosition,
 	listRequestedWorkApprovalEvents,
 } from "./work-items/approvals";
+import {
+	getLatestWorkCommentPosition,
+	listWorkCommentEvents,
+} from "./work-items/comments";
+import {
+	getLatestWorkInteractionPosition,
+	listRequestedWorkInteractionEvents,
+} from "./work-items/interactions";
 import {
 	acceptWorkItem,
 	cancelWorkItem,
@@ -36,7 +45,7 @@ const actor = { type: "user" as const, id: "user-1" };
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(canonicalWorkFactoryDdl());
-	sqlite.exec(schemaDdl(workEvents, skillRuns));
+	sqlite.exec(schemaDdl(workEvents, skillRuns, workInteractions));
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	const seedItem = (id: string, org: string) =>
 		sqlite
@@ -244,6 +253,167 @@ describe("skill.run.failed ledger feed", () => {
 		expect(await getLatestFailedSkillRunPosition(db, ORG_B)).toEqual({
 			at: NOW,
 			id: "r3",
+		});
+	});
+});
+
+describe("work.item.commented ledger feed", () => {
+	it("pages timestamp ties, filters, isolates orgs and omits private content", async () => {
+		const { sqlite, db } = fixture();
+		expect(await getLatestWorkCommentPosition(db, ORG_A)).toBeNull();
+		const insert = sqlite.prepare(
+			"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,metadata,created_at) VALUES(?,?,?,?,?,'secret body','{\"private\":\"secret\"}',?)",
+		);
+		insert.run("c2", ORG_A, "w2", "tedi", "tedi-1", NOW);
+		insert.run("c1", ORG_A, "w1", "system", null, NOW);
+		insert.run("c3", ORG_B, "w1", "system", null, "2026-10-16T00:00:00.000Z");
+		const all = await listWorkCommentEvents(db, {
+			orgId: ORG_A,
+			after: null,
+			limit: 50,
+		});
+		expect(all.map((row) => row.id)).toEqual(["c1", "c2"]);
+		expect(all[0]).toEqual({
+			id: "c1",
+			workItemId: "w1",
+			authorType: "system",
+			authorId: null,
+			createdAt: NOW,
+		});
+		expect(JSON.stringify(all)).not.toContain("secret");
+		expect(
+			(
+				await listWorkCommentEvents(db, { orgId: ORG_A, after: null, limit: 1 })
+			).map((row) => row.id),
+		).toEqual(["c1"]);
+		expect(
+			(
+				await listWorkCommentEvents(db, {
+					orgId: ORG_A,
+					after: { at: NOW, id: "c1" },
+					limit: 50,
+				})
+			).map((row) => row.id),
+		).toEqual(["c2"]);
+		expect(
+			(
+				await listWorkCommentEvents(db, {
+					orgId: ORG_A,
+					after: null,
+					workItemId: "w1",
+					authorType: "system",
+					limit: 50,
+				})
+			).map((row) => row.id),
+		).toEqual(["c1"]);
+		expect(
+			await listWorkCommentEvents(db, {
+				orgId: ORG_A,
+				after: null,
+				workItemId: "w1",
+				authorType: "tedi",
+				limit: 50,
+			}),
+		).toEqual([]);
+		expect(await getLatestWorkCommentPosition(db, ORG_A)).toEqual({
+			at: NOW,
+			id: "c2",
+		});
+	});
+});
+
+describe("work.interaction.requested ledger feed", () => {
+	it("pages timestamp ties, filters, isolates orgs and omits private content", async () => {
+		const { sqlite, db } = fixture();
+		expect(await getLatestWorkInteractionPosition(db, ORG_A)).toBeNull();
+		const insert = sqlite.prepare(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,project_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,due_at,metadata,created_at) VALUES(?,?,?,?,?,'secret subject','secret prompt','system','system',?,?,NULL,'{\"private\":\"secret\"}',?)",
+		);
+		insert.run(
+			"i2",
+			ORG_A,
+			"w2",
+			null,
+			"handoff",
+			"external_agent",
+			"Agent:CaseSensitive",
+			NOW,
+		);
+		insert.run("i1", ORG_A, null, "project-1", "question", null, null, NOW);
+		insert.run(
+			"i3",
+			ORG_B,
+			"w2",
+			null,
+			"handoff",
+			"external_agent",
+			"Agent:CaseSensitive",
+			"2026-10-16T00:00:00.000Z",
+		);
+		const all = await listRequestedWorkInteractionEvents(db, {
+			orgId: ORG_A,
+			after: null,
+			limit: 50,
+		});
+		expect(all.map((row) => row.id)).toEqual(["i1", "i2"]);
+		expect(all[0]).toEqual({
+			id: "i1",
+			workItemId: null,
+			projectId: "project-1",
+			kind: "question",
+			targetType: null,
+			targetId: null,
+			creatorType: "system",
+			dueAt: null,
+			createdAt: NOW,
+		});
+		expect(JSON.stringify(all)).not.toContain("secret");
+		expect(
+			(
+				await listRequestedWorkInteractionEvents(db, {
+					orgId: ORG_A,
+					after: null,
+					limit: 1,
+				})
+			).map((row) => row.id),
+		).toEqual(["i1"]);
+		expect(
+			(
+				await listRequestedWorkInteractionEvents(db, {
+					orgId: ORG_A,
+					after: { at: NOW, id: "i1" },
+					limit: 50,
+				})
+			).map((row) => row.id),
+		).toEqual(["i2"]);
+		expect(
+			(
+				await listRequestedWorkInteractionEvents(db, {
+					orgId: ORG_A,
+					after: null,
+					workItemId: "w2",
+					targetId: "Agent:CaseSensitive",
+					kind: "handoff",
+					limit: 50,
+				})
+			).map((row) => row.id),
+		).toEqual(["i2"]);
+		for (const filter of [
+			{ workItemId: "missing" },
+			{ targetId: "missing" },
+			{ kind: "input" as const },
+		])
+			expect(
+				await listRequestedWorkInteractionEvents(db, {
+					orgId: ORG_A,
+					after: null,
+					...filter,
+					limit: 50,
+				}),
+			).toEqual([]);
+		expect(await getLatestWorkInteractionPosition(db, ORG_A)).toEqual({
+			at: NOW,
+			id: "i2",
 		});
 	});
 });

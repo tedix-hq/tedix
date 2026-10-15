@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkItemComment,
@@ -174,4 +174,62 @@ export async function listWorkItemComments(
 		.from(workItemComments)
 		.where(eq(workItemComments.workItemId, workItemId))
 		.orderBy(asc(workItemComments.createdAt));
+}
+
+/** Identifier-only projection for the MCP comment event feed. */
+export type WorkCommentEventRow = Pick<
+	WorkItemComment,
+	"id" | "workItemId" | "authorType" | "authorId" | "createdAt"
+>;
+
+/** Org-scoped ascending keyset read; private content is never selected. */
+export async function listWorkCommentEvents(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		after: { at: string; id: string } | null;
+		workItemId?: string;
+		authorType?: WorkItemCommentAuthorType;
+		limit: number;
+	},
+): Promise<WorkCommentEventRow[]> {
+	return db
+		.select({
+			id: workItemComments.id,
+			workItemId: workItemComments.workItemId,
+			authorType: workItemComments.authorType,
+			authorId: workItemComments.authorId,
+			createdAt: workItemComments.createdAt,
+		})
+		.from(workItemComments)
+		.where(
+			and(
+				eq(workItemComments.orgId, p.orgId),
+				p.workItemId
+					? eq(workItemComments.workItemId, p.workItemId)
+					: undefined,
+				p.authorType
+					? eq(workItemComments.authorType, p.authorType)
+					: undefined,
+				p.after
+					? sql`(${workItemComments.createdAt}>${p.after.at} OR (${workItemComments.createdAt}=${p.after.at} AND ${workItemComments.id}>${p.after.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(asc(workItemComments.createdAt), asc(workItemComments.id))
+		.limit(p.limit);
+}
+
+/** Newest comment position in the org, used to poll "from now". */
+export async function getLatestWorkCommentPosition(
+	db: DbQueryClient,
+	orgId: string,
+): Promise<{ at: string; id: string } | null> {
+	const [row] = await db
+		.select({ at: workItemComments.createdAt, id: workItemComments.id })
+		.from(workItemComments)
+		.where(eq(workItemComments.orgId, orgId))
+		.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
+		.limit(1);
+	return row ?? null;
 }
