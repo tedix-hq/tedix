@@ -42,7 +42,10 @@ export interface FactoryStore {
 		slug: string;
 		projectKey: string;
 	}): Promise<FactoryBuildState>;
-	resolveOwner(ref: string): Promise<{ id: string; name: string } | null>;
+	/** The calling tedi, when a tedi (not a human) calls. */
+	callerTediId: string | null;
+	/** The organization's active (unretired) tedis. */
+	listOwnerCandidates(): Promise<FactoryOwnerCandidate[]>;
 	workspaceExists(workspaceId: string): Promise<boolean>;
 	createObjective(params: {
 		ownerTediId: string;
@@ -78,6 +81,101 @@ export interface FactoryStore {
 	activateLaneSkill(
 		skillId: string,
 	): Promise<{ lifecycleState: string | null; nextFireAt: string | null }>;
+}
+
+export interface FactoryOwnerCandidate {
+	id: string;
+	slug: string;
+	name: string;
+	displayName: string | null;
+	createdAt: string | null;
+	/** The org's operator tedi (org_admin profile). */
+	operator: boolean;
+}
+
+/** Words an agent uses for "the org's default tedi". Home is not itself a tedi. */
+const DEFAULT_OWNER_ALIASES = new Set(["home", "default", "tedi"]);
+/** Words for "the calling tedi", falling back to the default. */
+const CALLER_OWNER_ALIASES = new Set(["me", "self", "myself"]);
+const MAX_LISTED_OWNERS = 20;
+
+function ownerLabel(tedi: FactoryOwnerCandidate): string {
+	const name = tedi.displayName || tedi.name;
+	return name && name !== tedi.slug ? `${tedi.slug} (${name})` : tedi.slug;
+}
+
+/**
+ * The org's default tedi: its operator (the first tedi, provisioned with
+ * org_admin), else the oldest active tedi.
+ */
+export function defaultFactoryOwner(
+	candidates: readonly FactoryOwnerCandidate[],
+): FactoryOwnerCandidate | null {
+	const oldestFirst = [...candidates].sort((a, b) =>
+		(a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
+	);
+	return oldestFirst.find((tedi) => tedi.operator) ?? oldestFirst[0] ?? null;
+}
+
+/**
+ * Resolve `ownerTedi`: omitted or "me" is the calling tedi, else the default;
+ * "home" or "default" is the org's default tedi; anything else matches an id,
+ * slug or name. A miss names the valid choices so the caller can retry.
+ */
+export function resolveFactoryOwner(
+	ref: string | undefined,
+	candidates: readonly FactoryOwnerCandidate[],
+	callerTediId: string | null,
+): { id: string; name: string } {
+	const pick = (tedi: FactoryOwnerCandidate) => ({
+		id: tedi.id,
+		name: tedi.displayName || tedi.name,
+	});
+	if (candidates.length === 0) {
+		throw new FactoryBuildError(
+			"BAD_REQUEST",
+			"This organization has no active tedi to own the factory; create one first.",
+		);
+	}
+	const fallback = defaultFactoryOwner(candidates);
+	const wanted = ref?.trim().toLowerCase() ?? "";
+	if (!wanted || CALLER_OWNER_ALIASES.has(wanted)) {
+		const caller = candidates.find((tedi) => tedi.id === callerTediId);
+		if (caller) return pick(caller);
+		if (fallback) return pick(fallback);
+	}
+	if (DEFAULT_OWNER_ALIASES.has(wanted) && fallback) {
+		const exact = candidates.find((tedi) => tedi.slug.toLowerCase() === wanted);
+		return pick(exact ?? fallback);
+	}
+	const exact = candidates.find(
+		(tedi) =>
+			tedi.id.toLowerCase() === wanted || tedi.slug.toLowerCase() === wanted,
+	);
+	if (exact) return pick(exact);
+	const named = candidates.filter(
+		(tedi) =>
+			tedi.name.toLowerCase() === wanted ||
+			(tedi.displayName ?? "").toLowerCase() === wanted,
+	);
+	const [only] = named;
+	if (named.length === 1 && only) return pick(only);
+	const choices = (named.length > 1 ? named : candidates)
+		.slice(0, MAX_LISTED_OWNERS)
+		.map(ownerLabel)
+		.join(", ");
+	const more =
+		named.length <= 1 && candidates.length > MAX_LISTED_OWNERS
+			? `, and ${candidates.length - MAX_LISTED_OWNERS} more`
+			: "";
+	const reason =
+		named.length > 1
+			? `"${ref}" names ${named.length} tedis; pass a slug`
+			: `No active tedi "${ref}" in this organization`;
+	throw new FactoryBuildError(
+		"BAD_REQUEST",
+		`${reason}. Valid ownerTedi slugs: ${choices}${more}. Or omit ownerTedi to use the default tedi${fallback ? ` "${fallback.slug}"` : ""}.`,
+	);
 }
 
 const MAX_SLUG = 36;
@@ -168,13 +266,11 @@ export async function buildFactory(
 		);
 	}
 	const projectKey = input.projectKey ?? slug.toUpperCase();
-	const owner = await store.resolveOwner(input.ownerTedi);
-	if (!owner) {
-		throw new FactoryBuildError(
-			"BAD_REQUEST",
-			`No active tedi "${input.ownerTedi}" in this organization; pass its id, slug or exact name.`,
-		);
-	}
+	const owner = resolveFactoryOwner(
+		input.ownerTedi,
+		await store.listOwnerCandidates(),
+		store.callerTediId,
+	);
 	const workspaceId = input.workspaceId ?? null;
 	if (workspaceId && !(await store.workspaceExists(workspaceId))) {
 		throw new FactoryBuildError(

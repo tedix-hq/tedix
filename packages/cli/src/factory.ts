@@ -32,7 +32,7 @@ export function factoryUsage(): string {
 		"tedix factory — build a factory from a goal and check that it delivers",
 		"",
 		"Verbs:",
-		'  tedix factory create --goal "<what it delivers>" --owner <tedi>',
+		'  tedix factory create --goal "<what it delivers>" [--owner <tedi>]',
 		"        [--cadence daily|twice_daily] [--template report] [--name <text>]",
 		"        [--slug <slug>] [--max-proposals <n>] [--workspace-id <uuid>]",
 		"        [--project <KEY>] [--dry-run]",
@@ -70,15 +70,9 @@ export function createFactoryInput(
 	if (!options.goal?.trim()) {
 		throw new Error('tedix factory create needs --goal "<what it delivers>"');
 	}
-	if (!options.owner?.trim()) {
-		throw new Error(
-			"tedix factory create needs --owner <tedi id, slug or name>",
-		);
-	}
-	const input: Record<string, unknown> = {
-		goal: options.goal.trim(),
-		ownerTedi: options.owner.trim(),
-	};
+	const input: Record<string, unknown> = { goal: options.goal.trim() };
+	// Without --owner the server picks the organization's default tedi.
+	if (options.owner?.trim()) input.ownerTedi = options.owner.trim();
 	if (options.cadence) input.cadence = options.cadence;
 	if (options.template) input.template = options.template;
 	if (options.slug) input.slug = options.slug;

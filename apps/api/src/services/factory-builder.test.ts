@@ -9,7 +9,9 @@ import {
 	buildFactory,
 	factoryNameFromGoal,
 	factorySlugFrom,
+	type FactoryOwnerCandidate,
 	type FactoryStore,
+	resolveFactoryOwner,
 	staggeredFactoryCron,
 } from "./factory-builder";
 import { renderFactoryLane } from "./factory-lane-template";
@@ -83,10 +85,18 @@ function memoryStore(canActivate: boolean) {
 				healthWorkItemId: intents.get(`factory:${slug}:health`) ?? null,
 			};
 		},
-		async resolveOwner(ref) {
-			return ref === "Nova" || ref === OWNER
-				? { id: OWNER, name: "Nova" }
-				: null;
+		callerTediId: null,
+		async listOwnerCandidates() {
+			return [
+				{
+					id: OWNER,
+					slug: "nova",
+					name: "nova",
+					displayName: "Nova",
+					createdAt: "2026-01-01 00:00:00",
+					operator: true,
+				},
+			];
 		},
 		async workspaceExists() {
 			return true;
@@ -236,7 +246,85 @@ describe("buildFactory", () => {
 		const { store } = memoryStore(true);
 		await expect(
 			buildFactory(store, input({ ownerTedi: "nobody" })),
-		).rejects.toThrow(/No active tedi/);
+		).rejects.toThrow(
+			/No active tedi "nobody".*Valid ownerTedi slugs: nova \(Nova\)/,
+		);
+	});
+
+	it("defaults the owner when ownerTedi is omitted", async () => {
+		const { store } = memoryStore(true);
+		const result = await buildFactory(
+			store,
+			CreateFactoryInputSchema.parse({
+				goal: "Keep the public docs accurate against the shipped code.",
+				dryRun: true,
+			}),
+		);
+		expect(result.ownerTediId).toBe(OWNER);
+	});
+});
+
+describe("resolveFactoryOwner", () => {
+	const tedi = (
+		slug: string,
+		extra: Partial<FactoryOwnerCandidate> = {},
+	): FactoryOwnerCandidate => ({
+		id: `id-${slug}`,
+		slug,
+		name: slug,
+		displayName: null,
+		createdAt: "2026-05-01 00:00:00",
+		operator: false,
+		...extra,
+	});
+	const roster = [
+		tedi("scout", { createdAt: "2026-01-01 00:00:00" }),
+		tedi("atlas", { displayName: "Atlas", operator: true }),
+		tedi("writer", { displayName: "Writer" }),
+	];
+
+	it("maps omitted, home and default to the operator tedi", () => {
+		for (const ref of [undefined, "home", "Home", "default"]) {
+			expect(resolveFactoryOwner(ref, roster, null).id).toBe("id-atlas");
+		}
+	});
+
+	it("falls back to the oldest tedi without an operator", () => {
+		const plain = roster.map((row) => ({ ...row, operator: false }));
+		expect(resolveFactoryOwner("home", plain, null).id).toBe("id-scout");
+	});
+
+	it("prefers the calling tedi when the owner is omitted or me", () => {
+		expect(resolveFactoryOwner(undefined, roster, "id-writer").id).toBe(
+			"id-writer",
+		);
+		expect(resolveFactoryOwner("me", roster, "id-writer").id).toBe("id-writer");
+		expect(resolveFactoryOwner("home", roster, "id-writer").id).toBe(
+			"id-atlas",
+		);
+	});
+
+	it("matches id, slug and display name", () => {
+		expect(resolveFactoryOwner("id-scout", roster, null).id).toBe("id-scout");
+		expect(resolveFactoryOwner("WRITER", roster, null).id).toBe("id-writer");
+		expect(resolveFactoryOwner("Atlas", roster, null).name).toBe("Atlas");
+	});
+
+	it("lets a tedi whose slug is an alias win", () => {
+		const withHome = [...roster, tedi("home")];
+		expect(resolveFactoryOwner("home", withHome, null).id).toBe("id-home");
+	});
+
+	it("lists the valid slugs and the default on a miss", () => {
+		expect(() => resolveFactoryOwner("nobody", roster, null)).toThrow(
+			'No active tedi "nobody" in this organization. Valid ownerTedi slugs: scout, atlas (Atlas), writer (Writer). Or omit ownerTedi to use the default tedi "atlas".',
+		);
+	});
+
+	it("explains an empty roster", () => {
+		expect(() => resolveFactoryOwner(undefined, [], null)).toThrow(
+			/no active tedi/,
+		);
 	});
 });
 
