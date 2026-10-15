@@ -78,6 +78,22 @@ export function EditorToolbarButton({
 }
 
 /**
+ * Says when undo or redo skipped a path a collaborator edited since. Always
+ * mounted so screen readers announce the text when it appears.
+ */
+export function EditorHistoryNotice({ notice }: { notice: string | null }) {
+	return (
+		<span
+			role="status"
+			className="shrink-0 px-2 text-kumo-subtle text-xs"
+			data-history-notice
+		>
+			{notice}
+		</span>
+	);
+}
+
+/**
  * Hairline between toolbar groups. Fifteen to twenty undifferentiated icons
  * read as noise; the groups are what a reader actually scans for.
  */

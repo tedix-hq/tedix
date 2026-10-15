@@ -46,6 +46,7 @@ import {
 	useSlideElementFont,
 } from "@/components/output-slide-element";
 import {
+	EditorHistoryNotice,
 	EditorToolbar,
 	EditorToolbarButton,
 	EditorToolbarDivider,
@@ -61,6 +62,7 @@ import {
 	type PresentationContent,
 	safeImageSource,
 } from "@/lib/output-models";
+import { DECK_HISTORY } from "@/lib/output-history";
 import { useEditorHistory } from "@/lib/use-editor-history";
 import {
 	applySlideElementAction,
@@ -535,7 +537,7 @@ export function SlidesEditor({
 		"image" | "svg" | null
 	>(null);
 	const [imageError, setImageError] = useState<string | null>(null);
-	const history = useEditorHistory(normalized, onChange);
+	const history = useEditorHistory(normalized, onChange, DECK_HISTORY);
 	const selectedElement =
 		activeSlide?.elements.find((element) => element.id === selectedElementId) ??
 		null;
@@ -544,7 +546,8 @@ export function SlidesEditor({
 			setViewedSlideId(next.activeSlideId);
 		history.commit(projectDeck(next));
 	};
-	const updateElement = (next: OsPresentationElement, record = true) => {
+	// Every element edit is an undo step; typing into one element coalesces.
+	const updateElement = (next: OsPresentationElement) => {
 		if (!activeSlide) return;
 		const nextDeck = replaceActiveSlide(deck, {
 			...activeSlide,
@@ -552,8 +555,7 @@ export function SlidesEditor({
 				element.id === next.id ? next : element,
 			),
 		});
-		if (record) commitDeck(nextDeck);
-		else onChange(projectDeck(nextDeck));
+		commitDeck(nextDeck);
 	};
 	const addTemplate = (layout: OsPresentationCanvasSlide["layout"]) => {
 		if (deck.slides.length >= MAX_SLIDES) return;
@@ -653,6 +655,8 @@ export function SlidesEditor({
 			style={{ containerType: "inline-size" }}
 			// Focus lands here after a keyboard delete so undo still reaches the editor.
 			tabIndex={-1}
+			// Leaving a field ends its undo step.
+			onBlur={history.seal}
 			onPaste={(event) => {
 				const target = event.target as HTMLElement;
 				if (
@@ -765,6 +769,7 @@ export function SlidesEditor({
 				>
 					<ArrowUDownRight size={15} />
 				</EditorToolbarButton>
+				<EditorHistoryNotice notice={history.notice} />
 				<EditorToolbarDivider />
 				<Select
 					disabled={disabled}
@@ -897,7 +902,7 @@ export function SlidesEditor({
 								setShowThumbnails(false);
 							}
 						}}
-						onChangeElement={(next) => updateElement(next, false)}
+						onChangeElement={(next) => updateElement(next)}
 						onGeometryCommit={(next) => updateElement(next)}
 					/>
 				</main>
