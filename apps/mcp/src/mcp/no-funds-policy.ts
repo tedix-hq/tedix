@@ -34,8 +34,7 @@ export function isNoFundsToolDenied(tool: AppTool): boolean {
 	if (
 		tool.config?.transport === "mcp" &&
 		(tool.config?._aggregateTediRemoteName ?? tool.config?.mcpToolName) ===
-			"run_tedi_turn" &&
-		typeof tool.config?._aggregateTediId === "string"
+			"run_tedi_turn"
 	)
 		return false;
 	const text = normalized(

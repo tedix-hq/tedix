@@ -97,7 +97,7 @@ describe("directory no-funds classification", () => {
 			false,
 		);
 	});
-	it("only exempts server-projected tedi turn ingress", () => {
+	it("permits canonical turn ingress with or without a cached tedi UUID", () => {
 		const config = {
 			transport: "mcp",
 			mcpToolName: "run_tedi_turn",
@@ -107,6 +107,11 @@ describe("directory no-funds classification", () => {
 		expect(
 			isNoFundsToolDenied(
 				tool({ config: { ...config, _aggregateTediId: null } }),
+			),
+		).toBe(false);
+		expect(
+			isNoFundsToolDenied(
+				tool({ config: { ...config, mcpToolName: "execute" } }),
 			),
 		).toBe(true);
 	});

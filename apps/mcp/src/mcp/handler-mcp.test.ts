@@ -1705,3 +1705,23 @@ it.each([false, true])(
 		);
 	},
 );
+
+it("refuses a noFunds turn without the internal service binding", async () => {
+	const ctx = mcpCtx({
+		transport: "mcp",
+		mcpServerUrl: "https://provider.example.test/mcp",
+		mcpToolName: "run_tedi_turn",
+	});
+	ctx.noFunds = true;
+	const fetch = vi.spyOn(globalThis, "fetch");
+	try {
+		const result = await new ToolHandler().execute(
+			{ text: "Create a payment" },
+			ctx,
+		);
+		expect(result.status).toBe(403);
+		expect(fetch).not.toHaveBeenCalled();
+	} finally {
+		fetch.mockRestore();
+	}
+});
