@@ -40,6 +40,16 @@ export function presentationCanvasLength(value: number): string {
 	return `calc(${value} * 100cqw / ${PRESENTATION_WIDTH})`;
 }
 
+/**
+ * Slide elements carry no line height of their own, so it follows type size:
+ * display type sets tight, body copy opens up. Unitless, so it scales with the
+ * canvas. The API export (`apps/api/src/lib/os-output-html.ts`) applies the
+ * same rule; change both together.
+ */
+export function presentationLineHeight(fontSize: number): number {
+	return fontSize >= 40 ? 1.1 : 1.3;
+}
+
 export function createOutputNodeId(prefix: string): string {
 	return `${prefix}-${crypto.randomUUID()}`;
 }

@@ -2765,3 +2765,28 @@ a:focus-visible {
 		display: none;
 	}
 }
+
+/* The editor stage's text input. It must draw exactly what the read-only
+ * element draws, so it drops every control style and inherits the shared
+ * element style (type, line height, alignment, colour) from its box. */
+.slide-element-input {
+	all: unset;
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	resize: none;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+	font: inherit;
+	letter-spacing: inherit;
+	text-align: inherit;
+	color: inherit;
+	caret-color: currentColor;
+	cursor: text;
+}
+
+.slide-element-input:disabled {
+	cursor: default;
+}

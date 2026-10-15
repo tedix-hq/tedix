@@ -33,7 +33,12 @@ import {
 } from "@/components/kumo/select";
 import { Surface } from "@/components/kumo/surface";
 import { Toolbar } from "@/components/kumo/toolbar";
-import { ReadOnlyElement } from "@/components/output-slide-element";
+import {
+	ReadOnlyElement,
+	SLIDE_ELEMENT_CLASS,
+	slideElementStyle,
+	useSlideElementFont,
+} from "@/components/output-slide-element";
 import {
 	EditorToolbar,
 	EditorToolbarButton,
@@ -46,9 +51,9 @@ import {
 	normalizePresentationContent,
 	PRESENTATION_HEIGHT,
 	PRESENTATION_WIDTH,
-	presentationCanvasLength,
 	projectDeck,
 	type PresentationContent,
+	safeImageSource,
 } from "@/lib/output-models";
 import { useEditorHistory } from "@/lib/use-editor-history";
 
@@ -316,22 +321,8 @@ function SlideElementView({
 						: element.height,
 			}
 		: element;
-	const textStyle = {
-		fontFamily: current.style.fontFamily,
-		fontSize: presentationCanvasLength(current.style.fontSize ?? 24),
-		fontWeight:
-			current.style.fontWeight === "semibold"
-				? 600
-				: current.style.fontWeight === "medium"
-					? 500
-					: current.style.fontWeight,
-		color: current.style.color,
-		textAlign: current.style.textAlign,
-		opacity: current.style.opacity,
-		transform: current.style.rotation
-			? `rotate(${current.style.rotation}deg)`
-			: undefined,
-	} as const;
+	useSlideElementFont(current.style.fontFamily);
+	const imageSource = safeImageSource(current.src);
 	const startGesture = (mode: "move" | "resize", event: React.PointerEvent) => {
 		if (disabled) return;
 		event.preventDefault();
@@ -374,18 +365,9 @@ function SlideElementView({
 			aria-label={`${element.type} element`}
 			role="group"
 			tabIndex={disabled ? -1 : 0}
-			className={`absolute overflow-hidden outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
-			style={{
-				left: `${(current.x / PRESENTATION_WIDTH) * 100}%`,
-				top: `${(current.y / PRESENTATION_HEIGHT) * 100}%`,
-				width: `${(current.width / PRESENTATION_WIDTH) * 100}%`,
-				height: `${(current.height / PRESENTATION_HEIGHT) * 100}%`,
-				background: current.style.background,
-				borderColor: current.style.borderColor,
-				borderWidth: current.style.borderWidth,
-				borderRadius: current.style.borderRadius,
-				...textStyle,
-			}}
+			data-slide-element={element.id}
+			className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
+			style={slideElementStyle(current)}
 			onClick={(event) => {
 				event.stopPropagation();
 				onSelect();
@@ -402,17 +384,20 @@ function SlideElementView({
 			onPointerMove={moveGesture}
 			onPointerUp={endGesture}
 		>
-			{(current.type === "image" || current.type === "svg") && current.src ? (
+			{(current.type === "image" || current.type === "svg") && imageSource ? (
 				<img
-					src={current.src}
+					src={imageSource}
 					alt={current.text ?? "Slide visual"}
 					className="h-full w-full object-contain"
 				/>
 			) : current.type === "divider" || current.type === "shape" ? null : (
-				<Textarea
+				// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
+				// 14px size and a 20px line height with `!important`, so the stage drew
+				// every slide's text at UI size inside boxes scaled to the slide.
+				// `.slide-element-input` resets it to inherit the shared element style.
+				<textarea
 					aria-label={`${current.type} text`}
-					className={`h-full min-h-0 w-full resize-none rounded-none border-0 bg-transparent p-0 shadow-none ring-0 outline-none ${current.type === "bullet" ? "whitespace-pre-line" : ""}`}
-					style={textStyle}
+					className="slide-element-input"
 					disabled={disabled}
 					value={current.text ?? ""}
 					onPointerDown={(event) => event.stopPropagation()}
