@@ -450,48 +450,63 @@ it("exports rich links and styled resized images without external image requests
 });
 
 it.each([
-	["'Times New Roman', serif", "font-family:&#39;Times New Roman&#39;, serif"],
-	["serif; background:url(https://example.com)", null],
-	['serif\"><img src=x onerror=alert(1)>', null],
-] as const)("validates presentation font CSS: %s", (fontFamily, expected) => {
-	const html = renderOsOutputHtml(
-		{ kind: "presentation", title: "Fonts" },
-		{
-			...revisionMeta,
-			content: {
-				kind: "presentation",
-				slides: [],
-				deck: {
-					width: 1200,
-					height: 675,
-					activeSlideId: "one",
-					slides: [
-						{
-							id: "one",
-							name: "Font",
-							layout: "blank",
-							background: "#ff6633",
-							elements: [
-								{
-									id: "text",
-									type: "text",
-									x: 0,
-									y: 0,
-									width: 1200,
-									height: 675,
-									text: "Hello",
-									style: { fontFamily },
-								},
-							],
-						},
-					],
+	["Raleway", "font-family:Raleway", "Raleway"],
+	["DM Sans, sans-serif", "font-family:DM Sans, sans-serif", "DM+Sans"],
+	["Space Grotesk", "font-family:Space Grotesk", "Space+Grotesk"],
+	[
+		"'Times New Roman', serif",
+		"font-family:&#39;Times New Roman&#39;, serif",
+		null,
+	],
+	["serif; background:url(https://example.com)", null, null],
+	['serif\"><img src=x onerror=alert(1)>', null, null],
+] as const)(
+	"validates presentation font CSS: %s",
+	(fontFamily, expected, webfont) => {
+		const html = renderOsOutputHtml(
+			{ kind: "presentation", title: "Fonts" },
+			{
+				...revisionMeta,
+				content: {
+					kind: "presentation",
+					slides: [],
+					deck: {
+						width: 1200,
+						height: 675,
+						activeSlideId: "one",
+						slides: [
+							{
+								id: "one",
+								name: "Font",
+								layout: "blank",
+								background: "#ff6633",
+								elements: [
+									{
+										id: "text",
+										type: "text",
+										x: 0,
+										y: 0,
+										width: 1200,
+										height: 675,
+										text: "Hello",
+										style: { fontFamily },
+									},
+								],
+							},
+						],
+					},
 				},
 			},
-		},
-	);
-	if (expected) expect(html).toContain(expected);
-	else expect(html).not.toContain(`font-family:${fontFamily}`);
-	expect(html).not.toContain("https://example.com");
-	expect(html).not.toContain("<img");
-	expect(html).toContain('style="background:#ff6633"');
-});
+		);
+		if (expected) expect(html).toContain(expected);
+		else expect(html).not.toContain(`font-family:${fontFamily}`);
+		if (webfont)
+			expect(html).toContain(
+				`href="https://fonts.googleapis.com/css2?family=${webfont}:wght@400;500;600;700&amp;display=block"`,
+			);
+		else expect(html).not.toContain('rel="stylesheet"');
+		expect(html).not.toContain("https://example.com");
+		expect(html).not.toContain("<img");
+		expect(html).toContain('style="background:#ff6633"');
+	},
+);

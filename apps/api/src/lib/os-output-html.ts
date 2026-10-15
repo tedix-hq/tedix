@@ -408,8 +408,8 @@ export function renderOsOutputHtml(
 ): string {
 	const title = escapeHtml(output.title);
 	const body = renderBody(revision.content);
-	const fontFamilies = ["DM Sans", "Space Grotesk"].filter((family) =>
-		body.includes(`font-family:${family}`),
+	const fontFamilies = ["DM Sans", "Space Grotesk", "Raleway"].filter(
+		(family) => body.includes(`font-family:${family}`),
 	);
 	const fontStylesheet = fontFamilies.length
 		? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?${fontFamilies.map((family) => `family=${family.replaceAll(" ", "+")}:wght@400;500;600;700`).join("&amp;")}&amp;display=block">`

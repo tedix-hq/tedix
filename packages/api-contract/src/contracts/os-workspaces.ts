@@ -1034,7 +1034,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/exports",
 					summary: "Export a Tedix OS output as PDF, PNG, or an Office file",
 					description:
-						"pdf and png render the output's current revision through Cloudflare Browser Rendering, waiting for images and fonts. Remote images are limited to https://tedix.dev/_emdash/api/media/file/ raster files; DM Sans and Space Grotesk load from Google Fonts. Other remote images are omitted. xlsx, docx and pptx are written directly from the content model. Bytes are stored in R2. The returned URL is API-only: download with an Authorization Bearer token for the selected organization; an OS browser login alone does not authorize it. For a browser download use the OS UI Export menu. Fails BAD_REQUEST without Browser Rendering or for a format incompatible with the output kind; fails if allowed resources cannot load within the bounded render wait.",
+						"pdf and png render the output's current revision through Cloudflare Browser Rendering, waiting for images and fonts. Remote images are limited to https://tedix.dev/_emdash/api/media/file/ raster files; DM Sans, Space Grotesk and Raleway load from Google Fonts. Other remote images are omitted. xlsx, docx and pptx are written directly from the content model. Bytes are stored in R2. The returned URL is API-only: download with an Authorization Bearer token for the selected organization; an OS browser login alone does not authorize it. For a browser download use the OS UI Export menu. Fails BAD_REQUEST without Browser Rendering or for a format incompatible with the output kind; fails if allowed resources cannot load within the bounded render wait.",
 				})
 				.input(
 					outputIdInput.extend({
