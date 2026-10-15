@@ -25,6 +25,13 @@ describe("classifyApprovalReply", () => {
 			expect(classifyApprovalReply(no)).toBe("reject");
 		}
 	});
+	it("ignores the terminal context the CLI appends", () => {
+		const cli = (reply: string) =>
+			`${reply}\n\nLocal terminal context:\n- cwd: /work/acme\n- gitStatus:\n  ## main\n`;
+		expect(classifyApprovalReply(cli("approve it"))).toBe("approve");
+		expect(classifyApprovalReply(cli("reject"))).toBe("reject");
+		expect(classifyAffirmative(cli("yes"))).toBe(true);
+	});
 	it("leaves questions and new requests to the planner", () => {
 		for (const other of [
 			"approve?",

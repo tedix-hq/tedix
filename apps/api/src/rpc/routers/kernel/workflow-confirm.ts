@@ -15,6 +15,8 @@
  * only detects the intent and reads the pending state.
  */
 
+import { stripLocalTerminalContext } from "./context-assembly";
+
 export { readPendingWorkflowHint } from "@tedix/db/queries/kernel-runtime-runs";
 
 // ─── Affirmative detection ────────────────────────────────────────────────────
@@ -69,7 +71,8 @@ const AFFIRMATIVE_EXACT = new Set([
  * not a bare confirmation).
  */
 export function classifyAffirmative(content: string): boolean {
-	const trimmed = content.trim();
+	// The CLI appends a terminal-context block to every message it sends.
+	const trimmed = stripLocalTerminalContext(content).trim();
 	if (!trimmed) return false;
 	if (trimmed.includes("?")) return false;
 
@@ -121,7 +124,7 @@ export function classifyApprovalReply(
 	content: string,
 ): "approve" | "reject" | null {
 	if (classifyAffirmative(content)) return "approve";
-	const trimmed = content.trim();
+	const trimmed = stripLocalTerminalContext(content).trim();
 	if (!trimmed || trimmed.includes("?")) return null;
 	const lower = trimmed
 		.toLowerCase()
