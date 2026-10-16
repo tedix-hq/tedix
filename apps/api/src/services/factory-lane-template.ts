@@ -216,7 +216,8 @@ export default {
 			.slice(0, FACTORY.maxProposals);
 		for (const proposal of proposals) {
 			const key = proposalKey(proposal.title);
-			const intent = \`factory:\${FACTORY.slug}:proposal:\${key}\`;
+			// "factory:" intents are reserved for Blueprint factory cycles.
+			const intent = \`factory-lane:\${FACTORY.slug}:proposal:\${key}\`;
 			if (!key || seen.has(key) || seen.has(intent)) {
 				skipped++;
 				continue;

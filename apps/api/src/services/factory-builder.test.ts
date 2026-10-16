@@ -493,7 +493,8 @@ describe("report lane template", () => {
 			title: "Document factory health",
 			projectId: "11111111-1111-4111-8111-111111111111",
 			objectiveId: "22222222-2222-4222-8222-222222222222",
-			sourceIntentId: "factory:docs-accuracy:proposal:document-factory-health",
+			sourceIntentId:
+				"factory-lane:docs-accuracy:proposal:document-factory-health",
 			priority: "high",
 		});
 		expect(result).toMatchObject({ skipped: 1, cycleKey: "2026-10-15" });
