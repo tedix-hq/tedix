@@ -33,7 +33,7 @@
  *    failed, and nobody is asked to guess which regenerate command a stale
  *    artifact wants.
  *
- * Usage: preflight-gates.mjs [--base <sha> --head <sha>] [--all] [--files <path>...]
+ * Usage: preflight-gates.mjs [--remote-url <url>] [--base <sha> --head <sha>] [--all] [--files <path>...]
  */
 
 import { spawnSync } from "node:child_process";
@@ -68,6 +68,7 @@ import { detachedGitEnv } from "../oss/git-env.ts";
 import {
 	defaultPushBase,
 	parsePushRanges,
+	pushesToCanonicalRepo,
 	selectPushRangeFiles,
 } from "./push-range-selection.mjs";
 import { workerConfigShapeWarning } from "./worker-config-shape.mjs";
@@ -81,6 +82,10 @@ const repoRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 const args = new Set(process.argv.slice(2));
 const runAll = args.has("--all");
 const pushRanges = parsePushRanges(process.argv.slice(2));
+// The pre-push hook passes the push target's URL; `bun run verify` has none.
+const remoteUrlIndex = process.argv.indexOf("--remote-url");
+const remoteUrl =
+	remoteUrlIndex === -1 ? undefined : process.argv[remoteUrlIndex + 1];
 // An explicit file list, for a caller that holds the change set but has not
 // written a commit yet — the tedi push gate reads the paths it is about to
 // publish straight off the workstation checkout.
@@ -439,9 +444,10 @@ const gates = [
 			"bun",
 			"scripts/oss/secret-scan.ts",
 			"--public",
-			// Fail closed: without the private overlay, customer names and live
-			// ids pass the generic rules unseen.
-			"--require-private-rules",
+			// A push to the canonical repository fails closed without the
+			// private overlay: customer names and live ids pass the generic
+			// rules unseen. A fork keeps the generic scan.
+			...(pushesToCanonicalRepo(remoteUrl) ? ["--require-private-rules"] : []),
 			// Commit messages and identities in the pushed range publish too.
 			...pushRanges.flatMap(({ base, head }) => [
 				"--base",

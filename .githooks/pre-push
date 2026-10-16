@@ -54,7 +54,7 @@ while read -r _localRef localSha remoteRef remoteSha; do
 	preflight_ranges+=("--base" "$remoteSha" "--head" "$localSha")
 done
 
-if ((${#preflight_ranges[@]})) && ! bun "$root/scripts/ci/preflight-gates.mjs" "${preflight_ranges[@]}"; then
+if ((${#preflight_ranges[@]})) && ! bun "$root/scripts/ci/preflight-gates.mjs" --remote-url "${2:-}" "${preflight_ranges[@]}"; then
 	status=1
 elif ((${#preflight_ranges[@]} == 0)) && ! bun "$root/scripts/ci/preflight-gates.mjs"; then
 	status=1

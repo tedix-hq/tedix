@@ -6,6 +6,7 @@ import {
 	defaultPushBase,
 	NULL_SHA,
 	parsePushRanges,
+	pushesToCanonicalRepo,
 	selectPushRangeFiles,
 } from "./push-range-selection.mjs";
 import { detachedGitEnv } from "../oss/git-env";
@@ -160,6 +161,27 @@ describe("parsePushRanges", () => {
 			{ base: "a", head: "b" },
 			{ base: "c", head: "d" },
 		]);
+	});
+});
+
+describe("pushesToCanonicalRepo", () => {
+	test("requires private rules only for the canonical repository", () => {
+		for (const url of [
+			"https://github.com/tedix-hq/tedix.git",
+			"https://github.com/tedix-hq/tedix",
+			"git@github.com:tedix-hq/tedix.git",
+			"ssh://git@github.com/tedix-hq/tedix.git",
+		]) {
+			expect(pushesToCanonicalRepo(url)).toBe(true);
+		}
+		for (const url of [
+			"https://github.com/someone/tedix.git",
+			"git@github.com:tedix-hq/tedix-cloud-ops.git",
+			"",
+			undefined,
+		]) {
+			expect(pushesToCanonicalRepo(url)).toBe(false);
+		}
 	});
 });
 
