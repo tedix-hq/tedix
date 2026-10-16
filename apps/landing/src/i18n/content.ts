@@ -24,9 +24,9 @@ export const supportedLocaleCodes = Object.keys(supportedLocales) as Locale[];
 
 const englishContent = {
 	meta: {
-		title: "Tedix — AI coworkers that show their work",
+		title: "Tedix — hand off recurring work, with proof of every step",
 		description:
-			"Tedix gives your team AI coworkers for recurring work. They ask before risky steps and leave a record of every run.",
+			"Hand recurring work to tedis. Check what they did, which tools they used, and who approved each risky step.",
 	},
 	layout: {
 		skipToContent: "Skip to content",
@@ -43,7 +43,7 @@ const englishContent = {
 		languageLabel: "Language",
 	},
 	footer: {
-		tagline: "AI coworkers that show their work.",
+		tagline: "Hand off recurring work. Check every step.",
 		product: "Product",
 		appStore: "App Store",
 		howItWorks: "How It Works",
@@ -312,7 +312,7 @@ const englishContent = {
 			cta: "Read the blog",
 		},
 		cta: {
-			demoTitle: "Ready to deploy your first Autonomous AI worker?",
+			demoTitle: "Ready to deploy your first tedi?",
 			demoDescription: "Join teams already operating smarter with tedix.",
 			demoCta: "Watch a demo",
 			demoUrl: "https://www.youtube.com/watch?v=RM5l4dbC_nc",
