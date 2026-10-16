@@ -12,6 +12,11 @@ import {
 	type RecordKernelConversationMessageParams,
 } from "./kernel-conversations";
 import {
+	buildInsertApprovalExecutionReceiptStatement,
+	type RecordApprovalExecutionReceiptParams,
+} from "./approval-simulations";
+
+import {
 	type BuildStartFirstAttemptParams,
 	buildStartFirstAttemptStatements,
 } from "./runtime-submissions/attempts";
@@ -288,6 +293,7 @@ export async function transitionKernelRuntimeRunStatus(
 }
 
 export interface SettleKernelRuntimeTurnParams {
+	approvalReceipt?: RecordApprovalExecutionReceiptParams;
 	run: TransitionKernelRuntimeRunStatusParams;
 	/** Terminal transcript events in stream order, each without a `causeEventId`. */
 	events: readonly NewKernelRuntimeEvent[];
@@ -311,12 +317,26 @@ export async function settleKernelRuntimeTurn(
 	db: DbClient,
 	params: SettleKernelRuntimeTurnParams,
 ): Promise<SettleKernelRuntimeTurnResult> {
-	const [runRows, ...eventRows] = await db.batch([
-		buildTransitionKernelRuntimeRunStatusStatement(db, params.run),
-		...params.events.map((event) =>
-			buildInsertKernelRuntimeEventIfAbsentStatement(db, event),
-		),
-	]);
+	const runStatement = buildTransitionKernelRuntimeRunStatusStatement(
+		db,
+		params.run,
+	);
+	const eventStatements = params.events.map((event) =>
+		buildInsertKernelRuntimeEventIfAbsentStatement(db, event),
+	);
+	const [runRows, ...eventRows] = params.approvalReceipt
+		? await db
+				.batch([
+					runStatement,
+					buildInsertApprovalExecutionReceiptStatement(
+						db,
+						params.approvalReceipt,
+					),
+					...eventStatements,
+				])
+				.then(([runs, _receipt, ...events]) => [runs, ...events] as const)
+		: await db.batch([runStatement, ...eventStatements]);
+
 	const events: SettleKernelRuntimeTurnResult["events"] = [];
 	for (const [index, value] of params.events.entries()) {
 		const inserted = eventRows[index]?.[0];

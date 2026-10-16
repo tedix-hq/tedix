@@ -6,6 +6,9 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { KernelWriteApprovalDecision } from "@tedix/api-contract/utils/approval-policy";
 import { resolveApprovalRequest } from "@tedix/db/queries/approvals";
+import type { CreateApprovalRequestParams } from "@tedix/db/queries/approvals";
+import type { InsertAuditEventParams } from "@tedix/db/queries/audit";
+import { admitKernelAutoWrite } from "@tedix/db/queries/approvals";
 import {
 	listApprovalExecutionReceipts,
 	recordApprovalExecutionReceipt,
@@ -467,7 +470,9 @@ export async function settleHomeToolWriteApproval(
 		approval: typeof tediApprovalRequests.$inferSelect;
 		status: "approved" | "rejected" | "cancelled";
 		onSettledMessage?: (event: KernelRuntimeEvent) => void;
+		onSettledTerminal?: (event: KernelRuntimeEvent) => void;
 	},
+	admittedMetadata?: Record<string, unknown>,
 ): Promise<"succeeded" | "failed" | "closed" | "unknown" | "not_applicable"> {
 	// repo_commit_write payloads execute in the tedi DO, never through the MCP
 	// executor on this path. The API approval row is the exactly-once latch; once
@@ -485,10 +490,12 @@ export async function settleHomeToolWriteApproval(
 	const canonicalInputHash = `sha256:${await canonicalDigest(payload)}`;
 	const settledAt = nowIso();
 	try {
-		const run = await getKernelRuntimeRun(context.db, {
-			id: payload.homeRunId,
-			organizationId: payload.organizationId,
-		});
+		const run = admittedMetadata
+			? { metadata: admittedMetadata }
+			: await getKernelRuntimeRun(context.db, {
+					id: payload.homeRunId,
+					organizationId: payload.organizationId,
+				});
 		if (!run) {
 			console.warn("[kernelRuntime] kernel write run not found", {
 				approvalRequestId: input.approval.id,
@@ -499,7 +506,7 @@ export async function settleHomeToolWriteApproval(
 		const runMetadata = nonNullRecord(run.metadata) ?? {};
 		// Idempotency marker: once a write executed (or started executing), no
 		// resolution path may execute again.
-		if (runMetadata.kernelWriteExecutedAt) {
+		if (!admittedMetadata && runMetadata.kernelWriteExecutedAt) {
 			const existingReceipts = await listApprovalExecutionReceipts(context.db, {
 				organizationId: input.approval.orgId,
 				approvalRequestId: input.approval.id,
@@ -606,19 +613,21 @@ export async function settleHomeToolWriteApproval(
 			eventCount: 0,
 			status: "running",
 		});
-		const claimed = await transitionKernelRuntimeRunStatus(context.db, {
-			id: payload.homeRunId,
-			organizationId: payload.organizationId,
-			fromStatus: "requires_approval",
-			patch: {
-				status: "running",
-				progressValue: runningProgress.current,
-				progressLabel: runningProgress.label,
-				progressDetail: runningProgress.detail,
-				updatedAt: settledAt,
-				metadata: claimMetadata,
-			},
-		});
+		const claimed = admittedMetadata
+			? true
+			: await transitionKernelRuntimeRunStatus(context.db, {
+					id: payload.homeRunId,
+					organizationId: payload.organizationId,
+					fromStatus: "requires_approval",
+					patch: {
+						status: "running",
+						progressValue: runningProgress.current,
+						progressLabel: runningProgress.label,
+						progressDetail: runningProgress.detail,
+						updatedAt: settledAt,
+						metadata: claimMetadata,
+					},
+				});
 		if (!claimed) {
 			console.warn("[kernelRuntime] kernel write already settled — skipping", {
 				approvalRequestId: input.approval.id,
@@ -643,261 +652,174 @@ export async function settleHomeToolWriteApproval(
 		const finishedAt = nowIso();
 		const executeEndedAt = Date.now();
 
-		if (result.ok) {
-			const progress = homeRunProgress({ eventCount: 0, status: "completed" });
-			const kernelWriteExecutionId = extractKernelWriteExecutionId(result.data);
-			const retainedResult = await activeKernelToolResultRetainer({
-				db: context.db,
-				bucket: context.env.TEDI_R2_BUCKET,
-				organizationId: payload.organizationId,
-				conversationId: payload.conversationId,
-				runId: payload.homeRunId,
-				sourceKind: "approved_write",
-				sourceId: input.approval.id,
-				value: result.data,
-				// The run claim above makes this approval's execution exactly-once.
-				freshSource: true,
-			});
-			const evidence = boundKernelWriteEvidence({
-				appSlug: payload.appSlug,
-				toolName: payload.toolName,
-				args: payload.args,
-				data: result.data,
-			});
-			const outputReceipt = kernelOutputReceipt({
-				toolName: payload.toolName,
-				data: result.data,
-			});
-			const content = renderKernelWriteReceipt({
-				toolName: payload.toolName,
-				appSlug: payload.appSlug,
-				data: result.data,
-			});
-			const completedPatch = {
-				status: "completed" as const,
-				progressValue: progress.current,
-				progressLabel: progress.label,
-				progressDetail: progress.detail,
-				latestEventKind: "run.completed" as const,
-				latestEventAt: finishedAt,
-				preview: content,
-				completedAt: finishedAt,
-				updatedAt: finishedAt,
-				metadata: toJsonRecord({
-					...claimMetadata,
-					kernelRoute: {
-						...nonNullRecord(runMetadata.kernelRoute),
-						answer: content,
-					},
-					kernelEvidence: evidence,
-					...(retainedResult
-						? { kernelToolResultReference: retainedResult }
-						: {}),
-					kernelOutputReceipt: outputReceipt,
-					// The short human receipt, so a chat-reply approval can repeat
-					// it. Not the generic "Executed X: {json}" fallback.
-					...(content.startsWith(`Executed ${payload.toolName} on `)
-						? {}
-						: { kernelWriteReceipt: content.slice(0, 600) }),
-					...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
-					// Where the approved write spent its time, from the claim.
-					kernelWriteSettleTimings: {
-						executeMs: executeEndedAt - executeStartedAt,
-						retainMs: Date.now() - executeEndedAt,
-					},
-				}),
-				outputRevisionId: outputReceipt?.revisionId ?? null,
-			};
-			const receiptFields = {
-				approvalRequestId: input.approval.id,
-				canonicalInputHash,
-				baselineFenceOutcome: "not_checked" as const,
-				outcome: "succeeded" as const,
-				observedResult: toJsonRecord({ evidence }),
-				// Generic tool results have no contract proving that a nested id is a
-				// provider receipt. Keep the bounded result as observed evidence only.
-				providerReceiptRefs: [],
-				executedAt: finishedAt,
-			};
-			// The run patch and both transcript rows land in one D1 batch. The
-			// receipt follows only once the transcript has landed.
-			const settled = await persistKernelTurnSettlement(context, {
-				run: {
-					id: payload.homeRunId,
+		const status = result.ok ? ("completed" as const) : ("failed" as const);
+		const progress = homeRunProgress({ eventCount: 0, status });
+		const kernelWriteExecutionId = result.ok
+			? extractKernelWriteExecutionId(result.data)
+			: null;
+		const retainedResult = result.ok
+			? await activeKernelToolResultRetainer({
+					db: context.db,
+					bucket: context.env.TEDI_R2_BUCKET,
 					organizationId: payload.organizationId,
-					fromStatus: "running",
-					patch: completedPatch,
+					conversationId: payload.conversationId,
+					runId: payload.homeRunId,
+					sourceKind: "approved_write",
+					sourceId: input.approval.id,
+					value: result.data,
+					freshSource: true,
+				})
+			: null;
+		const evidence = result.ok
+			? boundKernelWriteEvidence({
+					appSlug: payload.appSlug,
+					toolName: payload.toolName,
+					args: payload.args,
+					data: result.data,
+				})
+			: null;
+		const outputReceipt = result.ok
+			? kernelOutputReceipt({ toolName: payload.toolName, data: result.data })
+			: null;
+		const content = result.ok
+			? renderKernelWriteReceipt({
+					toolName: payload.toolName,
+					appSlug: payload.appSlug,
+					data: result.data,
+				})
+			: `Approved write ${payload.toolName} on ${payload.appSlug} failed: ${result.error}`;
+		const completedPatch = {
+			status,
+			progressValue: progress.current,
+			progressLabel: progress.label,
+			progressDetail: progress.detail,
+			latestEventKind: result.ok
+				? ("run.completed" as const)
+				: ("run.failed" as const),
+			latestEventAt: finishedAt,
+			preview: content,
+			completedAt: finishedAt,
+			updatedAt: finishedAt,
+			metadata: toJsonRecord({
+				...claimMetadata,
+				kernelRoute: {
+					...nonNullRecord(runMetadata.kernelRoute),
+					answer: content,
 				},
-				events: [
-					{
-						organizationId: payload.organizationId,
-						kind: "message.completed",
-						conversationId: payload.conversationId,
-						runId: payload.homeRunId,
-						messageId: assistantMessageId,
-						payload: {
-							role: "assistant",
-							content,
-							channel: "home",
-							metadata: {
-								homeSubject: true,
-								approvalRequestId: input.approval.id,
-								kernelWriteProposal: proposalSummary,
-								kernelEvidence: evidence,
-								...(retainedResult
-									? { kernelToolResultReference: retainedResult }
-									: {}),
-								...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
-							},
-						},
-						runtimeMetadata: {
-							source: "kernelRuntime.settleHomeToolWriteApproval",
-							approvalRequestId: input.approval.id,
-							approvalStatus: "approved",
-							...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
-						},
-						createdAt: finishedAt,
-					},
-					{
-						organizationId: payload.organizationId,
-						kind: "run.completed",
-						conversationId: payload.conversationId,
-						runId: payload.homeRunId,
-						messageId: assistantMessageId,
-						payload: {
-							status: "completed",
-							approvalRequestId: input.approval.id,
-							kernelEvidence: evidence,
-							...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
-							error: null,
-						},
-						runtimeMetadata: {
-							source: "kernelRuntime.settleHomeToolWriteApproval",
-							approvalStatus: "approved",
-							...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
-						},
-						createdAt: finishedAt,
-					},
-				],
-			}).catch(async (error: unknown) => {
-				// The batch is atomic: when the transcript cannot land, still record
-				// the executed write on its run, then fail as before.
-				await updateKernelRuntimeRunForOrg(context.db, {
-					id: payload.homeRunId,
-					organizationId: payload.organizationId,
-					patch: completedPatch,
-				});
-				throw error;
-			});
-			// The write executed, so the run records it even if a cancel moved it
-			// off `running` meanwhile (the earlier unconditional update did too).
-			if (!settled.runTransitioned)
-				await updateKernelRuntimeRunForOrg(context.db, {
-					id: payload.homeRunId,
-					organizationId: payload.organizationId,
-					patch: completedPatch,
-				});
-			await recordApprovalExecutionReceipt(context.db, {
-				id: crypto.randomUUID(),
-				organizationId: payload.organizationId,
-				idempotencyKey: `home-tool-write:${input.approval.id}`,
-				recordHash: `sha256:${await canonicalDigest(receiptFields)}`,
-				createdAt: finishedAt,
-				...receiptFields,
-			});
-			input.onSettledMessage?.(settled.assistantEvent);
-			return "succeeded";
-		}
-
-		const progress = homeRunProgress({ eventCount: 0, status: "failed" });
-		const failureContent = `Approved write ${payload.toolName} on ${payload.appSlug} failed: ${result.error}`;
-		await updateKernelRuntimeRunForOrg(context.db, {
-			id: payload.homeRunId,
-			organizationId: payload.organizationId,
-			patch: {
-				status: "failed",
-				progressValue: progress.current,
-				progressLabel: progress.label,
-				progressDetail: progress.detail,
-				latestEventKind: "run.failed",
-				latestEventAt: finishedAt,
-				preview: failureContent,
-				completedAt: finishedAt,
-				updatedAt: finishedAt,
-				metadata: {
-					...claimMetadata,
-					kernelRoute: {
-						...nonNullRecord(runMetadata.kernelRoute),
-						answer: failureContent,
-					},
-					kernelWriteError: result.error,
+				kernelEvidence: evidence,
+				...(retainedResult
+					? { kernelToolResultReference: retainedResult }
+					: {}),
+				kernelOutputReceipt: outputReceipt,
+				...(result.ok && !content.startsWith(`Executed ${payload.toolName} on `)
+					? { kernelWriteReceipt: content.slice(0, 600) }
+					: {}),
+				...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
+				...(!result.ok ? { kernelWriteError: result.error } : {}),
+				kernelWriteSettleTimings: {
+					executeMs: executeEndedAt - executeStartedAt,
+					retainMs: Date.now() - executeEndedAt,
 				},
-			},
-		});
-		const message = await insertKernelRuntimeEvent(context, {
-			organizationId: payload.organizationId,
-			kind: "message.completed",
-			conversationId: payload.conversationId,
-			runId: payload.homeRunId,
-			messageId: assistantMessageId,
-			payload: {
-				role: "assistant",
-				content: failureContent,
-				channel: "home",
-				metadata: {
-					homeSubject: true,
-					approvalRequestId: input.approval.id,
-					kernelWriteProposal: proposalSummary,
-					error: result.error,
-				},
-			},
-			runtimeMetadata: {
-				source: "kernelRuntime.settleHomeToolWriteApproval",
-				approvalRequestId: input.approval.id,
-				approvalStatus: "approved",
-			},
-			createdAt: finishedAt,
-		});
-		input.onSettledMessage?.(message);
-		await insertKernelRuntimeEvent(context, {
-			organizationId: payload.organizationId,
-			kind: "run.failed",
-			conversationId: payload.conversationId,
-			runId: payload.homeRunId,
-			messageId: assistantMessageId,
-			payload: {
-				status: "failed",
-				approvalRequestId: input.approval.id,
-				error: result.error,
-			},
-			runtimeMetadata: {
-				source: "kernelRuntime.settleHomeToolWriteApproval",
-				approvalStatus: "approved",
-			},
-			createdAt: finishedAt,
-		});
+			}),
+			outputRevisionId: outputReceipt?.revisionId ?? null,
+		};
 		const receiptFields = {
 			approvalRequestId: input.approval.id,
 			canonicalInputHash,
 			baselineFenceOutcome: "not_checked" as const,
-			outcome: "failed" as const,
-			observedError: {
-				code: "provider_write_failed",
-				message: result.error.slice(0, 500),
-				retryable: false,
-			},
+			...(result.ok
+				? {
+						outcome: "succeeded" as const,
+						observedResult: toJsonRecord({ evidence }),
+					}
+				: {
+						outcome: "failed" as const,
+						observedError: {
+							code: "provider_write_failed",
+							message: result.error.slice(0, 500),
+							retryable: false,
+						},
+					}),
 			providerReceiptRefs: [],
 			executedAt: finishedAt,
 		};
-		await recordApprovalExecutionReceipt(context.db, {
+		const approvalReceipt = {
 			id: crypto.randomUUID(),
 			organizationId: payload.organizationId,
 			idempotencyKey: `home-tool-write:${input.approval.id}`,
 			recordHash: `sha256:${await canonicalDigest(receiptFields)}`,
 			createdAt: finishedAt,
 			...receiptFields,
+		};
+		const eventRuntimeMetadata = {
+			source: "kernelRuntime.settleHomeToolWriteApproval",
+			approvalRequestId: input.approval.id,
+			approvalStatus: "approved",
+			...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
+		};
+		const settled = await persistKernelTurnSettlement(context, {
+			approvalReceipt: admittedMetadata ? approvalReceipt : undefined,
+			run: {
+				id: payload.homeRunId,
+				organizationId: payload.organizationId,
+				fromStatus: "running",
+				patch: completedPatch,
+			},
+			events: [
+				{
+					organizationId: payload.organizationId,
+					kind: "message.completed",
+					conversationId: payload.conversationId,
+					runId: payload.homeRunId,
+					messageId: assistantMessageId,
+					createdAt: finishedAt,
+					payload: {
+						role: "assistant",
+						content,
+						channel: "home",
+						metadata: {
+							homeSubject: true,
+							approvalRequestId: input.approval.id,
+							kernelWriteProposal: proposalSummary,
+							kernelEvidence: evidence,
+							...(retainedResult
+								? { kernelToolResultReference: retainedResult }
+								: {}),
+							...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
+							...(!result.ok ? { error: result.error } : {}),
+						},
+					},
+					runtimeMetadata: eventRuntimeMetadata,
+				},
+				{
+					organizationId: payload.organizationId,
+					kind: result.ok ? "run.completed" : "run.failed",
+					conversationId: payload.conversationId,
+					runId: payload.homeRunId,
+					messageId: assistantMessageId,
+					createdAt: new Date(Date.parse(finishedAt) + 1).toISOString(),
+					payload: {
+						status,
+						approvalRequestId: input.approval.id,
+						kernelEvidence: evidence,
+						...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
+						error: result.ok ? null : result.error,
+					},
+					runtimeMetadata: eventRuntimeMetadata,
+				},
+			],
 		});
-		return "failed";
+		if (!settled.runTransitioned)
+			await updateKernelRuntimeRunForOrg(context.db, {
+				id: payload.homeRunId,
+				organizationId: payload.organizationId,
+				patch: completedPatch,
+			});
+		if (!admittedMetadata)
+			await recordApprovalExecutionReceipt(context.db, approvalReceipt);
+		input.onSettledTerminal?.(settled.terminalEvent);
+		input.onSettledMessage?.(settled.assistantEvent);
+		return result.ok ? "succeeded" : "failed";
 	} catch (error) {
 		console.warn("[kernelRuntime] kernel write settle failed", {
 			approvalRequestId: input.approval.id,
@@ -905,6 +827,98 @@ export async function settleHomeToolWriteApproval(
 		});
 		return "unknown";
 	}
+}
+
+export interface DirectKernelWriteInput {
+	approval: CreateApprovalRequestParams;
+	requestedAudit: InsertAuditEventParams;
+	decision: KernelWriteApprovalDecision;
+	runId: string;
+	conversationId: string;
+	metadata: Record<string, unknown>;
+}
+
+/** The turn owns execution already. Persist its policy admission and audits
+ * before calling the executor; a batch failure must propagate without a write. */
+export async function executeDirectKernelWrite(
+	context: BaseContext,
+	input: DirectKernelWriteInput,
+): Promise<{
+	executed: boolean;
+	finalStatus: TediRunStatus | null;
+	assistantEvent: KernelRuntimeEvent | null;
+	terminalEvent: KernelRuntimeEvent | null;
+}> {
+	if (!input.decision.autoResolve)
+		throw new Error("Direct write was not auto-approved");
+	const resolvedAt = nowIso();
+	const metadata = {
+		...input.metadata,
+		approvalStatus: "approved",
+		approvalResolvedAt: resolvedAt,
+		kernelWriteExecutedAt: resolvedAt,
+	};
+	const admitted = await admitKernelAutoWrite(context.db, {
+		approval: input.approval,
+		requestedAudit: input.requestedAudit,
+		approvedAudit: {
+			organizationId: input.approval.orgId,
+			actorId: "policy",
+			actorType: "service",
+			action: "approval.approved",
+			resourceType: "approval_request",
+			resourceId: input.approval.id,
+			metadata: {
+				source: "kernelRuntime.autoResolveKernelWrite",
+				resolverProvenance: "policy",
+				autoResolveSource: input.decision.source,
+				autoResolveReason: input.decision.reason.slice(0, 200),
+				homeRunId: input.runId,
+				conversationId: input.conversationId,
+				actionType: input.approval.actionType,
+				tediId: input.approval.tediId,
+			},
+		},
+		runId: input.runId,
+		metadata: toJsonRecord(metadata),
+		resolvedAt,
+		resolution: input.decision.reason.slice(0, 200),
+	});
+	if (!admitted) throw new Error("Direct write run is no longer executable");
+	let assistantEvent: KernelRuntimeEvent | null = null;
+	let terminalEvent: KernelRuntimeEvent | null = null;
+	const outcome = await settleHomeToolWriteApproval(
+		context,
+		{
+			approval: {
+				...input.approval,
+				workflowId: input.approval.workflowId ?? null,
+				status: "approved",
+				resolvedBy: "policy",
+				resolvedAt,
+				resolution: input.decision.reason.slice(0, 200),
+			},
+			status: "approved",
+			onSettledMessage: (event) => {
+				assistantEvent = event;
+			},
+			onSettledTerminal: (event) => {
+				terminalEvent = event;
+			},
+		},
+		metadata,
+	);
+	if (outcome !== "succeeded" && outcome !== "failed")
+		throw new Error(
+			"Direct write settlement is unknown; execution must not retry",
+		);
+	return {
+		executed: true,
+		finalStatus:
+			outcome === "succeeded" ? ("completed" as const) : ("failed" as const),
+		assistantEvent,
+		terminalEvent,
+	};
 }
 
 /**

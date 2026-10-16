@@ -7,9 +7,8 @@
  * execution. It catalogs direct providers with `tools/list`
  * and aggregate providers with Code Mode discovery, filters to write-capable
  * tools, and selects one tool before constructing arguments against its exact input
- * schema. The caller parks
- * the validated call behind a `tedi_approval_requests` row; execution happens
- * exclusively in `write-executor.ts` after a human approval.
+ * schema. The caller records an audited `tedi_approval_requests` row before
+ * execution in `write-executor.ts`, either approved by policy or held for a human.
  *
  * Safety model:
  *  - discovery never executes a provider tool, and the model only ever sees

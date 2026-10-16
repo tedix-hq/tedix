@@ -1189,7 +1189,7 @@ function createKernelRuntimeDb(opts?: {
 					values(value: unknown) {
 						const row = value as Record<string, unknown>;
 						if (row.action === controls.auditInsertErrorAction)
-							return Promise.reject(new Error("audit unavailable"));
+							throw new Error("audit unavailable");
 						auditRows.push(row);
 						return this;
 					},
@@ -8694,10 +8694,21 @@ describe("home approved-write layer (v1)", () => {
 
 	it("(a) low-risk trusted write auto-resolves WITH an audit row + resolvedBy:'policy' and executes", async () => {
 		const db = trustedPolicyDb(["globex-tedix:globex__create_invoice"]);
-		const executor = vi.fn(async () => ({
-			ok: true as const,
-			data: { result: { id: "INV-AUTO" } },
-		}));
+		const executor = vi.fn(async () => {
+			expect(
+				db.auditRows.some((row) => row.action === "approval.approved"),
+			).toBe(true);
+			expect(db.runs.find((row) => row.id === "home-write-1")?.status).toBe(
+				"running",
+			);
+			expect(
+				db.events.some(
+					(row) =>
+						row.runId === "home-write-1" && row.kind === "approval.requested",
+				),
+			).toBe(false);
+			return { ok: true as const, data: { result: { id: "INV-AUTO" } } };
+		});
 		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(
 			executor as unknown as Parameters<
 				typeof kernelRuntimeTestHooks.setKernelWriteExecutorForTest
@@ -8740,6 +8751,7 @@ describe("home approved-write layer (v1)", () => {
 		);
 		// The per-click tax is removed: the stored call executed in-turn.
 		expect(executor).toHaveBeenCalledTimes(1);
+		expect(db.approvalExecutionReceipts).toHaveLength(1);
 		const run = db.runs.find((row) => row.id === "home-write-1");
 		expect(run?.status).toBe("completed");
 		expect(result.run.metadata).toMatchObject({

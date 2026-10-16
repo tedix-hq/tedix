@@ -2246,6 +2246,7 @@ export async function insertKernelRuntimeEventWithStatus(
 
 /** Input of {@link persistKernelTurnSettlement}. */
 export interface KernelTurnSettlementInput {
+	approvalReceipt?: import("@tedix/db/queries/approval-simulations").RecordApprovalExecutionReceiptParams;
 	run: TransitionKernelRuntimeRunStatusParams;
 	/** `message.completed` first, the terminal receipt second. */
 	events: readonly [
@@ -2271,6 +2272,7 @@ export async function persistKernelTurnSettlement(
 	terminalEvent: KernelRuntimeEvent;
 }> {
 	const settled = await settleKernelRuntimeTurn(context.db, {
+		approvalReceipt: input.approvalReceipt,
 		run: input.run,
 		events: input.events.map((event) =>
 			buildKernelRuntimeEventRow(context, event),
