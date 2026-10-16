@@ -1479,6 +1479,8 @@ export interface ChatApprovalReply {
 	tool: string;
 	runStatus: string | null;
 	error: string | null;
+	/** The settled write's human receipt (e.g. "Updated “Plan”. [Open document](…)"). */
+	receipt?: string | null;
 }
 
 export function readChatApprovalReply(
@@ -1499,6 +1501,7 @@ export function readChatApprovalReply(
 		tool: reply.tool,
 		runStatus: typeof reply.runStatus === "string" ? reply.runStatus : null,
 		error: typeof reply.error === "string" ? reply.error : null,
+		receipt: typeof reply.receipt === "string" ? reply.receipt : null,
 	};
 }
 
@@ -1510,7 +1513,9 @@ export function chatApprovalReplyContent(reply: ChatApprovalReply): string {
 	if (reply.decision === "reject") return `Rejected ${tool}. Nothing ran.`;
 	return reply.runStatus === "failed"
 		? `Approved ${tool}, but the write failed. Open the run details for the error.`
-		: `Approved and ran ${tool}.`;
+		: reply.receipt
+			? `Approved and ran ${tool}. ${reply.receipt}`
+			: `Approved and ran ${tool}.`;
 }
 
 async function runChatApprovalReplyIntercept(

@@ -864,12 +864,15 @@ export async function resolveApprovalByChatReply(
 			organizationId: input.organizationId,
 			run,
 		});
+		const receipt = (resolved.run.metadata as Record<string, unknown> | null)
+			?.kernelWriteReceipt;
 		return {
 			runId: run.id,
 			decision,
 			tool,
 			runStatus: resolved.run.status,
 			error: null,
+			...(typeof receipt === "string" ? { receipt } : {}),
 		};
 	} catch (error) {
 		return {
