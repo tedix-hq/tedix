@@ -32,7 +32,8 @@ function harness(replies: Record<string, unknown[]>) {
 				if (queue.length === 0) {
 					throw new Error(`no scripted reply left for ${callable}`);
 				}
-				return queue.shift();
+				const reply = queue.shift();
+				return typeof reply === "function" ? reply() : reply;
 			}
 		}
 		throw new Error(`unscripted call: ${source}`);
@@ -237,6 +238,43 @@ describe("status projection", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toContain("flow.status");
 		expect(calls[0]).not.toContain("get_skill_workflow_status");
+	});
+
+	it("reads a failed run that the gateway reports as a tool error", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		const stderr = spyOn(console, "error").mockImplementation(() => {});
+		const runError = `Error: McpToolError: MCP tool error: ${JSON.stringify({
+			partial: true,
+			failures: [
+				{
+					tool: "cto.work_item_comment",
+					error: "NOT_FOUND: Work Item not found",
+				},
+			],
+		})}`;
+		const envelope = {
+			partial: true,
+			failures: [{ tool: "cto.get_skill_workflow_status", error: runError }],
+			result: { status: "failed", output: null, error: runError },
+		};
+		const { ctx } = harness({
+			"flow.status": [
+				() => {
+					throw new Error(`MCP tool error: ${JSON.stringify(envelope)}`);
+				},
+			],
+		});
+		const human = { ...ctx({ watch: 30 }), json: false };
+		try {
+			expect(await runFlowCommand("status run-1", human)).toBe(FLOW_EXIT_FAIL);
+			expect(stdout.mock.calls.flat().join("\n")).toContain("failed run-1");
+			const errors = stderr.mock.calls.flat().join("\n");
+			expect(errors).toContain("cto.work_item_comment: Work Item not found");
+			expect(errors).not.toContain("polling the run failed");
+		} finally {
+			stdout.mockRestore();
+			stderr.mockRestore();
+		}
 	});
 
 	it("preserves a failed status diagnostic and nested result in JSON without inspecting or mutating", async () => {
