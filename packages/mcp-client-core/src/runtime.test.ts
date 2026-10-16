@@ -6,6 +6,45 @@ import {
 } from "./runtime.js";
 
 describe("Code Mode server selection", () => {
+	it("retains executor action receipts outside a summary or oversized projection", async () => {
+		const { TedixMcpRuntime } = await import("./runtime");
+		const actionReceipts = [
+			{
+				operation: "work.add_comment",
+				actor: "tedi:orion",
+				verified: true,
+				url: "https://os.example.test/work/items/scratch",
+				state: "accepted",
+				checkedAt: "2026-10-16T12:00:00.000Z",
+			},
+		];
+		const runtime = new TedixMcpRuntime({
+			manager: {
+				listConnections: () => [{ serverId: "tenant-unified" }],
+				listTools: () => [{ name: "code" }],
+				callTool: async () => ({
+					structuredContent: {
+						executionId: "code-1",
+						result: "x".repeat(20_000),
+						actionReceipts,
+					},
+					content: [],
+				}),
+			} as never,
+			maxToolResultChars: 1000,
+			platform: {
+				listServers: async () => [],
+				resolveCredentials: async () => ({ headers: {} }),
+			},
+		});
+		runtime.ensureSynced = async () => {};
+		const result = await runtime.executeTool(
+			"tedix_mcp_code",
+			{ code: "async () => true" },
+			{ binding: { conversationId: "conversation", runId: "run" } },
+		);
+		expect(result).toMatchObject({ actionReceipts });
+	});
 	it("prefers a tenant unified gateway when an embedded gateway connects first", async () => {
 		const { TedixMcpRuntime } = await import("./runtime");
 		const calledServers: string[] = [];
