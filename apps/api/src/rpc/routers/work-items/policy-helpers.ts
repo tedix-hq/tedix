@@ -1,5 +1,7 @@
 import { implement } from "@orpc/server";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
+import type { WorkItem } from "@tedix/db/schema/work-items";
+import { getProjectById } from "@tedix/db/queries/projects";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { requireOrgId } from "../../org-scope";
 import {
@@ -44,6 +46,47 @@ export async function requireOwnerAdminWorkItemAuthor(
 		);
 	}
 	return membership.userId;
+}
+
+export async function workItemStewardActor(
+	context: BaseContext,
+	item: WorkItem,
+	action: "specification" | "completion" | "cancellation",
+	reason?: string,
+) {
+	if (item.orgId !== requireOrgId(context))
+		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this Work Item");
+	const actor = await verifiedActiveWorkActor(context, item.orgId);
+	if (actor.type === "user") {
+		return {
+			type: "user" as const,
+			id: await requireOwnerAdminWorkItemAuthor(context, item.orgId),
+		};
+	}
+	if (actor.type === "tedi") {
+		if (action === "cancellation") {
+			const project = item.projectId
+				? await getProjectById(context.db, item.projectId)
+				: undefined;
+			const lastChanged = Date.parse(item.updatedAt ?? item.createdAt);
+			if (
+				project?.orgId === item.orgId &&
+				project.leadTediId === actor.id &&
+				lastChanged <= Date.now() - 7 * 24 * 3600 * 1000 &&
+				reason?.trim()
+			)
+				return actor;
+		} else if (
+			(item.accountableOwnerType === "tedi" &&
+				item.accountableOwnerId === actor.id) ||
+			(item.stewardType === "tedi" && item.stewardId === actor.id)
+		)
+			return actor;
+	}
+	throw createError(
+		ErrorCodes.FORBIDDEN,
+		`Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
+	);
 }
 
 /**

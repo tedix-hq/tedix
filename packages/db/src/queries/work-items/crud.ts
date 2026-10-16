@@ -656,6 +656,7 @@ export async function completeWorkItem(
 		orgId: string;
 		workItemId: string;
 		actor: WorkActor;
+		expectedWorkItemVersion?: number;
 		completedAt?: string;
 	},
 ): Promise<WorkItem> {
@@ -685,7 +686,7 @@ export async function completeWorkItem(
 			and(
 				eq(workItems.id, params.workItemId),
 				eq(workItems.orgId, params.orgId),
-				eq(workItems.version, item.version),
+				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
 				eq(workItems.disposition, "accepted"),
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${completedAt}))`,
 			),
@@ -717,6 +718,7 @@ export async function cancelWorkItem(
 		workItemId: string;
 		actor: WorkActor;
 		reason?: string;
+		expectedWorkItemVersion?: number;
 		cancelledAt?: string;
 	},
 ): Promise<WorkItem> {
@@ -734,7 +736,7 @@ export async function cancelWorkItem(
 			and(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
-				eq(workItems.version, prior.version),
+				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
 				inArray(workItems.disposition, ["proposed", "accepted"]),
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${cancelledAt}))`,
 			),
@@ -769,6 +771,8 @@ export async function updateWorkItemSpecification(
 		title?: string;
 		description?: string | null;
 		workKind?: WorkItemKind;
+		workClass?: WorkItemClass;
+		purposeExceptionExpiresAt?: string;
 		riskLevel?: WorkItemRiskLevel;
 		priority?: WorkItemPriority;
 		accountableOwnerType?: WorkItemAccountabilityPrincipalType | null;
@@ -791,6 +795,8 @@ export async function updateWorkItemSpecification(
 			title: params.title,
 			description: params.description,
 			workKind: params.workKind,
+			workClass: params.workClass,
+			purposeExceptionExpiresAt: params.purposeExceptionExpiresAt,
 			riskLevel: params.riskLevel,
 			priority: params.priority,
 			accountableOwnerType: params.accountableOwnerType,

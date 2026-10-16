@@ -766,6 +766,39 @@ describe("artifact-neutral work factory", () => {
 		).toBeNull();
 	});
 
+	it("fences completion and cancellation to the version authorized by the caller", async () => {
+		const { sqlite, db } = fixture();
+		seed(sqlite, "work");
+		sqlite.exec("UPDATE work_items SET version=2 WHERE id='work'");
+		await expect(
+			completeWorkItem(db, {
+				orgId: "org",
+				workItemId: "work",
+				actor: { type: "tedi", id: "nova" },
+				expectedWorkItemVersion: 1,
+				completedAt: NOW,
+			}),
+		).rejects.toMatchObject({ code: "NOT_READY" });
+		await expect(
+			cancelWorkItem(db, {
+				orgId: "org",
+				workItemId: "work",
+				actor: { type: "tedi", id: "nova" },
+				expectedWorkItemVersion: 1,
+				reason: "Superseded",
+				cancelledAt: NOW,
+			}),
+		).rejects.toMatchObject({ code: "NOT_READY" });
+		expect(
+			sqlite
+				.prepare("SELECT disposition FROM work_items WHERE id='work'")
+				.get(),
+		).toEqual({ disposition: "accepted" });
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM work_events").get(),
+		).toEqual({ n: 0 });
+	});
+
 	it("rejects terminal disposition while an authoritative attempt is active", async () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "work");
