@@ -44,8 +44,8 @@
  *   `planAndParkKernelWriteProposal` (≈0ms on non-write routes).
  * - `writeCatalogReady`/`writeToolSelected`/`writeSchemaReady` — inside that
  *   window: the write catalog is listed, one tool is chosen, its exact input
- *   schema is in hand. What remains up to `writeProposalPlanEnded` is the
- *   argument pass plus the approval-row write.
+ *   schema is in hand. `writeArgumentsReady` marks the validated arguments;
+ *   what remains up to `writeProposalPlanEnded` is the approval-row write.
  * - `dispatchStarted`/`dispatchEnded` — around the auto-delegation dispatch
  *   call (delegated turns only).
  */
@@ -60,6 +60,7 @@ export const KERNEL_TURN_STAGE_ORDER = [
 	"writeCatalogReady",
 	"writeToolSelected",
 	"writeSchemaReady",
+	"writeArgumentsReady",
 	"writeProposalPlanEnded",
 	"dispatchStarted",
 	"dispatchEnded",
@@ -86,6 +87,7 @@ export const KERNEL_TURN_SERIAL_STAGE_ORDER = [
 	"writeCatalogReady",
 	"writeToolSelected",
 	"writeSchemaReady",
+	"writeArgumentsReady",
 	"writeProposalPlanEnded",
 	"dispatchStarted",
 	"dispatchEnded",
