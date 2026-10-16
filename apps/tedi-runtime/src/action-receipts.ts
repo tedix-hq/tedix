@@ -4,8 +4,12 @@ import {
 } from "@tedix/api-contract/utils/action-receipt";
 
 /** Code Mode keeps receipts outside the model-authored projection. */
-export function collectActionReceipts(value: unknown): ActionReceipt[] {
+export function collectActionReceipts(
+	value: unknown,
+	toolName: string,
+): ActionReceipt[] {
 	if (
+		(toolName !== "tedix_mcp_code" && toolName !== "tedix_mcp_call_tool") ||
 		!value ||
 		typeof value !== "object" ||
 		!("actionReceipts" in value) ||
@@ -35,7 +39,10 @@ export function appendActionReceipts(
 			receipt,
 		]),
 	);
-	return [text, ...[...unique.values()].map(renderActionReceipt)]
+	const summary = receipts.some((receipt) => !receipt.verified)
+		? "I could not verify every action. The receipts show what is confirmed."
+		: text;
+	return [summary, ...[...unique.values()].map(renderActionReceipt)]
 		.filter(Boolean)
 		.join("\n\n");
 }
