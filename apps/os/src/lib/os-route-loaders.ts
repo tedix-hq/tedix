@@ -761,6 +761,7 @@ export async function prefetchWorkCasesRoute(queryClient: QueryClient) {
 export async function prefetchWorkApprovalsRoute(queryClient: QueryClient) {
 	await Promise.allSettled([
 		queryClient.ensureQueryData(pendingApprovalsQueryOptions()),
+		queryClient.ensureQueryData(workPendingApprovalsQueryOptions()),
 		queryClient.ensureQueryData(workApprovalsQueryOptions()),
 	]);
 }
