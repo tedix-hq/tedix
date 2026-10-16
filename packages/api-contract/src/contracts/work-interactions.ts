@@ -21,6 +21,7 @@ import {
 	RecordReplyDraftDeliveryInputSchema,
 	RecordReplyDraftDeliveryResultSchema,
 	RespondToWorkInteractionInputSchema,
+	ReviewWorkInteractionInputSchema,
 	WorkInteractionRequestSchema,
 	WorkInteractionResponseSchema,
 } from "../schemas/work-interactions";
@@ -75,6 +76,15 @@ export const workInteractionsContract = oc
 				summary: "Cancel Work interaction",
 			})
 			.input(CancelWorkInteractionInputSchema)
+			.output(WorkInteractionRequestSchema),
+		review: oc
+			.route({
+				method: "POST",
+				path: "/{requestId}/review",
+				summary:
+					"Record the ask owner's review or verified continuation receipt",
+			})
+			.input(ReviewWorkInteractionInputSchema)
 			.output(WorkInteractionRequestSchema),
 		get: oc
 			.route({

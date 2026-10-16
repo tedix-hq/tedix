@@ -47,6 +47,9 @@ import {
 import {
 	delegateWorkInteraction,
 	respondToWorkInteraction,
+	createWorkInteraction,
+	flushWorkInteractionDigests,
+	reviewWorkInteraction,
 } from "./interactions";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
 import {
@@ -1895,5 +1898,96 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		expect(JSON.parse(attempt.metadata)).toMatchObject({
 			migratedCompositeAttemptId: compositeId,
 		});
+	});
+});
+
+it("runs digests and owner follow-through with migrated D1 guards", async () => {
+	const sqlite = migrated();
+	seedCore(sqlite);
+	seedTedi(sqlite);
+	sqlite.exec("UPDATE work_items SET disposition='accepted' WHERE id='work'");
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const now = "2026-08-20T22:00:00.000Z";
+	for (const [id, kind] of [
+		["update", "coordination"],
+		["ask", "question"],
+	] as const)
+		await createWorkInteraction(db, {
+			id,
+			orgId: "org",
+			workItemId: "work",
+			kind,
+			subject: "Fictional review",
+			prompt: "Original question or update",
+			creator: { type: "tedi", id: "tedi" },
+			targetType: "user",
+			targetId: "user",
+			now,
+		});
+	expect(
+		await flushWorkInteractionDigests(db, "2026-08-21T08:00:00.000Z"),
+	).toMatchObject({ digests: 1 });
+	expect(
+		await flushWorkInteractionDigests(db, "2026-08-21T08:02:00.000Z"),
+	).toMatchObject({ digests: 0 });
+	const reviewed = await reviewWorkInteraction(db, {
+		orgId: "org",
+		interactionId: "ask",
+		expectedVersion: 1,
+		actor: { type: "tedi", id: "tedi" },
+		action: "reask",
+		note: "The source still needs a date.",
+		now: "2026-08-24T08:00:00.000Z",
+	});
+	expect(reviewed.version).toBe(2);
+	expect(reviewed.prompt).toBe("Original question or update");
+	expectAbort(
+		() =>
+			sqlite.exec(
+				"UPDATE work_interactions SET creator_id='someone-else',metadata=json_set(metadata,'$.followThrough.note','forged') WHERE id='ask'",
+			),
+		/immutable/,
+	);
+	expectAbort(
+		() =>
+			sqlite.exec(
+				"UPDATE work_interactions SET status='resolved',version=3,resolved_at='2026-08-24T08:01:00.000Z',resolution_fence='forged',metadata=json_set(metadata,'$.followThrough.note','forged') WHERE id='ask'",
+			),
+		/maintenance transition/,
+	);
+	expectAbort(
+		() =>
+			sqlite.exec(
+				"UPDATE work_interactions SET metadata=json_set(metadata,'$.unrelated','forged') WHERE id='ask'",
+			),
+		/delegation/,
+	);
+	await respondToWorkInteraction(db, {
+		id: "answer",
+		orgId: "org",
+		interactionId: "ask",
+		expectedVersion: 2,
+		responder: { type: "user", id: "user" },
+		responseKind: "answer",
+		body: "Monday",
+		resolvesRequest: true,
+		now: "2026-08-24T08:02:00.000Z",
+	});
+	sqlite.exec(
+		"INSERT INTO tedi_runtime_events(id,organization_id,tedi_id,kind,run_id,runtime_backend,created_at) VALUES ('action','org','tedi','tool.completed','follow-up','cloudflare-agents','2026-08-24T08:03:00.000Z')",
+	);
+	const receipt = await reviewWorkInteraction(db, {
+		orgId: "org",
+		interactionId: "ask",
+		expectedVersion: 3,
+		actor: { type: "tedi", id: "tedi" },
+		action: "continued",
+		responseId: "answer",
+		evidenceId: "action",
+		note: "Updated the review date and checked it.",
+		now: "2026-08-24T08:04:00.000Z",
+	});
+	expect(receipt.metadata.followThrough).toMatchObject({
+		receipt: { responseId: "answer", evidenceId: "action" },
 	});
 });

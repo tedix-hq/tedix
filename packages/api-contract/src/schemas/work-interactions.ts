@@ -238,6 +238,15 @@ export const CreateWorkInteractionInputSchema = z
 		kind: WorkInteractionKindSchema,
 		subject: WorkInteractionRequestSchema.shape.subject,
 		prompt: WorkInteractionRequestSchema.shape.prompt,
+		reviewAfterDays: z
+			.number()
+			.int()
+			.min(1)
+			.max(30)
+			.default(3)
+			.describe(
+				"After this many unanswered days, the asking tedi or agent rechecks the source and closes with a note or re-asks once.",
+			),
 		notificationReason: z
 			.enum(["update", "failure", "blocked_approval"])
 			.optional()
@@ -363,6 +372,23 @@ export const RespondToWorkInteractionInputSchema = z
 export const CancelWorkInteractionInputSchema = z.strictObject({
 	requestId: z.uuid(),
 	expectedRequestVersion: z.number().int().positive(),
+});
+
+export const ReviewWorkInteractionInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedRequestVersion: z.number().int().positive(),
+	action: z.enum(["close", "reask", "continued"]),
+	note: z.string().trim().min(1).max(2_000),
+	responseId: z.uuid().optional(),
+	evidenceId: z
+		.string()
+		.trim()
+		.min(1)
+		.max(300)
+		.optional()
+		.describe(
+			"For continued: an owner tool.completed event after the exact answer, or an owner-session succeeded Work Attempt after it. This proves continuation, not a provider effect.",
+		),
 });
 
 export const GetWorkInteractionInputSchema = z.strictObject({

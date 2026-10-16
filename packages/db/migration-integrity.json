@@ -892,6 +892,10 @@
 		{
 			"name": "20261016212148_agent-session-requests/migration.sql",
 			"sha256": "9611bcc37f4c3a7fbdb1f44c9fd791e85422415e64b2fd77b1d9b04956562ffc"
+		},
+		{
+			"name": "20261016230947_interaction_follow_through/migration.sql",
+			"sha256": "c3c2c94d9a85ae15a1b127077aa9b115935b957afe68df2bec0e7430c93c8750"
 		}
 	]
 }
