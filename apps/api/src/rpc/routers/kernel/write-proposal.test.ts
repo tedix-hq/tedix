@@ -727,6 +727,86 @@ describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
 	});
 });
 
+describe("planKernelWriteProposal — schema prefetch", () => {
+	it("describes the leading candidates during selection, once each", async () => {
+		const entry = (name: string) => ({
+			callable: name,
+			description: `Edit via ${name}`,
+			annotations: { readOnlyHint: false, destructiveHint: false },
+			parameters: {
+				type: "object",
+				properties: { outputId: { type: "string" } },
+				required: ["outputId"],
+			},
+		});
+		const names = [
+			"os.patch_os_document",
+			"os.revise_os_output",
+			"os.rename_os_output",
+			"os.set_os_sheet_range",
+		];
+		const service = mcpService((body) => {
+			if (body.method === "tools/list")
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: { tools: [{ name: "code" }] },
+					},
+				};
+			const code = String(
+				(body.params.arguments as { code?: string } | undefined)?.code,
+			);
+			const described = names.find((name) =>
+				code.includes(`discover.describe({ callable: "${name}" })`),
+			);
+			return {
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						structuredContent: {
+							executionId: "exec",
+							result: JSON.stringify(
+								described ? [entry(described)] : names.map(entry),
+							),
+						},
+					},
+				},
+			};
+		});
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
+			slug === "tedix-unified" ? { slug } : null,
+		);
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-1",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "tedix-unified",
+					capability: "documents.update",
+					connectionStatus: "connected",
+				},
+			}),
+			content: "Append a paragraph to the plan",
+			model: objectModel({
+				toolName: "os.patch_os_document",
+				args: { outputId: "o1" },
+				reasoning: "append",
+			}),
+		});
+		expect(proposal?.toolName).toBe("os.patch_os_document");
+		const describedCalls = service.calls.filter((call) =>
+			String(
+				(call.params.arguments as { code?: string } | undefined)?.code,
+			).includes("discover.describe"),
+		);
+		// Three prefetched, and the pick reuses its prefetch.
+		expect(describedCalls).toHaveLength(3);
+	});
+});
+
 describe("readEditTargetOutput", () => {
 	const OUTPUT_ID = "f62dc07f-4be7-488d-9968-2c3d8d395560";
 	const output = {
