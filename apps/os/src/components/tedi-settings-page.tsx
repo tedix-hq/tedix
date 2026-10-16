@@ -3,6 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { TediAppAssignmentRole } from "@tedix/api-contract/schemas/tedi-app-assignments";
+import { canManageBrowserEgress } from "@tedix/api-contract/schemas/tedi";
+import { BrowserConsoleSignIn } from "@/components/browser-console-sign-in";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import type {
 	QuietHours,
 	SelfImprovementPolicy,
@@ -919,6 +922,11 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const canManage = useCanManageTedis();
+	const authority = useOsOperationalContext().data?.authority;
+	const canManageEgress = canManageBrowserEgress(
+		authority?.authType,
+		authority?.role,
+	);
 	const canDelete = useCanDeleteTedis();
 	const canReadSecrets = useCanReadTediSecrets();
 	const canManageSecrets = useCanManageTediSecrets();
@@ -1605,6 +1613,11 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 						<CardTitle>Governance & budgets</CardTitle>
 					</CardHeader>
 					<CardContent>
+						<BrowserConsoleSignIn
+							policy={tedi.data.toolPolicy}
+							disabled={!canManage || !canManageEgress || update.isPending}
+							onChange={(toolPolicy) => update.mutate({ tediId, toolPolicy })}
+						/>
 						<GovernanceSettingsForm
 							values={{
 								toolPolicyJson: prettyJson(tedi.data.toolPolicy),

@@ -7,6 +7,7 @@ import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plai
 import { WorkInteractionDeliveryOverlaySchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
+import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
 import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
@@ -1080,6 +1081,9 @@ export function WorkApprovalsPage() {
 										showCopyButton
 									/>
 								</details>
+								{approval.actionType === "browser.live_view_takeover" ? (
+									<BrowserTakeoverLiveView approvalId={approval.id} />
+								) : null}
 								{approval.review.decisionMode === "approve_or_reject" ? (
 									<div className="flex flex-wrap gap-2">
 										<Button

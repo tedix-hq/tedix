@@ -9,6 +9,7 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 import { ApprovalProvenanceDisclosure } from "./approval-provenance";
+import { BrowserTakeoverLiveView } from "./browser-takeover-live-view";
 
 type Manifest = Awaited<
 	ReturnType<typeof osApi.tediApprovals.getReviewManifest>
@@ -126,6 +127,9 @@ export function ApprovalManifestActions({
 								)}
 							/>
 						</details>
+						{request.actionType === "browser.live_view_takeover" ? (
+							<BrowserTakeoverLiveView approvalId={request.id} />
+						) : null}
 						<ApprovalProvenanceDisclosure approvalRequestId={request.id} />
 						<div
 							className="flex flex-wrap gap-2"

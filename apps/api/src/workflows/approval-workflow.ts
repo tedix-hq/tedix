@@ -22,6 +22,8 @@ import {
 } from "@tedix/db/queries/approvals";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
+import { browserTakeoverWakeRequest } from "../services/browser-takeover";
+import { assertWorkApprovalWakeAccepted } from "../jobs/work-approval-redrive";
 import {
 	failOsGadgetApprovalDispatch,
 	settleOsGadgetApproval,
@@ -147,6 +149,21 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 				const tedi = await getTediById(db, tediId);
 				if (!tedi || !tedi.slug)
 					return { notified: false, reason: "tedi_not_found" };
+				if (request.actionType === "browser.live_view_takeover") {
+					const wake = browserTakeoverWakeRequest(
+						request,
+						{ slug: tedi.slug, organizationId: tedi.organizationId },
+						this.env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech",
+					);
+					if (!wake)
+						return { notified: false, reason: "takeover_not_approved" };
+					if (!this.env.TEDI_SERVICE)
+						throw new Error("Tedi runtime is unavailable");
+					const receipt = await assertWorkApprovalWakeAccepted(
+						await this.env.TEDI_SERVICE.fetch(wake),
+					);
+					return { notified: true, runId: receipt.runId };
+				}
 
 				// Build notification message
 				const statusLabel =

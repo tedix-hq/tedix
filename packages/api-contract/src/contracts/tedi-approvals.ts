@@ -15,6 +15,8 @@ import {
 	PaginationSchema,
 } from "../schemas/common";
 
+import { BrowserTakeoverStatusSchema } from "../schemas/tedi";
+
 // =============================================================================
 // SCHEMAS
 // =============================================================================
@@ -393,6 +395,7 @@ export const tediApprovalsContract = oc
 					actionType: z.string().min(1),
 					description: z.string().min(1).max(2000),
 					payload: z.record(z.string(), z.unknown()),
+					replacesApprovalRequestId: z.uuid().optional(),
 					ttlHours: z.number().min(1).max(168).default(24),
 				}),
 			)
@@ -511,6 +514,15 @@ export const tediApprovalsContract = oc
 					results: z.array(ApprovalReviewDecisionResultSchema),
 				}),
 			),
+
+		getBrowserTakeoverStatus: oc
+			.route({
+				method: "POST",
+				path: "/{id}/browser-takeover-status",
+				summary: "Refresh browser takeover Live View",
+			})
+			.input(z.object({ id: z.uuid() }))
+			.output(BrowserTakeoverStatusSchema),
 
 		/**
 		 * Resolve an approval request (approve or reject)
