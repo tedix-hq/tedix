@@ -227,7 +227,7 @@ it("ships the same Forms patch to both standalone starters", () => {
 	const patch = (slug: string) =>
 		readFileSync(
 			new URL(
-				`../templates/${slug}/patches/@emdash-cms/plugin-forms@0.2.9.patch`,
+				`../templates/${slug}/patches/@emdash-cms/plugin-forms@0.2.10.patch`,
 				import.meta.url,
 			),
 			"utf8",

@@ -38,9 +38,9 @@ vi.mock("virtual:emdash/seed", () => ({
 // The runtime is internal to Emdash; exercise the exact bundled file shipped
 // by each template instead of its unbundled source dependencies.
 // @ts-expect-error Emdash does not publish declarations for its internal chunk.
-import { n as TedixEmDashRuntime } from "../templates/tedix/node_modules/emdash/dist/emdash-runtime-C4oFeVpN.mjs";
+import { n as TedixEmDashRuntime } from "../templates/tedix/node_modules/emdash/dist/emdash-runtime-DVi7vtXC.mjs";
 // @ts-expect-error Emdash does not publish declarations for its internal chunk.
-import { n as MarketingEmDashRuntime } from "../templates/marketing/node_modules/emdash/dist/emdash-runtime-C4oFeVpN.mjs";
+import { n as MarketingEmDashRuntime } from "../templates/marketing/node_modules/emdash/dist/emdash-runtime-DVi7vtXC.mjs";
 
 describe.each([
 	["tedix", TedixEmDashRuntime],

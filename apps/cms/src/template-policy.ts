@@ -33,9 +33,9 @@ export const LOCKED_FILES = [
 	// Keep the resolved dependency set paired with package.json. Persistent
 	// sandboxes otherwise retain a stale lockfile and can request removed patches.
 	"bun.lock",
-	"patches/@emdash-cms/cloudflare@1.2.0.patch",
-	"patches/@emdash-cms/plugin-forms@0.2.9.patch",
-	"patches/emdash@1.2.0.patch",
+	"patches/@emdash-cms/cloudflare@1.3.0.patch",
+	"patches/@emdash-cms/plugin-forms@0.2.10.patch",
+	"patches/emdash@1.3.0.patch",
 	"tsconfig.json",
 	"wrangler.jsonc",
 	// Emdash plugins — locked infrastructure, not user-vibe-coded.

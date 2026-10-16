@@ -88,7 +88,7 @@ index ba2bdea1906c12fa6be89e03362eb39d8b24bd6c..100e619652c831f42b1f167cfaace5fa
  			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_insert"`);
  			this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS "${ftsTable}_update"`);
 diff --git a/package.json b/package.json
-index 31e10af1b971e8fb7a46089c36858fe6907c54fd..4b9c7546b376d3f525224326be2c6baba1dcee2d 100644
+index 28ceb5dbe50ec78f3c89932b8ae0d4f95398a07e..b2f086955e12deec6af206a57892aa22d8f333fb 100644
 --- a/package.json
 +++ b/package.json
 @@ -104,7 +104,7 @@
@@ -100,13 +100,6 @@ index 31e10af1b971e8fb7a46089c36858fe6907c54fd..4b9c7546b376d3f525224326be2c6bab
      "@cloudflare/workers-types": ">=4.0.0",
      "@phosphor-icons/react": "^2.1.10",
      "astro": ">=6.0.0",
-@@ -168,4 +168,4 @@
-     "check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm --ignore-rules=no-resolution",
-     "typecheck": "tsgo --noEmit"
-   }
--}
-\ No newline at end of file
-+}
 diff --git a/src/db/d1.ts b/src/db/d1.ts
 index 47be6ed31fcfe68429ae4203a6f9cfbddcf958a6..f7a653983ddd91c6c5d9b612d2f9d69c43ade01e 100644
 --- a/src/db/d1.ts

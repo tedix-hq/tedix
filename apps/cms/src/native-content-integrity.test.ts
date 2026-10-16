@@ -12,9 +12,9 @@ import {
 } from "vite-plus/test";
 import { PUT as setMenuItems } from "../templates/tedix/node_modules/emdash/dist/astro/routes/api/menus/_name_/items.mjs";
 // @ts-expect-error The installed runtime chunk has no declarations.
-import { n as EmDashRuntime } from "../templates/tedix/node_modules/emdash/dist/emdash-runtime-C4oFeVpN.mjs";
+import { n as EmDashRuntime } from "../templates/tedix/node_modules/emdash/dist/emdash-runtime-DVi7vtXC.mjs";
 // @ts-expect-error The installed menu chunk has no declarations.
-import { d as menus } from "../templates/tedix/node_modules/emdash/dist/menus-CvVYfsuk.mjs";
+import { d as menus } from "../templates/tedix/node_modules/emdash/dist/menus-BCVSSp1z.mjs";
 vi.mock("virtual:emdash/config", () => ({ default: {} }));
 vi.mock("virtual:emdash/seed", () => ({
 	seed: {

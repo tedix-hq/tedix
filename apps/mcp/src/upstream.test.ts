@@ -58,14 +58,16 @@ describe("isRetryableUpstreamError", () => {
 		);
 	});
 
-	it("uses the HTTP status in malformed oRPC response causes", () => {
-		const malformed = (status: number) => ({
-			code: "MALFORMED_ORPC_RESPONSE",
-			cause: { response: { status } },
-		});
+	it("uses the HTTP status of a malformed oRPC response", () => {
+		// Stand-in for @orpc/client's MalformedResponseError (name + response).
+		const malformed = (status: number) =>
+			Object.assign(new Error("upstream proxy error"), {
+				name: "MalformedResponseError",
+				response: { status, headers: {}, body: "upstream proxy error" },
+			});
 		expect(isRetryableUpstreamError(malformed(503))).toBe(true);
 		expect(isRetryableUpstreamError(malformed(404))).toBe(false);
-		expect(isRetryableUpstreamError({ code: "MALFORMED_ORPC_RESPONSE" })).toBe(
+		expect(isRetryableUpstreamError({ name: "MalformedResponseError" })).toBe(
 			false,
 		);
 	});
