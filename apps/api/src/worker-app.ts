@@ -1312,6 +1312,21 @@ app.get("/os-exports/:outputId/:file", async (c) => {
 		outputId,
 	});
 	if (!output) return c.text("Not found", 404);
+	if (output.workspaceId) {
+		const { getOsWorkspace, isOsWorkspaceVisibleTo } =
+			await import("@tedix/db/queries/os-workspaces/workspaces");
+		const workspace = await getOsWorkspace(db, {
+			organizationId: orgId,
+			workspaceId: output.workspaceId,
+		});
+		if (
+			workspace &&
+			!isOsWorkspaceVisibleTo(workspace, {
+				userIds: typeof payload.sub === "string" ? [payload.sub] : [],
+			})
+		)
+			return c.text("Not found", 404);
+	}
 	const revision = await getOsOutputRevisionByNumber(db, {
 		organizationId: orgId,
 		outputId,

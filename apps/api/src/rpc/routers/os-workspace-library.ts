@@ -34,6 +34,11 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
+import {
+	assertOsWorkspaceVisible,
+	resolveOsWorkspaceOwnerCandidate,
+	resolveOsWorkspaceViewer,
+} from "../../services/os-workspace-visibility";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -92,6 +97,8 @@ function mapWorkspace(row: OsWorkspaceRow): OsWorkspace {
 		createdById: row.createdById,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
+		visibility: row.visibility,
+		ownerUserId: row.ownerUserId,
 	};
 }
 
@@ -142,14 +149,58 @@ async function requireWorkspace(context: BaseContext, workspaceId: string) {
 	if (!workspace) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 	}
+	await assertOsWorkspaceVisible(context, workspace);
 	return workspace;
 }
 
+/**
+ * The member who will own a private workspace: the one human the caller acts
+ * for. Machine principals cannot own one.
+ */
+async function requirePrivateOwner(context: BaseContext): Promise<string> {
+	const owner = await resolveOsWorkspaceOwnerCandidate(context);
+	if (!owner) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A private workspace needs a member to own it; call as that member or their own tedi",
+		);
+	}
+	return owner;
+}
+
+/**
+ * Visibility patch for update. Making a workspace private hides it from every
+ * other member, so only the member who created it may do that; sharing a
+ * private workspace again is the owner's call (non-owners never reach here,
+ * because requireWorkspace already hid it from them).
+ */
+async function visibilityPatch(
+	context: BaseContext,
+	workspace: OsWorkspaceRow,
+	visibility: OsWorkspaceRow["visibility"] | undefined,
+): Promise<Pick<OsWorkspaceRow, "visibility" | "ownerUserId"> | null> {
+	if (!visibility || visibility === workspace.visibility) return null;
+	if (visibility === "org") return { visibility, ownerUserId: null };
+	const owner = await requirePrivateOwner(context);
+	if (workspace.createdByKind !== "user" || workspace.createdById !== owner) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only the member who created this workspace can make it private",
+		);
+	}
+	return { visibility, ownerUserId: owner };
+}
+
 const list = readOs.workspaces.list.handler(async ({ input, context }) => {
-	const rows = await listOsWorkspaces(queryDb(context), requireOrgId(context), {
-		status: input.status,
-		limit: input.limit + 1,
-	});
+	const rows = await listOsWorkspaces(
+		queryDb(context),
+		requireOrgId(context),
+		await resolveOsWorkspaceViewer(context),
+		{
+			status: input.status,
+			limit: input.limit + 1,
+		},
+	);
 	return {
 		items: rows.slice(0, input.limit).map(mapWorkspace),
 		truncated: rows.length > input.limit,
@@ -160,6 +211,10 @@ const create = authorOs.workspaces.create.handler(
 	async ({ input, context }) => {
 		const accountable = creator(context);
 		const timestamp = new Date().toISOString();
+		const ownerUserId =
+			input.visibility === "private"
+				? await requirePrivateOwner(context)
+				: null;
 		try {
 			const row = await createOsWorkspace(queryDb(context), {
 				id: crypto.randomUUID(),
@@ -167,6 +222,8 @@ const create = authorOs.workspaces.create.handler(
 				name: input.name,
 				description: input.description ?? null,
 				status: "active",
+				visibility: ownerUserId ? "private" : "org",
+				ownerUserId,
 				createdByKind: accountable.kind,
 				createdById: accountable.id,
 				createdAt: timestamp,
@@ -185,6 +242,12 @@ const get = readOs.workspaces.get.handler(async ({ input, context }) => ({
 
 const update = authorOs.workspaces.update.handler(
 	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const visibility = await visibilityPatch(
+			context,
+			workspace,
+			input.visibility,
+		);
 		try {
 			const row = await updateOsWorkspace(
 				queryDb(context),
@@ -197,6 +260,7 @@ const update = authorOs.workspaces.update.handler(
 					...(input.description !== undefined
 						? { description: input.description }
 						: {}),
+					...visibility,
 				},
 			);
 			if (!row) {
@@ -211,6 +275,7 @@ const update = authorOs.workspaces.update.handler(
 
 const archive = authorOs.workspaces.archive.handler(
 	async ({ input, context }) => {
+		await requireWorkspace(context, input.workspaceId);
 		const row = await updateOsWorkspace(
 			queryDb(context),
 			{
@@ -228,6 +293,7 @@ const archive = authorOs.workspaces.archive.handler(
 
 const restore = authorOs.workspaces.restore.handler(
 	async ({ input, context }) => {
+		await requireWorkspace(context, input.workspaceId);
 		const row = await updateOsWorkspace(
 			queryDb(context),
 			{

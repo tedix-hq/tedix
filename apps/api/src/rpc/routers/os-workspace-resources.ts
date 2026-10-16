@@ -97,6 +97,7 @@ async function requireResource(
 	if (!row) {
 		throw createError(ErrorCodes.NOT_FOUND, "Workspace resource not found");
 	}
+	await requireWorkspace(context, workspaceId);
 	return row;
 }
 

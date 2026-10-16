@@ -254,6 +254,8 @@ const workspaceRow = (
 	createdById: "dev-operator",
 	createdAt: T0,
 	updatedAt: T0,
+	visibility: "org",
+	ownerUserId: null,
 });
 
 const documentContent: OsOutputContent = {
@@ -5559,6 +5561,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"osWorkspaces/workspaces/create": (input: {
 		name: string;
 		description?: string;
+		visibility?: OsWorkspace["visibility"];
 	}) => {
 		const workspace: OsWorkspace = {
 			id: nextId(),
@@ -5576,6 +5579,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 			createdById: "dev-operator",
 			createdAt: now(),
 			updatedAt: now(),
+			visibility: input.visibility ?? "org",
+			ownerUserId: input.visibility === "private" ? "dev-operator" : null,
 		};
 		state.workspaces.push(workspace);
 		return { workspace };
@@ -6617,6 +6622,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 			createdById: "dev-operator",
 			createdAt,
 			updatedAt: createdAt,
+			visibility: "org",
+			ownerUserId: null,
 		};
 		state.workspaces.push(workspace);
 		const resources = (input.resourceBindings ?? []).map((binding) => {

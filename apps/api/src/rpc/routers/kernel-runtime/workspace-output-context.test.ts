@@ -4,6 +4,7 @@ import {
 	getOsOutput,
 	getOsOutputRevision,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
 	projectWorkspaceDocument,
 	authorizedWorkspaceDocumentContext,
@@ -15,6 +16,15 @@ vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
 	getOsOutput: vi.fn(),
 	getOsOutputRevision: vi.fn(),
 }));
+vi.mock(
+	"@tedix/db/queries/os-workspaces/workspaces",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/os-workspaces/workspaces")
+		>()),
+		getOsWorkspace: vi.fn(),
+	}),
+);
 
 const source = {
 	workspaceId: "workspace-1",
@@ -104,7 +114,33 @@ describe("selectedWorkspaceDocumentContext", () => {
 		expect(getOsOutput).not.toHaveBeenCalled();
 	});
 
+	it("never loads a document from another member's private workspace", async () => {
+		vi.mocked(getOsWorkspace).mockResolvedValue({
+			id: "workspace-1",
+			visibility: "private",
+			ownerUserId: "member-robin",
+		} as never);
+		expect(
+			await authorizedWorkspaceDocumentContext(
+				{
+					db,
+					organizationId: "org-1",
+					authType: "user",
+					user: { sub: "member-kai", permissions: ["os:read"], roles: [] },
+				} as unknown as BaseContext,
+				"org-1",
+				selection,
+			),
+		).toBeNull();
+		expect(getOsOutput).not.toHaveBeenCalled();
+	});
+
 	it("loads an explicitly selected source-free document for an authorized actor", async () => {
+		vi.mocked(getOsWorkspace).mockResolvedValue({
+			id: "workspace-1",
+			visibility: "org",
+			ownerUserId: null,
+		} as never);
 		vi.mocked(getOsOutput).mockResolvedValue({
 			id: "output-1",
 			title: "Supplier review",

@@ -5,7 +5,12 @@ import {
 	getOsOutput,
 	getOsOutputRevision,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	getOsWorkspace,
+	isOsWorkspaceVisibleTo,
+} from "@tedix/db/queries/os-workspaces/workspaces";
 import { parseDerivedAccessEnvelope } from "../../../services/os-derived-resource-access";
+import { resolveOsWorkspaceViewer } from "../../../services/os-workspace-visibility";
 import { hasOsReadAuthorization, type BaseContext } from "../../orpc";
 
 const MAX_DOCUMENT_CHARS = 12_000;
@@ -20,6 +25,20 @@ export async function authorizedWorkspaceDocumentContext(
 		!hasOsReadAuthorization(context)
 	)
 		return null;
+	if (typeof workspaceContext?.workspaceId === "string") {
+		const workspace = await getOsWorkspace(context.db, {
+			organizationId,
+			workspaceId: workspaceContext.workspaceId,
+		});
+		if (
+			!workspace ||
+			!isOsWorkspaceVisibleTo(
+				workspace,
+				await resolveOsWorkspaceViewer(context),
+			)
+		)
+			return null;
+	}
 	return selectedWorkspaceDocumentContext(
 		context.db,
 		organizationId,

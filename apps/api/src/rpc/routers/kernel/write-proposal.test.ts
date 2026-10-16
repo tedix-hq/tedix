@@ -1015,6 +1015,7 @@ describe("readEditTargetOutput", () => {
 		const target = await readEditTargetOutput({
 			db: DB,
 			organizationId: "org-1",
+			viewer: { userIds: [] },
 			texts: [`append a paragraph to ${OUTPUT_ID}`],
 		});
 		expect(JSON.parse(target ?? "null")).toMatchObject({
@@ -1033,6 +1034,7 @@ describe("readEditTargetOutput", () => {
 			await readEditTargetOutput({
 				db: DB,
 				organizationId: "org-1",
+				viewer: { userIds: [] },
 				texts: [OUTPUT_ID],
 			}),
 		).toBeNull();

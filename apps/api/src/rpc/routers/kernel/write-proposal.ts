@@ -52,6 +52,11 @@ import {
 	getOsOutputRevision,
 } from "@tedix/db/queries/os-workspaces/outputs";
 import {
+	getOsWorkspace,
+	isOsWorkspaceVisibleTo,
+	type OsWorkspaceViewer,
+} from "@tedix/db/queries/os-workspaces/workspaces";
+import {
 	readOpenWorkRequests,
 	renderOpenWorkRequests,
 } from "./open-work-requests";
@@ -724,6 +729,8 @@ function editTargetKind(editTarget: string | null): string | null {
 export async function readEditTargetOutput(input: {
 	db: DbClient;
 	organizationId: string;
+	/** The member the turn acts for; outputs in others' private workspaces are skipped. */
+	viewer: OsWorkspaceViewer;
 	workspaceContext?: WriteWorkspaceContext;
 	texts: Array<string | null | undefined>;
 }): Promise<string | null> {
@@ -752,6 +759,14 @@ export async function readEditTargetOutput(input: {
 		}).catch(() => undefined);
 		if (!output || output.status !== "active" || !output.currentRevisionId)
 			continue;
+		if (output.workspaceId) {
+			const workspace = await getOsWorkspace(input.db, {
+				organizationId: input.organizationId,
+				workspaceId: output.workspaceId,
+			}).catch(() => undefined);
+			if (workspace && !isOsWorkspaceVisibleTo(workspace, input.viewer))
+				continue;
+		}
 		const revision = await getOsOutputRevision(input.db, {
 			organizationId: input.organizationId,
 			revisionId: output.currentRevisionId,
@@ -1151,6 +1166,7 @@ export async function planKernelWriteProposal(args: {
 		const editTargetPromise = readEditTargetOutput({
 			db,
 			organizationId,
+			viewer: { userIds: actingUserId ? [actingUserId] : [] },
 			workspaceContext: args.workspaceContext,
 			texts: [content, route.rationale],
 		}).catch(() => null);

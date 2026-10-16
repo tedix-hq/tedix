@@ -14,7 +14,8 @@
  *    stands and what is next.
  * 4. Person (local model): role, focus, working style, recurring workflows,
  *    people and organisations, tools, and three things to do now.
- * 5. Upload: the document (personal: it may name people) and the three
+ * 5. Upload: the document (to the member's private workspace: it may name
+ *    people and customers, so only they can see it) and the three
  *    actions as proposals addressed to the member (names taken out, since an
  *    accepted proposal becomes shared Work). Raw transcripts never leave the
  *    machine; every uploaded string is scrubbed of secrets, email addresses
@@ -2000,19 +2001,29 @@ export function publishDocSource(input: {
 	if (!me || !me.id) return { ok: false, error: "could not read who you are" };
 	const marker = ${JSON.stringify(SPACE_MARKER)} + " for " + me.id;
 	let workspaceId = input.workspaceId;
+	let space;
 	if (workspaceId) {
 		const w = await os.get_os_workspace({ workspaceId });
-		if (!w || w.ok === false || !(w.workspace || w).id) workspaceId = undefined;
+		space = w && (w.workspace || w);
+		if (!w || w.ok === false || !space.id) workspaceId = undefined;
 	}
 	if (!workspaceId) {
 		const list = await os.list_os_workspaces({ status: "active", limit: 200 });
-		const found = (list.items || []).find((w) => String(w.description || "").includes(marker));
-		if (found) workspaceId = found.id;
+		space = (list.items || []).find((w) => String(w.description || "").includes(marker));
+		if (space) workspaceId = space.id;
 	}
 	if (!workspaceId) {
-		const made = await os.create_os_workspace({ name: input.spaceName, description: "Your own space: what Tedix learned from your agent sessions. (" + marker + ")" });
-		workspaceId = made && (made.workspace || made).id;
+		const made = await os.create_os_workspace({ name: input.spaceName, visibility: "private", description: "Your own space: what Tedix learned from your agent sessions. Only you can see it. (" + marker + ")" });
+		space = made && (made.workspace || made);
+		workspaceId = space && space.id;
 		if (!workspaceId) return { ok: false, error: "creating your space failed: " + JSON.stringify(made).slice(0, 300) };
+	}
+	if (space && space.visibility !== "private") {
+		// The document names people and customers: it lives where only you can see it.
+		const r = await os.update_os_workspace({ workspaceId, visibility: "private" });
+		const updated = r && (r.workspace || r);
+		if (!updated || updated.visibility !== "private") return { ok: false, error: "making your space private failed: " + JSON.stringify(r).slice(0, 300) };
+		if (String(updated.name || "").endsWith("(personal)")) await os.update_os_workspace({ workspaceId, name: input.spaceName }).catch(() => undefined);
 	}
 	const content = { kind: "document", blocks: input.blocks };
 	let outputId = input.outputId;
@@ -2498,7 +2509,7 @@ export async function runProfile(
 						options.space && options.space !== state.space?.workspaceId
 							? undefined
 							: state.space?.outputId,
-					spaceName: `${(me?.name || "My").split(/\s+/)[0]} (personal)`,
+					spaceName: `${(me?.name || "My").split(/\s+/)[0]} (private)`,
 					blocks,
 				}),
 			);

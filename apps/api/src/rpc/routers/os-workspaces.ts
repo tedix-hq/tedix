@@ -757,6 +757,7 @@ async function requireExecution(
 	) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS gadget execution not found");
 	}
+	await requireWorkspace(context, input.workspaceId);
 	return execution;
 }
 
@@ -822,6 +823,7 @@ async function settleExecutionFromRunEvidence(
 const executionsList = readOs.executions.list.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
+		await requireWorkspace(context, input.workspaceId);
 		const rows = await listOsGadgetExecutions(
 			queryDb(context),
 			{ organizationId, gadgetId: input.gadgetId },

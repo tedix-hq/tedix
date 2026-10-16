@@ -195,7 +195,8 @@ that stopped), and creates nothing on the shared board until you accept it.
 Its proposals arrive in your Tedix inbox (Work > Interactions).
 
 `tedix learn profile` writes "What Tedix knows about you", a document in your
-own Tedix space. It opens with your week in plain language, then three
+private Tedix workspace, "<Name> (private)": only you and your own tedis and
+agents can see it, and it cannot be shared. It opens with your week in plain language, then three
 things it can do for you now: a task handed to a tedi, a factory, or a
 drafted document, chosen by your goals, what is at stake (a customer, a
 deadline, revenue, someone blocked) and how recent it is. Each is a

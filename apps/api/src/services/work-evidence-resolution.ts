@@ -10,6 +10,11 @@ import {
 	getOsOutputRevision,
 	getOsOutputRevisionByNumber,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	getOsWorkspace,
+	isOsWorkspaceVisibleTo,
+} from "@tedix/db/queries/os-workspaces/workspaces";
+import { resolveOsWorkspaceViewer } from "./os-workspace-visibility";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { authorizePublicArtifactBytes } from "../lib/artifact-access";
 import {
@@ -422,6 +427,20 @@ async function resolveOutput(
 				revision: input.revisionNumber!,
 			});
 	if (!output || !revision || revision.outputId !== input.outputId) return null;
+	if (output.workspaceId) {
+		const workspace = await getOsWorkspace(context.db, {
+			organizationId: context.organizationId!,
+			workspaceId: output.workspaceId,
+		});
+		if (
+			workspace &&
+			!isOsWorkspaceVisibleTo(
+				workspace,
+				await resolveOsWorkspaceViewer(context),
+			)
+		)
+			return null;
+	}
 	const digest = await sha256(revision.content);
 	const envelope = parseDerivedAccessEnvelope(revision.accessEnvelope);
 	const available = Boolean(

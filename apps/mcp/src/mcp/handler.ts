@@ -1767,9 +1767,17 @@ export class ToolHandler {
 		// act under the user's speaker authority (docs/engineering/product/tedix-os.md). This keeps the
 		// service-binding auth/permissions (no forwarded-user RBAC path) and only
 		// adds the id so the kernel can resolve the user's own provider connection.
+		// A Home/kernel call (trusted service binding, bound to the user's
+		// primary tedi) always names the human it acts for, so apps/api can let
+		// that member reach their own private Workspace and nobody else's.
+		const kernelActingUser =
+			ctx.callerIdentity?.authType === "service" &&
+			ctx.callerIdentity.kernel === true;
 		const forwardActingUser =
-			(config as unknown as Record<string, unknown>)._forwardCallerAuth ===
-				true && Boolean(ctx.callerIdentity?.userId);
+			((config as unknown as Record<string, unknown>)._forwardCallerAuth ===
+				true ||
+				kernelActingUser) &&
+			Boolean(ctx.callerIdentity?.userId);
 		if (useServiceBinding && forwardCallerUser) {
 			headers["X-Forwarded-Authorization"] = `Bearer ${ctx.bearerToken}`;
 			headers["X-Tedix-Caller-Type"] = "mcp-edge-user";

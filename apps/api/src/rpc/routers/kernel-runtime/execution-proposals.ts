@@ -102,16 +102,17 @@ import {
 	proposeCodemodeExecuteImpl,
 	proposeRepoCommitImpl,
 } from "./control-proposals";
-import type { DbQueryClient } from "@tedix/db/query-client";
+import type { BaseContext } from "../../orpc";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
 import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { authorizedWorkspaceDocumentContext } from "./workspace-output-context";
+import { assertOsWorkspaceVisible } from "../../../services/os-workspace-visibility";
 
 export async function resolveWorkspaceContext(
-	db: DbQueryClient,
+	context: BaseContext,
 	organizationId: string,
 	input:
 		| {
@@ -121,6 +122,7 @@ export async function resolveWorkspaceContext(
 		| undefined,
 ): Promise<Record<string, unknown> | null> {
 	if (!input) return null;
+	const db = context.db;
 	const workspace = await getOsWorkspace(db, {
 		organizationId,
 		workspaceId: input.workspaceId,
@@ -128,6 +130,7 @@ export async function resolveWorkspaceContext(
 	if (!workspace || workspace.status !== "active") {
 		throw createError(ErrorCodes.NOT_FOUND, "Workspace not found");
 	}
+	await assertOsWorkspaceVisible(context, workspace, "Workspace not found");
 	if (!input.workpiece) {
 		return { workspaceId: workspace.id, workspaceName: workspace.name };
 	}
@@ -216,7 +219,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			getKernelConversation(context.db, { organizationId, conversationId }),
 			input.workspaceContext
 				? resolveWorkspaceContext(
-						context.db,
+						context,
 						organizationId,
 						input.workspaceContext,
 					)
@@ -266,7 +269,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		const workspaceContext =
 			pinnedWorkspaceContext ??
 			(await resolveWorkspaceContext(
-				context.db,
+				context,
 				organizationId,
 				existingConversation?.workspaceId
 					? { workspaceId: existingConversation.workspaceId }

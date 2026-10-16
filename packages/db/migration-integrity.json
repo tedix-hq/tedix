@@ -884,6 +884,10 @@
 		{
 			"name": "20261015081828_mcp-event-subscriptions/migration.sql",
 			"sha256": "1605369809a3e8f0784eb78f525c202b3bbc2d9226fe78e15853c828d9ad1ebd"
+		},
+		{
+			"name": "20261016081534_os-workspace-private-visibility/migration.sql",
+			"sha256": "2ed7cd137a45b16db4c5a9c4d9520cdaf3f793661a821c4b013a21bab32709a2"
 		}
 	]
 }

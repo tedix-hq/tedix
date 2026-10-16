@@ -71,6 +71,8 @@ const WORKSPACE: OsWorkspace = {
 	createdById: "user-1",
 	createdAt: "2026-08-01T10:00:00.000Z",
 	updatedAt: "2026-08-12T10:00:00.000Z",
+	visibility: "org",
+	ownerUserId: null,
 };
 
 const cleanups: Array<() => void> = [];

@@ -44,6 +44,7 @@ import {
 	OsWorkspaceResourceSelectionSchema,
 	OsWorkspaceResourceStatusSchema,
 	OsWorkspaceStatusSchema,
+	OsWorkspaceVisibilitySchema,
 } from "../schemas/os-workspaces";
 
 /**
@@ -192,11 +193,17 @@ const workspaceUpdateSchema = z
 			.nullable()
 			.optional()
 			.describe("Updated operator-facing summary; null clears it"),
+		visibility: OsWorkspaceVisibilitySchema.optional().describe(
+			"private makes the calling member the only owner; org shares it with every member again. Only the owner (or, for an org workspace, its creator) may change it",
+		),
 	})
 	.refine(
-		(input) => input.name !== undefined || input.description !== undefined,
+		(input) =>
+			input.name !== undefined ||
+			input.description !== undefined ||
+			input.visibility !== undefined,
 		{
-			message: "Supply a workspace name or description to update",
+			message: "Supply a workspace name, description or visibility to update",
 		},
 	);
 
@@ -236,6 +243,9 @@ export const osWorkspacesContract = oc
 					z.object({
 						name: nameSchema,
 						description: descriptionSchema,
+						visibility: OsWorkspaceVisibilitySchema.optional().describe(
+							"private: only you (and your own tedis and agents) can see it; default org",
+						),
 					}),
 				)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
@@ -253,7 +263,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}",
 					summary: "Update Tedix OS workspace metadata",
 					description:
-						"Renames a workspace and/or changes its operator-facing description. Workspace identity, tenant ownership, provenance, and lifecycle status are immutable through this verb.",
+						"Renames a workspace, changes its operator-facing description, and/or makes it private to the calling member (or shares it with the organization again). Workspace identity, tenant ownership, provenance, and lifecycle status are immutable through this verb.",
 				})
 				.input(workspaceUpdateSchema)
 				.output(z.object({ workspace: OsWorkspaceSchema })),

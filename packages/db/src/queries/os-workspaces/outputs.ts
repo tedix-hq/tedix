@@ -13,6 +13,10 @@ import {
 import { getAffectedRows } from "../../utils/d1-result";
 import { prefixedColumns } from "../../utils/select";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
+import {
+	type OsWorkspaceViewer,
+	osWorkspaceChildVisibleToPredicate,
+} from "./workspaces";
 
 export interface OsOutputScopeParams {
 	organizationId: string;
@@ -109,9 +113,18 @@ export async function getOsOutput(
 export async function listOsOutputs(
 	db: DbQueryClient,
 	organizationId: string,
+	viewer: OsWorkspaceViewer,
 	options: ListOsOutputsOptions = {},
 ): Promise<OsOutputRow[]> {
-	const conditions = [eq(osOutputs.organizationId, organizationId)];
+	const conditions = [
+		eq(osOutputs.organizationId, organizationId),
+		osWorkspaceChildVisibleToPredicate(
+			db,
+			organizationId,
+			osOutputs.workspaceId,
+			viewer,
+		),
+	];
 	if (options.workspaceId) {
 		conditions.push(eq(osOutputs.workspaceId, options.workspaceId));
 	}
@@ -138,12 +151,21 @@ export async function listOsOutputs(
 export async function listOsOutputLibraryRows(
 	db: DbQueryClient,
 	organizationId: string,
+	viewer: OsWorkspaceViewer,
 	options: Pick<
 		ListOsOutputsOptions,
 		"workspaceId" | "kind" | "status" | "limit"
 	> = {},
 ): Promise<OsOutputLibraryRow[]> {
-	const conditions = [eq(osOutputs.organizationId, organizationId)];
+	const conditions = [
+		eq(osOutputs.organizationId, organizationId),
+		osWorkspaceChildVisibleToPredicate(
+			db,
+			organizationId,
+			osOutputs.workspaceId,
+			viewer,
+		),
+	];
 	if (options.workspaceId) {
 		conditions.push(eq(osOutputs.workspaceId, options.workspaceId));
 	}

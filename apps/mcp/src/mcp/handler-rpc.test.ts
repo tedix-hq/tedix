@@ -141,6 +141,43 @@ describe("approved Work responder delegation", () => {
 	);
 });
 
+describe("kernel acting user", () => {
+	it.each([
+		{ authType: "service" as const, kernel: true, expected: "owner-sub" },
+		{ authType: "service" as const, kernel: false, expected: null },
+		{ authType: "tedi" as const, kernel: false, expected: null },
+	])(
+		"names the human a Home/kernel call acts for, so apps/api can open their private Workspace ($authType, kernel=$kernel)",
+		async ({ authType, kernel, expected }) => {
+			const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+			await new ToolHandler().execute(
+				{ outputId: "out-1" },
+				{
+					...ctx({ transport: "rpc", endpoint: "osWorkspaces/outputs/get" }),
+					env: {
+						ENVIRONMENT: "test",
+						API_URL: "https://api.example.test",
+						API_SERVICE: { fetch: apiFetch },
+					} as unknown as CloudflareEnv,
+					callerIdentity: {
+						authType,
+						kernel,
+						userId: "owner-sub",
+						tediId: "primary-tedi",
+						organizationId: "org_1",
+					},
+				},
+			);
+			const call = apiFetch.mock.calls[0] as unknown as Parameters<
+				typeof fetch
+			>;
+			expect(headersFromFetch(...call).get("X-Tedix-Acting-User")).toBe(
+				expected,
+			);
+		},
+	);
+});
+
 describe("ToolHandler RPC transport logging", () => {
 	afterEach(() => {
 		globalThis.fetch = originalFetch;

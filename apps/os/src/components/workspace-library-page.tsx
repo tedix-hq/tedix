@@ -1,4 +1,4 @@
-import { Archive, Clock, SquaresFour, Star } from "@phosphor-icons/react";
+import { Archive, Clock, Lock, SquaresFour, Star } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
@@ -158,15 +158,20 @@ export function WorkspaceLibraryPage() {
 													{workspaceInitials(workspace.name)}
 												</Text>
 												<span className="grid min-w-0 flex-1 gap-0.5">
-													<Text
-														as="strong"
-														role="body"
-														weight="medium"
-														tone="strong"
-														className="truncate"
-													>
-														{workspace.name}
-													</Text>
+													<span className="flex min-w-0 items-center gap-2">
+														<Text
+															as="strong"
+															role="body"
+															weight="medium"
+															tone="strong"
+															className="truncate"
+														>
+															{workspace.name}
+														</Text>
+														{workspace.visibility === "private" ? (
+															<PrivateWorkspaceBadge />
+														) : null}
+													</span>
 													<Text
 														as="span"
 														role="label"
@@ -347,15 +352,20 @@ function ArchivedWorkspaces() {
 								{workspaceInitials(workspace.name)}
 							</Text>
 							<span className="grid min-w-0 flex-1 gap-0.5">
-								<Text
-									as="strong"
-									role="body"
-									weight="medium"
-									tone="strong"
-									className="truncate"
-								>
-									{workspace.name}
-								</Text>
+								<span className="flex min-w-0 items-center gap-2">
+									<Text
+										as="strong"
+										role="body"
+										weight="medium"
+										tone="strong"
+										className="truncate"
+									>
+										{workspace.name}
+									</Text>
+									{workspace.visibility === "private" ? (
+										<PrivateWorkspaceBadge />
+									) : null}
+								</span>
 								<Text
 									as="span"
 									role="label"
@@ -384,5 +394,21 @@ function ArchivedWorkspaces() {
 				</Text>
 			) : null}
 		</div>
+	);
+}
+
+/** A private workspace is visible only to the member who owns it. */
+function PrivateWorkspaceBadge() {
+	return (
+		<Text
+			as="span"
+			role="label"
+			tone="secondary"
+			className="flex shrink-0 items-center gap-1"
+			title="Private: only you and your own tedis and agents can see this workspace"
+		>
+			<Lock size={11} aria-hidden="true" />
+			Only you
+		</Text>
 	);
 }

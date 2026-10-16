@@ -22,6 +22,7 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsBlueprintRow } from "@tedix/db/schema/os-workspaces";
 import { mapOsOutputRow } from "../../services/os-output-library";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
+import { assertOsWorkspaceChildVisible } from "../../services/os-workspace-visibility";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -111,6 +112,12 @@ const deleteOutput = adminOs.outputs.delete.handler(
 			outputId: input.outputId,
 		});
 		if (!output) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		await assertOsWorkspaceChildVisible(
+			context,
+			output.organizationId,
+			output.workspaceId,
+			"OS output not found",
+		);
 		if (output.status !== "archived") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -148,6 +155,12 @@ const deleteGadget = adminOs.gadgets.delete.handler(
 		if (!gadget || gadget.workspaceId !== input.workspaceId) {
 			throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
 		}
+		await assertOsWorkspaceChildVisible(
+			context,
+			gadget.organizationId,
+			gadget.workspaceId,
+			"OS gadget not found",
+		);
 		if (gadget.status !== "archived") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
