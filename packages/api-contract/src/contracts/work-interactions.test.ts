@@ -64,6 +64,7 @@ describe("Work interactions contract", () => {
 			"create",
 			"respond",
 			"cancel",
+			"review",
 			"get",
 			"listInbox",
 			"listOutbox",

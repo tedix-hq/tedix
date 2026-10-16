@@ -364,3 +364,24 @@ console.log("PASS: cognitive-addenda blind-verification guard");
 	assert.equal(blind, "");
 	assert.ok(reports[1]?.blocks.every((block) => block.status === "withheld"));
 }
+
+for (const sessionKey of [
+	"commitments:river",
+	"interaction-review:fixture-ask",
+]) {
+	const text = await composeCognitiveAddenda({
+		sessionKey,
+		sources: {
+			directives: async () => "",
+			brainDigest: async () => "",
+			skillGuidance: async () => "",
+			retrievedSkills: async () => "",
+		},
+		onComposition: () => {},
+	});
+	assert.match(text, /review_work_interaction/);
+	assert.match(text, /responseId: the exact answer/);
+	assert.match(text, /tool\.completed event id/);
+	assert.match(text, /not continued work/);
+	assert.match(text, /reask once/);
+}

@@ -23,6 +23,7 @@ import {
 	listWorkInteractionInbox,
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
+	reviewWorkInteraction,
 } from "@tedix/db/queries/work-items/interactions";
 import {
 	listUndeliveredWorkInteractionResponses,
@@ -160,6 +161,14 @@ function requestOutput(
 			"Stored Work interaction is missing its required target principal",
 		);
 	}
+	const follow = row.metadata.followThrough;
+	const reaskNote =
+		follow &&
+		typeof follow === "object" &&
+		!Array.isArray(follow) &&
+		typeof follow.reaskNote === "string"
+			? follow.reaskNote
+			: null;
 	return {
 		id: row.id,
 		orgId: row.orgId,
@@ -168,7 +177,9 @@ function requestOutput(
 		projectId: row.projectId,
 		kind: row.kind,
 		subject: row.subject,
-		prompt: row.prompt,
+		prompt: reaskNote
+			? `${row.prompt.slice(0, 17_980)}\n\nFollow-up: ${reaskNote}`
+			: row.prompt,
 		requestedFromType: row.targetType,
 		requestedFromId: row.targetId,
 		creatorType: row.creatorType,
@@ -288,6 +299,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			subject: input.subject,
 			prompt: input.prompt,
 			notificationReason: input.notificationReason,
+			reviewAfterDays: input.reviewAfterDays,
 			creator: actor,
 			targetType: target.type,
 			targetId: target.id,
@@ -1030,6 +1042,27 @@ const recordDraftDeliveryProcedure = writeOs.recordDraftDelivery.handler(
 
 export const workInteractionsContractRouter = interactionsOs.router({
 	create: createProcedure,
+	review: writeOs.review.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		try {
+			return requestOutput(
+				await reviewWorkInteraction(context.db, {
+					orgId,
+					interactionId: input.requestId,
+					expectedVersion: input.expectedRequestVersion,
+					actor,
+					action: input.action,
+					note: input.note,
+					responseId: input.responseId,
+					evidenceId: input.evidenceId,
+					now: new Date().toISOString(),
+				}),
+			);
+		} catch (error) {
+			rethrowInteractionError(error);
+		}
+	}),
 	respond: respondProcedure,
 	delegate: delegateProcedure,
 	cancel: cancelProcedure,

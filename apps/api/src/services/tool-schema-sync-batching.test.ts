@@ -251,6 +251,7 @@ describe("plan-wide tool id resolution", () => {
 			"workApprovals/listAudit": ["list_work_approval_audit", "read"],
 			"workInteractions/respond": ["respond_work_interaction", "write"],
 			"workInteractions/cancel": ["cancel_work_interaction", "destructive"],
+			"workInteractions/review": ["review_work_interaction", "write"],
 			"workInteractions/listInbox": ["list_work_interactions", "read"],
 			"workInteractions/listOutbox": ["list_work_interaction_outbox", "read"],
 			"workInteractions/listAudit": ["list_work_interaction_audit", "read"],
@@ -280,7 +281,7 @@ describe("plan-wide tool id resolution", () => {
 			expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint]).toBe(toolId);
 			expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint]).toBe(kind);
 			expect(toolId).toMatch(
-				/^(create|add|record|propose|decide|respond|cancel|get|list|plan|report|ack)_/,
+				/^(create|add|record|propose|decide|respond|review|cancel|get|list|plan|report|ack)_/,
 			);
 		}
 	});

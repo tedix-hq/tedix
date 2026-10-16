@@ -153,6 +153,15 @@ export async function composeCognitiveAddenda(input: {
 		name,
 		text: value.text,
 	}));
+	if (
+		input.sessionKey?.startsWith("commitments:") ||
+		input.sessionKey?.startsWith("interaction-review:")
+	) {
+		segments.push({
+			name: "interaction-follow-through",
+			text: "For each changed Interaction you raised, read the exact latest answer and current Work/source. An answer or delivery acknowledgement is not continued work. Act within existing authority, then call review_work_interaction(action: continued, responseId: the exact answer, evidenceId: your resulting tool.completed event id, note: what changed and what was checked). Never claim a queued wake is a continuation. For an unanswered review, close with a note or reask once; do not create a duplicate question or send repeated channel nudges. Prepare quietly: routine human updates use coordination Interactions for batching; failures, blocked approvals and deadlines under 24 hours interrupt immediately.",
+		});
+	}
 	try {
 		const report: CognitiveCompositionReport = {
 			...measurePromptComposition(segments, {

@@ -16,6 +16,7 @@ import {
 	createWorkInteraction,
 	flushWorkInteractionDigests,
 	listWorkInteractionInbox,
+	listRequestedWorkInteractionEvents,
 	nextInteractionDigestAt,
 } from "@tedix/db/queries/work-items/interactions";
 
@@ -73,6 +74,14 @@ describe("quiet Interaction digests", () => {
 		await create("two");
 		expect((await inbox()).data).toHaveLength(0);
 		expect(
+			await listRequestedWorkInteractionEvents(db, {
+				orgId: "org",
+				after: null,
+				targetId: "person",
+				limit: 50,
+			}),
+		).toHaveLength(0);
+		expect(
 			await flushWorkInteractionDigests(db, "2026-10-17T02:00:00.000Z"),
 		).toMatchObject({ digests: 0 });
 		expect(
@@ -85,6 +94,13 @@ describe("quiet Interaction digests", () => {
 		expect(
 			await flushWorkInteractionDigests(db, "2026-10-17T08:02:00.000Z"),
 		).toMatchObject({ digests: 0 });
+		await create("late");
+		expect(
+			await flushWorkInteractionDigests(db, "2026-10-17T08:03:00.000Z"),
+		).toMatchObject({ digests: 0 });
+		expect(
+			await flushWorkInteractionDigests(db, "2026-10-17T12:00:00.000Z"),
+		).toMatchObject({ digests: 1 });
 	});
 	it("lets failures, blocked approvals and near deadlines interrupt immediately", async () => {
 		const { create, inbox } = fixture();
