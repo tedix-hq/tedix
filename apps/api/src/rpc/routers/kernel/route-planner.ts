@@ -1,3 +1,4 @@
+import { NoObjectGeneratedError } from "ai";
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Bounded model-backed Home route planning. The selected model is authoritative;
@@ -513,9 +514,7 @@ export async function planKernelRoute(
 		typeof model.model !== "string" &&
 		model.model.modelId === "cloudflare/auto",
 	);
-	// Whether the route pass itself streamed answer text. The Auto Router may
-	// fall back to a buffered pass (see planKernelRouteUnguarded), in which case
-	// its answer still has to be delivered after the guard.
+	// A buffered retry delivers its complete answer after the route guard.
 	let streamedAnswer = false;
 	const onAnswerDelta =
 		responseOnly || !args.onAnswerDelta
@@ -524,6 +523,8 @@ export async function planKernelRoute(
 					streamedAnswer = true;
 					args.onAnswerDelta?.(delta);
 				};
+	const startedAt = Date.now();
+	let retried = false;
 	try {
 		const planned = await planKernelRouteUnguarded({
 			...args,
@@ -536,6 +537,52 @@ export async function planKernelRoute(
 					args.gatewayContext?.organizationId ?? args.organizationId,
 				executionAttempts: attempts,
 			},
+		}).catch(async (error) => {
+			const remainingMs =
+				(args.generationTimeoutMs ?? KERNEL_LLM_FLAT_TIMEOUT_MS) -
+				(Date.now() - startedAt);
+			if (
+				!model ||
+				args.abortSignal?.aborted ||
+				remainingMs <= 0 ||
+				!NoObjectGeneratedError.isInstance(error)
+			)
+				throw error;
+			retried = true;
+			const retryModel = model.forOperation();
+			const timeoutMs = Math.min(10_000, remainingMs);
+			const retryLog = {
+				component: "kernel.route_planner",
+				event: "route_decision_retry",
+				model:
+					typeof model.model === "string" ? model.model : model.model.modelId,
+				runId: args.gatewayContext?.runId ?? null,
+				timeoutMs,
+			};
+			console.warn({ ...retryLog, outcome: "started" });
+			let recovered = false;
+			try {
+				// The hedge uses this same selected model; there is no separate fallback policy.
+				const result = await planKernelRouteUnguarded(
+					{
+						...args,
+						model: retryModel,
+						onAnswerDelta: undefined,
+						onRationaleDelta: undefined,
+						generationTimeoutMs: timeoutMs,
+						abortSignal: flatAbortSignal(timeoutMs, args.abortSignal),
+					},
+					true,
+				);
+				recovered = result !== null;
+				return result;
+			} finally {
+				console.warn({
+					...retryLog,
+					outcome: recovered ? "succeeded" : "failed",
+				});
+				attempts.push(...retryModel.attempts);
+			}
 		});
 		if (!planned) return null;
 		planned.usage.attempts = attempts;
@@ -551,7 +598,7 @@ export async function planKernelRoute(
 			signal: args.abortSignal,
 		});
 		if (
-			autoRouter &&
+			(autoRouter || retried) &&
 			onAnswerDelta &&
 			guarded.routeKind === "answer_in_home" &&
 			model
@@ -572,7 +619,7 @@ export async function planKernelRoute(
 						/* Advisory delivery only. */
 					}
 				}
-			} else {
+			} else if (!retried) {
 				await streamHomeAnswer(args, model, guarded);
 			}
 		}
@@ -587,6 +634,7 @@ export async function planKernelRoute(
 
 async function planKernelRouteUnguarded(
 	args: PlanKernelRouteArgs,
+	retry = false,
 ): Promise<PlanKernelRouteResult | null> {
 	const {
 		content,
@@ -638,26 +686,10 @@ async function planKernelRouteUnguarded(
 			return await hedged.run();
 		} catch (error) {
 			if (abortSignal?.aborted) return null;
-			// The Auto Router streams its structured output as a forced tool call
-			// (packages/workers-ai model-select). A routed model that ignores the
-			// forced tool yields no object at all; that one provider quirk falls
-			// back to the buffered pass, once. Stalls and partial streams do not:
-			// they keep the fixed-model contract of no second dispatch.
-			if (
-				error instanceof EmptyRouteStreamError &&
-				!hedged.idleTimedOut() &&
-				typeof model.model !== "string" &&
-				model.model.modelId === "cloudflare/auto"
-			) {
-				console.warn({
-					component: "kernel.route_planner",
-					event: "auto_router_stream_empty_fallback",
-					reason: error.cause instanceof Error ? error.cause.message : null,
-				});
-			} else if (error instanceof EmptyRouteStreamError) {
-				// Callers classify the provider's own error; the marker is internal.
-				throw error.cause;
-			} else throw error;
+			if (hedged.idleTimedOut())
+				throw new Error("[kernel] route stream idle timeout", { cause: error });
+			if (error instanceof EmptyRouteStreamError) throw error.cause;
+			throw error;
 		}
 	}
 
@@ -682,7 +714,7 @@ async function planKernelRouteUnguarded(
 			abortSignal: flatAbortSignal(generationTimeoutMs, abortSignal),
 			// AI SDK v7 defaults to 2 retries (3 attempts); with no per-attempt
 			// timeout that stacks retryable 429/5xx with backoff. Pin to 1.
-			maxRetries: 1,
+			maxRetries: retry ? 0 : 1,
 			// GPT-5 reasoning models do not support temperature (ignored
 			// with a warning), so we omit it.
 		});
