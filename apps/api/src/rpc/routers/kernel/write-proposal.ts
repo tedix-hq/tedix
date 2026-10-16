@@ -74,6 +74,7 @@ import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import * as z from "zod";
 import { flatAbortSignal } from "./llm-guard";
 import type { KernelRouteDecision } from "./route-schema";
+import { cardVerdictSheetArgs } from "./output-create-intent";
 import {
 	codeModeExecutionParams,
 	codeModeResultData,
@@ -1512,6 +1513,14 @@ export async function planKernelWriteProposal(args: {
 			exactTool.inputSchema.properties?.title
 				? renameThisConversationArgs(content, args.gatewayContext?.sessionKey)
 				: null;
+		// A card verdict names its row and columns exactly; compute them from
+		// the sheet instead of asking a model for coordinates.
+		const cardArgs =
+			capability === "sheets.set_range" &&
+			exactTool.inputSchema.properties?.startRow &&
+			exactTool.inputSchema.properties?.cells
+				? cardVerdictSheetArgs(editTarget, route.rationale)
+				: null;
 		const planned: {
 			toolName: string;
 			args: Record<string, unknown>;
@@ -1522,32 +1531,42 @@ export async function planKernelWriteProposal(args: {
 					args: renameArgs,
 					reasoning: "Rename the current conversation as asked.",
 				}
-			: await planWriteCall({
-					workspaceContext: args.workspaceContext,
-					conversationId: args.gatewayContext?.sessionKey,
-					editTarget,
-					// An output edit names its part (a card's row, a block) in the
-					// router's rationale when the request itself only says "it".
-					editReference:
-						editTarget &&
-						capability &&
-						OUTPUT_EDIT_CAPABILITY_RE.test(capability)
-							? route.rationale
-							: null,
-					openWorkRequests,
-					content: capability?.startsWith("factories.")
-						? `${content}\n${route.rationale}`
-						: content,
-					capability: route.toolIntent?.capability ?? null,
-					tools: [exactTool],
-					model,
-					paramDefaults,
-					timeoutMs,
-					span: kernelSpanContext({ organizationId, source: "write_proposal" }),
-					onFailure: (reason) => {
-						argumentFailure = reason;
-					},
-				});
+			: cardArgs
+				? {
+						toolName: exactTool.name,
+						args: cardArgs,
+						reasoning:
+							"Record the verdict on the card the previous answer showed.",
+					}
+				: await planWriteCall({
+						workspaceContext: args.workspaceContext,
+						conversationId: args.gatewayContext?.sessionKey,
+						editTarget,
+						// An output edit names its part (a card's row, a block) in the
+						// router's rationale when the request itself only says "it".
+						editReference:
+							editTarget &&
+							capability &&
+							OUTPUT_EDIT_CAPABILITY_RE.test(capability)
+								? route.rationale
+								: null,
+						openWorkRequests,
+						content: capability?.startsWith("factories.")
+							? `${content}\n${route.rationale}`
+							: content,
+						capability: route.toolIntent?.capability ?? null,
+						tools: [exactTool],
+						model,
+						paramDefaults,
+						timeoutMs,
+						span: kernelSpanContext({
+							organizationId,
+							source: "write_proposal",
+						}),
+						onFailure: (reason) => {
+							argumentFailure = reason;
+						},
+					});
 		if (!planned)
 			return decline({
 				stage: "planner_declined",
