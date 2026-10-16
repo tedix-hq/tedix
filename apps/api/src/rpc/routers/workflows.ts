@@ -227,7 +227,7 @@ export const STATIC_WORKFLOW_DEFINITIONS: readonly StaticWorkflowDefinition[] =
 				"Drains the ordered D1 graph outbox, cleans prior generations, and certifies Neo4j readiness.",
 			binding: "GRAPH_PROJECTION_DRAIN_WORKFLOW",
 			entrypoint: "GraphProjectionDrainWorkflow",
-			triggers: ["cron", "operator"],
+			triggers: ["operator"],
 		}),
 		staticWorkflowDefinition({
 			workflowType: "graph_gds_refresh",
