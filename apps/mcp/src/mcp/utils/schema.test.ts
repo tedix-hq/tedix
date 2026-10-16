@@ -7,6 +7,7 @@ import {
 	applyInputSchemaDefaults,
 	jsonSchemaToInputSchema,
 	jsonSchemaToOutputSchema,
+	projectNativeOutputEvidence,
 	validateStructuredContentAgainstOutputSchema,
 } from "./schema";
 
@@ -225,58 +226,58 @@ describe("jsonSchemaToOutputSchema", () => {
 		).toBe(nullableSchema);
 	});
 
-	it("accepts typed action evidence while preserving strict resource validation", async () => {
-		const schema = jsonSchemaToOutputSchema(nullableSchema, {
-			withActionEvidence: true,
+	it("keeps native resource output strict and moves receipts into MCP metadata", async () => {
+		const resource = { id: "org_123", descopeTenantId: null, logoUrl: null };
+		const actionReceipt = { verified: true, actor: "tedi:nova" };
+		const completionEvidence = { status: "succeeded" };
+		const result = projectNativeOutputEvidence(
+			{
+				content: [],
+				structuredContent: { ...resource, actionReceipt, completionEvidence },
+				_meta: { existing: "kept" },
+			},
+			nullableSchema,
+		);
+		expect(result.structuredContent).toEqual(resource);
+		expect(result._meta).toEqual({
+			existing: "kept",
+			actionReceipt,
+			completionEvidence,
 		});
-		const value = {
-			id: "org_123",
-			descopeTenantId: null,
-			logoUrl: null,
-			actionReceipt: {
-				operation: "add_comment",
-				actor: "tedi:nova",
-				verified: true,
-				url: "https://example.test/work/1",
-				state: "accepted",
-				checkedAt: "2026-10-17T00:00:00Z",
-			},
-			completionEvidence: {
-				operation: "add_comment",
-				status: "succeeded",
-				supportedClaims: [],
-				unsupportedClaims: [],
-				evidenceRefs: [],
-				providerConfirmation: "unknown",
-				target: null,
-				instruction: "Read the receipt",
-				retry: {
-					key: "comment",
-					attempts: 0,
-					limit: 2,
-					blocked: false,
-					retryable: false,
-				},
-			},
-		};
+		const schema = jsonSchemaToOutputSchema(nullableSchema);
 		expect(
-			(await schema?.["~standard"].validate(value))?.issues,
+			(await schema?.["~standard"].validate(result.structuredContent))?.issues,
 		).toBeUndefined();
 		expect(
-			(await schema?.["~standard"].validate({ ...value, id: 42 }))?.issues,
-		).toBeDefined();
-		expect(
-			(await schema?.["~standard"].validate({ ...value, unexpected: true }))
-				?.issues,
+			(
+				await schema?.["~standard"].validate({
+					...resource,
+					id: 42,
+				})
+			)?.issues,
 		).toBeDefined();
 		expect(
 			(
 				await schema?.["~standard"].validate({
-					...value,
-					actionReceipt: { ...value.actionReceipt, verified: "yes" },
+					...resource,
+					unexpected: true,
 				})
 			)?.issues,
 		).toBeDefined();
+	});
+
+	it("retains evidence in schema-less Code Mode results and explicitly declared fields", () => {
+		const result = {
+			content: [],
+			structuredContent: { actionReceipt: { verified: true } },
+		};
+		expect(projectNativeOutputEvidence(result, null)).toBe(result);
+		expect(
+			projectNativeOutputEvidence(result, {
+				type: "object",
+				properties: { actionReceipt: { type: "object" } },
+			}),
+		).toBe(result);
 	});
 
 	it("does not pass non-object root schemas into SDK output registration", () => {

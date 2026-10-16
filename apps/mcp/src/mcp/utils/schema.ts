@@ -19,6 +19,7 @@
 import {
 	fromJsonSchema,
 	type JsonSchemaType,
+	type CallToolResult,
 	type StandardSchemaWithJSON,
 } from "@modelcontextprotocol/server";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/server/validators/cf-worker";
@@ -28,8 +29,6 @@ import type {
 } from "@tedix/api-contract/schemas/tools";
 import { normalizeToolInputSchema } from "@tedix/mcp-shared/schema-normalization";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { CompletionEvidenceSchema } from "@tedix/api-contract/schemas/execution-evidence";
-import { toJSONSchema } from "zod";
 
 type JsonObject = Record<string, unknown>;
 type JsonValidator = (input: unknown) => {
@@ -213,38 +212,37 @@ export function jsonSchemaToInputSchema(
  * targets root-object output schemas; non-object output schemas are advertised
  * through our transport response transform instead of this helper.
  */
-const actionEvidenceProperties = {
-	actionReceipt: {
-		type: "object",
-		additionalProperties: false,
-		properties: {
-			operation: { type: "string" },
-			actor: { type: "string" },
-			verified: { type: "boolean" },
-			url: { type: ["string", "null"] },
-			state: { type: "string" },
-			checkedAt: { type: "string" },
-		},
-		required: ["operation", "actor", "verified", "url", "state", "checkedAt"],
-	},
-	completionEvidence: toJSONSchema(CompletionEvidenceSchema, { io: "output" }),
-};
-
 export function jsonSchemaToOutputSchema(
 	jsonSchema: ToolJsonSchema | null | undefined,
-	options: { withActionEvidence?: boolean } = {},
 ): StandardSchemaWithJSON | undefined {
 	if (!jsonSchema) return undefined;
 	if (!hasObjectRoot(jsonSchema)) return undefined;
-	// Receipts are transport-owned extensions; resource fields and unknown-key
-	// rejection retain the stored contract's validation.
-	const wireSchema = options.withActionEvidence
-		? {
-				...jsonSchema,
-				properties: { ...actionEvidenceProperties, ...jsonSchema.properties },
-			}
-		: jsonSchema;
-	return fromJsonSchema(wireSchema as JsonSchemaType, jsonSchemaValidator);
+	return fromJsonSchema(jsonSchema as JsonSchemaType, jsonSchemaValidator);
+}
+
+/** Keep transport evidence outside strict native resource payloads. */
+export function projectNativeOutputEvidence(
+	result: CallToolResult,
+	outputSchema: ToolJsonSchema | null | undefined,
+): CallToolResult {
+	if (!outputSchema || !isRecord(result.structuredContent)) return result;
+	const structuredContent = { ...result.structuredContent };
+	const evidence: Record<string, unknown> = {};
+	for (const key of ["actionReceipt", "completionEvidence"]) {
+		if (
+			Object.hasOwn(structuredContent, key) &&
+			!Object.hasOwn(outputSchema.properties ?? {}, key)
+		) {
+			evidence[key] = structuredContent[key];
+			delete structuredContent[key];
+		}
+	}
+	if (Object.keys(evidence).length === 0) return result;
+	return {
+		...result,
+		structuredContent,
+		_meta: { ...result._meta, ...evidence },
+	};
 }
 
 function hasObjectRoot(jsonSchema: ToolJsonSchema): boolean {
