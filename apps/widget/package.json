@@ -32,7 +32,7 @@
 		"@tedix/tsconfig": "workspace:*",
 		"@types/node": "catalog:",
 		"cf": "catalog:",
-		"happy-dom": "^21.0.1",
+		"happy-dom": "^21.0.3",
 		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vite-plus": "catalog:",

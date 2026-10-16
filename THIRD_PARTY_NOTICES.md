@@ -30,19 +30,19 @@ License: MIT (`apps/cms/templates/blog/LICENSE`)
 
 ## emdash-cloudflare-collection-deletion-guard
 
-Includes a patch to @emdash-cms/cloudflare 1.2.0 that guards collection deletion and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to @emdash-cms/cloudflare 1.3.0 that guards collection deletion and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-core-collection-deletion-guard
 
-Includes a patch to emdash 1.2.0 that preserves guarded collection deletion, import fencing, the Durable Object transaction bypass, external provider roles for first users, native atomic menu replacement, and normalized content validation on publish and revision restore, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to emdash 1.3.0 that preserves guarded collection deletion, import fencing, the Durable Object transaction bypass, external provider roles for first users, native atomic menu replacement, and normalized content validation on publish and revision restore, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-forms-submission-privacy-and-retention
 
-Includes a patch to @emdash-cms/plugin-forms 0.2.9 that excludes raw visitor IPs from stored submissions and defaults new forms to 30-day retention, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to @emdash-cms/plugin-forms 0.2.10 that excludes raw visitor IPs from stored submissions and defaults new forms to 30-day retention, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 

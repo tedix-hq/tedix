@@ -29,7 +29,7 @@
 		"@tedix/db": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
-		"es-module-lexer": "^3.0.3",
+		"es-module-lexer": "^3.0.4",
 		"hono": "catalog:",
 		"sucrase": "^3.35.1",
 		"zod": "catalog:"

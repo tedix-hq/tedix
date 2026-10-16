@@ -92,7 +92,8 @@ export function isRetryableUpstreamError(error: unknown): boolean {
 		status?: unknown;
 		retryable?: unknown;
 		message?: unknown;
-		cause?: unknown;
+		name?: unknown;
+		response?: unknown;
 	};
 
 	// Shape A: ORPCError-like (carries numeric `status` and/or string `code`).
@@ -102,21 +103,17 @@ export function isRetryableUpstreamError(error: unknown): boolean {
 		if (e.status >= 500) return true;
 		if (e.status >= 400) return false;
 	}
+	// A proxy/edge 5xx may not carry an oRPC envelope. RPCLink throws it as a
+	// MalformedResponseError carrying the raw response and its HTTP status.
+	if (e.name === "MalformedResponseError") {
+		const response = e.response;
+		const status =
+			response && typeof response === "object"
+				? (response as { status?: unknown }).status
+				: null;
+		return typeof status === "number" && status >= 500;
+	}
 	if (typeof e.code === "string") {
-		// A proxy/edge 5xx may not carry an oRPC envelope. RPCLink wraps it as
-		// MALFORMED_ORPC_RESPONSE and leaves the HTTP status on its cause.
-		if (e.code === "MALFORMED_ORPC_RESPONSE") {
-			const cause = e.cause;
-			const response =
-				cause && typeof cause === "object"
-					? (cause as { response?: unknown }).response
-					: null;
-			const status =
-				response && typeof response === "object"
-					? (response as { status?: unknown }).status
-					: null;
-			if (typeof status === "number") return status >= 500;
-		}
 		if (
 			e.code === "SERVICE_UNAVAILABLE" ||
 			e.code === "BAD_GATEWAY" ||

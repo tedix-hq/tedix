@@ -40,7 +40,7 @@ read those fields for the complete package list and current versions.
 | Override         | Why                                                                                                                                                                                                                                           | Upstream                                            |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `zod`            | Forces one zod copy. The AI SDK and `@orpc/zod` check schemas by identity, and several transitive packages still request zod 3; without the override the lockfile resolves several zod versions and schemas fail at runtime.                  | [colinhacks/zod](https://github.com/colinhacks/zod) |
-| `chat`           | Uses the catalog version for transitive requests as well as direct dependencies. The lockfile resolves `chat` and its Telegram/shared adapters to 4.41.1, satisfying the `agents` peer range. Review upgrades with `agents` and the adapters. | [vercel/chat](https://github.com/vercel/chat)       |
+| `chat`           | Uses the catalog version for transitive requests as well as direct dependencies. The lockfile resolves `chat` and its Telegram/shared adapters to 4.42.0, satisfying the `agents` peer range. Review upgrades with `agents` and the adapters. | [vercel/chat](https://github.com/vercel/chat)       |
 | `vite`, `vitest` | Apply the catalog versions above to transitive requests too, including `vite-plus`'s own.                                                                                                                                                     | —                                                   |
 
 ## Patches
@@ -48,11 +48,11 @@ read those fields for the complete package list and current versions.
 The root `patchedDependencies` currently names `agents`, EmDash and its
 Cloudflare adapter; `bun.lock` records the same patch paths:
 
-- `patches/emdash@1.2.0.patch` handles the Worker Loader transaction path,
+- `patches/emdash@1.3.0.patch` handles the Worker Loader transaction path,
   guarded collection deletion, registry bundle validation and required plugin
   lifecycle hooks, external-auth roles, import/seed fencing, locale-aware
   taxonomy archives, and atomic menu replacement.
-- `patches/@emdash-cms/cloudflare@1.2.0.patch` implements the collection-deletion
+- `patches/@emdash-cms/cloudflare@1.3.0.patch` implements the collection-deletion
   registry guard using D1 batches or Durable Object `transactionSync`, and
   relaxes the Kumo peer dependency to a compatible range.
 - `patches/agents@0.28.1.patch` routes facet Lifecycle alarms through registered
@@ -60,7 +60,7 @@ Cloudflare adapter; `bun.lock` records the same patch paths:
   a policy hook before facet initialization and alarm dispatch.
 
 The CMS starters carry matching copies under `apps/cms/templates/*/patches/`.
-Their manifests also apply `@emdash-cms/plugin-forms@0.2.9.patch`, which excludes
+Their manifests also apply `@emdash-cms/plugin-forms@0.2.10.patch`, which excludes
 raw visitor IPs from stored submissions and defaults new forms to 30-day
 retention. Each patched dependency has an entry in `THIRD_PARTY_NOTICES.md`,
 and `bun run oss:check` fails on a patch without one.

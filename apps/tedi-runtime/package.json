@@ -24,7 +24,7 @@
 	"dependencies": {
 		"@ai-sdk/azure": "catalog:",
 		"@ai-sdk/provider": "catalog:",
-		"@chat-adapter/telegram": "4.41.1",
+		"@chat-adapter/telegram": "4.42.0",
 		"@cloudflare/codemode": "catalog:",
 		"@cloudflare/computer": "catalog:",
 		"@cloudflare/shell": "catalog:",
@@ -51,7 +51,7 @@
 		"diff": "9.0.0",
 		"fast-xml-parser": "catalog:",
 		"isomorphic-git": "1.44.2",
-		"postal-mime": "^4.0.6",
+		"postal-mime": "^4.0.7",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

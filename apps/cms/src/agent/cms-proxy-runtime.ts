@@ -2220,8 +2220,8 @@ async function callCmsBylineUpdateWithMerge(
 // translatable args, and its bare handler payload re-wraps into the exact
 // Emdash REST `{ success: true, data }` envelope with zero semantic loss.
 //
-// Content writes were re-verified against the PATCHED Emdash 1.2.0 build
-// (root patches/emdash@1.2.0.patch): each native tool resolves the entry with
+// Content writes were re-verified against the PATCHED Emdash 1.3.0 build
+// (root patches/emdash@1.3.0.patch): each native tool resolves the entry with
 // the same handleContentGet call, applies the same ownership permission,
 // claims the entry lock the same way (emdash #3059), invalidates the same
 // route-cache tags through `unwrapAndInvalidate` (emdash #3127), and returns
