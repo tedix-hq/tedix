@@ -200,8 +200,14 @@ things it can do for you now: a task handed to a tedi, a factory, or a
 drafted document, chosen by your goals, what is at stake (a customer, a
 deadline, revenue, someone blocked) and how recent it is. Each is a
 proposal in your inbox, and earlier proposals it no longer picks are
-withdrawn. Then come at most 12 workstreams, weighted by the days you worked
-on them and what shipped, each with its threads, where it stands, and a board
+withdrawn. Accepting one starts it straight away: a task is created and handed
+to the tedi it names (or your organization's default tedi), a factory is
+planned for you to switch on with `tedix factory create`, and a document is
+drafted in your space. The answer in your inbox says what started and links to
+it; accepting again starts nothing twice. The week names only products,
+people, numbers and versions found in your sessions. Then come at most 12
+workstreams, weighted by the days you worked on them and what shipped, each
+with its threads, where it stands, and a board
 project only when your sessions show one (its Work, its key, or a repository
 path it names). Then the open loops you left, with the session to resume or
 the commit; workflows Tedix could take over as a skill or a scheduled
@@ -209,8 +215,10 @@ factory; the people and customers you work with; and how you like to work. It re
 every local transcript in full, sub-agents and supervisor runs included, and
 your local `claude` (haiku, else `codex`) summarises each session, then each
 body of work, then you. Summaries are cached, so a re-run only reads new
-sessions. Transcripts stay on your machine; only the document and the
-proposals are uploaded, without secrets, email addresses or phone numbers.
+sessions. A workstream keeps its name and its place in the document across
+runs while its project, repository or sessions stay the same, so a re-run
+updates the same sections. Transcripts stay on your machine; only the
+document and the proposals are uploaded, without secrets, email addresses or phone numbers.
 People's names appear only in your document, never in a proposal. `--dry-run`
 counts sessions and model calls without a model; `--no-upload` writes the
 document only to a local preview.

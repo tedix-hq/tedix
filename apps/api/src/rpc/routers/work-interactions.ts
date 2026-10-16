@@ -373,6 +373,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 		let metadata = approvingUserId
 			? { ...input.metadata, actor: { type: actor.type, id: actor.id } }
 			: input.metadata;
+		let body = input.body;
 		if (input.responseKind === "handoff_accepted" && input.resolvesRequest) {
 			const request = await getWorkInteraction(context.db, {
 				orgId,
@@ -395,6 +396,22 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 						parsed.data.proposal,
 					);
 					metadata = { ...metadata, workItemIds };
+					const start = parsed.data.proposal.start;
+					if (start && workItemIds[0]) {
+						const { startAcceptedProposal } =
+							await import("./work-items/proposal-start");
+						const started = await startAcceptedProposal(context, {
+							orgId,
+							workItemId: workItemIds[0],
+							start,
+							responder,
+						});
+						metadata = { ...metadata, started };
+						body = `${input.body}\n\n${started.summary} ${started.link}`.slice(
+							0,
+							20_000,
+						);
+					}
 				}
 			}
 		}
@@ -405,7 +422,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			expectedVersion: input.expectedRequestVersion,
 			responder,
 			responseKind: input.responseKind,
-			body: input.body,
+			body,
 			artifactRef: input.artifactRef,
 			artifactVersion: input.artifactVersion,
 			artifactDigest: input.artifactDigest,
