@@ -622,6 +622,10 @@ export async function settleHomeToolWriteApproval(
 		const result = await activeKernelWriteExecutor({
 			env: context.env as unknown as WriteExecutorEnv,
 			payload,
+			approvedWorkResponderUserId:
+				input.approval.resolvedBy === "policy"
+					? (payload.initiatedByUserId ?? undefined)
+					: (input.approval.resolvedBy ?? undefined),
 		}).catch((error) => ({
 			ok: false as const,
 			error: errorMessage(error),

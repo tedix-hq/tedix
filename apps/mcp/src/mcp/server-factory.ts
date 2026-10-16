@@ -438,6 +438,8 @@ export function extractCallerIdentity(
 		// service-binding rewrite in index.ts can set this header (the
 		// x-tedix-auth-* namespace is stripped from all incoming MCP requests).
 		kernel: request.headers.get("x-tedix-auth-kernel") === "true" || undefined,
+		approvedWorkResponderUserId:
+			request.headers.get("x-tedix-auth-approved-work-responder") ?? undefined,
 	};
 }
 
