@@ -107,6 +107,12 @@ export function renderKernelWriteReceipt(input: {
 	appSlug: string;
 	data: unknown;
 }): string {
+	if (/^kernel(?:\.|__)rename_conversation$/.test(input.toolName)) {
+		const conversation = nonNullRecord(nonNullRecord(input.data)?.conversation);
+		if (typeof conversation?.title === "string" && conversation.title.trim()) {
+			return `Renamed this conversation to “${plainReceiptTitle(conversation.title)}”.`;
+		}
+	}
 	if (
 		input.toolName === "tenant.install_tenant_mcp_app" ||
 		input.toolName === "tenant.install_tenant_mcp_apps"
@@ -350,15 +356,10 @@ export async function resolveKernelFallbackTediId(
 	}
 }
 
-/** Operator-facing confirmation card for a parked Kernel write. */
-export function kernelWriteCardContent(input: {
-	approvalRequestId: string;
-	proposal: Pick<
-		KernelWriteProposal,
-		"appSlug" | "args" | "toolName" | "outputTitle"
-	>;
-}): string {
-	const { args, toolName, outputTitle } = input.proposal;
+export function kernelWriteSummary(
+	proposal: Pick<KernelWriteProposal, "args" | "toolName" | "outputTitle">,
+): string {
+	const { args, toolName, outputTitle } = proposal;
 	const tool = /^os(?:\.|__)(.+)$/.exec(toolName)?.[1];
 	const name = outputTitle
 		? `“${plainReceiptTitle(outputTitle)}”`
@@ -413,8 +414,20 @@ export function kernelWriteCardContent(input: {
 		);
 		summary = `${action.charAt(0).toUpperCase()}${action.slice(1)}${details.length ? ` — ${details.join("; ")}` : ""}`;
 	}
+	return summary;
+}
+
+/** Operator-facing confirmation card for a parked Kernel write. */
+export function kernelWriteCardContent(input: {
+	approvalRequestId: string;
+	proposal: Pick<
+		KernelWriteProposal,
+		"appSlug" | "args" | "toolName" | "outputTitle"
+	>;
+}): string {
+	const { args, toolName } = input.proposal;
 	return [
-		`${summary}.`,
+		`${kernelWriteSummary(input.proposal)}.`,
 		"Nothing has been executed. Reply “approve” or “yes” to proceed, or “reject” to cancel.",
 		"### Details",
 		`Tool: \`${toolName}\` on ${input.proposal.appSlug}`,

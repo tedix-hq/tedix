@@ -601,8 +601,9 @@ describe("approval builders", () => {
 				approvalRequestId: "appr-write",
 				kernelWriteProposal: {
 					appSlug: "tedix",
-					toolName: "os.update_os_workspace",
-					args: { name: "Scratch" },
+					toolName: "os.create_os_output",
+					summary: "Create document “Orion plan”",
+					args: { title: "Orion plan", kind: "document" },
 				},
 			},
 		};
@@ -611,14 +612,25 @@ describe("approval builders", () => {
 				{
 					approvalId: "appr-write",
 					runId: RUN_ID,
-					summary: "Run os.update_os_workspace",
-					detail: '{"name":"Scratch"}',
+					summary: "Create document “Orion plan”",
+					detailDisclosure: true,
+					detail: '{"title":"Orion plan","kind":"document"}',
 					status: "pending",
 					requestedAt: "2026-08-13T10:00:00.000Z",
-					sessionScopeKey: "write:tedix:os.update_os_workspace",
+					sessionScopeKey: "write:tedix:os.create_os_output",
 				},
 			],
 		);
+		const card = approvalsFromRunSet({
+			runs: [write],
+			approvalMirrors: {},
+		})[0]!;
+		const html = renderToStaticMarkup(
+			<ApprovalCard approval={card} onResolve={() => {}} />,
+		);
+		expect(html).toContain("Create document “Orion plan”");
+		expect(html).toMatch(/<details><summary[^>]*>Details<\/summary><pre/);
+		expect(html).not.toContain("<details open");
 		expect(
 			approvalsFromRunSet({
 				runs: [{ ...write, status: "completed" }],

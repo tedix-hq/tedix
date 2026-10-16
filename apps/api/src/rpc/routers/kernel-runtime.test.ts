@@ -8257,6 +8257,10 @@ describe("home approved-write layer (v1)", () => {
 		);
 		expect(approval?.status).toBe("pending");
 		expect(approval?.actionType).toBe("home.tool_write");
+		expect(approval?.description).toBe("Create invoice — amount: 100");
+		expect(result.run.metadata?.kernelWriteProposal).toMatchObject({
+			summary: approval?.description,
+		});
 		// FK anchor only — true attribution lives in the payload.
 		expect(approval?.tediId).toBe("tedi-cpo");
 		expect(approval?.payload).toEqual({

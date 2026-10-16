@@ -4,11 +4,26 @@ import {
 	kernelOutputReceipt,
 	boundKernelWriteEvidence,
 	kernelWriteCardContent,
+	kernelWriteSummary,
 } from "./write-approval-settlement";
 
 const id = "7c0723ef-fed7-4482-9454-4716ddfd5879";
 
 describe("Home write approval summary", () => {
+	it("shares the one-line document summary with the approval message", () => {
+		const proposal = {
+			appSlug: "local-os",
+			toolName: "os.create_os_output",
+			args: { kind: "document", title: "Orion plan" },
+		};
+		expect(kernelWriteSummary(proposal)).toBe("Create document “Orion plan”");
+		expect(
+			kernelWriteCardContent({ approvalRequestId: id, proposal }).split(
+				"\n",
+			)[0],
+		).toBe(`${kernelWriteSummary(proposal)}.`);
+	});
+
 	it.each(["os.set_os_sheet_range", "os__set_os_sheet_range"])(
 		"names the cell rectangle and sheet for %s",
 		(toolName) => {
@@ -84,6 +99,19 @@ describe("Home write approval summary", () => {
 });
 
 describe("Home saved-output receipt", () => {
+	it.each(["kernel.rename_conversation", "kernel__rename_conversation"])(
+		"renders the confirmed conversation title for %s",
+		(toolName) => {
+			expect(
+				renderKernelWriteReceipt({
+					toolName,
+					appSlug: "local",
+					data: { conversation: { id, title: "**Orion plan**\nDraft" } },
+				}),
+			).toBe("Renamed this conversation to “Orion plan Draft”.");
+		},
+	);
+
 	it("renders per-app catalog installation outcomes", () => {
 		expect(
 			renderKernelWriteReceipt({
