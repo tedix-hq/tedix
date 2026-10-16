@@ -47,13 +47,11 @@ export function SystemIntegrationDemo({ className }: { className?: string }) {
 			</div>
 
 			<div className="p-5 space-y-3">
-				{/* Central AI Worker node */}
+				{/* Central tedi node */}
 				<div className="flex items-center justify-center py-3">
 					<div className="flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-2">
 						<div className="h-2 w-2 rounded-full bg-violet-400 animate-pulse" />
-						<span className="text-sm font-semibold text-violet-300">
-							AI Worker
-						</span>
+						<span className="text-sm font-semibold text-violet-300">tedi</span>
 					</div>
 				</div>
 
@@ -135,7 +133,7 @@ const ARTICLES = [
 	},
 	{ title: "The Future of Agentic Commerce", status: "published", score: 91 },
 	{
-		title: "Why Smart Companies Invest in AI Workers",
+		title: "Why Smart Companies Invest in tedis",
 		status: "writing",
 		score: 0,
 	},
