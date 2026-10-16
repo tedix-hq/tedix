@@ -500,3 +500,22 @@ export async function resolveAuthorizedExternalAgentMcpSession(
 		credential,
 	};
 }
+
+/** A bearer hash is globally unique; the resource fence precedes tenant resolution. */
+export async function findFederatedWorkloadCredential(
+	db: DbClient,
+	params: { clientRecordId: string; mcpServerId: string },
+): Promise<ExternalAgentMcpCredential | null> {
+	if (!/^wif:[0-9a-f]{64}$/.test(params.clientRecordId)) return null;
+	const rows = await db
+		.select()
+		.from(externalAgentMcpCredentials)
+		.where(
+			and(
+				eq(externalAgentMcpCredentials.clientRecordId, params.clientRecordId),
+				eq(externalAgentMcpCredentials.mcpServerId, params.mcpServerId),
+			),
+		)
+		.limit(1);
+	return rows[0] ?? null;
+}

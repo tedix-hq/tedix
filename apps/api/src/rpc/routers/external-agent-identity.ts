@@ -12,10 +12,18 @@ import {
 	type McpServerApprovedScopes,
 } from "@tedix/auth/aih-client";
 import { descopeIssuer } from "@tedix/auth/principal-identity";
-import { DESCOPE_MANAGEMENT_BASE_URL } from "@tedix/auth/types";
+import {
+	DESCOPE_MANAGEMENT_BASE_URL,
+	extractJwtScopes,
+} from "@tedix/auth/types";
+import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import { extractMcpApprovedScopeNames } from "../../services/descope-mcp-server-reconcile";
 import {
 	GITHUB_ACTIONS_OIDC_ISSUER,
+	exchangeGithubActionsWorkloadToken,
+	federatedWorkloadCredentialId,
+	workloadFederationConfig,
+	type FederatedWorkloadToken,
 	issueExternalAgentWorkloadGrant,
 	resolveFederatedWorkloadScopes,
 	verifyExternalAgentWorkloadGrant,
@@ -36,6 +44,8 @@ import {
 } from "@tedix/db/queries/external-agent-identity/knowledge-lifecycle";
 import {
 	acquireExternalAgentMcpIssuanceLease,
+	findFederatedWorkloadCredential,
+	recordExternalAgentMcpCredential,
 	listActiveExternalAgentMcpCredentials,
 	listActiveExternalAgentMcpCredentialsForSession,
 	refreshExternalAgentMcpCredentialUnderLease,
@@ -651,15 +661,28 @@ const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 		}
 
 		let verified;
+		let federation: FederatedWorkloadToken | undefined;
 		let scopes: string[];
 		try {
-			verified = await verifyGithubActionsWorkloadToken(input.subjectToken, {
-				expectedSubject: principal.credentialBindingId,
-			});
 			scopes = resolveFederatedWorkloadScopes(
 				input.scopes,
 				workloadAllowedScopes(principal.metadata),
 			);
+			const config = workloadFederationConfig(principal.metadata);
+			if (config) {
+				({ verified, federation } = await exchangeGithubActionsWorkloadToken(
+					input.subjectToken,
+					{
+						...config,
+						expectedSubject: principal.credentialBindingId,
+						scopes,
+					},
+				));
+			} else {
+				verified = await verifyGithubActionsWorkloadToken(input.subjectToken, {
+					expectedSubject: principal.credentialBindingId,
+				});
+			}
 		} catch (error) {
 			rethrowWorkloadIdentityError(error);
 		}
@@ -707,6 +730,7 @@ const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 				startedAt: now.toISOString(),
 			});
 			const grantToken = await issueExternalAgentWorkloadGrant({
+				federation,
 				secret: context.env.SECRETS_MASTER_KEY,
 				organizationId,
 				principalId: input.principalId,
@@ -846,7 +870,7 @@ const endSession = authed.endSession.handler(async ({ input, context }) => {
 			context.env.DESCOPE_PROJECT_ID && context.env.DESCOPE_MANAGEMENT_KEY
 				? requireAihEnv(context.env)
 				: null;
-		if (aihEnv) {
+		if (aihEnv && !clientRecordId.startsWith("wif:")) {
 			await deleteDescopeMcpServerClient(aihEnv, {
 				id: clientRecordId,
 				mcpServerId: revoked.mcpServerId,
@@ -922,8 +946,12 @@ const retireAbandonedSession = authed.retireAbandonedSession.handler(
 			);
 			if (aihEnv) {
 				for (const [mcpServerId, credentials] of credentialsByServer) {
+					const ids = credentials
+						.map((credential) => credential.clientRecordId)
+						.filter((id) => !id.startsWith("wif:"));
+					if (!ids.length) continue;
 					await deleteDescopeMcpServerClients(aihEnv, {
-						ids: credentials.map((credential) => credential.clientRecordId),
+						ids,
 						mcpServerId,
 					});
 				}
@@ -1127,6 +1155,42 @@ const getContextualReputation = authed.getContextualReputation.handler(
 	},
 );
 
+const resolveFederatedSessionAuth = authed.resolveFederatedSessionAuth.handler(
+	async ({ input, context }) => {
+		if (context.authType !== "service-binding")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Federated resolution requires a trusted service binding",
+			);
+		const credential = await findFederatedWorkloadCredential(context.db, input);
+		const resolved = credential
+			? await resolveAuthorizedExternalAgentMcpSession(context.db, {
+					...credential,
+					now: new Date().toISOString(),
+				})
+			: null;
+		const config = resolved
+			? workloadFederationConfig(resolved.principal.metadata)
+			: null;
+		if (
+			!resolved ||
+			!config ||
+			resolved.principal.credentialBindingType !== "github_actions_oidc" ||
+			config.clientId !== input.clientId ||
+			config.resource !== credential?.mcpServerUrl
+		)
+			throw createError(
+				ErrorCodes.UNAUTHORIZED,
+				"Federated workload session is inactive",
+			);
+		return {
+			principal: resolved.principal,
+			session: resolved.session,
+			allowedScopes: workloadAllowedScopes(resolved.principal.metadata),
+		};
+	},
+);
+
 const resolveSessionAuth = authed.resolveSessionAuth.handler(
 	async ({ input, context }) => {
 		if (context.authType !== "service-binding") {
@@ -1214,6 +1278,7 @@ const issueMcpCredential = authed.issueMcpCredential.handler(
 					input,
 					context,
 					organizationId,
+					grant.federation,
 				);
 			} catch (error) {
 				rethrowWorkloadIdentityError(error);
@@ -1242,6 +1307,7 @@ async function issueMcpCredentialForOrganization(
 	},
 	context: BaseContext,
 	organizationId: string,
+	federation?: FederatedWorkloadToken,
 ) {
 	const active = await resolveActiveExternalAgentSession(context.db, {
 		organizationId,
@@ -1257,6 +1323,66 @@ async function issueMcpCredentialForOrganization(
 		organizationId,
 		input.mcpServerUrl,
 	);
+	const config = workloadFederationConfig(active.principal.metadata);
+	if (federation || config) {
+		if (
+			!federation ||
+			!config ||
+			federation.clientId !== config.clientId ||
+			federation.resource !== config.resource ||
+			federation.resource !== mcpServerUrl
+		)
+			throw createError(
+				ErrorCodes.UNAUTHORIZED,
+				"Federated workload resource binding mismatch",
+			);
+		resolveFederatedWorkloadScopes(
+			input.scopes,
+			workloadAllowedScopes(active.principal.metadata),
+		);
+		// The grant bounds the request; the bearer must not contain a wider scope set.
+		const tokenPayload = decodeTokenUnsafe(federation.accessToken);
+		if (!tokenPayload)
+			throw createError(ErrorCodes.UNAUTHORIZED, "Invalid federated bearer");
+		const tokenScopes = extractJwtScopes(tokenPayload);
+		resolveFederatedWorkloadScopes(tokenScopes, input.scopes);
+		const server = await loadDescopeMcpServer(aihEnv, mcpServerId);
+		resolveExternalAgentMcpClientScopes(tokenScopes, server.approvedScopes);
+		const now = new Date();
+		const expiresIn = Math.floor(federation.expiresAt - now.getTime() / 1000);
+		if (expiresIn <= 0)
+			throw createError(ErrorCodes.UNAUTHORIZED, "Federated token expired");
+		const clientRecordId = await federatedWorkloadCredentialId(
+			federation.accessToken,
+		);
+		await recordExternalAgentMcpCredential(context.db, {
+			id: crypto.randomUUID(),
+			organizationId,
+			principalId: input.principalId,
+			sessionId: input.sessionId,
+			clientRecordId,
+			mcpServerId,
+			mcpServerUrl,
+			issuedAt: now.toISOString(),
+			expiresAt: new Date(federation.expiresAt * 1000).toISOString(),
+		});
+		console.log(
+			JSON.stringify({
+				event: "external_agent_workload_credential_issued",
+				organizationId,
+				principalId: input.principalId,
+				sessionId: input.sessionId,
+				clientRecordId,
+				mcpServerId,
+			}),
+		);
+		return {
+			accessToken: federation.accessToken,
+			clientRecordId,
+			expiresIn,
+			mcpServerUrl,
+		};
+	}
 	const leaseOwnerToken = crypto.randomUUID();
 	const leaseStartedAt = new Date();
 	const leaseInput = {
@@ -1496,7 +1622,7 @@ const revokeMcpCredential = authed.revokeMcpCredential.handler(
 			context.env.DESCOPE_PROJECT_ID && context.env.DESCOPE_MANAGEMENT_KEY
 				? requireAihEnv(context.env)
 				: null;
-		if (aihEnv)
+		if (aihEnv && !input.clientRecordId.startsWith("wif:"))
 			await deleteDescopeMcpServerClient(aihEnv, {
 				id: input.clientRecordId,
 				mcpServerId: revoked.mcpServerId,
@@ -1553,6 +1679,7 @@ export const externalAgentIdentityContractRouter = identityOs.router({
 	endSession,
 	retireAbandonedSession,
 	resolveSessionAuth,
+	resolveFederatedSessionAuth,
 	recordVerifiedMcpExecution,
 	issueMcpCredential,
 	revokeMcpCredential,

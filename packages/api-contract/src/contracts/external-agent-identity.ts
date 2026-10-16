@@ -361,6 +361,27 @@ export const externalAgentIdentityContract = oc
 				}),
 			),
 
+		resolveFederatedSessionAuth: oc
+			.route({
+				method: "POST",
+				path: "/internal/federated-session-auth",
+				summary: "Resolve a federated bearer hash for a trusted edge",
+			})
+			.input(
+				z.object({
+					clientRecordId: z.string().regex(/^wif:[0-9a-f]{64}$/),
+					mcpServerId: z.string().min(1).max(300),
+					clientId: z.string().min(1).max(300),
+				}),
+			)
+			.output(
+				z.object({
+					principal: ExternalAgentPrincipalSchema,
+					session: ExternalAgentSessionSchema,
+					allowedScopes: z.array(z.string()),
+				}),
+			),
+
 		resolveSessionAuth: oc
 			.route({
 				method: "POST",
