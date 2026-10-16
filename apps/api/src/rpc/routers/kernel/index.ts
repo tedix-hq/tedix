@@ -777,6 +777,7 @@ export async function runKernel(args: {
 			organizationId,
 			outputWriteApp(context.apps)!,
 			descopeUserId,
+			context.workspace?.id,
 		),
 	);
 	if (factoryDecision) {

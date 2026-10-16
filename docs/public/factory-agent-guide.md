@@ -86,8 +86,11 @@ tedix skill status '<returned runId>'
 tedix factory status "$slug"
 ```
 
-MCP: `run_skill_workflow({ slug: "sample-comment-review", params: {
-cycleKey: "manual-unique-cycle" } })`. Use a fresh `cycleKey` for each new manual
+For a non-default owner, add `--as <owning-tedi-slug>` to `skill run`.
+MCP: discover `run_skill_workflow` (some catalogs advertise `run_workflow`),
+then pass `skillId`, the returned `ownerTediId` as `tediId`, and
+`params: { cycleKey: "manual-unique-cycle" }`. Follow its described confirmation
+flow. Use a fresh `cycleKey` for each new manual
 run, even within one hour; reuse it only to retry the same cycle. Without it,
 daily lanes reuse one owner turn per UTC day and sub-daily lanes one per UTC
 hour. Read the terminal run and the exact Output revision before claiming
@@ -106,8 +109,8 @@ tedix factory archive "$slug"
 
 In chat: “How is my sample-comment-review factory doing?”, “Run it now”,
 “Pause that factory”, “Resume that factory”, or “Archive that factory”.
-The tools are `inspect_factory_health`, `run_skill_workflow`, `pause_factory`,
-`resume_factory` and `archive_factory`. Lifecycle tools use the existing
+Health uses `inspect_factory_health`; immediate runs use the discovered skill
+runner. Lifecycle uses `pause_factory`, `resume_factory` and `archive_factory`. Lifecycle tools use the existing
 `improve_skills` route and preserve its ownership and governance checks.
 
 | Verdict      | Meaning                                                                |

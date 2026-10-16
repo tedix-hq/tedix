@@ -7,6 +7,7 @@ const ChatHealthSchema = FactoryHealthSchema.pick({
 	slug: true,
 	name: true,
 	skillId: true,
+	ownerTediId: true,
 	verdict: true,
 	reason: true,
 	scheduleEnabled: true,
@@ -21,6 +22,7 @@ export async function readFactoryChatHealth(
 	orgId: string,
 	appSlug: string,
 	userId?: string,
+	workspaceId?: string,
 ): Promise<FactoryChatHealth[]> {
 	if (!env.MCP_SERVICE || !env.MCP_URL)
 		throw new Error("Factory health service is unavailable");
@@ -44,7 +46,7 @@ export async function readFactoryChatHealth(
 		{
 			name: "code",
 			arguments: {
-				code: 'async () => { const tool = await discover.describe({ callable: "projects.inspect_factory_health" }); if (!tool) throw new Error("Factory health tool unavailable"); const page = await projects.inspect_factory_health({ runs: 1 }); return page.data.map(({ slug, name, skillId, verdict, reason, scheduleEnabled, nextFireAt, runs }) => ({ slug, name, skillId, verdict, reason, scheduleEnabled, nextFireAt, runs })); }',
+				code: `async () => { const workspaceId = ${JSON.stringify(workspaceId ?? null)}; const tool = await discover.describe({ callable: "projects.inspect_factory_health" }); if (!tool) throw new Error("Factory health tool unavailable"); const page = await projects.inspect_factory_health({ runs: 1 }); return page.data.filter(lane => !workspaceId || lane.workspaceId === workspaceId).map(({ slug, name, skillId, ownerTediId, verdict, reason, scheduleEnabled, nextFireAt, runs }) => ({ slug, name, skillId, ownerTediId, verdict, reason, scheduleEnabled, nextFireAt, runs })); }`,
 			},
 		},
 	);

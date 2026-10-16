@@ -489,7 +489,7 @@ export function canonicalWriteToolName(
 	if (capability === "factories.pause") return "projects.pause_factory";
 	if (capability === "factories.resume") return "projects.resume_factory";
 	if (capability === "factories.archive") return "projects.archive_factory";
-	if (capability === "factories.run") return "skills.run_skill_workflow";
+	if (capability === "factories.run") return "skills.run_workflow";
 	if (capability === "work_items.create") return "work.create_work_items";
 	if (
 		(capability && WORK_REQUEST_RESPOND_CAPABILITY_RE.test(capability)) ||
@@ -1542,11 +1542,18 @@ export async function planKernelWriteProposal(args: {
 				detail: argumentFailure,
 			});
 		if (canonical === "projects.create_factory") planned.args.dryRun = false;
-		if (capability === "factories.run")
+		if (capability === "factories.run") {
+			const cycleKey = `manual-${crypto.randomUUID()}`;
+			delete planned.args.runId;
+			planned.args.idempotencyKey = cycleKey;
+			planned.args.confirmDestructive = true;
+			planned.args.reason =
+				"Operator-requested manual factory run, executed only after approval.";
 			planned.args.params = {
 				...((planned.args.params as Record<string, unknown>) ?? {}),
-				cycleKey: `manual-${crypto.randomUUID()}`,
+				cycleKey,
 			};
+		}
 		const validated = validateProposedCall(
 			{
 				...planned,

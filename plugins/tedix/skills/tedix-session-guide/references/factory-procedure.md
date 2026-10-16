@@ -56,8 +56,11 @@ tedix factory resume "$slug"
 tedix factory archive "$slug"
 ```
 
-MCP uses `run_skill_workflow({ slug, params: { cycleKey } })`,
-`inspect_factory_health({ factory: slug })`, `pause_factory`, `resume_factory`
+For a non-default owner, pass `--as <owning-tedi-slug>` to `skill run`.
+MCP: discover `run_skill_workflow` or `run_workflow`; pass `skillId`, the
+returned `ownerTediId` as `tediId`, `params: { cycleKey }`, and its described
+confirmation. Health/lifecycle use `inspect_factory_health({ factory: slug })`,
+`pause_factory`, `resume_factory`
 and `archive_factory`. Lifecycle calls revise through `improve_skills` and
 retain its ownership/governance checks. Workspace chat can ask for creation,
 health, an immediate run, pause, resume or archive; inspect the preview before
