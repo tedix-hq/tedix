@@ -12,7 +12,7 @@ import { schemaDdl } from "../../../../packages/db/src/test/schema-ddl";
 import type { BaseContext } from "../rpc/orpc";
 import { pollHomeRunFinished } from "./home-run-finished";
 
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		schemaDdl(
@@ -23,7 +23,7 @@ function fixture() {
 		),
 	);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	const db = createDbClient(createD1Facade(sqlite));
+	const db = createDbClient(createD1Facade(sqlite, { onPrepare }));
 	const context = (sub: string) => ({ db, user: { sub } }) as BaseContext;
 	const event = (
 		id: string,
@@ -52,6 +52,19 @@ function fixture() {
 const start = { after: { at: "", id: "" }, limit: 10 };
 
 describe("Home completion feed visibility", () => {
+	it("looks up delegated terminal events by run instead of a correlated org-wide join", async () => {
+		let query = "";
+		const { sqlite, context } = fixture((sql) => {
+			if (sql.includes("AS home_finished")) query = sql;
+		});
+		await pollHomeRunFinished(context("owner-example"), start, "org-example");
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array(query.match(/\?/g)?.length ?? 0).fill(null));
+		const details = plan.map((row) => String(row.detail)).join("\n");
+		expect(details).not.toContain("CORRELATED SCALAR SUBQUERY");
+		expect(details).toContain("idx_tedi_runtime_events_run_kind_created");
+	});
 	it("allows owner and shared readers, denies another member and a tedi, and isolates organizations", async () => {
 		const { context, event } = fixture();
 		event("event-example", "run-example");
@@ -120,6 +133,33 @@ describe("Home completion feed visibility", () => {
 			(await pollHomeRunFinished(context("other-member"), start, "org-example"))
 				.events,
 		).toEqual([]);
+	});
+
+	it("maps Home questions and failed dispatches without announcing queued delegations as finished", async () => {
+		const { sqlite, context, event } = fixture();
+		for (const [id, status] of [
+			["waiting", "queued"],
+			["dispatch-failed", "failed"],
+			["question", "needs_delegation"],
+			["approval", "requires_approval"],
+		]) {
+			event(id, id);
+			sqlite
+				.prepare("UPDATE kernel_runtime_events SET payload=? WHERE id=?")
+				.run(JSON.stringify({ status }), id);
+		}
+		const page = await pollHomeRunFinished(
+			context("owner-example"),
+			start,
+			"org-example",
+		);
+		expect(
+			page.events.map((e) => [e.data.run_id, e.data.status]).sort(),
+		).toEqual([
+			["approval", "needs_input"],
+			["dispatch-failed", "failed"],
+			["question", "needs_input"],
+		]);
 	});
 
 	it("dedupes repeated ledger records and resumes after pauses and failures", async () => {

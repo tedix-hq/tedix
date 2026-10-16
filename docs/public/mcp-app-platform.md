@@ -113,7 +113,7 @@ read scope (`mcp:messaging.read`), filtered by `request_id`, `work_item_id` and
 only organization, request and response IDs. Re-read the record before acting.
 
 `home.run.finished` reports `completed`, `failed` or `needs_input` (an approval
-pause) for a Home run or delegated child. It requires a messaging read scope.
+pause or unanswered Home question/handoff) for a Home run or delegated child. It requires a messaging read scope.
 Every delivery checks the canonical conversation grants: private chats reach
 their owner and shared readers, never other members merely because they belong
 to the organization. Child events use the parent Home conversation's grants,

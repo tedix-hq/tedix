@@ -2,6 +2,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, desc, eq, inArray, like, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import {
 	chatDispatchIdempotency,
 	kernelRuntimeEvents,
@@ -21,7 +22,7 @@ export type TediArtifactRow = typeof tediArtifacts.$inferSelect;
 export type NewKernelRuntimeEvent = typeof kernelRuntimeEvents.$inferInsert;
 
 export async function listHomeRunFinishedEvents(
-	db: DbClient,
+	db: DbQueryClient,
 	input: {
 		organizationId: string;
 		after?: { at: string; id: string } | null;
@@ -33,29 +34,42 @@ export async function listHomeRunFinishedEvents(
 ) {
 	// Group repeated ledger writes into one stable notice per run/status.
 	// Child ACLs come from the parent conversation, including plan branches.
+	// CROSS JOIN expands plan assignments before probing the child-run index;
+	// an OR/EXISTS join instead compares every org event with every parent.
 	const feed = sql`(
 		SELECT min(event_id) AS id, min(created_at) AS at,
 		       conversation_id, run_id, parent_run_id, status
 		FROM (
 			SELECT e.id AS event_id, e.created_at, e.conversation_id, e.run_id,
 			       NULL AS parent_run_id,
-			       CASE e.kind WHEN 'run.completed' THEN 'completed'
-			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END AS status
+			       CASE
+			         WHEN e.kind = 'run.failed' OR json_extract(e.payload, '$.status') = 'failed' THEN 'failed'
+			         WHEN e.kind = 'approval.requested' OR json_extract(e.payload, '$.status') IN ('requires_approval', 'needs_delegation') THEN 'needs_input'
+			         ELSE 'completed' END AS status
 			FROM ${kernelRuntimeEvents} e
 			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
-			  AND (e.kind != 'run.completed' OR coalesce(json_extract(e.payload, '$.status'), 'completed') = 'completed')
+			  AND (e.kind != 'run.completed' OR coalesce(json_extract(e.payload, '$.status'), 'completed') IN ('completed', 'failed', 'requires_approval', 'needs_delegation'))
 			UNION ALL
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
 			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END
-			FROM ${tediRuntimeEvents} e JOIN ${kernelRuntimeRuns} p
-			  ON p.organization_id = e.organization_id AND (
-			    (p.child_run_id = e.run_id AND p.delegated_tedi_id = e.tedi_id)
-			    OR EXISTS (SELECT 1 FROM json_each(p.metadata, '$.homePlan.assignments') a
-			      WHERE json_extract(a.value, '$.childRunId') = e.run_id
-			        AND json_extract(a.value, '$.ownerTediId') = e.tedi_id))
+			FROM ${kernelRuntimeRuns} p JOIN ${tediRuntimeEvents} e
+			  ON e.organization_id = p.organization_id
+			    AND e.run_id = p.child_run_id AND e.tedi_id = p.delegated_tedi_id
 			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
+			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
+			UNION ALL
+			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
+			       CASE e.kind WHEN 'run.completed' THEN 'completed'
+			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END
+			FROM ${kernelRuntimeRuns} p
+			CROSS JOIN json_each(p.metadata, '$.homePlan.assignments') a
+			CROSS JOIN ${tediRuntimeEvents} e
+			WHERE p.organization_id = ${input.organizationId}
+			  AND e.organization_id = p.organization_id
+			  AND e.run_id = json_extract(a.value, '$.childRunId')
+			  AND e.tedi_id = json_extract(a.value, '$.ownerTediId')
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
 		) GROUP BY conversation_id, run_id, parent_run_id, status
 	) AS home_finished`;
