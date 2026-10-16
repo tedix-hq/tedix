@@ -1913,6 +1913,42 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 		expect(declines.at(-1)?.stage).toBe("no_provider");
 	});
 
+	it("accepts an omitted rationale without retrying a valid write plan", async () => {
+		const model = objectModel({
+			toolName: "globex__create_invoice",
+			args: { amount: 100, customerName: "Example" },
+		});
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(globexProvider)),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "create a draft invoice",
+			model,
+		});
+		expect(proposal).toMatchObject({
+			toolName: "globex__create_invoice",
+			reasoning: null,
+			args: { amount: 100, customerName: "Example" },
+		});
+		expect(model.doGenerateCalls).toHaveLength(1);
+	});
+
+	it("still rejects invalid required tool arguments when the rationale is omitted", async () => {
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(globexProvider)),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "create a draft invoice",
+			model: objectModel({
+				toolName: "globex__create_invoice",
+				args: { customerName: "Example" },
+			}),
+		});
+		expect(proposal).toBeNull();
+	});
+
 	it("does not call onDecline on a successful proposal", async () => {
 		const service = mcpService(globexProvider);
 		const declines: Array<{ stage: string }> = [];

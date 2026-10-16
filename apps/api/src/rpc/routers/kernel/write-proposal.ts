@@ -653,6 +653,7 @@ const WriteCallPlanSchema = z.object({
 	reasoning: z
 		.string()
 		.nullable()
+		.default(null)
 		.describe("One short sentence: why this tool and these arguments."),
 });
 
