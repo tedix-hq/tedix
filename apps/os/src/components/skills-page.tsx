@@ -242,6 +242,28 @@ export function workflowMetaLabel(
 	} · ${owner}`;
 }
 
+/** What a workflow row shows by default: who owns it, not its internal ids. */
+export function workflowSummaryLabel(
+	definition: WorkflowDefinition,
+	tediNames: Record<string, string> = {},
+): string {
+	if (definition.kind === "static_platform") {
+		return humanize(definition.workflowType);
+	}
+	return definition.tediId
+		? (tediNames[definition.tediId] ?? "a tedi")
+		: "org baseline";
+}
+
+/** Internal identity of a skill row (slug, revision, pace layer), kept for its tooltip. */
+export function skillDetailLabel(skill: SkillEntry): string {
+	const parts = [
+		`${skill.slug ?? skill.id.slice(0, 8)} · rev ${skill.revision}`,
+	];
+	if (skill.paceLayer) parts.push(`${humanize(skill.paceLayer)} layer`);
+	return parts.join(" · ");
+}
+
 /**
  * One chip summarizing a workflow's manifest-owned schedules: enabled beats
  * disabled, and a lastError/budget block on an enabled schedule warns.
@@ -326,6 +348,7 @@ export function SkillRow({
 			<Link
 				to="/skills/$skillId"
 				params={{ skillId: skill.id }}
+				title={skillDetailLabel(skill)}
 				className="flex min-w-0 items-start gap-3 rounded-lg text-inherit no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-kumo-focus"
 			>
 				<IconFrame aria-hidden>
@@ -341,16 +364,6 @@ export function SkillRow({
 						>
 							{skill.title}
 						</Text>
-						{skill.paceLayer ? (
-							<Text
-								as="span"
-								role="caption"
-								tone="secondary"
-								className="max-sm:hidden"
-							>
-								{humanize(skill.paceLayer)} layer
-							</Text>
-						) : null}
 					</span>
 					{skill.lifecycleState || executable !== undefined ? (
 						<span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -370,20 +383,9 @@ export function SkillRow({
 						as="span"
 						role="label"
 						tone="secondary"
-						className="truncate tracking-[-0.1px] sm:hidden"
-						data-mobile-summary
+						className="tracking-[-0.1px] max-sm:truncate"
+						data-row-summary
 					>
-						{owner} · {evidence}
-						{lastUsed}
-					</Text>
-					<Text
-						as="span"
-						role="label"
-						tone="secondary"
-						className="tracking-[-0.1px] max-sm:hidden"
-						data-desktop-summary
-					>
-						{skill.slug ?? skill.id.slice(0, 8)} · rev {skill.revision} ·{" "}
 						{owner} · {evidence}
 						{lastUsed}
 					</Text>
@@ -530,8 +532,11 @@ export function WorkflowRow({
 					tone="secondary"
 					className="flex flex-wrap items-center gap-1.5 tracking-[-0.1px]"
 				>
-					<span className="min-w-0 truncate">
-						{workflowMetaLabel(definition, tediNames)}
+					<span
+						className="min-w-0 truncate"
+						title={workflowMetaLabel(definition, tediNames)}
+					>
+						{workflowSummaryLabel(definition, tediNames)}
 						{definition.triggers.length > 0
 							? ` · ${definition.triggers.length} ${
 									definition.triggers.length === 1 ? "trigger" : "triggers"

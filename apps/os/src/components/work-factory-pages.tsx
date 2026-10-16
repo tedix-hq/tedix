@@ -69,6 +69,7 @@ import {
 	projectRollupQueryOptions,
 	projectHealthJudgmentsQueryOptions,
 	projectMilestonesQueryOptions,
+	operationalContextQueryOptions,
 	osQueryKeys,
 	workFleetQueryOptions,
 	workAttemptProjectionQueryOptions,
@@ -89,7 +90,11 @@ import { absoluteTime } from "@/lib/time";
 import { errorMessage } from "@/lib/orpc-error";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
-import { PageControls, useCursorPaging } from "./work-operations-pages";
+import {
+	PageControls,
+	useCursorPaging,
+	useWorkPrincipalNames,
+} from "./work-operations-pages";
 
 const WORK_LIST_LIMIT = 100;
 
@@ -474,10 +479,41 @@ type WorkItemSummary = Pick<
 	| "title"
 	| "disposition"
 	| "workKind"
+	| "accountableOwnerType"
 	| "accountableOwnerId"
 	| "createdAt"
 	| "updatedAt"
 >;
+
+type PrincipalNames = ReadonlyMap<string, string>;
+
+/**
+ * The accountable owner's display name, resolved from the `type:id` name map
+ * (people by Descope user id, tedis by id). Falls back to the shortened id
+ * while names load or when the reader cannot list members.
+ */
+export function workOwnerName(
+	type: string | null | undefined,
+	id: string | null,
+	names: PrincipalNames = new Map(),
+): string {
+	if (!id) return "Unassigned";
+	const named = type
+		? names.get(`${type}:${id}`)
+		: (names.get(`user:${id}`) ?? names.get(`tedi:${id}`));
+	return named ?? workPrincipalLabel(id);
+}
+
+/** Tooltip for an owner name: the name plus the full id it stands for. */
+export function workOwnerTitle(
+	type: string | null | undefined,
+	id: string | null,
+	names?: PrincipalNames,
+): string {
+	if (!id) return "Accountable: Unassigned";
+	const name = workOwnerName(type, id, names);
+	return name === id ? `Accountable: ${id}` : `Accountable: ${name} (${id})`;
+}
 
 type WorkItemReadiness =
 	| { status: "evaluated"; state: string; ready: boolean }
@@ -502,11 +538,15 @@ function ReadinessStatus({ state }: { state?: WorkItemReadiness }) {
 
 export function WorkItemStatusSummary({
 	disposition,
+	accountableOwnerType,
 	accountableOwnerId,
+	principalNames,
 	readiness,
 }: {
 	disposition: WorkItem["disposition"];
+	accountableOwnerType?: string | null;
 	accountableOwnerId: string | null;
+	principalNames?: PrincipalNames;
 	readiness?: {
 		state: string;
 		ready: boolean;
@@ -547,8 +587,19 @@ export function WorkItemStatusSummary({
 					<Text as="dt" role="body" tone="secondary">
 						Accountable
 					</Text>
-					<dd className="m-0 truncate font-medium">
-						{accountableOwnerId ?? "Unassigned"}
+					<dd
+						className="m-0 truncate font-medium"
+						title={workOwnerTitle(
+							accountableOwnerType,
+							accountableOwnerId,
+							principalNames,
+						)}
+					>
+						{workOwnerName(
+							accountableOwnerType,
+							accountableOwnerId,
+							principalNames,
+						)}
 					</dd>
 				</div>
 			</dl>
@@ -565,11 +616,13 @@ export function WorkItemStatusSummary({
 
 function WorkItemMobileList({
 	items,
+	principalNames,
 	readiness,
 	showDisposition,
 	showReadiness,
 }: {
 	items: WorkItemSummary[];
+	principalNames?: PrincipalNames;
 	readiness?: Map<string, WorkItemReadiness>;
 	showDisposition: boolean;
 	showReadiness: boolean;
@@ -583,14 +636,20 @@ function WorkItemMobileList({
 			{items.map((item) => {
 				const updatedAt = item.updatedAt ?? item.createdAt;
 				return (
-					<li className="min-w-0 py-1" key={item.id}>
+					<li className="group min-w-0 py-1" key={item.id}>
 						<Link
 							variant="record"
 							href={`/work/items/${item.id}`}
 							className="flex min-h-11 min-w-0 flex-col items-start justify-center py-1 text-left font-medium leading-snug coarse:min-h-11"
 						>
 							<span className="line-clamp-2">{item.title}</span>
-							<Text as="span" role="label" tone="mono-secondary">
+							<Text
+								as="span"
+								role="label"
+								tone="mono-secondary"
+								className="hidden group-focus-within:inline group-hover:inline"
+								data-row-id
+							>
 								{item.id.slice(0, 8)}
 							</Text>
 						</Link>
@@ -623,10 +682,18 @@ function WorkItemMobileList({
 								<div className="min-w-0 max-w-full">
 									<dt className="sr-only">Accountable</dt>
 									<dd
-										className="m-0 font-mono"
-										title={`Accountable: ${item.accountableOwnerId ?? "Unassigned"}`}
+										className="m-0"
+										title={workOwnerTitle(
+											item.accountableOwnerType,
+											item.accountableOwnerId,
+											principalNames,
+										)}
 									>
-										{workPrincipalLabel(item.accountableOwnerId)}
+										{workOwnerName(
+											item.accountableOwnerType,
+											item.accountableOwnerId,
+											principalNames,
+										)}
 									</dd>
 								</div>
 							</dl>
@@ -640,11 +707,14 @@ function WorkItemMobileList({
 
 export function WorkItemsTable({
 	items,
+	principalNames,
 	readiness,
 	showDisposition = true,
 	showReadiness = true,
 }: {
 	items: WorkItemSummary[];
+	/** `type:id` → display name, from {@link useWorkPrincipalNames}. */
+	principalNames?: PrincipalNames;
 	readiness?: Map<string, WorkItemReadiness>;
 	showDisposition?: boolean;
 	showReadiness?: boolean;
@@ -653,6 +723,7 @@ export function WorkItemsTable({
 		<>
 			<WorkItemMobileList
 				items={items}
+				principalNames={principalNames}
 				readiness={readiness}
 				showDisposition={showDisposition}
 				showReadiness={showReadiness}
@@ -704,7 +775,7 @@ export function WorkItemsTable({
 					{items.map((item) => {
 						const state = readiness?.get(item.id);
 						return (
-							<TableRow key={item.id}>
+							<TableRow key={item.id} className="group">
 								<TableCell className="py-2! whitespace-normal">
 									<Link
 										variant="record"
@@ -714,23 +785,31 @@ export function WorkItemsTable({
 										<span className="line-clamp-2">{item.title}</span>
 									</Link>
 									<div className="flex min-w-0 items-center gap-1.5">
-										<Text as="span" role="label" tone="mono-secondary">
-											{item.id.slice(0, 8)}
-										</Text>
-										<span
-											className="text-kumo-subtle xl:hidden"
-											aria-hidden="true"
-										>
-											·
-										</span>
 										<Text
 											as="span"
 											role="label"
 											tone="secondary"
 											className="truncate xl:hidden"
-											title={`Accountable: ${item.accountableOwnerId ?? "Unassigned"}`}
+											title={workOwnerTitle(
+												item.accountableOwnerType,
+												item.accountableOwnerId,
+												principalNames,
+											)}
 										>
-											{workPrincipalLabel(item.accountableOwnerId)}
+											{workOwnerName(
+												item.accountableOwnerType,
+												item.accountableOwnerId,
+												principalNames,
+											)}
+										</Text>
+										<Text
+											as="span"
+											role="label"
+											tone="mono-secondary"
+											className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+											data-row-id
+										>
+											{item.id.slice(0, 8)}
 										</Text>
 									</div>
 								</TableCell>
@@ -751,9 +830,17 @@ export function WorkItemsTable({
 								</TableCell>
 								<TableCell
 									className="hidden truncate py-2! xl:table-cell"
-									title={item.accountableOwnerId ?? "Unassigned"}
+									title={workOwnerTitle(
+										item.accountableOwnerType,
+										item.accountableOwnerId,
+										principalNames,
+									)}
 								>
-									{workPrincipalLabel(item.accountableOwnerId)}
+									{workOwnerName(
+										item.accountableOwnerType,
+										item.accountableOwnerId,
+										principalNames,
+									)}
 								</TableCell>
 								<TableCell className="py-2!">
 									<time
@@ -785,6 +872,7 @@ export function WorkCompletedPage() {
 	const query = useQuery(
 		workItemListQueryOptions({ disposition: "completed", limit: 25, offset }),
 	);
+	const principalNames = useWorkPrincipalNames(query.data?.data[0]?.orgId);
 	return (
 		<Page width="full">
 			<FactoryPageHeader
@@ -803,7 +891,11 @@ export function WorkCompletedPage() {
 			) : query.isError ? (
 				<QueryFailure title="Completed work unavailable" error={query.error} />
 			) : query.data.data.length ? (
-				<WorkItemsTable items={query.data.data} showReadiness={false} />
+				<WorkItemsTable
+					items={query.data.data}
+					principalNames={principalNames}
+					showReadiness={false}
+				/>
 			) : (
 				<EmptyState
 					title="No completed work on this page"
@@ -829,6 +921,8 @@ export function WorkQueuePage() {
 	);
 	const entries = queueQuery.data?.data ?? [];
 	const items = entries.map((entry) => entry.workItem);
+	const context = useQuery(operationalContextQueryOptions());
+	const principalNames = useWorkPrincipalNames(context.data?.organization.id);
 	const readiness = new Map(
 		entries.map((entry) => [
 			entry.workItem.id,
@@ -869,6 +963,7 @@ export function WorkQueuePage() {
 			) : (
 				<WorkItemsTable
 					items={items}
+					principalNames={principalNames}
 					readiness={readiness}
 					showDisposition={false}
 				/>
@@ -1089,6 +1184,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 	const items = useQuery(
 		workItemListQueryOptions({ projectId, limit: WORK_LIST_LIMIT }),
 	);
+	const principalNames = useWorkPrincipalNames(items.data?.data[0]?.orgId);
 	const refreshMilestones = () => {
 		milestonePaging.reset();
 		return queryClient.invalidateQueries({
@@ -1472,7 +1568,10 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 			{items.isError ? (
 				<QueryFailure title="Project work unavailable" />
 			) : items.data?.data.length ? (
-				<WorkItemsTable items={items.data.data} />
+				<WorkItemsTable
+					items={items.data.data}
+					principalNames={principalNames}
+				/>
 			) : (
 				<EmptyState
 					title="No work in this project"
@@ -2184,6 +2283,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	);
 	const events = useQuery(workItemEventsQueryOptions(itemId));
 	const item = detail.data?.workItem;
+	const principalNames = useWorkPrincipalNames(item?.orgId);
 	const latestAttempts = useQuery({
 		...workItemAttemptsQueryOptions(itemId),
 		enabled: item?.disposition === "completed",
@@ -2229,7 +2329,9 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 			/>
 			<WorkItemStatusSummary
 				disposition={item.disposition}
+				accountableOwnerType={item.accountableOwnerType}
 				accountableOwnerId={item.accountableOwnerId}
+				principalNames={principalNames}
 				readiness={readiness.data}
 			/>
 			{item.disposition === "completed" ? (

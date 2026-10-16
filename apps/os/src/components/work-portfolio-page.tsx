@@ -345,7 +345,7 @@ const VERDICT_BADGES: Record<
 	{ label: string; variant: BadgeVariant }
 > = {
 	healthy: { label: "Healthy", variant: "success" },
-	idle: { label: "Running but idle", variant: "warning" },
+	idle: { label: "Idle", variant: "warning" },
 	failing: { label: "Failing", variant: "destructive" },
 	not_firing: { label: "Not firing", variant: "destructive" },
 	paused: { label: "Paused", variant: "outline" },

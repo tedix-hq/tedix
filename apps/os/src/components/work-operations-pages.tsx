@@ -160,7 +160,7 @@ export function namedWorkPrincipal(
 	);
 }
 
-function useWorkPrincipalNames(organizationId?: string) {
+export function useWorkPrincipalNames(organizationId?: string) {
 	const tedis = useQuery({
 		...tediRosterQueryOptions(100),
 		enabled: Boolean(organizationId),
@@ -976,7 +976,7 @@ export function WorkApprovalsPage() {
 				<SectionHeader>
 					<SectionHeading>
 						<SectionTitle id="runtime-approvals-title">
-							Runtime approvals
+							Actions waiting for approval
 						</SectionTitle>
 						<SectionDescription>
 							Actions a tedi or automation paused until someone approves them.
@@ -1018,7 +1018,7 @@ export function WorkApprovalsPage() {
 					<Loading />
 				) : runtimeApprovals.isError ? (
 					<Failure
-						title="Runtime approvals unavailable"
+						title="Waiting actions unavailable"
 						error={runtimeApprovals.error}
 					/>
 				) : runtimeApprovals.data.data.length === 0 ? (
@@ -1121,14 +1121,14 @@ export function WorkApprovalsPage() {
 					</ul>
 				)}
 			</PageSection>
-			<PageSection aria-label="Runtime approval history">
+			<PageSection aria-label="Past approval decisions">
 				<ApprovalProvenanceHistory />
 			</PageSection>
 			<PageSection aria-labelledby="work-admission-title">
 				<SectionHeader>
 					<SectionHeading>
 						<SectionTitle id="work-admission-title">
-							Work admission authority
+							Approvals to start work
 						</SectionTitle>
 						<SectionDescription>
 							Approvals a Work item needs before it can start.

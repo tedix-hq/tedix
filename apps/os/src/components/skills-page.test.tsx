@@ -49,14 +49,17 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 		params,
 		children,
 		className,
+		title,
 	}: {
 		to: string;
 		params?: Record<string, string>;
 		children?: React.ReactNode;
 		className?: string;
+		title?: string;
 	}) => (
 		<a
 			className={className}
+			title={title}
 			href={params?.skillId ? `/skills/${params.skillId}` : to}
 		>
 			{children}
@@ -79,6 +82,7 @@ import {
 	SkillsEmpty,
 	SkillsPage,
 	WorkflowRow,
+	skillDetailLabel,
 	workflowMetaLabel,
 	WorkflowsEmpty,
 } from "./skills-page";
@@ -336,9 +340,11 @@ describe("SkillRow", () => {
 		expect(html).toContain("Proven");
 		expect(html).toContain("Executable");
 		expect(html).toContain("Weekly digest");
-		expect(html).toContain("weekly-digest · rev 3 · org baseline");
-		expect(html).toContain("8 successes · 1 failure");
-		expect(html).toContain("differentiation layer");
+		expect(html).not.toContain(">weekly-digest · rev 3");
+		expect(html).toContain(
+			'title="weekly-digest · rev 3 · differentiation layer"',
+		);
+		expect(html).toContain("org baseline · 8 successes · 1 failure");
 		expect(html).toContain("Sends the weekly digest");
 		expect(html).toContain('dateTime="2026-08-10T09:00:00.000Z"');
 		expect(html).toContain(`href="/skills/${SKILL_ID}"`);
@@ -347,16 +353,16 @@ describe("SkillRow", () => {
 		expect(html.match(/href=/g)).toHaveLength(1);
 	});
 
-	it("keeps a concise mobile summary while preserving full desktop provenance", () => {
+	it("shows one summary line and keeps internal identity in the tooltip", () => {
 		const html = renderToStaticMarkup(
 			<SkillRow skill={baseSkill} executable={true} />,
 		);
-		expect(html).toContain("data-mobile-summary");
-		expect(html).toContain("truncate tracking-[-0.1px] sm:hidden");
-		expect(html).toContain("data-desktop-summary");
-		expect(html).toContain("max-sm:hidden");
+		expect(html.match(/data-row-summary/g)).toHaveLength(1);
+		expect(html).toContain("max-sm:truncate");
 		expect(html).toContain("org baseline · 8 successes · 1 failure");
-		expect(html).toContain("weekly-digest · rev 3 · org baseline");
+		expect(skillDetailLabel(baseSkill)).toBe(
+			"weekly-digest · rev 3 · differentiation layer",
+		);
 	});
 
 	it("marks instruction-only skills as Instructions", () => {
@@ -389,7 +395,7 @@ describe("SkillRow", () => {
 		);
 		expect(html).toContain("Sana");
 		expect(html).not.toContain("Proven");
-		expect(html).toContain("differentiation layer");
+		expect(html).toContain('differentiation layer"');
 		expect(html).not.toContain("last used");
 	});
 });
@@ -409,8 +415,8 @@ describe("WorkflowRow", () => {
 		expect(html).toContain("Healthy");
 		expect(html).toContain("In sync");
 		expect(html).toContain("Scheduled · 0 9 * * 1");
-		expect(html).toContain("weekly-digest · rev 3 · Sana");
-		expect(html).toContain("1 trigger");
+		expect(html).toContain('title="weekly-digest · rev 3 · Sana"');
+		expect(html).toContain(">Sana · 1 trigger");
 		expect(html).toContain("last run completed");
 		expect(html).toContain(`href="/work/runs/${RUN_ID}"`);
 		expect(html).toContain("Run details");
