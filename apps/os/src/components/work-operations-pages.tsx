@@ -83,6 +83,7 @@ import {
 	workExternalPrincipalsQueryOptions,
 	workAdmissionSpecificationQueryOptions,
 	workApprovalsQueryOptions,
+	workPendingApprovalsQueryOptions,
 	workBudgetEnvelopesQueryOptions,
 	workCaseDetailQueryOptions,
 	workCaseListQueryOptions,
@@ -862,6 +863,7 @@ export function WorkApprovalsPage() {
 	const paging = useCursorPaging<{ at: string; id: string }>();
 	const approvalOptions = workApprovalsQueryOptions(paging.cursor);
 	const query = useQuery(approvalOptions);
+	const pendingApprovals = useQuery(workPendingApprovalsQueryOptions());
 	const runtimeApprovals = useQuery(pendingApprovalsQueryOptions());
 	const [selectedRuntimeIds, setSelectedRuntimeIds] = useState<string[]>([]);
 	const [reviewRuntimeIds, setReviewRuntimeIds] = useState<string[]>([]);
@@ -956,7 +958,7 @@ export function WorkApprovalsPage() {
 		});
 	}, [runtimeApprovals.data]);
 	const approvalRows = query.data?.data ?? [];
-	const pendingDecisions = approvalRows.filter(
+	const pendingDecisions = (pendingApprovals.data?.data ?? []).filter(
 		({ effectiveStatus, canDecide }) =>
 			effectiveStatus === "pending" && canDecide,
 	);
@@ -1133,11 +1135,17 @@ export function WorkApprovalsPage() {
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
-				{query.isPending ? (
+				{pendingApprovals.isPending ? (
 					<Loading />
-				) : query.isError ? (
-					<Failure title="Approvals unavailable" error={query.error} />
-				) : approvalRows.length === 0 ? (
+				) : pendingApprovals.isError ? (
+					<Failure
+						title="Approvals unavailable"
+						error={pendingApprovals.error}
+					/>
+				) : pendingDecisions.length === 0 &&
+				  approvalRows.length === 0 &&
+				  !query.isPending &&
+				  !query.isError ? (
 					<None
 						title="No approval proposals"
 						description="There are no Work-scoped proposals in this bounded inbox."
@@ -1252,6 +1260,14 @@ export function WorkApprovalsPage() {
 								Other decisions and history ({proposalHistory.length})
 							</CollapsibleTrigger>
 							<CollapsibleContent>
+								{query.isPending ? (
+									<Loading />
+								) : query.isError ? (
+									<Failure
+										title="Approval history unavailable"
+										error={query.error}
+									/>
+								) : null}
 								<SectionCollection
 									title="Other decisions and history"
 									description="Past decisions and pending decisions assigned to other approvers."

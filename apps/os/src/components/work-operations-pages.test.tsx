@@ -17,6 +17,7 @@ import {
 	tediRosterQueryOptions,
 	workExternalPrincipalsQueryOptions,
 	workApprovalsQueryOptions,
+	workPendingApprovalsQueryOptions,
 	pendingApprovalsQueryOptions,
 	workBudgetEnvelopesQueryOptions,
 	workCaseDetailQueryOptions,
@@ -645,7 +646,7 @@ describe("Session question grouping", () => {
 });
 
 describe("Work approval request errors", () => {
-	it("keeps actionable decisions visible and other decisions collapsed until opened", async () => {
+	it("shows pending decisions absent from the first 50 history rows, with history below", async () => {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 		});
@@ -664,13 +665,18 @@ describe("Work approval request errors", () => {
 			effectiveStatus: "pending",
 			canDecide,
 		});
-		client.setQueryData<unknown>(workApprovalsQueryOptions().queryKey, {
-			data: [
-				row("mine", "Decision I can make", true),
-				row("other", "Decision for another approver", false),
-			],
+		client.setQueryData<unknown>(workPendingApprovalsQueryOptions().queryKey, {
+			data: [row("mine", "Decision I can make", true)],
 			hasMore: false,
 			nextCursor: null,
+		});
+		client.setQueryData<unknown>(workApprovalsQueryOptions().queryKey, {
+			data: Array.from({ length: 50 }, (_, index) => ({
+				...row(`other-${index}`, "Decision for another approver", false),
+				effectiveStatus: "approved",
+			})),
+			hasMore: true,
+			nextCursor: { at: "2026-10-04T15:00:00Z", id: "other-49" },
 		});
 		client.setQueryData<unknown>(pendingApprovalsQueryOptions().queryKey, {
 			data: [],
