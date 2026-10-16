@@ -2129,6 +2129,9 @@ describe("exact output input schemas", () => {
 		expect(prompts).toHaveLength(1);
 		expect(prompts[0]).toContain("Input JSON Schema:");
 		expect(prompts[0]).toContain("paragraph");
+		expect(prompts[0].indexOf("<tool_catalog>")).toBeLessThan(
+			prompts[0].indexOf("<operator_request>"),
+		);
 		expect(
 			JSON.stringify(mocks.selectJevAction.mock.calls[0]?.[0].candidates),
 		).not.toContain("Input JSON Schema:");

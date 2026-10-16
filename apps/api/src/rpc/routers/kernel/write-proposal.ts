@@ -415,7 +415,7 @@ const OUTPUT_KIND_RE =
 	/\b(?:doc|docs|document|sheet|spreadsheet|deck|slides?|presentation)\b/i;
 /** An operator who names an external office suite wants that provider. */
 const EXTERNAL_OFFICE_PROVIDER_RE =
-	/\b(?:google|gdrive|notion|excel|microsoft|office ?365|onedrive|sharepoint|airtable|dropbox)\b/i;
+	/\b(?:google|gdrive|notion|excel|microsoft|powerpoint|keynote|office ?365|onedrive|sharepoint|airtable|dropbox|canva|figma)\b/i;
 
 /** Answering a handoff, question or proposal addressed to the operator. */
 const WORK_REQUEST_RESPOND_CAPABILITY_RE =
@@ -471,6 +471,11 @@ export function canonicalWriteToolName(
 		!EXTERNAL_OFFICE_PROVIDER_RE.test(content)
 	) {
 		return "os.create_os_output";
+	}
+	if (!EXTERNAL_OFFICE_PROVIDER_RE.test(content)) {
+		if (capability === "documents.patch") return "os.patch_os_document";
+		if (capability === "sheets.set_range") return "os.set_os_sheet_range";
+		if (capability === "presentations.patch") return "os.patch_os_slides";
 	}
 	if (capability === "work_items.create") return "work.create_work_items";
 	if (
@@ -799,6 +804,12 @@ function buildUserPrompt(args: {
 }): string {
 	const defaults = Object.entries(args.paramDefaults ?? {});
 	return [
+		// Keep the complete, stable schema ahead of per-turn text so provider
+		// prefix caching can reuse it across requests for the same tool.
+		"<tool_catalog>",
+		renderWriteToolCatalog(args.tools, true),
+		"</tool_catalog>",
+		"",
 		"<operator_request>",
 		args.content,
 		"</operator_request>",
@@ -846,10 +857,6 @@ function buildUserPrompt(args: {
 					"</tenant_defaults>",
 				]
 			: []),
-		"",
-		"<tool_catalog>",
-		renderWriteToolCatalog(args.tools, true),
-		"</tool_catalog>",
 		"",
 		"Use the exact input JSON Schema to construct the args object for this selected tool. Do not encode the arguments as a JSON string. Preserve object/array structure, enums and required fields. Return NONE if the request cannot satisfy it.",
 	].join("\n");
@@ -944,7 +951,14 @@ async function planWriteCall(args: {
 					reasoningEffort: "low",
 				},
 				openai: { strictJsonSchema: false, reasoningEffort: "low" },
-				azure: { strictJsonSchema: false, reasoningEffort: "low" },
+				azure: {
+					strictJsonSchema: false,
+					reasoningEffort:
+						typeof args.model !== "string" &&
+						args.model.modelId === "gpt-6-luna"
+							? "none"
+							: "low",
+				},
 			},
 			// Flat abort: a stalled write pass never settles and never throws; the
 			// timeout makes it reject → the catch returns null (no heuristic write).

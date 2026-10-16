@@ -100,8 +100,9 @@ import type {
 	KernelRouteUsage,
 } from "./route-planner";
 import {
-	explicitOutputCreateDecision,
+	explicitOutputWriteDecision,
 	explicitOutputCreateKind,
+	explicitOutputEditKind,
 	outputWriteApp,
 	routeExplicitOutputCreate,
 } from "./output-create-intent";
@@ -859,20 +860,32 @@ export async function runKernel(args: {
 	// non-answer route) reaches the delivery block below with nothing streamed.
 	let plannerStreamedAnswer = false;
 
-	// Explicit creates need argument planning, not a second model deciding that
-	// creation is a write. The normal write planner and approval gates still run.
-	const outputCreateKind = hasExplicitDelegationIntent(inputContent)
+	// Quoted output titles (e.g. "Kickoff") are data, not delegation commands.
+	// The full operator message still goes through the normal authority guard.
+	const delegates = hasExplicitDelegationIntent(
+		inputContent.replace(
+			/\b(?:titled|named|called)\s+(?:"[^"]*"|“[^”]*”)/gi,
+			"",
+		),
+	);
+	const outputCreateKind = delegates
 		? null
 		: explicitOutputCreateKind(inputContent);
-	const outputCreateApp = outputCreateKind
-		? outputWriteApp(context.apps)
-		: null;
-
-	const createDecision = images.length
+	const outputEditKind = delegates
 		? null
-		: explicitOutputCreateDecision(outputCreateKind, outputCreateApp);
-	if (createDecision) {
-		const route = guardKernelRouteDecision(inputContent, createDecision);
+		: explicitOutputEditKind(inputContent);
+	const outputAppSlug =
+		outputCreateKind || outputEditKind ? outputWriteApp(context.apps) : null;
+
+	const outputWriteDecision = images.length
+		? null
+		: explicitOutputWriteDecision(
+				outputCreateKind ?? outputEditKind,
+				outputAppSlug,
+				outputCreateKind ? "create" : "edit",
+			);
+	if (outputWriteDecision) {
+		const route = guardKernelRouteDecision(inputContent, outputWriteDecision);
 		return {
 			route,
 			assistantContent: renderRouteResponse(route),
@@ -897,7 +910,7 @@ export async function runKernel(args: {
 		// An explicit output-create request keeps the same streamed pass but
 		// delivers none of its prose: the turn ends in a write proposal.
 		onAnswerDelta: (delta: string) => {
-			if (outputCreateApp) return;
+			if (outputAppSlug) return;
 			try {
 				plannerStreamedAnswer = true;
 				onProgress?.({
@@ -1039,7 +1052,7 @@ export async function runKernel(args: {
 		context.tedis,
 		context.delegationAvailable,
 	);
-	route = routeExplicitOutputCreate(route, outputCreateKind, outputCreateApp);
+	route = routeExplicitOutputCreate(route, outputCreateKind, outputAppSlug);
 
 	// delegate_tedi authorization evidence: when the planner names a target that
 	// carries a capability card, construct the work order + the fail-closed

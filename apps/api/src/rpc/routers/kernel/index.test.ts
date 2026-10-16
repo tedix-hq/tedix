@@ -654,6 +654,19 @@ it.each([
 	["Create a 3-slide deck about Blue Harbor Bakery", "presentations.create"],
 	["Write a short document about Blue Harbor Bakery", "documents.create"],
 	["Make a spreadsheet of fictional stock", "sheets.create"],
+	['Create a presentation titled "Amber Kite Kickoff"', "presentations.create"],
+	[
+		"Append a paragraph to document 00000000-1111-4111-8111-000000000001",
+		"documents.patch",
+	],
+	[
+		"Update cell B2 in sheet 00000000-1111-4111-8111-000000000001",
+		"sheets.set_range",
+	],
+	[
+		"Change first slide title in deck 00000000-1111-4111-8111-000000000001",
+		"presentations.patch",
+	],
 ])("routes %s without calling the route model", async (content, capability) => {
 	const { assembleHomeContext } = await import("./context-assembly");
 	const { planKernelRoute } = await import("./route-planner");

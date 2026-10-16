@@ -71,32 +71,66 @@ const CAPABILITY_BY_KIND: Record<OutputCreateKind, string> = {
 	presentation: "presentations.create",
 };
 
+const EDIT_CAPABILITY_BY_KIND: Record<OutputCreateKind, string> = {
+	document: "documents.patch",
+	sheet: "sheets.set_range",
+	presentation: "presentations.patch",
+};
+
+/** A narrow edit with its typed target id; titles and implicit targets need planning. */
+export function explicitOutputEditKind(
+	content: string,
+): OutputCreateKind | null {
+	const line = content.trim().split("\n", 1)[0]?.replace(LEAD_IN_RE, "") ?? "";
+	if (EXTERNAL_PROVIDER_RE.test(line)) return null;
+	const id = "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
+	if (
+		/^(?:append|add)\b[^.?!]*\bparagraph\b/i.test(line) &&
+		new RegExp(`\\b(?:doc|document)\\s+${id}\\b`, "i").test(line)
+	)
+		return "document";
+	if (
+		/^(?:update|set|change)\s+(?:the\s+)?(?:cell|range)\b/i.test(line) &&
+		new RegExp(`\\b(?:sheet|spreadsheet)\\s+${id}\\b`, "i").test(line)
+	)
+		return "sheet";
+	if (
+		/^(?:change|update|edit)\b[^.?!]*\bslide\b/i.test(line) &&
+		new RegExp(`\\b(?:presentation|deck)\\s+${id}\\b`, "i").test(line)
+	)
+		return "presentation";
+	return null;
+}
+
 /** Only selects a planner; arguments, schema validation and approval stay there. */
-export function explicitOutputCreateDecision(
+export function explicitOutputWriteDecision(
 	kind: OutputCreateKind | null,
 	appSlug: string | null,
+	operation: "create" | "edit",
 ): KernelRouteDecision | null {
 	if (!kind || !appSlug) return null;
-	return routeExplicitOutputCreate(
-		{
-			routeKind: "answer_in_home",
-			answer: null,
-			rationale: "",
-			risk: "medium",
-			confidence: 1,
-			effortClass: "single_read",
-			targetTediId: null,
-			targetTediLabel: null,
-			targetActivityId: null,
-			plannedToolIds: [],
-			toolIntent: null,
-			workflowHint: null,
-			clarifyingQuestion: null,
-			evidenceExpectation: null,
+	return {
+		routeKind: "propose_tool_write",
+		answer: null,
+		rationale: `The operator asked to ${operation} a Tedix ${kind}.`,
+		risk: "medium",
+		confidence: 1,
+		effortClass: "single_read",
+		targetTediId: null,
+		targetTediLabel: null,
+		targetActivityId: null,
+		plannedToolIds: [],
+		toolIntent: {
+			appSlug,
+			capability: (operation === "create"
+				? CAPABILITY_BY_KIND
+				: EDIT_CAPABILITY_BY_KIND)[kind],
+			connectionStatus: "connected",
 		},
-		kind,
-		appSlug,
-	);
+		workflowHint: null,
+		clarifyingQuestion: null,
+		evidenceExpectation: `A saved ${kind} revision after approval.`,
+	};
 }
 
 /**
