@@ -724,3 +724,50 @@ it.each([
 	});
 	expect(result?.assistantContent).not.toContain("Slide 1");
 });
+
+it("routes a card verdict follow-up to the card an earlier answer showed", async () => {
+	const { assembleHomeContext } = await import("./context-assembly");
+	const { planKernelRoute } = await import("./route-planner");
+	vi.mocked(planKernelRoute).mockClear();
+	vi.mocked(assembleHomeContext).mockResolvedValue({
+		tedis: [],
+		apps: [{ slug: "acme-unified", name: "Acme", codeMode: true }],
+		workflows: [],
+		workItems: [],
+		facts: [],
+		rationale: [],
+		speaker: null,
+		history: [
+			{ role: "user", content: "Show my next card" },
+			{
+				role: "assistant",
+				content:
+					"## Next card: #2 — Reply\n\n**Sheet:** Social cards 2026-01-02 08:15\n\nNothing was changed.",
+			},
+			{ role: "user", content: "hello" },
+			{ role: "assistant", content: "Your message is saved; please retry." },
+		],
+		promptCharsEstimate: 1000,
+		lastStepPromptTokens: 1,
+	} as never);
+	const result = await runKernel({
+		db: {} as never,
+		env: {
+			AI: {},
+			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+		} as never,
+		organizationId: "org",
+		content:
+			"[[tedix-context:gadget:00000000-1111-4111-8111-000000000002:App%20resource]]\n\nmark it useful: great angle",
+		onProgress: vi.fn(),
+	});
+	expect(planKernelRoute).not.toHaveBeenCalled();
+	expect(result?.route).toMatchObject({
+		routeKind: "propose_tool_write",
+		targetTediId: null,
+		toolIntent: { appSlug: "acme-unified", capability: "sheets.set_range" },
+	});
+	expect(result?.route.rationale).toContain(
+		'card #2 of the Tedix sheet titled "Social cards 2026-01-02 08:15"',
+	);
+});

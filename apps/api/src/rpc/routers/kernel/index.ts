@@ -901,15 +901,18 @@ export async function runKernel(args: {
 	const outputAppSlug =
 		outputCreateKind || outputEditKind ? outputWriteApp(context.apps) : null;
 
-	// "mark it useful" right after a card was shown edits that card's row.
+	// "mark it useful" after a card was shown edits that card's row. The newest
+	// of the last three answers that shows one card wins, so a failed or
+	// unrelated turn in between does not lose the reference.
 	const cardVerdict =
 		delegates || outputCreateKind || outputEditKind
 			? null
-			: cardVerdictFollowUp(
-					inputContent,
-					context.history.findLast((message) => message.role === "assistant")
-						?.content,
-				);
+			: (context.history
+					.filter((message) => message.role === "assistant")
+					.slice(-3)
+					.reverse()
+					.map((message) => cardVerdictFollowUp(inputContent, message.content))
+					.find(Boolean) ?? null);
 	const outputWriteDecision = images.length
 		? null
 		: cardVerdict
