@@ -100,6 +100,7 @@ import type {
 	KernelRouteUsage,
 } from "./route-planner";
 import {
+	explicitOutputCreateDecision,
 	explicitOutputCreateKind,
 	outputWriteApp,
 	routeExplicitOutputCreate,
@@ -858,8 +859,8 @@ export async function runKernel(args: {
 	// non-answer route) reaches the delivery block below with nothing streamed.
 	let plannerStreamedAnswer = false;
 
-	// "Create a deck about X" is a write. Checked before the model: no answer
-	// is delivered for it, and a prose answer becomes a write proposal below.
+	// Explicit creates need argument planning, not a second model deciding that
+	// creation is a write. The normal write planner and approval gates still run.
 	const outputCreateKind = hasExplicitDelegationIntent(inputContent)
 		? null
 		: explicitOutputCreateKind(inputContent);
@@ -867,9 +868,19 @@ export async function runKernel(args: {
 		? outputWriteApp(context.apps)
 		: null;
 
-	// Every request outside the bounded workspace-roster read above is routed by
-	// the model. A null result means no valid route was produced; the caller
-	// settles the turn as failed.
+	const createDecision = images.length
+		? null
+		: explicitOutputCreateDecision(outputCreateKind, outputCreateApp);
+	if (createDecision) {
+		const route = guardKernelRouteDecision(inputContent, createDecision);
+		return {
+			route,
+			assistantContent: renderRouteResponse(route),
+			delegation: null,
+			routeUsage: null,
+			contextManifest,
+		};
+	}
 	const planArgs = {
 		onExecutionAttempts: args.onExecutionAttempts,
 		delegationCandidateRanker,
