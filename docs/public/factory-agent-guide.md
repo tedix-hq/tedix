@@ -129,7 +129,9 @@ uses them. Archive the scratch Workspace after verifying no schedule remains.
 
 - Lanes render once. Repeating a slug reuses existing configuration; it does
   not rewrite cadence, owner prompt or Output bindings. Archive and recreate
-  with a fresh slug when changing these; preserve existing source/Output IDs.
+  when changing these. Reuse the factory slug/project and selected Output IDs;
+  use the new returned skill ID or skill slug because the archived skill keeps
+  its original slug.
 - Code Mode caps returned results. Search narrowly, describe only the selected
   callable, project small fields and page large lists. A truncated result is
   unknown evidence, not a successful call; do not repeat a mutation to read it.
