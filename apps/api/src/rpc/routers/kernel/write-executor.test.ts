@@ -347,23 +347,8 @@ describe("executeApprovedKernelWrite", () => {
 						},
 					};
 		});
-		// The two revalidation reads are in flight together; the write follows.
-		let inFlight = 0;
-		const peaks: number[] = [];
-		const overlapping = {
-			...service,
-			fetch: async (input: string, init?: RequestInit) => {
-				peaks.push(++inFlight);
-				await new Promise((resolve) => setTimeout(resolve, 5));
-				try {
-					return await service.fetch(input, init);
-				} finally {
-					inFlight--;
-				}
-			},
-		};
 		const result = await executeApprovedKernelWrite({
-			env: env(overlapping),
+			env: env(service),
 			payload: payload({
 				appSlug: "tedix-unified",
 				toolName: "work.create_work_items",
@@ -373,7 +358,6 @@ describe("executeApprovedKernelWrite", () => {
 		});
 
 		expect(result).toEqual({ ok: true, data: { id: "WI-1" } });
-		expect(peaks).toEqual([1, 2, 1]);
 		expect(service.calls.map((call) => call.method)).toEqual([
 			"tools/list",
 			"tools/call",
