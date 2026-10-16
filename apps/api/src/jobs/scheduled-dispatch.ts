@@ -162,6 +162,10 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "work-approval-redrive", () =>
 				dispatchWorkApprovalRedrives(env, event.scheduledTime),
 			);
+			const { dispatchCommitmentWakes } = await import("./commitment-wakes");
+			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
+				dispatchCommitmentWakes(env, event.scheduledTime),
+			);
 		}
 
 		if (cron === "*/2 * * * *" && env.MCP_SERVICE) {

@@ -54,6 +54,11 @@ vi.mock("./work-attempt-lease-sweeper", () => ({
 vi.mock("./work-approval-redrive", () => ({
 	dispatchWorkApprovalRedrives: vi.fn(),
 }));
+vi.mock("./commitment-wakes", () => ({
+	dispatchCommitmentWakes: vi
+		.fn()
+		.mockResolvedValue({ observed: 0, dispatched: 0 }),
+}));
 vi.mock("./platform-cron-receipts", () => ({
 	runPlatformCronPath: async (
 		_env: unknown,

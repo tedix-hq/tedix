@@ -14,6 +14,7 @@ export const PLATFORM_CRON_IDS = [
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-approval-redrive",
+	"commitment-wakes",
 	"mcp-event-webhook-delivery",
 	"work-attempt-lease-sweep",
 	"always-on-keepalive",
@@ -80,6 +81,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "work-approval-redrive",
+		cron: "*/2 * * * *",
+		intervalMinutes: 2,
+		requiresBinding: "TEDI_SERVICE",
+	},
+	{
+		id: "commitment-wakes",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
 		requiresBinding: "TEDI_SERVICE",
