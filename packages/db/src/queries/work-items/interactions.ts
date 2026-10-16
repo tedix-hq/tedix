@@ -2,7 +2,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
-import { workItems } from "../../schema/work-items";
+import { workItems, workItemComments } from "../../schema/work-items";
 import {
 	workInteractionAttention,
 	workInteractionDeliveries,
@@ -113,7 +113,15 @@ export async function createWorkInteraction(
 				prompt: p.prompt,
 				creatorType: p.creator.type,
 				creatorId: p.creator.id,
-				creatorSessionId: p.creator.sessionId,
+				// Owner-authenticated harness calls retain their requester session as
+				// provenance; it never grants external-agent authority.
+				creatorSessionId:
+					p.creator.sessionId ??
+					(p.creator.type === "user" &&
+					typeof p.metadata?.agentSession === "string" &&
+					p.metadata.agentSession.length <= 300
+						? p.metadata.agentSession
+						: null),
 				creatorExternalSessionKey: p.creator.externalSessionKey,
 				targetType: p.targetType,
 				targetId: p.targetId,
@@ -565,6 +573,93 @@ export async function expireWorkInteraction(
 				.returning({ id: workInteractions.id })
 		)[0] ?? null
 	);
+}
+
+/** Retire obsolete requests without answering in the recipient's name. */
+export async function sweepObsoleteWorkInteractions(
+	db: DbQueryClient,
+	p: { now: string; limit: number },
+) {
+	const cutoff = new Date(Date.parse(p.now) - 3 * 86_400_000).toISOString();
+	const proposalCutoff = new Date(
+		Date.parse(p.now) - 14 * 86_400_000,
+	).toISOString();
+	const obsolete = sql`(
+		(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now}) OR
+		(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND ${workInteractions.createdAt}<=${proposalCutoff} AND NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})) OR
+		(${workInteractions.kind}='question' AND ${workInteractions.createdAt}<${cutoff} AND EXISTS (
+			SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')
+		)) OR
+		(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')
+	)`;
+	const rows = await db
+		.select()
+		.from(workInteractions)
+		.where(and(eq(workInteractions.status, "open"), obsolete))
+		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
+		.limit(p.limit);
+	let expired = 0;
+	for (const row of rows) {
+		const fence = crypto.randomUUID();
+		const update = db
+			.update(workInteractions)
+			.set({
+				status: "expired",
+				expiredAt: p.now,
+				resolutionFence: fence,
+				version: sql`${workInteractions.version}+1`,
+			})
+			.where(
+				and(
+					eq(workInteractions.orgId, row.orgId),
+					eq(workInteractions.id, row.id),
+					eq(workInteractions.version, row.version),
+					eq(workInteractions.status, "open"),
+					obsolete,
+				),
+			)
+			.returning({ id: workInteractions.id });
+		const reason =
+			row.expiresAt && row.expiresAt <= p.now
+				? "Its expiry date passed."
+				: row.metadata.schema === "tedix.decision-capture.v1"
+					? "Turn triage was unavailable; retained on the agent's Work."
+					: row.metadata.schema === "tedix.work-proposal.v1"
+						? "The proposal received no response for fourteen days."
+						: "Its Work is completed or cancelled and the question is older than three days.";
+		const body = `Closed obsolete request: ${row.subject}. ${reason}`;
+		const note = row.workItemId
+			? db.insert(workItemComments).select(
+					db
+						.select({
+							id: sql<string>`${crypto.randomUUID()}`.as("id"),
+							workItemId: sql<string>`${row.workItemId}`.as("workItemId"),
+							orgId: sql<string>`${row.orgId}`.as("orgId"),
+							authorType: sql<string>`'system'`.as("authorType"),
+							authorId: sql<string>`'tedix'`.as("authorId"),
+							body: sql<string>`${body}`.as("body"),
+							metadata:
+								sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id })}`.as(
+									"metadata",
+								),
+							createdAt: sql<string>`${p.now}`.as("createdAt"),
+						})
+						.from(workInteractions)
+						.where(
+							and(
+								eq(workInteractions.orgId, row.orgId),
+								eq(workInteractions.id, row.id),
+								eq(workInteractions.resolutionFence, fence),
+							),
+						),
+				)
+			: null;
+		const [closed] = note
+			? await db.batch([update, note])
+			: await db.batch([update]);
+		expired += closed.length;
+	}
+	return { observed: rows.length, expired };
 }
 
 export async function getWorkInteraction(

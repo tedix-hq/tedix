@@ -127,7 +127,7 @@ async function runHook(
 		duringCreate,
 		failRespond = false,
 		stdin,
-		gateway = {},
+		gateway = { [TRIAGE_CALLABLE]: () => TRIAGE_OK },
 		timeoutMs,
 		codexTranscript = async () => "/fixture/stored-thread.jsonl",
 	}: {
@@ -191,7 +191,9 @@ async function runHook(
 					);
 					const input = JSON.parse(codeAgent[2]!);
 					gatewayCalls.push([callable, input, args]);
-					const handler = gateway[callable];
+					const handler =
+						gateway[callable] ??
+						(callable === TRIAGE_CALLABLE ? () => TRIAGE_OK : undefined);
 					if (!handler) throw new Error("Unknown agent tool");
 					return structuredClone(await handler(input)) as JsonObject;
 				}
@@ -218,6 +220,16 @@ async function runHook(
 				if (tool?.name === "ack_work_interaction_delivery") {
 					acks.push(tool.input);
 					return { data: [] };
+				}
+				if (
+					typeof stdinInput === "string" &&
+					stdinInput.startsWith("async () => await work.add_comment(")
+				) {
+					const input = JSON.parse(
+						stdinInput.slice("async () => await work.add_comment(".length, -1),
+					);
+					gatewayCalls.push(["work.add_comment", input, args]);
+					return { id: "comment" };
 				}
 				if (args.includes("code"))
 					throw new Error("Unexpected Code Mode wrapper");
@@ -698,53 +710,55 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(reports()).toHaveLength(1);
 	});
 
-	test("unavailable triage falls back to the regex classifier", async () => {
-		enableStatus();
-		await runHook("stop", { last_assistant_message: "Should I push?" }, [
-			BINDING,
-			AUTH,
-			CREATED,
-		]);
-		const triage = payloads[0]![1].metadata.triage;
-		expect(triage).toMatchObject(UNAVAILABLE);
-		expect(typeof triage.latencyMs).toBe("number");
-		expect(statusState()).toMatchObject({
-			state: "needs_you",
-			summary: "Should I push?",
-		});
-		expect(notifications()).toHaveLength(1);
-		// A malformed result is unavailable too.
-		await runHook(
-			"stop",
-			{ last_assistant_message: "Pushed." },
-			[
-				BINDING,
-				AUTH,
-				{ id: "88888888-8888-4888-8888-888888888888", version: 1 },
-			],
-			{
-				gateway: {
-					[TRIAGE_CALLABLE]: () => ({ status: "ok", urgency: "soon" }),
+	test("failed or malformed triage never creates a human request or notification", async () => {
+		for (const result of [UNAVAILABLE, { status: "ok", urgency: "soon" }]) {
+			enableStatus();
+			await runHook(
+				"stop",
+				{ last_assistant_message: "Should I push?" },
+				[BINDING, AUTH],
+				{
+					gateway: { [TRIAGE_CALLABLE]: () => result },
 				},
-			},
-		);
-		expect(payloads[1]![1].metadata.triage.status).toBe("unavailable");
-		expect(statusState()?.state).toBe("done");
+			);
+			expect(payloads).toEqual([]);
+			expect(statusState()?.state).toBe("done");
+			expect(notifications()).toEqual([]);
+		}
 	});
 
-	test("a slow triage times out and the question is still created", async () => {
+	test("timed-out triage never creates a human request", async () => {
 		enableStatus();
 		await runHook(
 			"stop",
 			{ last_assistant_message: "Should I push?" },
-			[BINDING, AUTH, CREATED],
+			[BINDING, AUTH],
 			{
 				timeoutMs: 20,
 				gateway: { [TRIAGE_CALLABLE]: () => new Promise(() => {}) },
 			},
 		);
-		expect(payloads[0]![1].metadata.triage.status).toBe("unavailable");
-		expect(notifications()).toHaveLength(1);
+		expect(payloads).toEqual([]);
+		expect(notifications()).toEqual([]);
+	});
+
+	test("unclassified captures are retained as a note on the agent's bound Work", async () => {
+		await runHook(
+			"stop",
+			{ last_assistant_message: "The build passed." },
+			[{ ...BINDING, workItemId: WORK }, AUTH],
+			{
+				gateway: { [TRIAGE_CALLABLE]: () => UNAVAILABLE },
+			},
+		);
+		expect(payloads).toEqual([]);
+		expect(
+			gatewayCalls.find(([name]) => name === "work.add_comment")?.[1],
+		).toMatchObject({
+			id: WORK,
+			body: "Turn capture (triage unavailable):\n\nThe build passed.",
+			metadata: { source: "agent-turn-end", sessionId: SESSION },
+		});
 	});
 
 	test("an owned Stop still reports when capture fails before triage", async () => {
@@ -754,15 +768,15 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 			{ ...AUTH, wouldUse: "external-agent:x" },
 		]);
 		expect(payloads).toEqual([]);
-		expect(statusState()?.state).toBe("needs_you");
-		expect(notifications()).toHaveLength(1);
+		expect(statusState()?.state).toBe("done");
+		expect(notifications()).toEqual([]);
 		// Without the opt-in, capture never touches the status.
 		rmSync(join(config, "agent-status"), { recursive: true, force: true });
 		await runHook("stop", { last_assistant_message: "Should I push?" }, [
 			{ ...BINDING, decisionCapture: false },
 		]);
 		expect(statusState()).toBeUndefined();
-		expect(notifications()).toHaveLength(1);
+		expect(notifications()).toEqual([]);
 	});
 
 	test("the reply carries the Clef label next to the regex class", async () => {

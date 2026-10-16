@@ -21,6 +21,7 @@ import {
 	delegateWorkInteraction,
 	listWorkInteractionInbox,
 	respondToWorkInteraction,
+	sweepObsoleteWorkInteractions,
 } from "./interactions";
 
 const NOW = "2026-08-21T12:00:00.000Z";
@@ -406,5 +407,121 @@ describe("question delegation", () => {
 				)
 				.get(),
 		).toMatchObject({ target_type: "user", version: 1 });
+	});
+});
+
+describe("obsolete Work interactions", () => {
+	it("closes only questions older than three days on terminal Work, with one system note", async () => {
+		for (const disposition of ["completed", "cancelled"]) {
+			const { sqlite, db } = fixture();
+			sqlite
+				.prepare("UPDATE work_items SET disposition=? WHERE id='work'")
+				.run(disposition);
+			sqlite
+				.prepare(
+					"UPDATE work_interactions SET created_at='2026-08-18T11:59:59.000Z' WHERE id='mine'",
+				)
+				.run();
+			sqlite
+				.prepare(
+					"UPDATE work_interactions SET created_at='2026-08-18T12:00:00.000Z' WHERE id='other-target'",
+				)
+				.run();
+			expect(
+				await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }),
+			).toEqual({ observed: 1, expired: 1 });
+			expect(
+				sqlite
+					.prepare("SELECT status FROM work_interactions WHERE id='mine'")
+					.get()?.status,
+			).toBe("expired");
+			const note = sqlite
+				.prepare("SELECT author_type,body FROM work_item_comments")
+				.get();
+			expect(note?.author_type).toBe("system");
+			expect(note?.body).toContain("older than three days");
+			expect(
+				sqlite
+					.prepare("SELECT COUNT(*) AS n FROM work_interaction_responses")
+					.get()?.n,
+			).toBe(0);
+			expect(
+				await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }),
+			).toEqual({ observed: 0, expired: 0 });
+		}
+	});
+	it("keeps old questions on active Work, non-questions, and resolved requests", async () => {
+		const { sqlite, db } = fixture();
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z'",
+			)
+			.run();
+		expect(
+			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
+				.expired,
+		).toBe(0);
+		sqlite.prepare("UPDATE work_items SET disposition='completed'").run();
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET kind='handoff' WHERE id IN ('mine','other-target')",
+			)
+			.run();
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET status='resolved' WHERE id IN ('other-type','untargeted')",
+			)
+			.run();
+		expect(
+			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
+				.expired,
+		).toBe(0);
+	});
+	it("expires due proposals and legacy unanswered proposals after fourteen days", async () => {
+		const { sqlite, db } = fixture();
+		const metadata = JSON.stringify({ schema: "tedix.work-proposal.v1" });
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET kind='handoff',metadata=?,expires_at=? WHERE id='mine'",
+			)
+			.run(metadata, NOW);
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET kind='handoff',metadata=?,created_at=? WHERE id='other-target'",
+			)
+			.run(metadata, "2026-08-07T12:00:00.000Z");
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET kind='handoff',metadata=?,created_at=? WHERE id='other-type'",
+			)
+			.run(metadata, "2026-08-07T12:00:00.001Z");
+		expect(
+			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
+				.expired,
+		).toBe(2);
+		const open = await listWorkInteractionInbox(db, {
+			orgId: "org",
+			states: ["open"],
+			observedAt: NOW,
+		});
+		expect(open.data.map((r) => r.request.id)).not.toContain("mine");
+	});
+	it("retires legacy unavailable captures but preserves classified requests", async () => {
+		const { sqlite, db } = fixture();
+		for (const [id, status] of [
+			["mine", "unavailable"],
+			["other-target", "ok"],
+		])
+			sqlite.prepare("UPDATE work_interactions SET metadata=? WHERE id=?").run(
+				JSON.stringify({
+					schema: "tedix.decision-capture.v1",
+					triage: { status },
+				}),
+				id!,
+			);
+		expect(
+			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
+				.expired,
+		).toBe(1);
 	});
 });

@@ -131,6 +131,41 @@ async function createTargetedInteraction(
 }
 
 describe("Work interaction canonical actor projections", () => {
+	it("retains a harness requester under owner login and labels it as the agent", async () => {
+		const { owner } = fixture();
+		const session = "codex:fixture-session";
+		const created = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Owner: configure access",
+			prompt: "Configure access",
+			reason: "The owner must grant access.",
+			requestedFrom: { type: "user", id: "owner-id" },
+			metadata: { agentSession: session },
+		});
+		expect(created.creatorSessionId).toBe(session);
+		const inbox = await owner.listInbox({ states: ["open"] });
+		expect(inbox.data.find((r) => r.request.id === created.id)?.askedBy).toBe(
+			"Codex session",
+		);
+	});
+	it("refuses to address an unclassified captured turn to a human", async () => {
+		const { owner } = fixture();
+		await expect(
+			owner.create({
+				workItemId: WORK_ITEM_ID,
+				kind: "question",
+				subject: "Build passed",
+				prompt: "Build passed",
+				requestedFrom: { type: "user", id: "owner-id" },
+				metadata: {
+					schema: "tedix.decision-capture.v1",
+					triage: { status: "unavailable" },
+				},
+			}),
+		).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+	});
+
 	it("allows only the target human to delegate the existing question", async () => {
 		const { owner, target, other, sqlite } = fixture();
 		const tediId = "00000000-0000-4000-8000-000000000003";
