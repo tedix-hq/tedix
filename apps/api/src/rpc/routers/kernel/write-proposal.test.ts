@@ -13,6 +13,7 @@ import {
 	DESTRUCTIVE_VERBS,
 	isWriteCapable,
 	kernelWriteEnabled,
+	normalizeOsSheetCellAddress,
 	planKernelWriteProposal,
 	preferredToolForCapability,
 	readEditTargetOutput,
@@ -722,7 +723,6 @@ describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
 		expect(mocks.selectJevAction).not.toHaveBeenCalled();
 		expect(service.calls.map((call) => call.method).sort()).toEqual([
 			"tools/call",
-			"tools/list",
 		]);
 		const code = (
 			service.calls.find((call) => call.method === "tools/call")?.params
@@ -737,7 +737,7 @@ describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
 		]);
 	});
 
-	it("reuses the listed catalog and schema on the next write turn", async () => {
+	it("reuses the proven schema without listing on the next write turn", async () => {
 		const service = renameService();
 		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
 			slug === "tedix-unified" ? { slug } : null,
@@ -748,7 +748,7 @@ describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
 			env: baseEnv(service),
 		});
 		expect(second?.toolName).toBe("kernel.rename_conversation");
-		expect(service.calls).toHaveLength(2);
+		expect(service.calls).toHaveLength(1);
 	});
 });
 
@@ -1474,7 +1474,6 @@ describe("planKernelWriteProposal — positive path", () => {
 		// Code Mode call that describes it directly.
 		expect(service.calls.map((call) => call.method).sort()).toEqual([
 			"tools/call",
-			"tools/list",
 		]);
 		const canonicalCode = (
 			service.calls.find((call) => call.method === "tools/call")?.params
@@ -2373,4 +2372,49 @@ describe("factory creation preview", () => {
 			} else expect(proposal).toBeNull();
 		},
 	);
+});
+
+describe("Tedix single-cell A1 coordinates", () => {
+	const args = {
+		outputId: "abcdef00-ab12-4011-8111-000000000001",
+		startRow: 2,
+		startColumn: 2,
+		cells: [[15]],
+		expectedRevision: 4,
+	};
+	it.each([
+		["A1", 0, 0],
+		["B2", 1, 1],
+		["AA10", 9, 26],
+	] as const)("%s converts once before validation", (cell, row, column) => {
+		const normalized = normalizeOsSheetCellAddress(
+			`Update cell ${cell} to 15 in sheet ${args.outputId}, titled "Q3 budget". Preserve all other cells and the title.`,
+			"os.set_os_sheet_range",
+			args,
+		);
+		expect(normalized).toEqual({ ...args, startRow: row, startColumn: column });
+		expect(args.startRow).toBe(2);
+	});
+	it.each([
+		"Update cell B2 to 15 and cell C3 to 20",
+		"Update range B2:C3 to 15",
+		"Do not update cell B2 to 15",
+	])("%s leaves model arguments intact", (content) => {
+		expect(
+			normalizeOsSheetCellAddress(content, "os.set_os_sheet_range", args),
+		).toBe(args);
+	});
+	it("preserves multi-cell and external-provider semantics", () => {
+		const range = { ...args, cells: [[1, 2]] };
+		expect(
+			normalizeOsSheetCellAddress(
+				"Set cell B2 to 15",
+				"os.set_os_sheet_range",
+				range,
+			),
+		).toBe(range);
+		expect(
+			normalizeOsSheetCellAddress("Set cell B2 to 15", "excel.set_range", args),
+		).toBe(args);
+	});
 });
