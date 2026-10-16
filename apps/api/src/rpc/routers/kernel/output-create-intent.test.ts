@@ -56,9 +56,20 @@ describe("card verdict follow-ups", () => {
 			cardVerdictFollowUp("mark it useful", "no sheet here #1"),
 		).toBeNull();
 		expect(
-			cardVerdictFollowUp("mark it useful", `${shown}\nAlso card #2.`),
+			cardVerdictFollowUp(
+				"mark it useful",
+				`Summary of today.\nNothing new.\nStill nothing.\nCards #1 and #2 are open; output \`${sheet}\`.`,
+			),
 		).toBeNull();
 		expect(cardVerdictFollowUp("mark it useful", null)).toBeNull();
+	});
+
+	it("takes the card named at the top, not later mentions", () => {
+		const answer = `### Card #6 — Post idea\n*From “Social cards 2026-01-02 08:15”*\n\n**Draft:** Hello.\n\nAll empty. This is the first matching row; cards #1–5 have review entries.\n\nNothing changed. Source: os.get_os_output (output \`${sheet}\`, revision 10).`;
+		expect(cardVerdictFollowUp("mark it useful", answer)).toMatchObject({
+			outputId: sheet,
+			card: "6",
+		});
 	});
 
 	it("routes to a range write on that sheet with the row in the rationale", () => {

@@ -153,13 +153,15 @@ export function cardVerdictFollowUp(
 			).map((hit) => hit.match(new RegExp(UUID_SOURCE, "i"))![0].toLowerCase()),
 		),
 	];
-	const cards = [
-		...new Set(
-			(previousAnswer.match(/(?:card\s*#?|#)\s*(\d{1,3})\b/gi) ?? []).map(
-				(hit) => hit.match(/\d+/)![0],
-			),
-		),
-	];
+	// The shown card is named at the top ("### Card #6 — Post idea"); later
+	// mentions ("cards #1–5 have verdicts") are context, not the referent.
+	const card = previousAnswer
+		.split("\n")
+		.filter((text) => text.trim())
+		.slice(0, 3)
+		.map((text) => text.match(/(?:card\s*#?|#)\s*(\d{1,3})\b/i)?.[1])
+		.find(Boolean);
+	const cards = card ? [card] : [];
 	if (cards.length !== 1 || ids.length > 1 || titles.length > 1) return null;
 	if (ids.length === 0 && titles.length === 0) return null;
 	return {
