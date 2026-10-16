@@ -52,6 +52,11 @@ import {
 	WriteDispatchIdempotencyInputSchema,
 } from "../schemas/cognitive-runtime";
 
+import {
+	TurnMemoryInputSchema,
+	TurnMemoryOutputSchema,
+} from "../schemas/turn-memory";
+
 const cognitiveRuntimeOc = oc
 	.route({ tags: ["cognitive-runtime"] })
 	.errors(baseErrors);
@@ -64,6 +69,13 @@ const cognitiveRuntimeOc = oc
  * (`cognitiveRuntime/...`) are unchanged.
  */
 export const cognitiveRuntimeContract = {
+	getTurnMemory: cognitiveRuntimeOc
+		.route({
+			tags: ["internal"],
+			summary: "Refresh preferences and current task state",
+		})
+		.input(TurnMemoryInputSchema)
+		.output(TurnMemoryOutputSchema),
 	rankDiscovery: cognitiveRuntimeOc
 		.route({
 			tags: ["internal"],

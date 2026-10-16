@@ -5,6 +5,7 @@
  * original" safety check.
  */
 
+import { parseObserverResult } from "./observer";
 import { countTokens } from "./tokens.js";
 import type { Observation, ReflectionResult } from "./types.js";
 
@@ -64,32 +65,5 @@ export function finalizeReflection(args: {
  * `content`, `priority`, and `type` strings.
  */
 export function parseReflectorObservations(content: string): Observation[] {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(content);
-	} catch {
-		return [];
-	}
-
-	const arr: unknown[] = Array.isArray(parsed)
-		? (parsed as unknown[])
-		: parsed &&
-			  typeof parsed === "object" &&
-			  Array.isArray((parsed as any).observations)
-			? ((parsed as any).observations as unknown[])
-			: parsed &&
-				  typeof parsed === "object" &&
-				  typeof (parsed as any).content === "string" &&
-				  typeof (parsed as any).priority === "string"
-				? [parsed]
-				: [];
-
-	return arr.filter(
-		(o): o is Observation =>
-			Boolean(o) &&
-			typeof o === "object" &&
-			typeof (o as any).content === "string" &&
-			typeof (o as any).priority === "string" &&
-			typeof (o as any).type === "string",
-	);
+	return parseObserverResult(content).observations;
 }

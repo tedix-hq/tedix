@@ -34,6 +34,9 @@ export interface Observation {
 	type: ObservationType;
 	content: string;
 	details: string[];
+	/** Transient evidence must be refreshed at its source before acting. */
+	verifyBeforeUse?: boolean;
+	expiresAt?: string;
 	/** Explicit terminal result for completed episode observations. */
 	outcomeStatus?: "success" | "failure" | "partial";
 	/** Explicit date referenced in the content (e.g. a deadline, past event) */

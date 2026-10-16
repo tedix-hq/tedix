@@ -160,3 +160,21 @@ describe("isMemorySearchFactEligible", () => {
 		);
 	});
 });
+
+it("expires transient evidence without expiring durable preferences", () => {
+	const options = { orgId: "org-1", tediId: "tedi-1" };
+	expect(
+		isMemorySearchFactEligible(
+			fact({
+				metadata: { verifyBeforeUse: true, expiresAt: "2020-01-01T00:00:00Z" },
+			}),
+			options,
+		),
+	).toBe(false);
+	expect(
+		isMemorySearchFactEligible(
+			fact({ factType: "preference", metadata: { verifyBeforeUse: false } }),
+			options,
+		),
+	).toBe(true);
+});

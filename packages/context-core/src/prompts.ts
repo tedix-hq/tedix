@@ -45,6 +45,8 @@ Each observation in the array has:
 - "content": string (one sentence, the core observation — be SPECIFIC with names, values, file paths)
 - "details": string[] (supporting details, max 3 per observation)
 - "outcomeStatus": "success" | "failure" | "partial" | null (required for \`episode\`; use \`partial\` when runtime completion is known but business success is not)
+- "verifyBeforeUse": boolean — true for temporary task state, approvals, deadlines and completed outcomes; false for durable preferences, reusable lessons and stable technical knowledge. Keep canonical Work/approval IDs in details.
+- "expiresAt": ISO timestamp | null — optional expiry for transient evidence. Never expire a durable preference merely because time passed.
 - "referencedDate": string | null (explicit date mentioned in content — a deadline, event, or past date in YYYY-MM-DD format)
 - "relativeDate": string | null (the original relative expression from the text, e.g. "yesterday", "last week", "3 days ago", "next Friday")
 - "entities": array of { "name": string, "type": "person" | "tool" | "service" | "api" | "organization" | "domain" } — named entities mentioned in this observation. Empty array [] if none.
@@ -125,6 +127,9 @@ Use the same observation schema. The output observations MUST be shorter than th
 
 ## Three-Date Temporal Model
 Each observation may have three temporal fields: date (observation date), referencedDate (resolved calendar date), relativeDate (original expression like "last week"). Preserve ALL temporal fields during merges. When merging observations, keep the most recent date and all referenced/relative dates.
+
+## Memory freshness
+Preserve durable preferences and lessons verbatim. Preserve verifyBeforeUse, expiresAt and source IDs when merging. Temporary task state is historical evidence: canonical live state overrides it. Correct contradicted status/deadline claims from supplied live evidence; never reopen completed Work from an old note. An expiry or missing recall is not completion evidence.
 
 ## Entity Preservation
 Each observation may have an "entities" array of { name, type } objects. When merging observations, UNION all entities from the merged observations — do not drop entities. Deduplicate by name (case-insensitive).

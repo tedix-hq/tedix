@@ -5,6 +5,7 @@
  * call and feeds raw JSON content into `parseObserverResult`.
  */
 
+import { observationNeedsVerification } from "./memory-freshness";
 import type { Observation, ObserverResult, TaskIntent } from "./types.js";
 
 const TASK_INTENT_KINDS = new Set([
@@ -285,6 +286,12 @@ export function parseObserverResult(content: string): ObserverResult {
 			} else {
 				delete obs.entities;
 			}
+			obs.verifyBeforeUse = observationNeedsVerification(obs);
+			if (
+				typeof obs.expiresAt !== "string" ||
+				!Number.isFinite(Date.parse(obs.expiresAt))
+			)
+				delete obs.expiresAt;
 			return obs as Observation;
 		});
 

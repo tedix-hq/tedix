@@ -3,6 +3,7 @@ import {
 	getEdgesForFacts,
 	getRelatedFactsForFacts,
 } from "@tedix/db/queries/memory-graph/edges";
+import { observationNeedsVerification } from "@tedix/context-core/memory-freshness";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	type FactType,
@@ -629,6 +630,19 @@ const learn = authed.learn
 		const metadata = mergeBrainWriteMetadata(
 			{
 				...inputMetadata,
+				...(inputMetadata?.producer === "afterTurn" ||
+				resolvedSource?.startsWith("observation://")
+					? {
+							verifyBeforeUse: observationNeedsVerification({
+								type: input.factType,
+								content: input.content,
+								...(typeof inputMetadata?.verifyBeforeUse === "boolean"
+									? { verifyBeforeUse: inputMetadata.verifyBeforeUse }
+									: {}),
+							}),
+							observedAt: inputMetadata?.observedAt ?? now,
+						}
+					: {}),
 				...(topicKey
 					? {
 							topicKey,

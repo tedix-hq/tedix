@@ -155,6 +155,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"cognitiveRuntime/getArtifact": "mcp:memory.read",
 	"cognitiveRuntime/getStability": "mcp:memory.read",
 	"cognitiveRuntime/getStatus": "mcp:memory.read",
+	"cognitiveRuntime/getTurnMemory": "platform:admin",
 	"cognitiveRuntime/listApprovals": "mcp:memory.read",
 	"cognitiveRuntime/listArtifacts": "mcp:memory.read",
 	"cognitiveRuntime/listConversations": "mcp:memory.read",
