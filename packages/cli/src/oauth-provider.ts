@@ -805,7 +805,11 @@ export async function beginSdkOAuthLogin(
  * How long before `accessTokenExpiresAtSeconds` a stored session is treated as already stale.
  *
  * Access tokens are minted with `expires_in: 600`, so the usable window is ten
- * minutes; the refresh token behind them is good for years. Nothing was
+ * minutes. The refresh token's lifetime is not set here: the Connect MCP
+ * resource's Descope session settings fix it, counted from login (520 weeks
+ * today). Without that override, Descope applies the project's much shorter
+ * refresh expiry. Refresh tokens also rotate, so a lost renewal reply ends the
+ * login early. Nothing was
  * refreshing proactively, and an expired access token does NOT surface as a
  * transport 401 the SDK would retry — the MCP edge forwards it and
  * `apps/api/src/rpc/orpc.ts` rejects it as an oRPC UNAUTHORIZED inside an
