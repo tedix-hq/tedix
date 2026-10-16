@@ -79,8 +79,9 @@ when nothing else uses them, then verify no schedule remains.
 
 ## Traps and patterns
 
-- Lanes render once. Same-slug creation reuses configuration; archive and create
-  with a fresh slug to change cadence, goal or Output bindings.
+- Lanes render once. Same-slug creation reuses configuration; archive and
+  recreate to change cadence, goal or Output bindings. Reuse the factory
+  slug/project; use the newly returned skill ID or skill slug for runs.
 - Code Mode result caps can truncate JSON. Narrow searches, describe one tool,
   project small result fields and page lists. Do not repeat mutations to inspect
   their results.
