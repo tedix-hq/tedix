@@ -42,6 +42,7 @@ import { buildCompletionEvidence } from "@tedix/api-contract/schemas/execution-e
 import {
 	verifyAction,
 	renderActionReceipt,
+	ACTION_RECEIPT_META_KEY,
 } from "@tedix/api-contract/utils/action-receipt";
 import { assertCodeModeInnerToolAuthorized } from "./codemode-auth";
 import {
@@ -861,6 +862,10 @@ async function executeWithHandler(
 			outcome.status === "succeeded"
 				? await verifyAction({
 						operation: ctx.callable ?? tool.toolId,
+						endpoint:
+							typeof toolConfig.endpoint === "string"
+								? toolConfig.endpoint
+								: undefined,
 						args,
 						result: structuredContent,
 						actor: agent.callerIdentity?.tediId
@@ -874,13 +879,14 @@ async function executeWithHandler(
 							agent.env.ENVIRONMENT === "production"
 								? "https://os.tedix.dev"
 								: "https://os.tedix.tech",
-						read: async (name, input) => {
+						read: async (name, input, endpoint) => {
 							const namespace = resolveMcpToolNamespace(tool);
 							const reader = [...agent.loadedTools.values()].find(
 								(candidate) =>
 									resolveMcpToolNamespace(candidate) === namespace &&
-									sanitizeToolName(candidate.toolId.split("__").at(-1)!) ===
-										name,
+									(sanitizeToolName(candidate.toolId.split("__").at(-1)!) ===
+										name ||
+										candidate.config?.endpoint === endpoint),
 							);
 							if (!reader || reader.annotations?.readOnlyHint !== true)
 								throw new Error("Read-back unavailable");
@@ -983,6 +989,7 @@ async function executeWithHandler(
 					}
 				: structuredContent;
 		const evidencedStructuredContent =
+			!tool.outputSchema &&
 			!isErrorResult &&
 			result.providerConfirmation &&
 			isRecord(projectedStructuredContent)
@@ -997,7 +1004,9 @@ async function executeWithHandler(
 					}
 				: projectedStructuredContent;
 		const fullStructuredContent =
-			actionReceipt && isRecord(evidencedStructuredContent)
+			!tool.outputSchema &&
+			actionReceipt &&
+			isRecord(evidencedStructuredContent)
 				? {
 						...evidencedStructuredContent,
 						actionReceipt,
@@ -1133,6 +1142,7 @@ async function executeWithHandler(
 			...(isErrorResult ? { isError: true as const } : {}),
 			_meta: {
 				"openai/outputTemplate": outputTemplate,
+				...(actionReceipt ? { [ACTION_RECEIPT_META_KEY]: actionReceipt } : {}),
 				"openai/widgetAccessible": tool.widgetAccessible ?? true,
 				"openai/toolInvocation/invoking": `Processing ${tool.title}...`,
 				"openai/toolInvocation/invoked": textContent.substring(0, 50),

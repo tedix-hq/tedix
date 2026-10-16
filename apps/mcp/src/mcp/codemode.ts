@@ -1,5 +1,8 @@
 import { isToolDeniedForConnection } from "./no-funds-policy";
-import type { ActionReceipt } from "@tedix/api-contract/utils/action-receipt";
+import {
+	ACTION_RECEIPT_META_KEY,
+	type ActionReceipt,
+} from "@tedix/api-contract/utils/action-receipt";
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -1682,6 +1685,7 @@ function buildNamespaceGroups(
 					},
 				);
 			}
+			let actionReceipt: ActionReceipt | undefined;
 			const runTool = async () => {
 				if (executionRefs.approvalResult)
 					throw new Error("Destructive approval pending");
@@ -1841,6 +1845,10 @@ function buildNamespaceGroups(
 						paidResult,
 						tool.toolId,
 					);
+					if (declaredAnnotations?.readOnlyHint === false)
+						actionReceipt = recordFrom(
+							recordFrom(paidResult._meta)?.[ACTION_RECEIPT_META_KEY],
+						) as unknown as ActionReceipt | undefined;
 					const normalizedRecord = recordFrom(normalizedResult);
 					if (normalizedRecord) {
 						const {
@@ -1849,7 +1857,11 @@ function buildNamespaceGroups(
 							...data
 						} = normalizedRecord;
 						return attachCodeModeWidgetMetadata(
-							Object.keys(data).length > 0 ? data : normalizedRecord,
+							actionReceipt
+								? { ...data, actionReceipt }
+								: Object.keys(data).length > 0
+									? data
+									: normalizedRecord,
 							serverCtx,
 							tool,
 							recordFrom(layoutSpec) ?? undefined,
@@ -1922,6 +1934,7 @@ function buildNamespaceGroups(
 					executionRefs.toolReceipts.push({
 						operation: `${ns}.${safeName}`,
 						status: evidence.status,
+						...(actionReceipt ? { actionReceipt } : {}),
 						...(resultError ? { error: resultError.slice(0, 300) } : {}),
 					});
 					return withCompletionEvidence(safeName, result, {
@@ -1954,26 +1967,10 @@ function buildNamespaceGroups(
 					);
 				}
 			};
-			const result = await (isModernMcpRequest(
-				executionRefs.approvalExtra?._meta,
-			) || isSideEffectfulTool(tool.annotations)
+			return isModernMcpRequest(executionRefs.approvalExtra?._meta) ||
+				isSideEffectfulTool(tool.annotations)
 				? runSerializedSideEffect(executionRefs, runWithEvidence)
-				: runWithEvidence());
-			const actionReceipt = recordFrom(result)?.actionReceipt as
-				| ActionReceipt
-				| undefined;
-			const isWrite =
-				resolveToolAnnotations({
-					annotations: tool.annotations,
-					writeCapability: tool.writeCapability ?? null,
-					meta: tool.meta,
-				})?.readOnlyHint === false;
-			const executionReceipt = executionRefs.toolReceipts.findLast(
-				(receipt) => receipt.operation === ownerKey,
-			);
-			if (executionReceipt && isWrite && actionReceipt)
-				executionReceipt.actionReceipt = actionReceipt;
-			return result;
+				: runWithEvidence();
 		};
 
 		// JSON Schema descriptor for type generation.
