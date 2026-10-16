@@ -10,7 +10,7 @@ const originalMatchMedia = window.matchMedia;
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-function renderSurface(matches: boolean) {
+function renderSurface(matches: boolean, collapse?: "mobile" | "always") {
 	window.matchMedia = ((query: string) =>
 		({
 			matches,
@@ -27,6 +27,7 @@ function renderSurface(matches: boolean) {
 		return (
 			<ResponsiveFormSurface
 				title="Create record"
+				collapse={collapse}
 				description="Secondary mutation with complete desktop guidance"
 				mobileDescription="Secondary mutation"
 				mobileOpen={open}
@@ -78,5 +79,18 @@ describe("ResponsiveFormSurface", () => {
 		);
 		expect(surface?.getAttribute("data-responsive-form-state")).toBe("open");
 		expect(container.querySelectorAll("form")).toHaveLength(1);
+	});
+
+	it("keeps an always-collapsed form behind its trigger on desktop", () => {
+		const container = renderSurface(false, "always");
+		const surface = container.querySelector(
+			'[data-kumo-component="ResponsiveFormSurface"]',
+		);
+		const trigger = container.querySelector<HTMLButtonElement>("button");
+
+		expect(surface?.getAttribute("data-responsive-form-state")).toBe("closed");
+		expect(container.querySelectorAll("form")).toHaveLength(1);
+		act(() => trigger?.click());
+		expect(surface?.getAttribute("data-responsive-form-state")).toBe("open");
 	});
 });

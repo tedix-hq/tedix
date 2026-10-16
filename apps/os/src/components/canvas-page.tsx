@@ -1351,8 +1351,7 @@ export function CanvasPage({
 									</EmptyMedia>
 									<EmptyTitle>Pick a document</EmptyTitle>
 									<EmptyDescription>
-										Choose a gadget or output from Resources to open a shared
-										live draft.
+										Open one from Resources to edit it here together.
 									</EmptyDescription>
 								</EmptyHeader>
 							</Empty>

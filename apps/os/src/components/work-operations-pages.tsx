@@ -970,7 +970,7 @@ export function WorkApprovalsPage() {
 		<Page width="xl">
 			<Header
 				title="Approvals"
-				description="Review runtime decisions and Work admission authority without crossing their separate governance boundaries."
+				description="Decisions waiting for you, and approvals that let work start."
 			/>
 			<PageSection aria-labelledby="runtime-approvals-title">
 				<SectionHeader>
@@ -979,9 +979,8 @@ export function WorkApprovalsPage() {
 							Runtime approvals
 						</SectionTitle>
 						<SectionDescription>
-							Actions paused by a tedi, Gadget, or automation. Resolve only
-							after reviewing the request, evidence, expiry, and exact bound
-							payload.
+							Actions a tedi or automation paused until someone approves them.
+							Check what each one will do before you approve it.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -1025,7 +1024,7 @@ export function WorkApprovalsPage() {
 				) : runtimeApprovals.data.data.length === 0 ? (
 					<None
 						title="No runtime decisions need attention"
-						description="Tedi, Gadget, and automation approvals will appear here when they pause for a signed-in human."
+						description="When a tedi or automation pauses for your approval, it appears here."
 					/>
 				) : (
 					<ul className="m-0 grid list-none gap-2 p-0">
@@ -1132,7 +1131,7 @@ export function WorkApprovalsPage() {
 							Work admission authority
 						</SectionTitle>
 						<SectionDescription>
-							Immutable authority proposals that gate Work Item admission.
+							Approvals a Work item needs before it can start.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -1325,6 +1324,7 @@ export function WorkApprovalsPage() {
 					}}
 				/>
 				<ResponsiveFormSurface
+					collapse="always"
 					title="Request approval"
 					description="Create a new request for a different approver. To approve an existing request, use its decision card in the inbox above."
 					mobileDescription="Request approval from someone else. Existing requests are decided in the inbox."

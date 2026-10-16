@@ -753,7 +753,7 @@ export function WorkItemsTable({
 									className="hidden truncate py-2! xl:table-cell"
 									title={item.accountableOwnerId ?? "Unassigned"}
 								>
-									{item.accountableOwnerId ?? "Unassigned"}
+									{workPrincipalLabel(item.accountableOwnerId)}
 								</TableCell>
 								<TableCell className="py-2!">
 									<time
@@ -838,8 +838,8 @@ export function WorkQueuePage() {
 	return (
 		<Page width="full">
 			<FactoryPageHeader
-				title="Admission queue"
-				description="Accepted work is evaluated against dependencies, capabilities, authority, budget, resources, and active attempts. Each row distinguishes completed gate evaluation from pending or unavailable checks."
+				title="Queue"
+				description="Accepted work and whether it is ready to start."
 			/>
 			<Text as="p" role="body">
 				<Link href="/work/queue" aria-current="page">
