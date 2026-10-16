@@ -82,6 +82,11 @@ async function retainKernelToolResultCore(input: {
 	sourceId: string;
 	value: unknown;
 	now?: Date;
+	/**
+	 * The caller holds an exactly-once claim on this source (an approved write's
+	 * run claim), so no earlier retention can exist and the lookup is skipped.
+	 */
+	freshSource?: boolean;
 }): Promise<KernelToolResultReference | null> {
 	const bytes = serialize(input.value);
 	if (!bytes || bytes.byteLength > KERNEL_TOOL_RESULT_MAX_BYTES) return null;
@@ -94,13 +99,15 @@ async function retainKernelToolResultCore(input: {
 	const objectKey = `${KERNEL_TOOL_RESULT_PREFIX}${input.organizationId}/${input.conversationId}/${crypto.randomUUID()}`;
 	const digest = await sha256(bytes);
 	try {
-		const existing = await getReadableKernelToolResultBySource(input.db, {
-			organizationId: input.organizationId,
-			conversationId: input.conversationId,
-			sourceKind: input.sourceKind,
-			sourceId: input.sourceId,
-			now: createdAt,
-		});
+		const existing = input.freshSource
+			? undefined
+			: await getReadableKernelToolResultBySource(input.db, {
+					organizationId: input.organizationId,
+					conversationId: input.conversationId,
+					sourceKind: input.sourceKind,
+					sourceId: input.sourceId,
+					now: createdAt,
+				});
 		if (existing)
 			return {
 				id: existing.id,

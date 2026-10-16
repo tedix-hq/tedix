@@ -17,6 +17,10 @@ import {
 } from "../schema/approvals";
 import { tediApprovalDependencyEvents } from "../schema/approval-simulations";
 import { getAffectedRows } from "../utils/d1-result";
+import {
+	buildInsertAuditEventStatement,
+	type InsertAuditEventParams,
+} from "./audit";
 
 // ============================================================================
 // Types
@@ -175,7 +179,38 @@ export async function createApprovalRequest(
 	db: DbClient,
 	data: CreateApprovalRequestParams,
 ): Promise<TediApprovalRequest> {
-	const results = await db
+	const results = await buildCreateApprovalRequestStatement(db, data);
+	const created = results[0];
+	if (!created)
+		throw new Error(`Failed to create approval request: ${data.id}`);
+	return created;
+}
+
+/**
+ * Create a pending approval request and its audit row in one D1 batch: both
+ * land or neither does.
+ */
+export async function createApprovalRequestWithAudit(
+	db: DbClient,
+	data: CreateApprovalRequestParams,
+	audit: InsertAuditEventParams,
+): Promise<TediApprovalRequest> {
+	const [results] = await db.batch([
+		buildCreateApprovalRequestStatement(db, data),
+		buildInsertAuditEventStatement(db, audit).statement,
+	]);
+	const created = results[0];
+	if (!created)
+		throw new Error(`Failed to create approval request: ${data.id}`);
+	return created;
+}
+
+/** Unexecuted pending-approval insert, for `db.batch()` composition. */
+export function buildCreateApprovalRequestStatement(
+	db: DbClient,
+	data: CreateApprovalRequestParams,
+) {
+	return db
 		.insert(tediApprovalRequests)
 		.values({
 			id: data.id,
@@ -190,10 +225,6 @@ export async function createApprovalRequest(
 			workflowId: data.workflowId ?? null,
 		})
 		.returning();
-	const created = results[0];
-	if (!created)
-		throw new Error(`Failed to create approval request: ${data.id}`);
-	return created;
 }
 
 /** One immutable payment rejection may create only one human review request. */

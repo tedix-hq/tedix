@@ -15,6 +15,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	createApprovalRequest,
+	createApprovalRequestWithAudit,
 	createProvisionalOutcome,
 	ensurePaymentBudgetOverrideRequest,
 	ensureProvisionalPromotionApprovalRequest,
@@ -389,6 +390,61 @@ describe("provisional outcome isolation", () => {
 			state: "rolled_back",
 			rollbackReason: "regression",
 			rolledBackBy: "human-1",
+		});
+	});
+});
+
+describe("createApprovalRequestWithAudit", () => {
+	function auditSetup() {
+		const { db } = setup();
+		return db;
+	}
+	const approval = {
+		id: "approval-1",
+		tediId: "tedi-1",
+		orgId: "org-1",
+		actionType: "home.tool_write",
+		description: "Create a document",
+		payload: { kind: "home_tool_write" },
+		createdAt: "2026-10-16T10:00:00.000Z",
+		expiresAt: "2099-10-17T10:00:00.000Z",
+	};
+	const audit = {
+		organizationId: "org-1",
+		actorId: "kernel",
+		actorType: "kernel" as const,
+		action: "approval.requested",
+		resourceType: "approval_request",
+		resourceId: "approval-1",
+	};
+
+	it("lands the pending approval and its audit row together", async () => {
+		const db = auditSetup();
+		await db.run(
+			sql.raw(`CREATE TABLE audit_events (
+				id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL,
+				actor_id TEXT NOT NULL, actor_type TEXT NOT NULL, action TEXT NOT NULL,
+				resource_type TEXT NOT NULL, resource_id TEXT, metadata TEXT,
+				ip_address TEXT, user_agent TEXT, timestamp INTEGER NOT NULL)`),
+		);
+		const created = await createApprovalRequestWithAudit(db, approval, audit);
+		expect(created).toMatchObject({ id: "approval-1", status: "pending" });
+		const rows = await db.all<{ action: string; resource_id: string }>(
+			sql`SELECT action, resource_id FROM audit_events`,
+		);
+		expect(rows).toEqual([
+			{ action: "approval.requested", resource_id: "approval-1" },
+		]);
+	});
+
+	it("writes neither row when the audit insert fails", async () => {
+		const db = auditSetup();
+		await expect(
+			createApprovalRequestWithAudit(db, approval, audit),
+		).rejects.toThrow();
+		expect(await listApprovalRequests(db, { orgId: "org-1" })).toMatchObject({
+			data: [],
+			total: 0,
 		});
 	});
 });

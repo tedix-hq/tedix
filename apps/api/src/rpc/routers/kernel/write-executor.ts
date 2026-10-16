@@ -315,26 +315,32 @@ export async function executeApprovedKernelWrite(args: {
 		const host = mcpHost(env.MCP_URL, payload.appSlug);
 
 		// Re-validate the stored tool still exists upstream before calling — the
-		// provider catalog may have changed between proposal and approval.
-		const listed = await listUpstreamTools(
-			env,
-			host,
-			payload.organizationId,
-			payload.initiatedByUserId ?? undefined,
-		);
+		// provider catalog may have changed between proposal and approval. Both
+		// reads are independent, so they run together; the write waits for both.
 		const transport = payload.transport ?? "direct";
+		const [listed, described] = await Promise.all([
+			listUpstreamTools(
+				env,
+				host,
+				payload.organizationId,
+				payload.initiatedByUserId ?? undefined,
+			),
+			transport === "codemode"
+				? mcpCall(
+						env,
+						host,
+						payload.organizationId,
+						"tools/call",
+						codeModeCanonicalDescribeParams(payload.toolName),
+						payload.initiatedByUserId ?? undefined,
+					)
+				: null,
+		]);
 		const tool =
 			transport === "codemode"
-				? parseCodeModeCatalog(
-						await mcpCall(
-							env,
-							host,
-							payload.organizationId,
-							"tools/call",
-							codeModeCanonicalDescribeParams(payload.toolName),
-							payload.initiatedByUserId ?? undefined,
-						),
-					).find((candidate) => candidate.name === payload.toolName)
+				? parseCodeModeCatalog(described).find(
+						(candidate) => candidate.name === payload.toolName,
+					)
 				: listed.items.find((candidate) => candidate.name === payload.toolName);
 		// An absence read out of a catalog we cut short is not an absence. Both
 		// checks below still abort the write — the approval is never executed on a
