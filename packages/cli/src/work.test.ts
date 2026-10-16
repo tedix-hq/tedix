@@ -1574,6 +1574,24 @@ describe("canonical create validation", () => {
 		expect(sources[0]).not.toContain("itemType");
 	});
 
+	test("creates with inherited project purpose and reports overridden defaults", async () => {
+		for (const defaults of [{}, { workClass: "maintenance", expires: "24h" }]) {
+			const { ctx, sources } = makeContext(
+				{ project: PROJECT, kind: "coding", ...defaults },
+				undefined,
+				() => ({ id: ITEM, objectiveId: OBJECTIVE, workClass: "objective" }),
+				{ json: false },
+			);
+			const result = await capture("create Maintain example", ctx);
+			expect(result.code).toBe(0);
+			expect(sources[0]).toContain(`"projectId":"${PROJECT}"`);
+			if (defaults.workClass)
+				expect(result.out.join("\n")).toContain(
+					`Inherited objective ${OBJECTIVE}`,
+				);
+		}
+	});
+
 	test("normalizes duration and ISO exception expiries", () => {
 		const now = Date.parse("2026-08-20T00:00:00.000Z");
 		expect(expiresToIso("72h", now)).toBe("2026-08-23T00:00:00.000Z");

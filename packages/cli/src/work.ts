@@ -1411,10 +1411,8 @@ export function expiresToIso(raw: string, now = Date.now()): string {
 
 /**
  * `create` — guided Work Item creation that surfaces the board's purpose gate
- * ergonomically: every item needs either an objective (`--objective <id>`) or a
- * time-bounded operational exception (`--class maintenance|incident|hygiene`
- * plus `--expires`). Both are validated BEFORE any network call so the failure
- * mode is a usage error, not a board rejection.
+ * ergonomically: purpose comes from a project, an explicit objective, or a
+ * time-bounded operational exception. The board resolves inherited purpose.
  */
 async function workCreate(ctx: WorkContext, title: string): Promise<number> {
 	const t = title.trim();
@@ -1422,7 +1420,7 @@ async function workCreate(ctx: WorkContext, title: string): Promise<number> {
 	const { as, desc, kind, priority, objective, workClass, expires } = ctx.work;
 
 	// The purpose gate, enforced client-side first.
-	if (!objective && !workClass) {
+	if (!objective && !workClass && !ctx.work.project) {
 		throw new Error(
 			"work create requires a purpose: pass --objective <objectiveId> for objective work, " +
 				"or --class maintenance|incident|hygiene --expires <duration|iso> for a time-bounded " +
@@ -1491,6 +1489,11 @@ async function workCreate(ctx: WorkContext, title: string): Promise<number> {
 		: {};
 	const id = typeof item.id === "string" ? item.id : "";
 	return ok(ctx, call.value, () => {
+		if (!objective && workClass && item.objectiveId) {
+			console.log(
+				`Inherited objective ${item.objectiveId} from project ${ctx.work.project}; --class and --expires were ignored.`,
+			);
+		}
 		console.log(
 			`${green("Created", ctx.color)} ${id || "(id unavailable)"}  ${dispositionPaint(
 				String(item.disposition ?? "proposed"),
@@ -2899,7 +2902,7 @@ export function workUsage(): string {
 Usage: tedix work <verb> [args] [options]
 
 Lifecycle:
-  create "<title>" --kind <kind> (--objective <id> | --class <class> --expires <duration>)
+  create "<title>" --kind <kind> (--project <id> | --objective <id> | --class <class> --expires <duration>)
               [--project <id>]
   accept <id> --done-when "<what done looks like>"
   readiness <id>
@@ -2928,7 +2931,9 @@ Checkpoint: checkpoint (read selected chat Work and bounded directed open Intera
 Collaboration: comment <id> <text> · confirm <id> --evidence <ref> [--contradicts]
 
 Choose the parent before creating. --project files the item under a portfolio
-project; an objective-linked project takes --objective rather than --class.
+project and inherits its objective. For example:
+  tedix work create "<title>" --kind coding --project <project-id>
+Inherited objectives override --class and --expires defaults.
 A Work Item joins a case afterwards with case-attach, not at creation.
 
 Accept states the outcome in plain language: --done-when writes the whole contract.
