@@ -5,6 +5,7 @@ const lane = {
 	slug: "sample-inbox",
 	name: "Sample inbox",
 	skillId: "skill-1",
+	ownerTediId: "sample-owner",
 	verdict: "paused",
 	reason: "Schedule disabled",
 	scheduleEnabled: false,
@@ -70,4 +71,11 @@ describe("factory chat routing", () => {
 		);
 		expect(result?.routeKind).toBe("ask_human");
 	});
+});
+
+it("grounds an immediate factory run in the lane skill and owning tedi", async () => {
+	const result = await factoryChatDecision("Run it now", ctx, async () => [
+		lane,
+	]);
+	expect(result?.rationale).toContain("owner tedi id: sample-owner");
 });

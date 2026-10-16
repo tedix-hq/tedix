@@ -121,6 +121,6 @@ export async function factoryChatDecision(
 		};
 	return {
 		...base,
-		rationale: `${base.rationale} Exact factory slug: ${lane.slug}; lane skill id: ${lane.skillId}.`,
+		rationale: `${base.rationale} Exact factory slug: ${lane.slug}; lane skill id: ${lane.skillId}; owner tedi id: ${lane.ownerTediId}.`,
 	};
 }

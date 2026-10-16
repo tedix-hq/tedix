@@ -2418,3 +2418,93 @@ describe("Tedix single-cell A1 coordinates", () => {
 		).toBe(args);
 	});
 });
+
+describe("factory manual dispatch planning", () => {
+	it("plans the verified owner and a fresh cycle key behind approval without dispatching", async () => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result:
+					body.method === "tools/list"
+						? { tools: [{ name: "code" }] }
+						: {
+								structuredContent: {
+									executionId: "sample-describe",
+									result: JSON.stringify([
+										{
+											callable: "skills.run_workflow",
+											description: "Run workflow",
+											annotations: {
+												readOnlyHint: false,
+												destructiveHint: true,
+											},
+											parameters: {
+												type: "object",
+												properties: {
+													skillId: { type: "string" },
+													idempotencyKey: { type: "string" },
+													tediId: { type: "string" },
+													params: {
+														type: "object",
+														additionalProperties: true,
+													},
+													reason: { type: "string" },
+													confirmDestructive: { type: "boolean" },
+												},
+												required: ["tediId"],
+											},
+										},
+									]),
+								},
+							},
+			},
+		}));
+		mocks.getAppBySlugForOrg.mockResolvedValue({ slug: "sample-tools" });
+		const plan = () =>
+			planKernelWriteProposal({
+				db: DB,
+				organizationId: "org-1",
+				env: baseEnv(service),
+				route: writeRoute({
+					rationale:
+						"Exact lane skill id: sample-skill; owner tedi id: sample-owner.",
+					toolIntent: {
+						appSlug: "sample-tools",
+						capability: "factories.run",
+						connectionStatus: "connected",
+					},
+				}),
+				content: "Run it now",
+				model: objectModel({
+					toolName: "skills.run_workflow",
+					args: { skillId: "sample-skill", tediId: "sample-owner" },
+					reasoning: "Run the known lane",
+				}),
+			});
+		const first = await plan();
+		const second = await plan();
+		expect(first?.args).toMatchObject({
+			skillId: "sample-skill",
+			tediId: "sample-owner",
+			confirmDestructive: true,
+			params: { cycleKey: expect.stringMatching(/^manual-/) },
+		});
+		expect(first?.riskTier).toBe("high");
+		expect(first?.args.idempotencyKey).toBe(
+			(first?.args.params as { cycleKey: string }).cycleKey,
+		);
+		expect((first?.args.params as { cycleKey: string }).cycleKey).not.toBe(
+			(second?.args.params as { cycleKey: string }).cycleKey,
+		);
+		expect(
+			service.calls
+				.filter((c) => c.method === "tools/call")
+				.every((c) =>
+					(c.params.arguments as { code: string }).code.includes(
+						"discover.describe",
+					),
+				),
+		).toBe(true);
+	});
+});
