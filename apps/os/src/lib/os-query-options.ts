@@ -574,6 +574,12 @@ export const workApprovalsQueryOptions = (cursor?: {
 		input: { limit: WORK_APPROVALS_LIMIT, ...(cursor ? { cursor } : {}) },
 	});
 
+/** Pending decisions only, so history on the inbox's first page cannot hide one. */
+export const workPendingApprovalsQueryOptions = () =>
+	osQuery.workApprovals.listInbox.queryOptions({
+		input: { limit: 100, statuses: ["pending"] },
+	});
+
 export type WorkInteractionListView = "inbox" | "outbox" | "audit";
 
 export const workInteractionsQueryOptions = (

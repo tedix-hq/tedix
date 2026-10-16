@@ -4,8 +4,8 @@ import {
 	factoryScoreboardQueryOptions,
 	pendingApprovalsQueryOptions,
 	userProfileQueryOptions,
-	workApprovalsQueryOptions,
 	workNeedsYouInteractionsQueryOptions,
+	workPendingApprovalsQueryOptions,
 	workReadinessProjectionQueryOptions,
 } from "@/lib/os-query-options";
 
@@ -86,7 +86,7 @@ export function isBlockedWorkYouOwn(
 export function useNeedsYouSources() {
 	const interactions = useQuery(workNeedsYouInteractionsQueryOptions());
 	const workApprovals = useQuery({
-		...workApprovalsQueryOptions(),
+		...workPendingApprovalsQueryOptions(),
 		retry: false,
 	});
 	const runtimeApprovals = useQuery(pendingApprovalsQueryOptions());
