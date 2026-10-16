@@ -48,7 +48,9 @@ import {
 	codexThreadNames,
 	matchBoard,
 	memoryNotes,
+	type ProjectInfo,
 	type Proposal,
+	projectCatalog,
 	stateDirectory,
 	THRESHOLDS,
 	withoutNames,
@@ -69,6 +71,7 @@ import {
 	listProposalsSource,
 	proposalRequest,
 	publishSource,
+	withdrawSource,
 } from "./learn-proposals";
 
 type Json = Record<string, any>;
@@ -457,18 +460,35 @@ export async function summarise(
 // 3. Workstreams
 // ---------------------------------------------------------------------------
 
+export interface WorkstreamPart {
+	name: string;
+	sessions: SessionFacts[];
+	/** One line from the model: where this thread stands. */
+	line: string;
+}
+
 export interface Workstream {
 	key: string;
 	name: string;
 	description: string;
 	sessions: SessionFacts[];
+	/** The finer threads merged into this workstream, heaviest first. */
+	parts: WorkstreamPart[];
 	from: string;
 	to: string;
+	/** Distinct days with a session. */
+	days: number;
+	/** Sessions that finished something or committed. */
+	shipped: number;
+	/** Days active and outcomes, not message volume. */
+	weight: number;
 	status: "active" | "paused" | "done";
 	state: string;
 	next: string;
 	openLoops: string[];
 	project?: { id: string; key: string; name: string };
+	/** Board projects with any evidence, when none is clearly its own. */
+	spread?: number;
 	items: Array<{
 		id: string;
 		title: string;
@@ -477,14 +497,89 @@ export interface Workstream {
 	}>;
 }
 
+/** Most workstreams a profile shows; finer threads become sub-bullets. */
+export const MAX_WORKSTREAMS = 12;
+/** What the model is asked to merge down to. */
+const TARGET_WORKSTREAMS = 10;
+
+const shippedBy = (f: SessionFacts, s: SessionSummary | undefined) =>
+	s?.status === "done" || f.commits.length > 0 || f.pushes > 0;
+
+/** Weight a body of work by the days it was worked on and what it shipped. */
+export function weigh(
+	sessions: SessionFacts[],
+	summaries: Map<string, SessionSummary>,
+): { days: number; shipped: number; weight: number } {
+	const days = new Set(sessions.map((f) => day(f.to))).size;
+	const shipped = sessions.filter((f) =>
+		shippedBy(f, summaries.get(f.key)),
+	).length;
+	// A session's message count never enters: a busy day weighs one day.
+	return { days, shipped, weight: days * 2 + Math.min(shipped, days * 2) };
+}
+
+function workstream(
+	name: string,
+	description: string,
+	parts: Array<{ name: string; sessions: SessionFacts[] }>,
+	summaries: Map<string, SessionSummary>,
+): Workstream {
+	const sessions = [...new Set(parts.flatMap((p) => p.sessions))].sort(
+		(a, b) => (a.to < b.to ? 1 : -1),
+	);
+	const times = sessions
+		.flatMap((f) => [f.from, f.to])
+		.filter(Boolean)
+		.sort();
+	const byName = new Map<string, WorkstreamPart>();
+	for (const part of parts) {
+		const key = part.name.toLowerCase();
+		const prior = byName.get(key);
+		if (prior) prior.sessions.push(...part.sessions);
+		else
+			byName.set(key, {
+				name: part.name,
+				sessions: [...part.sessions],
+				line: "",
+			});
+	}
+	return {
+		key: `ws:${sha(name.toLowerCase())}`,
+		name,
+		description,
+		sessions,
+		parts: [...byName.values()]
+			.map((part) => ({
+				...part,
+				sessions: [...new Set(part.sessions)].sort((a, b) =>
+					a.to < b.to ? 1 : -1,
+				),
+			}))
+			.sort(
+				(a, b) =>
+					weigh(b.sessions, summaries).weight -
+					weigh(a.sessions, summaries).weight,
+			),
+		from: times[0] ?? "",
+		to: times[times.length - 1] ?? "",
+		...weigh(sessions, summaries),
+		status: "active",
+		state: "",
+		next: "",
+		openLoops: [],
+		items: [],
+	};
+}
+
 export const GROUP_PROMPT = `Below are one person's agent sessions, one per line: number, date, repository, a suggested workstream name, then the goal and its status.
-Group them into the person's workstreams: durable bodies of work such as a product area, a customer, an initiative or a recurring duty (for example "dependency upgrades" or "Acme onboarding"). Use the narrowest grouping that still collects related sessions, and at most 20 workstreams in all; put a one-off with the workstream it serves, or in "Misc" if none fits.
-Return ONLY JSON, no prose: [{"name":"<2-5 words>","description":"<one sentence: what this body of work is>","sessions":[<numbers>]}]. Every session number appears exactly once.
+Group them into threads of work: a feature, a fix campaign, a customer task or a recurring duty (for example "billing exports" or "Acme onboarding"). Use the narrowest grouping that still collects related sessions, and at most 30 threads in all; put a one-off with the thread it serves, or in "Misc" if none fits.
+Return ONLY JSON, no prose: [{"name":"<2-5 words>","description":"<one sentence: what this thread is>","sessions":[<numbers>]}]. Every session number appears exactly once.
 
 `;
 
 const GROUP_CHUNK = 220;
 
+/** Fine threads of work, one per model group; merged later into workstreams. */
 export async function groupWorkstreams(
 	sessions: SessionFacts[],
 	summaries: Map<string, SessionSummary>,
@@ -543,25 +638,14 @@ export async function groupWorkstreams(
 				place(summaries.get(f.key)?.workstream ?? "Misc", "", [f]);
 		});
 	}
-	return groups.map((g) => {
-		const times = g.members
-			.flatMap((f) => [f.from, f.to])
-			.filter(Boolean)
-			.sort();
-		return {
-			key: `ws:${sha(g.name.toLowerCase())}`,
-			name: g.name,
-			description: g.description,
-			sessions: g.members.sort((a, b) => (a.to < b.to ? 1 : -1)),
-			from: times[0] ?? "",
-			to: times[times.length - 1] ?? "",
-			status: "active",
-			state: "",
-			next: "",
-			openLoops: [],
-			items: [],
-		};
-	});
+	return groups.map((g) =>
+		workstream(
+			g.name,
+			g.description,
+			[{ name: g.name, sessions: g.members }],
+			summaries,
+		),
+	);
 }
 
 /** Code Mode program: titles and states of Work Items by id. Reads only. */
@@ -578,23 +662,33 @@ export function workItemsSource(ids: string[]): string {
 }`;
 }
 
-/** Link each workstream to the board: its own Work Items first, else by words. */
-export async function linkBoard(
-	workstreams: Workstream[],
+/** Code Mode program: who is calling. Reads only. */
+export const WHO_AM_I_SOURCE = `async () => {
+	const p = await user.get_mine({});
+	return { me: p && p.id ? { id: p.id, name: String(p.name || "") } : null };
+}`;
+
+export interface Board {
+	me: { id: string; name: string } | null;
+	items: Map<string, Workstream["items"][number]>;
+	projects: ProjectInfo[];
+}
+
+/** Read the board once: who you are, the Work Items your sessions touched, open projects. */
+export async function readBoard(
+	sessions: SessionFacts[],
 	call: (source: string) => Promise<Json>,
-	since: string,
 	log: (line: string) => void,
-): Promise<{ me: { id: string; name: string } | null }> {
+): Promise<Board> {
 	const wanted = new Map<string, number>();
-	for (const w of workstreams)
-		for (const f of w.sessions)
-			for (const [id, n] of Object.entries(f.workItems))
-				wanted.set(id, (wanted.get(id) ?? 0) + n);
+	for (const f of sessions)
+		for (const id of Object.keys(f.workItems))
+			wanted.set(id, (wanted.get(id) ?? 0) + 1);
 	const ids = [...wanted]
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, 120)
+		.slice(0, 160)
 		.map(([id]) => id);
-	const items = new Map<string, Workstream["items"][number]>();
+	const items: Board["items"] = new Map();
 	let unreadable = 0;
 	// One id another organization owns fails the whole program: halve and retry.
 	const read = async (chunk: string[]): Promise<void> => {
@@ -623,66 +717,317 @@ export async function linkBoard(
 			/\b(?:scratch|e2e|test item|\(delete\))/i.test(item.title)
 		)
 			items.delete(id);
-	const candidates: Candidate[] = workstreams.map((w) => ({
-		key: w.key,
-		kind: "project",
-		title: w.name,
-		confidence: 1,
-		sessions: [],
-		from: w.from,
-		to: w.to,
-		goal: false,
-		context: w.description,
-	}));
-	let board: Awaited<ReturnType<typeof matchBoard>> = {
-		me: null,
-		scanned: {},
-		matches: {},
-	};
+	let me: Board["me"] = null;
 	try {
-		board = await matchBoard(candidates, since, call, true);
+		me = (await call(WHO_AM_I_SOURCE)).me ?? null;
 	} catch (error) {
-		log(`    board match failed: ${(error as Error).message.slice(0, 160)}`);
+		log(
+			`    reading who you are failed: ${(error as Error).message.slice(0, 160)}`,
+		);
 	}
-	const projects = new Map(
-		(board.projects ?? []).map(([id, key, name]) => [id, { id, key, name }]),
-	);
-	for (const w of workstreams) {
-		const own = new Map<string, number>();
-		for (const f of w.sessions)
-			for (const [id, n] of Object.entries(f.workItems))
-				if (items.has(id)) own.set(id, (own.get(id) ?? 0) + n);
-		w.items = [...own]
-			.sort((a, b) => b[1] - a[1])
-			.slice(0, 8)
-			.map(([id]) => items.get(id)!);
-		const votes = new Map<string, number>();
-		for (const item of w.items)
-			if (item.projectId)
-				votes.set(item.projectId, (votes.get(item.projectId) ?? 0) + 1);
-		const voted = [...votes].sort((a, b) => b[1] - a[1])[0]?.[0];
-		const match = board.matches[w.key];
-		const byWords =
-			match?.p[0] && match.p[0][3] >= THRESHOLDS.project
-				? match.p[0]
-				: undefined;
-		if (voted && projects.has(voted)) w.project = projects.get(voted);
-		else if (byWords)
-			w.project = { id: byWords[0], key: byWords[1], name: byWords[2] };
-		if (!w.items.length && match?.w[0] && match.w[0][5] >= THRESHOLDS.same) {
-			const [id, title, projectId, disposition] = match.w[0];
-			w.items = [{ id, title, disposition, projectId }];
-		}
-	}
-	return { me: board.me };
+	return { me, items, projects: await projectCatalog(call) };
 }
 
-export const STATE_PROMPT = `Each numbered block below is one workstream of one person: its sessions newest first (date, goal, outcome, status, open loops) and the Work Items on their team's board that its sessions touched. Today is TODAY.
+/** Everything a session says in its own words: where a project key or id can appear. */
+const sessionText = (f: SessionFacts) =>
+	[
+		f.title,
+		f.brief,
+		...f.asks.map((a) => a.text),
+		...f.delegated,
+		...f.commits.map((c) => c.subject),
+		f.lastAgent,
+	]
+		.filter(Boolean)
+		.join("\n");
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Repository paths a project description names, such as packages/cli. */
+const repoPaths = (text: string) =>
+	[
+		...text.matchAll(
+			/(?:^|[\s(`"'])((?:apps|packages|src|services|libs?)\/[\w.-]+)/g,
+		),
+	].map((m) => m[1]!);
+
+/**
+ * Board projects a set of sessions shows evidence for, by the number of
+ * sessions carrying it: a Work Item of the project touched, the project's
+ * key or id written, or a repository path its description names written to.
+ * Words alone never count.
+ */
+export function projectEvidence(
+	sessions: SessionFacts[],
+	board: Pick<Board, "items" | "projects">,
+): Map<string, number> {
+	const keys = board.projects
+		.filter(([, key]) => key && key.length >= 3)
+		.map(([id, key, , description]) => ({
+			id,
+			pattern: new RegExp(
+				`(?<![\\w-])(?:${escape(key)}|${escape(id)})(?![\\w-])`,
+			),
+			paths: repoPaths(description ?? ""),
+		}));
+	const out = new Map<string, number>();
+	for (const f of sessions) {
+		const hit = new Set<string>();
+		for (const id of Object.keys(f.workItems)) {
+			const projectId = board.items.get(id)?.projectId;
+			if (projectId) hit.add(projectId);
+		}
+		const text = sessionText(f);
+		for (const p of keys) {
+			if (p.pattern.test(text)) hit.add(p.id);
+			else if (
+				p.paths.length &&
+				f.filesWritten.some((file) =>
+					p.paths.some((path) => file.includes(`${path}/`)),
+				)
+			)
+				hit.add(p.id);
+		}
+		for (const id of hit) out.set(id, (out.get(id) ?? 0) + 1);
+	}
+	return out;
+}
+
+/** Link a workstream to the board on evidence only; otherwise leave it unlinked. */
+export function linkWorkstream(
+	w: Workstream,
+	board: Pick<Board, "items" | "projects">,
+) {
+	const projects = new Map(
+		board.projects.map(([id, key, name]) => [id, { id, key, name }]),
+	);
+	const evidence = [...projectEvidence(w.sessions, board)]
+		.filter(([id]) => projects.has(id))
+		.sort((a, b) => b[1] - a[1]);
+	const total = evidence.reduce((n, [, v]) => n + v, 0);
+	const [best, support] = evidence[0] ?? [];
+	w.spread = evidence.length;
+	// The leading project needs two sessions (or every session of a small
+	// workstream) and at least 40% of the evidence; a scatter links nothing.
+	w.project =
+		best &&
+		support! >= Math.min(2, w.sessions.length) &&
+		support! / total >= 0.4
+			? projects.get(best)
+			: undefined;
+	const touched = new Map<string, { sessions: number; last: string }>();
+	for (const f of w.sessions)
+		for (const id of Object.keys(f.workItems)) {
+			if (!board.items.has(id)) continue;
+			const prior = touched.get(id) ?? { sessions: 0, last: "" };
+			prior.sessions++;
+			if (f.to > prior.last) prior.last = f.to;
+			touched.set(id, prior);
+		}
+	const open = (id: string) =>
+		["proposed", "accepted"].includes(board.items.get(id)!.disposition) ? 1 : 0;
+	w.items = [...touched]
+		.sort(
+			([a, x], [b, y]) =>
+				open(b) - open(a) ||
+				y.sessions - x.sessions ||
+				(x.last < y.last ? 1 : -1),
+		)
+		.slice(0, 8)
+		.map(([id]) => board.items.get(id)!);
+}
+
+export const MERGE_PROMPT = `Below are one person's threads of work, numbered, already clustered where the evidence (same board project, same Work Items, same repository) joins them. Each line: number, the thread names in it, days worked, last day, repository, board project.
+Merge them into the person's main workstreams: at most ${TARGET_WORKSTREAMS}, each a durable body of work a colleague would recognise, such as a product area, a customer or an initiative. Merge whole numbered clusters only; never split one. Name each in 2-4 plain words, specific to this person's work, never a generic name like "Tedix work" or "Misc".
+Return ONLY JSON, no prose: [{"name":"<2-4 words>","description":"<one sentence: what this body of work is and for whom>","clusters":[<numbers>]}]. Every number appears exactly once.
+
+`;
+
+/**
+ * Merge fine threads into at most MAX_WORKSTREAMS workstreams: evidence
+ * first (shared board project, shared Work Items, a repository of their
+ * own), then the model names and merges the clusters, and code holds the cap.
+ */
+export async function mergeWorkstreams(
+	fine: Workstream[],
+	summaries: Map<string, SessionSummary>,
+	board: Pick<Board, "items" | "projects">,
+	run: RunModel,
+): Promise<Workstream[]> {
+	const total = fine.reduce((n, w) => n + w.sessions.length, 0) || 1;
+	const parent = fine.map((_, i) => i);
+	const size = fine.map((w) => w.sessions.length);
+	const find = (i: number): number =>
+		parent[i] === i ? i : (parent[i] = find(parent[i]!));
+	const join = (a: number, b: number) => {
+		const [x, y] = [find(a), find(b)];
+		// No cluster may swallow a fifth of the history by evidence alone.
+		if (x === y || (size[x]! + size[y]!) / total > 0.2) return;
+		parent[y] = x;
+		size[x]! += size[y]!;
+	};
+	for (const w of fine) linkWorkstream(w, board);
+	// Same evidenced project.
+	const byProject = new Map<string, number>();
+	fine.forEach((w, i) => {
+		if (!w.project) return;
+		const prior = byProject.get(w.project.id);
+		if (prior === undefined) byProject.set(w.project.id, i);
+		else join(prior, i);
+	});
+	// A Work Item touched in two threads, unless it is a hub most threads touch.
+	const holders = new Map<string, Set<number>>();
+	fine.forEach((w, i) => {
+		for (const f of w.sessions)
+			for (const id of Object.keys(f.workItems))
+				if (board.items.has(id))
+					holders.set(id, (holders.get(id) ?? new Set()).add(i));
+	});
+	for (const set of holders.values())
+		if (set.size >= 2 && set.size <= 3) {
+			const [first, ...rest] = [...set];
+			for (const i of rest) join(first!, i);
+		}
+	// A repository of its own: one that is not most of the history.
+	const repoCounts = countMap(
+		fine.flatMap((w) => w.sessions.map((f) => f.repository ?? "")),
+	);
+	const own = (w: Workstream) => {
+		const [repo, n] =
+			countMap(w.sessions.map((f) => f.repository ?? ""))[0] ?? [];
+		const everywhere = repoCounts.find(([r]) => r === repo)?.[1] ?? 0;
+		return repo && n! / w.sessions.length >= 0.6 && everywhere / total < 0.5
+			? repo
+			: null;
+	};
+	const byRepo = new Map<string, number>();
+	fine.forEach((w, i) => {
+		const repo = own(w);
+		if (!repo) return;
+		const prior = byRepo.get(repo);
+		if (prior === undefined) byRepo.set(repo, i);
+		else join(prior, i);
+	});
+	const clusters = new Map<number, Workstream[]>();
+	fine.forEach((w, i) => {
+		const root = find(i);
+		clusters.set(root, [...(clusters.get(root) ?? []), w]);
+	});
+	const list = [...clusters.values()].sort(
+		(a, b) =>
+			weigh(
+				b.flatMap((w) => w.sessions),
+				summaries,
+			).weight -
+			weigh(
+				a.flatMap((w) => w.sessions),
+				summaries,
+			).weight,
+	);
+	const lines = list.map((members, i) => {
+		const sessions = members.flatMap((w) => w.sessions);
+		const { days } = weigh(sessions, summaries);
+		const last =
+			sessions
+				.map((f) => f.to)
+				.sort()
+				.at(-1) ?? "";
+		const project = members.find((w) => w.project)?.project;
+		const repo = countMap(sessions.map((f) => f.repository ?? "-"))[0]?.[0];
+		return `${i + 1}. ${members.map((w) => w.name).join("; ")} | ${days} days | last ${day(last)} | ${repo} | ${project ? `${project.key} ${project.name}` : "no project"}`;
+	});
+	let parsed: unknown = null;
+	try {
+		parsed = parseJson(await run(MERGE_PROMPT + lines.join("\n")), "[");
+	} catch {
+		parsed = null;
+	}
+	const used = new Set<number>();
+	const merged: Workstream[] = [];
+	const build = (name: string, description: string, members: Workstream[]) =>
+		workstream(
+			name,
+			description,
+			members.flatMap((w) => w.parts),
+			summaries,
+		);
+	if (Array.isArray(parsed))
+		for (const raw of parsed) {
+			const picked: number[] = [
+				...new Set<number>(
+					(Array.isArray(raw?.clusters) ? raw.clusters : []).map(Number),
+				),
+			].filter((n) => list[n - 1] && !used.has(n));
+			if (!picked.length) continue;
+			const members = picked.flatMap((n) => list[n - 1]!);
+			// A merge that swallows most of the history says nothing; keep its clusters apart.
+			const size = members.reduce((n, w) => n + w.sessions.length, 0);
+			if (picked.length > 1 && total >= 30 && size / total > 0.35) continue;
+			for (const n of picked) used.add(n);
+			merged.push(
+				build(
+					one(String(raw.name ?? ""), 60) || members[0]!.name,
+					one(String(raw.description ?? ""), 240),
+					members,
+				),
+			);
+		}
+	// What the model left out stays a workstream of its own, named after its heaviest thread.
+	list.forEach((members, i) => {
+		if (used.has(i + 1)) return;
+		const lead = [...members].sort((a, b) => b.weight - a.weight)[0]!;
+		merged.push(build(lead.name, lead.description, members));
+	});
+	merged.sort((a, b) => b.weight - a.weight);
+	if (merged.length > MAX_WORKSTREAMS) {
+		const tail = merged.splice(MAX_WORKSTREAMS - 1);
+		merged.push(
+			workstream(
+				"Other work",
+				"Smaller threads that fit no main workstream.",
+				tail.flatMap((w) => w.parts),
+				summaries,
+			),
+		);
+	}
+	for (const w of merged) linkWorkstream(w, board);
+	return merged;
+}
+
+export const STATE_PROMPT = `Each numbered block below is one workstream of one person: its threads (P1, P2...), then its sessions newest first, one per day worked (date, thread, goal, outcome, status, open loops), and the Work Items on their team's board that its sessions touched. Today is TODAY.
 For each workstream say where it stands now. Return ONLY JSON, no prose:
-[{"w":<number>,"status":"active|paused|done","state":"<two sentences: where it stands now, concrete>","next":"<the single most useful next step, at most 20 words; empty when done>","openLoops":["<unfinished item still open, at most 15 words; at most 4>"]}]
+[{"w":<number>,"status":"active|paused|done","state":"<two sentences: what was built or decided, for whom, and what is stuck; concrete>","next":"<the single most useful next step, at most 20 words; empty when done>","openLoops":["<unfinished item still open, at most 15 words; at most 4>"],"parts":[{"p":<number>,"line":"<one line, at most 18 words: where this thread stands>"}]}]
 "done" when its latest sessions finished it and nothing is left; "paused" when untouched for over a week with work left; otherwise "active". Drop open loops a later session closed. Do not invent.
 
 `;
+
+/**
+ * Sessions to show the model: the newest of each thread, then the newest of
+ * each day worked, then the rest.
+ */
+function spread(
+	sessions: SessionFacts[],
+	parts: WorkstreamPart[],
+	limit: number,
+): SessionFacts[] {
+	const seen = new Set<string>();
+	const first: SessionFacts[] = parts
+		.map((part) => part.sessions[0])
+		.filter((f): f is SessionFacts => Boolean(f));
+	const rest: SessionFacts[] = [];
+	for (const f of sessions) {
+		if (first.includes(f)) continue;
+		const d = day(f.to);
+		if (seen.has(d)) rest.push(f);
+		else {
+			seen.add(d);
+			first.push(f);
+		}
+	}
+	return [...first, ...rest]
+		.slice(0, limit)
+		.sort((a, b) => (a.to < b.to ? 1 : -1));
+}
 
 export async function describeWorkstreams(
 	workstreams: Workstream[],
@@ -691,16 +1036,25 @@ export async function describeWorkstreams(
 	today: string,
 ) {
 	const batches: Workstream[][] = [];
-	for (let i = 0; i < workstreams.length; i += 4)
-		batches.push(workstreams.slice(i, i + 4));
+	for (let i = 0; i < workstreams.length; i += 3)
+		batches.push(workstreams.slice(i, i + 3));
 	await pool(batches, 4, async (batch) => {
 		const blocks = batch.map((w, i) => {
 			const lines = [`W${i + 1}. ${w.name}: ${w.description}`];
-			for (const f of w.sessions.slice(0, 12)) {
+			const parts = w.parts.slice(0, 8);
+			parts.forEach((part, j) =>
+				lines.push(
+					`P${j + 1}. ${part.name} (${part.sessions.length} sessions, last ${day(part.sessions[0]?.to ?? "")})`,
+				),
+			);
+			const partOf = (f: SessionFacts) =>
+				parts.findIndex((part) => part.sessions.includes(f));
+			for (const f of spread(w.sessions, parts, 18)) {
 				const s = summaries.get(f.key);
 				if (!s) continue;
+				const p = partOf(f);
 				lines.push(
-					`- ${day(f.to)} ${s.goal} -> ${s.outcome} [${s.status}]${s.openLoops.length ? ` open: ${s.openLoops.join("; ")}` : ""}`,
+					`- ${day(f.to)}${p >= 0 ? ` P${p + 1}` : ""} ${s.goal} -> ${s.outcome} [${s.status}]${s.openLoops.length ? ` open: ${s.openLoops.join("; ")}` : ""}`,
 				);
 			}
 			for (const item of w.items.slice(0, 6))
@@ -727,8 +1081,218 @@ export async function describeWorkstreams(
 			w.state = one(String(raw.state ?? ""), 400);
 			w.next = one(String(raw.next ?? ""), 200);
 			w.openLoops = strings(raw.openLoops, 4, 160);
+			if (Array.isArray(raw.parts))
+				for (const p of raw.parts) {
+					const part = w.parts[Number(String(p?.p).replace(/^P/i, "")) - 1];
+					if (part) part.line = one(String(p?.line ?? ""), 200);
+				}
 		}
 	});
+}
+
+// ---------------------------------------------------------------------------
+// 3b. What to do now, and the week in one paragraph
+// ---------------------------------------------------------------------------
+
+const DEADLINE =
+	/\b(?:deadline|due|overdue|by (?:mon|tue|wed|thu|fri|sat|sun|today|tomorrow|end of|\d)|before (?:the )?(?:talk|demo|launch|meeting|\d)|today|tomorrow|this week|\d{1,2} (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*)\b/i;
+const REVENUE =
+	/\b(?:billing|pricing|price|revenue|paid|payments?|invoices?|wallet|sales|deal|contract|pilot|procurement|subscription|credits?|customers?|leads?|onboarding)\b/i;
+const BLOCKING =
+	/\b(?:blocked|blocks|blocking|waiting|awaits|awaiting|stuck|outage|down for|everyone|all users|needs (?:his|her|their) (?:approval|reply)|pending (?:reply|approval))\b/i;
+
+/** How a profile describes an organisation the person works for or with. */
+const CUSTOMER =
+	/\b(?:customer|client|pilot|tenant|prospect|partner|buyer|investor|accelerator)\b/i;
+
+/** Work that only tidies up: it belongs in open loops, never in the top three. */
+export const HOUSEKEEPING =
+	/^(?:verify|confirm|check|commit|push|run|re-?run|rebase|restart|update|clean|remove|delete|cancel|close|complete (?:the )?work|file (?:a )?work|settle|review (?:and|then) (?:commit|push|decide)|review the .*(?:patch|diff|changes)|re-?test|re-?verify|test|monitor|investigate why)\b/i;
+
+export interface Priority {
+	workstream: Workstream;
+	score: number;
+	signals: string[];
+	customers: string[];
+	daysAgo: number;
+}
+
+/**
+ * Rank open workstreams by importance and recency: a customer, a deadline,
+ * revenue or someone blocked raises the stakes; weight is days worked and
+ * outcomes; recency decays over about a week.
+ */
+export function priorities(
+	workstreams: Workstream[],
+	summaries: Map<string, SessionSummary>,
+	today: string,
+	/** Organisations the profile names as customers, clients or partners. */
+	known?: string[],
+): Priority[] {
+	const open = workstreams.filter((w) => w.status !== "done");
+	// The organisation most workstreams mention is the person's own, not a customer.
+	const mentions = countMap(
+		workstreams.flatMap((w) => [
+			...new Set(w.sessions.flatMap((f) => summaries.get(f.key)?.orgs ?? [])),
+		]),
+	);
+	const ownOrgs = new Set(
+		mentions
+			.filter(([, n]) => n / (workstreams.length || 1) >= 0.4)
+			.map(([o]) => o.toLowerCase()),
+	);
+	const maxWeight = Math.max(1, ...open.map((w) => w.weight));
+	return open
+		.map((w) => {
+			const text = [
+				w.state,
+				w.next,
+				...w.openLoops,
+				...w.sessions
+					.slice(0, 10)
+					.flatMap((f) => summaries.get(f.key)?.openLoops ?? []),
+			].join(" ");
+			const customers = countMap(
+				w.sessions.flatMap((f) => summaries.get(f.key)?.orgs ?? []),
+			)
+				.map(([o]) => o)
+				.filter(
+					(o) =>
+						!ownOrgs.has(o.toLowerCase()) &&
+						(!known || known.some((k) => k.toLowerCase() === o.toLowerCase())),
+				)
+				.slice(0, 3);
+			const signals = [
+				...(customers.length ? [`customer: ${customers.join(", ")}`] : []),
+				...(DEADLINE.test(text) ? ["deadline"] : []),
+				...(REVENUE.test(text) ? ["revenue"] : []),
+				...(BLOCKING.test(text) ? ["blocking others"] : []),
+			];
+			const daysAgo = Math.max(
+				0,
+				Math.round((Date.parse(today) - Date.parse(day(w.to))) / 86_400_000),
+			);
+			const score =
+				(0.5 + w.weight / maxWeight) *
+				(1 + 0.5 * signals.length) *
+				(1 / (1 + daysAgo / 7));
+			return { workstream: w, score, signals, customers, daysAgo };
+		})
+		.sort((a, b) => b.score - a.score);
+}
+
+export const PLAN_PROMPT = `You are an assistant that has just read one person's whole agent history and now meets them for the first time. Below: the goals they set their agents, notes their agents keep, and their open workstreams ranked by stakes (customer, deadline, revenue, blocking others) and recency, with where each stands.
+Return ONLY one JSON object, no prose:
+{"week":"<3-4 plain sentences addressed to them as you, starting \"This week you\": the two or three biggest things they built or moved and for whom (customers, users, their team), then the one or two stuck things that matter most. A story, not a list of every fix; concrete product and customer names; no buzzwords, no praise>","actions":[{"title":"<starts with a verb, at most 12 words>","why":"<one sentence: which goal or stake it serves, citing the evidence>","workstream":"<workstream name>","kind":"delegate|factory|doc","start":"<what Tedix does first, at most 20 words>"}]}
+Give 5 actions, best first. Each is one concrete, valuable step Tedix can start today on its own: "delegate" hands a piece of real work to an AI teammate (a tedi), "factory" sets up a recurring scheduled run that produces something, "doc" drafts a document they need (a plan, a proposal, a customer brief). Call an organisation a customer only when the ranked list marks it "customer". Pick from their stated goals and the highest-stakes open work: moving a customer, a deadline, revenue or unblocking others beats internal polish. Never housekeeping: no verifying, confirming, committing, pushing, re-running tests or tidying the board. Never invent facts.
+
+`;
+
+export interface Plan {
+	week: string;
+	actions: PersonProfile["actions"];
+}
+
+export async function planNow(input: {
+	ranked: Priority[];
+	/** Titles of earlier profile proposals still open in the inbox. */
+	pending?: string[];
+	goals: string[];
+	notes: string[];
+	run: RunModel;
+	today: string;
+}): Promise<Plan> {
+	const sections = [
+		`TODAY: ${input.today}`,
+		"GOALS THEY SET THEIR AGENTS (newest first):",
+		...input.goals.slice(0, 25).map((g) => `- ${g.slice(0, 240)}`),
+		"",
+		"NOTES THEIR AGENTS KEEP ABOUT PRIORITIES:",
+		...input.notes
+			.filter((n) =>
+				/\b(?:goal|strateg|priorit|customer|revenue|launch|pilot|deadline|investor|pitch|sales|lead)/i.test(
+					n,
+				),
+			)
+			.slice(0, 40)
+			.map((n) => `- ${n.slice(0, 220)}`),
+		"",
+		...(input.pending?.length
+			? [
+					"ALREADY IN THEIR INBOX FROM AN EARLIER RUN (keep one, with its exact title, while it is still among the best; drop it when newer work matters more):",
+					...input.pending.slice(0, 6).map((t) => `- ${t.slice(0, 200)}`),
+					"",
+				]
+			: []),
+		"OPEN WORKSTREAMS, HIGHEST STAKES FIRST:",
+		...input.ranked.slice(0, 8).map(({ workstream: w, signals, daysAgo }) =>
+			[
+				`- ${w.name} (${w.days} days worked, ${w.shipped} sessions shipped, last ${daysAgo === 0 ? "today" : `${daysAgo} days ago`}${signals.length ? `; ${signals.join("; ")}` : ""}${w.project ? `; project ${w.project.key}` : ""}): ${w.state || w.description}`,
+				...w.parts
+					.slice(0, 4)
+					.filter((p) => p.line)
+					.map((p) => `  - ${p.name}: ${p.line}`),
+				...(w.next ? [`  Next: ${w.next}`] : []),
+				...(w.openLoops.length ? [`  Open: ${w.openLoops.join("; ")}`] : []),
+			].join("\n"),
+		),
+	];
+	let parsed: Json | null = null;
+	for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+		try {
+			parsed = parseJson(
+				await input.run(PLAN_PROMPT + sections.join("\n")),
+				"{",
+			);
+		} catch {
+			parsed = null;
+		}
+	}
+	const proposed: PersonProfile["actions"] = Array.isArray(parsed?.actions)
+		? parsed.actions
+				.filter((a: Json) => a && typeof a.title === "string")
+				.map((a: Json) => ({
+					title: one(a.title, 140),
+					why: one(String(a.why ?? ""), 300),
+					workstream: one(String(a.workstream ?? ""), 60),
+					kind: ["delegate", "factory", "doc"].includes(a.kind)
+						? a.kind
+						: "delegate",
+					start: one(String(a.start ?? ""), 200),
+				}))
+		: [];
+	// Strategic only; different workstreams first, so the three cover different work.
+	const strategic = proposed.filter(
+		(a) => a.title && !HOUSEKEEPING.test(a.title),
+	);
+	const actions: PersonProfile["actions"] = [];
+	for (const a of strategic)
+		if (
+			actions.length < 3 &&
+			!actions.some(
+				(b) => b.workstream.toLowerCase() === a.workstream.toLowerCase(),
+			)
+		)
+			actions.push(a);
+	for (const a of strategic)
+		if (actions.length < 3 && !actions.includes(a)) actions.push(a);
+	// Too few strategic actions: a plan for the highest-stakes workstreams.
+	for (const { workstream: w, signals } of input.ranked) {
+		if (actions.length >= 3) break;
+		if (
+			actions.some((a) => a.workstream.toLowerCase() === w.name.toLowerCase())
+		)
+			continue;
+		actions.push({
+			title: `Draft a one-page plan to move ${w.name} forward`,
+			why: `${w.name} was worked on ${w.days} days${signals.length ? ` (${signals.join("; ")})` : ""} and still has open work.`,
+			workstream: w.name,
+			kind: "doc",
+			start:
+				"Collect its open loops and Work Items into a short plan with owners and dates.",
+		});
+	}
+	return { week: one(String(parsed?.week ?? ""), 1200), actions };
 }
 
 // ---------------------------------------------------------------------------
@@ -748,18 +1312,22 @@ export interface PersonProfile {
 	people: Array<{ name: string; context: string }>;
 	orgs: Array<{ name: string; context: string }>;
 	tools: string[];
+	/** "Your week in Tedix": what they built, for whom, and what is stuck. */
+	week: string;
 	actions: Array<{
 		title: string;
 		why: string;
 		workstream: string;
-		kind: string;
+		kind: "delegate" | "factory" | "doc";
+		/** What Tedix does first. */
+		start: string;
 	}>;
 }
 
 export const PROFILE_PROMPT = `You are writing down what an assistant has learned about one person from their own coding-agent history, so it can start helping them at once. Below: their workstreams with status, usage statistics, requests they repeat, failures they keep hitting, preference notes their agents keep, things they said about how they want work done, and the people and organisations their sessions mention.
 Return ONLY one JSON object, no prose:
-{"role":"<one sentence: what they do, inferred from the work>","focus":["<current focus areas, at most 6>"],"style":["<how they like to work: concrete preferences and habits, each with its evidence; at most 8>"],"workflows":[{"name":"<a workflow they repeat>","evidence":"<how often and where it shows>","kind":"skill|factory","proposal":"<what Tedix would run for them, at most 20 words>"}],"people":[{"name":"<name>","context":"<how they relate to the work, at most 12 words>"}],"orgs":[{"name":"<company, customer or partner>","context":"<at most 12 words>"}],"tools":["<tools and services they rely on>"],"actions":[{"title":"<starts with a verb, at most 12 words>","why":"<one sentence citing the evidence>","workstream":"<workstream name>","kind":"finish|skill|factory"}]}
-At most 6 workflows, only things they actually repeat; a "factory" is a recurring scheduled run, a "skill" a reusable procedure. Exactly 3 actions: concrete things an assistant could start today in one step, either finishing an open loop or setting up a repeated workflow; prefer the ones with the most evidence. Never invent facts.
+{"role":"<one sentence: what they do, inferred from the work>","focus":["<current focus areas, at most 6>"],"style":["<how they like to work: concrete preferences and habits, each with its evidence; at most 8>"],"workflows":[{"name":"<a workflow they repeat>","evidence":"<how often and where it shows>","kind":"skill|factory","proposal":"<what Tedix would run for them, at most 20 words>"}],"people":[{"name":"<name>","context":"<how they relate to the work, at most 12 words>"}],"orgs":[{"name":"<company, customer or partner>","context":"<at most 12 words>"}],"tools":["<tools and services they rely on>"]}
+At most 6 workflows, only things they actually repeat; a "factory" is a recurring scheduled run, a "skill" a reusable procedure. Never invent facts.
 
 `;
 
@@ -789,19 +1357,8 @@ export function toProfile(raw: Json | null): PersonProfile {
 		people: pairs(raw?.people, 25),
 		orgs: pairs(raw?.orgs, 25),
 		tools: strings(raw?.tools, 15, 80),
-		actions: Array.isArray(raw?.actions)
-			? raw.actions
-					.filter((a: Json) => a && typeof a.title === "string")
-					.slice(0, 3)
-					.map((a: Json) => ({
-						title: one(a.title, 140),
-						why: one(String(a.why ?? ""), 300),
-						workstream: one(String(a.workstream ?? ""), 60),
-						kind: ["finish", "skill", "factory"].includes(a.kind)
-							? a.kind
-							: "finish",
-					}))
-			: [],
+		week: "",
+		actions: [],
 	};
 }
 
@@ -915,10 +1472,10 @@ export async function buildProfile(input: {
 		{ minCount: 3, minSessions: 2, top: 12 },
 	);
 	const sections = [
-		"WORKSTREAMS (newest first):",
+		"WORKSTREAMS (most days worked first):",
 		...input.workstreams.map(
 			(w) =>
-				`- ${w.name} [${w.status}] ${w.sessions.length} sessions ${day(w.from)}..${day(w.to)}${w.project ? ` project ${w.project.key}` : ""}: ${w.state || w.description}${w.next ? ` Next: ${w.next}` : ""}${w.openLoops.length ? ` Open: ${w.openLoops.join("; ")}` : ""}`,
+				`- ${w.name} [${w.status}] ${w.days} days worked ${day(w.from)}..${day(w.to)}${w.project ? ` project ${w.project.key}` : ""}: ${w.state || w.description}${w.next ? ` Next: ${w.next}` : ""}${w.openLoops.length ? ` Open: ${w.openLoops.join("; ")}` : ""}`,
 		),
 		"",
 		"USAGE:",
@@ -975,6 +1532,8 @@ export type Block =
 export interface ActionLink {
 	title: string;
 	why: string;
+	kind: PersonProfile["actions"][number]["kind"];
+	start: string;
 	/** Where to act: an inbox proposal, an existing item, or nothing yet. */
 	link: string | null;
 	state: "proposed" | "asked" | "on-board" | "not-filed";
@@ -1018,14 +1577,19 @@ export function renderDocument(input: {
 			blocks.push({ type: "list", ordered, items: clean.slice(0, 60) });
 	};
 	h(1, DOC_TITLE);
+	h(2, "Your week in Tedix");
 	p(
-		`Built for ${input.who} on ${input.today} from ${stats.sessions} agent sessions on this machine (${stats.byHarness.map(([k, v]) => `${v} ${k}`).join(", ")}; ${stats.subagents} sub-agent runs folded in), ${day(stats.from)} to ${day(stats.to)}: ${stats.asks} things you typed, ${stats.toolCalls} tool calls, ${stats.commits} commits, ${stats.workItems} Tedix Work Items touched. Your transcripts stayed on this machine; only this summary was uploaded. Run tedix learn profile again to refresh it.`,
+		profile.week ||
+			`You worked on ${workstreams.length} bodies of work between ${day(stats.from)} and ${day(stats.to)}.`,
 	);
 	if (profile.role) p(profile.role);
-	if (profile.focus.length)
-		p(`Right now you focus on: ${profile.focus.join("; ")}.`);
 
 	h(2, "3 things I can do for you right now");
+	const how = {
+		delegate: "I hand it to a tedi",
+		factory: "I set up a factory",
+		doc: "I draft it",
+	} as const;
 	list(
 		input.actions.map((a) => {
 			const where =
@@ -1034,47 +1598,56 @@ export function renderDocument(input: {
 					: a.state === "on-board"
 						? `Already on the board: ${a.link}`
 						: (a.note ?? "Ask me in chat to start it.");
-			return `${a.title}. ${a.why} ${where}`;
+			const first = a.start
+				? ` ${how[a.kind]}: ${a.start.replace(/[.\s]+$/, "")}.`
+				: "";
+			return `${a.title}. ${a.why}${first} ${where}`;
 		}),
 		true,
 	);
 
-	const open = workstreams.filter((w) => w.status !== "done");
-	// The latest work, and the biggest bodies of work however old they are.
-	const recent = [...open].sort((a, b) => (a.to < b.to ? 1 : -1)).slice(0, 9);
-	const biggest = [...open]
-		.sort((a, b) => b.sessions.length - a.sessions.length)
-		.filter((w) => !recent.includes(w))
-		.slice(0, 6);
-	const active = [...recent, ...biggest].sort((a, b) => (a.to < b.to ? 1 : -1));
+	const open = workstreams
+		.filter((w) => w.status !== "done")
+		.sort((a, b) => b.weight - a.weight);
 	h(2, "Your active projects");
-	for (const w of active) {
+	for (const w of open) {
 		h(3, w.name);
 		p(w.state || w.description);
+		const repos = [
+			...new Set(w.sessions.map((f) => f.repository).filter(Boolean)),
+		].slice(0, 3);
 		const facts = [
-			`${w.status === "paused" ? "Paused" : "Active"}; last worked on ${day(w.to)}; ${w.sessions.length} session${w.sessions.length === 1 ? "" : "s"} since ${day(w.from)}${[...new Set(w.sessions.map((f) => f.repository).filter(Boolean))].length ? ` in ${[...new Set(w.sessions.map((f) => f.repository).filter(Boolean))].slice(0, 3).join(", ")}` : ""}.`,
+			`${w.status === "paused" ? "Paused" : "Active"}: worked on ${w.days} day${w.days === 1 ? "" : "s"} between ${day(w.from)} and ${day(w.to)}; ${w.shipped} of ${w.sessions.length} sessions shipped something${repos.length ? `; in ${repos.join(", ")}` : ""}.`,
+			w.project
+				? `Tedix project ${w.project.key} (${w.project.name}): ${OS_URL}/work/projects/${w.project.id}`
+				: w.spread
+					? `No board link: its Work is spread over ${w.spread} projects, none clearly its own.`
+					: "No board link: none of its sessions named a Tedix project or touched Work in one.",
 		];
-		if (w.project)
-			facts.push(
-				`Tedix project ${w.project.key} (${w.project.name}): ${OS_URL}/work/projects/${w.project.id}`,
-			);
-		for (const item of w.items.slice(0, 4))
+		for (const item of w.items.slice(0, 3))
 			facts.push(
 				`Work: ${item.title} (${item.disposition}): ${OS_URL}/work/items/${item.id}`,
 			);
 		if (w.next) facts.push(`Next: ${w.next}`);
 		list(facts);
+		if (w.parts.length > 1)
+			list(
+				w.parts
+					.slice(0, 6)
+					.map(
+						(part) =>
+							`${part.name} (${weigh(part.sessions, summaries).days} days, last ${day(part.sessions[0]?.to ?? "")})${part.line ? `: ${part.line}` : ""}`,
+					),
+			);
 	}
-	const rest = workstreams.filter((w) => !active.includes(w));
-	if (rest.length) {
-		h(3, "Other bodies of work");
+	const finished = workstreams.filter((w) => w.status === "done");
+	if (finished.length) {
+		h(3, "Finished");
 		list(
-			rest
-				.slice(0, 30)
-				.map(
-					(w) =>
-						`${w.name}: ${w.status}, ${w.sessions.length} session${w.sessions.length === 1 ? "" : "s"}, ${day(w.from)} to ${day(w.to)}.${w.next ? ` Next: ${w.next}` : ""}`,
-				),
+			finished.map(
+				(w) =>
+					`${w.name}: ${w.days} day${w.days === 1 ? "" : "s"}, ${day(w.from)} to ${day(w.to)}.${w.state ? ` ${w.state}` : ""}`,
+			),
 		);
 	}
 
@@ -1133,6 +1706,9 @@ export function renderDocument(input: {
 	}
 
 	h(2, "Where this came from");
+	p(
+		`Built for ${input.who} on ${input.today} from ${stats.sessions} agent sessions on this machine (${stats.byHarness.map(([k, v]) => `${v} ${k}`).join(", ")}; ${stats.subagents} sub-agent runs folded in), ${day(stats.from)} to ${day(stats.to)}: ${stats.asks} things you typed, ${stats.toolCalls} tool calls, ${stats.commits} commits, ${stats.workItems} Tedix Work Items touched. Run tedix learn profile again to refresh it.`,
+	);
 	p(
 		`${input.files} transcript files read in full (sub-agents and supervisor runs included). ${input.sessions.length} sessions summarised by your local model (${input.model}): ${input.meter.calls} model calls, ${input.meter.cached} sessions reused from the last run, about $${input.meter.costUsd.toFixed(2)}, ${Math.round(input.seconds / 60)} minutes in all. Nothing here is shared with your team until you accept a proposal; this document lives in your own space.`,
 	);
@@ -1208,6 +1784,8 @@ export interface ProfileDeps extends ContextDeps {
 	transcripts?: TranscriptFile[];
 	model?: { name: string; run: RunModel } | null;
 	notes?: string[];
+	/** Goals set in Codex threads, by thread id. */
+	goals?: Map<string, string>;
 	now?: () => Date;
 }
 
@@ -1326,36 +1904,29 @@ export async function runProfile(
 	write(
 		`  ${summaries.size} sessions summarised (${meter.cached} reused). Grouping into workstreams...`,
 	);
-	const workstreams = await groupWorkstreams(
-		sessions.filter((f) => summaries.has(f.key)),
-		summaries,
-		rollups.run,
-	);
-	workstreams.sort((a, b) => (a.to < b.to ? 1 : -1));
+	const read = sessions.filter((f) => summaries.has(f.key));
+	const threads = await groupWorkstreams(read, summaries, rollups.run);
 	rollups.save();
 	const target: OrganizationTarget | undefined =
 		"defaultTarget" in deps ? deps.defaultTarget : defaultOrganizationTarget();
 	const upload = !options.noUpload && Boolean(target);
 	const call = target ? caller(deps.read ?? cliRead, target) : null;
-	let me: { id: string; name: string } | null = null;
+	let board: Board = { me: null, items: new Map(), projects: [] };
 	if (call) {
 		write(
-			`  ${workstreams.length} workstreams. Linking them to the board (read-only)...`,
+			`  ${threads.length} threads of work. Reading the board (read-only)...`,
 		);
-		const earliest =
-			sessions
-				.map((f) => f.from)
-				.filter(Boolean)
-				.sort()[0] ?? today;
-		me = (
-			await linkBoard(
-				workstreams,
-				call,
-				new Date(Date.parse(earliest) - 30 * 86_400_000).toISOString(),
-				write,
-			)
-		).me;
+		board = await readBoard(read, call, write);
 	}
+	const me = board.me;
+	const workstreams = await mergeWorkstreams(
+		threads,
+		summaries,
+		board,
+		rollups.run,
+	);
+	rollups.save();
+	write(`  Merged into ${workstreams.length} workstreams. Describing them...`);
 	await describeWorkstreams(workstreams, summaries, rollups.run, today);
 	rollups.save();
 	write("  Writing your profile...");
@@ -1367,6 +1938,42 @@ export async function runProfile(
 		notes,
 		run: rollups.run,
 	});
+	// Your inbox first: an open proposal from an earlier run is kept while it still fits.
+	let asked: AskedProposal[] = [];
+	if (call && upload)
+		try {
+			const r = await call(listProposalsSource(false));
+			asked = Array.isArray(r.rows) ? r.rows : [];
+		} catch (error) {
+			write(
+				`  reading your inbox failed: ${(error as Error).message.slice(0, 160)}`,
+			);
+		}
+	const goals = deps.goals ?? (await codexGoals(home));
+	const plan = await planNow({
+		pending: asked
+			.filter((row) => row.key.startsWith("profile:") && row.state === "open")
+			.map((row) => row.title),
+		ranked: priorities(
+			workstreams,
+			summaries,
+			today,
+			profile.orgs.filter((o) => CUSTOMER.test(o.context)).map((o) => o.name),
+		),
+		goals: [
+			...new Set(
+				[...sessions]
+					.sort((a, b) => (a.to < b.to ? 1 : -1))
+					.map((f) => goals.get(f.sessionId))
+					.filter((g): g is string => Boolean(g)),
+			),
+		],
+		notes,
+		run: rollups.run,
+		today,
+	});
+	profile.week = plan.week;
+	profile.actions = plan.actions;
 	rollups.save();
 	const names = new Set(
 		[
@@ -1379,16 +1986,8 @@ export async function runProfile(
 	);
 	const actions: ActionLink[] = [];
 	const proposalsMade: Json = {};
+	const withdrawn: string[] = [];
 	if (call && upload && me) {
-		let asked: AskedProposal[] = [];
-		try {
-			const r = await call(listProposalsSource(false));
-			asked = Array.isArray(r.rows) ? r.rows : [];
-		} catch (error) {
-			write(
-				`  reading your inbox failed: ${(error as Error).message.slice(0, 160)}`,
-			);
-		}
 		const candidates: Candidate[] = profile.actions.map((a) => ({
 			key: `profile:${sha(a.title.toLowerCase())}`,
 			kind: "task",
@@ -1400,14 +1999,14 @@ export async function runProfile(
 			goal: false,
 			context: withoutNames(a.why, names),
 		}));
-		let board: Awaited<ReturnType<typeof matchBoard>> = {
+		let found: Awaited<ReturnType<typeof matchBoard>> = {
 			me,
 			scanned: {},
 			matches: {},
 		};
 		try {
 			if (candidates.length)
-				board = await matchBoard(candidates, `${today}T00:00:00.000Z`, call);
+				found = await matchBoard(candidates, `${today}T00:00:00.000Z`, call);
 		} catch {
 			/* Proposing without the check would risk a duplicate; skip below. */
 		}
@@ -1421,7 +2020,7 @@ export async function runProfile(
 				workstreams.find((w) =>
 					words(w.name).some((x) => words(a.workstream).includes(x)),
 				);
-			const covering = board.matches[c.key]?.w.find(
+			const covering = found.matches[c.key]?.w.find(
 				(m) =>
 					m[5] >= THRESHOLDS.same &&
 					(m[3] === "proposed" || m[3] === "accepted"),
@@ -1430,6 +2029,8 @@ export async function runProfile(
 				actions.push({
 					title: a.title,
 					why: a.why,
+					kind: a.kind,
+					start: a.start,
 					link: `${OS_URL}/work/items/${covering[0]}`,
 					state: "on-board",
 				});
@@ -1440,15 +2041,19 @@ export async function runProfile(
 				actions.push({
 					title: a.title,
 					why: a.why,
+					kind: a.kind,
+					start: a.start,
 					link: `${OS_URL}/work/interactions/${prior.id}`,
 					state: "asked",
 				});
 				return;
 			}
-			if (!board.matches[c.key]) {
+			if (!found.matches[c.key]) {
 				actions.push({
 					title: a.title,
 					why: a.why,
+					kind: a.kind,
+					start: a.start,
 					link: null,
 					state: "not-filed",
 					note: "The board could not be checked, so nothing was filed; ask me in chat to start it.",
@@ -1482,6 +2087,8 @@ export async function runProfile(
 			actions.push({
 				title: a.title,
 				why: a.why,
+				kind: a.kind,
+				start: a.start,
 				link: null,
 				state: "proposed",
 			});
@@ -1505,11 +2112,37 @@ export async function runProfile(
 				}
 			}
 		}
+		// Earlier profile proposals still open that this run no longer picks are superseded.
+		const kept = new Set(
+			actions
+				.filter((a) => a.state === "asked" && a.link)
+				.map((a) => a.link!.split("/").at(-1)),
+		);
+		const superseded = asked.filter(
+			(row) =>
+				row.key.startsWith("profile:") &&
+				row.state === "open" &&
+				!kept.has(row.id),
+		);
+		if (superseded.length) {
+			try {
+				const r = await call(withdrawSource(superseded));
+				withdrawn.push(
+					...superseded.filter((row) => r[row.id]?.ok).map((row) => row.id),
+				);
+			} catch (error) {
+				write(
+					`  withdrawing superseded proposals failed: ${(error as Error).message.slice(0, 160)}`,
+				);
+			}
+		}
 	} else
 		for (const a of profile.actions)
 			actions.push({
 				title: a.title,
 				why: a.why,
+				kind: a.kind,
+				start: a.start,
 				link: null,
 				state: "not-filed",
 				note: "Not filed (no upload); ask me in chat to start it.",
@@ -1542,6 +2175,7 @@ export async function runProfile(
 		workflows: profile.workflows.length,
 		people: profile.people.length,
 		proposals: actions.filter((a) => a.state === "proposed").length,
+		withdrawn,
 		actions: actions.map((a) => ({
 			title: a.title,
 			state: a.state,
