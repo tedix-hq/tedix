@@ -813,6 +813,7 @@ describe("report lane with an Output", () => {
 		expect(blocks.at(-1)!.text).toBe("Comment digest factory, run run-1");
 		const [, prompt] = first.calls.find(([name]) => name === "run_tedi_turn")!;
 		expect(String(prompt.text)).toContain("Do not propose Work Items");
+		expect(String(prompt.text)).toContain("Fix the install page (id w-1)");
 
 		// A retried run finds its own section and writes nothing.
 		const retry = laneHarness(DIGEST_REPLY, {
