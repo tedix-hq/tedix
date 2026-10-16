@@ -162,6 +162,7 @@ import {
 	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
 import { initialModelRef, modelsForNewSelection } from "@/lib/model-selection";
+import { assistantLinkedOutputIds } from "@/lib/output-navigation";
 import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
 import {
 	ChatSkillPicker,
@@ -2183,6 +2184,7 @@ export function ChatThread({
 	composerOnly = false,
 	autoFocusComposer = false,
 	onSendMessageReady,
+	onOutputCreated,
 }: {
 	/** `null` = fresh conversation not yet created; the first send creates it. */
 	conversationId: string | null;
@@ -2220,6 +2222,12 @@ export function ChatThread({
 	autoFocusComposer?: boolean;
 	/** Lets an adjacent user-facing control enqueue a message through this chat. */
 	onSendMessageReady?: (send: (content: string) => void) => void;
+	/**
+	 * An assistant message that arrived while this thread was open links an
+	 * output (`/outputs/<id>`), typically the receipt of a create. History
+	 * loaded on open or by "Load earlier" never fires it.
+	 */
+	onOutputCreated?: (outputId: string) => void;
 }) {
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
@@ -2245,6 +2253,12 @@ export function ChatThread({
 	const preparingConversationRef = useRef(false);
 	const [preparingConversation, setPreparingConversation] = useState(false);
 	const [messages, setMessages] = useState<HomeMessage[]>([]);
+	// Output ids already linked when this conversation's transcript first
+	// loaded (plus older pages). Null until that first load: anything linked
+	// later arrived live and is announced through `onOutputCreated`.
+	const knownOutputIdsRef = useRef<Set<string> | null>(null);
+	const onOutputCreatedRef = useRef(onOutputCreated);
+	onOutputCreatedRef.current = onOutputCreated;
 	const [olderCursor, setOlderCursor] = useState<string | null>(null);
 	const cursorInitializedRef = useRef(false);
 	const [loadingEarlier, setLoadingEarlier] = useState(false);
@@ -2379,6 +2393,7 @@ export function ChatThread({
 		newWorkspaceIdRef.current = null;
 		setSelectedTediId(null);
 		cacheRef.current = new Map();
+		knownOutputIdsRef.current = null;
 		cursorInitializedRef.current = false;
 		stickToBottomRef.current = true;
 		setPinnedToBottom(true);
@@ -2724,6 +2739,23 @@ export function ChatThread({
 		}
 	}, [transcript.data]);
 
+	// The first non-empty transcript is the baseline; an output link that
+	// appears after it arrived live (a create receipt) and is announced once.
+	useEffect(() => {
+		if (messages.length === 0) return;
+		const linked = assistantLinkedOutputIds(messages);
+		const known = knownOutputIdsRef.current;
+		if (known === null) {
+			knownOutputIdsRef.current = new Set(linked);
+			return;
+		}
+		for (const id of linked) {
+			if (known.has(id)) continue;
+			known.add(id);
+			onOutputCreatedRef.current?.(id);
+		}
+	}, [messages]);
+
 	// Durable-wins reconciliation. `{key}:input` is exactly the id the canonical
 	// read returns for the user turn, so membership in the transcript is proof
 	// the durable row exists and the overlay must go — whatever state it was in.
@@ -2763,6 +2795,10 @@ export function ChatThread({
 				limit: MESSAGES_PAGE_LIMIT,
 				cursor: olderCursor,
 			});
+			// Older history is not a fresh create: never auto-open its links.
+			for (const id of assistantLinkedOutputIds(page.messages)) {
+				knownOutputIdsRef.current?.add(id);
+			}
 			setMessages(mergeHomeMessages(cacheRef.current, page.messages));
 			setOlderCursor(page.nextCursor ?? null);
 		} catch (error) {

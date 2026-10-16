@@ -4,6 +4,37 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { canvasDocKey, type CanvasSearch } from "@/lib/canvas-search";
 
+const OUTPUT_ROUTE_PATTERN =
+	/^\/outputs\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[?#].*)?$/i;
+const OUTPUT_ROUTE_IN_TEXT_PATTERN =
+	/\]\(\/outputs\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[?#][^)]*)?\)/gi;
+
+/** The output id of a same-origin `/outputs/<uuid>` route, or null. */
+export function outputIdFromHref(
+	href: string | null | undefined,
+): string | null {
+	return href?.match(OUTPUT_ROUTE_PATTERN)?.[1] ?? null;
+}
+
+/**
+ * Output ids linked as Markdown `[label](/outputs/<uuid>)` from assistant
+ * messages, in message order.
+ */
+export function assistantLinkedOutputIds(
+	messages: readonly { role: string; content: string }[],
+): string[] {
+	const ids = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const match of message.content.matchAll(
+			OUTPUT_ROUTE_IN_TEXT_PATTERN,
+		)) {
+			if (match[1]) ids.add(match[1]);
+		}
+	}
+	return [...ids];
+}
+
 export type OutputNavigationTarget =
 	| {
 			kind: "workspace";

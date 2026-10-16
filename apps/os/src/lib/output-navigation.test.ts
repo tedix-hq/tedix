@@ -1,12 +1,42 @@
 import type { OsOutput } from "@tedix/api-contract/schemas/os-workspaces";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	assistantLinkedOutputIds,
+	outputIdFromHref,
 	outputOpenAffordance,
 	primaryOutputNavigationTarget,
 } from "./output-navigation";
 
 const OUTPUT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const SECOND_OUTPUT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+describe("output links", () => {
+	it("reads the output id of a same-origin output route only", () => {
+		expect(outputIdFromHref(`/outputs/${OUTPUT_ID}`)).toBe(OUTPUT_ID);
+		expect(outputIdFromHref(`/outputs/${OUTPUT_ID}?view=source`)).toBe(
+			OUTPUT_ID,
+		);
+		expect(outputIdFromHref("/outputs")).toBeNull();
+		expect(outputIdFromHref(`/workspace/${OUTPUT_ID}`)).toBeNull();
+		expect(outputIdFromHref(`https://x.test/outputs/${OUTPUT_ID}`)).toBeNull();
+		expect(outputIdFromHref(undefined)).toBeNull();
+	});
+
+	it("collects output links from assistant messages, never the operator's", () => {
+		expect(
+			assistantLinkedOutputIds([
+				{ role: "user", content: `see [mine](/outputs/${SECOND_OUTPUT_ID})` },
+				{
+					role: "assistant",
+					content: `Saved your presentation. [Open presentation](/outputs/${OUTPUT_ID}).`,
+				},
+				{ role: "assistant", content: `Again [here](/outputs/${OUTPUT_ID})` },
+				{ role: "assistant", content: "No link, just /outputs/ text." },
+			]),
+		).toEqual([OUTPUT_ID]);
+	});
+});
 
 const output: OsOutput = {
 	id: OUTPUT_ID,

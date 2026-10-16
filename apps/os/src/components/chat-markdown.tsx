@@ -1,7 +1,9 @@
 import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
+import { createContext, useContext, type MouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, CodeInline } from "@/components/kumo/code";
+import { outputIdFromHref } from "@/lib/output-navigation";
 import { cn } from "@/lib/utils";
 import {
 	rehypeStripDirectionControls,
@@ -63,6 +65,26 @@ export function resolveChatMarkdownHref(
 	return safe ? { href: safe, external: true } : null;
 }
 
+/**
+ * Where a chat link to `/outputs/<id>` opens. A Workspace provides a handler
+ * so the output opens in its own editor pane instead of leaving the
+ * Workspace; without one the link goes to the standalone output page.
+ */
+export const ChatOutputLinkContext = createContext<{
+	openOutput?: (outputId: string) => void;
+}>({});
+
+/** A plain primary click; modified clicks keep the browser's own behavior. */
+function isPlainPrimaryClick(event: MouseEvent<HTMLAnchorElement>): boolean {
+	return (
+		event.button === 0 &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		!event.shiftKey &&
+		!event.altKey
+	);
+}
+
 /** Safe rich-text rendering for durable chat content. Raw HTML remains text. */
 export function ChatMarkdown({
 	content,
@@ -72,6 +94,7 @@ export function ChatMarkdown({
 	/** User-authored turns preserve deliberate single newlines; model prose uses Markdown flow. */
 	preserveLineBreaks?: boolean;
 }) {
+	const { openOutput } = useContext(ChatOutputLinkContext);
 	// `skipHtml` discards raw HTML nodes; `sanitizeUntrustedMarkdown` escapes the
 	// angle brackets first, so the operator keeps a literal transcript, and
 	// strips the bidi controls that would let it render out of order. It is the
@@ -197,11 +220,23 @@ export function ChatMarkdown({
 					a: ({ href, children }) => {
 						const resolved = resolveChatMarkdownHref(href);
 						if (!resolved) return <span>{children}</span>;
+						const outputId = resolved.external
+							? null
+							: outputIdFromHref(resolved.href);
 						return (
 							<a
 								href={resolved.href}
 								rel="noopener noreferrer"
 								{...(resolved.external ? { target: "_blank" } : {})}
+								{...(outputId && openOutput
+									? {
+											onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+												if (!isPlainPrimaryClick(event)) return;
+												event.preventDefault();
+												openOutput(outputId);
+											},
+										}
+									: {})}
 								className="text-kumo-link underline-offset-2 hover:underline"
 							>
 								{children}
