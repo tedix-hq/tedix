@@ -109,7 +109,21 @@ skill's worker search that mailbox, read-only, until the owner clicks
 **Stop** on "Reads your Gmail (read-only) · Stop". The skill says what it
 needs in its own manifest: a provider tool such as `google_gmail:
 [search_threads]` whose installed tool uses a personal connection and is a
-reviewed read of the account. Editing the skill keeps the grant. A private
+reviewed tool of the account. Editing the skill keeps the grant.
+
+Attaching your own account to a workspace is the permission. Its row under
+**Attached resources** has one choice, **What this workspace's skills may do
+with it**: **No access**, **Read**, or **Read + organise (archive, label,
+unsubscribe; never sends or deletes)**. Only the account's owner can change
+it (`osWorkspaces.schedules.setPersonalAccess`). The choice covers every
+skill the workspace runs that declares tools for that account, each with
+exactly its declared tools of that level; the schedule row then says "Reads
+your Gmail (read-only)" or "Reads and organises your Gmail (never sends or
+deletes)". For Gmail, read is `search_threads`, `get_thread`,
+`get_message` and `list_labels`; organise adds `label_thread`,
+`unlabel_thread` (archive and mark read), `create_label` and `create_draft`.
+No level reaches a send, trash, spam or delete tool, and every delegated call
+that would add the Trash or Spam label is refused. A private
 workspace can be given to a member: its owner, or an organization admin for
 an org workspace, updates it with `visibility: "private"` and that member's
 `ownerUserId`. Afterwards only that member sees it, and a scheduled skill
@@ -140,9 +154,40 @@ A card with an empty action cell has no **Do it** button. A sheet without
 the action column, or a longer action sentence, uses `doItLabel` (default
 "Do it", or "Copy draft and open" for `copy_and_open`).
 
-**Do it** never sends, posts or changes a mailbox. `approve` marks the done
-column; the factory or the person carries the action out. `copy_and_open`
-copies the draft, opens the source link and marks the done column.
+**Do it** never sends mail, posts, trashes or deletes. `approve` marks the
+done column; the factory or the person carries the action out.
+`copy_and_open` copies the draft, opens the source link and marks the done
+column.
+
+`run_skill` carries the action out at once. The button shows "Doing it: …"
+while a run of `run.skillId` works on that card
+(`osWorkspaces.schedules.runNow`), then the outcome: **Done ✓**, **Draft
+ready**, **Filed as Work** with a link to the item, or **Failed:** and the
+reason. The run writes the outcome into the result column (default
+`Result`, added to a sheet that lacks it) and, when it worked, `yes` into
+the useful and done columns, so the card leaves the queue. A failed card
+stays with "Last try: Failed: …". The skill must be linked to the source
+workspace under **Runs on a schedule**.
+
+`run.actions` maps a card to a kind; the first entry whose `match` text is in
+the card's type cell, then its action cell, wins, and anything else is
+`work`:
+
+| Kind          | What the run does                                                                |
+| ------------- | -------------------------------------------------------------------------------- |
+| `archive`     | Removes the Inbox label from the card's threads                                  |
+| `mark_read`   | Removes the Unread label                                                         |
+| `label`       | Adds the label named in the action ("Label as Receipts"), creating it if needed  |
+| `unsubscribe` | Uses the sender's one-click unsubscribe when the mail offers it, then archives   |
+| `reply_draft` | Saves the card's draft as a reply draft in the same thread; it is never sent     |
+| `work`        | Files a Tedix Work item in `run.workProjectId` with the card's context and links |
+
+Every kind except `work` changes the owner's mailbox, so it needs **Read +
+organise** on their account. Without it nothing runs and the card shows
+**Allow organising first** with the owner's own button, **Let this organise
+my Gmail (archive, label, unsubscribe; never sends or deletes)**. A Work
+item names the source's tedi as steward, so that tedi or a local Claude or
+Codex agent picks it up.
 
 Rules-sheet rows with status `proposed` appear above the cards under
 **Suggested change**, with **Yes, change it** and **No, keep as is**, which
@@ -176,7 +221,21 @@ words in all. The rule id stays behind **Details**.
 					"reason": "Reason",
 					"done": "Approve action?"
 				},
-				"doIt": "approve",
+				"doIt": "run_skill",
+				"run": {
+					"skillId": "inbox-actions",
+					"workProjectId": "33333333-3333-4333-8333-333333333333",
+					"actions": [
+						{ "kind": "unsubscribe", "match": ["unsubscribe"] },
+						{ "kind": "label", "match": ["label"] },
+						{
+							"kind": "reply_draft",
+							"match": ["reply draft", "draft a reply"]
+						},
+						{ "kind": "archive", "match": ["archive"] },
+						{ "kind": "mark_read", "match": ["mark read", "mark as read"] }
+					]
+				},
 				"rules": {
 					"sheetTitle": "Rules",
 					"idColumn": "Rule id",
@@ -248,7 +307,7 @@ Card review registers these tools:
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `card_review_next_card`     | Reads the open card (source, type, who, why with its rules, action, draft, link, sheet and row), the Do it label, cards left, filter and reason chips |
 | `card_review_set_verdict`   | Marks the open card `useful` or `not_useful`, with optional reason chips and text                                                                     |
-| `card_review_do_it`         | Presses **Do it**; it never sends or posts, and fails when the card has no action                                                                     |
+| `card_review_do_it`         | Presses **Do it**; for `run_skill` it waits and returns the outcome as `result`. It never sends or deletes, and fails when the card has no action     |
 | `card_review_snooze`        | Snoozes the open card until tomorrow for this viewer                                                                                                  |
 | `card_review_skip`          | Moves the open card to the end of the queue                                                                                                           |
 | `card_review_undo`          | Undoes the last action, like the **Undo** button                                                                                                      |

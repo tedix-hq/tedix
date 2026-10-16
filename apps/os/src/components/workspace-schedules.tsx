@@ -184,7 +184,10 @@ function PersonalReadControl({
 				className="m-0 flex flex-wrap items-center gap-1"
 				data-schedule-personal-read
 			>
-				Reads your {access.providerName} (read-only) ·{" "}
+				{access.level === "organise"
+					? `Reads and organises your ${access.providerName} (never sends or deletes)`
+					: `Reads your ${access.providerName} (read-only)`}{" "}
+				·{" "}
 				<Button
 					size="xs"
 					variant="ghost"

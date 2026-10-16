@@ -30,6 +30,7 @@ type Sheet = {
 
 const api = vi.hoisted(() => ({
 	outputs: { list: vi.fn(), get: vi.fn(), setSheetRange: vi.fn() },
+	schedules: { runNow: vi.fn(), setPersonalAccess: vi.fn() },
 }));
 
 vi.mock("@/lib/api", () => ({ osApi: { osWorkspaces: api } }));
@@ -469,5 +470,173 @@ describe("Card review WebMCP tools", () => {
 		expect(sheets.get(RULES_ID)!.rows[1]![2]).toBe("rejected");
 		expect(host?.textContent).not.toContain("Suggested change");
 		expect((await call("card_review_pending_rules")).data.rules).toEqual([]);
+	});
+});
+
+describe("Do it that runs the source's skill", () => {
+	const MAILBOX = "77777777-7777-4777-8777-777777777777";
+	const WORK = "/work/items/88888888-8888-4888-8888-888888888888";
+	const inbox: CardReviewConfig = {
+		version: 1,
+		sources: [
+			{
+				label: "Inbox",
+				workspaceId: WORKSPACE_ID,
+				cardSheetPrefix: "Social cards ",
+				maxRuns: 3,
+				columns: {
+					number: "#",
+					type: "Type",
+					source: "Source",
+					who: "Who",
+					why: "Why",
+					action: "Action",
+					draft: "Draft",
+					useful: "Useful?",
+					reason: "Reason",
+					done: "Did it?",
+					result: "Result",
+				},
+				doIt: "run_skill",
+				run: {
+					skillId: "inbox-actions",
+					actions: [
+						{ kind: "archive", match: ["archive"] },
+						{ kind: "reply_draft", match: ["draft a reply"] },
+					],
+				},
+			},
+		],
+	};
+
+	/** The run's own write: outcome, and done when it worked. */
+	function runWrites(row: number, result: string) {
+		const sheet = sheets.get(CARDS_ID)!;
+		if (!sheet.columns.includes("Result")) {
+			sheet.columns.push("Result");
+			for (const cells of sheet.rows) cells.push(null);
+		}
+		const cells = sheet.rows[row]!;
+		cells[sheet.columns.indexOf("Result")] = result;
+		if (!result.startsWith("Failed")) {
+			cells[sheet.columns.indexOf("Useful?")] = "yes";
+			cells[sheet.columns.indexOf("Did it?")] = "yes";
+		}
+		sheet.revision += 1;
+	}
+
+	beforeEach(() => {
+		const sheet = sheets.get(CARDS_ID)!;
+		sheet.columns.push("Action");
+		const actions = [
+			"Archive the thread",
+			"Draft a reply to Jonas",
+			"Book a call with Ada",
+		];
+		sheet.rows.forEach((row, index) => row.push(actions[index]!));
+	});
+
+	it("archives through a run, shows the outcome and moves on", async () => {
+		api.schedules.runNow.mockImplementation(async ({ params }) => {
+			runWrites(params.row, "Done ✓");
+			return { status: "started", runId: "run-1" };
+		});
+		await mount(inbox);
+		const card = await nextCard();
+		const pressed = await call("card_review_do_it", { cardKey: card.cardKey });
+		expect(pressed.isError).toBeFalsy();
+		expect(pressed.data.result).toBe("Done ✓");
+		expect(api.schedules.runNow).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspaceId: WORKSPACE_ID,
+				skillId: "inbox-actions",
+				needs: "organise",
+				params: expect.objectContaining({
+					cardSheetId: CARDS_ID,
+					row: 0,
+					kind: "archive",
+					action: "Archive the thread",
+				}),
+			}),
+		);
+		// The app itself writes nothing; the run did.
+		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
+		expect(shownWho()).toBe("Jonas Feld");
+		expect(
+			host?.querySelector("[data-card-review-last-result]")?.textContent,
+		).toContain("Archive the thread: Done ✓");
+	});
+
+	it("asks for organise access first, and the owner's click grants it", async () => {
+		api.schedules.runNow.mockResolvedValue({
+			status: "needs_access",
+			level: "read",
+			providerName: "Gmail",
+			resourceId: MAILBOX,
+		});
+		api.schedules.setPersonalAccess.mockResolvedValue({
+			level: "organise",
+			skills: [],
+		});
+		await mount(inbox);
+		const pressed = await call("card_review_do_it", {
+			cardKey: (await nextCard()).cardKey,
+		});
+		expect(pressed.isError).toBe(true);
+		expect(JSON.stringify(pressed)).toContain("Allow organising first");
+		const box = host?.querySelector("[data-card-review-allow-organising]");
+		expect(box?.textContent).toContain("Allow organising first");
+		const allow = [...(box?.querySelectorAll("button") ?? [])].find((b) =>
+			b.textContent?.includes("Let this organise my Gmail"),
+		);
+		expect(allow?.textContent).toContain("never sends or deletes");
+		// The agent's press never grants anything by itself.
+		expect(api.schedules.setPersonalAccess).not.toHaveBeenCalled();
+		await act(async () => allow!.click());
+		await flush();
+		expect(api.schedules.setPersonalAccess).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			resourceId: MAILBOX,
+			level: "organise",
+		});
+		expect(shownWho()).toBe("Mira Okafor");
+	});
+
+	it("files anything else as Work without asking for mailbox access", async () => {
+		api.schedules.runNow.mockImplementation(async ({ params }) => {
+			runWrites(params.row, "Filed as Work " + WORK);
+			return { status: "started", runId: "run-2" };
+		});
+		await mount(inbox);
+		await call("card_review_skip", { cardKey: (await nextCard()).cardKey });
+		await call("card_review_skip", { cardKey: (await nextCard()).cardKey });
+		const pressed = await call("card_review_do_it", {
+			cardKey: (await nextCard()).cardKey,
+		});
+		expect(pressed.data.result).toBe("Filed as Work " + WORK);
+		const [input] = api.schedules.runNow.mock.calls[0]!;
+		expect(input.needs).toBeUndefined();
+		expect(input.params.kind).toBe("work");
+		expect(
+			host
+				?.querySelector("[data-card-review-last-result] a")
+				?.getAttribute("href"),
+		).toBe(WORK);
+	});
+
+	it("keeps a failed card open with its reason", async () => {
+		api.schedules.runNow.mockImplementation(async ({ params }) => {
+			runWrites(params.row, "Failed: Gmail refused the label");
+			return { status: "started", runId: "run-3" };
+		});
+		await mount(inbox);
+		const pressed = await call("card_review_do_it", {
+			cardKey: (await nextCard()).cardKey,
+		});
+		expect(pressed.isError).toBe(true);
+		expect(shownWho()).toBe("Mira Okafor");
+		expect(host?.querySelector("[data-card-review-result]")?.textContent).toBe(
+			"Last try: Failed: Gmail refused the label",
+		);
 	});
 });

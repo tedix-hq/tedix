@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { JsonValueSchema } from "./common";
 
 /**
  * A Workspace resource with this provider and type says "this skill runs for
@@ -63,6 +64,15 @@ export const OsWorkspaceScheduleLastRunSchema = z
 	})
 	.strict();
 
+export const PersonalAccessLevelSchema = z
+	.enum(["none", "read", "organise"])
+	.describe(
+		"Access to a personal account: none; read; or organise, which adds labelling, archiving, marking read and drafting replies. No level sends, trashes or deletes",
+	);
+export type PersonalAccessLevelValue = z.infer<
+	typeof PersonalAccessLevelSchema
+>;
+
 /**
  * A scheduled skill that reads its owner's personal account: its manifest
  * declares a provider tool whose server-reviewed binding is a read of the
@@ -82,8 +92,11 @@ export const OsWorkspaceSchedulePersonalReadSchema = z
 			.uuid()
 			.nullable()
 			.describe(
-				"The viewer's own active read-only grant for this skill and Workspace; null when there is none",
+				"The viewer's own active grant for this skill and Workspace; null when there is none",
 			),
+		level: PersonalAccessLevelSchema.describe(
+			"What that grant lets the skill do: none, read, or organise (read plus label, archive, mark read and draft; never send or delete)",
+		),
 		canAllow: z
 			.boolean()
 			.describe(
@@ -135,3 +148,72 @@ export const OsWorkspaceScheduleSchema = z
 	})
 	.strict();
 export type OsWorkspaceSchedule = z.infer<typeof OsWorkspaceScheduleSchema>;
+
+export const SetWorkspacePersonalAccessResultSchema = z
+	.object({
+		level: PersonalAccessLevelSchema,
+		skills: z
+			.array(
+				z
+					.object({
+						skillId: z.string(),
+						grantId: z.string().uuid().nullable(),
+						toolIds: z.array(z.string()),
+					})
+					.strict(),
+			)
+			.describe(
+				"Each skill linked to the Workspace that uses this account, with its grant now (null: none) and the tools the grant covers",
+			),
+	})
+	.strict();
+
+const RUN_PARAMS_MAX_BYTES = 8_000;
+
+export const RunWorkspaceSkillNowInputSchema = z
+	.object({
+		workspaceId: z.string().uuid(),
+		skillId: z
+			.string()
+			.min(1)
+			.max(200)
+			.describe("A skill this Workspace links under Runs on a schedule"),
+		params: z
+			.record(z.string(), JsonValueSchema)
+			.refine(
+				(value) => JSON.stringify(value).length <= RUN_PARAMS_MAX_BYTES,
+				`Params must stay under ${RUN_PARAMS_MAX_BYTES} bytes`,
+			)
+			.describe("The run's params, as the skill's workflow reads them"),
+		needs: PersonalAccessLevelSchema.exclude(["none"])
+			.optional()
+			.describe(
+				"The access to the caller's personal account this run needs; without it the run does not start and the result is needs_access",
+			),
+		idempotencyKey: z
+			.string()
+			.uuid()
+			.describe("One key per press; a repeat returns the same run"),
+	})
+	.strict();
+
+export const RunWorkspaceSkillNowResultSchema = z.discriminatedUnion("status", [
+	z.object({ status: z.literal("started"), runId: z.string() }).strict(),
+	z
+		.object({
+			status: z.literal("needs_access"),
+			level: PersonalAccessLevelSchema,
+			providerName: z.string().nullable(),
+			resourceId: z
+				.string()
+				.uuid()
+				.nullable()
+				.describe(
+					"The caller's attached account to pass to setPersonalAccess; null when it is not attached to the Workspace yet",
+				),
+		})
+		.strict()
+		.describe(
+			"The owner has not given this skill that access yet; they choose it on their account's row in the Workspace's Attached resources",
+		),
+]);

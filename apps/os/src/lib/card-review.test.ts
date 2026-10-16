@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
 import {
+	cardActionKind,
 	cardReviewConfigFromManifest,
 	cardsFromSheet,
 	columnIndex,
@@ -8,12 +9,15 @@ import {
 	firstLink,
 	formatReason,
 	isSnoozed,
+	needsOrganise,
 	pendingRules,
+	resultParts,
 	plainWhy,
 	type ReviewCard,
 	reviewQueue,
 	rowWrite,
 	ruleTextById,
+	runParams,
 	snoozeUntil,
 	sourceParts,
 	verdictCells,
@@ -250,6 +254,7 @@ function card(overrides: Partial<ReviewCard>): ReviewCard {
 		useful: "",
 		reason: "",
 		done: "",
+		result: "",
 		...overrides,
 	};
 }
@@ -414,5 +419,111 @@ describe("plain card text", () => {
 				{ action: "Decide whether you go tomorrow and bring your photo ID" },
 			),
 		).toBe("Copy draft and open");
+	});
+});
+
+describe("run_skill Do it", () => {
+	const runner: CardReviewSource = {
+		...inbox,
+		columns: { ...inbox.columns, result: "Result" },
+		doIt: "run_skill",
+		run: {
+			skillId: "inbox-actions",
+			workProjectId: "33333333-3333-4333-8333-333333333333",
+			actions: [
+				{ kind: "unsubscribe", match: ["unsubscribe"] },
+				{ kind: "label", match: ["label"] },
+				{ kind: "archive", match: ["archive"] },
+				{ kind: "mark_read", match: ["mark read", "mark as read"] },
+				{ kind: "reply_draft", match: ["reply draft", "draft a reply"] },
+			],
+		},
+	};
+	const card = (type: string, action: string) => ({ type, action });
+
+	it("maps each card to a kind by its type first, then its action", () => {
+		expect(cardActionKind(runner, card("unsubscribe", "Unsubscribe"))).toBe(
+			"unsubscribe",
+		);
+		expect(
+			cardActionKind(runner, card("label/category", "Label as Receipts")),
+		).toBe("label");
+		expect(cardActionKind(runner, card("", "Archive the thread"))).toBe(
+			"archive",
+		);
+		expect(cardActionKind(runner, card("", "Mark as read"))).toBe("mark_read");
+		expect(
+			cardActionKind(runner, card("reply draft", "Draft a reply to Mia")),
+		).toBe("reply_draft");
+	});
+
+	it("files anything else as work, which needs no mailbox access", () => {
+		const kind = cardActionKind(
+			runner,
+			card("needs attention", "Book the venue for Lio"),
+		);
+		expect(kind).toBe("work");
+		expect(needsOrganise(kind)).toBe(false);
+		expect(needsOrganise("archive")).toBe(true);
+		expect(needsOrganise("reply_draft")).toBe(true);
+		expect(cardActionKind({ run: undefined }, card("archive", ""))).toBe(
+			"work",
+		);
+	});
+
+	it("starts the run with the card's sheet, row, kind and columns", () => {
+		expect(
+			runParams(
+				runner,
+				{ outputId: "sheet-1", rowIndex: 4, action: "Unsubscribe" },
+				"unsubscribe",
+				"Timely",
+			),
+		).toEqual({
+			cardSheetId: "sheet-1",
+			row: 4,
+			kind: "unsubscribe",
+			action: "Unsubscribe",
+			reason: "Timely",
+			columns: {
+				type: "Card type",
+				source: "Thread",
+				who: null,
+				why: "Why",
+				action: "Proposed action",
+				draft: "Draft",
+				useful: "Useful?",
+				reason: "Reason",
+				done: "Approve action?",
+				result: "Result",
+			},
+			workProjectId: "33333333-3333-4333-8333-333333333333",
+		});
+	});
+
+	it("reads the outcome cell, with its Work link", () => {
+		expect(
+			resultParts(
+				"Filed as Work /work/items/44444444-4444-4444-8444-444444444444",
+			),
+		).toEqual({
+			text: "Filed as Work",
+			workHref: "/work/items/44444444-4444-4444-8444-444444444444",
+			failed: false,
+		});
+		expect(resultParts("Failed: Gmail said no").failed).toBe(true);
+		expect(resultParts("Done ✓").workHref).toBeNull();
+	});
+
+	it("requires run settings in the app config", () => {
+		const config = (source: unknown) =>
+			cardReviewConfigFromManifest({
+				entry: "tedix:app/card-review",
+				config: { version: 1, sources: [source] },
+			} as never);
+		expect(config(runner).kind).toBe("ok");
+		expect(config({ ...runner, run: undefined })).toMatchObject({
+			kind: "invalid",
+		});
 	});
 });

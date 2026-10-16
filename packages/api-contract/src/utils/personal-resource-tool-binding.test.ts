@@ -2,6 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	personalResourceScopesCover,
 	constrainPersonalResourceToolArguments as constrain,
+	forbiddenPersonalToolArguments,
+	personalAccessLevel,
+	personalAccessOperations,
 	reviewedPersonalResourceBinding,
 } from "./personal-resource-tool-binding";
 import type { OsDerivedAccessEnvelope } from "../schemas/os-workspaces";
@@ -165,7 +168,7 @@ describe("account-target bindings (tools that name no resource)", () => {
 		).toThrow();
 		expect(() => constrain({ ...account, arguments: [] })).toThrow();
 	});
-	it("reviews only Gmail read tools", () => {
+	it("reviews Gmail read and organise tools, never send, trash, spam or delete", () => {
 		for (const tool of [
 			"search_threads",
 			"get_thread",
@@ -178,9 +181,24 @@ describe("account-target bindings (tools that name no resource)", () => {
 				target: "account",
 			});
 		for (const tool of [
-			"create_draft",
-			"trash_thread",
 			"label_thread",
+			"unlabel_thread",
+			"create_label",
+			"create_draft",
+		])
+			expect(reviewedPersonalResourceBinding("google-gmail", tool)).toEqual({
+				operation: "modify",
+				resourceType: "mailbox",
+				target: "account",
+			});
+		for (const tool of [
+			"send_message",
+			"send_draft",
+			"trash_thread",
+			"trash_message",
+			"delete_message",
+			"mark_thread_spam",
+			"apply_sensitive_thread_label",
 			"update_message_labels",
 			"__proto__",
 			"toString",
@@ -192,5 +210,71 @@ describe("account-target bindings (tools that name no resource)", () => {
 			reviewedPersonalResourceBinding("google", "search_threads"),
 		).toBeUndefined();
 		expect(reviewedPersonalResourceBinding("google-gmail", 1)).toBeUndefined();
+	});
+	describe("organise access", () => {
+		const organise = {
+			...mailbox,
+			operations: ["read", "modify"],
+			toolIds: ["label_thread"],
+		} as OsDerivedAccessEnvelope["sources"][number];
+		const labelCall = {
+			binding: reviewedPersonalResourceBinding("google-gmail", "label_thread"),
+			arguments: { threadId: "t1", labelIds: ["Label_7"] },
+			sources: [organise],
+			providerId: "google-gmail",
+			toolId: "label_thread",
+		};
+		it("admits labelling under an organise consent only", () => {
+			expect(constrain(labelCall).operation).toBe("modify");
+			expect(() =>
+				constrain({
+					...labelCall,
+					sources: [{ ...organise, operations: ["read"] }],
+				}),
+			).toThrow();
+		});
+		it.each([["TRASH"], ["spam"], [" Trash "], [7]])(
+			"never adds the %s label, which would delete mail",
+			(label) =>
+				expect(() =>
+					constrain({
+						...labelCall,
+						arguments: { threadId: "t1", labelIds: ["Label_7", label] },
+					}),
+				).toThrow(),
+		);
+		it("checks the upstream tool name too, whatever the binding says", () => {
+			expect(
+				forbiddenPersonalToolArguments(
+					"google-gmail",
+					"update_message_labels",
+					{
+						addLabelIds: ["TRASH"],
+					},
+				),
+			).toBe(true);
+			expect(() =>
+				constrain({
+					...labelCall,
+					toolId: "organise_mail",
+					providerToolName: "label_thread",
+					sources: [{ ...organise, toolIds: ["organise_mail"] }],
+					arguments: { threadId: "t1", labelIds: ["TRASH"] },
+				}),
+			).toThrow();
+			expect(
+				forbiddenPersonalToolArguments("google-gmail", "unlabel_thread", {
+					labelIds: ["INBOX"],
+				}),
+			).toBe(false);
+		});
+		it("names levels by their operations", () => {
+			expect(personalAccessOperations("organise")).toEqual(["read", "modify"]);
+			expect(personalAccessOperations("read")).toEqual(["read"]);
+			expect(personalAccessOperations("none")).toEqual([]);
+			expect(personalAccessLevel(["read", "modify"])).toBe("organise");
+			expect(personalAccessLevel(["read"])).toBe("read");
+			expect(personalAccessLevel(["subscribe"])).toBe("none");
+		});
 	});
 });

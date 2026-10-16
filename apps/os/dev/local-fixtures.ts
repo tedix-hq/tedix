@@ -6025,6 +6025,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 						providerName: "Gmail",
 						toolIds: ["search_threads"],
 						grantId: null,
+						level: "none",
 						canAllow: true,
 					},
 				},

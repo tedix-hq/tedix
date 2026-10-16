@@ -497,6 +497,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/resources/list": "mcp:apps.read",
 	"osWorkspaces/schedules/list": "mcp:apps.read",
 	"osWorkspaces/schedules/allowPersonalRead": "mcp:apps.write",
+	"osWorkspaces/schedules/setPersonalAccess": "mcp:apps.write",
+	"osWorkspaces/schedules/runNow": "mcp:apps.write",
 	"osWorkspaces/resources/readPdf": "mcp:apps.read",
 	"osWorkspaces/resources/rebind": "mcp:apps.write",
 	"osWorkspaces/resources/remove": "mcp:apps.admin",

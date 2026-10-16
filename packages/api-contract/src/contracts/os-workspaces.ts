@@ -49,6 +49,10 @@ import {
 import {
 	AllowWorkspaceSchedulePersonalReadResultSchema,
 	OsWorkspaceScheduleSchema,
+	PersonalAccessLevelSchema,
+	RunWorkspaceSkillNowInputSchema,
+	RunWorkspaceSkillNowResultSchema,
+	SetWorkspacePersonalAccessResultSchema,
 } from "../schemas/os-workspace-schedules";
 
 /**
@@ -635,6 +639,37 @@ export const osWorkspacesContract = oc
 						.strict(),
 				)
 				.output(AllowWorkspaceSchedulePersonalReadResultSchema),
+			setPersonalAccess: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/resources/{resourceId}/personal-access",
+					summary:
+						"Choose what the Workspace's skills may do with the owner's attached account",
+					description:
+						"Called by the account's owner while signed in, for a personal account attached to the Workspace (a resource with connectionScope user). For every skill the Workspace links under Runs on a schedule that declares tools for that account, replaces the owner's grant with one for the chosen level: none revokes it; read covers the declared reviewed read tools; organise adds the declared reviewed organising tools (Gmail: label_thread, unlabel_thread, create_label, create_draft). No level reaches a send, trash, spam or delete tool, and adding the Trash or Spam label is refused on every call. A grant lasts a year unless the level changes or it is revoked.",
+				})
+				.input(
+					workspaceIdInput
+						.extend({
+							resourceId: z
+								.string()
+								.uuid()
+								.describe("The attached personal account's resource id"),
+							level: PersonalAccessLevelSchema,
+						})
+						.strict(),
+				)
+				.output(SetWorkspacePersonalAccessResultSchema),
+			runNow: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/schedules/run-now",
+					summary: "Run one of the Workspace's skills now",
+					description:
+						"Starts a run of a skill the Workspace links under Runs on a schedule, outside its schedule, with the given params, for example a Card review Do it ({cardSheetId, row, kind, action, columns}); the server adds workspaceId and the skill's tediId. The run carries the caller's own active grants for that skill and Workspace. With needs, the run starts only when those grants reach that level; otherwise the result is needs_access and nothing runs.",
+				})
+				.input(RunWorkspaceSkillNowInputSchema)
+				.output(RunWorkspaceSkillNowResultSchema),
 		}),
 		work: oc.router({
 			listProjects: oc

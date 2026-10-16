@@ -8,7 +8,10 @@ import {
 	ThumbsUp,
 	Lightning,
 } from "@phosphor-icons/react";
-import type { CardReviewConfig } from "@tedix/api-contract/schemas/os-card-review";
+import type {
+	CardReviewConfig,
+	CardReviewSource,
+} from "@tedix/api-contract/schemas/os-card-review";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
@@ -42,21 +45,27 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { osApi } from "@/lib/api";
 import {
+	cardActionKind,
 	cardSheetsForSource,
 	cardsFromSheet,
+	cellText,
 	columnIndex,
+	DEFAULT_RESULT_COLUMN,
 	doItLabel,
 	formatReason,
 	isActionLabel,
 	type MissingColumns,
+	needsOrganise,
 	pendingRules,
 	type PendingRule,
 	plainWhy,
 	reasonChips,
+	resultParts,
 	type ReviewCard,
 	reviewQueue,
 	rowWrite,
 	ruleTextById,
+	runParams,
 	type SheetBody,
 	snoozeUntil,
 	sourceParts,
@@ -65,7 +74,9 @@ import {
 } from "@/lib/card-review";
 import {
 	canvasOutputsQueryOptions,
+	osQuery,
 	outputDetailQueryOptions,
+	workspaceSchedulesQueryOptions,
 } from "@/lib/os-query-options";
 import { cn } from "@/lib/utils";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
@@ -136,6 +147,19 @@ type UndoEntry =
 	| { kind: "skip"; label: string; key: string };
 
 type Tally = { useful: number; notUseful: number; doIt: number };
+
+/** A run_skill Do it that stopped because the owner has not allowed organising. */
+type NeedsAccess = {
+	cardKey: string;
+	workspaceId: string;
+	resourceId: string | null;
+	providerName: string;
+};
+
+/** How long a run_skill Do it waits for its outcome before saying it is still working. */
+const RUN_WAIT_MS = 150_000;
+const RUN_POLL_MS = 2_500;
+const RUN_FIRST_POLL_MS = 400;
 
 /**
  * The card review app: one factory card at a time, decided by a swipe, a key
@@ -283,6 +307,13 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 	const [note, setNote] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [undo, setUndo] = useState<UndoEntry | null>(null);
+	const [running, setRunning] = useState<string | null>(null);
+	const [needsAccess, setNeedsAccess] = useState<NeedsAccess | null>(null);
+	const [lastResult, setLastResult] = useState<{
+		number: string;
+		label: string;
+		result: string;
+	} | null>(null);
 	const [tally, setTally] = useState<Tally>({
 		useful: 0,
 		notUseful: 0,
@@ -355,6 +386,110 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		[queryClient],
 	);
 
+	/**
+	 * The outcome cell a run writes into the card row, read fresh until a newer
+	 * revision of the sheet carries it (a retried card keeps its last outcome
+	 * until the new run writes).
+	 */
+	const waitForOutcome = useCallback(
+		async (outputId: string, rowIndex: number, column: string) => {
+			const options = outputDetailQueryOptions(outputId);
+			const before =
+				queryClient.getQueryData(options.queryKey)?.currentRevision.revision ??
+				0;
+			const until = Date.now() + RUN_WAIT_MS;
+			for (let attempt = 0; Date.now() < until; attempt += 1) {
+				await new Promise((resolve) =>
+					setTimeout(resolve, attempt === 0 ? RUN_FIRST_POLL_MS : RUN_POLL_MS),
+				);
+				const detail = await queryClient.fetchQuery({
+					...options,
+					staleTime: 0,
+				});
+				const state = sheetState(
+					detail?.currentRevision.content,
+					detail?.currentRevision.revision,
+				);
+				const index = state ? columnIndex(state.body.columns, column) : -1;
+				const value =
+					state && state.revision > before && index >= 0
+						? cellText(state.body.rows[rowIndex]?.[index])
+						: "";
+				if (value) return value;
+			}
+			return null;
+		},
+		[queryClient],
+	);
+
+	/**
+	 * run_skill Do it: start the source's skill on this card at once, then show
+	 * what it did. The run writes the outcome and, when it worked, the done
+	 * column, so the card leaves the queue by itself.
+	 */
+	const runCardAction = useCallback(
+		async (
+			current: ReviewCard,
+			from: CardReviewSource,
+			label: string,
+			reason: string,
+		): Promise<CardReviewActionResult> => {
+			const run = from.run;
+			if (!run) return { ok: false, error: "This source has no run settings" };
+			const kind = cardActionKind(from, current);
+			setBusy(true);
+			setRunning(current.key);
+			setNeedsAccess(null);
+			try {
+				const started = await osApi.osWorkspaces.schedules.runNow({
+					workspaceId: from.workspaceId,
+					skillId: run.skillId,
+					params: runParams(from, current, kind, reason),
+					...(needsOrganise(kind) ? { needs: "organise" as const } : {}),
+					idempotencyKey: crypto.randomUUID(),
+				});
+				if (started.status === "needs_access") {
+					const providerName = started.providerName ?? "account";
+					setNeedsAccess({
+						cardKey: current.key,
+						workspaceId: from.workspaceId,
+						resourceId: started.resourceId,
+						providerName,
+					});
+					return {
+						ok: false,
+						error: `Allow organising first: the person must let this organise their ${providerName} (the button on the card), then press ${label} again.`,
+					};
+				}
+				const result =
+					(await waitForOutcome(
+						current.outputId,
+						current.rowIndex,
+						from.columns.result ?? DEFAULT_RESULT_COLUMN,
+					)) ?? "Still working; the outcome will show on the card";
+				const parts = resultParts(result);
+				setLastResult({ number: current.number, label, result });
+				setUndo(null);
+				if (parts.failed) {
+					toast.error(`${label}: not done`, { description: result });
+					return { ok: false, error: result };
+				}
+				setTally((t) => ({ ...t, doIt: t.doIt + 1 }));
+				toast.success(`${label}: ${parts.text}`);
+				return { ok: true, result };
+			} catch (error) {
+				const message =
+					error instanceof Error ? error.message : "Try again in a moment.";
+				toast.error(`${label} did not start`, { description: message });
+				return { ok: false, error: `${label} did not start: ${message}` };
+			} finally {
+				setBusy(false);
+				setRunning(null);
+			}
+		},
+		[waitForOutcome],
+	);
+
 	const decide = useCallback(
 		async (
 			verdict: Verdict["kind"],
@@ -365,6 +500,8 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 			if (verdict === "do_it" && actionLabel === null)
 				return { ok: false, error: "This card has no action to do" };
 			const reason = reasonOverride ?? formatReason(selectedChips, note);
+			if (verdict === "do_it" && source.doIt === "run_skill")
+				return runCardAction(card, source, actionLabel ?? "Do it", reason);
 			if (verdict === "do_it" && source.doIt === "copy_and_open") {
 				// Open first: a popup must start inside the user's gesture.
 				if (card.link) window.open(card.link, "_blank", "noopener,noreferrer");
@@ -417,7 +554,16 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				setBusy(false);
 			}
 		},
-		[actionLabel, busy, card, note, selectedChips, source, writeRow],
+		[
+			actionLabel,
+			busy,
+			card,
+			note,
+			runCardAction,
+			selectedChips,
+			source,
+			writeRow,
+		],
 	);
 
 	const snooze = useCallback((): CardReviewActionResult => {
@@ -657,6 +803,14 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				</Alert>
 			)}
 
+			{lastResult && (
+				<LastResult
+					number={lastResult.number}
+					label={lastResult.label}
+					result={lastResult.result}
+				/>
+			)}
+
 			{failed ? (
 				<Alert variant="warning">
 					<AlertTitle>Cards are unavailable</AlertTitle>
@@ -674,6 +828,12 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				</div>
 			) : card && source ? (
 				<>
+					{needsAccess?.cardKey === card.key && (
+						<AllowOrganising
+							access={needsAccess}
+							onAllowed={() => setNeedsAccess(null)}
+						/>
+					)}
 					<SwipeCard
 						key={card.key}
 						card={card}
@@ -722,10 +882,13 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 									className="col-span-2 h-14! w-full justify-center"
 									icon={<Lightning aria-hidden />}
 									disabled={busy}
+									loading={running === card.key}
 									onClick={() => void decide("do_it")}
 									aria-keyshortcuts="D"
 								>
-									{actionLabel}
+									{running === card.key
+										? `Doing it: ${actionLabel}…`
+										: actionLabel}
 								</Button>
 							)}
 						</div>
@@ -780,6 +943,17 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 							yet.
 						</Text>
 					)}
+					{source.doIt === "run_skill" && actionLabel !== null && (
+						<Text
+							as="p"
+							role="caption"
+							tone="secondary"
+							className="text-center"
+						>
+							Tedix does this now. It never sends mail or deletes anything;
+							bigger jobs become a Work item.
+						</Text>
+					)}
 				</>
 			) : (
 				<CaughtUp
@@ -797,6 +971,119 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				/>
 			)}
 		</div>
+	);
+}
+
+/** What the last run_skill Do it did, with its Work item when it filed one. */
+function LastResult({
+	number,
+	label,
+	result,
+}: {
+	number: string;
+	label: string;
+	result: string;
+}) {
+	const parts = resultParts(result);
+	return (
+		<Text
+			as="p"
+			role="label"
+			tone={parts.failed ? "error" : "secondary"}
+			className="m-0"
+			aria-live="polite"
+			data-card-review-last-result
+		>
+			#{number} {label}: {parts.text}
+			{parts.workHref && (
+				<>
+					{" "}
+					<a
+						href={parts.workHref}
+						className="text-kumo-link underline-offset-4 hover:underline"
+					>
+						Open the Work item
+					</a>
+				</>
+			)}
+		</Text>
+	);
+}
+
+/**
+ * The owner's own click that lets the source's skills organise their account
+ * (archive, label, mark read, unsubscribe, draft replies). It never sends or
+ * deletes, and the account's row in the workspace can take it back.
+ */
+function AllowOrganising({
+	access,
+	onAllowed,
+}: {
+	access: NeedsAccess;
+	onAllowed: () => void;
+}) {
+	const queryClient = useQueryClient();
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const name = access.providerName;
+	const allow = async () => {
+		if (!access.resourceId) return;
+		setPending(true);
+		setError(null);
+		try {
+			await osApi.osWorkspaces.schedules.setPersonalAccess({
+				workspaceId: access.workspaceId,
+				resourceId: access.resourceId,
+				level: "organise",
+			});
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: workspaceSchedulesQueryOptions(access.workspaceId).queryKey,
+				}),
+				queryClient.invalidateQueries({
+					queryKey: osQuery.personalResourceDelegations.list.key(),
+				}),
+			]);
+			toast.success(`Tedix can now organise your ${name}. Press Do it again.`);
+			onAllowed();
+		} catch (failure) {
+			setError(
+				failure instanceof Error ? failure.message : "Try again in a moment.",
+			);
+		} finally {
+			setPending(false);
+		}
+	};
+	return (
+		<Alert variant="warning" data-card-review-allow-organising>
+			<AlertTitle>Allow organising first</AlertTitle>
+			<AlertDescription>
+				<span className="flex flex-col items-start gap-2">
+					<span>
+						This action changes your {name}. Tedix can read it now, but not
+						organise it.
+					</span>
+					{access.resourceId ? (
+						<Button
+							size="sm"
+							variant="secondary"
+							disabled={pending}
+							onClick={() => void allow()}
+						>
+							Let this organise my {name} (archive, label, unsubscribe; never
+							sends or deletes)
+						</Button>
+					) : (
+						<span>
+							Attach your {name} to{" "}
+							<a href={`/workspace/${access.workspaceId}`}>this workspace</a>{" "}
+							first (Add source, then Attach resource).
+						</span>
+					)}
+					{error && <span role="alert">{error}</span>}
+				</span>
+			</AlertDescription>
+		</Alert>
 	);
 }
 
@@ -938,6 +1225,17 @@ function SwipeCard({
 						{card.action}
 					</Text>
 				</section>
+			)}
+			{card.result && (
+				<Text
+					as="p"
+					role="label"
+					tone={resultParts(card.result).failed ? "error" : "secondary"}
+					className="m-0"
+					data-card-review-result
+				>
+					Last try: {card.result}
+				</Text>
 			)}
 			{card.draft && (
 				<section aria-label="Draft" className="flex flex-col gap-1">

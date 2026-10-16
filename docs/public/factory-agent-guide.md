@@ -122,6 +122,26 @@ Workspace and clicks **Let this read my Gmail (read-only)** on the skill's
 **Runs on a schedule** row; no CLI step or Gmail resource setup is needed,
 and **Stop** revokes it.
 
+A factory's cards can be carried out, not only recorded. Add a second skill
+owned by the same tedi, without a schedule, that takes params `{cardSheetId,
+row, kind, action, reason, columns, workProjectId}` (the server adds
+`workspaceId` and `tediId`), does that one card and writes its outcome into
+the card row: `Done ✓`, `Draft ready`, `Filed as Work /work/items/<id>` or
+`Failed: <reason>`, plus `yes` in the done column when it worked. Link it to
+the Workspace like the factory and point the Card review source at it with
+`doIt: "run_skill"` (see [Build a workspace app](build-a-workspace-app.md)).
+The app starts it with `osWorkspaces.schedules.runNow` the moment the person
+presses **Do it**. Declare in its manifest only the account tools it uses:
+for Gmail, `get_thread`, `get_message` and `list_labels` to read, and
+`label_thread`, `unlabel_thread`, `create_label` and `create_draft` to
+organise, with `expectedAnnotations: { destructive: true }` because
+removing a label is marked destructive (pass `confirmDestructive` and a
+`reason` on that call). Never declare a send, trash, spam or delete tool;
+consent cannot reach them, and adding the Trash or Spam label is refused.
+The owner allows organising on their Gmail row under **Attached resources**
+(**Read + organise**), or with the button the card shows the first time;
+anything bigger becomes a Work item for the owning tedi or a local agent.
+
 ## Health and lifecycle
 
 ```bash
