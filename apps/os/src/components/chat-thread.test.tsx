@@ -87,6 +87,7 @@ vi.mock("@/lib/use-capn-chat", () => ({
 		status: transport.status,
 		overlays: transport.overlays,
 		actions: transport.actions,
+		heldSendKeys: new Set<string>(),
 		recordRendered: vi.fn(),
 	}),
 }));
@@ -1588,6 +1589,21 @@ describe("ProvisionalUserBubble", () => {
 		expect(html).not.toContain('aria-busy="true"');
 		expect(html).not.toContain("Sent");
 		expect(html).not.toContain("Failed");
+	});
+
+	it("says a send held for the reconnecting socket will still go out", () => {
+		const html = renderToStaticMarkup(
+			<ProvisionalUserBubble send={provisional()} held />,
+		);
+		expect(html).toContain("Reconnecting… will send");
+		expect(html).not.toContain("Sending…");
+		const unknown = renderToStaticMarkup(
+			<ProvisionalUserBubble
+				send={provisional({ state: "outcome_unknown" })}
+				held
+			/>,
+		);
+		expect(unknown).toContain("Delivery unconfirmed");
 	});
 
 	it("names the attempt on a same-key retry", () => {

@@ -53,7 +53,47 @@ describe("Home saved-output receipt", () => {
 	);
 
 	it.each([
+		["os.patch_os_document", "Updated “Q3 plan”. [Open document]"],
+		["os__set_os_sheet_range", "Updated “Q3 plan”. [Open document]"],
+		["os.patch_os_slides", "Updated “Q3 plan”. [Open document]"],
+		["os.rename_os_output", "Renamed to “Q3 plan”. [Open document]"],
+	])("renders a short human receipt for %s", (toolName, expected) => {
+		const receipt = renderKernelWriteReceipt({
+			toolName,
+			appSlug: "my-local-os-unified",
+			data: {
+				output: { id, kind: "document", title: "Q3 *plan*" },
+				revision: { id, outputId: id, content: { blocks: [] } },
+			},
+		});
+		expect(receipt).toBe(`${expected}(/outputs/${id}).`);
+		expect(receipt).not.toContain("{");
+	});
+
+	it("keeps tool-authored titles from becoming markup in edit receipts", () => {
+		expect(
+			renderKernelWriteReceipt({
+				toolName: "os.patch_os_document",
+				appSlug: "os",
+				data: {
+					output: {
+						id,
+						kind: "sheet",
+						title: "[Unsafe](https://example.com)",
+					},
+				},
+			}),
+		).toBe(
+			`Updated “Unsafehttps://example.com”. [Open sheet](/outputs/${id}).`,
+		);
+	});
+
+	it.each([
 		{ toolName: "provider.create_document", output: { id, kind: "document" } },
+		{
+			toolName: "provider.patch_os_document",
+			output: { id, kind: "document", title: "x" },
+		},
 		{
 			toolName: "os.create_os_output",
 			output: { id: "../../settings", kind: "document" },

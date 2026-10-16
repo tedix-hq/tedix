@@ -78,6 +78,30 @@ export function kernelOutputReceipt(input: {
 	return { outputId: output.data.id, revisionId: revision.data.id };
 }
 
+const editedOutputReceiptSchema = OsOutputSchema.pick({
+	id: true,
+	kind: true,
+	title: true,
+});
+
+/** OS output edits whose result is `{ output, revision }`, by bare tool name. */
+const OUTPUT_EDIT_RECEIPT_VERBS: ReadonlyMap<string, string> = new Map([
+	["patch_os_document", "Updated"],
+	["patch_os_slides", "Updated"],
+	["set_os_sheet_range", "Updated"],
+	["revise_os_output", "Updated"],
+	["rename_os_output", "Renamed to"],
+]);
+
+/** The title is tool-authored text: keep it plain so it cannot become markup. */
+function plainReceiptTitle(title: string): string {
+	return title
+		.replace(/[[\]()<>`*_~#|\\!]/g, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, 80);
+}
+
 export function renderKernelWriteReceipt(input: {
 	toolName: string;
 	appSlug: string;
@@ -120,6 +144,18 @@ export function renderKernelWriteReceipt(input: {
 		if (parsed.success) {
 			const { id, kind } = parsed.data;
 			return `Saved your ${kind}. [Open ${kind}](/outputs/${id}).`;
+		}
+	}
+	const bareOsTool = /^os(?:\.|__)(.+)$/.exec(input.toolName)?.[1];
+	const verb = bareOsTool ? OUTPUT_EDIT_RECEIPT_VERBS.get(bareOsTool) : null;
+	if (verb) {
+		const parsed = editedOutputReceiptSchema.safeParse(
+			nonNullRecord(input.data)?.output,
+		);
+		if (parsed.success) {
+			const { id, kind, title } = parsed.data;
+			const name = plainReceiptTitle(title);
+			return `${verb} ${name ? `“${name}”` : `your ${kind}`}. [Open ${kind}](/outputs/${id}).`;
 		}
 	}
 	const preview = boundedArgsJson({ result: input.data }, 300);

@@ -1706,7 +1706,14 @@ function ChatStarterPrompts({
  * client clock beside it would render a time the transcript does not agree
  * with the moment the row arrives.
  */
-export function ProvisionalUserBubble({ send }: { send: ProvisionalSend }) {
+export function ProvisionalUserBubble({
+	send,
+	held = false,
+}: {
+	send: ProvisionalSend;
+	/** The send has not left this client: it waits for the socket to return. */
+	held?: boolean;
+}) {
 	const pending = send.state === "sending";
 	return (
 		<li
@@ -1738,7 +1745,9 @@ export function ProvisionalUserBubble({ send }: { send: ProvisionalSend }) {
 							<Loader aria-label="Sending" size={12} />
 						</span>
 					) : null}
-					{PROVISIONAL_SEND_LABEL[send.state]}
+					{pending && held
+						? "Reconnecting… will send"
+						: PROVISIONAL_SEND_LABEL[send.state]}
 					{send.attempts > 1 ? ` · attempt ${send.attempts}` : ""}
 				</span>
 			</div>
@@ -2483,6 +2492,7 @@ export function ChatThread({
 		overlays,
 		status: conversationStreamStatus,
 		actions: transportActions,
+		heldSendKeys,
 		recordRendered,
 	} = useChatTransport(conversationId, {
 		// Both live and hydrated frames land here (source: "live" | "hydrate")
@@ -3496,6 +3506,7 @@ export function ChatThread({
 										<ProvisionalUserBubble
 											key={send.idempotencyKey}
 											send={send}
+											held={heldSendKeys.has(send.idempotencyKey)}
 										/>
 									))}
 									{visibleOverlays(
