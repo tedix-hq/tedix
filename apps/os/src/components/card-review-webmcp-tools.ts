@@ -26,6 +26,8 @@ export interface CardReviewController {
 	/** Rule text by id for the current card's source. */
 	ruleText: ReadonlyMap<string, string> | undefined;
 	doIt: "approve" | "copy_and_open" | null;
+	/** The open card's Do it label, or null when the card has no action. */
+	doItLabel: string | null;
 	reasonChips: { useful: readonly string[]; notUseful: readonly string[] };
 	channel: string | null;
 	channels: readonly string[];
@@ -161,7 +163,7 @@ export function buildCardReviewWebMcpTools(
 		name: NEXT,
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read the card the Card review app shows now: its source, type, who, why (with the rules it cites), suggested action, draft, link, and the sheet and row its verdict is written to. Also returns how many cards are left, the active filter, the reason chips and what Do it does. card is null when every card has a verdict.",
+			"Read the card the Card review app shows now: its source, type, who, why (with the rules it cites), suggested action, draft, link, and the sheet and row its verdict is written to. Also returns how many cards are left, the active filter, the reason chips, what Do it does and its button label (doItLabel null: the card has no action and Do it is unavailable). card is null when every card has a verdict.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async () => {
 			const state = current();
@@ -172,6 +174,7 @@ export function buildCardReviewWebMcpTools(
 				filters: ["all", ...state.channels],
 				reasonChips: state.reasonChips,
 				doIt: state.doIt,
+				doItLabel: state.doItLabel,
 				undo: state.undoLabel,
 				pendingRules: state.pendingRules.length,
 			});
@@ -216,7 +219,7 @@ export function buildCardReviewWebMcpTools(
 		name: "card_review_do_it",
 		annotations: { readOnlyHint: false, untrustedContentHint: false },
 		description:
-			"Press Do it on the open card. It writes yes into the card's done column and never sends, posts or changes a mailbox. For a copy_and_open source it also copies the draft and opens the source link, as the button does. card_review_undo reverts the write.",
+			"Press the open card's Do it button (labelled with the card's action). It fails when the card has no action. It writes yes into the card's done column and never sends, posts or changes a mailbox. For a copy_and_open source it also copies the draft and opens the source link, as the button does. card_review_undo reverts the write.",
 		inputSchema: {
 			type: "object",
 			properties: { cardKey: cardKeyProperty, ...reasonProperties },

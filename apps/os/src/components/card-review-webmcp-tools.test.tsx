@@ -232,7 +232,7 @@ async function flush() {
 	});
 }
 
-async function mount() {
+async function mount(appConfig: CardReviewConfig = config) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -244,7 +244,7 @@ async function mount() {
 			createElement(
 				QueryClientProvider,
 				{ client },
-				createElement(CardReviewApp, { config }),
+				createElement(CardReviewApp, { config: appConfig }),
 			),
 		),
 	);
@@ -272,6 +272,7 @@ const shownWho = () =>
 	host?.querySelector("[data-card-review-card] p")?.textContent ?? null;
 const shownProgress = () =>
 	host?.querySelector("[data-card-review-progress]")?.textContent ?? null;
+const NEXT_CARD = "card_review_next_card";
 const nextCard = async () =>
 	(await call("card_review_next_card")).data.card as {
 		cardKey: string;
@@ -400,6 +401,36 @@ describe("Card review WebMCP tools", () => {
 		expect(shownWho()).toBe("Jonas Feld");
 	});
 
+	it("names Do it after the card's action and hides it without one", async () => {
+		const sheet = sheets.get(CARDS_ID)!;
+		sheet.columns.push("Action");
+		sheet.rows.forEach((row, index) =>
+			row.push(index === 0 ? "Reply to Mira" : ""),
+		);
+		const source = config.sources[0]!;
+		await mount({
+			...config,
+			sources: [
+				{ ...source, columns: { ...source.columns, action: "Action" } },
+			],
+		});
+		const doItButton = () =>
+			host?.querySelector('button[aria-keyshortcuts="D"]') ?? null;
+		expect((await call(NEXT_CARD)).data.doItLabel).toBe("Reply to Mira");
+		expect(doItButton()?.textContent).toBe("Reply to Mira");
+		expect(host?.textContent).toContain("Asked about pricing");
+		expect(host?.textContent).not.toContain("R9:");
+
+		await call("card_review_skip", { cardKey: (await nextCard()).cardKey });
+		expect((await call(NEXT_CARD)).data.doItLabel).toBeNull();
+		expect(doItButton()).toBeNull();
+		const refused = await call("card_review_do_it", {
+			cardKey: (await nextCard()).cardKey,
+		});
+		expect(refused.isError).toBe(true);
+		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
+	});
+
 	it("skips and snoozes on screen, each undoable", async () => {
 		await mount();
 		await call("card_review_skip", { cardKey: (await nextCard()).cardKey });
@@ -417,6 +448,10 @@ describe("Card review WebMCP tools", () => {
 
 	it("lists and decides a suggested rule", async () => {
 		await mount();
+		const box = host?.querySelector('[aria-label="Suggested changes"]');
+		expect(box?.textContent).toContain("Suggested change");
+		expect(box?.textContent).toContain("Yes, change it");
+		expect(box?.textContent).not.toContain("R10");
 		const listed = await call("card_review_pending_rules");
 		expect(listed.data.rules).toEqual([
 			{
@@ -432,7 +467,7 @@ describe("Card review WebMCP tools", () => {
 		});
 		expect(decided.data).toMatchObject({ id: "R10", status: "rejected" });
 		expect(sheets.get(RULES_ID)!.rows[1]![2]).toBe("rejected");
-		expect(host?.textContent).not.toContain("suggested rule change");
+		expect(host?.textContent).not.toContain("Suggested change");
 		expect((await call("card_review_pending_rules")).data.rules).toEqual([]);
 	});
 });

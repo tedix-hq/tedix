@@ -4,10 +4,12 @@ import {
 	cardReviewConfigFromManifest,
 	cardsFromSheet,
 	columnIndex,
+	doItLabel,
 	firstLink,
 	formatReason,
 	isSnoozed,
 	pendingRules,
+	plainWhy,
 	type ReviewCard,
 	reviewQueue,
 	rowWrite,
@@ -376,5 +378,31 @@ describe("rules", () => {
 
 	it("maps rule ids to their text", () => {
 		expect(ruleTextById(inbox, body).get("R1")).toBe("Seed rule");
+	});
+});
+
+describe("plain card text", () => {
+	it("drops rule ids from the why text", () => {
+		expect(plainWhy("R7: group mail, so archive.")).toBe(
+			"Group mail, so archive.",
+		);
+		expect(plainWhy("Mia asked if Tuesday works. (R4, R10)")).toBe(
+			"Mia asked if Tuesday works.",
+		);
+	});
+
+	it("names Do it after a short action and hides it without one", () => {
+		const approve = { doIt: "approve" as const };
+		expect(doItLabel(approve, { action: "Draft a reply to Mia" })).toBe(
+			"Draft a reply to Mia",
+		);
+		expect(doItLabel(approve, { action: "" })).toBeNull();
+		expect(doItLabel(approve, { action: null })).toBe("Do it");
+		expect(
+			doItLabel(
+				{ doIt: "copy_and_open" },
+				{ action: "Decide whether you go tomorrow and bring your photo ID" },
+			),
+		).toBe("Copy draft and open");
 	});
 });

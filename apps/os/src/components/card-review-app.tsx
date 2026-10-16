@@ -14,6 +14,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
 	type KeyboardEvent,
 	type PointerEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -29,6 +30,11 @@ import {
 } from "@/components/card-review-webmcp-tools";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Kbd } from "@/components/kumo/kbd";
 import { Progress } from "@/components/kumo/progress";
@@ -39,10 +45,13 @@ import {
 	cardSheetsForSource,
 	cardsFromSheet,
 	columnIndex,
+	doItLabel,
 	formatReason,
+	isActionLabel,
 	type MissingColumns,
 	pendingRules,
 	type PendingRule,
+	plainWhy,
 	reasonChips,
 	type ReviewCard,
 	reviewQueue,
@@ -268,6 +277,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 	);
 	const card = queue[0] ?? null;
 	const source = card ? sources[card.sourceIndex] : undefined;
+	const actionLabel = card && source ? doItLabel(source, card) : null;
 
 	const [selectedChips, setSelectedChips] = useState<string[]>([]);
 	const [note, setNote] = useState("");
@@ -352,6 +362,8 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		): Promise<CardReviewActionResult> => {
 			if (!card || !source) return { ok: false, error: "No card is open" };
 			if (busy) return { ok: false, error: "The last action is still saving" };
+			if (verdict === "do_it" && actionLabel === null)
+				return { ok: false, error: "This card has no action to do" };
 			const reason = reasonOverride ?? formatReason(selectedChips, note);
 			if (verdict === "do_it" && source.doIt === "copy_and_open") {
 				// Open first: a popup must start inside the user's gesture.
@@ -405,7 +417,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				setBusy(false);
 			}
 		},
-		[busy, card, note, selectedChips, source, writeRow],
+		[actionLabel, busy, card, note, selectedChips, source, writeRow],
 	);
 
 	const snooze = useCallback((): CardReviewActionResult => {
@@ -514,6 +526,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		card,
 		ruleText: card ? rules.text.get(card.sourceIndex) : undefined,
 		doIt: source?.doIt ?? null,
+		doItLabel: actionLabel,
 		reasonChips: chips,
 		channel: activeChannel,
 		channels,
@@ -562,7 +575,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		const digit = Number.parseInt(key, 10);
 		if (key === "arrowright" || key === "u") void decide("useful");
 		else if (key === "arrowleft" || key === "n") void decide("not_useful");
-		else if (key === "d") void decide("do_it");
+		else if (key === "d" && actionLabel !== null) void decide("do_it");
 		else if (key === "s") snooze();
 		else if (key === "k") skip();
 		else if (key === "z") void undoLast();
@@ -703,19 +716,18 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 							>
 								Useful
 							</Button>
-							<Button
-								size="lg"
-								className="col-span-2 h-14! w-full justify-center"
-								icon={<Lightning aria-hidden />}
-								disabled={busy}
-								onClick={() => void decide("do_it")}
-								aria-keyshortcuts="D"
-							>
-								{source.doItLabel ??
-									(source.doIt === "copy_and_open"
-										? "Do it: copy draft and open"
-										: "Do it")}
-							</Button>
+							{actionLabel !== null && (
+								<Button
+									size="lg"
+									className="col-span-2 h-14! w-full justify-center"
+									icon={<Lightning aria-hidden />}
+									disabled={busy}
+									onClick={() => void decide("do_it")}
+									aria-keyshortcuts="D"
+								>
+									{actionLabel}
+								</Button>
+							)}
 						</div>
 						<div className="flex flex-wrap items-center justify-between gap-2">
 							<div className="flex gap-1">
@@ -748,19 +760,24 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 						tone="secondary"
 						className="hidden text-center sm:block"
 					>
-						<Kbd>←</Kbd> not useful · <Kbd>→</Kbd> useful · <Kbd>D</Kbd> do it ·{" "}
+						<Kbd>←</Kbd> not useful · <Kbd>→</Kbd> useful ·{" "}
+						{actionLabel !== null && (
+							<>
+								<Kbd>D</Kbd> do it ·{" "}
+							</>
+						)}
 						<Kbd>S</Kbd> snooze · <Kbd>K</Kbd> skip · <Kbd>1</Kbd>–
 						<Kbd>{allChips.length}</Kbd> reasons · <Kbd>Z</Kbd> undo
 					</Text>
-					{source.doIt === "approve" && (
+					{source.doIt === "approve" && actionLabel !== null && (
 						<Text
 							as="p"
 							role="caption"
 							tone="secondary"
 							className="text-center"
 						>
-							Do it only marks the card approved. Nothing is sent or changed in
-							your mailbox from here.
+							{actionLabel} only saves your choice. Nothing is sent or changed
+							yet.
 						</Text>
 					)}
 				</>
@@ -908,27 +925,11 @@ function SwipeCard({
 			)}
 			<SourceLine text={card.sourceText} />
 
-			<section aria-label="Why this card" className="flex flex-col gap-1">
-				<Text as="h3" role="caption" tone="secondary" className="m-0">
-					Why it matters
-				</Text>
-				<Text as="p" role="body" className="m-0 whitespace-pre-wrap">
-					{card.why}
-				</Text>
-				{rules.map((rule) => (
-					<Text
-						key={rule.id}
-						as="p"
-						role="caption"
-						tone="secondary"
-						className="m-0"
-					>
-						<span className="font-medium">{rule.id}</span> {rule.text}
-					</Text>
-				))}
-			</section>
+			<Text as="p" role="body" className="m-0 whitespace-pre-wrap">
+				{plainWhy(card.why)}
+			</Text>
 
-			{card.action && (
+			{card.action && !isActionLabel(card.action) && (
 				<section aria-label="Suggested action" className="flex flex-col gap-1">
 					<Text as="h3" role="caption" tone="secondary" className="m-0">
 						Suggested action
@@ -947,6 +948,21 @@ function SwipeCard({
 						{card.draft}
 					</blockquote>
 				</section>
+			)}
+			{rules.length > 0 && (
+				<Details summary="Details">
+					{rules.map((rule) => (
+						<Text
+							key={rule.id}
+							as="p"
+							role="caption"
+							tone="secondary"
+							className="m-0"
+						>
+							<span className="font-medium">{rule.id}</span> {rule.text}
+						</Text>
+					))}
+				</Details>
 			)}
 		</article>
 	);
@@ -1038,6 +1054,30 @@ function ReasonPicker({
 	);
 }
 
+/** "Stop showing… Why: …" splits into the change and its reason. */
+function splitWhy(text: string): { change: string; why: string } {
+	const at = text.search(/\bWhy:/);
+	if (at <= 0) return { change: text, why: "" };
+	return { change: text.slice(0, at).trim(), why: text.slice(at).trim() };
+}
+
+function Details({
+	summary,
+	children,
+}: {
+	summary: string;
+	children: ReactNode;
+}) {
+	return (
+		<Collapsible>
+			<CollapsibleTrigger className="-ml-2">{summary}</CollapsibleTrigger>
+			<CollapsibleContent>
+				<div className="flex flex-col gap-1 pt-1">{children}</div>
+			</CollapsibleContent>
+		</Collapsible>
+	);
+}
+
 function PendingRules({
 	rules,
 	onDecide,
@@ -1047,36 +1087,44 @@ function PendingRules({
 }) {
 	return (
 		<section
-			aria-label="Suggested rule changes"
+			aria-label="Suggested changes"
 			className="flex flex-col gap-2 rounded-2xl border border-kumo-line bg-kumo-tint p-3"
 		>
 			<Text as="h3" role="label" tone="strong" className="m-0">
-				{rules.length === 1
-					? "1 suggested rule change"
-					: `${rules.length} suggested rule changes`}
+				{rules.length === 1 ? "Suggested change" : "Suggested changes"}
 			</Text>
-			{rules.map((rule) => (
-				<div key={rule.key} className="flex flex-col gap-2">
-					<Text as="p" role="body" className="m-0">
-						<span className="font-medium">
-							{rule.sourceLabel} {rule.id}
-						</span>{" "}
-						{rule.text}
-					</Text>
-					<div className="flex gap-2">
-						<Button size="sm" onClick={() => onDecide(rule, "accepted")}>
-							Accept
-						</Button>
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={() => onDecide(rule, "rejected")}
-						>
-							Reject
-						</Button>
+			{rules.map((rule) => {
+				const { change, why } = splitWhy(rule.text);
+				return (
+					<div key={rule.key} className="flex flex-col gap-2">
+						<Text as="p" role="body" className="m-0">
+							{change}
+						</Text>
+						{why && (
+							<Text as="p" role="body" tone="secondary" className="m-0">
+								{why}
+							</Text>
+						)}
+						<div className="flex flex-wrap items-center gap-2">
+							<Button size="sm" onClick={() => onDecide(rule, "accepted")}>
+								Yes, change it
+							</Button>
+							<Button
+								size="sm"
+								variant="outline"
+								onClick={() => onDecide(rule, "rejected")}
+							>
+								No, keep as is
+							</Button>
+						</div>
+						<Details summary="Details">
+							<Text as="p" role="caption" tone="secondary" className="m-0">
+								{rule.sourceLabel} rule {rule.id}
+							</Text>
+						</Details>
 					</div>
-				</div>
-			))}
+				);
+			})}
 		</section>
 	);
 }

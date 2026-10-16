@@ -113,7 +113,8 @@ export type ReviewCard = {
 	who: string;
 	why: string;
 	ruleIds: string[];
-	action: string;
+	/** null when this sheet has no action column (an older run). */
+	action: string | null;
 	draft: string;
 	useful: string;
 	reason: string;
@@ -132,6 +133,39 @@ export function channelFor(source: CardReviewSource, haystack: string): string {
 /** Rule ids cited in a "why" cell, e.g. "R4: …" or "R2, R7". */
 export function citedRuleIds(why: string): string[] {
 	return [...new Set(why.match(/\bR\d{1,3}\b/g) ?? [])];
+}
+
+/** The "why" cell without its rule ids, which the card keeps behind Details. */
+export function plainWhy(why: string): string {
+	const text = why
+		.replace(/\(?\bR\d{1,3}\b(\s*[,/&]\s*R\d{1,3}\b)*\)?\s*:?\s*/g, "")
+		.replace(/\s{2,}/g, " ")
+		.trim();
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const ACTION_LABEL_MAX = 40;
+
+/** Whether an action cell is short enough to name the Do it button. */
+export function isActionLabel(action: string | null): action is string {
+	return !!action && action.length <= ACTION_LABEL_MAX;
+}
+
+/**
+ * The Do it button's label: the card's own action, or null to hide the button
+ * when the card has none. A sheet without an action column, or an older long
+ * action sentence, falls back to the configured label.
+ */
+export function doItLabel(
+	source: Pick<CardReviewSource, "doIt" | "doItLabel">,
+	card: Pick<ReviewCard, "action">,
+): string | null {
+	if (card.action === "") return null;
+	if (isActionLabel(card.action)) return card.action;
+	return (
+		source.doItLabel ??
+		(source.doIt === "copy_and_open" ? "Copy draft and open" : "Do it")
+	);
 }
 
 /** Card-sheet outputs for one source, newest run first. */
@@ -204,7 +238,8 @@ export function cardsFromSheet(input: {
 			who,
 			why,
 			ruleIds: citedRuleIds(why),
-			action: at(row, source.columns.action),
+			action:
+				col(source.columns.action) < 0 ? null : at(row, source.columns.action),
 			draft: at(row, source.columns.draft),
 			useful: at(row, source.columns.useful),
 			reason: at(row, source.columns.reason),
