@@ -839,6 +839,32 @@ describe("useChatTransport (the seam)", () => {
 		rendered.unmount();
 	});
 
+	it("carries the composer's picked tedi on an established conversation", async () => {
+		const server = mockServer();
+		const rendered = renderHook<ChatTransportResult>(() =>
+			useChatTransport(CONVERSATION_ID, {
+				connect: connectSequence(server),
+				metrics: null,
+				frameScheduler: syncScheduler,
+			}),
+		);
+		await act(async () => {
+			await flushAsync();
+		});
+		const tediId = "7b0f2a4e-1d3c-4b5a-9e8f-0a1b2c3d4e5f";
+		await rendered.result.current?.actions.enqueueMessage({
+			conversationId: CONVERSATION_ID,
+			content: "Draft the weekly note",
+			delegateToTediId: tediId,
+			idempotencyKey: "tedi-key",
+		});
+		expect(server.conversation.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({ delegateToTediId: tediId }),
+			"tedi-key",
+		);
+		rendered.unmount();
+	});
+
 	it("emits first_phase once per run from the runtime's first progress frame", async () => {
 		trackLifecycleApi.mockClear();
 		const server = mockServer();
