@@ -60,6 +60,15 @@ describe("agent session request ledger", () => {
 		]);
 	});
 
+	it("records more rows than one D1 statement can bind", async () => {
+		const db = fixture();
+		const requests = Array.from({ length: 8 }, (_, index) => ({
+			kind: "request" as const,
+			text: `Request ${index}`,
+		}));
+		expect(await record(db, { requests })).toHaveLength(8);
+	});
+
 	it("never shows one person's rows to another", async () => {
 		const db = fixture();
 		await record(db);
