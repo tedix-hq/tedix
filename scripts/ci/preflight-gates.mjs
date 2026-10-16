@@ -146,9 +146,6 @@ const dbTouched = touched((f) =>
 	}),
 );
 const scriptsTouched = touched((f) => f.startsWith("scripts/"));
-const privateExportManifestPresent = existsSync(
-	`${repoRoot}/scripts/oss/public-files.json`,
-);
 
 // Starter templates install from their own lockfiles. Their production builds
 // belong to changes in those templates, not every run of the script test suite.
@@ -442,7 +439,9 @@ const gates = [
 			"bun",
 			"scripts/oss/secret-scan.ts",
 			"--public",
-			...(privateExportManifestPresent ? ["--require-private-rules"] : []),
+			// Fail closed: without the private overlay, customer names and live
+			// ids pass the generic rules unseen.
+			"--require-private-rules",
 			// Commit messages and identities in the pushed range publish too.
 			...pushRanges.flatMap(({ base, head }) => [
 				"--base",

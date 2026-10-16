@@ -268,15 +268,15 @@ describe("unattendedRun", () => {
 				false,
 			);
 			// A background session is attended; a run it launched is not.
-			const session_id = "59607ddc-74e1-44e0-aed3-f88156efd9fd";
+			const session_id = "aaaaaaaa-0000-4000-8000-000000000001";
 			const background = {
 				CLAUDE_CODE_SESSION_ATTENDED: "0",
-				CLAUDE_JOB_DIR: "/h/.claude/jobs/59607ddc",
+				CLAUDE_JOB_DIR: "/h/.claude/jobs/aaaaaaaa",
 			};
 			expect(unattendedRun({ session_id }, background)).toBe(false);
 			expect(
 				unattendedRun(
-					{ session_id: "d59b4838-408a-462c-9bf0-f5767c67d376" },
+					{ session_id: "bbbbbbbb-0000-4000-8000-000000000002" },
 					background,
 				),
 			).toBe(true);

@@ -157,7 +157,7 @@ beforeEach(() => {
 		{
 			id,
 			providerId: "google-calendar",
-			label: "Adriana",
+			label: "Sample Person",
 			tokenIds: ["token"],
 			tokenSub: "verified-subject",
 		},
@@ -222,7 +222,7 @@ describe("exact calendar accounts and installed monitoring", () => {
 		const rows = await supportedCalendarAccounts(ctx, "org", "user");
 		expect(rows[0]).toMatchObject({
 			adapter: "google",
-			instanceLabel: "Adriana",
+			instanceLabel: "Sample Person",
 			accountSubject: "verified-subject",
 		});
 		expect(rows[0]).not.toHaveProperty("accessToken");
@@ -298,7 +298,7 @@ describe("exact calendar accounts and installed monitoring", () => {
 				{
 					id,
 					providerId: "google-calendar",
-					label: "Adriana",
+					label: "Sample Person",
 					tokenIds: ["token"],
 					tokenSub: "verified-subject",
 				},

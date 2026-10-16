@@ -834,7 +834,7 @@ describe("planKernelWriteProposal — schema prefetch", () => {
 
 describe("planKernelWriteProposal — editing a selected Tedix output", () => {
 	it("searches for the output's edit tools, not the request's words", async () => {
-		const OUTPUT_ID = "f62dc07f-4be7-488d-9968-2c3d8d395560";
+		const OUTPUT_ID = "00000000-0000-4000-8000-0000000000a1";
 		mocks.getOsOutput.mockResolvedValueOnce({
 			id: OUTPUT_ID,
 			kind: "document",
@@ -993,7 +993,7 @@ describe("planKernelWriteProposal — answering a Work request by title", () => 
 });
 
 describe("readEditTargetOutput", () => {
-	const OUTPUT_ID = "f62dc07f-4be7-488d-9968-2c3d8d395560";
+	const OUTPUT_ID = "00000000-0000-4000-8000-0000000000a1";
 	const output = {
 		id: OUTPUT_ID,
 		kind: "document",
