@@ -127,7 +127,7 @@ function OsSidebar({
 				</OsWorkspaceSwitcher>
 			</SidebarHeader>
 
-			<SidebarGroup className="shrink-0 px-2">
+			<SidebarGroup className="shrink-0 px-2 pb-1.5">
 				{collapsed ? null : (
 					<Button
 						className="mx-0 my-2 flex !h-8 w-full items-center gap-2.5 whitespace-nowrap rounded-lg border border-transparent bg-kumo-base px-3 text-left text-kumo-subtle transition-colors hover:border-kumo-hairline hover:bg-kumo-tint hover:text-kumo-default coarse:min-h-11"
