@@ -85,6 +85,7 @@ import {
 	parseCodeModeCatalog,
 	writeDiscoveryQuery,
 } from "./write-codemode";
+import { planDocumentCreate } from "./document-create-plan";
 
 export interface WriteProposalEnv extends JevActionEnv {
 	MCP_SERVICE?: {
@@ -961,6 +962,17 @@ async function planWriteCall(args: {
 	reasoning: string | null;
 } | null> {
 	const abortSignal = flatAbortSignal(args.timeoutMs);
+	if (!args.selectionOnly && args.tools.length === 1) {
+		const draft = await planDocumentCreate({
+			content: args.content,
+			toolName: args.tools[0]!.name,
+			workspaceId: args.workspaceContext?.workspaceId,
+			model: args.model,
+			abortSignal,
+			span: args.span,
+		});
+		if (draft !== undefined) return draft;
+	}
 	// The tool schema nests under `args`, but its `#/$defs/...` refs point at
 	// the document root, so its `$defs` must move to the root with it.
 	const { $defs: toolDefs, ...toolSchema } = (args.tools[0]?.inputSchema ??
