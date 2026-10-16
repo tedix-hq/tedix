@@ -504,7 +504,7 @@ describe("InboundConsentPage layout", () => {
 		},
 	);
 
-	it("starts the broker once and preserves the OAuth state after Descope removes it from the visible URL", async () => {
+	it("signs in to Tedix OS before the Descope flow starts, keeping the OAuth state", async () => {
 		globalThis.fetch = vi.fn(async () =>
 			Response.json({ authenticated: false }),
 		);
@@ -518,19 +518,9 @@ describe("InboundConsentPage layout", () => {
 			"/oauth/consent?mode=multi-org&third_party_app_state_id=state-1",
 		);
 		await act(async () => renderConsentPage());
-		window.history.replaceState({}, "", "/oauth/consent?mode=multi-org");
-		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
-			screenName: string,
-			context: Record<string, unknown>,
-			next: ReturnType<typeof vi.fn>,
-		) => boolean;
-		await act(async () => {
-			onScreenUpdate(
-				"Consent Screen - Verified App",
-				{ data: { inboundAppApproveScopes: [{ id: "mcp:apps.read" }] } },
-				vi.fn(),
-			);
-		});
+		// The bounce happens before the Descope flow starts, so a provider login
+		// never runs inside the flow and drop the state id from the URL.
+		expect(descopeMock.flowProps).toBeFalsy();
 		expect(
 			window.sessionStorage.getItem(
 				"tedix-inbound-consent-broker-attempted:state-1",
@@ -580,6 +570,44 @@ describe("InboundConsentPage layout", () => {
 		expect(container.textContent).toContain(
 			"Your Tedix sign-in could not be prepared.",
 		);
+		expect(apiMock.listMyWorkspaces).not.toHaveBeenCalled();
+	});
+
+	it("offers a retry instead of bouncing a provider callback that lost the OAuth state", async () => {
+		globalThis.fetch = vi.fn(async () =>
+			Response.json({ authenticated: false }, { status: 401 }),
+		);
+		window.sessionStorage.setItem(
+			"tedix-inbound-consent-authorization:app:TPAclient1",
+			"https://auth.tedix.dev/authorize?client_id=client-1",
+		);
+		window.history.replaceState(
+			{},
+			"",
+			"/oauth/consent?resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1",
+		);
+		await act(async () => renderConsentPage());
+		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
+			screenName: string,
+			context: Record<string, unknown>,
+			next: ReturnType<typeof vi.fn>,
+		) => boolean;
+		await act(async () => {
+			onScreenUpdate(
+				"Consent Screen - Verified App",
+				{ data: { inboundAppApproveScopes: [{ id: "mcp:apps.read" }] } },
+				vi.fn(),
+			);
+		});
+		expect(window.location.pathname).toBe("/oauth/consent");
+		expect(container.textContent).toContain(
+			"Your Tedix sign-in could not be prepared.",
+		);
+		expect(
+			[...container.querySelectorAll("button")].some(
+				(button) => button.textContent === "Retry authorization",
+			),
+		).toBe(true);
 		expect(apiMock.listMyWorkspaces).not.toHaveBeenCalled();
 	});
 
@@ -855,20 +883,8 @@ it.each(["tenant-bound", "multi-org"])(
 			`/oauth/consent?${query}&third_party_app_state_id=state-cookie&third_party_app_id=TPAclient1&oidc_resource=${encodeURIComponent(resource)}`,
 		);
 		await act(async () => renderConsentPage());
-		window.history.replaceState({}, "", `/oauth/consent?${query}`);
-		const update = descopeMock.flowProps?.onScreenUpdate as (
-			name: string,
-			context: Record<string, unknown>,
-			next: ReturnType<typeof vi.fn>,
-		) => boolean;
-		const next = vi.fn();
-		await act(async () => {
-			update(
-				"Consent Screen - Verified App",
-				{ data: { inboundAppApproveScopes: [{ id: "mcp:work.read" }] } },
-				next,
-			);
-		});
+		// The bounce precedes the Descope flow; consent never rendered.
+		expect(descopeMock.flowProps).toBeFalsy();
 		expect(window.location.pathname).toBe("/auth/session-broker/start");
 		const destination = new URL(
 			new URLSearchParams(window.location.search).get("redirect_to")!,
@@ -886,7 +902,6 @@ it.each(["tenant-bound", "multi-org"])(
 		).toBe(mode === "multi-org" ? "multi-org" : "org_tedix");
 		expect(container.textContent).not.toContain("Choose permissions");
 		expect(apiMock.stageMultiOrgMcpConsent).not.toHaveBeenCalled();
-		expect(next).not.toHaveBeenCalled();
 	},
 );
 it.each(["tenant-bound", "multi-org"])(

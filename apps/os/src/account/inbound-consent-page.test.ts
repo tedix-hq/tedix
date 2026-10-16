@@ -15,7 +15,9 @@ import {
 	inboundConsentContextError,
 	inboundConsentFlowFailure,
 	inboundConsentFlowError,
+	inboundConsentPreFlowBrokerPath,
 	inboundConsentRecoveryUrl,
+	inboundConsentResumableAfterBroker,
 	inboundConsentRequestedPermissions,
 	inboundConsentTenant,
 	isInvalidDescopeJwtFamily,
@@ -389,5 +391,66 @@ describe("reloaded consent requests", () => {
 			"mcp:apps.read",
 			"openid",
 		]);
+	});
+});
+
+describe("product-session bounce keeps the authorization transaction", () => {
+	const authorizeLoad =
+		"https://os.tedix.dev/oauth/consent?application_scopes=mcp%3Awork.read&oidc_resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1&third_party_app_state_id=s-abc";
+	// Descope returns from a provider login without the state id.
+	const providerCallback =
+		"https://os.tedix.dev/oauth/consent?code=one-time&descope-login-flow=inbound-apps-multi-org-consent%7C%23%7Cexecution.end&resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1";
+
+	it("signs in to Tedix OS before the flow starts, returning with the state id", () => {
+		const path = inboundConsentPreFlowBrokerPath(authorizeLoad, false);
+		expect(path).not.toBeNull();
+		const start = new URL(path!, "https://os.tedix.dev");
+		expect(start.pathname).toBe("/auth/session-broker/start");
+		const returnTo = start.searchParams.get("redirect_to")!;
+		expect(returnTo.startsWith("/oauth/consent?")).toBe(true);
+		expect(inboundConsentResumableAfterBroker(returnTo)).toBe(true);
+		expect(
+			new URL(returnTo, "https://os.tedix.dev").searchParams.get(
+				"third_party_app_state_id",
+			),
+		).toBe("s-abc");
+		// A signed-in browser, a broker error, or a provider callback starts the flow.
+		expect(inboundConsentPreFlowBrokerPath(authorizeLoad, true)).toBeNull();
+		expect(
+			inboundConsentPreFlowBrokerPath(`${authorizeLoad}&error=denied`, false),
+		).toBeNull();
+		expect(inboundConsentPreFlowBrokerPath(providerCallback, false)).toBeNull();
+	});
+
+	it("never bounces a provider callback, and still offers the original request for retry", () => {
+		// The SDK has already stripped code and descope-login-flow by then.
+		const strippedCallback =
+			"/oauth/consent?resource=https%3A%2F%2Fconnect.mcp.tedix.dev%2Fmcp&third_party_app_id=TPAclient1";
+		expect(inboundConsentResumableAfterBroker(strippedCallback)).toBe(false);
+
+		const authorize =
+			"https://auth.tedix.dev/oauth2/v1/apps/project/authorize?client_id=https%3A%2F%2Fos.tedix.dev%2F.well-known%2Foauth-client%2Ftedix-cli.json&state=opaque";
+		const values = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => values.set(key, value),
+		};
+		expect(inboundConsentRecoveryUrl(authorizeLoad, authorize, storage)).toBe(
+			authorize,
+		);
+		expect(
+			inboundConsentRecoveryUrl(
+				providerCallback,
+				"https://accounts.google.com/",
+				storage,
+			),
+		).toBe(authorize);
+		expect(
+			inboundConsentRecoveryUrl(
+				providerCallback.replace("TPAclient1", "TPAother"),
+				"https://accounts.google.com/",
+				storage,
+			),
+		).toBeNull();
 	});
 });
