@@ -140,7 +140,7 @@ export const WorkInteractionRequestSchema = z.strictObject({
 		.min(1)
 		.max(300)
 		.describe("Identifies the concrete principal requested to respond."),
-	creatorType: CredentialWorkActorTypeSchema,
+	creatorType: CredentialWorkActorTypeSchema.or(z.literal("system")),
 	creatorId: z.string().trim().min(1).max(300),
 	creatorSessionId: z
 		.string()
@@ -238,6 +238,12 @@ export const CreateWorkInteractionInputSchema = z
 		kind: WorkInteractionKindSchema,
 		subject: WorkInteractionRequestSchema.shape.subject,
 		prompt: WorkInteractionRequestSchema.shape.prompt,
+		notificationReason: z
+			.enum(["update", "failure", "blocked_approval"])
+			.optional()
+			.describe(
+				"Routine machine status updates to a person batch into a digest. Failures, blocked approvals and deadlines under 24 hours interrupt immediately.",
+			),
 		reason: z
 			.string()
 			.trim()
