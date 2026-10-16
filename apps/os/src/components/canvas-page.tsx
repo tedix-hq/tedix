@@ -218,18 +218,19 @@ export function nextCanvasDocAfterClose(
 
 /**
  * Choose the useful first view for a populated Workspace when its URL carries
- * no explicit user choice. Outputs are the durable project-facing artifact and
- * their server list is ordered by most recent activity; Gadgets are the
- * executable fallback. Explicit URL workpiece and pane state always wins.
+ * no explicit user choice. An app is the workspace's front door for people,
+ * so the first listed app opens before any file; without an app, the most
+ * recently active Output opens. Explicit URL workpiece and pane state always
+ * wins.
  */
 export function primaryCanvasDoc(
 	outputs: readonly Pick<OsOutput, "id">[],
 	gadgets: readonly Pick<OsGadget, "id">[],
 ): CanvasDocSelection | null {
-	const output = outputs[0];
-	if (output) return { type: "output", id: output.id };
 	const gadget = gadgets[0];
-	return gadget ? { type: "gadget", id: gadget.id } : null;
+	if (gadget) return { type: "gadget", id: gadget.id };
+	const output = outputs[0];
+	return output ? { type: "output", id: output.id } : null;
 }
 
 /** First-party output entries open their semantic editor instead of raw manifest JSON. */
@@ -750,7 +751,7 @@ export function CanvasPage({
 	// a populated project blank. This deliberately follows the URL reconciliation
 	// effect above so its local selection is not cleared in the same commit.
 	// Keep every explicit URL pane intact, but once both bounded lists resolve,
-	// open the newest durable Output or an executable Gadget. The ref prevents
+	// open the first app, else the newest durable Output. The ref prevents
 	// reopening an item a user deliberately closed.
 	useEffect(() => {
 		if (
@@ -778,9 +779,41 @@ export function CanvasPage({
 			{ workpiece: canvasDocKey(primary), pane: "workpiece" },
 			true,
 		);
+		if (primary.type !== "gadget") return;
+		// An app whose entry is one of this workspace's outputs opens in that
+		// output's editor, exactly as clicking it in Resources does.
+		const request = selectionRequestRef.current;
+		const outputItems = outputs.data.items;
+		void queryClient
+			.fetchQuery(canvasGadgetDetailQueryOptions(workspaceId, primary.id))
+			.then((detail) => {
+				if (selectionRequestRef.current !== request) return;
+				const linkedOutputId = linkedOutputIdFromManifest(
+					detail.currentRevision?.manifest,
+				);
+				const linked = outputItems.find(
+					(output) => output.id === linkedOutputId,
+				);
+				if (!linked) return;
+				const doc: CanvasDocSelection = {
+					type: "output",
+					id: linked.id,
+					linkedGadgetId: primary.id,
+				};
+				setSelectedDoc(doc);
+				updateOpenedDocs(() => [doc]);
+				writeCanvasSearch(
+					{ workpiece: canvasDocKey(doc), pane: "workpiece" },
+					true,
+				);
+			})
+			.catch(() => {
+				// The app's own view stays open; its detail query surfaces the failure.
+			});
 	}, [
 		gadgets.data,
 		outputs.data,
+		queryClient,
 		requestedDoc,
 		requestedPane,
 		updateOpenedDocs,

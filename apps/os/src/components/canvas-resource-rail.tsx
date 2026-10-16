@@ -1,5 +1,8 @@
 import { MagnifyingGlass } from "@phosphor-icons/react";
-import type { OsOutputLibraryItem } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsGadget,
+	OsOutputLibraryItem,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { type ReactNode, useState } from "react";
 import { OutputPreview } from "@/components/output-preview";
 import { CreateDocumentButton } from "@/components/create-document-dialog";
@@ -27,9 +30,10 @@ import {
 import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { cn } from "@/lib/utils";
+import { WorkspaceAppCards } from "@/components/workspace-app-cards";
 
 /**
- * The Canvas resource rail: workspace gadget/output pickers over the shell's
+ * The Canvas resource rail: workspace apps (gadgets) first, then files, over the shell's
  * canonical list queries. Purely presentational — the queries, selection
  * state, and URL writes stay in canvas-page.tsx, so the rail renders whatever
  * cache entries the shell already owns.
@@ -131,7 +135,7 @@ export function CanvasResourceRail({
 }: {
 	workspaces: ResourceListQuery<{ id: string }>;
 	workspaceId: string | null;
-	gadgets: ResourceListQuery<{ id: string; name: string }>;
+	gadgets: ResourceListQuery<Pick<OsGadget, "id" | "name" | "description">>;
 	outputs: ResourceListQuery<OsOutputLibraryItem>;
 	resources: ResourceListQuery<{
 		id: string;
@@ -186,8 +190,9 @@ export function CanvasResourceRail({
 					<div>
 						<h2>Resources</h2>
 						<p>
-							Start with a file below. Open it in the Editor to read or edit it,
-							or use the conversation to ask for changes.
+							{shownGadgets.length > 0
+								? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."
+								: "Start with a file below. Open it in the Editor to read or edit it, or use the conversation to ask for changes."}
 						</p>
 					</div>
 					{workspaceId && (
@@ -232,6 +237,42 @@ export function CanvasResourceRail({
 				)}
 				{workspaces.data && workspaceId !== null && (
 					<div className="canvas-resource-library-sections">
+						{(gadgets.isPending ||
+							gadgets.isError ||
+							shownGadgets.length > 0) && (
+							<section className="canvas-resource-section canvas-resource-apps">
+								<SectionEyebrow
+									title="Apps"
+									count={shownGadgets.length}
+									variant="console"
+								/>
+								{gadgets.isPending && (
+									<ListSkeleton rows={1} rowClassName="h-44" />
+								)}
+								{gadgets.isError && (
+									<Alert variant="destructive">
+										<AlertTitle>Apps are unavailable</AlertTitle>
+										<AlertDescription>
+											{(gadgets.error as Error).message}
+										</AlertDescription>
+									</Alert>
+								)}
+								{shownGadgets.length > 0 && (
+									<WorkspaceAppCards
+										workspaceId={workspaceId}
+										gadgets={shownGadgets}
+										selectedGadgetId={
+											selectedDoc?.type === "gadget"
+												? selectedDoc.id
+												: selectedDoc?.type === "output"
+													? (selectedDoc.linkedGadgetId ?? null)
+													: null
+										}
+										onOpen={onSelectGadget}
+									/>
+								)}
+							</section>
+						)}
 						<section className="canvas-resource-section canvas-resource-outputs">
 							<SectionEyebrow
 								title="Files"
@@ -476,55 +517,6 @@ export function CanvasResourceRail({
 												{sourceLabel(resource.providerId)} ·{" "}
 												{sourceLabel(resource.resourceType)}
 											</Text>
-										</li>
-									))}
-								</ul>
-							)}
-						</section>
-
-						<section className="canvas-resource-section">
-							<SectionEyebrow
-								title="Automations"
-								count={shownGadgets.length}
-								variant="console"
-							/>
-							<Text as="p" role="label" tone="secondary" className="m-0">
-								Open an automation to see what it does and choose when to run
-								it.
-							</Text>
-							{gadgets.isPending && (
-								<ListSkeleton rows={2} rowClassName="h-9" />
-							)}
-							{gadgets.isError && (
-								<Alert variant="destructive">
-									<AlertTitle>Automations are unavailable</AlertTitle>
-									<AlertDescription>
-										{(gadgets.error as Error).message}
-									</AlertDescription>
-								</Alert>
-							)}
-							{gadgets.data && shownGadgets.length === 0 && (
-								<Text as="p" role="label" tone="secondary" className="m-0">
-									{normalizedQuery
-										? "No automations match your search."
-										: "No active automations in this workspace."}
-								</Text>
-							)}
-							{gadgets.data && shownGadgets.length > 0 && (
-								<ul className="m-0 grid list-none gap-0.5 p-0">
-									{shownGadgets.map((gadget) => (
-										<li key={gadget.id}>
-											<DocButton
-												selected={
-													(selectedDoc?.type === "gadget" &&
-														selectedDoc.id === gadget.id) ||
-													(selectedDoc?.type === "output" &&
-														selectedDoc.linkedGadgetId === gadget.id)
-												}
-												onSelect={() => onSelectGadget(gadget.id)}
-											>
-												<span className="truncate">{gadget.name}</span>
-											</DocButton>
 										</li>
 									))}
 								</ul>
