@@ -82,12 +82,15 @@ function refs(rows: readonly AgentSessionRequestRow[]): {
 	return { prompt, byRef };
 }
 
-function activeRows(db: DbQueryClient, scope: SessionScope) {
-	return listAgentSessionRequests(db, {
+/** The session's newest active rows, oldest first, as the models see them. */
+async function activeRows(db: DbQueryClient, scope: SessionScope) {
+	const rows = await listAgentSessionRequests(db, {
 		...scope,
 		statuses: AGENT_SESSION_REQUEST_ACTIVE_STATUSES,
 		limit: ROWS_IN_PROMPT,
+		newestFirst: true,
 	});
+	return rows.reverse();
 }
 
 async function sourceKey(parts: readonly string[]): Promise<string> {
