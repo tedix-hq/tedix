@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../../lib/descope-management";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -32,7 +33,6 @@ import {
 	composeApiKeyCredential,
 	DESCOPE_OUTBOUND_CALLBACK_DOMAIN,
 	enforceConnectionProviderIssuerPin,
-	getDescopeManagement,
 	isDescopeDcrRegistrationError,
 	isPrivateOrLoopbackUrl,
 	loadExistingStaticOAuthProvider,
@@ -642,7 +642,7 @@ export const deleteProvider = authedOs.deleteProvider
 					"Deleting connection providers is restricted to platform administrators until per-org provider ownership ships.",
 				);
 			}
-			const client = getDescopeManagement(context.env);
+			const client = getDescopeManagement(context.env, true);
 			await deleteConnectionProvider(client, input.appId);
 			console.log(`[Connections] Deleted provider: appId=${input.appId}`);
 			return {
@@ -756,7 +756,7 @@ export const storeTediApiKey = tediOs.storeTediApiKey
 				credentialFields: input.credentialFields,
 				env: context.env,
 			});
-			await uploadTenantApiKeyToken(getDescopeManagement(context.env), {
+			await uploadTenantApiKeyToken(getDescopeManagement(context.env, true), {
 				appId: input.providerId,
 				tenantId: descopeTenantId,
 				apiKey,
@@ -798,7 +798,7 @@ export const disconnectTediProvider = tediOs.disconnectTediProvider
 				context,
 				input.tediId,
 			);
-			const client = getDescopeManagement(context.env);
+			const client = getDescopeManagement(context.env, true);
 			await deleteTenantTokens(client, input.appId, descopeTenantId);
 			console.log(
 				`[Connections] Disconnected tedi provider: appId=${input.appId} tediId=${input.tediId}`,
@@ -809,18 +809,6 @@ export const disconnectTediProvider = tediOs.disconnectTediProvider
 			};
 		},
 	);
-
-// =============================================================================
-// SCOPE ESCALATION
-// =============================================================================
-
-/**
- * Adaptive Connect — get an OAuth authorization URL for a connection.
- *
- * Forwards the user's raw JWT to Descope's Adaptive Connect endpoint
- * (`POST /v1/mgmt/outbound/app/connect`). Returns a URL to redirect the user
- * through the provider's OAuth flow. Only works with Bearer JWT auth.
- */
 
 // =============================================================================
 // SCOPE ESCALATION

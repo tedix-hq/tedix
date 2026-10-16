@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../lib/descope-management";
 /**
  * oRPC SEO Router
  *
@@ -17,7 +18,6 @@
 
 import { implement, ORPCError } from "@orpc/server";
 import { seoContract } from "@tedix/api-contract/contracts/seo";
-import { getManagementClient } from "@tedix/auth/client";
 import { fetchTenantConnectionToken } from "@tedix/auth/connections";
 import { DESCOPE_DEFAULT_BASE_URL } from "@tedix/auth/types";
 import type { DbClient } from "@tedix/db/client";
@@ -83,20 +83,6 @@ function getAppMetadata(app: { metadata: unknown }): AppMetadata {
 	const raw = app.metadata;
 	if (!raw || typeof raw !== "object") return {} as AppMetadata;
 	return raw as AppMetadata;
-}
-
-function getDescopeManagement(env: CloudflareEnv) {
-	if (!env.DESCOPE_MANAGEMENT_KEY) {
-		throw createError(
-			ErrorCodes.INTERNAL_SERVER_ERROR,
-			"Descope management key not configured",
-		);
-	}
-	return getManagementClient({
-		DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
-		DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
-		DESCOPE_BASE_URL: env.DESCOPE_BASE_URL || DESCOPE_DEFAULT_BASE_URL,
-	});
 }
 
 function resolveSiteUrl(
@@ -232,7 +218,14 @@ async function getGscAccessToken(
 			"Organization has no Descope tenant; cannot fetch Google connection token.",
 		);
 	}
-	const client = getDescopeManagement(context.env);
+	const client = getDescopeManagement(
+		{
+			...context.env,
+			DESCOPE_BASE_URL:
+				context.env.DESCOPE_BASE_URL || DESCOPE_DEFAULT_BASE_URL,
+		},
+		true,
+	);
 	const token = await fetchTenantConnectionToken(
 		client,
 		providerId,

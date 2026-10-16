@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 	updateMemberRole: vi.fn(),
 	getManagementClient: vi.fn(),
 	setTenantRoles: vi.fn(),
+	removeTenant: vi.fn(),
+	removeMember: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
@@ -19,6 +21,7 @@ vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
 		typeof import("@tedix/db/queries/organization-members")
 	>()),
 	getMemberById: mocks.getMemberById,
+	removeMember: mocks.removeMember,
 	updateMemberRole: mocks.updateMemberRole,
 }));
 
@@ -88,9 +91,15 @@ describe("members.updateMemberRole Descope synchronization", () => {
 		mocks.getMemberById.mockResolvedValue(member);
 		mocks.updateMemberRole.mockResolvedValue({ ...member, role: "admin" });
 		mocks.getManagementClient.mockReturnValue({
-			management: { user: { setTenantRoles: mocks.setTenantRoles } },
+			management: {
+				user: {
+					setTenantRoles: mocks.setTenantRoles,
+					removeTenant: mocks.removeTenant,
+				},
+			},
 		});
 		mocks.setTenantRoles.mockResolvedValue({ ok: true });
+		mocks.removeTenant.mockResolvedValue({ ok: true });
 	});
 
 	it("returns success only after Descope confirms the role", async () => {
@@ -126,6 +135,27 @@ describe("members.updateMemberRole Descope synchronization", () => {
 			),
 		).rejects.toThrow(/changed in Tedix but Descope synchronization failed/);
 		expect(mocks.updateMemberRole).toHaveBeenCalledOnce();
+	});
+
+	it("retains membership after provider removal fails, then deletes it on retry", async () => {
+		const client = createRouterClient(membersContractRouter, { context });
+		mocks.removeTenant.mockResolvedValueOnce({
+			ok: false,
+			error: { errorCode: "E_TEST" },
+		});
+		const removal = { organizationId: ORG_ID, memberId: MEMBER_ID };
+		await expect(client.removeMember(removal)).rejects.toThrow("E_TEST");
+		expect(mocks.removeMember).not.toHaveBeenCalled();
+		await expect(client.removeMember(removal)).resolves.toMatchObject({
+			success: true,
+		});
+		expect(mocks.removeMember).toHaveBeenCalledWith(
+			expect.anything(),
+			MEMBER_ID,
+		);
+		expect(mocks.removeTenant.mock.invocationCallOrder[1]).toBeLessThan(
+			mocks.removeMember.mock.invocationCallOrder[0]!,
+		);
 	});
 
 	it("does not change D1 when Descope management is unavailable", async () => {

@@ -32,36 +32,12 @@ export function getDescopeBaseUrl(env: DescopeMcpEnvLike): string {
 	return env.DESCOPE_BASE_URL || DESCOPE_DEFAULT_BASE_URL;
 }
 
-export function getDescopeManagementAuthHeader(env: DescopeMcpEnvLike): string {
-	if (!env.DESCOPE_PROJECT_ID || !env.DESCOPE_MANAGEMENT_KEY) {
-		throw new Error(
-			"Descope configuration missing (DESCOPE_PROJECT_ID or DESCOPE_MANAGEMENT_KEY)",
-		);
-	}
-	return `Bearer ${env.DESCOPE_PROJECT_ID}:${env.DESCOPE_MANAGEMENT_KEY}`;
-}
-
 export function buildDescopeMcpDiscoveryUrl(params: {
 	baseUrl?: string;
 	projectId: string;
 	resourceId: string;
 }): string {
 	return `${params.baseUrl ?? DESCOPE_DEFAULT_BASE_URL}/v1/apps/agentic/${params.projectId}/${params.resourceId}/.well-known/openid-configuration`;
-}
-
-export function extractDescopeMcpResourceId(result: {
-	id?: string;
-	mcpServerId?: string;
-	resourceId?: string;
-	serverId?: string;
-}): string | null {
-	return (
-		result.id ??
-		result.mcpServerId ??
-		result.resourceId ??
-		result.serverId ??
-		null
-	);
 }
 
 export function resolveDescopeMcpScopeSyncConfig(

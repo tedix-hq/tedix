@@ -4,7 +4,7 @@ import {
 	loadAllDescopeMcpServers,
 	searchDescopeMcpServerClients,
 } from "@tedix/auth/aih-client";
-import { createDescopeClient } from "@tedix/auth/descope";
+import { getDescopeClient } from "@tedix/auth/descope";
 import { readDescopeRolePermissionNames } from "@tedix/auth/descope-rbac-sync";
 import { queryTediRelations } from "@tedix/auth/fga";
 import {
@@ -1040,7 +1040,7 @@ export async function getDescopeAihDriftReport(params: {
 	now?: Date;
 }): Promise<DescopeAihDriftReport> {
 	// Reused for both the SDK-backed tenant/role reads below and the FGA query.
-	const descopeClient = createDescopeClient(params.env);
+	const descopeClient = getDescopeClient(params.env);
 	const [
 		allServers,
 		outboundResponse,

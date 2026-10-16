@@ -4,7 +4,7 @@
  * Wraps Descope's FGA API for tedi-app permission management.
  *
  * Schema (Descope `AuthZ 1.0` DSL — NOT OpenFGA `model schema 1.1`, which the
- * Descope parser rejects with E172008; see `initFGASchema`):
+ * Descope parser rejects with E172008):
  *   model AuthZ 1.0
  *   type user
  *   type app
@@ -12,7 +12,6 @@
  *     relation observer: user
  *
  * SDK methods used:
- * - management.fga.saveSchema(schema)
  * - management.fga.createRelations(relations)
  * - management.fga.deleteRelations(relations)
  * - management.fga.check(relations)
@@ -52,38 +51,6 @@ function logUnavailableAppCheck(
 		reason: response.ok ? "missing_data" : "provider_failure",
 		providerCode: response.error?.errorCode ?? null,
 	});
-}
-
-// =============================================================================
-// SCHEMA
-// =============================================================================
-
-/**
- * Initialize the Tedix FGA schema in Descope.
- *
- * NOTE: no code path currently calls this — the `app`/`operator`/`observer`
- * schema is bootstrapped out-of-band (Descope console). The relation
- * grant/check helpers below assume it already exists. Kept as the canonical
- * definition of the schema; wire it into a bootstrap/migration step if we ever
- * want deploys to self-heal schema drift. It IS idempotent (Descope upserts).
- */
-export async function initFGASchema(client: DescopeClient): Promise<void> {
-	// Descope FGA DSL — `model AuthZ 1.0` declaration + `relation <name>: <type>`
-	// per https://docs.descope.com/authorization/rebac/define-schema. The older
-	// OpenFGA-style `model schema 1.1` + `relations` block is rejected by
-	// Descope's parser with E172008.
-	const dsl = [
-		"model AuthZ 1.0",
-		"type user",
-		"type app",
-		"  relation operator: user",
-		"  relation observer: user",
-	].join("\n");
-
-	const resp = await client.management.fga.saveSchema({ dsl });
-	if (!resp.ok) {
-		throw new Error(`Failed to save FGA schema: ${JSON.stringify(resp)}`);
-	}
 }
 
 // =============================================================================

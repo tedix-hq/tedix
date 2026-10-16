@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../../lib/descope-management";
 import { decodeTokenUnsafe, isTokenExpired } from "@tedix/auth/jwt";
 import {
 	buildCimdAuthorizationUrl,
@@ -59,7 +60,6 @@ import {
 	authedOs,
 	collectReferencedProviders,
 	discoverOutboundAppMetadataForAudit,
-	getDescopeManagement,
 	getUrlParam,
 	inferOAuthRegistrationMode,
 	inferOutboundConnectionType,
@@ -318,7 +318,7 @@ export const preparePersonalConnection = authedOs.preparePersonalConnection
  */
 export async function readConnectionProviders(context: BaseContext) {
 	const orgId = requireOrgId(context);
-	const client = getDescopeManagement(context.env);
+	const client = getDescopeManagement(context.env, true);
 
 	// Compute the set of provider IDs this org's apps actually reference,
 	// and fetch every known provider template — both cheap to do in
@@ -435,7 +435,7 @@ export const auditProviderSettings = authedOs.auditProviderSettings
 			};
 		}) => {
 			const orgId = requireOrgId(context);
-			const client = getDescopeManagement(context.env);
+			const client = getDescopeManagement(context.env, true);
 			const [appsResponse, referencedProviders, providers] = await Promise.all([
 				client.management.outboundApplication.loadAllApplications(),
 				collectReferencedProviders(context.db, orgId),
@@ -546,7 +546,7 @@ export const getUserConnections = authedOs.getUserConnections
 	.handler(async ({ context }: { context: BaseContext }) => {
 		const orgId = requireOrgId(context);
 		const userId = context.user?.sub;
-		const client = getDescopeManagement(context.env);
+		const client = getDescopeManagement(context.env, true);
 		const [appsResponse, org, providers] = await Promise.all([
 			client.management.outboundApplication.loadAllApplications(),
 			getOrganizationById(context.db, orgId),
@@ -913,7 +913,7 @@ export const disconnectProvider = authedOs.disconnectProvider
 					`Insufficient permissions. Required: ${requiredPermission}`,
 				);
 			}
-			const client = getDescopeManagement(context.env);
+			const client = getDescopeManagement(context.env, true);
 			const owner = connectionOwner(context, input.tokenScope);
 			const org =
 				input.tokenScope === "tenant"
@@ -1065,7 +1065,7 @@ export const fetchToken = authedOs.fetchToken.use(AUTHZ.platformAdmin).handler(
 	}) => {
 		requireOrgId(context);
 		const userId = requireUserId(context);
-		const client = getDescopeManagement(context.env);
+		const client = getDescopeManagement(context.env, true);
 		let token: Awaited<ReturnType<typeof fetchConnectionToken>> | null;
 		if (input.scopes && input.scopes.length > 0) {
 			// Use scope-filtered token retrieval

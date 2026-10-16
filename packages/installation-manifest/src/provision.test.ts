@@ -261,7 +261,7 @@ describe("provisionCloudflareResources", () => {
 		expect(report.identity?.baseUrl).toBe("https://auth.example.com");
 		expect(requests.map(({ url }) => url)).toEqual([
 			"https://auth.example.com/P3example/.well-known/openid-configuration",
-			"https://api.descope.com/v1/mgmt/project/export",
+			"https://api.descope.com/v1/mgmt/project/snapshot/export",
 		]);
 	});
 

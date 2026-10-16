@@ -235,7 +235,7 @@ export async function preflightDescopeIdentity(
 		);
 	}
 
-	const exportUrl = `${managementApiBaseUrl}/v1/mgmt/project/export`;
+	const exportUrl = `${managementApiBaseUrl}/v1/mgmt/project/snapshot/export`;
 	readOnlyRequests.push({
 		method: "POST",
 		url: exportUrl,

@@ -1470,7 +1470,13 @@ export async function deleteConnectionTokens(
 	}
 
 	try {
-		await client.management.outboundApplication.deleteUserTokens(appId, userId);
+		assertDescopeOk(
+			await client.management.outboundApplication.deleteUserTokens(
+				appId,
+				userId,
+			),
+			"outboundApplication.deleteUserTokens",
+		);
 	} catch (error) {
 		console.error("[Auth] deleteConnectionTokens failed:", error);
 		throw error;
@@ -2191,7 +2197,10 @@ export async function deleteConnectionProvider(
 	appId: string,
 ): Promise<void> {
 	try {
-		await client.management.outboundApplication.deleteApplication(appId);
+		assertDescopeOk(
+			await client.management.outboundApplication.deleteApplication(appId),
+			"outboundApplication.deleteApplication",
+		);
 	} catch (error) {
 		console.error("[Auth] deleteConnectionProvider failed:", error);
 		throw error;
@@ -2203,7 +2212,7 @@ export async function deleteConnectionProvider(
  *
  * The Descope SDK has no direct tenant token deletion method.
  * Strategy: fetch the tenant token to get its ID, then delete by ID.
- * Falls back to deleteUserTokens(appId) if the token has no ID.
+ * Fails without deleting anything if the token has no ID.
  *
  * @param client - Descope management client
  * @param appId - The outbound app ID whose tokens should be deleted
@@ -2223,20 +2232,15 @@ export async function deleteTenantTokens(
 				{ withRefreshToken: false },
 			);
 
-		if (response.ok && response.data?.id) {
-			// Delete by specific token ID — safe, doesn't affect other tenants
+		assertDescopeOk(response, "outboundApplication.fetchTenantToken");
+		if (!response.data?.id)
+			throw new Error("Tenant token has no ID; deletion cannot be confirmed");
+		assertDescopeOk(
 			await client.management.outboundApplication.deleteTokenById(
 				response.data.id,
-			);
-		} else {
-			// Fallback: no-op — we cannot safely delete without a specific token ID
-			// because deleteUserTokens(appId, undefined) would wipe ALL users' tokens
-			// for this app. Log and return without deleting.
-			console.warn(
-				"[Auth] deleteTenantTokens: tenant token has no ID — skipping deletion to avoid data loss",
-				{ appId, tenantId },
-			);
-		}
+			),
+			"outboundApplication.deleteTokenById",
+		);
 	} catch (error) {
 		console.error("[Auth] deleteTenantTokens failed:", error);
 		throw error;

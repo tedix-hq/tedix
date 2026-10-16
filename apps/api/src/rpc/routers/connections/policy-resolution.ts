@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../../lib/descope-management";
 import { DESCOPE_SESSION_COOKIE, readCookieHeader } from "@tedix/auth/web";
 import { TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import {
@@ -37,7 +38,6 @@ import {
 	fetchTenantConnectionTokenByScopes,
 	outboundAppExists,
 } from "@tedix/auth/connections";
-import { getManagementClient } from "@tedix/auth/client";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getConnectionInstance,
@@ -76,20 +76,6 @@ function requireUserId(context: BaseContext): string {
 		throw createError(ErrorCodes.UNAUTHORIZED, "User identity required");
 	}
 	return userId;
-}
-
-export function getDescopeManagement(env: CloudflareEnv) {
-	if (!env.DESCOPE_MANAGEMENT_KEY) {
-		throw createError(
-			ErrorCodes.INTERNAL_SERVER_ERROR,
-			"Descope management key not configured",
-		);
-	}
-	return getManagementClient({
-		DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
-		DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
-		DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
-	});
 }
 
 /**
@@ -955,7 +941,7 @@ export async function loadExistingStaticOAuthProvider(input: {
 	env: CloudflareEnv;
 	providerId: string;
 }) {
-	const client = getDescopeManagement(input.env);
+	const client = getDescopeManagement(input.env, true);
 	const response =
 		await client.management.outboundApplication.loadAllApplications();
 	if (!response.ok || !response.data) return null;
@@ -1760,7 +1746,7 @@ async function fetchAdoptedDefaultConnection(
 ) {
 	if (!instance.tokenSub || !instance.tokenIds.length) return null;
 	const token = await fetchConnectionToken(
-		getDescopeManagement(context.env),
+		getDescopeManagement(context.env, true),
 		instance.providerId,
 		userId,
 	);
@@ -1780,7 +1766,7 @@ export async function adoptDefaultPersonalConnection(
 	input: { userId: string; providerId: string },
 ) {
 	const token = await fetchConnectionToken(
-		getDescopeManagement(context.env),
+		getDescopeManagement(context.env, true),
 		input.providerId,
 		input.userId,
 	);
@@ -1831,7 +1817,7 @@ export async function resolveCredentialChain(
 			);
 		}
 	}
-	const client = getDescopeManagement(context.env);
+	const client = getDescopeManagement(context.env, true);
 	let actingUserOwnsOrganization = false;
 	const actingUserId = args.callerUserId ?? args.ownerUserId ?? undefined;
 	if (actingUserId && (args.scope === "user" || args.scope === "hybrid")) {

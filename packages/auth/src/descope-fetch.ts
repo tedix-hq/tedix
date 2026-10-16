@@ -59,12 +59,12 @@ function retryAfterMs(response: Response): number | null {
 	// Retry-After may be seconds (delta) or an HTTP-date.
 	const seconds = Number(header);
 	if (Number.isFinite(seconds) && seconds >= 0) {
-		return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+		return seconds * 1000;
 	}
 	const dateMs = Date.parse(header);
 	if (Number.isFinite(dateMs)) {
 		const delta = dateMs - Date.now();
-		if (delta > 0) return Math.min(delta, MAX_RETRY_AFTER_MS);
+		return Math.max(0, delta);
 	}
 	return null;
 }
@@ -126,6 +126,8 @@ export async function descopeFetch(
 		// idempotent and non-idempotent (mutation) calls.
 		if (response.status === 429 && !isLastAttempt) {
 			const wait = retryAfterMs(response) ?? backoffDelayMs(attempt);
+			// Return the rate limit when its delay exceeds our retry budget.
+			if (wait > MAX_RETRY_AFTER_MS) return response;
 			await discardBody(response);
 			await sleep(wait);
 			continue;
