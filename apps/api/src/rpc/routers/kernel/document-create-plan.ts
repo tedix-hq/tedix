@@ -49,9 +49,9 @@ export async function planDocumentCreate(input: {
 		maxRetries: 1,
 		telemetry: objectSpanTelemetry("kernel.write_proposal", input.span ?? {}),
 		providerOptions: {
-			cloudflareAutoRouter: { strictJsonSchema: false },
-			openai: { strictJsonSchema: false },
-			azure: { strictJsonSchema: false },
+			cloudflareAutoRouter: { strictJsonSchema: false, reasoningEffort: "low" },
+			openai: { strictJsonSchema: false, reasoningEffort: "low" },
+			azure: { strictJsonSchema: false, reasoningEffort: "low" },
 		},
 	});
 	if (result.object.blocks === null) return null;
