@@ -993,21 +993,77 @@ describe("useChatTransport (the seam)", () => {
 		rendered.unmount();
 	});
 
-	it("does not fall back to oRPC while an established thread reconnects", async () => {
+	it("holds a send while an established thread reconnects, then fails it as not-sent without an oRPC fallback", async () => {
+		const timers = fakeTimers();
 		const rendered = renderHook<ChatTransportResult>(() =>
 			useChatTransport(CONVERSATION_ID, {
 				connect: () => new Promise(() => {}),
 				metrics: null,
 				frameScheduler: syncScheduler,
+				setTimeoutFn: timers.setTimeoutFn,
+				clearTimeoutFn: timers.clearTimeoutFn,
 			}),
 		);
-		await expect(
-			rendered.result.current?.actions.enqueueMessage({
-				content: "hello",
-				conversationId: CONVERSATION_ID,
-				idempotencyKey: "key-no-fallback",
+		let settled: unknown = "pending";
+		let pending: Promise<unknown> | undefined;
+		await act(async () => {
+			pending = rendered.result.current?.actions
+				.enqueueMessage({
+					content: "hello",
+					conversationId: CONVERSATION_ID,
+					idempotencyKey: "key-no-fallback",
+				})
+				.catch((error: unknown) => {
+					settled = error;
+				});
+			await flushAsync();
+		});
+		expect(settled).toBe("pending");
+		expect(rendered.result.current?.heldSendKeys.has("key-no-fallback")).toBe(
+			true,
+		);
+		await act(async () => {
+			timers.fireNext();
+			await pending;
+		});
+		expect(settled).toBeInstanceOf(CapnNotConnectedError);
+		expect(rendered.result.current?.heldSendKeys.size).toBe(0);
+		rendered.unmount();
+	});
+
+	it("sends a held message once through the capability when the socket comes back", async () => {
+		const server = mockServer();
+		let open: ((session: CapnSessionStub) => void) | undefined;
+		const rendered = renderHook<ChatTransportResult>(() =>
+			useChatTransport(CONVERSATION_ID, {
+				connect: () =>
+					new Promise<CapnSessionStub>((resolve) => {
+						open = resolve;
+					}),
+				metrics: null,
+				frameScheduler: syncScheduler,
 			}),
-		).rejects.toBeInstanceOf(CapnNotConnectedError);
+		);
+		let output: Promise<unknown> | undefined;
+		await act(async () => {
+			output = rendered.result.current?.actions.enqueueMessage({
+				content: "held",
+				conversationId: CONVERSATION_ID,
+				idempotencyKey: "key-held",
+			});
+			await flushAsync();
+		});
+		expect(server.conversation.enqueue).not.toHaveBeenCalled();
+		await act(async () => {
+			await connectSequence(server)().then((session) => open?.(session));
+			await flushAsync();
+		});
+		await output;
+		expect(server.conversation.enqueue).toHaveBeenCalledTimes(1);
+		expect(server.conversation.enqueue).toHaveBeenCalledWith(
+			{ content: "held" },
+			"key-held",
+		);
 		rendered.unmount();
 	});
 

@@ -311,6 +311,8 @@ export type ChatTransportActions = {
 
 export type ChatTransportResult = UseStreamedOverlaysResult & {
 	actions: ChatTransportActions;
+	/** Idempotency keys of sends held until the capability reconnects. */
+	heldSendKeys: ReadonlySet<string>;
 	/**
 	 * Report that a run's durable assistant row is on screen. Only the thread
 	 * knows this: `terminal_received` fires when the finalize frame lands, but
@@ -364,7 +366,42 @@ const NEW_CONVERSATION_ACTIONS: ChatTransportActions = {
  * A disconnected established conversation is a visible unavailable state,
  * never a hidden oRPC retry. Only the synthetic new-thread bootstrap uses the
  * control plane because no conversation capability can exist yet.
+ *
+ * A send made while the capability is down (a deploy recycling the socket) is
+ * HELD, not failed: the call has not left this client, so waiting for the
+ * reconnected capability and sending once through it is exactly-once — the
+ * same idempotency key, the same transport, no second lane. The thread shows
+ * the held bubble as "Reconnecting… will send". After
+ * `SEND_RECONNECT_WAIT_MS` without a capability, or when the conversation
+ * changes, the send fails as the known not-sent `CapnNotConnectedError`.
+ * A send already in flight when the socket dies is different: it may have
+ * reached the server, so it stays an explicit unknown outcome for the
+ * operator's same-key Retry and is never resent automatically.
  */
+export const SEND_RECONNECT_WAIT_MS = 30_000;
+
+type CapabilityWaiter = {
+	conversationId: string;
+	resolve: (actions: CapnChatActions) => void;
+	reject: (error: Error) => void;
+};
+
+function enqueueThroughCapability(
+	capability: CapnChatActions,
+	input: Parameters<ChatTransportActions["enqueueMessage"]>[0],
+): Promise<EnqueueHomeMessageOutput> {
+	return capability.enqueue(
+		{
+			content: input.content,
+			attachments: input.attachments,
+			metadata: input.metadata,
+			modelRef: input.modelRef,
+			delegateToTediId: input.delegateToTediId,
+		},
+		input.idempotencyKey,
+	);
+}
+
 export function useChatTransport(
 	conversationId: string | null,
 	options: UseChatTransportOptions = {},
@@ -485,23 +522,101 @@ export function useChatTransport(
 	}, [capn.status]);
 
 	const capnActions = capn.actions;
+	// Sends held while the session is not open. The machine hands out its
+	// capability before the socket opens and throws the known not-sent
+	// `CapnNotConnectedError` until it does, so a held send waits for `open`
+	// on the SAME conversation and is rejected when the conversation changes.
+	const waitersRef = useRef(new Set<CapabilityWaiter>());
+	const liveRef = useRef({ status: capn.status, actions: capnActions });
+	liveRef.current = { status: capn.status, actions: capnActions };
+	useEffect(() => {
+		if (
+			capn.status !== "open" ||
+			capnActions === null ||
+			conversationId === null
+		) {
+			return;
+		}
+		for (const waiter of waitersRef.current) {
+			if (waiter.conversationId !== conversationId) continue;
+			waitersRef.current.delete(waiter);
+			waiter.resolve(capnActions);
+		}
+	}, [capn.status, capnActions, conversationId]);
+	useEffect(() => {
+		const waiters = waitersRef.current;
+		return () => {
+			for (const waiter of waiters) waiter.reject(new CapnNotConnectedError());
+			waiters.clear();
+		};
+	}, [conversationId]);
+	const timerOptionsRef = useRef(options);
+	timerOptionsRef.current = options;
+	const [heldSendKeys, setHeldSendKeys] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
+	const setHeld = (idempotencyKey: string, held: boolean) =>
+		setHeldSendKeys((previous) => {
+			if (previous.has(idempotencyKey) === held) return previous;
+			const next = new Set(previous);
+			if (held) next.add(idempotencyKey);
+			else next.delete(idempotencyKey);
+			return next;
+		});
+	const waitForCapability = (
+		boundConversationId: string,
+		idempotencyKey: string,
+	): Promise<CapnChatActions> =>
+		new Promise<CapnChatActions>((resolve, reject) => {
+			const live = liveRef.current;
+			if (live.status === "open" && live.actions !== null) {
+				resolve(live.actions);
+				return;
+			}
+			const setTimer = timerOptionsRef.current.setTimeoutFn ?? setTimeout;
+			const clearTimer =
+				timerOptionsRef.current.clearTimeoutFn ??
+				((handle: unknown) =>
+					clearTimeout(handle as ReturnType<typeof setTimeout>));
+			const waiter: CapabilityWaiter = {
+				conversationId: boundConversationId,
+				resolve: (actions) => {
+					clearTimer(timer);
+					resolve(actions);
+				},
+				reject: (error) => {
+					clearTimer(timer);
+					reject(error);
+				},
+			};
+			const timer = setTimer(() => {
+				waitersRef.current.delete(waiter);
+				reject(new CapnNotConnectedError());
+			}, SEND_RECONNECT_WAIT_MS);
+			waitersRef.current.add(waiter);
+			setHeld(idempotencyKey, true);
+		}).finally(() => setHeld(idempotencyKey, false));
 	const actions = useMemo<ChatTransportActions>(() => {
 		const base: ChatTransportActions =
 			conversationId === null
 				? NEW_CONVERSATION_ACTIONS
 				: canUseBoundConversationCapability(conversationId, capnActions)
 					? {
-							enqueueMessage: (input) =>
-								capnActions.enqueue(
-									{
-										content: input.content,
-										attachments: input.attachments,
-										metadata: input.metadata,
-										modelRef: input.modelRef,
-										delegateToTediId: input.delegateToTediId,
-									},
-									input.idempotencyKey,
-								),
+							enqueueMessage: async (input) => {
+								try {
+									return await enqueueThroughCapability(capnActions, input);
+								} catch (error) {
+									// Known not-sent: hold it for the reopened session.
+									if (!(error instanceof CapnNotConnectedError)) throw error;
+									return enqueueThroughCapability(
+										await waitForCapability(
+											conversationId,
+											input.idempotencyKey,
+										),
+										input,
+									);
+								}
+							},
 							cancelRun: (input) => capnActions.cancel(input.runId),
 							// Approval is a durable control-plane mutation, not a realtime
 							// transport concern. Send it directly so a connected-but-stalled
@@ -509,9 +624,11 @@ export function useChatTransport(
 							respondApproval: NEW_CONVERSATION_ACTIONS.respondApproval,
 						}
 					: {
-							enqueueMessage: async () => {
-								throw new CapnNotConnectedError();
-							},
+							enqueueMessage: async (input) =>
+								enqueueThroughCapability(
+									await waitForCapability(conversationId, input.idempotencyKey),
+									input,
+								),
 							cancelRun: async () => {
 								throw new CapnNotConnectedError();
 							},
@@ -564,6 +681,7 @@ export function useChatTransport(
 		status: capn.status,
 		overlays: capn.overlays,
 		actions,
+		heldSendKeys,
 		recordRendered: (runId: string) => {
 			recordNativeMilestone("rendered", runId);
 		},
