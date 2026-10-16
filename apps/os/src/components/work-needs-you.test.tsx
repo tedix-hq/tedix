@@ -379,6 +379,15 @@ describe("Needs you rows explain themselves", () => {
 			/>,
 		);
 		expect(html).toContain("From Claude Code session");
+		expect(
+			renderToStaticMarkup(
+				<NeedsYouList
+					items={ask ? [{ ...ask, askedBy: "An agent session" }] : []}
+					onApprove={() => {}}
+					onHandoff={() => {}}
+				/>,
+			),
+		).toContain("From an agent session");
 		expect(html).toContain("Answer: write a reply");
 		expect(html).toContain("Accept: a tedi drafts it in your space");
 		expect(html).not.toContain("5a7c0de1");
