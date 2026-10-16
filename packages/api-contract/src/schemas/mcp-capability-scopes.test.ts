@@ -331,11 +331,13 @@ describe("MCP capability scope mapping", () => {
 			"settle_work_item_attempt",
 			"submit_work_item_evidence",
 			"complete_work_item",
+			"cancel_work_item",
+			"cancel_work_items",
 			"review_work_item_evidence",
 		]) {
 			expect(toolToAccessLevel(toolName)).toBe("write");
 		}
-		for (const toolName of ["accept_work_item", "cancel_work_item"]) {
+		for (const toolName of ["accept_work_item"]) {
 			expect(toolToAccessLevel(toolName)).toBe("admin");
 		}
 	});

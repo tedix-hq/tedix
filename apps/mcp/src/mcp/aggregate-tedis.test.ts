@@ -1056,7 +1056,7 @@ describe("aggregate Work Item write tools are fail-closed without the write scop
 		const expectedScopes: Record<string, string> = {
 			cto__create_work_item: "mcp:work.write",
 			cto__update_work_item: "mcp:work.write",
-			cto__cancel_work_item: "mcp:work.admin",
+			cto__cancel_work_item: "mcp:work.write",
 		};
 		for (const id of SINGLE_WRITES) {
 			const tool = byId.get(id);

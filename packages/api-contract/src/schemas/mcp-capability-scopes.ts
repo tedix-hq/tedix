@@ -646,7 +646,10 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	list_work_resource_pools: "read",
 	list_work_budget_envelopes: "read",
 	accept_work_item: "admin",
-	cancel_work_item: "admin",
+	// Cancellation is resource-authorized by the Work API: tedi project lead,
+	// stale item, reason, tenant boundary and no active Attempt.
+	cancel_work_item: "write",
+	cancel_work_items: "write",
 	complete_work_item: "write",
 	heartbeat_work_attempt: "write",
 	record_external_agent_knowledge_checkpoint: "write",

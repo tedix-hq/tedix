@@ -225,6 +225,60 @@ describe("jsonSchemaToOutputSchema", () => {
 		).toBe(nullableSchema);
 	});
 
+	it("accepts typed action evidence while preserving strict resource validation", async () => {
+		const schema = jsonSchemaToOutputSchema(nullableSchema, {
+			withActionEvidence: true,
+		});
+		const value = {
+			id: "org_123",
+			descopeTenantId: null,
+			logoUrl: null,
+			actionReceipt: {
+				operation: "add_comment",
+				actor: "tedi:nova",
+				verified: true,
+				url: "https://example.test/work/1",
+				state: "accepted",
+				checkedAt: "2026-10-17T00:00:00Z",
+			},
+			completionEvidence: {
+				operation: "add_comment",
+				status: "succeeded",
+				supportedClaims: [],
+				unsupportedClaims: [],
+				evidenceRefs: [],
+				providerConfirmation: "unknown",
+				target: null,
+				instruction: "Read the receipt",
+				retry: {
+					key: "comment",
+					attempts: 0,
+					limit: 2,
+					blocked: false,
+					retryable: false,
+				},
+			},
+		};
+		expect(
+			(await schema?.["~standard"].validate(value))?.issues,
+		).toBeUndefined();
+		expect(
+			(await schema?.["~standard"].validate({ ...value, id: 42 }))?.issues,
+		).toBeDefined();
+		expect(
+			(await schema?.["~standard"].validate({ ...value, unexpected: true }))
+				?.issues,
+		).toBeDefined();
+		expect(
+			(
+				await schema?.["~standard"].validate({
+					...value,
+					actionReceipt: { ...value.actionReceipt, verified: "yes" },
+				})
+			)?.issues,
+		).toBeDefined();
+	});
+
 	it("does not pass non-object root schemas into SDK output registration", () => {
 		const schema = jsonSchemaToOutputSchema({
 			type: "array",
