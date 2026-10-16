@@ -2008,6 +2008,7 @@ describe("Canvas Cloudflare-reference composition", () => {
 			/\.canvas-chat-thread \[data-slot="conversation-transcript"\][\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/,
 		);
 		expect(styles).toMatch(/\.canvas-chat-thread\s*\{[\s\S]*?padding:\s*16px;/);
+		expect(styles).toMatch(/\.canvas-workbench\s*\{[^}]*?overflow:\s*clip;/);
 		expect(styles).toMatch(
 			/\.canvas-chat-header\s*\{[\s\S]*?height:\s*48px;[\s\S]*?min-height:\s*48px;/,
 		);
