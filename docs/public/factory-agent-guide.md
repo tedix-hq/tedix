@@ -20,6 +20,16 @@ objective, a revisioned executable skill, a schedule and a health Work Item.
 A Workspace holds its sources, Outputs and review app. Configuration, a queued
 run and a delivered result are separate facts.
 
+For an overnight coordinator, use a tedi-owned scheduled skill workflow to
+run the participating tedis, save their replies in a dated Workspace sheet,
+file deduplicated blocker Work and write a morning brief. Cover both UTC
+offsets for a local-time schedule and return `off_slot` before any mutation
+outside its local slots. Prove a guarded run and a full manual cycle before
+activation. A running `tedix channel codex <thread-id>` listener can queue Work
+events into that local thread or resume it headlessly; the cloud schedule
+survives the local session ending, while local execution still needs that
+machine and listener. Events are hints: re-read Work and obtain admission.
+
 Connect to the requested organization using the [agent guide](./agent-guide.md).
 Discover each callable, then describe its exact schema before calling it.
 Use the returned namespace. Reads do not grant mutation authority; repository
