@@ -6,6 +6,8 @@ import {
 	slideBackgroundMarkup,
 	slideCss,
 	slideElementStyle,
+	slideElementMarkup,
+	escapeSlideHtml,
 } from "./presentation-style";
 
 const element = OsPresentationElementSchema.parse({
@@ -18,6 +20,26 @@ const element = OsPresentationElementSchema.parse({
 });
 
 describe("slide styles", () => {
+	it("escapes all HTML delimiters and unvalidated arrow attributes", () => {
+		const injection = "\"><script>alert(1)</script>&'";
+		expect(escapeSlideHtml(injection)).toBe(
+			"&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&amp;&#39;",
+		);
+		// Public rendering helpers can receive objects before schema validation.
+		const markup = slideElementMarkup({
+			...element,
+			type: "arrow",
+			width: injection as unknown as number,
+			height: injection as unknown as number,
+			props: { strokeWidth: injection as unknown as number, label: injection },
+		});
+		expect(markup).not.toContain("<script>");
+		expect(markup).not.toContain(injection);
+		expect(markup).toContain(`stroke-width="${escapeSlideHtml(injection)}"`);
+		expect(markup).toContain(
+			`viewBox="0 0 ${escapeSlideHtml(injection)} ${escapeSlideHtml(injection)}"`,
+		);
+	});
 	it("preserves defaults and maps overrides at both canvas and export scale", () => {
 		expect(slideElementStyle(element)).toMatchObject({
 			fontFamily: "Arial, sans-serif",

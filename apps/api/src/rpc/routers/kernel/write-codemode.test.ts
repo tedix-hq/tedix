@@ -3,6 +3,7 @@ import {
 	codeModeCanonicalDescribeParams,
 	codeModeDescribeParams,
 	codeModeDiscoveryParams,
+	codeModeExecutionParams,
 	parseCodeModeCatalog,
 	writeDiscoveryQuery,
 } from "./write-codemode";
@@ -13,6 +14,22 @@ async function runGenerated(params: Record<string, unknown>, discover: object) {
 }
 
 describe("write discovery contracts", () => {
+	it("keeps JavaScript delimiters and HTML tags as argument data", async () => {
+		const value =
+			'\"); throw new Error("injected"); // </script><script> & \\ \n\u2028\u2029';
+		await runGenerated(codeModeDiscoveryParams(value), {
+			search: async (input: { query: string }) => {
+				expect(input.query).toBe(value);
+				return [];
+			},
+		});
+		const params = codeModeExecutionParams("tools.write", { value });
+		const source = (params.arguments as { code: string }).code;
+		const result = await new Function("tools", `return (${source})()`)({
+			write: async (input: unknown) => input,
+		});
+		expect(result).toEqual({ value });
+	});
 	it("uses literal namespace-only discovery for a known primitive", async () => {
 		const params = codeModeCanonicalDescribeParams("os.create_os_output");
 		expect((params.arguments as { code: string }).code).toBe(
