@@ -33,6 +33,7 @@ import {
 // New surface goes in a sibling module, never a new inline `tool({...})`
 // here; no big-bang split — see apps/tedi-runtime/AGENTS.md.
 import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
+import { ActionReceiptJournal } from "./action-receipts";
 import { InertRuntimeDO, requiresInertReceiver } from "./inert-runtime-do";
 import {
 	RuntimeAdmissionDO,
@@ -1720,12 +1721,17 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 */
 	private readonly artifactContributionReceipts =
 		new ArtifactContributionReceipts(this.ctx.storage);
+	private readonly actionReceiptJournal = new ActionReceiptJournal(
+		this.ctx.storage,
+	);
 	private readonly publishRuntimeObservation = async (
 		event: TediRuntimeEvent,
-	) =>
-		this.eventOutbox.publish(
+	) => {
+		await this.actionReceiptJournal.record(event);
+		return this.eventOutbox.publish(
 			await this.artifactContributionReceipts.decorate(event),
 		);
+	};
 	private readonly nativeToolLedger = new NativeToolLedger(
 		this.publishRuntimeObservation,
 	);
@@ -9405,7 +9411,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				turnCount: result.turnCount,
 			});
 			return {
-				assistantText: result.assistantText,
+				assistantText: await this.actionReceiptJournal.finish(
+					input.runId,
+					result.assistantText,
+				),
 				turnError: null,
 				modelIdentity: result.modelIdentity,
 				...(result.usage ? { usage: result.usage } : {}),
@@ -9702,7 +9711,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				turnCount: settled.turnCount,
 			});
 			return {
-				assistantText: settled.text,
+				assistantText: await this.actionReceiptJournal.finish(
+					input.runId,
+					settled.text,
+				),
 				turnError: null,
 				...(settled.usage ? { usage: settled.usage } : {}),
 				...(settled.stopReason ? { stopReason: settled.stopReason } : {}),

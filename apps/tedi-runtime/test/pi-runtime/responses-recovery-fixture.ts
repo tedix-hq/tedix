@@ -1,7 +1,10 @@
 import { createAzure } from "@ai-sdk/azure";
 import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 /** Scripted native Responses SSE, consumed by the installed Azure SDK. */
-export function responsesFixtureStream(call: number): Response {
+export function responsesFixtureStream(
+	call: number,
+	toolName = "receipt",
+): Response {
 	const reasoning = {
 		type: "reasoning",
 		id: "rs-fixture",
@@ -13,7 +16,7 @@ export function responsesFixtureStream(call: number): Response {
 		status: "completed",
 		id: "fc-fixture",
 		call_id: "receipt-1",
-		name: "receipt",
+		name: toolName,
 		arguments: "{}",
 	};
 	const message = {
@@ -98,12 +101,16 @@ export function responsesFixtureStream(call: number): Response {
  */
 export function responsesFixtureModel(
 	observe: (body: Record<string, unknown>) => Promise<number>,
+	toolName = "receipt",
 ) {
 	const provider = createAzure({
 		resourceName: "test-resource",
 		apiKey: "fixture-only",
 		fetch: async (_input, init) =>
-			responsesFixtureStream(await observe(JSON.parse(String(init?.body)))),
+			responsesFixtureStream(
+				await observe(JSON.parse(String(init?.body))),
+				toolName,
+			),
 	});
 	return wrapLanguageModel({
 		model: provider.responses("gpt-5.6-terra"),

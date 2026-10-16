@@ -3,6 +3,37 @@ import {
 	type ActionReceipt,
 } from "@tedix/api-contract/utils/action-receipt";
 
+/** Receipts are owned by the tool ledger, before the model/facet return path. */
+export class ActionReceiptJournal {
+	constructor(
+		private readonly storage: Pick<DurableObjectStorage, "put" | "list">,
+	) {}
+	async record(event: {
+		id: string;
+		kind: string;
+		runId?: string;
+		payload?: unknown;
+	}) {
+		if (event.kind !== "tool.completed" || !event.runId) return;
+		const payload = event.payload as { name?: unknown } | null;
+		const receipts = collectActionReceipts(
+			event.payload,
+			typeof payload?.name === "string" ? payload.name : "",
+		);
+		if (receipts.length)
+			await this.storage.put(
+				`action-receipts:${event.runId}:${event.id}`,
+				receipts,
+			);
+	}
+	async finish(runId: string, text: string): Promise<string> {
+		const stored = await this.storage.list<ActionReceipt[]>({
+			prefix: `action-receipts:${runId}:`,
+		});
+		return appendActionReceipts(text, [...stored.values()].flat());
+	}
+}
+
 /** Code Mode keeps receipts outside the model-authored projection. */
 export function collectActionReceipts(
 	value: unknown,

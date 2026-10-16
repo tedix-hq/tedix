@@ -1,4 +1,5 @@
 import { ConversationFacet } from "../../src/conversation-facet";
+import { ActionReceiptJournal } from "../../src/action-receipts";
 import { responsesFixtureModel } from "./responses-recovery-fixture";
 import { DoInferenceBudgetStore } from "../../src/inference-budget-store-do";
 import { assertTediChatNotCanceled } from "../../src/pi-recovery";
@@ -29,6 +30,8 @@ const limits = {
 /** Real native Pi, provider SDK and SQLite journal; only external RPC/network are scripted. */
 export class PiStorageFixture extends ConversationFacet {
 	private readonly budget = new DoInferenceBudgetStore(this);
+	private readonly actionReceipts = new ActionReceiptJournal(this.ctx.storage);
+	private fixtureToolName = "receipt";
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
 		Object.assign(this, {
@@ -61,7 +64,26 @@ export class PiStorageFixture extends ConversationFacet {
 						"fixture:effects",
 						((await this.ctx.storage.get<number>("fixture:effects")) ?? 0) + 1,
 					);
-					return "recorded";
+					if (this.fixtureToolName === "receipt") return "recorded";
+					await this.actionReceipts.record({
+						id: "fixture-write",
+						kind: "tool.completed",
+						runId: this.state.runId!,
+						payload: {
+							name: this.fixtureToolName,
+							actionReceipts: [
+								{
+									operation: "orion.work_item_comment",
+									actor: "tedi:orion",
+									verified: true,
+									url: "https://os.example.test/work/items/scratch#comment-note",
+									state: "accepted",
+									checkedAt: "2026-10-16T12:00:00.000Z",
+								},
+							],
+						},
+					});
+					return { changed: true };
 				},
 			}),
 		});
@@ -76,7 +98,7 @@ export class PiStorageFixture extends ConversationFacet {
 				requests.push(body);
 				await this.ctx.storage.put("fixture:requests", requests);
 				return requests.length;
-			}),
+			}, this.fixtureToolName),
 			identity: {
 				provider: "azure-openai" as const,
 				model: "gpt-5.6-terra",
@@ -84,9 +106,10 @@ export class PiStorageFixture extends ConversationFacet {
 			},
 		};
 	}
-	async turn(id: string) {
+	async turn(id: string, toolName = "receipt") {
+		this.fixtureToolName = toolName;
 		this.budget.admit(id, limits, 20);
-		return this.runConfiguredConversationTurn({
+		const completed = await this.runConfiguredConversationTurn({
 			configuration: {
 				system: "Stable fixture persona\nDynamic instructions",
 				stableSystemPrefix: "Stable fixture persona",
@@ -100,7 +123,7 @@ export class PiStorageFixture extends ConversationFacet {
 				maxOutputTokens: 16_000,
 				toolDescriptors: [
 					{
-						name: "receipt",
+						name: toolName,
 						description: "Record one effect",
 						inputSchema: { type: "object", properties: {} },
 					},
@@ -109,6 +132,11 @@ export class PiStorageFixture extends ConversationFacet {
 			text: "Record one receipt then finish.",
 			durableSubmissionId: id,
 		});
+		completed.result.assistantText = await this.actionReceipts.finish(
+			id,
+			completed.result.assistantText,
+		);
+		return completed;
 	}
 	async rejectedTurn(id: string) {
 		try {

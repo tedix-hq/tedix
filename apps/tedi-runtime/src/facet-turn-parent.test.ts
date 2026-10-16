@@ -35,6 +35,35 @@ const facetInput = {
 };
 
 {
+	const probe = facetRunnerProbe();
+	await probe.agent.actionReceiptJournal.record({
+		id: "write-1",
+		kind: "tool.completed",
+		runId: "run-1",
+		payload: {
+			name: "tedix_mcp_code",
+			actionReceipts: [
+				{
+					operation: "orion.work_item_comment",
+					actor: "tedi:orion",
+					verified: true,
+					url: "https://os.example.test/work/items/scratch#comment-note",
+					state: "accepted",
+					checkedAt: "2026-10-16T12:00:00.000Z",
+				},
+			],
+		},
+	});
+	// The facet returns only model prose; the parent's trusted receipt still reaches the canonical answer.
+	const result = await probe.agent.runConversationFacetTurn(facetInput);
+	assert.match(
+		result.assistantText,
+		/https:\/\/os.example.test\/work\/items\/scratch#comment-note/,
+	);
+	assert.match(result.assistantText, /actor: tedi:orion\.$/);
+}
+
+{
 	const probe = facetRunnerProbe({ usage: { totalTokens: 42 } });
 	const result = await probe.agent.runConversationFacetTurn({
 		...facetInput,

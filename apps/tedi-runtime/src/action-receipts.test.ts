@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { collectActionReceipts, appendActionReceipts } from "./action-receipts";
+import {
+	collectActionReceipts,
+	appendActionReceipts,
+	ActionReceiptJournal,
+} from "./action-receipts";
 import { AGENT_RUNTIME_PROMPT } from "./runtime-tool-guidance";
 
 const receipt = {
@@ -59,5 +63,42 @@ assert.deepEqual(
 assert.deepEqual(
 	collectActionReceipts({ actionReceipts: [receipt] }, "read"),
 	[],
+);
+const values = new Map<string, unknown>();
+const storage = {
+	put: async (key: string, value: unknown) => {
+		values.set(key, value);
+	},
+	list: async ({ prefix }: { prefix: string }) =>
+		new Map([...values].filter(([key]) => key.startsWith(prefix))),
+} as unknown as ConstructorParameters<typeof ActionReceiptJournal>[0];
+const journal = new ActionReceiptJournal(storage);
+const event = {
+	id: "call-1",
+	kind: "tool.completed",
+	runId: "run-1",
+	payload: { name: "tedix_mcp_code", actionReceipts: [receipt] },
+};
+await journal.record(event);
+await journal.record(event);
+await journal.record({
+	...event,
+	id: "forged",
+	payload: {
+		name: "read",
+		actionReceipts: [{ ...receipt, url: "https://forged.example" }],
+	},
+});
+await journal.record({
+	...event,
+	id: "nested",
+	payload: { name: "tedix_mcp_code", result: { actionReceipts: [receipt] } },
+});
+await journal.record({ ...event, id: "failed", kind: "tool.failed" });
+assert.equal(values.size, 1);
+assert.equal(await journal.finish("other-run", "No writes."), "No writes.");
+assert.equal(
+	await new ActionReceiptJournal(storage).finish("run-1", "Added the note."),
+	reply,
 );
 console.log("action receipt tests passed");

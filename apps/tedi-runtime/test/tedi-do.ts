@@ -1,5 +1,6 @@
 import { ChatStreamHub } from "../src/chat-stream-hub";
 import { AgentTediDO } from "../src/do";
+import { ActionReceiptJournal } from "../src/action-receipts";
 
 /**
  * An `AgentTediDO` for plain-bun behaviour tests, built without the Agents SDK
@@ -240,6 +241,8 @@ export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 			configurable: true,
 		});
 	}
+	if (!Object.hasOwn(fields, "actionReceiptJournal"))
+		probe.actionReceiptJournal = new ActionReceiptJournal(probe.ctx.storage);
 	return probe;
 }
 
