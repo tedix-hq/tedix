@@ -489,7 +489,7 @@ export function kernelModel(
 		fetch: gatewayFetch,
 	});
 
-	// Responses supports tool-enabled GPT-6 reasoning without forcing none.
+	// Responses supports tool-enabled GPT-6 with model-specific reasoning settings.
 	const transport = resolveAiGatewayTransport(
 		env,
 		env.AI_GATEWAY_LLM_ID ?? "",
@@ -525,6 +525,10 @@ export function kernelModel(
 								azure: {
 									store: false,
 									include: ["reasoning.encrypted_content"],
+									// Luna supports none; Sol/Astra require reasoning.
+									...(deployment === "gpt-6-luna"
+										? { reasoningEffort: "none" }
+										: {}),
 								},
 							},
 						},

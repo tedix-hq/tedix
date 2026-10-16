@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	explicitOutputCreateKind,
+	explicitOutputEditKind,
+	explicitOutputWriteDecision,
 	outputWriteApp,
 	routeExplicitOutputCreate,
 } from "./output-create-intent";
@@ -154,5 +156,60 @@ describe("routeExplicitOutputCreate", () => {
 		expect(routeExplicitOutputCreate(answer, "presentation", null)).toBe(
 			answer,
 		);
+	});
+});
+
+const EDIT_ID = "00000000-1111-4111-8111-000000000001";
+describe("explicitOutputEditKind", () => {
+	it.each([
+		[
+			`Append a paragraph saying hello to document ${EDIT_ID}`,
+			"document",
+			"os.patch_os_document",
+		],
+		[
+			`Update cell B2 to 15 in sheet ${EDIT_ID}`,
+			"sheet",
+			"os.set_os_sheet_range",
+		],
+		[
+			`Change the first slide title in presentation ${EDIT_ID}`,
+			"presentation",
+			"os.patch_os_slides",
+		],
+	] as const)(
+		"%s keeps the canonical edit primitive",
+		(content, kind, tool) => {
+			expect(explicitOutputEditKind(content)).toBe(kind);
+			const decision = explicitOutputWriteDecision(
+				kind,
+				"acme-unified",
+				"edit",
+			);
+			expect(decision?.routeKind).toBe("propose_tool_write");
+			expect(
+				canonicalWriteToolName(decision?.toolIntent?.capability, content),
+			).toBe(tool);
+		},
+	);
+	it.each([
+		"How do I update cell B2?",
+		"Update cell B2 in the budget sheet",
+		`Update cell B2 in Google sheet ${EDIT_ID}`,
+		`Change first slide title in PowerPoint presentation ${EDIT_ID}`,
+		`Summarize document ${EDIT_ID}`,
+		`Delete presentation ${EDIT_ID}`,
+		`Update the permissions of document ${EDIT_ID}`,
+		"Append a paragraph to a work item",
+	])("%s needs model routing", (content) => {
+		expect(explicitOutputEditKind(content)).toBeNull();
+	});
+	it("does not redirect an external presentation patch into Tedix", () => {
+		expect(
+			canonicalWriteToolName(
+				"presentations.patch",
+				"Update PowerPoint presentation",
+			),
+		).toBeNull();
 	});
 });
