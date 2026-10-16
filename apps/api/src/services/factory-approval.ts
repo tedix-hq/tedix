@@ -14,8 +14,7 @@ export async function factoryApprovalContext(
 	input: unknown,
 ): Promise<BaseContext> {
 	const id = context.headers.get("X-Tedix-Approved-Factory-Request");
-	if (!id || context.authType !== "service-binding" || context.tediId)
-		return context;
+	if (!id || context.authType !== "service-binding") return context;
 	const approval = await getApprovalRequestById(context.db, id);
 	const payload = approval?.payload;
 	const schema =

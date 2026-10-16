@@ -84,10 +84,7 @@ describe("factory approval authority", () => {
 		}
 	});
 	it("does not turn external headers or a tedi into operator authority", async () => {
-		for (const patch of [
-			{ authType: "tedi", tediId: "sample-tedi" },
-			{ authType: "service-binding", tediId: "sample-tedi" },
-		]) {
+		for (const patch of [{ authType: "tedi", tediId: "sample-tedi" }]) {
 			const caller = { ...context(), ...patch } as BaseContext;
 			expect(
 				await factoryApprovalContext(caller, "projects.pause_factory", input),
@@ -104,4 +101,19 @@ it("refuses replay after the approved Home run has completed", async () => {
 	await expect(
 		factoryApprovalContext(context(), "projects.pause_factory", input),
 	).rejects.toThrow();
+});
+
+it("honors the exact human approval when the gateway bound its kernel caller to a tedi", async () => {
+	const caller = { ...context(), tediId: "sample-tedi" };
+	const result = await factoryApprovalContext(
+		caller,
+		"projects.pause_factory",
+		input,
+	);
+	expect(result.tediId).toBe("sample-tedi");
+	expect(isLifecycleOverrideAuthority(result)).toBe(true);
+	caller.headers.delete("X-Tedix-Approved-Factory-Request");
+	expect(
+		await factoryApprovalContext(caller, "projects.pause_factory", input),
+	).toBe(caller);
 });

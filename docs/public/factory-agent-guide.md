@@ -63,9 +63,10 @@ tedix factory create --goal "$goal" --slug "$slug" --owner "$owner" \
   sections, sheets get rows, with run IDs to prevent retry duplication.
 - Read `warnings`: a goal's prose cannot set cadence, select an Output or
   authorize publication. `--project <KEY>` reuses an existing Work project.
-- Activation requires a signed-in human or operator key. Other callers get a
-  draft and no schedule. Follow the returned proof/activation steps within
-  current authority; a dry run or proposed approval is not activation.
+- Activation requires a signed-in human, operator key, or the exact saved
+  human approval for a workspace-chat creation. Other callers get a draft
+  without a schedule. Read lifecycle state and next fire time after approval;
+  an acknowledgment alone does not prove activation.
 
 The MCP equivalent is `create_factory` with `dryRun: true`, then the same
 arguments with `dryRun: false` after approval. Workspace chat can propose
