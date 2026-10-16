@@ -1,3 +1,4 @@
+import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
 	OsOutputSchema,
@@ -459,6 +460,7 @@ export async function settleHomeToolWriteApproval(
 	input: {
 		approval: typeof tediApprovalRequests.$inferSelect;
 		status: "approved" | "rejected" | "cancelled";
+		onSettledMessage?: (event: KernelRuntimeEvent) => void;
 	},
 ): Promise<"succeeded" | "failed" | "closed" | "unknown" | "not_applicable"> {
 	// repo_commit_write payloads execute in the tedi DO, never through the MCP
@@ -670,11 +672,15 @@ export async function settleHomeToolWriteApproval(
 					progressDetail: progress.detail,
 					latestEventKind: "run.completed",
 					latestEventAt: finishedAt,
-					preview: `Executed ${payload.toolName} on ${payload.appSlug}.`,
+					preview: content,
 					completedAt: finishedAt,
 					updatedAt: finishedAt,
 					metadata: toJsonRecord({
 						...claimMetadata,
+						kernelRoute: {
+							...nonNullRecord(runMetadata.kernelRoute),
+							answer: content,
+						},
 						kernelEvidence: evidence,
 						...(retainedResult
 							? { kernelToolResultReference: retainedResult }
@@ -690,7 +696,7 @@ export async function settleHomeToolWriteApproval(
 					outputRevisionId: outputReceipt?.revisionId ?? null,
 				},
 			});
-			await insertKernelRuntimeEvent(context, {
+			const message = await insertKernelRuntimeEvent(context, {
 				organizationId: payload.organizationId,
 				kind: "message.completed",
 				conversationId: payload.conversationId,
@@ -719,6 +725,7 @@ export async function settleHomeToolWriteApproval(
 				},
 				createdAt: finishedAt,
 			});
+			input.onSettledMessage?.(message);
 			await insertKernelRuntimeEvent(context, {
 				organizationId: payload.organizationId,
 				kind: "run.completed",
@@ -776,10 +783,17 @@ export async function settleHomeToolWriteApproval(
 				preview: failureContent,
 				completedAt: finishedAt,
 				updatedAt: finishedAt,
-				metadata: { ...claimMetadata, kernelWriteError: result.error },
+				metadata: {
+					...claimMetadata,
+					kernelRoute: {
+						...nonNullRecord(runMetadata.kernelRoute),
+						answer: failureContent,
+					},
+					kernelWriteError: result.error,
+				},
 			},
 		});
-		await insertKernelRuntimeEvent(context, {
+		const message = await insertKernelRuntimeEvent(context, {
 			organizationId: payload.organizationId,
 			kind: "message.completed",
 			conversationId: payload.conversationId,
@@ -803,6 +817,7 @@ export async function settleHomeToolWriteApproval(
 			},
 			createdAt: finishedAt,
 		});
+		input.onSettledMessage?.(message);
 		await insertKernelRuntimeEvent(context, {
 			organizationId: payload.organizationId,
 			kind: "run.failed",
@@ -876,7 +891,11 @@ export async function autoResolveKernelWriteApproval(
 		conversationId: string;
 		decision: KernelWriteApprovalDecision;
 	},
-): Promise<{ executed: boolean; finalStatus: TediRunStatus | null } | null> {
+): Promise<{
+	executed: boolean;
+	finalStatus: TediRunStatus | null;
+	assistantEvent: KernelRuntimeEvent | null;
+} | null> {
 	// Canonical exactly-once latch: pending→approved conditional update. A row
 	// that is not pending (human already resolved, cancelled, expired) loses here.
 	const resolved = await resolveApprovalRequest(
@@ -915,10 +934,14 @@ export async function autoResolveKernelWriteApproval(
 			tediId: resolved.tediId,
 		},
 	});
+	let assistantEvent: KernelRuntimeEvent | null = null;
 	// Execute through the canonical settle hook (run-claim guarded, exactly-once).
 	await settleHomeToolWriteApproval(context, {
 		approval: resolved,
 		status: "approved",
+		onSettledMessage: (event) => {
+			assistantEvent = event;
+		},
 	});
 	const run = await getKernelRuntimeRun(context.db, {
 		id: input.runId,
@@ -926,6 +949,7 @@ export async function autoResolveKernelWriteApproval(
 	});
 	return {
 		executed: true,
+		assistantEvent,
 		finalStatus: (run?.status as TediRunStatus | undefined) ?? null,
 	};
 }
