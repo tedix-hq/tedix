@@ -36,16 +36,54 @@ From chat or MCP, use the OS app tools in the organization's namespace
 (discover the exact callable first):
 
 1. `create_os_gadget` with `workspaceId`, `name` and an optional
-   `description`. This creates the record only.
+   `description`. This creates the record only. The name is the app's
+   title in the workspace, so make it say what the app is ("Card review").
 2. `revise_os_gadget` with `workspaceId`, `gadgetId` and the `manifest`
-   (`entry` and `config`). Pass `expectedRevision` (0 for a new app). Each
-   change of settings is a new revision; nothing is edited in place.
+   (`entry`, `config` and a one-line `description`). Pass
+   `expectedRevision` (0 for a new app). Each change of settings is a new
+   revision; nothing is edited in place.
 3. Read it back with `get_os_gadget` and give the user the app link:
    `https://<org>.tedix.dev/workspace/<workspaceId>?workpiece=gadget:<gadgetId>`.
    Add `&pane=workpiece` to open it full screen on a phone.
 
 In the OS, the same settings are editable under the app's **Code** view
 (`manifest.json`).
+
+## How apps appear in a workspace
+
+Apps are what people open a workspace for, so the OS puts them first:
+
+- **Resources** lists apps at the top under **Apps**, one card per app,
+  side by side when there are several. Sheets and documents follow under
+  **Files**. Nothing in a workspace is labelled "Automations"; scheduled
+  skill runs are managed on the skill, not in the workspace.
+- Each card shows a small preview of the app, its name, its purpose and a
+  status line, with an **Open app** button. Card review previews the next
+  open card; other apps show an app icon.
+- A workspace link with no workpiece or pane opens the first app in the
+  Editor. An app whose `entry` is one of the workspace's outputs opens that
+  output's editor instead. A link that names a workpiece or pane always
+  wins.
+
+The card's purpose line comes from, in order: the manifest `description`
+(at most 160 characters, versioned with the app), the app record's
+`description`, then a line derived from the settings (for Card review,
+"Decide on today's Inbox and Social cards" from the source labels). Write
+it as what a person does in the app:
+
+```json
+{
+	"entry": "tedix:app/card-review",
+	"description": "Decide on today's Inbox and Social cards",
+	"capabilities": [],
+	"config": { "version": 1, "sources": [] }
+}
+```
+
+The status line is computed by the OS from live data; the manifest does
+not set it. Card review counts the open cards across its sources ("29
+cards waiting"), without subtracting a viewer's snoozes. Other apps show
+their kind: "Built-in app", "Interactive app" or "Runs a skill".
 
 ## Card review
 
@@ -73,6 +111,7 @@ Rules-sheet rows with status `proposed` appear above the cards with
 ```json
 {
 	"entry": "tedix:app/card-review",
+	"description": "Decide on today's Inbox and Social cards",
 	"capabilities": [],
 	"config": {
 		"version": 1,

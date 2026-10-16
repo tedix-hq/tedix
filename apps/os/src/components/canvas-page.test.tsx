@@ -806,10 +806,27 @@ function setFieldValue(field: HTMLInputElement, value: string) {
 	});
 }
 
+/** The Resources "Open app" control for a workspace app, by app name. */
+function appOpenButton(container: Element, name: string): Element {
+	const match = [...container.querySelectorAll("[data-workspace-app]")]
+		.find((card) => card.querySelector("h3")?.textContent === name)
+		?.querySelector(".workspace-app-footer button");
+	if (!match) throw new Error(`app not found: ${name}`);
+	return match;
+}
+
+/**
+ * Opens a workpiece from the Resources pane. A bare URL opens the
+ * workspace's app on its own, so these start from Resources.
+ */
 async function openDoc(label: string): Promise<HTMLElement> {
+	routing.search = { pane: "resources" };
 	const container = renderPage();
 	await flush();
-	click(findButton(container, label));
+	const isApp = [...container.querySelectorAll("[data-workspace-app] h3")].some(
+		(title) => title.textContent === label,
+	);
+	click(isApp ? appOpenButton(container, label) : findButton(container, label));
 	await flush();
 	return container;
 }
@@ -866,14 +883,14 @@ describe("canvasDocKey", () => {
 });
 
 describe("Canvas workbench state", () => {
-	it("prefers the newest durable output, then an executable Gadget", () => {
+	it("opens the workspace's app first, then the newest durable output", () => {
 		expect(primaryCanvasDoc([outputFixture()], [gadgetFixture()])).toEqual({
-			type: "output",
-			id: OUTPUT_ID,
-		});
-		expect(primaryCanvasDoc([], [gadgetFixture()])).toEqual({
 			type: "gadget",
 			id: GADGET_ID,
+		});
+		expect(primaryCanvasDoc([outputFixture()], [])).toEqual({
+			type: "output",
+			id: OUTPUT_ID,
 		});
 		expect(primaryCanvasDoc([], [])).toBeNull();
 	});
@@ -1129,12 +1146,13 @@ describe("CanvasPage listing", () => {
 			}),
 		});
 		mockCollab({ initial: docJson(baseContent) });
+		routing.search = { pane: "resources" };
 		const container = renderPage();
 		await flush();
 
 		click(findButton(container, "Weekly report"));
 		await flush();
-		click(findButton(container, "Report gadget"));
+		click(appOpenButton(container, "Report gadget"));
 		await flush();
 
 		const tabs = [...container.querySelectorAll('[role="tab"]')];
@@ -1252,6 +1270,17 @@ describe("CanvasPage listing", () => {
 			container.querySelector("[data-workspace-output-preview]"),
 		).not.toBeNull();
 		expect(container.textContent).toContain("Connected sources");
+		// Apps lead the pane as cards with an Open control; nothing calls them
+		// automations.
+		const apps = container.querySelector(".canvas-resource-apps");
+		expect(
+			apps?.compareDocumentPosition(
+				container.querySelector(".canvas-resource-outputs")!,
+			),
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(apps?.textContent).toContain("Report gadget");
+		expect(apps?.textContent).toContain("Open app");
+		expect(container.textContent).not.toContain("Automation");
 		// A source is added from the Resources pane itself, with the same
 		// attach flow the document Connections tab uses.
 		click(findButton(container, "Add source"));
@@ -1543,7 +1572,7 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).not.toContain("Pick a document");
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
 		expect(container.querySelector('[role="tab"]')?.textContent).toContain(
-			"Weekly report",
+			"Report gadget",
 		);
 		expect(container.querySelector(".canvas-chat-resizer")).not.toBeNull();
 		const stage = container.querySelector(".canvas-stage");
@@ -1562,7 +1591,33 @@ describe("CanvasPage listing", () => {
 		).toBe("false");
 		expect(routing.navigate).toHaveBeenCalledWith(
 			expect.objectContaining({
-				search: { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" },
+				search: expect.objectContaining({
+					workpiece: `gadget:${GADGET_ID}`,
+					pane: "workpiece",
+				}),
+				replace: true,
+			}),
+		);
+	});
+
+	it("opens a default app that points at an output in that output's editor", async () => {
+		mockLists();
+		osWorkspacesApi.gadgets.get.mockResolvedValue({
+			gadget: gadgetFixture(),
+			currentRevision: gadgetRevisionFixture({
+				manifest: { capabilities: [], entry: `/outputs/${OUTPUT_ID}` },
+			}),
+		});
+		renderPage();
+		await flush();
+		await flush();
+
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({
+					workpiece: `output:${OUTPUT_ID}`,
+					pane: "workpiece",
+				}),
 				replace: true,
 			}),
 		);
@@ -1809,6 +1864,7 @@ describe("CanvasPage listing", () => {
 			currentRevision: outputRevisionFixture(),
 		});
 		mockCollab({ initial: docJson(outputRevisionFixture().content) });
+		routing.search = { pane: "resources" };
 		const container = renderPage();
 		await flush();
 

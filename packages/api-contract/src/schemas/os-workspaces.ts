@@ -461,6 +461,15 @@ export const OsGadgetManifestSchema = z
 			.describe(
 				"Versioned, allowlisted download formats produced by the governed skill run; absent on app revisions with no custom exports",
 			),
+		description: z
+			.string()
+			.trim()
+			.min(1)
+			.max(160)
+			.optional()
+			.describe(
+				"One-line purpose shown on the app's card in the workspace, e.g. \"Decide on today's Inbox and Social cards\"; overrides the app record's description",
+			),
 		notes: z
 			.string()
 			.max(10_000)
