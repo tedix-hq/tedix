@@ -18,10 +18,24 @@ describe("card verdict follow-ups", () => {
 	it("resolves a bare verdict to the card the previous answer showed", () => {
 		expect(cardVerdictFollowUp("mark it useful: great angle", shown)).toEqual({
 			outputId: sheet,
+			sheetTitle: null,
 			card: "1",
 			verdict: "useful",
 			reason: "great angle",
 		});
+		const titled =
+			"## Next card: #1 — Post idea\n\n**Sheet:** Social cards 2026-01-02 08:15  \n**Source:** [Example](https://example.com)\n\nNothing was changed.";
+		expect(cardVerdictFollowUp("mark it useful", titled)).toMatchObject({
+			outputId: null,
+			sheetTitle: "Social cards 2026-01-02 08:15",
+			card: "1",
+		});
+		expect(
+			cardVerdictWriteDecision(
+				cardVerdictFollowUp("mark it useful", titled),
+				"tedix",
+			)?.rationale,
+		).toContain('titled "Social cards 2026-01-02 08:15"');
 		expect(
 			cardVerdictFollowUp("Mark that card not useful - wrong person", shown),
 		).toMatchObject({ verdict: "not useful", reason: "wrong person" });
