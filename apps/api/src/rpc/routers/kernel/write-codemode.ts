@@ -130,12 +130,17 @@ export function codeModeCanonicalDescribeParams(
 ): Record<string, unknown> {
 	if (!CALLABLE_RE.test(name) && !/^[A-Za-z_]\w*$/.test(name))
 		throw new Error(`Invalid Code Mode tool name: ${name}`);
-	const resolve = name.includes(".")
-		? JSON.stringify(name)
-		: `(() => { const hits = Array.isArray(page) ? page : page.results; return hits.find((hit) => typeof hit.callable === "string" && hit.callable.endsWith(${JSON.stringify(`.${name}`)}))?.callable ?? null; })()`;
-	const search = name.includes(".")
-		? ""
-		: `const page = await discover.search(${JSON.stringify({ query: name, limit: 5 })}); `;
+	// A literal describe lets the gateway load only this namespace. Wrapping it
+	// in a variable/projection forces full aggregate discovery at cold ingress.
+	if (name.includes("."))
+		return {
+			name: CODE_MODE_TOOL_NAME,
+			arguments: {
+				code: `async () => await discover.describe({"callable":${JSON.stringify(name)}})`,
+			},
+		};
+	const resolve = `(() => { const hits = Array.isArray(page) ? page : page.results; return hits.find((hit) => typeof hit.callable === "string" && hit.callable.endsWith(${JSON.stringify(`.${name}`)}))?.callable ?? null; })()`;
+	const search = `const page = await discover.search(${JSON.stringify({ query: name, limit: 5 })}); `;
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
@@ -160,7 +165,9 @@ export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 		? parsed
 		: Array.isArray(recordFrom(parsed)?.results)
 			? (recordFrom(parsed)?.results as unknown[])
-			: [];
+			: typeof recordFrom(parsed)?.callable === "string"
+				? [parsed]
+				: [];
 	return entries.flatMap((value) => {
 		const entry = recordFrom(value) as CodeModeDiscoveryEntry | null;
 		if (!entry || typeof entry.callable !== "string") return [];

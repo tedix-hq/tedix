@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	codeModeCanonicalDescribeParams,
 	codeModeDescribeParams,
 	codeModeDiscoveryParams,
+	parseCodeModeCatalog,
 	writeDiscoveryQuery,
 } from "./write-codemode";
 
@@ -11,6 +13,36 @@ async function runGenerated(params: Record<string, unknown>, discover: object) {
 }
 
 describe("write discovery contracts", () => {
+	it("uses literal namespace-only discovery for a known primitive", async () => {
+		const params = codeModeCanonicalDescribeParams("os.create_os_output");
+		expect((params.arguments as { code: string }).code).toBe(
+			'async () => await discover.describe({"callable":"os.create_os_output"})',
+		);
+		const result = await runGenerated(params, {
+			describe: async () => ({
+				callable: "os.create_os_output",
+				parameters: {
+					type: "object",
+					properties: { title: { type: "string" } },
+					required: ["title"],
+				},
+			}),
+		});
+		expect(
+			parseCodeModeCatalog({
+				content: [{ type: "text", text: JSON.stringify(result) }],
+			}),
+		).toEqual([
+			{
+				name: "os.create_os_output",
+				inputSchema: {
+					type: "object",
+					properties: { title: { type: "string" } },
+					required: ["title"],
+				},
+			},
+		]);
+	});
 	it.each([false, true])(
 		"reads compact search envelope (legacy array=%s)",
 		async (legacy) => {
