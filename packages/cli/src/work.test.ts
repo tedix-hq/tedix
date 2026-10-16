@@ -1174,6 +1174,33 @@ describe("artifact-neutral factory control verbs", () => {
 		expect(sources[0]).toContain('"expectedRequestVersion":2');
 	});
 
+	test.each([undefined, "Remove the scratch handoff"])(
+		"confirms interaction cancellation and prints its result (reason: %s)",
+		async (reason) => {
+			const cancelled = { id: ITEM, state: "cancelled", version: 3 };
+			const { ctx, sources } = makeContext(
+				{ input: JSON.stringify({ expectedRequestVersion: 2 }), reason },
+				undefined,
+				(source) => {
+					const input = JSON.parse(source.slice(source.indexOf("(") + 1, -1));
+					if (input.confirmDestructive !== true)
+						throw new Error("Output schema requires structured content");
+					expect(input).toEqual({
+						requestId: ITEM,
+						expectedRequestVersion: 2,
+						confirmDestructive: true,
+						reason: reason ?? "User requested work interaction-cancel",
+					});
+					return cancelled;
+				},
+			);
+			const result = await capture(`interaction-cancel ${ITEM}`, ctx);
+			expect(result.code).toBe(0);
+			expect(result.out.map((line) => JSON.parse(line))).toEqual([cancelled]);
+			expect(sources).toHaveLength(1);
+		},
+	);
+
 	test("lets the positional route id override an id embedded in JSON input", async () => {
 		const routeId = "55555555-5555-4555-8555-555555555555";
 		const { ctx, sources } = makeContext({

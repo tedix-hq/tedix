@@ -3133,6 +3133,12 @@ const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		tool: "cancel_work_interaction",
 		write: true,
 		pathField: "requestId",
+		transform: (input, ctx) => ({
+			...input,
+			confirmDestructive: true,
+			reason:
+				ctx.work.reason?.trim() || "User requested work interaction-cancel",
+		}),
 	},
 	"interaction-undelivered": {
 		tool: "list_undelivered_work_interaction_responses",
