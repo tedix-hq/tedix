@@ -777,7 +777,7 @@ export async function runKernel(args: {
 	// turn-work.ts. The stage label "thinking" matches a common ready_event
 	// convention and is an operator-grade display string, not a machine contract.
 	try {
-		onProgress?.({ stage: "thinking", phase: "preparing_context" });
+		onProgress?.({ stage: "thinking", phase: "planning" });
 	} catch {
 		// Advisory only — never let a progress sink break the turn.
 	}

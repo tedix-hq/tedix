@@ -16,6 +16,7 @@ import {
 	planKernelWriteProposal,
 	preferredToolForCapability,
 	readEditTargetOutput,
+	renameThisConversationArgs,
 	WRITE_ONLY_VERBS,
 	type WriteProposalEnv,
 } from "./write-proposal";
@@ -582,6 +583,28 @@ describe("canonicalWriteToolName", () => {
 		expect(canonicalWriteToolName("work_items.create")).toBe(
 			"work.create_work_items",
 		);
+		// From a workspace the route can name the output instead.
+		expect(
+			canonicalWriteToolName(
+				"os.update_os_output",
+				"Rename this chat to Q3 plan",
+			),
+		).toBe("rename_conversation");
+	});
+
+	it("reads the current conversation and title from a plain rename", () => {
+		expect(
+			renameThisConversationArgs(
+				"Rename this conversation to “Q3 plan”.",
+				"home:os:abc",
+			),
+		).toEqual({ conversationId: "home:os:abc", title: "Q3 plan" });
+		expect(
+			renameThisConversationArgs("Rename the doc to Q3 plan", "home:os:abc"),
+		).toBeNull();
+		expect(
+			renameThisConversationArgs("Rename this chat to Q3", undefined),
+		).toBeNull();
 	});
 });
 
@@ -665,12 +688,14 @@ describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
 			transport: "codemode",
 		});
 		expect(mocks.selectJevAction).not.toHaveBeenCalled();
-		expect(service.calls.map((call) => call.method)).toEqual([
-			"tools/list",
+		expect(service.calls.map((call) => call.method).sort()).toEqual([
 			"tools/call",
+			"tools/list",
 		]);
-		const code = (service.calls[1]?.params.arguments as { code?: string })
-			?.code;
+		const code = (
+			service.calls.find((call) => call.method === "tools/call")?.params
+				.arguments as { code?: string }
+		)?.code;
 		expect(code).toContain('"query":"rename_conversation"');
 		expect(code).toContain('".rename_conversation"');
 		expect(stages).toEqual([
@@ -1084,12 +1109,13 @@ describe("planKernelWriteProposal — positive path", () => {
 		});
 		// work_items.create has one canonical primitive: no catalog search, one
 		// Code Mode call that describes it directly.
-		expect(service.calls.map((call) => call.method)).toEqual([
-			"tools/list",
+		expect(service.calls.map((call) => call.method).sort()).toEqual([
 			"tools/call",
+			"tools/list",
 		]);
 		const canonicalCode = (
-			service.calls[1]?.params.arguments as { code?: string }
+			service.calls.find((call) => call.method === "tools/call")?.params
+				.arguments as { code?: string }
 		)?.code;
 		expect(canonicalCode).toContain("discover.describe");
 		expect(canonicalCode).toContain('"work.create_work_items"');

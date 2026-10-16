@@ -256,7 +256,7 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(result.run.completedAt).toBe("2026-06-11T00:00:12.500Z");
 		expect(result.run.updatedAt).toBe("2026-06-11T00:00:12.500Z");
 		expect(events).toEqual([
-			{ stage: "Planning route", phase: "planning" },
+			{ stage: "Planning route", phase: "preparing_context" },
 			{ stage: "Finalizing", phase: "finalizing" },
 		]);
 	});
