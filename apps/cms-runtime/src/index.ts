@@ -261,9 +261,16 @@ export class EmDashDB extends EmdashSqlDB {
 						.trim()
 						.toLowerCase();
 					if (
-						/^(?:insert into|update|delete from) _emdash_404_log\b/.test(
+						/^(?:insert into|update|delete from) (?:_emdash_404_log|_emdash_cron_tasks|_plugin_indexes)\b/.test(
 							normalized,
 						)
+					)
+						return false;
+					if (
+						/^create (?:unique )?index if not exists u?idx_plugin_[a-z0-9_-]+ on _plugin_storage\s*\(/.test(
+							normalized,
+						) ||
+						/^drop index if exists u?idx_plugin_[a-z0-9_-]+$/.test(normalized)
 					)
 						return false;
 					if (
@@ -271,12 +278,6 @@ export class EmDashDB extends EmdashSqlDB {
 						params[0] === "system:scheduler:last_completed_at" &&
 						normalized ===
 							"insert into options (name, value, revision) values (?, ?, ?) on conflict (name) do update set value = ?, revision = ?"
-					)
-						return false;
-					if (
-						params?.length === 1 &&
-						normalized ===
-							"update _emdash_cron_tasks set status = 'idle', locked_at = null where status = 'running' and locked_at < ?"
 					)
 						return false;
 					return true;
