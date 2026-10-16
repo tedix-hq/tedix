@@ -102,6 +102,68 @@ export function explicitOutputEditKind(
 	return null;
 }
 
+const UUID_SOURCE = "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
+/** "mark it useful: great angle", "mark that card not useful", "useful: timely". */
+const CARD_VERDICT_RE =
+	/^(?:(?:mark|set|rate|record)\s+(?:it|this|that|the)(?:\s+(?:card|one|row))?\s+(?:as\s+)?)?(not\s+useful|useful|done|did\s+it)\b\s*(?:[:,–—-]\s*(.*))?$/i;
+
+/**
+ * A short verdict on the card the previous answer showed. The card lives in a
+ * Tedix sheet whose id that answer cites, so the follow-up is a range write to
+ * that sheet's row, never a fresh delegation that has lost the reference.
+ * Null unless the previous answer names exactly one card in exactly one output.
+ */
+export function cardVerdictFollowUp(
+	content: string,
+	previousAnswer: string | null | undefined,
+): { outputId: string; card: string; verdict: string; reason: string } | null {
+	const line = content.trim().split("\n", 1)[0]?.replace(LEAD_IN_RE, "") ?? "";
+	const match = CARD_VERDICT_RE.exec(line.trim());
+	if (!match?.[1] || !previousAnswer) return null;
+	const ids = [
+		...new Set(
+			(
+				previousAnswer.match(
+					new RegExp(`\\boutput\\s+\`?(${UUID_SOURCE})`, "gi"),
+				) ?? []
+			).map((hit) => hit.match(new RegExp(UUID_SOURCE, "i"))![0].toLowerCase()),
+		),
+	];
+	const cards = [
+		...new Set(
+			(previousAnswer.match(/(?:card\s*#?|#)\s*(\d{1,3})\b/gi) ?? []).map(
+				(hit) => hit.match(/\d+/)![0],
+			),
+		),
+	];
+	if (ids.length !== 1 || cards.length !== 1) return null;
+	return {
+		outputId: ids[0]!,
+		card: cards[0]!,
+		verdict: match[1].toLowerCase().replace(/\s+/g, " "),
+		reason: (match[2] ?? "").trim(),
+	};
+}
+
+/** The sheet range write for a card verdict follow-up. */
+export function cardVerdictWriteDecision(
+	followUp: ReturnType<typeof cardVerdictFollowUp>,
+	appSlug: string | null,
+): KernelRouteDecision | null {
+	const decision = explicitOutputWriteDecision(
+		followUp ? "sheet" : null,
+		appSlug,
+		"edit",
+	);
+	if (!decision || !followUp) return null;
+	const reason = followUp.reason ? ` with reason "${followUp.reason}"` : "";
+	return {
+		...decision,
+		rationale: `The previous answer showed card #${followUp.card} of Tedix sheet output ${followUp.outputId}. Record the verdict "${followUp.verdict}"${reason} in that card's row only: write yes or no into its Useful? column (done or did it means its done column = yes) and the reason into its Reason column, leaving other cells unchanged.`,
+		evidenceExpectation: `Card #${followUp.card}'s verdict cells saved in a new sheet revision.`,
+	};
+}
+
 /** Only selects a planner; arguments, schema validation and approval stay there. */
 export function explicitOutputWriteDecision(
 	kind: OutputCreateKind | null,

@@ -106,6 +106,8 @@ import {
 	explicitOutputWriteDecision,
 	explicitOutputCreateKind,
 	explicitOutputEditKind,
+	cardVerdictFollowUp,
+	cardVerdictWriteDecision,
 	outputWriteApp,
 	routeExplicitOutputCreate,
 } from "./output-create-intent";
@@ -898,13 +900,24 @@ export async function runKernel(args: {
 	const outputAppSlug =
 		outputCreateKind || outputEditKind ? outputWriteApp(context.apps) : null;
 
+	// "mark it useful" right after a card was shown edits that card's row.
+	const cardVerdict =
+		delegates || outputCreateKind || outputEditKind
+			? null
+			: cardVerdictFollowUp(
+					inputContent,
+					context.history.findLast((message) => message.role === "assistant")
+						?.content,
+				);
 	const outputWriteDecision = images.length
 		? null
-		: explicitOutputWriteDecision(
-				outputCreateKind ?? outputEditKind,
-				outputAppSlug,
-				outputCreateKind ? "create" : "edit",
-			);
+		: cardVerdict
+			? cardVerdictWriteDecision(cardVerdict, outputWriteApp(context.apps))
+			: explicitOutputWriteDecision(
+					outputCreateKind ?? outputEditKind,
+					outputAppSlug,
+					outputCreateKind ? "create" : "edit",
+				);
 	if (outputWriteDecision) {
 		const route = guardKernelRouteDecision(inputContent, outputWriteDecision);
 		return {

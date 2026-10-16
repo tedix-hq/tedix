@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	cardVerdictFollowUp,
+	cardVerdictWriteDecision,
 	explicitOutputCreateKind,
 	explicitOutputEditKind,
 	explicitOutputWriteDecision,
@@ -8,6 +10,52 @@ import {
 } from "./output-create-intent";
 import type { KernelRouteDecision } from "./route-schema";
 import { canonicalWriteToolName } from "./write-proposal";
+
+describe("card verdict follow-ups", () => {
+	const sheet = "11111111-2222-4333-8444-555555555555";
+	const shown = `### Your next card — #1 · Post idea\n**Draft:** Hello from Ada Example.\n*Verified through os.get_os_output, output \`${sheet}\`, revision 3.*`;
+
+	it("resolves a bare verdict to the card the previous answer showed", () => {
+		expect(cardVerdictFollowUp("mark it useful: great angle", shown)).toEqual({
+			outputId: sheet,
+			card: "1",
+			verdict: "useful",
+			reason: "great angle",
+		});
+		expect(
+			cardVerdictFollowUp("Mark that card not useful - wrong person", shown),
+		).toMatchObject({ verdict: "not useful", reason: "wrong person" });
+		expect(cardVerdictFollowUp("useful", shown)?.reason).toBe("");
+	});
+
+	it("leaves other requests and unclear references to the router", () => {
+		expect(
+			cardVerdictFollowUp("useful links for onboarding?", shown),
+		).toBeNull();
+		expect(
+			cardVerdictFollowUp("mark it useful", "no sheet here #1"),
+		).toBeNull();
+		expect(
+			cardVerdictFollowUp("mark it useful", `${shown}\nAlso card #2.`),
+		).toBeNull();
+		expect(cardVerdictFollowUp("mark it useful", null)).toBeNull();
+	});
+
+	it("routes to a range write on that sheet with the row in the rationale", () => {
+		const decision = cardVerdictWriteDecision(
+			cardVerdictFollowUp("mark it useful: great angle", shown),
+			"tedix",
+		);
+		expect(decision).toMatchObject({
+			routeKind: "propose_tool_write",
+			targetTediId: null,
+			toolIntent: { appSlug: "tedix", capability: "sheets.set_range" },
+		});
+		expect(decision?.rationale).toContain(sheet);
+		expect(decision?.rationale).toContain("card #1");
+		expect(cardVerdictWriteDecision(null, "tedix")).toBeNull();
+	});
+});
 
 function answerRoute(
 	overrides: Partial<KernelRouteDecision> = {},
