@@ -124,7 +124,7 @@ and **Stop** revokes it.
 
 A factory's cards can be carried out, not only recorded. Add a second skill
 owned by the same tedi, without a schedule, that takes params `{cardSheetId,
-row, kind, action, reason, columns, workProjectId}` (the server adds
+row, kind, action, reason, columns, actions, workProjectId}` (the server adds
 `workspaceId` and `tediId`), does that one card and writes its outcome into
 the card row: `Done ✓`, `Draft ready`, `Filed as Work /work/items/<id>` or
 `Failed: <reason>`, plus `yes` in the done column when it worked. Link it to
