@@ -483,7 +483,7 @@ function FactoryScoreboard() {
 					</AlertDescription>
 				</Alert>
 			) : groups.length ? (
-				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+				<div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
 					{groups.map((group) => (
 						<Collection key={group.tedi} aria-label={`${group.tedi} factories`}>
 							<li className="px-4 pt-3">

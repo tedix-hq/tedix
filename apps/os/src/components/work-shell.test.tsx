@@ -33,7 +33,7 @@ describe("Work shell navigation", () => {
 			"Queue",
 			"Attention",
 			"Agents",
-			"Attempts",
+			"Activity",
 			"Approvals",
 		]);
 		expect(ADVANCED_WORK_SECTIONS.map(([label]) => label)).toEqual([

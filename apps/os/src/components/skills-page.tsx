@@ -674,8 +674,7 @@ export function SkillsPage({
 				<PageHeading>
 					<PageTitle>{surface.label}</PageTitle>
 					<PageDescription>
-						Reusable instructions, ambient triggers, and durable workflows for
-						your digital workers.
+						Reusable instructions and scheduled workflows your tedis can run.
 					</PageDescription>
 				</PageHeading>
 				{canManage && search.section === "skills" ? (

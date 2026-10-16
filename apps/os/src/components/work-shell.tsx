@@ -29,7 +29,7 @@ export const WORK_SECTIONS = [
 	["Graph", "/work/graph"],
 	["Clusters", "/work/clusters"],
 	["Admission", "/work/admission"],
-	["Attempts", "/work/attempts"],
+	["Activity", "/work/attempts"],
 	["Approvals", "/work/approvals"],
 	["Interactions", "/work/interactions"],
 	["Capacity", "/work/capacity"],

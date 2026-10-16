@@ -15,6 +15,8 @@ interface ResponsiveFormSurfaceProps {
 	children: ReactNode;
 	className?: string;
 	contentClassName?: string;
+	/** "always" keeps the form behind its disclosure on desktop too. */
+	collapse?: "mobile" | "always";
 	description: ReactNode;
 	mobileDescription?: ReactNode;
 	mobileOpen: boolean;
@@ -32,6 +34,7 @@ export function ResponsiveFormSurface({
 	children,
 	className,
 	contentClassName,
+	collapse = "mobile",
 	description,
 	mobileDescription,
 	mobileOpen,
@@ -39,7 +42,7 @@ export function ResponsiveFormSurface({
 	title,
 }: ResponsiveFormSurfaceProps) {
 	const isMobileLayout = useMediaQuery("(max-width: 767px)");
-	const open = !isMobileLayout || mobileOpen;
+	const open = (!isMobileLayout && collapse === "mobile") || mobileOpen;
 
 	return (
 		<Surface
@@ -49,7 +52,12 @@ export function ResponsiveFormSurface({
 			data-responsive-form-state={open ? "open" : "closed"}
 			render={<Collapsible open={open} onOpenChange={onMobileOpenChange} />}
 		>
-			<CollapsibleTrigger className="w-full justify-between rounded-lg px-4 py-3 text-left md:hidden">
+			<CollapsibleTrigger
+				className={cn(
+					"w-full justify-between rounded-lg px-4 py-3 text-left",
+					collapse === "mobile" && "md:hidden",
+				)}
+			>
 				<span className="min-w-0">
 					<span className="block font-medium text-kumo-default">{title}</span>
 					<span className="block text-kumo-subtle type-tedix-label">
@@ -64,14 +72,17 @@ export function ResponsiveFormSurface({
 					)}
 				/>
 			</CollapsibleTrigger>
-			<div className="hidden p-4 md:block">
-				<Text weight="medium">{title}</Text>
-				<Text tone="secondary">{description}</Text>
-			</div>
+			{collapse === "mobile" ? (
+				<div className="hidden p-4 md:block">
+					<Text weight="medium">{title}</Text>
+					<Text tone="secondary">{description}</Text>
+				</div>
+			) : null}
 			<CollapsibleContent keepMounted>
 				<div
 					className={cn(
-						"border-kumo-line border-t p-4 md:border-t-0 md:pt-0",
+						"border-kumo-line border-t p-4",
+						collapse === "mobile" && "md:border-t-0 md:pt-0",
 						contentClassName,
 					)}
 				>
