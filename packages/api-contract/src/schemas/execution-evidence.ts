@@ -241,6 +241,9 @@ function inferStatus(
 	const successStatuses = new Set([
 		"complete",
 		"completed",
+		// An idempotent create: it made the parts, or they already existed.
+		"created",
+		"unchanged",
 		"healthy",
 		"ok",
 		"ready",

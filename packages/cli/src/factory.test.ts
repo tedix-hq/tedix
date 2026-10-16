@@ -46,6 +46,36 @@ describe("factory commands", () => {
 		stdout.mockRestore();
 	});
 
+	it("prints the failed tool's own error, not the gateway envelope", async () => {
+		const stderr = spyOn(console, "error").mockImplementation(() => {});
+		const envelope = {
+			executionId: "e-1",
+			partial: true,
+			failures: [
+				{
+					tool: "projects.inspect_factory_health",
+					error: 'NOT_FOUND: No factory "gone".',
+				},
+			],
+			result: { ok: false },
+		};
+		const ctx: FactoryContext = {
+			client: {
+				runCode: async () => {
+					throw new Error(
+						`MCP tool error: ${JSON.stringify(envelope, null, 2)}`,
+					);
+				},
+			},
+			color: { enabled: false },
+			json: false,
+			factory: {},
+		};
+		expect(await runFactoryCommand("status gone", ctx)).not.toBe(0);
+		expect(stderr.mock.calls.flat().join("\n")).toBe('No factory "gone".');
+		stderr.mockRestore();
+	});
+
 	it("requires a goal before any call and leaves the owner to the server", () => {
 		expect(() => createFactoryInput({ owner: "Nova" })).toThrow(/--goal/);
 		expect(createFactoryInput({ goal: "Keep docs right." })).toEqual({
@@ -149,7 +179,7 @@ describe("factory commands", () => {
 			const text = stdout.mock.calls.map(([line]) => String(line)).join("\n");
 			expect(text).toContain("run-failed-1");
 			expect(text).toContain("error: Request timed out after 15000ms");
-			expect(text).toContain("tedix skill inspect <runId>");
+			expect(text).toContain("tedix skill status <runId>");
 		} finally {
 			stdout.mockRestore();
 		}

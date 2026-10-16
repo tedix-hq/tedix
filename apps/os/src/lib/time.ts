@@ -27,12 +27,21 @@ export function normalizeD1Timestamp(iso: string): string {
 /**
  * Compact relative timestamp with sensible cutoffs:
  * "just now" → "5m ago" → "3h ago" → "3d ago", then "Aug 6" (same year) and
- * "Aug 6, 2025" (cross-year). Empty string for unparseable input.
+ * "Aug 6, 2025" (cross-year). Future instants within a week read "in 5m",
+ * "in 17h" or "in 3d". Empty string for unparseable input.
  */
 export function relativeTime(iso: string, now: Date = new Date()): string {
 	const then = Date.parse(iso);
 	if (Number.isNaN(then)) return "";
 	const delta = now.getTime() - then;
+	// A schedule's next fire is in the future: "in 5m", "in 17h", "in 3d".
+	if (delta <= -45_000 && -delta < WEEK_MS) {
+		const ahead = -delta;
+		if (ahead < HOUR_MS)
+			return `in ${Math.max(1, Math.round(ahead / MINUTE_MS))}m`;
+		if (ahead < DAY_MS) return `in ${Math.round(ahead / HOUR_MS)}h`;
+		return `in ${Math.round(ahead / DAY_MS)}d`;
+	}
 	if (delta < 45_000) return "just now";
 	if (delta < HOUR_MS) {
 		return `${Math.max(1, Math.round(delta / MINUTE_MS))}m ago`;

@@ -46,6 +46,11 @@ export const REPORT_LANE_TOOLS = [
 
 const yamlString = (value: string) => JSON.stringify(value);
 
+/** "Docs" → "Docs factory"; a name that already ends in "factory" stays as is. */
+export function factoryTitle(name: string): string {
+	return /\bfactory$/i.test(name.trim()) ? name.trim() : `${name} factory`;
+}
+
 function reportLaneWorkflow(params: FactoryLaneParams): string {
 	const factory = JSON.stringify(
 		{
@@ -264,9 +269,9 @@ export default {
 }
 
 function reportLane(params: FactoryLaneParams): RenderedFactoryLane {
-	const title = `${params.name} factory`;
-	const description = `${params.name} factory lane: reads the project's Work, asks the owner tedi for at most ${params.maxProposals} new proposals toward the goal, files them as deduplicated Work Items and posts a scorecard on the health item.`;
-	const summary = `Scheduled ${params.name} factory lane (report template).`;
+	const title = factoryTitle(params.name);
+	const description = `${title} lane: reads the project's Work, asks the owner tedi for at most ${params.maxProposals} new proposals toward the goal, files them as deduplicated Work Items and posts a scorecard on the health item.`;
+	const summary = `Scheduled ${title} lane (report template).`;
 	const content = `---
 name: ${params.slug}
 description: ${yamlString(description)}

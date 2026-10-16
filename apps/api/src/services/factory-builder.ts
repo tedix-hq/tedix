@@ -21,6 +21,7 @@ import {
 	readFactoryBinding,
 } from "@tedix/db/queries/factories";
 import {
+	factoryTitle,
 	type RenderedFactoryLane,
 	renderFactoryLane,
 } from "./factory-lane-template";
@@ -89,7 +90,7 @@ export interface FactoryOwnerCandidate {
 	name: string;
 	displayName: string | null;
 	createdAt: string | null;
-	/** The org's operator tedi (org_admin profile). */
+	/** An operator tedi (org_admin or platform_admin profile). */
 	operator: boolean;
 }
 
@@ -105,8 +106,8 @@ function ownerLabel(tedi: FactoryOwnerCandidate): string {
 }
 
 /**
- * The org's default tedi: its operator (the first tedi, provisioned with
- * org_admin), else the oldest active tedi.
+ * The org's default tedi: its oldest operator (org_admin, as the first tedi
+ * is provisioned, or platform_admin), else the oldest active tedi.
  */
 export function defaultFactoryOwner(
 	candidates: readonly FactoryOwnerCandidate[],
@@ -240,7 +241,10 @@ function nextActions(params: {
 }): string[] {
 	const check = `Check it daily: inspect_factory_health({ factory: "${params.slug}" }) or \`tedix factory status ${params.slug}\`.`;
 	if (params.dryRun) {
-		return ["Re-run with dryRun: false to create the missing parts.", check];
+		return [
+			"Re-run without dryRun (CLI: without --dry-run) to create the missing parts.",
+			check,
+		];
 	}
 	const probe = `run_skill_workflow({ slug: "${params.slug}", params: { probe: true } })`;
 	if (params.lifecycleState === "draft") {
@@ -304,7 +308,7 @@ export async function buildFactory(
 	} else {
 		objectiveId = await store.createObjective({
 			ownerTediId: owner.id,
-			title: `${name} factory`,
+			title: factoryTitle(name),
 			goal: input.goal,
 		});
 		wrote = true;
@@ -337,7 +341,7 @@ export async function buildFactory(
 	} else {
 		const created = await store.createProject({
 			key: projectKey,
-			name: `${name} factory`,
+			name: factoryTitle(name),
 			goal: input.goal,
 			ownerTediId: owner.id,
 			objectiveId: objectiveId!,
@@ -364,8 +368,8 @@ export async function buildFactory(
 		});
 	} else {
 		healthWorkItemId = await store.createHealthItem({
-			title: `${name} factory health`,
-			description: `Standing health item for the ${name} factory. Each run posts its scorecard here.\n\nGoal: ${input.goal}`,
+			title: `${factoryTitle(name)} health`,
+			description: `Standing health item for the ${factoryTitle(name)}. Each run posts its scorecard here.\n\nGoal: ${input.goal}`,
 			projectId: projectId!,
 			objectiveId: objectiveId!,
 			ownerTediId: owner.id,

@@ -282,6 +282,18 @@ describe("execution evidence", () => {
 		expect(unknown.status).toBe("partial");
 	});
 
+	it("treats a created or unchanged idempotent create as successful", () => {
+		for (const status of ["created", "unchanged"]) {
+			const evidence = buildCompletionEvidence({
+				operation: "create_factory",
+				result: { slug: "docs", status },
+				retryKey: "create-factory",
+			});
+			expect(evidence.status).toBe("succeeded");
+			expect(evidence.unsupportedClaims).toEqual([]);
+		}
+	});
+
 	it("treats an explicitly ready resource as successful", () => {
 		const evidence = buildCompletionEvidence({
 			operation: "workstation_status",

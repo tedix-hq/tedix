@@ -46,6 +46,9 @@ export function factoryUsage(): string {
 		"`status` gives each factory one verdict: healthy, idle (ran but delivered",
 		"nothing), failing, not_firing, paused (schedule turned off) or pending.",
 		"With a slug it lists the recent runs and what each delivered.",
+		"",
+		"Pause, resume or archive a factory by revising its lane skill; see",
+		"docs/public/factory-agent-guide.md (Pause or archive a factory).",
 	].join("\n");
 }
 
@@ -112,8 +115,13 @@ async function createFactory(ctx: FactoryContext): Promise<number> {
 			`  ${String(step.resource ?? "").padEnd(17)} ${String(step.action ?? "").padEnd(13)} ${String(step.id ?? "")}${step.note ? dim(`  ${String(step.note)}`, ctx.color) : ""}`,
 		);
 	}
+	const nextFire = result.nextFireAt
+		? String(result.nextFireAt)
+		: result.dryRun
+			? "set when it is created"
+			: "none (draft)";
 	console.log(
-		`  cron ${String(result.cron ?? "?")} UTC, next fire ${String(result.nextFireAt ?? "none (draft)")}`,
+		`  cron ${String(result.cron ?? "?")} UTC, next fire ${nextFire}`,
 	);
 	const actions = Array.isArray(result.nextActions) ? result.nextActions : [];
 	if (actions.length) {
@@ -173,7 +181,7 @@ async function factoryStatus(
 	}
 	for (const row of rows) {
 		console.log(
-			`${verdictLabel(String(row.verdict ?? "?"), ctx.color)} ${cyan(String(row.slug ?? "?"), ctx.color)}  ${String(row.ownerTediName ?? "")}  ran today: ${row.ranToday ? "yes" : "no"}  next: ${String(row.nextFireAt ?? "-")}`,
+			`${verdictLabel(String(row.verdict ?? "?"), ctx.color)} ${cyan(String(row.slug ?? "?"), ctx.color)}  ${String(row.ownerTediName ?? "")}  ran today: ${row.ranToday ? "yes" : "no"}  next: ${row.verdict === "paused" ? "- (paused)" : String(row.nextFireAt ?? "-")}`,
 		);
 		console.log(dim(`            ${String(row.reason ?? "")}`, ctx.color));
 		if (!slug) continue;
@@ -194,7 +202,7 @@ async function factoryStatus(
 		}
 		if (runs.length > 0)
 			console.log(
-				dim("            read a run: tedix skill inspect <runId>", ctx.color),
+				dim("            read a run: tedix skill status <runId>", ctx.color),
 			);
 	}
 	if (!slug) {

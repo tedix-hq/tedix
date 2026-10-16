@@ -18,11 +18,18 @@ export async function readGatewayProjection(
 ): Promise<unknown> {
 	const call = `await ${callable}(${JSON.stringify(input)})`;
 	const key = JSON.stringify(rowKey);
-	const raw = await client.runCode(
-		rowFields
-			? `async () => { const r = ${call}; const keys = ${JSON.stringify(rowFields)}; return Array.isArray(r?.[${key}]) ? { ...r, [${key}]: r[${key}].map((row) => Object.fromEntries(keys.map((k) => [k, row?.[k]]))) } : r; }`
-			: `async () => ${call}`,
-	);
+	let raw: unknown;
+	try {
+		raw = await client.runCode(
+			rowFields
+				? `async () => { const r = ${call}; const keys = ${JSON.stringify(rowFields)}; return Array.isArray(r?.[${key}]) ? { ...r, [${key}]: r[${key}].map((row) => Object.fromEntries(keys.map((k) => [k, row?.[k]]))) } : r; }`
+				: `async () => ${call}`,
+		);
+	} catch (error) {
+		const message = errorText(error);
+		const inner = innerToolError(message);
+		throw inner === message ? error : new Error(inner);
+	}
 	const normalized = normalizeCodeResult(raw);
 	if (normalized.truncated) throw new Error(truncationErrorMessage(normalized));
 	const value = normalized.value;
@@ -44,6 +51,21 @@ export async function readGatewayProjection(
 		}
 	}
 	return value;
+}
+
+/**
+ * A failed call comes back as "MCP tool error: <Code Mode envelope JSON>";
+ * keep only the failed tool's own error.
+ */
+export function innerToolError(message: string): string {
+	const json = /^MCP tool error:\s*(\{[\s\S]*\})\s*$/.exec(message)?.[1];
+	if (!json) return message;
+	try {
+		const [failure] = normalizeCodeResult(JSON.parse(json)).failures ?? [];
+		return failure?.error ? errorText(failure.error) : message;
+	} catch {
+		return message;
+	}
 }
 
 export function rowsFrom(

@@ -235,6 +235,8 @@ export const WORK_ITEM_TOOLS: TediToolSpec[] = [
 		inputSchema: WORK_ITEM_CREATE_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "workItems/create",
+		// The create input is strict and has no tediId; the owner is explicit.
+		includeTediIdParam: false,
 	},
 	{
 		name: "work_item_comment",
