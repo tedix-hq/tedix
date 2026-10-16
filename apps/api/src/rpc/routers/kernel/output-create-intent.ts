@@ -198,6 +198,108 @@ export function cardVerdictWriteDecision(
 	};
 }
 
+const CARD_VERDICT_RATIONALE_RE =
+	/^The previous answer showed card #(\d{1,3}) of the Tedix sheet .*?\. Record the verdict "([^"]+)"(?: with reason "([^"]*)")? in that card's row only/;
+
+type SheetCell = string | number | boolean | null;
+
+/**
+ * The exact range write for a card verdict, computed from the sheet itself:
+ * the row whose `#` cell is the card number (else the card's position) and the
+ * Useful?, Reason and done columns by header. A model guessing coordinates
+ * once wrote two rows below the sheet. Null when anything is ambiguous, so the
+ * planner still gets the request.
+ */
+export function cardVerdictSheetArgs(
+	editTarget: string | null,
+	rationale: string,
+): Record<string, unknown> | null {
+	const match = CARD_VERDICT_RATIONALE_RE.exec(rationale);
+	if (!match || !editTarget) return null;
+	let target: {
+		outputId?: unknown;
+		revision?: unknown;
+		truncated?: unknown;
+		content?: unknown;
+	};
+	let body: { kind?: unknown; columns?: unknown; rows?: unknown };
+	try {
+		target = JSON.parse(editTarget);
+		body = typeof target.content === "string" ? JSON.parse(target.content) : {};
+	} catch {
+		return null;
+	}
+	if (
+		target.truncated ||
+		typeof target.outputId !== "string" ||
+		body.kind !== "sheet" ||
+		!Array.isArray(body.columns) ||
+		!Array.isArray(body.rows)
+	)
+		return null;
+	const columns = body.columns as string[];
+	const rows = body.rows as SheetCell[][];
+	const find = (pattern: RegExp) => {
+		const hits = columns.flatMap((name, index) =>
+			pattern.test(String(name).trim()) ? [index] : [],
+		);
+		return hits.length === 1 ? hits[0]! : -1;
+	};
+	const useful = find(/^useful\??$/i);
+	const reasonColumn = find(/^reason$/i);
+	const done = find(/^(?:did it|approve action|done)\??$/i);
+	const number = find(/^#$/);
+	if (useful < 0 || reasonColumn < 0) return null;
+	const card = Number(match[1]);
+	const byNumber = rows.flatMap((row, index) =>
+		number >= 0 && String(row[number] ?? "").trim() === String(card)
+			? [index]
+			: [],
+	);
+	const rowIndex =
+		byNumber.length === 1
+			? byNumber[0]!
+			: number < 0 && card >= 1 && card <= rows.length
+				? card - 1
+				: -1;
+	if (rowIndex < 0) return null;
+	const verdict = match[2]!.toLowerCase();
+	const reason = (match[3] ?? "").trim();
+	const writes = new Map<number, SheetCell>();
+	if (verdict === "not useful") {
+		writes.set(useful, "no");
+		if (done >= 0) writes.set(done, "no");
+	} else if (verdict === "useful") {
+		writes.set(useful, "yes");
+	} else {
+		if (done < 0) return null;
+		writes.set(done, "yes");
+		if (!String(rows[rowIndex]?.[useful] ?? "").trim())
+			writes.set(useful, "yes");
+	}
+	if (reason)
+		writes.set(reasonColumn, reason.charAt(0).toUpperCase() + reason.slice(1));
+	const indexes = [...writes.keys()];
+	const start = Math.min(...indexes);
+	const end = Math.max(...indexes);
+	const row: SheetCell[] = [];
+	for (let column = start; column <= end; column += 1)
+		row.push(
+			writes.has(column)
+				? writes.get(column)!
+				: (rows[rowIndex]?.[column] ?? null),
+		);
+	return {
+		outputId: target.outputId,
+		startRow: rowIndex,
+		startColumn: start,
+		cells: [row],
+		...(typeof target.revision === "number"
+			? { expectedRevision: target.revision }
+			: {}),
+	};
+}
+
 /** Only selects a planner; arguments, schema validation and approval stay there. */
 export function explicitOutputWriteDecision(
 	kind: OutputCreateKind | null,

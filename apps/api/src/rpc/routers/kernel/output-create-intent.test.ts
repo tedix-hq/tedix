@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	cardVerdictFollowUp,
+	cardVerdictSheetArgs,
 	cardVerdictWriteDecision,
 	explicitOutputCreateKind,
 	explicitOutputEditKind,
@@ -62,6 +63,75 @@ describe("card verdict follow-ups", () => {
 			),
 		).toBeNull();
 		expect(cardVerdictFollowUp("mark it useful", null)).toBeNull();
+	});
+
+	it("computes the exact range write from the sheet", () => {
+		const columns = [
+			"#",
+			"Type",
+			"Source (link)",
+			"Who",
+			"Why (rule)",
+			"Draft",
+			"Useful?",
+			"Reason",
+			"Did it?",
+		];
+		const rows = [1, 2, 3].map((n) => [
+			n,
+			"reply",
+			"https://example.com",
+			"Ada Example",
+			"R2",
+			"Hi",
+			n === 1 ? "no" : "",
+			n === 1 ? "Not timely" : "",
+			"",
+		]);
+		const editTarget = JSON.stringify({
+			outputId: sheet,
+			kind: "sheet",
+			title: "Social cards",
+			revision: 10,
+			truncated: false,
+			content: JSON.stringify({ kind: "sheet", columns, rows }),
+		});
+		const rationale = (verdict: string) =>
+			cardVerdictWriteDecision(
+				cardVerdictFollowUp(
+					verdict,
+					"### Card #3 — Reply\n**Sheet:** Social cards",
+				),
+				"tedix",
+			)!.rationale;
+		expect(
+			cardVerdictSheetArgs(
+				editTarget,
+				rationale("mark it useful: great angle"),
+			),
+		).toEqual({
+			outputId: sheet,
+			startRow: 2,
+			startColumn: 6,
+			cells: [["yes", "Great angle"]],
+			expectedRevision: 10,
+		});
+		expect(
+			cardVerdictSheetArgs(editTarget, rationale("not useful - wrong person")),
+		).toMatchObject({
+			startRow: 2,
+			startColumn: 6,
+			cells: [["no", "Wrong person", "no"]],
+		});
+		expect(cardVerdictSheetArgs(editTarget, rationale("done"))).toMatchObject({
+			startColumn: 6,
+			cells: [["yes", "", "yes"]],
+		});
+		expect(cardVerdictSheetArgs(editTarget, "Some other rationale")).toBeNull();
+		expect(cardVerdictSheetArgs(null, rationale("useful"))).toBeNull();
+		expect(
+			cardVerdictSheetArgs(editTarget, rationale("useful").replace("#3", "#9")),
+		).toBeNull();
 	});
 
 	it("takes the card named at the top, not later mentions", () => {
