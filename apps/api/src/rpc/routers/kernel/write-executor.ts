@@ -166,6 +166,7 @@ async function mcpCall(
 	params: Record<string, unknown>,
 	actingUserId?: string,
 	approvedWorkResponderUserId?: string,
+	approvedFactoryRequestId?: string,
 ): Promise<unknown | null> {
 	if (!env.MCP_SERVICE || !env.MCP_URL) return null;
 	const service = env.MCP_SERVICE;
@@ -181,6 +182,9 @@ async function mcpCall(
 					"X-Tedix-Host": host,
 					// Tenant control-plane audit marker → "kernel" actor in apps/mcp.
 					"X-Tedix-Kernel": "true",
+					...(approvedFactoryRequestId
+						? { "X-Tedix-Approved-Factory-Request": approvedFactoryRequestId }
+						: {}),
 					...(actingUserId ? { "X-Tedix-Acting-User": actingUserId } : {}),
 					...(approvedWorkResponderUserId
 						? { "X-Tedix-Approved-Work-Responder": approvedWorkResponderUserId }
@@ -298,6 +302,7 @@ function reportedWriteFailure(data: unknown): unknown {
 export async function executeApprovedKernelWrite(args: {
 	env: WriteExecutorEnv;
 	payload: HomeToolWritePayload;
+	approvalRequestId?: string;
 	/** Human from the resolved approval, distinct from the initiating user. */
 	approvedWorkResponderUserId?: string;
 }): Promise<KernelWriteExecutionResult> {
@@ -379,6 +384,11 @@ export async function executeApprovedKernelWrite(args: {
 			payload.initiatedByUserId ?? undefined,
 			/(?:^|\.|__)respond_work_interaction$/.test(payload.toolName)
 				? args.approvedWorkResponderUserId
+				: undefined,
+			/^projects\.(?:create|pause|resume|archive)_factory$/.test(
+				payload.toolName,
+			)
+				? args.approvalRequestId
 				: undefined,
 		)) as ToolCallResult | null;
 		if (payload.initiatedByUserId && isCredentialMissing(result)) {

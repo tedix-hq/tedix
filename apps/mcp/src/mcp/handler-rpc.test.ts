@@ -1492,3 +1492,35 @@ describe("ToolHandler result ergonomics", () => {
 		});
 	});
 });
+
+describe("factory approval receipt RPC forwarding", () => {
+	it.each(["service", "tedi", "external_agent"] as const)(
+		"only forwards kernel service receipts (%s)",
+		async (authType) => {
+			const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+			await new ToolHandler().execute(
+				{},
+				{
+					...ctx({ transport: "rpc", endpoint: "projects/pauseFactory" }),
+					env: {
+						ENVIRONMENT: "test",
+						API_URL: "https://api.example.test",
+						API_SERVICE: { fetch: apiFetch },
+					} as unknown as CloudflareEnv,
+					callerIdentity: {
+						authType,
+						kernel: true,
+						organizationId: "sample-org",
+						approvedFactoryRequestId: "sample-approval",
+					},
+				},
+			);
+			const call = apiFetch.mock.calls[0] as unknown as Parameters<
+				typeof fetch
+			>;
+			expect(
+				headersFromFetch(...call).get("X-Tedix-Approved-Factory-Request"),
+			).toBe(authType === "service" ? "sample-approval" : null);
+		},
+	);
+});

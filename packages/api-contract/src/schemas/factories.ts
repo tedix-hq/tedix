@@ -117,6 +117,23 @@ export const CreateFactoryInputSchema = z
 	.strict();
 export type CreateFactoryInput = z.infer<typeof CreateFactoryInputSchema>;
 
+export const FactoryControlInputSchema = z
+	.object({
+		organizationId: z.uuid().optional(),
+		factory: FactorySlugSchema.describe(
+			"Exact factory slug; resolve ambiguous names with inspect_factory_health first.",
+		),
+	})
+	.strict();
+
+export const FactoryControlResultSchema = z.object({
+	slug: z.string(),
+	skillId: z.string(),
+	action: z.enum(["paused", "resumed", "archived"]),
+	scheduleEnabled: z.boolean(),
+	nextFireAt: z.string().nullable(),
+});
+
 export const FactoryBuildStepSchema = z.object({
 	resource: z.enum([
 		"objective",

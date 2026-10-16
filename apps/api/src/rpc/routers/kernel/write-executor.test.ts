@@ -769,3 +769,36 @@ describe("executeApprovedKernelWrite", () => {
 		});
 	});
 });
+
+describe("factory approval receipt forwarding", () => {
+	it.each([
+		"projects.create_factory",
+		"projects.pause_factory",
+		"projects.resume_factory",
+		"projects.archive_factory",
+		"globex__create_invoice",
+	])("restricts factory approval header to %s", async (toolName) => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result:
+					body.method === "tools/list"
+						? { tools: [{ name: toolName }] }
+						: { structuredContent: { ok: true } },
+			},
+		}));
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload({ toolName }),
+			approvalRequestId: "sample-approval",
+		});
+		expect(result.ok).toBe(true);
+		expect(
+			service.calls[0]?.headers.get("X-Tedix-Approved-Factory-Request"),
+		).toBeNull();
+		expect(
+			service.calls[1]?.headers.get("X-Tedix-Approved-Factory-Request"),
+		).toBe(toolName.startsWith("projects.") ? "sample-approval" : null);
+	});
+});

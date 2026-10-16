@@ -6,7 +6,10 @@
  * lifecycle gate as `record_skills`.
  */
 
-import { implement } from "@orpc/server";
+import { factoryApprovalContext } from "../../services/factory-approval";
+import { createRouterClient, implement } from "@orpc/server";
+import { skillsImprove } from "./cognitive-skill-catalog";
+import { setFactoryScheduleEnabled } from "../../services/factory-lifecycle";
 import { projectsContract } from "@tedix/api-contract/contracts/projects";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import {
@@ -249,7 +252,12 @@ export const createFactoryProcedure = factoriesOs.createFactory
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgIdOrInput(context, input.organizationId);
 		try {
-			return await buildFactory(factoryStore(context, orgId), input);
+			const executor = await factoryApprovalContext(
+				context,
+				"projects.create_factory",
+				input,
+			);
+			return await buildFactory(factoryStore(executor, orgId), input);
 		} catch (error) {
 			if (error instanceof FactoryBuildError) {
 				throw createError(
@@ -288,3 +296,63 @@ export const inspectFactoryHealthProcedure = factoriesOs.inspectFactoryHealth
 		}
 		return { data, checkedAt: now.toISOString() };
 	});
+
+async function controlFactory(
+	context: BaseContext,
+	input: { organizationId?: string; factory: string },
+	action: "paused" | "resumed" | "archived",
+) {
+	const operation =
+		action === "paused" ? "pause" : action === "resumed" ? "resume" : "archive";
+	context = await factoryApprovalContext(
+		context,
+		`projects.${operation}_factory`,
+		input,
+	);
+	const orgId = requireOrgIdOrInput(context, input.organizationId);
+	const lanes = await listFactoryHealth(context.db, {
+		orgId,
+		now: new Date(),
+		runLimit: 1,
+	});
+	const lane = lanes.find((row) => row.slug === input.factory);
+	if (!lane)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"Factory not found; archived lanes stay retired.",
+		);
+	const skill = await getSkillEntry(context.db, lane.skillId, orgId);
+	if (!skill)
+		throw createError(ErrorCodes.NOT_FOUND, "Factory lane skill not found");
+	const client = createRouterClient({ improve: skillsImprove }, { context });
+	await client.improve(
+		action === "archived"
+			? { id: skill.id, lifecycleState: "archived" }
+			: {
+					id: skill.id,
+					content: setFactoryScheduleEnabled(
+						skill.content ?? "",
+						action === "resumed",
+					),
+					revisionReasoning: `${action === "paused" ? "Pause" : "Resume"} factory ${input.factory}.`,
+				},
+	);
+	const schedule = await getSkillSchedule(context.db, skill.id);
+	return {
+		slug: lane.slug,
+		skillId: skill.id,
+		action,
+		scheduleEnabled: schedule?.enabled ?? false,
+		nextFireAt: schedule?.enabled ? schedule.nextFireAt : null,
+	};
+}
+
+export const pauseFactoryProcedure = factoriesOs.pauseFactory
+	.use(AUTHZ.tedisWrite)
+	.handler(({ context, input }) => controlFactory(context, input, "paused"));
+export const resumeFactoryProcedure = factoriesOs.resumeFactory
+	.use(AUTHZ.tedisWrite)
+	.handler(({ context, input }) => controlFactory(context, input, "resumed"));
+export const archiveFactoryProcedure = factoriesOs.archiveFactory
+	.use(AUTHZ.tedisWrite)
+	.handler(({ context, input }) => controlFactory(context, input, "archived"));

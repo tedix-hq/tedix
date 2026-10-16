@@ -2271,3 +2271,96 @@ describe("Jev action selection failure boundary", () => {
 		);
 	});
 });
+
+describe("factory creation preview", () => {
+	it.each([true, false])(
+		"requires a successful dry run before approval (preview=%s)",
+		async (valid) => {
+			const service = mcpService((body) => {
+				if (body.method === "tools/list")
+					return {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: { tools: [{ name: "code" }] },
+						},
+					};
+				const code = (body.params.arguments as { code: string }).code;
+				const data = code.includes("discover.describe")
+					? [
+							{
+								callable: "projects.create_factory",
+								description: "Preview then create a factory",
+								annotations: { readOnlyHint: false },
+								parameters: {
+									type: "object",
+									properties: {
+										goal: { type: "string" },
+										slug: { type: "string" },
+										dryRun: { type: "boolean" },
+									},
+									required: ["goal"],
+								},
+							},
+						]
+					: valid
+						? {
+								dryRun: true,
+								ownerTediName: "Sample operator",
+								cron: "17 8 * * *",
+								warnings: ["Check the selected output"],
+							}
+						: { error: "preview rejected" };
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							structuredContent: {
+								executionId: "sample-exec",
+								result: JSON.stringify(data),
+							},
+						},
+					},
+				};
+			});
+			mocks.getAppBySlugForOrg.mockResolvedValue({ slug: "sample-tools" });
+			const proposal = await planKernelWriteProposal({
+				db: DB,
+				organizationId: "org-1",
+				env: baseEnv(service),
+				route: writeRoute({
+					toolIntent: {
+						appSlug: "sample-tools",
+						capability: "factories.create",
+						connectionStatus: "connected",
+					},
+				}),
+				content: "Create a daily factory",
+				model: objectModel({
+					toolName: "projects.create_factory",
+					args: {
+						goal: "Summarise project comments",
+						slug: "sample-comments",
+						dryRun: true,
+					},
+					reasoning: "Create daily report",
+				}),
+			});
+			const executionCalls = service.calls.filter(
+				(c) =>
+					c.method === "tools/call" &&
+					!(c.params.arguments as { code: string }).code.includes("discover."),
+			);
+			expect(executionCalls).toHaveLength(1);
+			expect(
+				(executionCalls[0]!.params.arguments as { code: string }).code,
+			).toContain('"dryRun":true');
+			if (valid) {
+				expect(proposal?.args.dryRun).toBe(false);
+				expect(proposal?.riskTier).toBe("high");
+				expect(proposal?.reasoning).toContain("Check the selected output");
+			} else expect(proposal).toBeNull();
+		},
+	);
+});

@@ -259,3 +259,18 @@ describe("Home output authoring identity", () => {
 		expect(kernelOutputReceipt(input)).toBeNull();
 	});
 });
+
+it("shows the factory dry-run owner, cadence and warnings before approval", () => {
+	const content = kernelWriteCardContent({
+		approvalRequestId: "sample-approval",
+		proposal: {
+			appSlug: "sample-tools",
+			toolName: "projects.create_factory",
+			args: { goal: "Summarise comments" },
+			reasoning:
+				"Preview: owner Sample operator; cron 17 8 * * * UTC; warning: choose an Output.",
+		},
+	});
+	expect(content).toContain("owner Sample operator");
+	expect(content).toContain("warning: choose an Output");
+});

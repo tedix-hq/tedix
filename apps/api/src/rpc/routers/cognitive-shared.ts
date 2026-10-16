@@ -45,11 +45,15 @@ export function appendRevisionReasoning(
  * allowlist doctrine: positively prove the caller is a signed-in human or an
  * operator-issued API key — the two caller types that structurally cannot be
  * an LLM's own in-turn tool selection — and reject every other authType
- * (tedi, m2m, service, service-binding, or unresolved). Fails closed.
+ * (tedi, m2m, service, service-binding, or unresolved). A service binding may
+ * carry a server-verified, exact human factory approval during that operation.
+ * Fails closed.
  */
 export function isLifecycleOverrideAuthority(
-	context: Pick<BaseContext, "authType" | "user">,
+	context: Pick<BaseContext, "authType" | "user" | "factoryOperatorApproval">,
 ): boolean {
+	if (context.authType === "service-binding" && context.factoryOperatorApproval)
+		return true;
 	if (context.authType === "apikey") return true;
 	return context.authType === "user" && Boolean(context.user?.sub);
 }

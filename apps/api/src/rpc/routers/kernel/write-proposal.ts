@@ -73,6 +73,8 @@ import * as z from "zod";
 import { flatAbortSignal } from "./llm-guard";
 import type { KernelRouteDecision } from "./route-schema";
 import {
+	codeModeExecutionParams,
+	codeModeResultData,
 	codeModeCanonicalDescribeParams,
 	codeModeDiscoveryParams,
 	codeModeDescribeParams,
@@ -477,6 +479,11 @@ export function canonicalWriteToolName(
 		if (capability === "sheets.set_range") return "os.set_os_sheet_range";
 		if (capability === "presentations.patch") return "os.patch_os_slides";
 	}
+	if (capability === "factories.create") return "projects.create_factory";
+	if (capability === "factories.pause") return "projects.pause_factory";
+	if (capability === "factories.resume") return "projects.resume_factory";
+	if (capability === "factories.archive") return "projects.archive_factory";
+	if (capability === "factories.run") return "skills.run_skill_workflow";
 	if (capability === "work_items.create") return "work.create_work_items";
 	if (
 		(capability && WORK_REQUEST_RESPOND_CAPABILITY_RE.test(capability)) ||
@@ -1423,7 +1430,11 @@ export async function planKernelWriteProposal(args: {
 			exactTool.inputSchema.properties?.title
 				? renameThisConversationArgs(content, args.gatewayContext?.sessionKey)
 				: null;
-		const planned = renameArgs
+		const planned: {
+			toolName: string;
+			args: Record<string, unknown>;
+			reasoning: string | null;
+		} | null = renameArgs
 			? {
 					toolName: exactTool.name,
 					args: renameArgs,
@@ -1434,7 +1445,9 @@ export async function planKernelWriteProposal(args: {
 					conversationId: args.gatewayContext?.sessionKey,
 					editTarget,
 					openWorkRequests,
-					content,
+					content: capability?.startsWith("factories.")
+						? `${content}\n${route.rationale}`
+						: content,
 					capability: route.toolIntent?.capability ?? null,
 					tools: [exactTool],
 					model,
@@ -1450,6 +1463,12 @@ export async function planKernelWriteProposal(args: {
 				stage: "planner_declined",
 				detail: argumentFailure,
 			});
+		if (canonical === "projects.create_factory") planned.args.dryRun = false;
+		if (capability === "factories.run")
+			planned.args.params = {
+				...((planned.args.params as Record<string, unknown>) ?? {}),
+				cycleKey: `manual-${crypto.randomUUID()}`,
+			};
 		const validated = validateProposedCall(planned, [exactTool], paramDefaults);
 		if (!validated) {
 			console.warn("[kernel.writeProposal] pick failed validation", {
@@ -1460,6 +1479,42 @@ export async function planKernelWriteProposal(args: {
 				stage: "validation_failed",
 				detail: `${provider.slug} planned=${planned.toolName}`,
 			});
+		}
+		if (canonical === "projects.create_factory") {
+			const preview = await mcpCall(
+				env,
+				host,
+				organizationId,
+				"tools/call",
+				transport === "codemode"
+					? codeModeExecutionParams(validated.tool.name, {
+							...validated.args,
+							dryRun: true,
+						})
+					: {
+							name: validated.tool.name,
+							arguments: { ...validated.args, dryRun: true },
+						},
+				actingUserId,
+			);
+			if (!preview || (preview as { isError?: boolean }).isError)
+				return decline({
+					stage: "validation_failed",
+					detail: "Factory dry run failed; no creation was proposed.",
+				});
+			const data = codeModeResultData(
+				preview as Parameters<typeof codeModeResultData>[0],
+			);
+			if (
+				!data ||
+				typeof data !== "object" ||
+				(data as { dryRun?: boolean }).dryRun !== true
+			)
+				return decline({
+					stage: "validation_failed",
+					detail: "Factory dry run did not return a valid preview.",
+				});
+			planned.reasoning = `${planned.reasoning ?? "Create the factory after approval."} Preview: ${JSON.stringify(data)}`;
 		}
 		console.warn("[kernel.writeProposal] proposed", {
 			slug: provider.slug,
@@ -1478,7 +1533,11 @@ export async function planKernelWriteProposal(args: {
 				? { outputTitle: target.title }
 				: {}),
 			reasoning: planned.reasoning,
-			riskTier: validated.riskTier,
+			riskTier: /^projects\.(?:create|pause|resume|archive)_factory$/.test(
+				validated.tool.name,
+			)
+				? "high"
+				: validated.riskTier,
 			transport,
 		};
 	} catch (e) {

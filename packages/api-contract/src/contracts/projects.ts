@@ -28,6 +28,8 @@ import {
 	CredentialWorkActorTypeSchema,
 } from "../schemas/work-items";
 import {
+	FactoryControlInputSchema,
+	FactoryControlResultSchema,
 	CreateFactoryInputSchema,
 	CreateFactoryResultSchema,
 	FactoryVerdictSchema,
@@ -436,10 +438,41 @@ export const projectsContract = oc
 				path: "/factories",
 				summary: "Create factory",
 				description:
-					"Build a factory from a goal in one call: the Work project and objective, a scheduled lane skill from a template (daily by default, or twice_daily or hourly with everyHours; off :00/:30), and a standing health Work Item. With output, each run also appends its summary to a Tedix document (a dated section) or sheet (a row). Idempotent by slug: re-running reuses what exists. A signed-in human or operator key activates the lane; an agent gets a draft plus the proof-run step.",
+					"Create recurring work from chat (every morning, daily, inbox summaries). Call with dryRun true first, review owner/cadence/output/warnings, then propose the same arguments with dryRun false for approval. Build a factory from a goal in one call: the Work project and objective, a scheduled lane skill from a template (daily by default, or twice_daily or hourly with everyHours; off :00/:30), and a standing health Work Item. With output, each run also appends its summary to a Tedix document (a dated section) or sheet (a row). Idempotent by slug: re-running reuses what exists. A signed-in human or operator key activates the lane; an agent gets a draft plus the proof-run step.",
 			})
 			.input(CreateFactoryInputSchema)
 			.output(CreateFactoryResultSchema),
+
+		pauseFactory: oc
+			.route({
+				method: "POST",
+				path: "/factories/pause",
+				summary: "Pause factory",
+				description:
+					"Pause a recurring factory by slug. Turns off future scheduled runs through improve_skills, preserving its lane, cadence and Outputs. Use for 'pause that factory'. Does not cancel an in-flight run.",
+			})
+			.input(FactoryControlInputSchema)
+			.output(FactoryControlResultSchema),
+		resumeFactory: oc
+			.route({
+				method: "POST",
+				path: "/factories/resume",
+				summary: "Resume factory",
+				description:
+					"Resume a paused factory by slug through improve_skills. Restores its existing cadence; does not run it immediately. Archived lanes stay retired.",
+			})
+			.input(FactoryControlInputSchema)
+			.output(FactoryControlResultSchema),
+		archiveFactory: oc
+			.route({
+				method: "POST",
+				path: "/factories/archive",
+				summary: "Archive factory",
+				description:
+					"Retire a factory by slug through improve_skills and remove its schedule. Preserves Work, project, objective and Outputs for separate cleanup. Use for 'archive that factory'.",
+			})
+			.input(FactoryControlInputSchema)
+			.output(FactoryControlResultSchema),
 
 		inspectFactoryHealth: oc
 			.route({
@@ -447,7 +480,7 @@ export const projectsContract = oc
 				path: "/factory-health",
 				summary: "Inspect factory health",
 				description:
-					"One verdict per factory (healthy, idle, failing, not_firing, paused, pending) with its last scheduled runs, what each delivered (Work created, comments, Output revisions), whether it ran today, its next fire time and its last proof run. Give a slug or skill id, or omit it to list every factory.",
+					"Answer how is my factory doing, check inbox factory health or find a factory by slug. Returns a one-line reason and run ids for skill status. One verdict per factory (healthy, idle, failing, not_firing, paused, pending) with its last scheduled runs, what each delivered (Work created, comments, Output revisions), whether it ran today, its next fire time and its last proof run. Give a slug or skill id, or omit it to list every factory.",
 			})
 			.input(InspectFactoryHealthInputSchema)
 			.output(InspectFactoryHealthResultSchema),

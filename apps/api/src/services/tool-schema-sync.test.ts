@@ -17,6 +17,7 @@ import {
 	runToolSchemaSync,
 	OS_TOOL_ID_OVERRIDES,
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
+	WORK_HIERARCHY_KIND_OVERRIDES,
 	OS_KIND_OVERRIDES,
 } from "./tool-schema-sync";
 
@@ -2804,3 +2805,12 @@ it("keeps exact read projections denied for missing/wrong scope and unknown alia
 		),
 	).toBe(false);
 });
+
+it.each(["pause", "resume", "archive"])(
+	"projects %s as a discoverable factory write",
+	(verb) => {
+		const endpoint = `projects/${verb}Factory`;
+		expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint]).toBe(`${verb}_factory`);
+		expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint]).toBe("write");
+	},
+);
