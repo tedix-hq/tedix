@@ -119,6 +119,31 @@ export function codeModeDescribeParams(
 	};
 }
 
+/**
+ * Fetch one known write primitive's complete input contract in a single Code
+ * Mode call, skipping the catalog search. A bare tool name (no namespace) is
+ * resolved to the first callable ending in `.<name>`, because the namespace
+ * that projects it differs per aggregate (`kernel.` vs `home.`).
+ */
+export function codeModeCanonicalDescribeParams(
+	name: string,
+): Record<string, unknown> {
+	if (!CALLABLE_RE.test(name) && !/^[A-Za-z_]\w*$/.test(name))
+		throw new Error(`Invalid Code Mode tool name: ${name}`);
+	const resolve = name.includes(".")
+		? JSON.stringify(name)
+		: `(() => { const hits = Array.isArray(page) ? page : page.results; return hits.find((hit) => typeof hit.callable === "string" && hit.callable.endsWith(${JSON.stringify(`.${name}`)}))?.callable ?? null; })()`;
+	const search = name.includes(".")
+		? ""
+		: `const page = await discover.search(${JSON.stringify({ query: name, limit: 5 })}); `;
+	return {
+		name: CODE_MODE_TOOL_NAME,
+		arguments: {
+			code: `async () => { ${search}const callable = ${resolve}; if (!callable) return []; const hit = await discover.describe({ callable }); return hit ? [{ callable: hit.callable, description: hit.description, annotations: hit.annotations, parameters: hit.parameters }] : []; }`,
+		},
+	};
+}
+
 /** Parse the outer `code` tool result into the same shape as raw tools/list. */
 export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 	let parsed: unknown;
