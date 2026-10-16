@@ -35,6 +35,11 @@ const mocks = vi.hoisted(() => ({
 	selectJevAction: vi.fn(),
 	getOsOutput: vi.fn(async () => undefined),
 	getOsOutputRevision: vi.fn(async () => undefined),
+	readOpenWorkRequests: vi.fn(async () => [] as unknown[]),
+}));
+vi.mock("./open-work-requests", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./open-work-requests")>()),
+	readOpenWorkRequests: mocks.readOpenWorkRequests,
 }));
 vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
 	getOsOutput: mocks.getOsOutput,
@@ -873,6 +878,97 @@ describe("planKernelWriteProposal — editing a selected Tedix output", () => {
 		expect(
 			(search?.params.arguments as { code?: string } | undefined)?.code,
 		).toContain('"query":"os output document edit"');
+	});
+});
+
+describe("planKernelWriteProposal — answering a Work request by title", () => {
+	it("gives the argument pass the operator's open requests with ids and versions", async () => {
+		mocks.readOpenWorkRequests.mockResolvedValueOnce([
+			{
+				requestId: "req-1",
+				version: 2,
+				kind: "handoff",
+				subject: "Onboarding proposal: Q3 plan",
+				workItemTitle: "Q3 plan",
+			},
+		]);
+		const service = mcpService((body) =>
+			body.method === "tools/list"
+				? {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: { tools: [{ name: "code" }] },
+						},
+					}
+				: {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								structuredContent: {
+									executionId: "e",
+									result: JSON.stringify([
+										{
+											callable: "work.respond_work_interaction",
+											description: "Respond to a Work interaction",
+											annotations: {
+												readOnlyHint: false,
+												destructiveHint: false,
+											},
+											parameters: {
+												type: "object",
+												properties: {
+													requestId: { type: "string" },
+													expectedRequestVersion: { type: "integer" },
+													responseKind: { type: "string" },
+												},
+												required: [
+													"requestId",
+													"expectedRequestVersion",
+													"responseKind",
+												],
+											},
+										},
+									]),
+								},
+							},
+						},
+					},
+		);
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
+			slug === "tedix-unified" ? { slug } : null,
+		);
+		const model = objectModel({
+			toolName: "work.respond_work_interaction",
+			args: {
+				requestId: "req-1",
+				expectedRequestVersion: 2,
+				responseKind: "handoff_accepted",
+			},
+			reasoning: "accept",
+		});
+		const generate = vi.spyOn(model, "doGenerate");
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-1",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "tedix-unified",
+					capability: null,
+					connectionStatus: "connected",
+				},
+			}),
+			actingUserId: "user-123",
+			content: "Accept the onboarding proposal 'Q3 plan'",
+			model,
+		});
+		expect(proposal?.toolName).toBe("work.respond_work_interaction");
+		expect(mocks.selectJevAction).not.toHaveBeenCalled();
+		const prompt = JSON.stringify(generate.mock.calls[0]?.[0].prompt);
+		expect(prompt).toContain("<open_work_requests>");
+		expect(prompt).toContain("requestId=req-1 version=2");
 	});
 });
 

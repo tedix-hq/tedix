@@ -48,6 +48,12 @@ import { listRationaleRecords } from "@tedix/db/queries/rationale-records";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { listWorkItems } from "@tedix/db/queries/work-items/crud";
 import { selectKernelConversationIndexPage } from "./conversation-index";
+import {
+	mentionsWorkRequests,
+	type OpenWorkRequest,
+	readOpenWorkRequests,
+	renderOpenWorkRequests,
+} from "./open-work-requests";
 import type { App } from "@tedix/db/schema/apps";
 import type {
 	SessionHarnessBackend,
@@ -192,6 +198,12 @@ export interface KernelContext {
 		title: string | null;
 		lastMessageAt: string | null;
 	}[];
+	/**
+	 * Open Work requests (handoffs, questions, proposals) addressed to the
+	 * operator, with the requestId and version a response needs. Read only when
+	 * the message mentions them.
+	 */
+	openWorkRequests?: OpenWorkRequest[];
 	facts: { text: string; confidence?: number }[];
 	rationale: { action: string; category?: string; outcome?: string }[];
 	/**
@@ -499,7 +511,8 @@ type ContextReadSource =
 	| "conversationCapabilities"
 	| "conversationArtifactPins"
 	| "workspaceResources"
-	| "recentConversations";
+	| "recentConversations"
+	| "openWorkRequests";
 
 /**
  * Run a read defensively: any failure degrades to the provided fallback
@@ -1369,6 +1382,15 @@ export async function assembleHomeContext(
 			)
 		: Promise.resolve(null);
 
+	const openWorkRequestsPromise =
+		descopeUserId && mentionsWorkRequests(operatorMessage)
+			? safeRead(
+					() => readOpenWorkRequests(db, { organizationId, descopeUserId }),
+					[],
+					"openWorkRequests",
+				)
+			: Promise.resolve(null);
+
 	const readsStartedAtMs = Date.now();
 	const [
 		visibleTediRows,
@@ -1505,6 +1527,7 @@ export async function assembleHomeContext(
 				),
 	]);
 	const recentConversationRows = await recentConversationsPromise;
+	const openWorkRequests = await openWorkRequestsPromise;
 	const contextReadsMs = Date.now() - readsStartedAtMs;
 	if (workspace) {
 		workspace.resources = workspaceResourceRows
@@ -1818,6 +1841,7 @@ export async function assembleHomeContext(
 					})),
 				}
 			: {}),
+		...(openWorkRequests ? { openWorkRequests } : {}),
 		facts,
 		rationale: rankedRationale,
 		speaker,
@@ -2307,6 +2331,9 @@ export function renderHomeTurnContext(ctx: KernelContext): string {
 				: "HOME CONVERSATIONS: none",
 		);
 	}
+
+	if (ctx.openWorkRequests)
+		sections.push(renderOpenWorkRequests(ctx.openWorkRequests));
 
 	// Top facts
 	if (ctx.facts.length > 0) {
