@@ -467,6 +467,8 @@ export function renameThisConversationArgs(
  * The one canonical write primitive for a routed capability, when there is
  * one. A name without a namespace matches any callable ending in `.<name>`.
  */
+const CREATE_OUTPUT_TOOL = "os.create_os_output";
+
 export function canonicalWriteToolName(
 	capability: string | null | undefined,
 	content = "",
@@ -480,7 +482,7 @@ export function canonicalWriteToolName(
 				OUTPUT_KIND_RE.test(content))) &&
 		!EXTERNAL_OFFICE_PROVIDER_RE.test(content)
 	) {
-		return "os.create_os_output";
+		return CREATE_OUTPUT_TOOL;
 	}
 	if (!EXTERNAL_OFFICE_PROVIDER_RE.test(content)) {
 		if (capability === "documents.patch") return "os.patch_os_document";
@@ -957,6 +959,8 @@ async function planWriteCall(args: {
 	span?: Record<string, string>;
 	onFailure?: (reason: string) => void;
 	selectionOnly?: boolean;
+	/** A document body already drafting for this exact tool. */
+	documentDraft?: ReturnType<typeof planDocumentCreate>;
 }): Promise<{
 	toolName: string;
 	args: Record<string, unknown>;
@@ -964,14 +968,15 @@ async function planWriteCall(args: {
 } | null> {
 	const abortSignal = flatAbortSignal(args.timeoutMs);
 	if (!args.selectionOnly && args.tools.length === 1) {
-		const draft = await planDocumentCreate({
-			content: args.content,
-			toolName: args.tools[0]!.name,
-			workspaceId: args.workspaceContext?.workspaceId,
-			model: args.model,
-			abortSignal,
-			span: args.span,
-		});
+		const draft = await (args.documentDraft ??
+			planDocumentCreate({
+				content: args.content,
+				toolName: args.tools[0]!.name,
+				workspaceId: args.workspaceContext?.workspaceId,
+				model: args.model,
+				abortSignal,
+				span: args.span,
+			}));
 		if (draft !== undefined) return draft;
 	}
 	// The tool schema nests under `args`, but its `#/$defs/...` refs point at
@@ -1164,7 +1169,8 @@ function validateProposedCall(
 export type KernelWriteProposalStage =
 	| "writeCatalogReady"
 	| "writeToolSelected"
-	| "writeSchemaReady";
+	| "writeSchemaReady"
+	| "writeArgumentsReady";
 
 /** Why a write proposal was declined (persisted on the run for diagnosis). */
 export interface KernelWriteProposalDeclined {
@@ -1305,6 +1311,26 @@ export async function planKernelWriteProposal(args: {
 					),
 				).catch(() => [] as McpTool[])
 			: null;
+		// An explicit document create fixes the tool, title and destination; only
+		// the body needs the model, and it does not read the schema. Draft it while
+		// the describe call runs (up to ~10 s on a cold isolate). The draft is
+		// still validated against the described schema before anything is proposed.
+		const documentDraft =
+			canonical === CREATE_OUTPUT_TOOL
+				? planDocumentCreate({
+						content,
+						toolName: CREATE_OUTPUT_TOOL,
+						workspaceId: args.workspaceContext?.workspaceId,
+						model,
+						abortSignal: flatAbortSignal(timeoutMs),
+						span: kernelSpanContext({
+							organizationId,
+							source: "write_proposal",
+						}),
+					})
+				: undefined;
+		// Unused when the describe falls through to another tool.
+		documentDraft?.catch(() => {});
 		const canonicalTool =
 			canonical && canonicalPromise
 				? (await canonicalPromise).find(
@@ -1566,6 +1592,7 @@ export async function planKernelWriteProposal(args: {
 						onFailure: (reason) => {
 							argumentFailure = reason;
 						},
+						...(exactTool.name === CREATE_OUTPUT_TOOL ? { documentDraft } : {}),
 					});
 		if (!planned)
 			return decline({
@@ -1607,6 +1634,7 @@ export async function planKernelWriteProposal(args: {
 				detail: `${provider.slug} planned=${planned.toolName}`,
 			});
 		}
+		args.onStage?.("writeArgumentsReady");
 		if (canonical === "projects.create_factory") {
 			const preview = await mcpCall(
 				env,

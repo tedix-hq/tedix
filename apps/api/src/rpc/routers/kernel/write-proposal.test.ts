@@ -734,6 +734,7 @@ describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
 			"writeCatalogReady",
 			"writeToolSelected",
 			"writeSchemaReady",
+			"writeArgumentsReady",
 		]);
 	});
 
@@ -2560,5 +2561,81 @@ describe("factory manual dispatch planning", () => {
 					),
 				),
 		).toBe(true);
+	});
+});
+
+describe("explicit document create", () => {
+	it("drafts the body while the canonical describe is in flight", async () => {
+		const order: string[] = [];
+		const service = mcpService(() => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: {
+						executionId: "exec-describe",
+						result: JSON.stringify([
+							{
+								callable: "os.create_os_output",
+								description: "Create a Tedix output",
+								annotations: { readOnlyHint: false, destructiveHint: false },
+								parameters: z.toJSONSchema(
+									z.object({
+										kind: z.literal("document"),
+										title: z.string(),
+										content: OsOutputContentSchema,
+									}),
+								),
+							},
+						]),
+					},
+				},
+			},
+		}));
+		const slowDescribe = {
+			...service,
+			fetch: async (input: string, init?: RequestInit) => {
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				const response = await service.fetch(input, init);
+				order.push("describe");
+				return response;
+			},
+		};
+		const blocks = [{ type: "paragraph", text: "Welcome to the shop." }];
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				order.push("draft");
+				return {
+					finishReason: "stop",
+					usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+					warnings: [],
+					content: [{ type: "text", text: JSON.stringify({ blocks }) }],
+				};
+			},
+		});
+		const result = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(slowDescribe),
+			organizationId: "org-1",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "globex",
+					capability: "documents.create",
+					connectionStatus: "connected",
+				},
+			}),
+			actingUserId: "user-123",
+			content: 'Create a document titled "Welcome" welcoming visitors.',
+			model,
+		});
+		expect(result?.toolName).toBe("os.create_os_output");
+		expect(result?.args).toEqual({
+			kind: "document",
+			title: "Welcome",
+			content: { kind: "document", blocks },
+		});
+		expect(order).toEqual(["draft", "describe"]);
+		expect(service.calls).toHaveLength(1);
+		expect(model.doGenerateCalls).toHaveLength(1);
 	});
 });

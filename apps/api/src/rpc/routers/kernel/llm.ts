@@ -6,6 +6,7 @@ import {
  * retain their provider; incomplete configuration fails closed. */
 
 import { createAzure } from "@ai-sdk/azure";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { isLocalDemoProject, isLoopbackUrl } from "@tedix/auth/local-demo";
 import {
 	buildModelRef,
@@ -63,6 +64,28 @@ const KERNEL_AVAILABLE_PROVIDERS: ReadonlySet<ModelProviderId> = new Set([
  * scripts/eval/chat-latency.mjs.
  */
 export const KERNEL_ROUTE_MODEL_REF_DEFAULT = "azure-openai/gpt-6-luna";
+
+/**
+ * Azure routes requests that share a `prompt_cache_key` to the same cache, so
+ * an org's stable route prefix (system prompt, app and workflow inventory) is
+ * read instead of re-written every turn. The key is an opaque digest of the
+ * organization and call purpose: a cache hit can never cross tenants.
+ */
+export async function kernelPromptCacheKey(identity: {
+	organizationId?: string;
+	source?: string;
+}): Promise<string | null> {
+	if (!identity.organizationId) return null;
+	// Azure caps prompt_cache_key at 64 characters; a sha256 hex digest fits.
+	return sha256Hex(
+		JSON.stringify([
+			KERNEL_PROMPT_CACHE_VERSION,
+			identity.organizationId,
+			identity.source ?? "kernel",
+		]),
+	);
+}
+const KERNEL_PROMPT_CACHE_VERSION = 1;
 
 export interface KernelEnv {
 	DB?: D1Database;
@@ -481,6 +504,10 @@ export function kernelModel(
 		}
 	}
 
+	const cacheIdentity = {
+		organizationId: gatewayContext.organizationId,
+		source: gatewayContext.source,
+	};
 	const azure = createAzure({
 		// createAzure requires a non-empty SDK credential even though gatewayFetch
 		// removes it on the BYOK path before the request leaves the Worker.
@@ -510,14 +537,29 @@ export function kernelModel(
 				model: azure.responses(deployment),
 				middleware: [
 					{
-						transformParams: async ({ params }) => ({
-							...params,
-							tools: params.tools?.map((entry) =>
-								entry.type === "function" && entry.strict == null
-									? { ...entry, strict: false }
-									: entry,
-							),
-						}),
+						transformParams: async ({ params }) => {
+							const promptCacheKey = await kernelPromptCacheKey(cacheIdentity);
+							return {
+								...params,
+								tools: params.tools?.map((entry) =>
+									entry.type === "function" && entry.strict == null
+										? { ...entry, strict: false }
+										: entry,
+								),
+								...(promptCacheKey &&
+								!params.providerOptions?.azure?.promptCacheKey
+									? {
+											providerOptions: {
+												...params.providerOptions,
+												azure: {
+													...params.providerOptions?.azure,
+													promptCacheKey,
+												},
+											},
+										}
+									: {}),
+							};
+						},
 					},
 					defaultSettingsMiddleware({
 						settings: {

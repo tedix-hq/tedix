@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { kernelGatewayMetadata } from "./gateway-attribution";
-import { azureGatewayByokHeaders, type KernelEnv, kernelModel } from "./llm";
+import {
+	azureGatewayByokHeaders,
+	type KernelEnv,
+	kernelModel,
+	kernelPromptCacheKey,
+} from "./llm";
 
 const AZURE_ENV = {
 	AZURE_OPENAI_RESOURCE: "tedix-resource",
@@ -148,5 +153,36 @@ describe("kernelModel provider selection", () => {
 
 	it("still returns null when Azure is unconfigured and nothing is forced", () => {
 		expect(kernelModel({} as unknown as KernelEnv)).toBeNull();
+	});
+});
+
+describe("kernelPromptCacheKey", () => {
+	it("is an opaque key scoped to the organization and call purpose", async () => {
+		const key = await kernelPromptCacheKey({
+			organizationId: "org-1",
+			source: "kernel:route-plan",
+		});
+		expect(key).toMatch(/^[0-9a-f]{64}$/);
+		expect(key).toBe(
+			await kernelPromptCacheKey({
+				organizationId: "org-1",
+				source: "kernel:route-plan",
+			}),
+		);
+		expect(key).not.toBe(
+			await kernelPromptCacheKey({
+				organizationId: "org-2",
+				source: "kernel:route-plan",
+			}),
+		);
+		expect(key).not.toBe(
+			await kernelPromptCacheKey({
+				organizationId: "org-1",
+				source: "kernel:write-proposal",
+			}),
+		);
+		expect(await kernelPromptCacheKey({ source: "kernel:route-plan" })).toBe(
+			null,
+		);
 	});
 });
