@@ -192,7 +192,7 @@ export function revisionConflict(
 	{ expectedRevision: number; currentRevision: number | null }
 > {
 	return new ORPCError("CONFLICT", {
-		message: `${subject} revision compare-and-swap lost against a concurrent revision write`,
+		message: `${subject === "Gadget" ? "App" : subject} revision compare-and-swap lost against a concurrent revision write`,
 		data: { expectedRevision, currentRevision },
 	});
 }
@@ -427,13 +427,13 @@ export async function requireGadget(
 		gadgetId,
 	});
 	if (!gadget || gadget.workspaceId !== workspaceId) {
-		throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
+		throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 	}
 	await assertOsWorkspaceChildVisible(
 		context,
 		organizationId,
 		gadget.workspaceId,
-		"OS gadget not found",
+		"OS app not found",
 	);
 	return gadget;
 }

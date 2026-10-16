@@ -139,8 +139,8 @@ The underlying mechanism is the lane skill's `SKILL.md`:
 | Where does this factory live?         | Workspace ID and lifecycle                                                            | Active means the Workspace exists, not that a workflow is running.               |
 | Which external sources were selected? | Workspace resource references                                                         | A selected resource is not proof of a usable connection or granted access.       |
 | Which Work belongs here?              | Structured Workspace-project links, then that project's Work Items                    | A project mentioned in prose is a candidate to resolve, not an established link. |
-| What should an executor deliver?      | Accepted Work Item and its acceptance contract                                        | A Workspace or Gadget does not grant Work execution authority.                   |
-| What actually executed?               | Work Attempt, Gadget execution or skill run receipt                                   | Queued, expired, failed and succeeded are distinct outcomes.                     |
+| What should an executor deliver?      | Accepted Work Item and its acceptance contract                                        | A Workspace or app does not grant Work execution authority.                      |
+| What actually executed?               | Work Attempt, App execution or skill run receipt                                      | Queued, expired, failed and succeeded are distinct outcomes.                     |
 | What durable result exists?           | Output ID, current revision and source-access result                                  | Metadata, a preview and a complete readable body are different evidence.         |
 | What was published?                   | The publication receipt required by the accepted contract, checked at its destination | A successful run or an updated Output alone is not publication proof.            |
 
@@ -158,8 +158,8 @@ between gateways; use the returned prefix, not a copied example.
 | ----------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Find and inspect              | `list_os_workspaces`, `get_os_workspace`, `work_list_projects`, `list_os_workspace_resources`     | Reads establish inventory and links, not permission to change them.                                                                   |
 | Preview setup                 | Blueprint listing and `preflight_os_blueprint`                                                    | Preflight reports dependencies and access; it neither provisions nor grants authority.                                                |
-| Configure                     | Workspace resources, project links, Blueprint instantiation and Gadget configuration              | Use the exact selected resources and the requested write scope. Configuration and automation activation remain separate.              |
-| Understand a workflow's tools | Gadget current revision and executable skill manifest, then native catalog schemas                | Declared tool IDs, installed tools and granted provider access are separate facts. Do not infer a tool bundle from a workflow's name. |
+| Configure                     | Workspace resources, project links, Blueprint instantiation and App configuration                 | Use the exact selected resources and the requested write scope. Configuration and automation activation remain separate.              |
+| Understand a workflow's tools | App current revision and executable skill manifest, then native catalog schemas                   | Declared tool IDs, installed tools and granted provider access are separate facts. Do not infer a tool bundle from a workflow's name. |
 | Execute                       | Work readiness and Attempt admission, `run_os_gadget`, or the existing skill execution path       | Start only the path the request authorizes; preserve its policy, budget and receipt.                                                  |
 | Read results                  | `list_os_gadget_executions`, `list_work_item_attempts`, `list_os_output_library`, `get_os_output` | Read the exact run and revision; do not replay a mutation to check its status.                                                        |
 | Publish                       | The owning product's publication procedure and destination reader                                 | An Output export or edit does not automatically publish a site or deploy code.                                                        |
@@ -180,7 +180,7 @@ whole organization.
    read one bounded Workspace page and resolve the intended match. Report an
    ambiguous or missing match before choosing a different factory.
 2. Read its structured project links and selected resources, up to five links
-   and ten resources. Also list up to five Gadgets and five Output library
+   and ten resources. Also list up to five apps and five Output library
    entries. Keep each reader's access errors and truncation flags. An empty
    resource list means no references were returned, not “credentials missing.”
 3. Choose the relevant linked project and read one bounded Work page. Inspect
@@ -188,7 +188,7 @@ whole organization.
    If there is no structured link, report that gap. A description's project
    ID may support a separately labelled candidate read, but does not silently
    establish ownership or justify attaching it.
-4. Inspect the latest executions of up to two relevant Gadgets. For a recurring
+4. Inspect the latest executions of up to two relevant apps. For a recurring
    loop, follow its declared skill and schedule references within the remaining
    read budget. Check the current skill lifecycle and dispatch schedule;
    enabled text in an archived revision is not activation authority. A missing
@@ -235,7 +235,7 @@ within the same 20-read first-pass budget; report what needs another pass.
    workflow remains retired even if its Blueprint is still published.
 2. Discover `list_os_blueprints` and `get_os_blueprint` in the selected
    namespace. Inspect one relevant published Blueprint's current revision,
-   declared Gadgets and requirements. If no suitable match is observed, report
+   declared apps and requirements. If no suitable match is observed, report
    that limitation and propose the missing definition; do not instantiate an
    unrelated template. A bounded page is not the entire catalog.
 3. Match each declared resource slot to an existing selected resource. Keep
@@ -279,7 +279,7 @@ The proposal should be small enough to accept as one Work outcome:
 After acceptance and admission for the requested changes, discover the exact
 instantiation callable. Instantiation rechecks dependencies and requires a
 published Blueprint; it records the revision ID and number, preflight
-envelope, resource bindings and Gadget revisions on the new Workspace.
+envelope, resource bindings and app revisions on the new Workspace.
 It copies no credentials. Unresolved connections may leave the configured
 Workspace needing consent even when instantiation succeeds. Compare the
 recorded revision with the proposal if the Blueprint changed meanwhile.

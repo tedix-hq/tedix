@@ -237,8 +237,8 @@ export function draftToDefinition(
 /** The contract requires a non-empty name and entry on every declared gadget. */
 export function draftValidationError(draft: DefinitionDraft): string | null {
 	for (const [index, gadget] of draft.gadgets.entries()) {
-		if (!gadget.name.trim()) return `Gadget ${index + 1} needs a name`;
-		if (!gadget.entry.trim()) return `Gadget ${index + 1} needs an entry point`;
+		if (!gadget.name.trim()) return `App ${index + 1} needs a name`;
+		if (!gadget.entry.trim()) return `App ${index + 1} needs an entry point`;
 	}
 	return null;
 }
@@ -313,7 +313,7 @@ export function BlueprintsEmpty() {
 				</EmptyMedia>
 				<EmptyTitle>No blueprints yet</EmptyTitle>
 				<EmptyDescription>
-					Blueprints are versioned workspace templates: declare gadgets, skills,
+					Blueprints are versioned workspace templates: declare apps, skills,
 					connections, and policy requirements once, then instantiate whole
 					workspaces from them.
 				</EmptyDescription>
@@ -542,7 +542,7 @@ function DefinitionEditor({
 			<EditorLabel>Definition</EditorLabel>
 			{draft.gadgets.length === 0 && (
 				<Text role="label" tone="secondary" className="m-0">
-					No gadgets declared yet.
+					No apps declared yet.
 				</Text>
 			)}
 			<form.Field name="gadgets" mode="array">
@@ -553,12 +553,12 @@ function DefinitionEditor({
 								<Surface as="li" key={gadget.id} className="grid gap-2 p-3">
 									<div className="flex items-center justify-between gap-2">
 										<Text as="span" role="label" tone="secondary">
-											Gadget {index + 1}
+											App {index + 1}
 										</Text>
 										<Button
 											size="icon-sm"
 											variant="ghost"
-											aria-label={`Remove gadget ${index + 1}`}
+											aria-label={`Remove app ${index + 1}`}
 											onClick={() => gadgetsField.removeValue(index)}
 										>
 											<Trash size={14} />
@@ -577,7 +577,7 @@ function DefinitionEditor({
 												<FormInput
 													field={field}
 													{...meta}
-													aria-label={`Gadget ${index + 1} ${key}`}
+													aria-label={`App ${index + 1} ${key}`}
 													placeholder={
 														key === "entry" ? "gadgets/report.tsx" : undefined
 													}
@@ -595,7 +595,7 @@ function DefinitionEditor({
 											<FormTextarea
 												field={field}
 												{...meta}
-												aria-label={`Gadget ${index + 1} notes`}
+												aria-label={`App ${index + 1} notes`}
 											/>
 										)}
 									</FormField>
@@ -612,7 +612,7 @@ function DefinitionEditor({
 				onClick={() => form.pushFieldValue("gadgets", newGadgetDraft())}
 			>
 				<Plus size={14} />
-				Add gadget
+				Add app
 			</Button>
 			<div className="grid gap-1">
 				<EditorLabel>Pinned requirements</EditorLabel>
@@ -1011,7 +1011,7 @@ function InstantiateForm({
 							{success.workspaceName}
 						</strong>{" "}
 						({success.workspaceId}) with {formatCount(success.gadgetCount)}{" "}
-						{success.gadgetCount === 1 ? "gadget" : "gadgets"}.
+						{success.gadgetCount === 1 ? "app" : "apps"}.
 						{successNote ? ` ${successNote}` : ""}
 					</Text>
 					<Link href={`/workspace/${success.workspaceId}`} className="w-fit">
@@ -1035,7 +1035,7 @@ function DefinitionSummary({
 	return (
 		<Text role="label" tone="secondary" className="m-0">
 			{formatCount(definition.gadgets.length)}{" "}
-			{definition.gadgets.length === 1 ? "gadget" : "gadgets"} ·{" "}
+			{definition.gadgets.length === 1 ? "app" : "apps"} ·{" "}
 			{requirementsSummaryText(definition.requirements)}
 		</Text>
 	);
@@ -1344,7 +1344,7 @@ export function GalleryCard({
 						<span>by {item.organizationName}</span>
 						<span>
 							· {formatCount(item.gadgetCount)}{" "}
-							{item.gadgetCount === 1 ? "gadget" : "gadgets"}
+							{item.gadgetCount === 1 ? "app" : "apps"}
 						</span>
 						{item.publishedAt && (
 							<span>

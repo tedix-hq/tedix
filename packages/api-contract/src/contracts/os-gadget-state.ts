@@ -31,7 +31,7 @@ export const osGadgetStateContract = oc
 			.route({
 				method: "POST",
 				path: "/get",
-				summary: "Read one Gadget state record",
+				summary: "Read one app state record",
 			})
 			.input(read.extend({ key: OsGadgetStateKeySchema }).strict())
 			.output(z.object({ record: OsGadgetStateRecordSchema.nullable() })),
@@ -39,7 +39,7 @@ export const osGadgetStateContract = oc
 			.route({
 				method: "POST",
 				path: "/list",
-				summary: "List Gadget state keys with literal prefix and cursor",
+				summary: "List App state keys with literal prefix and cursor",
 			})
 			.input(
 				read
@@ -60,7 +60,7 @@ export const osGadgetStateContract = oc
 			.route({
 				method: "POST",
 				path: "/put",
-				summary: "Compare and set durable Gadget state",
+				summary: "Compare and set durable app state",
 			})
 			.input(mutation.extend({ value: OsGadgetStateValueSchema }).strict())
 			.output(OsGadgetStateMutationResultSchema),
@@ -68,7 +68,7 @@ export const osGadgetStateContract = oc
 			.route({
 				method: "POST",
 				path: "/delete",
-				summary: "Compare and tombstone durable Gadget state",
+				summary: "Compare and tombstone durable app state",
 			})
 			.input(mutation.strict())
 			.output(OsGadgetStateMutationResultSchema),

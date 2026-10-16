@@ -42,7 +42,7 @@ export const OS_NAVIGATION = [
 		id: "workspaces",
 		label: "Workspaces",
 		path: "/workspaces",
-		description: "Workspaces, Gadgets, layouts, and previews",
+		description: "Workspaces, Apps, layouts, and previews",
 	},
 	{
 		id: "blueprints",

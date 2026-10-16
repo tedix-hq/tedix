@@ -597,7 +597,7 @@ export function CanvasDocPanel({
 					)}
 
 					{doc.type === "output" && doc.linkedGadgetId && (
-						<Badge variant="info">Gadget editor</Badge>
+						<Badge variant="info">App editor</Badge>
 					)}
 				</OutputWorkshopIdentity>
 				<OutputWorkshopStatus className="canvas-document-status">
@@ -755,7 +755,7 @@ export function CanvasDocPanel({
 				>
 					{gadgetWidgetTarget && gadgetViewOverride === undefined && (
 						<SegmentedControl
-							ariaLabel="Gadget view"
+							ariaLabel="App view"
 							compact
 							onValueChange={setGadgetView}
 							options={GADGET_VIEW_OPTIONS}
@@ -787,7 +787,7 @@ export function CanvasDocPanel({
 												layout="fill"
 												appSlug={gadgetWidgetTarget.appSlug}
 												resourceUri={gadgetWidgetTarget.resourceUri}
-												title={title ?? "Canvas Gadget"}
+												title={title ?? "Canvas App"}
 												onFollowUp={onWidgetFollowUp}
 												toolInput={previewExecution?.input ?? undefined}
 												toolResult={
@@ -839,7 +839,7 @@ export function CanvasDocPanel({
 									tone="secondary"
 									className="px-3 leading-relaxed"
 								>
-									Gadget configuration. App code is managed by the referenced
+									App configuration. App code is managed by the referenced
 									widget provider.
 								</Text>
 							</aside>

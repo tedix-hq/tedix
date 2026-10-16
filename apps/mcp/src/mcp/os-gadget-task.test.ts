@@ -268,7 +268,7 @@ describe("run_os_gadget task linkage (rpc handler)", () => {
 				json: {
 					execution: execution({
 						status: "denied",
-						policyDecision: { allowed: false, reasons: ["archived gadget"] },
+						policyDecision: { allowed: false, reasons: ["archived app"] },
 					}),
 				},
 			}),

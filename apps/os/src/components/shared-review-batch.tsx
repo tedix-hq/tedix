@@ -286,7 +286,7 @@ export function WorkspaceGadgetReview({
 				onValueChange={setView}
 				options={[
 					{ value: "review", label: "Review" },
-					{ value: "gadget", label: "Full gadget" },
+					{ value: "gadget", label: "Full app" },
 				]}
 			/>
 			{view === "review" ? (

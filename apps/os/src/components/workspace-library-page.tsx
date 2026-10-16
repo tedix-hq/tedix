@@ -318,7 +318,7 @@ function ArchivedWorkspaces() {
 					<EmptyTitle>No archived workspaces</EmptyTitle>
 					<EmptyDescription>
 						Archived workspaces appear here, and you can restore them with their
-						outputs and gadgets.
+						outputs and apps.
 					</EmptyDescription>
 				</EmptyHeader>
 			</Empty>

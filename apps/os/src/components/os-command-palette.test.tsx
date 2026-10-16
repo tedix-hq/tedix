@@ -5,7 +5,7 @@ import { matchesCommand } from "./os-command-palette";
 const command = {
 	id: "canvas",
 	title: "Canvas",
-	description: "Workspaces, Gadgets, layouts, and previews",
+	description: "Workspaces, Apps, layouts, and previews",
 	icon: SquaresFour,
 	run: () => undefined,
 };
@@ -13,7 +13,7 @@ const command = {
 describe("OS command palette matching", () => {
 	it("matches title and description tokens without case sensitivity", () => {
 		expect(matchesCommand(command, "canvas")).toBe(true);
-		expect(matchesCommand(command, "GADGET previews")).toBe(true);
+		expect(matchesCommand(command, "APP previews")).toBe(true);
 	});
 
 	it("requires every search token", () => {

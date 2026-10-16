@@ -407,14 +407,14 @@ describe("draftValidationError", () => {
 	it("requires a name and entry on every gadget, by position", () => {
 		const empty = { ...newGadgetDraft() };
 		expect(draftValidationError({ gadgets: [empty], requirements: null })).toBe(
-			"Gadget 1 needs a name",
+			"App 1 needs a name",
 		);
 		expect(
 			draftValidationError({
 				gadgets: [{ ...empty, name: "x" }],
 				requirements: null,
 			}),
-		).toBe("Gadget 1 needs an entry point");
+		).toBe("App 1 needs an entry point");
 		expect(
 			draftValidationError({ gadgets: [], requirements: null }),
 		).toBeNull();
@@ -515,7 +515,7 @@ describe("GalleryCard", () => {
 		expect(html).not.toContain("rounded-xl");
 		expect(html).toContain("Sales Pod");
 		expect(html).toContain("by Second Org");
-		expect(html).toContain("2 gadgets");
+		expect(html).toContain("2 apps");
 		expect(html).toContain("Shared sales pod");
 		expect(html).toContain('dateTime="2026-08-13T09:00:00.000Z"');
 	});
@@ -530,7 +530,7 @@ describe("GalleryCard", () => {
 				})}
 			/>,
 		);
-		expect(html).toContain("1 gadget");
+		expect(html).toContain("1 app");
 		expect(html).not.toContain("published");
 	});
 });
@@ -826,7 +826,7 @@ describe("definition editing", () => {
 		click(findButton(container, "Reporting workspace"));
 		await flush();
 
-		setFieldValue(fieldByLabel(container, "Gadget 1 name"), "Report v2");
+		setFieldValue(fieldByLabel(container, "App 1 name"), "Report v2");
 		click(findButton(container, "Save definition"));
 		await flush();
 
@@ -968,7 +968,7 @@ describe("instantiate", () => {
 		expect(container.textContent).toContain("Created workspace");
 		expect(container.textContent).toContain("Ops room");
 		expect(container.textContent).toContain(WORKSPACE_ID);
-		expect(container.textContent).toContain("2 gadgets");
+		expect(container.textContent).toContain("2 apps");
 		expect(
 			container.querySelector(`a[href="/workspace/${WORKSPACE_ID}"]`)
 				?.textContent,
@@ -1289,7 +1289,7 @@ describe("explore tab", () => {
 		);
 		expect(container.textContent).toContain("Sales Pod");
 		expect(container.textContent).toContain("by Second Org");
-		expect(container.textContent).toContain("2 gadgets");
+		expect(container.textContent).toContain("2 apps");
 		expect(container.textContent).toContain("Published blueprints");
 		expect(container.textContent).not.toContain("Featured");
 		const gallerySearch = fieldByLabel(container, "Search blueprint gallery");

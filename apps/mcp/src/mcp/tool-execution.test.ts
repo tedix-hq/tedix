@@ -190,7 +190,7 @@ function makeOsGadgetRunTool(): AppTool {
 	return {
 		...makeTool(),
 		toolId: "run_os_gadget",
-		title: "Run OS Gadget",
+		title: "Run OS App",
 		config: {
 			transport: "rpc",
 			endpoint: "osWorkspaces/gadgets/run",

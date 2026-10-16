@@ -300,7 +300,7 @@ export const OsGadgetContextEnvelopeSchema = z
 	})
 	.strict()
 	.describe(
-		"Host-assembled, secret-free context passed to one Gadget run; it contains only the current organization/workspace identity and resources explicitly granted by the pinned manifest",
+		"Host-assembled, secret-free context passed to one app run; it contains only the current organization/workspace identity and resources explicitly granted by the pinned manifest",
 	);
 export type OsGadgetContextEnvelope = z.infer<
 	typeof OsGadgetContextEnvelopeSchema
@@ -436,14 +436,14 @@ export const OsGadgetManifestSchema = z
 			.max(25)
 			.optional()
 			.describe(
-				"Named least-authority resource grants; absent on Gadget revisions recorded before resource grants existed",
+				"Named least-authority resource grants; absent on app revisions recorded before resource grants existed",
 			),
 		entry: z
 			.string()
 			.min(1)
 			.max(512)
 			.describe(
-				"Display/authoring hint for the surface that serves the gadget. Execution never loads this: when skillSlug is absent, entry selects the governed skill only if it matches a skill slug shape",
+				"Display/authoring hint for the surface that serves the app. Execution never loads this: when skillSlug is absent, entry selects the governed skill only if it matches a skill slug shape",
 			),
 		skillSlug: z
 			.string()
@@ -451,14 +451,14 @@ export const OsGadgetManifestSchema = z
 			.max(200)
 			.optional()
 			.describe(
-				"Slug of the governed skill this gadget dispatches through skill-runtime; falls back to entry when entry matches a skill slug shape",
+				"Slug of the governed skill this app dispatches through skill-runtime; falls back to entry when entry matches a skill slug shape",
 			),
 		exports: z
 			.array(OsGadgetExportDescriptorSchema)
 			.max(10)
 			.optional()
 			.describe(
-				"Versioned, allowlisted download formats produced by the governed skill run; absent on Gadget revisions with no custom exports",
+				"Versioned, allowlisted download formats produced by the governed skill run; absent on app revisions with no custom exports",
 			),
 		notes: z
 			.string()
@@ -483,7 +483,7 @@ export const OsGadgetManifestSchema = z
 			(value.exports ?? []).length,
 		{
 			path: ["exports"],
-			message: "Gadget export ids must be unique",
+			message: "App export ids must be unique",
 		},
 	);
 
@@ -509,7 +509,7 @@ export const OsGadgetSchema = z.object({
 		.string()
 		.nullable()
 		.describe(
-			"Per-gadget lineage: the exact blueprint revision whose definition declared this gadget; null for hand-created gadgets",
+			"Per-app lineage: the exact blueprint revision whose definition declared this app; null for hand-created apps",
 		),
 	createdByKind: OsCreatedByKindSchema,
 	createdById: z.string(),
@@ -642,7 +642,7 @@ export const OsGadgetExecutionSchema = z.object({
 		.int()
 		.positive()
 		.nullable()
-		.describe("Pinned per-gadget revision number matching revisionId"),
+		.describe("Pinned per-app revision number matching revisionId"),
 	status: OsGadgetExecutionStatusSchema,
 	grantedCapabilities: z
 		.array(z.string())
@@ -1763,7 +1763,7 @@ export const OsBlueprintLayoutPlacementSchema = z
 			.string()
 			.min(1)
 			.max(120)
-			.describe("Name of a gadget the same revision declares"),
+			.describe("Name of an app the same revision declares"),
 		column: z.number().int().min(1).max(12),
 		row: z.number().int().min(1).max(64),
 		width: z.number().int().min(1).max(12).default(1),
@@ -1798,7 +1798,7 @@ export const OsBlueprintOutputRequirementSchema = z
 			.string()
 			.min(1)
 			.max(120)
-			.describe("Name of the declared gadget that produces this output"),
+			.describe("Name of the declared app that produces this output"),
 		kind: OsOutputKindSchema,
 		title: z.string().min(1).max(200),
 	})

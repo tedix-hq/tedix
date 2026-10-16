@@ -316,22 +316,22 @@ export const PERMISSION_METADATA: Record<Permission, PermissionMetadata> = {
 	},
 	"os:read": {
 		label: "View OS",
-		description: "Open Tedix OS and view workspaces, gadgets, and activity.",
+		description: "Open Tedix OS and view workspaces, apps, and activity.",
 		group: "os",
 	},
 	"os:author": {
 		label: "Author in OS",
-		description: "Create and edit OS gadgets and workspaces.",
+		description: "Create and edit OS apps and workspaces.",
 		group: "os",
 	},
 	"os:run": {
 		label: "Run in OS",
-		description: "Execute OS gadgets and workflows.",
+		description: "Execute OS apps and workflows.",
 		group: "os",
 	},
 	"os:publish": {
 		label: "Publish in OS",
-		description: "Publish an OS gadget or workspace for others to use.",
+		description: "Publish an OS app or workspace for others to use.",
 		group: "os",
 	},
 	"os:approve": {

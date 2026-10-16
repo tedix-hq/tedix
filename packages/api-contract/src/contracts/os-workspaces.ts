@@ -137,7 +137,7 @@ export const OsBlueprintGalleryItemSchema = z.object({
 		.number()
 		.int()
 		.nonnegative()
-		.describe("Gadget count declared by the published revision's definition"),
+		.describe("App count declared by the published revision's definition"),
 	organizationName: z
 		.string()
 		.describe("Display name of the organization that published the blueprint"),
@@ -302,7 +302,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/restore",
 					summary: "Restore an archived Tedix OS workspace",
 					description:
-						"Returns an archived workspace to active. Archiving changes only the workspace's own status, so its gadgets, outputs, resources and preferences come back as they were. Names stay reserved while archived, so a restore cannot collide with another workspace. Restoring an active workspace returns it unchanged.",
+						"Returns an archived workspace to active. Archiving changes only the workspace's own status, so its apps, outputs, resources and preferences come back as they were. Names stay reserved while archived, so a restore cannot collide with another workspace. Restoring an active workspace returns it unchanged.",
 				})
 				.input(workspaceIdInput)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
@@ -312,7 +312,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}",
 					summary: "Permanently delete an archived Tedix OS workspace",
 					description:
-						"Requires os:admin, an already-archived workspace, no retained collaboration proposals, and no unrevoked share links. Cascades its Gadgets; outputs and immutable execution/audit evidence deliberately survive by stable id.",
+						"Requires os:admin, an already-archived workspace, no retained collaboration proposals, and no unrevoked share links. Cascades its apps; outputs and immutable execution/audit evidence deliberately survive by stable id.",
 				})
 				.input(workspaceIdInput)
 				.output(z.object({ deleted: z.literal(true) })),
@@ -352,7 +352,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/blueprint-upgrade",
 					summary: "Apply or explicitly stay pinned on a blueprint upgrade",
 					description:
-						"Records the operator's explicit decision about a named candidate revision, backed by the same report previewBlueprintUpgrade returns (it is re-resolved here, so the recorded evidence is never stale). `stay_pinned` changes no pin and no gadget — it writes the decision, which is what separates a reviewed workspace from an unreviewed one. `apply` re-pins the workspace and reconciles its gadgets in ONE D1 batch: gadgets the candidate adds are created at revision 1, gadgets whose manifest changed get an appended revision, gadgets the candidate drops are archived, and the workspace keeps the revision it left as its rollback reference together with the preflight envelope recorded there. Every write in the batch is fenced on the pin the decision was computed against, so a concurrent apply fails CONFLICT with nothing half-written. An apply whose candidate has an unresolvable definitional pin fails UNPROCESSABLE_CONTENT carrying the preflight; staying pinned is always allowed, since a blocked candidate is exactly when an operator chooses to stay.",
+						"Records the operator's explicit decision about a named candidate revision, backed by the same report previewBlueprintUpgrade returns (it is re-resolved here, so the recorded evidence is never stale). `stay_pinned` changes no pin and no app — it writes the decision, which is what separates a reviewed workspace from an unreviewed one. `apply` re-pins the workspace and reconciles its apps in ONE D1 batch: apps the candidate adds are created at revision 1, apps whose manifest changed get an appended revision, apps the candidate drops are archived, and the workspace keeps the revision it left as its rollback reference together with the preflight envelope recorded there. Every write in the batch is fenced on the pin the decision was computed against, so a concurrent apply fails CONFLICT with nothing half-written. An apply whose candidate has an unresolvable definitional pin fails UNPROCESSABLE_CONTENT carrying the preflight; staying pinned is always allowed, since a blocked candidate is exactly when an operator chooses to stay.",
 				})
 				.input(
 					workspaceIdInput.extend({
@@ -638,7 +638,7 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "GET",
 					path: "/workspaces/{workspaceId}/gadgets",
-					summary: "List gadgets in a Tedix OS workspace",
+					summary: "List apps in a Tedix OS workspace",
 				})
 				.input(
 					workspaceIdInput.extend({
@@ -659,9 +659,9 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "POST",
 					path: "/workspaces/{workspaceId}/gadgets",
-					summary: "Create a Tedix OS gadget",
+					summary: "Create a Tedix OS app",
 					description:
-						"Creates the gadget record only; the first `gadgets.revise` call records revision 1 and sets currentRevisionId.",
+						"Creates the app record only; the first `gadgets.revise` call records revision 1 and sets currentRevisionId.",
 				})
 				.input(
 					workspaceIdInput.extend({
@@ -674,7 +674,7 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "GET",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}",
-					summary: "Get a Tedix OS gadget with its current revision",
+					summary: "Get a Tedix OS app with its current revision",
 				})
 				.input(gadgetIdInput)
 				.output(
@@ -690,7 +690,7 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "POST",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/revisions",
-					summary: "Record a new Tedix OS gadget revision",
+					summary: "Record a new Tedix OS app revision",
 					description:
 						"Appends the next revision (max+1) and advances currentRevisionId in one D1 batch. With expectedRevision set, a concurrent revision write fails as the typed CONFLICT error instead of double-writing.",
 				})
@@ -711,7 +711,7 @@ export const osWorkspacesContract = oc
 							.nonnegative()
 							.optional()
 							.describe(
-								"Optimistic-concurrency guard: the current revision number the caller last read (0 for a gadget with no revisions). Omitted writes append unconditionally.",
+								"Optimistic-concurrency guard: the current revision number the caller last read (0 for an app with no revisions). Omitted writes append unconditionally.",
 							),
 					}),
 				)
@@ -725,7 +725,7 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "POST",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/archive",
-					summary: "Archive a Tedix OS gadget",
+					summary: "Archive a Tedix OS app",
 				})
 				.input(gadgetIdInput)
 				.output(z.object({ gadget: OsGadgetSchema })),
@@ -733,9 +733,9 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "POST",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/executions",
-					summary: "Run a Tedix OS gadget under policy admission",
+					summary: "Run a Tedix OS app under policy admission",
 					description:
-						"Dispatches a governed execution against the gadget's current revision and records the receipt: actor, executing tedi, pinned revision, granted capabilities, policy decision, and runtime lineage. Requested capabilities must be a subset of the revision manifest's declared capabilities; an archived gadget, a gadget with no revision, or an undeclared capability records a denied receipt instead of executing. The manifest's governed skill (skillSlug, or entry when it is a skill slug) executes through skill-runtime after capability/policy preflight and inference-budget admission. A missing/non-executable skill, blocked preflight, or budget denial records a denied receipt with reasons. Policy-required approval, or an explicit approvalMode of required, parks the receipt awaiting_approval with a human approval request; otherwise the receipt pins the dispatched run lineage and the runtime settles it. Callers never self-report execution completion.",
+						"Dispatches a governed execution against the app's current revision and records the receipt: actor, executing tedi, pinned revision, granted capabilities, policy decision, and runtime lineage. Requested capabilities must be a subset of the revision manifest's declared capabilities; an archived app, an app with no revision, or an undeclared capability records a denied receipt instead of executing. The manifest's governed skill (skillSlug, or entry when it is a skill slug) executes through skill-runtime after capability/policy preflight and inference-budget admission. A missing/non-executable skill, blocked preflight, or budget denial records a denied receipt with reasons. Policy-required approval, or an explicit approvalMode of required, parks the receipt awaiting_approval with a human approval request; otherwise the receipt pins the dispatched run lineage and the runtime settles it. Callers never self-report execution completion.",
 				})
 				.input(
 					gadgetIdInput.extend({
@@ -793,9 +793,9 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "DELETE",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}",
-					summary: "Permanently delete an archived Tedix OS gadget",
+					summary: "Permanently delete an archived Tedix OS app",
 					description:
-						"Requires os:admin, an already-archived Gadget, and no unrevoked share links. Deletes its immutable revision rows; execution and audit evidence deliberately survive by stable id.",
+						"Requires os:admin, an already-archived App, and no unrevoked share links. Deletes its immutable revision rows; execution and audit evidence deliberately survive by stable id.",
 				})
 				.input(gadgetIdInput)
 				.output(z.object({ deleted: z.literal(true) })),
@@ -1112,7 +1112,7 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "GET",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/executions",
-					summary: "List Tedix OS gadget execution receipts",
+					summary: "List Tedix OS app execution receipts",
 				})
 				.input(
 					gadgetIdInput.extend({
@@ -1133,7 +1133,7 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "GET",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/executions/{executionId}",
-					summary: "Get a Tedix OS gadget execution receipt",
+					summary: "Get a Tedix OS app execution receipt",
 				})
 				.input(executionIdInput)
 				.output(z.object({ execution: OsGadgetExecutionSchema })),
@@ -1141,9 +1141,9 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "POST",
 					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/executions/{executionId}/exports",
-					summary: "Download a declared Gadget execution export",
+					summary: "Download a declared app execution export",
 					description:
-						"Resolves the descriptor from the exact Gadget revision pinned by the completed execution, verifies the successful skill-run artifact and its declared media type, and mints a short-lived attachment URL. Source-derived executions are refused because a bearer URL cannot carry viewer-time source authorization.",
+						"Resolves the descriptor from the exact app revision pinned by the completed execution, verifies the successful skill-run artifact and its declared media type, and mints a short-lived attachment URL. Source-derived executions are refused because a bearer URL cannot carry viewer-time source authorization.",
 				})
 				.input(
 					executionIdInput.extend({
@@ -1172,7 +1172,7 @@ export const osWorkspacesContract = oc
 				.input(
 					workspaceIdInput.extend({
 						documentType: OsCollaborationDocumentTypeSchema.optional().describe(
-							"Optional document-kind filter; omitted lists both Gadgets and outputs",
+							"Optional document-kind filter; omitted lists both apps and outputs",
 						),
 						documentId: z
 							.string()
@@ -1421,7 +1421,7 @@ export const osWorkspacesContract = oc
 					path: "/blueprints/{blueprintId}/instantiate",
 					summary: "Instantiate a Tedix OS blueprint as a workspace",
 					description:
-						"Runs the dependency preflight, then materializes the blueprint's current published revision as a new workspace with every declared gadget at revision 1 — one D1 batch, so a failure creates nothing. Provenance recorded on the workspace is the exact pinned revision id AND number plus the preflight envelope (skills and policy packs version in place, so that evidence is not reconstructible later); each gadget records the declaring revision id. Only a published blueprint instantiates (BAD_REQUEST otherwise); a taken workspace name fails CONFLICT with nothing created; an unresolvable definitional pin fails UNPROCESSABLE_CONTENT carrying the preflight. Unsatisfied CONNECTIONS never block: instantiation copies no credential of any kind, so they surface as `needs_consent` on the recorded preflight for the operator to connect afterwards.",
+						"Runs the dependency preflight, then materializes the blueprint's current published revision as a new workspace with every declared app at revision 1 — one D1 batch, so a failure creates nothing. Provenance recorded on the workspace is the exact pinned revision id AND number plus the preflight envelope (skills and policy packs version in place, so that evidence is not reconstructible later); each app records the declaring revision id. Only a published blueprint instantiates (BAD_REQUEST otherwise); a taken workspace name fails CONFLICT with nothing created; an unresolvable definitional pin fails UNPROCESSABLE_CONTENT carrying the preflight. Unsatisfied CONNECTIONS never block: instantiation copies no credential of any kind, so they surface as `needs_consent` on the recorded preflight for the operator to connect afterwards.",
 				})
 				.input(
 					blueprintIdInput.extend({
@@ -1465,7 +1465,7 @@ export const osWorkspacesContract = oc
 					path: "/blueprints/{blueprintId}/export",
 					summary: "Export a Tedix OS blueprint revision",
 					description:
-						"Projects one revision of a blueprint the caller's organization owns into the portable, versioned export envelope. The envelope is an explicit ALLOWLIST — name, description, source lifecycle status, revision metadata, the typed definition (gadget manifests plus version-pinned requirements), the origin identity that makes the fork nameable later, and the blueprint's own fork ancestry. It carries no credential (requirement objects are `.strict()`, so none can be represented), no storage or artifact reference, no execution receipt, no output content, no chat/memory/rationale, no instantiation evidence, no catalog visibility, and no principal id — only principal KINDS. Nothing is written: this is a read.",
+						"Projects one revision of a blueprint the caller's organization owns into the portable, versioned export envelope. The envelope is an explicit ALLOWLIST — name, description, source lifecycle status, revision metadata, the typed definition (app manifests plus version-pinned requirements), the origin identity that makes the fork nameable later, and the blueprint's own fork ancestry. It carries no credential (requirement objects are `.strict()`, so none can be represented), no storage or artifact reference, no execution receipt, no output content, no chat/memory/rationale, no instantiation evidence, no catalog visibility, and no principal id — only principal KINDS. Nothing is written: this is a read.",
 				})
 				.input(
 					blueprintIdInput.extend({
@@ -1509,7 +1509,7 @@ export const osWorkspacesContract = oc
 					path: "/blueprints/{blueprintId}/visibility",
 					summary: "Set Tedix OS blueprint catalog visibility",
 					description:
-						"Only a published blueprint owned by the caller's organization may change visibility (BAD_REQUEST otherwise). `catalog` lists it in the cross-organization gallery — name, description, gadget count, and the organization's display name become visible to every authenticated tenant; `org` retracts it.",
+						"Only a published blueprint owned by the caller's organization may change visibility (BAD_REQUEST otherwise). `catalog` lists it in the cross-organization gallery — name, description, app count, and the organization's display name become visible to every authenticated tenant; `org` retracts it.",
 				})
 				.input(
 					blueprintIdInput.extend({

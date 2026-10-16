@@ -1712,7 +1712,7 @@ describe("CanvasPage listing", () => {
 
 		expect(
 			container.querySelector("[data-canvas-workpiece-missing]")?.textContent,
-		).toContain("This gadget is not in this workspace");
+		).toContain("This app is not in this workspace");
 		// A gadget only ever exists inside a workspace, so the org-wide Outputs
 		// library is not a path forward for one.
 		expect(container.textContent).not.toContain("Search all outputs");
@@ -1846,7 +1846,7 @@ describe("CanvasPage listing", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(container.textContent).toContain("Gadget editor");
+		expect(container.textContent).toContain("App editor");
 		expect(container.querySelector("[data-output-editor]")).not.toBeNull();
 		expect(osWorkspacesApi.outputs.get).toHaveBeenCalledWith(
 			{ outputId: OUTPUT_ID },

@@ -100,7 +100,7 @@ async function requireResource(
 			organizationId,
 			gadgetId: resourceId,
 		});
-		if (!gadget) throw createError(ErrorCodes.NOT_FOUND, "OS Gadget not found");
+		if (!gadget) throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 		await requireShareableWorkspace(context, gadget.workspaceId);
 		return gadget;
 	}
@@ -167,7 +167,7 @@ async function requirePinnedRevision(
 		revisionId,
 	});
 	if (!revision || revision.gadgetId !== resourceId) {
-		throw createError(ErrorCodes.NOT_FOUND, "OS Gadget revision not found");
+		throw createError(ErrorCodes.NOT_FOUND, "OS app revision not found");
 	}
 	return revision.id;
 }

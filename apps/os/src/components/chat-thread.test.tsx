@@ -356,12 +356,12 @@ describe("chat response actions", () => {
 		expect(html).toContain("Visualize");
 		expect(html).toContain("Generate UI");
 		expect(html).toContain("Create output");
-		expect(html).toContain("Build gadget");
+		expect(html).toContain("Build app");
 	});
 
 	it("keeps persistence behind an explicit confirmation step", () => {
 		expect(chatResponseActionPrompt("visualize")).toContain(
-			"Do not create or modify a durable Gadget or Output",
+			"Do not create or modify a durable app or Output",
 		);
 		expect(chatResponseActionPrompt("visualize")).toContain("ui.get_catalog");
 		expect(chatResponseActionPrompt("generate-ui")).toContain(

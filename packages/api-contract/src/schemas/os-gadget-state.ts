@@ -15,7 +15,7 @@ export const OsGadgetStateValueSchema = z.json().superRefine((value, ctx) => {
 	if (new TextEncoder().encode(JSON.stringify(value)).length > 32768)
 		ctx.addIssue({
 			code: "custom",
-			message: "Gadget state values cannot exceed 32768 UTF-8 bytes",
+			message: "App state values cannot exceed 32768 UTF-8 bytes",
 		});
 });
 /** One durable value, including deletion tombstones that preserve CAS and provenance. */

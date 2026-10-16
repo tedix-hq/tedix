@@ -404,7 +404,7 @@ export function ShareControls(props: ShareControlsProps) {
 							value={role as "use" | "build"}
 							onValueChange={setRole}
 							options={[
-								{ value: "use", label: "Use Gadget" },
+								{ value: "use", label: "Use App" },
 								{ value: "build", label: "Build workspace" },
 							]}
 						/>

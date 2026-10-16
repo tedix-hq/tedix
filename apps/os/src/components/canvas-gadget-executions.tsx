@@ -174,7 +174,7 @@ function ReceiptDetail({
 							runId: execution.lineage.runId ?? null,
 							costs: execution.costs,
 						})}
-						subject="Cost recorded on this Gadget receipt"
+						subject="Cost recorded on this app receipt"
 					/>
 				</CardTitle>
 				<CardDescription>
@@ -395,8 +395,8 @@ export function CanvasGadgetExecutions({
 				<CardHeader>
 					<CardTitle>Governed run</CardTitle>
 					<CardDescription>
-						The selected tedi executes the pinned Gadget revision after
-						capability, policy, budget, and approval admission.
+						The selected tedi executes the pinned app revision after capability,
+						policy, budget, and approval admission.
 					</CardDescription>
 				</CardHeader>
 				<form
@@ -418,7 +418,7 @@ export function CanvasGadgetExecutions({
 						)}
 						{tedis.data && activeTedis.length === 0 && (
 							<Alert variant="warning">
-								<AlertTitle>No active tedi can run this Gadget</AlertTitle>
+								<AlertTitle>No active tedi can run this app</AlertTitle>
 								<AlertDescription>
 									Activate a governed tedi before dispatching this revision.
 								</AlertDescription>
@@ -437,16 +437,12 @@ export function CanvasGadgetExecutions({
 								)}
 							</FormField>
 						)}
-						<FormField
-							form={runForm}
-							name="inputText"
-							label="Gadget input JSON"
-						>
+						<FormField form={runForm} name="inputText" label="App input JSON">
 							{(field, meta) => (
 								<FormTextarea
 									field={field}
 									{...meta}
-									aria-label="Gadget input JSON"
+									aria-label="App input JSON"
 									rows={5}
 									className="font-mono text-xs"
 								/>
@@ -454,7 +450,7 @@ export function CanvasGadgetExecutions({
 						</FormField>
 						{run.isError && (
 							<Alert variant="destructive">
-								<AlertTitle>The Gadget could not be admitted</AlertTitle>
+								<AlertTitle>The app could not be admitted</AlertTitle>
 								<AlertDescription>
 									{(run.error as Error).message}
 								</AlertDescription>
@@ -469,7 +465,7 @@ export function CanvasGadgetExecutions({
 					<Separator />
 					<CardFooter className="justify-end">
 						<Button type="submit" size="sm" disabled={run.isPending}>
-							<Play size={14} /> {run.isPending ? "Admitting…" : "Run Gadget"}
+							<Play size={14} /> {run.isPending ? "Admitting…" : "Run App"}
 						</Button>
 					</CardFooter>
 				</form>

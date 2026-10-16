@@ -217,7 +217,7 @@ export function osGadgetExecutionToTaskState(
 				message:
 					typeof execution.error === "string" && execution.error
 						? execution.error
-						: "Gadget execution failed",
+						: "App execution failed",
 				data: { execution },
 			},
 		};
@@ -238,8 +238,8 @@ export function osGadgetExecutionToTaskState(
 				code: -32_603,
 				message:
 					reasons.length > 0
-						? `Gadget execution denied by policy: ${reasons.join("; ")}`
-						: "Gadget execution denied by policy",
+						? `App execution denied by policy: ${reasons.join("; ")}`
+						: "App execution denied by policy",
 				data: { execution },
 			},
 		};
@@ -251,12 +251,12 @@ export function osGadgetExecutionToTaskState(
 	// non-terminal status — keep the poll alive with a phase note.
 	const statusMessage =
 		status === "queued"
-			? "Gadget execution admitted; the governed skill run is queued for dispatch."
+			? "App execution admitted; the governed skill run is queued for dispatch."
 			: status === "awaiting_approval"
 				? "The governed skill run is awaiting approval. List pending approvals with permissions_list_open and resolve them with permissions_respond — approvals do not flow through tasks/update."
 				: status === "running"
 					? "The governed skill run is executing."
-					: `Gadget execution is pending (status: ${status || "unknown"}).`;
+					: `App execution is pending (status: ${status || "unknown"}).`;
 	return {
 		...base,
 		status: "working",
@@ -308,15 +308,13 @@ export async function getOsGadgetTaskState(
 		);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		throw new McpTaskError(
-			-32_603,
-			`gadget execution read failed: ${message}`,
-			{ taskId: input.taskId },
-		);
+		throw new McpTaskError(-32_603, `app execution read failed: ${message}`, {
+			taskId: input.taskId,
+		});
 	}
 	if (result.status === 404) throw McpTaskError.notFound(input.taskId);
 	if (result.status >= 400) {
-		throw new McpTaskError(-32_603, "gadget execution read failed", {
+		throw new McpTaskError(-32_603, "app execution read failed", {
 			taskId: input.taskId,
 			status: result.status,
 		});

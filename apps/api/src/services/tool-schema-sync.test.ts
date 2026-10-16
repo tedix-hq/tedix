@@ -1393,6 +1393,13 @@ describe("oRPC tool projection sync", () => {
 			]),
 		);
 		const byToolId = new Map(inserts.map((tool) => [tool.toolId, tool]));
+		expect(byToolId.get("delete_os_gadget")).toMatchObject({
+			title: "Delete Os App",
+			description: expect.not.stringMatching(/gadget/i),
+			config: expect.objectContaining({
+				endpoint: "osWorkspaces/gadgets/delete",
+			}),
+		});
 		for (const toolId of [
 			"delete_os_workspace",
 			"delete_os_gadget",

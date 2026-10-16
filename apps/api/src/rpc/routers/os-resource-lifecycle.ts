@@ -153,18 +153,18 @@ const deleteGadget = adminOs.gadgets.delete.handler(
 			gadgetId: input.gadgetId,
 		});
 		if (!gadget || gadget.workspaceId !== input.workspaceId) {
-			throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
+			throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 		}
 		await assertOsWorkspaceChildVisible(
 			context,
 			gadget.organizationId,
 			gadget.workspaceId,
-			"OS gadget not found",
+			"OS app not found",
 		);
 		if (gadget.status !== "archived") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"Archive the Gadget before permanently deleting it",
+				"Archive the app before permanently deleting it",
 			);
 		}
 		await requireNoActiveShares(context, "gadget", gadget.id);
@@ -172,8 +172,7 @@ const deleteGadget = adminOs.gadgets.delete.handler(
 			organizationId: gadget.organizationId,
 			gadgetId: gadget.id,
 		});
-		if (!removed)
-			throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
+		if (!removed) throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 		return { deleted: true as const };
 	},
 );

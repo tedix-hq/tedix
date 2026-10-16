@@ -40,7 +40,7 @@ export const OsShareLinkSchema = z.object({
 		.uuid()
 		.nullable()
 		.describe(
-			"Exact immutable revision for a pinned Gadget/output link; null for living links and pinned Workspace snapshots",
+			"Exact immutable revision for a pinned app/output link; null for living links and pinned Workspace snapshots",
 		),
 	note: z
 		.string()
@@ -140,11 +140,11 @@ const reviewSessionInput = z.object({
 	sessionToken: z.string().min(20).max(128),
 });
 const reviewGadgetInput = z.object({
-	workspaceId: z.string().uuid().describe("Workspace that contains the gadget"),
+	workspaceId: z.string().uuid().describe("Workspace that contains the app"),
 	gadgetId: z
 		.string()
 		.uuid()
-		.describe("Gadget whose active review link binds the batch"),
+		.describe("App whose active review link binds the batch"),
 });
 const reviewFeedbackFields = {
 	batchId: z.string().uuid(),
@@ -158,7 +158,7 @@ const reviewFeedbackFields = {
 const createShareInput = z
 	.object({
 		resourceType: OsShareResourceTypeSchema.describe(
-			"Resource kind for governed Gadget, workspace, or output sharing",
+			"Resource kind for governed App, workspace, or output sharing",
 		),
 		resourceId: z
 			.string()
@@ -171,7 +171,7 @@ const createShareInput = z
 			.uuid()
 			.optional()
 			.describe(
-				"Required only for pinned Gadget/output links; Workspace pins capture a safe snapshot",
+				"Required only for pinned app/output links; Workspace pins capture a safe snapshot",
 			),
 		note: z
 			.string()
@@ -200,7 +200,7 @@ const createShareInput = z
 			context.addIssue({
 				code: "custom",
 				path: ["role"],
-				message: "Gadget and workspace shares use the use or build role",
+				message: "App and workspace shares use the use or build role",
 			});
 		}
 		if (
@@ -211,7 +211,7 @@ const createShareInput = z
 			context.addIssue({
 				code: "custom",
 				path: ["pinnedRevisionId"],
-				message: "Pinned Gadget and output shares require a revision id",
+				message: "Pinned App and output shares require a revision id",
 			});
 		}
 		if (input.revisionMode === "living" && input.pinnedRevisionId) {
@@ -323,9 +323,9 @@ export const osSharesContract = oc
 				.route({
 					method: "GET",
 					path: "/reviews/gadgets/{gadgetId}",
-					summary: "Read your review of a gadget's active batch",
+					summary: "Read your review of an app's active batch",
 					description:
-						"Workspace members see the same immutable batch a gadget's active review link shows recipients, with only their own saved feedback. Returns a null batch when no active review link is bound.",
+						"Workspace members see the same immutable batch an app's active review link shows recipients, with only their own saved feedback. Returns a null batch when no active review link is bound.",
 				})
 				.input(reviewGadgetInput.strict())
 				.output(
@@ -340,7 +340,7 @@ export const osSharesContract = oc
 					path: "/reviews/gadgets/{gadgetId}/feedback",
 					summary: "Save your review feedback from the workspace",
 					description:
-						"Writes the same per-reviewer, conflict-checked feedback record as the shared review link. Requires workspace access to the gadget and an active review link; never changes the source output.",
+						"Writes the same per-reviewer, conflict-checked feedback record as the shared review link. Requires workspace access to the app and an active review link; never changes the source output.",
 				})
 				.input(reviewGadgetInput.extend(reviewFeedbackFields))
 				.output(z.object({ feedback: OsReviewFeedbackSchema })),
@@ -352,7 +352,7 @@ export const osSharesContract = oc
 					path: "/resources/{resourceType}/{resourceId}/shares",
 					summary: "Create a governed Tedix OS share link",
 					description:
-						"Mints a role-aware living or pinned link. The returned token is the ONE-TIME plaintext capability; only its sha-256 hash persists. Outputs are viewer-only; Gadget and workspace links use use/build roles without transferring owner credentials or connections.",
+						"Mints a role-aware living or pinned link. The returned token is the ONE-TIME plaintext capability; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
 				})
 				.input(createShareInput)
 				.output(

@@ -417,7 +417,7 @@ export async function settleOsGadgetApproval(
 	if (!workspace || !gadget) {
 		execution = await terminalizeAwaiting(context, execution, {
 			status: "denied",
-			reason: "approved receipt's workspace or gadget is no longer readable",
+			reason: "approved receipt's workspace or app is no longer readable",
 		});
 		return { handled: true, execution, dispatched: false };
 	}
