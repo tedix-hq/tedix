@@ -65,10 +65,9 @@ export default defineConfig({
 				],
 			}
 		: undefined,
-	// Inline all CSS into HTML <style> tags. The dispatched user worker is
-	// uploaded as JS modules only — there's no Workers Assets binding, so
-	// /_astro/*.css would 500. Inlining ships every page with its CSS.
-	build: { inlineStylesheets: "always" },
+	// The parent runtime serves content-hashed CSS from the published asset
+	// bundle. Keep shared component styles out of every HTML response.
+	build: { inlineStylesheets: "never" },
 	// Platform-wide i18n superset. The locale list here must be a superset of
 	// every org's enabled locales. `defaultLocale: "en"` is the template
 	// default — patchLocaleConfig in deploy-workflow.ts rewrites this to the
