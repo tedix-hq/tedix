@@ -56,6 +56,7 @@ import {
 	red,
 	yellow,
 } from "./format";
+import { innerToolError, toolErrorEnvelope } from "./gateway-projection";
 import type { ColorMode } from "./terminal";
 import type { TedixHomeClient } from "./home-client";
 import { sleep as sleepDefault } from "@tedix/worker-kit/sleep";
@@ -260,7 +261,21 @@ async function runSource(
 		const error = flowErrorFromValue(value);
 		return error ? { value, error } : { value };
 	} catch (error) {
-		return { value: undefined, error: { message: errorText(error) } };
+		const message = errorText(error);
+		// Reading a failed run's status is a successful read: the gateway
+		// reports it as a tool error only because the run record has an error.
+		const result = (
+			toolErrorEnvelope(message) as { result?: unknown } | undefined
+		)?.result;
+		if (
+			result &&
+			typeof result === "object" &&
+			typeof (result as Record<string, unknown>).status === "string" &&
+			(result as Record<string, unknown>).ok !== false
+		) {
+			return { value: result };
+		}
+		return { value: undefined, error: { message: innerToolError(message) } };
 	}
 }
 
@@ -566,7 +581,7 @@ async function watchRun(
 			console.log(`\n${JSON.stringify(payload, null, 2)}`);
 		}
 		if (last.error) {
-			console.error(`\n${errorText(last.error)}`);
+			console.error(`\n${innerToolError(errorText(last.error))}`);
 		}
 		if (failed) {
 			console.error(dim(`\n  inspect  tedix flow inspect ${runId}`, ctx.color));
@@ -609,7 +624,7 @@ async function statusFlow(ctx: FlowContext, runId: string): Promise<number> {
 		console.log(`\n${JSON.stringify(payload, null, 2)}`);
 	}
 	if (row.error) {
-		console.error(`\n${errorText(row.error)}`);
+		console.error(`\n${innerToolError(errorText(row.error))}`);
 	}
 	return TERMINAL_STATUSES.has(status) && status !== "completed"
 		? FLOW_EXIT_FAIL

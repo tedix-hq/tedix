@@ -72,7 +72,9 @@ describe("factory commands", () => {
 			factory: {},
 		};
 		expect(await runFactoryCommand("status gone", ctx)).not.toBe(0);
-		expect(stderr.mock.calls.flat().join("\n")).toBe('No factory "gone".');
+		expect(stderr.mock.calls.flat().join("\n")).toBe(
+			'projects.inspect_factory_health: No factory "gone".',
+		);
 		stderr.mockRestore();
 	});
 

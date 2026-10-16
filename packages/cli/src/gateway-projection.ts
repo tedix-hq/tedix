@@ -53,19 +53,30 @@ export async function readGatewayProjection(
 	return value;
 }
 
+/** The Code Mode envelope inside an "MCP tool error: {...}" message, if any. */
+export function toolErrorEnvelope(message: string): unknown {
+	const json = /MCP tool error:\s*(\{[\s\S]*\})\s*$/.exec(message)?.[1];
+	if (!json) return undefined;
+	try {
+		return JSON.parse(json);
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * A failed call comes back as "MCP tool error: <Code Mode envelope JSON>";
- * keep only the failed tool's own error.
+ * keep only the failed tool's own error, unwrapping nested envelopes.
  */
 export function innerToolError(message: string): string {
-	const json = /^MCP tool error:\s*(\{[\s\S]*\})\s*$/.exec(message)?.[1];
-	if (!json) return message;
-	try {
-		const [failure] = normalizeCodeResult(JSON.parse(json)).failures ?? [];
-		return failure?.error ? errorText(failure.error) : message;
-	} catch {
-		return message;
-	}
+	const envelope = toolErrorEnvelope(message);
+	if (envelope === undefined) return message;
+	const [failure] = normalizeCodeResult(envelope).failures ?? [];
+	if (!failure?.error) return message;
+	const inner = innerToolError(failure.error);
+	return inner === failure.error
+		? `${failure.tool}: ${errorText(inner)}`
+		: inner;
 }
 
 export function rowsFrom(
