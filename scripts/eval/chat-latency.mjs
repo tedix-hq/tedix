@@ -468,7 +468,18 @@ async function main() {
 						join(values.out, `${round}-${f.id}-chat.json`),
 						JSON.stringify(chat.value, null, 2),
 					);
-					const inspected = (await cli(["inspect", row.runId, "--json"])).value;
+					// Trace and child-tree reads are outside this eval's correctness contract.
+					const readback = (await cli(["run", row.runId, "--json"])).value;
+					const metadata = unwrap(readback).run.metadata;
+					const inspected = {
+						run: readback,
+						summary: {
+							assistantText:
+								metadata.kernelRoute?.answer ??
+								metadata.bodyExecutionResult?.summary ??
+								"",
+						},
+					};
 					await writeFile(
 						join(values.out, `${round}-${f.id}-inspect.json`),
 						JSON.stringify(inspected, null, 2),
