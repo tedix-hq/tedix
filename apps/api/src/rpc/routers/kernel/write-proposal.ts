@@ -45,6 +45,7 @@ import {
 } from "./gateway-attribution";
 import { selectJevAction, type JevActionEnv } from "./jev-action-selection";
 import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-policy";
+import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import {
@@ -1502,19 +1503,29 @@ export async function planKernelWriteProposal(args: {
 					stage: "validation_failed",
 					detail: "Factory dry run failed; no creation was proposed.",
 				});
-			const data = codeModeResultData(
-				preview as Parameters<typeof codeModeResultData>[0],
+			const parsed = CreateFactoryResultSchema.pick({
+				dryRun: true,
+				ownerTediName: true,
+				projectKey: true,
+				cron: true,
+				output: true,
+				warnings: true,
+			}).safeParse(
+				codeModeResultData(preview as Parameters<typeof codeModeResultData>[0]),
 			);
-			if (
-				!data ||
-				typeof data !== "object" ||
-				(data as { dryRun?: boolean }).dryRun !== true
-			)
+			if (!parsed.success || !parsed.data.dryRun)
 				return decline({
 					stage: "validation_failed",
 					detail: "Factory dry run did not return a valid preview.",
 				});
-			planned.reasoning = `${planned.reasoning ?? "Create the factory after approval."} Preview: ${JSON.stringify(data)}`;
+			const plan = parsed.data;
+			planned.reasoning = [
+				`Preview: owner ${plan.ownerTediName}; project ${plan.projectKey}; schedule ${plan.cron} UTC.`,
+				plan.output
+					? `Output: ${plan.output.title ?? plan.output.id} (${plan.output.kind}).`
+					: "No document or sheet Output selected.",
+				...plan.warnings.map((warning) => `Note: ${warning}`),
+			].join("\n");
 		}
 		console.warn("[kernel.writeProposal] proposed", {
 			slug: provider.slug,
