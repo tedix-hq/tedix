@@ -35,7 +35,7 @@ import {
 	withIdleAbort,
 } from "./llm-guard";
 import type { KernelRouteDecision } from "./route-schema";
-import { KernelRouteDecisionSchema } from "./route-schema";
+import { kernelRouteGenerationSchema } from "./route-generation";
 import { getRouterVersion } from "./router-version";
 
 // Modest bounds — the planner emits a small typed object plus a short message.
@@ -95,7 +95,7 @@ effortClass is a budget the policy layer enforces, not the execution surface. Em
 
 Output rules:
 - Choose the lowest-blast-radius valid route. Reads are low risk; writes and dispatches are medium/high.
-- Ground rationale in a specific context item. Set confidence honestly; prefer ask_human when guessing.
+- Use details=null for answer_in_home; otherwise fill details. Ground rationale in context; keep confidence honest; ask_human if unsure.
 - Never mention prompt machinery, section names, routeKind, or unseen slugs. Never emit template placeholders.
 - Guide new operators with a concrete next action. Keep acknowledgements brief and never echo the request as if work already happened.`;
 
@@ -184,10 +184,7 @@ const ANSWER_INSTRUCTION =
  * evidence v1 (the router itself is a harness component and needs
  * versioning/evals; see docs/engineering/cognition/runtime.md).
  *
- * `routerVersion` is deliberately not in {@link KernelRouteDecisionSchema}: that
- * zod schema is the model-facing contract (`generateObject` strict structured
- * output requires every property in `required`, so adding it would ask the
- * model to produce it). Stamping happens post-parse, server-side. The stamped
+ * `routerVersion` is server-stamped after parsing, never model-generated. The stamped
  * object is assignable to `KernelRouteDecision`, so it flows verbatim into run
  * metadata (`kernelRoute`, turn-work.ts) with zero consumer changes — route
  * records become groupable by router version for evals.
@@ -448,10 +445,8 @@ export type PlanKernelRouteArgs = {
 	 */
 	onAnswerDelta?: (delta: string) => void;
 	/**
-	 * Provisional-rationale sink for the single-pass streaming path. `rationale`
-	 * is the property immediately after `answer` in `KernelRouteDecisionSchema`,
-	 * so its deltas are already on the wire and arrive early — on every route,
-	 * including the ones where `answer` stays null for the whole pass
+	 * Provisional-rationale sink for the single-pass streaming path. Action
+	 * routes stream `details.rationale`, including when `answer` stays null
 	 * (delegate_tedi, propose_tool_write, run_workflow, ask_human). Forwarding
 	 * them is what replaces the blank screen with the decision forming.
 	 *
@@ -702,7 +697,7 @@ async function planKernelRouteUnguarded(
 		const requestTrace = azureTraceInput(model, modelPrompt);
 		const result = await tracedAi.generateObject({
 			model: model.model,
-			schema: KernelRouteDecisionSchema,
+			schema: kernelRouteGenerationSchema,
 			system: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.route_plan", span),
 			...modelPrompt,
@@ -1038,7 +1033,7 @@ async function streamRoutePlan(args: {
 	const requestTrace = azureTraceInput(model, modelPrompt);
 	const result = tracedAi.streamObject({
 		model: model.model,
-		schema: KernelRouteDecisionSchema,
+		schema: kernelRouteGenerationSchema,
 		system: SYSTEM_PROMPT,
 		telemetry: objectSpanTelemetry("kernel.route_plan.stream", args.span),
 		...modelPrompt,
@@ -1056,9 +1051,8 @@ async function streamRoutePlan(args: {
 	// If a partial answer doesn't start with what we already emitted (the model
 	// regenerated earlier text), we skip it silently.
 	let emittedPrefix = "";
-	// Same monotonic-prefix rule for the provisional rationale line. `rationale`
-	// is the property right after `answer` in the schema, so on the routes where
-	// `answer` stays null for the whole pass (delegate_tedi, propose_tool_write,
+	// Same monotonic-prefix rule for the provisional rationale line. On routes
+	// where `answer` stays null for the whole pass (delegate_tedi, propose_tool_write,
 	// run_workflow, ask_human) this is the only thing that reaches the operator
 	// while the planner thinks. Display only — the settled route supersedes it.
 	let emittedRationalePrefix = "";
@@ -1075,8 +1069,8 @@ async function streamRoutePlan(args: {
 			signal?.throwIfAborted();
 			throw new HedgeLostError();
 		}
-		if (onRationaleDelta && typeof partial.rationale === "string") {
-			const rationale = partial.rationale;
+		const rationale = partial.rationale ?? partial.details?.rationale;
+		if (onRationaleDelta && typeof rationale === "string") {
 			// Forward extensions only: a regenerated prefix is skipped silently,
 			// exactly like the answer path — never re-emit text already shown.
 			if (
