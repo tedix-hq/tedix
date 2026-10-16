@@ -10,6 +10,7 @@ const directoryState = vi.hoisted(() => ({ loading: false }));
 const workspace: DirectoryWorkspaceRecord = {
 	org: {
 		descopeTenantId: "org_tedix",
+		logoUrl: "https://images.example.test/tedix-logo.png",
 		name: "Tedix",
 		organizationId: "0f0f0f0f-0000-4000-8000-000000000001",
 		provisionComplete: true,
@@ -39,6 +40,18 @@ const workspace: DirectoryWorkspaceRecord = {
 	],
 };
 
+const otherWorkspace: DirectoryWorkspaceRecord = {
+	org: {
+		descopeTenantId: "org_northwind",
+		logoUrl: null,
+		name: "Northwind Labs",
+		organizationId: "0f0f0f0f-0000-4000-8000-000000000002",
+		provisionComplete: true,
+		slug: "northwind",
+	},
+	surfaces: [],
+};
+
 vi.mock("@/shared/os-tenant", () => ({
 	resolveOsTenant: () => ({ kind: "tenant", slug: "tedix" }),
 }));
@@ -49,7 +62,7 @@ vi.mock("@/lib/workspace-switcher", async (importOriginal) => ({
 	useWorkspaceDirectory: () => ({
 		activeWorkspace: workspace,
 		query: { isError: false, isLoading: directoryState.loading },
-		workspaces: [workspace],
+		workspaces: [workspace, otherWorkspace],
 	}),
 }));
 
@@ -63,6 +76,7 @@ vi.mock("@/lib/os-query-options", () => ({
 	}),
 }));
 
+import { OsOrganizationIdentity } from "./os-organization-identity";
 import { OsWorkspaceSwitcher } from "./os-workspace-switcher";
 
 (
@@ -148,5 +162,55 @@ describe("OsWorkspaceSwitcher", () => {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
 		expect(document.body.textContent).toContain("Loading workspaces…");
+	});
+
+	it("shows the current organization's logo and name, and each org's mark in the menu", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		roots.push(root);
+
+		await act(async () => {
+			root.render(
+				<QueryClientProvider client={queryClient}>
+					<OsWorkspaceSwitcher>
+						<OsOrganizationIdentity fallbackLabel="tedix" />
+					</OsWorkspaceSwitcher>
+				</QueryClientProvider>,
+			);
+		});
+
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Switch workspace or app"]',
+		);
+		expect(trigger?.querySelector("strong")?.textContent).toBe("Tedix");
+		const logo = trigger?.querySelector("img.brand-mark");
+		expect(logo?.getAttribute("src")).toBe(
+			"https://images.example.test/tedix-logo.png",
+		);
+
+		await act(async () => {
+			trigger?.click();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		const menu = document.querySelector('[role="menu"]');
+		expect(
+			menu
+				?.querySelector('img.brand-mark[data-size="sm"]')
+				?.getAttribute("src"),
+		).toBe("https://images.example.test/tedix-logo.png");
+		expect(menu?.textContent).toContain("Northwind Labs");
+		expect(
+			menu?.querySelector('span.brand-mark[data-size="sm"]')?.textContent,
+		).toBe("N");
+
+		await act(async () => {
+			logo?.dispatchEvent(new Event("error"));
+		});
+		expect(trigger?.querySelector("img.brand-mark")).toBeNull();
+		expect(trigger?.querySelector("span.brand-mark")?.textContent).toBe("T");
 	});
 });

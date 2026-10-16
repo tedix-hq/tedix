@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
 import { CaretUpDown, Check } from "@phosphor-icons/react";
-import { resolveOsTenant } from "@/shared/os-tenant";
 import {
 	findWorkspaceSurface,
 	useSurfaceSwitch,
-	useWorkspaceDirectory,
 } from "@/lib/workspace-switcher";
 import { Button } from "@/components/kumo/button";
 import {
@@ -16,8 +14,8 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { osApi } from "@/lib/api";
-import { myWorkspacesDirectoryQueryOptions } from "@/lib/os-query-options";
+import { OrganizationMark } from "@/components/organization-mark";
+import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 
 const APP_SURFACES = ["os", "cms"] as const;
 
@@ -32,17 +30,7 @@ const SURFACE_LABELS = {
  * presents those records and initiates full-page session handoffs.
  */
 export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
-	const tenant = resolveOsTenant(window.location.hostname);
-	const directoryQuery = myWorkspacesDirectoryQueryOptions({
-		limit: 100,
-		offset: 0,
-	});
-	const directory = useWorkspaceDirectory({
-		current: { slug: tenant.kind === "tenant" ? tenant.slug : undefined },
-		enabled: tenant.kind === "tenant",
-		load: () => osApi.directory.listMyWorkspaces({ limit: 100, offset: 0 }),
-		queryKey: directoryQuery.queryKey,
-	});
+	const { tenant, ...directory } = useOsWorkspaceDirectory();
 	const surfaceSwitch = useSurfaceSwitch({});
 
 	if (tenant.kind !== "tenant") return children;
@@ -82,7 +70,14 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 				{directory.workspaces.map((workspace, workspaceIndex) => (
 					<DropdownMenuGroup key={workspace.org.organizationId}>
 						{workspaceIndex > 0 ? <DropdownMenuSeparator /> : null}
-						<DropdownMenuLabel>{workspace.org.name}</DropdownMenuLabel>
+						<DropdownMenuLabel className="flex items-center gap-2">
+							<OrganizationMark
+								logoUrl={workspace.org.logoUrl}
+								name={workspace.org.name}
+								size="sm"
+							/>
+							<span className="min-w-0 truncate">{workspace.org.name}</span>
+						</DropdownMenuLabel>
 						{!workspace.org.provisionComplete ? (
 							<DropdownMenuItem disabled>Provisioning</DropdownMenuItem>
 						) : (

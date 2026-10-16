@@ -18,7 +18,9 @@ const api = vi.hoisted(() => ({
 	workspacePreferences: { list: vi.fn() },
 }));
 
-vi.mock("@/lib/api", () => ({ osApi: { osWorkspaces: api } }));
+vi.mock("@/lib/api", () => ({
+	osApi: { directory: { listMyWorkspaces: vi.fn() }, osWorkspaces: api },
+}));
 vi.mock("@descope/react-sdk/flows", () => ({
 	getCurrentTenant: () => "acme",
 }));
@@ -128,8 +130,10 @@ describe("OS shell chrome", () => {
 		const switcher = header.querySelector(
 			'[aria-label="Switch workspace or app"]',
 		)!;
-		expect(switcher.querySelector("strong")?.textContent?.trim()).toBe("OS");
-		expect(switcher.textContent).toContain("Local workspace");
+		expect(switcher.querySelector("strong")?.textContent?.trim()).toBe(
+			"Local workspace",
+		);
+		expect(switcher.textContent).toContain("OS");
 		expect(header.querySelector(".brand-mark")?.className).not.toContain(
 			"hidden",
 		);
