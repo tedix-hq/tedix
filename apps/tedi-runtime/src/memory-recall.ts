@@ -93,7 +93,10 @@ function formatRecallBlock(result: MemorySearchResult): {
 	const facts = result.results
 		.map((entry) => entry.fact)
 		.filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
-		.map((fact) => fact.summary || fact.content || "")
+		.map(
+			(fact) =>
+				`${fact.metadata?.verifyBeforeUse ? "[Historical; verify current state before use] " : ""}${fact.content || fact.summary || ""}`,
+		)
 		.filter(Boolean);
 	if (facts.length === 0) return { block: "", factCount: 0 };
 	return {

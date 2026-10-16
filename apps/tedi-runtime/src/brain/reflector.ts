@@ -80,7 +80,12 @@ export async function reflect(
 	const content = response.content;
 	if (!content) return noopReflection(observations, tokensBefore);
 
-	const condensed = parseReflectorObservations(content);
+	const parsed = parseReflectorObservations(content);
+	if (parsed.length === 0) return noopReflection(observations, tokensBefore);
+	const condensed = [
+		...observations.filter((observation) => observation.type === "preference"),
+		...parsed.filter((observation) => observation.type !== "preference"),
+	];
 	if (condensed.length === 0) {
 		return noopReflection(observations, tokensBefore);
 	}

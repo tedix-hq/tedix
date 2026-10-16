@@ -2,6 +2,7 @@ import type {
 	RankSkillsInput,
 	RankSkillsOutput,
 } from "@tedix/api-contract/schemas/jev";
+import type { TurnMemory } from "@tedix/api-contract/schemas/turn-memory";
 import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
 import type { ListWorkApprovalInboxResultSchema } from "@tedix/api-contract/schemas/work-approvals";
@@ -163,6 +164,7 @@ export interface MemorySearchResult {
 			confidence?: number;
 			domain?: string;
 			updatedAt?: string | null;
+			metadata?: { verifyBeforeUse?: boolean; expiresAt?: string };
 		};
 	}>;
 }
@@ -344,6 +346,7 @@ export interface PlatformClient {
 	/** Bind/clear the active turn's episode id for cognitive-write correlation (P0.2). */
 	setEpisodeTrace(traceId: string | null): void;
 	memorySearch(query: string, limit?: number): Promise<MemorySearchResult>;
+	getTurnMemory?(references: string[]): Promise<TurnMemory>;
 
 	memoryLearn(params: MemoryLearnParams): Promise<MemoryLearnResult>;
 
@@ -609,6 +612,13 @@ export class HttpPlatformClient implements PlatformClient {
 	}
 
 	// ── API methods ──────────────────────────────────────────────────────────
+
+	async getTurnMemory(references: string[]): Promise<TurnMemory> {
+		return this.rpc("cognitiveRuntime", "getTurnMemory", {
+			tediId: this.tediId,
+			references,
+		});
+	}
 
 	async memorySearch(query: string, limit = 5): Promise<MemorySearchResult> {
 		return this.rpc("memoryGraph", "search", {

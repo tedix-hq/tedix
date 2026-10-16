@@ -113,7 +113,7 @@ export async function compileBrainDigest(
 		facts = [];
 		for (const searchResult of searchResults) {
 			for (const r of searchResult.results || []) {
-				if (!r.fact) continue;
+				if (!r.fact || r.fact.metadata?.verifyBeforeUse === true) continue;
 				if (seen.has(r.factId)) continue;
 				seen.add(r.factId);
 				const fact = r.fact;
