@@ -7020,11 +7020,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const existingGate = await this.ctx.storage.get<BrowserTakeoverGate>(
 			BROWSER_TAKEOVER_GATE_KEY,
 		);
-		if (existingGate) {
-			throw new Error(
-				`Browser takeover approval ${existingGate.approvalRequestId} is already gating this session. Check it with get_browser_takeover_status.`,
-			);
-		}
 		const liveView = await this.getBrowserSession().liveView();
 		if (!liveView || liveView.targets.length === 0) {
 			throw new Error(
@@ -7034,6 +7029,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const now = Date.now();
 		const payload = {
 			kind: "browser_live_view_takeover",
+			sessionKey: binding.sessionKey,
 			reason: input.reason,
 			note: input.note,
 			sessionId: liveView.sessionId,
@@ -7067,6 +7063,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				actionType: "browser.live_view_takeover",
 				description: `Human browser step required (${input.reason}): ${input.note}`,
 				payload,
+				...(existingGate
+					? { replacesApprovalRequestId: existingGate.approvalRequestId }
+					: {}),
 				ttlHours: 1,
 			},
 			{
@@ -15517,6 +15516,21 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				masterKey: (this.env as { SECRETS_MASTER_KEY?: string })
 					.SECRETS_MASTER_KEY,
 			});
+		if (url.pathname === "/__internal/browser/takeover-status") {
+			if (request.method !== "POST")
+				return new Response("Method Not Allowed", { status: 405 });
+			if (!(await adminAuthorized()))
+				return new Response("Forbidden", { status: 403 });
+			const input = z
+				.object({ approvalRequestId: z.uuid() })
+				.parse(await request.json());
+			return Response.json(
+				await this.browserTakeoverStatus(
+					input.approvalRequestId,
+					this.state.budgets?.browserBudgetDaily ?? 50,
+				),
+			);
+		}
 		if (url.pathname === "/__internal/config/refresh") {
 			if (request.method !== "POST")
 				return new Response("Method Not Allowed", { status: 405 });
