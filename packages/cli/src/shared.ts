@@ -86,6 +86,8 @@ export interface CliOptions {
 	pollIntervalMs: number;
 	pollTimeoutMs: number;
 	prompt?: string;
+	/** Shell words after the command, unjoined, so a quoted value with spaces stays one argument. */
+	positionals?: string[];
 	repoContext: boolean;
 	requireCodeProof: boolean;
 	requireWorkstation: boolean;

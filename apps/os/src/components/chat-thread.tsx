@@ -218,9 +218,9 @@ export const RUN_SET_RECONCILE_INTERVAL_MS = ACTIVE_PROJECTION_RECONCILE_MS;
 export const MESSAGES_PAGE_LIMIT = 50;
 
 export const CHAT_STARTER_PROMPTS = [
-	"Summarize the current workspace and identify the next decision.",
-	"Investigate the latest output and cite the evidence behind your recommendation.",
-	"Delegate a bounded task to the best-qualified digital worker.",
+	"Create a doc titled Weekly update with three short sections.",
+	"Make a sheet that tracks open tasks, owners and due dates.",
+	"Summarize what changed this week and what I should decide next.",
 ] as const;
 
 export type ChatContext = {
@@ -3412,8 +3412,8 @@ export function ChatThread({
 									<EmptyHeader>
 										<EmptyTitle>New conversation</EmptyTitle>
 										<EmptyDescription>
-											Your first message creates the thread — the kernel routes
-											it, delegates when needed, and every turn stays auditable.
+											Ask a question, or ask for a doc, sheet or deck. The chat
+											and anything it makes are kept together in a workspace.
 										</EmptyDescription>
 										<ChatStarterPrompts onChoose={updateDraft} />
 									</EmptyHeader>
@@ -3441,7 +3441,7 @@ export function ChatThread({
 									<EmptyHeader>
 										<EmptyTitle>No messages yet</EmptyTitle>
 										<EmptyDescription>
-											Send the first message below to start this thread.
+											Type a message below to get started.
 										</EmptyDescription>
 										<ChatStarterPrompts onChoose={updateDraft} />
 									</EmptyHeader>

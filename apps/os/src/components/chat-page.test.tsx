@@ -41,9 +41,30 @@ const routing = vi.hoisted(() => ({
 describe("chat workspace names", () => {
 	it("keeps a collision retry unique and within the workspace name limit", () => {
 		const base = workspaceNameFromPrompt("x".repeat(100));
-		const retry = workspaceRetryName(base, "12345678-rest");
+		expect(base.length).toBeLessThanOrEqual(40);
+		const retry = workspaceRetryName("x".repeat(100), "12345678-rest");
 		expect(retry).toHaveLength(72);
 		expect(retry.endsWith(" · 12345678")).toBe(true);
+	});
+
+	it("names a new chat workspace with a few words, not the whole prompt", () => {
+		expect(
+			workspaceNameFromPrompt(
+				"Can you please create a doc titled Q3 launch plan with three sections for the team",
+			),
+		).toBe("Q3 launch plan");
+		expect(
+			workspaceNameFromPrompt('Make a sheet "Hiring pipeline" for next week'),
+		).toBe("Hiring pipeline");
+		expect(
+			workspaceNameFromPrompt(
+				"hey, help me compare our three pricing options and write a summary",
+			),
+		).toBe("Compare our three pricing options");
+		expect(workspaceNameFromPrompt("   ")).toBe("New conversation");
+		expect(workspaceNameFromPrompt("What's on my calendar?")).toBe(
+			"What's on my calendar",
+		);
 	});
 });
 

@@ -66,6 +66,8 @@ export interface CommandContext {
 	 */
 	poll?: boolean;
 	pollIntervalMs: number;
+	/** Unjoined shell words, when the command came from argv. */
+	positionals?: string[];
 	search?: string;
 }
 
@@ -227,7 +229,11 @@ async function handleRename(
 	args: string,
 	ctx: CommandContext,
 ): Promise<number> {
-	const [conversationId, title] = firstWord(args);
+	// argv keeps a quoted id with spaces as one word; joined text cannot.
+	const [conversationId, title] =
+		ctx.positionals && ctx.positionals.length >= 2
+			? [ctx.positionals[0]!.trim(), ctx.positionals.slice(1).join(" ")]
+			: firstWord(args);
 	if (!conversationId || !title.trim()) {
 		throw new Error("rename requires a conversationId and a title");
 	}

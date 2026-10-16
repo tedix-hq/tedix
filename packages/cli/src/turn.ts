@@ -706,6 +706,7 @@ export function buildContext(
 		ops,
 		poll: options.poll,
 		pollIntervalMs: options.pollIntervalMs,
+		positionals: options.positionals,
 		search: options.search,
 	};
 }
