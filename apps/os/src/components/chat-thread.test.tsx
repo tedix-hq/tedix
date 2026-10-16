@@ -151,6 +151,8 @@ import {
 	HYDRATE_RUN_EVENTS_TAIL,
 	executionLinkMessageIds,
 	encodeChatContext,
+	FIRST_SEND_CONFIRM_POLL_MS,
+	firstSendConfirmPollMs,
 	invalidateOnFocus,
 	mergeHomeMessages,
 	newHomeConversationId,
@@ -3096,7 +3098,109 @@ describe("<ChatThread> skill picker", () => {
  * their own optimistic bubble. happy-dom lays nothing out, so the transcript's
  * scrollHeight is supplied by the test and scrollTop is recorded.
  */
+describe("firstSendConfirmPollMs", () => {
+	const firstSend = { conversationId: "home:new-1", idempotencyKey: "key-1" };
+	it("polls until the first turn's durable row exists, then stops", () => {
+		expect(firstSendConfirmPollMs(null, undefined)).toBe(false);
+		expect(firstSendConfirmPollMs(firstSend, undefined)).toBe(
+			FIRST_SEND_CONFIRM_POLL_MS,
+		);
+		expect(firstSendConfirmPollMs(firstSend, [{ id: "other:input" }])).toBe(
+			FIRST_SEND_CONFIRM_POLL_MS,
+		);
+		expect(firstSendConfirmPollMs(firstSend, [{ id: "key-1:input" }])).toBe(
+			false,
+		);
+	});
+});
+
 describe("<ChatThread> first-send reveal", () => {
+	it("shows a new thread's first turn as sent while the enqueue is still open", async () => {
+		transport.actions.enqueueMessage.mockReset();
+		let resolveSend!: (value: EnqueueHomeMessageOutput) => void;
+		transport.actions.enqueueMessage.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSend = resolve;
+			}),
+		);
+		kernelRuntimeApi.readMessages.mockImplementation(
+			async (input: { conversationId: string }) => {
+				const sent = transport.actions.enqueueMessage.mock.calls[0]?.[0];
+				return {
+					messages:
+						sent && input.conversationId === sent.conversationId
+							? [
+									message({
+										id: `${sent.idempotencyKey}:input`,
+										conversationId: sent.conversationId,
+										role: "user",
+										content: "Plan the Lisbon offsite",
+										runId: sent.idempotencyKey,
+									}),
+								]
+							: [],
+					nextCursor: null,
+				};
+			},
+		);
+		const props: Partial<ComponentProps<typeof ChatThread>> = {
+			conversationId: null,
+			onConversationCreated: vi.fn(),
+		};
+		const { container, rerender } = mountThread(props);
+		await flush();
+		typeDraft(container, "Plan the Lisbon offsite");
+		act(() => sendButton(container).click());
+		await flush();
+		// The read can race the enqueue's first write; the next poll lands it.
+		await act(async () => {
+			await new Promise((resolve) =>
+				setTimeout(resolve, FIRST_SEND_CONFIRM_POLL_MS + 100),
+			);
+		});
+		await flush();
+		const input = transport.actions.enqueueMessage.mock.calls[0]![0];
+		expect(kernelRuntimeApi.readMessages).toHaveBeenCalledWith(
+			expect.objectContaining({ conversationId: input.conversationId }),
+			expect.anything(),
+		);
+		// Sent, not "Sending…", and working — before the enqueue has answered.
+		expect(
+			container.querySelector('[data-slot="provisional-user-message"]'),
+		).toBeNull();
+		expect(container.querySelectorAll('li[data-role="user"]')).toHaveLength(1);
+		expect(
+			container.querySelector('[data-slot="running-indicator"]'),
+		).not.toBeNull();
+		expect(props.onConversationCreated).not.toHaveBeenCalled();
+
+		act(() =>
+			resolveSend({
+				idempotencyKey: input.idempotencyKey,
+				conversationId: input.conversationId,
+				status: "queued",
+				run: {
+					id: input.idempotencyKey,
+					organizationId: ORG_ID,
+					conversationId: input.conversationId,
+					status: "queued",
+					createdAt: "2026-10-03T10:00:00.000Z",
+				},
+			}),
+		);
+		await flush();
+		// The conversation id is attached when it arrives.
+		expect(props.onConversationCreated).toHaveBeenCalledWith(
+			input.conversationId,
+			undefined,
+		);
+		props.conversationId = input.conversationId;
+		rerender();
+		await flush();
+		expect(container.querySelectorAll('li[data-role="user"]')).toHaveLength(1);
+		expect(transport.actions.enqueueMessage).toHaveBeenCalledOnce();
+		transport.actions.enqueueMessage.mockReset();
+	});
 	it("adopts the confirmed conversation without losing or duplicating the first turn", async () => {
 		transport.actions.enqueueMessage.mockReset();
 		let resolveSend!: (value: EnqueueHomeMessageOutput) => void;
