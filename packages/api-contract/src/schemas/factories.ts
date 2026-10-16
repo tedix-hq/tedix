@@ -86,7 +86,7 @@ export const CreateFactoryInputSchema = z
 			.uuid()
 			.optional()
 			.describe(
-				"Optional Workspace the factory works in; recorded in the binding.",
+				"Optional Workspace the factory works in; recorded in the binding, and the factory's project is linked to the Workspace's Work view.",
 			),
 		output: z
 			.string()
@@ -142,6 +142,7 @@ export const FactoryBuildStepSchema = z.object({
 		"skill",
 		"schedule",
 		"output",
+		"workspace",
 	]),
 	action: z.enum(["created", "reused", "linked", "activated", "would_create"]),
 	id: z.string().nullable(),

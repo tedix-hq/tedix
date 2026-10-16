@@ -49,7 +49,11 @@ import {
 	respondToWorkInteraction,
 } from "./interactions";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
-import { listWorkMilestoneViews, updateWorkMilestone } from "./milestones";
+import {
+	linkWorkItemToMilestone,
+	listWorkMilestoneViews,
+	updateWorkMilestone,
+} from "./milestones";
 
 const migrationRoot = new URL("../../../drizzle/", import.meta.url);
 const migrations = readdirSync(migrationRoot)
@@ -1075,6 +1079,38 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		);
 		expect(result.data).toEqual([]);
 		expect(result.evaluatedCandidates).toBe(0);
+	});
+
+	it("names the project mismatch when a milestone link crosses projects", async () => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		sqlite.exec(
+			`INSERT INTO work_items(id,org_id,project_id,title,disposition,admission_spec_revision,created_at) VALUES('project-work','org','project','Project work','proposed','project-revision','2026-08-20T00:00:00.000Z'); INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,created_at) VALUES('milestone','org','project','Milestone','active','system','tedix','2026-08-20T00:00:00.000Z')`,
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const now = "2026-08-20T01:00:00.000Z";
+		await expect(
+			linkWorkItemToMilestone(db, {
+				orgId: "org",
+				milestoneId: "milestone",
+				workItemId: "work",
+				now,
+			}),
+		).rejects.toMatchObject({
+			name: "WorkControlError",
+			code: "NOT_ELIGIBLE",
+			message: expect.stringContaining(
+				"items must be in the milestone's project",
+			),
+		});
+		await expect(
+			linkWorkItemToMilestone(db, {
+				orgId: "org",
+				milestoneId: "milestone",
+				workItemId: "project-work",
+				now,
+			}),
+		).resolves.toMatchObject({ workItemId: "project-work" });
 	});
 
 	it("keeps milestone timeline pages canonical and under D1's parameter budget", async () => {

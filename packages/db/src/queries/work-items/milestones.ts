@@ -231,10 +231,16 @@ export async function linkWorkItemToMilestone(
 	db: DbQueryClient,
 	p: { orgId: string; milestoneId: string; workItemId: string; now: string },
 ) {
-	await Promise.all([
+	const [milestone, item] = await Promise.all([
 		requireMilestone(db, p.orgId, p.milestoneId),
 		requireWorkItem(db, p.orgId, p.workItemId),
 	]);
+	// The insert trigger enforces this too, but only as an opaque SQL abort.
+	if (item.projectId !== milestone.projectId)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			`Work Item ${p.workItemId} is not in the milestone's project; items must be in the milestone's project`,
+		);
 	return (
 		await db
 			.insert(workMilestoneItems)

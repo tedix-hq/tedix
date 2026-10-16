@@ -57,6 +57,8 @@ tedix factory create --goal "$goal" --slug "$slug" --owner "$owner" \
   `--cadence hourly --every-hours 3`; N is 1, 2, 3, 4, 6, 8 or 12. The builder
   chooses a UTC minute away from :00/:30; “every morning” is not a local-time
   guarantee. Inspect the returned cron before approving.
+- `--workspace-id` also links the factory's project to that Workspace, so its
+  Work tab lists the factory's items.
 - `--output` takes an existing Output ID or a title in `--workspace-id`.
   Titles are created on the first real run. `--output-kind document|sheet`
   defaults to document; an ID keeps its existing kind. Documents get dated

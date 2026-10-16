@@ -49,6 +49,11 @@ export interface FactoryStore {
 	/** The organization's active (unretired) tedis. */
 	listOwnerCandidates(): Promise<FactoryOwnerCandidate[]>;
 	workspaceExists(workspaceId: string): Promise<boolean>;
+	/** Link the project to the Workspace's Work view; created is false when already linked. */
+	linkWorkspaceProject(params: {
+		workspaceId: string;
+		projectId: string;
+	}): Promise<{ created: boolean }>;
 	/** An active Output of this organization, by id. */
 	findOutputById(outputId: string): Promise<FactoryOutputRef | null>;
 	/** The newest active Output of this kind and title in the Workspace. */
@@ -525,6 +530,27 @@ export async function buildFactory(
 		projectId = created.id;
 		wrote = true;
 		steps.push({ resource: "project", action: "created", id: projectId });
+	}
+
+	// Workspace link — the project shows in the Workspace's Work view.
+	const linkedWorkspaceId = workspaceId ?? bound?.workspaceId ?? null;
+	if (linkedWorkspaceId && dryRun) {
+		steps.push({
+			resource: "workspace",
+			action: "would_create",
+			id: linkedWorkspaceId,
+		});
+	} else if (linkedWorkspaceId && projectId) {
+		const link = await store.linkWorkspaceProject({
+			workspaceId: linkedWorkspaceId,
+			projectId,
+		});
+		if (link.created) wrote = true;
+		steps.push({
+			resource: "workspace",
+			action: link.created ? "linked" : "reused",
+			id: linkedWorkspaceId,
+		});
 	}
 
 	// Standing health Work Item, keyed by the slug.
