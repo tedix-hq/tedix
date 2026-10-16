@@ -349,7 +349,7 @@ export function buildCardReviewWebMcpTools(
 
 	const decideRule: WebMcpToolDef = {
 		name: "card_review_decide_rule",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: { consequentialHint: true },
 		description:
 			"Accept or reject one suggested rule change, like its Accept and Reject buttons: the rule's status cell becomes accepted or rejected.",
 		inputSchema: {

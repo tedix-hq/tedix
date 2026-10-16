@@ -4,7 +4,10 @@ import type { ModelContextLike } from "./model-context";
 import {
 	describeModelContextApi,
 	resolveModelContextSource,
+	toSpecToolOutput,
 	webMcpContextUnavailable,
+	webMcpError,
+	webMcpResult,
 } from "./model-context";
 
 type HostGlobals = typeof globalThis & {
@@ -115,5 +118,29 @@ describe("webMcpContextUnavailable", () => {
 			retryable: true,
 		});
 		expect(bare.isError).toBe(true);
+	});
+});
+
+describe("toSpecToolOutput", () => {
+	it("returns the structured data once for a success", () => {
+		expect(toSpecToolOutput(webMcpResult({ id: "w1" }, "/work/w1"))).toEqual({
+			id: "w1",
+			deepLink: "/work/w1",
+		});
+	});
+
+	it("returns the text when a success has no structured data", () => {
+		expect(
+			toSpecToolOutput({ content: [{ type: "text", text: "done" }] }),
+		).toBe("done");
+	});
+
+	it("rejects an error result with its text, as the spec requires", () => {
+		expect(() => toSpecToolOutput(webMcpError("Not found"))).toThrow(
+			"Not found",
+		);
+		expect(() =>
+			toSpecToolOutput(webMcpContextUnavailable("org scope not bound")),
+		).toThrow('"error":"context_unavailable"');
 	});
 });

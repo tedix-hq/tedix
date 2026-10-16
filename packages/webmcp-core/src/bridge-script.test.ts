@@ -16,6 +16,8 @@ function runBridge(scope: {
 	windowOrigin?: string;
 	moduleUrl?: string;
 	failFetchCount?: number;
+	/** Result the endpoint returns for tools/call; defaults to the tool list. */
+	callResult?: Record<string, unknown>;
 }): Array<{
 	url: string;
 	body: Record<string, unknown>;
@@ -34,6 +36,9 @@ function runBridge(scope: {
 			headers: init.headers as Record<string, string>,
 		});
 		const failed = remainingFailures-- > 0;
+		const body = JSON.parse(String(init.body)) as { method?: string };
+		if (body.method === "tools/call" && scope.callResult)
+			return { ok: true, json: async () => ({ result: scope.callResult }) };
 		return {
 			ok: !failed,
 			json: async () => ({
@@ -147,6 +152,49 @@ describe("webMcpBridgeScript", () => {
 		expect(calls[1]?.headers["mcp-name"]).toBe("search_site");
 		expect(calls[1]?.headers["mcp-protocol-version"]).toBe(
 			WEBMCP_BRIDGE_PROTOCOL_VERSION,
+		);
+	});
+
+	it("registers spec tools: mapped hints, rejected errors, structured results", async () => {
+		const registered: Array<{
+			name: string;
+			annotations: Record<string, unknown>;
+			execute: (a?: unknown) => Promise<unknown>;
+		}> = [];
+		const register = (callResult: Record<string, unknown>) => {
+			registered.length = 0;
+			runBridge({
+				document: {
+					modelContext: {
+						registerTool: (tool: (typeof registered)[number]) => {
+							registered.push(tool);
+						},
+					},
+				},
+				callResult,
+			});
+		};
+
+		register({
+			isError: true,
+			content: [{ type: "text", text: "query must contain 1-160 characters" }],
+		});
+		await settle();
+		expect(registered.map((tool) => tool.annotations)).toEqual([
+			{ readOnlyHint: true },
+			{},
+		]);
+		await expect(registered[0]?.execute({ query: "" })).rejects.toThrow(
+			"query must contain 1-160 characters",
+		);
+
+		register({
+			content: [{ type: "text", text: "{}" }],
+			structuredContent: { results: [] },
+		});
+		await settle();
+		await expect(registered[0]?.execute({ query: "pricing" })).resolves.toEqual(
+			{ results: [] },
 		);
 	});
 

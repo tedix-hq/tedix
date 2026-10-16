@@ -3,8 +3,10 @@ import {
 	type ModelContextLike,
 	type ResolvedModelContext,
 	resolveModelContextSource,
+	toSpecToolOutput,
 	type WebMcpHostApi,
 	type WebMcpHostSource,
+	type WebMcpSpecTool,
 	type WebMcpToolDef,
 	type WebMcpToolResult,
 } from "./model-context";
@@ -18,7 +20,8 @@ import {
  *
  * - Current `registerTool(tool, { signal })` is preferred. Every projection
  *   owns an AbortController, so route and tenant changes unregister the old
- *   tool set before registering the new one.
+ *   tool set before registering the new one. Tools go through
+ *   `toSpecToolOutput`, so error results reject as the spec requires.
  * - Legacy `provideContext` remains a compatibility fallback for experiments
  *   that only implement whole-set replacement.
  *
@@ -249,6 +252,14 @@ function composedTools(): WebMcpToolDef[] {
 	return all;
 }
 
+function specTool(tool: WebMcpToolDef): WebMcpSpecTool {
+	return {
+		...tool,
+		execute: async (args, options) =>
+			toSpecToolOutput(await tool.execute(args, options)),
+	};
+}
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -267,7 +278,9 @@ function project(context: ModelContextLike): void {
 			tools.map((tool) => {
 				try {
 					return Promise.resolve(
-						context.registerTool?.(tool, { signal: controller.signal }),
+						context.registerTool?.(specTool(tool), {
+							signal: controller.signal,
+						}),
 					);
 				} catch (error) {
 					return Promise.reject(error);

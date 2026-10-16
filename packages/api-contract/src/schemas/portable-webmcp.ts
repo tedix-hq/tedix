@@ -119,6 +119,12 @@ export const PortableWebMcpToolSchema = z
 				.boolean()
 				.optional()
 				.describe("Optional browser hint for provider-authored results."),
+			consequentialHint: z
+				.boolean()
+				.optional()
+				.describe(
+					"Optional browser hint that the action is significant or irreversible, so the browser confirms every call.",
+				),
 		}),
 	})
 	.superRefine((tool, context) => {
@@ -133,6 +139,15 @@ export const PortableWebMcpToolSchema = z
 				code: "custom",
 				path: ["action"],
 				message: "Read-only portable tools cannot declare an action contract",
+			});
+		if (
+			tool.annotations.readOnlyHint === true &&
+			tool.annotations.consequentialHint === true
+		)
+			context.addIssue({
+				code: "custom",
+				path: ["annotations", "consequentialHint"],
+				message: "Read-only portable tools cannot be consequential",
 			});
 	});
 

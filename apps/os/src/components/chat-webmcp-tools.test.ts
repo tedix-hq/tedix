@@ -113,6 +113,11 @@ describe("buildChatWebMcpTools", () => {
 		});
 	});
 
+	it("marks approval decisions and delegation consequential", () => {
+		for (const name of ["respond_home_approval", "delegate_task_to_tedi"])
+			expect(tool(name).annotations).toEqual({ consequentialHint: true });
+	});
+
 	it("registers the six chat tools under the chat scope", () => {
 		const context: ModelContextLike = { provideContext: () => {} };
 		setModelContextResolverForTests(() => context);

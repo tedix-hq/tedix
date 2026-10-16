@@ -245,7 +245,7 @@ export function buildChatWebMcpTools(
 	return [
 		{
 			name: "respond_home_approval",
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			annotations: { consequentialHint: true },
 			description:
 				"Approve or reject the action, delegation, workstation attachment, or plan that a Tedix Home run is waiting on. The server resolves the pending target from the run and applies the decision exactly once.",
 			inputSchema: {
@@ -367,7 +367,7 @@ export function buildChatWebMcpTools(
 		},
 		{
 			name: "delegate_task_to_tedi",
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			annotations: { consequentialHint: true },
 			description:
 				"Delegate a task to one of the org's tedis (durable AI digital workers) by slug — the task is sent as a chat turn routed to that worker, and the human sees the conversation update live in the Chat page.",
 			inputSchema: {

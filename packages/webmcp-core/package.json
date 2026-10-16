@@ -23,6 +23,7 @@
 		"@tedix/tsconfig": "workspace:*",
 		"typescript": "catalog:",
 		"vite": "catalog:",
-		"vite-plus": "catalog:"
+		"vite-plus": "catalog:",
+		"webmcp-types": "0.1.10"
 	}
 }
