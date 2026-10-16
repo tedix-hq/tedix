@@ -398,8 +398,8 @@ function DeckView({
 			</Text>
 		);
 	return (
-		<div className="grid gap-3 lg:grid-cols-[11rem_minmax(0,1fr)]">
-			<ol className="m-0 grid max-h-[70vh] list-none content-start gap-2 overflow-auto p-0">
+		<div className="deck-read">
+			<ol className="deck-read-rail m-0 list-none p-0">
 				{deck.slides.map((candidate, index) => (
 					<li key={candidate.id}>
 						{/*
@@ -435,39 +435,36 @@ function DeckView({
 					</li>
 				))}
 			</ol>
-			<div>
-				{/* Fit-to-stage, same rule the editor canvas earned: the stage is the
-				    size container and the slide is bounded by BOTH its axes.
-				    `aspect-video w-full` was width-driven only, so a short container
-				    clipped the deck instead of letterboxing it. */}
-				<div className="deck-read-stage">
-					<div
-						className="deck-read-canvas relative overflow-hidden rounded-md"
-						style={{
-							background: slide.background,
-							color,
-							containerType: "inline-size",
-						}}
-					>
-						<SlideBackground slide={slide} />
-						{slide.elements.map((element) => (
-							<ReadOnlyElement key={element.id} element={element} />
-						))}
-					</div>
+			{/* The stage hugs the slide: its width is bounded by the column and by
+			    the viewport height, and its height follows from 16:9. No fixed-height
+			    stage, so there is no letterbox above, below or beside the slide. */}
+			<div className="deck-read-stage">
+				<div
+					className="deck-read-canvas relative overflow-hidden rounded-md"
+					style={{
+						background: slide.background,
+						color,
+						containerType: "inline-size",
+					}}
+				>
+					<SlideBackground slide={slide} />
+					{slide.elements.map((element) => (
+						<ReadOnlyElement key={element.id} element={element} />
+					))}
 				</div>
-				<div className="mt-3 flex items-start justify-between gap-3">
-					<Text role="body" tone="secondary">
-						{slide.notes ? `Notes: ${slide.notes}` : null}
-					</Text>
-					<Button
-						size="sm"
-						variant="secondary"
-						title="Present (F)"
-						onClick={() => setPresenting(true)}
-					>
-						<Play size={14} /> Present
-					</Button>
-				</div>
+			</div>
+			<div className="deck-read-footer flex items-start justify-between gap-3">
+				<Text role="body" tone="secondary">
+					{slide.notes ? `Notes: ${slide.notes}` : null}
+				</Text>
+				<Button
+					size="sm"
+					variant="secondary"
+					title="Present (F)"
+					onClick={() => setPresenting(true)}
+				>
+					<Play size={14} /> Present
+				</Button>
 			</div>
 			{presenting && (
 				<SlidePresenter
