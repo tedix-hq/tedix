@@ -175,6 +175,29 @@ describe("aggregate tedis", () => {
 		expect(ask?.config).not.toHaveProperty("_aggregateTediRemoteName");
 	});
 
+	it("never sends tediId to the strict Work Item create input", () => {
+		const tools = buildAggregateTediTools(
+			[
+				{
+					slug: "echo",
+					namespace: "echo",
+					runtimeKind: "agent",
+					tediId: "tedi-1",
+					organizationId: "org-1",
+				},
+			],
+			env,
+		);
+		const create = tools.find(
+			(tool) => tool.toolId === "echo__work_item_create",
+		);
+		expect(create?.config).toMatchObject({
+			endpoint: "workItems/create",
+			staticParams: { __tedixOmitAggregateTediId: true },
+		});
+		expect(create?.config?.staticParams).not.toHaveProperty("tediId");
+	});
+
 	it("exposes the complete learning feedback loop as body-neutral RPC tools", () => {
 		const tools = buildAggregateTediTools(
 			[

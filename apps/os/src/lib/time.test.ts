@@ -34,6 +34,12 @@ describe("relativeTime", () => {
 		expect(relativeTime("2026-08-13T12:00:20.000Z", NOW)).toBe("just now");
 	});
 
+	it("reads a future instant as time ahead", () => {
+		expect(relativeTime("2026-08-13T12:05:00.000Z", NOW)).toBe("in 5m");
+		expect(relativeTime("2026-08-14T05:00:00.000Z", NOW)).toBe("in 17h");
+		expect(relativeTime("2026-08-16T12:00:00.000Z", NOW)).toBe("in 3d");
+	});
+
 	it("is empty on garbage input", () => {
 		expect(relativeTime("not-a-date", NOW)).toBe("");
 	});

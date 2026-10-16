@@ -74,6 +74,21 @@ tedix factory status docs-accuracy
 
   Without a slug, it lists every scheduled lane with its verdict.
 
+### Pause or archive a factory
+
+The schedule comes from the lane skill's `SKILL.md`, so pausing it and
+archiving it are both skill revisions made with `improve_skills`:
+
+- **Pause:** send the skill's full `content` with `enabled: false` added
+  under `capabilities.schedule`, after `params: {}`. `tedix factory status`
+  then reports `paused`. Remove the line to resume.
+- **Archive:** `improve_skills({ id, lifecycleState: "archived" })` deletes
+  the schedule, and the factory disappears from `inspect_factory_health`.
+  The project, objective and health Work Item stay. Cancel the health item
+  (`tedix work cancel <id>`), archive the project (`archive_project`) and
+  mark the objective `completed` (`update_tedi_objectives`) once nothing
+  else uses them.
+
 ## Which record answers which question?
 
 | Question                              | Canonical record                                                                      | Boundary                                                                         |

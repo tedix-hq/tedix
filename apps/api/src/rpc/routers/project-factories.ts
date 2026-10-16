@@ -63,7 +63,11 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 				name: tedi.name,
 				displayName: tedi.displayName,
 				createdAt: tedi.createdAt,
-				operator: tedi.mcpCapabilityProfile === "org_admin",
+				// The first tedi gets org_admin; an operator promoted to
+				// platform_admin is still the operator.
+				operator:
+					tedi.mcpCapabilityProfile === "org_admin" ||
+					tedi.mcpCapabilityProfile === "platform_admin",
 			}));
 		},
 		async workspaceExists(workspaceId) {
@@ -229,7 +233,7 @@ export const inspectFactoryHealthProcedure = factoriesOs.inspectFactoryHealth
 		if (wanted && data.length === 0) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,
-				`No factory "${wanted}": it is neither a factory slug nor a scheduled skill id.`,
+				`No factory "${wanted}": it is neither a factory slug nor a scheduled skill id. An archived lane is not listed; omit the slug to list every factory.`,
 			);
 		}
 		return { data, checkedAt: now.toISOString() };
