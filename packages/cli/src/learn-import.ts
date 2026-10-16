@@ -544,8 +544,8 @@ export const learnUsage = `Teach Tedix from your past local agent sessions
 
   tedix learn onboard [--dry-run [--with-model]] [--since <YYYY-MM-DD>] [--no-model] [--wait]
 
-Runs import-sessions, analyze-sessions and context below, in that order: what
-a new member runs once. It works in the background and returns at once
+Runs import-sessions, profile, analyze-sessions and context below, in that
+order: what a new member runs once. It works in the background and returns at once
 (--wait stays in the foreground); its proposals arrive in your Tedix inbox.
 Run it again to resume a run that stopped. Nothing reaches the shared board
 until you accept a proposal, in Tedix (Work > Interactions), in chat or with
@@ -555,6 +555,18 @@ tedix learn review.
 note counts and topic candidates from titles locally, without a model or board
 matching. Nothing is saved or sent. --dry-run --with-model runs the full model
 preview in the foreground and takes a few minutes.
+
+  tedix learn profile [--dry-run] [--no-upload] [--since <YYYY-MM-DD>] [--space <workspace-id>] [--json]
+
+Reads every local transcript in full (sub-agents and supervisor runs too) and
+writes "What Tedix knows about you" to your own Tedix space: your active
+projects linked to the board, open loops, workflows Tedix could take over,
+the people you work with, how you work, and three things it can do now, which
+also arrive as inbox proposals. Your local claude (haiku, else codex)
+summarises each session, then each workstream, then you; summaries are cached
+so a re-run reads only new sessions. Only the document and the proposals are
+uploaded. --dry-run counts without a model; --no-upload keeps the document in
+a local preview.
 
   tedix learn import-sessions [--dry-run] [--since <YYYY-MM-DD>] [--limit <n>] [--no-mine] [--json]
 
@@ -672,6 +684,10 @@ export async function runLearnCommand(
 	if (action === "analyze-sessions") {
 		const { runAnalyzeSessions } = await import("./learn-analyze");
 		return runAnalyzeSessions(args, deps);
+	}
+	if (action === "profile") {
+		const { runProfile } = await import("./learn-profile");
+		return runProfile(args, deps);
 	}
 	if (action === "context" || action === "review" || action === "onboard") {
 		const learn = await import("./learn-context");

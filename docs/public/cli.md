@@ -189,10 +189,25 @@ a model or board matching; nothing is saved or sent. For the full model
 preview, use `tedix learn onboard --dry-run --with-model`; it runs in the
 foreground and takes a few minutes.
 
-Onboarding runs the three steps below in order, in the
+Onboarding runs the four steps below in order, in the
 background (`--wait` keeps it in the foreground; running it again resumes a run
 that stopped), and creates nothing on the shared board until you accept it.
 Its proposals arrive in your Tedix inbox (Work > Interactions).
+
+`tedix learn profile` writes "What Tedix knows about you", a document in your
+own Tedix space: your active projects and where each stands, linked to the
+board's projects and Work; the open loops you left, with the session to resume
+or the commit; workflows Tedix could take over as a skill or a scheduled
+factory; the people and customers you work with; how you like to work; and
+three things it can do for you now, each a proposal in your inbox. It reads
+every local transcript in full, sub-agents and supervisor runs included, and
+your local `claude` (haiku, else `codex`) summarises each session, then each
+body of work, then you. Summaries are cached, so a re-run only reads new
+sessions. Transcripts stay on your machine; only the document and the
+proposals are uploaded, without secrets, email addresses or phone numbers.
+People's names appear only in your document, never in a proposal. `--dry-run`
+counts sessions and model calls without a model; `--no-upload` writes the
+document only to a local preview.
 
 To teach Tedix from sessions you already had, run
 `tedix learn import-sessions --dry-run`, review the counts and samples, then run

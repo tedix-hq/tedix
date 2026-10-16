@@ -596,9 +596,11 @@ async function rawCandidates(
 /** Each of these names, as a whole word, replaced by "[name]". */
 export function withoutNames(text: string, names: Set<string>): string {
 	if (!names.size) return text;
-	return text.replace(/[\p{L}][\p{L}'-]*/gu, (word) =>
-		names.has(word.toLowerCase()) ? "[name]" : word,
-	);
+	return text.replace(/[\p{L}][\p{L}'-]*/gu, (word) => {
+		const possessive = /'s$/i.test(word) ? word.slice(-2) : "";
+		const bare = possessive ? word.slice(0, -2) : word;
+		return names.has(bare.toLowerCase()) ? `[name]${possessive}` : word;
+	});
 }
 
 /**
@@ -1654,7 +1656,7 @@ function codeCommand(target: OrganizationTarget): string[] {
 
 const MATCH_TIMEOUT_MS = 240_000;
 
-function caller(read: ReadJson, target: OrganizationTarget) {
+export function caller(read: ReadJson, target: OrganizationTarget) {
 	return async (source: string): Promise<Json> => {
 		const result = await read(codeCommand(target), MATCH_TIMEOUT_MS, source);
 		// Code Mode reports a failed tool call as a value, not an exit code.
@@ -2165,7 +2167,7 @@ export interface OnboardProgress {
 	exitCode?: number;
 }
 
-const ONBOARD_STEPS = ["import", "analyze", "context"] as const;
+const ONBOARD_STEPS = ["import", "profile", "analyze", "context"] as const;
 
 function processAlive(pid: number): boolean {
 	try {
@@ -2351,7 +2353,7 @@ export async function runOnboard(
 	const steps: Record<(typeof ONBOARD_STEPS)[number], () => Promise<number>> = {
 		import: async () => {
 			write(
-				"1/3 Personal: your decisions and preference notes become lessons only you see.",
+				"1/4 Personal: your decisions and preference notes become lessons only you see.",
 			);
 			const imported: string[] = [];
 			const code = await runLearnCommand(
@@ -2379,9 +2381,20 @@ export async function runOnboard(
 			}
 			return code;
 		},
+		profile: async () => {
+			write(
+				"2/4 What Tedix knows about you: a document in your own Tedix space, and three things it can do now.",
+			);
+			if (options.noModel) {
+				write("    Skipped: it needs your local model.");
+				return 0;
+			}
+			const { runProfile } = await import("./learn-profile");
+			return runProfile(pass, deps);
+		},
 		analyze: async () => {
 			write(
-				"2/3 Your own section of the shared session lists (repeated requests, friction, decisions).",
+				"3/4 Your own section of the shared session lists (repeated requests, friction, decisions).",
 			);
 			const analyzed: string[] = [];
 			const code = await runAnalyzeSessions(
@@ -2408,7 +2421,7 @@ export async function runOnboard(
 		},
 		context: async () => {
 			write(
-				"3/3 Work context: matched against the board; anything new goes to your Tedix inbox as a proposal.",
+				"4/4 Work context: matched against the board; anything new goes to your Tedix inbox as a proposal.",
 			);
 			return runContext(stepArgs, deps);
 		},
