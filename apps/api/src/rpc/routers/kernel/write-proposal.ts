@@ -557,6 +557,8 @@ const NO_WRITE_TOOL = "NONE";
 const MAX_OUTPUT_TOKENS = 8192;
 const WRITE_GENERATION_TIMEOUT_MS = 120_000;
 const MAX_CATALOG_TOOLS = 40;
+/** Leading catalog entries whose schemas are fetched during selection. */
+const PREFETCH_DESCRIBE_COUNT = 3;
 /** Bounded room for record descriptions and drafts, including JSON overhead. */
 const MAX_ARGS_JSON_LENGTH = 16_384;
 
@@ -1191,6 +1193,35 @@ export async function planKernelWriteProposal(args: {
 			args.onStage?.("writeCatalogReady");
 			const preferred = preferredToolForCapability(writes, capability, content);
 			const catalog = orderWriteToolCatalog(writes).slice(0, MAX_CATALOG_TOOLS);
+			// The exact schema comes from a second Code Mode call after selection
+			// (6–8 s cold). Describe the leading candidates while the selection
+			// passes run; the pick is usually among them.
+			const describes = new Map<string, Promise<McpTool[]>>();
+			const describe = (name: string): Promise<McpTool[]> => {
+				let pending = describes.get(name);
+				if (!pending) {
+					pending = cachedWriteCatalog(
+						`${cacheKey}|describe|${name}`,
+						async () =>
+							parseCodeModeCatalog(
+								await mcpCall(
+									env,
+									host,
+									organizationId,
+									"tools/call",
+									codeModeDescribeParams(name),
+									actingUserId,
+								),
+							),
+					).catch(() => [] as McpTool[]);
+					describes.set(name, pending);
+				}
+				return pending;
+			};
+			if (transport === "codemode" && !preferred) {
+				for (const tool of catalog.slice(0, PREFETCH_DESCRIBE_COUNT))
+					void describe(tool.name);
+			}
 			let selected: { toolName: string | null; reason: string } = preferred
 				? { toolName: preferred.name, reason: "selected" }
 				: await selectJevAction({
@@ -1253,22 +1284,9 @@ export async function planKernelWriteProposal(args: {
 				});
 			exactTool =
 				transport === "codemode"
-					? (
-							await cachedWriteCatalog(
-								`${cacheKey}|describe|${candidate.name}`,
-								async () =>
-									parseCodeModeCatalog(
-										await mcpCall(
-											env,
-											host,
-											organizationId,
-											"tools/call",
-											codeModeDescribeParams(candidate.name),
-											actingUserId,
-										),
-									),
-							)
-						).find((tool) => tool.name === candidate.name)
+					? (await describe(candidate.name)).find(
+							(tool) => tool.name === candidate.name,
+						)
 					: candidate;
 		}
 		if (!exactTool?.inputSchema || !isWriteCapable(exactTool))
