@@ -363,6 +363,13 @@ describe("executeApprovedKernelWrite", () => {
 			"tools/call",
 			"tools/call",
 		]);
+		expect(service.calls[1]?.params).toEqual({
+			_meta: HOME_REQUEST_META,
+			name: "code",
+			arguments: {
+				code: 'async () => await discover.describe({"callable":"work.create_work_items"})',
+			},
+		});
 		expect(service.calls[2]?.params).toEqual({
 			_meta: HOME_REQUEST_META,
 			name: "code",

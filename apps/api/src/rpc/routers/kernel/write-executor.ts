@@ -41,7 +41,7 @@ import {
 } from "../../../lib/first-party-mcp";
 import {
 	CODE_MODE_TOOL_NAME,
-	codeModeDiscoveryParams,
+	codeModeCanonicalDescribeParams,
 	codeModeExecutionParams,
 	codeModeResultData,
 	type KernelWriteTransport,
@@ -331,7 +331,7 @@ export async function executeApprovedKernelWrite(args: {
 							host,
 							payload.organizationId,
 							"tools/call",
-							codeModeDiscoveryParams(payload.toolName),
+							codeModeCanonicalDescribeParams(payload.toolName),
 							payload.initiatedByUserId ?? undefined,
 						),
 					).find((candidate) => candidate.name === payload.toolName)
