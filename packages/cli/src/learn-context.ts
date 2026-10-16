@@ -20,15 +20,21 @@
  *    already covers it, and otherwise which project (and open parent item) it
  *    belongs under; without a model, score thresholds decide.
  * 4. Propose. Covered candidates are reported, never written. A candidate
- *    with a project becomes a proposal in a local file; one that fits no
- *    project is listed for the person and never filed. Nothing reaches the
- *    shared board until `tedix learn review` accepts it, and a decision is
- *    remembered so a re-run never asks or creates twice.
+ *    with a project becomes a proposal in the person's Tedix inbox (a Work
+ *    interaction, see learn-proposals.ts); a project or goal with three or
+ *    more of its own tasks and no item on the board becomes one epic proposal
+ *    with those tasks under it. The rest is listed and never filed. Nothing
+ *    reaches the shared board until the person accepts, in Tedix OS, in chat
+ *    or with `tedix learn review`; the inbox is checked first, so a re-run
+ *    never asks or creates twice.
  */
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	closeSync,
 	existsSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
 	readFileSync,
 	renameSync,
@@ -45,7 +51,7 @@ import {
 } from "./agent-context";
 import { asciiJson } from "./hooks/agent-status";
 import { redact } from "./hooks/decision-capture";
-import { cliRead, type ReadJson } from "./hooks/hook-io";
+import { AGENT_IDENTITY_ENV, cliRead, type ReadJson } from "./hooks/hook-io";
 import {
 	claudeModel,
 	claudeSignals,
@@ -67,6 +73,15 @@ import {
 	targetKey,
 	type Unrouted,
 } from "./learn-import";
+import {
+	type AskedProposal,
+	type Citation,
+	listProposalsSource,
+	proposalRequest,
+	publishSource,
+	respondSource,
+} from "./learn-proposals";
+import { selfCommand } from "./shared";
 
 type Json = Record<string, any>;
 
@@ -455,7 +470,7 @@ export const EXTRACT_PROMPT = `Below are numbered summaries of one person's codi
 List the durable work these sessions show:
 - "task": one concrete deliverable (fix, build, write, ship, research something specific);
 - "goal": an outcome pursued across several sessions;
-- "project": a named product area, client or body of work.
+- "project": a named product area, client or body of work; when three or more tasks belong to the same one, list it as well, citing all their sessions.
 Merge sessions only when they work on the same deliverable or outcome; related but different deliverables stay separate entries. Skip status checks, one-off questions, small talk, personal errands unrelated to their work, and tests or demos of the agent itself.
 Each summary ends with the last thing typed; mark "done" true when the sessions show the work finished (shipped, merged, closed, answered).
 Return ONLY a JSON array, no prose: [{"kind":"task|goal|project","title":"<at most 12 words; a task starts with a verb>","sessions":[<numbers>],"confidence":<0 to 1>,"done":<true|false>}].
@@ -618,13 +633,14 @@ export async function extractCandidates(
 }
 
 /**
- * Drop a broad entry whose sessions are mostly explained by narrower ones
- * ("the open-source project" over its three concrete tasks): it would only
- * restate them on the board. A project stays, as context for placement.
+ * A broad entry whose sessions are mostly explained by narrower ones ("the
+ * open-source project" over its three concrete tasks) would only restate them
+ * as a Work Item of its own, so it is kept as a project: context for placement
+ * and, when the board has nothing for it, the epic its tasks go under.
  */
 function withoutUmbrellas(candidates: Candidate[]): Candidate[] {
-	return candidates.filter((c) => {
-		if (c.kind === "project" || c.sessions.length < 3) return true;
+	return candidates.map((c) => {
+		if (c.kind === "project" || c.sessions.length < 3) return c;
 		const covered = new Set(
 			candidates
 				.filter(
@@ -635,10 +651,10 @@ function withoutUmbrellas(candidates: Candidate[]): Candidate[] {
 				)
 				.flatMap((o) => o.sessions),
 		);
-		return (
-			c.sessions.filter((id) => covered.has(id)).length * 3 <
+		return c.sessions.filter((id) => covered.has(id)).length * 3 <
 			c.sessions.length * 2
-		);
+			? c
+			: { ...c, kind: "project" };
 	});
 }
 
@@ -805,7 +821,7 @@ export async function matchBoard(
 // Judge and propose
 // ---------------------------------------------------------------------------
 
-export type ProposalAction = "tracked" | "create" | "unplaced";
+export type ProposalAction = "tracked" | "create" | "unplaced" | "nested";
 
 export interface Proposal {
 	key: string;
@@ -826,6 +842,14 @@ export interface Proposal {
 	/** Closest existing item, shown to the reviewer. */
 	nearest?: { id: string; title: string; score: number };
 	reason: string;
+	/** An epic proposal's tasks, created under it on acceptance. */
+	children?: Proposal[];
+	/** The epic proposal a nested task belongs to. */
+	epicKey?: string;
+	/** The sessions it came from (the evidence the reviewer sees). */
+	citations?: Citation[];
+	/** Title of the open item it goes under, when it has one. */
+	parentTitle?: string;
 }
 
 export const THRESHOLDS = {
@@ -948,7 +972,7 @@ function decide(
 		action: "create",
 		projectId,
 		projectKey: projectKeys.get(projectId),
-		...(parent ? { parentId: parent[0] } : {}),
+		...(parent ? { parentId: parent[0], parentTitle: parent[1] } : {}),
 		...(nearest ? { nearest } : {}),
 		reason: "nothing on the board covers it yet",
 	};
@@ -964,10 +988,13 @@ export async function judge(
 		for (const p of match.p) projectKeys.set(p[0], p[1]);
 	const empty = { w: [], p: [] };
 	if (!runModel)
-		return placeByProjects(
+		return proposeEpics(
 			candidates,
-			candidates.map((c) =>
-				decide(c, board.matches[c.key] ?? empty, projectKeys),
+			placeByProjects(
+				candidates,
+				candidates.map((c) =>
+					decide(c, board.matches[c.key] ?? empty, projectKeys),
+				),
 			),
 		);
 	const picks = new Map<string, Parameters<typeof decide>[3]>();
@@ -1022,7 +1049,12 @@ export async function judge(
 			decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
 		),
 	);
-	return confirmNew(proposals, board, runModel);
+	// Confirm each task on its own first, so an epic only ever holds tasks
+	// that passed the same duplicate check as a single proposal.
+	return proposeEpics(
+		candidates,
+		await confirmNew(candidates, proposals, board, runModel),
+	);
 }
 
 export const CONFIRM_PROMPT = `Is the new task below the same work as one of the existing Work Items listed under it: the same problem, fix or deliverable, even if worded differently?
@@ -1035,6 +1067,7 @@ Answer with ONLY the number of the existing item, or 0 if none is the same.
  * batch of ten candidates misses matches one pair at a time does not.
  */
 async function confirmNew(
+	candidates: Candidate[],
 	proposals: Proposal[],
 	board: BoardMatches,
 	runModel: RunModel,
@@ -1043,8 +1076,9 @@ async function confirmNew(
 	const doubtful = out
 		.map((p, i) => [p, i] as const)
 		.filter(
-			([p]) =>
-				p.action === "create" && (p.nearest?.score ?? 0) >= THRESHOLDS.confirm,
+			([p, i]) =>
+				(p.action === "create" || mayJoinEpic(candidates[i]!, p)) &&
+				(board.matches[p.key]?.w[0]?.[5] ?? 0) >= THRESHOLDS.confirm,
 		);
 	await inPool(doubtful, 4, async ([p, i]) => {
 		const options = (board.matches[p.key]?.w ?? []).slice(0, 3);
@@ -1110,6 +1144,96 @@ export function placeByProjects(
 				"nothing on the board covers it; its sessions belong to this project",
 		};
 	});
+}
+
+/** Tasks a body of work needs before it is proposed as one epic. */
+export const EPIC_MIN_TASKS = 3;
+const EPIC_MAX_TASKS = 25;
+
+/**
+ * Could become part of an epic: a project or goal no existing item covers,
+ * or a confident, unfinished task that no project fits.
+ */
+function mayJoinEpic(c: Candidate, p: Proposal): boolean {
+	if (c.kind !== "task")
+		return !p.workId && (p.action === "unplaced" || p.action === "tracked");
+	return (
+		p.action === "unplaced" &&
+		!p.projectId &&
+		c.confidence >= THRESHOLDS.propose &&
+		!c.done
+	);
+}
+
+/**
+ * A project or goal from the sessions that the board has no item for, with
+ * at least {@link EPIC_MIN_TASKS} of its own tasks (most of each task's
+ * sessions are its sessions) that would otherwise go up one by one or not at
+ * all, becomes ONE epic proposal with those tasks under it: in its project
+ * when it has one, else unfiled. Every task already passed the duplicate
+ * checks a single proposal does.
+ */
+export function proposeEpics(
+	candidates: Candidate[],
+	proposals: Proposal[],
+): Proposal[] {
+	const out = [...proposals];
+	const taken = new Set<number>();
+	const heads = candidates
+		.map((_, i) => i)
+		.filter((i) => {
+			const c = candidates[i]!;
+			return (
+				c.kind !== "task" &&
+				mayJoinEpic(c, out[i]!) &&
+				c.confidence >= THRESHOLDS.propose &&
+				!c.done
+			);
+		})
+		.sort(
+			(a, b) => candidates[b]!.sessions.length - candidates[a]!.sessions.length,
+		);
+	for (const h of heads) {
+		const head = out[h]!;
+		const own = new Set(candidates[h]!.sessions);
+		const members = candidates
+			.map((_, i) => i)
+			.filter((i) => {
+				const c = candidates[i]!;
+				const p = out[i]!;
+				if (i === h || taken.has(i) || c.kind !== "task") return false;
+				// A task of a named project the board lacks belongs with it, even
+				// when a word it shares with some board project placed it there.
+				const fits = head.projectId
+					? p.action === "create" &&
+						p.projectId === head.projectId &&
+						!p.parentId
+					: mayJoinEpic(c, p) ||
+						(candidates[h]!.kind === "project" &&
+							p.action === "create" &&
+							!p.parentId);
+				return (
+					fits &&
+					c.sessions.filter((id) => own.has(id)).length * 2 >= c.sessions.length
+				);
+			})
+			.slice(0, EPIC_MAX_TASKS);
+		if (members.length < EPIC_MIN_TASKS) continue;
+		taken.add(h);
+		for (const i of members) {
+			taken.add(i);
+			out[i] = { ...out[i]!, action: "nested", epicKey: head.key };
+		}
+		out[h] = {
+			...head,
+			action: "create",
+			children: members.map((i) => out[i]!),
+			reason: head.projectId
+				? `${members.length} tasks in this project and no epic on the board for them`
+				: `${members.length} related tasks and no project on the board fits them`,
+		};
+	}
+	return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1216,53 +1340,16 @@ export function decidedFor(
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Apply accepted proposals (the only org-shared write)
-// ---------------------------------------------------------------------------
-
-export function intentId(userId: string | null, key: string): string {
-	return `learn-context:${userId ?? "anonymous"}:${key}`;
-}
-
-export function proposalDescription(proposal: Proposal, who: string): string {
-	return [
-		`Proposed from ${who}'s local agent sessions by tedix learn review: ${proposal.sessions} session${proposal.sessions === 1 ? "" : "s"} between ${proposal.from} and ${proposal.to} (${proposal.kind}, confidence ${proposal.confidence.toFixed(2)}).`,
-		proposal.nearest
-			? `Closest existing item when proposed: ${proposal.nearest.title} (${proposal.nearest.id.slice(0, 8)}, similarity ${proposal.nearest.score}).`
-			: "No similar existing item when proposed.",
-		"Only a short paraphrase left the machine; no transcript was uploaded.",
-	].join("\n\n");
-}
-
-/**
- * Code Mode program: create each accepted proposal unless the board already
- * has it (same intent id, or the same title in the same project).
- */
-export function applySource(
-	items: Array<{
-		key: string;
-		title: string;
-		description: string;
-		projectId: string;
-		parentId?: string;
-		intent: string;
-	}>,
-): string {
-	return `async () => {
-	const items = ${asciiJson(items)};
-	const norm = (t) => String(t || "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();
-	const out = {};
-	for (const item of items) {
-		const page = await work.list_work_items({ projectId: item.projectId, titleContains: item.title.slice(0, 40), limit: 50 });
-		if (page?.ok === false || !Array.isArray(page?.data)) { out[item.key] = { error: "listing Work Items failed: " + String(page?.error ?? "no data") }; continue; }
-		const existing = page.data.find((r) => r.sourceIntentId === item.intent || norm(r.title) === norm(item.title));
-		if (existing) { out[item.key] = { id: existing.id, action: "exists" }; continue; }
-		const made = await work.create_work_items({ title: item.title, description: item.description, workKind: "other", priority: "medium", projectId: item.projectId, ...(item.parentId ? { parentWorkItemId: item.parentId } : {}), sourceIntentId: item.intent });
-		if (made?.ok === false || !made?.id) { out[item.key] = { error: String(made?.error ?? "create failed") }; continue; }
-		out[item.key] = { id: made.id, action: "created" };
-	}
-	return out;
-}`;
+/** Already in the member's inbox (any state), by key or a near-identical title. */
+export function askedFor(
+	proposal: Pick<Proposal, "key" | "title">,
+	asked: AskedProposal[],
+): AskedProposal | undefined {
+	const set = new Set(words(proposal.title));
+	return (
+		asked.find((a) => a.key === proposal.key) ??
+		asked.find((a) => jaccard(new Set(words(a.title)), set) >= 0.6)
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -1278,6 +1365,10 @@ export interface ContextDeps extends LearnDeps {
 	stateDir?: string;
 	/** Asks the person one review question (tests); a terminal otherwise. */
 	ask?: (question: string) => Promise<string>;
+	/** Starts the background onboarding worker (tests); a detached CLI otherwise. */
+	startWorker?: (args: string[], log: string) => number | undefined;
+	/** Whether a process is still running (tests). */
+	alive?: (pid: number) => boolean;
 }
 
 function contextOptions(args: string[], allowed: string[]) {
@@ -1285,6 +1376,8 @@ function contextOptions(args: string[], allowed: string[]) {
 		dryRun: false,
 		json: false,
 		noModel: false,
+		wait: false,
+		worker: false,
 		since: undefined as string | undefined,
 		accept: undefined as string | undefined,
 		reject: undefined as string | undefined,
@@ -1301,6 +1394,8 @@ function contextOptions(args: string[], allowed: string[]) {
 		if (arg === "--dry-run") options.dryRun = true;
 		else if (arg === "--json") options.json = true;
 		else if (arg === "--no-model") options.noModel = true;
+		else if (arg === "--wait") options.wait = true;
+		else if (arg === "--worker") options.worker = true;
 		else if (arg === "--since") {
 			const since = new Date(value());
 			if (Number.isNaN(since.getTime()))
@@ -1333,6 +1428,62 @@ function caller(read: ReadJson, target: OrganizationTarget) {
 	};
 }
 
+async function askedProposals(
+	call: (source: string) => Promise<Json>,
+	openOnly: boolean,
+): Promise<{ me: { id: string; name: string } | null; rows: AskedProposal[] }> {
+	const result = await call(listProposalsSource(openOnly));
+	if (!Array.isArray(result.rows))
+		throw new Error("reading your inbox returned no rows");
+	return { me: result.me ?? null, rows: result.rows };
+}
+
+/**
+ * The key of a project a proposal names that the board match did not return
+ * (a covering item's project), so the member reads "FINANCE", not an id.
+ */
+async function withProjectKeys(
+	proposals: Proposal[],
+	call: (source: string) => Promise<Json>,
+): Promise<Proposal[]> {
+	const missing = [
+		...new Set(
+			proposals
+				.flatMap((p) => [p, ...(p.children ?? [])])
+				.filter((p) => p.projectId && !p.projectKey)
+				.map((p) => p.projectId!),
+		),
+	];
+	if (!missing.length) return proposals;
+	let keys: Record<string, string> = {};
+	try {
+		keys =
+			(
+				await call(`async () => {
+	const want = new Set(${asciiJson(missing)});
+	const keys = {};
+	for (let offset = 0; offset < 2000; offset += 100) {
+		const r = await projects.list_projects({ limit: 100, offset });
+		if (r?.ok === false || !Array.isArray(r?.data)) break;
+		for (const p of r.data) if (want.has(p.id)) keys[p.id] = p.key;
+		if (!r.pagination?.hasMore) break;
+	}
+	return { keys };
+}`)
+			).keys ?? {};
+	} catch {
+		return proposals;
+	}
+	const fill = (p: Proposal): Proposal => ({
+		...p,
+		...(p.projectId && !p.projectKey && keys[p.projectId]
+			? { projectKey: keys[p.projectId] }
+			: {}),
+		...(p.children ? { children: p.children.map(fill) } : {}),
+	});
+	return proposals.map(fill);
+}
+
 function where(p: Proposal): string {
 	return p.projectKey ?? p.projectId?.slice(0, 8) ?? "no project";
 }
@@ -1353,7 +1504,9 @@ function renderTarget(key: string, entry: Json): string[] {
 	}
 	if (entry.proposals.length) {
 		lines.push(
-			`  Proposed (${entry.proposals.length}); nothing reaches the board until you accept:`,
+			entry.published
+				? `  Proposed (${entry.proposals.length}), now in your Tedix inbox; nothing reaches the board until you accept:`
+				: `  Proposed (${entry.proposals.length}); nothing reaches the board until you accept:`,
 			...renderProposals(entry.proposals),
 		);
 	}
@@ -1364,16 +1517,16 @@ function renderTarget(key: string, entry: Json): string[] {
 	}
 	if (entry.alreadyDecided)
 		lines.push(
-			`  Decided earlier and not asked again: ${entry.alreadyDecided}`,
+			`  Asked or decided earlier and not asked again: ${entry.alreadyDecided}`,
 		);
 	return lines;
 }
 
 function renderProposals(proposals: Proposal[]): string[] {
-	return proposals.map(
-		(p, i) =>
-			`    ${i + 1}. ${p.title} -> ${where(p)} (${p.sessions} session${p.sessions === 1 ? "" : "s"}, ${p.from} to ${p.to})${p.nearest ? `; closest existing: ${p.nearest.title.slice(0, 80)}` : ""}`,
-	);
+	return proposals.flatMap((p, i) => [
+		`    ${i + 1}. ${p.children?.length ? `New epic: ${p.title} (${p.children.length} tasks)` : p.title} -> ${where(p)} (${p.sessions} session${p.sessions === 1 ? "" : "s"}, ${p.from} to ${p.to})${p.nearest ? `; closest existing: ${p.nearest.title.slice(0, 80)}` : ""}`,
+		...(p.children ?? []).map((c) => `         - ${c.title}`),
+	]);
 }
 
 /** `tedix learn context`: match local work against the board, propose the rest. */
@@ -1422,6 +1575,7 @@ export async function runContext(
 		const entry: Json = { sessions: sessions.length };
 		report.targets[key] = entry;
 		try {
+			const call = caller(read, target);
 			const candidates = await extractCandidates(sessions, runModel);
 			entry.candidates = candidates.length;
 			const earliest = sessions.map((s) => s.from).sort()[0]!;
@@ -1429,9 +1583,36 @@ export async function runContext(
 				Date.parse(earliest) - 30 * 86_400_000,
 			).toISOString();
 			const board: BoardMatches = candidates.length
-				? await matchBoard(candidates, since, caller(read, target))
+				? await matchBoard(candidates, since, call)
 				: { me: null, scanned: {}, matches: {} };
-			const proposals = await judge(candidates, board, runModel, new Map());
+			const digests = new Map(sessions.map((s) => [s.sessionId, s]));
+			const citations = new Map(
+				candidates.map((c) => [
+					c.key,
+					c.sessions.flatMap((id) => {
+						const s = digests.get(id);
+						return s
+							? [
+									{
+										harness: s.harness,
+										session: s.sessionId,
+										title: s.title,
+										at: s.from,
+									},
+								]
+							: [];
+					}),
+				]),
+			);
+			const cite = (p: Proposal): Proposal => ({
+				...p,
+				citations: citations.get(p.key) ?? [],
+				...(p.children ? { children: p.children.map(cite) } : {}),
+			});
+			const proposals = await withProjectKeys(
+				(await judge(candidates, board, runModel, new Map())).map(cite),
+				call,
+			);
 			const path = statePath(target, stateDir);
 			const prior = readState(path);
 			// Decisions belong to the person who made them.
@@ -1439,11 +1620,50 @@ export async function runContext(
 				prior && (!board.me || prior.userId === board.me.id)
 					? prior.decided
 					: {};
+			// What the member was already asked, in any state, on any machine.
+			const asked = candidates.length
+				? (await askedProposals(call, false)).rows
+				: [];
+			const fresh = (p: Proposal) =>
+				!decidedFor(p, decided) && !askedFor(p, asked);
 			const open = proposals.filter((p) => p.action === "create");
-			const pending = open.filter((p) => !decidedFor(p, decided));
+			const pending = open
+				.filter(fresh)
+				.map((p) =>
+					p.children ? { ...p, children: p.children.filter(fresh) } : p,
+				);
+			let published = false;
+			if (pending.length && !options.dryRun) {
+				if (!board.me)
+					throw new Error(
+						"your Tedix profile could not be read, so proposals cannot be addressed to you",
+					);
+				const me = board.me;
+				const who = me.name.split(/\s+/)[0] || "a member";
+				const result = await call(
+					publishSource(
+						pending.map((p) => ({
+							key: p.key,
+							request: proposalRequest(p, who, me.id),
+						})),
+					),
+				);
+				const problems = pending
+					.map((p) => result[p.key])
+					.filter((r: Json | undefined) => !r?.id)
+					.map((r: Json | undefined) =>
+						String(r?.error ?? r?.skipped ?? "not sent"),
+					);
+				if (problems.some((_, i) => !result[pending[i]!.key]?.skipped))
+					failed = true;
+				if (problems.length)
+					entry.publishErrors = [...new Set(problems)].slice(0, 3);
+				published = problems.length < pending.length;
+			}
 			Object.assign(entry, {
 				tracked: proposals.filter((p) => p.action === "tracked"),
 				proposals: pending,
+				published,
 				unplaced: proposals.filter((p) => p.action === "unplaced"),
 				alreadyDecided: open.length - pending.length,
 				scanned: board.scanned,
@@ -1474,8 +1694,12 @@ export async function runContext(
 		return failed ? 2 : 0;
 	}
 	const lines: string[] = [];
-	for (const [key, entry] of Object.entries<Json>(report.targets))
-		lines.push(...renderTarget(key, entry), "");
+	for (const [key, entry] of Object.entries<Json>(report.targets)) {
+		lines.push(...renderTarget(key, entry));
+		if (entry.publishErrors)
+			lines.push(`  Not sent: ${entry.publishErrors.join("; ")}`);
+		lines.push("");
+	}
 	const unbound = Object.keys(plan.unrouted.unboundRepository);
 	if (unbound.length)
 		lines.push(
@@ -1489,7 +1713,13 @@ export async function runContext(
 	else if (options.dryRun) lines.push("Dry run: nothing was saved or sent.");
 	else if (pending)
 		lines.push(
-			"Next: tedix learn review  (asks about each proposal; or --accept all, --accept 1,3, --reject 2)",
+			"Next: accept or decline each proposal in your Tedix inbox (Work > Interactions), in chat, or here with tedix learn review.",
+		);
+	else if (
+		Object.values<Json>(report.targets).some((e) => e.alreadyDecided > 0)
+	)
+		lines.push(
+			"Nothing new to propose. Earlier proposals you have not answered stay in your Tedix inbox (tedix learn review lists them).",
 		);
 	else lines.push("Nothing to review: the board already covers your work.");
 	write(lines.join("\n"));
@@ -1530,7 +1760,11 @@ function stateFiles(directory: string): string[] {
 	}
 }
 
-/** `tedix learn review`: accept or reject proposals, then file the accepted. */
+/**
+ * `tedix learn review`: answer the proposals waiting in your Tedix inbox.
+ * The same items are answerable in Tedix OS and in chat; accepting one makes
+ * Tedix create its Work, declining it is remembered there.
+ */
 export async function runReview(
 	args: string[],
 	deps: ContextDeps = {},
@@ -1541,39 +1775,65 @@ export async function runReview(
 	const ask =
 		deps.ask ??
 		(process.stdin.isTTY && !options.json ? terminalAsk : undefined);
+	const stateDir = deps.stateDir ?? stateDirectory();
+	// Every organization onboarding ran for, plus the default one.
+	const targets = new Map<string, OrganizationTarget>();
+	const states = new Map<string, string>();
+	for (const path of stateFiles(stateDir)) {
+		const state = readState(path);
+		if (!state?.target) continue;
+		targets.set(targetKey(state.target), state.target);
+		states.set(targetKey(state.target), path);
+	}
+	const fallback =
+		"defaultTarget" in deps ? deps.defaultTarget : defaultOrganizationTarget();
+	if (fallback && !targets.size) targets.set(targetKey(fallback), fallback);
 	const results: Json = {};
 	let failed = false;
 	let any = false;
-	for (const path of stateFiles(deps.stateDir ?? stateDirectory())) {
-		const state = readState(path);
-		if (!state?.proposals.length) continue;
+	for (const [key, target] of targets) {
+		const call = caller(read, target);
+		let rows: AskedProposal[];
+		try {
+			rows = (await askedProposals(call, true)).rows;
+		} catch (error) {
+			failed = true;
+			results[key] = {
+				error: (error instanceof Error ? error.message : String(error)).slice(
+					0,
+					300,
+				),
+			};
+			if (!options.json) write(`${key}: ${results[key].error}`);
+			continue;
+		}
+		if (!rows.length) continue;
 		any = true;
-		const key = targetKey(state.target);
-		const accept = pick(options.accept, state.proposals.length);
-		const reject = pick(options.reject, state.proposals.length);
+		const accept = pick(options.accept, rows.length);
+		const reject = pick(options.reject, rows.length);
 		for (const i of accept)
 			if (reject.has(i))
 				throw new Error(`Proposal ${i + 1} is both accepted and rejected`);
 		const interactive = !options.accept && !options.reject;
+		const listing = rows.map((r, i) => `    ${i + 1}. ${r.subject}`);
 		if (interactive && !ask) {
 			write(
 				[
-					`${key}: ${state.proposals.length} proposal(s)`,
-					...renderProposals(state.proposals),
-					"Choose with --accept <numbers|all> and --reject <numbers|all>.",
+					`${key}: ${rows.length} proposal(s) in your Tedix inbox`,
+					...listing,
+					"Choose with --accept <numbers|all> and --reject <numbers|all>, or answer them in Tedix (Work > Interactions).",
 				].join("\n"),
 			);
 			continue;
 		}
 		if (interactive && ask) {
 			write(
-				`${key}: ${state.proposals.length} proposal(s). y = file it, n = never ask again, s = skip for now, q = stop.`,
+				`${key}: ${rows.length} proposal(s). y = create it, n = never ask again, s = skip for now, q = stop.`,
 			);
-			for (let i = 0; i < state.proposals.length; i++) {
-				const p = state.proposals[i]!;
+			for (let i = 0; i < rows.length; i++) {
 				const answer = (
 					await ask(
-						`${renderProposals([p])[0]!.replace(/^\s+1\./, `${i + 1}.`)}\n   File it? [y/n/s/q] `,
+						`${listing[i]}\n${rows[i]!.prompt.replace(/^/gm, "       ")}\n   Create it? [y/n/s/q] `,
 					)
 				)
 					.trim()
@@ -1583,31 +1843,25 @@ export async function runReview(
 				else if (answer === "n") reject.add(i);
 			}
 		}
-		const now = new Date().toISOString();
-		const who = state.userName?.split(/\s+/)[0] || "a member";
-		const chosen = [...accept].map((i) => state.proposals[i]!);
+		const answers = [
+			...[...accept].map((i) => ({ row: rows[i]!, accept: true })),
+			...[...reject].map((i) => ({ row: rows[i]!, accept: false })),
+		];
 		const outcome = {
-			accepted: chosen.length,
-			rejected: reject.size,
+			accepted: 0,
+			rejected: 0,
 			created: 0,
-			existing: 0,
 			errors: [] as string[],
 		};
-		if (chosen.length) {
-			let filed: Json = {};
+		let answered: Json = {};
+		if (answers.length) {
 			try {
-				filed = await caller(
-					read,
-					state.target,
-				)(
-					applySource(
-						chosen.map((p) => ({
-							key: p.key,
-							title: p.title,
-							description: proposalDescription(p, who),
-							projectId: p.projectId!,
-							...(p.parentId ? { parentId: p.parentId } : {}),
-							intent: intentId(state.userId, p.key),
+				answered = await call(
+					respondSource(
+						answers.map(({ row, accept }) => ({
+							id: row.id,
+							version: row.version,
+							accept,
 						})),
 					),
 				);
@@ -1619,113 +1873,271 @@ export async function runReview(
 					),
 				);
 			}
-			for (const p of chosen) {
-				const r = filed[p.key];
-				if (!r?.id) {
-					if (r?.error) outcome.errors.push(String(r.error).slice(0, 200));
-					continue;
-				}
-				if (r.action === "created") outcome.created++;
-				else outcome.existing++;
-				state.decided[p.key] = {
-					decision: "accepted",
-					title: p.title,
-					workId: r.id,
+		}
+		const statePathFor = states.get(key);
+		const state = statePathFor ? readState(statePathFor) : null;
+		const now = new Date().toISOString();
+		for (const { row, accept } of answers) {
+			const r = answered[row.id];
+			if (!r || r.error) {
+				if (r?.error) outcome.errors.push(String(r.error).slice(0, 200));
+				continue;
+			}
+			if (accept) {
+				outcome.accepted++;
+				outcome.created += r.workItemIds.length;
+			} else outcome.rejected++;
+			if (state)
+				state.decided[row.key] = {
+					decision: accept ? "accepted" : "rejected",
+					title: row.title,
+					...(r.workItemIds[0] ? { workId: r.workItemIds[0] } : {}),
 					at: now,
 				};
-			}
 		}
-		for (const i of reject)
-			state.decided[state.proposals[i]!.key] = {
-				decision: "rejected",
-				title: state.proposals[i]!.title,
-				at: now,
-			};
-		state.proposals = state.proposals.filter((p) => !state.decided[p.key]);
-		writeState(path, state);
+		if (state && statePathFor) {
+			state.proposals = state.proposals.filter((p) => !state.decided[p.key]);
+			writeState(statePathFor, state);
+		}
 		if (outcome.errors.length) failed = true;
-		results[key] = { ...outcome, stillPending: state.proposals.length };
+		const stillPending = rows.length - outcome.accepted - outcome.rejected;
+		results[key] = { ...outcome, stillPending };
 		if (!options.json)
 			write(
-				`${key}: filed ${outcome.created} new, ${outcome.existing} already there, rejected ${outcome.rejected}, ${state.proposals.length} still pending${outcome.errors.length ? `; errors: ${outcome.errors.join("; ")}` : ""}`,
+				`${key}: accepted ${outcome.accepted} (${outcome.created} Work Items created), declined ${outcome.rejected}, ${stillPending} still in your inbox${outcome.errors.length ? `; errors: ${outcome.errors.join("; ")}` : ""}`,
 			);
 	}
 	if (options.json) write(JSON.stringify(results));
-	else if (!any)
-		write("No proposals to review. Run tedix learn context first.");
+	else if (!any && !failed)
+		write(
+			"No proposals to review. tedix learn onboard puts new ones in your Tedix inbox.",
+		);
 	return failed ? 2 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Onboarding: in the background, resumable
+// ---------------------------------------------------------------------------
+
+export interface OnboardProgress {
+	pid: number;
+	args: string[];
+	startedAt: string;
+	/** Steps finished in this run, so a restarted run skips them. */
+	done: Record<string, string>;
+	finishedAt?: string;
+	exitCode?: number;
+}
+
+const ONBOARD_STEPS = ["import", "analyze", "context"] as const;
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function readProgress(path: string): OnboardProgress | null {
+	try {
+		return JSON.parse(readFileSync(path, "utf8")) as OnboardProgress;
+	} catch {
+		return null;
+	}
+}
+
+function writeProgress(path: string, progress: OnboardProgress) {
+	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	const temp = `${path}.${process.pid}.tmp`;
+	writeFileSync(temp, `${JSON.stringify(progress, null, 2)}\n`, {
+		mode: 0o600,
+	});
+	renameSync(temp, path);
+}
+
+/** A detached `tedix learn onboard --worker`, signed in as the member. */
+function detachedWorker(args: string[], log: string): number | undefined {
+	const [command, prefix] = selfCommand();
+	const env = { ...process.env };
+	for (const name of AGENT_IDENTITY_ENV) delete env[name];
+	mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
+	const fd = openSync(log, "a", 0o600);
+	try {
+		const child = spawn(command, [...prefix, "learn", "onboard", ...args], {
+			detached: process.platform !== "win32",
+			stdio: ["ignore", fd, fd],
+			env,
+		});
+		child.unref();
+		return child.pid;
+	} finally {
+		closeSync(fd);
+	}
+}
+
 /**
- * `tedix learn onboard`: what a new member runs once, in order. Personal
- * first (lessons only they see), then their own section of the shared
- * session lists, then Work context as proposals.
+ * `tedix learn onboard`: what a new member runs once. It starts a background
+ * worker and returns; the worker runs, in order, the personal import (lessons
+ * only they see), their own section of the shared session lists, and Work
+ * context, whose proposals arrive in their Tedix inbox. A worker that stops
+ * part way is resumed by the next run, skipping finished steps. --wait runs
+ * in the foreground.
  */
 export async function runOnboard(
 	args: string[],
 	deps: ContextDeps = {},
 ): Promise<number> {
 	const write = deps.write ?? ((line: string) => console.log(line));
-	const options = contextOptions(args, ["--dry-run", "--no-model", "--since"]);
+	const options = contextOptions(args, [
+		"--dry-run",
+		"--no-model",
+		"--since",
+		"--wait",
+		"--worker",
+	]);
+	const stateDir = deps.stateDir ?? stateDirectory();
+	const progressPath = join(stateDir, "onboard.json");
+	const log = join(stateDir, "onboard.log");
+	const alive = deps.alive ?? processAlive;
 	const pass = [
 		...(options.dryRun ? ["--dry-run"] : []),
 		...(options.since ? ["--since", options.since.slice(0, 10)] : []),
 	];
+	const stepArgs = [...pass, ...(options.noModel ? ["--no-model"] : [])];
+	const prior = options.dryRun ? null : readProgress(progressPath);
+	if (!options.dryRun && !options.wait && !options.worker) {
+		if (prior && !prior.finishedAt && prior.pid && alive(prior.pid)) {
+			write(
+				`Onboarding is already running (since ${prior.startedAt}). Progress: ${log}`,
+			);
+			return 0;
+		}
+		const pid = (deps.startWorker ?? detachedWorker)(
+			[...stepArgs, "--worker"],
+			log,
+		);
+		if (!pid) {
+			write(
+				"Could not start onboarding in the background; run it with --wait.",
+			);
+			return 2;
+		}
+		write(
+			[
+				"Onboarding runs in the background; you can close this terminal.",
+				"Your proposals will arrive in your Tedix inbox (Work > Interactions); accept or decline each there, in chat, or with tedix learn review.",
+				`Progress: ${log}`,
+			].join("\n"),
+		);
+		return 0;
+	}
+	// Resume an unfinished run with the same options; otherwise start over.
+	const resume =
+		prior &&
+		!prior.finishedAt &&
+		JSON.stringify(prior.args) === JSON.stringify(stepArgs)
+			? prior
+			: null;
+	const progress: OnboardProgress = {
+		pid: process.pid,
+		args: stepArgs,
+		startedAt: resume?.startedAt ?? new Date().toISOString(),
+		done: resume?.done ?? {},
+	};
+	const save = () => {
+		if (!options.dryRun) writeProgress(progressPath, progress);
+	};
+	save();
 	const captured = (into: string[]) => ({
 		...deps,
 		write: (line: string) => into.push(line),
 	});
-	write(
-		"1/3 Personal: your decisions and preference notes become lessons only you see.",
-	);
-	const imported: string[] = [];
-	const importCode = await runLearnCommand(
-		["import-sessions", ...pass, "--json"],
-		captured(imported),
-	);
-	try {
-		const report = JSON.parse(imported[imported.length - 1] ?? "{}");
-		const results = Object.values<Json>(report.results ?? {});
-		const recorded = results.reduce((n, r) => n + Number(r.recorded ?? 0), 0);
-		const lessons = results.reduce(
-			(n, r) => n + Number(r.mining?.factsWritten ?? 0),
-			0,
-		);
-		write(
-			options.dryRun
-				? `    ${report.pairs ?? 0} decisions and ${report.preferenceNotes ?? 0} preference notes found; nothing sent.`
-				: `    ${report.pairs ?? 0} decisions and ${report.preferenceNotes ?? 0} notes read, ${recorded} new; ${lessons} lessons written.`,
-		);
-	} catch {
-		write(`    ${imported.join(" ").slice(0, 300)}`);
-	}
-	write(
-		"2/3 Your own section of the shared session lists (repeated requests, friction, decisions).",
-	);
-	const analyzed: string[] = [];
-	const analyzeCode = await runAnalyzeSessions(
-		[...pass, ...(options.noModel ? ["--no-model"] : []), "--json"],
-		captured(analyzed),
-	);
-	try {
-		const report = JSON.parse(analyzed[analyzed.length - 1] ?? "{}");
-		for (const [key, entry] of Object.entries<Json>(report.targets ?? {}))
+	const steps: Record<(typeof ONBOARD_STEPS)[number], () => Promise<number>> = {
+		import: async () => {
 			write(
-				`    ${key}: ${
-					Object.entries<Json>(entry.workItems ?? {})
-						.map(([category, r]) => `${category} ${r.action ?? r.error ?? "?"}`)
-						.join(", ") || "nothing sent"
-				}`,
+				"1/3 Personal: your decisions and preference notes become lessons only you see.",
 			);
-	} catch {
-		write(`    ${analyzed.join(" ").slice(0, 300)}`);
+			const imported: string[] = [];
+			const code = await runLearnCommand(
+				["import-sessions", ...pass, "--json"],
+				captured(imported),
+			);
+			try {
+				const report = JSON.parse(imported[imported.length - 1] ?? "{}");
+				const results = Object.values<Json>(report.results ?? {});
+				const recorded = results.reduce(
+					(n, r) => n + Number(r.recorded ?? 0),
+					0,
+				);
+				const lessons = results.reduce(
+					(n, r) => n + Number(r.mining?.factsWritten ?? 0),
+					0,
+				);
+				write(
+					options.dryRun
+						? `    ${report.pairs ?? 0} decisions and ${report.preferenceNotes ?? 0} preference notes found; nothing sent.`
+						: `    ${report.pairs ?? 0} decisions and ${report.preferenceNotes ?? 0} notes read, ${recorded} new; ${lessons} lessons written.`,
+				);
+			} catch {
+				write(`    ${imported.join(" ").slice(0, 300)}`);
+			}
+			return code;
+		},
+		analyze: async () => {
+			write(
+				"2/3 Your own section of the shared session lists (repeated requests, friction, decisions).",
+			);
+			const analyzed: string[] = [];
+			const code = await runAnalyzeSessions(
+				[...stepArgs, "--json"],
+				captured(analyzed),
+			);
+			try {
+				const report = JSON.parse(analyzed[analyzed.length - 1] ?? "{}");
+				for (const [key, entry] of Object.entries<Json>(report.targets ?? {}))
+					write(
+						`    ${key}: ${
+							Object.entries<Json>(entry.workItems ?? {})
+								.map(
+									([category, r]) =>
+										`${category} ${r.action ?? r.error ?? "?"}`,
+								)
+								.join(", ") || "nothing sent"
+						}`,
+					);
+			} catch {
+				write(`    ${analyzed.join(" ").slice(0, 300)}`);
+			}
+			return code;
+		},
+		context: async () => {
+			write(
+				"3/3 Work context: matched against the board; anything new goes to your Tedix inbox as a proposal.",
+			);
+			return runContext(stepArgs, deps);
+		},
+	};
+	let exitCode = 0;
+	for (const step of ONBOARD_STEPS) {
+		if (progress.done[step]) {
+			write(`${step}: finished in the earlier run, skipped.`);
+			continue;
+		}
+		const code = await steps[step]();
+		exitCode = Math.max(exitCode, code);
+		// A failed step stays unfinished, so the next run retries it.
+		if (code === 0) progress.done[step] = new Date().toISOString();
+		save();
 	}
+	if (exitCode === 0) progress.finishedAt = new Date().toISOString();
+	progress.exitCode = exitCode;
+	save();
 	write(
-		"3/3 Work context: matched against the board; anything new is only proposed.",
+		exitCode === 0
+			? "Onboarding finished."
+			: "Onboarding stopped with errors; run tedix learn onboard again to resume.",
 	);
-	const contextCode = await runContext(
-		[...pass, ...(options.noModel ? ["--no-model"] : [])],
-		deps,
-	);
-	return Math.max(importCode, analyzeCode, contextCode);
+	return exitCode;
 }

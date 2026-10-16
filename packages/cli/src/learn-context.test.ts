@@ -13,6 +13,7 @@ import {
 	planContext,
 	planNotes,
 	runContext,
+	runOnboard,
 	runReview,
 	type SessionDigest,
 } from "./learn-context";
@@ -82,6 +83,8 @@ function codexSession(id: string, asks: string[], day: number) {
 class Board {
 	items: any[] = [];
 	created: any[] = [];
+	/** Work interactions, answered as the server does (see work-interactions.ts). */
+	interactions: any[] = [];
 	constructor(
 		public projectRows: any[],
 		public me = { id: "Uada0000xyz", name: "Ada Lovelace" },
@@ -117,6 +120,65 @@ class Board {
 				this.items.push(row);
 				this.created.push(row);
 				return { id: row.id };
+			},
+			create_work_interaction: async (input: any) => {
+				const request = {
+					id: `00000000-0000-4000-8000-${String(this.interactions.length + 1).padStart(12, "0")}`,
+					version: 1,
+					status: "open",
+					...input,
+				};
+				this.interactions.push(request);
+				return request;
+			},
+			list_work_interactions: async (input: any) => ({
+				data: this.interactions
+					.filter(
+						(r) =>
+							r.requestedFrom.id === this.me.id &&
+							(!input.states || input.states.includes(r.status)),
+					)
+					.map((request) => ({
+						request,
+						effectiveState: request.status,
+						canRespond: true,
+					})),
+				hasMore: false,
+				nextCursor: null,
+			}),
+			respond_work_interaction: async (input: any) => {
+				const request = this.interactions.find((r) => r.id === input.requestId);
+				if (!request || request.status !== "open")
+					return { ok: false, error: "conflict" };
+				const ids: string[] = [];
+				if (input.responseKind === "handoff_accepted") {
+					const { proposal } = request.metadata;
+					const make = async (item: any, parent?: string) => {
+						const existing = this.items.find(
+							(r) => r.sourceIntentId === item.sourceIntentId,
+						);
+						if (existing) return existing.id;
+						return (
+							await work.create_work_items({
+								...item,
+								projectId: proposal.projectId,
+								...(parent ? { parentWorkItemId: parent } : {}),
+							})
+						).id;
+					};
+					ids.push(await make(proposal.item, proposal.parentWorkItemId));
+					for (const child of proposal.children)
+						ids.push(await make(child, ids[0]));
+				}
+				request.status = "resolved";
+				request.version++;
+				return {
+					request,
+					response: {
+						responseKind: input.responseKind,
+						metadata: { ...input.metadata, workItemIds: ids },
+					},
+				};
 			},
 		};
 		const projects = {
@@ -287,7 +349,7 @@ describe("extractCandidates", () => {
 		]);
 	});
 
-	it("drops a broad entry its narrower entries already explain", async () => {
+	it("keeps a broad entry its narrower entries explain only as a project", async () => {
 		const model = async () =>
 			JSON.stringify([
 				{
@@ -313,9 +375,10 @@ describe("extractCandidates", () => {
 			[digest("1", "Hero"), digest("2", "Hero copy"), digest("3", "FAQ")],
 			model,
 		);
-		expect(candidates.map((c) => c.title)).toEqual([
-			"Rewrite landing page hero copy",
-			"Add pricing page FAQ section",
+		expect(candidates.map((c) => [c.kind, c.title])).toEqual([
+			["project", "Grow the public website"],
+			["task", "Rewrite landing page hero copy"],
+			["task", "Add pricing page FAQ section"],
 		]);
 	});
 });
@@ -555,7 +618,33 @@ describe("context and review", () => {
 		expect(board.created).toHaveLength(0);
 		const text = out.join("\n");
 		expect(text).toContain("Already on the board (1)");
+		expect(text).toContain("now in your Tedix inbox");
 		expect(text).toContain("1. Add pricing FAQ to the public website -> SITE");
+		// The proposal waits in the member's inbox, with its evidence.
+		expect(board.interactions).toHaveLength(1);
+		const [request] = board.interactions;
+		expect(request).toMatchObject({
+			kind: "handoff",
+			projectId: "p-site",
+			subject: "Add to the board: Add pricing FAQ to the public website",
+			requestedFrom: { type: "user", id: "Uada0000xyz" },
+			metadata: {
+				schema: "tedix.work-proposal.v1",
+				proposal: { projectId: "p-site", children: [] },
+			},
+		});
+		expect(
+			request.metadata.evidence.citations.map((c: any) => c.session),
+		).toEqual(["s-a", "s-b"]);
+		expect(request.prompt).toContain("Sessions it came from:");
+
+		// A re-run before anyone answered asks nothing new.
+		out.length = 0;
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		expect(board.interactions).toHaveLength(1);
+		expect(out.join("\n")).toContain(
+			"Asked or decided earlier and not asked again: 1",
+		);
 
 		out.length = 0;
 		expect(
@@ -606,9 +695,88 @@ describe("context and review", () => {
 			ask: async () => answers.shift() ?? "q",
 		});
 		expect(board.created).toHaveLength(0);
+		expect(board.interactions[0].status).toBe("resolved");
 		out.length = 0;
-		await runContext(["--no-model"], deps(board, stateDir, out));
-		expect(out.join("\n")).toContain("Decided earlier and not asked again: 1");
+		// Even from a fresh machine: the decline lives in Tedix, not locally.
+		await runContext(
+			["--no-model"],
+			deps(board, mkdtempSync(join(tmpdir(), "learn-state-")), out),
+		);
+		expect(out.join("\n")).toContain(
+			"Asked or decided earlier and not asked again: 2",
+		);
+		expect(board.interactions).toHaveLength(2);
+	});
+
+	it("proposes a body of work no project fits as one epic with its tasks", async () => {
+		const board = new Board([]);
+		board.items = [
+			{
+				id: "w-analysis",
+				title:
+					"Session analysis: repeated requests to turn into skills or commands",
+				sourceIntentId: "session-analysis:repeated-requests:v1",
+				projectId: "p-x",
+				disposition: "accepted",
+				parentWorkItemId: null,
+				createdAt: T(1),
+			},
+		];
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		const runModel = async (prompt: string) =>
+			prompt.startsWith("Below are numbered")
+				? JSON.stringify([
+						{
+							kind: "project",
+							title: "Garden planner app",
+							sessions: [1, 2, 3, 4],
+							confidence: 0.9,
+						},
+						{
+							kind: "task",
+							title: "Add pricing FAQ to the planner",
+							sessions: [1, 2],
+							confidence: 0.8,
+						},
+						{
+							kind: "task",
+							title: "Fix invoice rounding in the planner",
+							sessions: [3],
+							confidence: 0.8,
+						},
+						{
+							kind: "task",
+							title: "Write planner onboarding emails",
+							sessions: [4],
+							confidence: 0.8,
+						},
+					])
+				: "[]";
+		const out: string[] = [];
+		expect(
+			await runContext([], { ...deps(board, stateDir, out), runModel }),
+		).toBe(0);
+		expect(board.interactions).toHaveLength(1);
+		const [request] = board.interactions;
+		expect(request.workItemId).toBe("w-analysis");
+		expect(request.subject).toBe(
+			"New epic for the board: Garden planner app (3 tasks)",
+		);
+		expect(
+			request.metadata.proposal.children.map((c: any) => c.title).sort(),
+		).toEqual([
+			"Add pricing FAQ to the planner",
+			"Fix invoice rounding in the planner",
+			"Write planner onboarding emails",
+		]);
+		await runReview(["--accept", "1"], deps(board, stateDir, out));
+		const [epic, ...tasks] = board.created;
+		expect(epic.title).toBe("Garden planner app");
+		expect(tasks.map((t) => t.parentWorkItemId)).toEqual([
+			epic.id,
+			epic.id,
+			epic.id,
+		]);
 	});
 
 	it("asks the model once per prompt across runs, so a re-run proposes the same", async () => {
@@ -628,7 +796,9 @@ describe("context and review", () => {
 		out.length = 0;
 		await runContext([], { ...deps(board, stateDir, out), runModel });
 		expect(calls).toBe(first);
-		expect(out.join("\n")).toBe(firstText);
+		expect(firstText).toContain("1. Add pricing FAQ to the public website");
+		// The same proposal again, so it is recognized and not asked twice.
+		expect(out.join("\n")).toContain("not asked again: 1");
 	});
 
 	it("a dry run reads the board but saves and files nothing", async () => {
@@ -640,5 +810,62 @@ describe("context and review", () => {
 		out.length = 0;
 		await runReview([], deps(board, stateDir, out));
 		expect(out.join("\n")).toContain("No proposals to review");
+	});
+
+	it("onboard hands off to a background worker and returns", async () => {
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		const started: string[][] = [];
+		const out: string[] = [];
+		const onboardDeps = {
+			...deps(new Board(PROJECTS), stateDir, out),
+			startWorker: (args: string[]) => {
+				started.push(args);
+				return 4242;
+			},
+			alive: () => true,
+		};
+		expect(await runOnboard(["--no-model"], onboardDeps)).toBe(0);
+		expect(started).toEqual([["--no-model", "--worker"]]);
+		expect(out.join("\n")).toContain("Tedix inbox");
+		// A run that is still going is not started twice.
+		writeFileSync(
+			join(stateDir, "onboard.json"),
+			JSON.stringify({
+				pid: 4242,
+				args: ["--no-model"],
+				startedAt: T(1),
+				done: {},
+			}),
+		);
+		out.length = 0;
+		await runOnboard(["--no-model"], onboardDeps);
+		expect(started).toHaveLength(1);
+		expect(out.join("\n")).toContain("already running");
+	});
+
+	it("a restarted worker resumes after the steps it finished", async () => {
+		const board = new Board(PROJECTS);
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		writeFileSync(
+			join(stateDir, "onboard.json"),
+			JSON.stringify({
+				pid: 1,
+				args: ["--no-model"],
+				startedAt: T(1),
+				done: { import: T(1), analyze: T(1) },
+			}),
+		);
+		const out: string[] = [];
+		expect(
+			await runOnboard(["--no-model", "--worker"], {
+				...deps(board, stateDir, out),
+				alive: () => false,
+			}),
+		).toBe(0);
+		const text = out.join("\n");
+		expect(text).toContain("import: finished in the earlier run, skipped.");
+		expect(text).toContain("analyze: finished in the earlier run, skipped.");
+		expect(text).toContain("Onboarding finished.");
+		expect(board.interactions.length).toBeGreaterThan(0);
 	});
 });

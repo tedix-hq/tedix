@@ -542,11 +542,14 @@ export function planImport(input: {
 
 export const learnUsage = `Teach Tedix from your past local agent sessions
 
-  tedix learn onboard [--dry-run] [--since <YYYY-MM-DD>] [--no-model]
+  tedix learn onboard [--dry-run] [--since <YYYY-MM-DD>] [--no-model] [--wait]
 
 Runs import-sessions, analyze-sessions and context below, in that order: what
-a new member runs once. Nothing reaches the shared board until you accept it
-with tedix learn review.
+a new member runs once. It works in the background and returns at once
+(--wait stays in the foreground); its proposals arrive in your Tedix inbox.
+Run it again to resume a run that stopped. Nothing reaches the shared board
+until you accept a proposal, in Tedix (Work > Interactions), in chat or with
+tedix learn review.
 
   tedix learn import-sessions [--dry-run] [--since <YYYY-MM-DD>] [--limit <n>] [--no-mine] [--json]
 
@@ -585,9 +588,10 @@ context finds the tasks, goals and projects your sessions show (session titles,
 Codex goals, your first requests; grouped by your local claude CLI unless
 --no-model) and matches each against the organization's projects and Work,
 read-only. Work already on the board is reported, never filed again; a task
-that fits a project becomes a proposal kept on this machine. review asks about
-each proposal and files only the ones you accept; a rejection is remembered.
-Re-running either command creates nothing twice.`;
+that fits a project becomes a proposal in your Tedix inbox, and a body of work
+no project or epic fits becomes one epic proposal with its tasks. review asks
+about each open proposal; accepting creates the Work, declining is remembered.
+Re-running either command asks and creates nothing twice.`;
 
 export interface LearnDeps {
 	home?: string;

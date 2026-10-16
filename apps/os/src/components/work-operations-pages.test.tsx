@@ -327,7 +327,10 @@ describe("Decision-capture questions", () => {
 		triage: { status: "ok", labels: {}, ...triage },
 	});
 
-	async function renderDetail(metadata: Record<string, JsonValue>) {
+	async function renderDetail(
+		metadata: Record<string, JsonValue>,
+		overrides: { kind?: "question" | "handoff"; canRespond?: boolean } = {},
+	) {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 		});
@@ -347,7 +350,7 @@ describe("Decision-capture questions", () => {
 				metadata,
 				subject:
 					"acme-app · claude-code waiting: It's deployed.** The live API runs commit `fc6b8f9`",
-				kind: "question",
+				kind: overrides.kind ?? "question",
 				version: 1,
 				creatorType: "user",
 				creatorId: "user-1",
@@ -357,7 +360,7 @@ describe("Decision-capture questions", () => {
 					"**It's deployed.** The live API runs commit `fc6b8f9`.\n\n- one\n- two\n\n<b>raw</b>",
 			},
 			effectiveState: "open",
-			canRespond: false,
+			canRespond: overrides.canRespond ?? false,
 			canCancel: false,
 			responses: { data: [], hasMore: false, nextCursor: null },
 		});
@@ -397,6 +400,18 @@ describe("Decision-capture questions", () => {
 		);
 		return container;
 	}
+
+	it("answers a handoff such as a Work proposal with one Accept or Decline", async () => {
+		const container = await renderDetail(
+			{ schema: "tedix.work-proposal.v1" },
+			{ kind: "handoff", canRespond: true },
+		);
+		const labels = [...container.querySelectorAll("button")].map(
+			(button) => button.textContent,
+		);
+		expect(labels).toContain("Accept");
+		expect(labels).toContain("Decline");
+	});
 
 	it("summarizes origin and urgency only for decision-capture rows", () => {
 		expect(

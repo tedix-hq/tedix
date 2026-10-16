@@ -2234,6 +2234,8 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 		);
 	const { request, effectiveState, responses } = query.data;
 	const isQuestion = request.kind === "question";
+	// A handoff is a yes/no: accepting a Work proposal creates its Work.
+	const isHandoff = request.kind === "handoff";
 	// A tedi's auto reply answered a question; the asked user may correct it.
 	const correctable =
 		isQuestion && effectiveState === "resolved" && query.data.canRespond;
@@ -2511,6 +2513,35 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 							) : respondable ? (
 								<>
 									{decisionCapture ? null : draftReply}
+									{isHandoff && effectiveState === "open" ? (
+										<div className="flex flex-wrap gap-2">
+											<Button
+												disabled={respond.isPending}
+												onClick={() =>
+													respond.mutate({
+														responseKind: "handoff_accepted",
+														body: "Accepted.",
+														resolvesRequest: true,
+													})
+												}
+											>
+												Accept
+											</Button>
+											<Button
+												variant="outline"
+												disabled={respond.isPending}
+												onClick={() =>
+													respond.mutate({
+														responseKind: "handoff_declined",
+														body: "Declined.",
+														resolvesRequest: true,
+													})
+												}
+											>
+												Decline
+											</Button>
+										</div>
+									) : null}
 									<form
 										className="grid gap-3"
 										onSubmit={(event) => {

@@ -183,8 +183,10 @@ points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
 To bring a new member's history in, run `tedix learn onboard --dry-run`, then
-`tedix learn onboard` and `tedix learn review`. Onboarding runs the three steps
-below in order and creates nothing on the shared board until you accept it.
+`tedix learn onboard`. Onboarding runs the three steps below in order, in the
+background (`--wait` keeps it in the foreground; running it again resumes a run
+that stopped), and creates nothing on the shared board until you accept it.
+Its proposals arrive in your Tedix inbox (Work > Interactions).
 
 To teach Tedix from sessions you already had, run
 `tedix learn import-sessions --dry-run`, review the counts and samples, then run
@@ -211,11 +213,15 @@ redacted paraphrases are sent.
 projects, from session titles, Codex goals and your first requests) and checks
 each against the organization's projects and Work, open and recently finished.
 Work already on the board is reported, not filed again. A task that fits a
-project but is not on the board becomes a proposal kept on your machine;
-`tedix learn review` asks about each one (or takes `--accept all`,
-`--accept 1,3`, `--reject 2`) and files only what you accept. A rejected
-proposal is never asked again, and running both commands again creates nothing
-twice. Only short paraphrased titles leave your machine.
+project but is not on the board becomes a proposal in your Tedix inbox, with the
+sessions it came from and the closest item already on the board. A project or
+goal with three or more of its own tasks and no project or epic on the board
+becomes one epic proposal with those tasks under it. Accept or decline each
+proposal in Tedix OS, in chat, or with `tedix learn review` (which also takes
+`--accept all`, `--accept 1,3`, `--reject 2`). Accepting creates the Work; a
+declined proposal is never asked again, and running both commands again creates
+nothing twice. Only short paraphrased titles and redacted session titles leave
+your machine.
 
 Plugin installation does not authorize Tedix access. Complete the OAuth flow
 in each host for the intended organization and scopes. Review the hooks in each

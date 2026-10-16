@@ -1,5 +1,9 @@
-import { ListWorkInteractionCliInboxResultSchema } from "@tedix/api-contract/schemas/work-interactions";
-import { implement } from "@orpc/server";
+import {
+	ListWorkInteractionCliInboxResultSchema,
+	WorkProposalMetadataSchema,
+} from "@tedix/api-contract/schemas/work-interactions";
+import { call, implement } from "@orpc/server";
+import { getWorkItemBySourceIntentId } from "@tedix/db/queries/work-items/crud";
 import {
 	type AgentReplyDeliveryGateResult,
 	AgentReplyDeliveryGateResultSchema,
@@ -302,10 +306,79 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	}
 });
 
+/** Create before answering so a failed create leaves the proposal answerable. */
+async function materializeWorkProposal(
+	context: BaseContext,
+	orgId: string,
+	proposal: ReturnType<typeof WorkProposalMetadataSchema.parse>["proposal"],
+) {
+	const { createProcedure } = await import("./work-items/creation-reads");
+	async function create(item: typeof proposal.item, parentWorkItemId?: string) {
+		const lookup = () =>
+			getWorkItemBySourceIntentId(context.db, {
+				orgId,
+				sourceIntentId: item.sourceIntentId,
+			});
+		const existing = await lookup();
+		if (existing) return existing.id;
+		try {
+			const created = await call(
+				createProcedure,
+				{
+					...item,
+					workKind: "other",
+					priority: "medium",
+					projectId: proposal.projectId,
+					parentWorkItemId,
+					// Unfiled roots need a bounded purpose; children inherit theirs.
+					workClass: parentWorkItemId ? undefined : "maintenance",
+				},
+				{ context },
+			);
+			return created.id;
+		} catch (error) {
+			// The unique source-intent index also arbitrates concurrent accepts.
+			const winner = await lookup();
+			if (winner) return winner.id;
+			throw error;
+		}
+	}
+	const itemId = await create(proposal.item, proposal.parentWorkItemId);
+	const ids = [itemId];
+	for (const child of proposal.children) ids.push(await create(child, itemId));
+	return ids;
+}
+
 const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
 	try {
+		let metadata = input.metadata;
+		if (input.responseKind === "handoff_accepted" && input.resolvesRequest) {
+			const request = await getWorkInteraction(context.db, {
+				orgId,
+				interactionId: input.requestId,
+			});
+			if (
+				request?.status === "open" &&
+				request.kind === "handoff" &&
+				request.targetType === "user" &&
+				request.targetType === actor.type &&
+				request.targetId === actor.id &&
+				request.version === input.expectedRequestVersion &&
+				(!request.expiresAt || request.expiresAt > new Date().toISOString())
+			) {
+				const parsed = WorkProposalMetadataSchema.safeParse(request.metadata);
+				if (parsed.success) {
+					const workItemIds = await materializeWorkProposal(
+						context,
+						orgId,
+						parsed.data.proposal,
+					);
+					metadata = { ...metadata, workItemIds };
+				}
+			}
+		}
 		const response = await respondToWorkInteraction(context.db, {
 			id: crypto.randomUUID(),
 			orgId,
@@ -318,7 +391,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			artifactVersion: input.artifactVersion,
 			artifactDigest: input.artifactDigest,
 			resolvesRequest: input.resolvesRequest,
-			metadata: input.metadata,
+			metadata,
 			now: new Date().toISOString(),
 		});
 		const request = await getWorkInteraction(context.db, {
