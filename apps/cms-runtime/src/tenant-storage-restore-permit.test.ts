@@ -512,9 +512,16 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	);
 	const published = await revision();
 	expect(published).not.toBe(afterSettings);
+	await stub.queryWithRestorePermit(
+		identity,
+		"WITH errors AS (SELECT * FROM _emdash_404_log) UPDATE content SET title = ? WHERE EXISTS (SELECT 1 FROM errors)",
+		["Published with error context"],
+	);
+	const contextualWrite = await revision();
+	expect(contextualWrite).not.toBe(published);
 	await stub.batchQueryWithRestorePermit(identity, [
 		{ sql: "UPDATE _emdash_404_log SET hits = hits + 1 WHERE id = 1" },
 		{ sql: "UPDATE content SET title = ?", params: ["Republished"] },
 	]);
-	expect(await revision()).not.toBe(published);
+	expect(await revision()).not.toBe(contextualWrite);
 });

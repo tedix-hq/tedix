@@ -254,17 +254,18 @@ export class EmDashDB extends EmdashSqlDB {
 					if (sql.includes(";")) return true;
 					if (PLAIN_SELECT_PATTERN.test(sql)) return false;
 					// Native maintenance does not alter public content.
-					if (
-						TENANT_DB_PRIMARY_TABLE_PATTERN.exec(sql)?.[1]?.toLowerCase() ===
-						"_emdash_404_log"
-					)
-						return false;
 					const normalized = sql
 						.replaceAll('"', "")
 						.replaceAll("`", "")
 						.replace(/\s+/g, " ")
 						.trim()
 						.toLowerCase();
+					if (
+						/^(?:insert into|update|delete from) _emdash_404_log\b/.test(
+							normalized,
+						)
+					)
+						return false;
 					if (
 						params?.length === 5 &&
 						params[0] === "system:scheduler:last_completed_at" &&
