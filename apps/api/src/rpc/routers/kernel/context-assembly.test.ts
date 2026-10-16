@@ -39,12 +39,14 @@ import {
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	stripLocalTerminalContext,
+	asksAboutConversations,
 	assembleHomeContext,
 	dedupeConversationHistory,
 	deriveAppCapabilities,
 	type KernelContext,
 	rankByQueryRelevance,
 	renderHomeContextPrompt,
+	renderHomeTurnContext,
 	unresolvedSkillReferences,
 	withRankingBudget,
 } from "./context-assembly";
@@ -3150,5 +3152,35 @@ describe("withRankingBudget", () => {
 		await expect(withRankingBudget(slow, 20, () => "lexical")).resolves.toBe(
 			"lexical",
 		);
+	});
+});
+
+describe("recent conversations in Home context", () => {
+	it("reads the list only when the message asks about conversations", () => {
+		expect(asksAboutConversations("List my conversations")).toBe(true);
+		expect(asksAboutConversations("which chats mention Q3?")).toBe(true);
+		expect(asksAboutConversations("Rename this conversation to X")).toBe(false);
+		expect(asksAboutConversations("Create a doc")).toBe(false);
+	});
+
+	it("renders titles and ids so Home can answer from them", () => {
+		const rendered = renderHomeTurnContext({
+			workItems: [],
+			facts: [],
+			rationale: [],
+			recentConversations: [
+				{
+					id: "home:os:abc",
+					title: "Q3 plan",
+					lastMessageAt: "2026-10-16T00:00:00.000Z",
+				},
+				{ id: "home:os:def", title: null, lastMessageAt: null },
+			],
+		} as unknown as KernelContext);
+		expect(rendered).toContain("HOME CONVERSATIONS (2 most recent");
+		expect(rendered).toContain(
+			"- Q3 plan (id=home:os:abc last=2026-10-16T00:00:00.000Z)",
+		);
+		expect(rendered).toContain("- (untitled) (id=home:os:def)");
 	});
 });

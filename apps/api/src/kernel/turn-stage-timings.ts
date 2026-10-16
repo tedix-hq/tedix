@@ -42,6 +42,10 @@
  *   Tedix OS-side drain reads via the `message.delta` ledger row the flush writes.
  * - `writeProposalPlanStarted`/`writeProposalPlanEnded` — around
  *   `planAndParkKernelWriteProposal` (≈0ms on non-write routes).
+ * - `writeCatalogReady`/`writeToolSelected`/`writeSchemaReady` — inside that
+ *   window: the write catalog is listed, one tool is chosen, its exact input
+ *   schema is in hand. What remains up to `writeProposalPlanEnded` is the
+ *   argument pass plus the approval-row write.
  * - `dispatchStarted`/`dispatchEnded` — around the auto-delegation dispatch
  *   call (delegated turns only).
  */
@@ -53,6 +57,9 @@ export const KERNEL_TURN_STAGE_ORDER = [
 	"firstAnswerDeltaFlush",
 	"routePlanEnded",
 	"writeProposalPlanStarted",
+	"writeCatalogReady",
+	"writeToolSelected",
+	"writeSchemaReady",
 	"writeProposalPlanEnded",
 	"dispatchStarted",
 	"dispatchEnded",
@@ -76,6 +83,9 @@ export const KERNEL_TURN_SERIAL_STAGE_ORDER = [
 	"routePlanStarted",
 	"routePlanEnded",
 	"writeProposalPlanStarted",
+	"writeCatalogReady",
+	"writeToolSelected",
+	"writeSchemaReady",
 	"writeProposalPlanEnded",
 	"dispatchStarted",
 	"dispatchEnded",

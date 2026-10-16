@@ -64,6 +64,7 @@ import * as z from "zod";
 import { flatAbortSignal } from "./llm-guard";
 import type { KernelRouteDecision } from "./route-schema";
 import {
+	codeModeCanonicalDescribeParams,
 	codeModeDiscoveryParams,
 	codeModeDescribeParams,
 	isCodeModeCatalog,
@@ -399,11 +400,19 @@ const OUTPUT_CREATE_CAPABILITY_RE =
 const EXTERNAL_OFFICE_PROVIDER_RE =
 	/\b(?:google|gdrive|notion|excel|microsoft|office ?365|onedrive|sharepoint|airtable|dropbox)\b/i;
 
-export function preferredToolForCapability(
-	tools: McpTool[],
+/** "Rename this conversation" routes as `conversations.update`. */
+const CONVERSATION_RENAME_CAPABILITY_RE =
+	/^(?:conversations?|chats?|threads?)\.(?:update|rename)$/;
+const RENAME_REQUEST_RE = /\b(?:re-?name|re-?title|call it|title it)\b/i;
+
+/**
+ * The one canonical write primitive for a routed capability, when there is
+ * one. A name without a namespace matches any callable ending in `.<name>`.
+ */
+export function canonicalWriteToolName(
 	capability: string | null | undefined,
 	content = "",
-): McpTool | null {
+): string | null {
 	// "Create a sheet" with no named provider is a Tedix output, not a file in
 	// whichever connected drive Jev happens to rank first.
 	if (
@@ -411,15 +420,78 @@ export function preferredToolForCapability(
 		OUTPUT_CREATE_CAPABILITY_RE.test(capability) &&
 		!EXTERNAL_OFFICE_PROVIDER_RE.test(content)
 	) {
-		return tools.find((tool) => tool.name === "os.create_os_output") ?? null;
+		return "os.create_os_output";
 	}
-	if (capability === "work_items.create") {
-		return tools.find((tool) => tool.name === "work.create_work_items") ?? null;
+	if (capability === "work_items.create") return "work.create_work_items";
+	if (capability === "catalog.install") return "tenant.install_tenant_mcp_apps";
+	if (
+		capability &&
+		CONVERSATION_RENAME_CAPABILITY_RE.test(capability) &&
+		RENAME_REQUEST_RE.test(content)
+	) {
+		return "rename_conversation";
 	}
-	if (capability !== "catalog.install") return null;
+	return null;
+}
+
+export function matchesCanonicalWriteTool(
+	toolName: string,
+	canonical: string,
+): boolean {
+	return canonical.includes(".")
+		? toolName === canonical
+		: toolName.endsWith(`.${canonical}`);
+}
+
+export function preferredToolForCapability(
+	tools: McpTool[],
+	capability: string | null | undefined,
+	content = "",
+): McpTool | null {
+	const canonical = canonicalWriteToolName(capability, content);
+	if (!canonical) return null;
 	return (
-		tools.find((tool) => tool.name === "tenant.install_tenant_mcp_apps") ?? null
+		tools.find((tool) => matchesCanonicalWriteTool(tool.name, canonical)) ??
+		null
 	);
+}
+
+/**
+ * Isolate-local cache of write catalogs and exact tool schemas. Listing and
+ * describing cost one MCP round trip each on every write turn although they
+ * change only when an app or its tools change. Keyed by acting user, because
+ * tool visibility can depend on their connections. Empty results are never
+ * cached; the executor validates the arguments again before anything runs.
+ */
+const WRITE_CATALOG_CACHE_TTL_MS = 5 * 60_000;
+const WRITE_CATALOG_CACHE_MAX_ENTRIES = 256;
+const writeCatalogCache = new Map<
+	string,
+	{ expiresAt: number; tools: McpTool[] }
+>();
+
+async function cachedWriteCatalog(
+	key: string,
+	read: () => Promise<McpTool[]>,
+): Promise<McpTool[]> {
+	const now = Date.now();
+	const hit = writeCatalogCache.get(key);
+	if (hit && hit.expiresAt > now) return hit.tools;
+	const tools = await read();
+	if (tools.length > 0) {
+		if (writeCatalogCache.size >= WRITE_CATALOG_CACHE_MAX_ENTRIES)
+			writeCatalogCache.clear();
+		writeCatalogCache.set(key, {
+			expiresAt: now + WRITE_CATALOG_CACHE_TTL_MS,
+			tools,
+		});
+	}
+	return tools;
+}
+
+/** @internal Test seam: start every test with a cold catalog cache. */
+export function clearWriteCatalogCacheForTests(): void {
+	writeCatalogCache.clear();
 }
 
 /** Resolve the provider app (org `-tedix` variant preferred, bare fallback). */
@@ -876,6 +948,12 @@ function validateProposedCall(
 	};
 }
 
+/** Write-planning boundaries stamped on the turn's stage timings. */
+export type KernelWriteProposalStage =
+	| "writeCatalogReady"
+	| "writeToolSelected"
+	| "writeSchemaReady";
+
 /** Why a write proposal was declined (persisted on the run for diagnosis). */
 export interface KernelWriteProposalDeclined {
 	stage:
@@ -949,6 +1027,8 @@ export async function planKernelWriteProposal(args: {
 	model?: LanguageModel | null;
 	/** Decline reporter — receives the fail-soft reason for run metadata. */
 	onDecline?: (declined: KernelWriteProposalDeclined) => void;
+	/** Stage marks inside the write window (turn stage timings). */
+	onStage?: (stage: KernelWriteProposalStage) => void;
 	/** Flat bound (ms) for the write pass. Defaults to the generous production
 	 * constant; tests inject a tiny value. */
 	timeoutMs?: number;
@@ -984,135 +1064,189 @@ export async function planKernelWriteProposal(args: {
 			return decline({ stage: "no_provider", detail: appSlug });
 		}
 		const host = mcpHost(env.MCP_URL ?? "", provider.slug);
-		const listed = (await mcpCall(
-			env,
-			host,
-			organizationId,
-			"tools/list",
-			{},
-			actingUserId,
-		)) as { tools?: McpTool[] } | null;
-		const listedTools = listed?.tools ?? [];
-		const transport: KernelWriteTransport = isCodeModeCatalog(listedTools)
-			? "codemode"
-			: "direct";
-		const tools =
-			transport === "codemode"
-				? parseCodeModeCatalog(
-						await mcpCall(
-							env,
-							host,
-							organizationId,
-							"tools/call",
-							codeModeDiscoveryParams(
-								writeDiscoveryQuery({
-									capability: route.toolIntent?.capability ?? null,
-									content,
-								}),
-							),
-							actingUserId,
-						),
-					)
-				: listedTools;
-		// The model sees only write-capable tools — read-only tools never enter
-		// the write planner's catalog.
-		const writes = tools.filter(isWriteCapable);
-		if (writes.length === 0) {
-			console.warn("[kernel.writeProposal] no write-capable tools", {
-				slug: provider.slug,
-				toolCount: tools.length,
-			});
-			return decline({
-				stage: "no_write_tools",
-				detail: `${provider.slug} toolCount=${tools.length}`,
-			});
-		}
-		const editTarget = await readEditTargetOutput({
+		const cacheKey = `${organizationId}|${host}|${actingUserId ?? ""}`;
+		// The edit target is a D1 read independent of the MCP catalog calls.
+		const editTargetPromise = readEditTargetOutput({
 			db,
 			organizationId,
 			workspaceContext: args.workspaceContext,
 			texts: [content, route.rationale],
-		});
-		const preferred = preferredToolForCapability(
-			writes,
-			route.toolIntent?.capability,
-			content,
+		}).catch(() => null);
+		const listedTools = await cachedWriteCatalog(
+			`${cacheKey}|tools/list`,
+			async () =>
+				(
+					(await mcpCall(
+						env,
+						host,
+						organizationId,
+						"tools/list",
+						{},
+						actingUserId,
+					)) as { tools?: McpTool[] } | null
+				)?.tools ?? [],
 		);
-		const catalog = orderWriteToolCatalog(writes).slice(0, MAX_CATALOG_TOOLS);
-		let selected: { toolName: string | null; reason: string } = preferred
-			? { toolName: preferred.name, reason: "selected" }
-			: await selectJevAction({
-					db,
-					env,
-					context: { ...args.gatewayContext, organizationId },
-					onExecutionAttempts: args.onExecutionAttempts,
-					content,
-					candidates: catalog.map((tool) => ({
-						id: tool.name,
-						description: renderWriteToolCatalog([tool]),
-					})),
-					timeoutMs,
+		const transport: KernelWriteTransport = isCodeModeCatalog(listedTools)
+			? "codemode"
+			: "direct";
+		const capability = route.toolIntent?.capability ?? null;
+		const canonical = canonicalWriteToolName(capability, content);
+		// A known primitive needs no catalog search and no selection pass: one
+		// Code Mode call resolves and describes it. Anything unexpected falls
+		// through to the full search → select → describe path.
+		const canonicalTool =
+			canonical && transport === "codemode"
+				? (
+						await cachedWriteCatalog(
+							`${cacheKey}|canonical|${canonical}`,
+							async () =>
+								parseCodeModeCatalog(
+									await mcpCall(
+										env,
+										host,
+										organizationId,
+										"tools/call",
+										codeModeCanonicalDescribeParams(canonical),
+										actingUserId,
+									),
+								),
+						)
+					).find(
+						(tool) =>
+							matchesCanonicalWriteTool(tool.name, canonical) &&
+							Boolean(tool.inputSchema) &&
+							isWriteCapable(tool),
+					)
+				: undefined;
+		let writes: McpTool[];
+		let exactTool: McpTool | undefined;
+		if (canonicalTool) {
+			writes = [canonicalTool];
+			exactTool = canonicalTool;
+			args.onStage?.("writeCatalogReady");
+			args.onStage?.("writeToolSelected");
+		} else {
+			const discoveryQuery = writeDiscoveryQuery({ capability, content });
+			const tools =
+				transport === "codemode"
+					? await cachedWriteCatalog(
+							`${cacheKey}|search|${discoveryQuery}`,
+							async () =>
+								parseCodeModeCatalog(
+									await mcpCall(
+										env,
+										host,
+										organizationId,
+										"tools/call",
+										codeModeDiscoveryParams(discoveryQuery),
+										actingUserId,
+									),
+								),
+						)
+					: listedTools;
+			// The model sees only write-capable tools — read-only tools never enter
+			// the write planner's catalog.
+			writes = tools.filter(isWriteCapable);
+			if (writes.length === 0) {
+				console.warn("[kernel.writeProposal] no write-capable tools", {
+					slug: provider.slug,
+					toolCount: tools.length,
 				});
-		// Jev is a fast path, not a gate: live it answered none, uncertain or
-		// unavailable for "create one Work item in project X" with
-		// create_work_items first in the catalog. Any abstention falls through to
-		// the write planner over the same bounded catalog; it can still answer
-		// NONE (including for several writes), and its pick is re-validated
-		// against the exact schema and approved by a human.
-		if (!selected.toolName && selected.reason !== "invalid_candidates") {
-			const pick = await planWriteCall({
-				workspaceContext: args.workspaceContext,
-				conversationId: args.gatewayContext?.sessionKey,
-				editTarget,
-				content,
-				capability: route.toolIntent?.capability ?? null,
-				tools: catalog,
-				selectionOnly: true,
-				model,
-				paramDefaults: provider.paramDefaults,
-				timeoutMs,
-				span: kernelSpanContext({ organizationId, source: "write_selection" }),
-			});
-			selected = catalog.some((tool) => tool.name === pick?.toolName)
-				? { toolName: pick!.toolName, reason: "planner_selected" }
-				: { toolName: null, reason: `${selected.reason}, planner=none` };
+				return decline({
+					stage: "no_write_tools",
+					detail: `${provider.slug} toolCount=${tools.length}`,
+				});
+			}
+			args.onStage?.("writeCatalogReady");
+			const preferred = preferredToolForCapability(writes, capability, content);
+			const catalog = orderWriteToolCatalog(writes).slice(0, MAX_CATALOG_TOOLS);
+			let selected: { toolName: string | null; reason: string } = preferred
+				? { toolName: preferred.name, reason: "selected" }
+				: await selectJevAction({
+						db,
+						env,
+						context: { ...args.gatewayContext, organizationId },
+						onExecutionAttempts: args.onExecutionAttempts,
+						content,
+						candidates: catalog.map((tool) => ({
+							id: tool.name,
+							description: renderWriteToolCatalog([tool]),
+						})),
+						timeoutMs,
+					});
+			// Jev is a fast path, not a gate: live it answered none, uncertain or
+			// unavailable for "create one Work item in project X" with
+			// create_work_items first in the catalog. Any abstention falls through to
+			// the write planner over the same bounded catalog; it can still answer
+			// NONE (including for several writes), and its pick is re-validated
+			// against the exact schema and approved by a human.
+			if (!selected.toolName && selected.reason !== "invalid_candidates") {
+				const pick = await planWriteCall({
+					workspaceContext: args.workspaceContext,
+					conversationId: args.gatewayContext?.sessionKey,
+					editTarget: await editTargetPromise,
+					content,
+					capability,
+					tools: catalog,
+					selectionOnly: true,
+					model,
+					paramDefaults: provider.paramDefaults,
+					timeoutMs,
+					span: kernelSpanContext({
+						organizationId,
+						source: "write_selection",
+					}),
+				});
+				selected = catalog.some((tool) => tool.name === pick?.toolName)
+					? { toolName: pick!.toolName, reason: "planner_selected" }
+					: { toolName: null, reason: `${selected.reason}, planner=none` };
+			}
+			if (!selected.toolName) {
+				// Jev declined, was uncertain, or was unavailable — previously the
+				// only fully silent gate, which made live diagnosis tail-dependent.
+				console.warn("[kernel.writeProposal] planner declined", {
+					slug: provider.slug,
+					writeToolCount: writes.length,
+				});
+				return decline({
+					stage: "planner_declined",
+					detail: `${provider.slug} actionSelection=${selected.reason} writeToolCount=${writes.length}`,
+				});
+			}
+			args.onStage?.("writeToolSelected");
+			const candidate = writes.find((tool) => tool.name === selected.toolName);
+			if (!candidate)
+				return decline({
+					stage: "validation_failed",
+					detail: "Selected tool is not in the write catalog",
+				});
+			exactTool =
+				transport === "codemode"
+					? (
+							await cachedWriteCatalog(
+								`${cacheKey}|describe|${candidate.name}`,
+								async () =>
+									parseCodeModeCatalog(
+										await mcpCall(
+											env,
+											host,
+											organizationId,
+											"tools/call",
+											codeModeDescribeParams(candidate.name),
+											actingUserId,
+										),
+									),
+							)
+						).find((tool) => tool.name === candidate.name)
+					: candidate;
 		}
-		if (!selected.toolName) {
-			// Jev declined, was uncertain, or was unavailable — previously the
-			// only fully silent gate, which made live diagnosis tail-dependent.
-			console.warn("[kernel.writeProposal] planner declined", {
-				slug: provider.slug,
-				writeToolCount: writes.length,
-			});
-			return decline({
-				stage: "planner_declined",
-				detail: `${provider.slug} actionSelection=${selected.reason} writeToolCount=${writes.length}`,
-			});
-		}
-		const candidate = writes.find((tool) => tool.name === selected.toolName);
-		if (!candidate)
-			return decline({
-				stage: "validation_failed",
-				detail: "Selected tool is not in the write catalog",
-			});
-		const exactTool =
-			transport === "codemode"
-				? parseCodeModeCatalog(
-						await mcpCall(
-							env,
-							host,
-							organizationId,
-							"tools/call",
-							codeModeDescribeParams(candidate.name),
-							actingUserId,
-						),
-					).find((tool) => tool.name === candidate.name)
-				: candidate;
 		if (!exactTool?.inputSchema || !isWriteCapable(exactTool))
 			return decline({
 				stage: "validation_failed",
 				detail: "Selected write schema is unavailable",
 			});
+		args.onStage?.("writeSchemaReady");
+		const editTarget = await editTargetPromise;
 		const paramDefaults = effectiveToolParamDefaults(
 			exactTool.name,
 			provider.slug,

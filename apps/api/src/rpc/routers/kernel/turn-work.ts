@@ -101,7 +101,11 @@ import {
 import { homeNarrationMetadata } from "./home-narration";
 import type { KernelResult, runKernel } from "./index";
 import { recordKernelTraceEvidence } from "./kernel-trace-recording";
-import { type KernelEnv, kernelModel } from "./llm";
+import {
+	KERNEL_ROUTE_MODEL_REF_DEFAULT,
+	type KernelEnv,
+	kernelModel,
+} from "./llm";
 import {
 	DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
 	nonNullRecord,
@@ -116,6 +120,7 @@ import type { HomeToolWritePayload } from "./write-executor";
 import {
 	type KernelWriteProposal,
 	type KernelWriteProposalDeclined,
+	type KernelWriteProposalStage,
 	type planKernelWriteProposal,
 	renderWriteDeclined,
 	type WriteProposalEnv,
@@ -1872,6 +1877,7 @@ async function planAndParkKernelWriteProposal(
 		typeof planKernelWriteProposal
 	>[0]["workspaceContext"],
 	executionAttempts: KernelExecutionAttempt[],
+	onStage?: (stage: KernelWriteProposalStage) => void,
 ): Promise<{
 	writeProposal: KernelWriteProposal | null;
 	writeProposalDeclined: KernelWriteProposalDeclined | null;
@@ -1887,16 +1893,26 @@ async function planAndParkKernelWriteProposal(
 	let writeProposalDeclined: KernelWriteProposalDeclined | null = null;
 	if (kernelResult?.route?.routeKind === "propose_tool_write") {
 		emitProgress(deps, "Drafting write proposal");
-		const writeModel = kernelModel(
-			deps.env as unknown as KernelEnv,
-			undefined,
-			{
-				organizationId,
-				runId,
-				sessionKey: conversationId,
-				source: "kernel:write-proposal",
-			},
-		);
+		const writeGatewayContext = {
+			organizationId,
+			runId,
+			sessionKey: conversationId,
+			source: "kernel:write-proposal",
+		};
+		// Same measured first-round model as the route pass: on the role default
+		// (`cloudflare/auto`, Kimi) the selection and argument passes took 10–20 s
+		// each and a rename timed out at 200 s. Role default only when absent.
+		const writeModel =
+			kernelModel(
+				deps.env as unknown as KernelEnv,
+				{ modelRef: KERNEL_ROUTE_MODEL_REF_DEFAULT },
+				writeGatewayContext,
+			) ??
+			kernelModel(
+				deps.env as unknown as KernelEnv,
+				undefined,
+				writeGatewayContext,
+			);
 		writeProposal = await deps
 			.writeProposalPlanner({
 				db: deps.db,
@@ -1909,6 +1925,7 @@ async function planAndParkKernelWriteProposal(
 				gatewayContext: { organizationId, runId, sessionKey: conversationId },
 				onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
 				model: writeModel?.model ?? null,
+				onStage,
 				onDecline: (declined) => {
 					writeProposalDeclined = declined;
 				},
@@ -2317,6 +2334,7 @@ export async function runKernelTurnWork(
 					kernelResult,
 					workspaceContext,
 					executionAttempts,
+					(stage) => stageTimings.mark(stage),
 				);
 	stageTimings.mark("writeProposalPlanEnded");
 	const writeProposalActive = Boolean(writeProposal && writeApprovalRequestId);

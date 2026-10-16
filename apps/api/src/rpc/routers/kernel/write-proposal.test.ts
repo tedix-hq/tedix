@@ -6,7 +6,9 @@ import { MockLanguageModelV3 } from "ai/test";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KernelRouteDecision } from "./route-schema";
 import {
+	canonicalWriteToolName,
 	classifyWriteRisk,
+	clearWriteCatalogCacheForTests,
 	declaredWriteCapability,
 	DESTRUCTIVE_VERBS,
 	isWriteCapable,
@@ -231,6 +233,7 @@ function baseEnv(
 }
 
 beforeEach(() => {
+	clearWriteCatalogCacheForTests();
 	mocks.selectJevAction.mockReset();
 	mocks.selectJevAction.mockImplementation(async ({ candidates }) => ({
 		toolName: candidates[0]?.id ?? null,
@@ -562,6 +565,133 @@ describe("preferredToolForCapability", () => {
 		expect(
 			preferredToolForCapability(tools, "files.create", "a sheet"),
 		).toBeNull();
+	});
+});
+
+describe("canonicalWriteToolName", () => {
+	it("maps a conversation rename to the rename primitive in any namespace", () => {
+		expect(
+			canonicalWriteToolName(
+				"conversations.update",
+				"Rename this conversation to Q3 plan",
+			),
+		).toBe("rename_conversation");
+		expect(
+			canonicalWriteToolName("conversations.update", "Pin this conversation"),
+		).toBeNull();
+		expect(canonicalWriteToolName("work_items.create")).toBe(
+			"work.create_work_items",
+		);
+	});
+});
+
+describe("planKernelWriteProposal — canonical Code Mode primitive", () => {
+	function renameService() {
+		return mcpService((body) => {
+			if (body.method === "tools/list") {
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: { tools: [{ name: "code" }] },
+					},
+				};
+			}
+			return {
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						structuredContent: {
+							executionId: "exec-describe",
+							result: JSON.stringify([
+								{
+									callable: "kernel.rename_conversation",
+									description: "Rename a Home conversation (chat)",
+									annotations: {
+										readOnlyHint: false,
+										destructiveHint: false,
+									},
+									parameters: {
+										type: "object",
+										properties: {
+											conversationId: { type: "string" },
+											title: { type: "string" },
+										},
+										required: ["conversationId", "title"],
+									},
+								},
+							]),
+						},
+					},
+				},
+			};
+		});
+	}
+	const renameArgs = () => ({
+		db: DB,
+		organizationId: "org-1",
+		route: writeRoute({
+			toolIntent: {
+				appSlug: "tedix-unified",
+				capability: "conversations.update",
+				connectionStatus: "connected",
+			},
+		}),
+		actingUserId: "user-123",
+		content: "Rename this conversation to Q3 plan",
+		gatewayContext: { organizationId: "org-1", sessionKey: "home:os:abc" },
+		model: objectModel({
+			toolName: "kernel.rename_conversation",
+			args: { conversationId: "home:os:abc", title: "Q3 plan" },
+			reasoning: "rename the current conversation",
+		}),
+	});
+
+	it("resolves and describes a rename in one call, with no selection pass", async () => {
+		const service = renameService();
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
+			slug === "tedix-unified" ? { slug } : null,
+		);
+		const stages: string[] = [];
+		const proposal = await planKernelWriteProposal({
+			...renameArgs(),
+			env: baseEnv(service),
+			onStage: (stage) => stages.push(stage),
+		});
+		expect(proposal).toMatchObject({
+			toolName: "kernel.rename_conversation",
+			args: { conversationId: "home:os:abc", title: "Q3 plan" },
+			transport: "codemode",
+		});
+		expect(mocks.selectJevAction).not.toHaveBeenCalled();
+		expect(service.calls.map((call) => call.method)).toEqual([
+			"tools/list",
+			"tools/call",
+		]);
+		const code = (service.calls[1]?.params.arguments as { code?: string })
+			?.code;
+		expect(code).toContain('"query":"rename_conversation"');
+		expect(code).toContain('".rename_conversation"');
+		expect(stages).toEqual([
+			"writeCatalogReady",
+			"writeToolSelected",
+			"writeSchemaReady",
+		]);
+	});
+
+	it("reuses the listed catalog and schema on the next write turn", async () => {
+		const service = renameService();
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
+			slug === "tedix-unified" ? { slug } : null,
+		);
+		await planKernelWriteProposal({ ...renameArgs(), env: baseEnv(service) });
+		const second = await planKernelWriteProposal({
+			...renameArgs(),
+			env: baseEnv(service),
+		});
+		expect(second?.toolName).toBe("kernel.rename_conversation");
+		expect(service.calls).toHaveLength(2);
 	});
 });
 
@@ -952,23 +1082,18 @@ describe("planKernelWriteProposal — positive path", () => {
 			riskTier: "high",
 			transport: "codemode",
 		});
+		// work_items.create has one canonical primitive: no catalog search, one
+		// Code Mode call that describes it directly.
 		expect(service.calls.map((call) => call.method)).toEqual([
 			"tools/list",
 			"tools/call",
-			"tools/call",
 		]);
-		expect(service.calls[1]?.params).toMatchObject({
-			name: "code",
-			arguments: {
-				code: expect.stringContaining('"query":"work items create"'),
-			},
-		});
-		expect(
-			(service.calls[1]?.params.arguments as { code?: string })?.code,
-		).toContain("Object.fromEntries");
-		expect(JSON.stringify(service.calls[2]?.params)).toContain(
-			"discover.describe",
-		);
+		const canonicalCode = (
+			service.calls[1]?.params.arguments as { code?: string }
+		)?.code;
+		expect(canonicalCode).toContain("discover.describe");
+		expect(canonicalCode).toContain('"work.create_work_items"');
+		expect(canonicalCode).not.toContain("discover.search");
 		expect(JSON.stringify(generate.mock.calls[0]?.[0].prompt)).toContain(
 			"Creating the record does not execute or delegate the work it describes.",
 		);
