@@ -451,6 +451,7 @@ describe("runProfile", () => {
 			const proposals = JSON.parse(publish!.match(/const input = (.*);/)![1]!);
 			expect(proposals).toHaveLength(3);
 			for (const { request } of proposals) {
+				expect(request.metadata.profile.workstreamId).toBeString();
 				expect(request.subject).not.toContain("Mara");
 				expect(request.prompt).not.toContain("Mara");
 				expect(request.prompt).not.toContain("Quill");
@@ -499,7 +500,7 @@ describe("runProfile", () => {
 		}
 	});
 
-	it("withdraws superseded profile proposals and retains a matching open proposal", async () => {
+	it("retains omitted proposals and reuses a matching open proposal", async () => {
 		const asked: AskedProposal[] = [
 			{
 				id: "old-acme",
@@ -536,15 +537,12 @@ describe("runProfile", () => {
 			const cancellations = sources.filter((source) =>
 				source.includes("Superseded by a newer tedix learn profile"),
 			);
-			expect(cancellations).toHaveLength(1);
-			expect(
-				JSON.parse(cancellations[0]!.match(/const input = (.*);/)![1]!),
-			).toEqual([{ id: "old-acme", version: 4 }]);
+			expect(cancellations).toHaveLength(0);
 			const publish = sources.find((source) =>
 				source.includes("create_work_interaction"),
 			)!;
 			const proposals = JSON.parse(publish.match(/const input = (.*);/)![1]!);
-			expect(proposals).toHaveLength(2);
+			expect(proposals).toHaveLength(1);
 			for (const { request } of proposals)
 				expect(request.subject).not.toContain("Draft");
 			const output = sources.find((source) =>
@@ -556,7 +554,7 @@ describe("runProfile", () => {
 		}
 	});
 
-	it("files an open proposal that cannot start anything again, with a start", async () => {
+	it("keeps a legacy open proposal instead of replacing its id", async () => {
 		const asked: AskedProposal[] = [
 			{
 				id: "legacy-acme",
@@ -575,7 +573,7 @@ describe("runProfile", () => {
 				source.includes("create_work_interaction"),
 			)!;
 			const proposals = JSON.parse(publish.match(/const input = (.*);/)![1]!);
-			expect(proposals).toHaveLength(3);
+			expect(proposals).toHaveLength(2);
 			expect(
 				proposals.every(
 					(p: { request: { metadata: { proposal: { start?: unknown } } } }) =>
@@ -584,10 +582,112 @@ describe("runProfile", () => {
 			).toBe(true);
 			const withdrawn = sources.find((source) =>
 				source.includes("Superseded by a newer tedix learn profile"),
+			);
+			expect(withdrawn).toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it.each([
+		"reworded",
+		"omitted",
+		"resolved",
+		"overflow",
+		"withdrawal-failed",
+		"inbox-failed",
+	])("reconciles existing proposals across runs (%s)", async (scenario) => {
+		const asked: AskedProposal[] = [];
+		const { dir, deps, sources } = fixture(false, asked);
+		try {
+			expect(await runProfile([], deps)).toBe(0);
+			const publish = sources.find((s) =>
+				s.includes("create_work_interaction"),
 			)!;
-			expect(JSON.parse(withdrawn.match(/const input = (.*);/)![1]!)).toEqual([
-				{ id: "legacy-acme", version: 1 },
-			]);
+			const input = JSON.parse(publish.match(/const input = (.*);/)![1]!);
+			for (const [n, { key, request }] of input.entries())
+				asked.push({
+					id: `prior-${n}`,
+					version: 1,
+					state: "open",
+					key,
+					title: request.metadata.proposal.item.title,
+					workstreamId: request.metadata.profile.workstreamId,
+					startKind: request.metadata.proposal.start.kind,
+					hasStart: true,
+					subject: request.subject,
+					prompt: request.prompt,
+				});
+			if (scenario === "reworded") {
+				asked[0]!.title += " plan";
+				asked[0]!.key = "profile:reworded";
+			}
+			if (scenario === "omitted")
+				for (const row of asked) {
+					row.title = `Arrange workshop ${row.id}`;
+					row.key = `profile:omitted-${row.id}`;
+				}
+			if (scenario === "overflow" || scenario === "withdrawal-failed")
+				asked.push({ ...asked[0]!, id: "prior-3", key: "profile:extra" });
+			const run = deps.model!.run;
+			if (scenario === "resolved") {
+				// Make the cached workstream description stale, then finish it.
+				const path = join(dir, "profile/model-cache.json");
+				if (existsSync(path)) rmSync(path);
+				deps.model!.run = async (prompt) => {
+					const result = await run(prompt);
+					if (prompt.startsWith(STATE_PROMPT.split("TODAY")[0]!))
+						return JSON.stringify(
+							JSON.parse(result).map((row: Record<string, unknown>) => ({
+								...row,
+								status: "done",
+							})),
+						);
+					return result;
+				};
+			}
+			if (scenario === "withdrawal-failed" || scenario === "inbox-failed") {
+				const read = deps.read!;
+				deps.read = async (...args) => {
+					if (
+						scenario === "inbox-failed" &&
+						args[2]?.includes("list_work_interactions")
+					)
+						throw new Error("Inbox unavailable");
+					if (args[2]?.includes("Superseded by a newer tedix learn profile")) {
+						sources.push(args[2]);
+						return {};
+					}
+					return read(...args);
+				};
+			}
+			sources.length = 0;
+			expect(await runProfile([], deps)).toBe(0);
+			const withdrawals = sources.filter((s) =>
+				s.includes("Superseded by a newer tedix learn profile"),
+			);
+			if (["resolved", "overflow", "withdrawal-failed"].includes(scenario)) {
+				expect(withdrawals).toHaveLength(1);
+				expect(
+					JSON.parse(withdrawals[0]!.match(/const input = (.*);/)![1]!),
+				).toEqual(
+					scenario === "resolved"
+						? [0, 1, 2].map((n) => ({ id: `prior-${n}`, version: 1 }))
+						: [{ id: "prior-3", version: 1 }],
+				);
+			} else {
+				expect(withdrawals).toHaveLength(0);
+				expect(sources.some((s) => s.includes("create_work_interaction"))).toBe(
+					false,
+				);
+				if (scenario === "reworded")
+					expect(sources.find((s) => s.includes("create_os_output"))).toContain(
+						"/work/interactions/prior-0",
+					);
+			}
+			expect(sources.some((s) => s.includes("create_work_interaction"))).toBe(
+				false,
+			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

@@ -32,6 +32,8 @@ export interface AskedProposal {
 	key: string;
 	/** Accepting it starts a first step (older proposals only create Work). */
 	hasStart?: boolean;
+	workstreamId?: string;
+	startKind?: ProposalStart["kind"];
 	title: string;
 	subject: string;
 	prompt: string;
@@ -162,7 +164,7 @@ export function listProposalsSource(openOnly: boolean): string {
 			const q = row.request || {};
 			const m = q.metadata || {};
 			if (m.schema !== SCHEMA || !m.proposal || !row.canRespond && row.effectiveState === "open") continue;
-			rows.push({ id: q.id, version: q.version, state: row.effectiveState, key: String(m.proposal.key || ""), hasStart: Boolean(m.proposal.start), title: String(m.proposal.item?.title || q.subject || ""), subject: String(q.subject || ""), prompt: String(q.prompt || "").slice(0, 1500) });
+			rows.push({ id: q.id, version: q.version, state: row.effectiveState, key: String(m.proposal.key || ""), hasStart: Boolean(m.proposal.start), workstreamId: m.profile?.workstreamId, startKind: m.proposal.start?.kind, title: String(m.proposal.item?.title || q.subject || ""), subject: String(q.subject || ""), prompt: String(q.prompt || "").slice(0, 1500) });
 		}
 		if (!r.hasMore || !r.nextCursor) break;
 		cursor = r.nextCursor;

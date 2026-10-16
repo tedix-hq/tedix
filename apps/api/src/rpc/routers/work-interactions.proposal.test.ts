@@ -490,12 +490,15 @@ describe("Work proposal acceptance", () => {
 describe("Accepted proposal starts its first step", () => {
 	function started() {
 		const calls: Array<[string, unknown]> = [];
+		const contexts: BaseContext[] = [];
 		const actions: ProposalStartActions = {
 			async delegate(_context, input) {
+				contexts.push(_context);
 				calls.push(["delegate", input]);
 				return { runId: input.idempotencyKey, status: "queued" };
 			},
 			async planFactory(_context, input) {
+				contexts.push(_context);
 				calls.push(["factory", input]);
 				return {
 					name: input.name ?? "Weekly digest",
@@ -505,6 +508,7 @@ describe("Accepted proposal starts its first step", () => {
 				};
 			},
 			async createDocument(_context, input) {
+				contexts.push(_context);
 				calls.push(["doc", input]);
 				return { outputId: "output-1" };
 			},
@@ -531,8 +535,48 @@ describe("Accepted proposal starts its first step", () => {
 		const disposition = (id: string) =>
 			f.sqlite.prepare("SELECT disposition FROM work_items WHERE id=?").get(id)
 				?.disposition;
-		return { ...f, calls, withStart, disposition };
+		return { ...f, calls, contexts, withStart, disposition };
 	}
+
+	it.each(["delegate", "factory", "doc"])(
+		"starts an approved-chat %s as the approving member, preserving the tedi audit actor",
+		async (kind) => {
+			const f = started();
+			const request = await f.propose(
+				f.withStart({
+					kind,
+					brief: "Collect the export requirements for the launch.",
+				}),
+			);
+			const result = await f.kernel("target-sub").respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "handoff_accepted",
+				resolvesRequest: true,
+				body: "Accepted",
+			});
+			expect(f.contexts).toHaveLength(1);
+			const context = f.contexts[0]!;
+			expect(context).toMatchObject({
+				authType: "user",
+				userId: "target-id",
+				userRole: "admin",
+				user: { sub: "target-sub" },
+				organizationId: ORG_ID,
+			});
+			expect(context.tediId).toBeUndefined();
+			expect(context.tediScopes).toBeUndefined();
+			expect([...context.headers]).toEqual([]);
+			expect(result.response).toMatchObject({
+				respondedByType: "user",
+				respondedById: "target-id",
+				metadata: {
+					actor: { type: "tedi", id: "chat-tedi" },
+					started: { kind },
+				},
+			});
+		},
+	);
 
 	it("delegates the new Work to the named tedi once, even when accepted again", async () => {
 		const f = started();
