@@ -2081,6 +2081,60 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 });
 
 describe("exact output input schemas", () => {
+	it.each(["document", "sheet"])(
+		"validates a body-only draft against the full %s tool schema",
+		async (kind) => {
+			const service = mcpService(() => ({
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						tools: [
+							{
+								name: "os.create_os_output",
+								annotations: { readOnlyHint: false, destructiveHint: false },
+								inputSchema: z.toJSONSchema(
+									z.object({
+										kind: z.literal(kind),
+										title: z.string(),
+										content: OsOutputContentSchema,
+									}),
+								),
+							},
+						],
+					},
+				},
+			}));
+			const blocks = [{ type: "paragraph", text: "Welcome to the shop." }];
+			const result = await planKernelWriteProposal({
+				db: DB,
+				env: baseEnv(service),
+				organizationId: "org-1",
+				route: writeRoute({
+					toolIntent: {
+						appSlug: "globex",
+						capability: "documents.create",
+						connectionStatus: "connected",
+					},
+				}),
+				content: 'Create a document titled "Welcome" welcoming visitors.',
+				model: objectModel({ blocks }),
+			});
+			expect(Boolean(result)).toBe(kind === "document");
+			if (result)
+				expect(result.args).toEqual({
+					kind: "document",
+					title: "Welcome",
+					content: { kind: "document", blocks },
+				});
+			expect(
+				service.calls.every(
+					(call) => call.method !== "tools/call" || call.params.name === "code",
+				),
+			).toBe(true);
+		},
+	);
+
 	const inputSchema = z.toJSONSchema(
 		z.object({
 			kind: z.literal("document"),
