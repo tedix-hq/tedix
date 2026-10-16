@@ -8895,6 +8895,30 @@ describe("home approved-write layer (v1)", () => {
 		});
 	});
 
+	it("records a failed direct policy write with its execution receipt", async () => {
+		const db = trustedPolicyDb(["globex-tedix:globex__create_invoice"]);
+		const executor = vi.fn(async () => ({
+			ok: false as const,
+			error: "Provider rejected the payload",
+		}));
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+		const { result } = await enqueueWriteProposalTurn(db);
+		expect(result.status).toBe("failed");
+		expect(result.assistantMessage.content).toContain(
+			"Provider rejected the payload",
+		);
+		expect(db.approvalExecutionReceipts).toHaveLength(1);
+		expect(db.approvalExecutionReceipts[0]).toMatchObject({
+			outcome: "failed",
+			observedError: { code: "provider_write_failed" },
+		});
+		expect(db.events.some((row) => row.kind === "approval.requested")).toBe(
+			false,
+		);
+		expect(db.events.some((row) => row.kind === "run.failed")).toBe(true);
+		expect(executor).toHaveBeenCalledTimes(1);
+	});
+
 	it("a failed approved write lands as run.failed with the bounded upstream error", async () => {
 		const db = createKernelRuntimeDb();
 		const { context } = await enqueueWriteProposalTurn(db, "home-write-3");
