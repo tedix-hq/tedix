@@ -604,7 +604,11 @@ export async function registerDynamicTool(
 	tool: AppTool,
 	registeredResourceUris?: Set<string>,
 ): Promise<void> {
-	if (isToolDeniedForConnection(agent, tool)) return;
+	if (isToolDeniedForConnection(agent, tool)) {
+		// Retain identity for discovery diagnostics; registration and dispatch stay denied.
+		agent.loadedTools.set(tool.toolId, tool);
+		return;
+	}
 	const widgetVersion = getWidgetVersion(agent.env);
 
 	// Prompt tools are handled separately by registerAppPrompts

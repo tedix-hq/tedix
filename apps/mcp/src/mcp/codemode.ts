@@ -2334,6 +2334,7 @@ export function buildCatalogProvider(
 ): ToolProvider {
 	const catalog: Record<string, Record<string, CatalogToolEntry>> = {};
 	const catalogBuiltAt = new Date().toISOString();
+	const policyHidden = new Map<string, string>();
 	// A quarantined collision is withheld from every owner; say so where callers
 	// look, instead of only in a log line.
 	const quarantinedByNamespace = new Map<string, string[]>();
@@ -2353,13 +2354,21 @@ export function buildCatalogProvider(
 	const namespaceOrganizations = new Map<string, string>();
 
 	for (const [toolId, tool] of serverCtx.loadedTools) {
-		if (isToolDeniedForConnection(serverCtx, tool)) continue;
 		const {
 			namespace: ns,
 			safeName,
 			ownerKey,
 		} = projectedToolIdentity(toolId, tool, namespaceOverrides);
 		if (collisionKeys.has(ownerKey)) continue;
+		if (isToolDeniedForConnection(serverCtx, tool)) {
+			policyHidden.set(
+				ownerKey,
+				typeof tool.config?._aggregateTediSlug === "string"
+					? tool.config._aggregateTediSlug
+					: ns,
+			);
+			continue;
+		}
 		if (!catalog[ns]) catalog[ns] = {};
 		const toolOrganizationId = recordFrom(tool.config)?._multiOrgOrganizationId;
 		if (typeof toolOrganizationId === "string" && toolOrganizationId) {
@@ -2719,14 +2728,47 @@ export function buildCatalogProvider(
 					const ns = callable.slice(0, dot);
 					const tool = callable.slice(dot + 1);
 					const meta = catalog[ns]?.[tool];
-					if (!meta)
+					if (!meta) {
+						if (policyHidden.has(callable)) {
+							throw new Error(
+								`Callable ${JSON.stringify(callable)} exists but is hidden by this connection's no-funds payment policy (${serverCtx.connectionAppSlug ?? serverCtx.appSlug}). Use a payment-enabled connection for ${policyHidden.get(callable)} with the required tool scopes. Additional OAuth grants on Connect cannot lift this connection policy.`,
+							);
+						}
+						const candidates = Object.entries(
+							catalog[ns] ? { [ns]: catalog[ns] } : catalog,
+						)
+							.flatMap(([namespace, tools]) =>
+								Object.entries(tools).map(([name, entry]) => ({
+									callable: entry.callable,
+									score:
+										scoreCatalogSearch(
+											normalizeSearchTerms(tool),
+											namespace,
+											name,
+											entry,
+										)?.score ?? 0,
+									distance: editDistance(tool, name),
+								})),
+							)
+							.sort(
+								(a, b) =>
+									b.score - a.score ||
+									a.distance - b.distance ||
+									a.callable.localeCompare(b.callable),
+							)
+							.slice(0, 3);
 						throw new Error(
-							`Callable ${JSON.stringify(callable)} is not exposed in the current gateway catalog. This does not establish missing organization membership or upstream authentication. Nearest namespaces: ${
-								nearestCatalogNamespaces(ns, catalog)
-									.map((entry) => entry.namespace)
-									.join(", ") || "none"
-							}. Use discover.search({ query: ${JSON.stringify(tool)}, limit: 3 }) on this gateway.`,
+							`Callable ${JSON.stringify(callable)} is not exposed in the current gateway catalog. ${
+								catalog[ns]
+									? `Namespace ${JSON.stringify(ns)} is valid.`
+									: `Nearest namespaces: ${
+											nearestCatalogNamespaces(ns, catalog)
+												.map((entry) => entry.namespace)
+												.join(", ") || "none"
+										}.`
+							} Closest tool callables: ${candidates.map((entry) => entry.callable).join(", ") || "none"}. Use discover.search({ query: ${JSON.stringify(tool)}, limit: 3 }) on this gateway.`,
 						);
+					}
 					const described = projectCatalogMeta(
 						meta,
 						true,

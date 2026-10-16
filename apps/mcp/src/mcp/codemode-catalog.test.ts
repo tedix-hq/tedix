@@ -2189,3 +2189,57 @@ it("hides classified tools only from the directory connection catalog", async ()
 		).results.some((row) => row.callable === "provider.create_payment"),
 	).toBe(false);
 });
+
+it("describe lists the three closest callables within a valid namespace", async () => {
+	const rows = [
+		"improve_skills",
+		"list_skills",
+		"get_skills",
+		"list_orders",
+	].map((name) =>
+		tool({ toolId: `atelier__${name}`, writeCapability: "read" }),
+	);
+	const ctx = {
+		appSlug: "atelier",
+		loadedTools: new Map(rows.map((row) => [row.toolId, row])),
+	} as unknown as ServerContext;
+	const describe = (
+		buildCatalogProvider(ctx, undefined) as unknown as {
+			tools: Record<string, { execute: (input: unknown) => Promise<unknown> }>;
+		}
+	).tools.describe!;
+	await expect(describe.execute("atelier.update_skills")).rejects.toThrow(
+		'Namespace "atelier" is valid. Closest tool callables: atelier.get_skills, atelier.improve_skills, atelier.list_skills.',
+	);
+	await expect(describe.execute("ateler.update_skills")).rejects.toThrow(
+		"Closest tool callables:",
+	);
+});
+
+it("retains policy-hidden identity for describe without registering or exposing the tool", async () => {
+	const { registerDynamicTool } = await import("./tool-registration");
+	const row = tool({
+		toolId: "provider__create_payment",
+		writeCapability: "read",
+	});
+	const ctx = {
+		appSlug: "tenant",
+		connectionAppSlug: "connect",
+		loadedTools: new Map(),
+	} as unknown as ServerContext;
+	await registerDynamicTool(ctx, row);
+	const provider = buildCatalogProvider(ctx, undefined);
+	expect(
+		(await runSearch(provider, "create_payment")).results.some(
+			(entry) => entry.callable === "provider.create_payment",
+		),
+	).toBe(false);
+	const describe = (
+		provider as unknown as {
+			tools: Record<string, { execute: (input: unknown) => Promise<unknown> }>;
+		}
+	).tools.describe!;
+	await expect(describe.execute("provider.create_payment")).rejects.toThrow(
+		"exists but is hidden by this connection's no-funds payment policy (connect). Use a payment-enabled connection for provider with the required tool scopes. Additional OAuth grants on Connect cannot lift this connection policy.",
+	);
+});
