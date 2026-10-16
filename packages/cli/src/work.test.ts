@@ -3572,9 +3572,9 @@ describe("resolveAgentSession", () => {
 		try {
 			for (const key of keys) delete process.env[key];
 			process.env.CLAUDECODE = "1";
-			process.env.CODEX_THREAD_ID = "01a141ed-e7cc-7852-8ae8-3bb06e42269d";
+			process.env.CODEX_THREAD_ID = "00000000-0000-4000-8000-0000000000a3";
 			expect(resolveAgentSession()).toEqual({
-				session: "codex:01a141ed-e7cc-7852-8ae8-3bb06e42269d",
+				session: "codex:00000000-0000-4000-8000-0000000000a3",
 				harness: "codex",
 				derived: false,
 			});

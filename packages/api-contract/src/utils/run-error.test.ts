@@ -4,7 +4,7 @@ import { RUN_ERROR_HEADLINE_LENGTH, summarizeRunError } from "./run-error";
 describe("summarizeRunError", () => {
 	it("names the failed tool call instead of the envelope preamble", () => {
 		const stored = `Error: McpToolError: MCP tool error: {
-  "executionId": "847e9193-33fc-4025-9e2a-ff52f49ac2a3",
+  "executionId": "00000000-0000-4000-8000-0000000000a2",
   "partial": true,
   "failures": [
     {

@@ -56,8 +56,9 @@ function joinName(...parts: string[]): string {
  * Customer names, customer hostnames and the live installation's Cloudflare
  * account, D1 and organization ids live in ONE private file, never here: this
  * scanner is published, and a pattern that names a customer publishes the
- * customer list. The file is never exported, so the private pre-push gate
- * enforces it and a public clone scans with the generic credential rules alone. `exemptExportRewritten`
+ * customer list. The file is never exported. The pre-push gate requires it and
+ * fails closed without it; a bare `scan:secrets` in a clone without it scans
+ * with the generic credential rules alone. `exemptExportRewritten`
  * rules skip the paths the exporter rewrites or regenerates (see
  * EXPORT_DERIVED_INFRA_IDS). Integrations the product ships (klarna, nosana,
  * promptwatch) are not customers and do not belong in the file.
@@ -115,7 +116,11 @@ export function requirePrivateScanRules(
 ): PrivateScanRule[] {
 	const rules = readPrivateScanRules(path);
 	if (rules.length === 0) {
-		throw new Error(`required private scan rules are absent or empty: ${path}`);
+		throw new Error(
+			`required private scan rules are absent or empty: ${path}\n` +
+				"Configure them with: git config tedix.privateScanRules " +
+				"<path to tedix-cloud-ops/configuration/private-scan-rules.json>",
+		);
 	}
 	return rules;
 }
@@ -610,7 +615,10 @@ export function trailerFindings(message: string): number[] {
 export function scanCommits(
 	repositoryRoot: string,
 	ranges: PushRange[],
-	options: Pick<SecretScanOptions, "privateRulesPath"> = {},
+	options: Pick<SecretScanOptions, "privateRulesPath"> & {
+		/** Incremented once per distinct commit scanned. */
+		scanned?: { commits: number };
+	} = {},
 ): SecretScanFinding[] {
 	const rules = contentRules(options.privateRulesPath).filter(
 		(rule) => !COMMIT_EXEMPT_RULES.has(rule.rule),
@@ -643,6 +651,7 @@ export function scanCommits(
 			const [sha = "", ...lines] = record.split("\n");
 			if (seen.has(sha)) continue;
 			seen.add(sha);
+			if (options.scanned) options.scanned.commits += 1;
 			for (const line of trailerFindings(lines.slice(2).join("\n"))) {
 				findings.push({
 					kind: "commit",
@@ -668,7 +677,17 @@ export function scanCommits(
 	return findings;
 }
 
-export function renderSecretScan(findings: SecretScanFinding[]): string {
+/**
+ * `commitsScanned` is given when push ranges were requested: a range already
+ * on origin/main scans nothing, which must not read as a pass.
+ */
+export function renderSecretScan(
+	findings: SecretScanFinding[],
+	commitsScanned?: number,
+): string {
+	if (findings.length === 0 && commitsScanned === 0) {
+		return "Secret scan: 0 commits scanned (the pushed range is empty or already on origin/main); no findings in the scanned files.";
+	}
 	if (findings.length === 0) {
 		return "Secret scan passed: no suspicious tracked paths or plaintext credential patterns found.";
 	}
@@ -691,7 +710,7 @@ export function renderSecretScan(findings: SecretScanFinding[]): string {
  *   export publishes. In the public repository every file is published, so it
  *   changes nothing.
  * - `--require-private-rules`: fail when the private customer/installation
- *   overlay is absent or empty. Private-source gates pass this; public clones do not.
+ *   overlay is absent or empty. The pre-push gate always passes this.
  * - `--base <sha> --head <sha>` pairs: also scan each pushed commit's message
  *   and author/committer identity.
  */
@@ -765,8 +784,14 @@ if (import.meta.main) {
 		requirePrivateRules: privateRulesRequired,
 		paths,
 	} = parseCli(args);
-	if (privateRulesRequired || CONFIGURED_PRIVATE_RULES_PATH)
-		requirePrivateScanRules();
+	if (privateRulesRequired || CONFIGURED_PRIVATE_RULES_PATH) {
+		try {
+			requirePrivateScanRules();
+		} catch (error) {
+			process.stderr.write(`${(error as Error).message}\n`);
+			process.exit(1);
+		}
+	}
 	let scope = paths;
 	let note = "";
 	// In the public repository every tracked file is already published.
@@ -784,10 +809,11 @@ if (import.meta.main) {
 				`was scanned instead of only the published files: ${(error as Error).message}\n`;
 		}
 	}
-	const findings: SecretScanFinding[] = scanCommits(
-		repositoryRoot,
-		parsePushRanges(args),
-	);
+	const ranges = parsePushRanges(args);
+	const scanned = { commits: 0 };
+	const findings: SecretScanFinding[] = scanCommits(repositoryRoot, ranges, {
+		scanned,
+	});
 	if (scope === undefined || scope.length > 0) {
 		findings.push(
 			...scanTrackedFiles(
@@ -796,7 +822,9 @@ if (import.meta.main) {
 			),
 		);
 	}
-	process.stdout.write(`${note}${renderSecretScan(findings)}\n`);
+	process.stdout.write(
+		`${note}${renderSecretScan(findings, ranges.length > 0 ? scanned.commits : undefined)}\n`,
+	);
 	if (findings.length > 0) {
 		if (publicOnly) {
 			process.stdout.write(

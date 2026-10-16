@@ -763,6 +763,19 @@ describe("public secret scan", () => {
 		]);
 	});
 
+	test("a range already on origin/main reports 0 commits, not a pass", () => {
+		const root = fixture({ "src/index.ts": "export {};\n" });
+		const base = commitFixture(root, "Ada Codex|ada@acme.dev", "chore: base");
+		const head = commitFixture(root, "Ada Codex|ada@acme.dev", "chore: next");
+		setOriginMain(root, head);
+		const scanned = { commits: 0 };
+		const findings = scanCommits(root, [{ base, head }], { scanned });
+		expect(scanned.commits).toBe(0);
+		const rendered = renderSecretScan(findings, scanned.commits);
+		expect(rendered).toContain("0 commits scanned");
+		expect(rendered).not.toContain("passed");
+	});
+
 	test("fails closed when origin/main is missing for an existing ref", () => {
 		const root = fixture({ "src/index.ts": "export {};\n" });
 		const base = commitFixture(root, "Ada Codex|ada@acme.dev", "chore: base");
