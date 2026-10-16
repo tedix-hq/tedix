@@ -32,6 +32,8 @@ function fixture() {
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
+const ANYONE = { userIds: [] };
+
 const accountability = {
 	organizationId: "org-1",
 	createdByKind: "tedi" as const,
@@ -95,12 +97,14 @@ describe("os outputs", () => {
 		expect(
 			await getOsOutput(db, { organizationId: "org-2", outputId: "out-1" }),
 		).toBeUndefined();
-		expect(await listOsOutputs(db, "org-1", { kind: "document" })).toHaveLength(
-			1,
-		);
-		expect(await listOsOutputs(db, "org-1", { kind: "sheet" })).toHaveLength(0);
 		expect(
-			(await listOsOutputLibraryRows(db, "org-1"))[0]?.workspace,
+			await listOsOutputs(db, "org-1", ANYONE, { kind: "document" }),
+		).toHaveLength(1);
+		expect(
+			await listOsOutputs(db, "org-1", ANYONE, { kind: "sheet" }),
+		).toHaveLength(0);
+		expect(
+			(await listOsOutputLibraryRows(db, "org-1", ANYONE))[0]?.workspace,
 		).toBeNull();
 	});
 
@@ -315,7 +319,7 @@ describe("os outputs", () => {
 			createdById: "u-1",
 		});
 		await seedOutput(db);
-		const rows = await listOsOutputLibraryRows(db, "org-1", {
+		const rows = await listOsOutputLibraryRows(db, "org-1", ANYONE, {
 			status: "active",
 		});
 		expect(rows).toHaveLength(1);
@@ -324,7 +328,7 @@ describe("os outputs", () => {
 			revision: { id: "out-1-rev-1", revision: 1 },
 			workspace: { id: "ws-1", name: "Launch room", status: "archived" },
 		});
-		expect(await listOsOutputLibraryRows(db, "org-2")).toHaveLength(0);
+		expect(await listOsOutputLibraryRows(db, "org-2", ANYONE)).toHaveLength(0);
 	});
 
 	it("filters the output library to the requested workspace", async () => {
@@ -348,9 +352,65 @@ describe("os outputs", () => {
 		await seedOutput(db, "out-1", "ws-1");
 		await seedOutput(db, "out-2", "ws-2");
 
-		const rows = await listOsOutputLibraryRows(db, "org-1", {
+		const rows = await listOsOutputLibraryRows(db, "org-1", ANYONE, {
 			workspaceId: "ws-2",
 		});
 		expect(rows.map((row) => row.output.id)).toEqual(["out-2"]);
+	});
+
+	it("hides outputs of a private workspace from everyone but its owner", async () => {
+		const { db } = fixture();
+		await db.insert(osWorkspaces).values([
+			{
+				id: "ws-1",
+				organizationId: "org-1",
+				name: "Team",
+				createdByKind: "user",
+				createdById: "u-1",
+			},
+			{
+				id: "ws-private",
+				organizationId: "org-1",
+				name: "Robin (private)",
+				visibility: "private",
+				ownerUserId: "u-owner",
+				createdByKind: "user",
+				createdById: "u-owner",
+			},
+		]);
+		await seedOutput(db, "out-team", "ws-1");
+		await seedOutput(db, "out-private", "ws-private");
+		const ids = async (userIds: string[]) => ({
+			list: (await listOsOutputs(db, "org-1", { userIds })).map((o) => o.id),
+			library: (await listOsOutputLibraryRows(db, "org-1", { userIds })).map(
+				(r) => r.output.id,
+			),
+		});
+		expect((await ids(["u-owner"])).list.sort()).toEqual([
+			"out-private",
+			"out-team",
+		]);
+		expect((await ids(["u-owner"])).library.sort()).toEqual([
+			"out-private",
+			"out-team",
+		]);
+		expect(await ids(["u-other"])).toEqual({
+			list: ["out-team"],
+			library: ["out-team"],
+		});
+		expect(await ids([])).toEqual({
+			list: ["out-team"],
+			library: ["out-team"],
+		});
+		expect(
+			await listOsOutputs(
+				db,
+				"org-1",
+				{ userIds: ["u-other"] },
+				{
+					workspaceId: "ws-private",
+				},
+			),
+		).toEqual([]);
 	});
 });

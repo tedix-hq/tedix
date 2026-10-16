@@ -40,6 +40,14 @@ const Sha256HexSchema = z
 
 export const OsWorkspaceStatusSchema = z.enum(["active", "archived"]);
 
+/**
+ * `org`: every organization member can see the workspace. `private`: only the
+ * owning member and that member's own tedis and agents acting for them; no
+ * organization role overrides it.
+ */
+export const OsWorkspaceVisibilitySchema = z.enum(["org", "private"]);
+export type OsWorkspaceVisibility = z.infer<typeof OsWorkspaceVisibilitySchema>;
+
 export const OsWorkspaceProjectStatusSchema = z.enum(["active", "removed"]);
 
 /** A Workspace-scoped reference to one canonical Work project. */
@@ -377,6 +385,13 @@ export const OsWorkspaceSchema = z.object({
 	createdById: z.string(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
+	visibility: OsWorkspaceVisibilitySchema.describe(
+		"org: every member sees it; private: only ownerUserId and their own tedis and agents",
+	),
+	ownerUserId: z
+		.string()
+		.nullable()
+		.describe("The member who owns a private workspace; null for org"),
 });
 
 /**

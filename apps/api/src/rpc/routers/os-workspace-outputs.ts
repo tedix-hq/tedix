@@ -65,6 +65,7 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
+import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import {
 	queryDb,
 	requireOutput,
@@ -173,12 +174,18 @@ async function canReadDerivedRevision(
 
 const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
 	const organizationId = requireOrgId(context);
-	const rows = await listOsOutputs(queryDb(context), organizationId, {
-		workspaceId: input.workspaceId,
-		kind: input.kind,
-		status: input.status,
-		limit: input.limit + 1,
-	});
+	if (input.workspaceId) await requireWorkspace(context, input.workspaceId);
+	const rows = await listOsOutputs(
+		queryDb(context),
+		organizationId,
+		await resolveOsWorkspaceViewer(context),
+		{
+			workspaceId: input.workspaceId,
+			kind: input.kind,
+			status: input.status,
+			limit: input.limit + 1,
+		},
+	);
 	return {
 		items: rows.slice(0, input.limit).map(mapOsOutputRow),
 		truncated: rows.length > input.limit,
@@ -190,6 +197,7 @@ const outputsLibrary = readOs.outputs.library.handler(
 		const organizationId = requireOrgId(context);
 		return buildOsOutputLibrary(queryDb(context), {
 			organizationId,
+			viewer: await resolveOsWorkspaceViewer(context),
 			creator: resolveCreator(context),
 			workspaceId: input.workspaceId,
 			kind: input.kind,

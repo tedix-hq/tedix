@@ -13,6 +13,7 @@ import {
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { listOsOutputLibraryRows } from "@tedix/db/queries/os-workspaces/outputs";
+import type { OsWorkspaceViewer } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type {
 	OsOutputRevisionRow,
@@ -114,6 +115,7 @@ export async function buildOsOutputLibrary(
 	db: DbQueryClient,
 	params: {
 		organizationId: string;
+		viewer: OsWorkspaceViewer;
 		creator: { kind: OsCreatedByKind; id: string };
 		workspaceId?: string;
 		kind?: OsOutputKind;
@@ -122,12 +124,17 @@ export async function buildOsOutputLibrary(
 		canReadRevision: (revision: OsOutputRevisionRow) => Promise<boolean>;
 	},
 ): Promise<{ items: OsOutputLibraryItem[]; truncated: boolean }> {
-	const rows = await listOsOutputLibraryRows(db, params.organizationId, {
-		workspaceId: params.workspaceId,
-		kind: params.kind,
-		status: params.status,
-		limit: params.limit + 1,
-	});
+	const rows = await listOsOutputLibraryRows(
+		db,
+		params.organizationId,
+		params.viewer,
+		{
+			workspaceId: params.workspaceId,
+			kind: params.kind,
+			status: params.status,
+			limit: params.limit + 1,
+		},
+	);
 	return {
 		items: await Promise.all(
 			rows

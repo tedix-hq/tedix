@@ -14,6 +14,7 @@ import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { assertOsWorkspaceVisible } from "./os-workspace-visibility";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { requireOrgId } from "../rpc/org-scope";
 import {
@@ -56,6 +57,11 @@ export async function authorizeWorkspaceResourceRead(
 	if (!workspace || workspace.status !== "active") {
 		throw createError(ErrorCodes.NOT_FOUND, "Active Workspace not found");
 	}
+	await assertOsWorkspaceVisible(
+		context,
+		workspace,
+		"Active Workspace not found",
+	);
 	const resource = await getOsWorkspaceResource(db, {
 		organizationId,
 		workspaceId: input.workspaceId,

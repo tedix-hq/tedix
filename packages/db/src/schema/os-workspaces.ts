@@ -86,6 +86,17 @@ export const osWorkspaces = sqliteTable(
 		updatedAt: text("updated_at")
 			.notNull()
 			.default(sql`(datetime('now'))`),
+		/**
+		 * `org`: every member of the organization can see the workspace.
+		 * `private`: only `owner_user_id` and that member's own personal tedis
+		 * can see it or anything in it; no organization role overrides this.
+		 * Declared last because `ALTER TABLE ADD COLUMN` appends.
+		 */
+		visibility: text("visibility", { enum: ["org", "private"] })
+			.notNull()
+			.default("org"),
+		/** Descope user id of the member who owns a private workspace; null for `org`. */
+		ownerUserId: text("owner_user_id"),
 	},
 	(table) => [
 		uniqueIndex("os_workspaces_org_id_unique").on(

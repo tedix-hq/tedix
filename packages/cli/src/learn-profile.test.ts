@@ -40,6 +40,7 @@ import {
 	SUMMARY_PROMPT,
 	groupWorkstreams,
 	newMeter,
+	publishDocSource,
 	publicText,
 	renderDocument,
 	runProfile,
@@ -1126,5 +1127,61 @@ describe("week grounding", () => {
 		const clean =
 			"This week you built exports. You have a review open for Monday.";
 		expect(groundWeek(clean, "exports review")).toBe(clean);
+	});
+});
+
+describe("publishDocSource", () => {
+	function run(existing: Record<string, unknown> | null) {
+		const calls: Array<[string, Record<string, unknown>]> = [];
+		const record =
+			(name: string, result: (input: Record<string, unknown>) => unknown) =>
+			async (input: Record<string, unknown>) => {
+				calls.push([name, input]);
+				return result(input);
+			};
+		const os = {
+			list_os_workspaces: record("list", () => ({
+				items: existing ? [existing] : [],
+			})),
+			create_os_workspace: record("create", (input) => ({
+				workspace: { id: "ws-new", ...input },
+			})),
+			update_os_workspace: record("update", (input) => ({
+				workspace: { ...existing, ...input },
+			})),
+			create_os_output: record("output", () => ({ output: { id: "out-1" } })),
+		};
+		const user = { get_mine: async () => ({ id: "member-robin" }) };
+		const source = publishDocSource({
+			spaceName: "Robin (private)",
+			blocks: [],
+		});
+		const program = new Function("os", "user", `return (${source})();`);
+		return { calls, result: program(os, user) as Promise<unknown> };
+	}
+
+	it("creates the space private", async () => {
+		const { calls, result } = run(null);
+		await expect(result).resolves.toMatchObject({ workspaceId: "ws-new" });
+		expect(calls.find(([name]) => name === "create")?.[1]).toMatchObject({
+			name: "Robin (private)",
+			visibility: "private",
+		});
+	});
+
+	it("makes an existing org-visible space private and renames it", async () => {
+		const { calls, result } = run({
+			id: "ws-old",
+			name: "Robin (personal)",
+			visibility: "org",
+			description: "(tedix learn personal space for member-robin)",
+		});
+		await expect(result).resolves.toMatchObject({ workspaceId: "ws-old" });
+		expect(
+			calls.filter(([name]) => name === "update").map(([, i]) => i),
+		).toEqual([
+			{ workspaceId: "ws-old", visibility: "private" },
+			{ workspaceId: "ws-old", name: "Robin (private)" },
+		]);
 	});
 });

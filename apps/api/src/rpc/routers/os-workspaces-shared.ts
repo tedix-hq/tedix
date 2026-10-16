@@ -35,6 +35,10 @@ import type {
 	OsWorkspaceRow,
 } from "@tedix/db/schema/os-workspaces";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
+import {
+	assertOsWorkspaceChildVisible,
+	assertOsWorkspaceVisible,
+} from "../../services/os-workspace-visibility";
 import { requireOrgId } from "../org-scope";
 import { type BaseContext, createError, ErrorCodes } from "../orpc";
 
@@ -270,6 +274,8 @@ export function mapWorkspace(row: OsWorkspaceRow): OsWorkspace {
 		createdById: row.createdById,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
+		visibility: row.visibility,
+		ownerUserId: row.ownerUserId,
 	};
 }
 
@@ -405,6 +411,7 @@ export async function requireWorkspace(
 	if (!workspace) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 	}
+	await assertOsWorkspaceVisible(context, workspace);
 	return workspace;
 }
 
@@ -422,6 +429,12 @@ export async function requireGadget(
 	if (!gadget || gadget.workspaceId !== workspaceId) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
 	}
+	await assertOsWorkspaceChildVisible(
+		context,
+		organizationId,
+		gadget.workspaceId,
+		"OS gadget not found",
+	);
 	return gadget;
 }
 
@@ -453,5 +466,11 @@ export async function requireOutput(
 	if (!output) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 	}
+	await assertOsWorkspaceChildVisible(
+		context,
+		organizationId,
+		output.workspaceId,
+		"OS output not found",
+	);
 	return output;
 }

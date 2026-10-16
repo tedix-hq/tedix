@@ -17,7 +17,11 @@ import {
 	getOsOutput,
 	listOsOutputs,
 } from "@tedix/db/queries/os-workspaces/outputs";
-import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import {
+	getOsWorkspace,
+	isOsWorkspaceVisibleTo,
+} from "@tedix/db/queries/os-workspaces/workspaces";
+import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import {
 	createProject,
 	getProjectById,
@@ -75,26 +79,49 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 			}));
 		},
 		async workspaceExists(workspaceId) {
+			const row = await getOsWorkspace(db, {
+				organizationId: orgId,
+				workspaceId,
+			});
 			return Boolean(
-				await getOsWorkspace(db, { organizationId: orgId, workspaceId }),
+				row &&
+				isOsWorkspaceVisibleTo(row, await resolveOsWorkspaceViewer(context)),
 			);
 		},
 		async findOutputById(outputId) {
 			const row = await getOsOutput(db, { organizationId: orgId, outputId });
-			return row && row.status === "active"
-				? { id: row.id, title: row.title, kind: row.kind }
-				: null;
+			if (!row || row.status !== "active") return null;
+			if (row.workspaceId) {
+				const workspace = await getOsWorkspace(db, {
+					organizationId: orgId,
+					workspaceId: row.workspaceId,
+				});
+				if (
+					workspace &&
+					!isOsWorkspaceVisibleTo(
+						workspace,
+						await resolveOsWorkspaceViewer(context),
+					)
+				)
+					return null;
+			}
+			return { id: row.id, title: row.title, kind: row.kind };
 		},
 		async findOutputByTitle(params) {
 			const wanted = params.title.trim().toLowerCase();
 			// Newest first, so a duplicate title resolves to the latest one.
 			const row = (
-				await listOsOutputs(db, orgId, {
-					workspaceId: params.workspaceId,
-					kind: params.kind,
-					status: "active",
-					limit: 500,
-				})
+				await listOsOutputs(
+					db,
+					orgId,
+					await resolveOsWorkspaceViewer(context),
+					{
+						workspaceId: params.workspaceId,
+						kind: params.kind,
+						status: "active",
+						limit: 500,
+					},
+				)
 			).find((output) => output.title.trim().toLowerCase() === wanted);
 			return row ? { id: row.id, title: row.title, kind: row.kind } : null;
 		},

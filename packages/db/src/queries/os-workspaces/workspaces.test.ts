@@ -9,6 +9,7 @@ import {
 	createOsWorkspace,
 	deleteOsWorkspace,
 	getOsWorkspace,
+	isOsWorkspaceVisibleTo,
 	listOsWorkspaces,
 	updateOsWorkspace,
 } from "./workspaces";
@@ -27,6 +28,8 @@ function fixture() {
 	sqlite.exec(schemaDdl(osWorkspaces, userConfigs));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
+
+const ANYONE = { userIds: [] };
 
 const workspace = {
 	id: "ws-1",
@@ -53,8 +56,8 @@ describe("os workspaces", () => {
 				workspaceId: "ws-1",
 			}),
 		).toBeUndefined();
-		expect(await listOsWorkspaces(db, "org-1")).toHaveLength(1);
-		expect(await listOsWorkspaces(db, "org-2")).toHaveLength(0);
+		expect(await listOsWorkspaces(db, "org-1", ANYONE)).toHaveLength(1);
+		expect(await listOsWorkspaces(db, "org-2", ANYONE)).toHaveLength(0);
 	});
 
 	it("enforces the per-organization name uniqueness, not global", async () => {
@@ -91,7 +94,9 @@ describe("os workspaces", () => {
 			status: "archived",
 			description: "retired",
 		});
-		const filtered = await listOsWorkspaces(db, "org-1", { status: "active" });
+		const filtered = await listOsWorkspaces(db, "org-1", ANYONE, {
+			status: "active",
+		});
 		expect(filtered).toHaveLength(0);
 	});
 
@@ -110,7 +115,7 @@ describe("os workspaces", () => {
 				workspaceId: "ws-1",
 			}),
 		).toBe(true);
-		expect(await listOsWorkspaces(db, "org-1")).toHaveLength(0);
+		expect(await listOsWorkspaces(db, "org-1", ANYONE)).toHaveLength(0);
 	});
 
 	it("deletes every user's presentation preference in the same D1 batch", async () => {
@@ -140,5 +145,32 @@ describe("os workspaces", () => {
 			}),
 		).toBe(true);
 		expect(await db.select().from(userConfigs)).toHaveLength(0);
+	});
+
+	it("shows a private workspace only to its owner, with no role bypass", async () => {
+		const db = fixture();
+		await createOsWorkspace(db, workspace);
+		await createOsWorkspace(db, {
+			...workspace,
+			id: "ws-private",
+			name: "Robin (private)",
+			visibility: "private",
+			ownerUserId: "u-owner",
+		});
+		const names = async (userIds: string[]) =>
+			(await listOsWorkspaces(db, "org-1", { userIds })).map((w) => w.id);
+		expect(await names(["u-owner"])).toEqual(["ws-1", "ws-private"]);
+		expect(await names(["u-other"])).toEqual(["ws-1"]);
+		expect(await names([])).toEqual(["ws-1"]);
+		const row = await getOsWorkspace(db, {
+			organizationId: "org-1",
+			workspaceId: "ws-private",
+		});
+		expect(row && isOsWorkspaceVisibleTo(row, { userIds: ["u-owner"] })).toBe(
+			true,
+		);
+		expect(row && isOsWorkspaceVisibleTo(row, { userIds: ["u-other"] })).toBe(
+			false,
+		);
 	});
 });

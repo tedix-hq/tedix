@@ -19,6 +19,7 @@ import {
 import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsOutputRevision } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsShareLinkRow } from "@tedix/db/schema/os-shares";
@@ -91,6 +92,7 @@ async function requireResource(
 			outputId: resourceId,
 		});
 		if (!output) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		await requireShareableWorkspace(context, output.workspaceId);
 		return output;
 	}
 	if (resourceType === "gadget") {
@@ -99,6 +101,7 @@ async function requireResource(
 			gadgetId: resourceId,
 		});
 		if (!gadget) throw createError(ErrorCodes.NOT_FOUND, "OS Gadget not found");
+		await requireShareableWorkspace(context, gadget.workspaceId);
 		return gadget;
 	}
 	const workspace = await getOsWorkspace(db, {
@@ -108,7 +111,30 @@ async function requireResource(
 	if (!workspace) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 	}
+	await requireShareableWorkspace(context, workspace.id);
 	return workspace;
+}
+
+/**
+ * A share link reaches people outside a private workspace, so nothing in a
+ * private workspace is shareable. Non-owners get NOT_FOUND: they cannot learn
+ * it exists.
+ */
+async function requireShareableWorkspace(
+	context: BaseContext,
+	workspaceId: string | null,
+): Promise<void> {
+	if (!workspaceId) return;
+	const workspace = await getOsWorkspace(queryDb(context), {
+		organizationId: requireOrgId(context),
+		workspaceId,
+	});
+	if (!workspace || workspace.visibility !== "private") return;
+	await assertOsWorkspaceVisible(context, workspace);
+	throw createError(
+		ErrorCodes.BAD_REQUEST,
+		"A private workspace and its contents cannot be shared; make the workspace visible to the organization first",
+	);
 }
 
 async function requirePinnedRevision(

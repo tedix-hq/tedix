@@ -548,7 +548,7 @@ export const executeReadOnlyToolRoute = authed.executeReadOnlyTool
 				input.organizationId,
 			);
 			const workspaceContext = await resolveWorkspaceContext(
-				context.db,
+				context,
 				organizationId,
 				input.workspaceContext,
 			);

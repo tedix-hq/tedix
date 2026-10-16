@@ -69,6 +69,8 @@ function workspace(overrides: Partial<OsWorkspace> = {}): OsWorkspace {
 		createdById: "user-1",
 		createdAt: "2026-08-01T10:00:00.000Z",
 		updatedAt: "2026-08-12T10:00:00.000Z",
+		visibility: "org",
+		ownerUserId: null,
 		...overrides,
 	};
 }
@@ -158,6 +160,32 @@ afterEach(() => {
 });
 
 describe("WorkspaceLibraryPage", () => {
+	it("marks the member's own private workspace as Only you", async () => {
+		api.workspaces.list.mockResolvedValue({
+			items: [
+				workspace(),
+				workspace({
+					id: SECOND_WORKSPACE_ID,
+					name: "Robin (private)",
+					visibility: "private",
+					ownerUserId: "user-1",
+				}),
+			],
+			truncated: false,
+		});
+		const { container, root } = await renderPage();
+		const rows = Array.from(
+			container.querySelectorAll('ul[aria-label="Workspaces"] > li'),
+		);
+		const privateRow = rows.find((row) =>
+			row.textContent?.includes("Robin (private)"),
+		);
+		const orgRow = rows.find((row) => row.textContent?.includes("Revenue Ops"));
+		expect(privateRow?.textContent).toContain("Only you");
+		expect(orgRow?.textContent).not.toContain("Only you");
+		act(() => root.unmount());
+	});
+
 	it("uses the full page lane and progressively discloses a long library", async () => {
 		api.workspaces.list.mockResolvedValue({
 			items: Array.from({ length: 18 }, (_, index) =>

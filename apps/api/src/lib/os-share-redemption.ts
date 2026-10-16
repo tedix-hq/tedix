@@ -86,11 +86,40 @@ export type AuthorizeOsShareRecipient = (
 	accessEnvelope?: OsDerivedAccessEnvelope,
 ) => Promise<boolean>;
 
+/** The workspace a link's resource lives in, or null for a workspace-less output. */
+async function linkWorkspaceId(
+	db: DbQueryClient,
+	link: OsShareLinkRow,
+): Promise<string | null> {
+	if (link.resourceType === "workspace") return link.resourceId;
+	if (link.resourceType === "output") {
+		const output = await getOsOutput(db, {
+			organizationId: link.organizationId,
+			outputId: link.resourceId,
+		});
+		return output?.workspaceId ?? null;
+	}
+	const gadget = await getOsGadget(db, {
+		organizationId: link.organizationId,
+		gadgetId: link.resourceId,
+	});
+	return gadget?.workspaceId ?? null;
+}
+
 async function recipientMayOpen(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 ): Promise<boolean> {
+	// A link minted before its workspace became private stops working.
+	const workspaceId = await linkWorkspaceId(db, link);
+	if (workspaceId) {
+		const workspace = await getOsWorkspace(db, {
+			organizationId: link.organizationId,
+			workspaceId,
+		});
+		if (workspace?.visibility === "private") return false;
+	}
 	if (link.resourceType === "output") {
 		const output = await getOsOutput(db, {
 			organizationId: link.organizationId,
