@@ -17,6 +17,31 @@ import { cmsDomainClaims } from "../schema/cms-domain-claims";
 import { cmsRestoreFences } from "../schema/cms-restore-fences";
 import { cmsSites, type CmsSite, type NewCmsSite } from "../schema/cms-sites";
 
+export interface RotateCmsSitePageCacheRevisionParams {
+	siteId: string;
+	slug: string;
+	restoreEpoch: number;
+	revision: string;
+}
+
+export async function rotateCmsSitePageCacheRevision(
+	db: DbQueryClient,
+	input: RotateCmsSitePageCacheRevisionParams,
+): Promise<void> {
+	await db
+		.update(cmsSites)
+		.set({
+			config: sql`json_set(coalesce(${cmsSites.config}, '{}'), '$.pageCacheRevision', ${input.revision})`,
+		})
+		.where(
+			and(
+				eq(cmsSites.id, input.siteId),
+				eq(cmsSites.slug, input.slug),
+				eq(cmsSites.restoreEpoch, input.restoreEpoch),
+			),
+		);
+}
+
 export async function getCmsSiteById(
 	db: DbQueryClient,
 	id: string,

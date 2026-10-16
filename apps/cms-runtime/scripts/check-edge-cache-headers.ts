@@ -128,4 +128,29 @@ for (const prefix of EDGE_CACHE_EXCLUDED_PREFIXES) {
 	assert.equal(preset.headers.get("Content-Signal"), "search=no");
 }
 
+// Only the admitted anonymous page-cache path can expose a public policy.
+{
+	const response = applyEdgeCacheHeaders(htmlResponse(), "GET", "/blog", true);
+	assert.equal(
+		response.headers.get("Cache-Control"),
+		"public, max-age=0, must-revalidate",
+	);
+	assert.equal(
+		response.headers.get("Cloudflare-CDN-Cache-Control"),
+		"no-store",
+	);
+	assert.equal(response.headers.get("CDN-Cache-Control"), "no-store");
+	for (const original of [
+		htmlResponse({ status: 404 }),
+		htmlResponse({ headers: { "Set-Cookie": "session=x" } }),
+	]) {
+		assert.equal(
+			applyEdgeCacheHeaders(original, "GET", "/blog", true).headers.get(
+				"Cache-Control",
+			),
+			"private, no-store",
+		);
+	}
+}
+
 console.log("cms-runtime edge cache headers check passed");

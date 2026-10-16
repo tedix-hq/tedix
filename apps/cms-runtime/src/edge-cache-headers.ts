@@ -11,18 +11,9 @@ export const EDGE_CACHE_EXCLUDED_PREFIXES = [
 ];
 
 /**
- * Public tenant response caching is deliberately disabled.
- *
- * This parent Worker serves every CMS hostname. Production proved that
- * Workers Cache entries could cross those hostname boundaries even when the
- * response carried `Vary: Host`, including redirects and tenant-provided
- * `robots.txt` policies. Until the runtime has an explicit, request-derived
- * tenant cache key with adversarial live proof, every public GET/HEAD response
- * must override upstream cache policy with `private, no-store`.
- *
- * `Vary: Host` remains defense in depth, but is not an isolation boundary.
- * Anonymous pages are cached inside the Worker under an explicit tenant key
- * instead; see ./tenant-page-cache.
+ * Only the explicit tenant page cache may share HTML. Other CDN caches lack
+ * its tenant, bundle, restore epoch and content revision key, so they must
+ * revalidate through the Worker even when the representation is public.
  */
 const DISABLED_CACHE_CONTROL = "private, no-store";
 
@@ -65,6 +56,7 @@ export function applyEdgeCacheHeaders(
 	response: Response,
 	method: string,
 	pathname: string,
+	publicPage = false,
 ): Response {
 	if (method !== "GET" && method !== "HEAD") return response;
 	if (
@@ -73,7 +65,17 @@ export function applyEdgeCacheHeaders(
 		return response;
 
 	const headers = new Headers(response.headers);
-	headers.set("Cache-Control", DISABLED_CACHE_CONTROL);
+	const shareable =
+		publicPage &&
+		response.status === 200 &&
+		!headers.has("Set-Cookie") &&
+		(headers.get("Content-Type") ?? "").startsWith("text/html");
+	headers.set(
+		"Cache-Control",
+		shareable ? "public, max-age=0, must-revalidate" : DISABLED_CACHE_CONTROL,
+	);
+	headers.set("CDN-Cache-Control", "no-store");
+	headers.set("Cloudflare-CDN-Cache-Control", "no-store");
 	const existingVary = headers.get("Vary");
 	const varyFields = existingVary
 		? existingVary.split(",").map((field) => field.trim())

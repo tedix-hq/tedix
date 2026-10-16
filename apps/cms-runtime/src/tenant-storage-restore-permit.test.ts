@@ -26,7 +26,7 @@ const db = createDbQueryClient(platformD1);
 beforeAll(async () => {
 	await platformD1
 		.prepare(
-			"CREATE TABLE IF NOT EXISTS cms_sites (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL, restore_epoch INTEGER NOT NULL DEFAULT 0)",
+			"CREATE TABLE IF NOT EXISTS cms_sites (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL, restore_epoch INTEGER NOT NULL DEFAULT 0, config TEXT)",
 		)
 		.run();
 	await platformD1
@@ -437,4 +437,35 @@ describe("nested tenant storage restore permits", () => {
 		expect(await pending).toEqual({ httpEtag: '"hash"', size: 3 });
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
 	});
+});
+
+test("page-cache revision changes on tenant writes but not reads", async () => {
+	const identity = await site();
+	const namespace = (
+		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+	).DB_DO;
+	const stub = namespace.get(namespace.idFromName(identity.slug));
+	const revision = async () =>
+		(
+			await platformD1
+				.prepare(
+					"SELECT json_extract(config, '$.pageCacheRevision') AS revision FROM cms_sites WHERE id = ?",
+				)
+				.bind(identity.siteId)
+				.first<{ revision: string | null }>()
+		)?.revision;
+	const before = await revision();
+	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
+	expect(await revision()).toBe(before);
+	await stub.queryWithRestorePermit(
+		identity,
+		"INSERT INTO content (title) VALUES (?)",
+		["Published"],
+	);
+	const published = await revision();
+	expect(published).not.toBe(before);
+	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: "UPDATE content SET title = ?", params: ["Republished"] },
+	]);
+	expect(await revision()).not.toBe(published);
 });
