@@ -1,3 +1,4 @@
+import { kernelWriteSummary } from "./write-approval-settlement";
 /**
  * kernel turn work — the detached-execution body of
  * `kernelRuntime.enqueueMessage`'s kernel path (route decision, optional write
@@ -1990,7 +1991,7 @@ async function planAndParkKernelWriteProposal(
 						tediId: anchorTediId,
 						orgId: organizationId,
 						actionType: "home.tool_write",
-						description: `Approve Kernel write: ${writeProposal.toolName} on ${writeProposal.appSlug}`,
+						description: kernelWriteSummary(writeProposal),
 						payload: toJsonRecord(writePayload),
 						createdAt,
 						expiresAt: deps.offsetIso(
@@ -2883,6 +2884,7 @@ export async function runKernelTurnWork(
 					kernelWriteProposal: {
 						appSlug: writeProposal.appSlug,
 						toolName: writeProposal.toolName,
+						summary: kernelWriteSummary(writeProposal),
 						args: writeProposal.args,
 						riskTier: writeProposal.riskTier,
 						transport: writeProposal.transport,

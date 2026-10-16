@@ -657,6 +657,8 @@ export type ApprovalCardData = {
 	summary: string;
 	/** operatorQuestion / args preview — the secondary explanatory line. */
 	detail?: string | null;
+	/** Tool arguments stay behind the details disclosure. */
+	detailDisclosure?: boolean;
 	tediName?: string | null;
 	status: "pending" | "escalated";
 	/** Defaults to "approve_or_reject"; "no_action" renders without buttons. */
@@ -796,7 +798,8 @@ export function approvalsFromRunSet(
 			{
 				approvalId,
 				runId: run.id,
-				summary: `Run ${toolName}`,
+				summary: asString(proposal?.summary) ?? `Run ${toolName}`,
+				detailDisclosure: true,
 				detail: args && args.length > 240 ? `${args.slice(0, 239)}…` : args,
 				status: "pending",
 				requestedAt: run.updatedAt ?? run.createdAt,
@@ -933,7 +936,14 @@ export function ApprovalCard({
 							</>
 						) : null}
 					</Text>
-					{approval.detail ? (
+					{approval.detail && approval.detailDisclosure ? (
+						<details>
+							<summary className="cursor-pointer text-sm">Details</summary>
+							<pre className="whitespace-pre-wrap break-words text-sm">
+								{sanitizeUntrustedText(approval.detail)}
+							</pre>
+						</details>
+					) : approval.detail ? (
 						<Text
 							as="span"
 							role="label"
