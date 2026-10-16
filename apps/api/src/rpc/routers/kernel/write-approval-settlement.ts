@@ -690,6 +690,7 @@ export async function settleHomeToolWriteApproval(
 			: `Approved write ${payload.toolName} on ${payload.appSlug} failed: ${result.error}`;
 		const completedPatch = {
 			status,
+			...(admittedMetadata ? { outputMessageId: assistantMessageId } : {}),
 			progressValue: progress.current,
 			progressLabel: progress.label,
 			progressDetail: progress.detail,

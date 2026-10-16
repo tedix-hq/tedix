@@ -8754,6 +8754,7 @@ describe("home approved-write layer (v1)", () => {
 		expect(db.approvalExecutionReceipts).toHaveLength(1);
 		const run = db.runs.find((row) => row.id === "home-write-1");
 		expect(run?.status).toBe("completed");
+		expect(run?.outputMessageId).toBe(result.assistantMessage.id);
 		expect(result.run.metadata).toMatchObject({
 			kernelWriteApproval: {
 				autoResolve: true,
