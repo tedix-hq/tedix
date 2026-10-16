@@ -1863,6 +1863,16 @@ export class ToolHandler {
 			// selected namespace was checked only for equality and cannot mint it.
 			headers["X-Tedix-Tedi-Id"] = verifiedCredentialTediActor;
 		}
+		if (
+			useServiceBinding &&
+			endpoint === "workInteractions/respond" &&
+			ctx.callerIdentity?.authType === "service" &&
+			ctx.callerIdentity.kernel &&
+			ctx.callerIdentity.approvedWorkResponderUserId
+		) {
+			headers["X-Tedix-Approved-Work-Responder"] =
+				ctx.callerIdentity.approvedWorkResponderUserId;
+		}
 		// Operator provenance for skill-run admission.
 		// When a human OAuth caller invokes an RPC tool through the gateway,
 		// apps/api sees only the service binding — the person vanishes. Forward

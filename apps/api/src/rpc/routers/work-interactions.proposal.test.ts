@@ -96,6 +96,11 @@ function fixture() {
 		"other@tedix.test",
 		"member",
 	);
+	sqlite
+		.prepare(
+			"INSERT INTO tedis (id,organization_id,name,slug,status) VALUES (?,?,?,?,'active')",
+		)
+		.run("chat-tedi", ORG_ID, "Chat worker", "chat-worker");
 	const facade = createD1Facade(sqlite);
 	const clientFor = (identity: {
 		userId: string;
@@ -129,6 +134,24 @@ function fixture() {
 		});
 	return {
 		sqlite,
+		kernel: (approvingUserId?: string) =>
+			createRouterClient(workInteractionsContractRouter, {
+				context: {
+					authType: "service-binding",
+					tediId: "chat-tedi",
+					tediScopes: ["mcp:messaging.write", "mcp:work.write"],
+					db: createDbClient(facade),
+					env: { ENVIRONMENT: "test", DB: facade } as CloudflareEnv,
+					headers: new Headers({
+						"X-Service-Binding": "true",
+						...(approvingUserId
+							? { "X-Tedix-Approved-Work-Responder": approvingUserId }
+							: {}),
+					}),
+					organizationId: ORG_ID,
+					url: new URL("https://api.tedix.test/rpc/workInteractions/respond"),
+				} as BaseContext,
+			}),
 		owner: clientFor({ userId: "owner-id", sub: "owner-sub", role: "owner" }),
 		target: clientFor({
 			userId: "target-id",
@@ -204,6 +227,71 @@ function setup() {
 }
 
 describe("Work proposal acceptance", () => {
+	it("creates Work for the approving human and records the chat tedi as actor", async () => {
+		const f = setup();
+		const request = await f.propose();
+		const result = await f.kernel("target-sub").respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "handoff_accepted",
+			resolvesRequest: true,
+			body: "Accepted",
+			metadata: { actor: { type: "user", id: "spoofed" } },
+		});
+		expect(f.rows()).toHaveLength(3);
+		expect(result.request.state).toBe("resolved");
+		expect(result.response).toMatchObject({
+			respondedByType: "user",
+			respondedById: "target-id",
+			metadata: { actor: { type: "tedi", id: "chat-tedi" } },
+		});
+	});
+
+	it.each(["other-sub", undefined])(
+		"rejects chat acceptance without the targeted human's approval (%s)",
+		async (approver) => {
+			const f = setup();
+			const request = await f.propose();
+			await expect(
+				f.kernel(approver).respond({
+					requestId: request.id,
+					expectedRequestVersion: request.version,
+					responseKind: "handoff_accepted",
+					resolvesRequest: true,
+					body: "Accepted",
+				}),
+			).rejects.toThrow("Responder is not the request target");
+			expect(f.rows()).toHaveLength(0);
+			expect(
+				f.sqlite
+					.prepare("SELECT status FROM work_interactions WHERE id=?")
+					.get(request.id)?.status,
+			).toBe("open");
+		},
+	);
+
+	it("rejects an inactive approving human", async () => {
+		const f = setup();
+		const request = await f.propose();
+		f.sqlite
+			.prepare(
+				"UPDATE organization_members SET status='inactive' WHERE user_id='target-id'",
+			)
+			.run();
+		await expect(
+			f.kernel("target-sub").respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "handoff_accepted",
+				resolvesRequest: true,
+				body: "Accepted",
+			}),
+		).rejects.toThrow(
+			"Approved Work responder must be an active organization user",
+		);
+		expect(f.rows()).toHaveLength(0);
+	});
+
 	it("creates an epic and two children, and stores their ids with response evidence", async () => {
 		const f = setup();
 		const result = await f.accept(await f.propose());

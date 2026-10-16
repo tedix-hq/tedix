@@ -8327,6 +8327,39 @@ describe("home approved-write layer (v1)", () => {
 		).toBe(false);
 	});
 
+	it.each(["approver-sub", "policy"])(
+		"passes the approving human from the resolved approval (%s)",
+		async (resolvedBy) => {
+			const db = createKernelRuntimeDb();
+			const { context } = await enqueueWriteProposalTurn(db);
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { ok: true },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			const approval = db.approvals[0];
+			if (!approval) throw new Error("approval row missing");
+			await settleHomeToolWriteApproval(context, {
+				approval: {
+					...approval,
+					status: "approved",
+					resolvedBy,
+					payload: {
+						...(approval.payload as Record<string, unknown>),
+						initiatedByUserId: "initiator-sub",
+					},
+				},
+				status: "approved",
+			});
+			expect(executor).toHaveBeenCalledWith(
+				expect.objectContaining({
+					approvedWorkResponderUserId:
+						resolvedBy === "policy" ? "initiator-sub" : "approver-sub",
+				}),
+			);
+		},
+	);
+
 	it("approve executes the STORED call exactly once and records evidence + transcript", async () => {
 		const db = createKernelRuntimeDb();
 		const { context } = await enqueueWriteProposalTurn(db);

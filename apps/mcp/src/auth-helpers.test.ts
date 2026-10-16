@@ -962,6 +962,7 @@ describe("validateAuth service-binding kernel marker", () => {
 				"X-Service-Binding": "true",
 				"X-Tedix-Kernel": "true",
 				"X-Tedix-Acting-User": "user-123",
+				"X-Tedix-Approved-Work-Responder": "approver-sub",
 				"X-Tedix-Org-Id": "org-1",
 				"X-Tedix-Tedi-Scopes": "mcp:messaging connections.execute",
 			},
@@ -974,6 +975,7 @@ describe("validateAuth service-binding kernel marker", () => {
 			organizationId: "org-1",
 			scopes: ["mcp:messaging", "connections.execute"],
 			kernel: true,
+			approvedWorkResponderUserId: "approver-sub",
 		});
 		// Acting user must not be conflated into tediId.
 		expect(
@@ -987,12 +989,17 @@ describe("validateAuth service-binding kernel marker", () => {
 			headers: {
 				"X-Service-Binding": "true",
 				"X-Tedix-Acting-User": "user-123",
+				"X-Tedix-Approved-Work-Responder": "approver-sub",
 			},
 		});
 
 		const result = await validateAuth(request, env);
 		expect(result).toMatchObject({ type: "service-binding", scopes: [] });
 		expect((result as { kernel?: boolean })?.kernel).toBeUndefined();
+		expect(
+			(result as { approvedWorkResponderUserId?: string })
+				?.approvedWorkResponderUserId,
+		).toBeUndefined();
 	});
 
 	it("ignores the marker on non-service-binding requests (spoof attempt from outside)", async () => {
@@ -1003,6 +1010,7 @@ describe("validateAuth service-binding kernel marker", () => {
 				"CF-Connecting-IP": "203.0.113.7",
 				"X-Tedix-Kernel": "true",
 				"X-Tedix-Acting-User": "user-123",
+				"X-Tedix-Approved-Work-Responder": "approver-sub",
 			},
 		});
 

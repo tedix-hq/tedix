@@ -3,6 +3,7 @@ import {
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
 import { call, implement } from "@orpc/server";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getWorkItemBySourceIntentId } from "@tedix/db/queries/work-items/crud";
 import {
 	type AgentReplyDeliveryGateResult,
@@ -352,8 +353,26 @@ async function materializeWorkProposal(
 const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
+	// Only the approved kernel execution forwards this authority on the trusted
+	// MCP binding. Other Work writes still act as their authenticated principal.
+	const approvingUserId =
+		context.authType === "service-binding" && actor.type === "tedi"
+			? context.headers.get("X-Tedix-Approved-Work-Responder")
+			: null;
+	let responder = actor;
+	if (approvingUserId) {
+		const member = await getMemberByUserId(context.db, orgId, approvingUserId);
+		if (member?.status !== "active" || !member.userId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Approved Work responder must be an active organization user",
+			);
+		responder = { type: "user", id: member.userId };
+	}
 	try {
-		let metadata = input.metadata;
+		let metadata = approvingUserId
+			? { ...input.metadata, actor: { type: actor.type, id: actor.id } }
+			: input.metadata;
 		if (input.responseKind === "handoff_accepted" && input.resolvesRequest) {
 			const request = await getWorkInteraction(context.db, {
 				orgId,
@@ -363,8 +382,8 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				request?.status === "open" &&
 				request.kind === "handoff" &&
 				request.targetType === "user" &&
-				request.targetType === actor.type &&
-				request.targetId === actor.id &&
+				request.targetType === responder.type &&
+				request.targetId === responder.id &&
 				request.version === input.expectedRequestVersion &&
 				(!request.expiresAt || request.expiresAt > new Date().toISOString())
 			) {
@@ -384,7 +403,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			orgId,
 			interactionId: input.requestId,
 			expectedVersion: input.expectedRequestVersion,
-			responder: actor,
+			responder,
 			responseKind: input.responseKind,
 			body: input.body,
 			artifactRef: input.artifactRef,

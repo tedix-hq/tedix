@@ -5748,6 +5748,11 @@ const worker = {
 					// from an external caller.
 					if (authResult.kernel) {
 						headers.set("x-tedix-auth-kernel", "true");
+						if (authResult.approvedWorkResponderUserId)
+							headers.set(
+								"x-tedix-auth-approved-work-responder",
+								authResult.approvedWorkResponderUserId,
+							);
 					}
 					if (authResult.organizationId)
 						headers.set("x-tedix-auth-org-id", authResult.organizationId);

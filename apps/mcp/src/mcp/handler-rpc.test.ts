@@ -99,6 +99,48 @@ describe("catalog snapshot import timeout", () => {
 	});
 });
 
+describe("approved Work responder delegation", () => {
+	it.each([
+		{
+			kernel: true,
+			endpoint: "workInteractions/respond",
+			expected: "approver-sub",
+		},
+		{ kernel: false, endpoint: "workInteractions/respond", expected: null },
+		{ kernel: true, endpoint: "workItems/create", expected: null },
+	])(
+		"restricts responder authority to the approved kernel response ($kernel, $endpoint)",
+		async ({ kernel, endpoint, expected }) => {
+			const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+			const result = await new ToolHandler().execute(
+				{},
+				{
+					...ctx({ transport: "rpc", endpoint }),
+					env: {
+						ENVIRONMENT: "test",
+						API_URL: "https://api.example.test",
+						API_SERVICE: { fetch: apiFetch },
+					} as unknown as CloudflareEnv,
+					callerIdentity: {
+						authType: "service",
+						kernel,
+						tediId: "chat-tedi",
+						organizationId: "org_1",
+						approvedWorkResponderUserId: "approver-sub",
+					},
+				},
+			);
+			expect(result.status).toBe(200);
+			const call = apiFetch.mock.calls[0] as unknown as Parameters<
+				typeof fetch
+			>;
+			const headers = headersFromFetch(...call);
+			expect(headers.get("X-Tedix-Approved-Work-Responder")).toBe(expected);
+			expect(headers.get("X-Tedix-Tedi-Id")).toBe("chat-tedi");
+		},
+	);
+});
+
 describe("ToolHandler RPC transport logging", () => {
 	afterEach(() => {
 		globalThis.fetch = originalFetch;

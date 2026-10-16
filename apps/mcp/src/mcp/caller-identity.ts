@@ -64,6 +64,8 @@ export interface CallerIdentity {
 	 * identity.
 	 */
 	kernel?: boolean;
+	/** Human authority restricted to an approved Work interaction response. */
+	approvedWorkResponderUserId?: string;
 }
 
 export function shouldBypassCodeModeForCaller(

@@ -177,6 +177,43 @@ describe("parseHomeToolWritePayload", () => {
 });
 
 describe("executeApprovedKernelWrite", () => {
+	it.each([
+		"work.respond_work_interaction",
+		"work__respond_work_interaction",
+		"globex__create_invoice",
+	])(
+		"forwards human response authority only for the approved Work tool (%s)",
+		async (toolName) => {
+			const service = mcpService((body) => ({
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result:
+						body.method === "tools/list"
+							? { tools: [{ name: toolName }] }
+							: { structuredContent: { ok: true } },
+				},
+			}));
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload({ toolName }),
+				approvedWorkResponderUserId: "approver-sub",
+			});
+			expect(result.ok).toBe(true);
+			expect(
+				service.calls[0]?.headers.get("X-Tedix-Approved-Work-Responder"),
+			).toBeNull();
+			expect(
+				service.calls[1]?.headers.get("X-Tedix-Approved-Work-Responder"),
+			).toBe(
+				toolName.includes("respond_work_interaction") ? "approver-sub" : null,
+			);
+			expect(service.calls[1]?.headers.get("X-Tedix-Acting-User")).toBe(
+				"user-123",
+			);
+		},
+	);
+
 	it("executes the STORED call once with the acting user", async () => {
 		const service = mcpService((body) =>
 			body.method === "tools/list"

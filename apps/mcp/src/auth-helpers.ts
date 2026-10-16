@@ -78,6 +78,7 @@ export interface ServiceBindingContext {
 	 * `kernel` actor type; it does not change auth behavior.
 	 */
 	kernel?: boolean;
+	approvedWorkResponderUserId?: string;
 }
 
 export interface DelegatedMcpContext {
@@ -892,6 +893,9 @@ export async function validateAuth(
 			scopes: delegatedScopes,
 			principal,
 			kernel,
+			approvedWorkResponderUserId: kernel
+				? (request.headers.get("X-Tedix-Approved-Work-Responder") ?? undefined)
+				: undefined,
 		};
 	}
 
