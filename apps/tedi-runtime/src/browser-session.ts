@@ -30,6 +30,76 @@ import {
 export const BROWSER_RESTARTED_NOTE =
 	"Browser was restarted; re-login may be needed (earlier tabs, cookies and logins are gone).";
 
+/** Heading of the usage note prepended to browser_execute's description. */
+export const BROWSER_EXECUTE_USAGE_HEADING =
+	"## Tedix browser usage (verified calls: use them directly, without codemode.search, codemode.describe or cdp.spec())";
+
+/**
+ * The exact connector calls browser_execute supports, checked against the
+ * agents/browser `cdp` connector, so the model does not guess CDP method
+ * names or spend calls on discovery.
+ */
+export function browserExecuteUsage(mode: TediBrowserSession["mode"]): string {
+	const persistent = mode === "persistent";
+	return [
+		BROWSER_EXECUTE_USAGE_HEADING,
+		"- To read a page, prefer the one-shot tools: browser_markdown({ url }) for its text, browser_extract({ url, prompt, schema }) for structured fields, browser_links({ url }) for its links, browser_scrape({ url, selectors }) for elements by CSS selector. Use browser_execute only to click, type, follow a multi-step flow or keep a session.",
+		"- browser_execute runs one async arrow function, async () => { ... }, that returns a small JSON value. Its only browser global is cdp, with exactly these calls: cdp.send({ method, params, sessionId }) and cdp.attachToTarget({ targetId }), which returns { sessionId }. Method names are standard CDP: Target.createTarget, Page.navigate, Runtime.evaluate. There is no cdp.navigate, cdp.click, page or document object: click, type and read inside the page with Runtime.evaluate and params { expression, returnByValue: true, awaitPromise: true }; the value is at result.value.",
+		persistent
+			? '- Do a whole flow (open, click, read) in one browser_execute run. The browser and your tab persist between runs; a later run can pass sessionId: "active" for that tab.'
+			: "- Do a whole flow (open, click, read) in one browser_execute run: the browser closes when the run ends unless that run calls cdp.startSession().",
+		`- For a page behind a sign-in, open its login page with browser_execute${persistent ? "" : " and call cdp.startSession() in that run"}, then call request_browser_takeover({ reason: "login", note }) and continue only after get_browser_takeover_status reports approved. Never type credentials.`,
+		"- Call browser_session_close when the task is done.",
+		"",
+		"Example: open a page, click the first navigation link by CSS selector, read the new page's title and text.",
+		"async () => {",
+		'  const { targetId } = await cdp.send({ method: "Target.createTarget", params: { url: "about:blank" } });',
+		"  const { sessionId } = await cdp.attachToTarget({ targetId });",
+		"  const js = async (expression) => {",
+		'    const r = await cdp.send({ method: "Runtime.evaluate", params: { expression, returnByValue: true, awaitPromise: true }, sessionId });',
+		"    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);",
+		"    return r.result.value;",
+		"  };",
+		"  const settle = async (fromUrl) => {",
+		"    for (let i = 0; i < 60; i++) {",
+		'      const s = await js("new Promise(r => setTimeout(() => r({ url: location.href, ready: document.readyState }), 250))").catch(() => null);',
+		'      if (s?.ready === "complete" && (s.url !== fromUrl || i >= 12)) return s.url;',
+		"    }",
+		'    throw new Error("page did not finish loading");',
+		"  };",
+		'  const nav = await cdp.send({ method: "Page.navigate", params: { url: "https://example.com" }, sessionId });',
+		"  if (nav.errorText) throw new Error(nav.errorText);",
+		'  const home = await settle("about:blank");',
+		"  const href = await js(\"(() => { const a = document.querySelector('nav a[href]'); if (!a) return null; a.click(); return a.href; })()\");",
+		'  if (!href) throw new Error("no navigation link");',
+		"  const url = await settle(home);",
+		'  return { href, url, title: await js("document.title"), text: await js("document.body.innerText.slice(0, 2000)") };',
+		"}",
+	].join("\n");
+}
+
+/** Prepend the usage note to the SDK's browser_execute description. */
+function withBrowserExecuteUsage(
+	tools: ToolSet,
+	mode: TediBrowserSession["mode"],
+): ToolSet {
+	const execute = tools.browser_execute;
+	if (!execute) return tools;
+	const usage = browserExecuteUsage(mode);
+	const sdk = execute.description;
+	return {
+		...tools,
+		browser_execute: {
+			...execute,
+			description:
+				typeof sdk === "function"
+					? (options: Parameters<typeof sdk>[0]) =>
+							`${usage}\n\n${sdk(options)}`
+					: `${usage}\n\n${sdk ?? ""}`,
+		} as ToolSet[string],
+	};
+}
+
 /** Why a persistent browser was closed. */
 export type BrowserSessionCloseReason =
 	| "tedi_request"
@@ -168,7 +238,7 @@ export function createTediBrowserSession(
 		return {
 			mode: "dynamic",
 			signature,
-			tools: runtime.tools,
+			tools: withBrowserExecuteUsage(runtime.tools, "dynamic"),
 			liveView: () => runtime.connector.liveView({ mode: "tab" }),
 			currentSessionId: async () =>
 				(await runtime.connector.sessionInfo())?.sessionId,
@@ -266,7 +336,7 @@ export function createTediBrowserSession(
 	return {
 		mode: "persistent",
 		signature,
-		tools,
+		tools: withBrowserExecuteUsage(tools, "persistent"),
 		executeEgress: egress.enforceable
 			? null
 			: { decision: "deny", hostname: null, reason: egress.reason },

@@ -7,6 +7,7 @@ import type {
 } from "agents/browser";
 import { z } from "zod";
 import {
+	BROWSER_EXECUTE_USAGE_HEADING,
 	BROWSER_RESTARTED_NOTE,
 	type BrowserLaunchMarkerStore,
 	type BrowserSessionLifecycleEvent,
@@ -386,6 +387,52 @@ assert.equal(
 	);
 	assert.equal(closed.id, "run-1:browser-session:closed:research:5");
 	assert.equal(closed.kind, "browser.session.closed");
+}
+
+// browser_execute's description leads with the verified usage note in both
+// session modes, keeping the SDK's own description after it.
+{
+	const store = memoryStore();
+	const run = fakeBrowserRun();
+	const text = (description: unknown) => {
+		assert.equal(typeof description, "string");
+		return description as string;
+	};
+	const persistent = text(turn(store, run).tools.browser_execute!.description);
+	const dynamic = text(
+		createTediBrowserSession({
+			ctx: {
+				storage: store,
+				exports: { CodemodeRuntime: class {} },
+				facets: { get: () => ({}) },
+			} as unknown as DurableObjectState,
+			browser: run.binding as never,
+			loader: {} as WorkerLoader,
+			policy: undefined,
+			store,
+		}).tools.browser_execute!.description,
+	);
+	for (const description of [persistent, dynamic]) {
+		assert.ok(description.startsWith(BROWSER_EXECUTE_USAGE_HEADING));
+		for (const call of [
+			"cdp.send({ method, params, sessionId })",
+			"cdp.attachToTarget({ targetId })",
+			'method: "Target.createTarget"',
+			'method: "Page.navigate"',
+			'method: "Runtime.evaluate"',
+			"document.querySelector('nav a[href]')",
+			"browser_markdown({ url })",
+			"browser_extract({ url, prompt, schema })",
+			'request_browser_takeover({ reason: "login", note })',
+			"browser_session_close",
+		]) {
+			assert.ok(description.includes(call), call);
+		}
+	}
+	assert.ok(persistent.endsWith("\n\nbrowser"));
+	assert.ok(persistent.includes('sessionId: "active"'));
+	assert.ok(dynamic.includes("cdp.startSession()"));
+	assert.ok(dynamic.includes("## Available connectors"));
 }
 
 console.log("browser-session tests passed");

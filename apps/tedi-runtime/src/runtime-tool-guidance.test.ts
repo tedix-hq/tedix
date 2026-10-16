@@ -208,7 +208,11 @@ assert.doesNotMatch(
 	AGENT_RUNTIME_PROMPT,
 	/Target\.createTarget|Page\.captureScreenshot|attachToTarget|repo_commit/,
 );
-assert.match(AGENT_RUNTIME_PROMPT, /codemode\.describe/);
+assert.match(
+	AGENT_RUNTIME_PROMPT,
+	/verified calls and example in the browser_execute description/,
+);
+assert.doesNotMatch(AGENT_RUNTIME_PROMPT, /codemode\.describe/);
 assert.match(AGENT_RUNTIME_PROMPT, /untrusted information/);
 // Checkout mode is derived from inject metadata, carried through the durable
 // workflow, and narrows the prepared tool surface.
