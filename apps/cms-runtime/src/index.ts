@@ -286,6 +286,16 @@ export class EmDashDB extends EmdashSqlDB {
 					createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
 					{ ...identity, revision: crypto.randomUUID() },
 				);
+				console.info("[cms-runtime] page cache revision advanced", {
+					tenant: identity.slug,
+					statements: statements.map(({ sql, params }) => ({
+						tableGroup: tenantDbQueryFamily(sql),
+						parameterCount: params?.length ?? 0,
+						multipleStatements: sql.includes(";"),
+						schedulerHeartbeat:
+							params?.includes("system:scheduler:last_completed_at") ?? false,
+					})),
+				});
 			}
 		}
 	}
