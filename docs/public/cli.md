@@ -346,7 +346,9 @@ notarization, Authenticode, or the public SHA-256 verification path.
 
 ## Sign in
 
-Run the login command. The authenticated Tedix OS launcher opens in your browser
+Run the login command in a human terminal outside Claude Code or Codex. Login
+refuses agent harnesses and noninteractive terminals because another consent
+can replace the shared CLI grant. The authenticated Tedix OS launcher opens in your browser
 and asks which organization this terminal should use:
 
 ```bash
@@ -364,7 +366,8 @@ platform-administrator role.
 OAuth credentials are stored per workspace under `~/.tedix`. The binary never
 contains a Tedix account credential. Follow [Connect to Tedix
 Cloud](./learning-paths/first-connection.md) for the expected status fields, a
-read-only live gateway check, and recovery steps.
+read-only live gateway check, and recovery steps. During macOS dark wake,
+renewal is deferred before sending a request; wake the Mac fully and retry.
 
 ## Find a command
 

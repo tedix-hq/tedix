@@ -155,6 +155,12 @@ export async function resolveStoredLoginAuth(
 		// just superseded. Treating it as failure told the operator to run `tedix
 		// login` while their session was perfectly valid — a false auth failure
 		// introduced when cross-process renewal gained that outcome.
+		if (outcome === "deferred-dark-wake") {
+			return {
+				auth: null,
+				loginError: `Stored login renewal for workspace "${workspace}" was deferred while macOS is in dark wake. Wake the Mac fully and retry; no refresh request was sent.`,
+			};
+		}
 		if (outcome !== "refreshed" && outcome !== "not-needed") {
 			return {
 				auth: null,

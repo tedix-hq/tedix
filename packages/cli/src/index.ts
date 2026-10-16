@@ -75,6 +75,7 @@ import { runLocalInstallation } from "./local-installation";
 import { resetTerminalModes } from "./interrupt";
 import {
 	beginSdkOAuthLogin,
+	requireHumanLogin,
 	issuedOAuthScopes,
 	TEDIX_CONNECT_MCP_URL,
 	isMultiOrganizationMcpUrl,
@@ -733,6 +734,7 @@ async function main() {
 		return;
 	}
 	if (command === "login") {
+		requireHumanLogin();
 		const rawOrg = readOrgFlag(process.argv);
 		// Tedix Cloud's own tenant key; an own-account installation never matches this branch.
 		const tenant = rawOrg === "tedix" ? "org_tedix" : rawOrg;

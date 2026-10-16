@@ -204,7 +204,12 @@ describe("stored login renewal", () => {
 	// authorization — which in a non-interactive agent just hangs until the
 	// five-minute loopback deadline.
 	test("still fails fast on outcomes that cannot proceed", async () => {
-		for (const outcome of ["unavailable", "invalidated", "failed"] as const) {
+		for (const outcome of [
+			"unavailable",
+			"invalidated",
+			"failed",
+			"deferred-dark-wake",
+		] as const) {
 			const result = await resolveStoredLoginAuth("tedix", {
 				credential: {
 					loginId: "user-1",
@@ -222,6 +227,11 @@ describe("stored login renewal", () => {
 				refreshSession: async () => outcome,
 			});
 			expect(result.auth, outcome).toBeNull();
+			if (outcome === "deferred-dark-wake") {
+				expect(result.loginError).toContain("Wake the Mac fully and retry");
+				expect(result.loginError).not.toContain("tedix login");
+				continue;
+			}
 			expect(result.loginError, outcome).toContain(
 				`could not be refreshed (${outcome})`,
 			);
