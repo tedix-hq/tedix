@@ -241,6 +241,27 @@ export function digestCmsRecoverySqlite(
 export class EmDashDB extends EmdashSqlDB {
 	private databasePermits = new PublicRestorePermits();
 
+	private async withPageCacheInvalidation<T>(
+		identity: CmsRestoreFenceIdentity,
+		statements: string[],
+		run: () => Promise<T>,
+	): Promise<T> {
+		try {
+			return await run();
+		} finally {
+			if (
+				statements.some(
+					(sql) => !PLAIN_SELECT_PATTERN.test(sql) || sql.includes(";"),
+				)
+			) {
+				await rotateCmsSitePageCacheRevision(
+					createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
+					{ ...identity, revision: crypto.randomUUID() },
+				);
+			}
+		}
+	}
+
 	private async withDatabasePermit<T>(
 		identity: CmsRestoreFenceIdentity,
 		run: () => Promise<T>,
@@ -280,7 +301,9 @@ export class EmDashDB extends EmdashSqlDB {
 		if (primary)
 			return await primary.queryWithRestorePermit(identity, sql, params, opts);
 		return await this.withDatabasePermit(identity, () =>
-			super.query(sql, params, opts),
+			this.withPageCacheInvalidation(identity, [sql], () =>
+				super.query(sql, params, opts),
+			),
 		);
 	}
 
@@ -299,7 +322,11 @@ export class EmDashDB extends EmdashSqlDB {
 				opts,
 			);
 		return await this.withDatabasePermit(identity, () =>
-			super.batchQuery(statements, opts),
+			this.withPageCacheInvalidation(
+				identity,
+				statements.map((statement) => statement.sql),
+				() => super.batchQuery(statements, opts),
+			),
 		);
 	}
 
@@ -1007,6 +1034,7 @@ import {
 	getCmsSiteByActiveWwwAlias,
 	getCmsSiteByHostname,
 	getCmsSiteBySlug,
+	rotateCmsSitePageCacheRevision,
 } from "@tedix/db/queries/cms-sites";
 import {
 	buildSurfaceUrl,
@@ -4470,6 +4498,7 @@ async function fetchCmsSite(
 	knownHost?: { slug: string; customDomain: boolean } | null,
 	knownAlias?: Awaited<ReturnType<typeof getCmsSiteByActiveWwwAlias>>,
 	knownRestoreEpoch?: number,
+	knownPageCacheRevision?: string,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	// authz: public — liveness + deployed-sha probe; serves no tenant data.
@@ -4793,6 +4822,12 @@ async function fetchCmsSite(
 	}
 
 	try {
+		const site =
+			knownPageCacheRevision === undefined
+				? await getCmsSiteBySlug(createDbQueryClient(env.PLATFORM_DB), slug)
+				: null;
+		const pageRevision =
+			knownPageCacheRevision ?? site?.config?.pageCacheRevision ?? "0";
 		const restoreEpoch =
 			knownRestoreEpoch ??
 			(await getCmsRestoreEpoch(createDbQueryClient(env.PLATFORM_DB), {
@@ -4880,6 +4915,7 @@ async function fetchCmsSite(
 						restoreEpoch,
 						bundleEtag: bundle.etag,
 						bundleVersion: bundle.version,
+						contentRevision: pageRevision,
 					})
 				: null;
 			loaderResponse = await span(spans, "loader.fetch", () =>
@@ -5030,6 +5066,10 @@ async function fetchCmsSite(
 			response,
 			request.method,
 			tenantUrl.pathname,
+			pageCacheEligible(request, tenantUrl.pathname) &&
+				["HIT", "MISS", "STALE"].includes(
+					response.headers.get("X-Tedix-Page-Cache") ?? "",
+				),
 		);
 
 		// Emit the parent-side spans. Without this the tenant isolate's own
@@ -5124,7 +5164,15 @@ export default {
 				restoreEpoch: site.restoreEpoch,
 			};
 			const run = () =>
-				fetchCmsSite(request, env, ctx, resolved, alias, site.restoreEpoch);
+				fetchCmsSite(
+					request,
+					env,
+					ctx,
+					resolved,
+					alias,
+					site.restoreEpoch,
+					site.config?.pageCacheRevision ?? "0",
+				);
 			const restoreQueries = publicRestorePermitEligible(request)
 				? () => publicRestorePermitQueries((task) => ctx.waitUntil(task))
 				: undefined;

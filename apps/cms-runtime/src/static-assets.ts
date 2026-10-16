@@ -13,6 +13,7 @@ const STATIC_CONTENT_TYPES: Record<string, string> = {
 	avif: "image/avif",
 	gif: "image/gif",
 	ico: "image/x-icon",
+	webmanifest: "application/manifest+json; charset=utf-8",
 };
 
 /** Public immutable Astro assets; the key remains isolated by tenant slug. */

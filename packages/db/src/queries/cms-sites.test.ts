@@ -12,6 +12,7 @@ import {
 	registerCmsSiteIfAbsent,
 	registerCmsSiteWithinQuota,
 	updateCmsSiteDomain,
+	rotateCmsSitePageCacheRevision,
 } from "./cms-sites";
 
 function fixture() {
@@ -54,6 +55,37 @@ function fixture() {
 }
 
 describe("CMS site create on D1", () => {
+	it("rotates the cache revision without losing config or crossing site and restore boundaries", async () => {
+		const { db } = fixture();
+		await registerCmsSite(db, {
+			id: "site-one",
+			organizationId: "org-one",
+			slug: "first",
+			name: "First",
+			canonicalUrl: "https://example.com",
+			config: { seo: { title: "Retained" } },
+		});
+		const input = {
+			siteId: "site-one",
+			slug: "first",
+			restoreEpoch: 0,
+			revision: "revision-one",
+		};
+		await rotateCmsSitePageCacheRevision(db, input);
+		expect((await getCmsSiteBySlug(db, "first"))?.config).toEqual({
+			seo: { title: "Retained" },
+			pageCacheRevision: "revision-one",
+		});
+		for (const other of [
+			{ ...input, siteId: "another" },
+			{ ...input, slug: "another" },
+			{ ...input, restoreEpoch: 1 },
+		])
+			await rotateCmsSitePageCacheRevision(db, { ...other, revision: "wrong" });
+		expect(
+			(await getCmsSiteBySlug(db, "first"))?.config?.pageCacheRevision,
+		).toBe("revision-one");
+	});
 	it("resolves a provider-bound www alias only while its owner retains the apex", async () => {
 		const { db, sqlite } = fixture();
 		await registerCmsSite(db, {

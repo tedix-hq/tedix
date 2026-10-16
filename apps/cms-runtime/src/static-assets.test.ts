@@ -30,6 +30,7 @@ describe("immutable tenant static assets", () => {
 			"logo.hash.svg": "image/svg+xml",
 			"photo.hash.webp": "image/webp",
 			"seal.hash.png": "image/png",
+			"site.hash.webmanifest": "application/manifest+json; charset=utf-8",
 			"unknown.hash.bin": "application/octet-stream",
 		};
 		for (const [name, type] of Object.entries(types)) {

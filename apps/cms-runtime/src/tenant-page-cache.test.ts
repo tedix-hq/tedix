@@ -16,6 +16,7 @@ const identity: PageCacheIdentity = {
 	restoreEpoch: 1,
 	bundleEtag: "etag-1",
 	bundleVersion: 7,
+	contentRevision: "revision-1",
 };
 
 function html(body: string, headers: Record<string, string> = {}): Response {
@@ -66,6 +67,10 @@ describe("tenant page cache key", () => {
 			identity,
 		);
 		const variants = await Promise.all([
+			pageCacheKey(new Request("https://acme.example/blog"), tenantUrl, {
+				...identity,
+				contentRevision: "revision-2",
+			}),
 			pageCacheKey(
 				new Request("https://other.example/blog"),
 				tenantUrl,
@@ -163,6 +168,15 @@ describe("tenant page cache eligibility and policy", () => {
 	});
 
 	it("stores only declared or marketing-default public HTML", () => {
+		expect(
+			pageCachePolicy(
+				html("catalog", {
+					"Cache-Control":
+						"public, max-age=0, s-maxage=300, stale-while-revalidate=86400",
+				}),
+				"marketing",
+			),
+		).toEqual({ freshSeconds: 300, staleSeconds: 86400 });
 		expect(pageCachePolicy(html("x"), "marketing")).toEqual({
 			freshSeconds: 60,
 			staleSeconds: 86400,

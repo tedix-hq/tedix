@@ -6,17 +6,16 @@ import { EDGE_CACHE_EXCLUDED_PREFIXES } from "./edge-cache-headers";
  *
  * Every tenant page render costs a dozen sequential tenant-database round
  * trips (2-3 s from a distant colo), while the static apps/landing site
- * answers in ~0.2 s. Clients and the CDN still receive `private, no-store`
- * (see ./edge-cache-headers): this cache lives inside the Worker, in the
+ * answers in ~0.2 s. This cache lives inside the Worker, in the
  * Cache API, under a key built from the resolved tenant, never from the bare
  * URL. Workers Cache keys omit the hostname, which is how responses once
  * crossed tenant boundaries; this key names the host, site, slug, restore
- * epoch and bundle explicitly.
+ * epoch, bundle and current database revision explicitly.
  *
  * A page is stored only when the tenant declares a public policy or, for
  * marketing-template HTML without any policy, under the marketing default.
- * Freshness is short and stale pages are revalidated in the background, so a
- * published edit is visible within about a minute.
+ * Database writes rotate the revision before acknowledging publication;
+ * in-flight renders can only fill their old revision's key.
  */
 export const MARKETING_PAGE_CACHE_CONTROL =
 	"public, max-age=60, stale-while-revalidate=86400";
@@ -31,6 +30,7 @@ export interface PageCacheIdentity {
 	restoreEpoch: number;
 	bundleEtag: string;
 	bundleVersion: number;
+	contentRevision: string;
 }
 
 export interface PageCachePolicy {
@@ -82,6 +82,7 @@ export async function pageCacheKey(
 		identity.restoreEpoch,
 		identity.bundleVersion,
 		identity.bundleEtag,
+		identity.contentRevision,
 	]);
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
@@ -131,7 +132,9 @@ export function pageCachePolicy(
 		)
 	)
 		return null;
-	const freshSeconds = directiveSeconds(directives, "max-age");
+	const freshSeconds =
+		directiveSeconds(directives, "s-maxage") ??
+		directiveSeconds(directives, "max-age");
 	if (!freshSeconds) return null;
 	return {
 		freshSeconds,
@@ -153,6 +156,8 @@ export function pageCacheEntry(
 	headers.set(CACHED_AT_HEADER, String(now));
 	headers.set(FRESH_FOR_HEADER, String(policy.freshSeconds));
 	headers.delete("Server-Timing");
+	// Upstream cache age must not make a newly rendered entry expire early.
+	for (const name of ["Age", "Date", "Expires"]) headers.delete(name);
 	return new Response(response.body, { status: 200, headers });
 }
 
