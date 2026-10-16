@@ -350,6 +350,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"listings/markets": "mcp:apps.read",
 	"listings/search": "mcp:apps.read",
 	"mcpEvents/pollFailedSkillRuns": "mcp:skills.read",
+	"mcpEvents/pollHomeRunFinished": "mcp:messaging.read",
 	"mcpEvents/pollWorkApprovalRequests": "mcp:work.read",
 	"mcpEvents/pollWorkComments": "mcp:work.read",
 	"mcpEvents/pollWorkInteractionRequests": "mcp:work.read",

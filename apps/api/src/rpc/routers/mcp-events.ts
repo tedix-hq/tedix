@@ -7,6 +7,7 @@
  * credential's organization; payloads carry identifiers and enums only.
  */
 import { implement } from "@orpc/server";
+import { pollHomeRunFinished } from "../../services/home-run-finished";
 import { mcpEventsContract } from "@tedix/api-contract/contracts/mcp-events";
 import { McpWebhookEventNameSchema } from "@tedix/api-contract/schemas/mcp-events";
 import {
@@ -462,6 +463,23 @@ const recordWebhookDeliveryProcedure = eventsOs.recordWebhookDelivery
 	});
 
 export const mcpEventsContractRouter = eventsOs.router({
+	pollHomeRunFinished: authenticatedOs.pollHomeRunFinished
+		.use(
+			withAuthorization(
+				{
+					handlerOwnedUserAuthorization:
+						"Each run requires canonical conversation-grant visibility",
+				},
+				"mcp:messaging.read",
+			),
+		)
+		.handler(({ context, input }) =>
+			pollHomeRunFinished(
+				context,
+				input,
+				requireOrgId(context, "Home run events"),
+			),
+		),
 	pollWorkStateChanges: pollWorkStateChangesProcedure,
 	pollWorkApprovalRequests: pollWorkApprovalRequestsProcedure,
 	pollWorkComments: pollWorkCommentsProcedure,

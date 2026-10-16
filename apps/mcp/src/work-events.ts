@@ -22,6 +22,7 @@ export const WORK_APPROVAL_REQUESTED_EVENT = "work.approval.requested";
 export const WORK_ITEM_COMMENTED_EVENT = "work.item.commented";
 export const WORK_INTERACTION_REQUESTED_EVENT = "work.interaction.requested";
 export const SKILL_RUN_FAILED_EVENT = "skill.run.failed";
+export const HOME_RUN_FINISHED_EVENT = "home.run.finished";
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const NEXT_POLL_MS = 30_000;
@@ -242,6 +243,37 @@ export const workInteractionRequestedEventDefinition = {
 };
 
 export const pollableEventDefinitions = [
+	{
+		name: HOME_RUN_FINISHED_EVENT,
+		description: `A visible Home run or delegated child completed, failed or needs input. ${NOTICE}`,
+		delivery: ["poll"],
+		inputSchema: objectSchema(
+			{
+				organization_id: organizationProperty,
+				conversation_id: { type: "string" },
+			},
+			["organization_id"],
+		),
+		payloadSchema: objectSchema(
+			{
+				organization_id: organizationProperty,
+				conversation_id: { type: "string" },
+				run_id: { type: "string" },
+				parent_run_id: { type: ["string", "null"] },
+				status: {
+					type: "string",
+					enum: ["completed", "failed", "needs_input"],
+				},
+			},
+			[
+				"organization_id",
+				"conversation_id",
+				"run_id",
+				"parent_run_id",
+				"status",
+			],
+		),
+	},
 	interactionReplyEventDefinition,
 	workStateChangedEventDefinition,
 	workApprovalRequestedEventDefinition,
@@ -251,6 +283,7 @@ export const pollableEventDefinitions = [
 ];
 
 export type PollableEventName =
+	| typeof HOME_RUN_FINISHED_EVENT
 	| typeof INTERACTION_REPLY_EVENT
 	| typeof WORK_STATE_CHANGED_EVENT
 	| typeof WORK_APPROVAL_REQUESTED_EVENT
@@ -263,6 +296,7 @@ export function isPollableEvent(name: unknown): name is PollableEventName {
 }
 
 const ARGUMENT_KEYS = {
+	[HOME_RUN_FINISHED_EVENT]: ["organization_id", "conversation_id"],
 	[INTERACTION_REPLY_EVENT]: [
 		"organization_id",
 		"request_id",
@@ -318,7 +352,10 @@ export function eventArguments(
 					? !["user", "tedi", "external_agent", "system"].includes(entry)
 					: key === "kind"
 						? !["question", "input", "handoff", "coordination"].includes(entry)
-						: key !== "approver_id" && key !== "target_id" && !UUID.test(entry))
+						: key !== "approver_id" &&
+							key !== "target_id" &&
+							key !== "conversation_id" &&
+							!UUID.test(entry))
 		)
 			throw new InteractionEventError(-32602, `Invalid ${key}`);
 		result[key] = [
@@ -327,6 +364,7 @@ export function eventArguments(
 			"author_type",
 			"responder_type",
 			"kind",
+			"conversation_id",
 		].includes(key)
 			? entry
 			: entry.toLowerCase();
@@ -439,7 +477,7 @@ export async function pollEvent(
 
 /** The read scopes that already gate the tools behind one event. */
 export function eventReadScopes(name: PollableEventName): readonly string[] {
-	return name === INTERACTION_REPLY_EVENT
+	return name === INTERACTION_REPLY_EVENT || name === HOME_RUN_FINISHED_EVENT
 		? ["mcp:messaging.read", "mcp:messaging.write", "mcp:messaging.admin"]
 		: name === SKILL_RUN_FAILED_EVENT
 			? SKILL_READ_SCOPES
@@ -451,15 +489,17 @@ export function assertEventCursor(name: PollableEventName, cursor: string) {
 	if (name === WORK_STATE_CHANGED_EVENT) decodeSequence(cursor);
 	else
 		decodeKeyset(
-			name === INTERACTION_REPLY_EVENT
-				? "wrr1"
-				: name === WORK_APPROVAL_REQUESTED_EVENT
-					? "war1"
-					: name === WORK_ITEM_COMMENTED_EVENT
-						? "wcm1"
-						: name === WORK_INTERACTION_REQUESTED_EVENT
-							? "wir1"
-							: "srf1",
+			name === HOME_RUN_FINISHED_EVENT
+				? "hrf1"
+				: name === INTERACTION_REPLY_EVENT
+					? "wrr1"
+					: name === WORK_APPROVAL_REQUESTED_EVENT
+						? "war1"
+						: name === WORK_ITEM_COMMENTED_EVENT
+							? "wcm1"
+							: name === WORK_INTERACTION_REQUESTED_EVENT
+								? "wir1"
+								: "srf1",
 			cursor,
 		);
 }
@@ -488,6 +528,18 @@ export async function readEventFeed(
 		}>,
 	) => events.map((event) => ({ ...event, name }));
 	try {
+		if (name === HOME_RUN_FINISHED_EVENT) {
+			const result = await client.mcpEvents.pollHomeRunFinished({
+				after: cursor === null ? null : decodeKeyset("hrf1", cursor),
+				conversationId: args.conversation_id,
+				limit,
+			});
+			return {
+				events: named(result.events),
+				cursor: encodeKeyset("hrf1", result.after),
+				hasMore: result.hasMore,
+			};
+		}
 		if (name === INTERACTION_REPLY_EVENT) {
 			const result = await client.mcpEvents.pollWorkInteractionResponses({
 				after: cursor === null ? null : decodeKeyset("wrr1", cursor),

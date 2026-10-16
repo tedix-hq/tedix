@@ -117,6 +117,7 @@ function installation() {
 		);
 	const client = (organizationId: string, owner: string) => ({
 		mcpEvents: {
+			pollHomeRunFinished: keysetFeed(organizationId, "home.run.finished"),
 			pollWorkComments: keysetFeed(organizationId, "work.item.commented"),
 			pollWorkInteractionRequests: keysetFeed(
 				organizationId,
@@ -543,6 +544,20 @@ describe("events/subscribe webhook delivery", () => {
 
 it.each([
 	{
+		name: "home.run.finished" as const,
+		prefix: "hrf1",
+		eventId: "evt_interaction_home-example",
+		id: "home-example",
+		filters: { conversation_id: "home:example" },
+		data: {
+			organization_id: ORG_A,
+			conversation_id: "home:example",
+			run_id: "run-example",
+			parent_run_id: null,
+			status: "completed",
+		},
+	},
+	{
 		name: "work.item.commented" as const,
 		prefix: "wcm1",
 		eventId: "evt_comment_c1",
@@ -577,7 +592,11 @@ it.each([
 ])(
 	"delivers, renews and unsubscribes signed $name webhooks",
 	async ({ name, prefix, eventId, id, filters, data }) => {
-		const args = { organization_id: ORG_A, work_item_id: ITEM, ...filters };
+		const args = {
+			organization_id: ORG_A,
+			...(name === "home.run.finished" ? {} : { work_item_id: ITEM }),
+			...filters,
+		};
 		const params = subscribeParams(ORG_A, { name, arguments: args });
 		const subscribed = await subscribeEventWebhook(
 			env,

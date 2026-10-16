@@ -16,6 +16,30 @@ export const McpEventKeysetCursorSchema = z.object({
 
 const OptionalIdSchema = z.string().min(1).max(128).optional();
 
+export const PollHomeRunFinishedInputSchema = z.object({
+	after: McpEventKeysetCursorSchema.nullable().optional(),
+	conversationId: OptionalIdSchema,
+	limit: PollLimitSchema,
+});
+
+export const PollHomeRunFinishedResultSchema = z.object({
+	events: z.array(
+		z.object({
+			eventId: z.string(),
+			timestamp: z.string(),
+			data: z.object({
+				organization_id: z.string(),
+				conversation_id: z.string(),
+				run_id: z.string(),
+				parent_run_id: z.string().nullable(),
+				status: z.enum(["completed", "failed", "needs_input"]),
+			}),
+		}),
+	),
+	after: McpEventKeysetCursorSchema,
+	hasMore: z.boolean(),
+});
+
 export const WorkStateChangeSchema = z.enum([
 	"accepted",
 	"completed",
@@ -164,6 +188,7 @@ export const PollFailedSkillRunsResultSchema = z.object({
  * API stores it opaquely and returns it only to the service-bound deliverer.
  */
 export const McpWebhookEventNameSchema = z.enum([
+	"home.run.finished",
 	"work.item.state_changed",
 	"work.approval.requested",
 	"work.item.commented",

@@ -5,6 +5,7 @@ import type { DbClient } from "../client";
 import {
 	chatDispatchIdempotency,
 	kernelRuntimeEvents,
+	kernelRuntimeRuns,
 	type TediRuntimeEventKind,
 	tediArtifacts,
 	tediRuntimeEvents,
@@ -18,6 +19,71 @@ export type KernelRuntimeEvent = typeof kernelRuntimeEvents.$inferSelect;
 export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
 export type TediArtifactRow = typeof tediArtifacts.$inferSelect;
 export type NewKernelRuntimeEvent = typeof kernelRuntimeEvents.$inferInsert;
+
+export async function listHomeRunFinishedEvents(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		after?: { at: string; id: string } | null;
+		conversationId?: string;
+		runId?: string;
+		limit: number;
+		head?: boolean;
+	},
+) {
+	// Group repeated ledger writes into one stable notice per run/status.
+	// Child ACLs come from the parent conversation, including plan branches.
+	const feed = sql`(
+		SELECT min(event_id) AS id, min(created_at) AS at,
+		       conversation_id, run_id, parent_run_id, status
+		FROM (
+			SELECT e.id AS event_id, e.created_at, e.conversation_id, e.run_id,
+			       NULL AS parent_run_id,
+			       CASE e.kind WHEN 'run.completed' THEN 'completed'
+			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END AS status
+			FROM ${kernelRuntimeEvents} e
+			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
+			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
+			  AND (e.kind != 'run.completed' OR coalesce(json_extract(e.payload, '$.status'), 'completed') = 'completed')
+			UNION ALL
+			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
+			       CASE e.kind WHEN 'run.completed' THEN 'completed'
+			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END
+			FROM ${tediRuntimeEvents} e JOIN ${kernelRuntimeRuns} p
+			  ON p.organization_id = e.organization_id AND (
+			    (p.child_run_id = e.run_id AND p.delegated_tedi_id = e.tedi_id)
+			    OR EXISTS (SELECT 1 FROM json_each(p.metadata, '$.homePlan.assignments') a
+			      WHERE json_extract(a.value, '$.childRunId') = e.run_id
+			        AND json_extract(a.value, '$.ownerTediId') = e.tedi_id))
+			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
+			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
+		) GROUP BY conversation_id, run_id, parent_run_id, status
+	) AS home_finished`;
+	const order = input.head ? desc : asc;
+	return db
+		.select({
+			id: sql<string>`home_finished.id`,
+			at: sql<string>`home_finished.at`,
+			conversationId: sql<string>`home_finished.conversation_id`,
+			runId: sql<string>`home_finished.run_id`,
+			parentRunId: sql<string | null>`home_finished.parent_run_id`,
+			status: sql<"completed" | "failed" | "needs_input">`home_finished.status`,
+		})
+		.from(feed)
+		.where(
+			and(
+				input.runId ? sql`home_finished.run_id = ${input.runId}` : undefined,
+				input.conversationId
+					? sql`home_finished.conversation_id = ${input.conversationId}`
+					: undefined,
+				input.after
+					? sql`(home_finished.at, home_finished.id) > (${input.after.at}, ${input.after.id})`
+					: undefined,
+			),
+		)
+		.orderBy(order(sql`home_finished.at`), order(sql`home_finished.id`))
+		.limit(input.limit);
+}
 export class KernelRuntimeEventConflictError extends Error {
 	constructor() {
 		super("Kernel runtime event cause conflicts with immutable event");

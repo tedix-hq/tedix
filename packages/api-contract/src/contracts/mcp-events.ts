@@ -2,6 +2,8 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	PollHomeRunFinishedInputSchema,
+	PollHomeRunFinishedResultSchema,
 	ClaimDueMcpEventWebhooksInputSchema,
 	ClaimDueMcpEventWebhooksResultSchema,
 	DeleteMcpEventWebhookSubscriptionInputSchema,
@@ -29,6 +31,14 @@ export const mcpEventsContract = oc
 	.route({ tags: ["mcp-events"], prefix: "/mcp-events" })
 	.errors(baseErrors)
 	.router({
+		pollHomeRunFinished: oc
+			.route({
+				method: "POST",
+				path: "/home-runs/poll",
+				summary: "Poll visible Home run completion and input requests",
+			})
+			.input(PollHomeRunFinishedInputSchema)
+			.output(PollHomeRunFinishedResultSchema),
 		pollWorkStateChanges: oc
 			.route({
 				method: "POST",
