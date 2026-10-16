@@ -1,6 +1,8 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import { ChatMarkdown } from "./chat-markdown";
+import { ChatMarkdown, ChatOutputLinkContext } from "./chat-markdown";
 
 /**
  * These assert on RENDERED OUTPUT, never on the sanitizer's return value.
@@ -118,6 +120,42 @@ describe("ChatMarkdown links", () => {
 		const html = render("[open](/workspace/abc)");
 		expect(html).toContain('href="/workspace/abc"');
 		expect(html).not.toContain('target="_blank"');
+	});
+
+	it("opens an output link in the host Workspace pane on a plain click", () => {
+		const outputId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const opened: string[] = [];
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		act(() =>
+			root.render(
+				<ChatOutputLinkContext.Provider
+					value={{ openOutput: (id) => opened.push(id) }}
+				>
+					<ChatMarkdown content={`Saved. [Open deck](/outputs/${outputId}).`} />
+				</ChatOutputLinkContext.Provider>,
+			),
+		);
+		const link = container.querySelector("a");
+		expect(link?.getAttribute("href")).toBe(`/outputs/${outputId}`);
+
+		const modified = new MouseEvent("click", {
+			bubbles: true,
+			cancelable: true,
+			metaKey: true,
+		});
+		act(() => link?.dispatchEvent(modified));
+		expect(opened).toEqual([]);
+		expect(modified.defaultPrevented).toBe(false);
+
+		const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
+		act(() => link?.dispatchEvent(plain));
+		expect(opened).toEqual([outputId]);
+		expect(plain.defaultPrevented).toBe(true);
+
+		act(() => root.unmount());
+		container.remove();
 	});
 
 	it("leaves http, javascript, and protocol-relative destinations as text", () => {

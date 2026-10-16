@@ -2757,6 +2757,47 @@ describe("<ChatThread> MCP Apps", () => {
 	});
 });
 
+describe("<ChatThread> created outputs", () => {
+	const EARLIER_OUTPUT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const NEW_OUTPUT = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+	it("announces an output linked by a message that arrives live, once", async () => {
+		const history = [
+			message({
+				id: "earlier:assistant",
+				content: `Saved your document. [Open document](/outputs/${EARLIER_OUTPUT}).`,
+			}),
+		];
+		kernelRuntimeApi.readMessages.mockResolvedValue({
+			messages: history,
+			nextCursor: null,
+		});
+		const onOutputCreated = vi.fn();
+		const { client } = mountThread({ onOutputCreated });
+		await flush();
+		// History already on screen when the thread opened is not a new create.
+		expect(onOutputCreated).not.toHaveBeenCalled();
+
+		kernelRuntimeApi.readMessages.mockResolvedValue({
+			messages: [
+				...history,
+				message({
+					id: "receipt:assistant",
+					content: `Created “Harbor plan”. [Open presentation](/outputs/${NEW_OUTPUT}).`,
+				}),
+			],
+			nextCursor: null,
+		});
+		await act(() => client.invalidateQueries());
+		await flush();
+		expect(onOutputCreated).toHaveBeenCalledExactlyOnceWith(NEW_OUTPUT);
+
+		await act(() => client.invalidateQueries());
+		await flush();
+		expect(onOutputCreated).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("<ChatThread> delegation names", () => {
 	it("resolves the recipient through the shared tedi directory", async () => {
 		const payload = runSetPayload();

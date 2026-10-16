@@ -28,6 +28,7 @@ import {
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import { ApprovalNotifications } from "@/components/approval-notifications";
+import { ChatOutputLinkContext } from "@/components/chat-markdown";
 import { ChatThread } from "@/components/chat-thread";
 import {
 	ChatSidebar,
@@ -94,6 +95,7 @@ import {
 	outputDetailQueryOptions,
 	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
+import { outputIdFromHref } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
 
@@ -230,14 +232,11 @@ export function primaryCanvasDoc(
 	return gadget ? { type: "gadget", id: gadget.id } : null;
 }
 
-const OUTPUT_ENTRY_PATTERN =
-	/^\/outputs\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[?#].*)?$/i;
-
 /** First-party output entries open their semantic editor instead of raw manifest JSON. */
 export function linkedOutputIdFromManifest(
 	manifest: OsGadgetManifest | null | undefined,
 ): string | null {
-	return manifest?.entry.match(OUTPUT_ENTRY_PATTERN)?.[1] ?? null;
+	return outputIdFromHref(manifest?.entry);
 }
 
 /**
@@ -853,6 +852,38 @@ export function CanvasPage({
 		openCanvasDoc({ type: "output", id: outputId });
 	};
 
+	/**
+	 * Open an output named in this Workspace's chat in the editor pane, as a
+	 * new tab beside the ones already open. A just-created output may not be
+	 * in the cached list yet, and the URL reconciliation drops a workpiece the
+	 * list does not hold, so an unknown id refreshes the list first. An output
+	 * of another Workspace keeps the standalone page when it was clicked
+	 * (`leaveIfElsewhere`) and is otherwise ignored.
+	 */
+	const openChatOutput = async (
+		outputId: string,
+		leaveIfElsewhere: boolean,
+	) => {
+		if (workspaceId === null) return;
+		const listed = (items: readonly { id: string }[] | undefined) =>
+			items?.some((output) => output.id === outputId) ?? false;
+		let found = listed(outputs.data?.items);
+		if (!found) {
+			const fresh = await queryClient
+				.fetchQuery({ ...canvasOutputsQueryOptions(workspaceId), staleTime: 0 })
+				.catch(() => null);
+			found = listed(fresh?.items);
+		}
+		if (found) {
+			selectOutput(outputId);
+		} else if (leaveIfElsewhere) {
+			void navigate({ to: "/outputs/$outputId", params: { outputId } });
+		}
+	};
+	const chatOutputLinks = {
+		openOutput: (outputId: string) => void openChatOutput(outputId, true),
+	};
+
 	const showCanvasResources = () => {
 		setFocusMode(false);
 		setResourceRailOpen(true);
@@ -1108,47 +1139,54 @@ export function CanvasPage({
 								: "canvas-chat-thread"
 						}
 					>
-						<ChatThread
-							key={newConversationKey}
-							composerOnly={conversationListOpen}
-							conversationId={
-								conversationListOpen ? null : activeConversationId
-							}
-							onSendStarted={() => {
-								if (conversationListOpen) setActiveConversationId(null);
-								setConversationListOpen(false);
-							}}
-							workspaceId={workspaceId ?? undefined}
-							autoFocusComposer={simpleMode}
-							context={
-								selectedDoc
-									? {
-											kind: selectedDoc.type,
-											id: selectedDoc.id,
-											label: `${selectedDoc.type === "gadget" ? "Gadget" : "Output"} resource`,
-										}
-									: workspaceId && selectedWorkspace
+						<ChatOutputLinkContext.Provider value={chatOutputLinks}>
+							<ChatThread
+								key={newConversationKey}
+								composerOnly={conversationListOpen}
+								conversationId={
+									conversationListOpen ? null : activeConversationId
+								}
+								onSendStarted={() => {
+									if (conversationListOpen) setActiveConversationId(null);
+									setConversationListOpen(false);
+								}}
+								workspaceId={workspaceId ?? undefined}
+								autoFocusComposer={simpleMode}
+								context={
+									selectedDoc
 										? {
-												kind: "workspace",
-												id: workspaceId,
-												label: selectedWorkspace.name,
+												kind: selectedDoc.type,
+												id: selectedDoc.id,
+												label: `${selectedDoc.type === "gadget" ? "Gadget" : "Output"} resource`,
 											}
-										: undefined
-							}
-							onSendMessageReady={registerWidgetFollowUp}
-							onConversationCreated={(conversationId) => {
-								setActiveConversationId(conversationId);
-								setConversationListOpen(false);
-								writeCanvasSearch({
-									...canvasSearch,
-									conversation: conversationId,
-									pane: conversationPane,
-								});
-								queryClient.invalidateQueries({
-									queryKey: homeConversationsQueryKey(workspaceId ?? undefined),
-								});
-							}}
-						/>
+										: workspaceId && selectedWorkspace
+											? {
+													kind: "workspace",
+													id: workspaceId,
+													label: selectedWorkspace.name,
+												}
+											: undefined
+								}
+								onSendMessageReady={registerWidgetFollowUp}
+								onConversationCreated={(conversationId) => {
+									setActiveConversationId(conversationId);
+									setConversationListOpen(false);
+									writeCanvasSearch({
+										...canvasSearch,
+										conversation: conversationId,
+										pane: conversationPane,
+									});
+									queryClient.invalidateQueries({
+										queryKey: homeConversationsQueryKey(
+											workspaceId ?? undefined,
+										),
+									});
+								}}
+								onOutputCreated={(outputId) =>
+									void openChatOutput(outputId, false)
+								}
+							/>
+						</ChatOutputLinkContext.Provider>
 					</div>
 				</aside>
 				{simpleMode ? null : (
