@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { summarizeRunError } from "./run-error";
+import { RUN_ERROR_HEADLINE_LENGTH, summarizeRunError } from "./run-error";
 
 describe("summarizeRunError", () => {
 	it("names the failed tool call instead of the envelope preamble", () => {
@@ -24,5 +24,17 @@ describe("summarizeRunError", () => {
 		);
 		expect(summarizeRunError("x".repeat(500))?.length).toBe(300);
 		expect(summarizeRunError(null)).toBeNull();
+	});
+
+	it("caps a headline at the requested length with an ellipsis", () => {
+		const headline = summarizeRunError(
+			`Error: ${"word ".repeat(80)}`,
+			RUN_ERROR_HEADLINE_LENGTH,
+		);
+		expect(headline?.length).toBeLessThanOrEqual(RUN_ERROR_HEADLINE_LENGTH);
+		expect(headline?.endsWith("…")).toBe(true);
+		expect(summarizeRunError("Permission denied", 120)).toBe(
+			"Permission denied",
+		);
 	});
 });

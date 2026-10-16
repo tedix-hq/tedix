@@ -40,6 +40,17 @@ describe("RunErrorAlert", () => {
 		expect(panel?.hasAttribute("hidden")).toBe(true);
 	});
 
+	it("caps the visible reason at one short line and keeps the full text in details", () => {
+		const error = `Error: ${"The fictional ledger sync for Northwind Ltd was refused. ".repeat(6)}`;
+		const host = document.createElement("div");
+		host.innerHTML = renderToStaticMarkup(<RunErrorAlert error={error} />);
+		const reason = host.querySelector('[data-slot="alert-description"]');
+		expect(reason?.textContent?.length).toBeLessThanOrEqual(120);
+		expect(reason?.textContent?.endsWith("…")).toBe(true);
+		expect(reason?.className).toContain("truncate");
+		expect(host.querySelector("pre")?.textContent).toBe(error);
+	});
+
 	it("omits details when the raw error already equals the summary", () => {
 		const html = renderToStaticMarkup(
 			<RunErrorAlert error="Permission denied" />,

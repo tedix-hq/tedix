@@ -15,7 +15,10 @@ import type {
 	SkillWorkflowStep,
 } from "@tedix/api-contract/contracts/cognitive";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
-import { summarizeRunError } from "@tedix/api-contract/utils/run-error";
+import {
+	RUN_ERROR_HEADLINE_LENGTH,
+	summarizeRunError,
+} from "@tedix/api-contract/utils/run-error";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
 import { DetailUnavailable } from "@/components/detail-unavailable";
@@ -287,11 +290,14 @@ export function RunDetailSectionHeader({
 }
 
 export function RunErrorAlert({ error }: { error: string }) {
-	const summary = summarizeRunError(error);
+	// One line on the page; the full stored text stays in Details.
+	const summary = summarizeRunError(error, RUN_ERROR_HEADLINE_LENGTH);
 	return (
 		<Alert variant="destructive">
 			<AlertTitle>Run error</AlertTitle>
-			<AlertDescription>{summary}</AlertDescription>
+			<AlertDescription className="min-w-0 truncate">
+				{summary}
+			</AlertDescription>
 			{error !== summary && (
 				<Collapsible>
 					<CollapsibleTrigger className="-mx-2 w-fit">
