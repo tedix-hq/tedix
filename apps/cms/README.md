@@ -40,7 +40,9 @@ Exposed via `buildSiteBuilderMcpServer` (`src/agent/tools.ts`), grouped by area:
 
 - **Service keys** — provision a CMS service key for an org.
 - **Theme files** — list/read/write/delete theme files, batch-write multiple
-  files.
+  files. Marketing themes can supply `src/components/public-files/llms.txt`
+  for an authored discovery overview. An absent or blank file keeps the native
+  published-content index.
 - **Hot theme** — read/write the live-preview "hot theme" revision, list
   revisions, roll back.
 - **Theme artifacts** — provision an artifact repo, check/cancel seed status,
