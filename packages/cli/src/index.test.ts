@@ -29,7 +29,7 @@ import {
 	type TedixHomeClient,
 } from "./home-client";
 import {
-	localOptionsMessage,
+	localCommandArgs,
 	parseSlashPrompt,
 	runDirectCode,
 	slashCommandError,
@@ -2605,20 +2605,61 @@ describe("one-shot slash-command prompts", () => {
 	});
 });
 
-describe("localOptionsMessage", () => {
-	test("names the local command without the gateway options before it", () => {
-		expect(
-			localOptionsMessage("setup", [
-				"-w",
-				"connect",
+describe("localCommandArgs", () => {
+	test("ignores workspace selectors before and after every local command", () => {
+		for (const command of ["setup", "hooks", "learn", "dev", "supervise"]) {
+			for (const selector of [
+				["-w", "connect"],
+				["--workspace", "connect"],
+				["--workspace=connect"],
+			]) {
+				expect(localCommandArgs([...selector, command, "--help"])).toEqual([
+					command,
+					"--help",
+				]);
+				expect(localCommandArgs([command, "--help", ...selector])).toEqual([
+					command,
+					"--help",
+				]);
+			}
+		}
+	});
+	test("applies the workspace to context operations that select a profile", () => {
+		for (const action of ["bind", "connect", "set-default-organization"]) {
+			expect(
+				localCommandArgs([
+					"-w",
+					"connect",
+					"setup",
+					"agents",
+					"context",
+					action,
+				]),
+			).toEqual([
 				"setup",
 				"agents",
 				"context",
-				"select",
-				"two words",
-			]),
-		).toContain(
-			"Run it without them: tedix setup agents context select 'two words'",
+				action,
+				"--workspace",
+				"connect",
+			]);
+		}
+	});
+	test("preserves remote arguments and positional literals", () => {
+		expect(localCommandArgs(["ask", "-w"])).toEqual(["ask", "-w"]);
+		expect(localCommandArgs(["-w", "connect", "conversations"])).toEqual([
+			"-w",
+			"connect",
+			"conversations",
+		]);
+		expect(localCommandArgs(["learn", "--", "-w", "literal"])).toEqual([
+			"learn",
+			"--",
+			"-w",
+			"literal",
+		]);
+		expect(() => localCommandArgs(["learn", "-w"])).toThrow(
+			"requires a workspace name",
 		);
 	});
 });

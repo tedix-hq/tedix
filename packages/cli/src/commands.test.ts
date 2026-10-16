@@ -601,3 +601,51 @@ test("chat help and completion offer one command per session action", () => {
 	expect(formatInteractiveCommandHelp()).not.toContain("/clear");
 	expect(formatInteractiveCommandHelp()).not.toContain("/quit");
 });
+
+for (const wrapped of [false, true]) {
+	for (const json of [false, true]) {
+		test(`conversations and delete render compact output (wrapped=${wrapped}, json=${json})`, async () => {
+			const conversations = {
+				conversations: [
+					{
+						id: "home:example",
+						title: "Example",
+						status: "active",
+						messageCount: 3,
+					},
+				],
+				nextCursor: "next-page",
+			};
+			const deleted = {
+				ok: true,
+				conversationId: "home:example",
+				hardDeleted: true,
+				canceledRunCount: 2,
+			};
+			const wrap = (value: unknown) =>
+				wrapped ? { executionId: "execution", result: value } : value;
+			const client = {
+				listHomeConversations: async () => wrap(conversations),
+				deleteConversation: async () => wrap(deleted),
+			} as unknown as TedixHomeClient;
+			const ctx = makeContext({ client, json });
+			const listed = await captureConsoleLogs(async () => {
+				await findCommand("conversations")!.handler("", ctx);
+			});
+			const removed = await captureConsoleLogs(async () => {
+				await findCommand("delete")!.handler("home:example", ctx);
+			});
+			if (json) {
+				expect(JSON.parse(listed.join("\n"))).toEqual(wrap(conversations));
+				expect(JSON.parse(removed.join("\n"))).toEqual(wrap(deleted));
+			} else {
+				expect(listed.join("\n")).toContain(
+					"home:example status=active messages=3",
+				);
+				expect(listed.join("\n")).toContain("Example");
+				expect(listed.join("\n")).toContain("nextCursor=next-page");
+				expect(removed).toEqual(["Deleted home:example; canceled runs=2."]);
+			}
+		});
+	}
+}

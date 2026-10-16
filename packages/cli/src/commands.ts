@@ -208,14 +208,15 @@ async function handleConversations(
 	ctx: CommandContext,
 ): Promise<number> {
 	const search = args.trim() || ctx.search;
+	const result = await ctx.client.listHomeConversations({
+		includeArchived: ctx.includeArchived,
+		limit: ctx.limit ?? 20,
+		...(ctx.channel ? { channel: ctx.channel } : {}),
+		...(ctx.cursor ? { cursor: ctx.cursor } : {}),
+		...(search ? { search } : {}),
+	});
 	printReadPayload(
-		await ctx.client.listHomeConversations({
-			includeArchived: ctx.includeArchived,
-			limit: ctx.limit ?? 20,
-			...(ctx.channel ? { channel: ctx.channel } : {}),
-			...(ctx.cursor ? { cursor: ctx.cursor } : {}),
-			...(search ? { search } : {}),
-		}),
+		ctx.json ? result : normalizeCodeResult(result).value,
 		ctx.json,
 		ctx.output,
 	);
@@ -262,11 +263,20 @@ async function handleDelete(
 ): Promise<number> {
 	const conversationId = args.trim();
 	if (!conversationId) throw new Error("delete requires a conversationId");
-	printUnknownPayload(
-		await ctx.client.deleteConversation({ conversationId }),
-		ctx.json,
-		ctx.output,
-	);
+	const result = await ctx.client.deleteConversation({ conversationId });
+	const value = normalizeCodeResult(result).value;
+	if (
+		!ctx.json &&
+		isRecord(value) &&
+		value.ok === true &&
+		value.hardDeleted === true
+	) {
+		(ctx.output ?? console).log(
+			`Deleted ${value.conversationId}; canceled runs=${value.canceledRunCount}.`,
+		);
+	} else {
+		printUnknownPayload(result, ctx.json, ctx.output);
+	}
 	return 0;
 }
 

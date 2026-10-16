@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
@@ -108,7 +109,11 @@ describe("listFactoryHealth", () => {
 			nextFireAt: "2026-10-16T06:17:00.000Z",
 			lastProofRun: { runId: "r-docs-probe", status: "completed" },
 		});
-		expect(docs.runs.map((run) => run.runId)).toEqual(["r-docs-1", "r-docs-0"]);
+		expect(docs.runs.map((run) => run.runId)).toEqual([
+			"r-docs-1",
+			"r-docs-0",
+			"r-docs-probe",
+		]);
 		// Items created after the run finished are not its output.
 		expect(docs.runs[0]!.outputs).toEqual({
 			workItemsCreated: 2,
@@ -137,6 +142,48 @@ describe("listFactoryHealth", () => {
 			ranToday: false,
 		});
 	});
+});
+
+it("includes recent failed manual proof runs without crediting schedule health", async () => {
+	const db = seed();
+	await db.run(sql`INSERT INTO skill_runs VALUES
+		('proof-failure', ${ORG}, 'sk-docs', 'tedi-nova', 'failed', '{"probe":true}', 'proof failed', '2026-10-15 10:00:00', '2026-10-15 10:01:00', 'user-1'),
+		('foreign-proof', 'other-org', 'sk-docs', 'tedi-nova', 'failed', '{"probe":true}', 'private', '2026-10-15 11:00:00', '2026-10-15 11:01:00', 'user-2')`);
+	const docs = (
+		await listFactoryHealth(db, { orgId: ORG, now: NOW, runLimit: 2 })
+	).find((entry) => entry.slug === "docs")!;
+	expect(docs.runs).toHaveLength(2);
+	expect(docs.runs[0]).toMatchObject({
+		runId: "proof-failure",
+		trigger: "manual",
+		status: "failed",
+		error: "proof failed",
+	});
+	expect(docs.runs[1]!.runId).toBe("r-docs-1");
+	expect(docs.lastProofRun?.runId).toBe("proof-failure");
+	expect(docs.verdict).toBe("healthy");
+	expect(docs.lastFiredAt).toBe("2026-10-15 06:17:05");
+});
+
+it("shows historical manual failures even when no runs fall in the health window", async () => {
+	const db = seed();
+	await db.run(sql`DELETE FROM skill_runs WHERE skill_id = 'sk-qa'`);
+	await db.run(
+		sql`INSERT INTO skill_runs VALUES ('old-manual', ${ORG}, 'sk-qa', 'tedi-nova', 'failed', '{}', 'manual failure', '2026-07-17 10:00:00', '2026-07-17 10:01:00', 'user-1')`,
+	);
+	const qa = (
+		await listFactoryHealth(db, { orgId: ORG, now: NOW, runLimit: 2 })
+	).find((entry) => entry.slug === "qa")!;
+	expect(qa.runs).toMatchObject([
+		{
+			runId: "old-manual",
+			status: "failed",
+			trigger: "manual",
+			error: "manual failure",
+		},
+	]);
+	expect(qa.ranToday).toBe(false);
+	expect(qa.verdict).toBe("not_firing");
 });
 
 describe("factoryVerdict", () => {
