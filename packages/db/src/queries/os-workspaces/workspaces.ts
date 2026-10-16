@@ -10,8 +10,14 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
+	kernelConversations,
+	kernelRuntimeRuns,
+} from "../../schema/cognitive-runtime";
+import {
 	type NewOsWorkspaceRow,
 	type OsWorkspaceRow,
+	osOutputRevisions,
+	osOutputs,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
 import { userConfigs } from "../../schema/user-configs";
@@ -122,6 +128,128 @@ export async function getOsWorkspace(
 		)
 		.limit(1);
 	return row;
+}
+
+export async function getOsWorkspaceByName(
+	db: DbQueryClient,
+	params: { organizationId: string; name: string },
+): Promise<OsWorkspaceRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osWorkspaces)
+		.where(
+			and(
+				eq(osWorkspaces.organizationId, params.organizationId),
+				eq(osWorkspaces.name, params.name),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+/** The member's oldest active private workspace: their personal space. */
+export async function getPersonalOsWorkspace(
+	db: DbQueryClient,
+	params: { organizationId: string; ownerUserId: string },
+): Promise<OsWorkspaceRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osWorkspaces)
+		.where(
+			and(
+				eq(osWorkspaces.organizationId, params.organizationId),
+				eq(osWorkspaces.visibility, "private"),
+				eq(osWorkspaces.ownerUserId, params.ownerUserId),
+				eq(osWorkspaces.status, "active"),
+			),
+		)
+		.orderBy(asc(osWorkspaces.createdAt), asc(osWorkspaces.id))
+		.limit(1);
+	return row;
+}
+
+export interface SaveConversationAsOsWorkspaceParams {
+	workspace: NewOsWorkspaceRow & { organizationId: string };
+	conversationId: string;
+	/**
+	 * Workspaces the conversation's outputs may currently sit in besides none
+	 * (the default chat workspaces). Outputs elsewhere were moved on purpose and
+	 * stay where they are.
+	 */
+	fromWorkspaceIds: readonly string[];
+}
+
+export interface SaveConversationAsOsWorkspaceResult {
+	workspace: OsWorkspaceRow;
+	movedOutputIds: string[];
+	linked: boolean;
+}
+
+/**
+ * Create a workspace from a Home conversation in one batch: insert it, move the
+ * outputs that conversation's runs created into it, and link the conversation.
+ * The link only claims a conversation that has none.
+ */
+export async function saveConversationAsOsWorkspace(
+	db: DbQueryClient,
+	params: SaveConversationAsOsWorkspaceParams,
+): Promise<SaveConversationAsOsWorkspaceResult> {
+	const { organizationId } = params.workspace;
+	const updatedAt = params.workspace.updatedAt ?? new Date().toISOString();
+	const createdOutputIds = db
+		.select({ outputId: osOutputRevisions.outputId })
+		.from(kernelRuntimeRuns)
+		.innerJoin(
+			osOutputRevisions,
+			eq(osOutputRevisions.id, kernelRuntimeRuns.outputRevisionId),
+		)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, organizationId),
+				eq(kernelRuntimeRuns.conversationId, params.conversationId),
+				eq(osOutputRevisions.organizationId, organizationId),
+			),
+		);
+	const [inserted, moved, linked] = await db.batch([
+		db.insert(osWorkspaces).values(params.workspace).returning(),
+		db
+			.update(osOutputs)
+			.set({ workspaceId: params.workspace.id, updatedAt })
+			.where(
+				and(
+					eq(osOutputs.organizationId, organizationId),
+					// bound-params: a subquery, not a bound list; it binds two values.
+					inArray(osOutputs.id, createdOutputIds),
+					params.fromWorkspaceIds.length > 0
+						? or(
+								isNull(osOutputs.workspaceId),
+								// bound-params: at most the two default chat workspaces.
+								inArray(osOutputs.workspaceId, [...params.fromWorkspaceIds]),
+							)
+						: isNull(osOutputs.workspaceId),
+				),
+			)
+			.returning({ id: osOutputs.id }),
+		db
+			.update(kernelConversations)
+			.set({ workspaceId: params.workspace.id, updatedAt })
+			.where(
+				and(
+					eq(kernelConversations.organizationId, organizationId),
+					eq(kernelConversations.conversationId, params.conversationId),
+					isNull(kernelConversations.workspaceId),
+					isNull(kernelConversations.deletedAt),
+				),
+			)
+			.returning({ id: kernelConversations.id }),
+	]);
+	const [workspace] = inserted;
+	if (!workspace) throw new Error("OS workspace insert returned no row");
+	return {
+		workspace,
+		movedOutputIds: moved.map((row) => row.id),
+		linked: linked.length > 0,
+	};
 }
 
 export async function listOsWorkspaces(

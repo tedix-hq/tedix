@@ -507,6 +507,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/workspacePreferences/touch": "mcp:apps.write",
 	"osWorkspaces/workspaces/archive": "mcp:apps.write",
 	"osWorkspaces/workspaces/create": "mcp:apps.write",
+	"osWorkspaces/workspaces/createFromConversation": "mcp:apps.write",
 	"osWorkspaces/workspaces/decideBlueprintUpgrade": "mcp:apps.write",
 	"osWorkspaces/workspaces/delete": "mcp:apps.admin",
 	"osWorkspaces/workspaces/previewBlueprintUpgrade": "mcp:apps.read",

@@ -164,6 +164,18 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceId: ({ output }) => nestedId(output, "workspace"),
 		metadata: ({ output }) => ({ name: fields(output.workspace).name }),
 	},
+	"workspaces.createFromConversation": {
+		action: "os.workspace.created",
+		resourceType: "os_workspace",
+		resourceId: ({ output }) => nestedId(output, "workspace"),
+		metadata: ({ input, output }) => ({
+			name: fields(output.workspace).name,
+			conversationId: text(input.conversationId),
+			movedOutputs: Array.isArray(output.movedOutputIds)
+				? output.movedOutputIds.length
+				: 0,
+		}),
+	},
 	"workspaces.update": {
 		action: "os.workspace.updated",
 		resourceType: "os_workspace",

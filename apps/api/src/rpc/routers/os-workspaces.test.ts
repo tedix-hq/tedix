@@ -2,6 +2,7 @@ import * as calendarAccounts from "../../services/calendar-coordinator/credentia
 import * as namedVault from "./connections/policy-resolution";
 import { connectionInstances } from "@tedix/db/schema";
 import {
+	kernelConversations,
 	kernelRuntimeRuns,
 	kernelConversationGrants,
 } from "@tedix/db/schema/cognitive-runtime";
@@ -137,6 +138,7 @@ function createEnv(): CloudflareEnv {
 		schemaDdl(
 			connectionInstances,
 			kernelRuntimeRuns,
+			kernelConversations,
 			kernelConversationGrants,
 			osWorkspaces,
 			osGadgets,
@@ -245,6 +247,78 @@ describe("workspaces", () => {
 	let c: ReturnType<typeof clients>;
 	beforeEach(() => {
 		c = clients();
+	});
+
+	it("saves a chat as a workspace with the outputs it made, once", async () => {
+		const db = createDbClient(c.env.DB);
+		const { workspace: general } = await c.org1.workspaces.create({
+			name: "General",
+		});
+		const made = await c.org1.outputs.create({
+			kind: "document",
+			title: "Trip notes",
+			workspaceId: general.id,
+		});
+		const unrelated = await c.org1.outputs.create({
+			kind: "sheet",
+			title: "Unrelated",
+			workspaceId: general.id,
+		});
+		await db.insert(kernelRuntimeRuns).values({
+			id: "chat-run",
+			organizationId: "org-1",
+			conversationId: "home:os:chat-1",
+			status: "completed",
+			createdAt: "2026-10-16",
+			updatedAt: "2026-10-16",
+			outputRevisionId: made.revision.id,
+		});
+		await db.insert(kernelConversations).values({
+			id: "org-1:home:os:chat-1",
+			organizationId: "org-1",
+			conversationId: "home:os:chat-1",
+			lastMessageAt: "2026-10-16",
+			createdAt: "2026-10-16",
+			updatedAt: "2026-10-16",
+		});
+
+		await expect(
+			c.org2.workspaces.createFromConversation({
+				conversationId: "home:os:chat-1",
+				name: "Trip",
+			}),
+		).rejects.toThrow(/not found/i);
+		const saved = await c.org1.workspaces.createFromConversation({
+			conversationId: "home:os:chat-1",
+			name: "General",
+		});
+		// The taken name gets a suffix instead of failing the save.
+		expect(saved.workspace.name).toMatch(/^General · [0-9a-f]{8}$/);
+		// The saving member's chat stays theirs.
+		expect(saved.workspace).toMatchObject({
+			visibility: "private",
+			ownerUserId: "user-1",
+		});
+		expect(saved.movedOutputIds).toEqual([made.output.id]);
+		expect(
+			(await c.org1.outputs.get({ outputId: made.output.id })).output
+				.workspaceId,
+		).toBe(saved.workspace.id);
+		expect(
+			(await c.org1.outputs.get({ outputId: unrelated.output.id })).output
+				.workspaceId,
+		).toBe(general.id);
+		const [conversation] = await db
+			.select()
+			.from(kernelConversations)
+			.where(eq(kernelConversations.conversationId, "home:os:chat-1"));
+		expect(conversation?.workspaceId).toBe(saved.workspace.id);
+		await expect(
+			c.org1.workspaces.createFromConversation({
+				conversationId: "home:os:chat-1",
+				name: "Again",
+			}),
+		).rejects.toThrow(/already belongs to a workspace/);
 	});
 
 	it("creates, updates, reads, and archives inside the caller's organization only", async () => {

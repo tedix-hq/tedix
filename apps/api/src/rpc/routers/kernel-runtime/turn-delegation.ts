@@ -88,6 +88,10 @@ import {
 } from "./delegation-agent-review";
 import { internalDelegationContext } from "./delegation-context";
 import { runWorkstationWorkOrderDispatch } from "./workstation-dispatch";
+import {
+	ensureDefaultOsWorkspace,
+	placeChatOutputInDefaultWorkspace,
+} from "../../../services/os-default-workspace";
 import { writeKernelTraceBundle } from "../kernel/kernel-trace-bundle-writer";
 import { claimKernelExecutionPolicy } from "../../../kernel/runtime-submission-bridge";
 import type { KernelExecutionPolicy } from "@tedix/api-contract/schemas/kernel-runtime";
@@ -123,7 +127,20 @@ export function buildKernelTurnWorkDeps(
 					args.attachments,
 				),
 			}),
-		writeProposalPlanner: (args) => activeKernelWriteProposalPlanner(args),
+		writeProposalPlanner: async (args) => {
+			const proposal = await activeKernelWriteProposalPlanner(args);
+			// A chat with no workspace puts a new output in the default one.
+			if (!proposal || args.workspaceContext) return proposal;
+			return placeChatOutputInDefaultWorkspace(proposal, () =>
+				ensureDefaultOsWorkspace(context.db, {
+					organizationId: args.organizationId,
+					ownerUserId: args.actingUserId ?? null,
+					...(args.actingUserId
+						? { createdByKind: "user", createdById: args.actingUserId }
+						: { createdByKind: "service", createdById: "kernel" }),
+				}),
+			);
+		},
 		insertKernelRuntimeEvent: (input) =>
 			insertKernelRuntimeEvent(context, input),
 		// Terminal run patch + message.completed + terminal receipt in one D1

@@ -1,61 +1,98 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { FolderPlus } from "@phosphor-icons/react";
+import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtime";
+import {
+	useInfiniteQuery,
+	useMutation,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	CHAT_CONVERSATIONS_QUERY_KEY,
 	ChatConversationHeader,
 	ChatSidebar,
+	conversationListQueryOptions,
+	conversationTitle,
 } from "@/components/chat-sidebar";
 import { ChatThread } from "@/components/chat-thread";
 import { useChatWebMcpTools } from "@/components/chat-webmcp-tools";
+import { Button } from "@/components/kumo/button";
 import { Page } from "@/components/kumo/page";
+import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import type { ChatSearch } from "@/lib/canvas-search";
-import {
-	activeWorkspacesQueryOptions,
-	osQueryKeys,
-} from "@/lib/os-query-options";
+import { osQueryKeys } from "@/lib/os-query-options";
 
-const WORKSPACE_NAME_MAX_WORDS = 5;
-const WORKSPACE_NAME_MAX_CHARS = 40;
-const LEADING_FILLER =
-	/^(?:please|pls|hey|hi|hello|ok(?:ay)?|so|tedi|can you|could you|would you|will you|i want to|i'd like to|i would like to|i need to|i need|help me(?: to)?|let's|lets)\b[\s,:]*/i;
-
-/** Where an unquoted "titled X" stops: the rest describes the content. */
-const TITLE_END =
-	/\s+(?:with|for|that|which|and|about|containing|including)\b|[,.;:!?]/i;
+/** Workspace names are capped at 120 characters by the contract. */
+const WORKSPACE_NAME_MAX_CHARS = 120;
 
 /**
- * A short workspace name for the first send of a new chat. The whole prompt
- * made a sentence-long workspace title; this keeps an explicit title
- * ("titled X", "called X", or quoted text) or else the first few words, with
- * polite lead-ins dropped. Deterministic, so no model call sits on the send.
+ * "Save as workspace" for a chat that has none: the conversation and the
+ * outputs it made move into a new workspace, which then opens with it.
  */
-export function workspaceNameFromPrompt(prompt: string): string {
-	const normalized = prompt.replace(/\s+/g, " ").trim();
-	const quoted = normalized.match(/["“]([^"”]{2,})["”]/)?.[1];
-	const titled = normalized
-		.match(/\b(?:titled|called|named)\s+(.+)$/i)?.[1]
-		?.split(TITLE_END)[0];
-	let text = (quoted ?? titled ?? normalized).trim();
-	for (let previous = ""; previous !== text;) {
-		previous = text;
-		text = text.replace(LEADING_FILLER, "");
-	}
-	const words = text.split(" ").filter(Boolean);
-	let name = words.slice(0, WORKSPACE_NAME_MAX_WORDS).join(" ");
-	if (name.length > WORKSPACE_NAME_MAX_CHARS) {
-		const cut = name.slice(0, WORKSPACE_NAME_MAX_CHARS);
-		const space = cut.lastIndexOf(" ");
-		name = space > 10 ? cut.slice(0, space) : cut;
-	}
-	name = name.replace(/[\s.,;:!?…-]+$/u, "");
-	if (!name) return "New conversation";
-	return name.charAt(0).toUpperCase() + name.slice(1);
-}
-
-export function workspaceRetryName(name: string, suffix: string): string {
-	return `${name.slice(0, 61).trimEnd()} · ${suffix.slice(0, 8)}`;
+export function SaveAsWorkspaceButton({
+	conversationId,
+}: {
+	conversationId: string;
+}) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const conversations = useInfiniteQuery(
+		conversationListQueryOptions(undefined, false),
+	);
+	const conversation =
+		conversations.data?.pages
+			.flatMap((page) => page.conversations ?? [])
+			.find((candidate: HomeConversation) => candidate.id === conversationId) ??
+		null;
+	const save = useMutation({
+		mutationFn: (input: { conversationId: string; name: string }) =>
+			osApi.osWorkspaces.workspaces.createFromConversation(input),
+		onSuccess: ({ workspace }) => {
+			void queryClient.invalidateQueries({
+				queryKey: osQueryKeys.workspaces(),
+			});
+			void queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
+			void queryClient.invalidateQueries({
+				queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
+			});
+			void navigate({
+				to: "/workspace/$workspaceId",
+				params: { workspaceId: workspace.id },
+				search: { conversation: conversationId },
+			});
+		},
+	});
+	// Only a chat the list knows to have no workspace can be saved as one.
+	if (!conversation || conversation.workspaceId) return null;
+	return (
+		<div className="flex shrink-0 items-center justify-end gap-2 py-1">
+			{save.isError ? (
+				<Text as="span" role="caption" tone="error">
+					{save.error instanceof Error
+						? save.error.message
+						: "The workspace could not be created."}
+				</Text>
+			) : null}
+			<Button
+				disabled={save.isPending}
+				onClick={() =>
+					save.mutate({
+						conversationId,
+						name: conversationTitle(conversation).slice(
+							0,
+							WORKSPACE_NAME_MAX_CHARS,
+						),
+					})
+				}
+				size="sm"
+				variant="ghost"
+			>
+				<FolderPlus size={14} />
+				{save.isPending ? "Saving…" : "Save as workspace"}
+			</Button>
+		</div>
+	);
 }
 
 /**
@@ -65,11 +102,10 @@ export function workspaceRetryName(name: string, suffix: string): string {
  * shareable, reloadable link (the embedded widget deep-links here) and
  * picking one from the list is a `replace`, never a history entry per click.
  * No param is the synthetic fresh-thread state: landing on `/chat` lands on a
- * new conversation, not on whichever thread happened to be most recent. The
- * first substantive send creates its durable Workspace, the conversation
- * comes to exist server-side on the first enqueued turn, and the accepted
- * pair is opened in the Workspace workbench so Chat, Outputs, and Gadgets
- * share one context from the beginning.
+ * new conversation, not on whichever thread happened to be most recent. A
+ * new chat is a plain Home conversation: it creates no workspace. Outputs it
+ * makes go to the default workspace until "Save as workspace" gives the chat
+ * its own.
  */
 export function ChatPage() {
 	const queryClient = useQueryClient();
@@ -119,76 +155,18 @@ export function ChatPage() {
 						}}
 					/>
 				</div>
+				{activeConversationId ? (
+					<SaveAsWorkspaceButton conversationId={activeConversationId} />
+				) : null}
 				<ChatThread
 					key={newConversationKey}
 					conversationId={activeConversationId}
-					prepareNewConversation={async (content) => {
-						const name = workspaceNameFromPrompt(content);
-						const description =
-							"Started from chat. Documents, sheets and decks from this conversation appear here.";
-						let workspace;
-						try {
-							({ workspace } = await osApi.osWorkspaces.workspaces.create({
-								name,
-								description,
-							}));
-						} catch (error) {
-							if (
-								!(error instanceof Error) ||
-								!error.message.includes(
-									"workspace with this name already exists",
-								)
-							) {
-								throw error;
-							}
-							({ workspace } = await osApi.osWorkspaces.workspaces.create({
-								name: workspaceRetryName(name, crypto.randomUUID()),
-								description,
-							}));
-						}
-						// Canvas resolves the route workspace from this cached directory.
-						// Seed the authoritative create response before navigating so a
-						// warm, stale list cannot briefly select and canonicalize the first
-						// unrelated workspace while its background refresh catches up.
-						queryClient.setQueryData(
-							activeWorkspacesQueryOptions().queryKey,
-							(current) =>
-								current
-									? {
-											...current,
-											items: [
-												workspace,
-												...current.items.filter(
-													(item) => item.id !== workspace.id,
-												),
-											],
-										}
-									: { items: [workspace], truncated: false },
-						);
-						// The create response is already authoritative for this workspace.
-						// Revalidating the directory is useful, but it must not sit on the
-						// first-send critical path: a cold list read used to delay the
-						// workspace handoff until the answer was nearly complete.
-						void queryClient.invalidateQueries({
-							queryKey: osQueryKeys.workspaces(),
-						});
-						return { workspaceId: workspace.id };
-					}}
-					onConversationPrepared={(conversationId, workspaceId) => {
-						void navigate({
-							to: "/workspace/$workspaceId",
-							params: { workspaceId },
-							search: { conversation: conversationId },
-						});
-					}}
 					onConversationCreated={(conversationId, workspaceId) => {
 						queryClient.invalidateQueries({
 							queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
 						});
-						// The workspace opens chat-only (`simpleMode`) until its first
-						// document arrives. `pane` is a mobile/override param and must
-						// not travel here: carrying it would pin the URL to an explicit
-						// pane and defeat the chat-first layout.
+						// Only a conversation that already belongs to a workspace opens
+						// there. `pane` must not travel: it would pin an explicit pane.
 						if (workspaceId) {
 							void navigate({
 								to: "/workspace/$workspaceId",
