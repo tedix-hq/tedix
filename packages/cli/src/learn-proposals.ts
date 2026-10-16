@@ -195,3 +195,23 @@ export function respondSource(
 	return out;
 }`;
 }
+
+/**
+ * Code Mode program: close the member's own open proposals that a newer run
+ * superseded, as a decline that says so. Cancelling would need an approval
+ * this command cannot ask for; the decline also keeps the same work from
+ * being proposed again.
+ */
+export function withdrawSource(
+	rows: Array<Pick<AskedProposal, "id" | "version">>,
+): string {
+	return `async () => {
+	const input = ${asciiJson(rows.map(({ id, version }) => ({ id, version })))};
+	const out = {};
+	for (const row of input) {
+		const r = await work.respond_work_interaction({ requestId: row.id, expectedRequestVersion: row.version, responseKind: "handoff_declined", body: "Superseded by a newer tedix learn profile run.", resolvesRequest: true, metadata: { source: "tedix learn profile", superseded: true } });
+		out[row.id] = r?.ok === false || !r?.response ? { error: String(r?.error ?? "withdrawing failed") } : { ok: true };
+	}
+	return out;
+}`;
+}

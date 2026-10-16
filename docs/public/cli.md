@@ -195,11 +195,17 @@ that stopped), and creates nothing on the shared board until you accept it.
 Its proposals arrive in your Tedix inbox (Work > Interactions).
 
 `tedix learn profile` writes "What Tedix knows about you", a document in your
-own Tedix space: your active projects and where each stands, linked to the
-board's projects and Work; the open loops you left, with the session to resume
-or the commit; workflows Tedix could take over as a skill or a scheduled
-factory; the people and customers you work with; how you like to work; and
-three things it can do for you now, each a proposal in your inbox. It reads
+own Tedix space. It opens with your week in plain language, then three
+things it can do for you now: a task handed to a tedi, a factory, or a
+drafted document, chosen by your goals, what is at stake (a customer, a
+deadline, revenue, someone blocked) and how recent it is. Each is a
+proposal in your inbox, and earlier proposals it no longer picks are
+withdrawn. Then come at most 12 workstreams, weighted by the days you worked
+on them and what shipped, each with its threads, where it stands, and a board
+project only when your sessions show one (its Work, its key, or a repository
+path it names). Then the open loops you left, with the session to resume or
+the commit; workflows Tedix could take over as a skill or a scheduled
+factory; the people and customers you work with; and how you like to work. It reads
 every local transcript in full, sub-agents and supervisor runs included, and
 your local `claude` (haiku, else `codex`) summarises each session, then each
 body of work, then you. Summaries are cached, so a re-run only reads new

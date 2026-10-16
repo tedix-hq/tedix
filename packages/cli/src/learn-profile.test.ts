@@ -14,8 +14,21 @@ import {
 	type SessionFacts,
 	type TranscriptFile,
 } from "./learn-facts";
+import type { AskedProposal } from "./learn-proposals";
 import {
 	GROUP_PROMPT,
+	MERGE_PROMPT,
+	PLAN_PROMPT,
+	WHO_AM_I_SOURCE,
+	MAX_WORKSTREAMS,
+	weigh,
+	projectEvidence,
+	linkWorkstream,
+	mergeWorkstreams,
+	planNow,
+	priorities,
+	type Board,
+	type Workstream,
 	PROFILE_PROMPT,
 	STATE_PROMPT,
 	SUMMARY_PROMPT,
@@ -73,19 +86,36 @@ const summary = (goal = "Finish exports") =>
 		openLoops: ["Review export"],
 		people: ["Mara Quill"],
 	});
-const profile = (possessive = false) =>
+const profile = () =>
 	toProfile({
 		role: "Builds Acme Planner",
 		style: ["Prefers small changes"],
-		actions: ["Review", "Document", "Test"].map((verb) => ({
-			title: possessive
-				? `${verb} Mara's billing exports`
-				: `${verb} billing exports with Mara`,
-			why: "Mara left an export review open",
-			workstream: "Billing exports",
-			kind: "finish",
-		})),
 	});
+const plan = (possessive = false) => ({
+	week: "You built Acme exports. The customer brief is still open.",
+	actions: ["Draft", "Design", "Prepare"].map((verb) => ({
+		title: possessive
+			? `${verb} Mara's billing exports`
+			: `${verb} billing exports with Mara`,
+		why: "Mara left an export review open",
+		workstream: "Billing exports",
+		kind: "delegate" as const,
+		start: "Collect the export requirements",
+	})),
+});
+const emptyBoard = (): Board => ({ me: null, items: new Map(), projects: [] });
+async function thread(
+	name: string,
+	sessions: SessionFacts[],
+): Promise<Workstream> {
+	return (
+		await groupWorkstreams(sessions, new Map(), async () =>
+			JSON.stringify([
+				{ name, description: name, sessions: sessions.map((_, n) => n + 1) },
+			]),
+		)
+	)[0]!;
+}
 
 describe("profile summaries", () => {
 	it("removes contact details and secrets while preserving dates and short numbers", () => {
@@ -247,12 +277,16 @@ describe("workstreams and document", () => {
 			.map((b) => b.text);
 		for (const heading of [
 			"What Tedix knows about you",
+			"Your week in Tedix",
 			"3 things I can do for you right now",
 			"Your active projects",
 			"Open loops you left unfinished",
 			"How you like to work",
 		])
 			expect(headings).toContain(heading);
+		expect(headings.indexOf("Your week in Tedix")).toBeLessThan(
+			headings.indexOf("3 things I can do for you right now"),
+		);
 		expect(JSON.stringify(blocks)).toContain(
 			"https://os.tedix.dev/work/items/w-acme",
 		);
@@ -269,7 +303,7 @@ describe("workstreams and document", () => {
 });
 
 describe("runProfile", () => {
-	function fixture(possessive = false) {
+	function fixture(possessive = false, asked: AskedProposal[] = []) {
 		const dir = mkdtempSync(join(tmpdir(), "acme-profile-"));
 		const transcripts = ["acme-a", "acme-b"].map((id): TranscriptFile => {
 			const path = join(dir, `${id}.jsonl`);
@@ -290,6 +324,7 @@ describe("runProfile", () => {
 			home: join(dir, "home"),
 			stateDir: dir,
 			notes: [],
+			goals: new Map(),
 			now: () => new Date(date),
 			write: () => {},
 			defaultTarget: {
@@ -314,6 +349,16 @@ describe("runProfile", () => {
 								sessions: [1, 2],
 							},
 						]);
+					if (prompt.startsWith(MERGE_PROMPT))
+						return JSON.stringify([
+							{
+								name: "Billing exports",
+								description: "Acme export work",
+								clusters: [1],
+							},
+						]);
+					if (prompt.startsWith(PLAN_PROMPT))
+						return JSON.stringify(plan(possessive));
 					if (prompt.startsWith(STATE_PROMPT.split("TODAY")[0]!))
 						return JSON.stringify([
 							{
@@ -322,15 +367,23 @@ describe("runProfile", () => {
 								state: "Export ready for review",
 								next: "Review export",
 								openLoops: ["Review export"],
+								parts: [{ p: 1, line: "Export ready" }],
 							},
 						]);
 					if (prompt.startsWith(PROFILE_PROMPT))
-						return JSON.stringify(profile(possessive));
+						return JSON.stringify(profile());
 					throw new Error("Unexpected model prompt");
 				},
 			},
 			read: async (_args, _timeout, source = "") => {
 				sources.push(source);
+				if (source === WHO_AM_I_SOURCE) return { me };
+				if (source.includes("Superseded by a newer tedix learn profile")) {
+					const input = JSON.parse(source.match(/const input = (.*);/)![1]!);
+					return Object.fromEntries(
+						input.map((row: { id: string }) => [row.id, { ok: true }]),
+					);
+				}
 				if (source.includes("create_os_output"))
 					return { workspaceId, outputId };
 				if (source.includes("create_work_interaction")) {
@@ -346,7 +399,7 @@ describe("runProfile", () => {
 					source.includes("user.get_mine") &&
 					source.includes("list_work_interactions")
 				)
-					return { me, rows: [] };
+					return { me, rows: asked };
 				if (source.includes("work.list_work_items"))
 					return {
 						me,
@@ -371,7 +424,16 @@ describe("runProfile", () => {
 		const { dir, deps, sources, prompts } = fixture();
 		try {
 			expect(await runProfile([], deps)).toBe(0);
-			expect(prompts).toHaveLength(4);
+			expect(prompts).toHaveLength(6);
+			for (const [n, prefix] of [
+				SUMMARY_PROMPT,
+				GROUP_PROMPT,
+				MERGE_PROMPT,
+				STATE_PROMPT.split("TODAY")[0]!,
+				PROFILE_PROMPT,
+				PLAN_PROMPT,
+			].entries())
+				expect(prompts[n]!.startsWith(prefix)).toBe(true);
 			const publish = sources.find((s) =>
 				s.includes("create_work_interaction"),
 			);
@@ -413,6 +475,62 @@ describe("runProfile", () => {
 		}
 	});
 
+	it("withdraws superseded profile proposals and retains a matching open proposal", async () => {
+		const asked: AskedProposal[] = [
+			{
+				id: "old-acme",
+				version: 4,
+				state: "open",
+				key: "profile:old",
+				title: "Arrange the Acme workshop",
+				subject: "",
+				prompt: "",
+			},
+			{
+				id: "keep-acme",
+				version: 2,
+				state: "open",
+				key: "profile:keep",
+				title: "Draft billing exports with Mara",
+				subject: "",
+				prompt: "",
+			},
+			{
+				id: "other-acme",
+				version: 1,
+				state: "open",
+				key: "context:other",
+				title: "Organize Acme research",
+				subject: "",
+				prompt: "",
+			},
+		];
+		const { dir, deps, sources } = fixture(false, asked);
+		try {
+			expect(await runProfile([], deps)).toBe(0);
+			const cancellations = sources.filter((source) =>
+				source.includes("Superseded by a newer tedix learn profile"),
+			);
+			expect(cancellations).toHaveLength(1);
+			expect(
+				JSON.parse(cancellations[0]!.match(/const input = (.*);/)![1]!),
+			).toEqual([{ id: "old-acme", version: 4 }]);
+			const publish = sources.find((source) =>
+				source.includes("create_work_interaction"),
+			)!;
+			const proposals = JSON.parse(publish.match(/const input = (.*);/)![1]!);
+			expect(proposals).toHaveLength(2);
+			for (const { request } of proposals)
+				expect(request.subject).not.toContain("Draft");
+			const output = sources.find((source) =>
+				source.includes("create_os_output"),
+			)!;
+			expect(output).toContain("/work/interactions/keep-acme");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("dry-runs locally without calling the model or Code Mode reader", async () => {
 		const { dir, deps, sources, prompts } = fixture();
 		try {
@@ -423,5 +541,322 @@ describe("runProfile", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("strategic workstreams", () => {
+	it("weighs days worked more than a burst of sessions on one day", async () => {
+		const base = await facts();
+		const burst = Array.from({ length: 20 }, (_, n) => ({
+			...base,
+			key: `acme-burst-${n}`,
+		}));
+		const spread = Array.from({ length: 4 }, (_, n) => ({
+			...base,
+			key: `acme-day-${n}`,
+			to: `2026-03-0${n + 1}T10:00:00Z`,
+		}));
+		const summaries = new Map(
+			[...burst, ...spread].map((f) => [
+				f.key,
+				toSummary({ ...summary(), status: "done" }),
+			]),
+		);
+		expect(weigh(burst, summaries).days).toBe(1);
+		expect(weigh(spread, summaries).days).toBe(4);
+		expect(weigh(burst, summaries).weight).toBeLessThan(
+			weigh(spread, summaries).weight,
+		);
+	});
+
+	it.each(["work item", "project key", "repository path"])(
+		"links projects using %s evidence",
+		async (evidence) => {
+			const session = await facts();
+			session.workItems = evidence === "work item" ? { [workId]: 1 } : {};
+			if (evidence === "project key")
+				session.asks = [{ text: "Ship ACME-BILLING exports", at: date }];
+			if (evidence === "repository path")
+				session.filesWritten = [
+					"/home/dev/acme/packages/billing/src/export.ts",
+				];
+			const board = emptyBoard();
+			board.projects = [
+				[
+					"p-acme",
+					"ACME-BILLING",
+					"Acme Billing",
+					"Owns packages/billing exports",
+				],
+			];
+			board.items.set(workId, {
+				id: workId,
+				title: "Export invoices",
+				disposition: "accepted",
+				projectId: "p-acme",
+			});
+			expect(projectEvidence([session], board)).toEqual(
+				new Map([["p-acme", 1]]),
+			);
+			const w = await thread("Acme exports", [session]);
+			linkWorkstream(w, board);
+			expect(w.project).toEqual({
+				id: "p-acme",
+				key: "ACME-BILLING",
+				name: "Acme Billing",
+			});
+		},
+	);
+
+	it("does not link by similar words alone or scattered evidence below 40%", async () => {
+		const session = await facts();
+		session.workItems = {};
+		const board = emptyBoard();
+		board.projects = [
+			["p-acme", "ACME-BILLING", "Acme Planner billing exports", "Export work"],
+		];
+		const w = await thread("Acme Planner billing exports", [session]);
+		expect(projectEvidence(w.sessions, board).size).toBe(0);
+		linkWorkstream(w, board);
+		expect(w.project).toBeUndefined();
+		const scattered = await Promise.all(
+			Array.from({ length: 6 }, async (_, n) => {
+				const f = await facts(`acme-scatter-${n}`);
+				f.workItems = {};
+				f.asks = [{ text: `ACME-PROJECT-${Math.floor(n / 2)}`, at: date }];
+				return f;
+			}),
+		);
+		board.projects = [0, 1, 2].map((n) => [
+			`p-${n}`,
+			`ACME-PROJECT-${n}`,
+			`Acme project ${n}`,
+			"",
+		]);
+		const scatteredStream = await thread("Acme initiatives", scattered);
+		expect([...projectEvidence(scattered, board).values()]).toEqual([2, 2, 2]);
+		linkWorkstream(scatteredStream, board);
+		expect(scatteredStream.project).toBeUndefined();
+	});
+
+	async function fineThreads(count: number) {
+		return Promise.all(
+			Array.from({ length: count }, async (_, n) => {
+				const f = await facts(`acme-thread-${n}`);
+				f.workItems = n < 2 ? { [workId]: 1 } : {};
+				return thread(`Acme thread ${n}`, [f]);
+			}),
+		);
+	}
+
+	it("caps garbage-model merges, preserves each session once and keeps shared Work threads together", async () => {
+		const fine = await fineThreads(30);
+		const board = emptyBoard();
+		board.items.set(workId, {
+			id: workId,
+			title: "Acme exports",
+			disposition: "accepted",
+			projectId: null,
+		});
+		const merged = await mergeWorkstreams(
+			fine,
+			new Map(),
+			board,
+			async () => "garbage",
+		);
+		expect(merged.length).toBeLessThanOrEqual(MAX_WORKSTREAMS);
+		const keys = merged.flatMap((w) => w.sessions.map((f) => f.key));
+		expect(keys.sort()).toEqual(
+			fine.flatMap((w) => w.sessions.map((f) => f.key)).sort(),
+		);
+		expect(new Set(keys).size).toBe(30);
+		const shared = merged.find((w) =>
+			w.sessions.includes(fine[0]!.sessions[0]!),
+		)!;
+		expect(shared.sessions).toContain(fine[1]!.sessions[0]!);
+		expect(shared.parts.map((p) => p.name)).toEqual(
+			expect.arrayContaining(["Acme thread 0", "Acme thread 1"]),
+		);
+	});
+
+	it("uses model names when merging numbered clusters", async () => {
+		const fine = await fineThreads(3);
+		const merged = await mergeWorkstreams(
+			fine,
+			new Map(),
+			emptyBoard(),
+			async (prompt) => {
+				expect(prompt.startsWith(MERGE_PROMPT)).toBe(true);
+				return JSON.stringify([
+					{
+						name: "Acme customer launch",
+						description: "Launch the export service",
+						clusters: [1, 2, 3],
+					},
+				]);
+			},
+		);
+		expect(merged).toHaveLength(1);
+		expect(merged[0]!.name).toBe("Acme customer launch");
+		expect(merged[0]!.parts).toHaveLength(3);
+	});
+
+	it("ranks customer deadlines and fresh work higher, excluding the common internal org", async () => {
+		const streams = await fineThreads(4);
+		const summaries = new Map(
+			streams.map((w, n) => [
+				w.sessions[0]!.key,
+				toSummary({
+					...summary(),
+					orgs: n === 0 ? ["Acme", "Quill Labs"] : ["Acme"],
+				}),
+			]),
+		);
+		streams[0]!.state = "Customer brief due tomorrow";
+		streams[2]!.to = "2026-02-09T10:00:00Z";
+		const ranked = priorities(streams, summaries, "2026-03-01");
+		const priority = (n: number) =>
+			ranked.find((p) => p.workstream === streams[n])!;
+		expect(ranked[0]!.workstream).toBe(streams[0]!);
+		expect(priority(0).customers).toEqual(["Quill Labs"]);
+		expect(priority(0).signals).toContain("deadline");
+		expect(priority(0).score).toBeGreaterThan(priority(1).score);
+		expect(priority(2).daysAgo).toBe(20);
+		expect(priority(2).score).toBeLessThan(priority(1).score);
+		for (const p of ranked) expect(p.customers).not.toContain("Acme");
+		const known = priorities(streams, summaries, "2026-03-01", ["Orbit Co"]);
+		for (const p of known) expect(p.customers).not.toContain("Quill Labs");
+	});
+
+	it("keeps clusters apart when the model merges most of a long history", async () => {
+		const fine = await fineThreads(40);
+		const merged = await mergeWorkstreams(
+			fine,
+			new Map(),
+			emptyBoard(),
+			async () =>
+				JSON.stringify([
+					{
+						name: "Everything at Acme",
+						clusters: Array.from({ length: 20 }, (_, n) => n + 1),
+					},
+				]),
+		);
+		expect(merged.map((w) => w.name)).not.toContain("Everything at Acme");
+		expect(merged.length).toBeLessThanOrEqual(MAX_WORKSTREAMS);
+	});
+
+	it("filters housekeeping, fills strategic actions from ranked workstreams and passes week text through", async () => {
+		const streams = await fineThreads(4);
+		const ranked = priorities(streams, new Map(), "2026-03-01");
+		const week = "You built Acme exports. Quill Labs needs a launch brief.";
+		const result = await planNow({
+			ranked,
+			goals: [],
+			notes: [],
+			today: "2026-03-01",
+			run: async (prompt) => {
+				expect(prompt.startsWith(PLAN_PROMPT)).toBe(true);
+				return JSON.stringify({
+					week,
+					actions: [
+						"Verify exports",
+						"Commit export changes",
+						"Run type-check on exports",
+						"Confirm the release",
+						"Draft customer brief",
+					].map((title) => ({
+						title,
+						why: "Acme launch",
+						workstream: streams[0]!.name,
+						kind: "delegate",
+						start: "Gather requirements",
+					})),
+				});
+			},
+		});
+		expect(result.week).toBe(week);
+		expect(result.actions).toHaveLength(3);
+		expect(result.actions[0]!.title).toBe("Draft customer brief");
+		expect(result.actions.slice(1).map((a) => [a.workstream, a.kind])).toEqual([
+			[ranked[1]!.workstream.name, "doc"],
+			[ranked[2]!.workstream.name, "doc"],
+		]);
+		for (const a of result.actions)
+			expect(a.title).not.toMatch(/^(Verify|Commit|Run type-check|Confirm) /);
+	});
+
+	it("spreads the three actions over different workstreams before repeating one", async () => {
+		const streams = await fineThreads(2);
+		const ranked = priorities(streams, new Map(), "2026-03-01");
+		const action = (title: string, n: number) => ({
+			title,
+			why: "Acme launch",
+			workstream: streams[n]!.name,
+			kind: "delegate",
+			start: "Gather requirements",
+		});
+		const result = await planNow({
+			ranked,
+			goals: [],
+			notes: [],
+			today: "2026-03-01",
+			pending: ["Draft the Acme brief"],
+			run: async (prompt) => {
+				expect(prompt).toContain("ALREADY IN THEIR INBOX FROM AN EARLIER RUN");
+				expect(prompt).toContain("- Draft the Acme brief");
+				return JSON.stringify({
+					week: "",
+					actions: [
+						action("Draft the Acme brief", 0),
+						action("Delegate the Acme pricing study", 0),
+						action("Set up the Orbit report factory", 1),
+					],
+				});
+			},
+		});
+		expect(result.actions.map((a) => a.title)).toEqual([
+			"Draft the Acme brief",
+			"Set up the Orbit report factory",
+			"Delegate the Acme pricing study",
+		]);
+	});
+
+	it("renders unlinked work and its parts in two separate lists", async () => {
+		const fine = await fineThreads(2);
+		const streams = await mergeWorkstreams(
+			fine,
+			new Map(),
+			emptyBoard(),
+			async () => JSON.stringify([{ name: "Acme launch", clusters: [1, 2] }]),
+		);
+		streams[0]!.parts[0]!.line = "Export requirements ready";
+		const blocks = renderDocument({
+			who: "Mara Quill",
+			sessions: streams[0]!.sessions,
+			files: 2,
+			summaries: new Map(),
+			workstreams: streams,
+			profile: profile(),
+			actions: [],
+			model: "fake",
+			meter: newMeter(),
+			seconds: 0,
+			today: "2026-03-01",
+		});
+		const heading = blocks.findIndex(
+			(b) => b.type === "heading" && b.text === "Acme launch",
+		);
+		const lists = blocks
+			.slice(heading + 1, heading + 4)
+			.filter((b) => b.type === "list");
+		expect(lists).toHaveLength(2);
+		expect(lists[0]!.items.some((item) => item.includes("No board link"))).toBe(
+			true,
+		);
+		expect(lists[1]!.items).toHaveLength(2);
+		expect(lists[1]!.items[0]).toContain("Acme thread 0");
+		expect(lists[1]!.items[0]).toContain("Export requirements ready");
+		expect(lists[1]!.items[1]).toContain("Acme thread 1");
 	});
 });
