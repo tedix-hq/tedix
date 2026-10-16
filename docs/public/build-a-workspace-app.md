@@ -268,8 +268,10 @@ as described above.
   and copy the current values of any column between the ones you change.
 - Write verdicts with `expectedRevision` and retry once on a conflict; a
   factory may add a sheet or row at the same time.
-- In chat, name the OS sheet (title or output id) in a write request. A
-  follow-up such as "mark it useful" can be delegated without the sheet
-  from the previous turn and end up searching other providers' files.
+- In chat, a bare follow-up such as "mark it useful: great angle" right
+  after Home showed a card writes that card's row directly, without a
+  delegation: Home takes the card named at the top of its previous answer
+  and the sheet that answer cites by output id or `Sheet:` title line. When
+  the answer names neither, name the sheet in the request.
 - Never claim an action happened because the done column says `yes`. It
   records a decision; the provider's own record is the proof.
