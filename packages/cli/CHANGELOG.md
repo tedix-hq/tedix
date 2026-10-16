@@ -3,6 +3,37 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.10.0
+
+### Minor Changes
+
+- 331ee60: New `tedix channel claude`: a local MCP channel server that delivers Tedix events (Work comments, Interaction requests, Work state changes, approval requests, failed skill runs) into an interactive Claude Code session started with `--dangerously-load-development-channels server:<name>`.
+- 80b9029: New `tedix channel codex <thread-id>`: poll Tedix events and deliver each batch to a Codex thread through `codex queue`, resuming the thread headless when no Codex window takes it. Channel notices now point at `tedix work context <id>`.
+- c3a731f: Add `tedix learn onboard`, `tedix learn context` and `tedix learn review`. They match the work in a new member's local Claude Code and Codex sessions against the organization's projects and Work, report what is already on the board, and file new tasks only after the member accepts them. `learn analyze-sessions` now writes only the caller's own section of its shared lists, and `learn import-sessions` also sends the preference notes kept in local agent memories.
+- 1821ba5: Add `tedix learn profile`, which `tedix learn onboard` now runs second. It reads every local Claude Code and Codex transcript in full, including sub-agent runs, supervisor Work runs and very large rollouts. Your local model summarises each session, then each body of work, then you. The result is "What Tedix knows about you", a document in your own Tedix space covering your active projects linked to the board, open loops, workflows Tedix could take over, the people you work with, how you work, and three things Tedix can do for you now, each also sent as an inbox proposal. Summaries are cached, so a re-run reads only new sessions, and transcripts never leave your machine.
+- be22aa6: `tedix learn onboard` now runs in the background and returns at once (`--wait` keeps it in the foreground; running it again resumes a run that stopped). Its proposals arrive in your Tedix inbox with the sessions they came from, and you can accept or decline them in Tedix OS, in chat or with `tedix learn review`. Accepting a proposal creates its Work, and a declined one is never asked again on any machine. A body of work with three or more tasks that no project or epic on the board covers is proposed as one epic with its tasks under it.
+
+### Patch Changes
+
+- c6dacfe: `tedix agent --help` shows that `agent finish --no-handoff-reason` also needs `--idempotency-key`.
+- 69ef37c: Errors and output that tell a coding agent its next step. `tedix code` now prints every inner tool call that failed and exits 1, even when the program's own result hides the failure. `work start` without an executor identity names `tedix agent start` and the `TEDIX_EXTERNAL_AGENT` prefix; `work accept` and `work complete` refused for the external agent say to rerun with the owner login; `work checkpoint` without selected Work says how to find and select it. `factory status <slug>` shows each run's ID and a failed run's error, with the command that reads it. `workflow list|health|runs` fetch only the fields they print, so a normal page no longer overflows the gateway. A local command given gateway options prints the command to run instead.
+- 139fdfb: Accept workspace selectors on local commands, show one activity warning with its run ID, and print compact conversations and deletion receipts by default while preserving raw `--json` output.
+- 14c63bc: `tedix channel` names Interaction responses (`work.interaction.responded`) in its notices, with the `tedix work interaction-get` command that reads them.
+- 842a7b0: `tedix chat` prints one approval hint for a parked write instead of a second line that called it a delegation. Replying `approve` or `reject` in the same conversation now resolves the pending approval.
+- 94ef77a: Codex started from a Claude Code shell keeps its own `codex:<thread>` Agent-Session. `agent status`, `agent finish` and `tedix work` labelled that thread `claude-code:` because the shell carried `CLAUDECODE`, so they missed the session `agent start` had opened.
+- fbbedf5: Request output schemas explicitly through native catalog search for Work result validation, alongside compact Code Mode describe defaults.
+- b3da605: factory create adds hourly and every-N-hours cadences and --output to append each run's summary to a Tedix document or sheet.
+- ebfe230: Add factory pause, resume and archive commands through skill revisions. Show the resolved owner and report-template limits when creating a factory, including dry runs.
+- be95a25: `tedix factory` prints a failed call's own error instead of the gateway's JSON envelope. `factory status` shows `- (paused)` as the next fire of a paused factory and points to `tedix skill status <runId>` to read a run. A dry run says the next fire is set when the factory is created, and `tedix factory --help` names the guide for pausing or archiving a factory.
+- 64da56d: `tedix factory status` lists factories that need attention first and ends with a count per verdict.
+- 6bfc447: `tedix factory status` no longer reports weekly factories as not firing between runs, shows turned-off schedules as `paused`, and colors failing and not-firing factories red.
+- efbbc94: Make learn onboard --dry-run preview local counts and title topics without a model. Add --with-model for the full preview, which takes a few minutes.
+- 0b6f5e8: `tedix skill status` and `tedix flow status` read a failed run as a failed run, not as "polling the run failed", and print the failing tool and its error on one line instead of nested JSON.
+- 8af3f94: `tedix learn` uses your local `codex` as the model when `claude` is not installed. `tedix learn context` places work using all of your organization's projects, files a specific task under a broader open item instead of treating the broader item as already covering it, keeps an epic's tasks together in the epic's project, and removes the names of people from session titles before anything leaves your machine.
+- b731225: Confirm explicitly requested Work interaction cancellations so the gateway returns the cancellation result instead of an output-schema error.
+- 3d1f821: Answer destructive confirmations through MRTR inputRequired on MCP 2026-07-28, while preserving legacy elicitation. Keep approval reasons local to the explicitly approved call.
+- c2bbe95: `tedix rename "<conversation id>" <title>` keeps a quoted conversation id that contains spaces as one argument instead of splitting it into the title.
+
 ## 0.9.2
 
 ### Patch Changes
