@@ -2272,6 +2272,41 @@ export class TedixHomeClient {
 		}
 	}
 
+	async readHomeConversationTitle(
+		conversationId: string,
+	): Promise<string | undefined> {
+		let cursor: string | undefined;
+		do {
+			const args = {
+				limit: 100,
+				includeArchived: true,
+				...(cursor ? { cursor } : {}),
+			};
+			const payload = await this.callTool(
+				"code",
+				{
+					code: `async () => {
+const page = await home.list_conversations(${JSON.stringify(args)});
+const conversation = page.conversations.find(row => row.id === ${JSON.stringify(conversationId)});
+return { found: Boolean(conversation), title: conversation?.title ?? null, nextCursor: page.nextCursor ?? null };
+}`,
+				},
+				{ retryable: true },
+			);
+			const normalized = normalizeCodeResult(payload);
+			if (normalized.truncated || !isRecord(normalized.value))
+				throw new Error(
+					"Home conversation title read was truncated or invalid",
+				);
+			const page = normalized.value;
+			if (page.found)
+				return typeof page.title === "string" ? page.title : undefined;
+			cursor =
+				typeof page.nextCursor === "string" ? page.nextCursor : undefined;
+		} while (cursor);
+		return undefined;
+	}
+
 	async listHomeConversations(
 		input: ListHomeConversationsInput,
 	): Promise<unknown> {

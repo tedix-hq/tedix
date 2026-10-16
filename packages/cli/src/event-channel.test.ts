@@ -33,11 +33,10 @@ test("Home completion is enriched through authorized reads and delivered once", 
 			cursor: "next",
 			hasMore: false,
 		}),
-		listHomeConversations: async () => {
+		readHomeConversationTitle: async (conversationId: string) => {
 			reads++;
-			return {
-				conversations: [{ id: "home:example", title: "Example question" }],
-			};
+			expect(conversationId).toBe("home:example");
+			return "Example question";
 		},
 	};
 	const subscriptions = [
