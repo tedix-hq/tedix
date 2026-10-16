@@ -15,6 +15,8 @@ import { executeCatalogOperation } from "./codemode";
  */
 
 import { describe, expect, it, vi } from "vite-plus/test";
+import * as z from "zod";
+import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 
 import {
 	buildCatalogProvider,
@@ -1686,14 +1688,21 @@ describe("discover.search results flat array", () => {
 		const describe = tools.describe?.execute;
 		if (!describe) throw new Error("discover.describe not registered");
 
-		// The cheap flow: compact search names the callable, describe fetches the
-		// one schema — so the single entry must carry the heavy blobs a compact
-		// search page omits.
 		const entry = (await describe({
 			callable: "app.list_things_3",
 		})) as Record<string, unknown>;
 		expect(entry).toMatchObject({ callable: "app.list_things_3" });
-		expect(entry.outputSchema).toBeDefined();
+		expect(entry.parameters).toBeDefined();
+		expect(entry).not.toHaveProperty("outputSchema");
+		expect(
+			await describe({
+				callable: "app.list_things_3",
+				includeOutputSchema: true,
+			}),
+		).toMatchObject({
+			...entry,
+			outputSchema: expect.any(Object),
+		});
 
 		// Missing exposure has a catalog-specific recovery path.
 		expect(await describe("app.list_things_3")).toMatchObject({
@@ -1736,6 +1745,58 @@ describe("discover.search results flat array", () => {
 		// Discovery-option telemetry: describe counts as a schema request.
 		expect(refs.discoverCalls).toBeGreaterThan(0);
 		expect(refs.discoverParameterRequests).toBeGreaterThan(0);
+	});
+
+	it("keeps create_os_workspace input well below the Code Mode result cap", async () => {
+		const contract = osWorkspacesContract.workspaces.create["~orpc"];
+		const inputSchema = z.toJSONSchema(
+			contract.inputSchemas![0] as z.ZodType,
+		) as AppTool["inputSchema"];
+		const outputSchema = z.toJSONSchema(
+			contract.outputSchemas![0] as z.ZodType,
+		) as AppTool["outputSchema"];
+		const description = "Create an OS workspace";
+		const annotations = { readOnlyHint: false, destructiveHint: false };
+		const ctx = {
+			loadedTools: new Map([
+				[
+					"os__create_os_workspace",
+					tool({
+						toolId: "os__create_os_workspace",
+						description,
+						annotations,
+						inputSchema,
+						outputSchema,
+					}),
+				],
+			]),
+		} as unknown as ServerContext;
+		const tools = buildCatalogProvider(ctx, undefined).tools as Record<
+			string,
+			{ execute(input: unknown): Promise<unknown> }
+		>;
+		const entry = await tools.describe!.execute("os.create_os_workspace");
+		expect(entry).toMatchObject({
+			callable: "os.create_os_workspace",
+			parameters: inputSchema,
+			description,
+			annotations,
+		});
+		expect(entry).not.toHaveProperty("outputSchema");
+		expect(JSON.stringify(entry).length).toBeLessThan(3000);
+		expect(
+			await tools.describe!.execute({
+				callable: "os.create_os_workspace",
+				includeOutputSchema: false,
+			}),
+		).toEqual(entry);
+		expect(
+			await tools.describe!.execute({
+				callable: "os.create_os_workspace",
+				includeOutputSchema: true,
+			}),
+		).toMatchObject({ ...(entry as object), outputSchema });
+		expect(JSON.stringify(outputSchema).length).toBeGreaterThan(10000);
 	});
 
 	it("serializes discovery results to a single shape for the model", async () => {
@@ -1787,7 +1848,12 @@ describe("native catalog owning projection parity", () => {
 					{ transport: "catalog", endpoint: "catalog/describe" },
 					{ callable: "app.do_thing_1" },
 				),
-			).toEqual(await tools.describe!.execute({ callable: "app.do_thing_1" }));
+			).toEqual(
+				await tools.describe!.execute({
+					callable: "app.do_thing_1",
+					includeOutputSchema: true,
+				}),
+			);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -1965,7 +2031,7 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 					string,
 					{ execute(input: unknown): Promise<unknown> }
 				>
-			).describe!.execute({ callable });
+			).describe!.execute({ callable, includeOutputSchema: true });
 			const actual = executeCatalogOperation(
 				ctx,
 				{ transport: "catalog", endpoint: "catalog/describe" },

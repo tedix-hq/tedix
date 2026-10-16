@@ -207,6 +207,14 @@ bounded paging, and schema inclusion options; describe accepts an exact
 projection as Code Mode without creating a Dynamic Worker. Discovery reports
 execution authorization; it does not grant it.
 
+In Code Mode, `discover.describe("namespace.tool")` returns the full input
+schema, description and annotations. Output schemas are omitted by default to
+keep the result small. Use
+`discover.describe({ callable: "namespace.tool", includeOutputSchema: true })`
+when you need the output schema. The native `catalog/describe` transport retains
+its full descriptor for existing clients. Native CLI Work commands explicitly
+request output schemas through catalog search and validate results against them.
+
 Each enabled row needs its own explicit capability mapping. Missing, empty,
 invalid, namespace-only or wildcard-only mappings do not expose the tool.
 The compact gateway lists the base tools plus its actually configured,

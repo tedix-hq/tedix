@@ -279,7 +279,16 @@ function makeContext(
 			const callable = `${args.namespace}.${args.query}`;
 			const descriptor = nativeDescriptorFixture(callable);
 			descriptors.set(descriptor.name, descriptor);
-			return { results: [{ callable, authorized: true, native: descriptor }] };
+			return {
+				results: [
+					{
+						callable,
+						authorized: true,
+						native: descriptor,
+						...(args.includeOutputSchema === true ? { outputSchema: {} } : {}),
+					},
+				],
+			};
 		}
 		if (name === "catalog_describe") {
 			const callable = String(args.callable);
@@ -2777,6 +2786,7 @@ describe("native Work transport", () => {
 				if (name === "catalog_search") {
 					const rows = result.results as Array<Record<string, unknown>>;
 					const native = rows[0]!.native as Record<string, unknown>;
+					if (scenario === "unsupported-output") delete rows[0]!.outputSchema;
 					if (scenario === "missing") result.results = [];
 					if (scenario === "ambiguous") result.results = [rows[0], rows[0]];
 					if (scenario === "denied") native.authorized = false;
@@ -2794,7 +2804,6 @@ describe("native Work transport", () => {
 							properties: { id: { type: "number" } },
 							required: ["id"],
 						};
-					if (scenario === "unsupported-output") delete result.outputSchema;
 					if (scenario === "description-denied") result.authorized = false;
 					if (scenario === "description-missing-authorization")
 						delete result.authorized;
@@ -3200,6 +3209,37 @@ describe("native dispatcher coverage", () => {
 });
 
 describe("native Work publication boundary", () => {
+	test("explicitly fetches the output schema and validates Work results against it", async () => {
+		for (const valid of [true, false]) {
+			const fixture = makeContext(
+				{ doneWhen: "Example result" },
+				undefined,
+				() => ({ id: valid ? ITEM : 123 }),
+			);
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (name, args, options) => {
+				const result = await invoke(name, args, options);
+				if (name === "catalog_search") {
+					expect(args).toMatchObject({ includeOutputSchema: true });
+					(
+						result as { results: Array<Record<string, unknown>> }
+					).results[0]!.outputSchema = {
+						type: "object",
+						properties: { id: { type: "string" } },
+						required: ["id"],
+					};
+				}
+				if (name === "catalog_describe")
+					delete (result as Record<string, unknown>).outputSchema;
+				return result;
+			}) as TedixHomeClient["callTool"];
+			const result = await capture(`accept ${ITEM}`, fixture.ctx);
+			expect(result.code).toBe(valid ? 0 : WORK_EXIT_FAIL);
+			expect(fixture.sources).toHaveLength(1);
+			if (!valid) expect(result.out.join(" ")).not.toContain('"id":123');
+		}
+	});
+
 	test("refuses an output after caller cancellation even when an injected client ignores abort", async () => {
 		const fixture = makeContext({ doneWhen: "Example result" });
 		const controller = new AbortController();

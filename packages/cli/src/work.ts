@@ -846,6 +846,7 @@ async function boardCall(
 						query: callable.slice(dot + 1),
 						namespace: callable.slice(0, dot),
 						limit: 100,
+						includeOutputSchema: true,
 					},
 					nativeOptions(ctx),
 				),
@@ -897,10 +898,13 @@ async function boardCall(
 				);
 			validateNativeSchema(detail.parameters, input);
 			// Prove the output schema is supported before invoking a mutation.
-			if (!isRecord(detail.outputSchema))
+			if (!isRecord(row.outputSchema))
 				throw new Error("Native Work output schema is absent");
-			z.fromJSONSchema(detail.outputSchema);
-			return { descriptor, detail };
+			z.fromJSONSchema(row.outputSchema);
+			return {
+				descriptor,
+				detail: { ...detail, outputSchema: row.outputSchema },
+			};
 		};
 		let resolved: Awaited<ReturnType<typeof resolve>>;
 		try {
