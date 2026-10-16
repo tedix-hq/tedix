@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { PollHomeRunFinishedResultSchema } from "@tedix/api-contract/schemas/mcp-events";
 import { createDbClient } from "@tedix/db/client";
 import {
 	kernelConversationGrants,
@@ -52,6 +53,44 @@ function fixture(onPrepare?: (query: string) => void) {
 const start = { after: { at: "", id: "" }, limit: 10 };
 
 describe("Home completion feed visibility", () => {
+	it("keeps long private ledger IDs out of bounded cursors and resumes across timestamp ties", async () => {
+		const { context, event } = fixture();
+		for (let i = 0; i < 105; i++)
+			event(
+				`private-ledger-${"x".repeat(180)}-${String(i).padStart(3, "0")}`,
+				`run-${i}`,
+			);
+		const head = await pollHomeRunFinished(
+			context("owner-example"),
+			{ limit: 10 },
+			"org-example",
+		);
+		expect(PollHomeRunFinishedResultSchema.safeParse(head).success).toBe(true);
+		expect(head.after.id).toMatch(/^[a-f0-9]{64}$/);
+		expect(JSON.stringify(head)).not.toContain("private-ledger");
+		expect(
+			(
+				await pollHomeRunFinished(
+					context("owner-example"),
+					{ limit: 10, after: head.after },
+					"org-example",
+				)
+			).events,
+		).toEqual([]);
+		const first = await pollHomeRunFinished(
+			context("owner-example"),
+			{ ...start, limit: 1 },
+			"org-example",
+		);
+		const second = await pollHomeRunFinished(
+			context("owner-example"),
+			{ limit: 1, after: first.after },
+			"org-example",
+		);
+		expect(first.events[0]?.data.run_id).not.toBe(
+			second.events[0]?.data.run_id,
+		);
+	});
 	it("looks up delegated terminal events by run instead of a correlated org-wide join", async () => {
 		let query = "";
 		const { sqlite, context } = fixture((sql) => {
