@@ -12,7 +12,10 @@ import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { getPersonalResourceDelegation } from "@tedix/db/queries/personal-resource-delegations";
+import {
+	getPersonalResourceDelegation,
+	listActiveOwnerSkillPersonalResourceDelegations,
+} from "@tedix/db/queries/personal-resource-delegations";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type {
@@ -372,6 +375,7 @@ async function validateLivePersonalDelegation(
 	context: BaseContext,
 	row: PersonalResourceDelegationRow,
 	now = new Date(),
+	anySkillRevision = false,
 ): Promise<string[]> {
 	const organizationId = requireOrgId(context);
 	if (
@@ -406,7 +410,7 @@ async function validateLivePersonalDelegation(
 		membership?.status !== "active" ||
 		!skill ||
 		skill.lifecycleState === "archived" ||
-		skill.revision !== row.skillRevision ||
+		(!anySkillRevision && skill.revision !== row.skillRevision) ||
 		(skill.tediId && skill.tediId !== row.tediId) ||
 		!tedi ||
 		tedi.retiredAt ||
@@ -502,7 +506,12 @@ export async function resolvePersonalResourceDelegatedCredential(
 		source: personalDelegationSource(authority.delegation),
 	};
 }
-/** Personal bytes remain private; a workspace reader or unrelated skill is not the account owner. */
+/**
+ * Personal bytes remain private. The data owner always reads what was derived
+ * from their data. A worker skill run reads it while the same owner still has
+ * an active grant for that worker skill and resource, at any skill revision,
+ * so a skill edit does not lock its own outputs. Nobody else reads it.
+ */
 export async function authorizePersonalDerivedSource(
 	context: BaseContext,
 	source: ReturnType<typeof OsDerivedResourceAccessSchema.parse>,
@@ -514,7 +523,6 @@ export async function authorizePersonalDerivedSource(
 			id: source.delegationId,
 		});
 		if (!row || !samePersonalSource(source, row)) return false;
-		await validateLivePersonalDelegation(context, row);
 		if (context.authType === "user")
 			return context.user?.sub === row.ownerUserId && !context.tediId;
 		if (context.authType !== "service-binding" || context.tediId !== row.tediId)
@@ -533,28 +541,42 @@ export async function authorizePersonalDerivedSource(
 			run.status !== "running" ||
 			run.tediId !== row.tediId ||
 			run.skillId !== row.skillId ||
-			run.skillRevision !== row.skillRevision ||
 			run.executionEpoch !== Number(epoch) ||
 			run.workflowRetiredAt ||
 			run.restartRequestedAt
 		)
 			return false;
-		const envelope = OsDerivedAccessEnvelopeSchema.safeParse(
-			run.resourceAccessEnvelope,
+		const now = new Date();
+		const grants = await listActiveOwnerSkillPersonalResourceDelegations(
+			context.db,
+			{
+				organizationId: row.organizationId,
+				ownerUserId: row.ownerUserId,
+				tediId: row.tediId,
+				skillId: row.skillId,
+				now: now.toISOString(),
+			},
 		);
-		return (
-			envelope.success &&
-			envelope.data.sources.some(
-				(bound) =>
-					samePersonalSource(bound, row) &&
-					source.operations.every((operation) =>
-						bound.operations.includes(operation),
-					) &&
-					(source.toolIds ?? []).every((toolId) =>
-						bound.toolIds?.includes(toolId),
-					),
+		for (const grant of grants) {
+			if (
+				grant.workspaceId !== row.workspaceId ||
+				grant.resourceId !== row.resourceId ||
+				grant.providerId !== row.providerId ||
+				grant.providerResourceId !== row.providerResourceId ||
+				grant.connectionInstanceId !== row.connectionInstanceId ||
+				!source.operations.every((operation) =>
+					grant.operations.includes(operation),
+				)
 			)
-		);
+				continue;
+			try {
+				await validateLivePersonalDelegation(context, grant, now, true);
+				return true;
+			} catch {
+				// An inactive grant does not cover this source; try the next one.
+			}
+		}
+		return false;
 	} catch {
 		return false;
 	}

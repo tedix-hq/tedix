@@ -79,6 +79,33 @@ export async function listActiveSkillPersonalResourceDelegations(
 		.orderBy(personalResourceDelegations.id)
 		.limit(20);
 }
+/** Unrevoked, unexpired consents one owner gave this worker skill, at any revision. */
+export async function listActiveOwnerSkillPersonalResourceDelegations(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		ownerUserId: string;
+		tediId: string;
+		skillId: string;
+		now: string;
+	},
+) {
+	return db
+		.select()
+		.from(personalResourceDelegations)
+		.where(
+			and(
+				eq(personalResourceDelegations.organizationId, input.organizationId),
+				eq(personalResourceDelegations.ownerUserId, input.ownerUserId),
+				eq(personalResourceDelegations.tediId, input.tediId),
+				eq(personalResourceDelegations.skillId, input.skillId),
+				isNull(personalResourceDelegations.revokedAt),
+				gt(personalResourceDelegations.expiresAt, input.now),
+			),
+		)
+		.orderBy(desc(personalResourceDelegations.createdAt))
+		.limit(20);
+}
 /** Revocation is monotonic and idempotent; no API restores consent. */
 export async function revokePersonalResourceDelegation(
 	db: DbQueryClient,

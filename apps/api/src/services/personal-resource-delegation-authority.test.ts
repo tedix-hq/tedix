@@ -151,6 +151,12 @@ beforeEach(async () => {
 	vi.spyOn(consents, "getPersonalResourceDelegation").mockImplementation(
 		async () => consent as never,
 	);
+	vi.spyOn(
+		consents,
+		"listActiveOwnerSkillPersonalResourceDelegations",
+	).mockImplementation(async () =>
+		consent.revokedAt ? [] : [consent as never],
+	);
 	vi.spyOn(vault, "fetchNamedConnection").mockResolvedValue({
 		id: "grant",
 		tokenSub: "subject",
@@ -326,33 +332,50 @@ describe("admitted personal source boundaries", () => {
 			authorizePersonalResourceDelegation(context(true), use),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
-	it("requires the admitted worker source to cover the stored derived operations and tools", async () => {
-		consent.operations = ["read", "write"];
-		consent.toolIds = ["list_events", "write_events"];
-		const stored = {
-			...personalDelegationSource(consent as never),
-			operations: ["read"],
-			toolIds: ["list_events"],
-		};
-		run.resourceAccessEnvelope = {
-			version: 1,
-			sources: [{ ...stored, operations: ["write"] }],
-		};
-		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
-			false,
-		);
-		run.resourceAccessEnvelope = {
-			version: 1,
-			sources: [{ ...stored, toolIds: ["write_events"] }],
-		};
-		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
-			false,
-		);
-		run.resourceAccessEnvelope = { version: 1, sources: [stored] };
+	it("lets a skill run read its derived output while the owner grant covers the operation", async () => {
+		const stored = personalDelegationSource(consent as never);
 		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
 			true,
 		);
+		expect(
+			await authorizePersonalDerivedSource(context(true), {
+				...stored,
+				operations: ["write"],
+			}),
+		).toBe(false);
 		consent.revokedAt = "2026-10-01";
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			false,
+		);
+	});
+	it("keeps derived output readable for the owner and skill after a skill edit", async () => {
+		const stored = personalDelegationSource(consent as never);
+		vi.mocked(skills.getSkillEntry).mockResolvedValue({
+			id,
+			revision: 2,
+			content: doc,
+			lifecycleState: "active",
+		} as never);
+		run.skillRevision = 2;
+		expect(await authorizePersonalDerivedSource(context(), stored)).toBe(true);
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			true,
+		);
+	});
+	it("keeps derived output readable for the owner after revoke, never for others", async () => {
+		const stored = personalDelegationSource(consent as never);
+		consent.revokedAt = "2026-10-01";
+		expect(await authorizePersonalDerivedSource(context(), stored)).toBe(true);
+		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
+			false,
+		);
+		const reader = context();
+		reader.user = { sub: "bob" } as never;
+		expect(await authorizePersonalDerivedSource(reader, stored)).toBe(false);
+	});
+	it("does not let another worker skill read a derived output", async () => {
+		const stored = personalDelegationSource(consent as never);
+		run.skillId = "20000000-0000-4000-8000-000000000002";
 		expect(await authorizePersonalDerivedSource(context(true), stored)).toBe(
 			false,
 		);
