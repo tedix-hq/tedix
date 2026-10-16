@@ -733,10 +733,10 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 
 	it("ranks names by query specificity ahead of longer connected-app names", async () => {
 		const callables = [
-			"ifesca_api__tsm_v7_demo_factory_1_report_list",
-			"ifesca_api__tsm_v7_demo_factory_2_report_list",
-			"sevdesk__create_invoice_by_factory",
-			"sevdesk__voucher_factory_save_voucher",
+			"acme_erp__tsm_v7_demo_factory_1_report_list",
+			"acme_erp__tsm_v7_demo_factory_2_report_list",
+			"ledgerly__create_invoice_by_factory",
+			"ledgerly__voucher_factory_save_voucher",
 			"projects__create_factory",
 			"projects__get_factory_scoreboard",
 			"projects__inspect_factory_health",
@@ -773,10 +773,10 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			"projects.create_factory",
 			"projects.get_factory_scoreboard",
 			"projects.inspect_factory_health",
-			"sevdesk.create_invoice_by_factory",
-			"sevdesk.voucher_factory_save_voucher",
-			"ifesca_api.tsm_v7_demo_factory_1_report_list",
-			"ifesca_api.tsm_v7_demo_factory_2_report_list",
+			"ledgerly.create_invoice_by_factory",
+			"ledgerly.voucher_factory_save_voucher",
+			"acme_erp.tsm_v7_demo_factory_1_report_list",
+			"acme_erp.tsm_v7_demo_factory_2_report_list",
 		]);
 		expect((await runSearch(provider, "factory", 5)).results).toContainEqual(
 			expect.objectContaining({ callable: "projects.inspect_factory_health" }),
