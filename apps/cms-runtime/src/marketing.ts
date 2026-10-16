@@ -436,7 +436,7 @@ export async function marketingResponse(
 	const isTenantAdapterPath =
 		isMarketingContactPath(url.pathname) ||
 		((request.method === "GET" || request.method === "HEAD") &&
-			path.startsWith("/api/catalog/"));
+			(path === "/health" || path.startsWith("/api/catalog/")));
 	if (
 		!isMarketingHost(url.hostname, env) &&
 		!(isMarketingTenantOrigin && isTenantAdapterPath)
