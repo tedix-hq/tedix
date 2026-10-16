@@ -680,7 +680,7 @@ function orderWriteToolCatalog(tools: McpTool[]): McpTool[] {
 }
 
 /** Compact, prompt-safe serialization of the write-tool catalog. */
-function renderWriteToolCatalog(tools: McpTool[], exactSchema = false): string {
+function renderWriteToolCatalog(tools: McpTool[]): string {
 	return orderWriteToolCatalog(tools)
 		.slice(0, MAX_CATALOG_TOOLS)
 		.map((tool) => {
@@ -702,7 +702,7 @@ function renderWriteToolCatalog(tools: McpTool[], exactSchema = false): string {
 				.slice(0, 160);
 			const unverified =
 				declaredWriteCapability(tool) === "undeclared" ? " [unverified]" : "";
-			return `- ${tool.name}(${props})${required}${unverified}${description ? ` — ${description}` : ""}${exactSchema ? `\nInput JSON Schema: ${JSON.stringify(tool.inputSchema ?? { type: "object", properties: {} })}` : ""}`;
+			return `- ${tool.name}(${props})${required}${unverified}${description ? ` — ${description}` : ""}`;
 		})
 		.join("\n");
 }
@@ -804,10 +804,10 @@ function buildUserPrompt(args: {
 }): string {
 	const defaults = Object.entries(args.paramDefaults ?? {});
 	return [
-		// Keep the complete, stable schema ahead of per-turn text so provider
-		// prefix caching can reuse it across requests for the same tool.
+		// Stable tool information stays ahead of per-turn text for prefix caching.
+		// The full schema already rides in the structured response format.
 		"<tool_catalog>",
-		renderWriteToolCatalog(args.tools, true),
+		renderWriteToolCatalog(args.tools),
 		"</tool_catalog>",
 		"",
 		"<operator_request>",
@@ -900,71 +900,82 @@ async function planWriteCall(args: {
 					),
 				};
 	try {
-		const result = await tracedAi.generateObject({
-			model: args.model,
-			schema: jsonSchema<z.infer<typeof WriteCallPlanSchema>>(
-				{
-					type: "object",
-					properties: {
-						toolName: {
-							type: "string",
-							enum: [...args.tools.map((tool) => tool.name), NO_WRITE_TOOL],
+		const generate = () =>
+			tracedAi.generateObject({
+				model: args.model,
+				schema: jsonSchema<z.infer<typeof WriteCallPlanSchema>>(
+					{
+						type: "object",
+						properties: {
+							toolName: {
+								type: "string",
+								enum: [...args.tools.map((tool) => tool.name), NO_WRITE_TOOL],
+							},
+							args: {
+								anyOf: [argumentSchema, { type: "null" }],
+							},
+							reasoning: { type: ["string", "null"] },
 						},
-						args: {
-							anyOf: [argumentSchema, { type: "null" }],
+						required: ["toolName", "args", "reasoning"],
+						additionalProperties: false,
+						...(toolDefs && !args.selectionOnly ? { $defs: toolDefs } : {}),
+					},
+					{
+						validate: (value) => {
+							const result = WriteCallPlanSchema.safeParse(value);
+							return result.success
+								? { success: true, value: result.data }
+								: { success: false, error: result.error };
 						},
-						reasoning: { type: ["string", "null"] },
 					},
-					required: ["toolName", "args", "reasoning"],
-					additionalProperties: false,
-					...(toolDefs && !args.selectionOnly ? { $defs: toolDefs } : {}),
-				},
-				{
-					validate: (value) => {
-						const result = WriteCallPlanSchema.safeParse(value);
-						return result.success
-							? { success: true, value: result.data }
-							: { success: false, error: result.error };
+				),
+				system: args.selectionOnly
+					? `${SYSTEM_PROMPT}\nThis pass selects the tool only. Return its toolName (or NONE), args: {}, and one short reason. Do not construct arguments yet; a separate pass uses the selected tool's complete schema.`
+					: SYSTEM_PROMPT,
+				telemetry: objectSpanTelemetry(
+					"kernel.write_proposal",
+					args.span ?? {},
+				),
+				prompt: buildUserPrompt({
+					workspaceContext: args.workspaceContext,
+					conversationId: args.conversationId,
+					editTarget: args.editTarget,
+					openWorkRequests: args.openWorkRequests,
+					content: args.content,
+					capability: args.capability,
+					tools: args.tools,
+					paramDefaults: args.paramDefaults,
+				}),
+				maxOutputTokens: MAX_OUTPUT_TOKENS,
+				// Provider strict schemas cannot express arbitrary MCP optional fields.
+				// The complete selected input contract is validated before any approval.
+				providerOptions: {
+					cloudflareAutoRouter: {
+						strictJsonSchema: false,
+						reasoningEffort: "low",
+					},
+					openai: { strictJsonSchema: false, reasoningEffort: "low" },
+					azure: {
+						strictJsonSchema: false,
+						reasoningEffort: "low",
 					},
 				},
-			),
-			system: args.selectionOnly
-				? `${SYSTEM_PROMPT}\nThis pass selects the tool only. Return its toolName (or NONE), args: {}, and one short reason. Do not construct arguments yet; a separate pass uses the selected tool's complete schema.`
-				: SYSTEM_PROMPT,
-			telemetry: objectSpanTelemetry("kernel.write_proposal", args.span ?? {}),
-			prompt: buildUserPrompt({
-				workspaceContext: args.workspaceContext,
-				conversationId: args.conversationId,
-				editTarget: args.editTarget,
-				openWorkRequests: args.openWorkRequests,
-				content: args.content,
-				capability: args.capability,
-				tools: args.tools,
-				paramDefaults: args.paramDefaults,
-			}),
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			// Provider strict schemas cannot express arbitrary MCP optional fields.
-			// The complete selected input contract is validated before any approval.
-			providerOptions: {
-				cloudflareAutoRouter: {
-					strictJsonSchema: false,
-					reasoningEffort: "low",
-				},
-				openai: { strictJsonSchema: false, reasoningEffort: "low" },
-				azure: {
-					strictJsonSchema: false,
-					reasoningEffort:
-						typeof args.model !== "string" &&
-						args.model.modelId === "gpt-6-luna"
-							? "none"
-							: "low",
-				},
-			},
-			// Flat abort: a stalled write pass never settles and never throws; the
-			// timeout makes it reject → the catch returns null (no heuristic write).
-			abortSignal,
-			maxRetries: 1,
-			// GPT-5 reasoning models do not support temperature; omit.
+				// Flat abort: a stalled write pass never settles and never throws; the
+				// timeout makes it reject → the catch returns null (no heuristic write).
+				abortSignal,
+				maxRetries: 1,
+				// GPT-5 reasoning models do not support temperature; omit.
+			});
+		const result = await generate().catch((error) => {
+			if (
+				!NoObjectGeneratedError.isInstance(error) ||
+				error.finishReason === "length" ||
+				abortSignal.aborted
+			)
+				throw error;
+			// Retry argument generation only, inside the original deadline. No
+			// provider mutation has been proposed or executed at this point.
+			return generate();
 		});
 		const plan = result.object;
 		if (!plan.toolName || plan.toolName === NO_WRITE_TOOL) {

@@ -1042,6 +1042,35 @@ describe("readEditTargetOutput", () => {
 });
 
 describe("planKernelWriteProposal — positive path", () => {
+	it("retries invalid argument JSON once without executing a provider write", async () => {
+		const service = mcpService(globexProvider);
+		const model = objectModel({
+			toolName: "globex__create_invoice",
+			args: { amount: 12 },
+			reasoning: null,
+		});
+		const generate = vi
+			.spyOn(model, "doGenerate")
+			.mockImplementationOnce(async () => ({
+				finishReason: "stop",
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				warnings: [],
+				content: [{ type: "text", text: "invalid json" }],
+			}));
+		const result = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "Create a draft invoice for 12",
+			model,
+		});
+		expect(result?.args).toEqual({ amount: 12 });
+		expect(generate).toHaveBeenCalledTimes(2);
+		expect(
+			service.calls.filter((call) => call.method === "tools/call"),
+		).toHaveLength(0);
+	});
 	it.each([true, false])(
 		"uses the canonical title only for the matching edit target (%s)",
 		async (matches) => {
@@ -2093,9 +2122,11 @@ describe("exact output input schemas", () => {
 			},
 		}));
 		let prompts: string[] = [];
+		const responseFormats: string[] = [];
 		const model = new MockLanguageModelV3({
 			doGenerate: async (options) => {
 				prompts.push(JSON.stringify(options.prompt));
+				responseFormats.push(JSON.stringify(options.responseFormat));
 				return {
 					finishReason: "stop",
 					usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
@@ -2127,8 +2158,9 @@ describe("exact output input schemas", () => {
 		});
 		expect(Boolean(result)).toBe(accepted);
 		expect(prompts).toHaveLength(1);
-		expect(prompts[0]).toContain("Input JSON Schema:");
-		expect(prompts[0]).toContain("paragraph");
+		expect(prompts[0]).not.toContain("Input JSON Schema:");
+		expect(responseFormats[0]).toContain("paragraph");
+		expect(responseFormats[0]).toContain("$defs");
 		expect(prompts[0].indexOf("<tool_catalog>")).toBeLessThan(
 			prompts[0].indexOf("<operator_request>"),
 		);
