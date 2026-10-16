@@ -1,5 +1,4 @@
 import type { TedixMcpRuntimeBinding } from "@tedix/mcp-client-core/runtime";
-import { AgentMcpRuntime } from "./mcp-client-runtime";
 import { resolveBrainBridgePlatformClient } from "./platform-client-factory";
 
 const EMBEDDED_WORK_COMMENT_ROLES = new Set([
@@ -308,6 +307,7 @@ export async function executeEmbeddedPortableTool(input: {
 	signal?: AbortSignal;
 }): Promise<unknown> {
 	assertPortableCallable(input.callable, input.authority);
+	const { AgentMcpRuntime } = await import("./mcp-client-runtime");
 	const runtime = new AgentMcpRuntime(input.env, input.tediId, input.orgId);
 	await runtime.ensureSynced();
 	const platform = await resolveBrainBridgePlatformClient({

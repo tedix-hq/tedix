@@ -14,7 +14,8 @@ import {
 	type R2BucketBinding,
 	Workspace as WorkspaceVfs,
 } from "@cloudflare/computer";
-import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import type { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import { lazyWorkerShellBackend } from "./lazy-worker-shell-backend";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { createGovernedComputerGitClient } from "./computer-git-policy";
 import { createCloudflareObserver } from "@cloudflare/computer/observe/cloudflare";
@@ -312,7 +313,7 @@ export function createTediWorkspaceVfs(
 		...(opts?.execution
 			? {
 					backends: [
-						new WorkerShellBackend({
+						lazyWorkerShellBackend({
 							...opts.execution,
 							loader: opts.execution.loader
 								? withDynamicWorkerLoaderDiagnostics(opts.execution.loader, {

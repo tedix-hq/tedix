@@ -585,7 +585,7 @@ import {
 } from "./ledger-mirror";
 import { LedgerSequence } from "./ledger-sequence";
 import { type AigMetadata } from "./llm";
-import { AgentMcpRuntime } from "./mcp-client-runtime";
+import type { AgentMcpRuntime } from "./mcp-client-runtime";
 import { NativeToolLedger } from "./native-tool-ledger";
 import { ArtifactContributionReceipts } from "./artifact-contribution-receipts";
 import {
@@ -596,7 +596,7 @@ import {
 	markFacetToolDispatch,
 	markStepCompleted,
 } from "./runtime-latency-markers";
-import { type CronToolInput, handleMcp } from "./mcp-mount";
+import type { CronToolInput } from "./mcp-mount";
 import { buildDirectTediTaskHandlers } from "./mcp-task-handlers";
 
 import {
@@ -3115,6 +3115,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		if (this.mcpRuntime) return this.mcpRuntime;
 		const { tediId, orgId } = this.state;
 		if (!tediId) return null;
+		const { AgentMcpRuntime } = await import("./mcp-client-runtime");
 		const runtime = new AgentMcpRuntime(
 			this.env,
 			tediId,
@@ -9090,6 +9091,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const cronTool = this.cronAiTool(input.sessionKey);
 		// Never let a Home-supervised child reuse this DO's full-profile AIH
 		// connections. Credential caches live inside each MCP runtime instance.
+		const { AgentMcpRuntime } = await import("./mcp-client-runtime");
 		const mcpRuntime =
 			supervised && this.state.tediId
 				? new AgentMcpRuntime(
@@ -16725,6 +16727,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			const mcpWorkspace = this.computerWorkspace(mcpComputer.scope).workspace;
 			const canManageDurableCode =
 				request.headers.get("X-Tedix-Can-Manage-Durable-Code") === "true";
+			const { handleMcp } = await import("./mcp-mount");
 			return handleMcp(
 				request,
 				this.state.slug || this.name || "tedi",

@@ -32,6 +32,9 @@ mock.module("@cloudflare/computer/backends/worker-shell", () => ({
 		constructor(options: Record<string, unknown>) {
 			shellBackends.push(options);
 		}
+		async connect() {
+			return { rpc: {}, sync: "none", close: async () => {} };
+		}
 	},
 }));
 const {
@@ -77,7 +80,15 @@ const { ScopedComputerWorkspace } = await import("./computer-workspace-scope");
 	shellBackends.length = 0;
 	console.log = (value: unknown) => events.push(JSON.parse(String(value)));
 	try {
-		createTediWorkspaceVfs(ctx.storage as never, { execution });
+		const workspace = createTediWorkspaceVfs(ctx.storage as never, {
+			execution,
+		});
+		assert.equal(
+			shellBackends.length,
+			0,
+			"shell stays unloaded until connection",
+		);
+		await workspace.ready(COMPUTER_ISOLATE_BACKEND_ID);
 		assert.equal(shellBackends.length, 1);
 		const options = shellBackends[0]!;
 		const { loader: passedLoader, ...rest } = options;
@@ -189,7 +200,7 @@ const { ScopedComputerWorkspace } = await import("./computer-workspace-scope");
 	const host = new (TediComputerWorkspaceDO as unknown as new (
 		ctx: unknown,
 		env: unknown,
-	) => Record<string, any>)(facetContext(), {});
+	) => Record<string, any>)(facetContext(), { LOADER: {} });
 	await assert.rejects(
 		host.__getWorkspaceStub(),
 		/Computer workspace is not initialized/,
