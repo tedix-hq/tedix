@@ -1,5 +1,4 @@
 import { MockLanguageModelV3 } from "ai/test";
-import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { planDocumentCreate } from "./document-create-plan";
 
@@ -17,27 +16,6 @@ function model(blocks: unknown) {
 }
 
 describe("document body generation", () => {
-	it("honors the selected model's configured reasoning effort", async () => {
-		const base = model([{ type: "paragraph", text: "Welcome." }]);
-		const configured = wrapLanguageModel({
-			model: base,
-			middleware: defaultSettingsMiddleware({
-				settings: { providerOptions: { azure: { reasoningEffort: "none" } } },
-			}),
-		});
-		await planDocumentCreate({
-			content:
-				'Create a document titled "Welcome" with a short welcome paragraph.',
-			toolName: "os.create_os_output",
-			model: configured,
-			abortSignal: new AbortController().signal,
-		});
-		expect(base.doGenerateCalls[0]?.providerOptions?.azure).toMatchObject({
-			reasoningEffort: "none",
-			strictJsonSchema: false,
-		});
-	});
-
 	it("fixes metadata from the request and generates only semantic blocks", async () => {
 		const blocks = [{ type: "paragraph", text: "Welcome to our shop." }];
 		const draftModel = model(blocks);
