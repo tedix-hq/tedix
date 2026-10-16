@@ -841,6 +841,24 @@ export function CanvasDocPanel({
 								/>
 							</CardContent>
 						</Card>
+					) : effectiveGadgetView === "runs" &&
+					  builtinApp.kind !== "none" &&
+					  !gadgetDetail.data?.currentRevision?.manifest.skillSlug ? (
+						<Card size="sm">
+							<CardContent className="grid gap-3">
+								<Text as="h3" weight="medium">
+									Cards come from scheduled skills
+								</Text>
+								<Text>
+									Card review opens saved card sheets. To check when new cards
+									were produced, open Resources and choose See runs on a
+									scheduled skill.
+								</Text>
+								<Button variant="outline" onClick={onShowResources}>
+									Open Resources
+								</Button>
+							</CardContent>
+						</Card>
 					) : effectiveGadgetView === "runs" && executionGadgetId ? (
 						<CanvasGadgetExecutions
 							key={`${workspaceId}:${executionGadgetId}`}

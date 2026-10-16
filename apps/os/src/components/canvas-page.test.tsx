@@ -2086,6 +2086,56 @@ describe("CanvasPage listing", () => {
 		expect(container.querySelector("[data-widget-frame]")).not.toBeNull();
 	});
 
+	it("directs built-in card review runs to scheduled skills instead of dispatch", async () => {
+		mockLists();
+		const currentRevision = gadgetRevisionFixture({
+			manifest: {
+				capabilities: [],
+				entry: "tedix:app/card-review",
+				config: {
+					version: 1,
+					sources: [
+						{
+							label: "Social",
+							workspaceId: WORKSPACE_ID,
+							cardSheetPrefix: "Social cards ",
+							maxRuns: 2,
+							columns: {
+								source: "Source",
+								why: "Why",
+								useful: "Useful?",
+								reason: "Reason",
+								done: "Done?",
+							},
+							doIt: "copy_and_open",
+						},
+					],
+				},
+			},
+		});
+		osWorkspacesApi.gadgets.get.mockResolvedValue({
+			gadget: gadgetFixture(),
+			currentRevision,
+		});
+		mockCollab({ initial: docJson(currentRevision.manifest) });
+		routing.search = {
+			workpiece: `gadget:${GADGET_ID}`,
+			pane: "workpiece",
+			view: "runs",
+		};
+		const container = renderPage();
+		await flush();
+
+		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
+		expect(container.textContent).toContain("Cards come from scheduled skills");
+		click(findButton(container, "Open Resources"));
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({ pane: "resources" }),
+			}),
+		);
+	});
+
 	it("keeps a non-resource Gadget in source mode", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
