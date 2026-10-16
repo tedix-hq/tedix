@@ -884,6 +884,41 @@ describe("strategic workstreams", () => {
 		]);
 	});
 
+	it("never offers an action the member already answered, and keeps a named tedi", async () => {
+		const streams = await fineThreads(2);
+		const ranked = priorities(streams, new Map(), "2026-03-01");
+		const result = await planNow({
+			ranked,
+			goals: [],
+			notes: [],
+			today: "2026-03-01",
+			team: [{ slug: "ledger", name: "Ledger worker" }],
+			answered: (title) => title === "Draft the Acme brief",
+			run: async (prompt) => {
+				expect(prompt).toContain("- ledger: Ledger worker");
+				return JSON.stringify({
+					week: "",
+					actions: [
+						["Draft the Acme brief", "ledger"],
+						["Delegate the Acme pricing study", "ledger"],
+						["Delegate the Orbit audit", "nobody"],
+					].map(([title, tedi]) => ({
+						title,
+						why: "Acme launch",
+						workstream: streams[0]!.name,
+						kind: "delegate",
+						start: "Gather requirements",
+						tedi,
+					})),
+				});
+			},
+		});
+		expect(result.actions.slice(0, 2).map((a) => [a.title, a.tedi])).toEqual([
+			["Delegate the Acme pricing study", "ledger"],
+			["Delegate the Orbit audit", undefined],
+		]);
+	});
+
 	it("renders unlinked work and its parts in two separate lists", async () => {
 		const fine = await fineThreads(2);
 		const streams = await mergeWorkstreams(
@@ -937,6 +972,41 @@ describe("stable workstream identity", () => {
 		expect(second.workstreams[0]!.key).toBe(first.workstreams[0]!.key);
 		expect(second.workstreams[0]!.name).toBe("Billing exports");
 		expect(second.workstreams[0]!.description).toBe("Billing exports");
+	});
+
+	it("keeps a thread in its earlier workstream and merges only new threads", async () => {
+		const known = await Promise.all(
+			Array.from({ length: 4 }, (_, i) => facts(`known-${i}`)),
+		);
+		const first = stabilizeWorkstreams([
+			await thread("Billing exports", known),
+		]);
+		const fresh = await facts("fresh-0");
+		const prompts: string[] = [];
+		const merged = await mergeWorkstreams(
+			[
+				await thread("Revenue reports", [...known.slice(1), fresh]),
+				await thread("Orbit audit", [await facts("other-0")]),
+			],
+			new Map(),
+			emptyBoard(),
+			async (prompt) => {
+				prompts.push(prompt);
+				return JSON.stringify([
+					{ name: "Orbit audit", description: "Audit", clusters: [1] },
+				]);
+			},
+			first.registry,
+		);
+		expect(prompts).toHaveLength(1);
+		expect(prompts[0]).not.toContain("Revenue reports");
+		const second = stabilizeWorkstreams(merged, first.registry);
+		expect(second.workstreams.map((w) => w.name)).toEqual([
+			"Billing exports",
+			"Orbit audit",
+		]);
+		expect(second.workstreams[0]!.key).toBe(first.workstreams[0]!.key);
+		expect(second.workstreams[0]!.sessions).toContain(fresh);
 	});
 
 	it("uses a new id and name when the project changes", async () => {
