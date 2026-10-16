@@ -1,4 +1,5 @@
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
+import { syncDeclaredConnectionScopes } from "../../../services/connection-scope-sync";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connections";
 import {
 	ConnectionTokenLookupError,
@@ -318,6 +319,14 @@ export async function installTenantMcpAppFromCatalog(
 			updatedAt: new Date().toISOString(),
 		});
 		await purgeMcpAggregateCache(context.env, "tenant-catalog-install");
+		await syncDeclaredConnectionScopes({
+			db,
+			env: context.env,
+			config: nextMcpConfig,
+			appSlug: targetAggregator.slug,
+			syncProviderDefaults: false,
+			dryRun: false,
+		});
 		const serviceBindingTediId =
 			context.headers.get("X-Tedix-Tedi-Id") ??
 			context.headers.get("x-tedix-tedi-id");

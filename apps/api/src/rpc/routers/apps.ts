@@ -9,6 +9,7 @@
 import { implement } from "@orpc/server";
 import { appsContract } from "@tedix/api-contract/contracts/apps";
 import type { AppMetadata as ContractAppMetadata } from "@tedix/api-contract/schemas/app";
+import { McpConfigSchema } from "@tedix/api-contract/schemas/app";
 import {
 	buildTedixMcpResourceUri,
 	reconcileTedixMcpOwnershipTags,
@@ -19,6 +20,7 @@ import {
 	registerDescopeMcpResource,
 } from "@tedix/auth/aih-client";
 import { generateScopeManifest } from "@tedix/auth/scope-sync";
+import { syncDeclaredConnectionScopes } from "../../services/connection-scope-sync";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import type { DbClient } from "@tedix/db/client";
 import { getAdaptersByAppId } from "@tedix/db/queries/adapters";
@@ -950,6 +952,29 @@ export const updateAppProcedure = authedAppsOs.update
 				existingApp,
 				updatedApp,
 			]);
+			const config = McpConfigSchema.parse(
+				getAppMetadataJson(updatedApp)?.mcpConfig ?? {},
+			);
+			if (
+				metadata?.mcpConfig &&
+				[
+					"connectionProviderId",
+					"connectionScopes",
+					"aggregateApps",
+					"toolScopes",
+				].some((key) => Object.hasOwn(metadata.mcpConfig!, key)) &&
+				(config.connectionProviderId ||
+					config.aggregateApps?.some((entry) => entry.connectionProviderId))
+			) {
+				await syncDeclaredConnectionScopes({
+					db,
+					env: context.env,
+					config,
+					appSlug: updatedApp.slug,
+					syncProviderDefaults: isPlatformPrincipal(context),
+					dryRun: false,
+				});
+			}
 		}
 
 		const appMetadata = getAppMetadataJson(updatedApp);
