@@ -1,3 +1,4 @@
+import { getTurnMemoryRoute } from "./cognitive-runtime/turn-memory";
 import { rankSkillsRoute } from "./cognitive-runtime/jev-skills";
 import { rankDiscoveryRoute } from "./cognitive-runtime/jev-discovery";
 /**
@@ -36,6 +37,7 @@ import {
 } from "./cognitive-runtime/artifact-releases";
 
 export const cognitiveRuntimeContractRouter = cognitiveRuntimeOs.router({
+	getTurnMemory: getTurnMemoryRoute,
 	rankDiscovery: rankDiscoveryRoute,
 	rankSkills: rankSkillsRoute,
 	listConversations: listConversationsRoute,

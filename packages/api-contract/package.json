@@ -130,6 +130,7 @@
 		"./schemas/codemode-execute-write": "./src/schemas/codemode-execute-write.ts",
 		"./schemas/cognitive": "./src/schemas/cognitive.ts",
 		"./schemas/cognitive-runtime": "./src/schemas/cognitive-runtime.ts",
+		"./schemas/turn-memory": "./src/schemas/turn-memory.ts",
 		"./schemas/common": "./src/schemas/common.ts",
 		"./schemas/config": "./src/schemas/config.ts",
 		"./schemas/connection-provider-templates": "./src/schemas/connection-provider-templates.ts",

@@ -12,6 +12,7 @@
 		"./context-overflow": "./src/context-overflow.ts",
 		"./crystallizer": "./src/crystallizer.ts",
 		"./harness-version": "./src/harness-version.ts",
+		"./memory-freshness": "./src/memory-freshness.ts",
 		"./mission-text": "./src/mission-text.ts",
 		"./observer": "./src/observer.ts",
 		"./prompt-composition": "./src/prompt-composition.ts",

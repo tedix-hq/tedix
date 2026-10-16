@@ -135,11 +135,17 @@ export async function listApprovalRequests(
 export async function getApprovalRequestById(
 	db: DbClient,
 	id: string,
+	orgId?: string,
 ): Promise<TediApprovalRequest | undefined> {
 	const results = await db
 		.select()
 		.from(tediApprovalRequests)
-		.where(eq(tediApprovalRequests.id, id));
+		.where(
+			and(
+				eq(tediApprovalRequests.id, id),
+				orgId ? eq(tediApprovalRequests.orgId, orgId) : undefined,
+			),
+		);
 	return results[0];
 }
 

@@ -17,6 +17,13 @@ export function isMemorySearchFactEligible(
 ): boolean {
 	if (fact.organizationId !== options.orgId) return false;
 	if (fact.archivedAt || fact.validTo) return false;
+	const expiresAt = fact.metadata?.expiresAt;
+	if (
+		typeof expiresAt === "string" &&
+		(!Number.isFinite(Date.parse(expiresAt)) ||
+			Date.parse(expiresAt) <= Date.now())
+	)
+		return false;
 	if (!isCanonicalMemoryReviewAllowed(fact.reviewStatus)) return false;
 	if (options.domainId && fact.domainId !== options.domainId) return false;
 	if (options.factType && fact.factType !== options.factType) return false;

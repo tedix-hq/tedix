@@ -61,6 +61,7 @@ import {
 } from "../services/lesson-map-reduce";
 import { assessDelegatedAnswerCriteriaWithJev } from "../rpc/routers/kernel/jev-goal-assessment";
 import { reconcileCanonicalMemoryProjection } from "../integrations/cloudflare/agent-memory";
+import { reconcileTaskMemory } from "../services/task-memory-state";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 interface ReflectionParams {
@@ -330,6 +331,8 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					limit: scope === "full" ? 500 : 100,
 				};
 				if (tediId) params.tediId = tediId;
+				const candidates = await searchFacts(db, params);
+				await reconcileTaskMemory(db, organizationId, candidates);
 				const results = await searchFacts(db, params);
 				// Serialize for workflow step storage
 				return JSON.parse(JSON.stringify(results)) as Array<{
