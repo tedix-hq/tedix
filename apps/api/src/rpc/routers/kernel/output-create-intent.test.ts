@@ -40,6 +40,12 @@ describe("card verdict follow-ups", () => {
 			cardVerdictFollowUp("Mark that card not useful - wrong person", shown),
 		).toMatchObject({ verdict: "not useful", reason: "wrong person" });
 		expect(cardVerdictFollowUp("useful", shown)?.reason).toBe("");
+		expect(
+			cardVerdictFollowUp(
+				"[[tedix-context:gadget:22222222-2222-4222-8222-222222222222:App%20resource]]\n\nmark it useful: great angle",
+				shown,
+			),
+		).toMatchObject({ verdict: "useful", reason: "great angle" });
 	});
 
 	it("leaves other requests and unclear references to the router", () => {

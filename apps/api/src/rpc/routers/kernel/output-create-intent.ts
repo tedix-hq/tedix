@@ -130,7 +130,13 @@ export function cardVerdictFollowUp(
 	content: string,
 	previousAnswer: string | null | undefined,
 ): CardVerdictFollowUp | null {
-	const line = content.trim().split("\n", 1)[0]?.replace(LEAD_IN_RE, "") ?? "";
+	// OS workspace references precede the operator's request in workspace chat.
+	const line =
+		content
+			.replace(/^(?:\s*\[\[tedix-context:[^\]\r\n]*\]\])+\s*/, "")
+			.trim()
+			.split("\n", 1)[0]
+			?.replace(LEAD_IN_RE, "") ?? "";
 	const match = CARD_VERDICT_RE.exec(line.trim());
 	if (!match?.[1] || !previousAnswer) return null;
 	const titles = [
