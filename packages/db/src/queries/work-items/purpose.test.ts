@@ -157,6 +157,53 @@ describe("canonical Work Item purpose", () => {
 		).toMatchObject({ objectiveId: "objective", workClass: "objective" });
 	});
 
+	it.each(["project", "parent"])(
+		"inherits %s objective despite operational defaults",
+		async (source) => {
+			const { db } = fixture();
+			expect(
+				await resolveWorkItemPurpose(db, {
+					orgId: "org",
+					now: NOW,
+					workClass: "maintenance",
+					purposeExceptionExpiresAt: FUTURE,
+					...(source === "project"
+						? { project: { objectiveId: "objective" } }
+						: {
+								parent: {
+									id: "parent",
+									objectiveId: "objective",
+									workClass: "objective" as const,
+									purposeExceptionExpiresAt: null,
+									projectId: null,
+								},
+							}),
+				}),
+			).toEqual({
+				objectiveId: "objective",
+				workClass: "objective",
+				purposeExceptionExpiresAt: null,
+			});
+		},
+	);
+
+	it("explains how to correct an explicit objective with an expiry", async () => {
+		const { db } = fixture();
+		await expect(
+			resolveWorkItemPurpose(db, {
+				orgId: "org",
+				now: NOW,
+				objectiveId: "objective",
+				workClass: "maintenance",
+				purposeExceptionExpiresAt: FUTURE,
+			}),
+		).rejects.toThrow(
+			"explicit objective objective cannot carry expiry " +
+				FUTURE +
+				". Omit --class and --expires",
+		);
+	});
+
 	it("inherits objective context from a parent", async () => {
 		const { db } = fixture();
 		expect(
@@ -186,9 +233,11 @@ describe("canonical Work Item purpose", () => {
 				orgId: "org",
 				now: NOW,
 				objectiveId: "objective",
-				project: { objectiveId: "other" },
+				project: { key: "EXAMPLE", objectiveId: "other" },
 			}),
-		).rejects.toMatchObject({ code: "context_conflict" });
+		).rejects.toThrow(
+			"objectiveId=objective, parent none objectiveId=none, project EXAMPLE objectiveId=other. Set --objective to the inherited objective",
+		);
 	});
 
 	it.each(["missing", "cross-org"])(
@@ -272,15 +321,6 @@ describe("canonical Work Item purpose", () => {
 				project: { objectiveId: "objective" },
 			}),
 		).toMatchObject({ objectiveId: "objective", workClass: "objective" });
-		await expect(
-			resolveWorkItemPurpose(db, {
-				orgId: "org",
-				now: NOW,
-				workClass: "maintenance",
-				purposeExceptionExpiresAt: FUTURE,
-				project: { objectiveId: "objective" },
-			}),
-		).rejects.toMatchObject({ code: "context_conflict" });
 	});
 
 	it.each(["2026-08-20T11:00:00.000Z", "2026-10-20T12:00:00.000Z"])(

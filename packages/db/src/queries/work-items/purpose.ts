@@ -154,7 +154,7 @@ export async function resolveWorkItemPurpose(
 		workClass?: WorkItemClass | null;
 		purposeExceptionExpiresAt?: string | null;
 		parent?: PurposeParent | null;
-		project?: { objectiveId: string | null } | null;
+		project?: { key?: string; objectiveId: string | null } | null;
 		/**
 		 * Accept an already-stored expiry that has lapsed, instead of re-asserting
 		 * it. Set ONLY when the caller supplied no purpose field and the value is
@@ -189,19 +189,23 @@ export async function resolveWorkItemPurpose(
 	if (distinctObjectives.length > 1) {
 		throw new WorkItemPurposeError(
 			"context_conflict",
-			`PURPOSE_CONFLICT: explicit, parent, and project objective context must agree (${distinctObjectives.join(", ")})`,
+			`PURPOSE_CONFLICT: objectiveId=${params.objectiveId ?? "none"}, parent ${params.parent?.id ?? "none"} objectiveId=${params.parent?.objectiveId ?? "none"}, project ${params.project?.key ?? "(unspecified)"} objectiveId=${params.project?.objectiveId ?? "none"}. Set --objective to the inherited objective, or omit --objective; parent and project must reference the same objective.`,
 		);
 	}
 
 	const objectiveId = distinctObjectives[0] ?? null;
 	if (objectiveId) {
-		// An operational class without an explicit expiry is a fallback for when
-		// no objective applies, so a caller that cannot see the project's
-		// objective (Home's write planner) can always stage a valid create.
-		if (parentOperationalClass || params.purposeExceptionExpiresAt) {
+		// Operational defaults yield to inherited objectives; an explicit objective
+		// plus expiry or an operational parent is still a contradictory purpose.
+		if (
+			parentOperationalClass ||
+			(params.objectiveId && params.purposeExceptionExpiresAt)
+		) {
 			throw new WorkItemPurposeError(
 				"context_conflict",
-				"PURPOSE_CONFLICT: objective-linked work cannot also carry an operational exception",
+				parentOperationalClass
+					? `PURPOSE_CONFLICT: parent ${params.parent!.id} has operational class ${parentOperationalClass}, but the requested objective is ${objectiveId}. Omit --objective and use a project without an objective, or choose an objective-linked parent.`
+					: `PURPOSE_CONFLICT: explicit objective ${objectiveId} cannot carry expiry ${params.purposeExceptionExpiresAt}. Omit --class and --expires for objective work.`,
 			);
 		}
 		const rows = await db
