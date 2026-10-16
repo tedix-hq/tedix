@@ -199,6 +199,11 @@ function SidebarHeader({
  * The nav gutter is 8px, matching the 12px row padding to a 20px text inset.
  * Kumo's viewport padding is a compound `group-not-data-*` rule, so the
  * override has to be important rather than merely later.
+ *
+ * Kumo fades the first 24px of a scrolled viewport. The OS pins its primary
+ * rows directly above this area with no top padding, so that fade made the
+ * row scrolled under them look half-hidden behind the last pinned row. Only
+ * the bottom edge fades here; a scrolled-away top shows a hairline instead.
  */
 function SidebarContent({
 	className,
@@ -208,6 +213,8 @@ function SidebarContent({
 		<KumoSidebarContent
 			className={cn(
 				"[&_[data-sidebar=viewport]]:px-2! [&_[data-sidebar=viewport]]:pt-0! [&_[data-sidebar=viewport]]:pb-1.5!",
+				"[&_[data-sidebar=viewport]]:[mask-image:linear-gradient(to_bottom,black_calc(100%-min(24px,var(--scroll-area-overflow-y-end,24px))),transparent_100%)]!",
+				"before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-px before:bg-kumo-hairline before:opacity-0 data-[overflow-y-start]:before:opacity-100",
 				className,
 			)}
 			{...props}

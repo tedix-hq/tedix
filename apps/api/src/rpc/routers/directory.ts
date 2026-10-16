@@ -49,6 +49,7 @@ type OrgCore = {
 	organizationId: string;
 	slug: string;
 	name: string;
+	logoUrl: string | null;
 	descopeTenantId: string | null;
 	os: boolean;
 };
@@ -176,6 +177,7 @@ function buildWorkspaceRecord(
 			organizationId: org.organizationId,
 			slug: org.slug,
 			name: org.name,
+			logoUrl: org.logoUrl,
 			descopeTenantId: org.descopeTenantId,
 			provisionComplete,
 		},
@@ -224,6 +226,7 @@ const listMyWorkspaces = authed.listMyWorkspaces
 					organizationId: m.organizationId,
 					slug: m.organizationSlug,
 					name: m.organizationName,
+					logoUrl: m.organizationLogoUrl,
 					descopeTenantId: m.descopeTenantId,
 					os: signals.get(m.organizationId)?.os === true,
 				},
@@ -292,6 +295,7 @@ const resolveWorkspace = authed.resolveWorkspace
 				organizationId: organization.id,
 				slug: organization.slug,
 				name: organization.name,
+				logoUrl: organization.logoUrl ?? null,
 				descopeTenantId: organization.descopeTenantId ?? null,
 				os: organization.features?.os === true,
 			},

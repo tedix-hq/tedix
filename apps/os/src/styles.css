@@ -195,6 +195,24 @@ a:focus-visible {
 	line-height: var(--text-tedix-control--line-height);
 }
 
+.brand-mark[data-size="sm"] {
+	width: 20px;
+	height: 20px;
+	flex-basis: 20px;
+	border-radius: 5px;
+	font-size: var(--text-tedix-caption);
+}
+
+/* An uploaded logo sits on the card step with a hairline edge, so a
+ * transparent or white logo keeps its tile shape in light and dark. */
+.brand-mark-image {
+	display: block;
+	object-fit: cover;
+	background: var(--card);
+	outline: 1px solid var(--border);
+	outline-offset: -1px;
+}
+
 .ghost-icon-button {
 	display: inline-flex;
 	align-items: center;

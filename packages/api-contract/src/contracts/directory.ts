@@ -63,6 +63,13 @@ export const DirectoryWorkspaceRecordSchema = z.object({
 		organizationId: z.string(),
 		slug: z.string(),
 		name: z.string(),
+		logoUrl: z
+			.string()
+			.nullable()
+			.optional()
+			.describe(
+				"The organization's uploaded logo image URL, or null when none is set. Optional so an older directory response still parses.",
+			),
 		descopeTenantId: z
 			.string()
 			.nullable()

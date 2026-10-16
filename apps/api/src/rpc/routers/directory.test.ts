@@ -251,6 +251,28 @@ describe("directory.listMyWorkspaces", () => {
 		expect(byName.has("tedi")).toBe(false);
 	});
 
+	it("carries each organization's logo, or null when none is set", async () => {
+		mocks.getUserOrganizationMemberships.mockResolvedValue([
+			membership({
+				organizationLogoUrl: "https://images.example.test/acme-logo.png",
+			}),
+			membership({
+				organizationId: ORG_B,
+				organizationName: "Globex",
+				organizationSlug: "globex",
+			}),
+		]);
+
+		const { data } = await createClient(
+			createContext("user-1"),
+		).listMyWorkspaces({});
+
+		expect(data.map((record) => record.org.logoUrl)).toEqual([
+			"https://images.example.test/acme-logo.png",
+			null,
+		]);
+	});
+
 	it("uses the tedix.tech platform domain outside production", async () => {
 		mocks.getUserOrganizationMemberships.mockResolvedValue([membership()]);
 		mocks.getOrganizationSurfaceSignals.mockResolvedValue(

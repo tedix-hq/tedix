@@ -49,6 +49,7 @@ import { ApprovalNotifications } from "@/components/approval-notifications";
 import { OsQuickChat } from "@/components/os-quick-chat";
 import { OsSidebarWorkspaces } from "@/components/os-sidebar-workspaces";
 import { OsSidebarBillingStatus } from "@/components/os-sidebar-billing-status";
+import { OsOrganizationIdentity } from "@/components/os-organization-identity";
 import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
 import { TransportStatus } from "@/components/transport-status";
 import { WorkNeedsYouCount } from "@/components/work-needs-you-count";
@@ -122,17 +123,7 @@ function OsSidebar({
 		<Sidebar aria-label="OS navigation">
 			<SidebarHeader>
 				<OsWorkspaceSwitcher>
-					<div className="brand-mark" aria-hidden="true">
-						T
-					</div>
-					<div className="flex min-w-0 flex-col text-left group-data-[state=collapsed]/sidebar:hidden">
-						<strong className="whitespace-nowrap type-tedix-body font-semibold">
-							OS
-						</strong>
-						<span className="max-w-[140px] truncate text-kumo-subtle type-tedix-caption">
-							{tenantLabel}
-						</span>
-					</div>
+					<OsOrganizationIdentity fallbackLabel={tenantLabel} />
 				</OsWorkspaceSwitcher>
 			</SidebarHeader>
 
