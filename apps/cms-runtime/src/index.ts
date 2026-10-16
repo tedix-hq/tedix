@@ -253,22 +253,29 @@ export class EmDashDB extends EmdashSqlDB {
 				statements.some(({ sql, params }) => {
 					if (sql.includes(";")) return true;
 					if (PLAIN_SELECT_PATTERN.test(sql)) return false;
-					// Error accounting and the native scheduler heartbeat do not alter public content.
+					// Native maintenance does not alter public content.
 					if (
 						TENANT_DB_PRIMARY_TABLE_PATTERN.exec(sql)?.[1]?.toLowerCase() ===
 						"_emdash_404_log"
 					)
 						return false;
+					const normalized = sql
+						.replaceAll('"', "")
+						.replaceAll("`", "")
+						.replace(/\s+/g, " ")
+						.trim()
+						.toLowerCase();
 					if (
 						params?.length === 5 &&
 						params[0] === "system:scheduler:last_completed_at" &&
-						sql
-							.replaceAll('"', "")
-							.replaceAll("`", "")
-							.replace(/\s+/g, " ")
-							.trim()
-							.toLowerCase() ===
+						normalized ===
 							"insert into options (name, value, revision) values (?, ?, ?) on conflict (name) do update set value = ?, revision = ?"
+					)
+						return false;
+					if (
+						params?.length === 1 &&
+						normalized ===
+							"update _emdash_cron_tasks set status = 'idle', locked_at = null where status = 'running' and locked_at < ?"
 					)
 						return false;
 					return true;
