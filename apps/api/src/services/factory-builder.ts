@@ -204,6 +204,30 @@ export function factoryNameFromGoal(goal: string): string {
 	return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/** Flag explicit requests outside the report lane without changing the build. */
+export function factoryGoalLimits(goal: string): string[] {
+	const notes: string[] = [];
+	if (
+		/\b(?:hourly|every\s+hour|every\s+\d+\s+(?:minutes?|hours?)|per\s+hour)\b/i.test(
+			goal,
+		)
+	) {
+		notes.push(
+			'Factories run daily or twice daily. The closest option is cadence: "twice_daily" (CLI --cadence twice_daily); an hourly job needs its own scheduled skill.',
+		);
+	}
+	if (
+		/\b(?:write|update|append|publish)\b[^.!?\n]{0,120}\b(?:into|to)\s+(?:(?:a|an|the|my|our|your|shared)\s+)*(?:doc|document|Output|sheet|page|Notion)\b/i.test(
+			goal,
+		)
+	) {
+		notes.push(
+			"The report lane only files Work Item proposals and posts a scorecard; it cannot write into a document or Output. The closest option is to let it propose Work Items that ask the owner tedi to update that document.",
+		);
+	}
+	return notes;
+}
+
 function fnv1a(text: string): number {
 	let hash = 0x811c9dc5;
 	for (let i = 0; i < text.length; i++) {
@@ -475,6 +499,7 @@ export async function buildFactory(
 		dryRun,
 		status: dryRun ? "planned" : wrote ? "created" : "unchanged",
 		ownerTediId: owner.id,
+		ownerTediName: owner.name,
 		projectId,
 		projectKey: state.project?.key ?? projectKey,
 		objectiveId,
@@ -486,6 +511,7 @@ export async function buildFactory(
 		cron,
 		nextFireAt,
 		steps,
+		warnings: factoryGoalLimits(input.goal),
 		nextActions: nextActions({ slug, skillId, lifecycleState, dryRun }),
 	};
 }

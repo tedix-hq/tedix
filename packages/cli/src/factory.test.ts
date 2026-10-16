@@ -3,6 +3,7 @@ import {
 	createFactoryInput,
 	type FactoryContext,
 	runFactoryCommand,
+	setScheduleEnabled,
 } from "./factory";
 import { parseOptions } from "./options";
 
@@ -22,7 +23,237 @@ function harness(reply: unknown, factory: FactoryContext["factory"] = {}) {
 	return { calls, ctx };
 }
 
+// Frontmatter rendered by the report template for a Docs factory.
+const REPORT_SKILL = `---
+name: docs
+description: "Docs factory lane: reads the project's Work, asks the owner tedi for at most 3 new proposals toward the goal, files them as deduplicated Work Items and posts a scorecard on the health item."
+audience: ["tedi"]
+capabilities:
+  network: false
+  mcp:
+    tedi: [work_items_list, run_tedi_turn, messages_read, work_item_create, work_item_comment]
+  schedule:
+    cron: "17 5 * * *"
+    params: {}
+---
+
+# Docs factory
+
+Body with capabilities.schedule, enabled: true and --- stays intact.
+`;
+
+describe("setScheduleEnabled", () => {
+	it("pauses the report schedule, is idempotent, and resumes it exactly", () => {
+		const paused = setScheduleEnabled(REPORT_SKILL, false);
+		expect(paused).toBe(
+			REPORT_SKILL.replace(
+				"  schedule:\n",
+				"  schedule:\n    enabled: false\n",
+			),
+		);
+		expect(setScheduleEnabled(paused, false)).toBe(paused);
+		expect(setScheduleEnabled(paused, true)).toBe(REPORT_SKILL);
+		expect(setScheduleEnabled(REPORT_SKILL, true)).toBe(REPORT_SKILL);
+	});
+
+	it("replaces only the schedule's direct enabled child", () => {
+		const content = REPORT_SKILL.replace(
+			"  network: false",
+			"  network: false\n  enabled: true",
+		).replace(
+			"    params: {}",
+			"    enabled: true\n    params:\n      enabled: true",
+		);
+		expect(setScheduleEnabled(content, false)).toBe(
+			content.replace("    enabled: true\n", "    enabled: false\n"),
+		);
+	});
+
+	it("preserves CRLF, sibling frontmatter and the body", () => {
+		const content = REPORT_SKILL.replace(
+			"---\n\n#",
+			"extra: untouched\n---\n\n#",
+		).replaceAll("\n", "\r\n");
+		expect(setScheduleEnabled(setScheduleEnabled(content, false), true)).toBe(
+			content,
+		);
+	});
+
+	it("rejects missing frontmatter or schedule blocks", () => {
+		for (const content of [
+			"# No frontmatter",
+			"---\nname: docs\n---\n  schedule:\n",
+			"---\ncapabilities:\n  network: false\n---\n",
+		]) {
+			expect(() => setScheduleEnabled(content, false)).toThrow(
+				/no capabilities.schedule block/,
+			);
+		}
+	});
+});
+
 describe("factory commands", () => {
+	for (const verb of ["pause", "resume", "archive"] as const) {
+		it(`${verb} resolves the lane and uses only the documented skill route`, async () => {
+			const stdout = spyOn(console, "log").mockImplementation(() => {});
+			try {
+				const lane = {
+					slug: "docs",
+					skillId: "skill-1",
+					lifecycleState: "active",
+					scheduleEnabled: verb !== "resume",
+					healthWorkItemId: "health-1",
+					projectId: "project-1",
+					projectKey: "DOCS",
+					objectiveId: "objective-1",
+				};
+				const content =
+					verb === "resume"
+						? setScheduleEnabled(REPORT_SKILL, false)
+						: REPORT_SKILL;
+				const result = { entry: { id: "skill-1", revision: 2 } };
+				const replies = [
+					{ data: [lane] },
+					...(verb === "archive" ? [] : [{ entry: { content } }]),
+					result,
+				];
+				const { ctx, calls } = harness(undefined);
+				ctx.client.runCode = async (source) => {
+					calls.push(source);
+					return replies.shift();
+				};
+				expect(await runFactoryCommand(`${verb} docs`, ctx)).toBe(0);
+				expect(calls[0]).toContain(
+					'projects.inspect_factory_health({"factory":"docs"})',
+				);
+				expect(calls[0]).toContain('"skillId"');
+				if (verb !== "archive")
+					expect(calls[1]).toBe(
+						'async () => await skills.get_skills({"id":"skill-1"})',
+					);
+				const expected =
+					verb === "archive"
+						? { id: "skill-1", lifecycleState: "archived" }
+						: {
+								id: "skill-1",
+								content: setScheduleEnabled(content, verb === "resume"),
+								revisionReasoning: `${verb === "pause" ? "Pause" : "Resume"} factory docs.`,
+							};
+				expect(calls.at(-1)).toBe(
+					`async () => await skills.improve_skills(${JSON.stringify(expected)})`,
+				);
+				expect(calls).toHaveLength(verb === "archive" ? 2 : 3);
+				expect(stdout.mock.calls).toEqual([[JSON.stringify(result)]]);
+			} finally {
+				stdout.mockRestore();
+			}
+		});
+	}
+
+	it("does not write for already paused or running lanes", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			for (const verb of ["pause", "resume"] as const) {
+				const { ctx, calls } = harness({
+					data: [
+						{
+							slug: "docs",
+							skillId: "skill-1",
+							scheduleEnabled: verb === "resume",
+						},
+					],
+				});
+				ctx.json = false;
+				expect(await runFactoryCommand(`${verb} docs`, ctx)).toBe(0);
+				expect(calls).toHaveLength(1);
+				expect(stdout.mock.calls.at(-1)?.[0]).toContain(
+					verb === "pause" ? "already paused" : "already running",
+				);
+			}
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
+	it("prints owner and notes before next actions for planned and created factories", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			for (const dryRun of [true, false]) {
+				stdout.mockClear();
+				const { ctx } = harness(
+					{
+						dryRun,
+						ownerTediName: "Nova",
+						ownerTediId: "owner-1",
+						warnings: ["Daily only."],
+						nextActions: ["Check health."],
+					},
+					{ goal: "Keep docs accurate." },
+				);
+				ctx.json = false;
+				expect(await runFactoryCommand("create", ctx)).toBe(0);
+				const lines = stdout.mock.calls.map(([line]) => String(line));
+				expect(lines).toContain("  owner Nova (owner-1)");
+				expect(lines.indexOf("Note: Daily only.")).toBeLessThan(
+					lines.indexOf("Next: Check health."),
+				);
+			}
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
+	it("prints archive follow-ups with real ids without executing them", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const { ctx, calls } = harness(undefined);
+			const replies = [
+				{
+					data: [
+						{
+							slug: "docs",
+							skillId: "skill-1",
+							healthWorkItemId: "health-1",
+							projectId: "project-1",
+							objectiveId: "objective-1",
+						},
+					],
+				},
+				{ entry: { lifecycleState: "archived" } },
+			];
+			ctx.json = false;
+			ctx.client.runCode = async (source) => {
+				calls.push(source);
+				return replies.shift();
+			};
+			expect(await runFactoryCommand("archive docs", ctx)).toBe(0);
+			expect(calls).toHaveLength(2);
+			expect(stdout.mock.calls.flat()).toContain(
+				"Next: tedix work cancel health-1",
+			);
+			expect(stdout.mock.calls.flat()).toContain(
+				'Next: archive_project({"id":"project-1"})',
+			);
+			expect(stdout.mock.calls.flat()).toContain(
+				'Next: update_tedi_objectives({"id":"objective-1","status":"completed"})',
+			);
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
+	it("rejects an unknown slug before any skill call", async () => {
+		const stderr = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const { ctx, calls } = harness({ data: [] });
+			expect(await runFactoryCommand("pause missing", ctx)).not.toBe(0);
+			expect(calls).toHaveLength(1);
+			expect(stderr.mock.calls.flat()).toContain('No factory "missing".');
+		} finally {
+			stderr.mockRestore();
+		}
+	});
+
 	it("creates a factory from flags in one gateway call", async () => {
 		const stdout = spyOn(console, "log").mockImplementation(() => {});
 		const { calls, ctx } = harness(

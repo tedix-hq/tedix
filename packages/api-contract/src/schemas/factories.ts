@@ -105,6 +105,7 @@ export const CreateFactoryResultSchema = z.object({
 	/** created: something was written; unchanged: every part already existed. */
 	status: z.enum(["created", "unchanged", "planned"]),
 	ownerTediId: z.string(),
+	ownerTediName: z.string(),
 	projectId: z.string().nullable(),
 	projectKey: z.string(),
 	objectiveId: z.string().nullable(),
@@ -117,6 +118,7 @@ export const CreateFactoryResultSchema = z.object({
 	/** Null while the lane skill is a draft (no schedule yet). */
 	nextFireAt: z.string().nullable(),
 	steps: z.array(FactoryBuildStepSchema),
+	warnings: z.array(z.string()),
 	nextActions: z.array(z.string()),
 });
 export type CreateFactoryResult = z.infer<typeof CreateFactoryResultSchema>;

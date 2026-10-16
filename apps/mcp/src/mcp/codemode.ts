@@ -3206,6 +3206,12 @@ function scoreCatalogSearch(
 	}
 	if (matchedTerms.length === 0) return null;
 	score += Math.round((matchedTerms.length / terms.length) * 20);
+	// When the name contains every query term, favour names devoted to those
+	// terms over longer vendor names. Count repeated tokens in the denominator.
+	const nameTokens = normalizeSearchText(toolName).split(" ").filter(Boolean);
+	if (terms.every((term) => nameTokens.includes(term))) {
+		score += (terms.length / nameTokens.length) * 16;
+	}
 	// Every term can hit a high-weight field of a sibling tool too ("list tedis"
 	// scores tedis.list_addresses like tedis.list_tedis), so a query that IS
 	// the tool's name must outrank its namespace neighbours.
