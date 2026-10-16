@@ -13,6 +13,7 @@ import {
 import {
 	beginSdkOAuthLogin,
 	canPromptForConsent,
+	requireHumanLogin,
 	isTedixHostedMcpUrl,
 	minimalScopeProfileFor,
 	OAuthConsentRequiredError,
@@ -45,6 +46,26 @@ const MCP_URL = "https://acme-unified.mcp.tedix.dev/mcp";
 const RESOURCE_METADATA =
 	"https://acme-unified.mcp.tedix.dev/.well-known/oauth-protected-resource/mcp";
 const ISSUER = "https://auth.example.com/tenant";
+
+test("login requires a human terminal outside agent harnesses", () => {
+	const tty = { stdin: true, stdout: true };
+	expect(() => requireHumanLogin({}, tty)).not.toThrow();
+	for (const key of [
+		"CODEX_THREAD_ID",
+		"CODEX_SESSION_ID",
+		"CLAUDECODE",
+		"CLAUDE_CODE_SESSION_ID",
+		"TEDIX_AGENT_SESSION",
+		"CI",
+	]) {
+		expect(() => requireHumanLogin({ [key]: "test-session" }, tty)).toThrow(
+			"human terminal",
+		);
+	}
+	for (const terminal of [{}, { stdin: true }, { stdout: true }]) {
+		expect(() => requireHumanLogin({}, terminal)).toThrow("human terminal");
+	}
+});
 
 test("multi-organization login accepts only a signed bounded selection", () => {
 	const valid = {
@@ -1008,11 +1029,14 @@ describe("proactive session refresh", () => {
 		).toBe(false);
 	});
 
-	test("renews from the refresh token and persists the new access token", async () => {
+	test.each([
+		"mcp:apps.read mcp:apps.write",
+		"mcp:work.read mcp:work.admin platform:admin",
+	])("refresh preserves the exact saved grant (%s)", async (scope) => {
 		let refreshRequestScope = "";
 		const freshToken = jwt({
 			dct: "org_acme",
-			scope: "mcp:apps.read mcp:apps.write",
+			scope,
 		});
 		const provider = new WorkspaceOAuthProvider({
 			mcpUrl: MCP_URL,
@@ -1024,7 +1048,7 @@ describe("proactive session refresh", () => {
 				oauthTokens: {
 					access_token: "stale-access-token",
 					refresh_token: "refresh-token",
-					scope: "mcp:apps.read mcp:apps.write",
+					scope,
 					token_type: "Bearer",
 				},
 				oauthClientInformation: { client_id: "client-1" },
@@ -1054,7 +1078,7 @@ describe("proactive session refresh", () => {
 			return new Response(
 				JSON.stringify({
 					access_token: freshToken,
-					scope: "mcp:apps.read mcp:apps.write",
+					scope,
 					token_type: "Bearer",
 					expires_in: 600,
 				}),
@@ -1067,12 +1091,41 @@ describe("proactive session refresh", () => {
 		const outcome = await refreshStoredSession(provider, { fetchFn });
 
 		expect(outcome).toBe("refreshed");
-		expect(refreshRequestScope).toBe("mcp:apps.read mcp:apps.write");
+		expect(refreshRequestScope).toBe(scope);
 		expect(provider.tokens()?.access_token).toBe(freshToken);
-		expect(provider.tokens()?.scope).toBe("mcp:apps.read mcp:apps.write");
+		expect(provider.tokens()?.scope).toBe(scope);
 		// A server that does not rotate the refresh token must not strand the next
 		// renewal.
 		expect(provider.tokens()?.refresh_token).toBe("refresh-token");
+	});
+
+	test("dark wake defers without sending a request or changing tokens", async () => {
+		const provider = new WorkspaceOAuthProvider({
+			mcpUrl: MCP_URL,
+			credential: {
+				loginId: "user-1",
+				oauthTokens: {
+					access_token: "expired",
+					refresh_token: "rotating",
+					token_type: "Bearer",
+				},
+				oauthClientInformation: { client_id: "client-1" },
+				oauthDiscoveryState: { authorizationServerUrl: ISSUER },
+			},
+		});
+		const before = provider.credential();
+		let requests = 0;
+		expect(
+			await refreshStoredSession(provider, {
+				isDarkWake: () => true,
+				fetchFn: async () => {
+					requests++;
+					throw new Error("unexpected request");
+				},
+			}),
+		).toBe("deferred-dark-wake");
+		expect(requests).toBe(0);
+		expect(provider.credential()).toEqual(before);
 	});
 
 	test("rejects a refresh response that widens the saved grant", async () => {

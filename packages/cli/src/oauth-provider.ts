@@ -219,6 +219,28 @@ export function canPromptForConsent(
 	return Boolean(tty.stdin && tty.stdout) && !env.CI;
 }
 
+export function requireHumanLogin(
+	env: Record<string, string | undefined> = process.env,
+	tty: { stdin?: boolean; stdout?: boolean } = {
+		stdin: process.stdin.isTTY,
+		stdout: process.stdout.isTTY,
+	},
+): void {
+	// A second consent can replace the shared human grant, even in another workspace.
+	const agent = [
+		"CODEX_THREAD_ID",
+		"CODEX_SESSION_ID",
+		"CLAUDECODE",
+		"CLAUDE_CODE_SESSION_ID",
+		"TEDIX_AGENT_SESSION",
+	].some((key) => Boolean(env[key]?.trim()));
+	if (agent || !canPromptForConsent(env, tty)) {
+		throw new Error(
+			"Tedix login requires a human terminal outside an agent harness. Ask the owner to run the login command there; another consent can replace their shared CLI grant.",
+		);
+	}
+}
+
 /** The narrowest login profile whose consent can grant every required scope. */
 export function minimalScopeProfileFor(
 	required: readonly string[],
@@ -818,6 +840,7 @@ export type SessionRefreshOutcome =
 	| "unavailable"
 	| "invalidated"
 	| "scope-expanded"
+	| "deferred-dark-wake"
 	| "failed";
 
 /**
@@ -880,6 +903,7 @@ export async function refreshStoredSession(
 		fetchFn?: FetchLike;
 		timeoutMs?: number;
 		workspace?: string;
+		isDarkWake?: () => boolean;
 	} = {},
 ): Promise<SessionRefreshOutcome> {
 	// Serialise renewal across processes, then re-read. Refresh tokens ROTATE, so
@@ -924,9 +948,9 @@ export async function refreshStoredSession(
 			provider.discoveryState()?.authorizationServerUrl;
 		if (!refreshToken || !clientInformation || !authorizationServerUrl)
 			return finish("unavailable");
-		if (inDarkWake()) {
+		if ((options.isDarkWake ?? inDarkWake)()) {
 			phase = "dark-wake";
-			return finish("failed");
+			return finish("deferred-dark-wake");
 		}
 		const resource = provider.resourceUrl();
 		const fetchFn = options.fetchFn ?? fetch;
@@ -1097,6 +1121,7 @@ const SESSION_REFRESH_OUTCOMES = new Set<string>([
 	"unavailable",
 	"invalidated",
 	"scope-expanded",
+	"deferred-dark-wake",
 	"failed",
 ]);
 
