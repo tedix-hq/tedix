@@ -61,6 +61,12 @@ reserved by the SDK.
 
 Flow: `discover.search(query, { limit })` → `discover.describe(callable)` → the
 call. `discover.list_namespaces({ includeTools })` is for inventory.
+`discover.describe(callable)` returns the full input schema, description and
+annotations. Request the output schema only when needed with
+`discover.describe({ callable, includeOutputSchema: true })`.
+The configured native `catalog/describe` transport retains its full descriptor
+for existing clients; the CLI explicitly fetches output schemas through
+`catalog/search` with `includeOutputSchema: true` for result validation.
 Contract (`buildCatalogProvider`):
 
 - Rows omit schemas unless requested; schema-bearing searches without a
