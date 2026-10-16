@@ -302,6 +302,7 @@ export type ChatTransportActions = {
 			| "metadata"
 			| "modelRef"
 			| "workspaceContext"
+			| "delegateToTediId"
 		> & { idempotencyKey: string },
 	): Promise<EnqueueHomeMessageOutput>;
 	cancelRun(input: { runId: string }): Promise<unknown>;
@@ -497,6 +498,7 @@ export function useChatTransport(
 										attachments: input.attachments,
 										metadata: input.metadata,
 										modelRef: input.modelRef,
+										delegateToTediId: input.delegateToTediId,
 									},
 									input.idempotencyKey,
 								),

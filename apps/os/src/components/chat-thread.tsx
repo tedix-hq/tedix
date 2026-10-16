@@ -143,7 +143,7 @@ import {
 } from "@/lib/provisional-send";
 import { useChatTransport } from "@/lib/use-capn-chat";
 import { prepareChatAttachment } from "@/lib/chat-attachment-upload";
-import { useTediNames } from "@/lib/use-tedi-names";
+import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import { useRealtimeStatus, useRealtimeSurface } from "@/lib/use-realtime";
 import { absoluteTime, relativeTime } from "@/lib/time";
@@ -2189,6 +2189,13 @@ export function ChatThread({
 }) {
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
+	const activeTedis = useActiveTedis();
+	// Null sends to Home, which routes the message itself. A picked tedi is
+	// sent as an explicit delegation, like the embedded widget's switcher.
+	const [selectedTediId, setSelectedTediId] = useState<string | null>(null);
+	const selectedTediName = selectedTediId
+		? (activeTedis.find((tedi) => tedi.id === selectedTediId)?.name ?? null)
+		: null;
 	const localAiUnavailable = isLocalAiUnavailable();
 	const localWorkersAi = isLocalWorkersAi();
 
@@ -2331,6 +2338,7 @@ export function ChatThread({
 		// distinct id. Keep it only while this same new thread is resolving.
 		newConversationIdRef.current = null;
 		newWorkspaceIdRef.current = null;
+		setSelectedTediId(null);
 		cacheRef.current = new Map();
 		cursorInitializedRef.current = false;
 		stickToBottomRef.current = true;
@@ -2792,6 +2800,7 @@ export function ChatThread({
 				workpiece?: { kind: "gadget" | "output"; id: string };
 			};
 			modelRef?: string;
+			delegateToTediId?: string;
 		}) =>
 			transportActions.enqueueMessage({
 				conversationId: input.conversationId,
@@ -2801,6 +2810,7 @@ export function ChatThread({
 				metadata: input.metadata,
 				workspaceContext: input.workspaceContext,
 				modelRef: input.modelRef,
+				delegateToTediId: input.delegateToTediId,
 			}),
 		onSuccess: (output, variables) => {
 			if (output.status === "failed" && !output.assistantMessage) {
@@ -2826,7 +2836,7 @@ export function ChatThread({
 			});
 			setNotice(
 				needsDelegationChoice(output)
-					? "This request needs you to choose which tedi handles it. Pick one in the CLI for now; choosing here lands next."
+					? "Choose which tedi should handle this: pick one next to the model, then send again."
 					: null,
 			);
 			try {
@@ -3098,6 +3108,9 @@ export function ChatThread({
 						}
 					: undefined,
 				modelRef: localWorkersAi ? undefined : (selectedModelRef ?? undefined),
+				// A tedi that left the active roster falls back to Home.
+				delegateToTediId:
+					selectedTediId && selectedTediName ? selectedTediId : undefined,
 			});
 			if (
 				conversationId === null &&
@@ -3120,6 +3133,8 @@ export function ChatThread({
 			dispatchProvisional,
 			includeContext,
 			selectedModelRef,
+			selectedTediId,
+			selectedTediName,
 			directRead,
 			prepareNewConversation,
 			onConversationPrepared,
@@ -3986,6 +4001,38 @@ export function ChatThread({
 									onClick={() => void dictation.start().catch(() => undefined)}
 									icon={<Microphone size={16} />}
 								/>
+								{activeTedis.length > 0 ? (
+									<DropdownMenu>
+										<DropdownMenuTrigger
+											render={
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													className="min-w-0 max-w-32"
+													aria-label={`Send to ${selectedTediName ?? "Home"}`}
+												>
+													<span className="truncate">
+														{selectedTediName ?? "Home"}
+													</span>
+												</Button>
+											}
+										/>
+										<DropdownMenuContent>
+											<DropdownMenuItem onClick={() => setSelectedTediId(null)}>
+												Home (picks for you)
+											</DropdownMenuItem>
+											{activeTedis.map((tedi) => (
+												<DropdownMenuItem
+													key={tedi.id}
+													onClick={() => setSelectedTediId(tedi.id)}
+												>
+													{tedi.name}
+												</DropdownMenuItem>
+											))}
+										</DropdownMenuContent>
+									</DropdownMenu>
+								) : null}
 								{localWorkersAi ? (
 									<span
 										className="text-xs text-kumo-subtle"
