@@ -622,7 +622,9 @@ export async function registerDynamicTool(
 			// Text-only tool
 			const inputSchema = buildToolInputSchema(tool);
 			const textAnn = resolveWireAnnotations(tool);
-			const textOutputSchema = jsonSchemaToOutputSchema(tool.outputSchema);
+			const textOutputSchema = jsonSchemaToOutputSchema(tool.outputSchema, {
+				withActionEvidence: true,
+			});
 			await registerTextOnlyTool(
 				agent,
 				tool,
@@ -643,7 +645,9 @@ export async function registerDynamicTool(
 
 	// Convert schemas
 	const inputSchema = buildToolInputSchema(tool);
-	const outputSchema = jsonSchemaToOutputSchema(tool.outputSchema);
+	const outputSchema = jsonSchemaToOutputSchema(tool.outputSchema, {
+		withActionEvidence: true,
+	});
 
 	const adapterScope = parseAdapterScope(tool.adapterScope);
 	const annotations = resolveWireAnnotations(tool);

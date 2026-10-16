@@ -368,7 +368,7 @@ describe("home Work Item write tools are fail-closed without the write scope", (
 		home__update_work_item: "mcp:work.write",
 		home__accept_work_item: "mcp:work.admin",
 		home__complete_work_item: "mcp:work.write",
-		home__cancel_work_item: "mcp:work.admin",
+		home__cancel_work_item: "mcp:work.write",
 	};
 
 	it("resolves a concrete, non-empty write scope for every Work Item write tool", () => {

@@ -148,6 +148,44 @@ describe("Local agent session board authority", () => {
 });
 
 describe("work board scope resolution", () => {
+	it("routes single-item cancellation through Work write across native and tedi aliases", () => {
+		for (const toolId of [
+			"tedix__cancel_work_items",
+			"home__cancel_work_item",
+			"cro__cancel_work_item",
+		]) {
+			const tool = {
+				toolId,
+				toolTypeId: "rpc",
+				authRequired: true,
+				config: { endpoint: "workItems/cancel" },
+				annotations: { readOnlyHint: false, destructiveHint: false },
+			};
+			expect(
+				resolveMcpToolRequiredScopes(
+					tool,
+					inferToolNamespace(toolId),
+					tenantAggregateConfig,
+				),
+			).toEqual(["mcp:work.write"]);
+			for (const [scope, allowed] of [
+				["mcp:work.write", true],
+				["mcp:work.read", false],
+				["mcp:messaging.write", false],
+			] as const)
+				expect(
+					isMcpToolVisibleToCaller(
+						tool,
+						inferToolNamespace(toolId),
+						tenantAggregateConfig,
+						{ authType: "oauth", scopes: [scope] },
+					),
+				).toBe(allowed);
+		}
+		expect(resolve("accept_work_item")).toEqual(["mcp:work.admin"]);
+		expect(resolve("bulk_cancel_work_items")).toEqual(["mcp:work.admin"]);
+	});
+
 	it("requires the existing Work read grant for the exact approval inbox", () => {
 		expect(resolve("list_work_approvals")).toEqual(["mcp:work.read"]);
 		for (const prefix of ["", "tedix__", "tedix_unified__"]) {

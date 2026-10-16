@@ -191,7 +191,7 @@ const WORK_SCOPE_BY_TOOL: Record<(typeof SINGLE_WRITES)[number], string> = {
 	home__update_work_item: "mcp:work.write",
 	home__accept_work_item: "mcp:work.admin",
 	home__complete_work_item: "mcp:work.write",
-	home__cancel_work_item: "mcp:work.admin",
+	home__cancel_work_item: "mcp:work.write",
 };
 
 describe("resolveToolRequestMeta", () => {
