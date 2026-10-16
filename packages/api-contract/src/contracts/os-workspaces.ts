@@ -249,6 +249,27 @@ export const osWorkspacesContract = oc
 					}),
 				)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
+			createFromConversation: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/from-conversation",
+					summary: "Save a Home conversation as a Tedix OS workspace",
+					description:
+						"Creates a workspace from a Home conversation that has none, moves the outputs that conversation created into it (unless they were already placed in another workspace), and links the conversation to it. When one member saves it, the workspace is private to that member. A taken name gets a short suffix.",
+				})
+				.input(
+					z.object({
+						conversationId: z.string().min(1).max(200),
+						name: nameSchema,
+						description: descriptionSchema,
+					}),
+				)
+				.output(
+					z.object({
+						workspace: OsWorkspaceSchema,
+						movedOutputIds: z.array(z.string()),
+					}),
+				),
 			get: oc
 				.route({
 					method: "GET",

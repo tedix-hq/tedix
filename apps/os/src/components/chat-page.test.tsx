@@ -11,11 +11,6 @@ import {
 	it,
 	vi,
 } from "vite-plus/test";
-import {
-	workspaceNameFromPrompt,
-	workspaceRetryName,
-} from "@/components/chat-page";
-
 const chatHarness = vi.hoisted(() => ({
 	onSelect: null as null | ((conversationId: string | null) => void),
 	onConversationCreated: null as
@@ -31,42 +26,18 @@ const chatHarness = vi.hoisted(() => ({
 
 const apiHarness = vi.hoisted(() => ({
 	createWorkspace: vi.fn(),
+	createFromConversation: vi.fn(),
+	conversations: [] as Array<{
+		id: string;
+		title?: string;
+		workspaceId?: string | null;
+	}>,
 }));
 
 const routing = vi.hoisted(() => ({
 	navigate: vi.fn(),
 	search: {} as { conversation?: string },
 }));
-
-describe("chat workspace names", () => {
-	it("keeps a collision retry unique and within the workspace name limit", () => {
-		const base = workspaceNameFromPrompt("x".repeat(100));
-		expect(base.length).toBeLessThanOrEqual(40);
-		const retry = workspaceRetryName("x".repeat(100), "12345678-rest");
-		expect(retry).toHaveLength(72);
-		expect(retry.endsWith(" · 12345678")).toBe(true);
-	});
-
-	it("names a new chat workspace with a few words, not the whole prompt", () => {
-		expect(
-			workspaceNameFromPrompt(
-				"Can you please create a doc titled Q3 launch plan with three sections for the team",
-			),
-		).toBe("Q3 launch plan");
-		expect(
-			workspaceNameFromPrompt('Make a sheet "Hiring pipeline" for next week'),
-		).toBe("Hiring pipeline");
-		expect(
-			workspaceNameFromPrompt(
-				"hey, help me compare our three pricing options and write a summary",
-			),
-		).toBe("Compare our three pricing options");
-		expect(workspaceNameFromPrompt("   ")).toBe("New conversation");
-		expect(workspaceNameFromPrompt("What's on my calendar?")).toBe(
-			"What's on my calendar",
-		);
-	});
-});
 
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => routing.navigate,
@@ -75,6 +46,15 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@/components/chat-sidebar", () => ({
 	CHAT_CONVERSATIONS_QUERY_KEY: ["os-chat-conversations"],
+	conversationListQueryOptions: () => ({
+		queryKey: ["os-chat-conversations", "list"],
+		queryFn: async () => ({ conversations: apiHarness.conversations }),
+		initialPageParam: undefined,
+		getNextPageParam: () => undefined,
+		enabled: true,
+	}),
+	conversationTitle: (conversation: { title?: string }) =>
+		conversation.title ?? "New conversation",
 	ChatConversationHeader: ({
 		conversationId,
 		onBack,
@@ -145,15 +125,20 @@ vi.mock("@/components/chat-webmcp-tools", () => ({
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
-		osWorkspaces: { workspaces: { create: apiHarness.createWorkspace } },
+		osWorkspaces: {
+			workspaces: {
+				create: apiHarness.createWorkspace,
+				createFromConversation: apiHarness.createFromConversation,
+			},
+		},
 	},
 }));
 
 vi.mock("@/lib/os-query-options", () => ({
-	activeWorkspacesQueryOptions: () => ({
-		queryKey: ["os-workspaces", "active"],
-	}),
-	osQueryKeys: { workspaces: () => ["os-workspaces"] },
+	osQueryKeys: {
+		workspaces: () => ["os-workspaces"],
+		outputs: () => ["os-outputs"],
+	},
 }));
 
 import { ChatPage } from "./chat-page";
@@ -180,6 +165,8 @@ afterEach(async () => {
 	chatHarness.onConversationPrepared = null;
 	chatHarness.prepareNewConversation = null;
 	apiHarness.createWorkspace.mockReset();
+	apiHarness.createFromConversation.mockReset();
+	apiHarness.conversations = [];
 });
 
 async function mountPage(): Promise<HTMLElement> {
@@ -317,72 +304,63 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 		);
 	});
 
-	it("opens the prepared workspace before enqueue settlement", async () => {
+	it("creates no workspace when a new chat starts", async () => {
 		await mountPage();
-		await act(async () =>
-			chatHarness.onConversationPrepared?.(CONVERSATION_ID, WORKSPACE_ID),
+		// No preparation hook: the first send is a plain Home conversation.
+		expect(chatHarness.prepareNewConversation).toBeNull();
+		expect(chatHarness.onConversationPrepared).toBeNull();
+		for (const id of ["one", "two", "three"]) {
+			await act(async () =>
+				chatHarness.onConversationCreated?.(`home:os:${id}`),
+			);
+		}
+		expect(apiHarness.createWorkspace).not.toHaveBeenCalled();
+		expect(routing.navigate).toHaveBeenLastCalledWith({
+			to: "/chat",
+			search: { conversation: "home:os:three" },
+			replace: true,
+		});
+	});
+
+	it("saves a workspace-less chat as a workspace and opens it there", async () => {
+		routing.search = { conversation: CONVERSATION_ID };
+		apiHarness.conversations = [
+			{ id: CONVERSATION_ID, title: "Trip planning", workspaceId: null },
+		];
+		apiHarness.createFromConversation.mockResolvedValue({
+			workspace: { id: WORKSPACE_ID },
+			movedOutputIds: [],
+		});
+		const host = await mountPage();
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		const button = Array.from(host.querySelectorAll("button")).find(
+			(candidate) => candidate.textContent?.includes("Save as workspace"),
 		);
-		expect(routing.navigate).toHaveBeenCalledWith({
+		expect(button).toBeDefined();
+		await act(async () => button?.click());
+		expect(apiHarness.createFromConversation).toHaveBeenCalledWith({
+			conversationId: CONVERSATION_ID,
+			name: "Trip planning",
+		});
+		expect(routing.navigate).toHaveBeenLastCalledWith({
 			to: "/workspace/$workspaceId",
 			params: { workspaceId: WORKSPACE_ID },
 			search: { conversation: CONVERSATION_ID },
 		});
 	});
 
-	it("does not await the background workspace-directory revalidation", async () => {
-		apiHarness.createWorkspace.mockResolvedValue({
-			workspace: { id: WORKSPACE_ID },
+	it("offers no save for a chat that already has a workspace", async () => {
+		routing.search = { conversation: CONVERSATION_ID };
+		apiHarness.conversations = [
+			{ id: CONVERSATION_ID, title: "Linked", workspaceId: WORKSPACE_ID },
+		];
+		const host = await mountPage();
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
-		const invalidation = vi
-			.spyOn(QueryClient.prototype, "invalidateQueries")
-			.mockReturnValue(new Promise(() => undefined));
-		await mountPage();
-		const prepared = await Promise.race([
-			chatHarness.prepareNewConversation?.("Fast handoff"),
-			new Promise<never>((_resolve, reject) =>
-				setTimeout(
-					() => reject(new Error("workspace preparation stalled")),
-					50,
-				),
-			),
-		]);
-		expect(prepared).toEqual({ workspaceId: WORKSPACE_ID });
-		expect(invalidation).toHaveBeenCalled();
-		invalidation.mockRestore();
-	});
-
-	it("seeds the created workspace before the workbench handoff", async () => {
-		const workspace = { id: WORKSPACE_ID, name: "Fresh workspace" };
-		apiHarness.createWorkspace.mockResolvedValue({ workspace });
-		const setQueryData = vi.spyOn(QueryClient.prototype, "setQueryData");
-		await mountPage();
-
-		await chatHarness.prepareNewConversation?.("Fresh workspace");
-
-		expect(setQueryData).toHaveBeenCalledWith(
-			["os-workspaces", "active"],
-			expect.any(Function),
-		);
-		const update = setQueryData.mock.calls[0]?.[1] as (
-			current:
-				| {
-						items: Array<{ id: string; name: string }>;
-						truncated: boolean;
-				  }
-				| undefined,
-		) => { items: Array<{ id: string; name: string }>; truncated: boolean };
-		const stale = {
-			items: [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Stale" }],
-			truncated: false,
-		};
-		expect(update(stale)).toEqual({
-			items: [workspace, ...stale.items],
-			truncated: false,
-		});
-		expect(update(undefined)).toEqual({
-			items: [workspace],
-			truncated: false,
-		});
+		expect(host.textContent).not.toContain("Save as workspace");
 	});
 
 	it("keeps a workspace-less conversation on /chat", async () => {

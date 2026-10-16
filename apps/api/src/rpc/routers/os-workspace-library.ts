@@ -15,9 +15,13 @@ import {
 	createOsWorkspace,
 	deleteOsWorkspace,
 	getOsWorkspace,
+	getOsWorkspaceByName,
+	getPersonalOsWorkspace,
 	listOsWorkspaces,
+	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
+import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import {
 	getUserConfig,
 	listUserConfigs,
@@ -39,6 +43,8 @@ import {
 	resolveOsWorkspaceOwnerCandidate,
 	resolveOsWorkspaceViewer,
 } from "../../services/os-workspace-visibility";
+import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
+import { DEFAULT_OS_WORKSPACE_NAME } from "../../services/os-default-workspace";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -235,6 +241,96 @@ const create = authorOs.workspaces.create.handler(
 		}
 	},
 );
+
+/**
+ * "Save as workspace" on a chat: a new workspace holding that conversation and
+ * the outputs it made. A conversation already in a workspace is refused.
+ */
+const createFromConversation =
+	authorOs.workspaces.createFromConversation.handler(
+		async ({ input, context }) => {
+			const organizationId = requireOrgId(context);
+			const access = await resolveKernelConversationAccess(context.db, {
+				conversationId: input.conversationId,
+				descopeUserId: context.descopeUserId ?? context.user?.sub ?? null,
+				organizationId,
+				required: "edit",
+			});
+			if (!access.allowed) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Access denied to this conversation",
+				);
+			}
+			const db = queryDb(context);
+			// A chat belongs to the member who saves it, so its workspace stays
+			// private to them (its outputs may already sit in their private space).
+			const owner = await resolveOsWorkspaceOwnerCandidate(context);
+			const [conversation, general, personal] = await Promise.all([
+				getKernelConversation(context.db, {
+					organizationId,
+					conversationId: input.conversationId,
+				}),
+				getOsWorkspaceByName(db, {
+					organizationId,
+					name: DEFAULT_OS_WORKSPACE_NAME,
+				}),
+				owner
+					? getPersonalOsWorkspace(db, { organizationId, ownerUserId: owner })
+					: undefined,
+			]);
+			if (!conversation || conversation.deletedAt) {
+				throw createError(ErrorCodes.NOT_FOUND, "Conversation not found");
+			}
+			if (conversation.workspaceId) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"This conversation already belongs to a workspace",
+				);
+			}
+			const accountable = creator(context);
+			const timestamp = new Date().toISOString();
+			const workspaceId = crypto.randomUUID();
+			const save = (name: string) =>
+				saveConversationAsOsWorkspace(db, {
+					workspace: {
+						id: workspaceId,
+						organizationId,
+						name,
+						description: input.description ?? null,
+						status: "active",
+						visibility: owner ? "private" : "org",
+						ownerUserId: owner,
+						createdByKind: accountable.kind,
+						createdById: accountable.id,
+						createdAt: timestamp,
+						updatedAt: timestamp,
+					},
+					conversationId: input.conversationId,
+					fromWorkspaceIds: [
+						...(general?.visibility === "org" ? [general.id] : []),
+						...(personal ? [personal.id] : []),
+					],
+				});
+			let saved;
+			try {
+				saved = await save(input.name);
+			} catch (error) {
+				if (!isUniqueConstraintError(error)) throw error;
+				try {
+					saved = await save(
+						`${input.name.slice(0, 109).trimEnd()} · ${workspaceId.slice(0, 8)}`,
+					);
+				} catch (retryError) {
+					rethrowNameConflict(retryError);
+				}
+			}
+			return {
+				workspace: mapWorkspace(saved.workspace),
+				movedOutputIds: saved.movedOutputIds,
+			};
+		},
+	);
 
 const get = readOs.workspaces.get.handler(async ({ input, context }) => ({
 	workspace: mapWorkspace(await requireWorkspace(context, input.workspaceId)),
@@ -467,6 +563,7 @@ const touch = readOs.workspacePreferences.touch.handler(
 export const osWorkspaceProcedures = {
 	list,
 	create,
+	createFromConversation,
 	get,
 	update,
 	archive,

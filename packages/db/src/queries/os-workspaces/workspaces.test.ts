@@ -1,7 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { osWorkspaces } from "../../schema/os-workspaces";
+import {
+	kernelConversations,
+	kernelRuntimeRuns,
+} from "../../schema/cognitive-runtime";
+import {
+	osOutputRevisions,
+	osOutputs,
+	osWorkspaces,
+} from "../../schema/os-workspaces";
 import { userConfigs } from "../../schema/user-configs";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -9,8 +17,11 @@ import {
 	createOsWorkspace,
 	deleteOsWorkspace,
 	getOsWorkspace,
+	getOsWorkspaceByName,
+	getPersonalOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	listOsWorkspaces,
+	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
 } from "./workspaces";
 
@@ -172,5 +183,199 @@ describe("os workspaces", () => {
 		expect(row && isOsWorkspaceVisibleTo(row, { userIds: ["u-other"] })).toBe(
 			false,
 		);
+	});
+});
+
+describe("save a conversation as a workspace", () => {
+	function conversationFixture() {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(`
+			PRAGMA foreign_keys = ON;
+			CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL);
+			CREATE TABLE tedis (id TEXT PRIMARY KEY NOT NULL);
+			INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
+		`);
+		sqlite.exec(
+			schemaDdl(
+				osWorkspaces,
+				osOutputs,
+				osOutputRevisions,
+				kernelRuntimeRuns,
+				kernelConversations,
+			),
+		);
+		return createDbQueryClient(createD1Facade(sqlite));
+	}
+
+	async function seedOutput(
+		db: ReturnType<typeof conversationFixture>,
+		input: {
+			id: string;
+			workspaceId: string | null;
+			conversationId: string;
+			organizationId?: string;
+		},
+	) {
+		const organizationId = input.organizationId ?? "org-1";
+		const accountable = {
+			organizationId,
+			createdByKind: "user" as const,
+			createdById: "u-1",
+		};
+		await db.insert(osOutputs).values({
+			...accountable,
+			id: input.id,
+			workspaceId: input.workspaceId,
+			kind: "document",
+			title: input.id,
+			currentRevisionId: `${input.id}-r1`,
+		});
+		await db.insert(osOutputRevisions).values({
+			...accountable,
+			id: `${input.id}-r1`,
+			outputId: input.id,
+			revision: 1,
+			content: "{}",
+		});
+		await db.insert(kernelRuntimeRuns).values({
+			id: `run-${input.id}`,
+			organizationId,
+			conversationId: input.conversationId,
+			outputRevisionId: `${input.id}-r1`,
+		});
+	}
+
+	it("moves the conversation's unplaced and default outputs and links it", async () => {
+		const db = conversationFixture();
+		await createOsWorkspace(db, {
+			...workspace,
+			id: "ws-general",
+			name: "General",
+		});
+		await createOsWorkspace(db, {
+			...workspace,
+			id: "ws-other",
+			name: "Other",
+		});
+		await seedOutput(db, {
+			id: "out-loose",
+			workspaceId: null,
+			conversationId: "home:os:a",
+		});
+		await seedOutput(db, {
+			id: "out-general",
+			workspaceId: "ws-general",
+			conversationId: "home:os:a",
+		});
+		await seedOutput(db, {
+			id: "out-placed",
+			workspaceId: "ws-other",
+			conversationId: "home:os:a",
+		});
+		await seedOutput(db, {
+			id: "out-elsewhere",
+			workspaceId: null,
+			conversationId: "home:os:b",
+		});
+		await db.insert(kernelConversations).values({
+			id: "org-1:home:os:a",
+			organizationId: "org-1",
+			conversationId: "home:os:a",
+			lastMessageAt: "2026-10-16T00:00:00.000Z",
+			createdAt: "2026-10-16T00:00:00.000Z",
+			updatedAt: "2026-10-16T00:00:00.000Z",
+		});
+
+		const saved = await saveConversationAsOsWorkspace(db, {
+			workspace: { ...workspace, id: "ws-new", name: "Launch plan" },
+			conversationId: "home:os:a",
+			fromWorkspaceIds: ["ws-general"],
+		});
+
+		expect(saved.workspace).toMatchObject({
+			id: "ws-new",
+			name: "Launch plan",
+		});
+		expect(saved.movedOutputIds.sort()).toEqual(["out-general", "out-loose"]);
+		expect(saved.linked).toBe(true);
+		const placement = Object.fromEntries(
+			(await db.select().from(osOutputs)).map((row) => [
+				row.id,
+				row.workspaceId,
+			]),
+		);
+		expect(placement).toEqual({
+			"out-loose": "ws-new",
+			"out-general": "ws-new",
+			"out-placed": "ws-other",
+			"out-elsewhere": null,
+		});
+		const [conversation] = await db.select().from(kernelConversations);
+		expect(conversation?.workspaceId).toBe("ws-new");
+		expect(
+			await getOsWorkspaceByName(db, {
+				organizationId: "org-1",
+				name: "General",
+			}),
+		).toMatchObject({ id: "ws-general" });
+		expect(
+			await getOsWorkspaceByName(db, {
+				organizationId: "org-2",
+				name: "General",
+			}),
+		).toBeUndefined();
+	});
+
+	it("finds a member's own oldest active private workspace only", async () => {
+		const db = conversationFixture();
+		const privateTo = (id: string, owner: string, createdAt: string) => ({
+			...workspace,
+			id,
+			name: id,
+			visibility: "private" as const,
+			ownerUserId: owner,
+			createdAt,
+		});
+		await createOsWorkspace(db, { ...workspace, id: "ws-org", name: "Org" });
+		await createOsWorkspace(db, privateTo("ws-late", "u-1", "2026-10-02"));
+		await createOsWorkspace(db, privateTo("ws-first", "u-1", "2026-10-01"));
+		await createOsWorkspace(db, privateTo("ws-theirs", "u-2", "2026-09-01"));
+		const lookup = { organizationId: "org-1", ownerUserId: "u-1" };
+		expect((await getPersonalOsWorkspace(db, lookup))?.id).toBe("ws-first");
+		await updateOsWorkspace(
+			db,
+			{ organizationId: "org-1", workspaceId: "ws-first" },
+			{ status: "archived" },
+		);
+		expect((await getPersonalOsWorkspace(db, lookup))?.id).toBe("ws-late");
+		expect(
+			await getPersonalOsWorkspace(db, { ...lookup, ownerUserId: "u-3" }),
+		).toBeUndefined();
+	});
+
+	it("never relinks a conversation that already belongs to a workspace", async () => {
+		const db = conversationFixture();
+		await createOsWorkspace(db, {
+			...workspace,
+			id: "ws-other",
+			name: "Other",
+		});
+		await db.insert(kernelConversations).values({
+			id: "org-1:home:os:a",
+			organizationId: "org-1",
+			conversationId: "home:os:a",
+			workspaceId: "ws-other",
+			lastMessageAt: "2026-10-16T00:00:00.000Z",
+			createdAt: "2026-10-16T00:00:00.000Z",
+			updatedAt: "2026-10-16T00:00:00.000Z",
+		});
+		const saved = await saveConversationAsOsWorkspace(db, {
+			workspace: { ...workspace, id: "ws-new", name: "Second" },
+			conversationId: "home:os:a",
+			fromWorkspaceIds: [],
+		});
+		expect(saved.linked).toBe(false);
+		const [conversation] = await db.select().from(kernelConversations);
+		expect(conversation?.workspaceId).toBe("ws-other");
 	});
 });
