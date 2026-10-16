@@ -7,6 +7,7 @@
 
 import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { chunkForBoundParams } from "../utils/batch";
 import {
 	type AgentSessionEventKind,
 	type AgentSessionEventRow,
@@ -29,6 +30,8 @@ export const AGENT_SESSION_REQUEST_ACTIVE_STATUSES = [
 ] as const satisfies readonly AgentSessionRequestStatus[];
 /** Ids per `IN (...)` lookup, under D1's bound-parameter limit. */
 const ID_CHUNK = 50;
+/** Rows per multi-row INSERT, under D1's 100 bound parameters. */
+const ROWS_PER_INSERT = 5;
 
 export interface AgentSessionRequestOwner {
 	organizationId: string;
@@ -54,37 +57,41 @@ export async function recordAgentSessionRequests(
 	db: DbQueryClient,
 	params: RecordAgentSessionRequestsParams,
 ): Promise<AgentSessionRequestRow[]> {
-	if (!params.requests.length) return [];
-	return db
-		.insert(agentSessionRequests)
-		.values(
-			params.requests.map((request, index) => ({
-				id: crypto.randomUUID(),
-				organizationId: params.organizationId,
-				userId: params.userId,
-				harness: params.harness,
-				sessionKey: params.sessionKey,
-				repository: params.repository,
-				kind: request.kind,
-				text: request.text,
-				status: "open" as const,
-				evidence: null,
-				turnsUnaddressed: 0,
-				sourceAt: params.sourceAt,
-				sourceKey: `${params.sourceKey}:${index}`,
-				statusChangedAt: params.now,
-				createdAt: params.now,
-				updatedAt: params.now,
-			})),
-		)
-		.onConflictDoNothing({
-			target: [
-				agentSessionRequests.organizationId,
-				agentSessionRequests.userId,
-				agentSessionRequests.sourceKey,
-			],
-		})
-		.returning();
+	const rows = params.requests.map((request, index) => ({
+		id: crypto.randomUUID(),
+		organizationId: params.organizationId,
+		userId: params.userId,
+		harness: params.harness,
+		sessionKey: params.sessionKey,
+		repository: params.repository,
+		kind: request.kind,
+		text: request.text,
+		status: "open" as const,
+		evidence: null,
+		turnsUnaddressed: 0,
+		sourceAt: params.sourceAt,
+		sourceKey: `${params.sourceKey}:${index}`,
+		statusChangedAt: params.now,
+		createdAt: params.now,
+		updatedAt: params.now,
+	}));
+	const inserted: AgentSessionRequestRow[] = [];
+	// 16 bound parameters per row: five rows stay under D1's 100.
+	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT))
+		inserted.push(
+			...(await db
+				.insert(agentSessionRequests)
+				.values(chunk)
+				.onConflictDoNothing({
+					target: [
+						agentSessionRequests.organizationId,
+						agentSessionRequests.userId,
+						agentSessionRequests.sourceKey,
+					],
+				})
+				.returning()),
+		);
+	return inserted;
 }
 
 export interface ListAgentSessionRequestsParams extends AgentSessionRequestOwner {
@@ -157,29 +164,32 @@ export async function recordAgentSessionEvents(
 	db: DbQueryClient,
 	params: RecordAgentSessionEventsParams,
 ): Promise<number> {
-	if (!params.events.length) return 0;
-	const rows = await db
-		.insert(agentSessionEvents)
-		.values(
-			params.events.map((event) => ({
-				id: crypto.randomUUID(),
-				organizationId: params.organizationId,
-				userId: params.userId,
-				...event,
-				status: "pending" as const,
-				attempts: 0,
-				createdAt: params.now,
-			})),
-		)
-		.onConflictDoNothing({
-			target: [
-				agentSessionEvents.organizationId,
-				agentSessionEvents.userId,
-				agentSessionEvents.sourceKey,
-			],
-		})
-		.returning({ id: agentSessionEvents.id });
-	return rows.length;
+	const rows = params.events.map((event) => ({
+		id: crypto.randomUUID(),
+		organizationId: params.organizationId,
+		userId: params.userId,
+		...event,
+		status: "pending" as const,
+		attempts: 0,
+		createdAt: params.now,
+	}));
+	let inserted = 0;
+	// 15 bound parameters per row: five rows stay under D1's 100.
+	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT)) {
+		const result = await db
+			.insert(agentSessionEvents)
+			.values(chunk)
+			.onConflictDoNothing({
+				target: [
+					agentSessionEvents.organizationId,
+					agentSessionEvents.userId,
+					agentSessionEvents.sourceKey,
+				],
+			})
+			.returning({ id: agentSessionEvents.id });
+		inserted += result.length;
+	}
+	return inserted;
 }
 
 /** The caller's oldest pending events (stale leases included), in order. */
