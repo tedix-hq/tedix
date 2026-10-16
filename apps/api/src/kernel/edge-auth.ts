@@ -1,6 +1,11 @@
 /** Authentication shared by kernel voice routes and scoped-token minting. */
 
-import { isUserToken, validateToken } from "@tedix/auth/jwt";
+import {
+	decodeTokenUnsafe,
+	isOAuthClientToken,
+	isUserToken,
+	validateToken,
+} from "@tedix/auth/jwt";
 import { getTenantId } from "@tedix/auth/types";
 import {
 	extractBearerToken,
@@ -115,7 +120,11 @@ export async function authenticateKernelSessionJwt(
 		const message = error instanceof Error ? error.message : "invalid token";
 		return { ok: false, response: jsonError(401, "Unauthorized", message) };
 	}
-	if (!isUserToken(payload) || !payload.sub) {
+	if (
+		!isUserToken(payload) ||
+		!payload.sub ||
+		isOAuthClientToken(decodeTokenUnsafe(token) ?? payload)
+	) {
 		return {
 			ok: false,
 			response: jsonError(

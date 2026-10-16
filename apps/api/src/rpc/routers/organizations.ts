@@ -2613,6 +2613,9 @@ export const generateSsoSetupLinkContract =
 				input.expireDuration,
 				undefined,
 				input.email,
+				undefined,
+				// Attributes the link to the acting admin in Descope's audit trail.
+				context.user?.sub,
 			);
 			if (!result.ok || !result.data?.adminSSOConfigurationLink) {
 				throw createError(

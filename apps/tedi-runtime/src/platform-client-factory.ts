@@ -14,6 +14,7 @@
 
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { DescopeAccessKeyExchange } from "@tedix/auth/access-key-exchange";
+import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import {
 	extractTediRuntimeApiScopes,
 	TEDI_RUNTIME_API_SCOPES,
@@ -96,20 +97,6 @@ type WarnFn = (message?: unknown, ...optionalParams: unknown[]) => void;
 
 const missingPlatformClientSecretWarns = new Set<string>();
 
-function parseJwtPayload(jwt: string): Record<string, unknown> | null {
-	const payload = jwt.split(".")[1];
-	if (!payload) return null;
-	try {
-		const base64 = payload
-			.replace(/-/g, "+")
-			.replace(/_/g, "/")
-			.padEnd(Math.ceil(payload.length / 4) * 4, "=");
-		return JSON.parse(atob(base64)) as Record<string, unknown>;
-	} catch {
-		return null;
-	}
-}
-
 export function findMissingRuntimeApiScopes(
 	payload: Record<string, unknown> | null,
 ): string[] {
@@ -136,7 +123,7 @@ async function exchangeAccessKey(
 		}).getToken();
 		return {
 			ok: true,
-			missingScopes: findMissingRuntimeApiScopes(parseJwtPayload(sessionJwt)),
+			missingScopes: findMissingRuntimeApiScopes(decodeTokenUnsafe(sessionJwt)),
 		};
 	} catch (err) {
 		return {

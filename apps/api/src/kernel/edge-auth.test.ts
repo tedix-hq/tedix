@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
 	org: vi.fn(),
 	member: vi.fn(),
 }));
-vi.mock("@tedix/auth/jwt", () => ({
+vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/auth/jwt")>()),
 	validateToken: mocks.validate,
 	isUserToken: mocks.user,
 }));
@@ -128,7 +129,7 @@ describe("session organization authorization", () => {
 			await status(await authenticateKernelSessionJwt("session", null, env)),
 		).toBe(403);
 	});
-	it("rejects invalid, non-user and subjectless JWTs", async () => {
+	it("rejects invalid, non-user, subjectless and MCP OAuth JWTs", async () => {
 		mocks.validate.mockRejectedValueOnce(new Error("invalid"));
 		expect(
 			await status(await authenticateKernelSessionJwt("bad", null, env)),
@@ -140,6 +141,14 @@ describe("session organization authorization", () => {
 		mocks.validate.mockResolvedValueOnce({ sub: "" });
 		expect(
 			await status(await authenticateKernelSessionJwt("empty", null, env)),
+		).toBe(401);
+		mocks.validate.mockResolvedValueOnce({
+			sub: "U123",
+			iss: "https://api.descope.com/v1/apps/agentic/project/connect",
+			azp: "https://client.example/oauth-client.json",
+		});
+		expect(
+			await status(await authenticateKernelSessionJwt("mcp-oauth", null, env)),
 		).toBe(401);
 	});
 	it("does not change organization selection from host headers", async () => {

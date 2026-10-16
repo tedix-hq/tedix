@@ -6433,7 +6433,9 @@ it("enforces installed native Forms permissions and token scopes before handler 
 	});
 	expect(allowed.status).toBe(200);
 	expect(dispatched).toBe(1);
-});
+	// Cold-imports the emdash and Forms plugin sources, which takes 4-5 s on a
+	// loaded machine and timed out the pre-push gate at the 5 s default.
+}, 30_000);
 
 describe("Native existing-site onboarding forwarding", () => {
 	it("registers one empty-input REST operation and preserves the human administrator", async () => {

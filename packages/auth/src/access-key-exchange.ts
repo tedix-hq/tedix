@@ -6,8 +6,10 @@
  *
  * Calls `/v1/auth/accesskey/exchange` through `descopeFetch` for its bounded
  * per-attempt timeout, with retries disabled so a failed exchange surfaces
- * once to the caller. The SDK's `accessKey` module also covers this endpoint;
- * this path stays outside it for its self-contained caching loop.
+ * once to the caller. The node-sdk's `exchangeAccessKey` covers the same
+ * endpoint, but it also verifies the returned JWT (a JWKS fetch on each cold
+ * isolate) and has no per-call timeout. This caller only forwards the JWT, and
+ * apps/api verifies it.
  */
 
 import { descopeFetch } from "./descope-fetch";

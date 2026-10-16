@@ -997,13 +997,11 @@ export async function validateAuth(
 				baseUrl: env.DESCOPE_BASE_URL,
 				audience: validationAudience,
 				allowTediJwt: true, // Tedi JWTs are valid callers on MCP endpoints
-				// Measure, do not enforce. This is the only site that checks `aud`
-				// at all, and even here the check is weaker than it looks:
-				// `validateToken` falls back to the bare project ID as the primary
-				// audience, so `aud: <projectId>` is accepted. Auditing tells us how
-				// much traffic relies on that fallback before we tighten it — see
-				// `passedOnlyViaProjectId`.
-				...(options?.expectedAudience
+				// When `validationAudience` is set, `validateToken` already enforces
+				// it exactly. It is unset only for AIH client-credentials tokens (see
+				// resolveMcpTokenValidationAudience), so measure whether those
+				// tokens carry this resource before that exception is removed.
+				...(options?.expectedAudience && !validationAudience
 					? {
 							auditAudience: {
 								surface: "mcp:edge",

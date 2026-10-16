@@ -1,10 +1,11 @@
 /**
  * Descope OAuth Resource management.
  *
- * Resources are the current authorization model shared by the Resources and
- * Agentic Identity Hub console views. Do not confuse these endpoints with the
- * legacy `/v1/mgmt/mcp/server/*` surface, which creates `MS...` records that do
- * not appear in the Resources inventory.
+ * Resources are the authorization model shared by the Resources and Agentic
+ * Identity Hub console views. They are separate from the current
+ * `/v1/mgmt/mcp/server/*` surface (aih-client.ts), which manages MCP servers
+ * (`MS...` records) and their clients; those records do not appear in the
+ * Resources inventory.
  */
 
 import { descopeManagementFetch } from "./descope-fetch.ts";

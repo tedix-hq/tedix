@@ -325,3 +325,24 @@ export function isUserToken(payload: JWTPayload): boolean {
 	if (payload.client_id && !payload.email) return false;
 	return true;
 }
+
+/**
+ * An OAuth access token Descope issued to a client application (an AIH MCP
+ * server such as Connect, or an inbound app) rather than a login session. It is
+ * signed under `/v1/apps/...` and names its relying party in `azp` or
+ * `client_id`, and its authority is the consented scope set, not the user's
+ * full role. It still carries the project id in `aud`, so an audience check
+ * cannot tell it apart from a session JWT. Session-only paths reject it; the MCP
+ * edge validates it and forwards it over the service binding instead.
+ *
+ * Pass the token's own claims (`decodeTokenUnsafe` after validation): the
+ * Descope SDK rewrites a validated payload's `iss` to the bare project id.
+ */
+export function isOAuthClientToken(payload: JWTPayload): boolean {
+	if (payload.client_id || payload.azp) return true;
+	try {
+		return new URL(payload.iss).pathname.startsWith("/v1/apps/");
+	} catch {
+		return false;
+	}
+}

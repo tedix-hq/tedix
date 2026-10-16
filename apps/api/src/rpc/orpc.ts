@@ -21,6 +21,7 @@ import { resolveOwnerHostSession } from "@tedix/db/queries/external-agent-identi
 import {
 	decodeTokenUnsafe,
 	isM2MToken,
+	isOAuthClientToken,
 	isUserToken,
 	validateToken,
 } from "@tedix/auth/jwt";
@@ -1552,6 +1553,12 @@ async function authenticateUserJwt(
 	// Verify this is a user token (not M2M)
 	if (!isUserToken(payload)) {
 		throw new Error("Token is not a user token");
+	}
+	// "Human app -> API" accepts only a Descope session JWT. An MCP OAuth token
+	// (Claude, ChatGPT, the CLI's Connect login) carries a narrow consented scope
+	// set; accepting it here would grant the user's full role instead.
+	if (isOAuthClientToken(decodeTokenUnsafe(token) ?? payload)) {
+		throw new Error("OAuth client tokens are not accepted as a user session");
 	}
 
 	context.user = payload;
