@@ -42,6 +42,46 @@ const truncated = (preview: string) => ({
 	guidance: "Result truncated by the Code Mode gateway: ~27,269 tokens",
 });
 
+test("conversation titles survive oversized pages and pagination", async () => {
+	let pages = 0;
+	const { client } = harness(async (_index, params) => {
+		const source = String(params?.arguments.code);
+		const value = await new Function("home", `return (${source})()`)({
+			list_conversations: async ({ cursor }: { cursor?: string }) => {
+				pages++;
+				return cursor
+					? {
+							conversations: [
+								{
+									id: "target-chat",
+									title: "Example title",
+									metadata: "x".repeat(50_000),
+								},
+							],
+							nextCursor: null,
+						}
+					: {
+							conversations: Array.from({ length: 100 }, (_, i) => ({
+								id: `other-chat-${i}`,
+								title: "Other title",
+								metadata: "x".repeat(1_000),
+							})),
+							nextCursor: "page-two",
+						};
+			},
+		});
+		return gatewayResult(
+			JSON.stringify(value).length > 4_000
+				? truncated("oversized conversation page")
+				: value,
+		);
+	});
+	expect(await client.readHomeConversationTitle("target-chat")).toBe(
+		"Example title",
+	);
+	expect(pages).toBe(2);
+});
+
 const fullRun = {
 	id: "54964dda-e749-43ba-ade9-a63547f26673",
 	organizationId: "org-1",
