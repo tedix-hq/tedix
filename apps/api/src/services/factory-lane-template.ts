@@ -290,9 +290,10 @@ function prompt(cycleKey, open) {
 				]
 			: ["Do not propose Work Items this cycle; reply with an empty proposals list."]),
 		"Do not create Work Items yourself: this workflow files your proposals.",
+		"The list above has titles only; read an item with work_item_get when the goal needs its comments or evidence.",
 		...(FACTORY.output
 			? [
-					\`This workflow appends your summary to the \${FACTORY.output.kind} "\${FACTORY.output.title ?? FACTORY.output.id}" as this cycle's dated section. Write the summary for its readers; do not edit that \${FACTORY.output.kind} yourself.\`,
+					\`This workflow appends your summary to the \${FACTORY.output.kind} "\${FACTORY.output.title ?? FACTORY.output.id}" under a dated heading it adds. Write the summary as plain sentences for its readers, without a heading; do not edit that \${FACTORY.output.kind} yourself.\`,
 				]
 			: []),
 		"Reply with a short summary, then end with the marker line followed by one JSON object with keys",
