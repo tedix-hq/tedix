@@ -45,6 +45,7 @@ import {
 	ruleTextById,
 	type SheetBody,
 	snoozeUntil,
+	sourceParts,
 	type Verdict,
 	verdictCells,
 } from "@/lib/card-review";
@@ -841,7 +842,7 @@ function SwipeCard({
 					{card.who}
 				</Text>
 			)}
-			<SourceLine text={card.sourceText} link={card.link} />
+			<SourceLine text={card.sourceText} />
 
 			<section aria-label="Why this card" className="flex flex-col gap-1">
 				<Text as="h3" role="caption" tone="secondary" className="m-0">
@@ -887,21 +888,16 @@ function SwipeCard({
 	);
 }
 
-function SourceLine({ text, link }: { text: string; link: string | null }) {
-	const label = link
-		? text
-				.replace(link, "")
-				.replace(/[\s·]+$/, "")
-				.trim()
-		: text;
-	let host: string | null = null;
-	if (link) {
-		try {
-			host = new URL(link).hostname.replace(/^www\./, "");
-		} catch {
-			host = null;
-		}
+function hostOf(link: string): string {
+	try {
+		return new URL(link).hostname.replace(/^www\./, "");
+	} catch {
+		return "source";
 	}
+}
+
+function SourceLine({ text }: { text: string }) {
+	const { label, links } = sourceParts(text);
 	return (
 		<div className="flex min-w-0 flex-col gap-1">
 			{label && (
@@ -909,16 +905,22 @@ function SourceLine({ text, link }: { text: string; link: string | null }) {
 					{label}
 				</Text>
 			)}
-			{link && (
-				<a
-					href={link}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="inline-flex items-center gap-1 self-start text-kumo-link type-tedix-label underline-offset-4 hover:underline"
-				>
-					Open {host ?? "source"}
-					<ArrowSquareOut aria-hidden className="size-3.5" />
-				</a>
+			{links.length > 0 && (
+				<div className="flex flex-wrap gap-x-3 gap-y-1">
+					{links.map((link, index) => (
+						<a
+							key={link}
+							href={link}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="inline-flex items-center gap-1 text-kumo-link type-tedix-label underline-offset-4 hover:underline"
+						>
+							Open {hostOf(link)}
+							{links.length > 1 ? ` (${index + 1})` : ""}
+							<ArrowSquareOut aria-hidden className="size-3.5" />
+						</a>
+					))}
+				</div>
 			)}
 		</div>
 	);

@@ -79,6 +79,24 @@ export function firstLink(text: string): string | null {
 	return match[0].replace(/[.,;:]+$/, "");
 }
 
+/** A source cell split into readable text and its links (at most three). */
+export function sourceParts(text: string): { label: string; links: string[] } {
+	const links = [
+		...new Set(
+			(text.match(new RegExp(URL_PATTERN.source, "g")) ?? []).map((link) =>
+				link.replace(/[.,;:]+$/, ""),
+			),
+		),
+	].slice(0, 3);
+	const label = text
+		.replace(new RegExp(URL_PATTERN.source, "g"), "")
+		.replace(/(\s*[·;,]\s*)+(?=$|\))/g, "")
+		.replace(/\(\s*\)/g, "")
+		.replace(/\s{2,}/g, " ")
+		.trim();
+	return { label, links };
+}
+
 export type ReviewCard = {
 	key: string;
 	sourceIndex: number;
@@ -337,8 +355,9 @@ export function isSnoozed(
 }
 
 /**
- * The review queue: open, unsnoozed cards in the selected channel, newest run
- * first and then sheet order; skipped cards move to the end.
+ * The review queue: open, unsnoozed cards in the selected channel, in the
+ * configured source order (an install lists its own workspace first), then
+ * newest run first and sheet order; skipped cards move to the end.
  */
 export function reviewQueue(
 	cards: readonly ReviewCard[],
@@ -357,11 +376,13 @@ export function reviewQueue(
 				!isSnoozed(options.snoozes, card.key, options.now),
 		)
 		.sort((a, b) =>
-			a.runCreatedAt === b.runCreatedAt
-				? a.outputId === b.outputId
-					? a.rowIndex - b.rowIndex
-					: a.outputId.localeCompare(b.outputId)
-				: b.runCreatedAt.localeCompare(a.runCreatedAt),
+			a.sourceIndex !== b.sourceIndex
+				? a.sourceIndex - b.sourceIndex
+				: a.runCreatedAt === b.runCreatedAt
+					? a.outputId === b.outputId
+						? a.rowIndex - b.rowIndex
+						: a.outputId.localeCompare(b.outputId)
+					: b.runCreatedAt.localeCompare(a.runCreatedAt),
 		);
 	const skipped = new Map(options.skipped.map((key, i) => [key, i]));
 	return [

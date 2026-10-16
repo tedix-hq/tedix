@@ -13,6 +13,7 @@ import {
 	rowWrite,
 	ruleTextById,
 	snoozeUntil,
+	sourceParts,
 	verdictCells,
 } from "./card-review";
 
@@ -117,6 +118,18 @@ describe("columns and links", () => {
 			"https://example.com/a",
 		);
 		expect(firstLink("no link")).toBeNull();
+	});
+
+	it("splits a source cell into readable text and every link", () => {
+		expect(
+			sourceParts(
+				"Ada Example · 'Hello' + 'Again' · https://example.com/a; https://example.com/b.",
+			),
+		).toEqual({
+			label: "Ada Example · 'Hello' + 'Again'",
+			links: ["https://example.com/a", "https://example.com/b"],
+		});
+		expect(sourceParts("plain")).toEqual({ label: "plain", links: [] });
 	});
 });
 
@@ -255,6 +268,20 @@ describe("reviewQueue", () => {
 				(c) => c.key,
 			),
 		).toEqual(["new:0", "new:1", "old:0", "x:0"]);
+		const later = card({
+			key: "second:0",
+			outputId: "second",
+			sourceIndex: 1,
+			runCreatedAt: "2026-01-09T00:00:00.000Z",
+		});
+		expect(
+			reviewQueue([later, ...cards], {
+				channel: null,
+				snoozes: {},
+				skipped: [],
+				now,
+			}).at(-1)?.key,
+		).toBe("second:0");
 	});
 
 	it("filters by channel, hides snoozed cards and moves skipped ones last", () => {
