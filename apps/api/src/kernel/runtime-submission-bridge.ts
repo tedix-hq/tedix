@@ -593,6 +593,28 @@ export function decideTediSubmissionRecovery(args: {
  */
 export type KernelRecoveryDecision = "redrive" | "failed" | null;
 
+/**
+ * Crash lease for one stale kernel run. A run that never decided a route and
+ * never dispatched a child did nothing external, and a live DO turn past the
+ * stall watchdog (240s) is already failed by it — so such a run that has been
+ * silent for {@link KERNEL_UNROUTED_CRASH_LEASE_MS} was lost (usually to a
+ * deploy) and is re-driven then, not after the full lease.
+ */
+export const KERNEL_UNROUTED_CRASH_LEASE_MS = 6 * 60_000;
+
+export function kernelCrashLeaseMs(args: {
+	kernelRoute?: unknown;
+	delegatedTediId?: string | null;
+	childRunId?: string | null;
+	defaultLeaseMs: number;
+}): number {
+	return args.kernelRoute === null &&
+		args.delegatedTediId == null &&
+		args.childRunId == null
+		? Math.min(KERNEL_UNROUTED_CRASH_LEASE_MS, args.defaultLeaseMs)
+		: args.defaultLeaseMs;
+}
+
 export function decideKernelRedrive(args: {
 	runStatus: string;
 	/**

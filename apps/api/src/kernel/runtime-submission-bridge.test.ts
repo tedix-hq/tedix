@@ -10,6 +10,7 @@ import {
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	decideKernelRedrive,
+	kernelCrashLeaseMs,
 	claimKernelExecutionPolicy,
 	assertKernelExecutionPolicyClaim,
 	decideKernelSubmissionRecovery,
@@ -320,6 +321,31 @@ describe("runtime-submission-bridge", () => {
 					crashLeaseMs: lease,
 				}),
 			).toBeNull();
+		});
+	});
+
+	describe("kernelCrashLeaseMs", () => {
+		const lease = 15 * 60_000;
+		it("re-drives a never-routed, never-delegated run after six minutes", () => {
+			expect(
+				kernelCrashLeaseMs({ kernelRoute: null, defaultLeaseMs: lease }),
+			).toBe(6 * 60_000);
+		});
+		it("keeps the full lease once a route or a child exists, or when unknown", () => {
+			expect(
+				kernelCrashLeaseMs({
+					kernelRoute: { routeKind: "answer_in_home" },
+					defaultLeaseMs: lease,
+				}),
+			).toBe(lease);
+			expect(
+				kernelCrashLeaseMs({
+					kernelRoute: null,
+					childRunId: "child-1",
+					defaultLeaseMs: lease,
+				}),
+			).toBe(lease);
+			expect(kernelCrashLeaseMs({ defaultLeaseMs: lease })).toBe(lease);
 		});
 	});
 

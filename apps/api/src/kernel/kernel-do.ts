@@ -1328,6 +1328,13 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 							organizationId,
 						});
 						if (!runRow) continue; // no run row → orphan; leave for a heartbeat-gated pass
+						const crashLeaseMs = submissionBridge.kernelCrashLeaseMs({
+							kernelRoute: (runRow.metadata as Record<string, unknown> | null)
+								?.kernelRoute,
+							delegatedTediId: runRow.delegatedTediId,
+							childRunId: runRow.childRunId,
+							defaultLeaseMs: KERNEL_CRASH_LEASE_MS,
+						});
 						// Liveness signal: prefer the run's own latest-event timestamp (kept
 						// current by insertKernelRuntimeEvent's latestEventAt patch), falling
 						// back to the run row's updatedAt, then the submission's updatedAt.
@@ -1340,7 +1347,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 							abortRequestedAt: submission.abortRequestedAt,
 							lastSignalMs,
 							nowMs,
-							crashLeaseMs: KERNEL_CRASH_LEASE_MS,
+							crashLeaseMs,
 						});
 						if (!outcome) continue;
 						const conversationId =
@@ -1384,7 +1391,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 											abortRequestedAt: submission.abortRequestedAt,
 											lastSignalMs,
 											nowMs,
-											crashLeaseMs: KERNEL_CRASH_LEASE_MS,
+											crashLeaseMs,
 											childRun: childSummary
 												? {
 														status: childSummary.childRunStatus,
@@ -1461,7 +1468,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 									maxRetry: submission.maxRetry ?? 10,
 									lastSignalMs,
 									nowMs,
-									crashLeaseMs: KERNEL_CRASH_LEASE_MS,
+									crashLeaseMs,
 								}) === "redrive"
 							) {
 								const stamp = runMetadata.redriveInput;
