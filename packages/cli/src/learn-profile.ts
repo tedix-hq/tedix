@@ -611,14 +611,20 @@ export function stabilizeWorkstreams(
 				...e,
 				name: stable.name,
 				description: stable.description,
-				sessions: [...new Set([...e.sessions, ...(old?.sessions ?? [])])].slice(
-					0,
-					200,
-				),
+				sessions: e.sessions.slice(0, 200),
 				order: stable.order,
 			};
 			return stable;
 		});
+	// A session belongs to the workstream it is in now, not to an earlier one.
+	const current = new Set(result.flatMap((w) => w.sessions.map((f) => f.key)));
+	const kept = new Set(result.map((w) => w.key));
+	for (const [key, entry] of Object.entries(registry))
+		if (!kept.has(key))
+			registry[key] = {
+				...entry,
+				sessions: entry.sessions.filter((k) => !current.has(k)),
+			};
 	return { workstreams: result.sort(workstreamOrder), registry };
 }
 
@@ -986,11 +992,63 @@ Return ONLY JSON, no prose: [{"name":"<2-4 words>","description":"<one sentence:
 `;
 
 /**
- * Merge fine threads into at most MAX_WORKSTREAMS workstreams: evidence
- * first (shared board project, shared Work Items, a repository of their
- * own), then the model names and merges the clusters, and code holds the cap.
+ * Merge fine threads into at most MAX_WORKSTREAMS workstreams. A thread
+ * whose sessions mostly belong to a workstream from an earlier run stays in
+ * it, under its name, so a re-run keeps its sections; only the rest is
+ * merged afresh.
  */
 export async function mergeWorkstreams(
+	fine: Workstream[],
+	summaries: Map<string, SessionSummary>,
+	board: Pick<Board, "items" | "projects">,
+	run: RunModel,
+	prior: Record<string, WorkstreamIdentity> = {},
+): Promise<Workstream[]> {
+	const owner = new Map<string, string>();
+	for (const [id, entry] of Object.entries(prior))
+		for (const key of entry.sessions) owner.set(key, id);
+	const anchored = new Map<string, Workstream[]>();
+	const rest: Workstream[] = [];
+	for (const w of fine) {
+		const [id, votes] =
+			countMap(w.sessions.map((f) => owner.get(f.key) ?? ""))[0] ?? [];
+		if (id && votes! * 2 >= w.sessions.length)
+			anchored.set(id, [...(anchored.get(id) ?? []), w]);
+		else rest.push(w);
+	}
+	if (!anchored.size) return mergeFresh(fine, summaries, board, run);
+	const merged = [
+		...[...anchored].map(([id, members]) =>
+			workstream(
+				prior[id]!.name,
+				prior[id]!.description,
+				members.flatMap((w) => w.parts),
+				summaries,
+			),
+		),
+		...(rest.length ? await mergeFresh(rest, summaries, board, run) : []),
+	].sort((a, b) => b.weight - a.weight);
+	if (merged.length > MAX_WORKSTREAMS) {
+		const tail = merged.splice(MAX_WORKSTREAMS - 1);
+		merged.push(
+			workstream(
+				"Other work",
+				"Smaller threads that fit no main workstream.",
+				tail.flatMap((w) => w.parts),
+				summaries,
+			),
+		);
+	}
+	for (const w of merged) linkWorkstream(w, board);
+	return merged;
+}
+
+/**
+ * Merge fine threads afresh: evidence first (shared board project, shared
+ * Work Items, a repository of their own), then the model names and merges
+ * the clusters, and code holds the cap.
+ */
+async function mergeFresh(
 	fine: Workstream[],
 	summaries: Map<string, SessionSummary>,
 	board: Pick<Board, "items" | "projects">,
@@ -1441,6 +1499,8 @@ export async function planNow(input: {
 	pending?: string[];
 	/** The organization's tedis a delegated action can name. */
 	team?: Array<{ slug: string; name: string }>;
+	/** True for an action the member already answered in their inbox. */
+	answered?: (title: string) => boolean;
 	goals: string[];
 	notes: string[];
 	run: RunModel;
@@ -1518,7 +1578,7 @@ export async function planNow(input: {
 		: [];
 	// Strategic only; different workstreams first, so the three cover different work.
 	const strategic = proposed.filter(
-		(a) => a.title && !HOUSEKEEPING.test(a.title),
+		(a) => a.title && !HOUSEKEEPING.test(a.title) && !input.answered?.(a.title),
 	);
 	const actions: PersonProfile["actions"] = [];
 	for (const a of strategic)
@@ -2187,7 +2247,13 @@ export async function runProfile(
 		board = await readBoard(read, call, write);
 	}
 	const me = board.me;
-	const merged = await mergeWorkstreams(threads, summaries, board, rollups.run);
+	const merged = await mergeWorkstreams(
+		threads,
+		summaries,
+		board,
+		rollups.run,
+		state.workstreams,
+	);
 	rollups.save();
 	write(`  Merged into ${merged.length} workstreams. Describing them...`);
 	await describeWorkstreams(merged, summaries, rollups.run, today);
@@ -2227,8 +2293,28 @@ export async function runProfile(
 			/* Without the roster, a delegated start goes to the default tedi. */
 		}
 	const goals = deps.goals ?? (await codexGoals(home));
+	const names = new Set(
+		[
+			...profile.people.map((x) => x.name),
+			...[...summaries.values()].flatMap((s) => s.people),
+		]
+			.flatMap((n) => n.split(/\s+/))
+			.map((n) => n.toLowerCase())
+			.filter((n) => n.length > 1),
+	);
 	const plan = await planNow({
 		team,
+		// Answered before (accepted, declined or withdrawn): never offered again.
+		answered: (title) => {
+			const prior = askedFor(
+				{
+					key: `profile:${sha(title.toLowerCase())}`,
+					title: withoutNames(title, names),
+				},
+				asked,
+			);
+			return Boolean(prior && prior.state !== "open");
+		},
 		pending: asked
 			.filter((row) => row.key.startsWith("profile:") && row.state === "open")
 			.map((row) => row.title),
@@ -2257,15 +2343,6 @@ export async function runProfile(
 	);
 	profile.actions = plan.actions;
 	rollups.save();
-	const names = new Set(
-		[
-			...profile.people.map((x) => x.name),
-			...[...summaries.values()].flatMap((s) => s.people),
-		]
-			.flatMap((n) => n.split(/\s+/))
-			.map((n) => n.toLowerCase())
-			.filter((n) => n.length > 1),
-	);
 	const actions: ActionLink[] = [];
 	const proposalsMade: Json = {};
 	const withdrawn: string[] = [];
