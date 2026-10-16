@@ -19,6 +19,22 @@ const inspect = async (
 ): Promise<PiStorageSnapshot> => JSON.parse(await agent.inspectFixture(runId));
 
 describe("native Pi provider and durable storage", () => {
+	it("ends the durable owned answer with trusted MCP receipts through both tool entry points", async () => {
+		for (const name of ["tedix_mcp_code", "tedix_mcp_call_tool"]) {
+			const fixtureName = crypto.randomUUID();
+			const agent = await fixture(fixtureName);
+			const first = await agent.turn("receipt-proof", name);
+			expect(first.result.assistantText).toContain(
+				"https://os.example.test/work/items/scratch#comment-note",
+			);
+			expect(first.result.assistantText).toMatch(/actor: tedi:orion\.$/);
+			expect((await inspect(agent, "receipt-proof")).effects).toBe(1);
+			await abortAllDurableObjects();
+			const restarted = await fixture(fixtureName);
+			expect(await restarted.turn("receipt-proof", name)).toEqual(first);
+			expect((await inspect(restarted, "receipt-proof")).effects).toBe(1);
+		}
+	});
 	it("replays the exact owned answer after eviction and a later submission without repeating inference or effects", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);

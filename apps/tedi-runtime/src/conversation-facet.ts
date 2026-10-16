@@ -1,5 +1,4 @@
 import { selectRetainIndex } from "@tedix/context-core/compaction-boundary";
-import { appendActionReceipts, collectActionReceipts } from "./action-receipts";
 import { recoverDurableObjectDeploymentReset } from "./durable-object-recovery";
 import { classifyTediContextOverflow } from "./context-overflow";
 import { resolveModelInputBudgetTokens } from "./model-input-budget";
@@ -726,12 +725,6 @@ export class ConversationFacet extends PiAgent<
 							});
 							throw error;
 						}
-						const receipts = collectActionReceipts(result, descriptor.name);
-						if (receipts.length)
-							await this.ctx.storage.put(
-								`action-receipts:${this.requireRunId()}:${api.callId}`,
-								receipts,
-							);
 						let projected: unknown = result;
 						if (descriptor.codeModeOutput)
 							projected = codeModeToolModelOutput({ output: result });
@@ -1424,16 +1417,7 @@ export class ConversationFacet extends PiAgent<
 			stopped: !!stop,
 		});
 		const result: ConversationFacetTurnResult = {
-			assistantText: appendActionReceipts(
-				assistantText,
-				[
-					...(
-						await this.ctx.storage.list<
-							ReturnType<typeof collectActionReceipts>
-						>({ prefix: `action-receipts:${this.requireRunId()}:` })
-					).values(),
-				].flat(),
-			),
+			assistantText,
 			...(modelIdentity ? { modelIdentity } : {}),
 			requestId: id,
 			turnCount: pending.priorTurnCount + 1,
