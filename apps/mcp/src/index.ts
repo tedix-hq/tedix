@@ -6182,6 +6182,13 @@ const worker = {
 			const bindHumanToTedi = shouldBindHumanToTedi(
 				appMcpConfig,
 				multiOrgSelection,
+				{
+					// Set only from validateAuth's service-binding result; the
+					// inbound x-tedix-auth-* namespace is stripped above.
+					kernel:
+						request.headers.get("x-tedix-auth-type") === "service" &&
+						request.headers.get("x-tedix-auth-kernel") === "true",
+				},
 			);
 			if (
 				bindHumanToTedi &&
