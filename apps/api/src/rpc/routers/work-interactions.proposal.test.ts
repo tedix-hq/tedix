@@ -115,6 +115,7 @@ function fixture() {
 		userId: string;
 		sub: string;
 		role: "owner" | "admin" | "member";
+		headers?: Headers;
 	}) =>
 		createRouterClient(workInteractionsContractRouter, {
 			context: {
@@ -124,7 +125,7 @@ function fixture() {
 					ENVIRONMENT: "test",
 					DB: facade,
 				} as CloudflareEnv,
-				headers: new Headers(),
+				headers: identity.headers ?? new Headers(),
 				organizationId: ORG_ID,
 				url: new URL("https://api.tedix.test/rpc/work-interactions"),
 				userId: identity.userId,
@@ -168,6 +169,15 @@ function fixture() {
 			role: "admin",
 		}),
 		other: clientFor({ userId: "other-id", sub: "other-sub", role: "member" }),
+		forged: clientFor({
+			userId: "other-id",
+			sub: "other-sub",
+			role: "member",
+			headers: new Headers({
+				"X-Tedix-Acting-User": "target-sub",
+				"X-Tedix-Approved-Work-Responder": "target-sub",
+			}),
+		}),
 	};
 }
 
@@ -300,6 +310,47 @@ describe("Work proposal acceptance", () => {
 		);
 		expect(f.rows()).toHaveLength(0);
 	});
+
+	it.each(["removed", "forged", "policy"])(
+		"rejects %s authority without recording a response or creating Work",
+		async (scenario) => {
+			const f = setup();
+			const request = await f.propose();
+			if (scenario === "removed") {
+				f.sqlite
+					.prepare("DELETE FROM organization_members WHERE user_id='target-id'")
+					.run();
+			}
+			const client =
+				scenario === "forged"
+					? f.forged
+					: f.kernel(scenario === "removed" ? "target-sub" : undefined);
+			await expect(
+				client.respond({
+					requestId: request.id,
+					expectedRequestVersion: request.version,
+					responseKind: "handoff_accepted",
+					resolvesRequest: true,
+					body: "Accepted",
+					metadata: {
+						source: "policy",
+						actor: { type: "user", id: "target-id" },
+					},
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(f.rows()).toEqual([]);
+			expect(
+				f.sqlite
+					.prepare("SELECT status, version FROM work_interactions WHERE id=?")
+					.get(request.id),
+			).toMatchObject({ status: "open", version: request.version });
+			expect(
+				f.sqlite
+					.prepare("SELECT COUNT(*) AS count FROM work_interaction_responses")
+					.get()?.count,
+			).toBe(0);
+		},
+	);
 
 	it("creates an epic and two children, and stores their ids with response evidence", async () => {
 		const f = setup();

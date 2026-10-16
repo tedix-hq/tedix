@@ -275,6 +275,27 @@ describe("sortAddresses", () => {
 // ---------------------------------------------------------------------------
 
 describe("TediMailbox", () => {
+	it("waits for a delayed address query instead of a fixed number of timer turns", async () => {
+		const pending = Promise.withResolvers<{ addresses: Address[] }>();
+		tediEmailApi.listAddresses.mockReturnValue(pending.promise);
+		const container = render();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(60_000);
+		});
+		expect(container.querySelector('[aria-label="Sender policy"]')).toBeNull();
+		expect(tediEmailApi.listAddresses).toHaveBeenCalledOnce();
+		await act(async () => pending.resolve({ addresses: [address()] }));
+		await settle(() =>
+			expect(
+				container.querySelector("#mailbox-trusted-senders"),
+			).not.toBeNull(),
+		);
+		expect(
+			container.querySelector<HTMLTextAreaElement>("#mailbox-trusted-senders")
+				?.value,
+		).toBe("ana@example.com");
+	});
+
 	it("renders Enable mailbox when no address exists and creates the primary", async () => {
 		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [] });
 		const container = render();

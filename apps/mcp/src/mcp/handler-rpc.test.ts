@@ -102,15 +102,50 @@ describe("catalog snapshot import timeout", () => {
 describe("approved Work responder delegation", () => {
 	it.each([
 		{
+			authType: "service" as const,
+			approver: "approver-sub",
 			kernel: true,
 			endpoint: "workInteractions/respond",
 			expected: "approver-sub",
 		},
-		{ kernel: false, endpoint: "workInteractions/respond", expected: null },
-		{ kernel: true, endpoint: "workItems/create", expected: null },
+		{
+			authType: "service" as const,
+			approver: "approver-sub",
+			kernel: false,
+			endpoint: "workInteractions/respond",
+			expected: null,
+		},
+		{
+			authType: "service" as const,
+			approver: "approver-sub",
+			kernel: true,
+			endpoint: "workItems/create",
+			expected: null,
+		},
+		{
+			authType: "service" as const,
+			approver: undefined,
+			kernel: true,
+			endpoint: "workInteractions/respond",
+			expected: null,
+		},
+		{
+			authType: "tedi" as const,
+			approver: "approver-sub",
+			kernel: true,
+			endpoint: "workInteractions/respond",
+			expected: null,
+		},
+		{
+			authType: "external_agent" as const,
+			approver: "approver-sub",
+			kernel: true,
+			endpoint: "workInteractions/respond",
+			expected: null,
+		},
 	])(
-		"restricts responder authority to the approved kernel response ($kernel, $endpoint)",
-		async ({ kernel, endpoint, expected }) => {
+		"restricts responder authority to the approved kernel response ($authType, $kernel, $endpoint, $approver)",
+		async ({ authType, approver, kernel, endpoint, expected }) => {
 			const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
 			const result = await new ToolHandler().execute(
 				{},
@@ -122,11 +157,11 @@ describe("approved Work responder delegation", () => {
 						API_SERVICE: { fetch: apiFetch },
 					} as unknown as CloudflareEnv,
 					callerIdentity: {
-						authType: "service",
+						authType,
 						kernel,
 						tediId: "chat-tedi",
 						organizationId: "org_1",
-						approvedWorkResponderUserId: "approver-sub",
+						approvedWorkResponderUserId: approver,
 					},
 				},
 			);
@@ -136,7 +171,9 @@ describe("approved Work responder delegation", () => {
 			>;
 			const headers = headersFromFetch(...call);
 			expect(headers.get("X-Tedix-Approved-Work-Responder")).toBe(expected);
-			expect(headers.get("X-Tedix-Tedi-Id")).toBe("chat-tedi");
+			expect(headers.get("X-Tedix-Tedi-Id")).toBe(
+				authType === "external_agent" ? null : "chat-tedi",
+			);
 		},
 	);
 });

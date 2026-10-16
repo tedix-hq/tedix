@@ -8617,6 +8617,75 @@ describe("home approved-write layer (v1)", () => {
 		});
 	}
 
+	// Exact tool keys from the v4 low-risk write tier.
+	const v4SafeTools = [
+		"create_os_workspace",
+		"update_os_workspace",
+		"create_os_workspace_resource",
+		"rename_os_workspace_resource",
+		"create_os_output",
+		"revise_os_output",
+		"rename_os_output",
+		"patch_os_document",
+		"patch_os_slides",
+		"set_os_sheet_range",
+	].map((name) => `os.${name}`);
+	const v4TrustedTools = ["tedix", "tedix-unified"].flatMap((slug) =>
+		v4SafeTools.map((tool) => `${slug}:${tool}`),
+	);
+	const v4GatedTools = [
+		"os.archive_os_workspace",
+		"os.archive_os_output",
+		"os.delete_os_output",
+		"os.delete_os_workspace_resource",
+		"os.create_os_share_link",
+		"billing.configure_credit_billing",
+		"billing.create_billing_portal_session",
+		"messaging.send_message",
+		"work.respond_work_interaction",
+		"os.create_os_approval_rule",
+		"os.set_os_approval_rule_enabled",
+		"os.apply_os_approval_rules",
+		"os.delete_os_approval_rule",
+		"os.create_os_output_extra",
+	];
+	it.each(
+		["tedix", "tedix-unified"].flatMap((appSlug) => [
+			...v4SafeTools.map((toolName) => ({ appSlug, toolName, allowed: true })),
+			...v4GatedTools.map((toolName) => ({
+				appSlug,
+				toolName,
+				allowed: false,
+			})),
+		]),
+	)(
+		"v4 policy $appSlug:$toolName auto-approves=$allowed",
+		async ({ appSlug, toolName, allowed }) => {
+			const db = trustedPolicyDb(v4TrustedTools);
+			const executor = vi.fn(async () => ({ ok: true as const, data: {} }));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			// Deliberately classify even gated tools as low: only exact allowlist
+			// membership may authorize them, independent of planner risk labels.
+			const { result } = await enqueueWriteProposalTurn(db, "v4-write", {
+				...PROPOSAL,
+				appSlug,
+				toolName,
+			});
+			expect(db.approvals).toHaveLength(1);
+			expect(db.approvals[0]).toMatchObject({
+				status: allowed ? "approved" : "pending",
+				resolvedBy: allowed ? "policy" : null,
+			});
+			expect(executor).toHaveBeenCalledTimes(allowed ? 1 : 0);
+			expect(result.status).toBe(allowed ? "completed" : "requires_approval");
+			if (allowed) {
+				expect(executor.mock.calls[0]?.[0]).toMatchObject({
+					approvedWorkResponderUserId: undefined,
+				});
+			}
+		},
+	);
+
 	it("(a) low-risk trusted write auto-resolves WITH an audit row + resolvedBy:'policy' and executes", async () => {
 		const db = trustedPolicyDb(["globex-tedix:globex__create_invoice"]);
 		const executor = vi.fn(async () => ({
