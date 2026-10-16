@@ -474,6 +474,20 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	);
 	const optionUpsert =
 		'insert into "options" ("name", "value", "revision") values (?, ?, ?) on conflict ("name") do update set "value" = ?, "revision" = ?';
+	await stub.query(
+		"CREATE TABLE _emdash_cron_tasks (id INTEGER PRIMARY KEY, status TEXT, locked_at TEXT)",
+	);
+	const recoverLocks =
+		"UPDATE _emdash_cron_tasks SET status = 'idle', locked_at = NULL WHERE status = 'running' AND locked_at < ?";
+	await stub.queryWithRestorePermit(identity, recoverLocks, ["now"]);
+	expect(await revision()).toBe(before);
+	await stub.query(
+		"INSERT INTO _emdash_cron_tasks VALUES (1, 'running', 'before')",
+	);
+	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: recoverLocks, params: ["now"] },
+	]);
+	expect(await revision()).toBe(before);
 	await stub.queryWithRestorePermit(identity, optionUpsert, [
 		"system:scheduler:last_completed_at",
 		'"now"',
