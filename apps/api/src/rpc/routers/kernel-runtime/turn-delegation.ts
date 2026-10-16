@@ -25,6 +25,7 @@ import type { WorkflowConfirmDispatcher } from "../kernel/workflow-confirm";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
 import {
 	autoResolveKernelWriteApproval,
+	executeDirectKernelWrite,
 	homeToolWriteApprovalRequestId,
 	kernelWriteCardContent,
 	resolveKernelFallbackTediId,
@@ -162,6 +163,7 @@ export function buildKernelTurnWorkDeps(
 		// audit row through the canonical latch (resolvedBy:'policy') + execute via
 		// the same settle a human approval drives. The gating decision is made
 		// fail-closed in `runKernelTurnWork`; this only runs when it said autoResolve.
+		executeDirectWrite: (input) => executeDirectKernelWrite(context, input),
 		autoResolveKernelWrite: (autoResolveInput) =>
 			autoResolveKernelWriteApproval(context, autoResolveInput),
 		homeToolWriteApprovalRequestId,

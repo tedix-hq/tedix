@@ -1,4 +1,8 @@
-import { kernelWriteSummary } from "./write-approval-settlement";
+import {
+	kernelWriteSummary,
+	type DirectKernelWriteInput,
+	type executeDirectKernelWrite,
+} from "./write-approval-settlement";
 /**
  * kernel turn work — the detached-execution body of
  * `kernelRuntime.enqueueMessage`'s kernel path (route decision, optional write
@@ -414,17 +418,11 @@ export interface KernelTurnWorkDeps {
 	 * normal error reply, never a turn crash.
 	 */
 	dispatchWorkflowConfirm?: WorkflowConfirmDispatcher;
-	/**
-	 * Optional trusted-write auto-resolve sink. When a `propose_tool_write` turn's
-	 * write is policy-trusted+low-risk or session pre-authorized
-	 * ({@link decideKernelWriteApproval}), the turn body has already created the
-	 * approval audit row; this dep resolves that same row through the canonical
-	 * latch (resolvedBy:'policy') + records the `approval.approved` audit event +
-	 * executes via the same settle path a human approval would. Fail-soft: a null
-	 * return (or a throw) leaves the row pending so the write stays a human gate —
-	 * the audit row is never silently skipped. Absent in tests / when the kernel
-	 * write executor is unconfigured — the write then parks as a normal human card.
-	 */
+	/** Audit-first execution while the admitted turn still owns its running row. */
+	executeDirectWrite?: (
+		input: DirectKernelWriteInput,
+	) => ReturnType<typeof executeDirectKernelWrite>;
+	/** Compatibility sink for runtimes without direct execution. Uses the human approval latch. */
 	autoResolveKernelWrite?: (input: {
 		approvalRequestId: string;
 		organizationId: string;
@@ -1891,6 +1889,10 @@ async function planAndParkKernelWriteProposal(
 	writeProposal: KernelWriteProposal | null;
 	writeProposalDeclined: KernelWriteProposalDeclined | null;
 	writeApprovalRequestId: string | null;
+	preparedAutoWrite?: Pick<
+		DirectKernelWriteInput,
+		"approval" | "requestedAudit"
+	>;
 }> {
 	const { organizationId, conversationId, runId, content, createdAt } = input;
 	// Approved-write layer (v1): a propose_tool_write route plans one
@@ -1960,6 +1962,9 @@ async function planAndParkKernelWriteProposal(
 		executionAttempts.push(...(writeModel?.attempts ?? []));
 	}
 	let writeApprovalRequestId: string | null = null;
+	let preparedAutoWrite:
+		| Pick<DirectKernelWriteInput, "approval" | "requestedAudit">
+		| undefined;
 	if (writeProposal) {
 		try {
 			const anchorTediId =
@@ -1978,49 +1983,60 @@ async function planAndParkKernelWriteProposal(
 					initiatedByUserId: input.descopeUserId ?? null,
 					transport: writeProposal.transport,
 				};
-				const existingApproval = await getApprovalRequestById(
-					deps.db,
-					writeApprovalId,
+				const writeApprovalTtlHours = resolveApprovalTtlHours(
+					input.governancePolicy,
 				);
-				if (!existingApproval) {
-					const writeApprovalTtlHours = resolveApprovalTtlHours(
-						input.governancePolicy,
-					);
-					// The approval row and its audit row land together.
-					await createApprovalRequestWithAudit(
-						deps.db,
-						{
-							id: writeApprovalId,
-							tediId: anchorTediId,
-							orgId: organizationId,
-							actionType: "home.tool_write",
-							description: kernelWriteSummary(writeProposal),
-							payload: toJsonRecord(writePayload),
+				const prepared = {
+					approval: {
+						id: writeApprovalId,
+						tediId: anchorTediId,
+						orgId: organizationId,
+						actionType: "home.tool_write",
+						description: kernelWriteSummary(writeProposal),
+						payload: toJsonRecord(writePayload),
+						createdAt,
+						expiresAt: deps.offsetIso(
 							createdAt,
-							expiresAt: deps.offsetIso(
-								createdAt,
-								writeApprovalTtlHours * 60 * 60 * 1000,
-							),
+							writeApprovalTtlHours * 60 * 60 * 1000,
+						),
+					},
+					requestedAudit: {
+						organizationId,
+						actorId: "kernel",
+						actorType: "kernel",
+						action: "approval.requested",
+						resourceType: "approval_request",
+						resourceId: writeApprovalId,
+						metadata: {
+							source: "kernelRuntime.proposeToolWrite",
+							actionType: "home.tool_write",
+							homeRunId: runId,
+							conversationId,
+							appSlug: writeProposal.appSlug,
+							toolName: writeProposal.toolName,
+							riskTier: writeProposal.riskTier,
+							initiatedByUserId: input.descopeUserId ?? null,
 						},
-						{
-							organizationId,
-							actorId: "kernel",
-							actorType: "kernel",
-							action: "approval.requested",
-							resourceType: "approval_request",
-							resourceId: writeApprovalId,
-							metadata: {
-								source: "kernelRuntime.proposeToolWrite",
-								actionType: "home.tool_write",
-								homeRunId: runId,
-								conversationId,
-								appSlug: writeProposal.appSlug,
-								toolName: writeProposal.toolName,
-								riskTier: writeProposal.riskTier,
-								initiatedByUserId: input.descopeUserId ?? null,
-							},
-						},
+					},
+				} satisfies Pick<DirectKernelWriteInput, "approval" | "requestedAudit">;
+				const decision = decideKernelWriteApproval({
+					policy: input.governancePolicy,
+					sessionAllowlist: input.sessionWriteAllowlist,
+					proposal: writeProposal,
+				});
+				if (decision.autoResolve && deps.executeDirectWrite) {
+					preparedAutoWrite = prepared;
+				} else {
+					const existingApproval = await getApprovalRequestById(
+						deps.db,
+						writeApprovalId,
 					);
+					if (!existingApproval)
+						await createApprovalRequestWithAudit(
+							deps.db,
+							prepared.approval,
+							prepared.requestedAudit,
+						);
 				}
 				writeApprovalRequestId = writeApprovalId;
 			} else {
@@ -2038,7 +2054,12 @@ async function planAndParkKernelWriteProposal(
 			writeApprovalRequestId = null;
 		}
 	}
-	return { writeProposal, writeProposalDeclined, writeApprovalRequestId };
+	return {
+		writeProposal,
+		writeProposalDeclined,
+		writeApprovalRequestId,
+		preparedAutoWrite,
+	};
 }
 
 /**
@@ -2348,21 +2369,25 @@ export async function runKernelTurnWork(
 		});
 	}
 	stageTimings.mark("writeProposalPlanStarted");
-	const { writeProposal, writeProposalDeclined, writeApprovalRequestId } =
-		observeOnly
-			? {
-					writeProposal: null,
-					writeProposalDeclined: null,
-					writeApprovalRequestId: null,
-				}
-			: await planAndParkKernelWriteProposal(
-					deps,
-					input,
-					kernelResult,
-					workspaceContext,
-					executionAttempts,
-					(stage) => stageTimings.mark(stage),
-				);
+	const {
+		writeProposal,
+		writeProposalDeclined,
+		writeApprovalRequestId,
+		preparedAutoWrite,
+	} = observeOnly
+		? {
+				writeProposal: null,
+				writeProposalDeclined: null,
+				writeApprovalRequestId: null,
+			}
+		: await planAndParkKernelWriteProposal(
+				deps,
+				input,
+				kernelResult,
+				workspaceContext,
+				executionAttempts,
+				(stage) => stageTimings.mark(stage),
+			);
 	stageTimings.mark("writeProposalPlanEnded");
 	const writeProposalActive = Boolean(writeProposal && writeApprovalRequestId);
 	const delegationApprovalActive = Boolean(
@@ -2370,11 +2395,7 @@ export async function runKernelTurnWork(
 		kernelResult?.route?.routeKind === "delegate_tedi" &&
 		kernelResult.delegation?.decision.mode === "needs_approval",
 	);
-	// Trusted-write tier (fail-closed): the audit row is always created above;
-	// this decides whether it parks behind a human card (default) or auto-resolves
-	// through the same latch (resolvedBy:'policy'). A low-risk write on a policy-
-	// trusted tool, or any session pre-authorized tool, removes the per-click tax
-	// without losing the audit trail. Everything else stays human-gated.
+	// The same policy decision gates direct execution and the parked approval path.
 	const writeApprovalDecision: KernelWriteApprovalDecision | null =
 		writeProposal && writeApprovalRequestId
 			? decideKernelWriteApproval({
@@ -2390,7 +2411,7 @@ export async function runKernelTurnWork(
 	const writeWillAutoResolve = Boolean(
 		writeProposalActive &&
 		writeApprovalDecision?.autoResolve &&
-		deps.autoResolveKernelWrite,
+		(deps.autoResolveKernelWrite || deps.executeDirectWrite),
 	);
 	// Agent-in-the-loop review of a held delegation: an agent-routable hold
 	// with a resolved approver becomes a held Work Item plus a Work approval
@@ -3213,9 +3234,53 @@ export async function runKernelTurnWork(
 	// together: one D1 batch when the batched persist is wired, otherwise the
 	// same three writes in sequence. The stream order (message.completed before
 	// the receipt) is carried by `createdAt`, not by write order.
+	let writeAutoResolveResult:
+		| Awaited<ReturnType<typeof executeDirectKernelWrite>>
+		| {
+				executed: boolean;
+				finalStatus: TediRunStatus | null;
+				assistantEvent: KernelRuntimeEvent | null;
+		  }
+		| null = null;
+	if (preparedAutoWrite && writeApprovalDecision && deps.executeDirectWrite) {
+		try {
+			writeAutoResolveResult = await deps.executeDirectWrite({
+				...preparedAutoWrite,
+				decision: writeApprovalDecision,
+				runId,
+				conversationId,
+				metadata: mergedTurnRunMetadata,
+			});
+		} catch (error) {
+			console.warn({
+				component: "kernel.turn_work",
+				event: "direct_write_failed",
+				error: safeExceptionTopology(error),
+			});
+			const existing = await getApprovalRequestById(
+				deps.db,
+				preparedAutoWrite.approval.id,
+			);
+			if (existing?.status === "approved") throw error;
+			if (!existing)
+				await createApprovalRequestWithAudit(
+					deps.db,
+					preparedAutoWrite.approval,
+					preparedAutoWrite.requestedAudit,
+				);
+		}
+	}
 	let assistantEvent: KernelRuntimeEvent;
 	let terminalEvent: KernelRuntimeEvent;
-	if (deps.persistTurnSettlement) {
+	if (
+		writeAutoResolveResult &&
+		"terminalEvent" in writeAutoResolveResult &&
+		writeAutoResolveResult.assistantEvent &&
+		writeAutoResolveResult.terminalEvent
+	) {
+		assistantEvent = writeAutoResolveResult.assistantEvent;
+		terminalEvent = writeAutoResolveResult.terminalEvent;
+	} else if (deps.persistTurnSettlement) {
 		const persisted = await deps.persistTurnSettlement({
 			run: runTransition,
 			events: [assistantEventInput, terminalEventInput],
@@ -3327,12 +3392,8 @@ export async function runKernelTurnWork(
 	// stored call in-turn. Fail-soft: a null result leaves the row pending so a
 	// human can still resolve it — the per-click tax is removed only on a clean
 	// auto-resolution, never the audit trail.
-	let writeAutoResolveResult: {
-		executed: boolean;
-		finalStatus: TediRunStatus | null;
-		assistantEvent: KernelRuntimeEvent | null;
-	} | null = null;
 	if (
+		!preparedAutoWrite &&
 		writeWillAutoResolve &&
 		writeApprovalRequestId &&
 		writeApprovalDecision &&
@@ -3384,8 +3445,9 @@ export async function runKernelTurnWork(
 		});
 		holdAfterSettle("trace_evidence_record_failed", traceWork);
 	}
-	const submissionOutcome =
-		kernelRunStatusToSubmissionOutcome(dispatchAwareStatus);
+	const submissionOutcome = kernelRunStatusToSubmissionOutcome(
+		writeAutoResolveResult?.finalStatus ?? dispatchAwareStatus,
+	);
 	if (submissionOutcome) {
 		// Held, not awaited: the multi-step submission settle measured 0.7-0.8 s
 		// of D1 round trips between the terminal write and the answer leaving

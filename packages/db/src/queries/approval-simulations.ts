@@ -533,6 +533,35 @@ export async function listActiveApprovalDependencies(
 		.then((rows) => rows.map((row) => row.declaration));
 }
 
+/** For a freshly admitted approval in the same organization; strict conflicts
+ * roll back the containing settlement batch rather than hiding a lost receipt. */
+export function buildInsertApprovalExecutionReceiptStatement(
+	db: DbQueryClient,
+	input: RecordApprovalExecutionReceiptParams,
+) {
+	if (input.simulationId || input.baselineFenceOutcome !== "not_checked")
+		throw new Error(
+			"Batched Home receipt requires a fresh, unsimulated approval",
+		);
+	return db
+		.insert(tediApprovalExecutionReceipts)
+		.values({
+			...input,
+			// NOT NULL turns a missing or cross-tenant approval into a batch rollback.
+			recordHash: sql`case when exists (
+    select 1 from ${tediApprovalRequests}
+    where ${tediApprovalRequests.id} = ${input.approvalRequestId}
+     and ${tediApprovalRequests.orgId} = ${input.organizationId}
+     and ${tediApprovalRequests.status} = 'approved'
+   ) then ${input.recordHash} else null end`,
+			simulationId: null,
+			observedResult:
+				input.outcome === "succeeded" ? input.observedResult : null,
+			observedError: input.outcome === "failed" ? input.observedError : null,
+		})
+		.returning();
+}
+
 export async function recordApprovalExecutionReceipt(
 	db: DbQueryClient,
 	input: RecordApprovalExecutionReceiptParams,

@@ -6,8 +6,10 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
+import type { KernelRuntimeRunUpdate } from "./kernel-runtime-runs";
 import {
 	type ApprovalStatus,
 	type TediApprovalRequest,
@@ -441,4 +443,54 @@ export async function expireStaleApprovals(db: DbClient): Promise<number> {
 			),
 		);
 	return getAffectedRows(result);
+}
+
+export interface AdmitKernelAutoWriteParams {
+	approval: CreateApprovalRequestParams;
+	requestedAudit: InsertAuditEventParams;
+	approvedAudit: InsertAuditEventParams;
+	runId: string;
+	metadata: KernelRuntimeRunUpdate["metadata"];
+	resolvedAt: string;
+	resolution: string;
+}
+
+export async function admitKernelAutoWrite(
+	db: DbClient,
+	input: AdmitKernelAutoWriteParams,
+): Promise<boolean> {
+	if (input.approval.expiresAt <= input.resolvedAt)
+		throw new Error("Auto approval expired before execution");
+	// A strict approval PK insert is the replay fence. Never ignore a collision:
+	// the whole batch must roll back before the caller can execute anything.
+	const [, , , runs] = await db.batch([
+		buildInsertAuditEventStatement(db, input.requestedAudit).statement,
+		buildInsertAuditEventStatement(db, input.approvedAudit).statement,
+		db
+			.insert(tediApprovalRequests)
+			.values({
+				...input.approval,
+				status: "approved",
+				resolvedBy: "policy",
+				resolvedAt: input.resolvedAt,
+				resolution: input.resolution,
+				workflowId: input.approval.workflowId ?? null,
+			})
+			.returning(),
+		db
+			.update(kernelRuntimeRuns)
+			.set({ metadata: input.metadata, updatedAt: input.resolvedAt })
+			.where(
+				and(
+					eq(kernelRuntimeRuns.id, input.runId),
+					eq(kernelRuntimeRuns.organizationId, input.approval.orgId),
+					eq(kernelRuntimeRuns.status, "running"),
+					isNull(
+						sql`json_extract(${kernelRuntimeRuns.metadata}, '$.kernelWriteExecutedAt')`,
+					),
+				),
+			)
+			.returning({ id: kernelRuntimeRuns.id }),
+	]);
+	return runs.length > 0;
 }
