@@ -9,6 +9,8 @@ export interface ActionReceipt {
 	checkedAt: string;
 }
 
+export const ACTION_RECEIPT_META_KEY = "tedix/actionReceipt";
+
 export const ACTION_RECEIPT_INSTRUCTION =
 	"After every write or action, read the exact target back through an authorized read tool. End your reply with a short receipt: what changed, the full object URL (including a sheet range or Work comment when applicable), its actual read-back state, and the authenticated actor. Use actionReceipts and completionEvidence when supplied. A successful tool return, queued run, or approval is not verified completion. If read-back is unavailable, say verification is unavailable and do not claim success or repeat the write. This also applies to Work comments from skill workflows.";
 
@@ -17,6 +19,7 @@ export function actionReadbackPlan(
 	operation: string,
 	args: Record<string, unknown>,
 	result: unknown,
+	endpoint?: string,
 ) {
 	const data = asRecord(result);
 	const name = operation.split(/\.|__/).at(-1) ?? operation;
@@ -30,6 +33,7 @@ export function actionReadbackPlan(
 		if (typeof id === "string")
 			return {
 				tool: "get_os_output",
+				readEndpoint: "osWorkspaces/outputs/get",
 				args: { outputId: id },
 				id,
 				kind: "output" as const,
@@ -40,13 +44,14 @@ export function actionReadbackPlan(
 		if (typeof id === "string")
 			return {
 				tool: "get_os_workspace",
+				readEndpoint: "osWorkspaces/workspaces/get",
 				args: { workspaceId: id },
 				id,
 				kind: "workspace" as const,
 			};
 	}
 	if (
-		/work_item/.test(name) &&
+		(/work_item/.test(name) || endpoint?.startsWith("workItems/")) &&
 		!/^(get|list|find|search|preview)_/.test(name)
 	) {
 		const id =
@@ -57,7 +62,10 @@ export function actionReadbackPlan(
 			data?.id;
 		if (typeof id === "string")
 			return {
-				tool: "get_work_items_by_id",
+				tool: name.startsWith("work_item_")
+					? "work_item_get"
+					: "get_work_items_by_id",
+				readEndpoint: "workItems/getById",
 				args: { id },
 				id,
 				kind: "work" as const,
@@ -70,11 +78,16 @@ export function actionReadbackPlan(
 
 export async function verifyAction(input: {
 	operation: string;
+	endpoint?: string;
 	args: Record<string, unknown>;
 	result: unknown;
 	actor: string;
 	origin: string;
-	read: (tool: string, args: Record<string, unknown>) => Promise<unknown>;
+	read: (
+		tool: string,
+		args: Record<string, unknown>,
+		endpoint: string,
+	) => Promise<unknown>;
 }): Promise<ActionReceipt> {
 	const receipt: ActionReceipt = {
 		operation: input.operation,
@@ -84,10 +97,17 @@ export async function verifyAction(input: {
 		state: "verification unavailable",
 		checkedAt: new Date().toISOString(),
 	};
-	const plan = actionReadbackPlan(input.operation, input.args, input.result);
+	const plan = actionReadbackPlan(
+		input.operation,
+		input.args,
+		input.result,
+		input.endpoint,
+	);
 	if (!plan) return receipt;
 	try {
-		const read = asRecord(await input.read(plan.tool, plan.args));
+		const read = asRecord(
+			await input.read(plan.tool, plan.args, plan.readEndpoint),
+		);
 		const object =
 			asRecord(read?.[plan.kind === "work" ? "workItem" : plan.kind]) ?? read;
 		if (object?.id !== plan.id || read?.ok === false || read?.isError === true)
