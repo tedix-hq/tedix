@@ -503,6 +503,36 @@ export function canonicalWriteToolName(
 	return null;
 }
 
+/** A1 notation is one-based; Tedix sheet range arguments index data from zero. */
+export function normalizeOsSheetCellAddress(
+	content: string,
+	toolName: string,
+	args: Record<string, unknown>,
+): Record<string, unknown> {
+	if (
+		toolName !== "os.set_os_sheet_range" ||
+		!Array.isArray(args.cells) ||
+		args.cells.length !== 1 ||
+		!Array.isArray(args.cells[0]) ||
+		args.cells[0].length !== 1
+	)
+		return args;
+	const match =
+		/^(?:please\s+)?(?:update|set|change)\s+(?:the\s+)?cell\s+([a-z]{1,3})([1-9]\d*)\s+(?:to\b|=)/i.exec(
+			content.trim(),
+		);
+	if (!match?.[1] || !match[2]) return args;
+	const references = content
+		.replace(UUID_RE, "")
+		.replace(/"[^"]*"|“[^”]*”/g, "")
+		.match(/\b[a-z]{1,3}[1-9]\d*\b/gi);
+	if (references?.length !== 1) return args;
+	let column = 0;
+	for (const letter of match[1].toUpperCase())
+		column = column * 26 + letter.charCodeAt(0) - 64;
+	return { ...args, startRow: Number(match[2]) - 1, startColumn: column - 1 };
+}
+
 export function matchesCanonicalWriteTool(
 	toolName: string,
 	canonical: string,
@@ -1206,10 +1236,9 @@ export async function planKernelWriteProposal(args: {
 		const capability = route.toolIntent?.capability ?? null;
 		const canonical = canonicalWriteToolName(capability, content);
 		// A known primitive needs no catalog search and no selection pass: one
-		// Code Mode call resolves and describes it. It starts alongside the
-		// listing (a server without a `code` tool simply rejects the call) and is
-		// used only on a Code Mode server. Anything unexpected falls through to the
-		// full search → select → describe path.
+		// Code Mode call resolves and describes it. A successful authorized call
+		// proves this transport works; it need not wait for a separate tools/list.
+		// Anything unexpected falls through to the full catalog path.
 		const canonicalPromise = canonical
 			? cachedWriteCatalog(`${cacheKey}|canonical|${canonical}`, async () =>
 					parseCodeModeCatalog(
@@ -1224,25 +1253,8 @@ export async function planKernelWriteProposal(args: {
 					),
 				).catch(() => [] as McpTool[])
 			: null;
-		const listedTools = await cachedWriteCatalog(
-			`${cacheKey}|tools/list`,
-			async () =>
-				(
-					(await mcpCall(
-						env,
-						host,
-						organizationId,
-						"tools/list",
-						{},
-						actingUserId,
-					)) as { tools?: McpTool[] } | null
-				)?.tools ?? [],
-		);
-		const transport: KernelWriteTransport = isCodeModeCatalog(listedTools)
-			? "codemode"
-			: "direct";
 		const canonicalTool =
-			canonical && canonicalPromise && transport === "codemode"
+			canonical && canonicalPromise
 				? (await canonicalPromise).find(
 						(tool) =>
 							matchesCanonicalWriteTool(tool.name, canonical) &&
@@ -1250,6 +1262,24 @@ export async function planKernelWriteProposal(args: {
 							isWriteCapable(tool),
 					)
 				: undefined;
+		const listedTools = canonicalTool
+			? []
+			: await cachedWriteCatalog(
+					`${cacheKey}|tools/list`,
+					async () =>
+						(
+							(await mcpCall(
+								env,
+								host,
+								organizationId,
+								"tools/list",
+								{},
+								actingUserId,
+							)) as { tools?: McpTool[] } | null
+						)?.tools ?? [],
+				);
+		const transport: KernelWriteTransport =
+			canonicalTool || isCodeModeCatalog(listedTools) ? "codemode" : "direct";
 		let writes: McpTool[];
 		let exactTool: McpTool | undefined;
 		if (canonicalTool) {
@@ -1470,7 +1500,18 @@ export async function planKernelWriteProposal(args: {
 				...((planned.args.params as Record<string, unknown>) ?? {}),
 				cycleKey: `manual-${crypto.randomUUID()}`,
 			};
-		const validated = validateProposedCall(planned, [exactTool], paramDefaults);
+		const validated = validateProposedCall(
+			{
+				...planned,
+				args: normalizeOsSheetCellAddress(
+					content,
+					exactTool.name,
+					planned.args,
+				),
+			},
+			[exactTool],
+			paramDefaults,
+		);
 		if (!validated) {
 			console.warn("[kernel.writeProposal] pick failed validation", {
 				slug: provider.slug,
