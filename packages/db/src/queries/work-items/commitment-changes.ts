@@ -19,7 +19,9 @@ export async function listCommitmentChanges(
 	through: string,
 	environment: string,
 ): Promise<CommitmentChange[]> {
-	return (await db.all(sql`
+	// D1 rejects the eight-term compound scan; keep each statement to four terms.
+	const statements = [
+		sql`
 		WITH changes AS (
 			SELECT 'work:' || e.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
 				'work' AS kind, w.id AS objectId,
@@ -55,9 +57,13 @@ export async function listCommitmentChanges(
 				'approval', p.id, p.status, p.resolved_at
 			FROM tedi_approval_requests p JOIN tedis t ON t.id = p.tedi_id AND t.organization_id = p.org_id AND t.status = 'active'
 			WHERE p.resolved_at > ${after} AND p.resolved_at <= ${through} AND p.resolved_by != t.id AND p.status IN ('approved', 'rejected') AND p.workflow_id IS NULL
-			UNION ALL
-			SELECT 'interaction:' || r.id, i.org_id, t.id, t.slug,
-				'interaction', i.id, 'answered', r.responded_at
+		)
+		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes
+	`,
+		sql`
+		WITH changes AS (
+			SELECT 'interaction:' || r.id AS key, i.org_id AS orgId, t.id AS tediId, t.slug,
+				'interaction' AS kind, i.id AS objectId, 'answered' AS state, r.responded_at AS changedAt
 			FROM work_interaction_responses r JOIN work_interactions i ON i.id = r.interaction_id AND i.org_id = r.org_id
 			JOIN tedis t ON t.organization_id = i.org_id AND t.status = 'active' AND i.creator_type = 'tedi' AND i.creator_id = t.id
 			WHERE r.responded_at > ${after} AND r.responded_at <= ${through} AND r.resolves_request = 1
@@ -85,8 +91,18 @@ export async function listCommitmentChanges(
 				AND NOT EXISTS (SELECT 1 FROM os_gadget_executions g WHERE g.run_id = s.id AND g.organization_id = s.organization_id AND g.runtime_environment = s.runtime_environment)
 				AND (s.work_item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.id = s.work_item_id AND w.org_id = s.organization_id AND w.disposition NOT IN ('completed', 'cancelled')))
 		)
-		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes ORDER BY changedAt, key
-	`)) as unknown as CommitmentChange[];
+		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes
+	`,
+	];
+	const groups = await Promise.all(
+		statements.map((statement) => db.all<CommitmentChange>(statement)),
+	);
+	return groups
+		.flat()
+		.sort(
+			(a, b) =>
+				a.changedAt.localeCompare(b.changedAt) || a.key.localeCompare(b.key),
+		);
 }
 
 export async function lastCommitmentWakeCheckpoint(

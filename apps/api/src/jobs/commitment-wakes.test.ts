@@ -53,7 +53,21 @@ function fixture() {
 	);
 	sqlite.exec(`INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('worker-1','org-1','Orion','orion','active'),('worker-2','org-2','Lyra','lyra','active');
 	INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id) VALUES ('work-1','org-1','Scratch commitment','${after}','accepted','tedi','worker-1');`);
-	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
+	return {
+		sqlite,
+		db: createDbClient(
+			createD1Facade({
+				prepare(query) {
+					// The live D1 installation rejects the original eight-term scan.
+					expect((query.match(/\bUNION\b/gi) ?? []).length).toBeLessThan(4);
+					return sqlite.prepare(query);
+				},
+				exec: (query) => {
+					sqlite.exec(query);
+				},
+			}),
+		),
+	};
 }
 
 describe("commitment wakes", () => {
