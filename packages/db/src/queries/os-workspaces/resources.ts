@@ -67,6 +67,31 @@ export async function listOsWorkspaceResources(
 		.limit(Math.min(Math.max(params.limit ?? 100, 1), 500));
 }
 
+/**
+ * Workspaces a skill runs for: the ids of workspaces holding an active
+ * `tedix`/`skill` resource whose provider object is this skill.
+ */
+export async function listOsWorkspaceIdsLinkingSkill(
+	db: DbQueryClient,
+	params: { organizationId: string; skillId: string },
+): Promise<string[]> {
+	const rows = await db
+		.select({ workspaceId: osWorkspaceResources.workspaceId })
+		.from(osWorkspaceResources)
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, params.organizationId),
+				eq(osWorkspaceResources.providerId, "tedix"),
+				eq(osWorkspaceResources.connectionScope, "tenant"),
+				eq(osWorkspaceResources.resourceType, "skill"),
+				eq(osWorkspaceResources.providerResourceId, params.skillId),
+				eq(osWorkspaceResources.status, "active"),
+			),
+		)
+		.limit(20);
+	return [...new Set(rows.map((row) => row.workspaceId))];
+}
+
 export async function renameOsWorkspaceResource(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceIdentity & {

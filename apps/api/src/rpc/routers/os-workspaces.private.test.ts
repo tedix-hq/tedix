@@ -8,6 +8,8 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
+import { skillRuns } from "@tedix/db/schema/cognitive";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
 	osGadgetExecutions,
@@ -15,6 +17,7 @@ import {
 	osGadgets,
 	osOutputRevisions,
 	osOutputs,
+	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -23,6 +26,7 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { tedis } from "@tedix/db/schema/tedis";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
+import { isOsWorkspaceVisibleTo } from "@tedix/db/queries/os-workspaces/workspaces";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import type { BaseContext } from "../orpc";
 import { osSharesContractRouter } from "./os-shares";
@@ -49,6 +53,9 @@ function createEnv(): CloudflareEnv {
 			osShareSessions,
 			userConfigs,
 			auditEvents,
+			organizationMembers,
+			osWorkspaceResources,
+			skillRuns,
 		),
 	);
 	sqlite.exec(`
@@ -58,6 +65,11 @@ function createEnv(): CloudflareEnv {
 		VALUES ('robin-primary','org-1','Robin helper','robin-primary','active','personal','member-robin','tedi-identity-1'),
 		       ('kai-primary','org-1','Kai helper','kai-primary','active','personal','member-kai','tedi-identity-3'),
 		       ('shared-org-tedi','org-1','Team helper','shared-org-tedi','active','organization',NULL,'tedi-identity-2');
+		INSERT INTO organization_members (id, organization_id, descope_user_id, email, role, status)
+		VALUES ('m-robin','org-1','member-robin','robin@example.test','member','active'),
+		       ('m-kai','org-1','member-kai','kai@example.test','member','active'),
+		       ('m-ada','org-1','member-ada','ada@example.test','admin','active'),
+		       ('m-gone','org-1','member-gone','gone@example.test','member','deactivated');
 	`);
 	return {
 		ENVIRONMENT: "test",
@@ -418,6 +430,152 @@ describe("private OS workspaces", () => {
 		await expect(
 			member(env, OTHER).workspaces.get({ workspaceId: team.id }),
 		).resolves.toMatchObject({ workspace: { id: team.id } });
+	});
+});
+
+describe("giving a workspace to a member", () => {
+	const admin = (env: CloudflareEnv) =>
+		member(env, ADMIN, { permissions: ["settings:manage"], userRole: "admin" });
+
+	it("lets an organization admin give an org workspace to a member, then hides it from the admin", async () => {
+		const env = createEnv();
+		const { team } = await seed(env);
+		await expect(
+			admin(env).workspaces.update({
+				workspaceId: team.id,
+				visibility: "private",
+				ownerUserId: OTHER,
+			}),
+		).resolves.toMatchObject({
+			workspace: { visibility: "private", ownerUserId: OTHER },
+		});
+		await expect(
+			admin(env).workspaces.get({ workspaceId: team.id }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			member(env, OWNER).workspaces.get({ workspaceId: team.id }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			member(env, OTHER).workspaces.get({ workspaceId: team.id }),
+		).resolves.toMatchObject({ workspace: { id: team.id } });
+	});
+
+	it("lets the owner give their private workspace to another member", async () => {
+		const env = createEnv();
+		const { workspace } = await seed(env);
+		await expect(
+			member(env, OWNER).workspaces.update({
+				workspaceId: workspace.id,
+				ownerUserId: OTHER,
+			}),
+		).resolves.toMatchObject({
+			workspace: { visibility: "private", ownerUserId: OTHER },
+		});
+		await expect(
+			member(env, OWNER).workspaces.get({ workspaceId: workspace.id }),
+		).rejects.toMatchObject(notFound);
+	});
+
+	it("refuses non-admins who did not create it, admins taking it for themselves, and inactive members", async () => {
+		const env = createEnv();
+		const { team } = await seed(env);
+		const give = (sub: string, ownerUserId: string, admin = false) =>
+			member(
+				env,
+				sub,
+				admin ? { permissions: ["settings:manage"], userRole: "admin" } : {},
+			).workspaces.update({
+				workspaceId: team.id,
+				visibility: "private",
+				ownerUserId,
+			});
+		await expect(give(OTHER, OTHER)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(give(ADMIN, ADMIN, true)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(give(ADMIN, "member-gone", true)).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+		});
+		await expect(
+			member(env, OWNER).workspaces.update({
+				workspaceId: team.id,
+				ownerUserId: OTHER,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			member(env, OTHER).workspaces.get({ workspaceId: team.id }),
+		).resolves.toMatchObject({ workspace: { visibility: "org" } });
+	});
+});
+
+describe("a scheduled skill run in a private workspace", () => {
+	const RUN = "run-inbox-1";
+	async function linkedWorkspace(env: CloudflareEnv) {
+		const { workspace } = await seed(env);
+		const db = createDbClient(env.DB);
+		await db.insert(osWorkspaceResources).values({
+			id: "link-inbox",
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "skill",
+			providerResourceId: "skill-inbox",
+			name: "Inbox cards",
+			createdByKind: "user",
+			createdById: OWNER,
+			createdAt: "2026-10-16T08:00:00.000Z",
+			updatedAt: "2026-10-16T08:00:00.000Z",
+		});
+		await db.insert(skillRuns).values({
+			id: RUN,
+			organizationId: "org-1",
+			skillId: "skill-inbox",
+			tediId: "shared-org-tedi",
+			workflowInstanceId: "wf-1",
+			runtimeEnvironment: "test",
+			status: "running",
+		} as typeof skillRuns.$inferInsert);
+		return { workspace, db };
+	}
+	function runViewer(env: CloudflareEnv, runId: string, tediId: string) {
+		return resolveOsWorkspaceViewer({
+			authType: "service-binding",
+			db: createDbClient(env.DB) as BaseContext["db"],
+			env,
+			headers: new Headers({ "X-Tedix-Skill-Run-Id": runId }),
+			organizationId: "org-1",
+			tediId,
+			url: new URL("https://api.tedix.test/rpc/os-workspaces"),
+		} as BaseContext);
+	}
+
+	it("sees exactly the linked private workspace while the run is running", async () => {
+		const env = createEnv();
+		const { workspace } = await linkedWorkspace(env);
+		const viewer = await runViewer(env, RUN, "shared-org-tedi");
+		expect(viewer).toEqual({ userIds: [], workspaceIds: [workspace.id] });
+		expect(isOsWorkspaceVisibleTo(workspace, viewer)).toBe(true);
+		expect(
+			isOsWorkspaceVisibleTo({ ...workspace, id: "ws-other" }, viewer),
+		).toBe(false);
+	});
+
+	it("opens nothing for another tedi, an unknown run or a finished run", async () => {
+		const env = createEnv();
+		const { db } = await linkedWorkspace(env);
+		await expect(runViewer(env, RUN, "kai-primary")).resolves.toEqual({
+			userIds: [OTHER],
+		});
+		await expect(
+			runViewer(env, "run-unknown", "shared-org-tedi"),
+		).resolves.toEqual({ userIds: [] });
+		await db.update(skillRuns).set({ status: "completed" });
+		await expect(runViewer(env, RUN, "shared-org-tedi")).resolves.toEqual({
+			userIds: [],
+		});
 	});
 });
 

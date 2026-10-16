@@ -29,18 +29,22 @@ export interface OsWorkspaceScopeParams {
 
 /**
  * The member a read is made for. A private workspace is visible only when its
- * `owner_user_id` is one of `userIds`; an empty list sees org workspaces only.
- * There is deliberately no role-based bypass.
+ * `owner_user_id` is one of `userIds`, or when its id is one of
+ * `workspaceIds` (a scheduled skill run reaching the workspace its skill is
+ * linked to); an empty viewer sees org workspaces only. There is deliberately
+ * no role-based bypass.
  */
 export interface OsWorkspaceViewer {
 	userIds: readonly string[];
+	workspaceIds?: readonly string[];
 }
 
 export function isOsWorkspaceVisibleTo(
-	workspace: Pick<OsWorkspaceRow, "visibility" | "ownerUserId">,
+	workspace: Pick<OsWorkspaceRow, "id" | "visibility" | "ownerUserId">,
 	viewer: OsWorkspaceViewer,
 ): boolean {
 	if (workspace.visibility !== "private") return true;
+	if (viewer.workspaceIds?.includes(workspace.id)) return true;
 	return (
 		workspace.ownerUserId !== null &&
 		viewer.userIds.includes(workspace.ownerUserId)
@@ -50,15 +54,17 @@ export function isOsWorkspaceVisibleTo(
 /** SQL twin of `isOsWorkspaceVisibleTo` over `os_workspaces`. */
 export function osWorkspaceVisibleToPredicate(viewer: OsWorkspaceViewer): SQL {
 	const userIds = [...new Set(viewer.userIds)];
-	const org = eq(osWorkspaces.visibility, "org");
-	return userIds.length === 0
-		? org
-		: (or(org, inArray(osWorkspaces.ownerUserId, userIds)) as SQL);
+	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];
+	return or(
+		eq(osWorkspaces.visibility, "org"),
+		userIds.length ? inArray(osWorkspaces.ownerUserId, userIds) : undefined,
+		workspaceIds.length ? inArray(osWorkspaces.id, workspaceIds) : undefined,
+	) as SQL;
 }
 
 /**
  * Predicate on a `workspace_id` column (outputs and other workspace children):
- * true unless the row belongs to a private workspace the viewer does not own.
+ * true unless the row belongs to a private workspace the viewer cannot see.
  * Rows without a workspace stay visible.
  */
 export function osWorkspaceChildVisibleToPredicate(
@@ -68,6 +74,7 @@ export function osWorkspaceChildVisibleToPredicate(
 	viewer: OsWorkspaceViewer,
 ): SQL {
 	const userIds = [...new Set(viewer.userIds)];
+	const workspaceIds = [...new Set(viewer.workspaceIds ?? [])];
 	const hidden = db
 		.select({ id: osWorkspaces.id })
 		.from(osWorkspaces)
@@ -81,6 +88,9 @@ export function osWorkspaceChildVisibleToPredicate(
 							isNull(osWorkspaces.ownerUserId),
 							notInArray(osWorkspaces.ownerUserId, userIds),
 						),
+				workspaceIds.length === 0
+					? undefined
+					: notInArray(osWorkspaces.id, workspaceIds),
 			),
 		);
 	return or(

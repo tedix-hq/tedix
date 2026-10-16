@@ -412,5 +412,9 @@ describe("os outputs", () => {
 				},
 			),
 		).toEqual([]);
+		const linked = { userIds: [], workspaceIds: ["ws-private"] };
+		expect(
+			(await listOsOutputs(db, "org-1", linked)).map((o) => o.id).sort(),
+		).toEqual(["out-private", "out-team"]);
 	});
 });

@@ -184,6 +184,28 @@ describe("os workspaces", () => {
 			false,
 		);
 	});
+
+	it("shows a private workspace to a viewer holding exactly its id", async () => {
+		const db = fixture();
+		await createOsWorkspace(db, workspace);
+		for (const id of ["ws-linked", "ws-other"])
+			await createOsWorkspace(db, {
+				...workspace,
+				id,
+				name: id,
+				visibility: "private",
+				ownerUserId: "u-owner",
+			});
+		const viewer = { userIds: [], workspaceIds: ["ws-linked"] };
+		expect(
+			(await listOsWorkspaces(db, "org-1", viewer)).map((w) => w.id),
+		).toEqual(["ws-1", "ws-linked"]);
+		const other = await getOsWorkspace(db, {
+			organizationId: "org-1",
+			workspaceId: "ws-other",
+		});
+		expect(other && isOsWorkspaceVisibleTo(other, viewer)).toBe(false);
+	});
 });
 
 describe("save a conversation as a workspace", () => {

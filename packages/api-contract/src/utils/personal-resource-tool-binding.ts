@@ -103,6 +103,17 @@ const REVIEWED_ACCOUNT_BINDINGS: Readonly<
 		),
 	),
 };
+/** What people call a reviewed account, for consent copy ("read my Gmail"). */
+const REVIEWED_ACCOUNT_NAMES: Readonly<Record<string, string>> = {
+	"google-gmail": "Gmail",
+};
+export function reviewedPersonalAccountName(
+	providerId: string,
+): string | undefined {
+	return Object.hasOwn(REVIEWED_ACCOUNT_NAMES, providerId)
+		? REVIEWED_ACCOUNT_NAMES[providerId]
+		: undefined;
+}
 export function reviewedPersonalResourceBinding(
 	providerId: string,
 	providerToolName: unknown,

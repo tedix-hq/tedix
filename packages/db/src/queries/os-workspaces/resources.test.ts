@@ -8,6 +8,7 @@ import {
 	createOsWorkspaceResource,
 	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
+	listOsWorkspaceIdsLinkingSkill,
 	listOsWorkspaceResources,
 	removeOsWorkspaceResource,
 	rebindOsWorkspaceResource,
@@ -270,5 +271,39 @@ describe("OS Workspace resources", () => {
 			removedAt: null,
 			name: "Product repository",
 		});
+	});
+
+	it("lists the workspaces an active skill link points at", async () => {
+		const { db } = await seed();
+		const link = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			providerId: "tedix",
+			connectionScope: "tenant" as const,
+			requiredScopes: "[]",
+			resourceType: "skill",
+			name: "Inbox cards",
+			metadata: "{}",
+			createdByKind: "user" as const,
+			createdById: "u-1",
+			createdAt: "2026-08-20T00:00:00.000Z",
+			updatedAt: "2026-08-20T00:00:00.000Z",
+		};
+		await createOsWorkspaceResource(db, {
+			...link,
+			id: "link-1",
+			providerResourceId: "skill-1",
+		});
+		await createOsWorkspaceResource(db, {
+			...link,
+			id: "link-removed",
+			providerResourceId: "skill-2",
+			status: "removed",
+		});
+		const linked = (skillId: string, organizationId = "org-1") =>
+			listOsWorkspaceIdsLinkingSkill(db, { organizationId, skillId });
+		expect(await linked("skill-1")).toEqual(["ws-1"]);
+		expect(await linked("skill-2")).toEqual([]);
+		expect(await linked("skill-1", "org-2")).toEqual([]);
 	});
 });

@@ -6000,6 +6000,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 						summary: "Added 12 invoices",
 						error: null,
 					},
+					personalRead: null,
 				},
 				{
 					resourceId: fid("34", 2),
@@ -6019,9 +6020,25 @@ const handlers: Record<string, (input: never) => unknown> = {
 						summary: null,
 						error: "MCP call crm.list_accounts timed out after 15s",
 					},
+					personalRead: {
+						providerId: "google-gmail",
+						providerName: "Gmail",
+						toolIds: ["search_threads"],
+						grantId: null,
+						canAllow: true,
+					},
 				},
 			],
 		};
+	},
+	// The fixture viewer has no connected account, so the button leads to
+	// Settings → Connections.
+	"osWorkspaces/schedules/allowPersonalRead": (input: {
+		workspaceId: string;
+		resourceId: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		return { status: "not_connected" as const, providerId: "google-gmail" };
 	},
 	"osWorkspaces/gadgets/list": (input: {
 		workspaceId: string;

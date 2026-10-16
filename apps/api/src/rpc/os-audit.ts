@@ -154,7 +154,12 @@ const EXECUTION_RESOURCE = "os_gadget_execution";
  * names is an injection surface, so the extractor intersects against this list
  * rather than reading the input's own keys.
  */
-const WORKSPACE_UPDATE_FIELDS = ["name", "description"] as const;
+const WORKSPACE_UPDATE_FIELDS = [
+	"name",
+	"description",
+	"visibility",
+	"ownerUserId",
+] as const;
 
 /** Shared by `os-workspaces.ts` and `os-workspace-library.ts`. */
 export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
@@ -239,6 +244,16 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			workspaceResourceId: input.resourceId,
 			projectId: input.projectId,
 			tediId: input.tediId,
+		}),
+	},
+	"schedules.allowPersonalRead": {
+		action: "os.workspace_personal_read.allowed",
+		resourceType: "personal_resource_delegation",
+		resourceId: ({ output }) => text(output.grantId),
+		metadata: ({ input, output }) => ({
+			workspaceId: input.workspaceId,
+			workspaceResourceId: input.resourceId,
+			status: text(output.status) ?? null,
 		}),
 	},
 	"resources.rename": {
