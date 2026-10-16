@@ -59,6 +59,11 @@ function fakeApi(selectedOrg: string) {
 	}));
 	return {
 		mcpEvents: {
+			pollHomeRunFinished: vi.fn(async () => ({
+				events: [],
+				after: { at: "", id: "" },
+				hasMore: false,
+			})),
 			pollWorkStateChanges,
 			pollWorkApprovalRequests,
 			pollWorkComments: vi.fn(async () => ({
@@ -98,6 +103,28 @@ function fakeApi(selectedOrg: string) {
 
 let authorize: ReturnType<typeof vi.fn>;
 let api: ReturnType<typeof fakeApi>;
+
+it("polls Home completion with messaging authority and preserves non-UUID conversation IDs", async () => {
+	const name = "home.run.finished";
+	const args = {
+		organization_id: ORG_A,
+		conversation_id: "home:example:CaseSensitive",
+	};
+	const head = await poll({ name, arguments: args });
+	expect(head.cursor).toMatch(/^hrf1\./);
+	await poll({ name, arguments: args, cursor: head.cursor });
+	expect(api.mcpEvents.pollHomeRunFinished).toHaveBeenCalledWith({
+		after: { at: "", id: "" },
+		conversationId: args.conversation_id,
+		limit: 50,
+	});
+	expect(authorize.mock.calls[0]?.[2]).toEqual([
+		"mcp:messaging.read",
+		"mcp:messaging.write",
+		"mcp:messaging.admin",
+	]);
+	expect(() => assertEventCursor(name, "srf1.WyIiLCIiXQ")).toThrow();
+});
 beforeEach(() => {
 	authorize = vi.fn(
 		async (

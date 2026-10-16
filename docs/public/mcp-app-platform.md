@@ -97,7 +97,7 @@ Codex Goals own continuation of executable work. See [OpenAI MCP Events](https:/
 
 ### Poll Work and skill-run events
 
-The same flag also adds five ledger events to `events/list`:
+The same flag also adds ledger events to `events/list`:
 `work.item.state_changed` (accepted, completed, cancelled, Attempt settled),
 `work.approval.requested`, `work.item.commented`,
 `work.interaction.requested` and `skill.run.failed`. Each poll needs human OAuth
@@ -111,6 +111,22 @@ Reply events (`work.interaction.responded`) can also be polled with a messaging
 read scope (`mcp:messaging.read`), filtered by `request_id`, `work_item_id` and
 `responder_type` (`user`, `tedi` or `external_agent`). Reply payloads contain
 only organization, request and response IDs. Re-read the record before acting.
+
+`home.run.finished` reports `completed`, `failed` or `needs_input` (an approval
+pause) for a Home run or delegated child. It requires a messaging read scope.
+Every delivery checks the canonical conversation grants: private chats reach
+their owner and shared readers, never other members merely because they belong
+to the organization. Child events use the parent Home conversation's grants,
+including multi-tedi plan branches. Payloads contain organization, conversation,
+run and optional parent-run IDs plus status; titles and answers stay out of the
+feed. Filter with `conversation_id` to follow one chat.
+
+Claude and Codex channels deliver these events as `Home finished: <title>` with
+the run ID. They read the title through the existing authorized Home list.
+Use `tedix run <id>` to read the result; a delegated child ID resolves to its
+Home parent and child evidence. Run a channel before starting the turn; its
+initial cursor starts from now. Use `--param conversation_id=<id>` to route
+only that Home chat to its originating host session.
 
 ```sh
 curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
@@ -162,7 +178,7 @@ The same filters apply. ChatGPT Work receives these events by webhook instead
 ### Subscribe to Work and skill-run events by webhook
 
 Set `mcpConfig.eventWebhooks: true` next to `interactionEvents` to let hosts
-subscribe to the same five events instead of polling. `events/list` then
+subscribe to the same ledger events instead of polling. `events/list` then
 shows `"delivery": ["poll", "webhook"]` for them. A subscription needs the
 same human OAuth grant and read scope as a poll, a public HTTPS callback that
 echoes the verification `challenge`, and a `whsec_` secret of 24 to 64 bytes:

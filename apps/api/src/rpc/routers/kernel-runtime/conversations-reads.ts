@@ -11,6 +11,7 @@ import type { HomeChildRunEvidence } from "@tedix/api-contract/schemas/kernel-ru
 import {
 	type KernelRuntimeEvent,
 	listKernelRuntimeEvents,
+	listHomeRunFinishedEvents,
 } from "@tedix/db/queries/kernel-runtime-events";
 import {
 	type KernelRuntimeRun,
@@ -1021,6 +1022,21 @@ export const readRunRoute = authed.readRun
 				id: input.runId,
 				organizationId,
 			});
+			if (!row) {
+				// A completion notice may name a delegated child. Its parent owns
+				// the Home result and the conversation ACL checked below.
+				const [child] = await listHomeRunFinishedEvents(context.db, {
+					organizationId,
+					runId: input.runId,
+					limit: 1,
+					head: true,
+				});
+				if (child?.parentRunId)
+					row = await getKernelRuntimeRun(context.db, {
+						organizationId,
+						id: child.parentRunId,
+					});
+			}
 		} catch (error) {
 			if (shouldFailSoftHomeRunSetRead(error)) {
 				console.warn("[kernelRuntime] run read failed", {

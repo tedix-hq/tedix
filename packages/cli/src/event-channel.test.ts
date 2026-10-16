@@ -14,6 +14,55 @@ import {
 const ORG = "00000000-0000-4000-8000-000000000001";
 const ITEM = "00000000-0000-4000-8000-0000000000a1";
 
+test("Home completion is enriched through authorized reads and delivered once", async () => {
+	const event = {
+		eventId: "evt-home-example",
+		name: "home.run.finished",
+		timestamp: "2026-10-16T12:00:00Z",
+		data: {
+			conversation_id: "home:example",
+			run_id: "run-example",
+			parent_run_id: null,
+			status: "completed",
+		},
+	};
+	let reads = 0;
+	const client = {
+		rawRequest: async () => ({
+			events: [event, event],
+			cursor: "next",
+			hasMore: false,
+		}),
+		listHomeConversations: async () => {
+			reads++;
+			return {
+				conversations: [{ id: "home:example", title: "Example question" }],
+			};
+		},
+	};
+	const subscriptions = [
+		{
+			name: event.name,
+			arguments: { organization_id: ORG },
+			cursor: "previous",
+		},
+	];
+	const seen = new Set<string>();
+	const first = await pollOnce(client, subscriptions, seen);
+	expect(first.events).toHaveLength(1);
+	expect(reads).toBe(1);
+	expect(channelNotice(first.events[0]!).content).toContain(
+		"Home finished: Example question",
+	);
+	expect(channelNotice(first.events[0]!).content).toContain(
+		"tedix run run-example",
+	);
+	expect(codexEventMessage(first.events)).toContain(
+		"Home finished: Example question",
+	);
+	expect((await pollOnce(client, subscriptions, seen)).events).toEqual([]);
+});
+
 const listResult = {
 	events: [
 		{
