@@ -28,6 +28,7 @@ import {
 	setGraphProjectionReadiness,
 } from "@tedix/db/queries/graph-projection";
 import type { GraphProjectionOutboxEvent } from "@tedix/db/schema/graph-projection";
+import { getGraphDbSecrets } from "../integrations/graph-db/client";
 import type {
 	GraphCapability,
 	GraphCapabilityLink,
@@ -460,11 +461,8 @@ export class GraphProjectionDrainWorkflow extends WorkflowEntrypoint<
 			),
 		);
 		const db = createDbClient(this.env.DB);
-		if (
-			!this.env.GRAPH_DB_URI ||
-			!this.env.GRAPH_DB_USER ||
-			!this.env.GRAPH_DB_PASSWORD
-		) {
+		const config = getGraphDbSecrets(this.env);
+		if (!config) {
 			await step.do(
 				"disable-unconfigured",
 				{ retries: { limit: 3, delay: "2 seconds" }, timeout: "30 seconds" },
@@ -477,11 +475,6 @@ export class GraphProjectionDrainWorkflow extends WorkflowEntrypoint<
 			);
 			return { status: "disabled" as const, processed: 0 };
 		}
-		const config = {
-			uri: this.env.GRAPH_DB_URI,
-			user: this.env.GRAPH_DB_USER,
-			password: this.env.GRAPH_DB_PASSWORD,
-		};
 		const [
 			{ createNeo4jGraphClient },
 			{ processProjectionBatch },

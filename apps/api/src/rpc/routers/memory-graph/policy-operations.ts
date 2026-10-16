@@ -473,6 +473,22 @@ export async function getGraphReadState(
 	const orgId = requireOrgId(context);
 	const checkedAt = new Date().toISOString();
 	const graphClient = getGraphClient(context.env);
+	if (!graphClient) {
+		// No projection: answer "turned off" at once, without probing Neo4j or
+		// counting an outbox nobody drains.
+		const meta: GraphReadMeta = {
+			graphConfigured: false,
+			graphHealthy: false,
+			projectionState: "disabled",
+			projectionReady: false,
+			projectionReason: "graph_view_turned_off",
+			persistedWatermark: 0,
+			gdsWatermark: 0,
+			degraded: true,
+			source: "none",
+		};
+		return { graphClient, meta };
+	}
 	const configured = graphClient !== null;
 	const [healthy, readiness, backlog] = await Promise.all([
 		graphClient ? graphClient.isHealthy().catch(() => false) : false,

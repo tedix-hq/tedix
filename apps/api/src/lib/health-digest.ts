@@ -651,22 +651,10 @@ export async function collectHealthConditions(
 		console.warn("[health-digest] MCP scan operations check failed:", err);
 	}
 
-	// Successful projection, not lease activity, is the progress signal.
-	try {
-		const { listGraphProjectionConsumerHealth } =
-			await import("@tedix/db/queries/graph-projection");
-		conditions.push(
-			...graphProjectionConsumerHealthConditions(
-				await listGraphProjectionConsumerHealth(db),
-				nowMs,
-			),
-		);
-	} catch (err) {
-		console.warn(
-			"[health-digest] graph projection consumer check failed:",
-			err,
-		);
-	}
+	// The graph projection consumer check is off while the Neo4j projection is
+	// turned off (see integrations/graph-db/client.ts): with no drains, every
+	// consumer reads as stalled. Restore the graphProjectionConsumerHealthConditions
+	// probe when the projection comes back.
 
 	return conditions;
 }

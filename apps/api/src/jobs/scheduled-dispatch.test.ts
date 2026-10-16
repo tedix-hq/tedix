@@ -44,8 +44,6 @@ vi.mock("./billing-cron", () => ({
 	runBillingAndGatewayCostTick: catchup.billing,
 }));
 vi.mock("./platform-tick", () => ({
-	dispatchGraphProjectionDrains: vi.fn(),
-	redriveGraphGdsMaintenance: vi.fn(),
 	dispatchDueSkillSchedulesTick: vi.fn(),
 	sweepOrphanRunsTick: vi.fn(),
 	runAlwaysOnKeepalive: vi.fn(),
@@ -116,6 +114,42 @@ describe("scheduled dispatch under disabled fleet authority", () => {
 			expect(accessed).toEqual([]);
 		});
 	}
+});
+
+it("never dispatches graph projection drains or GDS redrives from the two-minute tick", async () => {
+	catchup.paths.length = 0;
+	catchup.ingest.mockReset().mockResolvedValue([]);
+	const graphBindingReads: string[] = [];
+	const env = {
+		TEDIX_FLEET_AUTHORITY_MODE: "co-located",
+		DB: {},
+		TEDI_SERVICE: {},
+		get GRAPH_PROJECTION_DRAIN_WORKFLOW() {
+			graphBindingReads.push("GRAPH_PROJECTION_DRAIN_WORKFLOW");
+			return {};
+		},
+		get GRAPH_GDS_REFRESH_WORKFLOW() {
+			graphBindingReads.push("GRAPH_GDS_REFRESH_WORKFLOW");
+			return {};
+		},
+	} as unknown as CloudflareEnv;
+	await scheduled(
+		{
+			cron: "*/2 * * * *",
+			scheduledTime: Date.UTC(2026, 9, 16, 0, 0),
+			noRetry: () => {},
+		},
+		env,
+		{
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+			props: {},
+		} as unknown as ExecutionContext,
+	);
+	expect(catchup.paths).toContain("skill-schedule-dispatch");
+	expect(catchup.paths).not.toContain("graph-projection-drain");
+	expect(catchup.paths).not.toContain("graph-gds-redrive");
+	expect(graphBindingReads).toEqual([]);
 });
 
 it("runs bounded gateway-only catch-up on the existing two-minute trigger", async () => {

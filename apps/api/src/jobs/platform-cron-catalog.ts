@@ -11,8 +11,6 @@ export type PlatformCronFreshnessState =
 
 export const PLATFORM_CRON_IDS = [
 	"provider-event-maintenance",
-	"graph-projection-drain",
-	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-approval-redrive",
@@ -56,8 +54,6 @@ interface PlatformCronDefinition {
 
 const everyTwoMinuteIds = [
 	"provider-event-maintenance",
-	"graph-projection-drain",
-	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-attempt-lease-sweep",

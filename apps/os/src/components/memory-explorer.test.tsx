@@ -216,14 +216,14 @@ describe("graphFreshnessNote", () => {
 	});
 
 	// An empty map with an unconfigured projection is not "nothing was learned".
-	it("says an unconfigured projection is why the map is empty", () => {
-		expect(
-			graphFreshnessNote({
-				...READY_META,
-				graphConfigured: false,
-				source: "none",
-			}),
-		).toContain("empty by configuration");
+	it("says a turned-off graph view is why the map is empty", () => {
+		const note = graphFreshnessNote({
+			...READY_META,
+			graphConfigured: false,
+			source: "none",
+		});
+		expect(note).toContain("turned off");
+		expect(note).toContain("empty by configuration");
 	});
 
 	it("warns that a catching-up projection may be missing recent facts", () => {

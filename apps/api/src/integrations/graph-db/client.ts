@@ -22,17 +22,18 @@ import type { GraphWriter } from "./sync";
 
 type Neo4jModule = typeof import("./neo4j");
 
-function getGraphDbSecrets(env: CloudflareEnv): {
+/**
+ * The Neo4j projection is turned off (2026-10-16: the Aura instance is
+ * paused). Returning null makes every caller see "graph not configured":
+ * reads answer "turned off" without opening a connection, and the drain and
+ * maintenance paths refuse to start. D1 stays canonical. Revert the commit
+ * that introduced this to read GRAPH_DB_URI/USER/PASSWORD again.
+ */
+export function getGraphDbSecrets(_env: CloudflareEnv): {
 	uri: string;
 	user: string;
 	password: string;
 } | null {
-	const uri = env.GRAPH_DB_URI;
-	const user = env.GRAPH_DB_USER;
-	const password = env.GRAPH_DB_PASSWORD;
-	if (uri && user && password) {
-		return { uri, user, password };
-	}
 	return null;
 }
 

@@ -26,7 +26,10 @@ vi.mock("../../integrations/graph-db/client", async (importOriginal) => {
 	};
 });
 
-import { getContextAssemblyGraphClient } from "./memory-graph/policy-operations";
+import {
+	getContextAssemblyGraphClient,
+	getGraphReadState,
+} from "./memory-graph/policy-operations";
 
 const db = {} as BaseContext["db"];
 const env = {} as CloudflareEnv;
@@ -92,5 +95,23 @@ describe("context assembly graph admission", () => {
 		await expect(getContextAssemblyGraphClient(context)).resolves.toBe(
 			graphClient,
 		);
+	});
+});
+
+describe("graph reads with the projection turned off", () => {
+	it("answers turned off without touching Neo4j or the outbox", async () => {
+		mocks.getClient.mockReturnValue(null);
+
+		const { meta } = await getGraphReadState(context);
+
+		expect(meta).toMatchObject({
+			graphConfigured: false,
+			projectionState: "disabled",
+			projectionReason: "graph_view_turned_off",
+			degraded: true,
+			source: "none",
+		});
+		expect(mocks.getReadiness).not.toHaveBeenCalled();
+		expect(mocks.getBacklog).not.toHaveBeenCalled();
 	});
 });
