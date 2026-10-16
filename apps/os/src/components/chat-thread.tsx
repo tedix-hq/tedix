@@ -3521,7 +3521,7 @@ export function ChatThread({
 								</Empty>
 							) : null}
 							{hasContent ? (
-								<ul className="m-0 grid min-w-0 list-none gap-4 p-0">
+								<ul className="m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-4 p-0">
 									{olderCursor ? (
 										<li className="flex justify-center">
 											<Button

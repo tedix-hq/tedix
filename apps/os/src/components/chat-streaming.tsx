@@ -102,7 +102,7 @@ export function StreamedRationaleRow({ rationale }: { rationale: string }) {
 	const text = sanitizeUntrustedText(rationale).trim();
 	return (
 		<li
-			className="flex w-full justify-start"
+			className="flex w-full min-w-0 justify-start"
 			data-slot="streaming-rationale"
 			data-empty={text === "" ? "true" : "false"}
 			aria-live="polite"

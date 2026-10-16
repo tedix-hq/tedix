@@ -631,6 +631,9 @@ a:focus-visible {
 	min-height: 0;
 	flex: 1 1 auto;
 	overflow: hidden;
+	/* Not a scroll container: focusing a control near the bottom (the revision
+	 * note) must not scroll the chat and stage up and leave a blank band. */
+	overflow: clip;
 	border: 0;
 	border-radius: 0;
 	background: var(--card);

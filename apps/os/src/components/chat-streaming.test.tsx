@@ -144,6 +144,16 @@ describe("StreamedRationaleRow", () => {
 		expect(html).not.toContain('data-slot="streaming-caret"');
 	});
 
+	it("truncates inside the thread instead of widening it", () => {
+		// A grid item's automatic minimum is its nowrap text width: without
+		// min-w-0 a long rationale widened the whole thread column, pushing the
+		// operator's own message out of the narrow chat pane.
+		const html = renderToStaticMarkup(
+			<StreamedRationaleRow rationale={"x ".repeat(400)} />,
+		);
+		expect(html).toMatch(/<li class="[^"]*\bmin-w-0\b[^"]*"/);
+	});
+
 	it("is pre-spaced: the empty row still reserves its line", () => {
 		const html = renderToStaticMarkup(<StreamedRationaleRow rationale="" />);
 		expect(html).toContain('data-empty="true"');
