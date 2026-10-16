@@ -178,7 +178,12 @@ function PersonalReadControl({
 	if (access.grantId) {
 		const grantId = access.grantId;
 		return (
-			<Text as="p" role="label" className="m-0" data-schedule-personal-read>
+			<Text
+				as="p"
+				role="label"
+				className="m-0 flex flex-wrap items-center gap-1"
+				data-schedule-personal-read
+			>
 				Reads your {access.providerName} (read-only) ·{" "}
 				<Button
 					size="xs"
