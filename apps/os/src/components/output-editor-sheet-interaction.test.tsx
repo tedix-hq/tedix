@@ -411,3 +411,49 @@ describe("SheetEditor interaction", () => {
 		expect(onSelectionChange.mock.calls.at(-1)?.[0]).toBeNull();
 	});
 });
+
+describe("sheet regression sweep", () => {
+	it("extends the grid on ArrowDown so typing preserves the previous last row", () => {
+		const view = mount();
+		view.mouse(view.cell("A30"), "mousedown");
+		view.key(view.active(), "l");
+		view.type("Last existing row");
+		view.key(view.editor()!, "Tab");
+		view.mouse(view.cell("A30"), "mousedown");
+		view.key(view.active(), "ArrowDown");
+		expect(view.nameBox()).toBe("A31");
+		expect(view.last().rows).toHaveLength(31);
+		view.key(view.active(), "n");
+		view.type("New row");
+		view.key(view.editor()!, "Tab");
+		expect(view.last().rows[29]?.[0]?.input).toBe("Last existing row");
+		expect(view.last().rows[30]?.[0]?.input).toBe("New row");
+		view.cleanup();
+	});
+
+	it.each(["cell", "column"])(
+		"sorts a whole table from a single %s selection",
+		(selection) => {
+			const view = mount();
+			view.mouse(
+				selection === "cell"
+					? view.cell("B1")
+					: view.query('[data-column-header="1"]')!,
+				"mousedown",
+			);
+			act(() =>
+				view.query<HTMLButtonElement>('[aria-label="Sort ascending"]')!.click(),
+			);
+			expect(
+				view
+					.last()
+					.rows.slice(0, 2)
+					.map((row) => row.slice(0, 2).map((cell) => cell?.input)),
+			).toEqual([
+				["Globex", "300"],
+				["Acme", "1200"],
+			]);
+			view.cleanup();
+		},
+	);
+});

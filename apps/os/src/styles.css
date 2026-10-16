@@ -1773,7 +1773,7 @@ a:focus-visible {
 
 /* Hover marks an element that a press would pick up. */
 .slides-editor-canvas
-	[data-slide-element]:not([data-selected]):not([tabindex="-1"]):hover {
+	[data-slide-element][tabindex="0"]:not([data-selected]):hover {
 	outline: 1px dashed color-mix(in srgb, #7c3aed 55%, transparent);
 	outline-offset: 2px;
 }

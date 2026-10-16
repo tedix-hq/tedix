@@ -826,6 +826,12 @@ describe("SlidesEditor", () => {
 		)!;
 		act(() => element.click());
 		const layout = mounted.container.querySelector(".slides-editor-layout")!;
+		expect(layout.hasAttribute("data-show-inspector")).toBe(false);
+		act(() =>
+			mounted.container
+				.querySelector<HTMLButtonElement>('[aria-label="Inspector"]')!
+				.click(),
+		);
 		expect(layout.hasAttribute("data-show-thumbnails")).toBe(true);
 		expect(layout.hasAttribute("data-show-inspector")).toBe(true);
 		expect(
@@ -999,6 +1005,71 @@ describe("SlidesEditor", () => {
 			)?.[0] ?? "";
 		expect(rule).toContain("container-type: inline-size");
 		expect(rule).toContain("aspect-ratio: 16 / 9");
+		mounted.cleanup();
+	});
+});
+
+describe("slide regression sweep", () => {
+	it("enters text editing on the first double-click without opening the inspector", () => {
+		const mounted = mountEditor();
+		const element = mounted.container.querySelector<HTMLElement>(
+			'.slides-editor-stage [data-element="title"]',
+		)!;
+		const textarea = element.querySelector("textarea")!;
+		const layout = mounted.container.querySelector(".slides-editor-layout")!;
+		for (let click = 0; click < 2; click++) {
+			act(() =>
+				textarea.dispatchEvent(
+					new PointerEvent("pointerdown", {
+						bubbles: true,
+						button: 0,
+						clientX: 10,
+						clientY: 10,
+					}),
+				),
+			);
+			act(() =>
+				textarea.dispatchEvent(
+					new PointerEvent("pointerup", {
+						bubbles: true,
+						button: 0,
+						clientX: 10,
+						clientY: 10,
+					}),
+				),
+			);
+			act(() => element.click());
+			expect(layout.hasAttribute("data-show-inspector")).toBe(false);
+		}
+		act(() =>
+			textarea.dispatchEvent(
+				new MouseEvent("dblclick", { bubbles: true, clientX: 10, clientY: 10 }),
+			),
+		);
+		expect(document.activeElement).toBe(textarea);
+		expect(mounted.emitted).toEqual([]);
+		mounted.cleanup();
+	});
+	it("limits hover outlines to interactive editor elements", () => {
+		const css = readFileSync("src/styles.css", "utf8");
+		const selector = css.slice(
+			css.indexOf("/* Hover marks"),
+			css.indexOf("/* Press feedback"),
+		);
+		const mounted = mountEditor();
+		const editor = mounted.container.querySelector(".slides-editor")!;
+		act(() =>
+			editor.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+			),
+		);
+		const presented = mounted.container.querySelectorAll(
+			".slides-present [data-slide-element]",
+		);
+		expect(presented.length).toBeGreaterThan(0);
+		expect(selector).toContain('[tabindex="0"]');
+		for (const element of presented)
+			expect(element.hasAttribute("tabindex")).toBe(false);
 		mounted.cleanup();
 	});
 });

@@ -262,3 +262,71 @@ describe("workbook structure", () => {
 		).toEqual({});
 	});
 });
+
+describe("table sort expansion", () => {
+	it.each([false, true])(
+		"expands a single column or cell, preserving the header: %s",
+		(hasHeader) => {
+			const value = book([
+				...(hasHeader ? [["Label", "Value", "Other"]] : []),
+				["b", "2", "20"],
+				["a", "1", "10"],
+				["", "", ""],
+				["separate", "9", "90"],
+			]);
+			const next = sortRange(
+				value,
+				"data",
+				{
+					rowStart: 0,
+					rowEnd: hasHeader ? 2 : 0,
+					columnStart: 1,
+					columnEnd: 1,
+				},
+				1,
+				"ascending",
+				hasHeader,
+			);
+			expect(
+				next.sheets[0]!.rows.slice(hasHeader ? 1 : 0, hasHeader ? 3 : 2).map(
+					(row) => row.map((cell) => cell?.input),
+				),
+			).toEqual([
+				["a", "1", "10"],
+				["b", "2", "20"],
+			]);
+			expect(next.sheets[0]!.rows.at(-1)).toEqual(value.sheets[0]!.rows.at(-1));
+		},
+	);
+
+	it("stops expansion at an empty column and leaves an empty cell alone", () => {
+		const value = book([
+			["b", "", "10"],
+			["a", "", "20"],
+		]);
+		const next = sortRange(
+			value,
+			"data",
+			{ rowStart: 0, rowEnd: 0, columnStart: 0, columnEnd: 0 },
+			0,
+			"ascending",
+		);
+		expect(next.sheets[0]!.rows.map((row) => row[0]?.input)).toEqual([
+			"a",
+			"b",
+		]);
+		expect(next.sheets[0]!.rows.map((row) => row[2]?.input)).toEqual([
+			"10",
+			"20",
+		]);
+		expect(
+			sortRange(
+				value,
+				"data",
+				{ rowStart: 0, rowEnd: 0, columnStart: 1, columnEnd: 1 },
+				1,
+				"ascending",
+			),
+		).toEqual(value);
+	});
+});

@@ -284,7 +284,7 @@ describe("SlideInspector", () => {
 	it("marks hover and press with motion that honours reduced motion", () => {
 		const css = readFileSync("src/styles.css", "utf8");
 		expect(css).toMatch(
-			/\[data-slide-element\]:not\(\[data-selected\]\):not\(\[tabindex="-1"\]\):hover \{\n\toutline: 1px dashed/,
+			/\[data-slide-element\]\[tabindex="0"\]:not\(\[data-selected\]\):hover \{\n\toutline: 1px dashed/,
 		);
 		const motion = css.split(
 			"@media (prefers-reduced-motion: no-preference) {",

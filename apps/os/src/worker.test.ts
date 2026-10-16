@@ -1773,6 +1773,81 @@ describe("collaboration socket routing", () => {
 		};
 	}
 
+	it.each(["Mira Vale", null])(
+		"projects the member profile %s into the collaboration room",
+		async (name) => {
+			const verify = vi.spyOn(jwt, "validateToken").mockResolvedValue({
+				sub: "fictional-user",
+				dct: "T-host-org",
+				iat: 1,
+				exp: 2,
+				iss: "project",
+				aud: ["project"],
+			});
+			const env = {
+				...collabEnv({ authorized: true }),
+				DESCOPE_PROJECT_ID: "project",
+			};
+			const originalFetch = env.API_SERVICE!.fetch;
+			const profileRequests: Request[] = [];
+			env.API_SERVICE = {
+				fetch: async (request) => {
+					const path = new URL(request.url).pathname;
+					if (path.endsWith("userSettings/getContext")) {
+						profileRequests.push(request);
+						return Response.json({
+							json: {
+								organization: { id: "33333333-3333-4333-8333-333333333333" },
+							},
+						});
+					}
+					if (path.endsWith("members/listMembers")) {
+						profileRequests.push(request);
+						return Response.json({
+							json: {
+								data: [
+									{ descopeUserId: "other-user", name: "Orin Vale" },
+									{ descopeUserId: "fictional-user", name },
+								],
+							},
+						});
+					}
+					return originalFetch(request);
+				},
+			};
+			try {
+				const response = await handleOsRequest(
+					new Request(
+						`https://tedix.os.tedix.dev/collab/ws-1/${encodeURIComponent(outputDocKey)}`,
+						{
+							headers: {
+								...upgradeHeaders,
+								Authorization: "Bearer fictional-session",
+							},
+						},
+					),
+					env,
+					provisioned,
+				);
+				expect(response.status).toBe(200);
+				expect(profileRequests).toHaveLength(2);
+				expect(
+					JSON.parse(
+						env.roomRequests[0]!.headers.get("X-Tedix-Collab-Presence")!,
+					),
+				).toMatchObject({ displayName: name ?? "Tedix member" });
+				for (const request of profileRequests) {
+					expect(request.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+					expect(request.headers.get("Authorization")).toBe(
+						"Bearer fictional-session",
+					);
+				}
+			} finally {
+				verify.mockRestore();
+			}
+		},
+	);
+
 	it("routes an authorized upgrade to the workspace room", async () => {
 		const env = collabEnv({ authorized: true });
 		const response = await handleOsRequest(

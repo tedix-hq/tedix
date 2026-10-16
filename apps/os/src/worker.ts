@@ -1349,6 +1349,28 @@ async function handleCollabUpgrade(
 						hostTenantId,
 						undefined,
 						request.headers.get(COLLAB_VERIFIED_SESSION_HEADER) ?? undefined,
+						async (subject) => {
+							const context = await callRpc<{ organization: { id: string } }>(
+								"userSettings/getContext",
+								{},
+								rpcOptions,
+							);
+							const members = await callRpc<{
+								data: { descopeUserId: string; name: string | null }[];
+							}>(
+								"members/listMembers",
+								{
+									organizationId: context.organization.id,
+									limit: 100,
+									offset: 0,
+								},
+								rpcOptions,
+							);
+							return (
+								members.data.find((member) => member.descopeUserId === subject)
+									?.name ?? null
+							);
+						},
 					)
 				: null
 			: await localCollabPresence(

@@ -981,11 +981,11 @@ describe("controllableRun", () => {
 });
 
 describe("ApprovalInputGate", () => {
-	it("owns the input lane while an approval is pending", () => {
+	it("shows reply guidance while an approval is pending", () => {
 		const html = renderToStaticMarkup(<ApprovalInputGate count={2} />);
 		expect(html).toContain('data-slot="chat-approval-gate"');
 		expect(html).toContain("Waiting for your approval");
-		expect(html).toContain("Approve or reject the request above");
+		expect(html).toContain("Approve below or reply ‘approve’");
 		expect(html).toContain("2 pending");
 		expect(html).not.toContain("chat-composer");
 	});
@@ -2367,6 +2367,73 @@ describe("<ChatThread> attachment dropzone", () => {
 		);
 		kernelRuntimeApi.readRunSet.mockResolvedValue(runSetPayload());
 	});
+
+	it.each(["approve", "yes", "reject"])(
+		"sends %s while a write is awaiting approval and clears the resolved card",
+		async (reply) => {
+			kernelRuntimeApi.readRunSet.mockResolvedValue(
+				runSetPayload({
+					activeRunIds: [RUN_ID],
+					runs: [
+						{
+							id: RUN_ID,
+							organizationId: ORG_ID,
+							conversationId: CONVERSATION_ID,
+							status: "requires_approval",
+							createdAt: "2026-10-16T00:00:00Z",
+							metadata: {
+								approvalRequestId: "appr-write",
+								kernelWriteProposal: {
+									appSlug: "tedix",
+									toolName: "os.update_os_workspace",
+									args: { name: "Renamed" },
+								},
+							},
+						},
+					],
+				}),
+			);
+			transport.actions.enqueueMessage.mockReset();
+			transport.actions.enqueueMessage.mockImplementation(async (input) => ({
+				conversationId: CONVERSATION_ID,
+				idempotencyKey: input.idempotencyKey,
+				status: "queued",
+				run: {
+					id: "reply-run",
+					organizationId: ORG_ID,
+					conversationId: CONVERSATION_ID,
+					status: "queued",
+					createdAt: "2026-10-16T00:01:00Z",
+				},
+			}));
+			const { container } = mountThread();
+			await flush();
+			expect(container.textContent).toContain("Run os.update_os_workspace");
+			expect(
+				container.querySelector('[data-slot="chat-approval-gate"]'),
+			).not.toBeNull();
+			const composer = container.querySelector('[data-slot="chat-composer"]')!;
+			expect(
+				container
+					.querySelector('[data-slot="chat-approval-gate"]')!
+					.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			typeDraft(container, reply);
+			expect(sendButton(container).disabled).toBe(false);
+			act(() => sendButton(container).click());
+			await flush();
+			expect(transport.actions.enqueueMessage).toHaveBeenCalledWith(
+				expect.objectContaining({ content: reply }),
+			);
+			kernelRuntimeApi.readRunSet.mockResolvedValue(runSetPayload());
+			act(() => window.dispatchEvent(new Event("focus")));
+			await flush();
+			expect(
+				container.querySelector('[data-slot="chat-approval-gate"]'),
+			).toBeNull();
+			transport.actions.enqueueMessage.mockReset();
+		},
+	);
 
 	it("does not restore a draft after a send with an unknown outcome", async () => {
 		transport.actions.enqueueMessage.mockReset();
