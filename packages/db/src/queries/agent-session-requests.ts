@@ -1,0 +1,361 @@
+/**
+ * Request ledger persistence for local agent sessions.
+ *
+ * Every read and write is scoped to one organization and one user: a row is
+ * visible only to the person whose message it came from.
+ */
+
+import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import type { DbQueryClient } from "../query-client";
+import {
+	type AgentSessionEventKind,
+	type AgentSessionEventRow,
+	agentSessionEvents,
+	type AgentSessionRequestKind,
+	type AgentSessionRequestRow,
+	type AgentSessionRequestStatus,
+	agentSessionRequests,
+} from "../schema/agent-session-requests";
+import type { WorkAgentSessionHarness } from "../schema/work-agent-sessions";
+
+/** Hard ceiling on rows one read returns. */
+export const AGENT_SESSION_REQUEST_LIST_LIMIT = 200;
+/** Statuses that still need the agent or the person. */
+export const AGENT_SESSION_REQUEST_ACTIVE_STATUSES = [
+	"open",
+	"in_progress",
+	"waiting_on_user",
+	"dropped_risk",
+] as const satisfies readonly AgentSessionRequestStatus[];
+/** Ids per `IN (...)` lookup, under D1's bound-parameter limit. */
+const ID_CHUNK = 50;
+
+export interface AgentSessionRequestOwner {
+	organizationId: string;
+	userId: string;
+}
+
+export interface RecordAgentSessionRequestsParams extends AgentSessionRequestOwner {
+	harness: WorkAgentSessionHarness;
+	sessionKey: string;
+	repository: string | null;
+	sourceAt: string;
+	/** Stable per message; each request appends its index. */
+	sourceKey: string;
+	requests: ReadonlyArray<{ kind: AgentSessionRequestKind; text: string }>;
+	now: string;
+}
+
+/**
+ * Record a message's requests as open rows. A repeated message (same source
+ * key) records nothing new. Returns the rows that were inserted.
+ */
+export async function recordAgentSessionRequests(
+	db: DbQueryClient,
+	params: RecordAgentSessionRequestsParams,
+): Promise<AgentSessionRequestRow[]> {
+	if (!params.requests.length) return [];
+	return db
+		.insert(agentSessionRequests)
+		.values(
+			params.requests.map((request, index) => ({
+				id: crypto.randomUUID(),
+				organizationId: params.organizationId,
+				userId: params.userId,
+				harness: params.harness,
+				sessionKey: params.sessionKey,
+				repository: params.repository,
+				kind: request.kind,
+				text: request.text,
+				status: "open" as const,
+				evidence: null,
+				turnsUnaddressed: 0,
+				sourceAt: params.sourceAt,
+				sourceKey: `${params.sourceKey}:${index}`,
+				statusChangedAt: params.now,
+				createdAt: params.now,
+				updatedAt: params.now,
+			})),
+		)
+		.onConflictDoNothing({
+			target: [
+				agentSessionRequests.organizationId,
+				agentSessionRequests.userId,
+				agentSessionRequests.sourceKey,
+			],
+		})
+		.returning();
+}
+
+export interface ListAgentSessionRequestsParams extends AgentSessionRequestOwner {
+	statuses?: readonly AgentSessionRequestStatus[];
+	/** Only this session's rows (both fields required together). */
+	harness?: WorkAgentSessionHarness;
+	sessionKey?: string;
+	limit?: number;
+}
+
+/** The caller's own rows, oldest message first, bounded. */
+export async function listAgentSessionRequests(
+	db: DbQueryClient,
+	params: ListAgentSessionRequestsParams,
+): Promise<AgentSessionRequestRow[]> {
+	return db
+		.select()
+		.from(agentSessionRequests)
+		.where(
+			and(
+				eq(agentSessionRequests.organizationId, params.organizationId),
+				eq(agentSessionRequests.userId, params.userId),
+				params.statuses?.length
+					? // bound-params: at most the six ledger statuses
+						inArray(agentSessionRequests.status, [...params.statuses])
+					: undefined,
+				params.harness && params.sessionKey
+					? and(
+							eq(agentSessionRequests.harness, params.harness),
+							eq(agentSessionRequests.sessionKey, params.sessionKey),
+						)
+					: undefined,
+			),
+		)
+		.orderBy(
+			asc(agentSessionRequests.sourceAt),
+			asc(agentSessionRequests.sourceKey),
+		)
+		.limit(
+			Math.min(
+				params.limit ?? AGENT_SESSION_REQUEST_LIST_LIMIT,
+				AGENT_SESSION_REQUEST_LIST_LIMIT,
+			),
+		);
+}
+
+/** Most events one upload may carry. */
+export const AGENT_SESSION_EVENT_BATCH_LIMIT = 20;
+/** A processing lease older than this may be taken over. */
+const EVENT_LEASE_MS = 2 * 60_000;
+/** Attempts before an event is left as failed. */
+export const AGENT_SESSION_EVENT_MAX_ATTEMPTS = 3;
+
+export interface RecordAgentSessionEventsParams extends AgentSessionRequestOwner {
+	events: ReadonlyArray<{
+		harness: WorkAgentSessionHarness;
+		sessionKey: string;
+		repository: string | null;
+		kind: AgentSessionEventKind;
+		body: string;
+		activity: string | null;
+		sourceAt: string;
+		sourceKey: string;
+	}>;
+	now: string;
+}
+
+/** Store uploaded events as pending; a re-upload is ignored. Returns inserts. */
+export async function recordAgentSessionEvents(
+	db: DbQueryClient,
+	params: RecordAgentSessionEventsParams,
+): Promise<number> {
+	if (!params.events.length) return 0;
+	const rows = await db
+		.insert(agentSessionEvents)
+		.values(
+			params.events.map((event) => ({
+				id: crypto.randomUUID(),
+				organizationId: params.organizationId,
+				userId: params.userId,
+				...event,
+				status: "pending" as const,
+				attempts: 0,
+				createdAt: params.now,
+			})),
+		)
+		.onConflictDoNothing({
+			target: [
+				agentSessionEvents.organizationId,
+				agentSessionEvents.userId,
+				agentSessionEvents.sourceKey,
+			],
+		})
+		.returning({ id: agentSessionEvents.id });
+	return rows.length;
+}
+
+/** The caller's oldest pending events (stale leases included), in order. */
+export async function listPendingAgentSessionEvents(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & { limit: number; now: string },
+): Promise<AgentSessionEventRow[]> {
+	const stale = new Date(Date.parse(params.now) - EVENT_LEASE_MS).toISOString();
+	return db
+		.select()
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.status, "pending"),
+				or(
+					isNull(agentSessionEvents.claimedAt),
+					lt(agentSessionEvents.claimedAt, stale),
+				),
+			),
+		)
+		.orderBy(asc(agentSessionEvents.sourceAt), asc(agentSessionEvents.id))
+		.limit(params.limit);
+}
+
+/** Take the processing lease of one event; false when another holds it. */
+export async function claimAgentSessionEvent(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & { id: string; now: string },
+): Promise<boolean> {
+	const stale = new Date(Date.parse(params.now) - EVENT_LEASE_MS).toISOString();
+	const rows = await db
+		.update(agentSessionEvents)
+		.set({
+			claimedAt: params.now,
+			attempts: sql`${agentSessionEvents.attempts} + 1`,
+		})
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.id, params.id),
+				eq(agentSessionEvents.status, "pending"),
+				or(
+					isNull(agentSessionEvents.claimedAt),
+					lt(agentSessionEvents.claimedAt, stale),
+				),
+			),
+		)
+		.returning({ id: agentSessionEvents.id });
+	return rows.length === 1;
+}
+
+/**
+ * Settle a claimed event: processed, or back to pending for another attempt
+ * (failed once attempts are used up).
+ */
+export async function settleAgentSessionEvent(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		id: string;
+		processed: boolean;
+		now: string;
+	},
+): Promise<void> {
+	await db
+		.update(agentSessionEvents)
+		.set(
+			params.processed
+				? { status: "processed", processedAt: params.now, claimedAt: null }
+				: {
+						status: sql`CASE WHEN ${agentSessionEvents.attempts} >= ${AGENT_SESSION_EVENT_MAX_ATTEMPTS} THEN 'failed' ELSE 'pending' END`,
+						claimedAt: null,
+					},
+		)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.id, params.id),
+			),
+		);
+}
+
+/** One of the caller's own rows, or undefined. */
+export async function getAgentSessionRequest(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & { id: string },
+): Promise<AgentSessionRequestRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(agentSessionRequests)
+		.where(
+			and(
+				eq(agentSessionRequests.organizationId, params.organizationId),
+				eq(agentSessionRequests.userId, params.userId),
+				eq(agentSessionRequests.id, params.id),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+export interface AgentSessionRequestUpdate {
+	id: string;
+	status: AgentSessionRequestStatus;
+	evidence: string | null;
+}
+
+/**
+ * Apply status changes to the caller's own rows in one batch. A row whose
+ * status changes gets a fresh `status_changed_at` and its unaddressed count
+ * reset; evidence is replaced only when one is given.
+ */
+export async function updateAgentSessionRequests(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		updates: readonly AgentSessionRequestUpdate[];
+		now: string;
+	},
+): Promise<void> {
+	if (!params.updates.length) return;
+	const statements = params.updates.map((update) =>
+		db
+			.update(agentSessionRequests)
+			.set({
+				statusChangedAt: sql`CASE WHEN ${agentSessionRequests.status} = ${update.status} THEN ${agentSessionRequests.statusChangedAt} ELSE ${params.now} END`,
+				status: update.status,
+				evidence: update.evidence
+					? update.evidence
+					: sql`${agentSessionRequests.evidence}`,
+				turnsUnaddressed: 0,
+				updatedAt: params.now,
+			})
+			.where(
+				and(
+					eq(agentSessionRequests.organizationId, params.organizationId),
+					eq(agentSessionRequests.userId, params.userId),
+					eq(agentSessionRequests.id, update.id),
+				),
+			),
+	);
+	const [first, ...rest] = statements;
+	await db.batch([first!, ...rest]);
+}
+
+/**
+ * Count one more agent turn that left these open rows untouched, and mark a
+ * row `dropped_risk` once `threshold` turns have passed it by.
+ */
+export async function markAgentSessionRequestsUnaddressed(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		ids: readonly string[];
+		threshold: number;
+		now: string;
+	},
+): Promise<void> {
+	for (let start = 0; start < params.ids.length; start += ID_CHUNK) {
+		const ids = params.ids.slice(start, start + ID_CHUNK);
+		await db
+			.update(agentSessionRequests)
+			.set({
+				turnsUnaddressed: sql`${agentSessionRequests.turnsUnaddressed} + 1`,
+				status: sql`CASE WHEN ${agentSessionRequests.turnsUnaddressed} + 1 >= ${params.threshold} THEN 'dropped_risk' ELSE ${agentSessionRequests.status} END`,
+				statusChangedAt: sql`CASE WHEN ${agentSessionRequests.turnsUnaddressed} + 1 >= ${params.threshold} THEN ${params.now} ELSE ${agentSessionRequests.statusChangedAt} END`,
+				updatedAt: params.now,
+			})
+			.where(
+				and(
+					eq(agentSessionRequests.organizationId, params.organizationId),
+					eq(agentSessionRequests.userId, params.userId),
+					eq(agentSessionRequests.status, "open"),
+					inArray(agentSessionRequests.id, ids),
+				),
+			);
+	}
+}

@@ -5,14 +5,18 @@ import { runAwaitReply } from "./await-reply";
 import { runDecisionCapture } from "./decision-capture";
 import { cliRead, type HookDeps, readBoundedStdin } from "./hook-io";
 import { runPromptContext } from "./prompt-context";
+import { runRequestLedger } from "./request-ledger";
 import { runSessionStart } from "./session-start";
 
 export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix plugin)
 
   tedix hooks session-start   SessionStart: opt-in read-only Tedix preflight
-  tedix hooks prompt-context  UserPromptSubmit: selected shared decisions and Work updates
-  tedix hooks capture-stop    Stop: open a decision-capture Interaction (opt-in)
-  tedix hooks capture-reply   UserPromptSubmit: answer it with the user's reply (opt-in)
+  tedix hooks prompt-context  UserPromptSubmit: selected shared decisions, Work updates
+                              and open requests
+  tedix hooks capture-stop    Stop: open a decision-capture Interaction and upload
+                              the turn and its activity for the request ledger (opt-in)
+  tedix hooks capture-reply   UserPromptSubmit: answer it with the user's reply and
+                              upload the message for the request ledger (opt-in)
   tedix hooks await-reply     Stop (Claude Code asyncRewake): wake on a Tedix OS answer or auto reply (opt-in)
   tedix hooks await-draft     Stop (Codex only): continue with a tedi auto reply, 5 min max (opt-in)
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
@@ -92,10 +96,11 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		if (name === "session-start") await runSessionStart(deps);
 		else if (name === "prompt-context") await runPromptContext(deps);
 		else
-			await runDecisionCapture(
-				name === "capture-stop" ? "stop" : "reply",
-				deps,
-			);
+			// The request ledger rides on the same events and opt-in.
+			await Promise.all([
+				runDecisionCapture(name === "capture-stop" ? "stop" : "reply", deps),
+				runRequestLedger(name === "capture-stop" ? "turn" : "prompt", deps),
+			]);
 	} catch {
 		if (name === "session-start")
 			console.error(

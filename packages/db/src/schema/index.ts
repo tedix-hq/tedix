@@ -122,6 +122,7 @@ export * from "./tools";
 export * from "./user-configs";
 export * from "./users";
 export * from "./work-agent-sessions";
+export * from "./agent-session-requests";
 export * from "./work-item-sources";
 export * from "./work-items";
 export * from "./work-factory";

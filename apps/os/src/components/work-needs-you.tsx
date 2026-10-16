@@ -23,8 +23,14 @@ import {
 	isDecidableWorkApproval,
 	isOpenRequestForYou,
 	isPendingRuntimeApproval,
+	isRequestWaitingOnYou,
 	useNeedsYouSources,
 } from "@/components/work-needs-you-count";
+import {
+	type SessionRequest,
+	SessionRequestsSection,
+	sessionRequestSource,
+} from "@/components/work-session-requests";
 import { officeAsk } from "@/components/work-office-page";
 import { factoryHref } from "@/components/work-portfolio-page";
 import { osApi } from "@/lib/api";
@@ -273,6 +279,7 @@ export function needsYouItems(input: {
 	readiness?: readonly ReadinessRow[];
 	viewerId?: string | null;
 	attention?: FleetAttention | null;
+	sessionRequests?: readonly SessionRequest[];
 }): NeedsYouItem[] {
 	const approvals: NeedsYouItem[] = [
 		...(input.runtimeApprovals ?? [])
@@ -309,10 +316,26 @@ export function needsYouItems(input: {
 				action: { type: "link", label: "Approve", href: "/work/approvals" },
 			})),
 	].sort(newestFirst);
-	const requests = (input.interactions ?? [])
-		.map(interactionItem)
-		.filter((item): item is NeedsYouItem => item !== null)
-		.sort(newestFirst);
+	const requests = [
+		...(input.interactions ?? [])
+			.map(interactionItem)
+			.filter((item): item is NeedsYouItem => item !== null),
+		...(input.sessionRequests ?? [])
+			.filter(isRequestWaitingOnYou)
+			.map((row): NeedsYouItem => ({
+				key: `session-request:${row.id}`,
+				kind: "Request",
+				label: row.text,
+				href: "#your-requests",
+				askedBy: "An agent session",
+				detail: [sessionRequestSource(row), row.evidence]
+					.filter(Boolean)
+					.join(" · "),
+				hint: "Reply in that session; it moves on once you answer.",
+				at: row.statusChangedAt,
+				action: { type: "link", label: "Open", href: "#your-requests" },
+			})),
+	].sort(newestFirst);
 	const factories = (input.factories ?? [])
 		.filter(isBrokenFactory)
 		.map((row): NeedsYouItem => ({
@@ -520,6 +543,7 @@ export function WorkNeedsYouPage() {
 				readiness: sources.readiness.data?.data,
 				viewerId: sources.profile.data?.id,
 				attention: fleet.data?.attention,
+				sessionRequests: sources.sessionRequests.data?.data,
 			}),
 		[
 			sources.interactions.data,
@@ -529,6 +553,7 @@ export function WorkNeedsYouPage() {
 			sources.readiness.data,
 			sources.profile.data,
 			fleet.data,
+			sources.sessionRequests.data,
 		],
 	);
 	const approve = useMutation({
@@ -639,6 +664,9 @@ export function WorkNeedsYouPage() {
 						</span>
 					))}
 				</Text>
+			) : null}
+			{sources.sessionRequests.data ? (
+				<SessionRequestsSection rows={sources.sessionRequests.data.data} />
 			) : null}
 		</Page>
 	);

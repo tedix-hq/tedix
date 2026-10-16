@@ -360,6 +360,26 @@ question: `claude -p` and the Agent SDK (`CLAUDE_CODE_SESSION_ATTENDED=0`) and
 Claude Code background session (`claude agents`) reports itself unattended too,
 but a person attaches to it, so its turns are captured.
 
+The same opt-in keeps your request ledger, so no request and no promise gets
+lost when you send many messages in a row. The hooks only upload, through
+`work.record_agent_session_events`: `capture-reply` sends each message you
+type and `capture-stop` sends the agent's final turn message with a digest of
+its activity (tool failures, agents it started and their reports), all
+redacted like `tedix learn` and bounded to 8,000 characters. An event waits in
+`~/.tedix/session-events/` until it is sent, so a failed upload goes with the
+next one; no hook waits on analysis. On Tedix, in the background and in
+session order, a small model records each request, question or decision you
+sent, and each promise or open loop of the agent (a lane it started that has
+not reported back), as an open row, private to you and linked to the chat.
+Later turns move rows to in progress, waiting on you, at risk or done. A row
+becomes done only with evidence found in the turn or its activity: a commit
+SHA, a link or an exact quote. An open row that three turns pass by is marked
+at risk. Before each prompt,
+`prompt-context` lists up to five open requests from this chat and earlier
+chats in the same repository, at risk first, then oldest. You see the whole
+ledger in Tedix OS under Work › Needs you › Your requests, where rows waiting
+on you also count as Needs you.
+
 Before the question is created, the redacted turn is triaged by the bound
 organization (`agent.triage_agent_turn`, at most 4 seconds) and the result is
 stored on the question as `metadata.triage`; the reply is likewise labelled
