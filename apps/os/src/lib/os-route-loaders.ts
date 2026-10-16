@@ -105,6 +105,7 @@ import {
 	workFleetQueryOptions,
 	workInteractionsQueryOptions,
 	workNeedsYouInteractionsQueryOptions,
+	workPendingApprovalsQueryOptions,
 	workResourcePoolsQueryOptions,
 	workspacePreferencesQueryOptions,
 } from "@/lib/os-query-options";
@@ -774,7 +775,7 @@ export async function prefetchWorkInteractionsRoute(queryClient: QueryClient) {
 export async function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
 	await Promise.allSettled([
 		queryClient.ensureQueryData(workNeedsYouInteractionsQueryOptions()),
-		queryClient.ensureQueryData(workApprovalsQueryOptions()),
+		queryClient.ensureQueryData(workPendingApprovalsQueryOptions()),
 		queryClient.ensureQueryData(pendingApprovalsQueryOptions()),
 		queryClient.ensureQueryData(workFleetQueryOptions()),
 	]);

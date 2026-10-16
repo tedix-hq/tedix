@@ -5,9 +5,9 @@ import {
 	factoryScoreboardQueryOptions,
 	pendingApprovalsQueryOptions,
 	userProfileQueryOptions,
-	workApprovalsQueryOptions,
 	workFleetQueryOptions,
 	workNeedsYouInteractionsQueryOptions,
+	workPendingApprovalsQueryOptions,
 	workReadinessProjectionQueryOptions,
 } from "@/lib/os-query-options";
 import { needsYouSourceCount } from "./work-needs-you-count";
@@ -242,7 +242,7 @@ describe("WorkNeedsYouPage", () => {
 			hasMore: false,
 			observedAt: "2026-10-16T00:00:00.000Z",
 		} as never);
-		client.setQueryData(workApprovalsQueryOptions().queryKey, {
+		client.setQueryData(workPendingApprovalsQueryOptions().queryKey, {
 			data: [workApproval],
 			nextCursor: null,
 			observedAt: "2026-10-16T00:00:00.000Z",
