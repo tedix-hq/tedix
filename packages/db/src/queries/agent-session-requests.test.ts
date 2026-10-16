@@ -69,6 +69,23 @@ describe("agent session request ledger", () => {
 		expect(await record(db, { requests })).toHaveLength(8);
 	});
 
+	it("reads the newest rows first when asked, so a bounded read keeps them", async () => {
+		const db = fixture();
+		await record(db);
+		await record(db, {
+			sourceKey: "message-2",
+			sourceAt: T1,
+			requests: [{ kind: "request", text: "Ship the docs" }],
+		});
+		const [newest] = await listAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: USER,
+			limit: 1,
+			newestFirst: true,
+		});
+		expect(newest?.text).toBe("Ship the docs");
+	});
+
 	it("never shows one person's rows to another", async () => {
 		const db = fixture();
 		await record(db);

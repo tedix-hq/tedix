@@ -73,7 +73,7 @@ Only list rows the turn actually touched. Never mark done from topic drift or a 
 2. Record what the agent now owes, in "new":
 - "promise": the agent committed to a concrete follow-up it has not done yet ("I'll report the result", "next I will check X", "I'll send the list").
 - "open_loop": the agent started a lane that must report back and has not yet (a background subagent, a delegated Codex run, a deploy or CI run it is waiting on).
-Write each in plain words, at most 25 words, keeping exact names. Skip anything an OPEN ROW already covers, anything finished in this same turn, and routine steps. Most turns have none.
+Write each in plain words, at most 25 words, keeping exact names. Skip anything an OPEN ROW already covers, anything finished in this same turn, routine steps, and items of a status list or plan that merely names lanes. Only a first-person commitment to the person ("I'll send", "I'll report back") is a promise. Most turns have none.
 
 Keep evidence under 200 characters. Return ONLY this JSON object:
 {"updates":[{"ref":"...","status":"in_progress"|"done"|"waiting_on_user"|"dropped_risk","evidence":"..."}],"new":[{"kind":"promise"|"open_loop","text":"..."}]}`;

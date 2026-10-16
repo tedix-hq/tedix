@@ -5,7 +5,7 @@
  * visible only to the person whose message it came from.
  */
 
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
@@ -100,6 +100,8 @@ export interface ListAgentSessionRequestsParams extends AgentSessionRequestOwner
 	harness?: WorkAgentSessionHarness;
 	sessionKey?: string;
 	limit?: number;
+	/** Newest message first, so a bounded read keeps the latest rows. */
+	newestFirst?: boolean;
 }
 
 /** The caller's own rows, oldest message first, bounded. */
@@ -127,8 +129,8 @@ export async function listAgentSessionRequests(
 			),
 		)
 		.orderBy(
-			asc(agentSessionRequests.sourceAt),
-			asc(agentSessionRequests.sourceKey),
+			(params.newestFirst ? desc : asc)(agentSessionRequests.sourceAt),
+			(params.newestFirst ? desc : asc)(agentSessionRequests.sourceKey),
 		)
 		.limit(
 			Math.min(
