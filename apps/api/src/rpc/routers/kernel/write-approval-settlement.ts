@@ -602,6 +602,11 @@ export async function settleHomeToolWriteApproval(
 							? { kernelToolResultReference: retainedResult }
 							: {}),
 						kernelOutputReceipt: outputReceipt,
+						// The short human receipt, so a chat-reply approval can repeat
+						// it. Not the generic "Executed X: {json}" fallback.
+						...(content.startsWith(`Executed ${payload.toolName} on `)
+							? {}
+							: { kernelWriteReceipt: content.slice(0, 600) }),
 						...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
 					}),
 					outputRevisionId: outputReceipt?.revisionId ?? null,

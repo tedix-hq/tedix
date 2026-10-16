@@ -407,7 +407,7 @@ const RENAME_REQUEST_RE = /\b(?:re-?name|re-?title|call it|title it)\b/i;
 /** "Rename this conversation to X" — routed as conversations.update, or (from a
  * workspace) as an output update. The current conversation is the target. */
 const RENAME_THIS_CONVERSATION_RE =
-	/\b(?:re-?name|re-?title)\s+(?:this|the|current|our)\s+(?:conversation|chat|thread)\s+(?:to|as)\s+(.+)$/is;
+	/\b(?:re-?name|re-?title)\s+(?:this|the|current|our)\s+(?:conversation|chat|thread)\s+(?:to|as)\s+([^\n]+)/i;
 
 /**
  * Arguments for renaming the current conversation, read straight from the
@@ -419,11 +419,13 @@ export function renameThisConversationArgs(
 	conversationId: string | undefined,
 ): { conversationId: string; title: string } | null {
 	if (!conversationId) return null;
+	// The title ends at the line end: the CLI appends a "Local terminal
+	// context:" block after the request.
 	const match = RENAME_THIS_CONVERSATION_RE.exec(content.trim());
 	const title = match?.[1]
 		?.trim()
 		.replace(/\.$/, "")
-		.replace(/^["“'‘](.*)["”'’]$/s, "$1")
+		.replace(/^["“'‘](.*)["”'’]$/, "$1")
 		.trim();
 	return title && title.length <= 200 ? { conversationId, title } : null;
 }
@@ -766,7 +768,7 @@ function buildUserPrompt(args: {
 		...(args.conversationId
 			? [
 					"",
-					`CURRENT HOME CONVERSATION: ${JSON.stringify(args.conversationId)}`,
+					`CURRENT HOME CONVERSATION: conversationId=${JSON.stringify(args.conversationId)}`,
 					'When the operator says "this conversation" or "this chat", it means this conversationId.',
 				]
 			: []),

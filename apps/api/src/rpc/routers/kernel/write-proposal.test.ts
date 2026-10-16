@@ -602,6 +602,13 @@ describe("canonicalWriteToolName", () => {
 		expect(
 			renameThisConversationArgs("Rename the doc to Q3 plan", "home:os:abc"),
 		).toBeNull();
+		// The CLI appends local terminal context after the request.
+		expect(
+			renameThisConversationArgs(
+				"Rename this conversation to Q3 plan\n\nLocal terminal context:\n- cwd: /tmp",
+				"Q3 thread",
+			),
+		).toEqual({ conversationId: "Q3 thread", title: "Q3 plan" });
 		expect(
 			renameThisConversationArgs("Rename this chat to Q3", undefined),
 		).toBeNull();
@@ -814,7 +821,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			model,
 		});
 		expect(JSON.stringify(generate.mock.calls[0]?.[0].prompt)).toContain(
-			'CURRENT HOME CONVERSATION: \\"home:os:abc\\"',
+			'CURRENT HOME CONVERSATION: conversationId=\\"home:os:abc\\"',
 		);
 	});
 

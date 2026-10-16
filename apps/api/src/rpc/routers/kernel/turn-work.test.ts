@@ -1398,6 +1398,17 @@ describe("chatApprovalReplyContent", () => {
 			}),
 		).toContain("but the write failed");
 	});
+	it("repeats the settled write's receipt", () => {
+		expect(
+			chatApprovalReplyContent({
+				...reply,
+				decision: "approve",
+				receipt: "Updated “Plan”. [Open document](/outputs/o1).",
+			}),
+		).toBe(
+			"Approved and ran `os.x`. Updated “Plan”. [Open document](/outputs/o1).",
+		);
+	});
 });
 
 describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
