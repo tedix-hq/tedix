@@ -829,6 +829,101 @@ describe("planKernelRoute", () => {
 		).rejects.toThrow();
 	});
 
+	it.each(["invalid schema", "unparsable JSON"])(
+		"recovers once from %s with the same input",
+		async (failure) => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const good = objectModel({ ...FALLBACK_DECISION, answer: "Ready." });
+			const model = new MockLanguageModelV3({
+				doGenerate: async (options) => {
+					if (model.doGenerateCalls.length > 1) return good.doGenerate(options);
+					return {
+						finishReason: "stop",
+						usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+						warnings: [],
+						content: [
+							{
+								type: "text",
+								text:
+									failure === "unparsable JSON"
+										? "not JSON"
+										: '{"routeKind":"invalid"}',
+							},
+						],
+					};
+				},
+			});
+			try {
+				const result = await planKernelRoute({
+					model,
+					context: EMPTY_CONTEXT,
+					content: "Status for Orion",
+				});
+				expect(result?.answer).toBe("Ready.");
+				expect(model.doGenerateCalls).toHaveLength(2);
+				expect(model.doGenerateCalls[1]?.prompt).toEqual(
+					model.doGenerateCalls[0]?.prompt,
+				);
+				expect(warn).toHaveBeenCalledWith(
+					expect.objectContaining({
+						event: "route_decision_retry",
+						outcome: "succeeded",
+					}),
+				);
+			} finally {
+				warn.mockRestore();
+			}
+		},
+	);
+
+	it("stops after two invalid decisions and records failure", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const model = objectModel({ routeKind: "invalid" });
+		try {
+			await expect(
+				planKernelRoute({ model, context: EMPTY_CONTEXT, content: "Status" }),
+			).rejects.toThrow();
+			expect(model.doGenerateCalls).toHaveLength(2);
+			expect(warn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event: "route_decision_retry",
+					outcome: "failed",
+				}),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("bounds the retry by the remaining route deadline", async () => {
+		const invalid = objectModel({ routeKind: "invalid" });
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				if (model.doGenerateCalls.length === 1)
+					return invalid.doGenerate(options);
+				return new Promise((_, reject) => {
+					const abort = () => reject(options.abortSignal?.reason);
+					if (options.abortSignal?.aborted) abort();
+					else
+						options.abortSignal?.addEventListener("abort", abort, {
+							once: true,
+						});
+				});
+			},
+		});
+		const started = Date.now();
+		await expect(
+			planKernelRoute({
+				model,
+				context: EMPTY_CONTEXT,
+				content: "Status",
+				generationTimeoutMs: 100,
+			}),
+		).resolves.toBeNull();
+		expect(model.doGenerateCalls).toHaveLength(2);
+		expect(Date.now() - started).toBeLessThan(1000);
+	});
+
 	it("system prompt contains owned-write delegation guidance (delegate_tedi preferred over propose_tool_write for tedi-owned domains)", async () => {
 		let capturedSystem = "";
 		const model = new MockLanguageModelV3({
@@ -1899,14 +1994,15 @@ describe("Auto Router Home answer", () => {
 			expect(model.doGenerateCalls).toHaveLength(1);
 			expect(warn).toHaveBeenCalledWith(
 				expect.objectContaining({
-					event: "auto_router_stream_empty_fallback",
+					event: "route_decision_retry",
+					outcome: "succeeded",
 				}),
 			);
 		} finally {
 			warn.mockRestore();
 		}
 	});
-	it("a fixed model whose stream yields no object does not fall back", async () => {
+	it("a fixed model retries an empty decision only once", async () => {
 		const model = new MockLanguageModelV3({
 			modelId: "gpt-5",
 			doStream: async () => ({ stream: routeStream([]) }),
@@ -1922,7 +2018,7 @@ describe("Auto Router Home answer", () => {
 				onAnswerDelta: () => {},
 			}),
 		).rejects.toThrow();
-		expect(model.doGenerateCalls).toHaveLength(0);
+		expect(model.doGenerateCalls).toHaveLength(1);
 	});
 	it("streams a tool-free answer only when the route answer is empty, summing both usage records", async () => {
 		const model = autoModel(
