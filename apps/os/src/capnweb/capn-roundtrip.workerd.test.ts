@@ -383,13 +383,21 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 		// The lane opens even with no run at all: an empty snapshot cursor is a
 		// legitimate "nothing to resume from", not a failure.
 		await until(() => statuses.includes("open"), "the session to open");
-		const output = await machine.actions.enqueue({ content: "hi" }, "key-1");
+		const workspaceContext = {
+			workspaceId: "workspace-1",
+			workpiece: { kind: "output" as const, id: "output-1" },
+		};
+		const output = await machine.actions.enqueue(
+			{ content: "hi", workspaceContext },
+			"key-1",
+		);
 		expect(output.status).toBe("queued");
 		const enqueue = calls.find(
 			(call) => call.path === "kernelRuntime/enqueueMessage",
 		);
 		expect(enqueue?.input).toEqual({
 			content: "hi",
+			workspaceContext,
 			conversationId: CONVERSATION_ID,
 			executionPolicy: "normal",
 			idempotencyKey: "key-1",
