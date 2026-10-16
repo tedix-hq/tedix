@@ -2,10 +2,8 @@
  * Deterministic check for an explicit request to create a Tedix output
  * ("Create a 3-slide deck about X", "make a sheet of our vendors").
  *
- * The route model sometimes answers such a request with a text outline. The
- * kernel checks the request before planning: it holds back answer streaming
- * and, when the model still picks `answer_in_home`, routes the turn to the
- * write path through the tenant's Code Mode gateway, where
+ * The kernel routes explicit creates directly to the write planner through
+ * the tenant's Code Mode gateway, where
  * `canonicalWriteToolName` resolves `os.create_os_output`. Approval policy is
  * unchanged: the write is a proposal like any other.
  *
@@ -72,6 +70,34 @@ const CAPABILITY_BY_KIND: Record<OutputCreateKind, string> = {
 	sheet: "sheets.create",
 	presentation: "presentations.create",
 };
+
+/** Only selects a planner; arguments, schema validation and approval stay there. */
+export function explicitOutputCreateDecision(
+	kind: OutputCreateKind | null,
+	appSlug: string | null,
+): KernelRouteDecision | null {
+	if (!kind || !appSlug) return null;
+	return routeExplicitOutputCreate(
+		{
+			routeKind: "answer_in_home",
+			answer: null,
+			rationale: "",
+			risk: "medium",
+			confidence: 1,
+			effortClass: "single_read",
+			targetTediId: null,
+			targetTediLabel: null,
+			targetActivityId: null,
+			plannedToolIds: [],
+			toolIntent: null,
+			workflowHint: null,
+			clarifyingQuestion: null,
+			evidenceExpectation: null,
+		},
+		kind,
+		appSlug,
+	);
+}
 
 /**
  * The app that carries Tedix OS writes: the tenant's Code Mode gateway. With

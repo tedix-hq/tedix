@@ -56,17 +56,13 @@ const KERNEL_AVAILABLE_PROVIDERS: ReadonlySet<ModelProviderId> = new Set([
  * here so a missing secret degrades to `null` instead of a type error.
  */
 /**
- * Model for the FIRST round of a Home turn (the route pass that also writes
- * an answer_in_home reply). Chosen on 20 live turns per candidate
- * (2026-10-12, Work c7a96ff5): server first token p50 5.6 s / p95 6.9 s with
- * the hedge never firing and 20/20 correct Home answers, against p50 8.7 s,
- * hedge 11/20 and one routing failure on `cloudflare/auto` (Kimi). Later
- * passes (write proposal, plan decomposition, delegation synthesis, title)
- * keep the role default. A per-turn `modelRef` still wins; when this model is
- * not configured in the environment the route pass falls back to the role
- * default rather than going dark.
+ * Default for bounded Home routing and write-argument planning. Execution,
+ * approval and schema validation remain deterministic runtime checks.
+ * A per-turn `modelRef` wins; if this deployment is not configured, routing
+ * falls back to the role default. Re-measure changes with
+ * scripts/eval/chat-latency.mjs.
  */
-export const KERNEL_ROUTE_MODEL_REF_DEFAULT = "azure-openai/gpt-6.1-sol";
+export const KERNEL_ROUTE_MODEL_REF_DEFAULT = "azure-openai/gpt-6-luna";
 
 export interface KernelEnv {
 	DB?: D1Database;

@@ -650,7 +650,11 @@ it.each([
 	},
 );
 
-it("routes an explicit deck request answered in prose to an output write", async () => {
+it.each([
+	["Create a 3-slide deck about Blue Harbor Bakery", "presentations.create"],
+	["Write a short document about Blue Harbor Bakery", "documents.create"],
+	["Make a spreadsheet of fictional stock", "sheets.create"],
+])("routes %s without calling the route model", async (content, capability) => {
 	const { assembleHomeContext } = await import("./context-assembly");
 	const { planKernelRoute } = await import("./route-planner");
 	vi.mocked(planKernelRoute).mockClear();
@@ -692,25 +696,17 @@ it("routes an explicit deck request answered in prose to an output write", async
 			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
 		} as never,
 		organizationId: "org",
-		content: "Create a 3-slide deck about Blue Harbor Bakery",
+		content,
 		onProgress,
 	});
-	// The streamed pass is kept, but its prose never reaches the operator.
-	const onAnswerDelta =
-		vi.mocked(planKernelRoute).mock.lastCall?.[0].onAnswerDelta;
-	expect(onAnswerDelta).toBeTypeOf("function");
-	onAnswerDelta?.("Slide 1");
-	expect(
-		onProgress.mock.calls.some(
-			([progress]) => progress.answerDelta === "Slide 1",
-		),
-	).toBe(false);
+	expect(planKernelRoute).not.toHaveBeenCalled();
+	expect(result?.routeUsage).toBeNull();
 	expect(result?.route).toMatchObject({
 		routeKind: "propose_tool_write",
 		answer: null,
 		toolIntent: {
 			appSlug: "acme-unified",
-			capability: "presentations.create",
+			capability,
 		},
 	});
 	expect(result?.assistantContent).not.toContain("Slide 1");
