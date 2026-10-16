@@ -252,9 +252,7 @@ export function wrapUntrustedMcpEvent(
 	let text = JSON.stringify(event.data ?? null) ?? "null";
 	const truncated = text.length > MAX_EVENT_DATA_CHARS;
 	if (truncated) text = text.slice(0, MAX_EVENT_DATA_CHARS);
-	text = text.replace(/<\/?(untrusted_event_data)/gi, (match) =>
-		match.replace("<", "&lt;"),
-	);
+	text = text.replace(/</g, "&lt;");
 	return {
 		trust: "untrusted" as const,
 		source: "mcp_events" as const,

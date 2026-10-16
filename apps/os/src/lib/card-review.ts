@@ -88,9 +88,31 @@ export function sourceParts(text: string): { label: string; links: string[] } {
 			),
 		),
 	].slice(0, 3);
-	const label = text
-		.replace(new RegExp(URL_PATTERN.source, "g"), "")
-		.replace(/(\s*[·;,]\s*)+(?=$|\))/g, "")
+	const withoutLinks = text.replace(new RegExp(URL_PATTERN.source, "g"), "");
+	// Scan each separator/whitespace run once; nested regex repetition backtracks.
+	const parts: string[] = [];
+	let kept = 0;
+	for (let index = 0; index < withoutLinks.length;) {
+		const start = index;
+		let separator = false;
+		while (index < withoutLinks.length) {
+			const character = withoutLinks[index]!;
+			if ("·;,".includes(character)) separator = true;
+			else if (!/\s/.test(character)) break;
+			index++;
+		}
+		if (
+			separator &&
+			(index === withoutLinks.length || withoutLinks[index] === ")")
+		) {
+			parts.push(withoutLinks.slice(kept, start));
+			kept = index;
+		}
+		if (index === start) index++;
+	}
+	parts.push(withoutLinks.slice(kept));
+	const label = parts
+		.join("")
 		.replace(/\(\s*\)/g, "")
 		.replace(/\s{2,}/g, " ")
 		.trim();

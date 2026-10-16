@@ -133,6 +133,16 @@ describe("columns and links", () => {
 		});
 		expect(sourceParts("plain")).toEqual({ label: "plain", links: [] });
 	});
+	it("handles long separator runs and preserves punctuation inside labels", () => {
+		expect(sourceParts(`Source (${", ".repeat(50_000)})`)).toEqual({
+			label: "Source",
+			links: [],
+		});
+		expect(sourceParts(`Source${" ,".repeat(50_000)}x`).label).toBe(
+			`Source${" ,".repeat(50_000)}x`,
+		);
+		expect(sourceParts("A, B; C · D ; , \t").label).toBe("A, B; C · D");
+	});
 });
 
 describe("cardsFromSheet", () => {

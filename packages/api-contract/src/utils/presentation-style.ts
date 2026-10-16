@@ -276,7 +276,7 @@ export function slideElementMarkup(
 			slideTone("neutral", organization).color;
 		const endpoints = slideArrowEndpoints(element);
 		const label = props?.label ?? "";
-		return `<svg width="100%" height="100%" viewBox="0 0 ${box.width} ${box.height}" style="pointer-events:none;overflow:visible"><path d="${slideArrowPath(element)}" fill="none" stroke="${escapeSlideHtml(color)}" stroke-width="${props?.strokeWidth ?? element.style.borderWidth ?? 2}"${props?.dashed ? ' stroke-dasharray="6 6"' : ""}/>${label ? `<text x="${(endpoints.from.x + endpoints.to.x) / 2 - box.x}" y="${(endpoints.from.y + endpoints.to.y) / 2 - box.y - 8}" text-anchor="middle" fill="${escapeSlideHtml(color)}" font-size="12" font-weight="600">${escapeSlideHtml(label)}</text>` : ""}</svg>`;
+		return `<svg width="100%" height="100%" viewBox="0 0 ${escapeSlideHtml(String(box.width))} ${escapeSlideHtml(String(box.height))}" style="pointer-events:none;overflow:visible"><path d="${escapeSlideHtml(slideArrowPath(element))}" fill="none" stroke="${escapeSlideHtml(color)}" stroke-width="${escapeSlideHtml(String(props?.strokeWidth ?? element.style.borderWidth ?? 2))}"${props?.dashed ? ' stroke-dasharray="6 6"' : ""}/>${label ? `<text x="${escapeSlideHtml(String((endpoints.from.x + endpoints.to.x) / 2 - box.x))}" y="${escapeSlideHtml(String((endpoints.from.y + endpoints.to.y) / 2 - box.y - 8))}" text-anchor="middle" fill="${escapeSlideHtml(color)}" font-size="12" font-weight="600">${escapeSlideHtml(label)}</text>` : ""}</svg>`;
 	}
 	if (element.type === "card" || element.type === "box") {
 		const card = element.type === "card";
