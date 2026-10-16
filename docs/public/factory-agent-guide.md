@@ -111,6 +111,17 @@ the rest. Return `cards` or a one-line `summary` in the run result so the
 Workspace can say what the last run did. `list_os_workspace_schedules`
 reads the same rows the Workspace shows.
 
+A factory for one person's own inbox belongs in that person's private
+Workspace. Give it to them with `update_os_workspace` (`visibility:
+"private"`, their `ownerUserId`): the current owner can do it, and so can an
+organization admin for an org Workspace; afterwards only that member sees
+it. The linked skill's runs still read and write that Workspace's Outputs,
+and nothing else of the member's. Declare the mailbox read in the skill's
+manifest (`google_gmail: [search_threads]`). The owner then opens the
+Workspace and clicks **Let this read my Gmail (read-only)** on the skill's
+**Runs on a schedule** row; no CLI step or Gmail resource setup is needed,
+and **Stop** revokes it.
+
 ## Health and lifecycle
 
 ```bash

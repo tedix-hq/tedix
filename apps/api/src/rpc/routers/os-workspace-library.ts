@@ -22,6 +22,7 @@ import {
 	updateOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getUserConfig,
 	listUserConfigs,
@@ -35,6 +36,7 @@ import {
 	type BaseContext,
 	createError,
 	ErrorCodes,
+	userHoldsPermission,
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
@@ -178,13 +180,24 @@ async function requirePrivateOwner(context: BaseContext): Promise<string> {
  * Visibility patch for update. Making a workspace private hides it from every
  * other member, so only the member who created it may do that; sharing a
  * private workspace again is the owner's call (non-owners never reach here,
- * because requireWorkspace already hid it from them).
+ * because requireWorkspace already hid it from them). With `ownerUserId` a
+ * private workspace is given to another member (see `giveToMember`).
  */
 async function visibilityPatch(
 	context: BaseContext,
 	workspace: OsWorkspaceRow,
 	visibility: OsWorkspaceRow["visibility"] | undefined,
+	ownerUserId: string | undefined,
 ): Promise<Pick<OsWorkspaceRow, "visibility" | "ownerUserId"> | null> {
+	if (ownerUserId !== undefined) {
+		if ((visibility ?? workspace.visibility) !== "private") {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Only a private workspace has an owner; send visibility private",
+			);
+		}
+		return giveToMember(context, workspace, ownerUserId);
+	}
 	if (!visibility || visibility === workspace.visibility) return null;
 	if (visibility === "org") return { visibility, ownerUserId: null };
 	const owner = await requirePrivateOwner(context);
@@ -195,6 +208,49 @@ async function visibilityPatch(
 		);
 	}
 	return { visibility, ownerUserId: owner };
+}
+
+/**
+ * Give a workspace to one member as a private workspace. A signed-in person
+ * may do it when they own it now (its private owner, or the member who
+ * created an org workspace), or when they administer the organization and
+ * give an org workspace to someone else. The new owner must be an active
+ * member. Afterwards only the new owner sees it, the giver included.
+ */
+async function giveToMember(
+	context: BaseContext,
+	workspace: OsWorkspaceRow,
+	ownerUserId: string,
+): Promise<Pick<OsWorkspaceRow, "visibility" | "ownerUserId">> {
+	const caller =
+		context.authType === "user" && !context.tediId ? context.user?.sub : null;
+	const ownsIt =
+		Boolean(caller) &&
+		(workspace.visibility === "private"
+			? workspace.ownerUserId === caller
+			: workspace.createdByKind === "user" && workspace.createdById === caller);
+	const adminForMember =
+		workspace.visibility === "org" &&
+		ownerUserId !== caller &&
+		userHoldsPermission(context, "settings:manage");
+	if (!caller || !(ownsIt || adminForMember)) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only the workspace's owner, or an organization admin giving it to a member, can choose its owner",
+		);
+	}
+	const member = await getMemberByUserId(
+		context.db,
+		requireOrgId(context),
+		ownerUserId,
+	);
+	if (member?.status !== "active") {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"The new owner must be an active member of this organization",
+		);
+	}
+	return { visibility: "private", ownerUserId };
 }
 
 const list = readOs.workspaces.list.handler(async ({ input, context }) => {
@@ -343,6 +399,7 @@ const update = authorOs.workspaces.update.handler(
 			context,
 			workspace,
 			input.visibility,
+			input.ownerUserId,
 		);
 		try {
 			const row = await updateOsWorkspace(

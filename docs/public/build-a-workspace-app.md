@@ -101,6 +101,20 @@ result's `cards` count or one-line `summary` becomes the last-run text. The
 section is hidden when a workspace has no scheduled skill, and these links
 are not listed under **Connected sources**.
 
+When a scheduled skill reads its owner's own account, the row also shows,
+to the workspace's owner only, **Let this read my Gmail (read-only)**. One
+click picks the owner's connected Gmail account (or links to Settings →
+Connections when there is none), attaches it to the workspace and lets the
+skill's worker search that mailbox, read-only, until the owner clicks
+**Stop** on "Reads your Gmail (read-only) · Stop". The skill says what it
+needs in its own manifest: a provider tool such as `google_gmail:
+[search_threads]` whose installed tool uses a personal connection and is a
+reviewed read of the account. Editing the skill keeps the grant. A private
+workspace can be given to a member: its owner, or an organization admin for
+an org workspace, updates it with `visibility: "private"` and that member's
+`ownerUserId`. Afterwards only that member sees it, and a scheduled skill
+linked to it can read and write its outputs only while a run is going.
+
 ## Card review
 
 `tedix:app/card-review` shows a factory's card sheets one card at a time:

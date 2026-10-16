@@ -382,6 +382,10 @@ const CALLS: Record<string, unknown> = {
 		expectedUpdatedAt: "2026-08-12T08:30:00.000Z",
 	},
 	"osWorkspaces/schedules/list": { workspaceId: IDS.workspaceRevenue },
+	"osWorkspaces/schedules/allowPersonalRead": {
+		workspaceId: IDS.workspaceRevenue,
+		resourceId: "00000034-0000-4000-8000-000000000002",
+	},
 	"osWorkspaces/gadgets/list": { workspaceId: IDS.workspaceRevenue, limit: 50 },
 	"osWorkspaces/gadgets/create": {
 		workspaceId: IDS.workspaceRevenue,

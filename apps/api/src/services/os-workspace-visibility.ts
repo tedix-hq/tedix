@@ -3,6 +3,8 @@ import {
 	isOsWorkspaceVisibleTo,
 	type OsWorkspaceViewer,
 } from "@tedix/db/queries/os-workspaces/workspaces";
+import { listOsWorkspaceIdsLinkingSkill } from "@tedix/db/queries/os-workspaces/resources";
+import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
@@ -17,6 +19,10 @@ import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
  *   id. `X-Tedix-Acting-User` is read only in withAuth's service-binding
  *   branch, and public ingress strips the service-binding marker;
  * - one of their own personal tedis.
+ * A skill run sees one more thing: while a tedi's skill run is running, that
+ * run (on the trusted service binding) sees the private workspaces whose
+ * "Runs on a schedule" resource links its skill, and nothing else of the
+ * owner's.
  * No organization role, API key or service principal sees them; this follows
  * the owner-only policy of personal resource delegations.
  */
@@ -34,6 +40,37 @@ export function resolveOsWorkspaceViewer(
 }
 
 async function computeViewer(context: BaseContext): Promise<OsWorkspaceViewer> {
+	const viewer = await computeMemberViewer(context);
+	const workspaceIds = await linkedRunWorkspaceIds(context);
+	return workspaceIds.length ? { ...viewer, workspaceIds } : viewer;
+}
+
+/** Workspaces linked to the skill of the caller's own running skill run. */
+async function linkedRunWorkspaceIds(context: BaseContext): Promise<string[]> {
+	const runId = context.headers?.get("X-Tedix-Skill-Run-Id")?.trim();
+	if (
+		!runId ||
+		context.authType !== "service-binding" ||
+		!context.tediId ||
+		!context.organizationId
+	)
+		return [];
+	const run = await getSkillRun(
+		context.db,
+		runId,
+		context.organizationId,
+		context.env.ENVIRONMENT,
+	);
+	if (run?.status !== "running" || run.tediId !== context.tediId) return [];
+	return listOsWorkspaceIdsLinkingSkill(context.db, {
+		organizationId: context.organizationId,
+		skillId: run.skillId,
+	});
+}
+
+async function computeMemberViewer(
+	context: BaseContext,
+): Promise<OsWorkspaceViewer> {
 	if (context.authType === "user") {
 		return { userIds: context.user?.sub ? [context.user.sub] : [] };
 	}
@@ -76,7 +113,7 @@ export async function resolveOsWorkspaceOwnerCandidate(
 /** Throw NOT_FOUND (never FORBIDDEN: existence is private too). */
 export async function assertOsWorkspaceVisible(
 	context: BaseContext,
-	workspace: Pick<OsWorkspaceRow, "visibility" | "ownerUserId">,
+	workspace: Pick<OsWorkspaceRow, "id" | "visibility" | "ownerUserId">,
 	message = "OS workspace not found",
 ): Promise<void> {
 	if (workspace.visibility !== "private") return;

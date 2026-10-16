@@ -1,11 +1,20 @@
 import { Clock } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
-import type { OsWorkspaceSchedule } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+	OsWorkspaceSchedule,
+	OsWorkspaceSchedulePersonalRead,
+} from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { Text } from "@/components/kumo/text";
-import { workspaceSchedulesQueryOptions } from "@/lib/os-query-options";
+import { osApi } from "@/lib/api";
+import {
+	osQuery,
+	workspaceResourcesQueryOptions,
+	workspaceSchedulesQueryOptions,
+} from "@/lib/os-query-options";
 import {
 	lastRunLine,
 	nextRunLine,
@@ -36,7 +45,10 @@ export function WorkspaceSchedules({ workspaceId }: { workspaceId: string }) {
 				<ul className="m-0 grid list-none gap-3 p-0">
 					{items.map((schedule) => (
 						<li key={schedule.resourceId} className="min-w-0">
-							<WorkspaceScheduleRow schedule={schedule} />
+							<WorkspaceScheduleRow
+								schedule={schedule}
+								workspaceId={workspaceId}
+							/>
 						</li>
 					))}
 				</ul>
@@ -45,7 +57,13 @@ export function WorkspaceSchedules({ workspaceId }: { workspaceId: string }) {
 	);
 }
 
-function WorkspaceScheduleRow({ schedule }: { schedule: OsWorkspaceSchedule }) {
+function WorkspaceScheduleRow({
+	schedule,
+	workspaceId,
+}: {
+	schedule: OsWorkspaceSchedule;
+	workspaceId: string;
+}) {
 	const next = schedule.enabled ? nextRunLine(schedule.nextRunAt) : null;
 	const titleId = `workspace-schedule-${schedule.resourceId}`;
 	return (
@@ -98,6 +116,13 @@ function WorkspaceScheduleRow({ schedule }: { schedule: OsWorkspaceSchedule }) {
 						{next}
 					</Text>
 				)}
+				{schedule.personalRead?.canAllow && (
+					<PersonalReadControl
+						access={schedule.personalRead}
+						resourceId={schedule.resourceId}
+						workspaceId={workspaceId}
+					/>
+				)}
 			</div>
 			<Link
 				className="shrink-0 type-tedix-control"
@@ -106,5 +131,97 @@ function WorkspaceScheduleRow({ schedule }: { schedule: OsWorkspaceSchedule }) {
 				See runs
 			</Link>
 		</article>
+	);
+}
+
+/**
+ * The owner's own consent for a skill that reads their personal account:
+ * one button grants read-only access with the tools the skill declares, and
+ * Stop revokes it. Shown only to the Workspace's owner.
+ */
+function PersonalReadControl({
+	access,
+	resourceId,
+	workspaceId,
+}: {
+	access: OsWorkspaceSchedulePersonalRead;
+	resourceId: string;
+	workspaceId: string;
+}) {
+	const queryClient = useQueryClient();
+	const refresh = () =>
+		Promise.all([
+			queryClient.invalidateQueries({
+				queryKey: workspaceSchedulesQueryOptions(workspaceId).queryKey,
+			}),
+			queryClient.invalidateQueries({
+				queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
+			}),
+			queryClient.invalidateQueries({
+				queryKey: osQuery.personalResourceDelegations.list.key(),
+			}),
+		]);
+	const allow = useMutation({
+		mutationFn: () =>
+			osApi.osWorkspaces.schedules.allowPersonalRead({
+				workspaceId,
+				resourceId,
+			}),
+		onSuccess: refresh,
+	});
+	const stop = useMutation({
+		mutationFn: (id: string) =>
+			osApi.personalResourceDelegations.revoke({ id }),
+		onSuccess: refresh,
+	});
+	const error = allow.error ?? stop.error;
+	if (access.grantId) {
+		const grantId = access.grantId;
+		return (
+			<Text as="p" role="label" className="m-0" data-schedule-personal-read>
+				Reads your {access.providerName} (read-only) ·{" "}
+				<Button
+					size="xs"
+					variant="ghost"
+					disabled={stop.isPending}
+					onClick={() => stop.mutate(grantId)}
+				>
+					Stop
+				</Button>
+				{error && <span role="alert"> {error.message}</span>}
+			</Text>
+		);
+	}
+	if (allow.data?.status === "not_connected") {
+		return (
+			<Text as="p" role="label" className="m-0" data-schedule-personal-read>
+				Connect your {access.providerName} first in{" "}
+				<a href="/account/connections">Settings → Connections</a>, then come
+				back here.
+			</Text>
+		);
+	}
+	return (
+		<div className="grid justify-items-start gap-1" data-schedule-personal-read>
+			<Button
+				size="sm"
+				variant="secondary"
+				disabled={allow.isPending}
+				onClick={() => allow.mutate()}
+			>
+				Let this read my {access.providerName} (read-only)
+			</Button>
+			{error && (
+				<Text
+					as="p"
+					role="label"
+					tone="error"
+					className="m-0"
+					aria-live="polite"
+				>
+					{error.message}
+				</Text>
+			)}
+		</div>
 	);
 }

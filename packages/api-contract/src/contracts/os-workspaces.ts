@@ -46,7 +46,10 @@ import {
 	OsWorkspaceStatusSchema,
 	OsWorkspaceVisibilitySchema,
 } from "../schemas/os-workspaces";
-import { OsWorkspaceScheduleSchema } from "../schemas/os-workspace-schedules";
+import {
+	AllowWorkspaceSchedulePersonalReadResultSchema,
+	OsWorkspaceScheduleSchema,
+} from "../schemas/os-workspace-schedules";
 
 /**
  * Tedix OS workspace domain: workspaces contain gadgets, gadgets carry
@@ -197,14 +200,25 @@ const workspaceUpdateSchema = z
 		visibility: OsWorkspaceVisibilitySchema.optional().describe(
 			"private makes the calling member the only owner; org shares it with every member again. Only the owner (or, for an org workspace, its creator) may change it",
 		),
+		ownerUserId: z
+			.string()
+			.trim()
+			.min(1)
+			.max(200)
+			.optional()
+			.describe(
+				"Give the workspace to this member (their user id) as a private workspace; send with visibility private. Allowed for its current owner (or an org workspace's creator), and for an organization admin giving an org workspace to another active member. Afterwards only that member sees it",
+			),
 	})
 	.refine(
 		(input) =>
 			input.name !== undefined ||
 			input.description !== undefined ||
-			input.visibility !== undefined,
+			input.visibility !== undefined ||
+			input.ownerUserId !== undefined,
 		{
-			message: "Supply a workspace name, description or visibility to update",
+			message:
+				"Supply a workspace name, description, visibility or owner to update",
 		},
 	);
 
@@ -602,6 +616,25 @@ export const osWorkspacesContract = oc
 						items: z.array(OsWorkspaceScheduleSchema),
 					}),
 				),
+			allowPersonalRead: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/schedules/{resourceId}/personal-read",
+					summary: "Let a scheduled skill read the owner's account, read-only",
+					description:
+						"For a scheduled skill whose item has personalRead, called by the Workspace owner while signed in: picks the owner's connected account for that provider, attaches it to the Workspace as a personal resource when it is not attached yet, and grants the skill's worker read access with the declared read-only tools only. The grant lasts a year unless revoked (personal_resource_delegations revoke). Returns not_connected when the owner has not connected that account.",
+				})
+				.input(
+					workspaceIdInput
+						.extend({
+							resourceId: z
+								.string()
+								.uuid()
+								.describe("The schedule's resourceId from schedules list"),
+						})
+						.strict(),
+				)
+				.output(AllowWorkspaceSchedulePersonalReadResultSchema),
 		}),
 		work: oc.router({
 			listProjects: oc
