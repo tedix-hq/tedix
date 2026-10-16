@@ -252,7 +252,7 @@ export function workspaceConnectionContext(
 		return "Connect an app, then attach the resources this workspace needs. Tedis can use them only with the required permissions and approvals.";
 	}
 	return documentType === "gadget"
-		? "Connect an app, then attach the resources this workspace needs. This app can use them only with the required permissions and approvals."
+		? "Connect an app, then attach the resources this workspace needs. This workspace app can use them only with the required permissions and approvals."
 		: "This document does not access connected apps itself. Workers need the required permissions to read its sources or update it.";
 }
 
@@ -296,7 +296,7 @@ export function missingWorkpieceCopy(doc: CanvasDocSelection): {
 	title: string;
 	description: string;
 } {
-	const noun = doc.type === "gadget" ? "gadget" : "output";
+	const noun = doc.type === "gadget" ? "app" : "output";
 	return {
 		title: `This ${noun} is not in this workspace`,
 		description: `Nothing here matches ${noun} ${doc.id}. It was deleted or archived, or it belongs to a different workspace than the link you followed.`,
@@ -1157,7 +1157,7 @@ export function CanvasPage({
 										? {
 												kind: selectedDoc.type,
 												id: selectedDoc.id,
-												label: `${selectedDoc.type === "gadget" ? "Gadget" : "Output"} resource`,
+												label: `${selectedDoc.type === "gadget" ? "App" : "Output"} resource`,
 											}
 										: workspaceId && selectedWorkspace
 											? {

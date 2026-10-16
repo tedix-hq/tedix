@@ -45,9 +45,7 @@ export function CreateReviewBatch({
 					/\/workspace\/([0-9a-f-]{36})/i,
 				)?.[1];
 				if (!workspaceId)
-					throw new Error(
-						"Open the gadget in its workspace to prepare a review.",
-					);
+					throw new Error("Open the app in its workspace to prepare a review.");
 				const detail = await osApi.osWorkspaces.gadgets.get({
 					workspaceId,
 					gadgetId,

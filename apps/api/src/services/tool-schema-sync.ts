@@ -980,7 +980,11 @@ function titleFromToolId(toolId: string): string {
 	return toolId
 		.split("_")
 		.filter(Boolean)
-		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.map((part) => {
+			const label =
+				part === "gadget" ? "app" : part === "gadgets" ? "apps" : part;
+			return label.charAt(0).toUpperCase() + label.slice(1);
+		})
 		.join(" ");
 }
 

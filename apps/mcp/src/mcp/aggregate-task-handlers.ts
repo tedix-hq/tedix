@@ -532,7 +532,7 @@ export function buildAggregateTaskHandlers(
 			if (isOsGadgetTaskId(taskId)) {
 				throw new McpTaskError(
 					-32_000,
-					"Gadget-run approvals do not flow through tasks/update. List pending approvals with permissions_list_open and resolve them with permissions_respond.",
+					"App-run approvals do not flow through tasks/update. List pending approvals with permissions_list_open and resolve them with permissions_respond.",
 					{
 						taskId,
 						listWith: "permissions_list_open",
@@ -584,7 +584,7 @@ export function buildAggregateTaskHandlers(
 			if (isOsGadgetTaskId(taskId)) {
 				throw new McpTaskError(
 					-32_000,
-					"Gadget executions expose no cancel verb: the receipt settles from the governed skill run's evidence. Poll tasks/get for the terminal receipt.",
+					"App executions expose no cancel verb: the receipt settles from the governed skill run's evidence. Poll tasks/get for the terminal receipt.",
 					{ taskId },
 				);
 			}

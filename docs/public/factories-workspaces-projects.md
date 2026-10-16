@@ -31,7 +31,7 @@ A Workspace is organization-owned and holds the shared workpieces of one line
 of work. An Output belongs to a Workspace and is one of four kinds: document,
 sheet, presentation or video. Every save is an append-only revision; the
 Output points at its current revision. A Workspace can also carry selected
-external resources, installed Gadgets and a Blueprint that created it.
+external resources, installed apps and a Blueprint that created it.
 
 A Workspace links to Work projects through an explicit link record, so a
 project's Work Items stay in one ledger while the Workspace shows where

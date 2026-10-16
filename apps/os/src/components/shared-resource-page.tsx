@@ -98,7 +98,7 @@ function SharedGadgetCard({
 			<CardHeader>
 				<CardTitle>{gadget.name}</CardTitle>
 				<Text as="p" role="body" tone="secondary" className="m-0">
-					{gadget.description ?? "Shared Gadget"}
+					{gadget.description ?? "Shared App"}
 				</Text>
 			</CardHeader>
 			<CardContent className="grid gap-3">

@@ -114,9 +114,9 @@ function button(label: string): HTMLButtonElement {
 }
 
 function setTextarea(value: string) {
-	const textarea = container.querySelector('[aria-label="Gadget input JSON"]');
+	const textarea = container.querySelector('[aria-label="App input JSON"]');
 	if (!(textarea instanceof HTMLTextAreaElement)) {
-		throw new Error("Gadget input textarea missing");
+		throw new Error("App input textarea missing");
 	}
 	const setter = Object.getOwnPropertyDescriptor(
 		HTMLTextAreaElement.prototype,
@@ -250,7 +250,7 @@ describe("CanvasGadgetExecutions", () => {
 			expect.objectContaining({ id: EXECUTION_ID }),
 		);
 		expect(
-			button("Run Gadget").closest('[data-slot="card-footer"]'),
+			button("Run App").closest('[data-slot="card-footer"]'),
 		).not.toBeNull();
 	});
 
@@ -273,7 +273,7 @@ describe("CanvasGadgetExecutions", () => {
 		renderPanel();
 		await flush();
 		setTextarea('{"region":"apac"}');
-		act(() => button("Run Gadget").click());
+		act(() => button("Run App").click());
 		await flush();
 
 		expect(api.osWorkspaces.gadgets.run).toHaveBeenCalledWith({
@@ -292,7 +292,7 @@ describe("CanvasGadgetExecutions", () => {
 		renderPanel();
 		await flush();
 		setTextarea("{");
-		act(() => button("Run Gadget").click());
+		act(() => button("Run App").click());
 		await flush();
 
 		expect(api.osWorkspaces.gadgets.run).not.toHaveBeenCalled();

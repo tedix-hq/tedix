@@ -127,7 +127,7 @@ export function OsCommandPalette({
 		).map((workspace) => ({
 			id: `workspace-${workspace.id}`,
 			title: workspace.name,
-			description: "Workspace · open its Gadgets and outputs in Canvas",
+			description: "Workspace · open its apps and outputs in Canvas",
 			icon: SquaresFour,
 			run: () => {
 				void navigate({
@@ -205,7 +205,7 @@ export function OsCommandPalette({
 			{ id: "pages", label: "OS", items: pageCommands },
 			{
 				id: "workspaces",
-				label: "Workspaces and Gadgets",
+				label: "Workspaces and Apps",
 				items: workspaceCommands,
 			},
 			{ id: "outputs", label: "Outputs", items: outputCommands },

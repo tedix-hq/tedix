@@ -140,7 +140,7 @@ export async function resolveWorkspaceContext(
 			gadgetId: input.workpiece.id,
 		});
 		if (!gadget || gadget.workspaceId !== workspace.id) {
-			throw createError(ErrorCodes.NOT_FOUND, "Workspace Gadget not found");
+			throw createError(ErrorCodes.NOT_FOUND, "Workspace app not found");
 		}
 		return {
 			workspaceId: workspace.id,

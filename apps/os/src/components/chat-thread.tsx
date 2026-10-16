@@ -265,8 +265,8 @@ export const CHAT_RESPONSE_ACTIONS: ReadonlyArray<{
 	},
 	{
 		action: "gadget",
-		label: "Build gadget",
-		description: "Prepare a reusable Workspace Gadget for review.",
+		label: "Build app",
+		description: "Prepare a reusable workspace app for review.",
 	},
 ] as const;
 
@@ -279,13 +279,13 @@ export const CHAT_RESPONSE_ACTIONS: ReadonlyArray<{
 export function chatResponseActionPrompt(action: ChatResponseAction): string {
 	switch (action) {
 		case "visualize":
-			return "Generate a polished, transient json-render MCP UI for the immediately preceding response. Inspect ui.get_catalog, author a custom catalog-constrained layoutSpec, validate it with ui.validate_layout, and return ui.create_view directly so it renders inline. Preserve a useful structured fallback. Do not create or modify a durable Gadget or Output.";
+			return "Generate a polished, transient json-render MCP UI for the immediately preceding response. Inspect ui.get_catalog, author a custom catalog-constrained layoutSpec, validate it with ui.validate_layout, and return ui.create_view directly so it renders inline. Preserve a useful structured fallback. Do not create or modify a durable app or Output.";
 		case "generate-ui":
-			return "Generate a polished, transient free-form HTML/CSS MCP App for the immediately preceding response. Return ui.create_mcp_app directly with self-contained semantic HTML/CSS, the relevant structured data, and a meaningful summary fallback so it renders inline. Do not use remote assets and do not create or modify a durable Gadget or Output.";
+			return "Generate a polished, transient free-form HTML/CSS MCP App for the immediately preceding response. Return ui.create_mcp_app directly with self-contained semantic HTML/CSS, the relevant structured data, and a meaningful summary fallback so it renders inline. Do not use remote assets and do not create or modify a durable app or Output.";
 		case "output":
 			return "Turn the immediately preceding response into a durable OS Output. First propose the best format and title, then ask for my confirmation before creating or modifying anything.";
 		case "gadget":
-			return "Turn the immediately preceding response into a reusable OS Gadget. First propose what the Gadget will do and which capabilities it needs, then ask for my confirmation before creating or modifying anything.";
+			return "Turn the immediately preceding response into a reusable OS app. First propose what the app will do and which capabilities it needs, then ask for my confirmation before creating or modifying anything.";
 	}
 }
 

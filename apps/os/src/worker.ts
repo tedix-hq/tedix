@@ -1319,7 +1319,7 @@ async function handleCollabUpgrade(
 				rpcOptions,
 			);
 			if (detail.gadget.workspaceId !== workspaceId) {
-				throw new Error("Gadget workspace mismatch");
+				throw new Error("App workspace mismatch");
 			}
 		} else if (kind === "output") {
 			const detail = await callRpc<CollabOutputDetail>(

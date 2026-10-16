@@ -104,7 +104,7 @@ export function buildWorkspaceWebMcpTools(
 		name: "get_workspace_overview",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read the Tedix OS workspace currently open on this workbench: its identity and status plus counts of the gadgets, outputs, and external resources the page shows, and which workpiece the human has selected.",
+			"Read the Tedix OS workspace currently open on this workbench: its identity and status plus counts of the apps, outputs, and external resources the page shows, and which workpiece the human has selected.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async (_args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
@@ -164,7 +164,7 @@ export function buildWorkspaceWebMcpTools(
 		name: "get_selected_gadget",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read the gadget workpiece the human currently has selected on this workbench, with its current revision's declared capabilities and governed skill. Returns the selection kind instead when an output or nothing is selected.",
+			"Read the app workpiece the human currently has selected on this workbench, with its current revision's declared capabilities and governed skill. Returns the selection kind instead when an output or nothing is selected.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async (_args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
@@ -184,7 +184,7 @@ export function buildWorkspaceWebMcpTools(
 						{
 							selectedWorkpiece: { type: selection.type, id: selection.id },
 							gadget: null,
-							note: "The selected workpiece is an output, not a gadget. list_workspace_outputs shows its compact row; the Outputs surface owns full output reads.",
+							note: "The selected workpiece is an output, not an app. list_workspace_outputs shows its compact row; the Outputs surface owns full output reads.",
 						},
 						workpieceDeepLink(workspaceId, selection),
 					);
@@ -220,7 +220,7 @@ export function buildWorkspaceWebMcpTools(
 		name: "list_gadget_executions",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List a gadget's governed execution receipts in this workspace, newest first — the same activity rows the workbench shows. Defaults to the selected gadget workpiece. Status: denied, queued, awaiting_approval, running, paused, completed, failed, or canceled.",
+			"List an app's governed execution receipts in this workspace, newest first — the same activity rows the workbench shows. Defaults to the selected app workpiece. Status: denied, queued, awaiting_approval, running, paused, completed, failed, or canceled.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -228,7 +228,7 @@ export function buildWorkspaceWebMcpTools(
 					type: "string",
 					format: "uuid",
 					description:
-						"Gadget to list receipts for; defaults to the selected gadget workpiece.",
+						"App to list receipts for; defaults to the selected app workpiece.",
 				},
 				limit: {
 					type: "integer",
@@ -246,7 +246,7 @@ export function buildWorkspaceWebMcpTools(
 					(selection?.type === "gadget" ? selection.id : undefined);
 				if (!gadgetId) {
 					return webMcpError(
-						"gadgetId is required when no gadget workpiece is selected — get_workspace_overview shows the selection and get_selected_gadget reads it",
+						"gadgetId is required when no app workpiece is selected — get_workspace_overview shows the selection and get_selected_gadget reads it",
 					);
 				}
 				const limit = boundedLimit(

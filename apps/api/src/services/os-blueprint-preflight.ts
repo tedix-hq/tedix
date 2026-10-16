@@ -498,7 +498,7 @@ function resolveLayoutDecisions(input: {
 				kind: "layout",
 				subject: "layout",
 				verdict: "incompatible",
-				reason: `the declared layout does not fit the declared gadgets: ${problems.join("; ")}`,
+				reason: `the declared layout does not fit the declared apps: ${problems.join("; ")}`,
 				resolvedPin: null,
 			},
 		];
@@ -508,7 +508,7 @@ function resolveLayoutDecisions(input: {
 			kind: "layout",
 			subject: "layout",
 			verdict: "allowed",
-			reason: `${layout.placements.length} placement(s) fit the ${layout.columns}-column grid and name only gadgets this revision declares`,
+			reason: `${layout.placements.length} placement(s) fit the ${layout.columns}-column grid and name only apps this revision declares`,
 			resolvedPin: null,
 		},
 	];

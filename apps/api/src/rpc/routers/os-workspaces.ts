@@ -175,7 +175,7 @@ const gadgetsCreate = authorOs.gadgets.create.handler(
 		} catch (error) {
 			rethrowNameConflict(
 				error,
-				"A gadget with this name already exists in the workspace",
+				"An app with this name already exists in the workspace",
 			);
 		}
 	},
@@ -223,7 +223,7 @@ const gadgetsRevise = authorOs.gadgets.revise.handler(
 		});
 		if (!result.ok) {
 			if (result.reason === "gadget_not_found") {
-				throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
+				throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 			}
 			const [latest] = await listOsGadgetRevisions(
 				db,
@@ -260,7 +260,7 @@ const gadgetsArchive = authorOs.gadgets.archive.handler(
 			{ status: "archived" },
 		);
 		if (!row) {
-			throw createError(ErrorCodes.NOT_FOUND, "OS gadget not found");
+			throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
 		}
 		return { gadget: mapGadget(row) };
 	},
@@ -408,7 +408,7 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 
 	const reasons: string[] = [];
 	if (gadget.status !== "active") {
-		reasons.push("gadget is archived");
+		reasons.push("app is archived");
 	}
 	const revision = gadget.currentRevisionId
 		? await getOsGadgetRevision(db, {
@@ -417,7 +417,7 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 			})
 		: undefined;
 	if (!revision) {
-		reasons.push("gadget has no revision to run");
+		reasons.push("app has no revision to run");
 	}
 	const manifest = revision
 		? OsGadgetManifestSchema.parse(JSON.parse(revision.manifest))
@@ -432,7 +432,7 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 	const declaredResourceGrants = manifest?.resourceGrants ?? [];
 	const executable = manifest
 		? await resolveGadgetExecutable(context, orgId, manifest)
-		: "Gadget has no executable revision";
+		: "App has no executable revision";
 	const grantedResources: Array<
 		OsDerivedResourceAccess & { slot: string; name: string }
 	> = [];
@@ -481,7 +481,7 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 						)
 					)
 						throw new Error(
-							"Select exactly one valid personal resource consent covering this Gadget grant",
+							"Select exactly one valid personal resource consent covering this app grant",
 						);
 					const source = {
 						...personalDelegationSource(matching[0]),
@@ -592,13 +592,13 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 	// capability, policy, and budget resolution.
 	if (reasons.length > 0 || !manifest) {
 		return denyReceipt(
-			reasons.length > 0 ? reasons : ["gadget has no revision to run"],
+			reasons.length > 0 ? reasons : ["app has no revision to run"],
 		);
 	}
 	if (!revision) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
-			"Runnable Gadget revision disappeared after admission",
+			"Runnable app revision disappeared after admission",
 		);
 	}
 
@@ -755,7 +755,7 @@ async function requireExecution(
 		execution.gadgetId !== input.gadgetId ||
 		execution.workspaceId !== input.workspaceId
 	) {
-		throw createError(ErrorCodes.NOT_FOUND, "OS gadget execution not found");
+		throw createError(ErrorCodes.NOT_FOUND, "OS app execution not found");
 	}
 	await requireWorkspace(context, input.workspaceId);
 	return execution;
@@ -890,7 +890,7 @@ const executionsExport = readOs.executions.export.handler(
 		if (row.status !== "completed" || !row.runId || !row.revisionId) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"Only a completed, run-backed Gadget execution can be exported",
+				"Only a completed, run-backed app execution can be exported",
 			);
 		}
 
@@ -912,7 +912,7 @@ const executionsExport = readOs.executions.export.handler(
 		if (envelope.data.sources.length > 0) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
-				"Source-derived Gadget bytes cannot be downgraded to a bearer download URL",
+				"Source-derived app bytes cannot be downgraded to a bearer download URL",
 			);
 		}
 
@@ -923,7 +923,7 @@ const executionsExport = readOs.executions.export.handler(
 		if (!revision || revision.gadgetId !== row.gadgetId) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,
-				"The Gadget revision pinned by this execution is unavailable",
+				"The app revision pinned by this execution is unavailable",
 			);
 		}
 		const manifest = OsGadgetManifestSchema.parse(
@@ -1256,7 +1256,7 @@ async function materializeBlueprintWorkspace(
 		if (declaredNames.has(declared.name)) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`Blueprint revision declares the gadget name twice: ${declared.name}`,
+				`Blueprint revision declares the app name twice: ${declared.name}`,
 			);
 		}
 		declaredNames.add(declared.name);
@@ -1355,7 +1355,7 @@ async function materializeBlueprintWorkspace(
 			if (!gadgetRevision) {
 				throw createError(
 					ErrorCodes.INTERNAL_SERVER_ERROR,
-					"Instantiated gadget was returned without its revision",
+					"Instantiated app was returned without its revision",
 				);
 			}
 			return {
@@ -1985,7 +1985,7 @@ const workspacesDecideBlueprintUpgrade =
 				// rather than act on a partial view.
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
-					`This workspace carries at least ${WORKSPACE_GADGET_READ_LIMIT} gadgets, more than an upgrade can reconcile in one pass; instantiate the revision as a new workspace instead`,
+					`This workspace carries at least ${WORKSPACE_GADGET_READ_LIMIT} apps, more than an upgrade can reconcile in one pass; instantiate the revision as a new workspace instead`,
 				);
 			}
 			const existingByName = new Map(existing.map((row) => [row.name, row]));
@@ -1996,7 +1996,7 @@ const workspacesDecideBlueprintUpgrade =
 				if (declaredNames.has(declared.name)) {
 					throw createError(
 						ErrorCodes.BAD_REQUEST,
-						`Blueprint revision declares the gadget name twice: ${declared.name}`,
+						`Blueprint revision declares the app name twice: ${declared.name}`,
 					);
 				}
 				declaredNames.add(declared.name);
@@ -2077,7 +2077,7 @@ const workspacesDecideBlueprintUpgrade =
 			if (statements > MAX_UPGRADE_STATEMENTS) {
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
-					`This upgrade would reconcile ${added.length + synced.length + archivedGadgetIds.length} gadgets in one transaction, beyond what a single D1 batch should carry; instantiate the revision as a new workspace instead`,
+					`This upgrade would reconcile ${added.length + synced.length + archivedGadgetIds.length} apps in one transaction, beyond what a single D1 batch should carry; instantiate the revision as a new workspace instead`,
 				);
 			}
 

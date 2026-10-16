@@ -18,14 +18,14 @@ neither configures nor activates anything.
    Workspace page. If ambiguous or missing, report it rather than select a
    different factory. Discover `list_os_workspaces` and `get_os_workspace`.
 2. Read its structured project links (up to five) and selected resources (up
-   to ten), then up to five Gadgets and five Output library entries. Preserve
+   to ten), then up to five apps and five Output library entries. Preserve
    access errors and truncation flags. An empty resource list is not proof that
    credentials are missing. A project named in prose is only a candidate.
 3. Select the relevant linked project, read one bounded Work page and inspect
    up to three relevant Work Items with their newest three Attempts each.
    Report a missing structured link. A prose project ID can justify a labelled
    candidate read, but cannot establish ownership or permission to attach it.
-4. Inspect the latest executions of up to two relevant Gadgets. For recurring
+4. Inspect the latest executions of up to two relevant apps. For recurring
    work, inspect the declared skill and schedule references within the remaining
    budget. Check current skill lifecycle and actual schedule state. Archived
    revisions and old receipts do not authorize a restart; a missing schedule
@@ -59,7 +59,7 @@ Return a proposal before changing anything; reuse matching resources first.
    caller. Do not treat the preview as authority to configure or activate.
 3. If setup needs a Workspace from a Blueprint, discover `list_os_blueprints`
    and `get_os_blueprint`. Inspect one relevant published Blueprint's current
-   revision, declared Gadgets and requirements. A bounded catalog page is not
+   revision, declared apps and requirements. A bounded catalog page is not
    the whole catalog. If no match is observed, propose the missing definition;
    do not instantiate an unrelated template.
 4. Map each declared resource slot to an existing selected resource, preserving
@@ -93,7 +93,7 @@ Use the bundled [Work lifecycle](work-lifecycle.md) for acceptance and admission
 before implementing the requested setup. Discover the exact configuration or
 instantiation callable. Blueprint instantiation requires a published revision
 and rechecks dependencies; compare its recorded revision, preflight envelope,
-bindings and Gadget revisions with the accepted proposal if the Blueprint moved.
+bindings and app revisions with the accepted proposal if the Blueprint moved.
 It copies no credentials and may still leave a connection needing consent.
 
 When an agent calls `create_factory`, the lane stays draft with no schedule.
@@ -107,7 +107,7 @@ authority. Track the exact returned receipt without replaying a mutation to
 check status. Distinguish denied, awaiting approval, queued, running and terminal
 states. Prove one actual run and its durable result before calling the factory
 operating; verify the publication destination too when required. Preserve Work,
-Attempt, Workspace, Gadget and Output IDs for the next session.
+Attempt, Workspace, App and Output IDs for the next session.
 
 For a factory-health question, discover `inspect_factory_health` for the exact
 factory slug (or `tedix factory status <slug>`), then inspect its run/delivery

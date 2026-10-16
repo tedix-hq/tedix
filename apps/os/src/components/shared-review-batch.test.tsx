@@ -410,7 +410,7 @@ describe("workspace entry point", () => {
 		);
 		expect(api.saveFeedback).not.toHaveBeenCalled();
 		await act(async () => {
-			button("Full gadget")!.click();
+			button("Full app")!.click();
 			await tick();
 		});
 		expect(container.textContent).toContain("Original gadget app");
@@ -420,7 +420,7 @@ describe("workspace entry point", () => {
 		api.getForGadget.mockResolvedValueOnce({ batch: null, feedback: [] });
 		const first = await renderWorkspace();
 		expect(first.container.textContent).toContain("Original gadget app");
-		expect(first.button("Full gadget")).toBeUndefined();
+		expect(first.button("Full app")).toBeUndefined();
 		api.getForGadget.mockRejectedValueOnce(new Error("Forbidden"));
 		const second = await renderWorkspace();
 		expect(second.container.textContent).toContain("Original gadget app");

@@ -92,10 +92,7 @@ async function mutate(
 		true,
 	);
 	if (!fence)
-		throw createError(
-			ErrorCodes.FORBIDDEN,
-			"A live Gadget execution is required",
-		);
+		throw createError(ErrorCodes.FORBIDDEN, "A live app execution is required");
 	const db = createDbQueryClient(context.env.DB);
 	const old = await getGadgetState(db, scope, input.key);
 	if (old)
@@ -123,7 +120,7 @@ async function mutate(
 	if (receipt.digest !== digest)
 		throw createError(
 			ErrorCodes.CONFLICT,
-			"Idempotency key already belongs to a different Gadget state mutation",
+			"Idempotency key already belongs to a different app state mutation",
 		);
 	const record = receipt.result
 		? OsGadgetStateRecordSchema.parse(JSON.parse(receipt.result))

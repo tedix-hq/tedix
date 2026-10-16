@@ -49,7 +49,7 @@ export async function authorizeGadgetState(
 		input.gadgetId,
 	);
 	if (workspace.status !== "active" || gadget.status !== "active")
-		throw createError(ErrorCodes.FORBIDDEN, "Gadget application is inactive");
+		throw createError(ErrorCodes.FORBIDDEN, "Workspace app is inactive");
 	const scope = {
 		organizationId,
 		workspaceId: workspace.id,
@@ -78,7 +78,7 @@ export async function authorizeGadgetState(
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Gadget state requires authenticated runtime provenance",
+			"App state requires authenticated runtime provenance",
 		);
 	const db = createDbQueryClient(context.env.DB);
 	const execution = await getOsGadgetExecutionByRunId(db, {
@@ -100,7 +100,7 @@ export async function authorizeGadgetState(
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Gadget state execution does not match the acting Tedi and pinned application",
+			"App state execution does not match the acting Tedi and pinned application",
 		);
 	const capability = write ? GADGET_STATE_WRITE : GADGET_STATE_READ;
 	const revision = await getOsGadgetRevision(db, {
@@ -113,7 +113,7 @@ export async function authorizeGadgetState(
 			JSON.parse(revision?.manifest ?? "null"),
 		);
 	} catch {
-		throw createError(ErrorCodes.FORBIDDEN, "Gadget state revision is invalid");
+		throw createError(ErrorCodes.FORBIDDEN, "App state revision is invalid");
 	}
 	if (
 		revision?.gadgetId !== gadget.id ||
@@ -121,7 +121,7 @@ export async function authorizeGadgetState(
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Pinned Gadget revision does not declare the state operation",
+			"Pinned app revision does not declare the state operation",
 		);
 	const fence = {
 		...scope,
@@ -135,7 +135,7 @@ export async function authorizeGadgetState(
 	if (!(await hasLiveGadgetStateFence(db, fence)))
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Gadget state execution is stale or not running",
+			"App state execution is stale or not running",
 		);
 	const accessEnvelope = parseDerivedAccessEnvelope(
 		execution.resourceAccessEnvelope,
@@ -149,7 +149,7 @@ export async function authorizeGadgetState(
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Gadget source access is no longer available",
+			"App source access is no longer available",
 		);
 	return { scope, fence, accessEnvelope };
 }
@@ -166,7 +166,7 @@ export function mergeGadgetStateSources(
 	if (!old)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Persisted Gadget state source declaration is invalid",
+			"Persisted app state source declaration is invalid",
 		);
 	const sources = new Map(
 		old.sources.map((source) => [JSON.stringify(source), source]),
@@ -180,7 +180,7 @@ export function mergeGadgetStateSources(
 	if (!merged.success)
 		throw createError(
 			ErrorCodes.UNPROCESSABLE_CONTENT,
-			"Gadget state source envelope is too broad",
+			"App state source envelope is too broad",
 		);
 	return merged.data;
 }
@@ -201,6 +201,6 @@ export async function authorizeGadgetStateSources(
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Gadget state source access is unavailable",
+			"App state source access is unavailable",
 		);
 }

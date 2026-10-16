@@ -341,7 +341,7 @@ export const HomeConversationSchema = z.object({
 		.nullable()
 		.optional()
 		.describe(
-			"Absent/null when the Workspace conversation has no selected Gadget or Output.",
+			"Absent/null when the Workspace conversation has no selected app or Output.",
 		),
 	metadata: RuntimeMetadataSchema.optional(),
 });
@@ -702,7 +702,7 @@ export const EnqueueHomeMessageInputSchema = z.object({
 				.object({ kind: z.enum(["gadget", "output"]), id: z.string().min(1) })
 				.optional()
 				.describe(
-					"Omitted when Chat is scoped to the Workspace rather than one selected Gadget or Output.",
+					"Omitted when Chat is scoped to the Workspace rather than one selected app or Output.",
 				),
 		})
 		.optional()
