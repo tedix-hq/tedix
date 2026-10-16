@@ -17,7 +17,7 @@ import {
 	OsGadgetExecutionSchema,
 	OsGadgetExecutionStatusSchema,
 	OsGadgetExportDescriptorSchema,
-	OsGadgetManifestSchema,
+	OsGadgetManifestWriteSchema,
 	OsGadgetRevisionSchema,
 	OsDocumentPatchOpSchema,
 	OsPresentationPatchOpSchema,
@@ -696,7 +696,7 @@ export const osWorkspacesContract = oc
 				})
 				.input(
 					gadgetIdInput.extend({
-						manifest: OsGadgetManifestSchema,
+						manifest: OsGadgetManifestWriteSchema,
 						sourceArtifactRef: z
 							.string()
 							.min(1)

@@ -3067,3 +3067,26 @@ a:focus-visible {
 [data-slide-element]:not([data-selected]) .slide-element-input:not(:disabled) {
 	cursor: move;
 }
+
+/* Card review: each new card arrives with a short rise; reduced motion keeps it still. */
+@keyframes card-review-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.card-review-card {
+	animation: card-review-arrive 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.card-review-card {
+		animation: none;
+		transition: none !important;
+	}
+}

@@ -73,6 +73,10 @@ const GADGET_DASHBOARD = fid("31", 1);
 const GADGET_TRIAGE = fid("31", 2);
 const GADGET_REV_DASHBOARD = fid("32", 1);
 const GADGET_REV_TRIAGE = fid("32", 2);
+const GADGET_CARD_REVIEW = fid("31", 3);
+const GADGET_REV_CARD_REVIEW = fid("32", 3);
+const OUTPUT_CARDS = fid("40", 4);
+const OUTPUT_RULES = fid("40", 5);
 const EXEC_DASHBOARD_DONE = fid("33", 1);
 const EXEC_DASHBOARD_LIVE = fid("33", 2);
 
@@ -293,6 +297,92 @@ const sheetContent: OsOutputContent = {
 	],
 };
 
+/** A factory's card sheet and rules, read by the Card review app fixture. */
+const cardsContent: OsOutputContent = {
+	kind: "sheet",
+	columns: [
+		"#",
+		"Type",
+		"Source (link)",
+		"Who",
+		"Why (rule)",
+		"Draft",
+		"Useful?",
+		"Reason",
+		"Did it?",
+	],
+	rows: [
+		[
+			1,
+			"reply",
+			"https://www.linkedin.com/feed/update/example-1",
+			"Ada Example, Head of Support at Example Coffee",
+			"R2: asked when wholesale pricing changes; no reply after two days.",
+			"Thanks, Ada. Wholesale pricing stays at 12% through Q3; I will share the Q4 plan next week.",
+			"",
+			"",
+			"",
+		],
+		[
+			2,
+			"comment on a post",
+			"https://x.com/example/status/1",
+			"Bo Sample",
+			"R4: posted about café loyalty programmes yesterday.",
+			"Our renewals rose once loyalty points carried over between cafés.",
+			"",
+			"",
+			"",
+		],
+		[
+			3,
+			"post idea",
+			"https://example.com/news/roasting",
+			"Public: roasting cost report, 9 Aug",
+			"R5: fresh news tied to the wholesale discount decision.",
+			"Bean prices rose 8% this month. Here is how we kept our wholesale price steady.",
+			"",
+			"",
+			"",
+		],
+	],
+};
+
+const rulesContent: OsOutputContent = {
+	kind: "sheet",
+	columns: ["Rule id", "Rule", "Source", "Date", "Status"],
+	rows: [
+		[
+			"R2",
+			"Reply card for an unanswered direct question.",
+			"seed",
+			"2026-08-01",
+			"seed",
+		],
+		[
+			"R4",
+			"Comment card for a post at most 7 days old on a profile topic.",
+			"seed",
+			"2026-08-01",
+			"seed",
+		],
+		[
+			"R5",
+			"Post idea tied to fresh public news, at most 2 per run.",
+			"seed",
+			"2026-08-01",
+			"seed",
+		],
+		[
+			"R11",
+			"Skip post ideas on weekends.",
+			"factory",
+			"2026-08-11",
+			"proposed",
+		],
+	],
+};
+
 const deckContent: OsOutputContent = {
 	kind: "presentation",
 	slides: [
@@ -430,8 +520,68 @@ const seedState = (): LocalState => ({
 			createdAt: T0,
 			updatedAt: T0,
 		},
+		{
+			id: GADGET_CARD_REVIEW,
+			organizationId: ORG_ID,
+			workspaceId: WORKSPACE_SUPPORT,
+			name: "Card review",
+			description: "Review the social factory's cards one at a time",
+			status: "active",
+			currentRevisionId: GADGET_REV_CARD_REVIEW,
+			sourceBlueprintRevisionId: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T2,
+			updatedAt: T2,
+		},
 	],
 	gadgetRevisions: [
+		{
+			id: GADGET_REV_CARD_REVIEW,
+			organizationId: ORG_ID,
+			gadgetId: GADGET_CARD_REVIEW,
+			revision: 1,
+			manifest: {
+				capabilities: [],
+				entry: "tedix:app/card-review",
+				config: {
+					version: 1,
+					sources: [
+						{
+							label: "Social",
+							workspaceId: WORKSPACE_SUPPORT,
+							cardSheetPrefix: "Social cards ",
+							columns: {
+								number: "#",
+								type: "Type",
+								source: "Source",
+								who: "Who",
+								why: "Why",
+								draft: "Draft",
+								useful: "Useful?",
+								reason: "Reason",
+								done: "Did it?",
+							},
+							doIt: "copy_and_open",
+							rules: {
+								sheetTitle: "Rules",
+								idColumn: "Rule id",
+								textColumn: "Rule",
+								statusColumn: "Status",
+							},
+							channels: [
+								{ label: "LinkedIn", match: ["linkedin.com"] },
+								{ label: "X", match: ["x.com"] },
+							],
+						},
+					],
+				},
+			},
+			sourceArtifactRef: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T2,
+		},
 		{
 			id: GADGET_REV_DASHBOARD,
 			organizationId: ORG_ID,
@@ -556,6 +706,32 @@ const seedState = (): LocalState => ({
 			updatedAt: T2,
 		},
 		{
+			id: OUTPUT_CARDS,
+			organizationId: ORG_ID,
+			workspaceId: WORKSPACE_SUPPORT,
+			kind: "sheet",
+			title: "Social cards 2026-08-11 08:00",
+			status: "active",
+			currentRevisionId: fid("41", 0x90),
+			createdByKind: "tedi",
+			createdById: TEDI_JUNO,
+			createdAt: T2,
+			updatedAt: T2,
+		},
+		{
+			id: OUTPUT_RULES,
+			organizationId: ORG_ID,
+			workspaceId: WORKSPACE_SUPPORT,
+			kind: "sheet",
+			title: "Rules",
+			status: "active",
+			currentRevisionId: fid("41", 0x91),
+			createdByKind: "tedi",
+			createdById: TEDI_JUNO,
+			createdAt: T1,
+			updatedAt: T2,
+		},
+		{
 			id: OUTPUT_DECK,
 			organizationId: ORG_ID,
 			workspaceId: null,
@@ -570,6 +746,32 @@ const seedState = (): LocalState => ({
 		},
 	],
 	outputRevisions: [
+		{
+			id: fid("41", 0x90),
+			organizationId: ORG_ID,
+			outputId: OUTPUT_CARDS,
+			revision: 1,
+			content: cardsContent,
+			note: null,
+			producedBy: null,
+			accessEnvelope: null,
+			createdByKind: "tedi",
+			createdById: TEDI_JUNO,
+			createdAt: T2,
+		},
+		{
+			id: fid("41", 0x91),
+			organizationId: ORG_ID,
+			outputId: OUTPUT_RULES,
+			revision: 1,
+			content: rulesContent,
+			note: null,
+			producedBy: null,
+			accessEnvelope: null,
+			createdByKind: "tedi",
+			createdById: TEDI_JUNO,
+			createdAt: T2,
+		},
 		{
 			id: fid("41", 1),
 			organizationId: ORG_ID,
@@ -6085,6 +6287,54 @@ const handlers: Record<string, (input: never) => unknown> = {
 			outputId: output.id,
 			revision: currentNumber + 1,
 			content: input.content,
+			note: input.note ?? null,
+			producedBy: null,
+			accessEnvelope: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: now(),
+		};
+		state.outputRevisions.push(revision);
+		output.currentRevisionId = revision.id;
+		output.updatedAt = revision.createdAt;
+		return { output, revision };
+	},
+	"osWorkspaces/outputs/setSheetRange": (input: {
+		outputId: string;
+		startRow: number;
+		startColumn: number;
+		cells: (string | number | boolean | null)[][];
+		note?: string;
+		expectedRevision?: number;
+	}) => {
+		const output = findOutput(input.outputId);
+		const current = latestRevision(
+			state.outputRevisions.filter((row) => row.outputId === output.id),
+		);
+		if (!current || current.content.kind !== "sheet")
+			throw new RpcError("BAD_REQUEST", "Range writes need a sheet output");
+		if (
+			input.expectedRevision !== undefined &&
+			input.expectedRevision !== current.revision
+		)
+			throw revisionConflict(input.expectedRevision, current.revision);
+		const { columns } = current.content;
+		const rows = current.content.rows.map((row) => [...row]);
+		input.cells.forEach((cells, offset) => {
+			const rowIndex = input.startRow + offset;
+			while (rows.length <= rowIndex) rows.push(columns.map(() => null));
+			cells.forEach((cell, column) => {
+				if (input.startColumn + column >= columns.length)
+					throw new RpcError("BAD_REQUEST", "The range exceeds the columns");
+				rows[rowIndex]![input.startColumn + column] = cell;
+			});
+		});
+		const revision: OsOutputRevision = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			outputId: output.id,
+			revision: current.revision + 1,
+			content: { kind: "sheet", columns, rows },
 			note: input.note ?? null,
 			producedBy: null,
 			accessEnvelope: null,

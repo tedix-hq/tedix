@@ -14,6 +14,7 @@
 		"./schemas/provider-events": "./src/schemas/provider-events.ts",
 		"./contracts/os-gadget-state": "./src/contracts/os-gadget-state.ts",
 		"./schemas/os-gadget-state": "./src/schemas/os-gadget-state.ts",
+		"./schemas/os-card-review": "./src/schemas/os-card-review.ts",
 		"./constants/enums": "./src/constants/enums.ts",
 		"./constants/workflow-definition-keys": "./src/constants/workflow-definition-keys.ts",
 		"./contract-versions": "./src/contract-versions.ts",
