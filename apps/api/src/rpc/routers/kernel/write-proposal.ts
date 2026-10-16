@@ -404,6 +404,29 @@ const EXTERNAL_OFFICE_PROVIDER_RE =
 const CONVERSATION_RENAME_CAPABILITY_RE =
 	/^(?:conversations?|chats?|threads?)\.(?:update|rename)$/;
 const RENAME_REQUEST_RE = /\b(?:re-?name|re-?title|call it|title it)\b/i;
+/** "Rename this conversation to X" — routed as conversations.update, or (from a
+ * workspace) as an output update. The current conversation is the target. */
+const RENAME_THIS_CONVERSATION_RE =
+	/\b(?:re-?name|re-?title)\s+(?:this|the|current|our)\s+(?:conversation|chat|thread)\s+(?:to|as)\s+(.+)$/is;
+
+/**
+ * Arguments for renaming the current conversation, read straight from the
+ * request. The title is everything after "to", without wrapping quotes or a
+ * final period. Null when the request does not have that exact shape.
+ */
+export function renameThisConversationArgs(
+	content: string,
+	conversationId: string | undefined,
+): { conversationId: string; title: string } | null {
+	if (!conversationId) return null;
+	const match = RENAME_THIS_CONVERSATION_RE.exec(content.trim());
+	const title = match?.[1]
+		?.trim()
+		.replace(/\.$/, "")
+		.replace(/^["“'‘](.*)["”'’]$/s, "$1")
+		.trim();
+	return title && title.length <= 200 ? { conversationId, title } : null;
+}
 
 /**
  * The one canonical write primitive for a routed capability, when there is
@@ -425,9 +448,10 @@ export function canonicalWriteToolName(
 	if (capability === "work_items.create") return "work.create_work_items";
 	if (capability === "catalog.install") return "tenant.install_tenant_mcp_apps";
 	if (
-		capability &&
-		CONVERSATION_RENAME_CAPABILITY_RE.test(capability) &&
-		RENAME_REQUEST_RE.test(content)
+		(capability &&
+			CONVERSATION_RENAME_CAPABILITY_RE.test(capability) &&
+			RENAME_REQUEST_RE.test(content)) ||
+		RENAME_THIS_CONVERSATION_RE.test(content.trim())
 	) {
 		return "rename_conversation";
 	}
@@ -861,7 +885,11 @@ async function planWriteCall(args: {
 		});
 		const plan = result.object;
 		if (!plan.toolName || plan.toolName === NO_WRITE_TOOL) {
-			args.onFailure?.("Argument planner declined the selected tool");
+			args.onFailure?.(
+				plan.reasoning?.trim()
+					? `Argument planner declined the selected tool: ${plan.reasoning.trim().slice(0, 160)}`
+					: "Argument planner declined the selected tool",
+			);
 			return null;
 		}
 		const parsed = plan.args;
@@ -1072,6 +1100,27 @@ export async function planKernelWriteProposal(args: {
 			workspaceContext: args.workspaceContext,
 			texts: [content, route.rationale],
 		}).catch(() => null);
+		const capability = route.toolIntent?.capability ?? null;
+		const canonical = canonicalWriteToolName(capability, content);
+		// A known primitive needs no catalog search and no selection pass: one
+		// Code Mode call resolves and describes it. It starts alongside the
+		// listing (a server without a `code` tool simply rejects the call) and is
+		// used only on a Code Mode server. Anything unexpected falls through to the
+		// full search → select → describe path.
+		const canonicalPromise = canonical
+			? cachedWriteCatalog(`${cacheKey}|canonical|${canonical}`, async () =>
+					parseCodeModeCatalog(
+						await mcpCall(
+							env,
+							host,
+							organizationId,
+							"tools/call",
+							codeModeCanonicalDescribeParams(canonical),
+							actingUserId,
+						),
+					),
+				).catch(() => [] as McpTool[])
+			: null;
 		const listedTools = await cachedWriteCatalog(
 			`${cacheKey}|tools/list`,
 			async () =>
@@ -1089,29 +1138,9 @@ export async function planKernelWriteProposal(args: {
 		const transport: KernelWriteTransport = isCodeModeCatalog(listedTools)
 			? "codemode"
 			: "direct";
-		const capability = route.toolIntent?.capability ?? null;
-		const canonical = canonicalWriteToolName(capability, content);
-		// A known primitive needs no catalog search and no selection pass: one
-		// Code Mode call resolves and describes it. Anything unexpected falls
-		// through to the full search → select → describe path.
 		const canonicalTool =
-			canonical && transport === "codemode"
-				? (
-						await cachedWriteCatalog(
-							`${cacheKey}|canonical|${canonical}`,
-							async () =>
-								parseCodeModeCatalog(
-									await mcpCall(
-										env,
-										host,
-										organizationId,
-										"tools/call",
-										codeModeCanonicalDescribeParams(canonical),
-										actingUserId,
-									),
-								),
-						)
-					).find(
+			canonical && canonicalPromise && transport === "codemode"
+				? (await canonicalPromise).find(
 						(tool) =>
 							matchesCanonicalWriteTool(tool.name, canonical) &&
 							Boolean(tool.inputSchema) &&
@@ -1253,21 +1282,35 @@ export async function planKernelWriteProposal(args: {
 			provider.paramDefaults,
 		);
 		let argumentFailure = "Could not construct arguments for the selected tool";
-		const planned = await planWriteCall({
-			workspaceContext: args.workspaceContext,
-			conversationId: args.gatewayContext?.sessionKey,
-			editTarget,
-			content,
-			capability: route.toolIntent?.capability ?? null,
-			tools: [exactTool],
-			model,
-			paramDefaults,
-			timeoutMs,
-			span: kernelSpanContext({ organizationId, source: "write_proposal" }),
-			onFailure: (reason) => {
-				argumentFailure = reason;
-			},
-		});
+		// A plain "rename this conversation to X" needs no model: the target is
+		// the current conversation and the title is the request's own words.
+		const renameArgs =
+			canonical === "rename_conversation" &&
+			exactTool.inputSchema.properties?.conversationId &&
+			exactTool.inputSchema.properties?.title
+				? renameThisConversationArgs(content, args.gatewayContext?.sessionKey)
+				: null;
+		const planned = renameArgs
+			? {
+					toolName: exactTool.name,
+					args: renameArgs,
+					reasoning: "Rename the current conversation as asked.",
+				}
+			: await planWriteCall({
+					workspaceContext: args.workspaceContext,
+					conversationId: args.gatewayContext?.sessionKey,
+					editTarget,
+					content,
+					capability: route.toolIntent?.capability ?? null,
+					tools: [exactTool],
+					model,
+					paramDefaults,
+					timeoutMs,
+					span: kernelSpanContext({ organizationId, source: "write_proposal" }),
+					onFailure: (reason) => {
+						argumentFailure = reason;
+					},
+				});
 		if (!planned)
 			return decline({
 				stage: "planner_declined",

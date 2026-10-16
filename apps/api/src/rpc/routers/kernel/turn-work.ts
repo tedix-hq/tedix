@@ -1892,7 +1892,13 @@ async function planAndParkKernelWriteProposal(
 	let writeProposal: KernelWriteProposal | null = null;
 	let writeProposalDeclined: KernelWriteProposalDeclined | null = null;
 	if (kernelResult?.route?.routeKind === "propose_tool_write") {
-		emitProgress(deps, "Drafting write proposal");
+		emitProgress(
+			deps,
+			"Drafting write proposal",
+			undefined,
+			undefined,
+			"generating",
+		);
 		const writeGatewayContext = {
 			organizationId,
 			runId,
@@ -2147,7 +2153,15 @@ export async function runKernelTurnWork(
 						: {}),
 				}
 			: undefined;
-	emitProgress(deps, "Planning route", undefined, undefined, "planning");
+	// Context assembly runs first inside `deps.kernel`; its end is marked by the
+	// planner's "thinking" milestone, which moves the phase on to planning.
+	emitProgress(
+		deps,
+		"Planning route",
+		undefined,
+		undefined,
+		"preparing_context",
+	);
 	stageTimings.mark("routePlanStarted");
 	// Billing-policy denial thread: the planner rethrows the canonical
 	// `Inference blocked by billing policy: <code>` admission denial instead of
