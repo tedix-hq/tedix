@@ -360,6 +360,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			? context.headers.get("X-Tedix-Approved-Work-Responder")
 			: null;
 	let responder = actor;
+	let startContext = context;
 	if (approvingUserId) {
 		const member = await getMemberByUserId(context.db, orgId, approvingUserId);
 		if (member?.status !== "active" || !member.userId)
@@ -368,6 +369,24 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				"Approved Work responder must be an active organization user",
 			);
 		responder = { type: "user", id: member.userId };
+		// The trusted approval delegates this start to the member, not the chat
+		// tedi. Carry only their verified identity and current membership grants;
+		// no token claims or machine headers survive into the nested procedures.
+		startContext = {
+			env: context.env,
+			db: context.db,
+			dbBookmark: context.dbBookmark,
+			url: context.url,
+			headers: new Headers(),
+			rateLimiter: context.rateLimiter,
+			waitUntil: context.waitUntil,
+			organizationId: orgId,
+			authType: "user",
+			user: { sub: member.descopeUserId } as NonNullable<BaseContext["user"]>,
+			userId: member.userId,
+			userRole: member.role,
+			userPermissionOverrides: member.customPermissions ?? [],
+		};
 	}
 	try {
 		let metadata = approvingUserId
@@ -400,7 +419,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 					if (start && workItemIds[0]) {
 						const { startAcceptedProposal } =
 							await import("./work-items/proposal-start");
-						const started = await startAcceptedProposal(context, {
+						const started = await startAcceptedProposal(startContext, {
 							orgId,
 							workItemId: workItemIds[0],
 							start,

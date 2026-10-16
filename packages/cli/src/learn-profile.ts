@@ -2275,10 +2275,14 @@ export async function runProfile(
 	});
 	// Your inbox first: an open proposal from an earlier run is kept while it still fits.
 	let asked: AskedProposal[] = [];
+	let inboxRead = false;
 	if (call && upload)
 		try {
 			const r = await call(listProposalsSource(false));
-			asked = Array.isArray(r.rows) ? r.rows : [];
+			if (r.ok === false || !Array.isArray(r.rows))
+				throw new Error(r.error ?? "No inbox data");
+			asked = r.rows;
+			inboxRead = true;
 		} catch (error) {
 			write(
 				`  reading your inbox failed: ${(error as Error).message.slice(0, 160)}`,
@@ -2346,7 +2350,33 @@ export async function runProfile(
 	const actions: ActionLink[] = [];
 	const proposalsMade: Json = {};
 	const withdrawn: string[] = [];
-	if (call && upload && me) {
+	if (call && upload && me && inboxRead) {
+		const open = asked.filter(
+			(row) => row.key.startsWith("profile:") && row.state === "open",
+		);
+		// Missing from this plan (or the sampled history) is not evidence of
+		// resolution. Only a known finished workstream retires its proposals.
+		const relevant = open.filter(
+			(row) =>
+				!workstreams.some(
+					(w) => w.key === row.workstreamId && w.status === "done",
+				),
+		);
+		const retained = new Set(relevant.slice(0, 3).map((row) => row.id));
+		const superseded = open.filter((row) => !retained.has(row.id));
+		if (superseded.length) {
+			try {
+				const r = await call(withdrawSource(superseded));
+				withdrawn.push(
+					...superseded.filter((row) => r[row.id]?.ok).map((row) => row.id),
+				);
+			} catch (error) {
+				write(
+					`  withdrawing superseded proposals failed: ${(error as Error).message.slice(0, 160)}`,
+				);
+			}
+		}
+		const remaining = open.filter((row) => !withdrawn.includes(row.id));
 		const candidates: Candidate[] = profile.actions.map((a) => ({
 			key: `profile:${sha(a.title.toLowerCase())}`,
 			kind: "task",
@@ -2379,6 +2409,7 @@ export async function runProfile(
 				workstreams.find((w) =>
 					words(w.name).some((x) => words(a.workstream).includes(x)),
 				);
+			if (ws?.status === "done") return;
 			const covering = found.matches[c.key]?.w.find(
 				(m) =>
 					m[5] >= THRESHOLDS.same &&
@@ -2395,9 +2426,15 @@ export async function runProfile(
 				});
 				return;
 			}
-			// An open proposal from before accepts could start anything is filed again.
-			const prior = askedFor(c, asked);
-			if (prior && !(prior.state === "open" && !prior.hasStart)) {
+			const prior = askedFor(
+				c,
+				remaining.filter(
+					(row) =>
+						(!row.workstreamId || row.workstreamId === ws?.key) &&
+						(!row.startKind || row.startKind === a.kind),
+				),
+			);
+			if (prior) {
 				actions.push({
 					title: a.title,
 					why: a.why,
@@ -2405,6 +2442,18 @@ export async function runProfile(
 					start: a.start,
 					link: `${OS_URL}/work/interactions/${prior.id}`,
 					state: "asked",
+				});
+				return;
+			}
+			if (remaining.length + publish.length >= 3) {
+				actions.push({
+					title: a.title,
+					why: a.why,
+					kind: a.kind,
+					start: a.start,
+					link: null,
+					state: "not-filed",
+					note: "Three profile proposals are already open in your inbox; answer one to make room.",
 				});
 				return;
 			}
@@ -2463,15 +2512,14 @@ export async function runProfile(
 										? { workspaceId: state.space.workspaceId }
 										: {}),
 								};
-			publish.push({
-				key: c.key,
-				request: proposalRequest(
-					proposal,
-					me!.name || "you",
-					me!.id,
-					plan ? { plan, ...(tedi ? { tediName: tedi.name } : {}) } : undefined,
-				),
-			});
+			const request = proposalRequest(
+				proposal,
+				me!.name || "you",
+				me!.id,
+				plan ? { plan, ...(tedi ? { tediName: tedi.name } : {}) } : undefined,
+			);
+			if (ws) request.metadata.profile = { workstreamId: ws.key };
+			publish.push({ key: c.key, request });
 			actions.push({
 				title: a.title,
 				why: a.why,
@@ -2498,30 +2546,6 @@ export async function runProfile(
 					a.state = "not-filed";
 					a.note = `Not filed (${made?.skipped ?? made?.error ?? "no answer"}); ask me in chat to start it.`;
 				}
-			}
-		}
-		// Earlier profile proposals still open that this run no longer picks are superseded.
-		const kept = new Set(
-			actions
-				.filter((a) => a.state === "asked" && a.link)
-				.map((a) => a.link!.split("/").at(-1)),
-		);
-		const superseded = asked.filter(
-			(row) =>
-				row.key.startsWith("profile:") &&
-				row.state === "open" &&
-				!kept.has(row.id),
-		);
-		if (superseded.length) {
-			try {
-				const r = await call(withdrawSource(superseded));
-				withdrawn.push(
-					...superseded.filter((row) => r[row.id]?.ok).map((row) => row.id),
-				);
-			} catch (error) {
-				write(
-					`  withdrawing superseded proposals failed: ${(error as Error).message.slice(0, 160)}`,
-				);
 			}
 		}
 	} else
