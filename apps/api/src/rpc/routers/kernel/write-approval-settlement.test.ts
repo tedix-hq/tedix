@@ -3,9 +3,85 @@ import {
 	renderKernelWriteReceipt,
 	kernelOutputReceipt,
 	boundKernelWriteEvidence,
+	kernelWriteCardContent,
 } from "./write-approval-settlement";
 
 const id = "7c0723ef-fed7-4482-9454-4716ddfd5879";
+
+describe("Home write approval summary", () => {
+	it.each(["os.set_os_sheet_range", "os__set_os_sheet_range"])(
+		"names the cell rectangle and sheet for %s",
+		(toolName) => {
+			const content = kernelWriteCardContent({
+				approvalRequestId: id,
+				proposal: {
+					appSlug: "local-os",
+					toolName,
+					outputTitle: "Budget",
+					args: { outputId: id, startRow: 1, startColumn: 1, cells: [[42]] },
+				},
+			});
+			const [summary, details] = content.split("### Details");
+			expect(summary).toContain("Update cells B2 in “Budget”.");
+			expect(summary).toContain("Reply “approve” or “yes”");
+			expect(summary).not.toContain(id);
+			expect(summary).not.toContain("{");
+			expect(details).toContain(id);
+			expect(details).toContain('"cells":[[42]]');
+		},
+	);
+
+	it("handles ranges beyond column Z and multi-row writes", () => {
+		const content = kernelWriteCardContent({
+			approvalRequestId: id,
+			proposal: {
+				appSlug: "local-os",
+				toolName: "os.set_os_sheet_range",
+				args: {
+					startRow: 0,
+					startColumn: 26,
+					cells: [
+						[1, 2],
+						[3, 4],
+					],
+				},
+			},
+		});
+		expect(content.split("\n")[0]).toBe("Update cells AA1:AB2 in your sheet.");
+	});
+
+	it("names the created document and keeps markup out of its title", () => {
+		const content = kernelWriteCardContent({
+			approvalRequestId: id,
+			proposal: {
+				appSlug: "local-os",
+				toolName: "os.create_os_output",
+				args: { kind: "document", title: "**Project plan**\nDraft" },
+			},
+		});
+		expect(content.split("\n")[0]).toBe(
+			"Create document “Project plan Draft”.",
+		);
+	});
+
+	it("keeps provider actions and their key arguments in plain words", () => {
+		const content = kernelWriteCardContent({
+			approvalRequestId: id,
+			proposal: {
+				appSlug: "fictional-mail",
+				toolName: "mail__send_message",
+				args: {
+					to: "maya@example.com",
+					subject: "Project plan",
+					body: "Hello",
+				},
+			},
+		});
+		expect(content.split("\n")[0]).toBe(
+			"Send message — to: maya@example.com; subject: Project plan.",
+		);
+	});
+});
 
 describe("Home saved-output receipt", () => {
 	it("renders per-app catalog installation outcomes", () => {

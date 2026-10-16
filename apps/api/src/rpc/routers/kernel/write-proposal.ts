@@ -101,6 +101,8 @@ export interface KernelWriteProposal {
 	appSlug: string;
 	toolName: string;
 	args: Record<string, unknown>;
+	/** Canonical title, only when the validated call edits the read output. */
+	outputTitle?: string;
 	/** One-sentence model rationale for the operator-facing card (untrusted). */
 	reasoning: string | null;
 	/**
@@ -1415,10 +1417,17 @@ export async function planKernelWriteProposal(args: {
 			tool: validated.tool.name,
 			argKeys: Object.keys(validated.args),
 		});
+		const target = editTarget
+			? (JSON.parse(editTarget) as { outputId: string; title: string })
+			: null;
 		return {
 			appSlug: provider.slug,
 			toolName: validated.tool.name,
 			args: validated.args,
+			...(target?.outputId === validated.args.outputId &&
+			typeof target?.title === "string"
+				? { outputTitle: target.title }
+				: {}),
 			reasoning: planned.reasoning,
 			riskTier: validated.riskTier,
 			transport,

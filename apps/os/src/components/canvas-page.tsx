@@ -1121,7 +1121,7 @@ export function CanvasPage({
 							workspaceId={workspaceId ?? undefined}
 							autoFocusComposer={simpleMode}
 							context={
-								!conversationListOpen && selectedDoc
+								selectedDoc
 									? {
 											kind: selectedDoc.type,
 											id: selectedDoc.id,

@@ -1020,6 +1020,66 @@ describe("readEditTargetOutput", () => {
 });
 
 describe("planKernelWriteProposal — positive path", () => {
+	it.each([true, false])(
+		"uses the canonical title only for the matching edit target (%s)",
+		async (matches) => {
+			const outputId = "11111111-1111-4111-8111-111111111111";
+			mocks.getOsOutput.mockResolvedValueOnce({
+				id: outputId,
+				kind: "document",
+				title: "Project plan",
+				status: "active",
+				currentRevisionId: "rev-1",
+			} as never);
+			mocks.getOsOutputRevision.mockResolvedValueOnce({
+				id: "rev-1",
+				outputId,
+				revision: 1,
+				content: '{"kind":"document","blocks":[]}',
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			} as never);
+			const toolName = "os.patch_os_document";
+			const proposal = await planKernelWriteProposal({
+				db: DB,
+				env: baseEnv(
+					mcpService(() => ({
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								tools: [
+									{
+										name: toolName,
+										annotations: { readOnlyHint: false },
+										inputSchema: {
+											type: "object",
+											properties: { outputId: { type: "string" } },
+											required: ["outputId"],
+										},
+									},
+								],
+							},
+						},
+					})),
+				),
+				organizationId: "org-1",
+				route: writeRoute(),
+				content: `update ${outputId}`,
+				model: objectModel({
+					toolName,
+					args: {
+						outputId: matches
+							? outputId
+							: "22222222-2222-4222-8222-222222222222",
+					},
+					reasoning: null,
+				}),
+			});
+			expect(proposal).not.toBeNull();
+			expect(proposal?.outputTitle).toBe(matches ? "Project plan" : undefined);
+		},
+	);
+
 	it("carries workspace context through the remaining argument generation pass without injecting provider arguments", async () => {
 		const model = objectModel({
 			toolName: "globex__create_invoice",

@@ -38,10 +38,6 @@ import {
 	TediMailbox,
 } from "./tedi-mailbox";
 
-(
-	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const TEDI_ID = "11111111-1111-4111-8111-111111111111";
 const ADDRESS_ID = "22222222-2222-4222-8222-222222222222";
 const THREAD_ID = "33333333-3333-4333-8333-333333333333";
@@ -131,15 +127,18 @@ function render() {
 	});
 	cleanups.push(() => {
 		act(() => root.unmount());
+		client.clear();
 		container.remove();
 	});
 	return container;
 }
 
-async function settle() {
-	await act(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		await new Promise((resolve) => setTimeout(resolve, 0));
+async function settle(assertion: () => void) {
+	await vi.waitFor(async () => {
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1);
+		});
+		assertion();
 	});
 }
 
@@ -174,7 +173,9 @@ async function setValue(
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	vi.useFakeTimers();
+	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+	vi.resetAllMocks();
 	tedisApi.get.mockResolvedValue({ id: TEDI_ID, slug: "ledger" });
 	tediEmailApi.listInbox.mockResolvedValue({ threads: [], nextCursor: null });
 	tediEmailApi.mark.mockResolvedValue({
@@ -195,6 +196,9 @@ beforeEach(() => {
 
 afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
+	vi.clearAllTimers();
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
 });
 
 // ---------------------------------------------------------------------------
@@ -274,14 +278,18 @@ describe("TediMailbox", () => {
 	it("renders Enable mailbox when no address exists and creates the primary", async () => {
 		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [] });
 		const container = render();
-		await settle();
+		await settle(() =>
+			expect(container.textContent).toContain("No mailbox yet"),
+		);
 
 		expect(container.textContent).toContain("No mailbox yet");
 		expect(container.textContent).toContain("ledger@tedix.tech");
 		expect(container.querySelector('[aria-label="Sender policy"]')).toBeNull();
 
 		act(() => buttonByText(container, "Enable mailbox").click());
-		await settle();
+		await settle(() =>
+			expect(tediEmailApi.createAddress).toHaveBeenCalledOnce(),
+		);
 
 		expect(inputs(tediEmailApi.createAddress)).toContainEqual({
 			tediId: TEDI_ID,
@@ -293,7 +301,11 @@ describe("TediMailbox", () => {
 	it("renders the policy form, saves lowercase entries without status, and keeps source", async () => {
 		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
 		const container = render();
-		await settle();
+		await settle(() =>
+			expect(
+				container.querySelector("#mailbox-trusted-senders"),
+			).not.toBeNull(),
+		);
 
 		expect(container.textContent).toContain("ledger@tedix.tech");
 		expect(container.textContent).toContain(
@@ -314,7 +326,9 @@ describe("TediMailbox", () => {
 		await setValue(threshold, "3");
 
 		act(() => buttonByText(container, "Save policy").click());
-		await settle();
+		await settle(() =>
+			expect(tediEmailApi.updateAddress).toHaveBeenCalledOnce(),
+		);
 
 		expect(inputs(tediEmailApi.updateAddress)).toContainEqual({
 			tediId: TEDI_ID,
@@ -331,7 +345,11 @@ describe("TediMailbox", () => {
 	it("blocks a save that contains a malformed sender", async () => {
 		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
 		const container = render();
-		await settle();
+		await settle(() =>
+			expect(
+				container.querySelector("#mailbox-trusted-senders"),
+			).not.toBeNull(),
+		);
 		const senders = container.querySelector<HTMLTextAreaElement>(
 			"#mailbox-trusted-senders",
 		);
@@ -347,10 +365,12 @@ describe("TediMailbox", () => {
 	it("pauses an active address with status only", async () => {
 		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
 		const container = render();
-		await settle();
+		await settle(() => expect(buttonByText(container, "Pause")).toBeDefined());
 
 		act(() => buttonByText(container, "Pause").click());
-		await settle();
+		await settle(() =>
+			expect(tediEmailApi.updateAddress).toHaveBeenCalledOnce(),
+		);
 
 		expect(inputs(tediEmailApi.updateAddress)).toContainEqual({
 			tediId: TEDI_ID,
@@ -372,7 +392,9 @@ describe("TediMailbox", () => {
 			nextCursor: null,
 		});
 		const container = render();
-		await settle();
+		await settle(() =>
+			expect(container.querySelectorAll("[data-thread-id]")).toHaveLength(2),
+		);
 
 		const rows = container.querySelectorAll("[data-thread-id]");
 		expect(rows).toHaveLength(2);
@@ -391,7 +413,9 @@ describe("TediMailbox", () => {
 			messages: [thread().latestMessage],
 		});
 		const container = render();
-		await settle();
+		await settle(() =>
+			expect(container.querySelectorAll("[data-thread-id]")).toHaveLength(1),
+		);
 
 		const list = container.querySelector('[aria-label="Inbox threads"]');
 		if (!list) throw new Error("inbox list not rendered");
@@ -401,7 +425,7 @@ describe("TediMailbox", () => {
 		expect(list.textContent).toContain("open");
 
 		act(() => buttonByText(container, "Mark read").click());
-		await settle();
+		await settle(() => expect(tediEmailApi.mark).toHaveBeenCalledTimes(1));
 		expect(inputs(tediEmailApi.mark)).toContainEqual({
 			tediId: TEDI_ID,
 			threadId: THREAD_ID,
@@ -409,7 +433,7 @@ describe("TediMailbox", () => {
 		});
 
 		act(() => buttonByText(container, "Archive").click());
-		await settle();
+		await settle(() => expect(tediEmailApi.mark).toHaveBeenCalledTimes(2));
 		expect(inputs(tediEmailApi.mark)).toContainEqual({
 			tediId: TEDI_ID,
 			threadId: THREAD_ID,
@@ -417,7 +441,7 @@ describe("TediMailbox", () => {
 		});
 
 		act(() => buttonByText(container, "Mark spam").click());
-		await settle();
+		await settle(() => expect(tediEmailApi.mark).toHaveBeenCalledTimes(3));
 		expect(inputs(tediEmailApi.mark)).toContainEqual({
 			tediId: TEDI_ID,
 			threadId: THREAD_ID,
@@ -430,7 +454,7 @@ describe("TediMailbox", () => {
 		);
 		if (!row) throw new Error("thread row not rendered");
 		act(() => row.click());
-		await settle();
+		await settle(() => expect(container.textContent).toContain("Thanks, Ana"));
 		expect(inputs(tediEmailApi.readThread)).toContainEqual({
 			tediId: TEDI_ID,
 			threadId: THREAD_ID,

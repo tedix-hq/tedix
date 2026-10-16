@@ -301,7 +301,10 @@ export interface KernelTurnWorkDeps {
 	};
 	kernelWriteCardContent: (input: {
 		approvalRequestId: string;
-		proposal: Pick<KernelWriteProposal, "appSlug" | "args" | "toolName">;
+		proposal: Pick<
+			KernelWriteProposal,
+			"appSlug" | "args" | "toolName" | "outputTitle"
+		>;
 	}) => string;
 	errorMessage: (value: unknown) => string;
 	offsetIso: (baseIso: string, offsetMs: number) => string;
