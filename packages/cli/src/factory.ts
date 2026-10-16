@@ -37,6 +37,9 @@ export function factoryUsage(): string {
 		"        [--slug <slug>] [--max-proposals <n>] [--workspace-id <uuid>]",
 		"        [--project <KEY>] [--dry-run]",
 		"  tedix factory status [<slug>] [--limit <runs>]",
+		"  tedix factory pause <slug>",
+		"  tedix factory resume <slug>",
+		"  tedix factory archive <slug>",
 		"",
 		"`create` makes the Work project and objective, a scheduled lane skill from",
 		"the template and a standing health Work Item in one call. Re-running it with",
@@ -47,7 +50,7 @@ export function factoryUsage(): string {
 		"nothing), failing, not_firing, paused (schedule turned off) or pending.",
 		"With a slug it lists the recent runs and what each delivered.",
 		"",
-		"Pause, resume or archive a factory by revising its lane skill; see",
+		"`pause`, `resume` and `archive` revise the lane through improve_skills; see",
 		"docs/public/factory-agent-guide.md (Pause or archive a factory).",
 	].join("\n");
 }
@@ -110,6 +113,9 @@ async function createFactory(ctx: FactoryContext): Promise<number> {
 	console.log(
 		`${green(String(result.status ?? "?"), ctx.color)} factory ${cyan(String(result.slug ?? "?"), ctx.color)} (${String(result.name ?? "")})`,
 	);
+	console.log(
+		`  owner ${String(result.ownerTediName ?? "?")} (${String(result.ownerTediId ?? "?")})`,
+	);
 	for (const step of rowsFrom(result.steps)) {
 		console.log(
 			`  ${String(step.resource ?? "").padEnd(17)} ${String(step.action ?? "").padEnd(13)} ${String(step.id ?? "")}${step.note ? dim(`  ${String(step.note)}`, ctx.color) : ""}`,
@@ -123,6 +129,9 @@ async function createFactory(ctx: FactoryContext): Promise<number> {
 	console.log(
 		`  cron ${String(result.cron ?? "?")} UTC, next fire ${nextFire}`,
 	);
+	for (const warning of Array.isArray(result.warnings) ? result.warnings : []) {
+		console.log(`Note: ${String(warning)}`);
+	}
 	const actions = Array.isArray(result.nextActions) ? result.nextActions : [];
 	if (actions.length) {
 		console.log("");
@@ -221,6 +230,143 @@ async function factoryStatus(
 	return 0;
 }
 
+/** Change only the direct enabled child of frontmatter capabilities.schedule. */
+export function setScheduleEnabled(content: string, enabled: boolean): string {
+	const lines = content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+	const text = (index: number) => (lines[index] ?? "").replace(/\r?\n$/, "");
+	const end = lines.findIndex((_, i) => i > 0 && /^---[ \t]*$/.test(text(i)));
+	const missing = () =>
+		new Error("Skill frontmatter has no capabilities.schedule block");
+	if (text(0) !== "---" || end < 0) throw missing();
+	const capabilities = lines.findIndex(
+		(_, i) => i > 0 && i < end && /^capabilities:[ \t]*(?:#.*)?$/.test(text(i)),
+	);
+	if (capabilities < 0) throw missing();
+	let capabilitiesEnd = capabilities + 1;
+	while (capabilitiesEnd < end && !/^[^\s#]/.test(text(capabilitiesEnd)))
+		capabilitiesEnd++;
+	const indent = (i: number) => /^ */.exec(text(i))![0].length;
+	const isKey = (i: number) => /^ +[^\s#][^:]*:/.test(text(i));
+	const keys = Array.from(
+		{ length: capabilitiesEnd - capabilities - 1 },
+		(_, i) => capabilities + 1 + i,
+	).filter(isKey);
+	const childIndent = Math.min(...keys.map(indent));
+	const schedule = keys.find(
+		(i) =>
+			indent(i) === childIndent && /^ +schedule:[ \t]*(?:#.*)?$/.test(text(i)),
+	);
+	if (schedule === undefined) throw missing();
+	let scheduleEnd = schedule + 1;
+	while (
+		scheduleEnd < capabilitiesEnd &&
+		(!text(scheduleEnd).trim() ||
+			/^\s*#/.test(text(scheduleEnd)) ||
+			indent(scheduleEnd) > childIndent)
+	)
+		scheduleEnd++;
+	const children = Array.from(
+		{ length: scheduleEnd - schedule - 1 },
+		(_, i) => schedule + 1 + i,
+	).filter(isKey);
+	const enabledIndent = children.length
+		? Math.min(...children.map(indent))
+		: childIndent + 2;
+	const existing = children.filter(
+		(i) => indent(i) === enabledIndent && /^ +enabled:/.test(text(i)),
+	);
+	const newline = lines[0]!.endsWith("\r\n") ? "\r\n" : "\n";
+	if (enabled) {
+		for (const i of existing.reverse()) lines.splice(i, 1);
+	} else if (existing.length) {
+		for (const i of existing)
+			lines[i] = `${" ".repeat(enabledIndent)}enabled: false${newline}`;
+	} else {
+		lines.splice(
+			schedule + 1,
+			0,
+			`${" ".repeat(enabledIndent)}enabled: false${newline}`,
+		);
+	}
+	return lines.join("");
+}
+
+async function reviseFactory(
+	ctx: FactoryContext,
+	verb: "pause" | "resume" | "archive",
+	slug: string | undefined,
+): Promise<number> {
+	if (!slug) throw new Error(`tedix factory ${verb} needs <slug>`);
+	const health = await readGatewayProjection(
+		ctx.client,
+		"projects.inspect_factory_health",
+		{ factory: slug },
+		[
+			"slug",
+			"skillId",
+			"scheduleEnabled",
+			"healthWorkItemId",
+			"projectId",
+			"objectiveId",
+		],
+	);
+	const lane = rowsFrom(health, "data").find((row) => row.slug === slug);
+	if (!lane) throw new Error(`No factory "${slug}".`);
+	if (typeof lane.skillId !== "string")
+		throw new Error(`Factory "${slug}" has no lane skill.`);
+	if (verb !== "archive" && lane.scheduleEnabled === (verb === "resume")) {
+		console.log(
+			ctx.json
+				? JSON.stringify(health)
+				: `Factory ${slug} is already ${verb === "pause" ? "paused" : "running"}.`,
+		);
+		return 0;
+	}
+	let input: Record<string, unknown> = {
+		id: lane.skillId,
+		lifecycleState: "archived",
+	};
+	if (verb !== "archive") {
+		const skill = await readGatewayProjection(ctx.client, "skills.get_skills", {
+			id: lane.skillId,
+		});
+		const entry = (skill as { entry?: { content?: unknown } } | null)?.entry;
+		if (typeof entry?.content !== "string")
+			throw new Error(`Lane skill ${lane.skillId} has no content.`);
+		input = {
+			id: lane.skillId,
+			content: setScheduleEnabled(entry.content, verb === "resume"),
+			revisionReasoning: `${verb === "pause" ? "Pause" : "Resume"} factory ${slug}.`,
+		};
+	}
+	const result = await readGatewayProjection(
+		ctx.client,
+		"skills.improve_skills",
+		input,
+	);
+	if (ctx.json) {
+		console.log(JSON.stringify(result));
+		return 0;
+	}
+	console.log(
+		`Factory ${slug} ${verb === "archive" ? "archived" : verb === "pause" ? "paused" : "resumed"}.`,
+	);
+	if (verb === "archive") {
+		console.log("When nothing else uses these records:");
+		if (lane.healthWorkItemId)
+			console.log(`Next: tedix work cancel ${String(lane.healthWorkItemId)}`);
+		if (lane.projectId)
+			console.log(
+				`Next: archive_project(${JSON.stringify({ id: lane.projectId })})`,
+			);
+		if (lane.objectiveId)
+			console.log(
+				`Next: update_tedi_objectives(${JSON.stringify({ id: lane.objectiveId, status: "completed" })})`,
+			);
+	}
+	return 0;
+}
+
 export async function runFactoryCommand(
 	args: string,
 	ctx: FactoryContext,
@@ -236,9 +382,13 @@ export async function runFactoryCommand(
 				return await createFactory(ctx);
 			case "status":
 				return await factoryStatus(ctx, rest[0]);
+			case "pause":
+			case "resume":
+			case "archive":
+				return await reviseFactory(ctx, verb, rest[0]);
 			default:
 				throw new Error(
-					`unknown factory verb "${verb}" — expected create or status`,
+					`unknown factory verb "${verb}" — expected create, status, pause, resume or archive`,
 				);
 		}
 	} catch (error) {

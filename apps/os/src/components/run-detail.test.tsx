@@ -15,10 +15,40 @@ import {
 	RunArtifactRow,
 	RunDetailSectionHeader,
 	RunEvidenceList,
+	RunErrorAlert,
 	RunRationaleEmpty,
 	RunRationaleRow,
 	RunStepRow,
 } from "./run-detail";
+
+describe("RunErrorAlert", () => {
+	it("shows the summary and keeps the raw envelope inside collapsed details", () => {
+		const error = `Error: McpToolError: ${JSON.stringify({
+			partial: true,
+			failures: [{ tool: "calendar.create_event", error: "Permission denied" }],
+		})}`;
+		const host = document.createElement("div");
+		host.innerHTML = renderToStaticMarkup(<RunErrorAlert error={error} />);
+		expect(
+			host.querySelector('[data-slot="alert-description"]')?.textContent,
+		).toBe("calendar.create_event failed: Permission denied");
+		const trigger = host.querySelector("button");
+		expect(trigger?.textContent).toBe("Details");
+		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+		const panel = host.querySelector("pre")?.parentElement;
+		expect(panel?.querySelector("pre")?.textContent).toBe(error);
+		expect(panel?.hasAttribute("hidden")).toBe(true);
+	});
+
+	it("omits details when the raw error already equals the summary", () => {
+		const html = renderToStaticMarkup(
+			<RunErrorAlert error="Permission denied" />,
+		);
+		expect(html).toContain("Permission denied");
+		expect(html).not.toContain("Details");
+		expect(html).not.toContain("<pre");
+	});
+});
 
 describe("connection recovery notice", () => {
 	it("routes to the correct owner settings and exposes plain-English continuation", () => {

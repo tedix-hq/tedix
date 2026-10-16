@@ -731,6 +731,66 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		}
 	});
 
+	it("ranks names by query specificity ahead of longer connected-app names", async () => {
+		const callables = [
+			"ifesca_api__tsm_v7_demo_factory_1_report_list",
+			"ifesca_api__tsm_v7_demo_factory_2_report_list",
+			"sevdesk__create_invoice_by_factory",
+			"sevdesk__voucher_factory_save_voucher",
+			"projects__create_factory",
+			"projects__get_factory_scoreboard",
+			"projects__inspect_factory_health",
+			"skills__get_skills_for_mcp",
+		];
+		const ctx = {
+			loadedTools: new Map<string, AppTool>(
+				callables.map((toolId) => [toolId, tool({ toolId, title: toolId })]),
+			),
+			apiClient: {
+				skills: {
+					listByOrg: async () => ({
+						entries: ["daily", "weekly", "monthly"].map((cadence) => ({
+							id: cadence,
+							slug: `factory-health-operations-${cadence}-checklist`,
+							title: "Operations checklist",
+							description: "Run the operations checklist.",
+							summary: null,
+							successCount: 0,
+							lifecycleState: "active",
+						})),
+						total: 3,
+					}),
+				},
+			},
+		} as unknown as ServerContext;
+		const provider = buildCatalogProvider(ctx, undefined);
+		const factory = await runSearch(provider, "factory", 10);
+		expect(
+			factory.results
+				.filter((row) => row.kind !== "skill")
+				.map((row) => row.callable),
+		).toEqual([
+			"projects.create_factory",
+			"projects.get_factory_scoreboard",
+			"projects.inspect_factory_health",
+			"sevdesk.create_invoice_by_factory",
+			"sevdesk.voucher_factory_save_voucher",
+			"ifesca_api.tsm_v7_demo_factory_1_report_list",
+			"ifesca_api.tsm_v7_demo_factory_2_report_list",
+		]);
+		expect((await runSearch(provider, "factory", 5)).results).toContainEqual(
+			expect.objectContaining({ callable: "projects.inspect_factory_health" }),
+		);
+		const health = await runSearch(provider, "factory health", 10);
+		expect(health.results[0]?.callable).toBe("projects.inspect_factory_health");
+		expect(health.results.filter((row) => row.kind === "skill")).toHaveLength(
+			3,
+		);
+		expect((await runSearch(provider, "factory health", 10)).results).toEqual(
+			health.results,
+		);
+	});
+
 	it("names the result envelope's top-level keys on describe", async () => {
 		const ctx = {
 			loadedTools: new Map<string, AppTool>([

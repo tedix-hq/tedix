@@ -207,6 +207,7 @@
 		"./utils/procedure-schemas": "./src/utils/procedure-schemas.ts",
 		"./utils/runtime-events": "./src/utils/runtime-events.ts",
 		"./utils/runtime-identity": "./src/utils/runtime-identity.ts",
+		"./utils/run-error": "./src/utils/run-error.ts",
 		"./utils/skill-manifest": "./src/utils/skill-manifest.ts",
 		"./utils/skill-reference": "./src/utils/skill-reference.ts",
 		"./utils/skill-schedule": "./src/utils/skill-schedule.ts",

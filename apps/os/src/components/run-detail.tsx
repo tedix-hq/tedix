@@ -15,6 +15,7 @@ import type {
 	SkillWorkflowStep,
 } from "@tedix/api-contract/contracts/cognitive";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
+import { summarizeRunError } from "@tedix/api-contract/utils/run-error";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
 import { DetailUnavailable } from "@/components/detail-unavailable";
@@ -282,6 +283,29 @@ export function RunDetailSectionHeader({
 				<SectionDescription>{description}</SectionDescription>
 			</SectionHeading>
 		</SectionHeader>
+	);
+}
+
+export function RunErrorAlert({ error }: { error: string }) {
+	const summary = summarizeRunError(error);
+	return (
+		<Alert variant="destructive">
+			<AlertTitle>Run error</AlertTitle>
+			<AlertDescription>{summary}</AlertDescription>
+			{error !== summary && (
+				<Collapsible>
+					<CollapsibleTrigger className="-mx-2 w-fit">
+						<CaretDown size={14} aria-hidden />
+						Details
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
+							{error}
+						</pre>
+					</CollapsibleContent>
+				</Collapsible>
+			)}
+		</Alert>
 	);
 }
 
@@ -656,12 +680,7 @@ export function RunDetailPage() {
 						</p>
 					)}
 
-					{run.error && (
-						<Alert variant="destructive">
-							<AlertTitle>Run error</AlertTitle>
-							<AlertDescription>{run.error}</AlertDescription>
-						</Alert>
-					)}
+					{run.error && <RunErrorAlert error={run.error} />}
 
 					{connectionGate && (
 						<ConnectionRecoveryNotice

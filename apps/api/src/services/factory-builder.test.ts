@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	buildFactory,
 	factoryNameFromGoal,
+	factoryGoalLimits,
 	factorySlugFrom,
 	type FactoryOwnerCandidate,
 	type FactoryStore,
@@ -176,6 +177,8 @@ describe("buildFactory", () => {
 			skillLifecycleState: "active",
 			nextFireAt: "2026-10-16T05:17:00.000Z",
 			ownerTediId: OWNER,
+			ownerTediName: "Nova",
+			warnings: [],
 		});
 		expect(first.steps.map((step) => [step.resource, step.action])).toEqual([
 			["objective", "created"],
@@ -237,6 +240,8 @@ describe("buildFactory", () => {
 		const result = await buildFactory(store, input({ dryRun: true }));
 		expect(writes).toEqual([]);
 		expect(result.status).toBe("planned");
+		expect(result.ownerTediName).toBe("Nova");
+		expect(result.warnings).toEqual([]);
 		expect(result.steps.every((step) => step.action === "would_create")).toBe(
 			true,
 		);
@@ -511,4 +516,52 @@ describe("report lane template", () => {
 		expect(calls.some(([name]) => name === "work_item_comment")).toBe(true);
 		expect(calls.some(([name]) => name === "work_item_create")).toBe(false);
 	});
+});
+
+describe("factoryGoalLimits", () => {
+	it.each([
+		"hourly",
+		"every hour",
+		"every 15 minutes",
+		"every 2 hours",
+		"per hour",
+	])("warns about cadence: %s", (cadence) => {
+		const notes = factoryGoalLimits(`Review Work ${cadence}.`);
+		expect(notes).toHaveLength(1);
+		expect(notes[0]).toContain('cadence: "twice_daily"');
+		expect(notes[0]).toContain("--cadence twice_daily");
+		expect(notes[0]).toContain("own scheduled skill");
+	});
+
+	it.each([
+		"Write findings into the document.",
+		"Update results to Notion.",
+		"Append a report to our sheet.",
+		"Publish the summary to an Output.",
+		"Write results to a page.",
+		"Write notes into a doc.",
+	])("warns about document writes: %s", (goal) => {
+		const notes = factoryGoalLimits(goal);
+		expect(notes).toHaveLength(1);
+		expect(notes[0]).toContain("cannot write into a document or Output");
+		expect(notes[0]).toContain("ask the owner tedi to update that document");
+	});
+
+	it("does not infer document writes from a docs maintenance goal", () => {
+		expect(
+			factoryGoalLimits("Keep the docs accurate against the code."),
+		).toEqual([]);
+	});
+
+	it.each([true, false])(
+		"returns owner and both warnings on builds (dryRun: %s)",
+		async (dryRun) => {
+			const { store } = memoryStore(true);
+			const goal = "Write findings into the document every hour.";
+			const result = await buildFactory(store, input({ goal, dryRun }));
+			expect(result.ownerTediName).toBe("Nova");
+			expect(result.warnings).toEqual(factoryGoalLimits(goal));
+			expect(result.warnings).toHaveLength(2);
+		},
+	);
 });

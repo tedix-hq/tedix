@@ -76,18 +76,25 @@ tedix factory status docs-accuracy
 
 ### Pause or archive a factory
 
-The schedule comes from the lane skill's `SKILL.md`, so pausing it and
-archiving it are both skill revisions made with `improve_skills`:
+Use `tedix factory pause <slug>`, `tedix factory resume <slug>` or
+`tedix factory archive <slug>`. These resolve the lane and revise its skill
+through `improve_skills`; agents do not need to hand-edit frontmatter.
 
-- **Pause:** send the skill's full `content` with `enabled: false` added
-  under `capabilities.schedule`, after `params: {}`. `tedix factory status`
-  then reports `paused`. Remove the line to resume.
+The underlying mechanism is the lane skill's `SKILL.md`:
+
+- **Pause:** the CLI reads `skills.get_skills({ id })` and sends the full
+  `entry.content` to `improve_skills` with `enabled: false` under
+  `capabilities.schedule`. `tedix factory status` then reports `paused`.
+- **Resume:** the CLI removes that `enabled:` line through the same content
+  revision route. Pausing an already paused factory or resuming an already
+  running one writes nothing.
 - **Archive:** `improve_skills({ id, lifecycleState: "archived" })` deletes
   the schedule, and the factory disappears from `inspect_factory_health`.
-  The project, objective and health Work Item stay. Cancel the health item
-  (`tedix work cancel <id>`), archive the project (`archive_project`) and
-  mark the objective `completed` (`update_tedi_objectives`) once nothing
-  else uses them.
+  The project, objective and health Work Item stay. The CLI prints their ids
+  in follow-ups: cancel the health item (`tedix work cancel <id>`), archive
+  the project (`archive_project`) and mark the objective `completed`
+  (`update_tedi_objectives`) once nothing else uses them. It does not perform
+  those follow-ups. `--json` prints the raw skill revision result.
 
 ## Which record answers which question?
 
