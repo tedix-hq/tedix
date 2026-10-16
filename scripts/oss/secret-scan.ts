@@ -56,9 +56,9 @@ function joinName(...parts: string[]): string {
  * Customer names, customer hostnames and the live installation's Cloudflare
  * account, D1 and organization ids live in ONE private file, never here: this
  * scanner is published, and a pattern that names a customer publishes the
- * customer list. The file is never exported. The pre-push gate requires it and
- * fails closed without it; a bare `scan:secrets` in a clone without it scans
- * with the generic credential rules alone. `exemptExportRewritten`
+ * customer list. The file is never exported. A push to tedix-hq/tedix requires
+ * it and fails closed without it; a fork, or a bare `scan:secrets` in a clone
+ * without it, scans with the generic credential rules alone. `exemptExportRewritten`
  * rules skip the paths the exporter rewrites or regenerates (see
  * EXPORT_DERIVED_INFRA_IDS). Integrations the product ships (klarna, nosana,
  * promptwatch) are not customers and do not belong in the file.
@@ -710,7 +710,7 @@ export function renderSecretScan(
  *   export publishes. In the public repository every file is published, so it
  *   changes nothing.
  * - `--require-private-rules`: fail when the private customer/installation
- *   overlay is absent or empty. The pre-push gate always passes this.
+ *   overlay is absent or empty. The pre-push gate passes this for a push to tedix-hq/tedix.
  * - `--base <sha> --head <sha>` pairs: also scan each pushed commit's message
  *   and author/committer identity.
  */

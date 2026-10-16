@@ -88,6 +88,14 @@ export function defaultPushBase(repoRoot) {
 	);
 }
 
+/**
+ * Whether a push goes to the canonical public repository. Only that push must
+ * carry the private customer-identity rules; a fork keeps the generic scan.
+ */
+export function pushesToCanonicalRepo(remoteUrl) {
+	return /github\.com[:/]tedix-hq\/tedix(?:\.git)?\/?$/i.test(remoteUrl ?? "");
+}
+
 /** Parses every complete `--base <sha> --head <sha>` pair from a preflight CLI. */
 export function parsePushRanges(argv) {
 	const ranges = [];
