@@ -26,6 +26,17 @@ describe("Connect organization targeting", () => {
 			expect(shouldBindHumanToTedi(config, null)).toBe(true);
 		}
 		expect(shouldBindHumanToTedi({ bindHumanToTedi: false }, null)).toBe(false);
+		// A Home kernel caller has no OAuth grant: it is bound on every app.
+		expect(
+			shouldBindHumanToTedi({ bindHumanToTedi: false }, null, { kernel: true }),
+		).toBe(true);
+		expect(
+			shouldBindHumanToTedi(
+				{ bindHumanToTedi: false },
+				{ organizations: [tedix, sample] },
+				{ kernel: true },
+			),
+		).toBe(false);
 	});
 	it("resolves only one live-selected organization for auto and aliases", () => {
 		expect(resolveConnectOrganization({ organizations: [tedix] }, "auto")).toBe(

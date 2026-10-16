@@ -1,11 +1,23 @@
 import type { MultiOrgMcpSelection } from "./auth-helpers";
 
-/** Connect consent belongs to the human, not a tedi in the hosting org. */
+/**
+ * Connect consent belongs to the human, not a tedi in the hosting org.
+ *
+ * `bindHumanToTedi: false` keeps a human OAuth caller as the principal, with
+ * scopes from their own grant. A Home kernel call (trusted service binding
+ * acting for a user) has no OAuth grant to carry scopes, so on such an app it
+ * arrived at apps/api with no authority at all and every approved write
+ * failed ("Delegated service-binding scope … required"). The kernel caller is
+ * bound to the user's primary tedi on every app, exactly as on an app that
+ * keeps the default.
+ */
 export function shouldBindHumanToTedi(
 	config: Record<string, unknown> | undefined,
 	selection?: MultiOrgMcpSelection | null,
+	caller?: { kernel?: boolean },
 ): boolean {
-	return !selection && config?.bindHumanToTedi !== false;
+	if (selection) return false;
+	return config?.bindHumanToTedi !== false || caller?.kernel === true;
 }
 
 /** Selection has already passed the live consent, revision and membership gate. */
