@@ -373,7 +373,7 @@ sent, and each promise or open loop of the agent (a lane it started that has
 not reported back), as an open row, private to you and linked to the chat.
 Later turns move rows to in progress, waiting on you, at risk or done. A row
 becomes done only with evidence found in the turn or its activity: a commit
-SHA, a link or an exact quote. An open row that three turns pass by is marked
+SHA, a link or an exact quote. An open row that five turns pass by is marked
 at risk. Before each prompt,
 `prompt-context` lists up to five open requests from this chat and earlier
 chats in the same repository, at risk first, then oldest. You see the whole

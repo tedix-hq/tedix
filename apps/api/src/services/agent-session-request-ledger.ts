@@ -43,7 +43,7 @@ import { type DistillEnv, runDistillModel } from "./lesson-distiller";
 /** Active rows one model call sees. */
 const ROWS_IN_PROMPT = 30;
 /** Agent turns an open row may go untouched before it is at risk. */
-export const UNADDRESSED_TURNS_AT_RISK = 3;
+export const UNADDRESSED_TURNS_AT_RISK = 5;
 const MODEL_TIMEOUT_MS = 15_000;
 
 export type LedgerModel = (
@@ -57,7 +57,7 @@ export function workersAiLedgerModel(env: DistillEnv): LedgerModel {
 		runDistillModel(env, prompt, {
 			system,
 			surface,
-			maxTokens: 800,
+			maxTokens: 1500,
 			timeoutMs: MODEL_TIMEOUT_MS,
 		});
 }
