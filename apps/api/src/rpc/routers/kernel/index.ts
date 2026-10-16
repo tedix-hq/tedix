@@ -33,8 +33,8 @@ import type { KernelExecutionAttempt } from "./gateway-attribution";
  *
  * Scope: produces a typed route decision + rationale, prepares write proposals
  * behind approval, and records delegation work orders + dispatch verdicts.
- * The kernel is a pure router — it never executes provider reads itself; all
- * live data access is delegated to the owning tedi. Supervised child dispatch
+ * External provider reads are delegated to their owning tedi. Factory operations
+ * read the canonical internal health tool before planning a bounded action. Supervised child dispatch
  * is performed by the kernel-runtime turn body when the verdict and feature
  * gates allow it; this module stays the pure planner/orchestrator.
  */
@@ -90,6 +90,9 @@ import {
 	type DispatchPolicyLayer,
 	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
+import { readFactoryChatHealth } from "./factory-chat-tools";
+import type { WriteProposalEnv } from "./write-proposal";
+import { factoryChatDecision } from "./factory-intent";
 import { groundedRosterDecision } from "./grounded-roster";
 import { createKernelHistorySummarizer } from "./history-summarizer";
 import type { KernelEnv } from "./llm";
@@ -766,6 +769,24 @@ export async function runKernel(args: {
 	let pass = await assemblePass({ maxPromptTokens });
 	let context = pass.context;
 	let contextManifest = buildManifest(context, maxPromptTokens);
+	const factoryDecision = await factoryChatDecision(inputContent, context, () =>
+		readFactoryChatHealth(
+			env as WriteProposalEnv,
+			organizationId,
+			outputWriteApp(context.apps)!,
+			descopeUserId,
+		),
+	);
+	if (factoryDecision) {
+		const route = guardKernelRouteDecision(inputContent, factoryDecision);
+		return {
+			route,
+			assistantContent: renderRouteResponse(route),
+			delegation: null,
+			routeUsage: null,
+			contextManifest,
+		};
+	}
 	const rosterDecision = groundedRosterDecision(inputContent, context);
 	const groundedRosterRoute = rosterDecision
 		? guardKernelRouteDecision(inputContent, rosterDecision)

@@ -1881,6 +1881,14 @@ export class ToolHandler {
 			headers["X-Tedix-Approved-Work-Responder"] =
 				ctx.callerIdentity.approvedWorkResponderUserId;
 		}
+		if (
+			useServiceBinding &&
+			ctx.callerIdentity?.authType === "service" &&
+			ctx.callerIdentity.kernel &&
+			ctx.callerIdentity.approvedFactoryRequestId
+		)
+			headers["X-Tedix-Approved-Factory-Request"] =
+				ctx.callerIdentity.approvedFactoryRequestId;
 		// Operator provenance for skill-run admission.
 		// When a human OAuth caller invokes an RPC tool through the gateway,
 		// apps/api sees only the service binding — the person vanishes. Forward

@@ -79,6 +79,7 @@ export interface ServiceBindingContext {
 	 */
 	kernel?: boolean;
 	approvedWorkResponderUserId?: string;
+	approvedFactoryRequestId?: string;
 }
 
 export interface DelegatedMcpContext {
@@ -893,6 +894,9 @@ export async function validateAuth(
 			scopes: delegatedScopes,
 			principal,
 			kernel,
+			approvedFactoryRequestId: kernel
+				? (request.headers.get("X-Tedix-Approved-Factory-Request") ?? undefined)
+				: undefined,
 			approvedWorkResponderUserId: kernel
 				? (request.headers.get("X-Tedix-Approved-Work-Responder") ?? undefined)
 				: undefined,

@@ -60,6 +60,9 @@ import {
 import { getObjectiveById } from "@tedix/db/queries/tedi-objectives";
 import { getTediById } from "@tedix/db/queries/tedis";
 import {
+	pauseFactoryProcedure,
+	resumeFactoryProcedure,
+	archiveFactoryProcedure,
 	createFactoryProcedure,
 	inspectFactoryHealthProcedure,
 } from "./project-factories";
@@ -645,6 +648,9 @@ export const projectsContractRouter = projectsOs.router({
 	getPortfolio: skipOutputValidation(getPortfolioProcedure),
 	getFactoryScoreboard: getFactoryScoreboardProcedure,
 	createFactory: createFactoryProcedure,
+	pauseFactory: pauseFactoryProcedure,
+	resumeFactory: resumeFactoryProcedure,
+	archiveFactory: archiveFactoryProcedure,
 	inspectFactoryHealth: inspectFactoryHealthProcedure,
 	createMilestone: createMilestoneProcedure,
 	listMilestones: listMilestonesProcedure,

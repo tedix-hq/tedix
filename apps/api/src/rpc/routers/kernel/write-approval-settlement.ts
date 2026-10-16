@@ -424,11 +424,14 @@ export function kernelWriteCardContent(input: {
 	proposal: Pick<
 		KernelWriteProposal,
 		"appSlug" | "args" | "toolName" | "outputTitle"
-	>;
+	> & { reasoning?: string | null };
 }): string {
 	const { args, toolName } = input.proposal;
 	return [
 		`${kernelWriteSummary(input.proposal)}.`,
+		...(toolName === "projects.create_factory" && input.proposal.reasoning
+			? [input.proposal.reasoning]
+			: []),
 		"Nothing has been executed. Reply “approve” or “yes” to proceed, or “reject” to cancel.",
 		"### Details",
 		`Tool: \`${toolName}\` on ${input.proposal.appSlug}`,
@@ -624,6 +627,7 @@ export async function settleHomeToolWriteApproval(
 		const result = await activeKernelWriteExecutor({
 			env: context.env as unknown as WriteExecutorEnv,
 			payload,
+			approvalRequestId: input.approval.id,
 			approvedWorkResponderUserId:
 				input.approval.resolvedBy === "policy"
 					? (payload.initiatedByUserId ?? undefined)

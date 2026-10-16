@@ -173,6 +173,9 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// Builds a project, objective, health Work Item and lane skill; the API
 	// keeps the skills write guard and the lifecycle gate.
 	create_factory: "mcp:work",
+	pause_factory: "mcp:work",
+	resume_factory: "mcp:work",
+	archive_factory: "mcp:work",
 	// Verb-first catalog operator tools miss the `catalog_` prefix rule. The API
 	// keeps requireCatalogOperatorAccess on every catalog mutation; this gate
 	// only names the capability family so the tools stop failing closed.

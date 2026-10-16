@@ -59,6 +59,8 @@ export interface BaseContext {
 	 * Present when authenticated via Descope SSO (Tedix OS and user-facing endpoints)
 	 */
 	user?: JWTPayload;
+	/** Set only after an exact saved human factory approval is verified server-side. */
+	factoryOperatorApproval?: { requestId: string; userId: string };
 	/** Stable Tedix user id resolved from the external identity mapping. */
 	userId?: string;
 	/** Organization ID (D1 UUID) resolved from Descope tenant id */

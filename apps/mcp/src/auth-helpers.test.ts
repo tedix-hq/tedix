@@ -1923,3 +1923,24 @@ describe("request-level reviewed provider read scopes", () => {
 		).toEqual(["connections.execute"]);
 	});
 });
+
+describe("factory approval receipt ingress", () => {
+	it.each([true, false])(
+		"only accepts the receipt from authenticated kernel bindings (kernel=%s)",
+		async (kernel) => {
+			const request = new Request("https://mcp.internal/mcp", {
+				method: "POST",
+				headers: {
+					"X-Service-Binding": "true",
+					"X-Tedix-Approved-Factory-Request": "sample-approval",
+					...(kernel ? { "X-Tedix-Kernel": "true" } : {}),
+				},
+			});
+			const result = await validateAuth(request, {} as CloudflareEnv);
+			expect(
+				(result as { approvedFactoryRequestId?: string })
+					?.approvedFactoryRequestId,
+			).toBe(kernel ? "sample-approval" : undefined);
+		},
+	);
+});
