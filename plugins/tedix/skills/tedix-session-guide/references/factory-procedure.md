@@ -14,9 +14,10 @@ then describe its schema; never guess namespace prefixes or resource IDs.
    owner, cadence, project key, Workspace and Output. Review every warning and
    exact owner, UTC cron and destination. Prose cannot set missing options.
 3. After approval and required Work admission, call the same arguments with
-   `dryRun: false`. Configuration and activation are distinct. Signed-in humans
-   and operator keys can activate; other callers get a draft without a schedule.
-   Never treat returned nextActions as authority to bypass activation policy.
+   `dryRun: false`. Configuration and activation are distinct. Signed-in humans,
+   operator keys and exact saved human workspace-chat approvals can activate;
+   other callers get a draft without a schedule. Read lifecycle state and next
+   fire time after approval; an acknowledgment alone proves no activation.
 
 ```bash
 owner='<verified tedi id or slug>'

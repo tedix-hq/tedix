@@ -117,7 +117,7 @@ export async function factoryChatDecision(
 			routeKind: "answer_in_home",
 			risk: "low",
 			toolIntent: null,
-			answer: `${lane.name}: ${lane.verdict} — ${lane.reason}\nNext scheduled run: ${lane.scheduleEnabled ? (lane.nextFireAt ?? "unknown") : "none (paused)"}.${lane.runs[0] ? `\nLatest run: ${lane.runs[0].runId} (${lane.runs[0].status}).` : ""}`,
+			answer: `${lane.name}: ${lane.verdict} — ${lane.reason}\nNext scheduled run: ${lane.scheduleEnabled ? (lane.nextFireAt ?? "unknown") : "none"}.${lane.runs[0] ? `\nLatest run: ${lane.runs[0].runId} (${lane.runs[0].status}).` : ""}`,
 		};
 	return {
 		...base,
