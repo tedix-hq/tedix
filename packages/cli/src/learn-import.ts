@@ -542,7 +542,7 @@ export function planImport(input: {
 
 export const learnUsage = `Teach Tedix from your past local agent sessions
 
-  tedix learn onboard [--dry-run] [--since <YYYY-MM-DD>] [--no-model] [--wait]
+  tedix learn onboard [--dry-run [--with-model]] [--since <YYYY-MM-DD>] [--no-model] [--wait]
 
 Runs import-sessions, analyze-sessions and context below, in that order: what
 a new member runs once. It works in the background and returns at once
@@ -550,6 +550,11 @@ a new member runs once. It works in the background and returns at once
 Run it again to resume a run that stopped. Nothing reaches the shared board
 until you accept a proposal, in Tedix (Work > Interactions), in chat or with
 tedix learn review.
+
+--dry-run quickly previews session counts per host and organization, preference
+note counts and topic candidates from titles locally, without a model or board
+matching. Nothing is saved or sent. --dry-run --with-model runs the full model
+preview in the foreground and takes a few minutes.
 
   tedix learn import-sessions [--dry-run] [--since <YYYY-MM-DD>] [--limit <n>] [--no-mine] [--json]
 

@@ -1610,6 +1610,7 @@ function contextOptions(args: string[], allowed: string[]) {
 		dryRun: false,
 		json: false,
 		noModel: false,
+		withModel: false,
 		wait: false,
 		worker: false,
 		since: undefined as string | undefined,
@@ -1628,6 +1629,7 @@ function contextOptions(args: string[], allowed: string[]) {
 		if (arg === "--dry-run") options.dryRun = true;
 		else if (arg === "--json") options.json = true;
 		else if (arg === "--no-model") options.noModel = true;
+		else if (arg === "--with-model") options.withModel = true;
 		else if (arg === "--wait") options.wait = true;
 		else if (arg === "--worker") options.worker = true;
 		else if (arg === "--since") {
@@ -2226,11 +2228,69 @@ export async function runOnboard(
 	const write = deps.write ?? ((line: string) => console.log(line));
 	const options = contextOptions(args, [
 		"--dry-run",
+		"--with-model",
 		"--no-model",
 		"--since",
 		"--wait",
 		"--worker",
 	]);
+	if (options.withModel && (!options.dryRun || options.noModel))
+		throw new Error(
+			"--with-model requires --dry-run and cannot be combined with --no-model",
+		);
+	if (options.dryRun && !options.withModel) {
+		const home = deps.home ?? homedir();
+		const targets = deps.targets ?? repositoryTargetsByOrigin();
+		const defaultTarget =
+			"defaultTarget" in deps
+				? deps.defaultTarget
+				: defaultOrganizationTarget();
+		const plan = planContext({
+			files: deps.files ?? sessionFiles(home),
+			since: options.since,
+			targets,
+			defaultTarget,
+			titles: codexThreadNames(home),
+			goals: await codexGoals(home),
+			originOf: deps.originOf,
+			read: deps.readFile,
+		});
+		const notes = planNotes({
+			notes: memoryNotes(home),
+			targets,
+			defaultTarget,
+			locate: sessionLocator(deps.originOf),
+			unrouted: plan.unrouted,
+		});
+		write(
+			"Local preview: topic candidates from titles only; no model or board matching.",
+		);
+		for (const key of new Set([...plan.byTarget.keys(), ...notes.keys()])) {
+			const sessions = plan.byTarget.get(key)?.sessions ?? [];
+			write(
+				`${key}: ${sessions.length} sessions (claude-code: ${sessions.filter((s) => s.harness === "claude-code").length}, codex: ${sessions.filter((s) => s.harness === "codex").length}), ${notes.get(key)?.decisions.length ?? 0} preference notes`,
+			);
+			const candidates = await extractCandidates(
+				sessions.filter((s) => s.title).map((s) => ({ ...s, asks: [] })),
+				null,
+				{ threshold: 0.5, minSessions: 1, confident: 0.8 },
+			);
+			write(`  Topic candidates (${candidates.length}):`);
+			for (const candidate of candidates)
+				write(
+					`    - ${candidate.title} (${candidate.sessions.length} sessions)`,
+				);
+		}
+		write(`Skipped/unrouted: ${JSON.stringify(plan.unrouted)}`);
+		write(
+			"Dry run: nothing was saved or sent. For the full preview, use --dry-run --with-model; it takes a few minutes.",
+		);
+		return 0;
+	}
+	if (options.dryRun && options.withModel)
+		write(
+			"Full model preview: this takes a few minutes; nothing will be saved or sent.",
+		);
 	const stateDir = deps.stateDir ?? stateDirectory();
 	const progressPath = join(stateDir, "onboard.json");
 	const log = join(stateDir, "onboard.log");
