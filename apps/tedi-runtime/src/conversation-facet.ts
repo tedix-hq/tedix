@@ -1244,6 +1244,7 @@ export class ConversationFacet extends PiAgent<
 			input,
 			operationId: id,
 		});
+		this.readmitToolRegistry();
 		await this.recoverPendingSubmission();
 		const previous = await this.ctx.storage.get<{
 			priorTurnCount: number;
@@ -1286,6 +1287,16 @@ export class ConversationFacet extends PiAgent<
 				"Pending Pi submission lost its original run configuration",
 			);
 		await this.runSubmittedConversationTurn(pending);
+	}
+	/**
+	 * A configured turn is a parent entry that has just installed this run's
+	 * tool registry, so a registry loss recorded by an earlier invocation (a
+	 * code-update reset) no longer applies. Without this, the pending submission
+	 * recovered after a deploy fails every rebuild of the run.
+	 */
+	protected readmitToolRegistry(): void {
+		if (!this.state.toolRegistryUnavailableRunId) return;
+		this.setState({ ...this.state, toolRegistryUnavailableRunId: null });
 	}
 	private async runSubmittedConversationTurn(
 		pending: PendingFacetSubmission,

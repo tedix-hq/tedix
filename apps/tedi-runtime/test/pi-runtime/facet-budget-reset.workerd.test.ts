@@ -52,6 +52,7 @@ type Harness = {
 		}>;
 	}>;
 	checkNativeToolBudget(): Promise<boolean>;
+	readmitToolRegistry(): void;
 };
 
 // Runtime imports execute the real production modules in workerd, while their
@@ -333,6 +334,27 @@ describe("production ConversationFacet budget stop integration", () => {
 			extension.tools[0]!.execute({}, { callId: "rejected-call" }),
 		).rejects.toThrow();
 		expect(rejected).toHaveBeenCalledTimes(1);
+	});
+
+	it("readmits the registry fence when the parent rebuilds the run", async () => {
+		const executed = vi.fn(async () => ({ ok: true }));
+		let lost = true;
+		const f = await fixture(async () => ({
+			checkFacetTurnBudget: allow,
+			executeFacetTool: async () =>
+				lost ? { code: "facet_tool_unavailable" } : executed(),
+		}));
+		const extension = await f.facet.piExtension();
+		await expect(
+			extension.tools[0]!.execute({}, { callId: "lost-call" }),
+		).rejects.toThrow(/FACET_TOOL_REGISTRY_UNAVAILABLE/);
+		expect(f.facet.state.toolRegistryUnavailableRunId).toBe(RUN);
+		// The parent reinstalled this run's registry and entered a configured turn.
+		lost = false;
+		f.facet.readmitToolRegistry();
+		expect(f.facet.state.toolRegistryUnavailableRunId).toBeNull();
+		await extension.tools[0]!.execute({}, { callId: "rebuilt-call" });
+		expect(executed).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not double-charge a cumulative budget update whose acknowledgement reset", async () => {
