@@ -200,6 +200,11 @@ function toWhom(askedBy: string): string {
 	return /session$/.test(askedBy) ? `the ${askedBy}` : askedBy;
 }
 
+/** "You" → "you", "An agent session" → "an agent session"; names stay. */
+function fromWhom(askedBy: string): string {
+	return askedBy.replace(/^(You|An?)(?= |$)/, (word) => word.toLowerCase());
+}
+
 function interactionHint(row: InboxRow, kind: NeedsYouKind): string {
 	if (!row.canRespond) return "Open: see the request.";
 	if (row.request.kind === "handoff") {
@@ -469,9 +474,7 @@ export function NeedsYouList({
 								tone="secondary"
 								className="m-0 line-clamp-2"
 							>
-								{item.askedBy
-									? `From ${item.askedBy === "You" ? "you" : item.askedBy}`
-									: null}
+								{item.askedBy ? `From ${fromWhom(item.askedBy)}` : null}
 								{item.askedBy && (item.detail || item.at) ? " · " : null}
 								{item.detail}
 								{item.detail && item.at ? " · " : null}
