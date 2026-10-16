@@ -858,6 +858,7 @@ export async function executeDirectKernelWrite(
 		approvalResolvedAt: resolvedAt,
 		kernelWriteExecutedAt: resolvedAt,
 	};
+	const admissionStartedAt = Date.now();
 	const admitted = await admitKernelAutoWrite(context.db, {
 		approval: input.approval,
 		requestedAudit: input.requestedAudit,
@@ -906,7 +907,7 @@ export async function executeDirectKernelWrite(
 				terminalEvent = event;
 			},
 		},
-		metadata,
+		{ ...metadata, kernelWriteAdmissionMs: Date.now() - admissionStartedAt },
 	);
 	if (outcome !== "succeeded" && outcome !== "failed")
 		throw new Error(
