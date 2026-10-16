@@ -1,4 +1,7 @@
-import type { BrowserHostnamePolicy } from "@tedix/api-contract/schemas/tedi";
+import {
+	browserAllowedHostnames,
+	type BrowserHostnamePolicy,
+} from "@tedix/api-contract/schemas/tedi";
 
 export type BrowserEgressDecision =
 	| { decision: "allow"; hostname: string }
@@ -27,7 +30,7 @@ export function hasBrowserHostnameRestrictions(
 ): boolean {
 	return policies.some(
 		(policy) =>
-			Boolean(policy?.allowedHostnames.length) ||
+			Boolean(browserAllowedHostnames(policy).length) ||
 			Boolean(policy?.deniedHostnames.length),
 	);
 }
@@ -55,11 +58,10 @@ export function browserEgressDecision(
 		) {
 			return { decision: "deny", hostname, reason: "hostname_denied" };
 		}
+		const allowedHostnames = browserAllowedHostnames(policy);
 		if (
-			policy.allowedHostnames.length > 0 &&
-			!policy.allowedHostnames.some((pattern) =>
-				matchesHostname(pattern, hostname),
-			)
+			allowedHostnames.length > 0 &&
+			!allowedHostnames.some((pattern) => matchesHostname(pattern, hostname))
 		) {
 			return { decision: "deny", hostname, reason: "hostname_not_allowed" };
 		}
@@ -133,7 +135,7 @@ export function persistentBrowserEgress(
 ): PersistentBrowserEgress {
 	let allowed: string[] | undefined;
 	for (const policy of policies) {
-		const list = policy?.allowedHostnames ?? [];
+		const list = browserAllowedHostnames(policy);
 		if (list.length === 0) continue;
 		const current = allowed;
 		allowed = current
