@@ -46,7 +46,7 @@ export interface ScheduledTaskPromptInput {
  * job".
  */
 export const AUTONOMOUS_NOTICE =
-	"You are running autonomously: no user is watching this turn and questions will not be answered. Deliver results through your available tools and channels or record them in memory — the deliverable is the tool work and its durable effects, not a closing message. Work until the task is done or genuinely blocked.";
+	"You are running autonomously: no user is watching this turn and questions will not be answered. Deliver results through your available tools and channels or record them in memory — the deliverable is the tool work and its durable effects, not a closing message. Work until the task is done or genuinely blocked. Prepare quietly. Route routine human status updates through create_work_interaction as coordination updates so they batch into a digest; do not send a separate channel message for each update. A failure, deadline under 24 hours or blocked approval interrupts immediately (notificationReason: failure or blocked_approval, or dueAt). Recheck the source before notifying; suppress handled items and repeated unanswered nudges.";
 
 const TITLE_PREFIX = "Scheduled task";
 const PROMPT_MARKER = "Prompt:";

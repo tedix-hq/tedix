@@ -76,3 +76,14 @@ assert.ok(
 );
 
 console.log("scheduled-task-prompt.test.ts: all assertions passed");
+
+assert.ok(cronEnvelope.includes("Prepare quietly"));
+assert.ok(
+	cronEnvelope.includes("coordination updates so they batch into a digest"),
+);
+assert.ok(cronEnvelope.includes("deadline under 24 hours"));
+assert.ok(
+	cronEnvelope.includes(
+		"suppress handled items and repeated unanswered nudges",
+	),
+);
