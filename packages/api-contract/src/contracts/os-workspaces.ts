@@ -46,6 +46,7 @@ import {
 	OsWorkspaceStatusSchema,
 	OsWorkspaceVisibilitySchema,
 } from "../schemas/os-workspaces";
+import { OsWorkspaceScheduleSchema } from "../schemas/os-workspace-schedules";
 
 /**
  * Tedix OS workspace domain: workspaces contain gadgets, gadgets carry
@@ -585,6 +586,22 @@ export const osWorkspacesContract = oc
 					}),
 				)
 				.output(z.object({ resource: OsWorkspaceResourceSchema })),
+		}),
+		schedules: oc.router({
+			list: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/schedules",
+					summary: "List the scheduled skills that run for a Workspace",
+					description:
+						"A skill runs for a Workspace when the Workspace has an active resource with providerId tedix, resourceType skill and the skill id as providerResourceId; create_factory with a workspaceId adds it. Each item gives the skill's name and purpose, its daily run times, its next run and its latest finished run. Runs whose result status is off_slot (the workflow skipped a daylight-saving fire) are left out. Optional resource metadata: purpose (one line) and runsAt {timeZone, times[HH:MM]}, the local times the workflow keeps.",
+				})
+				.input(workspaceIdInput.strict())
+				.output(
+					z.object({
+						items: z.array(OsWorkspaceScheduleSchema),
+					}),
+				),
 		}),
 		work: oc.router({
 			listProjects: oc

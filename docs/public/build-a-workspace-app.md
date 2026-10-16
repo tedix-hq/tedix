@@ -54,9 +54,9 @@ In the OS, the same settings are editable under the app's **Code** view
 Apps are what people open a workspace for, so the OS puts them first:
 
 - **Resources** lists apps at the top under **Apps**, one card per app,
-  side by side when there are several. Sheets and documents follow under
-  **Files**. Nothing in a workspace is labelled "Automations"; scheduled
-  skill runs are managed on the skill, not in the workspace.
+  side by side when there are several. **Runs on a schedule** follows, then
+  sheets and documents under **Files**. Nothing in a workspace is labelled
+  "Automations".
 - Each card shows a small preview of the app, its name, its purpose and a
   status line, with an **Open app** button. Card review previews the next
   open card; other apps show an app icon.
@@ -84,6 +84,22 @@ The status line is computed by the OS from live data; the manifest does
 not set it. Card review counts the open cards across its sources ("29
 cards waiting"), without subtracting a viewer's snoozes. Other apps show
 their kind: "Built-in app", "Interactive app" or "Runs a skill".
+
+**Runs on a schedule** lists the scheduled skills that fill the workspace,
+such as the factory that writes an app's cards. Each row shows the skill's
+name and purpose, when it runs in the viewer's own clock ("Every day at
+8:17, 13:17 and 18:17"), the last run ("Last run 13:17: made 4 cards" or
+"Last run failed: <reason>"), the next run and a **See runs** link. A skill
+is listed when the workspace has a resource with `providerId` `tedix`,
+`resourceType` `skill` and the skill ID as `providerResourceId`;
+`create_factory` with a Workspace adds it. Its `name` is the row title.
+Optional metadata: `purpose` (one line) and `runsAt`
+(`{"timeZone": "Europe/Berlin", "times": ["08:17"]}`) for a skill whose UTC
+cron fires at both daylight-saving hours and skips the one that is not its
+local time. Runs whose result `status` is `off_slot` are not shown; a
+result's `cards` count or one-line `summary` becomes the last-run text. The
+section is hidden when a workspace has no scheduled skill, and these links
+are not listed under **Connected sources**.
 
 ## Card review
 

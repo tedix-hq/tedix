@@ -26,7 +26,13 @@ import {
 	getOsWorkspaceProject,
 	reactivateOsWorkspaceProject,
 } from "@tedix/db/queries/os-workspaces/projects";
+import {
+	createOsWorkspaceResource,
+	findOsWorkspaceTenantResource,
+	restoreOsWorkspaceResource,
+} from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { WORKSPACE_SKILL_RESOURCE } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import type {
@@ -523,6 +529,69 @@ export async function ensureWorkspaceProjectLink(
 				"Work project link changed; reload",
 			);
 		}
+		throw error;
+	}
+}
+
+/**
+ * Link a skill to a Workspace as a scheduled skill (a `tedix`/`skill`
+ * resource), so the Workspace lists it under "Runs on a schedule". Reuses an
+ * active link and restores a removed one; created is false when it was active.
+ */
+export async function ensureWorkspaceSkillLink(
+	context: BaseContext,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		skillId: string;
+		name: string;
+	},
+): Promise<{ created: boolean }> {
+	const db = createDbQueryClient(context.env.DB);
+	const scope = {
+		organizationId: params.organizationId,
+		workspaceId: params.workspaceId,
+	};
+	const existing = await findOsWorkspaceTenantResource(db, {
+		...scope,
+		...WORKSPACE_SKILL_RESOURCE,
+		providerResourceId: params.skillId,
+	});
+	if (existing?.status === "active") return { created: false };
+	const now = new Date().toISOString();
+	if (existing) {
+		const restored = await restoreOsWorkspaceResource(db, {
+			...scope,
+			resourceId: existing.id,
+			now,
+		});
+		return { created: Boolean(restored) };
+	}
+	const creator = resolveCreator(context);
+	try {
+		await createOsWorkspaceResource(db, {
+			id: crypto.randomUUID(),
+			...scope,
+			slot: null,
+			...WORKSPACE_SKILL_RESOURCE,
+			connectionScope: "tenant",
+			personalOwnerUserId: null,
+			connectionInstanceId: null,
+			providerAccess: null,
+			requiredScopes: "[]",
+			providerResourceId: params.skillId,
+			name: params.name,
+			metadata: "{}",
+			status: "active",
+			createdByKind: creator.kind,
+			createdById: creator.id,
+			createdAt: now,
+			updatedAt: now,
+			removedAt: null,
+		});
+		return { created: true };
+	} catch (error) {
+		if (isUniqueConstraintError(error)) return { created: false };
 		throw error;
 	}
 }

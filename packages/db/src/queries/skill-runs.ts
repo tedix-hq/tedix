@@ -579,6 +579,75 @@ export async function listLatestSkillRunsForSkills(
 	});
 }
 
+export interface ReportedSkillRunRow {
+	id: string;
+	status: SkillRunStatus;
+	startedAt: string | null;
+	completedAt: string | null;
+	cards: number | null;
+	summary: string | null;
+	error: string | null;
+}
+
+/**
+ * The latest finished run of a skill that did work, for a one-line "last run"
+ * report. Runs whose result status is one of `skippedResultStatuses` (a
+ * scheduled workflow that stopped because the fire was not one of its local
+ * times) are left out. Only the bounded `cards`, `summary` and error head are
+ * read, never the whole result.
+ */
+export async function getLatestReportedSkillRun(
+	db: DbClient,
+	params: {
+		organizationId: string;
+		skillId: string;
+		runtimeEnvironment: SkillRunRuntimeEnvironment;
+		skippedResultStatuses: readonly string[];
+	},
+): Promise<ReportedSkillRunRow | undefined> {
+	const resultStatus = sql`coalesce(json_extract(${skillRuns.result}, '$.status'), '')`;
+	const [row] = await db
+		.select({
+			id: skillRuns.id,
+			status: skillRuns.status,
+			startedAt: skillRuns.startedAt,
+			completedAt: skillRuns.completedAt,
+			cards: sql<number | null>`case
+				when json_type(${skillRuns.result}, '$.cards') = 'integer'
+				then json_extract(${skillRuns.result}, '$.cards')
+				else null
+			end`.as("reported_cards"),
+			summary: sql<string | null>`case
+				when json_type(${skillRuns.result}, '$.summary') = 'text'
+				then substr(json_extract(${skillRuns.result}, '$.summary'), 1, 600)
+				else null
+			end`.as("reported_summary"),
+			error: sql<string | null>`substr(${skillRuns.error}, 1, 600)`.as(
+				"reported_error",
+			),
+		})
+		.from(skillRuns)
+		.where(
+			and(
+				eq(skillRuns.organizationId, params.organizationId),
+				eq(skillRuns.skillId, params.skillId),
+				skillRunEnvironmentCondition(params.runtimeEnvironment),
+				inArray(skillRuns.status, ["completed", "failed"]),
+				...(params.skippedResultStatuses.length > 0
+					? [
+							sql`${resultStatus} not in (${sql.join(
+								params.skippedResultStatuses.map((status) => sql`${status}`),
+								sql`, `,
+							)})`,
+						]
+					: []),
+			),
+		)
+		.orderBy(desc(skillRuns.startedAt), desc(skillRuns.id))
+		.limit(1);
+	return row;
+}
+
 /**
  * Mark a run as canceled in the DB. Does NOT call the workflow engine —
  * the handler is responsible for engine cancellation before invoking this.

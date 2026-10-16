@@ -109,6 +109,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "list_os_workspace_schedules",
+		endpoint: "osWorkspaces/schedules/list",
+		kind: "read",
+	},
+	{
 		toolId: "list_os_gadgets",
 		endpoint: "osWorkspaces/gadgets/list",
 		kind: "read",

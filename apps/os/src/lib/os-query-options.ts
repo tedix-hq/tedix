@@ -112,6 +112,11 @@ export const workspaceResourcesQueryOptions = (workspaceId: string) =>
 		input: { workspaceId, status: "active", limit: 100 },
 	});
 
+export const workspaceSchedulesQueryOptions = (workspaceId: string) =>
+	osQuery.osWorkspaces.schedules.list.queryOptions({
+		input: { workspaceId },
+	});
+
 export const workspaceWorkProjectsQueryOptions = (workspaceId: string) =>
 	osQuery.osWorkspaces.work.listProjects.queryOptions({
 		input: { workspaceId, status: "active", limit: 100 },

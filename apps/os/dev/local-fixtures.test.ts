@@ -381,6 +381,7 @@ const CALLS: Record<string, unknown> = {
 		resourceId: "00000030-0000-4000-8000-000000000003",
 		expectedUpdatedAt: "2026-08-12T08:30:00.000Z",
 	},
+	"osWorkspaces/schedules/list": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/gadgets/list": { workspaceId: IDS.workspaceRevenue, limit: 50 },
 	"osWorkspaces/gadgets/create": {
 		workspaceId: IDS.workspaceRevenue,

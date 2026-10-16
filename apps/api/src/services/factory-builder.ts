@@ -54,6 +54,12 @@ export interface FactoryStore {
 		workspaceId: string;
 		projectId: string;
 	}): Promise<{ created: boolean }>;
+	/** List the lane skill in the Workspace's "Runs on a schedule"; created is false when already listed. */
+	linkWorkspaceSkill(params: {
+		workspaceId: string;
+		skillId: string;
+		name: string;
+	}): Promise<{ created: boolean }>;
 	/** An active Output of this organization, by id. */
 	findOutputById(outputId: string): Promise<FactoryOutputRef | null>;
 	/** The newest active Output of this kind and title in the Workspace. */
@@ -626,6 +632,22 @@ export async function buildFactory(
 	}
 
 	if (outputStep) steps.push(outputStep);
+
+	// Scheduled-skill link — the lane shows under "Runs on a schedule".
+	if (linkedWorkspaceId && skillId && !dryRun) {
+		const link = await store.linkWorkspaceSkill({
+			workspaceId: linkedWorkspaceId,
+			skillId,
+			name: factoryTitle(name),
+		});
+		if (link.created) wrote = true;
+		steps.push({
+			resource: "workspace",
+			action: link.created ? "linked" : "reused",
+			id: linkedWorkspaceId,
+			note: "lane skill listed under Runs on a schedule",
+		});
+	}
 
 	// Schedule — exists once the lane is active.
 	let nextFireAt = state.schedule?.nextFireAt ?? null;

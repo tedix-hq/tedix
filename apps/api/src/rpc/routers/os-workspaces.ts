@@ -96,6 +96,7 @@ import { resolveWorkspaceResourceAvailability } from "../../services/os-workspac
 import * as collaborationProcedures from "./os-workspace-collaboration";
 import * as workspaceLibrary from "./os-workspace-library";
 import * as workspaceResources from "./os-workspace-resources";
+import * as workspaceSchedules from "./os-workspace-schedules";
 import * as workspaceWork from "./os-workspace-work";
 import * as outputProcedures from "./os-workspace-outputs";
 import * as resourceLifecycle from "./os-resource-lifecycle";
@@ -2130,6 +2131,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	},
 	workspacePreferences: workspaceLibrary.osWorkspacePreferenceProcedures,
 	resources: workspaceResources.osWorkspaceResourceProcedures,
+	schedules: workspaceSchedules.osWorkspaceScheduleProcedures,
 	work: workspaceWork.osWorkspaceWorkProcedures,
 	gadgets: {
 		list: gadgetsList,

@@ -58,7 +58,9 @@ tedix factory create --goal "$goal" --slug "$slug" --owner "$owner" \
   chooses a UTC minute away from :00/:30; “every morning” is not a local-time
   guarantee. Inspect the returned cron before approving.
 - `--workspace-id` also links the factory's project to that Workspace, so its
-  Work tab lists the factory's items.
+  Work tab lists the factory's items, and lists the lane skill under **Runs
+  on a schedule** in the Workspace's Resources, with its run times, last run
+  and next run.
 - `--output` takes an existing Output ID or a title in `--workspace-id`.
   Titles are created on the first real run. `--output-kind document|sheet`
   defaults to document; an ID keeps its existing kind. Documents get dated
@@ -97,6 +99,17 @@ run, even within one hour; reuse it only to retry the same cycle. Without it,
 daily lanes reuse one owner turn per UTC day and sub-daily lanes one per UTC
 hour. Read the terminal run and the exact Output revision before claiming
 success. Publication needs its own destination readback.
+
+A scheduled skill built by hand, without `create_factory`, shows in a
+Workspace once you add it as a Workspace resource:
+`create_os_workspace_resource` with `providerId: "tedix"`,
+`connectionScope: "tenant"`, `resourceType: "skill"`, the skill ID as
+`providerResourceId` and a plain `name`. Add `metadata.purpose` for the
+one-line purpose and `metadata.runsAt` when the workflow keeps only some
+local times of a daylight-saving cron and returns `status: "off_slot"` for
+the rest. Return `cards` or a one-line `summary` in the run result so the
+Workspace can say what the last run did. `list_os_workspace_schedules`
+reads the same rows the Workspace shows.
 
 ## Health and lifecycle
 

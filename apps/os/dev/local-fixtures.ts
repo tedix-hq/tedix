@@ -5973,6 +5973,56 @@ const handlers: Record<string, (input: never) => unknown> = {
 		resource.updatedAt = resource.removedAt;
 		return { resource };
 	},
+	"osWorkspaces/schedules/list": (input: { workspaceId: string }) => {
+		findWorkspace(input.workspaceId);
+		if (input.workspaceId !== WORKSPACE_REVENUE) return { items: [] };
+		// The next 07:30 UTC, so the daily time reads in the viewer's clock.
+		const next = new Date();
+		next.setUTCHours(7, 30, 0, 0);
+		if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1);
+		return {
+			items: [
+				{
+					resourceId: fid("34", 1),
+					skillId: SKILL_REVENUE,
+					name: "Weekly revenue report",
+					purpose: "Sums last week's invoices into the revenue sheet.",
+					enabled: true,
+					cron: "30 7 * * *",
+					dailyTimes: [next.toISOString()],
+					nextRunAt: next.toISOString(),
+					lastRun: {
+						runId: RUN_REVENUE_OK,
+						status: "completed" as const,
+						startedAt: T1,
+						completedAt: T2,
+						cards: null,
+						summary: "Added 12 invoices",
+						error: null,
+					},
+				},
+				{
+					resourceId: fid("34", 2),
+					skillId: SKILL_CHURN,
+					name: "Churn watch",
+					purpose: "Flags accounts that stopped logging in.",
+					enabled: true,
+					cron: "0 9 * * 1",
+					dailyTimes: [],
+					nextRunAt: next.toISOString(),
+					lastRun: {
+						runId: RUN_CHURN_FAILED,
+						status: "failed" as const,
+						startedAt: T2,
+						completedAt: T3,
+						cards: null,
+						summary: null,
+						error: "MCP call crm.list_accounts timed out after 15s",
+					},
+				},
+			],
+		};
+	},
 	"osWorkspaces/gadgets/list": (input: {
 		workspaceId: string;
 		status?: OsGadget["status"];

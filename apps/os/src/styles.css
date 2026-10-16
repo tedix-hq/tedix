@@ -819,7 +819,8 @@ a:focus-visible {
 	gap: 6px;
 }
 
-.canvas-resource-apps {
+.canvas-resource-apps,
+.canvas-resource-schedules {
 	grid-column: 1 / -1;
 }
 
