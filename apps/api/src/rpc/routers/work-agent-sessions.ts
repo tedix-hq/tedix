@@ -197,6 +197,7 @@ const listRequestsProcedure = readOs.listRequests.handler(
 			harness: input.harness,
 			sessionKey: input.sessionKey,
 			limit: input.limit,
+			newestFirst: input.order === "newest",
 		});
 		return { data: rows.map(requestOutput) };
 	},
