@@ -41,7 +41,11 @@ To start a new factory from a goal, use `create_factory` (or
 The `report` template is the only one today. Each run reads the project's
 Work and runs one owner tedi turn. It files at most `maxProposals` new Work
 Items, skipping any that duplicate existing Work, and posts a scorecard
-comment on the health item.
+comment on the health item. The owner receives each listed item's recent
+comments directly: newest first, with author and timestamp, since the previous
+successful run's start. The first run includes the latest comments. Input is
+bounded to 50 Work Items, 10 comments per item and 2,000 characters per comment;
+omitted comments and shortened bodies are marked.
 
 With `output` (CLI `--output`), each run also writes the owner's summary into
 a Tedix document or sheet:
@@ -76,6 +80,20 @@ tedix factory status docs-accuracy
   schedule. The result's `nextActions` gives the proof run
   (`run_skill_workflow` with `{ "probe": true }`, which reads and writes
   nothing) and the human activation step.
+  For a manual report run, pass a distinct `cycleKey` through the existing
+  workflow parameters, for example:
+
+```javascript
+run_skill_workflow({
+	slug: "docs-accuracy",
+	params: { cycleKey: "manual-2026-10-16T09:15:00Z" },
+});
+```
+
+Use a new key for each separate manual run, even within the same hour. Reuse
+the key only to retry the same owner turn. Without it, daily lanes share one
+owner turn per UTC day and sub-daily lanes share one per UTC hour.
+
 - **One verdict per factory.** `inspect_factory_health` (or
   `tedix factory status`) returns the last scheduled runs and what each
   delivered: Work Items created, comments and Output revisions. It also

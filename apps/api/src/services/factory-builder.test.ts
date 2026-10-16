@@ -442,6 +442,7 @@ function laneHarness(
 						},
 					],
 				})),
+				work_item_get: tool("work_item_get", () => ({ comments: [] })),
 				run_tedi_turn: tool("run_tedi_turn", () => ({ pending: true })),
 				messages_read: tool("messages_read", () => ({
 					messages: [
@@ -498,6 +499,70 @@ describe("report lane template", () => {
 		);
 		expect(result).toMatchObject({ probe: true, projectWork: 1 });
 		expect(calls.map(([name]) => name)).toEqual(["work_items_list"]);
+	});
+
+	it("hands recent comments to the owner newest first and keeps manual cycles distinct", async () => {
+		const { calls, env, step } = laneHarness(
+			'FACTORY_REPORT {"summary":"Read comments.","proposals":[]}',
+		);
+		const since = "2026-10-15T10:00:00.000Z";
+		env.MCP.tedi.work_item_get = async ({ id }) => ({
+			comments:
+				id === "33333333-3333-4333-8333-333333333333"
+					? [
+							{
+								metadata: {
+									factory: "docs-accuracy",
+									startedAt: since,
+									ownerReplyReceived: true,
+								},
+							},
+						]
+					: [
+							{
+								id: "old",
+								createdAt: "2026-10-14T00:00:00.000Z",
+								body: "Already reported",
+							},
+							...Array.from({ length: 12 }, (_, i) => ({
+								id: `c-${i}`,
+								createdAt: `2026-10-15T11:${String(i).padStart(2, "0")}:00.000Z`,
+								authorType: "tedi",
+								authorId: "nova",
+								body: i === 11 ? "x".repeat(2001) : `Update ${i}`,
+							})),
+							{
+								id: "future",
+								createdAt: "2099-01-01T00:00:00.000Z",
+								body: "After snapshot",
+							},
+						],
+		});
+		for (const cycleKey of ["manual-a", "manual-b"]) {
+			await loadLane().run({ payload: { cycleKey } }, step, env);
+		}
+		const turns = calls
+			.filter(([name]) => name === "run_tedi_turn")
+			.map(([, args]) => args);
+		expect(turns.map((turn) => turn.session_key)).toEqual([
+			"factory:docs-accuracy:manual-a",
+			"factory:docs-accuracy:manual-b",
+		]);
+		expect(turns[0]!.client_request_id).not.toBe(turns[1]!.client_request_id);
+		const text = String(turns[0]!.text);
+		expect(text).toContain("id w-1");
+		expect(text).toContain("2026-10-15T11:11:00.000Z by tedi:nova");
+		expect(text).toContain("[truncated]");
+		expect(text).toContain("2 more recent comments omitted");
+		expect(text.indexOf("Update 10")).toBeLessThan(text.indexOf("Update 9"));
+		expect(text).not.toContain("Already reported");
+		expect(text).not.toContain("After snapshot");
+		expect(text).not.toContain('"Update 1"');
+		const scorecard = calls.find(([name]) => name === "work_item_comment")![1];
+		expect(scorecard.metadata).toMatchObject({
+			factory: "docs-accuracy",
+			ownerReplyReceived: true,
+		});
 	});
 
 	it("files capped, deduplicated proposals and a scorecard", async () => {
