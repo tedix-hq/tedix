@@ -712,6 +712,7 @@ import {
 	type MemoryRecallReport,
 	recallLongTermMemoryBlock,
 } from "./memory-recall";
+import { refreshTurnMemory } from "./turn-memory";
 import { withTimeout } from "./with-timeout";
 import { DoWorkItemPromotionStore } from "./work-item-promotion-store-do";
 import {
@@ -2860,11 +2861,13 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * the platform memory API. That API uses Agent Memory only for candidate IDs
 	 * and returns facts after canonical D1 lifecycle and visibility validation.
 	 * Recall starts alongside the digest load and is capped at 2 s; trivial
-	 * messages skip it (see `memory-recall.ts`).
+	 * messages skip semantic recall (see `memory-recall.ts`). Preferences and
+	 * referenced task state are refreshed separately on every ordinary turn.
 	 */
 	private async brainDigestAddendum(
 		userText: string,
 		onRecall?: (report: MemoryRecallReport) => void,
+		sessionKey?: string | null,
 	): Promise<string> {
 		const recallPromise = recallLongTermMemoryBlock({
 			userText,
@@ -2879,7 +2882,17 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			: "";
 		const { block: recall, ...report } = await recallPromise;
 		onRecall?.(report);
-		return [digest, recall].filter(Boolean).join("\n\n");
+		const current = await refreshTurnMemory({
+			userText,
+			remembered: [digest, recall].filter(Boolean).join("\n\n"),
+			history: this.messagesForSession(sessionKey ?? DEFAULT_SESSION_KEY),
+			refresh: async (references) => {
+				const platform = await this.getPlatformClient();
+				if (!platform) throw new Error("Task-state platform unavailable");
+				return platform.getTurnMemory(references);
+			},
+		});
+		return [digest, recall, current].filter(Boolean).join("\n\n");
 	}
 
 	/**
@@ -2923,9 +2936,13 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				directives: () =>
 					this.directivesPromptAddendum(userText, telemetryBinding),
 				brainDigest: () =>
-					this.brainDigestAddendum(userText, (report) => {
-						memoryRecall = report;
-					}),
+					this.brainDigestAddendum(
+						userText,
+						(report) => {
+							memoryRecall = report;
+						},
+						sessionKey,
+					),
 				// Cached block into this turn, rebuild behind it (and one blocking
 				// build on a cold cache) — see {@link skillGuidanceAddendum}.
 				skillGuidance: () => this.skillGuidanceAddendum(),

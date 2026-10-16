@@ -4,6 +4,7 @@
  * Callers supply platform I/O, persistent dedup state, and optional metrics.
  */
 
+import { observationFreshness } from "@tedix/context-core/memory-freshness";
 import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type {
 	ObservationPriority,
@@ -235,6 +236,7 @@ export async function bridgeObservations(
 				usePolicy: "can_use_as_evidence",
 				reviewStatus: "pending",
 				metadata: {
+					...observationFreshness(obs),
 					producer: "afterTurn",
 					sourceKind: "afterTurn",
 					expectedUse: "turn evidence for future tedi recall",
