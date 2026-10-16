@@ -402,6 +402,12 @@ function effectiveToolParamDefaults(
 /** Capabilities a Tedix output (document, sheet or presentation) satisfies. */
 const OUTPUT_CREATE_CAPABILITY_RE =
 	/^(?:documents?|docs?|sheets?|spreadsheets?|presentations?|slides?|decks?|outputs?)\.create$/;
+/** A generic create the router emits for a Tedix artifact ("content.create"). */
+const GENERIC_CREATE_CAPABILITY_RE =
+	/^(?:content|artifacts?|workspace_artifacts?|workpieces?)\.create$/;
+/** The request itself names a document, sheet or presentation. */
+const OUTPUT_KIND_RE =
+	/\b(?:doc|docs|document|sheet|spreadsheet|deck|slides?|presentation)\b/i;
 /** An operator who names an external office suite wants that provider. */
 const EXTERNAL_OFFICE_PROVIDER_RE =
 	/\b(?:google|gdrive|notion|excel|microsoft|office ?365|onedrive|sharepoint|airtable|dropbox)\b/i;
@@ -454,7 +460,9 @@ export function canonicalWriteToolName(
 	// whichever connected drive Jev happens to rank first.
 	if (
 		capability &&
-		OUTPUT_CREATE_CAPABILITY_RE.test(capability) &&
+		(OUTPUT_CREATE_CAPABILITY_RE.test(capability) ||
+			(GENERIC_CREATE_CAPABILITY_RE.test(capability) &&
+				OUTPUT_KIND_RE.test(content))) &&
 		!EXTERNAL_OFFICE_PROVIDER_RE.test(content)
 	) {
 		return "os.create_os_output";

@@ -572,6 +572,26 @@ describe("preferredToolForCapability", () => {
 			preferredToolForCapability(tools, "files.create", "a sheet"),
 		).toBeNull();
 	});
+
+	it("reads a generic content.create for a named deck as a Tedix output", () => {
+		expect(
+			preferredToolForCapability(
+				tools,
+				"content.create",
+				"Yes, create it as a presentation output in this workspace.",
+			)?.name,
+		).toBe("os.create_os_output");
+		expect(
+			preferredToolForCapability(tools, "content.create", "post a reply"),
+		).toBeNull();
+		expect(
+			preferredToolForCapability(
+				tools,
+				"content.create",
+				"create a deck in Google Slides",
+			),
+		).toBeNull();
+	});
 });
 
 describe("canonicalWriteToolName", () => {
