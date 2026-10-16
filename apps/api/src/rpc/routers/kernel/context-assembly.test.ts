@@ -3184,3 +3184,25 @@ describe("recent conversations in Home context", () => {
 		expect(rendered).toContain("- (untitled) (id=home:os:def)");
 	});
 });
+
+describe("open Work requests in Home context", () => {
+	it("renders requests with the ids a response needs", () => {
+		const rendered = renderHomeTurnContext({
+			workItems: [],
+			facts: [],
+			rationale: [],
+			openWorkRequests: [
+				{
+					requestId: "req-1",
+					version: 2,
+					kind: "handoff",
+					subject: "Onboarding proposal: Q3 plan",
+					workItemTitle: null,
+				},
+			],
+		} as unknown as KernelContext);
+		expect(rendered).toContain(
+			'- [handoff] "Onboarding proposal: Q3 plan" (requestId=req-1 version=2)',
+		);
+	});
+});
