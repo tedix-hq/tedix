@@ -2307,6 +2307,13 @@ describe("factory creation preview", () => {
 						? {
 								dryRun: true,
 								ownerTediName: "Sample operator",
+								projectKey: "SAMPLE-COMMENTS",
+								output: {
+									id: null,
+									title: "Sample daily review",
+									kind: "document",
+								},
+								completionEvidence: { status: "partial" },
 								cron: "17 8 * * *",
 								warnings: ["Check the selected output"],
 							}
@@ -2360,6 +2367,9 @@ describe("factory creation preview", () => {
 				expect(proposal?.args.dryRun).toBe(false);
 				expect(proposal?.riskTier).toBe("high");
 				expect(proposal?.reasoning).toContain("Check the selected output");
+				expect(proposal?.reasoning).toContain("Sample daily review (document)");
+				expect(proposal?.reasoning).not.toContain("completionEvidence");
+				expect(proposal?.reasoning).not.toContain("Create daily report");
 			} else expect(proposal).toBeNull();
 		},
 	);
