@@ -49,6 +49,7 @@ function memoryStore(canActivate: boolean) {
 	const schedules = new Map<string, { cron: string; nextFireAt: string }>();
 	const intents = new Map<string, string>();
 	const workspaceLinks = new Set<string>();
+	const skillLinks = new Map<string, string>();
 	const outputs = [
 		{ id: DOC_ID, title: "Weekly notes", kind: "document" },
 		{ id: DECK_ID, title: "Pitch", kind: "presentation" },
@@ -117,6 +118,13 @@ function memoryStore(canActivate: boolean) {
 			workspaceLinks.add(key);
 			return { created: true };
 		},
+		async linkWorkspaceSkill({ workspaceId, skillId, name }) {
+			const key = `${workspaceId}:${skillId}`;
+			if (skillLinks.has(key)) return { created: false };
+			writes.push("workspace_skill");
+			skillLinks.set(key, name);
+			return { created: true };
+		},
 		async findOutputById(outputId) {
 			return outputs.find((row) => row.id === outputId) ?? null;
 		},
@@ -182,7 +190,7 @@ function memoryStore(canActivate: boolean) {
 			};
 		},
 	};
-	return { store, writes, skills, projects, workspaceLinks };
+	return { store, writes, skills, projects, workspaceLinks, skillLinks };
 }
 
 const input = (extra: Record<string, unknown> = {}) =>
@@ -251,7 +259,7 @@ describe("buildFactory", () => {
 	});
 
 	it("links the project to the Workspace once, so its Work view lists the factory", async () => {
-		const { store, workspaceLinks } = memoryStore(true);
+		const { store, workspaceLinks, skillLinks } = memoryStore(true);
 		const planned = await buildFactory(
 			store,
 			input({ slug: "linked", workspaceId: WORKSPACE, dryRun: true }),
@@ -262,6 +270,7 @@ describe("buildFactory", () => {
 			id: WORKSPACE,
 		});
 		expect(workspaceLinks.size).toBe(0);
+		expect(skillLinks.size).toBe(0);
 
 		const first = await buildFactory(
 			store,
@@ -272,7 +281,16 @@ describe("buildFactory", () => {
 			action: "linked",
 			id: WORKSPACE,
 		});
+		expect(first.steps).toContainEqual({
+			resource: "workspace",
+			action: "linked",
+			id: WORKSPACE,
+			note: "lane skill listed under Runs on a schedule",
+		});
 		expect([...workspaceLinks]).toEqual([`${WORKSPACE}:${first.projectId}`]);
+		expect([...skillLinks]).toEqual([
+			[`${WORKSPACE}:${first.skillId}`, "Keep the public docs factory"],
+		]);
 
 		const again = await buildFactory(store, input({ slug: "linked" }));
 		expect(again.status).toBe("unchanged");
@@ -280,6 +298,12 @@ describe("buildFactory", () => {
 			resource: "workspace",
 			action: "reused",
 			id: WORKSPACE,
+		});
+		expect(again.steps).toContainEqual({
+			resource: "workspace",
+			action: "reused",
+			id: WORKSPACE,
+			note: "lane skill listed under Runs on a schedule",
 		});
 	});
 

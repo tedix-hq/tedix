@@ -6,6 +6,7 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	cancelSkillRun,
 	createSkillRun,
+	getLatestReportedSkillRun,
 	getSkillRun,
 	listLatestSkillRunsForSkills,
 	listSkillRunSnapshotsForSkill,
@@ -385,6 +386,76 @@ describe("skill run environment fencing", () => {
 		).toEqual({
 			status: "canceled",
 		});
+	});
+});
+
+describe("latest reported skill run", () => {
+	it("skips skipped-slot and unfinished runs and reads only the bounded report fields", async () => {
+		const { db, insert } = fixture();
+		insert({
+			id: "carded",
+			status: "completed",
+			result: JSON.stringify({
+				status: "carded",
+				cards: 4,
+				summary: "Made 4 cards",
+				big: "x".repeat(2000),
+			}),
+			startedAt: "2026-07-12T11:17:00.000Z",
+		});
+		insert({
+			id: "off-slot",
+			status: "completed",
+			result: JSON.stringify({ status: "off_slot" }),
+			startedAt: "2026-07-12T12:17:00.000Z",
+		});
+		insert({
+			id: "running",
+			status: "running",
+			startedAt: "2026-07-12T13:17:00.000Z",
+		});
+		insert({
+			id: "other-skill",
+			skillId: "skill-2",
+			status: "failed",
+			error: "boom",
+			startedAt: "2026-07-12T14:17:00.000Z",
+		});
+		const params = {
+			organizationId: "org-1",
+			skillId: "skill-1",
+			runtimeEnvironment: "development" as const,
+			skippedResultStatuses: ["off_slot"],
+		};
+		expect(await getLatestReportedSkillRun(db, params)).toEqual({
+			id: "carded",
+			status: "completed",
+			startedAt: "2026-07-12T11:17:00.000Z",
+			completedAt: null,
+			cards: 4,
+			summary: "Made 4 cards",
+			error: null,
+		});
+
+		insert({
+			id: "failed",
+			status: "failed",
+			error: "Gmail search_threads failed\nstack",
+			startedAt: "2026-07-12T15:17:00.000Z",
+		});
+		expect(await getLatestReportedSkillRun(db, params)).toMatchObject({
+			id: "failed",
+			status: "failed",
+			cards: null,
+			summary: null,
+			error: "Gmail search_threads failed\nstack",
+		});
+		expect(
+			await getLatestReportedSkillRun(db, {
+				...params,
+				runtimeEnvironment: "staging",
+			}),
+		).toBeUndefined();
 	});
 });
 

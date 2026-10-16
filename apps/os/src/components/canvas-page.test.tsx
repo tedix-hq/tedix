@@ -43,6 +43,7 @@ const osWorkspacesApi = vi.hoisted(() => ({
 		rename: vi.fn(),
 	},
 	resources: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
+	schedules: { list: vi.fn() },
 	collaboration: {
 		list: vi.fn(),
 		accept: vi.fn(),
@@ -713,6 +714,7 @@ function mockLists() {
 		],
 		truncated: false,
 	});
+	osWorkspacesApi.schedules.list.mockResolvedValue({ items: [] });
 	osWorkspacesApi.collaboration.list.mockResolvedValue({
 		items: [],
 		truncated: false,
@@ -1220,6 +1222,54 @@ describe("CanvasPage listing", () => {
 
 	it("switches between the responsive resource rail and distraction-free editor", async () => {
 		mockLists();
+		// A scheduled-skill link is a schedule, not a connected source.
+		const skillLink = {
+			id: "13131313-1313-4131-8131-131313131313",
+			organizationId: "org-1",
+			workspaceId: WORKSPACE_ID,
+			slot: null,
+			providerId: "tedix",
+			connectionScope: "tenant",
+			requiredScopes: [],
+			resourceType: "skill",
+			providerResourceId: "skill-digest",
+			name: "Morning digest",
+			metadata: {},
+			status: "active",
+			createdByKind: "user",
+			createdById: "user-1",
+			createdAt: "2026-08-01T10:00:00.000Z",
+			updatedAt: "2026-08-01T10:00:00.000Z",
+			removedAt: null,
+		};
+		const sources = await osWorkspacesApi.resources.list();
+		osWorkspacesApi.resources.list.mockResolvedValue({
+			...sources,
+			items: [...sources.items, skillLink],
+		});
+		osWorkspacesApi.schedules.list.mockResolvedValue({
+			items: [
+				{
+					resourceId: skillLink.id,
+					skillId: "skill-digest",
+					name: "Morning digest",
+					purpose: "Sums up the night's mail.",
+					enabled: true,
+					cron: "17 6 * * *",
+					dailyTimes: ["2026-08-13T06:17:00.000Z"],
+					nextRunAt: "2026-08-13T06:17:00.000Z",
+					lastRun: {
+						runId: "run-1",
+						status: "failed",
+						startedAt: "2026-08-12T06:17:00.000Z",
+						completedAt: "2026-08-12T06:18:00.000Z",
+						cards: null,
+						summary: null,
+						error: "Mail search failed",
+					},
+				},
+			],
+		});
 		osWorkspacesApi.outputs.get.mockResolvedValue({
 			output: outputFixture(),
 			currentRevision: outputRevisionFixture(),
@@ -1281,6 +1331,26 @@ describe("CanvasPage listing", () => {
 		expect(apps?.textContent).toContain("Report gadget");
 		expect(apps?.textContent).toContain("Open app");
 		expect(container.textContent).not.toContain("Automation");
+		// Scheduled skills follow the apps, with their run times and last run.
+		const schedules = container.querySelector(".canvas-resource-schedules");
+		expect(
+			apps?.compareDocumentPosition(schedules!) ??
+				Node.DOCUMENT_POSITION_PRECEDING,
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(schedules?.textContent).toContain("Runs on a schedule");
+		expect(schedules?.textContent).toContain("Morning digest");
+		expect(schedules?.textContent).toContain("Every day at");
+		expect(schedules?.textContent).toContain(
+			"Last run failed: Mail search failed",
+		);
+		expect(schedules?.textContent).toContain("See runs");
+		expect(
+			container.querySelectorAll(".canvas-resource-section")[
+				[...container.querySelectorAll(".canvas-resource-section")].findIndex(
+					(section) => section.textContent?.includes("Connected sources"),
+				)
+			]?.textContent,
+		).not.toContain("Morning digest");
 		// A source is added from the Resources pane itself, with the same
 		// attach flow the document Connections tab uses.
 		click(findButton(container, "Add source"));

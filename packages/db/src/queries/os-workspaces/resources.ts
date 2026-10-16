@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsWorkspaceResourceRow,
@@ -146,6 +146,54 @@ export async function removeOsWorkspaceResource(
 				eq(osWorkspaceResources.id, params.resourceId),
 				eq(osWorkspaceResources.status, "active"),
 				eq(osWorkspaceResources.updatedAt, params.expectedUpdatedAt),
+			),
+		)
+		.returning();
+	return row;
+}
+
+/** The organization-scoped reference to one provider object in a Workspace, in any status. */
+export async function findOsWorkspaceTenantResource(
+	db: DbQueryClient,
+	params: OsWorkspaceResourceScope & {
+		providerId: string;
+		resourceType: string;
+		providerResourceId: string;
+	},
+): Promise<OsWorkspaceResourceRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osWorkspaceResources)
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, params.organizationId),
+				eq(osWorkspaceResources.workspaceId, params.workspaceId),
+				eq(osWorkspaceResources.providerId, params.providerId),
+				eq(osWorkspaceResources.connectionScope, "tenant"),
+				isNull(osWorkspaceResources.personalOwnerUserId),
+				isNull(osWorkspaceResources.connectionInstanceId),
+				eq(osWorkspaceResources.resourceType, params.resourceType),
+				eq(osWorkspaceResources.providerResourceId, params.providerResourceId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+/** Make a removed reference active again, keeping its id, name and metadata. */
+export async function restoreOsWorkspaceResource(
+	db: DbQueryClient,
+	params: OsWorkspaceResourceIdentity & { now: string },
+): Promise<OsWorkspaceResourceRow | undefined> {
+	const [row] = await db
+		.update(osWorkspaceResources)
+		.set({ status: "active", removedAt: null, updatedAt: params.now })
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, params.organizationId),
+				eq(osWorkspaceResources.workspaceId, params.workspaceId),
+				eq(osWorkspaceResources.id, params.resourceId),
+				eq(osWorkspaceResources.status, "removed"),
 			),
 		)
 		.returning();

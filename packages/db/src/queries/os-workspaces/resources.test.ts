@@ -6,11 +6,13 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
 	createOsWorkspaceResource,
+	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
 	listOsWorkspaceResources,
 	removeOsWorkspaceResource,
 	rebindOsWorkspaceResource,
 	renameOsWorkspaceResource,
+	restoreOsWorkspaceResource,
 } from "./resources";
 
 function fixture() {
@@ -219,5 +221,54 @@ describe("OS Workspace resources", () => {
 				now: "2026-08-20T04:00:00.000Z",
 			}),
 		).toBeUndefined();
+	});
+
+	it("finds an organization-scoped provider object in any status and restores it", async () => {
+		const { db, resource } = await seed();
+		const find = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			providerId: "github",
+			resourceType: "repository",
+			providerResourceId: "tedix-hq/tedix",
+		};
+		expect((await findOsWorkspaceTenantResource(db, find))?.id).toBe(
+			resource.id,
+		);
+		expect(
+			await findOsWorkspaceTenantResource(db, {
+				...find,
+				organizationId: "org-2",
+			}),
+		).toBeUndefined();
+		const identity = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			resourceId: resource.id,
+		};
+		expect(
+			await restoreOsWorkspaceResource(db, {
+				...identity,
+				now: "2026-08-20T01:00:00.000Z",
+			}),
+		).toBeUndefined();
+		await removeOsWorkspaceResource(db, {
+			...identity,
+			expectedUpdatedAt: resource.updatedAt,
+			now: "2026-08-20T01:00:00.000Z",
+		});
+		expect((await findOsWorkspaceTenantResource(db, find))?.status).toBe(
+			"removed",
+		);
+		expect(
+			await restoreOsWorkspaceResource(db, {
+				...identity,
+				now: "2026-08-20T02:00:00.000Z",
+			}),
+		).toMatchObject({
+			status: "active",
+			removedAt: null,
+			name: "Product repository",
+		});
 	});
 });

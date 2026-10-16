@@ -15,6 +15,7 @@
 		"./contracts/os-gadget-state": "./src/contracts/os-gadget-state.ts",
 		"./schemas/os-gadget-state": "./src/schemas/os-gadget-state.ts",
 		"./schemas/os-card-review": "./src/schemas/os-card-review.ts",
+		"./schemas/os-workspace-schedules": "./src/schemas/os-workspace-schedules.ts",
 		"./constants/enums": "./src/constants/enums.ts",
 		"./constants/workflow-definition-keys": "./src/constants/workflow-definition-keys.ts",
 		"./contract-versions": "./src/contract-versions.ts",

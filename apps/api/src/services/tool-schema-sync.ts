@@ -212,6 +212,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/resources/readPdf": "read_os_workspace_pdf",
 	"osWorkspaces/resources/rename": "rename_os_workspace_resource",
 	"osWorkspaces/resources/remove": "remove_os_workspace_resource",
+	"osWorkspaces/schedules/list": "list_os_workspace_schedules",
 	"osWorkspaces/gadgets/list": "list_os_gadgets",
 	"osWorkspaces/gadgets/create": "create_os_gadget",
 	"osWorkspaces/gadgets/get": "get_os_gadget",

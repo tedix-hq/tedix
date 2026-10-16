@@ -3,6 +3,7 @@ import type {
 	OsGadget,
 	OsOutputLibraryItem,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { type ReactNode, useState } from "react";
 import { OutputPreview } from "@/components/output-preview";
 import { CreateDocumentButton } from "@/components/create-document-dialog";
@@ -31,9 +32,11 @@ import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { cn } from "@/lib/utils";
 import { WorkspaceAppCards } from "@/components/workspace-app-cards";
+import { WorkspaceSchedules } from "@/components/workspace-schedules";
 
 /**
- * The Canvas resource rail: workspace apps (gadgets) first, then files, over the shell's
+ * The Canvas resource rail: workspace apps (gadgets) first, then the skills
+ * that run on a schedule, then files, over the shell's
  * canonical list queries. Purely presentational — the queries, selection
  * state, and URL writes stay in canvas-page.tsx, so the rail renders whatever
  * cache entries the shell already owns.
@@ -157,8 +160,10 @@ export function CanvasResourceRail({
 		normalizedQuery.length === 0 ||
 		value.toLocaleLowerCase().includes(normalizedQuery);
 	const shownResources =
-		resources.data?.items.filter((item) =>
-			matches(`${item.name} ${item.providerId} ${item.resourceType}`),
+		resources.data?.items.filter(
+			(item) =>
+				!isWorkspaceSkillResource(item) &&
+				matches(`${item.name} ${item.providerId} ${item.resourceType}`),
 		) ?? [];
 	const shownGadgets =
 		gadgets.data?.items.filter((item) => matches(item.name)) ?? [];
@@ -273,6 +278,7 @@ export function CanvasResourceRail({
 								)}
 							</section>
 						)}
+						<WorkspaceSchedules workspaceId={workspaceId} />
 						<section className="canvas-resource-section canvas-resource-outputs">
 							<SectionEyebrow
 								title="Files"

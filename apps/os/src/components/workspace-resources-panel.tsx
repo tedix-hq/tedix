@@ -5,6 +5,7 @@ import {
 import { WorkspaceCalendarCoordinator } from "./workspace-calendar-coordinator";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
+import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
@@ -171,7 +172,9 @@ export function WorkspaceResourcesPanel({
 	const [tediId, setTediId] = useState("");
 	const [task, setTask] = useState("");
 	const [outcome, setOutcome] = useState("");
-	const resources = query.data?.items ?? [];
+	const resources = (query.data?.items ?? []).filter(
+		(resource) => !isWorkspaceSkillResource(resource),
+	);
 	const connections = (connectionsQuery.data?.data ?? [])
 		.filter((connection) => connection.status === "connected")
 		.flatMap((connection) => {

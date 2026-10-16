@@ -6,6 +6,7 @@ import {
 	resolveCalendarAdapter,
 } from "../../services/calendar-coordinator/credentials";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
+import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
@@ -13,6 +14,7 @@ import {
 	type OsWorkspaceResourceSelection,
 	OsWorkspaceResourceSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import {
 	createOsWorkspaceResource,
 	getOsWorkspaceResource,
@@ -77,10 +79,16 @@ async function projectWorkspaceResource(
 	row: OsWorkspaceResourceRow,
 ): Promise<OsWorkspaceResource> {
 	const resource = mapWorkspaceResource(row);
-	return OsWorkspaceResourceSchema.parse({
-		...resource,
-		availability: await resolveWorkspaceResourceAvailability(context, resource),
-	});
+	// A scheduled-skill link has no connection behind it to check.
+	const availability =
+		isWorkspaceSkillResource(resource) && resource.status === "active"
+			? {
+					status: "available" as const,
+					reason: null,
+					checkedAt: new Date().toISOString(),
+				}
+			: await resolveWorkspaceResourceAvailability(context, resource);
+	return OsWorkspaceResourceSchema.parse({ ...resource, availability });
 }
 
 async function requireResource(
@@ -274,6 +282,19 @@ const list = readOs.resources.list.handler(async ({ input, context }) => {
 const create = authorOs.resources.create.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const creator = resolveCreator(context);
+	if (
+		isWorkspaceSkillResource(input.selection) &&
+		(input.selection.connectionScope !== "tenant" ||
+			!(await getSkillEntry(
+				context.db,
+				input.selection.providerResourceId,
+				workspace.organizationId,
+			)))
+	)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"A scheduled skill link needs the id of a skill in this organization and connectionScope tenant",
+		);
 	const binding = await personalAccountBinding(
 		context,
 		input.selection.connectionScope,
