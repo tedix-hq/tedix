@@ -1,10 +1,25 @@
-import { readFileSync, readdirSync } from "node:fs";
+import {
+	copyFileSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
 	WorkBudgetEnvelopeSchema,
 	WorkResourcePoolSchema,
 } from "@tedix/api-contract/schemas/work-items";
-import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterAll,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
@@ -46,10 +61,41 @@ const migrations = readdirSync(migrationRoot)
 const factoryStart = migrations.findIndex((row) =>
 	row.name.startsWith("20260821015311_"),
 );
+
+// Replay each migration boundary once, then give each test its own database.
+// Copies retain production triggers and indexes without repeating the whole
+// migration chain for every invariant under parallel CPU load.
+const fixtureDirectory = mkdtempSync(
+	join(tmpdir(), "tedix-factory-invariants-"),
+);
+const templates = new Map<number, string>();
+let fixtureNumber = 0;
+afterAll(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
 function migrated(stop = migrations.length) {
-	const db = new DatabaseSync(":memory:");
-	db.exec("PRAGMA foreign_keys=ON");
-	for (const row of migrations.slice(0, stop)) db.exec(row.sql);
+	let template = templates.get(stop);
+	if (!template) {
+		template = join(fixtureDirectory, `boundary-${stop}.sqlite`);
+		const db = new DatabaseSync(":memory:");
+		try {
+			db.exec("PRAGMA foreign_keys=ON");
+			for (const row of migrations.slice(0, stop)) db.exec(row.sql);
+			db.prepare("VACUUM INTO ?").run(template);
+		} finally {
+			db.close();
+		}
+		templates.set(stop, template);
+	}
+	const path = join(fixtureDirectory, `fixture-${fixtureNumber++}.sqlite`);
+	copyFileSync(template, path);
+	const db = new DatabaseSync(path);
+	// Fixtures test SQL constraints, not crash recovery or disk durability.
+	db.exec(
+		"PRAGMA foreign_keys=ON; PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF",
+	);
+	onTestFinished(() => {
+		db.close();
+		rmSync(path);
+	});
 	return db;
 }
 function expectAbort(run: () => unknown, pattern: RegExp) {

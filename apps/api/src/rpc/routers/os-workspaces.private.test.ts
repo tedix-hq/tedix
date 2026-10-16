@@ -20,21 +20,13 @@ import {
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
+import { tedis } from "@tedix/db/schema/tedis";
+import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import type { BaseContext } from "../orpc";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
-
-const tedis = vi.hoisted(() => ({
-	byId: new Map<string, Record<string, unknown>>(),
-}));
-vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
-	getTediByIdForOrganization: vi.fn(async (_db: unknown, id: string) =>
-		tedis.byId.get(id),
-	),
-}));
 
 const OWNER = "member-robin";
 const OTHER = "member-kai";
@@ -42,9 +34,11 @@ const ADMIN = "member-ada";
 
 function createEnv(): CloudflareEnv {
 	const sqlite = new DatabaseSync(":memory:");
+	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			tedis,
 			osWorkspaces,
 			osGadgets,
 			osGadgetRevisions,
@@ -60,6 +54,10 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(`
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'Fictional Org');
+		INSERT INTO tedis (id, organization_id, name, slug, status, scope, owner_user_id, descope_user_id)
+		VALUES ('robin-primary','org-1','Robin helper','robin-primary','active','personal','member-robin','tedi-identity-1'),
+		       ('kai-primary','org-1','Kai helper','kai-primary','active','personal','member-kai','tedi-identity-3'),
+		       ('shared-org-tedi','org-1','Team helper','shared-org-tedi','active','organization',NULL,'tedi-identity-2');
 	`);
 	return {
 		ENVIRONMENT: "test",
@@ -253,6 +251,100 @@ describe("private OS workspaces", () => {
 		expect(listed.items.map((w) => w.id)).not.toContain(workspace.id);
 	});
 
+	it.each([
+		{
+			tediId: "robin-primary",
+			actingUser: OWNER,
+			publicIngress: false,
+			allowed: true,
+		},
+		{
+			tediId: "kai-primary",
+			actingUser: OWNER,
+			publicIngress: false,
+			allowed: false,
+		},
+		{
+			tediId: "robin-primary",
+			actingUser: OTHER,
+			publicIngress: false,
+			allowed: false,
+		},
+		{
+			tediId: "shared-org-tedi",
+			actingUser: OWNER,
+			publicIngress: false,
+			allowed: false,
+		},
+		{
+			tediId: "shared-org-tedi",
+			actingUser: undefined,
+			publicIngress: false,
+			allowed: false,
+		},
+		{
+			tediId: "robin-primary",
+			actingUser: OWNER,
+			publicIngress: true,
+			allowed: false,
+		},
+	])(
+		"checks the bound tedi and ingress before private reads ($tediId, $actingUser, public=$publicIngress)",
+		async ({ tediId, actingUser, publicIngress, allowed }) => {
+			const env = createEnv();
+			const { workspace, output, teamOutput } = await seed(env);
+			const request = new Request(
+				"https://api.tedix.test/rpc/osWorkspaces/outputs/get",
+				{
+					headers: {
+						"X-Service-Binding": "true",
+						"X-Tedix-Tedi-Id": tediId,
+						"X-Tedix-Tedi-Scopes": "apps:read apps:write",
+						...(actingUser ? { "X-Tedix-Acting-User": actingUser } : {}),
+					},
+				},
+			);
+			const principal = publicIngress
+				? context(env, OTHER)
+				: ({
+						db: createDbClient(env.DB),
+						env,
+						organizationId: "org-1",
+						url: new URL(request.url),
+					} as BaseContext);
+			principal.headers = (
+				publicIngress ? stripServiceBindingMarker(request) : request
+			).headers;
+			const client = createRouterClient(osWorkspacesContractRouter, {
+				context: principal,
+			});
+			if (allowed) {
+				await expect(
+					client.workspaces.get({ workspaceId: workspace.id }),
+				).resolves.toMatchObject({ workspace: { id: workspace.id } });
+				await expect(
+					client.outputs.get({ outputId: output.id }),
+				).resolves.toMatchObject({ output: { id: output.id } });
+			} else {
+				await expect(
+					client.workspaces.get({ workspaceId: workspace.id }),
+				).rejects.toMatchObject(notFound);
+				await expect(
+					client.outputs.get({ outputId: output.id }),
+				).rejects.toMatchObject(notFound);
+				await expect(
+					client.outputs.patchDocument({
+						outputId: output.id,
+						ops: [{ op: "delete", index: 0 }],
+					}),
+				).rejects.toMatchObject(notFound);
+				expect(
+					(await client.outputs.list({ limit: 50 })).items.map((o) => o.id),
+				).toEqual([teamOutput.id]);
+			}
+		},
+	);
+
 	it("cannot be reached with an organization API key", async () => {
 		const env = createEnv();
 		const { workspace, output } = await seed(env);
@@ -330,31 +422,20 @@ describe("private OS workspaces", () => {
 });
 
 describe("private workspace viewer", () => {
-	const base = {
-		env: {} as CloudflareEnv,
-		db: {} as BaseContext["db"],
-		url: new URL("https://api.tedix.test"),
-		organizationId: "org-1",
-	};
-	tedis.byId.set("robin-primary", {
-		id: "robin-primary",
-		status: "active",
-		scope: "personal",
-		ownerUserId: OWNER,
-		descopeUserId: "tedi-identity-1",
-	});
-	tedis.byId.set("shared-org-tedi", {
-		id: "shared-org-tedi",
-		status: "active",
-		scope: "organization",
-		ownerUserId: null,
-		descopeUserId: "tedi-identity-2",
-	});
+	function base() {
+		const env = createEnv();
+		return {
+			env,
+			db: createDbClient(env.DB),
+			url: new URL("https://api.tedix.test"),
+			organizationId: "org-1",
+		};
+	}
 
 	it("is the human on a user token, never a forwarded acting-user claim", async () => {
 		await expect(
 			resolveOsWorkspaceViewer({
-				...base,
+				...base(),
 				headers: new Headers({
 					"X-Tedix-Acting-User": OWNER,
 					"X-Tedix-End-User-Id": OWNER,
@@ -369,7 +450,7 @@ describe("private workspace viewer", () => {
 	it("is the acting member on a trusted Home/kernel call bound to their own tedi", async () => {
 		await expect(
 			resolveOsWorkspaceViewer({
-				...base,
+				...base(),
 				headers: new Headers(),
 				authType: "service-binding",
 				tediId: "robin-primary",
@@ -382,7 +463,7 @@ describe("private workspace viewer", () => {
 		for (const tediId of ["robin-primary", "shared-org-tedi"]) {
 			await expect(
 				resolveOsWorkspaceViewer({
-					...base,
+					...base(),
 					headers: new Headers(),
 					authType: "service-binding",
 					tediId,
@@ -392,7 +473,7 @@ describe("private workspace viewer", () => {
 		}
 		await expect(
 			resolveOsWorkspaceViewer({
-				...base,
+				...base(),
 				headers: new Headers(),
 				authType: "service-binding",
 				descopeUserId: OWNER,
@@ -403,7 +484,7 @@ describe("private workspace viewer", () => {
 	it("is the owner of a personal tedi acting on its own", async () => {
 		await expect(
 			resolveOsWorkspaceViewer({
-				...base,
+				...base(),
 				headers: new Headers(),
 				authType: "tedi",
 				tediId: "robin-primary",
@@ -415,7 +496,7 @@ describe("private workspace viewer", () => {
 	it("is nobody for API keys and unattributed service calls", async () => {
 		await expect(
 			resolveOsWorkspaceViewer({
-				...base,
+				...base(),
 				headers: new Headers({ "X-Tedix-Acting-User": OWNER }),
 				authType: "apikey",
 			} as BaseContext),

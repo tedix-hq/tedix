@@ -462,6 +462,23 @@ describe("local demo MCP identity", () => {
 		});
 		expect(validateTokenMock).not.toHaveBeenCalled();
 	});
+	it("ignores forged acting-user and approved-responder claims on authenticated public ingress", async () => {
+		const publicRequest = request();
+		publicRequest.headers.set("X-Service-Binding", "true");
+		publicRequest.headers.set("X-Tedix-Kernel", "true");
+		publicRequest.headers.set("X-Tedix-Acting-User", "fictional-other-member");
+		publicRequest.headers.set(
+			"X-Tedix-Approved-Work-Responder",
+			"fictional-other-member",
+		);
+		const result = await validateAuth(
+			stripServiceBindingMarker(publicRequest),
+			localEnv,
+		);
+		expect(result).toMatchObject({ type: "oauth", userId: "local-demo-owner" });
+		expect(result).not.toHaveProperty("kernel");
+		expect(result).not.toHaveProperty("approvedWorkResponderUserId");
+	});
 	it.each([
 		{
 			env: { ...localEnv, ENVIRONMENT: "production" },

@@ -19,6 +19,8 @@ export default defineConfig({
 		// shared bounds have to be spread back in or this suite silently drops to
 		// vitest's 5s default. See scripts/vite/task-config.ts.
 		...sharedTestConfig,
+		// Leave CPU headroom for MCP/DB suites running in parallel.
+		maxWorkers: 4,
 		server: {
 			deps: {
 				// `agents` ships ESM that imports `cloudflare:workers` directly.

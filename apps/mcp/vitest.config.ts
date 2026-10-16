@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
+import { sharedTestConfig } from "../../scripts/vite/task-config";
 
 /**
  * Two projects, so `test:run` and the pre-push `vp test related` query both
@@ -10,6 +11,9 @@ import { defineConfig } from "vite-plus";
  */
 export default defineConfig({
 	test: {
+		...sharedTestConfig,
+		// Leave CPU headroom for API/DB suites running in parallel.
+		maxWorkers: 4,
 		projects: [
 			{
 				extends: true,
