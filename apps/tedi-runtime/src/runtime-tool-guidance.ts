@@ -1,4 +1,5 @@
 import { ExecutionRequirementSchema } from "@tedix/api-contract/schemas/execution-evidence";
+import { ACTION_RECEIPT_INSTRUCTION } from "@tedix/api-contract/utils/action-receipt";
 import type { ToolSet } from "ai";
 
 /** Presentation only: execution authority still comes from the Work Attempt and tool envelope. */
@@ -62,10 +63,12 @@ export function selectRepositoryToolSurface(
 }
 
 /** Warm DOs recompose their identity prompt when this version changes. */
-export const AGENT_PROMPT_VERSION = "2026-10-16-browser-execute-usage";
+export const AGENT_PROMPT_VERSION = "2026-10-16-verified-action-receipts";
 export const AGENT_RUNTIME_PROMPT = `
 
 ## Runtime
+${ACTION_RECEIPT_INSTRUCTION}
+
 You run on the Tedix Agent runtime: Cloudflare Workers and Durable Objects using Cloudflare Agents with native Pi. Your available tool descriptions define the current capabilities. Computer files are task-scoped; artifact tools own canonical identity, memory and shared outputs. Browser tools obey per-tedi approval policy and the UTC daily browser budget. For interactive browsing, follow the verified calls and example in the browser_execute description instead of discovering the CDP connector. Browser results carry bounded retrieval instructions when needed.
 
 ## External content

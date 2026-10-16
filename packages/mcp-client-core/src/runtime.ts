@@ -534,6 +534,7 @@ type ToolExecutionOutcome = {
 	resultProjection?: Record<string, unknown>;
 	/** Executor-attested execution receipt; recorded beside the ledger result. */
 	completionEvidence?: Record<string, unknown>;
+	actionReceipts?: unknown[];
 	readObservations?: OwnedReadObservation[];
 	collectionReads?: OwnedConnectedCollectionRead[];
 };
@@ -1409,6 +1410,9 @@ export class TedixMcpRuntime {
 					...(outcome.completionEvidence
 						? { completionEvidence: outcome.completionEvidence }
 						: {}),
+					...(outcome.actionReceipts?.length
+						? { actionReceipts: outcome.actionReceipts }
+						: {}),
 					...(outcome.readObservations?.length
 						? { readObservations: outcome.readObservations }
 						: {}),
@@ -1420,7 +1424,12 @@ export class TedixMcpRuntime {
 					timing: { startEventMs, prepareMs, executeMs },
 				},
 			});
-			return projected.modelResult;
+			return outcome.actionReceipts?.length
+				? {
+						result: projected.modelResult,
+						actionReceipts: outcome.actionReceipts,
+					}
+				: projected.modelResult;
 		} catch (err) {
 			const latencyMs = Date.now() - startedAt;
 			if (executedAt !== null) executeMs = Date.now() - executedAt;
@@ -1701,8 +1710,16 @@ export class TedixMcpRuntime {
 			const resultIdentity = codeResultIdentity(normalized);
 			const resultProjection = codeResultProjection(normalized);
 			const completionEvidence = codeResultCompletionEvidence(normalized);
+			const actionReceipts =
+				normalized &&
+				typeof normalized === "object" &&
+				"actionReceipts" in normalized &&
+				Array.isArray(normalized.actionReceipts)
+					? normalized.actionReceipts
+					: [];
 			return {
 				result: stripCodeModeExecutionEnvelope(normalized),
+				...(actionReceipts.length ? { actionReceipts } : {}),
 				...(resultIdentity ? { resultIdentity } : {}),
 				...(resultProjection ? { resultProjection } : {}),
 				...(completionEvidence ? { completionEvidence } : {}),
