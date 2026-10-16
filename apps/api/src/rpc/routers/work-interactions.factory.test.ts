@@ -123,6 +123,7 @@ async function createTargetedInteraction(
 	return owner.create({
 		workItemId: WORK_ITEM_ID,
 		kind: "question",
+		reason: "Only the asked person can decide this.",
 		subject: "Need an exact answer",
 		prompt: "Review the admission evidence.",
 		requestedFrom: { type: "user", id: "target-id" },
@@ -155,6 +156,7 @@ it("lists a session question's undelivered answer, records its delivery, and sho
 	const question = await target.create({
 		workItemId: WORK_ITEM_ID,
 		kind: "question",
+		reason: "Only the asked person can decide this.",
 		subject: "repo · claude-code waiting: Ship it?",
 		prompt: "Ship it?",
 		metadata: { sessionId: session, host: "claude-code" },
@@ -234,6 +236,7 @@ it("records an auto draft's delivery as the tedi's answer, once, for the asked u
 	const question = await target.create({
 		workItemId: WORK_ITEM_ID,
 		kind: "question",
+		reason: "Only the asked person can decide this.",
 		subject: "repo · claude-code waiting: Deploy?",
 		prompt: "Deploy?",
 		metadata: { sessionId: session, host: "claude-code" },
@@ -293,6 +296,7 @@ it("projects targeted open inbox prompts and strips metadata/drafts with truthfu
 		await owner.create({
 			workItemId: WORK_ITEM_ID,
 			kind: "question",
+			reason: "Only the asked person can decide this.",
 			subject: "Bounded",
 			prompt: "p".repeat(i === 0 ? 800 : 801),
 			metadata: { policy: "x".repeat(20000) },
@@ -360,6 +364,7 @@ it("shows stored attention as metadata.attention and keeps fyi turns out of urge
 	const ask = await owner.create({
 		workItemId: WORK_ITEM_ID,
 		kind: "question",
+		reason: "Only the asked person can decide this.",
 		subject: "Ask",
 		prompt: "Deploy now?",
 		metadata: urgent,
@@ -368,6 +373,7 @@ it("shows stored attention as metadata.attention and keeps fyi turns out of urge
 	const update = await owner.create({
 		workItemId: WORK_ITEM_ID,
 		kind: "question",
+		reason: "Only the asked person can decide this.",
 		subject: "Update",
 		prompt: "Deployed; checks green.",
 		metadata: urgent,
@@ -419,4 +425,46 @@ it("requires messaging scope and a verified active actor for compact inbox", asy
 	await expect(
 		keyClient(["mcp:messaging.read"]).listCliInboxProjection({}),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
+it("says in the inbox who asked, why, and which Work a quoted short id names", async () => {
+	const { sqlite, owner, target } = fixture();
+	sqlite
+		.prepare(
+			"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,?,?,?)",
+		)
+		.run(
+			"4ee0fbf2-0000-4000-8000-000000000003",
+			ORG_ID,
+			"Fictional scratch item",
+			"2026-08-21T00:00:00.000Z",
+		);
+	await owner.create({
+		workItemId: WORK_ITEM_ID,
+		kind: "question",
+		reason: "Only you can say whether 4ee0fbf2 still matters.",
+		subject: "Keep or drop 4ee0fbf2?",
+		prompt: "Keep it?",
+		requestedFrom: { type: "user", id: "target-id" },
+		metadata: { host: "claude-code", sessionId: "fictional-session" },
+	});
+	await expect(
+		owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Close the scratch item?",
+			prompt: "Close it?",
+			requestedFrom: { type: "user", id: "target-id" },
+		}),
+	).rejects.toThrow(/Input validation failed/);
+
+	const inbox = await target.listInbox({ limit: 10 });
+	expect(inbox.data).toHaveLength(1);
+	expect(inbox.data[0]).toMatchObject({
+		askedBy: "Claude Code session",
+		references: [{ shortId: "4ee0fbf2", title: "Fictional scratch item" }],
+		request: {
+			metadata: { reason: "Only you can say whether 4ee0fbf2 still matters." },
+		},
+	});
 });

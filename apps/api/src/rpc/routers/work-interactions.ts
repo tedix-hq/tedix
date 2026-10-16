@@ -1,10 +1,14 @@
 import {
 	ListWorkInteractionCliInboxResultSchema,
+	WORK_PROPOSAL_SCHEMA,
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
 import { call, implement } from "@orpc/server";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
-import { getWorkItemBySourceIntentId } from "@tedix/db/queries/work-items/crud";
+import {
+	getWorkItemBySourceIntentId,
+	listWorkItemTitlesByShortIds,
+} from "@tedix/db/queries/work-items/crud";
 import {
 	type AgentReplyDeliveryGateResult,
 	AgentReplyDeliveryGateResultSchema,
@@ -26,6 +30,7 @@ import {
 	recordWorkInteractionDeliveries,
 } from "@tedix/db/queries/work-items/interaction-deliveries";
 import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
+import { CAPTURE_HEALTH_SCHEMA } from "@tedix/db/queries/work-items/capture-health";
 import {
 	getLatestReplyDraft,
 	recordAutoReplyDelivery,
@@ -278,7 +283,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			targetId: input.requestedFrom.id,
 			dueAt: input.dueAt,
 			expiresAt: input.expiresAt,
-			metadata: input.metadata,
+			metadata: input.reason
+				? { ...input.metadata, reason: input.reason }
+				: input.metadata,
 			now: requestedAt,
 		});
 		// A captured agent turn learns after the response whether it needs
@@ -664,6 +671,42 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 	}
 });
 
+type RequestOutput = ReturnType<typeof requestOutput>;
+
+/** 8-character Work Item short ids quoted in the lines a person reads. */
+function quotedShortIds(request: RequestOutput): string[] {
+	const metadata = request.metadata as Record<string, unknown>;
+	const text = [request.subject, metadata.neededFromYou, metadata.reason]
+		.filter((value): value is string => typeof value === "string")
+		.join(" ");
+	return [...text.matchAll(/\b[0-9a-f]{8}\b/gi)].map((match) =>
+		match[0].toLowerCase(),
+	);
+}
+
+const AGENT_HOSTS: Record<string, string> = {
+	"claude-code": "Claude Code session",
+	codex: "Codex session",
+};
+
+/** Who asked, in plain words, for the person deciding what to do with it. */
+function askedBy(
+	request: RequestOutput,
+	callerId: string,
+	tediNames: ReadonlyMap<string, string>,
+): string {
+	const metadata = request.metadata as Record<string, unknown>;
+	if (metadata.schema === WORK_PROPOSAL_SCHEMA)
+		return metadata.source === "tedix learn" ? "Onboarding" : "Tedix";
+	if (metadata.schema === CAPTURE_HEALTH_SCHEMA) return "Tedix";
+	if (request.creatorType === "tedi")
+		return tediNames.get(request.creatorId) ?? "A tedi";
+	const host = typeof metadata.host === "string" ? metadata.host : null;
+	if (host) return AGENT_HOSTS[host] ?? `${host} session`;
+	if (request.creatorType === "external_agent") return "An agent session";
+	return request.creatorId === callerId ? "You" : "A teammate";
+}
+
 const listInboxProcedure = readOs.listInbox.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
@@ -682,19 +725,39 @@ const listInboxProcedure = readOs.listInbox.handler(
 			limit: input.limit,
 			observedAt,
 		});
+		const requests = page.data.map((row) =>
+			requestOutput(row.request, rowAttention(row), rowResolution(row)),
+		);
+		const [tedis, references] = await Promise.all([
+			listTediDisplayNamesByIds(context.db, {
+				organizationId: orgId,
+				ids: requests
+					.filter((request) => request.creatorType === "tedi")
+					.map((request) => request.creatorId),
+			}),
+			listWorkItemTitlesByShortIds(context.db, {
+				orgId,
+				shortIds: requests.flatMap(quotedShortIds),
+			}),
+		]);
+		const tediNames = new Map(
+			tedis.map((tedi) => [tedi.id, tedi.displayName ?? tedi.name]),
+		);
 		return {
-			data: page.data.map((row) => ({
-				request: requestOutput(
-					row.request,
-					rowAttention(row),
-					rowResolution(row),
-				),
-				effectiveState: row.effectiveState,
-				canRespond: row.effectiveState === "open",
-				canCancel: false,
-				workItem: row.workItem?.id ? row.workItem : null,
-				responseCount: row.responseCount,
-			})),
+			data: page.data.map((row, index) => {
+				const request = requests[index] as (typeof requests)[number];
+				const quoted = new Set(quotedShortIds(request));
+				return {
+					request,
+					effectiveState: row.effectiveState,
+					canRespond: row.effectiveState === "open",
+					canCancel: false,
+					workItem: row.workItem?.id ? row.workItem : null,
+					responseCount: row.responseCount,
+					askedBy: askedBy(request, caller.id, tediNames),
+					references: references.filter((ref) => quoted.has(ref.shortId)),
+				};
+			}),
 			nextCursor: page.nextCursor,
 			hasMore: page.hasMore,
 			observedAt,

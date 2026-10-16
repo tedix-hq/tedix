@@ -1422,6 +1422,7 @@ const interactionRequestSchema = z.object({
 	contextId: z.string().trim().min(1, "Enter a context id."),
 	kind: z.enum(["question", "input", "handoff", "coordination"]),
 	subject: z.string().trim().min(1, "Enter a subject."),
+	reason: z.string().trim().max(300, "Keep the reason to one line."),
 	prompt: z.string().trim().min(1, "Enter the requested input."),
 	targetType: z.enum(["user", "tedi", "external_agent"]),
 	targetId: z.string().trim().min(1, "Enter a target principal id."),
@@ -1809,12 +1810,14 @@ export function WorkInteractionsPage() {
 						: { projectId: value.contextId }),
 				kind: value.kind,
 				subject: value.subject,
+				...(value.reason ? { reason: value.reason } : {}),
 				prompt: value.prompt,
 				requestedFrom: { type: value.targetType, id: value.targetId },
 				metadata: {},
 			}),
 		onSuccess: async (_result, value) => {
 			form.setFieldValue("subject", "");
+			form.setFieldValue("reason", "");
 			form.setFieldValue("prompt", "");
 			paging.reset();
 			setListView("outbox");
@@ -1845,6 +1848,7 @@ export function WorkInteractionsPage() {
 			contextId: "",
 			kind: "question",
 			subject: "",
+			reason: "",
 			prompt: "",
 			targetType: "user",
 			targetId: "",
@@ -2031,6 +2035,7 @@ export function WorkInteractionsPage() {
 									["contextId", "Context id"],
 									["targetId", "Target principal id"],
 									["subject", "Subject"],
+									["reason", "Why it needs them (one line)"],
 								] as const
 							).map(([name, label]) => (
 								<FormField key={name} form={form} name={name} label={label}>

@@ -123,6 +123,42 @@ describe("Work interactions contract", () => {
 		}
 	});
 
+	it("requires a plain reason before a question or input reaches a person", () => {
+		const ask = {
+			workItemId: "00000000-0000-4000-8000-000000000001",
+			subject: "Pick the launch date",
+			prompt: "Tuesday or Thursday?",
+			requestedFrom: { type: "user", id: "user-fictional-1" },
+		} as const;
+		for (const kind of ["question", "input"] as const) {
+			const missing = CreateWorkInteractionInputSchema.safeParse({
+				...ask,
+				kind,
+			});
+			expect(missing.success).toBe(false);
+			expect(missing.error?.issues[0]?.path).toEqual(["reason"]);
+			expect(
+				CreateWorkInteractionInputSchema.parse({
+					...ask,
+					kind,
+					reason: "Only the owner can set the launch date.",
+				}),
+			).toMatchObject({ reason: "Only the owner can set the launch date." });
+		}
+		// A captured agent turn is triaged server-side; a proposal states its own why.
+		expect(
+			CreateWorkInteractionInputSchema.safeParse({
+				...ask,
+				kind: "question",
+				metadata: { schema: "tedix.decision-capture.v1" },
+			}).success,
+		).toBe(true);
+		expect(
+			CreateWorkInteractionInputSchema.safeParse({ ...ask, kind: "handoff" })
+				.success,
+		).toBe(true);
+	});
+
 	it("rejects unroutable team and system strings as direct targets", () => {
 		for (const type of ["team", "system"] as const) {
 			expect(() =>
