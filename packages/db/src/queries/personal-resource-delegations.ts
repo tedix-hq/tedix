@@ -52,14 +52,13 @@ export async function listPersonalResourceDelegations(
 		)
 		.limit(Math.min(100, Math.max(1, input.limit ?? 50)));
 }
-/** Unrevoked, unexpired consents pinned to this exact worker and skill revision. */
+/** Unrevoked, unexpired consents for this worker skill at any revision, newest first. */
 export async function listActiveSkillPersonalResourceDelegations(
 	db: DbQueryClient,
 	input: {
 		organizationId: string;
 		tediId: string;
 		skillId: string;
-		skillRevision: number;
 		now: string;
 	},
 ) {
@@ -71,12 +70,14 @@ export async function listActiveSkillPersonalResourceDelegations(
 				eq(personalResourceDelegations.organizationId, input.organizationId),
 				eq(personalResourceDelegations.tediId, input.tediId),
 				eq(personalResourceDelegations.skillId, input.skillId),
-				eq(personalResourceDelegations.skillRevision, input.skillRevision),
 				isNull(personalResourceDelegations.revokedAt),
 				gt(personalResourceDelegations.expiresAt, input.now),
 			),
 		)
-		.orderBy(personalResourceDelegations.id)
+		.orderBy(
+			desc(personalResourceDelegations.createdAt),
+			desc(personalResourceDelegations.id),
+		)
 		.limit(20);
 }
 /** Unrevoked, unexpired consents one owner gave this worker skill, at any revision. */

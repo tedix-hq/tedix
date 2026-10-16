@@ -471,8 +471,7 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 							row?.resourceId === resource.id &&
 							row.workspaceId === resource.workspaceId &&
 							row.tediId === input.tediId &&
-							row.skillId === executable.skill.id &&
-							row.skillRevision === executable.skill.revision,
+							row.skillId === executable.skill.id,
 					);
 					if (
 						matching.length !== 1 ||
@@ -491,7 +490,6 @@ const gadgetsRun = runOs.gadgets.run.handler(async ({ input, context }) => {
 					await validatePersonalRunSources(context, {
 						tediId: input.tediId,
 						skillId: executable.skill.id,
-						skillRevision: executable.skill.revision,
 						resourceAccessEnvelope: { version: 1, sources: [source] },
 					});
 					grantedResources.push({
