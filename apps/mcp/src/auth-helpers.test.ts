@@ -1944,3 +1944,78 @@ describe("factory approval receipt ingress", () => {
 		},
 	);
 });
+
+describe("federated workload session auth", () => {
+	const payload = {
+		sub: "workload",
+		azp: "shared-client",
+		tedixWorkloadFederation: true,
+		scope: "mcp:work.read mcp:apps.read",
+		iss: "Ptest",
+		exp: 9999999999,
+	};
+	it("resolves each bearer hash freshly and bounds it to current principal scopes", async () => {
+		const fetch = vi.fn().mockImplementation(() =>
+			Response.json({
+				json: {
+					principal: { id: "principal", organizationId: "org" },
+					session: { id: "session" },
+					allowedScopes: ["mcp:work.read"],
+				},
+			}),
+		);
+		const env = {
+			DESCOPE_PROJECT_ID: "Ptest",
+			API_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		const first = await resolveAihM2mClientScopeContext(
+			env,
+			payload,
+			"resource",
+			{ bearerToken: "token-a" },
+		);
+		const second = await resolveAihM2mClientScopeContext(
+			env,
+			payload,
+			"resource",
+			{ bearerToken: "token-b" },
+		);
+		expect(first?.scopes).toEqual(["mcp:work.read"]);
+		expect(first?.externalAgent?.sessionId).toBe("session");
+		expect(first?.clientRecordId).not.toBe(second?.clientRecordId);
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch.mock.calls[0]![0].url).toContain(
+			"resolveFederatedSessionAuth",
+		);
+		fetch.mockResolvedValue(
+			Response.json({ message: "revoked" }, { status: 401 }),
+		);
+		await expect(
+			resolveAihM2mClientScopeContext(env, payload, "resource", {
+				bearerToken: "token-a",
+			}),
+		).rejects.toThrow();
+	});
+	it("requires the bearer and never downgrades to registered client auth", async () => {
+		const fetch = vi.fn();
+		const env = {
+			DESCOPE_PROJECT_ID: "Ptest",
+			API_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		await expect(
+			resolveAihM2mClientScopeContext(env, payload, "resource"),
+		).rejects.toThrow();
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("keeps exact audience enforcement even for legacy-shaped federated subjects", () => {
+		const token = `eyJ.${btoa(JSON.stringify({ ...payload, sub: "TPAshared" }))}.sig`;
+		expect(
+			resolveMcpTokenValidationAudience({
+				token,
+				projectId: "Ptest",
+				expectedAudience: "https://example.mcp.tedix.dev/mcp",
+				mcpServerId: "resource",
+			}),
+		).toBe("https://example.mcp.tedix.dev/mcp");
+	});
+});

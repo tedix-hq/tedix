@@ -1,6 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import { loadDescopeMcpServer } from "@tedix/auth/aih-client";
+import {
+	createDescopeMcpServerClient,
+	deleteDescopeMcpServerClient,
+	loadDescopeMcpServer,
+} from "@tedix/auth/aih-client";
+import {
+	federatedWorkloadCredentialId,
+	issueExternalAgentWorkloadGrant,
+} from "@tedix/auth/workload-identity";
 import { createDbClient } from "@tedix/db/client";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
@@ -13,6 +21,8 @@ import {
 vi.mock("@tedix/auth/aih-client", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/auth/aih-client")>()),
 	loadDescopeMcpServer: vi.fn(),
+	createDescopeMcpServerClient: vi.fn(),
+	deleteDescopeMcpServerClient: vi.fn(),
 }));
 
 const ORG = "00000000-0000-4000-8000-000000000001";
@@ -779,5 +789,209 @@ describe("external-agent MCP client scopes", () => {
 				connectionsScopes: [{ name: "mcp:observe" }, { name: "mcp:skills" }],
 			}),
 		).toEqual(["mcp:skills"]);
+	});
+});
+
+describe("federated workload credentials", () => {
+	const resource = "https://tedix-unified.mcp.tedix.dev/mcp";
+	const config = {
+		clientId: "shared-client",
+		resource,
+		repository: "example/project",
+		ref: "refs/heads/main",
+		workflowRef: "example/project/.github/workflows/ci.yml@refs/heads/main",
+	};
+	async function fixture() {
+		const metadata = {
+			allowedScopes: ["mcp:work.read"],
+			workloadFederation: config,
+		};
+		sqlite
+			.prepare(
+				"UPDATE external_agent_principals SET credential_binding_type = 'github_actions_oidc', metadata = ? WHERE id = ?",
+			)
+			.run(JSON.stringify(metadata), SUBJECT);
+		const ctx = externalContext(SUBJECT, SUBJECT_SESSION, "unused");
+		ctx.env = {
+			ENVIRONMENT: "test",
+			DESCOPE_PROJECT_ID: "Ptest",
+			DESCOPE_MANAGEMENT_KEY: "fixture-key",
+			SECRETS_MASTER_KEY: "fixture-only-secret",
+		} as CloudflareEnv;
+		vi.spyOn(ctx.db.query.apps, "findFirst").mockResolvedValue({
+			metadata: { mcpConfig: { descopeResourceId: "resource" } },
+		} as never);
+		vi.mocked(loadDescopeMcpServer).mockResolvedValue({
+			approvedScopes: { connectionsScopes: [{ name: "mcp:work.read" }] },
+		} as never);
+		const expiresAt = Math.floor(Date.now() / 1000) + 120;
+		const accessToken = `${btoa(JSON.stringify({ alg: "RS256" }))}.${btoa(
+			JSON.stringify({
+				scope: "mcp:work.read",
+				exp: expiresAt,
+				iss: "Ptest",
+			}),
+		)}.fixture-signature`;
+		const grant = await issueExternalAgentWorkloadGrant({
+			organizationId: ORG,
+			principalId: SUBJECT,
+			sessionId: SUBJECT_SESSION,
+			exchangeId: "exchange-1",
+			scopes: ["mcp:work.read"],
+			expiresAt: Math.floor(Date.now() / 1000) + 60,
+			secret: ctx.env.SECRETS_MASTER_KEY,
+			federation: {
+				accessToken,
+				clientId: config.clientId,
+				resource,
+				expiresAt,
+			},
+		});
+		ctx.headers.set("X-Tedix-External-Agent-Workload-Grant", grant);
+		const client = createRouterClient(externalAgentIdentityContractRouter, {
+			context: ctx,
+		});
+		return { client, ctx, accessToken };
+	}
+	it("publishes a session-bound bearer without creating a client or taking a lease", async () => {
+		vi.mocked(createDescopeMcpServerClient).mockClear();
+		const { client, accessToken } = await fixture();
+		const result = await client.issueMcpCredential({
+			organizationId: ORG,
+			principalId: SUBJECT,
+			sessionId: SUBJECT_SESSION,
+			scopes: ["mcp:work.read"],
+			mcpServerUrl: resource,
+		});
+		expect(result.accessToken).toBe(accessToken);
+		expect(result.clientRecordId).toBe(
+			await federatedWorkloadCredentialId(accessToken),
+		);
+		expect(createDescopeMcpServerClient).not.toHaveBeenCalled();
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM external_agent_mcp_issuance_leases")
+				.get(),
+		).toEqual({ n: 0 });
+		const resolved = await client.resolveFederatedSessionAuth({
+			clientRecordId: result.clientRecordId,
+			mcpServerId: "resource",
+			clientId: config.clientId,
+		});
+		expect(resolved.session.id).toBe(SUBJECT_SESSION);
+		await expect(
+			client.resolveFederatedSessionAuth({
+				clientRecordId: result.clientRecordId,
+				mcpServerId: "wrong-resource",
+				clientId: config.clientId,
+			}),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		await expect(
+			client.resolveFederatedSessionAuth({
+				clientRecordId: result.clientRecordId,
+				mcpServerId: "resource",
+				clientId: "wrong-client",
+			}),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		sqlite
+			.prepare(
+				"UPDATE external_agent_sessions SET status = 'ended' WHERE id = ?",
+			)
+			.run(SUBJECT_SESSION);
+		await expect(
+			client.resolveFederatedSessionAuth({
+				clientRecordId: result.clientRecordId,
+				mcpServerId: "resource",
+				clientId: config.clientId,
+			}),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+	});
+	it("revokes only the bearer ledger entry, leaving the shared client intact", async () => {
+		const { client, ctx } = await fixture();
+		const result = await client.issueMcpCredential({
+			organizationId: ORG,
+			principalId: SUBJECT,
+			sessionId: SUBJECT_SESSION,
+			scopes: ["mcp:work.read"],
+			mcpServerUrl: resource,
+		});
+		const otherCredentialId = await federatedWorkloadCredentialId(
+			"other-session-token",
+		);
+		sqlite
+			.prepare(
+				"UPDATE external_agent_principals SET credential_binding_type = 'github_actions_oidc', metadata = (SELECT metadata FROM external_agent_principals WHERE id = ?) WHERE id = ?",
+			)
+			.run(SUBJECT, REVIEWER);
+		sqlite
+			.prepare(
+				"UPDATE external_agent_mcp_credentials SET client_record_id = ? WHERE session_id = ?",
+			)
+			.run(otherCredentialId, REVIEWER_SESSION);
+		ctx.headers.set(
+			"X-Tedix-External-Agent-Client-Record-Id",
+			result.clientRecordId,
+		);
+		vi.mocked(deleteDescopeMcpServerClient).mockClear();
+		await client.revokeMcpCredential({
+			organizationId: ORG,
+			principalId: SUBJECT,
+			sessionId: SUBJECT_SESSION,
+			clientRecordId: result.clientRecordId,
+		});
+		expect(deleteDescopeMcpServerClient).not.toHaveBeenCalled();
+		const other = await client.resolveFederatedSessionAuth({
+			clientRecordId: otherCredentialId,
+			mcpServerId: "resource",
+			clientId: config.clientId,
+		});
+		expect(other.session.id).toBe(REVIEWER_SESSION);
+		await expect(
+			client.resolveFederatedSessionAuth({
+				clientRecordId: result.clientRecordId,
+				mcpServerId: "resource",
+				clientId: config.clientId,
+			}),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+	});
+	it.each([
+		"UPDATE external_agent_principals SET status = 'suspended' WHERE id = ?",
+		"UPDATE external_agent_principals SET metadata = '{}' WHERE id = ?",
+	])(
+		"rejects a credential when live principal authority changes: %s",
+		async (sql) => {
+			const { client } = await fixture();
+			const issued = await client.issueMcpCredential({
+				organizationId: ORG,
+				principalId: SUBJECT,
+				sessionId: SUBJECT_SESSION,
+				scopes: ["mcp:work.read"],
+				mcpServerUrl: resource,
+			});
+			sqlite.prepare(sql).run(SUBJECT);
+			await expect(
+				client.resolveFederatedSessionAuth({
+					clientRecordId: issued.clientRecordId,
+					mcpServerId: "resource",
+					clientId: config.clientId,
+				}),
+			).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		},
+	);
+	it("requires the trusted edge to resolve bearer hashes", async () => {
+		const { ctx } = await fixture();
+		ctx.authType = "user";
+		ctx.user = { sub: "owner" } as never;
+		ctx.headers = new Headers();
+		const client = createRouterClient(externalAgentIdentityContractRouter, {
+			context: ctx,
+		});
+		await expect(
+			client.resolveFederatedSessionAuth({
+				clientRecordId: `wif:${"a".repeat(64)}`,
+				mcpServerId: "resource",
+				clientId: config.clientId,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 });

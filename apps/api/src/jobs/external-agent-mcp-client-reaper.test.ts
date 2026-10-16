@@ -106,3 +106,21 @@ describe("external-agent MCP client reaper", () => {
 		expect(result).toEqual({ candidates: 0, deleted: 0, revoked: 0 });
 	});
 });
+
+it("expires federated ledger entries without deleting the shared Descope client", async () => {
+	const id = `wif:${"a".repeat(64)}`;
+	listReapable.mockResolvedValue([
+		{ clientRecordId: id, mcpServerId: "resource" },
+	]);
+	markReaped.mockResolvedValue(1);
+	const result = await runExternalAgentMcpClientReaperTick(
+		env,
+		"federated-cleanup",
+	);
+	expect(deleteClients).not.toHaveBeenCalled();
+	expect(markReaped).toHaveBeenCalledWith(expect.anything(), {
+		clientRecordIds: [id],
+		revokedAt: expect.any(String),
+	});
+	expect(result).toMatchObject({ candidates: 1, deleted: 0, revoked: 1 });
+});

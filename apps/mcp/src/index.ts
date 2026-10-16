@@ -5828,6 +5828,12 @@ const worker = {
 								jwtPayload,
 								mcpServerId,
 								{
+									bearerToken:
+										request.headers
+											.get("Authorization")
+											?.match(/^Bearer\s+(.+)$/i)?.[1] ??
+										request.headers.get("X-API-Key") ??
+										undefined,
 									// Defense in depth (audit CC-2): bound a tedi client's
 									// baked registration scopes to its current live D1
 									// capability profile at request time, so a stale-broad

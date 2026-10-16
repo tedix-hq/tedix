@@ -68,7 +68,13 @@ export async function runExternalAgentMcpClientReaperTick(
 
 	// Descope's batch delete is per-server, so group the expired ids by server.
 	const idsByServer = new Map<string, string[]>();
+	const expiredFederatedIds: string[] = [];
 	for (const row of reapable) {
+		// Federated credentials own no remote client; only expire the local ledger.
+		if (row.clientRecordId.startsWith("wif:")) {
+			expiredFederatedIds.push(row.clientRecordId);
+			continue;
+		}
 		const ids = idsByServer.get(row.mcpServerId) ?? [];
 		ids.push(row.clientRecordId);
 		idsByServer.set(row.mcpServerId, ids);
@@ -97,7 +103,7 @@ export async function runExternalAgentMcpClientReaperTick(
 	}
 
 	const revoked = await markExternalAgentMcpCredentialsReaped(db, {
-		clientRecordIds: deletedClientRecordIds,
+		clientRecordIds: [...deletedClientRecordIds, ...expiredFederatedIds],
 		revokedAt: nowIso,
 	});
 

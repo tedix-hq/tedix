@@ -24,6 +24,7 @@ import {
 } from "@tedix/auth/jwt";
 import { type AuthPrincipal, internalPrincipal } from "@tedix/auth/principal";
 import { hasResourceAudience } from "@tedix/auth/resource-audience";
+import { federatedWorkloadCredentialId } from "@tedix/auth/workload-identity";
 import {
 	DESCOPE_MANAGEMENT_BASE_URL,
 	extractJwtScopes,
@@ -270,6 +271,8 @@ export function resolveMcpTokenValidationAudience(options: {
 		return options.expectedAudience;
 	}
 	const payload = decodeTokenUnsafe(options.token);
+	if (payload?.tedixWorkloadFederation === true)
+		return options.expectedAudience;
 	const legacyIssuerPrefix = `${DESCOPE_MANAGEMENT_BASE_URL}/v1/apps/agentic/${options.projectId}/`;
 	const legacyIssuer =
 		typeof payload?.iss === "string" &&
@@ -592,6 +595,8 @@ export function invalidateAihM2mClientScopeCache(filter?: {
 }
 
 export interface ResolveAihM2mClientScopeOptions {
+	/** The exact bearer already authenticated by validateAuth. Never cached. */
+	bearerToken?: string;
 	/**
 	 * Resolve a tedi's current live D1 capability-profile scopes at request time.
 	 * When supplied and the matched client is a tedi client, the returned
@@ -624,6 +629,43 @@ export async function resolveAihM2mClientScopeContext(
 ): Promise<AihM2mClientScopeContext | null> {
 	if (!env.DESCOPE_PROJECT_ID || !env.API_SERVICE || !mcpServerId) {
 		return null;
+	}
+
+	if (payload.tedixWorkloadFederation === true) {
+		const clientId =
+			getPayloadString(payload, "azp") ??
+			getPayloadString(payload, "client_id");
+		if (!options?.bearerToken || !clientId)
+			throw new Error("Missing federated bearer binding");
+		const clientRecordId = await federatedWorkloadCredentialId(
+			options.bearerToken,
+		);
+		const resolved = await callRpc<{
+			principal: { id: string; organizationId: string };
+			session: { id: string };
+			allowedScopes: string[];
+		}>(
+			"externalAgentIdentity/resolveFederatedSessionAuth",
+			{ clientRecordId, mcpServerId, clientId },
+			{
+				apiUrl: "https://api",
+				fetch: serviceBindingFetch(env.API_SERVICE),
+				headers: { "X-Service-Binding": "true" },
+			},
+		);
+		return {
+			clientId,
+			clientRecordId,
+			tags: [],
+			scopes: extractJwtScopes(payload as JWTPayload).filter((scope) =>
+				resolved.allowedScopes.includes(scope),
+			),
+			externalAgent: {
+				organizationId: resolved.principal.organizationId,
+				principalId: resolved.principal.id,
+				sessionId: resolved.session.id,
+			},
+		};
 	}
 
 	if (!shouldAttemptAihM2mScopeHydration(payload)) {
