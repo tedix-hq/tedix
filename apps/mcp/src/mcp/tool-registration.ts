@@ -156,6 +156,7 @@ import {
 import {
 	jsonSchemaToInputSchema,
 	jsonSchemaToOutputSchema,
+	projectNativeOutputEvidence,
 	jsonSchemaToToolInputSchema,
 	type ToolInputStandardSchema,
 } from "./utils/schema";
@@ -536,7 +537,7 @@ export async function registerTextOnlyTool(
 		const settlement = await settleToolPayment(agent, payment.settlement);
 		if (!settlement.settled) return settlement.result;
 		return attachPaymentResponseMeta(
-			result,
+			projectNativeOutputEvidence(result, tool.outputSchema),
 			settlement.paymentResponse ?? payment.paymentResponse,
 		);
 	};
@@ -622,9 +623,7 @@ export async function registerDynamicTool(
 			// Text-only tool
 			const inputSchema = buildToolInputSchema(tool);
 			const textAnn = resolveWireAnnotations(tool);
-			const textOutputSchema = jsonSchemaToOutputSchema(tool.outputSchema, {
-				withActionEvidence: true,
-			});
+			const textOutputSchema = jsonSchemaToOutputSchema(tool.outputSchema);
 			await registerTextOnlyTool(
 				agent,
 				tool,
@@ -645,9 +644,7 @@ export async function registerDynamicTool(
 
 	// Convert schemas
 	const inputSchema = buildToolInputSchema(tool);
-	const outputSchema = jsonSchemaToOutputSchema(tool.outputSchema, {
-		withActionEvidence: true,
-	});
+	const outputSchema = jsonSchemaToOutputSchema(tool.outputSchema);
 
 	const adapterScope = parseAdapterScope(tool.adapterScope);
 	const annotations = resolveWireAnnotations(tool);
@@ -727,10 +724,13 @@ export async function registerDynamicTool(
 			if (approvalFailure) return approvalFailure;
 			const executionArgs = stripDestructiveApprovalArgs(tool, args);
 
-			return executeTool(agent, tool, executionArgs, {
-				adapterScope,
-				resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
-			});
+			return projectNativeOutputEvidence(
+				await executeTool(agent, tool, executionArgs, {
+					adapterScope,
+					resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
+				}),
+				tool.outputSchema,
+			);
 		},
 		buildCsp: async (t) => agent.buildAppCsp(t),
 		fetchHtml: async (route, description, hostType) => {
