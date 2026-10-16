@@ -2246,6 +2246,8 @@ export async function insertKernelRuntimeEventWithStatus(
 
 /** Input of {@link persistKernelTurnSettlement}. */
 export interface KernelTurnSettlementInput {
+	/** Hold the derived index after settlement; await it when no holder exists. */
+	holdAfterSettle?: (work: Promise<void>) => void;
 	approvalReceipt?: import("@tedix/db/queries/approval-simulations").RecordApprovalExecutionReceiptParams;
 	run: TransitionKernelRuntimeRunStatusParams;
 	/** `message.completed` first, the terminal receipt second. */
@@ -2258,8 +2260,9 @@ export interface KernelTurnSettlementInput {
 /**
  * Land a turn's terminal run patch, its `message.completed` row and its
  * terminal receipt in one D1 batch (`settleKernelRuntimeTurn`), then run the
- * conversation-index write-through for each freshly inserted row in stream
- * order. Same durability and idempotency as three sequential
+ * conversation-index write-through for each freshly inserted row, held after
+ * settlement when the caller supplies a holder. Same durability and
+ * idempotency as three sequential
  * {@link insertKernelRuntimeEvent} / `transitionKernelRuntimeRunStatus`
  * calls, with one primary round trip instead of three.
  */
@@ -2284,16 +2287,19 @@ export async function persistKernelTurnSettlement(
 			ErrorCodes.INTERNAL_SERVER_ERROR,
 			"kernel turn settlement batch returned fewer events than it wrote",
 		);
-	// Two independent conversation-index write-throughs; serial they were
-	// two D1 round trips on the answer's response path.
-	const [assistantEvent, terminalEvent] = await Promise.all([
-		finishPersistedKernelRuntimeEvent(context, assistant),
-		finishPersistedKernelRuntimeEvent(context, terminal),
-	]);
+	// The canonical transcript and receipt are durable. Keep the rebuildable
+	// conversation index alive without making the final answer wait for it.
+	const projection = Promise.all(
+		[assistant, terminal]
+			.filter((event) => event.inserted)
+			.map((event) => applyKernelConversationEvent(context.db, event.row)),
+	).then(() => undefined);
+	if (input.holdAfterSettle) input.holdAfterSettle(projection);
+	else await projection;
 	return {
 		runTransitioned: settled.runTransitioned,
-		assistantEvent: assistantEvent.event,
-		terminalEvent: terminalEvent.event,
+		assistantEvent: normalizeHomeEvent(assistant.row),
+		terminalEvent: normalizeHomeEvent(terminal.row),
 	};
 }
 

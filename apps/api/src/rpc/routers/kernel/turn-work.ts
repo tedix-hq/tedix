@@ -267,6 +267,7 @@ export interface KernelTurnWorkDeps {
 	 * and {@link insertKernelRuntimeEvent}, which is what tests stub.
 	 */
 	persistTurnSettlement?: (input: {
+		holdAfterSettle?: (work: Promise<void>) => void;
 		run: {
 			id: string;
 			organizationId: string;
@@ -3250,6 +3251,7 @@ export async function runKernelTurnWork(
 				runId,
 				conversationId,
 				metadata: mergedTurnRunMetadata,
+				holdAfterSettle: deps.holdAfterSettle,
 			});
 		} catch (error) {
 			console.warn({
@@ -3282,6 +3284,7 @@ export async function runKernelTurnWork(
 		terminalEvent = writeAutoResolveResult.terminalEvent;
 	} else if (deps.persistTurnSettlement) {
 		const persisted = await deps.persistTurnSettlement({
+			holdAfterSettle: deps.holdAfterSettle,
 			run: runTransition,
 			events: [assistantEventInput, terminalEventInput],
 		});

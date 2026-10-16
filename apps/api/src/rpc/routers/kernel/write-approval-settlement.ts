@@ -471,6 +471,7 @@ export async function settleHomeToolWriteApproval(
 		status: "approved" | "rejected" | "cancelled";
 		onSettledMessage?: (event: KernelRuntimeEvent) => void;
 		onSettledTerminal?: (event: KernelRuntimeEvent) => void;
+		holdAfterSettle?: (work: Promise<void>) => void;
 	},
 	admittedMetadata?: Record<string, unknown>,
 ): Promise<"succeeded" | "failed" | "closed" | "unknown" | "not_applicable"> {
@@ -759,6 +760,7 @@ export async function settleHomeToolWriteApproval(
 			...(kernelWriteExecutionId ? { kernelWriteExecutionId } : {}),
 		};
 		const settled = await persistKernelTurnSettlement(context, {
+			holdAfterSettle: input.holdAfterSettle,
 			approvalReceipt: admittedMetadata ? approvalReceipt : undefined,
 			run: {
 				id: payload.homeRunId,
@@ -831,6 +833,7 @@ export async function settleHomeToolWriteApproval(
 }
 
 export interface DirectKernelWriteInput {
+	holdAfterSettle?: (work: Promise<void>) => void;
 	approval: CreateApprovalRequestParams;
 	requestedAudit: InsertAuditEventParams;
 	decision: KernelWriteApprovalDecision;
@@ -901,6 +904,7 @@ export async function executeDirectKernelWrite(
 				resolution: input.decision.reason.slice(0, 200),
 			},
 			status: "approved",
+			holdAfterSettle: input.holdAfterSettle,
 			onSettledMessage: (event) => {
 				assistantEvent = event;
 			},
