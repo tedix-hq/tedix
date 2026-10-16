@@ -457,14 +457,49 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	const before = await revision();
 	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
 	expect(await revision()).toBe(before);
+	await stub.query(
+		"CREATE TABLE _emdash_404_log (id INTEGER PRIMARY KEY, hits INTEGER)",
+	);
+	await stub.queryWithRestorePermit(
+		identity,
+		'INSERT INTO "_emdash_404_log" (id, hits) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET hits = hits + 1',
+	);
+	expect(await revision()).toBe(before);
+	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: "UPDATE _emdash_404_log SET hits = hits + 1 WHERE id = 1" },
+	]);
+	expect(await revision()).toBe(before);
+	await stub.query(
+		"CREATE TABLE options (name TEXT PRIMARY KEY, value TEXT, revision TEXT)",
+	);
+	const optionUpsert =
+		'insert into "options" ("name", "value", "revision") values (?, ?, ?) on conflict ("name") do update set "value" = ?, "revision" = ?';
+	await stub.queryWithRestorePermit(identity, optionUpsert, [
+		"system:scheduler:last_completed_at",
+		'"now"',
+		"r1",
+		'"now"',
+		"r1",
+	]);
+	expect(await revision()).toBe(before);
+	await stub.queryWithRestorePermit(identity, optionUpsert, [
+		"site:title",
+		'"New title"',
+		"r2",
+		'"New title"',
+		"r2",
+	]);
+	const afterSettings = await revision();
+	expect(afterSettings).not.toBe(before);
 	await stub.queryWithRestorePermit(
 		identity,
 		"INSERT INTO content (title) VALUES (?)",
 		["Published"],
 	);
 	const published = await revision();
-	expect(published).not.toBe(before);
+	expect(published).not.toBe(afterSettings);
 	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: "UPDATE _emdash_404_log SET hits = hits + 1 WHERE id = 1" },
 		{ sql: "UPDATE content SET title = ?", params: ["Republished"] },
 	]);
 	expect(await revision()).not.toBe(published);

@@ -243,16 +243,36 @@ export class EmDashDB extends EmdashSqlDB {
 
 	private async withPageCacheInvalidation<T>(
 		identity: CmsRestoreFenceIdentity,
-		statements: string[],
+		statements: DoQueryStatement[],
 		run: () => Promise<T>,
 	): Promise<T> {
 		try {
 			return await run();
 		} finally {
 			if (
-				statements.some(
-					(sql) => !PLAIN_SELECT_PATTERN.test(sql) || sql.includes(";"),
-				)
+				statements.some(({ sql, params }) => {
+					if (sql.includes(";")) return true;
+					if (PLAIN_SELECT_PATTERN.test(sql)) return false;
+					// Error accounting and the native scheduler heartbeat do not alter public content.
+					if (
+						TENANT_DB_PRIMARY_TABLE_PATTERN.exec(sql)?.[1]?.toLowerCase() ===
+						"_emdash_404_log"
+					)
+						return false;
+					if (
+						params?.length === 5 &&
+						params[0] === "system:scheduler:last_completed_at" &&
+						sql
+							.replaceAll('"', "")
+							.replaceAll("`", "")
+							.replace(/\s+/g, " ")
+							.trim()
+							.toLowerCase() ===
+							"insert into options (name, value, revision) values (?, ?, ?) on conflict (name) do update set value = ?, revision = ?"
+					)
+						return false;
+					return true;
+				})
 			) {
 				await rotateCmsSitePageCacheRevision(
 					createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
@@ -301,7 +321,7 @@ export class EmDashDB extends EmdashSqlDB {
 		if (primary)
 			return await primary.queryWithRestorePermit(identity, sql, params, opts);
 		return await this.withDatabasePermit(identity, () =>
-			this.withPageCacheInvalidation(identity, [sql], () =>
+			this.withPageCacheInvalidation(identity, [{ sql, params }], () =>
 				super.query(sql, params, opts),
 			),
 		);
@@ -322,10 +342,8 @@ export class EmDashDB extends EmdashSqlDB {
 				opts,
 			);
 		return await this.withDatabasePermit(identity, () =>
-			this.withPageCacheInvalidation(
-				identity,
-				statements.map((statement) => statement.sql),
-				() => super.batchQuery(statements, opts),
+			this.withPageCacheInvalidation(identity, statements, () =>
+				super.batchQuery(statements, opts),
 			),
 		);
 	}
