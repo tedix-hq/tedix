@@ -1895,6 +1895,33 @@ export function runSetPollInterval(input: {
 	});
 }
 
+export type FirstSendInFlight = {
+	/** The id this thread minted; the server creates the conversation under it. */
+	conversationId: string;
+	idempotencyKey: string;
+};
+
+/** Fast enough to read as immediate, bounded to a few reads per new thread. */
+export const FIRST_SEND_CONFIRM_POLL_MS = 1000;
+
+/**
+ * A new thread has no stream until its enqueue answers, and that answer waits
+ * for the turn (up to the server's 25 s soft deadline). The kernel persists the
+ * user row before it runs, so reading the transcript under the minted id shows
+ * the turn as sent within a poll or two. Polling stops once the row is there;
+ * the conversation id is attached when the enqueue answers.
+ */
+export function firstSendConfirmPollMs(
+	firstSend: FirstSendInFlight | null,
+	messages: ReadonlyArray<{ id: string }> | undefined,
+): number | false {
+	if (firstSend === null) return false;
+	const durableId = provisionalSendMessageId(firstSend.idempotencyKey);
+	return messages?.some((message) => message.id === durableId)
+		? false
+		: FIRST_SEND_CONFIRM_POLL_MS;
+}
+
 export function shouldPollTranscript(input: {
 	isActive: boolean;
 	pendingRun: boolean;
@@ -2226,6 +2253,11 @@ export function ChatThread({
 	const [loadEarlierError, setLoadEarlierError] = useState<string | null>(null);
 
 	const [pendingRunId, setPendingRunId] = useState<string | null>(null);
+	// A brand-new thread's first send, while its enqueue is in flight. See
+	// `firstSendConfirmPollMs`: the transcript is read under the minted id so
+	// the turn shows as sent once its durable row exists, not at the response.
+	const [firstSendInFlight, setFirstSendInFlight] =
+		useState<FirstSendInFlight | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [sendError, setSendError] = useState<string | null>(null);
 	const [sendErrorUnknown, setSendErrorUnknown] = useState(false);
@@ -2354,6 +2386,7 @@ export function ChatThread({
 		setPinnedToBottom(true);
 		prependAnchorRef.current = null;
 		idempotencyKeyRef.current = null;
+		setFirstSendInFlight(null);
 		setMessages([]);
 		setOlderCursor(null);
 		setLoadEarlierError(null);
@@ -2651,18 +2684,33 @@ export function ChatThread({
 		},
 	});
 
+	const transcriptConversationId =
+		conversationId ?? firstSendInFlight?.conversationId ?? null;
 	const transcript = useQuery({
-		...homeMessagesQueryOptions(conversationId ?? "", MESSAGES_PAGE_LIMIT),
-		enabled: conversationId !== null,
+		...homeMessagesQueryOptions(
+			transcriptConversationId ?? "",
+			MESSAGES_PAGE_LIMIT,
+		),
+		enabled: transcriptConversationId !== null,
+		// Until the first turn's row exists the read is refused or empty; the
+		// next poll is the retry.
+		...(conversationId === null ? { retry: false } : {}),
 		// While a run is live, refresh the newest slice so streaming/completed
 		// assistant rows land; the id-keyed merge makes re-delivery a no-op.
-		refetchInterval: shouldPollTranscript({
-			isActive,
-			pendingRun: pendingRunId !== null,
-			realtimeDegraded,
-		})
-			? RUN_POLL_INTERVAL_MS
-			: false,
+		refetchInterval:
+			conversationId === null
+				? (query) =>
+						firstSendConfirmPollMs(
+							firstSendInFlight,
+							query.state.data?.messages,
+						)
+				: shouldPollTranscript({
+							isActive,
+							pendingRun: pendingRunId !== null,
+							realtimeDegraded,
+					  })
+					? RUN_POLL_INTERVAL_MS
+					: false,
 	});
 
 	// Merge each newest-page fetch into the cache. Only the first page of a
@@ -2916,7 +2964,15 @@ export function ChatThread({
 			});
 			setDraft(variables.draftContent);
 		},
+		onMutate: (variables) => {
+			if (conversationId !== null) return;
+			setFirstSendInFlight({
+				conversationId: variables.conversationId,
+				idempotencyKey: variables.idempotencyKey,
+			});
+		},
 		onSettled: () => {
+			setFirstSendInFlight(null);
 			// The composer is readOnly (never disabled) while sending, so focus is
 			// normally retained — this refocus covers the cases where a transcript
 			// data load or an error banner stole it mid-send.
@@ -3282,7 +3338,12 @@ export function ChatThread({
 		if (skillTrigger === null) setSkillPickerDismissed(false);
 	}, [skillTrigger]);
 
-	const showRunning = pendingRunId !== null || isActive;
+	// A first turn whose durable row has landed is sent; until the enqueue
+	// answers, the only progress this thread can show is that it is working.
+	const firstSendRunning =
+		firstSendInFlight !== null &&
+		!provisional.has(firstSendInFlight.idempotencyKey);
+	const showRunning = pendingRunId !== null || isActive || firstSendRunning;
 	const pendingRun = controllableRun(runSet, pendingRunId);
 	const provisionalSends = listProvisionalSends(
 		provisional,
@@ -3436,7 +3497,9 @@ export function ChatThread({
 									<Skeleton className="h-14 w-2/3" />
 								</div>
 							) : null}
-							{transcript.isError && messages.length === 0 ? (
+							{conversationId !== null &&
+							transcript.isError &&
+							messages.length === 0 ? (
 								<Alert variant="destructive">
 									<AlertTitle>The transcript is unavailable</AlertTitle>
 									<AlertDescription>
