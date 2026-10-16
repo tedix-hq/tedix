@@ -65,7 +65,7 @@ export const REQUEST_REFLECTOR_SYSTEM_PROMPT = `You keep a ledger of a person's 
 
 1. Say which OPEN ROWS the turn moved, in "updates":
 - "in_progress": the turn worked on the row but did not finish it.
-- "done": the turn finished the row. Give "evidence": a commit SHA, a URL, or a SHORT EXACT QUOTE copied from the TURN or ACTIVITY that shows it finished (for a question, the quote that answers it; for an open loop, the quote of the report that came back). No evidence, not done.
+- "done": the turn finished the row. Give "evidence": a commit SHA, a URL, or a SHORT EXACT QUOTE copied from the TURN or ACTIVITY that shows it finished (for a question, the quote that answers it; for an open loop, the quote of the report that came back). No evidence, not done. A question the turn answers, an explanation it gives, a choice it confirms, or a request it reports finished IS done: quote the sentence that answers or reports it. Check every OPEN ROW against the turn; most turns finish at least the latest message's rows.
 - "waiting_on_user": the turn needs something from the person to continue (a decision, an approval, a credential, a click).
 - "dropped_risk": the turn claims the work is complete, or moves on, while this row was clearly not done, or the turn promised to do it later without doing it.
 Only list rows the turn actually touched. Never mark done from topic drift or a plan. Copy the ref exactly.
@@ -227,7 +227,15 @@ export function acceptedDoneEvidence(
 	if (url && haystack.includes(url.toLowerCase().replace(/[.,;:]+$/, "")))
 		return text;
 	const quote = squash(text.replace(/^…|…$/g, ""));
-	return quote.length >= 12 && haystack.includes(quote) ? text : null;
+	if (quote.length >= 12 && haystack.includes(quote)) return text;
+	// A lightly trimmed quote still counts: at least four of its words, and
+	// nearly all of them, appear in the turn.
+	const words = quote.split(/[^a-z0-9]+/).filter((word) => word.length >= 3);
+	const present = new Set(haystack.split(/[^a-z0-9]+/));
+	const found = words.filter((word) => present.has(word)).length;
+	return words.length >= 4 && found >= Math.ceil(words.length * 0.85)
+		? text
+		: null;
 }
 
 /**
