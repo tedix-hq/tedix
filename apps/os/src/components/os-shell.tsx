@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
 import { buildAccountProfileUrl } from "@/shared/account-profile-routing";
 import {
 	isOsShellNavigationItemActive,
+	OS_SHELL_FOOTER_NAVIGATION,
 	OS_SHELL_NAVIGATION_SECTIONS,
 	OS_SHELL_PRIMARY_NAVIGATION,
 	type OsShellNavigationItem,
@@ -183,6 +184,15 @@ function OsSidebar({
 
 			<SidebarFooter className="h-auto flex-col gap-1.5 py-2.5 group-data-[state=collapsed]/sidebar:px-2">
 				<OsSidebarBillingStatus />
+				<SidebarMenu aria-label="Setup" className="w-full">
+					{OS_SHELL_FOOTER_NAVIGATION.map((item) => (
+						<SidebarNavigationItem
+							item={item}
+							key={item.id}
+							pathname={pathname}
+						/>
+					))}
+				</SidebarMenu>
 				<SidebarMenu aria-label="Organization" className="w-full">
 					<SidebarMenuButton
 						href="/admin"

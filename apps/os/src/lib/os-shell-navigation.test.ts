@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	isOsShellNavigationItemActive,
+	OS_SHELL_FOOTER_NAVIGATION,
 	OS_SHELL_NAVIGATION_SECTIONS,
 	OS_SHELL_PRIMARY_NAVIGATION,
 	resolveOsShellRouteContext,
@@ -9,6 +10,7 @@ import {
 const OS_SHELL_ALL_NAVIGATION = [
 	...OS_SHELL_PRIMARY_NAVIGATION,
 	...OS_SHELL_NAVIGATION_SECTIONS.flatMap((section) => section.items),
+	...OS_SHELL_FOOTER_NAVIGATION,
 ];
 
 describe("OS shell navigation", () => {
@@ -21,7 +23,6 @@ describe("OS shell navigation", () => {
 			"chat",
 			"workspaces",
 			"outputs",
-			"install",
 			"team",
 			"skills",
 			"gateways",
@@ -31,6 +32,7 @@ describe("OS shell navigation", () => {
 			"widget",
 			"audit",
 			"compute",
+			"install",
 		]);
 	});
 

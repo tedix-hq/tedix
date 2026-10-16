@@ -14,6 +14,9 @@ import {
 	workItemEvidenceQueryOptions,
 	workItemEventsQueryOptions,
 	workItemReadinessQueryOptions,
+	membersListQueryOptions,
+	tediRosterQueryOptions,
+	workExternalPrincipalsQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	EvidenceReference,
@@ -39,10 +42,28 @@ import {
 	WorkCompletedPage,
 	workAttemptSessionLabel,
 	WorkItemsTable,
+	workOwnerName,
+	workOwnerTitle,
 	workEventActorLabel,
 	evidenceTrustLabel,
 } from "./work-factory-pages";
 import { workPrincipalLabel } from "@/lib/work-display";
+
+/** Seeds the accountable-name reads so a mounted page never reaches the network. */
+function seedPrincipalNames(client: QueryClient, orgId: string) {
+	client.setQueryData<unknown>(tediRosterQueryOptions(100).queryKey, {
+		data: [],
+	});
+	client.setQueryData<unknown>(
+		membersListQueryOptions({ organizationId: orgId, limit: 100, offset: 0 })
+			.queryKey,
+		{ data: [] },
+	);
+	client.setQueryData<unknown>(
+		workExternalPrincipalsQueryOptions(orgId).queryKey,
+		[],
+	);
+}
 
 const ITEM_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -165,9 +186,34 @@ describe("Work factory queue", () => {
 			"flex min-h-7 min-w-0 items-center gap-2 overflow-hidden",
 		);
 		expect(html).toContain("py-2! whitespace-normal");
-		expect(html).toContain('title="owner-1"');
 		expect(html).toContain('title="Accountable: owner-1"');
 		expect(html).toContain("hidden truncate py-2! xl:table-cell");
+	});
+
+	it("names the accountable owner and keeps the id in the tooltip", () => {
+		const names = new Map([["user:owner-1", "Mira Okafor"]]);
+		const html = renderToStaticMarkup(
+			<WorkItemsTable items={[item]} principalNames={names} />,
+		);
+		expect(html).toContain(">Mira Okafor<");
+		expect(html).toContain('title="Accountable: Mira Okafor (owner-1)"');
+		expect(workOwnerName("tedi", "t-1", new Map([["tedi:t-1", "Sana"]]))).toBe(
+			"Sana",
+		);
+		expect(workOwnerName(null, "owner-1", names)).toBe("Mira Okafor");
+		expect(workOwnerName("user", null)).toBe("Unassigned");
+		expect(workOwnerTitle("user", "owner-1")).toBe("Accountable: owner-1");
+	});
+
+	it("reveals the short row id only on hover or focus", () => {
+		const html = renderToStaticMarkup(<WorkItemsTable items={[item]} />);
+		expect(html.match(/data-row-id/g)).toHaveLength(2);
+		expect(html).toContain(
+			"opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100",
+		);
+		expect(html).toContain(
+			"hidden group-focus-within:inline group-hover:inline",
+		);
 	});
 
 	it("shortens opaque accountable UUIDs without abbreviating human labels", () => {
@@ -892,6 +938,7 @@ describe("Recorded Work outcomes and activity", () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 		});
+		seedPrincipalNames(queryClient, item.orgId);
 		queryClient.setQueryData(workItemDetailQueryOptions(item.id).queryKey, {
 			workItem: { ...item, disposition: "completed" },
 			project: null,

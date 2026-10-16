@@ -378,11 +378,11 @@ describe("WorkPortfolioPage", () => {
 		expect(
 			digest?.querySelector('a[href="/outputs/output-brief"]')?.textContent,
 		).toBe("Weekly brief");
-		expect(digest?.textContent).not.toContain("Running but idle");
+		expect(digest?.textContent).not.toContain("Idle");
 		const crm = doc.querySelector(
 			'[aria-label="No tedi factories"] [data-factory="blueprint:bp-crm"]',
 		);
-		expect(crm?.textContent).toContain("Running but idle");
+		expect(crm?.textContent).toContain("Idle");
 		expect(crm?.textContent).toContain("No results in the last 30 days");
 		expect(crm?.querySelector('a[href="/blueprints"]')).not.toBeNull();
 	});
@@ -454,7 +454,7 @@ describe("WorkPortfolioPage", () => {
 		);
 		const ok = doc.querySelector('[data-factory="skill_loop:skill-ok"]');
 		expect(ok?.textContent).toContain("Healthy");
-		expect(ok?.textContent).not.toContain("Running but idle");
+		expect(ok?.textContent).not.toContain("Idle");
 		const bad = doc.querySelector('[data-factory="skill_loop:skill-bad"]');
 		expect(bad?.textContent).toContain("Failing");
 		expect(bad?.textContent).toContain("Run r2 failed: provider timeout");

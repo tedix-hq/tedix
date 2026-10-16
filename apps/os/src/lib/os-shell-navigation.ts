@@ -12,8 +12,10 @@ export const OS_SHELL_PRIMARY_NAVIGATION = [
 	getOsSurface("chat"),
 	getOsSurface("workspaces"),
 	getOsSurface("outputs"),
-	getOsSurface("install"),
 ] as const;
+
+/** Setup destinations that sit in the sidebar footer, beside settings. */
+export const OS_SHELL_FOOTER_NAVIGATION = [getOsSurface("install")] as const;
 
 export const OS_SHELL_NAVIGATION_SECTIONS = [
 	{

@@ -168,8 +168,13 @@ describe("OS shell chrome", () => {
 		const primary = container.querySelector('[aria-label="Primary"]')!;
 		expect(
 			[...primary.querySelectorAll("a")].map((a) => a.textContent),
-		).toEqual(["Work", "Chat", "Workspaces", "Outputs", "Install Tedix"]);
+		).toEqual(["Work", "Chat", "Workspaces", "Outputs"]);
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
+		const setup = container.querySelector('[aria-label="Setup"]')!;
+		expect(setup.closest('[data-sidebar="footer"]')).not.toBeNull();
+		expect([...setup.querySelectorAll("a")].map((a) => a.textContent)).toEqual([
+			"Install Tedix",
+		]);
 		for (const label of [
 			"Team",
 			"Skills",

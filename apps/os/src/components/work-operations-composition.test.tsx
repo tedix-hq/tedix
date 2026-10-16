@@ -260,7 +260,7 @@ const runtimeApproval = (id: string) => ({
 });
 
 describe("Work approvals", () => {
-	it("keeps ordered runtime decisions separate from Work admission authority", async () => {
+	it("keeps waiting actions separate from approvals to start work", async () => {
 		viewport(false);
 		api.reads["tediApprovals.list"] = {
 			data: Array.from({ length: 26 }, (_, index) =>
