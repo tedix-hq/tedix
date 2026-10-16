@@ -186,7 +186,7 @@ export const kernelRuntimeContract = oc
 				path: "/conversations",
 				summary: "List Tedix Home conversations",
 				description:
-					"Returns org-scoped Home conversation records. Home is a control-plane subject, not a tedi identity.",
+					"Lists or searches the organization's Home conversations (chats) by title. Home is a control-plane subject, not a tedi identity.",
 			})
 			.input(ListHomeConversationsInputSchema)
 			.output(
@@ -202,7 +202,7 @@ export const kernelRuntimeContract = oc
 				path: "/conversations/{conversationId}/rename",
 				summary: "Rename a Tedix Home conversation",
 				description:
-					"Sets the operator-facing title of a Home conversation. Event-sourced: " +
+					"Renames a Home conversation (chat): updates its operator-facing title. Event-sourced: " +
 					"writes a `conversation.updated` kernel runtime event whose title " +
 					"overlays the derived conversation list.",
 			})
@@ -221,7 +221,7 @@ export const kernelRuntimeContract = oc
 				path: "/conversations/{conversationId}/delete",
 				summary: "Permanently delete a Tedix Home conversation",
 				description:
-					"Permanently deletes conversation-owned content. Every active Home run is " +
+					"Permanently deletes a Home conversation (chat) and its conversation-owned content. Every active Home run is " +
 					"canceled first through the canonical parent/child cascade, including " +
 					"delegated and steering child runs. The runtime event ledger, parent run " +
 					"rows, submissions, pending approval/wake state, grants, and model-facing " +
@@ -252,7 +252,7 @@ export const kernelRuntimeContract = oc
 				path: "/conversations/{conversationId}/pin",
 				summary: "Pin or unpin a Tedix Home conversation",
 				description:
-					"Sets the pinned state of a Home conversation. Event-sourced — writes " +
+					"Pins or unpins a Home conversation (chat). Event-sourced — writes " +
 					"a `conversation.updated` kernel runtime event with a `pinned` boolean " +
 					"marker, the same event kind `renameConversation`/`deleteConversation` " +
 					"use. Org-durable and shared across every surface (Tedix OS + CLI), unlike " +
@@ -274,7 +274,7 @@ export const kernelRuntimeContract = oc
 				path: "/conversations/{conversationId}/archive",
 				summary: "Archive or restore a Tedix Home conversation",
 				description:
-					"Sets a clearable archive marker without deleting the immutable runtime ledger. " +
+					"Archives or restores a Home conversation (chat): a clearable archive marker that keeps the immutable runtime ledger. " +
 					"Archived conversations are hidden from ordinary lists and can be restored by " +
 					"sending `archived: false`.",
 			})
