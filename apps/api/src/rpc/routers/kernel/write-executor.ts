@@ -1,3 +1,5 @@
+import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
+
 /**
  * Kernel — approved-write executor (v1).
  *
@@ -55,6 +57,7 @@ import {
 import { errorMessage } from "@tedix/worker-kit/error-message";
 
 export interface WriteExecutorEnv {
+	OS_URL?: string;
 	MCP_SERVICE?: {
 		fetch: (input: string, init?: RequestInit) => Promise<Response>;
 	};
@@ -419,7 +422,49 @@ export async function executeApprovedKernelWrite(args: {
 				: unwrapCallToolResult(result, payload.toolName);
 		const failure = reportedWriteFailure(data);
 		if (failure !== null) return { ok: false, error: boundedError(failure) };
-		return { ok: true, data };
+		const actionReceipt = await verifyAction({
+			operation: payload.toolName,
+			args: payload.args,
+			result: data,
+			actor: payload.initiatedByUserId
+				? `kernel on behalf of user:${payload.initiatedByUserId}`
+				: "kernel",
+			origin: env.OS_URL ?? "",
+			read: async (name, input) => {
+				const readName =
+					transport === "codemode"
+						? `${payload.toolName.split(/\.|__/)[0]}.${name}`
+						: `${payload.toolName.split(/\.|__/)[0]}__${name}`;
+				if (
+					transport === "direct" &&
+					listed.items.find((candidate) => candidate.name === readName)
+						?.annotations?.readOnlyHint !== true
+				)
+					throw new Error("Read-back tool is not verified read-only");
+				const readResult = (await mcpCall(
+					env,
+					host,
+					payload.organizationId,
+					"tools/call",
+					transport === "codemode"
+						? codeModeExecutionParams(readName, input)
+						: { name: readName, arguments: input },
+					payload.initiatedByUserId ?? undefined,
+				)) as ToolCallResult | null;
+				if (!readResult || readResult.isError)
+					throw new Error("Read-back unavailable");
+				return transport === "codemode"
+					? codeModeResultData(readResult)
+					: unwrapCallToolResult(readResult, readName);
+			},
+		});
+		return {
+			ok: true,
+			data:
+				data && typeof data === "object" && !Array.isArray(data)
+					? { ...data, actionReceipt }
+					: { result: data, actionReceipt },
+		};
 	} catch (error) {
 		return { ok: false, error: boundedError(errorMessage(error)) };
 	}

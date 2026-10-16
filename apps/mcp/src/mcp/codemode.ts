@@ -1,4 +1,5 @@
 import { isToolDeniedForConnection } from "./no-funds-policy";
+import type { ActionReceipt } from "@tedix/api-contract/utils/action-receipt";
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -1047,6 +1048,7 @@ interface CodeModeExecutionRefs {
 		operation: string;
 		status: CompletionEvidence["status"];
 		error?: string;
+		actionReceipt?: ActionReceipt;
 	}[];
 	/** Exact inner workflow run identities, retained even if JS returns a summary. */
 	skillWorkflowRunIds: Set<string>;
@@ -1952,10 +1954,26 @@ function buildNamespaceGroups(
 					);
 				}
 			};
-			return isModernMcpRequest(executionRefs.approvalExtra?._meta) ||
-				isSideEffectfulTool(tool.annotations)
+			const result = await (isModernMcpRequest(
+				executionRefs.approvalExtra?._meta,
+			) || isSideEffectfulTool(tool.annotations)
 				? runSerializedSideEffect(executionRefs, runWithEvidence)
-				: runWithEvidence();
+				: runWithEvidence());
+			const actionReceipt = recordFrom(result)?.actionReceipt as
+				| ActionReceipt
+				| undefined;
+			const isWrite =
+				resolveToolAnnotations({
+					annotations: tool.annotations,
+					writeCapability: tool.writeCapability ?? null,
+					meta: tool.meta,
+				})?.readOnlyHint === false;
+			const executionReceipt = executionRefs.toolReceipts.findLast(
+				(receipt) => receipt.operation === ownerKey,
+			);
+			if (executionReceipt && isWrite && actionReceipt)
+				executionReceipt.actionReceipt = actionReceipt;
+			return result;
 		};
 
 		// JSON Schema descriptor for type generation.
@@ -6312,6 +6330,15 @@ export async function registerCodeModeTools(
 					...(resultIdentity ? { resultIdentity } : {}),
 					...(resultProjection ? { resultProjection } : {}),
 					...(executionReceipt ? { completionEvidence: executionReceipt } : {}),
+					...(executionRefs.toolReceipts.some(
+						(receipt) => receipt.actionReceipt,
+					)
+						? {
+								actionReceipts: executionRefs.toolReceipts.flatMap((receipt) =>
+									receipt.actionReceipt ? [receipt.actionReceipt] : [],
+								),
+							}
+						: {}),
 				};
 				if (result.logs?.length) {
 					output.logs = boundCodeModeLogs(result.logs, resultTruncationOptions);
