@@ -107,19 +107,37 @@ const UUID_SOURCE = "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
 const CARD_VERDICT_RE =
 	/^(?:(?:mark|set|rate|record)\s+(?:it|this|that|the)(?:\s+(?:card|one|row))?\s+(?:as\s+)?)?(not\s+useful|useful|done|did\s+it)\b\s*(?:[:,–—-]\s*(.*))?$/i;
 
+/** `**Sheet:** Social cards 2026-10-16 08:15`, `Sheet: "Inbox cards …"`. */
+const SHEET_TITLE_RE =
+	/^\W*sheet\W{0,4}?:\W*["“']?([^"”'\n*]{3,200}?)["”']?\s*$/gim;
+
+export type CardVerdictFollowUp = {
+	outputId: string | null;
+	sheetTitle: string | null;
+	card: string;
+	verdict: string;
+	reason: string;
+};
+
 /**
  * A short verdict on the card the previous answer showed. The card lives in a
- * Tedix sheet whose id that answer cites, so the follow-up is a range write to
- * that sheet's row, never a fresh delegation that has lost the reference.
- * Null unless the previous answer names exactly one card in exactly one output.
+ * Tedix sheet that answer cites by id or by a `Sheet:` title line, so the
+ * follow-up is a range write to that sheet's row, never a fresh delegation
+ * that has lost the reference. Null unless the previous answer names exactly
+ * one card and exactly one sheet.
  */
 export function cardVerdictFollowUp(
 	content: string,
 	previousAnswer: string | null | undefined,
-): { outputId: string; card: string; verdict: string; reason: string } | null {
+): CardVerdictFollowUp | null {
 	const line = content.trim().split("\n", 1)[0]?.replace(LEAD_IN_RE, "") ?? "";
 	const match = CARD_VERDICT_RE.exec(line.trim());
 	if (!match?.[1] || !previousAnswer) return null;
+	const titles = [
+		...new Set(
+			[...previousAnswer.matchAll(SHEET_TITLE_RE)].map((hit) => hit[1]!.trim()),
+		),
+	];
 	const ids = [
 		...new Set(
 			(
@@ -136,9 +154,11 @@ export function cardVerdictFollowUp(
 			),
 		),
 	];
-	if (ids.length !== 1 || cards.length !== 1) return null;
+	if (cards.length !== 1 || ids.length > 1 || titles.length > 1) return null;
+	if (ids.length === 0 && titles.length === 0) return null;
 	return {
-		outputId: ids[0]!,
+		outputId: ids[0] ?? null,
+		sheetTitle: titles[0] ?? null,
 		card: cards[0]!,
 		verdict: match[1].toLowerCase().replace(/\s+/g, " "),
 		reason: (match[2] ?? "").trim(),
@@ -147,7 +167,7 @@ export function cardVerdictFollowUp(
 
 /** The sheet range write for a card verdict follow-up. */
 export function cardVerdictWriteDecision(
-	followUp: ReturnType<typeof cardVerdictFollowUp>,
+	followUp: CardVerdictFollowUp | null,
 	appSlug: string | null,
 ): KernelRouteDecision | null {
 	const decision = explicitOutputWriteDecision(
@@ -157,9 +177,15 @@ export function cardVerdictWriteDecision(
 	);
 	if (!decision || !followUp) return null;
 	const reason = followUp.reason ? ` with reason "${followUp.reason}"` : "";
+	const sheet = [
+		followUp.outputId ? `output ${followUp.outputId}` : null,
+		followUp.sheetTitle ? `titled "${followUp.sheetTitle}"` : null,
+	]
+		.filter(Boolean)
+		.join(", ");
 	return {
 		...decision,
-		rationale: `The previous answer showed card #${followUp.card} of Tedix sheet output ${followUp.outputId}. Record the verdict "${followUp.verdict}"${reason} in that card's row only: write yes or no into its Useful? column (done or did it means its done column = yes) and the reason into its Reason column, leaving other cells unchanged.`,
+		rationale: `The previous answer showed card #${followUp.card} of the Tedix sheet ${sheet}. Record the verdict "${followUp.verdict}"${reason} in that card's row only: write yes or no into its Useful? column (done or did it means its done column = yes) and the reason into its Reason column, leaving other cells unchanged.`,
 		evidenceExpectation: `Card #${followUp.card}'s verdict cells saved in a new sheet revision.`,
 	};
 }

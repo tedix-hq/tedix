@@ -51,6 +51,7 @@ import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import {
 	getOsOutput,
 	getOsOutputRevision,
+	listOsOutputs,
 } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	getOsWorkspace,
@@ -799,6 +800,27 @@ export async function readEditTargetOutput(input: {
 				id !== input.workspaceContext?.workspaceId?.toLowerCase(),
 		)
 		.slice(0, 3);
+	// A follow-up can name its sheet only by title ("titled "Social cards …"");
+	// resolve that against active sheets the member can see, workspace first.
+	if (ids.length === 0) {
+		const title = input.texts
+			.map((text) => text?.match(/\btitled "([^"\n]{1,200})"/)?.[1])
+			.find(Boolean);
+		if (title) {
+			const sheets = await listOsOutputs(
+				input.db,
+				input.organizationId,
+				input.viewer,
+				{ kind: "sheet", status: "active", limit: 200 },
+			).catch(() => []);
+			const named = sheets.filter((row) => row.title.trim() === title.trim());
+			const match =
+				named.find(
+					(row) => row.workspaceId === input.workspaceContext?.workspaceId,
+				) ?? (named.length === 1 ? named[0] : undefined);
+			if (match) ids.push(match.id);
+		}
+	}
 	for (const outputId of ids) {
 		const output = await getOsOutput(input.db, {
 			organizationId: input.organizationId,
