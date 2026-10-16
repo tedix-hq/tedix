@@ -467,6 +467,8 @@ export async function settleHomeToolWriteApproval(
 		approval: typeof tediApprovalRequests.$inferSelect;
 		status: "approved" | "rejected" | "cancelled";
 		onSettledMessage?: (event: KernelRuntimeEvent) => void;
+		/** Must land before the run is claimed (e.g. the approval's audit row). */
+		beforeClaim?: Promise<unknown>;
 	},
 ): Promise<"succeeded" | "failed" | "closed" | "unknown" | "not_applicable"> {
 	// repo_commit_write payloads execute in the tedi DO, never through the MCP
@@ -593,6 +595,8 @@ export async function settleHomeToolWriteApproval(
 			return "closed";
 		}
 
+		// Nothing is claimed or executed before this has landed.
+		await input.beforeClaim;
 		// Approved: claim the run exactly once (requires_approval → running with
 		// the executed-marker). A re-settle or a cancel-race loses this update
 		// and never executes.
@@ -655,6 +659,8 @@ export async function settleHomeToolWriteApproval(
 				sourceKind: "approved_write",
 				sourceId: input.approval.id,
 				value: result.data,
+				// The run claim above makes this approval's execution exactly-once.
+				freshSource: true,
 			});
 			const evidence = boundKernelWriteEvidence({
 				appSlug: payload.appSlug,
@@ -955,7 +961,8 @@ export async function autoResolveKernelWriteApproval(
 	}
 	// Symmetric audit event (mirrors respondApproval's `approval.${status}`),
 	// stamped with policy provenance so the trail shows WHO/WHY auto-approved.
-	await insertAuditEvent(context.db, {
+	// It is written while settle reads the run, and lands before the claim.
+	const audit = insertAuditEvent(context.db, {
 		organizationId: input.organizationId,
 		actorId: "policy",
 		actorType: "service",
@@ -973,6 +980,8 @@ export async function autoResolveKernelWriteApproval(
 			tediId: resolved.tediId,
 		},
 	});
+	// Settle may return before awaiting it; the failure surfaces below.
+	audit.catch(() => {});
 	let assistantEvent: KernelRuntimeEvent | null = null;
 	// Execute through the canonical settle hook (run-claim guarded, exactly-once).
 	const outcome = await settleHomeToolWriteApproval(context, {
@@ -981,7 +990,10 @@ export async function autoResolveKernelWriteApproval(
 		onSettledMessage: (event) => {
 			assistantEvent = event;
 		},
+		beforeClaim: audit,
 	});
+	// A failed audit write fails the auto-resolution, as before.
+	await audit;
 	// A settled write wrote this status itself; read only when it is unknown.
 	const finalStatus: TediRunStatus | null =
 		outcome === "succeeded"

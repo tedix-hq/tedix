@@ -77,6 +77,16 @@ export async function insertAuditEvent(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ): Promise<string> {
+	const { id, statement } = buildInsertAuditEventStatement(db, event);
+	await statement;
+	return id;
+}
+
+/** Unexecuted audit insert, for `db.batch()` composition. */
+export function buildInsertAuditEventStatement(
+	db: DbClient,
+	event: InsertAuditEventParams,
+) {
 	const id = event.id ?? crypto.randomUUID();
 	const insert = db.insert(auditEvents).values({
 		id,
@@ -93,8 +103,10 @@ export async function insertAuditEvent(
 	});
 	// DO NOTHING, never DO UPDATE: an audit row is evidence, so a redelivery must
 	// not be able to rewrite what was already recorded.
-	await (event.ignoreDuplicates ? insert.onConflictDoNothing() : insert);
-	return id;
+	return {
+		id,
+		statement: event.ignoreDuplicates ? insert.onConflictDoNothing() : insert,
+	};
 }
 
 /**

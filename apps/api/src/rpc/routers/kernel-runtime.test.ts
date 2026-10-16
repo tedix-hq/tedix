@@ -760,11 +760,14 @@ function createKernelRuntimeDb(opts?: {
 		childRuntimeSelectError: Error | null;
 		kernelEventInsertError: Error | null;
 		kernelRuntimeSelectError: Error | null;
+		/** Fails the audit insert for this action. */
+		auditInsertErrorAction: string | null;
 	} = {
 		artifactSelectError: null,
 		childRuntimeSelectError: null,
 		kernelEventInsertError: null,
 		kernelRuntimeSelectError: null,
+		auditInsertErrorAction: null,
 	};
 	// Tracks submission settle calls (update on runtimeSubmissions). Each entry
 	// records the submissionId and outcome so tests can assert in-band settlement
@@ -1184,7 +1187,10 @@ function createKernelRuntimeDb(opts?: {
 				// insertAuditEvent awaits the builder without .returning().
 				return {
 					values(value: unknown) {
-						auditRows.push(value as Record<string, unknown>);
+						const row = value as Record<string, unknown>;
+						if (row.action === controls.auditInsertErrorAction)
+							return Promise.reject(new Error("audit unavailable"));
+						auditRows.push(row);
 						return this;
 					},
 				};
@@ -8743,6 +8749,24 @@ describe("home approved-write layer (v1)", () => {
 				willAutoResolve: true,
 			},
 		});
+	});
+
+	it("never executes a policy-approved write whose approval audit row failed", async () => {
+		const db = trustedPolicyDb(["globex-tedix:globex__create_invoice"]);
+		db.controls.auditInsertErrorAction = "approval.approved";
+		const executor = vi.fn(async () => ({ ok: true as const, data: {} }));
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+
+		const { result } = await enqueueWriteProposalTurn(db);
+
+		expect(executor).not.toHaveBeenCalled();
+		expect(result.status).toBe("requires_approval");
+		expect(db.runs.find((row) => row.id === "home-write-1")).toMatchObject({
+			status: "requires_approval",
+		});
+		expect(
+			db.runs.find((row) => row.id === "home-write-1")?.metadata,
+		).not.toHaveProperty("kernelWriteExecutedAt");
 	});
 
 	it("returns the canonical document receipt after a policy-approved write", async () => {

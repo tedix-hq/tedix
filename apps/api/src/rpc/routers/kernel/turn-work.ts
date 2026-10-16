@@ -61,10 +61,9 @@ import { homeRuntimeEventId } from "@tedix/api-contract/utils/runtime-events";
 import { traceBundleId as buildTraceBundleId } from "@tedix/context-core/harness-version";
 import type { DbClient } from "@tedix/db/client";
 import {
-	createApprovalRequest,
+	createApprovalRequestWithAudit,
 	getApprovalRequestById,
 } from "@tedix/db/queries/approvals";
-import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
 	getKernelRuntimeRun,
 	type KernelRuntimeRunUpdate,
@@ -1987,37 +1986,41 @@ async function planAndParkKernelWriteProposal(
 					const writeApprovalTtlHours = resolveApprovalTtlHours(
 						input.governancePolicy,
 					);
-					await createApprovalRequest(deps.db, {
-						id: writeApprovalId,
-						tediId: anchorTediId,
-						orgId: organizationId,
-						actionType: "home.tool_write",
-						description: kernelWriteSummary(writeProposal),
-						payload: toJsonRecord(writePayload),
-						createdAt,
-						expiresAt: deps.offsetIso(
-							createdAt,
-							writeApprovalTtlHours * 60 * 60 * 1000,
-						),
-					});
-					await insertAuditEvent(deps.db, {
-						organizationId,
-						actorId: "kernel",
-						actorType: "kernel",
-						action: "approval.requested",
-						resourceType: "approval_request",
-						resourceId: writeApprovalId,
-						metadata: {
-							source: "kernelRuntime.proposeToolWrite",
+					// The approval row and its audit row land together.
+					await createApprovalRequestWithAudit(
+						deps.db,
+						{
+							id: writeApprovalId,
+							tediId: anchorTediId,
+							orgId: organizationId,
 							actionType: "home.tool_write",
-							homeRunId: runId,
-							conversationId,
-							appSlug: writeProposal.appSlug,
-							toolName: writeProposal.toolName,
-							riskTier: writeProposal.riskTier,
-							initiatedByUserId: input.descopeUserId ?? null,
+							description: kernelWriteSummary(writeProposal),
+							payload: toJsonRecord(writePayload),
+							createdAt,
+							expiresAt: deps.offsetIso(
+								createdAt,
+								writeApprovalTtlHours * 60 * 60 * 1000,
+							),
 						},
-					});
+						{
+							organizationId,
+							actorId: "kernel",
+							actorType: "kernel",
+							action: "approval.requested",
+							resourceType: "approval_request",
+							resourceId: writeApprovalId,
+							metadata: {
+								source: "kernelRuntime.proposeToolWrite",
+								actionType: "home.tool_write",
+								homeRunId: runId,
+								conversationId,
+								appSlug: writeProposal.appSlug,
+								toolName: writeProposal.toolName,
+								riskTier: writeProposal.riskTier,
+								initiatedByUserId: input.descopeUserId ?? null,
+							},
+						},
+					);
 				}
 				writeApprovalRequestId = writeApprovalId;
 			} else {
